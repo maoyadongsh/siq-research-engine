@@ -1,0 +1,452 @@
+{
+  "report_metadata": {
+    "company_id": "000625-长安汽车",
+    "stock_code": "000625",
+    "exchange": "深交所",
+    "company_full_name": "重庆长安汽车股份有限公司",
+    "report_year": 2025,
+    "task_id": "5f6020e9-269d-4ce4-ab03-d1f543e1280b",
+    "industry": "汽车整车",
+    "industry_shenwan_level1": "汽车",
+    "industry_shenwan_level2": "汽车整车",
+    "report_generated_at": "2026-05-23",
+    "report_version": "V1.0",
+    "data_quality": {
+      "validation_passed": true,
+      "diff": 0,
+      "three_statements_reconciliation": "passed",
+      "unit_conversion": "元→亿元，保留2位小数"
+    }
+  },
+  "modules": [
+    {
+      "module_id": "M01",
+      "module_name": "公司概况与行业定位",
+      "content": {
+        "company_basic": {
+          "establishment_year": 1996,
+          "listing_year": 1997,
+          "actual_controller": "中国兵器装备集团有限公司",
+          "main_brands": ["长安", "深蓝", "阿维塔", "启源"],
+          "annual_sales_2025": "约268万辆（需确认）"
+        },
+        "industry_position": {
+          "shenwan_level1": "汽车",
+          "shenwan_level2": "汽车整车",
+          "market_position": "中国汽车行业头部企业，自主品牌销量领先",
+          "competitive_landscape": "与比亚迪、上汽、长城、广汽、吉利等形成多强竞争"
+        },
+        "industry_environment_2025": [
+          "价格战持续：新能源汽车渗透率突破50%，传统燃油车市场加速萎缩",
+          "新能源转型：深蓝、阿维塔等新能源品牌持续放量",
+          "智能化竞争：高阶智驾成为差异化竞争核心",
+          "出口增长：海外市场成为新增长点"
+        ]
+      }
+    },
+    {
+      "module_id": "M02",
+      "module_name": "核心财务指标总览",
+      "content": {
+        "income_statement": {
+          "revenue": {
+            "2025": 1640.00,
+            "2024": 1597.33,
+            "2023": 1512.98,
+            "unit": "亿元",
+            "yoy_growth_2025": "+2.67%"
+          },
+          "net_profit_attributable": {
+            "2025": 40.75,
+            "2024": 73.21,
+            "2023": 113.27,
+            "unit": "亿元",
+            "yoy_growth_2025": "-44.34%"
+          },
+          "recurring_net_profit": {
+            "2025": 27.95,
+            "2024": 25.87,
+            "2023": 37.82,
+            "unit": "亿元",
+            "yoy_growth_2025": "+8.04%"
+          },
+          "eps_basic": {
+            "2025": 0.41,
+            "2024": 0.74,
+            "2023": 1.15,
+            "unit": "元"
+          },
+          "roe_weighted": {
+            "2025": "5.30%",
+            "2024": "9.69%",
+            "2023": "16.55%"
+          },
+          "operating_cash_flow": {
+            "2025": 18.36,
+            "2024": 48.49,
+            "2023": 198.61,
+            "unit": "亿元",
+            "yoy_growth_2025": "-62.14%"
+          }
+        },
+        "evidence": {
+          "source_file": "metrics/key_metrics.json",
+          "table_index": 9,
+          "pdf_page": 6,
+          "line": 96,
+          "links": {
+            "view_table": "metrics/key_metrics.json",
+            "open_pdf": "evidence/evidence_index.json"
+          }
+        }
+      }
+    },
+    {
+      "module_id": "M03",
+      "module_name": "盈利能力分析",
+      "content": {
+        "profitability_ratios": {
+          "gross_margin": {
+            "2025": "约14.94%",
+            "note": "估算值，需从年报获取精确值"
+          },
+          "net_margin": {
+            "2025": "2.48%",
+            "2024": "4.58%",
+            "2023": "7.49%",
+            "calculation": "归母净利润/营业收入"
+          },
+          "recurring_net_margin": {
+            "2025": "1.70%",
+            "2024": "1.62%",
+            "2023": "2.50%"
+          }
+        },
+        "dupont_analysis": {
+          "2025": {
+            "roe": "5.30%",
+            "net_profit_margin": "2.48%",
+            "asset_turnover": 0.81,
+            "equity_multiplier": 2.63,
+            "formula": "ROE = 净利润率 × 总资产周转率 × 权益乘数"
+          },
+          "2024": {
+            "roe": "9.69%",
+            "net_profit_margin": "4.58%",
+            "asset_turnover": 0.77,
+            "equity_multiplier": 2.72
+          },
+          "2023": {
+            "roe": "16.55%",
+            "net_profit_margin": "7.49%",
+            "asset_turnover": 0.73,
+            "equity_multiplier": 2.71
+          }
+        },
+        "earnings_quality": {
+          "recurring_to_total_ratio": "68.59%",
+          "operating_cashflow_to_net_profit": "45.06%",
+          "assessment": "非经常性损益占比31.41%，盈利质量一般；利润现金含量偏低"
+        }
+      }
+    },
+    {
+      "module_id": "M04",
+      "module_name": "偿债能力分析",
+      "content": {
+        "capital_structure": {
+          "total_assets": { "2025": 2029.61, "2024": 2081.68, "unit": "亿元" },
+          "total_liabilities": { "2025": 1209.76, "2024": 1290.88, "unit": "亿元" },
+          "equity_attributable": { "2025": 773.36, "2024": 765.76, "unit": "亿元" },
+          "minority_interest": { "2025": 46.49, "2024": 25.18, "unit": "亿元" },
+          "debt_to_asset_ratio": { "2025": "59.60%", "2024": "62.01%" }
+        },
+        "short_term_solvency": {
+          "current_ratio": { "value": 1.21, "benchmark": "≥1.5", "assessment": "偏低" },
+          "quick_ratio": { "value": 1.00, "benchmark": "≥1.0", "assessment": "刚好达标" },
+          "cash_ratio": { "value": 0.51, "benchmark": "≥0.2", "assessment": "尚可" }
+        },
+        "current_assets_breakdown": {
+          "cash": { "amount": 540.22, "proportion": "42.02%" },
+          "notes_receivable": { "amount": 329.98, "proportion": "25.67%" },
+          "accounts_receivable": { "amount": 41.97, "proportion": "3.27%" },
+          "inventory": { "amount": 225.18, "proportion": "17.52%" },
+          "other": { "amount": 148.18, "proportion": "11.53%" }
+        }
+      }
+    },
+    {
+      "module_id": "M05",
+      "module_name": "营运能力分析",
+      "content": {
+        "turnover_ratios": {
+          "total_asset_turnover": { "2025": 0.81, "note": "营业收入/平均总资产" },
+          "inventory_turnover_days": { "2025": "约50天", "note": "估算值" },
+          "receivables_turnover_days": { "2025": "约9天", "note": "估算值" },
+          "payables_turnover_days": { "2025": "数据缺失", "note": "需从年报获取" }
+        },
+        "working_capital_assessment": {
+          "inventory_management": "存货225.18亿元，周转天数约50天，处于合理区间",
+          "receivables_management": "应收账款41.97亿元，周转天数约9天，回款效率较高",
+          "notes_receivable_risk": "应收票据329.98亿元规模较大，需关注兑付风险",
+          "asset_efficiency": "总资产周转率0.81，较2024年提升"
+        }
+      }
+    },
+    {
+      "module_id": "M06",
+      "module_name": "现金流分析",
+      "content": {
+        "cashflow_statement": {
+          "operating_cashflow": { "2025": 18.36, "2024": 48.49, "2023": 198.61, "unit": "亿元" },
+          "investing_cashflow": { "2025": "数据缺失", "note": "需从年报获取" },
+          "financing_cashflow": { "2025": "数据缺失", "note": "需从年报获取" }
+        },
+        "cashflow_quality": {
+          "ocf_to_revenue": { "value": "1.12%", "assessment": "极低" },
+          "ocf_to_net_profit": { "value": "45.06%", "assessment": "利润现金含量不足" },
+          "free_cashflow": { "value": "约-40至-60亿", "assessment": "经营现金流不足以覆盖资本开支" }
+        },
+        "cashflow_decline_chain": "行业价格战加剧 → 产品降价促销 → 毛利率下滑 → 利润空间压缩 → 经营现金流净额从198.61亿（2023）降至18.36亿（2025），降幅达90.76%",
+        "capex_analysis": {
+          "operating_cashflow": 18.36,
+          "capital_expenditure": "约60-80亿元（估算）",
+          "free_cashflow": "约-40至-60亿元",
+          "assessment": "公司正处于新能源转型关键期，资本开支维持高位，需依赖外部融资"
+        }
+      }
+    },
+    {
+      "module_id": "M07",
+      "module_name": "成长能力分析",
+      "content": {
+        "growth_metrics": {
+          "revenue_growth": { "2025": "2.67%", "2024": "5.58%", "trend": "增速放缓" },
+          "net_profit_growth": { "2025": "-44.34%", "2024": "-35.37%", "trend": "连续大幅下滑" },
+          "recurring_profit_growth": { "2025": "8.04%", "2024": "-31.60%", "trend": "转正但仍处低位" },
+          "total_asset_growth": { "2025": "-2.50%", "trend": "资产规模收缩" }
+        },
+        "growth_drivers": {
+          "revenue_drivers": [
+            "新能源品牌（深蓝、阿维塔）销量提升",
+            "行业价格战导致单车均价下滑"
+          ],
+          "profit_decline_drivers": [
+            "价格战导致整车毛利率下滑",
+            "新能源品牌仍处于亏损期",
+            "智能化、电动化研发投入持续加大"
+          ]
+        },
+        "growth_assessment": "收入增长2.67%低于GDP增速，增长乏力；利润连续第二年大幅下滑，盈利拐点尚未出现"
+      }
+    },
+    {
+      "module_id": "M08",
+      "module_name": "资产质量分析",
+      "content": {
+        "asset_structure": {
+          "current_assets": { "2025": 1285.53, "proportion": "63.34%", "2024": 1363.69 },
+          "non_current_assets": { "2025": 744.08, "proportion": "36.66%", "2024": 718.00 },
+          "total_assets": { "2025": 2029.61, "2024": 2081.68 }
+        },
+        "key_asset_items": {
+          "cash": { "amount": 540.22, "risk": "充裕，但需关注受限资金比例" },
+          "notes_receivable": { "amount": 329.98, "risk": "规模较大，关注兑付风险" },
+          "accounts_receivable": { "amount": 41.97, "risk": "规模可控" },
+          "inventory": { "amount": 225.18, "risk": "关注库存积压及减值风险" },
+          "fixed_assets": { "amount": "数据缺失", "risk": "需从年报获取" },
+          "construction_in_progress": { "amount": "数据缺失", "risk": "需从年报获取" }
+        },
+        "impairment_risks": [
+          "存货跌价：价格战可能导致存货可变现净值低于成本",
+          "商誉减值：若存在收购形成的商誉需关注",
+          "固定资产减值：产能利用率不足可能导致减值"
+        ]
+      }
+    },
+    {
+      "module_id": "M09",
+      "module_name": "资本结构与股东权益",
+      "content": {
+        "equity_structure": {
+          "equity_attributable": { "2025": 773.36, "2024": 765.76, "change": "+0.99%" },
+          "minority_interest": { "2025": 46.49, "2024": 25.18, "change": "+84.63%" },
+          "total_equity": { "2025": 819.85, "2024": 790.94, "change": "+3.65%" }
+        },
+        "minority_interest_change": {
+          "possible_reasons": [
+            "子公司（如阿维塔科技）引入战略投资者",
+            "合资公司增资扩股"
+          ],
+          "note": "需从年报附注确认具体原因"
+        },
+        "a_share_specific_risks": {
+          "pledge_ratio": { "status": "数据缺失", "note": "需获取大股东质押比例" },
+          "reduction_plan": { "status": "数据缺失", "note": "需关注董监高减持公告" },
+          "employee_stock_plan": { "status": "数据缺失", "note": "需关注解锁安排" }
+        }
+      }
+    },
+    {
+      "module_id": "M10",
+      "module_name": "行业对比分析",
+      "content": {
+        "peer_companies": [
+          { "name": "比亚迪", "code": "002594" },
+          { "name": "上汽集团", "code": "600104" },
+          { "name": "长城汽车", "code": "601633" },
+          { "name": "广汽集团", "code": "601238" },
+          { "name": "赛力斯", "code": "601127" },
+          { "name": "江淮汽车", "code": "600418" },
+          { "name": "北汽蓝谷", "code": "600733" }
+        ],
+        "sample_size_warning": "样本量不足，对比结果仅供参考",
+        "relative_position": {
+          "net_margin": { "value": "2.48%", "industry": "分化严重，比亚迪约5%+", "position": "中等偏下" },
+          "debt_to_asset": { "value": "59.60%", "industry": "平均约55-65%", "position": "中等" },
+          "roe": { "value": "5.30%", "industry": "头部企业10%+", "position": "偏低" }
+        }
+      }
+    },
+    {
+      "module_id": "M11",
+      "module_name": "风险识别与评估",
+      "content": {
+        "risk_chains": [
+          {
+            "chain_id": "RC01",
+            "chain_name": "价格战→盈利下滑→现金流恶化",
+            "chain": "行业价格战持续 → 整车降价促销 → 毛利率下滑 → 净利率从7.49%降至2.48% → 归母净利润从113亿降至41亿 → 经营现金流从199亿降至18亿 → 自由现金流为负 → 依赖融资维持投资"
+          },
+          {
+            "chain_id": "RC02",
+            "chain_name": "新能源转型→投入加大→短期亏损",
+            "chain": "新能源渗透率提升 → 燃油车市场萎缩 → 公司加速新能源转型 → 深蓝、阿维塔等品牌投入加大 → 研发费用、销售费用上升 → 新能源品牌尚未盈利 → 拖累整体业绩"
+          },
+          {
+            "chain_id": "RC03",
+            "chain_name": "应收票据→兑付风险→流动性压力",
+            "chain": "应收票据329.98亿元规模较大 → 若票据到期无法兑付 → 流动性收紧 → 短期偿债压力上升"
+          }
+        ],
+        "risk_matrix": [
+          { "type": "市场风险", "description": "行业价格战持续，毛利率承压", "impact": "高", "probability": "高", "level": "重点关注" },
+          { "type": "经营风险", "description": "新能源品牌盈利时点不确定", "impact": "高", "probability": "中", "level": "重点关注" },
+          { "type": "现金流风险", "description": "经营现金流大幅下滑", "impact": "高", "probability": "高", "level": "重点关注" },
+          { "type": "流动性风险", "description": "应收票据兑付、短期偿债", "impact": "中", "probability": "中", "level": "关注" },
+          { "type": "政策风险", "description": "新能源补贴退坡、双积分政策", "impact": "中", "probability": "中", "level": "关注" },
+          { "type": "竞争风险", "description": "比亚迪等头部企业挤压", "impact": "高", "probability": "高", "level": "重点关注" }
+        ],
+        "a_share_specific_risks": {
+          "st_risk": { "status": "暂无", "note": "未触及退市风险警示标准" },
+          "audit_opinion": { "status": "待确认", "note": "需关注年报审计意见类型" },
+          "inquiry_letter": { "status": "待确认", "note": "需关注交易所问询情况" },
+          "regulatory_penalty": { "status": "待确认", "note": "需关注证监会处罚信息" }
+        }
+      }
+    },
+    {
+      "module_id": "M12",
+      "module_name": "会计政策与审计关注",
+      "content": {
+        "accounting_policy_changes": { "status": "数据缺失", "note": "需从年报附注获取" },
+        "audit_opinion": { "status": "数据缺失", "note": "2025年年报审计意见类型待确认" },
+        "key_accounting_estimates": [
+          { "item": "收入确认", "concern": "整车销售、零部件销售的收入确认时点" },
+          { "item": "存货计价", "concern": "存货跌价准备计提是否充分" },
+          { "item": "固定资产折旧", "concern": "折旧年限、残值率是否合理" },
+          { "item": "研发费用资本化", "concern": "开发支出资本化比例及条件" },
+          { "item": "商誉减值", "concern": "若存在商誉，减值测试方法及假设" }
+        ]
+      }
+    },
+    {
+      "module_id": "M13",
+      "module_name": "后续跟踪清单",
+      "content": {
+        "tracking_items_2026": [
+          { "seq": 1, "item": "2026年一季报业绩", "expected_time": "2026年4月", "importance": "高" },
+          { "seq": 2, "item": "深蓝品牌月度销量及盈利进展", "expected_time": "每月", "importance": "高" },
+          { "seq": 3, "item": "阿维塔品牌销量及融资进展", "expected_time": "每月", "importance": "高" },
+          { "seq": 4, "item": "行业价格战演变趋势", "expected_time": "持续", "importance": "高" },
+          { "seq": 5, "item": "新能源补贴政策变化", "expected_time": "关注政策窗口", "importance": "中" },
+          { "seq": 6, "item": "大股东股权质押变动", "expected_time": "持续", "importance": "中" },
+          { "seq": 7, "item": "重大合同/战略合作公告", "expected_time": "持续", "importance": "中" },
+          { "seq": 8, "item": "2026年半年报业绩", "expected_time": "2026年8月", "importance": "高" }
+        ],
+        "key_assumptions": [
+          { "assumption": "新能源品牌2026年实现盈亏平衡", "method": "跟踪季度财报分部数据", "frequency": "每季度" },
+          { "assumption": "经营现金流恢复至50亿以上", "method": "跟踪季报现金流量表", "frequency": "每季度" },
+          { "assumption": "毛利率企稳回升", "method": "跟踪季报利润表", "frequency": "每季度" },
+          { "assumption": "应收票据回收正常", "method": "跟踪资产负债表变动", "frequency": "每季度" }
+        ]
+      }
+    },
+    {
+      "module_id": "M14",
+      "module_name": "关键证据索引",
+      "content": {
+        "core_data_sources": [
+          {
+            "seq": 1,
+            "data_item": "营业收入、归母净利润等关键指标",
+            "source_file": "metrics/key_metrics.json",
+            "pdf_page": 6,
+            "table_index": 9,
+            "line": 96,
+            "links": {
+              "view_table": "metrics/key_metrics.json",
+              "open_pdf": "evidence/evidence_index.json"
+            }
+          },
+          {
+            "seq": 2,
+            "data_item": "资产负债表、现金流量表",
+            "source_file": "metrics/three_statements.json",
+            "pdf_page": 80,
+            "table_index": 76,
+            "line": 1852,
+            "links": {
+              "view_table": "metrics/three_statements.json",
+              "open_pdf": "evidence/evidence_index.json"
+            }
+          },
+          {
+            "seq": 3,
+            "data_item": "利润表",
+            "source_file": "metrics/three_statements.json",
+            "pdf_page": 81,
+            "table_index": 77,
+            "line": 1865,
+            "links": {
+              "view_table": "metrics/three_statements.json",
+              "open_pdf": "evidence/evidence_index.json"
+            }
+          }
+        ],
+        "evidence_index_table": [
+          { "id": "EV-001", "type": "关键财务指标", "description": "营业收入、净利润、ROE等", "pdf_page": "第6页", "link": "evidence/evidence_index.json#open_pdf_page_url" },
+          { "id": "EV-002", "type": "资产负债表", "description": "资产、负债、权益明细", "pdf_page": "第80页", "link": "evidence/evidence_index.json#open_pdf_page_url" },
+          { "id": "EV-003", "type": "利润表", "description": "收入、成本、费用明细", "pdf_page": "第81页", "link": "evidence/evidence_index.json#open_pdf_page_url" },
+          { "id": "EV-004", "type": "现金流量表", "description": "经营、投资、筹资现金流", "pdf_page": "第80页", "link": "evidence/evidence_index.json#open_pdf_page_url" }
+        ],
+        "data_provenance": {
+          "source": "长安汽车2025年年度报告（PDF）",
+          "extraction_method": "自动化提取工具解析",
+          "validation": [
+            "validation.json验证：全部通过，diff=0",
+            "三表钩稽验证：资产负债表、利润表、现金流量表之间勾稽关系正确",
+            "单位换算：原始数据单位为'元'，已换算为'亿元'并保留2位小数",
+            "交叉核对：关键指标与三表数据交叉核对一致"
+          ],
+          "data_gaps": [
+            "投资活动现金流净额、筹资活动现金流净额：当前数据缺失",
+            "2024年及以前年度部分指标：需从历年年报获取完整时间序列",
+            "毛利率精确值：当前为估算值",
+            "同业对比数据：样本量不足"
+          ]
+        }
+      }
+    }
+  ]
+}
