@@ -1,0 +1,95 @@
+{
+  "name": "SIQ上市公司财报智能分析评测语料集",
+  "version": "1.0",
+  "created_at": "2026-05-27",
+  "type": "评测语料",
+  "industry": "金融",
+  "scenario": "上市公司财报识别及分析",
+  "record_count": 100,
+  "company_count": 10,
+  "companies": [
+    {
+      "code": "000333",
+      "name": "美的集团",
+      "industry": "家用电器",
+      "sub_industry": "白色家电"
+    },
+    {
+      "code": "000625",
+      "name": "长安汽车",
+      "industry": "汽车",
+      "sub_industry": "乘用车"
+    },
+    {
+      "code": "002594",
+      "name": "比亚迪",
+      "industry": "汽车",
+      "sub_industry": "新能源汽车"
+    },
+    {
+      "code": "600104",
+      "name": "上汽集团",
+      "industry": "汽车",
+      "sub_industry": "乘用车"
+    },
+    {
+      "code": "600399",
+      "name": "抚顺特钢",
+      "industry": "钢铁",
+      "sub_industry": "特钢材料"
+    },
+    {
+      "code": "600418",
+      "name": "江淮汽车",
+      "industry": "汽车",
+      "sub_industry": "商用车与乘用车"
+    },
+    {
+      "code": "600733",
+      "name": "北汽蓝谷",
+      "industry": "汽车",
+      "sub_industry": "新能源汽车"
+    },
+    {
+      "code": "601127",
+      "name": "赛力斯",
+      "industry": "汽车",
+      "sub_industry": "新能源汽车"
+    },
+    {
+      "code": "601238",
+      "name": "广汽集团",
+      "industry": "汽车",
+      "sub_industry": "乘用车"
+    },
+    {
+      "code": "601633",
+      "name": "长城汽车",
+      "industry": "汽车",
+      "sub_industry": "乘用车"
+    }
+  ],
+  "eval_dimensions": [
+    "三大表勾稽与一致性",
+    "偿债能力分析",
+    "后续跟踪事项生成",
+    "现金流质量分析",
+    "盈利与现金流匹配度",
+    "盈利质量与驱动因素",
+    "行业适配分析",
+    "证据忠实度与可追溯性",
+    "财务指标抽取准确性",
+    "资产质量与风险识别"
+  ],
+  "recommended_agent": "SIQ 上市公司财报智能分析智能体",
+  "recommended_api": {
+    "method": "POST",
+    "content_type": "application/json",
+    "request_body_template": {
+      "message": "$(input)"
+    },
+    "response_output_field": "reply",
+    "receive_mode": "Single"
+  },
+  "description": "面向上市公司年报识别与财务分析场景构建的智能体评测语料集，覆盖财务指标抽取、三大表勾稽、盈利质量、现金流质量、资产质量、偿债能力、风险识别、证据链溯源与事实核查等任务。"
+}

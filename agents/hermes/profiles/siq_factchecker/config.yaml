@@ -1,0 +1,234 @@
+model:
+  default: MiniMax-M3
+  provider: minimax-cn
+providers: {}
+fallback_providers:
+- provider: kimi-coding
+  model: kimi-for-coding
+- provider: custom:qwen3.6-local
+  model: Qwen3.6-35B-A3B-FP8
+  temperature: 0.2
+- provider: custom:gemma4-local
+  model: Gemma-4-26B-A4B-it-NVFP4
+  temperature: 0.2
+credential_pool_strategies: {}
+toolsets:
+- terminal
+- file
+- web
+- code_execution
+- session_search
+agent:
+  max_turns: 30
+  gateway_timeout: 600
+  restart_drain_timeout: 60
+  api_max_retries: 1
+  service_tier: ''
+  tool_use_enforcement: true
+  gateway_timeout_warning: 300
+  gateway_notify_interval: 180
+  gateway_auto_continue_freshness: 3600
+  image_input_mode: auto
+  disabled_toolsets:
+  - browser
+  - skills
+  - memory
+  - todo
+  - cronjob
+tool_loop_guardrails:
+  warnings_enabled: true
+  hard_stop_enabled: true
+  warn_after:
+    exact_failure: 2
+    same_tool_failure: 3
+    idempotent_no_progress: 2
+  hard_stop_after:
+    exact_failure: 5
+    same_tool_failure: 5
+    idempotent_no_progress: 3
+terminal:
+  backend: local
+  modal_mode: auto
+  cwd: /home/maoyd/siq-research-engine
+  timeout: 120
+  env_passthrough:
+  - PATH
+  - HOME
+  - USER
+  - LANG
+  - LC_ALL
+  shell_init_files: []
+  auto_source_bashrc: true
+  docker_image: nikolaik/python-nodejs:python3.11-nodejs20
+  docker_forward_env: []
+  docker_env: {}
+  singularity_image: docker://nikolaik/python-nodejs:python3.11-nodejs20
+  modal_image: nikolaik/python-nodejs:python3.11-nodejs20
+  daytona_image: nikolaik/python-nodejs:python3.11-nodejs20
+  vercel_runtime: node24
+  container_cpu: 1
+  container_memory: 5120
+  container_disk: 51200
+  container_persistent: true
+  docker_volumes: []
+  docker_mount_cwd_to_workspace: false
+  docker_run_as_host_user: false
+  persistent_shell: true
+web:
+  backend: ''
+  search_backend: ''
+  extract_backend: ''
+browser:
+  inactivity_timeout: 120
+  command_timeout: 30
+  record_sessions: false
+  allow_private_urls: false
+  engine: auto
+  auto_local_for_private_urls: true
+  cdp_url: ''
+  dialog_policy: must_respond
+  dialog_timeout_s: 300
+checkpoints:
+  enabled: true
+  max_snapshots: 50
+compression:
+  enabled: true
+  threshold: 0.5
+  target_ratio: 0.2
+  min_messages: 6
+  max_iterations: 3
+  preserve_recent: 4
+  strategy: auto
+display:
+  skin: default
+  tool_progress: true
+  show_reasoning: true
+  show_cost: false
+  gateway_footer: true
+  busy_indicator: kaomoji
+  status_bar: true
+  tui_enabled: true
+  tui_layout: default
+memory:
+  memory_enabled: false
+  user_profile_enabled: false
+  provider: ''
+  max_entries: 0
+  similarity_threshold: 0.7
+  auto_save: false
+  context_window: 0
+stt:
+  enabled: false
+  provider: local
+  local:
+    model: base
+tts:
+  provider: edge
+  voice: zh-CN-XiaoxiaoNeural
+  speed: 1
+  enabled: false
+security:
+  tirith_enabled: false
+  website_blocklist: []
+  redact_secrets: true
+  command_approval: manual
+approvals:
+  mode: 'off'
+  smart_threshold: 0.3
+delegation:
+  model: kimi-for-coding
+  provider: kimi-coding
+  max_iterations: 50
+  reasoning_effort: medium
+  max_concurrent_children: 3
+  max_spawn_depth: 1
+  orchestrator_enabled: false
+auxiliary:
+  vision:
+    provider: auto
+    model: ''
+  compression:
+    provider: auto
+    model: ''
+  session_search:
+    provider: auto
+    model: ''
+curator:
+  enabled: true
+  interval_hours: 24
+  min_idle_hours: 1
+  stale_after_days: 30
+  archive_after_days: 90
+  backup:
+    enabled: true
+    keep_count: 10
+kanban:
+  dispatch_in_gateway: true
+  default_board: default
+  claim_timeout_minutes: 30
+  heartbeat_interval_minutes: 5
+  max_retries: 5
+plugins: []
+webhook:
+  enabled: false
+  port: 8080
+  host: 0.0.0.0
+  secret: ''
+gateway:
+  enabled: false
+  platforms: []
+  auto_restart: true
+  health_check_interval: 60
+  max_reconnect_attempts: 5
+  reconnect_delay: 10
+  message_queue_size: 1000
+  rate_limit:
+    enabled: true
+    requests_per_minute: 60
+    burst_size: 10
+logging:
+  level: info
+  file_enabled: true
+  console_enabled: true
+  max_file_size: 10485760
+  backup_count: 5
+  format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+session_reset:
+  mode: both
+  idle_minutes: 1440
+  at_hour: 4
+seen:
+  openclaw_residue_cleanup: true
+  busy_input_prompt: true
+  tool_progress_prompt: true
+updates:
+  pre_update_backup: false
+  backup_keep: 5
+_config_version: 23
+custom_providers:
+- name: Gemma4 Local
+  base_url: http://127.0.0.1:8006/v1
+  model: Gemma-4-26B-A4B-it-NVFP4
+  api_mode: openai_chat
+  context_length: 262144
+  models:
+    Gemma-4-26B-A4B-it-NVFP4:
+      context_length: 262144
+  temperature: 0.2
+- name: Qwen3.6 Local
+  base_url: http://127.0.0.1:8004/v1
+  model: Qwen3.6-35B-A3B-FP8
+  api_mode: openai_chat
+  context_length: 262144
+  temperature: 0.2
+  models:
+    Qwen3.6-35B-A3B-FP8:
+      context_length: 262144
+platforms:
+  api_server:
+    extra:
+      port: 18649
+      host: 127.0.0.1
+    enabled: true
+    key: ''
+    cors_origins: '*'

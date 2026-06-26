@@ -1,0 +1,94 @@
+# Local secrets and runtime environment
+.env
+.env.*
+!.env.example
+env/*.env
+config/env/*.local
+config/env/*.production
+
+# Dependency and virtual environment directories
+node_modules/
+**/node_modules/
+.venv/
+venv/
+**/.venv/
+
+# Build outputs
+dist/
+build/
+**/dist/
+**/build/
+
+# Python caches and test artifacts
+__pycache__/
+**/__pycache__/
+.pytest_cache/
+**/.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Logs and temporary files
+logs/
+**/logs/
+*.log
+tmp/
+*.tmp
+
+# Large runtime or copied external assets
+_external_assets/
+data/
+runtimes/
+!data/
+!data/README.md
+!data/**/
+!data/**/.gitkeep
+**/__pycache__/
+*.py[cod]
+apps/pdf-parser/results/
+apps/pdf-parser/output/
+apps/pdf-parser/uploads/
+apps/pdf-parser/reports/
+apps/pdf-parser/.financial_llm_cache/
+apps/pdf-parser/tasks.db
+apps/pdf-parser/workflow_jobs.json
+data/pdf-parser/uploads/
+data/pdf-parser/results/
+data/pdf-parser/output/
+data/pdf-parser/reports/
+data/pdf-parser/cache/
+data/pdf-parser/.financial_llm_cache/
+data/pdf-parser/logs/
+data/pdf-parser/db/*.db
+data/pdf-parser/workflow_jobs.json
+apps/api/data/
+apps/api/.siq/
+apps/api/.finsight/
+apps/web/node_modules/
+apps/web/dist/
+apps/web/logs/
+data/backend/chat_uploads/
+data/backend/llm_costs/
+data/backend/.siq/
+data/backend/.finsight/
+data/backend/*.db
+data/hermes/
+data/legal-docs/
+data/minio/
+data/milvus/
+data/postgres/
+data/report-finder/
+data/wiki/
+
+# Archived/generated binary bundles
+archive/generated/
+archive/assets/
+*.tar.gz
+*.zip
+*.7z
+*.dump
+
+# OS/editor noise
+.DS_Store
+Thumbs.db

@@ -1,0 +1,12 @@
+# Safe Docker Compose template.
+
+SIQ_AUTH_SECRET_KEY=replace-with-at-least-32-random-characters
+SIQ_ALLOW_REGISTRATION=0
+SIQ_DEMO_MODE=0
+
+POSTGRES_PASSWORD=replace-with-postgres-password
+PDF2MD_ACCESS_TOKEN=replace-with-pdf-parser-token
+GRAFANA_PASSWORD=replace-with-grafana-password
+
+MINERU_API_URL=http://host.docker.internal:8003
+VLM_API_URL=http://host.docker.internal:8002

@@ -1,0 +1,1063 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PDF2MD 财务指标查询</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Fira+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <style>
+    :root {
+      --color-primary: #0F172A;
+      --color-on-primary: #FFFFFF;
+      --color-secondary: #1E293B;
+      --color-on-secondary: #FFFFFF;
+      --color-accent: #22C55E;
+      --color-on-accent: #0F172A;
+      --color-background: #020617;
+      --color-foreground: #F8FAFC;
+      --color-card: #0E1223;
+      --color-card-foreground: #F8FAFC;
+      --color-muted: #1A1E2F;
+      --color-muted-foreground: #94A3B8;
+      --color-border: #334155;
+      --color-destructive: #EF4444;
+      --color-ring: #0F172A;
+      --color-profit: #22C55E;
+      --color-loss: #EF4444;
+      --color-neutral: #64748B;
+      --color-info: #3B82F6;
+      --font-sans: "Fira Sans", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      --font-mono: "Fira Code", "Cascadia Code", "Source Code Pro", monospace;
+      --radius-sm: 6px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+      --radius-xl: 16px;
+      --shadow-sm: 0 1px 2px rgba(0,0,0,.3);
+      --shadow-md: 0 4px 16px rgba(0,0,0,.4);
+      --shadow-lg: 0 8px 32px rgba(0,0,0,.5);
+      --transition-fast: 150ms ease;
+      --transition-normal: 250ms ease;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-background);
+      color: var(--color-foreground);
+      line-height: 1.6;
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .app { max-width: 1320px; margin: 0 auto; padding: 24px 20px 48px; }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 28px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--color-border);
+    }
+    .header-left h1 {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .header-left h1 svg { color: var(--color-accent); }
+    .header-left p { color: var(--color-muted-foreground); font-size: 14px; margin-top: 4px; }
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 500;
+      border: 1px solid;
+      white-space: nowrap;
+    }
+    .status-badge.online {
+      color: var(--color-accent);
+      border-color: rgba(34,197,94,.3);
+      background: rgba(34,197,94,.08);
+    }
+    .status-badge.offline {
+      color: var(--color-destructive);
+      border-color: rgba(239,68,68,.3);
+      background: rgba(239,68,68,.08);
+    }
+    .status-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+      animation: pulse-dot 2s ease-in-out infinite;
+    }
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; }
+      50% { opacity: .4; }
+    }
+
+    .query-panel {
+      background: var(--color-card);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-xl);
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: var(--shadow-md);
+    }
+    .query-row {
+      display: grid;
+      grid-template-columns: 1fr 90px 120px;
+      gap: 10px;
+      align-items: center;
+    }
+    .input-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+    .input-wrapper svg {
+      position: absolute;
+      left: 14px;
+      color: var(--color-muted-foreground);
+      pointer-events: none;
+    }
+    .input-wrapper input {
+      width: 100%;
+      background: var(--color-muted);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      padding: 13px 14px 13px 42px;
+      font-size: 15px;
+      font-family: var(--font-sans);
+      color: var(--color-foreground);
+      transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+    }
+    .input-wrapper input::placeholder { color: var(--color-muted-foreground); }
+    .input-wrapper input:focus {
+      outline: none;
+      border-color: var(--color-accent);
+      box-shadow: 0 0 0 3px rgba(34,197,94,.15);
+    }
+    .limit-input {
+      background: var(--color-muted);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      padding: 13px 14px;
+      font-size: 14px;
+      font-family: var(--font-mono);
+      color: var(--color-foreground);
+      text-align: center;
+      transition: border-color var(--transition-fast);
+    }
+    .limit-input:focus {
+      outline: none;
+      border-color: var(--color-accent);
+      box-shadow: 0 0 0 3px rgba(34,197,94,.15);
+    }
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      background: var(--color-accent);
+      color: var(--color-on-accent);
+      border: none;
+      border-radius: var(--radius-md);
+      padding: 13px 20px;
+      font-size: 15px;
+      font-weight: 600;
+      font-family: var(--font-sans);
+      cursor: pointer;
+      transition: background var(--transition-fast), transform var(--transition-fast);
+    }
+    .btn-primary:hover { background: #16A34A; }
+    .btn-primary:active { transform: scale(.97); }
+    .btn-primary:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: 2px;
+    }
+    .btn-primary:disabled {
+      opacity: .5;
+      cursor: not-allowed;
+      transform: none;
+    }
+    .btn-primary.loading { position: relative; color: transparent; }
+    .btn-primary.loading::after {
+      content: "";
+      position: absolute;
+      width: 18px; height: 18px;
+      border: 2px solid transparent;
+      border-top-color: var(--color-on-accent);
+      border-radius: 50%;
+      animation: spin .6s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .query-options {
+      margin-top: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .label-check {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--color-muted-foreground);
+      font-size: 13px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .label-check input[type="checkbox"] {
+      accent-color: var(--color-accent);
+      width: 16px; height: 16px;
+      cursor: pointer;
+    }
+
+    .chips { display: flex; gap: 8px; flex-wrap: wrap; }
+    .chip {
+      background: var(--color-muted);
+      color: var(--color-muted-foreground);
+      border: 1px solid var(--color-border);
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 12.5px;
+      cursor: pointer;
+      transition: all var(--transition-fast);
+      white-space: nowrap;
+    }
+    .chip:hover {
+      color: var(--color-foreground);
+      border-color: var(--color-accent);
+      background: rgba(34,197,94,.08);
+    }
+    .chip:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: 1px;
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .summary-card {
+      background: var(--color-card);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-lg);
+      padding: 16px 18px;
+      transition: border-color var(--transition-fast);
+    }
+    .summary-card:hover { border-color: rgba(34,197,94,.3); }
+    .summary-card .label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--color-muted-foreground);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      margin-bottom: 6px;
+    }
+    .summary-card .label svg { width: 14px; height: 14px; }
+    .summary-card .value {
+      font-size: 22px;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      color: var(--color-foreground);
+      line-height: 1.2;
+    }
+    .summary-card .value.accent { color: var(--color-accent); }
+
+    .toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+    .toolbar-left { display: flex; gap: 4px; }
+    .tab-btn {
+      background: transparent;
+      color: var(--color-muted-foreground);
+      border: 1px solid transparent;
+      border-radius: var(--radius-sm);
+      padding: 7px 14px;
+      font-size: 13px;
+      font-weight: 500;
+      font-family: var(--font-sans);
+      cursor: pointer;
+      transition: all var(--transition-fast);
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .tab-btn:hover { color: var(--color-foreground); background: var(--color-muted); }
+    .tab-btn.active {
+      color: var(--color-accent);
+      background: rgba(34,197,94,.08);
+      border-color: rgba(34,197,94,.2);
+    }
+    .tab-btn:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+    .tab-btn svg { width: 15px; height: 15px; }
+    .btn-ghost {
+      background: transparent;
+      color: var(--color-muted-foreground);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      padding: 7px 14px;
+      font-size: 13px;
+      font-weight: 500;
+      font-family: var(--font-sans);
+      cursor: pointer;
+      transition: all var(--transition-fast);
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .btn-ghost:hover { color: var(--color-foreground); border-color: var(--color-muted-foreground); }
+    .btn-ghost svg { width: 15px; height: 15px; }
+
+    .table-container {
+      background: var(--color-card);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+    }
+    .table-scroll { overflow: auto; max-height: 520px; }
+    table {
+      width: 100%;
+      min-width: 860px;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th {
+      background: var(--color-muted);
+      color: var(--color-muted-foreground);
+      font-weight: 600;
+      font-size: 11.5px;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      padding: 12px 14px;
+      text-align: left;
+      border-bottom: 1px solid var(--color-border);
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+      transition: color var(--transition-fast);
+    }
+    th:hover { color: var(--color-foreground); }
+    th .sort-icon { margin-left: 4px; opacity: .4; font-size: 10px; }
+    th.sorted .sort-icon { opacity: 1; color: var(--color-accent); }
+    td {
+      padding: 11px 14px;
+      border-bottom: 1px solid rgba(51,65,85,.4);
+      vertical-align: top;
+      white-space: nowrap;
+      max-width: 280px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    tr:hover td { background: rgba(34,197,94,.03); }
+    td.mono {
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+    }
+    td.source-tag { font-size: 11.5px; font-weight: 500; }
+    .tag-bs { color: #60A5FA; }
+    .tag-is { color: #FBBF24; }
+    .tag-cf { color: #A78BFA; }
+    .tag-wide { color: #34D399; }
+
+    .chart-container {
+      background: var(--color-card);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+    }
+    .chart-container canvas { max-height: 400px; }
+    .chart-empty {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 300px;
+      color: var(--color-muted-foreground);
+      gap: 8px;
+    }
+    .chart-empty svg { width: 48px; height: 48px; opacity: .3; }
+
+    .raw-toggle {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: transparent;
+      color: var(--color-muted-foreground);
+      border: none;
+      padding: 10px 0;
+      font-size: 13px;
+      font-weight: 500;
+      font-family: var(--font-sans);
+      cursor: pointer;
+      transition: color var(--transition-fast);
+    }
+    .raw-toggle:hover { color: var(--color-foreground); }
+    .raw-toggle svg {
+      width: 14px; height: 14px;
+      transition: transform var(--transition-normal);
+    }
+    .raw-toggle.open svg { transform: rotate(90deg); }
+    pre.raw-json {
+      background: var(--color-card);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      padding: 16px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--color-muted-foreground);
+      overflow: auto;
+      max-height: 400px;
+      display: none;
+      line-height: 1.7;
+    }
+    pre.raw-json.visible { display: block; }
+
+    .error-banner {
+      background: rgba(239,68,68,.08);
+      border: 1px solid rgba(239,68,68,.25);
+      border-radius: var(--radius-md);
+      padding: 14px 18px;
+      color: #FCA5A5;
+      font-size: 14px;
+      margin-top: 16px;
+      display: none;
+    }
+    .error-banner.visible { display: flex; align-items: flex-start; gap: 10px; }
+    .error-banner svg { flex-shrink: 0; width: 18px; height: 18px; color: var(--color-destructive); margin-top: 1px; }
+
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 60px 20px;
+      color: var(--color-muted-foreground);
+      text-align: center;
+      gap: 10px;
+    }
+    .empty-state svg { width: 56px; height: 56px; opacity: .2; }
+    .empty-state h3 { font-size: 16px; font-weight: 600; color: var(--color-foreground); margin: 0; }
+    .empty-state p { font-size: 14px; margin: 0; }
+
+    .skeleton {
+      background: linear-gradient(90deg, var(--color-muted) 25%, rgba(26,30,47,.6) 50%, var(--color-muted) 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.5s ease-in-out infinite;
+      border-radius: var(--radius-sm);
+    }
+    @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+    .skeleton-row { height: 40px; margin-bottom: 8px; }
+
+    .toast-container { position: fixed; top: 20px; right: 20px; z-index: 1000; }
+    .toast {
+      background: var(--color-card);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      padding: 12px 18px;
+      font-size: 13px;
+      color: var(--color-foreground);
+      box-shadow: var(--shadow-lg);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      animation: toast-in .3s ease;
+      margin-bottom: 8px;
+    }
+    @keyframes toast-in {
+      from { opacity: 0; transform: translateY(-10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .view-panel { display: none; }
+    .view-panel.active { display: block; }
+
+    @media (max-width: 1024px) {
+      .summary { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 768px) {
+      .app { padding: 16px 14px 32px; }
+      .header { flex-direction: column; align-items: flex-start; gap: 12px; }
+      .query-row { grid-template-columns: 1fr; }
+      .summary { grid-template-columns: 1fr 1fr; }
+      .toolbar { flex-direction: column; align-items: stretch; }
+      .toolbar-left { overflow-x: auto; }
+    }
+    @media (max-width: 480px) {
+      .summary { grid-template-columns: 1fr; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div class="header-left">
+        <h1>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+          PDF2MD 财务指标查询
+        </h1>
+        <p>输入自然语言，查询三大财务报表或具体指标值</p>
+      </div>
+      <div id="statusBadge" class="status-badge offline">
+        <span class="status-dot"></span>
+        <span id="statusText">检测中...</span>
+      </div>
+    </header>
+
+    <section class="query-panel" aria-label="查询输入">
+      <div class="query-row">
+        <div class="input-wrapper">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input id="question" type="text" value="查询信达证券2025年营收" placeholder="输入自然语言查询，如「比亚迪2025年总资产」" aria-label="查询问题" />
+        </div>
+        <input id="limit" class="limit-input" type="number" min="1" max="1000" value="20" aria-label="返回行数限制" />
+        <button id="runBtn" class="btn-primary" aria-label="执行查询">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          查询
+        </button>
+      </div>
+      <div class="query-options">
+        <label class="label-check">
+          <input id="useHermes" type="checkbox" checked />
+          使用 Hermes 解析
+        </label>
+        <div class="chips" role="list" aria-label="快速查询示例">
+          <span class="chip" role="listitem" tabindex="0">查询信达证券2025年利润表数据</span>
+          <span class="chip" role="listitem" tabindex="0">查信达2025年营收</span>
+          <span class="chip" role="listitem" tabindex="0">给我看比亚迪2025-12-31总资产</span>
+          <span class="chip" role="listitem" tabindex="0">查询华安证券2025年现金流量表</span>
+          <span class="chip" role="listitem" tabindex="0">归母净利润</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="summary" aria-label="查询摘要">
+      <div class="summary-card">
+        <div class="label">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+          返回行数
+        </div>
+        <div class="value accent" id="rowCount">0</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/></svg>
+          命中数据源
+        </div>
+        <div class="value" id="sourceCount">0</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          识别公司
+        </div>
+        <div class="value" id="resolvedCompany">-</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
+          报表类型
+        </div>
+        <div class="value" id="statementType" style="font-size:16px;">-</div>
+      </div>
+    </section>
+
+    <div class="toolbar">
+      <div class="toolbar-left">
+        <button class="tab-btn active" data-view="table" aria-pressed="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/></svg>
+          表格
+        </button>
+        <button class="tab-btn" data-view="chart" aria-pressed="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+          图表
+        </button>
+      </div>
+      <button class="btn-ghost" id="exportBtn" aria-label="导出 CSV">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        导出 CSV
+      </button>
+    </div>
+
+    <div id="tablePanel" class="view-panel active">
+      <div class="table-container">
+        <div class="table-scroll">
+          <table aria-label="查询结果">
+            <thead>
+              <tr>
+                <th data-key="source_table">数据源 <span class="sort-icon">↕</span></th>
+                <th data-key="stock_name">公司 <span class="sort-icon">↕</span></th>
+                <th data-key="period_key">期间 <span class="sort-icon">↕</span></th>
+                <th data-key="statement_id">报表ID <span class="sort-icon">↕</span></th>
+                <th data-key="metric">指标/项目 <span class="sort-icon">↕</span></th>
+                <th data-key="value">值 <span class="sort-icon">↕</span></th>
+                <th data-key="raw_value">原始值 <span class="sort-icon">↕</span></th>
+                <th data-key="unit">单位 <span class="sort-icon">↕</span></th>
+                <th data-key="source_ref">来源 <span class="sort-icon">↕</span></th>
+              </tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+          </table>
+        </div>
+        <div id="emptyState" class="empty-state" style="display:none;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <h3>输入查询以获取数据</h3>
+          <p>在上方输入自然语言查询，或点击示例快速开始</p>
+        </div>
+        <div id="skeletonState" style="display:none; padding:16px;">
+          <div class="skeleton skeleton-row"></div>
+          <div class="skeleton skeleton-row"></div>
+          <div class="skeleton skeleton-row"></div>
+          <div class="skeleton skeleton-row"></div>
+          <div class="skeleton skeleton-row"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="chartPanel" class="view-panel">
+      <div class="chart-container">
+        <div id="chartEmpty" class="chart-empty">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+          <span>执行查询后显示数据图表</span>
+        </div>
+        <canvas id="chartCanvas" style="display:none;"></canvas>
+      </div>
+    </div>
+
+    <div id="errorBanner" class="error-banner" role="alert">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      <span id="errorText"></span>
+    </div>
+
+    <div style="margin-top:16px;">
+      <button class="raw-toggle" id="rawToggle" aria-expanded="false" aria-controls="rawJson">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+        原始 JSON 响应
+      </button>
+      <pre id="rawJson" class="raw-json" aria-label="API原始响应">{}</pre>
+    </div>
+  </div>
+
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script>
+    const $ = (s) => document.querySelector(s);
+    const $$ = (s) => document.querySelectorAll(s);
+
+    const questionEl = $("#question");
+    const limitEl = $("#limit");
+    const useHermesEl = $("#useHermes");
+    const runBtn = $("#runBtn");
+    const tableBody = $("#tableBody");
+    const errorBanner = $("#errorBanner");
+    const errorTextEl = $("#errorText");
+    const rawJson = $("#rawJson");
+    const rowCountEl = $("#rowCount");
+    const sourceCountEl = $("#sourceCount");
+    const resolvedCompanyEl = $("#resolvedCompany");
+    const statementTypeEl = $("#statementType");
+    const emptyState = $("#emptyState");
+    const skeletonState = $("#skeletonState");
+    const statusBadge = $("#statusBadge");
+    const statusText = $("#statusText");
+    const rawToggle = $("#rawToggle");
+    const exportBtn = $("#exportBtn");
+    const chartCanvas = $("#chartCanvas");
+    const chartEmpty = $("#chartEmpty");
+    const toastContainer = $("#toastContainer");
+
+    let currentData = null;
+    let sortKey = null;
+    let sortDir = 1;
+    let chartInstance = null;
+
+    async function checkHealth() {
+      try {
+        const res = await fetch("/health", { signal: AbortSignal.timeout(3000) });
+        if (res.ok) {
+          statusBadge.className = "status-badge online";
+          statusText.textContent = "API 在线";
+        } else { throw 0; }
+      } catch {
+        statusBadge.className = "status-badge offline";
+        statusText.textContent = "API 离线";
+      }
+    }
+    checkHealth();
+
+    function showToast(msg, duration) {
+      duration = duration || 3000;
+      const el = document.createElement("div");
+      el.className = "toast";
+      el.textContent = msg;
+      toastContainer.appendChild(el);
+      setTimeout(function() {
+        el.style.opacity = "0";
+        el.style.transition = "opacity .3s";
+        setTimeout(function() { el.remove(); }, 300);
+      }, duration);
+    }
+
+    function createSourceTag(table) {
+      var span = document.createElement("span");
+      if (!table) { span.textContent = ""; return span; }
+      if (table.indexOf("balance") !== -1) {
+        span.textContent = "资产负债表";
+        span.className = "tag-bs";
+      } else if (table.indexOf("income") !== -1) {
+        span.textContent = "利润表";
+        span.className = "tag-is";
+      } else if (table.indexOf("cash_flow") !== -1) {
+        span.textContent = "现金流量表";
+        span.className = "tag-cf";
+      } else if (table.indexOf("wide") !== -1) {
+        span.textContent = "聚合指标";
+        span.className = "tag-wide";
+      } else {
+        var parts = table.split(".");
+        span.textContent = parts[parts.length - 1];
+      }
+      return span;
+    }
+
+    function statementLabel(type) {
+      if (!type) return "-";
+      var map = { balance_sheet: "资产负债表", income_statement: "利润表", cash_flow_statement: "现金流量表", company_all: "全部报表", metric: "指标查询" };
+      return map[type] || type;
+    }
+
+    function makeTd(content, cls) {
+      var td = document.createElement("td");
+      if (typeof content === "string" || typeof content === "number") {
+        td.textContent = content != null ? String(content) : "";
+      } else if (content && content.nodeType) {
+        td.appendChild(content);
+      }
+      if (cls) td.className = cls;
+      return td;
+    }
+
+    function getMetric(row) {
+      return row.item_name || (row.metric_payload && row.metric_payload.item_name) || (row.metric_payload && row.metric_payload.metric_name) || row.metric_key || "";
+    }
+
+    function renderTable(rows) {
+      tableBody.innerHTML = "";
+      if (!rows || !rows.length) {
+        emptyState.style.display = "flex";
+        return;
+      }
+      emptyState.style.display = "none";
+      for (var i = 0; i < rows.length; i++) {
+        var row = rows[i];
+        var metric = getMetric(row);
+        var srcRef = row.source_page_number || (row.metric_payload && row.metric_payload.source && row.metric_payload.source.page_number) || "";
+        var tableIdx = row.source_table_index || (row.metric_payload && row.metric_payload.source && row.metric_payload.source.table_index) || "";
+        var ref = srcRef ? ("p." + srcRef + (tableIdx ? " #" + tableIdx : "")) : (tableIdx || "");
+        var tr = document.createElement("tr");
+        tr.appendChild(makeTd(createSourceTag(row.source_table), "source-tag"));
+        tr.appendChild(makeTd(row.stock_name));
+        tr.appendChild(makeTd(row.period_key, "mono"));
+        tr.appendChild(makeTd(row.statement_id, "mono"));
+        tr.appendChild(makeTd(metric));
+        tr.appendChild(makeTd(row.value, "mono"));
+        tr.appendChild(makeTd(row.raw_value, "mono"));
+        tr.appendChild(makeTd(row.unit || (row.metric_payload && row.metric_payload.unit)));
+        tr.appendChild(makeTd(ref, "mono"));
+        tableBody.appendChild(tr);
+      }
+    }
+
+    function renderSummary(data) {
+      rowCountEl.textContent = data.row_count || 0;
+      sourceCountEl.textContent = (data.source_tables || []).length;
+      resolvedCompanyEl.textContent = (data.parsed && data.parsed.resolved_stock_name) || "-";
+      var qtype = data.parsed && data.parsed.query_type;
+      var stype = data.parsed && data.parsed.statement_type;
+      statementTypeEl.textContent = stype ? statementLabel(stype) : statementLabel(qtype);
+    }
+
+    function renderChart(rows) {
+      if (!rows || !rows.length) {
+        chartCanvas.style.display = "none";
+        chartEmpty.style.display = "flex";
+        if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
+        return;
+      }
+      chartCanvas.style.display = "block";
+      chartEmpty.style.display = "none";
+      if (chartInstance) chartInstance.destroy();
+
+      var labels = rows.map(function(r) { return r.period_key || getMetric(r) || ""; });
+      var values = rows.map(function(r) { var v = parseFloat(r.value); return isNaN(v) ? 0 : v; });
+      var metricName = getMetric(rows[0]) || "指标值";
+
+      var bgColors = rows.map(function(r) {
+        var src = r.source_table || "";
+        if (src.indexOf("balance") !== -1) return "rgba(96,165,250,.7)";
+        if (src.indexOf("income") !== -1) return "rgba(251,191,36,.7)";
+        if (src.indexOf("cash_flow") !== -1) return "rgba(167,139,250,.7)";
+        return "rgba(34,197,94,.7)";
+      });
+      var borderColors = rows.map(function(r) {
+        var src = r.source_table || "";
+        if (src.indexOf("balance") !== -1) return "#60A5FA";
+        if (src.indexOf("income") !== -1) return "#FBBF24";
+        if (src.indexOf("cash_flow") !== -1) return "#A78BFA";
+        return "#22C55E";
+      });
+
+      var isTrend = rows.length > 2 && rows.every(function(r) { return r.period_key; });
+
+      chartInstance = new Chart(chartCanvas, {
+        type: isTrend ? "line" : "bar",
+        data: {
+          labels: labels,
+          datasets: [{
+            label: metricName,
+            data: values,
+            backgroundColor: isTrend ? "rgba(34,197,94,.15)" : bgColors,
+            borderColor: isTrend ? "#22C55E" : borderColors,
+            borderWidth: isTrend ? 2 : 1,
+            fill: isTrend,
+            tension: 0.3,
+            pointBackgroundColor: "#22C55E",
+            pointRadius: isTrend ? 4 : 0,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              labels: { color: "#94A3B8", font: { family: "'Fira Sans', sans-serif", size: 12 } },
+            },
+            tooltip: {
+              backgroundColor: "#1E293B",
+              titleColor: "#F8FAFC",
+              bodyColor: "#94A3B8",
+              borderColor: "#334155",
+              borderWidth: 1,
+              titleFont: { family: "'Fira Sans', sans-serif" },
+              bodyFont: { family: "'Fira Code', monospace" },
+            },
+          },
+          scales: {
+            x: {
+              ticks: { color: "#94A3B8", font: { family: "'Fira Code', monospace", size: 11 } },
+              grid: { color: "rgba(51,65,85,.3)" },
+            },
+            y: {
+              ticks: { color: "#94A3B8", font: { family: "'Fira Code', monospace", size: 11 } },
+              grid: { color: "rgba(51,65,85,.3)" },
+            },
+          },
+        },
+      });
+    }
+
+    function showError(msg) {
+      errorTextEl.textContent = msg;
+      errorBanner.classList.add("visible");
+    }
+    function hideError() {
+      errorBanner.classList.remove("visible");
+    }
+
+    function sortRows(rows) {
+      if (!sortKey) return rows;
+      return rows.slice().sort(function(a, b) {
+        var va = a[sortKey] != null ? a[sortKey] : "";
+        var vb = b[sortKey] != null ? b[sortKey] : "";
+        if (sortKey === "value") {
+          va = parseFloat(va) || 0;
+          vb = parseFloat(vb) || 0;
+        }
+        if (va < vb) return -sortDir;
+        if (va > vb) return sortDir;
+        return 0;
+      });
+    }
+
+    async function runQuery() {
+      hideError();
+      tableBody.innerHTML = "";
+      emptyState.style.display = "none";
+      skeletonState.style.display = "block";
+      runBtn.classList.add("loading");
+      runBtn.disabled = true;
+
+      try {
+        var res = await fetch("/query", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            question: questionEl.value,
+            use_hermes: useHermesEl.checked,
+            limit: Number(limitEl.value || 20),
+          }),
+        });
+        var raw = await res.text();
+        var data;
+        try { data = raw ? JSON.parse(raw) : null; }
+        catch (parseErr) {
+          if (!res.ok) throw new Error("HTTP " + res.status + ": " + (raw || "服务器返回了非 JSON 错误"));
+          throw new Error("响应不是有效 JSON: " + (raw || "(空)"));
+        }
+        if (!res.ok) {
+          var detail = data && data.detail
+            ? (typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail, null, 2))
+            : raw;
+          throw new Error("HTTP " + res.status + ": " + detail);
+        }
+        currentData = data;
+        renderSummary(data);
+        var sorted = sortRows(data.rows || []);
+        renderTable(sorted);
+        renderChart(sorted);
+        rawJson.textContent = JSON.stringify(data, null, 2);
+      } catch (err) {
+        showError(err.message || String(err));
+        showToast("查询失败: " + (err.message || err));
+      } finally {
+        skeletonState.style.display = "none";
+        runBtn.classList.remove("loading");
+        runBtn.disabled = false;
+        if (!tableBody.children.length && !errorBanner.classList.contains("visible")) {
+          emptyState.style.display = "flex";
+        }
+      }
+    }
+
+    var thElements = document.querySelectorAll("th[data-key]");
+    for (var ti = 0; ti < thElements.length; ti++) {
+      (function(th) {
+        th.addEventListener("click", function() {
+          var key = th.getAttribute("data-key");
+          if (sortKey === key) sortDir *= -1;
+          else { sortKey = key; sortDir = 1; }
+          var allTh = document.querySelectorAll("th");
+          for (var j = 0; j < allTh.length; j++) allTh[j].classList.remove("sorted");
+          th.classList.add("sorted");
+          th.querySelector(".sort-icon").textContent = sortDir === 1 ? "↑" : "↓";
+          if (currentData) {
+            var sorted = sortRows(currentData.rows || []);
+            renderTable(sorted);
+          }
+        });
+      })(thElements[ti]);
+    }
+
+    var tabBtns = document.querySelectorAll(".tab-btn");
+    for (var bi = 0; bi < tabBtns.length; bi++) {
+      (function(btn) {
+        btn.addEventListener("click", function() {
+          var allBtns = document.querySelectorAll(".tab-btn");
+          for (var j = 0; j < allBtns.length; j++) {
+            allBtns[j].classList.remove("active");
+            allBtns[j].setAttribute("aria-pressed", "false");
+          }
+          btn.classList.add("active");
+          btn.setAttribute("aria-pressed", "true");
+          var view = btn.getAttribute("data-view");
+          var panels = document.querySelectorAll(".view-panel");
+          for (var k = 0; k < panels.length; k++) panels[k].classList.remove("active");
+          document.getElementById(view + "Panel").classList.add("active");
+          if (view === "chart" && chartInstance) chartInstance.resize();
+        });
+      })(tabBtns[bi]);
+    }
+
+    rawToggle.addEventListener("click", function() {
+      var open = rawJson.classList.toggle("visible");
+      rawToggle.classList.toggle("open", open);
+      rawToggle.setAttribute("aria-expanded", String(open));
+    });
+
+    exportBtn.addEventListener("click", function() {
+      if (!currentData || !currentData.rows || !currentData.rows.length) { showToast("没有数据可导出"); return; }
+      var headers = ["source_table", "stock_name", "period_key", "statement_id", "metric", "value", "raw_value", "unit", "source_ref"];
+      var csvRows = [headers.join(",")];
+      for (var i = 0; i < currentData.rows.length; i++) {
+        var row = currentData.rows[i];
+        var metric = getMetric(row);
+        var srcRef = row.source_page_number || (row.metric_payload && row.metric_payload.source && row.metric_payload.source.page_number) || "";
+        var tableIdx = row.source_table_index || (row.metric_payload && row.metric_payload.source && row.metric_payload.source.table_index) || "";
+        var ref = srcRef ? ("p." + srcRef + (tableIdx ? " #" + tableIdx : "")) : (tableIdx || "");
+        csvRows.push([
+          csvEscape(row.source_table),
+          csvEscape(row.stock_name),
+          csvEscape(row.period_key),
+          csvEscape(row.statement_id),
+          csvEscape(metric),
+          csvEscape(row.value),
+          csvEscape(row.raw_value),
+          csvEscape(row.unit || (row.metric_payload && row.metric_payload.unit)),
+          csvEscape(ref),
+        ].join(","));
+      }
+      var blob = new Blob(["﻿" + csvRows.join("\n")], { type: "text/csv;charset=utf-8" });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url;
+      a.download = "financial_query_" + Date.now() + ".csv";
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast("已导出 CSV 文件");
+    });
+
+    function csvEscape(v) {
+      if (v == null) return "";
+      var s = String(v);
+      if (s.indexOf(",") !== -1 || s.indexOf('"') !== -1 || s.indexOf("\n") !== -1) return '"' + s.replace(/"/g, '""') + '"';
+      return s;
+    }
+
+    runBtn.addEventListener("click", runQuery);
+    questionEl.addEventListener("keydown", function(e) { if (e.key === "Enter") runQuery(); });
+
+    var chips = document.querySelectorAll(".chip");
+    for (var ci = 0; ci < chips.length; ci++) {
+      (function(chip) {
+        chip.addEventListener("click", function() { questionEl.value = chip.textContent; runQuery(); });
+        chip.addEventListener("keydown", function(e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); questionEl.value = chip.textContent; runQuery(); } });
+      })(chips[ci]);
+    }
+
+    runQuery();
+  </script>
+</body>
+</html>

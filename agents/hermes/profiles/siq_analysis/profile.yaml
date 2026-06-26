@@ -1,0 +1,31 @@
+name: SIQ_analysis
+description: >
+  基于提取的指标+行业数据，生成专业财务分析报告。
+  输入：结构化财务数据 + 行业对比数据 + 分析模板
+  输出：财务分析报告（Markdown，符合wiki schema）
+
+model:
+  default: MiniMax-M3
+  provider: minimax-cn
+
+fallback_providers:
+  - provider: kimi-coding
+    model: kimi-for-coding
+  - provider: custom:qwen3.6-local
+    model: Qwen3.6-35B-A3B-FP8
+
+toolsets:
+  - terminal
+  - file
+  - code_execution
+
+terminal:
+  timeout: 300
+
+workdir: /home/maoyd/siq-research-engine
+
+delegation:
+  model: MiniMax-M3
+  provider: minimax-cn
+  max_concurrent_children: 1
+  max_spawn_depth: 1

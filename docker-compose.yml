@@ -1,0 +1,13 @@
+# Root compatibility wrapper.
+#
+# The canonical Docker Compose file lives at:
+#   infra/docker/docker-compose.yml
+#
+# Use:
+#   docker-compose -f infra/docker/docker-compose.yml --env-file infra/env/local.example up
+#
+# This root file is kept so older tooling that runs `docker-compose config`
+# from the repository root still receives the same service graph.
+
+include:
+  - infra/docker/docker-compose.yml

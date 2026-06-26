@@ -1,0 +1,79 @@
+{
+  "name": "SIQ汽车行业上市公司财报智能分析评测语料集",
+  "version": "2.0-auto-8companies-200",
+  "record_count": 200,
+  "company_count": 8,
+  "companies": [
+    {
+      "code": "000625",
+      "name": "长安汽车",
+      "industry": "汽车",
+      "sub_industry": "乘用车"
+    },
+    {
+      "code": "002594",
+      "name": "比亚迪",
+      "industry": "汽车",
+      "sub_industry": "新能源汽车"
+    },
+    {
+      "code": "600104",
+      "name": "上汽集团",
+      "industry": "汽车",
+      "sub_industry": "乘用车"
+    },
+    {
+      "code": "600418",
+      "name": "江淮汽车",
+      "industry": "汽车",
+      "sub_industry": "商用车与乘用车"
+    },
+    {
+      "code": "600733",
+      "name": "北汽蓝谷",
+      "industry": "汽车",
+      "sub_industry": "新能源汽车"
+    },
+    {
+      "code": "601127",
+      "name": "赛力斯",
+      "industry": "汽车",
+      "sub_industry": "新能源汽车"
+    },
+    {
+      "code": "601238",
+      "name": "广汽集团",
+      "industry": "汽车",
+      "sub_industry": "乘用车"
+    },
+    {
+      "code": "601633",
+      "name": "长城汽车",
+      "industry": "汽车",
+      "sub_industry": "乘用车"
+    }
+  ],
+  "excluded_legacy_companies": [
+    "000333-美的集团",
+    "600399-抚顺特钢"
+  ],
+  "scenario": "上市公司财报识别及分析场景",
+  "dimensions": [
+    "财报检索与时效性",
+    "财务指标识别准确性",
+    "财务数据勾稽与事实核查",
+    "行业分析与经营洞察",
+    "报告专业度与可采纳性"
+  ],
+  "recommended_api": {
+    "url": "https://arthurmao.synology.me:8276/api/eval/e2e",
+    "method": "POST",
+    "body": {
+      "input": "$(input)",
+      "run_slow_steps": false,
+      "generate_missing_reports": false
+    },
+    "output_field": "output"
+  },
+  "description": "仅使用8家汽车行业完整新案例，每家公司25题，共200题；剔除美的集团和抚顺特钢旧目录样本，避免商誉旧案例和跨行业样本污染。"
+}

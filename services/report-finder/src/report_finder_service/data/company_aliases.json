@@ -1,0 +1,28 @@
+{
+  "companies": [
+    {
+      "canonical_name": "贵州茅台",
+      "aliases": ["茅台", "那个做茅台的公司"],
+      "search_terms": ["贵州茅台", "Kweichow Moutai"],
+      "exchange_hint": "CN"
+    },
+    {
+      "canonical_name": "浦发银行",
+      "aliases": ["浦发", "上海浦东发展银行", "那个叫做浦发的银行"],
+      "search_terms": ["浦发银行", "上海浦东发展银行", "SPDB"],
+      "exchange_hint": "CN"
+    },
+    {
+      "canonical_name": "国华网安",
+      "aliases": ["国华网安", "那个叫做国华的安全公司"],
+      "search_terms": ["国华", "*ST国华"],
+      "exchange_hint": "CN"
+    },
+    {
+      "canonical_name": "京东方A",
+      "aliases": ["京东方", "京东方A", "BOE"],
+      "search_terms": ["京东方", "京东方A", "BOE"],
+      "exchange_hint": "CN"
+    }
+  ]
+}

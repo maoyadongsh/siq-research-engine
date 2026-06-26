@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "storage_mode": "external_runtime",
+  "profiles_root": "data/hermes/home/profiles",
+  "profiles": [
+    "siq_assistant",
+    "siq_analysis",
+    "siq_factchecker",
+    "siq_tracking",
+    "siq_legal",
+    "shared"
+  ],
+  "notes": [
+    "Profile names remain SIQ-compatible during the SIQ migration.",
+    "Runtime state, sessions, logs, auth files, and response stores stay under data/hermes/home unless SIQ_HERMES_HOME overrides it."
+  ]
+}

@@ -1,0 +1,19 @@
+[Unit]
+Description=MinerU API service
+After=network.target mineru-vllm.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/maoyd/siq-research-engine/apps/pdf-parser
+Environment=MINERU_MODEL_SOURCE=local
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/maoyd/.venvs/mineru_native/bin/mineru-api --host 127.0.0.1 --port 8003
+Restart=always
+RestartSec=2
+KillMode=mixed
+TimeoutStopSec=20
+StandardOutput=append:/tmp/mineru_api.log
+StandardError=append:/tmp/mineru_api.log
+
+[Install]
+WantedBy=default.target

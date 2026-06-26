@@ -1,0 +1,1067 @@
+-- PostgreSQL schema for pdf2md document_full.json persistence.
+-- Stores queryable metadata, structure indexes, financial facts, and artifact references.
+-- Large raw files such as PDF/images/Markdown remain on disk or object storage.
+
+CREATE SCHEMA IF NOT EXISTS pdf2md;
+
+CREATE TABLE IF NOT EXISTS pdf2md.documents (
+    task_id TEXT PRIMARY KEY,
+    mineru_task_id TEXT,
+    filename TEXT NOT NULL,
+    status TEXT,
+    stage TEXT,
+    created_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    generated_at TIMESTAMPTZ,
+    pdf_page_count INTEGER,
+    schema_version INTEGER,
+    report_kind TEXT,
+    report_year INTEGER,
+    submit_config JSONB NOT NULL DEFAULT '{}'::jsonb,
+    source_files JSONB NOT NULL DEFAULT '{}'::jsonb,
+    result_dir TEXT,
+    document_full_path TEXT,
+    markdown_path TEXT,
+    complete_markdown_path TEXT,
+    markdown_chars INTEGER,
+    markdown_line_count INTEGER,
+    financial_overall_status TEXT,
+    quality_summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+    financial_summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+    resources_summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+    raw_task JSONB NOT NULL DEFAULT '{}'::jsonb,
+    raw_json_hash TEXT,
+    raw_json_size_bytes BIGINT,
+    imported_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE pdf2md.documents IS '文档/任务主表。来源 document_full.json.task、markdown、quality_report、financial_data、financial_checks、resources、artifacts。';
+COMMENT ON COLUMN pdf2md.documents.task_id IS '任务 ID，来源 task.task_id；如果缺失则使用 document_full.json 所在目录名。';
+COMMENT ON COLUMN pdf2md.documents.mineru_task_id IS '上游 MinerU 任务 ID，来源 task.mineru_task_id。';
+COMMENT ON COLUMN pdf2md.documents.filename IS '原始 PDF 文件名，来源 task.filename。';
+COMMENT ON COLUMN pdf2md.documents.status IS '任务状态，来源 task.status。';
+COMMENT ON COLUMN pdf2md.documents.stage IS '任务阶段，来源 task.stage。';
+COMMENT ON COLUMN pdf2md.documents.created_at IS '任务创建时间，来源 task.created_at。';
+COMMENT ON COLUMN pdf2md.documents.completed_at IS '任务完成时间，来源 task.completed_at。';
+COMMENT ON COLUMN pdf2md.documents.generated_at IS 'document_full.json 生成时间，来源 generated_at。';
+COMMENT ON COLUMN pdf2md.documents.pdf_page_count IS 'PDF 页数，优先来源 task.pdf_page_count，其次 quality_report.pdf_page_count。';
+COMMENT ON COLUMN pdf2md.documents.schema_version IS 'document_full.json schema 版本，来源 schema_version。';
+COMMENT ON COLUMN pdf2md.documents.report_kind IS '报告类型，来源 quality_report.report_kind 或 financial_data.report_kind。';
+COMMENT ON COLUMN pdf2md.documents.report_year IS '报告年份，来源 quality_report.report_year 或 financial_data.report_year。';
+COMMENT ON COLUMN pdf2md.documents.submit_config IS '解析提交配置，来源 task.submit_config。';
+COMMENT ON COLUMN pdf2md.documents.source_files IS '原始 PDF、result.md、result_complete.md 等源文件引用，来源 source_files。';
+COMMENT ON COLUMN pdf2md.documents.result_dir IS '任务结果目录，由 document_full.json 路径推导。';
+COMMENT ON COLUMN pdf2md.documents.document_full_path IS 'document_full.json 本地路径，来源 artifacts.document_full.json.path 或导入路径。';
+COMMENT ON COLUMN pdf2md.documents.markdown_path IS 'result.md 本地路径，来源 source_files.markdown.path。';
+COMMENT ON COLUMN pdf2md.documents.complete_markdown_path IS 'result_complete.md 本地路径，来源 source_files.complete_markdown.path。';
+COMMENT ON COLUMN pdf2md.documents.markdown_chars IS 'Markdown 字符数，来源 markdown.chars。';
+COMMENT ON COLUMN pdf2md.documents.markdown_line_count IS 'Markdown 行数，来源 markdown.line_count。';
+COMMENT ON COLUMN pdf2md.documents.financial_overall_status IS '财务勾稽整体状态，来源 financial_checks.overall_status 或 quality_report.financial_overall_status。';
+COMMENT ON COLUMN pdf2md.documents.quality_summary IS '质量摘要 JSON，抽取自 quality_report 的统计字段和 warnings。';
+COMMENT ON COLUMN pdf2md.documents.financial_summary IS '财务数据/勾稽摘要，来源 financial_checks.summary 或 financial_data.summary。';
+COMMENT ON COLUMN pdf2md.documents.resources_summary IS '图片和 PDF 页图资源数量/大小摘要，来源 resources.images.summary、resources.pdf_pages.summary。';
+COMMENT ON COLUMN pdf2md.documents.raw_task IS 'task 原始 JSON 备份。';
+COMMENT ON COLUMN pdf2md.documents.raw_json_hash IS '导入的 document_full.json 文件 SHA256。';
+COMMENT ON COLUMN pdf2md.documents.raw_json_size_bytes IS '导入的 document_full.json 文件大小。';
+
+CREATE TABLE IF NOT EXISTS pdf2md.document_artifacts (
+    task_id TEXT NOT NULL REFERENCES pdf2md.documents(task_id) ON DELETE CASCADE,
+    artifact_name TEXT NOT NULL,
+    kind TEXT,
+    path TEXT,
+    url TEXT,
+    exists BOOLEAN,
+    size_bytes BIGINT,
+    mtime TIMESTAMPTZ,
+    sha256 TEXT,
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+    imported_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (task_id, artifact_name)
+);
+
+COMMENT ON TABLE pdf2md.document_artifacts IS '任务产物引用表。来源 document_full.json.artifacts 与 source_files，只存路径、URL、大小、mtime、原始引用 JSON，不存大文件内容。';
+COMMENT ON COLUMN pdf2md.document_artifacts.task_id IS '关联 documents.task_id，表示该产物属于哪个解析任务。';
+COMMENT ON COLUMN pdf2md.document_artifacts.artifact_name IS '产物名称，如 result.md、document_full.json、content_list.json、images、source:markdown。';
+COMMENT ON COLUMN pdf2md.document_artifacts.kind IS '产物类型，如 markdown、pdf、directory。';
+COMMENT ON COLUMN pdf2md.document_artifacts.path IS '本地文件或目录路径。';
+COMMENT ON COLUMN pdf2md.document_artifacts.url IS 'Web 可打开 URL。';
+COMMENT ON COLUMN pdf2md.document_artifacts.exists IS '导出时文件是否存在。';
+COMMENT ON COLUMN pdf2md.document_artifacts.size_bytes IS '产物文件大小，单位字节，来源 artifact/source_files 的 size_bytes。';
+COMMENT ON COLUMN pdf2md.document_artifacts.mtime IS '产物文件修改时间，来源 artifact/source_files 的 mtime。';
+COMMENT ON COLUMN pdf2md.document_artifacts.sha256 IS '产物文件 SHA256，预留字段，用于文件完整性校验。';
+COMMENT ON COLUMN pdf2md.document_artifacts.raw IS 'artifact/source_files 对应条目的原始 JSON。';
+COMMENT ON COLUMN pdf2md.document_artifacts.imported_at IS '该产物引用写入数据库的时间。';
+
+CREATE TABLE IF NOT EXISTS pdf2md.document_pages (
+    task_id TEXT NOT NULL REFERENCES pdf2md.documents(task_id) ON DELETE CASCADE,
+    page_number INTEGER NOT NULL,
+    page_index INTEGER,
+    markdown_start INTEGER,
+    markdown_end INTEGER,
+    block_count INTEGER,
+    preview TEXT,
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+    imported_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (task_id, page_number)
+);
+
+COMMENT ON TABLE pdf2md.document_pages IS '页级索引表。来源 markdown.pages 与 content_list_enhanced.pages，用于页级检索、RAG 分片和 PDF 页跳转。';
+COMMENT ON COLUMN pdf2md.document_pages.task_id IS '关联 documents.task_id，表示页面所属解析任务。';
+COMMENT ON COLUMN pdf2md.document_pages.page_number IS 'PDF 页码，通常从 1 开始。';
+COMMENT ON COLUMN pdf2md.document_pages.page_index IS 'PDF 页索引，通常从 0 开始。';
+COMMENT ON COLUMN pdf2md.document_pages.markdown_start IS '该页在 Markdown 正文中的起始偏移，如果来源提供。';
+COMMENT ON COLUMN pdf2md.document_pages.markdown_end IS '该页在 Markdown 正文中的结束偏移，如果来源提供。';
+COMMENT ON COLUMN pdf2md.document_pages.block_count IS '该页内容块数量，来源 content_list_enhanced.pages。';
+COMMENT ON COLUMN pdf2md.document_pages.preview IS '页内容预览文本，来自 markdown.pages 或 enhanced pages。';
+COMMENT ON COLUMN pdf2md.document_pages.raw IS '页级来源原始 JSON，来自 markdown.pages 和 content_list_enhanced.pages 的合并结果。';
+COMMENT ON COLUMN pdf2md.document_pages.imported_at IS '该页索引写入数据库的时间。';
+
+CREATE TABLE IF NOT EXISTS pdf2md.content_blocks (
+    task_id TEXT NOT NULL REFERENCES pdf2md.documents(task_id) ON DELETE CASCADE,
+    block_index INTEGER NOT NULL,
+    block_type TEXT,
+    page_idx INTEGER,
+    page_number INTEGER,
+    bbox JSONB,
+    text_preview TEXT,
+    image_path TEXT,
+    table_html_present BOOLEAN NOT NULL DEFAULT false,
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+    imported_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (task_id, block_index)
+);
+
+COMMENT ON TABLE pdf2md.content_blocks IS 'MinerU 原始内容块轻量索引。来源 content_list，每个 text/table/image/header/list 等块一行，raw 保留原块 JSON。';
+COMMENT ON COLUMN pdf2md.content_blocks.task_id IS '关联 documents.task_id，表示内容块所属解析任务。';
+COMMENT ON COLUMN pdf2md.content_blocks.block_index IS '内容块序号，按 content_list 顺序生成。';
+COMMENT ON COLUMN pdf2md.content_blocks.block_type IS '块类型，来源 content_list[].type。';
+COMMENT ON COLUMN pdf2md.content_blocks.page_idx IS 'PDF 页索引，来源 content_list[].page_idx。';
+COMMENT ON COLUMN pdf2md.content_blocks.page_number IS 'PDF 页码，page_idx + 1。';
+COMMENT ON COLUMN pdf2md.content_blocks.bbox IS '块在 PDF 页内的坐标，来源 content_list[].bbox。';
+COMMENT ON COLUMN pdf2md.content_blocks.text_preview IS '块文本/标题/图片 caption 的短预览。';
+COMMENT ON COLUMN pdf2md.content_blocks.image_path IS '图片路径，来源 img_path 或 image_path。';
+COMMENT ON COLUMN pdf2md.content_blocks.table_html_present IS '该块是否包含表格 HTML/body。';
+COMMENT ON COLUMN pdf2md.content_blocks.raw IS 'content_list 中该内容块的原始 JSON。';
+COMMENT ON COLUMN pdf2md.content_blocks.imported_at IS '该内容块写入数据库的时间。';
+
+CREATE TABLE IF NOT EXISTS pdf2md.document_tables (
+    task_id TEXT NOT NULL REFERENCES pdf2md.documents(task_id) ON DELETE CASCADE,
+    table_index INTEGER NOT NULL,
+    markdown_line INTEGER,
+    pdf_page_number INTEGER,
+    pdf_page_index INTEGER,
+    bbox JSONB,
+    source TEXT,
+    confidence TEXT,
+    source_image_path TEXT,
+    rows_count INTEGER,
+    cells_count INTEGER,
+    heading TEXT,
+    unit TEXT,
+    preview TEXT,
+    report_year INTEGER,
+    is_multi_level_header_candidate BOOLEAN,
+    is_suspicious BOOLEAN NOT NULL DEFAULT false,
+    suspect_reasons JSONB NOT NULL DEFAULT '[]'::jsonb,
+    source_caption JSONB NOT NULL DEFAULT '[]'::jsonb,
+    source_footnote JSONB NOT NULL DEFAULT '[]'::jsonb,
+    structure JSONB NOT NULL DEFAULT '{}'::jsonb,
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+    imported_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (task_id, table_index)
+);
+
+COMMENT ON TABLE pdf2md.document_tables IS '表格溯源和质量索引。来源 content_list_enhanced.tables，并合并 quality_report.table_index/suspicious_tables。';
+COMMENT ON COLUMN pdf2md.document_tables.task_id IS '关联 documents.task_id，表示表格所属解析任务。';
+COMMENT ON COLUMN pdf2md.document_tables.table_index IS '表格编号，来源 tables[].table_index。';
+COMMENT ON COLUMN pdf2md.document_tables.markdown_line IS '表格在 Markdown 中的行号，来源 tables[].line 或 quality_report.table_index[].line。';
+COMMENT ON COLUMN pdf2md.document_tables.pdf_page_number IS '表格所在 PDF 页码，来源 content_list_enhanced.tables[].pdf_page_number。';
+COMMENT ON COLUMN pdf2md.document_tables.pdf_page_index IS '表格所在 PDF 页索引，通常从 0 开始。';
+COMMENT ON COLUMN pdf2md.document_tables.bbox IS '表格在 PDF 页内坐标，来源 content_list_enhanced.tables[].bbox。';
+COMMENT ON COLUMN pdf2md.document_tables.source IS '页码/bbox 来源，如 content_list_body_exact、markdown_marker_inferred、unresolved。';
+COMMENT ON COLUMN pdf2md.document_tables.confidence IS '表格来源置信度，来源 content_list_enhanced.tables[].confidence。';
+COMMENT ON COLUMN pdf2md.document_tables.source_image_path IS '表格来源图片路径，来源 source_image_path。';
+COMMENT ON COLUMN pdf2md.document_tables.rows_count IS '表格行数，来源 content_list_enhanced.tables[].rows。';
+COMMENT ON COLUMN pdf2md.document_tables.cells_count IS '表格单元格数量，来源 content_list_enhanced.tables[].cells。';
+COMMENT ON COLUMN pdf2md.document_tables.heading IS '表格附近标题，来源 quality_report.table_index[].heading。';
+COMMENT ON COLUMN pdf2md.document_tables.unit IS '表格单位，来源 quality_report.table_index[].unit。';
+COMMENT ON COLUMN pdf2md.document_tables.preview IS '表格文本预览，用于列表展示和快速检索。';
+COMMENT ON COLUMN pdf2md.document_tables.report_year IS '报告年份，来源 content_list_enhanced.tables[].report_year 或 quality_report。';
+COMMENT ON COLUMN pdf2md.document_tables.is_multi_level_header_candidate IS '是否疑似多级表头，来源 structure.multi_level_header_candidate。';
+COMMENT ON COLUMN pdf2md.document_tables.is_suspicious IS '是否被质量报告标记为可疑表，来源 quality_report.suspicious_tables。';
+COMMENT ON COLUMN pdf2md.document_tables.suspect_reasons IS '可疑表原因列表，来源 quality_report.suspicious_tables。';
+COMMENT ON COLUMN pdf2md.document_tables.source_caption IS '表格 caption，来源 content_list_enhanced.tables[].source_caption。';
+COMMENT ON COLUMN pdf2md.document_tables.source_footnote IS '表格脚注，来源 content_list_enhanced.tables[].source_footnote。';
+COMMENT ON COLUMN pdf2md.document_tables.structure IS '表格结构信号，如行列数、colspan/rowspan、表头预览。';
+COMMENT ON COLUMN pdf2md.document_tables.raw IS '表格增强索引和质量索引合并后的原始 JSON。';
+COMMENT ON COLUMN pdf2md.document_tables.imported_at IS '该表格索引写入数据库的时间。';
+
+CREATE TABLE IF NOT EXISTS pdf2md.quality_warnings (
+    task_id TEXT NOT NULL REFERENCES pdf2md.documents(task_id) ON DELETE CASCADE,
+    warning_index INTEGER NOT NULL,
+    warning TEXT NOT NULL,
+    imported_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (task_id, warning_index)
+);
+
+COMMENT ON TABLE pdf2md.quality_warnings IS '质量告警明细。来源 quality_report.warnings。';
+COMMENT ON COLUMN pdf2md.quality_warnings.task_id IS '关联 documents.task_id，表示质量告警所属解析任务。';
+COMMENT ON COLUMN pdf2md.quality_warnings.warning_index IS '质量告警序号，按 quality_report.warnings 顺序生成。';
+COMMENT ON COLUMN pdf2md.quality_warnings.warning IS '质量告警文本，来源 quality_report.warnings。';
+COMMENT ON COLUMN pdf2md.quality_warnings.imported_at IS '该质量告警写入数据库的时间。';
+
+CREATE TABLE IF NOT EXISTS pdf2md.footnotes (
+    task_id TEXT NOT NULL REFERENCES pdf2md.documents(task_id) ON DELETE CASCADE,
+    footnote_index INTEGER NOT NULL,
+    page_number INTEGER,
+    markdown_line INTEGER,
+    text TEXT,
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+    imported_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (task_id, footnote_index)
+);
+
+COMMENT ON TABLE pdf2md.footnotes IS '脚注/注释索引。来源 content_list_enhanced.footnotes。';
+COMMENT ON COLUMN pdf2md.footnotes.task_id IS '关联 documents.task_id，表示脚注所属解析任务。';
+COMMENT ON COLUMN pdf2md.footnotes.footnote_index IS '脚注序号，按 content_list_enhanced.footnotes 顺序生成。';
+COMMENT ON COLUMN pdf2md.footnotes.page_number IS '脚注所在 PDF 页码，如来源可识别。';
+COMMENT ON COLUMN pdf2md.footnotes.markdown_line IS '脚注在 Markdown 中的行号，如来源可识别。';
+COMMENT ON COLUMN pdf2md.footnotes.text IS '脚注文本内容。';
+COMMENT ON COLUMN pdf2md.footnotes.raw IS '脚注原始 JSON。';
+COMMENT ON COLUMN pdf2md.footnotes.imported_at IS '该脚注写入数据库的时间。';
+
+CREATE TABLE IF NOT EXISTS pdf2md.toc_entries (
+    task_id TEXT NOT NULL REFERENCES pdf2md.documents(task_id) ON DELETE CASCADE,
+    toc_index INTEGER NOT NULL,
+    title TEXT,
+    level INTEGER,
+    page_number INTEGER,
+    markdown_line INTEGER,
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+    imported_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (task_id, toc_index)
+);
+
+COMMENT ON TABLE pdf2md.toc_entries IS '目录/标题候选索引。来源 content_list_enhanced.toc。';
+COMMENT ON COLUMN pdf2md.toc_entries.task_id IS '关联 documents.task_id，表示目录项所属解析任务。';
+COMMENT ON COLUMN pdf2md.toc_entries.toc_index IS '目录项序号，按 content_list_enhanced.toc 顺序生成。';
+COMMENT ON COLUMN pdf2md.toc_entries.title IS '目录或标题候选文本。';
+COMMENT ON COLUMN pdf2md.toc_entries.level IS '目录层级或标题层级。';
+COMMENT ON COLUMN pdf2md.toc_entries.page_number IS '目录项指向的 PDF 页码，如来源可识别。';
+COMMENT ON COLUMN pdf2md.toc_entries.markdown_line IS '目录项在 Markdown 中的行号，如来源可识别。';
+COMMENT ON COLUMN pdf2md.toc_entries.raw IS '目录项原始 JSON。';
+COMMENT ON COLUMN pdf2md.toc_entries.imported_at IS '该目录项写入数据库的时间。';
+
+CREATE TABLE IF NOT EXISTS pdf2md.financial_note_links (
+    task_id TEXT NOT NULL REFERENCES pdf2md.documents(task_id) ON DELETE CASCADE,
+    link_index INTEGER NOT NULL,
+    item_name TEXT,
+    canonical_name TEXT,
+    note_title TEXT,
+    note_ref TEXT,
+    table_index INTEGER,
+    page_number INTEGER,
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+    imported_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (task_id, link_index)
+);
+
+COMMENT ON TABLE pdf2md.financial_note_links IS '财报项目与附注关联。来源 content_list_enhanced.financial_note_links。';
+COMMENT ON COLUMN pdf2md.financial_note_links.task_id IS '关联 documents.task_id，表示附注关联所属解析任务。';
+COMMENT ON COLUMN pdf2md.financial_note_links.link_index IS '附注关联序号，按 content_list_enhanced.financial_note_links 顺序生成。';
+COMMENT ON COLUMN pdf2md.financial_note_links.item_name IS '主表财务项目名称，如 应收账款、存货、营业收入。';
+COMMENT ON COLUMN pdf2md.financial_note_links.canonical_name IS '财务项目标准化名称，如 operating_revenue。';
+COMMENT ON COLUMN pdf2md.financial_note_links.note_title IS '关联附注标题。';
+COMMENT ON COLUMN pdf2md.financial_note_links.note_ref IS '关联附注编号或引用标识。';
+COMMENT ON COLUMN pdf2md.financial_note_links.table_index IS '关联主表或附注表格编号。';
+COMMENT ON COLUMN pdf2md.financial_note_links.page_number IS '关联附注所在 PDF 页码。';
+COMMENT ON COLUMN pdf2md.financial_note_links.raw IS '附注关联原始 JSON。';
+COMMENT ON COLUMN pdf2md.financial_note_links.imported_at IS '该附注关联写入数据库的时间。';
+
+CREATE TABLE IF NOT EXISTS pdf2md.financial_statements (
+    task_id TEXT NOT NULL REFERENCES pdf2md.documents(task_id) ON DELETE CASCADE,
+    statement_id TEXT NOT NULL,
+    statement_type TEXT,
+    statement_name TEXT,
+    scope TEXT,
+    scope_name TEXT,
+    title TEXT,
+    unit TEXT,
+    scale NUMERIC,
+    currency TEXT,
+    table_indexes JSONB NOT NULL DEFAULT '[]'::jsonb,
+    line_numbers JSONB NOT NULL DEFAULT '[]'::jsonb,
+    columns JSONB NOT NULL DEFAULT '[]'::jsonb,
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+    imported_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (task_id, statement_id)
+);
+
+COMMENT ON TABLE pdf2md.financial_statements IS '财务报表表头级信息。来源 financial_data.statements，每张资产负债表/利润表/现金流量表等一行。';
+COMMENT ON COLUMN pdf2md.financial_statements.task_id IS '关联 documents.task_id，表示该财务报表所属解析任务。';
+COMMENT ON COLUMN pdf2md.financial_statements.statement_id IS '报表 ID，来源 statements[].statement_id。';
+COMMENT ON COLUMN pdf2md.financial_statements.statement_type IS '报表类型，如 balance_sheet、income_statement、cash_flow_statement。';
+COMMENT ON COLUMN pdf2md.financial_statements.statement_name IS '报表中文名称，如 资产负债表、利润表、现金流量表。';
+COMMENT ON COLUMN pdf2md.financial_statements.scope IS '报表口径，如 consolidated、parent_company。';
+COMMENT ON COLUMN pdf2md.financial_statements.scope_name IS '报表口径中文名称，如 合并、母公司。';
+COMMENT ON COLUMN pdf2md.financial_statements.title IS '报表标题，来源 financial_data.statements[].title。';
+COMMENT ON COLUMN pdf2md.financial_statements.unit IS '报表金额单位文本。';
+COMMENT ON COLUMN pdf2md.financial_statements.scale IS '数值缩放倍数，例如万元对应 10000。';
+COMMENT ON COLUMN pdf2md.financial_statements.currency IS '币种，如 CNY。';
+COMMENT ON COLUMN pdf2md.financial_statements.table_indexes IS '该报表对应的表格编号数组。';
+COMMENT ON COLUMN pdf2md.financial_statements.line_numbers IS '该报表在 Markdown 中对应的行号数组。';
+COMMENT ON COLUMN pdf2md.financial_statements.columns IS '期间列定义，来源 statements[].columns。';
+COMMENT ON COLUMN pdf2md.financial_statements.raw IS '单张报表原始 JSON。';
+COMMENT ON COLUMN pdf2md.financial_statements.imported_at IS '该财务报表记录写入数据库的时间。';
+
+CREATE TABLE IF NOT EXISTS pdf2md.financial_statement_items (
+    task_id TEXT NOT NULL REFERENCES pdf2md.documents(task_id) ON DELETE CASCADE,
+    statement_id TEXT NOT NULL,
+    item_index INTEGER NOT NULL,
+    period_key TEXT NOT NULL,
+    item_name TEXT,
+    canonical_name TEXT,
+    value NUMERIC,
+    raw_value TEXT,
+    source JSONB NOT NULL DEFAULT '{}'::jsonb,
+    raw_item JSONB NOT NULL DEFAULT '{}'::jsonb,
+    imported_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (task_id, statement_id, item_index, period_key)
+);
+
+COMMENT ON TABLE pdf2md.financial_statement_items IS '财务报表项目事实表。来源 financial_data.statements[].items[].values，每个项目/期间一行，适合 SQL 分析和跨公司比较。';
+COMMENT ON COLUMN pdf2md.financial_statement_items.task_id IS '关联 documents.task_id，表示该财务项目所属解析任务。';
+COMMENT ON COLUMN pdf2md.financial_statement_items.statement_id IS '关联 financial_statements.statement_id，表示该项目属于哪张财务报表。';
+COMMENT ON COLUMN pdf2md.financial_statement_items.item_index IS '项目序号，按 financial_data.statements[].items 顺序生成。';
+COMMENT ON COLUMN pdf2md.financial_statement_items.period_key IS '期间键，来源 values 的 key，如 2025-12-31。';
+COMMENT ON COLUMN pdf2md.financial_statement_items.item_name IS '财报项目原始名称，如 货币资金、资产总计、营业收入。';
+COMMENT ON COLUMN pdf2md.financial_statement_items.canonical_name IS '标准化项目名，如 total_assets、operating_revenue。';
+COMMENT ON COLUMN pdf2md.financial_statement_items.value IS '解析后的数值。';
+COMMENT ON COLUMN pdf2md.financial_statement_items.raw_value IS '原始单元格文本。';
+COMMENT ON COLUMN pdf2md.financial_statement_items.source IS '该值的来源信息 JSON，通常包含 table_index、line、bbox 等。';
+COMMENT ON COLUMN pdf2md.financial_statement_items.raw_item IS '该财务项目的原始 JSON。';
+COMMENT ON COLUMN pdf2md.financial_statement_items.imported_at IS '该财务项目值写入数据库的时间。';
+
+CREATE TABLE IF NOT EXISTS pdf2md.financial_key_metrics (
+    task_id TEXT NOT NULL REFERENCES pdf2md.documents(task_id) ON DELETE CASCADE,
+    metric_index INTEGER NOT NULL,
+    period_key TEXT NOT NULL,
+    metric_name TEXT,
+    canonical_name TEXT,
+    value NUMERIC,
+    raw_value TEXT,
+    unit TEXT,
+    source JSONB NOT NULL DEFAULT '{}'::jsonb,
+    raw_metric JSONB NOT NULL DEFAULT '{}'::jsonb,
+    imported_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (task_id, metric_index, period_key)
+);
+
+COMMENT ON TABLE pdf2md.financial_key_metrics IS '主要会计数据和财务指标事实表。来源 financial_data.key_metrics[].values。';
+COMMENT ON COLUMN pdf2md.financial_key_metrics.task_id IS '关联 documents.task_id，表示该关键指标所属解析任务。';
+COMMENT ON COLUMN pdf2md.financial_key_metrics.metric_index IS '指标序号，按 financial_data.key_metrics 顺序生成。';
+COMMENT ON COLUMN pdf2md.financial_key_metrics.period_key IS '期间键，来源 values 的 key。';
+COMMENT ON COLUMN pdf2md.financial_key_metrics.metric_name IS '指标名称，如 基本每股收益、加权平均净资产收益率。';
+COMMENT ON COLUMN pdf2md.financial_key_metrics.canonical_name IS '标准化指标名，如 basic_eps、weighted_avg_roe。';
+COMMENT ON COLUMN pdf2md.financial_key_metrics.value IS '解析后的指标数值。';
+COMMENT ON COLUMN pdf2md.financial_key_metrics.raw_value IS '指标原始单元格文本。';
+COMMENT ON COLUMN pdf2md.financial_key_metrics.unit IS '指标单位文本。';
+COMMENT ON COLUMN pdf2md.financial_key_metrics.source IS '该指标值的来源信息 JSON。';
+COMMENT ON COLUMN pdf2md.financial_key_metrics.raw_metric IS '该指标的原始 JSON。';
+COMMENT ON COLUMN pdf2md.financial_key_metrics.imported_at IS '该关键指标值写入数据库的时间。';
+
+CREATE TABLE IF NOT EXISTS pdf2md.financial_checks (
+    task_id TEXT NOT NULL REFERENCES pdf2md.documents(task_id) ON DELETE CASCADE,
+    check_index INTEGER NOT NULL,
+    rule_id TEXT,
+    rule_name TEXT,
+    statement_type TEXT,
+    scope TEXT,
+    period TEXT,
+    status TEXT,
+    diff NUMERIC,
+    tolerance NUMERIC,
+    inputs JSONB NOT NULL DEFAULT '[]'::jsonb,
+    left_side JSONB NOT NULL DEFAULT '{}'::jsonb,
+    right_side JSONB NOT NULL DEFAULT '{}'::jsonb,
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+    imported_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (task_id, check_index)
+);
+
+COMMENT ON TABLE pdf2md.financial_checks IS '财务勾稽校验结果。来源 financial_checks.checks，每条规则/期间一行。';
+COMMENT ON COLUMN pdf2md.financial_checks.task_id IS '关联 documents.task_id，表示该校验结果所属解析任务。';
+COMMENT ON COLUMN pdf2md.financial_checks.check_index IS '校验结果序号，按 financial_checks.checks 顺序生成。';
+COMMENT ON COLUMN pdf2md.financial_checks.rule_id IS '校验规则 ID。';
+COMMENT ON COLUMN pdf2md.financial_checks.rule_name IS '校验规则中文名称。';
+COMMENT ON COLUMN pdf2md.financial_checks.statement_type IS '适用报表类型，如 balance_sheet、income_statement、cash_flow_statement。';
+COMMENT ON COLUMN pdf2md.financial_checks.scope IS '适用报表口径，如 consolidated、parent_company。';
+COMMENT ON COLUMN pdf2md.financial_checks.period IS '校验期间。';
+COMMENT ON COLUMN pdf2md.financial_checks.status IS '校验状态，如 pass、fail、skip、warning。';
+COMMENT ON COLUMN pdf2md.financial_checks.diff IS '左右两侧差异。';
+COMMENT ON COLUMN pdf2md.financial_checks.tolerance IS '容差。';
+COMMENT ON COLUMN pdf2md.financial_checks.inputs IS '参与校验的标准化项目名数组。';
+COMMENT ON COLUMN pdf2md.financial_checks.left_side IS '校验左侧值，来源 checks[].left。';
+COMMENT ON COLUMN pdf2md.financial_checks.right_side IS '校验右侧公式/值，来源 checks[].right。';
+COMMENT ON COLUMN pdf2md.financial_checks.raw IS '该校验结果原始 JSON。';
+COMMENT ON COLUMN pdf2md.financial_checks.imported_at IS '该校验结果写入数据库的时间。';
+
+CREATE TABLE IF NOT EXISTS pdf2md.raw_payload_refs (
+    task_id TEXT NOT NULL REFERENCES pdf2md.documents(task_id) ON DELETE CASCADE,
+    payload_name TEXT NOT NULL,
+    path TEXT,
+    url TEXT,
+    size_bytes BIGINT,
+    sha256 TEXT,
+    summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+    imported_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (task_id, payload_name)
+);
+
+COMMENT ON TABLE pdf2md.raw_payload_refs IS '大体积原始产物引用表。来源 artifacts，用于记录 document_full、content_list、middle_json、model_output、result.md、result_complete.md 的文件路径和摘要。';
+COMMENT ON COLUMN pdf2md.raw_payload_refs.task_id IS '关联 documents.task_id，表示原始产物所属解析任务。';
+COMMENT ON COLUMN pdf2md.raw_payload_refs.payload_name IS '原始产物类型，如 document_full、content_list、middle_json、model_output、result_markdown。';
+COMMENT ON COLUMN pdf2md.raw_payload_refs.path IS '原始产物本地路径。';
+COMMENT ON COLUMN pdf2md.raw_payload_refs.url IS '原始产物 Web 访问 URL。';
+COMMENT ON COLUMN pdf2md.raw_payload_refs.size_bytes IS '原始产物文件大小，单位字节。';
+COMMENT ON COLUMN pdf2md.raw_payload_refs.sha256 IS '原始产物 SHA256，预留字段。';
+COMMENT ON COLUMN pdf2md.raw_payload_refs.summary IS '原始产物摘要 JSON，如 exists、artifact_name、embedded_type。';
+COMMENT ON COLUMN pdf2md.raw_payload_refs.imported_at IS '该原始产物引用写入数据库的时间。';
+
+CREATE INDEX IF NOT EXISTS idx_documents_created_at ON pdf2md.documents(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_documents_report ON pdf2md.documents(report_year, report_kind);
+CREATE INDEX IF NOT EXISTS idx_documents_quality_status ON pdf2md.documents(financial_overall_status);
+CREATE INDEX IF NOT EXISTS idx_artifacts_path ON pdf2md.document_artifacts(path);
+CREATE INDEX IF NOT EXISTS idx_pages_task_page ON pdf2md.document_pages(task_id, page_number);
+CREATE INDEX IF NOT EXISTS idx_blocks_page ON pdf2md.content_blocks(task_id, page_number);
+CREATE INDEX IF NOT EXISTS idx_tables_page ON pdf2md.document_tables(task_id, pdf_page_number);
+CREATE INDEX IF NOT EXISTS idx_tables_confidence ON pdf2md.document_tables(confidence);
+CREATE INDEX IF NOT EXISTS idx_fin_items_canonical ON pdf2md.financial_statement_items(canonical_name, period_key);
+CREATE INDEX IF NOT EXISTS idx_fin_items_name ON pdf2md.financial_statement_items(item_name);
+CREATE INDEX IF NOT EXISTS idx_fin_metrics_canonical ON pdf2md.financial_key_metrics(canonical_name, period_key);
+CREATE INDEX IF NOT EXISTS idx_fin_checks_status ON pdf2md.financial_checks(status);
+
+CREATE TABLE IF NOT EXISTS pdf2md.financial_balance_sheet_items (
+    task_id TEXT NOT NULL REFERENCES pdf2md.documents(task_id) ON DELETE CASCADE,
+    statement_id TEXT NOT NULL,
+    item_index INTEGER NOT NULL,
+    period_key TEXT NOT NULL,
+    company_id TEXT,
+    stock_code TEXT,
+    stock_name TEXT,
+    exchange TEXT,
+    filing_id TEXT,
+    parse_run_id TEXT,
+    report_year INTEGER,
+    report_period TEXT,
+    statement_name TEXT,
+    scope TEXT,
+    scope_name TEXT,
+    item_name TEXT,
+    canonical_name TEXT,
+    value NUMERIC,
+    raw_value TEXT,
+    unit TEXT,
+    currency TEXT,
+    source_page_number INTEGER,
+    source_table_index INTEGER,
+    source_bbox JSONB,
+    source JSONB NOT NULL DEFAULT '{}'::jsonb,
+    raw_item JSONB NOT NULL DEFAULT '{}'::jsonb,
+    imported_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (task_id, statement_id, item_index, period_key)
+);
+
+COMMENT ON TABLE pdf2md.financial_balance_sheet_items IS '资产负债表项目明细表。来源 financial_data.statements[] 中 statement_type=balance_sheet 的 items[].values/raw_values/sources。';
+
+CREATE TABLE IF NOT EXISTS pdf2md.financial_income_statement_items (
+    task_id TEXT NOT NULL REFERENCES pdf2md.documents(task_id) ON DELETE CASCADE,
+    statement_id TEXT NOT NULL,
+    item_index INTEGER NOT NULL,
+    period_key TEXT NOT NULL,
+    company_id TEXT,
+    stock_code TEXT,
+    stock_name TEXT,
+    exchange TEXT,
+    filing_id TEXT,
+    parse_run_id TEXT,
+    report_year INTEGER,
+    report_period TEXT,
+    statement_name TEXT,
+    scope TEXT,
+    scope_name TEXT,
+    item_name TEXT,
+    canonical_name TEXT,
+    value NUMERIC,
+    raw_value TEXT,
+    unit TEXT,
+    currency TEXT,
+    source_page_number INTEGER,
+    source_table_index INTEGER,
+    source_bbox JSONB,
+    source JSONB NOT NULL DEFAULT '{}'::jsonb,
+    raw_item JSONB NOT NULL DEFAULT '{}'::jsonb,
+    imported_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (task_id, statement_id, item_index, period_key)
+);
+
+COMMENT ON TABLE pdf2md.financial_income_statement_items IS '利润表项目明细表。来源 financial_data.statements[] 中 statement_type=income_statement 的 items[].values/raw_values/sources。';
+
+CREATE TABLE IF NOT EXISTS pdf2md.financial_cash_flow_statement_items (
+    task_id TEXT NOT NULL REFERENCES pdf2md.documents(task_id) ON DELETE CASCADE,
+    statement_id TEXT NOT NULL,
+    item_index INTEGER NOT NULL,
+    period_key TEXT NOT NULL,
+    company_id TEXT,
+    stock_code TEXT,
+    stock_name TEXT,
+    exchange TEXT,
+    filing_id TEXT,
+    parse_run_id TEXT,
+    report_year INTEGER,
+    report_period TEXT,
+    statement_name TEXT,
+    scope TEXT,
+    scope_name TEXT,
+    item_name TEXT,
+    canonical_name TEXT,
+    value NUMERIC,
+    raw_value TEXT,
+    unit TEXT,
+    currency TEXT,
+    source_page_number INTEGER,
+    source_table_index INTEGER,
+    source_bbox JSONB,
+    source JSONB NOT NULL DEFAULT '{}'::jsonb,
+    raw_item JSONB NOT NULL DEFAULT '{}'::jsonb,
+    imported_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (task_id, statement_id, item_index, period_key)
+);
+
+COMMENT ON TABLE pdf2md.financial_cash_flow_statement_items IS '现金流量表项目明细表。来源 financial_data.statements[] 中 statement_type=cash_flow_statement 的 items[].values/raw_values/sources。';
+
+CREATE TABLE IF NOT EXISTS pdf2md.financial_all_metrics_wide (
+    task_id TEXT NOT NULL REFERENCES pdf2md.documents(task_id) ON DELETE CASCADE,
+    period_key TEXT NOT NULL,
+    company_id TEXT,
+    stock_code TEXT,
+    stock_name TEXT,
+    exchange TEXT,
+    filing_id TEXT,
+    parse_run_id TEXT,
+    report_year INTEGER,
+    report_period TEXT,
+    balance_sheet JSONB NOT NULL DEFAULT '{}'::jsonb,
+    income_statement JSONB NOT NULL DEFAULT '{}'::jsonb,
+    cash_flow_statement JSONB NOT NULL DEFAULT '{}'::jsonb,
+    key_metrics JSONB NOT NULL DEFAULT '{}'::jsonb,
+    all_metrics JSONB NOT NULL DEFAULT '{}'::jsonb,
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+    imported_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (task_id, period_key)
+);
+
+COMMENT ON TABLE pdf2md.financial_all_metrics_wide IS '全指标宽表。每个 task_id + period_key 一行，把三大表项目和 key_metrics 按 canonical_name/name 聚合为 JSONB 指标列族。来源 financial_data.statements[] 与 financial_data.key_metrics[]。';
+
+ALTER TABLE pdf2md.financial_balance_sheet_items ADD COLUMN IF NOT EXISTS stock_code TEXT;
+ALTER TABLE pdf2md.financial_balance_sheet_items ADD COLUMN IF NOT EXISTS stock_name TEXT;
+ALTER TABLE pdf2md.financial_balance_sheet_items ADD COLUMN IF NOT EXISTS exchange TEXT;
+COMMENT ON COLUMN pdf2md.financial_balance_sheet_items.stock_code IS '证券代码，来源文件名中的 6 位代码或后续公司主数据补齐。';
+COMMENT ON COLUMN pdf2md.financial_balance_sheet_items.stock_name IS '公司简称/证券简称，来源文件名解析。';
+COMMENT ON COLUMN pdf2md.financial_balance_sheet_items.exchange IS '交易所代码，如 SSE、SZSE，按证券代码推断。';
+
+ALTER TABLE pdf2md.financial_income_statement_items ADD COLUMN IF NOT EXISTS stock_code TEXT;
+ALTER TABLE pdf2md.financial_income_statement_items ADD COLUMN IF NOT EXISTS stock_name TEXT;
+ALTER TABLE pdf2md.financial_income_statement_items ADD COLUMN IF NOT EXISTS exchange TEXT;
+COMMENT ON COLUMN pdf2md.financial_income_statement_items.stock_code IS '证券代码，来源文件名中的 6 位代码或后续公司主数据补齐。';
+COMMENT ON COLUMN pdf2md.financial_income_statement_items.stock_name IS '公司简称/证券简称，来源文件名解析。';
+COMMENT ON COLUMN pdf2md.financial_income_statement_items.exchange IS '交易所代码，如 SSE、SZSE，按证券代码推断。';
+
+ALTER TABLE pdf2md.financial_cash_flow_statement_items ADD COLUMN IF NOT EXISTS stock_code TEXT;
+ALTER TABLE pdf2md.financial_cash_flow_statement_items ADD COLUMN IF NOT EXISTS stock_name TEXT;
+ALTER TABLE pdf2md.financial_cash_flow_statement_items ADD COLUMN IF NOT EXISTS exchange TEXT;
+COMMENT ON COLUMN pdf2md.financial_cash_flow_statement_items.stock_code IS '证券代码，来源文件名中的 6 位代码或后续公司主数据补齐。';
+COMMENT ON COLUMN pdf2md.financial_cash_flow_statement_items.stock_name IS '公司简称/证券简称，来源文件名解析。';
+COMMENT ON COLUMN pdf2md.financial_cash_flow_statement_items.exchange IS '交易所代码，如 SSE、SZSE，按证券代码推断。';
+
+ALTER TABLE pdf2md.financial_all_metrics_wide ADD COLUMN IF NOT EXISTS stock_code TEXT;
+ALTER TABLE pdf2md.financial_all_metrics_wide ADD COLUMN IF NOT EXISTS stock_name TEXT;
+ALTER TABLE pdf2md.financial_all_metrics_wide ADD COLUMN IF NOT EXISTS exchange TEXT;
+COMMENT ON COLUMN pdf2md.financial_all_metrics_wide.stock_code IS '证券代码，来源文件名中的 6 位代码或后续公司主数据补齐。';
+COMMENT ON COLUMN pdf2md.financial_all_metrics_wide.stock_name IS '公司简称/证券简称，来源文件名解析。';
+COMMENT ON COLUMN pdf2md.financial_all_metrics_wide.exchange IS '交易所代码，如 SSE、SZSE，按证券代码推断。';
+
+CREATE INDEX IF NOT EXISTS idx_balance_sheet_company ON pdf2md.financial_balance_sheet_items(company_id, report_year, canonical_name, period_key);
+CREATE INDEX IF NOT EXISTS idx_income_statement_company ON pdf2md.financial_income_statement_items(company_id, report_year, canonical_name, period_key);
+CREATE INDEX IF NOT EXISTS idx_cash_flow_statement_company ON pdf2md.financial_cash_flow_statement_items(company_id, report_year, canonical_name, period_key);
+CREATE INDEX IF NOT EXISTS idx_all_metrics_wide_company ON pdf2md.financial_all_metrics_wide(company_id, report_year, period_key);
+CREATE INDEX IF NOT EXISTS idx_balance_sheet_stock ON pdf2md.financial_balance_sheet_items(stock_code, stock_name, report_year, period_key);
+CREATE INDEX IF NOT EXISTS idx_income_statement_stock ON pdf2md.financial_income_statement_items(stock_code, stock_name, report_year, period_key);
+CREATE INDEX IF NOT EXISTS idx_cash_flow_statement_stock ON pdf2md.financial_cash_flow_statement_items(stock_code, stock_name, report_year, period_key);
+CREATE INDEX IF NOT EXISTS idx_all_metrics_wide_stock ON pdf2md.financial_all_metrics_wide(stock_code, stock_name, report_year, period_key);
+CREATE INDEX IF NOT EXISTS idx_all_metrics_wide_gin ON pdf2md.financial_all_metrics_wide USING GIN (all_metrics);
+
+CREATE INDEX IF NOT EXISTS idx_tables_raw_gin ON pdf2md.document_tables USING GIN (raw);
+CREATE INDEX IF NOT EXISTS idx_blocks_raw_gin ON pdf2md.content_blocks USING GIN (raw);
+CREATE INDEX IF NOT EXISTS idx_documents_quality_gin ON pdf2md.documents USING GIN (quality_summary);
+
+COMMENT ON SCHEMA pdf2md IS 'PDF2MD/MinerU 解析结果持久化 schema：保存任务、产物引用、页块表格溯源、质量报告、财务结构化数据和勾稽结果。';
+
+-- ---------------------------------------------------------------------------
+-- 赛题增强层：公司财报知识库 + 证据库 + 报告评测库
+-- 这些表面向“上市公司财报识别及分析场景”：检索最新财报、抽取财务事实、
+-- 生成带证据的分析报告、人工采纳反馈、指标精度评测。
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS pdf2md.companies (
+    company_id TEXT PRIMARY KEY,
+    stock_code TEXT,
+    stock_name TEXT NOT NULL,
+    exchange TEXT,
+    industry TEXT,
+    listing_status TEXT,
+    aliases JSONB NOT NULL DEFAULT '[]'::jsonb,
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE pdf2md.companies IS '上市公司主数据层。stock_code 是业务唯一锚点；company_id 是兼容 wiki 路径/既有关联表的技术 ID。文件名推断仅作为 fallback。';
+COMMENT ON COLUMN pdf2md.companies.company_id IS '公司技术 ID/目录 slug；现有 wiki 常用“股票代码-公司简称”。业务唯一性依赖独立 stock_code 字段，不依赖此拼接值。';
+COMMENT ON COLUMN pdf2md.companies.stock_code IS '证券代码，如 600000、000001；优先来源 wiki company.json.stock_code 或下载文件名结构化解析，是上市公司业务唯一锚点。';
+COMMENT ON COLUMN pdf2md.companies.stock_name IS '证券简称或公司简称，优先来源 wiki company.json.company_short_name 或下载文件名结构化解析，独立于 stock_code 存储。';
+COMMENT ON COLUMN pdf2md.companies.exchange IS '交易所代码，如 SSE、SZSE、BSE；优先来源 wiki company.json.exchange。';
+COMMENT ON COLUMN pdf2md.companies.industry IS '所属行业，优先来源 wiki company.json.industry。';
+COMMENT ON COLUMN pdf2md.companies.listing_status IS '上市状态，如 listed、delisted、suspended。';
+COMMENT ON COLUMN pdf2md.companies.aliases IS '公司别名数组，优先来源 wiki company.json.aliases，并补充公司全称/目录主键用于检索。';
+COMMENT ON COLUMN pdf2md.companies.raw IS '公司主数据原始来源 JSON；wiki 来源会保存 company.json、匹配方式和 fallback 文件名推断信息。';
+COMMENT ON COLUMN pdf2md.companies.created_at IS '公司记录创建时间。';
+COMMENT ON COLUMN pdf2md.companies.updated_at IS '公司记录更新时间。';
+
+CREATE TABLE IF NOT EXISTS pdf2md.company_filings (
+    filing_id TEXT PRIMARY KEY,
+    company_id TEXT NOT NULL REFERENCES pdf2md.companies(company_id) ON DELETE CASCADE,
+    task_id TEXT UNIQUE REFERENCES pdf2md.documents(task_id) ON DELETE SET NULL,
+    report_year INTEGER,
+    report_period TEXT,
+    report_type TEXT,
+    title TEXT,
+    announcement_date DATE,
+    source_url TEXT,
+    pdf_path TEXT,
+    pdf_sha256 TEXT,
+    is_latest BOOLEAN NOT NULL DEFAULT false,
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE pdf2md.company_filings IS '上市公司公告/财报来源层。一行代表一份年报/半年报/摘要等披露文件，来源可由 document_full.json 文件名、source_files.pdf、artifacts 和外部公告检索系统补齐。';
+COMMENT ON COLUMN pdf2md.company_filings.filing_id IS '披露文件主键，由公司、报告年份、期间和文件名生成。';
+COMMENT ON COLUMN pdf2md.company_filings.company_id IS '关联 companies.company_id，表示披露文件所属公司。';
+COMMENT ON COLUMN pdf2md.company_filings.task_id IS '关联 documents.task_id，表示该披露文件当前对应的解析任务。';
+COMMENT ON COLUMN pdf2md.company_filings.report_year IS '报告年份。';
+COMMENT ON COLUMN pdf2md.company_filings.report_period IS '报告期间，如 FY、H1、Q1、Q3。';
+COMMENT ON COLUMN pdf2md.company_filings.report_type IS '报告类型，如 annual_report、interim_report、quarterly_report。';
+COMMENT ON COLUMN pdf2md.company_filings.title IS '披露文件标题或 PDF 文件名。';
+COMMENT ON COLUMN pdf2md.company_filings.announcement_date IS '公告披露日期，后续公告检索模块补齐。';
+COMMENT ON COLUMN pdf2md.company_filings.source_url IS '公告或 PDF 来源 URL。';
+COMMENT ON COLUMN pdf2md.company_filings.pdf_path IS 'PDF 本地路径。';
+COMMENT ON COLUMN pdf2md.company_filings.pdf_sha256 IS 'PDF 文件 SHA256，预留字段。';
+COMMENT ON COLUMN pdf2md.company_filings.is_latest IS '是否为该公司当前最新目标财报。';
+COMMENT ON COLUMN pdf2md.company_filings.raw IS '披露文件来源原始 JSON。';
+COMMENT ON COLUMN pdf2md.company_filings.created_at IS '披露文件记录创建时间。';
+COMMENT ON COLUMN pdf2md.company_filings.updated_at IS '披露文件记录更新时间。';
+
+CREATE TABLE IF NOT EXISTS pdf2md.parse_runs (
+    parse_run_id TEXT PRIMARY KEY,
+    task_id TEXT UNIQUE REFERENCES pdf2md.documents(task_id) ON DELETE CASCADE,
+    filing_id TEXT REFERENCES pdf2md.company_filings(filing_id) ON DELETE SET NULL,
+    mineru_task_id TEXT,
+    parser_name TEXT NOT NULL DEFAULT 'mineru',
+    parser_version TEXT,
+    schema_version INTEGER,
+    rule_version TEXT,
+    status TEXT,
+    started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    quality_score NUMERIC,
+    quality_summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE pdf2md.parse_runs IS '解析运行层。同一份 filing 可有多次解析运行，用于比较不同模型、OCR 参数、schema/rule 版本的解析质量。';
+COMMENT ON COLUMN pdf2md.parse_runs.parse_run_id IS '解析运行主键，由 task_id、schema_version、generated_at 等生成。';
+COMMENT ON COLUMN pdf2md.parse_runs.task_id IS '关联 documents.task_id。';
+COMMENT ON COLUMN pdf2md.parse_runs.filing_id IS '关联 company_filings.filing_id。';
+COMMENT ON COLUMN pdf2md.parse_runs.mineru_task_id IS '上游 MinerU 任务 ID。';
+COMMENT ON COLUMN pdf2md.parse_runs.parser_name IS '解析器名称，当前默认为 mineru。';
+COMMENT ON COLUMN pdf2md.parse_runs.parser_version IS '解析器或上游结果版本，来源 result_payload_summary.version。';
+COMMENT ON COLUMN pdf2md.parse_runs.schema_version IS 'document_full.json schema 版本。';
+COMMENT ON COLUMN pdf2md.parse_runs.rule_version IS '财务抽取/校验规则版本，来源 financial_data.rule_version。';
+COMMENT ON COLUMN pdf2md.parse_runs.status IS '解析运行状态。';
+COMMENT ON COLUMN pdf2md.parse_runs.started_at IS '解析运行开始时间，当前取 task.created_at。';
+COMMENT ON COLUMN pdf2md.parse_runs.completed_at IS '解析运行完成时间，当前取 task.completed_at。';
+COMMENT ON COLUMN pdf2md.parse_runs.quality_score IS '解析质量分，当前由 warnings 等质量信号粗略计算，后续可由评测模块更新。';
+COMMENT ON COLUMN pdf2md.parse_runs.quality_summary IS '解析质量摘要 JSON。';
+COMMENT ON COLUMN pdf2md.parse_runs.raw IS '解析运行来源原始 JSON。';
+COMMENT ON COLUMN pdf2md.parse_runs.created_at IS '解析运行记录创建时间。';
+COMMENT ON COLUMN pdf2md.parse_runs.updated_at IS '解析运行记录更新时间。';
+
+ALTER TABLE pdf2md.documents ADD COLUMN IF NOT EXISTS company_id TEXT;
+COMMENT ON COLUMN pdf2md.documents.company_id IS '关联 companies.company_id，优先由 wiki company.json/reports.task_id 匹配，缺失时 fallback 文件名推断。';
+ALTER TABLE pdf2md.documents ADD COLUMN IF NOT EXISTS filing_id TEXT;
+COMMENT ON COLUMN pdf2md.documents.filing_id IS '关联 company_filings.filing_id，表示该解析任务对应的披露文件。';
+ALTER TABLE pdf2md.documents ADD COLUMN IF NOT EXISTS parse_run_id TEXT;
+COMMENT ON COLUMN pdf2md.documents.parse_run_id IS '关联 parse_runs.parse_run_id，表示该 document_full.json 对应的解析运行。';
+
+ALTER TABLE pdf2md.financial_statement_items ADD COLUMN IF NOT EXISTS company_id TEXT;
+COMMENT ON COLUMN pdf2md.financial_statement_items.company_id IS '关联 companies.company_id，便于跨公司分析。';
+ALTER TABLE pdf2md.financial_statement_items ADD COLUMN IF NOT EXISTS filing_id TEXT;
+COMMENT ON COLUMN pdf2md.financial_statement_items.filing_id IS '关联 company_filings.filing_id，表示该值来自哪份披露文件。';
+ALTER TABLE pdf2md.financial_statement_items ADD COLUMN IF NOT EXISTS parse_run_id TEXT;
+COMMENT ON COLUMN pdf2md.financial_statement_items.parse_run_id IS '关联 parse_runs.parse_run_id，表示该值来自哪次解析运行。';
+ALTER TABLE pdf2md.financial_statement_items ADD COLUMN IF NOT EXISTS report_year INTEGER;
+COMMENT ON COLUMN pdf2md.financial_statement_items.report_year IS '报告年份，便于跨年份查询。';
+ALTER TABLE pdf2md.financial_statement_items ADD COLUMN IF NOT EXISTS report_period TEXT;
+COMMENT ON COLUMN pdf2md.financial_statement_items.report_period IS '报告期间，如 FY、H1、Q1、Q3。';
+ALTER TABLE pdf2md.financial_statement_items ADD COLUMN IF NOT EXISTS confidence NUMERIC;
+COMMENT ON COLUMN pdf2md.financial_statement_items.confidence IS '该财务项目值抽取置信度，预留字段。';
+ALTER TABLE pdf2md.financial_statement_items ADD COLUMN IF NOT EXISTS source_page_number INTEGER;
+COMMENT ON COLUMN pdf2md.financial_statement_items.source_page_number IS '财务项目值的来源页码，从 item.sources 或 source JSON 推断。';
+ALTER TABLE pdf2md.financial_statement_items ADD COLUMN IF NOT EXISTS source_table_index INTEGER;
+COMMENT ON COLUMN pdf2md.financial_statement_items.source_table_index IS '财务项目值的来源表格编号，从 item.sources 或 source JSON 推断。';
+ALTER TABLE pdf2md.financial_statement_items ADD COLUMN IF NOT EXISTS source_bbox JSONB;
+COMMENT ON COLUMN pdf2md.financial_statement_items.source_bbox IS '该财务项目值来源坐标 bbox。';
+ALTER TABLE pdf2md.financial_statement_items ADD COLUMN IF NOT EXISTS normalized_unit TEXT;
+COMMENT ON COLUMN pdf2md.financial_statement_items.normalized_unit IS '标准化单位，预留字段。';
+ALTER TABLE pdf2md.financial_statement_items ADD COLUMN IF NOT EXISTS value_scale NUMERIC;
+COMMENT ON COLUMN pdf2md.financial_statement_items.value_scale IS '数值缩放倍数，预留字段。';
+
+ALTER TABLE pdf2md.financial_key_metrics ADD COLUMN IF NOT EXISTS company_id TEXT;
+COMMENT ON COLUMN pdf2md.financial_key_metrics.company_id IS '关联 companies.company_id，便于跨公司指标分析。';
+ALTER TABLE pdf2md.financial_key_metrics ADD COLUMN IF NOT EXISTS filing_id TEXT;
+COMMENT ON COLUMN pdf2md.financial_key_metrics.filing_id IS '关联 company_filings.filing_id，表示该指标来自哪份披露文件。';
+ALTER TABLE pdf2md.financial_key_metrics ADD COLUMN IF NOT EXISTS parse_run_id TEXT;
+COMMENT ON COLUMN pdf2md.financial_key_metrics.parse_run_id IS '关联 parse_runs.parse_run_id，表示该指标来自哪次解析运行。';
+ALTER TABLE pdf2md.financial_key_metrics ADD COLUMN IF NOT EXISTS report_year INTEGER;
+COMMENT ON COLUMN pdf2md.financial_key_metrics.report_year IS '报告年份，便于跨年份查询。';
+ALTER TABLE pdf2md.financial_key_metrics ADD COLUMN IF NOT EXISTS report_period TEXT;
+COMMENT ON COLUMN pdf2md.financial_key_metrics.report_period IS '报告期间，如 FY、H1、Q1、Q3。';
+ALTER TABLE pdf2md.financial_key_metrics ADD COLUMN IF NOT EXISTS confidence NUMERIC;
+COMMENT ON COLUMN pdf2md.financial_key_metrics.confidence IS '该关键指标抽取置信度，预留字段。';
+ALTER TABLE pdf2md.financial_key_metrics ADD COLUMN IF NOT EXISTS source_page_number INTEGER;
+COMMENT ON COLUMN pdf2md.financial_key_metrics.source_page_number IS '关键指标值的来源页码，从 metric.sources 或 source JSON 推断。';
+ALTER TABLE pdf2md.financial_key_metrics ADD COLUMN IF NOT EXISTS source_table_index INTEGER;
+COMMENT ON COLUMN pdf2md.financial_key_metrics.source_table_index IS '关键指标值的来源表格编号，从 metric.sources 或 source JSON 推断。';
+ALTER TABLE pdf2md.financial_key_metrics ADD COLUMN IF NOT EXISTS source_bbox JSONB;
+COMMENT ON COLUMN pdf2md.financial_key_metrics.source_bbox IS '该关键指标来源坐标 bbox。';
+ALTER TABLE pdf2md.financial_key_metrics ADD COLUMN IF NOT EXISTS normalized_unit TEXT;
+COMMENT ON COLUMN pdf2md.financial_key_metrics.normalized_unit IS '标准化单位，预留字段。';
+ALTER TABLE pdf2md.financial_key_metrics ADD COLUMN IF NOT EXISTS value_scale NUMERIC;
+COMMENT ON COLUMN pdf2md.financial_key_metrics.value_scale IS '数值缩放倍数，预留字段。';
+
+ALTER TABLE pdf2md.document_tables ADD COLUMN IF NOT EXISTS ocr_confidence NUMERIC;
+COMMENT ON COLUMN pdf2md.document_tables.ocr_confidence IS '表格 OCR 识别置信度，预留字段。';
+ALTER TABLE pdf2md.document_tables ADD COLUMN IF NOT EXISTS layout_confidence NUMERIC;
+COMMENT ON COLUMN pdf2md.document_tables.layout_confidence IS '表格版面定位置信度，预留字段。';
+ALTER TABLE pdf2md.document_tables ADD COLUMN IF NOT EXISTS extraction_confidence NUMERIC;
+COMMENT ON COLUMN pdf2md.document_tables.extraction_confidence IS '表格结构/内容抽取置信度，预留字段。';
+ALTER TABLE pdf2md.document_tables ADD COLUMN IF NOT EXISTS model_version TEXT;
+COMMENT ON COLUMN pdf2md.document_tables.model_version IS '产生该表格结果的模型或解析器版本，预留字段。';
+
+ALTER TABLE pdf2md.generated_reports ADD COLUMN IF NOT EXISTS archive_path TEXT;
+COMMENT ON COLUMN pdf2md.generated_reports.archive_path IS '报告归档路径，统一使用 wiki/companies/<stock_code>-<company_short_name>/analysis/generated_reports/<report_type>/<stock_code>-<company_short_name>-<report_type>-<date>.<ext>。';
+
+ALTER TABLE pdf2md.content_blocks ADD COLUMN IF NOT EXISTS ocr_confidence NUMERIC;
+COMMENT ON COLUMN pdf2md.content_blocks.ocr_confidence IS 'OCR 识别置信度，预留字段，可由后续模型质量评估写入。';
+ALTER TABLE pdf2md.content_blocks ADD COLUMN IF NOT EXISTS layout_confidence NUMERIC;
+COMMENT ON COLUMN pdf2md.content_blocks.layout_confidence IS '版面识别置信度，预留字段，可由后续布局模型评估写入。';
+ALTER TABLE pdf2md.content_blocks ADD COLUMN IF NOT EXISTS extraction_confidence NUMERIC;
+COMMENT ON COLUMN pdf2md.content_blocks.extraction_confidence IS '内容抽取置信度，预留字段，可由后续抽取质量评估写入。';
+ALTER TABLE pdf2md.content_blocks ADD COLUMN IF NOT EXISTS model_version TEXT;
+COMMENT ON COLUMN pdf2md.content_blocks.model_version IS '产生该内容块的模型或解析器版本，预留字段。';
+
+CREATE TABLE IF NOT EXISTS pdf2md.document_chunks (
+    chunk_id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL REFERENCES pdf2md.documents(task_id) ON DELETE CASCADE,
+    parse_run_id TEXT REFERENCES pdf2md.parse_runs(parse_run_id) ON DELETE SET NULL,
+    chunk_index INTEGER NOT NULL,
+    chunk_type TEXT NOT NULL,
+    page_number INTEGER,
+    title TEXT,
+    content TEXT NOT NULL,
+    token_count INTEGER,
+    source_block_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+    source_table_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+    source JSONB NOT NULL DEFAULT '{}'::jsonb,
+    embedding JSONB,
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (task_id, chunk_index)
+);
+
+COMMENT ON TABLE pdf2md.document_chunks IS 'RAG 分片层。保存页级/表格级/文本块级可检索片段，可后续写入 embedding，用于问答和报告生成。';
+COMMENT ON COLUMN pdf2md.document_chunks.chunk_id IS 'RAG 分片主键，由 task_id、分片类型和来源编号生成。';
+COMMENT ON COLUMN pdf2md.document_chunks.task_id IS '关联 documents.task_id。';
+COMMENT ON COLUMN pdf2md.document_chunks.parse_run_id IS '关联 parse_runs.parse_run_id。';
+COMMENT ON COLUMN pdf2md.document_chunks.chunk_index IS '分片序号，在同一 task_id 内唯一。';
+COMMENT ON COLUMN pdf2md.document_chunks.chunk_type IS '分片类型，如 page、table、section、note。';
+COMMENT ON COLUMN pdf2md.document_chunks.page_number IS '分片对应 PDF 页码。';
+COMMENT ON COLUMN pdf2md.document_chunks.title IS '分片标题，如 PDF_PAGE:1 或表格标题。';
+COMMENT ON COLUMN pdf2md.document_chunks.content IS '分片文本内容，用于全文检索和向量检索。';
+COMMENT ON COLUMN pdf2md.document_chunks.token_count IS '分片长度估计，当前以字符数近似。';
+COMMENT ON COLUMN pdf2md.document_chunks.source_block_ids IS '该分片关联的 content_blocks 编号数组。';
+COMMENT ON COLUMN pdf2md.document_chunks.source_table_ids IS '该分片关联的 document_tables 编号数组。';
+COMMENT ON COLUMN pdf2md.document_chunks.source IS '分片来源 JSON。';
+COMMENT ON COLUMN pdf2md.document_chunks.embedding IS '向量或向量 JSON，当前为 JSONB 占位，安装 pgvector 后可迁移为 vector。';
+COMMENT ON COLUMN pdf2md.document_chunks.raw IS '分片来源原始 JSON。';
+COMMENT ON COLUMN pdf2md.document_chunks.created_at IS '分片创建时间。';
+
+CREATE TABLE IF NOT EXISTS pdf2md.evidence_citations (
+    citation_id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL REFERENCES pdf2md.documents(task_id) ON DELETE CASCADE,
+    parse_run_id TEXT REFERENCES pdf2md.parse_runs(parse_run_id) ON DELETE SET NULL,
+    source_type TEXT NOT NULL,
+    source_id TEXT,
+    page_number INTEGER,
+    bbox JSONB,
+    quote_text TEXT,
+    path TEXT,
+    url TEXT,
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE pdf2md.evidence_citations IS '证据引用层。把生成报告中的事实声明绑定到 PDF 页、bbox、表格、财务项目或原文引用。';
+COMMENT ON COLUMN pdf2md.evidence_citations.citation_id IS '证据引用主键，由 task_id、来源类型和来源编号生成。';
+COMMENT ON COLUMN pdf2md.evidence_citations.task_id IS '关联 documents.task_id。';
+COMMENT ON COLUMN pdf2md.evidence_citations.parse_run_id IS '关联 parse_runs.parse_run_id。';
+COMMENT ON COLUMN pdf2md.evidence_citations.source_type IS '证据来源类型，如 page、block、table、financial_item、financial_check。';
+COMMENT ON COLUMN pdf2md.evidence_citations.source_id IS '来源对象编号，如 table_index、check_index。';
+COMMENT ON COLUMN pdf2md.evidence_citations.page_number IS '证据所在 PDF 页码。';
+COMMENT ON COLUMN pdf2md.evidence_citations.bbox IS '证据在 PDF 页内的坐标 bbox。';
+COMMENT ON COLUMN pdf2md.evidence_citations.quote_text IS '证据引用文本或表格预览。';
+COMMENT ON COLUMN pdf2md.evidence_citations.path IS '证据相关文件路径，如来源图片路径。';
+COMMENT ON COLUMN pdf2md.evidence_citations.url IS '证据可打开 URL。';
+COMMENT ON COLUMN pdf2md.evidence_citations.raw IS '证据来源原始 JSON。';
+COMMENT ON COLUMN pdf2md.evidence_citations.created_at IS '证据引用创建时间。';
+
+CREATE TABLE IF NOT EXISTS pdf2md.generated_reports (
+    report_id TEXT PRIMARY KEY,
+    company_id TEXT REFERENCES pdf2md.companies(company_id) ON DELETE SET NULL,
+    filing_id TEXT REFERENCES pdf2md.company_filings(filing_id) ON DELETE SET NULL,
+    task_id TEXT REFERENCES pdf2md.documents(task_id) ON DELETE SET NULL,
+    parse_run_id TEXT REFERENCES pdf2md.parse_runs(parse_run_id) ON DELETE SET NULL,
+    report_type TEXT NOT NULL,
+    prompt_version TEXT,
+    model_name TEXT,
+    title TEXT,
+    content TEXT,
+    archive_path TEXT,
+    overall_status TEXT,
+    generated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+COMMENT ON TABLE pdf2md.generated_reports IS '生成报告主表。保存智能体生成的研报/经营分析/财务摘要报告及模型、提示词版本。';
+COMMENT ON COLUMN pdf2md.generated_reports.report_id IS '生成报告主键。';
+COMMENT ON COLUMN pdf2md.generated_reports.company_id IS '关联 companies.company_id。';
+COMMENT ON COLUMN pdf2md.generated_reports.filing_id IS '关联 company_filings.filing_id。';
+COMMENT ON COLUMN pdf2md.generated_reports.task_id IS '关联 documents.task_id。';
+COMMENT ON COLUMN pdf2md.generated_reports.parse_run_id IS '关联 parse_runs.parse_run_id。';
+COMMENT ON COLUMN pdf2md.generated_reports.report_type IS '报告类型，如 financial_analysis、business_review、qa_answer。';
+COMMENT ON COLUMN pdf2md.generated_reports.prompt_version IS '生成报告使用的提示词版本。';
+COMMENT ON COLUMN pdf2md.generated_reports.model_name IS '生成报告使用的模型名称。';
+COMMENT ON COLUMN pdf2md.generated_reports.title IS '生成报告标题。';
+COMMENT ON COLUMN pdf2md.generated_reports.content IS '生成报告全文。';
+COMMENT ON COLUMN pdf2md.generated_reports.archive_path IS '报告归档路径，统一使用 wiki/companies/<stock_code>-<company_short_name>/analysis/generated_reports/<report_type>/<stock_code>-<company_short_name>-<report_type>-<date>.<ext>。';
+COMMENT ON COLUMN pdf2md.generated_reports.overall_status IS '报告生成状态或整体评审状态。';
+COMMENT ON COLUMN pdf2md.generated_reports.generated_at IS '报告生成时间。';
+COMMENT ON COLUMN pdf2md.generated_reports.raw IS '报告生成过程原始 JSON。';
+
+CREATE TABLE IF NOT EXISTS pdf2md.report_sections (
+    section_id TEXT PRIMARY KEY,
+    report_id TEXT NOT NULL REFERENCES pdf2md.generated_reports(report_id) ON DELETE CASCADE,
+    section_index INTEGER NOT NULL,
+    section_name TEXT,
+    content TEXT,
+    confidence NUMERIC,
+    evidence_count INTEGER NOT NULL DEFAULT 0,
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+    UNIQUE (report_id, section_index)
+);
+
+COMMENT ON TABLE pdf2md.report_sections IS '生成报告章节表。用于分章节记录内容、置信度和证据数量。';
+COMMENT ON COLUMN pdf2md.report_sections.section_id IS '报告章节主键。';
+COMMENT ON COLUMN pdf2md.report_sections.report_id IS '关联 generated_reports.report_id。';
+COMMENT ON COLUMN pdf2md.report_sections.section_index IS '章节序号。';
+COMMENT ON COLUMN pdf2md.report_sections.section_name IS '章节名称。';
+COMMENT ON COLUMN pdf2md.report_sections.content IS '章节正文。';
+COMMENT ON COLUMN pdf2md.report_sections.confidence IS '章节生成置信度。';
+COMMENT ON COLUMN pdf2md.report_sections.evidence_count IS '章节绑定的证据数量。';
+COMMENT ON COLUMN pdf2md.report_sections.raw IS '章节生成原始 JSON。';
+
+CREATE TABLE IF NOT EXISTS pdf2md.analysis_claims (
+    claim_id TEXT PRIMARY KEY,
+    report_id TEXT REFERENCES pdf2md.generated_reports(report_id) ON DELETE CASCADE,
+    section_id TEXT REFERENCES pdf2md.report_sections(section_id) ON DELETE CASCADE,
+    claim_index INTEGER,
+    claim_text TEXT NOT NULL,
+    claim_type TEXT,
+    confidence NUMERIC,
+    verification_status TEXT,
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE pdf2md.analysis_claims IS '报告事实声明表。报告中的关键结论逐条拆分，供事实核验和证据绑定。';
+COMMENT ON COLUMN pdf2md.analysis_claims.claim_id IS '事实声明主键。';
+COMMENT ON COLUMN pdf2md.analysis_claims.report_id IS '关联 generated_reports.report_id。';
+COMMENT ON COLUMN pdf2md.analysis_claims.section_id IS '关联 report_sections.section_id。';
+COMMENT ON COLUMN pdf2md.analysis_claims.claim_index IS '事实声明在报告或章节内的序号。';
+COMMENT ON COLUMN pdf2md.analysis_claims.claim_text IS '事实声明文本。';
+COMMENT ON COLUMN pdf2md.analysis_claims.claim_type IS '声明类型，如 financial_fact、trend、risk、conclusion。';
+COMMENT ON COLUMN pdf2md.analysis_claims.confidence IS '声明置信度。';
+COMMENT ON COLUMN pdf2md.analysis_claims.verification_status IS '事实核验状态，如 verified、unsupported、contradicted、pending。';
+COMMENT ON COLUMN pdf2md.analysis_claims.raw IS '事实声明原始 JSON。';
+COMMENT ON COLUMN pdf2md.analysis_claims.created_at IS '事实声明创建时间。';
+
+CREATE TABLE IF NOT EXISTS pdf2md.claim_evidence_links (
+    claim_id TEXT NOT NULL REFERENCES pdf2md.analysis_claims(claim_id) ON DELETE CASCADE,
+    citation_id TEXT NOT NULL REFERENCES pdf2md.evidence_citations(citation_id) ON DELETE CASCADE,
+    relation_type TEXT NOT NULL DEFAULT 'supports',
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+    PRIMARY KEY (claim_id, citation_id)
+);
+
+COMMENT ON TABLE pdf2md.claim_evidence_links IS '事实声明与证据引用关联表。用于支撑“每个结论可追溯”。';
+COMMENT ON COLUMN pdf2md.claim_evidence_links.claim_id IS '关联 analysis_claims.claim_id。';
+COMMENT ON COLUMN pdf2md.claim_evidence_links.citation_id IS '关联 evidence_citations.citation_id。';
+COMMENT ON COLUMN pdf2md.claim_evidence_links.relation_type IS '证据与声明关系，如 supports、contradicts、mentions。';
+COMMENT ON COLUMN pdf2md.claim_evidence_links.raw IS '关联关系原始 JSON。';
+
+CREATE TABLE IF NOT EXISTS pdf2md.review_feedback (
+    feedback_id TEXT PRIMARY KEY,
+    report_id TEXT NOT NULL REFERENCES pdf2md.generated_reports(report_id) ON DELETE CASCADE,
+    section_id TEXT REFERENCES pdf2md.report_sections(section_id) ON DELETE CASCADE,
+    reviewer TEXT,
+    decision TEXT NOT NULL,
+    score NUMERIC,
+    comment TEXT,
+    reviewed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+COMMENT ON TABLE pdf2md.review_feedback IS '人工评审反馈表。记录章节或报告是否采纳，用于计算内容采纳率。';
+COMMENT ON COLUMN pdf2md.review_feedback.feedback_id IS '人工反馈主键。';
+COMMENT ON COLUMN pdf2md.review_feedback.report_id IS '关联 generated_reports.report_id。';
+COMMENT ON COLUMN pdf2md.review_feedback.section_id IS '关联 report_sections.section_id，可为空表示整篇报告反馈。';
+COMMENT ON COLUMN pdf2md.review_feedback.reviewer IS '评审人。';
+COMMENT ON COLUMN pdf2md.review_feedback.decision IS '评审结论，如 accepted、rejected、needs_revision。';
+COMMENT ON COLUMN pdf2md.review_feedback.score IS '评审分数。';
+COMMENT ON COLUMN pdf2md.review_feedback.comment IS '评审意见。';
+COMMENT ON COLUMN pdf2md.review_feedback.reviewed_at IS '评审时间。';
+COMMENT ON COLUMN pdf2md.review_feedback.raw IS '评审反馈原始 JSON。';
+
+CREATE TABLE IF NOT EXISTS pdf2md.gold_financial_items (
+    gold_item_id TEXT PRIMARY KEY,
+    company_id TEXT REFERENCES pdf2md.companies(company_id) ON DELETE CASCADE,
+    filing_id TEXT REFERENCES pdf2md.company_filings(filing_id) ON DELETE CASCADE,
+    report_year INTEGER,
+    report_period TEXT,
+    statement_type TEXT,
+    item_name TEXT,
+    canonical_name TEXT NOT NULL,
+    period_key TEXT NOT NULL,
+    expected_value NUMERIC NOT NULL,
+    unit TEXT,
+    source TEXT,
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE pdf2md.gold_financial_items IS '标准答案财务项目表。用于评测抽取指标精度，和 financial_statement_items/financial_key_metrics 对比。';
+COMMENT ON COLUMN pdf2md.gold_financial_items.gold_item_id IS '标准答案财务项目主键。';
+COMMENT ON COLUMN pdf2md.gold_financial_items.company_id IS '关联 companies.company_id。';
+COMMENT ON COLUMN pdf2md.gold_financial_items.filing_id IS '关联 company_filings.filing_id。';
+COMMENT ON COLUMN pdf2md.gold_financial_items.report_year IS '标准答案对应报告年份。';
+COMMENT ON COLUMN pdf2md.gold_financial_items.report_period IS '标准答案对应报告期间。';
+COMMENT ON COLUMN pdf2md.gold_financial_items.statement_type IS '标准答案对应报表类型。';
+COMMENT ON COLUMN pdf2md.gold_financial_items.item_name IS '标准答案项目原始名称。';
+COMMENT ON COLUMN pdf2md.gold_financial_items.canonical_name IS '标准答案项目标准化名称。';
+COMMENT ON COLUMN pdf2md.gold_financial_items.period_key IS '标准答案期间键。';
+COMMENT ON COLUMN pdf2md.gold_financial_items.expected_value IS '标准答案数值。';
+COMMENT ON COLUMN pdf2md.gold_financial_items.unit IS '标准答案单位。';
+COMMENT ON COLUMN pdf2md.gold_financial_items.source IS '标准答案来源说明。';
+COMMENT ON COLUMN pdf2md.gold_financial_items.raw IS '标准答案原始 JSON。';
+COMMENT ON COLUMN pdf2md.gold_financial_items.created_at IS '标准答案记录创建时间。';
+
+CREATE TABLE IF NOT EXISTS pdf2md.evaluation_runs (
+    eval_run_id TEXT PRIMARY KEY,
+    task_id TEXT REFERENCES pdf2md.documents(task_id) ON DELETE CASCADE,
+    parse_run_id TEXT REFERENCES pdf2md.parse_runs(parse_run_id) ON DELETE SET NULL,
+    eval_type TEXT NOT NULL,
+    evaluator_version TEXT,
+    started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    completed_at TIMESTAMPTZ,
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+COMMENT ON TABLE pdf2md.evaluation_runs IS '评测运行表。记录一次指标精度、检索成功率、报告采纳率等评测任务。';
+COMMENT ON COLUMN pdf2md.evaluation_runs.eval_run_id IS '评测运行主键。';
+COMMENT ON COLUMN pdf2md.evaluation_runs.task_id IS '关联 documents.task_id。';
+COMMENT ON COLUMN pdf2md.evaluation_runs.parse_run_id IS '关联 parse_runs.parse_run_id。';
+COMMENT ON COLUMN pdf2md.evaluation_runs.eval_type IS '评测类型，如 extraction_accuracy、retrieval_success、report_acceptance。';
+COMMENT ON COLUMN pdf2md.evaluation_runs.evaluator_version IS '评测器版本。';
+COMMENT ON COLUMN pdf2md.evaluation_runs.started_at IS '评测开始时间。';
+COMMENT ON COLUMN pdf2md.evaluation_runs.completed_at IS '评测完成时间。';
+COMMENT ON COLUMN pdf2md.evaluation_runs.raw IS '评测运行原始 JSON。';
+
+CREATE TABLE IF NOT EXISTS pdf2md.evaluation_results (
+    eval_result_id TEXT PRIMARY KEY,
+    eval_run_id TEXT NOT NULL REFERENCES pdf2md.evaluation_runs(eval_run_id) ON DELETE CASCADE,
+    metric_name TEXT NOT NULL,
+    total_count INTEGER,
+    correct_count INTEGER,
+    accuracy NUMERIC,
+    tolerance NUMERIC,
+    details JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE pdf2md.evaluation_results IS '评测结果表。保存准确率、正确数、总数、容差和明细。';
+COMMENT ON COLUMN pdf2md.evaluation_results.eval_result_id IS '评测结果主键。';
+COMMENT ON COLUMN pdf2md.evaluation_results.eval_run_id IS '关联 evaluation_runs.eval_run_id。';
+COMMENT ON COLUMN pdf2md.evaluation_results.metric_name IS '评测指标名称，如 accuracy、precision、acceptance_rate。';
+COMMENT ON COLUMN pdf2md.evaluation_results.total_count IS '评测样本总数。';
+COMMENT ON COLUMN pdf2md.evaluation_results.correct_count IS '评测正确样本数。';
+COMMENT ON COLUMN pdf2md.evaluation_results.accuracy IS '准确率或达成率。';
+COMMENT ON COLUMN pdf2md.evaluation_results.tolerance IS '数值指标评测容差。';
+COMMENT ON COLUMN pdf2md.evaluation_results.details IS '评测结果明细 JSON。';
+COMMENT ON COLUMN pdf2md.evaluation_results.created_at IS '评测结果创建时间。';
+
+CREATE INDEX IF NOT EXISTS idx_companies_stock_code ON pdf2md.companies(stock_code);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_companies_stock_code
+    ON pdf2md.companies(stock_code)
+    WHERE stock_code IS NOT NULL AND stock_code <> '';
+CREATE INDEX IF NOT EXISTS idx_filings_company_year ON pdf2md.company_filings(company_id, report_year DESC, report_type);
+CREATE INDEX IF NOT EXISTS idx_filings_latest ON pdf2md.company_filings(company_id, is_latest) WHERE is_latest = true;
+CREATE INDEX IF NOT EXISTS idx_parse_runs_filing ON pdf2md.parse_runs(filing_id, completed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_documents_company ON pdf2md.documents(company_id, report_year);
+CREATE INDEX IF NOT EXISTS idx_chunks_task_page ON pdf2md.document_chunks(task_id, page_number);
+CREATE INDEX IF NOT EXISTS idx_chunks_content_fts ON pdf2md.document_chunks USING GIN (to_tsvector('simple', content));
+CREATE INDEX IF NOT EXISTS idx_citations_task_source ON pdf2md.evidence_citations(task_id, source_type, source_id);
+CREATE INDEX IF NOT EXISTS idx_reports_company ON pdf2md.generated_reports(company_id, generated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_feedback_decision ON pdf2md.review_feedback(decision);
+CREATE INDEX IF NOT EXISTS idx_gold_financial_lookup ON pdf2md.gold_financial_items(company_id, report_year, canonical_name, period_key);
+CREATE INDEX IF NOT EXISTS idx_eval_results_metric ON pdf2md.evaluation_results(metric_name);
+CREATE INDEX IF NOT EXISTS idx_fin_items_company_ext ON pdf2md.financial_statement_items(company_id, report_year, canonical_name, period_key);
+CREATE INDEX IF NOT EXISTS idx_fin_metrics_company_ext ON pdf2md.financial_key_metrics(company_id, canonical_name, period_key);
+
+-- ---------------------------------------------------------------------------
+-- 中文注释补齐段：覆盖所有表和字段，便于 psql/pgAdmin/DataGrip 查看元数据说明。
+-- ---------------------------------------------------------------------------

@@ -1,0 +1,31 @@
+[Unit]
+Description=MinerU vLLM API (OpenDataLab/MinerU2.5-Pro-2604-1.2B)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/maoyd
+ExecStartPre=/usr/bin/test -f /home/maoyd/models/mineru-modelscope/MinerU2.5-Pro-2604-1.2B/config.json
+ExecStart=/home/maoyd/.local/bin/mineru-vllm-serve
+Restart=always
+RestartSec=10
+TimeoutStartSec=600
+TimeoutStopSec=120
+SuccessExitStatus=0 143
+KillMode=control-group
+SyslogIdentifier=mineru-vllm
+Environment=HOME=/home/maoyd
+Environment=TMPDIR=/tmp
+Environment=PATH=/home/maoyd/.local/bin:/home/maoyd/bin:/usr/local/bin:/usr/bin:/bin
+Environment=MINERU_VLLM_MODEL_DIR=/home/maoyd/models/mineru-modelscope/MinerU2.5-Pro-2604-1.2B
+Environment=MINERU_VLLM_SERVED_MODEL_NAME=MinerU2.5-Pro-2604-1.2B
+Environment=MINERU_VLLM_HOST=127.0.0.1
+Environment=MINERU_VLLM_PORT=8002
+Environment=MINERU_VLLM_GPU_MEMORY_UTILIZATION=0.12
+Environment=MINERU_VLLM_MAX_MODEL_LEN=4096
+Environment=TORCHINDUCTOR_CACHE_DIR=/home/maoyd/.cache/torchinductor
+Environment=VLLM_NO_USAGE_STATS=1
+
+[Install]
+WantedBy=default.target

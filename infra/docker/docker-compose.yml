@@ -1,0 +1,128 @@
+services:
+  # 前端服务
+  web:
+    build:
+      context: ../../apps/web
+      dockerfile: Dockerfile
+    ports:
+      - "${SIQ_FRONTEND_PORT:-15173}:15173"
+    environment:
+      - NODE_ENV=production
+      - SIQ_BACKEND_URL=http://api:18081
+      - SIQ_REPORT_FINDER_URL=http://report-finder:8000
+      - SIQ_PDFAPI_URL=http://pdf-parser:15000
+      - SIQ_FRONTEND_PORT=15173
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  # 聚合后端
+  api:
+    build:
+      context: ../../apps/api
+      dockerfile: Dockerfile
+    ports:
+      - "${SIQ_BACKEND_PORT:-18081}:18081"
+    environment:
+      - SIQ_WIKI_ROOT=/data/wiki
+      - WIKI_ROOT=/data/wiki
+      - SIQ_REPORT_DOWNLOADS_ROOT=/data/downloads
+      - REPORT_DOWNLOADS_ROOT=/data/downloads
+      - SIQ_DB_ROOT=/app/db
+      - DATABASE_URL=postgresql+psycopg://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/siq
+      - REDIS_URL=redis://redis:6379/0
+      - SIQ_AUTH_SECRET_KEY=${SIQ_AUTH_SECRET_KEY:?SIQ_AUTH_SECRET_KEY is required}
+      - SIQ_AUTH_SECRET_KEY=${SIQ_AUTH_SECRET_KEY:?SIQ_AUTH_SECRET_KEY is required}
+      - SIQ_ALLOW_REGISTRATION=${SIQ_ALLOW_REGISTRATION:-0}
+      - SIQ_ALLOW_REGISTRATION=${SIQ_ALLOW_REGISTRATION:-0}
+      - SIQ_DEMO_MODE=${SIQ_DEMO_MODE:-0}
+      - SIQ_DEMO_MODE=${SIQ_DEMO_MODE:-0}
+      - SIQ_PDF2MD_API_BASE=http://pdf-parser:15000
+      - PDF2MD_API_BASE=http://pdf-parser:15000
+      - SIQ_REPORT_FINDER_BASE=http://report-finder:8000
+      - REPORT_FINDER_BASE=http://report-finder:8000
+      - SIQ_REPORT_FINDER_HEALTH_URL=http://report-finder:8000/health
+      - SIQ_PDF2MD_HEALTH_URL=http://pdf-parser:15000/api/health
+      - PDF2MD_ACCESS_TOKEN=${PDF2MD_ACCESS_TOKEN:?PDF2MD_ACCESS_TOKEN is required}
+    volumes:
+      - wiki_data:/data/wiki
+      - downloads_data:/data/downloads
+      - ../../data/backend:/app/data
+      - ../../db:/app/db:ro
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+
+  # PDF下载服务
+  report-finder:
+    profiles: ["external-services"]
+    build:
+      context: ../../services/report-finder
+      dockerfile: Dockerfile
+    ports:
+      - "${SIQ_REPORT_FINDER_PORT:-18000}:8000"
+    volumes:
+      - downloads_data:/app/downloads
+    restart: unless-stopped
+
+  # PDF解析服务
+  pdf-parser:
+    build:
+      context: ../../apps/pdf-parser
+      dockerfile: Dockerfile
+    ports:
+      - "${SIQ_PDF2MD_PORT:-15000}:15000"
+    environment:
+      - MINERU_API_URL=${MINERU_API_URL:-http://host.docker.internal:8003}
+      - VLM_API_URL=${VLM_API_URL:-http://host.docker.internal:8002}
+      - PDF2MD_ACCESS_TOKEN=${PDF2MD_ACCESS_TOKEN:?PDF2MD_ACCESS_TOKEN is required}
+      - SIQ_PDF2MD_DATA_DIR=/app/data
+      - PORT=15000
+    volumes:
+      - ../../data/pdf-parser:/app/data
+    restart: unless-stopped
+
+  # PostgreSQL数据库
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "${SIQ_POSTGRES_PORT:-15432}:5432"
+    environment:
+      - POSTGRES_DB=siq
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - ../../data/postgres/raw-container-data/data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  # Redis缓存（新增）
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${SIQ_REDIS_PORT:-16379}:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+  # 监控面板（新增）
+  grafana:
+    profiles: ["monitoring"]
+    image: grafana/grafana:latest
+    ports:
+      - "${SIQ_GRAFANA_PORT:-13001}:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:?GRAFANA_PASSWORD is required}
+    volumes:
+      - grafana_data:/var/lib/grafana
+    restart: unless-stopped
+
+volumes:
+  wiki_data:
+  downloads_data:
+  redis_data:
+  grafana_data:
+
+networks:
+  default:
+    name: siq_network
