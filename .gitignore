@@ -68,11 +68,15 @@ apps/api/.finsight/
 apps/web/node_modules/
 apps/web/dist/
 apps/web/logs/
+apps/web/public/pet/agent-drafts/beauty-candidates/
+apps/web/public/pet/agent-drafts/legal-selected/
+apps/web/public/videos/system-intro*
 data/backend/chat_uploads/
 data/backend/llm_costs/
 data/backend/.siq/
 data/backend/.finsight/
 data/backend/*.db
+data/database-legacy/
 data/hermes/
 data/legal-docs/
 data/minio/
@@ -88,6 +92,10 @@ archive/assets/
 *.zip
 *.7z
 *.dump
+*.bak
+*.bak-*
+*.backup
+*.old
 
 # OS/editor noise
 .DS_Store
