@@ -246,18 +246,21 @@ def _enqueue_task(source: SourceFile, config: ParseConfig, task_id: str | None =
 def _process_task(task_id: str, source: SourceFile, config: ParseConfig, document_kind: str | None = None) -> dict:
     document_kind = document_kind or document_kind_for_extension(source.extension)
     try:
-        store.update_task(task_id, status=DETECTING_TYPE, stage=DETECTING_TYPE, progress_percent=15, document_kind=document_kind)
-        store.add_log(task_id, f"识别文件类型: {document_kind}")
-        if (store.get_task(task_id) or {}).get("status") == CANCELLED:
+        if not store.update_task_unless_cancelled(task_id, status=DETECTING_TYPE, stage=DETECTING_TYPE, progress_percent=15, document_kind=document_kind):
             store.add_log(task_id, "任务已取消，跳过解析")
             return store.get_task(task_id) or {"task_id": task_id, "status": CANCELLED}
-        store.update_task(task_id, status=RUNNING, stage=RUNNING, progress_percent=40)
+        store.add_log(task_id, f"识别文件类型: {document_kind}")
+        if not store.update_task_unless_cancelled(task_id, status=RUNNING, stage=RUNNING, progress_percent=40):
+            store.add_log(task_id, "任务已取消，跳过解析")
+            return store.get_task(task_id) or {"task_id": task_id, "status": CANCELLED}
         output = parse_source(task_id, source, config, document_kind)
         store.add_log(task_id, f"解析 provider: {output.provider_name}")
         if (store.get_task(task_id) or {}).get("status") == CANCELLED:
             store.add_log(task_id, "任务已取消，跳过产物生成")
             return store.get_task(task_id) or {"task_id": task_id, "status": CANCELLED}
-        store.update_task(task_id, status=POSTPROCESSING, stage=POSTPROCESSING, progress_percent=82, parser_provider=output.provider_name)
+        if not store.update_task_unless_cancelled(task_id, status=POSTPROCESSING, stage=POSTPROCESSING, progress_percent=82, parser_provider=output.provider_name):
+            store.add_log(task_id, "任务已取消，跳过产物生成")
+            return store.get_task(task_id) or {"task_id": task_id, "status": CANCELLED}
         manifest = build_artifacts(
             task_id=task_id,
             result_dir=_task_result_dir(task_id),
@@ -269,7 +272,7 @@ def _process_task(task_id: str, source: SourceFile, config: ParseConfig, documen
         )
         status = COMPLETED if manifest.get("quality_status") == "pass" else COMPLETED_WITH_WARNINGS
         artifacts = artifact_summary(task_id, _task_result_dir(task_id))
-        store.update_task(
+        store.update_task_unless_cancelled(
             task_id,
             status=status,
             stage=status,

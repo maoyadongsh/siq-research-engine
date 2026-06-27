@@ -114,6 +114,26 @@ class TaskStore:
         with self.connect() as conn:
             conn.execute(f"UPDATE tasks SET {', '.join(keys)} WHERE task_id = ?", values)
 
+    def update_task_unless_cancelled(self, task_id: str, **fields: Any) -> bool:
+        if not fields:
+            return True
+        fields["updated_at"] = now_iso()
+        keys = []
+        values = []
+        for key, value in fields.items():
+            if key == "config":
+                key = "config_json"
+                value = json.dumps(value, ensure_ascii=False)
+            keys.append(f"{key} = ?")
+            values.append(value)
+        values.append(task_id)
+        with self.connect() as conn:
+            cursor = conn.execute(
+                f"UPDATE tasks SET {', '.join(keys)} WHERE task_id = ? AND status != 'cancelled'",
+                values,
+            )
+            return int(cursor.rowcount or 0) > 0
+
     def add_log(self, task_id: str, message: str, level: str = "info") -> None:
         with self.connect() as conn:
             conn.execute(
