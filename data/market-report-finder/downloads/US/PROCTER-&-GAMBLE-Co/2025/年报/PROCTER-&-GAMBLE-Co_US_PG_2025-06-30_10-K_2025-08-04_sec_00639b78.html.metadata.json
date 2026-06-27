@@ -1,0 +1,36 @@
+{
+  "candidate": {
+    "source_id": "sec",
+    "source_name": "SEC EDGAR",
+    "source_domain": "sec.gov",
+    "market": "US",
+    "company_id": "80424",
+    "ticker": "PG",
+    "company_name": "PROCTER & GAMBLE Co",
+    "report_type": "10-K",
+    "report_family": "annual",
+    "form": "10-K",
+    "title": "FY2425 10-K",
+    "accession_number": "0000080424-25-000076",
+    "primary_document": "pg-20250630.htm",
+    "report_end": "2025-06-30",
+    "published_at": "2025-08-04",
+    "accepted_at": "2025-08-04T20:20:16Z",
+    "document_url": "https://www.sec.gov/Archives/edgar/data/80424/000008042425000076/pg-20250630.htm",
+    "landing_url": "https://www.sec.gov/Archives/edgar/data/80424/000008042425000076/0000080424-25-000076-index.html",
+    "file_format": "html",
+    "language": null,
+    "inline_xbrl": true,
+    "metadata": {
+      "sec_submission_name": "PROCTER & GAMBLE Co",
+      "accession_no_dashes": "000008042425000076"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "PROCTER-&-GAMBLE-Co_US_PG_2025-06-30_10-K_2025-08-04_sec_00639b78.html",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/PROCTER-&-GAMBLE-Co/2025/年报/PROCTER-&-GAMBLE-Co_US_PG_2025-06-30_10-K_2025-08-04_sec_00639b78.html",
+    "size_bytes": 2491287,
+    "content_type": "text/html",
+    "content_sha256": "771cbdd953a63a343f4ddb4e09a90d81cca8b9209730ae27db63461e1562336f"
+  }
+}

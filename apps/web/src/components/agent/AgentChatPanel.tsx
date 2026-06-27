@@ -1,14 +1,10 @@
 import { useRef, useEffect, useCallback, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import {
-  Send,
-  Loader2,
-  Paperclip,
   Trash2,
   History,
   Plus,
   ChevronRight,
   ChevronLeft,
-  Copy,
 } from 'lucide-react'
 import { Tooltip } from '../ui'
 import { useToast } from '../../hooks/useToast'
@@ -18,11 +14,12 @@ import AgentAvatar, { type AgentAvatarState } from './AgentAvatar'
 import { agentKindFromApiPrefix } from './agentAvatarTypes'
 import AgentProgressCard from './AgentProgressCard'
 import type { AgentMessage } from '../../lib/useAgentChat'
-import MessageRenderer from '../chat/MessageRenderer'
-import MessageTimestamp from '../chat/MessageTimestamp'
 import SessionHistoryList from '../chat/SessionHistoryList'
-import ChatAttachmentList from '../chat/ChatAttachmentList'
 import ClearChatConfirmDialog from '../chat/ClearChatConfirmDialog'
+import ChatComposer from '../chat/ChatComposer'
+import ChatHeader from '../chat/ChatHeader'
+import ChatMessageList, { type ChatQuickQuestion } from '../chat/ChatMessageList'
+import ChatShell from '../chat/ChatShell'
 import { copyText } from '../../lib/clipboard'
 import { quickQuestionLabel, quickQuestionPrompt, type AgentQuickQuestionInput } from '../../lib/quickQuestions'
 
@@ -278,6 +275,25 @@ export default function AgentChatPanel({
     return sendMessage(text, messageContext, displayMessage)
   }
 
+  const quickQuestionItems: ChatQuickQuestion[] = quickQuestions.map((q) => {
+    const label = quickQuestionLabel(q)
+    const featured = typeof q !== 'string' && q.featured
+    return {
+      key: label,
+      label,
+      featured,
+      onClick: () => { sendPanelMessage(quickQuestionPrompt(q), context, label).catch(() => {}) },
+    }
+  })
+
+  const avatarStatusText = avatarState === 'thinking'
+    ? '正在思考'
+    : avatarState === 'replying'
+      ? '正在输出'
+      : avatarState === 'error'
+        ? '运行异常'
+        : '随时待命'
+
   if (collapsed) {
     return (
       <div className="premium-shell flex h-full w-14 shrink-0 flex-col items-center rounded-[22px] py-4">
@@ -310,83 +326,74 @@ export default function AgentChatPanel({
   }
 
   return (
-    <div
-      className="agent-chat-panel premium-shell relative flex h-full min-h-0 shrink-0 flex-col overflow-hidden rounded-[26px]"
+    <ChatShell
+      className="agent-chat-panel premium-shell relative flex h-full min-h-0 shrink-0 flex-col overflow-hidden rounded-[var(--radius-panel)]"
       style={{ width: `min(${panelWidth}px, calc(100vw - 1rem))` }}
-    >
-      <div
-        className="agent-panel-resize-handle"
-        role="separator"
-        aria-label="调整助手宽度"
-        aria-orientation="vertical"
-        aria-valuemin={MIN_PANEL_WIDTH}
-        aria-valuemax={maxPanelWidth}
-        aria-valuenow={panelWidth}
-        tabIndex={0}
-        onPointerDown={startResize}
-        onKeyDown={resizeWithKeyboard}
-      />
-      <div className="agent-chat-panel-header flex shrink-0 items-center justify-between border-b border-border/80 bg-white/52 px-4 py-3 backdrop-blur">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="premium-icon h-12 w-12 shrink-0 rounded-2xl">
-            <AgentAvatar kind={avatarKind} state={avatarState} size="sm" label={title} />
-          </div>
-          <div className="min-w-0">
-            <div className="truncate text-base font-semibold tracking-tight text-text">{title}</div>
-            <div className="truncate text-xs font-medium text-text-muted">
-              {avatarState === 'thinking'
-                ? '正在思考'
-                : avatarState === 'replying'
-                  ? '正在输出'
-                  : avatarState === 'error'
-                    ? '运行异常'
-                    : '随时待命'}
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center gap-1 shrink-0">
-          <Tooltip content="新建会话">
-            <button
-              onClick={createNewChat}
-              disabled={sending}
-              className="icon-button h-10 w-10 min-h-10 min-w-10 disabled:opacity-50"
-              aria-label="新建会话"
-            >
-              <Plus className="h-4 w-4" />
-            </button>
-          </Tooltip>
-          <Tooltip content="查看历史">
-            <button
-              onClick={showHistory}
-              className="icon-button h-10 w-10 min-h-10 min-w-10"
-              aria-label="查看历史"
-            >
-              <History className="h-4 w-4" />
-            </button>
-          </Tooltip>
-          <Tooltip content="清空会话">
-            <button
-              onClick={() => setClearConfirmOpen(true)}
-              disabled={sending}
-              className="icon-button h-10 w-10 min-h-10 min-w-10 disabled:opacity-50"
-              aria-label="删除历史"
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
-          </Tooltip>
-          <Tooltip content="收起">
-            <button
-              onClick={onToggle}
-              className="icon-button h-10 w-10 min-h-10 min-w-10"
-              aria-label="收起助手"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </Tooltip>
-        </div>
-      </div>
-
-      {historyOpen && (
+      header={
+        <>
+          <div
+            className="agent-panel-resize-handle"
+            role="separator"
+            aria-label="调整助手宽度"
+            aria-orientation="vertical"
+            aria-valuemin={MIN_PANEL_WIDTH}
+            aria-valuemax={maxPanelWidth}
+            aria-valuenow={panelWidth}
+            tabIndex={0}
+            onPointerDown={startResize}
+            onKeyDown={resizeWithKeyboard}
+          />
+          <ChatHeader
+            className="agent-chat-panel-header border-b border-border/80 bg-white/52 px-4 py-3 backdrop-blur"
+            avatar={<AgentAvatar kind={avatarKind} state={avatarState} size="sm" label={title} />}
+            title={title}
+            subtitle={avatarStatusText}
+            actions={
+              <>
+                <Tooltip content="新建会话">
+                  <button
+                    onClick={createNewChat}
+                    disabled={sending}
+                    className="icon-button h-10 w-10 min-h-10 min-w-10 disabled:opacity-50"
+                    aria-label="新建会话"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
+                </Tooltip>
+                <Tooltip content="查看历史">
+                  <button
+                    onClick={showHistory}
+                    className="icon-button h-10 w-10 min-h-10 min-w-10"
+                    aria-label="查看历史"
+                  >
+                    <History className="h-4 w-4" />
+                  </button>
+                </Tooltip>
+                <Tooltip content="清空会话">
+                  <button
+                    onClick={() => setClearConfirmOpen(true)}
+                    disabled={sending}
+                    className="icon-button h-10 w-10 min-h-10 min-w-10 disabled:opacity-50"
+                    aria-label="删除历史"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </Tooltip>
+                <Tooltip content="收起">
+                  <button
+                    onClick={onToggle}
+                    className="icon-button h-10 w-10 min-h-10 min-w-10"
+                    aria-label="收起助手"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </Tooltip>
+              </>
+            }
+          />
+        </>
+      }
+      history={historyOpen ? (
         <SessionHistoryList
           sessions={sessions}
           loading={loadingSessions}
@@ -395,168 +402,64 @@ export default function AgentChatPanel({
           onSelect={openSession}
           onClose={() => setHistoryOpen(false)}
         />
-      )}
-
-      <div className="agent-chat-panel-messages min-h-0 flex-1 overflow-y-auto px-4 py-4">
-        {messages.length === 0 && (
-          <div className="flex w-full flex-col items-center py-6 text-center">
-            <AgentAvatar kind={avatarKind} state={avatarState} size="xl" className="mb-3" label={title} />
-            <p className="mb-4 max-w-[18rem] text-sm leading-6 text-text-muted">{description}</p>
-            {quickQuestions.length > 0 && (
-              <div className={`quick-question-cloud quick-question-cloud-compact agent-quick-question-cloud ${quickQuestionClassName}`}>
-                {quickQuestions.map((q) => {
-                  const label = quickQuestionLabel(q)
-                  const featured = typeof q !== 'string' && q.featured
-                  return (
-                  <button
-                    key={label}
-                    onClick={() => { sendPanelMessage(quickQuestionPrompt(q), context, label).catch(() => {}) }}
-                    className={`premium-chip quick-question-chip ${featured ? 'quick-question-chip-featured' : ''}`}
-                  >
-                    {label}
-                  </button>
-                )})}
-              </div>
-            )}
-          </div>
-        )}
-
-        <div className="space-y-3">
-          {messages.map((msg, i) => (
-            <div
-              key={i}
-              className={`flex items-start gap-2 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-            >
-              {msg.role === 'assistant' && msg.streaming && i === messages.length - 1 && (
-                <div className="pointer-events-none mr-1 mt-auto -mb-1 shrink-0 self-end">
-                  <AgentAvatar
-                    kind={avatarKind}
-                    state={messageAvatarState(msg)}
-                    size="lg"
-                    label="当前智能体运行状态"
-                  />
-                </div>
-              )}
-              <div className={`flex flex-col ${msg.role === 'user' ? 'max-w-[84%] items-end' : 'max-w-[94%] items-start'}`}>
-                <div
-                  className={`w-fit max-w-full rounded-[20px] px-3.5 py-2.5 text-sm leading-relaxed shadow-sm ${
-                    msg.role === 'user'
-                      ? 'rounded-br-md bg-primary text-white'
-                      : 'rounded-bl-md border border-border bg-white/82 text-text'
-                  }`}
-                >
-                  {msg.content ? (
-                    <MessageRenderer
-                      content={msg.content}
-                      streaming={msg.streaming}
-                      variant={msg.role === 'user' ? 'user' : 'assistant'}
-                    />
-                  ) : (
-                    msg.streaming ? '正在思考…' : ''
-                  )}
-                  <ChatAttachmentList attachments={msg.attachments} />
-                  {msg.role === 'assistant' && msg.streaming && (
-                    <AgentProgressCard progress={msg.progress} compact />
-                  )}
-                  {msg.streaming && msg.content && (
-                    <span className="ml-0.5 inline-block h-3 w-1 animate-pulse bg-primary" />
-                  )}
-                  {msg.content && !msg.streaming && (
-                    <div className="chat-message-actions">
-                      <button
-                        type="button"
-                        className="chat-message-copy"
-                        onClick={() => copyMessage(msg.content)}
-                        aria-label="复制消息"
-                      >
-                        <Copy className="h-3 w-3" />
-                        复制
-                      </button>
-                    </div>
-                  )}
-                </div>
-                <MessageTimestamp value={msg.createdAt} align={msg.role === 'user' ? 'right' : 'left'} />
-              </div>
-            </div>
-          ))}
-        </div>
-        <div ref={messagesEnd} />
-      </div>
-
-      <div className="agent-chat-panel-composer chat-composer-section shrink-0 px-4 py-3">
-        <div className="chat-composer-wrap">
-          <div className="chat-composer-field">
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey && !composing) {
-                e.preventDefault()
-                sendPanelMessage(undefined, context).catch(() => {})
-              }
-            }}
-            onCompositionStart={() => setComposing(true)}
-            onCompositionEnd={() => setComposing(false)}
-            placeholder="输入问题…"
-            rows={1}
-            className="chat-composer-textarea chat-composer-textarea-compact"
-          />
-            <ChatAttachmentList attachments={attachments} composer onRemove={removeAttachment} />
-            <div className="chat-composer-footer">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword,text/markdown,text/plain,text/csv,application/json,application/rtf,.md,.markdown,.txt,.csv,.json,.rtf,.doc,.docx,.pdf"
-                multiple
-                className="hidden"
-                onChange={(e) => handleAttachmentChange(e.target.files)}
+      ) : null}
+      messages={
+        <ChatMessageList
+          messages={messages}
+          endRef={messagesEnd}
+          compact
+          emptyAvatar={<AgentAvatar kind={avatarKind} state={avatarState} size="xl" className="mb-3" label={title} />}
+          emptyDescription={description}
+          quickQuestions={quickQuestionItems}
+          quickQuestionClassName={`agent-quick-question-cloud ${quickQuestionClassName}`}
+          onCopyMessage={copyMessage}
+          renderStreamingAvatar={(msg) => (
+            <div className="pointer-events-none mr-1 mt-auto -mb-1 shrink-0 self-end">
+              <AgentAvatar
+                kind={avatarKind}
+                state={messageAvatarState(msg)}
+                size="lg"
+                label="当前智能体运行状态"
               />
-              <button
-                className="chat-composer-tool"
-                aria-label="添加附件"
-                title="添加附件"
-                type="button"
-                disabled={sending || uploadingAttachments}
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <Paperclip className="h-4 w-4" />
-              </button>
-              <div className="chat-composer-actions">
-                <button
-                  type="button"
-                  onClick={createNewChat}
-                  disabled={sending}
-                  className="chat-composer-tool"
-                  aria-label="新建会话"
-                  title="新建会话"
-                >
-                  <Plus className="h-4 w-4" />
-                </button>
-                {sending && (
-                  <button onClick={stop} className="chat-composer-stop">
-                    停止
-                  </button>
-                )}
-                <button
-                  onClick={() => { sendPanelMessage(undefined, context).catch(() => {}) }}
-                  disabled={sending || uploadingAttachments || (!input.trim() && attachments.length === 0)}
-                  className="chat-composer-send"
-                  aria-label="发送消息"
-                >
-                  {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                </button>
-              </div>
             </div>
-          </div>
-        </div>
-      </div>
-      <ClearChatConfirmDialog
-        open={clearConfirmOpen}
-        disabled={sending}
-        onOpenChange={setClearConfirmOpen}
-        onConfirm={deleteHistory}
-      />
-    </div>
+          )}
+          renderProgress={(msg) => msg.streaming ? <AgentProgressCard progress={msg.progress} compact /> : null}
+          userMessageClassName="chat-message-bubble w-fit max-w-full rounded-[18px] rounded-br-md bg-primary px-3.5 py-2.5 text-sm leading-relaxed text-white shadow-sm"
+          assistantMessageClassName="chat-message-bubble w-fit max-w-full rounded-[18px] rounded-bl-md border border-border bg-white/82 px-3.5 py-2.5 text-sm leading-relaxed text-text shadow-sm"
+          messageGapClassName="space-y-3"
+        />
+      }
+      messagesClassName="agent-chat-panel-messages min-h-0 flex-1 overflow-y-auto px-4 py-4"
+      composer={
+        <ChatComposer
+          input={input}
+          setInput={setInput}
+          composing={composing}
+          setComposing={setComposing}
+          sending={sending}
+          uploadingAttachments={uploadingAttachments}
+          attachments={attachments}
+          textareaRef={textareaRef}
+          fileInputRef={fileInputRef}
+          onSend={() => { sendPanelMessage(undefined, context).catch(() => {}) }}
+          onStop={stop}
+          onNewChat={() => { createNewChat().catch(() => {}) }}
+          onAttachmentChange={(files) => { handleAttachmentChange(files).catch(() => {}) }}
+          onRemoveAttachment={removeAttachment}
+          placeholder="输入问题…"
+          compact
+          textareaIconSize="h-4 w-4"
+        />
+      }
+      composerClassName="agent-chat-panel-composer chat-composer-section shrink-0 px-4 py-3"
+      clearDialog={
+        <ClearChatConfirmDialog
+          open={clearConfirmOpen}
+          disabled={sending}
+          onOpenChange={setClearConfirmOpen}
+          onConfirm={deleteHistory}
+        />
+      }
+    />
   )
 }

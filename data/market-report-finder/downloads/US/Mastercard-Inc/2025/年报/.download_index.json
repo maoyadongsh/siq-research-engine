@@ -1,0 +1,38 @@
+{
+  "by_url": {
+    "https://www.sec.gov/Archives/edgar/data/1141391/000114139126000013/ma-20251231.htm": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/Mastercard-Inc/2025/年报/Mastercard-Inc_US_MA_2025-12-31_10-K_2026-02-11_sec_c43e3fa7.htm",
+      "file_name": "Mastercard-Inc_US_MA_2025-12-31_10-K_2026-02-11_sec_c43e3fa7.htm",
+      "content_type": "text/html",
+      "content_sha256": "9e2b0b6bc5a5e34b1336446219c74e65952fc390f1e83d82afff84f8e84a35e0",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/Mastercard-Inc/2025/年报/Mastercard-Inc_US_MA_2025-12-31_10-K_2026-02-11_sec_c43e3fa7.htm.metadata.json",
+      "market": "US",
+      "company_id": "MA",
+      "ticker": "MA",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-02-11",
+      "accession_number": "0001141391-26-000013"
+    }
+  },
+  "by_content_sha256": {
+    "9e2b0b6bc5a5e34b1336446219c74e65952fc390f1e83d82afff84f8e84a35e0": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/Mastercard-Inc/2025/年报/Mastercard-Inc_US_MA_2025-12-31_10-K_2026-02-11_sec_c43e3fa7.htm",
+      "file_name": "Mastercard-Inc_US_MA_2025-12-31_10-K_2026-02-11_sec_c43e3fa7.htm",
+      "content_type": "text/html",
+      "content_sha256": "9e2b0b6bc5a5e34b1336446219c74e65952fc390f1e83d82afff84f8e84a35e0",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/Mastercard-Inc/2025/年报/Mastercard-Inc_US_MA_2025-12-31_10-K_2026-02-11_sec_c43e3fa7.htm.metadata.json",
+      "market": "US",
+      "company_id": "MA",
+      "ticker": "MA",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-02-11",
+      "accession_number": "0001141391-26-000013"
+    }
+  }
+}

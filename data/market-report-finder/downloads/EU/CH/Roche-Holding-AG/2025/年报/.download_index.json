@@ -1,0 +1,60 @@
+{
+  "by_url": {
+    "https://assets.roche.com/f/176343/x/fa3c863601/ar25e.pdf": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/CH/Roche-Holding-AG/2025/年报/Roche-Holding-AG_EU_ROG_2025-12-31_年报_2026-01-29_six_direct_c5fc68dc.pdf",
+      "file_name": "Roche-Holding-AG_EU_ROG_2025-12-31_年报_2026-01-29_six_direct_c5fc68dc.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "111a16ec739a16fd93cb3554d9631dd68807c83928423e17377fd7204b65c064",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/CH/Roche-Holding-AG/2025/年报/Roche-Holding-AG_EU_ROG_2025-12-31_年报_2026-01-29_six_direct_c5fc68dc.pdf.metadata.json",
+      "market": "EU",
+      "company_id": "CH:ROG",
+      "ticker": "ROG",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-01-29",
+      "accession_number": "manual",
+      "country": "CH",
+      "source_tier": "official_direct"
+    },
+    "https://www.roche.com/investors/annualreport25": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/CH/Roche-Holding-AG/2025/年报/Roche-Holding-AG_EU_ROG_2025-12-31_年报_2026-01-29_six_direct_c5fc68dc.pdf",
+      "file_name": "Roche-Holding-AG_EU_ROG_2025-12-31_年报_2026-01-29_six_direct_c5fc68dc.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "111a16ec739a16fd93cb3554d9631dd68807c83928423e17377fd7204b65c064",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/CH/Roche-Holding-AG/2025/年报/Roche-Holding-AG_EU_ROG_2025-12-31_年报_2026-01-29_six_direct_c5fc68dc.pdf.metadata.json",
+      "market": "EU",
+      "company_id": "CH:ROG",
+      "ticker": "ROG",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-01-29",
+      "accession_number": "manual",
+      "country": "CH",
+      "source_tier": "official_direct"
+    }
+  },
+  "by_content_sha256": {
+    "111a16ec739a16fd93cb3554d9631dd68807c83928423e17377fd7204b65c064": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/CH/Roche-Holding-AG/2025/年报/Roche-Holding-AG_EU_ROG_2025-12-31_年报_2026-01-29_six_direct_c5fc68dc.pdf",
+      "file_name": "Roche-Holding-AG_EU_ROG_2025-12-31_年报_2026-01-29_six_direct_c5fc68dc.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "111a16ec739a16fd93cb3554d9631dd68807c83928423e17377fd7204b65c064",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/CH/Roche-Holding-AG/2025/年报/Roche-Holding-AG_EU_ROG_2025-12-31_年报_2026-01-29_six_direct_c5fc68dc.pdf.metadata.json",
+      "market": "EU",
+      "company_id": "CH:ROG",
+      "ticker": "ROG",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-01-29",
+      "accession_number": "manual",
+      "country": "CH",
+      "source_tier": "official_direct"
+    }
+  }
+}

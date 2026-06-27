@@ -1,0 +1,39 @@
+{
+  "candidate": {
+    "source_id": "hkex",
+    "source_name": "HKEXnews",
+    "source_domain": "www1.hkexnews.hk",
+    "market": "HK",
+    "company_id": "06862",
+    "ticker": "06862",
+    "company_name": "HAIDILAO",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "Annual Report 2025",
+    "accession_number": "12120952",
+    "primary_document": "2026042401134.pdf",
+    "report_end": "2025-12-31",
+    "published_at": "2026-04-24",
+    "accepted_at": null,
+    "document_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0424/2026042401134.pdf",
+    "landing_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0424/2026042401134.pdf",
+    "file_format": "pdf",
+    "language": "en",
+    "inline_xbrl": null,
+    "metadata": {
+      "news_id": "12120952",
+      "stock_name": "HAIDILAO",
+      "short_text": "Financial Statements/ESG Information - [Annual Report]",
+      "long_text": "Financial Statements/ESG Information - [Annual Report]",
+      "file_info": "3MB"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "HAIDILAO_HK_06862_2025-12-31_年报_2026-04-24_hkex_4f879c13.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/HAIDILAO/2025/年报/HAIDILAO_HK_06862_2025-12-31_年报_2026-04-24_hkex_4f879c13.pdf",
+    "size_bytes": 3168579,
+    "content_type": "application/pdf",
+    "content_sha256": "39893033fb9a7ba7fba8e3eaa1da7c17c60b3865793b724a1fa40bf095eff682"
+  }
+}

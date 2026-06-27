@@ -15,9 +15,8 @@ PROJECT_ROOT = Path(
     or Path(__file__).resolve().parents[2]
 ).expanduser().resolve()
 SQLITE_DBS = {
-    "pet": os.getenv("SIQ_PET_SQLITE_PATH")
-    or os.getenv("SIQ_PET_SQLITE_PATH")
-    or str(PROJECT_ROOT / "data" / "backend" / "pet.db"),
+    "agent": os.getenv("SIQ_AGENT_SQLITE_PATH")
+    or str(PROJECT_ROOT / "data" / "backend" / "agent.db"),
     "tasks": os.getenv("SIQ_PDF_TASK_DB_PATH")
     or os.getenv("TASK_DB_PATH")
     or os.getenv("SIQ_PDF_TASK_DB_PATH")

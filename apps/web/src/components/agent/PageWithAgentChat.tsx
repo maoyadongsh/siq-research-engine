@@ -41,7 +41,7 @@ export default function PageWithAgentChat({
       <div className="agent-chat-content min-w-0 flex-1 overflow-y-auto pr-1 xl:pr-0">{children}</div>
       {!agentOpen && (
         <button
-          className="agent-chat-fab fixed bottom-4 right-4 z-40 flex h-14 min-w-14 items-center justify-center gap-2 rounded-2xl border border-white/80 bg-white px-4 text-sm font-semibold text-text shadow-[0_16px_44px_rgba(15,23,42,0.16)] backdrop-blur [@media(min-width:640px)]:hidden"
+          className="agent-chat-fab fixed bottom-4 right-4 z-40 flex h-14 min-w-14 items-center justify-center gap-2 rounded-[var(--radius-panel)] border border-white/80 bg-white px-4 text-sm font-semibold text-text shadow-[0_16px_44px_rgba(15,23,42,0.16)] backdrop-blur [@media(min-width:640px)]:hidden"
           onClick={() => setAgentOpen(true)}
           aria-label={`打开${title}`}
         >

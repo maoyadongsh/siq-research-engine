@@ -1,0 +1,37 @@
+{
+  "candidate": {
+    "source_id": "eu_direct",
+    "source_name": "Official European filing direct download",
+    "source_domain": "www.sanofi.com",
+    "market": "EU",
+    "company_id": "FR:SAN",
+    "ticker": "SAN",
+    "company_name": "Sanofi",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "Sanofi Annual Report on Form 20-F 2025",
+    "accession_number": "manual",
+    "primary_document": "2025-01-01-form-20-f-2025-en.pdf",
+    "report_end": "2025-12-31",
+    "published_at": "2026-02-20",
+    "accepted_at": null,
+    "document_url": "https://www.sanofi.com/assets/dotcom/content-app/publications/annual-report-on-form-20-f/2025-01-01-form-20-f-2025-en.pdf",
+    "landing_url": "https://www.sanofi.com/en/investors/financial-reports-and-regulated-information",
+    "file_format": "pdf",
+    "language": null,
+    "inline_xbrl": null,
+    "metadata": {
+      "country": "FR",
+      "country_label": "France",
+      "source_tier": "official_direct"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "Sanofi_EU_SAN_2025-12-31_年报_2026-02-20_eu_direct_9600d371.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/FR/Sanofi/2025/年报/Sanofi_EU_SAN_2025-12-31_年报_2026-02-20_eu_direct_9600d371.pdf",
+    "size_bytes": 11698399,
+    "content_type": "application/pdf",
+    "content_sha256": "3168f717afadf4fd40e6af62c12a3e02f18d574aeb8124de7fed056dbf0ccd4e"
+  }
+}

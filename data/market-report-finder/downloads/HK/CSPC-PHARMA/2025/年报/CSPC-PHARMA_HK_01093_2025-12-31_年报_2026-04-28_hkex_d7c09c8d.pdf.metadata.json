@@ -1,0 +1,39 @@
+{
+  "candidate": {
+    "source_id": "hkex",
+    "source_name": "HKEXnews",
+    "source_domain": "www1.hkexnews.hk",
+    "market": "HK",
+    "company_id": "01093",
+    "ticker": "01093",
+    "company_name": "CSPC PHARMA",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "2025 ANNUAL REPORT",
+    "accession_number": "12130178",
+    "primary_document": "2026042803421.pdf",
+    "report_end": "2025-12-31",
+    "published_at": "2026-04-28",
+    "accepted_at": null,
+    "document_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0428/2026042803421.pdf",
+    "landing_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0428/2026042803421.pdf",
+    "file_format": "pdf",
+    "language": "en",
+    "inline_xbrl": null,
+    "metadata": {
+      "news_id": "12130178",
+      "stock_name": "CSPC PHARMA",
+      "short_text": "Financial Statements/ESG Information - [Annual Report]",
+      "long_text": "Financial Statements/ESG Information - [Annual Report]",
+      "file_info": "6MB"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "CSPC-PHARMA_HK_01093_2025-12-31_年报_2026-04-28_hkex_d7c09c8d.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/CSPC-PHARMA/2025/年报/CSPC-PHARMA_HK_01093_2025-12-31_年报_2026-04-28_hkex_d7c09c8d.pdf",
+    "size_bytes": 6424177,
+    "content_type": "application/pdf",
+    "content_sha256": "387f254be692ab92303ca2355479a60e0a0687e9afeb82c50fd631268802c384"
+  }
+}

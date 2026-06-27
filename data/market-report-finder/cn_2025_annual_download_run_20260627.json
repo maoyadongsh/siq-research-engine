@@ -1,0 +1,1175 @@
+{
+  "started_companies": 21,
+  "finished_companies": 50,
+  "pdf_files": 52,
+  "results": [
+    {
+      "ticker": "600519",
+      "name": "贵州茅台",
+      "exchange": "SSE Main",
+      "industry": "白酒/消费",
+      "size": "large",
+      "status": "skipped_existing"
+    },
+    {
+      "ticker": "601398",
+      "name": "工商银行",
+      "exchange": "SSE Main",
+      "industry": "银行",
+      "size": "large",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "工商银行"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "工商银行",
+        "ticker": "601398",
+        "company_id": "601398",
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "files": [
+          {
+            "title": "工商银行2025年度报告",
+            "form": "annual",
+            "report_type": "annual",
+            "report_family": "annual",
+            "report_end": "2025-12-31",
+            "published_at": "2026-03-27",
+            "accession_number": "1225047240",
+            "document_url": "https://static.cninfo.com.cn/finalpage/2026-03-28/1225047240.PDF",
+            "file_name": "工商银行_CN_601398_2025-12-31_年报_2026-03-27_cninfo_d71c6c0e.pdf",
+            "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/工商银行/2025/年报/工商银行_CN_601398_2025-12-31_年报_2026-03-27_cninfo_d71c6c0e.pdf",
+            "size_bytes": 9289165,
+            "cache_hit": false,
+            "error": null
+          }
+        ],
+        "download_dir": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads",
+        "checked_at": "2026-06-27T02:35:49.604351Z"
+      }
+    },
+    {
+      "ticker": "601318",
+      "name": "中国平安",
+      "exchange": "SSE Main",
+      "industry": "保险",
+      "size": "large",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "中国平安"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "中国平安",
+        "ticker": "601318",
+        "company_id": "601318",
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "files": [
+          {
+            "title": "中国平安2025年年度报告",
+            "form": "annual",
+            "report_type": "annual",
+            "report_family": "annual",
+            "report_end": "2025-12-31",
+            "published_at": "2026-03-26",
+            "accession_number": "1225038263",
+            "document_url": "https://static.cninfo.com.cn/finalpage/2026-03-27/1225038263.PDF",
+            "file_name": "中国平安_CN_601318_2025-12-31_年报_2026-03-26_cninfo_3125331e.pdf",
+            "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/中国平安/2025/年报/中国平安_CN_601318_2025-12-31_年报_2026-03-26_cninfo_3125331e.pdf",
+            "size_bytes": 9497402,
+            "cache_hit": false,
+            "error": null
+          }
+        ],
+        "download_dir": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads",
+        "checked_at": "2026-06-27T02:35:50.470644Z"
+      }
+    },
+    {
+      "ticker": "600900",
+      "name": "长江电力",
+      "exchange": "SSE Main",
+      "industry": "公用事业/电力",
+      "size": "large",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "长江电力"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "长江电力",
+        "ticker": "600900",
+        "company_id": "600900",
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "files": [
+          {
+            "title": "长江电力2025年年度报告",
+            "form": "annual",
+            "report_type": "annual",
+            "report_family": "annual",
+            "report_end": "2025-12-31",
+            "published_at": "2026-04-29",
+            "accession_number": "1225262036",
+            "document_url": "https://static.cninfo.com.cn/finalpage/2026-04-30/1225262036.PDF",
+            "file_name": "长江电力_CN_600900_2025-12-31_年报_2026-04-29_cninfo_927a53dc.pdf",
+            "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/长江电力/2025/年报/长江电力_CN_600900_2025-12-31_年报_2026-04-29_cninfo_927a53dc.pdf",
+            "size_bytes": 1533692,
+            "cache_hit": false,
+            "error": null
+          }
+        ],
+        "download_dir": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads",
+        "checked_at": "2026-06-27T02:35:51.268114Z"
+      }
+    },
+    {
+      "ticker": "601857",
+      "name": "中国石油",
+      "exchange": "SSE Main",
+      "industry": "能源",
+      "size": "large",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "中国石油"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "中国石油",
+        "ticker": "601857",
+        "company_id": "601857",
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "files": [
+          {
+            "title": "中国石油天然气股份有限公司2025年年报",
+            "form": "annual",
+            "report_type": "annual",
+            "report_family": "annual",
+            "report_end": "2025-12-31",
+            "published_at": "2026-03-29",
+            "accession_number": "1225049376",
+            "document_url": "https://static.cninfo.com.cn/finalpage/2026-03-30/1225049376.PDF",
+            "file_name": "中国石油_CN_601857_2025-12-31_年报_2026-03-29_cninfo_da7d8593.pdf",
+            "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/中国石油/2025/年报/中国石油_CN_601857_2025-12-31_年报_2026-03-29_cninfo_da7d8593.pdf",
+            "size_bytes": 9416509,
+            "cache_hit": false,
+            "error": null
+          }
+        ],
+        "download_dir": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads",
+        "checked_at": "2026-06-27T02:35:52.102203Z"
+      }
+    },
+    {
+      "ticker": "600276",
+      "name": "恒瑞医药",
+      "exchange": "SSE Main",
+      "industry": "医药",
+      "size": "large",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "恒瑞医药"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "恒瑞医药",
+        "ticker": "600276",
+        "company_id": "600276",
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "files": [
+          {
+            "title": "恒瑞医药2025年年度报告",
+            "form": "annual",
+            "report_type": "annual",
+            "report_family": "annual",
+            "report_end": "2025-12-31",
+            "published_at": "2026-03-25",
+            "accession_number": "1225032585",
+            "document_url": "https://static.cninfo.com.cn/finalpage/2026-03-26/1225032585.PDF",
+            "file_name": "恒瑞医药_CN_600276_2025-12-31_年报_2026-03-25_cninfo_0d6a48c9.pdf",
+            "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/恒瑞医药/2025/年报/恒瑞医药_CN_600276_2025-12-31_年报_2026-03-25_cninfo_0d6a48c9.pdf",
+            "size_bytes": 3457175,
+            "cache_hit": false,
+            "error": null
+          }
+        ],
+        "download_dir": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads",
+        "checked_at": "2026-06-27T02:35:52.933639Z"
+      }
+    },
+    {
+      "ticker": "601899",
+      "name": "紫金矿业",
+      "exchange": "SSE Main",
+      "industry": "有色金属",
+      "size": "large",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "紫金矿业"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "紫金矿业",
+        "ticker": "601899",
+        "company_id": "601899",
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "files": [
+          {
+            "title": "紫金矿业集团股份有限公司2025年年度报告",
+            "form": "annual",
+            "report_type": "annual",
+            "report_family": "annual",
+            "report_end": "2025-12-31",
+            "published_at": "2026-03-20",
+            "accession_number": "1225023658",
+            "document_url": "https://static.cninfo.com.cn/finalpage/2026-03-21/1225023658.PDF",
+            "file_name": "紫金矿业_CN_601899_2025-12-31_年报_2026-03-20_cninfo_643470b2.pdf",
+            "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/紫金矿业/2025/年报/紫金矿业_CN_601899_2025-12-31_年报_2026-03-20_cninfo_643470b2.pdf",
+            "size_bytes": 79925886,
+            "cache_hit": false,
+            "error": null
+          }
+        ],
+        "download_dir": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads",
+        "checked_at": "2026-06-27T02:35:54.458812Z"
+      }
+    },
+    {
+      "ticker": "601012",
+      "name": "隆基绿能",
+      "exchange": "SSE Main",
+      "industry": "新能源",
+      "size": "mid-large",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "隆基绿能"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "隆基绿能",
+        "ticker": "601012",
+        "company_id": "601012",
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "files": [
+          {
+            "title": "2025年年度报告",
+            "form": "annual",
+            "report_type": "annual",
+            "report_family": "annual",
+            "report_end": "2025-12-31",
+            "published_at": "2026-04-28",
+            "accession_number": "1225251647",
+            "document_url": "https://static.cninfo.com.cn/finalpage/2026-04-29/1225251647.PDF",
+            "file_name": "隆基绿能_CN_601012_2025-12-31_年报_2026-04-28_cninfo_0d83b7ce.pdf",
+            "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/隆基绿能/2025/年报/隆基绿能_CN_601012_2025-12-31_年报_2026-04-28_cninfo_0d83b7ce.pdf",
+            "size_bytes": 3311470,
+            "cache_hit": false,
+            "error": null
+          }
+        ],
+        "download_dir": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads",
+        "checked_at": "2026-06-27T02:35:55.290258Z"
+      }
+    },
+    {
+      "ticker": "603288",
+      "name": "海天味业",
+      "exchange": "SSE Main",
+      "industry": "食品饮料",
+      "size": "large",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "海天味业"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "海天味业",
+        "ticker": "603288",
+        "company_id": "603288",
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "files": [
+          {
+            "title": "海天味业2025年年度报告",
+            "form": "annual",
+            "report_type": "annual",
+            "report_family": "annual",
+            "report_end": "2025-12-31",
+            "published_at": "2026-03-26",
+            "accession_number": "1225038237",
+            "document_url": "https://static.cninfo.com.cn/finalpage/2026-03-27/1225038237.PDF",
+            "file_name": "海天味业_CN_603288_2025-12-31_年报_2026-03-26_cninfo_59f37482.pdf",
+            "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/海天味业/2025/年报/海天味业_CN_603288_2025-12-31_年报_2026-03-26_cninfo_59f37482.pdf",
+            "size_bytes": 3366549,
+            "cache_hit": false,
+            "error": null
+          }
+        ],
+        "download_dir": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads",
+        "checked_at": "2026-06-27T02:35:56.135573Z"
+      }
+    },
+    {
+      "ticker": "600887",
+      "name": "伊利股份",
+      "exchange": "SSE Main",
+      "industry": "乳制品",
+      "size": "large",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "伊利股份"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "伊利股份",
+        "ticker": "600887",
+        "company_id": "600887",
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "files": [
+          {
+            "title": "内蒙古伊利实业集团股份有限公司2025年年度报告",
+            "form": "annual",
+            "report_type": "annual",
+            "report_family": "annual",
+            "report_end": "2025-12-31",
+            "published_at": "2026-04-29",
+            "accession_number": "1225259562",
+            "document_url": "https://static.cninfo.com.cn/finalpage/2026-04-30/1225259562.PDF",
+            "file_name": "伊利股份_CN_600887_2025-12-31_年报_2026-04-29_cninfo_ef988688.pdf",
+            "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/伊利股份/2025/年报/伊利股份_CN_600887_2025-12-31_年报_2026-04-29_cninfo_ef988688.pdf",
+            "size_bytes": 1502184,
+            "cache_hit": false,
+            "error": null
+          }
+        ],
+        "download_dir": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads",
+        "checked_at": "2026-06-27T02:35:56.955163Z"
+      }
+    },
+    {
+      "ticker": "603259",
+      "name": "药明康德",
+      "exchange": "SSE Main",
+      "industry": "医药服务",
+      "size": "large",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "药明康德"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "药明康德",
+        "ticker": "603259",
+        "company_id": "603259",
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "files": [
+          {
+            "title": "2025年年度报告",
+            "form": "annual",
+            "report_type": "annual",
+            "report_family": "annual",
+            "report_end": "2025-12-31",
+            "published_at": "2026-03-23",
+            "accession_number": "1225025225",
+            "document_url": "https://static.cninfo.com.cn/finalpage/2026-03-24/1225025225.PDF",
+            "file_name": "药明康德_CN_603259_2025-12-31_年报_2026-03-23_cninfo_7b742aa5.pdf",
+            "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/药明康德/2025/年报/药明康德_CN_603259_2025-12-31_年报_2026-03-23_cninfo_7b742aa5.pdf",
+            "size_bytes": 1608226,
+            "cache_hit": false,
+            "error": null
+          }
+        ],
+        "download_dir": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads",
+        "checked_at": "2026-06-27T02:35:57.752563Z"
+      }
+    },
+    {
+      "ticker": "601088",
+      "name": "中国神华",
+      "exchange": "SSE Main",
+      "industry": "煤炭能源",
+      "size": "large",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "中国神华"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "中国神华",
+        "ticker": "601088",
+        "company_id": "601088",
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "files": [
+          {
+            "title": "中国神华2025年度报告",
+            "form": "annual",
+            "report_type": "annual",
+            "report_family": "annual",
+            "report_end": "2025-12-31",
+            "published_at": "2026-03-30",
+            "accession_number": "1225064293",
+            "document_url": "https://static.cninfo.com.cn/finalpage/2026-03-31/1225064293.PDF",
+            "file_name": "中国神华_CN_601088_2025-12-31_年报_2026-03-30_cninfo_0eb7ec5f.pdf",
+            "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/中国神华/2025/年报/中国神华_CN_601088_2025-12-31_年报_2026-03-30_cninfo_0eb7ec5f.pdf",
+            "size_bytes": 6100255,
+            "cache_hit": false,
+            "error": null
+          }
+        ],
+        "download_dir": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads",
+        "checked_at": "2026-06-27T02:35:58.579749Z"
+      }
+    },
+    {
+      "ticker": "600031",
+      "name": "三一重工",
+      "exchange": "SSE Main",
+      "industry": "工程机械",
+      "size": "large",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "三一重工"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "三一重工",
+        "ticker": "600031",
+        "company_id": "600031",
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "files": [
+          {
+            "title": "三一重工股份有限公司2025年年度报告",
+            "form": "annual",
+            "report_type": "annual",
+            "report_family": "annual",
+            "report_end": "2025-12-31",
+            "published_at": "2026-03-30",
+            "accession_number": "1225061378",
+            "document_url": "https://static.cninfo.com.cn/finalpage/2026-03-31/1225061378.PDF",
+            "file_name": "三一重工_CN_600031_2025-12-31_年报_2026-03-30_cninfo_eb43105f.pdf",
+            "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/三一重工/2025/年报/三一重工_CN_600031_2025-12-31_年报_2026-03-30_cninfo_eb43105f.pdf",
+            "size_bytes": 1682689,
+            "cache_hit": false,
+            "error": null
+          }
+        ],
+        "download_dir": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads",
+        "checked_at": "2026-06-27T02:35:59.342036Z"
+      }
+    },
+    {
+      "ticker": "600406",
+      "name": "国电南瑞",
+      "exchange": "SSE Main",
+      "industry": "电力设备",
+      "size": "large",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "国电南瑞"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "国电南瑞",
+        "ticker": "600406",
+        "company_id": "600406",
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "files": [
+          {
+            "title": "国电南瑞2025年年度报告",
+            "form": "annual",
+            "report_type": "annual",
+            "report_family": "annual",
+            "report_end": "2025-12-31",
+            "published_at": "2026-04-29",
+            "accession_number": "1225257886",
+            "document_url": "https://static.cninfo.com.cn/finalpage/2026-04-30/1225257886.PDF",
+            "file_name": "国电南瑞_CN_600406_2025-12-31_年报_2026-04-29_cninfo_44fbef15.pdf",
+            "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/国电南瑞/2025/年报/国电南瑞_CN_600406_2025-12-31_年报_2026-04-29_cninfo_44fbef15.pdf",
+            "size_bytes": 2945464,
+            "cache_hit": false,
+            "error": null
+          }
+        ],
+        "download_dir": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads",
+        "checked_at": "2026-06-27T02:36:00.140052Z"
+      }
+    },
+    {
+      "ticker": "600570",
+      "name": "恒生电子",
+      "exchange": "SSE Main",
+      "industry": "金融科技软件",
+      "size": "mid",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "恒生电子"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "恒生电子",
+        "ticker": "600570",
+        "company_id": "600570",
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "files": [
+          {
+            "title": "恒生电子股份有限公司2025年年度报告",
+            "form": "annual",
+            "report_type": "annual",
+            "report_family": "annual",
+            "report_end": "2025-12-31",
+            "published_at": "2026-03-27",
+            "accession_number": "1225046858",
+            "document_url": "https://static.cninfo.com.cn/finalpage/2026-03-28/1225046858.PDF",
+            "file_name": "恒生电子_CN_600570_2025-12-31_年报_2026-03-27_cninfo_76ff18cc.pdf",
+            "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/恒生电子/2025/年报/恒生电子_CN_600570_2025-12-31_年报_2026-03-27_cninfo_76ff18cc.pdf",
+            "size_bytes": 1579440,
+            "cache_hit": false,
+            "error": null
+          }
+        ],
+        "download_dir": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads",
+        "checked_at": "2026-06-27T02:36:00.937015Z"
+      }
+    },
+    {
+      "ticker": "603501",
+      "name": "韦尔股份",
+      "exchange": "SSE Main",
+      "industry": "半导体",
+      "size": "mid-large",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "豪威集团"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "豪威集团",
+        "ticker": "603501",
+        "company_id": "603501",
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "files": [
+          {
+            "title": "2025年年度报告",
+            "form": "annual",
+            "report_type": "annual",
+            "report_family": "annual",
+            "report_end": "2025-12-31",
+            "published_at": "2026-03-30",
+            "accession_number": "1225055056",
+            "document_url": "https://static.cninfo.com.cn/finalpage/2026-03-31/1225055056.PDF",
+            "file_name": "豪威集团_CN_603501_2025-12-31_年报_2026-03-30_cninfo_5b53f8e6.pdf",
+            "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/豪威集团/2025/年报/豪威集团_CN_603501_2025-12-31_年报_2026-03-30_cninfo_5b53f8e6.pdf",
+            "size_bytes": 4322696,
+            "cache_hit": false,
+            "error": null
+          }
+        ],
+        "download_dir": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads",
+        "checked_at": "2026-06-27T02:36:01.775285Z"
+      }
+    },
+    {
+      "ticker": "603986",
+      "name": "兆易创新",
+      "exchange": "SSE Main",
+      "industry": "半导体存储",
+      "size": "mid",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "兆易创新"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "兆易创新",
+        "ticker": "603986",
+        "company_id": "603986",
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "files": [
+          {
+            "title": "兆易创新2025年年度报告",
+            "form": "annual",
+            "report_type": "annual",
+            "report_family": "annual",
+            "report_end": "2025-12-31",
+            "published_at": "2026-03-30",
+            "accession_number": "1225061352",
+            "document_url": "https://static.cninfo.com.cn/finalpage/2026-03-31/1225061352.PDF",
+            "file_name": "兆易创新_CN_603986_2025-12-31_年报_2026-03-30_cninfo_cbc7908c.pdf",
+            "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/兆易创新/2025/年报/兆易创新_CN_603986_2025-12-31_年报_2026-03-30_cninfo_cbc7908c.pdf",
+            "size_bytes": 3970460,
+            "cache_hit": false,
+            "error": null
+          }
+        ],
+        "download_dir": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads",
+        "checked_at": "2026-06-27T02:36:02.688154Z"
+      }
+    },
+    {
+      "ticker": "605499",
+      "name": "东鹏饮料",
+      "exchange": "SSE Main",
+      "industry": "食品饮料",
+      "size": "mid-large",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "东鹏饮料"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "东鹏饮料",
+        "ticker": "605499",
+        "company_id": "605499",
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "files": [
+          {
+            "title": "东鹏饮料（集团）股份有限公司2025年年度报告",
+            "form": "annual",
+            "report_type": "annual",
+            "report_family": "annual",
+            "report_end": "2025-12-31",
+            "published_at": "2026-03-30",
+            "accession_number": "1225063447",
+            "document_url": "https://static.cninfo.com.cn/finalpage/2026-03-31/1225063447.PDF",
+            "file_name": "东鹏饮料_CN_605499_2025-12-31_年报_2026-03-30_cninfo_fa074c88.pdf",
+            "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/东鹏饮料/2025/年报/东鹏饮料_CN_605499_2025-12-31_年报_2026-03-30_cninfo_fa074c88.pdf",
+            "size_bytes": 1694393,
+            "cache_hit": false,
+            "error": null
+          }
+        ],
+        "download_dir": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads",
+        "checked_at": "2026-06-27T02:36:03.487071Z"
+      }
+    },
+    {
+      "ticker": "688981",
+      "name": "中芯国际",
+      "exchange": "STAR",
+      "industry": "半导体制造",
+      "size": "large",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "中芯国际"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "中芯国际",
+        "ticker": "688981",
+        "company_id": "688981",
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "files": [
+          {
+            "title": "港股公告：2025年年报",
+            "form": "annual",
+            "report_type": "annual",
+            "report_family": "annual",
+            "report_end": "2025-12-31",
+            "published_at": "2026-04-08",
+            "accession_number": "1225084819",
+            "document_url": "https://static.cninfo.com.cn/finalpage/2026-04-09/1225084819.PDF",
+            "file_name": "中芯国际_CN_688981_2025-12-31_年报_2026-04-08_cninfo_00296115.pdf",
+            "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/中芯国际/2025/年报/中芯国际_CN_688981_2025-12-31_年报_2026-04-08_cninfo_00296115.pdf",
+            "size_bytes": 42897717,
+            "cache_hit": false,
+            "error": null
+          }
+        ],
+        "download_dir": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads",
+        "checked_at": "2026-06-27T02:36:05.152026Z"
+      }
+    },
+    {
+      "ticker": "688111",
+      "name": "金山办公",
+      "exchange": "STAR",
+      "industry": "软件",
+      "size": "mid-large",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "金山办公"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "金山办公",
+        "ticker": "688111",
+        "company_id": "688111",
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "files": [
+          {
+            "title": "金山办公2025年年度报告",
+            "form": "annual",
+            "report_type": "annual",
+            "report_family": "annual",
+            "report_end": "2025-12-31",
+            "published_at": "2026-03-25",
+            "accession_number": "1225032227",
+            "document_url": "https://static.cninfo.com.cn/finalpage/2026-03-26/1225032227.PDF",
+            "file_name": "金山办公_CN_688111_2025-12-31_年报_2026-03-25_cninfo_b45504ff.pdf",
+            "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/金山办公/2025/年报/金山办公_CN_688111_2025-12-31_年报_2026-03-25_cninfo_b45504ff.pdf",
+            "size_bytes": 1867850,
+            "cache_hit": false,
+            "error": null
+          }
+        ],
+        "download_dir": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads",
+        "checked_at": "2026-06-27T02:36:05.979326Z"
+      }
+    },
+    {
+      "ticker": "688012",
+      "name": "中微公司",
+      "exchange": "STAR",
+      "industry": "半导体设备",
+      "size": "mid-large",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "中微公司"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "中微公司",
+        "ticker": "688012",
+        "company_id": "688012",
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "files": [
+          {
+            "title": "2025年年度报告",
+            "form": "annual",
+            "report_type": "annual",
+            "report_family": "annual",
+            "report_end": "2025-12-31",
+            "published_at": "2026-03-30",
+            "accession_number": "1225062431",
+            "document_url": "https://static.cninfo.com.cn/finalpage/2026-03-31/1225062431.PDF",
+            "file_name": "中微公司_CN_688012_2025-12-31_年报_2026-03-30_cninfo_1b2a5c5c.pdf",
+            "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/中微公司/2025/年报/中微公司_CN_688012_2025-12-31_年报_2026-03-30_cninfo_1b2a5c5c.pdf",
+            "size_bytes": 9165875,
+            "cache_hit": false,
+            "error": null
+          }
+        ],
+        "download_dir": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads",
+        "checked_at": "2026-06-27T02:36:06.908995Z"
+      }
+    },
+    {
+      "ticker": "688041",
+      "name": "海光信息",
+      "exchange": "STAR",
+      "industry": "芯片设计",
+      "size": "large",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "海光信息"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "海光信息",
+        "ticker": "688041",
+        "company_id": "688041",
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "files": [
+          {
+            "title": "海光信息技术股份有限公司2025年年度报告",
+            "form": "annual",
+            "report_type": "annual",
+            "report_family": "annual",
+            "report_end": "2025-12-31",
+            "published_at": "2026-04-07",
+            "accession_number": "1225083088",
+            "document_url": "https://static.cninfo.com.cn/finalpage/2026-04-08/1225083088.PDF",
+            "file_name": "海光信息_CN_688041_2025-12-31_年报_2026-04-07_cninfo_30f13023.pdf",
+            "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/海光信息/2025/年报/海光信息_CN_688041_2025-12-31_年报_2026-04-07_cninfo_30f13023.pdf",
+            "size_bytes": 1953281,
+            "cache_hit": false,
+            "error": null
+          }
+        ],
+        "download_dir": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads",
+        "checked_at": "2026-06-27T02:36:07.746277Z"
+      }
+    },
+    {
+      "ticker": "688008",
+      "name": "澜起科技",
+      "exchange": "STAR",
+      "industry": "芯片设计",
+      "size": "mid-large",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "澜起科技"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "澜起科技",
+        "ticker": "688008",
+        "company_id": "688008",
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "files": [
+          {
+            "title": "澜起科技2025年年度报告",
+            "form": "annual",
+            "report_type": "annual",
+            "report_family": "annual",
+            "report_end": "2025-12-31",
+            "published_at": "2026-03-30",
+            "accession_number": "1225057736",
+            "document_url": "https://static.cninfo.com.cn/finalpage/2026-03-31/1225057736.PDF",
+            "file_name": "澜起科技_CN_688008_2025-12-31_年报_2026-03-30_cninfo_29eb72a5.pdf",
+            "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/澜起科技/2025/年报/澜起科技_CN_688008_2025-12-31_年报_2026-03-30_cninfo_29eb72a5.pdf",
+            "size_bytes": 3717668,
+            "cache_hit": false,
+            "error": null
+          }
+        ],
+        "download_dir": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads",
+        "checked_at": "2026-06-27T02:36:08.572450Z"
+      }
+    },
+    {
+      "ticker": "688036",
+      "name": "传音控股",
+      "exchange": "STAR",
+      "industry": "消费电子",
+      "size": "large",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "传音控股"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "传音控股",
+        "ticker": "688036",
+        "company_id": "688036",
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "files": [
+          {
+            "title": "传音控股2025年年度报告",
+            "form": "annual",
+            "report_type": "annual",
+            "report_family": "annual",
+            "report_end": "2025-12-31",
+            "published_at": "2026-03-27",
+            "accession_number": "1225047544",
+            "document_url": "https://static.cninfo.com.cn/finalpage/2026-03-28/1225047544.PDF",
+            "file_name": "传音控股_CN_688036_2025-12-31_年报_2026-03-27_cninfo_33e8cb97.pdf",
+            "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/传音控股/2025/年报/传音控股_CN_688036_2025-12-31_年报_2026-03-27_cninfo_33e8cb97.pdf",
+            "size_bytes": 1517930,
+            "cache_hit": false,
+            "error": null
+          }
+        ],
+        "download_dir": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads",
+        "checked_at": "2026-06-27T02:36:09.383138Z"
+      }
+    },
+    {
+      "ticker": "688169",
+      "name": "石头科技",
+      "exchange": "STAR",
+      "industry": "智能硬件",
+      "size": "mid",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "石头科技"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "石头科技",
+        "ticker": "688169",
+        "company_id": "688169",
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "files": [
+          {
+            "title": "北京石头世纪科技股份有限公司2025年年度报告",
+            "form": "annual",
+            "report_type": "annual",
+            "report_family": "annual",
+            "report_end": "2025-12-31",
+            "published_at": "2026-04-22",
+            "accession_number": "1225147552",
+            "document_url": "https://static.cninfo.com.cn/finalpage/2026-04-23/1225147552.PDF",
+            "file_name": "石头科技_CN_688169_2025-12-31_年报_2026-04-22_cninfo_28efa50a.pdf",
+            "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/石头科技/2025/年报/石头科技_CN_688169_2025-12-31_年报_2026-04-22_cninfo_28efa50a.pdf",
+            "size_bytes": 2284649,
+            "cache_hit": false,
+            "error": null
+          }
+        ],
+        "download_dir": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads",
+        "checked_at": "2026-06-27T02:36:10.171515Z"
+      }
+    },
+    {
+      "ticker": "688223",
+      "name": "晶科能源",
+      "exchange": "STAR",
+      "industry": "光伏",
+      "size": "large",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "晶科能源"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "晶科能源",
+        "ticker": "688223",
+        "company_id": "688223",
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "files": [
+          {
+            "title": "晶科能源2025年年度报告",
+            "form": "annual",
+            "report_type": "annual",
+            "report_family": "annual",
+            "report_end": "2025-12-31",
+            "published_at": "2026-04-29",
+            "accession_number": "1225261496",
+            "document_url": "https://static.cninfo.com.cn/finalpage/2026-04-30/1225261496.PDF",
+            "file_name": "晶科能源_CN_688223_2025-12-31_年报_2026-04-29_cninfo_d3bcbed1.pdf",
+            "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/晶科能源/2025/年报/晶科能源_CN_688223_2025-12-31_年报_2026-04-29_cninfo_d3bcbed1.pdf",
+            "size_bytes": 1942177,
+            "cache_hit": false,
+            "error": null
+          }
+        ],
+        "download_dir": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads",
+        "checked_at": "2026-06-27T02:36:11.106828Z"
+      }
+    },
+    {
+      "ticker": "688303",
+      "name": "大全能源",
+      "exchange": "STAR",
+      "industry": "光伏材料",
+      "size": "mid",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "大全能源"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "大全能源",
+        "ticker": "688303",
+        "company_id": "688303",
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "files": [
+          {
+            "title": "新疆大全新能源股份有限公司2025年年度报告",
+            "form": "annual",
+            "report_type": "annual",
+            "report_family": "annual",
+            "report_end": "2025-12-31",
+            "published_at": "2026-04-20",
+            "accession_number": "1225132631",
+            "document_url": "https://static.cninfo.com.cn/finalpage/2026-04-21/1225132631.PDF",
+            "file_name": "大全能源_CN_688303_2025-12-31_年报_2026-04-20_cninfo_9233b753.pdf",
+            "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/大全能源/2025/年报/大全能源_CN_688303_2025-12-31_年报_2026-04-20_cninfo_9233b753.pdf",
+            "size_bytes": 1660821,
+            "cache_hit": false,
+            "error": null
+          }
+        ],
+        "download_dir": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads",
+        "checked_at": "2026-06-27T02:36:11.919838Z"
+      }
+    },
+    {
+      "ticker": "688363",
+      "name": "华熙生物",
+      "exchange": "STAR",
+      "industry": "生物科技/消费",
+      "size": "mid",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "华熙生物"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "华熙生物",
+        "ticker": "688363",
+        "company_id": "688363",
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "files": [
+          {
+            "title": "华熙生物2025年年度报告",
+            "form": "annual",
+            "report_type": "annual",
+            "report_family": "annual",
+            "report_end": "2025-12-31",
+            "published_at": "2026-04-22",
+            "accession_number": "1225151451",
+            "document_url": "https://static.cninfo.com.cn/finalpage/2026-04-23/1225151451.PDF",
+            "file_name": "华熙生物_CN_688363_2025-12-31_年报_2026-04-22_cninfo_16107f8e.pdf",
+            "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/华熙生物/2025/年报/华熙生物_CN_688363_2025-12-31_年报_2026-04-22_cninfo_16107f8e.pdf",
+            "size_bytes": 2115629,
+            "cache_hit": false,
+            "error": null
+          }
+        ],
+        "download_dir": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads",
+        "checked_at": "2026-06-27T02:36:12.763811Z"
+      }
+    },
+    {
+      "ticker": "688506",
+      "name": "百利天恒",
+      "exchange": "STAR",
+      "industry": "创新药",
+      "size": "mid",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "百利天恒"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "百利天恒",
+        "ticker": "688506",
+        "company_id": "688506",
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "files": [
+          {
+            "title": "四川百利天恒药业股份有限公司2025年年度报告",
+            "form": "annual",
+            "report_type": "annual",
+            "report_family": "annual",
+            "report_end": "2025-12-31",
+            "published_at": "2026-04-27",
+            "accession_number": "1225217117",
+            "document_url": "https://static.cninfo.com.cn/finalpage/2026-04-28/1225217117.PDF",
+            "file_name": "百利天恒_CN_688506_2025-12-31_年报_2026-04-27_cninfo_a2ff6e09.pdf",
+            "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/百利天恒/2025/年报/百利天恒_CN_688506_2025-12-31_年报_2026-04-27_cninfo_a2ff6e09.pdf",
+            "size_bytes": 3102474,
+            "cache_hit": false,
+            "error": null
+          }
+        ],
+        "download_dir": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads",
+        "checked_at": "2026-06-27T02:36:13.755831Z"
+      }
+    },
+    {
+      "ticker": "000333",
+      "name": "美的集团",
+      "exchange": "SZSE Main",
+      "industry": "家电",
+      "size": "large",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "美的集团"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "美的集团",
+        "ticker": "000333",
+        "company_id": "000333",
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "files": [
+          {
+            "title": "2025年年度报告",
+            "form": "annual",
+            "report_type": "annual",
+            "report_family": "annual",
+            "report_end": "2025-12-31",
+            "published_at": "2026-03-30",
+            "accession_number": "1225065145",
+            "document_url": "https://static.cninfo.com.cn/finalpage/2026-03-31/1225065145.PDF",
+            "file_name": "美的集团_CN_000333_2025-12-31_年报_2026-03-30_cninfo_de83c4bf.pdf",
+            "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/美的集团/2025/年报/美的集团_CN_000333_2025-12-31_年报_2026-03-30_cninfo_de83c4bf.pdf",
+            "size_bytes": 5942399,
+            "cache_hit": false,
+            "error": null
+          }
+        ],
+        "download_dir": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads",
+        "checked_at": "2026-06-27T02:36:15.569027Z"
+      }
+    }
+  ]
+}

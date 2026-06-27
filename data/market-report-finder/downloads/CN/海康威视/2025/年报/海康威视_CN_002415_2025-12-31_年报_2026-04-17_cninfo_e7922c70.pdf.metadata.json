@@ -1,0 +1,36 @@
+{
+  "candidate": {
+    "source_id": "cninfo",
+    "source_name": "巨潮资讯",
+    "source_domain": "www.cninfo.com.cn",
+    "market": "CN",
+    "company_id": "002415",
+    "ticker": "002415",
+    "company_name": "海康威视",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "2025年年度报告",
+    "accession_number": "1225123062",
+    "primary_document": "1225123062.PDF",
+    "report_end": "2025-12-31",
+    "published_at": "2026-04-17",
+    "accepted_at": null,
+    "document_url": "https://static.cninfo.com.cn/finalpage/2026-04-18/1225123062.PDF",
+    "landing_url": "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=002415&announcementId=1225123062&orgId=9900012688&announcementTime=2026-04-17",
+    "file_format": "pdf",
+    "language": "zh-CN",
+    "inline_xbrl": null,
+    "metadata": {
+      "org_id": "9900012688",
+      "plate": "sz"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "海康威视_CN_002415_2025-12-31_年报_2026-04-17_cninfo_e7922c70.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/海康威视/2025/年报/海康威视_CN_002415_2025-12-31_年报_2026-04-17_cninfo_e7922c70.pdf",
+    "size_bytes": 17337277,
+    "content_type": "application/pdf",
+    "content_sha256": "a805779efb81bea8158e119ad7c733c4669b8d492dc03c7613199970bfa4b8b2"
+  }
+}

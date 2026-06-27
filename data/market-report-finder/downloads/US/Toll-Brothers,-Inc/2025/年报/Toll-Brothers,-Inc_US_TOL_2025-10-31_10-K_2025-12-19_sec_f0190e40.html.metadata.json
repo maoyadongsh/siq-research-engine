@@ -1,0 +1,36 @@
+{
+  "candidate": {
+    "source_id": "sec",
+    "source_name": "SEC EDGAR",
+    "source_domain": "sec.gov",
+    "market": "US",
+    "company_id": "794170",
+    "ticker": "TOL",
+    "company_name": "Toll Brothers, Inc.",
+    "report_type": "10-K",
+    "report_family": "annual",
+    "form": "10-K",
+    "title": "10-K",
+    "accession_number": "0000794170-25-000112",
+    "primary_document": "tol-20251031.htm",
+    "report_end": "2025-10-31",
+    "published_at": "2025-12-19",
+    "accepted_at": "2025-12-19T21:31:31Z",
+    "document_url": "https://www.sec.gov/Archives/edgar/data/794170/000079417025000112/tol-20251031.htm",
+    "landing_url": "https://www.sec.gov/Archives/edgar/data/794170/000079417025000112/0000794170-25-000112-index.html",
+    "file_format": "html",
+    "language": null,
+    "inline_xbrl": true,
+    "metadata": {
+      "sec_submission_name": "Toll Brothers, Inc.",
+      "accession_no_dashes": "000079417025000112"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "Toll-Brothers,-Inc_US_TOL_2025-10-31_10-K_2025-12-19_sec_f0190e40.html",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/Toll-Brothers,-Inc/2025/年报/Toll-Brothers,-Inc_US_TOL_2025-10-31_10-K_2025-12-19_sec_f0190e40.html",
+    "size_bytes": 3109567,
+    "content_type": "text/html",
+    "content_sha256": "bf5badd0a62427d00c247c5d695589553f742e18bde6d6bc8274fe88182e0496"
+  }
+}

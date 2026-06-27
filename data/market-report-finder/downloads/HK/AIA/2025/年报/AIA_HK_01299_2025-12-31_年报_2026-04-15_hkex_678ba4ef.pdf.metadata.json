@@ -1,0 +1,39 @@
+{
+  "candidate": {
+    "source_id": "hkex",
+    "source_name": "HKEXnews",
+    "source_domain": "www1.hkexnews.hk",
+    "market": "HK",
+    "company_id": "01299",
+    "ticker": "01299",
+    "company_name": "AIA",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "Annual Report 2025",
+    "accession_number": "12106543",
+    "primary_document": "2026041500897.pdf",
+    "report_end": "2025-12-31",
+    "published_at": "2026-04-15",
+    "accepted_at": null,
+    "document_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0415/2026041500897.pdf",
+    "landing_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0415/2026041500897.pdf",
+    "file_format": "pdf",
+    "language": "en",
+    "inline_xbrl": null,
+    "metadata": {
+      "news_id": "12106543",
+      "stock_name": "AIA AIA-R",
+      "short_text": "Financial Statements/ESG Information - [Annual Report]",
+      "long_text": "Financial Statements/ESG Information - [Annual Report]",
+      "file_info": "3MB"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "AIA_HK_01299_2025-12-31_年报_2026-04-15_hkex_678ba4ef.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/AIA/2025/年报/AIA_HK_01299_2025-12-31_年报_2026-04-15_hkex_678ba4ef.pdf",
+    "size_bytes": 3330220,
+    "content_type": "application/pdf",
+    "content_sha256": "18537f928c3bb4879c35566252f2f8420c6a3a237016af4706b081a77d126977"
+  }
+}

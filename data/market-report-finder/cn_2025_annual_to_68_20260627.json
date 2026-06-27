@@ -1,0 +1,486 @@
+{
+  "results": [
+    {
+      "name": "格力电器",
+      "exchange": "SZSE Main",
+      "industry": "家电",
+      "size": "large",
+      "ticker": "000651",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "格力电器"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "格力电器",
+        "ticker": "000651",
+        "company_id": "000651",
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "files": [
+          {
+            "title": "2025年年度报告",
+            "form": "annual",
+            "report_type": "annual",
+            "report_family": "annual",
+            "report_end": "2025-12-31",
+            "published_at": "2026-04-28",
+            "accession_number": "1225250396",
+            "document_url": "https://static.cninfo.com.cn/finalpage/2026-04-29/1225250396.PDF",
+            "file_name": "格力电器_CN_000651_2025-12-31_年报_2026-04-28_cninfo_9afdfdd4.pdf",
+            "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/格力电器/2025/年报/格力电器_CN_000651_2025-12-31_年报_2026-04-28_cninfo_9afdfdd4.pdf",
+            "size_bytes": 2350012,
+            "cache_hit": false,
+            "error": null
+          }
+        ],
+        "download_dir": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads",
+        "checked_at": "2026-06-27T02:43:47.430280Z"
+      }
+    },
+    {
+      "name": "五粮液",
+      "exchange": "SZSE Main",
+      "industry": "白酒",
+      "size": "large",
+      "ticker": "000858",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "五-粮-液"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "五粮液",
+        "ticker": "000858",
+        "company_id": "000858",
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "files": [
+          {
+            "title": "2025年年度报告",
+            "form": "annual",
+            "report_type": "annual",
+            "report_family": "annual",
+            "report_end": "2025-12-31",
+            "published_at": "2026-04-30",
+            "accession_number": "1225273091",
+            "document_url": "https://static.cninfo.com.cn/finalpage/2026-04-30/1225273091.PDF",
+            "file_name": "五-粮-液_CN_000858_2025-12-31_年报_2026-04-30_cninfo_9840deab.pdf",
+            "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/五-粮-液/2025/年报/五-粮-液_CN_000858_2025-12-31_年报_2026-04-30_cninfo_9840deab.pdf",
+            "size_bytes": 3085658,
+            "cache_hit": false,
+            "error": null
+          }
+        ],
+        "download_dir": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads",
+        "checked_at": "2026-06-27T02:43:48.336534Z"
+      }
+    },
+    {
+      "name": "平安银行",
+      "exchange": "SZSE Main",
+      "industry": "银行",
+      "size": "large",
+      "ticker": "000001",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "平安银行"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "平安银行",
+        "ticker": "000001",
+        "company_id": "000001",
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "files": [
+          {
+            "title": "2025年年度报告",
+            "form": "annual",
+            "report_type": "annual",
+            "report_family": "annual",
+            "report_end": "2025-12-31",
+            "published_at": "2026-03-20",
+            "accession_number": "1225022887",
+            "document_url": "https://static.cninfo.com.cn/finalpage/2026-03-21/1225022887.PDF",
+            "file_name": "平安银行_CN_000001_2025-12-31_年报_2026-03-20_cninfo_5fa05829.pdf",
+            "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/平安银行/2025/年报/平安银行_CN_000001_2025-12-31_年报_2026-03-20_cninfo_5fa05829.pdf",
+            "size_bytes": 1975076,
+            "cache_hit": false,
+            "error": null
+          }
+        ],
+        "download_dir": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads",
+        "checked_at": "2026-06-27T02:43:49.166207Z"
+      }
+    },
+    {
+      "name": "京东方A",
+      "exchange": "SZSE Main",
+      "industry": "显示面板",
+      "size": "large",
+      "ticker": "000725",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "京东方Ａ"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "京东方Ａ",
+        "ticker": "000725",
+        "company_id": "000725",
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "files": [
+          {
+            "title": "2025年年度报告",
+            "form": "annual",
+            "report_type": "annual",
+            "report_family": "annual",
+            "report_end": "2025-12-31",
+            "published_at": "2026-03-31",
+            "accession_number": "1225068510",
+            "document_url": "https://static.cninfo.com.cn/finalpage/2026-04-01/1225068510.PDF",
+            "file_name": "京东方Ａ_CN_000725_2025-12-31_年报_2026-03-31_cninfo_c8184db5.pdf",
+            "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/京东方Ａ/2025/年报/京东方Ａ_CN_000725_2025-12-31_年报_2026-03-31_cninfo_c8184db5.pdf",
+            "size_bytes": 1860151,
+            "cache_hit": false,
+            "error": null
+          }
+        ],
+        "download_dir": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads",
+        "checked_at": "2026-06-27T02:43:50.198060Z"
+      }
+    },
+    {
+      "name": "中兴通讯",
+      "exchange": "SZSE Main",
+      "industry": "通信设备",
+      "size": "large",
+      "ticker": "000063",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "中兴通讯"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "中兴通讯",
+        "ticker": "000063",
+        "company_id": "000063",
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "files": [
+          {
+            "title": "2025年年度报告",
+            "form": "annual",
+            "report_type": "annual",
+            "report_family": "annual",
+            "report_end": "2025-12-31",
+            "published_at": "2026-03-06",
+            "accession_number": "1225000301",
+            "document_url": "https://static.cninfo.com.cn/finalpage/2026-03-07/1225000301.PDF",
+            "file_name": "中兴通讯_CN_000063_2025-12-31_年报_2026-03-06_cninfo_489e994c.pdf",
+            "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/中兴通讯/2025/年报/中兴通讯_CN_000063_2025-12-31_年报_2026-03-06_cninfo_489e994c.pdf",
+            "size_bytes": 6214910,
+            "cache_hit": false,
+            "error": null
+          }
+        ],
+        "download_dir": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads",
+        "checked_at": "2026-06-27T02:43:51.054849Z"
+      }
+    },
+    {
+      "name": "立讯精密",
+      "exchange": "SZSE Main",
+      "industry": "消费电子",
+      "size": "large",
+      "ticker": "002475",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "立讯精密"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "立讯精密",
+        "ticker": "002475",
+        "company_id": "002475",
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "files": [
+          {
+            "title": "2025年年度报告",
+            "form": "annual",
+            "report_type": "annual",
+            "report_family": "annual",
+            "report_end": "2025-12-31",
+            "published_at": "2026-04-14",
+            "accession_number": "1225104908",
+            "document_url": "https://static.cninfo.com.cn/finalpage/2026-04-15/1225104908.PDF",
+            "file_name": "立讯精密_CN_002475_2025-12-31_年报_2026-04-14_cninfo_5a441723.pdf",
+            "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/立讯精密/2025/年报/立讯精密_CN_002475_2025-12-31_年报_2026-04-14_cninfo_5a441723.pdf",
+            "size_bytes": 5000312,
+            "cache_hit": false,
+            "error": null
+          }
+        ],
+        "download_dir": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads",
+        "checked_at": "2026-06-27T02:43:51.881692Z"
+      }
+    },
+    {
+      "name": "海康威视",
+      "exchange": "SZSE Main",
+      "industry": "安防/AIoT",
+      "size": "large",
+      "ticker": "002415",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "海康威视"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "海康威视",
+        "ticker": "002415",
+        "company_id": "002415",
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "files": [
+          {
+            "title": "2025年年度报告",
+            "form": "annual",
+            "report_type": "annual",
+            "report_family": "annual",
+            "report_end": "2025-12-31",
+            "published_at": "2026-04-17",
+            "accession_number": "1225123062",
+            "document_url": "https://static.cninfo.com.cn/finalpage/2026-04-18/1225123062.PDF",
+            "file_name": "海康威视_CN_002415_2025-12-31_年报_2026-04-17_cninfo_e7922c70.pdf",
+            "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/海康威视/2025/年报/海康威视_CN_002415_2025-12-31_年报_2026-04-17_cninfo_e7922c70.pdf",
+            "size_bytes": 17337277,
+            "cache_hit": false,
+            "error": null
+          }
+        ],
+        "download_dir": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads",
+        "checked_at": "2026-06-27T02:43:53.175560Z"
+      }
+    },
+    {
+      "name": "牧原股份",
+      "exchange": "SZSE Main",
+      "industry": "农牧",
+      "size": "mid-large",
+      "ticker": "002714",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "牧原股份"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "牧原股份",
+        "ticker": "002714",
+        "company_id": "002714",
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "files": [
+          {
+            "title": "2025年年度报告",
+            "form": "annual",
+            "report_type": "annual",
+            "report_family": "annual",
+            "report_end": "2025-12-31",
+            "published_at": "2026-03-27",
+            "accession_number": "1225042507",
+            "document_url": "https://static.cninfo.com.cn/finalpage/2026-03-28/1225042507.PDF",
+            "file_name": "牧原股份_CN_002714_2025-12-31_年报_2026-03-27_cninfo_2784dcf6.pdf",
+            "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/牧原股份/2025/年报/牧原股份_CN_002714_2025-12-31_年报_2026-03-27_cninfo_2784dcf6.pdf",
+            "size_bytes": 5084266,
+            "cache_hit": false,
+            "error": null
+          }
+        ],
+        "download_dir": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads",
+        "checked_at": "2026-06-27T02:43:54.449488Z"
+      }
+    },
+    {
+      "exchange": "BSE",
+      "industry": "锂电材料",
+      "size": "mid",
+      "ticker": "920185",
+      "name": "贝特瑞",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "贝特瑞"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "贝特瑞",
+        "ticker": "920185",
+        "company_id": "920185",
+        "document_url": "https://static.cninfo.com.cn/finalpage/2026-04-24/1225197178.PDF",
+        "landing_url": "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=920185&announcementId=1225197178&orgId=gfbj0835185&announcementTime=2026-04-23",
+        "form": "annual",
+        "downloaded_file": {
+          "file_name": "贝特瑞_CN_920185_2025-12-31_年报_2026-04-23_cninfo_0f6fdcbd.pdf",
+          "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/贝特瑞/2025/年报/贝特瑞_CN_920185_2025-12-31_年报_2026-04-23_cninfo_0f6fdcbd.pdf",
+          "size_bytes": 2991249,
+          "content_type": "application/pdf",
+          "downloaded_at": "2026-06-27T02:43:54.981392Z",
+          "cache_hit": false,
+          "deduplicated": false,
+          "content_sha256": "d8177be2ce4e6e6c829056d2ae892383146486acfefa19f364a93f5244c0897b",
+          "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/贝特瑞/2025/年报/贝特瑞_CN_920185_2025-12-31_年报_2026-04-23_cninfo_0f6fdcbd.pdf.metadata.json"
+        }
+      }
+    },
+    {
+      "exchange": "BSE",
+      "industry": "光伏材料",
+      "size": "small",
+      "ticker": "920167",
+      "name": "同享科技",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "同享科技"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "同享科技",
+        "ticker": "920167",
+        "company_id": "920167",
+        "document_url": "https://static.cninfo.com.cn/finalpage/2026-04-28/1225252621.PDF",
+        "landing_url": "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=920167&announcementId=1225252621&orgId=gfbj0839167&announcementTime=2026-04-27",
+        "form": "annual",
+        "downloaded_file": {
+          "file_name": "同享科技_CN_920167_2025-12-31_年报_2026-04-27_cninfo_e158a17b.pdf",
+          "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/同享科技/2025/年报/同享科技_CN_920167_2025-12-31_年报_2026-04-27_cninfo_e158a17b.pdf",
+          "size_bytes": 2907941,
+          "content_type": "application/pdf",
+          "downloaded_at": "2026-06-27T02:43:55.486219Z",
+          "cache_hit": false,
+          "deduplicated": false,
+          "content_sha256": "493d31f8c08c19cc9e10149b4cb29f7aa0761a315baca9c8e732acde62a78b36",
+          "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/同享科技/2025/年报/同享科技_CN_920167_2025-12-31_年报_2026-04-27_cninfo_e158a17b.pdf.metadata.json"
+        }
+      }
+    },
+    {
+      "exchange": "BSE",
+      "industry": "创新药",
+      "size": "small",
+      "ticker": "920047",
+      "name": "诺思兰德",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "诺思兰德"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "诺思兰德",
+        "ticker": "920047",
+        "company_id": "920047",
+        "document_url": "https://static.cninfo.com.cn/finalpage/2026-04-23/1225172382.PDF",
+        "landing_url": "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=920047&announcementId=1225172382&orgId=gfbj0430047&announcementTime=2026-04-22",
+        "form": "annual",
+        "downloaded_file": {
+          "file_name": "诺思兰德_CN_920047_2025-12-31_年报_2026-04-22_cninfo_23e76bfa.pdf",
+          "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/诺思兰德/2025/年报/诺思兰德_CN_920047_2025-12-31_年报_2026-04-22_cninfo_23e76bfa.pdf",
+          "size_bytes": 2290982,
+          "content_type": "application/pdf",
+          "downloaded_at": "2026-06-27T02:43:56.034236Z",
+          "cache_hit": false,
+          "deduplicated": false,
+          "content_sha256": "710c6aab20e078ede2032ac1a1181463343662f9c7ed13d35435a57ebca099a3",
+          "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/诺思兰德/2025/年报/诺思兰德_CN_920047_2025-12-31_年报_2026-04-22_cninfo_23e76bfa.pdf.metadata.json"
+        }
+      }
+    },
+    {
+      "exchange": "BSE",
+      "industry": "半导体测试",
+      "size": "small",
+      "ticker": "920139",
+      "name": "华岭股份",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "华岭股份"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "华岭股份",
+        "ticker": "920139",
+        "company_id": "920139",
+        "document_url": "https://static.cninfo.com.cn/finalpage/2026-03-27/1225043280.PDF",
+        "landing_url": "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=920139&announcementId=1225043280&orgId=gfbj0832139&announcementTime=2026-03-26",
+        "form": "annual",
+        "downloaded_file": {
+          "file_name": "华岭股份_CN_920139_2025-12-31_年报_2026-03-26_cninfo_b4337eed.pdf",
+          "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/华岭股份/2025/年报/华岭股份_CN_920139_2025-12-31_年报_2026-03-26_cninfo_b4337eed.pdf",
+          "size_bytes": 2809874,
+          "content_type": "application/pdf",
+          "downloaded_at": "2026-06-27T02:43:56.493413Z",
+          "cache_hit": false,
+          "deduplicated": false,
+          "content_sha256": "c4dfa1a3ea1e5f1655cecc113358c187265c1c92f959614f3a49c21760b5d7e2",
+          "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/华岭股份/2025/年报/华岭股份_CN_920139_2025-12-31_年报_2026-03-26_cninfo_b4337eed.pdf.metadata.json"
+        }
+      }
+    },
+    {
+      "exchange": "BSE",
+      "industry": "包装新材料",
+      "size": "small",
+      "ticker": "920163",
+      "name": "方大新材",
+      "status": "downloaded",
+      "http_status": 200,
+      "new_dirs": [
+        "方大新材"
+      ],
+      "response": {
+        "market": "CN",
+        "company_name": "方大新材",
+        "ticker": "920163",
+        "company_id": "920163",
+        "document_url": "https://static.cninfo.com.cn/finalpage/2026-03-30/1225055810.PDF",
+        "landing_url": "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=920163&announcementId=1225055810&orgId=gfbj0839163&announcementTime=2026-03-29",
+        "form": "annual",
+        "downloaded_file": {
+          "file_name": "方大新材_CN_920163_2025-12-31_年报_2026-03-29_cninfo_11bbe660.pdf",
+          "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/方大新材/2025/年报/方大新材_CN_920163_2025-12-31_年报_2026-03-29_cninfo_11bbe660.pdf",
+          "size_bytes": 2540646,
+          "content_type": "application/pdf",
+          "downloaded_at": "2026-06-27T02:43:57.035597Z",
+          "cache_hit": false,
+          "deduplicated": false,
+          "content_sha256": "5f481755df5f96c67aa10a95ebb915088c4c68854c199aeabe28f1cb8226fba3",
+          "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/方大新材/2025/年报/方大新材_CN_920163_2025-12-31_年报_2026-03-29_cninfo_11bbe660.pdf.metadata.json"
+        }
+      }
+    }
+  ],
+  "companies": 68,
+  "pdf_files": 70
+}

@@ -1,0 +1,39 @@
+{
+  "candidate": {
+    "source_id": "hkex",
+    "source_name": "HKEXnews",
+    "source_domain": "www1.hkexnews.hk",
+    "market": "HK",
+    "company_id": "01177",
+    "ticker": "01177",
+    "company_name": "SBP GROUP",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "2025 ANNUAL REPORT",
+    "accession_number": "12132657",
+    "primary_document": "2026042901036.pdf",
+    "report_end": "2025-12-31",
+    "published_at": "2026-04-29",
+    "accepted_at": null,
+    "document_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0429/2026042901036.pdf",
+    "landing_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0429/2026042901036.pdf",
+    "file_format": "pdf",
+    "language": "en",
+    "inline_xbrl": null,
+    "metadata": {
+      "news_id": "12132657",
+      "stock_name": "SBP GROUP",
+      "short_text": "Financial Statements/ESG Information - [Annual Report]",
+      "long_text": "Financial Statements/ESG Information - [Annual Report]",
+      "file_info": "2MB"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "SBP-GROUP_HK_01177_2025-12-31_年报_2026-04-29_hkex_64471fd8.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/SBP-GROUP/2025/年报/SBP-GROUP_HK_01177_2025-12-31_年报_2026-04-29_hkex_64471fd8.pdf",
+    "size_bytes": 1764404,
+    "content_type": "application/pdf",
+    "content_sha256": "d228fae228adf242cdcc29ba945c8b11a80d5617025353f7b78921dfe2b724ad"
+  }
+}

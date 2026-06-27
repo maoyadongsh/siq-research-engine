@@ -4,7 +4,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { Tooltip } from '../ui'
 import { useAuth } from '../../hooks/useAuth'
 import { preloadRoute } from '../../lib/routePreload'
-import { navItems, bottomItems, adminItems, assistantItem, type SidebarItem, type SidebarLinkVariant } from './layoutData'
+import { navItems, bottomItems, userAdminItems, systemAdminItems, assistantItem, type SidebarItem, type SidebarLinkVariant } from './layoutData'
 
 interface SidebarProps {
   collapsed: boolean
@@ -17,7 +17,14 @@ export default function Sidebar({ collapsed, mobileOpen = false, onToggle, onClo
   const { hasPermission } = useAuth()
   const canManageUsers = hasPermission('user.manage')
   const canConfigureSystem = hasPermission('system.config')
-  const visibleNavItems = useMemo(() => (canManageUsers ? [...navItems, ...adminItems] : navItems), [canManageUsers])
+  const visibleNavItems = useMemo(
+    () => [
+      ...navItems,
+      ...(canManageUsers ? userAdminItems : []),
+      ...(canConfigureSystem ? systemAdminItems : []),
+    ],
+    [canManageUsers, canConfigureSystem],
+  )
   const visibleBottomItems = useMemo(
     () => bottomItems.filter((item) => item.to !== '/settings' || canConfigureSystem),
     [canConfigureSystem],
@@ -37,9 +44,9 @@ export default function Sidebar({ collapsed, mobileOpen = false, onToggle, onClo
         to={item.to}
         onClick={onCloseMobile}
         className={({ isActive }) =>
-          `group flex items-center gap-2.5 font-semibold transition-[background,color,box-shadow] duration-200 ${sizeClass} ${
+          `group relative flex items-center gap-2.5 font-semibold transition-[background,color,box-shadow] duration-200 ${sizeClass} ${
             isActive
-              ? 'bg-slate-950 text-white shadow-[0_10px_24px_rgba(15,23,42,0.12)]'
+              ? 'bg-primary/10 text-primary shadow-[0_8px_18px_rgba(0,113,227,0.08)] before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-primary'
               : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-950'
           } ${compact ? 'w-full justify-center px-0' : ''}`
         }
@@ -62,26 +69,16 @@ export default function Sidebar({ collapsed, mobileOpen = false, onToggle, onClo
   const renderContent = (compact: boolean) => (
     <>
       <div
-        className={`flex items-center border-b border-border ${compact ? 'justify-center px-0' : 'gap-3 px-5'}`}
+        className={`flex items-center border-b border-border bg-white/70 ${compact ? 'justify-center px-0' : 'gap-3 px-5'}`}
         style={{ height: 'var(--app-topbar-height)' }}
       >
-        <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-[15px] font-black text-white tracking-tighter shadow-[0_12px_26px_rgba(15,23,42,0.16)] transition-[background,box-shadow] duration-200">
+        <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] bg-blue-700 text-[16px] font-black text-white tracking-tighter shadow-[0_10px_24px_rgba(29,78,216,0.32)] transition-[background,box-shadow] duration-200">
           <span className="relative z-10">SIQ</span>
-          <div className="pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-br from-white/18 to-transparent" />
+          <div className="pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-br from-white/24 via-white/5 to-transparent" />
         </div>
         {!compact && (
-          <span
-            className="whitespace-nowrap font-mono text-[16px] font-black leading-none text-primary"
-            style={{
-              fontFamily: "'JetBrains Mono', 'SF Mono', 'Cascadia Code', 'Roboto Mono', ui-monospace, monospace",
-              textShadow: '0 0 0.35px var(--color-primary-dark)',
-            }}
-          >
-            <span className="inline-flex items-center gap-1.5">
-              <span>Research</span>
-              <span className="inline-block tracking-[-0.18em]">//</span>
-              <span>Engine</span>
-            </span>
+          <span className="whitespace-nowrap text-[19px] font-bold leading-none text-primary">
+            Research Engine
           </span>
         )}
       </div>
@@ -89,9 +86,9 @@ export default function Sidebar({ collapsed, mobileOpen = false, onToggle, onClo
         {visibleNavItems.map((item) => renderLink(item, compact))}
       </nav>
       {!compact && (
-        <div className="mx-2.5 mb-2.5 rounded-xl border border-slate-200/90 bg-white/82 px-3 py-2.5 text-left shadow-[0_8px_20px_rgba(15,23,42,0.04),0_1px_0_rgba(255,255,255,0.86)_inset]">
+        <div className="mx-2.5 mb-2.5 rounded-[14px] border border-slate-200/90 bg-slate-50 px-2.5 py-2.5 text-left">
           <div className="text-xs font-bold leading-4 text-slate-900">Research OS</div>
-          <div className="mt-1 text-xs font-medium leading-4 text-slate-700">基于全链路可审计的财报分析平台。</div>
+          <div className="mt-1 whitespace-nowrap text-xs font-medium leading-4 text-slate-700">基于全链路可审计的公司、行业研究平台。</div>
         </div>
       )}
       <div className="border-t border-border px-2.5 py-2">{renderLink(assistantItem, compact, 'assistant')}</div>
@@ -118,7 +115,7 @@ export default function Sidebar({ collapsed, mobileOpen = false, onToggle, onClo
         />
       )}
       <aside
-        className={`fixed bottom-0 left-0 top-0 z-50 flex w-72 flex-col overflow-hidden border-r border-white/70 bg-white/82 text-slate-700 shadow-[14px_0_42px_rgba(15,23,42,0.07)] backdrop-blur-2xl transition-all duration-300 ease-out ${
+        className={`fixed bottom-0 left-0 top-0 z-50 flex w-72 flex-col overflow-hidden border-r border-border bg-white/96 text-slate-700 shadow-[10px_0_32px_rgba(15,23,42,0.06)] backdrop-blur-xl transition-all duration-300 ease-out ${
           collapsed ? 'lg:w-20' : 'lg:w-64 xl:w-72'
         } ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
       >

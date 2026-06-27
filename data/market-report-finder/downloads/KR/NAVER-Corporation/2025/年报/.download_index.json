@@ -1,0 +1,42 @@
+{
+  "by_url": {
+    "https://dart.fss.or.kr/pdf/download/pdf.do?rcp_no=20260313001021&dcm_no=11121248": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/NAVER-Corporation/2025/年报/NAVER-Corporation_KR_035420_2025-12-31_年报_2026-03-13_dart_public_78e00de6.pdf",
+      "file_name": "NAVER-Corporation_KR_035420_2025-12-31_年报_2026-03-13_dart_public_78e00de6.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "974cfe1d6fd31a371663b0eb20ec073306dd65f9954c477c730c30d121142ed7",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/NAVER-Corporation/2025/年报/NAVER-Corporation_KR_035420_2025-12-31_年报_2026-03-13_dart_public_78e00de6.pdf.metadata.json",
+      "market": "KR",
+      "company_id": "00266961",
+      "ticker": "035420",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-13",
+      "accession_number": "manual",
+      "country": null,
+      "source_tier": null
+    }
+  },
+  "by_content_sha256": {
+    "974cfe1d6fd31a371663b0eb20ec073306dd65f9954c477c730c30d121142ed7": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/NAVER-Corporation/2025/年报/NAVER-Corporation_KR_035420_2025-12-31_年报_2026-03-13_dart_public_78e00de6.pdf",
+      "file_name": "NAVER-Corporation_KR_035420_2025-12-31_年报_2026-03-13_dart_public_78e00de6.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "974cfe1d6fd31a371663b0eb20ec073306dd65f9954c477c730c30d121142ed7",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/NAVER-Corporation/2025/年报/NAVER-Corporation_KR_035420_2025-12-31_年报_2026-03-13_dart_public_78e00de6.pdf.metadata.json",
+      "market": "KR",
+      "company_id": "00266961",
+      "ticker": "035420",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-13",
+      "accession_number": "manual",
+      "country": null,
+      "source_tier": null
+    }
+  }
+}

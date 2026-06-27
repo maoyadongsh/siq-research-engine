@@ -1,0 +1,36 @@
+{
+  "candidate": {
+    "source_id": "cninfo",
+    "source_name": "巨潮资讯",
+    "source_domain": "www.cninfo.com.cn",
+    "market": "CN",
+    "company_id": "600887",
+    "ticker": "600887",
+    "company_name": "伊利股份",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "内蒙古伊利实业集团股份有限公司2025年年度报告",
+    "accession_number": "1225259562",
+    "primary_document": "1225259562.PDF",
+    "report_end": "2025-12-31",
+    "published_at": "2026-04-29",
+    "accepted_at": null,
+    "document_url": "https://static.cninfo.com.cn/finalpage/2026-04-30/1225259562.PDF",
+    "landing_url": "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=600887&announcementId=1225259562&orgId=gssh0600887&announcementTime=2026-04-29",
+    "file_format": "pdf",
+    "language": "zh-CN",
+    "inline_xbrl": null,
+    "metadata": {
+      "org_id": "gssh0600887",
+      "plate": "sh"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "伊利股份_CN_600887_2025-12-31_年报_2026-04-29_cninfo_ef988688.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/伊利股份/2025/年报/伊利股份_CN_600887_2025-12-31_年报_2026-04-29_cninfo_ef988688.pdf",
+    "size_bytes": 1502184,
+    "content_type": "application/pdf",
+    "content_sha256": "d17b8c541c42f65d092317093eb0cfbb5aeed4f44eafa2d2f6182041cdcdbaac"
+  }
+}

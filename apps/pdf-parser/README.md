@@ -1,23 +1,36 @@
 # SIQ PDF 解析服务
 
-`apps/pdf-parser` 是 SIQ Research Engine 的本地 PDF 解析、复核和结构化抽取服务。它接收年报 PDF，将任务提交给 MinerU/VLM，写出 Markdown 和 JSON 产物，生成质量报告，抽取财务报表，并提供 Web 工作台和 API 聚合后端使用的证据溯源接口。
+`apps/pdf-parser` 是 SIQ Research Engine 的本地 PDF 解析、复核和结构化抽取服务。它接收上市公司年报 PDF，调用 MinerU / VLM 解析，生成 Markdown、表格、页码、质量报告、财务抽取和证据溯源接口。
 
-该服务由 SIQ `pdf2md_web` 工具迁移而来。新的部署应使用 SIQ 路径和 `SIQ_*` 环境变量。
+## 核心价值
 
-## 核心流程
+财报智能分析的可信度取决于 PDF 到结构化证据的质量。本服务负责把“不可直接计算的 PDF”变成可检索、可引用、可校验、可人工修正的研究底座。
+
+| 能力 | 说明 |
+| --- | --- |
+| 任务化解析 | 上传 PDF 后进入 SQLite 任务队列，支持状态查询和结果读取 |
+| Markdown 产物 | 输出可阅读、可切分、可导入 Wiki 的正文 |
+| 表格与页码索引 | 保留 `table_index`、页码和来源片段，支撑后续报告引用 |
+| 质量报告 | 检测空页、乱码、表格缺失、页码异常、内容结构问题 |
+| 财务抽取 | 抽取三大表、关键指标、单位、期间和勾稽检查结果 |
+| 人工修正 | 支持表格修正保存，让高价值样本可人工闭环 |
+| 溯源 API | 提供表格、页面和 PDF 页图访问，用于前端证据复核 |
+
+## 解析流程
 
 ```text
 PDF 上传
-  -> 本地 SQLite 任务队列
+  -> 本地任务队列
   -> MinerU / VLM 解析
-  -> Markdown 和中间产物
-  -> 页码标记、表格索引、质量报告
-  -> 财务报表和指标抽取
-  -> 勾稽校验
-  -> 溯源与人工修正 API
+  -> Markdown、content_list、middle_json
+  -> 页码标记和表格索引增强
+  -> quality_report.json
+  -> financial_data.json / financial_checks.json
+  -> document_full.json
+  -> Wiki / PostgreSQL / 前端溯源
 ```
 
-## 当前产物版本
+## 产物版本
 
 | 产物 | 版本 |
 | --- | --- |
@@ -28,7 +41,7 @@ PDF 上传
 | `financial_checks.json` | `12` |
 | 财务规则 | `financial_rules_v14` |
 
-运行后可通过 `/api/health` 查看实际加载版本。
+实际加载版本可通过 `/api/health` 查看。
 
 ## 启动
 
@@ -54,11 +67,11 @@ SIQ_PDF2MD_DATA_DIR=/home/maoyd/siq-research-engine/data/pdf-parser \
 ./run.sh
 ```
 
-`run.sh` 只启动 Flask Web 服务。MinerU、VLM 和 vLLM 等上游模型服务需要提前启动。
+`run.sh` 只启动 Flask Web 服务。MinerU、VLM、vLLM 等模型服务需要按本机模型环境提前启动。
 
 ## 运行环境
 
-默认情况下，`run.sh` 使用：
+默认 MinerU Python 环境：
 
 ```text
 runtimes/mineru-native
@@ -70,11 +83,9 @@ runtimes/mineru-native
 SIQ_MINERU_VENV=/path/to/mineru_native ./run.sh
 ```
 
-`MINERU_VENV` 和 `SIQ_MINERU_VENV` 仅作为迁移期兼容回退。
-
 ## 数据目录
 
-SIQ 部署应将运行态数据放在源码目录外：
+运行态数据默认放在源码目录外：
 
 ```text
 data/pdf-parser/
@@ -87,24 +98,32 @@ data/pdf-parser/
   workflow_jobs.json
 ```
 
-`run.sh` 默认设置：
-
-```text
-SIQ_PDF2MD_DATA_DIR=/home/maoyd/siq-research-engine/data/pdf-parser
-```
-
-单项路径可覆盖：
+可覆盖路径：
 
 | 变量 | 用途 |
 | --- | --- |
-| `SIQ_PDF_UPLOADS_ROOT` 或 `UPLOAD_FOLDER` | 上传 PDF 目录 |
-| `SIQ_PDF_RESULTS_ROOT` 或 `RESULTS_FOLDER` | 解析结果目录 |
-| `SIQ_PDF_OUTPUT_ROOT` 或 `OUTPUT_FOLDER` | MinerU 输出目录 |
-| `SIQ_PDF_TASK_DB_PATH` 或 `TASK_DB_PATH` | SQLite 任务数据库 |
-| `SIQ_FINANCIAL_LLM_CACHE_ROOT` 或 `FINANCIAL_LLM_CACHE_FOLDER` | 可选 LLM 表格判断缓存 |
-| `SIQ_PDF2MD_LOG_ROOT` 或 `PDF2MD_LOG_DIR` | 解析服务日志目录 |
+| `SIQ_PDF2MD_DATA_DIR` | PDF 解析运行态根目录 |
+| `SIQ_PDF_UPLOADS_ROOT` | 上传 PDF 目录 |
+| `SIQ_PDF_RESULTS_ROOT` | 解析结果目录 |
+| `SIQ_PDF_OUTPUT_ROOT` | MinerU 输出目录 |
+| `SIQ_PDF_TASK_DB_PATH` | SQLite 任务数据库 |
+| `SIQ_FINANCIAL_LLM_CACHE_ROOT` | 财务表格判断缓存 |
+| `SIQ_PDF2MD_LOG_ROOT` | 解析服务日志目录 |
 
-运行态数据默认忽略。不要提交上传 PDF、结果目录、任务数据库、模型缓存或日志。
+## 主要 API
+
+| API | 用途 |
+| --- | --- |
+| `GET /api/health` | 服务、模型上游和产物版本状态 |
+| `GET /api/tasks` | 列出解析任务 |
+| `POST /api/upload` | 上传 PDF 并创建任务 |
+| `GET /api/status/<task_id>` | 查询任务状态 |
+| `GET /api/result/<task_id>` | Markdown 和结果 payload |
+| `GET /api/quality/<task_id>` | 质量报告 |
+| `GET /api/financial/<task_id>` | 财务抽取和校验 |
+| `GET /api/source/<task_id>/table/<table_index>` | 表格溯源 |
+| `GET /api/source/<task_id>/page/<page_number>` | 页面溯源 |
+| `POST /api/source/<task_id>/table/<table_index>/correction` | 保存人工表格修正 |
 
 ## 目录结构
 
@@ -128,21 +147,6 @@ apps/pdf-parser/
   Dockerfile
 ```
 
-## 主要 API
-
-| API | 用途 |
-| --- | --- |
-| `GET /api/health` | 服务和上游健康状态 |
-| `GET /api/tasks` | 列出解析任务 |
-| `POST /api/upload` | 上传 PDF 并创建任务 |
-| `GET /api/status/<task_id>` | 查询任务状态 |
-| `GET /api/result/<task_id>` | Markdown/结果 payload |
-| `GET /api/quality/<task_id>` | 质量报告 |
-| `GET /api/financial/<task_id>` | 财务抽取和校验 |
-| `GET /api/source/<task_id>/table/<table_index>` | 表格溯源 |
-| `GET /api/source/<task_id>/page/<page_number>` | 页面溯源 |
-| `POST /api/source/<task_id>/table/<table_index>/correction` | 保存人工表格修正 |
-
 ## 开发验证
 
 ```bash
@@ -151,9 +155,9 @@ python3 -m pytest tests
 bash -n run.sh
 ```
 
-## 迁移注意事项
+## 维护原则
 
-- 不要新增指向旧 PDF 解析目录的源码默认值。
-- 兼容环境变量只在迁移期保留。
-- 运行态路径统一通过 `path_config.py` 解析。
-- 源码保留在 `apps/pdf-parser`，运行产物保留在 `data/pdf-parser`。
+- 解析结果、上传 PDF、任务库、缓存和日志只放运行态目录。
+- 新增财务抽取规则时要同步更新版本号、测试和质量报告说明。
+- 涉及 PDF 页码或表格索引的改动必须验证前端溯源链接可打开。
+- 字段不足时输出明确的数据缺口，不用模型猜测财务数字。

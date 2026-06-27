@@ -1,0 +1,54 @@
+{
+  "by_url": {
+    "https://static.cninfo.com.cn/finalpage/2026-03-13/1225007336.PDF": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/寒武纪/2025/年报/寒武纪_CN_688256_2025-12-31_年报_2026-03-12_cninfo_4969cc73.pdf",
+      "file_name": "寒武纪_CN_688256_2025-12-31_年报_2026-03-12_cninfo_4969cc73.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "e9360bfb6ad2d66ce7b65da15f8fa2fcdda9fde526e2a76dba3964327507f4ab",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/寒武纪/2025/年报/寒武纪_CN_688256_2025-12-31_年报_2026-03-12_cninfo_4969cc73.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "688256",
+      "ticker": "688256",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-12",
+      "accession_number": "manual"
+    },
+    "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=688256&announcementId=1225007336&orgId=nssc1000595&announcementTime=2026-03-12": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/寒武纪/2025/年报/寒武纪_CN_688256_2025-12-31_年报_2026-03-12_cninfo_4969cc73.pdf",
+      "file_name": "寒武纪_CN_688256_2025-12-31_年报_2026-03-12_cninfo_4969cc73.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "e9360bfb6ad2d66ce7b65da15f8fa2fcdda9fde526e2a76dba3964327507f4ab",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/寒武纪/2025/年报/寒武纪_CN_688256_2025-12-31_年报_2026-03-12_cninfo_4969cc73.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "688256",
+      "ticker": "688256",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-12",
+      "accession_number": "manual"
+    }
+  },
+  "by_content_sha256": {
+    "e9360bfb6ad2d66ce7b65da15f8fa2fcdda9fde526e2a76dba3964327507f4ab": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/寒武纪/2025/年报/寒武纪_CN_688256_2025-12-31_年报_2026-03-12_cninfo_4969cc73.pdf",
+      "file_name": "寒武纪_CN_688256_2025-12-31_年报_2026-03-12_cninfo_4969cc73.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "e9360bfb6ad2d66ce7b65da15f8fa2fcdda9fde526e2a76dba3964327507f4ab",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/寒武纪/2025/年报/寒武纪_CN_688256_2025-12-31_年报_2026-03-12_cninfo_4969cc73.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "688256",
+      "ticker": "688256",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-12",
+      "accession_number": "manual"
+    }
+  }
+}

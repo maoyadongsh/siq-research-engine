@@ -1,0 +1,54 @@
+{
+  "by_url": {
+    "https://static.cninfo.com.cn/finalpage/2026-03-31/1225062431.PDF": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/中微公司/2025/年报/中微公司_CN_688012_2025-12-31_年报_2026-03-30_cninfo_1b2a5c5c.pdf",
+      "file_name": "中微公司_CN_688012_2025-12-31_年报_2026-03-30_cninfo_1b2a5c5c.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "d64c410832f22f5127277bad6dc357c664aede523561af99150c494857fd3aa5",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/中微公司/2025/年报/中微公司_CN_688012_2025-12-31_年报_2026-03-30_cninfo_1b2a5c5c.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "688012",
+      "ticker": "688012",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-30",
+      "accession_number": "1225062431"
+    },
+    "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=688012&announcementId=1225062431&orgId=9900038991&announcementTime=2026-03-30": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/中微公司/2025/年报/中微公司_CN_688012_2025-12-31_年报_2026-03-30_cninfo_1b2a5c5c.pdf",
+      "file_name": "中微公司_CN_688012_2025-12-31_年报_2026-03-30_cninfo_1b2a5c5c.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "d64c410832f22f5127277bad6dc357c664aede523561af99150c494857fd3aa5",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/中微公司/2025/年报/中微公司_CN_688012_2025-12-31_年报_2026-03-30_cninfo_1b2a5c5c.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "688012",
+      "ticker": "688012",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-30",
+      "accession_number": "1225062431"
+    }
+  },
+  "by_content_sha256": {
+    "d64c410832f22f5127277bad6dc357c664aede523561af99150c494857fd3aa5": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/中微公司/2025/年报/中微公司_CN_688012_2025-12-31_年报_2026-03-30_cninfo_1b2a5c5c.pdf",
+      "file_name": "中微公司_CN_688012_2025-12-31_年报_2026-03-30_cninfo_1b2a5c5c.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "d64c410832f22f5127277bad6dc357c664aede523561af99150c494857fd3aa5",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/中微公司/2025/年报/中微公司_CN_688012_2025-12-31_年报_2026-03-30_cninfo_1b2a5c5c.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "688012",
+      "ticker": "688012",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-30",
+      "accession_number": "1225062431"
+    }
+  }
+}

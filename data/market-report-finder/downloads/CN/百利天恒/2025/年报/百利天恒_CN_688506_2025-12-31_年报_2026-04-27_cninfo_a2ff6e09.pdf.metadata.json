@@ -1,0 +1,36 @@
+{
+  "candidate": {
+    "source_id": "cninfo",
+    "source_name": "巨潮资讯",
+    "source_domain": "www.cninfo.com.cn",
+    "market": "CN",
+    "company_id": "688506",
+    "ticker": "688506",
+    "company_name": "百利天恒",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "四川百利天恒药业股份有限公司2025年年度报告",
+    "accession_number": "1225217117",
+    "primary_document": "1225217117.PDF",
+    "report_end": "2025-12-31",
+    "published_at": "2026-04-27",
+    "accepted_at": null,
+    "document_url": "https://static.cninfo.com.cn/finalpage/2026-04-28/1225217117.PDF",
+    "landing_url": "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=688506&announcementId=1225217117&orgId=9900024957&announcementTime=2026-04-27",
+    "file_format": "pdf",
+    "language": "zh-CN",
+    "inline_xbrl": null,
+    "metadata": {
+      "org_id": "9900024957",
+      "plate": "shkcp"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "百利天恒_CN_688506_2025-12-31_年报_2026-04-27_cninfo_a2ff6e09.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/百利天恒/2025/年报/百利天恒_CN_688506_2025-12-31_年报_2026-04-27_cninfo_a2ff6e09.pdf",
+    "size_bytes": 3102474,
+    "content_type": "application/pdf",
+    "content_sha256": "a014b59498351974f9eb22a1cd3d706c00c6f7a861ddef508fa022908122f3b5"
+  }
+}

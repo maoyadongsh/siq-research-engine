@@ -1,0 +1,33 @@
+{
+  "candidate": {
+    "source_id": "sec",
+    "source_name": "SEC EDGAR",
+    "source_domain": "sec.gov",
+    "market": "US",
+    "company_id": "NVDA",
+    "ticker": "NVDA",
+    "company_name": "NVIDIA CORP",
+    "report_type": "10-K",
+    "report_family": "annual",
+    "form": "10-K",
+    "title": "10-K",
+    "accession_number": "manual",
+    "primary_document": "nvda-20250126.htm",
+    "report_end": "2025-01-26",
+    "published_at": "2025-02-26",
+    "accepted_at": null,
+    "document_url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581025000023/nvda-20250126.htm",
+    "landing_url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581025000023/0001045810-25-000023-index.html",
+    "file_format": "htm",
+    "language": null,
+    "inline_xbrl": null,
+    "metadata": {}
+  },
+  "downloaded_file": {
+    "file_name": "NVIDIA-CORP_US_NVDA_2025-01-26_10-K_2025-02-26_sec_9aba0ab9.html",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/NVIDIA-CORP/2025/年报/NVIDIA-CORP_US_NVDA_2025-01-26_10-K_2025-02-26_sec_9aba0ab9.html",
+    "size_bytes": 2067520,
+    "content_type": "text/html",
+    "content_sha256": "dae19486be264fd26eb00a7f920dc641041a261c81bc8c03b678eea947de4856"
+  }
+}

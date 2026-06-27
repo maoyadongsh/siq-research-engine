@@ -1,0 +1,60 @@
+{
+  "by_url": {
+    "https://www.airliquide.com/sites/airliquide.com/files/2026-03/air-liquide-2025-universal-registration-document-interactive.pdf": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/FR/Air-Liquide-S.A/2025/年报/Air-Liquide-S.A_EU_AI_2025-12-31_年报_2026-03-06_eu_direct_8d9a8e16.pdf",
+      "file_name": "Air-Liquide-S.A_EU_AI_2025-12-31_年报_2026-03-06_eu_direct_8d9a8e16.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "5e1dce497c5e80180a41748face50f6e3bfaea14b291dc8a25571af6f324fc5c",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/FR/Air-Liquide-S.A/2025/年报/Air-Liquide-S.A_EU_AI_2025-12-31_年报_2026-03-06_eu_direct_8d9a8e16.pdf.metadata.json",
+      "market": "EU",
+      "company_id": "FR:AI",
+      "ticker": "AI",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-06",
+      "accession_number": "manual",
+      "country": "FR",
+      "source_tier": "official_direct"
+    },
+    "https://www.airliquide.com/group/publications": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/FR/Air-Liquide-S.A/2025/年报/Air-Liquide-S.A_EU_AI_2025-12-31_年报_2026-03-06_eu_direct_8d9a8e16.pdf",
+      "file_name": "Air-Liquide-S.A_EU_AI_2025-12-31_年报_2026-03-06_eu_direct_8d9a8e16.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "5e1dce497c5e80180a41748face50f6e3bfaea14b291dc8a25571af6f324fc5c",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/FR/Air-Liquide-S.A/2025/年报/Air-Liquide-S.A_EU_AI_2025-12-31_年报_2026-03-06_eu_direct_8d9a8e16.pdf.metadata.json",
+      "market": "EU",
+      "company_id": "FR:AI",
+      "ticker": "AI",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-06",
+      "accession_number": "manual",
+      "country": "FR",
+      "source_tier": "official_direct"
+    }
+  },
+  "by_content_sha256": {
+    "5e1dce497c5e80180a41748face50f6e3bfaea14b291dc8a25571af6f324fc5c": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/FR/Air-Liquide-S.A/2025/年报/Air-Liquide-S.A_EU_AI_2025-12-31_年报_2026-03-06_eu_direct_8d9a8e16.pdf",
+      "file_name": "Air-Liquide-S.A_EU_AI_2025-12-31_年报_2026-03-06_eu_direct_8d9a8e16.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "5e1dce497c5e80180a41748face50f6e3bfaea14b291dc8a25571af6f324fc5c",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/FR/Air-Liquide-S.A/2025/年报/Air-Liquide-S.A_EU_AI_2025-12-31_年报_2026-03-06_eu_direct_8d9a8e16.pdf.metadata.json",
+      "market": "EU",
+      "company_id": "FR:AI",
+      "ticker": "AI",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-06",
+      "accession_number": "manual",
+      "country": "FR",
+      "source_tier": "official_direct"
+    }
+  }
+}

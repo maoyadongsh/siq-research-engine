@@ -1,0 +1,36 @@
+{
+  "candidate": {
+    "source_id": "sec",
+    "source_name": "SEC EDGAR",
+    "source_domain": "sec.gov",
+    "market": "US",
+    "company_id": "315189",
+    "ticker": "DE",
+    "company_name": "DEERE & CO",
+    "report_type": "10-K",
+    "report_family": "annual",
+    "form": "10-K",
+    "title": "10-K",
+    "accession_number": "0001104659-25-122321",
+    "primary_document": "de-20251102x10k.htm",
+    "report_end": "2025-11-02",
+    "published_at": "2025-12-18",
+    "accepted_at": "2025-12-18T13:15:12Z",
+    "document_url": "https://www.sec.gov/Archives/edgar/data/315189/000110465925122321/de-20251102x10k.htm",
+    "landing_url": "https://www.sec.gov/Archives/edgar/data/315189/000110465925122321/0001104659-25-122321-index.html",
+    "file_format": "html",
+    "language": null,
+    "inline_xbrl": true,
+    "metadata": {
+      "sec_submission_name": "DEERE & CO",
+      "accession_no_dashes": "000110465925122321"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "DEERE-&-CO_US_DE_2025-11-02_10-K_2025-12-18_sec_339a0f9f.html",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/DEERE-&-CO/2025/年报/DEERE-&-CO_US_DE_2025-11-02_10-K_2025-12-18_sec_339a0f9f.html",
+    "size_bytes": 10743804,
+    "content_type": "text/html",
+    "content_sha256": "2d63e1f585d06b9305dcf47719af9781b5b95c66bf443278b2fb80cc653f3103"
+  }
+}

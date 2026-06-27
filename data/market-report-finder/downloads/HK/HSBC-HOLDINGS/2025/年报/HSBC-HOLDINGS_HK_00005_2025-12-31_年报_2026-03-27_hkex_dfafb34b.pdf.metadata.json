@@ -1,0 +1,39 @@
+{
+  "candidate": {
+    "source_id": "hkex",
+    "source_name": "HKEXnews",
+    "source_domain": "www1.hkexnews.hk",
+    "market": "HK",
+    "company_id": "00005",
+    "ticker": "00005",
+    "company_name": "HSBC HOLDINGS",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "Annual Report and Accounts 2025 (with employee share plans)",
+    "accession_number": "12071408",
+    "primary_document": "2026032700187.pdf",
+    "report_end": "2025-12-31",
+    "published_at": "2026-03-27",
+    "accepted_at": null,
+    "document_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0327/2026032700187.pdf",
+    "landing_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0327/2026032700187.pdf",
+    "file_format": "pdf",
+    "language": "en",
+    "inline_xbrl": null,
+    "metadata": {
+      "news_id": "12071408",
+      "stock_name": "HSBC HOLDINGS",
+      "short_text": "Financial Statements/ESG Information - [Annual Report / Environmental, Social and Governance Information/Report]",
+      "long_text": "Financial Statements/ESG Information - [Annual Report / Environmental, Social and Governance Information/Report]",
+      "file_info": "12MB"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "HSBC-HOLDINGS_HK_00005_2025-12-31_年报_2026-03-27_hkex_dfafb34b.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/HSBC-HOLDINGS/2025/年报/HSBC-HOLDINGS_HK_00005_2025-12-31_年报_2026-03-27_hkex_dfafb34b.pdf",
+    "size_bytes": 12588090,
+    "content_type": "application/pdf",
+    "content_sha256": "e44a6a2f1d51ecee0463e31ab0c38982967acaee9b6bbfdb1bfe259094b17417"
+  }
+}

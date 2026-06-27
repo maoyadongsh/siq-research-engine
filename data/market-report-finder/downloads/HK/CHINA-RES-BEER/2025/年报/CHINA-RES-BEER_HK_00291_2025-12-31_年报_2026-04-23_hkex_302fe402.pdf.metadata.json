@@ -1,0 +1,39 @@
+{
+  "candidate": {
+    "source_id": "hkex",
+    "source_name": "HKEXnews",
+    "source_domain": "www1.hkexnews.hk",
+    "market": "HK",
+    "company_id": "00291",
+    "ticker": "00291",
+    "company_name": "CHINA RES BEER",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "2025 ANNUAL REPORT",
+    "accession_number": "12117745",
+    "primary_document": "2026042300830.pdf",
+    "report_end": "2025-12-31",
+    "published_at": "2026-04-23",
+    "accepted_at": null,
+    "document_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0423/2026042300830.pdf",
+    "landing_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0423/2026042300830.pdf",
+    "file_format": "pdf",
+    "language": "en",
+    "inline_xbrl": null,
+    "metadata": {
+      "news_id": "12117745",
+      "stock_name": "CHINA RES BEER CHINARES BEER-R",
+      "short_text": "Financial Statements/ESG Information - [Annual Report]",
+      "long_text": "Financial Statements/ESG Information - [Annual Report]",
+      "file_info": "20MB"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "CHINA-RES-BEER_HK_00291_2025-12-31_年报_2026-04-23_hkex_302fe402.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/CHINA-RES-BEER/2025/年报/CHINA-RES-BEER_HK_00291_2025-12-31_年报_2026-04-23_hkex_302fe402.pdf",
+    "size_bytes": 20600545,
+    "content_type": "application/pdf",
+    "content_sha256": "09e36a7393671a75b1129824bc099c3a7e0edb65b0aa7c5316c495a411dc5146"
+  }
+}

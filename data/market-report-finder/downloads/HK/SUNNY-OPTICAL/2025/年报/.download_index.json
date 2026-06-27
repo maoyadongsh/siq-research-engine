@@ -1,0 +1,38 @@
+{
+  "by_url": {
+    "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0424/2026042401983.pdf": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/SUNNY-OPTICAL/2025/年报/SUNNY-OPTICAL_HK_02382_2025-12-31_年报_2026-04-24_hkex_91276aa9.pdf",
+      "file_name": "SUNNY-OPTICAL_HK_02382_2025-12-31_年报_2026-04-24_hkex_91276aa9.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "e1a87ef452c081ab0c58fe0f26c8a4cffda6109bee632eceb822b4f22ac25ecd",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/SUNNY-OPTICAL/2025/年报/SUNNY-OPTICAL_HK_02382_2025-12-31_年报_2026-04-24_hkex_91276aa9.pdf.metadata.json",
+      "market": "HK",
+      "company_id": "HK:02382",
+      "ticker": "02382",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-24",
+      "accession_number": "12121782"
+    }
+  },
+  "by_content_sha256": {
+    "e1a87ef452c081ab0c58fe0f26c8a4cffda6109bee632eceb822b4f22ac25ecd": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/SUNNY-OPTICAL/2025/年报/SUNNY-OPTICAL_HK_02382_2025-12-31_年报_2026-04-24_hkex_91276aa9.pdf",
+      "file_name": "SUNNY-OPTICAL_HK_02382_2025-12-31_年报_2026-04-24_hkex_91276aa9.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "e1a87ef452c081ab0c58fe0f26c8a4cffda6109bee632eceb822b4f22ac25ecd",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/SUNNY-OPTICAL/2025/年报/SUNNY-OPTICAL_HK_02382_2025-12-31_年报_2026-04-24_hkex_91276aa9.pdf.metadata.json",
+      "market": "HK",
+      "company_id": "HK:02382",
+      "ticker": "02382",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-24",
+      "accession_number": "12121782"
+    }
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "by_url": {
+    "https://www.sec.gov/Archives/edgar/data/1773751/000177375126000022/hims-20251231.htm": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/Hims-&-Hers-Health,-Inc/2025/年报/Hims-&-Hers-Health,-Inc_US_HIMS_2025-12-31_10-K_2026-02-23_sec_386caa8e.htm",
+      "file_name": "Hims-&-Hers-Health,-Inc_US_HIMS_2025-12-31_10-K_2026-02-23_sec_386caa8e.htm",
+      "content_type": "text/html",
+      "content_sha256": "943870e75487a388f7a57a21c0c60b9821e2ec6650a1615dcc331298e9b03355",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/Hims-&-Hers-Health,-Inc/2025/年报/Hims-&-Hers-Health,-Inc_US_HIMS_2025-12-31_10-K_2026-02-23_sec_386caa8e.htm.metadata.json",
+      "market": "US",
+      "company_id": "HIMS",
+      "ticker": "HIMS",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-02-23",
+      "accession_number": "0001773751-26-000022"
+    }
+  },
+  "by_content_sha256": {
+    "943870e75487a388f7a57a21c0c60b9821e2ec6650a1615dcc331298e9b03355": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/Hims-&-Hers-Health,-Inc/2025/年报/Hims-&-Hers-Health,-Inc_US_HIMS_2025-12-31_10-K_2026-02-23_sec_386caa8e.htm",
+      "file_name": "Hims-&-Hers-Health,-Inc_US_HIMS_2025-12-31_10-K_2026-02-23_sec_386caa8e.htm",
+      "content_type": "text/html",
+      "content_sha256": "943870e75487a388f7a57a21c0c60b9821e2ec6650a1615dcc331298e9b03355",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/Hims-&-Hers-Health,-Inc/2025/年报/Hims-&-Hers-Health,-Inc_US_HIMS_2025-12-31_10-K_2026-02-23_sec_386caa8e.htm.metadata.json",
+      "market": "US",
+      "company_id": "HIMS",
+      "ticker": "HIMS",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-02-23",
+      "accession_number": "0001773751-26-000022"
+    }
+  }
+}

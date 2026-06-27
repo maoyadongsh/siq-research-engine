@@ -1,0 +1,36 @@
+{
+  "candidate": {
+    "source_id": "sec",
+    "source_name": "SEC EDGAR",
+    "source_domain": "sec.gov",
+    "market": "US",
+    "company_id": "1758488",
+    "ticker": "OSW",
+    "company_name": "ONESPAWORLD HOLDINGS Ltd",
+    "report_type": "10-K",
+    "report_family": "annual",
+    "form": "10-K",
+    "title": "10-K",
+    "accession_number": "0001193125-26-062456",
+    "primary_document": "osw-20251231.htm",
+    "report_end": "2025-12-31",
+    "published_at": "2026-02-23",
+    "accepted_at": "2026-02-23T12:42:49Z",
+    "document_url": "https://www.sec.gov/Archives/edgar/data/1758488/000119312526062456/osw-20251231.htm",
+    "landing_url": "https://www.sec.gov/Archives/edgar/data/1758488/000119312526062456/0001193125-26-062456-index.html",
+    "file_format": "html",
+    "language": null,
+    "inline_xbrl": true,
+    "metadata": {
+      "sec_submission_name": "ONESPAWORLD HOLDINGS Ltd",
+      "accession_no_dashes": "000119312526062456"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "ONESPAWORLD-HOLDINGS-Ltd_US_OSW_2025-12-31_10-K_2026-02-23_sec_f148daea.html",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/ONESPAWORLD-HOLDINGS-Ltd/2025/年报/ONESPAWORLD-HOLDINGS-Ltd_US_OSW_2025-12-31_10-K_2026-02-23_sec_f148daea.html",
+    "size_bytes": 4323576,
+    "content_type": "text/html",
+    "content_sha256": "da06fc30fe244406f50684776235ef36ef2bbcbac901fa18e08e1d4a6d054773"
+  }
+}

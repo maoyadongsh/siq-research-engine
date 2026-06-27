@@ -1,0 +1,39 @@
+{
+  "candidate": {
+    "source_id": "hkex",
+    "source_name": "HKEXnews",
+    "source_domain": "www1.hkexnews.hk",
+    "market": "HK",
+    "company_id": "06160",
+    "ticker": "06160",
+    "company_name": "BEONE MEDICINES",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "2025 ANNUAL REPORT",
+    "accession_number": "12105497",
+    "primary_document": "2026041401058.pdf",
+    "report_end": "2025-12-31",
+    "published_at": "2026-04-14",
+    "accepted_at": null,
+    "document_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0414/2026041401058.pdf",
+    "landing_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0414/2026041401058.pdf",
+    "file_format": "pdf",
+    "language": "en",
+    "inline_xbrl": null,
+    "metadata": {
+      "news_id": "12105497",
+      "stock_name": "BEONE MEDICINES",
+      "short_text": "Financial Statements/ESG Information - [Annual Report]",
+      "long_text": "Financial Statements/ESG Information - [Annual Report]",
+      "file_info": "3MB"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "BEONE-MEDICINES_HK_06160_2025-12-31_年报_2026-04-14_hkex_94b65f5c.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/BEONE-MEDICINES/2025/年报/BEONE-MEDICINES_HK_06160_2025-12-31_年报_2026-04-14_hkex_94b65f5c.pdf",
+    "size_bytes": 3356061,
+    "content_type": "application/pdf",
+    "content_sha256": "2c58010afb6cef1bd0064b862b16a2e993d3867c36fb03fa073f411ae4f3bfb3"
+  }
+}

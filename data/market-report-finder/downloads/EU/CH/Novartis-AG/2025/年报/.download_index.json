@@ -1,0 +1,60 @@
+{
+  "by_url": {
+    "https://www.novartis.com/sites/novartis_com/files/novartis-annual-report-2025.pdf": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/CH/Novartis-AG/2025/年报/Novartis-AG_EU_NOVN_2025-12-31_年报_2026-01-30_six_direct_b96f25c8.pdf",
+      "file_name": "Novartis-AG_EU_NOVN_2025-12-31_年报_2026-01-30_six_direct_b96f25c8.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "b19eafdf5e3b359ffb1459e94bdb54cf386a05461cdf909392a2f02a3fa2eb34",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/CH/Novartis-AG/2025/年报/Novartis-AG_EU_NOVN_2025-12-31_年报_2026-01-30_six_direct_b96f25c8.pdf.metadata.json",
+      "market": "EU",
+      "company_id": "CH:NOVN",
+      "ticker": "NOVN",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-01-30",
+      "accession_number": "manual",
+      "country": "CH",
+      "source_tier": "official_direct"
+    },
+    "https://www.novartis.com/news/media-library/novartis-annual-report-2025": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/CH/Novartis-AG/2025/年报/Novartis-AG_EU_NOVN_2025-12-31_年报_2026-01-30_six_direct_b96f25c8.pdf",
+      "file_name": "Novartis-AG_EU_NOVN_2025-12-31_年报_2026-01-30_six_direct_b96f25c8.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "b19eafdf5e3b359ffb1459e94bdb54cf386a05461cdf909392a2f02a3fa2eb34",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/CH/Novartis-AG/2025/年报/Novartis-AG_EU_NOVN_2025-12-31_年报_2026-01-30_six_direct_b96f25c8.pdf.metadata.json",
+      "market": "EU",
+      "company_id": "CH:NOVN",
+      "ticker": "NOVN",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-01-30",
+      "accession_number": "manual",
+      "country": "CH",
+      "source_tier": "official_direct"
+    }
+  },
+  "by_content_sha256": {
+    "b19eafdf5e3b359ffb1459e94bdb54cf386a05461cdf909392a2f02a3fa2eb34": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/CH/Novartis-AG/2025/年报/Novartis-AG_EU_NOVN_2025-12-31_年报_2026-01-30_six_direct_b96f25c8.pdf",
+      "file_name": "Novartis-AG_EU_NOVN_2025-12-31_年报_2026-01-30_six_direct_b96f25c8.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "b19eafdf5e3b359ffb1459e94bdb54cf386a05461cdf909392a2f02a3fa2eb34",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/CH/Novartis-AG/2025/年报/Novartis-AG_EU_NOVN_2025-12-31_年报_2026-01-30_six_direct_b96f25c8.pdf.metadata.json",
+      "market": "EU",
+      "company_id": "CH:NOVN",
+      "ticker": "NOVN",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-01-30",
+      "accession_number": "manual",
+      "country": "CH",
+      "source_tier": "official_direct"
+    }
+  }
+}

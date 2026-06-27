@@ -61,7 +61,7 @@ export default function ReportFrame({
   }, [contentLoading, reportSrcDoc])
 
   return (
-    <div className="secondary-panel overflow-hidden">
+    <div className="surface-panel overflow-hidden">
       {selectedReport && (
         <div className="border-b border-border bg-card">
           <div className="flex flex-col gap-4 px-5 py-4 md:flex-row md:items-center md:justify-between">

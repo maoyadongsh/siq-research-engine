@@ -1,0 +1,37 @@
+{
+  "candidate": {
+    "source_id": "eu_direct",
+    "source_name": "Official European filing direct download",
+    "source_domain": "www.astrazeneca.com",
+    "market": "EU",
+    "company_id": "GB:AZN",
+    "ticker": "AZN",
+    "company_name": "AstraZeneca PLC",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "AstraZeneca Annual Report 2025",
+    "accession_number": "manual",
+    "primary_document": "AstraZeneca_AR_2025.pdf",
+    "report_end": "2025-12-31",
+    "published_at": "2026-02-26",
+    "accepted_at": null,
+    "document_url": "https://www.astrazeneca.com/content/dam/az/Investor_Relations/annual-report-2025/pdf/AstraZeneca_AR_2025.pdf",
+    "landing_url": "https://www.astrazeneca.com/investor-relations/annual-reports/annual-report-2025.html",
+    "file_format": "pdf",
+    "language": null,
+    "inline_xbrl": null,
+    "metadata": {
+      "country": "GB",
+      "country_label": "UK",
+      "source_tier": "official_direct"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "AstraZeneca-PLC_EU_AZN_2025-12-31_年报_2026-02-26_eu_direct_eb3a13dc.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/UK/AstraZeneca-PLC/2025/年报/AstraZeneca-PLC_EU_AZN_2025-12-31_年报_2026-02-26_eu_direct_eb3a13dc.pdf",
+    "size_bytes": 11703551,
+    "content_type": "application/pdf",
+    "content_sha256": "5a381c1c5df1ca277e95985a6b1b6b3ad371914a4b18a824e22ba541fbf44097"
+  }
+}

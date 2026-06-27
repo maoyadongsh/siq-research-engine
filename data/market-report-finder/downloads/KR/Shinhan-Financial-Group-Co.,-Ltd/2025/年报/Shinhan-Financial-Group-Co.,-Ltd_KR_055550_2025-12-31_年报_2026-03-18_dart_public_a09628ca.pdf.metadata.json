@@ -1,0 +1,33 @@
+{
+  "candidate": {
+    "source_id": "dart_public",
+    "source_name": "DART public disclosure PDF",
+    "source_domain": "dart.fss.or.kr",
+    "market": "KR",
+    "company_id": "00382199",
+    "ticker": "055550",
+    "company_name": "Shinhan Financial Group Co., Ltd.",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "사업보고서 (2025.12)",
+    "accession_number": "manual",
+    "primary_document": "pdf.do",
+    "report_end": "2025-12-31",
+    "published_at": "2026-03-18",
+    "accepted_at": null,
+    "document_url": "https://dart.fss.or.kr/pdf/download/pdf.do?rcp_no=20260318000826&dcm_no=11138263",
+    "landing_url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260318000826",
+    "file_format": "pdf",
+    "language": null,
+    "inline_xbrl": null,
+    "metadata": {}
+  },
+  "downloaded_file": {
+    "file_name": "Shinhan-Financial-Group-Co.,-Ltd_KR_055550_2025-12-31_年报_2026-03-18_dart_public_a09628ca.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/Shinhan-Financial-Group-Co.,-Ltd/2025/年报/Shinhan-Financial-Group-Co.,-Ltd_KR_055550_2025-12-31_年报_2026-03-18_dart_public_a09628ca.pdf",
+    "size_bytes": 3954154,
+    "content_type": "application/pdf",
+    "content_sha256": "e4b070361b20eb6c110d5538291bf665224e8aa25348367b431d984f014bcf45"
+  }
+}

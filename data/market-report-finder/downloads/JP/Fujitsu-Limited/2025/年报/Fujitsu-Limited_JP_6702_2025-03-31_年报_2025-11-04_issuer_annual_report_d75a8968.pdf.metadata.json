@@ -1,0 +1,37 @@
+{
+  "candidate": {
+    "source_id": "issuer_annual_report",
+    "source_name": "Issuer annual report / IR",
+    "source_domain": "global.fujitsu",
+    "market": "JP",
+    "company_id": "JP:6702",
+    "ticker": "6702",
+    "company_name": "Fujitsu Limited",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "Fujitsu Integrated Report 2025",
+    "accession_number": "JP:6702",
+    "primary_document": "integrated-report-2025-en.pdf",
+    "report_end": "2025-03-31",
+    "published_at": "2025-11-04",
+    "accepted_at": null,
+    "document_url": "https://global.fujitsu/-/media/Project/Fujitsu/Fujitsu-HQ/about/integrated-report/2025/integrated-report-2025-en.pdf?rev=889a9b84954c46e3ab772b11facb539d&hash=51362E00F41F124C9B5C6C9D6D4B8B80",
+    "landing_url": "https://global.fujitsu/en-global/about/ir/library/integratedreport/",
+    "file_format": "pdf",
+    "language": "en",
+    "inline_xbrl": null,
+    "metadata": {
+      "industry": "Information Technology",
+      "source_tier": "issuer_official_direct",
+      "source_note": "Curated mainstream Japanese issuer IR annual-report download; EDINET/TDnet remain available for live statutory and exchange disclosures."
+    }
+  },
+  "downloaded_file": {
+    "file_name": "Fujitsu-Limited_JP_6702_2025-03-31_年报_2025-11-04_issuer_annual_report_d75a8968.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/Fujitsu-Limited/2025/年报/Fujitsu-Limited_JP_6702_2025-03-31_年报_2025-11-04_issuer_annual_report_d75a8968.pdf",
+    "size_bytes": 9578492,
+    "content_type": "application/pdf",
+    "content_sha256": "fbf199c8fc97315b41767c5b636f686ffae92f4818cda4be42e2b35766167689"
+  }
+}

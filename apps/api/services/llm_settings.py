@@ -33,8 +33,6 @@ CONFIG_DIR = Path(
 CONFIG_PATH = CONFIG_DIR / "llm_settings.json"
 LEGACY_CONFIG_PATHS = (
     BACKEND_ROOT / ".siq" / "llm_settings.json",
-    BACKEND_ROOT / ".finsight" / "llm_settings.json",
-    BACKEND_DATA_ROOT / ".finsight" / "llm_settings.json",
 )
 KIMI_PROVIDER = {
     "enabled": True,

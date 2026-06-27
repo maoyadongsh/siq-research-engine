@@ -35,11 +35,11 @@ HERMES_PROFILE_ALIASES = {
     "siq_legal": "siq_legal",
 }
 HERMES_LEGACY_MODELS = {
-    "siq_assistant": "finsight_assistant",
-    "siq_analysis": "finsight_analysis",
-    "siq_factchecker": "finsight_factchecker",
-    "siq_tracking": "finsight_tracking",
-    "siq_legal": "finsight_legal",
+    "siq_assistant": "siq_assistant",
+    "siq_analysis": "siq_analysis",
+    "siq_factchecker": "siq_factchecker",
+    "siq_tracking": "siq_tracking",
+    "siq_legal": "siq_legal",
 }
 
 

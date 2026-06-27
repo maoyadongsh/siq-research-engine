@@ -64,6 +64,7 @@ class WorkspaceProjectLink(SQLModel, table=True):
 
 AGENT_QUESTION_EVENT = "agent_question"
 PARSE_EVENT = "parse_job"
+DOCUMENT_PARSE_EVENT = "document_parse"
 
 
 def _now_shanghai() -> datetime:
@@ -87,6 +88,8 @@ def _quota_limit_for_user(user_role: str, event_type: str) -> Optional[int]:
         return 20
     if event_type == PARSE_EVENT:
         return 2
+    if event_type == DOCUMENT_PARSE_EVENT:
+        return 5
     return None
 
 

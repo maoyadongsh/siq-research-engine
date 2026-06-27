@@ -1,0 +1,54 @@
+{
+  "by_url": {
+    "https://static.cninfo.com.cn/finalpage/2026-03-31/1225059012.PDF": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/迈瑞医疗/2025/年报/迈瑞医疗_CN_300760_2025-12-31_年报_2026-03-30_cninfo_c0da5aba.pdf",
+      "file_name": "迈瑞医疗_CN_300760_2025-12-31_年报_2026-03-30_cninfo_c0da5aba.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "b740bc7c4c8839639cf1f86ad0ebac0405924c9b2b595958509e6d8659ba41c3",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/迈瑞医疗/2025/年报/迈瑞医疗_CN_300760_2025-12-31_年报_2026-03-30_cninfo_c0da5aba.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "300760",
+      "ticker": "300760",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-30",
+      "accession_number": "1225059012"
+    },
+    "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=300760&announcementId=1225059012&orgId=9900035304&announcementTime=2026-03-30": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/迈瑞医疗/2025/年报/迈瑞医疗_CN_300760_2025-12-31_年报_2026-03-30_cninfo_c0da5aba.pdf",
+      "file_name": "迈瑞医疗_CN_300760_2025-12-31_年报_2026-03-30_cninfo_c0da5aba.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "b740bc7c4c8839639cf1f86ad0ebac0405924c9b2b595958509e6d8659ba41c3",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/迈瑞医疗/2025/年报/迈瑞医疗_CN_300760_2025-12-31_年报_2026-03-30_cninfo_c0da5aba.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "300760",
+      "ticker": "300760",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-30",
+      "accession_number": "1225059012"
+    }
+  },
+  "by_content_sha256": {
+    "b740bc7c4c8839639cf1f86ad0ebac0405924c9b2b595958509e6d8659ba41c3": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/迈瑞医疗/2025/年报/迈瑞医疗_CN_300760_2025-12-31_年报_2026-03-30_cninfo_c0da5aba.pdf",
+      "file_name": "迈瑞医疗_CN_300760_2025-12-31_年报_2026-03-30_cninfo_c0da5aba.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "b740bc7c4c8839639cf1f86ad0ebac0405924c9b2b595958509e6d8659ba41c3",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/迈瑞医疗/2025/年报/迈瑞医疗_CN_300760_2025-12-31_年报_2026-03-30_cninfo_c0da5aba.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "300760",
+      "ticker": "300760",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-30",
+      "accession_number": "1225059012"
+    }
+  }
+}

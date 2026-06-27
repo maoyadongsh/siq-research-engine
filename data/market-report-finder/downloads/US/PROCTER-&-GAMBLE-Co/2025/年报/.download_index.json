@@ -1,0 +1,38 @@
+{
+  "by_url": {
+    "https://www.sec.gov/Archives/edgar/data/80424/000008042425000076/pg-20250630.htm": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/PROCTER-&-GAMBLE-Co/2025/年报/PROCTER-&-GAMBLE-Co_US_PG_2025-06-30_10-K_2025-08-04_sec_00639b78.htm",
+      "file_name": "PROCTER-&-GAMBLE-Co_US_PG_2025-06-30_10-K_2025-08-04_sec_00639b78.htm",
+      "content_type": "text/html",
+      "content_sha256": "771cbdd953a63a343f4ddb4e09a90d81cca8b9209730ae27db63461e1562336f",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/PROCTER-&-GAMBLE-Co/2025/年报/PROCTER-&-GAMBLE-Co_US_PG_2025-06-30_10-K_2025-08-04_sec_00639b78.htm.metadata.json",
+      "market": "US",
+      "company_id": "PG",
+      "ticker": "PG",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-06-30",
+      "published_at": "2025-08-04",
+      "accession_number": "0000080424-25-000076"
+    }
+  },
+  "by_content_sha256": {
+    "771cbdd953a63a343f4ddb4e09a90d81cca8b9209730ae27db63461e1562336f": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/PROCTER-&-GAMBLE-Co/2025/年报/PROCTER-&-GAMBLE-Co_US_PG_2025-06-30_10-K_2025-08-04_sec_00639b78.htm",
+      "file_name": "PROCTER-&-GAMBLE-Co_US_PG_2025-06-30_10-K_2025-08-04_sec_00639b78.htm",
+      "content_type": "text/html",
+      "content_sha256": "771cbdd953a63a343f4ddb4e09a90d81cca8b9209730ae27db63461e1562336f",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/PROCTER-&-GAMBLE-Co/2025/年报/PROCTER-&-GAMBLE-Co_US_PG_2025-06-30_10-K_2025-08-04_sec_00639b78.htm.metadata.json",
+      "market": "US",
+      "company_id": "PG",
+      "ticker": "PG",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-06-30",
+      "published_at": "2025-08-04",
+      "accession_number": "0000080424-25-000076"
+    }
+  }
+}

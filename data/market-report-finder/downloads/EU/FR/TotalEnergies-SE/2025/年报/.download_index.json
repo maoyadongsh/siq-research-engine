@@ -1,0 +1,60 @@
+{
+  "by_url": {
+    "https://totalenergies.com/system/files/documents/totalenergies_universal-registration-document-2025_2026_en.pdf": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/FR/TotalEnergies-SE/2025/年报/TotalEnergies-SE_EU_TTE_2025-12-31_年报_2026-03-27_eu_direct_c971bcb7.pdf",
+      "file_name": "TotalEnergies-SE_EU_TTE_2025-12-31_年报_2026-03-27_eu_direct_c971bcb7.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "58e1798ad874228bb60ec110721e8880cefdd11802e2e392e619c0bbe9768c50",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/FR/TotalEnergies-SE/2025/年报/TotalEnergies-SE_EU_TTE_2025-12-31_年报_2026-03-27_eu_direct_c971bcb7.pdf.metadata.json",
+      "market": "EU",
+      "company_id": "FR:TTE",
+      "ticker": "TTE",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-27",
+      "accession_number": "manual",
+      "country": "FR",
+      "source_tier": "official_direct"
+    },
+    "https://totalenergies.com/investors/publications-and-regulated-information/regulated-information/universal-registration-document": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/FR/TotalEnergies-SE/2025/年报/TotalEnergies-SE_EU_TTE_2025-12-31_年报_2026-03-27_eu_direct_c971bcb7.pdf",
+      "file_name": "TotalEnergies-SE_EU_TTE_2025-12-31_年报_2026-03-27_eu_direct_c971bcb7.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "58e1798ad874228bb60ec110721e8880cefdd11802e2e392e619c0bbe9768c50",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/FR/TotalEnergies-SE/2025/年报/TotalEnergies-SE_EU_TTE_2025-12-31_年报_2026-03-27_eu_direct_c971bcb7.pdf.metadata.json",
+      "market": "EU",
+      "company_id": "FR:TTE",
+      "ticker": "TTE",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-27",
+      "accession_number": "manual",
+      "country": "FR",
+      "source_tier": "official_direct"
+    }
+  },
+  "by_content_sha256": {
+    "58e1798ad874228bb60ec110721e8880cefdd11802e2e392e619c0bbe9768c50": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/FR/TotalEnergies-SE/2025/年报/TotalEnergies-SE_EU_TTE_2025-12-31_年报_2026-03-27_eu_direct_c971bcb7.pdf",
+      "file_name": "TotalEnergies-SE_EU_TTE_2025-12-31_年报_2026-03-27_eu_direct_c971bcb7.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "58e1798ad874228bb60ec110721e8880cefdd11802e2e392e619c0bbe9768c50",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/FR/TotalEnergies-SE/2025/年报/TotalEnergies-SE_EU_TTE_2025-12-31_年报_2026-03-27_eu_direct_c971bcb7.pdf.metadata.json",
+      "market": "EU",
+      "company_id": "FR:TTE",
+      "ticker": "TTE",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-27",
+      "accession_number": "manual",
+      "country": "FR",
+      "source_tier": "official_direct"
+    }
+  }
+}

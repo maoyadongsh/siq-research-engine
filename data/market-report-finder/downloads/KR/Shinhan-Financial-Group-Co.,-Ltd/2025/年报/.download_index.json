@@ -1,0 +1,42 @@
+{
+  "by_url": {
+    "https://dart.fss.or.kr/pdf/download/pdf.do?rcp_no=20260318000826&dcm_no=11138263": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/Shinhan-Financial-Group-Co.,-Ltd/2025/年报/Shinhan-Financial-Group-Co.,-Ltd_KR_055550_2025-12-31_年报_2026-03-18_dart_public_a09628ca.pdf",
+      "file_name": "Shinhan-Financial-Group-Co.,-Ltd_KR_055550_2025-12-31_年报_2026-03-18_dart_public_a09628ca.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "e4b070361b20eb6c110d5538291bf665224e8aa25348367b431d984f014bcf45",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/Shinhan-Financial-Group-Co.,-Ltd/2025/年报/Shinhan-Financial-Group-Co.,-Ltd_KR_055550_2025-12-31_年报_2026-03-18_dart_public_a09628ca.pdf.metadata.json",
+      "market": "KR",
+      "company_id": "00382199",
+      "ticker": "055550",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-18",
+      "accession_number": "manual",
+      "country": null,
+      "source_tier": null
+    }
+  },
+  "by_content_sha256": {
+    "e4b070361b20eb6c110d5538291bf665224e8aa25348367b431d984f014bcf45": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/Shinhan-Financial-Group-Co.,-Ltd/2025/年报/Shinhan-Financial-Group-Co.,-Ltd_KR_055550_2025-12-31_年报_2026-03-18_dart_public_a09628ca.pdf",
+      "file_name": "Shinhan-Financial-Group-Co.,-Ltd_KR_055550_2025-12-31_年报_2026-03-18_dart_public_a09628ca.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "e4b070361b20eb6c110d5538291bf665224e8aa25348367b431d984f014bcf45",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/Shinhan-Financial-Group-Co.,-Ltd/2025/年报/Shinhan-Financial-Group-Co.,-Ltd_KR_055550_2025-12-31_年报_2026-03-18_dart_public_a09628ca.pdf.metadata.json",
+      "market": "KR",
+      "company_id": "00382199",
+      "ticker": "055550",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-18",
+      "accession_number": "manual",
+      "country": null,
+      "source_tier": null
+    }
+  }
+}

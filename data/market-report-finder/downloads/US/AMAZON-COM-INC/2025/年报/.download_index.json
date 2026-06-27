@@ -1,0 +1,38 @@
+{
+  "by_url": {
+    "https://www.sec.gov/Archives/edgar/data/1018724/000101872426000004/amzn-20251231.htm": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/AMAZON-COM-INC/2025/年报/AMAZON-COM-INC_US_AMZN_2025-12-31_10-K_2026-02-06_sec_3357ec04.htm",
+      "file_name": "AMAZON-COM-INC_US_AMZN_2025-12-31_10-K_2026-02-06_sec_3357ec04.htm",
+      "content_type": "text/html",
+      "content_sha256": "beb1bfc28558135e76882db0cf36ba72a1ab44e2144fe37534f4da1e120ddb57",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/AMAZON-COM-INC/2025/年报/AMAZON-COM-INC_US_AMZN_2025-12-31_10-K_2026-02-06_sec_3357ec04.htm.metadata.json",
+      "market": "US",
+      "company_id": "AMZN",
+      "ticker": "AMZN",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-02-06",
+      "accession_number": "0001018724-26-000004"
+    }
+  },
+  "by_content_sha256": {
+    "beb1bfc28558135e76882db0cf36ba72a1ab44e2144fe37534f4da1e120ddb57": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/AMAZON-COM-INC/2025/年报/AMAZON-COM-INC_US_AMZN_2025-12-31_10-K_2026-02-06_sec_3357ec04.htm",
+      "file_name": "AMAZON-COM-INC_US_AMZN_2025-12-31_10-K_2026-02-06_sec_3357ec04.htm",
+      "content_type": "text/html",
+      "content_sha256": "beb1bfc28558135e76882db0cf36ba72a1ab44e2144fe37534f4da1e120ddb57",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/AMAZON-COM-INC/2025/年报/AMAZON-COM-INC_US_AMZN_2025-12-31_10-K_2026-02-06_sec_3357ec04.htm.metadata.json",
+      "market": "US",
+      "company_id": "AMZN",
+      "ticker": "AMZN",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-02-06",
+      "accession_number": "0001018724-26-000004"
+    }
+  }
+}

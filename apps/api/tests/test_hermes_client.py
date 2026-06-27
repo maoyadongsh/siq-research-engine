@@ -38,22 +38,22 @@ def test_module_profile_urls_detect_existing_compat_gateways(monkeypatch):
         importlib.reload(reloaded)
 
 
-def test_profile_model_name_uses_legacy_runtime_profile_when_present(tmp_path, monkeypatch):
+def test_profile_model_name_uses_siq_runtime_profile_when_present(tmp_path, monkeypatch):
     profiles_root = tmp_path / "profiles"
-    legacy = profiles_root / "finsight_assistant"
-    legacy.mkdir(parents=True)
-    (legacy / "config.yaml").write_text("model: {}\n", encoding="utf-8")
+    profile = profiles_root / "siq_assistant"
+    profile.mkdir(parents=True)
+    (profile / "config.yaml").write_text("model: {}\n", encoding="utf-8")
     monkeypatch.setenv("SIQ_HERMES_PROFILES_ROOT", str(profiles_root))
     monkeypatch.delenv("SIQ_HERMES_ASSISTANT_MODEL", raising=False)
 
-    assert hermes_client._profile_model_name("siq_assistant", "ASSISTANT") == "finsight_assistant"
+    assert hermes_client._profile_model_name("siq_assistant", "ASSISTANT") == "siq_assistant"
 
 
 def test_profile_model_name_allows_explicit_model_override(tmp_path, monkeypatch):
     profiles_root = tmp_path / "profiles"
-    legacy = profiles_root / "finsight_assistant"
-    legacy.mkdir(parents=True)
-    (legacy / "config.yaml").write_text("model: {}\n", encoding="utf-8")
+    profile = profiles_root / "siq_assistant"
+    profile.mkdir(parents=True)
+    (profile / "config.yaml").write_text("model: {}\n", encoding="utf-8")
     monkeypatch.setenv("SIQ_HERMES_PROFILES_ROOT", str(profiles_root))
     monkeypatch.setenv("SIQ_HERMES_ASSISTANT_MODEL", "siq_assistant")
 

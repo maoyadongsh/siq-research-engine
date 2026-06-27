@@ -1,0 +1,38 @@
+{
+  "by_url": {
+    "https://www.sec.gov/Archives/edgar/data/1045810/000104581025000023/nvda-20250126.htm": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/NVIDIA-CORP/2025/年报/NVIDIA-CORP_US_NVDA_2025-01-26_10-K_2025-02-26_sec_9aba0ab9.htm",
+      "file_name": "NVIDIA-CORP_US_NVDA_2025-01-26_10-K_2025-02-26_sec_9aba0ab9.htm",
+      "content_type": "text/html",
+      "content_sha256": "dae19486be264fd26eb00a7f920dc641041a261c81bc8c03b678eea947de4856",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/NVIDIA-CORP/2025/年报/NVIDIA-CORP_US_NVDA_2025-01-26_10-K_2025-02-26_sec_9aba0ab9.htm.metadata.json",
+      "market": "US",
+      "company_id": "NVDA",
+      "ticker": "NVDA",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-01-26",
+      "published_at": "2025-02-26",
+      "accession_number": "0001045810-25-000023"
+    }
+  },
+  "by_content_sha256": {
+    "dae19486be264fd26eb00a7f920dc641041a261c81bc8c03b678eea947de4856": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/NVIDIA-CORP/2025/年报/NVIDIA-CORP_US_NVDA_2025-01-26_10-K_2025-02-26_sec_9aba0ab9.htm",
+      "file_name": "NVIDIA-CORP_US_NVDA_2025-01-26_10-K_2025-02-26_sec_9aba0ab9.htm",
+      "content_type": "text/html",
+      "content_sha256": "dae19486be264fd26eb00a7f920dc641041a261c81bc8c03b678eea947de4856",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/NVIDIA-CORP/2025/年报/NVIDIA-CORP_US_NVDA_2025-01-26_10-K_2025-02-26_sec_9aba0ab9.htm.metadata.json",
+      "market": "US",
+      "company_id": "NVDA",
+      "ticker": "NVDA",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-01-26",
+      "published_at": "2025-02-26",
+      "accession_number": "0001045810-25-000023"
+    }
+  }
+}

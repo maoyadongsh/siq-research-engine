@@ -1,0 +1,42 @@
+{
+  "by_url": {
+    "https://dart.fss.or.kr/pdf/download/pdf.do?rcp_no=20260316001415&dcm_no=11128845": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/Celltrion,-Inc/2025/年报/Celltrion,-Inc_KR_068270_2025-12-31_年报_2026-03-16_dart_public_e65803cd.pdf",
+      "file_name": "Celltrion,-Inc_KR_068270_2025-12-31_年报_2026-03-16_dart_public_e65803cd.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "9738e9d2d3b93ad56acbf9dcd12035d4d0026b9d5d842eab8c3f98e216c51ddd",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/Celltrion,-Inc/2025/年报/Celltrion,-Inc_KR_068270_2025-12-31_年报_2026-03-16_dart_public_e65803cd.pdf.metadata.json",
+      "market": "KR",
+      "company_id": "00413046",
+      "ticker": "068270",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-16",
+      "accession_number": "manual",
+      "country": null,
+      "source_tier": null
+    }
+  },
+  "by_content_sha256": {
+    "9738e9d2d3b93ad56acbf9dcd12035d4d0026b9d5d842eab8c3f98e216c51ddd": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/Celltrion,-Inc/2025/年报/Celltrion,-Inc_KR_068270_2025-12-31_年报_2026-03-16_dart_public_e65803cd.pdf",
+      "file_name": "Celltrion,-Inc_KR_068270_2025-12-31_年报_2026-03-16_dart_public_e65803cd.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "9738e9d2d3b93ad56acbf9dcd12035d4d0026b9d5d842eab8c3f98e216c51ddd",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/Celltrion,-Inc/2025/年报/Celltrion,-Inc_KR_068270_2025-12-31_年报_2026-03-16_dart_public_e65803cd.pdf.metadata.json",
+      "market": "KR",
+      "company_id": "00413046",
+      "ticker": "068270",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-16",
+      "accession_number": "manual",
+      "country": null,
+      "source_tier": null
+    }
+  }
+}

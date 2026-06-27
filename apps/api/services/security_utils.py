@@ -14,7 +14,7 @@ ALLOWED_TABLES = frozenset({
     "validation_anomalies",
     "reports",
     "companies",
-    "petstate",
+    "agentstate",
     "chatmessage",
     "achievement",
     "interactionlog",

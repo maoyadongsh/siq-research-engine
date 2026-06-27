@@ -1,0 +1,38 @@
+{
+  "by_url": {
+    "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0417/2026041701389.pdf": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/NONGFU-SPRING/2025/年报/NONGFU-SPRING_HK_09633_2025-12-31_年报_2026-04-17_hkex_520d1e46.pdf",
+      "file_name": "NONGFU-SPRING_HK_09633_2025-12-31_年报_2026-04-17_hkex_520d1e46.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "3dc99ff24525187335ab315a457de16d14a4f46af63ba0e94e045e71668cb5b0",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/NONGFU-SPRING/2025/年报/NONGFU-SPRING_HK_09633_2025-12-31_年报_2026-04-17_hkex_520d1e46.pdf.metadata.json",
+      "market": "HK",
+      "company_id": "HK:09633",
+      "ticker": "09633",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-17",
+      "accession_number": "12110701"
+    }
+  },
+  "by_content_sha256": {
+    "3dc99ff24525187335ab315a457de16d14a4f46af63ba0e94e045e71668cb5b0": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/NONGFU-SPRING/2025/年报/NONGFU-SPRING_HK_09633_2025-12-31_年报_2026-04-17_hkex_520d1e46.pdf",
+      "file_name": "NONGFU-SPRING_HK_09633_2025-12-31_年报_2026-04-17_hkex_520d1e46.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "3dc99ff24525187335ab315a457de16d14a4f46af63ba0e94e045e71668cb5b0",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/NONGFU-SPRING/2025/年报/NONGFU-SPRING_HK_09633_2025-12-31_年报_2026-04-17_hkex_520d1e46.pdf.metadata.json",
+      "market": "HK",
+      "company_id": "HK:09633",
+      "ticker": "09633",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-17",
+      "accession_number": "12110701"
+    }
+  }
+}

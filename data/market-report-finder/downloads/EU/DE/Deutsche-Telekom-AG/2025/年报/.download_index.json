@@ -1,0 +1,60 @@
+{
+  "by_url": {
+    "https://report.telekom.com/annual-report-2025/_assets/downloads/entire-dtag-ar25.pdf": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/DE/Deutsche-Telekom-AG/2025/年报/Deutsche-Telekom-AG_EU_DTE_2025-12-31_年报_2026-02-26_eu_direct_8848a5d1.pdf",
+      "file_name": "Deutsche-Telekom-AG_EU_DTE_2025-12-31_年报_2026-02-26_eu_direct_8848a5d1.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "de5d9b0705793c4bf0b994b52ecc242800d79ee18736958dbff32aade7b79a5c",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/DE/Deutsche-Telekom-AG/2025/年报/Deutsche-Telekom-AG_EU_DTE_2025-12-31_年报_2026-02-26_eu_direct_8848a5d1.pdf.metadata.json",
+      "market": "EU",
+      "company_id": "DE:DTE",
+      "ticker": "DTE",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-02-26",
+      "accession_number": "manual",
+      "country": "DE",
+      "source_tier": "official_direct"
+    },
+    "https://report.telekom.com/annual-report-2025/": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/DE/Deutsche-Telekom-AG/2025/年报/Deutsche-Telekom-AG_EU_DTE_2025-12-31_年报_2026-02-26_eu_direct_8848a5d1.pdf",
+      "file_name": "Deutsche-Telekom-AG_EU_DTE_2025-12-31_年报_2026-02-26_eu_direct_8848a5d1.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "de5d9b0705793c4bf0b994b52ecc242800d79ee18736958dbff32aade7b79a5c",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/DE/Deutsche-Telekom-AG/2025/年报/Deutsche-Telekom-AG_EU_DTE_2025-12-31_年报_2026-02-26_eu_direct_8848a5d1.pdf.metadata.json",
+      "market": "EU",
+      "company_id": "DE:DTE",
+      "ticker": "DTE",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-02-26",
+      "accession_number": "manual",
+      "country": "DE",
+      "source_tier": "official_direct"
+    }
+  },
+  "by_content_sha256": {
+    "de5d9b0705793c4bf0b994b52ecc242800d79ee18736958dbff32aade7b79a5c": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/DE/Deutsche-Telekom-AG/2025/年报/Deutsche-Telekom-AG_EU_DTE_2025-12-31_年报_2026-02-26_eu_direct_8848a5d1.pdf",
+      "file_name": "Deutsche-Telekom-AG_EU_DTE_2025-12-31_年报_2026-02-26_eu_direct_8848a5d1.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "de5d9b0705793c4bf0b994b52ecc242800d79ee18736958dbff32aade7b79a5c",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/DE/Deutsche-Telekom-AG/2025/年报/Deutsche-Telekom-AG_EU_DTE_2025-12-31_年报_2026-02-26_eu_direct_8848a5d1.pdf.metadata.json",
+      "market": "EU",
+      "company_id": "DE:DTE",
+      "ticker": "DTE",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-02-26",
+      "accession_number": "manual",
+      "country": "DE",
+      "source_tier": "official_direct"
+    }
+  }
+}

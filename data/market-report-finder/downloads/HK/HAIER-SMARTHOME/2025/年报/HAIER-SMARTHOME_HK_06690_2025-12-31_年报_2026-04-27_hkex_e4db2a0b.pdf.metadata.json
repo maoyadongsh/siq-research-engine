@@ -1,0 +1,39 @@
+{
+  "candidate": {
+    "source_id": "hkex",
+    "source_name": "HKEXnews",
+    "source_domain": "www1.hkexnews.hk",
+    "market": "HK",
+    "company_id": "06690",
+    "ticker": "06690",
+    "company_name": "HAIER SMARTHOME",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "Annual Report 2025",
+    "accession_number": "12125634",
+    "primary_document": "2026042702192.pdf",
+    "report_end": "2025-12-31",
+    "published_at": "2026-04-27",
+    "accepted_at": null,
+    "document_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0427/2026042702192.pdf",
+    "landing_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0427/2026042702192.pdf",
+    "file_format": "pdf",
+    "language": "en",
+    "inline_xbrl": null,
+    "metadata": {
+      "news_id": "12125634",
+      "stock_name": "HAIER SMARTHOME",
+      "short_text": "Financial Statements/ESG Information - [Annual Report]",
+      "long_text": "Financial Statements/ESG Information - [Annual Report]",
+      "file_info": "5MB"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "HAIER-SMARTHOME_HK_06690_2025-12-31_年报_2026-04-27_hkex_e4db2a0b.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/HAIER-SMARTHOME/2025/年报/HAIER-SMARTHOME_HK_06690_2025-12-31_年报_2026-04-27_hkex_e4db2a0b.pdf",
+    "size_bytes": 5426198,
+    "content_type": "application/pdf",
+    "content_sha256": "2d0e3f21620b011fcf6bef688328c60c55d4393eb25371c403794ffda3eb52ce"
+  }
+}

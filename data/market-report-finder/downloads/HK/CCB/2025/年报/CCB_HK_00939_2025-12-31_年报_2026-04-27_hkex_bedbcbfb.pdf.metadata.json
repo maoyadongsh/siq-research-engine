@@ -1,0 +1,39 @@
+{
+  "candidate": {
+    "source_id": "hkex",
+    "source_name": "HKEXnews",
+    "source_domain": "www1.hkexnews.hk",
+    "market": "HK",
+    "company_id": "00939",
+    "ticker": "00939",
+    "company_name": "CCB",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "2025 Annual Report",
+    "accession_number": "12125127",
+    "primary_document": "2026042701703.pdf",
+    "report_end": "2025-12-31",
+    "published_at": "2026-04-27",
+    "accepted_at": null,
+    "document_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0427/2026042701703.pdf",
+    "landing_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0427/2026042701703.pdf",
+    "file_format": "pdf",
+    "language": "en",
+    "inline_xbrl": null,
+    "metadata": {
+      "news_id": "12125127",
+      "stock_name": "CCB",
+      "short_text": "Financial Statements/ESG Information - [Annual Report]",
+      "long_text": "Financial Statements/ESG Information - [Annual Report]",
+      "file_info": "12MB"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "CCB_HK_00939_2025-12-31_年报_2026-04-27_hkex_bedbcbfb.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/CCB/2025/年报/CCB_HK_00939_2025-12-31_年报_2026-04-27_hkex_bedbcbfb.pdf",
+    "size_bytes": 12799723,
+    "content_type": "application/pdf",
+    "content_sha256": "0172d2c48ac548c7f3411a94a3e8dd2c65865420cfca3e4ad3c106db2540f50c"
+  }
+}

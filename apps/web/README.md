@@ -1,8 +1,15 @@
 # SIQ Web 工作台
 
-`apps/web` 是 SIQ Research Engine 的 React/Vite 前端。它提供研究工作台、公告搜索下载、PDF 解析工作流、生成报告浏览、专业 Agent 面板、设置、帮助、鉴权和工作区页面。
+`apps/web` 是 SIQ Research Engine 的 React / Vite 前端。它把财报研究的主要流程组织为一个统一工作台：公司资料、公告下载、PDF 解析、报告浏览、事实核查、持续跟踪、法务合规、通用问答、系统设置和用户管理。
 
-该应用由 SIQ 前端迁移而来。新开发使用 SIQ 路径和 `SIQ_*` 环境变量；部分 `SIQ_*` 变量仅作为迁移期兼容回退。
+## 产品定位
+
+前端不是简单的接口调试页，而是研究员日常工作的主界面。它强调：
+
+- 从官方公告到 PDF 解析再到报告产物的连续工作流。
+- 报告阅读、证据溯源和 Agent 对话并排协作。
+- 管理员、普通用户、工作区和权限状态清晰分离。
+- 长任务通过 SSE 和状态面板呈现，避免“点击后失联”的体验。
 
 ## 启动
 
@@ -18,15 +25,10 @@ npm run dev -- --host 0.0.0.0 --port 15173
 http://localhost:15173
 ```
 
-构建：
+构建与检查：
 
 ```bash
 npm run build
-```
-
-Lint：
-
-```bash
 npm run lint
 ```
 
@@ -36,9 +38,76 @@ npm run lint
 npm run preview
 ```
 
+## 路由功能
+
+| 路由 | 页面 | 主要能力 |
+| --- | --- | --- |
+| `/` | 工作平台 | 工作区摘要、项目资产、近期研究入口 |
+| `/search` | 搜索下载 | 公司解析、官方公告检索、批量下载、下载文件管理 |
+| `/parse` | 财报解析 | PDF 上传、解析任务、质量复核、财务抽取、溯源、导入工作流 |
+| `/analysis` | 智能分析 | 年度分析报告浏览、分析 Agent 对话 |
+| `/verify` | 事实核查 | 核查报告浏览、核查 Agent 对话 |
+| `/tracking` | 持续跟踪 | 跟踪报告、事项、指标、预警和跟踪 Agent |
+| `/legal` | 法务合规 | 法律意见书浏览、法规检索型 Agent |
+| `/chat` | 问答助手 | 全屏通用财报问答、附件、会话历史 |
+| `/account` | 账户 | 当前用户资料和本地账户状态 |
+| `/settings` | 设置 | LLM 设置、系统健康、下游服务状态 |
+| `/vector-ingest` | 向量入库 | Milvus 入库控制台状态、启动命令和 Gradio 嵌入 |
+| `/admin/users` | 用户审批 | 用户管理、审批、权限和审计入口 |
+| `/system-dashboard` | 系统平台 | 系统级监控与管理入口 |
+| `/help` | 帮助 | 本地使用说明 |
+
+## 服务依赖
+
+| 前端前缀 | 代理目标 | 用途 |
+| --- | --- | --- |
+| `/api/auth` | `http://127.0.0.1:18081` | 鉴权、用户、权限 |
+| `/api/chat` | `http://127.0.0.1:18081` | 通用助手聊天 |
+| `/api/wiki` | `http://127.0.0.1:18081` | 公司与报告文件 |
+| `/api/analysis` | `http://127.0.0.1:18081` | 分析 Agent |
+| `/api/factchecker` | `http://127.0.0.1:18081` | 核查 Agent |
+| `/api/tracking` | `http://127.0.0.1:18081` | 跟踪 Agent 和跟踪业务 API |
+| `/api/legal` | `http://127.0.0.1:18081` | 法务 Agent |
+| `/api/settings` | `http://127.0.0.1:18081` | 模型设置 |
+| `/api/system` | `http://127.0.0.1:18081` | 系统状态 |
+| `/api/downloads` | `http://127.0.0.1:18081` | 已下载 PDF 管理 |
+| `/api/workflow` | `http://127.0.0.1:18081` | PDF 导入工作流 |
+| `/api/source`, `/api/pdf_page` | `http://127.0.0.1:18081` | 证据与 PDF 溯源 |
+| `/api/*` | `http://127.0.0.1:18000/*` | 公告搜索下载服务兜底 |
+| `/pdfapi/*` | `http://127.0.0.1:15000/api/*` | PDF 解析服务 |
+
+代理规则由 `vite.config.ts` 和 `scripts/proxy-config.mjs` 定义。新增 API 聚合后端路由时，应在公告下载兜底规则之前添加更具体的前缀。
+
+## 关键组件
+
+| 文件 | 职责 |
+| --- | --- |
+| `src/App.tsx` | 路由、鉴权保护和懒加载 |
+| `src/components/layout/*` | 侧边栏、顶栏、全局搜索、通知菜单 |
+| `src/pages/SearchDownload.tsx` | 官方公告搜索与下载 |
+| `src/pages/PdfParsing.tsx` | PDF 解析任务、质量复核、导入和溯源 |
+| `src/components/pdf/*` | PDF 阅读、页图、质量、财务、任务和工作流组件 |
+| `src/components/report/*` | HTML 报告选择、工具栏、iframe 安全渲染 |
+| `src/components/agent/*` | 专业 Agent 面板、头像、进度卡片 |
+| `src/components/chat/*` | 通用聊天、附件、会话历史和消息渲染 |
+| `src/lib/useAgentChat.ts` | SSE 聊天、停止、恢复、会话状态 |
+| `src/lib/apiClient.ts` | 带鉴权的 API client |
+| `src/lib/authenticatedSourceLinks.ts` | 报告内溯源链接鉴权处理 |
+
+## 技术栈
+
+| 类型 | 选型 |
+| --- | --- |
+| UI 框架 | React 19、React Router 7 |
+| 构建 | Vite 8、TypeScript 6 |
+| 样式 | Tailwind CSS 4、Radix UI、class-variance-authority |
+| 图标 | lucide-react |
+| 图表 | Recharts |
+| 内容安全 | DOMPurify、鉴权文件访问、iframe srcdoc 构建 |
+
 ## 公网 HMR 配置
 
-通过 HTTPS 反向代理暴露 Vite dev server 时，优先使用 SIQ 前缀变量：
+通过 HTTPS 反向代理暴露 Vite dev server 时：
 
 ```bash
 cd /home/maoyd/siq-research-engine/apps/web
@@ -47,46 +116,6 @@ SIQ_PUBLIC_HMR_PROTOCOL=wss \
 SIQ_PUBLIC_HMR_CLIENT_PORT=8276 \
 npm run dev -- --host 0.0.0.0 --port 15173
 ```
-
-`SIQ_PUBLIC_*` 变量仍作为迁移期兼容回退。
-
-## 路由和服务依赖
-
-| 路由 | 页面 | 依赖 |
-| --- | --- | --- |
-| `/` | 工作台概览 | `/api/wiki/*` |
-| `/search` | 公告搜索下载 | `/api/v1/*`, `/api/downloads/*` |
-| `/parse` | PDF 解析、复核和导入 | `/pdfapi/*`, `/api/workflow/*`, `/api/source/*` |
-| `/analysis` | 分析报告和分析助手 | `/api/wiki/*`, `/api/analysis/chat/*` |
-| `/verify` | 核查报告和核查助手 | `/api/wiki/*`, `/api/factchecker/chat/*` |
-| `/tracking` | 跟踪报告和跟踪助手 | `/api/wiki/*`, `/api/tracking/chat/*` |
-| `/legal` | 法务报告和法务助手 | `/api/wiki/*`, `/api/legal/chat/*` |
-| `/chat` | 全屏通用助手 | `/api/chat/*` |
-| `/settings` | LLM 设置和系统健康 | `/api/settings/*`, `/api/system/status` |
-| `/help` | 本地帮助页 | 前端静态内容 |
-
-## Vite 代理
-
-代理规则由 `vite.config.ts` 和 `scripts/proxy-config.mjs` 定义。
-
-| 请求前缀 | 目标 | 用途 |
-| --- | --- | --- |
-| `/api/chat` | `http://127.0.0.1:18081` | 通用助手聊天 |
-| `/api/wiki` | `http://127.0.0.1:18081` | Wiki 和报告 API |
-| `/api/analysis` | `http://127.0.0.1:18081` | 分析助手 |
-| `/api/factchecker` | `http://127.0.0.1:18081` | 核查助手 |
-| `/api/tracking` | `http://127.0.0.1:18081` | 跟踪助手和跟踪业务 API |
-| `/api/legal` | `http://127.0.0.1:18081` | 法务助手 |
-| `/api/eval` | `http://127.0.0.1:18081` | 评测 API |
-| `/api/settings` | `http://127.0.0.1:18081` | 模型设置 |
-| `/api/system` | `http://127.0.0.1:18081` | 系统状态 |
-| `/api/downloads` | `http://127.0.0.1:18081` | 已下载 PDF 管理 |
-| `/api/workflow` | `http://127.0.0.1:18081` | PDF 导入工作流 |
-| `/api/source`, `/api/pdf_page` | `http://127.0.0.1:18081` | 证据与 PDF 溯源 |
-| `/api/*` | `http://127.0.0.1:18000/*` | 公告搜索下载兜底 |
-| `/pdfapi/*` | `http://127.0.0.1:15000/api/*` | PDF 解析服务 |
-
-通用 `/api/*` 是公告搜索下载服务的兜底规则。新增 API 聚合后端路由时，应在兜底规则之前添加更具体的前缀。
 
 ## 目录结构
 
@@ -98,9 +127,10 @@ apps/web/
     index.css
     pages/
     components/
+    hooks/
     lib/
   public/
-    pet/
+    agent/
     videos/
     illustrations/
   scripts/
@@ -111,35 +141,9 @@ apps/web/
   Dockerfile
 ```
 
-`node_modules`、`dist` 和日志都是生成或本地运行态文件，不应提交。
+## 开发原则
 
-## 关键组件
-
-| 组件 | 职责 |
-| --- | --- |
-| `src/pages/Dashboard.tsx` | 工作台首页概览 |
-| `src/pages/SearchDownload.tsx` | 公告搜索和已下载 PDF 管理 |
-| `src/pages/PdfParsing.tsx` | PDF 解析任务、质量复核、溯源和工作流导入 |
-| `src/components/report/ReportViewer.tsx` | 分析/核查/跟踪/法务 HTML 报告浏览器 |
-| `src/components/agent/AgentChatPanel.tsx` | 专业 Agent 对话面板 |
-| `src/lib/useAgentChat.ts` | SSE 聊天状态、停止、恢复和会话处理 |
-| `src/lib/apiClient.ts` | 带鉴权的 API client |
-
-## 运行态资产
-
-前端直接服务的运行态 UI 资产放在 `public/`。历史头像候选、生成的 review sheet 等不再保留在当前仓库；只有当前 UI 直接引用的资产才应进入 `public/`。
-
-## 开发验证
-
-```bash
-cd /home/maoyd/siq-research-engine/apps/web
-npm run build
-npm run lint
-```
-
-## 迁移注意事项
-
-- 不要新增指向旧源目录的路径引用。
-- 公网 HMR 配置优先使用 `SIQ_PUBLIC_*`。
-- `SIQ_PUBLIC_*` 只作为迁移期兼容回退。
-- 保持 `dist`、`node_modules` 和生成日志忽略。
+- 报告页优先保持“报告阅读 + 专业 Agent + 溯源链接”的协作布局。
+- 长任务要暴露状态、错误和重试入口。
+- 报告 iframe、PDF 文件和来源链接必须走鉴权或签名访问。
+- 不提交 `node_modules`、`dist`、日志和临时构建产物。

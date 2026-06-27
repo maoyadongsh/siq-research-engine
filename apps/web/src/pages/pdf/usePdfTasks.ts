@@ -60,17 +60,19 @@ export interface UsePdfTasksOptions {
   showToast: (msg: string) => void
   onError?: (msg: string | null) => void
   onWorkflowReload?: () => void
+  taskFilter?: (task: TaskItem) => boolean
   setSelectedFilesRef?: React.MutableRefObject<((files: File[]) => void) | null>
 }
 
 export function usePdfTasks(options: UsePdfTasksOptions) {
-  const { backend, parseMethod, startPage, endPage, formula, table, showToast, onError, onWorkflowReload, setSelectedFilesRef } = options
+  const { backend, parseMethod, startPage, endPage, formula, table, showToast, onError, onWorkflowReload, taskFilter, setSelectedFilesRef } = options
 
   const taskIdRef = useRef<string | null>(null)
   const logCountRef = useRef(0)
   const cancelledRef = useRef(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const uploadRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const taskFilterRef = useRef<typeof taskFilter>(taskFilter)
 
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -103,6 +105,10 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
 
   const internalSetSelectedFilesRef = useRef<((files: File[]) => void) | null>(null)
   const selectedFilesSetterRef = setSelectedFilesRef ?? internalSetSelectedFilesRef
+
+  useEffect(() => {
+    taskFilterRef.current = taskFilter
+  }, [taskFilter])
 
   const reportError = useCallback(
     (msg: string | null) => {
@@ -307,7 +313,9 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
     async (opts: { autoResume?: boolean } = {}) => {
       const autoResume = opts.autoResume !== false
       try {
-        const list = (await loadTasksApi()) as unknown as TaskItem[]
+        const allTasks = (await loadTasksApi()) as unknown as TaskItem[]
+        const filter = taskFilterRef.current
+        const list = filter ? allTasks.filter(filter) : allTasks
         setTasks(list)
         if (autoResume && !taskIdRef.current && list.length) {
           const latest =

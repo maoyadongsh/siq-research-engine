@@ -1,0 +1,54 @@
+{
+  "by_url": {
+    "https://static.cninfo.com.cn/finalpage/2026-03-24/1225025225.PDF": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/药明康德/2025/年报/药明康德_CN_603259_2025-12-31_年报_2026-03-23_cninfo_7b742aa5.pdf",
+      "file_name": "药明康德_CN_603259_2025-12-31_年报_2026-03-23_cninfo_7b742aa5.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "7f1431d66eae399d4b35639bb650e23287c7f52dacbb47b4b4a197fb5026d6a2",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/药明康德/2025/年报/药明康德_CN_603259_2025-12-31_年报_2026-03-23_cninfo_7b742aa5.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "603259",
+      "ticker": "603259",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-23",
+      "accession_number": "1225025225"
+    },
+    "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=603259&announcementId=1225025225&orgId=9900035584&announcementTime=2026-03-23": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/药明康德/2025/年报/药明康德_CN_603259_2025-12-31_年报_2026-03-23_cninfo_7b742aa5.pdf",
+      "file_name": "药明康德_CN_603259_2025-12-31_年报_2026-03-23_cninfo_7b742aa5.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "7f1431d66eae399d4b35639bb650e23287c7f52dacbb47b4b4a197fb5026d6a2",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/药明康德/2025/年报/药明康德_CN_603259_2025-12-31_年报_2026-03-23_cninfo_7b742aa5.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "603259",
+      "ticker": "603259",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-23",
+      "accession_number": "1225025225"
+    }
+  },
+  "by_content_sha256": {
+    "7f1431d66eae399d4b35639bb650e23287c7f52dacbb47b4b4a197fb5026d6a2": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/药明康德/2025/年报/药明康德_CN_603259_2025-12-31_年报_2026-03-23_cninfo_7b742aa5.pdf",
+      "file_name": "药明康德_CN_603259_2025-12-31_年报_2026-03-23_cninfo_7b742aa5.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "7f1431d66eae399d4b35639bb650e23287c7f52dacbb47b4b4a197fb5026d6a2",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/药明康德/2025/年报/药明康德_CN_603259_2025-12-31_年报_2026-03-23_cninfo_7b742aa5.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "603259",
+      "ticker": "603259",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-23",
+      "accession_number": "1225025225"
+    }
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "by_url": {
+    "https://static.cninfo.com.cn/finalpage/2026-04-15/1225104908.PDF": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/立讯精密/2025/年报/立讯精密_CN_002475_2025-12-31_年报_2026-04-14_cninfo_5a441723.pdf",
+      "file_name": "立讯精密_CN_002475_2025-12-31_年报_2026-04-14_cninfo_5a441723.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "957556c331a237cc3235b63659e884c7e1e877b6460f06d5039159f1598e4e46",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/立讯精密/2025/年报/立讯精密_CN_002475_2025-12-31_年报_2026-04-14_cninfo_5a441723.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "002475",
+      "ticker": "002475",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-14",
+      "accession_number": "1225104908"
+    },
+    "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=002475&announcementId=1225104908&orgId=9900014448&announcementTime=2026-04-14": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/立讯精密/2025/年报/立讯精密_CN_002475_2025-12-31_年报_2026-04-14_cninfo_5a441723.pdf",
+      "file_name": "立讯精密_CN_002475_2025-12-31_年报_2026-04-14_cninfo_5a441723.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "957556c331a237cc3235b63659e884c7e1e877b6460f06d5039159f1598e4e46",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/立讯精密/2025/年报/立讯精密_CN_002475_2025-12-31_年报_2026-04-14_cninfo_5a441723.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "002475",
+      "ticker": "002475",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-14",
+      "accession_number": "1225104908"
+    }
+  },
+  "by_content_sha256": {
+    "957556c331a237cc3235b63659e884c7e1e877b6460f06d5039159f1598e4e46": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/立讯精密/2025/年报/立讯精密_CN_002475_2025-12-31_年报_2026-04-14_cninfo_5a441723.pdf",
+      "file_name": "立讯精密_CN_002475_2025-12-31_年报_2026-04-14_cninfo_5a441723.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "957556c331a237cc3235b63659e884c7e1e877b6460f06d5039159f1598e4e46",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/立讯精密/2025/年报/立讯精密_CN_002475_2025-12-31_年报_2026-04-14_cninfo_5a441723.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "002475",
+      "ticker": "002475",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-14",
+      "accession_number": "1225104908"
+    }
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "by_url": {
+    "https://static.cninfo.com.cn/finalpage/2026-04-23/1225147552.PDF": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/石头科技/2025/年报/石头科技_CN_688169_2025-12-31_年报_2026-04-22_cninfo_28efa50a.pdf",
+      "file_name": "石头科技_CN_688169_2025-12-31_年报_2026-04-22_cninfo_28efa50a.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "c9cf8915cc55c654eafb6dc9a495ca25ada6b5e5ce04a1d04ace7003a194d96b",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/石头科技/2025/年报/石头科技_CN_688169_2025-12-31_年报_2026-04-22_cninfo_28efa50a.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "688169",
+      "ticker": "688169",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-22",
+      "accession_number": "1225147552"
+    },
+    "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=688169&announcementId=1225147552&orgId=9900039123&announcementTime=2026-04-22": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/石头科技/2025/年报/石头科技_CN_688169_2025-12-31_年报_2026-04-22_cninfo_28efa50a.pdf",
+      "file_name": "石头科技_CN_688169_2025-12-31_年报_2026-04-22_cninfo_28efa50a.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "c9cf8915cc55c654eafb6dc9a495ca25ada6b5e5ce04a1d04ace7003a194d96b",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/石头科技/2025/年报/石头科技_CN_688169_2025-12-31_年报_2026-04-22_cninfo_28efa50a.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "688169",
+      "ticker": "688169",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-22",
+      "accession_number": "1225147552"
+    }
+  },
+  "by_content_sha256": {
+    "c9cf8915cc55c654eafb6dc9a495ca25ada6b5e5ce04a1d04ace7003a194d96b": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/石头科技/2025/年报/石头科技_CN_688169_2025-12-31_年报_2026-04-22_cninfo_28efa50a.pdf",
+      "file_name": "石头科技_CN_688169_2025-12-31_年报_2026-04-22_cninfo_28efa50a.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "c9cf8915cc55c654eafb6dc9a495ca25ada6b5e5ce04a1d04ace7003a194d96b",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/石头科技/2025/年报/石头科技_CN_688169_2025-12-31_年报_2026-04-22_cninfo_28efa50a.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "688169",
+      "ticker": "688169",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-22",
+      "accession_number": "1225147552"
+    }
+  }
+}

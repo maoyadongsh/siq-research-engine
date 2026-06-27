@@ -1,0 +1,54 @@
+{
+  "by_url": {
+    "https://static.cninfo.com.cn/finalpage/2026-04-09/1225084819.PDF": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/中芯国际/2025/年报/中芯国际_CN_688981_2025-12-31_年报_2026-04-08_cninfo_00296115.pdf",
+      "file_name": "中芯国际_CN_688981_2025-12-31_年报_2026-04-08_cninfo_00296115.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "481d32f4f24ac7b79796dd1532382a8ef90b2c19f3e3fb604fdbdb46c8f5fd3f",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/中芯国际/2025/年报/中芯国际_CN_688981_2025-12-31_年报_2026-04-08_cninfo_00296115.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "688981",
+      "ticker": "688981",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-08",
+      "accession_number": "1225084819"
+    },
+    "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=688981&announcementId=1225084819&orgId=gshk0000981&announcementTime=2026-04-08": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/中芯国际/2025/年报/中芯国际_CN_688981_2025-12-31_年报_2026-04-08_cninfo_00296115.pdf",
+      "file_name": "中芯国际_CN_688981_2025-12-31_年报_2026-04-08_cninfo_00296115.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "481d32f4f24ac7b79796dd1532382a8ef90b2c19f3e3fb604fdbdb46c8f5fd3f",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/中芯国际/2025/年报/中芯国际_CN_688981_2025-12-31_年报_2026-04-08_cninfo_00296115.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "688981",
+      "ticker": "688981",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-08",
+      "accession_number": "1225084819"
+    }
+  },
+  "by_content_sha256": {
+    "481d32f4f24ac7b79796dd1532382a8ef90b2c19f3e3fb604fdbdb46c8f5fd3f": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/中芯国际/2025/年报/中芯国际_CN_688981_2025-12-31_年报_2026-04-08_cninfo_00296115.pdf",
+      "file_name": "中芯国际_CN_688981_2025-12-31_年报_2026-04-08_cninfo_00296115.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "481d32f4f24ac7b79796dd1532382a8ef90b2c19f3e3fb604fdbdb46c8f5fd3f",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/中芯国际/2025/年报/中芯国际_CN_688981_2025-12-31_年报_2026-04-08_cninfo_00296115.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "688981",
+      "ticker": "688981",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-08",
+      "accession_number": "1225084819"
+    }
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "candidate": {
+    "source_id": "sec",
+    "source_name": "SEC EDGAR",
+    "source_domain": "sec.gov",
+    "market": "US",
+    "company_id": "34088",
+    "ticker": "XOM",
+    "company_name": "EXXON MOBIL CORP",
+    "report_type": "10-K",
+    "report_family": "annual",
+    "form": "10-K",
+    "title": "FORM 10-K",
+    "accession_number": "0000034088-26-000045",
+    "primary_document": "xom-20251231.htm",
+    "report_end": "2025-12-31",
+    "published_at": "2026-02-18",
+    "accepted_at": "2026-02-18T21:06:52Z",
+    "document_url": "https://www.sec.gov/Archives/edgar/data/34088/000003408826000045/xom-20251231.htm",
+    "landing_url": "https://www.sec.gov/Archives/edgar/data/34088/000003408826000045/0000034088-26-000045-index.html",
+    "file_format": "html",
+    "language": null,
+    "inline_xbrl": true,
+    "metadata": {
+      "sec_submission_name": "EXXON MOBIL CORP",
+      "accession_no_dashes": "000003408826000045"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "EXXON-MOBIL-CORP_US_XOM_2025-12-31_10-K_2026-02-18_sec_0c3250e5.html",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/EXXON-MOBIL-CORP/2025/年报/EXXON-MOBIL-CORP_US_XOM_2025-12-31_10-K_2026-02-18_sec_0c3250e5.html",
+    "size_bytes": 5591068,
+    "content_type": "text/html",
+    "content_sha256": "3591db2246ab14c52465d32f69b459b000919c141a5656c81cf59acf0a805be8"
+  }
+}

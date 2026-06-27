@@ -3,7 +3,9 @@ from typing import Optional
 from datetime import datetime
 
 
-class PetState(SQLModel, table=True):
+class AgentState(SQLModel, table=True):
+    __tablename__ = "agentstate"
+
     id: int = Field(default=1, primary_key=True)
     name: str = Field(default="Taiyi")
     level: int = Field(default=1)

@@ -1,0 +1,39 @@
+{
+  "candidate": {
+    "source_id": "hkex",
+    "source_name": "HKEXnews",
+    "source_domain": "www1.hkexnews.hk",
+    "market": "HK",
+    "company_id": "02333",
+    "ticker": "02333",
+    "company_name": "GWMOTOR",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "SUPPLEMENTAL ANNOUNCEMENT TO THE ANNUAL REPORT FOR THE YEAR ENDED 31 DECEMBER 2025",
+    "accession_number": "12110040",
+    "primary_document": "2026041700722.pdf",
+    "report_end": "2025-12-31",
+    "published_at": "2026-04-17",
+    "accepted_at": null,
+    "document_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0417/2026041700722.pdf",
+    "landing_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0417/2026041700722.pdf",
+    "file_format": "pdf",
+    "language": "en",
+    "inline_xbrl": null,
+    "metadata": {
+      "news_id": "12110040",
+      "stock_name": "GWMOTOR GWMOTOR-R",
+      "short_text": "Announcements and Notices - [Final Results / Other - Miscellaneous]",
+      "long_text": "Announcements and Notices - [Final Results / Other - Miscellaneous]",
+      "file_info": "78KB"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "GWMOTOR_HK_02333_2025-12-31_年报_2026-04-17_hkex_595c1ad9.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/GWMOTOR/2025/年报/GWMOTOR_HK_02333_2025-12-31_年报_2026-04-17_hkex_595c1ad9.pdf",
+    "size_bytes": 80295,
+    "content_type": "application/pdf",
+    "content_sha256": "b15efdf1d5d14a38a5bd3cc5a172e4f9438abc0946a0d468c9c38a10e9bee167"
+  }
+}

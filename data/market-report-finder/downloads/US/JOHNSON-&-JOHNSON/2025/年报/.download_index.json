@@ -1,0 +1,38 @@
+{
+  "by_url": {
+    "https://www.sec.gov/Archives/edgar/data/200406/000020040626000016/jnj-20251228.htm": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/JOHNSON-&-JOHNSON/2025/年报/JOHNSON-&-JOHNSON_US_JNJ_2025-12-28_10-K_2026-02-11_sec_fd3343bf.htm",
+      "file_name": "JOHNSON-&-JOHNSON_US_JNJ_2025-12-28_10-K_2026-02-11_sec_fd3343bf.htm",
+      "content_type": "text/html",
+      "content_sha256": "082f4e489d4c19f585cae4c8b62acea92bd6727576f7b0e450b9dfe8ecd42694",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/JOHNSON-&-JOHNSON/2025/年报/JOHNSON-&-JOHNSON_US_JNJ_2025-12-28_10-K_2026-02-11_sec_fd3343bf.htm.metadata.json",
+      "market": "US",
+      "company_id": "JNJ",
+      "ticker": "JNJ",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-12-28",
+      "published_at": "2026-02-11",
+      "accession_number": "0000200406-26-000016"
+    }
+  },
+  "by_content_sha256": {
+    "082f4e489d4c19f585cae4c8b62acea92bd6727576f7b0e450b9dfe8ecd42694": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/JOHNSON-&-JOHNSON/2025/年报/JOHNSON-&-JOHNSON_US_JNJ_2025-12-28_10-K_2026-02-11_sec_fd3343bf.htm",
+      "file_name": "JOHNSON-&-JOHNSON_US_JNJ_2025-12-28_10-K_2026-02-11_sec_fd3343bf.htm",
+      "content_type": "text/html",
+      "content_sha256": "082f4e489d4c19f585cae4c8b62acea92bd6727576f7b0e450b9dfe8ecd42694",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/JOHNSON-&-JOHNSON/2025/年报/JOHNSON-&-JOHNSON_US_JNJ_2025-12-28_10-K_2026-02-11_sec_fd3343bf.htm.metadata.json",
+      "market": "US",
+      "company_id": "JNJ",
+      "ticker": "JNJ",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-12-28",
+      "published_at": "2026-02-11",
+      "accession_number": "0000200406-26-000016"
+    }
+  }
+}

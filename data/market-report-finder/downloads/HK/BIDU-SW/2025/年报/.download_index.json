@@ -1,0 +1,38 @@
+{
+  "by_url": {
+    "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0317/2026031701610.pdf": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/BIDU-SW/2025/年报/BIDU-SW_HK_09888_2025-12-31_年报_2026-03-17_hkex_a57ae05b.pdf",
+      "file_name": "BIDU-SW_HK_09888_2025-12-31_年报_2026-03-17_hkex_a57ae05b.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "d71dbecc9e19a4e3fd11e0266e16fa9017d5e912d7c59af7e4cb30735035660a",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/BIDU-SW/2025/年报/BIDU-SW_HK_09888_2025-12-31_年报_2026-03-17_hkex_a57ae05b.pdf.metadata.json",
+      "market": "HK",
+      "company_id": "HK:09888",
+      "ticker": "09888",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-17",
+      "accession_number": "12056264"
+    }
+  },
+  "by_content_sha256": {
+    "d71dbecc9e19a4e3fd11e0266e16fa9017d5e912d7c59af7e4cb30735035660a": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/BIDU-SW/2025/年报/BIDU-SW_HK_09888_2025-12-31_年报_2026-03-17_hkex_a57ae05b.pdf",
+      "file_name": "BIDU-SW_HK_09888_2025-12-31_年报_2026-03-17_hkex_a57ae05b.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "d71dbecc9e19a4e3fd11e0266e16fa9017d5e912d7c59af7e4cb30735035660a",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/BIDU-SW/2025/年报/BIDU-SW_HK_09888_2025-12-31_年报_2026-03-17_hkex_a57ae05b.pdf.metadata.json",
+      "market": "HK",
+      "company_id": "HK:09888",
+      "ticker": "09888",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-17",
+      "accession_number": "12056264"
+    }
+  }
+}

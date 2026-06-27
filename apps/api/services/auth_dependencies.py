@@ -3,7 +3,7 @@ from fastapi import Depends, HTTPException, Header
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlmodel import Session, select
 from database import get_session
-from services.auth_service import AuthService, User
+from services.auth_service import AuthService, PermissionChecker, User
 
 
 security = HTTPBearer()
@@ -54,3 +54,13 @@ async def get_current_user(
         raise HTTPException(403, "User account is disabled")
 
     return user
+
+
+def require_permission(permission: str):
+    """Require a named RBAC permission for an API route."""
+    async def permission_checker(current_user: User = Depends(get_current_user)) -> User:
+        if not PermissionChecker.has_permission(current_user, permission):
+            raise HTTPException(403, f"Permission denied: {permission} required")
+        return current_user
+
+    return permission_checker

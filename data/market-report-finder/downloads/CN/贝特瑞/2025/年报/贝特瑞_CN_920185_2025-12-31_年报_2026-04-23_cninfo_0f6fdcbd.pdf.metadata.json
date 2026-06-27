@@ -1,0 +1,33 @@
+{
+  "candidate": {
+    "source_id": "cninfo",
+    "source_name": "巨潮资讯",
+    "source_domain": "www.cninfo.com.cn",
+    "market": "CN",
+    "company_id": "920185",
+    "ticker": "920185",
+    "company_name": "贝特瑞",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "贝特瑞2025年年度报告",
+    "accession_number": "manual",
+    "primary_document": "1225197178.PDF",
+    "report_end": "2025-12-31",
+    "published_at": "2026-04-23",
+    "accepted_at": null,
+    "document_url": "https://static.cninfo.com.cn/finalpage/2026-04-24/1225197178.PDF",
+    "landing_url": "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=920185&announcementId=1225197178&orgId=gfbj0835185&announcementTime=2026-04-23",
+    "file_format": "PDF",
+    "language": null,
+    "inline_xbrl": null,
+    "metadata": {}
+  },
+  "downloaded_file": {
+    "file_name": "贝特瑞_CN_920185_2025-12-31_年报_2026-04-23_cninfo_0f6fdcbd.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/贝特瑞/2025/年报/贝特瑞_CN_920185_2025-12-31_年报_2026-04-23_cninfo_0f6fdcbd.pdf",
+    "size_bytes": 2991249,
+    "content_type": "application/pdf",
+    "content_sha256": "d8177be2ce4e6e6c829056d2ae892383146486acfefa19f364a93f5244c0897b"
+  }
+}

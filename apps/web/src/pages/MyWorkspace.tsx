@@ -40,8 +40,8 @@ type WorkspaceArtifact = {
   createdAt?: string
 }
 type WorkspaceSummary = {
-  quotas: { agentQuestion: Quota; parseJob: Quota }
-  stats: { projects: number; artifacts: number; downloads: number; parses: number; reports: number }
+  quotas: { agentQuestion: Quota; parseJob: Quota; documentParse?: Quota }
+  stats: { projects: number; artifacts: number; downloads: number; parses: number; documentParses?: number; reports: number }
   recentArtifacts: WorkspaceArtifact[]
   projects?: WorkspaceProject[]
   artifacts?: WorkspaceArtifact[]
@@ -90,6 +90,7 @@ function artifactTime(item: WorkspaceArtifact) {
 function artifactKind(item: WorkspaceArtifact) {
   const type = (item.type || '').toLowerCase()
   if (type.includes('download')) return 'download'
+  if (type.includes('document_parse')) return 'document'
   if (type.includes('parse')) return 'parse'
   if (
     type.includes('report') ||
@@ -164,6 +165,7 @@ function artifactTypeLabel(item: WorkspaceArtifact) {
   return ({
     download: '下载材料',
     parse: '解析结果',
+    document: '文档解析',
     report: '生成报告',
     artifact: '个人产物',
   } as Record<string, string>)[kind] || item.type || '个人产物'
@@ -172,6 +174,7 @@ function artifactTypeLabel(item: WorkspaceArtifact) {
 function artifactTarget(item: WorkspaceArtifact) {
   const kind = artifactKind(item)
   if (kind === 'download') return `/api/downloads/report-file?path=${encodeURIComponent(item.path || item.key || '')}`
+  if (kind === 'document') return `/documents?task=${encodeURIComponent(item.key || item.globalArtifactId || item.path || '')}`
   if (kind === 'parse') return `/parse?task=${encodeURIComponent(item.key || item.globalArtifactId || item.path || '')}`
   const reportPageTarget = reportPageTargetFromApiPath(item.path)
   if (kind === 'report' && reportPageTarget) return reportPageTarget
@@ -314,6 +317,7 @@ export default function MyWorkspace() {
       artifacts: Math.max(summary?.stats.artifacts || 0, personalArtifacts.length),
       downloads: Math.max(summary?.stats.downloads || 0, counts.download || 0),
       parses: Math.max(summary?.stats.parses || 0, counts.parse || 0),
+      documentParses: Math.max(summary?.stats.documentParses || 0, counts.document || 0),
       reports: Math.max(summary?.stats.reports || 0, counts.report || 0),
     }
   }, [personalArtifacts, projects.length, summary])
@@ -323,6 +327,7 @@ export default function MyWorkspace() {
     { label: '个人产物', value: stats.artifacts, unit: '份' },
     { label: '下载材料', value: stats.downloads, unit: '份' },
     { label: '解析结果', value: stats.parses, unit: '份' },
+    { label: '文档解析', value: stats.documentParses, unit: '份' },
     { label: '生成报告', value: stats.reports, unit: '份' },
   ]), [stats])
 
@@ -359,7 +364,7 @@ export default function MyWorkspace() {
   return (
     <div className="space-y-6 sm:space-y-8">
       {/* ── Hero + Stats + Active Project ── */}
-      <section className="premium-shell hero-band dashboard-hero overflow-hidden rounded-[20px] sm:rounded-[28px]">
+      <section className="premium-shell hero-band dashboard-hero overflow-hidden rounded-[var(--radius-panel)]">
         <div className="border-b border-border/80 bg-white/48 px-4 py-3 backdrop-blur sm:px-6 sm:py-4">
           <div className="dashboard-hero-header grid items-center gap-3 sm:grid-cols-[1fr_auto] xl:grid-cols-[1fr_360px] 2xl:gap-6 2xl:grid-cols-[1fr_390px]">
             <div className="secondary-kicker w-fit justify-self-start">
@@ -375,14 +380,14 @@ export default function MyWorkspace() {
             </div>
           </div>
         </div>
-        <div className="dashboard-hero-body grid gap-4 px-4 py-4 sm:gap-5 sm:px-6 sm:py-6 xl:grid-cols-[1fr_360px] 2xl:gap-6 2xl:grid-cols-[1fr_390px]">
+        <div className="dashboard-hero-body grid gap-4 px-4 py-4 sm:gap-5 sm:px-6 sm:py-5 xl:grid-cols-[1fr_360px] 2xl:gap-6 2xl:grid-cols-[1fr_390px]">
           {/* Left: Title + Stats */}
           <div className="dashboard-hero-main flex flex-col justify-between gap-5 2xl:gap-7">
             <div>
               <div className="page-title-tag"><h1 className="text-[1.45rem] font-bold leading-tight tracking-tight text-text sm:text-[1.75rem] md:text-[2.35rem]">
                 工作平台
               </h1></div>
-              <p className="mt-4 max-w-3xl text-base leading-7 text-text-muted md:text-lg">
+              <p className="mt-3 max-w-3xl text-base leading-7 text-text-muted">
                 {user?.full_name || user?.username || '当前用户'} 的项目、材料和智能体产物只在这里汇总，系统已有公开财报会被复用。
               </p>
             </div>
@@ -391,18 +396,18 @@ export default function MyWorkspace() {
               <img
                 src="/illustrations/siq-system-map-hero.svg?v=2"
                 alt="金融科技个人研究工作台插画"
-                className="block h-full w-full object-contain"
+                className="block h-full w-full object-contain opacity-95"
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-5 2xl:gap-4">
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 2xl:grid-cols-6 2xl:gap-4">
               {statCards.map((stat) => (
                 <div
                   key={stat.label}
-                  className="metric-tile rounded-[16px] p-3 sm:rounded-[20px] sm:p-4 2xl:p-5"
+                  className="metric-tile p-3 sm:p-4"
                 >
                   <p className="text-xs font-semibold text-text-muted sm:text-sm">{stat.label}</p>
-                  <p className="mt-1.5 font-mono text-[1.55rem] font-bold tabular-nums tracking-tight text-text sm:mt-2 sm:text-[2rem] md:text-[2.25rem]">
+                  <p className="mt-1.5 font-mono text-[1.45rem] font-bold tabular-nums text-text sm:mt-2 sm:text-[1.8rem] md:text-[2rem]">
                     {stat.value}
                     <span className="ml-1 text-sm font-normal text-text-muted sm:ml-1.5 sm:text-base">{stat.unit}</span>
                   </p>
@@ -412,7 +417,7 @@ export default function MyWorkspace() {
           </div>
 
           {/* Right: Active Project */}
-          <aside className="premium-card dashboard-active-card flex flex-col rounded-[20px] p-4 sm:rounded-[24px] sm:p-5">
+          <aside className="premium-card dashboard-active-card flex flex-col p-4 sm:p-5">
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
                 <p className="text-sm font-medium text-text-muted">当前优先研究对象</p>
@@ -473,29 +478,29 @@ export default function MyWorkspace() {
       </section>
 
       {/* ── Workflow Steps ── */}
-      <section className="workflow-step-grid flex gap-3 overflow-x-auto pb-2 sm:grid sm:grid-cols-2 sm:gap-4 sm:overflow-visible sm:pb-0 lg:grid-cols-3 2xl:grid-cols-6">
+      <section className="workflow-step-grid grid grid-cols-2 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3 2xl:grid-cols-6">
         {steps.map((step, index) => (
           <Link
             key={step.to}
             to={step.to}
-            className="workflow-step-card premium-card group relative flex min-h-[132px] w-[9.75rem] shrink-0 flex-col rounded-[16px] p-4 text-center transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/25 sm:w-auto sm:min-w-0 sm:min-h-[172px] sm:rounded-[20px] sm:p-5"
+            className="workflow-step-card premium-card group relative flex min-h-[118px] min-w-0 flex-col p-3 text-left transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/25 sm:min-h-[160px] sm:p-5 sm:text-center"
           >
-            <div className="absolute -right-2 -top-2 flex h-7 w-7 items-center justify-center rounded-full bg-white font-mono text-xs font-bold text-text-muted shadow-md ring-2 ring-card">
+            <div className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-white font-mono text-[0.68rem] font-bold text-text-muted shadow-md ring-2 ring-card sm:-right-2 sm:-top-2 sm:h-7 sm:w-7 sm:text-xs">
               {index + 1}
             </div>
-            <div className="premium-icon mx-auto h-10 w-10 rounded-xl transition-colors group-hover:text-primary-dark sm:h-12 sm:w-12 sm:rounded-2xl">
+            <div className="premium-icon h-9 w-9 rounded-xl transition-colors group-hover:text-primary-dark sm:mx-auto sm:h-12 sm:w-12 sm:rounded-2xl">
               <step.icon className="h-5 w-5 sm:h-6 sm:w-6" />
             </div>
-            <p className="mt-3 text-sm font-bold text-text sm:mt-4 sm:text-base">{step.label}</p>
-            <p className="mt-1 text-xs leading-relaxed text-text-muted sm:mt-1.5 sm:text-sm">{step.desc}</p>
-            <ArrowRight className="mx-auto mt-auto pt-3 h-5 w-5 text-text-muted opacity-0 transition-all group-hover:translate-x-1 group-hover:text-primary group-hover:opacity-100 sm:pt-4" />
+            <p className="mt-3 pr-6 text-sm font-bold leading-tight text-text sm:mt-4 sm:pr-0 sm:text-base">{step.label}</p>
+            <p className="mt-1 line-clamp-2 text-xs leading-5 text-text-muted sm:mt-1.5 sm:text-sm sm:leading-relaxed">{step.desc}</p>
+            <ArrowRight className="mt-auto h-5 w-5 pt-3 text-text-muted opacity-0 transition-all group-hover:translate-x-1 group-hover:text-primary group-hover:opacity-100 sm:mx-auto sm:pt-4" />
           </Link>
         ))}
       </section>
 
       {/* ── Featured Projects ── */}
       {featuredProjects.length > 0 && (
-        <section className="premium-shell rounded-[20px] p-4 sm:rounded-[28px] sm:p-6">
+        <section className="premium-shell rounded-[var(--radius-panel)] p-4 sm:p-6">
           <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h2 className="text-2xl font-bold tracking-tight text-text">研究对象状态</h2>
@@ -520,7 +525,7 @@ export default function MyWorkspace() {
               return (
                 <div
                   key={project.id}
-                  className="premium-card rounded-[16px] p-4 sm:rounded-[20px] sm:p-5"
+                  className="premium-card p-4 sm:p-5"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -565,7 +570,7 @@ export default function MyWorkspace() {
 
       {/* ── Recent Tasks + Project Overview ── */}
       <section className="grid gap-4 sm:gap-6 xl:grid-cols-[1fr_380px]">
-        <div className="premium-shell rounded-[20px] p-4 sm:rounded-[28px] sm:p-6">
+        <div className="premium-shell rounded-[var(--radius-panel)] p-4 sm:p-6">
           <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h2 className="text-2xl font-bold tracking-tight text-text">近期任务列表</h2>
@@ -633,7 +638,7 @@ export default function MyWorkspace() {
           )}
         </div>
 
-        <aside className="premium-shell rounded-[20px] p-4 sm:rounded-[28px] sm:p-5 2xl:p-6">
+        <aside className="premium-shell rounded-[var(--radius-panel)] p-4 sm:p-5 2xl:p-6">
           <div className="mb-6 flex items-center gap-4">
             <div className="premium-icon h-12 w-12 rounded-2xl">
               <Building2 className="h-6 w-6" />

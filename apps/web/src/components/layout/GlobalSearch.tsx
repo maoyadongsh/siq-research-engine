@@ -30,7 +30,7 @@ function ResultList({ results, onResultClick }: { results: SearchResult[]; onRes
             key={item.id}
             to={item.pageUrl}
             onClick={onResultClick}
-            className="flex items-start gap-3 border-b border-border/70 px-4 py-3 last:border-0 hover:bg-primary/[0.035]"
+            className="flex items-start gap-3 border-b border-border/70 px-4 py-3 last:border-0 hover:bg-primary/[0.035] focus-visible:bg-primary/[0.055]"
           >
             <span className="premium-icon mt-1 h-10 w-10 shrink-0 rounded-xl">
               <FileText className="h-5 w-5" />
@@ -162,8 +162,18 @@ export default function GlobalSearch() {
         />
         {searching && <Loader2 className="absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 animate-spin text-primary" />}
         {openSearch && query.trim() && (
-          <div className="absolute left-0 right-0 top-[calc(100%+10px)] z-50 overflow-hidden rounded-[22px] border border-border bg-white/96 shadow-[0_22px_70px_rgba(15,23,42,0.12)] backdrop-blur-xl">
-            <ResultList results={results} onResultClick={handleResultClick} />
+          <div className="absolute left-0 right-0 top-[calc(100%+10px)] z-50 overflow-hidden rounded-[var(--radius-panel)] border border-border bg-white/96 shadow-[0_22px_70px_rgba(15,23,42,0.12)] backdrop-blur-xl">
+            <div className="border-b border-border/70 px-4 py-2 text-xs font-bold uppercase tracking-wide text-text-muted">
+              全局报告搜索
+            </div>
+            {searching ? (
+              <div className="flex items-center gap-2 px-4 py-5 text-sm text-text-muted">
+                <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                正在搜索...
+              </div>
+            ) : (
+              <ResultList results={results} onResultClick={handleResultClick} />
+            )}
           </div>
         )}
       </div>
@@ -230,7 +240,7 @@ export default function GlobalSearch() {
           >
             {query.trim() ? (
               <div className="mx-auto max-w-3xl">
-                <div className="mt-3 overflow-hidden rounded-[22px] border border-border bg-white/96 shadow-sm">
+                <div className="mt-3 overflow-hidden rounded-[var(--radius-panel)] border border-border bg-white/96 shadow-sm">
                   {searching ? (
                     <div className="flex items-center gap-2 px-4 py-5 text-sm text-text-muted">
                       <Loader2 className="h-5 w-5 animate-spin text-primary" />

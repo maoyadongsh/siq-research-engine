@@ -1,0 +1,38 @@
+{
+  "by_url": {
+    "https://www.sec.gov/Archives/edgar/data/34088/000003408826000045/xom-20251231.htm": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/EXXON-MOBIL-CORP/2025/年报/EXXON-MOBIL-CORP_US_XOM_2025-12-31_10-K_2026-02-18_sec_0c3250e5.htm",
+      "file_name": "EXXON-MOBIL-CORP_US_XOM_2025-12-31_10-K_2026-02-18_sec_0c3250e5.htm",
+      "content_type": "text/html",
+      "content_sha256": "3591db2246ab14c52465d32f69b459b000919c141a5656c81cf59acf0a805be8",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/EXXON-MOBIL-CORP/2025/年报/EXXON-MOBIL-CORP_US_XOM_2025-12-31_10-K_2026-02-18_sec_0c3250e5.htm.metadata.json",
+      "market": "US",
+      "company_id": "XOM",
+      "ticker": "XOM",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-02-18",
+      "accession_number": "0000034088-26-000045"
+    }
+  },
+  "by_content_sha256": {
+    "3591db2246ab14c52465d32f69b459b000919c141a5656c81cf59acf0a805be8": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/EXXON-MOBIL-CORP/2025/年报/EXXON-MOBIL-CORP_US_XOM_2025-12-31_10-K_2026-02-18_sec_0c3250e5.htm",
+      "file_name": "EXXON-MOBIL-CORP_US_XOM_2025-12-31_10-K_2026-02-18_sec_0c3250e5.htm",
+      "content_type": "text/html",
+      "content_sha256": "3591db2246ab14c52465d32f69b459b000919c141a5656c81cf59acf0a805be8",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/EXXON-MOBIL-CORP/2025/年报/EXXON-MOBIL-CORP_US_XOM_2025-12-31_10-K_2026-02-18_sec_0c3250e5.htm.metadata.json",
+      "market": "US",
+      "company_id": "XOM",
+      "ticker": "XOM",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-02-18",
+      "accession_number": "0000034088-26-000045"
+    }
+  }
+}

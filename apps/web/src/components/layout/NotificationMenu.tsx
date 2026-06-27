@@ -306,7 +306,7 @@ export default function NotificationMenu() {
     <div ref={noticeBoxRef} className="relative">
       <button
         onClick={() => setOpenNotices((v) => !v)}
-        className="inline-flex h-10 items-center gap-2 rounded-lg px-2 text-sm font-semibold text-text-muted transition hover:text-text focus:outline-none focus:ring-4 focus:ring-primary/10"
+        className="inline-flex h-11 min-w-11 items-center justify-center gap-2 rounded-[var(--radius-control)] border border-transparent px-2 text-sm font-semibold text-text-muted transition hover:border-border hover:bg-white hover:text-text focus:outline-none focus:ring-4 focus:ring-primary/10"
         aria-label="查看任务通知"
       >
         <span className="relative inline-flex h-5 w-5 items-center justify-center">
@@ -320,7 +320,7 @@ export default function NotificationMenu() {
         <span className="hidden whitespace-nowrap md:inline">任务通知</span>
       </button>
       {openNotices && (
-        <div className="absolute right-0 top-[calc(100%+10px)] w-[min(380px,calc(100vw-1.5rem))] overflow-hidden rounded-[22px] border border-border bg-white/96 shadow-[0_22px_70px_rgba(15,23,42,0.12)] backdrop-blur-xl">
+        <div className="fixed inset-x-3 bottom-3 z-[60] max-h-[min(76dvh,520px)] overflow-hidden rounded-[var(--radius-panel)] border border-border bg-white/98 shadow-[0_22px_70px_rgba(15,23,42,0.16)] backdrop-blur-xl sm:absolute sm:inset-auto sm:right-0 sm:top-[calc(100%+10px)] sm:w-[min(380px,calc(100vw-1.5rem))]">
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
             <div>
               <span className="font-semibold text-text">任务通知</span>
@@ -329,7 +329,7 @@ export default function NotificationMenu() {
             <button
               onClick={markAllRead}
               disabled={unread === 0}
-              className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-text-muted hover:bg-bg hover:text-text disabled:opacity-40"
+              className="inline-flex min-h-9 items-center gap-1 rounded-[var(--radius-control)] px-2 py-1 text-xs font-semibold text-text-muted hover:bg-bg hover:text-text disabled:opacity-40"
             >
               <CheckCheck className="h-4 w-4 text-success" />
               全部已读
@@ -343,12 +343,12 @@ export default function NotificationMenu() {
           ) : unreadNotices.length === 0 ? (
             <div className="px-4 py-8 text-center text-sm text-text-muted">暂无新的任务通知</div>
           ) : (
-            <div className="max-h-[420px] overflow-y-auto">
+            <div className="max-h-[calc(min(76dvh,520px)-86px)] overflow-y-auto sm:max-h-[420px]">
               {unreadNotices.map((notice) => (
                 <button
                   key={notice.id}
                   onClick={() => openNotice(notice)}
-                  className="flex w-full items-start gap-3 border-b border-border/70 px-4 py-3 text-left last:border-0 hover:bg-primary/[0.035]"
+                  className="flex w-full items-start gap-3 border-b border-border/70 px-4 py-3 text-left last:border-0 hover:bg-primary/[0.035] focus-visible:bg-primary/[0.055]"
                 >
                   <span className="premium-icon mt-0.5 h-9 w-9 shrink-0 rounded-xl">{noticeIcon(notice.kind)}</span>
                   <span className="min-w-0 flex-1">

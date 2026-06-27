@@ -1,0 +1,36 @@
+{
+  "candidate": {
+    "source_id": "sec",
+    "source_name": "SEC EDGAR",
+    "source_domain": "sec.gov",
+    "market": "US",
+    "company_id": "842162",
+    "ticker": "LEA",
+    "company_name": "LEAR CORP",
+    "report_type": "10-K",
+    "report_family": "annual",
+    "form": "10-K",
+    "title": "10-K",
+    "accession_number": "0000842162-26-000011",
+    "primary_document": "lear-20251231.htm",
+    "report_end": "2025-12-31",
+    "published_at": "2026-02-13",
+    "accepted_at": "2026-02-13T21:04:14Z",
+    "document_url": "https://www.sec.gov/Archives/edgar/data/842162/000084216226000011/lear-20251231.htm",
+    "landing_url": "https://www.sec.gov/Archives/edgar/data/842162/000084216226000011/0000842162-26-000011-index.html",
+    "file_format": "html",
+    "language": null,
+    "inline_xbrl": true,
+    "metadata": {
+      "sec_submission_name": "LEAR CORP",
+      "accession_no_dashes": "000084216226000011"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "LEAR-CORP_US_LEA_2025-12-31_10-K_2026-02-13_sec_b9c9a822.html",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/LEAR-CORP/2025/年报/LEAR-CORP_US_LEA_2025-12-31_10-K_2026-02-13_sec_b9c9a822.html",
+    "size_bytes": 3485557,
+    "content_type": "text/html",
+    "content_sha256": "b9f3fcd1dd3c217bae41da3cbba251b4bf714a8f925c022db2258d6322abde05"
+  }
+}

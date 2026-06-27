@@ -1,65 +1,65 @@
-# SIQ Assistant
+# SIQ 通用问答助手
 
-`siq_assistant` 是 SIQ 的入口型财报问答 Hermes profile。它服务主前端 `/chat` 页面和全局普通问答入口，主要回答已入库 A 股年报、OKF 指标、PDF 解析产物、PostgreSQL 证据和项目运行状态相关问题。
+`siq_assistant` 是 SIQ Research Engine 的入口型财报问答 profile，对应 Web 工作台 `/chat` 页面和 API 后端 `/api/chat/*`。它用于快速回答公司、年份、指标、口径、证据位置和系统使用相关问题。
 
-## 当前检查结论
+## 定位
 
-检查时间：2026-05-29。`http://127.0.0.1:8642/health` 返回正常。当前 profile 的 `state.db` 中有 207 个 sessions、2041 条 messages。主前端通过聚合后端 `/api/chat/*` 调用该 Agent。
+通用助手负责“轻量查询和解释”，不负责生成完整年度分析报告、核查报告、持续跟踪报告或正式法务意见。遇到专业任务时，应引导用户进入对应功能：
 
-## 当前配置
-
-| 项目 | 当前值 |
+| 任务 | 推荐入口 |
 | --- | --- |
-| Profile 路径 | `/home/maoyd/.hermes/profiles/siq_assistant` |
-| API Server | `127.0.0.1:8642` |
-| 默认模型 | `kimi-for-coding` |
-| Fallback | MiniMax、本地 Qwen3.6 |
-| 项目根目录 | `/home/maoyd/siq-research-engine` |
-| OKF 根目录 | `/home/maoyd/okf_staging` |
-| PDF 解析结果 | `/home/maoyd/siq-research-engine/pdf2md_web/results` |
+| 年度经营诊断报告 | `siq_analysis` |
+| 已生成报告的事实核查 | `siq_factchecker` |
+| 后续事项和预警跟踪 | `siq_tracking` |
+| 法规检索和合规意见书 | `siq_legal` |
 
-## 评委技术说明
+## 核心能力
 
-`siq_assistant` 是五个业务 Agent 中的入口层，技术目标是把普通财报问答也纳入同一套证据契约。它不追求一次生成完整报告，而是快速回答“指标是多少、口径是什么、证据在哪里、能否复核”这类高频问题。
-
-| 维度 | 实现说明 |
+| 能力 | 说明 |
 | --- | --- |
-| 技术架构 | 主前端 `/chat` 或全局悬浮入口 -> 聚合后端 `/api/chat/*` -> Hermes Runs API `:8642` -> 本地 OKF/PostgreSQL/PDF 证据 |
-| 技术栈 | Hermes profile、Kimi provider、MiniMax/Qwen fallback、terminal/file/code_execution/session_search 工具 |
-| 数据流 | 解析用户公司/年份/指标 -> 读取 OKF metrics/evidence/semantic -> 必要时用 PostgreSQL 补页码和表格 -> 生成含引用来源的回答 |
-| 算法模型 | 公司解析、指标别名识别、引用补全、PDF 页码链接生成、证据不足判定 |
-| 创新价值 | 把普通聊天从“泛化问答”变成“可追溯财报问答”，让用户每个数字都能回到 PDF 页或数据库记录 |
+| 指标查询 | 回答营业收入、净利润、现金流、资产负债率等指标数值与口径 |
+| 证据溯源 | 指出数据来自哪个报告、PDF 页、表格、Markdown 行或数据库记录 |
+| 跨期对比 | 对同一公司不同年度或不同报告期做轻量比较 |
+| 数据缺口说明 | 找不到可靠数据时说明缺口，而不是猜测 |
+| 附件问答 | 通过 API 后端处理聊天附件并纳入上下文 |
+| 会话管理 | 支持历史会话、SSE 流式输出、停止和运行恢复 |
 
-该 Agent 的工程边界非常明确：它负责轻量查询和解释，遇到完整分析、核查、跟踪或法律意见时会引导到专用 profile。这样可以避免入口助手无限扩张职责，也让后续报告型 Agent 能使用更严格的模板和质量门禁。
+## 数据优先级
 
-## 职责边界
+默认按以下顺序查找证据：
 
-- 可以处理：单指标查询、证据溯源、口径解释、跨年度对比、轻量公司问答、PDF 页码定位、数据缺口说明。
-- 不应处理：完整年度分析报告、事实核查报告、持续跟踪预警、正式法律意见书。
-- 遇到专用任务时，应引导到 `siq_analysis`、`siq_factchecker`、`siq_tracking` 或 `siq_legal`。
+1. Wiki 公司主数据和报告目录。
+2. `metrics/*.json` 中的结构化财务指标。
+3. `evidence/evidence_index.json` 和 `pdf_refs.json`。
+4. `semantic/retrieval_index.json`。
+5. `reports/<report_id>/report.md` 和 `document_full.json`。
+6. PostgreSQL `pdf2md` schema 中的页面、表格、指标和引用记录。
 
-## 数据与引用规则
+回答财报数字时应尽量给出单位、期间、来源和可复核路径。证据不足时输出“无法可靠确认”的原因。
 
-默认读取优先级：
+## 前端与 API
 
-1. `/home/maoyd/okf_staging/companies/<company_id>/reports/<report_id>/metrics/*.json`
-2. `/home/maoyd/okf_staging/companies/<company_id>/reports/<report_id>/evidence/evidence_index.json`
-3. `/home/maoyd/okf_staging/companies/<company_id>/reports/<report_id>/semantic/retrieval_index.json`
-4. `/home/maoyd/okf_staging/companies/<company_id>/reports/<report_id>/report.md`
-5. `/home/maoyd/okf_staging/companies/<company_id>/reports/<report_id>/document_full.json`
-6. PostgreSQL `pdf2md` schema，只读补缺和交叉校验
-
-结构化 metrics/evidence/semantic 没命中时，必须先搜索完整 `reports/<report_id>/report.md`，再查完整 `reports/<report_id>/document_full.json` 里的 `markdown.content`、`content_list`、`content_list_enhanced`、`middle_json`、`model_output`、`financial_data`、`financial_checks`。不要把 `companies/<company_id>/graph/report.md` 当完整报告；那只是 Obsidian 图谱节点。不要把 `reports/<report_id>/report.json` 当 full json；它只是摘要/轻量结构化索引。
-
-上海银行有 `2025-quarterly-report` 和 `2025-annual` 两份报告。用户默认问“年报/年度报告/2025 年报”时，使用 `reports/2025-annual/report.md` 与 `reports/2025-annual/document_full.json`；只有明确问季报/季度报告时才使用 `2025-quarterly-report`。
-
-任何财报数字、经营判断或风险判断都必须能回到 OKF 文件、`task_id`、PDF 页码、`table_index`、Markdown 行或数据库表。证据不足时应明确说明，不得猜测。
-
-## 决赛关注点
-
-| 维度 | 本 Agent 贡献 |
+| 项目 | 值 |
 | --- | --- |
-| 创新性 | 把普通问答也纳入可追溯证据契约，避免财报问答只靠模型记忆生成 |
-| 技术难度 | 需要在自然语言问答中解析公司、年份、指标、来源口径并补全 PDF 页码链接 |
-| 完成度 | 已接入主前端 `/chat`、聚合后端聊天历史、SSE 流式输出和 Hermes gateway |
-| 商业价值 | 为投研人员提供低门槛入口，能快速回答“某家公司某指标从哪来、是否可靠、如何复核” |
+| 前端页面 | `/chat` |
+| API 前缀 | `/api/chat/*` |
+| Hermes profile | `siq_assistant` |
+| 默认端口 | `18642` |
+| 主要后端模块 | `apps/api/routers/chat.py`, `apps/api/services/agent_chat_runtime.py` |
+
+## 输出边界
+
+- 不输出投资评级、目标价、买入/卖出/减仓等交易动作。
+- 不用模型记忆替代本地证据。
+- 不把非官方文件当作最终事实来源。
+- 不在回答中泄露 API Key、数据库口令、用户会话或本地隐私路径。
+- 对口径不一致、单位不一致、报告期不一致的指标必须提醒用户。
+
+## 维护检查
+
+```bash
+curl -s http://127.0.0.1:18642/health
+curl -s http://127.0.0.1:18081/health
+```
+
+前端聊天问题应同时验证普通文本、附件上传、停止生成、历史会话和页面刷新后的运行恢复。

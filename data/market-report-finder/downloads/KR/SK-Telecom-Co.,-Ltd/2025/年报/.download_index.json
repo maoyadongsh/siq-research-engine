@@ -1,0 +1,42 @@
+{
+  "by_url": {
+    "https://dart.fss.or.kr/pdf/download/pdf.do?rcp_no=20260318000532&dcm_no=11136386": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/SK-Telecom-Co.,-Ltd/2025/年报/SK-Telecom-Co.,-Ltd_KR_017670_2025-12-31_年报_2026-03-18_dart_public_82beb895.pdf",
+      "file_name": "SK-Telecom-Co.,-Ltd_KR_017670_2025-12-31_年报_2026-03-18_dart_public_82beb895.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "16e742b7f429a780cabe98aed34d13ecc63e08a456aff6f9282d953bcfcc4549",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/SK-Telecom-Co.,-Ltd/2025/年报/SK-Telecom-Co.,-Ltd_KR_017670_2025-12-31_年报_2026-03-18_dart_public_82beb895.pdf.metadata.json",
+      "market": "KR",
+      "company_id": "00159023",
+      "ticker": "017670",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-18",
+      "accession_number": "manual",
+      "country": null,
+      "source_tier": null
+    }
+  },
+  "by_content_sha256": {
+    "16e742b7f429a780cabe98aed34d13ecc63e08a456aff6f9282d953bcfcc4549": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/SK-Telecom-Co.,-Ltd/2025/年报/SK-Telecom-Co.,-Ltd_KR_017670_2025-12-31_年报_2026-03-18_dart_public_82beb895.pdf",
+      "file_name": "SK-Telecom-Co.,-Ltd_KR_017670_2025-12-31_年报_2026-03-18_dart_public_82beb895.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "16e742b7f429a780cabe98aed34d13ecc63e08a456aff6f9282d953bcfcc4549",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/SK-Telecom-Co.,-Ltd/2025/年报/SK-Telecom-Co.,-Ltd_KR_017670_2025-12-31_年报_2026-03-18_dart_public_82beb895.pdf.metadata.json",
+      "market": "KR",
+      "company_id": "00159023",
+      "ticker": "017670",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-18",
+      "accession_number": "manual",
+      "country": null,
+      "source_tier": null
+    }
+  }
+}

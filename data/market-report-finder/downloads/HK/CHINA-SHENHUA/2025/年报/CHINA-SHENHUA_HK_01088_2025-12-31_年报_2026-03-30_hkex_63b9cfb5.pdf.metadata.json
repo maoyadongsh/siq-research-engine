@@ -1,0 +1,39 @@
+{
+  "candidate": {
+    "source_id": "hkex",
+    "source_name": "HKEXnews",
+    "source_domain": "www1.hkexnews.hk",
+    "market": "HK",
+    "company_id": "01088",
+    "ticker": "01088",
+    "company_name": "CHINA SHENHUA",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "2025 Annual Report",
+    "accession_number": "12080307",
+    "primary_document": "2026033003748.pdf",
+    "report_end": "2025-12-31",
+    "published_at": "2026-03-30",
+    "accepted_at": null,
+    "document_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0330/2026033003748.pdf",
+    "landing_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0330/2026033003748.pdf",
+    "file_format": "pdf",
+    "language": "en",
+    "inline_xbrl": null,
+    "metadata": {
+      "news_id": "12080307",
+      "stock_name": "CHINA SHENHUA",
+      "short_text": "Financial Statements/ESG Information - [Annual Report]",
+      "long_text": "Financial Statements/ESG Information - [Annual Report]",
+      "file_info": "10MB"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "CHINA-SHENHUA_HK_01088_2025-12-31_年报_2026-03-30_hkex_63b9cfb5.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/CHINA-SHENHUA/2025/年报/CHINA-SHENHUA_HK_01088_2025-12-31_年报_2026-03-30_hkex_63b9cfb5.pdf",
+    "size_bytes": 10882294,
+    "content_type": "application/pdf",
+    "content_sha256": "ff1b1daf76b59f10994a0e089df713120e811172606cbaf127d193b1a8e87c90"
+  }
+}

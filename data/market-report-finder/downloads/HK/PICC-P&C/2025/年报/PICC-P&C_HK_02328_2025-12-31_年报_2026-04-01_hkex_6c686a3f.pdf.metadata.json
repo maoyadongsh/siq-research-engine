@@ -1,0 +1,39 @@
+{
+  "candidate": {
+    "source_id": "hkex",
+    "source_name": "HKEXnews",
+    "source_domain": "www1.hkexnews.hk",
+    "market": "HK",
+    "company_id": "02328",
+    "ticker": "02328",
+    "company_name": "PICC P&C",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "2025 Annual Report",
+    "accession_number": "12090356",
+    "primary_document": "2026040101640.pdf",
+    "report_end": "2025-12-31",
+    "published_at": "2026-04-01",
+    "accepted_at": null,
+    "document_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0401/2026040101640.pdf",
+    "landing_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0401/2026040101640.pdf",
+    "file_format": "pdf",
+    "language": "en",
+    "inline_xbrl": null,
+    "metadata": {
+      "news_id": "12090356",
+      "stock_name": "PICC P&C",
+      "short_text": "Financial Statements/ESG Information - [Annual Report]",
+      "long_text": "Financial Statements/ESG Information - [Annual Report]",
+      "file_info": "4MB"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "PICC-P&C_HK_02328_2025-12-31_年报_2026-04-01_hkex_6c686a3f.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/PICC-P&C/2025/年报/PICC-P&C_HK_02328_2025-12-31_年报_2026-04-01_hkex_6c686a3f.pdf",
+    "size_bytes": 4239285,
+    "content_type": "application/pdf",
+    "content_sha256": "f44c4cd416b57b8c80f05254765d7ef301e07169c40fd948bdb8bbba7fa2a9ea"
+  }
+}

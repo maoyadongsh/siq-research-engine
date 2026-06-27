@@ -1,0 +1,397 @@
+from __future__ import annotations
+
+import json
+import os
+import re
+import shutil
+import sys
+import zipfile
+from decimal import Decimal, InvalidOperation
+from pathlib import Path
+from typing import Any
+from xml.etree import ElementTree as ET
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+RULES_SRC = REPO_ROOT / "services" / "market-report-rules" / "src"
+HK_SCRIPTS = REPO_ROOT / "scripts" / "hk"
+for path in (RULES_SRC, HK_SCRIPTS):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
+
+from hk_evidence_lib import parsed_tables_from_document_full
+from market_report_rules_service.contracts import financial_checks_contract, financial_data_contract
+from market_report_rules_service.evidence_package import (
+    SCHEMA_VERSION,
+    build_quality_report,
+    compute_artifact_hashes,
+    normalized_metrics_from_financial_data,
+    source_map_from_financial_data,
+    stable_id,
+    stable_parse_run_id,
+    validate_evidence_package,
+    write_json,
+)
+from market_report_rules_service.models import AccountingStandard, Market, ParsedArtifact, ParsedFact
+from market_report_rules_service.normalization import parse_date
+from market_report_rules_service.pipeline import process_artifact
+
+
+PARSER_VERSION = os.environ.get("SIQ_KR_PARSER_VERSION", "kr_dart_evidence_parser_v1")
+RULES_VERSION = os.environ.get("SIQ_KR_RULES_VERSION", "kr_dart_rules_v1")
+
+
+def read_json(path: Path, default: Any = None) -> Any:
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else ({} if default is None else default)
+
+
+def infer_metadata(source_path: Path, metadata_path: Path | None = None) -> dict[str, Any]:
+    metadata = read_json(metadata_path or source_path.with_suffix(source_path.suffix + ".metadata.json"), {})
+    candidate = metadata.get("candidate") if isinstance(metadata, dict) else {}
+    if not isinstance(candidate, dict):
+        candidate = {}
+    stem_parts = source_path.stem.split("_")
+    stock_code = candidate.get("ticker") or candidate.get("stock_code") or candidate.get("company_id") or (stem_parts[2] if len(stem_parts) > 2 else "UNKNOWN")
+    rcp_no = candidate.get("rcp_no") or candidate.get("accession_number") or candidate.get("document_id") or source_path.stem.rsplit("_", 1)[-1]
+    corp_code = candidate.get("corp_code") or candidate.get("company_id") or ""
+    period_end = candidate.get("report_end") or candidate.get("period_end") or _filename_date(source_path.name)
+    report_type = _report_type(candidate.get("report_type") or candidate.get("form") or source_path.parent.name)
+    return {
+        "raw_metadata": metadata,
+        "rcp_no": rcp_no,
+        "corp_code": corp_code,
+        "stock_code": str(stock_code),
+        "company_id": f"KR:{corp_code or stock_code}",
+        "ticker": str(stock_code),
+        "company_name": candidate.get("company_name") or (stem_parts[0] if stem_parts else source_path.stem),
+        "source_id": candidate.get("source_id") or "dart",
+        "form": candidate.get("form") or candidate.get("title") or "business_report",
+        "report_type": report_type,
+        "fiscal_year": _int_or_none(str(period_end or "")[:4]) or _int_or_none(candidate.get("year")),
+        "fiscal_period": _fiscal_period(report_type),
+        "period_end": period_end,
+        "published_at": candidate.get("published_at") or candidate.get("filing_date"),
+        "source_url": candidate.get("document_url") or candidate.get("source_url") or candidate.get("landing_url"),
+        "accounting_standard": "KIFRS",
+    }
+
+
+def extract_dart_facts(source_path: Path) -> tuple[list[ParsedFact], list[dict[str, Any]]]:
+    facts: list[ParsedFact] = []
+    raw_rows: list[dict[str, Any]] = []
+    payload = read_json(source_path, None) if source_path.suffix.lower() == ".json" else None
+    if isinstance(payload, dict):
+        rows = payload.get("list") or payload.get("facts") or payload.get("single_company_accounts") or []
+        for row in rows if isinstance(rows, list) else []:
+            fact = _parsed_fact_from_api_row(row)
+            if fact:
+                facts.append(fact)
+                raw_rows.append(fact.raw)
+    for rel, data in _xml_payloads(source_path):
+        try:
+            root = ET.fromstring(data)
+        except ET.ParseError:
+            continue
+        contexts = _contexts(root)
+        units = _units(root)
+        for elem in root.iter():
+            concept = _qname(elem.tag)
+            value = _decimal((elem.text or "").strip())
+            if value is None:
+                continue
+            context_ref = elem.attrib.get("contextRef") or elem.attrib.get("contextref")
+            unit_ref = elem.attrib.get("unitRef") or elem.attrib.get("unitref")
+            context = contexts.get(context_ref or "", {})
+            raw = {
+                "fact_id": stable_id(rel, concept, context_ref, unit_ref, elem.text),
+                "source_file": rel,
+                "concept": concept,
+                "value_text": (elem.text or "").strip(),
+                "context_ref": context_ref,
+                "unit_ref": unit_ref,
+                "unit": units.get(unit_ref or "") or unit_ref or "KRW",
+                "period_start": context.get("period_start"),
+                "period_end": context.get("period_end"),
+                "instant": context.get("instant"),
+                "duration_days": context.get("duration_days"),
+                "dimensions": context.get("dimensions") or {},
+                "source_type": "dart_xbrl_fact",
+            }
+            raw_rows.append(raw)
+            facts.append(
+                ParsedFact(
+                    concept=concept,
+                    value=value,
+                    unit=raw["unit"],
+                    period_start=parse_date(context.get("period_start")),
+                    period_end=parse_date(context.get("period_end") or context.get("instant")),
+                    duration_days=context.get("duration_days"),
+                    context_id=context_ref,
+                    label=concept.rsplit(":", 1)[-1],
+                    raw=raw,
+                )
+            )
+    return facts, raw_rows
+
+
+def build_kr_artifact(source_path: Path, metadata_path: Path | None = None, parser_result_dir: Path | None = None) -> tuple[ParsedArtifact, dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
+    metadata = infer_metadata(source_path, metadata_path)
+    facts, raw_facts = extract_dart_facts(source_path)
+    document_full = read_json(parser_result_dir / "document_full.json", {}) if parser_result_dir else {}
+    artifact = ParsedArtifact(
+        artifact_id=f"KR:{metadata['rcp_no']}",
+        market=Market.KR,
+        company_id=metadata["company_id"],
+        ticker=metadata["ticker"],
+        company_name=metadata["company_name"],
+        report_id=f"KR:{metadata['rcp_no']}",
+        report_type=metadata["report_type"],
+        report_form=metadata["form"],
+        fiscal_year=metadata["fiscal_year"],
+        fiscal_period=metadata["fiscal_period"],
+        period_end=parse_date(metadata["period_end"]),
+        accounting_standard=AccountingStandard.KIFRS,
+        currency="KRW",
+        unit="KRW",
+        source_url=metadata["source_url"],
+        source_files={"source": str(source_path), "parser_result": str(parser_result_dir) if parser_result_dir else None},
+        facts=facts,
+        tables=parsed_tables_from_document_full(document_full) if document_full else [],
+        document_full={"dart_facts_raw": raw_facts, **document_full},
+        metadata=metadata,
+    )
+    return artifact, metadata, document_full, raw_facts
+
+
+def write_kr_evidence_package(
+    source_path: Path,
+    output_root: Path,
+    metadata_path: Path | None = None,
+    parser_result_dir: Path | None = None,
+    *,
+    force: bool = False,
+) -> Path:
+    artifact, metadata, document_full, raw_facts = build_kr_artifact(source_path, metadata_path, parser_result_dir)
+    result = process_artifact(artifact, include_load_plan=True)
+    financial_data = financial_data_contract(result.extraction)
+    financial_checks = financial_checks_contract(result.validation)
+    package_dir = output_root / artifact.ticker / str(artifact.fiscal_year or "unknown") / f"{artifact.report_type}_{metadata['rcp_no']}"
+    if package_dir.exists() and force:
+        shutil.rmtree(package_dir)
+    package_dir.mkdir(parents=True, exist_ok=True)
+    for name in ("raw", "sections", "tables", "xbrl", "metrics", "qa"):
+        (package_dir / name).mkdir(exist_ok=True)
+    shutil.copy2(source_path, package_dir / "raw" / source_path.name)
+    if metadata_path and metadata_path.exists():
+        shutil.copy2(metadata_path, package_dir / "raw" / "report.metadata.json")
+    else:
+        write_json(package_dir / "raw" / "report.metadata.json", metadata.get("raw_metadata") or {})
+    (package_dir / "sections" / "report.md").write_text(_markdown(document_full, metadata), encoding="utf-8")
+    table_index = _write_tables(package_dir, artifact.tables)
+    write_json(package_dir / "xbrl" / "facts_raw.json", {"schema_version": "dart_facts_raw_v1", "facts": raw_facts})
+    manifest = {
+        "schema_version": SCHEMA_VERSION,
+        "market": "KR",
+        "filing_id": artifact.report_id,
+        "company_id": artifact.company_id,
+        "ticker": artifact.ticker,
+        "company_name": artifact.company_name,
+        "source_id": metadata["source_id"],
+        "form": metadata["form"],
+        "report_type": metadata["report_type"],
+        "fiscal_year": artifact.fiscal_year,
+        "fiscal_period": artifact.fiscal_period,
+        "period_end": metadata["period_end"],
+        "published_at": metadata["published_at"],
+        "source_url": metadata["source_url"],
+        "local_source_path": f"raw/{source_path.name}",
+        "accounting_standard": artifact.accounting_standard.value,
+        "parser_version": PARSER_VERSION,
+        "rules_version": RULES_VERSION,
+        "quality_status": financial_checks.get("overall_status") or "warning",
+        "artifact_hashes": {},
+        "rcp_no": metadata["rcp_no"],
+        "corp_code": metadata["corp_code"],
+        "stock_code": metadata["stock_code"],
+    }
+    manifest["parse_run_id"] = result.load_plan.parse_run_id if result.load_plan else stable_parse_run_id(manifest, {})
+    source_map = source_map_from_financial_data(manifest=manifest, financial_data=financial_data, package_dir=package_dir)
+    normalized_metrics = normalized_metrics_from_financial_data(manifest=manifest, financial_data=financial_data, source_map=source_map)
+    quality = build_quality_report(
+        manifest=manifest,
+        financial_data=financial_data,
+        financial_checks=financial_checks,
+        section_count=1,
+        table_count=len(table_index),
+        raw_fact_count=len(raw_facts),
+        source_map=source_map,
+        parser_warnings=[] if raw_facts else ["No DART XBRL/API facts were extracted."],
+        rule_warnings=list(result.extraction.warnings) + list(result.validation.warnings),
+    )
+    manifest["quality_status"] = quality["overall_status"]
+    _write_metrics(package_dir, financial_data, financial_checks, result.load_plan.model_dump(mode="json") if result.load_plan else {}, normalized_metrics, quality, source_map)
+    manifest["artifact_hashes"] = compute_artifact_hashes(package_dir)
+    write_json(package_dir / "manifest.json", manifest)
+    (package_dir / "README.md").write_text(_readme(manifest, quality), encoding="utf-8")
+    validation = validate_evidence_package(package_dir)
+    if not validation.ok:
+        write_json(package_dir / "qa" / "contract_validation.json", validation.as_dict())
+    return package_dir
+
+
+def _parsed_fact_from_api_row(row: dict[str, Any]) -> ParsedFact | None:
+    concept = row.get("concept") or row.get("account_id") or row.get("account_nm")
+    value = _decimal(row.get("thstrm_amount") or row.get("amount") or row.get("val"))
+    if not concept or value is None:
+        return None
+    raw = {
+        "fact_id": stable_id("dart_api", concept, row.get("sj_nm"), row.get("thstrm_dt"), value),
+        "concept": f"dart:{concept}" if ":" not in str(concept) else str(concept),
+        "value_text": str(value),
+        "period_end": row.get("thstrm_dt") or row.get("period_end"),
+        "source_type": "dart_api_fact",
+        **row,
+    }
+    return ParsedFact(
+        concept=raw["concept"],
+        value=value,
+        unit=row.get("currency") or "KRW",
+        period_end=parse_date(raw.get("period_end")),
+        label=row.get("account_nm") or str(concept),
+        raw=raw,
+    )
+
+
+def _xml_payloads(path: Path) -> list[tuple[str, bytes]]:
+    if path.suffix.lower() == ".zip":
+        rows = []
+        with zipfile.ZipFile(path) as zf:
+            for name in zf.namelist():
+                if name.lower().endswith((".xbrl", ".xml")):
+                    rows.append((name, zf.read(name)))
+        return rows
+    if path.suffix.lower() in {".xbrl", ".xml"}:
+        return [(path.name, path.read_bytes())]
+    return []
+
+
+def _qname(tag: str) -> str:
+    if tag.startswith("{"):
+        ns, local = tag[1:].split("}", 1)
+        prefix = "ifrs-full" if "ifrs" in ns.lower() else ns.rstrip("/").rsplit("/", 1)[-1]
+        return f"{prefix}:{local}"
+    return tag
+
+
+def _contexts(root: ET.Element) -> dict[str, dict[str, Any]]:
+    contexts: dict[str, dict[str, Any]] = {}
+    for elem in root.iter():
+        if _local(elem.tag).lower().endswith("context") and elem.attrib.get("id"):
+            start = _child_text(elem, "startDate")
+            end = _child_text(elem, "endDate")
+            instant = _child_text(elem, "instant")
+            contexts[elem.attrib["id"]] = {"period_start": start, "period_end": end or instant, "instant": instant, "dimensions": {}, "duration_days": None}
+    return contexts
+
+
+def _units(root: ET.Element) -> dict[str, str]:
+    units: dict[str, str] = {}
+    for elem in root.iter():
+        if _local(elem.tag).lower().endswith("unit") and elem.attrib.get("id"):
+            uid = elem.attrib["id"]
+            measures = [(child.text or "").strip() for child in elem.iter() if _local(child.tag).lower().endswith("measure")]
+            units[uid] = "KRW" if any("krw" in measure.lower() for measure in measures + [uid]) else (measures[0] if measures else uid)
+    return units
+
+
+def _child_text(elem: ET.Element, local_name: str) -> str | None:
+    for child in elem.iter():
+        if _local(child.tag).lower() == local_name.lower():
+            return (child.text or "").strip()
+    return None
+
+
+def _local(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1] if "}" in tag else tag.rsplit(":", 1)[-1]
+
+
+def _decimal(value: Any) -> Decimal | None:
+    text = str(value or "").strip().replace(",", "")
+    if not text or not re.fullmatch(r"[-+]?\d+(?:\.\d+)?", text):
+        return None
+    try:
+        return Decimal(text)
+    except InvalidOperation:
+        return None
+
+
+def _write_tables(package_dir: Path, tables: list[Any]) -> list[dict[str, Any]]:
+    rows = []
+    for table in tables:
+        idx = table.table_index or len(rows) + 1
+        item = {
+            "table_id": table.table_id,
+            "table_index": idx,
+            "title": table.title,
+            "page_number": table.page_number,
+            "row_count": len(table.rows),
+            "column_count": max((len(row) for row in table.rows), default=0),
+            "table_json_path": f"tables/table_{int(idx):04d}.json",
+            "raw": table.raw,
+        }
+        rows.append(item)
+        write_json(package_dir / item["table_json_path"], {**item, "rows": table.rows})
+    write_json(package_dir / "tables" / "table_index.json", {"schema_version": "kr_table_index_v1", "tables": rows})
+    return rows
+
+
+def _write_metrics(package_dir: Path, financial_data: dict[str, Any], financial_checks: dict[str, Any], load_plan: dict[str, Any], normalized_metrics: list[dict[str, Any]], quality: dict[str, Any], source_map: dict[str, Any]) -> None:
+    write_json(package_dir / "metrics" / "financial_data.json", financial_data)
+    write_json(package_dir / "metrics" / "financial_checks.json", financial_checks)
+    write_json(package_dir / "metrics" / "load_plan.json", load_plan)
+    write_json(package_dir / "metrics" / "normalized_metrics.json", {"schema_version": "market_normalized_metrics_v1", "metrics": normalized_metrics})
+    write_json(package_dir / "metrics" / "operating_metrics.json", {"schema_version": "market_operating_metrics_v1", "metrics": [row for row in normalized_metrics if row.get("statement_type") == "operating_metrics"]})
+    write_json(package_dir / "qa" / "quality_report.json", quality)
+    write_json(package_dir / "qa" / "source_map.json", source_map)
+    write_json(package_dir / "qa" / "extraction_warnings.json", {"warnings": quality.get("parser_warnings", []) + quality.get("rule_warnings", [])})
+
+
+def _markdown(document_full: dict[str, Any], metadata: dict[str, Any]) -> str:
+    markdown = document_full.get("markdown") if isinstance(document_full.get("markdown"), dict) else {}
+    if markdown.get("content"):
+        return str(markdown["content"])
+    return f"# {metadata.get('company_name')} {metadata.get('fiscal_year')} {metadata.get('form')}\n"
+
+
+def _report_type(value: Any) -> str:
+    text = str(value or "").lower()
+    if any(token in text for token in ("semi", "half", "반기")):
+        return "semiannual"
+    if any(token in text for token in ("quarter", "분기", "q1", "q2", "q3")):
+        return "quarterly"
+    return "annual"
+
+
+def _fiscal_period(report_type: str) -> str:
+    return {"annual": "FY", "semiannual": "H1", "quarterly": "Q"}.get(report_type, "FY")
+
+
+def _filename_date(filename: str) -> str | None:
+    match = re.search(r"(20\d{2}-\d{2}-\d{2})", filename)
+    return match.group(1) if match else None
+
+
+def _int_or_none(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _readme(manifest: dict[str, Any], quality: dict[str, Any]) -> str:
+    return (
+        f"# {manifest.get('ticker')} {manifest.get('fiscal_year')} {manifest.get('form')}\n\n"
+        f"- Market: `{manifest.get('market')}`\n"
+        f"- Filing ID: `{manifest.get('filing_id')}`\n"
+        f"- RCP No: `{manifest.get('rcp_no')}`\n"
+        f"- Quality: `{quality.get('overall_status')}`\n"
+    )

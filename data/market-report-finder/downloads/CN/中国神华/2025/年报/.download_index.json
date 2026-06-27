@@ -1,0 +1,54 @@
+{
+  "by_url": {
+    "https://static.cninfo.com.cn/finalpage/2026-03-31/1225064293.PDF": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/中国神华/2025/年报/中国神华_CN_601088_2025-12-31_年报_2026-03-30_cninfo_0eb7ec5f.pdf",
+      "file_name": "中国神华_CN_601088_2025-12-31_年报_2026-03-30_cninfo_0eb7ec5f.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "7068df1231922b8a2fcfd0336d9ae6550dabf7c7edc152d680089df8cc126bd2",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/中国神华/2025/年报/中国神华_CN_601088_2025-12-31_年报_2026-03-30_cninfo_0eb7ec5f.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "601088",
+      "ticker": "601088",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-30",
+      "accession_number": "1225064293"
+    },
+    "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=601088&announcementId=1225064293&orgId=9900003701&announcementTime=2026-03-30": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/中国神华/2025/年报/中国神华_CN_601088_2025-12-31_年报_2026-03-30_cninfo_0eb7ec5f.pdf",
+      "file_name": "中国神华_CN_601088_2025-12-31_年报_2026-03-30_cninfo_0eb7ec5f.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "7068df1231922b8a2fcfd0336d9ae6550dabf7c7edc152d680089df8cc126bd2",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/中国神华/2025/年报/中国神华_CN_601088_2025-12-31_年报_2026-03-30_cninfo_0eb7ec5f.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "601088",
+      "ticker": "601088",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-30",
+      "accession_number": "1225064293"
+    }
+  },
+  "by_content_sha256": {
+    "7068df1231922b8a2fcfd0336d9ae6550dabf7c7edc152d680089df8cc126bd2": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/中国神华/2025/年报/中国神华_CN_601088_2025-12-31_年报_2026-03-30_cninfo_0eb7ec5f.pdf",
+      "file_name": "中国神华_CN_601088_2025-12-31_年报_2026-03-30_cninfo_0eb7ec5f.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "7068df1231922b8a2fcfd0336d9ae6550dabf7c7edc152d680089df8cc126bd2",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/中国神华/2025/年报/中国神华_CN_601088_2025-12-31_年报_2026-03-30_cninfo_0eb7ec5f.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "601088",
+      "ticker": "601088",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-30",
+      "accession_number": "1225064293"
+    }
+  }
+}

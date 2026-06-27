@@ -1104,7 +1104,7 @@ def _repair_and_validate_wiki_naming() -> dict:
 
 _GENERIC_REPORT_FINDER_RE = re.compile(
     r"^(?P<company>.+?)_"
-    r"(?P<market>CN|HK|US)_"
+    r"(?P<market>CN|HK|US|KR|JP)_"
     r"(?P<ticker>[^_]+)_"
     r"(?P<report_end>\d{4}-\d{2}-\d{2})_"
     r"(?P<report_type>[^_]+)_"
@@ -1206,7 +1206,7 @@ def _generic_identity_from_row(row: dict) -> dict:
     return {
         "company_id": f"{subject_code}-{name_slug}",
         "stock_code": subject_code,
-        "exchange": {"HK": "HKEX", "US": "US", "CN": "CN"}.get(market, "GENERIC"),
+        "exchange": {"HK": "HKEX", "US": "US", "CN": "CN", "KR": "KRX", "JP": "JPX"}.get(market, "GENERIC"),
         "company_short_name": short_name,
         "company_full_name": full_name,
         "aliases": [value for value in [short_name, full_name, stem] if value],
@@ -1809,31 +1809,28 @@ def _llm_semantic_env() -> dict[str, str]:
     if not isinstance(local_provider, dict):
         return env
 
-    def set_compat_env(siq_name: str, finsight_name: str, value: object) -> None:
+    def set_siq_env(siq_name: str, value: object) -> None:
         raw = str(value)
         env[siq_name] = raw
-        # The shared wikiset script still reads FINSIGHT_* names; keep this
-        # compatibility bridge until that script is fully namespaced for SIQ.
-        env[finsight_name] = raw
 
     if local_provider.get("baseUrl"):
-        set_compat_env("SIQ_LOCAL_LLM_BASE_URL", "FINSIGHT_LOCAL_LLM_BASE_URL", local_provider["baseUrl"])
+        set_siq_env("SIQ_LOCAL_LLM_BASE_URL", local_provider["baseUrl"])
     if local_provider.get("model"):
-        set_compat_env("SIQ_LOCAL_LLM_MODEL", "FINSIGHT_LOCAL_LLM_MODEL", local_provider["model"])
+        set_siq_env("SIQ_LOCAL_LLM_MODEL", local_provider["model"])
     if local_provider.get("apiKey"):
-        set_compat_env("SIQ_LOCAL_LLM_API_KEY", "FINSIGHT_LOCAL_LLM_API_KEY", local_provider["apiKey"])
+        set_siq_env("SIQ_LOCAL_LLM_API_KEY", local_provider["apiKey"])
     if local_provider.get("timeoutSeconds"):
-        set_compat_env("SIQ_LLM_SEMANTIC_TIMEOUT", "FINSIGHT_LLM_SEMANTIC_TIMEOUT", local_provider["timeoutSeconds"])
+        set_siq_env("SIQ_LLM_SEMANTIC_TIMEOUT", local_provider["timeoutSeconds"])
     if local_provider.get("maxTokens"):
-        set_compat_env("SIQ_LLM_SEMANTIC_MAX_TOKENS", "FINSIGHT_LLM_SEMANTIC_MAX_TOKENS", local_provider["maxTokens"])
+        set_siq_env("SIQ_LLM_SEMANTIC_MAX_TOKENS", local_provider["maxTokens"])
     if local_provider.get("temperature") is not None:
-        set_compat_env("SIQ_LLM_SEMANTIC_TEMPERATURE", "FINSIGHT_LLM_SEMANTIC_TEMPERATURE", local_provider["temperature"])
+        set_siq_env("SIQ_LLM_SEMANTIC_TEMPERATURE", local_provider["temperature"])
     if isinstance(local_provider.get("chatTemplateKwargs"), dict):
         value = json.dumps(
             local_provider["chatTemplateKwargs"],
             ensure_ascii=False,
         )
-        set_compat_env("SIQ_LLM_SEMANTIC_CHAT_TEMPLATE_KWARGS", "FINSIGHT_LLM_SEMANTIC_CHAT_TEMPLATE_KWARGS", value)
+        set_siq_env("SIQ_LLM_SEMANTIC_CHAT_TEMPLATE_KWARGS", value)
     return env
 
 

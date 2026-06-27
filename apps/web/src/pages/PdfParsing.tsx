@@ -16,12 +16,63 @@ import { PdfSourceWorkbench } from '../components/pdf/PdfSourceWorkbench'
 import { PdfTaskList } from '../components/pdf/PdfTaskList'
 import { PdfUploadPanel } from '../components/pdf/PdfUploadPanel'
 import { PdfWorkflowPanel } from '../components/pdf/PdfWorkflowPanel'
+import { MarketParsingTabs } from '../components/pdf/MarketParsingTabs'
 import { useToast } from '../hooks/useToast'
 import type { DownloadedPdf, HealthStatus, TaskItem } from '../lib/pdfTypes'
+
+type PdfParsingMarket = 'CN' | 'HK' | 'US' | 'JP' | 'KR' | 'EU'
+
+function parseMarketParam(value: string | null): PdfParsingMarket {
+  const market = String(value || 'CN').toUpperCase()
+  return market === 'CN' || market === 'HK' || market === 'US' || market === 'JP' || market === 'KR' || market === 'EU'
+    ? market
+    : 'CN'
+}
+
+const marketCopy: Record<PdfParsingMarket, { title: string; description: string; emptyTitle: string; emptyDescription: string }> = {
+  CN: {
+    title: '智能解析',
+    description: '上传财报 PDF，生成 Markdown、表格、财务数据抽取和可视化溯源结果。',
+    emptyTitle: '选择一份财报后开始解析',
+    emptyDescription: '可从已下载列表直接解析，也支持批量上传最多 5 个 PDF。',
+  },
+  HK: {
+    title: '港股 PDF 解析',
+    description: '解析港股 PDF 披露文件，生成 Markdown、表格证据和通用主体 Wiki 入库材料。',
+    emptyTitle: '选择一份港股 PDF 后开始解析',
+    emptyDescription: '优先从 downloads/HK 中选择已下载 PDF；也支持上传本地 PDF。',
+  },
+  US: {
+    title: '美股 PDF 解析',
+    description: '用于 SEC PDF 附件、IR 年报、presentation、proxy 等非 HTML/iXBRL 主披露文件；10-K/10-Q 主链路请回到美股 SEC 工作台。',
+    emptyTitle: '选择一份美股 PDF 后开始解析',
+    emptyDescription: '优先从 downloads/US 中选择 PDF；SEC HTML/iXBRL 请使用美股解析页的结构化入库工作台。',
+  },
+  EU: {
+    title: '欧股 PDF 解析',
+    description: '解析欧股 PDF 年报；ESEF ZIP、XHTML、iXBRL 和 HTML 文件仍走欧股结构化证据包入口。',
+    emptyTitle: '选择一份欧股 PDF 后开始解析',
+    emptyDescription: '优先从 downloads/EU 中选择 PDF；非 PDF 年报请使用欧股解析页的结构化入口。',
+  },
+  JP: {
+    title: '日股 PDF 解析',
+    description: '解析日股 PDF 披露文件，生成 Markdown、表格证据和通用入库材料。',
+    emptyTitle: '选择一份日股 PDF 后开始解析',
+    emptyDescription: '优先从 downloads/JP 中选择已下载 PDF；也支持上传本地 PDF。',
+  },
+  KR: {
+    title: '韩股 PDF 解析',
+    description: '解析韩股 PDF 披露文件，生成 Markdown、表格证据和通用入库材料。',
+    emptyTitle: '选择一份韩股 PDF 后开始解析',
+    emptyDescription: '优先从 downloads/KR 中选择已下载 PDF；DART HTML/XML 请使用韩股解析页的结构化入口。',
+  },
+}
 
 export default function PdfParsing() {
   const [searchParams] = useSearchParams()
   const { toast } = useToast()
+  const activeMarket = parseMarketParam(searchParams.get('market'))
+  const copy = marketCopy[activeMarket]
 
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [dragover, setDragover] = useState(false)
@@ -36,6 +87,7 @@ export default function PdfParsing() {
   const [table, setTable] = useState(true)
 
   const [health, setHealth] = useState<HealthStatus | null>(null)
+  const [logsExpanded, setLogsExpanded] = useState(false)
 
   const [downloadedReports, setDownloadedReports] = useState<DownloadedPdf[]>([])
   const [downloadedLoading, setDownloadedLoading] = useState(false)
@@ -112,14 +164,14 @@ export default function PdfParsing() {
   const loadDownloadedReports = useCallback(async (text: string) => {
     setDownloadedLoading(true)
     try {
-      const d = await loadDownloadedReportsApi(text)
+      const d = await loadDownloadedReportsApi(text, activeMarket)
       setDownloadedReports(d.reports || [])
     } catch {
       setDownloadedReports([])
     } finally {
       setDownloadedLoading(false)
     }
-  }, [])
+  }, [activeMarket])
 
   const refreshHealth = useCallback(async () => {
     try {
@@ -234,6 +286,7 @@ export default function PdfParsing() {
   )
 
   const isCompleted = tasks.parseBadge.cls === 'completed'
+  const hasLogErrors = tasks.logs.some((entry) => entry.level === 'error' || entry.level === 'warn')
 
   return (
     <div className="secondary-page min-w-0 overflow-x-hidden">
@@ -246,8 +299,8 @@ export default function PdfParsing() {
               <FileText className="h-3.5 w-3.5" />
               Report Parsing
             </div>
-            <h1 className="secondary-title">智能解析</h1>
-            <p className="secondary-description">上传财报 PDF，生成 Markdown、表格、财务数据抽取和可视化溯源结果。</p>
+            <h1 className="secondary-title">{copy.title}</h1>
+            <p className="secondary-description">{copy.description}</p>
           </div>
           <div className="secondary-step-row">
             <span className="secondary-step-chip is-active">解析</span>
@@ -257,93 +310,108 @@ export default function PdfParsing() {
         </div>
       </section>
 
+      <MarketParsingTabs active={activeMarket} />
+
       <PdfHealthStrip health={health} />
 
-      <PdfUploadPanel
-        health={health}
-        selectedFiles={selectedFiles}
-        setSelectedFiles={setSelectedFiles}
-        fileInput={fileInput}
-        startConvert={startConvert}
-        uploading={tasks.uploading}
-        uploadActive={tasks.uploadActive}
-        parseBadge={tasks.parseBadge}
-        taskId={tasks.taskIdRef.current}
-        cancelTask={tasks.cancelTask}
-        error={tasks.error}
-        downloadedReports={downloadedReports}
-        downloadedQuery={downloadedQuery}
-        setDownloadedQuery={setDownloadedQuery}
-        downloadedLoading={downloadedLoading}
-        downloadedBusyPath={downloadedBusyPath}
-        setDownloadedBusyPath={setDownloadedBusyPath}
-        loadDownloadedReports={loadDownloadedReports}
-        selectDownloadedReport={onSelectDownloaded}
-        parseDownloadedReport={onParseDownloaded}
-        backend={backend}
-        setBackend={setBackend}
-        parseMethod={parseMethod}
-        setParseMethod={setParseMethod}
-        startPage={startPage}
-        setStartPage={setStartPage}
-        endPage={endPage}
-        setEndPage={setEndPage}
-        formula={formula}
-        setFormula={setFormula}
-        table={table}
-        setTable={setTable}
-        showConfig={showConfig}
-        setShowConfig={setShowConfig}
-        handleFiles={handleFiles}
-        dragover={dragover}
-        setDragover={setDragover}
-      />
+      <div className="mobile-tab-strip">
+        <a href="#pdf-upload">上传</a>
+        <a href="#pdf-status">状态</a>
+        <a href="#pdf-result">结果</a>
+        <a href="#pdf-source">溯源</a>
+        <a href="#pdf-tasks">任务</a>
+      </div>
 
-      {/* Upload Stage */}
-      {tasks.uploadActive && (
-        <div className="pdf-stage">
-          <div className="flex items-center justify-between mb-2.5">
-            <div className="font-semibold text-[.95rem] flex items-center gap-2">
-              <span className="inline-block h-4 w-4 text-primary" />
-              文件上传
-            </div>
-            <span className={`pdf-status-badge ${tasks.uploadBadge.cls}`}>{tasks.uploadBadge.text}</span>
-          </div>
-          <div className="pdf-pbar-wrap">
-            <div className="pdf-pbar" style={{ width: `${tasks.uploadPct}%` }} />
-          </div>
-          <div className="flex justify-between mt-2 text-[.85rem] text-text-muted">
-            <span>{tasks.uploadStatusText}</span>
-            <span>{Math.round(tasks.uploadPct)}%</span>
-          </div>
-        </div>
-      )}
+      <div id="pdf-upload">
+        <PdfUploadPanel
+          health={health}
+          selectedFiles={selectedFiles}
+          setSelectedFiles={setSelectedFiles}
+          fileInput={fileInput}
+          startConvert={startConvert}
+          uploading={tasks.uploading}
+          uploadActive={tasks.uploadActive}
+          parseBadge={tasks.parseBadge}
+          taskId={tasks.taskIdRef.current}
+          cancelTask={tasks.cancelTask}
+          error={tasks.error}
+          downloadedReports={downloadedReports}
+          downloadedQuery={downloadedQuery}
+          setDownloadedQuery={setDownloadedQuery}
+          downloadedLoading={downloadedLoading}
+          downloadedBusyPath={downloadedBusyPath}
+          setDownloadedBusyPath={setDownloadedBusyPath}
+          loadDownloadedReports={loadDownloadedReports}
+          selectDownloadedReport={onSelectDownloaded}
+          parseDownloadedReport={onParseDownloaded}
+          backend={backend}
+          setBackend={setBackend}
+          parseMethod={parseMethod}
+          setParseMethod={setParseMethod}
+          startPage={startPage}
+          setStartPage={setStartPage}
+          endPage={endPage}
+          setEndPage={setEndPage}
+          formula={formula}
+          setFormula={setFormula}
+          table={table}
+          setTable={setTable}
+          showConfig={showConfig}
+          setShowConfig={setShowConfig}
+          handleFiles={handleFiles}
+          dragover={dragover}
+          setDragover={setDragover}
+        />
+      </div>
 
-      {/* Parse Stage */}
-      {tasks.parseActive && (
-        <div className="pdf-stage">
-          <div className="flex items-center justify-between mb-2.5">
-            <div className="font-semibold text-[.95rem] flex items-center gap-2">
-              <span className="inline-block h-4 w-4 text-primary" />
-              财报解析
-            </div>
-            <span className={`pdf-status-badge ${tasks.parseBadge.cls}`}>{tasks.parseBadge.text}</span>
+      <div className="pdf-workbench-main">
+          <div id="pdf-status" className="grid gap-3">
+            {/* Upload Stage */}
+            {tasks.uploadActive && (
+              <div className="pdf-stage">
+                <div className="flex items-center justify-between mb-2.5">
+                  <div className="font-semibold text-[.95rem] flex items-center gap-2">
+                    <span className="state-dot" />
+                    文件上传
+                  </div>
+                  <span className={`pdf-status-badge ${tasks.uploadBadge.cls}`}>{tasks.uploadBadge.text}</span>
+                </div>
+                <div className="pdf-pbar-wrap">
+                  <div className="pdf-pbar" style={{ width: `${tasks.uploadPct}%` }} />
+                </div>
+                <div className="flex justify-between mt-2 text-[.85rem] text-text-muted">
+                  <span>{tasks.uploadStatusText}</span>
+                  <span>{Math.round(tasks.uploadPct)}%</span>
+                </div>
+              </div>
+            )}
+
+            {/* Parse Stage */}
+            {tasks.parseActive && (
+              <div className="pdf-stage">
+                <div className="flex items-center justify-between mb-2.5">
+                  <div className="font-semibold text-[.95rem] flex items-center gap-2">
+                    <span className="state-dot" />
+                    财报解析
+                  </div>
+                  <span className={`pdf-status-badge ${tasks.parseBadge.cls}`}>{tasks.parseBadge.text}</span>
+                </div>
+                <div className="pdf-pbar-wrap">
+                  <div className={`pdf-pbar ${tasks.parseBadge.cls === 'completed' ? 'done' : ''}`} style={{ width: `${tasks.parsePct}%` }} />
+                </div>
+                <div className="flex justify-between mt-2 text-[.85rem] text-text-muted">
+                  <span>{tasks.parseStatusText}</span>
+                  <span>{Math.round(tasks.parsePct)}%</span>
+                </div>
+                <div className="flex flex-wrap gap-4 mt-2 text-[.85rem] text-text-muted">
+                  {tasks.queueInfo && <span>{tasks.queueInfo}</span>}
+                  {tasks.elapsedInfo && <span>{tasks.elapsedInfo}</span>}
+                  {tasks.pagesInfo && <span style={{ fontWeight: 600, color: '#2563eb' }}>{tasks.pagesInfo}</span>}
+                  {tasks.stageInfo && <span>{tasks.stageInfo}</span>}
+                </div>
+              </div>
+            )}
           </div>
-          <div className="pdf-pbar-wrap">
-            <div className={`pdf-pbar ${tasks.parseBadge.cls === 'completed' ? 'done' : ''}`} style={{ width: `${tasks.parsePct}%` }} />
-          </div>
-          <div className="flex justify-between mt-2 text-[.85rem] text-text-muted">
-            <span>{tasks.parseStatusText}</span>
-            <span>{Math.round(tasks.parsePct)}%</span>
-          </div>
-          <div className="flex flex-wrap gap-4 mt-2 text-[.85rem] text-text-muted">
-            {tasks.queueInfo && <span>{tasks.queueInfo}</span>}
-            {tasks.elapsedInfo && <span>{tasks.elapsedInfo}</span>}
-            {tasks.pagesInfo && <span style={{ fontWeight: 600, color: '#2563eb' }}>{tasks.pagesInfo}</span>}
-            {tasks.stageInfo && <span>{tasks.stageInfo}</span>}
-          </div>
-        </div>
-      )}
 
       {tasks.taskIdRef.current && isCompleted && tasks.resultDeferred && !tasks.markdown && (
         <div className="pdf-mobile-result-gate">
@@ -359,30 +427,44 @@ export default function PdfParsing() {
 
       {/* Logs */}
       {tasks.logs.length > 0 && (
-        <div className="apple-card rounded-[24px] p-4 sm:p-6">
-          <h3 className="text-base font-semibold text-text mb-3">处理日志</h3>
-          <div className="pdf-log" ref={logRef}>
-            {tasks.logs.map((l, i) => (
-              <div key={i} className="flex gap-2.5 py-0.5 border-b border-gray-100 last:border-0">
-                <span className="text-text-muted shrink-0">
-                  {new Date(l.time).toLocaleTimeString('zh-CN', { hour12: false })}
-                </span>
-                <span
-                  className={
-                    l.level === 'error'
-                      ? 'text-error'
-                      : l.level === 'success'
-                        ? 'text-success'
-                        : l.level === 'warn'
-                          ? 'text-warning'
-                          : 'text-text'
-                  }
-                >
-                  {l.message}
-                </span>
-              </div>
-            ))}
+        <div className="apple-card rounded-[var(--radius-panel)] p-4 sm:p-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className="text-base font-semibold text-text">处理日志</h3>
+              <p className="mt-1 text-sm text-text-muted">{hasLogErrors ? '解析过程中有需要关注的提示。' : '默认收起，保留解析过程可审计记录。'}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setLogsExpanded((value) => !value)}
+              className="inline-flex h-10 items-center justify-center rounded-[var(--radius-control)] border border-border bg-card px-4 text-sm font-semibold text-text-muted hover:bg-bg hover:text-text"
+            >
+              {logsExpanded || hasLogErrors ? '收起日志' : `展开 ${tasks.logs.length} 条`}
+            </button>
           </div>
+          {(logsExpanded || hasLogErrors) && (
+            <div className="pdf-log mt-3" ref={logRef}>
+              {tasks.logs.map((l, i) => (
+                <div key={i} className="flex gap-2.5 py-0.5 border-b border-gray-100 last:border-0">
+                  <span className="text-text-muted shrink-0">
+                    {new Date(l.time).toLocaleTimeString('zh-CN', { hour12: false })}
+                  </span>
+                  <span
+                    className={
+                      l.level === 'error'
+                        ? 'text-error'
+                        : l.level === 'success'
+                          ? 'text-success'
+                          : l.level === 'warn'
+                            ? 'text-warning'
+                            : 'text-text'
+                    }
+                  >
+                    {l.message}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -401,6 +483,7 @@ export default function PdfParsing() {
         />
       )}
 
+      <div id="pdf-result" className="grid gap-4">
       <PdfMarkdownPreview
         markdown={tasks.markdown}
         mdLines={tasks.mdLines}
@@ -415,7 +498,9 @@ export default function PdfParsing() {
       {tasks.quality && <PdfQualityPanel quality={tasks.quality} onShowTableSource={sourceTrace.showTableSource} />}
 
       {tasks.financial && <PdfFinancialPanel financial={tasks.financial} taskId={tasks.taskIdRef.current} />}
+      </div>
 
+      <div id="pdf-source">
       <PdfSourceWorkbench
         sourceVisible={sourceTrace.sourceVisible}
         srcTable={sourceTrace.srcTable}
@@ -440,7 +525,9 @@ export default function PdfParsing() {
         corrNoteRef={corrNoteRef}
         saveCorrection={editable.saveCorrection}
       />
+      </div>
 
+      <div id="pdf-tasks">
       <PdfTaskList
         tasks={tasks.tasks}
         taskId={tasks.taskIdRef.current}
@@ -452,14 +539,16 @@ export default function PdfParsing() {
         onReparse={tasks.reparseTask}
         onRefresh={() => void tasks.loadTasks()}
       />
+      </div>
 
       {!tasks.markdown && !tasks.parseActive && tasks.tasks.length === 0 && (
         <div className="rounded-[24px] border border-dashed border-border bg-card px-6 py-12 text-center text-text-muted shadow-sm">
           <FileText className="mx-auto mb-3 h-10 w-10 opacity-40" />
-          <p className="text-sm font-semibold text-text">选择一份财报后开始解析</p>
-          <p className="mt-1 text-xs">可从已下载列表直接解析，也支持批量上传最多 5 个 PDF。</p>
+          <p className="text-sm font-semibold text-text">{copy.emptyTitle}</p>
+          <p className="mt-1 text-xs">{copy.emptyDescription}</p>
         </div>
       )}
+      </div>
     </div>
   )
 }

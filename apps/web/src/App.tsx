@@ -9,6 +9,12 @@ const Dashboard = lazy(() => import('./pages/Dashboard'))
 const MyWorkspace = lazy(() => import('./pages/MyWorkspace'))
 const SearchDownload = lazy(() => import('./pages/SearchDownload'))
 const PdfParsing = lazy(() => import('./pages/PdfParsing'))
+const DocumentParsing = lazy(() => import('./pages/DocumentParsing'))
+const HkParsing = lazy(() => import('./pages/HkParsing'))
+const UsParsing = lazy(() => import('./pages/UsParsing'))
+const EuParsing = lazy(() => import('./pages/EuParsing'))
+const JpParsing = lazy(() => import('./pages/JpParsing'))
+const KrParsing = lazy(() => import('./pages/KrParsing'))
 const AnalysisReport = lazy(() => import('./pages/AnalysisReport'))
 const FactVerification = lazy(() => import('./pages/FactVerification'))
 const Tracking = lazy(() => import('./pages/Tracking'))
@@ -18,6 +24,7 @@ const Settings = lazy(() => import('./pages/Settings'))
 const Account = lazy(() => import('./pages/Account'))
 const UserAdmin = lazy(() => import('./pages/UserAdmin'))
 const UserDetail = lazy(() => import('./pages/UserDetail'))
+const VectorIngest = lazy(() => import('./pages/VectorIngest'))
 const Help = lazy(() => import('./pages/Help'))
 
 function PageFallback() {
@@ -60,8 +67,19 @@ export default function App() {
                   <UserDetail />
                 </ProtectedRoute>
               } />
+              <Route path="/vector-ingest" element={
+                <ProtectedRoute permission="system.config">
+                  <VectorIngest />
+                </ProtectedRoute>
+              } />
               <Route path="/search" element={<SearchDownload />} />
               <Route path="/parse" element={<PdfParsing />} />
+              <Route path="/documents" element={<DocumentParsing />} />
+              <Route path="/parse-hk" element={<HkParsing />} />
+              <Route path="/parse-us" element={<UsParsing />} />
+              <Route path="/parse-eu" element={<EuParsing />} />
+              <Route path="/parse-jp" element={<JpParsing />} />
+              <Route path="/parse-kr" element={<KrParsing />} />
               <Route path="/analysis" element={<AnalysisReport />} />
               <Route path="/verify" element={<FactVerification />} />
               <Route path="/tracking" element={<Tracking />} />

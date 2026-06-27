@@ -1,0 +1,36 @@
+{
+  "candidate": {
+    "source_id": "sec",
+    "source_name": "SEC EDGAR",
+    "source_domain": "sec.gov",
+    "market": "US",
+    "company_id": "731766",
+    "ticker": "UNH",
+    "company_name": "UNITEDHEALTH GROUP INC",
+    "report_type": "10-K",
+    "report_family": "annual",
+    "form": "10-K",
+    "title": "10-K",
+    "accession_number": "0000731766-25-000063",
+    "primary_document": "unh-20241231.htm",
+    "report_end": "2024-12-31",
+    "published_at": "2025-02-27",
+    "accepted_at": "2025-02-27T22:16:21Z",
+    "document_url": "https://www.sec.gov/Archives/edgar/data/731766/000073176625000063/unh-20241231.htm",
+    "landing_url": "https://www.sec.gov/Archives/edgar/data/731766/000073176625000063/0000731766-25-000063-index.html",
+    "file_format": "html",
+    "language": null,
+    "inline_xbrl": true,
+    "metadata": {
+      "sec_submission_name": "UNITEDHEALTH GROUP INC",
+      "accession_no_dashes": "000073176625000063"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "UNITEDHEALTH-GROUP-INC_US_UNH_2024-12-31_10-K_2025-02-27_sec_95dbe706.html",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/UNITEDHEALTH-GROUP-INC/2024/年报/UNITEDHEALTH-GROUP-INC_US_UNH_2024-12-31_10-K_2025-02-27_sec_95dbe706.html",
+    "size_bytes": 2823139,
+    "content_type": "text/html",
+    "content_sha256": "5368813fd21746c6fefb949f015d91cecb6d36ed08b6c0ace8582e73bd91a858"
+  }
+}

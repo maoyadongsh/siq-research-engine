@@ -8,7 +8,7 @@ from services.path_config import BACKEND_DATA_ROOT
 
 DB_DIR = BACKEND_DATA_ROOT
 DB_DIR.mkdir(parents=True, exist_ok=True)
-DB_PATH = DB_DIR / "pet.db"
+DB_PATH = DB_DIR / "agent.db"
 
 # 优先使用PostgreSQL（用于认证系统），否则回退到SQLite
 DATABASE_URL = os.getenv(
@@ -19,6 +19,8 @@ DATABASE_URL = os.getenv(
 # 异步数据库URL
 if DATABASE_URL.startswith("postgresql"):
     ASYNC_DATABASE_URL = DATABASE_URL.replace("postgresql+psycopg://", "postgresql+asyncpg://")
+elif DATABASE_URL.startswith("sqlite"):
+    ASYNC_DATABASE_URL = DATABASE_URL.replace("sqlite://", "sqlite+aiosqlite://", 1)
 else:
     ASYNC_DATABASE_URL = f"sqlite+aiosqlite:///{DB_PATH}"
 

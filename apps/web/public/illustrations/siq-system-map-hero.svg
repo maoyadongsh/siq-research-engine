@@ -18,8 +18,8 @@
     </radialGradient>
     <linearGradient id="brand" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#47bfff"/>
-      <stop offset=".45" stop-color="#863bff"/>
-      <stop offset="1" stop-color="#5b21b6"/>
+      <stop offset=".52" stop-color="#0071e3"/>
+      <stop offset="1" stop-color="#004fb8"/>
     </linearGradient>
     <linearGradient id="blue" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#73c6ff"/>
@@ -58,7 +58,7 @@
       <feDropShadow dx="0" dy="0" stdDeviation="9" flood-color="#42a5ff" flood-opacity=".45"/>
     </filter>
     <filter id="brandGlow" x="-55%" y="-80%" width="210%" height="260%">
-      <feDropShadow dx="0" dy="0" stdDeviation="12" flood-color="#863bff" flood-opacity=".28"/>
+      <feDropShadow dx="0" dy="0" stdDeviation="12" flood-color="#0071e3" flood-opacity=".28"/>
       <feDropShadow dx="0" dy="12" stdDeviation="18" flood-color="#0f172a" flood-opacity=".12"/>
     </filter>
     <clipPath id="reportClip">
@@ -86,11 +86,11 @@
   </g>
 
   <g filter="url(#brandGlow)">
-    <g transform="translate(42 128) scale(1.25)">
-      <path fill="url(#brand)" d="M25.946 44.938c-.664.845-2.021.375-2.021-.698V33.937a2.26 2.26 0 0 0-2.262-2.262H10.287c-.92 0-1.456-1.04-.92-1.788l7.48-10.471c1.07-1.497 0-3.578-1.842-3.578H1.237c-.92 0-1.456-1.04-.92-1.788L10.013.474c.214-.297.556-.474.92-.474h28.894c.92 0 1.456 1.04.92 1.788l-7.48 10.471c-1.07 1.498 0 3.579 1.842 3.579h11.377c.943 0 1.473 1.088.89 1.83L25.947 44.94z"/>
-    </g>
+    <rect x="42" y="122" width="60" height="60" rx="16" fill="url(#brand)"/>
+    <rect x="43.5" y="123.5" width="57" height="57" rx="14.5" fill="none" stroke="#ffffff" stroke-opacity=".24"/>
+    <text x="72" y="153" text-anchor="middle" dominant-baseline="middle" fill="#ffffff" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="23" font-weight="900" letter-spacing="-.3">SIQ</text>
   </g>
-  <text x="108" y="178" fill="#0071e3" font-family="'SF Mono', ui-monospace, 'JetBrains Mono', 'Fira Code', monospace" font-size="40" font-weight="700" letter-spacing="-1">Research // Engine</text>
+  <text x="114" y="154" dominant-baseline="middle" fill="#0071e3" font-family="'SF Mono', ui-monospace, 'JetBrains Mono', 'Fira Code', monospace" font-size="38" font-weight="800" letter-spacing=".2">Research Engine</text>
 
   <g fill="none" stroke-linecap="round" stroke-linejoin="round">
     <path d="M428 112c64 8 92 50 126 96" stroke="#7dd3fc" stroke-opacity=".72" stroke-width="6" filter="url(#glow)"/>

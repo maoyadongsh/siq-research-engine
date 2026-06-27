@@ -1,0 +1,38 @@
+{
+  "by_url": {
+    "https://www.sec.gov/Archives/edgar/data/1235468/000119312525289159/lqdt-20250930.htm": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/LIQUIDITY-SERVICES-INC/2025/年报/LIQUIDITY-SERVICES-INC_US_LQDT_2025-09-30_10-K_2025-11-20_sec_ff0b7153.htm",
+      "file_name": "LIQUIDITY-SERVICES-INC_US_LQDT_2025-09-30_10-K_2025-11-20_sec_ff0b7153.htm",
+      "content_type": "text/html",
+      "content_sha256": "b59655288ce4d91615bd57b8ba1964e1792b8b65c8f84e3f0aa3f7202dceb129",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/LIQUIDITY-SERVICES-INC/2025/年报/LIQUIDITY-SERVICES-INC_US_LQDT_2025-09-30_10-K_2025-11-20_sec_ff0b7153.htm.metadata.json",
+      "market": "US",
+      "company_id": "LQDT",
+      "ticker": "LQDT",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-09-30",
+      "published_at": "2025-11-20",
+      "accession_number": "0001193125-25-289159"
+    }
+  },
+  "by_content_sha256": {
+    "b59655288ce4d91615bd57b8ba1964e1792b8b65c8f84e3f0aa3f7202dceb129": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/LIQUIDITY-SERVICES-INC/2025/年报/LIQUIDITY-SERVICES-INC_US_LQDT_2025-09-30_10-K_2025-11-20_sec_ff0b7153.htm",
+      "file_name": "LIQUIDITY-SERVICES-INC_US_LQDT_2025-09-30_10-K_2025-11-20_sec_ff0b7153.htm",
+      "content_type": "text/html",
+      "content_sha256": "b59655288ce4d91615bd57b8ba1964e1792b8b65c8f84e3f0aa3f7202dceb129",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/LIQUIDITY-SERVICES-INC/2025/年报/LIQUIDITY-SERVICES-INC_US_LQDT_2025-09-30_10-K_2025-11-20_sec_ff0b7153.htm.metadata.json",
+      "market": "US",
+      "company_id": "LQDT",
+      "ticker": "LQDT",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-09-30",
+      "published_at": "2025-11-20",
+      "accession_number": "0001193125-25-289159"
+    }
+  }
+}

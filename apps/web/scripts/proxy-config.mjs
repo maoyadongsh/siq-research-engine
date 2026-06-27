@@ -3,6 +3,7 @@ const DEFAULT_REPORT_FINDER_URL = 'http://127.0.0.1:18000'
 const DEFAULT_PDFAPI_URL = 'http://127.0.0.1:15000'
 
 const BACKEND_PREFIXES = [
+  '/api/v1',
   '/api/chat',
   '/api/wiki',
   '/api/analysis',
@@ -11,9 +12,12 @@ const BACKEND_PREFIXES = [
   '/api/legal',
   '/api/settings',
   '/api/system',
+  '/api/market-report-health',
+  '/api/us-sec',
   '/api/downloads',
   '/api/workflow',
   '/api/workspace',
+  '/api/documents',
   '/api/pdf',
   '/api/pdf_page',
   '/api/source',

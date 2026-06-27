@@ -2,6 +2,17 @@ import { CheckCircle2, FileText, FolderOpen, Loader2, RefreshCw, Search, Setting
 import type { DownloadedPdf, HealthStatus } from '../../lib/pdfTypes'
 import { escHtml, formatDateTime, formatSize, isTerminal } from '../../lib/pdfFormatting'
 
+function documentKind(report: DownloadedPdf): string {
+  const suffix = report.filename.split('.').pop()?.toLowerCase() || ''
+  const contentType = String(report.contentType || '').toLowerCase()
+  if (report.isPdf !== false || suffix === 'pdf' || contentType.includes('pdf')) return 'PDF'
+  if (suffix === 'zip' || contentType.includes('zip')) return 'ESEF ZIP'
+  if (suffix === 'xhtml' || report.filename.toLowerCase().endsWith('.xbrl')) return 'iXBRL'
+  if (suffix === 'html' || suffix === 'htm' || contentType.includes('html')) return 'HTML'
+  if (suffix === 'xml' || contentType.includes('xml')) return 'XML'
+  return contentType || suffix.toUpperCase() || '文件'
+}
+
 export interface PdfUploadPanelProps {
   health: HealthStatus | null
   selectedFiles: File[]
@@ -23,6 +34,7 @@ export interface PdfUploadPanelProps {
   loadDownloadedReports: (text: string) => Promise<void>
   selectDownloadedReport: (report: DownloadedPdf, onBusy: (path: string) => void) => Promise<void>
   parseDownloadedReport: (report: DownloadedPdf, onBusy: (path: string) => void) => Promise<void>
+  buildDownloadedPackage?: (report: DownloadedPdf, onBusy: (path: string) => void) => Promise<void>
   backend: string
   setBackend: (v: string) => void
   parseMethod: string
@@ -64,6 +76,7 @@ export function PdfUploadPanel(props: PdfUploadPanelProps) {
     loadDownloadedReports,
     selectDownloadedReport,
     parseDownloadedReport,
+    buildDownloadedPackage,
     backend,
     setBackend,
     parseMethod,
@@ -94,7 +107,7 @@ export function PdfUploadPanel(props: PdfUploadPanelProps) {
               <FolderOpen className="h-5 w-5 text-primary" />
               已下载财报
             </h3>
-            <p>优先从搜索下载阶段保存的 PDF 中选择，也可以直接发起解析。</p>
+            <p>优先从搜索下载阶段保存的文件开始；PDF 走表格解析，ESEF/iXBRL/HTML/XML 走结构化证据包解析。</p>
           </div>
           <div className="pdf-download-search">
             <label>
@@ -125,6 +138,9 @@ export function PdfUploadPanel(props: PdfUploadPanelProps) {
             <div className="pdf-download-list">
               {downloadedReports.slice(0, 10).map((report) => {
                 const busy = downloadedBusyPath === report.relativePath
+                const isPdf = report.isPdf !== false
+                const kind = documentKind(report)
+                const canBuildStructuredPackage = !isPdf && !!buildDownloadedPackage
                 return (
                 <div key={report.id} className="pdf-download-item">
                   <div className="pdf-download-main">
@@ -134,6 +150,7 @@ export function PdfUploadPanel(props: PdfUploadPanelProps) {
                       <div className="pdf-download-meta">
                         <span>{report.company || '未知公司'}</span>
                         <span>{report.category || '未分类'}</span>
+                        <span>{kind}</span>
                         <span>{formatSize(report.size)}</span>
                         <span>{formatDateTime(report.mtime)}</span>
                       </div>
@@ -143,17 +160,30 @@ export function PdfUploadPanel(props: PdfUploadPanelProps) {
                     <button
                       className="pdf-small-action"
                       onClick={() => selectDownloadedReport(report, setDownloadedBusyPath)}
-                      disabled={busy || uploading}
+                      disabled={busy || uploading || !isPdf}
+                      title={isPdf ? '选择 PDF' : '该文件不是 PDF，暂不能送入 PDF 解析器'}
                     >
                       {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}选择
                     </button>
-                    <button
-                      className="pdf-small-action primary"
-                      onClick={() => parseDownloadedReport(report, setDownloadedBusyPath)}
-                      disabled={busy || uploading || !submitReady}
-                    >
-                      {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}解析
-                    </button>
+                    {canBuildStructuredPackage ? (
+                      <button
+                        className="pdf-small-action primary"
+                        onClick={() => buildDownloadedPackage?.(report, setDownloadedBusyPath)}
+                        disabled={busy || uploading}
+                        title="生成结构化 evidence package"
+                      >
+                        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}结构化解析
+                      </button>
+                    ) : (
+                      <button
+                        className="pdf-small-action primary"
+                        onClick={() => parseDownloadedReport(report, setDownloadedBusyPath)}
+                        disabled={busy || uploading || !submitReady || !isPdf}
+                        title={isPdf ? '解析 PDF' : '该文件不是 PDF，暂不能送入 PDF 解析器'}
+                      >
+                        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}解析
+                      </button>
+                    )}
                   </div>
                 </div>
                 )

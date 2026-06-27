@@ -1,0 +1,38 @@
+{
+  "by_url": {
+    "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0427/2026042700756.pdf": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/GEELY-AUTO/2025/年报/GEELY-AUTO_HK_00175_2025-12-31_年报_2026-04-27_hkex_22b7c0c1.pdf",
+      "file_name": "GEELY-AUTO_HK_00175_2025-12-31_年报_2026-04-27_hkex_22b7c0c1.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "9185c6c6d00cd2d8f7c66a5caed30527b27a600e139bbe17859907ec7ec0c86f",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/GEELY-AUTO/2025/年报/GEELY-AUTO_HK_00175_2025-12-31_年报_2026-04-27_hkex_22b7c0c1.pdf.metadata.json",
+      "market": "HK",
+      "company_id": "HK:00175",
+      "ticker": "00175",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-27",
+      "accession_number": "12124187"
+    }
+  },
+  "by_content_sha256": {
+    "9185c6c6d00cd2d8f7c66a5caed30527b27a600e139bbe17859907ec7ec0c86f": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/GEELY-AUTO/2025/年报/GEELY-AUTO_HK_00175_2025-12-31_年报_2026-04-27_hkex_22b7c0c1.pdf",
+      "file_name": "GEELY-AUTO_HK_00175_2025-12-31_年报_2026-04-27_hkex_22b7c0c1.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "9185c6c6d00cd2d8f7c66a5caed30527b27a600e139bbe17859907ec7ec0c86f",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/GEELY-AUTO/2025/年报/GEELY-AUTO_HK_00175_2025-12-31_年报_2026-04-27_hkex_22b7c0c1.pdf.metadata.json",
+      "market": "HK",
+      "company_id": "HK:00175",
+      "ticker": "00175",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-27",
+      "accession_number": "12124187"
+    }
+  }
+}

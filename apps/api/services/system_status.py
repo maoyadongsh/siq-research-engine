@@ -144,6 +144,16 @@ async def collect_system_status() -> dict[str, Any]:
                 else None
             ),
         },
+        {
+            "service_id": "vector_ingest",
+            "name": "Milvus 向量入库控制台",
+            "category": "vector",
+            "url": _env_url_any(
+                ("SIQ_VECTOR_INGEST_HEALTH_URL", "VECTOR_INGEST_HEALTH_URL"),
+                "http://127.0.0.1:7862/",
+            ),
+            "required": False,
+        },
     ]
 
     for profile, config in HERMES_PROFILES.items():

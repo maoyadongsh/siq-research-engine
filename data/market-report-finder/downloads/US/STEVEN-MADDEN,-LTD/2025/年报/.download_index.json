@@ -1,0 +1,38 @@
+{
+  "by_url": {
+    "https://www.sec.gov/Archives/edgar/data/913241/000162828026012995/shoo-20251231.htm": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/STEVEN-MADDEN,-LTD/2025/年报/STEVEN-MADDEN,-LTD_US_SHOO_2025-12-31_10-K_2026-03-02_sec_f04fcb0c.htm",
+      "file_name": "STEVEN-MADDEN,-LTD_US_SHOO_2025-12-31_10-K_2026-03-02_sec_f04fcb0c.htm",
+      "content_type": "text/html",
+      "content_sha256": "1818414c19612f5308b4020f72aaa7dfe13b4295894d02052279a4dcd20910f6",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/STEVEN-MADDEN,-LTD/2025/年报/STEVEN-MADDEN,-LTD_US_SHOO_2025-12-31_10-K_2026-03-02_sec_f04fcb0c.htm.metadata.json",
+      "market": "US",
+      "company_id": "SHOO",
+      "ticker": "SHOO",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-02",
+      "accession_number": "0001628280-26-012995"
+    }
+  },
+  "by_content_sha256": {
+    "1818414c19612f5308b4020f72aaa7dfe13b4295894d02052279a4dcd20910f6": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/STEVEN-MADDEN,-LTD/2025/年报/STEVEN-MADDEN,-LTD_US_SHOO_2025-12-31_10-K_2026-03-02_sec_f04fcb0c.htm",
+      "file_name": "STEVEN-MADDEN,-LTD_US_SHOO_2025-12-31_10-K_2026-03-02_sec_f04fcb0c.htm",
+      "content_type": "text/html",
+      "content_sha256": "1818414c19612f5308b4020f72aaa7dfe13b4295894d02052279a4dcd20910f6",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/STEVEN-MADDEN,-LTD/2025/年报/STEVEN-MADDEN,-LTD_US_SHOO_2025-12-31_10-K_2026-03-02_sec_f04fcb0c.htm.metadata.json",
+      "market": "US",
+      "company_id": "SHOO",
+      "ticker": "SHOO",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-02",
+      "accession_number": "0001628280-26-012995"
+    }
+  }
+}

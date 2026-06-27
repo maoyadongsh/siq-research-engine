@@ -1,0 +1,33 @@
+{
+  "candidate": {
+    "source_id": "dart_public",
+    "source_name": "DART public disclosure PDF",
+    "source_domain": "dart.fss.or.kr",
+    "market": "KR",
+    "company_id": "00113526",
+    "ticker": "003490",
+    "company_name": "Korean Air Lines Co., Ltd.",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "사업보고서 (2025.12)",
+    "accession_number": "manual",
+    "primary_document": "pdf.do",
+    "report_end": "2025-12-31",
+    "published_at": "2026-03-18",
+    "accepted_at": null,
+    "document_url": "https://dart.fss.or.kr/pdf/download/pdf.do?rcp_no=20260318001125&dcm_no=11140184",
+    "landing_url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260318001125",
+    "file_format": "pdf",
+    "language": null,
+    "inline_xbrl": null,
+    "metadata": {}
+  },
+  "downloaded_file": {
+    "file_name": "Korean-Air-Lines-Co.,-Ltd_KR_003490_2025-12-31_年报_2026-03-18_dart_public_14412955.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/Korean-Air-Lines-Co.,-Ltd/2025/年报/Korean-Air-Lines-Co.,-Ltd_KR_003490_2025-12-31_年报_2026-03-18_dart_public_14412955.pdf",
+    "size_bytes": 1936602,
+    "content_type": "application/pdf",
+    "content_sha256": "9b43316de3b165e53f589558120d75a42117b552d737499d6eec908d6a985136"
+  }
+}

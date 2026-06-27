@@ -1,0 +1,11 @@
+[
+  {
+    "market": "KR",
+    "ticker": "005930",
+    "company_name": "Samsung Electronics",
+    "report_type": "annual",
+    "fiscal_year": 2025,
+    "expected_metrics": ["operating_revenue", "net_profit", "total_assets"],
+    "expected_evidence": true
+  }
+]

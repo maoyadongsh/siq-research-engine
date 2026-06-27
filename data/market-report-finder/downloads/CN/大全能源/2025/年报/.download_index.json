@@ -1,0 +1,54 @@
+{
+  "by_url": {
+    "https://static.cninfo.com.cn/finalpage/2026-04-21/1225132631.PDF": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/大全能源/2025/年报/大全能源_CN_688303_2025-12-31_年报_2026-04-20_cninfo_9233b753.pdf",
+      "file_name": "大全能源_CN_688303_2025-12-31_年报_2026-04-20_cninfo_9233b753.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "0b9514bb6b8e59ac0355c364005d040ead6055cf074c0dbc8527e78071665a77",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/大全能源/2025/年报/大全能源_CN_688303_2025-12-31_年报_2026-04-20_cninfo_9233b753.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "688303",
+      "ticker": "688303",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-20",
+      "accession_number": "1225132631"
+    },
+    "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=688303&announcementId=1225132631&orgId=gfbj0837316&announcementTime=2026-04-20": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/大全能源/2025/年报/大全能源_CN_688303_2025-12-31_年报_2026-04-20_cninfo_9233b753.pdf",
+      "file_name": "大全能源_CN_688303_2025-12-31_年报_2026-04-20_cninfo_9233b753.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "0b9514bb6b8e59ac0355c364005d040ead6055cf074c0dbc8527e78071665a77",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/大全能源/2025/年报/大全能源_CN_688303_2025-12-31_年报_2026-04-20_cninfo_9233b753.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "688303",
+      "ticker": "688303",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-20",
+      "accession_number": "1225132631"
+    }
+  },
+  "by_content_sha256": {
+    "0b9514bb6b8e59ac0355c364005d040ead6055cf074c0dbc8527e78071665a77": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/大全能源/2025/年报/大全能源_CN_688303_2025-12-31_年报_2026-04-20_cninfo_9233b753.pdf",
+      "file_name": "大全能源_CN_688303_2025-12-31_年报_2026-04-20_cninfo_9233b753.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "0b9514bb6b8e59ac0355c364005d040ead6055cf074c0dbc8527e78071665a77",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/大全能源/2025/年报/大全能源_CN_688303_2025-12-31_年报_2026-04-20_cninfo_9233b753.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "688303",
+      "ticker": "688303",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-20",
+      "accession_number": "1225132631"
+    }
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "candidate": {
+    "source_id": "hkex",
+    "source_name": "HKEXnews",
+    "source_domain": "www1.hkexnews.hk",
+    "market": "HK",
+    "company_id": "00981",
+    "ticker": "00981",
+    "company_name": "SMIC",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "2025 Annual Report",
+    "accession_number": "12097338",
+    "primary_document": "2026040801181.pdf",
+    "report_end": "2025-12-31",
+    "published_at": "2026-04-08",
+    "accepted_at": null,
+    "document_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0408/2026040801181.pdf",
+    "landing_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0408/2026040801181.pdf",
+    "file_format": "pdf",
+    "language": "en",
+    "inline_xbrl": null,
+    "metadata": {
+      "news_id": "12097338",
+      "stock_name": "SMIC",
+      "short_text": "Financial Statements/ESG Information - [Annual Report]",
+      "long_text": "Financial Statements/ESG Information - [Annual Report]",
+      "file_info": "6MB"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "SMIC_HK_00981_2025-12-31_年报_2026-04-08_hkex_8ec4a81a.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/SMIC/2025/年报/SMIC_HK_00981_2025-12-31_年报_2026-04-08_hkex_8ec4a81a.pdf",
+    "size_bytes": 6223572,
+    "content_type": "application/pdf",
+    "content_sha256": "4ce8f7a22e09f5322a3b03621e596b42f941d43f12a58e303183209c279e3111"
+  }
+}

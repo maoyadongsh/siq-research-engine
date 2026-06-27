@@ -1,0 +1,42 @@
+{
+  "by_url": {
+    "https://dart.fss.or.kr/pdf/download/pdf.do?rcp_no=20260317000635&dcm_no=11132576": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/SK-hynix-Inc/2025/年报/SK-hynix-Inc_KR_000660_2025-12-31_年报_2026-03-17_dart_public_0f049d5f.pdf",
+      "file_name": "SK-hynix-Inc_KR_000660_2025-12-31_年报_2026-03-17_dart_public_0f049d5f.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "f1fb4c65006e3be6a259938c658fda7c4be2ee1ad7eae1d3baa7ab3b6679e043",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/SK-hynix-Inc/2025/年报/SK-hynix-Inc_KR_000660_2025-12-31_年报_2026-03-17_dart_public_0f049d5f.pdf.metadata.json",
+      "market": "KR",
+      "company_id": "00164779",
+      "ticker": "000660",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-17",
+      "accession_number": "manual",
+      "country": null,
+      "source_tier": null
+    }
+  },
+  "by_content_sha256": {
+    "f1fb4c65006e3be6a259938c658fda7c4be2ee1ad7eae1d3baa7ab3b6679e043": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/SK-hynix-Inc/2025/年报/SK-hynix-Inc_KR_000660_2025-12-31_年报_2026-03-17_dart_public_0f049d5f.pdf",
+      "file_name": "SK-hynix-Inc_KR_000660_2025-12-31_年报_2026-03-17_dart_public_0f049d5f.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "f1fb4c65006e3be6a259938c658fda7c4be2ee1ad7eae1d3baa7ab3b6679e043",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/SK-hynix-Inc/2025/年报/SK-hynix-Inc_KR_000660_2025-12-31_年报_2026-03-17_dart_public_0f049d5f.pdf.metadata.json",
+      "market": "KR",
+      "company_id": "00164779",
+      "ticker": "000660",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-17",
+      "accession_number": "manual",
+      "country": null,
+      "source_tier": null
+    }
+  }
+}

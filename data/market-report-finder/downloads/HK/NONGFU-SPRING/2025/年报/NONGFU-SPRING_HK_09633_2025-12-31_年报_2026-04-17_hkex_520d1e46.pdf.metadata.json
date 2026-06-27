@@ -1,0 +1,39 @@
+{
+  "candidate": {
+    "source_id": "hkex",
+    "source_name": "HKEXnews",
+    "source_domain": "www1.hkexnews.hk",
+    "market": "HK",
+    "company_id": "09633",
+    "ticker": "09633",
+    "company_name": "NONGFU SPRING",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "2025 ANNUAL REPORT",
+    "accession_number": "12110701",
+    "primary_document": "2026041701389.pdf",
+    "report_end": "2025-12-31",
+    "published_at": "2026-04-17",
+    "accepted_at": null,
+    "document_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0417/2026041701389.pdf",
+    "landing_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0417/2026041701389.pdf",
+    "file_format": "pdf",
+    "language": "en",
+    "inline_xbrl": null,
+    "metadata": {
+      "news_id": "12110701",
+      "stock_name": "NONGFU SPRING",
+      "short_text": "Financial Statements/ESG Information - [Annual Report]",
+      "long_text": "Financial Statements/ESG Information - [Annual Report]",
+      "file_info": "8MB"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "NONGFU-SPRING_HK_09633_2025-12-31_年报_2026-04-17_hkex_520d1e46.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/NONGFU-SPRING/2025/年报/NONGFU-SPRING_HK_09633_2025-12-31_年报_2026-04-17_hkex_520d1e46.pdf",
+    "size_bytes": 7997588,
+    "content_type": "application/pdf",
+    "content_sha256": "3dc99ff24525187335ab315a457de16d14a4f46af63ba0e94e045e71668cb5b0"
+  }
+}

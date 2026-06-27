@@ -1,0 +1,38 @@
+{
+  "by_url": {
+    "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0416/2026041601506.pdf": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/CKI-HOLDINGS/2025/年报/CKI-HOLDINGS_HK_01038_2025-12-31_年报_2026-04-16_hkex_f94a697a.pdf",
+      "file_name": "CKI-HOLDINGS_HK_01038_2025-12-31_年报_2026-04-16_hkex_f94a697a.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "388fc7b39630b236dfe4c3e6b30e7d99fefc6648ebb2eb2316abcc5b50d760e6",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/CKI-HOLDINGS/2025/年报/CKI-HOLDINGS_HK_01038_2025-12-31_年报_2026-04-16_hkex_f94a697a.pdf.metadata.json",
+      "market": "HK",
+      "company_id": "HK:01038",
+      "ticker": "01038",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-16",
+      "accession_number": "12108809"
+    }
+  },
+  "by_content_sha256": {
+    "388fc7b39630b236dfe4c3e6b30e7d99fefc6648ebb2eb2316abcc5b50d760e6": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/CKI-HOLDINGS/2025/年报/CKI-HOLDINGS_HK_01038_2025-12-31_年报_2026-04-16_hkex_f94a697a.pdf",
+      "file_name": "CKI-HOLDINGS_HK_01038_2025-12-31_年报_2026-04-16_hkex_f94a697a.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "388fc7b39630b236dfe4c3e6b30e7d99fefc6648ebb2eb2316abcc5b50d760e6",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/CKI-HOLDINGS/2025/年报/CKI-HOLDINGS_HK_01038_2025-12-31_年报_2026-04-16_hkex_f94a697a.pdf.metadata.json",
+      "market": "HK",
+      "company_id": "HK:01038",
+      "ticker": "01038",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-16",
+      "accession_number": "12108809"
+    }
+  }
+}

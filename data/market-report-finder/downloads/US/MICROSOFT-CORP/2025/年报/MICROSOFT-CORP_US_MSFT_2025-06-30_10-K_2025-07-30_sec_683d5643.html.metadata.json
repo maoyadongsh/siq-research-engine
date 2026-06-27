@@ -1,0 +1,36 @@
+{
+  "candidate": {
+    "source_id": "sec",
+    "source_name": "SEC EDGAR",
+    "source_domain": "sec.gov",
+    "market": "US",
+    "company_id": "789019",
+    "ticker": "MSFT",
+    "company_name": "MICROSOFT CORP",
+    "report_type": "10-K",
+    "report_family": "annual",
+    "form": "10-K",
+    "title": "10-K",
+    "accession_number": "0000950170-25-100235",
+    "primary_document": "msft-20250630.htm",
+    "report_end": "2025-06-30",
+    "published_at": "2025-07-30",
+    "accepted_at": "2025-07-30T20:11:40Z",
+    "document_url": "https://www.sec.gov/Archives/edgar/data/789019/000095017025100235/msft-20250630.htm",
+    "landing_url": "https://www.sec.gov/Archives/edgar/data/789019/000095017025100235/0000950170-25-100235-index.html",
+    "file_format": "html",
+    "language": null,
+    "inline_xbrl": true,
+    "metadata": {
+      "sec_submission_name": "MICROSOFT CORP",
+      "accession_no_dashes": "000095017025100235"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "MICROSOFT-CORP_US_MSFT_2025-06-30_10-K_2025-07-30_sec_683d5643.html",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/MICROSOFT-CORP/2025/年报/MICROSOFT-CORP_US_MSFT_2025-06-30_10-K_2025-07-30_sec_683d5643.html",
+    "size_bytes": 8158067,
+    "content_type": "text/html",
+    "content_sha256": "99d693f6c1544144ebeee92954f151a85bc62111837530a42855953bc01d0bbe"
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "by_url": {
+    "https://static.cninfo.com.cn/finalpage/2026-04-30/1225273091.PDF": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/五-粮-液/2025/年报/五-粮-液_CN_000858_2025-12-31_年报_2026-04-30_cninfo_9840deab.pdf",
+      "file_name": "五-粮-液_CN_000858_2025-12-31_年报_2026-04-30_cninfo_9840deab.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "09133e1f44b3bb4b2cebe211529ad68f5b04b6be10b43870f2a78c947d5910a4",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/五-粮-液/2025/年报/五-粮-液_CN_000858_2025-12-31_年报_2026-04-30_cninfo_9840deab.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "000858",
+      "ticker": "000858",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-30",
+      "accession_number": "1225273091"
+    },
+    "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=000858&announcementId=1225273091&orgId=gssz0000858&announcementTime=2026-04-30": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/五-粮-液/2025/年报/五-粮-液_CN_000858_2025-12-31_年报_2026-04-30_cninfo_9840deab.pdf",
+      "file_name": "五-粮-液_CN_000858_2025-12-31_年报_2026-04-30_cninfo_9840deab.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "09133e1f44b3bb4b2cebe211529ad68f5b04b6be10b43870f2a78c947d5910a4",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/五-粮-液/2025/年报/五-粮-液_CN_000858_2025-12-31_年报_2026-04-30_cninfo_9840deab.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "000858",
+      "ticker": "000858",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-30",
+      "accession_number": "1225273091"
+    }
+  },
+  "by_content_sha256": {
+    "09133e1f44b3bb4b2cebe211529ad68f5b04b6be10b43870f2a78c947d5910a4": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/五-粮-液/2025/年报/五-粮-液_CN_000858_2025-12-31_年报_2026-04-30_cninfo_9840deab.pdf",
+      "file_name": "五-粮-液_CN_000858_2025-12-31_年报_2026-04-30_cninfo_9840deab.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "09133e1f44b3bb4b2cebe211529ad68f5b04b6be10b43870f2a78c947d5910a4",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/五-粮-液/2025/年报/五-粮-液_CN_000858_2025-12-31_年报_2026-04-30_cninfo_9840deab.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "000858",
+      "ticker": "000858",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-30",
+      "accession_number": "1225273091"
+    }
+  }
+}

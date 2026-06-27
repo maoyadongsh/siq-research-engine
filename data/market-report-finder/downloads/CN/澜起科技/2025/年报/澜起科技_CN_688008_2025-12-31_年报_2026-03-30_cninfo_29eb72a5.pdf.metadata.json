@@ -1,0 +1,36 @@
+{
+  "candidate": {
+    "source_id": "cninfo",
+    "source_name": "巨潮资讯",
+    "source_domain": "www.cninfo.com.cn",
+    "market": "CN",
+    "company_id": "688008",
+    "ticker": "688008",
+    "company_name": "澜起科技",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "澜起科技2025年年度报告",
+    "accession_number": "1225057736",
+    "primary_document": "1225057736.PDF",
+    "report_end": "2025-12-31",
+    "published_at": "2026-03-30",
+    "accepted_at": null,
+    "document_url": "https://static.cninfo.com.cn/finalpage/2026-03-31/1225057736.PDF",
+    "landing_url": "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=688008&announcementId=1225057736&orgId=9900039002&announcementTime=2026-03-30",
+    "file_format": "pdf",
+    "language": "zh-CN",
+    "inline_xbrl": null,
+    "metadata": {
+      "org_id": "9900039002",
+      "plate": "shkcp"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "澜起科技_CN_688008_2025-12-31_年报_2026-03-30_cninfo_29eb72a5.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/澜起科技/2025/年报/澜起科技_CN_688008_2025-12-31_年报_2026-03-30_cninfo_29eb72a5.pdf",
+    "size_bytes": 3717668,
+    "content_type": "application/pdf",
+    "content_sha256": "f443d9e6b46c8b9136a59527442c465482404c170d43d697ef0bb12b9ee1535a"
+  }
+}

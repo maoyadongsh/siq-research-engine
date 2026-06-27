@@ -1,0 +1,38 @@
+{
+  "by_url": {
+    "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0330/2026033003748.pdf": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/CHINA-SHENHUA/2025/年报/CHINA-SHENHUA_HK_01088_2025-12-31_年报_2026-03-30_hkex_63b9cfb5.pdf",
+      "file_name": "CHINA-SHENHUA_HK_01088_2025-12-31_年报_2026-03-30_hkex_63b9cfb5.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "ff1b1daf76b59f10994a0e089df713120e811172606cbaf127d193b1a8e87c90",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/CHINA-SHENHUA/2025/年报/CHINA-SHENHUA_HK_01088_2025-12-31_年报_2026-03-30_hkex_63b9cfb5.pdf.metadata.json",
+      "market": "HK",
+      "company_id": "HK:01088",
+      "ticker": "01088",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-30",
+      "accession_number": "12080307"
+    }
+  },
+  "by_content_sha256": {
+    "ff1b1daf76b59f10994a0e089df713120e811172606cbaf127d193b1a8e87c90": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/CHINA-SHENHUA/2025/年报/CHINA-SHENHUA_HK_01088_2025-12-31_年报_2026-03-30_hkex_63b9cfb5.pdf",
+      "file_name": "CHINA-SHENHUA_HK_01088_2025-12-31_年报_2026-03-30_hkex_63b9cfb5.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "ff1b1daf76b59f10994a0e089df713120e811172606cbaf127d193b1a8e87c90",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/CHINA-SHENHUA/2025/年报/CHINA-SHENHUA_HK_01088_2025-12-31_年报_2026-03-30_hkex_63b9cfb5.pdf.metadata.json",
+      "market": "HK",
+      "company_id": "HK:01088",
+      "ticker": "01088",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-30",
+      "accession_number": "12080307"
+    }
+  }
+}

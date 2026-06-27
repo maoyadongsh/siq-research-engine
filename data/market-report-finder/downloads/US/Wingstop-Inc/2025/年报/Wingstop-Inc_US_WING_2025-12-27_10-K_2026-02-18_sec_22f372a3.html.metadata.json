@@ -1,0 +1,36 @@
+{
+  "candidate": {
+    "source_id": "sec",
+    "source_name": "SEC EDGAR",
+    "source_domain": "sec.gov",
+    "market": "US",
+    "company_id": "1636222",
+    "ticker": "WING",
+    "company_name": "Wingstop Inc.",
+    "report_type": "10-K",
+    "report_family": "annual",
+    "form": "10-K",
+    "title": "10-K",
+    "accession_number": "0001636222-26-000008",
+    "primary_document": "wing-20251227.htm",
+    "report_end": "2025-12-27",
+    "published_at": "2026-02-18",
+    "accepted_at": "2026-02-18T21:02:46Z",
+    "document_url": "https://www.sec.gov/Archives/edgar/data/1636222/000163622226000008/wing-20251227.htm",
+    "landing_url": "https://www.sec.gov/Archives/edgar/data/1636222/000163622226000008/0001636222-26-000008-index.html",
+    "file_format": "html",
+    "language": null,
+    "inline_xbrl": true,
+    "metadata": {
+      "sec_submission_name": "Wingstop Inc.",
+      "accession_no_dashes": "000163622226000008"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "Wingstop-Inc_US_WING_2025-12-27_10-K_2026-02-18_sec_22f372a3.html",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/Wingstop-Inc/2025/年报/Wingstop-Inc_US_WING_2025-12-27_10-K_2026-02-18_sec_22f372a3.html",
+    "size_bytes": 1519100,
+    "content_type": "text/html",
+    "content_sha256": "deaf9956cd113155de3ff2e1e5dd492fbd0fc39b12aa0ddaac229a1acd210bb5"
+  }
+}

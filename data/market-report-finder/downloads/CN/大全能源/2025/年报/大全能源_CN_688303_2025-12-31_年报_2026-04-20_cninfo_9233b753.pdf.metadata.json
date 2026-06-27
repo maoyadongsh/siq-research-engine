@@ -1,0 +1,36 @@
+{
+  "candidate": {
+    "source_id": "cninfo",
+    "source_name": "巨潮资讯",
+    "source_domain": "www.cninfo.com.cn",
+    "market": "CN",
+    "company_id": "688303",
+    "ticker": "688303",
+    "company_name": "大全能源",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "新疆大全新能源股份有限公司2025年年度报告",
+    "accession_number": "1225132631",
+    "primary_document": "1225132631.PDF",
+    "report_end": "2025-12-31",
+    "published_at": "2026-04-20",
+    "accepted_at": null,
+    "document_url": "https://static.cninfo.com.cn/finalpage/2026-04-21/1225132631.PDF",
+    "landing_url": "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=688303&announcementId=1225132631&orgId=gfbj0837316&announcementTime=2026-04-20",
+    "file_format": "pdf",
+    "language": "zh-CN",
+    "inline_xbrl": null,
+    "metadata": {
+      "org_id": "gfbj0837316",
+      "plate": "shkcp"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "大全能源_CN_688303_2025-12-31_年报_2026-04-20_cninfo_9233b753.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/大全能源/2025/年报/大全能源_CN_688303_2025-12-31_年报_2026-04-20_cninfo_9233b753.pdf",
+    "size_bytes": 1660821,
+    "content_type": "application/pdf",
+    "content_sha256": "0b9514bb6b8e59ac0355c364005d040ead6055cf074c0dbc8527e78071665a77"
+  }
+}

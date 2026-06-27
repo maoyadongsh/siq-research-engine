@@ -1,0 +1,36 @@
+{
+  "candidate": {
+    "source_id": "cninfo",
+    "source_name": "巨潮资讯",
+    "source_domain": "www.cninfo.com.cn",
+    "market": "CN",
+    "company_id": "603288",
+    "ticker": "603288",
+    "company_name": "海天味业",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "海天味业2025年年度报告",
+    "accession_number": "1225038237",
+    "primary_document": "1225038237.PDF",
+    "report_end": "2025-12-31",
+    "published_at": "2026-03-26",
+    "accepted_at": null,
+    "document_url": "https://static.cninfo.com.cn/finalpage/2026-03-27/1225038237.PDF",
+    "landing_url": "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=603288&announcementId=1225038237&orgId=9900023228&announcementTime=2026-03-26",
+    "file_format": "pdf",
+    "language": "zh-CN",
+    "inline_xbrl": null,
+    "metadata": {
+      "org_id": "9900023228",
+      "plate": "sh"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "海天味业_CN_603288_2025-12-31_年报_2026-03-26_cninfo_59f37482.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/海天味业/2025/年报/海天味业_CN_603288_2025-12-31_年报_2026-03-26_cninfo_59f37482.pdf",
+    "size_bytes": 3366549,
+    "content_type": "application/pdf",
+    "content_sha256": "2c7fba45257decc8edc4a0d8462c51accf146593f8c6097b26ed5ad52cf4115e"
+  }
+}

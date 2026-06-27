@@ -1,0 +1,36 @@
+{
+  "candidate": {
+    "source_id": "sec",
+    "source_name": "SEC EDGAR",
+    "source_domain": "sec.gov",
+    "market": "US",
+    "company_id": "1326160",
+    "ticker": "DUK",
+    "company_name": "Duke Energy CORP",
+    "report_type": "10-K",
+    "report_family": "annual",
+    "form": "10-K",
+    "title": "FORM10-K",
+    "accession_number": "0001326160-26-000014",
+    "primary_document": "duk-20251231.htm",
+    "report_end": "2025-12-31",
+    "published_at": "2026-02-26",
+    "accepted_at": "2026-02-26T18:07:42Z",
+    "document_url": "https://www.sec.gov/Archives/edgar/data/1326160/000132616026000014/duk-20251231.htm",
+    "landing_url": "https://www.sec.gov/Archives/edgar/data/1326160/000132616026000014/0001326160-26-000014-index.html",
+    "file_format": "html",
+    "language": null,
+    "inline_xbrl": true,
+    "metadata": {
+      "sec_submission_name": "Duke Energy CORP",
+      "accession_no_dashes": "000132616026000014"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "Duke-Energy-CORP_US_DUK_2025-12-31_10-K_2026-02-26_sec_c1abe2d4.html",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/Duke-Energy-CORP/2025/年报/Duke-Energy-CORP_US_DUK_2025-12-31_10-K_2026-02-26_sec_c1abe2d4.html",
+    "size_bytes": 16080176,
+    "content_type": "text/html",
+    "content_sha256": "638cd653df525f8be9ec031196a2cb9ae2b44f55d719911129f9a406b3974c8f"
+  }
+}

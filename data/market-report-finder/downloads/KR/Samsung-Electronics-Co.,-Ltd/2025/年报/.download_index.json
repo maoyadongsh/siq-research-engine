@@ -1,0 +1,42 @@
+{
+  "by_url": {
+    "https://dart.fss.or.kr/pdf/download/pdf.do?rcp_no=20260310002820&dcm_no=11104488": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/Samsung-Electronics-Co.,-Ltd/2025/年报/Samsung-Electronics-Co.,-Ltd_KR_005930_2025-12-31_年报_2026-03-10_dart_public_a4d8816f.pdf",
+      "file_name": "Samsung-Electronics-Co.,-Ltd_KR_005930_2025-12-31_年报_2026-03-10_dart_public_a4d8816f.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "8ff8a4a975bd02776395d0f890839633bfede8bd4d7699b7a417183780cdfa0a",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/Samsung-Electronics-Co.,-Ltd/2025/年报/Samsung-Electronics-Co.,-Ltd_KR_005930_2025-12-31_年报_2026-03-10_dart_public_a4d8816f.pdf.metadata.json",
+      "market": "KR",
+      "company_id": "00126380",
+      "ticker": "005930",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-10",
+      "accession_number": "manual",
+      "country": null,
+      "source_tier": null
+    }
+  },
+  "by_content_sha256": {
+    "8ff8a4a975bd02776395d0f890839633bfede8bd4d7699b7a417183780cdfa0a": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/Samsung-Electronics-Co.,-Ltd/2025/年报/Samsung-Electronics-Co.,-Ltd_KR_005930_2025-12-31_年报_2026-03-10_dart_public_a4d8816f.pdf",
+      "file_name": "Samsung-Electronics-Co.,-Ltd_KR_005930_2025-12-31_年报_2026-03-10_dart_public_a4d8816f.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "8ff8a4a975bd02776395d0f890839633bfede8bd4d7699b7a417183780cdfa0a",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/Samsung-Electronics-Co.,-Ltd/2025/年报/Samsung-Electronics-Co.,-Ltd_KR_005930_2025-12-31_年报_2026-03-10_dart_public_a4d8816f.pdf.metadata.json",
+      "market": "KR",
+      "company_id": "00126380",
+      "ticker": "005930",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-10",
+      "accession_number": "manual",
+      "country": null,
+      "source_tier": null
+    }
+  }
+}

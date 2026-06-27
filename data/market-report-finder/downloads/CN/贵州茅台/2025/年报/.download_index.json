@@ -1,0 +1,54 @@
+{
+  "by_url": {
+    "https://static.cninfo.com.cn/finalpage/2026-04-17/1225114741.PDF": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/贵州茅台/2025/年报/贵州茅台_CN_600519_2025-12-31_年报_2026-04-16_cninfo_99053aa1.pdf",
+      "file_name": "贵州茅台_CN_600519_2025-12-31_年报_2026-04-16_cninfo_99053aa1.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "474905deeaf0f875fc0a1b097a626c0c7852c427faadc5d7fc7816cbf45ea288",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/贵州茅台/2025/年报/贵州茅台_CN_600519_2025-12-31_年报_2026-04-16_cninfo_99053aa1.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "600519",
+      "ticker": "600519",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-16",
+      "accession_number": "1225114741"
+    },
+    "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=600519&announcementId=1225114741&orgId=gssh0600519&announcementTime=2026-04-16": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/贵州茅台/2025/年报/贵州茅台_CN_600519_2025-12-31_年报_2026-04-16_cninfo_99053aa1.pdf",
+      "file_name": "贵州茅台_CN_600519_2025-12-31_年报_2026-04-16_cninfo_99053aa1.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "474905deeaf0f875fc0a1b097a626c0c7852c427faadc5d7fc7816cbf45ea288",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/贵州茅台/2025/年报/贵州茅台_CN_600519_2025-12-31_年报_2026-04-16_cninfo_99053aa1.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "600519",
+      "ticker": "600519",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-16",
+      "accession_number": "1225114741"
+    }
+  },
+  "by_content_sha256": {
+    "474905deeaf0f875fc0a1b097a626c0c7852c427faadc5d7fc7816cbf45ea288": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/贵州茅台/2025/年报/贵州茅台_CN_600519_2025-12-31_年报_2026-04-16_cninfo_99053aa1.pdf",
+      "file_name": "贵州茅台_CN_600519_2025-12-31_年报_2026-04-16_cninfo_99053aa1.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "474905deeaf0f875fc0a1b097a626c0c7852c427faadc5d7fc7816cbf45ea288",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/贵州茅台/2025/年报/贵州茅台_CN_600519_2025-12-31_年报_2026-04-16_cninfo_99053aa1.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "600519",
+      "ticker": "600519",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-16",
+      "accession_number": "1225114741"
+    }
+  }
+}

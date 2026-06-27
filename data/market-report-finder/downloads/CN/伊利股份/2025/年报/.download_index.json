@@ -1,0 +1,54 @@
+{
+  "by_url": {
+    "https://static.cninfo.com.cn/finalpage/2026-04-30/1225259562.PDF": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/伊利股份/2025/年报/伊利股份_CN_600887_2025-12-31_年报_2026-04-29_cninfo_ef988688.pdf",
+      "file_name": "伊利股份_CN_600887_2025-12-31_年报_2026-04-29_cninfo_ef988688.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "d17b8c541c42f65d092317093eb0cfbb5aeed4f44eafa2d2f6182041cdcdbaac",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/伊利股份/2025/年报/伊利股份_CN_600887_2025-12-31_年报_2026-04-29_cninfo_ef988688.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "600887",
+      "ticker": "600887",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-29",
+      "accession_number": "1225259562"
+    },
+    "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=600887&announcementId=1225259562&orgId=gssh0600887&announcementTime=2026-04-29": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/伊利股份/2025/年报/伊利股份_CN_600887_2025-12-31_年报_2026-04-29_cninfo_ef988688.pdf",
+      "file_name": "伊利股份_CN_600887_2025-12-31_年报_2026-04-29_cninfo_ef988688.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "d17b8c541c42f65d092317093eb0cfbb5aeed4f44eafa2d2f6182041cdcdbaac",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/伊利股份/2025/年报/伊利股份_CN_600887_2025-12-31_年报_2026-04-29_cninfo_ef988688.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "600887",
+      "ticker": "600887",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-29",
+      "accession_number": "1225259562"
+    }
+  },
+  "by_content_sha256": {
+    "d17b8c541c42f65d092317093eb0cfbb5aeed4f44eafa2d2f6182041cdcdbaac": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/伊利股份/2025/年报/伊利股份_CN_600887_2025-12-31_年报_2026-04-29_cninfo_ef988688.pdf",
+      "file_name": "伊利股份_CN_600887_2025-12-31_年报_2026-04-29_cninfo_ef988688.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "d17b8c541c42f65d092317093eb0cfbb5aeed4f44eafa2d2f6182041cdcdbaac",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/伊利股份/2025/年报/伊利股份_CN_600887_2025-12-31_年报_2026-04-29_cninfo_ef988688.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "600887",
+      "ticker": "600887",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-29",
+      "accession_number": "1225259562"
+    }
+  }
+}

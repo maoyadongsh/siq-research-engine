@@ -2,6 +2,7 @@ import {
   LayoutDashboard,
   Search,
   FileText,
+  Files,
   BarChart3,
   ShieldCheck,
   TrendingUp,
@@ -12,6 +13,7 @@ import {
   UserRound,
   UsersRound,
   MonitorCog,
+  DatabaseZap,
 } from 'lucide-react'
 
 export type SidebarItem = { to: string; icon: typeof LayoutDashboard; label: string }
@@ -21,6 +23,7 @@ export const navItems: SidebarItem[] = [
   { to: '/', icon: LayoutDashboard, label: '工作平台' },
   { to: '/search', icon: Search, label: '搜索下载' },
   { to: '/parse', icon: FileText, label: '财报解析' },
+  { to: '/documents', icon: Files, label: '文档解析' },
   { to: '/analysis', icon: BarChart3, label: '智能分析' },
   { to: '/verify', icon: ShieldCheck, label: '事实核查' },
   { to: '/tracking', icon: TrendingUp, label: '持续跟踪' },
@@ -33,8 +36,12 @@ export const bottomItems: SidebarItem[] = [
   { to: '/help', icon: HelpCircle, label: '帮助' },
 ]
 
-export const adminItems: SidebarItem[] = [
+export const userAdminItems: SidebarItem[] = [
   { to: '/admin/users', icon: UsersRound, label: '用户审批' },
+]
+
+export const systemAdminItems: SidebarItem[] = [
+  { to: '/vector-ingest', icon: DatabaseZap, label: '向量入库' },
   { to: '/system-dashboard', icon: MonitorCog, label: '系统平台' },
 ]
 

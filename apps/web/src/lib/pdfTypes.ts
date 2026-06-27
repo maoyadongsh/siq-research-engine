@@ -43,6 +43,7 @@ export interface SrcCtx {
 
 export interface DownloadedPdf {
   id: string
+  market?: 'CN' | 'HK' | 'US' | 'EU' | 'KR' | 'JP'
   company: string
   category: string
   filename: string
@@ -50,6 +51,8 @@ export interface DownloadedPdf {
   size: number
   mtime: string
   url: string
+  contentType?: string
+  isPdf?: boolean
 }
 
 export interface HealthStatus {

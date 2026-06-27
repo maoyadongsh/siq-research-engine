@@ -1,0 +1,36 @@
+{
+  "candidate": {
+    "source_id": "sec",
+    "source_name": "SEC EDGAR",
+    "source_domain": "sec.gov",
+    "market": "US",
+    "company_id": "1141391",
+    "ticker": "MA",
+    "company_name": "Mastercard Inc",
+    "report_type": "10-K",
+    "report_family": "annual",
+    "form": "10-K",
+    "title": "10-K",
+    "accession_number": "0001141391-26-000013",
+    "primary_document": "ma-20251231.htm",
+    "report_end": "2025-12-31",
+    "published_at": "2026-02-11",
+    "accepted_at": "2026-02-11T16:04:08Z",
+    "document_url": "https://www.sec.gov/Archives/edgar/data/1141391/000114139126000013/ma-20251231.htm",
+    "landing_url": "https://www.sec.gov/Archives/edgar/data/1141391/000114139126000013/0001141391-26-000013-index.html",
+    "file_format": "html",
+    "language": null,
+    "inline_xbrl": true,
+    "metadata": {
+      "sec_submission_name": "Mastercard Inc",
+      "accession_no_dashes": "000114139126000013"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "Mastercard-Inc_US_MA_2025-12-31_10-K_2026-02-11_sec_c43e3fa7.html",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/Mastercard-Inc/2025/年报/Mastercard-Inc_US_MA_2025-12-31_10-K_2026-02-11_sec_c43e3fa7.html",
+    "size_bytes": 3067677,
+    "content_type": "text/html",
+    "content_sha256": "9e2b0b6bc5a5e34b1336446219c74e65952fc390f1e83d82afff84f8e84a35e0"
+  }
+}

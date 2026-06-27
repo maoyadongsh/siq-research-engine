@@ -1,0 +1,54 @@
+{
+  "by_url": {
+    "https://static.cninfo.com.cn/finalpage/2026-03-28/1225042507.PDF": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/牧原股份/2025/年报/牧原股份_CN_002714_2025-12-31_年报_2026-03-27_cninfo_2784dcf6.pdf",
+      "file_name": "牧原股份_CN_002714_2025-12-31_年报_2026-03-27_cninfo_2784dcf6.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "aa44a1f4244a6efbc6e54e7dbd4307235d39117bb4ff4d9590f386b02b0d9a04",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/牧原股份/2025/年报/牧原股份_CN_002714_2025-12-31_年报_2026-03-27_cninfo_2784dcf6.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "002714",
+      "ticker": "002714",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-27",
+      "accession_number": "1225042507"
+    },
+    "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=002714&announcementId=1225042507&orgId=9900022995&announcementTime=2026-03-27": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/牧原股份/2025/年报/牧原股份_CN_002714_2025-12-31_年报_2026-03-27_cninfo_2784dcf6.pdf",
+      "file_name": "牧原股份_CN_002714_2025-12-31_年报_2026-03-27_cninfo_2784dcf6.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "aa44a1f4244a6efbc6e54e7dbd4307235d39117bb4ff4d9590f386b02b0d9a04",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/牧原股份/2025/年报/牧原股份_CN_002714_2025-12-31_年报_2026-03-27_cninfo_2784dcf6.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "002714",
+      "ticker": "002714",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-27",
+      "accession_number": "1225042507"
+    }
+  },
+  "by_content_sha256": {
+    "aa44a1f4244a6efbc6e54e7dbd4307235d39117bb4ff4d9590f386b02b0d9a04": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/牧原股份/2025/年报/牧原股份_CN_002714_2025-12-31_年报_2026-03-27_cninfo_2784dcf6.pdf",
+      "file_name": "牧原股份_CN_002714_2025-12-31_年报_2026-03-27_cninfo_2784dcf6.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "aa44a1f4244a6efbc6e54e7dbd4307235d39117bb4ff4d9590f386b02b0d9a04",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/牧原股份/2025/年报/牧原股份_CN_002714_2025-12-31_年报_2026-03-27_cninfo_2784dcf6.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "002714",
+      "ticker": "002714",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-27",
+      "accession_number": "1225042507"
+    }
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "candidate": {
+    "source_id": "hkex",
+    "source_name": "HKEXnews",
+    "source_domain": "www1.hkexnews.hk",
+    "market": "HK",
+    "company_id": "00788",
+    "ticker": "00788",
+    "company_name": "CHINA TOWER",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "Annual Report 2025",
+    "accession_number": "12109681",
+    "primary_document": "2026041700365.pdf",
+    "report_end": "2025-12-31",
+    "published_at": "2026-04-17",
+    "accepted_at": null,
+    "document_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0417/2026041700365.pdf",
+    "landing_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0417/2026041700365.pdf",
+    "file_format": "pdf",
+    "language": "en",
+    "inline_xbrl": null,
+    "metadata": {
+      "news_id": "12109681",
+      "stock_name": "CHINA TOWER",
+      "short_text": "Financial Statements/ESG Information - [Annual Report]",
+      "long_text": "Financial Statements/ESG Information - [Annual Report]",
+      "file_info": "15MB"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "CHINA-TOWER_HK_00788_2025-12-31_年报_2026-04-17_hkex_de2493c6.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/CHINA-TOWER/2025/年报/CHINA-TOWER_HK_00788_2025-12-31_年报_2026-04-17_hkex_de2493c6.pdf",
+    "size_bytes": 15364684,
+    "content_type": "application/pdf",
+    "content_sha256": "2ca2e95cfcde4a63783cca2200e5f57209f8e82532359830895c02e6f4c7a456"
+  }
+}

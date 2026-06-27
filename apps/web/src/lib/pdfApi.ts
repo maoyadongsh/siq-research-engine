@@ -63,10 +63,22 @@ export function workflowReady(status: Record<string, unknown> | null | undefined
   return ['ready', 'missing_optional', 'stale_optional'].includes(String(bucket?.status || ''))
 }
 
-export async function loadDownloadedReports(text: string): Promise<{ reports: DownloadedPdf[] }> {
-  const r = await fetch(`/api/downloads/reports?q=${encodeURIComponent(text.trim())}&limit=120`)
+export async function loadDownloadedReports(text: string, market?: 'CN' | 'HK' | 'US' | 'EU' | 'KR' | 'JP'): Promise<{ reports: DownloadedPdf[] }> {
+  const params = new URLSearchParams({ q: text.trim(), limit: '120' })
+  if (market) params.set('market', market)
+  const r = await fetch(`/api/downloads/reports?${params.toString()}`)
   if (!r.ok) throw new Error(String(r.status))
-  return r.json()
+  const data = await r.json()
+  const reports = (data.reports || []) as DownloadedPdf[]
+  return {
+    ...data,
+    reports: (market ? reports.filter((report) => report.relativePath.startsWith(`${market}/`)) : reports).map((report) => {
+      const marketFromPath = report.relativePath.split('/')[0]
+      return marketFromPath === 'CN' || marketFromPath === 'HK' || marketFromPath === 'US' || marketFromPath === 'EU' || marketFromPath === 'KR' || marketFromPath === 'JP'
+        ? { ...report, market: marketFromPath }
+        : report
+    }),
+  }
 }
 
 export async function checkHealth(): Promise<{ mineru: boolean; vlm: boolean; submit_ready: boolean; warning?: string } | null> {
@@ -86,6 +98,7 @@ export async function loadTasks(): Promise<Record<string, unknown>[]> {
 }
 
 export async function downloadedReportToFile(report: DownloadedPdf): Promise<File> {
+  if (report.isPdf === false) throw new Error('该文件不是 PDF，当前 PDF 解析器暂不支持直接解析')
   const url = report.url || `/api/downloads/report-file?path=${encodeURIComponent(report.relativePath)}`
   const r = await fetch(url)
   if (!r.ok) throw new Error('读取已下载 PDF 失败')

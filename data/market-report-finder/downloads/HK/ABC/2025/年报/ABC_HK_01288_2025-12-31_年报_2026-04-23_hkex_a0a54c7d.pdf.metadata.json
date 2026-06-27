@@ -1,0 +1,39 @@
+{
+  "candidate": {
+    "source_id": "hkex",
+    "source_name": "HKEXnews",
+    "source_domain": "www1.hkexnews.hk",
+    "market": "HK",
+    "company_id": "01288",
+    "ticker": "01288",
+    "company_name": "ABC",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "2025 Annual Report",
+    "accession_number": "12117311",
+    "primary_document": "2026042300394.pdf",
+    "report_end": "2025-12-31",
+    "published_at": "2026-04-23",
+    "accepted_at": null,
+    "document_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0423/2026042300394.pdf",
+    "landing_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0423/2026042300394.pdf",
+    "file_format": "pdf",
+    "language": "en",
+    "inline_xbrl": null,
+    "metadata": {
+      "news_id": "12117311",
+      "stock_name": "ABC",
+      "short_text": "Financial Statements/ESG Information - [Annual Report]",
+      "long_text": "Financial Statements/ESG Information - [Annual Report]",
+      "file_info": "5MB"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "ABC_HK_01288_2025-12-31_年报_2026-04-23_hkex_a0a54c7d.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/ABC/2025/年报/ABC_HK_01288_2025-12-31_年报_2026-04-23_hkex_a0a54c7d.pdf",
+    "size_bytes": 5194919,
+    "content_type": "application/pdf",
+    "content_sha256": "92e8fccf530422a615c4563eb8845661f995c932b0b132044be1871bd7dd6f02"
+  }
+}

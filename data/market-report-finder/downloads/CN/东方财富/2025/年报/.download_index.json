@@ -1,0 +1,54 @@
+{
+  "by_url": {
+    "https://static.cninfo.com.cn/finalpage/2026-03-20/1225019509.PDF": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/东方财富/2025/年报/东方财富_CN_300059_2025-12-31_年报_2026-03-19_cninfo_2c7c41a6.pdf",
+      "file_name": "东方财富_CN_300059_2025-12-31_年报_2026-03-19_cninfo_2c7c41a6.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "a5edb3304600d7ff7faeefa65fea3846f4326743cc72d9ade14cf93af20c1737",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/东方财富/2025/年报/东方财富_CN_300059_2025-12-31_年报_2026-03-19_cninfo_2c7c41a6.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "300059",
+      "ticker": "300059",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-19",
+      "accession_number": "1225019509"
+    },
+    "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=300059&announcementId=1225019509&orgId=9900010488&announcementTime=2026-03-19": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/东方财富/2025/年报/东方财富_CN_300059_2025-12-31_年报_2026-03-19_cninfo_2c7c41a6.pdf",
+      "file_name": "东方财富_CN_300059_2025-12-31_年报_2026-03-19_cninfo_2c7c41a6.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "a5edb3304600d7ff7faeefa65fea3846f4326743cc72d9ade14cf93af20c1737",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/东方财富/2025/年报/东方财富_CN_300059_2025-12-31_年报_2026-03-19_cninfo_2c7c41a6.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "300059",
+      "ticker": "300059",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-19",
+      "accession_number": "1225019509"
+    }
+  },
+  "by_content_sha256": {
+    "a5edb3304600d7ff7faeefa65fea3846f4326743cc72d9ade14cf93af20c1737": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/东方财富/2025/年报/东方财富_CN_300059_2025-12-31_年报_2026-03-19_cninfo_2c7c41a6.pdf",
+      "file_name": "东方财富_CN_300059_2025-12-31_年报_2026-03-19_cninfo_2c7c41a6.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "a5edb3304600d7ff7faeefa65fea3846f4326743cc72d9ade14cf93af20c1737",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/东方财富/2025/年报/东方财富_CN_300059_2025-12-31_年报_2026-03-19_cninfo_2c7c41a6.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "300059",
+      "ticker": "300059",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-19",
+      "accession_number": "1225019509"
+    }
+  }
+}

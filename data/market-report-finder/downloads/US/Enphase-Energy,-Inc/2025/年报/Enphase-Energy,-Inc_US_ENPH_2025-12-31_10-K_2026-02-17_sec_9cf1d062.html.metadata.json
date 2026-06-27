@@ -1,0 +1,36 @@
+{
+  "candidate": {
+    "source_id": "sec",
+    "source_name": "SEC EDGAR",
+    "source_domain": "sec.gov",
+    "market": "US",
+    "company_id": "1463101",
+    "ticker": "ENPH",
+    "company_name": "Enphase Energy, Inc.",
+    "report_type": "10-K",
+    "report_family": "annual",
+    "form": "10-K",
+    "title": "10-K",
+    "accession_number": "0001463101-26-000013",
+    "primary_document": "enph-20251231.htm",
+    "report_end": "2025-12-31",
+    "published_at": "2026-02-17",
+    "accepted_at": "2026-02-14T02:38:22Z",
+    "document_url": "https://www.sec.gov/Archives/edgar/data/1463101/000146310126000013/enph-20251231.htm",
+    "landing_url": "https://www.sec.gov/Archives/edgar/data/1463101/000146310126000013/0001463101-26-000013-index.html",
+    "file_format": "html",
+    "language": null,
+    "inline_xbrl": true,
+    "metadata": {
+      "sec_submission_name": "Enphase Energy, Inc.",
+      "accession_no_dashes": "000146310126000013"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "Enphase-Energy,-Inc_US_ENPH_2025-12-31_10-K_2026-02-17_sec_9cf1d062.html",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/Enphase-Energy,-Inc/2025/年报/Enphase-Energy,-Inc_US_ENPH_2025-12-31_10-K_2026-02-17_sec_9cf1d062.html",
+    "size_bytes": 2973878,
+    "content_type": "text/html",
+    "content_sha256": "7b6a735451e98e6b91d14e37eff330ad255ba6a237a579c29331eeb35c26d112"
+  }
+}

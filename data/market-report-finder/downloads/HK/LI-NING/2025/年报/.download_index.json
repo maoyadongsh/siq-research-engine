@@ -1,0 +1,38 @@
+{
+  "by_url": {
+    "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0422/2026042200804.pdf": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/LI-NING/2025/年报/LI-NING_HK_02331_2025-12-31_年报_2026-04-22_hkex_8de2ea2f.pdf",
+      "file_name": "LI-NING_HK_02331_2025-12-31_年报_2026-04-22_hkex_8de2ea2f.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "a46bd100d9919bde1f9a64a286adbd404a31f13395428cb0f3c9a344817a8b3b",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/LI-NING/2025/年报/LI-NING_HK_02331_2025-12-31_年报_2026-04-22_hkex_8de2ea2f.pdf.metadata.json",
+      "market": "HK",
+      "company_id": "HK:02331",
+      "ticker": "02331",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-22",
+      "accession_number": "12115512"
+    }
+  },
+  "by_content_sha256": {
+    "a46bd100d9919bde1f9a64a286adbd404a31f13395428cb0f3c9a344817a8b3b": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/LI-NING/2025/年报/LI-NING_HK_02331_2025-12-31_年报_2026-04-22_hkex_8de2ea2f.pdf",
+      "file_name": "LI-NING_HK_02331_2025-12-31_年报_2026-04-22_hkex_8de2ea2f.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "a46bd100d9919bde1f9a64a286adbd404a31f13395428cb0f3c9a344817a8b3b",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/LI-NING/2025/年报/LI-NING_HK_02331_2025-12-31_年报_2026-04-22_hkex_8de2ea2f.pdf.metadata.json",
+      "market": "HK",
+      "company_id": "HK:02331",
+      "ticker": "02331",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-22",
+      "accession_number": "12115512"
+    }
+  }
+}

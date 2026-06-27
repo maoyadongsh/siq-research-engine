@@ -1,0 +1,36 @@
+{
+  "candidate": {
+    "source_id": "sec",
+    "source_name": "SEC EDGAR",
+    "source_domain": "sec.gov",
+    "market": "US",
+    "company_id": "1235468",
+    "ticker": "LQDT",
+    "company_name": "LIQUIDITY SERVICES INC",
+    "report_type": "10-K",
+    "report_family": "annual",
+    "form": "10-K",
+    "title": "10-K",
+    "accession_number": "0001193125-25-289159",
+    "primary_document": "lqdt-20250930.htm",
+    "report_end": "2025-09-30",
+    "published_at": "2025-11-20",
+    "accepted_at": "2025-11-20T16:45:39Z",
+    "document_url": "https://www.sec.gov/Archives/edgar/data/1235468/000119312525289159/lqdt-20250930.htm",
+    "landing_url": "https://www.sec.gov/Archives/edgar/data/1235468/000119312525289159/0001193125-25-289159-index.html",
+    "file_format": "html",
+    "language": null,
+    "inline_xbrl": true,
+    "metadata": {
+      "sec_submission_name": "LIQUIDITY SERVICES INC",
+      "accession_no_dashes": "000119312525289159"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "LIQUIDITY-SERVICES-INC_US_LQDT_2025-09-30_10-K_2025-11-20_sec_ff0b7153.html",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/LIQUIDITY-SERVICES-INC/2025/年报/LIQUIDITY-SERVICES-INC_US_LQDT_2025-09-30_10-K_2025-11-20_sec_ff0b7153.html",
+    "size_bytes": 4380797,
+    "content_type": "text/html",
+    "content_sha256": "b59655288ce4d91615bd57b8ba1964e1792b8b65c8f84e3f0aa3f7202dceb129"
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "candidate": {
+    "source_id": "eu_direct",
+    "source_name": "Official European filing direct download",
+    "source_domain": "www.theheinekencompany.com",
+    "market": "EU",
+    "company_id": "NL:HEIA",
+    "ticker": "HEIA",
+    "company_name": "Heineken N.V.",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "Heineken N.V. Annual Report 2025",
+    "accession_number": "manual",
+    "primary_document": "2025_Heineken_NV_Annual_Report_Interactive_100226_FINAL.pdf",
+    "report_end": "2025-12-31",
+    "published_at": "2026-02-12",
+    "accepted_at": null,
+    "document_url": "https://www.theheinekencompany.com/sites/heineken-corp/files/2026-02/2025_Heineken_NV_Annual_Report_Interactive_100226_FINAL.pdf",
+    "landing_url": "https://www.theheinekencompany.com/investors/results-reports-webcasts-presentations",
+    "file_format": "pdf",
+    "language": null,
+    "inline_xbrl": null,
+    "metadata": {
+      "country": "NL",
+      "country_label": "Netherlands",
+      "source_tier": "official_direct"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "Heineken-N.V_EU_HEIA_2025-12-31_年报_2026-02-12_eu_direct_9d17e969.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/NL/Heineken-N.V/2025/年报/Heineken-N.V_EU_HEIA_2025-12-31_年报_2026-02-12_eu_direct_9d17e969.pdf",
+    "size_bytes": 32863390,
+    "content_type": "application/pdf",
+    "content_sha256": "2dee3a7ac14103566f798aff09ce15bc354815c0848d2831fcb99d71bdfad259"
+  }
+}

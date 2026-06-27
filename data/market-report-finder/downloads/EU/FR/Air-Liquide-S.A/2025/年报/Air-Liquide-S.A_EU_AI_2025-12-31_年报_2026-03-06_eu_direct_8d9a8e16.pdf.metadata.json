@@ -1,0 +1,37 @@
+{
+  "candidate": {
+    "source_id": "eu_direct",
+    "source_name": "Official European filing direct download",
+    "source_domain": "www.airliquide.com",
+    "market": "EU",
+    "company_id": "FR:AI",
+    "ticker": "AI",
+    "company_name": "Air Liquide S.A.",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "Air Liquide Universal Registration Document 2025",
+    "accession_number": "manual",
+    "primary_document": "air-liquide-2025-universal-registration-document-interactive.pdf",
+    "report_end": "2025-12-31",
+    "published_at": "2026-03-06",
+    "accepted_at": null,
+    "document_url": "https://www.airliquide.com/sites/airliquide.com/files/2026-03/air-liquide-2025-universal-registration-document-interactive.pdf",
+    "landing_url": "https://www.airliquide.com/group/publications",
+    "file_format": "pdf",
+    "language": null,
+    "inline_xbrl": null,
+    "metadata": {
+      "country": "FR",
+      "country_label": "France",
+      "source_tier": "official_direct"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "Air-Liquide-S.A_EU_AI_2025-12-31_年报_2026-03-06_eu_direct_8d9a8e16.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/FR/Air-Liquide-S.A/2025/年报/Air-Liquide-S.A_EU_AI_2025-12-31_年报_2026-03-06_eu_direct_8d9a8e16.pdf",
+    "size_bytes": 58420995,
+    "content_type": "application/pdf",
+    "content_sha256": "5e1dce497c5e80180a41748face50f6e3bfaea14b291dc8a25571af6f324fc5c"
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "by_url": {
+    "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0427/2026042701620.pdf": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/CHINA-TELECOM/2025/年报/CHINA-TELECOM_HK_00728_2025-12-31_年报_2026-04-27_hkex_cb1c5adb.pdf",
+      "file_name": "CHINA-TELECOM_HK_00728_2025-12-31_年报_2026-04-27_hkex_cb1c5adb.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "ec1bb069661b41cc9fbd933be8b1c9aafb1ed4446dc75ef8690259e5188b855b",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/CHINA-TELECOM/2025/年报/CHINA-TELECOM_HK_00728_2025-12-31_年报_2026-04-27_hkex_cb1c5adb.pdf.metadata.json",
+      "market": "HK",
+      "company_id": "HK:00728",
+      "ticker": "00728",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-27",
+      "accession_number": "12125044"
+    }
+  },
+  "by_content_sha256": {
+    "ec1bb069661b41cc9fbd933be8b1c9aafb1ed4446dc75ef8690259e5188b855b": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/CHINA-TELECOM/2025/年报/CHINA-TELECOM_HK_00728_2025-12-31_年报_2026-04-27_hkex_cb1c5adb.pdf",
+      "file_name": "CHINA-TELECOM_HK_00728_2025-12-31_年报_2026-04-27_hkex_cb1c5adb.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "ec1bb069661b41cc9fbd933be8b1c9aafb1ed4446dc75ef8690259e5188b855b",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/CHINA-TELECOM/2025/年报/CHINA-TELECOM_HK_00728_2025-12-31_年报_2026-04-27_hkex_cb1c5adb.pdf.metadata.json",
+      "market": "HK",
+      "company_id": "HK:00728",
+      "ticker": "00728",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-27",
+      "accession_number": "12125044"
+    }
+  }
+}

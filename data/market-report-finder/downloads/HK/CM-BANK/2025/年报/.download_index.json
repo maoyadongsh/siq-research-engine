@@ -1,0 +1,38 @@
+{
+  "by_url": {
+    "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0427/2026042700894.pdf": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/CM-BANK/2025/年报/CM-BANK_HK_03968_2025-12-31_年报_2026-04-27_hkex_d61941c9.pdf",
+      "file_name": "CM-BANK_HK_03968_2025-12-31_年报_2026-04-27_hkex_d61941c9.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "63484250ac0f53f5a0bcd0fdbbe05d531f6a53e81d8e2f3e11b0517f6fb8e32a",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/CM-BANK/2025/年报/CM-BANK_HK_03968_2025-12-31_年报_2026-04-27_hkex_d61941c9.pdf.metadata.json",
+      "market": "HK",
+      "company_id": "HK:03968",
+      "ticker": "03968",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-27",
+      "accession_number": "12124325"
+    }
+  },
+  "by_content_sha256": {
+    "63484250ac0f53f5a0bcd0fdbbe05d531f6a53e81d8e2f3e11b0517f6fb8e32a": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/CM-BANK/2025/年报/CM-BANK_HK_03968_2025-12-31_年报_2026-04-27_hkex_d61941c9.pdf",
+      "file_name": "CM-BANK_HK_03968_2025-12-31_年报_2026-04-27_hkex_d61941c9.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "63484250ac0f53f5a0bcd0fdbbe05d531f6a53e81d8e2f3e11b0517f6fb8e32a",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/CM-BANK/2025/年报/CM-BANK_HK_03968_2025-12-31_年报_2026-04-27_hkex_d61941c9.pdf.metadata.json",
+      "market": "HK",
+      "company_id": "HK:03968",
+      "ticker": "03968",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-27",
+      "accession_number": "12124325"
+    }
+  }
+}

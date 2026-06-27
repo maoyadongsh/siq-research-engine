@@ -1,0 +1,465 @@
+[
+  {
+    "market": "EU",
+    "country": "CH",
+    "ticker": "NESN",
+    "company_name": "Nestle S.A.",
+    "report_type": "annual",
+    "fiscal_year": 2025,
+    "period_end": "2025-12-31",
+    "published_at": "2026-02-13",
+    "document_format": "pdf",
+    "source_pdf": "data/market-report-finder/downloads/EU/CH/Nestle-S.A/2025/年报/Nestle-S.A_EU_NESN_2025-12-31_年报_2026-02-13_six_direct_e2557c2e.pdf",
+    "source_file": "data/market-report-finder/downloads/EU/CH/Nestle-S.A/2025/年报/Nestle-S.A_EU_NESN_2025-12-31_年报_2026-02-13_six_direct_e2557c2e.pdf",
+    "metadata_json": "data/market-report-finder/downloads/EU/CH/Nestle-S.A/2025/年报/Nestle-S.A_EU_NESN_2025-12-31_年报_2026-02-13_six_direct_e2557c2e.pdf.metadata.json",
+    "parser_result_dir": null,
+    "pdf_parser_task_id": null,
+    "industry_profile": "consumer",
+    "source_url": "https://www.nestle.com/sites/default/files/2026-02/annual-review-2025-en.pdf",
+    "source_tier": "official_direct",
+    "expected_metrics": [
+      "operating_revenue",
+      "net_profit",
+      "total_assets",
+      "total_liabilities",
+      "total_equity",
+      "operating_cash_flow_net"
+    ],
+    "expected_evidence": true,
+    "warnings": [
+      "parser_result_missing"
+    ]
+  },
+  {
+    "market": "EU",
+    "country": "CH",
+    "ticker": "NOVN",
+    "company_name": "Novartis AG",
+    "report_type": "annual",
+    "fiscal_year": 2025,
+    "period_end": "2025-12-31",
+    "published_at": "2026-01-30",
+    "document_format": "pdf",
+    "source_pdf": "data/market-report-finder/downloads/EU/CH/Novartis-AG/2025/年报/Novartis-AG_EU_NOVN_2025-12-31_年报_2026-01-30_six_direct_b96f25c8.pdf",
+    "source_file": "data/market-report-finder/downloads/EU/CH/Novartis-AG/2025/年报/Novartis-AG_EU_NOVN_2025-12-31_年报_2026-01-30_six_direct_b96f25c8.pdf",
+    "metadata_json": "data/market-report-finder/downloads/EU/CH/Novartis-AG/2025/年报/Novartis-AG_EU_NOVN_2025-12-31_年报_2026-01-30_six_direct_b96f25c8.pdf.metadata.json",
+    "parser_result_dir": null,
+    "pdf_parser_task_id": null,
+    "industry_profile": "pharma",
+    "source_url": "https://www.novartis.com/sites/novartis_com/files/novartis-annual-report-2025.pdf",
+    "source_tier": "official_direct",
+    "expected_metrics": [
+      "operating_revenue",
+      "net_profit",
+      "total_assets",
+      "total_liabilities",
+      "total_equity",
+      "operating_cash_flow_net"
+    ],
+    "expected_evidence": true,
+    "warnings": [
+      "parser_result_missing"
+    ]
+  },
+  {
+    "market": "EU",
+    "country": "CH",
+    "ticker": "ROG",
+    "company_name": "Roche Holding AG",
+    "report_type": "annual",
+    "fiscal_year": 2025,
+    "period_end": "2025-12-31",
+    "published_at": "2026-01-29",
+    "document_format": "pdf",
+    "source_pdf": "data/market-report-finder/downloads/EU/CH/Roche-Holding-AG/2025/年报/Roche-Holding-AG_EU_ROG_2025-12-31_年报_2026-01-29_six_direct_c5fc68dc.pdf",
+    "source_file": "data/market-report-finder/downloads/EU/CH/Roche-Holding-AG/2025/年报/Roche-Holding-AG_EU_ROG_2025-12-31_年报_2026-01-29_six_direct_c5fc68dc.pdf",
+    "metadata_json": "data/market-report-finder/downloads/EU/CH/Roche-Holding-AG/2025/年报/Roche-Holding-AG_EU_ROG_2025-12-31_年报_2026-01-29_six_direct_c5fc68dc.pdf.metadata.json",
+    "parser_result_dir": null,
+    "pdf_parser_task_id": null,
+    "industry_profile": "pharma",
+    "source_url": "https://assets.roche.com/f/176343/x/fa3c863601/ar25e.pdf",
+    "source_tier": "official_direct",
+    "expected_metrics": [
+      "operating_revenue",
+      "net_profit",
+      "total_assets",
+      "total_liabilities",
+      "total_equity",
+      "operating_cash_flow_net"
+    ],
+    "expected_evidence": true,
+    "warnings": [
+      "parser_result_missing"
+    ]
+  },
+  {
+    "market": "EU",
+    "country": "DE",
+    "ticker": "DTE",
+    "company_name": "Deutsche Telekom AG",
+    "report_type": "annual",
+    "fiscal_year": 2025,
+    "period_end": "2025-12-31",
+    "published_at": "2026-02-26",
+    "document_format": "pdf",
+    "source_pdf": "data/market-report-finder/downloads/EU/DE/Deutsche-Telekom-AG/2025/年报/Deutsche-Telekom-AG_EU_DTE_2025-12-31_年报_2026-02-26_eu_direct_8848a5d1.pdf",
+    "source_file": "data/market-report-finder/downloads/EU/DE/Deutsche-Telekom-AG/2025/年报/Deutsche-Telekom-AG_EU_DTE_2025-12-31_年报_2026-02-26_eu_direct_8848a5d1.pdf",
+    "metadata_json": "data/market-report-finder/downloads/EU/DE/Deutsche-Telekom-AG/2025/年报/Deutsche-Telekom-AG_EU_DTE_2025-12-31_年报_2026-02-26_eu_direct_8848a5d1.pdf.metadata.json",
+    "parser_result_dir": null,
+    "pdf_parser_task_id": null,
+    "industry_profile": "telecom",
+    "source_url": "https://report.telekom.com/annual-report-2025/_assets/downloads/entire-dtag-ar25.pdf",
+    "source_tier": "official_direct",
+    "expected_metrics": [
+      "operating_revenue",
+      "net_profit",
+      "total_assets",
+      "total_liabilities",
+      "total_equity",
+      "operating_cash_flow_net"
+    ],
+    "expected_evidence": true,
+    "warnings": [
+      "parser_result_missing"
+    ]
+  },
+  {
+    "market": "EU",
+    "country": "DE",
+    "ticker": "SAP",
+    "company_name": "SAP SE",
+    "report_type": "annual",
+    "fiscal_year": 2025,
+    "period_end": "2025-12-31",
+    "published_at": "2026-02-26",
+    "document_format": "pdf",
+    "source_pdf": "data/market-report-finder/downloads/EU/DE/SAP-SE/2025/年报/SAP-SE_EU_SAP_2025-12-31_年报_2026-02-26_eu_direct_62f7bdc7.pdf",
+    "source_file": "data/market-report-finder/downloads/EU/DE/SAP-SE/2025/年报/SAP-SE_EU_SAP_2025-12-31_年报_2026-02-26_eu_direct_62f7bdc7.pdf",
+    "metadata_json": "data/market-report-finder/downloads/EU/DE/SAP-SE/2025/年报/SAP-SE_EU_SAP_2025-12-31_年报_2026-02-26_eu_direct_62f7bdc7.pdf.metadata.json",
+    "parser_result_dir": null,
+    "pdf_parser_task_id": null,
+    "industry_profile": "general",
+    "source_url": "https://www.sap.com/docs/download/investors/2025/sap-2025-annual-report-form-20f.pdf",
+    "source_tier": "official_direct",
+    "expected_metrics": [
+      "operating_revenue",
+      "net_profit",
+      "total_assets",
+      "total_liabilities",
+      "total_equity",
+      "operating_cash_flow_net"
+    ],
+    "expected_evidence": true,
+    "warnings": [
+      "parser_result_missing"
+    ]
+  },
+  {
+    "market": "EU",
+    "country": "DE",
+    "ticker": "SIE",
+    "company_name": "Siemens AG",
+    "report_type": "annual",
+    "fiscal_year": 2025,
+    "period_end": "2025-09-30",
+    "published_at": "2025-12-11",
+    "document_format": "pdf",
+    "source_pdf": "data/market-report-finder/downloads/EU/DE/Siemens-AG/2025/年报/Siemens-AG_EU_SIE_2025-09-30_年报_2025-12-11_eu_direct_93078262.pdf",
+    "source_file": "data/market-report-finder/downloads/EU/DE/Siemens-AG/2025/年报/Siemens-AG_EU_SIE_2025-09-30_年报_2025-12-11_eu_direct_93078262.pdf",
+    "metadata_json": "data/market-report-finder/downloads/EU/DE/Siemens-AG/2025/年报/Siemens-AG_EU_SIE_2025-09-30_年报_2025-12-11_eu_direct_93078262.pdf.metadata.json",
+    "parser_result_dir": null,
+    "pdf_parser_task_id": null,
+    "industry_profile": "industrial",
+    "source_url": "https://assets.new.siemens.com/siemens/assets/api/uuid:428ea18a-e7ab-4f93-a160-33908f1c3540/Siemens-Annual-Report-2025.pdf",
+    "source_tier": "official_direct",
+    "expected_metrics": [
+      "operating_revenue",
+      "net_profit",
+      "total_assets",
+      "total_liabilities",
+      "total_equity",
+      "operating_cash_flow_net"
+    ],
+    "expected_evidence": true,
+    "warnings": [
+      "parser_result_missing"
+    ]
+  },
+  {
+    "market": "EU",
+    "country": "FR",
+    "ticker": "AI",
+    "company_name": "Air Liquide S.A.",
+    "report_type": "annual",
+    "fiscal_year": 2025,
+    "period_end": "2025-12-31",
+    "published_at": "2026-03-06",
+    "document_format": "pdf",
+    "source_pdf": "data/market-report-finder/downloads/EU/FR/Air-Liquide-S.A/2025/年报/Air-Liquide-S.A_EU_AI_2025-12-31_年报_2026-03-06_eu_direct_8d9a8e16.pdf",
+    "source_file": "data/market-report-finder/downloads/EU/FR/Air-Liquide-S.A/2025/年报/Air-Liquide-S.A_EU_AI_2025-12-31_年报_2026-03-06_eu_direct_8d9a8e16.pdf",
+    "metadata_json": "data/market-report-finder/downloads/EU/FR/Air-Liquide-S.A/2025/年报/Air-Liquide-S.A_EU_AI_2025-12-31_年报_2026-03-06_eu_direct_8d9a8e16.pdf.metadata.json",
+    "parser_result_dir": null,
+    "pdf_parser_task_id": null,
+    "industry_profile": "industrial",
+    "source_url": "https://www.airliquide.com/sites/airliquide.com/files/2026-03/air-liquide-2025-universal-registration-document-interactive.pdf",
+    "source_tier": "official_direct",
+    "expected_metrics": [
+      "operating_revenue",
+      "net_profit",
+      "total_assets",
+      "total_liabilities",
+      "total_equity",
+      "operating_cash_flow_net"
+    ],
+    "expected_evidence": true,
+    "warnings": [
+      "parser_result_missing"
+    ]
+  },
+  {
+    "market": "EU",
+    "country": "FR",
+    "ticker": "SAN",
+    "company_name": "Sanofi",
+    "report_type": "annual",
+    "fiscal_year": 2025,
+    "period_end": "2025-12-31",
+    "published_at": "2026-02-20",
+    "document_format": "pdf",
+    "source_pdf": "data/market-report-finder/downloads/EU/FR/Sanofi/2025/年报/Sanofi_EU_SAN_2025-12-31_年报_2026-02-20_eu_direct_9600d371.pdf",
+    "source_file": "data/market-report-finder/downloads/EU/FR/Sanofi/2025/年报/Sanofi_EU_SAN_2025-12-31_年报_2026-02-20_eu_direct_9600d371.pdf",
+    "metadata_json": "data/market-report-finder/downloads/EU/FR/Sanofi/2025/年报/Sanofi_EU_SAN_2025-12-31_年报_2026-02-20_eu_direct_9600d371.pdf.metadata.json",
+    "parser_result_dir": null,
+    "pdf_parser_task_id": null,
+    "industry_profile": "pharma",
+    "source_url": "https://www.sanofi.com/assets/dotcom/content-app/publications/annual-report-on-form-20-f/2025-01-01-form-20-f-2025-en.pdf",
+    "source_tier": "official_direct",
+    "expected_metrics": [
+      "operating_revenue",
+      "net_profit",
+      "total_assets",
+      "total_liabilities",
+      "total_equity",
+      "operating_cash_flow_net"
+    ],
+    "expected_evidence": true,
+    "warnings": [
+      "parser_result_missing"
+    ]
+  },
+  {
+    "market": "EU",
+    "country": "FR",
+    "ticker": "TTE",
+    "company_name": "TotalEnergies SE",
+    "report_type": "annual",
+    "fiscal_year": 2025,
+    "period_end": "2025-12-31",
+    "published_at": "2026-03-27",
+    "document_format": "pdf",
+    "source_pdf": "data/market-report-finder/downloads/EU/FR/TotalEnergies-SE/2025/年报/TotalEnergies-SE_EU_TTE_2025-12-31_年报_2026-03-27_eu_direct_c971bcb7.pdf",
+    "source_file": "data/market-report-finder/downloads/EU/FR/TotalEnergies-SE/2025/年报/TotalEnergies-SE_EU_TTE_2025-12-31_年报_2026-03-27_eu_direct_c971bcb7.pdf",
+    "metadata_json": "data/market-report-finder/downloads/EU/FR/TotalEnergies-SE/2025/年报/TotalEnergies-SE_EU_TTE_2025-12-31_年报_2026-03-27_eu_direct_c971bcb7.pdf.metadata.json",
+    "parser_result_dir": null,
+    "pdf_parser_task_id": null,
+    "industry_profile": "energy",
+    "source_url": "https://totalenergies.com/system/files/documents/totalenergies_universal-registration-document-2025_2026_en.pdf",
+    "source_tier": "official_direct",
+    "expected_metrics": [
+      "operating_revenue",
+      "net_profit",
+      "total_assets",
+      "total_liabilities",
+      "total_equity",
+      "operating_cash_flow_net"
+    ],
+    "expected_evidence": true,
+    "warnings": [
+      "parser_result_missing"
+    ]
+  },
+  {
+    "market": "EU",
+    "country": "NL",
+    "ticker": "ASML",
+    "company_name": "ASML Holding N.V.",
+    "report_type": "annual",
+    "fiscal_year": 2025,
+    "period_end": "2025-12-31",
+    "published_at": "2026-02-25",
+    "document_format": "pdf",
+    "source_pdf": "data/market-report-finder/downloads/EU/NL/ASML-Holding-N.V/2025/年报/ASML-Holding-N.V_EU_ASML_2025-12-31_年报_2026-02-25_eu_direct_06003086.pdf",
+    "source_file": "data/market-report-finder/downloads/EU/NL/ASML-Holding-N.V/2025/年报/ASML-Holding-N.V_EU_ASML_2025-12-31_年报_2026-02-25_eu_direct_06003086.pdf",
+    "metadata_json": "data/market-report-finder/downloads/EU/NL/ASML-Holding-N.V/2025/年报/ASML-Holding-N.V_EU_ASML_2025-12-31_年报_2026-02-25_eu_direct_06003086.pdf.metadata.json",
+    "parser_result_dir": null,
+    "pdf_parser_task_id": null,
+    "industry_profile": "semiconductor",
+    "source_url": "https://ourbrand.asml.com/m/71076aaad607de4d/original/asml-2025-annual-report-based-on-us-gaap.pdf",
+    "source_tier": "official_direct",
+    "expected_metrics": [
+      "operating_revenue",
+      "net_profit",
+      "total_assets",
+      "total_liabilities",
+      "total_equity",
+      "operating_cash_flow_net"
+    ],
+    "expected_evidence": true,
+    "warnings": [
+      "parser_result_missing"
+    ]
+  },
+  {
+    "market": "EU",
+    "country": "NL",
+    "ticker": "HEIA",
+    "company_name": "Heineken N.V.",
+    "report_type": "annual",
+    "fiscal_year": 2025,
+    "period_end": "2025-12-31",
+    "published_at": "2026-02-12",
+    "document_format": "pdf",
+    "source_pdf": "data/market-report-finder/downloads/EU/NL/Heineken-N.V/2025/年报/Heineken-N.V_EU_HEIA_2025-12-31_年报_2026-02-12_eu_direct_9d17e969.pdf",
+    "source_file": "data/market-report-finder/downloads/EU/NL/Heineken-N.V/2025/年报/Heineken-N.V_EU_HEIA_2025-12-31_年报_2026-02-12_eu_direct_9d17e969.pdf",
+    "metadata_json": "data/market-report-finder/downloads/EU/NL/Heineken-N.V/2025/年报/Heineken-N.V_EU_HEIA_2025-12-31_年报_2026-02-12_eu_direct_9d17e969.pdf.metadata.json",
+    "parser_result_dir": null,
+    "pdf_parser_task_id": null,
+    "industry_profile": "consumer",
+    "source_url": "https://www.theheinekencompany.com/sites/heineken-corp/files/2026-02/2025_Heineken_NV_Annual_Report_Interactive_100226_FINAL.pdf",
+    "source_tier": "official_direct",
+    "expected_metrics": [
+      "operating_revenue",
+      "net_profit",
+      "total_assets",
+      "total_liabilities",
+      "total_equity",
+      "operating_cash_flow_net"
+    ],
+    "expected_evidence": true,
+    "warnings": [
+      "parser_result_missing"
+    ]
+  },
+  {
+    "market": "EU",
+    "country": "NL",
+    "ticker": "PHIA",
+    "company_name": "Koninklijke Philips N.V.",
+    "report_type": "annual",
+    "fiscal_year": 2025,
+    "period_end": "2025-12-31",
+    "published_at": "2026-02-19",
+    "document_format": "pdf",
+    "source_pdf": "data/market-report-finder/downloads/EU/NL/Koninklijke-Philips-N.V/2025/年报/Koninklijke-Philips-N.V_EU_PHIA_2025-12-31_年报_2026-02-19_eu_direct_86cb52a6.pdf",
+    "source_file": "data/market-report-finder/downloads/EU/NL/Koninklijke-Philips-N.V/2025/年报/Koninklijke-Philips-N.V_EU_PHIA_2025-12-31_年报_2026-02-19_eu_direct_86cb52a6.pdf",
+    "metadata_json": "data/market-report-finder/downloads/EU/NL/Koninklijke-Philips-N.V/2025/年报/Koninklijke-Philips-N.V_EU_PHIA_2025-12-31_年报_2026-02-19_eu_direct_86cb52a6.pdf.metadata.json",
+    "parser_result_dir": null,
+    "pdf_parser_task_id": null,
+    "industry_profile": "general",
+    "source_url": "https://www.results.philips.com/app/uploads/2026/04/PhilipsFullAnnualReport2025-English.pdf",
+    "source_tier": "official_direct",
+    "expected_metrics": [
+      "operating_revenue",
+      "net_profit",
+      "total_assets",
+      "total_liabilities",
+      "total_equity",
+      "operating_cash_flow_net"
+    ],
+    "expected_evidence": true,
+    "warnings": [
+      "parser_result_missing"
+    ]
+  },
+  {
+    "market": "EU",
+    "country": "UK",
+    "ticker": "AZN",
+    "company_name": "AstraZeneca PLC",
+    "report_type": "annual",
+    "fiscal_year": 2025,
+    "period_end": "2025-12-31",
+    "published_at": "2026-02-26",
+    "document_format": "pdf",
+    "source_pdf": "data/market-report-finder/downloads/EU/UK/AstraZeneca-PLC/2025/年报/AstraZeneca-PLC_EU_AZN_2025-12-31_年报_2026-02-26_eu_direct_eb3a13dc.pdf",
+    "source_file": "data/market-report-finder/downloads/EU/UK/AstraZeneca-PLC/2025/年报/AstraZeneca-PLC_EU_AZN_2025-12-31_年报_2026-02-26_eu_direct_eb3a13dc.pdf",
+    "metadata_json": "data/market-report-finder/downloads/EU/UK/AstraZeneca-PLC/2025/年报/AstraZeneca-PLC_EU_AZN_2025-12-31_年报_2026-02-26_eu_direct_eb3a13dc.pdf.metadata.json",
+    "parser_result_dir": null,
+    "pdf_parser_task_id": null,
+    "industry_profile": "pharma",
+    "source_url": "https://www.astrazeneca.com/content/dam/az/Investor_Relations/annual-report-2025/pdf/AstraZeneca_AR_2025.pdf",
+    "source_tier": "official_direct",
+    "expected_metrics": [
+      "operating_revenue",
+      "net_profit",
+      "total_assets",
+      "total_liabilities",
+      "total_equity",
+      "operating_cash_flow_net"
+    ],
+    "expected_evidence": true,
+    "warnings": [
+      "parser_result_missing"
+    ]
+  },
+  {
+    "market": "EU",
+    "country": "UK",
+    "ticker": "BP",
+    "company_name": "BP p.l.c.",
+    "report_type": "annual",
+    "fiscal_year": 2025,
+    "period_end": "2025-12-31",
+    "published_at": "2026-03-07",
+    "document_format": "pdf",
+    "source_pdf": "data/market-report-finder/downloads/EU/UK/BP-p.l.c/2025/年报/BP-p.l.c_EU_BP_2025-12-31_年报_2026-03-07_eu_direct_3e0db9f7.pdf",
+    "source_file": "data/market-report-finder/downloads/EU/UK/BP-p.l.c/2025/年报/BP-p.l.c_EU_BP_2025-12-31_年报_2026-03-07_eu_direct_3e0db9f7.pdf",
+    "metadata_json": "data/market-report-finder/downloads/EU/UK/BP-p.l.c/2025/年报/BP-p.l.c_EU_BP_2025-12-31_年报_2026-03-07_eu_direct_3e0db9f7.pdf.metadata.json",
+    "parser_result_dir": null,
+    "pdf_parser_task_id": null,
+    "industry_profile": "energy",
+    "source_url": "https://www.bp.com/api/files/6cqieuqhq4no/master/33M2iHp8A6d07McKzKqLNP/12b5d4eccb4e02093d1ad9efc0d6a746/bp-annual-report-and-form-20f-2025.pdf",
+    "source_tier": "official_direct",
+    "expected_metrics": [
+      "operating_revenue",
+      "net_profit",
+      "total_assets",
+      "total_liabilities",
+      "total_equity",
+      "operating_cash_flow_net"
+    ],
+    "expected_evidence": true,
+    "warnings": [
+      "parser_result_missing"
+    ]
+  },
+  {
+    "market": "EU",
+    "country": "UK",
+    "ticker": "BARC",
+    "company_name": "Barclays PLC",
+    "report_type": "annual",
+    "fiscal_year": 2025,
+    "period_end": "2025-12-31",
+    "published_at": "2026-02-17",
+    "document_format": "pdf",
+    "source_pdf": "data/market-report-finder/downloads/EU/UK/Barclays-PLC/2025/年报/Barclays-PLC_EU_BARC_2025-12-31_年报_2026-02-17_eu_direct_be648641.pdf",
+    "source_file": "data/market-report-finder/downloads/EU/UK/Barclays-PLC/2025/年报/Barclays-PLC_EU_BARC_2025-12-31_年报_2026-02-17_eu_direct_be648641.pdf",
+    "metadata_json": "data/market-report-finder/downloads/EU/UK/Barclays-PLC/2025/年报/Barclays-PLC_EU_BARC_2025-12-31_年报_2026-02-17_eu_direct_be648641.pdf.metadata.json",
+    "parser_result_dir": null,
+    "pdf_parser_task_id": null,
+    "industry_profile": "bank",
+    "source_url": "https://home.barclays/content/dam/home-barclays/documents/investor-relations/reports-and-events/annual-reports/2025/Barclays-PLC-Annual-Report-2025.pdf",
+    "source_tier": "official_direct",
+    "expected_metrics": [
+      "net_profit",
+      "total_assets",
+      "total_liabilities",
+      "total_equity"
+    ],
+    "expected_evidence": true,
+    "warnings": [
+      "parser_result_missing"
+    ]
+  }
+]

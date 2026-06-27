@@ -1,0 +1,54 @@
+{
+  "by_url": {
+    "https://static.cninfo.com.cn/finalpage/2026-03-28/1225046858.PDF": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/恒生电子/2025/年报/恒生电子_CN_600570_2025-12-31_年报_2026-03-27_cninfo_76ff18cc.pdf",
+      "file_name": "恒生电子_CN_600570_2025-12-31_年报_2026-03-27_cninfo_76ff18cc.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "e2b084183d2061001e76fb87b9d60d9fa27a4a51939a70721746f678c0ecfedc",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/恒生电子/2025/年报/恒生电子_CN_600570_2025-12-31_年报_2026-03-27_cninfo_76ff18cc.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "600570",
+      "ticker": "600570",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-27",
+      "accession_number": "1225046858"
+    },
+    "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=600570&announcementId=1225046858&orgId=gssh0600570&announcementTime=2026-03-27": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/恒生电子/2025/年报/恒生电子_CN_600570_2025-12-31_年报_2026-03-27_cninfo_76ff18cc.pdf",
+      "file_name": "恒生电子_CN_600570_2025-12-31_年报_2026-03-27_cninfo_76ff18cc.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "e2b084183d2061001e76fb87b9d60d9fa27a4a51939a70721746f678c0ecfedc",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/恒生电子/2025/年报/恒生电子_CN_600570_2025-12-31_年报_2026-03-27_cninfo_76ff18cc.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "600570",
+      "ticker": "600570",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-27",
+      "accession_number": "1225046858"
+    }
+  },
+  "by_content_sha256": {
+    "e2b084183d2061001e76fb87b9d60d9fa27a4a51939a70721746f678c0ecfedc": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/恒生电子/2025/年报/恒生电子_CN_600570_2025-12-31_年报_2026-03-27_cninfo_76ff18cc.pdf",
+      "file_name": "恒生电子_CN_600570_2025-12-31_年报_2026-03-27_cninfo_76ff18cc.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "e2b084183d2061001e76fb87b9d60d9fa27a4a51939a70721746f678c0ecfedc",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/恒生电子/2025/年报/恒生电子_CN_600570_2025-12-31_年报_2026-03-27_cninfo_76ff18cc.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "600570",
+      "ticker": "600570",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-27",
+      "accession_number": "1225046858"
+    }
+  }
+}

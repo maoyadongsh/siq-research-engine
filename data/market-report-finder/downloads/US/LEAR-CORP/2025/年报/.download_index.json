@@ -1,0 +1,38 @@
+{
+  "by_url": {
+    "https://www.sec.gov/Archives/edgar/data/842162/000084216226000011/lear-20251231.htm": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/LEAR-CORP/2025/年报/LEAR-CORP_US_LEA_2025-12-31_10-K_2026-02-13_sec_b9c9a822.htm",
+      "file_name": "LEAR-CORP_US_LEA_2025-12-31_10-K_2026-02-13_sec_b9c9a822.htm",
+      "content_type": "text/html",
+      "content_sha256": "b9f3fcd1dd3c217bae41da3cbba251b4bf714a8f925c022db2258d6322abde05",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/LEAR-CORP/2025/年报/LEAR-CORP_US_LEA_2025-12-31_10-K_2026-02-13_sec_b9c9a822.htm.metadata.json",
+      "market": "US",
+      "company_id": "LEA",
+      "ticker": "LEA",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-02-13",
+      "accession_number": "0000842162-26-000011"
+    }
+  },
+  "by_content_sha256": {
+    "b9f3fcd1dd3c217bae41da3cbba251b4bf714a8f925c022db2258d6322abde05": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/LEAR-CORP/2025/年报/LEAR-CORP_US_LEA_2025-12-31_10-K_2026-02-13_sec_b9c9a822.htm",
+      "file_name": "LEAR-CORP_US_LEA_2025-12-31_10-K_2026-02-13_sec_b9c9a822.htm",
+      "content_type": "text/html",
+      "content_sha256": "b9f3fcd1dd3c217bae41da3cbba251b4bf714a8f925c022db2258d6322abde05",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/LEAR-CORP/2025/年报/LEAR-CORP_US_LEA_2025-12-31_10-K_2026-02-13_sec_b9c9a822.htm.metadata.json",
+      "market": "US",
+      "company_id": "LEA",
+      "ticker": "LEA",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-02-13",
+      "accession_number": "0000842162-26-000011"
+    }
+  }
+}

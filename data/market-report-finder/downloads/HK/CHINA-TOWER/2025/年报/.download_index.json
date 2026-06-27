@@ -1,0 +1,38 @@
+{
+  "by_url": {
+    "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0417/2026041700365.pdf": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/CHINA-TOWER/2025/年报/CHINA-TOWER_HK_00788_2025-12-31_年报_2026-04-17_hkex_de2493c6.pdf",
+      "file_name": "CHINA-TOWER_HK_00788_2025-12-31_年报_2026-04-17_hkex_de2493c6.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "2ca2e95cfcde4a63783cca2200e5f57209f8e82532359830895c02e6f4c7a456",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/CHINA-TOWER/2025/年报/CHINA-TOWER_HK_00788_2025-12-31_年报_2026-04-17_hkex_de2493c6.pdf.metadata.json",
+      "market": "HK",
+      "company_id": "HK:00788",
+      "ticker": "00788",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-17",
+      "accession_number": "12109681"
+    }
+  },
+  "by_content_sha256": {
+    "2ca2e95cfcde4a63783cca2200e5f57209f8e82532359830895c02e6f4c7a456": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/CHINA-TOWER/2025/年报/CHINA-TOWER_HK_00788_2025-12-31_年报_2026-04-17_hkex_de2493c6.pdf",
+      "file_name": "CHINA-TOWER_HK_00788_2025-12-31_年报_2026-04-17_hkex_de2493c6.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "2ca2e95cfcde4a63783cca2200e5f57209f8e82532359830895c02e6f4c7a456",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/CHINA-TOWER/2025/年报/CHINA-TOWER_HK_00788_2025-12-31_年报_2026-04-17_hkex_de2493c6.pdf.metadata.json",
+      "market": "HK",
+      "company_id": "HK:00788",
+      "ticker": "00788",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-17",
+      "accession_number": "12109681"
+    }
+  }
+}

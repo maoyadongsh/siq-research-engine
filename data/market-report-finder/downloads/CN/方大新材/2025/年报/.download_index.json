@@ -1,0 +1,54 @@
+{
+  "by_url": {
+    "https://static.cninfo.com.cn/finalpage/2026-03-30/1225055810.PDF": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/方大新材/2025/年报/方大新材_CN_920163_2025-12-31_年报_2026-03-29_cninfo_11bbe660.pdf",
+      "file_name": "方大新材_CN_920163_2025-12-31_年报_2026-03-29_cninfo_11bbe660.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "5f481755df5f96c67aa10a95ebb915088c4c68854c199aeabe28f1cb8226fba3",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/方大新材/2025/年报/方大新材_CN_920163_2025-12-31_年报_2026-03-29_cninfo_11bbe660.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "920163",
+      "ticker": "920163",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-29",
+      "accession_number": "manual"
+    },
+    "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=920163&announcementId=1225055810&orgId=gfbj0839163&announcementTime=2026-03-29": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/方大新材/2025/年报/方大新材_CN_920163_2025-12-31_年报_2026-03-29_cninfo_11bbe660.pdf",
+      "file_name": "方大新材_CN_920163_2025-12-31_年报_2026-03-29_cninfo_11bbe660.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "5f481755df5f96c67aa10a95ebb915088c4c68854c199aeabe28f1cb8226fba3",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/方大新材/2025/年报/方大新材_CN_920163_2025-12-31_年报_2026-03-29_cninfo_11bbe660.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "920163",
+      "ticker": "920163",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-29",
+      "accession_number": "manual"
+    }
+  },
+  "by_content_sha256": {
+    "5f481755df5f96c67aa10a95ebb915088c4c68854c199aeabe28f1cb8226fba3": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/方大新材/2025/年报/方大新材_CN_920163_2025-12-31_年报_2026-03-29_cninfo_11bbe660.pdf",
+      "file_name": "方大新材_CN_920163_2025-12-31_年报_2026-03-29_cninfo_11bbe660.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "5f481755df5f96c67aa10a95ebb915088c4c68854c199aeabe28f1cb8226fba3",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/方大新材/2025/年报/方大新材_CN_920163_2025-12-31_年报_2026-03-29_cninfo_11bbe660.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "920163",
+      "ticker": "920163",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-29",
+      "accession_number": "manual"
+    }
+  }
+}

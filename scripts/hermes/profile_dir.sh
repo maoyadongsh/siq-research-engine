@@ -15,27 +15,22 @@ PROFILES_ROOT="${SIQ_HERMES_PROFILES_ROOT:-${HERMES_PROFILES_ROOT:-$HERMES_HOME/
 case "$profile" in
     assistant|siq_assistant)
         canonical="siq_assistant"
-        legacy="finsight_assistant"
         env_prefix="ASSISTANT"
         ;;
     analysis|siq_analysis)
         canonical="siq_analysis"
-        legacy="finsight_analysis"
         env_prefix="ANALYSIS"
         ;;
     factchecker|siq_factchecker)
         canonical="siq_factchecker"
-        legacy="finsight_factchecker"
         env_prefix="FACTCHECKER"
         ;;
     tracking|siq_tracking)
         canonical="siq_tracking"
-        legacy="finsight_tracking"
         env_prefix="TRACKING"
         ;;
     legal|siq_legal)
         canonical="siq_legal"
-        legacy="finsight_legal"
         env_prefix="LEGAL"
         ;;
     *)
@@ -57,7 +52,6 @@ done
 
 candidates=(
     "$PROFILES_ROOT/$canonical"
-    "$PROFILES_ROOT/$legacy"
     "$PROJECT_ROOT/agents/hermes/profiles/$canonical"
 )
 

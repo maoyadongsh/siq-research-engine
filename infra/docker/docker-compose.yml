@@ -32,10 +32,7 @@ services:
       - DATABASE_URL=postgresql+psycopg://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/siq
       - REDIS_URL=redis://redis:6379/0
       - SIQ_AUTH_SECRET_KEY=${SIQ_AUTH_SECRET_KEY:?SIQ_AUTH_SECRET_KEY is required}
-      - SIQ_AUTH_SECRET_KEY=${SIQ_AUTH_SECRET_KEY:?SIQ_AUTH_SECRET_KEY is required}
       - SIQ_ALLOW_REGISTRATION=${SIQ_ALLOW_REGISTRATION:-0}
-      - SIQ_ALLOW_REGISTRATION=${SIQ_ALLOW_REGISTRATION:-0}
-      - SIQ_DEMO_MODE=${SIQ_DEMO_MODE:-0}
       - SIQ_DEMO_MODE=${SIQ_DEMO_MODE:-0}
       - SIQ_PDF2MD_API_BASE=http://pdf-parser:15000
       - PDF2MD_API_BASE=http://pdf-parser:15000
@@ -54,14 +51,17 @@ services:
       - redis
     restart: unless-stopped
 
-  # PDF下载服务
+  # 统一公告下载服务
   report-finder:
     profiles: ["external-services"]
     build:
-      context: ../../services/report-finder
+      context: ../../services/market-report-finder
       dockerfile: Dockerfile
     ports:
       - "${SIQ_REPORT_FINDER_PORT:-18000}:8000"
+    environment:
+      - MARKET_REPORT_DOWNLOAD_DIR=/app/downloads
+      - SEC_USER_AGENT=${SEC_USER_AGENT:-SIQ Research contact@example.com}
     volumes:
       - downloads_data:/app/downloads
     restart: unless-stopped

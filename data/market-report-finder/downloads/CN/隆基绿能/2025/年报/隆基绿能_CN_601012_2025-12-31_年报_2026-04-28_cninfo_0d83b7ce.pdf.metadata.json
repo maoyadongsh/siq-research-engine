@@ -1,0 +1,36 @@
+{
+  "candidate": {
+    "source_id": "cninfo",
+    "source_name": "巨潮资讯",
+    "source_domain": "www.cninfo.com.cn",
+    "market": "CN",
+    "company_id": "601012",
+    "ticker": "601012",
+    "company_name": "隆基绿能",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "2025年年度报告",
+    "accession_number": "1225251647",
+    "primary_document": "1225251647.PDF",
+    "report_end": "2025-12-31",
+    "published_at": "2026-04-28",
+    "accepted_at": null,
+    "document_url": "https://static.cninfo.com.cn/finalpage/2026-04-29/1225251647.PDF",
+    "landing_url": "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=601012&announcementId=1225251647&orgId=9900022338&announcementTime=2026-04-28",
+    "file_format": "pdf",
+    "language": "zh-CN",
+    "inline_xbrl": null,
+    "metadata": {
+      "org_id": "9900022338",
+      "plate": "sh"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "隆基绿能_CN_601012_2025-12-31_年报_2026-04-28_cninfo_0d83b7ce.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/隆基绿能/2025/年报/隆基绿能_CN_601012_2025-12-31_年报_2026-04-28_cninfo_0d83b7ce.pdf",
+    "size_bytes": 3311470,
+    "content_type": "application/pdf",
+    "content_sha256": "10233740d54740b89dfd772eecac5f04d8fef639489acd3b18b1a35e81bce2c1"
+  }
+}

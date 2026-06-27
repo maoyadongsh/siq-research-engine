@@ -1,0 +1,905 @@
+{
+  "schema_version": 1,
+  "target": "CN 2025 annual report parse enqueue",
+  "download_companies": 68,
+  "selected_per_company": [
+    {
+      "company": "万华化学",
+      "code": "600309",
+      "filename": "万华化学_CN_600309_2025-12-31_年报_2026-04-20_manual_52fb0103.pdf",
+      "already": true,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/万华化学/2025/年报/万华化学_CN_600309_2025-12-31_年报_2026-04-20_manual_52fb0103.pdf"
+    },
+    {
+      "company": "三一重工",
+      "code": "600031",
+      "filename": "三一重工_CN_600031_2025-12-31_年报_2026-03-30_cninfo_eb43105f.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/三一重工/2025/年报/三一重工_CN_600031_2025-12-31_年报_2026-03-30_cninfo_eb43105f.pdf"
+    },
+    {
+      "company": "上汽集团",
+      "code": "600104",
+      "filename": "上汽集团_CN_600104_2025-12-31_年报_2026-04-01_manual_180a0748.pdf",
+      "already": true,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/上汽集团/2025/年报/上汽集团_CN_600104_2025-12-31_年报_2026-04-01_manual_180a0748.pdf"
+    },
+    {
+      "company": "上海建工",
+      "code": "600170",
+      "filename": "上海建工_CN_600170_2025-12-31_年报_2026-04-14_manual_4f18bc07.pdf",
+      "already": true,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/上海建工/2025/年报/上海建工_CN_600170_2025-12-31_年报_2026-04-14_manual_4f18bc07.pdf"
+    },
+    {
+      "company": "上海机电",
+      "code": "600835",
+      "filename": "上海机电_CN_600835_2025-12-31_年报_2026-03-20_manual_ffbc971b.pdf",
+      "already": true,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/上海机电/2025/年报/上海机电_CN_600835_2025-12-31_年报_2026-03-20_manual_ffbc971b.pdf"
+    },
+    {
+      "company": "上海电气",
+      "code": "601727",
+      "filename": "上海电气_CN_601727_2025-12-31_年报_2026-03-30_manual_2f9bcd3a.pdf",
+      "already": true,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/上海电气/2025/年报/上海电气_CN_601727_2025-12-31_年报_2026-03-30_manual_2f9bcd3a.pdf"
+    },
+    {
+      "company": "上海银行",
+      "code": "601229",
+      "filename": "上海银行_CN_601229_2025-12-31_年报_2026-04-23_cninfo_ec74b117.pdf",
+      "already": true,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/上海银行/2025/年报/上海银行_CN_601229_2025-12-31_年报_2026-04-23_cninfo_ec74b117.pdf"
+    },
+    {
+      "company": "东方财富",
+      "code": "300059",
+      "filename": "东方财富_CN_300059_2025-12-31_年报_2026-03-19_cninfo_2c7c41a6.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/东方财富/2025/年报/东方财富_CN_300059_2025-12-31_年报_2026-03-19_cninfo_2c7c41a6.pdf"
+    },
+    {
+      "company": "东鹏饮料",
+      "code": "605499",
+      "filename": "东鹏饮料_CN_605499_2025-12-31_年报_2026-03-30_cninfo_fa074c88.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/东鹏饮料/2025/年报/东鹏饮料_CN_605499_2025-12-31_年报_2026-03-30_cninfo_fa074c88.pdf"
+    },
+    {
+      "company": "中兴通讯",
+      "code": "000063",
+      "filename": "中兴通讯_CN_000063_2025-12-31_年报_2026-03-06_cninfo_489e994c.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/中兴通讯/2025/年报/中兴通讯_CN_000063_2025-12-31_年报_2026-03-06_cninfo_489e994c.pdf"
+    },
+    {
+      "company": "中国平安",
+      "code": "601318",
+      "filename": "中国平安_CN_601318_2025-12-31_年报_2026-03-26_cninfo_3125331e.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/中国平安/2025/年报/中国平安_CN_601318_2025-12-31_年报_2026-03-26_cninfo_3125331e.pdf"
+    },
+    {
+      "company": "中国石油",
+      "code": "601857",
+      "filename": "中国石油_CN_601857_2025-12-31_年报_2026-03-29_cninfo_da7d8593.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/中国石油/2025/年报/中国石油_CN_601857_2025-12-31_年报_2026-03-29_cninfo_da7d8593.pdf"
+    },
+    {
+      "company": "中国神华",
+      "code": "601088",
+      "filename": "中国神华_CN_601088_2025-12-31_年报_2026-03-30_cninfo_0eb7ec5f.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/中国神华/2025/年报/中国神华_CN_601088_2025-12-31_年报_2026-03-30_cninfo_0eb7ec5f.pdf"
+    },
+    {
+      "company": "中微公司",
+      "code": "688012",
+      "filename": "中微公司_CN_688012_2025-12-31_年报_2026-03-30_cninfo_1b2a5c5c.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/中微公司/2025/年报/中微公司_CN_688012_2025-12-31_年报_2026-03-30_cninfo_1b2a5c5c.pdf"
+    },
+    {
+      "company": "中芯国际",
+      "code": "688981",
+      "filename": "中芯国际_CN_688981_2025-12-31_年报_2026-04-08_cninfo_00296115.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/中芯国际/2025/年报/中芯国际_CN_688981_2025-12-31_年报_2026-04-08_cninfo_00296115.pdf"
+    },
+    {
+      "company": "五-粮-液",
+      "code": "000858",
+      "filename": "五-粮-液_CN_000858_2025-12-31_年报_2026-04-30_cninfo_9840deab.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/五-粮-液/2025/年报/五-粮-液_CN_000858_2025-12-31_年报_2026-04-30_cninfo_9840deab.pdf"
+    },
+    {
+      "company": "京东方Ａ",
+      "code": "000725",
+      "filename": "京东方Ａ_CN_000725_2025-12-31_年报_2026-03-31_cninfo_c8184db5.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/京东方Ａ/2025/年报/京东方Ａ_CN_000725_2025-12-31_年报_2026-03-31_cninfo_c8184db5.pdf"
+    },
+    {
+      "company": "伊利股份",
+      "code": "600887",
+      "filename": "伊利股份_CN_600887_2025-12-31_年报_2026-04-29_cninfo_ef988688.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/伊利股份/2025/年报/伊利股份_CN_600887_2025-12-31_年报_2026-04-29_cninfo_ef988688.pdf"
+    },
+    {
+      "company": "传音控股",
+      "code": "688036",
+      "filename": "传音控股_CN_688036_2025-12-31_年报_2026-03-27_cninfo_33e8cb97.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/传音控股/2025/年报/传音控股_CN_688036_2025-12-31_年报_2026-03-27_cninfo_33e8cb97.pdf"
+    },
+    {
+      "company": "兆易创新",
+      "code": "603986",
+      "filename": "兆易创新_CN_603986_2025-12-31_年报_2026-03-30_cninfo_cbc7908c.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/兆易创新/2025/年报/兆易创新_CN_603986_2025-12-31_年报_2026-03-30_cninfo_cbc7908c.pdf"
+    },
+    {
+      "company": "光环新网",
+      "code": "300383",
+      "filename": "光环新网_CN_300383_2025-12-31_年报_2026-04-28_manual_d1c2cc6f.pdf",
+      "already": true,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/光环新网/2025/年报/光环新网_CN_300383_2025-12-31_年报_2026-04-28_manual_d1c2cc6f.pdf"
+    },
+    {
+      "company": "北汽蓝谷",
+      "code": "600733",
+      "filename": "北汽蓝谷_CN_600733_2025-12-31_年报_2026-04-23_manual_6866df0f.pdf",
+      "already": true,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/北汽蓝谷/2025/年报/北汽蓝谷_CN_600733_2025-12-31_年报_2026-04-23_manual_6866df0f.pdf"
+    },
+    {
+      "company": "华岭股份",
+      "code": "920139",
+      "filename": "华岭股份_CN_920139_2025-12-31_年报_2026-03-26_cninfo_b4337eed.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/华岭股份/2025/年报/华岭股份_CN_920139_2025-12-31_年报_2026-03-26_cninfo_b4337eed.pdf"
+    },
+    {
+      "company": "华泰证券",
+      "code": "601688",
+      "filename": "华泰证券_CN_601688_2025-12-31_年报_2026-03-30_manual_792fa57a.pdf",
+      "already": true,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/华泰证券/2025/年报/华泰证券_CN_601688_2025-12-31_年报_2026-03-30_manual_792fa57a.pdf"
+    },
+    {
+      "company": "华熙生物",
+      "code": "688363",
+      "filename": "华熙生物_CN_688363_2025-12-31_年报_2026-04-22_cninfo_16107f8e.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/华熙生物/2025/年报/华熙生物_CN_688363_2025-12-31_年报_2026-04-22_cninfo_16107f8e.pdf"
+    },
+    {
+      "company": "同享科技",
+      "code": "920167",
+      "filename": "同享科技_CN_920167_2025-12-31_年报_2026-04-27_cninfo_e158a17b.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/同享科技/2025/年报/同享科技_CN_920167_2025-12-31_年报_2026-04-27_cninfo_e158a17b.pdf"
+    },
+    {
+      "company": "国泰海通",
+      "code": "601211",
+      "filename": "国泰海通_CN_601211_2025-12-31_年报_2026-03-27_manual_e31bb62d.pdf",
+      "already": true,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/国泰海通/2025/年报/国泰海通_CN_601211_2025-12-31_年报_2026-03-27_manual_e31bb62d.pdf"
+    },
+    {
+      "company": "国电南瑞",
+      "code": "600406",
+      "filename": "国电南瑞_CN_600406_2025-12-31_年报_2026-04-29_cninfo_44fbef15.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/国电南瑞/2025/年报/国电南瑞_CN_600406_2025-12-31_年报_2026-04-29_cninfo_44fbef15.pdf"
+    },
+    {
+      "company": "大全能源",
+      "code": "688303",
+      "filename": "大全能源_CN_688303_2025-12-31_年报_2026-04-20_cninfo_9233b753.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/大全能源/2025/年报/大全能源_CN_688303_2025-12-31_年报_2026-04-20_cninfo_9233b753.pdf"
+    },
+    {
+      "company": "宁德时代",
+      "code": "300750",
+      "filename": "宁德时代_CN_300750_2025-12-31_年报_2026-03-09_cninfo_02bd73e4.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/宁德时代/2025/年报/宁德时代_CN_300750_2025-12-31_年报_2026-03-09_cninfo_02bd73e4.pdf"
+    },
+    {
+      "company": "寒武纪",
+      "code": "688256",
+      "filename": "寒武纪_CN_688256_2025-12-31_年报_2026-03-12_cninfo_4969cc73.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/寒武纪/2025/年报/寒武纪_CN_688256_2025-12-31_年报_2026-03-12_cninfo_4969cc73.pdf"
+    },
+    {
+      "company": "工商银行",
+      "code": "601398",
+      "filename": "工商银行_CN_601398_2025-12-31_年报_2026-03-27_cninfo_d71c6c0e.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/工商银行/2025/年报/工商银行_CN_601398_2025-12-31_年报_2026-03-27_cninfo_d71c6c0e.pdf"
+    },
+    {
+      "company": "平安银行",
+      "code": "000001",
+      "filename": "平安银行_CN_000001_2025-12-31_年报_2026-03-20_cninfo_5fa05829.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/平安银行/2025/年报/平安银行_CN_000001_2025-12-31_年报_2026-03-20_cninfo_5fa05829.pdf"
+    },
+    {
+      "company": "广汽集团",
+      "code": "601238",
+      "filename": "广汽集团_CN_601238_2025-12-31_年报_2026-03-27_manual_f9953595.pdf",
+      "already": true,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/广汽集团/2025/年报/广汽集团_CN_601238_2025-12-31_年报_2026-03-27_manual_f9953595.pdf"
+    },
+    {
+      "company": "恒瑞医药",
+      "code": "600276",
+      "filename": "恒瑞医药_CN_600276_2025-12-31_年报_2026-03-25_cninfo_0d6a48c9.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/恒瑞医药/2025/年报/恒瑞医药_CN_600276_2025-12-31_年报_2026-03-25_cninfo_0d6a48c9.pdf"
+    },
+    {
+      "company": "恒生电子",
+      "code": "600570",
+      "filename": "恒生电子_CN_600570_2025-12-31_年报_2026-03-27_cninfo_76ff18cc.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/恒生电子/2025/年报/恒生电子_CN_600570_2025-12-31_年报_2026-03-27_cninfo_76ff18cc.pdf"
+    },
+    {
+      "company": "招商银行",
+      "code": "600036",
+      "filename": "招商银行_CN_600036_2025-12-31_年报_2026-03-27_manual_668e9f1f.pdf",
+      "already": true,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/招商银行/2025/年报/招商银行_CN_600036_2025-12-31_年报_2026-03-27_manual_668e9f1f.pdf"
+    },
+    {
+      "company": "方大新材",
+      "code": "920163",
+      "filename": "方大新材_CN_920163_2025-12-31_年报_2026-03-29_cninfo_11bbe660.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/方大新材/2025/年报/方大新材_CN_920163_2025-12-31_年报_2026-03-29_cninfo_11bbe660.pdf"
+    },
+    {
+      "company": "晶科能源",
+      "code": "688223",
+      "filename": "晶科能源_CN_688223_2025-12-31_年报_2026-04-29_cninfo_d3bcbed1.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/晶科能源/2025/年报/晶科能源_CN_688223_2025-12-31_年报_2026-04-29_cninfo_d3bcbed1.pdf"
+    },
+    {
+      "company": "格力电器",
+      "code": "000651",
+      "filename": "格力电器_CN_000651_2025-12-31_年报_2026-04-28_cninfo_9afdfdd4.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/格力电器/2025/年报/格力电器_CN_000651_2025-12-31_年报_2026-04-28_cninfo_9afdfdd4.pdf"
+    },
+    {
+      "company": "比亚迪",
+      "code": "002594",
+      "filename": "比亚迪_CN_002594_2025-12-31_年报_2026-03-27_cninfo_f7c8d23d.pdf",
+      "already": true,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/比亚迪/2025/年报/比亚迪_CN_002594_2025-12-31_年报_2026-03-27_cninfo_f7c8d23d.pdf"
+    },
+    {
+      "company": "汇川技术",
+      "code": "300124",
+      "filename": "汇川技术_CN_300124_2025-12-31_年报_2026-04-27_cninfo_1fea8bff.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/汇川技术/2025/年报/汇川技术_CN_300124_2025-12-31_年报_2026-04-27_cninfo_1fea8bff.pdf"
+    },
+    {
+      "company": "江淮汽车",
+      "code": "600418",
+      "filename": "江淮汽车_CN_600418_2025-12-31_年报_2026-04-03_manual_d002c2bf.pdf",
+      "already": true,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/江淮汽车/2025/年报/江淮汽车_CN_600418_2025-12-31_年报_2026-04-03_manual_d002c2bf.pdf"
+    },
+    {
+      "company": "浦发银行",
+      "code": "600000",
+      "filename": "浦发银行_CN_600000_2025-12-31_年报_2026-03-30_manual_8d2346dc.pdf",
+      "already": true,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/浦发银行/2025/年报/浦发银行_CN_600000_2025-12-31_年报_2026-03-30_manual_8d2346dc.pdf"
+    },
+    {
+      "company": "海光信息",
+      "code": "688041",
+      "filename": "海光信息_CN_688041_2025-12-31_年报_2026-04-07_cninfo_30f13023.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/海光信息/2025/年报/海光信息_CN_688041_2025-12-31_年报_2026-04-07_cninfo_30f13023.pdf"
+    },
+    {
+      "company": "海天味业",
+      "code": "603288",
+      "filename": "海天味业_CN_603288_2025-12-31_年报_2026-03-26_cninfo_59f37482.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/海天味业/2025/年报/海天味业_CN_603288_2025-12-31_年报_2026-03-26_cninfo_59f37482.pdf"
+    },
+    {
+      "company": "海康威视",
+      "code": "002415",
+      "filename": "海康威视_CN_002415_2025-12-31_年报_2026-04-17_cninfo_e7922c70.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/海康威视/2025/年报/海康威视_CN_002415_2025-12-31_年报_2026-04-17_cninfo_e7922c70.pdf"
+    },
+    {
+      "company": "澜起科技",
+      "code": "688008",
+      "filename": "澜起科技_CN_688008_2025-12-31_年报_2026-03-30_cninfo_29eb72a5.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/澜起科技/2025/年报/澜起科技_CN_688008_2025-12-31_年报_2026-03-30_cninfo_29eb72a5.pdf"
+    },
+    {
+      "company": "牧原股份",
+      "code": "002714",
+      "filename": "牧原股份_CN_002714_2025-12-31_年报_2026-03-27_cninfo_2784dcf6.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/牧原股份/2025/年报/牧原股份_CN_002714_2025-12-31_年报_2026-03-27_cninfo_2784dcf6.pdf"
+    },
+    {
+      "company": "百利天恒",
+      "code": "688506",
+      "filename": "百利天恒_CN_688506_2025-12-31_年报_2026-04-27_cninfo_a2ff6e09.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/百利天恒/2025/年报/百利天恒_CN_688506_2025-12-31_年报_2026-04-27_cninfo_a2ff6e09.pdf"
+    },
+    {
+      "company": "石头科技",
+      "code": "688169",
+      "filename": "石头科技_CN_688169_2025-12-31_年报_2026-04-22_cninfo_28efa50a.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/石头科技/2025/年报/石头科技_CN_688169_2025-12-31_年报_2026-04-22_cninfo_28efa50a.pdf"
+    },
+    {
+      "company": "立讯精密",
+      "code": "002475",
+      "filename": "立讯精密_CN_002475_2025-12-31_年报_2026-04-14_cninfo_5a441723.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/立讯精密/2025/年报/立讯精密_CN_002475_2025-12-31_年报_2026-04-14_cninfo_5a441723.pdf"
+    },
+    {
+      "company": "紫金矿业",
+      "code": "601899",
+      "filename": "紫金矿业_CN_601899_2025-12-31_年报_2026-03-20_cninfo_643470b2.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/紫金矿业/2025/年报/紫金矿业_CN_601899_2025-12-31_年报_2026-03-20_cninfo_643470b2.pdf"
+    },
+    {
+      "company": "网宿科技",
+      "code": "300017",
+      "filename": "网宿科技_CN_300017_2025-12-31_年报_2026-04-14_manual_034c954b.pdf",
+      "already": true,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/网宿科技/2025/年报/网宿科技_CN_300017_2025-12-31_年报_2026-04-14_manual_034c954b.pdf"
+    },
+    {
+      "company": "美的集团",
+      "code": "000333",
+      "filename": "美的集团_CN_000333_2025-12-31_年报_2026-03-30_cninfo_de83c4bf.pdf",
+      "already": true,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/美的集团/2025/年报/美的集团_CN_000333_2025-12-31_年报_2026-03-30_cninfo_de83c4bf.pdf"
+    },
+    {
+      "company": "药明康德",
+      "code": "603259",
+      "filename": "药明康德_CN_603259_2025-12-31_年报_2026-03-23_cninfo_7b742aa5.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/药明康德/2025/年报/药明康德_CN_603259_2025-12-31_年报_2026-03-23_cninfo_7b742aa5.pdf"
+    },
+    {
+      "company": "诺思兰德",
+      "code": "920047",
+      "filename": "诺思兰德_CN_920047_2025-12-31_年报_2026-04-22_cninfo_23e76bfa.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/诺思兰德/2025/年报/诺思兰德_CN_920047_2025-12-31_年报_2026-04-22_cninfo_23e76bfa.pdf"
+    },
+    {
+      "company": "豪威集团",
+      "code": "603501",
+      "filename": "豪威集团_CN_603501_2025-12-31_年报_2026-03-30_cninfo_5b53f8e6.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/豪威集团/2025/年报/豪威集团_CN_603501_2025-12-31_年报_2026-03-30_cninfo_5b53f8e6.pdf"
+    },
+    {
+      "company": "贝特瑞",
+      "code": "920185",
+      "filename": "贝特瑞_CN_920185_2025-12-31_年报_2026-04-23_cninfo_0f6fdcbd.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/贝特瑞/2025/年报/贝特瑞_CN_920185_2025-12-31_年报_2026-04-23_cninfo_0f6fdcbd.pdf"
+    },
+    {
+      "company": "贵州茅台",
+      "code": "600519",
+      "filename": "贵州茅台_CN_600519_2025-12-31_年报_2026-04-16_cninfo_99053aa1.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/贵州茅台/2025/年报/贵州茅台_CN_600519_2025-12-31_年报_2026-04-16_cninfo_99053aa1.pdf"
+    },
+    {
+      "company": "赛力斯",
+      "code": "601127",
+      "filename": "赛力斯_CN_601127_2025-12-31_年报_2026-03-30_manual_27caf99a.pdf",
+      "already": true,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/赛力斯/2025/年报/赛力斯_CN_601127_2025-12-31_年报_2026-03-30_manual_27caf99a.pdf"
+    },
+    {
+      "company": "迈瑞医疗",
+      "code": "300760",
+      "filename": "迈瑞医疗_CN_300760_2025-12-31_年报_2026-03-30_cninfo_c0da5aba.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/迈瑞医疗/2025/年报/迈瑞医疗_CN_300760_2025-12-31_年报_2026-03-30_cninfo_c0da5aba.pdf"
+    },
+    {
+      "company": "金山办公",
+      "code": "688111",
+      "filename": "金山办公_CN_688111_2025-12-31_年报_2026-03-25_cninfo_b45504ff.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/金山办公/2025/年报/金山办公_CN_688111_2025-12-31_年报_2026-03-25_cninfo_b45504ff.pdf"
+    },
+    {
+      "company": "长城汽车",
+      "code": "601633",
+      "filename": "长城汽车_CN_601633_2025-12-31_年报_2026-03-27_manual_c78d8d17.pdf",
+      "already": true,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/长城汽车/2025/年报/长城汽车_CN_601633_2025-12-31_年报_2026-03-27_manual_c78d8d17.pdf"
+    },
+    {
+      "company": "长安汽车",
+      "code": "000625",
+      "filename": "长安汽车_CN_000625_2025-12-31_年报_2026-04-10_manual_782b94eb.pdf",
+      "already": true,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/长安汽车/2025/年报/长安汽车_CN_000625_2025-12-31_年报_2026-04-10_manual_782b94eb.pdf"
+    },
+    {
+      "company": "长江电力",
+      "code": "600900",
+      "filename": "长江电力_CN_600900_2025-12-31_年报_2026-04-29_cninfo_927a53dc.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/长江电力/2025/年报/长江电力_CN_600900_2025-12-31_年报_2026-04-29_cninfo_927a53dc.pdf"
+    },
+    {
+      "company": "阳光电源",
+      "code": "300274",
+      "filename": "阳光电源_CN_300274_2025-12-31_年报_2026-06-08_cninfo_1554e419.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/阳光电源/2025/年报/阳光电源_CN_300274_2025-12-31_年报_2026-06-08_cninfo_1554e419.pdf"
+    },
+    {
+      "company": "隆基绿能",
+      "code": "601012",
+      "filename": "隆基绿能_CN_601012_2025-12-31_年报_2026-04-28_cninfo_0d83b7ce.pdf",
+      "already": false,
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/隆基绿能/2025/年报/隆基绿能_CN_601012_2025-12-31_年报_2026-04-28_cninfo_0d83b7ce.pdf"
+    }
+  ],
+  "planned_submit_count": 48,
+  "created_total": 48,
+  "batches": [
+    {
+      "batch": 1,
+      "status_code": 200,
+      "ok": true,
+      "files": [
+        "三一重工_CN_600031_2025-12-31_年报_2026-03-30_cninfo_eb43105f.pdf",
+        "东方财富_CN_300059_2025-12-31_年报_2026-03-19_cninfo_2c7c41a6.pdf",
+        "东鹏饮料_CN_605499_2025-12-31_年报_2026-03-30_cninfo_fa074c88.pdf",
+        "中兴通讯_CN_000063_2025-12-31_年报_2026-03-06_cninfo_489e994c.pdf",
+        "中国平安_CN_601318_2025-12-31_年报_2026-03-26_cninfo_3125331e.pdf"
+      ],
+      "created_tasks": [
+        {
+          "filename": "三一重工_CN_600031_2025-12-31_年报_2026-03-30_cninfo_eb43105f.pdf",
+          "pdf_page_count": 250,
+          "task_id": "b85bb995-bcf6-4836-93bf-601eb81ca3de"
+        },
+        {
+          "filename": "东方财富_CN_300059_2025-12-31_年报_2026-03-19_cninfo_2c7c41a6.pdf",
+          "pdf_page_count": 181,
+          "task_id": "4535fe9b-8341-412a-81a6-dad84c1ffee3"
+        },
+        {
+          "filename": "东鹏饮料_CN_605499_2025-12-31_年报_2026-03-30_cninfo_fa074c88.pdf",
+          "pdf_page_count": 243,
+          "task_id": "71bae947-9b1a-4dc9-8299-a740dfbc928b"
+        },
+        {
+          "filename": "中兴通讯_CN_000063_2025-12-31_年报_2026-03-06_cninfo_489e994c.pdf",
+          "pdf_page_count": 249,
+          "task_id": "b4e3f1e7-34c7-45df-afd0-c364df9bc306"
+        },
+        {
+          "filename": "中国平安_CN_601318_2025-12-31_年报_2026-03-26_cninfo_3125331e.pdf",
+          "pdf_page_count": 370,
+          "task_id": "012cc372-7bb6-4a7a-88a1-e9941c9e1aa2"
+        }
+      ],
+      "payload": {
+        "batch_count": 5,
+        "task_id": "b85bb995-bcf6-4836-93bf-601eb81ca3de"
+      }
+    },
+    {
+      "batch": 2,
+      "status_code": 200,
+      "ok": true,
+      "files": [
+        "中国石油_CN_601857_2025-12-31_年报_2026-03-29_cninfo_da7d8593.pdf",
+        "中国神华_CN_601088_2025-12-31_年报_2026-03-30_cninfo_0eb7ec5f.pdf",
+        "中微公司_CN_688012_2025-12-31_年报_2026-03-30_cninfo_1b2a5c5c.pdf",
+        "中芯国际_CN_688981_2025-12-31_年报_2026-04-08_cninfo_00296115.pdf",
+        "五-粮-液_CN_000858_2025-12-31_年报_2026-04-30_cninfo_9840deab.pdf"
+      ],
+      "created_tasks": [
+        {
+          "filename": "中国石油_CN_601857_2025-12-31_年报_2026-03-29_cninfo_da7d8593.pdf",
+          "pdf_page_count": 273,
+          "task_id": "524c6422-b657-4b35-a902-cdb961aa1b01"
+        },
+        {
+          "filename": "中国神华_CN_601088_2025-12-31_年报_2026-03-30_cninfo_0eb7ec5f.pdf",
+          "pdf_page_count": 310,
+          "task_id": "0557bd84-304d-48cd-95de-87a09b486a4b"
+        },
+        {
+          "filename": "中微公司_CN_688012_2025-12-31_年报_2026-03-30_cninfo_1b2a5c5c.pdf",
+          "pdf_page_count": 259,
+          "task_id": "836710ea-43eb-4235-99ef-09f75ac45647"
+        },
+        {
+          "filename": "中芯国际_CN_688981_2025-12-31_年报_2026-04-08_cninfo_00296115.pdf",
+          "pdf_page_count": 163,
+          "task_id": "649ab37c-f9a5-4287-aacb-fe04b1440b3d"
+        },
+        {
+          "filename": "五-粮-液_CN_000858_2025-12-31_年报_2026-04-30_cninfo_9840deab.pdf",
+          "pdf_page_count": 141,
+          "task_id": "5b136551-5f45-48a7-bfef-f78faa3eb970"
+        }
+      ],
+      "payload": {
+        "batch_count": 5,
+        "task_id": "524c6422-b657-4b35-a902-cdb961aa1b01"
+      }
+    },
+    {
+      "batch": 3,
+      "status_code": 200,
+      "ok": true,
+      "files": [
+        "京东方Ａ_CN_000725_2025-12-31_年报_2026-03-31_cninfo_c8184db5.pdf",
+        "伊利股份_CN_600887_2025-12-31_年报_2026-04-29_cninfo_ef988688.pdf",
+        "传音控股_CN_688036_2025-12-31_年报_2026-03-27_cninfo_33e8cb97.pdf",
+        "兆易创新_CN_603986_2025-12-31_年报_2026-03-30_cninfo_cbc7908c.pdf",
+        "华岭股份_CN_920139_2025-12-31_年报_2026-03-26_cninfo_b4337eed.pdf"
+      ],
+      "created_tasks": [
+        {
+          "filename": "京东方Ａ_CN_000725_2025-12-31_年报_2026-03-31_cninfo_c8184db5.pdf",
+          "pdf_page_count": 227,
+          "task_id": "b5aa0e46-90e3-4217-aa77-0f02bbd91f60"
+        },
+        {
+          "filename": "伊利股份_CN_600887_2025-12-31_年报_2026-04-29_cninfo_ef988688.pdf",
+          "pdf_page_count": 259,
+          "task_id": "01ded59a-7549-497b-8c04-53b2a8d523a0"
+        },
+        {
+          "filename": "传音控股_CN_688036_2025-12-31_年报_2026-03-27_cninfo_33e8cb97.pdf",
+          "pdf_page_count": 242,
+          "task_id": "37a08e90-adc9-4372-80e9-847b981fbc7a"
+        },
+        {
+          "filename": "兆易创新_CN_603986_2025-12-31_年报_2026-03-30_cninfo_cbc7908c.pdf",
+          "pdf_page_count": 219,
+          "task_id": "e5dd7bdc-2837-43bb-b428-fbc3e97a44a5"
+        },
+        {
+          "filename": "华岭股份_CN_920139_2025-12-31_年报_2026-03-26_cninfo_b4337eed.pdf",
+          "pdf_page_count": 139,
+          "task_id": "16612bd4-f4a0-4ce5-bc1b-cbb00c112475"
+        }
+      ],
+      "payload": {
+        "batch_count": 5,
+        "task_id": "b5aa0e46-90e3-4217-aa77-0f02bbd91f60"
+      }
+    },
+    {
+      "batch": 4,
+      "status_code": 200,
+      "ok": true,
+      "files": [
+        "华熙生物_CN_688363_2025-12-31_年报_2026-04-22_cninfo_16107f8e.pdf",
+        "同享科技_CN_920167_2025-12-31_年报_2026-04-27_cninfo_e158a17b.pdf",
+        "国电南瑞_CN_600406_2025-12-31_年报_2026-04-29_cninfo_44fbef15.pdf",
+        "大全能源_CN_688303_2025-12-31_年报_2026-04-20_cninfo_9233b753.pdf",
+        "宁德时代_CN_300750_2025-12-31_年报_2026-03-09_cninfo_02bd73e4.pdf"
+      ],
+      "created_tasks": [
+        {
+          "filename": "华熙生物_CN_688363_2025-12-31_年报_2026-04-22_cninfo_16107f8e.pdf",
+          "pdf_page_count": 291,
+          "task_id": "41b7e1c2-0a2d-4349-a8d2-fc0923d4c3e0"
+        },
+        {
+          "filename": "同享科技_CN_920167_2025-12-31_年报_2026-04-27_cninfo_e158a17b.pdf",
+          "pdf_page_count": 181,
+          "task_id": "c86a7c5e-9c81-4fea-ad36-0bdc78c8f263"
+        },
+        {
+          "filename": "国电南瑞_CN_600406_2025-12-31_年报_2026-04-29_cninfo_44fbef15.pdf",
+          "pdf_page_count": 306,
+          "task_id": "a2cffc9b-e992-4b8f-ac34-376d61e5a52d"
+        },
+        {
+          "filename": "大全能源_CN_688303_2025-12-31_年报_2026-04-20_cninfo_9233b753.pdf",
+          "pdf_page_count": 225,
+          "task_id": "26aac424-2612-4b2d-a2af-b5ca24554bab"
+        },
+        {
+          "filename": "宁德时代_CN_300750_2025-12-31_年报_2026-03-09_cninfo_02bd73e4.pdf",
+          "pdf_page_count": 232,
+          "task_id": "443c89ed-c59e-4f99-aeaa-52fd984d9585"
+        }
+      ],
+      "payload": {
+        "batch_count": 5,
+        "task_id": "41b7e1c2-0a2d-4349-a8d2-fc0923d4c3e0"
+      }
+    },
+    {
+      "batch": 5,
+      "status_code": 200,
+      "ok": true,
+      "files": [
+        "寒武纪_CN_688256_2025-12-31_年报_2026-03-12_cninfo_4969cc73.pdf",
+        "工商银行_CN_601398_2025-12-31_年报_2026-03-27_cninfo_d71c6c0e.pdf",
+        "平安银行_CN_000001_2025-12-31_年报_2026-03-20_cninfo_5fa05829.pdf",
+        "恒瑞医药_CN_600276_2025-12-31_年报_2026-03-25_cninfo_0d6a48c9.pdf",
+        "恒生电子_CN_600570_2025-12-31_年报_2026-03-27_cninfo_76ff18cc.pdf"
+      ],
+      "created_tasks": [
+        {
+          "filename": "寒武纪_CN_688256_2025-12-31_年报_2026-03-12_cninfo_4969cc73.pdf",
+          "pdf_page_count": 219,
+          "task_id": "97b02a70-489c-48e6-83ae-ab4bd241ee7d"
+        },
+        {
+          "filename": "工商银行_CN_601398_2025-12-31_年报_2026-03-27_cninfo_d71c6c0e.pdf",
+          "pdf_page_count": 408,
+          "task_id": "f8a2f174-e413-479e-ba41-18118de341ee"
+        },
+        {
+          "filename": "平安银行_CN_000001_2025-12-31_年报_2026-03-20_cninfo_5fa05829.pdf",
+          "pdf_page_count": 288,
+          "task_id": "d0c0ed94-e231-40d8-8e75-9655ad64e6cc"
+        },
+        {
+          "filename": "恒瑞医药_CN_600276_2025-12-31_年报_2026-03-25_cninfo_0d6a48c9.pdf",
+          "pdf_page_count": 236,
+          "task_id": "0665fdbd-d365-4ef3-a429-48345b8a56fe"
+        },
+        {
+          "filename": "恒生电子_CN_600570_2025-12-31_年报_2026-03-27_cninfo_76ff18cc.pdf",
+          "pdf_page_count": 238,
+          "task_id": "f707c128-d6f3-49ee-a535-a5927b6987e4"
+        }
+      ],
+      "payload": {
+        "batch_count": 5,
+        "task_id": "97b02a70-489c-48e6-83ae-ab4bd241ee7d"
+      }
+    },
+    {
+      "batch": 6,
+      "status_code": 200,
+      "ok": true,
+      "files": [
+        "方大新材_CN_920163_2025-12-31_年报_2026-03-29_cninfo_11bbe660.pdf",
+        "晶科能源_CN_688223_2025-12-31_年报_2026-04-29_cninfo_d3bcbed1.pdf",
+        "格力电器_CN_000651_2025-12-31_年报_2026-04-28_cninfo_9afdfdd4.pdf",
+        "汇川技术_CN_300124_2025-12-31_年报_2026-04-27_cninfo_1fea8bff.pdf",
+        "海光信息_CN_688041_2025-12-31_年报_2026-04-07_cninfo_30f13023.pdf"
+      ],
+      "created_tasks": [
+        {
+          "filename": "方大新材_CN_920163_2025-12-31_年报_2026-03-29_cninfo_11bbe660.pdf",
+          "pdf_page_count": 149,
+          "task_id": "14991a97-a9e5-47cf-aed3-bb110050bc10"
+        },
+        {
+          "filename": "晶科能源_CN_688223_2025-12-31_年报_2026-04-29_cninfo_d3bcbed1.pdf",
+          "pdf_page_count": 289,
+          "task_id": "0b0f3ead-2626-44b3-a010-d2348d38986d"
+        },
+        {
+          "filename": "格力电器_CN_000651_2025-12-31_年报_2026-04-28_cninfo_9afdfdd4.pdf",
+          "pdf_page_count": 219,
+          "task_id": "185173f6-f6ac-47ac-8aa5-c3b89f1ab4c2"
+        },
+        {
+          "filename": "汇川技术_CN_300124_2025-12-31_年报_2026-04-27_cninfo_1fea8bff.pdf",
+          "pdf_page_count": 233,
+          "task_id": "bd851217-b0df-4267-9a6a-0db374c5507c"
+        },
+        {
+          "filename": "海光信息_CN_688041_2025-12-31_年报_2026-04-07_cninfo_30f13023.pdf",
+          "pdf_page_count": 231,
+          "task_id": "937882e2-b303-4864-b07c-7807417c7744"
+        }
+      ],
+      "payload": {
+        "batch_count": 5,
+        "task_id": "14991a97-a9e5-47cf-aed3-bb110050bc10"
+      }
+    },
+    {
+      "batch": 7,
+      "status_code": 200,
+      "ok": true,
+      "files": [
+        "海天味业_CN_603288_2025-12-31_年报_2026-03-26_cninfo_59f37482.pdf",
+        "海康威视_CN_002415_2025-12-31_年报_2026-04-17_cninfo_e7922c70.pdf",
+        "澜起科技_CN_688008_2025-12-31_年报_2026-03-30_cninfo_29eb72a5.pdf",
+        "牧原股份_CN_002714_2025-12-31_年报_2026-03-27_cninfo_2784dcf6.pdf",
+        "百利天恒_CN_688506_2025-12-31_年报_2026-04-27_cninfo_a2ff6e09.pdf"
+      ],
+      "created_tasks": [
+        {
+          "filename": "海天味业_CN_603288_2025-12-31_年报_2026-03-26_cninfo_59f37482.pdf",
+          "pdf_page_count": 215,
+          "task_id": "fc9f2535-e66f-440b-aa53-a6ed1782fd68"
+        },
+        {
+          "filename": "海康威视_CN_002415_2025-12-31_年报_2026-04-17_cninfo_e7922c70.pdf",
+          "pdf_page_count": 263,
+          "task_id": "756fd1ed-6089-46ea-91cb-a2cc73935949"
+        },
+        {
+          "filename": "澜起科技_CN_688008_2025-12-31_年报_2026-03-30_cninfo_29eb72a5.pdf",
+          "pdf_page_count": 248,
+          "task_id": "a0141f5a-da1e-40c5-9939-21f1f2e205dd"
+        },
+        {
+          "filename": "牧原股份_CN_002714_2025-12-31_年报_2026-03-27_cninfo_2784dcf6.pdf",
+          "pdf_page_count": 253,
+          "task_id": "8ac7d7b0-c50c-4558-86ab-0619f0aeef9d"
+        },
+        {
+          "filename": "百利天恒_CN_688506_2025-12-31_年报_2026-04-27_cninfo_a2ff6e09.pdf",
+          "pdf_page_count": 270,
+          "task_id": "0e8d450e-366d-4cc9-9d96-f70bacb2517c"
+        }
+      ],
+      "payload": {
+        "batch_count": 5,
+        "task_id": "fc9f2535-e66f-440b-aa53-a6ed1782fd68"
+      }
+    },
+    {
+      "batch": 8,
+      "status_code": 200,
+      "ok": true,
+      "files": [
+        "石头科技_CN_688169_2025-12-31_年报_2026-04-22_cninfo_28efa50a.pdf",
+        "立讯精密_CN_002475_2025-12-31_年报_2026-04-14_cninfo_5a441723.pdf",
+        "紫金矿业_CN_601899_2025-12-31_年报_2026-03-20_cninfo_643470b2.pdf",
+        "药明康德_CN_603259_2025-12-31_年报_2026-03-23_cninfo_7b742aa5.pdf",
+        "诺思兰德_CN_920047_2025-12-31_年报_2026-04-22_cninfo_23e76bfa.pdf"
+      ],
+      "created_tasks": [
+        {
+          "filename": "石头科技_CN_688169_2025-12-31_年报_2026-04-22_cninfo_28efa50a.pdf",
+          "pdf_page_count": 282,
+          "task_id": "33d98df8-f5a0-4b67-8c74-c2f2ff6c352f"
+        },
+        {
+          "filename": "立讯精密_CN_002475_2025-12-31_年报_2026-04-14_cninfo_5a441723.pdf",
+          "pdf_page_count": 309,
+          "task_id": "7fbe4eed-42ae-4b10-bb6f-2467a37bb206"
+        },
+        {
+          "filename": "紫金矿业_CN_601899_2025-12-31_年报_2026-03-20_cninfo_643470b2.pdf",
+          "pdf_page_count": 352,
+          "task_id": "dd0ad35e-42e5-4145-b42c-21757ae453f8"
+        },
+        {
+          "filename": "药明康德_CN_603259_2025-12-31_年报_2026-03-23_cninfo_7b742aa5.pdf",
+          "pdf_page_count": 249,
+          "task_id": "a65e22f4-f63a-4485-9ec0-9b61239c64f8"
+        },
+        {
+          "filename": "诺思兰德_CN_920047_2025-12-31_年报_2026-04-22_cninfo_23e76bfa.pdf",
+          "pdf_page_count": 184,
+          "task_id": "860ae8be-aaba-4f38-8ab8-c6ee8178dd95"
+        }
+      ],
+      "payload": {
+        "batch_count": 5,
+        "task_id": "33d98df8-f5a0-4b67-8c74-c2f2ff6c352f"
+      }
+    },
+    {
+      "batch": 9,
+      "status_code": 200,
+      "ok": true,
+      "files": [
+        "豪威集团_CN_603501_2025-12-31_年报_2026-03-30_cninfo_5b53f8e6.pdf",
+        "贝特瑞_CN_920185_2025-12-31_年报_2026-04-23_cninfo_0f6fdcbd.pdf",
+        "贵州茅台_CN_600519_2025-12-31_年报_2026-04-16_cninfo_99053aa1.pdf",
+        "迈瑞医疗_CN_300760_2025-12-31_年报_2026-03-30_cninfo_c0da5aba.pdf",
+        "金山办公_CN_688111_2025-12-31_年报_2026-03-25_cninfo_b45504ff.pdf"
+      ],
+      "created_tasks": [
+        {
+          "filename": "豪威集团_CN_603501_2025-12-31_年报_2026-03-30_cninfo_5b53f8e6.pdf",
+          "pdf_page_count": 280,
+          "task_id": "4ef2536a-fe9c-48af-b8a0-92ec09e4afda"
+        },
+        {
+          "filename": "贝特瑞_CN_920185_2025-12-31_年报_2026-04-23_cninfo_0f6fdcbd.pdf",
+          "pdf_page_count": 207,
+          "task_id": "6ced6920-7d38-46cc-9f05-c0eb326b899c"
+        },
+        {
+          "filename": "贵州茅台_CN_600519_2025-12-31_年报_2026-04-16_cninfo_99053aa1.pdf",
+          "pdf_page_count": 143,
+          "task_id": "e87eae5e-414e-4f23-91de-a0d2e48a0c26"
+        },
+        {
+          "filename": "迈瑞医疗_CN_300760_2025-12-31_年报_2026-03-30_cninfo_c0da5aba.pdf",
+          "pdf_page_count": 376,
+          "task_id": "0581d420-b435-4d0c-b077-5f689dd9db7e"
+        },
+        {
+          "filename": "金山办公_CN_688111_2025-12-31_年报_2026-03-25_cninfo_b45504ff.pdf",
+          "pdf_page_count": 262,
+          "task_id": "2cf55095-0a45-45a4-b2e6-230a637f68d3"
+        }
+      ],
+      "payload": {
+        "batch_count": 5,
+        "task_id": "4ef2536a-fe9c-48af-b8a0-92ec09e4afda"
+      }
+    },
+    {
+      "batch": 10,
+      "status_code": 200,
+      "ok": true,
+      "files": [
+        "长江电力_CN_600900_2025-12-31_年报_2026-04-29_cninfo_927a53dc.pdf",
+        "阳光电源_CN_300274_2025-12-31_年报_2026-06-08_cninfo_1554e419.pdf",
+        "隆基绿能_CN_601012_2025-12-31_年报_2026-04-28_cninfo_0d83b7ce.pdf"
+      ],
+      "created_tasks": [
+        {
+          "filename": "长江电力_CN_600900_2025-12-31_年报_2026-04-29_cninfo_927a53dc.pdf",
+          "pdf_page_count": 259,
+          "task_id": "b076d45e-105c-4f64-bacd-5437fef0766e"
+        },
+        {
+          "filename": "阳光电源_CN_300274_2025-12-31_年报_2026-06-08_cninfo_1554e419.pdf",
+          "pdf_page_count": 1,
+          "task_id": "fb542d57-ade3-4b76-9b45-37f6b10afb34"
+        },
+        {
+          "filename": "隆基绿能_CN_601012_2025-12-31_年报_2026-04-28_cninfo_0d83b7ce.pdf",
+          "pdf_page_count": 314,
+          "task_id": "2bd0c9f5-3199-424e-9908-61f3b8ddb731"
+        }
+      ],
+      "payload": {
+        "batch_count": 3,
+        "task_id": "b076d45e-105c-4f64-bacd-5437fef0766e"
+      }
+    }
+  ]
+}

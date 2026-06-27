@@ -1,0 +1,36 @@
+{
+  "candidate": {
+    "source_id": "sec",
+    "source_name": "SEC EDGAR",
+    "source_domain": "sec.gov",
+    "market": "US",
+    "company_id": "723125",
+    "ticker": "MU",
+    "company_name": "MICRON TECHNOLOGY INC",
+    "report_type": "10-K",
+    "report_family": "annual",
+    "form": "10-K",
+    "title": "10-K",
+    "accession_number": "0000723125-25-000028",
+    "primary_document": "mu-20250828.htm",
+    "report_end": "2025-08-28",
+    "published_at": "2025-10-03",
+    "accepted_at": "2025-10-03T18:42:25Z",
+    "document_url": "https://www.sec.gov/Archives/edgar/data/723125/000072312525000028/mu-20250828.htm",
+    "landing_url": "https://www.sec.gov/Archives/edgar/data/723125/000072312525000028/0000723125-25-000028-index.html",
+    "file_format": "html",
+    "language": null,
+    "inline_xbrl": true,
+    "metadata": {
+      "sec_submission_name": "MICRON TECHNOLOGY INC",
+      "accession_no_dashes": "000072312525000028"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "MICRON-TECHNOLOGY-INC_US_MU_2025-08-28_10-K_2025-10-03_sec_7d1e7056.html",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/MICRON-TECHNOLOGY-INC/2025/年报/MICRON-TECHNOLOGY-INC_US_MU_2025-08-28_10-K_2025-10-03_sec_7d1e7056.html",
+    "size_bytes": 2439110,
+    "content_type": "text/html",
+    "content_sha256": "7deb81957a1fa7ecc94cc478df53516b1936b25b54c741903780871e2f0046fb"
+  }
+}

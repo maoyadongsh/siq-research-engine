@@ -88,9 +88,18 @@ except ModuleNotFoundError:
     connections = Collection = utility = FieldSchema = CollectionSchema = DataType = MilvusClient = None
 
 # ==================== 配置 (参考 env_setup.py) ====================
-MILVUS_HOST = "localhost"
-MILVUS_PORT = "19530"
-MILVUS_DEFAULT_DB = os.getenv("MILVUS_DB_NAME", "default").strip() or "default"
+MILVUS_HOST = os.getenv("SIQ_MILVUS_HOST", os.getenv("MILVUS_HOST", "localhost")).strip() or "localhost"
+MILVUS_PORT = os.getenv("SIQ_MILVUS_PORT", os.getenv("MILVUS_PORT", "19530")).strip() or "19530"
+MILVUS_DEFAULT_DB = (
+    os.getenv("SIQ_MILVUS_DB_NAME")
+    or os.getenv("MILVUS_DB_NAME")
+    or "default"
+).strip() or "default"
+MILVUS_DEFAULT_COLLECTION = (
+    os.getenv("SIQ_MILVUS_COLLECTION")
+    or os.getenv("MILVUS_COLLECTION")
+    or "ic_collaboration_shared"
+).strip() or "ic_collaboration_shared"
 
 # HNSW 索引配置 (CPU高性能)
 INDEX_TYPE = "HNSW"
@@ -3073,7 +3082,7 @@ def build_ui():
     initial_db_choices = _list_databases()
     default_db = _choose_valid_value(MILVUS_DEFAULT_DB, initial_db_choices) or MILVUS_DEFAULT_DB
     initial_choices = _current_collection_choices(default_db)
-    default_choice = _choose_valid_value("ic_collaboration_shared", initial_choices)
+    default_choice = _choose_valid_value(MILVUS_DEFAULT_COLLECTION, initial_choices)
 
 
     with gr.Blocks(

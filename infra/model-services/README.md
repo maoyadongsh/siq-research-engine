@@ -1,30 +1,18 @@
-# Model Service Launch Scripts
+# SIQ 本地模型服务脚本
 
-Date: 2026-06-25
+`infra/model-services` 保存 SIQ Research Engine 使用的本地模型服务启动脚本和 systemd 用户服务样例。这里仅保存轻量脚本和服务定义，不保存模型权重、Conda 环境、Docker 镜像、缓存或运行日志。
 
-This folder consolidates model service launch scripts referenced by SIQ Research Engine / the copied SIQ stack.
+## 服务分组
 
-It intentionally contains scripts and lightweight service definitions only. It does not contain model weights, Hugging Face caches, Conda environments, Docker images, or ComfyUI.
+| 分组 | 目录 | 用途 |
+| --- | --- | --- |
+| MinerU | `mineru/` | PDF 解析上游服务和 PDF 解析服务联动启动脚本 |
+| Qwen3.6 35B | `qwen3-6-35b/` | OpenAI-compatible vLLM 文本模型服务 |
+| Qwen VL 检索 | `qwen-vl-retrieval/` | Embedding 与 reranker 服务，供法规和知识库检索使用 |
+| Gemma4 26B | `gemma4-26b/` | Gemma4 26B A4B NVFP4 vLLM 启动脚本 |
+| systemd user units | `systemd-user/` | 用户级服务定义，便于开机或手动管理 |
 
-## Included Groups
-
-| Group | Folder | Original Source | Purpose |
-| --- | --- | --- | --- |
-| MinerU | `mineru/` | `/home/maoyd/modles_setup` | PDF parsing upstream service scripts, now defaulting the SIQ PDF parser wrapper to `apps/pdf-parser` on `15000`. |
-| Qwen3.6 35B | `qwen3-6-35b/` | `/home/maoyd/modles_setup` | Local OpenAI-compatible Qwen3.6 35B vLLM service scripts. |
-| Qwen VL retrieval | `qwen-vl-retrieval/` | `/home/maoyd/modles_setup` | Qwen3-VL embedding and reranker service scripts. |
-| Gemma4 26B | `gemma4-26b/` | `/home/maoyd/modles_setup` | Gemma4 26B A4B NVFP4 vLLM service launch script. |
-| systemd user units | `systemd-user/` | `/home/maoyd/.config/systemd/user` | Existing user-level service definitions for MinerU and Qwen3.6. |
-
-## Excluded By Design
-
-- Model weights and snapshots, such as `/home/maoyd/hf_cache_new`
-- Conda environments, such as `/home/maoyd/miniconda3/envs/*`
-- ComfyUI application and model tree
-- FunASR, LocateAnything, Qwen 27B, Qwen 35 9B, Claude proxy, and other unrelated launch scripts
-- PID files, `__pycache__`, and vendored Python package overrides
-
-## Current Files
+## 文件清单
 
 ```text
 mineru/
@@ -50,4 +38,35 @@ systemd-user/
   qwen36-vllm.service
 ```
 
-These scripts still contain host-specific model/runtime paths for weights, virtual environments, and system services. The SIQ PDF parser wrapper path has been normalized to `apps/pdf-parser`; remaining host paths should be treated as machine-local defaults and overridden with environment variables when running elsewhere.
+## 与 SIQ 的关系
+
+| SIQ 模块 | 依赖模型服务 |
+| --- | --- |
+| `apps/pdf-parser` | MinerU API、VLM / vLLM |
+| `siq_legal` | Qwen3-VL Embedding、Qwen3-VL Reranker、Milvus |
+| Hermes profiles | MiniMax、Kimi、Qwen3.6、Gemma4 等 provider 或 fallback |
+| 向量入库 | Embedding 服务、Milvus |
+
+## 使用方式
+
+先按本机模型路径、显存、Python 环境和端口修改脚本中的变量，再启动对应服务。示例：
+
+```bash
+cd /home/maoyd/siq-research-engine/infra/model-services/qwen3-6-35b
+bash serve_qwen36_fp8_vllm.sh
+```
+
+systemd 用户服务可按需安装到用户服务目录并管理：
+
+```bash
+systemctl --user daemon-reload
+systemctl --user start qwen36-vllm.service
+systemctl --user status qwen36-vllm.service --no-pager
+```
+
+## 维护原则
+
+- 模型权重、Hugging Face 缓存、Conda 环境、PID 文件和日志不放入本目录。
+- 脚本中的主机路径应视为本机默认值，跨机器运行时通过环境变量或脚本变量覆盖。
+- 新增模型服务时记录端口、模型名、API 兼容格式、显存要求和依赖环境。
+- 服务被 Web/API/Agent 引用前，应提供健康检查或最小推理 smoke test。

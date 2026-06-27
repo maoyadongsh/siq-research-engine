@@ -1,0 +1,355 @@
+from __future__ import annotations
+
+from ...models import StatementType
+from ...normalization import normalize_concept
+from ..base import MetricRule
+
+
+US_CONCEPT_RULES: tuple[MetricRule, ...] = (
+    MetricRule(
+        "operating_revenue",
+        StatementType.INCOME_STATEMENT,
+        (
+            "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+            "us-gaap:Revenues",
+            "us-gaap:SalesRevenueNet",
+            "ifrs-full:Revenue",
+        ),
+        10,
+    ),
+    MetricRule(
+        "gross_profit",
+        StatementType.INCOME_STATEMENT,
+        ("us-gaap:GrossProfit", "ifrs-full:GrossProfit"),
+    ),
+    MetricRule(
+        "cost_of_sales",
+        StatementType.INCOME_STATEMENT,
+        (
+            "us-gaap:CostOfRevenue",
+            "us-gaap:CostOfGoodsAndServicesSold",
+            "ifrs-full:CostOfSales",
+        ),
+    ),
+    MetricRule(
+        "operating_profit",
+        StatementType.INCOME_STATEMENT,
+        (
+            "us-gaap:OperatingIncomeLoss",
+            "ifrs-full:ProfitLossFromOperatingActivities",
+        ),
+    ),
+    MetricRule(
+        "research_and_development_expense",
+        StatementType.INCOME_STATEMENT,
+        ("us-gaap:ResearchAndDevelopmentExpense", "ifrs-full:ResearchAndDevelopmentExpense"),
+    ),
+    MetricRule(
+        "selling_general_admin_expense",
+        StatementType.INCOME_STATEMENT,
+        (
+            "us-gaap:SellingGeneralAndAdministrativeExpense",
+            "ifrs-full:AdministrativeExpense",
+            "ifrs-full:DistributionCosts",
+        ),
+    ),
+    MetricRule(
+        "total_profit",
+        StatementType.INCOME_STATEMENT,
+        (
+            "us-gaap:IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
+            "us-gaap:IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments",
+            "ifrs-full:ProfitLossBeforeTax",
+        ),
+    ),
+    MetricRule(
+        "income_tax_expense",
+        StatementType.INCOME_STATEMENT,
+        (
+            "us-gaap:IncomeTaxExpenseBenefit",
+            "ifrs-full:TaxExpenseIncome",
+        ),
+    ),
+    MetricRule(
+        "interest_expense",
+        StatementType.INCOME_STATEMENT,
+        (
+            "us-gaap:InterestExpenseNonOperating",
+            "us-gaap:InterestExpense",
+            "ifrs-full:FinanceCosts",
+        ),
+    ),
+    MetricRule(
+        "net_profit",
+        StatementType.INCOME_STATEMENT,
+        ("us-gaap:NetIncomeLoss", "ifrs-full:ProfitLoss"),
+        10,
+    ),
+    MetricRule(
+        "parent_net_profit",
+        StatementType.INCOME_STATEMENT,
+        (
+            "us-gaap:NetIncomeLossAvailableToCommonStockholdersBasic",
+            "us-gaap:NetIncomeLossAttributableToParent",
+            "ifrs-full:ProfitLossAttributableToOwnersOfParent",
+        ),
+    ),
+    MetricRule(
+        "nci_profit",
+        StatementType.INCOME_STATEMENT,
+        (
+            "us-gaap:NetIncomeLossAttributableToNoncontrollingInterest",
+            "ifrs-full:ProfitLossAttributableToNoncontrollingInterests",
+        ),
+    ),
+    MetricRule(
+        "total_assets",
+        StatementType.BALANCE_SHEET,
+        ("us-gaap:Assets", "ifrs-full:Assets"),
+        10,
+    ),
+    MetricRule(
+        "current_assets",
+        StatementType.BALANCE_SHEET,
+        ("us-gaap:AssetsCurrent", "ifrs-full:CurrentAssets"),
+    ),
+    MetricRule(
+        "non_current_assets",
+        StatementType.BALANCE_SHEET,
+        ("us-gaap:AssetsNoncurrent", "ifrs-full:NoncurrentAssets"),
+    ),
+    MetricRule(
+        "total_liabilities",
+        StatementType.BALANCE_SHEET,
+        ("us-gaap:Liabilities", "ifrs-full:Liabilities"),
+        10,
+    ),
+    MetricRule(
+        "current_liabilities",
+        StatementType.BALANCE_SHEET,
+        ("us-gaap:LiabilitiesCurrent", "ifrs-full:CurrentLiabilities"),
+    ),
+    MetricRule(
+        "non_current_liabilities",
+        StatementType.BALANCE_SHEET,
+        ("us-gaap:LiabilitiesNoncurrent", "ifrs-full:NoncurrentLiabilities"),
+    ),
+    MetricRule(
+        "total_equity",
+        StatementType.BALANCE_SHEET,
+        (
+            "us-gaap:StockholdersEquity",
+            "us-gaap:StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+            "ifrs-full:Equity",
+        ),
+        10,
+    ),
+    MetricRule(
+        "parent_equity",
+        StatementType.BALANCE_SHEET,
+        (
+            "us-gaap:StockholdersEquity",
+            "ifrs-full:EquityAttributableToOwnersOfParent",
+        ),
+    ),
+    MetricRule(
+        "nci_equity",
+        StatementType.BALANCE_SHEET,
+        (
+            "us-gaap:MinorityInterest",
+            "us-gaap:NoncontrollingInterestInConsolidatedEntity",
+            "ifrs-full:NoncontrollingInterests",
+        ),
+    ),
+    MetricRule(
+        "redeemable_noncontrolling_interest",
+        StatementType.BALANCE_SHEET,
+        (
+            "us-gaap:RedeemableNoncontrollingInterestEquityCarryingAmount",
+            "us-gaap:RedeemableNoncontrollingInterestEquityCommonCarryingAmount",
+            "us-gaap:RedeemableNoncontrollingInterestEquityPreferredCarryingAmount",
+        ),
+    ),
+    MetricRule(
+        "total_liabilities_and_equity",
+        StatementType.BALANCE_SHEET,
+        (
+            "us-gaap:LiabilitiesAndStockholdersEquity",
+            "us-gaap:LiabilitiesAndStockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+            "ifrs-full:EquityAndLiabilities",
+        ),
+    ),
+    MetricRule(
+        "cash_and_cash_equivalents",
+        StatementType.BALANCE_SHEET,
+        (
+            "us-gaap:CashAndCashEquivalentsAtCarryingValue",
+            "us-gaap:CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
+            "ifrs-full:CashAndCashEquivalents",
+        ),
+    ),
+    MetricRule(
+        "trade_receivables",
+        StatementType.BALANCE_SHEET,
+        (
+            "us-gaap:AccountsReceivableNetCurrent",
+            "us-gaap:AccountsNotesAndLoansReceivableNetCurrent",
+            "ifrs-full:TradeAndOtherCurrentReceivables",
+        ),
+    ),
+    MetricRule(
+        "inventories",
+        StatementType.BALANCE_SHEET,
+        ("us-gaap:InventoryNet", "ifrs-full:Inventories"),
+    ),
+    MetricRule(
+        "property_plant_equipment",
+        StatementType.BALANCE_SHEET,
+        (
+            "us-gaap:PropertyPlantAndEquipmentNet",
+            "ifrs-full:PropertyPlantAndEquipment",
+        ),
+    ),
+    MetricRule(
+        "goodwill",
+        StatementType.BALANCE_SHEET,
+        ("us-gaap:Goodwill", "ifrs-full:Goodwill"),
+    ),
+    MetricRule(
+        "right_of_use_assets",
+        StatementType.BALANCE_SHEET,
+        ("us-gaap:OperatingLeaseRightOfUseAsset", "ifrs-full:RightofuseAssets"),
+    ),
+    MetricRule(
+        "borrowings",
+        StatementType.BALANCE_SHEET,
+        (
+            "us-gaap:LongTermDebtCurrent",
+            "us-gaap:LongTermDebtNoncurrent",
+            "ifrs-full:Borrowings",
+        ),
+    ),
+    MetricRule(
+        "lease_liabilities",
+        StatementType.BALANCE_SHEET,
+        ("us-gaap:OperatingLeaseLiability", "ifrs-full:LeaseLiabilities"),
+    ),
+    MetricRule(
+        "contract_liabilities",
+        StatementType.BALANCE_SHEET,
+        (
+            "us-gaap:ContractWithCustomerLiability",
+            "us-gaap:DeferredRevenueCurrent",
+            "ifrs-full:ContractLiabilities",
+        ),
+    ),
+    MetricRule(
+        "operating_cash_flow_net",
+        StatementType.CASH_FLOW_STATEMENT,
+        (
+            "us-gaap:NetCashProvidedByUsedInOperatingActivities",
+            "ifrs-full:CashFlowsFromUsedInOperatingActivities",
+        ),
+        10,
+    ),
+    MetricRule(
+        "investing_cash_flow_net",
+        StatementType.CASH_FLOW_STATEMENT,
+        (
+            "us-gaap:NetCashProvidedByUsedInInvestingActivities",
+            "ifrs-full:CashFlowsFromUsedInInvestingActivities",
+        ),
+    ),
+    MetricRule(
+        "financing_cash_flow_net",
+        StatementType.CASH_FLOW_STATEMENT,
+        (
+            "us-gaap:NetCashProvidedByUsedInFinancingActivities",
+            "ifrs-full:CashFlowsFromUsedInFinancingActivities",
+        ),
+    ),
+    MetricRule(
+        "cash_equivalents_net_increase",
+        StatementType.CASH_FLOW_STATEMENT,
+        (
+            "us-gaap:CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalentsPeriodIncreaseDecreaseIncludingExchangeRateEffect",
+            "us-gaap:CashAndCashEquivalentsPeriodIncreaseDecrease",
+            "ifrs-full:IncreaseDecreaseInCashAndCashEquivalents",
+        ),
+    ),
+    MetricRule(
+        "fx_effect_cash",
+        StatementType.CASH_FLOW_STATEMENT,
+        (
+            "us-gaap:EffectOfExchangeRateOnCashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
+            "us-gaap:EffectOfExchangeRateOnCashAndCashEquivalents",
+            "ifrs-full:EffectOfExchangeRateChangesOnCashAndCashEquivalents",
+        ),
+    ),
+    MetricRule(
+        "capital_expenditure",
+        StatementType.CASH_FLOW_STATEMENT,
+        (
+            "us-gaap:PaymentsToAcquirePropertyPlantAndEquipment",
+            "ifrs-full:PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities",
+        ),
+    ),
+    MetricRule(
+        "depreciation_amortization",
+        StatementType.CASH_FLOW_STATEMENT,
+        (
+            "us-gaap:DepreciationDepletionAndAmortization",
+            "us-gaap:DepreciationDepletionAndAmortizationExpense",
+            "ifrs-full:DepreciationAndAmortisationExpense",
+        ),
+    ),
+    MetricRule(
+        "share_based_compensation",
+        StatementType.CASH_FLOW_STATEMENT,
+        ("us-gaap:ShareBasedCompensation", "ifrs-full:SharebasedPaymentExpense"),
+    ),
+    MetricRule(
+        "basic_eps",
+        StatementType.KEY_METRICS,
+        (
+            "us-gaap:EarningsPerShareBasic",
+            "ifrs-full:BasicEarningsLossPerShare",
+        ),
+    ),
+    MetricRule(
+        "diluted_eps",
+        StatementType.KEY_METRICS,
+        (
+            "us-gaap:EarningsPerShareDiluted",
+            "ifrs-full:DilutedEarningsLossPerShare",
+        ),
+    ),
+    MetricRule(
+        "weighted_avg_shares_basic",
+        StatementType.KEY_METRICS,
+        (
+            "us-gaap:WeightedAverageNumberOfSharesOutstandingBasic",
+            "ifrs-full:WeightedAverageNumberOfOrdinarySharesOutstandingBasic",
+        ),
+    ),
+    MetricRule(
+        "weighted_avg_shares_diluted",
+        StatementType.KEY_METRICS,
+        (
+            "us-gaap:WeightedAverageNumberOfDilutedSharesOutstanding",
+            "us-gaap:WeightedAverageNumberOfSharesOutstandingDiluted",
+            "ifrs-full:WeightedAverageNumberOfOrdinarySharesOutstandingDiluted",
+        ),
+    ),
+)
+
+
+US_RULE_BY_CONCEPT = {
+    normalize_concept(label): rule
+    for rule in US_CONCEPT_RULES
+    for label in rule.labels
+}
+
+
+def find_us_rule(concept: str) -> MetricRule | None:
+    return US_RULE_BY_CONCEPT.get(normalize_concept(concept))

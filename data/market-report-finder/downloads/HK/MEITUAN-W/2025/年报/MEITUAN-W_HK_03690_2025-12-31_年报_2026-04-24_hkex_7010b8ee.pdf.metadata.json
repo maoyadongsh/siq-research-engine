@@ -1,0 +1,39 @@
+{
+  "candidate": {
+    "source_id": "hkex",
+    "source_name": "HKEXnews",
+    "source_domain": "www1.hkexnews.hk",
+    "market": "HK",
+    "company_id": "03690",
+    "ticker": "03690",
+    "company_name": "MEITUAN-W",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "2025 ANNUAL REPORT",
+    "accession_number": "12120049",
+    "primary_document": "2026042400179.pdf",
+    "report_end": "2025-12-31",
+    "published_at": "2026-04-24",
+    "accepted_at": null,
+    "document_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0424/2026042400179.pdf",
+    "landing_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0424/2026042400179.pdf",
+    "file_format": "pdf",
+    "language": "en",
+    "inline_xbrl": null,
+    "metadata": {
+      "news_id": "12120049",
+      "stock_name": "MEITUAN-W MEITUAN-WR",
+      "short_text": "Financial Statements/ESG Information - [Annual Report / Environmental, Social and Governance Information/Report]",
+      "long_text": "Financial Statements/ESG Information - [Annual Report / Environmental, Social and Governance Information/Report]",
+      "file_info": "4MB"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "MEITUAN-W_HK_03690_2025-12-31_年报_2026-04-24_hkex_7010b8ee.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/MEITUAN-W/2025/年报/MEITUAN-W_HK_03690_2025-12-31_年报_2026-04-24_hkex_7010b8ee.pdf",
+    "size_bytes": 3996348,
+    "content_type": "application/pdf",
+    "content_sha256": "709bacaac9202273907ea6c244cd7d2c798d831da71b798d3c72f189ab5698eb"
+  }
+}

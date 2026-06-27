@@ -16,7 +16,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
 from database import get_session, get_async_session
-from models import PetState, ChatMessage, InteractionLog
+from models import AgentState, ChatMessage, InteractionLog
 from services.auth_service import User
 from schemas import (
     ChatAttachment,
@@ -43,7 +43,7 @@ from services.achievement_checker import check_achievements
 from services.session_manager import get_session_manager, keeps_sessions_forever
 from services.auth_dependencies import get_current_user
 from services.path_config import BACKEND_DATA_ROOT
-from routers.pet import apply_decay, perform_action
+from routers.agent import apply_decay, perform_action
 from routers.workspace import enforce_quota_or_429
 from services.usage_service import AGENT_QUESTION_EVENT, record_usage
 
@@ -696,13 +696,13 @@ async def _submit_pdf_attachment_to_mineru(
     return metadata
 
 
-def update_pet_and_achievements(sync_session: Session) -> list[AchievementResponse]:
-    """Sync helper: update pet state and check achievements."""
-    pet = sync_session.get(PetState, 1)
-    apply_decay(pet)
-    perform_action(pet, "chat")
+def update_agent_and_achievements(sync_session: Session) -> list[AchievementResponse]:
+    """Sync helper: update agent state and check achievements."""
+    agent = sync_session.get(AgentState, 1)
+    apply_decay(agent)
+    perform_action(agent, "chat")
     sync_session.add(InteractionLog(action="chat"))
-    sync_session.add(pet)
+    sync_session.add(agent)
     sync_session.commit()
     return check_achievements(sync_session)
 
@@ -809,11 +809,11 @@ async def chat(
     )
     get_session_manager().increment_message_count(session_id)
 
-    # Update pet & achievements (sync DB)
+    # Update agent and achievements (sync DB)
     loop = asyncio.get_event_loop()
     with next(get_session()) as sync_session:
         new_achs = await loop.run_in_executor(
-            None, update_pet_and_achievements, sync_session
+            None, update_agent_and_achievements, sync_session
         )
 
     return ChatResponse(reply=reply, new_achievements=[a.model_dump(mode="json") for a in new_achs])
@@ -840,7 +840,7 @@ async def chat_stream(
         loop = asyncio.get_event_loop()
         with next(get_session()) as sync_session:
             new_achs = await loop.run_in_executor(
-                None, update_pet_and_achievements, sync_session
+                None, update_agent_and_achievements, sync_session
             )
         return {"new_achievements": [a.model_dump(mode="json") for a in new_achs]}
 

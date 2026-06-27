@@ -1,0 +1,36 @@
+{
+  "candidate": {
+    "source_id": "sec",
+    "source_name": "SEC EDGAR",
+    "source_domain": "sec.gov",
+    "market": "US",
+    "company_id": "18230",
+    "ticker": "CAT",
+    "company_name": "CATERPILLAR INC",
+    "report_type": "10-K",
+    "report_family": "annual",
+    "form": "10-K",
+    "title": "10-K",
+    "accession_number": "0000018230-26-000008",
+    "primary_document": "cat-20251231.htm",
+    "report_end": "2025-12-31",
+    "published_at": "2026-02-13",
+    "accepted_at": "2026-02-13T15:18:27Z",
+    "document_url": "https://www.sec.gov/Archives/edgar/data/18230/000001823026000008/cat-20251231.htm",
+    "landing_url": "https://www.sec.gov/Archives/edgar/data/18230/000001823026000008/0000018230-26-000008-index.html",
+    "file_format": "html",
+    "language": null,
+    "inline_xbrl": true,
+    "metadata": {
+      "sec_submission_name": "CATERPILLAR INC",
+      "accession_no_dashes": "000001823026000008"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "CATERPILLAR-INC_US_CAT_2025-12-31_10-K_2026-02-13_sec_9376bc6e.html",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/CATERPILLAR-INC/2025/年报/CATERPILLAR-INC_US_CAT_2025-12-31_10-K_2026-02-13_sec_9376bc6e.html",
+    "size_bytes": 6100469,
+    "content_type": "text/html",
+    "content_sha256": "090ce2bd6d7dd1e85d4397ab152d3c3c3fb059fd4af0eb9aa979c1eb2ff92f15"
+  }
+}

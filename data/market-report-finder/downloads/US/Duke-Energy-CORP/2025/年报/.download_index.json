@@ -1,0 +1,38 @@
+{
+  "by_url": {
+    "https://www.sec.gov/Archives/edgar/data/1326160/000132616026000014/duk-20251231.htm": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/Duke-Energy-CORP/2025/年报/Duke-Energy-CORP_US_DUK_2025-12-31_10-K_2026-02-26_sec_c1abe2d4.htm",
+      "file_name": "Duke-Energy-CORP_US_DUK_2025-12-31_10-K_2026-02-26_sec_c1abe2d4.htm",
+      "content_type": "text/html",
+      "content_sha256": "638cd653df525f8be9ec031196a2cb9ae2b44f55d719911129f9a406b3974c8f",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/Duke-Energy-CORP/2025/年报/Duke-Energy-CORP_US_DUK_2025-12-31_10-K_2026-02-26_sec_c1abe2d4.htm.metadata.json",
+      "market": "US",
+      "company_id": "DUK",
+      "ticker": "DUK",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-02-26",
+      "accession_number": "0001326160-26-000014"
+    }
+  },
+  "by_content_sha256": {
+    "638cd653df525f8be9ec031196a2cb9ae2b44f55d719911129f9a406b3974c8f": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/Duke-Energy-CORP/2025/年报/Duke-Energy-CORP_US_DUK_2025-12-31_10-K_2026-02-26_sec_c1abe2d4.htm",
+      "file_name": "Duke-Energy-CORP_US_DUK_2025-12-31_10-K_2026-02-26_sec_c1abe2d4.htm",
+      "content_type": "text/html",
+      "content_sha256": "638cd653df525f8be9ec031196a2cb9ae2b44f55d719911129f9a406b3974c8f",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/Duke-Energy-CORP/2025/年报/Duke-Energy-CORP_US_DUK_2025-12-31_10-K_2026-02-26_sec_c1abe2d4.htm.metadata.json",
+      "market": "US",
+      "company_id": "DUK",
+      "ticker": "DUK",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-02-26",
+      "accession_number": "0001326160-26-000014"
+    }
+  }
+}

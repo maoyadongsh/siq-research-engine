@@ -1,0 +1,33 @@
+{
+  "candidate": {
+    "source_id": "dart_public",
+    "source_name": "DART public disclosure PDF",
+    "source_domain": "dart.fss.or.kr",
+    "market": "KR",
+    "company_id": "00159023",
+    "ticker": "017670",
+    "company_name": "SK Telecom Co., Ltd.",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "사업보고서 (2025.12)",
+    "accession_number": "manual",
+    "primary_document": "pdf.do",
+    "report_end": "2025-12-31",
+    "published_at": "2026-03-18",
+    "accepted_at": null,
+    "document_url": "https://dart.fss.or.kr/pdf/download/pdf.do?rcp_no=20260318000532&dcm_no=11136386",
+    "landing_url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260318000532",
+    "file_format": "pdf",
+    "language": null,
+    "inline_xbrl": null,
+    "metadata": {}
+  },
+  "downloaded_file": {
+    "file_name": "SK-Telecom-Co.,-Ltd_KR_017670_2025-12-31_年报_2026-03-18_dart_public_82beb895.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/SK-Telecom-Co.,-Ltd/2025/年报/SK-Telecom-Co.,-Ltd_KR_017670_2025-12-31_年报_2026-03-18_dart_public_82beb895.pdf",
+    "size_bytes": 1925957,
+    "content_type": "application/pdf",
+    "content_sha256": "16e742b7f429a780cabe98aed34d13ecc63e08a456aff6f9282d953bcfcc4549"
+  }
+}

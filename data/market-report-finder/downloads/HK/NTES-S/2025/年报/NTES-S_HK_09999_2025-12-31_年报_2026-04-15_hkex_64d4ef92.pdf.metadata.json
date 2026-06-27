@@ -1,0 +1,39 @@
+{
+  "candidate": {
+    "source_id": "hkex",
+    "source_name": "HKEXnews",
+    "source_domain": "www1.hkexnews.hk",
+    "market": "HK",
+    "company_id": "09999",
+    "ticker": "09999",
+    "company_name": "NTES-S",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "2025 ANNUAL REPORT",
+    "accession_number": "12106878",
+    "primary_document": "2026041501230.pdf",
+    "report_end": "2025-12-31",
+    "published_at": "2026-04-15",
+    "accepted_at": null,
+    "document_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0415/2026041501230.pdf",
+    "landing_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0415/2026041501230.pdf",
+    "file_format": "pdf",
+    "language": "en",
+    "inline_xbrl": null,
+    "metadata": {
+      "news_id": "12106878",
+      "stock_name": "NTES-S",
+      "short_text": "Financial Statements/ESG Information - [Annual Report]",
+      "long_text": "Financial Statements/ESG Information - [Annual Report]",
+      "file_info": "6MB"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "NTES-S_HK_09999_2025-12-31_年报_2026-04-15_hkex_64d4ef92.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/NTES-S/2025/年报/NTES-S_HK_09999_2025-12-31_年报_2026-04-15_hkex_64d4ef92.pdf",
+    "size_bytes": 5811857,
+    "content_type": "application/pdf",
+    "content_sha256": "45fd2a807ec296857ba914ab2b2af4cf02b6051cdcf9296b7e0d7fa62a82aabf"
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "candidate": {
+    "source_id": "hkex",
+    "source_name": "HKEXnews",
+    "source_domain": "www1.hkexnews.hk",
+    "market": "HK",
+    "company_id": "02313",
+    "ticker": "02313",
+    "company_name": "SHENZHOU INTL",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "Notification Letter to Non-registered Shareholders and Reply Form - Notice of Publication of Annual Report 2025, Environment, Social and Governance Report, Circular and Notice for the Annual General Meeting",
+    "accession_number": "12118438",
+    "primary_document": "2026042301549.pdf",
+    "report_end": "2025-12-31",
+    "published_at": "2026-04-23",
+    "accepted_at": null,
+    "document_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0423/2026042301549.pdf",
+    "landing_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0423/2026042301549.pdf",
+    "file_format": "pdf",
+    "language": "en",
+    "inline_xbrl": null,
+    "metadata": {
+      "news_id": "12118438",
+      "stock_name": "SHENZHOU INTL",
+      "short_text": "Circulars - [Other]",
+      "long_text": "Circulars - [Other]",
+      "file_info": "1023KB"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "SHENZHOU-INTL_HK_02313_2025-12-31_年报_2026-04-23_hkex_8adef5e3.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/SHENZHOU-INTL/2025/年报/SHENZHOU-INTL_HK_02313_2025-12-31_年报_2026-04-23_hkex_8adef5e3.pdf",
+    "size_bytes": 1047562,
+    "content_type": "application/pdf",
+    "content_sha256": "35831a3407e576c90fb998e428daf22f2bb6fb33c33bedc3ac5239feb6eb2ce7"
+  }
+}

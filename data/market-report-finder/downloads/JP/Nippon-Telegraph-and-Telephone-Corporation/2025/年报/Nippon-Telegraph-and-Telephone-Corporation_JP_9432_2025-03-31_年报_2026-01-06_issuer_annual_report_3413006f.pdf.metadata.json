@@ -1,0 +1,37 @@
+{
+  "candidate": {
+    "source_id": "issuer_annual_report",
+    "source_name": "Issuer annual report / IR",
+    "source_domain": "group.ntt",
+    "market": "JP",
+    "company_id": "JP:9432",
+    "ticker": "9432",
+    "company_name": "Nippon Telegraph and Telephone Corporation",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "NTT Integrated Report 2025",
+    "accession_number": "JP:9432",
+    "primary_document": "integrated_report_25e.pdf",
+    "report_end": "2025-03-31",
+    "published_at": "2026-01-06",
+    "accepted_at": null,
+    "document_url": "https://group.ntt/en/ir/library/annual/pdf/integrated_report_25e.pdf",
+    "landing_url": "https://group.ntt/en/ir/library/annual/",
+    "file_format": "pdf",
+    "language": "en",
+    "inline_xbrl": null,
+    "metadata": {
+      "industry": "Telecommunications",
+      "source_tier": "issuer_official_direct",
+      "source_note": "Curated mainstream Japanese issuer IR annual-report download; EDINET/TDnet remain available for live statutory and exchange disclosures."
+    }
+  },
+  "downloaded_file": {
+    "file_name": "Nippon-Telegraph-and-Telephone-Corporation_JP_9432_2025-03-31_年报_2026-01-06_issuer_annual_report_3413006f.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/Nippon-Telegraph-and-Telephone-Corporation/2025/年报/Nippon-Telegraph-and-Telephone-Corporation_JP_9432_2025-03-31_年报_2026-01-06_issuer_annual_report_3413006f.pdf",
+    "size_bytes": 14385521,
+    "content_type": "application/pdf",
+    "content_sha256": "4a4c88285cc36d6acee5d03e1cde042a98cf41b87df5ea321be95d986eb61ec9"
+  }
+}

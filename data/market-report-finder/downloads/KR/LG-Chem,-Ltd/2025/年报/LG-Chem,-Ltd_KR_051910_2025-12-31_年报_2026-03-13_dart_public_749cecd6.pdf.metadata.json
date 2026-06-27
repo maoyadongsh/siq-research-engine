@@ -1,0 +1,33 @@
+{
+  "candidate": {
+    "source_id": "dart_public",
+    "source_name": "DART public disclosure PDF",
+    "source_domain": "dart.fss.or.kr",
+    "market": "KR",
+    "company_id": "00356361",
+    "ticker": "051910",
+    "company_name": "LG Chem, Ltd.",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "사업보고서 (2025.12)",
+    "accession_number": "manual",
+    "primary_document": "pdf.do",
+    "report_end": "2025-12-31",
+    "published_at": "2026-03-13",
+    "accepted_at": null,
+    "document_url": "https://dart.fss.or.kr/pdf/download/pdf.do?rcp_no=20260313001195&dcm_no=11121928",
+    "landing_url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260313001195",
+    "file_format": "pdf",
+    "language": null,
+    "inline_xbrl": null,
+    "metadata": {}
+  },
+  "downloaded_file": {
+    "file_name": "LG-Chem,-Ltd_KR_051910_2025-12-31_年报_2026-03-13_dart_public_749cecd6.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/LG-Chem,-Ltd/2025/年报/LG-Chem,-Ltd_KR_051910_2025-12-31_年报_2026-03-13_dart_public_749cecd6.pdf",
+    "size_bytes": 2060818,
+    "content_type": "application/pdf",
+    "content_sha256": "8095c9471090d170eb169ba352f490defb243ee10b5ace243c9359f64863cff8"
+  }
+}

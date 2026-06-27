@@ -1,0 +1,60 @@
+{
+  "by_url": {
+    "https://global.fujitsu/-/media/Project/Fujitsu/Fujitsu-HQ/about/integrated-report/2025/integrated-report-2025-en.pdf?rev=889a9b84954c46e3ab772b11facb539d&hash=51362E00F41F124C9B5C6C9D6D4B8B80": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/Fujitsu-Limited/2025/年报/Fujitsu-Limited_JP_6702_2025-03-31_年报_2025-11-04_issuer_annual_report_d75a8968.pdf",
+      "file_name": "Fujitsu-Limited_JP_6702_2025-03-31_年报_2025-11-04_issuer_annual_report_d75a8968.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "fbf199c8fc97315b41767c5b636f686ffae92f4818cda4be42e2b35766167689",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/Fujitsu-Limited/2025/年报/Fujitsu-Limited_JP_6702_2025-03-31_年报_2025-11-04_issuer_annual_report_d75a8968.pdf.metadata.json",
+      "market": "JP",
+      "company_id": "JP:6702",
+      "ticker": "6702",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-03-31",
+      "published_at": "2025-11-04",
+      "accession_number": "JP:6702",
+      "country": null,
+      "source_tier": "issuer_official_direct"
+    },
+    "https://global.fujitsu/en-global/about/ir/library/integratedreport/": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/Fujitsu-Limited/2025/年报/Fujitsu-Limited_JP_6702_2025-03-31_年报_2025-11-04_issuer_annual_report_d75a8968.pdf",
+      "file_name": "Fujitsu-Limited_JP_6702_2025-03-31_年报_2025-11-04_issuer_annual_report_d75a8968.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "fbf199c8fc97315b41767c5b636f686ffae92f4818cda4be42e2b35766167689",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/Fujitsu-Limited/2025/年报/Fujitsu-Limited_JP_6702_2025-03-31_年报_2025-11-04_issuer_annual_report_d75a8968.pdf.metadata.json",
+      "market": "JP",
+      "company_id": "JP:6702",
+      "ticker": "6702",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-03-31",
+      "published_at": "2025-11-04",
+      "accession_number": "JP:6702",
+      "country": null,
+      "source_tier": "issuer_official_direct"
+    }
+  },
+  "by_content_sha256": {
+    "fbf199c8fc97315b41767c5b636f686ffae92f4818cda4be42e2b35766167689": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/Fujitsu-Limited/2025/年报/Fujitsu-Limited_JP_6702_2025-03-31_年报_2025-11-04_issuer_annual_report_d75a8968.pdf",
+      "file_name": "Fujitsu-Limited_JP_6702_2025-03-31_年报_2025-11-04_issuer_annual_report_d75a8968.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "fbf199c8fc97315b41767c5b636f686ffae92f4818cda4be42e2b35766167689",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/Fujitsu-Limited/2025/年报/Fujitsu-Limited_JP_6702_2025-03-31_年报_2025-11-04_issuer_annual_report_d75a8968.pdf.metadata.json",
+      "market": "JP",
+      "company_id": "JP:6702",
+      "ticker": "6702",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-03-31",
+      "published_at": "2025-11-04",
+      "accession_number": "JP:6702",
+      "country": null,
+      "source_tier": "issuer_official_direct"
+    }
+  }
+}

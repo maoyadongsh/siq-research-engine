@@ -1,0 +1,36 @@
+{
+  "candidate": {
+    "source_id": "cninfo",
+    "source_name": "巨潮资讯",
+    "source_domain": "www.cninfo.com.cn",
+    "market": "CN",
+    "company_id": "600276",
+    "ticker": "600276",
+    "company_name": "恒瑞医药",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "恒瑞医药2025年年度报告",
+    "accession_number": "1225032585",
+    "primary_document": "1225032585.PDF",
+    "report_end": "2025-12-31",
+    "published_at": "2026-03-25",
+    "accepted_at": null,
+    "document_url": "https://static.cninfo.com.cn/finalpage/2026-03-26/1225032585.PDF",
+    "landing_url": "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=600276&announcementId=1225032585&orgId=gssh0600276&announcementTime=2026-03-25",
+    "file_format": "pdf",
+    "language": "zh-CN",
+    "inline_xbrl": null,
+    "metadata": {
+      "org_id": "gssh0600276",
+      "plate": "sh"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "恒瑞医药_CN_600276_2025-12-31_年报_2026-03-25_cninfo_0d6a48c9.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/恒瑞医药/2025/年报/恒瑞医药_CN_600276_2025-12-31_年报_2026-03-25_cninfo_0d6a48c9.pdf",
+    "size_bytes": 3457175,
+    "content_type": "application/pdf",
+    "content_sha256": "fae80e2d132f5b6f2bfbb8bcdfd40e1267edb91d689389d63c8e291b0856ace6"
+  }
+}

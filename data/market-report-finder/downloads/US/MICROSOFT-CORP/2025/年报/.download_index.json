@@ -1,0 +1,38 @@
+{
+  "by_url": {
+    "https://www.sec.gov/Archives/edgar/data/789019/000095017025100235/msft-20250630.htm": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/MICROSOFT-CORP/2025/年报/MICROSOFT-CORP_US_MSFT_2025-06-30_10-K_2025-07-30_sec_683d5643.htm",
+      "file_name": "MICROSOFT-CORP_US_MSFT_2025-06-30_10-K_2025-07-30_sec_683d5643.htm",
+      "content_type": "text/html",
+      "content_sha256": "99d693f6c1544144ebeee92954f151a85bc62111837530a42855953bc01d0bbe",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/MICROSOFT-CORP/2025/年报/MICROSOFT-CORP_US_MSFT_2025-06-30_10-K_2025-07-30_sec_683d5643.htm.metadata.json",
+      "market": "US",
+      "company_id": "MSFT",
+      "ticker": "MSFT",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-06-30",
+      "published_at": "2025-07-30",
+      "accession_number": "0000950170-25-100235"
+    }
+  },
+  "by_content_sha256": {
+    "99d693f6c1544144ebeee92954f151a85bc62111837530a42855953bc01d0bbe": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/MICROSOFT-CORP/2025/年报/MICROSOFT-CORP_US_MSFT_2025-06-30_10-K_2025-07-30_sec_683d5643.htm",
+      "file_name": "MICROSOFT-CORP_US_MSFT_2025-06-30_10-K_2025-07-30_sec_683d5643.htm",
+      "content_type": "text/html",
+      "content_sha256": "99d693f6c1544144ebeee92954f151a85bc62111837530a42855953bc01d0bbe",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/MICROSOFT-CORP/2025/年报/MICROSOFT-CORP_US_MSFT_2025-06-30_10-K_2025-07-30_sec_683d5643.htm.metadata.json",
+      "market": "US",
+      "company_id": "MSFT",
+      "ticker": "MSFT",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-06-30",
+      "published_at": "2025-07-30",
+      "accession_number": "0000950170-25-100235"
+    }
+  }
+}

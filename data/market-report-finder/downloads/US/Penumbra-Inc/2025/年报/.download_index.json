@@ -1,0 +1,38 @@
+{
+  "by_url": {
+    "https://www.sec.gov/Archives/edgar/data/1321732/000132173226000007/pen-20251231.htm": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/Penumbra-Inc/2025/年报/Penumbra-Inc_US_PEN_2025-12-31_10-K_2026-02-25_sec_711d1eab.htm",
+      "file_name": "Penumbra-Inc_US_PEN_2025-12-31_10-K_2026-02-25_sec_711d1eab.htm",
+      "content_type": "text/html",
+      "content_sha256": "e375440378163b25b45e46542f5afca85b249f440530b42c339c17569c491046",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/Penumbra-Inc/2025/年报/Penumbra-Inc_US_PEN_2025-12-31_10-K_2026-02-25_sec_711d1eab.htm.metadata.json",
+      "market": "US",
+      "company_id": "PEN",
+      "ticker": "PEN",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-02-25",
+      "accession_number": "0001321732-26-000007"
+    }
+  },
+  "by_content_sha256": {
+    "e375440378163b25b45e46542f5afca85b249f440530b42c339c17569c491046": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/Penumbra-Inc/2025/年报/Penumbra-Inc_US_PEN_2025-12-31_10-K_2026-02-25_sec_711d1eab.htm",
+      "file_name": "Penumbra-Inc_US_PEN_2025-12-31_10-K_2026-02-25_sec_711d1eab.htm",
+      "content_type": "text/html",
+      "content_sha256": "e375440378163b25b45e46542f5afca85b249f440530b42c339c17569c491046",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/Penumbra-Inc/2025/年报/Penumbra-Inc_US_PEN_2025-12-31_10-K_2026-02-25_sec_711d1eab.htm.metadata.json",
+      "market": "US",
+      "company_id": "PEN",
+      "ticker": "PEN",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-02-25",
+      "accession_number": "0001321732-26-000007"
+    }
+  }
+}

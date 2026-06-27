@@ -12,10 +12,10 @@ interface AgentAvatarProps {
 }
 
 const avatarSrc: Record<AgentAvatarKind, string> = {
-  analysis: '/pet/agent-drafts/siq-analysis-avatar-animated-transparent.webp',
-  factchecker: '/pet/agent-drafts/siq-factchecker-avatar-animated-transparent.webp',
-  tracking: '/pet/agent-drafts/siq-tracking-avatar-animated-transparent.webp',
-  legal: '/pet/agent-drafts/siq-legal-avatar-animated-transparent.webp',
+  analysis: '/agent/agent-drafts/siq-analysis-avatar-animated-transparent.webp',
+  factchecker: '/agent/agent-drafts/siq-factchecker-avatar-animated-transparent.webp',
+  tracking: '/agent/agent-drafts/siq-tracking-avatar-animated-transparent.webp',
+  legal: '/agent/agent-drafts/siq-legal-avatar-animated-transparent.webp',
 }
 
 const sizeClass = {

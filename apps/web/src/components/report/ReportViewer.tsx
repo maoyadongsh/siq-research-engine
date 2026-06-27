@@ -286,29 +286,29 @@ export default function ReportViewer({ agentConfig, pageTitle, reportType, repor
               )}
             </div>
           </div>
-          <div className="flex flex-col gap-4 border-t border-border/70 px-4 py-4 sm:px-5 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between">
-            <ReportSelector
-              companies={companies}
-              selectedDir={selectedDir}
-              onSelectDir={setSelectedDir}
-              reports={reports}
-              selectedReportUrl={selectedReportUrl}
-              onSelectReportUrl={handleSelectReportUrl}
-              reportType={reportType}
-              hasReports={hasReports}
-            />
-            <ReportToolbar
-              selectedReportUrl={selectedReportUrl}
-              canDeleteReport={canDeleteReport}
-              confirmDelete={confirmDelete}
-              deleting={deleting}
-              onConfirmDeleteChange={setConfirmDelete}
-              onShare={share}
-              onDownload={downloadSelectedReport}
-              onDelete={deleteSelectedReport}
-            />
-          </div>
         </section>
+        <div className="page-toolbar flex flex-col gap-4 px-4 py-4 sm:px-5 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between">
+          <ReportSelector
+            companies={companies}
+            selectedDir={selectedDir}
+            onSelectDir={setSelectedDir}
+            reports={reports}
+            selectedReportUrl={selectedReportUrl}
+            onSelectReportUrl={handleSelectReportUrl}
+            reportType={reportType}
+            hasReports={hasReports}
+          />
+          <ReportToolbar
+            selectedReportUrl={selectedReportUrl}
+            canDeleteReport={canDeleteReport}
+            confirmDelete={confirmDelete}
+            deleting={deleting}
+            onConfirmDeleteChange={setConfirmDelete}
+            onShare={share}
+            onDownload={downloadSelectedReport}
+            onDelete={deleteSelectedReport}
+          />
+        </div>
         {reportLoading ? (
           <div className="secondary-panel flex items-center justify-center px-5 py-20 text-text-muted">
             <Loader2 className="mr-3 h-6 w-6 animate-spin text-primary" />

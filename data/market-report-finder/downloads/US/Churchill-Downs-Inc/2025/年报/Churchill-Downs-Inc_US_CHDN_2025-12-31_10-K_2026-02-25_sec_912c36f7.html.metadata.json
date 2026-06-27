@@ -1,0 +1,36 @@
+{
+  "candidate": {
+    "source_id": "sec",
+    "source_name": "SEC EDGAR",
+    "source_domain": "sec.gov",
+    "market": "US",
+    "company_id": "20212",
+    "ticker": "CHDN",
+    "company_name": "Churchill Downs Inc",
+    "report_type": "10-K",
+    "report_family": "annual",
+    "form": "10-K",
+    "title": "10-K",
+    "accession_number": "0000020212-26-000025",
+    "primary_document": "chdn-20251231.htm",
+    "report_end": "2025-12-31",
+    "published_at": "2026-02-25",
+    "accepted_at": "2026-02-25T21:36:42Z",
+    "document_url": "https://www.sec.gov/Archives/edgar/data/20212/000002021226000025/chdn-20251231.htm",
+    "landing_url": "https://www.sec.gov/Archives/edgar/data/20212/000002021226000025/0000020212-26-000025-index.html",
+    "file_format": "html",
+    "language": null,
+    "inline_xbrl": true,
+    "metadata": {
+      "sec_submission_name": "Churchill Downs Inc",
+      "accession_no_dashes": "000002021226000025"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "Churchill-Downs-Inc_US_CHDN_2025-12-31_10-K_2026-02-25_sec_912c36f7.html",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/Churchill-Downs-Inc/2025/年报/Churchill-Downs-Inc_US_CHDN_2025-12-31_10-K_2026-02-25_sec_912c36f7.html",
+    "size_bytes": 2489206,
+    "content_type": "text/html",
+    "content_sha256": "881cc711c0982bd5081de4cca472d23799fec31fa722b4937d1d248a1f3915b8"
+  }
+}

@@ -2,27 +2,24 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   X,
   Minus,
-  Send,
-  Loader2,
-  Paperclip,
   History,
   Trash2,
   Plus,
-  Copy,
 } from 'lucide-react'
-import ChatAttachmentList from './ChatAttachmentList'
-import PetFairy, { type PetFairyState } from './PetFairy'
-import MessageRenderer from './MessageRenderer'
-import MessageTimestamp from './MessageTimestamp'
+import AgentFairy, { type AgentFairyState } from './AgentFairy'
 import SessionHistoryList from './SessionHistoryList'
 import ClearChatConfirmDialog from './ClearChatConfirmDialog'
+import ChatComposer from './ChatComposer'
+import ChatHeader from './ChatHeader'
+import ChatMessageList, { type ChatQuickQuestion } from './ChatMessageList'
+import ChatShell from './ChatShell'
 import { useToast } from '../../hooks/useToast'
 import { useAgentChat, type AgentMessage } from '../../lib/useAgentChat'
 import { useAutosizeTextarea } from '../../lib/useAutosizeTextarea'
 import { copyText } from '../../lib/clipboard'
 import { assistantQuickQuestions, quickQuestionLabel, quickQuestionPrompt } from '../../lib/quickQuestions'
 
-function messageFairyState(msg: AgentMessage): PetFairyState {
+function messageFairyState(msg: AgentMessage): AgentFairyState {
   if (msg.content.startsWith('[错误]')) return 'error'
   if (msg.streaming && msg.content) return 'replying'
   if (msg.streaming) return 'thinking'
@@ -43,7 +40,7 @@ export default function ChatBot() {
         }}
         aria-label="打开财报助手"
       >
-        <PetFairy state="idle" size="md" imageSrc="/pet/siq-avatar-preview.webp" />
+        <AgentFairy state="idle" size="md" imageSrc="/agent/siq-avatar-preview.webp" />
       </button>
     )
   }
@@ -82,7 +79,7 @@ function OpenChatBot({ onClose }: { onClose: () => void }) {
   const assistantStreaming = messages.some((msg) => msg.role === 'assistant' && msg.streaming)
   const assistantHasContent = messages.some((msg) => msg.role === 'assistant' && msg.streaming && msg.content)
   const hadError = messages.some((msg) => msg.role === 'assistant' && msg.content.startsWith('[错误]'))
-  const fairyState: PetFairyState = hadError ? 'error' : assistantHasContent ? 'replying' : assistantStreaming || sending ? 'thinking' : 'idle'
+  const fairyState: AgentFairyState = hadError ? 'error' : assistantHasContent ? 'replying' : assistantStreaming || sending ? 'thinking' : 'idle'
   useAutosizeTextarea(textareaRef, input)
 
   const scrollToBottom = useCallback(() => {
@@ -92,13 +89,6 @@ function OpenChatBot({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     scrollToBottom()
   }, [messages, scrollToBottom])
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey && !composing) {
-      e.preventDefault()
-      sendMessage()
-    }
-  }
 
   const handleAttachmentChange = async (files: FileList | null) => {
     if (!files?.length) return
@@ -143,23 +133,37 @@ function OpenChatBot({ onClose }: { onClose: () => void }) {
     setHistoryOpen(false)
   }
 
+  const quickQuestions: ChatQuickQuestion[] = assistantQuickQuestions.map((q) => {
+    const label = quickQuestionLabel(q)
+    const featured = typeof q !== 'string' && q.featured
+    return {
+      key: label,
+      label,
+      featured,
+      onClick: () => { sendMessage(quickQuestionPrompt(q), undefined, label).catch(() => {}) },
+    }
+  })
+
   return (
-    <div
-      className="fixed z-50 flex flex-col overflow-hidden rounded-[24px] border border-border bg-white/96 shadow-[0_24px_80px_rgba(15,23,42,0.18)] backdrop-blur-2xl"
+    <ChatShell
+      className="global-chat-window fixed z-50 rounded-[var(--radius-panel)] border border-border bg-white/96 shadow-[0_24px_80px_rgba(15,23,42,0.18)] backdrop-blur-2xl"
       style={{
         bottom: 'max(1rem, env(safe-area-inset-bottom))',
         right: 'max(1rem, env(safe-area-inset-right))',
         height: 'min(620px, calc(100dvh - 2rem))',
         width: 'min(400px, calc(100vw - 2rem))',
       }}
-    >
-          {/* Header */}
-          <div className="flex items-center justify-between border-b border-border px-4 py-3">
-            <div className="flex items-center gap-2">
-              <PetFairy state={fairyState} size="sm" />
-              <span className="text-sm font-semibold text-text">财报助手</span>
-            </div>
-            <div className="flex gap-1">
+      header={
+        <ChatHeader
+          className="border-b border-border px-4 py-3"
+          leadingClassName="flex min-w-0 items-center gap-2"
+          framedAvatar={false}
+          avatar={<AgentFairy state={fairyState} size="sm" />}
+          title="财报助手"
+          titleClassName="truncate text-sm font-semibold text-text"
+          actionsClassName="flex gap-1"
+          actions={
+            <>
               <button
                 onClick={handleNewChat}
                 disabled={sending}
@@ -200,170 +204,72 @@ function OpenChatBot({ onClose }: { onClose: () => void }) {
               >
                 <X className="h-4 w-4" />
               </button>
+            </>
+          }
+        />
+      }
+      history={historyOpen ? (
+        <SessionHistoryList
+          sessions={sessions}
+          loading={loadingSessions}
+          loaded={sessionsLoaded}
+          compact
+          onSelect={handleSwitchSession}
+          onClose={() => setHistoryOpen(false)}
+        />
+      ) : null}
+      messages={
+        <ChatMessageList
+          messages={messages}
+          endRef={messagesEnd}
+          compact
+          emptyAvatar={<AgentFairy state={fairyState} size="float" className="mb-3" />}
+          emptyDescription="你好！我是财报分析助手，可以回答关于已入库财报的问题。"
+          emptyClassName="flex flex-col items-center py-8 text-center"
+          emptyDescriptionClassName="mb-4 text-sm text-text-muted"
+          quickQuestions={quickQuestions}
+          onCopyMessage={copyMessage}
+          renderStreamingAvatar={(msg) => (
+            <div className="pointer-events-none mr-2 mt-auto -mb-2 shrink-0 self-end">
+              <AgentFairy state={messageFairyState(msg)} size="lg" label="当前助手状态" />
             </div>
-          </div>
-
-          {historyOpen && (
-            <SessionHistoryList
-              sessions={sessions}
-              loading={loadingSessions}
-              loaded={sessionsLoaded}
-              compact
-              onSelect={handleSwitchSession}
-              onClose={() => setHistoryOpen(false)}
-            />
           )}
-
-          {/* Messages */}
-          <div className="flex-1 overflow-y-auto px-4 py-3">
-            {messages.length === 0 && (
-              <div className="flex flex-col items-center py-8 text-center">
-                <PetFairy state={fairyState} size="float" className="mb-3" />
-                <p className="mb-4 text-sm text-text-muted">
-                  你好！我是财报分析助手，可以回答关于已入库财报的问题。
-                </p>
-                <div className="quick-question-cloud quick-question-cloud-compact">
-                  {assistantQuickQuestions.map((q) => {
-                    const label = quickQuestionLabel(q)
-                    const featured = typeof q !== 'string' && q.featured
-                    return (
-                    <button
-                      key={label}
-                      onClick={() => sendMessage(quickQuestionPrompt(q), undefined, label)}
-                      className={`premium-chip quick-question-chip ${featured ? 'quick-question-chip-featured' : ''}`}
-                    >
-                      {label}
-                    </button>
-                  )})}
-                </div>
-              </div>
-            )}
-
-            {messages.map((msg, i) => (
-              <div
-                key={i}
-                className={`mb-3 flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-              >
-                {msg.role === 'assistant' && msg.streaming && i === messages.length - 1 && (
-                  <div className="pointer-events-none mr-2 mt-auto -mb-2 shrink-0 self-end">
-                    <PetFairy state={messageFairyState(msg)} size="lg" label="当前助手状态" />
-                  </div>
-                )}
-                <div className={`flex flex-col ${msg.role === 'user' ? 'max-w-[84%] items-end' : 'max-w-[96%] items-start'}`}>
-                  <div
-                    className={`w-fit max-w-full rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
-                      msg.role === 'user'
-                        ? 'rounded-br-md bg-blue-100 text-blue-900'
-                        : 'rounded-bl-md bg-bg text-text'
-                    }`}
-                  >
-                    {msg.content ? (
-                      <MessageRenderer
-                        content={msg.content}
-                        streaming={msg.streaming}
-                        variant={msg.role === 'user' ? 'user' : 'assistant'}
-                      />
-                    ) : (
-                      msg.streaming ? '正在思考…' : ''
-                    )}
-                    <ChatAttachmentList attachments={msg.attachments} />
-                    {msg.streaming && msg.content && (
-                      <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-primary" />
-                    )}
-                    {msg.content && !msg.streaming && (
-                      <div className="chat-message-actions">
-                        <button
-                          type="button"
-                          className="chat-message-copy"
-                          onClick={() => copyMessage(msg.content)}
-                          aria-label="复制消息"
-                        >
-                          <Copy className="h-3 w-3" />
-                          复制
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  <MessageTimestamp value={msg.createdAt} align={msg.role === 'user' ? 'right' : 'left'} />
-                </div>
-              </div>
-            ))}
-            <div ref={messagesEnd} />
-          </div>
-
-          {/* Input */}
-          <div className="chat-composer-section px-4 py-2">
-            <div className="chat-composer-wrap">
-              <div className="chat-composer-field">
-              <textarea
-                ref={textareaRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                onCompositionStart={() => setComposing(true)}
-                onCompositionEnd={() => setComposing(false)}
-                placeholder="输入你的问题…"
-                rows={1}
-                className="chat-composer-textarea chat-composer-textarea-compact"
-              />
-                <ChatAttachmentList attachments={attachments} composer onRemove={removeAttachment} />
-                <div className="chat-composer-footer">
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword,text/markdown,text/plain,text/csv,application/json,application/rtf,.md,.markdown,.txt,.csv,.json,.rtf,.doc,.docx,.pdf"
-                    multiple
-                    className="hidden"
-                    onChange={(e) => handleAttachmentChange(e.target.files)}
-                  />
-                  <button
-                    className="chat-composer-tool"
-                    aria-label="添加附件"
-                    type="button"
-                    disabled={sending || uploadingAttachments}
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    <Paperclip className="h-4 w-4" />
-                  </button>
-                  <div className="chat-composer-actions">
-                    <button
-                      type="button"
-                      onClick={handleNewChat}
-                      disabled={sending}
-                      className="chat-composer-tool"
-                      aria-label="新建会话"
-                      title="新建会话"
-                    >
-                      <Plus className="h-4 w-4" />
-                    </button>
-                    {sending && (
-                      <button onClick={stop} className="chat-composer-stop">
-                        停止
-                      </button>
-                    )}
-                    <button
-                      onClick={() => sendMessage()}
-                      disabled={sending || uploadingAttachments || (!input.trim() && attachments.length === 0)}
-                      className="chat-composer-send"
-                      aria-label="发送消息"
-                    >
-                      {sending ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Send className="h-4 w-4" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <ClearChatConfirmDialog
-            open={clearConfirmOpen}
-            disabled={sending}
-            onOpenChange={setClearConfirmOpen}
-            onConfirm={handleClearChat}
-          />
-    </div>
+          userMessageClassName="chat-message-bubble w-fit max-w-full rounded-[18px] rounded-br-md bg-primary px-4 py-2.5 text-sm leading-relaxed text-white"
+          assistantMessageClassName="chat-message-bubble w-fit max-w-full rounded-[18px] rounded-bl-md border border-border bg-white/82 px-4 py-2.5 text-sm leading-relaxed text-text"
+          messageGapClassName="space-y-3"
+        />
+      }
+      messagesClassName="flex-1 overflow-y-auto px-4 py-3"
+      composer={
+        <ChatComposer
+          input={input}
+          setInput={setInput}
+          composing={composing}
+          setComposing={setComposing}
+          sending={sending}
+          uploadingAttachments={uploadingAttachments}
+          attachments={attachments}
+          textareaRef={textareaRef}
+          fileInputRef={fileInputRef}
+          onSend={() => { sendMessage().catch(() => {}) }}
+          onStop={stop}
+          onNewChat={() => { handleNewChat().catch(() => {}) }}
+          onAttachmentChange={(files) => { handleAttachmentChange(files).catch(() => {}) }}
+          onRemoveAttachment={removeAttachment}
+          placeholder="输入你的问题…"
+          compact
+          textareaIconSize="h-4 w-4"
+        />
+      }
+      composerClassName="chat-composer-section px-4 py-2"
+      clearDialog={
+        <ClearChatConfirmDialog
+          open={clearConfirmOpen}
+          disabled={sending}
+          onOpenChange={setClearConfirmOpen}
+          onConfirm={handleClearChat}
+        />
+      }
+    />
   )
 }

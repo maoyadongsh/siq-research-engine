@@ -3,7 +3,7 @@ from typing import Any, Optional
 from datetime import datetime
 
 
-class PetStateResponse(BaseModel):
+class AgentStateResponse(BaseModel):
     name: str
     level: int
     xp: int
@@ -16,8 +16,8 @@ class PetStateResponse(BaseModel):
         from_attributes = True
 
 
-class ActionResponse(BaseModel):
-    pet: PetStateResponse
+class AgentActionResponse(BaseModel):
+    agent: AgentStateResponse
     new_achievements: list["AchievementResponse"]
 
 
@@ -96,5 +96,5 @@ class AchievementResponse(BaseModel):
         from_attributes = True
 
 
-ActionResponse.model_rebuild()
+AgentActionResponse.model_rebuild()
 ChatResponse.model_rebuild()

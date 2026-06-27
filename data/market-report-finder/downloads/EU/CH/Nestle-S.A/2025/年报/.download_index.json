@@ -1,0 +1,60 @@
+{
+  "by_url": {
+    "https://www.nestle.com/sites/default/files/2026-02/annual-review-2025-en.pdf": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/CH/Nestle-S.A/2025/年报/Nestle-S.A_EU_NESN_2025-12-31_年报_2026-02-13_six_direct_e2557c2e.pdf",
+      "file_name": "Nestle-S.A_EU_NESN_2025-12-31_年报_2026-02-13_six_direct_e2557c2e.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "b4692b61b0275eecab67aa767bc96afa595342243329bdb637f6efd1ca988361",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/CH/Nestle-S.A/2025/年报/Nestle-S.A_EU_NESN_2025-12-31_年报_2026-02-13_six_direct_e2557c2e.pdf.metadata.json",
+      "market": "EU",
+      "company_id": "CH:NESN",
+      "ticker": "NESN",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-02-13",
+      "accession_number": "manual",
+      "country": "CH",
+      "source_tier": "official_direct"
+    },
+    "https://www.nestle.com/investors/annual-report": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/CH/Nestle-S.A/2025/年报/Nestle-S.A_EU_NESN_2025-12-31_年报_2026-02-13_six_direct_e2557c2e.pdf",
+      "file_name": "Nestle-S.A_EU_NESN_2025-12-31_年报_2026-02-13_six_direct_e2557c2e.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "b4692b61b0275eecab67aa767bc96afa595342243329bdb637f6efd1ca988361",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/CH/Nestle-S.A/2025/年报/Nestle-S.A_EU_NESN_2025-12-31_年报_2026-02-13_six_direct_e2557c2e.pdf.metadata.json",
+      "market": "EU",
+      "company_id": "CH:NESN",
+      "ticker": "NESN",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-02-13",
+      "accession_number": "manual",
+      "country": "CH",
+      "source_tier": "official_direct"
+    }
+  },
+  "by_content_sha256": {
+    "b4692b61b0275eecab67aa767bc96afa595342243329bdb637f6efd1ca988361": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/CH/Nestle-S.A/2025/年报/Nestle-S.A_EU_NESN_2025-12-31_年报_2026-02-13_six_direct_e2557c2e.pdf",
+      "file_name": "Nestle-S.A_EU_NESN_2025-12-31_年报_2026-02-13_six_direct_e2557c2e.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "b4692b61b0275eecab67aa767bc96afa595342243329bdb637f6efd1ca988361",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/CH/Nestle-S.A/2025/年报/Nestle-S.A_EU_NESN_2025-12-31_年报_2026-02-13_six_direct_e2557c2e.pdf.metadata.json",
+      "market": "EU",
+      "company_id": "CH:NESN",
+      "ticker": "NESN",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-02-13",
+      "accession_number": "manual",
+      "country": "CH",
+      "source_tier": "official_direct"
+    }
+  }
+}

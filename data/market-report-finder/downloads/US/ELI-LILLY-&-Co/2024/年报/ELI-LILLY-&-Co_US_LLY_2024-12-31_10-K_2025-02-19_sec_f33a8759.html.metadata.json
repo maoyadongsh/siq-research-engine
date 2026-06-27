@@ -1,0 +1,36 @@
+{
+  "candidate": {
+    "source_id": "sec",
+    "source_name": "SEC EDGAR",
+    "source_domain": "sec.gov",
+    "market": "US",
+    "company_id": "59478",
+    "ticker": "LLY",
+    "company_name": "ELI LILLY & Co",
+    "report_type": "10-K",
+    "report_family": "annual",
+    "form": "10-K",
+    "title": "10-K",
+    "accession_number": "0000059478-25-000067",
+    "primary_document": "lly-20241231.htm",
+    "report_end": "2024-12-31",
+    "published_at": "2025-02-19",
+    "accepted_at": "2025-02-19T15:10:59Z",
+    "document_url": "https://www.sec.gov/Archives/edgar/data/59478/000005947825000067/lly-20241231.htm",
+    "landing_url": "https://www.sec.gov/Archives/edgar/data/59478/000005947825000067/0000059478-25-000067-index.html",
+    "file_format": "html",
+    "language": null,
+    "inline_xbrl": true,
+    "metadata": {
+      "sec_submission_name": "ELI LILLY & Co",
+      "accession_no_dashes": "000005947825000067"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "ELI-LILLY-&-Co_US_LLY_2024-12-31_10-K_2025-02-19_sec_f33a8759.html",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/ELI-LILLY-&-Co/2024/年报/ELI-LILLY-&-Co_US_LLY_2024-12-31_10-K_2025-02-19_sec_f33a8759.html",
+    "size_bytes": 3200073,
+    "content_type": "text/html",
+    "content_sha256": "90debea11381d15799684c9b3600d9e4b4706beb588825fe04dcdbb91a2a24df"
+  }
+}

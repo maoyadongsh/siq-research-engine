@@ -928,6 +928,15 @@ def _list_recent_tasks(limit=100):
     return tasks
 
 
+def _recent_task_list_limit():
+    raw = os.environ.get("PDF_RECENT_TASK_LIMIT", "300")
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = 300
+    return max(100, min(value, 1000))
+
+
 def _refresh_recent_tasks(limit=50):
     conn = _db_conn()
     try:
@@ -6299,7 +6308,7 @@ def download_corrected(task_id):
 @app.route("/api/tasks", methods=["GET"])
 def list_tasks():
     _cleanup_old_data()
-    return jsonify({"tasks": _list_recent_tasks(limit=100)})
+    return jsonify({"tasks": _list_recent_tasks(limit=_recent_task_list_limit())})
 
 
 @app.route("/api/tasks/<task_id>", methods=["DELETE"])

@@ -1,0 +1,60 @@
+{
+  "by_url": {
+    "https://www.theheinekencompany.com/sites/heineken-corp/files/2026-02/2025_Heineken_NV_Annual_Report_Interactive_100226_FINAL.pdf": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/NL/Heineken-N.V/2025/年报/Heineken-N.V_EU_HEIA_2025-12-31_年报_2026-02-12_eu_direct_9d17e969.pdf",
+      "file_name": "Heineken-N.V_EU_HEIA_2025-12-31_年报_2026-02-12_eu_direct_9d17e969.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "2dee3a7ac14103566f798aff09ce15bc354815c0848d2831fcb99d71bdfad259",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/NL/Heineken-N.V/2025/年报/Heineken-N.V_EU_HEIA_2025-12-31_年报_2026-02-12_eu_direct_9d17e969.pdf.metadata.json",
+      "market": "EU",
+      "company_id": "NL:HEIA",
+      "ticker": "HEIA",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-02-12",
+      "accession_number": "manual",
+      "country": "NL",
+      "source_tier": "official_direct"
+    },
+    "https://www.theheinekencompany.com/investors/results-reports-webcasts-presentations": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/NL/Heineken-N.V/2025/年报/Heineken-N.V_EU_HEIA_2025-12-31_年报_2026-02-12_eu_direct_9d17e969.pdf",
+      "file_name": "Heineken-N.V_EU_HEIA_2025-12-31_年报_2026-02-12_eu_direct_9d17e969.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "2dee3a7ac14103566f798aff09ce15bc354815c0848d2831fcb99d71bdfad259",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/NL/Heineken-N.V/2025/年报/Heineken-N.V_EU_HEIA_2025-12-31_年报_2026-02-12_eu_direct_9d17e969.pdf.metadata.json",
+      "market": "EU",
+      "company_id": "NL:HEIA",
+      "ticker": "HEIA",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-02-12",
+      "accession_number": "manual",
+      "country": "NL",
+      "source_tier": "official_direct"
+    }
+  },
+  "by_content_sha256": {
+    "2dee3a7ac14103566f798aff09ce15bc354815c0848d2831fcb99d71bdfad259": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/NL/Heineken-N.V/2025/年报/Heineken-N.V_EU_HEIA_2025-12-31_年报_2026-02-12_eu_direct_9d17e969.pdf",
+      "file_name": "Heineken-N.V_EU_HEIA_2025-12-31_年报_2026-02-12_eu_direct_9d17e969.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "2dee3a7ac14103566f798aff09ce15bc354815c0848d2831fcb99d71bdfad259",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/NL/Heineken-N.V/2025/年报/Heineken-N.V_EU_HEIA_2025-12-31_年报_2026-02-12_eu_direct_9d17e969.pdf.metadata.json",
+      "market": "EU",
+      "company_id": "NL:HEIA",
+      "ticker": "HEIA",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-02-12",
+      "accession_number": "manual",
+      "country": "NL",
+      "source_tier": "official_direct"
+    }
+  }
+}

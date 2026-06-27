@@ -1,0 +1,36 @@
+{
+  "candidate": {
+    "source_id": "sec",
+    "source_name": "SEC EDGAR",
+    "source_domain": "sec.gov",
+    "market": "US",
+    "company_id": "21344",
+    "ticker": "KO",
+    "company_name": "COCA COLA CO",
+    "report_type": "10-K",
+    "report_family": "annual",
+    "form": "10-K",
+    "title": "10-K",
+    "accession_number": "0001628280-26-010047",
+    "primary_document": "ko-20251231.htm",
+    "report_end": "2025-12-31",
+    "published_at": "2026-02-20",
+    "accepted_at": "2026-02-20T14:46:32Z",
+    "document_url": "https://www.sec.gov/Archives/edgar/data/21344/000162828026010047/ko-20251231.htm",
+    "landing_url": "https://www.sec.gov/Archives/edgar/data/21344/000162828026010047/0001628280-26-010047-index.html",
+    "file_format": "html",
+    "language": null,
+    "inline_xbrl": true,
+    "metadata": {
+      "sec_submission_name": "COCA COLA CO",
+      "accession_no_dashes": "000162828026010047"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "COCA-COLA-CO_US_KO_2025-12-31_10-K_2026-02-20_sec_c33ba98f.html",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/COCA-COLA-CO/2025/年报/COCA-COLA-CO_US_KO_2025-12-31_10-K_2026-02-20_sec_c33ba98f.html",
+    "size_bytes": 3758140,
+    "content_type": "text/html",
+    "content_sha256": "22dd41f1aab4928f94a5f80e9497cf6203f27baa7c3f4e9088a6dd0aee929c66"
+  }
+}

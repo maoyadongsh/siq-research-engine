@@ -1,0 +1,38 @@
+{
+  "by_url": {
+    "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0325/2026032500491.pdf": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/CLP-HOLDINGS/2025/年报/CLP-HOLDINGS_HK_00002_2025-12-31_年报_2026-03-25_hkex_24e10ada.pdf",
+      "file_name": "CLP-HOLDINGS_HK_00002_2025-12-31_年报_2026-03-25_hkex_24e10ada.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "ff8430b24c9c670a3c0a37e23fa57fab34e6f954c5bbb6b35d159b1c3842fe86",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/CLP-HOLDINGS/2025/年报/CLP-HOLDINGS_HK_00002_2025-12-31_年报_2026-03-25_hkex_24e10ada.pdf.metadata.json",
+      "market": "HK",
+      "company_id": "HK:00002",
+      "ticker": "00002",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-25",
+      "accession_number": "12066371"
+    }
+  },
+  "by_content_sha256": {
+    "ff8430b24c9c670a3c0a37e23fa57fab34e6f954c5bbb6b35d159b1c3842fe86": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/CLP-HOLDINGS/2025/年报/CLP-HOLDINGS_HK_00002_2025-12-31_年报_2026-03-25_hkex_24e10ada.pdf",
+      "file_name": "CLP-HOLDINGS_HK_00002_2025-12-31_年报_2026-03-25_hkex_24e10ada.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "ff8430b24c9c670a3c0a37e23fa57fab34e6f954c5bbb6b35d159b1c3842fe86",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/CLP-HOLDINGS/2025/年报/CLP-HOLDINGS_HK_00002_2025-12-31_年报_2026-03-25_hkex_24e10ada.pdf.metadata.json",
+      "market": "HK",
+      "company_id": "HK:00002",
+      "ticker": "00002",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-25",
+      "accession_number": "12066371"
+    }
+  }
+}

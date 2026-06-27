@@ -1,0 +1,54 @@
+{
+  "by_url": {
+    "https://static.cninfo.com.cn/finalpage/2026-03-30/1225049376.PDF": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/中国石油/2025/年报/中国石油_CN_601857_2025-12-31_年报_2026-03-29_cninfo_da7d8593.pdf",
+      "file_name": "中国石油_CN_601857_2025-12-31_年报_2026-03-29_cninfo_da7d8593.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "840b15aa4dc38745a6b86a3656063e6a73081ce87407acb0ca93554f4e836e65",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/中国石油/2025/年报/中国石油_CN_601857_2025-12-31_年报_2026-03-29_cninfo_da7d8593.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "601857",
+      "ticker": "601857",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-29",
+      "accession_number": "1225049376"
+    },
+    "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=601857&announcementId=1225049376&orgId=9900003825&announcementTime=2026-03-29": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/中国石油/2025/年报/中国石油_CN_601857_2025-12-31_年报_2026-03-29_cninfo_da7d8593.pdf",
+      "file_name": "中国石油_CN_601857_2025-12-31_年报_2026-03-29_cninfo_da7d8593.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "840b15aa4dc38745a6b86a3656063e6a73081ce87407acb0ca93554f4e836e65",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/中国石油/2025/年报/中国石油_CN_601857_2025-12-31_年报_2026-03-29_cninfo_da7d8593.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "601857",
+      "ticker": "601857",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-29",
+      "accession_number": "1225049376"
+    }
+  },
+  "by_content_sha256": {
+    "840b15aa4dc38745a6b86a3656063e6a73081ce87407acb0ca93554f4e836e65": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/中国石油/2025/年报/中国石油_CN_601857_2025-12-31_年报_2026-03-29_cninfo_da7d8593.pdf",
+      "file_name": "中国石油_CN_601857_2025-12-31_年报_2026-03-29_cninfo_da7d8593.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "840b15aa4dc38745a6b86a3656063e6a73081ce87407acb0ca93554f4e836e65",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/中国石油/2025/年报/中国石油_CN_601857_2025-12-31_年报_2026-03-29_cninfo_da7d8593.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "601857",
+      "ticker": "601857",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-29",
+      "accession_number": "1225049376"
+    }
+  }
+}

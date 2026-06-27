@@ -13,6 +13,9 @@ export interface PdfWorkflowPanelProps {
   workflowJob: WorkflowJob | null
   workflowError: string
   artifacts: ArtifactsMap | null
+  mode?: 'standard' | 'generic'
+  title?: string
+  description?: string
   loadWorkflowStatus: () => Promise<void>
   runRemainingWorkflow: () => Promise<void>
   runWorkflowStep: (step: WorkflowStep) => Promise<void>
@@ -26,6 +29,9 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
     workflowJob,
     workflowError,
     artifacts,
+    mode = 'standard',
+    title = '数据管线',
+    description = 'PostgreSQL 与 results 目录保存全量解析信息；Wiki 保留报告入口、公司级知识资产和轻量产物清单。',
     loadWorkflowStatus,
     runRemainingWorkflow,
     runWorkflowStep,
@@ -70,25 +76,38 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
     },
   ]
 
-  const stepButtons: Array<{ key: WorkflowStep; label: string; loadingLabel: string; primary: boolean; disabled?: boolean }> = [
-    { key: 'wiki-import', label: '导入 Wiki', loadingLabel: '导入中...', primary: true },
-    { key: 'wiki-import-generic', label: '通用主体入库', loadingLabel: '导入中...', primary: false },
-    {
-      key: 'semantic',
-      label: '生成 Wiki 语义层',
-      loadingLabel: '生成中...',
-      primary: true,
-      disabled: !['ready', 'stale'].includes(workflowStatus?.wiki?.status || ''),
-    },
-    {
-      key: 'semantic-generic',
-      label: '生成通用语义层',
-      loadingLabel: '生成中...',
-      primary: false,
-      disabled: !['ready', 'stale'].includes(workflowStatus?.wiki?.status || ''),
-    },
-    { key: 'db-import', label: '导入 PostgreSQL', loadingLabel: '导入中...', primary: true },
-  ]
+  const stepButtons: Array<{ key: WorkflowStep; label: string; loadingLabel: string; primary: boolean; disabled?: boolean }> =
+    mode === 'generic'
+      ? [
+          { key: 'wiki-import-generic', label: '通用主体入库', loadingLabel: '导入中...', primary: true },
+          {
+            key: 'semantic-generic',
+            label: '生成通用语义层',
+            loadingLabel: '生成中...',
+            primary: true,
+            disabled: !['ready', 'stale'].includes(workflowStatus?.wiki?.status || ''),
+          },
+          { key: 'db-import', label: '导入 PostgreSQL', loadingLabel: '导入中...', primary: false },
+        ]
+      : [
+          { key: 'wiki-import', label: '导入 Wiki', loadingLabel: '导入中...', primary: true },
+          { key: 'wiki-import-generic', label: '通用主体入库', loadingLabel: '导入中...', primary: false },
+          {
+            key: 'semantic',
+            label: '生成 Wiki 语义层',
+            loadingLabel: '生成中...',
+            primary: true,
+            disabled: !['ready', 'stale'].includes(workflowStatus?.wiki?.status || ''),
+          },
+          {
+            key: 'semantic-generic',
+            label: '生成通用语义层',
+            loadingLabel: '生成中...',
+            primary: false,
+            disabled: !['ready', 'stale'].includes(workflowStatus?.wiki?.status || ''),
+          },
+          { key: 'db-import', label: '导入 PostgreSQL', loadingLabel: '导入中...', primary: true },
+        ]
 
   return (
     <div className="apple-card rounded-[24px] p-4 sm:p-6">
@@ -96,10 +115,10 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
         <div>
           <h3 className="flex items-center gap-2 text-base font-semibold text-text">
             <Database className="h-4 w-4 text-primary" />
-            数据管线
+            {title}
           </h3>
           <p className="mt-1 text-sm text-text-muted">
-            PostgreSQL 与 results 目录保存全量解析信息；Wiki 保留报告入口、公司级知识资产和轻量产物清单。
+            {description}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -112,15 +131,17 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
             {workflowLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             刷新状态
           </button>
-          <button
-            type="button"
-            className="pdf-small-action primary inline-flex items-center gap-1"
-            onClick={() => void runRemainingWorkflow()}
-            disabled={!!workflowBusy || !bundleReady}
-          >
-            {workflowBusy === 'remaining' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-            继续入库
-          </button>
+          {mode === 'standard' ? (
+            <button
+              type="button"
+              className="pdf-small-action primary inline-flex items-center gap-1"
+              onClick={() => void runRemainingWorkflow()}
+              disabled={!!workflowBusy || !bundleReady}
+            >
+              {workflowBusy === 'remaining' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+              继续入库
+            </button>
+          ) : null}
         </div>
       </div>
 

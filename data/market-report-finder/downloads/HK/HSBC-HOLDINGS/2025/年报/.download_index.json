@@ -1,0 +1,38 @@
+{
+  "by_url": {
+    "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0327/2026032700187.pdf": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/HSBC-HOLDINGS/2025/年报/HSBC-HOLDINGS_HK_00005_2025-12-31_年报_2026-03-27_hkex_dfafb34b.pdf",
+      "file_name": "HSBC-HOLDINGS_HK_00005_2025-12-31_年报_2026-03-27_hkex_dfafb34b.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "e44a6a2f1d51ecee0463e31ab0c38982967acaee9b6bbfdb1bfe259094b17417",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/HSBC-HOLDINGS/2025/年报/HSBC-HOLDINGS_HK_00005_2025-12-31_年报_2026-03-27_hkex_dfafb34b.pdf.metadata.json",
+      "market": "HK",
+      "company_id": "HK:00005",
+      "ticker": "00005",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-27",
+      "accession_number": "12071408"
+    }
+  },
+  "by_content_sha256": {
+    "e44a6a2f1d51ecee0463e31ab0c38982967acaee9b6bbfdb1bfe259094b17417": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/HSBC-HOLDINGS/2025/年报/HSBC-HOLDINGS_HK_00005_2025-12-31_年报_2026-03-27_hkex_dfafb34b.pdf",
+      "file_name": "HSBC-HOLDINGS_HK_00005_2025-12-31_年报_2026-03-27_hkex_dfafb34b.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "e44a6a2f1d51ecee0463e31ab0c38982967acaee9b6bbfdb1bfe259094b17417",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/HSBC-HOLDINGS/2025/年报/HSBC-HOLDINGS_HK_00005_2025-12-31_年报_2026-03-27_hkex_dfafb34b.pdf.metadata.json",
+      "market": "HK",
+      "company_id": "HK:00005",
+      "ticker": "00005",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-27",
+      "accession_number": "12071408"
+    }
+  }
+}

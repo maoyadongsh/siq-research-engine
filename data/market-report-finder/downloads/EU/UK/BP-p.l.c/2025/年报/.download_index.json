@@ -1,0 +1,60 @@
+{
+  "by_url": {
+    "https://www.bp.com/api/files/6cqieuqhq4no/master/33M2iHp8A6d07McKzKqLNP/12b5d4eccb4e02093d1ad9efc0d6a746/bp-annual-report-and-form-20f-2025.pdf": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/UK/BP-p.l.c/2025/年报/BP-p.l.c_EU_BP_2025-12-31_年报_2026-03-07_eu_direct_3e0db9f7.pdf",
+      "file_name": "BP-p.l.c_EU_BP_2025-12-31_年报_2026-03-07_eu_direct_3e0db9f7.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "bbe4e34edda665ed3d5d84291b79d13118e31ca1355e794a43f11fd50ab8a237",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/UK/BP-p.l.c/2025/年报/BP-p.l.c_EU_BP_2025-12-31_年报_2026-03-07_eu_direct_3e0db9f7.pdf.metadata.json",
+      "market": "EU",
+      "company_id": "GB:BP",
+      "ticker": "BP",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-07",
+      "accession_number": "manual",
+      "country": "GB",
+      "source_tier": "official_direct"
+    },
+    "https://www.bp.com/investors/results-reporting-and-presentations/annual-report": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/UK/BP-p.l.c/2025/年报/BP-p.l.c_EU_BP_2025-12-31_年报_2026-03-07_eu_direct_3e0db9f7.pdf",
+      "file_name": "BP-p.l.c_EU_BP_2025-12-31_年报_2026-03-07_eu_direct_3e0db9f7.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "bbe4e34edda665ed3d5d84291b79d13118e31ca1355e794a43f11fd50ab8a237",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/UK/BP-p.l.c/2025/年报/BP-p.l.c_EU_BP_2025-12-31_年报_2026-03-07_eu_direct_3e0db9f7.pdf.metadata.json",
+      "market": "EU",
+      "company_id": "GB:BP",
+      "ticker": "BP",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-07",
+      "accession_number": "manual",
+      "country": "GB",
+      "source_tier": "official_direct"
+    }
+  },
+  "by_content_sha256": {
+    "bbe4e34edda665ed3d5d84291b79d13118e31ca1355e794a43f11fd50ab8a237": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/UK/BP-p.l.c/2025/年报/BP-p.l.c_EU_BP_2025-12-31_年报_2026-03-07_eu_direct_3e0db9f7.pdf",
+      "file_name": "BP-p.l.c_EU_BP_2025-12-31_年报_2026-03-07_eu_direct_3e0db9f7.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "bbe4e34edda665ed3d5d84291b79d13118e31ca1355e794a43f11fd50ab8a237",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/UK/BP-p.l.c/2025/年报/BP-p.l.c_EU_BP_2025-12-31_年报_2026-03-07_eu_direct_3e0db9f7.pdf.metadata.json",
+      "market": "EU",
+      "company_id": "GB:BP",
+      "ticker": "BP",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-07",
+      "accession_number": "manual",
+      "country": "GB",
+      "source_tier": "official_direct"
+    }
+  }
+}

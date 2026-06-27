@@ -18,6 +18,7 @@ import { Button } from '../components/ui'
 import { useToast } from '../hooks/useToast'
 import { apiJson } from '../lib/apiClient'
 import { useAuth } from '../hooks/useAuth'
+import { PageHeader, PageSection, PageShell, StatusBadge, Surface } from '@/components/page'
 
 type ApprovalStatus = 'pending' | 'approved' | 'rejected'
 type RoleValue = 'viewer' | 'analyst' | 'reviewer' | 'admin' | 'super_admin'
@@ -83,7 +84,7 @@ function statusIcon(status: ApprovalStatus) {
   return <Clock3 className="h-4 w-4" />
 }
 
-function StatusBadge({ user }: { user: ManagedUser }) {
+function UserStatusBadges({ user }: { user: ManagedUser }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
       <span className={`secondary-status ${statusClasses[user.approval_status]}`}>
@@ -99,13 +100,13 @@ function StatusBadge({ user }: { user: ManagedUser }) {
 
 function SummaryTile({ label, value, icon: Icon }: { label: string; value: number; icon: typeof Clock3 }) {
   return (
-    <div className="metric-tile rounded-[20px] p-4">
+    <Surface kind="card" padding="md">
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm font-semibold text-text-muted">{label}</p>
         <Icon className="h-4 w-4 text-primary" />
       </div>
       <p className="mt-2 text-3xl font-bold text-text">{value}</p>
-    </div>
+    </Surface>
   )
 }
 
@@ -364,39 +365,32 @@ export default function UserAdmin() {
   }
 
   return (
-    <div className="secondary-page min-w-0 overflow-x-hidden">
-      <section className="secondary-hero">
-        <div className="secondary-hero-inner">
-          <div className="max-w-3xl">
-            <div className="secondary-kicker">
-              <ShieldCheck className="h-3.5 w-3.5" />
-              User Approval
-            </div>
-            <h1 className="secondary-title">用户审批</h1>
-            <p className="secondary-description">
-              处理新注册用户、维护角色和启用状态。普通用户通过审批后进入个人工作台，数据按用户隔离。
-            </p>
-          </div>
-          <div className="flex flex-col items-start gap-3 lg:items-end">
-            <div className="secondary-step-row">
-              <span className="secondary-step-chip">注册</span>
-              <span className="secondary-step-chip is-active">审批</span>
-              <span className="secondary-step-chip">授权</span>
-            </div>
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              disabled={loading}
-              leftIcon={loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-              onClick={loadUsers}
-              className="rounded-xl"
-            >
-              刷新用户
-            </Button>
-          </div>
-        </div>
-      </section>
+    <PageShell>
+      <PageHeader
+        icon={ShieldCheck}
+        eyebrow="User Approval"
+        title="用户审批"
+        description="处理新注册用户、维护角色和启用状态。普通用户通过审批后进入个人工作台，数据按用户隔离。"
+        meta={
+          <>
+            <StatusBadge tone="neutral">注册</StatusBadge>
+            <StatusBadge tone="info">审批</StatusBadge>
+            <StatusBadge tone="neutral">授权</StatusBadge>
+          </>
+        }
+        actions={
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            disabled={loading}
+            leftIcon={loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            onClick={loadUsers}
+          >
+            刷新用户
+          </Button>
+        }
+      />
 
       <section className="grid gap-4 lg:grid-cols-5">
         <SummaryTile label="全部用户" value={stats.total} icon={UserRound} />
@@ -406,15 +400,19 @@ export default function UserAdmin() {
         <SummaryTile label="已停用" value={stats.disabled} icon={XCircle} />
       </section>
 
-      <section className="secondary-panel p-4 sm:p-5">
+      <PageSection
+        title="用户列表"
+        description="筛选、搜索和批量处理注册用户。"
+        contentClassName="space-y-4"
+      >
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-          <div className="secondary-step-row w-full overflow-x-auto xl:w-auto">
+          <div className="market-segmented w-full overflow-x-auto xl:w-auto">
             {(['pending', 'all', 'approved', 'rejected', 'disabled'] as FilterKey[]).map((item) => (
               <button
                 key={item}
                 type="button"
                 onClick={() => setFilter(item)}
-                className={`secondary-step-chip ${filter === item ? 'is-active' : ''}`}
+                className={filter === item ? 'is-active' : ''}
               >
                 {filterLabels[item]}
               </button>
@@ -432,7 +430,7 @@ export default function UserAdmin() {
           </label>
         </div>
 
-        <div className="secondary-panel-muted mt-4 px-4 py-3">
+        <Surface kind="muted" padding="md">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <label className="inline-flex min-h-10 cursor-pointer items-center gap-3 text-sm font-semibold text-text">
               <input
@@ -496,26 +494,26 @@ export default function UserAdmin() {
               </Button>
             </div>
           </div>
-        </div>
+        </Surface>
 
         {error && (
-          <div className="mt-4 rounded-[18px] border border-error/20 bg-error/5 px-4 py-3 text-sm font-medium text-error">
+          <Surface kind="muted" padding="md" className="border-error/20 bg-error/5 text-sm font-medium text-error">
             {error}
-          </div>
+          </Surface>
         )}
 
         {loading ? (
-          <div className="flex min-h-[300px] items-center justify-center text-text-muted">
+          <Surface kind="muted" padding="lg" className="flex min-h-[300px] items-center justify-center text-text-muted">
             <Loader2 className="mr-2 h-5 w-5 animate-spin" />
             正在加载用户...
-          </div>
+          </Surface>
         ) : filteredUsers.length === 0 ? (
-          <div className="mt-5 rounded-[22px] border border-dashed border-border bg-bg px-5 py-12 text-center text-sm text-text-muted">
+          <Surface kind="muted" padding="lg" className="border-dashed text-center text-sm text-text-muted">
             当前筛选条件下没有用户。
-          </div>
+          </Surface>
         ) : (
           <>
-            <div className="mt-5 hidden overflow-x-auto lg:block">
+            <div className="hidden overflow-x-auto lg:block">
               <table className="min-w-[1040px] w-full border-separate border-spacing-0 text-left">
                 <thead>
                   <tr className="text-xs font-semibold uppercase tracking-wide text-text-muted">
@@ -557,7 +555,7 @@ export default function UserAdmin() {
                         </div>
                       </td>
                       <td className="border-b border-border px-4 py-4">
-                        <StatusBadge user={item} />
+                        <UserStatusBadges user={item} />
                         <p className="mt-3 text-sm font-semibold text-text">{roleLabels[item.role] || item.role}</p>
                         {item.approval_note && <p className="mt-2 max-w-[220px] text-sm leading-6 text-text-muted">{item.approval_note}</p>}
                       </td>
@@ -574,9 +572,9 @@ export default function UserAdmin() {
               </table>
             </div>
 
-            <div className="mt-5 grid gap-4 lg:hidden">
+            <div className="grid gap-4 lg:hidden">
               {filteredUsers.map((item) => (
-                <article key={item.id} className="rounded-[22px] border border-border bg-card px-4 py-4">
+                <Surface key={item.id} as="article" kind="card" padding="md">
                   <div className="flex items-start gap-3">
                     <input
                       type="checkbox"
@@ -599,19 +597,19 @@ export default function UserAdmin() {
                     </div>
                   </div>
                   <div className="mt-4">
-                    <StatusBadge user={item} />
+                    <UserStatusBadges user={item} />
                     <p className="mt-3 text-sm text-text-muted">角色：<span className="font-semibold text-text">{roleLabels[item.role] || item.role}</span></p>
                     <p className="mt-1 text-sm text-text-muted">注册：{formatDate(item.created_at)}</p>
                     <p className="mt-1 text-sm text-text-muted">登录：{formatDate(item.last_login)}</p>
                   </div>
                   {item.approval_note && <p className="mt-3 rounded-xl bg-bg px-3 py-2 text-sm leading-6 text-text-muted">{item.approval_note}</p>}
                   <div className="mt-4">{renderUserActions(item)}</div>
-                </article>
+                </Surface>
               ))}
             </div>
           </>
         )}
-      </section>
-    </div>
+      </PageSection>
+    </PageShell>
   )
 }

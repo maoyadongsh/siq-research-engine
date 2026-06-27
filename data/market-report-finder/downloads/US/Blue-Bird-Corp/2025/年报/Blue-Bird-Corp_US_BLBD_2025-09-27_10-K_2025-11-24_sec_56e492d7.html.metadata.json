@@ -1,0 +1,36 @@
+{
+  "candidate": {
+    "source_id": "sec",
+    "source_name": "SEC EDGAR",
+    "source_domain": "sec.gov",
+    "market": "US",
+    "company_id": "1589526",
+    "ticker": "BLBD",
+    "company_name": "Blue Bird Corp",
+    "report_type": "10-K",
+    "report_family": "annual",
+    "form": "10-K",
+    "title": "10-K",
+    "accession_number": "0001589526-25-000100",
+    "primary_document": "blbd-20250927.htm",
+    "report_end": "2025-09-27",
+    "published_at": "2025-11-24",
+    "accepted_at": "2025-11-24T21:32:23Z",
+    "document_url": "https://www.sec.gov/Archives/edgar/data/1589526/000158952625000100/blbd-20250927.htm",
+    "landing_url": "https://www.sec.gov/Archives/edgar/data/1589526/000158952625000100/0001589526-25-000100-index.html",
+    "file_format": "html",
+    "language": null,
+    "inline_xbrl": true,
+    "metadata": {
+      "sec_submission_name": "Blue Bird Corp",
+      "accession_no_dashes": "000158952625000100"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "Blue-Bird-Corp_US_BLBD_2025-09-27_10-K_2025-11-24_sec_56e492d7.html",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/Blue-Bird-Corp/2025/年报/Blue-Bird-Corp_US_BLBD_2025-09-27_10-K_2025-11-24_sec_56e492d7.html",
+    "size_bytes": 2009716,
+    "content_type": "text/html",
+    "content_sha256": "401422eaa9d1e15551ea4e93b2f0ea77fab17b231cbedd2a07336fbf6281c668"
+  }
+}

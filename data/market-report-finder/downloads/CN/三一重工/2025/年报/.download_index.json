@@ -1,0 +1,54 @@
+{
+  "by_url": {
+    "https://static.cninfo.com.cn/finalpage/2026-03-31/1225061378.PDF": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/三一重工/2025/年报/三一重工_CN_600031_2025-12-31_年报_2026-03-30_cninfo_eb43105f.pdf",
+      "file_name": "三一重工_CN_600031_2025-12-31_年报_2026-03-30_cninfo_eb43105f.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "d3f470600ec7d03ff9eb6257a74d1a07486406e02beb55b1f2bab5aaabb173e5",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/三一重工/2025/年报/三一重工_CN_600031_2025-12-31_年报_2026-03-30_cninfo_eb43105f.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "600031",
+      "ticker": "600031",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-30",
+      "accession_number": "1225061378"
+    },
+    "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=600031&announcementId=1225061378&orgId=gssh0600031&announcementTime=2026-03-30": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/三一重工/2025/年报/三一重工_CN_600031_2025-12-31_年报_2026-03-30_cninfo_eb43105f.pdf",
+      "file_name": "三一重工_CN_600031_2025-12-31_年报_2026-03-30_cninfo_eb43105f.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "d3f470600ec7d03ff9eb6257a74d1a07486406e02beb55b1f2bab5aaabb173e5",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/三一重工/2025/年报/三一重工_CN_600031_2025-12-31_年报_2026-03-30_cninfo_eb43105f.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "600031",
+      "ticker": "600031",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-30",
+      "accession_number": "1225061378"
+    }
+  },
+  "by_content_sha256": {
+    "d3f470600ec7d03ff9eb6257a74d1a07486406e02beb55b1f2bab5aaabb173e5": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/三一重工/2025/年报/三一重工_CN_600031_2025-12-31_年报_2026-03-30_cninfo_eb43105f.pdf",
+      "file_name": "三一重工_CN_600031_2025-12-31_年报_2026-03-30_cninfo_eb43105f.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "d3f470600ec7d03ff9eb6257a74d1a07486406e02beb55b1f2bab5aaabb173e5",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/三一重工/2025/年报/三一重工_CN_600031_2025-12-31_年报_2026-03-30_cninfo_eb43105f.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "600031",
+      "ticker": "600031",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-30",
+      "accession_number": "1225061378"
+    }
+  }
+}

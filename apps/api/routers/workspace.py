@@ -16,6 +16,7 @@ from services.auth_service import User
 from services.path_config import REPORT_DOWNLOADS_ROOT, WIKI_ROOT as CONFIG_WIKI_ROOT
 from services.usage_service import (
     AGENT_QUESTION_EVENT,
+    DOCUMENT_PARSE_EVENT,
     PARSE_EVENT,
     UserArtifact,
     WorkspaceProject,
@@ -54,6 +55,10 @@ REPORT_SOURCE_ROUTES = {
 
 def _role_value(user: User) -> str:
     return str(user.role.value if hasattr(user.role, "value") else user.role)
+
+
+def _is_admin(user: User) -> bool:
+    return _role_value(user) in {"admin", "super_admin"}
 
 
 def _quota_error_payload(event_type: str, limit: int, used: int) -> HTTPException:
@@ -463,12 +468,14 @@ def workspace_summary(
         "quotas": {
             "agentQuestion": usage_response_payload(session, user_id=user_id, user_role=_role_value(current_user), event_type=AGENT_QUESTION_EVENT),
             "parseJob": usage_response_payload(session, user_id=user_id, user_role=_role_value(current_user), event_type=PARSE_EVENT),
+            "documentParse": usage_response_payload(session, user_id=user_id, user_role=_role_value(current_user), event_type=DOCUMENT_PARSE_EVENT),
         },
         "stats": {
             "projects": len(projects),
             "artifacts": len(artifacts),
             "downloads": counts.get("download", 0),
             "parses": counts.get("parse", 0),
+            "documentParses": counts.get("document_parse", 0),
             "reports": counts.get("report", 0),
         },
         "recentArtifacts": [
@@ -683,6 +690,21 @@ async def list_my_pdf_tasks(
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get(f"{PDF2MD_API_BASE}/api/tasks", headers=_pdf2md_headers())
+            response.raise_for_status()
+            payload = response.json()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"解析任务服务不可用: {exc}") from exc
+
+    tasks = payload.get("tasks") if isinstance(payload, dict) else []
+    # The pdf-parser queue is a local system-level runtime shared by ops
+    # scripts and the UI. Return the queue to authenticated users; per-task
+    # result/source access remains protected by the existing task access checks.
+    if os.environ.get("SIQ_PDF_TASK_LIST_WORKSPACE_ONLY", "").strip().lower() not in {"1", "true", "yes"}:
+        return {"tasks": tasks or [], "scope": "system"}
+
     parse_links = session.exec(
         select(UserArtifact).where(
             UserArtifact.user_id == int(current_user.id),
@@ -693,15 +715,6 @@ async def list_my_pdf_tasks(
     if not allowed_task_ids:
         return {"tasks": [], "scope": "workspace"}
 
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.get(f"{PDF2MD_API_BASE}/api/tasks", headers=_pdf2md_headers())
-            response.raise_for_status()
-            payload = response.json()
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"解析任务服务不可用: {exc}") from exc
-
-    tasks = payload.get("tasks") if isinstance(payload, dict) else []
     visible_tasks = [
         task for task in (tasks or [])
         if str(task.get("task_id") or "") in allowed_task_ids

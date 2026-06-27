@@ -1,0 +1,36 @@
+{
+  "candidate": {
+    "source_id": "cninfo",
+    "source_name": "巨潮资讯",
+    "source_domain": "www.cninfo.com.cn",
+    "market": "CN",
+    "company_id": "688041",
+    "ticker": "688041",
+    "company_name": "海光信息",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "海光信息技术股份有限公司2025年年度报告",
+    "accession_number": "1225083088",
+    "primary_document": "1225083088.PDF",
+    "report_end": "2025-12-31",
+    "published_at": "2026-04-07",
+    "accepted_at": null,
+    "document_url": "https://static.cninfo.com.cn/finalpage/2026-04-08/1225083088.PDF",
+    "landing_url": "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=688041&announcementId=1225083088&orgId=9900048365&announcementTime=2026-04-07",
+    "file_format": "pdf",
+    "language": "zh-CN",
+    "inline_xbrl": null,
+    "metadata": {
+      "org_id": "9900048365",
+      "plate": "shkcp"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "海光信息_CN_688041_2025-12-31_年报_2026-04-07_cninfo_30f13023.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/海光信息/2025/年报/海光信息_CN_688041_2025-12-31_年报_2026-04-07_cninfo_30f13023.pdf",
+    "size_bytes": 1953281,
+    "content_type": "application/pdf",
+    "content_sha256": "abe3c5f80e80e2b6a56d243cfd502cccec715df783b7b9dcf95d3a84b1106c02"
+  }
+}

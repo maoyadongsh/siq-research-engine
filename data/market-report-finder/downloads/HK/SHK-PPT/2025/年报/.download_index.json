@@ -1,0 +1,38 @@
+{
+  "by_url": {
+    "https://www1.hkexnews.hk/listedco/listconews/sehk/2025/1008/2025100800798.pdf": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/SHK-PPT/2025/年报/SHK-PPT_HK_00016_2025-06-30_年报_2025-10-08_hkex_2dc5bfd8.pdf",
+      "file_name": "SHK-PPT_HK_00016_2025-06-30_年报_2025-10-08_hkex_2dc5bfd8.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "6afa28c86aaeee6424dba788c13b29a359ce613ee03be9593c89072565418b86",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/SHK-PPT/2025/年报/SHK-PPT_HK_00016_2025-06-30_年报_2025-10-08_hkex_2dc5bfd8.pdf.metadata.json",
+      "market": "HK",
+      "company_id": "00016",
+      "ticker": "00016",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-06-30",
+      "published_at": "2025-10-08",
+      "accession_number": "11872506"
+    }
+  },
+  "by_content_sha256": {
+    "6afa28c86aaeee6424dba788c13b29a359ce613ee03be9593c89072565418b86": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/SHK-PPT/2025/年报/SHK-PPT_HK_00016_2025-06-30_年报_2025-10-08_hkex_2dc5bfd8.pdf",
+      "file_name": "SHK-PPT_HK_00016_2025-06-30_年报_2025-10-08_hkex_2dc5bfd8.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "6afa28c86aaeee6424dba788c13b29a359ce613ee03be9593c89072565418b86",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/SHK-PPT/2025/年报/SHK-PPT_HK_00016_2025-06-30_年报_2025-10-08_hkex_2dc5bfd8.pdf.metadata.json",
+      "market": "HK",
+      "company_id": "00016",
+      "ticker": "00016",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-06-30",
+      "published_at": "2025-10-08",
+      "accession_number": "11872506"
+    }
+  }
+}

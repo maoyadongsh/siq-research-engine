@@ -1,0 +1,96 @@
+{
+  "started_at": "2026-06-26T14:43:22.017812+00:00",
+  "report_year": 2025,
+  "target_count": 1,
+  "selection_note": "Large HK-listed issuers selected across sectors; candidates are intended to be above HKD 10bn market cap.",
+  "items": [
+    {
+      "seed": {
+        "code": "00700",
+        "sector": "technology",
+        "name": "Tencent"
+      },
+      "status": "queued",
+      "events": [],
+      "company": {
+        "market": "HK",
+        "company_id": "00700",
+        "ticker": "00700",
+        "company_name": "TENCENT",
+        "exchange": "HKEX",
+        "aliases": [],
+        "confidence": 0.99,
+        "match_reason": "hkex_ticker_exact",
+        "cik": null,
+        "cik_padded": null,
+        "hkex_stock_id": "7609",
+        "metadata": {
+          "stock_id": "7609",
+          "legacy_stock_id": "15300",
+          "status": "active",
+          "localized_names": []
+        }
+      },
+      "filing": {
+        "source_id": "hkex",
+        "source_name": "HKEXnews",
+        "source_domain": "www1.hkexnews.hk",
+        "market": "HK",
+        "company_id": "00700",
+        "ticker": "00700",
+        "company_name": "TENCENT",
+        "report_type": "annual",
+        "report_family": "annual",
+        "form": "annual",
+        "title": "ANNUAL REPORT 2025",
+        "accession_number": "12100024",
+        "primary_document": "2026040901231.pdf",
+        "report_end": "2025-12-31",
+        "published_at": "2026-04-09",
+        "accepted_at": null,
+        "document_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0409/2026040901231.pdf",
+        "landing_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0409/2026040901231.pdf",
+        "file_format": "pdf",
+        "language": "en",
+        "inline_xbrl": null,
+        "metadata": {
+          "news_id": "12100024",
+          "stock_name": "TENCENT TENCENT-R",
+          "short_text": "Financial Statements/ESG Information - [Annual Report]",
+          "long_text": "Financial Statements/ESG Information - [Annual Report]",
+          "file_info": "4MB"
+        }
+      },
+      "downloaded_file": {
+        "file_name": "TENCENT_HK_00700_2025-12-31_年报_2026-04-09_hkex_691d0e45.pdf",
+        "saved_path": "/home/maoyd/siq-research-engine/downloads/HK/TENCENT/2025/年报/TENCENT_HK_00700_2025-12-31_年报_2026-04-09_hkex_691d0e45.pdf",
+        "size_bytes": 3999857,
+        "content_type": "application/pdf",
+        "downloaded_at": "2026-06-26T14:43:45.539889Z",
+        "cache_hit": false,
+        "deduplicated": false,
+        "content_sha256": "2a7547168077c3d9994af673125e77612e8656bc0f17ad189371d7e4088f4e98",
+        "metadata_path": "/home/maoyd/siq-research-engine/downloads/HK/TENCENT/2025/年报/TENCENT_HK_00700_2025-12-31_年报_2026-04-09_hkex_691d0e45.pdf.metadata.json"
+      },
+      "upload": {
+        "status_code": 200,
+        "payload": {
+          "batch_count": 1,
+          "task_id": "9aecfb55-5069-47b1-8383-47cb118b0b16",
+          "tasks": [
+            {
+              "filename": "TENCENT_HK_00700_2025-12-31_年报_2026-04-09_hkex_691d0e45.pdf",
+              "pdf_page_count": 282,
+              "task_id": "9aecfb55-5069-47b1-8383-47cb118b0b16"
+            }
+          ]
+        }
+      },
+      "task_id": "9aecfb55-5069-47b1-8383-47cb118b0b16"
+    }
+  ],
+  "skipped": [],
+  "updated_at": "2026-06-26T14:43:45.730017+00:00",
+  "queued_or_existing_count": 1,
+  "completed_at": "2026-06-26T14:43:46.231043+00:00"
+}

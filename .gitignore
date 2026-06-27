@@ -39,6 +39,7 @@ tmp/
 # Large runtime or copied external assets
 _external_assets/
 data/
+downloads/
 runtimes/
 !data/
 !data/README.md
@@ -68,8 +69,10 @@ apps/api/.finsight/
 apps/web/node_modules/
 apps/web/dist/
 apps/web/logs/
-apps/web/public/pet/agent-drafts/beauty-candidates/
-apps/web/public/pet/agent-drafts/legal-selected/
+apps/web/playwright-report/
+apps/web/test-results/
+apps/web/public/agent/agent-drafts/beauty-candidates/
+apps/web/public/agent/agent-drafts/legal-selected/
 apps/web/public/videos/system-intro*
 data/backend/chat_uploads/
 data/backend/llm_costs/

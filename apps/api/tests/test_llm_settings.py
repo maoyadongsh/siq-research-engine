@@ -43,7 +43,7 @@ def test_load_llm_settings_reads_legacy_backend_config_when_new_config_missing(t
 
 def test_settings_source_path_prefers_new_config(tmp_path, monkeypatch):
     new_config = tmp_path / "data" / "backend" / ".siq" / "llm_settings.json"
-    legacy_config = tmp_path / "apps" / "api" / ".finsight" / "llm_settings.json"
+    legacy_config = tmp_path / "apps" / "api" / ".siq" / "llm_settings.json"
     new_config.parent.mkdir(parents=True)
     legacy_config.parent.mkdir(parents=True)
     new_config.write_text("{}", encoding="utf-8")

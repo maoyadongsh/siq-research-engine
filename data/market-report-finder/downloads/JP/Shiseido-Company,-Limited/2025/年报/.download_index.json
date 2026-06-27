@@ -1,0 +1,60 @@
+{
+  "by_url": {
+    "https://corp.shiseido.com/en/ir/library/annual/pdf/2025report_en.pdf": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/Shiseido-Company,-Limited/2025/年报/Shiseido-Company,-Limited_JP_4911_2025-12-31_年报_2026-04-24_issuer_annual_report_1491fc9c.pdf",
+      "file_name": "Shiseido-Company,-Limited_JP_4911_2025-12-31_年报_2026-04-24_issuer_annual_report_1491fc9c.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "2aace8ddc25c771249d3436d8de0910192223cd6959ae14d811738de362193dd",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/Shiseido-Company,-Limited/2025/年报/Shiseido-Company,-Limited_JP_4911_2025-12-31_年报_2026-04-24_issuer_annual_report_1491fc9c.pdf.metadata.json",
+      "market": "JP",
+      "company_id": "JP:4911",
+      "ticker": "4911",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-24",
+      "accession_number": "JP:4911",
+      "country": null,
+      "source_tier": "issuer_official_direct"
+    },
+    "https://corp.shiseido.com/en/ir/library/annual/": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/Shiseido-Company,-Limited/2025/年报/Shiseido-Company,-Limited_JP_4911_2025-12-31_年报_2026-04-24_issuer_annual_report_1491fc9c.pdf",
+      "file_name": "Shiseido-Company,-Limited_JP_4911_2025-12-31_年报_2026-04-24_issuer_annual_report_1491fc9c.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "2aace8ddc25c771249d3436d8de0910192223cd6959ae14d811738de362193dd",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/Shiseido-Company,-Limited/2025/年报/Shiseido-Company,-Limited_JP_4911_2025-12-31_年报_2026-04-24_issuer_annual_report_1491fc9c.pdf.metadata.json",
+      "market": "JP",
+      "company_id": "JP:4911",
+      "ticker": "4911",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-24",
+      "accession_number": "JP:4911",
+      "country": null,
+      "source_tier": "issuer_official_direct"
+    }
+  },
+  "by_content_sha256": {
+    "2aace8ddc25c771249d3436d8de0910192223cd6959ae14d811738de362193dd": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/Shiseido-Company,-Limited/2025/年报/Shiseido-Company,-Limited_JP_4911_2025-12-31_年报_2026-04-24_issuer_annual_report_1491fc9c.pdf",
+      "file_name": "Shiseido-Company,-Limited_JP_4911_2025-12-31_年报_2026-04-24_issuer_annual_report_1491fc9c.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "2aace8ddc25c771249d3436d8de0910192223cd6959ae14d811738de362193dd",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/Shiseido-Company,-Limited/2025/年报/Shiseido-Company,-Limited_JP_4911_2025-12-31_年报_2026-04-24_issuer_annual_report_1491fc9c.pdf.metadata.json",
+      "market": "JP",
+      "company_id": "JP:4911",
+      "ticker": "4911",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-24",
+      "accession_number": "JP:4911",
+      "country": null,
+      "source_tier": "issuer_official_direct"
+    }
+  }
+}

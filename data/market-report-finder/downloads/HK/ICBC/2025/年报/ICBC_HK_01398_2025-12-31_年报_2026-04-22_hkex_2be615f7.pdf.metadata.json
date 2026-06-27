@@ -1,0 +1,39 @@
+{
+  "candidate": {
+    "source_id": "hkex",
+    "source_name": "HKEXnews",
+    "source_domain": "www1.hkexnews.hk",
+    "market": "HK",
+    "company_id": "01398",
+    "ticker": "01398",
+    "company_name": "ICBC",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "2025 Annual Report",
+    "accession_number": "12115102",
+    "primary_document": "2026042200394.pdf",
+    "report_end": "2025-12-31",
+    "published_at": "2026-04-22",
+    "accepted_at": null,
+    "document_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0422/2026042200394.pdf",
+    "landing_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0422/2026042200394.pdf",
+    "file_format": "pdf",
+    "language": "en",
+    "inline_xbrl": null,
+    "metadata": {
+      "news_id": "12115102",
+      "stock_name": "ICBC",
+      "short_text": "Financial Statements/ESG Information - [Annual Report]",
+      "long_text": "Financial Statements/ESG Information - [Annual Report]",
+      "file_info": "10MB"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "ICBC_HK_01398_2025-12-31_年报_2026-04-22_hkex_2be615f7.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/ICBC/2025/年报/ICBC_HK_01398_2025-12-31_年报_2026-04-22_hkex_2be615f7.pdf",
+    "size_bytes": 10290792,
+    "content_type": "application/pdf",
+    "content_sha256": "149a2194a7b3a3f6c4ef0c0872daa765e2d2bd35bdc51f1318f47ea7aab25215"
+  }
+}

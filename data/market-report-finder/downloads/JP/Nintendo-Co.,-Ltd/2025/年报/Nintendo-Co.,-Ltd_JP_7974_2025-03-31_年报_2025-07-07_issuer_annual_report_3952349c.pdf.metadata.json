@@ -1,0 +1,37 @@
+{
+  "candidate": {
+    "source_id": "issuer_annual_report",
+    "source_name": "Issuer annual report / IR",
+    "source_domain": "www.nintendo.co.jp",
+    "market": "JP",
+    "company_id": "JP:7974",
+    "ticker": "7974",
+    "company_name": "Nintendo Co., Ltd.",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "Nintendo Annual Report 2025",
+    "accession_number": "JP:7974",
+    "primary_document": "annual2503e.pdf",
+    "report_end": "2025-03-31",
+    "published_at": "2025-07-07",
+    "accepted_at": null,
+    "document_url": "https://www.nintendo.co.jp/ir/pdf/2025/annual2503e.pdf",
+    "landing_url": "https://www.nintendo.co.jp/ir/en/library/annual/index.html",
+    "file_format": "pdf",
+    "language": "en",
+    "inline_xbrl": null,
+    "metadata": {
+      "industry": "Gaming",
+      "source_tier": "issuer_official_direct",
+      "source_note": "Curated mainstream Japanese issuer IR annual-report download; EDINET/TDnet remain available for live statutory and exchange disclosures."
+    }
+  },
+  "downloaded_file": {
+    "file_name": "Nintendo-Co.,-Ltd_JP_7974_2025-03-31_年报_2025-07-07_issuer_annual_report_3952349c.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/Nintendo-Co.,-Ltd/2025/年报/Nintendo-Co.,-Ltd_JP_7974_2025-03-31_年报_2025-07-07_issuer_annual_report_3952349c.pdf",
+    "size_bytes": 1659104,
+    "content_type": "application/pdf",
+    "content_sha256": "19c22f05528661de8da2eb016c6b790fe071bd59c3c29e14901c559da324cb9c"
+  }
+}

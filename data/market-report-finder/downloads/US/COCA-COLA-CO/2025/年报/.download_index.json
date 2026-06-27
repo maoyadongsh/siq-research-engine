@@ -1,0 +1,38 @@
+{
+  "by_url": {
+    "https://www.sec.gov/Archives/edgar/data/21344/000162828026010047/ko-20251231.htm": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/COCA-COLA-CO/2025/年报/COCA-COLA-CO_US_KO_2025-12-31_10-K_2026-02-20_sec_c33ba98f.htm",
+      "file_name": "COCA-COLA-CO_US_KO_2025-12-31_10-K_2026-02-20_sec_c33ba98f.htm",
+      "content_type": "text/html",
+      "content_sha256": "22dd41f1aab4928f94a5f80e9497cf6203f27baa7c3f4e9088a6dd0aee929c66",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/COCA-COLA-CO/2025/年报/COCA-COLA-CO_US_KO_2025-12-31_10-K_2026-02-20_sec_c33ba98f.htm.metadata.json",
+      "market": "US",
+      "company_id": "KO",
+      "ticker": "KO",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-02-20",
+      "accession_number": "0001628280-26-010047"
+    }
+  },
+  "by_content_sha256": {
+    "22dd41f1aab4928f94a5f80e9497cf6203f27baa7c3f4e9088a6dd0aee929c66": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/COCA-COLA-CO/2025/年报/COCA-COLA-CO_US_KO_2025-12-31_10-K_2026-02-20_sec_c33ba98f.htm",
+      "file_name": "COCA-COLA-CO_US_KO_2025-12-31_10-K_2026-02-20_sec_c33ba98f.htm",
+      "content_type": "text/html",
+      "content_sha256": "22dd41f1aab4928f94a5f80e9497cf6203f27baa7c3f4e9088a6dd0aee929c66",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/COCA-COLA-CO/2025/年报/COCA-COLA-CO_US_KO_2025-12-31_10-K_2026-02-20_sec_c33ba98f.htm.metadata.json",
+      "market": "US",
+      "company_id": "KO",
+      "ticker": "KO",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-02-20",
+      "accession_number": "0001628280-26-010047"
+    }
+  }
+}

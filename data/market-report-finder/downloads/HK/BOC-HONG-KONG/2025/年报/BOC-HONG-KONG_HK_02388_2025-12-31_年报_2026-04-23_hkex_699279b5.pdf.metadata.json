@@ -1,0 +1,39 @@
+{
+  "candidate": {
+    "source_id": "hkex",
+    "source_name": "HKEXnews",
+    "source_domain": "www1.hkexnews.hk",
+    "market": "HK",
+    "company_id": "02388",
+    "ticker": "02388",
+    "company_name": "BOC HONG KONG",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "2025 Annual Report",
+    "accession_number": "12118246",
+    "primary_document": "2026042301357.pdf",
+    "report_end": "2025-12-31",
+    "published_at": "2026-04-23",
+    "accepted_at": null,
+    "document_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0423/2026042301357.pdf",
+    "landing_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0423/2026042301357.pdf",
+    "file_format": "pdf",
+    "language": "en",
+    "inline_xbrl": null,
+    "metadata": {
+      "news_id": "12118246",
+      "stock_name": "BOC HONG KONG BOC HONG KONG-R",
+      "short_text": "Financial Statements/ESG Information - [Annual Report]",
+      "long_text": "Financial Statements/ESG Information - [Annual Report]",
+      "file_info": "12MB"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "BOC-HONG-KONG_HK_02388_2025-12-31_年报_2026-04-23_hkex_699279b5.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/BOC-HONG-KONG/2025/年报/BOC-HONG-KONG_HK_02388_2025-12-31_年报_2026-04-23_hkex_699279b5.pdf",
+    "size_bytes": 12239217,
+    "content_type": "application/pdf",
+    "content_sha256": "e437445200f4480f11e629edc7eadbdc4545944d494e0c59b2b8768096f7f1fb"
+  }
+}

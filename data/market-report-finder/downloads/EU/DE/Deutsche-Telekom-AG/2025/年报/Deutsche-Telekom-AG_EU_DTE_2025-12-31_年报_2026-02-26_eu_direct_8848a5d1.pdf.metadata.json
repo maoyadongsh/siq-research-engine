@@ -1,0 +1,37 @@
+{
+  "candidate": {
+    "source_id": "eu_direct",
+    "source_name": "Official European filing direct download",
+    "source_domain": "report.telekom.com",
+    "market": "EU",
+    "company_id": "DE:DTE",
+    "ticker": "DTE",
+    "company_name": "Deutsche Telekom AG",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "Deutsche Telekom Annual Report 2025",
+    "accession_number": "manual",
+    "primary_document": "entire-dtag-ar25.pdf",
+    "report_end": "2025-12-31",
+    "published_at": "2026-02-26",
+    "accepted_at": null,
+    "document_url": "https://report.telekom.com/annual-report-2025/_assets/downloads/entire-dtag-ar25.pdf",
+    "landing_url": "https://report.telekom.com/annual-report-2025/",
+    "file_format": "pdf",
+    "language": null,
+    "inline_xbrl": null,
+    "metadata": {
+      "country": "DE",
+      "country_label": "Germany",
+      "source_tier": "official_direct"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "Deutsche-Telekom-AG_EU_DTE_2025-12-31_年报_2026-02-26_eu_direct_8848a5d1.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/DE/Deutsche-Telekom-AG/2025/年报/Deutsche-Telekom-AG_EU_DTE_2025-12-31_年报_2026-02-26_eu_direct_8848a5d1.pdf",
+    "size_bytes": 12389324,
+    "content_type": "application/pdf",
+    "content_sha256": "de5d9b0705793c4bf0b994b52ecc242800d79ee18736958dbff32aade7b79a5c"
+  }
+}

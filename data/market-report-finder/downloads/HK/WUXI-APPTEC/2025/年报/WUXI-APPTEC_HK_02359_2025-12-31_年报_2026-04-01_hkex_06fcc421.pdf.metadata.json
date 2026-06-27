@@ -1,0 +1,39 @@
+{
+  "candidate": {
+    "source_id": "hkex",
+    "source_name": "HKEXnews",
+    "source_domain": "www1.hkexnews.hk",
+    "market": "HK",
+    "company_id": "02359",
+    "ticker": "02359",
+    "company_name": "WUXI APPTEC",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "2025 ANNUAL REPORT",
+    "accession_number": "12090638",
+    "primary_document": "2026040101920.pdf",
+    "report_end": "2025-12-31",
+    "published_at": "2026-04-01",
+    "accepted_at": null,
+    "document_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0401/2026040101920.pdf",
+    "landing_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0401/2026040101920.pdf",
+    "file_format": "pdf",
+    "language": "en",
+    "inline_xbrl": null,
+    "metadata": {
+      "news_id": "12090638",
+      "stock_name": "WUXI APPTEC",
+      "short_text": "Financial Statements/ESG Information - [Annual Report]",
+      "long_text": "Financial Statements/ESG Information - [Annual Report]",
+      "file_info": "3MB"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "WUXI-APPTEC_HK_02359_2025-12-31_年报_2026-04-01_hkex_06fcc421.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/WUXI-APPTEC/2025/年报/WUXI-APPTEC_HK_02359_2025-12-31_年报_2026-04-01_hkex_06fcc421.pdf",
+    "size_bytes": 3161844,
+    "content_type": "application/pdf",
+    "content_sha256": "bddf28b1aa9b87286ba22d688b0272e5d6aaedcd10c86a69ca0bc2cb678b8313"
+  }
+}

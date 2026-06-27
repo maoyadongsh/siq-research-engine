@@ -1,0 +1,38 @@
+{
+  "by_url": {
+    "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0416/2026041601496.pdf": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/JD-SW/2025/年报/JD-SW_HK_09618_2025-12-31_年报_2026-04-16_hkex_f7b87652.pdf",
+      "file_name": "JD-SW_HK_09618_2025-12-31_年报_2026-04-16_hkex_f7b87652.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "d50651fef2d86a76e535fe7c87a37b8de3ff937b2b8d969b04f54990e7f7360b",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/JD-SW/2025/年报/JD-SW_HK_09618_2025-12-31_年报_2026-04-16_hkex_f7b87652.pdf.metadata.json",
+      "market": "HK",
+      "company_id": "HK:09618",
+      "ticker": "09618",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-16",
+      "accession_number": "12108799"
+    }
+  },
+  "by_content_sha256": {
+    "d50651fef2d86a76e535fe7c87a37b8de3ff937b2b8d969b04f54990e7f7360b": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/JD-SW/2025/年报/JD-SW_HK_09618_2025-12-31_年报_2026-04-16_hkex_f7b87652.pdf",
+      "file_name": "JD-SW_HK_09618_2025-12-31_年报_2026-04-16_hkex_f7b87652.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "d50651fef2d86a76e535fe7c87a37b8de3ff937b2b8d969b04f54990e7f7360b",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/JD-SW/2025/年报/JD-SW_HK_09618_2025-12-31_年报_2026-04-16_hkex_f7b87652.pdf.metadata.json",
+      "market": "HK",
+      "company_id": "HK:09618",
+      "ticker": "09618",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-16",
+      "accession_number": "12108799"
+    }
+  }
+}

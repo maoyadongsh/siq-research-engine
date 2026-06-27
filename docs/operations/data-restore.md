@@ -65,14 +65,14 @@ export SIQ_PDF2MD_DATA_DIR=/home/maoyd/siq-research-engine/data/pdf-parser
 默认位置：
 
 ```text
-data/report-finder/downloads
+data/market-report-finder/downloads
 ```
 
 API 通过以下变量定位：
 
 ```bash
-export SIQ_REPORT_FINDER_ROOT=/home/maoyd/siq-research-engine/services/report-finder
-export SIQ_REPORT_DOWNLOADS_ROOT=/home/maoyd/siq-research-engine/data/report-finder/downloads
+export SIQ_REPORT_FINDER_ROOT=/home/maoyd/siq-research-engine/services/market-report-finder
+export SIQ_REPORT_DOWNLOADS_ROOT=/home/maoyd/siq-research-engine/data/market-report-finder/downloads
 ```
 
 ## PostgreSQL

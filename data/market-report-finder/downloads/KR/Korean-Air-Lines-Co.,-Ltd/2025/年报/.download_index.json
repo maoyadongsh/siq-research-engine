@@ -1,0 +1,42 @@
+{
+  "by_url": {
+    "https://dart.fss.or.kr/pdf/download/pdf.do?rcp_no=20260318001125&dcm_no=11140184": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/Korean-Air-Lines-Co.,-Ltd/2025/年报/Korean-Air-Lines-Co.,-Ltd_KR_003490_2025-12-31_年报_2026-03-18_dart_public_14412955.pdf",
+      "file_name": "Korean-Air-Lines-Co.,-Ltd_KR_003490_2025-12-31_年报_2026-03-18_dart_public_14412955.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "9b43316de3b165e53f589558120d75a42117b552d737499d6eec908d6a985136",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/Korean-Air-Lines-Co.,-Ltd/2025/年报/Korean-Air-Lines-Co.,-Ltd_KR_003490_2025-12-31_年报_2026-03-18_dart_public_14412955.pdf.metadata.json",
+      "market": "KR",
+      "company_id": "00113526",
+      "ticker": "003490",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-18",
+      "accession_number": "manual",
+      "country": null,
+      "source_tier": null
+    }
+  },
+  "by_content_sha256": {
+    "9b43316de3b165e53f589558120d75a42117b552d737499d6eec908d6a985136": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/Korean-Air-Lines-Co.,-Ltd/2025/年报/Korean-Air-Lines-Co.,-Ltd_KR_003490_2025-12-31_年报_2026-03-18_dart_public_14412955.pdf",
+      "file_name": "Korean-Air-Lines-Co.,-Ltd_KR_003490_2025-12-31_年报_2026-03-18_dart_public_14412955.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "9b43316de3b165e53f589558120d75a42117b552d737499d6eec908d6a985136",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/Korean-Air-Lines-Co.,-Ltd/2025/年报/Korean-Air-Lines-Co.,-Ltd_KR_003490_2025-12-31_年报_2026-03-18_dart_public_14412955.pdf.metadata.json",
+      "market": "KR",
+      "company_id": "00113526",
+      "ticker": "003490",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-18",
+      "accession_number": "manual",
+      "country": null,
+      "source_tier": null
+    }
+  }
+}

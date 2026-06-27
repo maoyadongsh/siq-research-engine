@@ -1,0 +1,38 @@
+{
+  "by_url": {
+    "https://www.sec.gov/Archives/edgar/data/320187/000032018725000047/nke-20250531.htm": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/NIKE,-Inc/2025/年报/NIKE,-Inc_US_NKE_2025-05-31_10-K_2025-07-17_sec_80705672.htm",
+      "file_name": "NIKE,-Inc_US_NKE_2025-05-31_10-K_2025-07-17_sec_80705672.htm",
+      "content_type": "text/html",
+      "content_sha256": "ccd82759b90821813fd2efa622c97900d46eafceeaa2586ff82ddd4abdcc6cd1",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/NIKE,-Inc/2025/年报/NIKE,-Inc_US_NKE_2025-05-31_10-K_2025-07-17_sec_80705672.htm.metadata.json",
+      "market": "US",
+      "company_id": "NKE",
+      "ticker": "NKE",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-05-31",
+      "published_at": "2025-07-17",
+      "accession_number": "0000320187-25-000047"
+    }
+  },
+  "by_content_sha256": {
+    "ccd82759b90821813fd2efa622c97900d46eafceeaa2586ff82ddd4abdcc6cd1": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/NIKE,-Inc/2025/年报/NIKE,-Inc_US_NKE_2025-05-31_10-K_2025-07-17_sec_80705672.htm",
+      "file_name": "NIKE,-Inc_US_NKE_2025-05-31_10-K_2025-07-17_sec_80705672.htm",
+      "content_type": "text/html",
+      "content_sha256": "ccd82759b90821813fd2efa622c97900d46eafceeaa2586ff82ddd4abdcc6cd1",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/NIKE,-Inc/2025/年报/NIKE,-Inc_US_NKE_2025-05-31_10-K_2025-07-17_sec_80705672.htm.metadata.json",
+      "market": "US",
+      "company_id": "NKE",
+      "ticker": "NKE",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-05-31",
+      "published_at": "2025-07-17",
+      "accession_number": "0000320187-25-000047"
+    }
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "by_url": {
+    "https://ourbrand.asml.com/m/71076aaad607de4d/original/asml-2025-annual-report-based-on-us-gaap.pdf": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/NL/ASML-Holding-N.V/2025/年报/ASML-Holding-N.V_EU_ASML_2025-12-31_年报_2026-02-25_eu_direct_06003086.pdf",
+      "file_name": "ASML-Holding-N.V_EU_ASML_2025-12-31_年报_2026-02-25_eu_direct_06003086.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "add58be9d9822ca12584b63c55c089b36e1ae5bf7a1825ebf1d1572628f2c52c",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/NL/ASML-Holding-N.V/2025/年报/ASML-Holding-N.V_EU_ASML_2025-12-31_年报_2026-02-25_eu_direct_06003086.pdf.metadata.json",
+      "market": "EU",
+      "company_id": "NL:ASML",
+      "ticker": "ASML",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-02-25",
+      "accession_number": "manual",
+      "country": "NL",
+      "source_tier": "official_direct"
+    },
+    "https://www.asml.com/en/investors/annual-report/2025/downloads": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/NL/ASML-Holding-N.V/2025/年报/ASML-Holding-N.V_EU_ASML_2025-12-31_年报_2026-02-25_eu_direct_06003086.pdf",
+      "file_name": "ASML-Holding-N.V_EU_ASML_2025-12-31_年报_2026-02-25_eu_direct_06003086.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "add58be9d9822ca12584b63c55c089b36e1ae5bf7a1825ebf1d1572628f2c52c",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/NL/ASML-Holding-N.V/2025/年报/ASML-Holding-N.V_EU_ASML_2025-12-31_年报_2026-02-25_eu_direct_06003086.pdf.metadata.json",
+      "market": "EU",
+      "company_id": "NL:ASML",
+      "ticker": "ASML",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-02-25",
+      "accession_number": "manual",
+      "country": "NL",
+      "source_tier": "official_direct"
+    }
+  },
+  "by_content_sha256": {
+    "add58be9d9822ca12584b63c55c089b36e1ae5bf7a1825ebf1d1572628f2c52c": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/NL/ASML-Holding-N.V/2025/年报/ASML-Holding-N.V_EU_ASML_2025-12-31_年报_2026-02-25_eu_direct_06003086.pdf",
+      "file_name": "ASML-Holding-N.V_EU_ASML_2025-12-31_年报_2026-02-25_eu_direct_06003086.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "add58be9d9822ca12584b63c55c089b36e1ae5bf7a1825ebf1d1572628f2c52c",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/NL/ASML-Holding-N.V/2025/年报/ASML-Holding-N.V_EU_ASML_2025-12-31_年报_2026-02-25_eu_direct_06003086.pdf.metadata.json",
+      "market": "EU",
+      "company_id": "NL:ASML",
+      "ticker": "ASML",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-02-25",
+      "accession_number": "manual",
+      "country": "NL",
+      "source_tier": "official_direct"
+    }
+  }
+}

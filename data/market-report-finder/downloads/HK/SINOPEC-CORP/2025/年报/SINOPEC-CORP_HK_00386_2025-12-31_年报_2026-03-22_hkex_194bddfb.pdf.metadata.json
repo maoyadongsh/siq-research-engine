@@ -1,0 +1,39 @@
+{
+  "candidate": {
+    "source_id": "hkex",
+    "source_name": "HKEXnews",
+    "source_domain": "www1.hkexnews.hk",
+    "market": "HK",
+    "company_id": "00386",
+    "ticker": "00386",
+    "company_name": "SINOPEC CORP",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "2025 Annual Report",
+    "accession_number": "12061898",
+    "primary_document": "2026032200057.pdf",
+    "report_end": "2025-12-31",
+    "published_at": "2026-03-22",
+    "accepted_at": null,
+    "document_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0322/2026032200057.pdf",
+    "landing_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0322/2026032200057.pdf",
+    "file_format": "pdf",
+    "language": "en",
+    "inline_xbrl": null,
+    "metadata": {
+      "news_id": "12061898",
+      "stock_name": "SINOPEC CORP",
+      "short_text": "Financial Statements/ESG Information - [Annual Report]",
+      "long_text": "Financial Statements/ESG Information - [Annual Report]",
+      "file_info": "12MB"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "SINOPEC-CORP_HK_00386_2025-12-31_年报_2026-03-22_hkex_194bddfb.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/SINOPEC-CORP/2025/年报/SINOPEC-CORP_HK_00386_2025-12-31_年报_2026-03-22_hkex_194bddfb.pdf",
+    "size_bytes": 12295482,
+    "content_type": "application/pdf",
+    "content_sha256": "a3346638f68fadaf7154af89362e47cb602f6242f1625bcd9d11b3159892e042"
+  }
+}

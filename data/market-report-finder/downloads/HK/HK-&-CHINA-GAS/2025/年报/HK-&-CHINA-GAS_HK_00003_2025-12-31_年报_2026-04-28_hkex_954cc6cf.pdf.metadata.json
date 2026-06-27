@@ -1,0 +1,39 @@
+{
+  "candidate": {
+    "source_id": "hkex",
+    "source_name": "HKEXnews",
+    "source_domain": "www1.hkexnews.hk",
+    "market": "HK",
+    "company_id": "00003",
+    "ticker": "00003",
+    "company_name": "HK & CHINA GAS",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "Letter to Non-Registered Holders and Reply Form - Publication of 2025 Annual Report, Circular, Environmental, Social and Governance Report 2025 and New Arrangement of Electronic Dissemination of Corporate Communications",
+    "accession_number": "12128499",
+    "primary_document": "2026042801564.pdf",
+    "report_end": "2025-12-31",
+    "published_at": "2026-04-28",
+    "accepted_at": null,
+    "document_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0428/2026042801564.pdf",
+    "landing_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0428/2026042801564.pdf",
+    "file_format": "pdf",
+    "language": "en",
+    "inline_xbrl": null,
+    "metadata": {
+      "news_id": "12128499",
+      "stock_name": "HK & CHINA GAS",
+      "short_text": "Circulars - [Other]",
+      "long_text": "Circulars - [Other]",
+      "file_info": "860KB"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "HK-&-CHINA-GAS_HK_00003_2025-12-31_年报_2026-04-28_hkex_954cc6cf.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/HK-&-CHINA-GAS/2025/年报/HK-&-CHINA-GAS_HK_00003_2025-12-31_年报_2026-04-28_hkex_954cc6cf.pdf",
+    "size_bytes": 880250,
+    "content_type": "application/pdf",
+    "content_sha256": "8de88825f6c810831370b7d886cb70a6a4d8a3b2dd21980d796f1fe179646fea"
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "by_url": {
+    "https://www.sec.gov/Archives/edgar/data/1053507/000105350726000035/amt-20251231.htm": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/AMERICAN-TOWER-CORP-MA/2025/年报/AMERICAN-TOWER-CORP-MA_US_AMT_2025-12-31_10-K_2026-02-24_sec_87ef37f3.htm",
+      "file_name": "AMERICAN-TOWER-CORP-MA_US_AMT_2025-12-31_10-K_2026-02-24_sec_87ef37f3.htm",
+      "content_type": "text/html",
+      "content_sha256": "a6616eb675ead2523ff7aadae4bb6d0b387c43056e9681dfed1cfbe5a3dac1ce",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/AMERICAN-TOWER-CORP-MA/2025/年报/AMERICAN-TOWER-CORP-MA_US_AMT_2025-12-31_10-K_2026-02-24_sec_87ef37f3.htm.metadata.json",
+      "market": "US",
+      "company_id": "AMT",
+      "ticker": "AMT",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-02-24",
+      "accession_number": "0001053507-26-000035"
+    }
+  },
+  "by_content_sha256": {
+    "a6616eb675ead2523ff7aadae4bb6d0b387c43056e9681dfed1cfbe5a3dac1ce": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/AMERICAN-TOWER-CORP-MA/2025/年报/AMERICAN-TOWER-CORP-MA_US_AMT_2025-12-31_10-K_2026-02-24_sec_87ef37f3.htm",
+      "file_name": "AMERICAN-TOWER-CORP-MA_US_AMT_2025-12-31_10-K_2026-02-24_sec_87ef37f3.htm",
+      "content_type": "text/html",
+      "content_sha256": "a6616eb675ead2523ff7aadae4bb6d0b387c43056e9681dfed1cfbe5a3dac1ce",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/AMERICAN-TOWER-CORP-MA/2025/年报/AMERICAN-TOWER-CORP-MA_US_AMT_2025-12-31_10-K_2026-02-24_sec_87ef37f3.htm.metadata.json",
+      "market": "US",
+      "company_id": "AMT",
+      "ticker": "AMT",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-02-24",
+      "accession_number": "0001053507-26-000035"
+    }
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "by_url": {
+    "https://www.results.philips.com/app/uploads/2026/04/PhilipsFullAnnualReport2025-English.pdf": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/NL/Koninklijke-Philips-N.V/2025/年报/Koninklijke-Philips-N.V_EU_PHIA_2025-12-31_年报_2026-02-19_eu_direct_86cb52a6.pdf",
+      "file_name": "Koninklijke-Philips-N.V_EU_PHIA_2025-12-31_年报_2026-02-19_eu_direct_86cb52a6.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "ff527efe35aa923bd6b592c38549bf1f9f207ac3cef2cec6695a7b9cd93efc6d",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/NL/Koninklijke-Philips-N.V/2025/年报/Koninklijke-Philips-N.V_EU_PHIA_2025-12-31_年报_2026-02-19_eu_direct_86cb52a6.pdf.metadata.json",
+      "market": "EU",
+      "company_id": "NL:PHIA",
+      "ticker": "PHIA",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-02-19",
+      "accession_number": "manual",
+      "country": "NL",
+      "source_tier": "official_direct"
+    },
+    "https://www.results.philips.com/ar25": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/NL/Koninklijke-Philips-N.V/2025/年报/Koninklijke-Philips-N.V_EU_PHIA_2025-12-31_年报_2026-02-19_eu_direct_86cb52a6.pdf",
+      "file_name": "Koninklijke-Philips-N.V_EU_PHIA_2025-12-31_年报_2026-02-19_eu_direct_86cb52a6.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "ff527efe35aa923bd6b592c38549bf1f9f207ac3cef2cec6695a7b9cd93efc6d",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/NL/Koninklijke-Philips-N.V/2025/年报/Koninklijke-Philips-N.V_EU_PHIA_2025-12-31_年报_2026-02-19_eu_direct_86cb52a6.pdf.metadata.json",
+      "market": "EU",
+      "company_id": "NL:PHIA",
+      "ticker": "PHIA",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-02-19",
+      "accession_number": "manual",
+      "country": "NL",
+      "source_tier": "official_direct"
+    }
+  },
+  "by_content_sha256": {
+    "ff527efe35aa923bd6b592c38549bf1f9f207ac3cef2cec6695a7b9cd93efc6d": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/NL/Koninklijke-Philips-N.V/2025/年报/Koninklijke-Philips-N.V_EU_PHIA_2025-12-31_年报_2026-02-19_eu_direct_86cb52a6.pdf",
+      "file_name": "Koninklijke-Philips-N.V_EU_PHIA_2025-12-31_年报_2026-02-19_eu_direct_86cb52a6.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "ff527efe35aa923bd6b592c38549bf1f9f207ac3cef2cec6695a7b9cd93efc6d",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/NL/Koninklijke-Philips-N.V/2025/年报/Koninklijke-Philips-N.V_EU_PHIA_2025-12-31_年报_2026-02-19_eu_direct_86cb52a6.pdf.metadata.json",
+      "market": "EU",
+      "company_id": "NL:PHIA",
+      "ticker": "PHIA",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-02-19",
+      "accession_number": "manual",
+      "country": "NL",
+      "source_tier": "official_direct"
+    }
+  }
+}

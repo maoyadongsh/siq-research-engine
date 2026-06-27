@@ -1,0 +1,37 @@
+{
+  "candidate": {
+    "source_id": "issuer_annual_report",
+    "source_name": "Issuer annual report / IR",
+    "source_domain": "www.mufg.jp",
+    "market": "JP",
+    "company_id": "JP:8306",
+    "ticker": "8306",
+    "company_name": "Mitsubishi UFJ Financial Group, Inc.",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "MUFG Report 2025",
+    "accession_number": "JP:8306",
+    "primary_document": "ir2025_all_en.pdf",
+    "report_end": "2025-03-31",
+    "published_at": "2025-08-26",
+    "accepted_at": null,
+    "document_url": "https://www.mufg.jp/dam/ir/report/annual_report/pdf/ir2025_all_en.pdf",
+    "landing_url": "https://www.mufg.jp/english/ir/report/annual_report/",
+    "file_format": "pdf",
+    "language": "en",
+    "inline_xbrl": null,
+    "metadata": {
+      "industry": "Banking",
+      "source_tier": "issuer_official_direct",
+      "source_note": "Curated mainstream Japanese issuer IR annual-report download; EDINET/TDnet remain available for live statutory and exchange disclosures."
+    }
+  },
+  "downloaded_file": {
+    "file_name": "Mitsubishi-UFJ-Financial-Group,-Inc_JP_8306_2025-03-31_年报_2025-08-26_issuer_annual_report_fbb1ea18.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/Mitsubishi-UFJ-Financial-Group,-Inc/2025/年报/Mitsubishi-UFJ-Financial-Group,-Inc_JP_8306_2025-03-31_年报_2025-08-26_issuer_annual_report_fbb1ea18.pdf",
+    "size_bytes": 10425168,
+    "content_type": "application/pdf",
+    "content_sha256": "d1bfb8cc067d49131861b3719c5e4bed538ca7e09e87a44ea5b8e3a7f673903a"
+  }
+}

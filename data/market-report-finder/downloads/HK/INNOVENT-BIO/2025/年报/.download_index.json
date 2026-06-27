@@ -1,0 +1,38 @@
+{
+  "by_url": {
+    "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0428/2026042805171.pdf": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/INNOVENT-BIO/2025/年报/INNOVENT-BIO_HK_01801_2025-12-31_年报_2026-04-28_hkex_d465e124.pdf",
+      "file_name": "INNOVENT-BIO_HK_01801_2025-12-31_年报_2026-04-28_hkex_d465e124.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "fe12614a8ea830dea81fdbd285a38a9fe7f83d6aaa453375167ba6d17c47e958",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/INNOVENT-BIO/2025/年报/INNOVENT-BIO_HK_01801_2025-12-31_年报_2026-04-28_hkex_d465e124.pdf.metadata.json",
+      "market": "HK",
+      "company_id": "HK:01801",
+      "ticker": "01801",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-28",
+      "accession_number": "12131564"
+    }
+  },
+  "by_content_sha256": {
+    "fe12614a8ea830dea81fdbd285a38a9fe7f83d6aaa453375167ba6d17c47e958": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/INNOVENT-BIO/2025/年报/INNOVENT-BIO_HK_01801_2025-12-31_年报_2026-04-28_hkex_d465e124.pdf",
+      "file_name": "INNOVENT-BIO_HK_01801_2025-12-31_年报_2026-04-28_hkex_d465e124.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "fe12614a8ea830dea81fdbd285a38a9fe7f83d6aaa453375167ba6d17c47e958",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/INNOVENT-BIO/2025/年报/INNOVENT-BIO_HK_01801_2025-12-31_年报_2026-04-28_hkex_d465e124.pdf.metadata.json",
+      "market": "HK",
+      "company_id": "HK:01801",
+      "ticker": "01801",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-28",
+      "accession_number": "12131564"
+    }
+  }
+}

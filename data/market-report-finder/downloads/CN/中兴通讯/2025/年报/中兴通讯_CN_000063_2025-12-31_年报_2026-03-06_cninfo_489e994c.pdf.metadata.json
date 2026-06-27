@@ -1,0 +1,36 @@
+{
+  "candidate": {
+    "source_id": "cninfo",
+    "source_name": "巨潮资讯",
+    "source_domain": "www.cninfo.com.cn",
+    "market": "CN",
+    "company_id": "000063",
+    "ticker": "000063",
+    "company_name": "中兴通讯",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "2025年年度报告",
+    "accession_number": "1225000301",
+    "primary_document": "1225000301.PDF",
+    "report_end": "2025-12-31",
+    "published_at": "2026-03-06",
+    "accepted_at": null,
+    "document_url": "https://static.cninfo.com.cn/finalpage/2026-03-07/1225000301.PDF",
+    "landing_url": "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=000063&announcementId=1225000301&orgId=gssz0000063&announcementTime=2026-03-06",
+    "file_format": "pdf",
+    "language": "zh-CN",
+    "inline_xbrl": null,
+    "metadata": {
+      "org_id": "gssz0000063",
+      "plate": "sz"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "中兴通讯_CN_000063_2025-12-31_年报_2026-03-06_cninfo_489e994c.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/中兴通讯/2025/年报/中兴通讯_CN_000063_2025-12-31_年报_2026-03-06_cninfo_489e994c.pdf",
+    "size_bytes": 6214910,
+    "content_type": "application/pdf",
+    "content_sha256": "9fa224b7361ef4cd2c4f345531df8874c6f5bf4f69634da397a825dd294746e1"
+  }
+}

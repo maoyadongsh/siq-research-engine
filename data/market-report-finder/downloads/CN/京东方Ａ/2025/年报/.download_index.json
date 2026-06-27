@@ -1,0 +1,54 @@
+{
+  "by_url": {
+    "https://static.cninfo.com.cn/finalpage/2026-04-01/1225068510.PDF": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/京东方Ａ/2025/年报/京东方Ａ_CN_000725_2025-12-31_年报_2026-03-31_cninfo_c8184db5.pdf",
+      "file_name": "京东方Ａ_CN_000725_2025-12-31_年报_2026-03-31_cninfo_c8184db5.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "34ba47131763d6992d0997e714fa2e741e38abbfbcb7b6f537cfe2fdb97b1a80",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/京东方Ａ/2025/年报/京东方Ａ_CN_000725_2025-12-31_年报_2026-03-31_cninfo_c8184db5.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "000725",
+      "ticker": "000725",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-31",
+      "accession_number": "1225068510"
+    },
+    "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=000725&announcementId=1225068510&orgId=gssz0000725&announcementTime=2026-03-31": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/京东方Ａ/2025/年报/京东方Ａ_CN_000725_2025-12-31_年报_2026-03-31_cninfo_c8184db5.pdf",
+      "file_name": "京东方Ａ_CN_000725_2025-12-31_年报_2026-03-31_cninfo_c8184db5.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "34ba47131763d6992d0997e714fa2e741e38abbfbcb7b6f537cfe2fdb97b1a80",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/京东方Ａ/2025/年报/京东方Ａ_CN_000725_2025-12-31_年报_2026-03-31_cninfo_c8184db5.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "000725",
+      "ticker": "000725",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-31",
+      "accession_number": "1225068510"
+    }
+  },
+  "by_content_sha256": {
+    "34ba47131763d6992d0997e714fa2e741e38abbfbcb7b6f537cfe2fdb97b1a80": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/京东方Ａ/2025/年报/京东方Ａ_CN_000725_2025-12-31_年报_2026-03-31_cninfo_c8184db5.pdf",
+      "file_name": "京东方Ａ_CN_000725_2025-12-31_年报_2026-03-31_cninfo_c8184db5.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "34ba47131763d6992d0997e714fa2e741e38abbfbcb7b6f537cfe2fdb97b1a80",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/京东方Ａ/2025/年报/京东方Ａ_CN_000725_2025-12-31_年报_2026-03-31_cninfo_c8184db5.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "000725",
+      "ticker": "000725",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-31",
+      "accession_number": "1225068510"
+    }
+  }
+}

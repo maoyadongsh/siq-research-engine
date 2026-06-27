@@ -107,9 +107,9 @@ DEFAULT_WIKI_ROOT = _first_existing_path(
     default=PROJECT_ROOT / "data" / "wiki",
 )
 DEFAULT_REPORT_FINDER_ROOT = _first_existing_path(
-    PROJECT_ROOT / "services" / "report-finder",
+    PROJECT_ROOT / "services" / "market-report-finder",
     marker="pyproject.toml",
-    default=PROJECT_ROOT / "services" / "report-finder",
+    default=PROJECT_ROOT / "services" / "market-report-finder",
 )
 DEFAULT_HERMES_HOME = _first_existing_path(
     PROJECT_ROOT / "data" / "hermes" / "home",
@@ -152,7 +152,7 @@ REPORT_DOWNLOADS_ROOT = _env_path(
     "SIQ_REPORT_DOWNLOADS_ROOT",
     "REPORT_DOWNLOADS_ROOT",
     "SIQ_REPORT_DOWNLOADS_ROOT",
-    default=DATA_ROOT / "report-finder" / "downloads",
+    default=DATA_ROOT / "market-report-finder" / "downloads",
 )
 
 HERMES_HOME = _env_path(
@@ -179,7 +179,6 @@ HERMES_PROFILE_ROOTS = {
         "HERMES_ASSISTANT_PROFILE_ROOT",
         candidates=(
             HERMES_PROFILES_ROOT / "siq_assistant",
-            HERMES_PROFILES_ROOT / "finsight_assistant",
         ),
         default=HERMES_PROFILES_ROOT / "siq_assistant",
     ),
@@ -188,7 +187,6 @@ HERMES_PROFILE_ROOTS = {
         "HERMES_ANALYSIS_PROFILE_ROOT",
         candidates=(
             HERMES_PROFILES_ROOT / "siq_analysis",
-            HERMES_PROFILES_ROOT / "finsight_analysis",
         ),
         default=HERMES_PROFILES_ROOT / "siq_analysis",
     ),
@@ -197,7 +195,6 @@ HERMES_PROFILE_ROOTS = {
         "HERMES_FACTCHECKER_PROFILE_ROOT",
         candidates=(
             HERMES_PROFILES_ROOT / "siq_factchecker",
-            HERMES_PROFILES_ROOT / "finsight_factchecker",
         ),
         default=HERMES_PROFILES_ROOT / "siq_factchecker",
     ),
@@ -206,7 +203,6 @@ HERMES_PROFILE_ROOTS = {
         "HERMES_TRACKING_PROFILE_ROOT",
         candidates=(
             HERMES_PROFILES_ROOT / "siq_tracking",
-            HERMES_PROFILES_ROOT / "finsight_tracking",
         ),
         default=HERMES_PROFILES_ROOT / "siq_tracking",
     ),
@@ -215,7 +211,6 @@ HERMES_PROFILE_ROOTS = {
         "HERMES_LEGAL_PROFILE_ROOT",
         candidates=(
             HERMES_PROFILES_ROOT / "siq_legal",
-            HERMES_PROFILES_ROOT / "finsight_legal",
         ),
         default=HERMES_PROFILES_ROOT / "siq_legal",
     ),

@@ -1,0 +1,60 @@
+{
+  "by_url": {
+    "https://group.ntt/en/ir/library/annual/pdf/integrated_report_25e.pdf": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/Nippon-Telegraph-and-Telephone-Corporation/2025/年报/Nippon-Telegraph-and-Telephone-Corporation_JP_9432_2025-03-31_年报_2026-01-06_issuer_annual_report_3413006f.pdf",
+      "file_name": "Nippon-Telegraph-and-Telephone-Corporation_JP_9432_2025-03-31_年报_2026-01-06_issuer_annual_report_3413006f.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "4a4c88285cc36d6acee5d03e1cde042a98cf41b87df5ea321be95d986eb61ec9",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/Nippon-Telegraph-and-Telephone-Corporation/2025/年报/Nippon-Telegraph-and-Telephone-Corporation_JP_9432_2025-03-31_年报_2026-01-06_issuer_annual_report_3413006f.pdf.metadata.json",
+      "market": "JP",
+      "company_id": "JP:9432",
+      "ticker": "9432",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-03-31",
+      "published_at": "2026-01-06",
+      "accession_number": "JP:9432",
+      "country": null,
+      "source_tier": "issuer_official_direct"
+    },
+    "https://group.ntt/en/ir/library/annual/": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/Nippon-Telegraph-and-Telephone-Corporation/2025/年报/Nippon-Telegraph-and-Telephone-Corporation_JP_9432_2025-03-31_年报_2026-01-06_issuer_annual_report_3413006f.pdf",
+      "file_name": "Nippon-Telegraph-and-Telephone-Corporation_JP_9432_2025-03-31_年报_2026-01-06_issuer_annual_report_3413006f.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "4a4c88285cc36d6acee5d03e1cde042a98cf41b87df5ea321be95d986eb61ec9",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/Nippon-Telegraph-and-Telephone-Corporation/2025/年报/Nippon-Telegraph-and-Telephone-Corporation_JP_9432_2025-03-31_年报_2026-01-06_issuer_annual_report_3413006f.pdf.metadata.json",
+      "market": "JP",
+      "company_id": "JP:9432",
+      "ticker": "9432",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-03-31",
+      "published_at": "2026-01-06",
+      "accession_number": "JP:9432",
+      "country": null,
+      "source_tier": "issuer_official_direct"
+    }
+  },
+  "by_content_sha256": {
+    "4a4c88285cc36d6acee5d03e1cde042a98cf41b87df5ea321be95d986eb61ec9": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/Nippon-Telegraph-and-Telephone-Corporation/2025/年报/Nippon-Telegraph-and-Telephone-Corporation_JP_9432_2025-03-31_年报_2026-01-06_issuer_annual_report_3413006f.pdf",
+      "file_name": "Nippon-Telegraph-and-Telephone-Corporation_JP_9432_2025-03-31_年报_2026-01-06_issuer_annual_report_3413006f.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "4a4c88285cc36d6acee5d03e1cde042a98cf41b87df5ea321be95d986eb61ec9",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/Nippon-Telegraph-and-Telephone-Corporation/2025/年报/Nippon-Telegraph-and-Telephone-Corporation_JP_9432_2025-03-31_年报_2026-01-06_issuer_annual_report_3413006f.pdf.metadata.json",
+      "market": "JP",
+      "company_id": "JP:9432",
+      "ticker": "9432",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-03-31",
+      "published_at": "2026-01-06",
+      "accession_number": "JP:9432",
+      "country": null,
+      "source_tier": "issuer_official_direct"
+    }
+  }
+}

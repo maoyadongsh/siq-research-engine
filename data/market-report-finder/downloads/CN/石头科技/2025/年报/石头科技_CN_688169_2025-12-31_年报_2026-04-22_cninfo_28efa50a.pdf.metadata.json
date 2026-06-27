@@ -1,0 +1,36 @@
+{
+  "candidate": {
+    "source_id": "cninfo",
+    "source_name": "巨潮资讯",
+    "source_domain": "www.cninfo.com.cn",
+    "market": "CN",
+    "company_id": "688169",
+    "ticker": "688169",
+    "company_name": "石头科技",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "北京石头世纪科技股份有限公司2025年年度报告",
+    "accession_number": "1225147552",
+    "primary_document": "1225147552.PDF",
+    "report_end": "2025-12-31",
+    "published_at": "2026-04-22",
+    "accepted_at": null,
+    "document_url": "https://static.cninfo.com.cn/finalpage/2026-04-23/1225147552.PDF",
+    "landing_url": "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=688169&announcementId=1225147552&orgId=9900039123&announcementTime=2026-04-22",
+    "file_format": "pdf",
+    "language": "zh-CN",
+    "inline_xbrl": null,
+    "metadata": {
+      "org_id": "9900039123",
+      "plate": "shkcp"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "石头科技_CN_688169_2025-12-31_年报_2026-04-22_cninfo_28efa50a.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/石头科技/2025/年报/石头科技_CN_688169_2025-12-31_年报_2026-04-22_cninfo_28efa50a.pdf",
+    "size_bytes": 2284649,
+    "content_type": "application/pdf",
+    "content_sha256": "c9cf8915cc55c654eafb6dc9a495ca25ada6b5e5ce04a1d04ace7003a194d96b"
+  }
+}

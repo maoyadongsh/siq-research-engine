@@ -40,7 +40,7 @@ export default function Topbar({ sidebarCollapsed, onMenuClick, onSidebarToggle 
 
   return (
     <header
-      className={`fixed left-0 right-0 top-0 z-30 flex items-center gap-3 border-b border-white/70 bg-white/72 px-3 shadow-[0_1px_0_rgba(255,255,255,0.78)_inset] backdrop-blur-2xl transition-[left] duration-300 sm:px-6 lg:gap-4 xl:pr-14 2xl:pr-16 ${
+      className={`fixed left-0 right-0 top-0 z-30 flex items-center gap-3 border-b border-border bg-white/88 px-3 shadow-[0_1px_0_rgba(255,255,255,0.78)_inset] backdrop-blur-xl transition-[left] duration-300 sm:px-6 lg:gap-4 xl:pr-14 2xl:pr-16 ${
         sidebarCollapsed ? 'lg:left-20' : 'lg:left-64 xl:left-72'
       }`}
       style={{
@@ -58,7 +58,7 @@ export default function Topbar({ sidebarCollapsed, onMenuClick, onSidebarToggle 
         {user && (
           <button
             onClick={() => navigate('/account')}
-            className="hidden h-10 items-center gap-2 rounded-lg px-2 text-sm font-semibold text-text-muted transition hover:text-text focus:outline-none focus:ring-4 focus:ring-primary/10 sm:inline-flex"
+            className="hidden h-10 items-center gap-2 rounded-[var(--radius-control)] border border-transparent px-2 text-sm font-semibold text-text-muted transition hover:border-border hover:bg-white hover:text-text focus:outline-none focus:ring-4 focus:ring-primary/10 sm:inline-flex"
             title="我的账户"
           >
             <span className="hidden max-w-[140px] truncate xl:inline">{user.full_name || user.username}</span>
@@ -70,7 +70,7 @@ export default function Topbar({ sidebarCollapsed, onMenuClick, onSidebarToggle 
         {user && (
           <button
             onClick={handleLogout}
-            className="inline-flex h-10 items-center gap-2 rounded-lg px-2 text-sm font-semibold text-text-muted transition hover:text-text focus:outline-none focus:ring-4 focus:ring-primary/10"
+            className="inline-flex h-10 items-center gap-2 rounded-[var(--radius-control)] border border-transparent px-2 text-sm font-semibold text-text-muted transition hover:border-border hover:bg-white hover:text-text focus:outline-none focus:ring-4 focus:ring-primary/10"
             title="退出登录"
             aria-label="退出登录"
           >

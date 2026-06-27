@@ -1,0 +1,38 @@
+{
+  "by_url": {
+    "https://www.sec.gov/Archives/edgar/data/723125/000072312525000028/mu-20250828.htm": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/MICRON-TECHNOLOGY-INC/2025/年报/MICRON-TECHNOLOGY-INC_US_MU_2025-08-28_10-K_2025-10-03_sec_7d1e7056.htm",
+      "file_name": "MICRON-TECHNOLOGY-INC_US_MU_2025-08-28_10-K_2025-10-03_sec_7d1e7056.htm",
+      "content_type": "text/html",
+      "content_sha256": "7deb81957a1fa7ecc94cc478df53516b1936b25b54c741903780871e2f0046fb",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/MICRON-TECHNOLOGY-INC/2025/年报/MICRON-TECHNOLOGY-INC_US_MU_2025-08-28_10-K_2025-10-03_sec_7d1e7056.htm.metadata.json",
+      "market": "US",
+      "company_id": "MU",
+      "ticker": "MU",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-08-28",
+      "published_at": "2025-10-03",
+      "accession_number": "0000723125-25-000028"
+    }
+  },
+  "by_content_sha256": {
+    "7deb81957a1fa7ecc94cc478df53516b1936b25b54c741903780871e2f0046fb": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/MICRON-TECHNOLOGY-INC/2025/年报/MICRON-TECHNOLOGY-INC_US_MU_2025-08-28_10-K_2025-10-03_sec_7d1e7056.htm",
+      "file_name": "MICRON-TECHNOLOGY-INC_US_MU_2025-08-28_10-K_2025-10-03_sec_7d1e7056.htm",
+      "content_type": "text/html",
+      "content_sha256": "7deb81957a1fa7ecc94cc478df53516b1936b25b54c741903780871e2f0046fb",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/MICRON-TECHNOLOGY-INC/2025/年报/MICRON-TECHNOLOGY-INC_US_MU_2025-08-28_10-K_2025-10-03_sec_7d1e7056.htm.metadata.json",
+      "market": "US",
+      "company_id": "MU",
+      "ticker": "MU",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-08-28",
+      "published_at": "2025-10-03",
+      "accession_number": "0000723125-25-000028"
+    }
+  }
+}

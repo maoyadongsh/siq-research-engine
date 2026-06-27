@@ -1,4 +1,6 @@
 export const PDF_CSS = `
+.pdf-workbench-main { display: grid; gap: 1rem; min-width: 0; }
+.pdf-workbench-main > * { min-width: 0; }
 .pdf-stage { border: 1px solid var(--border); background: var(--card); border-radius: 24px; padding: 1rem; box-shadow: 0 8px 24px rgba(15, 23, 42, .06); }
 .pdf-pbar-wrap { height: .55rem; overflow: hidden; border-radius: 999px; background: rgba(148, 163, 184, .18); }
 .pdf-pbar { height: 100%; border-radius: inherit; background: linear-gradient(90deg, #2563eb, #14b8a6); transition: width .2s ease; }

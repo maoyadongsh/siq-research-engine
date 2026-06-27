@@ -1,0 +1,38 @@
+{
+  "by_url": {
+    "https://www.sec.gov/Archives/edgar/data/1045609/000119312526051453/pld-20251231.htm": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/Prologis,-Inc/2025/年报/Prologis,-Inc_US_PLD_2025-12-31_10-K_2026-02-13_sec_7afee59a.htm",
+      "file_name": "Prologis,-Inc_US_PLD_2025-12-31_10-K_2026-02-13_sec_7afee59a.htm",
+      "content_type": "text/html",
+      "content_sha256": "bc5ac05737e3384253c1fdd6ff16feccd9769e75fc62b9b279d2e7f86fceaf5b",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/Prologis,-Inc/2025/年报/Prologis,-Inc_US_PLD_2025-12-31_10-K_2026-02-13_sec_7afee59a.htm.metadata.json",
+      "market": "US",
+      "company_id": "PLD",
+      "ticker": "PLD",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-02-13",
+      "accession_number": "0001193125-26-051453"
+    }
+  },
+  "by_content_sha256": {
+    "bc5ac05737e3384253c1fdd6ff16feccd9769e75fc62b9b279d2e7f86fceaf5b": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/Prologis,-Inc/2025/年报/Prologis,-Inc_US_PLD_2025-12-31_10-K_2026-02-13_sec_7afee59a.htm",
+      "file_name": "Prologis,-Inc_US_PLD_2025-12-31_10-K_2026-02-13_sec_7afee59a.htm",
+      "content_type": "text/html",
+      "content_sha256": "bc5ac05737e3384253c1fdd6ff16feccd9769e75fc62b9b279d2e7f86fceaf5b",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/Prologis,-Inc/2025/年报/Prologis,-Inc_US_PLD_2025-12-31_10-K_2026-02-13_sec_7afee59a.htm.metadata.json",
+      "market": "US",
+      "company_id": "PLD",
+      "ticker": "PLD",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-02-13",
+      "accession_number": "0001193125-26-051453"
+    }
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "by_url": {
+    "https://www.fastretailing.com/eng/ir/library/pdf/ar2025_en.pdf": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/Fast-Retailing-Co.,-Ltd/2025/年报/Fast-Retailing-Co.,-Ltd_JP_9983_2025-08-31_年报_2026-06-09_issuer_annual_report_e166b033.pdf",
+      "file_name": "Fast-Retailing-Co.,-Ltd_JP_9983_2025-08-31_年报_2026-06-09_issuer_annual_report_e166b033.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "6f20f10f938988296d92b01310df73a946f91b46467d98970c7bba84e7cc3880",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/Fast-Retailing-Co.,-Ltd/2025/年报/Fast-Retailing-Co.,-Ltd_JP_9983_2025-08-31_年报_2026-06-09_issuer_annual_report_e166b033.pdf.metadata.json",
+      "market": "JP",
+      "company_id": "JP:9983",
+      "ticker": "9983",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-08-31",
+      "published_at": "2026-06-09",
+      "accession_number": "JP:9983",
+      "country": null,
+      "source_tier": "issuer_official_direct"
+    },
+    "https://www.fastretailing.com/eng/ir/library/annual.html": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/Fast-Retailing-Co.,-Ltd/2025/年报/Fast-Retailing-Co.,-Ltd_JP_9983_2025-08-31_年报_2026-06-09_issuer_annual_report_e166b033.pdf",
+      "file_name": "Fast-Retailing-Co.,-Ltd_JP_9983_2025-08-31_年报_2026-06-09_issuer_annual_report_e166b033.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "6f20f10f938988296d92b01310df73a946f91b46467d98970c7bba84e7cc3880",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/Fast-Retailing-Co.,-Ltd/2025/年报/Fast-Retailing-Co.,-Ltd_JP_9983_2025-08-31_年报_2026-06-09_issuer_annual_report_e166b033.pdf.metadata.json",
+      "market": "JP",
+      "company_id": "JP:9983",
+      "ticker": "9983",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-08-31",
+      "published_at": "2026-06-09",
+      "accession_number": "JP:9983",
+      "country": null,
+      "source_tier": "issuer_official_direct"
+    }
+  },
+  "by_content_sha256": {
+    "6f20f10f938988296d92b01310df73a946f91b46467d98970c7bba84e7cc3880": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/Fast-Retailing-Co.,-Ltd/2025/年报/Fast-Retailing-Co.,-Ltd_JP_9983_2025-08-31_年报_2026-06-09_issuer_annual_report_e166b033.pdf",
+      "file_name": "Fast-Retailing-Co.,-Ltd_JP_9983_2025-08-31_年报_2026-06-09_issuer_annual_report_e166b033.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "6f20f10f938988296d92b01310df73a946f91b46467d98970c7bba84e7cc3880",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/Fast-Retailing-Co.,-Ltd/2025/年报/Fast-Retailing-Co.,-Ltd_JP_9983_2025-08-31_年报_2026-06-09_issuer_annual_report_e166b033.pdf.metadata.json",
+      "market": "JP",
+      "company_id": "JP:9983",
+      "ticker": "9983",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-08-31",
+      "published_at": "2026-06-09",
+      "accession_number": "JP:9983",
+      "country": null,
+      "source_tier": "issuer_official_direct"
+    }
+  }
+}

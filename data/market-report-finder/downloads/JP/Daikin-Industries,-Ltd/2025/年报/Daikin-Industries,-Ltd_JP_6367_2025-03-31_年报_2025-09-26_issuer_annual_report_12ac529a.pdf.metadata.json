@@ -1,0 +1,37 @@
+{
+  "candidate": {
+    "source_id": "issuer_annual_report",
+    "source_name": "Issuer annual report / IR",
+    "source_domain": "www.daikin.com",
+    "market": "JP",
+    "company_id": "JP:6367",
+    "ticker": "6367",
+    "company_name": "Daikin Industries, Ltd.",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "Daikin Integrated Report 2025",
+    "accession_number": "JP:6367",
+    "primary_document": "2025_E-pdf.pdf",
+    "report_end": "2025-03-31",
+    "published_at": "2025-09-26",
+    "accepted_at": null,
+    "document_url": "https://www.daikin.com/-/media/Project/Daikin/daikin_com/investor/library/annual/2025/2025_E-pdf.pdf?rev=600b9ff254db49b2bfcf1fe8f9aca15e",
+    "landing_url": "https://www.daikin.com/investor/library/annual",
+    "file_format": "pdf",
+    "language": "en",
+    "inline_xbrl": null,
+    "metadata": {
+      "industry": "HVAC / Machinery",
+      "source_tier": "issuer_official_direct",
+      "source_note": "Curated mainstream Japanese issuer IR annual-report download; EDINET/TDnet remain available for live statutory and exchange disclosures."
+    }
+  },
+  "downloaded_file": {
+    "file_name": "Daikin-Industries,-Ltd_JP_6367_2025-03-31_年报_2025-09-26_issuer_annual_report_12ac529a.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/Daikin-Industries,-Ltd/2025/年报/Daikin-Industries,-Ltd_JP_6367_2025-03-31_年报_2025-09-26_issuer_annual_report_12ac529a.pdf",
+    "size_bytes": 15964005,
+    "content_type": "application/pdf",
+    "content_sha256": "2980af9bd49ebdc38ebb54ac0742aaa32837ee8ea735afd6ecb6fd4b8597a0d3"
+  }
+}

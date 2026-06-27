@@ -1,0 +1,42 @@
+{
+  "by_url": {
+    "https://dart.fss.or.kr/pdf/download/pdf.do?rcp_no=20260311004517&dcm_no=11111116": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/POSCO-Holdings-Inc/2025/年报/POSCO-Holdings-Inc_KR_005490_2025-12-31_年报_2026-03-11_dart_public_7d0e9323.pdf",
+      "file_name": "POSCO-Holdings-Inc_KR_005490_2025-12-31_年报_2026-03-11_dart_public_7d0e9323.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "8752b6e3942a2b24cc6f4cc80899dbf2abfac5b178e9f8ca029beb9f103fd8b0",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/POSCO-Holdings-Inc/2025/年报/POSCO-Holdings-Inc_KR_005490_2025-12-31_年报_2026-03-11_dart_public_7d0e9323.pdf.metadata.json",
+      "market": "KR",
+      "company_id": "00155319",
+      "ticker": "005490",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-11",
+      "accession_number": "manual",
+      "country": null,
+      "source_tier": null
+    }
+  },
+  "by_content_sha256": {
+    "8752b6e3942a2b24cc6f4cc80899dbf2abfac5b178e9f8ca029beb9f103fd8b0": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/POSCO-Holdings-Inc/2025/年报/POSCO-Holdings-Inc_KR_005490_2025-12-31_年报_2026-03-11_dart_public_7d0e9323.pdf",
+      "file_name": "POSCO-Holdings-Inc_KR_005490_2025-12-31_年报_2026-03-11_dart_public_7d0e9323.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "8752b6e3942a2b24cc6f4cc80899dbf2abfac5b178e9f8ca029beb9f103fd8b0",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/POSCO-Holdings-Inc/2025/年报/POSCO-Holdings-Inc_KR_005490_2025-12-31_年报_2026-03-11_dart_public_7d0e9323.pdf.metadata.json",
+      "market": "KR",
+      "company_id": "00155319",
+      "ticker": "005490",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-11",
+      "accession_number": "manual",
+      "country": null,
+      "source_tier": null
+    }
+  }
+}

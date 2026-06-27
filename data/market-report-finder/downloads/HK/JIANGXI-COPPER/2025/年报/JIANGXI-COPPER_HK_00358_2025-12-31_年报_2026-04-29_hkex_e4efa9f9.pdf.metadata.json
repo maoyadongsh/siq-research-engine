@@ -1,0 +1,39 @@
+{
+  "candidate": {
+    "source_id": "hkex",
+    "source_name": "HKEXnews",
+    "source_domain": "www1.hkexnews.hk",
+    "market": "HK",
+    "company_id": "00358",
+    "ticker": "00358",
+    "company_name": "JIANGXI COPPER",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "2025 Annual Report",
+    "accession_number": "12136033",
+    "primary_document": "2026042904580.pdf",
+    "report_end": "2025-12-31",
+    "published_at": "2026-04-29",
+    "accepted_at": null,
+    "document_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0429/2026042904580.pdf",
+    "landing_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0429/2026042904580.pdf",
+    "file_format": "pdf",
+    "language": "en",
+    "inline_xbrl": null,
+    "metadata": {
+      "news_id": "12136033",
+      "stock_name": "JIANGXI COPPER",
+      "short_text": "Financial Statements/ESG Information - [Annual Report]",
+      "long_text": "Financial Statements/ESG Information - [Annual Report]",
+      "file_info": "3MB"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "JIANGXI-COPPER_HK_00358_2025-12-31_年报_2026-04-29_hkex_e4efa9f9.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/JIANGXI-COPPER/2025/年报/JIANGXI-COPPER_HK_00358_2025-12-31_年报_2026-04-29_hkex_e4efa9f9.pdf",
+    "size_bytes": 3426529,
+    "content_type": "application/pdf",
+    "content_sha256": "c6fc91bc7dc38f6cc285d26a805af5bad1dc006dc7543e4896d731f1c5cbf263"
+  }
+}

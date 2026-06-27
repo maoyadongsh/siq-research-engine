@@ -1,0 +1,38 @@
+{
+  "by_url": {
+    "https://www.sec.gov/Archives/edgar/data/12927/000162828026004357/ba-20251231.htm": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/BOEING-CO/2025/年报/BOEING-CO_US_BA_2025-12-31_10-K_2026-01-30_sec_9ec529ae.htm",
+      "file_name": "BOEING-CO_US_BA_2025-12-31_10-K_2026-01-30_sec_9ec529ae.htm",
+      "content_type": "text/html",
+      "content_sha256": "5e6dd009813c7851c73c30eb8a1117eab36e86a8c64bde61ad3af5444b052501",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/BOEING-CO/2025/年报/BOEING-CO_US_BA_2025-12-31_10-K_2026-01-30_sec_9ec529ae.htm.metadata.json",
+      "market": "US",
+      "company_id": "BA",
+      "ticker": "BA",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-01-30",
+      "accession_number": "0001628280-26-004357"
+    }
+  },
+  "by_content_sha256": {
+    "5e6dd009813c7851c73c30eb8a1117eab36e86a8c64bde61ad3af5444b052501": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/BOEING-CO/2025/年报/BOEING-CO_US_BA_2025-12-31_10-K_2026-01-30_sec_9ec529ae.htm",
+      "file_name": "BOEING-CO_US_BA_2025-12-31_10-K_2026-01-30_sec_9ec529ae.htm",
+      "content_type": "text/html",
+      "content_sha256": "5e6dd009813c7851c73c30eb8a1117eab36e86a8c64bde61ad3af5444b052501",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/BOEING-CO/2025/年报/BOEING-CO_US_BA_2025-12-31_10-K_2026-01-30_sec_9ec529ae.htm.metadata.json",
+      "market": "US",
+      "company_id": "BA",
+      "ticker": "BA",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-01-30",
+      "accession_number": "0001628280-26-004357"
+    }
+  }
+}

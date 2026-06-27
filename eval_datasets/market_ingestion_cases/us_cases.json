@@ -1,0 +1,47 @@
+[
+  {
+    "market": "US",
+    "ticker": "MSFT",
+    "company_name": "MICROSOFT CORP",
+    "report_type": "annual",
+    "fiscal_year": 2025,
+    "expected_metrics": ["operating_revenue", "net_profit", "total_assets"],
+    "expected_evidence": true
+  },
+  {
+    "market": "US",
+    "ticker": "AAPL",
+    "company_name": "Apple Inc.",
+    "report_type": "annual",
+    "fiscal_year": 2025,
+    "expected_metrics": ["operating_revenue", "net_profit", "total_assets"],
+    "expected_evidence": true
+  },
+  {
+    "market": "US",
+    "ticker": "COST",
+    "company_name": "COSTCO WHOLESALE CORP /NEW",
+    "report_type": "annual",
+    "fiscal_year": 2024,
+    "expected_metrics": ["operating_revenue", "net_profit", "total_assets"],
+    "expected_evidence": true
+  },
+  {
+    "market": "US",
+    "ticker": "TSLA",
+    "company_name": "Tesla, Inc.",
+    "report_type": "annual",
+    "fiscal_year": 2025,
+    "expected_metrics": ["operating_revenue", "net_profit", "total_assets"],
+    "expected_evidence": true
+  },
+  {
+    "market": "US",
+    "ticker": "NVDA",
+    "company_name": "NVIDIA CORP",
+    "report_type": "annual",
+    "fiscal_year": 2026,
+    "expected_metrics": ["operating_revenue", "net_profit", "total_assets"],
+    "expected_evidence": true
+  }
+]

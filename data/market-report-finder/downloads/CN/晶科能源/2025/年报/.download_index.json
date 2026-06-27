@@ -1,0 +1,54 @@
+{
+  "by_url": {
+    "https://static.cninfo.com.cn/finalpage/2026-04-30/1225261496.PDF": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/晶科能源/2025/年报/晶科能源_CN_688223_2025-12-31_年报_2026-04-29_cninfo_d3bcbed1.pdf",
+      "file_name": "晶科能源_CN_688223_2025-12-31_年报_2026-04-29_cninfo_d3bcbed1.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "e03b15dc6cb705c1e73fe430fe6ae6180f248f551e5ac26fc9e086b39d399dac",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/晶科能源/2025/年报/晶科能源_CN_688223_2025-12-31_年报_2026-04-29_cninfo_d3bcbed1.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "688223",
+      "ticker": "688223",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-29",
+      "accession_number": "1225261496"
+    },
+    "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=688223&announcementId=1225261496&orgId=9900017709&announcementTime=2026-04-29": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/晶科能源/2025/年报/晶科能源_CN_688223_2025-12-31_年报_2026-04-29_cninfo_d3bcbed1.pdf",
+      "file_name": "晶科能源_CN_688223_2025-12-31_年报_2026-04-29_cninfo_d3bcbed1.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "e03b15dc6cb705c1e73fe430fe6ae6180f248f551e5ac26fc9e086b39d399dac",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/晶科能源/2025/年报/晶科能源_CN_688223_2025-12-31_年报_2026-04-29_cninfo_d3bcbed1.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "688223",
+      "ticker": "688223",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-29",
+      "accession_number": "1225261496"
+    }
+  },
+  "by_content_sha256": {
+    "e03b15dc6cb705c1e73fe430fe6ae6180f248f551e5ac26fc9e086b39d399dac": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/晶科能源/2025/年报/晶科能源_CN_688223_2025-12-31_年报_2026-04-29_cninfo_d3bcbed1.pdf",
+      "file_name": "晶科能源_CN_688223_2025-12-31_年报_2026-04-29_cninfo_d3bcbed1.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "e03b15dc6cb705c1e73fe430fe6ae6180f248f551e5ac26fc9e086b39d399dac",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/晶科能源/2025/年报/晶科能源_CN_688223_2025-12-31_年报_2026-04-29_cninfo_d3bcbed1.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "688223",
+      "ticker": "688223",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-04-29",
+      "accession_number": "1225261496"
+    }
+  }
+}

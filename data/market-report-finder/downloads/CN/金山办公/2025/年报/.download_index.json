@@ -1,0 +1,54 @@
+{
+  "by_url": {
+    "https://static.cninfo.com.cn/finalpage/2026-03-26/1225032227.PDF": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/金山办公/2025/年报/金山办公_CN_688111_2025-12-31_年报_2026-03-25_cninfo_b45504ff.pdf",
+      "file_name": "金山办公_CN_688111_2025-12-31_年报_2026-03-25_cninfo_b45504ff.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "bf6ade124527896edb1c1be6af04a7d6b4c0eb964de42a96a77db7dbc6cee281",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/金山办公/2025/年报/金山办公_CN_688111_2025-12-31_年报_2026-03-25_cninfo_b45504ff.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "688111",
+      "ticker": "688111",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-25",
+      "accession_number": "1225032227"
+    },
+    "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=688111&announcementId=1225032227&orgId=9900035303&announcementTime=2026-03-25": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/金山办公/2025/年报/金山办公_CN_688111_2025-12-31_年报_2026-03-25_cninfo_b45504ff.pdf",
+      "file_name": "金山办公_CN_688111_2025-12-31_年报_2026-03-25_cninfo_b45504ff.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "bf6ade124527896edb1c1be6af04a7d6b4c0eb964de42a96a77db7dbc6cee281",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/金山办公/2025/年报/金山办公_CN_688111_2025-12-31_年报_2026-03-25_cninfo_b45504ff.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "688111",
+      "ticker": "688111",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-25",
+      "accession_number": "1225032227"
+    }
+  },
+  "by_content_sha256": {
+    "bf6ade124527896edb1c1be6af04a7d6b4c0eb964de42a96a77db7dbc6cee281": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/金山办公/2025/年报/金山办公_CN_688111_2025-12-31_年报_2026-03-25_cninfo_b45504ff.pdf",
+      "file_name": "金山办公_CN_688111_2025-12-31_年报_2026-03-25_cninfo_b45504ff.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "bf6ade124527896edb1c1be6af04a7d6b4c0eb964de42a96a77db7dbc6cee281",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/金山办公/2025/年报/金山办公_CN_688111_2025-12-31_年报_2026-03-25_cninfo_b45504ff.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "688111",
+      "ticker": "688111",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-25",
+      "accession_number": "1225032227"
+    }
+  }
+}

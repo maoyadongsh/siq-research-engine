@@ -16,7 +16,9 @@ export SIQ_AUTH_SECRET_KEY="$(openssl rand -hex 32)"
 
 该脚本会按 SIQ 默认路径启动：
 
-- 公告搜索下载服务 `:18000`
+- CN/HK/US 统一公告搜索下载服务 `:18000`
+- 备用市场下载服务 `:18010`（可选）
+- 境外市场规则服务 `:18020`（可选）
 - API 聚合后端 `:18081`
 - PDF 解析服务 `:15000`
 - Web 前端 `:15173`
@@ -55,11 +57,27 @@ cd /home/maoyd/siq-research-engine/apps/pdf-parser
 ./run.sh
 ```
 
-公告搜索下载服务：
+统一公告搜索下载服务：
 
 ```bash
-cd /home/maoyd/siq-research-engine/services/report-finder
-uv run uvicorn report_finder_service.app:app --host 127.0.0.1 --port 18000
+cd /home/maoyd/siq-research-engine/services/market-report-finder
+MARKET_REPORT_DOWNLOAD_DIR=/home/maoyd/siq-research-engine/data/market-report-finder/downloads \
+uv run uvicorn market_report_finder_service.app:app --host 127.0.0.1 --port 18000
+```
+
+备用市场下载服务：
+
+```bash
+cd /home/maoyd/siq-research-engine/services/market-report-finder
+MARKET_REPORT_DOWNLOAD_DIR=/home/maoyd/siq-research-engine/data/market-report-finder/downloads \
+uv run uvicorn market_report_finder_service.app:app --host 127.0.0.1 --port 18010
+```
+
+美股/港股规则服务：
+
+```bash
+cd /home/maoyd/siq-research-engine/services/market-report-rules
+uv run uvicorn market_report_rules_service.app:app --host 127.0.0.1 --port 18020
 ```
 
 ## 常用环境变量
@@ -69,7 +87,11 @@ uv run uvicorn report_finder_service.app:app --host 127.0.0.1 --port 18000
 | `SIQ_AUTH_SECRET_KEY` | API 鉴权密钥，开发环境也必须设置 |
 | `SIQ_WIKI_ROOT` | Wiki 根目录，默认 `data/wiki` |
 | `SIQ_PDF2MD_DATA_DIR` | PDF 解析运行态目录，默认 `data/pdf-parser` |
-| `SIQ_REPORT_FINDER_ROOT` | 公告搜索服务目录，默认 `services/report-finder` |
+| `SIQ_REPORT_FINDER_ROOT` | 兼容变量；统一公告下载入口默认使用 `services/market-report-finder` |
+| `SIQ_MARKET_REPORT_FINDER_ROOT` | 市场下载服务目录，默认 `services/market-report-finder` |
+| `SIQ_MARKET_REPORT_RULES_ROOT` | 境外市场规则服务目录，默认 `services/market-report-rules` |
+| `SIQ_START_MARKET_REPORT_FINDER` | 是否额外启动备用市场下载服务，默认 `0` |
+| `SIQ_START_MARKET_REPORT_RULES` | 是否随一键脚本启动境外市场规则服务，默认 `0` |
 | `SIQ_HERMES_HOME` | Hermes 运行态目录，默认 `data/hermes/home` |
 | `SIQ_HERMES_PROFILES_ROOT` | Hermes profiles 目录，默认 `data/hermes/home/profiles` |
 | `DATABASE_URL` | PostgreSQL 连接串 |
@@ -81,6 +103,8 @@ curl -s http://localhost:15173
 curl -s http://localhost:18081/health
 curl -s http://localhost:15000/api/health
 curl -s http://localhost:18000/health
+curl -s http://localhost:18010/health
+curl -s http://localhost:18020/healthz
 ```
 
 Hermes gateway 按需单独启动后检查：
@@ -115,6 +139,16 @@ cd /home/maoyd/siq-research-engine
 bash -n start_all.sh
 bash -n apps/api/start.sh
 bash -n apps/pdf-parser/run.sh
+```
+
+```bash
+cd /home/maoyd/siq-research-engine/services/market-report-finder
+uv run python -m pytest tests
+```
+
+```bash
+cd /home/maoyd/siq-research-engine/services/market-report-rules
+uv run python -m pytest tests
 ```
 
 ## 注意事项

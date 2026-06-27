@@ -1,0 +1,38 @@
+{
+  "by_url": {
+    "https://www.sec.gov/Archives/edgar/data/63908/000006390826000035/mcd-20251231.htm": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/MCDONALDS-CORP/2025/年报/MCDONALDS-CORP_US_MCD_2025-12-31_10-K_2026-02-24_sec_e6ccdaac.htm",
+      "file_name": "MCDONALDS-CORP_US_MCD_2025-12-31_10-K_2026-02-24_sec_e6ccdaac.htm",
+      "content_type": "text/html",
+      "content_sha256": "64e680630d5fe4448db26ff695aaf50189ec23427566f01508d3bf27aa8d8b3e",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/MCDONALDS-CORP/2025/年报/MCDONALDS-CORP_US_MCD_2025-12-31_10-K_2026-02-24_sec_e6ccdaac.htm.metadata.json",
+      "market": "US",
+      "company_id": "MCD",
+      "ticker": "MCD",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-02-24",
+      "accession_number": "0000063908-26-000035"
+    }
+  },
+  "by_content_sha256": {
+    "64e680630d5fe4448db26ff695aaf50189ec23427566f01508d3bf27aa8d8b3e": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/MCDONALDS-CORP/2025/年报/MCDONALDS-CORP_US_MCD_2025-12-31_10-K_2026-02-24_sec_e6ccdaac.htm",
+      "file_name": "MCDONALDS-CORP_US_MCD_2025-12-31_10-K_2026-02-24_sec_e6ccdaac.htm",
+      "content_type": "text/html",
+      "content_sha256": "64e680630d5fe4448db26ff695aaf50189ec23427566f01508d3bf27aa8d8b3e",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/US/MCDONALDS-CORP/2025/年报/MCDONALDS-CORP_US_MCD_2025-12-31_10-K_2026-02-24_sec_e6ccdaac.htm.metadata.json",
+      "market": "US",
+      "company_id": "MCD",
+      "ticker": "MCD",
+      "form": "10-K",
+      "report_type": null,
+      "report_family": null,
+      "report_end": "2025-12-31",
+      "published_at": "2026-02-24",
+      "accession_number": "0000063908-26-000035"
+    }
+  }
+}

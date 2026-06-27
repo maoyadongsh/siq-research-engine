@@ -8,6 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "check:frontend": "npm run lint && npm run build",
+    "e2e": "playwright test",
+    "smoke": "playwright test",
     "preview": "vite preview",
     "trial:serve": "node scripts/trial-server.mjs",
     "trial:start": "systemctl --user restart siq-trial.service",
@@ -31,6 +33,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.61.1",
     "@types/node": "^24.12.3",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",

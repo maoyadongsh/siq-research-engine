@@ -1,0 +1,54 @@
+{
+  "by_url": {
+    "https://static.cninfo.com.cn/finalpage/2026-03-28/1225047544.PDF": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/传音控股/2025/年报/传音控股_CN_688036_2025-12-31_年报_2026-03-27_cninfo_33e8cb97.pdf",
+      "file_name": "传音控股_CN_688036_2025-12-31_年报_2026-03-27_cninfo_33e8cb97.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "2bce242e1fb1f7d625b3997a4fb31514342ac4e85ba29ca1b379404d2fed371c",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/传音控股/2025/年报/传音控股_CN_688036_2025-12-31_年报_2026-03-27_cninfo_33e8cb97.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "688036",
+      "ticker": "688036",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-27",
+      "accession_number": "1225047544"
+    },
+    "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=688036&announcementId=1225047544&orgId=9900038988&announcementTime=2026-03-27": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/传音控股/2025/年报/传音控股_CN_688036_2025-12-31_年报_2026-03-27_cninfo_33e8cb97.pdf",
+      "file_name": "传音控股_CN_688036_2025-12-31_年报_2026-03-27_cninfo_33e8cb97.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "2bce242e1fb1f7d625b3997a4fb31514342ac4e85ba29ca1b379404d2fed371c",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/传音控股/2025/年报/传音控股_CN_688036_2025-12-31_年报_2026-03-27_cninfo_33e8cb97.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "688036",
+      "ticker": "688036",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-27",
+      "accession_number": "1225047544"
+    }
+  },
+  "by_content_sha256": {
+    "2bce242e1fb1f7d625b3997a4fb31514342ac4e85ba29ca1b379404d2fed371c": {
+      "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/传音控股/2025/年报/传音控股_CN_688036_2025-12-31_年报_2026-03-27_cninfo_33e8cb97.pdf",
+      "file_name": "传音控股_CN_688036_2025-12-31_年报_2026-03-27_cninfo_33e8cb97.pdf",
+      "content_type": "application/pdf",
+      "content_sha256": "2bce242e1fb1f7d625b3997a4fb31514342ac4e85ba29ca1b379404d2fed371c",
+      "metadata_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/传音控股/2025/年报/传音控股_CN_688036_2025-12-31_年报_2026-03-27_cninfo_33e8cb97.pdf.metadata.json",
+      "market": "CN",
+      "company_id": "688036",
+      "ticker": "688036",
+      "form": "annual",
+      "report_type": "annual",
+      "report_family": "annual",
+      "report_end": "2025-12-31",
+      "published_at": "2026-03-27",
+      "accession_number": "1225047544"
+    }
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "candidate": {
+    "source_id": "cninfo",
+    "source_name": "巨潮资讯",
+    "source_domain": "www.cninfo.com.cn",
+    "market": "CN",
+    "company_id": "600031",
+    "ticker": "600031",
+    "company_name": "三一重工",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "三一重工股份有限公司2025年年度报告",
+    "accession_number": "1225061378",
+    "primary_document": "1225061378.PDF",
+    "report_end": "2025-12-31",
+    "published_at": "2026-03-30",
+    "accepted_at": null,
+    "document_url": "https://static.cninfo.com.cn/finalpage/2026-03-31/1225061378.PDF",
+    "landing_url": "https://www.cninfo.com.cn/new/disclosure/detail?stockCode=600031&announcementId=1225061378&orgId=gssh0600031&announcementTime=2026-03-30",
+    "file_format": "pdf",
+    "language": "zh-CN",
+    "inline_xbrl": null,
+    "metadata": {
+      "org_id": "gssh0600031",
+      "plate": "sh"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "三一重工_CN_600031_2025-12-31_年报_2026-03-30_cninfo_eb43105f.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/CN/三一重工/2025/年报/三一重工_CN_600031_2025-12-31_年报_2026-03-30_cninfo_eb43105f.pdf",
+    "size_bytes": 1682689,
+    "content_type": "application/pdf",
+    "content_sha256": "d3f470600ec7d03ff9eb6257a74d1a07486406e02beb55b1f2bab5aaabb173e5"
+  }
+}

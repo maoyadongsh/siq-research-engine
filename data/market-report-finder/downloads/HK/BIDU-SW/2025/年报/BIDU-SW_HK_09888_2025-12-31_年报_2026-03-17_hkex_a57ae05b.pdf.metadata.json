@@ -1,0 +1,39 @@
+{
+  "candidate": {
+    "source_id": "hkex",
+    "source_name": "HKEXnews",
+    "source_domain": "www1.hkexnews.hk",
+    "market": "HK",
+    "company_id": "09888",
+    "ticker": "09888",
+    "company_name": "BIDU-SW",
+    "report_type": "annual",
+    "report_family": "annual",
+    "form": "annual",
+    "title": "ANNUAL REPORT 2025",
+    "accession_number": "12056264",
+    "primary_document": "2026031701610.pdf",
+    "report_end": "2025-12-31",
+    "published_at": "2026-03-17",
+    "accepted_at": null,
+    "document_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0317/2026031701610.pdf",
+    "landing_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0317/2026031701610.pdf",
+    "file_format": "pdf",
+    "language": "en",
+    "inline_xbrl": null,
+    "metadata": {
+      "news_id": "12056264",
+      "stock_name": "BIDU-SW BIDU-SWR",
+      "short_text": "Financial Statements/ESG Information - [Annual Report]",
+      "long_text": "Financial Statements/ESG Information - [Annual Report]",
+      "file_info": "2MB"
+    }
+  },
+  "downloaded_file": {
+    "file_name": "BIDU-SW_HK_09888_2025-12-31_年报_2026-03-17_hkex_a57ae05b.pdf",
+    "saved_path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/HK/BIDU-SW/2025/年报/BIDU-SW_HK_09888_2025-12-31_年报_2026-03-17_hkex_a57ae05b.pdf",
+    "size_bytes": 2189063,
+    "content_type": "application/pdf",
+    "content_sha256": "d71dbecc9e19a4e3fd11e0266e16fa9017d5e912d7c59af7e4cb30735035660a"
+  }
+}
