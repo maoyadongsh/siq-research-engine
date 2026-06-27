@@ -8,7 +8,7 @@ each agent updates a single index file at the end of its run.
 Usage:
 
     python3 update_company_index.py \
-        --company-dir /home/maoyd/wiki/companies/600399-抚顺特钢
+        --company-dir /home/maoyd/siq-research-engine/data/wiki/companies/600399-抚顺特钢
 
 It walks ``analysis/``, ``factcheck/``, ``tracking/``, ``legal/`` and emits a
 deterministic JSON pointing at the freshest artifact in each, plus the verdict

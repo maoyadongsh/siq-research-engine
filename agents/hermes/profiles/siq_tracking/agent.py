@@ -1,6 +1,6 @@
 """SIQ_tracking profile wrapper.
 
-生产级执行入口在 /home/maoyd/wiki/tracking/scripts。本文件只保留薄封装，
+生产级执行入口在 /home/maoyd/siq-research-engine/data/wiki/tracking/scripts。本文件只保留薄封装，
 避免 profile 原型模块与真实生产链路形成两个真相源。
 """
 
@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-SCRIPT_DIR = Path("/home/maoyd/wiki/tracking/scripts")
+SCRIPT_DIR = Path("/home/maoyd/siq-research-engine/data/wiki/tracking/scripts")
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
@@ -21,7 +21,7 @@ from run_all import run_all
 class TrackingAgent:
     """Thin wrapper around the production siq_tracking scripts."""
 
-    def __init__(self, wiki_base_path: str = "/home/maoyd/wiki"):
+    def __init__(self, wiki_base_path: str = "/home/maoyd/siq-research-engine/data/wiki"):
         self.wiki_base = wiki_base_path
         self.rules = TrackingRulesEngine(wiki_base_path)
 

@@ -1,0 +1,17 @@
+[
+  {
+    "case_id": "contract_docx_001",
+    "kind": "docx",
+    "path": "eval_datasets/document_parser_cases/files/contract_001.docx",
+    "expected_artifacts": [
+      "document.md",
+      "blocks.json",
+      "source_map.json",
+      "quality_report.json"
+    ],
+    "expected_quality_status": "pass|warning",
+    "expected_min_blocks": 8,
+    "expected_min_source_coverage": 0.9,
+    "notes": "Office fallback 可以 warning，但必须生成可审计 blocks/source_map。"
+  }
+]

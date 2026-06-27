@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 from sqlmodel import Session, SQLModel, create_engine, select
 
@@ -69,3 +70,44 @@ def test_record_user_artifact_upserts_workspace_project(monkeypatch, tmp_path):
     assert projects[0].user_id == 1
     assert projects[0].company_code == "300017"
     assert projects[0].company_name == "网宿科技"
+
+
+def test_search_workspace_artifacts_finds_document_parse_for_current_user(tmp_path):
+    with _session(tmp_path) as session:
+        session.add(
+            UserArtifact(
+                user_id=1,
+                artifact_type="document_parse",
+                artifact_key="doc-task-001",
+                title="供应合同 Demo.pdf",
+                path="/documents?task=doc-task-001",
+                source="document_upload",
+                global_artifact_id="doc-task-001",
+            )
+        )
+        session.add(
+            UserArtifact(
+                user_id=2,
+                artifact_type="document_parse",
+                artifact_key="doc-task-002",
+                title="供应合同 Other.pdf",
+                path="/documents?task=doc-task-002",
+                source="document_upload",
+                global_artifact_id="doc-task-002",
+            )
+        )
+        session.commit()
+
+        result = workspace.search_workspace_artifacts(
+            q="供应合同",
+            limit=8,
+            current_user=SimpleNamespace(id=1),
+            session=session,
+        )
+
+    assert len(result["results"]) == 1
+    item = result["results"][0]
+    assert item["type"] == "document_parse"
+    assert item["typeLabel"] == "文档解析"
+    assert item["pageUrl"] == "/documents?task=doc-task-001"
+    assert item["name"] == "供应合同 Demo.pdf"

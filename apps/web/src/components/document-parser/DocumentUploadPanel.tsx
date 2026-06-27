@@ -1,24 +1,31 @@
 import { useRef, useState } from 'react'
-import { FileUp, Link2, Loader2, Send, X } from 'lucide-react'
+import { FileUp, FolderInput, Link2, Loader2, RefreshCw, Send, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import type { DocumentParseConfig } from '@/lib/documentTypes'
+import type { DocumentMineruImportCandidate, DocumentParseConfig } from '@/lib/documentTypes'
 
 const supported = 'PDF、图片、Word、PPT、Excel、HTML、TXT、MD、网页 URL'
 
 export function DocumentUploadPanel({
   config,
   uploading,
+  mineruCandidates,
   onSubmitFiles,
   onSubmitUrl,
+  onImportMineruResult,
+  onRefreshMineruCandidates,
 }: {
   config: DocumentParseConfig
   uploading: boolean
+  mineruCandidates?: DocumentMineruImportCandidate[]
   onSubmitFiles: (files: File[], config: DocumentParseConfig) => Promise<void>
   onSubmitUrl: (url: string, config: DocumentParseConfig) => Promise<void>
+  onImportMineruResult: (sourceDir: string, config: DocumentParseConfig) => Promise<void>
+  onRefreshMineruCandidates: () => Promise<void>
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [files, setFiles] = useState<File[]>([])
   const [url, setUrl] = useState('')
+  const [mineruDir, setMineruDir] = useState('')
   const [dragover, setDragover] = useState(false)
 
   const pickFiles = (incoming: FileList | File[]) => {
@@ -36,6 +43,11 @@ export function DocumentUploadPanel({
   const submitUrl = async () => {
     await onSubmitUrl(url, config)
     setUrl('')
+  }
+
+  const importMineruResult = async () => {
+    await onImportMineruResult(mineruDir, config)
+    setMineruDir('')
   }
 
   return (
@@ -106,6 +118,45 @@ export function DocumentUploadPanel({
               解析 URL
             </Button>
           </div>
+        </div>
+
+        <div className="doc-field">
+          <div className="flex items-center justify-between gap-2">
+            <label className="doc-label" htmlFor="doc-mineru-dir">已解析 MinerU 目录</label>
+            <Button type="button" variant="ghost" size="sm" onClick={() => void onRefreshMineruCandidates()} leftIcon={<RefreshCw className="h-4 w-4" />}>
+              刷新候选
+            </Button>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+            <input
+              id="doc-mineru-dir"
+              className="doc-input"
+              value={mineruDir}
+              onChange={(event) => setMineruDir(event.target.value)}
+              placeholder="/home/maoyd/siq-research-engine/data/pdf-parser/results/..."
+            />
+            <Button type="button" variant="secondary" onClick={importMineruResult} disabled={!mineruDir.trim() || uploading} leftIcon={<FolderInput className="h-4 w-4" />}>
+              导入
+            </Button>
+          </div>
+          {mineruCandidates?.length ? (
+            <div className="doc-file-list">
+              {mineruCandidates.slice(0, 3).map((candidate) => {
+                const sourceDir = candidate.source_dir || candidate.sourceDir || ''
+                return (
+                  <button
+                    type="button"
+                    className="doc-file-pill"
+                    key={sourceDir}
+                    onClick={() => setMineruDir(sourceDir)}
+                    title={sourceDir}
+                  >
+                    <span>{candidate.title || sourceDir}</span>
+                  </button>
+                )
+              })}
+            </div>
+          ) : null}
         </div>
       </div>
     </section>

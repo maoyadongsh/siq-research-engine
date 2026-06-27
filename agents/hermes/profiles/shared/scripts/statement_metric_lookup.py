@@ -24,7 +24,7 @@ from note_detail_lookup import (  # noqa: E402
     public_api_url,
 )
 
-WIKI_BASE = Path(os.environ.get("SIQ_WIKI_ROOT", "/home/maoyd/wiki")).expanduser()
+WIKI_BASE = Path(os.environ.get("SIQ_WIKI_ROOT", "/home/maoyd/siq-research-engine/data/wiki")).expanduser()
 DEFAULT_SOURCE_TYPE = os.environ.get(
     "SIQ_DEFAULT_SOURCE_TYPE",
     "okf_metrics" if "okf_staging" in str(WIKI_BASE) else "wiki_metrics",

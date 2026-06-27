@@ -1,0 +1,46 @@
+[
+  {
+    "case_id": "schema_contract_001",
+    "kind": "schema_extraction",
+    "source_case_id": "contract_pdf_001",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "party_a": { "type": "string" },
+        "party_b": { "type": "string" },
+        "amount": { "type": "string" },
+        "term": { "type": "string" }
+      }
+    },
+    "expected_fields": [
+      "party_a",
+      "party_b",
+      "amount",
+      "term"
+    ],
+    "required_evidence": true,
+    "allow_null_when_missing": true
+  },
+  {
+    "case_id": "schema_research_report_001",
+    "kind": "schema_extraction",
+    "source_case_id": "research_report_pdf_001",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "institution": { "type": "string" },
+        "core_views": { "type": "array", "items": { "type": "string" } },
+        "risk_warnings": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "expected_fields": [
+      "title",
+      "institution",
+      "core_views",
+      "risk_warnings"
+    ],
+    "required_evidence": true,
+    "allow_null_when_missing": true
+  }
+]

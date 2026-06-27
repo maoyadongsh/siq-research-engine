@@ -24,7 +24,7 @@
 
 ```bash
 /home/maoyd/.hermes/hermes-agent/venv/bin/python \
-  /home/maoyd/.hermes/profiles/shared/scripts/local_citations.py \
+  /home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts/local_citations.py \
   --company <公司简称或代码> \
   --metric <指标名> \
   --period <年度> \
@@ -40,7 +40,7 @@ from hermes_tools import terminal
 import json
 
 result = terminal(
-    f"python3 /home/maoyd/.hermes/profiles/shared/scripts/local_citations.py "
+    f"python3 /home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts/local_citations.py "
     f"--company '{company}' --metric '{metric}' --period '{period}' "
     f"--source-type wiki_metrics --file metrics/key_metrics.json --format json"
 )
@@ -51,7 +51,7 @@ refs = json.loads(result["output"])
 
 ```bash
 /home/maoyd/.hermes/hermes-agent/venv/bin/python \
-  /home/maoyd/.hermes/profiles/siq_assistant/scripts/enrich_citations.py \
+  /home/maoyd/siq-research-engine/data/hermes/home/profiles/siq_assistant/scripts/enrich_citations.py \
   --company <公司简称或代码> \
   --input <引用文本文件>
 ```

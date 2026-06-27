@@ -5,26 +5,26 @@
 ## 主入口
 
 ```bash
-/home/maoyd/.hermes/profiles/siq_analysis/scripts/run_analysis_report.py --company <股票代码或company_id> --year <年度>
+/home/maoyd/siq-research-engine/data/hermes/home/profiles/siq_analysis/scripts/run_analysis_report.py --company <股票代码或company_id> --year <年度>
 ```
 
 续跑：
 
 ```bash
-/home/maoyd/.hermes/profiles/siq_analysis/scripts/run_analysis_report.py --company <股票代码或company_id> --year <年度> --reuse-checkpoint
+/home/maoyd/siq-research-engine/data/hermes/home/profiles/siq_analysis/scripts/run_analysis_report.py --company <股票代码或company_id> --year <年度> --reuse-checkpoint
 ```
 
 推荐高质量三步：
 
 ```bash
 # 1. 准备材料与检查点
-/home/maoyd/.hermes/profiles/siq_analysis/scripts/run_analysis_report.py --company <股票代码或company_id> --year <年度> --prepare-only
+/home/maoyd/siq-research-engine/data/hermes/home/profiles/siq_analysis/scripts/run_analysis_report.py --company <股票代码或company_id> --year <年度> --prepare-only
 
 # 2. 基于 .work 中的 preflight/metric_snapshot/evidence_package/analysis_outline 写入高质量 section_drafts.json
 # section_drafts.json 必须包含固定 14 个 section_id。
 
 # 3. 复用检查点，执行最终渲染、溯源修复和质量验收
-/home/maoyd/.hermes/profiles/siq_analysis/scripts/run_analysis_report.py --company <股票代码或company_id> --year <年度> --reuse-checkpoint
+/home/maoyd/siq-research-engine/data/hermes/home/profiles/siq_analysis/scripts/run_analysis_report.py --company <股票代码或company_id> --year <年度> --reuse-checkpoint
 ```
 
 ## 防覆盖规则
@@ -72,7 +72,7 @@ wiki/companies/<company_id>/analysis/.work/<report_slug>/
 完整年度报告进入最终渲染前，必须具备并使用本地金融图表规范：
 
 ```text
-/home/maoyd/.hermes/profiles/siq_analysis/skills/finance/siq-chart-craft/SKILL.md
+/home/maoyd/.agents/skills/finsight-chart-craft/SKILL.md
 ```
 
 执行要求：

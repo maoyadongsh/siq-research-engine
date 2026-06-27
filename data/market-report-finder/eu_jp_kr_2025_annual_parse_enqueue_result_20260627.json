@@ -1,0 +1,916 @@
+{
+  "manifest": "data/market-report-finder/eu_jp_kr_2025_annual_parse_enqueue_source_manifest_20260627.json",
+  "items": [
+    {
+      "seed": {
+        "market": "EU",
+        "country": "CH",
+        "company": "Nestle-S.A",
+        "fiscal_year": "2025",
+        "source": "downloaded_market_report_pdf_discovery"
+      },
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/CH/Nestle-S.A/2025/年报/Nestle-S.A_EU_NESN_2025-12-31_年报_2026-02-13_six_direct_e2557c2e.pdf",
+      "upload": {
+        "status_code": 200,
+        "payload": {
+          "batch_count": 1,
+          "task_id": "45453ac4-3065-47ed-b65a-6583a95ee81e",
+          "tasks": [
+            {
+              "filename": "Nestle-S.A_EU_NESN_2025-12-31_年报_2026-02-13_six_direct_e2557c2e.pdf",
+              "pdf_page_count": 67,
+              "task_id": "45453ac4-3065-47ed-b65a-6583a95ee81e"
+            }
+          ]
+        }
+      },
+      "status": "queued",
+      "task_id": "45453ac4-3065-47ed-b65a-6583a95ee81e"
+    },
+    {
+      "seed": {
+        "market": "EU",
+        "country": "CH",
+        "company": "Novartis-AG",
+        "fiscal_year": "2025",
+        "source": "downloaded_market_report_pdf_discovery"
+      },
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/CH/Novartis-AG/2025/年报/Novartis-AG_EU_NOVN_2025-12-31_年报_2026-01-30_six_direct_b96f25c8.pdf",
+      "upload": {
+        "status_code": 200,
+        "payload": {
+          "batch_count": 1,
+          "task_id": "c660e4cb-8f50-478f-ba92-39de86c5a067",
+          "tasks": [
+            {
+              "filename": "Novartis-AG_EU_NOVN_2025-12-31_年报_2026-01-30_six_direct_b96f25c8.pdf",
+              "pdf_page_count": 265,
+              "task_id": "c660e4cb-8f50-478f-ba92-39de86c5a067"
+            }
+          ]
+        }
+      },
+      "status": "queued",
+      "task_id": "c660e4cb-8f50-478f-ba92-39de86c5a067"
+    },
+    {
+      "seed": {
+        "market": "EU",
+        "country": "CH",
+        "company": "Roche-Holding-AG",
+        "fiscal_year": "2025",
+        "source": "downloaded_market_report_pdf_discovery"
+      },
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/CH/Roche-Holding-AG/2025/年报/Roche-Holding-AG_EU_ROG_2025-12-31_年报_2026-01-29_six_direct_c5fc68dc.pdf",
+      "upload": {
+        "status_code": 200,
+        "payload": {
+          "batch_count": 1,
+          "task_id": "991382a4-c2fd-4c0f-a225-18ca0a54758e",
+          "tasks": [
+            {
+              "filename": "Roche-Holding-AG_EU_ROG_2025-12-31_年报_2026-01-29_six_direct_c5fc68dc.pdf",
+              "pdf_page_count": 218,
+              "task_id": "991382a4-c2fd-4c0f-a225-18ca0a54758e"
+            }
+          ]
+        }
+      },
+      "status": "queued",
+      "task_id": "991382a4-c2fd-4c0f-a225-18ca0a54758e"
+    },
+    {
+      "seed": {
+        "market": "EU",
+        "country": "DE",
+        "company": "Deutsche-Telekom-AG",
+        "fiscal_year": "2025",
+        "source": "downloaded_market_report_pdf_discovery"
+      },
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/DE/Deutsche-Telekom-AG/2025/年报/Deutsche-Telekom-AG_EU_DTE_2025-12-31_年报_2026-02-26_eu_direct_8848a5d1.pdf",
+      "upload": {
+        "status_code": 200,
+        "payload": {
+          "batch_count": 1,
+          "task_id": "236c3e23-16b4-4e3b-aba5-59f3808c70fb",
+          "tasks": [
+            {
+              "filename": "Deutsche-Telekom-AG_EU_DTE_2025-12-31_年报_2026-02-26_eu_direct_8848a5d1.pdf",
+              "pdf_page_count": 382,
+              "task_id": "236c3e23-16b4-4e3b-aba5-59f3808c70fb"
+            }
+          ]
+        }
+      },
+      "status": "queued",
+      "task_id": "236c3e23-16b4-4e3b-aba5-59f3808c70fb"
+    },
+    {
+      "seed": {
+        "market": "EU",
+        "country": "DE",
+        "company": "SAP-SE",
+        "fiscal_year": "2025",
+        "source": "downloaded_market_report_pdf_discovery"
+      },
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/DE/SAP-SE/2025/年报/SAP-SE_EU_SAP_2025-12-31_年报_2026-02-26_eu_direct_62f7bdc7.pdf",
+      "upload": {
+        "status_code": 200,
+        "payload": {
+          "batch_count": 1,
+          "task_id": "70902b2b-99ea-481d-b617-1537c148c147",
+          "tasks": [
+            {
+              "filename": "SAP-SE_EU_SAP_2025-12-31_年报_2026-02-26_eu_direct_62f7bdc7.pdf",
+              "pdf_page_count": 239,
+              "task_id": "70902b2b-99ea-481d-b617-1537c148c147"
+            }
+          ]
+        }
+      },
+      "status": "queued",
+      "task_id": "70902b2b-99ea-481d-b617-1537c148c147"
+    },
+    {
+      "seed": {
+        "market": "EU",
+        "country": "DE",
+        "company": "Siemens-AG",
+        "fiscal_year": "2025",
+        "source": "downloaded_market_report_pdf_discovery"
+      },
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/DE/Siemens-AG/2025/年报/Siemens-AG_EU_SIE_2025-09-30_年报_2025-12-11_eu_direct_93078262.pdf",
+      "upload": {
+        "status_code": 200,
+        "payload": {
+          "batch_count": 1,
+          "task_id": "ce1de02b-1a16-4354-bb00-4cd4e85d27af",
+          "tasks": [
+            {
+              "filename": "Siemens-AG_EU_SIE_2025-09-30_年报_2025-12-11_eu_direct_93078262.pdf",
+              "pdf_page_count": 335,
+              "task_id": "ce1de02b-1a16-4354-bb00-4cd4e85d27af"
+            }
+          ]
+        }
+      },
+      "status": "queued",
+      "task_id": "ce1de02b-1a16-4354-bb00-4cd4e85d27af"
+    },
+    {
+      "seed": {
+        "market": "EU",
+        "country": "FR",
+        "company": "Air-Liquide-S.A",
+        "fiscal_year": "2025",
+        "source": "downloaded_market_report_pdf_discovery"
+      },
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/FR/Air-Liquide-S.A/2025/年报/Air-Liquide-S.A_EU_AI_2025-12-31_年报_2026-03-06_eu_direct_8d9a8e16.pdf",
+      "upload": {
+        "status_code": 200,
+        "payload": {
+          "batch_count": 1,
+          "task_id": "6e5461dc-6652-4fa5-b3f9-950b3eb3df04",
+          "tasks": [
+            {
+              "filename": "Air-Liquide-S.A_EU_AI_2025-12-31_年报_2026-03-06_eu_direct_8d9a8e16.pdf",
+              "pdf_page_count": 432,
+              "task_id": "6e5461dc-6652-4fa5-b3f9-950b3eb3df04"
+            }
+          ]
+        }
+      },
+      "status": "queued",
+      "task_id": "6e5461dc-6652-4fa5-b3f9-950b3eb3df04"
+    },
+    {
+      "seed": {
+        "market": "EU",
+        "country": "FR",
+        "company": "Sanofi",
+        "fiscal_year": "2025",
+        "source": "downloaded_market_report_pdf_discovery"
+      },
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/FR/Sanofi/2025/年报/Sanofi_EU_SAN_2025-12-31_年报_2026-02-20_eu_direct_9600d371.pdf",
+      "upload": {
+        "status_code": 200,
+        "payload": {
+          "batch_count": 1,
+          "task_id": "1d13bb90-9ead-481a-a37a-5baf775904a5",
+          "tasks": [
+            {
+              "filename": "Sanofi_EU_SAN_2025-12-31_年报_2026-02-20_eu_direct_9600d371.pdf",
+              "pdf_page_count": 300,
+              "task_id": "1d13bb90-9ead-481a-a37a-5baf775904a5"
+            }
+          ]
+        }
+      },
+      "status": "queued",
+      "task_id": "1d13bb90-9ead-481a-a37a-5baf775904a5"
+    },
+    {
+      "seed": {
+        "market": "EU",
+        "country": "FR",
+        "company": "TotalEnergies-SE",
+        "fiscal_year": "2025",
+        "source": "downloaded_market_report_pdf_discovery"
+      },
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/FR/TotalEnergies-SE/2025/年报/TotalEnergies-SE_EU_TTE_2025-12-31_年报_2026-03-27_eu_direct_c971bcb7.pdf",
+      "upload": {
+        "status_code": 200,
+        "payload": {
+          "batch_count": 1,
+          "task_id": "9ee5c8aa-227d-4ca6-b277-52232d1cd57b",
+          "tasks": [
+            {
+              "filename": "TotalEnergies-SE_EU_TTE_2025-12-31_年报_2026-03-27_eu_direct_c971bcb7.pdf",
+              "pdf_page_count": 666,
+              "task_id": "9ee5c8aa-227d-4ca6-b277-52232d1cd57b"
+            }
+          ]
+        }
+      },
+      "status": "queued",
+      "task_id": "9ee5c8aa-227d-4ca6-b277-52232d1cd57b"
+    },
+    {
+      "seed": {
+        "market": "EU",
+        "country": "NL",
+        "company": "ASML-Holding-N.V",
+        "fiscal_year": "2025",
+        "source": "downloaded_market_report_pdf_discovery"
+      },
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/NL/ASML-Holding-N.V/2025/年报/ASML-Holding-N.V_EU_ASML_2025-12-31_年报_2026-02-25_eu_direct_06003086.pdf",
+      "upload": {
+        "status_code": 200,
+        "payload": {
+          "batch_count": 1,
+          "task_id": "79cf0438-d03f-4fbb-bdae-591767d89346",
+          "tasks": [
+            {
+              "filename": "ASML-Holding-N.V_EU_ASML_2025-12-31_年报_2026-02-25_eu_direct_06003086.pdf",
+              "pdf_page_count": 350,
+              "task_id": "79cf0438-d03f-4fbb-bdae-591767d89346"
+            }
+          ]
+        }
+      },
+      "status": "queued",
+      "task_id": "79cf0438-d03f-4fbb-bdae-591767d89346"
+    },
+    {
+      "seed": {
+        "market": "EU",
+        "country": "NL",
+        "company": "Heineken-N.V",
+        "fiscal_year": "2025",
+        "source": "downloaded_market_report_pdf_discovery"
+      },
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/NL/Heineken-N.V/2025/年报/Heineken-N.V_EU_HEIA_2025-12-31_年报_2026-02-12_eu_direct_9d17e969.pdf",
+      "upload": {
+        "status_code": 200,
+        "payload": {
+          "batch_count": 1,
+          "task_id": "a47504aa-a322-4b49-9999-d414ace6751f",
+          "tasks": [
+            {
+              "filename": "Heineken-N.V_EU_HEIA_2025-12-31_年报_2026-02-12_eu_direct_9d17e969.pdf",
+              "pdf_page_count": 282,
+              "task_id": "a47504aa-a322-4b49-9999-d414ace6751f"
+            }
+          ]
+        }
+      },
+      "status": "queued",
+      "task_id": "a47504aa-a322-4b49-9999-d414ace6751f"
+    },
+    {
+      "seed": {
+        "market": "EU",
+        "country": "NL",
+        "company": "Koninklijke-Philips-N.V",
+        "fiscal_year": "2025",
+        "source": "downloaded_market_report_pdf_discovery"
+      },
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/NL/Koninklijke-Philips-N.V/2025/年报/Koninklijke-Philips-N.V_EU_PHIA_2025-12-31_年报_2026-02-19_eu_direct_86cb52a6.pdf",
+      "upload": {
+        "status_code": 200,
+        "payload": {
+          "batch_count": 1,
+          "task_id": "ae75fd38-59f6-41d8-af56-d6cbc2285332",
+          "tasks": [
+            {
+              "filename": "Koninklijke-Philips-N.V_EU_PHIA_2025-12-31_年报_2026-02-19_eu_direct_86cb52a6.pdf",
+              "pdf_page_count": 306,
+              "task_id": "ae75fd38-59f6-41d8-af56-d6cbc2285332"
+            }
+          ]
+        }
+      },
+      "status": "queued",
+      "task_id": "ae75fd38-59f6-41d8-af56-d6cbc2285332"
+    },
+    {
+      "seed": {
+        "market": "EU",
+        "country": "UK",
+        "company": "AstraZeneca-PLC",
+        "fiscal_year": "2025",
+        "source": "downloaded_market_report_pdf_discovery"
+      },
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/UK/AstraZeneca-PLC/2025/年报/AstraZeneca-PLC_EU_AZN_2025-12-31_年报_2026-02-26_eu_direct_eb3a13dc.pdf",
+      "upload": {
+        "status_code": 200,
+        "payload": {
+          "batch_count": 1,
+          "task_id": "7ed0a4d3-5b5a-477f-bc4a-7a5c91535a96",
+          "tasks": [
+            {
+              "filename": "AstraZeneca-PLC_EU_AZN_2025-12-31_年报_2026-02-26_eu_direct_eb3a13dc.pdf",
+              "pdf_page_count": 232,
+              "task_id": "7ed0a4d3-5b5a-477f-bc4a-7a5c91535a96"
+            }
+          ]
+        }
+      },
+      "status": "queued",
+      "task_id": "7ed0a4d3-5b5a-477f-bc4a-7a5c91535a96"
+    },
+    {
+      "seed": {
+        "market": "EU",
+        "country": "UK",
+        "company": "BP-p.l.c",
+        "fiscal_year": "2025",
+        "source": "downloaded_market_report_pdf_discovery"
+      },
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/UK/BP-p.l.c/2025/年报/BP-p.l.c_EU_BP_2025-12-31_年报_2026-03-07_eu_direct_3e0db9f7.pdf",
+      "upload": {
+        "status_code": 200,
+        "payload": {
+          "batch_count": 1,
+          "task_id": "f6a80f6a-3231-4901-a3fe-7902346f69bc",
+          "tasks": [
+            {
+              "filename": "BP-p.l.c_EU_BP_2025-12-31_年报_2026-03-07_eu_direct_3e0db9f7.pdf",
+              "pdf_page_count": 396,
+              "task_id": "f6a80f6a-3231-4901-a3fe-7902346f69bc"
+            }
+          ]
+        }
+      },
+      "status": "queued",
+      "task_id": "f6a80f6a-3231-4901-a3fe-7902346f69bc"
+    },
+    {
+      "seed": {
+        "market": "EU",
+        "country": "UK",
+        "company": "Barclays-PLC",
+        "fiscal_year": "2025",
+        "source": "downloaded_market_report_pdf_discovery"
+      },
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/EU/UK/Barclays-PLC/2025/年报/Barclays-PLC_EU_BARC_2025-12-31_年报_2026-02-17_eu_direct_be648641.pdf",
+      "upload": {
+        "status_code": 200,
+        "payload": {
+          "batch_count": 1,
+          "task_id": "c835bf2b-d3ef-41cf-902f-0d44e3b05d2a",
+          "tasks": [
+            {
+              "filename": "Barclays-PLC_EU_BARC_2025-12-31_年报_2026-02-17_eu_direct_be648641.pdf",
+              "pdf_page_count": 494,
+              "task_id": "c835bf2b-d3ef-41cf-902f-0d44e3b05d2a"
+            }
+          ]
+        }
+      },
+      "status": "queued",
+      "task_id": "c835bf2b-d3ef-41cf-902f-0d44e3b05d2a"
+    },
+    {
+      "seed": {
+        "market": "JP",
+        "country": "JP",
+        "company": "Daikin-Industries,-Ltd",
+        "fiscal_year": "2025",
+        "source": "downloaded_market_report_pdf_discovery"
+      },
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/Daikin-Industries,-Ltd/2025/年报/Daikin-Industries,-Ltd_JP_6367_2025-03-31_年报_2025-09-26_issuer_annual_report_12ac529a.pdf",
+      "upload": {
+        "status_code": 200,
+        "payload": {
+          "batch_count": 1,
+          "task_id": "0b44f932-736b-4cd5-b763-aa46010542a6",
+          "tasks": [
+            {
+              "filename": "Daikin-Industries,-Ltd_JP_6367_2025-03-31_年报_2025-09-26_issuer_annual_report_12ac529a.pdf",
+              "pdf_page_count": 96,
+              "task_id": "0b44f932-736b-4cd5-b763-aa46010542a6"
+            }
+          ]
+        }
+      },
+      "status": "queued",
+      "task_id": "0b44f932-736b-4cd5-b763-aa46010542a6"
+    },
+    {
+      "seed": {
+        "market": "JP",
+        "country": "JP",
+        "company": "Fast-Retailing-Co.,-Ltd",
+        "fiscal_year": "2025",
+        "source": "downloaded_market_report_pdf_discovery"
+      },
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/Fast-Retailing-Co.,-Ltd/2025/年报/Fast-Retailing-Co.,-Ltd_JP_9983_2025-08-31_年报_2026-06-09_issuer_annual_report_e166b033.pdf",
+      "upload": {
+        "status_code": 200,
+        "payload": {
+          "batch_count": 1,
+          "task_id": "032a350a-9788-4fae-bf29-8d8675c3b4c5",
+          "tasks": [
+            {
+              "filename": "Fast-Retailing-Co.,-Ltd_JP_9983_2025-08-31_年报_2026-06-09_issuer_annual_report_e166b033.pdf",
+              "pdf_page_count": 94,
+              "task_id": "032a350a-9788-4fae-bf29-8d8675c3b4c5"
+            }
+          ]
+        }
+      },
+      "status": "queued",
+      "task_id": "032a350a-9788-4fae-bf29-8d8675c3b4c5"
+    },
+    {
+      "seed": {
+        "market": "JP",
+        "country": "JP",
+        "company": "Fujitsu-Limited",
+        "fiscal_year": "2025",
+        "source": "downloaded_market_report_pdf_discovery"
+      },
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/Fujitsu-Limited/2025/年报/Fujitsu-Limited_JP_6702_2025-03-31_年报_2025-11-04_issuer_annual_report_d75a8968.pdf",
+      "upload": {
+        "status_code": 200,
+        "payload": {
+          "batch_count": 1,
+          "task_id": "7fe1abf9-1db2-4d6d-8cda-6582ea7ce2e6",
+          "tasks": [
+            {
+              "filename": "Fujitsu-Limited_JP_6702_2025-03-31_年报_2025-11-04_issuer_annual_report_d75a8968.pdf",
+              "pdf_page_count": 87,
+              "task_id": "7fe1abf9-1db2-4d6d-8cda-6582ea7ce2e6"
+            }
+          ]
+        }
+      },
+      "status": "queued",
+      "task_id": "7fe1abf9-1db2-4d6d-8cda-6582ea7ce2e6"
+    },
+    {
+      "seed": {
+        "market": "JP",
+        "country": "JP",
+        "company": "Hitachi,-Ltd",
+        "fiscal_year": "2025",
+        "source": "downloaded_market_report_pdf_discovery"
+      },
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/Hitachi,-Ltd/2025/年报/Hitachi,-Ltd_JP_6501_2025-03-31_年报_2025-09-29_issuer_annual_report_19f2ecd2.pdf",
+      "upload": {
+        "status_code": 200,
+        "payload": {
+          "batch_count": 1,
+          "task_id": "a53c63a9-1d83-4d2b-93f8-8b117b83d7ce",
+          "tasks": [
+            {
+              "filename": "Hitachi,-Ltd_JP_6501_2025-03-31_年报_2025-09-29_issuer_annual_report_19f2ecd2.pdf",
+              "pdf_page_count": 48,
+              "task_id": "a53c63a9-1d83-4d2b-93f8-8b117b83d7ce"
+            }
+          ]
+        }
+      },
+      "status": "queued",
+      "task_id": "a53c63a9-1d83-4d2b-93f8-8b117b83d7ce"
+    },
+    {
+      "seed": {
+        "market": "JP",
+        "country": "JP",
+        "company": "ITOCHU-Corporation",
+        "fiscal_year": "2025",
+        "source": "downloaded_market_report_pdf_discovery"
+      },
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/ITOCHU-Corporation/2025/年报/ITOCHU-Corporation_JP_8001_2025-03-31_年报_2025-09-04_issuer_annual_report_d61f6b76.pdf",
+      "upload": {
+        "status_code": 200,
+        "payload": {
+          "batch_count": 1,
+          "task_id": "7ad7498f-d2bd-480c-8f80-722cc29857c2",
+          "tasks": [
+            {
+              "filename": "ITOCHU-Corporation_JP_8001_2025-03-31_年报_2025-09-04_issuer_annual_report_d61f6b76.pdf",
+              "pdf_page_count": 50,
+              "task_id": "7ad7498f-d2bd-480c-8f80-722cc29857c2"
+            }
+          ]
+        }
+      },
+      "status": "queued",
+      "task_id": "7ad7498f-d2bd-480c-8f80-722cc29857c2"
+    },
+    {
+      "seed": {
+        "market": "JP",
+        "country": "JP",
+        "company": "Mitsubishi-UFJ-Financial-Group,-Inc",
+        "fiscal_year": "2025",
+        "source": "downloaded_market_report_pdf_discovery"
+      },
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/Mitsubishi-UFJ-Financial-Group,-Inc/2025/年报/Mitsubishi-UFJ-Financial-Group,-Inc_JP_8306_2025-03-31_年报_2025-08-26_issuer_annual_report_fbb1ea18.pdf",
+      "upload": {
+        "status_code": 200,
+        "payload": {
+          "batch_count": 1,
+          "task_id": "c1fb45af-e686-489a-b82d-2e7f270b609c",
+          "tasks": [
+            {
+              "filename": "Mitsubishi-UFJ-Financial-Group,-Inc_JP_8306_2025-03-31_年报_2025-08-26_issuer_annual_report_fbb1ea18.pdf",
+              "pdf_page_count": 81,
+              "task_id": "c1fb45af-e686-489a-b82d-2e7f270b609c"
+            }
+          ]
+        }
+      },
+      "status": "queued",
+      "task_id": "c1fb45af-e686-489a-b82d-2e7f270b609c"
+    },
+    {
+      "seed": {
+        "market": "JP",
+        "country": "JP",
+        "company": "Nintendo-Co.,-Ltd",
+        "fiscal_year": "2025",
+        "source": "downloaded_market_report_pdf_discovery"
+      },
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/Nintendo-Co.,-Ltd/2025/年报/Nintendo-Co.,-Ltd_JP_7974_2025-03-31_年报_2025-07-07_issuer_annual_report_3952349c.pdf",
+      "upload": {
+        "status_code": 200,
+        "payload": {
+          "batch_count": 1,
+          "task_id": "66a56066-6b93-4727-a393-4b2f5c4f1d98",
+          "tasks": [
+            {
+              "filename": "Nintendo-Co.,-Ltd_JP_7974_2025-03-31_年报_2025-07-07_issuer_annual_report_3952349c.pdf",
+              "pdf_page_count": 103,
+              "task_id": "66a56066-6b93-4727-a393-4b2f5c4f1d98"
+            }
+          ]
+        }
+      },
+      "status": "queued",
+      "task_id": "66a56066-6b93-4727-a393-4b2f5c4f1d98"
+    },
+    {
+      "seed": {
+        "market": "JP",
+        "country": "JP",
+        "company": "Nippon-Telegraph-and-Telephone-Corporation",
+        "fiscal_year": "2025",
+        "source": "downloaded_market_report_pdf_discovery"
+      },
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/Nippon-Telegraph-and-Telephone-Corporation/2025/年报/Nippon-Telegraph-and-Telephone-Corporation_JP_9432_2025-03-31_年报_2026-01-06_issuer_annual_report_3413006f.pdf",
+      "upload": {
+        "status_code": 200,
+        "payload": {
+          "batch_count": 1,
+          "task_id": "5a1c0997-1a6e-49f5-a5f4-764736205075",
+          "tasks": [
+            {
+              "filename": "Nippon-Telegraph-and-Telephone-Corporation_JP_9432_2025-03-31_年报_2026-01-06_issuer_annual_report_3413006f.pdf",
+              "pdf_page_count": 114,
+              "task_id": "5a1c0997-1a6e-49f5-a5f4-764736205075"
+            }
+          ]
+        }
+      },
+      "status": "queued",
+      "task_id": "5a1c0997-1a6e-49f5-a5f4-764736205075"
+    },
+    {
+      "seed": {
+        "market": "JP",
+        "country": "JP",
+        "company": "Shiseido-Company,-Limited",
+        "fiscal_year": "2025",
+        "source": "downloaded_market_report_pdf_discovery"
+      },
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/Shiseido-Company,-Limited/2025/年报/Shiseido-Company,-Limited_JP_4911_2025-12-31_年报_2026-04-24_issuer_annual_report_1491fc9c.pdf",
+      "upload": {
+        "status_code": 200,
+        "payload": {
+          "batch_count": 1,
+          "task_id": "676ab222-80f0-48b7-b1a1-2e5bc9822c10",
+          "tasks": [
+            {
+              "filename": "Shiseido-Company,-Limited_JP_4911_2025-12-31_年报_2026-04-24_issuer_annual_report_1491fc9c.pdf",
+              "pdf_page_count": 73,
+              "task_id": "676ab222-80f0-48b7-b1a1-2e5bc9822c10"
+            }
+          ]
+        }
+      },
+      "status": "queued",
+      "task_id": "676ab222-80f0-48b7-b1a1-2e5bc9822c10"
+    },
+    {
+      "seed": {
+        "market": "JP",
+        "country": "JP",
+        "company": "Toyota-Motor-Corporation",
+        "fiscal_year": "2025",
+        "source": "downloaded_market_report_pdf_discovery"
+      },
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/JP/Toyota-Motor-Corporation/2025/年报/Toyota-Motor-Corporation_JP_7203_2025-03-31_年报_2026-04-03_issuer_annual_report_9685efd4.pdf",
+      "upload": {
+        "status_code": 200,
+        "payload": {
+          "batch_count": 1,
+          "task_id": "d4bddc4c-12f7-4d72-9bf4-23f46beece4b",
+          "tasks": [
+            {
+              "filename": "Toyota-Motor-Corporation_JP_7203_2025-03-31_年报_2026-04-03_issuer_annual_report_9685efd4.pdf",
+              "pdf_page_count": 168,
+              "task_id": "d4bddc4c-12f7-4d72-9bf4-23f46beece4b"
+            }
+          ]
+        }
+      },
+      "status": "queued",
+      "task_id": "d4bddc4c-12f7-4d72-9bf4-23f46beece4b"
+    },
+    {
+      "seed": {
+        "market": "KR",
+        "country": "KR",
+        "company": "Celltrion,-Inc",
+        "fiscal_year": "2025",
+        "source": "downloaded_market_report_pdf_discovery"
+      },
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/Celltrion,-Inc/2025/年报/Celltrion,-Inc_KR_068270_2025-12-31_年报_2026-03-16_dart_public_e65803cd.pdf",
+      "upload": {
+        "status_code": 200,
+        "payload": {
+          "batch_count": 1,
+          "task_id": "b2aeff92-19be-4c4b-bd58-5fd8aec578bc",
+          "tasks": [
+            {
+              "filename": "Celltrion,-Inc_KR_068270_2025-12-31_年报_2026-03-16_dart_public_e65803cd.pdf",
+              "pdf_page_count": 448,
+              "task_id": "b2aeff92-19be-4c4b-bd58-5fd8aec578bc"
+            }
+          ]
+        }
+      },
+      "status": "queued",
+      "task_id": "b2aeff92-19be-4c4b-bd58-5fd8aec578bc"
+    },
+    {
+      "seed": {
+        "market": "KR",
+        "country": "KR",
+        "company": "Hyundai-Motor-Company",
+        "fiscal_year": "2025",
+        "source": "downloaded_market_report_pdf_discovery"
+      },
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/Hyundai-Motor-Company/2025/年报/Hyundai-Motor-Company_KR_005380_2025-12-31_年报_2026-03-18_dart_public_7cf1c290.pdf",
+      "upload": {
+        "status_code": 200,
+        "payload": {
+          "batch_count": 1,
+          "task_id": "c9475f3b-32bb-467b-ba00-9f3a1bd287db",
+          "tasks": [
+            {
+              "filename": "Hyundai-Motor-Company_KR_005380_2025-12-31_年报_2026-03-18_dart_public_7cf1c290.pdf",
+              "pdf_page_count": 532,
+              "task_id": "c9475f3b-32bb-467b-ba00-9f3a1bd287db"
+            }
+          ]
+        }
+      },
+      "status": "queued",
+      "task_id": "c9475f3b-32bb-467b-ba00-9f3a1bd287db"
+    },
+    {
+      "seed": {
+        "market": "KR",
+        "country": "KR",
+        "company": "Korean-Air-Lines-Co.,-Ltd",
+        "fiscal_year": "2025",
+        "source": "downloaded_market_report_pdf_discovery"
+      },
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/Korean-Air-Lines-Co.,-Ltd/2025/年报/Korean-Air-Lines-Co.,-Ltd_KR_003490_2025-12-31_年报_2026-03-18_dart_public_14412955.pdf",
+      "upload": {
+        "status_code": 200,
+        "payload": {
+          "batch_count": 1,
+          "task_id": "72bcc948-8ae9-4d09-9850-4b83286d381b",
+          "tasks": [
+            {
+              "filename": "Korean-Air-Lines-Co.,-Ltd_KR_003490_2025-12-31_年报_2026-03-18_dart_public_14412955.pdf",
+              "pdf_page_count": 433,
+              "task_id": "72bcc948-8ae9-4d09-9850-4b83286d381b"
+            }
+          ]
+        }
+      },
+      "status": "queued",
+      "task_id": "72bcc948-8ae9-4d09-9850-4b83286d381b"
+    },
+    {
+      "seed": {
+        "market": "KR",
+        "country": "KR",
+        "company": "LG-Chem,-Ltd",
+        "fiscal_year": "2025",
+        "source": "downloaded_market_report_pdf_discovery"
+      },
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/LG-Chem,-Ltd/2025/年报/LG-Chem,-Ltd_KR_051910_2025-12-31_年报_2026-03-13_dart_public_749cecd6.pdf",
+      "upload": {
+        "status_code": 200,
+        "payload": {
+          "batch_count": 1,
+          "task_id": "d89e1237-5661-4351-9993-985dbcb74fc5",
+          "tasks": [
+            {
+              "filename": "LG-Chem,-Ltd_KR_051910_2025-12-31_年报_2026-03-13_dart_public_749cecd6.pdf",
+              "pdf_page_count": 473,
+              "task_id": "d89e1237-5661-4351-9993-985dbcb74fc5"
+            }
+          ]
+        }
+      },
+      "status": "queued",
+      "task_id": "d89e1237-5661-4351-9993-985dbcb74fc5"
+    },
+    {
+      "seed": {
+        "market": "KR",
+        "country": "KR",
+        "company": "NAVER-Corporation",
+        "fiscal_year": "2025",
+        "source": "downloaded_market_report_pdf_discovery"
+      },
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/NAVER-Corporation/2025/年报/NAVER-Corporation_KR_035420_2025-12-31_年报_2026-03-13_dart_public_78e00de6.pdf",
+      "upload": {
+        "status_code": 200,
+        "payload": {
+          "batch_count": 1,
+          "task_id": "13c9353d-1f65-4946-b362-3aca3d3ca319",
+          "tasks": [
+            {
+              "filename": "NAVER-Corporation_KR_035420_2025-12-31_年报_2026-03-13_dart_public_78e00de6.pdf",
+              "pdf_page_count": 421,
+              "task_id": "13c9353d-1f65-4946-b362-3aca3d3ca319"
+            }
+          ]
+        }
+      },
+      "status": "queued",
+      "task_id": "13c9353d-1f65-4946-b362-3aca3d3ca319"
+    },
+    {
+      "seed": {
+        "market": "KR",
+        "country": "KR",
+        "company": "POSCO-Holdings-Inc",
+        "fiscal_year": "2025",
+        "source": "downloaded_market_report_pdf_discovery"
+      },
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/POSCO-Holdings-Inc/2025/年报/POSCO-Holdings-Inc_KR_005490_2025-12-31_年报_2026-03-11_dart_public_7d0e9323.pdf",
+      "upload": {
+        "status_code": 200,
+        "payload": {
+          "batch_count": 1,
+          "task_id": "22114eda-8e55-4354-81e3-7ee82865f827",
+          "tasks": [
+            {
+              "filename": "POSCO-Holdings-Inc_KR_005490_2025-12-31_年报_2026-03-11_dart_public_7d0e9323.pdf",
+              "pdf_page_count": 603,
+              "task_id": "22114eda-8e55-4354-81e3-7ee82865f827"
+            }
+          ]
+        }
+      },
+      "status": "queued",
+      "task_id": "22114eda-8e55-4354-81e3-7ee82865f827"
+    },
+    {
+      "seed": {
+        "market": "KR",
+        "country": "KR",
+        "company": "SK-Telecom-Co.,-Ltd",
+        "fiscal_year": "2025",
+        "source": "downloaded_market_report_pdf_discovery"
+      },
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/SK-Telecom-Co.,-Ltd/2025/年报/SK-Telecom-Co.,-Ltd_KR_017670_2025-12-31_年报_2026-03-18_dart_public_82beb895.pdf",
+      "upload": {
+        "status_code": 200,
+        "payload": {
+          "batch_count": 1,
+          "task_id": "dbc9aa0e-92fc-42cc-a2bb-fb764a23c55c",
+          "tasks": [
+            {
+              "filename": "SK-Telecom-Co.,-Ltd_KR_017670_2025-12-31_年报_2026-03-18_dart_public_82beb895.pdf",
+              "pdf_page_count": 446,
+              "task_id": "dbc9aa0e-92fc-42cc-a2bb-fb764a23c55c"
+            }
+          ]
+        }
+      },
+      "status": "queued",
+      "task_id": "dbc9aa0e-92fc-42cc-a2bb-fb764a23c55c"
+    },
+    {
+      "seed": {
+        "market": "KR",
+        "country": "KR",
+        "company": "SK-hynix-Inc",
+        "fiscal_year": "2025",
+        "source": "downloaded_market_report_pdf_discovery"
+      },
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/SK-hynix-Inc/2025/年报/SK-hynix-Inc_KR_000660_2025-12-31_年报_2026-03-17_dart_public_0f049d5f.pdf",
+      "upload": {
+        "status_code": 200,
+        "payload": {
+          "batch_count": 1,
+          "task_id": "5cd163a4-cff0-4fc1-9f74-cbf99f37e33f",
+          "tasks": [
+            {
+              "filename": "SK-hynix-Inc_KR_000660_2025-12-31_年报_2026-03-17_dart_public_0f049d5f.pdf",
+              "pdf_page_count": 411,
+              "task_id": "5cd163a4-cff0-4fc1-9f74-cbf99f37e33f"
+            }
+          ]
+        }
+      },
+      "status": "queued",
+      "task_id": "5cd163a4-cff0-4fc1-9f74-cbf99f37e33f"
+    },
+    {
+      "seed": {
+        "market": "KR",
+        "country": "KR",
+        "company": "Samsung-Electronics-Co.,-Ltd",
+        "fiscal_year": "2025",
+        "source": "downloaded_market_report_pdf_discovery"
+      },
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/Samsung-Electronics-Co.,-Ltd/2025/年报/Samsung-Electronics-Co.,-Ltd_KR_005930_2025-12-31_年报_2026-03-10_dart_public_a4d8816f.pdf",
+      "upload": {
+        "status_code": 200,
+        "payload": {
+          "batch_count": 1,
+          "task_id": "4f91e58e-04eb-4427-9c82-90c9a8ed7a08",
+          "tasks": [
+            {
+              "filename": "Samsung-Electronics-Co.,-Ltd_KR_005930_2025-12-31_年报_2026-03-10_dart_public_a4d8816f.pdf",
+              "pdf_page_count": 573,
+              "task_id": "4f91e58e-04eb-4427-9c82-90c9a8ed7a08"
+            }
+          ]
+        }
+      },
+      "status": "queued",
+      "task_id": "4f91e58e-04eb-4427-9c82-90c9a8ed7a08"
+    },
+    {
+      "seed": {
+        "market": "KR",
+        "country": "KR",
+        "company": "Shinhan-Financial-Group-Co.,-Ltd",
+        "fiscal_year": "2025",
+        "source": "downloaded_market_report_pdf_discovery"
+      },
+      "path": "/home/maoyd/siq-research-engine/data/market-report-finder/downloads/KR/Shinhan-Financial-Group-Co.,-Ltd/2025/年报/Shinhan-Financial-Group-Co.,-Ltd_KR_055550_2025-12-31_年报_2026-03-18_dart_public_a09628ca.pdf",
+      "upload": {
+        "status_code": 200,
+        "payload": {
+          "batch_count": 1,
+          "task_id": "efc6c108-d5c5-4ae9-9537-1062d6b384be",
+          "tasks": [
+            {
+              "filename": "Shinhan-Financial-Group-Co.,-Ltd_KR_055550_2025-12-31_年报_2026-03-18_dart_public_a09628ca.pdf",
+              "pdf_page_count": 1065,
+              "task_id": "efc6c108-d5c5-4ae9-9537-1062d6b384be"
+            }
+          ]
+        }
+      },
+      "status": "queued",
+      "task_id": "efc6c108-d5c5-4ae9-9537-1062d6b384be"
+    }
+  ],
+  "skipped": []
+}

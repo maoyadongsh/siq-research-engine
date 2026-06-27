@@ -234,6 +234,7 @@ platforms:
     extra:
       port: 18651
       host: 127.0.0.1
+      model_name: siq_analysis
     enabled: true
     key: ''
     cors_origins: '*'

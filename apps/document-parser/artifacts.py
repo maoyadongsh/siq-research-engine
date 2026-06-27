@@ -91,6 +91,12 @@ def build_artifacts(
         image_copy = result_dir / "images" / "original" / source.filename
         if source.path.resolve() != image_copy.resolve():
             shutil.copy2(source.path, image_copy)
+    if output.raw_artifacts_dir:
+        raw_source_dir = Path(output.raw_artifacts_dir)
+        if raw_source_dir.exists() and raw_source_dir.is_dir():
+            raw_target_dir = result_dir / "raw" / "mineru"
+            shutil.rmtree(raw_target_dir, ignore_errors=True)
+            shutil.copytree(raw_source_dir, raw_target_dir, ignore=shutil.ignore_patterns("*.tmp", "__pycache__", ".pytest_cache"))
 
     blocks = _normalize_blocks(task_id, output.blocks, source)
     figures = output.figures or []
@@ -120,6 +126,7 @@ def build_artifacts(
         "parser_version": APP_VERSION,
         "upstream_parser_version": output.upstream_parser_version,
         "parse_config": config.to_manifest(),
+        "raw_artifacts": "raw/mineru" if output.raw_artifacts_dir else "",
         "status": "completed" if quality["overall_status"] == "pass" else "completed_with_warnings",
         "quality_status": quality["overall_status"],
         "created_at": now_iso(),

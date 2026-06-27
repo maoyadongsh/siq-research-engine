@@ -20,11 +20,11 @@ import sys
 import re
 from pathlib import Path
 
-os.environ.setdefault("SIQ_WIKI_ROOT", "/home/maoyd/wiki")
+os.environ.setdefault("SIQ_WIKI_ROOT", "/home/maoyd/siq-research-engine/data/wiki")
 os.environ.setdefault("SIQ_DEFAULT_SOURCE_TYPE", "wiki_metrics")
 
 # 将 shared scripts 加入路径
-sys.path.insert(0, str(Path("/home/maoyd/.hermes/profiles/shared/scripts")))
+sys.path.insert(0, str(Path("/home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts")))
 from local_citations import (
     find_company_dir_from_text,
     enrich_citation_line,

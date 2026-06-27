@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 
-PROFILE_DIR = Path("/home/maoyd/.hermes/profiles/siq_analysis")
+PROFILE_DIR = Path("/home/maoyd/siq-research-engine/data/hermes/home/profiles/siq_analysis")
 
 
 def archive_sessions(profile_dir: Path, older_than_days: int, dry_run: bool) -> dict[str, Any]:

@@ -34,7 +34,14 @@ HERMES_PROFILE_ALIASES = {
     "siq_tracking": "siq_tracking",
     "siq_legal": "siq_legal",
 }
-HERMES_LEGACY_MODELS = {
+HERMES_ENV_PREFIXES = {
+    "siq_assistant": "ASSISTANT",
+    "siq_analysis": "ANALYSIS",
+    "siq_factchecker": "FACTCHECKER",
+    "siq_tracking": "TRACKING",
+    "siq_legal": "LEGAL",
+}
+HERMES_PROFILE_MODELS = {
     "siq_assistant": "siq_assistant",
     "siq_analysis": "siq_analysis",
     "siq_factchecker": "siq_factchecker",
@@ -59,6 +66,13 @@ def _is_tcp_port_open(host: str, port: int, timeout: float = 0.2) -> bool:
         return False
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _runs_url(profile: str, env_prefix: str) -> str:
     explicit = _env_value(
         f"SIQ_HERMES_{env_prefix}_RUNS_URL",
@@ -75,7 +89,11 @@ def _runs_url(profile: str, env_prefix: str) -> str:
     port = int(raw_port or default_port)
     candidates = [port]
     compat_port = HERMES_COMPAT_PORTS[profile]
-    if port == default_port and compat_port not in candidates:
+    if (
+        port == default_port
+        and compat_port not in candidates
+        and _env_bool("SIQ_HERMES_ALLOW_COMPAT_PORTS", False)
+    ):
         candidates.append(compat_port)
     for candidate in candidates:
         if _is_tcp_port_open(host, candidate):
@@ -97,21 +115,56 @@ def _profile_model_name(profile: str, env_prefix: str) -> str:
         _env_value("SIQ_HERMES_PROFILES_ROOT", "HERMES_PROFILES_ROOT")
         or Path(_env_value("SIQ_HERMES_HOME", "HERMES_HOME") or default_hermes_home) / "profiles"
     ).expanduser()
-    legacy = HERMES_LEGACY_MODELS[profile]
-    if (profiles_root / legacy / "config.yaml").exists():
-        return legacy
+    model = HERMES_PROFILE_MODELS[profile]
+    if (profiles_root / model / "config.yaml").exists():
+        return model
     return profile
 
 
-HERMES_PROFILES = {
-    "siq_assistant": {"base": _runs_url("siq_assistant", "ASSISTANT"), "model": _profile_model_name("siq_assistant", "ASSISTANT")},
-    "siq_analysis": {"base": _runs_url("siq_analysis", "ANALYSIS"), "model": _profile_model_name("siq_analysis", "ANALYSIS")},
-    "siq_factchecker": {"base": _runs_url("siq_factchecker", "FACTCHECKER"), "model": _profile_model_name("siq_factchecker", "FACTCHECKER")},
-    "siq_tracking": {"base": _runs_url("siq_tracking", "TRACKING"), "model": _profile_model_name("siq_tracking", "TRACKING")},
-    "siq_legal": {"base": _runs_url("siq_legal", "LEGAL"), "model": _profile_model_name("siq_legal", "LEGAL")},
-}
-
 HermesProfile = Literal["siq_assistant", "siq_analysis", "siq_factchecker", "siq_tracking", "siq_legal"]
+HERMES_PROFILE_ORDER: tuple[HermesProfile, ...] = (
+    "siq_assistant",
+    "siq_analysis",
+    "siq_factchecker",
+    "siq_tracking",
+    "siq_legal",
+)
+
+
+def hermes_profile_config(profile: HermesProfile | str) -> dict[str, str]:
+    canonical = normalize_profile(profile)
+    env_prefix = HERMES_ENV_PREFIXES[canonical]
+    return {
+        "base": _runs_url(canonical, env_prefix),
+        "model": _profile_model_name(canonical, env_prefix),
+    }
+
+
+def hermes_profiles_config() -> dict[HermesProfile, dict[str, str]]:
+    return {profile: hermes_profile_config(profile) for profile in HERMES_PROFILE_ORDER}
+
+
+class _HermesProfilesMapping(dict):
+    def __getitem__(self, key: str) -> dict[str, str]:
+        return hermes_profile_config(key)
+
+    def get(self, key: str, default: Any = None) -> dict[str, str] | Any:
+        try:
+            return hermes_profile_config(key)
+        except KeyError:
+            return default
+
+    def items(self):
+        return hermes_profiles_config().items()
+
+    def keys(self):
+        return HERMES_PROFILE_ORDER
+
+    def values(self):
+        return hermes_profiles_config().values()
+
+
+HERMES_PROFILES: dict[HermesProfile, dict[str, str]] = _HermesProfilesMapping()
 
 
 @dataclass
@@ -134,7 +187,7 @@ def normalize_profile(profile: str) -> HermesProfile:
 
 
 def _get_profile(profile: HermesProfile | str) -> dict:
-    return HERMES_PROFILES[normalize_profile(profile)]
+    return hermes_profile_config(profile)
 
 
 def _hermes_auth_header() -> str:

@@ -1907,7 +1907,14 @@ def _pdf_attachment_parse_dirs(attachments: Any | None) -> list[Path]:
 
 
 def _pdf_parse_is_terminal(metadata: dict[str, Any]) -> bool:
-    status = str(metadata.get("mineru_parse_status") or metadata.get("mineru_submit_status") or "").lower()
+    status = str(
+        metadata.get("document_parser_status")
+        or metadata.get("mineru_parse_status")
+        or metadata.get("mineru_submit_status")
+        or ""
+    ).lower()
+    if status in {"completed_with_warnings"}:
+        return True
     if status in {"completed", "completed_without_markdown", "failed", "error", "failure", "cancelled", "timeout"}:
         return True
     if status in {"completed_result_fetch_failed", "status_failed", "poll_failed"}:
@@ -2080,31 +2087,62 @@ def _document_attachment_context(attachments: Any | None) -> str:
         if task_id:
             lines.extend(
                 [
+                    f"- 解析任务: {task_id}",
                     f"- MinerU 直连解析任务: {task_id}",
-                    f"- 状态接口: {metadata.get('mineru_status_url')}",
-                    f"- 结果接口: {metadata.get('mineru_result_url')}",
+                    f"- 通用文档解析任务: {metadata.get('document_parser_task_id') or task_id}",
+                    f"- 状态接口: {metadata.get('document_parser_status_url') or metadata.get('mineru_status_url')}",
+                    f"- 结果接口: {metadata.get('document_parser_result_url') or metadata.get('mineru_result_url')}",
+                    f"- 工作台页面: {metadata.get('document_parser_page_url') or ''}",
                     f"- 独立解析目录: {metadata.get('parse_dir')}",
                     f"- 元数据文件: {metadata.get('metadata_path')}",
-                    f"- 当前解析状态: {metadata.get('mineru_parse_status') or metadata.get('mineru_submit_status')}",
-                    "- 该 PDF 没有进入财报解析前端队列，也不会写入任何公司 Wiki/入库解析产物目录。",
-                    "- 如用户询问 PDF 版面、表格或长文档细节，应优先读取独立解析目录中的 result.md/content_list.json；若未完成，再查询状态接口。",
+                    f"- 当前解析状态: {metadata.get('document_parser_status') or metadata.get('mineru_parse_status') or metadata.get('mineru_submit_status')}",
+                    "- 该 PDF 走通用 document-parser，不进入财报解析前端队列。",
+                    "- 如用户询问 PDF 版面、表格或长文档细节，应优先读取独立解析目录中的 result.md，或使用通用文档解析 source map / blocks / tables 产物。",
                 ]
             )
+            if metadata.get("document_parser_source_map_url"):
+                lines.append(f"- Source map: {metadata.get('document_parser_source_map_url')}")
+            if metadata.get("document_parser_blocks_url"):
+                lines.append(f"- Blocks: {metadata.get('document_parser_blocks_url')}")
+            if metadata.get("document_parser_tables_url"):
+                lines.append(f"- Tables: {metadata.get('document_parser_tables_url')}")
+            if metadata.get("document_parser_source_page_url_template"):
+                lines.append(f"- 页来源模板: {metadata.get('document_parser_source_page_url_template')}")
+            if metadata.get("document_parser_source_block_url_template"):
+                lines.append(f"- 块来源模板: {metadata.get('document_parser_source_block_url_template')}")
+            if metadata.get("document_parser_source_table_url_template"):
+                lines.append(f"- 表格来源模板: {metadata.get('document_parser_source_table_url_template')}")
+            lines.append("- 引用来源如需给出可点击链接，优先使用 `/api/documents/source/<task_id>/page/<page_number>`、`/api/documents/source/<task_id>/block/<block_id>` 或 `/api/documents/source/<task_id>/table/<table_id>`。")
+            if not metadata.get("document_parser_task_id"):
+                lines.append("- 该 PDF 没有进入财报解析前端队列，也不会写入任何公司 Wiki/入库解析产物目录。")
             if metadata.get("markdown_path"):
-                lines.append(f"- MinerU Markdown: {metadata.get('markdown_path')}")
+                lines.append(f"- Markdown: {metadata.get('markdown_path')}")
             if metadata.get("content_list_path"):
-                lines.append(f"- MinerU content_list: {metadata.get('content_list_path')}")
+                lines.append(f"- content_list: {metadata.get('content_list_path')}")
         elif metadata:
             if metadata.get("parse_dir"):
                 lines.append(f"- 独立解析目录: {metadata.get('parse_dir')}")
-            lines.append(f"- MinerU 提交状态: {metadata.get('mineru_submit_status')}")
+            if metadata.get("document_parser_submit_status"):
+                lines.append(f"- 文档解析提交状态: {metadata.get('document_parser_submit_status')}")
+            else:
+                lines.append(f"- MinerU 提交状态: {metadata.get('mineru_submit_status')}")
+            if metadata.get("document_parser_status"):
+                lines.append(f"- 文档解析状态: {metadata.get('document_parser_status')}")
             if metadata.get("mineru_parse_status"):
                 lines.append(f"- MinerU 解析状态: {metadata.get('mineru_parse_status')}")
             if (
                 metadata.get("queue_policy") == "direct_mineru_no_pdf2md_frontend_queue"
+                or metadata.get("queue_policy") == "document_parser_chat_attachment"
                 or metadata.get("submitted_to_project_queue") is False
             ):
-                lines.append("- 该 PDF 没有进入财报解析前端队列，也不会写入任何公司 Wiki/入库解析产物目录。")
+                if metadata.get("queue_policy") == "direct_mineru_no_pdf2md_frontend_queue":
+                    lines.append("- 该 PDF 没有进入财报解析前端队列，也不会写入任何公司 Wiki/入库解析产物目录。")
+                else:
+                    lines.append("- 该 PDF 没有进入财报解析前端队列。")
+            if metadata.get("document_parser_submit_error"):
+                lines.append(f"- 文档解析提交错误: {metadata.get('document_parser_submit_error')}")
+            if metadata.get("document_parser_error"):
+                lines.append(f"- 文档解析错误: {metadata.get('document_parser_error')}")
             if metadata.get("mineru_submit_error"):
                 lines.append(f"- MinerU 提交错误: {metadata.get('mineru_submit_error')}")
             if metadata.get("mineru_parse_error"):
@@ -6748,14 +6786,6 @@ def build_financial_evidence_fallback_reply(message: str, context: Any | None = 
             "- 以下返回后端确定性检索出的原文证据；需要解释或评价时，应基于这些来源继续分析。\n\n"
             f"{wiki_fulltext_context}"
         )
-    parse_only_context = build_pdf2md_parse_only_context(message, context)
-    if parse_only_context:
-        return (
-            "## 证据校验\n"
-            "- 模型本轮输出缺少可解析的本地 Wiki 证据引用；后端发现该报告尚未进入 Wiki，只返回真实 pdf2md 解析产物目录。\n"
-            "- 原回答已被阻断；需要事实答案时，请基于下列 `result.md` / `document_full.json` / `financial_data.json` 重新定位证据。\n\n"
-            f"{parse_only_context}"
-        )
     postgres_context = build_postgres_fallback_context(message, context)
     if postgres_context:
         return (
@@ -6763,6 +6793,14 @@ def build_financial_evidence_fallback_reply(message: str, context: Any | None = 
             "- 模型本轮输出缺少可解析的本地 Wiki 证据引用，且 Wiki 确定性解析未返回足够证据。\n"
             "- 以下返回后端只读查询 PostgreSQL `pdf2md` 得到的补充证据；需要解释或评价时，应基于这些来源继续分析。\n\n"
             f"{postgres_context}"
+        )
+    parse_only_context = build_pdf2md_parse_only_context(message, context)
+    if parse_only_context:
+        return (
+            "## 证据校验\n"
+            "- 模型本轮输出缺少可解析的本地 Wiki 证据引用；后端发现该报告尚未进入 Wiki，只返回真实 pdf2md 解析产物目录。\n"
+            "- 原回答已被阻断；需要事实答案时，请基于下列 `result.md` / `document_full.json` / `financial_data.json` 重新定位证据。\n\n"
+            f"{parse_only_context}"
         )
     return None
 
@@ -6966,14 +7004,14 @@ def build_session_contextual_input(
             blocks.append(wiki_fulltext_context)
             has_deterministic_evidence_context = True
     if not has_deterministic_evidence_context:
-        parse_only_context = build_pdf2md_parse_only_context(scoped_message, scoped_context)
-        if parse_only_context:
-            blocks.append(parse_only_context)
-            has_deterministic_evidence_context = True
-    if not has_deterministic_evidence_context:
         postgres_context = build_postgres_fallback_context(scoped_message, scoped_context)
         if postgres_context:
             blocks.append(postgres_context)
+            has_deterministic_evidence_context = True
+    if not has_deterministic_evidence_context:
+        parse_only_context = build_pdf2md_parse_only_context(scoped_message, scoped_context)
+        if parse_only_context:
+            blocks.append(parse_only_context)
             has_deterministic_evidence_context = True
     blocks.append(CHAT_OUTPUT_CONTRACT)
     blocks.append(FINANCIAL_CALCULATION_RUNTIME_CONTRACT)

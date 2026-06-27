@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any
 
 
-WIKI_BASE = Path(os.environ.get("SIQ_WIKI_ROOT", "/home/maoyd/wiki")).expanduser()
+WIKI_BASE = Path(os.environ.get("SIQ_WIKI_ROOT", "/home/maoyd/siq-research-engine/data/wiki")).expanduser()
 DEFAULT_SOURCE_TYPE = os.environ.get(
     "SIQ_DEFAULT_SOURCE_TYPE",
     "okf_metrics" if "okf_staging" in str(WIKI_BASE) else "wiki_metrics",
@@ -423,7 +423,7 @@ def find_company_dir_from_text(text: str, wiki_base: Path = WIKI_BASE) -> Path |
     """Infer a company directory from a chat reply or report snippet."""
     patterns = [
         r"/home/maoyd/okf_staging/companies/([0-9A-Za-z]+-[^/\s`，,]+)",
-        r"/home/maoyd/wiki/companies/([0-9]{6}-[^/\s`，,]+)",
+        r"/home/maoyd/siq-research-engine/data/wiki/companies/([0-9]{6}-[^/\s`，,]+)",
         r"companies/([0-9A-Za-z]+-[^/\s`，,]+)",
         r"\b([0-9A-Za-z]+-[^\s`/，,]+)",
     ]

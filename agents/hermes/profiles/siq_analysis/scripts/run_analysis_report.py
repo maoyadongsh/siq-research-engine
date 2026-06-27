@@ -967,7 +967,7 @@ def main() -> int:
     # always sees the freshest pointer set. Best-effort: failures here do not
     # invalidate the analysis pipeline result.
     try:
-        index_script = Path("/home/maoyd/.hermes/profiles/shared/scripts/update_company_index.py")
+        index_script = Path("/home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts/update_company_index.py")
         if index_script.exists():
             run_json([sys.executable, str(index_script), "--company-dir", str(company_dir)])
     except Exception as exc:  # pragma: no cover - non-critical

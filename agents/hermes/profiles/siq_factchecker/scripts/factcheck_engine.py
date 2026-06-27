@@ -24,7 +24,7 @@ def main() -> None:
     parser.add_argument("company_id", help="公司ID或股票代码，如 600399")
     parser.add_argument("--year", type=int, default=2025, help="报告年份")
     parser.add_argument("--output", type=str, help="输出文件路径（可选）")
-    parser.add_argument("--wiki-dir", type=str, default="/home/maoyd/wiki", help="Wiki 目录路径")
+    parser.add_argument("--wiki-dir", type=str, default="/home/maoyd/siq-research-engine/data/wiki", help="Wiki 目录路径")
     args = parser.parse_args()
 
     accessor = WikiDataAccessor(wiki_dir=Path(args.wiki_dir))

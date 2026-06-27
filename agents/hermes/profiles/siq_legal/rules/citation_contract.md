@@ -52,7 +52,7 @@
 ## 检索流程纪律
 
 1. **必须**优先使用本机 Milvus 混合检索 CLI，而非简单 search 或本地 read_file：
-   `/home/maoyd/.hermes/profiles/siq_legal/SIQ_legal hybrid_search "<查询>" --top-k 12`
+   `/home/maoyd/siq-research-engine/data/hermes/home/profiles/siq_legal/SIQ_legal hybrid_search "<查询>" --top-k 12`
 2. 复杂问题应分多次检索不同关键词，综合结果。
 3. 涉及具体条款时，在查询词中带法规名称、条号和主题复检；必要时用 `search` 补充。
 4. Milvus 检索结果与记忆冲突时，**以 Milvus 为准**，并在意见中标注差异。

@@ -7,6 +7,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, AsyncGenerator
+from urllib.parse import quote
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
@@ -44,8 +45,9 @@ from services.session_manager import get_session_manager, keeps_sessions_forever
 from services.auth_dependencies import get_current_user
 from services.path_config import BACKEND_DATA_ROOT
 from routers.agent import apply_decay, perform_action
+from routers.document_parser import DOCUMENT_PARSER_API_BASE, _document_headers, _record_document_artifact
 from routers.workspace import enforce_quota_or_429
-from services.usage_service import AGENT_QUESTION_EVENT, record_usage
+from services.usage_service import AGENT_QUESTION_EVENT, DOCUMENT_PARSE_EVENT, record_usage
 
 router = APIRouter(tags=["chat"])
 
@@ -59,6 +61,10 @@ CHAT_PDF_PARSE_SUBMIT_TIMEOUT = float(os.environ.get("CHAT_PDF_PARSE_SUBMIT_TIME
 CHAT_PDF_PARSE_STATUS_TIMEOUT = float(os.environ.get("CHAT_PDF_PARSE_STATUS_TIMEOUT", "30"))
 CHAT_PDF_PARSE_POLL_INTERVAL = float(os.environ.get("CHAT_PDF_PARSE_POLL_INTERVAL", "5"))
 CHAT_PDF_PARSE_MAX_POLLS = int(os.environ.get("CHAT_PDF_PARSE_MAX_POLLS", "360"))
+CHAT_DOCUMENT_PARSE_SUBMIT_TIMEOUT = float(os.environ.get("CHAT_DOCUMENT_PARSE_SUBMIT_TIMEOUT", "60"))
+CHAT_DOCUMENT_PARSE_STATUS_TIMEOUT = float(os.environ.get("CHAT_DOCUMENT_PARSE_STATUS_TIMEOUT", "30"))
+CHAT_DOCUMENT_PARSE_POLL_INTERVAL = float(os.environ.get("CHAT_DOCUMENT_PARSE_POLL_INTERVAL", "3"))
+CHAT_DOCUMENT_PARSE_MAX_POLLS = int(os.environ.get("CHAT_DOCUMENT_PARSE_MAX_POLLS", "360"))
 MAX_CHAT_IMAGE_COUNT = 4
 MAX_CHAT_ATTACHMENT_COUNT = 6
 MAX_CHAT_IMAGE_BYTES = 10 * 1024 * 1024
@@ -445,6 +451,163 @@ def _save_mineru_pdf_result(parse_dir: Path, payload: dict[str, Any]) -> dict[st
     return summary
 
 
+def _save_document_parser_pdf_result(parse_dir: Path, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    summary: dict[str, Any] = {
+        "status": "completed",
+        "saved_at": _now_iso(),
+        "document_parser_task_id": task_id,
+        "parse_dir": str(parse_dir),
+        "artifacts": {},
+    }
+    _write_json(parse_dir / "document_result.json", payload)
+    summary["artifacts"]["document_result.json"] = str(parse_dir / "document_result.json")
+
+    markdown = str(payload.get("markdown") or "")
+    if markdown:
+        markdown_path = parse_dir / "result.md"
+        markdown_path.write_text(markdown, encoding="utf-8")
+        summary["artifacts"]["result.md"] = str(markdown_path)
+
+    manifest = payload.get("manifest")
+    if isinstance(manifest, dict):
+        manifest_path = parse_dir / "manifest.json"
+        _write_json(manifest_path, manifest)
+        summary["artifacts"]["manifest.json"] = str(manifest_path)
+
+    artifacts = payload.get("artifacts")
+    if isinstance(artifacts, dict):
+        artifacts_path = parse_dir / "artifacts.json"
+        _write_json(artifacts_path, artifacts)
+        summary["artifacts"]["artifacts.json"] = str(artifacts_path)
+
+    _write_json(parse_dir / "result_payload_summary.json", summary)
+    return summary
+
+
+async def _poll_document_parser_result(task_id: str, parse_dir: Path) -> None:
+    metadata_path = parse_dir / "metadata.json"
+    metadata: dict[str, Any] = {}
+    if metadata_path.exists():
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except Exception:
+            metadata = {}
+
+    done_statuses = {"completed", "completed_with_warnings", "success", "done", "finished"}
+    failed_statuses = {"failed", "error", "failure", "cancelled", "timeout"}
+    async with httpx.AsyncClient(timeout=httpx.Timeout(CHAT_DOCUMENT_PARSE_STATUS_TIMEOUT, connect=5.0)) as client:
+        for attempt in range(1, CHAT_DOCUMENT_PARSE_MAX_POLLS + 1):
+            await asyncio.sleep(CHAT_DOCUMENT_PARSE_POLL_INTERVAL)
+            try:
+                status_response = await client.get(
+                    f"{DOCUMENT_PARSER_API_BASE}/api/status/{task_id}",
+                    headers=_document_headers(),
+                )
+                status_payload = status_response.json() if status_response.content else {}
+                if not status_response.is_success:
+                    metadata.update(
+                        {
+                            "document_parser_status": "status_failed",
+                            "document_parser_status_http_status": status_response.status_code,
+                            "document_parser_status_error": status_payload.get("detail") or status_payload.get("error") or status_response.text,
+                            "mineru_parse_status": "status_failed",
+                            "last_polled_at": _now_iso(),
+                        }
+                    )
+                    _write_json(metadata_path, metadata)
+                    if status_response.status_code == 404:
+                        return
+                    continue
+
+                raw_status = status_payload.get("status") or status_payload.get("stage") or status_payload.get("task_status")
+                status = str(raw_status or "unknown").lower()
+                metadata.update(
+                    {
+                        "document_parser_status": status,
+                        "document_parser_stage": status_payload.get("stage"),
+                        "document_parser_progress_percent": status_payload.get("progress_percent"),
+                        "document_parser_task_id": task_id,
+                        "mineru_task_id": task_id,
+                        "mineru_parse_status": "completed" if status in done_statuses else status,
+                        "last_polled_at": _now_iso(),
+                        "poll_attempt": attempt,
+                    }
+                )
+                _write_json(metadata_path, metadata)
+
+                if status in failed_statuses:
+                    metadata["document_parser_error"] = status_payload.get("error") or status_payload.get("message") or status_payload.get("detail") or status
+                    metadata["mineru_parse_error"] = metadata["document_parser_error"]
+                    _write_json(metadata_path, metadata)
+                    return
+
+                if status not in done_statuses:
+                    continue
+
+                result_response = await client.get(
+                    f"{DOCUMENT_PARSER_API_BASE}/api/result/{task_id}",
+                    headers=_document_headers(),
+                )
+                result_payload = result_response.json() if result_response.content else {}
+                if not result_response.is_success:
+                    metadata.update(
+                        {
+                            "document_parser_status": "completed_result_fetch_failed",
+                            "document_parser_result_http_status": result_response.status_code,
+                            "document_parser_result_error": result_payload.get("detail") or result_payload.get("error") or result_response.text,
+                            "mineru_parse_status": "completed_result_fetch_failed",
+                            "completed_at": _now_iso(),
+                        }
+                    )
+                    _write_json(metadata_path, metadata)
+                    return
+
+                summary = _save_document_parser_pdf_result(parse_dir, task_id, result_payload)
+                metadata.update(
+                    {
+                        "document_parser_status": status,
+                        "document_parser_page_url": f"/documents?task={quote(task_id, safe='')}",
+                        "document_parser_source_map_url": f"/api/documents/artifact/{quote(task_id, safe='')}/source_map.json",
+                        "document_parser_blocks_url": f"/api/documents/artifact/{quote(task_id, safe='')}/blocks.json",
+                        "document_parser_tables_url": f"/api/documents/artifact/{quote(task_id, safe='')}/tables.json",
+                        "document_parser_source_page_url_template": f"/api/documents/source/{quote(task_id, safe='')}/page/<page_number>",
+                        "document_parser_source_block_url_template": f"/api/documents/source/{quote(task_id, safe='')}/block/<block_id>",
+                        "document_parser_source_table_url_template": f"/api/documents/source/{quote(task_id, safe='')}/table/<table_id>",
+                        "mineru_parse_status": summary["status"],
+                        "markdown_path": summary.get("artifacts", {}).get("result.md"),
+                        "manifest_path": summary.get("artifacts", {}).get("manifest.json"),
+                        "document_result_path": summary.get("artifacts", {}).get("document_result.json"),
+                        "parse_dir": str(parse_dir),
+                        "completed_at": _now_iso(),
+                    }
+                )
+                _write_json(metadata_path, metadata)
+                return
+            except Exception as exc:
+                metadata.update(
+                    {
+                        "document_parser_status": "poll_failed",
+                        "document_parser_error": str(exc),
+                        "mineru_parse_status": "poll_failed",
+                        "mineru_parse_error": str(exc),
+                        "last_polled_at": _now_iso(),
+                        "poll_attempt": attempt,
+                    }
+                )
+                _write_json(metadata_path, metadata)
+
+    metadata.update(
+        {
+            "document_parser_status": "timeout",
+            "document_parser_error": f"Document parser result was not ready after {CHAT_DOCUMENT_PARSE_MAX_POLLS} polls.",
+            "mineru_parse_status": "timeout",
+            "mineru_parse_error": f"Document parser result was not ready after {CHAT_DOCUMENT_PARSE_MAX_POLLS} polls.",
+            "completed_at": _now_iso(),
+        }
+    )
+    _write_json(metadata_path, metadata)
+
+
 async def _poll_mineru_pdf_result(mineru_task_id: str, parse_dir: Path) -> None:
     metadata_path = parse_dir / "metadata.json"
     metadata: dict[str, Any] = {}
@@ -621,64 +784,95 @@ async def _submit_pdf_attachment_to_mineru(
     stored_name: str,
     parse_dir: Path,
     background_tasks: BackgroundTasks,
+    *,
+    current_user: User,
+    session: Session,
 ) -> dict:
     parse_dir.mkdir(parents=True, exist_ok=True)
     metadata: dict = {
-        "mineru_api_base": MINERU_API_BASE,
+        "document_parser_api_base": DOCUMENT_PARSER_API_BASE,
         "mineru_submit_status": "skipped",
         "mineru_parse_status": "not_submitted",
+        "document_parser_submit_status": "skipped",
+        "document_parser_status": "not_submitted",
         "parse_dir": str(parse_dir),
-        "queue_policy": "direct_mineru_no_pdf2md_frontend_queue",
+        "queue_policy": "document_parser_chat_attachment",
         "submitted_to_project_queue": False,
     }
     if not path.exists() or not path.is_file():
+        metadata["document_parser_submit_error"] = "PDF file is missing"
         metadata["mineru_submit_error"] = "PDF file is missing"
         _write_json(parse_dir / "metadata.json", metadata)
         return metadata
 
-    data = {
-        "backend": "hybrid-http-client",
-        "parse_method": "auto",
-        "formula_enable": "true",
-        "table_enable": "true",
-        "server_url": VLM_API_BASE,
-        "return_md": "true",
-        "return_middle_json": "true",
-        "return_model_output": "true",
-        "return_content_list": "true",
-        "return_images": "true",
-        "response_format_zip": "false",
-        "return_original_file": "false",
-        "lang_list": "ch",
+    enforce_quota_or_429(session, current_user, DOCUMENT_PARSE_EVENT)
+    form = {
+        "source_type": "upload",
+        "model_version": "auto",
+        "ocr": "auto",
+        "enable_formula": "true",
+        "enable_table": "true",
+        "language": "auto",
+        "page_ranges": "",
+        "extra_formats": "",
+        "no_cache": "false",
+        "data_id": f"chat_attachment:{stored_name}",
     }
     try:
-        timeout = httpx.Timeout(CHAT_PDF_PARSE_SUBMIT_TIMEOUT, connect=5.0)
+        timeout = httpx.Timeout(CHAT_DOCUMENT_PARSE_SUBMIT_TIMEOUT, connect=5.0)
         async with httpx.AsyncClient(timeout=timeout) as client:
             raw = path.read_bytes()
             response = await client.post(
-                f"{MINERU_API_BASE}/tasks",
-                data=data,
+                f"{DOCUMENT_PARSER_API_BASE}/api/tasks",
+                data=form,
                 files={"files": (stored_name, raw, "application/pdf")},
+                headers=_document_headers(),
             )
         payload = response.json() if response.content else {}
         if response.is_success:
-            task_id = payload.get("task_id")
+            tasks = payload.get("tasks") if isinstance(payload, dict) else []
+            task = tasks[0] if tasks else {}
+            task_id = task.get("task_id")
             metadata.update(
                 {
+                    "document_parser_submit_status": "submitted" if task_id else "submitted_without_task_id",
+                    "document_parser_status": "queued" if task_id else "unknown",
+                    "document_parser_task_id": task_id,
+                    "document_parser_status_url": f"/api/documents/status/{quote(str(task_id), safe='')}" if task_id else "",
+                    "document_parser_result_url": f"/api/documents/result/{quote(str(task_id), safe='')}" if task_id else "",
+                    "document_parser_page_url": f"/documents?task={quote(str(task_id), safe='')}" if task_id else "",
                     "mineru_submit_status": "submitted" if task_id else "submitted_without_task_id",
                     "mineru_parse_status": "pending" if task_id else "unknown",
                     "mineru_task_id": task_id,
-                    "mineru_status_url": f"{MINERU_API_BASE}/tasks/{task_id}" if task_id else "",
-                    "mineru_result_url": f"{MINERU_API_BASE}/tasks/{task_id}/result" if task_id else "",
+                    "mineru_status_url": f"{DOCUMENT_PARSER_API_BASE}/api/status/{task_id}" if task_id else "",
+                    "mineru_result_url": f"{DOCUMENT_PARSER_API_BASE}/api/result/{task_id}" if task_id else "",
                     "submitted_at": _now_iso(),
                 }
             )
+            if task_id:
+                _record_document_artifact(
+                    session,
+                    user_id=int(current_user.id),
+                    task_id=str(task_id),
+                    filename=path.name,
+                    source="chat_attachment",
+                )
+                record_usage(
+                    session,
+                    user_id=int(current_user.id),
+                    event_type=DOCUMENT_PARSE_EVENT,
+                    source="chat_attachment",
+                    metadata_json=json.dumps({"task_id": task_id, "filename": path.name}, ensure_ascii=False),
+                )
             _write_json(parse_dir / "metadata.json", metadata)
             if task_id:
-                background_tasks.add_task(_poll_mineru_pdf_result, task_id, parse_dir)
+                background_tasks.add_task(_poll_document_parser_result, str(task_id), parse_dir)
         else:
             metadata.update(
                 {
+                    "document_parser_submit_status": "failed",
+                    "document_parser_submit_error": payload.get("message") or payload.get("error") or response.text,
+                    "document_parser_submit_http_status": response.status_code,
                     "mineru_submit_status": "failed",
                     "mineru_submit_error": payload.get("message") or payload.get("error") or response.text,
                     "mineru_submit_http_status": response.status_code,
@@ -688,6 +882,8 @@ async def _submit_pdf_attachment_to_mineru(
     except Exception as exc:
         metadata.update(
             {
+                "document_parser_submit_status": "failed",
+                "document_parser_submit_error": str(exc),
                 "mineru_submit_status": "failed",
                 "mineru_submit_error": str(exc),
             }
@@ -712,6 +908,7 @@ async def upload_chat_attachments(
     req: ChatAttachmentUploadRequest,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
 ):
     files = req.files or []
     if not files:
@@ -739,6 +936,8 @@ async def upload_chat_attachments(
                 stored_name,
                 CHAT_PDF_PARSE_DIR / str(current_user.id) / attachment_id,
                 background_tasks,
+                current_user=current_user,
+                session=session,
             )
         attachments.append(
             ChatAttachment(

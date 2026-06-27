@@ -132,3 +132,4 @@ class ParseOutput:
     upstream_parser_version: str = ""
     document_kind: str = "text"
     language_detected: list[str] = field(default_factory=list)
+    raw_artifacts_dir: str = ""

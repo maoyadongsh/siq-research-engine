@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Search, Loader2, FileText, X, ArrowLeft } from 'lucide-react'
+import { isAuthenticatedSourceLink, openAuthenticatedSourceLink } from '../../lib/authenticatedSourceLinks'
+import { apiJson } from '../../lib/apiClient'
 
 interface SearchResult {
   id: string
@@ -13,6 +15,10 @@ interface SearchResult {
   mtime: string
 }
 
+interface SearchPayload {
+  results?: SearchResult[]
+}
+
 function formatTime(value: string) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
@@ -21,33 +27,95 @@ function formatTime(value: string) {
 
 const MOBILE_QUERY = '(max-width: 639px)'
 
+function resultTime(value: string) {
+  const time = new Date(value).getTime()
+  return Number.isNaN(time) ? 0 : time
+}
+
+function normalizeSearchResults(results: SearchResult[] = [], source: string): SearchResult[] {
+  return results.map((item) => ({
+    ...item,
+    id: `${source}:${item.id}`,
+    code: item.code || '',
+    name: item.name || item.filename || item.typeLabel || '未命名结果',
+    filename: item.filename || item.name || item.typeLabel || '',
+    pageUrl: item.pageUrl || '/',
+    mtime: item.mtime || '',
+  }))
+}
+
+function mergeSearchResults(reportResults: SearchResult[] = [], workspaceResults: SearchResult[] = []) {
+  const seen = new Set<string>()
+  const merged: SearchResult[] = []
+  for (const item of [
+    ...normalizeSearchResults(workspaceResults, 'workspace'),
+    ...normalizeSearchResults(reportResults, 'report'),
+  ]) {
+    const key = item.pageUrl || item.id
+    if (seen.has(key)) continue
+    seen.add(key)
+    merged.push(item)
+  }
+  merged.sort((a, b) => resultTime(b.mtime) - resultTime(a.mtime))
+  return merged.slice(0, 8)
+}
+
+function ResultRow({ item, onResultClick }: { item: SearchResult; onResultClick: () => void }) {
+  const className = "flex w-full items-start gap-3 border-b border-border/70 px-4 py-3 text-left last:border-0 hover:bg-primary/[0.035] focus-visible:bg-primary/[0.055]"
+  const content = (
+    <>
+      <span className="premium-icon mt-1 h-10 w-10 shrink-0 rounded-xl">
+        <FileText className="h-5 w-5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-base font-semibold text-text">
+          {item.name} {item.code}
+        </span>
+        <span className="mt-1 block truncate text-sm text-text-muted">
+          {item.typeLabel} · {item.filename}
+        </span>
+        <span className="mt-1 block text-xs text-text-muted">{formatTime(item.mtime)}</span>
+      </span>
+    </>
+  )
+
+  if (isAuthenticatedSourceLink(item.pageUrl)) {
+    return (
+      <button
+        key={item.id}
+        type="button"
+        onClick={() => {
+          onResultClick()
+          void openAuthenticatedSourceLink(item.pageUrl)
+        }}
+        className={className}
+      >
+        {content}
+      </button>
+    )
+  }
+
+  return (
+    <Link
+      key={item.id}
+      to={item.pageUrl}
+      onClick={onResultClick}
+      className={className}
+    >
+      {content}
+    </Link>
+  )
+}
+
 function ResultList({ results, onResultClick }: { results: SearchResult[]; onResultClick: () => void }) {
   return (
     <>
       {results.length > 0 ? (
         results.map((item) => (
-          <Link
-            key={item.id}
-            to={item.pageUrl}
-            onClick={onResultClick}
-            className="flex items-start gap-3 border-b border-border/70 px-4 py-3 last:border-0 hover:bg-primary/[0.035] focus-visible:bg-primary/[0.055]"
-          >
-            <span className="premium-icon mt-1 h-10 w-10 shrink-0 rounded-xl">
-              <FileText className="h-5 w-5" />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-base font-semibold text-text">
-                {item.name} {item.code}
-              </span>
-              <span className="mt-1 block truncate text-sm text-text-muted">
-                {item.typeLabel} · {item.filename}
-              </span>
-              <span className="mt-1 block text-xs text-text-muted">{formatTime(item.mtime)}</span>
-            </span>
-          </Link>
+          <ResultRow key={item.id} item={item} onResultClick={onResultClick} />
         ))
       ) : (
-        <div className="px-4 py-5 text-sm text-text-muted">未找到已生成报告</div>
+        <div className="px-4 py-5 text-sm text-text-muted">未找到报告或文档</div>
       )}
     </>
   )
@@ -114,12 +182,13 @@ export default function GlobalSearch() {
     const timer = window.setTimeout(async () => {
       setSearching(true)
       try {
-        const res = await fetch(`/api/wiki/reports/search?q=${encodeURIComponent(text)}&limit=8`, {
-          signal: controller.signal,
-        })
-        if (!res.ok) throw new Error(String(res.status))
-        const data = await res.json()
-        setResults(data.results || [])
+        const [reportResult, workspaceResult] = await Promise.allSettled([
+          apiJson<SearchPayload>(`/api/wiki/reports/search?q=${encodeURIComponent(text)}&limit=8`, { signal: controller.signal }),
+          apiJson<SearchPayload>(`/api/workspace/artifacts/search?q=${encodeURIComponent(text)}&limit=8`, { signal: controller.signal }),
+        ])
+        const reportResults = reportResult.status === 'fulfilled' ? reportResult.value.results || [] : []
+        const workspaceResults = workspaceResult.status === 'fulfilled' ? workspaceResult.value.results || [] : []
+        setResults(mergeSearchResults(reportResults, workspaceResults))
       } catch {
         if (!controller.signal.aborted) setResults([])
       } finally {
@@ -133,8 +202,15 @@ export default function GlobalSearch() {
   }, [query])
 
   const submitSearch = () => {
-    if (results[0]) navigate(results[0].pageUrl)
-    else if (query.trim()) navigate(`/analysis?search=${encodeURIComponent(query.trim())}`)
+    if (results[0]) {
+      if (isAuthenticatedSourceLink(results[0].pageUrl)) {
+        void openAuthenticatedSourceLink(results[0].pageUrl)
+      } else {
+        navigate(results[0].pageUrl)
+      }
+    } else if (query.trim()) {
+      navigate(`/analysis?search=${encodeURIComponent(query.trim())}`)
+    }
     setOpenSearch(false)
     setMobileOpen(false)
   }
@@ -157,14 +233,14 @@ export default function GlobalSearch() {
           onChange={(e) => { setQuery(e.target.value); setOpenSearch(true) }}
           onFocus={() => setOpenSearch(true)}
           onKeyDown={(e) => { if (e.key === 'Enter') submitSearch() }}
-          placeholder="搜索公司、代码或报告"
+          placeholder="搜索公司、代码、报告或文档"
           className="h-10 w-full rounded-2xl border border-border bg-white/82 pl-11 pr-10 text-sm text-text shadow-sm backdrop-blur placeholder:text-text-muted/70 focus:border-primary focus:bg-white focus:outline-none focus:ring-4 focus:ring-primary/10 sm:h-11 sm:pl-12 sm:pr-12"
         />
         {searching && <Loader2 className="absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 animate-spin text-primary" />}
         {openSearch && query.trim() && (
           <div className="absolute left-0 right-0 top-[calc(100%+10px)] z-50 overflow-hidden rounded-[var(--radius-panel)] border border-border bg-white/96 shadow-[0_22px_70px_rgba(15,23,42,0.12)] backdrop-blur-xl">
             <div className="border-b border-border/70 px-4 py-2 text-xs font-bold uppercase tracking-wide text-text-muted">
-              全局报告搜索
+              全局搜索
             </div>
             {searching ? (
               <div className="flex items-center gap-2 px-4 py-5 text-sm text-text-muted">
@@ -187,7 +263,7 @@ export default function GlobalSearch() {
           aria-label="打开搜索"
         >
           <Search className="h-5 w-5 shrink-0" />
-          <span className="truncate">搜索公司、代码或报告</span>
+          <span className="truncate">搜索公司、代码、报告或文档</span>
         </button>
       </div>
 
@@ -218,7 +294,7 @@ export default function GlobalSearch() {
                 value={query}
                 onChange={(e) => { setQuery(e.target.value); setOpenSearch(true) }}
                 onKeyDown={(e) => { if (e.key === 'Enter') submitSearch() }}
-                placeholder="搜索公司、代码或报告"
+                placeholder="搜索公司、代码、报告或文档"
                 className="h-10 w-full rounded-2xl border border-border bg-white pl-10 pr-10 text-sm text-text shadow-sm focus:border-primary focus:bg-white focus:outline-none focus:ring-4 focus:ring-primary/10"
               />
               {searching && <Loader2 className="absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 animate-spin text-primary" />}
@@ -261,7 +337,7 @@ export default function GlobalSearch() {
             ) : (
               <div className="flex flex-col items-center justify-center py-20 text-text-muted">
                 <Search className="mb-3 h-10 w-10 opacity-30" />
-                <p className="text-sm">输入公司名称、股票代码或报告名开始搜索</p>
+                <p className="text-sm">输入公司名称、股票代码、报告名或文档名开始搜索</p>
               </div>
             )}
           </div>

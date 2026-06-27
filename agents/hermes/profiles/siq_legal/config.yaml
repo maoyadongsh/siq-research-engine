@@ -231,6 +231,7 @@ platforms:
     extra:
       port: 18652
       host: 127.0.0.1
+      model_name: siq_legal
     enabled: true
     key: ''
     cors_origins: '*'

@@ -19,7 +19,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 
-SHARED_SCRIPT_DIR = Path("/home/maoyd/.hermes/profiles/shared/scripts")
+SHARED_SCRIPT_DIR = Path("/home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts")
 if str(SHARED_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SHARED_SCRIPT_DIR))
 

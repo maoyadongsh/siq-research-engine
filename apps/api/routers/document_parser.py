@@ -5,7 +5,7 @@ from typing import Any
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import Response
 from sqlmodel import Session, select
 
 from database import get_session
@@ -316,6 +316,73 @@ async def create_document_tasks(
     )
 
 
+@router.post("/import/mineru")
+async def import_document_from_mineru(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    payload = await request.json()
+    _enforce_quota_or_429(session, current_user, increment=1)
+    try:
+        async with httpx.AsyncClient(timeout=None) as client:
+            response = await client.post(
+                f"{DOCUMENT_PARSER_API_BASE}/api/import/mineru",
+                json=payload,
+                headers=_document_headers(),
+            )
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=502, detail=f"文档解析服务不可用: {exc}") from exc
+
+    content_type = response.headers.get("content-type", "application/json")
+    try:
+        upstream_payload = response.json()
+    except ValueError:
+        return Response(content=response.content, status_code=response.status_code, media_type=content_type)
+
+    if 200 <= response.status_code < 300 and isinstance(upstream_payload, dict):
+        task = upstream_payload.get("task") if isinstance(upstream_payload.get("task"), dict) else {}
+        task_id = str(task.get("task_id") or "")
+        filename = str(task.get("filename") or task_id or "MinerU 导入任务")
+        if task_id:
+            record_usage(
+                session,
+                user_id=int(current_user.id),
+                event_type=DOCUMENT_PARSE_EVENT,
+                count=1,
+                source="document_mineru_import",
+                metadata_json=json.dumps(
+                    {
+                        "task": task,
+                        "source_dir": payload.get("source_dir") or payload.get("sourceDir") or "",
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+            _record_document_artifact(
+                session,
+                user_id=int(current_user.id),
+                task_id=task_id,
+                filename=filename,
+                source="document_mineru_import",
+            )
+        return upstream_payload
+
+    return Response(
+        content=json.dumps(upstream_payload, ensure_ascii=False),
+        status_code=response.status_code,
+        media_type=content_type,
+    )
+
+
+@router.get("/import/mineru/candidates")
+async def list_mineru_import_candidates(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+):
+    return await _proxy_document_parser(request, "/api/import/mineru/candidates")
+
+
 @router.get("/tasks")
 async def list_document_tasks(
     current_user: User = Depends(get_current_user),
@@ -461,6 +528,33 @@ async def download_document_package(
     return await _proxy_document_parser(request, f"/api/download/{quote(task_id, safe='')}")
 
 
+@router.post("/download/batch")
+async def download_document_batch(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    body = await request.json()
+    raw_task_ids = body.get("task_ids") or body.get("taskIds") or []
+    if not isinstance(raw_task_ids, list):
+        raise HTTPException(status_code=400, detail="task_ids must be a list")
+    allowed_task_ids = []
+    for raw_task_id in raw_task_ids:
+        task_id = str(raw_task_id or "").strip()
+        if not task_id or task_id in allowed_task_ids:
+            continue
+        if _user_has_document_task_access(session, current_user, task_id):
+            allowed_task_ids.append(task_id)
+    if not allowed_task_ids:
+        raise HTTPException(status_code=403, detail="No selected document tasks are accessible")
+    return await _proxy_document_parser(
+        request,
+        "/api/download/batch",
+        method="POST",
+        json_body={"task_ids": allowed_task_ids},
+    )
+
+
 @router.get("/source/{task_id}/page/{page_number}")
 async def source_page(
     request: Request,
@@ -594,6 +688,14 @@ async def merge_document_logical_tables(
         method="POST",
         json_body=body,
     )
+
+
+@router.get("/extraction/templates")
+async def document_extraction_templates(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+):
+    return await _proxy_document_parser(request, "/api/extraction/templates")
 
 
 @router.post("/extract/{task_id}")

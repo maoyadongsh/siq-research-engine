@@ -148,6 +148,7 @@ platforms:
     extra:
       host: 127.0.0.1
       port: 18650
+      model_name: siq_tracking
 custom_providers:
 - name: Gemma4 Local
   base_url: http://127.0.0.1:8006/v1

@@ -2,11 +2,11 @@
 
 模板文件路径：
 
-`/home/maoyd/.hermes/profiles/siq_analysis/templates/siq_analysis_report_v1.1.md`
+`/home/maoyd/siq-research-engine/data/hermes/home/profiles/siq_analysis/templates/siq_analysis_report_v1.1.md`
 
 机器可读结构文件：
 
-`/home/maoyd/.hermes/profiles/siq_analysis/templates/siq_analysis_report_v1.1.json`
+`/home/maoyd/siq-research-engine/data/hermes/home/profiles/siq_analysis/templates/siq_analysis_report_v1.1.json`
 
 ## 使用规则
 

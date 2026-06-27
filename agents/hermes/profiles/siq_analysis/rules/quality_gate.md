@@ -3,7 +3,7 @@
 最终成功条件不是“文件已写入”，而是：
 
 ```bash
-/home/maoyd/.hermes/profiles/siq_analysis/scripts/validate_report_quality.py --prefix <analysis/report-prefix>
+/home/maoyd/siq-research-engine/data/hermes/home/profiles/siq_analysis/scripts/validate_report_quality.py --prefix <analysis/report-prefix>
 ```
 
 ## 必须失败的情况

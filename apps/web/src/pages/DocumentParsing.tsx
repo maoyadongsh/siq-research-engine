@@ -97,16 +97,26 @@ export default function DocumentParsing() {
           <DocumentUploadPanel
             config={config}
             uploading={tasks.uploading}
+            mineruCandidates={tasks.mineruCandidates}
             onSubmitFiles={tasks.submitFiles}
             onSubmitUrl={tasks.submitUrl}
+            onImportMineruResult={tasks.importMineruResult}
+            onRefreshMineruCandidates={tasks.loadMineruCandidates}
           />
           <DocumentParameterPanel config={config} onChange={setConfig} />
           <DocumentTaskList
             tasks={tasks.tasks}
             selectedTaskId={tasks.selectedTaskId}
+            selectedBulkTaskIds={tasks.selectedBulkTaskIds}
+            bulkBusy={tasks.bulkBusy}
             onSelect={(taskId) => void tasks.selectTask(taskId)}
             onRetry={(taskId) => void tasks.retryTask(taskId)}
             onDelete={(taskId) => void tasks.deleteTask(taskId)}
+            onToggleBulkSelection={tasks.setBulkSelection}
+            onClearBulkSelection={tasks.clearBulkSelection}
+            onRetrySelected={() => void tasks.retrySelectedTasks()}
+            onDeleteSelected={() => void tasks.deleteSelectedTasks()}
+            onDownloadSelected={() => void tasks.downloadSelectedTasks()}
           />
           {tasks.uploading ? (
             <section className="doc-panel">
@@ -124,11 +134,21 @@ export default function DocumentParsing() {
           quality={tasks.quality}
           blocks={tasks.blocks}
           tables={tasks.tables}
+          tableRelations={tasks.tableRelations}
           figures={tasks.figures}
           sourceMap={tasks.sourceMap}
           loading={tasks.loading}
           extractionResult={tasks.extractionResult}
+          extractionTemplates={tasks.extractionTemplates}
+          workflowStatus={tasks.workflowStatus}
+          workflowBusy={tasks.workflowBusy}
+          wikiImportResult={tasks.wikiImportResult}
           onRunExtraction={tasks.runExtraction}
+          onImportWiki={tasks.importWiki}
+          onImportDatabase={tasks.importDatabase}
+          onBuildSemanticChunks={tasks.buildSemanticChunks}
+          onRefreshWorkflow={tasks.refreshWorkflowStatus}
+          onReviewTableRelation={tasks.reviewTableRelation}
         />
       </main>
     </PageShell>

@@ -21,7 +21,7 @@ assert spec and spec.loader
 spec.loader.exec_module(document_parser)
 
 from services.auth_service import User, UserRole
-from services.usage_service import DOCUMENT_PARSE_EVENT, UsageEvent, UserArtifact
+from services.usage_service import DOCUMENT_PARSE_EVENT, UsageEvent, UserArtifact, current_day_key
 
 
 class DummyRequest:
@@ -31,6 +31,9 @@ class DummyRequest:
 
     async def body(self):
         return b""
+
+    async def json(self):
+        return {}
 
 
 def make_session(tmp_path):
@@ -156,6 +159,65 @@ def test_create_document_tasks_records_usage_and_artifacts(monkeypatch, tmp_path
         assert artifact.source == "document_url"
 
 
+def test_import_document_from_mineru_records_usage_and_artifact(monkeypatch, tmp_path):
+    seen: dict[str, object] = {}
+
+    class ImportRequest:
+        headers = {"content-type": "application/json"}
+
+        async def json(self):
+            return {"source_dir": "/home/maoyd/siq-research-engine/data/pdf-parser/results/case-a"}
+
+    class FakeAsyncClient:
+        def __init__(self, timeout=None):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, json=None, headers=None):
+            seen["url"] = url
+            seen["json"] = json
+            return SimpleNamespace(
+                status_code=200,
+                headers={"content-type": "application/json"},
+                json=lambda: {
+                    "task": {
+                        "task_id": "mineru-task-a",
+                        "filename": "result.md",
+                        "status": "completed",
+                        "parser_provider": "mineru_import",
+                    }
+                },
+            )
+
+    monkeypatch.setattr(document_parser.httpx, "AsyncClient", FakeAsyncClient)
+
+    with make_session(tmp_path) as session:
+        user = make_user(session, "alice")
+        result = asyncio.run(
+            document_parser.import_document_from_mineru(
+                request=ImportRequest(),
+                current_user=user,
+                session=session,
+            )
+        )
+
+        assert str(seen["url"]).endswith("/api/import/mineru")
+        assert seen["json"] == {"source_dir": "/home/maoyd/siq-research-engine/data/pdf-parser/results/case-a"}
+        assert result["task"]["task_id"] == "mineru-task-a"
+        usage = session.exec(select(UsageEvent).where(UsageEvent.event_type == DOCUMENT_PARSE_EVENT)).one()
+        assert usage.count == 1
+        assert usage.source == "document_mineru_import"
+        artifact = session.exec(select(UserArtifact).where(UserArtifact.artifact_key == "mineru-task-a")).one()
+        assert artifact.user_id == user.id
+        assert artifact.source == "document_mineru_import"
+        assert artifact.path == "/documents?task=mineru-task-a"
+
+
 def test_proxy_preserves_upstream_content_type(monkeypatch):
     class QueryParams:
         def multi_items(self):
@@ -183,3 +245,357 @@ def test_proxy_preserves_upstream_content_type(monkeypatch):
     assert response.status_code == 200
     assert response.media_type == "image/png"
     assert response.body == b"PNG"
+
+
+def test_source_image_proxy_requires_access_and_preserves_payload(monkeypatch, tmp_path):
+    seen: dict[str, object] = {}
+
+    class QueryParams:
+        def multi_items(self):
+            return []
+
+    class FakeAsyncClient:
+        def __init__(self, timeout=None):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def request(self, method, url, **kwargs):
+            seen["method"] = method
+            seen["url"] = url
+            return SimpleNamespace(
+                status_code=200,
+                content=json.dumps(
+                    {
+                        "task_id": "task-img",
+                        "image_id": "img-000001",
+                        "page_number": 2,
+                        "bbox": [1, 2, 3, 4],
+                        "crop_url": "/api/artifact/task-img/images/crops/img.png",
+                    }
+                ).encode("utf-8"),
+                headers={"content-type": "application/json"},
+            )
+
+    monkeypatch.setattr(document_parser.httpx, "AsyncClient", FakeAsyncClient)
+    request = DummyRequest()
+    request.query_params = QueryParams()
+
+    with make_session(tmp_path) as session:
+        user = make_user(session, "alice")
+        document_parser._record_document_artifact(
+            session,
+            user_id=int(user.id),
+            task_id="task-img",
+            filename="diagram.png",
+            source="document_upload",
+        )
+        response = asyncio.run(
+            document_parser.source_image(
+                request,
+                "task-img",
+                "img-000001",
+                current_user=user,
+                session=session,
+            )
+        )
+
+    assert seen["method"] == "GET"
+    assert str(seen["url"]).endswith("/api/source/task-img/image/img-000001")
+    assert response.status_code == 200
+    payload = json.loads(response.body)
+    assert payload["page_number"] == 2
+    assert payload["bbox"] == [1, 2, 3, 4]
+
+
+def test_table_relation_review_proxy_posts_json(monkeypatch, tmp_path):
+    seen: dict[str, object] = {}
+
+    class QueryParams:
+        def multi_items(self):
+            return []
+
+    class ReviewRequest(DummyRequest):
+        method = "POST"
+        query_params = QueryParams()
+        headers = {"content-type": "application/json"}
+
+        async def json(self):
+            return {"review_status": "accepted", "note": "ok"}
+
+    class FakeAsyncClient:
+        def __init__(self, timeout=None):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def request(self, method, url, **kwargs):
+            seen["method"] = method
+            seen["url"] = url
+            seen["json"] = kwargs.get("json")
+            return SimpleNamespace(
+                status_code=200,
+                content=b'{"success":true}',
+                headers={"content-type": "application/json"},
+            )
+
+    monkeypatch.setattr(document_parser.httpx, "AsyncClient", FakeAsyncClient)
+
+    with make_session(tmp_path) as session:
+        user = make_user(session, "alice")
+        document_parser._record_document_artifact(
+            session,
+            user_id=int(user.id),
+            task_id="task-table",
+            filename="table.xlsx",
+            source="document_upload",
+        )
+        response = asyncio.run(
+            document_parser.review_document_table_relation(
+                ReviewRequest(),
+                "task-table",
+                "rel-001",
+                current_user=user,
+                session=session,
+            )
+        )
+
+    assert seen["method"] == "POST"
+    assert str(seen["url"]).endswith("/api/table-relations/task-table/rel-001/review")
+    assert seen["json"] == {"review_status": "accepted", "note": "ok"}
+    assert response.status_code == 200
+
+
+def test_extraction_templates_proxy(monkeypatch, tmp_path):
+    seen: dict[str, object] = {}
+
+    class QueryParams:
+        def multi_items(self):
+            return []
+
+    class FakeAsyncClient:
+        def __init__(self, timeout=None):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def request(self, method, url, **kwargs):
+            seen["method"] = method
+            seen["url"] = url
+            return SimpleNamespace(
+                status_code=200,
+                content=b'{"templates":[{"template_id":"contract_terms_v1"}]}',
+                headers={"content-type": "application/json"},
+            )
+
+    monkeypatch.setattr(document_parser.httpx, "AsyncClient", FakeAsyncClient)
+    request = DummyRequest()
+    request.query_params = QueryParams()
+
+    with make_session(tmp_path) as session:
+        user = make_user(session, "alice")
+        response = asyncio.run(document_parser.document_extraction_templates(request, current_user=user))
+
+    assert seen["method"] == "GET"
+    assert str(seen["url"]).endswith("/api/extraction/templates")
+    assert response.status_code == 200
+
+
+def test_mineru_candidates_proxy(monkeypatch, tmp_path):
+    seen: dict[str, object] = {}
+
+    class QueryParams:
+        def multi_items(self):
+            return [("limit", "3")]
+
+    class CandidateRequest(DummyRequest):
+        query_params = QueryParams()
+
+    class FakeAsyncClient:
+        def __init__(self, timeout=None):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def request(self, method, url, **kwargs):
+            seen["method"] = method
+            seen["url"] = url
+            seen["params"] = kwargs.get("params")
+            return SimpleNamespace(
+                status_code=200,
+                content=b'{"candidates":[]}',
+                headers={"content-type": "application/json"},
+            )
+
+    monkeypatch.setattr(document_parser.httpx, "AsyncClient", FakeAsyncClient)
+
+    with make_session(tmp_path) as session:
+        user = make_user(session, "alice")
+        response = asyncio.run(document_parser.list_mineru_import_candidates(CandidateRequest(), current_user=user))
+
+    assert seen["method"] == "GET"
+    assert str(seen["url"]).endswith("/api/import/mineru/candidates")
+    assert seen["params"] == [("limit", "3")]
+    assert response.status_code == 200
+
+
+def test_extraction_proxy_posts_template_json(monkeypatch, tmp_path):
+    seen: dict[str, object] = {}
+
+    class QueryParams:
+        def multi_items(self):
+            return []
+
+    class ExtractRequest(DummyRequest):
+        method = "POST"
+        query_params = QueryParams()
+        headers = {"content-type": "application/json"}
+
+        async def json(self):
+            return {"template_id": "contract_terms_v1", "require_evidence": True}
+
+    class FakeAsyncClient:
+        def __init__(self, timeout=None):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def request(self, method, url, **kwargs):
+            seen["method"] = method
+            seen["url"] = url
+            seen["json"] = kwargs.get("json")
+            return SimpleNamespace(
+                status_code=200,
+                content=b'{"status":"completed","template_id":"contract_terms_v1"}',
+                headers={"content-type": "application/json"},
+            )
+
+    monkeypatch.setattr(document_parser.httpx, "AsyncClient", FakeAsyncClient)
+
+    with make_session(tmp_path) as session:
+        user = make_user(session, "alice")
+        document_parser._record_document_artifact(
+            session,
+            user_id=int(user.id),
+            task_id="task-contract",
+            filename="contract.md",
+            source="document_upload",
+        )
+        response = asyncio.run(
+            document_parser.extract_document_schema(
+                ExtractRequest(),
+                "task-contract",
+                current_user=user,
+                session=session,
+            )
+        )
+
+    assert seen["method"] == "POST"
+    assert str(seen["url"]).endswith("/api/extract/task-contract")
+    assert seen["json"] == {"template_id": "contract_terms_v1", "require_evidence": True}
+    assert response.status_code == 200
+
+
+def test_batch_download_proxy_filters_to_accessible_tasks(monkeypatch, tmp_path):
+    seen: dict[str, object] = {}
+
+    class QueryParams:
+        def multi_items(self):
+            return []
+
+    class BatchRequest(DummyRequest):
+        method = "POST"
+        query_params = QueryParams()
+        headers = {"content-type": "application/json"}
+
+        async def json(self):
+            return {"task_ids": ["owned-task", "other-task", "owned-task"]}
+
+    class FakeAsyncClient:
+        def __init__(self, timeout=None):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def request(self, method, url, **kwargs):
+            seen["method"] = method
+            seen["url"] = url
+            seen["json"] = kwargs.get("json")
+            return SimpleNamespace(
+                status_code=200,
+                content=b"ZIP",
+                headers={"content-type": "application/zip"},
+            )
+
+    monkeypatch.setattr(document_parser.httpx, "AsyncClient", FakeAsyncClient)
+
+    with make_session(tmp_path) as session:
+        user = make_user(session, "alice")
+        other = make_user(session, "bob")
+        document_parser._record_document_artifact(
+            session,
+            user_id=int(user.id),
+            task_id="owned-task",
+            filename="owned.md",
+            source="document_upload",
+        )
+        document_parser._record_document_artifact(
+            session,
+            user_id=int(other.id),
+            task_id="other-task",
+            filename="other.md",
+            source="document_upload",
+        )
+        response = asyncio.run(document_parser.download_document_batch(BatchRequest(), current_user=user, session=session))
+
+    assert seen["method"] == "POST"
+    assert str(seen["url"]).endswith("/api/download/batch")
+    assert seen["json"] == {"task_ids": ["owned-task"]}
+    assert response.status_code == 200
+    assert response.media_type == "application/zip"
+
+
+def test_document_parse_quota_exceeded_returns_429(tmp_path):
+    with make_session(tmp_path) as session:
+        user = make_user(session, "alice")
+        for _ in range(5):
+            session.add(
+                UsageEvent(
+                    user_id=int(user.id),
+                    event_type=DOCUMENT_PARSE_EVENT,
+                    event_date=current_day_key(),
+                    count=1,
+                )
+            )
+        session.commit()
+
+        with pytest.raises(HTTPException) as exc:
+            document_parser._enforce_quota_or_429(session, user, increment=1)
+
+    assert exc.value.status_code == 429
+    assert exc.value.detail["error"] == "daily_quota_exceeded"
+    assert exc.value.detail["type"] == DOCUMENT_PARSE_EVENT

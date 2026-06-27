@@ -1,0 +1,17 @@
+[
+  {
+    "case_id": "web_article_html_001",
+    "kind": "html",
+    "path": "eval_datasets/document_parser_cases/files/web_article_001.html",
+    "expected_artifacts": [
+      "document.md",
+      "blocks.json",
+      "source_map.json",
+      "quality_report.json"
+    ],
+    "expected_quality_status": "pass",
+    "expected_min_blocks": 5,
+    "expected_min_source_coverage": 0.95,
+    "notes": "HTML 样本应去除 script/style，并保留正文 reading order。"
+  }
+]

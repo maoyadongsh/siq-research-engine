@@ -1,0 +1,46 @@
+[
+  {
+    "case_id": "contract_pdf_001",
+    "kind": "pdf",
+    "path": "eval_datasets/document_parser_cases/files/contract_001.pdf",
+    "expected_artifacts": [
+      "document.md",
+      "blocks.json",
+      "source_map.json",
+      "quality_report.json",
+      "extraction/result.json"
+    ],
+    "expected_quality_status": "pass|warning",
+    "expected_min_blocks": 10,
+    "expected_min_source_coverage": 0.95,
+    "expected_schema_fields": [
+      "party_a",
+      "party_b",
+      "amount",
+      "term"
+    ],
+    "notes": "合同样本应能抽出甲乙方、金额、期限；缺失字段必须返回 null。"
+  },
+  {
+    "case_id": "research_report_pdf_001",
+    "kind": "pdf",
+    "path": "eval_datasets/document_parser_cases/files/research_report_001.pdf",
+    "expected_artifacts": [
+      "document.md",
+      "blocks.json",
+      "tables.json",
+      "source_map.json",
+      "quality_report.json"
+    ],
+    "expected_quality_status": "pass|warning",
+    "expected_min_blocks": 20,
+    "expected_min_source_coverage": 0.95,
+    "expected_schema_fields": [
+      "title",
+      "institution",
+      "core_views",
+      "risk_warnings"
+    ],
+    "notes": "研报样本应能抽出标题、机构、核心观点、风险提示，并有 evidence。"
+  }
+]

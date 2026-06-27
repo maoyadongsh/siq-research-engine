@@ -9,10 +9,10 @@
 
 ## 路径基线
 
-- Wiki 根目录固定为 `/home/maoyd/wiki`。
-- 公司目录固定为 `/home/maoyd/wiki/companies/<company_id>`，不得从 `.hermes`、profile home、当前工作目录或相对路径推断。
-- 分析报告输出固定为 `/home/maoyd/wiki/companies/<company_id>/analysis/<stock_code>-<short_name>-<year>-analysis.{md,json,html}`。
-- 阶段检查点固定为 `/home/maoyd/wiki/companies/<company_id>/analysis/.work/<stock_code>-<short_name>-<year>-analysis/`。
+- Wiki 根目录固定为 `/home/maoyd/siq-research-engine/data/wiki`。
+- 公司目录固定为 `/home/maoyd/siq-research-engine/data/wiki/companies/<company_id>`，不得从 `.hermes`、profile home、当前工作目录或相对路径推断。
+- 分析报告输出固定为 `/home/maoyd/siq-research-engine/data/wiki/companies/<company_id>/analysis/<stock_code>-<short_name>-<year>-analysis.{md,json,html}`。
+- 阶段检查点固定为 `/home/maoyd/siq-research-engine/data/wiki/companies/<company_id>/analysis/.work/<stock_code>-<short_name>-<year>-analysis/`。
 - 若路径不存在，先调用 `resolve_company.py` 获取 `paths.company_dir.path`；不得反复扫描 `.hermes/wiki` 或 `profiles/siq_analysis/home/wiki`。
 - 已有 `final_validation.json.ok=true` 或 `pipeline_result.stage=completed` 时，默认视为完成；除非用户明确说“强制重建/覆盖重建”，不得重复运行完整生成流程。
 
@@ -26,7 +26,7 @@
 维护入口：
 
 ```bash
-/home/maoyd/.hermes/profiles/siq_analysis/scripts/maintain_profile.py --archive-sessions-older-than-days 30 --vacuum
+/home/maoyd/siq-research-engine/data/hermes/home/profiles/siq_analysis/scripts/maintain_profile.py --archive-sessions-older-than-days 30 --vacuum
 ```
 
 首次执行建议先加 `--dry-run` 查看会归档哪些会话。

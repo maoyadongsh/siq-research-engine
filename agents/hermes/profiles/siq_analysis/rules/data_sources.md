@@ -5,10 +5,10 @@
 所有分析必须从 `_meta/company_catalog.json` 开始：
 
 ```text
-/home/maoyd/wiki/_meta/company_catalog.json
+/home/maoyd/siq-research-engine/data/wiki/_meta/company_catalog.json
 ```
 
-必须通过 `resolve_company.py` 唯一定位公司；严禁手写猜测 `/home/maoyd/wiki/companies/<公司名>`。
+必须通过 `resolve_company.py` 唯一定位公司；严禁手写猜测 `/home/maoyd/siq-research-engine/data/wiki/companies/<公司名>`。
 
 输出功能介绍、提问示例、示例命令或示例问题时，所有公司名必须来自 `company_catalog.json` 的实时内容；不得使用任何不在实时 catalog 中的公司。无法确认 catalog 时，不列具体公司名，改写为“某个已入库公司”。
 
@@ -16,13 +16,13 @@
 
 1. 目标公司 wiki 目录全量盘点
    - 必须先通过 `resolve_company.py` 确认唯一公司目录。
-   - 必须按 `/home/maoyd/wiki/_meta/AGENT_GUIDE.md` 读取：`company_catalog.json` -> `company.json` -> `company.md` -> `semantic/` -> `metrics/` -> `evidence/` -> `report.md`。
+   - 必须按 `/home/maoyd/siq-research-engine/data/wiki/_meta/AGENT_GUIDE.md` 读取：`company_catalog.json` -> `company.json` -> `company.md` -> `semantic/` -> `metrics/` -> `evidence/` -> `report.md`。
    - 完整报告可盘点单公司目录下 `company`、`reports`、`metrics`、`evidence`、`semantic`、`graph`、`tracking`、`factcheck`、既有 `analysis` 与 `_index.json`，但普通问答不需要全量读大文件。
    - 大文件可以索引化/摘要化读取，但必须记录读取状态、缺失文件、解析失败和采用口径。
 2. `semantic/`
    - 先读 `semantic/retrieval_index.json`，再按问题读取 `facts.json`、`relations.json`、`claims.json`。
    - 财报项目、科目明细和附注解释优先读 `semantic/document_links.json`，再读 `semantic/note_links.json`。
-   - 涉及“明细/构成/分布/组成/附注/减值准备/账龄/前五名/资产组/可收回金额/变动”等问题时，优先调用 `/home/maoyd/.hermes/profiles/shared/scripts/note_detail_lookup.py --company <公司或代码> --metric <事项> --format markdown` 或等价逻辑，从 `document_links.json` 的 `note_table` 读取 `report.md` 表格行。
+   - 涉及“明细/构成/分布/组成/附注/减值准备/账龄/前五名/资产组/可收回金额/变动”等问题时，优先调用 `/home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts/note_detail_lookup.py --company <公司或代码> --metric <事项> --format markdown` 或等价逻辑，从 `document_links.json` 的 `note_table` 读取 `report.md` 表格行。
    - 若 `evidence/evidence_index.json` 未命中附注事项，只能说明“指标级证据索引无独立条目”，不得据此判断年报未披露；应继续检查 `semantic/document_links.json`、`semantic/note_links.json` 和 `report.md`。
 3. `metrics/`
    - 指定年份或 `report_id`：优先 `metrics/reports/<report_id>/three_statements.json`、`key_metrics.json`、`validation.json`。
@@ -56,7 +56,7 @@ PostgreSQL 的角色是“数据补充查询平台”，不是完整报告写作
 推荐查询入口：
 
 ```bash
-/home/maoyd/.hermes/hermes-agent/venv/bin/python /home/maoyd/.hermes/profiles/shared/scripts/pg_query.py --profile-env /home/maoyd/.hermes/profiles/siq_analysis/.env --sql "<只读 SQL>"
+/home/maoyd/.hermes/hermes-agent/venv/bin/python /home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts/pg_query.py --profile-env /home/maoyd/siq-research-engine/data/hermes/home/profiles/siq_analysis/.env --sql "<只读 SQL>"
 ```
 
 规则：

@@ -1,7 +1,7 @@
 import { fetchWithAuth } from './fetchWithAuth'
 import { normalizeChatAssetUrl } from './chatAssets'
 
-const SOURCE_LINK_RE = /\/api\/(?:(?:source|pdf_page)\/|downloads\/report-file|pdf\/(?:source|pdf_page|artifact|download|download_complete|download_corrected|financial|quality|result)\/)/
+const SOURCE_LINK_RE = /\/api\/(?:(?:source|pdf_page)\/|downloads\/report-file|documents\/(?:source|artifact|figures|download)\/|pdf\/(?:source|pdf_page|artifact|download|download_complete|download_corrected|financial|quality|result)\/)/
 const SOURCE_ACCESS_RE = /\/api\/source_access\//
 const PDF_PAGE_RE = /^\/api\/pdf_page\/([^/]+)\/(\d+)\/?$/
 const SOURCE_PAGE_RE = /^\/api\/source\/([^/]+)\/page\/(\d+)\/?$/

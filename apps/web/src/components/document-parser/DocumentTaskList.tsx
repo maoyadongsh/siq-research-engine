@@ -1,4 +1,5 @@
-import { FileText, RotateCcw, Trash2 } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Download, FileText, Loader2, RotateCcw, Search, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import type { DocumentTaskItem } from '@/lib/documentTypes'
 
@@ -34,16 +35,54 @@ function formatSize(value?: number) {
 export function DocumentTaskList({
   tasks,
   selectedTaskId,
+  selectedBulkTaskIds,
+  bulkBusy,
   onSelect,
   onRetry,
   onDelete,
+  onToggleBulkSelection,
+  onClearBulkSelection,
+  onRetrySelected,
+  onDeleteSelected,
+  onDownloadSelected,
 }: {
   tasks: DocumentTaskItem[]
   selectedTaskId: string
+  selectedBulkTaskIds: string[]
+  bulkBusy: string
   onSelect: (taskId: string) => void
   onRetry: (taskId: string) => void
   onDelete: (taskId: string) => void
+  onToggleBulkSelection: (taskId: string, selected: boolean) => void
+  onClearBulkSelection: () => void
+  onRetrySelected: () => void
+  onDeleteSelected: () => void
+  onDownloadSelected: () => void
 }) {
+  const [query, setQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const selectedSet = useMemo(() => new Set(selectedBulkTaskIds), [selectedBulkTaskIds])
+  const filteredTasks = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    return tasks.filter((task) => {
+      const status = String(task.status || '').toLowerCase()
+      if (statusFilter !== 'all' && status !== statusFilter) return false
+      if (!needle) return true
+      return [
+        task.filename,
+        task.task_id,
+        task.document_kind,
+        task.parser_provider,
+        task.quality_status,
+      ].some((value) => String(value || '').toLowerCase().includes(needle))
+    })
+  }, [query, statusFilter, tasks])
+  const allFilteredSelected = filteredTasks.length > 0 && filteredTasks.every((task) => selectedSet.has(task.task_id))
+
+  const toggleFiltered = (selected: boolean) => {
+    filteredTasks.forEach((task) => onToggleBulkSelection(task.task_id, selected))
+  }
+
   return (
     <section className="doc-panel">
       <div className="doc-panel-head">
@@ -54,12 +93,90 @@ export function DocumentTaskList({
         <span className="doc-badge">{tasks.length}</span>
       </div>
       <div className="doc-panel-body">
+        <div className="doc-task-toolbar">
+          <label className="doc-search">
+            <Search className="h-4 w-4" />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="搜索文件、任务或 provider"
+            />
+          </label>
+          <select className="doc-select doc-status-filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+            <option value="all">全部状态</option>
+            <option value="queued">排队</option>
+            <option value="running">解析中</option>
+            <option value="postprocessing">后处理</option>
+            <option value="completed">完成</option>
+            <option value="completed_with_warnings">有警告</option>
+            <option value="failed">失败</option>
+            <option value="cancelled">已取消</option>
+          </select>
+        </div>
+
+        <div className="doc-batch-bar">
+          <label className="doc-check compact">
+            <input
+              type="checkbox"
+              checked={allFilteredSelected}
+              disabled={!filteredTasks.length}
+              onChange={(event) => toggleFiltered(event.target.checked)}
+            />
+            选择当前结果
+          </label>
+          <span className="doc-batch-count">{selectedBulkTaskIds.length ? `已选 ${selectedBulkTaskIds.length}` : `筛选 ${filteredTasks.length}`}</span>
+          <div className="doc-action-row">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={!selectedBulkTaskIds.length || Boolean(bulkBusy)}
+              onClick={onDownloadSelected}
+              leftIcon={bulkBusy === 'download' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            >
+              下载
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={!selectedBulkTaskIds.length || Boolean(bulkBusy)}
+              onClick={onRetrySelected}
+              leftIcon={bulkBusy === 'retry' ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+            >
+              重试
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={!selectedBulkTaskIds.length || Boolean(bulkBusy)}
+              onClick={onDeleteSelected}
+              leftIcon={bulkBusy === 'delete' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+            >
+              删除
+            </Button>
+            {selectedBulkTaskIds.length ? (
+              <Button type="button" variant="ghost" size="sm" disabled={Boolean(bulkBusy)} onClick={onClearBulkSelection}>
+                清空
+              </Button>
+            ) : null}
+          </div>
+        </div>
+
         <div className="doc-task-list">
-          {tasks.length ? tasks.map((task) => (
+          {filteredTasks.length ? filteredTasks.map((task) => (
             <div
               key={task.task_id}
               className={`doc-task ${selectedTaskId === task.task_id ? 'active' : ''}`}
             >
+              <input
+                className="doc-task-check"
+                type="checkbox"
+                aria-label={`选择 ${task.filename || task.task_id}`}
+                checked={selectedSet.has(task.task_id)}
+                onChange={(event) => onToggleBulkSelection(task.task_id, event.target.checked)}
+              />
               <button
                 type="button"
                 className="min-w-0 text-left"
@@ -109,7 +226,7 @@ export function DocumentTaskList({
             <div className="doc-empty min-h-[180px]">
               <div>
                 <FileText className="mx-auto mb-3 h-8 w-8 text-text-muted" />
-                <p>暂无通用文档解析任务</p>
+                <p>{tasks.length ? '没有符合筛选条件的任务' : '暂无通用文档解析任务'}</p>
               </div>
             </div>
           )}

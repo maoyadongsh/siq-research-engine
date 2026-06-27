@@ -100,6 +100,18 @@ PDF_OUTPUT_ROOT = _env_path(
     "SIQ_PDF_OUTPUT_ROOT",
     default=PDF2MD_DATA_ROOT / "output",
 )
+DOCUMENT_PARSER_DATA_ROOT = _env_path(
+    "SIQ_DOCUMENT_PARSE_DATA_DIR",
+    "SIQ_DOCUMENT_PARSER_DATA_DIR",
+    "DOCUMENT_PARSER_DATA_DIR",
+    default=DATA_ROOT / "document-parser",
+)
+DOCUMENT_PARSER_RESULTS_ROOT = _env_path(
+    "SIQ_DOCUMENT_PARSE_RESULTS_ROOT",
+    "SIQ_DOCUMENT_PARSER_RESULTS_ROOT",
+    "DOCUMENT_PARSER_RESULTS_ROOT",
+    default=DOCUMENT_PARSER_DATA_ROOT / "results",
+)
 
 DEFAULT_WIKI_ROOT = _first_existing_path(
     PROJECT_ROOT / "data" / "wiki",
@@ -129,6 +141,12 @@ WIKI_ROOT = _env_path(
     "WIKI_ROOT",
     "SIQ_WIKI_ROOT",
     default=DEFAULT_WIKI_ROOT,
+)
+DOCUMENT_WIKI_ROOT = _env_path(
+    "SIQ_DOCUMENT_WIKI_ROOT",
+    "DOCUMENT_WIKI_ROOT",
+    "SIQ_DOCUMENT_WIKI_ROOT",
+    default=WIKI_ROOT / "documents",
 )
 ASSISTANT_WIKI_ROOT = _env_path(
     "SIQ_ASSISTANT_WIKI_ROOT",
@@ -171,7 +189,7 @@ HERMES_SHARED_SCRIPTS_ROOT = _env_path(
     "SIQ_HERMES_SHARED_SCRIPTS_ROOT",
     "HERMES_SHARED_SCRIPTS_ROOT",
     "SIQ_HERMES_SHARED_SCRIPTS_ROOT",
-    default=HERMES_PROFILES_ROOT / "shared" / "scripts",
+    default=PROJECT_ROOT / "agents" / "hermes" / "profiles" / "shared" / "scripts",
 )
 HERMES_PROFILE_ROOTS = {
     "siq_assistant": _first_existing_env_path(
@@ -179,6 +197,7 @@ HERMES_PROFILE_ROOTS = {
         "HERMES_ASSISTANT_PROFILE_ROOT",
         candidates=(
             HERMES_PROFILES_ROOT / "siq_assistant",
+            PROJECT_ROOT / "agents" / "hermes" / "profiles" / "siq_assistant",
         ),
         default=HERMES_PROFILES_ROOT / "siq_assistant",
     ),
@@ -187,6 +206,7 @@ HERMES_PROFILE_ROOTS = {
         "HERMES_ANALYSIS_PROFILE_ROOT",
         candidates=(
             HERMES_PROFILES_ROOT / "siq_analysis",
+            PROJECT_ROOT / "agents" / "hermes" / "profiles" / "siq_analysis",
         ),
         default=HERMES_PROFILES_ROOT / "siq_analysis",
     ),
@@ -195,6 +215,7 @@ HERMES_PROFILE_ROOTS = {
         "HERMES_FACTCHECKER_PROFILE_ROOT",
         candidates=(
             HERMES_PROFILES_ROOT / "siq_factchecker",
+            PROJECT_ROOT / "agents" / "hermes" / "profiles" / "siq_factchecker",
         ),
         default=HERMES_PROFILES_ROOT / "siq_factchecker",
     ),
@@ -203,6 +224,7 @@ HERMES_PROFILE_ROOTS = {
         "HERMES_TRACKING_PROFILE_ROOT",
         candidates=(
             HERMES_PROFILES_ROOT / "siq_tracking",
+            PROJECT_ROOT / "agents" / "hermes" / "profiles" / "siq_tracking",
         ),
         default=HERMES_PROFILES_ROOT / "siq_tracking",
     ),
@@ -211,6 +233,7 @@ HERMES_PROFILE_ROOTS = {
         "HERMES_LEGAL_PROFILE_ROOT",
         candidates=(
             HERMES_PROFILES_ROOT / "siq_legal",
+            PROJECT_ROOT / "agents" / "hermes" / "profiles" / "siq_legal",
         ),
         default=HERMES_PROFILES_ROOT / "siq_legal",
     ),
@@ -245,6 +268,12 @@ DB_IMPORT_SCRIPT = _env_path(
     "DB_IMPORT_SCRIPT",
     "SIQ_DB_IMPORT_SCRIPT",
     default=DB_PROGRAM_ROOT / "import_document_full_to_postgres.py",
+)
+DOCUMENT_DB_IMPORT_SCRIPT = _env_path(
+    "SIQ_DOCUMENT_DB_IMPORT_SCRIPT",
+    "DOCUMENT_DB_IMPORT_SCRIPT",
+    "SIQ_DOCUMENT_DB_IMPORT_SCRIPT",
+    default=DB_ROOT / "imports" / "import_document_parse_package_to_postgres.py",
 )
 DB_CONFIG_PY = _env_path(
     "SIQ_DB_CONFIG_PY",

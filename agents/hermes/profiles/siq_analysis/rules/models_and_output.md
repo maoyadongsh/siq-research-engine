@@ -45,16 +45,16 @@
 ## 文件命名
 
 ```text
-/home/maoyd/wiki/companies/<company_id>/analysis/<stock_code>-<company_short_name>-<year>-analysis.md
-/home/maoyd/wiki/companies/<company_id>/analysis/<stock_code>-<company_short_name>-<year>-analysis.json
-/home/maoyd/wiki/companies/<company_id>/analysis/<stock_code>-<company_short_name>-<year>-analysis.html
+/home/maoyd/siq-research-engine/data/wiki/companies/<company_id>/analysis/<stock_code>-<company_short_name>-<year>-analysis.md
+/home/maoyd/siq-research-engine/data/wiki/companies/<company_id>/analysis/<stock_code>-<company_short_name>-<year>-analysis.json
+/home/maoyd/siq-research-engine/data/wiki/companies/<company_id>/analysis/<stock_code>-<company_short_name>-<year>-analysis.html
 ```
 
 ## 金额与精度
 
 - 金额统一使用亿元，保留 2 位小数；外币金额保留原币“亿欧元/亿美元/亿港元”等口径，有汇率、日期和来源时可同时给出人民币“亿元”。
 - 人均、每股、每户等派生指标不是金额总量，不得归一为“亿元/人”；应展示为“元/人、万元/人、欧元/人、万欧元/人”等。
-- 人均、每股、同比、增长率、占比、CAGR、外币折人民币和金额单位归一等衍生计算，必须调用 `/home/maoyd/.hermes/profiles/shared/scripts/financial_calculator.py`。完整规则见 `/home/maoyd/.hermes/profiles/shared/rules/financial_calculation_contract.md`。
+- 人均、每股、同比、增长率、占比、CAGR、外币折人民币和金额单位归一等衍生计算，必须调用 `/home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts/financial_calculator.py`。完整规则见 `/home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/rules/financial_calculation_contract.md`。
 - 比率统一使用百分比，保留 2 位小数。
 - 年份使用公历年度。
 - 口径必须区分合并/母公司、期末/平均、账面值/公允值。
@@ -64,8 +64,8 @@
 - HTML 必须包含结构化 14 章，尽量用精美的图表展示关键数据与趋势。
   - 适合可视化的章节应优先配图表，包括但不限于：经营成果趋势、盈利能力拆解（杜邦瀑布图）、资产结构、现金流三表对比、现金转换周期分解、偿债能力指标、行业竞争格局等。
   - 图表应清晰、美观、有数据标签，避免简陋的默认样式。
-- 收支拆解、利润桥、瀑布图和 Sankey/ribbon 图必须遵循本地技能规范：
-  `/home/maoyd/.hermes/profiles/siq_analysis/skills/finance/siq-chart-craft/SKILL.md`。
+- 收支拆解、利润桥、瀑布图和 Sankey/ribbon 图必须遵循本地金融图表技能规范：
+  `/home/maoyd/.agents/skills/finsight-chart-craft/SKILL.md`。
   - 渲染前必须先做三表勾稽，不得先美化后补口径。
   - `营业成本` 与 `营业总成本` 必须按原始合并利润表项目名区分；若使用 `营业总成本`，不得再次扣除成本、税金、销售、管理、研发和财务费用。
   - `资产减值损失`、`信用减值损失`、`公允价值变动收益`、`资产处置收益` 必须按利润表原始符号进入桥，不得隐藏在“其他/口径差”中。

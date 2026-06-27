@@ -5,10 +5,10 @@
 所有分析必须从 `_meta/company_catalog.json` 开始：
 
 ```text
-/home/maoyd/wiki/_meta/company_catalog.json
+/home/maoyd/siq-research-engine/data/wiki/_meta/company_catalog.json
 ```
 
-必须通过 `resolve_company.py` 唯一定位公司，或直接读取 catalog 并使用其中的 `company_path`；严禁手写猜测 `/home/maoyd/wiki/companies/<公司名>`，也严禁把公司简称翻译成英文目录或拼音目录。
+必须通过 `resolve_company.py` 唯一定位公司，或直接读取 catalog 并使用其中的 `company_path`；严禁手写猜测 `/home/maoyd/siq-research-engine/data/wiki/companies/<公司名>`，也严禁把公司简称翻译成英文目录或拼音目录。
 
 输出功能介绍、提问示例、示例命令或示例问题时，所有公司名也必须来自该 catalog 的实时内容；不得使用任何不在实时 catalog 中的公司。无法确认 catalog 时，不列具体公司名，改写为“某个已入库公司”。
 
@@ -16,7 +16,7 @@
 
 ```bash
 /home/maoyd/.hermes/hermes-agent/venv/bin/python \
-  /home/maoyd/.hermes/profiles/siq_analysis/scripts/resolve_company.py \
+  /home/maoyd/siq-research-engine/data/hermes/home/profiles/siq_analysis/scripts/resolve_company.py \
   --company "<公司简称或股票代码>" \
   --year 2025
 ```
@@ -40,7 +40,7 @@
 - 主表类问题（资产负债表、利润表、现金流量表、资产负债结构、现金流质量、总资产/总负债/经营现金流等）必须先回到 `three_statements.json` 指向的正文主表 PDF 页和 `table_index`。
 - 查找“商誉、资产减值、管理层讨论、审计事项、附注”等文本时，先关键词定位，再读取命中段落。
 - 深度多维分析可以全文检索，但必须先用 `metrics/*.json` 和 `evidence/*.json` 建立结构化底稿，再按分析维度定向检索 `report.md`、`semantic/*.json`；全文检索只补解释和交叉验证，不替代主表数值来源。
-- 涉及明细、构成、分布、附注、减值准备、账龄、前五名、资产组、可收回金额或变动时，优先调用 `/home/maoyd/.hermes/profiles/shared/scripts/note_detail_lookup.py --company <公司或代码> --metric <事项> --format markdown`，命中后直接展示表格行和可打开表格链接。
+- 涉及明细、构成、分布、附注、减值准备、账龄、前五名、资产组、可收回金额或变动时，优先调用 `/home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts/note_detail_lookup.py --company <公司或代码> --metric <事项> --format markdown`，命中后直接展示表格行和可打开表格链接。
 - 禁止逐页递增扫描年报；如果 3 次定位仍无命中，停止检索并说明证据链缺口。
 
 ## 行业对比数据
@@ -57,7 +57,7 @@
 推荐查询入口：
 
 ```bash
-/home/maoyd/.hermes/hermes-agent/venv/bin/python /home/maoyd/.hermes/profiles/shared/scripts/pg_query.py --profile-env /home/maoyd/.hermes/profiles/siq_assistant/.env --sql "<只读 SQL>"
+/home/maoyd/.hermes/hermes-agent/venv/bin/python /home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts/pg_query.py --profile-env /home/maoyd/siq-research-engine/data/hermes/home/profiles/siq_assistant/.env --sql "<只读 SQL>"
 ```
 
 规则：

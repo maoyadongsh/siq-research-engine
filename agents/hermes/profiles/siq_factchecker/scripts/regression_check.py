@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-WIKI = Path("/home/maoyd/wiki")
+WIKI = Path("/home/maoyd/siq-research-engine/data/wiki")
 LAUNCHER = ROOT / "SIQ_factchecker"
 
 

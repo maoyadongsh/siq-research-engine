@@ -7,7 +7,7 @@
 涉及以下任一场景时，必须调用共享计算器：
 
 ```bash
-python3 /home/maoyd/.hermes/profiles/shared/scripts/financial_calculator.py ...
+python3 /home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts/financial_calculator.py ...
 ```
 
 - 金额单位换算：元、千元、万元、百万元、亿元、million、billion 等。
@@ -22,7 +22,7 @@ python3 /home/maoyd/.hermes/profiles/shared/scripts/financial_calculator.py ...
 涉及主表净额与附注原值/备抵/减值准备的关系时，必须调用共享勾稽校验器或后端同源函数：
 
 ```bash
-python3 /home/maoyd/.hermes/profiles/shared/scripts/financial_reconciliation_validator.py goodwill \
+python3 /home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts/financial_reconciliation_validator.py goodwill \
   --company <公司或代码> --format markdown
 ```
 
@@ -50,7 +50,7 @@ python3 /home/maoyd/.hermes/profiles/shared/scripts/financial_reconciliation_val
 外币金额归一：
 
 ```bash
-python3 /home/maoyd/.hermes/profiles/shared/scripts/financial_calculator.py --format markdown normalize \
+python3 /home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts/financial_calculator.py --format markdown normalize \
   --value -10.16 --unit 亿欧元 --currency EUR \
   --fx-to-cny 7.8 --fx-date 2026-06-21 --fx-source 用户提供
 ```
@@ -58,7 +58,7 @@ python3 /home/maoyd/.hermes/profiles/shared/scripts/financial_calculator.py --fo
 人均指标：
 
 ```bash
-python3 /home/maoyd/.hermes/profiles/shared/scripts/financial_calculator.py --format markdown per-capita \
+python3 /home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts/financial_calculator.py --format markdown per-capita \
   --amount -10.16 --amount-unit 亿欧元 --currency EUR \
   --count 110820 --count-unit 人 \
   --fx-to-cny 7.8 --fx-date 2026-06-21 --fx-source 用户提供
@@ -67,7 +67,7 @@ python3 /home/maoyd/.hermes/profiles/shared/scripts/financial_calculator.py --fo
 报告值复核：
 
 ```bash
-python3 /home/maoyd/.hermes/profiles/shared/scripts/financial_calculator.py --format markdown per-capita \
+python3 /home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts/financial_calculator.py --format markdown per-capita \
   --amount -10.16 --amount-unit 亿欧元 --currency EUR \
   --count 110820 --count-unit 人 \
   --fx-to-cny 7.8 --fx-date 2026-06-21 --fx-source 用户提供 \
@@ -77,7 +77,7 @@ python3 /home/maoyd/.hermes/profiles/shared/scripts/financial_calculator.py --fo
 同比：
 
 ```bash
-python3 /home/maoyd/.hermes/profiles/shared/scripts/financial_calculator.py --format markdown yoy \
+python3 /home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts/financial_calculator.py --format markdown yoy \
   --current 120 --current-unit 亿元 \
   --previous 100 --previous-unit 亿元 --currency CNY
 ```
@@ -85,7 +85,7 @@ python3 /home/maoyd/.hermes/profiles/shared/scripts/financial_calculator.py --fo
 占比/率：
 
 ```bash
-python3 /home/maoyd/.hermes/profiles/shared/scripts/financial_calculator.py --format markdown ratio \
+python3 /home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts/financial_calculator.py --format markdown ratio \
   --numerator 30 --numerator-unit 亿元 \
   --denominator 100 --denominator-unit 亿元 --currency CNY
 ```

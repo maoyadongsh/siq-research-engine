@@ -24,7 +24,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from local_citations import find_company_dir_from_text, primary_report  # noqa: E402
 
-WIKI_BASE = Path(os.environ.get("SIQ_WIKI_ROOT", "/home/maoyd/wiki")).expanduser()
+WIKI_BASE = Path(os.environ.get("SIQ_WIKI_ROOT", "/home/maoyd/siq-research-engine/data/wiki")).expanduser()
 DEFAULT_SOURCE_TYPE = os.environ.get(
     "SIQ_DEFAULT_SOURCE_TYPE",
     "okf_metrics" if "okf_staging" in str(WIKI_BASE) else "wiki_metrics",

@@ -113,12 +113,41 @@ export interface DocumentTablesPayload {
   physical_tables?: DocumentTable[]
 }
 
+export interface DocumentTableRelation {
+  relation_id?: string
+  id?: string
+  source_table_id?: string
+  target_table_id?: string
+  table_id?: string
+  next_table_id?: string
+  fragment_table_ids?: string[]
+  relation_type?: string
+  merge_status?: string
+  confidence?: number
+  merge_confidence?: number
+  reasons?: string[]
+  merge_reasons?: string[]
+  review_status?: string
+  note?: string
+  page_numbers?: number[]
+}
+
+export interface DocumentTableRelationsPayload {
+  schema_version?: string
+  task_id?: string
+  relations?: DocumentTableRelation[]
+}
+
 export interface DocumentFigure {
   image_id?: string
   block_id?: string
   type?: string
   page_number?: number
+  bbox?: number[]
+  bbox_unit?: string
   image_path?: string
+  crop_path?: string
+  thumbnail_path?: string
   caption?: string
   nearby_heading?: string
   ocr_text?: string
@@ -153,6 +182,19 @@ export interface DocumentSourceMapPayload {
   sources?: DocumentSourceMapEntry[]
 }
 
+export interface DocumentExtractionTemplate {
+  template_id: string
+  name?: string
+  description?: string
+  instructions?: string
+  schema?: Record<string, unknown>
+}
+
+export interface DocumentExtractionTemplatesPayload {
+  schema_version?: string
+  templates?: DocumentExtractionTemplate[]
+}
+
 export interface DocumentParseConfig {
   modelVersion: string
   ocr: string
@@ -162,4 +204,77 @@ export interface DocumentParseConfig {
   pageRanges: string
   extraFormats: string[]
   noCache: boolean
+}
+
+export interface DocumentMineruImportCandidate {
+  source_dir?: string
+  sourceDir?: string
+  title?: string
+  result_markdown?: string
+  has_content_list?: boolean
+  has_middle?: boolean
+  updated_at?: number
+}
+
+export interface DocumentMineruImportCandidatesPayload {
+  schema_version?: string
+  allowed_roots?: string[]
+  candidates?: DocumentMineruImportCandidate[]
+}
+
+export interface DocumentWorkflowTarget {
+  status?: string
+  message?: string
+  path?: string
+  manifestPath?: string
+  collection?: string
+  documentKey?: string
+  schema?: string
+  collectionName?: string
+  script?: string
+  packagePath?: string
+  chunksPath?: string
+  chunkCount?: number
+  insertedCount?: number
+  reportPath?: string
+  batchTag?: string
+  document_id?: string
+  documentFullSha256?: string
+  sourceDocumentFullSha256?: string
+  stale?: boolean
+}
+
+export interface DocumentWorkflowStatus {
+  taskId?: string
+  artifacts?: {
+    status?: string
+    ready?: boolean
+    readyCount?: number
+    total?: number
+    missing?: string[]
+    message?: string
+  }
+  targets?: {
+    wiki?: DocumentWorkflowTarget
+    postgres?: DocumentWorkflowTarget
+    milvus?: DocumentWorkflowTarget
+    full_text?: DocumentWorkflowTarget
+    object_storage?: DocumentWorkflowTarget
+  }
+}
+
+export interface DocumentWikiImportResult {
+  ok?: boolean
+  taskId?: string
+  collection?: string
+  documentKey?: string
+  packageDir?: string
+  manifestPath?: string
+  copiedFiles?: string[]
+  copiedDirectories?: Record<string, number>
+  wiki?: DocumentWorkflowTarget
+  postgres?: DocumentWorkflowTarget
+  milvus?: DocumentWorkflowTarget
+  semanticMode?: 'chunks' | 'milvus'
+  result?: Record<string, unknown>
 }

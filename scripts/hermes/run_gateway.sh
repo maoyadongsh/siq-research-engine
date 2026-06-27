@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+profile="${1:-}"
+if [[ -z "$profile" ]]; then
+    echo "usage: $0 <siq_assistant|assistant|siq_analysis|analysis|siq_factchecker|factchecker|siq_tracking|tracking|siq_legal|legal>" >&2
+    exit 2
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="${SIQ_PROJECT_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+SOURCE_PROFILES_ROOT="$PROJECT_ROOT/agents/hermes/profiles"
+
+ENV_FILE="${SIQ_ENV_FILE:-$PROJECT_ROOT/env/backend.env}"
+if [[ -f "$ENV_FILE" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "$ENV_FILE"
+    set +a
+fi
+
+case "$profile" in
+    assistant|siq_assistant) canonical="siq_assistant" ;;
+    analysis|siq_analysis) canonical="siq_analysis" ;;
+    factchecker|siq_factchecker) canonical="siq_factchecker" ;;
+    tracking|siq_tracking) canonical="siq_tracking" ;;
+    legal|siq_legal) canonical="siq_legal" ;;
+    *)
+        echo "Unknown Hermes profile: $profile" >&2
+        exit 2
+        ;;
+esac
+
+source_profile_dir="$SOURCE_PROFILES_ROOT/$canonical"
+if [[ ! -f "$source_profile_dir/config.yaml" ]]; then
+    echo "Hermes source profile config not found: $source_profile_dir/config.yaml" >&2
+    exit 1
+fi
+runtime_profiles_root="${SIQ_HERMES_PROFILES_ROOT:-${HERMES_PROFILES_ROOT:-${SIQ_HERMES_HOME:-$PROJECT_ROOT/data/hermes/home}/profiles}}"
+profile_dir="$runtime_profiles_root/$canonical"
+
+mkdir -p "$profile_dir"
+rsync_excludes=(
+    --exclude '.git/'
+    --exclude '.venv/'
+    --exclude '__pycache__/'
+    --exclude '.pytest_cache/'
+    --exclude 'cache/'
+    --exclude 'logs/'
+    --exclude 'sessions/'
+    --exclude 'cron/'
+    --exclude 'memories/'
+    --exclude 'sandboxes/'
+    --exclude 'workspace/'
+    --exclude 'backups/'
+    --exclude 'skills/'
+    --exclude 'state.db*'
+    --exclude 'response_store.db*'
+    --exclude 'gateway.pid'
+    --exclude 'gateway.lock'
+    --exclude 'gateway_state.json'
+    --exclude 'auth.json'
+    --exclude 'auth.lock'
+    --exclude 'channel_directory.json'
+    --exclude 'models_dev_cache.json'
+    --exclude '.skills_prompt_snapshot.json'
+    --exclude '.clean_shutdown'
+)
+if [[ -f "$profile_dir/config.yaml" && "${SIQ_HERMES_FORCE_PROFILE_SYNC:-0}" != "1" ]]; then
+    rsync_excludes+=(--exclude 'config.yaml')
+fi
+
+if command -v rsync >/dev/null 2>&1; then
+    rsync -a --delete "${rsync_excludes[@]}" "$source_profile_dir/" "$profile_dir/"
+else
+    cp -R "$source_profile_dir/." "$profile_dir/"
+fi
+
+if [[ -d "$SOURCE_PROFILES_ROOT/shared" ]]; then
+    mkdir -p "$runtime_profiles_root/shared"
+    rsync -a --delete \
+        --exclude '__pycache__/' \
+        --exclude '.pytest_cache/' \
+        "$SOURCE_PROFILES_ROOT/shared/" "$runtime_profiles_root/shared/"
+fi
+
+cd "$profile_dir"
+
+export HERMES_HOME="$profile_dir"
+export API_SERVER_MODEL_NAME="${API_SERVER_MODEL_NAME:-$canonical}"
+export API_SERVER_KEY="${API_SERVER_KEY:-${HERMES_API_KEY:-${HERMES_TOKEN:-}}}"
+
+exec hermes gateway run --replace --accept-hooks

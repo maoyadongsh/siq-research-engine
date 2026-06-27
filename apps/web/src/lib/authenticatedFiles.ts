@@ -40,8 +40,8 @@ export function useAuthenticatedBlobUrl(url: string) {
   return blobUrl
 }
 
-export async function downloadAuthenticatedFile(url: string, filename?: string) {
-  const response = await fetchWithAuth(url)
+export async function downloadAuthenticatedFile(url: string, filename?: string, init?: RequestInit) {
+  const response = await fetchWithAuth(url, init)
   if (!response.ok) throw new Error(`HTTP ${response.status}`)
   const blob = await response.blob()
   const objectUrl = URL.createObjectURL(blob)

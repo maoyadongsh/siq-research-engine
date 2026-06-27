@@ -17,10 +17,14 @@ from services.llm_settings import load_llm_settings
 from services.path_config import (
     DB_CONFIG_PY,
     DB_IMPORT_SCRIPT,
+    DOCUMENT_DB_IMPORT_SCRIPT,
+    DOCUMENT_PARSER_RESULTS_ROOT,
+    DOCUMENT_WIKI_ROOT,
     PDF_RESULT_ROOT_CANDIDATES,
     PDF_TASK_DB_PATH,
     PDF_RESULTS_ROOT,
     WIKI_ROOT,
+    REPO_ROOT,
     WIKISET_ROOT,
     WORKFLOW_JOB_STORE,
 )
@@ -54,6 +58,34 @@ ARTIFACT_SCHEMA_EXPECTATIONS = {
 }
 FINANCIAL_RULE_VERSION = "financial_rules_v14"
 ARTIFACT_MANIFEST_NAME = "artifact_manifest.json"
+DOCUMENT_PACKAGE_MANIFEST_NAME = "manifest.json"
+DOCUMENT_CORE_ARTIFACTS = [
+    "manifest.json",
+    "document.md",
+    "document_full.json",
+    "blocks.json",
+    "tables.json",
+    "logical_tables.json",
+    "table_relations.json",
+    "figures.json",
+    "figure_index.json",
+    "comparison_map.json",
+    "source_map.json",
+    "quality_report.json",
+]
+DOCUMENT_OPTIONAL_ARTIFACTS = [
+    "layout_blocks.json",
+    "reading_order.json",
+    "table_merge_corrections.json",
+    "extraction/schema.json",
+    "extraction/result.json",
+    "extraction/evidence_map.json",
+    "extraction/validation_report.json",
+]
+DOCUMENT_CHUNK_SCRIPT = Path(os.environ.get(
+    "SIQ_DOCUMENT_CHUNK_SCRIPT",
+    str(REPO_ROOT / "scripts" / "vector-index" / "milvus-ingestion" / "ingest_document_chunks.py"),
+)).resolve()
 LLM_SEMANTIC_ENABLED = os.environ.get("LLM_SEMANTIC_ENABLED", "true").lower() not in {"0", "false", "no", "off"}
 LLM_SEMANTIC_REQUIRED = os.environ.get("LLM_SEMANTIC_REQUIRED", "true").lower() not in {"0", "false", "no", "off"}
 LLM_SEMANTIC_TIMEOUT = int(os.environ.get("LLM_SEMANTIC_TIMEOUT", "900"))
@@ -100,6 +132,50 @@ def _safe_task_id(task_id: str) -> str:
     return value
 
 
+def _safe_document_collection(value: str | None = None) -> str:
+    raw = str(value or "default").strip().lower()
+    raw = re.sub(r"[^a-z0-9._-]+", "-", raw).strip(".-_")
+    if not raw or raw in {".", ".."} or "/" in raw or "\\" in raw:
+        raise HTTPException(400, "Invalid document collection")
+    return raw[:80]
+
+
+def _document_key_from_manifest(task_id: str, manifest: dict) -> str:
+    filename = str(manifest.get("filename") or task_id)
+    stem = Path(filename).stem or task_id
+    slug = re.sub(r"[^a-zA-Z0-9._\-\u4e00-\u9fff]+", "-", stem).strip(".-_")
+    if not slug:
+        slug = task_id
+    return f"{slug[:80]}-{task_id[:8]}"
+
+
+def _find_document_result_dir(task_id: str) -> Path | None:
+    task_id = _safe_task_id(task_id)
+    candidates = [
+        DOCUMENT_PARSER_RESULTS_ROOT / task_id,
+        Path(os.environ.get("SIQ_DOCUMENT_PARSER_RESULTS_FALLBACK", "")) / task_id if os.environ.get("SIQ_DOCUMENT_PARSER_RESULTS_FALLBACK") else None,
+    ]
+    for path in candidates:
+        if path is None:
+            continue
+        try:
+            resolved = path.resolve()
+        except OSError:
+            continue
+        if resolved.is_dir() and (resolved / "manifest.json").is_file() and (resolved / "document.md").is_file():
+            return resolved
+    return None
+
+
+def _document_package_dir(task_id: str, collection: str | None = None, manifest: dict | None = None) -> Path:
+    task_id = _safe_task_id(task_id)
+    collection_name = _safe_document_collection(collection)
+    if manifest is None:
+        result_dir = _find_document_result_dir(task_id)
+        manifest = _read_json(result_dir / "manifest.json", {}) if result_dir else {}
+    return DOCUMENT_WIKI_ROOT / collection_name / _document_key_from_manifest(task_id, manifest or {})
+
+
 def _find_task_document_full(task_id: str) -> Path | None:
     task_id = _safe_task_id(task_id)
     candidates = [root / task_id / "document_full.json" for root in PDF_RESULT_ROOT_CANDIDATES]
@@ -136,6 +212,33 @@ def _read_json(path: Path, default=None):
 def _write_json(path: Path, payload) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _copy_file_if_exists(src: Path, dst: Path) -> bool:
+    if not src.is_file():
+        return False
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dst)
+    return True
+
+
+def _copy_tree_contents(src: Path, dst: Path) -> int:
+    if not src.is_dir():
+        return 0
+    copied = 0
+    src_root = src.resolve()
+    for path in src.rglob("*"):
+        if not path.is_file():
+            continue
+        try:
+            rel = path.resolve().relative_to(src_root)
+        except ValueError:
+            continue
+        target = dst / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, target)
+        copied += 1
+    return copied
 
 
 def _sha256_file(path: Path) -> str | None:
@@ -1940,9 +2043,401 @@ def _workflow_status_payload(task_id: str) -> dict:
     }
 
 
+def _document_artifact_status(task_id: str) -> dict:
+    task_id = _safe_task_id(task_id)
+    result_dir = _find_document_result_dir(task_id)
+    if not result_dir:
+        return {
+            "status": "missing",
+            "taskId": task_id,
+            "ready": False,
+            "resultDir": "",
+            "readyCount": 0,
+            "total": len(DOCUMENT_CORE_ARTIFACTS),
+            "missing": list(DOCUMENT_CORE_ARTIFACTS),
+            "message": "未找到通用文档解析产物目录",
+        }
+    artifacts = {}
+    missing = []
+    for name in DOCUMENT_CORE_ARTIFACTS:
+        info = _artifact_file_info(result_dir, name)
+        artifacts[name] = info
+        if not info["exists"]:
+            missing.append(name)
+    ready = not missing
+    return {
+        "status": "ready" if ready else "missing",
+        "taskId": task_id,
+        "ready": ready,
+        "resultDir": str(result_dir),
+        "readyCount": len(DOCUMENT_CORE_ARTIFACTS) - len(missing),
+        "total": len(DOCUMENT_CORE_ARTIFACTS),
+        "missing": missing,
+        "artifacts": artifacts,
+        "message": f"{len(DOCUMENT_CORE_ARTIFACTS) - len(missing)}/{len(DOCUMENT_CORE_ARTIFACTS)} 个核心文件已生成" if ready else f"缺少 {len(missing)} 个核心文件",
+    }
+
+
+def _document_wiki_status(task_id: str, collection: str | None = None) -> dict:
+    task_id = _safe_task_id(task_id)
+    collection_name = _safe_document_collection(collection)
+    result_dir = _find_document_result_dir(task_id)
+    manifest = _read_json(result_dir / "manifest.json", {}) if result_dir else {}
+    package_dir = _document_package_dir(task_id, collection_name, manifest)
+    package_manifest = _read_json(package_dir / DOCUMENT_PACKAGE_MANIFEST_NAME, {}) if package_dir.is_dir() else {}
+    source_sha = _sha256_file(result_dir / "document_full.json") if result_dir else None
+    package_sha = package_manifest.get("document_full_sha256")
+    stale = bool(package_manifest and source_sha and package_sha and source_sha != package_sha)
+    status = "stale" if stale else ("ready" if package_manifest else ("missing" if result_dir else "unavailable"))
+    return {
+        "status": status,
+        "taskId": task_id,
+        "collection": collection_name,
+        "documentKey": package_dir.name,
+        "path": str(package_dir),
+        "manifestPath": str(package_dir / DOCUMENT_PACKAGE_MANIFEST_NAME),
+        "documentFullSha256": package_sha or "",
+        "sourceDocumentFullSha256": source_sha or "",
+        "stale": stale,
+        "message": "通用文档 Wiki 包需刷新" if stale else ("已归档到通用文档 Wiki" if package_manifest else ("可归档到通用文档 Wiki" if result_dir else "未找到解析产物")),
+    }
+
+
+def _document_workflow_status_payload(task_id: str, collection: str | None = None) -> dict:
+    artifact_status = _document_artifact_status(task_id)
+    wiki_status = _document_wiki_status(task_id, collection)
+    postgres_status = _document_postgres_status(task_id, collection)
+    return {
+        "taskId": _safe_task_id(task_id),
+        "targets": {
+            "wiki": wiki_status,
+            "postgres": postgres_status,
+            "milvus": _document_milvus_status(task_id, collection),
+            "full_text": {"status": "disabled"},
+            "object_storage": {"status": "disabled"},
+        },
+        "artifacts": artifact_status,
+    }
+
+
+def _document_postgres_status(task_id: str, collection: str | None = None) -> dict:
+    wiki = _document_wiki_status(task_id, collection)
+    if not DOCUMENT_DB_IMPORT_SCRIPT.is_file():
+        return {
+            "status": "missing",
+            "schema": "document_parser",
+            "script": str(DOCUMENT_DB_IMPORT_SCRIPT),
+            "message": "通用文档 PostgreSQL importer 不存在",
+        }
+    if wiki.get("status") not in {"ready", "stale"}:
+        return {
+            "status": "waiting_for_wiki",
+            "schema": "document_parser",
+            "script": str(DOCUMENT_DB_IMPORT_SCRIPT),
+            "message": "请先导入 Wiki 包",
+        }
+    return {
+        "status": "ready",
+        "schema": "document_parser",
+        "script": str(DOCUMENT_DB_IMPORT_SCRIPT),
+        "packagePath": wiki.get("path") or "",
+        "document_id": f"doc-{_safe_task_id(task_id)}",
+        "message": "可导入 PostgreSQL document_parser schema",
+    }
+
+
+def _document_milvus_status(task_id: str, collection: str | None = None) -> dict:
+    wiki = _document_wiki_status(task_id, collection)
+    if not DOCUMENT_CHUNK_SCRIPT.is_file():
+        return {
+            "status": "missing",
+            "collection": "siq_documents",
+            "script": str(DOCUMENT_CHUNK_SCRIPT),
+            "message": "通用文档 chunk 脚本不存在",
+        }
+    if wiki.get("status") not in {"ready", "stale"}:
+        return {
+            "status": "waiting_for_wiki",
+            "collection": "siq_documents",
+            "script": str(DOCUMENT_CHUNK_SCRIPT),
+            "message": "请先导入 Wiki 包",
+        }
+    package_dir = Path(str(wiki.get("path") or ""))
+    chunks_path = package_dir / "semantic" / "chunks.jsonl"
+    report_path = package_dir / "semantic" / "ingest_report.json"
+    report = _read_json(report_path, {}) if report_path.is_file() else {}
+    inserted = int(report.get("milvus_inserted") or 0) if isinstance(report, dict) else 0
+    if inserted:
+        return {
+            "status": "completed",
+            "collection": report.get("collection") or "siq_documents",
+            "script": str(DOCUMENT_CHUNK_SCRIPT),
+            "packagePath": str(package_dir),
+            "chunksPath": str(chunks_path),
+            "reportPath": str(report_path),
+            "chunkCount": int(report.get("chunk_count") or 0),
+            "insertedCount": inserted,
+            "batchTag": report.get("batch_tag") or "",
+            "message": f"已写入 Milvus {inserted} 个 chunks",
+        }
+    if not chunks_path.is_file():
+        return {
+            "status": "ready",
+            "collection": "siq_documents",
+            "script": str(DOCUMENT_CHUNK_SCRIPT),
+            "packagePath": str(package_dir),
+            "chunksPath": str(chunks_path),
+            "chunkCount": 0,
+            "message": "可生成语义 chunks",
+        }
+    chunk_count = sum(1 for line in chunks_path.read_text(encoding="utf-8").splitlines() if line.strip())
+    return {
+        "status": "chunks_ready",
+        "collection": "siq_documents",
+        "script": str(DOCUMENT_CHUNK_SCRIPT),
+        "packagePath": str(package_dir),
+        "chunksPath": str(chunks_path),
+        "reportPath": str(report_path) if report_path.is_file() else "",
+        "chunkCount": chunk_count,
+        "message": f"已生成 {chunk_count} 个语义 chunks",
+    }
+
+
+def _write_document_package_readme(package_dir: Path, package_manifest: dict, document_markdown: str) -> None:
+    title = package_manifest.get("filename") or package_manifest.get("document_key") or package_manifest.get("task_id")
+    preview = "\n".join(document_markdown.splitlines()[:80]).strip()
+    content = [
+        f"# {title}",
+        "",
+        f"- task_id: `{package_manifest.get('task_id')}`",
+        f"- document_kind: `{package_manifest.get('document_kind')}`",
+        f"- parser_provider: `{package_manifest.get('parser_provider')}`",
+        f"- source_result_dir: `{package_manifest.get('source_result_dir')}`",
+        "",
+        "## Preview",
+        "",
+        preview or "_No markdown preview available._",
+        "",
+    ]
+    package_dir.mkdir(parents=True, exist_ok=True)
+    (package_dir / "README.md").write_text("\n".join(content), encoding="utf-8")
+
+
+def _import_document_task_to_wiki(task_id: str, collection: str | None = None) -> dict:
+    task_id = _safe_task_id(task_id)
+    collection_name = _safe_document_collection(collection)
+    result_dir = _find_document_result_dir(task_id)
+    if not result_dir:
+        raise HTTPException(404, "document parser result not found for task")
+    artifact_status = _document_artifact_status(task_id)
+    if not artifact_status["ready"]:
+        raise HTTPException(422, {"message": "通用文档解析产物不完整", "missing": artifact_status["missing"]})
+
+    manifest = _read_json(result_dir / "manifest.json", {}) or {}
+    document_key = _document_key_from_manifest(task_id, manifest)
+    package_dir = DOCUMENT_WIKI_ROOT / collection_name / document_key
+    package_dir.mkdir(parents=True, exist_ok=True)
+
+    copied_files: list[str] = []
+    for name in DOCUMENT_CORE_ARTIFACTS + DOCUMENT_OPTIONAL_ARTIFACTS:
+        if _copy_file_if_exists(result_dir / name, package_dir / _document_package_target(name)):
+            copied_files.append(name)
+
+    copied_dirs = {
+        "raw": _copy_tree_contents(result_dir / "raw", package_dir / "raw"),
+        "images": _copy_tree_contents(result_dir / "images", package_dir / "images"),
+        "figures": _copy_tree_contents(result_dir / "figures", package_dir / "figures"),
+        "exports": _copy_tree_contents(result_dir / "exports", package_dir / "exports"),
+    }
+
+    document_markdown = (result_dir / "document.md").read_text(encoding="utf-8")
+    document_full_sha = _sha256_file(result_dir / "document_full.json")
+    package_manifest = {
+        "schema_version": "generic_document_package_v1",
+        "document_id": f"doc-{task_id}",
+        "task_id": task_id,
+        "collection": collection_name,
+        "document_key": document_key,
+        "filename": manifest.get("filename") or "",
+        "document_kind": manifest.get("document_kind") or "",
+        "parser_provider": manifest.get("parser_provider") or "",
+        "source_result_dir": str(result_dir),
+        "package_version": "1",
+        "created_at": _now_iso(),
+        "document_full_sha256": document_full_sha,
+        "artifacts": {
+            name: {
+                "source": str(result_dir / name),
+                "package_path": _document_package_target(name),
+                "sha256": _sha256_file(result_dir / name),
+            }
+            for name in copied_files
+        },
+        "copied_directories": copied_dirs,
+        "import_targets": {
+            "postgres": {"schema": "document_parser", "document_id": f"doc-{task_id}", "last_imported_at": None},
+            "milvus": {"collection": "siq_documents", "last_imported_at": None},
+        },
+    }
+    _write_json(package_dir / DOCUMENT_PACKAGE_MANIFEST_NAME, package_manifest)
+    _write_document_package_readme(package_dir, package_manifest, document_markdown)
+
+    index_path = DOCUMENT_WIKI_ROOT / collection_name / "index.json"
+    index_payload = _read_json(index_path, {"schema_version": "generic_document_collection_index_v1", "collection": collection_name, "documents": []}) or {}
+    documents = [
+        item for item in (index_payload.get("documents") or [])
+        if (item or {}).get("task_id") != task_id
+    ]
+    documents.append({
+        "task_id": task_id,
+        "document_id": package_manifest["document_id"],
+        "document_key": document_key,
+        "filename": package_manifest["filename"],
+        "document_kind": package_manifest["document_kind"],
+        "path": str(package_dir),
+        "updated_at": package_manifest["created_at"],
+    })
+    index_payload.update({
+        "schema_version": "generic_document_collection_index_v1",
+        "collection": collection_name,
+        "generated_at": _now_iso(),
+        "document_count": len(documents),
+        "documents": sorted(documents, key=lambda item: str(item.get("updated_at") or ""), reverse=True),
+    })
+    _write_json(index_path, index_payload)
+
+    return {
+        "ok": True,
+        "taskId": task_id,
+        "collection": collection_name,
+        "documentKey": document_key,
+        "packageDir": str(package_dir),
+        "manifestPath": str(package_dir / DOCUMENT_PACKAGE_MANIFEST_NAME),
+        "copiedFiles": copied_files,
+        "copiedDirectories": copied_dirs,
+        "wiki": _document_wiki_status(task_id, collection_name),
+    }
+
+
+def _document_package_target(artifact_name: str) -> str:
+    mapping = {
+        "manifest.json": "qa/parse_manifest.json",
+        "document.md": "sections/document.md",
+        "blocks.json": "sections/blocks.json",
+        "tables.json": "tables/tables.json",
+        "logical_tables.json": "logical_tables/logical_tables.json",
+        "table_relations.json": "logical_tables/table_relations.json",
+        "table_merge_corrections.json": "logical_tables/table_merge_corrections.json",
+        "figures.json": "figures/figures.json",
+        "figure_index.json": "figures/figure_index.json",
+        "comparison_map.json": "comparison/comparison_map.json",
+        "layout_blocks.json": "comparison/layout_blocks.json",
+        "reading_order.json": "comparison/reading_order.json",
+        "source_map.json": "qa/source_map.json",
+        "quality_report.json": "qa/quality_report.json",
+        "extraction/schema.json": "extraction/schema.json",
+        "extraction/result.json": "extraction/result.json",
+        "extraction/evidence_map.json": "extraction/evidence_map.json",
+        "extraction/validation_report.json": "extraction/validation_report.json",
+    }
+    return mapping.get(artifact_name, artifact_name)
+
+
 @router.get("/task/{task_id}/status")
 def task_workflow_status(task_id: str):
     return _workflow_status_payload(task_id)
+
+
+@router.get("/document/{task_id}/status")
+def document_workflow_status(task_id: str, collection: str = "default"):
+    return _document_workflow_status_payload(task_id, collection)
+
+
+@router.post("/document/{task_id}/wiki-import")
+def import_document_task_to_wiki(task_id: str, collection: str = "default"):
+    return _import_document_task_to_wiki(task_id, collection)
+
+
+@router.post("/document/{task_id}/db-import")
+def import_document_task_to_database(task_id: str, collection: str = "default"):
+    task_id = _safe_task_id(task_id)
+    wiki = _document_wiki_status(task_id, collection)
+    if wiki.get("status") not in {"ready", "stale"}:
+        raise HTTPException(422, "请先导入通用文档 Wiki 包")
+    if not DOCUMENT_DB_IMPORT_SCRIPT.is_file():
+        raise HTTPException(500, f"Document DB import script not found: {DOCUMENT_DB_IMPORT_SCRIPT}")
+    package_dir = Path(str(wiki.get("path") or ""))
+    if not (package_dir / DOCUMENT_PACKAGE_MANIFEST_NAME).is_file():
+        raise HTTPException(404, "Document Wiki package manifest not found")
+    pg_config = _db_connect_config()
+    command_env = os.environ.copy()
+    command_env.update({
+        "PGHOST": str(pg_config["host"]),
+        "PGPORT": str(pg_config["port"]),
+        "PGDATABASE": str(pg_config["dbname"]),
+        "PGUSER": str(pg_config["user"]),
+        "PGPASSWORD": str(pg_config["password"]),
+        "DATABASE_URL": _postgres_database_url(pg_config),
+    })
+    result = _run_command([
+        sys.executable,
+        str(DOCUMENT_DB_IMPORT_SCRIPT),
+        str(package_dir),
+        "--database-url",
+        _postgres_database_url(pg_config),
+    ], timeout=300, env=command_env)
+    if result["returnCode"] != 0:
+        raise HTTPException(500, result)
+    return {
+        "ok": True,
+        "taskId": task_id,
+        "collection": _safe_document_collection(collection),
+        "packageDir": str(package_dir),
+        "result": result,
+        "postgres": _document_postgres_status(task_id, collection),
+    }
+
+
+@router.post("/document/{task_id}/semantic")
+def build_document_semantic_chunks(
+    task_id: str,
+    collection: str = "default",
+    milvus: bool = False,
+):
+    task_id = _safe_task_id(task_id)
+    wiki = _document_wiki_status(task_id, collection)
+    if wiki.get("status") not in {"ready", "stale"}:
+        raise HTTPException(422, "请先导入通用文档 Wiki 包")
+    if not DOCUMENT_CHUNK_SCRIPT.is_file():
+        raise HTTPException(500, f"Document chunk script not found: {DOCUMENT_CHUNK_SCRIPT}")
+    package_dir = Path(str(wiki.get("path") or ""))
+    output = package_dir / "semantic" / "chunks.jsonl"
+    report = package_dir / "semantic" / "ingest_report.json"
+    args = [
+        sys.executable,
+        str(DOCUMENT_CHUNK_SCRIPT),
+        str(package_dir),
+        "--collection",
+        "siq_documents",
+        "--output",
+        str(output),
+        "--report",
+        str(report),
+    ]
+    if milvus:
+        args.append("--milvus")
+    result = _run_command(args, timeout=1800 if milvus else 300)
+    if result["returnCode"] != 0:
+        raise HTTPException(500, result)
+    return {
+        "ok": True,
+        "taskId": task_id,
+        "collection": _safe_document_collection(collection),
+        "packageDir": str(package_dir),
+        "result": result,
+        "semanticMode": "milvus" if milvus else "chunks",
+        "milvus": _document_milvus_status(task_id, collection),
+    }
 
 
 @router.post("/task/{task_id}/wiki-import")

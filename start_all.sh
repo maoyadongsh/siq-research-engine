@@ -178,11 +178,7 @@ start_hermes_gateway() {
     local profile_dir
     profile_dir="$("$SIQ_PROJECT_ROOT/scripts/hermes/profile_dir.sh" "$profile")"
     log "启动 $label Hermes 网关 ($profile_dir)..."
-    (
-        cd "$profile_dir"
-        export HERMES_HOME="$profile_dir"
-        exec hermes gateway run --replace --accept-hooks
-    ) &
+    "$SIQ_PROJECT_ROOT/scripts/hermes/run_gateway.sh" "$profile" &
     pids+=($!)
 }
 

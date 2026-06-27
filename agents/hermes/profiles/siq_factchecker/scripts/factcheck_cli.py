@@ -19,11 +19,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 scripts_dir = Path(__file__).parent
 sys.path.insert(0, str(scripts_dir))
-shared_scripts_dir = Path("/home/maoyd/.hermes/profiles/shared/scripts")
+shared_scripts_dir = Path("/home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts")
 if str(shared_scripts_dir) not in sys.path:
     sys.path.insert(0, str(shared_scripts_dir))
 # Legacy fallback: tracking scripts still ship a re-export shim.
-tracking_scripts_dir = Path("/home/maoyd/wiki/tracking/scripts")
+tracking_scripts_dir = Path("/home/maoyd/siq-research-engine/data/wiki/tracking/scripts")
 if str(tracking_scripts_dir) not in sys.path:
     sys.path.append(str(tracking_scripts_dir))
 
@@ -1111,7 +1111,7 @@ def cmd_verify(args):
     # tooling sees this verdict in the company-level pointer file. Best-effort.
     try:
         company_dir = accessor.get_analysis_dir(company.company_id).parent
-        index_script = Path("/home/maoyd/.hermes/profiles/shared/scripts/update_company_index.py")
+        index_script = Path("/home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts/update_company_index.py")
         if index_script.exists() and company_dir.exists():
             import subprocess
             subprocess.run(

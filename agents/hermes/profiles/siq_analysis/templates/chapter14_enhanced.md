@@ -88,7 +88,7 @@ Evidence证据片段（含页码、表格位置）
 - 质量报告：`quality_report.json`
 
 #### 第三层：知识库与数据库
-- 公司Wiki：`/home/maoyd/wiki/companies/{code}-{name}/`
+- 公司Wiki：`/home/maoyd/siq-research-engine/data/wiki/companies/{code}-{name}/`
 - PostgreSQL表：
   - `pdf2md.三表明细` - 三大报表数据
   - `pdf2md.财务宽表` - 综合财务指标

@@ -3693,7 +3693,7 @@ if __name__ == "__main__":
         test_quality,
     )
     
-    output_path = Path("/home/maoyd/.hermes/profiles/siq_analysis/test_v2_renderer.html")
+    output_path = Path("/home/maoyd/siq-research-engine/data/hermes/home/profiles/siq_analysis/test_v2_renderer.html")
     output_path.write_text(result, encoding="utf-8")
     print(f"Test HTML written to: {output_path}")
     print(f"File size: {len(result)} bytes")

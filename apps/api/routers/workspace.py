@@ -372,6 +372,66 @@ def _artifact_payload(item: UserArtifact) -> dict:
     }
 
 
+def _artifact_search_text(item: UserArtifact) -> str:
+    return " ".join([
+        _artifact_type_label(item),
+        str(item.artifact_type or ""),
+        str(item.artifact_key or ""),
+        str(item.title or ""),
+        str(item.path or ""),
+        str(item.source or ""),
+        str(item.global_artifact_id or ""),
+    ]).lower()
+
+
+def _artifact_type_label(item: UserArtifact) -> str:
+    artifact_type = str(item.artifact_type or "").lower()
+    if artifact_type == "document_parse":
+        return "文档解析"
+    if artifact_type == "parse":
+        return "财报解析"
+    if artifact_type == "download":
+        return "下载材料"
+    if artifact_type == "report":
+        return "生成报告"
+    return item.artifact_type or "个人产物"
+
+
+def _artifact_page_url(item: UserArtifact) -> str:
+    artifact_type = str(item.artifact_type or "").lower()
+    key = str(item.artifact_key or "").strip()
+    path = str(item.path or "").strip()
+    target = path or key
+    if artifact_type == "document_parse":
+        if path.startswith("/documents"):
+            return path
+        return f"/documents?task={quote(target, safe='')}" if target else "/documents"
+    if artifact_type == "parse":
+        if path.startswith("/parse"):
+            return path
+        return f"/parse?task={quote(target, safe='')}" if target else "/parse"
+    if artifact_type == "download":
+        if path.startswith("/api/downloads/report-file"):
+            return path
+        return f"/api/downloads/report-file?path={quote(target, safe='')}" if target else "/downloads"
+    if path.startswith("/"):
+        return path
+    return path
+
+
+def _artifact_search_payload(item: UserArtifact) -> dict:
+    payload = _artifact_payload(item)
+    payload.update({
+        "typeLabel": _artifact_type_label(item),
+        "pageUrl": _artifact_page_url(item),
+        "filename": item.title,
+        "name": item.title,
+        "code": "",
+        "mtime": item.created_at.isoformat() if hasattr(item.created_at, "isoformat") else str(item.created_at),
+    })
+    return payload
+
+
 def _download_path_for_relative_path(relative_path: str) -> Path:
     try:
         safe = (DOWNLOADS_ROOT / relative_path).resolve()
@@ -499,6 +559,26 @@ def list_workspace_artifacts(
     items = session.exec(statement).all()
     items = sorted(items, key=lambda item: item.created_at, reverse=True)
     return {"artifacts": [_artifact_payload(item) for item in items]}
+
+
+@router.get("/artifacts/search")
+def search_workspace_artifacts(
+    q: str = "",
+    limit: int = Query(8, ge=1, le=30),
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    query = str(q or "").strip().lower()
+    terms = [term for term in query.split() if term]
+    statement = select(UserArtifact).where(UserArtifact.user_id == int(current_user.id))
+    items = session.exec(statement).all()
+    if terms:
+        items = [
+            item for item in items
+            if all(term in _artifact_search_text(item) for term in terms)
+        ]
+    items = sorted(items, key=lambda item: item.created_at, reverse=True)
+    return {"results": [_artifact_search_payload(item) for item in items[:limit]]}
 
 
 @router.get("/projects")

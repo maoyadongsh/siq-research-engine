@@ -1,15 +1,21 @@
 import type {
   DocumentBlocksPayload,
+  DocumentExtractionTemplatesPayload,
   DocumentFiguresPayload,
+  DocumentMineruImportCandidatesPayload,
   DocumentQualityReport,
   DocumentResult,
   DocumentSourceMapPayload,
+  DocumentTableRelationsPayload,
   DocumentTablesPayload,
   DocumentTaskItem,
+  DocumentWikiImportResult,
+  DocumentWorkflowStatus,
 } from './documentTypes'
 import { readJsonResponse } from './pdfApi'
 
 export const DOCUMENT_API = '/api/documents'
+const DOCUMENT_WORKFLOW_API = '/api/workflow/document'
 
 export async function checkDocumentParserHealth(): Promise<Record<string, unknown> | null> {
   try {
@@ -44,6 +50,24 @@ export async function createDocumentTaskFromUrl(payload: Record<string, unknown>
   })
   const d = await readJsonResponse<{ tasks?: DocumentTaskItem[]; detail?: { message?: string }; error?: string; message?: string }>(r)
   if (!r.ok) throw new Error(String(d.detail?.message || d.message || d.error || 'URL 解析失败'))
+  return d
+}
+
+export async function importDocumentFromMineru(payload: Record<string, unknown>): Promise<{ task?: DocumentTaskItem }> {
+  const r = await fetch(`${DOCUMENT_API}/import/mineru`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  const d = await readJsonResponse<{ task?: DocumentTaskItem; detail?: { message?: string }; error?: string; message?: string }>(r)
+  if (!r.ok) throw new Error(String(d.detail?.message || d.message || d.error || 'MinerU 产物导入失败'))
+  return d
+}
+
+export async function fetchMineruImportCandidates(limit = 50): Promise<DocumentMineruImportCandidatesPayload> {
+  const r = await fetch(`${DOCUMENT_API}/import/mineru/candidates?limit=${encodeURIComponent(String(limit))}`)
+  const d = await readJsonResponse<DocumentMineruImportCandidatesPayload & { detail?: { message?: string }; error?: string; message?: string }>(r)
+  if (!r.ok) throw new Error(String(d.detail?.message || d.message || d.error || 'MinerU 候选目录加载失败'))
   return d
 }
 
@@ -82,6 +106,10 @@ export function documentDownloadUrl(taskId: string): string {
   return `${DOCUMENT_API}/download/${encodeURIComponent(taskId)}`
 }
 
+export function documentBatchDownloadUrl(): string {
+  return `${DOCUMENT_API}/download/batch`
+}
+
 export async function fetchDocumentQuality(taskId: string): Promise<DocumentQualityReport> {
   return fetchDocumentArtifactJson<DocumentQualityReport>(taskId, 'quality_report.json')
 }
@@ -103,6 +131,35 @@ export async function fetchDocumentFigures(taskId: string): Promise<DocumentFigu
 
 export async function fetchDocumentSourceMap(taskId: string): Promise<DocumentSourceMapPayload> {
   return fetchDocumentArtifactJson<DocumentSourceMapPayload>(taskId, 'source_map.json')
+}
+
+export async function fetchDocumentTableRelations(taskId: string): Promise<DocumentTableRelationsPayload> {
+  const r = await fetch(`${DOCUMENT_API}/table-relations/${encodeURIComponent(taskId)}`)
+  const d = await readJsonResponse<DocumentTableRelationsPayload & { error?: string }>(r)
+  if (!r.ok) throw new Error(String(d.error || '表格关系加载失败'))
+  return d
+}
+
+export async function fetchDocumentExtractionTemplates(): Promise<DocumentExtractionTemplatesPayload> {
+  const r = await fetch(`${DOCUMENT_API}/extraction/templates`)
+  const d = await readJsonResponse<DocumentExtractionTemplatesPayload & { error?: string }>(r)
+  if (!r.ok) throw new Error(String(d.error || '抽取模板加载失败'))
+  return d
+}
+
+export async function reviewDocumentTableRelation(
+  taskId: string,
+  relationId: string,
+  body: { review_status?: string; reviewStatus?: string; note?: string },
+): Promise<Record<string, unknown>> {
+  const r = await fetch(`${DOCUMENT_API}/table-relations/${encodeURIComponent(taskId)}/${encodeURIComponent(relationId)}/review`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  const d = await readJsonResponse<Record<string, unknown> & { error?: string }>(r)
+  if (!r.ok) throw new Error(String(d.error || '表格关系复核失败'))
+  return d
 }
 
 export async function runDocumentExtraction(taskId: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -132,4 +189,39 @@ export async function deleteDocumentTask(taskId: string): Promise<void> {
   const r = await fetch(`${DOCUMENT_API}/tasks/${encodeURIComponent(taskId)}`, { method: 'DELETE' })
   const d = await readJsonResponse<Record<string, unknown> & { error?: string }>(r)
   if (!r.ok) throw new Error(String(d.error || '删除失败'))
+}
+
+export async function fetchDocumentWorkflowStatus(taskId: string, collection = 'default'): Promise<DocumentWorkflowStatus> {
+  const params = new URLSearchParams({ collection })
+  const r = await fetch(`${DOCUMENT_WORKFLOW_API}/${encodeURIComponent(taskId)}/status?${params.toString()}`)
+  const d = await readJsonResponse<DocumentWorkflowStatus & { error?: string; detail?: string }>(r)
+  if (!r.ok) throw new Error(String(d.error || d.detail || '文档入库状态加载失败'))
+  return d
+}
+
+export async function importDocumentToWiki(taskId: string, collection = 'default'): Promise<DocumentWikiImportResult> {
+  const params = new URLSearchParams({ collection })
+  const r = await fetch(`${DOCUMENT_WORKFLOW_API}/${encodeURIComponent(taskId)}/wiki-import?${params.toString()}`, { method: 'POST' })
+  const d = await readJsonResponse<DocumentWikiImportResult & { error?: string; detail?: string | { message?: string } }>(r)
+  const detail = typeof d.detail === 'string' ? d.detail : d.detail?.message
+  if (!r.ok) throw new Error(String(d.error || detail || '导入 Wiki 失败'))
+  return d
+}
+
+export async function importDocumentToDatabase(taskId: string, collection = 'default'): Promise<DocumentWikiImportResult> {
+  const params = new URLSearchParams({ collection })
+  const r = await fetch(`${DOCUMENT_WORKFLOW_API}/${encodeURIComponent(taskId)}/db-import?${params.toString()}`, { method: 'POST' })
+  const d = await readJsonResponse<DocumentWikiImportResult & { error?: string; detail?: string | { message?: string } }>(r)
+  const detail = typeof d.detail === 'string' ? d.detail : d.detail?.message
+  if (!r.ok) throw new Error(String(d.error || detail || '导入 PostgreSQL 失败'))
+  return d
+}
+
+export async function buildDocumentSemanticChunks(taskId: string, collection = 'default', milvus = false): Promise<DocumentWikiImportResult> {
+  const params = new URLSearchParams({ collection, milvus: String(milvus) })
+  const r = await fetch(`${DOCUMENT_WORKFLOW_API}/${encodeURIComponent(taskId)}/semantic?${params.toString()}`, { method: 'POST' })
+  const d = await readJsonResponse<DocumentWikiImportResult & { error?: string; detail?: string | { message?: string } }>(r)
+  const detail = typeof d.detail === 'string' ? d.detail : d.detail?.message
+  if (!r.ok) throw new Error(String(d.error || detail || (milvus ? '写入 Milvus 失败' : '生成语义 chunks 失败')))
+  return d
 }

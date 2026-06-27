@@ -1,0 +1,18 @@
+[
+  {
+    "case_id": "cross_page_table_pdf_001",
+    "kind": "pdf",
+    "path": "eval_datasets/document_parser_cases/files/cross_page_table_001.pdf",
+    "expected_artifacts": [
+      "tables.json",
+      "logical_tables.json",
+      "table_relations.json",
+      "table_merge_corrections.json",
+      "source_map.json"
+    ],
+    "expected_quality_status": "pass|warning",
+    "expected_min_tables": 2,
+    "expected_min_table_relations": 1,
+    "notes": "跨页断表样本应输出物理片段、逻辑表、关系候选和人工复核记录。"
+  }
+]

@@ -55,9 +55,7 @@ export SIQ_AUTH_SECRET_KEY="$(openssl rand -hex 32)"
 
 ```bash
 cd /home/maoyd/siq-research-engine
-PROFILE_DIR="$(scripts/hermes/profile_dir.sh siq_analysis)"
-cd "$PROFILE_DIR"
-HERMES_HOME="$PROFILE_DIR" hermes gateway run --replace --accept-hooks
+scripts/hermes/run_gateway.sh siq_analysis
 ```
 
 健康检查：

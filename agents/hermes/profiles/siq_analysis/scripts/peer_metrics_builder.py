@@ -292,7 +292,7 @@ def build_interpretation(target_row: dict[str, Any], aggregates: dict[str, Any],
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--company-dir", required=True, type=Path)
-    parser.add_argument("--wiki-dir", type=Path, default=Path("/home/maoyd/wiki"))
+    parser.add_argument("--wiki-dir", type=Path, default=Path("/home/maoyd/siq-research-engine/data/wiki"))
     parser.add_argument("--year", type=int, default=2025)
     parser.add_argument("--min-peers", type=int, default=3)
     parser.add_argument("--output", type=Path)

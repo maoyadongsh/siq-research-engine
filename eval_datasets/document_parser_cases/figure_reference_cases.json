@@ -1,0 +1,18 @@
+[
+  {
+    "case_id": "figure_reference_pdf_001",
+    "kind": "pdf",
+    "path": "eval_datasets/document_parser_cases/files/figure_reference_001.pdf",
+    "expected_artifacts": [
+      "document.md",
+      "figures.json",
+      "figure_index.json",
+      "source_map.json",
+      "quality_report.json"
+    ],
+    "expected_quality_status": "pass|warning",
+    "expected_min_figures": 1,
+    "expected_min_source_coverage": 0.95,
+    "notes": "Markdown 图片 anchor 必须与 figures.json.markdown_anchor 一致。"
+  }
+]

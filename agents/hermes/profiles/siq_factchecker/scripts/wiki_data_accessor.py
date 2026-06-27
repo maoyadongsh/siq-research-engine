@@ -11,7 +11,7 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 
 # 从环境变量读取基础路径
-WIKI_DIR = Path(os.environ.get("WIKI_DIR", "/home/maoyd/wiki"))
+WIKI_DIR = Path(os.environ.get("WIKI_DIR", "/home/maoyd/siq-research-engine/data/wiki"))
 COMPANY_CATALOG_PATH = WIKI_DIR / "_meta" / "company_catalog.json"
 
 

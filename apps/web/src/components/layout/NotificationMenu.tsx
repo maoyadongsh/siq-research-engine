@@ -35,7 +35,7 @@ interface WorkspaceArtifact {
   created_at?: string
 }
 
-type NoticeKind = 'agent' | 'parse' | 'download'
+type NoticeKind = 'agent' | 'parse' | 'download' | 'document'
 type Notice = { id: string; kind: NoticeKind; title: string; body: string; time: string; to: string }
 type ReportSection = 'analysis' | 'factcheck' | 'tracking' | 'legal'
 
@@ -99,6 +99,7 @@ function isAdminRole(role?: string) {
 function artifactKind(item: WorkspaceArtifact): NoticeKind {
   const type = (item.type || '').toLowerCase()
   if (type.includes('download')) return 'download'
+  if (type.includes('document_parse')) return 'document'
   if (type.includes('parse')) return 'parse'
   return 'agent'
 }
@@ -135,6 +136,7 @@ function reportPageTargetFromApiPath(path?: string) {
 function artifactTarget(item: WorkspaceArtifact) {
   const kind = artifactKind(item)
   if (kind === 'download') return `/api/downloads/report-file?path=${encodeURIComponent(item.path || item.key || '')}`
+  if (kind === 'document') return `/documents?task=${encodeURIComponent(item.key || item.path || '')}`
   if (kind === 'parse') return `/parse?task=${encodeURIComponent(item.key || item.path || '')}`
   const reportPageTarget = reportPageTargetFromApiPath(item.path)
   if (reportPageTarget) return reportPageTarget
@@ -297,6 +299,7 @@ export default function NotificationMenu() {
     navigate(notice.to)
   }
   const noticeIcon = (kind: NoticeKind) => {
+    if (kind === 'document') return <FileText className="h-4 w-4" />
     if (kind === 'parse') return <FileText className="h-4 w-4" />
     if (kind === 'download') return <Download className="h-4 w-4" />
     return <Sparkles className="h-4 w-4" />

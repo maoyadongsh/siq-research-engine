@@ -1,0 +1,19 @@
+[
+  {
+    "case_id": "diagram_image_001",
+    "kind": "image",
+    "path": "eval_datasets/document_parser_cases/files/diagram_001.png",
+    "expected_artifacts": [
+      "document.md",
+      "blocks.json",
+      "figures.json",
+      "source_map.json",
+      "quality_report.json"
+    ],
+    "expected_quality_status": "pass|warning",
+    "expected_min_blocks": 1,
+    "expected_min_figures": 1,
+    "expected_min_source_coverage": 1.0,
+    "notes": "图片必须成为一等产物，并可通过 source image API 回查 page_number/bbox/crop_url。"
+  }
+]

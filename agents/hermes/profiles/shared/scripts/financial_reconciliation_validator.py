@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Any
 
 
-WIKI_ROOT = Path("/home/maoyd/wiki")
-SCRIPTS_DIR = Path("/home/maoyd/.hermes/profiles/shared/scripts")
+WIKI_ROOT = Path("/home/maoyd/siq-research-engine/data/wiki")
+SCRIPTS_DIR = Path("/home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts")
 NOTE_DETAIL_LOOKUP_PATH = SCRIPTS_DIR / "note_detail_lookup.py"
 ZERO_AMOUNT_MARKERS = {"-", "—", "–", "不适用", "N/A", "NA", "nil", "Nil", ""}
 CHINA_GOODWILL_ACCOUNTING_RULES = (

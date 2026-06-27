@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_WIKI_DIR = Path(os.environ.get("WIKI_DIR", "/home/maoyd/wiki"))
+DEFAULT_WIKI_DIR = Path(os.environ.get("WIKI_DIR", "/home/maoyd/siq-research-engine/data/wiki"))
 
 
 def load_json(path: Path) -> dict[str, Any]:
