@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { FileText, Loader2 } from 'lucide-react'
+import { EmptyState } from '@/components/page'
+import { PageSection } from '../components/page/PageShell'
 import { checkHealth, fetchStatus, loadDownloadedReports as loadDownloadedReportsApi } from '../lib/pdfApi'
 import { PDF_CSS } from './pdf/pdfStyles'
 import { useEditableTable } from './pdf/useEditableTable'
@@ -18,7 +20,58 @@ import { PdfUploadPanel } from '../components/pdf/PdfUploadPanel'
 import { PdfWorkflowPanel } from '../components/pdf/PdfWorkflowPanel'
 import { MarketParsingTabs } from '../components/pdf/MarketParsingTabs'
 import { useToast } from '../hooks/useToast'
+import { taskMatchesMarket } from '../lib/pdfTaskMarkets'
 import type { DownloadedPdf, HealthStatus, TaskItem } from '../lib/pdfTypes'
+
+const sectionLabels: Record<string, string> = {
+  'pdf-upload': '上传',
+  'pdf-status': '状态',
+  'pdf-result': '结果',
+  'pdf-source': '溯源',
+  'pdf-tasks': '任务',
+}
+
+function MobileTabStrip({ activeSection }: { activeSection: string }) {
+  return (
+    <div className="mobile-tab-strip">
+      {Object.entries(sectionLabels).map(([id, label]) => (
+        <a key={id} href={`#${id}`} className={activeSection === id ? 'is-active' : ''}>
+          {label}
+        </a>
+      ))}
+    </div>
+  )
+}
+
+function useActiveSection(ids: string[]) {
+  const [active, setActive] = useState(ids[0] || '')
+  useEffect(() => {
+    if (ids.length === 0) return
+    const ratios = new Map<string, number>()
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => ratios.set(entry.target.id, entry.intersectionRatio))
+        let best = ids[0]
+        let bestRatio = 0
+        ids.forEach((id) => {
+          const r = ratios.get(id) || 0
+          if (r > bestRatio) {
+            bestRatio = r
+            best = id
+          }
+        })
+        if (bestRatio > 0) setActive(best)
+      },
+      { rootMargin: '-12% 0px -55% 0px', threshold: [0, 0.25, 0.5, 0.75, 1] },
+    )
+    ids.forEach((id) => {
+      const el = document.getElementById(id)
+      if (el) observer.observe(el)
+    })
+    return () => observer.disconnect()
+  }, [ids])
+  return active
+}
 
 type PdfParsingMarket = 'CN' | 'HK' | 'US' | 'JP' | 'KR' | 'EU'
 
@@ -103,9 +156,14 @@ export default function PdfParsing() {
 
   const workflowRef = useRef<{ loadWorkflowStatus: () => Promise<void> }>({ loadWorkflowStatus: async () => {} })
 
+  const sectionIds = useMemo(() => ['pdf-upload', 'pdf-status', 'pdf-result', 'pdf-source', 'pdf-tasks'], [])
+  const activeSection = useActiveSection(sectionIds)
+
   const showToast = useCallback((msg: string) => {
     toast({ type: 'info', title: msg })
   }, [toast])
+
+  const taskMatchesCurrentMarket = useCallback((task: TaskItem) => taskMatchesMarket(task, activeMarket), [activeMarket])
 
   const tasks = usePdfTasks({
     backend,
@@ -116,6 +174,8 @@ export default function PdfParsing() {
     table,
     showToast,
     onWorkflowReload: () => workflowRef.current.loadWorkflowStatus(),
+    taskFilter: taskMatchesCurrentMarket,
+    market: activeMarket,
     setSelectedFilesRef,
   })
 
@@ -314,13 +374,7 @@ export default function PdfParsing() {
 
       <PdfHealthStrip health={health} />
 
-      <div className="mobile-tab-strip">
-        <a href="#pdf-upload">上传</a>
-        <a href="#pdf-status">状态</a>
-        <a href="#pdf-result">结果</a>
-        <a href="#pdf-source">溯源</a>
-        <a href="#pdf-tasks">任务</a>
-      </div>
+      <MobileTabStrip activeSection={activeSection} />
 
       <div id="pdf-upload">
         <PdfUploadPanel
@@ -483,70 +537,88 @@ export default function PdfParsing() {
         />
       )}
 
-      <div id="pdf-result" className="grid gap-4">
-      <PdfMarkdownPreview
-        markdown={tasks.markdown}
-        mdLines={tasks.mdLines}
-        focusedLine={tasks.focusedLine}
-        taskId={tasks.taskIdRef.current}
-        mdRef={mdRef}
-        showToast={showToast}
-      />
+      <PageSection
+        id="pdf-result"
+        title="解析结果"
+        description="Markdown 原文、产物清单、质量报告与财务校验结果。"
+        className="border-0 bg-transparent shadow-none"
+      >
+        <div className="grid gap-4">
+          <PdfMarkdownPreview
+            markdown={tasks.markdown}
+            mdLines={tasks.mdLines}
+            focusedLine={tasks.focusedLine}
+            taskId={tasks.taskIdRef.current}
+            mdRef={mdRef}
+            showToast={showToast}
+          />
 
-      <PdfArtifactList artifacts={tasks.artifacts || {}} />
+          <PdfArtifactList artifacts={tasks.artifacts || {}} />
 
-      {tasks.quality && <PdfQualityPanel quality={tasks.quality} onShowTableSource={sourceTrace.showTableSource} />}
+          {tasks.quality && <PdfQualityPanel quality={tasks.quality} onShowTableSource={sourceTrace.showTableSource} />}
 
-      {tasks.financial && <PdfFinancialPanel financial={tasks.financial} taskId={tasks.taskIdRef.current} />}
-      </div>
+          {tasks.financial && <PdfFinancialPanel financial={tasks.financial} taskId={tasks.taskIdRef.current} />}
+        </div>
+      </PageSection>
 
-      <div id="pdf-source">
-      <PdfSourceWorkbench
-        sourceVisible={sourceTrace.sourceVisible}
-        srcTable={sourceTrace.srcTable}
-        srcMeta={sourceTrace.srcMeta}
-        readingMode={sourceTrace.readingMode}
-        switchReadingMode={sourceTrace.switchReadingMode}
-        readingHtml={sourceTrace.readingHtml}
-        pdfCtx={sourceTrace.pdfCtx}
-        editTableRef={sourceTrace.editTableRef}
-        pdfCurPage={sourceTrace.pdfCurPage}
-        setPdfCurPage={sourceTrace.setPdfCurPage}
-        pdfZoom={sourceTrace.pdfZoom}
-        setPdfZoom={sourceTrace.setPdfZoom}
-        getPdfUrl={sourceTrace.getPdfUrl}
-        updatePdfViewer={sourceTrace.updatePdfViewer}
-        onTableClick={editable.handleTableClick}
-        onTableFocus={editable.handleTableFocus}
-        onTableInput={editable.handleTableInput}
-        onReadingClick={handleReadingClick}
-        corrStatusRef={corrStatusRef}
-        corrTextRef={corrTextRef}
-        corrNoteRef={corrNoteRef}
-        saveCorrection={editable.saveCorrection}
-      />
-      </div>
+      <PageSection
+        id="pdf-source"
+        title="可视化溯源"
+        description="表格阅读视图与 PDF 原页对照，支持人工复核修正。"
+        className="border-0 bg-transparent shadow-none"
+      >
+        <PdfSourceWorkbench
+          sourceVisible={sourceTrace.sourceVisible}
+          srcTable={sourceTrace.srcTable}
+          srcMeta={sourceTrace.srcMeta}
+          readingMode={sourceTrace.readingMode}
+          switchReadingMode={sourceTrace.switchReadingMode}
+          readingHtml={sourceTrace.readingHtml}
+          pdfCtx={sourceTrace.pdfCtx}
+          editTableRef={sourceTrace.editTableRef}
+          pdfCurPage={sourceTrace.pdfCurPage}
+          setPdfCurPage={sourceTrace.setPdfCurPage}
+          pdfZoom={sourceTrace.pdfZoom}
+          setPdfZoom={sourceTrace.setPdfZoom}
+          getPdfUrl={sourceTrace.getPdfUrl}
+          updatePdfViewer={sourceTrace.updatePdfViewer}
+          onTableClick={editable.handleTableClick}
+          onTableFocus={editable.handleTableFocus}
+          onTableInput={editable.handleTableInput}
+          onReadingClick={handleReadingClick}
+          corrStatusRef={corrStatusRef}
+          corrTextRef={corrTextRef}
+          corrNoteRef={corrNoteRef}
+          saveCorrection={editable.saveCorrection}
+        />
+      </PageSection>
 
-      <div id="pdf-tasks">
-      <PdfTaskList
-        tasks={tasks.tasks}
-        taskId={tasks.taskIdRef.current}
-        resultLoading={tasks.resultLoading}
-        onResume={onTaskResume}
-        onViewResult={onTaskViewResult}
-        onDelete={tasks.deleteTask}
-        onRefetch={tasks.refetchTask}
-        onReparse={tasks.reparseTask}
-        onRefresh={() => void tasks.loadTasks()}
-      />
-      </div>
+      <PageSection
+        id="pdf-tasks"
+        title="最近任务"
+        description="本地解析任务列表，可查看结果、补拉、重跑或删除。"
+        className="border-0 bg-transparent shadow-none"
+      >
+        <PdfTaskList
+          tasks={tasks.tasks}
+          taskId={tasks.taskIdRef.current}
+          resultLoading={tasks.resultLoading}
+          onResume={onTaskResume}
+          onViewResult={onTaskViewResult}
+          onDelete={tasks.deleteTask}
+          onRefetch={tasks.refetchTask}
+          onReparse={tasks.reparseTask}
+          onRefresh={() => void tasks.loadTasks()}
+        />
+      </PageSection>
 
       {!tasks.markdown && !tasks.parseActive && tasks.tasks.length === 0 && (
-        <div className="rounded-[24px] border border-dashed border-border bg-card px-6 py-12 text-center text-text-muted shadow-sm">
-          <FileText className="mx-auto mb-3 h-10 w-10 opacity-40" />
-          <p className="text-sm font-semibold text-text">{copy.emptyTitle}</p>
-          <p className="mt-1 text-xs">{copy.emptyDescription}</p>
-        </div>
+        <EmptyState
+          icon={FileText}
+          title={copy.emptyTitle}
+          description={copy.emptyDescription}
+          className="surface-card border-dashed py-12"
+        />
       )}
       </div>
     </div>

@@ -54,7 +54,9 @@ export default function Layout() {
           className={`mx-auto max-w-[1680px] px-3 sm:px-4 md:px-5 ${collapsed ? 'lg:px-5 xl:px-6' : 'lg:px-6 xl:px-8'}`}
           style={{ paddingTop: 'calc(var(--app-content-y) / 2)', paddingBottom: 'calc(var(--app-content-y) / 2)' }}
         >
-          <Outlet />
+          <div key={pathname} className="animate-in fade-in slide-in-from-bottom-2 duration-200">
+            <Outlet />
+          </div>
         </div>
       </main>
       {!hideGlobalChat && <ChatBot />}

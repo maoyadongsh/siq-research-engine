@@ -52,6 +52,7 @@ function OpenChatBot({ onClose }: { onClose: () => void }) {
   const { toast } = useToast()
   const [historyOpen, setHistoryOpen] = useState(false)
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false)
+  const [minimized, setMinimized] = useState(false)
   const {
     messages,
     sessions,
@@ -146,11 +147,12 @@ function OpenChatBot({ onClose }: { onClose: () => void }) {
 
   return (
     <ChatShell
+      minimized={minimized}
       className="global-chat-window fixed z-50 rounded-[var(--radius-panel)] border border-border bg-white/96 shadow-[0_24px_80px_rgba(15,23,42,0.18)] backdrop-blur-2xl"
       style={{
         bottom: 'max(1rem, env(safe-area-inset-bottom))',
         right: 'max(1rem, env(safe-area-inset-right))',
-        height: 'min(620px, calc(100dvh - 2rem))',
+        height: minimized ? 'auto' : 'min(620px, calc(100dvh - 2rem))',
         width: 'min(400px, calc(100vw - 2rem))',
       }}
       header={
@@ -191,11 +193,12 @@ function OpenChatBot({ onClose }: { onClose: () => void }) {
                 <Trash2 className="h-4 w-4" />
               </button>
               <button
-                onClick={onClose}
+                onClick={() => setMinimized((v) => !v)}
                 className="flex h-9 w-9 items-center justify-center rounded-xl text-text-muted hover:bg-bg hover:text-text"
-                aria-label="最小化"
+                aria-label={minimized ? '展开' : '最小化'}
+                title={minimized ? '展开' : '最小化'}
               >
-                <Minus className="h-4 w-4" />
+                {minimized ? <Plus className="h-4 w-4" /> : <Minus className="h-4 w-4" />}
               </button>
               <button
                 onClick={onClose}

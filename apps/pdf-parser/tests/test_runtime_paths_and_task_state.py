@@ -349,8 +349,111 @@ class TaskArtifactStateTest(unittest.TestCase):
         finally:
             app.DB_PATH = old_db_path
 
+    def test_recent_task_list_exposes_market_from_submit_config(self):
+        old_db_path = app.DB_PATH
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                app.DB_PATH = os.path.join(tmpdir, "tasks.db")
+                app._init_db()
+                task = {
+                    "task_id": "hk-task",
+                    "mineru_task_id": None,
+                    "filename": "manual-hk-upload.pdf",
+                    "file_size": 1,
+                    "pdf_page_count": 1,
+                    "status": COMPLETED,
+                    "stage": COMPLETED,
+                    "created_at": "2026-05-01T00:00:00Z",
+                    "uploaded_at": "2026-05-01T00:00:00Z",
+                    "submitted_at": None,
+                    "started_at": None,
+                    "completed_at": "2026-05-01T00:01:00Z",
+                    "cancelled": False,
+                    "error": None,
+                    "markdown_path": None,
+                    "upload_path": None,
+                    "last_progress_log_time": None,
+                    "last_status_payload": None,
+                    "last_polled_at": None,
+                    "consecutive_status_failures": 0,
+                    "submit_config": {"market": "HK"},
+                    "logs": [],
+                }
+                app._save_task(task, allow_insert=True)
+
+                tasks = app._list_recent_tasks(limit=10)
+
+                self.assertEqual(tasks[0]["market"], "HK")
+                self.assertEqual(tasks[0]["submit_config"]["market"], "HK")
+        finally:
+            app.DB_PATH = old_db_path
+
+    def test_recent_task_list_infers_market_from_filename_when_missing(self):
+        old_db_path = app.DB_PATH
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                app.DB_PATH = os.path.join(tmpdir, "tasks.db")
+                app._init_db()
+                task = {
+                    "task_id": "eu-task",
+                    "mineru_task_id": None,
+                    "filename": "AstraZeneca-PLC_EU_AZN_2025-12-31_年报_2026-02-26_eu_direct_eb3a13dc.pdf",
+                    "file_size": 1,
+                    "pdf_page_count": 1,
+                    "status": COMPLETED,
+                    "stage": COMPLETED,
+                    "created_at": "2026-05-01T00:00:00Z",
+                    "uploaded_at": "2026-05-01T00:00:00Z",
+                    "submitted_at": None,
+                    "started_at": None,
+                    "completed_at": "2026-05-01T00:01:00Z",
+                    "cancelled": False,
+                    "error": None,
+                    "markdown_path": None,
+                    "upload_path": None,
+                    "last_progress_log_time": None,
+                    "last_status_payload": None,
+                    "last_polled_at": None,
+                    "consecutive_status_failures": 0,
+                    "submit_config": {},
+                    "logs": [],
+                }
+                app._save_task(task, allow_insert=True)
+
+                tasks = app._list_recent_tasks(limit=10)
+
+                self.assertEqual(tasks[0]["market"], "EU")
+                self.assertEqual(tasks[0]["submit_config"]["market"], "EU")
+        finally:
+            app.DB_PATH = old_db_path
+
+    def test_task_market_from_record_prefers_filename_when_submit_config_missing(self):
+        task = {
+            "task_id": "jp-task",
+            "filename": "Nintendo-Co.,-Ltd_JP_7974_2025-03-31_年报_2025-07-07_issuer_annual_report_3952349c.pdf",
+            "submit_config": {},
+        }
+
+        self.assertEqual(app._task_market_from_record(task), "JP")
+
 
 class ApiLayerTest(unittest.TestCase):
+    def test_status_response_freezes_elapsed_time_for_completed_tasks(self):
+        task = {
+            "task_id": "task-1",
+            "filename": "task.pdf",
+            "status": "completed",
+            "stage": "completed",
+            "started_at": "2026-05-01T00:00:00Z",
+            "completed_at": "2026-05-01T00:03:00Z",
+            "logs": [],
+        }
+
+        with patch.object(app, "_utc_now", return_value=app.datetime(2026, 5, 1, 0, 10, 0)):
+            payload = app._build_status_response(task)
+
+        self.assertEqual(payload["elapsed_seconds"], 180)
+
     def test_health_endpoint_uses_submit_readiness_payload(self):
         if not hasattr(app.app, "test_client"):
             self.skipTest("Flask test client is unavailable in the lightweight import stub")

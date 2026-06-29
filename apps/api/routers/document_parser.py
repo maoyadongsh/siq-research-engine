@@ -567,6 +567,18 @@ async def source_page(
     return await _proxy_document_parser(request, f"/api/source/{quote(task_id, safe='')}/page/{page_number}")
 
 
+@router.get("/source/{task_id}/page-image/{page_number}")
+async def source_page_image(
+    request: Request,
+    task_id: str,
+    page_number: int,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    _ensure_document_task_access(session, current_user, task_id)
+    return await _proxy_document_parser(request, f"/api/source/{quote(task_id, safe='')}/page-image/{page_number}")
+
+
 @router.get("/source/{task_id}/block/{block_id}")
 async def source_block(
     request: Request,

@@ -10,6 +10,7 @@ from typing import Any
 
 from contracts import ParseConfig, ParseOutput, SourceFile
 from file_utils import guess_mime_type, safe_client_filename, sha256_file, validate_extension
+from page_metadata import page_metadata_from_mineru_middle
 from providers.simple import _blocks_to_markdown, _markdown_table
 
 
@@ -22,6 +23,7 @@ def parse_mineru_output_dir(task_id: str, source_dir: Path, config: ParseConfig 
     metadata = _read_json(source_dir / "metadata.json", {}) or _read_json(source_dir / "document_full.json", {})
     source = _source_file_from_dir(task_id, source_dir, metadata)
     normalized_items = _normalize_content_list(content_list)
+    page_metadata = page_metadata_from_mineru_middle(middle)
     page_count = _page_count(normalized_items, middle, enhanced)
     blocks = _content_items_to_blocks(task_id, normalized_items)
     if not markdown:
@@ -38,6 +40,7 @@ def parse_mineru_output_dir(task_id: str, source_dir: Path, config: ParseConfig 
         blocks=blocks,
         tables=_dedupe_tables(tables),
         figures=_dedupe_figures(figures),
+        page_metadata=page_metadata,
         warnings=warnings,
         page_count=page_count,
         provider_name="mineru_import",
@@ -128,7 +131,7 @@ def _content_items_to_blocks(task_id: str, items: list[dict[str, Any]]) -> list[
                 "sheet_name": "",
                 "slide_number": None,
                 "bbox": _bbox(item),
-                "bbox_unit": "pixel" if _bbox(item) else "none",
+                "bbox_unit": "normalized_1000" if _bbox(item) else "none",
                 "reading_order": index,
                 "parent_block_id": "",
                 "source_ref": {
@@ -163,7 +166,7 @@ def _tables_from_content_list(task_id: str, items: list[dict[str, Any]]) -> list
                 "caption": caption,
                 "page_number": max(1, page_number),
                 "bbox": _bbox(item),
-                "bbox_unit": "pixel" if _bbox(item) else "none",
+                "bbox_unit": "normalized_1000" if _bbox(item) else "none",
                 "html": html,
                 "markdown": markdown,
                 "cells": _table_cells(task_id, table_id, rows),
@@ -201,7 +204,7 @@ def _tables_from_enhanced(task_id: str, enhanced: Any, existing_count: int) -> l
                 "caption": _join_text(item.get("source_caption") or []),
                 "page_number": page_number,
                 "bbox": _bbox(item),
-                "bbox_unit": "pixel" if _bbox(item) else "none",
+                "bbox_unit": "normalized_1000" if _bbox(item) else "none",
                 "html": "",
                 "markdown": preview,
                 "cells": [],
@@ -238,7 +241,7 @@ def _figures_from_content_list(task_id: str, items: list[dict[str, Any]], source
                 "page_number": max(1, page_number),
                 "page_index": max(0, page_number - 1),
                 "bbox": _bbox(item),
-                "bbox_unit": "pixel" if _bbox(item) else "none",
+                "bbox_unit": "normalized_1000" if _bbox(item) else "none",
                 "image_path": image_path,
                 "crop_path": image_path,
                 "thumbnail_path": image_path,
@@ -286,7 +289,7 @@ def _figures_from_enhanced(task_id: str, enhanced: Any, source_dir: Path, existi
                 "page_number": page_number,
                 "page_index": max(0, page_number - 1),
                 "bbox": _bbox(item),
-                "bbox_unit": "pixel" if _bbox(item) else "none",
+                "bbox_unit": "normalized_1000" if _bbox(item) else "none",
                 "image_path": image_path,
                 "crop_path": image_path,
                 "thumbnail_path": image_path,

@@ -3,6 +3,7 @@ import { cn } from '@/lib/utils'
 
 interface PageShellProps {
   children: ReactNode
+  variant?: 'default' | 'secondary'
   className?: string
 }
 
@@ -14,6 +15,7 @@ interface PageHeaderProps {
   meta?: ReactNode
   actions?: ReactNode
   children?: ReactNode
+  compact?: boolean
   className?: string
 }
 
@@ -24,10 +26,21 @@ interface PageSectionProps {
   actions?: ReactNode
   className?: string
   contentClassName?: string
+  id?: string
 }
 
-export function PageShell({ children, className }: PageShellProps) {
-  return <div className={cn('page-shell min-w-0 overflow-x-hidden', className)}>{children}</div>
+export function PageShell({ children, variant = 'default', className }: PageShellProps) {
+  return (
+    <div
+      className={cn(
+        'page-shell min-w-0 overflow-x-hidden',
+        variant === 'secondary' && 'secondary-page',
+        className
+      )}
+    >
+      {children}
+    </div>
+  )
 }
 
 export function PageHeader({
@@ -38,17 +51,18 @@ export function PageHeader({
   meta,
   actions,
   children,
+  compact = false,
   className,
 }: PageHeaderProps) {
   return (
     <section className={cn('page-header', className)}>
-      <div className="page-header-inner">
+      <div className={cn('page-header-inner', compact && 'lg:!py-4 lg:!px-5')}>
         <div className="min-w-0">
           <div className="page-kicker">
             {Icon ? <Icon className="h-3.5 w-3.5" /> : null}
             {eyebrow}
           </div>
-          <h1 className="page-title">{title}</h1>
+          <h1 className={cn('page-title', compact && 'text-[1.35rem] sm:text-[1.6rem] lg:text-[1.85rem]')}>{title}</h1>
           {description ? <p className="page-description">{description}</p> : null}
           {meta ? <div className="mt-4 flex flex-wrap items-center gap-2">{meta}</div> : null}
         </div>
@@ -66,9 +80,10 @@ export function PageSection({
   actions,
   className,
   contentClassName,
+  id,
 }: PageSectionProps) {
   return (
-    <section className={cn('surface-panel', className)}>
+    <section id={id} className={cn('surface-panel', className)}>
       {(title || description || actions) && (
         <div className="flex flex-col gap-3 border-b border-border/70 px-4 py-4 sm:px-5 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">

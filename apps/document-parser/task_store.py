@@ -43,6 +43,13 @@ class TaskStore:
                     parser_provider TEXT DEFAULT '',
                     quality_status TEXT DEFAULT '',
                     artifact_count INTEGER DEFAULT 0,
+                    upstream_task_id TEXT DEFAULT '',
+                    upstream_status TEXT DEFAULT '',
+                    queue_position INTEGER,
+                    local_queue_position INTEGER,
+                    elapsed_seconds INTEGER,
+                    total_pages INTEGER,
+                    processed_pages INTEGER,
                     error TEXT DEFAULT '',
                     config_json TEXT DEFAULT '{}',
                     created_at TEXT NOT NULL,
@@ -62,6 +69,18 @@ class TaskStore:
                 )
                 """
             )
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(tasks)").fetchall()}
+            for name, ddl in {
+                "upstream_task_id": "TEXT DEFAULT ''",
+                "upstream_status": "TEXT DEFAULT ''",
+                "queue_position": "INTEGER",
+                "local_queue_position": "INTEGER",
+                "elapsed_seconds": "INTEGER",
+                "total_pages": "INTEGER",
+                "processed_pages": "INTEGER",
+            }.items():
+                if name not in columns:
+                    conn.execute(f"ALTER TABLE tasks ADD COLUMN {name} {ddl}")
 
     def create_task(self, task: dict[str, Any]) -> None:
         now = now_iso()
@@ -71,9 +90,11 @@ class TaskStore:
                 INSERT INTO tasks (
                     task_id, filename, document_kind, source_type, source_url, status, stage,
                     progress_percent, file_size, file_sha256, mime_type, parser_provider,
-                    quality_status, artifact_count, error, config_json, created_at, updated_at, completed_at
+                    quality_status, artifact_count, upstream_task_id, upstream_status,
+                    queue_position, local_queue_position, elapsed_seconds, total_pages,
+                    processed_pages, error, config_json, created_at, updated_at, completed_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     task["task_id"],
@@ -90,6 +111,13 @@ class TaskStore:
                     task.get("parser_provider", ""),
                     task.get("quality_status", ""),
                     int(task.get("artifact_count", 0)),
+                    task.get("upstream_task_id", ""),
+                    task.get("upstream_status", ""),
+                    task.get("queue_position"),
+                    task.get("local_queue_position"),
+                    task.get("elapsed_seconds"),
+                    task.get("total_pages"),
+                    task.get("processed_pages"),
                     task.get("error", ""),
                     json.dumps(task.get("config", {}), ensure_ascii=False),
                     now,

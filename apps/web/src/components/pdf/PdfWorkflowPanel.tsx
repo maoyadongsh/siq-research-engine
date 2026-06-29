@@ -1,4 +1,5 @@
-import { Brain, Database, Loader2, Play, RefreshCw } from 'lucide-react'
+import { useMemo } from 'react'
+import { Brain, Check, Database, Loader2, Play, RefreshCw } from 'lucide-react'
 import type { ArtifactsMap, WorkflowJob, WorkflowStatus } from '../../lib/pdfTypes'
 import { WIKI_INPUT_ARTIFACTS } from '../../lib/pdfTypes'
 import { pipelineArtifactSummary, workflowReady } from '../../lib/pdfApi'
@@ -48,6 +49,55 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
   const llmSemanticDesc = workflowStatus?.semantic?.llm?.status === 'ready'
     ? `LLM 增强 ${llmSemanticCounts.claims || 0} 条判断 / ${llmSemanticCounts.risks || 0} 条风险`
     : ''
+
+  const steps = useMemo(
+    () => [
+      {
+        key: 'artifactBundle' as const,
+        label: '解析产物包',
+        status: workflowStatus?.artifactBundle?.status,
+        desc: backendSummary?.message || (workflowStatus?.documentFull?.status === 'ready' ? `${artifactReadyCount}/${artifactTotal} 个核心文件已生成` : '等待 document_full.json'),
+      },
+      {
+        key: 'wiki' as const,
+        label: 'Wiki 入库',
+        status: workflowStatus?.wiki?.status,
+        desc: workflowStatus?.wiki?.status === 'ready' ? workflowStatus?.wiki?.companyDir || '已导入' : (workflowStatus?.wiki?.message || '未导入 Wiki'),
+      },
+      {
+        key: 'semantic' as const,
+        label: '语义层',
+        status: workflowStatus?.semantic?.status,
+        desc: workflowReady(workflowStatus as Record<string, unknown> | null, 'semantic')
+          ? `规则事实 ${workflowStatus?.semantic?.counts?.facts || 0} / 证据 ${workflowStatus?.semantic?.counts?.evidence || 0}；${llmSemanticDesc}`
+          : (workflowStatus?.semantic?.message || llmSemanticDesc || '未生成或不完整'),
+      },
+      {
+        key: 'database' as const,
+        label: 'PostgreSQL',
+        status: workflowStatus?.database?.status,
+        desc: workflowReady(workflowStatus as Record<string, unknown> | null, 'database')
+          ? `指标 ${workflowStatus?.database?.statementItems || 0} / 表格 ${workflowStatus?.database?.tables || 0}`
+          : (workflowStatus?.database?.message || '未入库'),
+      },
+    ],
+    [workflowStatus, backendSummary, artifactReadyCount, artifactTotal, llmSemanticDesc],
+  )
+
+  const activeStep = useMemo(() => {
+    if (workflowBusy) {
+      const busyMap: Record<string, number> = {
+        'wiki-import': 1,
+        'wiki-import-generic': 1,
+        semantic: 2,
+        'semantic-generic': 2,
+        'db-import': 3,
+      }
+      if (busyMap[workflowBusy] !== undefined) return busyMap[workflowBusy]
+    }
+    const firstPending = steps.findIndex((s) => s.status !== 'ready')
+    return firstPending >= 0 ? firstPending : steps.length - 1
+  }, [workflowBusy, steps])
 
   const cards: Array<{ label: string; status?: string; desc: string }> = [
     {
@@ -165,7 +215,39 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
         <div className="mb-4 rounded-2xl border border-error/20 bg-error/5 p-3 text-sm text-error">{workflowError}</div>
       ) : null}
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <div className="mb-5 flex items-start gap-1 overflow-x-auto pb-2">
+        {steps.map((step, index) => {
+          const completed = step.status === 'ready'
+          const active = index === activeStep
+          const isLast = index === steps.length - 1
+          return (
+            <div key={step.key} className="relative flex min-w-[5.5rem] flex-1 flex-col items-center px-1">
+              {!isLast && (
+                <div
+                  className={`absolute left-1/2 top-3.5 h-0.5 w-full ${index < activeStep || (completed && index < steps.length - 1) ? 'bg-primary/40' : 'bg-border'}`}
+                />
+              )}
+              <div
+                className={`relative z-10 flex h-7 w-7 items-center justify-center rounded-full border-2 text-xs font-bold ${
+                  active
+                    ? 'border-primary bg-primary text-white shadow-md shadow-primary/25'
+                    : completed
+                      ? 'border-green-600 bg-green-600 text-white'
+                      : 'border-border bg-card text-text-muted'
+                }`}
+              >
+                {completed ? <Check className="h-4 w-4" /> : index + 1}
+              </div>
+              <div className={`mt-2 text-center text-xs font-semibold ${active ? 'text-text' : 'text-text-muted'}`}>{step.label}</div>
+              <div className="mt-0.5 max-w-[8rem] text-center text-[11px] leading-tight text-text-muted line-clamp-2">
+                {step.desc}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      <div className="hidden gap-3 md:grid md:grid-cols-2 xl:grid-cols-4">
         {cards.map((card) => (
           <div key={card.label} className="rounded-2xl border border-border bg-card p-4">
             <div className="flex items-center justify-between gap-3">

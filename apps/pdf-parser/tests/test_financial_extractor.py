@@ -459,6 +459,22 @@ class FinancialExtractorTests(unittest.TestCase):
 
         self.assertEqual(data["statements"], [])
 
+    def test_non_financial_document_short_circuits_financial_extraction(self):
+        markdown = """
+# 合同
+
+本合同由甲乙双方签署。
+"""
+        data = build_financial_data(markdown, task_id="task-contract", filename="采购合同.pdf")
+        checks = build_financial_checks(data)
+
+        self.assertEqual(data["summary"]["statement_count"], 0)
+        self.assertEqual(data["summary"]["key_metric_count"], 0)
+        self.assertFalse(data.get("statements"))
+        self.assertTrue(any("不像财报" in item or "跳过财务抽取" in item for item in data["warnings"]))
+        self.assertEqual(checks["overall_status"], "skipped")
+        self.assertTrue(any("跳过财务抽取" in item or "跳过财务抽取和勾稽检查" in item for item in checks["warnings"]))
+
     def test_llm_judge_only_classifies_and_script_extracts_values(self):
         fake = FakeTableJudge(
             {

@@ -31,6 +31,20 @@ FINANCIAL_LLM_PRESETS = {
 
 _CORE_STATEMENT_TYPES = {"balance_sheet", "income_statement", "cash_flow_statement"}
 
+_NON_FINANCIAL_REPORT_KINDS = {
+    "other",
+    "non_financial",
+    "non_financial_report",
+    "non_financial_document",
+}
+
+_NON_FINANCIAL_REPORT_KINDS = {
+    "other",
+    "non_financial",
+    "non_financial_report",
+    "non_financial_document",
+}
+
 _FINANCIAL_INDUSTRY_PROFILES = {"bank", "securities", "insurance"}
 
 _STATEMENT_TITLE_ALIASES = {
@@ -275,6 +289,26 @@ def _detect_industry_profile(markdown, filename=None):
     ):
         return "insurance"
     return "general"
+
+
+def _looks_like_financial_report(markdown, filename=None):
+    text = _report_identity_text(markdown, filename=filename)
+    compact = _compact_key(text + "\n" + str(filename or ""))
+    if _detect_report_kind(markdown, filename=filename) in {"annual_report_summary", "interim_report_summary"}:
+        return True
+    if any(term in compact for term in _CORE_STATEMENT_TITLE_TERMS):
+        return True
+    if any(term in compact for term in ("主要会计数据", "主要财务指标", "财务报告", "财务报表", "财务摘要")):
+        return True
+    if _looks_like_quarterly_report_title(compact):
+        return True
+    if any(term in compact for term in ("年度报告", "年报", "半年度报告", "半年报", "中报", "季报", "季度报告")):
+        return True
+    if any(term in compact for term in ("证券", "银行", "保险", "股份有限公司")) and any(
+        term in compact for term in ("利润表", "资产负债表", "现金流量表", "合并报表")
+    ):
+        return True
+    return False
 
 
 def _table_context(markdown, start, end):
@@ -2524,6 +2558,9 @@ def build_financial_data(markdown, task_id=None, filename=None, llm_judge=None, 
     report_year = _detect_report_year(markdown, filename=filename)
     report_kind = _detect_report_kind(markdown, filename=filename)
     industry_profile = _detect_industry_profile(markdown, filename=filename)
+    looks_like_financial_report = _looks_like_financial_report(markdown, filename=filename)
+    if report_kind in _NON_FINANCIAL_REPORT_KINDS:
+        looks_like_financial_report = False
     if llm_judge is None:
         llm_judge = QwenTableJudge.from_env(cache_dir=llm_cache_dir)
     data = {
@@ -2541,6 +2578,21 @@ def build_financial_data(markdown, task_id=None, filename=None, llm_judge=None, 
         "warnings": [],
         "generated_at": _now_iso(),
     }
+    data["classification_summary"] = {
+        "looks_like_financial_report": looks_like_financial_report,
+        "report_kind_blocked": report_kind in _NON_FINANCIAL_REPORT_KINDS,
+    }
+
+    if not looks_like_financial_report:
+        data["warnings"].append(
+            "当前内容不像财报或财报摘要，已跳过三大表/关键指标抽取。"
+        )
+        data["summary"] = {
+            "statement_count": 0,
+            "key_metric_count": 0,
+            "scopes": [],
+        }
+        return data
 
     statements = {}
     llm_candidates = []
@@ -3018,23 +3070,32 @@ def build_financial_checks(data):
     warnings = []
     if not isinstance(data, dict):
         data = {}
+    classification_summary = data.get("classification_summary") if isinstance(data.get("classification_summary"), dict) else {}
+    looks_like_financial_report = bool(classification_summary.get("looks_like_financial_report", True))
+    report_kind_blocked = bool(classification_summary.get("report_kind_blocked"))
 
-    for statement in data.get("statements", []):
-        statement_type = statement.get("statement_type")
-        scale = statement.get("scale") or 1.0
-        for period in _periods_for_statement(statement):
-            if statement_type == "balance_sheet":
-                checks.extend(_balance_sheet_checks(statement, period, scale))
-            elif statement_type == "income_statement":
-                checks.extend(_income_statement_checks(statement, period, scale))
-            elif statement_type == "cash_flow_statement":
-                checks.extend(_cash_flow_checks(statement, period, scale))
+    if looks_like_financial_report:
+        for statement in data.get("statements", []):
+            statement_type = statement.get("statement_type")
+            scale = statement.get("scale") or 1.0
+            for period in _periods_for_statement(statement):
+                if statement_type == "balance_sheet":
+                    checks.extend(_balance_sheet_checks(statement, period, scale))
+                elif statement_type == "income_statement":
+                    checks.extend(_income_statement_checks(statement, period, scale))
+                elif statement_type == "cash_flow_statement":
+                    checks.extend(_cash_flow_checks(statement, period, scale))
 
-    checks.extend(_cross_metric_checks(data))
-    checks.extend(_derived_financial_indicator_checks(data))
-    checks.extend(_yoy_change_warning_checks(data))
+        checks.extend(_cross_metric_checks(data))
+        checks.extend(_derived_financial_indicator_checks(data))
+        checks.extend(_yoy_change_warning_checks(data))
 
-    if data.get("report_kind") in {"annual_report_summary", "interim_report_summary"} and not data.get("statements"):
+    if not looks_like_financial_report:
+        if report_kind_blocked:
+            warnings.append("当前文件更像非财务文档，已跳过财务抽取和勾稽检查。")
+        else:
+            warnings.append("当前文件不像财报，已跳过财务抽取和勾稽检查。")
+    elif data.get("report_kind") in {"annual_report_summary", "interim_report_summary"} and not data.get("statements"):
         warnings.append("当前文件为报告摘要，已识别主要会计数据/财务指标，但不应将摘要文件当作完整年报；如需三大表，请使用年度报告全文")
     else:
         if not _statement_by(data, "balance_sheet"):

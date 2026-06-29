@@ -45,10 +45,12 @@ export function Surface<T extends ElementType = 'div'>({
 export function StatusBadge({
   children,
   tone = 'neutral',
+  icon: Icon,
   className,
 }: {
   children: ReactNode
   tone?: 'neutral' | 'info' | 'success' | 'warning' | 'error'
+  icon?: ElementType
   className?: string
 }) {
   const toneClass = {
@@ -59,5 +61,10 @@ export function StatusBadge({
     error: 'secondary-status-error',
   }[tone]
 
-  return <span className={cn('secondary-status', toneClass, className)}>{children}</span>
+  return (
+    <span className={cn('secondary-status', toneClass, className)}>
+      {Icon ? <Icon className="h-3.5 w-3.5" /> : null}
+      {children}
+    </span>
+  )
 }

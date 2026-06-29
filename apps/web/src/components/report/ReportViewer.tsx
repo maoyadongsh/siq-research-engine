@@ -113,6 +113,8 @@ export default function ReportViewer({ agentConfig, pageTitle, reportType, repor
     return () => { ignore = true }
   }, [selectedDir, requestedResult, reportApiSuffix, reportType])
 
+  const [retryKey, setRetryKey] = useState(0)
+
   useEffect(() => {
     let ignore = false
     async function loadContent() {
@@ -137,7 +139,9 @@ export default function ReportViewer({ agentConfig, pageTitle, reportType, repor
     }
     loadContent()
     return () => { ignore = true }
-  }, [selectedReportUrl])
+  }, [selectedReportUrl, retryKey])
+
+  const retryContent = () => setRetryKey((k) => k + 1)
 
   const selectedCompany = companies.find((c) => c.dir === selectedDir)
   const selectedReport = reports.find((report) => reportUrlFor(selectedDir, reportType, report) === selectedReportUrl)
@@ -330,6 +334,8 @@ export default function ReportViewer({ agentConfig, pageTitle, reportType, repor
                 iframeTitle={iframeTitle}
                 updatedAt={updatedAt}
                 accent={meta.accent}
+                error={reportError}
+                onRetry={retryContent}
               />
             ) : (
               <ReportEmptyState

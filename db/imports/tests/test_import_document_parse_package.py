@@ -74,6 +74,58 @@ def build_package(package_dir: Path):
     write_json(package_dir / "extraction" / "result.json", {"status": "not_run", "result": {}})
 
 
+def build_lightweight_package(package_dir: Path, source_dir: Path):
+    write_json(source_dir / "manifest.json", {
+        "schema_version": "generic_document_package_v1",
+        "document_id": "doc-task-a",
+        "task_id": "task-a",
+        "collection": "default",
+        "document_key": "demo-task-a",
+        "filename": "demo.pdf",
+        "document_kind": "pdf",
+        "parser_provider": "pypdf_text_parser",
+        "document_full_sha256": "abc",
+        "file_sha256": "file-sha",
+        "parser_version": "v1",
+    })
+    write_json(source_dir / "quality_report.json", {"overall_status": "pass", "warnings": []})
+    write_json(source_dir / "blocks.json", {
+        "blocks": [{"block_id": "b1", "type": "paragraph", "text": "hello", "source_ref": {"evidence_id": "e1"}}]
+    })
+    write_json(source_dir / "tables.json", {
+        "physical_tables": [{"table_id": "t1", "quality": {"row_count": 1, "column_count": 1}, "cells": [{"row_index": 0, "column_index": 0, "text": "A"}]}]
+    })
+    write_json(source_dir / "logical_tables.json", {"logical_tables": [{"logical_table_id": "lt1", "fragment_table_ids": ["t1"]}]})
+    write_json(source_dir / "table_relations.json", {"relations": []})
+    write_json(source_dir / "figures.json", {"figures": [{"image_id": "img1", "caption": "cap"}]})
+    write_json(source_dir / "source_map.json", {"sources": [{"evidence_id": "e1", "source_type": "text_block", "block_id": "b1"}]})
+    write_json(source_dir / "extraction" / "result.json", {"status": "not_run", "result": {}})
+    manifest = json.loads((source_dir / "manifest.json").read_text(encoding="utf-8"))
+    manifest["source_result_dir"] = str(source_dir)
+    artifacts = {}
+    for source_name in [
+        "manifest.json",
+        "quality_report.json",
+        "blocks.json",
+        "tables.json",
+        "logical_tables.json",
+        "table_relations.json",
+        "figures.json",
+        "source_map.json",
+        "extraction/result.json",
+    ]:
+        source_path = source_dir / source_name
+        artifacts[source_name] = {"source": str(source_path), "sha256": "sha-" + source_name, "size_bytes": source_path.stat().st_size}
+    manifest["artifacts"] = artifacts
+    write_json(package_dir / "manifest.json", manifest)
+    write_json(package_dir / "artifact_manifest.json", {
+        "schema_version": "generic_document_artifact_manifest_v1",
+        "source_result_dir": str(source_dir),
+        "artifacts": artifacts,
+    })
+    write_json(package_dir / "qa" / "quality_report.json", {"overall_status": "pass", "warnings": []})
+
+
 def test_document_importer_rejects_wrong_schema():
     importer = _load_importer()
     try:
@@ -105,3 +157,21 @@ def test_document_import_package_emits_core_inserts(tmp_path):
     assert "document_parser.parse_runs" in sql_text
     assert "document_parser.blocks" in sql_text
     assert "document_parser.sources" in sql_text
+
+
+def test_document_import_package_reads_full_artifacts_from_source_manifest(tmp_path):
+    importer = _load_importer()
+    package_dir = tmp_path / "wiki-package"
+    source_dir = tmp_path / "results" / "task-a"
+    build_lightweight_package(package_dir, source_dir)
+    conn = FakeConn()
+
+    parse_run_id = importer.import_package(conn, package_dir)
+
+    assert parse_run_id
+    sql_text = "\n".join(sql for sql, _ in conn.calls)
+    assert "document_parser.blocks" in sql_text
+    assert "document_parser.tables" in sql_text
+    assert "document_parser.sources" in sql_text
+    artifact_params = [params for sql, params in conn.calls if "document_parser.artifacts" in sql]
+    assert any(params and len(params) > 1 and params[1] == "source:blocks.json" for params in artifact_params)

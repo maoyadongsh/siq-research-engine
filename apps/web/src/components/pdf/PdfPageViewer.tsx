@@ -96,9 +96,9 @@ export function PdfPageViewer({ pdfCtx, pdfCurPage, setPdfCurPage, pdfZoom, setP
               </div>
             </div>
             <div className="pdf-zoom-controls">
-              {(['fit', '1', '1.5', '2'] as const).map((z) => (
+              {(['50', '100', '150'] as const).map((z) => (
                 <button key={z} className={`pdf-zoom-btn ${pdfZoom === z ? 'active' : ''}`} onClick={() => setPdfZoom(z)}>
-                  {z === 'fit' ? '适应宽度' : z === '1' ? '100%' : z === '1.5' ? '150%' : '200%'}
+                  {z}%
                 </button>
               ))}
             </div>
@@ -117,7 +117,7 @@ export function PdfPageViewer({ pdfCtx, pdfCurPage, setPdfCurPage, pdfZoom, setP
             </a>
           </div>
           <div className="pdf-page-canvas">
-            <div className="pdf-page-stage">
+            <div className="pdf-page-stage" data-zoom={pdfZoom}>
               {pageBlobUrl ? <img src={pageBlobUrl} alt="PDF page" /> : null}
               {overlays}
             </div>

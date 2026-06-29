@@ -1,4 +1,4 @@
-import { Loader2 } from 'lucide-react'
+import { Loader2, RefreshCw } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import type { ReportItem } from '@/lib/reportTypes'
 import { handleAuthenticatedSourceClick } from '@/lib/authenticatedSourceLinks'
@@ -11,6 +11,8 @@ interface ReportFrameProps {
   iframeTitle: string
   updatedAt: string
   accent: string
+  error?: string | null
+  onRetry?: () => void
 }
 
 export default function ReportFrame({
@@ -21,6 +23,8 @@ export default function ReportFrame({
   iframeTitle,
   updatedAt,
   accent,
+  error,
+  onRetry,
 }: ReportFrameProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
 
@@ -81,9 +85,30 @@ export default function ReportFrame({
         </div>
       )}
       {contentLoading ? (
-        <div className="flex items-center justify-center px-5 py-20 text-text-muted">
-          <Loader2 className="mr-3 h-6 w-6 animate-spin text-primary" />
-          正在加载报告内容...
+        <div className="space-y-4 px-5 py-10">
+          <div className="flex items-center gap-2 text-text-muted">
+            <Loader2 className="h-5 w-5 animate-spin text-primary" />
+            <span className="text-sm font-medium">正在加载报告内容...</span>
+          </div>
+          <div className="h-4 w-1/3 animate-pulse rounded-lg bg-border" />
+          <div className="h-48 animate-pulse rounded-xl bg-border" />
+          <div className="h-4 w-2/3 animate-pulse rounded-lg bg-border" />
+          <div className="h-4 w-1/2 animate-pulse rounded-lg bg-border" />
+        </div>
+      ) : error ? (
+        <div className="flex flex-col items-center justify-center px-5 py-16 text-center">
+          <p className="text-sm font-semibold text-error">报告内容加载失败</p>
+          <p className="mt-1 max-w-md text-sm text-text-muted">{error}</p>
+          {onRetry && (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="mt-4 inline-flex h-10 items-center gap-2 rounded-xl border border-border bg-card px-4 text-sm font-semibold text-text shadow-sm hover:bg-bg"
+            >
+              <RefreshCw className="h-4 w-4" />
+              重试
+            </button>
+          )}
         </div>
       ) : (
         <iframe
@@ -92,7 +117,7 @@ export default function ReportFrame({
           sandbox="allow-same-origin allow-popups allow-downloads"
           referrerPolicy="no-referrer"
           srcDoc={reportSrcDoc}
-          className="block w-full max-w-full border-none bg-white h-[min(70dvh,520px)] min-h-[320px] md:h-[min(78dvh,960px)] md:min-h-[600px]"
+          className="block w-full max-w-full border-none bg-white h-[min(72dvh,560px)] min-h-[360px] md:h-[min(80dvh,1020px)] md:min-h-[640px]"
           style={{ border: 'none', display: 'block', background: '#fff' }}
           title={iframeTitle}
         />

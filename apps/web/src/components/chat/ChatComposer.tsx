@@ -1,5 +1,5 @@
 import type { KeyboardEvent, RefObject } from 'react'
-import { Loader2, Paperclip, Plus, Send } from 'lucide-react'
+import { Paperclip, Plus, Send } from 'lucide-react'
 import type { AgentAttachment } from '../../lib/useAgentChat'
 import ChatAttachmentList from './ChatAttachmentList'
 
@@ -79,7 +79,7 @@ export default function ChatComposer({
           onChange={(event) => onAttachmentChange(event.target.files)}
         />
         <button
-          className="chat-composer-tool"
+          className="chat-composer-tool w-11 sm:w-auto sm:gap-1.5 sm:px-3"
           aria-label="添加附件"
           title="添加附件"
           type="button"
@@ -87,6 +87,7 @@ export default function ChatComposer({
           onClick={() => fileInputRef.current?.click()}
         >
           <Paperclip className={iconSize} />
+          <span className="hidden sm:inline text-xs">添加附件</span>
         </button>
         <div className="chat-composer-actions">
           {showNewChat && (
@@ -94,27 +95,30 @@ export default function ChatComposer({
               type="button"
               onClick={onNewChat}
               disabled={sending}
-              className="chat-composer-tool"
+              className="chat-composer-tool w-11 sm:w-auto sm:gap-1.5 sm:px-3"
               aria-label="新建会话"
               title="新建会话"
             >
               <Plus className={iconSize} />
+              <span className="hidden sm:inline text-xs">新建会话</span>
             </button>
           )}
-          {sending && (
-            <button type="button" onClick={onStop} className="chat-composer-stop">
+          {sending ? (
+            <button type="button" onClick={onStop} className="chat-composer-stop" aria-label="停止生成" title="停止生成">
               停止
             </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onSend}
+              disabled={uploadingAttachments || (!input.trim() && attachments.length === 0)}
+              className="chat-composer-send"
+              aria-label="发送消息"
+              title="发送消息"
+            >
+              <Send className={iconSize} />
+            </button>
           )}
-          <button
-            type="button"
-            onClick={onSend}
-            disabled={sending || uploadingAttachments || (!input.trim() && attachments.length === 0)}
-            className="chat-composer-send"
-            aria-label="发送消息"
-          >
-            {sending ? <Loader2 className={`${iconSize} animate-spin`} /> : <Send className={iconSize} />}
-          </button>
         </div>
       </div>
     </div>

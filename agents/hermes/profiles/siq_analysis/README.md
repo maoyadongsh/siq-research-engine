@@ -29,7 +29,7 @@
 
 ## 输入
 
-标准输入来自公司 Wiki：
+标准输入来自公司 Wiki 和证据层：
 
 ```text
 companies/<company_id>/
@@ -43,8 +43,6 @@ companies/<company_id>/
   reports/<report_id>/document_full.json
 ```
 
-PostgreSQL `pdf2md` schema 用于补充页面、表格、内容块和引用信息。数据库访问应只读。
-
 ## 输出
 
 分析报告写入：
@@ -56,31 +54,10 @@ companies/<company_id>/analysis/
   <stock_code>-<short_name>-<year>-analysis.html
 ```
 
-Web 工作台 `/analysis` 读取 HTML 报告，并在右侧接入分析 Agent 对话面板。
-
 ## 证据规则
 
 - 所有关键数字必须来自结构化指标、PDF 表格、Markdown 行或数据库记录。
 - 字段不足时明确写出“无法可靠计算”，不填补假设值。
 - 若 Wiki 与数据库口径不一致，应说明采用口径和差异来源。
 - 引用优先包含 `task_id`、`pdf_page`、`table_index`、`md_line` 和报告文件。
-- 不输出综合评分、星级、AAA/CCC、A-E 评级、目标价或交易建议。
-
-## 前端与 API
-
-| 项目 | 值 |
-| --- | --- |
-| 前端页面 | `/analysis` |
-| API 前缀 | `/api/analysis/*` |
-| Hermes profile | `siq_analysis` |
-| 默认端口 | `18651` |
-| 报告目录 | `companies/<company_id>/analysis/` |
-
-## 维护检查
-
-```bash
-curl -s http://127.0.0.1:18651/health
-curl -s http://127.0.0.1:18081/api/wiki/companies/list
-```
-
-每次调整生成模板、财务模型或引用格式后，应抽样检查 HTML 报告、JSON 结构、报告内溯源链接和事实核查 Agent 的可读性。
+- 不输出综合评分、星级、AAA/CCC、目标价或交易建议。

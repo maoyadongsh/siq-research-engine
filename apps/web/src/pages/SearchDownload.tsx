@@ -16,7 +16,14 @@ import {
   AlertTriangle,
 } from 'lucide-react'
 import { useToast } from '../hooks/useToast'
+import { EmptyState, MobileActionBar } from '@/components/page'
 import { openAuthenticatedSourceLink } from '../lib/authenticatedSourceLinks'
+import {
+  DISCLOSURE_MARKET_ORDER,
+  DISCLOSURE_MARKETS,
+  isDisclosureMarketCode,
+  type DisclosureMarketCode,
+} from '../lib/marketMetadata'
 import { loadDownloadedReports as loadDownloadedReportsApi } from '../lib/pdfApi'
 
 interface ReportItem {
@@ -65,7 +72,7 @@ interface DownloadedPdf {
   isPdf?: boolean
 }
 
-type MarketCode = 'CN' | 'HK' | 'US' | 'EU' | 'KR' | 'JP'
+type MarketCode = DisclosureMarketCode
 
 interface AssistIntent {
   market?: MarketCode
@@ -124,7 +131,7 @@ interface MarketConfig {
 
 const MARKET_CONFIGS: Record<MarketCode, MarketConfig> = {
   CN: {
-    label: 'A股',
+    label: DISCLOSURE_MARKETS.CN.label,
     shortLabel: 'CN',
     queryLabel: '公司名称 / 股票代码',
     queryPlaceholder: '如：比亚迪 或 002594',
@@ -146,7 +153,7 @@ const MARKET_CONFIGS: Record<MarketCode, MarketConfig> = {
     ],
   },
   HK: {
-    label: '港股',
+    label: DISCLOSURE_MARKETS.HK.label,
     shortLabel: 'HK',
     queryLabel: '港股代码 / 公司名称',
     queryPlaceholder: '优先输入 5 位港股代码，如：03690；也可输入 MEITUAN-W',
@@ -160,7 +167,7 @@ const MARKET_CONFIGS: Record<MarketCode, MarketConfig> = {
     ],
   },
   US: {
-    label: '美股',
+    label: DISCLOSURE_MARKETS.US.label,
     shortLabel: 'US',
     queryLabel: 'Ticker / CIK / 公司名称',
     queryPlaceholder: '如：AAPL、MSFT 或 0000320193',
@@ -182,7 +189,7 @@ const MARKET_CONFIGS: Record<MarketCode, MarketConfig> = {
     ],
   },
   EU: {
-    label: '欧股',
+    label: DISCLOSURE_MARKETS.EU.label,
     shortLabel: 'EU',
     queryLabel: 'ISIN / LEI / Ticker / 公司名称',
     queryPlaceholder: '如：ASML、GB00BP6MXD84 或 5493001KJTIIGC8Y1R12',
@@ -205,7 +212,7 @@ const MARKET_CONFIGS: Record<MarketCode, MarketConfig> = {
     ],
   },
   KR: {
-    label: '韩股',
+    label: DISCLOSURE_MARKETS.KR.label,
     shortLabel: 'KR',
     queryLabel: '韩国股票代码 / 公司名称 / DART Corp Code',
     queryPlaceholder: '如：005930、三星电子 或 00126380',
@@ -219,7 +226,7 @@ const MARKET_CONFIGS: Record<MarketCode, MarketConfig> = {
     ],
   },
   JP: {
-    label: '日股',
+    label: DISCLOSURE_MARKETS.JP.label,
     shortLabel: 'JP',
     queryLabel: '日本证券代码 / 公司名称 / EDINET Code',
     queryPlaceholder: '如：7203、トヨタ自動車 或 E02144',
@@ -266,7 +273,7 @@ const marketSourceConfigLabels: Partial<Record<MarketCode, string>> = {
 }
 
 function isMarketCode(value: string | null): value is MarketCode {
-  return value === 'CN' || value === 'HK' || value === 'US' || value === 'EU' || value === 'KR' || value === 'JP'
+  return isDisclosureMarketCode(value)
 }
 
 function isRemoteConfigError(message: string) {
@@ -1074,19 +1081,19 @@ export default function SearchDownload() {
     const allChecked = reports.every((r) => selected.has(r.document_url))
 
     return (
-      <div className="overflow-hidden rounded-[20px] border border-border bg-card shadow-sm">
+      <div className="overflow-hidden rounded-[var(--radius-panel)] border border-border bg-card shadow-sm">
         <div className="flex flex-col gap-3 border-b border-border px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <h3 className="flex min-w-0 items-center gap-2 text-base font-semibold text-text">
             {icon}
             {title}
           </h3>
-          <label className="flex h-10 cursor-pointer items-center gap-2 self-start rounded-xl border border-border bg-bg/50 px-3 text-sm font-semibold text-text-muted sm:self-auto">
+          <label className="flex h-10 cursor-pointer items-center gap-2 self-start rounded-xl border border-border bg-bg/50 px-3 text-sm font-semibold text-text-muted transition-colors hover:bg-bg sm:self-auto">
             全选
             <input
               type="checkbox"
               checked={allChecked}
               onChange={() => toggleAll(reports)}
-              className="h-[18px] w-[18px] cursor-pointer rounded accent-primary"
+              className="h-5 w-5 cursor-pointer rounded accent-primary"
             />
           </label>
         </div>
@@ -1100,25 +1107,30 @@ export default function SearchDownload() {
                     type="checkbox"
                     checked={selected.has(report.document_url)}
                     onChange={() => toggleSelect(report.document_url)}
-                    className="mt-1 h-5 w-5 shrink-0 cursor-pointer rounded accent-primary"
+                    className="mt-0.5 h-5 w-5 shrink-0 cursor-pointer rounded accent-primary"
                   />
                   <span className="min-w-0 flex-1">
                     <span className="block break-words text-sm font-semibold leading-6 text-text">{report.title}</span>
                     {explanation ? (
                       <span className="mt-1 block break-words text-sm leading-6 text-text-muted">{explanation.title_zh}</span>
                     ) : null}
-                    <span className="mt-3 grid grid-cols-2 gap-2 text-xs text-text-muted">
+                    <span className="mt-3 flex flex-wrap items-center gap-2 text-xs text-text-muted">
                       <span className={typeStyles[report.report_type] || 'secondary-table-chip'}>
                         {explanation?.report_type_zh || reportTypeLabel(report)}
                       </span>
                       <span className="rounded-full border border-border bg-bg/60 px-2.5 py-1 font-mono tabular-nums">
                         {explanation?.period_zh || report.report_end || '-'}
                       </span>
-                      <span className="col-span-2 rounded-full border border-border bg-bg/60 px-2.5 py-1 font-mono tabular-nums">
+                      <span className="rounded-full border border-border bg-bg/60 px-2.5 py-1 font-mono tabular-nums">
                         披露 {report.published_at || '-'}
                       </span>
+                      {explanation?.warnings?.length ? (
+                        <span className="rounded-full border border-warning/20 bg-warning/10 px-2.5 py-1 text-warning">
+                          {explanation.warnings.join('；')}
+                        </span>
+                      ) : null}
                       {explanation ? (
-                        <span className={`col-span-2 rounded-xl border px-2.5 py-1.5 ${
+                        <span className={`rounded-xl border px-2.5 py-1.5 ${
                           explanation.recommended ? 'border-primary/20 bg-primary/5 text-primary' : 'border-border bg-bg/60'
                         }`}>
                           {explanation.recommended ? '推荐：' : ''}{explanation.recommendation}
@@ -1131,16 +1143,16 @@ export default function SearchDownload() {
             )
           })}
         </div>
-        <div className="hidden overflow-x-auto md:block">
-          <table className="w-full min-w-[980px] text-sm">
+        <div className="scroll-hint hidden overflow-x-auto md:block">
+          <table className="w-full min-w-full text-sm">
             <thead>
-              <tr className="border-b border-border bg-bg/50">
-                <th className="w-10 px-4 py-3"></th>
-                <th className="px-4 py-3 text-left font-semibold text-text-muted">报告标题</th>
-                <th className="w-[260px] px-4 py-3 text-left font-semibold text-text-muted">中文说明</th>
-                <th className="w-24 px-4 py-3 text-left font-semibold text-text-muted">类型</th>
-                <th className="w-28 px-4 py-3 text-left font-semibold text-text-muted">报告期</th>
-                <th className="w-28 px-4 py-3 text-left font-semibold text-text-muted">披露日期</th>
+              <tr className="border-b border-border bg-bg/60">
+                <th className="w-12 px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-text-muted">选择</th>
+                <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-text-muted">报告标题</th>
+                <th className="min-w-[12rem] px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-text-muted">中文说明</th>
+                <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-text-muted">类型</th>
+                <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-text-muted">报告期</th>
+                <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-text-muted">披露日期</th>
               </tr>
             </thead>
             <tbody>
@@ -1151,16 +1163,16 @@ export default function SearchDownload() {
                     key={report.document_url || idx}
                     className="border-b border-border/50 transition-colors last:border-0 hover:bg-bg/50"
                   >
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3 align-top">
                       <input
                         type="checkbox"
                         checked={selected.has(report.document_url)}
                         onChange={() => toggleSelect(report.document_url)}
-                        className="h-[18px] w-[18px] cursor-pointer rounded accent-primary"
+                        className="h-5 w-5 cursor-pointer rounded accent-primary"
                       />
                     </td>
-                    <td className="px-4 py-3 font-medium leading-6 text-text">{report.title}</td>
-                    <td className="px-4 py-3 leading-6 text-text-muted">
+                    <td className="px-4 py-3 align-top font-medium leading-6 text-text">{report.title}</td>
+                    <td className="px-4 py-3 align-top leading-6 text-text-muted">
                       {explanation ? (
                         <div className="space-y-1">
                           <div className="font-medium text-text">{explanation.title_zh}</div>
@@ -1173,15 +1185,15 @@ export default function SearchDownload() {
                         <span className="text-xs">-</span>
                       )}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3 align-top">
                       <span className={typeStyles[report.report_type] || 'secondary-table-chip'}>
                         {explanation?.report_type_zh || reportTypeLabel(report)}
                       </span>
                     </td>
-                    <td className="px-4 py-3 font-mono text-xs tabular-nums text-text-muted">
+                    <td className="px-4 py-3 align-top font-mono text-xs tabular-nums text-text-muted">
                       {explanation?.period_zh || report.report_end}
                     </td>
-                    <td className="px-4 py-3 font-mono text-xs tabular-nums text-text-muted">
+                    <td className="px-4 py-3 align-top font-mono text-xs tabular-nums text-text-muted">
                       {report.published_at}
                     </td>
                   </tr>
@@ -1235,28 +1247,41 @@ export default function SearchDownload() {
   }
 
   const MarketSegmentedControl = (
-    <div className="market-segmented" aria-label="选择披露市场">
-      {(Object.keys(MARKET_CONFIGS) as MarketCode[]).map((item) => (
-        <button
-          key={item}
-          type="button"
-          onClick={() => setMarketAndUrl(item)}
-          className={market === item ? 'is-active' : ''}
-          aria-pressed={market === item}
-          title={MARKET_CONFIGS[item].label}
-        >
-          <span className="hidden sm:inline">{MARKET_CONFIGS[item].label}</span>
-          <span className="sm:hidden">{MARKET_CONFIGS[item].shortLabel}</span>
-        </button>
-      ))}
-    </div>
+    <nav className="grid grid-cols-2 gap-2 rounded-[20px] border border-border bg-card p-2 shadow-sm xl:grid-cols-6" aria-label="选择披露市场">
+      {DISCLOSURE_MARKET_ORDER.map((item) => {
+        const marketMeta = DISCLOSURE_MARKETS[item]
+        const isActive = market === item
+        return (
+          <button
+            key={item}
+            type="button"
+            onClick={() => setMarketAndUrl(item)}
+            className={`flex min-h-[4.5rem] items-center justify-between gap-2 rounded-2xl px-3 py-2.5 text-left transition-colors sm:min-h-20 sm:gap-3 sm:px-4 sm:py-3 ${
+              isActive
+                ? 'bg-primary/10 text-primary'
+                : 'text-text-muted hover:bg-bg hover:text-text'
+            }`}
+            aria-pressed={isActive}
+            title={`${marketMeta.professionalName} · ${marketMeta.exchanges}`}
+          >
+            <span className="min-w-0">
+              <span className="block text-sm font-semibold">{marketMeta.label}</span>
+              <span className="mt-0.5 block truncate font-mono text-[11px] leading-4 opacity-75">{marketMeta.exchanges}</span>
+              <span className="mt-0.5 block text-xs leading-5 opacity-70">{marketMeta.searchDescription}</span>
+            </span>
+            <span className="flex shrink-0 flex-col items-end gap-1">
+              <span className="rounded-full border border-current/20 px-2 py-0.5 font-mono text-xs">{marketMeta.shortLabel}</span>
+            </span>
+          </button>
+        )
+      })}
+    </nav>
   )
 
   return (
     <div className="secondary-page min-w-0 overflow-x-hidden">
 
-      {/* Search Card */}
-      <div className="secondary-hero">
+      <section className="secondary-hero">
         <div className="secondary-hero-inner">
           <div className="max-w-3xl">
             <div className="secondary-kicker">
@@ -1267,7 +1292,6 @@ export default function SearchDownload() {
             <p className="secondary-description">按公司名或股票代码检索公告财报，选择目标文件后进入解析与分析流程。</p>
           </div>
           <div className="flex w-full flex-col gap-3 lg:w-auto lg:items-end">
-            {MarketSegmentedControl}
             <div className="secondary-step-row">
               <span className="secondary-step-chip is-active">查询</span>
               <span className="secondary-step-chip">候选 {totalCandidates}</span>
@@ -1275,7 +1299,11 @@ export default function SearchDownload() {
             </div>
           </div>
         </div>
-        <div className="search-download-query border-t border-border/70">
+      </section>
+
+      {MarketSegmentedControl}
+
+      <section className="search-download-query secondary-panel">
           <h3 className="search-download-heading">
             <Filter className="h-5 w-5 text-primary" />
             查询公司财报
@@ -1417,8 +1445,7 @@ export default function SearchDownload() {
               </span>
             </div>
           ) : null}
-        </div>
-      </div>
+      </section>
 
       {/* Quick Download */}
       {companyInfo && !companyInfo.curated && (annualReports.length > 0 || financialReports.length > 0) && (
@@ -1448,14 +1475,22 @@ export default function SearchDownload() {
 
       {/* Download Selected Bar */}
       {(annualReports.length > 0 || financialReports.length > 0) && (
-        <div className="sticky-action-bar flex flex-col gap-3 rounded-[var(--radius-panel)] border border-border bg-card/95 px-4 py-4 shadow-[0_14px_34px_rgba(15,23,42,0.10)] backdrop-blur sm:flex-row sm:flex-wrap sm:items-center sm:px-5">
-          <span className="text-sm text-text-muted">
-            已选择 <strong className="text-text">{selected.size}</strong> 份
-          </span>
+        <MobileActionBar className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <Download className="h-5 w-5" />
+            </span>
+            <div>
+              <p className="text-sm font-semibold text-text">
+                已选择 <span className="font-mono text-base text-primary">{selected.size}</span> 份披露文件
+              </p>
+              <p className="text-xs text-text-muted">选择后点击下载，系统将自动拉取到本地</p>
+            </div>
+          </div>
           <button
             onClick={handleDownload}
             disabled={downloading || selected.size === 0}
-            className="flex h-11 w-full items-center justify-center gap-2 rounded-xl accent-gradient px-4 text-sm font-semibold text-white transition-all hover:-translate-y-0.5 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 sm:h-10 sm:w-auto"
+            className="flex h-11 w-full items-center justify-center gap-2 rounded-xl accent-gradient px-5 text-sm font-semibold text-white shadow-lg shadow-primary/15 transition-all hover:-translate-y-0.5 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none sm:h-10 sm:w-auto"
           >
             {downloading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -1464,12 +1499,12 @@ export default function SearchDownload() {
             )}
             下载选中披露文件
           </button>
-        </div>
+        </MobileActionBar>
       )}
 
       {/* Download Results */}
       {downloadResults.length > 0 && (
-        <div className="apple-card rounded-[24px] p-4 sm:p-5">
+        <div className="apple-card rounded-[var(--radius-panel)] p-4 sm:p-5">
           <h3 className="mb-4 flex items-center gap-2 text-base font-semibold text-text">
             <CheckCircle2 className="h-4 w-4 text-success" />
             下载结果
@@ -1552,14 +1587,15 @@ export default function SearchDownload() {
 
       {/* Empty State */}
       {annualReports.length === 0 && financialReports.length === 0 && !loading && (
-        <div className="rounded-[24px] border border-dashed border-border bg-card px-4 py-10 text-center text-text-muted shadow-sm sm:px-6 sm:py-12">
-          <Search className="mx-auto mb-3 h-10 w-10 opacity-35" />
-          <p className="text-sm font-semibold text-text">{marketConfig.emptyText}</p>
-          <p className="mt-1 text-xs">{marketConfig.helpText}</p>
-        </div>
+        <EmptyState
+          icon={Search}
+          title={marketConfig.emptyText}
+          description={marketConfig.helpText}
+          className="surface-card border-dashed py-10 sm:py-12"
+        />
       )}
 
-      <div className="apple-card rounded-[24px] p-4 sm:p-6">
+      <div className="apple-card rounded-[var(--radius-panel)] p-4 sm:p-6">
         <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
             <h2 className="flex items-center gap-2 text-lg font-semibold text-text sm:text-xl">
@@ -1599,13 +1635,17 @@ export default function SearchDownload() {
             <Loader2 className="h-6 w-6 animate-spin text-primary" />
           </div>
         ) : downloadedReports.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-border bg-bg/40 px-5 py-8 text-center text-sm text-text-muted">
-            暂无已下载财报文件。完成上方下载后，这里会自动汇总本地文件。
-          </div>
+          <EmptyState
+            icon={FolderOpen}
+            title="暂无已下载财报文件"
+            description="完成上方下载后，这里会自动汇总本地文件。"
+            className="border-dashed"
+          />
         ) : (
           <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border">
             {visibleDownloadedReports.map((report) => {
               const isPdf = report.isPdf !== false
+              const actionGridColumns = confirmDeletePath === report.relativePath ? 'repeat(2, minmax(0, 1fr))' : 'repeat(3, minmax(0, 1fr))'
               return (
               <div
                 key={report.id}
@@ -1629,11 +1669,14 @@ export default function SearchDownload() {
                   <span className="block font-mono">{formatBytes(report.size)}</span>
                   <span className="mt-1 block">{formatDateTime(report.mtime)}</span>
                 </span>
-                <div className="grid grid-cols-2 gap-2 sm:flex sm:shrink-0 sm:items-center">
+                <div
+                  className="grid gap-2 sm:flex sm:shrink-0 sm:items-center"
+                  style={{ gridTemplateColumns: actionGridColumns }}
+                >
                   {isPdf ? (
                     <Link
                       to={parsePathForDownloadedReport(report.relativePath)}
-                      className="flex h-10 items-center justify-center gap-2 rounded-xl border border-border text-sm font-semibold text-text-muted transition-colors hover:bg-primary/10 hover:text-primary sm:w-10 sm:border-0"
+                      className="flex h-10 min-w-0 w-full items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-border px-2.5 text-sm font-semibold text-text-muted transition-colors hover:bg-primary/10 hover:text-primary sm:w-10 sm:border-0 sm:px-0"
                       aria-label="解析 PDF"
                     >
                       <Play className="h-5 w-5" />
@@ -1641,7 +1684,8 @@ export default function SearchDownload() {
                     </Link>
                   ) : (
                     <button
-                      className="flex h-10 cursor-not-allowed items-center justify-center gap-2 rounded-xl border border-border text-sm font-semibold text-text-muted opacity-45 sm:w-10 sm:border-0"
+                      type="button"
+                      className="flex h-10 min-w-0 w-full cursor-not-allowed items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-border px-2.5 text-sm font-semibold text-text-muted opacity-45 sm:w-10 sm:border-0 sm:px-0"
                       disabled
                       title="该文件不是 PDF，暂不能送入 PDF 解析器"
                       aria-label="非 PDF 暂不能解析"
@@ -1653,7 +1697,7 @@ export default function SearchDownload() {
                   <button
                     type="button"
                     onClick={() => openDownloadedReport(report)}
-                    className="flex h-10 items-center justify-center gap-2 rounded-xl border border-border text-sm font-semibold text-text-muted transition-colors hover:bg-primary/10 hover:text-primary sm:w-10 sm:border-0"
+                    className="flex h-10 min-w-0 w-full items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-border px-2.5 text-sm font-semibold text-text-muted transition-colors hover:bg-primary/10 hover:text-primary sm:w-10 sm:border-0 sm:px-0"
                     aria-label="打开文件"
                   >
                     <ExternalLink className="h-5 w-5" />
@@ -1662,24 +1706,27 @@ export default function SearchDownload() {
                   {confirmDeletePath === report.relativePath ? (
                     <>
                     <button
+                      type="button"
                       onClick={() => deleteDownloadedReport(report)}
                       disabled={deletingPath === report.relativePath}
-                      className="inline-flex h-10 items-center justify-center rounded-xl bg-error px-3 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                      className="inline-flex h-10 w-full min-w-0 items-center justify-center whitespace-nowrap rounded-xl bg-error px-2.5 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
                     >
                       {deletingPath === report.relativePath ? <Loader2 className="h-4 w-4 animate-spin" /> : '确认'}
                     </button>
                     <button
+                      type="button"
                       onClick={() => setConfirmDeletePath('')}
                       disabled={Boolean(deletingPath)}
-                      className="col-span-2 inline-flex h-10 items-center justify-center rounded-xl border border-border bg-card px-3 text-sm font-semibold text-text hover:bg-bg disabled:opacity-60 sm:col-auto"
+                      className="inline-flex h-10 w-full min-w-0 items-center justify-center whitespace-nowrap rounded-xl border border-border bg-card px-2.5 text-sm font-semibold text-text hover:bg-bg disabled:opacity-60"
                     >
                       取消
                     </button>
                     </>
                   ) : (
                     <button
+                      type="button"
                       onClick={() => setConfirmDeletePath(report.relativePath)}
-                      className="flex h-10 items-center justify-center gap-2 rounded-xl border border-border text-sm font-semibold text-text-muted transition-colors hover:bg-error/10 hover:text-error sm:w-10 sm:border-0"
+                      className="flex h-10 min-w-0 w-full items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-border px-2.5 text-sm font-semibold text-text-muted transition-colors hover:bg-error/10 hover:text-error sm:w-10 sm:border-0 sm:px-0"
                       aria-label="删除 PDF"
                     >
                       <Trash2 className="h-5 w-5" />

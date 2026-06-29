@@ -317,7 +317,7 @@ export function isMarkdownBoundary(lines: string[], index: number) {
   return (
     !trimmed ||
     isLikelyTableStart(lines, index) ||
-    /^(#{1,4})\s+/.test(trimmed) ||
+    /^(#{1,6})\s+/.test(trimmed) ||
     /^[-*_]{3,}$/.test(trimmed) ||
     /^>\s?/.test(trimmed) ||
     /^◆\s+/.test(trimmed) ||

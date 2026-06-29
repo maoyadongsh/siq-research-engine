@@ -46,6 +46,75 @@ def package_hashes(package_dir: Path) -> dict[str, str]:
     return hashes
 
 
+PACKAGE_TO_SOURCE_ARTIFACT = {
+    "qa/parse_manifest.json": "manifest.json",
+    "sections/document.md": "document.md",
+    "document_full.json": "document_full.json",
+    "sections/blocks.json": "blocks.json",
+    "tables/tables.json": "tables.json",
+    "logical_tables/logical_tables.json": "logical_tables.json",
+    "logical_tables/table_relations.json": "table_relations.json",
+    "figures/figures.json": "figures.json",
+    "figures/figure_index.json": "figure_index.json",
+    "qa/source_map.json": "source_map.json",
+    "qa/quality_report.json": "quality_report.json",
+    "extraction/schema.json": "extraction/schema.json",
+    "extraction/result.json": "extraction/result.json",
+    "extraction/evidence_map.json": "extraction/evidence_map.json",
+    "extraction/validation_report.json": "extraction/validation_report.json",
+}
+
+
+def artifact_manifest(package_dir: Path, package_manifest: dict[str, Any]) -> dict[str, Any]:
+    payload = read_json(package_dir / "artifact_manifest.json", {})
+    if isinstance(payload, dict) and isinstance(payload.get("artifacts"), dict):
+        return payload
+    return {
+        "source_result_dir": package_manifest.get("source_result_dir") or "",
+        "artifacts": package_manifest.get("artifacts") if isinstance(package_manifest.get("artifacts"), dict) else {},
+    }
+
+
+def source_artifact_path(package_dir: Path, package_manifest: dict[str, Any], package_rel: str) -> Path | None:
+    source_name = PACKAGE_TO_SOURCE_ARTIFACT.get(package_rel, package_rel)
+    manifest = artifact_manifest(package_dir, package_manifest)
+    artifacts = manifest.get("artifacts") if isinstance(manifest, dict) else {}
+    item = artifacts.get(source_name) if isinstance(artifacts, dict) else None
+    source = item.get("source") if isinstance(item, dict) else None
+    if source:
+        return Path(str(source))
+    source_root = manifest.get("source_result_dir") or package_manifest.get("source_result_dir")
+    if source_root:
+        return Path(str(source_root)) / source_name
+    return None
+
+
+class PackageReader:
+    def __init__(self, package_dir: Path, manifest: dict[str, Any]):
+        self.package_dir = package_dir
+        self.manifest = manifest
+
+    def path(self, package_rel: str) -> Path:
+        local = self.package_dir / package_rel
+        if local.is_file():
+            return local
+        source = source_artifact_path(self.package_dir, self.manifest, package_rel)
+        return source if source and source.is_file() else local
+
+    def json(self, package_rel: str, default: Any | None = None) -> Any:
+        return read_json(self.path(package_rel), default)
+
+    def hashes(self) -> dict[str, str]:
+        hashes = package_hashes(self.package_dir)
+        manifest = artifact_manifest(self.package_dir, self.manifest)
+        artifacts = manifest.get("artifacts") if isinstance(manifest, dict) else {}
+        if isinstance(artifacts, dict):
+            for name, item in artifacts.items():
+                if isinstance(item, dict) and item.get("sha256"):
+                    hashes[f"source:{name}"] = str(item["sha256"])
+        return hashes
+
+
 def database_url(explicit: str | None) -> str:
     url = explicit or os.environ.get("DATABASE_URL")
     if url:
@@ -75,9 +144,10 @@ def import_package(conn: Any, package_dir: Path, schema: str = "document_parser"
     if manifest.get("schema_version") != "generic_document_package_v1":
         raise SystemExit("manifest schema_version must be generic_document_package_v1")
 
-    parse_manifest = read_json(package_dir / "qa" / "parse_manifest.json")
-    quality = read_json(package_dir / "qa" / "quality_report.json")
-    artifact_hashes = package_hashes(package_dir)
+    reader = PackageReader(package_dir, manifest)
+    parse_manifest = reader.json("qa/parse_manifest.json")
+    quality = reader.json("qa/quality_report.json")
+    artifact_hashes = reader.hashes()
     document_id = manifest.get("document_id") or f"doc-{manifest['task_id']}"
     parse_run_id = stable_parse_run_id(manifest, artifact_hashes)
     status = quality.get("overall_status") or parse_manifest.get("quality_status") or "warning"
@@ -87,14 +157,14 @@ def import_package(conn: Any, package_dir: Path, schema: str = "document_parser"
         _upsert_document(conn, schema, package_dir, manifest, parse_manifest, quality, document_id)
         _upsert_parse_run(conn, schema, package_dir, manifest, parse_manifest, parse_run_id, document_id, artifact_hashes, status, warnings)
         _delete_run_rows(conn, schema, parse_run_id)
-        _insert_artifacts(conn, schema, package_dir, parse_run_id)
-        _insert_blocks(conn, schema, package_dir, parse_run_id, document_id)
-        _insert_tables(conn, schema, package_dir, parse_run_id, document_id)
-        _insert_logical_tables(conn, schema, package_dir, parse_run_id, document_id)
-        _insert_table_relations(conn, schema, package_dir, parse_run_id)
-        _insert_figures(conn, schema, package_dir, parse_run_id, document_id)
-        _insert_sources(conn, schema, package_dir, parse_run_id, document_id)
-        _insert_extraction(conn, schema, package_dir, parse_run_id, document_id)
+        _insert_artifacts(conn, schema, reader, parse_run_id)
+        _insert_blocks(conn, schema, reader, parse_run_id, document_id)
+        _insert_tables(conn, schema, reader, parse_run_id, document_id)
+        _insert_logical_tables(conn, schema, reader, parse_run_id, document_id)
+        _insert_table_relations(conn, schema, reader, parse_run_id)
+        _insert_figures(conn, schema, reader, parse_run_id, document_id)
+        _insert_sources(conn, schema, reader, parse_run_id, document_id)
+        _insert_extraction(conn, schema, reader, parse_run_id, document_id)
     return parse_run_id
 
 
@@ -182,19 +252,38 @@ def _delete_run_rows(conn: Any, schema: str, parse_run_id: str) -> None:
         conn.execute(f"delete from {schema}.{table} where parse_run_id = %s", (parse_run_id,))
 
 
-def _insert_artifacts(conn: Any, schema: str, package_dir: Path, parse_run_id: str) -> None:
-    for path in sorted(package_dir.rglob("*")):
+def _insert_artifacts(conn: Any, schema: str, reader: PackageReader, parse_run_id: str) -> None:
+    for path in sorted(reader.package_dir.rglob("*")):
         if not path.is_file():
             continue
-        rel = path.relative_to(package_dir).as_posix()
+        rel = path.relative_to(reader.package_dir).as_posix()
         conn.execute(
             f"insert into {schema}.artifacts (parse_run_id, artifact_path, artifact_type, sha256, size_bytes, raw) values (%s,%s,%s,%s,%s,%s)",
             (parse_run_id, rel, rel.replace("/", "."), file_sha256(path), path.stat().st_size, Jsonb({})),
         )
+    manifest = artifact_manifest(reader.package_dir, reader.manifest)
+    artifacts = manifest.get("artifacts") if isinstance(manifest, dict) else {}
+    if isinstance(artifacts, dict):
+        for name, item in sorted(artifacts.items()):
+            if not isinstance(item, dict):
+                continue
+            if item.get("package_path") and (reader.package_dir / str(item["package_path"])).is_file():
+                continue
+            conn.execute(
+                f"insert into {schema}.artifacts (parse_run_id, artifact_path, artifact_type, sha256, size_bytes, raw) values (%s,%s,%s,%s,%s,%s)",
+                (
+                    parse_run_id,
+                    f"source:{name}",
+                    str(name).replace("/", "."),
+                    item.get("sha256"),
+                    item.get("size_bytes"),
+                    Jsonb(item),
+                ),
+            )
 
 
-def _insert_blocks(conn: Any, schema: str, package_dir: Path, parse_run_id: str, document_id: str) -> None:
-    payload = read_json(package_dir / "sections" / "blocks.json")
+def _insert_blocks(conn: Any, schema: str, reader: PackageReader, parse_run_id: str, document_id: str) -> None:
+    payload = reader.json("sections/blocks.json")
     for block in payload.get("blocks") or []:
         source_ref = block.get("source_ref") or {}
         conn.execute(
@@ -221,8 +310,8 @@ def _insert_blocks(conn: Any, schema: str, package_dir: Path, parse_run_id: str,
         )
 
 
-def _insert_tables(conn: Any, schema: str, package_dir: Path, parse_run_id: str, document_id: str) -> None:
-    payload = read_json(package_dir / "tables" / "tables.json")
+def _insert_tables(conn: Any, schema: str, reader: PackageReader, parse_run_id: str, document_id: str) -> None:
+    payload = reader.json("tables/tables.json")
     for table in payload.get("physical_tables") or payload.get("tables") or []:
         quality = table.get("quality") or {}
         table_id = table.get("table_id")
@@ -269,8 +358,8 @@ def _insert_tables(conn: Any, schema: str, package_dir: Path, parse_run_id: str,
             )
 
 
-def _insert_logical_tables(conn: Any, schema: str, package_dir: Path, parse_run_id: str, document_id: str) -> None:
-    payload = read_json(package_dir / "logical_tables" / "logical_tables.json")
+def _insert_logical_tables(conn: Any, schema: str, reader: PackageReader, parse_run_id: str, document_id: str) -> None:
+    payload = reader.json("logical_tables/logical_tables.json")
     for item in payload.get("logical_tables") or []:
         conn.execute(
             f"""
@@ -293,8 +382,8 @@ def _insert_logical_tables(conn: Any, schema: str, package_dir: Path, parse_run_
         )
 
 
-def _insert_table_relations(conn: Any, schema: str, package_dir: Path, parse_run_id: str) -> None:
-    payload = read_json(package_dir / "logical_tables" / "table_relations.json")
+def _insert_table_relations(conn: Any, schema: str, reader: PackageReader, parse_run_id: str) -> None:
+    payload = reader.json("logical_tables/table_relations.json")
     for index, item in enumerate(payload.get("relations") or [], start=1):
         relation_id = item.get("relation_id") or f"rel-{index:06d}"
         conn.execute(
@@ -317,8 +406,8 @@ def _insert_table_relations(conn: Any, schema: str, package_dir: Path, parse_run
         )
 
 
-def _insert_figures(conn: Any, schema: str, package_dir: Path, parse_run_id: str, document_id: str) -> None:
-    payload = read_json(package_dir / "figures" / "figures.json")
+def _insert_figures(conn: Any, schema: str, reader: PackageReader, parse_run_id: str, document_id: str) -> None:
+    payload = reader.json("figures/figures.json")
     for item in payload.get("figures") or []:
         conn.execute(
             f"""
@@ -344,8 +433,8 @@ def _insert_figures(conn: Any, schema: str, package_dir: Path, parse_run_id: str
         )
 
 
-def _insert_sources(conn: Any, schema: str, package_dir: Path, parse_run_id: str, document_id: str) -> None:
-    payload = read_json(package_dir / "qa" / "source_map.json")
+def _insert_sources(conn: Any, schema: str, reader: PackageReader, parse_run_id: str, document_id: str) -> None:
+    payload = reader.json("qa/source_map.json")
     for item in payload.get("sources") or []:
         evidence_id = item.get("evidence_id")
         if not evidence_id:
@@ -378,13 +467,13 @@ def _insert_sources(conn: Any, schema: str, package_dir: Path, parse_run_id: str
         )
 
 
-def _insert_extraction(conn: Any, schema: str, package_dir: Path, parse_run_id: str, document_id: str) -> None:
-    result = read_json(package_dir / "extraction" / "result.json")
+def _insert_extraction(conn: Any, schema: str, reader: PackageReader, parse_run_id: str, document_id: str) -> None:
+    result = reader.json("extraction/result.json")
     if not result:
         return
-    schema_payload = read_json(package_dir / "extraction" / "schema.json")
-    evidence = read_json(package_dir / "extraction" / "evidence_map.json")
-    validation = read_json(package_dir / "extraction" / "validation_report.json")
+    schema_payload = reader.json("extraction/schema.json")
+    evidence = reader.json("extraction/evidence_map.json")
+    validation = reader.json("extraction/validation_report.json")
     extract_id = result.get("extract_id") or stable_id(parse_run_id, "default_extraction")
     conn.execute(
         f"""

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Download, FileText, Loader2, RotateCcw, Search, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { EmptyState } from '@/components/page'
 import type { DocumentTaskItem } from '@/lib/documentTypes'
 
 function statusTone(status?: string) {
@@ -45,6 +46,7 @@ export function DocumentTaskList({
   onRetrySelected,
   onDeleteSelected,
   onDownloadSelected,
+  defaultOpen = true,
 }: {
   tasks: DocumentTaskItem[]
   selectedTaskId: string
@@ -58,6 +60,7 @@ export function DocumentTaskList({
   onRetrySelected: () => void
   onDeleteSelected: () => void
   onDownloadSelected: () => void
+  defaultOpen?: boolean
 }) {
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -84,14 +87,14 @@ export function DocumentTaskList({
   }
 
   return (
-    <section className="doc-panel">
-      <div className="doc-panel-head">
+    <details className="doc-panel" open={defaultOpen}>
+      <summary className="doc-panel-head">
         <div>
           <h2>任务管理</h2>
           <p>当前只显示你拥有的通用文档解析任务。</p>
         </div>
         <span className="doc-badge">{tasks.length}</span>
-      </div>
+      </summary>
       <div className="doc-panel-body">
         <div className="doc-task-toolbar">
           <label className="doc-search">
@@ -223,15 +226,16 @@ export function DocumentTaskList({
               </span>
             </div>
           )) : (
-            <div className="doc-empty min-h-[180px]">
-              <div>
-                <FileText className="mx-auto mb-3 h-8 w-8 text-text-muted" />
-                <p>{tasks.length ? '没有符合筛选条件的任务' : '暂无通用文档解析任务'}</p>
-              </div>
-            </div>
+            <EmptyState
+              icon={FileText}
+              title={tasks.length ? '没有符合筛选条件的任务' : '暂无通用文档解析任务'}
+              description={tasks.length ? '尝试调整筛选条件或搜索关键词。' : '上传文件或解析 URL 后会出现在这里。'}
+              size="md"
+              className="min-h-[180px]"
+            />
           )}
         </div>
       </div>
-    </section>
+    </details>
   )
 }

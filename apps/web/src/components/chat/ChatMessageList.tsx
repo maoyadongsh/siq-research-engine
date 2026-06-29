@@ -115,7 +115,7 @@ export default function ChatMessageList({
               className={`flex items-start gap-2 ${isUser ? 'justify-end' : 'justify-start'}`}
             >
               {streamingAvatar}
-              <div className={`flex flex-col ${isUser ? 'max-w-[86%] items-end' : 'max-w-[96%] items-start'} ${compact && !isUser ? 'sm:max-w-[94%]' : ''}`}>
+              <div className={`flex flex-col max-w-[85%] ${isUser ? 'items-end' : 'items-start'}`}>
                 <div className={isUser ? userBubbleClass : assistantBubbleClass}>
                   {msg.content ? (
                     <MessageRenderer

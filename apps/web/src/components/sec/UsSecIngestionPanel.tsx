@@ -1,18 +1,39 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Database, FileText, GitBranch, Loader2, Network, RefreshCw, SearchCheck, ShieldCheck, SplitSquareHorizontal } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  CheckCircle2,
+  Database,
+  FileDown,
+  FileText,
+  FileUp,
+  Loader2,
+  Network,
+  PackageCheck,
+  RefreshCw,
+  Search,
+  SearchCheck,
+  ShieldCheck,
+  SplitSquareHorizontal,
+  Upload,
+} from 'lucide-react'
+import { Link } from 'react-router-dom'
+import {
+  buildUsSecPackage,
   fetchUsSecCaseSet,
   fetchUsSecPackage,
   fetchUsSecPackageText,
   rebuildUsSecPackage,
   runUsSecCaseSetIngest,
+  uploadUsSecFiles,
   usSecPackageFileUrl,
   waitForMarketReportJob,
-  type UsSecCaseSetItem,
   type UsSecCaseSetStatus,
   type UsSecIngestResponse,
+  type UsSecPackageBuildResponse,
   type UsSecPackageDetail,
+  type UsSecUploadResult,
 } from '../../lib/secApi'
+import type { DownloadedPdf } from '../../lib/pdfTypes'
+import { loadDownloadedReports as loadDownloadedReportsApi } from '../../lib/pdfApi'
 
 function numberText(value: unknown): string {
   const n = Number(value || 0)
@@ -21,7 +42,9 @@ function numberText(value: unknown): string {
 
 function statusClass(status?: string): string {
   if (status === 'pass') return 'bg-green-50 text-green-700 border-green-200'
+  if (status === 'warning') return 'bg-blue-50 text-blue-700 border-blue-200'
   if (status === 'fail') return 'bg-amber-50 text-amber-700 border-amber-200'
+  if (status === 'uploaded') return 'bg-sky-50 text-sky-700 border-sky-200'
   return 'bg-slate-50 text-slate-600 border-slate-200'
 }
 
@@ -41,17 +64,29 @@ function CheckStatusPill({ status }: { status?: string }) {
   return <span className={`rounded-full border px-2 py-0.5 text-xs ${statusClass(status)}`}>{status || 'unknown'}</span>
 }
 
-function MarkdownPreview({ text }: { text: string }) {
-  const lines = text.split('\n').slice(0, 260)
+function DownloadRow({
+  item,
+  active,
+  onSelect,
+}: {
+  item: DownloadedPdf
+  active: boolean
+  onSelect: (item: DownloadedPdf) => void
+}) {
   return (
-    <div className="h-[520px] overflow-auto rounded-md border border-border bg-white p-4 text-sm leading-6 text-text">
-      {lines.map((line, index) => {
-        if (line.startsWith('# ')) return <h3 key={index} className="mb-2 mt-3 text-base font-semibold">{line.replace(/^#\s+/, '')}</h3>
-        if (line.startsWith('## ')) return <h4 key={index} className="mb-1 mt-3 text-sm font-semibold">{line.replace(/^##\s+/, '')}</h4>
-        if (line.trim() === '---') return <hr key={index} className="my-3 border-border" />
-        return <p key={index} className={line.trim() ? 'mb-1 whitespace-pre-wrap' : 'h-3'}>{line}</p>
-      })}
-    </div>
+    <button
+      onClick={() => onSelect(item)}
+      className={`block w-full border-b border-border px-3 py-2 text-left text-xs last:border-0 ${active ? 'bg-primary/10' : 'hover:bg-surface-soft'}`}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="min-w-0 truncate font-mono text-sm font-semibold text-text">{item.ticker || item.company || item.filename}</span>
+        <span className={`rounded-full border px-2 py-0.5 ${statusClass(item.reportFamily === 'annual' ? 'pass' : 'warning')}`}>{item.form || item.reportType || item.category}</span>
+      </div>
+      <div className="mt-1 truncate text-text-muted">{item.companyName || item.company}</div>
+      <div className="mt-1 text-[.72rem] text-text-muted">
+        {[item.reportEnd, item.publishedAt, item.relativePath].filter(Boolean).join(' · ')}
+      </div>
+    </button>
   )
 }
 
@@ -65,9 +100,22 @@ export function UsSecIngestionPanel() {
   const [packageLoading, setPackageLoading] = useState(false)
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
-  const [query, setQuery] = useState('')
+  const [downloadQuery, setDownloadQuery] = useState('')
   const [includeFail, setIncludeFail] = useState(true)
   const [lastOutput, setLastOutput] = useState('')
+  const [downloadedReports, setDownloadedReports] = useState<DownloadedPdf[]>([])
+  const [downloadedLoading, setDownloadedLoading] = useState(false)
+  const [selectedDownloadPath, setSelectedDownloadPath] = useState('')
+  const [uploading, setUploading] = useState(false)
+  const [uploadMessage, setUploadMessage] = useState('')
+  const [uploadResults, setUploadResults] = useState<UsSecUploadResult[]>([])
+  const [uploadTicker, setUploadTicker] = useState('')
+  const [uploadCompanyName, setUploadCompanyName] = useState('')
+  const [uploadReportType, setUploadReportType] = useState('10-K')
+  const [uploadFiscalYear, setUploadFiscalYear] = useState('')
+  const [uploadPeriodEnd, setUploadPeriodEnd] = useState('')
+  const [uploadFilingDate, setUploadFilingDate] = useState('')
+  const fileInput = useRef<HTMLInputElement>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -83,18 +131,29 @@ export function UsSecIngestionPanel() {
     }
   }, [selectedTicker])
 
+  const applyPackageDetail = useCallback(async (detail: UsSecPackageDetail) => {
+    setPackageDetail(detail)
+    const firstSectionFile = detail.sections?.[0]?.file
+    const nextMd = detail.preview?.default_markdown || (firstSectionFile ? `sections/${String(firstSectionFile)}` : '')
+    setMarkdownFile(nextMd)
+    if (detail.package_path && nextMd) {
+      try {
+        setMarkdownText(await fetchUsSecPackageText(detail.package_path, nextMd))
+      } catch {
+        setMarkdownText('')
+      }
+    } else {
+      setMarkdownText('')
+    }
+  }, [])
+
   const loadPackage = useCallback(async (ticker: string) => {
     if (!ticker) return
     setPackageLoading(true)
     setError('')
     try {
       const detail = await fetchUsSecPackage(ticker)
-      setPackageDetail(detail)
-      const nextMd = detail.preview?.default_markdown || 'sections/notes.md'
-      setMarkdownFile(nextMd)
-      if (detail.package_path && nextMd) {
-        setMarkdownText(await fetchUsSecPackageText(detail.package_path, nextMd))
-      }
+      await applyPackageDetail(detail)
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载证据包失败')
       setPackageDetail(null)
@@ -102,13 +161,32 @@ export function UsSecIngestionPanel() {
     } finally {
       setPackageLoading(false)
     }
+  }, [applyPackageDetail])
+
+  const loadDownloads = useCallback(async (text: string) => {
+    setDownloadedLoading(true)
+    try {
+      const d = await loadDownloadedReportsApi(text, 'US')
+      const reports = d.reports || []
+      setDownloadedReports(reports)
+      setSelectedDownloadPath((current) => {
+        if (current && reports.some((item) => item.relativePath === current)) return current
+        return reports[0]?.relativePath || ''
+      })
+    } catch {
+      setDownloadedReports([])
+      setSelectedDownloadPath('')
+    } finally {
+      setDownloadedLoading(false)
+    }
   }, [])
 
   useEffect(() => {
     queueMicrotask(() => {
       void load()
+      void loadDownloads('')
     })
-  }, [load])
+  }, [load, loadDownloads])
 
   useEffect(() => {
     if (!selectedTicker) return
@@ -117,17 +195,13 @@ export function UsSecIngestionPanel() {
     })
   }, [loadPackage, selectedTicker])
 
-  const filteredItems = useMemo(() => {
-    const rows = status?.items || []
-    const q = query.trim().toUpperCase()
-    if (!q) return rows
-    const terms = q.split(/[,\s]+/).filter(Boolean)
-    return rows.filter((item) => terms.some((term) => String(item.ticker || '').includes(term) || String(item.company_name || '').toUpperCase().includes(term)))
-  }, [status?.items, query])
-
   const selectedItem = useMemo(
     () => (status?.items || []).find((item) => item.ticker === selectedTicker),
     [selectedTicker, status?.items],
+  )
+  const selectedDownload = useMemo(
+    () => downloadedReports.find((item) => item.relativePath === selectedDownloadPath) || downloadedReports[0] || null,
+    [downloadedReports, selectedDownloadPath],
   )
   const ingestSummary = status?.ingest_report?.summary || {}
   const counts = status?.counts || {}
@@ -139,6 +213,8 @@ export function UsSecIngestionPanel() {
   const dimensionMetrics = packageDetail?.dimension_metrics || []
   const bridgeChecks = packageDetail?.bridge_checks?.checks || []
   const bridgeSummary = packageDetail?.bridge_checks?.summary || {}
+  const uploadCount = uploadResults.length
+  const displayTicker = String(packageDetail?.manifest?.ticker || selectedTicker || '')
 
   const run = useCallback(async (mode: 'plan' | 'postgres' | 'milvus') => {
     setBusy(mode)
@@ -151,7 +227,7 @@ export function UsSecIngestionPanel() {
         milvus: mode === 'milvus',
         ddl: mode === 'postgres' || mode === 'milvus',
         include_fail: includeFail,
-        tickers: query || selectedTicker,
+        tickers: selectedTicker,
         batch_tag: 'us-sec-case-set-50',
       })
       const result = response.job_id
@@ -164,7 +240,7 @@ export function UsSecIngestionPanel() {
     } finally {
       setBusy('')
     }
-  }, [includeFail, load, query, selectedTicker])
+  }, [includeFail, load, selectedTicker])
 
   const rebuild = useCallback(async () => {
     if (!selectedTicker) return
@@ -179,12 +255,13 @@ export function UsSecIngestionPanel() {
       setLastOutput(result.stdout || result.stderr || (response.job_id ? `后台任务 ${response.job_id} 已完成` : ''))
       await load()
       await loadPackage(selectedTicker)
+      await loadDownloads(downloadQuery)
     } catch (err) {
       setError(err instanceof Error ? err.message : '重建失败')
     } finally {
       setBusy('')
     }
-  }, [load, loadPackage, selectedTicker])
+  }, [downloadQuery, load, loadDownloads, loadPackage, selectedTicker])
 
   const changeMarkdownFile = useCallback(async (file: string) => {
     if (!packagePath || !file) return
@@ -199,69 +276,199 @@ export function UsSecIngestionPanel() {
     }
   }, [packagePath])
 
+  const handleUpload = useCallback(async () => {
+    const files = fileInput.current?.files
+    if (!files || !files.length) {
+      setError('请先选择文件')
+      return
+    }
+    setUploading(true)
+    setError('')
+    setUploadMessage('')
+    setUploadResults([])
+    try {
+      const form = new FormData()
+      Array.from(files).forEach((file) => form.append('files', file))
+      if (uploadTicker.trim()) form.append('ticker', uploadTicker.trim().toUpperCase())
+      if (uploadCompanyName.trim()) form.append('company_name', uploadCompanyName.trim())
+      if (uploadReportType.trim()) form.append('report_type', uploadReportType.trim())
+      if (uploadFiscalYear.trim()) form.append('fiscal_year', uploadFiscalYear.trim())
+      if (uploadPeriodEnd.trim()) form.append('period_end', uploadPeriodEnd.trim())
+      if (uploadFilingDate.trim()) form.append('filing_date', uploadFilingDate.trim())
+      const result = await uploadUsSecFiles(form)
+      setUploadResults(result.files || [])
+      setUploadMessage(`已上传 ${result.count || result.files?.length || 0} 个文件`)
+      await loadDownloads(downloadQuery)
+      const first = result.files?.[0]?.relative_path
+      if (first) setSelectedDownloadPath(first)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '上传失败')
+    } finally {
+      setUploading(false)
+      if (fileInput.current) fileInput.current.value = ''
+    }
+  }, [downloadQuery, uploadCompanyName, uploadFilingDate, uploadFiscalYear, uploadPeriodEnd, uploadReportType, uploadTicker, loadDownloads])
+
+  const openFilePicker = useCallback(() => {
+    fileInput.current?.click()
+  }, [])
+
+  const onSelectDownloaded = useCallback(
+    async (report: DownloadedPdf) => {
+      setSelectedDownloadPath(report.relativePath)
+      setError('')
+      setBusy('download-select')
+      try {
+        const nextTicker = String(report.ticker || '').toUpperCase()
+        if (nextTicker) {
+          setSelectedTicker(nextTicker)
+          if (nextTicker === selectedTicker) await loadPackage(nextTicker)
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : '加载失败')
+      } finally {
+        setBusy('')
+      }
+    },
+    [loadPackage, selectedTicker],
+  )
+
+  const onBuildDownloadedPackage = useCallback(
+    async (report: DownloadedPdf) => {
+      setBusy(report.relativePath)
+      setError('')
+      setLastOutput('')
+      try {
+        const response = await buildUsSecPackage({ download_relative_path: report.relativePath, force: true })
+        const result = response.job_id
+          ? await waitForMarketReportJob<UsSecPackageBuildResponse>(response.job_id, { timeoutMs: 15 * 60 * 1000 })
+          : response
+        if (result.ok === false) throw new Error(String(result.stderr || result.stdout || 'US 证据包构建失败'))
+        setLastOutput(result.stdout || result.stderr || 'US 证据包已生成')
+        if (result.package) await applyPackageDetail(result.package)
+        await load()
+        await loadDownloads(downloadQuery)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'US 证据包构建失败')
+      } finally {
+        setBusy('')
+      }
+    },
+    [applyPackageDetail, downloadQuery, load, loadDownloads],
+  )
+
   return (
     <section className="rounded-lg border border-border bg-card p-4 shadow-sm sm:p-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="max-w-3xl">
           <div className="flex items-center gap-2 text-sm font-semibold text-primary">
             <Network className="h-4 w-4" />
-            SEC 结构化解析与召回入库
+            SEC 结构化解析与附件导入
           </div>
-          <h2 className="mt-1 text-lg font-semibold text-text">美股 10-K 入库工作台</h2>
+          <h2 className="mt-1 text-lg font-semibold text-text">美股 SEC 入库工作台</h2>
           <p className="mt-1 text-sm text-text-muted">
-            已入库公司、Wiki 证据包、PostgreSQL facts 与 Milvus chunk 在这里串联；预览区可对照 SEC 原始 HTML 和已渲染 Markdown。
+            已入库公司、US 下载目录、手动上传附件、Wiki 证据包、PostgreSQL facts 与 Milvus chunk 都在这里串联。
           </p>
         </div>
-        <button onClick={() => void load()} disabled={loading} className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-border bg-white px-3 text-sm font-semibold text-text hover:bg-surface-soft disabled:opacity-60">
-          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-          刷新
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button onClick={() => void load()} disabled={loading} className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-border bg-white px-3 text-sm font-semibold text-text hover:bg-surface-soft disabled:opacity-60">
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            刷新
+          </button>
+          <Link to="/parse" className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-border bg-white px-3 text-sm font-semibold text-text hover:bg-surface-soft">
+            <FileText className="h-4 w-4" />
+            仅在必要时打开通用 PDF
+          </Link>
+        </div>
       </div>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatTile label="公司数" value={numberText(status?.company_count)} icon={<ShieldCheck className="h-4 w-4" />} />
         <StatTile label="XBRL Facts" value={numberText(ingestSummary.xbrl_facts || counts.xbrl_fact_count)} icon={<Database className="h-4 w-4" />} />
         <StatTile label="标准指标" value={numberText(ingestSummary.normalized_metrics || counts.normalized_metric_count)} icon={<SearchCheck className="h-4 w-4" />} />
-        <StatTile label="召回 Chunks" value={numberText(ingestSummary.retrieval_chunks)} icon={<GitBranch className="h-4 w-4" />} />
+        <StatTile label="下载/上传" value={numberText(downloadedReports.length + uploadCount)} icon={<PackageCheck className="h-4 w-4" />} />
       </div>
 
-      <div className="mt-4 grid gap-4 xl:grid-cols-[23rem_minmax(0,1fr)]">
-        <aside className="rounded-lg border border-border bg-surface-soft p-4">
-          <div className="text-sm font-semibold text-text">已入库公司</div>
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="搜索 ticker 或公司名"
-            className="mt-3 h-10 w-full rounded-md border border-border bg-white px-3 text-sm outline-none focus:border-primary"
-          />
-          <div className="mt-3 max-h-[31rem] overflow-auto rounded-md border border-border bg-white">
-            {filteredItems.map((item: UsSecCaseSetItem) => {
-              const active = item.ticker === selectedTicker
-              return (
-                <button
-                  key={`${item.ticker}-${item.period_end}`}
-                  onClick={() => setSelectedTicker(String(item.ticker || ''))}
-                  className={`block w-full border-b border-border px-3 py-2 text-left text-xs last:border-0 ${active ? 'bg-primary/10' : 'hover:bg-surface-soft'}`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-mono text-sm font-semibold text-text">{item.ticker}</span>
-                    <span className={`rounded-full border px-2 py-0.5 ${statusClass(item.quality_status)}`}>{item.quality_status}</span>
+      <div className="mt-4 grid gap-4 xl:grid-cols-[20rem_minmax(0,1fr)]">
+        <aside className="space-y-4">
+          <div className="rounded-lg border border-border bg-surface-soft p-4">
+            <div className="text-sm font-semibold text-text">US 下载目录</div>
+            <label className="mt-3 flex h-10 items-center gap-2 rounded-md border border-border bg-white px-3 text-sm">
+              <Search className="h-4 w-4 text-text-muted" />
+              <input
+                value={downloadQuery}
+                onChange={(event) => {
+                  setDownloadQuery(event.target.value)
+                  void loadDownloads(event.target.value)
+                }}
+                placeholder="搜索 ticker / 公司 / 文件"
+                className="min-w-0 flex-1 bg-transparent outline-none"
+              />
+            </label>
+            <div className="mt-3 max-h-72 overflow-auto rounded-md border border-border bg-white">
+              {downloadedReports.map((item) => (
+                <DownloadRow key={item.id} item={item} active={item.relativePath === selectedDownloadPath} onSelect={onSelectDownloaded} />
+              ))}
+              {!downloadedReports.length && (
+                <div className="px-3 py-8 text-center text-xs text-text-muted">{downloadedLoading ? '加载中...' : '暂无可导入文件'}</div>
+              )}
+            </div>
+            <div className="mt-3 flex items-center gap-2">
+              <button onClick={() => void loadDownloads(downloadQuery)} disabled={downloadedLoading} className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-white px-3 text-xs font-semibold hover:bg-surface-soft disabled:opacity-60">
+                {downloadedLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                刷新列表
+              </button>
+              <button onClick={openFilePicker} className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-xs font-semibold text-white">
+                <Upload className="h-4 w-4" />
+                上传附件
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-border bg-surface-soft p-4">
+            <div className="text-sm font-semibold text-text">上传入口</div>
+            <input ref={fileInput} type="file" multiple accept=".pdf,.html,.htm,.xhtml,.xml,.xbrl,.zip" className="hidden" onChange={() => void handleUpload()} />
+            <div className="mt-3 grid gap-2">
+              <input value={uploadTicker} onChange={(e) => setUploadTicker(e.target.value)} placeholder="Ticker" className="h-9 rounded-md border border-border bg-white px-3 text-xs outline-none focus:border-primary" />
+              <input value={uploadCompanyName} onChange={(e) => setUploadCompanyName(e.target.value)} placeholder="Company name" className="h-9 rounded-md border border-border bg-white px-3 text-xs outline-none focus:border-primary" />
+              <select value={uploadReportType} onChange={(e) => setUploadReportType(e.target.value)} className="h-9 rounded-md border border-border bg-white px-3 text-xs outline-none focus:border-primary">
+                <option value="10-K">10-K / 年报</option>
+                <option value="10-Q">10-Q / 季报</option>
+                <option value="20-F">20-F</option>
+                <option value="6-K">6-K</option>
+                <option value="file">附件</option>
+              </select>
+              <input value={uploadFiscalYear} onChange={(e) => setUploadFiscalYear(e.target.value)} placeholder="Fiscal year" className="h-9 rounded-md border border-border bg-white px-3 text-xs outline-none focus:border-primary" />
+              <input value={uploadPeriodEnd} onChange={(e) => setUploadPeriodEnd(e.target.value)} placeholder="Period end (YYYY-MM-DD)" className="h-9 rounded-md border border-border bg-white px-3 text-xs outline-none focus:border-primary" />
+              <input value={uploadFilingDate} onChange={(e) => setUploadFilingDate(e.target.value)} placeholder="Filing date (YYYY-MM-DD)" className="h-9 rounded-md border border-border bg-white px-3 text-xs outline-none focus:border-primary" />
+            </div>
+            <div className="mt-3 flex items-center gap-2">
+              <button onClick={handleUpload} disabled={uploading} className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-xs font-semibold text-white disabled:opacity-60">
+                {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileUp className="h-4 w-4" />}
+                发送到 US 目录
+              </button>
+              <span className="text-xs text-text-muted">{uploadMessage || '支持 PDF / HTML / XHTML / XML / XBRL / ZIP'}</span>
+            </div>
+            {uploadResults.length ? (
+              <div className="mt-3 rounded-md border border-border bg-white p-3 text-xs text-text-muted">
+                {uploadResults.map((item) => (
+                  <div key={item.saved_path} className="flex items-center justify-between gap-2 py-1">
+                    <span className="truncate">{item.file_name}</span>
+                    <span className="shrink-0">{numberText(item.size_bytes)} bytes</span>
                   </div>
-                  <div className="mt-1 truncate text-text-muted">{item.company_name}</div>
-                  <div className="mt-1 text-[.72rem] text-text-muted">{item.fiscal_year} / facts {numberText(item.quality_summary?.xbrl_fact_count)} / metrics {numberText(item.quality_summary?.normalized_metric_count)}</div>
-                </button>
-              )
-            })}
+                ))}
+              </div>
+            ) : null}
           </div>
         </aside>
 
         <div className="min-w-0 space-y-4">
           <div className="rounded-lg border border-border bg-white p-4">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
               <div>
                 <div className="flex items-center gap-2 text-sm font-semibold text-text">
                   <FileText className="h-4 w-4 text-primary" />
-                  {selectedTicker || '-'} 证据包
+                  {displayTicker || '-'} 证据包
                   {packageLoading && <Loader2 className="h-4 w-4 animate-spin text-text-muted" />}
                 </div>
                 <p className="mt-1 text-xs text-text-muted">
@@ -290,6 +497,11 @@ export function UsSecIngestionPanel() {
               <div className="rounded-md bg-surface-soft p-3 text-xs text-text-muted"><b className="block text-text">Metrics</b>{numberText(packageDetail?.counts?.metrics)}</div>
               <div className="rounded-md bg-surface-soft p-3 text-xs text-text-muted"><b className="block text-text">Evidence</b>{numberText(packageDetail?.counts?.evidence)}</div>
               <div className="rounded-md bg-surface-soft p-3 text-xs text-text-muted"><b className="block text-text">Dimensions</b>{numberText(packageDetail?.counts?.dimension_metrics)}</div>
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <CheckStatusPill status={selectedDownload?.reportFamily === 'annual' ? 'pass' : selectedDownload ? 'warning' : undefined} />
+              <span className="text-xs text-text-muted">选中下载文件：{selectedDownload?.filename || '无'}</span>
             </div>
 
             <label className="mt-3 flex items-center gap-2 text-xs text-text-muted">
@@ -368,7 +580,14 @@ export function UsSecIngestionPanel() {
             </div>
             <div className="mt-3 grid gap-3 xl:grid-cols-2">
               <iframe title="SEC 原始 HTML" src={rawHtmlUrl} className="h-[520px] w-full rounded-md border border-border bg-white" />
-              <MarkdownPreview text={markdownText || '暂无 Markdown 内容'} />
+              <div className="h-[520px] overflow-auto rounded-md border border-border bg-white p-4 text-sm leading-6 text-text">
+                {markdownText.split('\n').slice(0, 260).map((line, index) => {
+                  if (line.startsWith('# ')) return <h3 key={index} className="mb-2 mt-3 text-base font-semibold">{line.replace(/^#\s+/, '')}</h3>
+                  if (line.startsWith('## ')) return <h4 key={index} className="mb-1 mt-3 text-sm font-semibold">{line.replace(/^##\s+/, '')}</h4>
+                  if (line.trim() === '---') return <hr key={index} className="my-3 border-border" />
+                  return <p key={index} className={line.trim() ? 'mb-1 whitespace-pre-wrap' : 'h-3'}>{line}</p>
+                })}
+              </div>
             </div>
           </div>
 
@@ -411,6 +630,36 @@ export function UsSecIngestionPanel() {
               </div>
             </div>
           </div>
+
+          {selectedDownload ? (
+            <div className="rounded-lg border border-border bg-white p-4">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-text">
+                    <FileDown className="h-4 w-4 text-primary" />
+                    {selectedDownload.ticker || selectedDownload.companyName || selectedDownload.filename}
+                  </div>
+                  <p className="mt-1 text-xs text-text-muted">
+                    {selectedDownload.companyName || selectedDownload.company} · {selectedDownload.form || selectedDownload.reportType || selectedDownload.category} · {selectedDownload.relativePath}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button onClick={() => void onSelectDownloaded(selectedDownload)} disabled={busy === 'download-select'} className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-white px-3 text-xs font-semibold hover:bg-surface-soft disabled:opacity-60">
+                    {busy === 'download-select' ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                    设为当前
+                  </button>
+                  <a href={selectedDownload.url} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-white px-3 text-xs font-semibold hover:bg-surface-soft">
+                    <FileText className="h-4 w-4" />
+                    打开源文件
+                  </a>
+                  <button onClick={() => void onBuildDownloadedPackage(selectedDownload)} disabled={busy === selectedDownload.relativePath} className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-xs font-semibold text-white disabled:opacity-60">
+                    {busy === selectedDownload.relativePath ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageCheck className="h-4 w-4" />}
+                    生成证据包
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
 

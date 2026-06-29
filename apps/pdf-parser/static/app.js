@@ -11,6 +11,30 @@
   let mineruReadyForSubmit = false;
   let currentPdfContext = null;
   let currentSourceContext = null;
+  const supportedMarkets = ["CN", "HK", "US", "JP", "KR", "EU", "DOC"];
+
+  function normalizeTaskMarket(value) {
+    const market = String(value || "").trim().toUpperCase();
+    return supportedMarkets.includes(market) ? market : "";
+  }
+
+  function inferTaskMarket(task) {
+    const taskId = String((task && task.task_id) || "");
+    if (/^doc[-_]/i.test(taskId)) return "DOC";
+
+    const explicitMarket =
+      normalizeTaskMarket(task && task.market) ||
+      normalizeTaskMarket(task && task.submit_config && task.submit_config.market);
+    if (explicitMarket) return explicitMarket;
+
+    const filename = String((task && task.filename) || "");
+    const match = filename.match(/(?:^|_)(CN|HK|US|JP|KR|EU|DOC)(?:_|$)/i);
+    return match ? match[1].toUpperCase() : "";
+  }
+
+  function shouldShowTask(task) {
+    return inferTaskMarket(task) !== "DOC";
+  }
 
   async function checkHealth() {
     try {
@@ -1340,12 +1364,13 @@
       const res = await fetch("/api/tasks");
       const data = await res.json();
       const list = $("taskList");
-      if (!data.tasks || data.tasks.length === 0) {
+      const visibleTasks = (data.tasks || []).filter(shouldShowTask);
+      if (visibleTasks.length === 0) {
         $("taskListCard").style.display = "none";
         return;
       }
       $("taskListCard").style.display = "block";
-      list.innerHTML = data.tasks
+      list.innerHTML = visibleTasks
         .map((task) => {
           let badgeClass = "pending";
           if (task.status === "completed" || task.status === "success" || task.status === "done") {
@@ -1422,15 +1447,15 @@
           await reparseTask(button.dataset.taskId);
         });
       });
-      const latestCompletedTask = data.tasks.find(
+      const latestCompletedTask = visibleTasks.find(
         (task) =>
           task.markdown_ready &&
           ["completed", "success", "done", "finished"].includes(task.status)
       );
       const latestActiveTask =
-        data.tasks.find((task) => ["processing", "pending", "submitted", "submitting"].includes(task.status)) ||
-        data.tasks.find((task) => task.status === "queued") ||
-        data.tasks.find((task) => !isTerminalStatus(task.status));
+        visibleTasks.find((task) => ["processing", "pending", "submitted", "submitting"].includes(task.status)) ||
+        visibleTasks.find((task) => task.status === "queued") ||
+        visibleTasks.find((task) => !isTerminalStatus(task.status));
       const taskToOpen = latestCompletedTask || latestActiveTask;
       if (taskToOpen && !currentTaskId) {
         resumeTask(taskToOpen.task_id, taskToOpen.filename, taskToOpen.status);
@@ -1466,22 +1491,19 @@
     setParseProgress(0, "正在恢复任务状态...");
 
     try {
-      if (status === "completed" || status === "success" || status === "done" || status === "finished") {
+      const latest = await pollStatus();
+      const latestStatus = latest && latest.status ? latest.status : status;
+      $("cancelBtn").style.display = isTerminalStatus(latestStatus) ? "none" : "inline-flex";
+      if (latestStatus === "completed" || latestStatus === "success" || latestStatus === "done" || latestStatus === "finished") {
         $("cancelBtn").style.display = "none";
         $("parseBadge").className = "status-badge completed";
         $("parseBadge").textContent = "已完成";
         setParseProgress(100, "解析完成");
-        fetchResult();
         showToast("已恢复任务视图");
         return;
       }
-      const latest = await pollStatus();
-      const latestStatus = latest && latest.status ? latest.status : status;
-      $("cancelBtn").style.display = isTerminalStatus(latestStatus) ? "none" : "inline-flex";
       if (!isTerminalStatus(latestStatus)) {
         startPolling();
-      } else if (latestStatus === "completed" || latestStatus === "success" || latestStatus === "done" || latestStatus === "finished") {
-        fetchResult();
       }
       showToast("已恢复任务视图");
     } catch (error) {

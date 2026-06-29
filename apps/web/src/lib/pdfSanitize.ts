@@ -54,8 +54,25 @@ export function sanitizeReadingHtml(html: string | null): string {
       'ul',
       'ol',
       'li',
+      'button',
     ],
-    ALLOWED_ATTR: ['class', 'data-ptidx', 'rowspan', 'colspan', 'data-bbox', 'data-cell-bbox', 'bbox'],
+    ALLOWED_ATTR: [
+      'class',
+      'type',
+      'data-ptidx',
+      'data-focus-keys',
+      'data-page-number',
+      'data-table-index',
+      'data-source-table-index',
+      'data-block-id',
+      'data-block-index',
+      'data-block-type',
+      'rowspan',
+      'colspan',
+      'data-bbox',
+      'data-cell-bbox',
+      'bbox',
+    ],
   })
 }
 

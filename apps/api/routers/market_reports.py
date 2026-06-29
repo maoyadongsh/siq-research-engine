@@ -1,5 +1,6 @@
 import os
 import json
+import hashlib
 import re
 import uuid
 import subprocess
@@ -12,9 +13,13 @@ from typing import Any
 from pathlib import Path
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
+from sqlmodel import Session
 
+from database import get_session
+from services.auth_dependencies import get_current_user
+from services.auth_service import User
 from services.auth_dependencies import require_permission
 from services.hermes_client import collect_run_result, create_run
 from services.llm_settings import load_llm_settings
@@ -97,6 +102,7 @@ MARKET_IMPORT_SCRIPTS = {
     "KR": Path(os.environ.get("SIQ_KR_IMPORT_SCRIPT", str(REPO_ROOT / "db" / "imports" / "import_kr_evidence_package_to_postgres.py"))),
     "EU": Path(os.environ.get("SIQ_EU_IMPORT_SCRIPT", str(REPO_ROOT / "db" / "imports" / "import_eu_evidence_package_to_postgres.py"))),
 }
+US_SEC_UPLOAD_SUFFIXES = {".pdf", ".html", ".htm", ".xhtml", ".xml", ".xbrl", ".zip"}
 _job_lock = threading.Lock()
 _jobs: dict[str, dict[str, Any]] = {}
 
@@ -415,7 +421,8 @@ def _run_market_package_build(payload: dict[str, Any]) -> dict[str, Any]:
     if not output_lines:
         return {"ok": False, "returncode": completed.returncode, "stdout": completed.stdout[-4000:], "stderr": "Package build did not print a package path", "command": _command_for_display(args)}
     package_path = Path(output_lines[-1])
-    return {"ok": True, "package": _read_market_package_detail(package_path), "stdout": completed.stdout[-4000:], "stderr": completed.stderr[-4000:], "command": _command_for_display(args)}
+    detail = _read_package_detail(package_path) if market == "US" else _read_market_package_detail(package_path)
+    return {"ok": True, "package": detail, "stdout": completed.stdout[-4000:], "stderr": completed.stderr[-4000:], "command": _command_for_display(args)}
 
 
 def _market_build_script(market: str, source_path: Path) -> Path:
@@ -616,10 +623,216 @@ def _media_type_for_file(path: Path) -> str:
     return {
         ".htm": "text/html; charset=utf-8",
         ".html": "text/html; charset=utf-8",
+        ".xhtml": "text/html; charset=utf-8",
         ".md": "text/markdown; charset=utf-8",
         ".json": "application/json; charset=utf-8",
         ".txt": "text/plain; charset=utf-8",
+        ".xml": "application/xml; charset=utf-8",
+        ".xbrl": "application/xml; charset=utf-8",
+        ".zip": "application/zip",
     }.get(path.suffix.lower(), "application/octet-stream")
+
+
+def _safe_filename_part(value: object) -> str:
+    text = str(value or "").strip()
+    text = re.sub(r'[\\/:*?"<>|\s]+', "-", text)
+    text = re.sub(r"-{2,}", "-", text).strip(".-_")
+    return text or "unknown"
+
+
+def _file_suffix_from_content_type(content_type: str | None) -> str:
+    normalized = (content_type or "").split(";", 1)[0].strip().lower()
+    mapping = {
+        "application/pdf": ".pdf",
+        "text/html": ".html",
+        "application/xhtml+xml": ".html",
+        "application/xml": ".xml",
+        "text/xml": ".xml",
+        "text/plain": ".txt",
+        "application/zip": ".zip",
+        "application/x-zip-compressed": ".zip",
+    }
+    return mapping.get(normalized, "")
+
+
+def _us_sec_upload_dir() -> Path:
+    target = REPORT_DOWNLOADS_ROOT / "US"
+    target.mkdir(parents=True, exist_ok=True)
+    return target
+
+
+def _us_sec_upload_metadata(
+    file_path: Path,
+    *,
+    original_name: str,
+    content_type: str | None,
+    digest: str,
+    size_bytes: int,
+    ticker: str | None,
+    company_name: str | None,
+    report_type: str | None,
+    report_family: str | None,
+    fiscal_year: int | None,
+    period_end: str | None,
+    filing_date: str | None,
+) -> Path:
+    metadata_path = file_path.with_suffix(file_path.suffix + ".metadata.json")
+    effective_report_type = (report_type or file_path.suffix.lower().lstrip(".") or "file").strip()
+    effective_form = effective_report_type.upper() if effective_report_type not in {"file", ""} else "FILE"
+    candidate = {
+        "source_id": "manual_upload",
+        "source_name": "US SEC Manual Upload",
+        "source_domain": "local",
+        "market": "US",
+        "company_id": "manual",
+        "ticker": ticker,
+        "company_name": company_name or file_path.parent.parent.parent.name or "Manual Upload",
+        "report_type": report_family or effective_report_type,
+        "report_family": report_family or "current",
+        "form": effective_form,
+        "title": original_name,
+        "accession_number": "manual-upload",
+        "primary_document": original_name,
+        "report_end": period_end,
+        "published_at": filing_date or datetime.now(timezone.utc).date().isoformat(),
+        "accepted_at": None,
+        "document_url": f"file://{file_path.resolve()}",
+        "landing_url": f"file://{file_path.resolve()}",
+        "file_format": file_path.suffix.lower().lstrip(".") or "bin",
+        "language": None,
+        "inline_xbrl": None,
+        "metadata": {
+            "uploaded_filename": original_name,
+            "content_type": content_type,
+        },
+    }
+    payload = {
+        "candidate": candidate,
+        "downloaded_file": {
+            "file_name": file_path.name,
+            "saved_path": str(file_path.resolve()),
+            "size_bytes": size_bytes,
+            "content_type": content_type,
+            "content_sha256": digest,
+        },
+    }
+    metadata_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return metadata_path
+
+
+def _persist_us_sec_upload(
+    file: UploadFile,
+    *,
+    ticker: str | None,
+    company_name: str | None,
+    report_type: str | None,
+    fiscal_year: int | None,
+    period_end: str | None,
+    filing_date: str | None,
+) -> dict[str, Any]:
+    upload_dir = _us_sec_upload_dir()
+    raw_name = file.filename or "upload"
+    suffix = Path(raw_name).suffix.lower()
+    if suffix not in US_SEC_UPLOAD_SUFFIXES:
+        raise HTTPException(status_code=400, detail="Only PDF, HTML, XHTML, XML, XBRL and ZIP uploads are supported")
+
+    content = file.file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+    digest = hashlib.sha256(content).hexdigest()
+    ticker_part = _safe_filename_part(ticker or "manual")
+    company_part = _safe_filename_part(company_name or Path(raw_name).stem)
+    report_type_text = str(report_type or "file").strip()
+    report_part = _safe_filename_part(report_type_text)
+    stamp_part = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    digest_part = digest[:10]
+    effective_suffix = _file_suffix_from_content_type(file.content_type) or suffix or ".bin"
+    if report_type_text.lower() in {"10-k", "20-f", "annual", "annual-report"}:
+        folder = "年报"
+        report_family = "annual"
+    else:
+        folder = "财报"
+        report_family = "quarterly"
+    year_text = str(fiscal_year or (period_end[:4] if period_end else "") or (filing_date[:4] if filing_date else "") or datetime.now(timezone.utc).year)
+    target_dir = upload_dir / company_part / year_text / folder
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target_name = f"{company_part}_US_{ticker_part}_{report_part}_{stamp_part}_{digest_part}{effective_suffix}"
+    target_path = target_dir / target_name
+    if target_path.exists():
+        raise HTTPException(status_code=409, detail="A file with the same generated name already exists")
+    target_path.write_bytes(content)
+    metadata_path = _us_sec_upload_metadata(
+        target_path,
+        original_name=raw_name,
+        content_type=file.content_type or _media_type_for_file(target_path),
+        digest=digest,
+        size_bytes=len(content),
+        ticker=ticker,
+        company_name=company_name,
+        report_type=report_type_text,
+        report_family=report_family,
+        fiscal_year=int(year_text) if str(year_text).isdigit() else None,
+        period_end=period_end,
+        filing_date=filing_date,
+    )
+    return {
+        "file_name": target_path.name,
+        "saved_path": str(target_path.resolve()),
+        "size_bytes": len(content),
+        "content_type": file.content_type or _media_type_for_file(target_path),
+        "cache_hit": False,
+        "deduplicated": False,
+        "content_sha256": digest,
+        "metadata_path": str(metadata_path.resolve()),
+        "relative_path": str(target_path.relative_to(REPORT_DOWNLOADS_ROOT)),
+    }
+
+
+@router.post("/us-sec/uploads")
+async def us_sec_upload_files(
+    request: Request,
+    files: list[UploadFile] = File(...),
+    ticker: str = Form(""),
+    company_name: str = Form(""),
+    report_type: str = Form(""),
+    fiscal_year: str = Form(""),
+    period_end: str = Form(""),
+    filing_date: str = Form(""),
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> dict[str, Any]:
+    del request
+    if not files:
+        raise HTTPException(status_code=400, detail="请上传文件")
+    uploaded: list[dict[str, Any]] = []
+    for item in files:
+        result = _persist_us_sec_upload(
+            item,
+            ticker=ticker.strip().upper() or None,
+            company_name=company_name.strip() or None,
+            report_type=report_type.strip() or None,
+            fiscal_year=int(fiscal_year) if str(fiscal_year).strip().isdigit() else None,
+            period_end=period_end.strip() or None,
+            filing_date=filing_date.strip() or None,
+        )
+        uploaded.append(result)
+        try:
+            # best effort: keep uploads visible in personal workspace
+            from routers.workspace import record_user_artifact as _record_user_artifact
+
+            _record_user_artifact(
+                session,
+                user_id=int(current_user.id),
+                artifact_type="download",
+                artifact_key=str(result["relative_path"]),
+                title=str(item.filename or result["file_name"]),
+                path=str(result["relative_path"]),
+                source="us-sec-upload",
+                global_artifact_id=str(result["relative_path"]),
+            )
+        except Exception:
+            pass
+    return {"ok": True, "count": len(uploaded), "files": uploaded}
 
 
 def _safe_ingest_args(payload: dict[str, Any]) -> list[str]:

@@ -354,7 +354,7 @@ export default function AgentChatPanel({
                   <button
                     onClick={createNewChat}
                     disabled={sending}
-                    className="icon-button h-10 w-10 min-h-10 min-w-10 disabled:opacity-50"
+                    className="icon-button h-11 w-11 min-h-11 min-w-11 disabled:opacity-50"
                     aria-label="新建会话"
                   >
                     <Plus className="h-4 w-4" />
@@ -363,7 +363,7 @@ export default function AgentChatPanel({
                 <Tooltip content="查看历史">
                   <button
                     onClick={showHistory}
-                    className="icon-button h-10 w-10 min-h-10 min-w-10"
+                    className="icon-button h-11 w-11 min-h-11 min-w-11"
                     aria-label="查看历史"
                   >
                     <History className="h-4 w-4" />
@@ -373,7 +373,7 @@ export default function AgentChatPanel({
                   <button
                     onClick={() => setClearConfirmOpen(true)}
                     disabled={sending}
-                    className="icon-button h-10 w-10 min-h-10 min-w-10 disabled:opacity-50"
+                    className="icon-button h-11 w-11 min-h-11 min-w-11 disabled:opacity-50"
                     aria-label="删除历史"
                   >
                     <Trash2 className="h-4 w-4" />
@@ -382,7 +382,7 @@ export default function AgentChatPanel({
                 <Tooltip content="收起">
                   <button
                     onClick={onToggle}
-                    className="icon-button h-10 w-10 min-h-10 min-w-10"
+                    className="icon-button h-11 w-11 min-h-11 min-w-11"
                     aria-label="收起助手"
                   >
                     <ChevronRight className="h-4 w-4" />

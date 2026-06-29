@@ -16,7 +16,7 @@ from services.path_config import REPORT_DOWNLOADS_ROOT
 from services.usage_service import UserArtifact
 
 DOWNLOADS_ROOT = REPORT_DOWNLOADS_ROOT
-OPENABLE_SUFFIXES = {".pdf", ".html", ".htm", ".xml", ".txt", ".zip"}
+OPENABLE_SUFFIXES = {".pdf", ".html", ".htm", ".xhtml", ".xml", ".xbrl", ".txt", ".zip"}
 
 router = APIRouter(prefix="/downloads", tags=["downloads"])
 
@@ -58,6 +58,17 @@ def _is_admin(user: User) -> bool:
 
 def _metadata_path(path: Path) -> Path:
     return path.with_suffix(path.suffix + ".metadata.json")
+
+
+def _load_metadata(path: Path) -> dict:
+    metadata_path = _metadata_path(path)
+    if not metadata_path.is_file():
+        return {}
+    try:
+        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def _metadata_content_type(path: Path) -> str | None:
@@ -105,7 +116,9 @@ def _content_type_for_path(path: Path) -> str:
         ".pdf": "application/pdf",
         ".html": "text/html",
         ".htm": "text/html",
+        ".xhtml": "text/html",
         ".xml": "application/xml",
+        ".xbrl": "application/xml",
         ".txt": "text/plain",
         ".zip": "application/zip",
     }.get(suffix, "application/octet-stream")
@@ -116,10 +129,29 @@ def _report_payload(path: Path) -> dict:
     company, category = _split_download_path(path)
     rel_text = rel.as_posix()
     content_type = _content_type_for_path(path)
+    metadata = _load_metadata(path)
+    candidate = metadata.get("candidate") if isinstance(metadata.get("candidate"), dict) else {}
+    downloaded = metadata.get("downloaded_file") if isinstance(metadata.get("downloaded_file"), dict) else {}
+    company_name = str(candidate.get("company_name") or company or "未分组").strip() or "未分组"
+    ticker = str(candidate.get("ticker") or "").strip() or None
+    form = str(candidate.get("form") or "").strip() or None
+    report_type = str(candidate.get("report_type") or "").strip() or None
+    report_family = str(candidate.get("report_family") or "").strip() or None
+    report_end = str(candidate.get("report_end") or candidate.get("period_end") or "").strip() or None
+    published_at = str(candidate.get("published_at") or candidate.get("filing_date") or "").strip() or None
     return {
         "id": quote(rel_text, safe=""),
-        "company": company,
+        "company": company_name,
+        "companyName": company_name,
+        "ticker": ticker,
         "category": category,
+        "form": form,
+        "reportType": report_type,
+        "reportFamily": report_family,
+        "reportEnd": report_end,
+        "publishedAt": published_at,
+        "accessionNumber": str(candidate.get("accession_number") or "").strip() or None,
+        "sourceId": str(candidate.get("source_id") or "").strip() or None,
         "filename": path.name,
         "relativePath": rel_text,
         "size": stat.st_size,
@@ -127,6 +159,8 @@ def _report_payload(path: Path) -> dict:
         "contentType": content_type,
         "isPdf": content_type == "application/pdf",
         "url": f"/api/downloads/report-file?path={quote(rel_text, safe='')}",
+        "metadataPath": metadata_path.as_posix() if (metadata_path := _metadata_path(path)).is_file() else None,
+        "downloadedFile": downloaded or None,
     }
 
 

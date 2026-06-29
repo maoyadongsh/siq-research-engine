@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
-import { Bell, Loader2, FileText, CheckCheck, Download, Sparkles } from 'lucide-react'
+import { Bell, Loader2, FileText, CheckCheck, Download, Sparkles, Inbox } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 import { apiJson } from '../../lib/apiClient'
 import { isAuthenticatedSourceLink, openAuthenticatedSourceLink } from '../../lib/authenticatedSourceLinks'
@@ -148,6 +149,7 @@ export default function NotificationMenu() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const noticeBoxRef = useRef<HTMLDivElement>(null)
+  const noticePanelRef = useRef<HTMLDivElement>(null)
   const [openNotices, setOpenNotices] = useState(false)
   const [readIds, setReadIds] = useState<string[]>(readNoticeIds)
   const [notices, setNotices] = useState<Notice[]>([])
@@ -161,13 +163,13 @@ export default function NotificationMenu() {
   }, [readIds])
 
   useEffect(() => {
-    const onDown = (event: MouseEvent) => {
-      if (noticeBoxRef.current && !noticeBoxRef.current.contains(event.target as Node)) {
-        setOpenNotices(false)
-      }
+    const onDown = (event: PointerEvent) => {
+      const target = event.target as Node
+      if (noticeBoxRef.current?.contains(target) || noticePanelRef.current?.contains(target)) return
+      setOpenNotices(false)
     }
-    document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
+    document.addEventListener('pointerdown', onDown)
+    return () => document.removeEventListener('pointerdown', onDown)
   }, [])
 
   const loadTaskNotices = useCallback(
@@ -305,6 +307,63 @@ export default function NotificationMenu() {
     return <Sparkles className="h-4 w-4" />
   }
 
+  const panel = openNotices ? (
+    <div
+      ref={noticePanelRef}
+      className="fixed left-3 right-3 z-[80] flex flex-col overflow-hidden rounded-[var(--radius-panel)] border border-border bg-white/98 shadow-[0_22px_70px_rgba(15,23,42,0.18)] backdrop-blur-xl animate-in fade-in zoom-in-95 duration-200 sm:left-auto sm:right-[max(1rem,env(safe-area-inset-right))] sm:w-[min(380px,calc(100vw-1.5rem))]"
+      style={{
+        top: 'calc(var(--app-topbar-height) + 0.5rem)',
+        maxHeight: 'calc(100dvh - var(--app-topbar-height) - 1rem - env(safe-area-inset-bottom))',
+      }}
+      role="dialog"
+      aria-label="任务通知"
+    >
+      <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
+        <div>
+          <span className="font-semibold text-text">任务通知</span>
+          <p className="mt-0.5 text-xs text-text-muted">非对话任务完成后在这里提醒</p>
+        </div>
+        <button
+          onClick={markAllRead}
+          disabled={unread === 0}
+          className="inline-flex min-h-11 items-center gap-1 rounded-[var(--radius-control)] px-2.5 py-1.5 text-xs font-semibold text-text-muted hover:bg-bg hover:text-text disabled:opacity-40"
+        >
+          <CheckCheck className="h-4 w-4 text-success" />
+          全部已读
+        </button>
+      </div>
+      {noticeLoading && unreadNotices.length === 0 ? (
+        <div className="flex items-center gap-2 px-4 py-5 text-sm text-text-muted">
+          <Loader2 className="h-4 w-4 animate-spin text-primary" />
+          正在同步任务状态...
+        </div>
+      ) : unreadNotices.length === 0 ? (
+        <div className="flex flex-col items-center px-4 py-8 text-center text-sm text-text-muted">
+          <Inbox className="mb-2 h-8 w-8 opacity-40" />
+          <p>暂无新的任务通知</p>
+        </div>
+      ) : (
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          {unreadNotices.map((notice) => (
+            <button
+              key={notice.id}
+              onClick={() => openNotice(notice)}
+              className="group relative flex w-full items-start gap-3 border-b border-border/70 px-4 py-3 text-left last:border-0 hover:bg-primary/[0.035] focus-visible:bg-primary/[0.055]"
+            >
+              <span className="absolute bottom-3 left-0 top-3 w-[3px] rounded-r-full bg-primary opacity-0 transition-opacity group-hover:opacity-100" aria-hidden="true" />
+              <span className="premium-icon mt-0.5 h-9 w-9 shrink-0 rounded-xl">{noticeIcon(notice.kind)}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-semibold text-text">{notice.title}</span>
+                <span className="mt-1 line-clamp-2 text-sm leading-5 text-text-muted">{notice.body}</span>
+                <span className="mt-1 block text-xs font-semibold text-text-muted">{formatTime(notice.time)}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  ) : null
+
   return (
     <div ref={noticeBoxRef} className="relative">
       <button
@@ -322,49 +381,7 @@ export default function NotificationMenu() {
         </span>
         <span className="hidden whitespace-nowrap md:inline">任务通知</span>
       </button>
-      {openNotices && (
-        <div className="fixed inset-x-3 bottom-3 z-[60] max-h-[min(76dvh,520px)] overflow-hidden rounded-[var(--radius-panel)] border border-border bg-white/98 shadow-[0_22px_70px_rgba(15,23,42,0.16)] backdrop-blur-xl sm:absolute sm:inset-auto sm:right-0 sm:top-[calc(100%+10px)] sm:w-[min(380px,calc(100vw-1.5rem))]">
-          <div className="flex items-center justify-between border-b border-border px-4 py-3">
-            <div>
-              <span className="font-semibold text-text">任务通知</span>
-              <p className="mt-0.5 text-xs text-text-muted">非对话任务完成后在这里提醒</p>
-            </div>
-            <button
-              onClick={markAllRead}
-              disabled={unread === 0}
-              className="inline-flex min-h-9 items-center gap-1 rounded-[var(--radius-control)] px-2 py-1 text-xs font-semibold text-text-muted hover:bg-bg hover:text-text disabled:opacity-40"
-            >
-              <CheckCheck className="h-4 w-4 text-success" />
-              全部已读
-            </button>
-          </div>
-          {noticeLoading && unreadNotices.length === 0 ? (
-            <div className="flex items-center gap-2 px-4 py-5 text-sm text-text-muted">
-              <Loader2 className="h-4 w-4 animate-spin text-primary" />
-              正在同步任务状态...
-            </div>
-          ) : unreadNotices.length === 0 ? (
-            <div className="px-4 py-8 text-center text-sm text-text-muted">暂无新的任务通知</div>
-          ) : (
-            <div className="max-h-[calc(min(76dvh,520px)-86px)] overflow-y-auto sm:max-h-[420px]">
-              {unreadNotices.map((notice) => (
-                <button
-                  key={notice.id}
-                  onClick={() => openNotice(notice)}
-                  className="flex w-full items-start gap-3 border-b border-border/70 px-4 py-3 text-left last:border-0 hover:bg-primary/[0.035] focus-visible:bg-primary/[0.055]"
-                >
-                  <span className="premium-icon mt-0.5 h-9 w-9 shrink-0 rounded-xl">{noticeIcon(notice.kind)}</span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-semibold text-text">{notice.title}</span>
-                    <span className="mt-1 line-clamp-2 text-sm leading-5 text-text-muted">{notice.body}</span>
-                    <span className="mt-1 block text-xs font-semibold text-text-muted">{formatTime(notice.time)}</span>
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      {panel && typeof document !== 'undefined' ? createPortal(panel, document.body) : null}
     </div>
   )
 }

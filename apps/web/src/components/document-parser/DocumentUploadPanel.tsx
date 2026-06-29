@@ -13,6 +13,7 @@ export function DocumentUploadPanel({
   onSubmitUrl,
   onImportMineruResult,
   onRefreshMineruCandidates,
+  defaultOpen = true,
 }: {
   config: DocumentParseConfig
   uploading: boolean
@@ -21,6 +22,7 @@ export function DocumentUploadPanel({
   onSubmitUrl: (url: string, config: DocumentParseConfig) => Promise<void>
   onImportMineruResult: (sourceDir: string, config: DocumentParseConfig) => Promise<void>
   onRefreshMineruCandidates: () => Promise<void>
+  defaultOpen?: boolean
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [files, setFiles] = useState<File[]>([])
@@ -51,13 +53,13 @@ export function DocumentUploadPanel({
   }
 
   return (
-    <section className="doc-panel">
-      <div className="doc-panel-head">
+    <details className="doc-panel" open={defaultOpen}>
+      <summary className="doc-panel-head">
         <div>
           <h2>上传与来源</h2>
           <p>{supported}</p>
         </div>
-      </div>
+      </summary>
       <div className="doc-panel-body grid gap-3">
         <button
           type="button"
@@ -159,6 +161,6 @@ export function DocumentUploadPanel({
           ) : null}
         </div>
       </div>
-    </section>
+    </details>
   )
 }

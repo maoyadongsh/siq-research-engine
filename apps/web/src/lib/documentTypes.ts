@@ -19,6 +19,13 @@ export interface DocumentTaskItem {
   file_size?: number
   parser_provider?: string
   quality_status?: string
+  upstream_task_id?: string
+  upstream_status?: string
+  queue_position?: number
+  local_queue_position?: number
+  elapsed_seconds?: number
+  total_pages?: number
+  processed_pages?: number
   markdown_ready?: boolean
   created_at?: string
   updated_at?: string
@@ -85,7 +92,24 @@ export interface DocumentBlock {
   markdown?: string
   page_number?: number
   bbox?: number[]
+  bbox_unit?: string
   source_ref?: { evidence_id?: string; source_type?: string; path?: string }
+}
+
+export interface DocumentLayoutPage {
+  page_number?: number
+  page_index?: number
+  width?: number
+  height?: number
+  page_size?: number[]
+  bbox_unit?: string
+  metadata_source?: string
+}
+
+export interface DocumentLayoutBlocksPayload {
+  schema_version?: string
+  task_id?: string
+  pages?: DocumentLayoutPage[]
 }
 
 export interface DocumentBlocksPayload {
@@ -100,6 +124,8 @@ export interface DocumentTable {
   title?: string
   caption?: string
   page_number?: number
+  bbox?: number[]
+  bbox_unit?: string
   sheet_name?: string
   html?: string
   markdown?: string
@@ -130,6 +156,12 @@ export interface DocumentTableRelation {
   review_status?: string
   note?: string
   page_numbers?: number[]
+  visual_connector?: {
+    from_page?: number
+    to_page?: number
+    from_anchor?: number[]
+    to_anchor?: number[]
+  }
 }
 
 export interface DocumentTableRelationsPayload {

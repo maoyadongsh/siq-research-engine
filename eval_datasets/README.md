@@ -1,17 +1,15 @@
-# SIQ 财报智能分析评测语料
+# SIQ 评测语料
 
-`eval_datasets` 保存 SIQ Research Engine 的财报智能分析评测语料。语料面向 A 股上市公司年报问答、指标抽取、证据忠实度和研究推理能力评估。
+`eval_datasets` 保存 SIQ Research Engine 的评测语料和回归样本。这里既有财报分析评测，也有市场入库和通用文档解析回归集。
 
 ## 数据集概况
 
-| 项目 | 内容 |
+| 目录 | 目的 |
 | --- | --- |
-| 数据集名称 | SIQ 上市公司财报智能分析评测语料集 |
-| 版本 | v1.0 |
-| 样本数量 | 100 条 |
-| 覆盖公司 | 10 家已入库上市公司 |
-| 每家公司样本 | 10 条 |
-| 行业类型 | 金融 / 投研 / 上市公司财报分析 |
+| `eval_datasets/siq_financial_analysis_eval_v1_upload.md` | 财报智能分析评测语料上传说明 |
+| `eval_datasets/document_parser_cases` | 通用文档解析回归样本 |
+| `eval_datasets/market_ingestion_cases` | 多市场 evidence package / 入库评测样本 |
+| `eval_datasets/upload_split` | 财报分析样本拆分文件 |
 
 ## 覆盖能力
 
@@ -23,18 +21,9 @@
 | 现金流质量 | 能否区分利润和现金回款质量 |
 | 三大表勾稽 | 能否发现资产负债表、利润表、现金流量表之间的关系 |
 | 资产质量 | 能否识别存货、应收、商誉、减值等资产风险 |
-| 盈利驱动 | 能否解释收入、毛利、费用、非经常性损益的影响 |
-| 行业适配 | 能否结合行业周期和业务结构解释指标变化 |
 | 证据忠实度 | 是否引用正确来源并避免编造 |
-| 后续跟踪事项 | 是否能提出可验证的跟踪指标和触发条件 |
-
-## 文件说明
-
-| 文件 | 用途 |
-| --- | --- |
-| `siq_financial_analysis_eval_v1.csv` | 适合人工查看、表格导入和样本审阅 |
-| `siq_financial_analysis_eval_v1.jsonl` | 适合程序处理、批量评测和平台转换 |
-| `siq_financial_analysis_eval_v1_metadata.json` | 数据集元信息、推荐智能体配置和字段说明 |
+| 多市场入库 | evidence package、load plan 和市场隔离是否正确 |
+| 通用文档解析 | Markdown、blocks、source map、表格关系和 Schema 抽取是否稳定 |
 
 ## 推荐接入
 

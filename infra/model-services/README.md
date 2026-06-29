@@ -7,7 +7,7 @@
 | 分组 | 目录 | 用途 |
 | --- | --- | --- |
 | MinerU | `mineru/` | PDF 解析上游服务和 PDF 解析服务联动启动脚本 |
-| Qwen3.6 35B | `qwen3-6-35b/` | OpenAI-compatible vLLM 文本模型服务 |
+| Qwen3.6 35B | `qwen3.6/` | OpenAI-compatible vLLM 文本模型服务 |
 | Qwen VL 检索 | `qwen-vl-retrieval/` | Embedding 与 reranker 服务，供法规和知识库检索使用 |
 | Gemma4 26B | `gemma4-26b/` | Gemma4 26B A4B NVFP4 vLLM 启动脚本 |
 | systemd user units | `systemd-user/` | 用户级服务定义，便于开机或手动管理 |
@@ -19,7 +19,7 @@ mineru/
   MinerU2.5-Pro-2604-1.2B_up.py
   start_pdf2md_services.sh
 
-qwen3-6-35b/
+qwen3.6/
   Qwen3.6-35B-A3B-FP8_vllm_up.py
   serve_qwen36_fp8_vllm.sh
   serve_qwen36_fp8_vllm_newenv.sh
@@ -43,6 +43,7 @@ systemd-user/
 | SIQ 模块 | 依赖模型服务 |
 | --- | --- |
 | `apps/pdf-parser` | MinerU API、VLM / vLLM |
+| `apps/document-parser` | 复用 `apps/pdf-parser` 的 PDF 能力和上游模型 |
 | `siq_legal` | Qwen3-VL Embedding、Qwen3-VL Reranker、Milvus |
 | Hermes profiles | MiniMax、Kimi、Qwen3.6、Gemma4 等 provider 或 fallback |
 | 向量入库 | Embedding 服务、Milvus |
@@ -52,7 +53,7 @@ systemd-user/
 先按本机模型路径、显存、Python 环境和端口修改脚本中的变量，再启动对应服务。示例：
 
 ```bash
-cd /home/maoyd/siq-research-engine/infra/model-services/qwen3-6-35b
+cd /home/maoyd/siq-research-engine/infra/model-services/qwen3.6
 bash serve_qwen36_fp8_vllm.sh
 ```
 

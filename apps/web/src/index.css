@@ -29,10 +29,28 @@
   --color-primary-dark: #005bb5;
   --color-primary-light: #42a5ff;
   --color-primary-dimmer: #2563eb;
+  --color-primary-50: #eff6ff;
+  --color-primary-100: #dbeafe;
+  --color-primary-200: #bfdbfe;
+  --color-primary-300: #93c5fd;
+  --color-primary-400: #60a5fa;
+  --color-primary-500: #3b82f6;
+  --color-primary-600: #2563eb;
+  --color-primary-700: #1d4ed8;
+  --color-primary-800: #1e40af;
+  --color-primary-900: #1e3a8a;
   --color-success: #16a34a;
+  --color-success-light: #22c55e;
+  --color-success-soft: #dcfce7;
   --color-warning: #ca8a04;
+  --color-warning-light: #f59e0b;
+  --color-warning-soft: #fef3c7;
   --color-error: #dc2626;
+  --color-error-light: #ef4444;
+  --color-error-soft: #fee2e2;
   --color-info: #2563eb;
+  --color-info-light: #3b82f6;
+  --color-info-soft: #dbeafe;
   --color-bg: #f5f7fb;
   --color-card: #ffffff;
   --color-text: #0f172a;
@@ -48,6 +66,10 @@
   --color-chat-user-text: #1e3a8a;
   --color-chat-assistant-bg: #f1f5f9;
   --color-chat-assistant-text: #1e293b;
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 150ms;
+  --duration-normal: 220ms;
   --font-display: Georgia, 'Times New Roman', serif;
   --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
   --font-mono: 'SF Mono', ui-monospace, Consolas, monospace;
@@ -63,6 +85,14 @@
   --card: var(--color-card);
   --text: var(--color-text);
   --text-muted: var(--color-text-muted);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 150ms;
+  --duration-normal: 220ms;
+  --shadow-elevation-1: 0 1px 2px rgba(15, 23, 42, .04), 0 1px 0 rgba(255, 255, 255, .9) inset;
+  --shadow-elevation-2: 0 8px 24px rgba(15, 23, 42, .045), 0 1px 0 rgba(255, 255, 255, .86) inset;
+  --shadow-elevation-3: 0 16px 44px rgba(15, 23, 42, .06), 0 1px 0 rgba(255, 255, 255, .88) inset;
+  --shadow-elevation-4: 0 22px 70px rgba(15, 23, 42, .14);
 }
 * { box-sizing: border-box; }
 html { min-width: 320px; background: var(--color-bg); }
@@ -465,6 +495,21 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   border: 1px solid var(--color-border);
   border-radius: var(--radius-card);
   background: var(--color-surface-soft);
+}
+.auth-mobile-poster {
+  display: none;
+}
+@media (max-width: 1023px) {
+  .auth-mobile-poster {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 7rem;
+    margin-bottom: 1rem;
+    border-radius: var(--radius-card);
+    background: linear-gradient(135deg, #2ea8ff 0%, #0071e3 52%, #004fb8 100%);
+    box-shadow: 0 14px 32px rgba(29, 78, 216, .18);
+  }
 }
 .auth-video-head {
   display: flex;
@@ -1000,8 +1045,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
     gap: .5rem;
   }
   header .icon-button {
-    min-height: 2.5rem;
-    min-width: 2.5rem;
+    min-height: 2.75rem;
+    min-width: 2.75rem;
     border-radius: .82rem;
   }
   .global-search {
@@ -1727,6 +1772,8 @@ html.dark .section-label { border-color: rgba(77,124,255,.26); background: rgba(
 .chat-heading-2 { font-size: .98rem; }
 .chat-heading-3,
 .chat-heading-4 { font-size: .94rem; }
+.chat-heading-5 { font-size: .9rem; }
+.chat-heading-6 { font-size: .86rem; }
 .chat-symbol-heading {
   display: flex;
   align-items: center;

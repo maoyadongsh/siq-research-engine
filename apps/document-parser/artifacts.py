@@ -27,10 +27,12 @@ from contracts import (
     SourceFile,
 )
 from figures import figures_with_missing_bbox
+from page_metadata import merge_layout_page_metadata
 from quality import ratio, warning_status
 from source_map import evidence_id as make_evidence_id
 from source_map import source_map_coverage
-from table_merge import empty_table_relations, single_fragment_logical_table
+from table_merge import build_logical_tables, build_table_relations
+from file_utils import safe_client_filename
 
 
 CORE_ARTIFACTS = [
@@ -97,16 +99,17 @@ def build_artifacts(
             raw_target_dir = result_dir / "raw" / "mineru"
             shutil.rmtree(raw_target_dir, ignore_errors=True)
             shutil.copytree(raw_source_dir, raw_target_dir, ignore=shutil.ignore_patterns("*.tmp", "__pycache__", ".pytest_cache"))
+            _copy_upstream_images(raw_source_dir, result_dir)
 
     blocks = _normalize_blocks(task_id, output.blocks, source)
     figures = output.figures or []
     source_map = _build_source_map(task_id, blocks, output.tables, figures)
-    layout_blocks = _build_layout_blocks(task_id, blocks)
+    layout_blocks = _build_layout_blocks(task_id, blocks, output.page_metadata)
     reading_order = _build_reading_order(task_id, blocks)
     comparison_map = _build_comparison_map(task_id, blocks)
     tables_payload = _build_tables(task_id, output.tables)
-    logical_tables = _build_logical_tables(task_id, output.tables)
-    table_relations = _empty_table_relations(task_id)
+    table_relations = build_table_relations(task_id, output.tables, blocks=blocks, markdown=output.markdown or "")
+    logical_tables = build_logical_tables(task_id, output.tables, table_relations.get("relations") or [])
     figures_payload = _build_figures(task_id, figures)
     quality = _build_quality_report(task_id, output, blocks, source_map)
 
@@ -171,6 +174,17 @@ def build_artifacts(
     _write_default_extraction_files(result_dir, task_id)
     _build_zip(result_dir)
     return manifest
+
+
+def _copy_upstream_images(raw_source_dir: Path, result_dir: Path) -> None:
+    images_dir = raw_source_dir / "images"
+    if not images_dir.exists() or not images_dir.is_dir():
+        return
+    target_dir = result_dir / "images" / "original"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for path in images_dir.rglob("*"):
+        if path.is_file():
+            shutil.copy2(path, target_dir / safe_client_filename(path.name))
 
 
 def artifact_summary(task_id: str, result_dir: Path) -> dict[str, dict[str, Any]]:
@@ -301,8 +315,27 @@ def _build_source_map(
     return sources
 
 
-def _build_layout_blocks(task_id: str, blocks: list[dict[str, Any]]) -> dict[str, Any]:
+def _build_layout_blocks(task_id: str, blocks: list[dict[str, Any]], page_metadata: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     pages: dict[int, dict[str, Any]] = {}
+    for meta in page_metadata or []:
+        try:
+            page_number = int(meta.get("page_number") or 0)
+            width = float(meta.get("width") or 0)
+            height = float(meta.get("height") or 0)
+        except (TypeError, ValueError):
+            continue
+        if page_number <= 0:
+            continue
+        pages[page_number] = {
+            "page_number": page_number,
+            "page_index": int(meta.get("page_index") or page_number - 1),
+            "width": width if width > 0 else 0,
+            "height": height if height > 0 else 0,
+            "page_size": [width, height] if width > 0 and height > 0 else [],
+            "bbox_unit": str(meta.get("bbox_unit") or "pdf_point"),
+            "metadata_source": str(meta.get("source") or ""),
+            "blocks": [],
+        }
     for block in blocks:
         page_number = int(block.get("page_number") or 1)
         page = pages.setdefault(
@@ -312,6 +345,9 @@ def _build_layout_blocks(task_id: str, blocks: list[dict[str, Any]]) -> dict[str
                 "page_index": page_number - 1,
                 "width": 0,
                 "height": 0,
+                "page_size": [],
+                "bbox_unit": block.get("bbox_unit") or "none",
+                "metadata_source": "",
                 "blocks": [],
             },
         )
@@ -326,7 +362,10 @@ def _build_layout_blocks(task_id: str, blocks: list[dict[str, Any]]) -> dict[str
                 "confidence": block.get("confidence", 1.0),
             }
         )
-    return {"schema_version": SCHEMA_LAYOUT_BLOCKS, "task_id": task_id, "pages": list(pages.values())}
+    return merge_layout_page_metadata(
+        {"schema_version": SCHEMA_LAYOUT_BLOCKS, "task_id": task_id, "pages": list(pages.values())},
+        page_metadata or [],
+    )
 
 
 def _build_reading_order(task_id: str, blocks: list[dict[str, Any]]) -> dict[str, Any]:
@@ -386,15 +425,6 @@ def _build_table_index(task_id: str, tables: list[dict[str, Any]]) -> dict[str, 
             for table in tables
         ],
     }
-
-
-def _build_logical_tables(task_id: str, tables: list[dict[str, Any]]) -> dict[str, Any]:
-    logical = [single_fragment_logical_table(task_id, table, index) for index, table in enumerate(tables, start=1)]
-    return {"schema_version": SCHEMA_LOGICAL_TABLES, "task_id": task_id, "logical_tables": logical}
-
-
-def _empty_table_relations(task_id: str) -> dict[str, Any]:
-    return empty_table_relations(task_id)
 
 
 def _build_figures(task_id: str, figures: list[dict[str, Any]]) -> dict[str, Any]:

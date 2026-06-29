@@ -1,4 +1,6 @@
-import { CheckCircle2, FileText, FolderOpen, Loader2, RefreshCw, Search, Settings2, UploadCloud } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { CheckCircle2, FileText, FolderOpen, Loader2, RefreshCw, Search, Settings2, UploadCloud, X } from 'lucide-react'
+import { EmptyState } from '@/components/page'
 import type { DownloadedPdf, HealthStatus } from '../../lib/pdfTypes'
 import { escHtml, formatDateTime, formatSize, isTerminal } from '../../lib/pdfFormatting'
 
@@ -97,6 +99,20 @@ export function PdfUploadPanel(props: PdfUploadPanelProps) {
   } = props
 
   const submitReady = health?.submit_ready ?? false
+  const [reportsExpanded, setReportsExpanded] = useState(false)
+  const recentLimit = 5
+
+  const sortedReports = useMemo(
+    () =>
+      [...downloadedReports].sort((a, b) => {
+        const ta = a.mtime ? new Date(a.mtime).getTime() : 0
+        const tb = b.mtime ? new Date(b.mtime).getTime() : 0
+        return tb - ta
+      }),
+    [downloadedReports],
+  )
+  const visibleReports = reportsExpanded ? sortedReports : sortedReports.slice(0, recentLimit)
+  const hasMore = sortedReports.length > recentLimit
 
   return (
     <div className="secondary-panel p-5">
@@ -136,7 +152,7 @@ export function PdfUploadPanel(props: PdfUploadPanelProps) {
         {downloadedReports.length > 0 ? (
           <>
             <div className="pdf-download-list">
-              {downloadedReports.slice(0, 10).map((report) => {
+              {visibleReports.map((report) => {
                 const busy = downloadedBusyPath === report.relativePath
                 const isPdf = report.isPdf !== false
                 const kind = documentKind(report)
@@ -189,16 +205,24 @@ export function PdfUploadPanel(props: PdfUploadPanelProps) {
                 )
               })}
             </div>
-            {downloadedReports.length > 10 ? (
-              <div className="mt-3 rounded-xl border border-border bg-bg/60 px-3 py-2 text-xs leading-5 text-text-muted">
-                已显示最近 10 份，共 {downloadedReports.length} 份；输入公司、类型或文件名可继续缩小范围。
-              </div>
-            ) : null}
+            {hasMore && (
+              <button
+                type="button"
+                onClick={() => setReportsExpanded((v) => !v)}
+                className="mt-3 w-full rounded-xl border border-border bg-bg/60 px-3 py-2 text-xs font-semibold leading-5 text-text-muted hover:bg-bg hover:text-text"
+              >
+                {reportsExpanded ? `收起` : `展开`} 已下载财报（{visibleReports.length}/{sortedReports.length}）
+              </button>
+            )}
           </>
         ) : (
-          <div className="rounded-[18px] border border-dashed border-border bg-bg/50 px-4 py-6 text-center text-sm text-text-muted">
-            {downloadedLoading ? '正在读取已下载财报...' : '暂无已下载财报，可继续使用本地上传。'}
-          </div>
+          <EmptyState
+            icon={FolderOpen}
+            title={downloadedLoading ? '正在读取已下载财报...' : '暂无已下载财报'}
+            description={downloadedLoading ? '请稍候' : '可继续使用本地上传。'}
+            size="sm"
+            className="rounded-[18px] border border-dashed border-border bg-bg/50"
+          />
         )}
       </div>
 
@@ -241,26 +265,26 @@ export function PdfUploadPanel(props: PdfUploadPanelProps) {
         }}
       />
       {selectedFiles.length > 0 && (
-        <div style={{ marginTop: 14 }}>
-          <div style={{ fontSize: '.84rem', color: '#64748b', marginBottom: 8, fontWeight: 600 }}>本次入队文件</div>
-          <div style={{ display: 'grid', gap: 8 }}>
+        <div className="mt-3.5">
+          <div className="mb-2 text-sm font-semibold text-text-muted">本次入队文件</div>
+          <div className="flex flex-wrap gap-2">
             {selectedFiles.map((f, i) => (
               <div
                 key={i}
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  gap: 10,
-                  alignItems: 'center',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: 12,
-                  background: '#fff',
-                  padding: '8px 10px',
-                  fontSize: '.88rem',
-                }}
+                className="inline-flex max-w-full items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-sm"
+                title={escHtml(f.name)}
               >
-                <b style={{ fontWeight: 600, wordBreak: 'break-word' }}>{escHtml(f.name)}</b>
-                <span style={{ color: '#64748b', whiteSpace: 'nowrap', fontSize: '.8rem' }}>{formatSize(f.size)}</span>
+                <FileText className="h-3.5 w-3.5 shrink-0 text-primary" />
+                <span className="min-w-0 truncate font-medium">{escHtml(f.name)}</span>
+                <span className="shrink-0 text-xs text-text-muted">{formatSize(f.size)}</span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedFiles(selectedFiles.filter((_, idx) => idx !== i))}
+                  className="ml-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-text-muted hover:bg-bg hover:text-text"
+                  aria-label={`移除 ${escHtml(f.name)}`}
+                >
+                  <X className="h-3 w-3" />
+                </button>
               </div>
             ))}
           </div>

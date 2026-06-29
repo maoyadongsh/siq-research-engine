@@ -172,6 +172,43 @@ export interface MarketPackageBuildRequest {
   force?: boolean
 }
 
+export interface UsSecUploadResult {
+  file_name?: string
+  saved_path?: string
+  size_bytes?: number
+  content_type?: string | null
+  cache_hit?: boolean
+  deduplicated?: boolean
+  content_sha256?: string | null
+  metadata_path?: string | null
+  relative_path?: string | null
+}
+
+export interface UsSecUploadResponse {
+  ok?: boolean
+  count?: number
+  files?: UsSecUploadResult[]
+}
+
+export interface UsSecPackageBuildRequest {
+  download_relative_path?: string
+  source_path?: string
+  metadata_path?: string
+  force?: boolean
+}
+
+export interface UsSecPackageBuildResponse {
+  ok?: boolean
+  queued?: boolean
+  job_id?: string
+  status?: string
+  returncode?: number
+  command?: string
+  stdout?: string
+  stderr?: string
+  package?: UsSecPackageDetail
+}
+
 export async function fetchUsSecCaseSet(): Promise<UsSecCaseSetStatus> {
   const r = await fetch('/api/us-sec/case-set')
   const d = await readJsonResponse<UsSecCaseSetStatus>(r)
@@ -222,6 +259,24 @@ export async function fetchUsSecPackage(ticker: string): Promise<UsSecPackageDet
   const r = await fetch(`/api/us-sec/packages/${encodeURIComponent(ticker)}`)
   const d = await readJsonResponse<UsSecPackageDetail>(r)
   if (!r.ok) throw new Error(`加载 ${ticker} 证据包失败`)
+  return d
+}
+
+export async function uploadUsSecFiles(form: FormData): Promise<UsSecUploadResponse> {
+  const r = await fetch('/api/us-sec/uploads', { method: 'POST', body: form })
+  const d = await readJsonResponse<UsSecUploadResponse>(r)
+  if (!r.ok || d.ok === false) throw new Error('上传 US 文件失败')
+  return d
+}
+
+export async function buildUsSecPackage(body: UsSecPackageBuildRequest): Promise<UsSecPackageBuildResponse> {
+  const r = await fetch('/api/market-reports/packages/build', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ market: 'US', ...body }),
+  })
+  const d = await readJsonResponse<UsSecPackageBuildResponse & { detail?: string }>(r)
+  if (!r.ok || d.ok === false) throw new Error(String(d.stderr || d.stdout || d.detail || 'US 证据包构建失败'))
   return d
 }
 

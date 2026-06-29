@@ -131,6 +131,23 @@ wait_for_http() {
     done
 }
 
+run_document_parser_supervised() {
+    local child_pid=0
+    trap 'if [[ ${child_pid:-0} -gt 0 ]]; then kill "$child_pid" 2>/dev/null || true; wait "$child_pid" 2>/dev/null || true; fi; exit 0' TERM INT
+    while true; do
+        (
+            cd "$DOCUMENT_PARSER_DIR"
+            PORT="$DOCUMENT_PARSER_PORT" ./run.sh
+        ) &
+        child_pid=$!
+        local exit_code=0
+        wait "$child_pid" || exit_code=$?
+        child_pid=0
+        warn "通用文档解析服务退出 (exit $exit_code)，3 秒后重启..."
+        sleep 3
+    done
+}
+
 port_is_free() {
     local port=$1
     ! ss -ltn "sport = :$port" | tail -n +2 | grep -q .
@@ -249,10 +266,7 @@ pids+=($!)
 
 # ---------- 启动通用文档解析服务 ----------
 log "启动通用文档解析服务 (端口 $DOCUMENT_PARSER_PORT)..."
-(
-    cd "$DOCUMENT_PARSER_DIR"
-    PORT="$DOCUMENT_PARSER_PORT" ./run.sh
-) &
+run_document_parser_supervised &
 pids+=($!)
 
 # ---------- 启动前端 ----------

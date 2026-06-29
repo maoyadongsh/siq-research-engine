@@ -130,11 +130,11 @@ export default function Dashboard() {
     const trackings = companies.reduce((sum, c) => sum + (c.trackingCount || 0), 0)
     const legals = companies.reduce((sum, c) => sum + (c.legalCount || 0), 0)
     return [
-      { label: 'Wiki 公司', value: companies.length || 0, unit: '家' },
-      { label: '智能分析', value: reports || 0, unit: '篇' },
-      { label: '事实核查', value: factchecks || 0, unit: '份' },
-      { label: '持续跟踪', value: trackings || 0, unit: '份' },
-      { label: '法务合规', value: legals || 0, unit: '份' },
+      { label: 'Wiki 公司', value: companies.length || 0, unit: '家', icon: Building2, tone: 'blue' as const },
+      { label: '智能分析', value: reports || 0, unit: '篇', icon: BarChart3, tone: 'primary' as const },
+      { label: '事实核查', value: factchecks || 0, unit: '份', icon: ShieldCheck, tone: 'amber' as const },
+      { label: '持续跟踪', value: trackings || 0, unit: '份', icon: TrendingUp, tone: 'rose' as const },
+      { label: '法务合规', value: legals || 0, unit: '份', icon: Scale, tone: 'indigo' as const },
     ]
   }, [companies])
 
@@ -166,7 +166,7 @@ export default function Dashboard() {
   return (
     <div className="space-y-8">
       {/* ── Hero + Stats + Active Company ── */}
-      <section className="premium-shell hero-band dashboard-hero overflow-hidden rounded-[28px]">
+      <section className="premium-shell hero-band dashboard-hero overflow-hidden rounded-[var(--radius-panel)]">
         <div className="border-b border-border/80 bg-white/48 px-5 py-4 backdrop-blur sm:px-6">
           <div className="dashboard-hero-header grid items-center gap-3 sm:grid-cols-[1fr_auto] xl:grid-cols-[1fr_360px] 2xl:gap-6 2xl:grid-cols-[1fr_390px]">
             <div className="secondary-kicker w-fit justify-self-start">
@@ -203,23 +203,48 @@ export default function Dashboard() {
             </div>
 
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-5 2xl:gap-4">
-              {stats.map((stat) => (
-                <div
-                  key={stat.label}
-                  className="metric-tile rounded-[20px] p-4 2xl:p-5"
-                >
-                  <p className="text-sm font-semibold text-text-muted">{stat.label}</p>
-                  <p className="mt-2 font-mono text-[2rem] font-bold tabular-nums tracking-tight text-text md:text-[2.25rem]">
-                    {stat.value}
-                    <span className="ml-1.5 text-base font-normal text-text-muted">{stat.unit}</span>
-                  </p>
-                </div>
-              ))}
+              {stats.map((stat) => {
+                const toneBg = {
+                  blue: 'bg-blue-50 text-blue-600',
+                  amber: 'bg-amber-50 text-amber-600',
+                  rose: 'bg-rose-50 text-rose-600',
+                  indigo: 'bg-indigo-50 text-indigo-600',
+                  primary: 'bg-primary/10 text-primary',
+                }[stat.tone]
+                const Icon = stat.icon
+                return (
+                  <div
+                    key={stat.label}
+                    className="metric-tile rounded-[var(--radius-card)] p-4 2xl:p-5"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-sm font-semibold text-text-muted">{stat.label}</p>
+                      <span className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${toneBg}`}>
+                        <Icon className="h-4 w-4" />
+                      </span>
+                    </div>
+                    <p className="mt-2 font-mono text-[2rem] font-bold tabular-nums tracking-tight text-text md:text-[2.25rem]">
+                      {stat.value}
+                      <span className="ml-1.5 text-base font-normal text-text-muted">{stat.unit}</span>
+                    </p>
+                  </div>
+                )
+              })}
             </div>
           </div>
 
           {/* Right: Active Company */}
-          <aside className="premium-card dashboard-active-card flex flex-col rounded-[24px] p-5">
+          <aside className="premium-card dashboard-active-card relative flex flex-col overflow-hidden rounded-[var(--radius-card)] p-5">
+            <div
+              className="pointer-events-none absolute right-0 top-0 h-40 w-40 opacity-10 sm:h-48 sm:w-48"
+              aria-hidden="true"
+            >
+              <img
+                src="/illustrations/siq-system-map-hero.svg"
+                alt=""
+                className="h-full w-full object-contain"
+              />
+            </div>
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
                 <p className="text-sm font-medium text-text-muted">当前优先研究对象</p>
@@ -285,8 +310,9 @@ export default function Dashboard() {
           <Link
             key={step.to}
             to={step.to}
-            className="premium-card group relative flex min-h-[172px] flex-col rounded-[20px] p-5 text-center transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/25"
+            className="premium-card group relative flex min-h-[172px] flex-col overflow-hidden rounded-[var(--radius-card)] p-5 text-center transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/25"
           >
+            <span className="absolute left-0 top-0 h-1 w-full bg-gradient-to-r from-primary/40 via-primary/20 to-transparent sm:h-1.5" aria-hidden="true" />
             <div className="absolute -right-2 -top-2 flex h-7 w-7 items-center justify-center rounded-full bg-white font-mono text-xs font-bold text-text-muted shadow-md ring-2 ring-card">
               {index + 1}
             </div>
@@ -302,7 +328,7 @@ export default function Dashboard() {
 
       {/* ── Featured Companies ── */}
       {featuredCompanies.length > 0 && (
-        <section className="premium-shell rounded-[28px] p-6">
+        <section className="premium-shell rounded-[var(--radius-panel)] p-6">
           <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h2 className="text-2xl font-bold tracking-tight text-text">研究对象状态</h2>
@@ -322,11 +348,12 @@ export default function Dashboard() {
                 { label: '分析', ready: company.hasReport, value: company.reportCount },
                 { label: '核查', ready: company.hasFactcheck, value: company.factcheckCount },
                 { label: '跟踪', ready: company.hasTracking, value: company.trackingCount },
+                { label: '法务', ready: Boolean(company.hasLegal), value: company.legalCount || 0 },
               ]
               return (
                 <div
                   key={company.dir}
-                  className="premium-card rounded-[20px] p-5"
+                  className="premium-card rounded-[var(--radius-card)] p-5"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -340,7 +367,7 @@ export default function Dashboard() {
                       {companyAction.label}
                     </Link>
                   </div>
-                  <div className="mt-5 grid grid-cols-3 gap-3">
+                  <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
                     {items.map((item) => (
                       <div
                         key={item.label}
@@ -371,7 +398,7 @@ export default function Dashboard() {
 
       {/* ── Recent Tasks + Company Overview ── */}
       <section className="grid gap-6 xl:grid-cols-[1fr_380px]">
-        <div className="premium-shell rounded-[28px] p-6">
+        <div className="premium-shell rounded-[var(--radius-panel)] p-6">
           <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h2 className="text-2xl font-bold tracking-tight text-text">近期任务列表</h2>
@@ -391,12 +418,12 @@ export default function Dashboard() {
               暂无已生成任务结果
             </p>
           ) : (
-            <div className="overflow-hidden rounded-[20px] border border-border bg-white/70">
+            <div className="overflow-hidden rounded-[var(--radius-panel)] border border-border bg-white/70">
               {recent.map((item) => (
                 <Link
                   key={item.id}
                   to={item.pageUrl}
-                  className="group flex items-center gap-4 border-b border-border/70 px-5 py-4 transition-colors last:border-b-0 hover:bg-primary/[0.035]"
+                  className="group relative flex w-full items-center gap-4 border-b border-border/70 px-5 py-4 text-left transition-colors last:border-b-0 hover:bg-primary/[0.035] even:bg-bg/[0.35] before:absolute before:left-0 before:top-3 before:bottom-3 before:w-[3px] before:rounded-r-full before:bg-primary before:opacity-0 before:transition-opacity hover:before:opacity-100"
                 >
                   <span className="premium-icon h-11 w-11 shrink-0 rounded-xl">
                     <FileText className="h-5 w-5" />
@@ -419,7 +446,7 @@ export default function Dashboard() {
           )}
         </div>
 
-        <aside className="premium-shell rounded-[28px] p-5 2xl:p-6">
+        <aside className="premium-shell rounded-[var(--radius-panel)] p-5 2xl:p-6">
           <div className="mb-6 flex items-center gap-4">
             <div className="premium-icon h-12 w-12 rounded-2xl">
               <Building2 className="h-6 w-6" />

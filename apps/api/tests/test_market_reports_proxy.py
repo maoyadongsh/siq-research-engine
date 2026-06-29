@@ -280,6 +280,45 @@ def test_eu_package_build_accepts_download_relative_path(monkeypatch, tmp_path):
     assert seen["args"][-1] == "--force"
 
 
+def test_us_package_build_accepts_download_relative_path_and_returns_sec_detail(monkeypatch, tmp_path):
+    downloads_root = tmp_path / "downloads"
+    source_path = downloads_root / "US" / "Apple" / "2025" / "年报" / "apple_10k.html"
+    metadata_path = source_path.with_suffix(source_path.suffix + ".metadata.json")
+    source_path.parent.mkdir(parents=True)
+    source_path.write_text("<html><body>10-K</body></html>", encoding="utf-8")
+    metadata_path.write_text('{"candidate":{"ticker":"AAPL"}}', encoding="utf-8")
+    seen = {}
+
+    class Completed:
+        returncode = 0
+        stdout = "/tmp/us-package\n"
+        stderr = ""
+
+    def fake_run(args, **kwargs):
+        seen["args"] = args
+        seen["kwargs"] = kwargs
+        return Completed()
+
+    monkeypatch.setattr(market_reports, "REPORT_DOWNLOADS_ROOT", downloads_root)
+    monkeypatch.setattr(market_reports.subprocess, "run", fake_run)
+    monkeypatch.setattr(market_reports, "_read_package_detail", lambda package_dir: {"package_path": str(package_dir), "preview": {"raw_html": "raw/filing.htm"}})
+    monkeypatch.setattr(market_reports, "_read_market_package_detail", lambda package_dir: {"unexpected": str(package_dir)})
+
+    result = market_reports._run_market_package_build({
+        "market": "US",
+        "download_relative_path": "US/Apple/2025/年报/apple_10k.html",
+        "force": True,
+    })
+
+    assert result["ok"] is True
+    assert result["package"]["preview"]["raw_html"] == "raw/filing.htm"
+    assert seen["args"][1].endswith("build_sec_evidence_package.py")
+    assert seen["args"][2] == str(source_path)
+    metadata_index = seen["args"].index("--metadata")
+    assert seen["args"][metadata_index + 1] == str(metadata_path)
+    assert seen["args"][-1] == "--force"
+
+
 def test_eu_parse_endpoint_wraps_market_package_build(monkeypatch, tmp_path):
     downloads_root = tmp_path / "downloads"
     source_path = downloads_root / "EU" / "NL" / "ASML" / "2025" / "年报" / "report.html"

@@ -1,5 +1,5 @@
 import { MessageCircle } from 'lucide-react'
-import { useEffect, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import AgentChatPanel, { type AgentChatPanelProps } from './AgentChatPanel'
 
 interface PageWithAgentChatProps extends Omit<AgentChatPanelProps, 'collapsed' | 'onToggle'> {
@@ -7,13 +7,6 @@ interface PageWithAgentChatProps extends Omit<AgentChatPanelProps, 'collapsed' |
 }
 
 const VIEWPORT_HEIGHT = 'calc(100dvh - var(--app-topbar-height) - var(--app-content-y))'
-const AGENT_DOCK_QUERY = '(max-width: 639px)'
-
-function shouldDefaultClosed() {
-  if (typeof window === 'undefined') return false
-  return window.matchMedia(AGENT_DOCK_QUERY).matches
-}
-
 export default function PageWithAgentChat({
   children,
   apiPrefix,
@@ -22,16 +15,7 @@ export default function PageWithAgentChat({
   quickQuestions,
   context,
 }: PageWithAgentChatProps) {
-  const [agentOpen, setAgentOpen] = useState(() => !shouldDefaultClosed())
-
-  useEffect(() => {
-    const media = window.matchMedia(AGENT_DOCK_QUERY)
-    const handleChange = (event: MediaQueryListEvent) => {
-      setAgentOpen(!event.matches)
-    }
-    media.addEventListener('change', handleChange)
-    return () => media.removeEventListener('change', handleChange)
-  }, [])
+  const [agentOpen, setAgentOpen] = useState(false)
 
   return (
     <div

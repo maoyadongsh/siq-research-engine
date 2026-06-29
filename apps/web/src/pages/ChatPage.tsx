@@ -3,6 +3,7 @@ import {
   Trash2,
   History,
   Plus,
+  MoreVertical,
 } from 'lucide-react'
 import AgentFairy, { type AgentFairyState } from '../components/chat/AgentFairy'
 import AgentProgressCard from '../components/agent/AgentProgressCard'
@@ -30,6 +31,8 @@ export default function ChatPage() {
   const [historyNotice, setHistoryNotice] = useState('')
   const [historyOpen, setHistoryOpen] = useState(false)
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const mobileMenuRef = useRef<HTMLDivElement>(null)
   const messagesEnd = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -67,6 +70,17 @@ export default function ChatPage() {
   useEffect(() => {
     scrollToBottom()
   }, [messages, scrollToBottom])
+
+  useEffect(() => {
+    if (!mobileMenuOpen) return
+    const handleClick = (event: MouseEvent) => {
+      if (mobileMenuRef.current && !mobileMenuRef.current.contains(event.target as Node)) {
+        setMobileMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [mobileMenuOpen])
 
   const handleSendMessage = async (text?: string, displayText?: string) => {
     setHistoryNotice('')
@@ -136,13 +150,13 @@ export default function ChatPage() {
 
   return (
     <ChatShell
-      className="premium-shell rounded-[30px]"
+      className="premium-shell rounded-[var(--radius-panel)]"
       style={{ height: 'calc(100dvh - var(--app-topbar-height) - var(--app-content-y))' }}
       header={
         <ChatHeader
           className="flex-col gap-4 border-b border-border/80 bg-white/54 px-5 py-4 backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:px-6"
           avatar={<AgentFairy state={fairyState} size="sm" />}
-          title={<h2 className="text-2xl font-semibold text-text">财报问答助手</h2>}
+          title={<h2 className="text-lg font-semibold text-text sm:text-2xl">财报问答助手</h2>}
           subtitle="面向已入库财报的研究助理"
           subtitleClassName="text-sm font-medium text-text-muted"
           actionsClassName="flex flex-wrap items-center gap-2"
@@ -151,36 +165,75 @@ export default function ChatPage() {
               <button
                 onClick={handleNewChat}
                 disabled={sending}
-                className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-border bg-white/78 px-3 text-xs font-semibold text-text shadow-sm hover:bg-white disabled:opacity-50"
+                className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-xl border border-border bg-white/78 px-3 text-xs font-semibold text-text shadow-sm hover:bg-white disabled:opacity-50"
+                aria-label="新建会话"
+                title="新建会话"
               >
-                <Plus className="h-3.5 w-3.5" /> 新建会话
+                <Plus className="h-3.5 w-3.5" /><span className="hidden sm:inline">新建会话</span>
               </button>
               <button
                 onClick={showHistory}
-                className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-border bg-white/78 px-3 text-xs font-semibold text-text shadow-sm hover:bg-white"
+                className="hidden sm:inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-border bg-white/78 px-3 text-xs font-semibold text-text shadow-sm hover:bg-white"
               >
-                <History className="h-3.5 w-3.5" /> 查看历史
+                <History className="h-3.5 w-3.5" />查看历史
               </button>
               <button
                 onClick={() => setClearConfirmOpen(true)}
                 disabled={sending}
-                className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-border bg-white/78 px-3 text-xs font-semibold text-text shadow-sm hover:bg-white disabled:opacity-50"
+                className="hidden sm:inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-border bg-white/78 px-3 text-xs font-semibold text-text shadow-sm hover:bg-white disabled:opacity-50"
               >
-                <Trash2 className="h-3.5 w-3.5" /> 删除历史
+                <Trash2 className="h-3.5 w-3.5" />删除历史
               </button>
+              <div className="relative sm:hidden" ref={mobileMenuRef}>
+                <button
+                  onClick={() => setMobileMenuOpen((open) => !open)}
+                  className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-border bg-white/78 px-3 text-xs font-semibold text-text shadow-sm hover:bg-white"
+                  aria-label="更多操作"
+                  title="更多操作"
+                  aria-expanded={mobileMenuOpen}
+                  aria-haspopup="menu"
+                >
+                  <MoreVertical className="h-3.5 w-3.5" />
+                </button>
+                {mobileMenuOpen && (
+                  <div
+                    className="absolute right-0 top-full z-50 mt-1 w-36 rounded-xl border border-border bg-white p-1 shadow-lg"
+                    role="menu"
+                  >
+                    <button
+                      onClick={() => { setMobileMenuOpen(false); showHistory() }}
+                      className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium text-text hover:bg-bg"
+                      role="menuitem"
+                    >
+                      <History className="h-3.5 w-3.5" />
+                      查看历史
+                    </button>
+                    <button
+                      onClick={() => { setMobileMenuOpen(false); setClearConfirmOpen(true) }}
+                      disabled={sending}
+                      className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium text-text hover:bg-bg disabled:opacity-50"
+                      role="menuitem"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      删除历史
+                    </button>
+                  </div>
+                )}
+              </div>
             </>
           }
         />
       }
-      history={historyOpen ? (
+      history={
         <SessionHistoryList
           sessions={sessions}
           loading={loadingSessions}
           loaded={sessionsLoaded}
           onSelect={openSession}
           onClose={() => setHistoryOpen(false)}
+          open={historyOpen}
         />
-      ) : null}
+      }
       messages={
         <ChatMessageList
           messages={messages}

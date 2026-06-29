@@ -1,8 +1,8 @@
 # Milvus 向量库入库脚本
 
-`scripts/vector-index/milvus-ingestion` 用于存放 Milvus 向量库入库脚本。`ingest_final.py` 是从 `/home/maoyd/milvus_setup/milvus_ingestion/ingest_final.py` 归档进来的入库工具，可将 PDF、DOCX、Markdown、TXT 等材料切片、向量化并写入指定 Milvus collection。
+`scripts/vector-index/milvus-ingestion` 用于存放 Milvus 向量库入库脚本。`ingest_final.py` 是归档进来的入库工具，可将 PDF、DOCX、Markdown、TXT 等材料切片、向量化并写入指定 Milvus collection。
 
-该脚本不绑定某一条业务工作流，是一个可复用的 Milvus 向量库入库工具。默认 collection 指向现有 SIQ Milvus collection，运行时可以通过环境变量或 UI 改到其他 collection。
+该目录不绑定某一条业务工作流，是一个可复用的向量库入库工具。默认 collection 指向现有 SIQ Milvus collection，运行时可以通过环境变量或 UI 改到其他 collection。
 
 ## 存档位置设计
 
@@ -95,50 +95,10 @@ export MINIMAX_API_KEY=...
 export MINIMAX_EMBED_MODEL=embo-01
 ```
 
-## UI 使用流程
-
-1. 上传项目文件夹，或填写服务器绝对路径。
-2. 选择 Milvus Database，默认 `default`。
-3. 选择目标 Collection，默认 `ic_collaboration_shared`。
-4. 填写批次标签，例如 `SIQ-DAJIN-2026`。
-5. 选择 embedding 后端，默认 `vllm (本地)`。
-6. 选择 PDF 解析方式；需要高精度解析时可使用 MinerU 相关模式。
-7. 按需开启表格块、视觉块和 Graph Sidecar。
-8. 点击“开始入库”，观察右侧运行日志和统计信息。
-
-## 入库产物
-
-主 collection schema：
-
-```text
-id: INT64 auto_id
-vector: FLOAT_VECTOR(1024)
-project_tag: VARCHAR
-metadata: JSON
-```
-
-`metadata` 记录来源文件、路径、chunk 类型、章节、页码、引用字符串、文档类型、证据等级和 chunk hash，可用于后续检索、引用、质量评测和 Graph sidecar。
-
-## Graph Sidecar
-
-当前 Graph sidecar 仅支持 `ic_collaboration_shared`，用于项目底稿的关系检索增强。默认 prefix：
-
-```text
-siq_project
-```
-
-开启后会创建：
-
-```text
-siq_project_vgrag_passages
-siq_project_vgrag_entities
-siq_project_vgrag_relations
-```
-
 ## 维护原则
 
 - `project_tag` 必须稳定，建议使用 `SIQ-{项目或公司}-{年份}`。
 - 重置 collection 前确认已有数据可重建。
-- API Key 和数据库口令只放环境变量，不写入脚本和 README。
+- API key 和数据库口令只放环境变量，不写入脚本和 README。
 - 大文件先小批量试跑，检查质量报告后再全量入库。
 - 运行态文件如 `.progress_*`、`.ingest_runtime_state.json`、`.mineru_ingest_cache/`、`ingest_quality_reports/` 不作为源码提交。

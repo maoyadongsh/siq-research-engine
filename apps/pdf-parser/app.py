@@ -64,6 +64,10 @@ from quality_report import (
     KEY_TABLE_DISPLAY_ORDER,
     QUALITY_SCHEMA_VERSION,
 )
+from table_merge import (
+    TABLE_RELATION_RULESET_VERSION,
+    build_table_relations as build_physical_table_relations,
+)
 from task_store import (
     CANCELLED,
     COMPLETED,
@@ -106,6 +110,8 @@ MINERU_STATUS_FAILURE_TOLERANCE = int(os.environ.get("MINERU_STATUS_FAILURE_TOLE
 STALE_SUBMITTING_SECONDS = int(os.environ.get("STALE_SUBMITTING_SECONDS", "1800"))
 ALLOWED_BACKENDS = {"hybrid-http-client", "pipeline", "vlm-http-client"}
 ALLOWED_PARSE_METHODS = {"auto", "txt", "ocr"}
+SUPPORTED_MARKETS = {"CN", "HK", "US", "JP", "KR", "EU", "DOC"}
+MARKET_TOKEN_RE = re.compile(r"(?:^|[_\W])(CN|HK|US|JP|KR|EU|DOC)(?:[_\W]|$)", re.IGNORECASE)
 APP_ACCESS_TOKEN = os.environ.get("PDF2MD_ACCESS_TOKEN", "").strip()
 APP_JS_VERSION = str(int(os.path.getmtime(os.path.join(BASE_DIR, "static", "app.js"))))
 PDF_PAGE_MARKER_RE = re.compile(
@@ -144,6 +150,30 @@ def _now_iso():
 
 def _utc_now():
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _parse_task_datetime(value):
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except Exception:
+        return None
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed.replace(tzinfo=None)
+
+
+def _task_elapsed_seconds(task):
+    start = _parse_task_datetime(task.get("started_at"))
+    if start is None:
+        return None
+    end = None
+    if is_terminal_status(task.get("status")):
+        end = _parse_task_datetime(task.get("completed_at"))
+    if end is None:
+        end = _utc_now()
+    return max(0, int((end - start).total_seconds()))
 
 
 def _safe_unlink(path):
@@ -241,10 +271,13 @@ def _parse_page_id(value, field_name):
 def _parse_submit_config(form):
     backend = str(form.get("backend", "hybrid-http-client")).strip()
     parse_method = str(form.get("parse_method", "auto")).strip()
+    market = str(form.get("market", "CN")).strip().upper()
     if backend not in ALLOWED_BACKENDS:
         raise ValueError("不支持的后端模式")
     if parse_method not in ALLOWED_PARSE_METHODS:
         raise ValueError("不支持的解析方式")
+    if market not in SUPPORTED_MARKETS:
+        raise ValueError("不支持的市场类型")
 
     start_page_id = _parse_page_id(form.get("start_page_id", ""), "起始页码")
     end_page_id = _parse_page_id(form.get("end_page_id", ""), "结束页码")
@@ -254,11 +287,72 @@ def _parse_submit_config(form):
     return {
         "backend": backend,
         "parse_method": parse_method,
+        "market": market,
         "start_page_id": start_page_id,
         "end_page_id": end_page_id,
         "formula_enable": _parse_bool(form.get("formula_enable"), default=True),
         "table_enable": _parse_bool(form.get("table_enable"), default=True),
     }
+
+
+def _normalize_market(value):
+    market = str(value or "").strip().upper()
+    return market if market in SUPPORTED_MARKETS else None
+
+
+def _infer_market_from_text(value):
+    text = str(value or "").strip()
+    if not text:
+        return None
+    match = MARKET_TOKEN_RE.search(text)
+    if match:
+        return match.group(1).upper()
+    if re.search(r"[\u4e00-\u9fff]", text):
+        return "CN"
+    return None
+
+
+def _task_market_from_record(task):
+    if not isinstance(task, dict):
+        return None
+
+    submit_config = task.get("submit_config")
+    if isinstance(submit_config, dict):
+        market = _normalize_market(submit_config.get("market"))
+        if market:
+            return market
+
+    market = _normalize_market(task.get("market"))
+    if market:
+        return market
+
+    for key in ("filename", "upload_path", "markdown_path", "task_id"):
+        market = _infer_market_from_text(task.get(key))
+        if market:
+            return market
+    return None
+
+
+def _apply_task_market_fallback(task):
+    market = _task_market_from_record(task)
+    if not market:
+        task["market"] = None
+        return task
+
+    task["market"] = market
+    submit_config = task.get("submit_config")
+    if isinstance(submit_config, dict) and not _normalize_market(submit_config.get("market")):
+        submit_config["market"] = market
+    return task
+
+
+def _safe_task_id(value):
+    task_id = str(value or "").strip()
+    if not task_id:
+        return None
+    if any(char in task_id for char in "/\\") or task_id in {".", ".."} or len(task_id) > 120:
+        raise ValueError("invalid task_id")
+    return task_id
 
 
 def _request_has_valid_token():
@@ -764,7 +858,7 @@ def _row_to_task(row):
         task["last_status_payload"] = json.loads(task["last_status_payload"]) if task.get("last_status_payload") else None
     except json.JSONDecodeError:
         task["last_status_payload"] = None
-    return task
+    return _apply_task_market_fallback(task)
 
 
 def _save_task(task, allow_insert=False):
@@ -876,6 +970,7 @@ def _task_duplicate_payload(task):
     return {
         "task_id": task.get("task_id"),
         "filename": task.get("filename"),
+        "market": task.get("market"),
         "status": task.get("status"),
         "stage": task.get("stage"),
         "created_at": task.get("created_at"),
@@ -900,7 +995,7 @@ def _list_recent_tasks(limit=100):
     conn = _db_conn()
     try:
         rows = conn.execute(
-            "SELECT task_id, filename, status, stage, created_at, markdown_path FROM tasks ORDER BY created_at DESC LIMIT ?",
+            "SELECT task_id, filename, status, stage, created_at, markdown_path, submit_config_json FROM tasks ORDER BY created_at DESC LIMIT ?",
             (limit,),
         ).fetchall()
         tasks = [dict(row) for row in rows]
@@ -916,6 +1011,11 @@ def _list_recent_tasks(limit=100):
         conn.close()
 
     for task in tasks:
+        try:
+            task["submit_config"] = json.loads(task.pop("submit_config_json") or "{}")
+        except json.JSONDecodeError:
+            task["submit_config"] = {}
+        task = _apply_task_market_fallback(task)
         task["local_queue_position"] = queued_order.get(task["task_id"])
         if task.get("status") == COMPLETED and not _has_markdown_artifact(task):
             full_task = _get_task(task["task_id"])
@@ -2565,6 +2665,295 @@ def _content_table_sources(content_list):
             }
         )
     return sources
+
+
+def _coerce_bbox(value):
+    if not isinstance(value, (list, tuple)) or len(value) != 4:
+        return []
+    try:
+        bbox = [float(item) for item in value]
+    except (TypeError, ValueError):
+        return []
+    if bbox[2] <= bbox[0] or bbox[3] <= bbox[1]:
+        return []
+    return bbox
+
+
+def _table_relation_column_count(table):
+    structure = table.get("structure") if isinstance(table.get("structure"), dict) else {}
+    for value in (
+        structure.get("expanded_columns"),
+        structure.get("column_count"),
+        table.get("column_count"),
+    ):
+        try:
+            parsed = int(value or 0)
+        except (TypeError, ValueError):
+            parsed = 0
+        if parsed > 0:
+            return parsed
+    return 0
+
+
+def _table_relation_row_count(table):
+    structure = table.get("structure") if isinstance(table.get("structure"), dict) else {}
+    for value in (
+        table.get("rows"),
+        structure.get("expanded_rows"),
+        structure.get("row_count"),
+    ):
+        try:
+            parsed = int(value or 0)
+        except (TypeError, ValueError):
+            parsed = 0
+        if parsed > 0:
+            return parsed
+    return 0
+
+
+def _table_relation_title(table):
+    return table.get("heading") or table.get("preview") or table.get("unit") or ""
+
+
+def _table_relation_table_id(page_number, bbox, fallback):
+    bbox_part = "-".join(str(int(round(float(item)))) for item in bbox)
+    return f"pt-p{int(page_number or 1):04d}-{bbox_part or fallback}"
+
+
+def _normalize_enhanced_table_for_relations(table, fallback_index=0):
+    if not isinstance(table, dict):
+        return None
+    bbox = _coerce_bbox(table.get("bbox"))
+    if not bbox:
+        return None
+    page_number = table.get("pdf_page_number") or table.get("page_number")
+    try:
+        page_number = int(page_number or 0)
+    except (TypeError, ValueError):
+        page_number = 0
+    if page_number <= 0:
+        return None
+    table_index = table.get("table_index")
+    source_id = table.get("content_table_source_id") or table.get("source_table_index")
+    table_id = table.get("table_id") or f"pt-{int(table_index or fallback_index or 0):06d}"
+    if not table_index:
+        table_id = _table_relation_table_id(page_number, bbox, f"e{fallback_index}")
+    row_count = _table_relation_row_count(table)
+    column_count = _table_relation_column_count(table)
+    return {
+        "table_id": table_id,
+        "table_index": table_index,
+        "content_table_source_id": source_id,
+        "page_number": page_number,
+        "pdf_page_number": page_number,
+        "printed_page_number": table.get("printed_page_number"),
+        "bbox": bbox,
+        "title": _table_relation_title(table),
+        "caption": _table_relation_title(table),
+        "html": table.get("table_html") or table.get("html") or "",
+        "markdown": table.get("markdown") or "",
+        "text": table.get("preview") or "",
+        "quality": {
+            "row_count": row_count,
+            "column_count": column_count,
+        },
+        "missing_body": bool(table.get("missing_body") or not (table.get("table_html") or table.get("html") or table.get("markdown") or table.get("preview"))),
+        "source": table.get("source") or "enhanced_table",
+    }
+
+
+def _normalize_content_table_block_for_relations(item, table_ordinal, printed_pages):
+    if not isinstance(item, dict) or item.get("type") != "table":
+        return None
+    bbox = _coerce_bbox(item.get("bbox"))
+    if not bbox:
+        return None
+    page_idx = item.get("page_idx")
+    if not isinstance(page_idx, int):
+        return None
+    page_number = page_idx + 1
+    table_body = str(item.get("table_body") or "").strip()
+    row_count = _count_table_rows(table_body) if table_body else 0
+    column_count = _table_structure_signals(table_body).get("expanded_columns") if table_body else 0
+    return {
+        "table_id": _table_relation_table_id(page_number, bbox, f"c{table_ordinal}"),
+        "table_index": None,
+        "content_table_source_id": table_ordinal if table_body else None,
+        "page_number": page_number,
+        "pdf_page_number": page_number,
+        "printed_page_number": printed_pages.get(page_number),
+        "bbox": bbox,
+        "title": "",
+        "caption": "",
+        "html": table_body,
+        "markdown": "",
+        "text": _strip_html(table_body) if table_body else "",
+        "quality": {
+            "row_count": row_count,
+            "column_count": int(column_count or 0),
+        },
+        "missing_body": not bool(table_body),
+        "source": "content_list_table_block",
+    }
+
+
+def _relation_merge_key(table):
+    page_number = int(table.get("page_number") or 0)
+    bbox = _coerce_bbox(table.get("bbox"))
+    if bbox:
+        return (page_number, tuple(round(value, 2) for value in bbox))
+    return (page_number, table.get("table_id") or "")
+
+
+def _merge_relation_table(existing, incoming):
+    merged = dict(incoming)
+    merged.update(existing)
+    existing_quality = existing.get("quality") if isinstance(existing.get("quality"), dict) else {}
+    incoming_quality = incoming.get("quality") if isinstance(incoming.get("quality"), dict) else {}
+    merged["quality"] = {
+        "row_count": existing_quality.get("row_count") or incoming_quality.get("row_count") or 0,
+        "column_count": existing_quality.get("column_count") or incoming_quality.get("column_count") or 0,
+    }
+    merged["html"] = existing.get("html") or incoming.get("html") or ""
+    merged["markdown"] = existing.get("markdown") or incoming.get("markdown") or ""
+    merged["text"] = existing.get("text") or incoming.get("text") or ""
+    merged["title"] = existing.get("title") or incoming.get("title") or ""
+    merged["caption"] = existing.get("caption") or incoming.get("caption") or ""
+    merged["table_index"] = existing.get("table_index") or incoming.get("table_index")
+    merged["content_table_source_id"] = existing.get("content_table_source_id") or incoming.get("content_table_source_id")
+    merged["missing_body"] = bool(existing.get("missing_body") and incoming.get("missing_body"))
+    return merged
+
+
+def _relation_blocks_from_content_list(content_list):
+    content_list = _coerce_json_artifact(content_list)
+    if not isinstance(content_list, list):
+        return []
+    blocks = []
+    for index, item in enumerate(content_list, start=1):
+        if not isinstance(item, dict):
+            continue
+        page_idx = item.get("page_idx")
+        page_number = int(page_idx) + 1 if isinstance(page_idx, int) else 1
+        block_type = item.get("type") or "unknown"
+        block = {
+            "block_id": item.get("block_id") or f"pb-{index:06d}",
+            "type": block_type,
+            "page_number": page_number,
+            "bbox": item.get("bbox") or [],
+            "text": item.get("text") or "",
+            "markdown": item.get("text") or "",
+            "sub_type": item.get("sub_type") or "",
+            "reading_order": index,
+        }
+        if block_type == "table":
+            block["text"] = _strip_html(item.get("table_body") or "")
+            block["markdown"] = block["text"]
+        elif block_type == "list":
+            block["text"] = " ".join(str(value or "") for value in item.get("list_items") or [])
+            block["markdown"] = block["text"]
+        blocks.append(block)
+    return blocks
+
+
+def _relation_tables_from_artifacts(enhanced, content_list):
+    merged = {}
+    for index, table in enumerate((enhanced or {}).get("tables") or [], start=1):
+        normalized = _normalize_enhanced_table_for_relations(table, fallback_index=index)
+        if not normalized:
+            continue
+        key = _relation_merge_key(normalized)
+        merged[key] = _merge_relation_table(merged[key], normalized) if key in merged else normalized
+
+    content_list = _coerce_json_artifact(content_list)
+    printed_pages = _printed_page_numbers_by_pdf_page(content_list)
+    table_ordinal = 0
+    if isinstance(content_list, list):
+        for item in content_list:
+            if isinstance(item, dict) and item.get("type") == "table" and item.get("table_body"):
+                table_ordinal += 1
+            normalized = _normalize_content_table_block_for_relations(item, table_ordinal, printed_pages)
+            if not normalized:
+                continue
+            key = _relation_merge_key(normalized)
+            merged[key] = _merge_relation_table(merged[key], normalized) if key in merged else normalized
+
+    return sorted(
+        merged.values(),
+        key=lambda item: (
+            int(item.get("page_number") or 0),
+            _coerce_bbox(item.get("bbox"))[1] if _coerce_bbox(item.get("bbox")) else 0,
+            _coerce_bbox(item.get("bbox"))[0] if _coerce_bbox(item.get("bbox")) else 0,
+        ),
+    )
+
+
+def _augment_table_relations(relations_payload, relation_tables):
+    table_by_id = {str(table.get("table_id") or ""): table for table in relation_tables}
+    relations = relations_payload.get("relations") if isinstance(relations_payload, dict) else []
+    if not isinstance(relations, list):
+        return relations_payload
+    for relation in relations:
+        if not isinstance(relation, dict):
+            continue
+        from_table = table_by_id.get(str(relation.get("from_table_id") or relation.get("source_table_id") or ""))
+        to_table = table_by_id.get(str(relation.get("to_table_id") or relation.get("target_table_id") or ""))
+        if from_table:
+            relation["from_table_index"] = from_table.get("table_index")
+            relation["from_bbox"] = from_table.get("bbox") or []
+            relation["from_page_number"] = from_table.get("page_number")
+        if to_table:
+            relation["to_table_index"] = to_table.get("table_index")
+            relation["to_bbox"] = to_table.get("bbox") or []
+            relation["to_page_number"] = to_table.get("page_number")
+    return relations_payload
+
+
+def _build_table_relations_artifact(task, markdown, enhanced=None, content_list=None):
+    task_id = task.get("task_id") or ""
+    if enhanced is None:
+        enhanced = _load_json_artifact(task, "content_list_enhanced.json")
+    if content_list is None:
+        content_list = _load_json_artifact(task, "content_list.json")
+    relation_tables = _relation_tables_from_artifacts(enhanced if isinstance(enhanced, dict) else {}, content_list)
+    blocks = _relation_blocks_from_content_list(content_list)
+    payload = build_physical_table_relations(task_id, relation_tables, blocks=blocks, markdown=markdown or "")
+    payload = _augment_table_relations(payload, relation_tables)
+    payload.update(
+        {
+            "schema_version": "document_table_relations_v1",
+            "ruleset_version": payload.get("ruleset_version") or TABLE_RELATION_RULESET_VERSION,
+            "task_id": task_id,
+            "filename": task.get("filename"),
+            "generated_at": _now_iso(),
+            "physical_table_count": len(relation_tables),
+        }
+    )
+    return payload
+
+
+def _table_relations_path(task):
+    return os.path.join(_result_dir(task), "table_relations.json")
+
+
+def _write_table_relations_artifact(task, markdown, enhanced=None, content_list=None):
+    result_dir = _result_dir(task)
+    os.makedirs(result_dir, exist_ok=True)
+    payload = _build_table_relations_artifact(task, markdown, enhanced=enhanced, content_list=content_list)
+    _write_json(_table_relations_path(task), payload)
+    return payload
+
+
+def _ensure_table_relations_artifact(task, markdown, enhanced=None, content_list=None):
+    path = _table_relations_path(task)
+    existing = _load_json_artifact(task, "table_relations.json") if os.path.exists(path) else None
+    if (
+        isinstance(existing, dict)
+        and existing.get("schema_version") == "document_table_relations_v1"
+        and existing.get("ruleset_version") == TABLE_RELATION_RULESET_VERSION
+    ):
+        return existing
+    return _write_table_relations_artifact(task, markdown, enhanced=enhanced, content_list=content_list)
 
 
 def _normalized_table_html_for_match(table_html):
@@ -4597,7 +4986,7 @@ def _markdown_page_index(markdown, content_list=None):
     return pages
 
 
-def _build_document_full_json(task, markdown, enhanced, quality_report, financial_data=None, financial_checks=None):
+def _build_document_full_json(task, markdown, enhanced, quality_report, financial_data=None, financial_checks=None, table_relations=None):
     result_dir = _result_dir(task)
     content_list = _load_json_artifact(task, "content_list.json")
     middle_json = _load_json_artifact(task, "middle.json")
@@ -4636,6 +5025,7 @@ def _build_document_full_json(task, markdown, enhanced, quality_report, financia
         "model_output": model_output,
         "result_payload_summary": payload_summary,
         "quality_report": quality_report,
+        "table_relations": table_relations,
         "financial_data": financial_data,
         "financial_checks": financial_checks,
         "resources": {
@@ -4650,11 +5040,18 @@ def _build_document_full_json(task, markdown, enhanced, quality_report, financia
     }
 
 
-def _write_document_full_artifact(task, markdown, enhanced, quality_report, financial_data=None, financial_checks=None):
+def _write_document_full_artifact(task, markdown, enhanced, quality_report, financial_data=None, financial_checks=None, table_relations=None):
     if markdown is None or not isinstance(enhanced, dict):
         return None
     result_dir = _result_dir(task)
     os.makedirs(result_dir, exist_ok=True)
+    if table_relations is None:
+        table_relations = _ensure_table_relations_artifact(
+            task,
+            markdown,
+            enhanced=enhanced,
+            content_list=_load_json_artifact(task, "content_list.json"),
+        )
     path = os.path.join(result_dir, "document_full.json")
     payload = _build_document_full_json(
         task,
@@ -4663,11 +5060,17 @@ def _write_document_full_artifact(task, markdown, enhanced, quality_report, fina
         quality_report,
         financial_data=financial_data,
         financial_checks=financial_checks,
+        table_relations=table_relations,
     )
     payload.setdefault("artifacts", {})["document_full.json"] = {
         "exists": True,
         "path": path,
         "url": f"/api/artifact/{task['task_id']}/document_full.json",
+    }
+    payload.setdefault("artifacts", {})["table_relations.json"] = {
+        "exists": True,
+        "path": _table_relations_path(task),
+        "url": f"/api/artifact/{task['task_id']}/table_relations.json",
     }
     _write_json(path, payload)
     return path
@@ -4701,12 +5104,24 @@ def _ensure_content_list_enhanced_artifact(task, markdown):
     )
     _write_json(path, enhanced)
     _write_complete_markdown_artifact(task, markdown, enhanced, corrections=_load_corrections(task))
+    table_relations = _ensure_table_relations_artifact(
+        task,
+        markdown,
+        enhanced=enhanced,
+        content_list=_load_json_artifact(task, "content_list.json"),
+    )
     if isinstance(document_full, dict):
         document_full["content_list_enhanced"] = enhanced
+        document_full["table_relations"] = table_relations
         document_full.setdefault("artifacts", {})["content_list_enhanced.json"] = {
             "exists": True,
             "path": path,
             "url": f"/api/artifact/{task['task_id']}/content_list_enhanced.json",
+        }
+        document_full.setdefault("artifacts", {})["table_relations.json"] = {
+            "exists": True,
+            "path": _table_relations_path(task),
+            "url": f"/api/artifact/{task['task_id']}/table_relations.json",
         }
         complete_path = os.path.join(result_dir, "result_complete.md")
         document_full.setdefault("source_files", {}).setdefault("complete_markdown", {})["path"] = complete_path
@@ -5151,6 +5566,12 @@ def _write_quality_artifacts(task, markdown, file_name=None, content_list=None, 
     _write_complete_markdown_artifact(task, markdown, enhanced_content_list)
     _write_json(os.path.join(result_dir, "quality_report.json"), report)
     _write_json(os.path.join(result_dir, "table_index.json"), report.get("table_index", []))
+    table_relations = _write_table_relations_artifact(
+        task,
+        markdown,
+        enhanced=enhanced_content_list,
+        content_list=content_list,
+    )
     _write_document_full_artifact(
         task,
         markdown,
@@ -5158,6 +5579,7 @@ def _write_quality_artifacts(task, markdown, file_name=None, content_list=None, 
         report,
         financial_data=financial_data,
         financial_checks=financial_checks,
+        table_relations=table_relations,
     )
     return report
 
@@ -5314,6 +5736,7 @@ def _artifact_status(task):
         "document_full.json",
         "content_list_enhanced.json",
         "quality_report.json",
+        "table_relations.json",
         "table_index.json",
         "financial_data.json",
         "financial_checks.json",
@@ -5341,6 +5764,7 @@ ARTIFACT_OPEN_ALLOWLIST = {
     "result_complete.md": ("text/markdown; charset=utf-8", False),
     "document_full.json": ("application/json; charset=utf-8", False),
     "quality_report.json": ("application/json; charset=utf-8", False),
+    "table_relations.json": ("application/json; charset=utf-8", False),
     "table_index.json": ("application/json; charset=utf-8", False),
     "financial_data.json": ("application/json; charset=utf-8", False),
     "financial_checks.json": ("application/json; charset=utf-8", False),
@@ -5504,13 +5928,7 @@ def _fetch_and_cache_result(task, force=False):
 
 
 def _build_status_response(task, logs_slice=None):
-    elapsed = None
-    if task.get("started_at"):
-        try:
-            start = datetime.fromisoformat(task["started_at"].replace("Z", "+00:00"))
-            elapsed = int((_utc_now() - start.replace(tzinfo=None)).total_seconds())
-        except Exception:
-            elapsed = None
+    elapsed = _task_elapsed_seconds(task)
 
     page_progress = _calc_page_progress(task, elapsed)
     progress_percent = _calc_progress_percent(task, elapsed)
@@ -5609,29 +6027,29 @@ def _refresh_task_from_upstream(task):
             _append_log(task, "已恢复处理中任务，继续同步进度", "info")
 
     if task.get("status") == "processing" and task.get("started_at"):
-        try:
-            start = datetime.fromisoformat(task["started_at"].replace("Z", "+00:00"))
-            elapsed = int((_utc_now() - start.replace(tzinfo=None)).total_seconds())
-            last_log_time = task.get("last_progress_log_time")
-            if last_log_time:
-                last_logged = datetime.fromisoformat(last_log_time.replace("Z", "+00:00"))
-                seconds_since_last = int((_utc_now() - last_logged.replace(tzinfo=None)).total_seconds())
-            else:
-                seconds_since_last = elapsed + 1
-
-            if seconds_since_last >= 60:
-                task["last_progress_log_time"] = _now_iso()
-                page_info = _calc_page_progress(task, elapsed)
-                if page_info:
-                    _append_log(
-                        task,
-                        f"处理中... 已耗时 {_format_duration(elapsed)}, 已完成 {page_info['processed']}/{page_info['total']} 页, 还剩 {page_info['remaining']} 页",
-                        "info",
-                    )
+        elapsed = _task_elapsed_seconds(task)
+        if elapsed is not None:
+            try:
+                last_log_time = task.get("last_progress_log_time")
+                if last_log_time:
+                    last_logged = datetime.fromisoformat(last_log_time.replace("Z", "+00:00"))
+                    seconds_since_last = int((_utc_now() - last_logged.replace(tzinfo=None)).total_seconds())
                 else:
-                    _append_log(task, f"处理中... 已耗时 {_format_duration(elapsed)}", "info")
-        except Exception:
-            pass
+                    seconds_since_last = elapsed + 1
+
+                if seconds_since_last >= 60:
+                    task["last_progress_log_time"] = _now_iso()
+                    page_info = _calc_page_progress(task, elapsed)
+                    if page_info:
+                        _append_log(
+                            task,
+                            f"处理中... 已耗时 {_format_duration(elapsed)}, 已完成 {page_info['processed']}/{page_info['total']} 页, 还剩 {page_info['remaining']} 页",
+                            "info",
+                        )
+                    else:
+                        _append_log(task, f"处理中... 已耗时 {_format_duration(elapsed)}", "info")
+            except Exception:
+                pass
 
     if task.get("status") == COMPLETED and not _has_markdown_artifact(task):
         _fetch_and_cache_result(task)
@@ -5701,6 +6119,7 @@ def upload():
 
     try:
         submit_config = _parse_submit_config(request.form)
+        requested_task_id = _safe_task_id(request.form.get("task_id") or request.form.get("taskId"))
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
@@ -5716,19 +6135,21 @@ def upload():
                 message=f"本次上传中包含重复文件名，请勿重复解析: {display_filename}",
             )
         seen_filenames.add(display_filename)
-        duplicate_task = _find_duplicate_filename_task(display_filename)
-        if duplicate_task:
-            duplicate_status = str(duplicate_task.get("status") or "").lower()
-            if duplicate_status in {"queued", "uploaded", "submitting", "submitted", "pending", "processing"}:
-                message = f"该文件正在解析或排队中，请勿重复提交: {display_filename}"
-            else:
-                message = f"该文件已存在解析任务，请查看已有结果: {display_filename}"
-            return _duplicate_filename_response(display_filename, duplicate_task, message=message)
+        if not requested_task_id:
+            duplicate_task = _find_duplicate_filename_task(display_filename)
+            if duplicate_task:
+                duplicate_status = str(duplicate_task.get("status") or "").lower()
+                if duplicate_status in {"queued", "uploaded", "submitting", "submitted", "pending", "processing"}:
+                    message = f"该文件正在解析或排队中，请勿重复提交: {display_filename}"
+                else:
+                    message = f"该文件已存在解析任务，请查看已有结果: {display_filename}"
+                return _duplicate_filename_response(display_filename, duplicate_task, message=message)
         display_filenames.append(display_filename)
 
     created_tasks = []
     for file, display_filename in zip(files, display_filenames):
-        local_task_id = str(uuid.uuid4())
+        local_task_id = requested_task_id or str(uuid.uuid4())
+        requested_task_id = None
         upload_path = os.path.join(UPLOAD_FOLDER, f"{local_task_id}.pdf")
         total_size = 0
 

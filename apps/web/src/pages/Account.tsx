@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Bot, FileText, ShieldCheck } from 'lucide-react'
+import { Bot, FileText, ShieldCheck, UserRound } from 'lucide-react'
 import { apiJson } from '../lib/apiClient'
 import { useAuth, type User } from '../hooks/useAuth'
 import { PageState } from '@/components/research/PageState'
+import { MetricCard } from '@/components/research/MetricCard'
 import { PageHeader, PageSection, PageShell, StatusBadge, Surface } from '@/components/page'
 
 type Quota = { used: number; limit: number | null; remaining: number | null; resetAt: string }
@@ -59,6 +60,11 @@ export default function Account() {
         eyebrow="Account Center"
         title="我的账户"
         description={`查看 ${account?.full_name || account?.username || '当前用户'} 的账号资料、权限状态和今日使用额度。`}
+        actions={
+          <span className="premium-icon h-16 w-16 shrink-0 rounded-full">
+            <UserRound className="h-8 w-8" />
+          </span>
+        }
         meta={[
           <StatusBadge key="role" tone="info">{roleLabel(account?.role)}</StatusBadge>,
           <StatusBadge
@@ -72,7 +78,7 @@ export default function Account() {
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_420px]">
         <PageSection title="基本信息" description="账户资料、角色和登录时间。">
-          <dl className="mt-5 grid gap-4 md:grid-cols-2">
+          <dl className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
             {[
               ['用户名', account?.username],
               ['邮箱', account?.email],
@@ -102,34 +108,19 @@ export default function Account() {
 
           {summary && (
             <PageSection title="今日额度" description="智能体问答和新解析任务的日用量。">
-              <div className="mt-4 space-y-3">
-                {[
-                  {
-                    label: '智能体问答',
-                    value: summary.quotas.agentQuestion.limit == null ? '不限' : `${summary.quotas.agentQuestion.used}/${summary.quotas.agentQuestion.limit}`,
-                    icon: Bot,
-                    trend: summary.quotas.agentQuestion.limit == null ? '管理员不受日额度限制' : `${formatDate(summary.quotas.agentQuestion.resetAt)} 恢复`,
-                  },
-                  {
-                    label: '新解析任务',
-                    value: summary.quotas.parseJob.limit == null ? '不限' : `${summary.quotas.parseJob.used}/${summary.quotas.parseJob.limit}`,
-                    icon: FileText,
-                    trend: summary.quotas.parseJob.limit == null ? '管理员不受日额度限制' : `${formatDate(summary.quotas.parseJob.resetAt)} 恢复`,
-                  },
-                ].map((item) => (
-                  <Surface key={item.label} kind="card" padding="md">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold text-text-muted">{item.label}</p>
-                        <p className="mt-2 text-3xl font-bold text-text">{item.value}</p>
-                        <p className="mt-1 text-sm leading-5 text-text-muted">{item.trend}</p>
-                      </div>
-                      <span className="premium-icon h-10 w-10 shrink-0 rounded-2xl">
-                        <item.icon className="h-5 w-5" />
-                      </span>
-                    </div>
-                  </Surface>
-                ))}
+              <div className="mt-4 grid gap-3">
+                <MetricCard
+                  label="智能体问答"
+                  value={summary.quotas.agentQuestion.limit == null ? '不限' : `${summary.quotas.agentQuestion.used}/${summary.quotas.agentQuestion.limit}`}
+                  icon={Bot}
+                  trend={summary.quotas.agentQuestion.limit == null ? '管理员不受日额度限制' : `${formatDate(summary.quotas.agentQuestion.resetAt)} 恢复`}
+                />
+                <MetricCard
+                  label="新解析任务"
+                  value={summary.quotas.parseJob.limit == null ? '不限' : `${summary.quotas.parseJob.used}/${summary.quotas.parseJob.limit}`}
+                  icon={FileText}
+                  trend={summary.quotas.parseJob.limit == null ? '管理员不受日额度限制' : `${formatDate(summary.quotas.parseJob.resetAt)} 恢复`}
+                />
               </div>
             </PageSection>
           )}

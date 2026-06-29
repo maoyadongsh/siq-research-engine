@@ -3,6 +3,7 @@ import type {
   DocumentBlocksPayload,
   DocumentExtractionTemplate,
   DocumentFiguresPayload,
+  DocumentLayoutBlocksPayload,
   DocumentLogEntry,
   DocumentMineruImportCandidate,
   DocumentParseConfig,
@@ -23,6 +24,7 @@ import {
   fetchDocumentBlocks,
   fetchDocumentExtractionTemplates,
   fetchDocumentFigures,
+  fetchDocumentLayoutBlocks,
   fetchDocumentQuality,
   fetchDocumentResult,
   fetchDocumentSourceMap,
@@ -58,6 +60,7 @@ export function useDocumentTasks(showToast: (message: string) => void) {
   const [result, setResult] = useState<DocumentResult | null>(null)
   const [quality, setQuality] = useState<DocumentQualityReport | null>(null)
   const [blocks, setBlocks] = useState<DocumentBlocksPayload | null>(null)
+  const [layout, setLayout] = useState<DocumentLayoutBlocksPayload | null>(null)
   const [tables, setTables] = useState<DocumentTablesPayload | null>(null)
   const [tableRelations, setTableRelations] = useState<DocumentTableRelationsPayload | null>(null)
   const [figures, setFigures] = useState<DocumentFiguresPayload | null>(null)
@@ -95,10 +98,11 @@ export function useDocumentTasks(showToast: (message: string) => void) {
   const loadArtifacts = useCallback(async (taskId: string) => {
     setLoading(true)
     try {
-      const [resultData, qualityData, blocksData, tablesData, tableRelationsData, figuresData, sourceMapData] = await Promise.all([
+      const [resultData, qualityData, blocksData, layoutData, tablesData, tableRelationsData, figuresData, sourceMapData] = await Promise.all([
         fetchDocumentResult(taskId),
         fetchDocumentQuality(taskId).catch(() => null),
         fetchDocumentBlocks(taskId).catch(() => null),
+        fetchDocumentLayoutBlocks(taskId).catch(() => null),
         fetchDocumentTables(taskId).catch(() => null),
         fetchDocumentTableRelations(taskId).catch(() => null),
         fetchDocumentFigures(taskId).catch(() => null),
@@ -107,6 +111,7 @@ export function useDocumentTasks(showToast: (message: string) => void) {
       setResult(resultData)
       setQuality(qualityData)
       setBlocks(blocksData)
+      setLayout(layoutData)
       setTables(tablesData)
       setTableRelations(tableRelationsData)
       setFigures(figuresData)
@@ -156,6 +161,7 @@ export function useDocumentTasks(showToast: (message: string) => void) {
       setResult(null)
       setQuality(null)
       setBlocks(null)
+      setLayout(null)
       setTables(null)
       setTableRelations(null)
       setFigures(null)
@@ -453,9 +459,11 @@ export function useDocumentTasks(showToast: (message: string) => void) {
   }, [showToast])
 
   useEffect(() => {
-    void refreshTasks()
-    void loadExtractionTemplates()
-    void loadMineruCandidates()
+    queueMicrotask(() => {
+      void refreshTasks()
+      void loadExtractionTemplates()
+      void loadMineruCandidates()
+    })
     return () => stopPolling()
   }, [loadExtractionTemplates, loadMineruCandidates, refreshTasks, stopPolling])
 
@@ -465,6 +473,7 @@ export function useDocumentTasks(showToast: (message: string) => void) {
     result,
     quality,
     blocks,
+    layout,
     tables,
     tableRelations,
     figures,

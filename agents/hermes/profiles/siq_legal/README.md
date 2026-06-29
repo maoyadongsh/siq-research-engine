@@ -27,15 +27,6 @@
 | Embedding 服务 | `LEGAL_EMBEDDING_API_URL` |
 | Reranker 服务 | `LEGAL_RERANKER_API_URL` |
 
-常用模型配置：
-
-```bash
-export LEGAL_EMBEDDING_API_URL=http://127.0.0.1:8013/v1
-export LEGAL_EMBEDDING_MODEL=Qwen3-VL-Embedding-2B
-export LEGAL_RERANKER_API_URL=http://127.0.0.1:8001/v1
-export LEGAL_RERANKER_MODEL=Qwen3-VL-Reranker-2B
-```
-
 ## CLI 能力
 
 ```bash
@@ -67,16 +58,6 @@ python3 scripts/validate_legal_opinion.py /path/to/opinion.html
 ./SIQ_legal save_opinion <company_id> /path/to/opinion.html
 ```
 
-## 前端与 API
-
-| 项目 | 值 |
-| --- | --- |
-| 前端页面 | `/legal` |
-| API 前缀 | `/api/legal/*` |
-| Hermes profile | `siq_legal` |
-| 默认端口 | `18652` |
-| 报告目录 | `companies/<company_id>/legal/` |
-
 ## 输出边界
 
 - 不凭模型记忆直接引用法规。
@@ -84,13 +65,3 @@ python3 scripts/validate_legal_opinion.py /path/to/opinion.html
 - 不遗漏依据来源、条款、适用范围和不确定性。
 - 不输出与用户事实无关的泛化法律结论。
 - 不泄露 `.env` 中的模型、数据库或法规库访问凭据。
-
-## 维护检查
-
-```bash
-curl -s http://127.0.0.1:18652/health
-./SIQ_legal status
-./SIQ_legal hybrid_search "上市公司关联交易披露要求" --top-k 5
-```
-
-调整法规入库、embedding、reranker 或意见书模板后，应验证检索结果、引用来源、HTML 校验和前端展示。

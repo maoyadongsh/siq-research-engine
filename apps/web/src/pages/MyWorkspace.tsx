@@ -6,6 +6,7 @@ import {
   Building2,
   CheckCircle2,
   FileText,
+  FolderOpen,
   LayoutDashboard,
   Loader2,
   Scale,
@@ -323,12 +324,12 @@ export default function MyWorkspace() {
   }, [personalArtifacts, projects.length, summary])
 
   const statCards = useMemo(() => ([
-    { label: '我的项目', value: stats.projects, unit: '个' },
-    { label: '个人产物', value: stats.artifacts, unit: '份' },
-    { label: '下载材料', value: stats.downloads, unit: '份' },
-    { label: '解析结果', value: stats.parses, unit: '份' },
-    { label: '文档解析', value: stats.documentParses, unit: '份' },
-    { label: '生成报告', value: stats.reports, unit: '份' },
+    { label: '我的项目', value: stats.projects, unit: '个', icon: Building2, tone: 'blue' as const },
+    { label: '个人产物', value: stats.artifacts, unit: '份', icon: FolderOpen, tone: 'slate' as const },
+    { label: '下载材料', value: stats.downloads, unit: '份', icon: FileText, tone: 'indigo' as const },
+    { label: '解析结果', value: stats.parses, unit: '份', icon: Search, tone: 'cyan' as const },
+    { label: '文档解析', value: stats.documentParses, unit: '份', icon: FileText, tone: 'teal' as const },
+    { label: '生成报告', value: stats.reports, unit: '份', icon: BarChart3, tone: 'primary' as const },
   ]), [stats])
 
   const featuredProjects = useMemo(
@@ -401,23 +402,49 @@ export default function MyWorkspace() {
             </div>
 
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 2xl:grid-cols-6 2xl:gap-4">
-              {statCards.map((stat) => (
-                <div
-                  key={stat.label}
-                  className="metric-tile p-3 sm:p-4"
-                >
-                  <p className="text-xs font-semibold text-text-muted sm:text-sm">{stat.label}</p>
-                  <p className="mt-1.5 font-mono text-[1.45rem] font-bold tabular-nums text-text sm:mt-2 sm:text-[1.8rem] md:text-[2rem]">
-                    {stat.value}
-                    <span className="ml-1 text-sm font-normal text-text-muted sm:ml-1.5 sm:text-base">{stat.unit}</span>
-                  </p>
-                </div>
-              ))}
+              {statCards.map((stat) => {
+                const toneBg = {
+                  blue: 'bg-blue-50 text-blue-600',
+                  slate: 'bg-slate-100 text-slate-600',
+                  indigo: 'bg-indigo-50 text-indigo-600',
+                  cyan: 'bg-cyan-50 text-cyan-600',
+                  teal: 'bg-teal-50 text-teal-600',
+                  primary: 'bg-primary/10 text-primary',
+                }[stat.tone]
+                const Icon = stat.icon
+                return (
+                  <div
+                    key={stat.label}
+                    className="metric-tile p-3 sm:p-4"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-xs font-semibold text-text-muted sm:text-sm">{stat.label}</p>
+                      <span className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${toneBg}`}>
+                        <Icon className="h-4 w-4" />
+                      </span>
+                    </div>
+                    <p className="mt-2 font-mono text-[1.45rem] font-bold tabular-nums text-text sm:mt-2.5 sm:text-[1.8rem] md:text-[2rem]">
+                      {stat.value}
+                      <span className="ml-1 text-sm font-normal text-text-muted sm:ml-1.5 sm:text-base">{stat.unit}</span>
+                    </p>
+                  </div>
+                )
+              })}
             </div>
           </div>
 
           {/* Right: Active Project */}
-          <aside className="premium-card dashboard-active-card flex flex-col p-4 sm:p-5">
+          <aside className="premium-card dashboard-active-card relative flex flex-col overflow-hidden p-4 sm:p-5">
+            <div
+              className="pointer-events-none absolute right-0 top-0 h-40 w-40 opacity-10 sm:h-48 sm:w-48"
+              aria-hidden="true"
+            >
+              <img
+                src="/illustrations/siq-system-map-hero.svg?v=2"
+                alt=""
+                className="h-full w-full object-contain"
+              />
+            </div>
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
                 <p className="text-sm font-medium text-text-muted">当前优先研究对象</p>
@@ -483,8 +510,9 @@ export default function MyWorkspace() {
           <Link
             key={step.to}
             to={step.to}
-            className="workflow-step-card premium-card group relative flex min-h-[118px] min-w-0 flex-col p-3 text-left transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/25 sm:min-h-[160px] sm:p-5 sm:text-center"
+            className="workflow-step-card premium-card group relative flex min-h-[118px] min-w-0 flex-col overflow-hidden p-3 text-left transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/25 sm:min-h-[160px] sm:p-5 sm:text-center"
           >
+            <span className="absolute left-0 top-0 h-1 w-full bg-gradient-to-r from-primary/40 via-primary/20 to-transparent sm:h-1.5" aria-hidden="true" />
             <div className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-white font-mono text-[0.68rem] font-bold text-text-muted shadow-md ring-2 ring-card sm:-right-2 sm:-top-2 sm:h-7 sm:w-7 sm:text-xs">
               {index + 1}
             </div>
@@ -521,6 +549,7 @@ export default function MyWorkspace() {
                 { label: '分析', ready: counts.analysis > 0, value: counts.analysis },
                 { label: '核查', ready: counts.factcheck > 0, value: counts.factcheck },
                 { label: '跟踪', ready: counts.tracking > 0, value: counts.tracking },
+                { label: '法务', ready: counts.legal > 0, value: counts.legal },
               ]
               return (
                 <div
@@ -539,7 +568,7 @@ export default function MyWorkspace() {
                       {projectAction.label}
                     </Link>
                   </div>
-                  <div className="mt-5 grid grid-cols-3 gap-3">
+                  <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
                     {items.map((item) => (
                       <div
                         key={item.label}
@@ -590,10 +619,10 @@ export default function MyWorkspace() {
               暂无个人任务结果
             </p>
           ) : (
-            <div className="overflow-hidden rounded-[20px] border border-border bg-white/70">
+            <div className="overflow-hidden rounded-[var(--radius-panel)] border border-border bg-white/70">
               {recent.map((item) => {
                 const target = artifactTarget(item)
-                const className = 'group flex w-full items-center gap-4 border-b border-border/70 px-5 py-4 text-left transition-colors last:border-b-0 hover:bg-primary/[0.035]'
+                const className = 'group relative flex w-full items-center gap-4 border-b border-border/70 px-5 py-4 text-left transition-colors last:border-b-0 hover:bg-primary/[0.035] even:bg-bg/[0.35] before:absolute before:left-0 before:top-3 before:bottom-3 before:w-[3px] before:rounded-r-full before:bg-primary before:opacity-0 before:transition-opacity hover:before:opacity-100'
                 const content = (
                   <>
                     <span className="premium-icon h-11 w-11 shrink-0 rounded-xl">

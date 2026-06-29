@@ -4,6 +4,7 @@ import {
   ArrowRight,
   BarChart3,
   Database,
+  ExternalLink,
   FileQuestion,
   FileText,
   Files,
@@ -87,7 +88,7 @@ export default function Help() {
             to={item.to}
             kind="card"
             padding="md"
-            className="group flex min-h-[168px] flex-col transition-transform hover:-translate-y-0.5 hover:border-primary/25"
+            className="group flex h-full min-h-0 sm:min-h-[168px] flex-col transition-transform hover:-translate-y-0.5 hover:border-primary/25"
           >
             <div className="flex items-start justify-between gap-4">
               <span className="premium-icon h-11 w-11 shrink-0 rounded-2xl">
@@ -138,7 +139,10 @@ export default function Help() {
                   <span className="text-sm font-bold text-text">{name}</span>
                   <StatusBadge tone="info" className="font-mono">检查</StatusBadge>
                 </div>
-                <p className="mt-2 break-all font-mono text-xs leading-5 text-text-muted">{url}</p>
+                <a href={url} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 break-all font-mono text-xs leading-5 text-primary hover:underline">
+                  {url}
+                  <ExternalLink className="h-3 w-3 shrink-0" />
+                </a>
                 <p className="mt-2 text-sm leading-6 text-text-muted">{desc}</p>
               </Surface>
             ))}
@@ -173,7 +177,7 @@ export default function Help() {
             {faqs.map(([question, answer]) => (
               <Surface key={question} kind="row" padding="md">
                 <h3 className="text-sm font-bold text-text">{question}</h3>
-                <p className="mt-2 text-sm leading-6 text-text-muted">{answer}</p>
+                <p className="mt-2 text-sm sm:text-base leading-6 text-text-muted">{answer}</p>
               </Surface>
             ))}
           </div>

@@ -93,11 +93,11 @@ function CommandCard({ title, command }: { title: string; command: string }) {
     <Surface kind="row" padding="md">
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-sm font-bold text-text">{title}</h3>
-        <Button type="button" variant="ghost" size="icon-sm" onClick={() => copyText(command)} aria-label={`复制${title}命令`}>
-          <Copy className="h-4 w-4" />
+        <Button type="button" variant="outline" size="sm" leftIcon={<Copy className="h-4 w-4" />} onClick={() => copyText(command)} aria-label={`复制${title}命令`}>
+          复制
         </Button>
       </div>
-      <pre className="mt-3 overflow-x-auto whitespace-pre-wrap rounded-xl bg-slate-950 p-3 text-[0.76rem] leading-5 text-white">{command}</pre>
+      <pre className="mt-3 overflow-x-auto whitespace-pre-wrap rounded-xl border border-border bg-[var(--color-surface-soft)] p-3 text-[0.76rem] leading-5 text-text">{command}</pre>
     </Surface>
   )
 }
@@ -109,6 +109,13 @@ export default function VectorIngest() {
   const [status, setStatus] = useState<SystemStatus | null>(null)
   const [consoleUrl, setConsoleUrl] = useState(readStoredConsoleUrl)
   const [embedConsole, setEmbedConsole] = useState(false)
+  const [rememberUrl, setRememberUrl] = useState(() => {
+    try {
+      return window.localStorage.getItem('vector_ingest_url') !== null
+    } catch {
+      return false
+    }
+  })
 
   const loadStatus = useCallback(async () => {
     const controller = new AbortController()
@@ -147,13 +154,28 @@ export default function VectorIngest() {
   const effectiveConsoleUrl = vectorService?.url || consoleUrl || DEFAULT_CONSOLE_URL
   const isReady = Boolean(vectorService?.ok)
 
-  const saveConsoleUrl = (value: string) => {
+  const updateConsoleUrl = (value: string) => {
     setConsoleUrl(value)
     setEmbedConsole(false)
+    if (rememberUrl) {
+      try {
+        localStorage.setItem('vector_ingest_url', value)
+      } catch {
+        // Storage can be blocked in hardened browser profiles; keep the page usable.
+      }
+    }
+  }
+
+  const toggleRememberUrl = (value: boolean) => {
+    setRememberUrl(value)
     try {
-      localStorage.setItem('vector_ingest_url', value)
+      if (value) {
+        localStorage.setItem('vector_ingest_url', consoleUrl)
+      } else {
+        localStorage.removeItem('vector_ingest_url')
+      }
     } catch {
-      // Storage can be blocked in hardened browser profiles; keep the page usable.
+      // Storage can be blocked in hardened browser profiles.
     }
   }
 
@@ -191,7 +213,7 @@ export default function VectorIngest() {
       </section>
 
       {error && (
-        <section className="rounded-[22px] border border-error/20 bg-error/5 p-5 text-sm font-semibold text-error">
+        <section className="rounded-[var(--radius-card)] border border-error/20 bg-error/5 p-5 text-sm font-semibold text-error">
           {error}
         </section>
       )}
@@ -240,15 +262,34 @@ export default function VectorIngest() {
             </div>
           </Surface>
 
-          <label className="mb-4 block space-y-2">
+          <div className="mb-4 space-y-2">
             <span className="text-sm font-bold text-text">控制台地址</span>
             <input
               value={consoleUrl}
-              onChange={(event) => saveConsoleUrl(event.target.value)}
+              onChange={(event) => updateConsoleUrl(event.target.value)}
               placeholder={DEFAULT_CONSOLE_URL}
               className="form-control w-full px-4 font-mono text-sm"
             />
-          </label>
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-text-muted">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-primary"
+                  checked={rememberUrl}
+                  onChange={(event) => toggleRememberUrl(event.target.checked)}
+                />
+                记住此地址
+              </label>
+              {rememberUrl ? (
+                <span className="inline-flex items-center gap-1 text-xs font-semibold text-success">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  已保存
+                </span>
+              ) : (
+                <span className="text-xs text-text-muted">未保存</span>
+              )}
+            </div>
+          </div>
 
           {isReady ? (
             embedConsole ? (
@@ -284,7 +325,7 @@ export default function VectorIngest() {
               </Surface>
             )
           ) : (
-            <Surface kind="muted" padding="lg" className="flex min-h-[360px] flex-col items-center justify-center border-dashed text-center">
+            <Surface kind="card" padding="lg" className="flex min-h-[220px] flex-col items-center justify-center border-dashed text-center">
               <span className="premium-icon h-12 w-12 rounded-2xl text-warning">
                 {error ? <Unplug className="h-6 w-6" /> : <AlertTriangle className="h-6 w-6" />}
               </span>
@@ -292,12 +333,30 @@ export default function VectorIngest() {
               <p className="mt-2 max-w-xl text-sm leading-6 text-text-muted">
                 这是可选高权限数据管理服务。按右侧命令启动后刷新状态，即可在本页嵌入 Gradio 控制台。
               </p>
+              <div className="mt-5 flex flex-wrap justify-center gap-2">
+                <Button asChild variant="secondary" size="sm">
+                  <a href="#vector-commands">
+                    <Terminal className="h-4 w-4" />
+                    查看启动命令
+                  </a>
+                </Button>
+                <Button asChild variant="secondary" size="sm">
+                  <a href={effectiveConsoleUrl} target="_blank" rel="noreferrer">
+                    <ExternalLink className="h-4 w-4" />
+                    新窗口打开
+                  </a>
+                </Button>
+                <Button type="button" variant="outline" size="sm" leftIcon={<Copy className="h-4 w-4" />} onClick={() => copyText(START_COMMAND)}>
+                  复制启动命令
+                </Button>
+              </div>
             </Surface>
           )}
         </PageSection>
 
         <aside className="space-y-4">
           <PageSection
+            id="vector-commands"
             title="启动方式"
             description="推荐需要时再启动。"
             actions={<Terminal className="h-5 w-5 text-primary" />}

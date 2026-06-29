@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ArtifactsMap, DownloadedPdf, FinancialResult, LogEntry, QualityReport, TaskItem } from '../../lib/pdfTypes'
+import type { PdfMarket } from '../../lib/pdfTaskMarkets'
 import {
   cancelTaskApi,
   checkHealth,
@@ -61,11 +62,12 @@ export interface UsePdfTasksOptions {
   onError?: (msg: string | null) => void
   onWorkflowReload?: () => void
   taskFilter?: (task: TaskItem) => boolean
+  market?: PdfMarket
   setSelectedFilesRef?: React.MutableRefObject<((files: File[]) => void) | null>
 }
 
 export function usePdfTasks(options: UsePdfTasksOptions) {
-  const { backend, parseMethod, startPage, endPage, formula, table, showToast, onError, onWorkflowReload, taskFilter, setSelectedFilesRef } = options
+  const { backend, parseMethod, startPage, endPage, formula, table, showToast, onError, onWorkflowReload, taskFilter, market, setSelectedFilesRef } = options
 
   const taskIdRef = useRef<string | null>(null)
   const logCountRef = useRef(0)
@@ -354,6 +356,18 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
       setParseStatusText('正在恢复任务状态...')
       setParseBadge({ cls: status, text: translateStatus(status) })
       try {
+        const latestData = await fetchStatus(taskId, 0).catch(() => null)
+        if (latestData) {
+          updateStatus(latestData)
+          const latestStatus = String(latestData.status || latestData.stage || status)
+          if (!isTerminal(latestStatus)) {
+            if (pollRef.current) clearInterval(pollRef.current)
+            startPolling()
+          }
+          showToast('已恢复任务视图')
+          return
+        }
+
         if (['completed', 'success', 'done', 'finished'].includes(status)) {
           setParsePct(100)
           setParseStatusText('解析完成')
@@ -364,13 +378,14 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
           showToast('已恢复任务视图')
           return
         }
+
         await pollStatus()
         if (pollRef.current) clearInterval(pollRef.current)
-        const latestData = await fetchStatus(taskId, 0).catch(() => null)
-        const latest = String(latestData?.status || status)
-        if (!isTerminal(latest)) {
+        const latest = await fetchStatus(taskId, 0).catch(() => null)
+        const latestStatus = String(latest?.status || status)
+        if (!isTerminal(latestStatus)) {
           startPolling()
-        } else if (['completed', 'success', 'done', 'finished'].includes(latest)) {
+        } else if (['completed', 'success', 'done', 'finished'].includes(latestStatus)) {
           onWorkflowReload?.()
           if (deferResult) setResultDeferred(true)
           else void callbacksRef.current.fetchResult?.()
@@ -380,7 +395,7 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
         reportError('恢复任务状态失败')
       }
     },
-    [onWorkflowReload, pollStatus, reportError, resetResult, showToast, startPolling],
+    [onWorkflowReload, pollStatus, reportError, resetResult, showToast, startPolling, updateStatus],
   )
 
   const startConvertWithFiles = useCallback(
@@ -417,6 +432,7 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
       filesToUpload.forEach((f) => form.append('files', f))
       form.append('backend', backend)
       form.append('parse_method', parseMethod)
+      form.append('market', market || 'CN')
       form.append('start_page_id', startPage)
       form.append('end_page_id', endPage)
       form.append('formula_enable', formula ? 'true' : 'false')
@@ -469,7 +485,7 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
         setUploadBadge({ cls: 'failed', text: '失败' })
       }
     },
-    [backend, endPage, formula, loadTasks, parseMethod, reportError, resetResult, selectedFilesSetterRef, showToast, startPolling, startPage, table],
+    [backend, endPage, formula, loadTasks, market, parseMethod, reportError, resetResult, selectedFilesSetterRef, showToast, startPolling, startPage, table],
   )
 
   const startConvert = useCallback(
@@ -557,9 +573,6 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
   const viewTaskResult = useCallback(
     async (task: TaskItem) => {
       await resumeTask(task.task_id, String(task.filename || ''), String(task.status))
-      if (['completed', 'success', 'done', 'finished'].includes(String(task.status))) {
-        void callbacksRef.current.fetchResult?.()
-      }
     },
     [resumeTask],
   )

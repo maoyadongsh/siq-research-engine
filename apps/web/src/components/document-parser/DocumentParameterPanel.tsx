@@ -10,9 +10,11 @@ const modelOptions = [
 export function DocumentParameterPanel({
   config,
   onChange,
+  defaultOpen = false,
 }: {
   config: DocumentParseConfig
   onChange: (next: DocumentParseConfig) => void
+  defaultOpen?: boolean
 }) {
   const set = <K extends keyof DocumentParseConfig>(key: K, value: DocumentParseConfig[K]) => {
     onChange({ ...config, [key]: value })
@@ -24,13 +26,13 @@ export function DocumentParameterPanel({
   }
 
   return (
-    <section className="doc-panel">
-      <div className="doc-panel-head">
+    <details className="doc-panel" open={defaultOpen}>
+      <summary className="doc-panel-head">
         <div>
           <h2>解析参数</h2>
           <p>参数语义稳定，provider 负责映射到本地解析器或 MinerU。</p>
         </div>
-      </div>
+      </summary>
       <div className="doc-panel-body grid gap-3">
         <div className="doc-field">
           <label className="doc-label">模型版本</label>
@@ -101,6 +103,6 @@ export function DocumentParameterPanel({
           ))}
         </div>
       </div>
-    </section>
+    </details>
   )
 }

@@ -1,6 +1,6 @@
 # SIQ Hermes 智能体
 
-`agents/hermes` 记录 SIQ Research Engine 使用的 Hermes profiles、角色边界和前端/API 对接关系。运行态会话、日志、响应存储和用户状态默认放在 `data/hermes/home`，源码目录只维护可审阅的配置、角色规则和说明文档。
+`agents/hermes` 记录 SIQ Research Engine 使用的 Hermes profiles、角色边界、共享脚本、模板和前端/API 对接关系。运行态会话、日志、响应存储和用户状态默认放在 `data/hermes/home`，源码目录只维护可审阅的配置、角色规则和说明文档。
 
 ## 智能体矩阵
 
@@ -19,6 +19,19 @@
 - 所有财报数字、财务判断和风险提示必须能回到 Wiki、PostgreSQL、PDF 页码、表格编号或法规条款。
 - 对外展示产物优先写入公司 Wiki 的标准目录，再由 Web 工作台读取。
 - Agent 可以组织语言和推理，但不能虚构公司、指标、页码、表格、法规或数据库记录。
+
+## 共享脚本
+
+`profiles/shared` 保存多 profile 共用能力：
+
+- `financial_calculator.py`：财务比率和勾稽计算。
+- `financial_reconciliation_validator.py`：财务关系校验。
+- `citation_schema.py`、`local_citations.py`：引用格式和本地证据映射。
+- `pg_query.py`：只读 PostgreSQL 查询辅助。
+- `statement_metric_lookup.py`：财务科目与指标映射。
+- `update_company_index.py`：公司索引维护。
+
+这些脚本是多 Agent 共用的证据基础，不应在各 profile 内重复造轮子。
 
 ## 运行态路径
 
@@ -79,17 +92,6 @@ curl -s http://127.0.0.1:18652/health
 | `README.md` | 维护说明和使用方式 |
 | `profile.yaml` | 部分 profile 的角色元信息 |
 | `agent.py` / `models.py` / `schemas.py` | 需要代码化规则的 profile 辅助模块 |
-
-## 模型与工具
-
-默认配置使用 MiniMax-M3，并配置 Kimi、Qwen3.6、Gemma4 等 fallback。不同 profile 会开启不同工具集：
-
-- `siq_assistant` 偏向 file、terminal、skills、session_search。
-- `siq_analysis` 偏向 file、terminal、code_execution、web。
-- `siq_factchecker` 与 `siq_tracking` 偏向 code_execution、web、session_search。
-- `siq_legal` 偏向 terminal、file、code_execution，并依赖本地法规向量库。
-
-模型和密钥配置应写入运行态环境或本机安全配置，不写入 README。
 
 ## 产物目录
 

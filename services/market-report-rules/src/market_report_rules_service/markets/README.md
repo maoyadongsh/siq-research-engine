@@ -20,4 +20,4 @@ Top-level modules (`registry.py`, `storage.py`, `extraction.py`, `app.py`) shoul
 - `extraction.py` only dispatches to `markets/<code>/extractor.py`.
 - `app.py` only exposes service/API metadata and endpoints.
 
-When adding a market, avoid adding business logic to shared files. Put market differences in that market's own module and only register the module in `markets/__init__.py`.
+When adding a market, avoid putting business logic into shared files. Put market differences in that market's own module and only register the module in `markets/__init__.py`.

@@ -52,16 +52,21 @@ export default function Topbar({ sidebarCollapsed, onMenuClick, onSidebarToggle 
       <button onClick={handleMenuClick} className="icon-button shrink-0" aria-label="切换侧边栏">
         <Menu className="h-5 w-5" />
       </button>
-      <GlobalSearch />
-      <div className="ml-auto flex shrink-0 items-center gap-2">
+      <div className="min-w-0 flex-1 px-1 md:px-3 lg:max-w-[min(48vw,720px)]">
+        <GlobalSearch />
+      </div>
+      <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
         <NotificationMenu />
         {user && (
           <button
             onClick={() => navigate('/account')}
-            className="hidden h-10 items-center gap-2 rounded-[var(--radius-control)] border border-transparent px-2 text-sm font-semibold text-text-muted transition hover:border-border hover:bg-white hover:text-text focus:outline-none focus:ring-4 focus:ring-primary/10 sm:inline-flex"
+            className="inline-flex h-10 items-center gap-2 rounded-[var(--radius-control)] border border-transparent px-1.5 text-sm font-semibold text-text-muted transition hover:border-border hover:bg-white hover:text-text focus:outline-none focus:ring-4 focus:ring-primary/10 sm:px-2"
             title="我的账户"
           >
-            <span className="hidden max-w-[140px] truncate xl:inline">{user.full_name || user.username}</span>
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
+              {(user.full_name || user.username || 'U').charAt(0).toUpperCase()}
+            </span>
+            <span className="hidden max-w-[100px] truncate xl:inline">{user.full_name || user.username}</span>
             <span className="hidden rounded-full bg-bg px-2 py-0.5 text-xs text-text-muted lg:inline">
               {roleLabel(user.role)}
             </span>

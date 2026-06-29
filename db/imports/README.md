@@ -1,11 +1,12 @@
 # SIQ PostgreSQL 入库工具
 
-`db/imports` 保存 PDF/市场报告解析产物入库 PostgreSQL 的工具，以及面向财务数据的查询辅助入口。它把 `apps/pdf-parser` 生成的 `document_full.json` 或市场 evidence package 转换为可 SQL 查询、可溯源、可供 Agent 使用的结构化证据层。
+`db/imports` 保存 A 股 `document_full.json`、通用文档 package 和多市场 evidence package 入库 PostgreSQL 的工具，以及面向财务数据的查询辅助入口。它把解析产物转换为可 SQL 查询、可溯源、可供 Agent 使用的结构化证据层。
 
 ## 在系统中的位置
 
 ```text
-PDF 解析结果 document_full.json / 市场 evidence package
+PDF/文档解析结果 document_full.json
+市场 evidence package
   -> import_document_full_to_postgres.py
   -> import_*_evidence_package_to_postgres.py
   -> PostgreSQL pdf2md / sec_us / pdf2md_hk / edinet_jp / dart_kr / eu_ifrs schema
@@ -24,15 +25,16 @@ PDF 解析结果 document_full.json / 市场 evidence package
 | 文件 | 用途 |
 | --- | --- |
 | `import_document_full_to_postgres.py` | 将一个或多个 `document_full.json` 导入 PostgreSQL |
+| `import_document_parse_package_to_postgres.py` | 将通用文档解析 package 导入 PostgreSQL |
 | `financial_query_api.py` | 自然语言财务查询 API |
-| `financial_query_ui.html` | 查询 API 的浏览器界面 |
 | `stock_name_to_code.py` | 公司名称与股票代码映射工具 |
-| `stock_name_to_code_data.json` | 离线公司名称与股票代码映射数据 |
 | `export_zte_wide_to_excel.py` | 宽表数据导出示例 |
-| `import_hk_evidence_package_to_postgres.py` | 导入港股 `data/wiki/hk_reports` evidence package 到 `pdf2md_hk` |
-| `import_jp_evidence_package_to_postgres.py` | 导入日本 EDINET evidence package 到 `edinet_jp` |
-| `import_kr_evidence_package_to_postgres.py` | 导入韩国 DART evidence package 到 `dart_kr` |
-| `import_eu_evidence_package_to_postgres.py` | 导入欧股 PDF/HTML/ESEF evidence package 到 `eu_ifrs` |
+| `import_hk_evidence_package_to_postgres.py` | 导入港股 evidence package |
+| `import_jp_evidence_package_to_postgres.py` | 导入日本 EDINET evidence package |
+| `import_kr_evidence_package_to_postgres.py` | 导入韩国 DART evidence package |
+| `import_eu_evidence_package_to_postgres.py` | 导入欧股 PDF/ESEF evidence package |
+| `import_market_xbrl_package_to_postgres.py` | 导入多市场 XBRL evidence package |
+| `import_sec_filing_to_postgres.py` | 导入 US SEC evidence package |
 
 ## 数据库配置
 
@@ -58,8 +60,11 @@ export PGPASSWORD='replace-me'
 export SIQ_PROJECT_ROOT=/home/maoyd/siq-research-engine
 export SIQ_WIKI_ROOT=$SIQ_PROJECT_ROOT/data/wiki
 export SIQ_PDF_RESULTS_ROOT=$SIQ_PROJECT_ROOT/data/pdf-parser/results
+export SIQ_DOCUMENT_PARSE_RESULTS_ROOT=$SIQ_PROJECT_ROOT/data/document-parser/results
 export SIQ_DB_ROOT=$SIQ_PROJECT_ROOT/db
 ```
+
+`SIQ_DOCUMENT_PARSE_RESULTS_ROOT` 是通用文档解析运行态的常用结果目录，方便你把导入包和运行态目录对齐；`import_document_parse_package_to_postgres.py` 本身仍以你传入的 `package_dir` 为准，不会强制读取这个变量。
 
 ## 导入示例
 
@@ -134,20 +139,6 @@ curl -s http://127.0.0.1:18188/query \
 | 财务科目 | 三大表项目、规范字段、单位和期间 |
 | 证据引用 | 指标到页面、表格和 Markdown 行的映射 |
 | 质量告警 | 解析缺口、异常页、表格识别问题 |
-
-## 导出示例
-
-`export_zte_wide_to_excel.py` 读取 `DATABASE_URL` 或 libpq 变量：
-
-```bash
-python3 db/imports/export_zte_wide_to_excel.py
-```
-
-覆盖输出路径：
-
-```bash
-SIQ_ZTE_EXPORT_PATH=/tmp/zte.xlsx python3 db/imports/export_zte_wide_to_excel.py
-```
 
 ## 维护原则
 

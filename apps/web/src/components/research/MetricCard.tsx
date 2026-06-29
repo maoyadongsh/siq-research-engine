@@ -21,7 +21,7 @@ export function MetricCard({ label, value, icon: Icon, trend, status = 'neutral'
   return (
     <div
       className={cn(
-        'rounded-[24px] border border-border bg-card p-5 shadow-sm',
+        'rounded-[var(--radius-card)] border border-border bg-card p-4 sm:p-5 shadow-sm transition-transform duration-200 hover:-translate-y-0.5 hover:shadow-md',
         className
       )}
     >

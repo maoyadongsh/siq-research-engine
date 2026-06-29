@@ -38,6 +38,9 @@ export function LoginPage() {
   return (
     <main className="auth-shell">
       <section className="auth-card" aria-labelledby="login-title">
+        <div className="auth-mobile-poster" aria-hidden="true">
+          <PlayCircle className="h-8 w-8 text-white/90" />
+        </div>
         <div className="auth-brand">
           <div className="auth-logo" aria-hidden="true">SIQ</div>
           <div>

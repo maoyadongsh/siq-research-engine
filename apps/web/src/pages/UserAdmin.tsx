@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   CheckCircle2,
@@ -6,6 +6,7 @@ import {
   Eye,
   Loader2,
   RefreshCw,
+  Inbox,
   Search,
   ShieldCheck,
   UserCheck,
@@ -18,7 +19,7 @@ import { Button } from '../components/ui'
 import { useToast } from '../hooks/useToast'
 import { apiJson } from '../lib/apiClient'
 import { useAuth } from '../hooks/useAuth'
-import { PageHeader, PageSection, PageShell, StatusBadge, Surface } from '@/components/page'
+import { EmptyState, PageHeader, PageSection, PageShell, StatusBadge, Surface } from '@/components/page'
 
 type ApprovalStatus = 'pending' | 'approved' | 'rejected'
 type RoleValue = 'viewer' | 'analyst' | 'reviewer' | 'admin' | 'super_admin'
@@ -122,6 +123,7 @@ export default function UserAdmin() {
   const [loading, setLoading] = useState(true)
   const [busyKey, setBusyKey] = useState('')
   const [error, setError] = useState('')
+  const selectAllRef = useRef<HTMLInputElement>(null)
 
   const currentIsSuperAdmin = currentUser?.role === 'super_admin'
   const roleOptions = useMemo(() => {
@@ -197,7 +199,14 @@ export default function UserAdmin() {
 
   const selectableUsers = useMemo(() => filteredUsers.filter((item) => !cannotManage(item) && !isSelf(item)), [filteredUsers, cannotManage, isSelf])
   const selectedUsers = useMemo(() => users.filter((item) => selectedIds.has(item.id)), [selectedIds, users])
+  const someVisibleSelected = selectableUsers.length > 0 && selectableUsers.some((item) => selectedIds.has(item.id))
   const allVisibleSelected = selectableUsers.length > 0 && selectableUsers.every((item) => selectedIds.has(item.id))
+
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = someVisibleSelected && !allVisibleSelected
+    }
+  }, [someVisibleSelected, allVisibleSelected])
 
   function toggleUser(target: ManagedUser, checked: boolean) {
     if (cannotManage(target) || isSelf(target)) return
@@ -284,6 +293,7 @@ export default function UserAdmin() {
     const protectedTarget = cannotManage(target)
     const selfTarget = isSelf(target)
     const roleChanged = role !== target.role
+    const usernameId = `user-${target.id}-name`
 
     return (
       <div className="grid gap-3">
@@ -293,7 +303,8 @@ export default function UserAdmin() {
             value={role}
             disabled={protectedTarget || selfTarget}
             onChange={(event) => setRoleDrafts((current) => ({ ...current, [target.id]: event.target.value as RoleValue }))}
-            className="form-control h-10 min-h-10 w-full rounded-xl px-3 py-0 text-sm"
+            className="form-control h-9 min-h-9 w-full rounded-lg px-3 py-0 text-sm"
+            aria-describedby={usernameId}
           >
             {roleOptions.map((item) => <option key={item} value={item}>{roleLabels[item]}</option>)}
           </select>
@@ -304,60 +315,55 @@ export default function UserAdmin() {
             value={note}
             onChange={(event) => setNoteDrafts((current) => ({ ...current, [target.id]: event.target.value }))}
             rows={2}
-            className="form-control min-h-[72px] w-full resize-y px-3 py-2 text-sm leading-6"
+            className="form-control min-h-[60px] w-full resize-y px-3 py-2 text-xs leading-5"
             placeholder="审批说明或拒绝原因"
+            aria-describedby={usernameId}
           />
         </label>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            type="button"
-            size="sm"
-            disabled={protectedTarget || selfTarget || isBusy(target, 'approve')}
-            leftIcon={isBusy(target, 'approve') ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserCheck className="h-4 w-4" />}
-            onClick={() => updateUser(target, 'approve', {
-              approval_status: 'approved',
-              role,
-              approval_note: note,
-            }, '用户已通过审批')}
-          >
-            通过
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="danger"
-            disabled={protectedTarget || selfTarget || isBusy(target, 'reject')}
-            leftIcon={isBusy(target, 'reject') ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserX className="h-4 w-4" />}
-            onClick={() => updateUser(target, 'reject', {
-              approval_status: 'rejected',
-              approval_note: note,
-            }, '用户已拒绝')}
-          >
-            拒绝
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            disabled={protectedTarget || selfTarget || !roleChanged || isBusy(target, 'role')}
-            leftIcon={isBusy(target, 'role') ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
-            onClick={() => updateUser(target, 'role', { role }, '角色已更新')}
-          >
-            保存角色
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={target.is_active ? 'secondary' : 'primary'}
-            disabled={protectedTarget || selfTarget || isBusy(target, 'active')}
-            leftIcon={isBusy(target, 'active') ? <Loader2 className="h-4 w-4 animate-spin" /> : target.is_active ? <UserX className="h-4 w-4" /> : <UserCheck className="h-4 w-4" />}
-            onClick={() => updateUser(target, 'active', target.is_active
-              ? { is_active: false }
-              : { approval_status: 'approved', is_active: true }, target.is_active ? '用户已停用' : '用户已启用')}
-          >
-            {target.is_active ? '停用' : '启用'}
-          </Button>
-        </div>
+        <details className="relative">
+          <summary className="inline-flex h-9 cursor-pointer list-none items-center gap-2 rounded-lg border border-border bg-card px-3 text-xs font-semibold text-text hover:bg-bg">
+            <UserCog className="h-4 w-4" />
+            管理
+          </summary>
+          <div className="absolute right-0 z-10 mt-1 w-48 rounded-xl border border-border bg-card p-1 shadow-lg">
+            <button
+              type="button"
+              disabled={protectedTarget || selfTarget || isBusy(target, 'approve')}
+              onClick={() => updateUser(target, 'approve', { approval_status: 'approved', role, approval_note: note }, '用户已通过审批')}
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-text hover:bg-bg disabled:opacity-50"
+            >
+              {isBusy(target, 'approve') ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserCheck className="h-4 w-4 text-success" />}
+              通过
+            </button>
+            <button
+              type="button"
+              disabled={protectedTarget || selfTarget || isBusy(target, 'reject')}
+              onClick={() => updateUser(target, 'reject', { approval_status: 'rejected', approval_note: note }, '用户已拒绝')}
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-text hover:bg-bg disabled:opacity-50"
+            >
+              {isBusy(target, 'reject') ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4 text-error" />}
+              拒绝
+            </button>
+            <button
+              type="button"
+              disabled={protectedTarget || selfTarget || !roleChanged || isBusy(target, 'role')}
+              onClick={() => updateUser(target, 'role', { role }, '角色已更新')}
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-text hover:bg-bg disabled:opacity-50"
+            >
+              {isBusy(target, 'role') ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4 text-primary" />}
+              保存角色
+            </button>
+            <button
+              type="button"
+              disabled={protectedTarget || selfTarget || isBusy(target, 'active')}
+              onClick={() => updateUser(target, 'active', target.is_active ? { is_active: false } : { approval_status: 'approved', is_active: true }, target.is_active ? '用户已停用' : '用户已启用')}
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-text hover:bg-bg disabled:opacity-50"
+            >
+              {isBusy(target, 'active') ? <Loader2 className="h-4 w-4 animate-spin" /> : target.is_active ? <UserX className="h-4 w-4 text-warning" /> : <UserCheck className="h-4 w-4 text-success" />}
+              {target.is_active ? '停用' : '启用'}
+            </button>
+          </div>
+        </details>
         {protectedTarget && <p className="text-xs font-medium text-text-muted">普通管理员不能管理超级管理员账户。</p>}
         {selfTarget && <p className="text-xs font-medium text-text-muted">当前登录账户不能被自己停用或撤销审批。</p>}
       </div>
@@ -434,6 +440,7 @@ export default function UserAdmin() {
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <label className="inline-flex min-h-10 cursor-pointer items-center gap-3 text-sm font-semibold text-text">
               <input
+                ref={selectAllRef}
                 type="checkbox"
                 checked={allVisibleSelected}
                 disabled={selectableUsers.length === 0}
@@ -508,28 +515,32 @@ export default function UserAdmin() {
             正在加载用户...
           </Surface>
         ) : filteredUsers.length === 0 ? (
-          <Surface kind="muted" padding="lg" className="border-dashed text-center text-sm text-text-muted">
-            当前筛选条件下没有用户。
+          <Surface kind="muted" padding="lg" className="border-dashed">
+            <EmptyState
+              icon={Inbox}
+              title="没有符合条件的用户"
+              description="尝试调整筛选条件或搜索关键词。"
+            />
           </Surface>
         ) : (
           <>
-            <div className="hidden overflow-x-auto lg:block">
-              <table className="min-w-[1040px] w-full border-separate border-spacing-0 text-left">
+            <div className="scroll-hint hidden overflow-x-auto lg:block">
+              <table className="min-w-[920px] w-full border-separate border-spacing-0 text-left">
                 <thead>
                   <tr className="text-xs font-semibold uppercase tracking-wide text-text-muted">
-                    <th className="w-12 border-b border-border px-4 py-3">
+                    <th className="w-12 border-b border-border px-3 py-2.5">
                       <span className="sr-only">选择</span>
                     </th>
-                    <th className="border-b border-border px-4 py-3">用户</th>
-                    <th className="border-b border-border px-4 py-3">状态</th>
-                    <th className="border-b border-border px-4 py-3">时间</th>
-                    <th className="border-b border-border px-4 py-3">审批操作</th>
+                    <th className="border-b border-border px-3 py-2.5">用户</th>
+                    <th className="border-b border-border px-3 py-2.5">状态</th>
+                    <th className="border-b border-border px-3 py-2.5">时间</th>
+                    <th className="border-b border-border px-3 py-2.5">审批操作</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredUsers.map((item) => (
                     <tr key={item.id} className="align-top">
-                      <td className="border-b border-border px-4 py-4">
+                      <td className="border-b border-border px-3 py-3">
                         <input
                           type="checkbox"
                           checked={selectedIds.has(item.id)}
@@ -539,13 +550,13 @@ export default function UserAdmin() {
                           className="mt-3 h-4 w-4 accent-primary"
                         />
                       </td>
-                      <td className="border-b border-border px-4 py-4">
+                      <td className="border-b border-border px-3 py-3">
                         <div className="flex items-start gap-3">
-                          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
                             <UserCog className="h-5 w-5" />
                           </div>
                           <div className="min-w-0">
-                            <p className="font-semibold text-text">{item.full_name || item.username}</p>
+                            <p id={`user-${item.id}-name`} className="font-semibold text-text">{item.full_name || item.username}</p>
                             <p className="mt-1 text-sm text-text-muted">{item.username}</p>
                             <p className="mt-1 break-all text-sm text-text-muted">{item.email}</p>
                             <Link to={`/admin/users/${item.id}`} className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-xs font-semibold text-text-muted hover:bg-bg hover:text-text">
@@ -554,7 +565,7 @@ export default function UserAdmin() {
                           </div>
                         </div>
                       </td>
-                      <td className="border-b border-border px-4 py-4">
+                      <td className="border-b border-border px-3 py-3">
                         <UserStatusBadges user={item} />
                         <p className="mt-3 text-sm font-semibold text-text">{roleLabels[item.role] || item.role}</p>
                         {item.approval_note && <p className="mt-2 max-w-[220px] text-sm leading-6 text-text-muted">{item.approval_note}</p>}
@@ -563,7 +574,7 @@ export default function UserAdmin() {
                         <p>注册：{formatDate(item.created_at)}</p>
                         <p>登录：{formatDate(item.last_login)}</p>
                       </td>
-                      <td className="border-b border-border px-4 py-4">
+                      <td className="border-b border-border px-3 py-3">
                         {renderUserActions(item)}
                       </td>
                     </tr>
@@ -584,11 +595,11 @@ export default function UserAdmin() {
                       aria-label={`选择用户 ${item.username}`}
                       className="mt-3 h-4 w-4 accent-primary"
                     />
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
                       <UserCog className="h-5 w-5" />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="font-semibold text-text">{item.full_name || item.username}</p>
+                      <p id={`user-${item.id}-name`} className="font-semibold text-text">{item.full_name || item.username}</p>
                       <p className="mt-1 text-sm text-text-muted">{item.username}</p>
                       <p className="mt-1 break-all text-sm text-text-muted">{item.email}</p>
                       <Link to={`/admin/users/${item.id}`} className="mt-3 inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-3 text-xs font-semibold text-text-muted hover:bg-bg hover:text-text">

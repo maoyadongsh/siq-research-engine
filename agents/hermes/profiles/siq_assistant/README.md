@@ -33,33 +33,12 @@
 3. `evidence/evidence_index.json` 和 `pdf_refs.json`。
 4. `semantic/retrieval_index.json`。
 5. `reports/<report_id>/report.md` 和 `document_full.json`。
-6. PostgreSQL `pdf2md` schema 中的页面、表格、指标和引用记录。
-
-回答财报数字时应尽量给出单位、期间、来源和可复核路径。证据不足时输出“无法可靠确认”的原因。
-
-## 前端与 API
-
-| 项目 | 值 |
-| --- | --- |
-| 前端页面 | `/chat` |
-| API 前缀 | `/api/chat/*` |
-| Hermes profile | `siq_assistant` |
-| 默认端口 | `18642` |
-| 主要后端模块 | `apps/api/routers/chat.py`, `apps/api/services/agent_chat_runtime.py` |
+6. PostgreSQL 证据表。
 
 ## 输出边界
 
 - 不输出投资评级、目标价、买入/卖出/减仓等交易动作。
 - 不用模型记忆替代本地证据。
 - 不把非官方文件当作最终事实来源。
-- 不在回答中泄露 API Key、数据库口令、用户会话或本地隐私路径。
+- 不在回答中泄露 API key、数据库口令、用户会话或本地隐私路径。
 - 对口径不一致、单位不一致、报告期不一致的指标必须提醒用户。
-
-## 维护检查
-
-```bash
-curl -s http://127.0.0.1:18642/health
-curl -s http://127.0.0.1:18081/health
-```
-
-前端聊天问题应同时验证普通文本、附件上传、停止生成、历史会话和页面刷新后的运行恢复。

@@ -239,7 +239,7 @@ export default function GlobalSearch() {
         {searching && <Loader2 className="absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 animate-spin text-primary" />}
         {openSearch && query.trim() && (
           <div className="absolute left-0 right-0 top-[calc(100%+10px)] z-50 overflow-hidden rounded-[var(--radius-panel)] border border-border bg-white/96 shadow-[0_22px_70px_rgba(15,23,42,0.12)] backdrop-blur-xl">
-            <div className="border-b border-border/70 px-4 py-2 text-xs font-bold uppercase tracking-wide text-text-muted">
+            <div className="border-b border-border/70 px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-text-muted">
               全局搜索
             </div>
             {searching ? (
@@ -269,7 +269,7 @@ export default function GlobalSearch() {
 
       {/* Mobile fullscreen overlay */}
       {mobileOpen && (
-        <div className="fixed inset-0 z-[60] flex flex-col bg-bg md:hidden">
+        <div className="fixed inset-0 z-[60] flex flex-col bg-bg animate-in fade-in slide-in-from-bottom-4 duration-200 md:hidden">
           <div
             className="flex items-center gap-3 border-b border-border bg-white/82 px-4 py-3 backdrop-blur-2xl"
             style={{
@@ -302,7 +302,7 @@ export default function GlobalSearch() {
                 <button
                   type="button"
                   onClick={() => { setQuery(''); setResults([]); mobileInputRef.current?.focus() }}
-                  className="absolute right-3 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full text-text-muted hover:bg-bg hover:text-text"
+                  className="absolute right-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full text-text-muted hover:bg-bg hover:text-text"
                   aria-label="清空"
                 >
                   <X className="h-4 w-4" />

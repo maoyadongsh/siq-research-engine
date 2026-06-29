@@ -1,69 +1,128 @@
 # SIQ Research Engine
 
-SIQ Research Engine 是一个面向 A 股上市公司研究的本地化智能研究工作台。系统把官方公告获取、PDF 解析、结构化证据沉淀、财务分析报告、事实核查、持续跟踪、法务合规和多智能体问答整合为一条可复核的研究生产线。
+SIQ Research Engine 是一个本地化、可审计的智能研究工作台。它把官方公告获取、财报和通用文档解析、结构化证据包、PostgreSQL / Milvus 入库、多智能体报告生成、事实核查、持续跟踪和法务合规串成一条可复核的研究生产线。
 
-它的核心目标不是“生成一段看起来像研报的文字”，而是让每个数字、结论和风险提示都能回到公开披露文件、PDF 页码、表格索引、结构化指标或法规依据。
+它的目标不是生成一段“像研报”的文字，而是让每个数字、判断、风险提示和引用都能回到官方披露文件、PDF 页码、表格单元格、XBRL tag、Markdown 行、数据库记录或法规条款。
 
-## 核心亮点
+## 覆盖范围
 
-| 方向 | 能力 | 技术优势 |
+| 范围 | 主链路 | 说明 |
 | --- | --- | --- |
-| 权威数据入口 | 从巨潮资讯、SEC EDGAR、HKEXnews 等官方披露源解析公司主体并下载定期报告 | 避免从不明文件或模型记忆开始分析，降低源头错误 |
-| PDF 结构化解析 | 将年报 PDF 转为 Markdown、表格、页码、质量报告和财务抽取产物 | 保留页面、表格、行号和人工修正链路，便于审计 |
-| 证据层沉淀 | 将 `document_full.json`、财务表、引用、页面和质量告警写入 Wiki / PostgreSQL / 向量库 | 支撑多 Agent 共享同一事实底座 |
-| 多智能体分工 | 通用问答、深度分析、事实核查、持续跟踪、法务合规各自独立 | 生成、复核、监控、合规判断解耦，减少单 Agent 职责膨胀 |
-| 金融质量门禁 | 禁止无依据评分、目标价和交易指令，强调事实、公式、证据和风险链条 | 更贴近投研审稿和合规边界 |
-| 私有化运行 | 前端、API、解析、下载、Hermes 网关、模型服务均可本地部署 | 适合处理未公开研究材料、内部报告和企业合规知识库 |
+| A 股 | `apps/pdf-parser` -> `db/imports` | 巨潮公告下载、PDF/MinerU 解析、财务抽取、勾稽校验、`pdf2md` 入库 |
+| 港股 | `services/market-report-finder` -> `services/market-report-rules` | HKEXnews 官方下载、证据包、规则服务、入库计划和前端入口 |
+| 美股 | `services/market-report-finder` -> `services/market-report-rules` | SEC EDGAR、submissions、HTML / iXBRL / XBRL 证据链 |
+| 欧股 | `services/market-report-finder` -> `services/market-report-rules` | ESEF / PDF 官方披露、市场隔离证据包 |
+| 日股 | `services/market-report-finder` -> `services/market-report-rules` | EDINET 官方披露和结构化证据定位 |
+| 韩股 | `services/market-report-finder` -> `services/market-report-rules` | DART / OpenDART 官方披露和结构化证据定位 |
+| 通用文档 | `apps/document-parser` | PDF、HTML、Office、文本、URL 和 MinerU 产物统一归一 |
 
-## 系统链路
+## 系统架构
 
 ```text
-公司名 / 股票代码
-  -> 官方公告搜索与下载
-  -> PDF 解析、页码定位、表格抽取、质量评估
-  -> Wiki / PostgreSQL / Milvus 证据层
-  -> 分析报告、事实核查、持续跟踪、法务意见
-  -> Web 工作台展示、SSE 对话、溯源链接与人工复核
+官方披露源 / 本地文件 / URL / MinerU 结果
+  -> 下载与主体解析
+  -> PDF / HTML / iXBRL / ESEF / DART / EDINET / 通用文档解析
+  -> 质量报告、source map、财务抽取、证据包、load plan
+  -> Wiki / PostgreSQL / Milvus / 本地文件系统
+  -> API 聚合后端
+  -> Web 工作台 + Hermes 智能体
 ```
 
-这条链路强调“证据先行、模型受控、产物可复查”。模型负责解释、组织和推理；数字、来源、页码、表格和法规引用必须来自可定位的数据层。
+可以把系统理解为四层：
+
+1. 控制面：`apps/web` + `apps/api`，负责交互、鉴权、任务编排、报告读取和 Agent 对话。
+2. 数据获取面：`services/market-report-finder`、`apps/pdf-parser`、`apps/document-parser`，负责把外部材料变成可用产物。
+3. 证据与规则面：`services/market-report-rules`、`db/imports`、`agents/hermes`，负责抽取、校验、入库和解释边界。
+4. 基础设施面：`data/`、PostgreSQL、Redis、Milvus、模型服务和运行脚本，负责持久化与推理能力。
+
+系统原则是“证据先行、规则可审、模型受控”。模型可以组织材料，但不能凭空制造财务数字、页码、表格、法规或数据库记录。
+
+## 技术栈
+
+| 层 | 选型 | 作用 |
+| --- | --- | --- |
+| 前端 | React 19、React Router 7、Vite 8、TypeScript 6 | Web 工作台和交互式研究界面 |
+| UI | Tailwind CSS 4、Radix UI、lucide-react、class-variance-authority | 组件、图标、样式与交互基础 |
+| 可视化 | Recharts、DOMPurify | 图表和安全富文本渲染 |
+| 前端测试 | Playwright、ESLint | E2E、lint 和构建校验 |
+| API 控制面 | FastAPI、Uvicorn、SQLModel、SSE Starlette | 统一鉴权、工作流、Agent 和流式输出 |
+| Python 依赖 | httpx、pyjwt、asyncpg、psycopg、redis、python-multipart | HTTP、认证、数据库和缓存 |
+| A 股解析 | Flask、pypdf、MinerU bridge、VLM 上游 | PDF 解析、质量报告、财务抽取 |
+| 通用文档解析 | Flask、解析 provider、MinerU 导入 | 文档归一、source map、Schema 抽取 |
+| 市场下载与规则 | FastAPI、Pydantic、HTTPX、Uvicorn | 官方披露下载、解析后规则和 load plan |
+| 数据存储 | SQLite、PostgreSQL、Redis、Milvus、文件系统 Wiki | 任务状态、事实层、缓存、语义层和证据层 |
+| 模型与推理 | MinerU、vLLM、Embedding / Reranker、Hermes gateway | OCR / 解析、生成、检索与智能体运行 |
+| 运维编排 | Docker Compose、systemd user units、supervisor | 本地服务编排和开机管理 |
+| 包管理 | `uv`、`npm` | Python 和前端依赖管理 |
+
+## 服务总览
+
+| 服务 | 路径 | 默认端口 | 技术栈 | 作用 |
+| --- | --- | ---: | --- | --- |
+| Web 工作台 | `apps/web` | `15173` | React / Vite / TS | 主入口，承载下载、解析、报告、对话和设置 |
+| API 聚合后端 | `apps/api` | `18081` | FastAPI / SQLModel / SSE | 鉴权、工作流、报告、Agent 代理、PDF / 文档代理 |
+| PDF 解析服务 | `apps/pdf-parser` | `15000` | Flask / pypdf / MinerU bridge | A 股财报解析、财务抽取、质量报告和 PDF 溯源 |
+| 通用文档解析服务 | `apps/document-parser` | `15010` | Flask / 解析 provider | 任意文档归一、source map、表格关系、Schema 抽取 |
+| 官方公告下载服务 | `services/market-report-finder` | `18000` | FastAPI / HTTPX / Pydantic | CN / HK / US / EU / JP / KR 官方披露搜索与下载 |
+| 备用下载实例 | `services/market-report-finder` | `18010` | FastAPI / HTTPX / Pydantic | 可选并行联调实例 |
+| 解析后规则服务 | `services/market-report-rules` | `18020` | FastAPI / Pydantic / HTTPX | 多市场抽取、校验、证据定位和 load plan |
+| Hermes 助手 | `agents/hermes` | `18642` | Hermes gateway | 通用问答 |
+| Hermes 核查 | `agents/hermes` | `18649` | Hermes gateway | 事实核查 |
+| Hermes 跟踪 | `agents/hermes` | `18650` | Hermes gateway | 持续跟踪 |
+| Hermes 分析 | `agents/hermes` | `18651` | Hermes gateway | 年度分析 |
+| Hermes 法务 | `agents/hermes` | `18652` | Hermes gateway | 法务合规 |
+| Milvus 入库控制台 | `scripts/vector-index/milvus-ingestion` | `7862` | Gradio / Python | 可选向量入库工具 |
+
+## 关键数据合同
+
+| 产物 | 位置 | 作用 |
+| --- | --- | --- |
+| `document_full.json` | `data/pdf-parser/results/<task_id>/`、`data/document-parser/results/<task_id>/` | 统一文档证据合同 |
+| `quality_report.json` | 同上 | 质量门禁和异常说明 |
+| `source_map.json` | 同上 | 文本块、表格、页码和原始来源映射 |
+| `financial_data.json` / `financial_checks.json` | `data/pdf-parser/results/<task_id>/` | A 股财务抽取和勾稽校验 |
+| market evidence package | `data/wiki/<market>_reports/...` | 多市场归档、入库和回放单元 |
+| 下载文件 | `data/market-report-finder/downloads/...` | 官方原始披露文件和元数据 |
+| Hermes 运行态 | `data/hermes/home/...` | profile、会话、响应和状态 |
+| API 本地状态 | `data/backend/...` | 用户、任务、设置和运行状态 |
+
+典型目录约定：
+
+```text
+data/
+  wiki/
+  market-report-finder/downloads/
+  pdf-parser/
+  document-parser/
+  backend/
+  hermes/home/
+```
+
+## 典型链路
+
+1. 输入公司名、股票代码、CIK、EDINET code、DART corp code、文件或 URL。
+2. `market-report-finder` 连接官方来源并下载原始披露文件。
+3. `pdf-parser` 或 `document-parser` 生成 `document_full.json`、`source_map.json`、`quality_report.json` 等产物。
+4. `market-report-rules` 或 A 股财务抽取逻辑生成结构化数据、校验结果和入库计划。
+5. `db/imports`、Wiki、PostgreSQL 和 Milvus 接住事实层和语义层。
+6. `apps/api` 向 `apps/web` 和 Hermes 暴露统一的任务、报告和对话入口。
 
 ## 仓库布局
 
 | 路径 | 职责 |
 | --- | --- |
-| `apps/web` | React / Vite 研究工作台，承载搜索下载、PDF 解析、报告浏览、Agent 对话、设置和用户管理 |
-| `apps/api` | FastAPI 聚合后端，负责鉴权、Wiki 报告、下载管理、PDF 溯源、工作流导入、系统状态和 Agent 代理 |
-| `apps/pdf-parser` | Flask PDF 解析服务，负责上传任务、MinerU/VLM 调用、质量报告、财务抽取和溯源 API |
-| `services/market-report-finder` | CN/HK/US 统一下载入口，内部按 `markets/cn`、`markets/hk`、`markets/us` 拆分巨潮/HKEX/SEC 公司解析、报告检索和原始文件下载 |
-| `services/market-report-rules` | 境外市场解析后规则服务，负责结构化抽取、校验、证据定位和入库计划 |
-| `agents/hermes` | SIQ Hermes profiles 的源码说明、角色规则、配置和运行边界 |
-| `db/imports` | `document_full.json` 入库 PostgreSQL 的工具和财务查询辅助入口 |
-| `scripts` | 本地运维、维护和向量入库等脚本入口 |
-| `infra` | Docker、模型服务、环境变量样例和本地基础设施说明 |
-| `eval_datasets` | 财报智能分析评测语料 |
-| `data` | 本地运行态数据根目录，默认不提交业务数据和模型缓存 |
-
-## 服务与端口
-
-| 服务 | 路径 | 默认端口 | 说明 |
-| --- | --- | ---: | --- |
-| Web 工作台 | `apps/web` | `15173` | 浏览器入口 |
-| API 聚合后端 | `apps/api` | `18081` | 主业务 API、鉴权、Agent 代理 |
-| PDF 解析服务 | `apps/pdf-parser` | `15000` | PDF 转结构化产物与证据溯源 |
-| CN/HK/US 公告搜索下载 | `services/market-report-finder` | `18000` | 统一入口，内部按 CN/HK/US 市场模块检索和下载 |
-| 备用市场下载实例 | `services/market-report-finder` | `18010` | 可选服务，用于联调或并行测试 |
-| 美股/港股规则服务 | `services/market-report-rules` | `18020` | 可选服务，解析后抽取、校验和入库计划 |
-| Hermes 通用助手 | `siq_assistant` | `18642` | 通用财报问答 |
-| Hermes 事实核查 | `siq_factchecker` | `18649` | 生成报告复核 |
-| Hermes 持续跟踪 | `siq_tracking` | `18650` | 事项、指标、预警和更新 |
-| Hermes 智能分析 | `siq_analysis` | `18651` | 年度经营诊断报告 |
-| Hermes 法务合规 | `siq_legal` | `18652` | 法规检索和意见书草拟 |
-| Milvus 向量入库控制台 | `scripts/vector-index/milvus-ingestion` | `7862` | 可选 Gradio 入库工具 |
-
-`services/market-report-finder` 默认可运行在 `8010`；仓库一键编排使用 `18000` 作为统一公告下载入口，备用实例端口为 `18010`。`services/market-report-rules` 原型默认可运行在 `8020`，一键编排的可选端口为 `18020`。
-
-当前 A 股解析后规则尚未独立成服务，主要位于 `apps/pdf-parser/financial_extractor.py`、`apps/pdf-parser/app.py` 和 `db/imports`：PDF 解析服务生成 `financial_data.json`、`financial_checks.json`、`quality_report.json`、`document_full.json`，再由 `db/imports/import_document_full_to_postgres.py` 写入 PostgreSQL。
+| `apps/web` | React/Vite 工作台 |
+| `apps/api` | FastAPI 聚合后端 |
+| `apps/pdf-parser` | A 股财报解析服务 |
+| `apps/document-parser` | 通用文档解析服务 |
+| `services/market-report-finder` | 官方公告下载服务 |
+| `services/market-report-rules` | 多市场规则服务 |
+| `agents/hermes` | Hermes profiles、角色规则和共享脚本 |
+| `db/imports` | PostgreSQL 入库和财务查询工具 |
+| `scripts` | 运维、评测、批处理和向量入库脚本 |
+| `infra` | Docker、模型服务和环境样例 |
+| `eval_datasets` | 评测与回归语料 |
+| `data` | 运行态数据目录 |
 
 ## 快速启动
 
@@ -73,39 +132,53 @@ export SIQ_AUTH_SECRET_KEY="$(openssl rand -hex 32)"
 ./start_all.sh
 ```
 
-启动后打开：
+启动后访问：
 
 ```text
 http://localhost:15173
 ```
 
-`start_all.sh` 会启动公告搜索下载、API 后端、PDF 解析、Vite 前端和五个 Hermes 网关。若只想启动 Web/API/PDF/下载服务，可设置：
+`start_all.sh` 默认会启动：
+
+- 统一公告下载服务 `:18000`
+- API 聚合后端 `:18081`
+- PDF 解析服务 `:15000`
+- 通用文档解析服务 `:15010`
+- Web 工作台 `:15173`
+- Hermes 网关 `:18642`, `:18649`, `:18650`, `:18651`, `:18652`
+
+可选服务通过环境变量控制：
 
 ```bash
 SIQ_START_HERMES_GATEWAYS=0 ./start_all.sh
-```
-
-Milvus 向量入库控制台是高权限数据管理工具，默认不随一键脚本启动。需要在 Web 工作台“向量入库”页面嵌入控制台时：
-
-```bash
+SIQ_START_MARKET_REPORT_RULES=1 ./start_all.sh
+SIQ_START_MARKET_REPORT_FINDER=1 ./start_all.sh
 SIQ_START_VECTOR_INGEST=1 ./start_all.sh
 ```
 
-美股/港股公告下载服务当前作为可选能力迁入仓库，默认不随一键脚本启动。需要联调 SEC/HKEX 下载链路时：
+## Docker Compose
+
+容器版以 `infra/docker/docker-compose.yml` 为准，根目录 `docker-compose.yml` 只是兼容包装。
 
 ```bash
-SIQ_START_MARKET_REPORT_FINDER=1 ./start_all.sh
+docker compose -f infra/docker/docker-compose.yml \
+  --env-file infra/env/local.example \
+  up
 ```
 
-需要联调美股/港股解析后规则和入库计划时：
+需要可选服务时可加 profile：
 
 ```bash
-SIQ_START_MARKET_REPORT_RULES=1 ./start_all.sh
+docker compose -f infra/docker/docker-compose.yml \
+  --env-file infra/env/local.example \
+  --profile external-services \
+  --profile monitoring \
+  up
 ```
 
 ## 手动启动
 
-API 聚合后端：
+API：
 
 ```bash
 cd /home/maoyd/siq-research-engine/apps/api
@@ -113,7 +186,7 @@ export SIQ_AUTH_SECRET_KEY="$(openssl rand -hex 32)"
 ./start.sh
 ```
 
-Web 工作台：
+Web：
 
 ```bash
 cd /home/maoyd/siq-research-engine/apps/web
@@ -121,14 +194,21 @@ npm install
 npm run dev -- --host 0.0.0.0 --port 15173
 ```
 
-PDF 解析服务：
+PDF 解析：
 
 ```bash
 cd /home/maoyd/siq-research-engine/apps/pdf-parser
 ./run.sh
 ```
 
-统一公告搜索下载服务：
+通用文档解析：
+
+```bash
+cd /home/maoyd/siq-research-engine/apps/document-parser
+./run.sh
+```
+
+官方公告下载：
 
 ```bash
 cd /home/maoyd/siq-research-engine/services/market-report-finder
@@ -137,17 +217,7 @@ MARKET_REPORT_DOWNLOAD_DIR=/home/maoyd/siq-research-engine/data/market-report-fi
 uv run python -m uvicorn market_report_finder_service.app:app --host 127.0.0.1 --port 18000
 ```
 
-美股/港股公告搜索下载服务：
-
-```bash
-cd /home/maoyd/siq-research-engine/services/market-report-finder
-uv sync
-MARKET_REPORT_DOWNLOAD_DIR=/home/maoyd/siq-research-engine/data/market-report-finder/downloads \
-SEC_USER_AGENT="SIQ Research your_email@example.com" \
-uv run python -m uvicorn market_report_finder_service.app:app --host 127.0.0.1 --port 18010
-```
-
-美股/港股规则服务：
+解析后规则：
 
 ```bash
 cd /home/maoyd/siq-research-engine/services/market-report-rules
@@ -161,13 +231,13 @@ uv run python -m uvicorn market_report_rules_service.app:app --host 127.0.0.1 --
 curl -s http://localhost:15173
 curl -s http://localhost:18081/health
 curl -s http://localhost:15000/api/health
+curl -s http://localhost:15010/api/health
 curl -s http://localhost:18000/health
-curl -s http://localhost:18010/health
 curl -s http://localhost:18020/healthz
 curl -s http://localhost:18642/health
-curl -s http://localhost:18651/health
 curl -s http://localhost:18649/health
 curl -s http://localhost:18650/health
+curl -s http://localhost:18651/health
 curl -s http://localhost:18652/health
 ```
 
@@ -175,56 +245,61 @@ curl -s http://localhost:18652/health
 
 | 变量 | 默认值 | 用途 |
 | --- | --- | --- |
-| `SIQ_PROJECT_ROOT` | 仓库根目录 | 系统根路径 |
+| `SIQ_PROJECT_ROOT` | 仓库根目录 | 项目根路径 |
 | `SIQ_DATA_ROOT` | `data` | 运行态数据根目录 |
-| `SIQ_WIKI_ROOT` | `data/wiki` | 公司 Wiki、报告和产物目录 |
+| `SIQ_WIKI_ROOT` | `data/wiki` | 公司 Wiki、报告和 evidence package |
 | `SIQ_BACKEND_PORT` | `18081` | API 聚合后端端口 |
 | `SIQ_FRONTEND_PORT` | `15173` | Web 工作台端口 |
 | `SIQ_PDF2MD_PORT` | `15000` | PDF 解析服务端口 |
-| `SIQ_REPORT_FINDER_PORT` | `18000` | 公告搜索下载端口 |
-| `SIQ_MARKET_REPORT_FINDER_PORT` | `18010` | 美股/港股公告搜索下载端口 |
-| `SIQ_MARKET_REPORT_RULES_PORT` | `18020` | 美股/港股规则服务端口 |
-| `SIQ_REPORT_DOWNLOADS_ROOT` | `data/market-report-finder/downloads` | 已下载报告目录 |
-| `SIQ_MARKET_REPORT_DOWNLOADS_ROOT` | `data/market-report-finder/downloads` | CN/HK/US 原始报告下载目录 |
+| `SIQ_DOCUMENT_PARSER_PORT` | `15010` | 通用文档解析服务端口 |
+| `SIQ_REPORT_FINDER_PORT` | `18000` | 统一公告搜索下载端口 |
+| `SIQ_MARKET_REPORT_FINDER_PORT` | `18010` | 备用下载实例端口 |
+| `SIQ_MARKET_REPORT_RULES_PORT` | `18020` | 多市场规则服务端口 |
+| `SIQ_REPORT_DOWNLOADS_ROOT` | `data/market-report-finder/downloads` | 已下载官方披露文件目录 |
 | `SIQ_PDF2MD_DATA_DIR` | `data/pdf-parser` | PDF 解析运行态目录 |
-| `SIQ_HERMES_HOME` | `data/hermes/home` | Hermes 网关运行态根目录 |
+| `SIQ_DOCUMENT_PARSE_DATA_DIR` | `data/document-parser` | 通用文档解析运行态目录 |
+| `SIQ_HERMES_HOME` | `data/hermes/home` | Hermes 运行态根目录 |
 | `SIQ_AUTH_SECRET_KEY` | 无 | API 鉴权密钥，必须设置 |
-| `SIQ_START_MARKET_REPORT_FINDER` | `0` | 是否启动美股/港股公告下载服务 |
-| `SIQ_START_MARKET_REPORT_RULES` | `0` | 是否启动美股/港股规则服务 |
-| `SIQ_START_VECTOR_INGEST` | `0` | 是否启动 Milvus 向量入库控制台 |
-| `SIQ_VECTOR_INGEST_PORT` | `7862` | 向量入库控制台端口 |
+| `SEC_USER_AGENT` | 服务默认值 | SEC EDGAR 合规请求头 |
+| `DART_API_KEY` | 空 | 韩国 DART / OpenDART API key |
+| `EDINET_API_KEY` | 空 | 日本 EDINET API key |
+| `PDF2MD_ACCESS_TOKEN` | 无 | PDF 解析服务访问令牌 |
+| `MINERU_API_URL` | `http://127.0.0.1:8003` | MinerU API 地址 |
+| `VLM_API_URL` | `http://127.0.0.1:8002` | VLM 地址 |
+| `DATABASE_URL` | 无 | PostgreSQL 连接串 |
+| `REDIS_URL` | 无 | Redis 连接串 |
 
 ## 开发验证
-
-API：
 
 ```bash
 cd /home/maoyd/siq-research-engine/apps/api
 uv run python -m pytest tests
-```
 
-PDF 解析：
-
-```bash
 cd /home/maoyd/siq-research-engine/apps/pdf-parser
 python3 -m pytest tests
-```
 
-Web：
+cd /home/maoyd/siq-research-engine/apps/document-parser
+python3 -m pytest tests
 
-```bash
+cd /home/maoyd/siq-research-engine/services/market-report-finder
+uv run pytest
+
+cd /home/maoyd/siq-research-engine/services/market-report-rules
+uv run --extra dev pytest
+
 cd /home/maoyd/siq-research-engine/apps/web
-npm run build
 npm run lint
+npm run build
 ```
 
-Shell 入口：
+一键脚本和 shell 入口检查：
 
 ```bash
 cd /home/maoyd/siq-research-engine
 bash -n start_all.sh
 bash -n apps/api/start.sh
 bash -n apps/pdf-parser/run.sh
+bash -n apps/document-parser/run.sh
 ```
 
 ## 文档入口
@@ -232,17 +307,20 @@ bash -n apps/pdf-parser/run.sh
 | 文档 | 用途 |
 | --- | --- |
 | `apps/web/README.md` | Web 工作台功能、路由、代理和前端开发说明 |
-| `apps/api/README.md` | API 聚合后端、路由分组、鉴权和 Agent 代理说明 |
-| `apps/pdf-parser/README.md` | PDF 解析、质量报告、财务抽取和溯源 API 说明 |
-| `services/market-report-finder/README.md` | CN/HK/US 官方公告搜索下载服务说明 |
-| `services/market-report-rules/README.md` | 美股/港股解析后规则、校验和入库计划说明 |
-| `agents/hermes/README.md` | Hermes profiles 总览 |
-| `db/imports/README.md` | PostgreSQL 入库和财务查询工具说明 |
-| `infra/model-services/README.md` | 本地模型服务启动脚本说明 |
-| `eval_datasets/README.md` | 评测语料说明 |
+| `apps/api/README.md` | API 聚合后端、路由分组、鉴权、Agent 代理、市场 / 文档工作流说明 |
+| `apps/pdf-parser/README.md` | 专业财报 PDF 解析、质量报告、财务抽取和溯源 API |
+| `apps/document-parser/README.md` | 通用文档解析、artifact 合同、Schema 抽取和 API |
+| `services/market-report-finder/README.md` | CN / HK / US / EU / JP / KR 官方公告搜索下载服务 |
+| `services/market-report-rules/README.md` | 多市场解析后规则、校验、证据定位和入库计划 |
+| `agents/hermes/README.md` | Hermes profiles 与多 Agent 协作总览 |
+| `db/imports/README.md` | PostgreSQL 入库和财务查询工具 |
+| `scripts/README.md` | 运维、评测和向量入库脚本 |
+| `infra/model-services/README.md` | 本地模型服务和 systemd 用户单元 |
+| `data/README.md` | 运行态数据目录和边界 |
+| `eval_datasets/README.md` | 评测语料和回归集说明 |
 
 ## 数据安全与运行态边界
 
-`data/` 用于本地运行态数据，包括上传 PDF、解析结果、SQLite、聊天附件、日志、缓存、PostgreSQL/Milvus 数据和 Hermes 状态。除 README、`.gitkeep` 和小型 manifest 外，不提交其中内容。
+`data/` 保存上传文件、下载披露文件、解析结果、SQLite、聊天附件、日志、缓存、PostgreSQL / Milvus / MinIO 数据和 Hermes 状态。除 README、`.gitkeep` 或小型 manifest 外，不提交其中内容。
 
-`.env`、API Key、数据库口令、模型服务密钥和用户会话数据不应写入 README、报告、日志或提交记录。涉及财务和法务结论的产物应保留证据来源、生成时间和人工复核状态。
+`.env`、API key、数据库口令、模型服务密钥、用户会话、聊天附件和未公开研究材料不应写入 README、报告、日志或提交记录。涉及财务和法务结论的产物应保留证据来源、生成时间、模型 / 规则版本和人工复核状态。

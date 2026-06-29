@@ -9,6 +9,7 @@ import json
 import os
 import shutil
 import socket
+import subprocess
 import threading
 import uuid
 from pathlib import Path
@@ -44,9 +45,20 @@ from file_utils import (
     validate_extension,
 )
 from mineru_import import copy_mineru_images_to_result, parse_mineru_output_dir, rewrite_image_paths_to_result
+from page_metadata import load_mineru_page_metadata, merge_layout_page_metadata
 from path_config import resolve_app_paths
 from provider_router import parse_source
+from providers.simple import (
+    _bridge_task_id,
+    _json_request as pdf_parser_json_request,
+    _pdf_parser_api_base,
+    _pdf_parser_headers,
+    _pdf_parser_result_dir,
+    _result_dir_looks_ready,
+    cleanup_pdf_parser_bridge_output,
+)
 from extraction import list_extraction_templates, run_extraction
+from table_merge import TABLE_RELATION_RULESET_VERSION, build_logical_tables, build_table_relations
 from task_store import TaskStore, now_iso
 
 
@@ -122,6 +134,119 @@ def _task_upload_dir(task_id: str) -> Path:
 
 def _task_result_dir(task_id: str) -> Path:
     return RESULTS_FOLDER / task_id
+
+
+def _pdf_parser_upload_task_id(task_id: str) -> str:
+    return task_id
+
+
+def _find_source_pdf(result_dir: Path) -> Path | None:
+    for folder in (result_dir / "raw" / "original", result_dir / "raw" / "mineru"):
+        if not folder.exists():
+            continue
+        for candidate in sorted(folder.rglob("*.pdf")):
+            if candidate.is_file():
+                return candidate
+    return None
+
+
+def _page_preview_path(result_dir: Path, page_number: int) -> Path:
+    page_dir = result_dir / "images" / "page_previews"
+    page_dir.mkdir(parents=True, exist_ok=True)
+    return page_dir / f"page_{int(page_number):04d}.png"
+
+
+def _ensure_source_page_image(task_id: str, page_number: int) -> Path:
+    page_number = int(page_number)
+    if page_number <= 0:
+        raise ValueError("Invalid page number")
+    result_dir = _task_result_dir(task_id)
+    image_path = _page_preview_path(result_dir, page_number)
+    if image_path.exists() and image_path.stat().st_size > 0:
+        return image_path
+    source_pdf = _find_source_pdf(result_dir)
+    if not source_pdf:
+        raise FileNotFoundError("Source PDF is not available for page preview")
+    prefix = image_path.with_suffix("")
+    subprocess.run(
+        [
+            "pdftoppm",
+            "-f",
+            str(page_number),
+            "-l",
+            str(page_number),
+            "-png",
+            "-r",
+            os.environ.get("SIQ_DOCUMENT_PARSE_PAGE_RENDER_DPI", "144"),
+            str(source_pdf),
+            str(prefix),
+        ],
+        check=True,
+        capture_output=True,
+        timeout=int(os.environ.get("SIQ_DOCUMENT_PARSE_PAGE_RENDER_TIMEOUT", "30")),
+    )
+    generated = prefix.with_name(f"{prefix.name}-{page_number}").with_suffix(".png")
+    if generated.exists() and generated != image_path:
+        generated.replace(image_path)
+    if not image_path.exists():
+        generated_candidates = sorted(image_path.parent.glob(f"{prefix.name}-*.png"))
+        if generated_candidates:
+            generated_candidates[0].replace(image_path)
+    if not image_path.exists() or image_path.stat().st_size <= 0:
+        raise FileNotFoundError("PDF page renderer did not generate an image")
+    return image_path
+
+
+def _load_page_metadata(result_dir: Path) -> list[dict]:
+    return load_mineru_page_metadata(result_dir / "raw" / "mineru")
+
+
+def _read_layout_blocks_with_page_metadata(result_dir: Path) -> dict:
+    layout_path = result_dir / "layout_blocks.json"
+    payload = read_json(layout_path) if layout_path.exists() else {"pages": []}
+    return merge_layout_page_metadata(payload, _load_page_metadata(result_dir))
+
+
+def _table_relations_need_refresh(payload: dict) -> bool:
+    return payload.get("ruleset_version") != TABLE_RELATION_RULESET_VERSION
+
+
+def _rebuild_full_zip(result_dir: Path) -> None:
+    zip_path = result_dir / "exports" / "full.zip"
+    zip_path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
+        for path in result_dir.rglob("*"):
+            if not path.is_file() or path == zip_path:
+                continue
+            archive.write(path, path.relative_to(result_dir).as_posix())
+
+
+def _read_table_relations_payload(task_id: str, result_dir: Path) -> dict:
+    path = result_dir / "table_relations.json"
+    if not path.exists():
+        return {}
+    payload = read_json(path)
+    if not isinstance(payload, dict):
+        return {}
+    if not _table_relations_need_refresh(payload):
+        return payload
+
+    tables_path = result_dir / "tables.json"
+    blocks_path = result_dir / "blocks.json"
+    markdown_path = result_dir / "document.md"
+    if not tables_path.exists() or not blocks_path.exists() or not markdown_path.exists():
+        return payload
+
+    tables_payload = read_json(tables_path)
+    blocks_payload = read_json(blocks_path)
+    tables = tables_payload.get("physical_tables") or tables_payload.get("tables") or []
+    blocks = blocks_payload.get("blocks") or []
+    markdown = markdown_path.read_text(encoding="utf-8")
+    refreshed = build_table_relations(task_id, tables, blocks=blocks, markdown=markdown)
+    write_json(path, refreshed)
+    write_json(result_dir / "logical_tables.json", build_logical_tables(task_id, tables, refreshed.get("relations") or []))
+    _rebuild_full_zip(result_dir)
+    return refreshed
 
 
 def _path_is_relative_to(path: Path, root: Path) -> bool:
@@ -301,6 +426,145 @@ def _enqueue_task(source: SourceFile, config: ParseConfig, task_id: str | None =
     return _create_task_record(task_id, source, config, document_kind)
 
 
+def _progress_from_upstream_status(status: dict) -> int:
+    raw_progress = status.get("progress_percent")
+    if raw_progress is not None:
+        try:
+            return max(0, min(99, int(float(raw_progress))))
+        except (TypeError, ValueError):
+            pass
+    total = int(status.get("total_pages") or 0)
+    processed = int(status.get("processed_pages") or 0)
+    if total > 0 and processed >= 0:
+        return max(0, min(99, int((processed / total) * 100)))
+    value = str(status.get("status") or status.get("stage") or "").lower()
+    if value in {"submitted", "pending"}:
+        return 5
+    if value == "processing":
+        return 8
+    return 40
+
+
+def _sync_pdf_bridge_status(task_id: str, status: dict) -> None:
+    upstream_status = str(status.get("status") or status.get("stage") or "running").lower()
+    upstream_task_id = str(status.get("task_id") or status.get("upstream_task_id") or "")
+    previous = store.get_task(task_id) or {}
+    previous_upstream_status = str(previous.get("upstream_status") or "")
+    progress = _progress_from_upstream_status(status)
+    update_fields = {
+        "status": RUNNING,
+        "stage": upstream_status,
+        "progress_percent": progress,
+        "parser_provider": previous.get("parser_provider") or "pdf_parser_bridge",
+        "upstream_task_id": upstream_task_id,
+        "upstream_status": upstream_status,
+        "queue_position": status.get("queue_position"),
+        "local_queue_position": status.get("local_queue_position"),
+        "elapsed_seconds": status.get("elapsed_seconds"),
+        "total_pages": status.get("total_pages"),
+        "processed_pages": status.get("processed_pages"),
+        "error": "",
+    }
+    store.update_task_unless_cancelled(task_id, **update_fields)
+
+    if upstream_status != previous_upstream_status:
+        labels = {
+            "submitted": "已提交到 PDF 解析器",
+            "pending": "PDF 解析器排队中",
+            "processing": "PDF 解析器正在解析",
+            "completed": "PDF 解析器已完成，正在整理文档产物",
+        }
+        store.add_log(task_id, labels.get(upstream_status, f"PDF 解析器状态: {upstream_status}"))
+        return
+
+    elapsed = status.get("elapsed_seconds")
+    total = status.get("total_pages")
+    processed = status.get("processed_pages")
+    if upstream_status == "processing" and total and processed is not None:
+        previous_processed = previous.get("processed_pages")
+        try:
+            should_log = int(processed) != int(previous_processed or -1) and int(processed) % 5 == 0
+        except (TypeError, ValueError):
+            should_log = False
+        if should_log:
+            store.add_log(
+                task_id,
+                f"处理中... 已耗时 {elapsed or 0} 秒，已完成 {processed}/{total} 页",
+            )
+
+
+def _finalize_from_pdf_bridge_result(task: dict, upstream_task_id: str, config: ParseConfig) -> dict | None:
+    task_id = str(task["task_id"])
+    source_dir = _pdf_parser_result_dir(upstream_task_id)
+    if not source_dir.is_dir() or not (source_dir / "document_full.json").is_file():
+        return None
+    try:
+        source = _source_file_from_task(task)
+    except Exception:
+        source, _ = parse_mineru_output_dir(task_id, source_dir, config)
+    _source_file, output = parse_mineru_output_dir(task_id, source_dir, config)
+    rewrite_image_paths_to_result(output)
+    output.provider_name = output.provider_name or "pdf_parser_bridge"
+    output.upstream_task_id = upstream_task_id
+    manifest = build_artifacts(
+        task_id=task_id,
+        result_dir=_task_result_dir(task_id),
+        source=source,
+        config=config,
+        output=output,
+        source_type=source.source_type,
+        source_url=source.source_url,
+    )
+    cleanup_message = cleanup_pdf_parser_bridge_output(output)
+    if cleanup_message:
+        store.add_log(task_id, cleanup_message)
+    artifacts = artifact_summary(task_id, _task_result_dir(task_id))
+    status = COMPLETED if manifest.get("quality_status") == "pass" else COMPLETED_WITH_WARNINGS
+    store.update_task(
+        task_id,
+        status=status,
+        stage=status,
+        progress_percent=100,
+        parser_provider=manifest.get("parser_provider", ""),
+        upstream_task_id=upstream_task_id,
+        upstream_status=COMPLETED,
+        quality_status=manifest.get("quality_status", ""),
+        artifact_count=sum(1 for item in artifacts.values() if item.get("exists")),
+        error="",
+        completed_at=now_iso(),
+    )
+    store.add_log(task_id, "已从仍在运行的 PDF bridge 任务补生成文档解析产物")
+    return store.get_task(task_id)
+
+
+def _recover_pdf_bridge_task(task: dict) -> dict:
+    task_id = str(task.get("task_id") or "")
+    if not task_id or str(task.get("document_kind") or "") not in {"pdf", "image", "word", "ppt", "excel"}:
+        return task
+    upstream_task_id = str(task.get("upstream_task_id") or "") or _bridge_task_id(task_id)
+    config = _parse_config(payload=task.get("config") or {})
+    if _result_dir_looks_ready(_pdf_parser_result_dir(upstream_task_id)):
+        return _finalize_from_pdf_bridge_result(task, upstream_task_id, config) or task
+
+    status = pdf_parser_json_request(
+        f"{_pdf_parser_api_base()}/api/status/{upstream_task_id}",
+        headers=_pdf_parser_headers(),
+        timeout=15,
+    )
+    if _result_dir_looks_ready(_pdf_parser_result_dir(upstream_task_id)):
+        return _finalize_from_pdf_bridge_result(task, upstream_task_id, config) or task
+    if status.get("_error"):
+        return task
+    status = {**status, "task_id": upstream_task_id}
+    upstream_status = str(status.get("status") or "").lower()
+    if upstream_status in {COMPLETED, "completed_with_warnings"}:
+        return _finalize_from_pdf_bridge_result(task, upstream_task_id, config) or task
+    if upstream_status in {"queued", "uploaded", "submitting", "submitted", "pending", "processing"}:
+        _sync_pdf_bridge_status(task_id, status)
+        return store.get_task(task_id) or task
+    return task
+
+
 def _process_task(task_id: str, source: SourceFile, config: ParseConfig, document_kind: str | None = None) -> dict:
     document_kind = document_kind or document_kind_for_extension(source.extension)
     try:
@@ -311,7 +575,7 @@ def _process_task(task_id: str, source: SourceFile, config: ParseConfig, documen
         if not store.update_task_unless_cancelled(task_id, status=RUNNING, stage=RUNNING, progress_percent=40):
             store.add_log(task_id, "任务已取消，跳过解析")
             return store.get_task(task_id) or {"task_id": task_id, "status": CANCELLED}
-        output = parse_source(task_id, source, config, document_kind)
+        output = parse_source(task_id, source, config, document_kind, on_status=lambda payload: _sync_pdf_bridge_status(task_id, payload))
         store.add_log(task_id, f"解析 provider: {output.provider_name}")
         if (store.get_task(task_id) or {}).get("status") == CANCELLED:
             store.add_log(task_id, "任务已取消，跳过产物生成")
@@ -328,6 +592,9 @@ def _process_task(task_id: str, source: SourceFile, config: ParseConfig, documen
             source_type=source.source_type,
             source_url=source.source_url,
         )
+        cleanup_message = cleanup_pdf_parser_bridge_output(output)
+        if cleanup_message:
+            store.add_log(task_id, cleanup_message)
         status = COMPLETED if manifest.get("quality_status") == "pass" else COMPLETED_WITH_WARNINGS
         artifacts = artifact_summary(task_id, _task_result_dir(task_id))
         store.update_task_unless_cancelled(
@@ -336,6 +603,8 @@ def _process_task(task_id: str, source: SourceFile, config: ParseConfig, documen
             stage=status,
             progress_percent=100,
             parser_provider=manifest.get("parser_provider", ""),
+            upstream_task_id=output.upstream_task_id,
+            upstream_status=COMPLETED,
             quality_status=manifest.get("quality_status", ""),
             artifact_count=sum(1 for item in artifacts.values() if item.get("exists")),
             completed_at=now_iso(),
@@ -500,14 +769,33 @@ def health():
         "version": APP_VERSION,
         "data_dir": str(DATA_DIR),
         "providers": {
+            "pdf_parser_bridge": True,
+            "mineru_import": True,
             "simple_text_parser": True,
             "html_reader": True,
-            "pypdf_text_parser": True,
-            "spreadsheet_parser": True,
-            "office_local": True,
-            "image_local": True,
-            "mineru_import": True,
+            "image_to_pdf_bridge": True,
+            "office_to_pdf_bridge": True,
+            "spreadsheet_to_pdf_bridge": True,
+            "pypdf_text_parser": False,
+            "spreadsheet_parser": False,
+            "office_local": False,
+            "image_local": False,
+            "local_mineru_pdf": False,
+            "archives_to_document_parser": True,
             "cloud_mineru_enabled": os.environ.get("SIQ_DOCUMENT_PARSE_CLOUD_ENABLED", "false").lower() in {"1", "true", "yes"},
+        },
+        "parser_engine": {
+            "service": "apps/pdf-parser",
+            "provider": "MinerU/PDF bridge",
+            "final_artifact_root": str(RESULTS_FOLDER),
+            "temporary_upstream_results": "data/pdf-parser/results/doc-<task_id>",
+        },
+        "conversion_pipeline": {
+            "pdf": "pdf_parser_bridge",
+            "image": "image_to_pdf -> pdf_parser_bridge",
+            "word": "libreoffice_to_pdf -> pdf_parser_bridge",
+            "ppt": "libreoffice_to_pdf -> pdf_parser_bridge",
+            "excel": "libreoffice_to_pdf -> pdf_parser_bridge",
         },
         "max_file_mb": MAX_FILE_SIZE // 1024 // 1024,
         "max_files_per_upload": MAX_FILES_PER_UPLOAD,
@@ -570,7 +858,12 @@ def mineru_import_candidates():
 @app.get("/api/tasks")
 def list_tasks():
     limit = int(request.args.get("limit") or 200)
-    return jsonify({"tasks": store.list_tasks(limit=limit)})
+    tasks = []
+    for task in store.list_tasks(limit=limit):
+        if task.get("status") == FAILED:
+            task = _recover_pdf_bridge_task(task)
+        tasks.append(task)
+    return jsonify({"tasks": tasks})
 
 
 @app.get("/api/tasks/<task_id>")
@@ -586,6 +879,8 @@ def task_status(task_id: str):
     task = store.get_task(task_id)
     if not task:
         return jsonify({"error": "not_found"}), 404
+    if task.get("status") == FAILED:
+        task = _recover_pdf_bridge_task(task)
     logs, log_count = store.get_logs(task_id, since=int(request.args.get("since") or 0))
     payload = dict(task)
     payload["logs"] = logs
@@ -646,6 +941,8 @@ def result(task_id: str):
     task = store.get_task(task_id)
     if not task:
         return jsonify({"error": "not_found"}), 404
+    if task.get("status") == FAILED:
+        task = _recover_pdf_bridge_task(task)
     result_dir = _task_result_dir(task_id)
     markdown_path = result_dir / "document.md"
     manifest_path = result_dir / "manifest.json"
@@ -684,6 +981,15 @@ def artifact(task_id: str, artifact: str):
         return jsonify({"error": "invalid_artifact"}), 400
     if not path.exists() or not path.is_file():
         return jsonify({"error": "not_found"}), 404
+    if normalized == "layout_blocks.json" and request.args.get("download") not in {"1", "true", "yes"}:
+        return jsonify(_read_layout_blocks_with_page_metadata(result_dir))
+    if normalized == "table_relations.json":
+        _read_table_relations_payload(task_id, result_dir)
+        if not path.exists() or not path.is_file():
+            return jsonify({"error": "not_found"}), 404
+        if request.args.get("download") not in {"1", "true", "yes"}:
+            payload = read_json(path)
+            return jsonify(payload)
     as_attachment = request.args.get("download") in {"1", "true", "yes"} or normalized.startswith("exports/")
     return send_file(path, as_attachment=as_attachment, download_name=path.name if as_attachment else None)
 
@@ -771,12 +1077,51 @@ def get_figure(task_id: str, image_id: str):
 
 @app.get("/api/source/<task_id>/page/<int:page_number>")
 def source_page(task_id: str, page_number: int):
-    blocks_path = _task_result_dir(task_id) / "blocks.json"
+    result_dir = _task_result_dir(task_id)
+    blocks_path = result_dir / "blocks.json"
     if not blocks_path.exists():
         return jsonify({"error": "not_found"}), 404
     blocks = read_json(blocks_path).get("blocks") or []
     page_blocks = [block for block in blocks if int(block.get("page_number") or 1) == page_number]
-    return jsonify({"task_id": task_id, "page_number": page_number, "blocks": page_blocks, "block_count": len(page_blocks)})
+    layout = _read_layout_blocks_with_page_metadata(result_dir)
+    page_meta = {}
+    for page in layout.get("pages") or []:
+        if isinstance(page, dict) and int(page.get("page_number") or 0) == page_number:
+            page_meta = page
+            break
+    return jsonify(
+        {
+            "task_id": task_id,
+            "page_number": page_number,
+            "page": {
+                "page_number": page_number,
+                "page_index": page_number - 1,
+                "width": page_meta.get("width") or 0,
+                "height": page_meta.get("height") or 0,
+                "page_size": page_meta.get("page_size") or [],
+                "bbox_unit": page_meta.get("bbox_unit") or "none",
+            },
+            "blocks": page_blocks,
+            "block_count": len(page_blocks),
+            "page_image_url": f"/api/source/{task_id}/page-image/{page_number}",
+        }
+    )
+
+
+@app.get("/api/source/<task_id>/page-image/<int:page_number>")
+def source_page_image(task_id: str, page_number: int):
+    task = store.get_task(task_id)
+    if not task:
+        return jsonify({"error": "not_found"}), 404
+    try:
+        image_path = _ensure_source_page_image(task_id, page_number)
+    except FileNotFoundError as exc:
+        return jsonify({"error": "source_page_image_unavailable", "message": str(exc)}), 404
+    except ValueError as exc:
+        return jsonify({"error": "invalid_page", "message": str(exc)}), 400
+    except (subprocess.SubprocessError, subprocess.TimeoutExpired) as exc:
+        return jsonify({"error": "source_page_render_failed", "message": str(exc)}), 500
+    return send_file(image_path, mimetype="image/png")
 
 
 @app.get("/api/source/<task_id>/block/<block_id>")
@@ -839,7 +1184,9 @@ def table_relations(task_id: str):
     path = result_dir / "table_relations.json"
     if not path.exists():
         return jsonify({"error": "not_found"}), 404
-    payload = read_json(path)
+    payload = _read_table_relations_payload(task_id, result_dir)
+    if not payload:
+        return jsonify({"error": "not_found"}), 404
     corrections_path = result_dir / "table_merge_corrections.json"
     corrections = read_json(corrections_path) if corrections_path.exists() else {}
     relation_corrections = corrections.get("relations") if isinstance(corrections, dict) else {}

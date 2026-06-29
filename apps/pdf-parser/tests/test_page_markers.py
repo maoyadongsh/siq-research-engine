@@ -58,6 +58,11 @@ class PageMarkerInjectionTests(unittest.TestCase):
     def test_import_does_not_start_queue_worker(self):
         self.assertFalse(app._queue_worker_started)
 
+    def test_safe_task_id_accepts_bridge_ids_and_rejects_paths(self):
+        self.assertEqual(app._safe_task_id("doc-task-1"), "doc-task-1")
+        with self.assertRaises(ValueError):
+            app._safe_task_id("../doc-task-1")
+
     def test_read_markdown_does_not_refresh_page_markers_on_view(self):
         old_results_folder = app.RESULTS_FOLDER
         try:
@@ -717,6 +722,39 @@ class ValidationTests(unittest.TestCase):
 
         self.assertTrue(config["formula_enable"])
         self.assertTrue(config["table_enable"])
+        self.assertEqual(config["market"], "CN")
+
+    def test_parse_submit_config_accepts_supported_market(self):
+        config = app._parse_submit_config(
+            {
+                "backend": "hybrid-http-client",
+                "parse_method": "auto",
+                "market": "hk",
+            }
+        )
+
+        self.assertEqual(config["market"], "HK")
+
+    def test_parse_submit_config_accepts_document_bridge_market(self):
+        config = app._parse_submit_config(
+            {
+                "backend": "hybrid-http-client",
+                "parse_method": "auto",
+                "market": "doc",
+            }
+        )
+
+        self.assertEqual(config["market"], "DOC")
+
+    def test_parse_submit_config_rejects_bad_market(self):
+        with self.assertRaises(ValueError):
+            app._parse_submit_config(
+                {
+                    "backend": "hybrid-http-client",
+                    "parse_method": "auto",
+                    "market": "SG",
+                }
+            )
 
     def test_parse_submit_config_rejects_bad_page_range(self):
         with self.assertRaises(ValueError):

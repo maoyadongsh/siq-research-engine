@@ -48,7 +48,7 @@ export function MarkdownBlocks({ lines, streaming }: { lines: string[]; streamin
       i += 1
       while (i < lines.length) {
         const nextTrimmed = lines[i].trim()
-        if (/^(#{1,4})\s+/.test(nextTrimmed) && !isCitationHeading(nextTrimmed)) break
+        if (/^(#{1,6})\s+/.test(nextTrimmed) && !isCitationHeading(nextTrimmed)) break
         citationLines.push(lines[i])
         i += 1
       }
@@ -65,21 +65,17 @@ export function MarkdownBlocks({ lines, streaming }: { lines: string[]; streamin
       }
     }
 
-    const heading = trimmed.match(/^(#{1,4})\s+(.+)$/)
+    const heading = trimmed.match(/^(#{1,6})\s+(.+)$/)
     if (heading) {
       const level = heading[1].length
       const tone = headingTone(heading[2])
       const className = `chat-heading chat-heading-${level}${tone ? ` chat-heading-${tone}` : ''}`
       const children = renderInline(heading[2], `heading-${i}`)
-      if (level === 1) {
-        elements.push(<h3 key={`heading-${i}`} className={className}>{children}</h3>)
-      } else if (level === 2) {
-        elements.push(<h4 key={`heading-${i}`} className={className}>{children}</h4>)
-      } else if (level === 3) {
-        elements.push(<h5 key={`heading-${i}`} className={className}>{children}</h5>)
-      } else {
-        elements.push(<h6 key={`heading-${i}`} className={className}>{children}</h6>)
+      const headingTags: Record<number, 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6'> = {
+        1: 'h1', 2: 'h2', 3: 'h3', 4: 'h4', 5: 'h5', 6: 'h6',
       }
+      const Tag = headingTags[level] ?? 'h6'
+      elements.push(<Tag key={`heading-${i}`} className={className}>{children}</Tag>)
       i += 1
       continue
     }
@@ -176,7 +172,7 @@ export function MarkdownBlocks({ lines, streaming }: { lines: string[]; streamin
       i < lines.length &&
       lines[i].trim() &&
       !isLikelyTableStart(lines, i) &&
-      !/^(#{1,4})\s+/.test(lines[i].trim()) &&
+      !/^(#{1,6})\s+/.test(lines[i].trim()) &&
       !/^[-*_]{3,}$/.test(lines[i].trim()) &&
       !/^>\s?/.test(lines[i].trim()) &&
       !/^◆\s+/.test(lines[i].trim()) &&

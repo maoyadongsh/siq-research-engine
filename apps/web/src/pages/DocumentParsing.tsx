@@ -4,6 +4,7 @@ import { Files, Loader2, RefreshCw } from 'lucide-react'
 import { PageHeader, PageShell, StatusBadge } from '@/components/page'
 import { Button } from '@/components/ui/button'
 import { DocumentParameterPanel } from '@/components/document-parser/DocumentParameterPanel'
+import { DocumentProgressPanel } from '@/components/document-parser/DocumentProgressPanel'
 import { DocumentResultWorkbench } from '@/components/document-parser/DocumentResultWorkbench'
 import { DocumentTaskList } from '@/components/document-parser/DocumentTaskList'
 import { DocumentUploadPanel } from '@/components/document-parser/DocumentUploadPanel'
@@ -102,8 +103,10 @@ export default function DocumentParsing() {
             onSubmitUrl={tasks.submitUrl}
             onImportMineruResult={tasks.importMineruResult}
             onRefreshMineruCandidates={tasks.loadMineruCandidates}
+            defaultOpen
           />
-          <DocumentParameterPanel config={config} onChange={setConfig} />
+          <DocumentParameterPanel config={config} onChange={setConfig} defaultOpen={false} />
+          <DocumentProgressPanel task={selectedTask} logs={tasks.logs} defaultOpen={false} />
           <DocumentTaskList
             tasks={tasks.tasks}
             selectedTaskId={tasks.selectedTaskId}
@@ -117,6 +120,7 @@ export default function DocumentParsing() {
             onRetrySelected={() => void tasks.retrySelectedTasks()}
             onDeleteSelected={() => void tasks.deleteSelectedTasks()}
             onDownloadSelected={() => void tasks.downloadSelectedTasks()}
+            defaultOpen
           />
           {tasks.uploading ? (
             <section className="doc-panel">
@@ -133,6 +137,7 @@ export default function DocumentParsing() {
           result={tasks.result}
           quality={tasks.quality}
           blocks={tasks.blocks}
+          layout={tasks.layout}
           tables={tasks.tables}
           tableRelations={tasks.tableRelations}
           figures={tasks.figures}

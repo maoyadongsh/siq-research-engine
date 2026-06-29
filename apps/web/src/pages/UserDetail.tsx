@@ -8,13 +8,16 @@ import {
   Database,
   FileText,
   FolderKanban,
+  FolderOpen,
   History,
+  Inbox,
   Loader2,
   ShieldCheck,
   UserRound,
   XCircle,
 } from 'lucide-react'
 import { apiJson } from '../lib/apiClient'
+import { EmptyState, PageHeader, PageSection, PageShell, StatusBadge, Surface } from '@/components/page'
 
 type ApprovalStatus = 'pending' | 'approved' | 'rejected'
 type Quota = { used: number; limit: number | null; remaining: number | null; resetAt: string }
@@ -94,12 +97,6 @@ const statusLabels: Record<ApprovalStatus, string> = {
   rejected: '已拒绝',
 }
 
-const statusClasses: Record<ApprovalStatus, string> = {
-  pending: 'secondary-status-warning',
-  approved: 'secondary-status-success',
-  rejected: 'secondary-status-error',
-}
-
 function formatDate(value?: string | null) {
   if (!value) return '暂无'
   const date = new Date(value)
@@ -127,9 +124,32 @@ function parseDetails(value?: string | null) {
   }
 }
 
+function AuditDetails({ details }: { details?: string | null }) {
+  const [expanded, setExpanded] = useState(false)
+  const parsed = parseDetails(details)
+  const lines = parsed.split('\n')
+  const isLong = lines.length > 4
+  const display = isLong && !expanded ? lines.slice(0, 4).join('\n') : parsed
+
+  return (
+    <>
+      <pre className="mt-2 max-h-96 overflow-auto rounded-xl bg-bg px-3 py-2 text-xs leading-5 text-text-muted">{display}</pre>
+      {isLong && (
+        <button
+          type="button"
+          onClick={() => setExpanded((value) => !value)}
+          className="mt-2 text-xs font-semibold text-primary hover:underline"
+        >
+          {expanded ? '收起' : '展开'}
+        </button>
+      )}
+    </>
+  )
+}
+
 function StatTile({ label, value, icon: Icon }: { label: string; value: string | number; icon: typeof UserRound }) {
   return (
-    <div className="metric-tile rounded-[20px] p-4 2xl:p-5">
+    <div className="metric-tile p-4 2xl:p-5">
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm font-semibold text-text-muted">{label}</p>
         <span className="premium-icon h-8 w-8 rounded-xl">
@@ -146,7 +166,7 @@ function StatTile({ label, value, icon: Icon }: { label: string; value: string |
 function QuotaBlock({ title, quota, icon: Icon }: { title: string; quota: Quota; icon: typeof Bot }) {
   const unlimited = quota.limit == null
   return (
-    <div className="premium-row rounded-[18px] px-4 py-3">
+    <div className="surface-row px-4 py-3">
       <div className="flex items-center justify-between gap-4">
         <div className="flex min-w-0 items-center gap-3">
           <span className="premium-icon h-10 w-10 shrink-0 rounded-2xl">
@@ -217,47 +237,28 @@ export default function UserDetail() {
       : <Clock3 className="h-4 w-4" />
 
   return (
-    <div className="secondary-page min-w-0 overflow-x-hidden">
-      <section className="secondary-hero">
-        <div className="secondary-hero-inner">
-          <div className="flex min-w-0 flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
-            <div className="min-w-0">
-              <Link to="/admin/users" className="secondary-kicker w-fit">
-                <ArrowLeft className="h-3.5 w-3.5" />
-                用户审批
-              </Link>
-              <div className="mt-5 flex min-w-0 items-start gap-4">
-                <span className="premium-icon h-14 w-14 shrink-0 rounded-2xl sm:h-16 sm:w-16">
-                  <UserRound className="h-7 w-7 sm:h-8 sm:w-8" />
-                </span>
-              <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="secondary-status secondary-status-info">{roleLabels[user.role] || user.role}</span>
-                    <span className={`secondary-status ${statusClasses[user.approval_status]}`}>
-                      {statusIcon}
-                      {statusLabels[user.approval_status]}
-                    </span>
-                    <span className={`secondary-status ${user.is_active ? 'secondary-status-info' : ''}`}>
-                      {user.is_active ? '启用中' : '已停用'}
-                    </span>
-                  </div>
-                  <h1 className="mt-3 break-words text-[1.8rem] font-bold leading-tight tracking-tight text-text md:text-[2.35rem]">
-                    {user.full_name || user.username}
-                  </h1>
-                  <p className="mt-2 break-all text-sm leading-6 text-text-muted sm:text-base">
-                    {user.username} · {user.email}
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div className="secondary-step-row w-full overflow-x-auto xl:w-auto">
-              <span className="secondary-step-chip">注册资料</span>
-              <span className="secondary-step-chip is-active">审批状态</span>
-              <span className="secondary-step-chip">审计记录</span>
-            </div>
-          </div>
-        </div>
-      </section>
+    <PageShell>
+      <PageHeader
+        icon={UserRound}
+        eyebrow="User Detail"
+        title={user.full_name || user.username}
+        description={`${user.username} · ${user.email}`}
+        meta={
+          <>
+            <StatusBadge tone="info">{roleLabels[user.role] || user.role}</StatusBadge>
+            <StatusBadge tone={user.approval_status === 'approved' ? 'success' : user.approval_status === 'rejected' ? 'error' : 'warning'}>
+              {statusIcon}
+              {statusLabels[user.approval_status]}
+            </StatusBadge>
+            <StatusBadge tone={user.is_active ? 'info' : 'neutral'}>{user.is_active ? '启用中' : '已停用'}</StatusBadge>
+          </>
+        }
+        actions={
+          <Link to="/admin/users" className="inline-flex h-11 items-center gap-2 rounded-xl border border-border bg-card px-4 text-sm font-semibold text-text hover:bg-bg">
+            <ArrowLeft className="h-4 w-4" />返回用户审批
+          </Link>
+        }
+      />
 
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <StatTile label="角色" value={roleLabels[user.role] || user.role} icon={ShieldCheck} />
@@ -268,19 +269,13 @@ export default function UserDetail() {
       </section>
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
-        <section className="premium-shell rounded-[28px] p-5 sm:p-6">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <h2 className="text-xl font-bold tracking-tight text-text">账户信息</h2>
-              <p className="mt-1 text-sm text-text-muted">注册资料、审批备注和登录时间。</p>
-            </div>
-            <span className="premium-icon h-11 w-11 shrink-0 rounded-2xl">
-              <ShieldCheck className="h-5 w-5" />
-            </span>
-          </div>
-          <dl className="mt-5 grid gap-4 md:grid-cols-2">
+        <PageSection
+          title="账户信息"
+          description="注册资料、审批备注和登录时间。"
+          actions={<ShieldCheck className="h-5 w-5 text-primary" />}
+        >
+          <dl className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
             {[
-              ['用户 ID', user.id],
               ['用户名', user.username],
               ['邮箱', user.email],
               ['姓名', user.full_name],
@@ -290,23 +285,35 @@ export default function UserDetail() {
               ['创建时间', formatDate(user.created_at)],
               ['上次登录', formatDate(user.last_login)],
             ].map(([label, value]) => (
-              <div key={String(label)} className="premium-row rounded-[16px] px-4 py-3">
+              <Surface key={String(label)} kind="row" padding="md">
                 <dt className="text-xs font-semibold text-text-muted">{label}</dt>
                 <dd className="mt-1 break-all text-sm font-semibold text-text">{String(value || '暂无')}</dd>
-              </div>
+              </Surface>
             ))}
           </dl>
+
+          <details className="mt-4">
+            <summary className="cursor-pointer text-xs font-semibold text-text-muted hover:text-text">展开技术信息</summary>
+            <dl>
+              <Surface kind="row" padding="md" className="mt-3">
+                <dt className="text-xs font-semibold text-text-muted">用户 ID</dt>
+                <dd className="mt-1 break-all text-sm font-semibold text-text">{user.id}</dd>
+              </Surface>
+            </dl>
+          </details>
 
           <div className="mt-6">
             <h3 className="text-base font-bold text-text">最近项目</h3>
             <div className="mt-3 grid gap-3">
               {data.workspace.recentProjects.length ? data.workspace.recentProjects.map((item) => (
-                <div key={item.id} className="premium-row rounded-[16px] px-4 py-3">
+                <Surface key={item.id} kind="row" padding="md">
                   <p className="font-semibold text-text">{item.name}</p>
                   <p className="mt-1 text-sm text-text-muted">{item.company_name || item.company_code || '未绑定公司'} · {formatDate(item.updated_at)}</p>
-                </div>
+                </Surface>
               )) : (
-                <div className="rounded-[18px] border border-dashed border-border bg-bg px-4 py-6 text-center text-sm text-text-muted">暂无项目</div>
+                <Surface kind="muted" padding="md" className="border-dashed">
+                  <EmptyState icon={FolderOpen} title="暂无项目" description="该用户尚未创建或参与任何项目。" size="sm" />
+                </Surface>
               )}
             </div>
           </div>
@@ -315,7 +322,7 @@ export default function UserDetail() {
             <h3 className="text-base font-bold text-text">最近产物</h3>
             <div className="mt-3 grid gap-3">
               {data.workspace.recentArtifacts.length ? data.workspace.recentArtifacts.map((item) => (
-                <div key={item.id} className="premium-row rounded-[16px] px-4 py-3">
+                <Surface key={item.id} kind="row" padding="md">
                   <div className="flex items-start gap-3">
                     <span className="premium-icon mt-0.5 h-9 w-9 shrink-0 rounded-xl">
                       <FileText className="h-4 w-4" />
@@ -325,62 +332,56 @@ export default function UserDetail() {
                       <p className="mt-1 break-all text-xs text-text-muted">{item.type} · {item.source || 'workspace'} · {formatDate(item.created_at)}</p>
                     </div>
                   </div>
-                </div>
+                </Surface>
               )) : (
-                <div className="rounded-[18px] border border-dashed border-border bg-bg px-4 py-6 text-center text-sm text-text-muted">暂无产物</div>
+                <Surface kind="muted" padding="md" className="border-dashed">
+                  <EmptyState icon={Inbox} title="暂无产物" description="该用户尚未生成任何分析产物。" size="sm" />
+                </Surface>
               )}
             </div>
           </div>
-        </section>
+        </PageSection>
 
         <aside className="space-y-5">
-          <section className="premium-card rounded-[24px] p-5 sm:p-6">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <h2 className="text-lg font-bold text-text">今日额度</h2>
-                <p className="mt-1 text-sm text-text-muted">智能体问答和解析任务使用情况。</p>
-              </div>
-              <span className="premium-icon h-10 w-10 shrink-0 rounded-2xl">
-                <Bot className="h-5 w-5" />
-              </span>
-            </div>
+          <PageSection
+            title="今日额度"
+            description="智能体问答和解析任务使用情况。"
+            actions={<Bot className="h-5 w-5 text-primary" />}
+          >
             <div className="mt-4 space-y-3">
               <QuotaBlock title="智能体问答" quota={data.usage.agentQuestion} icon={Bot} />
               <QuotaBlock title="新解析任务" quota={data.usage.parseJob} icon={FileText} />
             </div>
-          </section>
+          </PageSection>
 
-          <section className="premium-card rounded-[24px] p-5 sm:p-6">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <h2 className="text-lg font-bold text-text">审计时间线</h2>
-                <p className="mt-1 text-sm text-text-muted">最近 {data.audit.recentLogs.length} 条账户操作记录。</p>
-              </div>
-              <span className="premium-icon h-10 w-10 shrink-0 rounded-2xl">
-                <History className="h-5 w-5" />
-              </span>
-            </div>
+          <PageSection
+            title="审计时间线"
+            description={`最近 ${data.audit.recentLogs.length} 条账户操作记录。`}
+            actions={<History className="h-5 w-5 text-primary" />}
+          >
             <div className="mt-5 space-y-4">
               {data.audit.recentLogs.length ? data.audit.recentLogs.map((item) => (
                 <div key={item.id} className="relative pl-6">
                   <span className="absolute left-0 top-1.5 h-2.5 w-2.5 rounded-full bg-primary" />
-                  <div className="premium-row rounded-[16px] px-4 py-3">
+                  <Surface kind="row" padding="md">
                     <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                       <p className="text-sm font-semibold text-text">{item.action}</p>
                       <p className="text-xs text-text-muted">{formatDate(item.created_at)}</p>
                     </div>
                     <p className="mt-1 break-all text-xs text-text-muted">{item.resource_type} · {item.resource_id}</p>
                     {item.ip_address && <p className="mt-1 text-xs text-text-muted">IP：{item.ip_address}</p>}
-                    {item.details && <pre className="mt-2 max-h-32 overflow-auto rounded-xl bg-bg px-3 py-2 text-xs leading-5 text-text-muted">{parseDetails(item.details)}</pre>}
-                  </div>
+                    {item.details && <AuditDetails details={item.details} />}
+                  </Surface>
                 </div>
               )) : (
-                <div className="rounded-[18px] border border-dashed border-border bg-bg px-4 py-6 text-center text-sm text-text-muted">暂无审计记录</div>
+                <Surface kind="muted" padding="md" className="border-dashed">
+                  <EmptyState icon={History} title="暂无审计记录" description="该用户近期没有可审计的操作记录。" size="sm" />
+                </Surface>
               )}
             </div>
-          </section>
+          </PageSection>
         </aside>
       </div>
-    </div>
+    </PageShell>
   )
 }

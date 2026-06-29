@@ -126,6 +126,7 @@ class ParseOutput:
     blocks: list[dict[str, Any]]
     tables: list[dict[str, Any]] = field(default_factory=list)
     figures: list[dict[str, Any]] = field(default_factory=list)
+    page_metadata: list[dict[str, Any]] = field(default_factory=list)
     warnings: list[dict[str, Any]] = field(default_factory=list)
     page_count: int = 0
     provider_name: str = "simple_text_parser"
@@ -133,3 +134,4 @@ class ParseOutput:
     document_kind: str = "text"
     language_detected: list[str] = field(default_factory=list)
     raw_artifacts_dir: str = ""
+    upstream_task_id: str = ""

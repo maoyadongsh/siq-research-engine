@@ -658,6 +658,7 @@ async def authenticated_pdf_upload(
     files: list[UploadFile] = File(...),
     backend: str = Form("hybrid-http-client"),
     parse_method: str = Form("auto"),
+    market: str = Form("CN"),
     start_page_id: str = Form(""),
     end_page_id: str = Form(""),
     formula_enable: str = Form("true"),
@@ -668,6 +669,7 @@ async def authenticated_pdf_upload(
     form = {
         "backend": backend,
         "parse_method": parse_method,
+        "market": market,
         "start_page_id": start_page_id,
         "end_page_id": end_page_id,
         "formula_enable": formula_enable,
