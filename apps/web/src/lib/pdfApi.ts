@@ -48,6 +48,7 @@ export function pipelineArtifactSummary(artifacts: ArtifactsMap | null): {
     'financial_data.json',
     'financial_checks.json',
     'quality_report.json',
+    'table_relations.json',
     'table_index.json',
   ]
   const ready = WIKI_INPUT_ARTIFACTS.filter((name) => artifacts?.[name]?.exists)

@@ -1,15 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { ArtifactsMap, BboxExtent, PageBlock, PageContent, PdfCtx, SelectedTrace, SourceCorrection, SourceMeta, SourceTable, SrcCtx } from '../../lib/pdfTypes'
+import type { ArtifactsMap, BboxExtent, PageContent, PdfCtx, SelectedTrace, SourceCorrection, SourceMeta, SourceTable, SrcCtx } from '../../lib/pdfTypes'
 import { fetchPageSourceApi, getPdfUrl as getPdfUrlApi, showTableSourceApi } from '../../lib/pdfApi'
-import { escHtml } from '../../lib/pdfFormatting'
-import {
-  makeEditableHtml,
-  normalizeBbox,
-  parseBbox,
-  parseBboxFromAttr,
-  sanitizeReadingHtml,
-  sanitizeTableHtml,
-} from '../../lib/pdfSanitize'
+import { makeEditableHtml, normalizeBbox, parseBbox, parseBboxFromAttr, sanitizeReadingHtml, sanitizeTableHtml } from '../../lib/pdfSanitize'
+import { renderPageContentHtml } from '../../components/pdf/pdfSourceRendering'
 
 export interface UsePdfSourceTraceOptions {
   taskIdRef: React.MutableRefObject<string | null>
@@ -28,7 +21,7 @@ export function usePdfSourceTrace(options: UsePdfSourceTraceOptions) {
   const editTableRef = useRef<HTMLDivElement | null>(null)
 
   const [sourceVisible, setSourceVisible] = useState(false)
-  const [pdfZoom, setPdfZoom] = useState<string>('fit')
+  const [pdfZoom, setPdfZoom] = useState<string>('100')
   const [pdfCurPage, setPdfCurPage] = useState(1)
   const [readingMode, setReadingMode] = useState<'table' | 'page'>('page')
   const [readingHtml, setReadingHtml] = useState('')
@@ -44,51 +37,12 @@ export function usePdfSourceTrace(options: UsePdfSourceTraceOptions) {
     [taskIdRef],
   )
 
-  const renderBlock = useCallback((b: PageBlock): string => {
-    const type = b?.type || 'unknown'
-    const bb = Array.isArray(b?.bbox) && b.bbox.length === 4 ? `bbox: ${b.bbox.join(', ')}` : ''
-    if (type === 'table') {
-      const label = b.table_index ? `表 ${b.table_index}` : '表格块'
-      const tags = ([] as (string | unknown)[])
-        .concat(Array.isArray(b.heading) ? b.heading : [b.heading])
-        .concat(Array.isArray(b.matched_financial_names) ? b.matched_financial_names : [])
-        .filter(Boolean)
-        .slice(0, 3)
-        .map((t) => `<span class="pdf-page-block-tag">${escHtml(String(t))}</span>`)
-        .join('')
-      const act = b.table_index ? `<button class="pdf-trace-btn" data-ptidx="${b.table_index}">打开该表</button>` : ''
-      return `<section class="pdf-page-block ${b.is_focus_table ? 'focus-table' : ''}"><div class="pdf-page-block-head"><div><span class="pdf-page-block-type">${escHtml(label)}</span><span class="pdf-page-block-meta">${escHtml(bb || '表格解析块')}</span></div>${act}</div><div class="pdf-page-block-tag-row">${tags}</div><div class="pdf-table-wrap pdf-page-table-wrap">${b.table_html ? sanitizeTableHtml(b.table_html) : '<div style="color:#64748b">表格区域，无可用 HTML。</div>'}</div></section>`
-    }
-    if (type === 'list') {
-      const items = (b.list_items || [])
-        .map((i: unknown) => `<li>${escHtml(String(i || ''))}</li>`)
-        .join('')
-      return `<section class="pdf-page-block"><div class="pdf-page-block-head"><div><span class="pdf-page-block-type">列表</span><span class="pdf-page-block-meta">${escHtml(bb || '列表解析块')}</span></div></div><ul class="pdf-page-block-list">${items}</ul></section>`
-    }
-    if (type === 'image') {
-      return `<section class="pdf-page-block pdf-page-block-muted"><div class="pdf-page-block-head"><div><span class="pdf-page-block-type">图片</span><span class="pdf-page-block-meta">${escHtml(bb || '图片解析块')}</span></div></div><div class="pdf-page-block-text" style="color:#64748b">来源图像：${escHtml(b.image_path || '未提供路径')}</div></section>`
-    }
-    const hLike = type === 'header' || Number(b.text_level || 0) > 0
-    const tLabel = type === 'header' ? '页眉' : type === 'page_number' ? '页码' : hLike ? '标题' : '文本'
-    return `<section class="pdf-page-block ${type === 'page_number' || type === 'header' ? 'pdf-page-block-muted' : ''}"><div class="pdf-page-block-head"><div><span class="pdf-page-block-type">${escHtml(tLabel)}</span><span class="pdf-page-block-meta">${escHtml(bb || '文本解析块')}</span></div></div><div class="pdf-page-block-text ${hLike ? 'pdf-page-block-heading' : ''}">${escHtml(b.text || ' ')}</div></section>`
-  }, [])
-
   const renderPageReading = useCallback(
     (pd: PageContent): string => {
       if (!pd) return ''
-      const pT = pd.page_tables || []
-      const pTH = pT.length
-        ? pT
-            .map(
-              (t) =>
-                `<button class="pdf-chip trace-chip" data-ptidx="${t.table_index}">表 ${t.table_index}${(t.matched_financial_names || []).length ? ' · ' + (t.matched_financial_names as string[]).join('、') : ''}</button>`,
-            )
-            .join('')
-        : '<span style="color:#64748b">这一页没有可定位的表格。</span>'
-      const blks = (pd.blocks || []).map((b: PageBlock) => renderBlock(b)).join('')
-      return `<div class="pdf-page-reading-view"><div class="pdf-page-reading-summary"><div><strong>PDF 第 ${pd.page_number || pdfCtx.current?.currentPage || 1}</strong><span>${pd.block_count || 0} 个解析块 / ${pd.table_count || 0} 张表</span></div><div class="pdf-chip-row">${pTH}</div></div>${blks || '<div style="padding:20px;color:#64748b">没有可展示的解析内容。</div>'}</div>`
+      return renderPageContentHtml(pd)
     },
-    [renderBlock],
+    [],
   )
 
   const renderReadingPane = useCallback(async () => {
@@ -171,7 +125,7 @@ export function usePdfSourceTrace(options: UsePdfSourceTraceOptions) {
         })
         setReadingMode('page')
         setPdfCurPage(pdfCtx.current?.currentPage || 1)
-        setPdfZoom('fit')
+        setPdfZoom('100')
         setSourceVisible(true)
         setTimeout(() => {
           if (corrStatusRef.current) corrStatusRef.current.value = corr.review_status || 'unreviewed'

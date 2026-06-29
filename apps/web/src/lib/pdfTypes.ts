@@ -43,8 +43,10 @@ export interface SrcCtx {
 
 export interface DownloadedPdf {
   id: string
-  market?: 'CN' | 'HK' | 'US' | 'EU' | 'KR' | 'JP'
+  market?: 'CN' | 'HK' | 'US' | 'EU' | 'KR' | 'JP' | 'DOC'
   company: string
+  companyName?: string
+  ticker?: string | null
   category: string
   filename: string
   relativePath: string
@@ -53,6 +55,21 @@ export interface DownloadedPdf {
   url: string
   contentType?: string
   isPdf?: boolean
+  form?: string | null
+  reportType?: string | null
+  reportFamily?: string | null
+  reportEnd?: string | null
+  publishedAt?: string | null
+  metadataPath?: string | null
+  accessionNumber?: string | null
+  sourceId?: string | null
+  downloadedFile?: {
+    file_name?: string
+    saved_path?: string
+    size_bytes?: number
+    content_type?: string | null
+    content_sha256?: string | null
+  } | null
 }
 
 export interface HealthStatus {
@@ -149,6 +166,11 @@ export interface TaskItem {
   created_at?: string
   local_queue_position?: number
   markdown_ready?: boolean
+  market?: 'CN' | 'HK' | 'US' | 'EU' | 'KR' | 'JP' | 'DOC'
+  submit_config?: {
+    market?: 'CN' | 'HK' | 'US' | 'EU' | 'KR' | 'JP' | 'DOC'
+    [key: string]: unknown
+  }
 }
 
 export interface SourceTable {
@@ -184,6 +206,7 @@ export interface SourceMeta {
     url?: string
     page_number?: number
     page_count?: number
+    printed_page_number?: string
     bbox?: number[]
     bbox_extent?: BboxExtent
   }
@@ -191,25 +214,47 @@ export interface SourceMeta {
 
 export interface PageTable {
   table_index?: number
+  source_table_index?: number
+  line?: number
+  heading?: string
+  printed_page_number?: string
   matched_financial_names?: string[]
+  is_focus_table?: boolean
 }
 
 export interface PageBlock {
+  block_id?: string
   type?: string
   bbox?: number[] | string
+  bbox_unit?: string
+  page_number?: number
+  pdf_page_number?: number
   table_index?: number
+  source_table_index?: number
+  sub_type?: string
   heading?: string[] | string
+  caption?: string[] | string
+  footnote?: string[] | string
   matched_financial_names?: string[]
   table_html?: string
   is_focus_table?: boolean
+  missing_body?: boolean
   list_items?: string[]
   image_path?: string
   text_level?: number
   text?: string
+  markdown?: string
+  line?: number
+  reading_order?: number
+  printed_page_number?: string
+  raw?: unknown
 }
 
 export interface PageContent {
   page_number?: number
+  pdf_page_number?: number
+  printed_page_number?: string
+  page_index?: number
   block_count?: number
   table_count?: number
   page_tables?: PageTable[]
@@ -224,6 +269,7 @@ export const WIKI_INPUT_ARTIFACTS = [
   'financial_data.json',
   'financial_checks.json',
   'quality_report.json',
+  'table_relations.json',
   'table_index.json',
 ]
 
@@ -233,6 +279,7 @@ export const artifactRoles: Record<string, string> = {
   'document_full.json': '总包索引，供 Wiki 与入库读取',
   'content_list_enhanced.json': '增强结构块与页码信息',
   'quality_report.json': '解析质量与表格索引来源',
+  'table_relations.json': '跨页断表关系与合并候选',
   'table_index.json': '表格定位与溯源索引',
   'financial_data.json': '规则抽取的财务指标',
   'financial_checks.json': '财务抽取校验结果',
