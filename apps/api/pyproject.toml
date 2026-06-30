@@ -16,7 +16,11 @@ dependencies = [
     "email-validator>=2.0.0",
     "asyncpg>=0.29.0",
     "redis>=5.0.0",
+    "siq-market-contracts",
 ]
+
+[tool.uv.sources]
+siq-market-contracts = { path = "../../packages/market-contracts", editable = true }
 
 [project.optional-dependencies]
 dev = [

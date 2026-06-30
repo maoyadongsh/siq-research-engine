@@ -8,8 +8,12 @@ dependencies = [
     "fastapi>=0.115.0",
     "httpx>=0.28.0",
     "pydantic>=2.8.0",
+    "siq-market-contracts",
     "uvicorn[standard]>=0.30.0",
 ]
+
+[tool.uv.sources]
+siq-market-contracts = { path = "../../packages/market-contracts", editable = true }
 
 [project.optional-dependencies]
 dev = [
