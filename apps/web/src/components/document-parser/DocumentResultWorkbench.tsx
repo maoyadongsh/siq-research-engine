@@ -15,7 +15,6 @@ import type {
   DocumentExtractionTemplate,
   DocumentFiguresPayload,
   DocumentLayoutBlocksPayload,
-  DocumentLayoutPage,
   DocumentQualityReport,
   DocumentResult,
   DocumentSourceMapPayload,
@@ -30,17 +29,23 @@ import type {
 import { DocumentArtifactPane } from './DocumentArtifactPane'
 import { DocumentExtractPane } from './DocumentExtractPane'
 import { DocumentFigurePane } from './DocumentFigurePane'
+import { DocumentResultJsonPane } from './DocumentResultJsonPane'
 import { DocumentMarkdownPane } from './DocumentMarkdownPane'
 import { DocumentQualityPane, DocumentWorkflowPane } from './DocumentStatusPanes'
 import { DocumentTablePane } from './DocumentTablePane'
 import { PdfPagePreview } from './DocumentSourcePreview'
 import {
-  blockLabel,
-  buildMarkdownBlocks,
+  buildDocumentResultMarkdownBlocks,
+  buildDocumentResultPageByNumber,
+  buildDocumentResultPageNumbers,
+  buildDocumentResultPreviewMarkdownBlocks,
+  buildDocumentResultPreviewOverlays,
+  buildDocumentResultPreviewPages,
+  buildDocumentResultPreviewRelations,
+} from './documentResultWorkbenchDerivations'
+import {
   cssAttrValue,
   focusKey,
-  isPreviewCrossPageTableRelation,
-  pageNumber,
   relationFlowTone,
   relationId,
   relationLabel,
@@ -48,10 +53,6 @@ import {
   relationTableIds,
   statusLabel,
   statusTone,
-  stringify,
-  tableLabel,
-  uniqueStrings,
-  validBbox,
   type FocusTarget,
   type OverlayEntry,
   type SourceMapEntry,
@@ -136,14 +137,7 @@ export function DocumentResultWorkbench({
 
   const taskId = selectedTask?.task_id || result?.manifest?.task_id || ''
   const sourceBlocks = useMemo(() => blocks?.blocks || [], [blocks?.blocks])
-  const pageByNumber = useMemo(() => {
-    const lookup = new Map<number, DocumentLayoutPage>()
-    layout?.pages?.forEach((page) => {
-      const pageNum = pageNumber(page.page_number, 0)
-      if (pageNum) lookup.set(pageNum, page)
-    })
-    return lookup
-  }, [layout?.pages])
+  const pageByNumber = useMemo(() => buildDocumentResultPageByNumber(layout?.pages), [layout?.pages])
   const artifactEntries = useMemo(() => Object.entries((result?.artifacts || {}) as DocumentArtifactsMap), [result?.artifacts])
   const physicalTables = useMemo(() => tables?.physical_tables || tables?.tables || [], [tables?.physical_tables, tables?.tables])
   const figureItems = useMemo(() => figures?.figures || [], [figures?.figures])
@@ -162,9 +156,10 @@ export function DocumentResultWorkbench({
     })
     return lookup
   }, [physicalTables])
-  const previewRelations = useMemo(() => {
-    return relationItems.filter((relation) => isPreviewCrossPageTableRelation(relation, tableById))
-  }, [relationItems, tableById])
+  const previewRelations = useMemo(
+    () => buildDocumentResultPreviewRelations(relationItems, tableById),
+    [relationItems, tableById],
+  )
   const sourceByBlockId = useMemo(() => {
     const lookup = new Map<string, SourceMapEntry>()
     sourceMap?.sources?.forEach((entry) => {
@@ -187,7 +182,10 @@ export function DocumentResultWorkbench({
     return lookup
   }, [sourceMap])
 
-  const markdownBlocks = useMemo(() => buildMarkdownBlocks(sourceBlocks, result?.markdown || '', tableByBlockId), [sourceBlocks, result?.markdown, tableByBlockId])
+  const markdownBlocks = useMemo(
+    () => buildDocumentResultMarkdownBlocks(sourceBlocks, result?.markdown || '', tableByBlockId),
+    [sourceBlocks, result?.markdown, tableByBlockId],
+  )
   const tableIdByBlockId = useMemo(() => {
     const lookup = new Map<string, string>()
     tableByBlockId.forEach((table, blockId) => {
@@ -205,7 +203,7 @@ export function DocumentResultWorkbench({
   const relationsByTableId = useMemo(() => {
     const lookup = new Map<string, DocumentTableRelation[]>()
     previewRelations.forEach((relation) => {
-      relationTableIds(relation).forEach((tableId) => {
+      relationTableIds(relation).forEach((tableId: string) => {
         if (!tableId) return
         const existing = lookup.get(tableId) || []
         existing.push(relation)
@@ -243,17 +241,14 @@ export function DocumentResultWorkbench({
   }, [activePage, previewRelations, tableById])
   const visibleRelations = focusedRelations.length ? focusedRelations : activePageRelations
 
-  const pageNumbers = useMemo(() => {
-    const pages = new Set<number>()
-    sourceBlocks.forEach((block) => pages.add(pageNumber(block.page_number)))
-    pageByNumber.forEach((_page, page) => pages.add(page))
-    physicalTables.forEach((table) => pages.add(pageNumber(table.page_number)))
-    figureItems.forEach((figure) => pages.add(pageNumber(figure.page_number)))
-    markdownBlocks.forEach((block) => pages.add(pageNumber(block.pageNumber)))
-    const pageCount = pageNumber(quality?.page_count, 0)
-    for (let page = 1; page <= pageCount; page += 1) pages.add(page)
-    return Array.from(pages).filter(Boolean).sort((a, b) => a - b)
-  }, [figureItems, markdownBlocks, pageByNumber, physicalTables, quality?.page_count, sourceBlocks])
+  const pageNumbers = useMemo(() => buildDocumentResultPageNumbers({
+    sourceBlocks,
+    pageByNumber,
+    physicalTables,
+    figureItems,
+    markdownBlocks,
+    qualityPageCount: quality?.page_count,
+  }), [figureItems, markdownBlocks, pageByNumber, physicalTables, quality?.page_count, sourceBlocks])
 
   useEffect(() => {
     let cancelled = false
@@ -269,83 +264,25 @@ export function DocumentResultWorkbench({
     }
   }, [taskId, pageNumbers])
 
-  const overlays = useMemo<OverlayEntry[]>(() => {
-    const entries: OverlayEntry[] = []
-    sourceBlocks.forEach((block) => {
-      const bbox = validBbox(block.bbox)
-      if (!bbox.length) return
-      const id = block.block_id || `block-${entries.length + 1}`
-      if (tableIdByBlockId.has(id)) return
-      const source = sourceByBlockId.get(id)
-      entries.push({
-        id,
-        kind: 'block',
-        pageNumber: pageNumber(block.page_number),
-        bbox,
-        bboxUnit: block.bbox_unit || '',
-        label: blockLabel(block.type),
-        detail: `${id} · ${block.type || 'block'}`,
-        sourceUrl: source?.open_source_url,
-        focusKeys: uniqueStrings([
-          focusKey('block', id),
-          tableIdByBlockId.get(id) ? focusKey('table', tableIdByBlockId.get(id) || '') : '',
-        ]),
-      })
-    })
-    physicalTables.forEach((table, index) => {
-      const bbox = validBbox(table.bbox)
-      if (!bbox.length) return
-      const id = table.table_id || `table-${index + 1}`
-      const source = sourceByTableId.get(id)
-      entries.push({
-        id,
-        kind: 'table',
-        pageNumber: pageNumber(table.page_number),
-        bbox,
-        bboxUnit: table.bbox_unit || '',
-        label: '表',
-        detail: `${id} · ${tableLabel(table, id)}`,
-        sourceUrl: source?.open_source_url,
-        focusKeys: uniqueStrings([
-          focusKey('table', id),
-          table.block_id ? focusKey('block', table.block_id) : '',
-        ]),
-      })
-    })
-    figureItems.forEach((figure, index) => {
-      const bbox = validBbox(figure.bbox)
-      if (!bbox.length) return
-      const id = figure.image_id || figure.block_id || `figure-${index + 1}`
-      const source = sourceByFigureId.get(id)
-      entries.push({
-        id,
-        kind: 'figure',
-        pageNumber: pageNumber(figure.page_number),
-        bbox,
-        bboxUnit: figure.bbox_unit || '',
-        label: '图',
-        detail: `${id} · ${figure.caption || figure.type || 'figure'}`,
-        sourceUrl: source?.open_source_url,
-        focusKeys: uniqueStrings([
-          focusKey('figure', id),
-          figure.block_id ? focusKey('block', figure.block_id) : '',
-        ]),
-      })
-    })
-    return entries
-  }, [figureItems, physicalTables, sourceBlocks, sourceByBlockId, sourceByFigureId, sourceByTableId, tableIdByBlockId])
+  const overlays = useMemo<OverlayEntry[]>(() => buildDocumentResultPreviewOverlays({
+    sourceBlocks,
+    physicalTables,
+    figureItems,
+    sourceByBlockId,
+    sourceByTableId,
+    sourceByFigureId,
+    tableIdByBlockId,
+  }), [figureItems, physicalTables, sourceBlocks, sourceByBlockId, sourceByFigureId, sourceByTableId, tableIdByBlockId])
 
-  const previewPages = useMemo(() => {
-    const pages = new Set<number>([activePage])
-    visibleRelations.forEach((relation) => {
-      relationPages(relation, tableById).forEach((page) => pages.add(page))
-    })
-    return Array.from(pages).filter(Boolean).sort((a, b) => a - b).slice(0, 3)
-  }, [activePage, tableById, visibleRelations])
-  const previewMarkdownBlocks = useMemo(() => {
-    const visible = new Set(previewPages)
-    return markdownBlocks.filter((block) => visible.has(pageNumber(block.pageNumber)))
-  }, [markdownBlocks, previewPages])
+  const previewPages = useMemo(() => buildDocumentResultPreviewPages({
+    activePage,
+    visibleRelations,
+    tableById,
+  }), [activePage, tableById, visibleRelations])
+  const previewMarkdownBlocks = useMemo(
+    () => buildDocumentResultPreviewMarkdownBlocks(markdownBlocks, previewPages),
+    [markdownBlocks, previewPages],
+  )
 
   useEffect(() => {
     if (!focused || !activeFocusKeys.size) return
@@ -592,7 +529,13 @@ export function DocumentResultWorkbench({
           </TabsContent>
 
           <TabsContent value="json" className="m-0">
-            <pre className="doc-json">{stringify({ manifest: result.manifest, blocks, tables, figures, sourceMap })}</pre>
+            <DocumentResultJsonPane
+              manifest={result.manifest}
+              blocks={blocks}
+              tables={tables}
+              figures={figures}
+              sourceMap={sourceMap}
+            />
           </TabsContent>
 
           <TabsContent value="tables" className="m-0">
