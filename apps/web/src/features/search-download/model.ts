@@ -348,6 +348,12 @@ export function parsePathForDownloadedReport(relativePath: string) {
   return '/parse'
 }
 
+export function formatBytes(bytes: number) {
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+}
+
 export function uniqueBy<T>(items: T[], getKey: (item: T) => string) {
   const seen = new Set<string>()
   return items.filter((item) => {
