@@ -1267,17 +1267,18 @@ test-results/**
 - `npm run lint`、`npm run build` 与 `npm run check:frontend` 已通过。
 - route/nav/preload 已由 `app/routes.tsx` 单源管理。
 - 仍有页面和组件通过 `lib/apiClient`、`lib/pdfApi`、`lib/secApi`、`lib/documentApi` 兼容出口导入 API；这是过渡态，不应长期固化。
-- 剩余大文件仍包括 `index.css`、`SearchDownload.tsx`、`DocumentResultWorkbench.tsx`；`PdfSourceWorkbench.tsx` 已完成第一阶段 pane/page preview 拆分。
+- 剩余大文件仍包括 `index.css`、`DocumentResultWorkbench.tsx`；`PdfSourceWorkbench.tsx` 已完成第一阶段 pane/page preview 拆分，`SearchDownload.tsx` 已完成 model/table section 第一阶段拆分。
 
 动作：
 
 - 逐步把 `pages/*`、`components/*` 的业务 API 调用迁到对应 `features/*/api.ts`。
 - 保留 `shared/api/client.ts` 作为底层唯一 fetch owner，`lib/apiClient.ts` 仅在兼容期 re-export。
-- 拆 `SearchDownload.tsx` 为 feature 内 hooks、state reducer、结果列表和操作面板。
+- 已拆 `SearchDownload.tsx` 的市场配置、类型、识别 helper 和报告候选表格到 `features/search-download/model.ts`、`ReportTableSection.tsx`，页面从约 1705 行降至约 1252 行。
 - 已拆 `PdfSourceWorkbench.tsx` 的 compare pane、reading pane、PDF page pane、review correction pane、artifact pane 到 `PdfSourceWorkbenchPanels.tsx`，并将页图渲染拆到 `PdfSourcePagePreview.tsx`。
-- 下一步继续从 `PdfSourceWorkbench.tsx` 提纯 relation/page plan/overlay builders，或转向 `SearchDownload.tsx` / `DocumentResultWorkbench.tsx`。
-- 拆 `DocumentResultWorkbench.tsx` 为 source map pane、artifact pane、table/source relation pane。
-- 将 `index.css` 中 PDF、document parser、layout、chat/report 等样式分区迁到 feature 或组件级样式文件，避免继续单文件膨胀。
+- 下一步继续拆 `SearchDownload.tsx` 的已下载文件面板，再拆下载/查询流程 hooks；状态 owner 暂留页面层。
+- 下一步拆 `DocumentResultWorkbench.tsx` 时，先抽 `documentResultWorkbench.utils.ts` 里的纯函数/派生逻辑，再考虑 PDF preview、artifact pane、table/source relation pane，避免先拆 refs 和 selection owner。
+- 下一步清理 CSS 时，先从 `index.css` 迁出 `search-download-*`、`smart-search-*` 及其响应式/dark 覆盖到 `styles/search-download.css`；暂不同时迁 PDF_CSS / DOCUMENT_CSS 字符串，避免 CSS 顺序变化过大。
+- 下一步清理 API 兼容出口时，优先把 `lib/pdfApi`、`lib/documentApi`、`lib/secApi` 的消费者迁到 `features/pdf-parsing/api.ts`、`features/document-parser/api.ts`、`features/market-parsing/api.ts`；`lib/apiClient.ts` 作为通用兼容门面暂留。
 
 验收：
 
@@ -1431,7 +1432,7 @@ test-results/**
 - API client 收口。
 - legacy UI 不再被新代码默认使用。
 - 核心页面 Playwright smoke 通过。
-- 当前基线：`npm run lint`、`npm run build` 和 `npm run check:frontend` 通过；后续仍需清理 `lib/apiClient` / `lib/*Api` 兼容出口调用，并继续拆 `SearchDownload.tsx`、`DocumentResultWorkbench.tsx` 与 `index.css`。
+- 当前基线：`npm run lint`、`npm run build` 和 `npm run check:frontend` 通过；后续仍需清理 `lib/apiClient` / `lib/*Api` 兼容出口调用，并继续拆 `SearchDownload.tsx` 已下载面板、`DocumentResultWorkbench.tsx` 纯 utils 与 `index.css` search 样式。
 
 ### 运维 DoD
 

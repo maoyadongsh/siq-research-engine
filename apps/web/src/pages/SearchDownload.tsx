@@ -21,8 +21,6 @@ import { openAuthenticatedSourceLink } from '../lib/authenticatedSourceLinks'
 import {
   DISCLOSURE_MARKET_ORDER,
   DISCLOSURE_MARKETS,
-  isDisclosureMarketCode,
-  type DisclosureMarketCode,
 } from '../lib/marketMetadata'
 import { loadDownloadedReports as loadDownloadedReportsApi } from '../features/pdf-parsing/api'
 import {
@@ -37,360 +35,28 @@ import {
   resolveCompany,
   selectDownloadReports,
 } from '../features/search-download/api'
-
-interface ReportItem {
-  title: string
-  report_type: string
-  report_family?: string
-  form?: string
-  company_id?: string
-  ticker?: string
-  company_name?: string
-  report_end: string
-  published_at: string
-  document_url: string
-  landing_url?: string
-  file_format?: string
-  file_name?: string
-  saved_path?: string
-  size_bytes?: number
-  success?: boolean
-  metadata?: Record<string, unknown>
-}
-
-interface DownloadFileResult {
-  document_url?: string
-  company_name?: string
-  title: string
-  report_type: string
-  report_end: string
-  file_name: string
-  saved_path: string
-  size_bytes: number
-  success?: boolean
-  cache_hit?: boolean
-}
-
-interface DownloadedPdf {
-  id: string
-  company: string
-  category: string
-  filename: string
-  relativePath: string
-  size: number
-  mtime: string
-  url: string
-  contentType?: string
-  isPdf?: boolean
-}
-
-type MarketCode = DisclosureMarketCode
-
-interface AssistIntent {
-  market?: MarketCode
-  company_query?: string
-  ticker?: string
-  company_id?: string
-  cik?: string
-  report_year?: number
-  report_types?: string[]
-  confidence?: number
-  notes?: string[]
-}
-
-interface CandidateExplanation {
-  document_url: string
-  title_zh: string
-  report_type_zh: string
-  period_zh: string
-  recommendation: string
-  recommended?: boolean
-  warnings?: string[]
-}
-
-interface AssistResult {
-  intent: AssistIntent
-  candidate_explanations?: CandidateExplanation[]
-  assistant_mode?: string
-}
-
-interface MarketSourceStatus {
-  official_source?: string
-  report_search_ready?: boolean
-  required_config?: string[]
-  message?: string
-}
-
-interface MarketReportHealth {
-  report_finder?: {
-    status?: string
-    markets?: Partial<Record<MarketCode, MarketSourceStatus>>
-  }
-}
-
-interface MarketConfig {
-  label: string
-  shortLabel: string
-  queryLabel: string
-  queryPlaceholder: string
-  filterLabel?: string
-  filterParam?: 'exchange' | 'form' | 'country'
-  filterOptions?: { value: string; label: string }[]
-  helpText: string
-  emptyText: string
-  quickOptions: { label: string; types: string[]; primary?: boolean }[]
-}
-
-const MARKET_CONFIGS: Record<MarketCode, MarketConfig> = {
-  CN: {
-    label: DISCLOSURE_MARKETS.CN.label,
-    shortLabel: 'CN',
-    queryLabel: '公司名称 / 股票代码',
-    queryPlaceholder: '如：比亚迪 或 002594',
-    filterLabel: '交易所',
-    filterParam: 'exchange',
-    filterOptions: [
-      { value: '', label: '自动' },
-      { value: 'SZSE', label: '深市' },
-      { value: 'SSE', label: '沪市' },
-    ],
-    helpText: '支持已入库 A 股公司，例如比亚迪、002594。',
-    emptyText: '输入 A 股公司名称或股票代码开始检索',
-    quickOptions: [
-      { label: '年报', types: ['annual'] },
-      { label: '半年报', types: ['semiannual'] },
-      { label: '一季报', types: ['q1'] },
-      { label: '三季报', types: ['q3'] },
-      { label: '全部下载', types: ['annual', 'semiannual', 'q1', 'q3'], primary: true },
-    ],
-  },
-  HK: {
-    label: DISCLOSURE_MARKETS.HK.label,
-    shortLabel: 'HK',
-    queryLabel: '港股代码 / 公司名称',
-    queryPlaceholder: '优先输入 5 位港股代码，如：03690；也可输入 MEITUAN-W',
-    helpText: '港股优先推荐使用 5 位股票代码；公司名称会尽量匹配 HKEX 中英文官方目录。',
-    emptyText: '优先输入 5 位港股代码开始检索',
-    quickOptions: [
-      { label: '年报', types: ['annual'] },
-      { label: '中报', types: ['semiannual'] },
-      { label: '季报', types: ['quarterly'] },
-      { label: '全部下载', types: ['annual', 'semiannual', 'quarterly'], primary: true },
-    ],
-  },
-  US: {
-    label: DISCLOSURE_MARKETS.US.label,
-    shortLabel: 'US',
-    queryLabel: 'Ticker / CIK / 公司名称',
-    queryPlaceholder: '如：AAPL、MSFT 或 0000320193',
-    filterLabel: '表单',
-    filterParam: 'form',
-    filterOptions: [
-      { value: '', label: '常用' },
-      { value: '10-K', label: '10-K' },
-      { value: '10-Q', label: '10-Q' },
-      { value: '20-F', label: '20-F' },
-      { value: '6-K', label: '6-K' },
-    ],
-    helpText: '支持 SEC EDGAR，建议优先使用 ticker 或 CIK。',
-    emptyText: '输入美股 ticker、CIK 或公司名称开始检索',
-    quickOptions: [
-      { label: '10-K/20-F 年报', types: ['annual', '10-K', '20-F'] },
-      { label: '10-Q/6-K 季报', types: ['quarterly', '10-Q', '6-K'] },
-      { label: '全部下载', types: ['annual', 'quarterly', '10-K', '10-Q', '20-F', '6-K'], primary: true },
-    ],
-  },
-  EU: {
-    label: DISCLOSURE_MARKETS.EU.label,
-    shortLabel: 'EU',
-    queryLabel: 'ISIN / LEI / Ticker / 公司名称',
-    queryPlaceholder: '如：ASML、GB00BP6MXD84 或 5493001KJTIIGC8Y1R12',
-    filterLabel: '国家 / 官方源',
-    filterParam: 'country',
-    filterOptions: [
-      { value: '', label: '自动识别' },
-      { value: 'UK', label: '英国 UK' },
-      { value: 'FR', label: '法国 France' },
-      { value: 'DE', label: '德国 Germany' },
-      { value: 'NL', label: '荷兰 Netherlands' },
-      { value: 'CH', label: '瑞士 Switzerland' },
-    ],
-    helpText: '先覆盖 UK、法国、德国、荷兰、瑞士；下载源按国家走官方/权威披露系统，文件格式可能是 PDF、XHTML/iXBRL 或 ZIP。',
-    emptyText: '选择欧股国家后，输入 ISIN、LEI、ticker 或公司名称开始检索',
-    quickOptions: [
-      { label: '年度财务报告', types: ['annual'] },
-      { label: '半年报 / 中期报告', types: ['semiannual'] },
-      { label: '定期披露', types: ['annual', 'semiannual', 'quarterly'], primary: true },
-    ],
-  },
-  KR: {
-    label: DISCLOSURE_MARKETS.KR.label,
-    shortLabel: 'KR',
-    queryLabel: '韩国股票代码 / 公司名称 / DART Corp Code',
-    queryPlaceholder: '如：005930、三星电子 或 00126380',
-    helpText: '使用韩国 DART 官方披露；无 DART_API_KEY 时可下载 DART 官方 PDF，配置 key 后可增强为 OpenDART ZIP。',
-    emptyText: '输入韩股代码、DART Corp Code 或公司名称开始检索',
-    quickOptions: [
-      { label: '年报', types: ['annual'] },
-      { label: '半年报', types: ['semiannual'] },
-      { label: '季报', types: ['quarterly'] },
-      { label: '全部下载', types: ['annual', 'semiannual', 'quarterly'], primary: true },
-    ],
-  },
-  JP: {
-    label: DISCLOSURE_MARKETS.JP.label,
-    shortLabel: 'JP',
-    queryLabel: '日本证券代码 / 公司名称 / EDINET Code',
-    queryPlaceholder: '如：7203、トヨタ自動車 或 E02144',
-    helpText: '使用日本公司 IR 官方 PDF、EDINET 与 TDnet；无 EDINET_API_KEY 时可下载主流公司 IR 年报。',
-    emptyText: '输入日股证券代码、EDINET Code 或公司名称开始检索',
-    quickOptions: [
-      { label: '有价证券报告书', types: ['annual'] },
-      { label: '半期报告书', types: ['semiannual'] },
-      { label: '季度报告书', types: ['quarterly'] },
-      { label: '全部下载', types: ['annual', 'semiannual', 'quarterly'], primary: true },
-    ],
-  },
-}
-
-const typeLabels: Record<string, string> = {
-  annual: '年报',
-  semiannual: '半年报',
-  quarterly: '季报',
-  q1: '一季报',
-  q3: '三季报',
-  '10-K': '10-K',
-  '10-Q': '10-Q',
-  '20-F': '20-F',
-  '6-K': '6-K',
-  earnings_release: '业绩公告',
-}
-
-const typeStyles: Record<string, string> = {
-  annual: 'secondary-table-chip',
-  semiannual: 'secondary-table-chip',
-  quarterly: 'secondary-table-chip',
-  q1: 'secondary-table-chip',
-  q3: 'secondary-table-chip',
-  '10-K': 'secondary-table-chip',
-  '10-Q': 'secondary-table-chip',
-  '20-F': 'secondary-table-chip',
-  '6-K': 'secondary-table-chip',
-  earnings_release: 'secondary-table-chip',
-}
-
-const marketSourceConfigLabels: Partial<Record<MarketCode, string>> = {
-  JP: 'EDINET_API_KEY',
-  KR: 'DART_API_KEY',
-}
-
-function isMarketCode(value: string | null): value is MarketCode {
-  return isDisclosureMarketCode(value)
-}
-
-function isRemoteConfigError(message: string) {
-  return /EDINET_API_KEY|DART_API_KEY/.test(message)
-}
-
-function friendlyRemoteConfigError(message: string) {
-  if (message.includes('EDINET_API_KEY')) {
-    return '日股 EDINET 全量法定披露需要后端配置 EDINET_API_KEY；当前仍可使用公司 IR 官方 PDF 与 TDnet 免费披露。'
-  }
-  if (message.includes('DART_API_KEY')) {
-    return '韩股 OpenDART ZIP 下载需要后端配置 DART_API_KEY；当前仍可使用 DART 官方 PDF 下载主流公司年报。'
-  }
-  return message
-}
-
-function looksLikeCik(value: string) {
-  return /^\d{7,10}$/.test(value.trim())
-}
-
-function looksLikeTicker(value: string) {
-  return /^[A-Za-z][A-Za-z0-9.-]{0,9}$/.test(value.trim())
-}
-
-function looksLikeHkTicker(value: string) {
-  return /^\d{1,5}$/.test(value.trim())
-}
-
-function looksLikeKrTicker(value: string) {
-  return /^\d{1,6}$/.test(value.trim())
-}
-
-function looksLikeJpTicker(value: string) {
-  return /^\d{4,5}$/.test(value.trim())
-}
-
-function looksLikeEdinetCode(value: string) {
-  return /^E\d{5}$/i.test(value.trim())
-}
-
-function looksLikeIsin(value: string) {
-  return /^[A-Z]{2}[A-Z0-9]{9}\d$/i.test(value.trim())
-}
-
-function looksLikeLei(value: string) {
-  return /^[A-Z0-9]{20}$/i.test(value.trim())
-}
-
-function identifierPayload(market: MarketCode, query: string, resolvedTicker?: string) {
-  const trimmed = query.trim()
-  if (market === 'US') {
-    if (looksLikeCik(trimmed)) return { cik: trimmed }
-    if (looksLikeTicker(trimmed)) return { ticker: trimmed.toUpperCase() }
-    return { company_name: trimmed }
-  }
-  if (market === 'HK' && looksLikeHkTicker(trimmed)) {
-    return { ticker: trimmed.padStart(5, '0') }
-  }
-  if (market === 'KR') {
-    if (/^\d{8}$/.test(trimmed)) return { company_id: trimmed }
-    if (looksLikeKrTicker(trimmed)) return { ticker: trimmed.padStart(6, '0') }
-    return { company_name: trimmed }
-  }
-  if (market === 'JP') {
-    if (looksLikeEdinetCode(trimmed)) return { company_id: trimmed.toUpperCase() }
-    if (looksLikeJpTicker(trimmed)) return { ticker: trimmed }
-    return { company_name: trimmed }
-  }
-  if (market === 'EU') {
-    if (looksLikeIsin(trimmed) || looksLikeLei(trimmed)) return { company_id: trimmed.toUpperCase() }
-    if (looksLikeTicker(trimmed)) return { ticker: trimmed.toUpperCase() }
-    return { company_name: trimmed }
-  }
-  if (resolvedTicker) {
-    return { company_name: trimmed, ticker: resolvedTicker }
-  }
-  return { company_name: trimmed }
-}
-
-function reportTypeLabel(report: ReportItem | DownloadFileResult) {
-  return typeLabels[report.report_type] || report.report_type || '报告'
-}
-
-function explanationMap(items: CandidateExplanation[]) {
-  return new Map(items.map((item) => [item.document_url, item]))
-}
-
-function parsePathForDownloadedReport(relativePath: string) {
-  if (relativePath.startsWith('HK/')) return '/parse-hk'
-  if (relativePath.startsWith('US/')) return '/parse?market=US'
-  if (relativePath.startsWith('EU/')) return '/parse-eu'
-  if (relativePath.startsWith('JP/')) return '/parse-jp'
-  if (relativePath.startsWith('KR/')) return '/parse-kr'
-  return '/parse'
-}
-
-function uniqueBy<T>(items: T[], getKey: (item: T) => string) {
-  const seen = new Set<string>()
-  return items.filter((item) => {
-    const key = getKey(item)
-    if (!key || seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
-}
+import { ReportTableSection } from '../features/search-download/ReportTableSection'
+import {
+  MARKET_CONFIGS,
+  explanationMap,
+  friendlyRemoteConfigError,
+  identifierPayload,
+  isMarketCode,
+  isRemoteConfigError,
+  marketSourceConfigLabels,
+  parsePathForDownloadedReport,
+  reportTypeLabel,
+  typeLabels,
+  typeStyles,
+  uniqueBy,
+  type AssistResult,
+  type CandidateExplanation,
+  type DownloadFileResult,
+  type DownloadedPdf,
+  type MarketCode,
+  type MarketReportHealth,
+  type ReportItem,
+} from '../features/search-download/model'
 
 export default function SearchDownload() {
   const { toast } = useToast()
@@ -1033,140 +699,6 @@ export default function SearchDownload() {
     }
   }
 
-  const renderTable = (
-    reports: ReportItem[],
-    title: string,
-    icon: React.ReactNode,
-  ) => {
-    if (reports.length === 0) return null
-    const allChecked = reports.every((r) => selected.has(r.document_url))
-
-    return (
-      <div className="overflow-hidden rounded-[var(--radius-panel)] border border-border bg-card shadow-sm">
-        <div className="flex flex-col gap-3 border-b border-border px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-          <h3 className="flex min-w-0 items-center gap-2 text-base font-semibold text-text">
-            {icon}
-            {title}
-          </h3>
-          <label className="flex h-10 cursor-pointer items-center gap-2 self-start rounded-xl border border-border bg-bg/50 px-3 text-sm font-semibold text-text-muted transition-colors hover:bg-bg sm:self-auto">
-            全选
-            <input
-              type="checkbox"
-              checked={allChecked}
-              onChange={() => toggleAll(reports)}
-              className="h-5 w-5 cursor-pointer rounded accent-primary"
-            />
-          </label>
-        </div>
-        <div className="divide-y divide-border/60 md:hidden">
-          {reports.map((report, idx) => {
-            const explanation = candidateExplanationMap.get(report.document_url)
-            return (
-              <div key={report.document_url || idx} className="p-4">
-                <label className="flex cursor-pointer items-start gap-3">
-                  <input
-                    type="checkbox"
-                    checked={selected.has(report.document_url)}
-                    onChange={() => toggleSelect(report.document_url)}
-                    className="mt-0.5 h-5 w-5 shrink-0 cursor-pointer rounded accent-primary"
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="block break-words text-sm font-semibold leading-6 text-text">{report.title}</span>
-                    {explanation ? (
-                      <span className="mt-1 block break-words text-sm leading-6 text-text-muted">{explanation.title_zh}</span>
-                    ) : null}
-                    <span className="mt-3 flex flex-wrap items-center gap-2 text-xs text-text-muted">
-                      <span className={typeStyles[report.report_type] || 'secondary-table-chip'}>
-                        {explanation?.report_type_zh || reportTypeLabel(report)}
-                      </span>
-                      <span className="rounded-full border border-border bg-bg/60 px-2.5 py-1 font-mono tabular-nums">
-                        {explanation?.period_zh || report.report_end || '-'}
-                      </span>
-                      <span className="rounded-full border border-border bg-bg/60 px-2.5 py-1 font-mono tabular-nums">
-                        披露 {report.published_at || '-'}
-                      </span>
-                      {explanation?.warnings?.length ? (
-                        <span className="rounded-full border border-warning/20 bg-warning/10 px-2.5 py-1 text-warning">
-                          {explanation.warnings.join('；')}
-                        </span>
-                      ) : null}
-                      {explanation ? (
-                        <span className={`rounded-xl border px-2.5 py-1.5 ${
-                          explanation.recommended ? 'border-primary/20 bg-primary/5 text-primary' : 'border-border bg-bg/60'
-                        }`}>
-                          {explanation.recommended ? '推荐：' : ''}{explanation.recommendation}
-                        </span>
-                      ) : null}
-                    </span>
-                  </span>
-                </label>
-              </div>
-            )
-          })}
-        </div>
-        <div className="scroll-hint hidden overflow-x-auto md:block">
-          <table className="w-full min-w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-bg/60">
-                <th className="w-12 px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-text-muted">选择</th>
-                <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-text-muted">报告标题</th>
-                <th className="min-w-[12rem] px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-text-muted">中文说明</th>
-                <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-text-muted">类型</th>
-                <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-text-muted">报告期</th>
-                <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-text-muted">披露日期</th>
-              </tr>
-            </thead>
-            <tbody>
-              {reports.map((report, idx) => {
-                const explanation = candidateExplanationMap.get(report.document_url)
-                return (
-                  <tr
-                    key={report.document_url || idx}
-                    className="border-b border-border/50 transition-colors last:border-0 hover:bg-bg/50"
-                  >
-                    <td className="px-4 py-3 align-top">
-                      <input
-                        type="checkbox"
-                        checked={selected.has(report.document_url)}
-                        onChange={() => toggleSelect(report.document_url)}
-                        className="h-5 w-5 cursor-pointer rounded accent-primary"
-                      />
-                    </td>
-                    <td className="px-4 py-3 align-top font-medium leading-6 text-text">{report.title}</td>
-                    <td className="px-4 py-3 align-top leading-6 text-text-muted">
-                      {explanation ? (
-                        <div className="space-y-1">
-                          <div className="font-medium text-text">{explanation.title_zh}</div>
-                          <div className={explanation.recommended ? 'text-primary' : ''}>{explanation.recommendation}</div>
-                          {explanation.warnings?.length ? (
-                            <div className="text-warning">{explanation.warnings.join('；')}</div>
-                          ) : null}
-                        </div>
-                      ) : (
-                        <span className="text-xs">-</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 align-top">
-                      <span className={typeStyles[report.report_type] || 'secondary-table-chip'}>
-                        {explanation?.report_type_zh || reportTypeLabel(report)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 align-top font-mono text-xs tabular-nums text-text-muted">
-                      {explanation?.period_zh || report.report_end}
-                    </td>
-                    <td className="px-4 py-3 align-top font-mono text-xs tabular-nums text-text-muted">
-                      {report.published_at}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    )
-  }
-
   const formatBytes = (bytes: number) => {
     if (bytes < 1024) return bytes + ' B'
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
@@ -1430,8 +962,24 @@ export default function SearchDownload() {
       )}
 
       {/* Report Tables */}
-      {renderTable(annualReports, annualTitle, <FileText className="h-4 w-4 text-primary" />)}
-      {renderTable(financialReports, financialTitle, <FileText className="h-4 w-4 text-primary" />)}
+      <ReportTableSection
+        reports={annualReports}
+        title={annualTitle}
+        icon={<FileText className="h-4 w-4 text-primary" />}
+        selected={selected}
+        candidateExplanationMap={candidateExplanationMap}
+        onToggleSelect={toggleSelect}
+        onToggleAll={toggleAll}
+      />
+      <ReportTableSection
+        reports={financialReports}
+        title={financialTitle}
+        icon={<FileText className="h-4 w-4 text-primary" />}
+        selected={selected}
+        candidateExplanationMap={candidateExplanationMap}
+        onToggleSelect={toggleSelect}
+        onToggleAll={toggleAll}
+      />
 
       {/* Download Selected Bar */}
       {(annualReports.length > 0 || financialReports.length > 0) && (
