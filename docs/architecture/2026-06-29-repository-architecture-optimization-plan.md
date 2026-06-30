@@ -45,10 +45,12 @@ Web 工作台
 - 已完成：`F-001` 的前端 route registry 已接入 `App.tsx`、`routePreload.ts`、`layoutData.ts`，并补上 `/forbidden` 页面。
 - 已完成：`R-001` 的 tracked runtime data 已从 Git 索引移出，本地运行态文件保留不动。
 - 已完成阶段性拆分：`P-001` 已将 PDF parser 入口 façade、请求 helper、运行时 helper、page marker、SQLite task repository、artifact service 和 source service 下沉；`A-001` 已将 Agent runtime 入口 façade、loop guard 和 progress/tool-label helper 下沉。
-- 进展补充：`F-002` 已补齐共享 workbench 和市场隔离验证；`F-003` 已新增 `shared/api/client.ts`，并将 `pdfApi`、`documentApi`、`secApi`、`Settings`、`Dashboard`、`ReportViewer`、`NotificationMenu`、`VectorIngest`、`ChatAttachmentList`、`DocumentResultWorkbench`、`PdfSourceWorkbench` 迁入共享请求层和 feature 门面；E2E/mock 规则也已修正。
+- 进展补充：`F-002` 已补齐共享 workbench 和市场隔离验证；`F-003` 已新增 `shared/api/client.ts`，并将 `pdfApi`、`documentApi`、`secApi`、`Settings`、`Dashboard`、`ReportViewer`、`NotificationMenu`、`VectorIngest`、`ChatAttachmentList`、`DocumentResultWorkbench`、`PdfSourceWorkbench` 迁入共享请求层和 feature 门面；业务组件/页面已不再直接导入 `lib/apiClient`、`lib/pdfApi`、`lib/secApi`、`lib/documentApi`，E2E/mock 规则也已修正。
 - 已完成：`R-003` 已按主题拆成 8 个提交，运行态/构建产物仍保持 ignored，不进入索引。
-- 进展补充：`F-004` 已完成 `PdfSourceWorkbench.tsx` 第一阶段拆分，新增 panes、page preview 和共享类型模块；`SearchDownload.tsx` 已完成 model/table/downloaded panel 拆分；`index.css` 已将 search/download 专属样式迁到 `styles/search-download.css`；`DocumentResultWorkbench.tsx` 已完成纯 utils 与 source preview 子组件拆分，保留 overlay `data-*`、mobile tab、correction refs、selection/scroll owner 和 artifact pane 行为边界。
-- 当前建议：从干净基线继续 `P-002`、`A-002` 或 `F-004` 的剩余项。继续拆分时仍要避开 `ACTIVE_RUNS` 和本地 queue claim 这两个状态 owner。
+- 进展补充：`F-004` 已完成 `PdfSourceWorkbench.tsx` 第二阶段拆分，新增 `pdfSourceWorkbenchHelpers.ts`，把页码/bbox、跨页表关系、overlay 构建和物理表合并等纯 helper 搬出；`SearchDownload.tsx` 已完成 model/table/downloaded panel 与 search/download flows 拆分；`index.css` 已将 search/download 与 dashboard 域样式迁到 `styles/search-download.css`、`styles/dashboard.css`；`DocumentResultWorkbench.tsx` 已完成纯 utils、source preview、artifact/table/figure/status/extract/markdown panes 拆分，父组件保留 overlay `data-*`、mobile tab、refs、selection/scroll 和 resource open owner。
+- 进展补充：`P-002` 已完成 quality/financial/document_full/content_list_enhanced/MinerU result 第一轮边界拆分，新增 `pdf_parser_quality_service.py`、`pdf_parser_financial_service.py`、`pdf_parser_document_full_service.py`、`pdf_parser_content_list_enhanced_service.py`、`pdf_parser_mineru_result_service.py` 与聚焦测试；`pdf_parser_app_impl.py` 仍保留 Flask route response、task state、queue claim、`_fetch_and_cache_result` 和 `_ensure_*` 重编排 owner。
+- 进展补充：`A-002` 已完成 tool output、parse-only discovery、attachment display 和 citation/evidence 渲染 helper 第一轮下沉，新增/扩展 `agent_runtime_tool_output.py`、`agent_runtime_parse_only.py`、`agent_runtime_display.py`、`agent_runtime_citations.py` 与聚焦测试；`agent_chat_runtime_impl.py` 仍保留 `ACTIVE_RUNS`、SSE append、run lifecycle 和普通 chat/streaming 共享状态 owner。
+- 当前建议：从干净基线继续 owner 级拆分前，先按主题提交本轮成果；下一轮优先继续前端兼容 API 出口清理、`index.css` 低耦合样式拆分、PDF parser quality fallback 覆盖，以及 Agent runtime 只读/纯 helper 迁移。继续避开 `ACTIVE_RUNS` 和本地 queue claim 这两个状态 owner。
 
 ### 0.2 2026-06-30 深度全量检查结论
 
@@ -57,24 +59,25 @@ Web 工作台
 - 仓库索引治理有效：`git ls-files data` 只剩 `data/README.md`、`data/backend/.gitkeep`、`data/pdf-parser/.gitkeep`。
 - `R-003` 之前工作树非常脏：`git status --short | wc -l` 约 725 行，包含大量已从索引移出的 data 删除项、前端/后端重构改动、未跟踪新模块和生成目录；该风险已通过分组 review/提交收口。
 - `.gitignore` 已覆盖 `data/**`、`var/**`、`artifacts/**`、`**/.venv/`、`**/.pytest_cache/`、`**/__pycache__/`、`apps/web/dist/`、`apps/web/test-results/`、`apps/web/playwright-report/` 等运行态和生成目录；本地仍存在大量 ignored cache/runtime 目录，不应纳入提交。
-- 当前最大剩余大文件：`agent_chat_runtime_impl.py` 约 7377 行、`pdf_parser_app_impl.py` 约 5683 行、`apps/web/src/index.css` 已从约 2952 行降至约 2647 行但仍偏大，`SearchDownload.tsx` 已从约 1705 行降至约 1100 行，`DocumentResultWorkbench.tsx` 已从约 1647 行降至约 1003 行；`PdfSourceWorkbench.tsx` 已降至约 1431 行，但仍可继续拆纯函数和样式。
-- 前端 route registry 已单源化；API client 核心能力已收口到 `shared/api/client.ts`，但仍有多个页面/组件经 `lib/apiClient` 兼容出口或旧 `lib/*Api` 门面导入，后续应作为兼容出口清理任务处理。
-- PDF parser 已完成入口 façade、request/runtime/page-marker/task-repository/artifact/source 第一阶段拆分；quality/financial/document_full 仍留在 `pdf_parser_app_impl.py`，是下一阶段主要拆分对象。
-- Agent runtime 已完成入口 façade、loop guard、progress/tool label 第一阶段拆分；`ACTIVE_RUNS`、SSE run owner、普通 chat 与 streaming 的共享状态仍必须留在 `agent_chat_runtime_impl.py`，下一阶段只搬 display normalization、parse-only discovery、tool output normalization 等纯函数。
+- 当前最大剩余大文件：`agent_chat_runtime_impl.py` 已降至约 6901 行、`pdf_parser_app_impl.py` 已降至约 4863 行、`apps/web/src/index.css` 已从约 2952 行降至约 2383 行但仍偏大，`SearchDownload.tsx` 已降至约 979 行，`DocumentResultWorkbench.tsx` 已降至约 665 行；`PdfSourceWorkbench.tsx` 已降至约 708 行，新增的 `pdfSourceWorkbenchHelpers.ts` 约 742 行，后续可继续按 UI/数据派生边界拆分。
+- 前端 route registry 已单源化；API client 核心能力已收口到 `shared/api/client.ts`，业务组件/页面已迁到 `features/*/api.ts` 或 shared client；`lib/apiClient`、`lib/pdfApi`、`lib/secApi`、`lib/documentApi` 暂作为 feature 门面的兼容适配层保留。
+- PDF parser 已完成入口 façade、request/runtime/page-marker/task-repository/artifact/source 第一阶段拆分；quality/financial/document_full/content_list_enhanced/MinerU 原始产物落盘已完成第一轮 service 下沉，`pdf_parser_app_impl.py` 仍保留任务状态、路由响应、queue claim 和 `_ensure_*` 编排。
+- Agent runtime 已完成入口 façade、loop guard、progress/tool label、tool output normalization、parse-only discovery、display normalization 与 citation/evidence 渲染 helper 第一阶段拆分；`ACTIVE_RUNS`、SSE run owner、普通 chat 与 streaming 的共享状态仍必须留在 `agent_chat_runtime_impl.py`，下一阶段只搬同类纯函数。
 
 本次验证基线：
 
 ```bash
-cd apps/pdf-parser && python3 -m pytest tests -q                  # 125 passed
+cd apps/pdf-parser && python3 -m pytest tests -q                  # 138 passed
 cd apps/pdf-parser && python3 -m flask --app app.py routes         # 23 lines / routes loaded
 cd apps/document-parser && python3 -m pytest -q                    # 27 passed
-cd apps/api && uv run pytest tests -q                              # 177 passed
+cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_display.py tests/test_agent_runtime_parse_only.py tests/test_agent_runtime_tool_output.py tests/test_agent_runtime_progress.py tests/test_agent_chat_runtime_loops.py tests/test_agent_chat_runtime_attachments.py -q  # 77 passed
 cd services/market-report-finder && uv run pytest -q               # 46 passed
 cd services/market-report-rules && uv run pytest -q                # 29 passed
 cd packages/market-contracts && uv run pytest -q                   # 2 passed
 cd apps/web && npm run lint                                        # passed
 cd apps/web && npm run build                                       # passed
-cd apps/web && npm run check:frontend                              # passed after F-004 pane split
+cd apps/web && npm run check:frontend                              # passed after API consumer / pane split
+cd apps/web && npm run e2e -- e2e/tests/document-result-preview.spec.ts e2e/tests/pdf-parsing-market-filter.spec.ts e2e/tests/search-download-responsive.spec.ts  # 6 passed
 bash -n start_all.sh && find scripts infra apps services -type f -name '*.sh' -print0 | xargs -0 -r bash -n
 ```
 
@@ -1249,7 +1252,7 @@ test-results/**
 - `lib/apiClient.ts` 已改为共享客户端的兼容出口。
 - `lib/secApi.ts`、`lib/documentApi.ts`、`lib/pdfApi.ts`、`pages/Settings.tsx` 已迁移到共享客户端，统一 token、JSON、FormData、Blob 与文本读取。
 - `features/pdf-parsing/api.ts`、`features/document-parser/api.ts`、`features/market-parsing/api.ts`、`features/settings/api.ts` 已补位为域级门面。
-- 领域 API 正在迁移到 `features/*/api.ts`；仍保留 `lib/apiClient`、`lib/pdfApi`、`lib/secApi`、`lib/documentApi` 作为兼容出口。
+- 业务组件/页面已迁移到 `features/*/api.ts` 或 `shared/api/client.ts`；仍保留 `lib/apiClient`、`lib/pdfApi`、`lib/secApi`、`lib/documentApi` 作为 feature API 门面的兼容适配层。
 - `shared/api/client.ts` 是唯一允许直接调用 `globalThis.fetch` 的基础客户端；业务组件不应新增裸 `fetch`。
 
 验收：
@@ -1266,29 +1269,33 @@ test-results/**
 
 - `npm run lint`、`npm run build` 与 `npm run check:frontend` 已通过。
 - route/nav/preload 已由 `app/routes.tsx` 单源管理。
-- 仍有页面和组件通过 `lib/apiClient`、`lib/pdfApi`、`lib/secApi`、`lib/documentApi` 兼容出口导入 API；这是过渡态，不应长期固化。
+- 业务页面和组件已基本停止直接导入 `lib/apiClient`、`lib/pdfApi`、`lib/secApi`、`lib/documentApi`；这些兼容出口目前只作为 feature API 门面内部适配层保留。
 - 剩余大文件仍包括 `index.css`、`DocumentResultWorkbench.tsx`；`PdfSourceWorkbench.tsx` 已完成第一阶段 pane/page preview 拆分，`SearchDownload.tsx` 已完成 model/table/downloaded panel 第一阶段拆分，`DocumentResultWorkbench.tsx` 已完成纯 utils 和 source preview 第一阶段拆分。
 
 动作：
 
 - 逐步把 `pages/*`、`components/*` 的业务 API 调用迁到对应 `features/*/api.ts`。
 - 保留 `shared/api/client.ts` 作为底层唯一 fetch owner，`lib/apiClient.ts` 仅在兼容期 re-export。
-- 已拆 `SearchDownload.tsx` 的市场配置、类型、识别 helper、报告候选表格和已下载文件面板到 `features/search-download/model.ts`、`ReportTableSection.tsx`、`DownloadedReportsPanel.tsx`，页面从约 1705 行降至约 1100 行。
+- 已将 PDF parsing、document parser、market parsing、SEC panels、Dashboard、ReportViewer、NotificationMenu、GlobalSearch、Account/User 管理、workspace 和 chat attachment 等业务组件迁到 `features/*/api.ts` 或 `shared/api/client.ts`。
+- 已拆 `SearchDownload.tsx` 的市场配置、类型、识别 helper、报告候选表格、已下载文件面板和 search/download flows 到 `features/search-download/model.ts`、`ReportTableSection.tsx`、`DownloadedReportsPanel.tsx`、`flows.ts`，页面从约 1705 行降至约 979 行。
 - 已拆 `PdfSourceWorkbench.tsx` 的 compare pane、reading pane、PDF page pane、review correction pane、artifact pane 到 `PdfSourceWorkbenchPanels.tsx`，并将页图渲染拆到 `PdfSourcePagePreview.tsx`。
+- 已拆 `PdfSourceWorkbench.tsx` 的 PDF 页码/bbox、表格合并、跨页 continuation 判断、table_relations artifact 读取转换、page overlay 构建和 fallback page HTML 到 `pdfSourceWorkbenchHelpers.ts`；页面组件进一步降至约 708 行，状态 owner、URL/toast/download 流不迁移。
 - 已从 `index.css` 迁出 `search-download-*`、`smart-search-*` 及其平板/手机/dark 覆盖到 `styles/search-download.css`，并新增 `search-download-responsive.spec.ts` 覆盖 390、768、1440 三档无横向溢出。
+- 已从 `index.css` 迁出 dashboard hero / illustration 容器样式到 `styles/dashboard.css`，保持顶部 `@import` 顺序，避免选择器级联变化。
 - 已拆 `DocumentResultWorkbench.tsx` 的 status/relation/source-map/markdown/bbox 纯函数到 `documentResultWorkbenchUtils.ts`；组件内 refs、selection、scroll、resource open 和 JSX 结构暂不移动。
 - 已拆 `DocumentResultWorkbench.tsx` 的 `AuthenticatedImage` 与 `PdfPagePreview` 到 `DocumentSourcePreview.tsx`；`imageSize`、objectURL cleanup、overlay click 和 protected figure image 加载已由 `document-result-preview.spec.ts` 覆盖。
-- 下一步继续拆 `SearchDownload.tsx` 的下载/查询流程 hooks；状态 owner 暂留页面层，避免把 URL 同步、toast 和下载后刷新联动提前分散。
-- 下一步拆 `DocumentResultWorkbench.tsx` 时，可优先拆 artifact pane 或 table/source relation pane；继续避免先拆 refs 和 selection owner。
-- 下一步清理 CSS 时，继续按域拆 `index.css` 的低耦合样式；暂不同时迁 PDF_CSS / DOCUMENT_CSS 字符串，避免 CSS 顺序变化过大。
-- 下一步清理 API 兼容出口时，优先把 `lib/pdfApi`、`lib/documentApi`、`lib/secApi` 的消费者迁到 `features/pdf-parsing/api.ts`、`features/document-parser/api.ts`、`features/market-parsing/api.ts`；`lib/apiClient.ts` 作为通用兼容门面暂留。
+- 已拆 `DocumentResultWorkbench.tsx` 的 source preview、artifact pane、table/source relation pane、figure pane、quality/workflow pane、extract/evidence pane 和 markdown pane；父组件继续保留 selection、scroll、resource open owner。
+- 下一步继续拆 `SearchDownload.tsx` 时，可优先收紧剩余日志/toast/URL 同步以外的纯 helper；状态 owner 暂留页面层，避免把 URL 同步、toast 和下载后刷新联动提前分散。
+- 下一步拆 `DocumentResultWorkbench.tsx` 时，可继续收紧 json preview 或 page/overlay derivation 等纯展示/派生边界；继续避免先拆 refs 和 selection owner。
+- 下一步清理 CSS 时，继续按域拆 `index.css` 的低耦合样式，可优先 secondary page 或 chat/agent；暂不同时迁 PDF_CSS / DOCUMENT_CSS 字符串，避免 CSS 顺序变化过大。
+- 下一步清理 API 兼容出口时，可把 `features/document-parser/api.ts`、`features/market-parsing/api.ts` 从 `export *` 改为显式导出；`lib/apiClient.ts`、`lib/pdfApi`、`lib/documentApi`、`lib/secApi` 暂留作为兼容适配层。
 
 验收：
 
 - 新代码不再直接从业务组件调用裸 `fetch`。
 - 新增页面 API 只暴露在 `features/*/api.ts` 或 shared client。
 - `npm run lint && npm run build` 通过；本轮额外执行 `npm run check:frontend` 通过。
-- 关键 Playwright：`pdf-parsing-market-filter.spec.ts`、`workspace-responsive.spec.ts`、`search-download-responsive.spec.ts` 通过；本轮 DocumentResultWorkbench 拆分后补跑 `pdf-parsing-market-filter.spec.ts` 和 `document-result-preview.spec.ts` 通过。
+- 关键 Playwright：`document-result-preview.spec.ts`、`pdf-parsing-market-filter.spec.ts`、`search-download-responsive.spec.ts` 通过，6 passed。
 
 ### P-001：拆 `apps/pdf-parser/app.py`
 
@@ -1324,18 +1331,23 @@ test-results/**
 
 优先级：P1
 范围：`apps/pdf-parser`
-状态：待执行
+状态：进行中
 背景：
 
-- `pdf_parser_app_impl.py` 已从约 6700 行降到约 5683 行，但仍承担 quality report、financial artifacts、content_list_enhanced、document_full 和 MinerU result orchestration。
+- `pdf_parser_app_impl.py` 已从约 6700 行降到约 4863 行，但仍承担 content_list_enhanced / MinerU result 的少量编排 owner。
 - 已拆出的 `pdf_parser_artifact_service.py` 和 `pdf_parser_source_service.py` 只处理文件/路径/source IO，不能继续吸收质量规则，避免形成新的巨石。
+- 已新增 `pdf_parser_quality_service.py`，搬出 quality report 周边候选文本处理、statement/table source 选择、financial data 回填 quality candidates、warning 过滤、summary/priority review 规则，以及 `quality_report.json` / `table_index.json` 的轻量路径读写封装；`pdf_parser_app_impl.py` 保留兼容 wrapper 与 `_ensure_quality_report` 编排 owner。
+- 已新增 `pdf_parser_financial_service.py`，收拢 financial artifact 路径、读取、current 判断、写入和 ensure；`pdf_parser_app_impl.py` 保留 `_financial_*` 兼容 wrapper 与调用编排。
+- 已新增 `pdf_parser_document_full_service.py`，收拢 document_full resource index 与 payload 构建；`pdf_parser_app_impl.py` 保留同名 wrapper、写入/ensure/刷新 owner 和 table relation owner。
+- 已新增 `pdf_parser_content_list_enhanced_service.py`，收拢 content_list_enhanced 的 page block 统计、image semantic block、complete markdown appendix/content/write helper；`pdf_parser_app_impl.py` 保留 `_ensure_content_list_enhanced_artifact` 编排 owner 和 table relation owner。
+- 已新增 `pdf_parser_mineru_result_service.py`，收拢 MinerU upstream payload summary、middle/model_output/content_list 原始产物和 images 保存 helper；`pdf_parser_app_impl.py` 保留 `_save_mineru_artifacts` wrapper、quality/document_full 后续写入编排和 task state owner。
 
 建议拆分顺序：
 
-1. 新增 `pdf_parser_quality_service.py`：先搬 `_build_quality_report` 周边纯规则 glue、quality warning 合并、report path/read/write wrapper；保留 `_ensure_quality_report` 在 app impl 编排。
-2. 新增 `pdf_parser_financial_service.py`：搬 financial path/read/current/write/ensure wrapper，注入 `FINANCIAL_LLM_CACHE_FOLDER`、schema/rule 版本和 `build_financial_data/build_financial_checks`。
-3. 新增 `pdf_parser_document_full_service.py`：搬 `_complete_markdown_content`、resource index、document_full payload 构建、content_list_enhanced 独立写入；app impl 保留“何时刷新”的 owner。
-4. 后续再拆 `pdf_parser_mineru_result_service.py`：只在 quality/financial/document_full 边界稳定后处理 `_save_mineru_artifacts` 的原始 upstream artifact 保存部分。
+1. 继续扩展 `pdf_parser_quality_service.py` 的直接测试，只搬纯规则或轻量 IO wrapper；保留 `_ensure_quality_report` 在 app impl 编排。
+2. 继续扩展 `pdf_parser_financial_service.py` 测试，只搬 financial 纯规则或轻量 IO wrapper；保留“何时重算”的 owner 在 app impl。
+3. 继续扩展 `pdf_parser_document_full_service.py`：只搬 document_full 纯 payload/resource helper；app impl 保留写入/ensure/刷新 owner。
+4. 继续扩展 `pdf_parser_content_list_enhanced_service.py` / `pdf_parser_mineru_result_service.py`：只搬 content_list_enhanced 的纯展示/附录 helper 和 MinerU 原始产物落盘 helper；app impl 保留 `_fetch_and_cache_result`、`_ensure_*` 和 task state owner。
 
 不搬迁：
 
@@ -1345,8 +1357,8 @@ test-results/**
 
 验收：
 
-- 新模块有直接单元测试，覆盖 schema/current 判断、document_full payload、complete markdown corrections、quality report fallback。
-- `cd apps/pdf-parser && python3 -m pytest tests -q` 通过。
+- 新模块有直接单元测试；当前 `test_pdf_parser_quality_service.py` 已覆盖候选回填、摘要 warning、质量报告文件读写边界，`test_pdf_parser_financial_service.py` 已覆盖 financial 路径/读取/current/write/ensure 边界，`test_pdf_parser_document_full_service.py` 已覆盖 resource index 与 document_full payload 边界，`test_pdf_parser_content_list_enhanced_service.py` 已覆盖 image semantic blocks 与 complete markdown 写出，`test_pdf_parser_mineru_result_service.py` 已覆盖 MinerU 原始产物落盘边界；后续继续观察 quality report fallback 与更复杂的 complete markdown 回填。
+- `cd apps/pdf-parser && python3 -m pytest tests -q` 通过，138 passed。
 - `cd apps/pdf-parser && python3 -m flask --app app.py routes` 通过。
 - `pdf_parser_app_impl.py` 行数继续下降，且没有把新 service 变成状态 owner。
 
@@ -1379,19 +1391,21 @@ test-results/**
 
 优先级：P1
 范围：`apps/api/services`
-状态：待执行
+状态：进行中
 背景：
 
-- `agent_chat_runtime_impl.py` 仍约 7377 行，是当前最大后端文件。
+- `agent_chat_runtime_impl.py` 仍约 6901 行，是当前最大后端文件。
 - `ACTIVE_RUNS`、SSE event append、run lifecycle、ordinary chat 与 streaming 状态共享仍高度耦合，暂不迁移 owner。
 - 可继续安全拆分的是纯函数和只读 discovery 逻辑。
+- 已新增 `agent_runtime_tool_output.py`，搬出 `_normalize_tool_output` 的纯函数实现；`agent_chat_runtime_impl.py` 通过 import alias 保持 `_normalize_tool_output` 兼容入口，未迁移 `ACTIVE_RUNS`、SSE、run lifecycle、attachments/history owner。
+- 已新增 `agent_runtime_parse_only.py`，搬出 `_pdf2md_parse_only_matches`、`_should_consider_pdf2md_parse_only_context`、`build_pdf2md_parse_only_context` 的只读 discovery 逻辑；旧同名函数仍由 `agent_chat_runtime_impl.py` wrapper 转发，保持兼容入口。
+- 已新增 `agent_runtime_display.py`，搬出 `_display_message_with_attachments` 的纯展示格式化逻辑；旧同名函数仍由 `agent_chat_runtime_impl.py` wrapper 转发，消息保存顺序不变。
+- 已扩展 `agent_runtime_citations.py`，下沉 plain inline LaTeX normalization、evidence trace normalization、结构化 citation 检测、primary data source refs 合并、PostgreSQL fallback context 和多类 primary-data supplement renderer；旧同名函数仍由 `agent_chat_runtime_impl.py` wrapper 转发，保留 evidence fallback 编排和 monkeypatch 入口。
 
 建议拆分顺序：
 
-1. 新增 `agent_runtime_display.py`：搬 `_display_message_with_attachments`、calculator display helpers、assistant reply display normalization 这类纯展示函数。
-2. 新增 `agent_runtime_parse_only.py`：搬 `_pdf2md_parse_only_matches`、`_should_consider_pdf2md_parse_only_context`、`build_pdf2md_parse_only_context`，注入/传入需要的 path/wiki reader，保持测试可 fixture。
-3. 新增 `agent_runtime_tool_output.py`：搬 `_normalize_tool_output` 及工具输出摘要/清洗纯函数，给 loop diagnosis 和 streaming 复用。
-4. 只在上述纯函数稳定后，再评估 attachments/history/local-memory/build-run-input 的真实 owner 拆分。
+1. 继续扩展 `agent_runtime_display.py`、`agent_runtime_parse_only.py`、`agent_runtime_tool_output.py` 或 `agent_runtime_citations.py`：只搬同类纯函数，给 loop diagnosis 和 streaming 复用。
+2. 只在上述纯函数稳定后，再评估 attachments/history/local-memory/build-run-input 的真实 owner 拆分。
 
 不搬迁：
 
@@ -1402,9 +1416,8 @@ test-results/**
 
 验收：
 
-- 新增 `tests/test_agent_runtime_display.py`、`tests/test_agent_runtime_parse_only.py` 或等价覆盖。
-- `cd apps/api && uv run pytest tests/test_agent_runtime_progress.py tests/test_agent_chat_runtime_loops.py -q` 通过。
-- `cd apps/api && uv run pytest tests -q` 通过。
+- 新增 `tests/test_agent_runtime_display.py`、`tests/test_agent_runtime_parse_only.py`、`tests/test_agent_runtime_tool_output.py` 或等价覆盖。
+- `cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_display.py tests/test_agent_runtime_parse_only.py tests/test_agent_runtime_tool_output.py tests/test_agent_runtime_progress.py tests/test_agent_chat_runtime_loops.py tests/test_agent_chat_runtime_attachments.py -q` 通过，77 passed。
 - SSE 事件字段、停止按钮、orphaned run 恢复语义不变。
 
 ## 10. 验收标准总表
@@ -1426,7 +1439,7 @@ test-results/**
 - evidence package 有共享 reader/validator。
 - settings 可注入、可测试。
 - API-finder-rules contract tests 通过。
-- 当前基线：`apps/api` 177 tests、`apps/pdf-parser` 125 tests、`apps/document-parser` 27 tests、finder 46 tests、rules 29 tests、market-contracts 2 tests 全部通过。
+- 当前基线：`apps/api` Agent runtime 定向 77 tests、`apps/pdf-parser` 138 tests、`apps/document-parser` 27 tests、finder 46 tests、rules 29 tests、market-contracts 2 tests 已通过；本轮未重跑完整 `apps/api` 全量。
 
 ### 前端 DoD
 
@@ -1435,7 +1448,7 @@ test-results/**
 - API client 收口。
 - legacy UI 不再被新代码默认使用。
 - 核心页面 Playwright smoke 通过。
-- 当前基线：`npm run lint`、`npm run build` 和 `npm run check:frontend` 通过；后续仍需清理 `lib/apiClient` / `lib/*Api` 兼容出口调用，并继续拆 `SearchDownload.tsx` 查询/下载 hooks、`DocumentResultWorkbench.tsx` artifact/table-source panes 与 `index.css` 其他低耦合样式。
+- 当前基线：`npm run check:frontend` 通过，关键 Playwright 6 passed；后续仍需继续清理 feature API 显式导出、`SearchDownload.tsx` 剩余纯 helper、`DocumentResultWorkbench.tsx` json preview/page derivation 与 `index.css` 其他低耦合样式。
 
 ### 运维 DoD
 
