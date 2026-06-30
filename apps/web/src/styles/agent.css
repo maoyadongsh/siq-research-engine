@@ -1,0 +1,287 @@
+@media (min-width: 1024px) and (max-width: 1439px), (min-width: 1024px) and (max-height: 820px) {
+  .agent-avatar-xl {
+    width: 104px;
+    height: 104px;
+  }
+  .agent-avatar-lg {
+    width: 78px;
+    height: 78px;
+  }
+}
+.agent-fairy {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  isolation: isolate;
+  transform: translateZ(0);
+}
+.agent-fairy-sm { width: 34px; height: 34px; }
+.agent-fairy-md { width: 52px; height: 52px; }
+.agent-fairy-lg { width: 78px; height: 78px; }
+.agent-fairy-xl { width: 168px; height: 168px; }
+.agent-fairy-float { width: 131px; height: 131px; }
+.agent-fairy-aura {
+  position: absolute;
+  inset: 9% 7% 4%;
+  z-index: -1;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 50% 35%, rgba(255, 248, 235, .64), rgba(251, 191, 36, .18) 42%, transparent 70%),
+    radial-gradient(circle at 48% 78%, rgba(96, 165, 250, .18), transparent 54%);
+  filter: blur(10px);
+  opacity: .8;
+}
+.agent-fairy-image {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center center;
+  user-select: none;
+  pointer-events: none;
+  transform-origin: 50% 72%;
+  filter: drop-shadow(0 18px 22px rgba(15, 23, 42, .18)) drop-shadow(0 2px 8px rgba(251, 146, 60, .14));
+}
+.agent-fairy-missing-image { width: 0 !important; height: 0 !important; overflow: hidden; }
+.agent-fairy-spark {
+  position: absolute;
+  z-index: 2;
+  width: .42em;
+  height: .42em;
+  border-radius: 999px;
+  background: #f8fafc;
+  box-shadow: 0 0 0 1px rgba(251, 191, 36, .42), 0 0 16px rgba(96, 165, 250, .54);
+}
+.agent-fairy-spark-one { top: 18%; right: 14%; }
+.agent-fairy-spark-two { left: 12%; top: 42%; transform: scale(.72); }
+.agent-fairy-spark-three { right: 20%; bottom: 18%; transform: scale(.58); }
+.agent-fairy-idle { animation: agent-fairy-bob 5.2s ease-in-out infinite; }
+.agent-fairy-thinking { animation: agent-fairy-think 1.55s ease-in-out infinite; }
+.agent-fairy-replying { animation: agent-fairy-reply 1.05s ease-in-out infinite; }
+.agent-fairy-error { animation: agent-fairy-error 520ms ease-in-out 2; }
+.agent-fairy-idle .agent-fairy-image { animation: agent-fairy-breathe 4.8s ease-in-out infinite; }
+.agent-fairy-thinking .agent-fairy-image { animation: agent-fairy-focus 1.55s ease-in-out infinite; }
+.agent-fairy-replying .agent-fairy-image { animation: agent-fairy-talk 1.05s ease-in-out infinite; }
+.agent-fairy-thinking .agent-fairy-aura,
+.agent-fairy-replying .agent-fairy-aura { animation: agent-fairy-aura 1.5s ease-in-out infinite; }
+.agent-fairy-thinking .agent-fairy-spark,
+.agent-fairy-replying .agent-fairy-spark { animation: agent-fairy-spark 900ms ease-in-out infinite; }
+.agent-fairy-replying .agent-fairy-image { filter: drop-shadow(0 20px 24px rgba(59, 130, 246, .22)) drop-shadow(0 2px 8px rgba(251, 146, 60, .16)); }
+.agent-fairy-error .agent-fairy-aura { background: radial-gradient(circle, rgba(254, 226, 226, .78), rgba(248, 113, 113, .24) 46%, transparent 72%); }
+.agent-fairy-error .agent-fairy-spark { background: #fee2e2; box-shadow: 0 0 0 1px rgba(220, 38, 38, .45), 0 0 16px rgba(220, 38, 38, .62); }
+
+.agent-avatar {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  isolation: isolate;
+  transform: translateZ(0);
+}
+.agent-avatar-sm { width: 34px; height: 34px; }
+.agent-avatar-md { width: 52px; height: 52px; }
+.agent-avatar-lg { width: 96px; height: 96px; }
+.agent-avatar-xl { width: 131px; height: 131px; }
+.agent-avatar-aura {
+  position: absolute;
+  inset: 4%;
+  z-index: -1;
+  border-radius: 999px;
+  filter: blur(10px);
+  opacity: .82;
+}
+.agent-avatar-analysis .agent-avatar-aura {
+  background:
+    radial-gradient(circle at 48% 34%, rgba(255, 220, 128, .48), rgba(59, 130, 246, .20) 46%, transparent 72%),
+    radial-gradient(circle at 52% 76%, rgba(15, 23, 42, .18), transparent 58%);
+}
+.agent-avatar-factchecker .agent-avatar-aura {
+  background:
+    radial-gradient(circle at 48% 34%, rgba(110, 231, 183, .50), rgba(16, 185, 129, .18) 46%, transparent 72%),
+    radial-gradient(circle at 52% 76%, rgba(15, 23, 42, .16), transparent 58%);
+}
+.agent-avatar-tracking .agent-avatar-aura {
+  background:
+    radial-gradient(circle at 48% 34%, rgba(45, 212, 191, .48), rgba(249, 115, 22, .18) 46%, transparent 72%),
+    radial-gradient(circle at 52% 76%, rgba(15, 23, 42, .16), transparent 58%);
+}
+.agent-avatar-legal .agent-avatar-aura {
+  background:
+    radial-gradient(circle at 48% 34%, rgba(255, 220, 120, .52), rgba(128, 28, 47, .18) 46%, transparent 72%),
+    radial-gradient(circle at 52% 76%, rgba(15, 23, 42, .14), transparent 58%);
+}
+.agent-avatar-image {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  object-fit: contain;
+  object-position: center center;
+  user-select: none;
+  pointer-events: none;
+  transform-origin: 50% 72%;
+  filter: drop-shadow(0 12px 16px rgba(15, 23, 42, .16));
+}
+.agent-avatar-missing-image { width: 0 !important; height: 0 !important; overflow: hidden; }
+.agent-avatar-spark {
+  position: absolute;
+  z-index: 2;
+  width: .36em;
+  height: .36em;
+  border-radius: 999px;
+  background: #f8fafc;
+  opacity: .88;
+}
+.agent-avatar-analysis .agent-avatar-spark { box-shadow: 0 0 0 1px rgba(251, 191, 36, .44), 0 0 14px rgba(59, 130, 246, .52); }
+.agent-avatar-factchecker .agent-avatar-spark { box-shadow: 0 0 0 1px rgba(16, 185, 129, .44), 0 0 14px rgba(52, 211, 153, .52); }
+.agent-avatar-tracking .agent-avatar-spark { box-shadow: 0 0 0 1px rgba(45, 212, 191, .44), 0 0 14px rgba(249, 115, 22, .46); }
+.agent-avatar-legal .agent-avatar-spark { box-shadow: 0 0 0 1px rgba(212, 175, 55, .46), 0 0 14px rgba(128, 28, 47, .42); }
+.agent-avatar-spark-one { top: 15%; right: 13%; }
+.agent-avatar-spark-two { left: 14%; bottom: 18%; transform: scale(.62); }
+.agent-avatar-idle { animation: agent-fairy-bob 5.2s ease-in-out infinite; }
+.agent-avatar-thinking { animation: agent-think 1.8s ease-in-out infinite; }
+.agent-avatar-replying { animation: agent-reply 1.05s ease-in-out infinite; }
+.agent-avatar-error { animation: agent-fairy-error 520ms ease-in-out 2; }
+.agent-avatar-idle .agent-avatar-image { animation: agent-fairy-breathe 4.8s ease-in-out infinite; }
+.agent-avatar-thinking .agent-avatar-image { animation: agent-focus 1.8s ease-in-out infinite; }
+.agent-avatar-replying .agent-avatar-image { animation: agent-talk 920ms ease-in-out infinite; }
+.agent-avatar-thinking .agent-avatar-aura,
+.agent-avatar-replying .agent-avatar-aura { animation: agent-aura 1.35s ease-in-out infinite; }
+.agent-avatar-thinking .agent-avatar-spark,
+.agent-avatar-replying .agent-avatar-spark { animation: agent-spark 760ms ease-in-out infinite; }
+.agent-avatar-thinking .agent-avatar-spark { animation: agent-orbit 1.8s ease-in-out infinite; }
+.agent-avatar-error .agent-avatar-aura { background: radial-gradient(circle, rgba(254, 226, 226, .78), rgba(248, 113, 113, .24) 46%, transparent 72%); }
+.agent-avatar-error .agent-avatar-spark { background: #fee2e2; box-shadow: 0 0 0 1px rgba(220, 38, 38, .45), 0 0 16px rgba(220, 38, 38, .62); }
+
+.agent-progress-card {
+  margin-top: .7rem;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, .28);
+  border-radius: .95rem;
+  background:
+    linear-gradient(180deg, rgba(248, 250, 252, .94), rgba(255, 255, 255, .90)),
+    var(--color-card);
+  padding: .72rem;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, .045);
+}
+.agent-progress-card-compact {
+  padding: .62rem;
+}
+.agent-progress-head {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: .65rem;
+}
+.agent-progress-title-wrap {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: .55rem;
+}
+.agent-progress-icon {
+  display: inline-flex;
+  width: 1.35rem;
+  height: 1.35rem;
+  shrink: 0;
+  align-items: center;
+  justify-content: center;
+}
+.agent-progress-icon svg {
+  width: 1rem;
+  height: 1rem;
+}
+.agent-progress-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--color-text);
+  font-size: .82rem;
+  font-weight: 800;
+  line-height: 1.3;
+}
+.agent-progress-status,
+.agent-progress-percent {
+  font-size: .68rem;
+  font-weight: 800;
+  line-height: 1.25;
+}
+.agent-progress-percent {
+  shrink: 0;
+  color: var(--color-text-muted);
+}
+.agent-progress-track {
+  position: relative;
+  height: .38rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, .20);
+  margin-top: .62rem;
+}
+.agent-progress-fill {
+  height: 100%;
+  min-width: .45rem;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--color-primary), var(--color-primary-light));
+  transition: width 240ms ease;
+}
+.agent-progress-meta {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: .38rem;
+  margin-top: .55rem;
+  color: var(--color-text-muted);
+  font-size: .68rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+.agent-progress-detail {
+  min-width: 100%;
+  overflow-wrap: anywhere;
+}
+.agent-progress-step,
+.agent-progress-tool {
+  border: 1px solid rgba(148, 163, 184, .25);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .72);
+  padding: .12rem .44rem;
+}
+
+html.dark .agent-progress-card {
+  border-color: rgba(39, 50, 68, .96);
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, .92), rgba(17, 24, 39, .86)),
+    var(--color-card);
+}
+html.dark .agent-progress-track {
+  background: rgba(71, 85, 105, .42);
+}
+html.dark .agent-progress-step,
+html.dark .agent-progress-tool {
+  border-color: rgba(71, 85, 105, .52);
+  background: rgba(15, 23, 42, .78);
+}
+
+@keyframes agent-fairy-bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+@keyframes agent-fairy-think { 0%,100% { transform: translateY(0) rotate(-1deg); } 50% { transform: translateY(-8px) rotate(1deg); } }
+@keyframes agent-fairy-reply { 0%,100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-5px) scale(1.035); } }
+@keyframes agent-fairy-error { 0%,100% { transform: translateX(0); } 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
+@keyframes agent-fairy-aura { 0%,100% { opacity: .72; transform: scale(.98); } 50% { opacity: 1; transform: scale(1.07); } }
+@keyframes agent-fairy-spark { 0%,100% { opacity: .48; transform: translateY(0) scale(.72); } 50% { opacity: 1; transform: translateY(-5px) scale(1); } }
+@keyframes agent-fairy-breathe { 0%,100% { transform: scale(1); } 50% { transform: scale(1.018); } }
+@keyframes agent-fairy-focus { 0%,100% { transform: scale(1) rotate(0); } 50% { transform: scale(1.025) rotate(-.7deg); } }
+@keyframes agent-fairy-talk { 0%,100% { transform: translateY(0) rotate(0) scale(1); } 35% { transform: translateY(-2px) rotate(-1deg) scale(1.018); } 70% { transform: translateY(1px) rotate(.8deg) scale(1.006); } }
+@keyframes agent-think { 0%,100% { transform: translateY(0) rotate(-1deg); } 50% { transform: translateY(-7px) rotate(1deg); } }
+@keyframes agent-reply { 0%,100% { transform: translateY(0) scale(1); } 38% { transform: translateY(-4px) scale(1.035); } 72% { transform: translateY(1px) scale(1.012); } }
+@keyframes agent-focus { 0%,100% { transform: scale(1); filter: drop-shadow(0 12px 16px rgba(15, 23, 42, .16)); } 50% { transform: scale(1.026); filter: drop-shadow(0 16px 20px rgba(37, 99, 235, .22)); } }
+@keyframes agent-talk { 0%,100% { transform: translateY(0) rotate(0) scale(1); } 28% { transform: translateY(-2px) rotate(-.8deg) scale(1.026); } 60% { transform: translateY(1px) rotate(.8deg) scale(1.012); } }
+@keyframes agent-aura { 0%,100% { opacity: .68; transform: scale(.96); } 50% { opacity: 1; transform: scale(1.11); } }
+@keyframes agent-spark { 0%,100% { opacity: .42; transform: translateY(0) scale(.68); } 50% { opacity: 1; transform: translateY(-6px) scale(1.08); } }
+@keyframes agent-orbit { 0%,100% { opacity: .44; transform: translateY(0) translateX(0) scale(.62); } 50% { opacity: .95; transform: translateY(-3px) translateX(2px) scale(.92); } }

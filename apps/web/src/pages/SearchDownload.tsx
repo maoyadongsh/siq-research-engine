@@ -24,6 +24,13 @@ import {
   fetchMarketReportHealth,
   requestReportAssist,
 } from '../features/search-download/api'
+import {
+  logMessageClassName,
+  marketSourceDisplay,
+  missingMarketSourceConfig,
+  reportTableTitlesForMarket,
+  smartSearchPlaceholderForMarket,
+} from '../features/search-download/display'
 import { DownloadedReportsPanel } from '../features/search-download/DownloadedReportsPanel'
 import {
   batchDownloadSelectedReports,
@@ -44,7 +51,6 @@ import {
   friendlyRemoteConfigError,
   isMarketCode,
   isRemoteConfigError,
-  marketSourceConfigLabels,
   reportTypeLabel,
   typeLabels,
   typeStyles,
@@ -99,15 +105,11 @@ export default function SearchDownload() {
 
   const marketConfig = MARKET_CONFIGS[market]
   const activeMarketSource = marketHealth?.report_finder?.markets?.[market]
-  const activeMarketMissingConfig = activeMarketSource?.required_config?.length
-    ? activeMarketSource.required_config
-    : marketSourceConfigLabels[market] && activeMarketSource?.report_search_ready === false
-      ? [marketSourceConfigLabels[market]]
-      : []
-  const activeMarketSearchBlocked = Boolean(activeMarketSource?.report_search_ready === false && activeMarketMissingConfig.length)
-  const showMarketSourceReady = Boolean(
-    activeMarketSource && activeMarketSource.report_search_ready !== false && activeMarketMissingConfig.length === 0,
-  )
+  const activeMarketSourceDisplay = marketSourceDisplay({
+    market,
+    source: activeMarketSource,
+    loading: marketHealthLoading,
+  })
 
   const syncSearchParams = useCallback((next: { market?: MarketCode; q?: string; year?: string; exchange?: string; form?: string; country?: string; downloaded?: string; ask?: string }, replace = true) => {
     const params = new URLSearchParams(searchParams)
@@ -152,17 +154,7 @@ export default function SearchDownload() {
   }, [market, syncSearchParams])
 
   const quickDownloadOptions = marketConfig.quickOptions
-
-  const annualTitle = market === 'US' ? '年度报告列表' : market === 'JP' ? '有价证券报告书列表' : market === 'EU' ? '年度财务报告列表' : '年报列表'
-  const financialTitle = market === 'US'
-    ? '定期披露列表（10-Q / 20-F / 6-K）'
-    : market === 'EU'
-      ? '其他定期披露列表'
-    : market === 'HK'
-      ? '财报列表（中期 / 季度）'
-      : market === 'JP'
-        ? '财报列表（半期 / 季度）'
-        : '财报列表（半年报 / 季报）'
+  const { annualTitle, financialTitle } = reportTableTitlesForMarket(market)
 
   const setDownloadedQueryAndUrl = useCallback((value: string) => {
     setDownloadedQuery(value)
@@ -213,12 +205,7 @@ export default function SearchDownload() {
       addLog(message, 'warn')
       return true
     }
-    const fallbackKey = marketSourceConfigLabels[targetMarket]
-  const missing = source?.required_config?.length
-    ? source.required_config
-    : source?.report_search_ready === false && fallbackKey
-      ? [fallbackKey]
-      : []
+    const missing = missingMarketSourceConfig(targetMarket, source)
     if (source?.report_search_ready === false && missing.length > 0) {
       const sourceName = source?.official_source || (targetMarket === 'JP' ? 'EDINET' : 'DART')
       const message = `${MARKET_CONFIGS[targetMarket].label}${sourceName} 增强源需要配置 ${missing.join('、')}；将继续使用当前可用的官方 fallback。`
@@ -674,7 +661,7 @@ export default function SearchDownload() {
                 value={smartPrompt}
                 onChange={(e) => setSmartPromptAndUrl(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSmartParse()}
-                placeholder={market === 'KR' ? '例如：三星电子 2025 年年报和三季度报告' : market === 'JP' ? '例如：铠侠 2025 年有价证券报告书' : '例如：比亚迪 2025 年年报'}
+                placeholder={smartSearchPlaceholderForMarket(market)}
                 className="form-control smart-search-input px-4 text-base placeholder:text-text-muted"
               />
               <button
@@ -706,19 +693,9 @@ export default function SearchDownload() {
               </div>
             ) : null}
             {market === 'JP' || market === 'KR' ? (
-              <div className={`smart-search-source ${activeMarketMissingConfig.length ? 'is-warning' : 'is-ready'}`}>
+              <div className={activeMarketSourceDisplay.className}>
                 <AlertTriangle className="h-4 w-4" />
-                <span>
-                  {activeMarketSearchBlocked
-                    ? `${marketConfig.label}增强官方源需配置 ${activeMarketMissingConfig.join('、')}；当前仍可使用官方 fallback。`
-                    : activeMarketMissingConfig.length
-                      ? `${marketConfig.label}部分官方源缺少 ${activeMarketMissingConfig.join('、')}；将继续使用可用的免费官方源查询，法定报告全量可能不完整。`
-                    : marketHealthLoading
-                      ? '正在检查官方披露源配置...'
-                      : showMarketSourceReady
-                        ? `${marketConfig.label}官方披露源已就绪，可查询下载列表。`
-                        : `正在等待${marketConfig.label}官方披露源状态。`}
-                </span>
+                <span>{activeMarketSourceDisplay.message}</span>
               </div>
             ) : null}
             {marketConfigWarning ? (
@@ -932,15 +909,7 @@ export default function SearchDownload() {
                 <div key={i} className="flex flex-col gap-1 border-b border-border/50 py-2 last:border-0 sm:flex-row sm:gap-3 sm:py-1">
                   <span className="shrink-0 text-text-muted">{log.time}</span>
                   <span
-                    className={
-                      log.type === 'success'
-                        ? 'text-success'
-                        : log.type === 'error'
-                          ? 'text-error'
-                          : log.type === 'warn'
-                            ? 'text-warning'
-                            : 'text-text'
-                    }
+                    className={logMessageClassName(log.type)}
                   >
                     {log.msg}
                   </span>

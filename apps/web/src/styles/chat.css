@@ -1,0 +1,179 @@
+.chat-attachment-grid {
+  display: flex;
+  max-width: 100%;
+  flex-wrap: wrap;
+  gap: .45rem;
+  margin-top: .45rem;
+}
+.chat-attachment-grid-composer {
+  margin: .05rem .35rem .15rem;
+}
+.chat-attachment-preview {
+  position: relative;
+  width: auto;
+  height: 4.25rem;
+  flex: 0 0 auto;
+}
+.chat-attachment-item,
+.chat-attachment-image-link {
+  display: inline-flex;
+  max-width: 100%;
+}
+.chat-attachment-image-link {
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: .65rem;
+  background: transparent;
+  cursor: zoom-in;
+  padding: 0;
+  text-decoration: none;
+  touch-action: manipulation;
+}
+.chat-attachment-image-link:hover .chat-attachment-thumb,
+.chat-attachment-image-link:focus-visible .chat-attachment-thumb {
+  border-color: rgba(0, 113, 227, .48);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, .12);
+}
+.chat-attachment-image-link:focus-visible {
+  outline: 3px solid rgba(0, 113, 227, .24);
+  outline-offset: 2px;
+}
+.chat-attachment-thumb {
+  display: block;
+  width: 4.25rem;
+  height: 4.25rem;
+  object-fit: cover;
+  border-radius: .65rem;
+  border: 1px solid rgba(148, 163, 184, .34);
+  background: rgba(248, 250, 252, .9);
+}
+.chat-attachment-thumb-loading {
+  background:
+    linear-gradient(90deg, rgba(226, 232, 240, .9), rgba(248, 250, 252, .95), rgba(226, 232, 240, .9));
+  background-size: 180% 100%;
+  animation: chat-attachment-shimmer 1.15s ease-in-out infinite;
+}
+.chat-attachment-thumb-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: .35rem;
+  color: var(--color-text-muted);
+  font-size: .68rem;
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: center;
+}
+@keyframes chat-attachment-shimmer {
+  0% { background-position: 120% 0; }
+  100% { background-position: -80% 0; }
+}
+.chat-attachment-file {
+  display: inline-flex;
+  width: min(15rem, 100%);
+  min-height: 3rem;
+  align-items: center;
+  gap: .5rem;
+  border-radius: .7rem;
+  border: 1px solid rgba(148, 163, 184, .34);
+  background: rgba(248, 250, 252, .92);
+  padding: .55rem .65rem;
+  color: var(--color-text);
+  text-decoration: none;
+}
+.chat-attachment-file:hover {
+  border-color: rgba(0, 113, 227, .38);
+  background: rgba(239, 246, 255, .95);
+}
+.chat-attachment-file-preview {
+  width: 8.8rem;
+  height: 4.25rem;
+}
+.chat-attachment-file-name {
+  min-width: 0;
+  overflow: hidden;
+  font-size: .76rem;
+  font-weight: 700;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-attachment-remove {
+  position: absolute;
+  top: -.35rem;
+  right: -.35rem;
+  display: inline-flex;
+  width: 1.35rem;
+  height: 1.35rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, .88);
+  color: #fff;
+  box-shadow: 0 4px 10px rgba(15, 23, 42, .16);
+}
+.chat-attachment-remove:hover {
+  background: var(--color-error);
+}
+.chat-attachment-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, .72);
+  padding: 1rem;
+}
+.chat-attachment-lightbox-panel {
+  display: flex;
+  max-height: min(82dvh, 820px);
+  width: min(92vw, 960px);
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: .85rem;
+  background: #0f172a;
+  box-shadow: 0 24px 80px rgba(15, 23, 42, .34);
+}
+.chat-attachment-lightbox-toolbar {
+  display: flex;
+  min-height: 3rem;
+  align-items: center;
+  gap: .5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, .14);
+  padding: .55rem .7rem .55rem .9rem;
+  color: #fff;
+}
+.chat-attachment-lightbox-title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  font-size: .88rem;
+  font-weight: 700;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-attachment-lightbox-action {
+  display: inline-flex;
+  width: 2.25rem;
+  height: 2.25rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: .55rem;
+  color: #fff;
+  text-decoration: none;
+}
+.chat-attachment-lightbox-action:hover,
+.chat-attachment-lightbox-action:focus-visible {
+  background: rgba(255, 255, 255, .14);
+  outline: none;
+}
+.chat-attachment-lightbox-image {
+  display: block;
+  width: 100%;
+  max-height: calc(min(82dvh, 820px) - 3rem);
+  object-fit: contain;
+  background: #020617;
+}
