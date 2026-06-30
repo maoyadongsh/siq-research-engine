@@ -60,6 +60,7 @@ export function sanitizeReadingHtml(html: string | null): string {
       'class',
       'type',
       'data-ptidx',
+      'data-focus-key',
       'data-focus-keys',
       'data-page-number',
       'data-table-index',

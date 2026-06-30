@@ -1,4 +1,4 @@
-import { readJsonResponse } from './pdfApi'
+import { apiJson, apiText } from '../shared/api/client'
 
 export interface UsSecCaseSetItem {
   ticker?: string
@@ -210,30 +210,22 @@ export interface UsSecPackageBuildResponse {
 }
 
 export async function fetchUsSecCaseSet(): Promise<UsSecCaseSetStatus> {
-  const r = await fetch('/api/us-sec/case-set')
-  const d = await readJsonResponse<UsSecCaseSetStatus>(r)
-  if (!r.ok) throw new Error('加载美股 SEC 案例集失败')
-  return d
+  return apiJson<UsSecCaseSetStatus>('/api/us-sec/case-set')
 }
 
 export async function runUsSecCaseSetIngest(body: UsSecIngestRequest): Promise<UsSecIngestResponse> {
-  const r = await fetch('/api/us-sec/case-set/ingest', {
+  const d = await apiJson<UsSecIngestResponse>('/api/us-sec/case-set/ingest', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body,
   })
-  const d = await readJsonResponse<UsSecIngestResponse>(r)
-  if (!r.ok || d.ok === false) {
+  if (d.ok === false) {
     throw new Error(String(d.stderr || d.stdout || d.returncode || '美股 SEC 入库失败'))
   }
   return d
 }
 
 export async function fetchMarketReportJob<T = Record<string, unknown>>(jobId: string): Promise<UsSecJobStatus<T>> {
-  const r = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`)
-  const d = await readJsonResponse<UsSecJobStatus<T>>(r)
-  if (!r.ok) throw new Error('加载任务状态失败')
-  return d
+  return apiJson<UsSecJobStatus<T>>(`/api/jobs/${encodeURIComponent(jobId)}`)
 }
 
 export async function waitForMarketReportJob<T extends { ok?: boolean; stdout?: string; stderr?: string }>(
@@ -256,27 +248,21 @@ export async function waitForMarketReportJob<T extends { ok?: boolean; stdout?: 
 }
 
 export async function fetchUsSecPackage(ticker: string): Promise<UsSecPackageDetail> {
-  const r = await fetch(`/api/us-sec/packages/${encodeURIComponent(ticker)}`)
-  const d = await readJsonResponse<UsSecPackageDetail>(r)
-  if (!r.ok) throw new Error(`加载 ${ticker} 证据包失败`)
-  return d
+  return apiJson<UsSecPackageDetail>(`/api/us-sec/packages/${encodeURIComponent(ticker)}`)
 }
 
 export async function uploadUsSecFiles(form: FormData): Promise<UsSecUploadResponse> {
-  const r = await fetch('/api/us-sec/uploads', { method: 'POST', body: form })
-  const d = await readJsonResponse<UsSecUploadResponse>(r)
-  if (!r.ok || d.ok === false) throw new Error('上传 US 文件失败')
+  const d = await apiJson<UsSecUploadResponse>('/api/us-sec/uploads', { method: 'POST', body: form })
+  if (d.ok === false) throw new Error('上传 US 文件失败')
   return d
 }
 
 export async function buildUsSecPackage(body: UsSecPackageBuildRequest): Promise<UsSecPackageBuildResponse> {
-  const r = await fetch('/api/market-reports/packages/build', {
+  const d = await apiJson<UsSecPackageBuildResponse>('/api/market-reports/packages/build', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ market: 'US', ...body }),
+    body: { market: 'US', ...body },
   })
-  const d = await readJsonResponse<UsSecPackageBuildResponse & { detail?: string }>(r)
-  if (!r.ok || d.ok === false) throw new Error(String(d.stderr || d.stdout || d.detail || 'US 证据包构建失败'))
+  if (d.ok === false) throw new Error(String(d.stderr || d.stdout || 'US 证据包构建失败'))
   return d
 }
 
@@ -286,69 +272,53 @@ export function usSecPackageFileUrl(packagePath: string, file: string): string {
 }
 
 export async function fetchUsSecPackageText(packagePath: string, file: string): Promise<string> {
-  const r = await fetch(usSecPackageFileUrl(packagePath, file))
-  if (!r.ok) throw new Error('读取证据包文件失败')
-  return r.text()
+  return apiText(usSecPackageFileUrl(packagePath, file))
 }
 
 export async function rebuildUsSecPackage(ticker: string): Promise<{ ok?: boolean; queued?: boolean; job_id?: string; package?: UsSecPackageDetail; stdout?: string; stderr?: string }> {
-  const r = await fetch(`/api/us-sec/packages/${encodeURIComponent(ticker)}/rebuild`, {
+  const d = await apiJson<{ ok?: boolean; queued?: boolean; job_id?: string; package?: UsSecPackageDetail; stdout?: string; stderr?: string }>(`/api/us-sec/packages/${encodeURIComponent(ticker)}/rebuild`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({}),
+    body: {},
   })
-  const d = await readJsonResponse<{ ok?: boolean; queued?: boolean; job_id?: string; package?: UsSecPackageDetail; stdout?: string; stderr?: string }>(r)
-  if (!r.ok || d.ok === false) throw new Error(String(d.stderr || d.stdout || '重建 Wiki 证据包失败'))
+  if (d.ok === false) throw new Error(String(d.stderr || d.stdout || '重建 Wiki 证据包失败'))
   return d
 }
 
 export async function fetchMarketPackages(market: MarketCode, q = ''): Promise<MarketPackagesResponse> {
   const params = new URLSearchParams({ market, limit: '120' })
   if (q.trim()) params.set('q', q.trim())
-  const r = await fetch(`/api/market-reports/packages?${params.toString()}`)
-  const d = await readJsonResponse<MarketPackagesResponse>(r)
-  if (!r.ok) throw new Error('加载市场证据包失败')
-  return d
+  return apiJson<MarketPackagesResponse>(`/api/market-reports/packages?${params.toString()}`)
 }
 
 export async function fetchMarketPackageDetail(market: MarketCode, packagePath: string): Promise<MarketPackageDetail> {
   const params = new URLSearchParams({ market, package_path: packagePath })
-  const r = await fetch(`/api/market-reports/package?${params.toString()}`)
-  const d = await readJsonResponse<MarketPackageDetail>(r)
-  if (!r.ok) throw new Error('加载证据包详情失败')
-  return d
+  return apiJson<MarketPackageDetail>(`/api/market-reports/package?${params.toString()}`)
 }
 
 export async function runMarketPackageImport(market: MarketCode, packagePath: string, ddl = false): Promise<MarketPackageActionResponse> {
-  const r = await fetch('/api/market-reports/packages/import', {
+  const d = await apiJson<MarketPackageActionResponse>('/api/market-reports/packages/import', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ market, package_path: packagePath, ddl }),
+    body: { market, package_path: packagePath, ddl },
   })
-  const d = await readJsonResponse<MarketPackageActionResponse>(r)
-  if (!r.ok || d.ok === false) throw new Error(String(d.stderr || d.stdout || '证据包入库失败'))
+  if (d.ok === false) throw new Error(String(d.stderr || d.stdout || '证据包入库失败'))
   return d
 }
 
 export async function runMarketPackageBuild(market: MarketCode, body: MarketPackageBuildRequest): Promise<MarketPackageActionResponse> {
-  const r = await fetch('/api/market-reports/packages/build', {
+  const d = await apiJson<MarketPackageActionResponse>('/api/market-reports/packages/build', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ market, ...body }),
+    body: { market, ...body },
   })
-  const d = await readJsonResponse<MarketPackageActionResponse>(r)
-  if (!r.ok || d.ok === false) throw new Error(String(d.stderr || d.stdout || '证据包构建失败'))
+  if (d.ok === false) throw new Error(String(d.stderr || d.stdout || '证据包构建失败'))
   return d
 }
 
 export async function runMarketPackageVectorIngest(market: MarketCode, packagePath: string, dryRun = true): Promise<MarketPackageActionResponse> {
-  const r = await fetch('/api/market-reports/packages/vector-ingest', {
+  const d = await apiJson<MarketPackageActionResponse>('/api/market-reports/packages/vector-ingest', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ market, package_path: packagePath, dry_run: dryRun, batch_tag: `market-${market.toLowerCase()}-evidence` }),
+    body: { market, package_path: packagePath, dry_run: dryRun, batch_tag: `market-${market.toLowerCase()}-evidence` },
   })
-  const d = await readJsonResponse<MarketPackageActionResponse>(r)
-  if (!r.ok || d.ok === false) throw new Error(String(d.stderr || d.stdout || 'Milvus chunk 生成失败'))
+  if (d.ok === false) throw new Error(String(d.stderr || d.stdout || 'Milvus chunk 生成失败'))
   return d
 }
 

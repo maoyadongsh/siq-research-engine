@@ -57,52 +57,49 @@ export default function ChatComposer({
 
   return (
     <div className="chat-composer-field">
-      <textarea
-        ref={textareaRef}
-        value={input}
-        onChange={(event) => setInput(event.target.value)}
-        onKeyDown={handleKeyDown}
-        onCompositionStart={() => setComposing(true)}
-        onCompositionEnd={() => setComposing(false)}
-        placeholder={placeholder}
-        rows={1}
-        className={`chat-composer-textarea ${compact ? 'chat-composer-textarea-compact' : ''}`.trim()}
-      />
-      <ChatAttachmentList attachments={attachments} composer onRemove={onRemoveAttachment} />
-      <div className="chat-composer-footer">
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept={CHAT_ATTACHMENT_ACCEPT}
-          multiple
-          className="hidden"
-          onChange={(event) => onAttachmentChange(event.target.files)}
+      <div className="chat-composer-input-row">
+        <textarea
+          ref={textareaRef}
+          value={input}
+          onChange={(event) => setInput(event.target.value)}
+          onKeyDown={handleKeyDown}
+          onCompositionStart={() => setComposing(true)}
+          onCompositionEnd={() => setComposing(false)}
+          placeholder={placeholder}
+          rows={1}
+          className={`chat-composer-textarea ${compact ? 'chat-composer-textarea-compact' : ''}`.trim()}
         />
-        <button
-          className="chat-composer-tool w-11 sm:w-auto sm:gap-1.5 sm:px-3"
-          aria-label="添加附件"
-          title="添加附件"
-          type="button"
-          disabled={sending || uploadingAttachments}
-          onClick={() => fileInputRef.current?.click()}
-        >
-          <Paperclip className={iconSize} />
-          <span className="hidden sm:inline text-xs">添加附件</span>
-        </button>
-        <div className="chat-composer-actions">
+        <div className="chat-composer-inline-actions">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={CHAT_ATTACHMENT_ACCEPT}
+            multiple
+            className="hidden"
+            onChange={(event) => onAttachmentChange(event.target.files)}
+          />
           {showNewChat && (
             <button
               type="button"
               onClick={onNewChat}
               disabled={sending}
-              className="chat-composer-tool w-11 sm:w-auto sm:gap-1.5 sm:px-3"
+              className="chat-composer-tool"
               aria-label="新建会话"
               title="新建会话"
             >
               <Plus className={iconSize} />
-              <span className="hidden sm:inline text-xs">新建会话</span>
             </button>
           )}
+          <button
+            className="chat-composer-tool"
+            aria-label="添加附件"
+            title="添加附件"
+            type="button"
+            disabled={sending || uploadingAttachments}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <Paperclip className={iconSize} />
+          </button>
           {sending ? (
             <button type="button" onClick={onStop} className="chat-composer-stop" aria-label="停止生成" title="停止生成">
               停止
@@ -121,6 +118,7 @@ export default function ChatComposer({
           )}
         </div>
       </div>
+      <ChatAttachmentList attachments={attachments} composer onRemove={onRemoveAttachment} />
     </div>
   )
 }

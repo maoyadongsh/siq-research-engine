@@ -16,6 +16,7 @@ import {
 import { PageHeader, PageSection, PageShell, StatusBadge, Surface } from '@/components/page'
 import { Button } from '@/components/ui'
 import { useApi } from '../lib/hooks'
+import { apiJson } from '../shared/api/client'
 
 type ServiceStatus = {
   id: string
@@ -124,9 +125,7 @@ export default function VectorIngest() {
     setLoading(true)
     setError('')
     try {
-      const response = await fetch(apiUrl('/api/system/status'), { signal: controller.signal })
-      if (!response.ok) throw new Error(await response.text())
-      setStatus(await response.json())
+      setStatus(await apiJson<SystemStatus>(apiUrl('/api/system/status'), { signal: controller.signal }))
     } catch (err) {
       setStatus(null)
       if (err instanceof DOMException && err.name === 'AbortError') {

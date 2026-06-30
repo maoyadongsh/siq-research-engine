@@ -9,8 +9,8 @@ import {
   documentDownloadUrl,
   documentSourcePageImageUrl,
   openDocumentResource,
-} from '@/lib/documentApi'
-import { fetchWithAuth } from '@/lib/fetchWithAuth'
+} from '@/features/document-parser/api'
+import { apiBlob } from '@/lib/apiClient'
 import type {
   DocumentArtifactsMap,
   DocumentBlock,
@@ -600,9 +600,7 @@ function AuthenticatedImage({
 
     async function load() {
       try {
-        const response = await fetchWithAuth(src)
-        if (!response.ok) throw new Error(`HTTP ${response.status}`)
-        const blob = await response.blob()
+        const blob = await apiBlob(src)
         if (cancelled) return
         localUrl = window.URL.createObjectURL(blob)
         setObjectUrl(localUrl)

@@ -16,7 +16,6 @@ import {
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { apiJson } from '../lib/apiClient'
-import { useAuth } from '../hooks/useAuth'
 import { isAuthenticatedSourceLink, openAuthenticatedSourceLink } from '../lib/authenticatedSourceLinks'
 
 type Quota = { used: number; limit: number | null; remaining: number | null; resetAt: string }
@@ -252,7 +251,6 @@ function nextWorkspaceAction(project?: WorkspaceProject, counts?: ReturnType<typ
 }
 
 export default function MyWorkspace() {
-  const { user } = useAuth()
   const [summary, setSummary] = useState<WorkspaceSummary | null>(null)
   const [projects, setProjects] = useState<WorkspaceProject[]>([])
   const [artifacts, setArtifacts] = useState<WorkspaceArtifact[]>([])
@@ -388,9 +386,6 @@ export default function MyWorkspace() {
               <div className="page-title-tag"><h1 className="text-[1.45rem] font-bold leading-tight tracking-tight text-text sm:text-[1.75rem] md:text-[2.35rem]">
                 工作平台
               </h1></div>
-              <p className="mt-3 max-w-3xl text-base leading-7 text-text-muted">
-                {user?.full_name || user?.username || '当前用户'} 的项目、材料和智能体产物只在这里汇总，系统已有公开财报会被复用。
-              </p>
             </div>
 
             <div className="hero-illustration-wrap">

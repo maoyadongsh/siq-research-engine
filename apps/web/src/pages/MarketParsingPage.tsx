@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { FileText, Loader2 } from 'lucide-react'
 import { EmptyState } from '@/components/page'
 import { PageSection } from '../components/page/PageShell'
-import { checkHealth, fetchStatus, loadDownloadedReports as loadDownloadedReportsApi } from '../lib/pdfApi'
+import { checkHealth, fetchStatus, loadDownloadedReports as loadDownloadedReportsApi } from '../features/pdf-parsing/api'
 import { PDF_CSS } from './pdf/pdfStyles'
 import { useEditableTable } from './pdf/useEditableTable'
 import { usePdfSourceTrace } from './pdf/usePdfSourceTrace'
@@ -20,7 +20,7 @@ import { PdfUploadPanel } from '../components/pdf/PdfUploadPanel'
 import { PdfWorkflowPanel } from '../components/pdf/PdfWorkflowPanel'
 import { MarketParsingTabs } from '../components/pdf/MarketParsingTabs'
 import { useToast } from '../hooks/useToast'
-import { runMarketPackageBuild, waitForMarketReportJob, type MarketPackageActionResponse } from '../lib/secApi'
+import { runMarketPackageBuild, waitForMarketReportJob, type MarketPackageActionResponse } from '../features/market-parsing/api'
 import { taskMatchesMarket } from '../lib/pdfTaskMarkets'
 import type { DownloadedPdf, HealthStatus, TaskItem } from '../lib/pdfTypes'
 
@@ -124,6 +124,7 @@ export function MarketParsingPage({
   const [downloadedLoading, setDownloadedLoading] = useState(false)
   const [downloadedQuery, setDownloadedQuery] = useState('')
   const [downloadedBusyPath, setDownloadedBusyPath] = useState('')
+  const [logsExpanded, setLogsExpanded] = useState(false)
 
   const logRef = useRef<HTMLDivElement>(null)
   const mdRef = useRef<HTMLDivElement>(null)
@@ -352,6 +353,7 @@ export function MarketParsingPage({
   )
 
   const isCompleted = tasks.parseBadge.cls === 'completed'
+  const hasLogErrors = tasks.logs.some((entry) => entry.level === 'error' || entry.level === 'warn')
 
   return (
     <div className="secondary-page min-w-0 overflow-x-hidden">
@@ -487,29 +489,43 @@ export function MarketParsingPage({
 
       {tasks.logs.length > 0 && (
         <div id="pdf-logs" className="apple-card rounded-[var(--radius-panel)] p-4 sm:p-6">
-          <h3 className="text-base font-semibold text-text mb-3">处理日志</h3>
-          <div className="pdf-log" ref={logRef}>
-            {tasks.logs.map((l, i) => (
-              <div key={i} className="flex gap-2.5 py-0.5 border-b border-gray-100 last:border-0">
-                <span className="text-text-muted shrink-0">
-                  {new Date(l.time).toLocaleTimeString('zh-CN', { hour12: false })}
-                </span>
-                <span
-                  className={
-                    l.level === 'error'
-                      ? 'text-error'
-                      : l.level === 'success'
-                        ? 'text-success'
-                        : l.level === 'warn'
-                          ? 'text-warning'
-                          : 'text-text'
-                  }
-                >
-                  {l.message}
-                </span>
-              </div>
-            ))}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className="text-base font-semibold text-text">处理日志</h3>
+              <p className="mt-1 text-sm text-text-muted">{hasLogErrors ? '解析过程中有需要关注的提示。' : '默认收起，保留解析过程可审计记录。'}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setLogsExpanded((value) => !value)}
+              className="inline-flex h-10 items-center justify-center rounded-[var(--radius-control)] border border-border bg-card px-4 text-sm font-semibold text-text-muted hover:bg-bg hover:text-text"
+            >
+              {logsExpanded || hasLogErrors ? '收起日志' : `展开 ${tasks.logs.length} 条`}
+            </button>
           </div>
+          {(logsExpanded || hasLogErrors) && (
+            <div className="pdf-log mt-3" ref={logRef}>
+              {tasks.logs.map((l, i) => (
+                <div key={i} className="flex gap-2.5 py-0.5 border-b border-gray-100 last:border-0">
+                  <span className="text-text-muted shrink-0">
+                    {new Date(l.time).toLocaleTimeString('zh-CN', { hour12: false })}
+                  </span>
+                  <span
+                    className={
+                      l.level === 'error'
+                        ? 'text-error'
+                        : l.level === 'success'
+                          ? 'text-success'
+                          : l.level === 'warn'
+                            ? 'text-warning'
+                            : 'text-text'
+                    }
+                  >
+                    {l.message}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

@@ -122,5 +122,12 @@ export async function mockAuthenticatedWorkspace(page: Page) {
     window.localStorage.setItem('theme', 'light')
   }, e2eUser)
 
-  await page.route('**/api/**', fulfillMockApi)
+  await page.route('**/*', async (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/pdfapi/')) {
+      await fulfillMockApi(route)
+      return
+    }
+    await route.continue()
+  })
 }

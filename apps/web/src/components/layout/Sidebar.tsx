@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { NavLink } from 'react-router-dom'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { PanelLeftOpen } from 'lucide-react'
 import { Tooltip } from '../ui'
 import { useAuth } from '../../hooks/useAuth'
 import { preloadRoute } from '../../lib/routePreload'
@@ -29,10 +29,12 @@ export default function Sidebar({ collapsed, mobileOpen = false, onToggle, onClo
     () => bottomItems.filter((item) => item.to !== '/settings' || canConfigureSystem),
     [canConfigureSystem],
   )
-
   const renderLink = (item: SidebarItem, compact: boolean, variant: SidebarLinkVariant = 'nav') => {
-    const sizeClass =
-      variant === 'nav'
+    const sizeClass = compact
+      ? variant === 'nav'
+        ? 'h-10 min-h-10 w-10 rounded-[11px] px-0 py-0 text-[0.94rem]'
+        : 'h-10 min-h-10 w-10 rounded-[11px] px-0 py-0 text-sm'
+      : variant === 'nav'
         ? 'min-h-11 rounded-[12px] px-3 py-2 text-[0.94rem]'
         : variant === 'assistant'
           ? 'min-h-11 rounded-[12px] px-2.5 py-2 text-sm'
@@ -46,9 +48,9 @@ export default function Sidebar({ collapsed, mobileOpen = false, onToggle, onClo
         className={({ isActive }) =>
           `group relative flex items-center gap-2.5 font-semibold transition-[background,color,box-shadow] duration-200 ${sizeClass} ${
             isActive
-              ? 'bg-primary/10 text-primary shadow-[0_8px_18px_rgba(0,113,227,0.08)] before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-primary'
+              ? `bg-primary/10 text-primary shadow-[0_8px_18px_rgba(0,113,227,0.08)] before:absolute before:left-0 before:rounded-full before:bg-primary ${compact ? 'before:top-2.5 before:bottom-2.5 before:w-0.5' : 'before:top-2 before:bottom-2 before:w-1'}`
               : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-950'
-          } ${compact ? 'w-full justify-center px-0' : ''}`
+          } ${compact ? 'justify-center' : ''}`
         }
         onPointerEnter={() => preloadRoute(item.to)}
         onFocus={() => preloadRoute(item.to)}
@@ -58,7 +60,7 @@ export default function Sidebar({ collapsed, mobileOpen = false, onToggle, onClo
       </NavLink>
     )
     return compact ? (
-      <Tooltip key={item.to} content={item.label} className="w-full" delay="medium">
+      <Tooltip key={item.to} content={item.label} className="flex justify-center" delay="medium">
         {link}
       </Tooltip>
     ) : (
@@ -68,21 +70,33 @@ export default function Sidebar({ collapsed, mobileOpen = false, onToggle, onClo
 
   const renderContent = (compact: boolean) => (
     <>
-      <div
-        className={`flex items-center border-b border-border bg-white/70 ${compact ? 'justify-center px-0' : 'gap-3 px-5'}`}
-        style={{ height: 'var(--app-topbar-height)' }}
-      >
-        <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] bg-gradient-to-br from-[#2ea8ff] via-[#0071e3] to-[#004fb8] text-[16px] font-black text-white tracking-tighter shadow-[0_10px_24px_rgba(29,78,216,0.32)] transition-[background,box-shadow] duration-200">
-          <span className="relative z-10">SIQ</span>
-          <div className="pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-br from-white/24 via-white/5 to-transparent" />
-        </div>
+        <div
+          className={`flex items-center border-b border-border bg-white/70 ${compact ? 'justify-center px-0' : 'gap-3 px-5'}`}
+          style={{ height: 'var(--app-topbar-height)' }}
+        >
         {!compact && (
-          <span className="whitespace-nowrap text-[19px] font-bold leading-none text-primary">
-            Research Engine
-          </span>
+          <>
+            <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] bg-gradient-to-br from-[#2ea8ff] via-[#0071e3] to-[#004fb8] text-[16px] font-black text-white tracking-tighter shadow-[0_10px_24px_rgba(29,78,216,0.32)] transition-[background,box-shadow] duration-200">
+              <span className="relative z-10">SIQ</span>
+              <div className="pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-br from-white/24 via-white/5 to-transparent" />
+            </div>
+            <span className="whitespace-nowrap text-[19px] font-bold leading-none text-primary">
+              Research Engine
+            </span>
+          </>
+        )}
+        {compact && (
+          <button
+            onClick={onToggle}
+            className="ml-auto inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-950 focus:outline-none focus:ring-4 focus:ring-primary/10"
+            aria-label="展开侧边栏"
+            title="展开侧边栏"
+          >
+            <PanelLeftOpen className="h-5 w-5" />
+          </button>
         )}
       </div>
-      <nav className="sidebar-scrollbarless mt-3 flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden px-2.5 pb-1">
+      <nav className={`sidebar-scrollbarless flex-1 overflow-y-auto overflow-x-hidden pb-1 ${compact ? 'mt-2 space-y-0.5 px-1.5' : 'mt-3 space-y-0.5 px-2.5'}`}>
         {visibleNavItems.map((item) => renderLink(item, compact))}
       </nav>
       {!compact && (
@@ -91,18 +105,12 @@ export default function Sidebar({ collapsed, mobileOpen = false, onToggle, onClo
           <div className="mt-1 whitespace-nowrap text-xs font-medium leading-4 text-slate-700">基于全链路可审计的公司、行业研究平台。</div>
         </div>
       )}
-      <div className="border-t border-border px-2.5 py-2">{renderLink(assistantItem, compact, 'assistant')}</div>
-      <div className={`border-t border-border px-2.5 py-2 ${compact ? 'flex flex-col gap-1' : 'grid grid-cols-3 gap-1.5'}`}>
-        {visibleBottomItems.map((item) => renderLink(item, compact, 'utility'))}
+      <div className={`border-t border-border ${compact ? 'px-1.5 py-1.5' : 'px-2.5 py-2'}`}>{renderLink(assistantItem, compact, 'assistant')}</div>
+      <div className={`border-t border-border ${compact ? 'px-1.5 py-1.5' : 'px-2.5 py-2'}`}>
+        <div className={compact ? 'flex flex-col gap-1' : 'grid grid-cols-3 gap-1.5'}>
+          {visibleBottomItems.map((item) => renderLink(item, compact, 'utility'))}
+        </div>
       </div>
-      <button
-        onClick={onToggle}
-        className="hidden h-12 items-center justify-center gap-2 border-t border-border text-sm font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-950 lg:flex"
-        aria-label="折叠侧边栏"
-      >
-        {compact ? <ChevronRight className="h-5 w-5" /> : <ChevronLeft className="h-5 w-5" />}
-        {!compact && <span className="text-xs">收起</span>}
-      </button>
     </>
   )
 
@@ -115,7 +123,8 @@ export default function Sidebar({ collapsed, mobileOpen = false, onToggle, onClo
           aria-label="关闭侧边栏"
         />
       )}
-      <aside
+        <aside
+        id="app-sidebar"
         className={`fixed bottom-0 left-0 top-0 z-50 flex w-72 flex-col overflow-hidden border-r border-border bg-white/96 text-slate-700 shadow-[10px_0_32px_rgba(15,23,42,0.06)] backdrop-blur-xl transition-all duration-300 ease-out ${
           collapsed ? 'lg:w-20' : 'lg:w-64 xl:w-72'
         } ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}

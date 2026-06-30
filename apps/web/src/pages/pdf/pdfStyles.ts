@@ -181,6 +181,8 @@ export const PDF_CSS = `
 .pdf-bbox:not(:hover):not(:focus-visible):not(.pdf-bbox-selected) span { opacity: .88; }
 .pdf-bbox-table { border-color: #16a34a; background: rgba(34, 197, 94, .08); }
 .pdf-bbox-table span { background: #16a34a; }
+.pdf-bbox-block { border-color: rgba(37, 99, 235, .86); background: rgba(37, 99, 235, .055); }
+.pdf-bbox-block span { background: #2563eb; }
 .pdf-bbox-selected { z-index: 4; border-width: 2px; border-color: #dc2626; background: rgba(220, 38, 38, .12); box-shadow: 0 0 0 3px rgba(220, 38, 38, .16); }
 .pdf-bbox-selected span { background: #dc2626; }
 .pdf-bbox-text { z-index: 3; border-width: 2px; border-color: #ea580c; background: rgba(249, 115, 22, .12); box-shadow: 0 0 0 3px rgba(249, 115, 22, .12); }

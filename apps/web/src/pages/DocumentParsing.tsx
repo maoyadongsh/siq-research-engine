@@ -9,7 +9,7 @@ import { DocumentResultWorkbench } from '@/components/document-parser/DocumentRe
 import { DocumentTaskList } from '@/components/document-parser/DocumentTaskList'
 import { DocumentUploadPanel } from '@/components/document-parser/DocumentUploadPanel'
 import { DOCUMENT_CSS } from '@/components/document-parser/documentStyles'
-import { checkDocumentParserHealth, loadDocumentQuota } from '@/lib/documentApi'
+import { checkDocumentParserHealth, loadDocumentQuota } from '@/features/document-parser/api'
 import type { DocumentParseConfig } from '@/lib/documentTypes'
 import { useToast } from '@/hooks/useToast'
 import { useDocumentTasks } from './documents/useDocumentTasks'

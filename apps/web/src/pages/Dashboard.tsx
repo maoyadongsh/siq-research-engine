@@ -14,7 +14,7 @@ import {
   TrendingUp,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { fetchWithAuth } from '../lib/fetchWithAuth'
+import { apiJson } from '../lib/apiClient'
 
 interface WikiCompany {
   code: string
@@ -104,21 +104,13 @@ export default function Dashboard() {
   const [recentLoading, setRecentLoading] = useState(true)
 
   useEffect(() => {
-    fetchWithAuth('/api/wiki/companies/list')
-      .then((r) => {
-        if (!r.ok) throw new Error(String(r.status))
-        return r.json()
-      })
+    apiJson<{ companies?: WikiCompany[] }>('/api/wiki/companies/list')
       .then((data) => setCompanies(data.companies || []))
       .catch(() => {})
       .finally(() => setLoading(false))
 
     const limit = localStorage.getItem('recent_task_limit') || '8'
-    fetchWithAuth(`/api/wiki/companies/recent-results?limit=${encodeURIComponent(limit)}`)
-      .then((r) => {
-        if (!r.ok) throw new Error(String(r.status))
-        return r.json()
-      })
+    apiJson<{ results?: RecentResult[] }>(`/api/wiki/companies/recent-results?limit=${encodeURIComponent(limit)}`)
       .then((data) => setRecent(data.results || []))
       .catch(() => setRecent([]))
       .finally(() => setRecentLoading(false))

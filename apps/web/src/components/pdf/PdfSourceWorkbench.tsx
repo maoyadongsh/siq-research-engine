@@ -3,9 +3,9 @@ import { BookOpen, ChevronLeft, ChevronRight, ExternalLink, FileText, Loader2, S
 import type { FocusEvent, MouseEvent, MutableRefObject, RefObject } from 'react'
 import { cn } from '@/lib/utils'
 import type { PdfCtx, PageBlock, PageContent, SelectedTrace, SourceMeta, SourceTable } from '../../lib/pdfTypes'
-import { artifactUrl, readJsonResponse, PDF_API } from '../../lib/pdfApi'
+import { artifactUrl, PDF_API } from '../../lib/pdfApi'
 import { handleAuthenticatedSourceClick } from '../../lib/authenticatedSourceLinks'
-import { fetchWithAuth } from '../../lib/fetchWithAuth'
+import { apiJson } from '../../lib/apiClient'
 import { useAuthenticatedBlobUrl } from '../../lib/authenticatedFiles'
 import { parseBbox as parsePdfBbox } from '../../lib/pdfSanitize'
 import { renderPageContentHtml } from './pdfSourceRendering'
@@ -127,15 +127,26 @@ type PagePlanEntry = {
   relation?: TableRelationCandidate
 }
 
-type OverlayTone = 'focused' | 'table' | 'trace'
+type OverlayTone = 'focused' | 'table' | 'trace' | 'block'
 
 type PageOverlayEntry = {
   tableIndex?: number
+  blockId?: string
+  blockType?: string
+  pageNumber?: number
   bbox: number[]
   label: string
   detail: string
   tone: OverlayTone
-  source: 'table' | 'trace'
+  source: 'table' | 'trace' | 'block'
+}
+
+type FocusedBlock = {
+  key: string
+  blockId: string
+  blockType: string
+  page: number
+  bbox: number[]
 }
 
 function pageNumber(value: unknown, fallback = 1) {
@@ -193,6 +204,10 @@ function tableColumns(table: EnhancedTable) {
 function tableRows(table: EnhancedTable) {
   const rows = Number(table.rows || table.structure?.expanded_rows || 0)
   return Number.isFinite(rows) && rows > 0 ? rows : 0
+}
+
+function cssAttrValue(value: string) {
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 }
 
 function countHtmlRows(html: unknown) {
@@ -412,8 +427,13 @@ function tableDetail(table: EnhancedTable, fallback = '') {
   return parts || fallback || '表格'
 }
 
+function pageBlockId(block: PageBlock, index: number, page: number) {
+  return block.block_id || `p${page}-b${index + 1}`
+}
+
 function blockText(block: PageBlock) {
   const parts = [
+    block.markdown,
     block.text,
     Array.isArray(block.heading) ? block.heading.join(' ') : block.heading,
     Array.isArray(block.caption) ? block.caption.join(' ') : block.caption,
@@ -422,6 +442,19 @@ function blockText(block: PageBlock) {
     .map((item) => String(item || '').trim())
     .filter(Boolean)
   return parts.join(' ').replace(/\s+/g, ' ').trim()
+}
+
+function blockOverlayLabel(block: PageBlock) {
+  const type = String(block.type || '').toLowerCase()
+  if (type === 'table') return '表'
+  if (type === 'image') return '图'
+  if (type === 'list') return '段'
+  if (type === 'header' || type === 'title' || Number(block.text_level || 0) > 0 || isHeadingBlock(block)) return '题'
+  return '段'
+}
+
+function blockFocusKey(page: number, blockId: string) {
+  return `${page}:${blockId}`
 }
 
 function blockY(block: PageBlock) {
@@ -799,9 +832,12 @@ function PdfPagePreviewCard({
   currentPage,
   focusTableIndex,
   tables,
+  blocks,
   relationEntries,
   currentTrace,
+  focusedBlockKey,
   onReadingClick,
+  onBlockFocus,
 }: {
   pageNumberValue: number
   pageUrl: string
@@ -809,9 +845,12 @@ function PdfPagePreviewCard({
   currentPage: number
   focusTableIndex: number
   tables: EnhancedTable[]
+  blocks: PageBlock[]
   relationEntries: Array<{ relation: TableRelationCandidate; mode: 'from' | 'to' }>
   currentTrace: SelectedTrace | null
+  focusedBlockKey: string
   onReadingClick: (e: MouseEvent<HTMLDivElement>) => void
+  onBlockFocus: (entry: PageOverlayEntry) => void
 }) {
   const [pageImageFailed, setPageImageFailed] = useState(false)
   const pageBlobUrl = useAuthenticatedBlobUrl(pageUrl)
@@ -824,6 +863,26 @@ function PdfPagePreviewCard({
 
   const pageTables = tables.filter((table) => pageNumber(table.pdf_page_number, 0) === pageNumberValue)
   const overlays: PageOverlayEntry[] = []
+
+  blocks.forEach((block, index) => {
+    const type = String(block.type || '').toLowerCase()
+    if (type === 'table') return
+    const bbox = validBbox(block.bbox)
+    if (!bbox.length) return
+    if (isIgnorablePageChrome(block)) return
+    const blockId = pageBlockId(block, index, pageNumberValue)
+    const key = blockFocusKey(pageNumberValue, blockId)
+    overlays.push({
+      blockId,
+      blockType: block.type || 'block',
+      pageNumber: pageNumberValue,
+      bbox,
+      label: blockOverlayLabel(block),
+      detail: `${blockId} · ${block.type || 'block'}`,
+      tone: key === focusedBlockKey ? 'focused' : 'block',
+      source: 'block',
+    })
+  })
 
   pageTables.forEach((table) => {
     const bbox = validBbox(table.bbox)
@@ -839,7 +898,7 @@ function PdfPagePreviewCard({
     })
   })
 
-  if (currentTrace && pageNumberValue === currentTrace.pageNumber && currentTrace.bbox?.length === 4) {
+  if (currentTrace && !focusedBlockKey && pageNumberValue === currentTrace.pageNumber && currentTrace.bbox?.length === 4) {
     overlays.push({
       bbox: currentTrace.bbox,
       label: currentTrace.source === 'cell_bbox' ? '单元格' : '文本',
@@ -877,19 +936,34 @@ function PdfPagePreviewCard({
                 const style = bboxStyle(entry.bbox, pageExtent)
                 const cls =
                   entry.tone === 'focused'
-                    ? 'pdf-bbox pdf-bbox-table pdf-bbox-selected'
+                    ? `pdf-bbox ${entry.source === 'block' ? 'pdf-bbox-block' : 'pdf-bbox-table'} pdf-bbox-selected`
                     : entry.tone === 'trace'
                       ? 'pdf-bbox pdf-bbox-text'
+                      : entry.tone === 'block'
+                        ? 'pdf-bbox pdf-bbox-block'
                       : 'pdf-bbox pdf-bbox-table'
                 return (
                   <button
-                    key={`${pageNumberValue}-${entry.source}-${entry.tableIndex || 'trace'}-${entry.bbox.join('-')}`}
+                    key={`${pageNumberValue}-${entry.source}-${entry.tableIndex || entry.blockId || 'trace'}-${entry.bbox.join('-')}`}
                     type="button"
                     className={cls}
                     style={style}
                     title={entry.detail}
                     aria-label={entry.detail}
                     data-ptidx={entry.tableIndex || ''}
+                    data-block-id={entry.blockId || ''}
+                    data-block-type={entry.blockType || ''}
+                    data-page-number={entry.pageNumber || ''}
+                    data-focus-key={entry.blockId && entry.pageNumber ? blockFocusKey(entry.pageNumber, entry.blockId) : ''}
+                    onClick={
+                      entry.source === 'block'
+                        ? (event) => {
+                            event.preventDefault()
+                            event.stopPropagation()
+                            onBlockFocus(entry)
+                          }
+                        : undefined
+                    }
                   >
                     <span>{entry.label}</span>
                   </button>
@@ -966,6 +1040,7 @@ export function PdfSourceWorkbench(props: PdfSourceWorkbenchProps) {
   const [relationsArtifactResult, setRelationsArtifactResult] = useState<{ url: string; data: TableRelationsArtifact } | null>(null)
   const [pageContentCache, setPageContentCache] = useState<Record<number, PageContent>>({})
   const [workbenchTrace, setWorkbenchTrace] = useState<{ scopeKey: string; trace: SelectedTrace } | null>(null)
+  const [focusedBlock, setFocusedBlock] = useState<FocusedBlock | null>(null)
 
   const pageImage = srcMeta?.pdfPageImage
   const pageImageUrl = pageImage?.url || ''
@@ -1141,6 +1216,7 @@ export function PdfSourceWorkbench(props: PdfSourceWorkbenchProps) {
   }, [artifactUrlValue, pageImageUrl, pageUrl, getPdfUrl, currentPage])
   const enhancedLoading = Boolean(sourceVisible && taskId && artifactUrlValue && !enhancedArtifact && !enhancedError)
   const traceScopeKey = `${taskId || ''}:${sourcePage}:${sourceTableIndex}:${srcTable?.line || ''}`
+  const focusedBlockKey = focusedBlock?.key || ''
 
   const currentTables = useMemo(
     () => mergePhysicalTables(enhancedArtifact?.tables || [], pageContentCache, srcTable, srcMeta),
@@ -1230,12 +1306,7 @@ export function PdfSourceWorkbench(props: PdfSourceWorkbenchProps) {
 
     let cancelled = false
     const controller = new AbortController()
-    void fetchWithAuth(url, { signal: controller.signal })
-      .then(async (response) => {
-        const data = await readJsonResponse<EnhancedArtifact>(response)
-        if (!response.ok) throw new Error(String((data as { error?: string }).error || '读取增强产物失败'))
-        return data
-      })
+    void apiJson<EnhancedArtifact>(url, { signal: controller.signal })
       .then((data) => {
         if (!cancelled) {
           setEnhancedArtifactError(null)
@@ -1261,12 +1332,7 @@ export function PdfSourceWorkbench(props: PdfSourceWorkbenchProps) {
 
     let cancelled = false
     const controller = new AbortController()
-    void fetchWithAuth(relationsArtifactUrlValue, { signal: controller.signal })
-      .then(async (response) => {
-        const data = await readJsonResponse<TableRelationsArtifact>(response)
-        if (!response.ok) throw new Error(String((data as { error?: string }).error || '读取跨页表关系失败'))
-        return data
-      })
+    void apiJson<TableRelationsArtifact>(relationsArtifactUrlValue, { signal: controller.signal })
       .then((data) => {
         if (!cancelled) setRelationsArtifactResult({ url: relationsArtifactUrlValue, data })
       })
@@ -1289,12 +1355,10 @@ export function PdfSourceWorkbench(props: PdfSourceWorkbenchProps) {
     let cancelled = false
 
     const loadPage = async (entry: PagePlanEntry) => {
-      const response = await fetchWithAuth(
+      const data = await apiJson<PageContent>(
         `${PDF_API}/source/${encodeURIComponent(taskId)}/page/${encodeURIComponent(entry.pageNumber)}?focus_table=${encodeURIComponent(String(entry.focusTableIndex || ''))}`,
         { signal: controller.signal },
       )
-      const data = await readJsonResponse<PageContent>(response)
-      if (!response.ok) throw new Error(String((data as { error?: string }).error || '加载页面失败'))
       if (!cancelled) {
         setPageContentCache((prev) => (prev[entry.pageNumber] ? prev : { ...prev, [entry.pageNumber]: data }))
       }
@@ -1309,6 +1373,22 @@ export function PdfSourceWorkbench(props: PdfSourceWorkbenchProps) {
       controller.abort()
     }
   }, [probePagePlan, sourceVisible, taskId])
+
+  useEffect(() => {
+    const key = focusedBlock?.key
+    const root = markdownPaneRef.current
+    if (!root) return
+    root.querySelectorAll('.pdf-page-block.is-trace-focused').forEach((item) => item.classList.remove('is-trace-focused'))
+    if (!key) return
+    const selector = `[data-focus-key="${cssAttrValue(key)}"]`
+    window.requestAnimationFrame(() => {
+      const markdownTarget = root.querySelector<HTMLElement>(selector)
+      markdownTarget?.classList.add('is-trace-focused')
+      markdownTarget?.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' })
+      const pdfTarget = workbenchRef.current?.querySelector<HTMLElement>(selector)
+      pdfTarget?.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' })
+    })
+  }, [focusedBlock?.key, pagePlan])
 
   if (!sourceVisible || !srcTable) return null
 
@@ -1331,17 +1411,62 @@ export function PdfSourceWorkbench(props: PdfSourceWorkbenchProps) {
     updatePdfViewer(next)
   }
 
-  const focusMarkdownBlock = (element: HTMLElement | null) => {
+  const focusMarkdownBlockElement = (element: HTMLElement | null) => {
     const root = markdownPaneRef.current
     root?.querySelectorAll('.pdf-page-block.is-trace-focused').forEach((item) => item.classList.remove('is-trace-focused'))
     element?.classList.add('is-trace-focused')
     element?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }
 
+  const focusBlockByPayload = (payload: FocusedBlock) => {
+    setFocusedBlock(payload)
+    setWorkbenchTrace({
+      scopeKey: traceScopeKey,
+      trace: {
+        pageNumber: payload.page,
+        bbox: payload.bbox,
+        source: payload.blockType || 'text_anchor',
+        confidence: 'high',
+      },
+    })
+    if (payload.page !== currentPage) changePage(payload.page)
+  }
+
+  const focusBlockFromElement = (block: HTMLElement) => {
+    const bbox = validBbox(block.dataset.bbox)
+    const page = pageNumber(block.dataset.pageNumber, currentPage)
+    const blockId = block.dataset.blockId || ''
+    if (!bbox.length || !page || !blockId) return false
+    focusMarkdownBlockElement(block)
+    focusBlockByPayload({
+      key: blockFocusKey(page, blockId),
+      blockId,
+      blockType: String(block.dataset.blockType || 'text_anchor'),
+      page,
+      bbox,
+    })
+    return true
+  }
+
+  const focusBlockFromOverlay = (entry: PageOverlayEntry) => {
+    const page = pageNumber(entry.pageNumber, currentPage)
+    if (!entry.blockId || !entry.bbox.length) return
+    focusBlockByPayload({
+      key: blockFocusKey(page, entry.blockId),
+      blockId: entry.blockId,
+      blockType: entry.blockType || 'block',
+      page,
+      bbox: entry.bbox,
+    })
+  }
+
   const handleTableClickWithTrace = (event: MouseEvent<HTMLDivElement>) => {
     onTableClick(event)
     const trace = pdfCtx.current?.selectedTrace || null
-    if (trace) setWorkbenchTrace({ scopeKey: traceScopeKey, trace })
+    if (trace) {
+      setFocusedBlock(null)
+      setWorkbenchTrace({ scopeKey: traceScopeKey, trace })
+    }
   }
 
   const handleWorkbenchReadingClick = (event: MouseEvent<HTMLDivElement>) => {
@@ -1356,25 +1481,12 @@ export function PdfSourceWorkbench(props: PdfSourceWorkbenchProps) {
       onReadingClick(event)
       return
     }
-    const bbox = validBbox(block.dataset.bbox)
-    const page = pageNumber(block.dataset.pageNumber, currentPage)
-    if (!bbox.length || !page) {
+    if (!focusBlockFromElement(block)) {
       onReadingClick(event)
       return
     }
     event.preventDefault()
     event.stopPropagation()
-    focusMarkdownBlock(block)
-    setWorkbenchTrace({
-      scopeKey: traceScopeKey,
-      trace: {
-        pageNumber: page,
-        bbox,
-        source: String(block.dataset.blockType || 'text_anchor'),
-        confidence: 'high',
-      },
-    })
-    if (page !== currentPage) changePage(page)
   }
 
   return (
@@ -1568,9 +1680,12 @@ export function PdfSourceWorkbench(props: PdfSourceWorkbenchProps) {
                       currentPage={currentPage}
                       focusTableIndex={Number(entry.focusTableIndex || 0)}
                       tables={overlayTables}
+                      blocks={pageContentBlocks(pageContentCache[entry.pageNumber])}
                       relationEntries={relationEntries}
                       currentTrace={currentTrace}
+                      focusedBlockKey={focusedBlockKey}
                       onReadingClick={handleWorkbenchReadingClick}
+                      onBlockFocus={focusBlockFromOverlay}
                     />
                     {bridgeRelation ? (
                       <PageMergeBridge

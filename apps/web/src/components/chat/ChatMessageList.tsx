@@ -116,31 +116,31 @@ export default function ChatMessageList({
             >
               {streamingAvatar}
               <div className={`flex flex-col max-w-[85%] ${isUser ? 'items-end' : 'items-start'}`}>
-                <div className={isUser ? userBubbleClass : assistantBubbleClass}>
-                  {msg.content ? (
-                    <MessageRenderer
-                      content={msg.content}
-                      streaming={msg.streaming}
-                      variant={isUser ? 'user' : 'assistant'}
-                    />
-                  ) : (
-                    msg.streaming ? '正在思考…' : ''
-                  )}
-                  <ChatAttachmentList attachments={msg.attachments} />
-                  {msg.role === 'assistant' ? renderProgress?.(msg) : null}
-                  {msg.streaming && msg.content && <span className={streamingCursorClass} />}
+                <div className={`chat-message-row ${isUser ? 'chat-message-row-user' : ''}`}>
+                  <div className={isUser ? userBubbleClass : assistantBubbleClass}>
+                    {msg.content ? (
+                      <MessageRenderer
+                        content={msg.content}
+                        streaming={msg.streaming}
+                        variant={isUser ? 'user' : 'assistant'}
+                      />
+                    ) : (
+                      msg.streaming ? '正在思考…' : ''
+                    )}
+                    <ChatAttachmentList attachments={msg.attachments} />
+                    {msg.role === 'assistant' ? renderProgress?.(msg) : null}
+                    {msg.streaming && msg.content && <span className={streamingCursorClass} />}
+                  </div>
                   {msg.content && !msg.streaming && (
-                    <div className="chat-message-actions">
-                      <button
-                        type="button"
-                        className="chat-message-copy"
-                        onClick={() => onCopyMessage(msg.content)}
-                        aria-label="复制消息"
-                      >
-                        <Copy className="h-3 w-3" />
-                        复制
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      className={`chat-message-copy-icon ${isUser ? 'chat-message-copy-icon-user' : ''}`}
+                      onClick={() => onCopyMessage(msg.content)}
+                      aria-label="复制消息"
+                      title="复制"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                    </button>
                   )}
                 </div>
                 <MessageTimestamp value={msg.createdAt} align={isUser ? 'right' : 'left'} />

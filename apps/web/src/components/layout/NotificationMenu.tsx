@@ -93,6 +93,10 @@ function cleanFilename(value = '') {
   return value.replace(/\.pdf$/i, '').replace(/\.html$/i, '')
 }
 
+function toStringValue(value: unknown, fallback = '') {
+  return typeof value === 'string' ? value : fallback
+}
+
 function isAdminRole(role?: string) {
   return role === 'admin' || role === 'super_admin'
 }
@@ -198,29 +202,29 @@ export default function NotificationMenu() {
         }
 
         const [agentRes, parseRes, downloadRes] = await Promise.allSettled([
-          fetch('/api/wiki/companies/recent-results?limit=40'),
-          fetch('/api/pdf/tasks'),
-          fetch('/api/downloads/reports?limit=40'),
+          apiJson<{ results?: Array<Record<string, unknown>> }>('/api/wiki/companies/recent-results?limit=40'),
+          apiJson<{ tasks?: PdfTask[] }>('/api/pdf/tasks'),
+          apiJson<{ reports?: DownloadedReport[] }>('/api/downloads/reports?limit=40'),
         ])
 
         const next: Notice[] = []
 
-        if (agentRes.status === 'fulfilled' && agentRes.value.ok) {
-          const data = await agentRes.value.json()
+        if (agentRes.status === 'fulfilled') {
+          const data = agentRes.value
           for (const item of data.results || []) {
             next.push({
-              id: `agent:${item.id}`,
+              id: `agent:${toStringValue(item.id, '')}`,
               kind: 'agent',
-              title: `${item.name} ${item.typeLabel}已完成`,
-              body: cleanFilename(item.filename),
-              time: item.mtime,
-              to: item.pageUrl,
+              title: `${toStringValue(item.name, '任务')} ${toStringValue(item.typeLabel, '')}已完成`,
+              body: cleanFilename(toStringValue(item.filename, '')),
+              time: toStringValue(item.mtime, ''),
+              to: toStringValue(item.pageUrl, ''),
             })
           }
         }
 
-        if (parseRes.status === 'fulfilled' && parseRes.value.ok) {
-          const data = await parseRes.value.json()
+        if (parseRes.status === 'fulfilled') {
+          const data = parseRes.value
           for (const task of (data.tasks || []) as PdfTask[]) {
             const status = task.status || task.stage || ''
             if (!task.markdown_ready && !TERMINAL_DONE.has(status)) continue
@@ -235,8 +239,8 @@ export default function NotificationMenu() {
           }
         }
 
-        if (downloadRes.status === 'fulfilled' && downloadRes.value.ok) {
-          const data = await downloadRes.value.json()
+        if (downloadRes.status === 'fulfilled') {
+          const data = downloadRes.value
           for (const report of (data.reports || []) as DownloadedReport[]) {
             next.push({
               id: `download:${report.id}`,
@@ -368,8 +372,9 @@ export default function NotificationMenu() {
     <div ref={noticeBoxRef} className="relative">
       <button
         onClick={() => setOpenNotices((v) => !v)}
-        className="inline-flex h-11 min-w-11 items-center justify-center gap-2 rounded-[var(--radius-control)] border border-transparent px-2 text-sm font-semibold text-text-muted transition hover:border-border hover:bg-white hover:text-text focus:outline-none focus:ring-4 focus:ring-primary/10"
+        className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-transparent text-sm font-semibold text-text-muted transition hover:border-border hover:bg-white hover:text-text focus:outline-none focus:ring-4 focus:ring-primary/10"
         aria-label="查看任务通知"
+        title="任务通知"
       >
         <span className="relative inline-flex h-5 w-5 items-center justify-center">
           <Bell className="h-[18px] w-[18px]" />
@@ -379,7 +384,6 @@ export default function NotificationMenu() {
             </span>
           )}
         </span>
-        <span className="hidden whitespace-nowrap md:inline">任务通知</span>
       </button>
       {panel && typeof document !== 'undefined' ? createPortal(panel, document.body) : null}
     </div>

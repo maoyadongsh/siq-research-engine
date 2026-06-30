@@ -150,7 +150,7 @@ export default function ChatPage() {
 
   return (
     <ChatShell
-      className="premium-shell rounded-[var(--radius-panel)]"
+      className="chat-page-shell premium-shell rounded-[var(--radius-panel)]"
       style={{ height: 'calc(100dvh - var(--app-topbar-height) - var(--app-content-y))' }}
       header={
         <ChatHeader
@@ -249,12 +249,12 @@ export default function ChatPage() {
             </div>
           )}
           renderProgress={(msg) => msg.streaming ? <AgentProgressCard progress={msg.progress} /> : null}
-          listClassName="mx-auto max-w-3xl"
+          listClassName="chat-page-message-list mx-auto w-full"
         />
       }
-      messagesClassName="flex-1 overflow-y-auto px-5 py-5 sm:px-6"
+      messagesClassName="chat-page-messages flex-1 overflow-y-auto px-4 py-4 sm:px-5 lg:px-6"
       composer={
-        <div className="mx-auto max-w-3xl">
+        <div className="chat-page-composer mx-auto w-full">
           <ChatComposer
             input={input}
             setInput={setInput}
@@ -271,10 +271,11 @@ export default function ChatPage() {
             onAttachmentChange={(files) => { handleAttachmentChange(files).catch(() => {}) }}
             onRemoveAttachment={removeAttachment}
             placeholder="输入你的问题，Enter 发送，Shift+Enter 换行"
+            showNewChat={false}
           />
         </div>
       }
-      composerClassName="chat-composer-section px-6 py-3"
+      composerClassName="chat-page-composer-section chat-composer-section px-4 py-3 sm:px-5 lg:px-6"
       clearDialog={
         <ClearChatConfirmDialog
           open={clearConfirmOpen}

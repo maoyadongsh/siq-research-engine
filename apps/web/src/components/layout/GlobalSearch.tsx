@@ -226,7 +226,7 @@ export default function GlobalSearch() {
     <>
       {/* Desktop */}
       <div ref={searchBoxRef} className="global-search relative hidden min-w-0 flex-1 md:block">
-        <Search className="absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-text-muted sm:left-4" />
+        <Search strokeWidth={2.8} className="pointer-events-none absolute left-4 top-1/2 z-10 h-5 w-5 -translate-y-1/2 text-primary sm:left-4" />
         <input
           type="search"
           value={query}
@@ -234,7 +234,7 @@ export default function GlobalSearch() {
           onFocus={() => setOpenSearch(true)}
           onKeyDown={(e) => { if (e.key === 'Enter') submitSearch() }}
           placeholder="搜索公司、代码、报告或文档"
-          className="h-10 w-full rounded-2xl border border-border bg-white/82 pl-11 pr-10 text-sm text-text shadow-sm backdrop-blur placeholder:text-text-muted/70 focus:border-primary focus:bg-white focus:outline-none focus:ring-4 focus:ring-primary/10 sm:h-11 sm:pl-12 sm:pr-12"
+          className="h-9 w-full rounded-xl border border-border bg-white/82 pl-12 pr-10 text-sm text-text shadow-sm backdrop-blur placeholder:text-text-muted/70 focus:border-primary focus:bg-white focus:outline-none focus:ring-4 focus:ring-primary/10 sm:h-10 sm:pl-12 sm:pr-12"
         />
         {searching && <Loader2 className="absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 animate-spin text-primary" />}
         {openSearch && query.trim() && (

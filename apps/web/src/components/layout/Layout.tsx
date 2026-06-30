@@ -39,11 +39,24 @@ export default function Layout() {
     setCollapsed((current) => !current)
   }
 
+  const toggleMobileSidebar = () => {
+    setMobileSidebarOpen((current) => !current)
+  }
+
   return (
     <div className="min-h-screen bg-bg text-text">
       <a href="#main-content" className="skip-link">跳到主内容</a>
-      <Sidebar collapsed={collapsed} mobileOpen={mobileSidebarOpen} onToggle={toggleSidebar} onCloseMobile={() => setMobileSidebarOpen(false)} />
-      <Topbar sidebarCollapsed={collapsed} onMenuClick={() => setMobileSidebarOpen(true)} onSidebarToggle={toggleSidebar} />
+      <Sidebar
+        collapsed={collapsed}
+        mobileOpen={mobileSidebarOpen}
+        onToggle={toggleSidebar}
+        onCloseMobile={() => setMobileSidebarOpen(false)}
+      />
+      <Topbar
+        sidebarCollapsed={collapsed}
+        mobileSidebarOpen={mobileSidebarOpen}
+        onToggleMobileSidebar={toggleMobileSidebar}
+      />
       <main
         id="main-content"
         tabIndex={-1}

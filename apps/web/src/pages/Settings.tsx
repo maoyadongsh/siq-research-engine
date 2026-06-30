@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { CheckCircle2, Cloud, Cpu, Loader2, RotateCcw, Save, SlidersHorizontal, Sparkles } from 'lucide-react'
 import { useApi } from '../lib/hooks'
 import { PageHeader, PageShell } from '@/components/page'
+import { fetchLlmSettings, fetchSystemStatus, saveLlmSettings, testLlmProvider, type LlmProviderPayload } from '@/features/settings/api'
 import { ConnectionSection } from './settings/ConnectionSection'
 import { ProviderCard } from './settings/ProviderCard'
 import { ProviderForm } from './settings/ProviderForm'
@@ -21,13 +22,48 @@ export default function Settings() {
   const [llmSettings, setLlmSettings] = useState<LLMSettingsForm>(DEFAULT_LLM_SETTINGS); const [saved, setSaved] = useState(false); const [loadingLlm, setLoadingLlm] = useState(true); const [savingLlm, setSavingLlm] = useState(false); const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null); const [loadingSystemStatus, setLoadingSystemStatus] = useState(true); const [systemStatusError, setSystemStatusError] = useState(''); const [showKeys, setShowKeys] = useState<Record<ProviderKey, boolean>>({ cloud: false, local: false }); const [testState, setTestState] = useState<Record<ProviderKey, TestState>>({ cloud: { status: 'idle', message: '' }, local: { status: 'idle', message: '' } })
 
   useEffect(() => { if (!saved) return; const timer = window.setTimeout(() => setSaved(false), 1800); return () => window.clearTimeout(timer) }, [saved])
-  useEffect(() => { let ignore = false; async function load() { setLoadingLlm(true); try { const res = await fetch(apiUrl('/api/settings/llm')); if (!res.ok) throw new Error(await res.text()); const data = await res.json(); if (ignore) return; setLlmSettings({ activeProvider: data.activeProvider === 'cloud' ? 'cloud' : 'local', providers: { cloud: mapProviderFromApi(data.providers?.cloud || {}, DEFAULT_LLM_SETTINGS.providers.cloud), local: mapProviderFromApi(data.providers?.local || {}, DEFAULT_LLM_SETTINGS.providers.local) } }) } catch (e) { if (!ignore) setTestState((c) => ({ ...c, local: { status: 'error', message: `无法加载后端模型配置：${e instanceof Error ? e.message : '未知错误'}` } })) } finally { if (!ignore) setLoadingLlm(false) } } load(); return () => { ignore = true } }, [apiUrl])
-  const loadSystemStatus = useCallback(async () => { setLoadingSystemStatus(true); setSystemStatusError(''); try { const res = await fetch(apiUrl('/api/system/status')); if (!res.ok) throw new Error(await res.text()); setSystemStatus(await res.json()) } catch (e) { setSystemStatus(null); setSystemStatusError(e instanceof Error ? e.message : '无法获取系统状态') } finally { setLoadingSystemStatus(false) } }, [apiUrl])
+  useEffect(() => {
+    let ignore = false
+    async function load() {
+      setLoadingLlm(true)
+      try {
+        const data = await fetchLlmSettings(apiUrl)
+        if (ignore) return
+        setLlmSettings({
+          activeProvider: data.activeProvider === 'cloud' ? 'cloud' : 'local',
+          providers: {
+            cloud: mapProviderFromApi(data.providers?.cloud || {}, DEFAULT_LLM_SETTINGS.providers.cloud),
+            local: mapProviderFromApi(data.providers?.local || {}, DEFAULT_LLM_SETTINGS.providers.local),
+          },
+        })
+      } catch (e) {
+        if (!ignore) setTestState((c) => ({ ...c, local: { status: 'error', message: `无法加载后端模型配置：${e instanceof Error ? e.message : '未知错误'}` } }))
+      } finally {
+        if (!ignore) setLoadingLlm(false)
+      }
+    }
+    load()
+    return () => {
+      ignore = true
+    }
+  }, [apiUrl])
+  const loadSystemStatus = useCallback(async () => {
+    setLoadingSystemStatus(true)
+    setSystemStatusError('')
+    try {
+      setSystemStatus(await fetchSystemStatus(apiUrl))
+    } catch (e) {
+      setSystemStatus(null)
+      setSystemStatusError(e instanceof Error ? e.message : '无法获取系统状态')
+    } finally {
+      setLoadingSystemStatus(false)
+    }
+  }, [apiUrl])
   useEffect(() => { loadSystemStatus() }, [apiUrl, loadSystemStatus])
 
   const activeProviderMeta = useMemo(() => ({ label: llmSettings.activeProvider === 'cloud' ? '云端大模型' : '本地大模型', provider: llmSettings.providers[llmSettings.activeProvider] }), [llmSettings])
   const updateProvider = (key: ProviderKey, patch: Partial<ProviderFormData>) => setLlmSettings((current) => ({ ...current, providers: { ...current.providers, [key]: { ...current.providers[key], ...patch } } }))
-  const toProviderPayload = (provider: ProviderFormData) => ({ enabled: provider.enabled, providerName: provider.providerName.trim(), baseUrl: provider.baseUrl.trim(), apiKey: provider.apiKey.trim() || null, clearApiKey: provider.clearApiKey, model: provider.model.trim(), temperature: normalizeNumber(provider.temperature, 0.2), maxTokens: Math.round(normalizeNumber(provider.maxTokens, 4096)), timeoutSeconds: Math.round(normalizeNumber(provider.timeoutSeconds, 60)) })
+  const toProviderPayload = (provider: ProviderFormData): LlmProviderPayload => ({ enabled: provider.enabled, providerName: provider.providerName.trim(), baseUrl: provider.baseUrl.trim(), apiKey: provider.apiKey.trim() || null, clearApiKey: provider.clearApiKey, model: provider.model.trim(), temperature: normalizeNumber(provider.temperature, 0.2), maxTokens: Math.round(normalizeNumber(provider.maxTokens, 4096)), timeoutSeconds: Math.round(normalizeNumber(provider.timeoutSeconds, 60)) })
   const saveBaseSettings = () => { localStorage.setItem('api_base', apiBase.trim()); localStorage.setItem('pdf_api_base', pdfApiBase.trim() || DEFAULTS.pdfApiBase); localStorage.setItem('wiki_root_hint', wikiRoot.trim() || DEFAULTS.wikiRoot); localStorage.setItem('recent_task_limit', recentLimit.trim() || DEFAULTS.recentLimit) }
   const useLocalPreset = (preset: ProviderFormData, label: string) => { setLlmSettings((current) => ({ ...current, activeProvider: 'local', providers: { ...current.providers, local: { ...preset } } })); setSystemStatus((current) => current ? ({ ...current, model: { ...current.model, activeProvider: 'local', activeProviderName: preset.providerName, activeModel: preset.model, activeBaseUrl: preset.baseUrl } }) : current); setTestState((current) => ({ ...current, local: { status: 'idle', message: `已填入${label}，可直接保存或测试调用。` } })) }
   const useCloudPreset = (preset: ProviderFormData, label: string) => { setLlmSettings((current) => ({ ...current, activeProvider: 'cloud', providers: { ...current.providers, cloud: { ...preset } } })); setSystemStatus((current) => current ? ({ ...current, model: { ...current.model, activeProvider: 'cloud', activeProviderName: preset.providerName, activeModel: preset.model, activeBaseUrl: preset.baseUrl } }) : current); setTestState((current) => ({ ...current, cloud: { status: 'idle', message: `已填入${label}，保存后会同步到 Hermes 智能体。` } })) }
@@ -38,9 +74,7 @@ export default function Settings() {
     saveBaseSettings()
     setSavingLlm(true)
     try {
-      const res = await fetch(apiUrl('/api/settings/llm'), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ activeProvider: llmSettings.activeProvider, providers: { cloud: toProviderPayload(llmSettings.providers.cloud), local: toProviderPayload(llmSettings.providers.local) } }) })
-      if (!res.ok) throw new Error(await res.text())
-      const data = await res.json()
+      const data = await saveLlmSettings(apiUrl, { activeProvider: llmSettings.activeProvider, providers: { cloud: toProviderPayload(llmSettings.providers.cloud), local: toProviderPayload(llmSettings.providers.local) } })
       const nextActiveProvider: ProviderKey = data.activeProvider === 'cloud' ? 'cloud' : 'local'
       const nextProviders = { cloud: mapProviderFromApi(data.providers?.cloud || {}, llmSettings.providers.cloud), local: mapProviderFromApi(data.providers?.local || {}, llmSettings.providers.local) }
       const nextProvider = nextProviders[nextActiveProvider]
@@ -54,7 +88,7 @@ export default function Settings() {
     }
   }
   const reset = () => { setApiBase(DEFAULTS.apiBase); setPdfApiBase(DEFAULTS.pdfApiBase); setWikiRoot(DEFAULTS.wikiRoot); setRecentLimit(DEFAULTS.recentLimit); setLlmSettings(DEFAULT_LLM_SETTINGS); localStorage.removeItem('api_base'); localStorage.removeItem('pdf_api_base'); localStorage.removeItem('wiki_root_hint'); localStorage.removeItem('recent_task_limit'); setSaved(true) }
-  const testProvider = async (key: ProviderKey) => { const provider = llmSettings.providers[key]; setTestState((c) => ({ ...c, [key]: { status: 'testing', message: '正在调用模型...' } })); try { const res = await fetch(apiUrl('/api/settings/llm/test'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider: key, message: '请只回复 OK，用于 SIQ 连接测试。', config: toProviderPayload(provider) }) }); if (!res.ok) throw new Error(await res.text()); const data = await res.json(); setTestState((c) => ({ ...c, [key]: { status: data.ok ? 'success' : 'error', message: data.message || (data.ok ? '连接成功' : '连接失败'), latencyMs: data.latencyMs } })) } catch (e) { setTestState((c) => ({ ...c, [key]: { status: 'error', message: e instanceof Error ? e.message : '连接测试失败' } })) } }
+  const testProvider = async (key: ProviderKey) => { const provider = llmSettings.providers[key]; setTestState((c) => ({ ...c, [key]: { status: 'testing', message: '正在调用模型...' } })); try { const data = await testLlmProvider(apiUrl, { provider: key, message: '请只回复 OK，用于 SIQ 连接测试。', config: toProviderPayload(provider) }); setTestState((c) => ({ ...c, [key]: { status: data.ok ? 'success' : 'error', message: data.message || (data.ok ? '连接成功' : '连接失败'), latencyMs: data.latencyMs } })) } catch (e) { setTestState((c) => ({ ...c, [key]: { status: 'error', message: e instanceof Error ? e.message : '连接测试失败' } })) } }
 
   const selectProvider = (key: ProviderKey) => setLlmSettings((c) => ({ ...c, activeProvider: key }))
   const toggleShowKey = (key: ProviderKey) => setShowKeys((c) => ({ ...c, [key]: !c[key] }))

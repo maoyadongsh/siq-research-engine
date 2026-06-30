@@ -65,8 +65,12 @@ async function mockPdfParsingApis(page: Page) {
     window.localStorage.setItem('theme', 'light')
   }, e2eUser)
 
-  await page.route('**/api/**', async (route: Route) => {
+  await page.route('**/*', async (route: Route) => {
     const url = new URL(route.request().url())
+    if (!url.pathname.startsWith('/api/')) {
+      await route.continue()
+      return
+    }
     if (url.pathname === '/api/auth/me') {
       await route.fulfill(json(e2eUser))
       return

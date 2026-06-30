@@ -24,7 +24,19 @@ import {
   isDisclosureMarketCode,
   type DisclosureMarketCode,
 } from '../lib/marketMetadata'
-import { loadDownloadedReports as loadDownloadedReportsApi } from '../lib/pdfApi'
+import { loadDownloadedReports as loadDownloadedReportsApi } from '../features/pdf-parsing/api'
+import {
+  batchDownloadReports,
+  deleteDownloadedReport as deleteDownloadedReportApi,
+  downloadReport,
+  fetchCuratedAnnuals,
+  fetchMarketReportHealth,
+  fetchRecentReports,
+  linkWorkspaceDownload,
+  requestReportAssist,
+  resolveCompany,
+  selectDownloadReports,
+} from '../features/search-download/api'
 
 interface ReportItem {
   title: string
@@ -576,9 +588,7 @@ export default function SearchDownload() {
   const fetchMarketHealth = useCallback(async () => {
     setMarketHealthLoading(true)
     try {
-      const res = await fetch('/api/market-report-health')
-      if (!res.ok) throw new Error(String(res.status))
-      const data = await res.json() as MarketReportHealth
+      const data = await fetchMarketReportHealth<MarketReportHealth>()
       setMarketHealth(data)
       return data
     } catch (e) {
@@ -633,13 +643,7 @@ export default function SearchDownload() {
   }, [fetchMarketHealth])
 
   const requestAssist = useCallback(async (payload: Record<string, unknown>) => {
-    const res = await fetch('/api/v1/reports/assist', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-    if (!res.ok) throw new Error(`智能解析失败: ${res.status}`)
-    return await res.json() as AssistResult
+    return requestReportAssist<AssistResult>(payload)
   }, [])
 
   const handleSmartParse = async () => {
@@ -747,15 +751,11 @@ export default function SearchDownload() {
 
   const linkDownloadedFiles = useCallback(async (items: DownloadFileResult[]) => {
     const successful = items.filter((item) => item.success !== false && (item.saved_path || item.file_name))
-    await Promise.allSettled(successful.map((item) => fetch('/api/workspace/downloads/link', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        saved_path: item.saved_path,
-        file_name: item.file_name,
-        company_name: item.company_name,
-        source: item.cache_hit ? 'reused_download_cache' : 'new_download',
-      }),
+    await Promise.allSettled(successful.map((item) => linkWorkspaceDownload({
+      saved_path: item.saved_path,
+      file_name: item.file_name,
+      company_name: item.company_name,
+      source: item.cache_hit ? 'reused_download_cache' : 'new_download',
     })))
   }, [])
 
@@ -816,20 +816,10 @@ export default function SearchDownload() {
 
     try {
       // Step 1: Resolve company
-      const resolveRes = await fetch('/api/v1/company/resolve', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          market: targetMarket,
-          ...identifierPayloadFor(targetMarket, targetQuery, targetTicker, targetCompanyId, targetFilter),
-        }),
+      const resolved = await resolveCompany({
+        market: targetMarket,
+        ...identifierPayloadFor(targetMarket, targetQuery, targetTicker, targetCompanyId, targetFilter),
       })
-
-      if (!resolveRes.ok) {
-        const errorText = await resolveRes.text().catch(() => '')
-        throw new Error(`解析公司失败: ${resolveRes.status}${errorText ? ` ${errorText.slice(0, 160)}` : ''}`)
-      }
-      const resolved = await resolveRes.json()
       const { companyName, ticker } = resolveCompanyName(resolved)
       setCompanyInfo({ name: companyName, ticker })
       addLog(`已解析: ${companyName}${ticker ? ` (${ticker})` : ''}`, 'success')
@@ -849,44 +839,32 @@ export default function SearchDownload() {
       // Step 2: Query annual reports
       let annual: ReportItem[] = []
       if (targetMarket !== 'US' || targetAnnualForms.length > 0) {
-        const annualRes = await fetch('/api/v1/reports/recent', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ...baseReportPayload,
-            target: 'annual_report',
-            report_year: parseInt(targetYear),
-            forms: targetAnnualForms,
-            limit: 10,
-          }),
+        const annualData = await fetchRecentReports<{
+          reports?: ReportItem[]
+          items?: ReportItem[]
+        }>({
+          ...baseReportPayload,
+          target: 'annual_report',
+          report_year: parseInt(targetYear),
+          forms: targetAnnualForms,
+          limit: 10,
         })
-        if (!annualRes.ok) {
-          const errorText = await annualRes.text().catch(() => '')
-          throw new Error(`查询年报失败: ${annualRes.status}${errorText ? ` ${errorText.slice(0, 160)}` : ''}`)
-        }
-        const annualData = await annualRes.json()
         annual = Array.isArray(annualData) ? annualData : annualData.reports || annualData.items || []
       }
       setAnnualReports(annual)
       addLog(`找到 ${annual.length} 份${targetMarket === 'US' ? '年度披露' : targetMarket === 'JP' ? '有价证券报告书' : '年报'}`, 'success')
 
       // Step 3: Query financial reports
-      const finRes = await fetch('/api/v1/reports/recent', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ...baseReportPayload,
-            target: 'financial_report',
-            report_year: parseInt(targetYear),
-            forms: targetFinancialForms,
-            limit: 20,
-          }),
+      const finData = await fetchRecentReports<{
+        reports?: ReportItem[]
+        items?: ReportItem[]
+      }>({
+        ...baseReportPayload,
+        target: 'financial_report',
+        report_year: parseInt(targetYear),
+        forms: targetFinancialForms,
+        limit: 20,
       })
-      if (!finRes.ok) {
-        const errorText = await finRes.text().catch(() => '')
-        throw new Error(`查询定期披露失败: ${finRes.status}${errorText ? ` ${errorText.slice(0, 160)}` : ''}`)
-      }
-      const finData = await finRes.json()
       const financial = Array.isArray(finData) ? finData : finData.reports || finData.items || []
       setFinancialReports(financial)
       addLog(`找到 ${financial.length} 份定期披露`, 'success')
@@ -931,12 +909,7 @@ export default function SearchDownload() {
     addLog(`正在载入 ${marketConfig.label} 主流 10 家年报样本 (${year})`, 'info')
     try {
       const params = new URLSearchParams({ market, report_year: year, limit: '10' })
-      const res = await fetch(`/api/v1/reports/curated-annuals?${params.toString()}`)
-      if (!res.ok) {
-        const errorText = await res.text().catch(() => '')
-        throw new Error(`载入样本失败: ${res.status}${errorText ? ` ${errorText.slice(0, 160)}` : ''}`)
-      }
-      const data = await res.json()
+      const data = await fetchCuratedAnnuals<{ reports?: ReportItem[] }>(params)
       const reports = uniqueBy((data.reports || []) as ReportItem[], (report) => report.document_url)
       setAnnualReports(reports)
       setFinancialReports([])
@@ -986,18 +959,16 @@ export default function SearchDownload() {
     try {
       const items = selectedReports.map(downloadItemMarketPayload)
 
-      const res = await fetch('/api/v1/reports/batch-download', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          market,
-          default_company_name: companyInfo.name,
-          items,
-        }),
+      const data = await batchDownloadReports<{
+        results?: DownloadFileResult[]
+        files?: DownloadFileResult[]
+        succeeded?: number
+        failed?: number
+      }>({
+        market,
+        default_company_name: companyInfo.name,
+        items,
       })
-
-      if (!res.ok) throw new Error(`下载失败: ${res.status}`)
-      const data = await res.json()
 
       const results = uniqueBy(data.results || data.files || [], (item: DownloadFileResult) => item.document_url || item.file_name)
       setDownloadResults(results)
@@ -1010,22 +981,14 @@ export default function SearchDownload() {
       // Fallback: download one by one
       for (const report of selectedReports) {
         try {
-          const res = await fetch('/api/v1/reports/download', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              market,
-              company_name: companyInfo.name,
-              ticker: companyInfo.ticker || undefined,
-              document_url: report.document_url,
-              title: report.title,
-            }),
+          await downloadReport({
+            market,
+            company_name: companyInfo.name,
+            ticker: companyInfo.ticker || undefined,
+            document_url: report.document_url,
+            title: report.title,
           })
-          if (res.ok) {
-            addLog(`下载成功: ${report.title}`, 'success')
-          } else {
-            addLog(`下载失败: ${report.title} (HTTP ${res.status})`, 'error')
-          }
+          addLog(`下载成功: ${report.title}`, 'success')
         } catch {
           addLog(`下载失败: ${report.title}`, 'error')
         }
@@ -1044,21 +1007,19 @@ export default function SearchDownload() {
     addLog(`快速下载 ${reportTypes.map((t) => typeLabels[t] || t).join('+')}...`, 'info')
 
     try {
-      const res = await fetch('/api/v1/reports/select-download', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          market,
-          company_name: companyInfo.name,
-          ticker: companyInfo.ticker || undefined,
-          company_id: market === 'EU' && marketFilter && companyInfo.ticker ? `${marketFilter}:${companyInfo.ticker}` : undefined,
-          report_types: reportTypes,
-          report_year: parseInt(year),
-        }),
+      const data = await selectDownloadReports<{
+        files?: DownloadFileResult[]
+        company_name?: string
+        succeeded?: number
+        total?: number
+      }>({
+        market,
+        company_name: companyInfo.name,
+        ticker: companyInfo.ticker || undefined,
+        company_id: market === 'EU' && marketFilter && companyInfo.ticker ? `${marketFilter}:${companyInfo.ticker}` : undefined,
+        report_types: reportTypes,
+        report_year: parseInt(year),
       })
-
-      if (!res.ok) throw new Error(`下载失败: ${res.status}`)
-      const data = await res.json()
 
       const files = data.files || []
       setDownloadResults(files)
@@ -1226,8 +1187,7 @@ export default function SearchDownload() {
   const deleteDownloadedReport = async (report: DownloadedPdf) => {
     setDeletingPath(report.relativePath)
     try {
-      const res = await fetch(`/api/downloads/report-file?path=${encodeURIComponent(report.relativePath)}`, { method: 'DELETE' })
-      if (!res.ok) throw new Error(String(res.status))
+      await deleteDownloadedReportApi(report.relativePath)
       setDownloadedReports((current) => current.filter((item) => item.id !== report.id))
       setConfirmDeletePath('')
       toast({ type: 'success', title: '文件已删除', description: report.filename })
@@ -1256,7 +1216,7 @@ export default function SearchDownload() {
             key={item}
             type="button"
             onClick={() => setMarketAndUrl(item)}
-            className={`flex min-h-[4.5rem] items-center justify-between gap-2 rounded-2xl px-3 py-2.5 text-left transition-colors sm:min-h-20 sm:gap-3 sm:px-4 sm:py-3 ${
+            className={`flex min-h-[4.5rem] items-center justify-between gap-2 rounded-2xl px-3 py-2.5 text-left font-semibold transition-colors sm:min-h-20 sm:gap-3 sm:px-4 sm:py-3 ${
               isActive
                 ? 'bg-primary/10 text-primary'
                 : 'text-text-muted hover:bg-bg hover:text-text'
@@ -1265,12 +1225,12 @@ export default function SearchDownload() {
             title={`${marketMeta.professionalName} · ${marketMeta.exchanges}`}
           >
             <span className="min-w-0">
-              <span className="block text-sm font-semibold">{marketMeta.label}</span>
-              <span className="mt-0.5 block truncate font-mono text-[11px] leading-4 opacity-75">{marketMeta.exchanges}</span>
-              <span className="mt-0.5 block text-xs leading-5 opacity-70">{marketMeta.searchDescription}</span>
+              <span className="block text-[15px] font-extrabold">{marketMeta.label}</span>
+              <span className="mt-0.5 block truncate font-mono text-[11px] font-bold leading-4 opacity-85">{marketMeta.exchanges}</span>
+              <span className="mt-0.5 block text-xs font-semibold leading-5 opacity-85">{marketMeta.searchDescription}</span>
             </span>
             <span className="flex shrink-0 flex-col items-end gap-1">
-              <span className="rounded-full border border-current/20 px-2 py-0.5 font-mono text-xs">{marketMeta.shortLabel}</span>
+              <span className="rounded-full border border-current/20 px-2 py-0.5 font-mono text-xs font-bold">{marketMeta.shortLabel}</span>
             </span>
           </button>
         )

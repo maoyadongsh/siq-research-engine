@@ -4,7 +4,7 @@ import { AlertCircle, BarChart3, ChartCandlestick, Loader2, Scale, ShieldCheck, 
 import PageWithAgentChat from '../agent/PageWithAgentChat'
 import { useToast } from '../../hooks/useToast'
 import { copyText } from '../../lib/clipboard'
-import { fetchWithAuth } from '../../lib/fetchWithAuth'
+import { apiBlob, apiJson, apiText } from '../../lib/apiClient'
 import { useAuth } from '../../hooks/useAuth'
 import type { Company, ReportItem, ReportViewerProps } from '@/lib/reportTypes'
 import { companyHasReportForType, reportUrlFor } from '@/lib/reportTypes'
@@ -65,8 +65,7 @@ export default function ReportViewer({ agentConfig, pageTitle, reportType, repor
   const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
-    fetchWithAuth('/api/wiki/companies/list')
-      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
+    apiJson<{ companies?: Company[] }>('/api/wiki/companies/list')
       .then((data) => {
         const list: Company[] = data.companies || []
         setCompanies(list)
@@ -90,9 +89,7 @@ export default function ReportViewer({ agentConfig, pageTitle, reportType, repor
       setReportLoading(true)
       setReportError(null)
       try {
-        const r = await fetchWithAuth(`/api/wiki/companies/${encodeURIComponent(selectedDir)}/${reportApiSuffix}`)
-        if (!r.ok) throw new Error(`HTTP ${r.status}`)
-        const data = await r.json()
+        const data = await apiJson<Record<string, ReportItem[]>>(`/api/wiki/companies/${encodeURIComponent(selectedDir)}/${reportApiSuffix}`)
         if (ignore) return
         const list: ReportItem[] = data[reportApiSuffix] || data.reports || []
         setReports(list)
@@ -127,9 +124,7 @@ export default function ReportViewer({ agentConfig, pageTitle, reportType, repor
       setContentLoading(true)
       setReportError(null)
       try {
-        const response = await fetchWithAuth(selectedReportUrl)
-        if (!response.ok) throw new Error(`HTTP ${response.status}`)
-        const html = await response.text()
+        const html = await apiText(selectedReportUrl)
         if (!ignore) setReportHtml(html)
       } catch (err) {
         if (!ignore) setReportError(err instanceof Error ? err.message : '报告内容加载失败')
@@ -191,9 +186,7 @@ export default function ReportViewer({ agentConfig, pageTitle, reportType, repor
   const downloadSelectedReport = async () => {
     if (!selectedReport || !selectedReportUrl) return
     try {
-      const response = await fetchWithAuth(selectedReportUrl)
-      if (!response.ok) throw new Error(`HTTP ${response.status}`)
-      const blob = await response.blob()
+      const blob = await apiBlob(selectedReportUrl)
       const href = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = href
@@ -211,17 +204,13 @@ export default function ReportViewer({ agentConfig, pageTitle, reportType, repor
     if (!selectedReport) return
     setDeleting(true)
     try {
-      const res = await fetchWithAuth(`/api/wiki/companies/${encodeURIComponent(selectedDir)}/${reportType}/${encodeURIComponent(selectedReport.filename)}`, { method: 'DELETE' })
-      if (!res.ok) {
-        const detail = await res.json().catch(() => null)
-        throw new Error(detail?.detail || `HTTP ${res.status}`)
-      }
+      await apiJson(`/api/wiki/companies/${encodeURIComponent(selectedDir)}/${reportType}/${encodeURIComponent(selectedReport.filename)}`, { method: 'DELETE' })
       const nextReports = reports.filter((report) => report.filename !== selectedReport.filename)
       setReports(nextReports)
       setSelectedReportUrl(nextReports[0] ? reportUrlFor(selectedDir, reportType, nextReports[0]) : '')
       setConfirmDelete(false)
       toast({ type: 'success', title: '报告已删除', description: selectedReport.filename })
-      fetchWithAuth('/api/wiki/companies/list').then((r) => r.ok ? r.json() : null).then((data) => {
+      apiJson<{ companies?: Company[] }>('/api/wiki/companies/list').then((data) => {
         if (data?.companies) setCompanies(data.companies)
       }).catch(() => {})
     } catch (err) {

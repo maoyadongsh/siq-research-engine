@@ -1,7 +1,7 @@
 import { useEffect, useState, type MouseEvent } from 'react'
 import { ExternalLink, FileText, X } from 'lucide-react'
 import { normalizeChatAssetUrl } from '../../lib/chatAssets'
-import { fetchWithAuth } from '../../lib/fetchWithAuth'
+import { apiBlob } from '../../lib/apiClient'
 import type { AgentAttachment } from '../../lib/useAgentChat'
 
 interface ChatAttachmentListProps {
@@ -36,11 +36,7 @@ function AuthImageAttachment({ item, onPreviewImage }: { item: AgentAttachment; 
     }
     let cancelled = false
     let objectUrl = ''
-    fetchWithAuth(href)
-      .then((response) => {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`)
-        return response.blob()
-      })
+    apiBlob(href)
       .then((blob) => {
         if (cancelled) return
         objectUrl = URL.createObjectURL(blob)
@@ -106,9 +102,7 @@ function AttachmentItem({ item, composer, onPreviewImage }: { item: AgentAttachm
     if (!href || isInlineAssetHref(href)) return
     event.preventDefault()
     try {
-      const response = await fetchWithAuth(href)
-      if (!response.ok) throw new Error(`HTTP ${response.status}`)
-      const blob = await response.blob()
+      const blob = await apiBlob(href)
       const objectUrl = URL.createObjectURL(blob)
       window.open(objectUrl, '_blank', 'noopener,noreferrer')
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000)
