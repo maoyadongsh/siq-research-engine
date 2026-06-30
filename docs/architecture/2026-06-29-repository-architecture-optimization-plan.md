@@ -47,7 +47,7 @@ Web 工作台
 - 已完成阶段性拆分：`P-001` 已将 PDF parser 入口 façade、请求 helper、运行时 helper、page marker、SQLite task repository、artifact service 和 source service 下沉；`A-001` 已将 Agent runtime 入口 façade、loop guard 和 progress/tool-label helper 下沉。
 - 进展补充：`F-002` 已补齐共享 workbench 和市场隔离验证；`F-003` 已新增 `shared/api/client.ts`，并将 `pdfApi`、`documentApi`、`secApi`、`Settings`、`Dashboard`、`ReportViewer`、`NotificationMenu`、`VectorIngest`、`ChatAttachmentList`、`DocumentResultWorkbench`、`PdfSourceWorkbench` 迁入共享请求层和 feature 门面；E2E/mock 规则也已修正。
 - 已完成：`R-003` 已按主题拆成 8 个提交，运行态/构建产物仍保持 ignored，不进入索引。
-- 进展补充：`F-004` 已完成 `PdfSourceWorkbench.tsx` 第一阶段拆分，新增 panes、page preview 和共享类型模块，保留 overlay `data-*`、mobile tab、correction refs 和 artifact pane 行为边界。
+- 进展补充：`F-004` 已完成 `PdfSourceWorkbench.tsx` 第一阶段拆分，新增 panes、page preview 和共享类型模块；`SearchDownload.tsx` 已完成 model/table/downloaded panel 拆分；`index.css` 已将 search/download 专属样式迁到 `styles/search-download.css`，保留 overlay `data-*`、mobile tab、correction refs 和 artifact pane 行为边界。
 - 当前建议：从干净基线继续 `P-002`、`A-002` 或 `F-004` 的剩余项。继续拆分时仍要避开 `ACTIVE_RUNS` 和本地 queue claim 这两个状态 owner。
 
 ### 0.2 2026-06-30 深度全量检查结论
@@ -57,7 +57,7 @@ Web 工作台
 - 仓库索引治理有效：`git ls-files data` 只剩 `data/README.md`、`data/backend/.gitkeep`、`data/pdf-parser/.gitkeep`。
 - `R-003` 之前工作树非常脏：`git status --short | wc -l` 约 725 行，包含大量已从索引移出的 data 删除项、前端/后端重构改动、未跟踪新模块和生成目录；该风险已通过分组 review/提交收口。
 - `.gitignore` 已覆盖 `data/**`、`var/**`、`artifacts/**`、`**/.venv/`、`**/.pytest_cache/`、`**/__pycache__/`、`apps/web/dist/`、`apps/web/test-results/`、`apps/web/playwright-report/` 等运行态和生成目录；本地仍存在大量 ignored cache/runtime 目录，不应纳入提交。
-- 当前最大剩余大文件：`agent_chat_runtime_impl.py` 约 7377 行、`pdf_parser_app_impl.py` 约 5683 行、`apps/web/src/index.css` 约 2952 行、`SearchDownload.tsx` 约 1705 行、`DocumentResultWorkbench.tsx` 约 1647 行；`PdfSourceWorkbench.tsx` 已降至约 1431 行，但仍可继续拆纯函数和样式。
+- 当前最大剩余大文件：`agent_chat_runtime_impl.py` 约 7377 行、`pdf_parser_app_impl.py` 约 5683 行、`apps/web/src/index.css` 已从约 2952 行降至约 2647 行但仍偏大，`SearchDownload.tsx` 已从约 1705 行降至约 1100 行，`DocumentResultWorkbench.tsx` 约 1647 行；`PdfSourceWorkbench.tsx` 已降至约 1431 行，但仍可继续拆纯函数和样式。
 - 前端 route registry 已单源化；API client 核心能力已收口到 `shared/api/client.ts`，但仍有多个页面/组件经 `lib/apiClient` 兼容出口或旧 `lib/*Api` 门面导入，后续应作为兼容出口清理任务处理。
 - PDF parser 已完成入口 façade、request/runtime/page-marker/task-repository/artifact/source 第一阶段拆分；quality/financial/document_full 仍留在 `pdf_parser_app_impl.py`，是下一阶段主要拆分对象。
 - Agent runtime 已完成入口 façade、loop guard、progress/tool label 第一阶段拆分；`ACTIVE_RUNS`、SSE run owner、普通 chat 与 streaming 的共享状态仍必须留在 `agent_chat_runtime_impl.py`，下一阶段只搬 display normalization、parse-only discovery、tool output normalization 等纯函数。
@@ -1275,9 +1275,10 @@ test-results/**
 - 保留 `shared/api/client.ts` 作为底层唯一 fetch owner，`lib/apiClient.ts` 仅在兼容期 re-export。
 - 已拆 `SearchDownload.tsx` 的市场配置、类型、识别 helper、报告候选表格和已下载文件面板到 `features/search-download/model.ts`、`ReportTableSection.tsx`、`DownloadedReportsPanel.tsx`，页面从约 1705 行降至约 1100 行。
 - 已拆 `PdfSourceWorkbench.tsx` 的 compare pane、reading pane、PDF page pane、review correction pane、artifact pane 到 `PdfSourceWorkbenchPanels.tsx`，并将页图渲染拆到 `PdfSourcePagePreview.tsx`。
+- 已从 `index.css` 迁出 `search-download-*`、`smart-search-*` 及其平板/手机/dark 覆盖到 `styles/search-download.css`，并新增 `search-download-responsive.spec.ts` 覆盖 390、768、1440 三档无横向溢出。
 - 下一步继续拆 `SearchDownload.tsx` 的下载/查询流程 hooks；状态 owner 暂留页面层，避免把 URL 同步、toast 和下载后刷新联动提前分散。
 - 下一步拆 `DocumentResultWorkbench.tsx` 时，先抽 `documentResultWorkbench.utils.ts` 里的纯函数/派生逻辑，再考虑 PDF preview、artifact pane、table/source relation pane，避免先拆 refs 和 selection owner。
-- 下一步清理 CSS 时，先从 `index.css` 迁出 `search-download-*`、`smart-search-*` 及其响应式/dark 覆盖到 `styles/search-download.css`；暂不同时迁 PDF_CSS / DOCUMENT_CSS 字符串，避免 CSS 顺序变化过大。
+- 下一步清理 CSS 时，继续按域拆 `index.css` 的低耦合样式；暂不同时迁 PDF_CSS / DOCUMENT_CSS 字符串，避免 CSS 顺序变化过大。
 - 下一步清理 API 兼容出口时，优先把 `lib/pdfApi`、`lib/documentApi`、`lib/secApi` 的消费者迁到 `features/pdf-parsing/api.ts`、`features/document-parser/api.ts`、`features/market-parsing/api.ts`；`lib/apiClient.ts` 作为通用兼容门面暂留。
 
 验收：
@@ -1285,7 +1286,7 @@ test-results/**
 - 新代码不再直接从业务组件调用裸 `fetch`。
 - 新增页面 API 只暴露在 `features/*/api.ts` 或 shared client。
 - `npm run lint && npm run build` 通过；本轮额外执行 `npm run check:frontend` 通过。
-- 关键 Playwright：`pdf-parsing-market-filter.spec.ts`、`workspace-responsive.spec.ts` 通过。
+- 关键 Playwright：`pdf-parsing-market-filter.spec.ts`、`workspace-responsive.spec.ts`、`search-download-responsive.spec.ts` 通过。
 
 ### P-001：拆 `apps/pdf-parser/app.py`
 
@@ -1432,7 +1433,7 @@ test-results/**
 - API client 收口。
 - legacy UI 不再被新代码默认使用。
 - 核心页面 Playwright smoke 通过。
-- 当前基线：`npm run lint`、`npm run build` 和 `npm run check:frontend` 通过；后续仍需清理 `lib/apiClient` / `lib/*Api` 兼容出口调用，并继续拆 `SearchDownload.tsx` 查询/下载 hooks、`DocumentResultWorkbench.tsx` 纯 utils 与 `index.css` search 样式。
+- 当前基线：`npm run lint`、`npm run build` 和 `npm run check:frontend` 通过；后续仍需清理 `lib/apiClient` / `lib/*Api` 兼容出口调用，并继续拆 `SearchDownload.tsx` 查询/下载 hooks、`DocumentResultWorkbench.tsx` 纯 utils 与 `index.css` 其他低耦合样式。
 
 ### 运维 DoD
 
