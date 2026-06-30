@@ -123,7 +123,7 @@ def page_content_payload_from_content_list(content_list, page_number, report=Non
 
     blocks = []
     table_seq = 0
-    for item in content_list:
+    for source_index, item in enumerate(content_list, start=1):
         if not isinstance(item, dict):
             continue
         block_type = item.get("type") or "unknown"
@@ -137,8 +137,12 @@ def page_content_payload_from_content_list(content_list, page_number, report=Non
             continue
 
         block = {
+            "block_id": item.get("block_id") or f"b{source_index:06d}",
             "type": block_type,
             "bbox": item.get("bbox") or [],
+            "page_number": page_number,
+            "pdf_page_number": page_number,
+            "reading_order": source_index,
         }
         if block_type in {"text", "header", "page_number"}:
             block["text"] = item.get("text") or ""

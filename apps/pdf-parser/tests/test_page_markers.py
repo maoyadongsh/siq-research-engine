@@ -196,6 +196,7 @@ class PageMarkerInjectionTests(unittest.TestCase):
         first_table = "<table><tr><td>股东总数</td><td>100</td></tr></table>"
         second_table = "<table><tr><td>前十名普通股股东</td><td>上海联和</td></tr></table>"
         content_list = [
+            {"type": "text", "text": "董事会声明", "page_idx": 133, "bbox": [1, 1, 4, 2]},
             {"type": "table", "table_body": first_table, "page_idx": 133, "bbox": [1, 2, 3, 4]},
             {"type": "table", "table_body": second_table, "page_idx": 133, "bbox": [5, 6, 7, 8]},
             {"type": "page_number", "text": "133 ", "page_idx": 133},
@@ -212,6 +213,8 @@ class PageMarkerInjectionTests(unittest.TestCase):
 
         self.assertEqual(payload["printed_page_number"], "133")
         self.assertEqual([item["table_index"] for item in tables], [89, 90])
+        self.assertEqual(payload["blocks"][0]["block_id"], "b000001")
+        self.assertEqual(tables[0]["block_id"], "b000002")
         self.assertEqual(tables[1]["line"], 2428)
         self.assertTrue(tables[1]["is_focus_table"])
 

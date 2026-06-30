@@ -1,0 +1,154 @@
+"""Request and task parsing helpers for the PDF parser app."""
+
+from __future__ import annotations
+
+import hmac
+import os
+import re
+
+from flask import request
+
+ALLOWED_BACKENDS = {"hybrid-http-client", "pipeline", "vlm-http-client"}
+ALLOWED_PARSE_METHODS = {"auto", "txt", "ocr"}
+SUPPORTED_MARKETS = {"CN", "HK", "US", "JP", "KR", "EU", "DOC"}
+MARKET_TOKEN_RE = re.compile(r"(?:^|[_\W])(CN|HK|US|JP|KR|EU|DOC)(?:[_\W]|$)", re.IGNORECASE)
+APP_ACCESS_TOKEN = os.environ.get("PDF2MD_ACCESS_TOKEN", "").strip()
+
+
+def _safe_client_filename(filename):
+    name = str(filename or "").replace("\\", "/").rsplit("/", 1)[-1].strip()
+    name = re.sub(r"[\r\n\x00]", "_", name)
+    return name or "upload.pdf"
+
+
+def _safe_download_name(filename):
+    name = _safe_client_filename(filename)
+    return re.sub(r"[/\\]+", "_", name) or "download.md"
+
+
+def _parse_bool(value, default=False):
+    if value is None:
+        return default
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _parse_page_id(value, field_name):
+    value = str(value or "").strip()
+    if value == "":
+        return ""
+    try:
+        page_id = int(value)
+    except ValueError as exc:
+        raise ValueError(f"{field_name} 必须是非负整数") from exc
+    if page_id < 0:
+        raise ValueError(f"{field_name} 必须是非负整数")
+    return str(page_id)
+
+
+def _parse_submit_config(form):
+    backend = str(form.get("backend", "hybrid-http-client")).strip()
+    parse_method = str(form.get("parse_method", "auto")).strip()
+    market = str(form.get("market", "CN")).strip().upper()
+    if backend not in ALLOWED_BACKENDS:
+        raise ValueError("不支持的后端模式")
+    if parse_method not in ALLOWED_PARSE_METHODS:
+        raise ValueError("不支持的解析方式")
+    if market not in SUPPORTED_MARKETS:
+        raise ValueError("不支持的市场类型")
+
+    start_page_id = _parse_page_id(form.get("start_page_id", ""), "起始页码")
+    end_page_id = _parse_page_id(form.get("end_page_id", ""), "结束页码")
+    if start_page_id != "" and end_page_id != "" and int(start_page_id) > int(end_page_id):
+        raise ValueError("起始页码不能大于结束页码")
+
+    return {
+        "backend": backend,
+        "parse_method": parse_method,
+        "market": market,
+        "start_page_id": start_page_id,
+        "end_page_id": end_page_id,
+        "formula_enable": _parse_bool(form.get("formula_enable"), default=True),
+        "table_enable": _parse_bool(form.get("table_enable"), default=True),
+    }
+
+
+def _normalize_market(value):
+    market = str(value or "").strip().upper()
+    return market if market in SUPPORTED_MARKETS else None
+
+
+def _infer_market_from_text(value):
+    text = str(value or "").strip()
+    if not text:
+        return None
+    match = MARKET_TOKEN_RE.search(text)
+    if match:
+        return match.group(1).upper()
+    if re.search(r"[\u4e00-\u9fff]", text):
+        return "CN"
+    return None
+
+
+def _task_market_from_record(task):
+    if not isinstance(task, dict):
+        return None
+
+    submit_config = task.get("submit_config")
+    if isinstance(submit_config, dict):
+        market = _normalize_market(submit_config.get("market"))
+        if market:
+            return market
+
+    market = _normalize_market(task.get("market"))
+    if market:
+        return market
+
+    for key in ("filename", "upload_path", "markdown_path", "task_id"):
+        market = _infer_market_from_text(task.get(key))
+        if market:
+            return market
+    return None
+
+
+def _apply_task_market_fallback(task):
+    market = _task_market_from_record(task)
+    if not market:
+        task["market"] = None
+        return task
+
+    task["market"] = market
+    submit_config = task.get("submit_config")
+    if isinstance(submit_config, dict) and not _normalize_market(submit_config.get("market")):
+        submit_config["market"] = market
+    return task
+
+
+def _safe_task_id(value):
+    task_id = str(value or "").strip()
+    if not task_id:
+        return None
+    if any(char in task_id for char in "/\\") or task_id in {".", ".."} or len(task_id) > 120:
+        raise ValueError("invalid task_id")
+    return task_id
+
+
+def _request_has_valid_token(access_token=None):
+    access_token = APP_ACCESS_TOKEN if access_token is None else str(access_token or "").strip()
+    if not access_token:
+        return True
+    token = (
+        request.headers.get("X-PDF2MD-Token")
+        or request.args.get("token")
+        or request.cookies.get("pdf2md_token")
+    )
+    return hmac.compare_digest(str(token or ""), access_token)
+
+
+def _format_duration(seconds):
+    if seconds is None or seconds < 0:
+        return "--"
+    minutes = int(seconds) // 60
+    remainder = int(seconds) % 60
+    if minutes > 0:
+        return f"{minutes}分{remainder}秒"
+    return f"{remainder}秒"
