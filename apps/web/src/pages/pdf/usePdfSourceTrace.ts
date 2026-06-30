@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ArtifactsMap, BboxExtent, PageContent, PdfCtx, SelectedTrace, SourceCorrection, SourceMeta, SourceTable, SrcCtx } from '../../lib/pdfTypes'
-import { fetchPageSourceApi, getPdfUrl as getPdfUrlApi, showTableSourceApi } from '../../lib/pdfApi'
+import { fetchPageSourceApi, getPdfUrl as getPdfUrlApi, showTableSourceApi } from '../../features/pdf-parsing/api'
 import { makeEditableHtml, normalizeBbox, parseBbox, parseBboxFromAttr, sanitizeReadingHtml, sanitizeTableHtml } from '../../lib/pdfSanitize'
 import { renderPageContentHtml } from '../../components/pdf/pdfSourceRendering'
 

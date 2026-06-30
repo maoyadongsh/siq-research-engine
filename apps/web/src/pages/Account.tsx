@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Bot, FileText, ShieldCheck, UserRound } from 'lucide-react'
-import { apiJson } from '../lib/apiClient'
+import { apiJson } from '@/shared/api/client'
 import { useAuth, type User } from '../hooks/useAuth'
 import { PageState } from '@/components/research/PageState'
 import { MetricCard } from '@/components/research/MetricCard'

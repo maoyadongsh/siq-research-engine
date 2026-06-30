@@ -31,9 +31,9 @@ import {
   type UsSecPackageBuildResponse,
   type UsSecPackageDetail,
   type UsSecUploadResult,
-} from '../../lib/secApi'
+} from '../../features/market-parsing/api'
 import type { DownloadedPdf } from '../../lib/pdfTypes'
-import { loadDownloadedReports as loadDownloadedReportsApi } from '../../lib/pdfApi'
+import { loadDownloadedReports as loadDownloadedReportsApi } from '../../features/pdf-parsing/api'
 
 function numberText(value: unknown): string {
   const n = Number(value || 0)

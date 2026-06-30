@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { Bell, Loader2, FileText, CheckCheck, Download, Sparkles, Inbox } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
-import { apiJson } from '../../lib/apiClient'
+import { apiJson } from '@/shared/api/client'
 import { isAuthenticatedSourceLink, openAuthenticatedSourceLink } from '../../lib/authenticatedSourceLinks'
 
 interface PdfTask {

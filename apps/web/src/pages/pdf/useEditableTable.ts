@@ -2,7 +2,7 @@
 import { useCallback } from 'react'
 import type { FocusEvent, MouseEvent, MutableRefObject, RefObject } from 'react'
 import type { PdfCtx, SrcCtx } from '../../lib/pdfTypes'
-import { saveCorrectionApi } from '../../lib/pdfApi'
+import { saveCorrectionApi } from '../../features/pdf-parsing/api'
 import { serializeEditableTable } from '../../lib/pdfSanitize'
 
 export interface UseEditableTableOptions {

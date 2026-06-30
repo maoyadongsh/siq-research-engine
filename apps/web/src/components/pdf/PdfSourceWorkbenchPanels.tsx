@@ -1,7 +1,7 @@
 import type { FocusEvent, MouseEvent, ReactNode, RefObject } from 'react'
 import { BookOpen, ChevronLeft, ChevronRight, ExternalLink, FileText, Save } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { artifactUrl } from '../../lib/pdfApi'
+import { artifactUrl } from '../../features/pdf-parsing/api'
 import type { ArtifactsMap, SourceCorrection, SourceMeta, SourceTable } from '../../lib/pdfTypes'
 
 export type PdfReviewMobileTab = 'pdf' | 'md'

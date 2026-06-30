@@ -15,7 +15,7 @@ import {
   reparseTaskApi,
   refetchTaskApi,
   uploadPdfs,
-} from '../../lib/pdfApi'
+} from '../../features/pdf-parsing/api'
 import { formatDuration, isTerminal, translateStatus } from '../../lib/pdfFormatting'
 
 const PARSE_PAGE_IDLE_DELAY_MS = 1800

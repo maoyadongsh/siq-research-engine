@@ -1,7 +1,7 @@
 import { Download, ExternalLink } from 'lucide-react'
 import type { ArtifactsMap } from '../../lib/pdfTypes'
 import { artifactRoles } from '../../lib/pdfTypes'
-import { artifactDownloadName, artifactDownloadUrl, artifactUrl } from '../../lib/pdfApi'
+import { artifactDownloadName, artifactDownloadUrl, artifactUrl } from '../../features/pdf-parsing/api'
 import { handleAuthenticatedSourceClick } from '../../lib/authenticatedSourceLinks'
 import { downloadAuthenticatedFile } from '../../lib/authenticatedFiles'
 

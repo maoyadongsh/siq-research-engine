@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { Brain, Check, Database, Loader2, Play, RefreshCw } from 'lucide-react'
 import type { ArtifactsMap, WorkflowJob, WorkflowStatus } from '../../lib/pdfTypes'
 import { WIKI_INPUT_ARTIFACTS } from '../../lib/pdfTypes'
-import { pipelineArtifactSummary, workflowReady } from '../../lib/pdfApi'
+import { pipelineArtifactSummary, workflowReady } from '../../features/pdf-parsing/api'
 import { workflowStateClass, workflowStateLabel } from '../../lib/pdfFormatting'
 
 type WorkflowStep = 'wiki-import' | 'wiki-import-generic' | 'semantic' | 'semantic-generic' | 'db-import'

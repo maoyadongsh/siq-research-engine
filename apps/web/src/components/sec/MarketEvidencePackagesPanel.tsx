@@ -12,7 +12,7 @@ import {
   type MarketPackageActionResponse,
   type MarketPackageDetail,
   type MarketPackageSummary,
-} from '../../lib/secApi'
+} from '../../features/market-parsing/api'
 
 function numberText(value: unknown): string {
   const n = Number(value || 0)

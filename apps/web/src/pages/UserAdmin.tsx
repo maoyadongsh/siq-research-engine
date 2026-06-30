@@ -17,7 +17,7 @@ import {
 } from 'lucide-react'
 import { Button } from '../components/ui'
 import { useToast } from '../hooks/useToast'
-import { apiJson } from '../lib/apiClient'
+import { apiJson } from '@/shared/api/client'
 import { useAuth } from '../hooks/useAuth'
 import { EmptyState, PageHeader, PageSection, PageShell, StatusBadge, Surface } from '@/components/page'
 

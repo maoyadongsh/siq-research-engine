@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiJson } from '../lib/apiClient';
+import { apiJson } from '@/shared/api/client';
 import { useAuth } from '../hooks/useAuth';
 
 /**

@@ -19,25 +19,29 @@ import {
 } from '../lib/marketMetadata'
 import { loadDownloadedReports as loadDownloadedReportsApi } from '../features/pdf-parsing/api'
 import {
-  batchDownloadReports,
   deleteDownloadedReport as deleteDownloadedReportApi,
-  downloadReport,
   fetchCuratedAnnuals,
   fetchMarketReportHealth,
-  fetchRecentReports,
-  linkWorkspaceDownload,
   requestReportAssist,
-  resolveCompany,
-  selectDownloadReports,
 } from '../features/search-download/api'
 import { DownloadedReportsPanel } from '../features/search-download/DownloadedReportsPanel'
+import {
+  batchDownloadSelectedReports,
+  downloadReportsIndividually,
+  fetchReportCandidates,
+  quickDownloadReportTypes,
+  resolveSearchCompany,
+  searchFilterForReportSearch,
+  searchParamsForReportSearch,
+  selectedReportsForDownload,
+  type SearchDownloadCompanyInfo,
+} from '../features/search-download/flows'
 import { ReportTableSection } from '../features/search-download/ReportTableSection'
 import {
   MARKET_CONFIGS,
   explanationMap,
   formatBytes,
   friendlyRemoteConfigError,
-  identifierPayload,
   isMarketCode,
   isRemoteConfigError,
   marketSourceConfigLabels,
@@ -71,7 +75,7 @@ export default function SearchDownload() {
   const [downloading, setDownloading] = useState(false)
   const [downloadResults, setDownloadResults] = useState<DownloadFileResult[]>([])
   const [logs, setLogs] = useState<{ time: string; msg: string; type: string }[]>([])
-  const [companyInfo, setCompanyInfo] = useState<{ name: string; ticker: string; curated?: boolean } | null>(null)
+  const [companyInfo, setCompanyInfo] = useState<SearchDownloadCompanyInfo | null>(null)
   const [downloadedReports, setDownloadedReports] = useState<DownloadedPdf[]>([])
   const [downloadedLoading, setDownloadedLoading] = useState(false)
   const [downloadedQuery, setDownloadedQuery] = useState(() => searchParams.get('downloaded') || '')
@@ -147,57 +151,6 @@ export default function SearchDownload() {
     else syncSearchParams({ exchange: value, form: '', country: '' })
   }, [market, syncSearchParams])
 
-  const annualFormsForMarket = useCallback((targetMarket: MarketCode, targetFilter = '') => {
-    if (targetMarket !== 'US') return []
-    if (targetFilter && ['10-K', '20-F'].includes(targetFilter)) return [targetFilter]
-    if (targetFilter) return []
-    return ['10-K', '20-F']
-  }, [])
-
-  const financialFormsForMarket = useCallback((targetMarket: MarketCode, targetFilter = '') => {
-    if (targetMarket !== 'US') return []
-    if (targetFilter) return [targetFilter]
-    return ['10-Q', '6-K']
-  }, [])
-
-  const fileFormatFromUrl = useCallback((url: string) => {
-    const clean = url.toLowerCase().split(/[?#]/, 1)[0]
-    if (clean.includes('dart.fss.or.kr/pdf/download/pdf.do')) return 'pdf'
-    if (clean.includes('dart.fss.or.kr/dsaf001/') || clean.includes('kind.krx.co.kr/')) return 'html'
-    const suffix = clean.match(/\.([a-z0-9]+)$/)?.[1]
-    const openable = new Set(['pdf', 'html', 'htm', 'xml', 'txt', 'zip'])
-    if (!suffix || !openable.has(suffix)) return market === 'US' ? 'htm' : market === 'KR' ? 'html' : market === 'EU' ? 'zip' : 'pdf'
-    return suffix
-  }, [market])
-
-  const downloadItemMarketPayload = useCallback((report: ReportItem) => ({
-    market,
-    document_url: report.document_url,
-    company_name: report.company_name || companyInfo?.name || '',
-    title: report.title,
-    ticker: report.ticker || companyInfo?.ticker || undefined,
-    company_id: market === 'EU'
-      ? `${String(report.metadata?.country || marketFilter || '').trim()}:${report.company_id || report.ticker || companyInfo?.ticker || companyInfo?.name || ''}`.replace(/^:/, '')
-      : report.company_id,
-    report_type: report.report_type,
-    report_end: report.report_end,
-    published_at: report.published_at,
-    landing_url: report.landing_url,
-    file_format: report.file_format || fileFormatFromUrl(report.document_url),
-  }), [companyInfo, fileFormatFromUrl, market, marketFilter])
-
-  const identifierPayloadFor = useCallback((targetMarket: MarketCode, targetQuery: string, resolvedTicker?: string, companyId?: string, targetCountry?: string) => {
-    const base = identifierPayload(targetMarket, targetQuery, resolvedTicker)
-    const countryPrefix = targetMarket === 'EU' && targetCountry ? `${targetCountry}:` : ''
-    if (companyId) return { ...base, company_id: `${countryPrefix}${companyId}` }
-    if (targetMarket === 'EU' && targetCountry) {
-      if ('ticker' in base && typeof base.ticker === 'string') return { company_id: `${countryPrefix}${base.ticker}`, ticker: base.ticker }
-      if ('company_id' in base && typeof base.company_id === 'string') return { company_id: `${countryPrefix}${base.company_id}` }
-      return { ...base, company_id: `${countryPrefix}${targetQuery.trim()}` }
-    }
-    return base
-  }, [])
-
   const quickDownloadOptions = marketConfig.quickOptions
 
   const annualTitle = market === 'US' ? '年度报告列表' : market === 'JP' ? '有价证券报告书列表' : market === 'EU' ? '年度财务报告列表' : '年报列表'
@@ -210,20 +163,6 @@ export default function SearchDownload() {
       : market === 'JP'
         ? '财报列表（半期 / 季度）'
         : '财报列表（半年报 / 季报）'
-
-  const resolveCompanyName = useCallback((resolved: Record<string, unknown>) => {
-    const resolvedCompany = (resolved.resolved || resolved) as Record<string, unknown>
-    const companyName = String(
-      resolvedCompany.company_name
-      || resolvedCompany.canonical_name
-      || resolvedCompany.display_name
-      || resolved.company_name
-      || resolved.name
-      || query
-    )
-    const ticker = String(resolvedCompany.ticker || resolved.ticker || resolved.code || '')
-    return { companyName, ticker }
-  }, [query])
 
   const setDownloadedQueryAndUrl = useCallback((value: string) => {
     setDownloadedQuery(value)
@@ -411,16 +350,6 @@ export default function SearchDownload() {
     }
   }, [market])
 
-  const linkDownloadedFiles = useCallback(async (items: DownloadFileResult[]) => {
-    const successful = items.filter((item) => item.success !== false && (item.saved_path || item.file_name))
-    await Promise.allSettled(successful.map((item) => linkWorkspaceDownload({
-      saved_path: item.saved_path,
-      file_name: item.file_name,
-      company_name: item.company_name,
-      source: item.cache_hit ? 'reused_download_cache' : 'new_download',
-    })))
-  }, [])
-
   useEffect(() => {
     async function init() {
       await loadDownloadedReports('')
@@ -449,19 +378,18 @@ export default function SearchDownload() {
   }) => {
     if (!targetQuery.trim() && !targetTicker && !targetCompanyId) return
     const targetConfig = MARKET_CONFIGS[targetMarket]
-    const targetFilter = targetMarket === 'EU'
-      ? (targetCountry ?? (source === 'manual' ? marketFilter : ''))
-      : source === 'manual' ? marketFilter : ''
-    const targetAnnualForms = annualFormsForMarket(targetMarket, targetFilter)
-    const targetFinancialForms = financialFormsForMarket(targetMarket, targetFilter)
-    syncSearchParams({
-      market: targetMarket,
-      q: targetQuery,
-      year: targetYear,
-      exchange: targetMarket === 'CN' ? targetFilter : '',
-      form: targetMarket === 'US' ? targetFilter : '',
-      country: targetMarket === 'EU' ? targetFilter : '',
-    }, false)
+    const targetFilter = searchFilterForReportSearch({
+      targetMarket,
+      source,
+      marketFilter,
+      targetCountry,
+    })
+    syncSearchParams(searchParamsForReportSearch({
+      targetMarket,
+      targetQuery,
+      targetYear,
+      targetFilter,
+    }), false)
     setMarket(targetMarket)
     setQuery(targetQuery)
     setYear(targetYear)
@@ -477,61 +405,40 @@ export default function SearchDownload() {
     addLog(`正在查询: ${targetConfig.label} ${targetQuery || targetTicker || targetCompanyId} (${targetYear} / ${targetFilter || '自动'})`, 'info')
 
     try {
-      // Step 1: Resolve company
-      const resolved = await resolveCompany({
-        market: targetMarket,
-        ...identifierPayloadFor(targetMarket, targetQuery, targetTicker, targetCompanyId, targetFilter),
+      const resolvedCompany = await resolveSearchCompany({
+        targetMarket,
+        targetQuery,
+        targetTicker,
+        targetCompanyId,
+        targetFilter,
       })
-      const { companyName, ticker } = resolveCompanyName(resolved)
-      setCompanyInfo({ name: companyName, ticker })
+      const companyName = resolvedCompany.name
+      const ticker = resolvedCompany.ticker
+      setCompanyInfo(resolvedCompany)
       addLog(`已解析: ${companyName}${ticker ? ` (${ticker})` : ''}`, 'success')
 
       if (!(await ensureOfficialReportSearchReady(targetMarket))) return
 
-      const baseReportPayload = {
-        market: targetMarket,
-        company_name: companyName,
-        ticker: ticker || targetTicker || undefined,
-        company_id: targetMarket === 'EU' && targetFilter
-          ? `${targetFilter}:${targetCompanyId || ticker || targetQuery}`
-          : targetCompanyId || undefined,
-        exchange_hint: targetMarket === 'CN' ? targetFilter || undefined : undefined,
-      }
-
-      // Step 2: Query annual reports
-      let annual: ReportItem[] = []
-      if (targetMarket !== 'US' || targetAnnualForms.length > 0) {
-        const annualData = await fetchRecentReports<{
-          reports?: ReportItem[]
-          items?: ReportItem[]
-        }>({
-          ...baseReportPayload,
-          target: 'annual_report',
-          report_year: parseInt(targetYear),
-          forms: targetAnnualForms,
-          limit: 10,
-        })
-        annual = Array.isArray(annualData) ? annualData : annualData.reports || annualData.items || []
-      }
+      const {
+        annualReports: annual,
+        financialReports: financial,
+        candidateReports,
+      } = await fetchReportCandidates({
+        targetMarket,
+        targetQuery,
+        targetYear,
+        targetTicker,
+        targetCompanyId,
+        targetFilter,
+        companyName,
+        ticker,
+      })
       setAnnualReports(annual)
       addLog(`找到 ${annual.length} 份${targetMarket === 'US' ? '年度披露' : targetMarket === 'JP' ? '有价证券报告书' : '年报'}`, 'success')
-
-      // Step 3: Query financial reports
-      const finData = await fetchRecentReports<{
-        reports?: ReportItem[]
-        items?: ReportItem[]
-      }>({
-        ...baseReportPayload,
-        target: 'financial_report',
-        report_year: parseInt(targetYear),
-        forms: targetFinancialForms,
-        limit: 20,
-      })
-      const financial = Array.isArray(finData) ? finData : finData.reports || finData.items || []
       setFinancialReports(financial)
       addLog(`找到 ${financial.length} 份定期披露`, 'success')
       await explainCandidates(
-        uniqueBy([...annual, ...financial], (report) => report.document_url),
+        candidateReports,
         companyName,
         ticker,
         { targetMarket, targetYear, reportTypes },
@@ -613,47 +520,28 @@ export default function SearchDownload() {
     addLog(`开始下载 ${selected.size} 份${marketConfig.label}披露文件...`, 'info')
 
     const allReports = [...annualReports, ...financialReports]
-    const selectedReports = uniqueBy(
-      allReports.filter((r) => selected.has(r.document_url)),
-      (report) => report.document_url,
-    )
+    const selectedReports = selectedReportsForDownload(allReports, selected)
 
     try {
-      const items = selectedReports.map(downloadItemMarketPayload)
-
-      const data = await batchDownloadReports<{
-        results?: DownloadFileResult[]
-        files?: DownloadFileResult[]
-        succeeded?: number
-        failed?: number
-      }>({
+      const data = await batchDownloadSelectedReports({
         market,
-        default_company_name: companyInfo.name,
-        items,
+        companyInfo,
+        marketFilter,
+        reports: selectedReports,
       })
-
-      const results = uniqueBy(data.results || data.files || [], (item: DownloadFileResult) => item.document_url || item.file_name)
-      setDownloadResults(results)
-      await linkDownloadedFiles(results)
-      addLog(`下载完成: 成功 ${data.succeeded || 0}, 失败 ${data.failed || 0}`, 'success')
+      setDownloadResults(data.results)
+      addLog(`下载完成: 成功 ${data.succeeded}, 失败 ${data.failed}`, 'success')
       void loadDownloadedReports(downloadedQuery)
     } catch (err) {
       addLog(`批量下载失败: ${(err as Error).message}, 尝试逐个下载...`, 'warn')
 
-      // Fallback: download one by one
-      for (const report of selectedReports) {
-        try {
-          await downloadReport({
-            market,
-            company_name: companyInfo.name,
-            ticker: companyInfo.ticker || undefined,
-            document_url: report.document_url,
-            title: report.title,
-          })
-          addLog(`下载成功: ${report.title}`, 'success')
-        } catch {
-          addLog(`下载失败: ${report.title}`, 'error')
-        }
+      const fallbackResults = await downloadReportsIndividually({
+        market,
+        companyInfo,
+        reports: selectedReports,
+      })
+      for (const result of fallbackResults) {
+        addLog(`${result.success ? '下载成功' : '下载失败'}: ${result.report.title}`, result.success ? 'success' : 'error')
       }
     } finally {
       setDownloading(false)
@@ -669,24 +557,15 @@ export default function SearchDownload() {
     addLog(`快速下载 ${reportTypes.map((t) => typeLabels[t] || t).join('+')}...`, 'info')
 
     try {
-      const data = await selectDownloadReports<{
-        files?: DownloadFileResult[]
-        company_name?: string
-        succeeded?: number
-        total?: number
-      }>({
+      const data = await quickDownloadReportTypes({
         market,
-        company_name: companyInfo.name,
-        ticker: companyInfo.ticker || undefined,
-        company_id: market === 'EU' && marketFilter && companyInfo.ticker ? `${marketFilter}:${companyInfo.ticker}` : undefined,
-        report_types: reportTypes,
-        report_year: parseInt(year),
+        companyInfo,
+        marketFilter,
+        reportTypes,
+        year,
       })
-
-      const files = data.files || []
-      setDownloadResults(files)
-      await linkDownloadedFiles(files)
-      addLog(`下载完成: ${data.company_name} 成功 ${data.succeeded}/${data.total}`, 'success')
+      setDownloadResults(data.files)
+      addLog(`下载完成: ${data.companyName} 成功 ${data.succeeded}/${data.total}`, 'success')
       void loadDownloadedReports(downloadedQuery)
     } catch (e) {
       addLog(`下载失败: ${(e as Error).message}`, 'error')

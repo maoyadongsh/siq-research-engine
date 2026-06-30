@@ -1,7 +1,7 @@
 import { useEffect, useState, type MouseEvent } from 'react'
 import { ExternalLink, FileText, X } from 'lucide-react'
 import { normalizeChatAssetUrl } from '../../lib/chatAssets'
-import { apiBlob } from '../../lib/apiClient'
+import { apiBlob } from '@/shared/api/client'
 import type { AgentAttachment } from '../../lib/useAgentChat'
 
 interface ChatAttachmentListProps {

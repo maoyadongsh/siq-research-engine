@@ -14,7 +14,7 @@ import {
   TrendingUp,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { apiJson } from '../lib/apiClient'
+import { apiJson } from '@/shared/api/client'
 
 interface WikiCompany {
   code: string

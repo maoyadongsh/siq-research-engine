@@ -6,7 +6,7 @@ import {
   loadWorkflowStatusApi,
   runRemainingWorkflowApi,
   runWorkflowStepApi,
-} from '../../lib/pdfApi'
+} from '../../features/pdf-parsing/api'
 
 type WorkflowStep = 'wiki-import' | 'wiki-import-generic' | 'semantic' | 'semantic-generic' | 'db-import'
 

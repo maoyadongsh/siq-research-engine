@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Search, Loader2, FileText, X, ArrowLeft } from 'lucide-react'
 import { isAuthenticatedSourceLink, openAuthenticatedSourceLink } from '../../lib/authenticatedSourceLinks'
-import { apiJson } from '../../lib/apiClient'
+import { apiJson } from '@/shared/api/client'
 
 interface SearchResult {
   id: string

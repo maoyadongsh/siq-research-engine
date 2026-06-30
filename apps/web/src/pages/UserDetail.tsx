@@ -16,7 +16,7 @@ import {
   UserRound,
   XCircle,
 } from 'lucide-react'
-import { apiJson } from '../lib/apiClient'
+import { apiJson } from '@/shared/api/client'
 import { EmptyState, PageHeader, PageSection, PageShell, StatusBadge, Surface } from '@/components/page'
 
 type ApprovalStatus = 'pending' | 'approved' | 'rejected'

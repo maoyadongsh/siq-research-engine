@@ -4,7 +4,7 @@ import { AlertCircle, BarChart3, ChartCandlestick, Loader2, Scale, ShieldCheck, 
 import PageWithAgentChat from '../agent/PageWithAgentChat'
 import { useToast } from '../../hooks/useToast'
 import { copyText } from '../../lib/clipboard'
-import { apiBlob, apiJson, apiText } from '../../lib/apiClient'
+import { apiBlob, apiJson, apiText } from '@/shared/api/client'
 import { useAuth } from '../../hooks/useAuth'
 import type { Company, ReportItem, ReportViewerProps } from '@/lib/reportTypes'
 import { companyHasReportForType, reportUrlFor } from '@/lib/reportTypes'

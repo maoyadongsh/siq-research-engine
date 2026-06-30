@@ -15,7 +15,7 @@ import {
   TrendingUp,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { apiJson } from '../lib/apiClient'
+import { apiJson } from '@/shared/api/client'
 import { isAuthenticatedSourceLink, openAuthenticatedSourceLink } from '../lib/authenticatedSourceLinks'
 
 type Quota = { used: number; limit: number | null; remaining: number | null; resetAt: string }

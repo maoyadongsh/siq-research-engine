@@ -17,6 +17,7 @@ import type {
   DocumentWorkflowStatus,
 } from '../../lib/documentTypes'
 import {
+  buildDocumentSemanticChunks,
   createDocumentTaskFromUrl,
   createDocumentTasks,
   deleteDocumentTask,
@@ -33,15 +34,14 @@ import {
   fetchDocumentTables,
   fetchDocumentWorkflowStatus,
   fetchMineruImportCandidates,
-  buildDocumentSemanticChunks,
   importDocumentFromMineru,
-  importDocumentToWiki,
   importDocumentToDatabase,
+  importDocumentToWiki,
   loadDocumentTasks,
   reviewDocumentTableRelation,
   retryDocumentTask,
   runDocumentExtraction,
-} from '../../lib/documentApi'
+} from '../../features/document-parser/api'
 import { downloadAuthenticatedFile } from '../../lib/authenticatedFiles'
 
 const terminalStatuses = new Set(['completed', 'completed_with_warnings', 'failed', 'cancelled'])

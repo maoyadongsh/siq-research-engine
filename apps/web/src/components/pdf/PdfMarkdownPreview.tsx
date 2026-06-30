@@ -1,7 +1,7 @@
 import { Copy, Download, FileText } from 'lucide-react'
 import type { RefObject } from 'react'
 import { copyText } from '../../lib/clipboard'
-import { getDownloadUrl } from '../../lib/pdfApi'
+import { getDownloadUrl } from '../../features/pdf-parsing/api'
 import { downloadAuthenticatedFile } from '../../lib/authenticatedFiles'
 
 export interface PdfMarkdownPreviewProps {

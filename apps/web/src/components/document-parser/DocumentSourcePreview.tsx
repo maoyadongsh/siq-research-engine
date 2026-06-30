@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { ExternalLink, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { documentSourcePageImageUrl } from '@/features/document-parser/api'
-import { apiBlob } from '@/lib/apiClient'
+import { apiBlob } from '@/shared/api/client'
 import type {
   DocumentLayoutPage,
   DocumentTable,

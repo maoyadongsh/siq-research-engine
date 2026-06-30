@@ -84,7 +84,16 @@ async function mockDocumentPreviewApis(page: Page) {
     if (url.pathname === `/api/documents/artifact/${taskId}/tables.json`) {
       await route.fulfill(json({
         physical_tables: [
-          { table_id: 'table-1', block_id: 'block-table-1', title: '测试表格', page_number: 1, bbox: [120, 180, 520, 420], bbox_unit: 'pixel' },
+          {
+            table_id: 'table-1',
+            block_id: 'block-table-1',
+            title: '测试表格',
+            page_number: 1,
+            bbox: [120, 180, 520, 420],
+            bbox_unit: 'pixel',
+            quality: { row_count: 2, column_count: 3 },
+            markdown: '| 项目 | Q1 | Q2 |\n| --- | ---: | ---: |\n| 营收 | 10 | 12 |',
+          },
         ],
       }))
       return
@@ -156,8 +165,73 @@ test('文档结果工作台加载受保护页图、overlay 和图片产物', asy
   await tableOverlay.click()
   await expect(tableOverlay).toHaveClass(/is-focused/)
 
+  await page.getByRole('tab', { name: /表格/ }).click()
+  const tablePane = page.locator('[data-slot="tabs-content"][data-state="active"] .doc-table-list')
+  await expect(tablePane).toBeVisible()
+  const tableRow = tablePane.locator('.doc-data-row').filter({ hasText: '测试表格' }).first()
+  await expect(tableRow).toBeVisible()
+  await expect(tableRow.getByText('页码 1 · 2 行 · 3 列')).toBeVisible()
+  const tablePrimaryAction = tableRow.getByRole('button', { name: '定位原页', exact: true })
+  await expect(tablePrimaryAction).toBeVisible()
+  const tableTabLayout = await page.evaluate(() => {
+    const selectors = {
+      tablePane: '[data-slot="tabs-content"][data-state="active"] .doc-table-list',
+      tableRow: '[data-slot="tabs-content"][data-state="active"] .doc-table-list .doc-data-row',
+      primaryAction: '[data-slot="tabs-content"][data-state="active"] .doc-table-list .doc-data-row button',
+      tabList: '[data-slot="tabs-list"]',
+      tabSelect: 'select[aria-label="切换结果标签"]',
+      assistantFab: '.agent-chat-fab',
+    }
+    const rectFor = (selector: string, text?: string) => {
+      const elements = Array.from(document.querySelectorAll<HTMLElement>(selector))
+      const element = text ? elements.find((candidate) => candidate.innerText.includes(text)) : elements[0]
+      if (!element) return null
+      const rect = element.getBoundingClientRect()
+      return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height }
+    }
+    const overlaps = (
+      a: NonNullable<ReturnType<typeof rectFor>>,
+      b: NonNullable<ReturnType<typeof rectFor>>,
+    ) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
+    const tablePaneRect = rectFor(selectors.tablePane)
+    const tableRowRect = rectFor(selectors.tableRow, '测试表格')
+    const primaryActionRect = rectFor(selectors.primaryAction, '定位原页')
+    const controlRects = [rectFor(selectors.tabList), rectFor(selectors.tabSelect), rectFor(selectors.assistantFab)].filter(
+      (rect): rect is NonNullable<typeof rect> => Boolean(rect && rect.width > 0 && rect.height > 0),
+    )
+
+    return {
+      hasRects: Boolean(tablePaneRect && tableRowRect && primaryActionRect),
+      rowInsidePane: Boolean(
+        tablePaneRect && tableRowRect
+          && tableRowRect.left >= tablePaneRect.left
+          && tableRowRect.right <= tablePaneRect.right
+          && tableRowRect.top >= tablePaneRect.top
+          && tableRowRect.bottom <= tablePaneRect.bottom,
+      ),
+      actionInsideRow: Boolean(
+        tableRowRect && primaryActionRect
+          && primaryActionRect.left >= tableRowRect.left
+          && primaryActionRect.right <= tableRowRect.right
+          && primaryActionRect.top >= tableRowRect.top
+          && primaryActionRect.bottom <= tableRowRect.bottom,
+      ),
+      rowControlCollisions: tableRowRect ? controlRects.filter((rect) => overlaps(tableRowRect, rect)).length : -1,
+      actionControlCollisions: primaryActionRect ? controlRects.filter((rect) => overlaps(primaryActionRect, rect)).length : -1,
+    }
+  })
+  expect(tableTabLayout.hasRects).toBe(true)
+  expect(tableTabLayout.rowInsidePane).toBe(true)
+  expect(tableTabLayout.actionInsideRow).toBe(true)
+  expect(tableTabLayout.rowControlCollisions).toBe(0)
+  expect(tableTabLayout.actionControlCollisions).toBe(0)
+
   await page.getByRole('tab', { name: /图片/ }).click()
   const figureImage = page.locator('img.doc-figure-image')
   await expect(figureImage).toBeVisible()
   await expect(page.getByText('测试图片')).toBeVisible()
+
+  await page.getByRole('tab', { name: /产物/ }).click()
+  const artifactRow = page.locator('.doc-artifact-list .doc-data-row').filter({ hasText: 'figures/figure-1.png' })
+  await expect(artifactRow.getByRole('button', { name: '打开', exact: true })).toBeVisible()
 })

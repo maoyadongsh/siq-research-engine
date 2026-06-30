@@ -1,6 +1,6 @@
 import { BarChart3, CheckCircle2, ExternalLink, XCircle } from 'lucide-react'
 import type { FinancialResult } from '../../lib/pdfTypes'
-import { PDF_API } from '../../lib/pdfApi'
+import { PDF_API } from '../../features/pdf-parsing/api'
 import { formatFinancialNumber, scopeName } from '../../lib/pdfFormatting'
 import { handleAuthenticatedSourceClick } from '../../lib/authenticatedSourceLinks'
 
