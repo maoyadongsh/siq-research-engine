@@ -6,7 +6,6 @@ Flask backend for converting PDFs using the local MinerU API.
 
 from collections import Counter
 import io
-import json
 import os
 import re
 import shutil
@@ -59,6 +58,11 @@ from pdf_parser_page_markers import (
     _strip_page_markers,
 )
 import pdf_parser_artifact_service as artifact_service
+import pdf_parser_content_list_enhanced_service as content_list_enhanced_service
+import pdf_parser_document_full_service as document_full_service
+import pdf_parser_financial_service as financial_service
+import pdf_parser_mineru_result_service as mineru_result_service
+import pdf_parser_quality_service as quality_service
 import pdf_parser_source_service as source_service
 import pdf_parser_task_repository as task_repository
 from quality_engine import (
@@ -67,7 +71,6 @@ from quality_engine import (
     detect_report_year as quality_detect_report_year,
 )
 from quality_report import (
-    CORE_FINANCIAL_TABLE_NAMES,
     INDICATOR_TABLE_NAMES,
     KEY_SECTIONS,
     KEY_TABLE_DISPLAY_ORDER,
@@ -820,381 +823,39 @@ def _detect_report_kind(markdown, filename=None):
 
 
 def _compact_candidate_text(text):
-    return re.sub(r"\s+", "", str(text or ""))
+    return quality_service.compact_candidate_text(text)
 
 
 def _unique_preserve_order(items):
-    seen = set()
-    result = []
-    for item in items:
-        if item in seen:
-            continue
-        seen.add(item)
-        result.append(item)
-    return result
+    return quality_service.unique_preserve_order(items)
 
 
 def _candidate_signal_text(context, source, table_text):
-    caption = " ".join(source.get("caption") or [])
-    footnote = " ".join(source.get("footnote") or [])
-    heading = context.get("heading") or ""
-    near_text = context.get("near_text") or ""
-    preview = table_text[:600]
-    direct = " ".join(filter(None, [heading, caption, footnote, table_text[:180]]))
-    broad = " ".join(filter(None, [direct, near_text[:220], preview]))
-    return direct, broad
+    return quality_service.candidate_signal_text(context, source, table_text)
 
 
 def _candidate_title_text(context, source):
-    caption = " ".join(source.get("caption") or [])
-    footnote = " ".join(source.get("footnote") or [])
-    heading = context.get("heading") or ""
-    return " ".join(filter(None, [heading, caption, footnote]))
+    return quality_service.candidate_title_text(context, source)
 
 
 def _table_item_text(table_item):
-    return _compact_candidate_text(
-        " ".join(
-            str(part or "")
-            for part in (
-                table_item.get("heading"),
-                table_item.get("preview"),
-                table_item.get("text_preview"),
-            )
-        )
-    )
+    return quality_service.table_item_text(table_item)
 
 
 def _nearest_table_for_statement_lines(report, lines, statement_type):
-    if not lines:
-        return None
-    table_items = [
-        item
-        for item in (report.get("table_index") or [])
-        if isinstance(item, dict) and item.get("table_index") and item.get("line")
-    ]
-    if not table_items:
-        return None
-
-    bad_balance_terms = (
-        "平均余额",
-        "平均收益率",
-        "平均成本率",
-        "利息收入/支出",
-        "生息资产",
-        "计息负债",
-    )
-    best = None
-    min_line = min(
-        int(line)
-        for line in lines
-        if isinstance(line, int) or (isinstance(line, str) and line.isdigit())
-    )
-    for line in lines:
-        try:
-            source_line = int(line)
-        except (TypeError, ValueError):
-            continue
-        for table_item in table_items:
-            try:
-                table_line = int(table_item.get("line") or 0)
-            except (TypeError, ValueError):
-                continue
-            if table_line <= 0:
-                continue
-            table_text = _table_item_text(table_item)
-            if statement_type == "balance_sheet" and any(term in table_text for term in bad_balance_terms):
-                continue
-            distance = abs(source_line - table_line)
-            if distance > 40:
-                continue
-            if statement_type == "balance_sheet":
-                has_asset_heading = "资产" in table_text and not any(term in table_text for term in ("负债", "股东权益", "所有者权益"))
-                starts_before_first_total = table_line <= min_line
-                score = (0 if has_asset_heading else 1, 0 if starts_before_first_total else 1, abs(min_line - table_line), table_line)
-            else:
-                # Prefer the table that starts immediately before the verified total row.
-                direction_penalty = 0 if table_line <= source_line else 1
-                score = (distance, direction_penalty, table_line)
-            if best is None or score < best["score"]:
-                best = {
-                    "score": score,
-                    "table_index": table_item.get("table_index"),
-                    "line": min_line if statement_type == "balance_sheet" else source_line,
-                    "table_item": table_item,
-                }
-    return best
+    return quality_service.nearest_table_for_statement_lines(report, lines, statement_type)
 
 
 def _statement_display_source(statement, report, statement_type):
-    indexes = statement.get("table_indexes") or []
-    lines = statement.get("line_numbers") or []
-    table_lookup = {
-        item.get("table_index"): item
-        for item in (report.get("table_index") or [])
-        if isinstance(item, dict) and item.get("table_index")
-    }
-    bad_balance_terms = (
-        "平均余额",
-        "平均收益率",
-        "平均成本率",
-        "利息收入/支出",
-        "生息资产",
-        "计息负债",
-    )
-    fallback = {
-        "table_index": indexes[0] if indexes else None,
-        "line": lines[0] if lines else None,
-        "table_item": table_lookup.get(indexes[0]) if indexes else None,
-    }
-    if not indexes and lines:
-        nearby_table = _nearest_table_for_statement_lines(report, lines, statement_type)
-        if nearby_table:
-            fallback = nearby_table
-    for pos, table_index in enumerate(indexes):
-        table_item = table_lookup.get(table_index) or {}
-        table_text = _table_item_text(table_item)
-        display_text = _compact_candidate_text(
-            " ".join(
-                str(part or "")
-                for part in (
-                    table_text,
-                    statement.get("title"),
-                    statement.get("statement_name"),
-                )
-            )
-        )
-        if statement_type == "balance_sheet" and any(term in table_text for term in bad_balance_terms):
-            continue
-        return {
-            "table_index": table_index,
-            "line": lines[pos] if pos < len(lines) else None,
-            "table_item": table_item,
-        }
-    return fallback
+    return quality_service.statement_display_source(statement, report, statement_type)
 
 
 def _merge_quality_candidates_from_financial_data(report, financial_data):
-    if not isinstance(report, dict) or not isinstance(financial_data, dict):
-        return report
-    statements = financial_data.get("statements") or []
-    metrics = financial_data.get("key_metrics") or []
-    if not statements:
-        statements = []
-
-    existing = report.get("key_table_candidates") or {}
-    by_name = {}
-    for statement in statements:
-        statement_type = statement.get("statement_type")
-        scope = statement.get("scope")
-        if statement_type == "balance_sheet":
-            by_name.setdefault("资产负债表", []).append(statement)
-            if scope == "consolidated":
-                by_name.setdefault("合并资产负债表", []).append(statement)
-            elif scope == "parent_company":
-                by_name.setdefault("公司资产负债表", []).append(statement)
-        elif statement_type == "income_statement":
-            by_name.setdefault("利润表", []).append(statement)
-            if scope == "consolidated":
-                by_name.setdefault("合并利润表", []).append(statement)
-            elif scope == "parent_company":
-                by_name.setdefault("公司利润表", []).append(statement)
-        elif statement_type == "cash_flow_statement":
-            by_name.setdefault("现金流量表", []).append(statement)
-            if scope == "consolidated":
-                by_name.setdefault("合并现金流量表", []).append(statement)
-            elif scope == "parent_company":
-                by_name.setdefault("公司现金流量表", []).append(statement)
-
-    if metrics:
-        def _metric_source_for(canonical_names):
-            for canonical_name in canonical_names:
-                for item in metrics:
-                    if item.get("canonical_name") != canonical_name:
-                        continue
-                    sources = item.get("sources") or {}
-                    if sources:
-                        return item, next(iter(sources.values()))
-            return None, None
-
-        metric_sources = {
-            "主要会计数据": _metric_source_for(
-                (
-                    "operating_revenue",
-                    "operating_profit",
-                    "total_profit",
-                    "parent_net_profit",
-                    "operating_cash_flow_net",
-                    "total_assets",
-                    "total_liabilities",
-                    "equity_attributable_parent",
-                )
-            ),
-            "主要财务指标": _metric_source_for(
-                (
-                    "weighted_avg_roe",
-                    "deducted_weighted_avg_roe",
-                    "parent_nav_per_share",
-                    "basic_eps",
-                    "diluted_eps",
-                    "deducted_basic_eps",
-                )
-            ),
-        }
-        for name, (metric_item, metric_source) in metric_sources.items():
-            if metric_source is not None:
-                by_name.setdefault(name, []).append(
-                    {
-                        "name": name,
-                        "status": "found",
-                        "table_index": metric_source.get("table_index"),
-                        "line": metric_source.get("line"),
-                        "pdf_page_number": None,
-                        "pdf_page_source": "",
-                        "pdf_page_inference_reason": "",
-                        "bbox": [],
-                        "rows": None,
-                        "cells": None,
-                        "empty_ratio": None,
-                        "numeric_ratio": None,
-                        "heading": metric_item.get("name") if metric_item else name,
-                        "unit": metric_item.get("unit") if metric_item else "",
-                        "table_type": "fact",
-                        "year_binding_required": True,
-                        "report_year": financial_data.get("report_year"),
-                        "candidate_group": quality_candidate_group(name),
-                        "candidate_score": 99.0,
-                        "confidence": "high",
-                        "preview": metric_item.get("name") if metric_item else name,
-                        "is_primary": True,
-                        "_source": "financial_data",
-                    }
-                )
-
-    for name in ("所有者权益变动表",):
-        if any(statement.get("statement_type") == "equity_statement" for statement in statements):
-            by_name.setdefault(name, [])
-
-    for name, statement_rows in by_name.items():
-        existing_rows = existing.get(name) or []
-        if any(
-            item.get("status") == "found" and item.get("table_index") and item.get("line")
-            for item in existing_rows
-        ):
-            continue
-        fallback_rows = []
-        for idx, statement in enumerate(statement_rows, start=1):
-            statement_type = statement.get("statement_type")
-            display_source = _statement_display_source(statement, report, statement_type)
-            display_table = display_source.get("table_item") or {}
-            if isinstance(statement, dict) and statement.get("status") == "found" and (
-                statement.get("table_index") or statement.get("line")
-            ):
-                fallback = dict(statement)
-                fallback.setdefault("name", name)
-                fallback.setdefault("candidate_group", quality_candidate_group(name))
-                fallback.setdefault("candidate_score", 100.0 - idx)
-                fallback.setdefault("confidence", "high")
-                fallback.setdefault("is_primary", idx == 1)
-                fallback_rows.append(fallback)
-                continue
-            fallback_rows.append(
-                {
-                    "name": name,
-                    "status": "found",
-                    "table_index": display_source.get("table_index"),
-                    "line": display_source.get("line"),
-                    "pdf_page_number": display_table.get("pdf_page_number"),
-                    "pdf_page_source": display_table.get("pdf_page_source"),
-                    "pdf_page_inference_reason": display_table.get("pdf_page_inference_reason"),
-                    "bbox": display_table.get("bbox") or [],
-                    "rows": display_table.get("rows"),
-                    "cells": display_table.get("cells"),
-                    "empty_ratio": display_table.get("empty_ratio"),
-                    "numeric_ratio": display_table.get("numeric_ratio"),
-                    "heading": display_table.get("heading") or statement.get("title") or statement.get("statement_name") or name,
-                    "unit": statement.get("unit") or "",
-                    "table_type": "fact",
-                    "year_binding_required": True,
-                    "report_year": financial_data.get("report_year"),
-                    "candidate_group": "core",
-                    "candidate_score": 100.0 - idx,
-                    "confidence": "high",
-                    "preview": display_table.get("preview") or statement.get("title") or statement.get("statement_name") or name,
-                    "is_primary": idx == 1,
-                    "_source": "financial_data",
-                }
-            )
-        if fallback_rows:
-            existing[name] = fallback_rows
-
-    report["key_table_candidates"] = existing
-
-    financial_names = []
-    financial_rows = {}
-    for name in CORE_FINANCIAL_TABLE_NAMES:
-        rows = existing.get(name) or []
-        found_row = next(
-            (item for item in rows if item.get("table_index") and item.get("line")),
-            None,
-        )
-        if found_row:
-            financial_names.append(name)
-            financial_rows[name] = found_row
-    report["found_financial_tables"] = financial_names
-    core_candidates = []
-    for name in CORE_FINANCIAL_TABLE_NAMES:
-        row = financial_rows.get(name) or {}
-        item = {
-            "name": name,
-            "status": "found" if name in financial_names else "missing",
-            "candidate_group": quality_candidate_group(name),
-        }
-        if row:
-            for key in (
-                "table_index",
-                "line",
-                "pdf_page_number",
-                "pdf_page_source",
-                "pdf_page_inference_reason",
-                "bbox",
-                "rows",
-                "cells",
-                "empty_ratio",
-                "numeric_ratio",
-                "heading",
-                "unit",
-                "table_type",
-                "year_binding_required",
-                "report_year",
-                "candidate_score",
-                "confidence",
-                "preview",
-                "_source",
-            ):
-                if key in row:
-                    item[key] = row.get(key)
-        core_candidates.append(item)
-    report["core_financial_table_candidates"] = core_candidates
-    report["report_kind"] = financial_data.get("report_kind") or report.get("report_kind")
-    return report
+    return quality_service.merge_quality_candidates_from_financial_data(report, financial_data)
 
 
 def _quality_report_warnings(report, financial_data=None):
-    warnings = list(report.get("warnings") or [])
-    if financial_data and financial_data.get("summary", {}).get("statement_count", 0) >= 3:
-        warnings = [
-            item
-            for item in warnings
-            if "财报核心表标题召回偏少" not in item and "核心表" not in item
-        ]
-    if report.get("report_kind") in {"annual_report_summary", "interim_report_summary"}:
-        warnings = [item for item in warnings if "三大表" not in item and "核心表" not in item]
-        if financial_data and financial_data.get("key_metrics"):
-            warnings.append("当前文件为报告摘要，已按摘要模式处理主要会计数据/财务指标。")
-            if financial_data.get("summary", {}).get("statement_count", 0) == 0:
-                warnings.append("摘要文件不提供完整三大表；如需勾稽校验，请切换到年度报告全文。")
-    return warnings
+    return quality_service.quality_report_warnings(report, financial_data)
 
 
 def _has_formal_statement_signal(name, compact_direct):
@@ -2168,47 +1829,7 @@ def _block_page_number(block):
 
 
 def _build_enhanced_page_blocks(content_list):
-    content_list = _coerce_json_artifact(content_list)
-    if not isinstance(content_list, list):
-        return []
-    printed_pages = _printed_page_numbers_by_pdf_page(content_list)
-    pages = {}
-    for block in content_list:
-        if not isinstance(block, dict):
-            continue
-        page_number = _block_page_number(block)
-        if not page_number:
-            continue
-        payload = pages.setdefault(
-            page_number,
-            {
-                "page_number": page_number,
-                "pdf_page_number": page_number,
-                "printed_page_number": printed_pages.get(page_number),
-                "block_count": 0,
-                "block_types": Counter(),
-                "table_count": 0,
-                "text_chars": 0,
-                "footnote_texts": [],
-            },
-        )
-        block_type = str(block.get("type") or "unknown")
-        payload["block_count"] += 1
-        payload["block_types"][block_type] += 1
-        if block_type == "table":
-            payload["table_count"] += 1
-            for footnote in block.get("table_footnote") or []:
-                if str(footnote or "").strip():
-                    payload["footnote_texts"].append(str(footnote).strip())
-        text = " ".join(_collect_text_fragments(block))
-        payload["text_chars"] += len(text)
-    return [
-        {
-            **{key: value for key, value in page.items() if key != "block_types"},
-            "block_types": dict(page["block_types"]),
-        }
-        for _page_number, page in sorted(pages.items())
-    ]
+    return content_list_enhanced_service.build_enhanced_page_blocks(content_list)
 
 
 def _markdown_image_details(markdown):
@@ -2553,107 +2174,7 @@ def _should_show_image_block_in_complete(block):
 
 
 def _build_image_semantic_blocks(markdown, content_list=None):
-    content_list = _coerce_json_artifact(content_list)
-    if not isinstance(content_list, list):
-        content_list = []
-    details_by_path = _markdown_image_details(markdown)
-    path_offsets = Counter()
-    blocks = []
-    for source_id, block in enumerate(content_list, start=1):
-        if not isinstance(block, dict):
-            continue
-        block_type = str(block.get("type") or block.get("category") or block.get("block_type") or "").lower()
-        sub_type = str(block.get("sub_type") or block.get("subtype") or "").lower()
-        image_path = (
-            block.get("img_path")
-            or block.get("image_path")
-            or block.get("source_image_path")
-            or block.get("image")
-            or ""
-        )
-        is_semantic_image = block_type in {"image", "chart", "equation"} or bool(image_path and block_type != "table")
-        if not is_semantic_image or not image_path:
-            continue
-        image_path = str(image_path)
-        candidates = details_by_path.get(image_path) or []
-        detail_index = path_offsets[image_path]
-        detail = candidates[detail_index] if detail_index < len(candidates) else {}
-        if candidates:
-            path_offsets[image_path] += 1
-        detail_type = detail.get("summary_type") or ""
-        semantic_kind = _image_semantic_kind(block_type, sub_type, detail_type)
-        body = detail.get("body") or ""
-        content_format = ""
-        if body:
-            if "```mermaid" in body:
-                content_format = "mermaid"
-            elif re.search(r"^\s*\|.+\|\s*$", body, flags=re.MULTILINE):
-                content_format = "markdown_table"
-            elif "$$" in body or block_type == "equation":
-                content_format = "latex_or_text"
-            else:
-                content_format = "plain_text"
-        recognized_language = _detect_text_language(body)
-        normalized_content_zh = _normalized_image_content_zh(
-            body,
-            semantic_kind=semantic_kind,
-            content_format=content_format,
-            detail_type=detail_type,
-        )
-        display_content = normalized_content_zh or body
-        display_preview = _compact_text_fragment(_strip_html(display_content), 320)
-        item = {
-            "image_index": len(blocks) + 1,
-            "content_source_id": source_id,
-            "type": block_type or "image",
-            "sub_type": sub_type,
-            "semantic_kind": semantic_kind,
-            "image_path": image_path,
-            "pdf_page_index": block.get("page_idx"),
-            "pdf_page_number": _block_page_number(block),
-            "bbox": block.get("bbox") or [],
-            "caption": block.get("image_caption") or block.get("caption") or [],
-            "footnote": block.get("image_footnote") or block.get("footnote") or [],
-            "markdown_line": detail.get("markdown_line"),
-            "markdown_image_order": detail.get("markdown_image_order"),
-            "detail_type": detail_type,
-            "recognized_content": body,
-            "recognized_language": recognized_language,
-            "normalized_content_zh": normalized_content_zh,
-            "display_content": display_content,
-            "recognized_preview": detail.get("body_preview") or "",
-            "display_preview": display_preview,
-            "content_format": content_format,
-            "confidence": _image_semantic_confidence(block_type, sub_type, detail),
-            "source": "markdown_details_with_content_list" if detail else "content_list_image_block",
-            "evidence": [
-                value
-                for value in (
-                    "content_list_block",
-                    "markdown_details" if detail else "",
-                    "bbox" if block.get("bbox") else "",
-                )
-                if value
-            ],
-        }
-        chart_data = _markdown_table_to_records(display_content) if content_format == "markdown_table" else None
-        flowchart_graph = _mermaid_to_nodes_edges(body) if content_format == "mermaid" else None
-        if chart_data:
-            item["chart_data"] = chart_data
-        if flowchart_graph:
-            item["flowchart_graph"] = flowchart_graph
-        ocr_vlm_candidate = _image_ocr_vlm_candidate(item)
-        actionability = _image_actionability(
-            item,
-            chart_data=chart_data,
-            flowchart_graph=flowchart_graph,
-            ocr_vlm_candidate=ocr_vlm_candidate,
-        )
-        item["ocr_vlm_candidate"] = ocr_vlm_candidate
-        item["actionability"] = actionability
-        item["show_in_complete"] = _should_show_image_block_in_complete(item)
-        blocks.append(item)
-    return blocks
+    return content_list_enhanced_service.build_image_semantic_blocks(markdown, content_list=content_list)
 
 
 def _markdown_line_offsets(markdown):
@@ -3738,252 +3259,39 @@ def _build_financial_note_links(markdown, tables, page_markers):
 
 
 def _complete_markdown_appendix(enhanced):
-    signals = enhanced.get("quality_signals") or {}
-    toc = enhanced.get("toc") or {}
-    footnotes = enhanced.get("footnotes") or {}
-    note_links = enhanced.get("financial_note_links") or {}
-    image_blocks = enhanced.get("image_semantic_blocks") or []
-    tables = enhanced.get("tables") or []
-    lines = [
-        "",
-        "",
-        "---",
-        "",
-        "# PDF 可恢复信息附录",
-        "",
-        "> 本附录由解析产物自动生成，用于补足 Markdown 难以表达的 PDF 结构信息；不改写原文和财务数字。",
-        "",
-        "## 解析溯源摘要",
-        "",
-        f"- 表格总数：{enhanced.get('table_count', 0)}",
-        f"- content_list 精确表格：{(enhanced.get('source_counts') or {}).get('content_list_body_exact', 0)}",
-        f"- Markdown 页码推断表格：{(enhanced.get('source_counts') or {}).get('markdown_marker_inferred', 0)}",
-        f"- 缺页码表格：{signals.get('table_missing_page_count', 0)}",
-        f"- 多级表头候选表：{signals.get('multi_level_header_table_count', 0)}",
-        f"- 脚注引用：{signals.get('footnote_reference_count', 0)}",
-        f"- 脚注定义：{signals.get('footnote_definition_count', 0)}",
-        f"- 目录候选：{signals.get('toc_candidate_count', 0)}",
-        f"- 财报项目附注关联：{(note_links.get('summary') or {}).get('linked_item_count', 0)}",
-        f"- 图片/图表/公式语义块：{signals.get('image_semantic_block_count', 0)}",
-        f"- 已带识别内容的图片语义块：{signals.get('image_semantic_recognized_count', 0)}",
-        f"- 可展示图片增强块：{signals.get('image_semantic_show_count', 0)}",
-        f"- 按需 OCR/VLM 候选图像：{signals.get('image_semantic_ocr_candidate_count', 0)}",
-        "",
-    ]
-    toc_candidates = toc.get("toc_candidates") or []
-    if toc_candidates:
-        lines.extend(["## 目录候选索引", ""])
-        for item in toc_candidates[:300]:
-            page = item.get("target_page_number") or item.get("pdf_page_number") or "--"
-            lines.append(f"- 第 {page} 页：{item.get('title')}")
-        if len(toc_candidates) > 300:
-            lines.append(f"- ... 其余 {len(toc_candidates) - 300} 条见 content_list_enhanced.json")
-        lines.append("")
-    definitions = footnotes.get("definitions") or []
-    if definitions:
-        lines.extend(["## 脚注与注释", "", "### 脚注定义"])
-        for item in definitions[:200]:
-            page = item.get("pdf_page_number") or "--"
-            line = item.get("line") or "--"
-            lines.append(f"- PDF {page} 页 / MD 行 {line}：{item.get('text')}")
-        if len(definitions) > 200:
-            lines.append(f"- ... 其余 {len(definitions) - 200} 条见 content_list_enhanced.json")
-        lines.append("")
-    unbound = [item for item in (footnotes.get("bindings") or []) if item.get("status") == "unbound"]
-    if unbound:
-        lines.extend(["### 未绑定脚注引用"])
-        for item in unbound[:100]:
-            lines.append(
-                f"- 标记 {item.get('marker')} / PDF {item.get('reference_page') or '--'} 页 / MD 行 {item.get('reference_line') or '--'}"
-            )
-        if len(unbound) > 100:
-            lines.append(f"- ... 其余 {len(unbound) - 100} 条见 content_list_enhanced.json")
-        lines.append("")
-    links = note_links.get("links") or []
-    if links:
-        lines.extend(["## 财报项目附注关联", ""])
-        for item in links[:200]:
-            amount_check = item.get("amount_check") or {}
-            amount_status = amount_check.get("status") or "未校验"
-            amount_confidence = amount_check.get("confidence") or ""
-            note_ref = item.get("statement_note_ref") or item.get("note_ref") or "--"
-            precision = item.get("precision_level") or item.get("confidence") or "--"
-            lines.append(
-                f"- {item.get('statement_item')} [{precision}] "
-                f"附注 {note_ref} -> {item.get('note_title')} "
-                f"(附注页 {item.get('note_page_number') or '--'} / 主表 {item.get('statement_table_index') or '--'} / "
-                f"金额校验 {amount_status}{('/' + amount_confidence) if amount_confidence else ''})"
-            )
-        if len(links) > 200:
-            lines.append(f"- ... 其余 {len(links) - 200} 条见 content_list_enhanced.json")
-        lines.append("")
-    recognized_image_blocks = [item for item in image_blocks if item.get("show_in_complete")]
-    if recognized_image_blocks:
-        lines.extend(["## 图片、图表与公式增强识别", ""])
-        lines.append("仅展示有数据、结构、公式或可检索文字价值的增强块；自然图片等视觉上下文保留在 `content_list_enhanced.json`。")
-        lines.append("")
-        for item in recognized_image_blocks[:120]:
-            page = item.get("pdf_page_number") or "--"
-            line = item.get("markdown_line") or "--"
-            kind = item.get("semantic_kind") or item.get("type") or "image"
-            detail_type = item.get("detail_type") or item.get("sub_type") or "--"
-            confidence = item.get("confidence") or "--"
-            actionability = item.get("actionability") or "--"
-            lines.append(
-                f"- 图像 {item.get('image_index')} / {kind} / {detail_type} / "
-                f"PDF {page} 页 / MD 行 {line} / 置信度 {confidence} / 可用性 {actionability} / {item.get('image_path')}"
-            )
-            preview = item.get("display_preview") or item.get("recognized_preview") or ""
-            if preview:
-                lines.append(f"  - 识别预览：{preview}")
-            chart_data = item.get("chart_data") or {}
-            if chart_data.get("rows"):
-                lines.append(
-                    f"  - 图表数据：{chart_data.get('row_count', len(chart_data.get('rows') or []))} 行，字段："
-                    f"{'、'.join((chart_data.get('headers') or [])[:8])}"
-                )
-            flowchart_graph = item.get("flowchart_graph") or {}
-            if flowchart_graph.get("nodes") or flowchart_graph.get("edges"):
-                lines.append(
-                    f"  - 流程结构：{flowchart_graph.get('node_count', len(flowchart_graph.get('nodes') or []))} 个节点，"
-                    f"{flowchart_graph.get('edge_count', len(flowchart_graph.get('edges') or []))} 条关系"
-                )
-        if len(recognized_image_blocks) > 120:
-            lines.append(f"- ... 其余 {len(recognized_image_blocks) - 120} 个图片语义块见 content_list_enhanced.json")
-        lines.append("")
-    ocr_candidates = [item for item in image_blocks if (item.get("ocr_vlm_candidate") or {}).get("needed")]
-    if ocr_candidates:
-        lines.extend(["## 按需 OCR/VLM 候选图像", ""])
-        lines.append("这些图像面积较大但当前缺少可靠文字或结构化内容，建议在人工复核或智能体分析需要时再二次识别。")
-        lines.append("")
-        for item in ocr_candidates[:60]:
-            candidate = item.get("ocr_vlm_candidate") or {}
-            page = item.get("pdf_page_number") or "--"
-            kind = item.get("semantic_kind") or item.get("type") or "image"
-            lines.append(
-                f"- 图像 {item.get('image_index')} / {kind} / PDF {page} 页 / "
-                f"优先级 {candidate.get('priority') or '--'} / 面积 {round(candidate.get('bbox_area') or 0, 2)} / "
-                f"{item.get('image_path')}"
-            )
-        if len(ocr_candidates) > 60:
-            lines.append(f"- ... 其余 {len(ocr_candidates) - 60} 个候选图像见 content_list_enhanced.json")
-        lines.append("")
-    multi_header_tables = [
-        table for table in tables if (table.get("structure") or {}).get("multi_level_header_candidate")
-    ]
-    if multi_header_tables:
-        lines.extend(["## 多级表头候选表", ""])
-        lines.append("完整表格结构请查看同目录 `content_list_enhanced.json` 的 `tables[].structure` 字段。")
-        lines.append("")
-        for table in multi_header_tables[:80]:
-            structure = table.get("structure") or {}
-            page = table.get("pdf_page_number") or "--"
-            line = table.get("line") or "--"
-            lines.append(
-                f"- 表 {table.get('table_index')} / PDF {page} 页 / MD 行 {line} / "
-                f"{structure.get('expanded_rows', 0)} 行 x {structure.get('expanded_columns', 0)} 列 / "
-                f"表头候选 {structure.get('header_row_count', 0)} 行"
-            )
-            for preview in (structure.get("header_preview") or [])[:1]:
-                lines.append(f"  - 表头预览：{preview}")
-        if len(multi_header_tables) > 80:
-            lines.append(f"- ... 其余 {len(multi_header_tables) - 80} 张表见 content_list_enhanced.json")
-        lines.append("")
-    return "\n".join(lines).rstrip() + "\n"
+    return content_list_enhanced_service.complete_markdown_appendix(enhanced)
 
 
 def _complete_markdown_content(markdown, enhanced, corrections=None):
-    base_markdown = str(markdown or "")
-    if corrections is not None:
-        base_markdown, _replaced_count = _apply_table_corrections(base_markdown, corrections)
-    return base_markdown.rstrip() + _complete_markdown_appendix(enhanced)
+    return content_list_enhanced_service.complete_markdown_content(
+        markdown,
+        enhanced,
+        corrections=corrections,
+        apply_table_corrections=_apply_table_corrections,
+    )
 
 
 def _write_complete_markdown_artifact(task, markdown, enhanced, corrections=None):
-    if markdown is None or not isinstance(enhanced, dict):
-        return None
-    result_dir = _result_dir(task)
-    os.makedirs(result_dir, exist_ok=True)
-    complete_path = os.path.join(result_dir, "result_complete.md")
-    complete_markdown = _complete_markdown_content(markdown, enhanced, corrections=corrections)
-    with open(complete_path, "w", encoding="utf-8") as outfile:
-        outfile.write(complete_markdown)
-    return complete_path
+    return content_list_enhanced_service.write_complete_markdown_artifact(
+        task,
+        markdown,
+        enhanced,
+        corrections=corrections,
+        result_dir=_result_dir,
+        apply_table_corrections=_apply_table_corrections,
+    )
 
 
 def _file_reference_payload(path, url=None, kind=None):
-    if not path:
-        return None
-    exists = os.path.exists(path)
-    payload = {
-        "path": path if exists else "",
-        "exists": exists,
-        "url": url or "",
-    }
-    if kind:
-        payload["kind"] = kind
-    if exists and os.path.isfile(path):
-        payload["size_bytes"] = os.path.getsize(path)
-        payload["mtime"] = datetime.fromtimestamp(os.path.getmtime(path), tz=timezone.utc).isoformat()
-    return payload
+    return document_full_service.file_reference_payload(path, url, kind)
 
 
 def _image_resource_index(task):
-    result_dir = _result_dir(task)
-    images_dir = os.path.join(result_dir, "images")
-    resources = []
-    if not os.path.isdir(images_dir):
-        return {
-            "directory": _file_reference_payload(images_dir, f"/api/artifact/{task['task_id']}/images", kind="directory"),
-            "items": [],
-            "summary": {"count": 0, "total_size_bytes": 0},
-        }
-    total_size = 0
-    for name in sorted(os.listdir(images_dir)):
-        if not name.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
-            continue
-        path = os.path.join(images_dir, name)
-        size = os.path.getsize(path) if os.path.isfile(path) else 0
-        total_size += size
-        resources.append(
-            {
-                "name": name,
-                "path": path,
-                "url": f"/api/artifact/{task['task_id']}/images/{name}",
-                "size_bytes": size,
-            }
-        )
-    return {
-        "directory": _file_reference_payload(images_dir, f"/api/artifact/{task['task_id']}/images", kind="directory"),
-        "items": resources,
-        "summary": {"count": len(resources), "total_size_bytes": total_size},
-    }
+    return document_full_service.image_resource_index(task, _result_dir)
 
 
 def _pdf_page_resource_index(task):
-    result_dir = _result_dir(task)
-    page_dir = os.path.join(result_dir, "pdf_pages")
-    resources = []
-    if os.path.isdir(page_dir):
-        for name in sorted(os.listdir(page_dir)):
-            if not name.lower().endswith(".png"):
-                continue
-            path = os.path.join(page_dir, name)
-            match = re.search(r"page_(\d+)\.png$", name)
-            resources.append(
-                {
-                    "page_number": int(match.group(1)) if match else None,
-                    "name": name,
-                    "path": path,
-                    "url": f"/api/pdf_page/{task['task_id']}/{int(match.group(1))}" if match else "",
-                    "size_bytes": os.path.getsize(path) if os.path.isfile(path) else 0,
-                }
-            )
-    return {
-        "directory": _file_reference_payload(page_dir, kind="directory"),
-        "items": resources,
-        "summary": {"rendered_page_count": len(resources), "total_size_bytes": sum(item.get("size_bytes") or 0 for item in resources)},
-    }
+    return document_full_service.pdf_page_resource_index(task, _result_dir)
 
 
 def _markdown_page_index(markdown, content_list=None):
@@ -4013,57 +3321,21 @@ def _markdown_page_index(markdown, content_list=None):
 
 
 def _build_document_full_json(task, markdown, enhanced, quality_report, financial_data=None, financial_checks=None, table_relations=None):
-    result_dir = _result_dir(task)
-    content_list = _load_json_artifact(task, "content_list.json")
-    middle_json = _load_json_artifact(task, "middle.json")
-    model_output = _load_json_artifact(task, "model_output.json")
-    payload_summary = _load_json_artifact(task, "result_payload_summary.json")
-    markdown_path = task.get("markdown_path") or os.path.join(result_dir, "result.md")
-    complete_path = os.path.join(result_dir, "result_complete.md")
-    return {
-        "schema_version": DOCUMENT_FULL_SCHEMA_VERSION,
-        "generated_at": _now_iso(),
-        "task": {
-            "task_id": task.get("task_id"),
-            "mineru_task_id": task.get("mineru_task_id"),
-            "filename": task.get("filename"),
-            "status": task.get("status"),
-            "stage": task.get("stage"),
-            "created_at": task.get("created_at"),
-            "completed_at": task.get("completed_at"),
-            "pdf_page_count": task.get("pdf_page_count"),
-            "submit_config": task.get("submit_config") or {},
-        },
-        "source_files": {
-            "pdf": _file_reference_payload(task.get("upload_path"), kind="pdf"),
-            "markdown": _file_reference_payload(markdown_path, f"/api/artifact/{task['task_id']}/result.md", kind="markdown"),
-            "complete_markdown": _file_reference_payload(complete_path, f"/api/artifact/{task['task_id']}/result_complete.md", kind="markdown"),
-        },
-        "markdown": {
-            "content": markdown or "",
-            "chars": len(markdown or ""),
-            "line_count": len(str(markdown or "").splitlines()),
-            "pages": _markdown_page_index(markdown, content_list=content_list),
-        },
-        "content_list": content_list,
-        "content_list_enhanced": enhanced,
-        "middle_json": middle_json,
-        "model_output": model_output,
-        "result_payload_summary": payload_summary,
-        "quality_report": quality_report,
-        "table_relations": table_relations,
-        "financial_data": financial_data,
-        "financial_checks": financial_checks,
-        "resources": {
-            "images": _image_resource_index(task),
-            "pdf_pages": _pdf_page_resource_index(task),
-        },
-        "artifacts": _artifact_status(task),
-        "notes": [
-            "本 JSON 保存 PDF 的完整解析信息、结构化索引和证据引用。",
-            "为控制体积并保持可浏览性，PDF 原文件、页面截图和图片资源以 path/url 引用，不以内嵌 base64 保存。",
-        ],
-    }
+    return document_full_service.build_document_full_json(
+        task,
+        markdown,
+        enhanced,
+        quality_report,
+        financial_data=financial_data,
+        financial_checks=financial_checks,
+        table_relations=table_relations,
+        result_dir=_result_dir,
+        load_json_artifact=_load_json_artifact,
+        artifact_status=_artifact_status,
+        markdown_page_index=_markdown_page_index,
+        now_iso=_now_iso,
+        document_full_schema_version=DOCUMENT_FULL_SCHEMA_VERSION,
+    )
 
 
 def _write_document_full_artifact(task, markdown, enhanced, quality_report, financial_data=None, financial_checks=None, table_relations=None):
@@ -4412,70 +3684,15 @@ def _group_key_table_candidates(table_index):
 
 
 def _candidate_summary_list(key_table_candidates, names):
-    summary = []
-    for name in names:
-        rows = key_table_candidates.get(name) or []
-        if not rows:
-            summary.append({"name": name, "status": "missing", "candidate_group": _candidate_group(name)})
-            continue
-        primary = dict(rows[0])
-        primary["name"] = name
-        primary["status"] = "found"
-        primary["candidate_count"] = len(rows)
-        summary.append(primary)
-    return summary
+    return quality_service.candidate_summary_list(key_table_candidates, names)
 
 
 def _required_core_financial_table_names(report_kind):
-    if report_kind == "quarterly_report":
-        return [name for name in CORE_FINANCIAL_TABLE_NAMES if name != "所有者权益变动表"]
-    return list(CORE_FINANCIAL_TABLE_NAMES)
+    return quality_service.required_core_financial_table_names(report_kind)
 
 
 def _priority_review_tables(table_index, core_candidates, key_table_candidates):
-    lookup = {item.get("table_index"): item for item in table_index}
-    priority = []
-    seen = set()
-
-    def add_table(table_index_value, extra_reason=None):
-        if not table_index_value or table_index_value in seen:
-            return
-        source = lookup.get(table_index_value)
-        if not source:
-            return
-        item = dict(source)
-        reasons = list(item.get("suspect_reasons") or [])
-        if extra_reason and extra_reason not in reasons:
-            reasons.append(extra_reason)
-        if not reasons:
-            return
-        item["suspect_reasons"] = reasons
-        priority.append(item)
-        seen.add(table_index_value)
-
-    for candidate in core_candidates:
-        if candidate.get("status") != "found":
-            continue
-        reason = None
-        if candidate.get("confidence") == "low":
-            reason = "low_confidence_core_candidate"
-        elif candidate.get("confidence") == "medium":
-            reason = "medium_confidence_core_candidate"
-        table_item = lookup.get(candidate.get("table_index"))
-        if reason or (table_item and table_item.get("suspect_reasons")):
-            add_table(candidate.get("table_index"), reason)
-
-    for rows in key_table_candidates.values():
-        for candidate in rows:
-            table_item = lookup.get(candidate.get("table_index"))
-            if table_item and table_item.get("suspect_reasons"):
-                add_table(candidate.get("table_index"))
-
-    for item in table_index:
-        if item.get("suspect_reasons"):
-            add_table(item.get("table_index"))
-
-    return priority[:30]
+    return quality_service.priority_review_tables(table_index, core_candidates, key_table_candidates)
 
 
 def _build_quality_report(markdown, task, file_name=None, content_list=None):
@@ -4590,8 +3807,7 @@ def _write_quality_artifacts(task, markdown, file_name=None, content_list=None, 
         financial_checks = None
     _write_json(os.path.join(result_dir, "content_list_enhanced.json"), enhanced_content_list)
     _write_complete_markdown_artifact(task, markdown, enhanced_content_list)
-    _write_json(os.path.join(result_dir, "quality_report.json"), report)
-    _write_json(os.path.join(result_dir, "table_index.json"), report.get("table_index", []))
+    quality_service.write_quality_report_files(task, report, _result_dir, _write_json)
     table_relations = _write_table_relations_artifact(
         task,
         markdown,
@@ -4611,105 +3827,70 @@ def _write_quality_artifacts(task, markdown, file_name=None, content_list=None, 
 
 
 def _financial_data_path(task):
-    return os.path.join(_result_dir(task), "financial_data.json")
+    return financial_service.financial_data_path(task, _result_dir)
 
 
 def _financial_checks_path(task):
-    return os.path.join(_result_dir(task), "financial_checks.json")
+    return financial_service.financial_checks_path(task, _result_dir)
 
 
 def _read_financial_artifacts(task):
-    data_path = _financial_data_path(task)
-    checks_path = _financial_checks_path(task)
-    if not os.path.exists(data_path) or not os.path.exists(checks_path):
-        return None, None
-    with open(data_path, "r", encoding="utf-8") as infile:
-        data = json.load(infile)
-    with open(checks_path, "r", encoding="utf-8") as infile:
-        checks = json.load(infile)
-    return data, checks
+    return financial_service.read_financial_artifacts(task, _result_dir)
 
 
 def _financial_artifacts_are_current(financial_data, financial_checks):
-    return (
-        isinstance(financial_data, dict)
-        and isinstance(financial_checks, dict)
-        and financial_data.get("schema_version") == FINANCIAL_DATA_SCHEMA_VERSION
-        and financial_checks.get("schema_version") == FINANCIAL_CHECKS_SCHEMA_VERSION
-        and financial_data.get("rule_version") == FINANCIAL_RULE_VERSION
-        and financial_checks.get("rule_version") == FINANCIAL_RULE_VERSION
-    )
+    return financial_service.financial_artifacts_are_current(financial_data, financial_checks)
 
 
 def _write_financial_artifacts(task, markdown, file_name=None):
-    result_dir = _result_dir(task)
-    os.makedirs(result_dir, exist_ok=True)
-    financial_data = build_financial_data(
+    return financial_service.write_financial_artifacts(
+        task,
         markdown,
-        task_id=task.get("task_id"),
-        filename=file_name or task.get("filename"),
-        llm_cache_dir=os.path.join(FINANCIAL_LLM_CACHE_FOLDER, task.get("task_id") or "unknown"),
+        result_dir=_result_dir,
+        write_json=_write_json,
+        financial_llm_cache_folder=FINANCIAL_LLM_CACHE_FOLDER,
+        file_name=file_name,
     )
-    financial_checks = build_financial_checks(financial_data)
-    _write_json(_financial_data_path(task), financial_data)
-    _write_json(_financial_checks_path(task), financial_checks)
-    return financial_data, financial_checks
 
 
 def _ensure_financial_artifacts(task, markdown):
-    financial_data, financial_checks = _read_financial_artifacts(task)
-    if _financial_artifacts_are_current(financial_data, financial_checks):
-        return financial_data, financial_checks
-    return _write_financial_artifacts(task, markdown, file_name=task.get("filename"))
+    return financial_service.ensure_financial_artifacts(
+        task,
+        markdown,
+        result_dir=_result_dir,
+        write_json=_write_json,
+        financial_llm_cache_folder=FINANCIAL_LLM_CACHE_FOLDER,
+        file_name=task.get("filename"),
+    )
 
 
 def _save_mineru_artifacts(task, upstream_response, file_name, file_data, markdown):
-    result_dir = _result_dir(task)
-    os.makedirs(result_dir, exist_ok=True)
-
-    _write_json(
-        os.path.join(result_dir, "result_payload_summary.json"),
-        {
-            "backend": upstream_response.get("backend"),
-            "version": upstream_response.get("version"),
-            "result_file": file_name,
-            "file_keys": sorted(file_data.keys()) if isinstance(file_data, dict) else [],
-        },
+    result = mineru_result_service.save_mineru_result_artifacts(
+        task,
+        upstream_response,
+        file_name,
+        file_data,
+        result_dir=_result_dir,
+        write_json=_write_json,
+        save_images=_save_images,
     )
-
-    artifact_map = {
-        "middle_json": "middle.json",
-        "model_output": "model_output.json",
-        "content_list": "content_list.json",
-    }
-    for key, filename in artifact_map.items():
-        if isinstance(file_data, dict) and key in file_data:
-            _write_json(os.path.join(result_dir, filename), file_data[key])
-
-    image_count = 0
-    if isinstance(file_data, dict) and "images" in file_data:
-        image_count = _save_images(file_data["images"], os.path.join(result_dir, "images"))
-
     content_list = file_data.get("content_list") if isinstance(file_data, dict) else None
     quality_report = _write_quality_artifacts(
         task,
         markdown,
         file_name=file_name,
         content_list=content_list,
-        saved_image_count=image_count,
+        saved_image_count=result["image_count"],
     )
     return quality_report
 
 
 def _quality_report_path(task):
-    return os.path.join(_result_dir(task), "quality_report.json")
+    return quality_service.quality_report_path(task, _result_dir)
 
 
 def _read_quality_report(task):
-    report_path = _quality_report_path(task)
-    if os.path.exists(report_path):
-        return _read_json_cached(report_path)
-    return None
+    return quality_service.read_quality_report(task, _result_dir, _read_json_cached)
 
 
 def _ensure_quality_report(task, markdown):
@@ -4741,8 +3922,7 @@ def _ensure_quality_report(task, markdown):
             "warnings": report.get("warnings"),
         }
         if refreshed_fields != original_fields:
-            _write_json(_quality_report_path(task), report)
-            _write_json(os.path.join(_result_dir(task), "table_index.json"), report.get("table_index", []))
+            quality_service.write_quality_report_files(task, report, _result_dir, _write_json)
         return report
     report = _write_quality_artifacts(
         task,
