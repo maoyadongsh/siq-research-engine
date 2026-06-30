@@ -10,23 +10,37 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SIQ_PROJECT_ROOT="${SIQ_PROJECT_ROOT:-$SCRIPT_DIR}"
 export SIQ_PROJECT_ROOT
 
-ENV_FILE="${SIQ_ENV_FILE:-$SIQ_PROJECT_ROOT/env/backend.env}"
-if [[ -f "$ENV_FILE" ]]; then
+source_env_if_exists() {
+    local env_file=$1
+    if [[ ! -f "$env_file" ]]; then
+        return 1
+    fi
     set -a
     # shellcheck disable=SC1090
-    source "$ENV_FILE"
+    source "$env_file"
     set +a
+}
+
+DEFAULT_ENV_FILE="$SIQ_PROJECT_ROOT/infra/env/local.env"
+LEGACY_ENV_FILE="$SIQ_PROJECT_ROOT/env/backend.env"
+ENV_FILE="${SIQ_ENV_FILE:-$DEFAULT_ENV_FILE}"
+if ! source_env_if_exists "$ENV_FILE" && [[ -z "${SIQ_ENV_FILE:-}" ]]; then
+    source_env_if_exists "$LEGACY_ENV_FILE" || true
 fi
 
-FRONTEND_ENV_FILE="${SIQ_FRONTEND_ENV_FILE:-$SIQ_PROJECT_ROOT/env/frontend-dev.env}"
-if [[ -f "$FRONTEND_ENV_FILE" ]]; then
-    set -a
-    # shellcheck disable=SC1090
-    source "$FRONTEND_ENV_FILE"
-    set +a
+LEGACY_FRONTEND_ENV_FILE="$SIQ_PROJECT_ROOT/env/frontend-dev.env"
+if [[ -n "${SIQ_FRONTEND_ENV_FILE:-}" ]]; then
+    source_env_if_exists "$SIQ_FRONTEND_ENV_FILE" || true
+elif [[ -f "$LEGACY_FRONTEND_ENV_FILE" ]]; then
+    source_env_if_exists "$LEGACY_FRONTEND_ENV_FILE" || true
 fi
 
-WIKI_ROOT="${SIQ_WIKI_ROOT:-${WIKI_ROOT:-$SIQ_PROJECT_ROOT/data/wiki}}"
+export SIQ_DATA_ROOT="${SIQ_DATA_ROOT:-$SIQ_PROJECT_ROOT/data}"
+export SIQ_RUNTIME_ROOT="${SIQ_RUNTIME_ROOT:-$SIQ_PROJECT_ROOT/var}"
+export SIQ_ARTIFACTS_ROOT="${SIQ_ARTIFACTS_ROOT:-$SIQ_PROJECT_ROOT/artifacts}"
+export SIQ_DATASETS_ROOT="${SIQ_DATASETS_ROOT:-$SIQ_PROJECT_ROOT/datasets}"
+
+WIKI_ROOT="${SIQ_WIKI_ROOT:-${WIKI_ROOT:-$SIQ_DATA_ROOT/wiki}}"
 export WIKI_ROOT
 export SIQ_WIKI_ROOT="${SIQ_WIKI_ROOT:-$WIKI_ROOT}"
 
@@ -59,15 +73,15 @@ export SIQ_BACKEND_ROOT="$BACKEND_DIR"
 export SIQ_FRONTEND_ROOT="$FRONT_DIR"
 export SIQ_PDF2MD_ROOT="$PDF2MD_DIR"
 export SIQ_DOCUMENT_PARSER_ROOT="$DOCUMENT_PARSER_DIR"
-export SIQ_PDF2MD_DATA_DIR="${SIQ_PDF2MD_DATA_DIR:-$SIQ_PROJECT_ROOT/data/pdf-parser}"
-export SIQ_DOCUMENT_PARSE_DATA_DIR="${SIQ_DOCUMENT_PARSE_DATA_DIR:-$SIQ_PROJECT_ROOT/data/document-parser}"
+export SIQ_PDF2MD_DATA_DIR="${SIQ_PDF2MD_DATA_DIR:-$SIQ_DATA_ROOT/pdf-parser}"
+export SIQ_DOCUMENT_PARSE_DATA_DIR="${SIQ_DOCUMENT_PARSE_DATA_DIR:-$SIQ_DATA_ROOT/document-parser}"
 export SIQ_REPORT_FINDER_ROOT="$REPORT_FINDER_DIR"
 export SIQ_MARKET_REPORT_FINDER_ROOT="$MARKET_REPORT_FINDER_DIR"
 export SIQ_MARKET_REPORT_RULES_ROOT="$MARKET_REPORT_RULES_DIR"
-export SIQ_MARKET_REPORT_DOWNLOADS_ROOT="${SIQ_MARKET_REPORT_DOWNLOADS_ROOT:-$SIQ_PROJECT_ROOT/data/market-report-finder/downloads}"
+export SIQ_MARKET_REPORT_DOWNLOADS_ROOT="${SIQ_MARKET_REPORT_DOWNLOADS_ROOT:-$SIQ_DATA_ROOT/market-report-finder/downloads}"
 export SIQ_REPORT_DOWNLOADS_ROOT="${SIQ_REPORT_DOWNLOADS_ROOT:-$SIQ_MARKET_REPORT_DOWNLOADS_ROOT}"
 export SIQ_DB_ROOT="${SIQ_DB_ROOT:-$SIQ_PROJECT_ROOT/db}"
-export SIQ_HERMES_HOME="${SIQ_HERMES_HOME:-$SIQ_PROJECT_ROOT/data/hermes/home}"
+export SIQ_HERMES_HOME="${SIQ_HERMES_HOME:-$SIQ_DATA_ROOT/hermes/home}"
 export SIQ_HERMES_PROFILES_ROOT="${SIQ_HERMES_PROFILES_ROOT:-$SIQ_HERMES_HOME/profiles}"
 export SIQ_MINERU_VENV="${SIQ_MINERU_VENV:-$SIQ_PROJECT_ROOT/runtimes/mineru-native}"
 export SIQ_BACKEND_URL="${SIQ_BACKEND_URL:-http://127.0.0.1:$BACKEND_PORT}"

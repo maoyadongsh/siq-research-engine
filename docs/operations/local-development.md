@@ -10,9 +10,13 @@
 
 ```bash
 cd /home/maoyd/siq-research-engine
-export SIQ_AUTH_SECRET_KEY="$(openssl rand -hex 32)"
+cp infra/env/local.example infra/env/local.env
+# edit infra/env/local.env and replace secrets before long-running local use
+export SIQ_AUTH_SECRET_KEY="${SIQ_AUTH_SECRET_KEY:-$(openssl rand -hex 32)}"
 ./start_all.sh
 ```
+
+`start_all.sh` 默认读取 `infra/env/local.env`。兼容期内，如果该文件不存在且未显式设置 `SIQ_ENV_FILE`，脚本仍会尝试读取旧路径 `env/backend.env`；前端旧配置 `env/frontend-dev.env` 也会被兼容读取。
 
 该脚本会按 SIQ 默认路径启动：
 
@@ -21,6 +25,7 @@ export SIQ_AUTH_SECRET_KEY="$(openssl rand -hex 32)"
 - 境外市场规则服务 `:18020`（可选）
 - API 聚合后端 `:18081`
 - PDF 解析服务 `:15000`
+- 通用文档解析服务 `:15010`
 - Web 前端 `:15173`
 - Hermes gateway `:18642`, `:18649`, `:18650`, `:18651`, `:18652`
 
@@ -31,6 +36,8 @@ MinerU、VLM、本地 LLM 等本机模型推理服务可以共享，例如 `:800
 ```text
 http://localhost:15173
 ```
+
+Docker Compose 默认服务图包含 Web、API、report-finder、PDF parser、document-parser、PostgreSQL 和 Redis；`external-services` profile 额外启动备用 market-report-finder 与 market-report-rules，`monitoring` profile 启动 Grafana。Hermes gateway 当前依赖本机 Hermes editable venv，仍通过 `start_all.sh` 或 `scripts/hermes/run_gateway.sh` 启动。
 
 ## 手动启动
 
@@ -85,15 +92,20 @@ uv run uvicorn market_report_rules_service.app:app --host 127.0.0.1 --port 18020
 | 变量 | 用途 |
 | --- | --- |
 | `SIQ_AUTH_SECRET_KEY` | API 鉴权密钥，开发环境也必须设置 |
-| `SIQ_WIKI_ROOT` | Wiki 根目录，默认 `data/wiki` |
-| `SIQ_PDF2MD_DATA_DIR` | PDF 解析运行态目录，默认 `data/pdf-parser` |
+| `SIQ_DATA_ROOT` | 兼容期运行态根目录，默认 `data`，后续可切到 `var` |
+| `SIQ_RUNTIME_ROOT` | 新增本地运行态建议根目录，默认 `var` |
+| `SIQ_ARTIFACTS_ROOT` | 构建、测试、评测和批处理输出根目录，默认 `artifacts` |
+| `SIQ_DATASETS_ROOT` | 可版本化小型 fixtures 和稳定样本根目录，默认 `datasets` |
+| `SIQ_WIKI_ROOT` | Wiki 根目录，默认 `$SIQ_DATA_ROOT/wiki` |
+| `SIQ_PDF2MD_DATA_DIR` | PDF 解析运行态目录，默认 `$SIQ_DATA_ROOT/pdf-parser` |
+| `SIQ_DOCUMENT_PARSE_DATA_DIR` | 通用文档解析运行态目录，默认 `$SIQ_DATA_ROOT/document-parser` |
 | `SIQ_REPORT_FINDER_ROOT` | 兼容变量；统一公告下载入口默认使用 `services/market-report-finder` |
 | `SIQ_MARKET_REPORT_FINDER_ROOT` | 市场下载服务目录，默认 `services/market-report-finder` |
 | `SIQ_MARKET_REPORT_RULES_ROOT` | 境外市场规则服务目录，默认 `services/market-report-rules` |
 | `SIQ_START_MARKET_REPORT_FINDER` | 是否额外启动备用市场下载服务，默认 `0` |
 | `SIQ_START_MARKET_REPORT_RULES` | 是否随一键脚本启动境外市场规则服务，默认 `0` |
-| `SIQ_HERMES_HOME` | Hermes 运行态目录，默认 `data/hermes/home` |
-| `SIQ_HERMES_PROFILES_ROOT` | Hermes profiles 目录，默认 `data/hermes/home/profiles` |
+| `SIQ_HERMES_HOME` | Hermes 运行态目录，默认 `$SIQ_DATA_ROOT/hermes/home` |
+| `SIQ_HERMES_PROFILES_ROOT` | Hermes profiles 目录，默认 `$SIQ_HERMES_HOME/profiles` |
 | `DATABASE_URL` | PostgreSQL 连接串 |
 
 ## 健康检查
@@ -102,6 +114,7 @@ uv run uvicorn market_report_rules_service.app:app --host 127.0.0.1 --port 18020
 curl -s http://localhost:15173
 curl -s http://localhost:18081/health
 curl -s http://localhost:15000/api/health
+curl -s http://localhost:15010/api/health
 curl -s http://localhost:18000/health
 curl -s http://localhost:18010/health
 curl -s http://localhost:18020/healthz

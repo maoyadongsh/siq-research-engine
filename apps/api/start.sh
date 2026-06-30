@@ -9,22 +9,36 @@ cd "$SCRIPT_DIR"
 
 export SIQ_PROJECT_ROOT="${SIQ_PROJECT_ROOT:-$PROJECT_ROOT}"
 
-ENV_FILE="${SIQ_ENV_FILE:-$PROJECT_ROOT/env/backend.env}"
-if [[ -f "$ENV_FILE" ]]; then
+source_env_if_exists() {
+    local env_file=$1
+    if [[ ! -f "$env_file" ]]; then
+        return 1
+    fi
     set -a
     # shellcheck disable=SC1090
-    source "$ENV_FILE"
+    source "$env_file"
     set +a
+}
+
+DEFAULT_ENV_FILE="$PROJECT_ROOT/infra/env/local.env"
+LEGACY_ENV_FILE="$PROJECT_ROOT/env/backend.env"
+ENV_FILE="${SIQ_ENV_FILE:-$DEFAULT_ENV_FILE}"
+if ! source_env_if_exists "$ENV_FILE" && [[ -z "${SIQ_ENV_FILE:-}" ]]; then
+    source_env_if_exists "$LEGACY_ENV_FILE" || true
 fi
 
+export SIQ_DATA_ROOT="${SIQ_DATA_ROOT:-$PROJECT_ROOT/data}"
+export SIQ_RUNTIME_ROOT="${SIQ_RUNTIME_ROOT:-$PROJECT_ROOT/var}"
+export SIQ_ARTIFACTS_ROOT="${SIQ_ARTIFACTS_ROOT:-$PROJECT_ROOT/artifacts}"
+export SIQ_DATASETS_ROOT="${SIQ_DATASETS_ROOT:-$PROJECT_ROOT/datasets}"
 export SIQ_BACKEND_ROOT="${SIQ_BACKEND_ROOT:-$SCRIPT_DIR}"
-export WIKI_ROOT="${SIQ_WIKI_ROOT:-${WIKI_ROOT:-$PROJECT_ROOT/data/wiki}}"
+export WIKI_ROOT="${SIQ_WIKI_ROOT:-${WIKI_ROOT:-$SIQ_DATA_ROOT/wiki}}"
 export SIQ_WIKI_ROOT="${SIQ_WIKI_ROOT:-$WIKI_ROOT}"
 export SIQ_DB_ROOT="${SIQ_DB_ROOT:-$PROJECT_ROOT/db}"
-export SIQ_HERMES_HOME="${SIQ_HERMES_HOME:-$PROJECT_ROOT/data/hermes/home}"
+export SIQ_HERMES_HOME="${SIQ_HERMES_HOME:-$SIQ_DATA_ROOT/hermes/home}"
 export SIQ_HERMES_PROFILES_ROOT="${SIQ_HERMES_PROFILES_ROOT:-$SIQ_HERMES_HOME/profiles}"
 export SIQ_REPORT_FINDER_ROOT="${SIQ_REPORT_FINDER_ROOT:-$PROJECT_ROOT/services/market-report-finder}"
-export SIQ_REPORT_DOWNLOADS_ROOT="${SIQ_REPORT_DOWNLOADS_ROOT:-$PROJECT_ROOT/data/market-report-finder/downloads}"
+export SIQ_REPORT_DOWNLOADS_ROOT="${SIQ_REPORT_DOWNLOADS_ROOT:-$SIQ_DATA_ROOT/market-report-finder/downloads}"
 export SIQ_BACKEND_PORT="${SIQ_BACKEND_PORT:-18081}"
 export SIQ_PDF2MD_API_BASE="${SIQ_PDF2MD_API_BASE:-http://127.0.0.1:15000}"
 export SIQ_DOCUMENT_PARSER_API_BASE="${SIQ_DOCUMENT_PARSER_API_BASE:-http://127.0.0.1:15010}"

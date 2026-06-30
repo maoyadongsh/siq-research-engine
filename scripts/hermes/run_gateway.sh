@@ -11,13 +11,27 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${SIQ_PROJECT_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 SOURCE_PROFILES_ROOT="$PROJECT_ROOT/agents/hermes/profiles"
 
-ENV_FILE="${SIQ_ENV_FILE:-$PROJECT_ROOT/env/backend.env}"
-if [[ -f "$ENV_FILE" ]]; then
+source_env_if_exists() {
+    local env_file=$1
+    if [[ ! -f "$env_file" ]]; then
+        return 1
+    fi
     set -a
     # shellcheck disable=SC1090
-    source "$ENV_FILE"
+    source "$env_file"
     set +a
+}
+
+DEFAULT_ENV_FILE="$PROJECT_ROOT/infra/env/local.env"
+LEGACY_ENV_FILE="$PROJECT_ROOT/env/backend.env"
+ENV_FILE="${SIQ_ENV_FILE:-$DEFAULT_ENV_FILE}"
+if ! source_env_if_exists "$ENV_FILE" && [[ -z "${SIQ_ENV_FILE:-}" ]]; then
+    source_env_if_exists "$LEGACY_ENV_FILE" || true
 fi
+export SIQ_DATA_ROOT="${SIQ_DATA_ROOT:-$PROJECT_ROOT/data}"
+export SIQ_RUNTIME_ROOT="${SIQ_RUNTIME_ROOT:-$PROJECT_ROOT/var}"
+export SIQ_ARTIFACTS_ROOT="${SIQ_ARTIFACTS_ROOT:-$PROJECT_ROOT/artifacts}"
+export SIQ_DATASETS_ROOT="${SIQ_DATASETS_ROOT:-$PROJECT_ROOT/datasets}"
 
 case "$profile" in
     assistant|siq_assistant) canonical="siq_assistant" ;;
@@ -36,7 +50,7 @@ if [[ ! -f "$source_profile_dir/config.yaml" ]]; then
     echo "Hermes source profile config not found: $source_profile_dir/config.yaml" >&2
     exit 1
 fi
-runtime_profiles_root="${SIQ_HERMES_PROFILES_ROOT:-${HERMES_PROFILES_ROOT:-${SIQ_HERMES_HOME:-$PROJECT_ROOT/data/hermes/home}/profiles}}"
+runtime_profiles_root="${SIQ_HERMES_PROFILES_ROOT:-${HERMES_PROFILES_ROOT:-${SIQ_HERMES_HOME:-$SIQ_DATA_ROOT/hermes/home}/profiles}}"
 profile_dir="$runtime_profiles_root/$canonical"
 
 mkdir -p "$profile_dir"

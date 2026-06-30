@@ -19,11 +19,15 @@ services:
   # 聚合后端
   api:
     build:
-      context: ../../apps/api
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: apps/api/Dockerfile
     ports:
       - "${SIQ_BACKEND_PORT:-18081}:18081"
     environment:
+      - SIQ_DATA_ROOT=/data
+      - SIQ_RUNTIME_ROOT=/data
+      - SIQ_ARTIFACTS_ROOT=/artifacts
+      - SIQ_DATASETS_ROOT=/app/datasets
       - SIQ_WIKI_ROOT=/data/wiki
       - WIKI_ROOT=/data/wiki
       - SIQ_REPORT_DOWNLOADS_ROOT=/data/downloads
@@ -36,24 +40,30 @@ services:
       - SIQ_DEMO_MODE=${SIQ_DEMO_MODE:-0}
       - SIQ_PDF2MD_API_BASE=http://pdf-parser:15000
       - PDF2MD_API_BASE=http://pdf-parser:15000
+      - SIQ_DOCUMENT_PARSER_API_BASE=http://document-parser:15010
       - SIQ_REPORT_FINDER_BASE=http://report-finder:8000
       - REPORT_FINDER_BASE=http://report-finder:8000
+      - SIQ_MARKET_REPORT_RULES_BASE=http://market-report-rules:8000
       - SIQ_REPORT_FINDER_HEALTH_URL=http://report-finder:8000/health
       - SIQ_PDF2MD_HEALTH_URL=http://pdf-parser:15000/api/health
+      - SIQ_DOCUMENT_PARSER_HEALTH_URL=http://document-parser:15010/api/health
+      - SIQ_MARKET_REPORT_RULES_HEALTH_URL=http://market-report-rules:8000/healthz
       - PDF2MD_ACCESS_TOKEN=${PDF2MD_ACCESS_TOKEN:?PDF2MD_ACCESS_TOKEN is required}
     volumes:
       - wiki_data:/data/wiki
       - downloads_data:/data/downloads
-      - ../../data/backend:/app/data
+      - backend_data:/data/backend
+      - artifacts_data:/artifacts
       - ../../db:/app/db:ro
     depends_on:
       - postgres
       - redis
+      - pdf-parser
+      - document-parser
     restart: unless-stopped
 
   # 统一公告下载服务
   report-finder:
-    profiles: ["external-services"]
     build:
       context: ../../services/market-report-finder
       dockerfile: Dockerfile
@@ -64,6 +74,36 @@ services:
       - SEC_USER_AGENT=${SEC_USER_AGENT:-SIQ Research contact@example.com}
     volumes:
       - downloads_data:/app/downloads
+    restart: unless-stopped
+
+  # 备用市场下载服务
+  market-report-finder:
+    profiles: ["external-services"]
+    build:
+      context: ../../services/market-report-finder
+      dockerfile: Dockerfile
+    ports:
+      - "${SIQ_MARKET_REPORT_FINDER_PORT:-18010}:8000"
+    environment:
+      - MARKET_REPORT_DOWNLOAD_DIR=/app/downloads
+      - SEC_USER_AGENT=${SEC_USER_AGENT:-SIQ Research contact@example.com}
+    volumes:
+      - downloads_data:/app/downloads
+    restart: unless-stopped
+
+  # 多市场规则服务
+  market-report-rules:
+    profiles: ["external-services"]
+    build:
+      context: ../..
+      dockerfile: services/market-report-rules/Dockerfile
+    ports:
+      - "${SIQ_MARKET_REPORT_RULES_PORT:-18020}:8000"
+    environment:
+      - SIQ_CN_REPORT_FINDER_BASE=http://report-finder:8000
+      - SIQ_REPORT_FINDER_BASE=http://report-finder:8000
+    depends_on:
+      - report-finder
     restart: unless-stopped
 
   # PDF解析服务
@@ -77,10 +117,31 @@ services:
       - MINERU_API_URL=${MINERU_API_URL:-http://host.docker.internal:8003}
       - VLM_API_URL=${VLM_API_URL:-http://host.docker.internal:8002}
       - PDF2MD_ACCESS_TOKEN=${PDF2MD_ACCESS_TOKEN:?PDF2MD_ACCESS_TOKEN is required}
+      - SIQ_DATA_ROOT=/data
       - SIQ_PDF2MD_DATA_DIR=/app/data
       - PORT=15000
     volumes:
-      - ../../data/pdf-parser:/app/data
+      - pdf_parser_data:/app/data
+    restart: unless-stopped
+
+  # 通用文档解析服务
+  document-parser:
+    build:
+      context: ../../apps/document-parser
+      dockerfile: Dockerfile
+    ports:
+      - "${SIQ_DOCUMENT_PARSER_PORT:-15010}:15010"
+    environment:
+      - SIQ_DATA_ROOT=/data
+      - SIQ_DOCUMENT_PARSE_DATA_DIR=/app/data
+      - SIQ_PDF2MD_API_BASE=http://pdf-parser:15000
+      - SIQ_PDF2MD_DATA_DIR=/pdf-parser-data
+      - PORT=15010
+    volumes:
+      - document_parser_data:/app/data
+      - pdf_parser_data:/pdf-parser-data
+    depends_on:
+      - pdf-parser
     restart: unless-stopped
 
   # PostgreSQL数据库
@@ -93,7 +154,7 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
     volumes:
-      - ../../data/postgres/raw-container-data/data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
 
   # Redis缓存（新增）
@@ -120,6 +181,11 @@ services:
 volumes:
   wiki_data:
   downloads_data:
+  backend_data:
+  pdf_parser_data:
+  document_parser_data:
+  postgres_data:
+  artifacts_data:
   redis_data:
   grafana_data:
 

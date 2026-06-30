@@ -1,6 +1,8 @@
 # SIQ 运行态数据目录
 
-`data/` 保存 SIQ Research Engine 的本地运行态数据。该目录默认被 Git 忽略，除 README、`.gitkeep` 或小型 manifest 外，不提交业务数据、缓存、数据库文件和模型产物。
+`data/` 保存 SIQ Research Engine 的历史兼容本地运行态数据。该目录默认被 Git 忽略，除 README 和 `.gitkeep` 外，不提交业务数据、缓存、数据库文件、下载披露文件、解析产物和模型产物。
+
+新增运行态建议优先落到仓库根目录的 `var/`，生成产物落到 `artifacts/`，可版本化小型样本和 fixtures 落到 `datasets/`。保留 `data/` 是为了兼容当前服务默认路径和既有本机数据。
 
 ## 子目录
 
@@ -28,7 +30,7 @@
 
 ## 运行建议
 
-- 大体量数据使用独立磁盘或挂载目录，并通过 `SIQ_DATA_ROOT` 指向。
+- 大体量数据使用独立磁盘、挂载目录或 `var/`，并通过 `SIQ_DATA_ROOT`、`SIQ_RUNTIME_ROOT` 或领域专属 `SIQ_*_DATA_DIR` 指向。
 - 统一公告下载目录使用 `SIQ_REPORT_DOWNLOADS_ROOT` 或 `SIQ_MARKET_REPORT_DOWNLOADS_ROOT` 控制。
 - PDF 解析目录使用 `SIQ_PDF2MD_DATA_DIR` 控制。
 - 通用文档解析目录使用 `SIQ_DOCUMENT_PARSE_DATA_DIR` 控制。

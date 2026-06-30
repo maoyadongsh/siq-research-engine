@@ -17,23 +17,48 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SIQ_PROJECT_ROOT="${SIQ_PROJECT_ROOT:-$(cd "${SCRIPT_DIR}/../../.." && pwd)}"
 
+source_env_if_exists() {
+    local env_file=$1
+    if [[ ! -f "$env_file" ]]; then
+        return 1
+    fi
+    set -a
+    # shellcheck disable=SC1090
+    source "$env_file"
+    set +a
+}
+
+DEFAULT_ENV_FILE="${SIQ_PROJECT_ROOT}/infra/env/local.env"
+LEGACY_ENV_FILE="${SIQ_PROJECT_ROOT}/env/backend.env"
+ENV_FILE="${SIQ_ENV_FILE:-$DEFAULT_ENV_FILE}"
+if ! source_env_if_exists "$ENV_FILE" && [[ -z "${SIQ_ENV_FILE:-}" ]]; then
+    source_env_if_exists "$LEGACY_ENV_FILE" || true
+fi
+
+SIQ_DATA_ROOT="${SIQ_DATA_ROOT:-${SIQ_PROJECT_ROOT}/data}"
+SIQ_RUNTIME_ROOT="${SIQ_RUNTIME_ROOT:-${SIQ_PROJECT_ROOT}/var}"
+SIQ_ARTIFACTS_ROOT="${SIQ_ARTIFACTS_ROOT:-${SIQ_PROJECT_ROOT}/artifacts}"
+SIQ_DATASETS_ROOT="${SIQ_DATASETS_ROOT:-${SIQ_PROJECT_ROOT}/datasets}"
+export SIQ_PROJECT_ROOT SIQ_DATA_ROOT SIQ_RUNTIME_ROOT SIQ_ARTIFACTS_ROOT SIQ_DATASETS_ROOT
+mkdir -p "${SIQ_RUNTIME_ROOT}/logs" "${SIQ_RUNTIME_ROOT}/run"
+
 # --------------------------- 配置 ---------------------------
 VLLM_PORT="${MINERU_VLLM_PORT:-8002}"
 MINERU_PORT="${MINERU_API_PORT:-8003}"
 WEB_PORT="${SIQ_PDF2MD_PORT:-15000}"
 
-VLLM_LOG="/tmp/vllm_mineru.log"
-MINERU_LOG="/tmp/mineru_api.log"
-WEB_LOG="${SIQ_PDF2MD_LOG:-/tmp/siq_pdf_parser.log}"
+VLLM_LOG="${MINERU_VLLM_LOG:-${SIQ_RUNTIME_ROOT}/logs/vllm_mineru.log}"
+MINERU_LOG="${MINERU_API_LOG:-${SIQ_RUNTIME_ROOT}/logs/mineru_api.log}"
+WEB_LOG="${SIQ_PDF2MD_LOG:-${SIQ_RUNTIME_ROOT}/logs/siq_pdf_parser.log}"
 
-VLLM_PID_FILE="/tmp/vllm_service.pid"
-MINERU_PID_FILE="/tmp/mineru_api.pid"
-WEB_PID_FILE="${SIQ_PDF2MD_PID_FILE:-/tmp/siq_pdf_parser.pid}"
+VLLM_PID_FILE="${MINERU_VLLM_PID_FILE:-${SIQ_RUNTIME_ROOT}/run/vllm_service.pid}"
+MINERU_PID_FILE="${MINERU_API_PID_FILE:-${SIQ_RUNTIME_ROOT}/run/mineru_api.pid}"
+WEB_PID_FILE="${SIQ_PDF2MD_PID_FILE:-${SIQ_RUNTIME_ROOT}/run/siq_pdf_parser.pid}"
 
 VLLM_MODEL_PATH="${MINERU_VLLM_MODEL_DIR:-/home/maoyd/models/mineru-modelscope/MinerU2.5-Pro-2604-1.2B}"
-VENV_MINERU="${SIQ_MINERU_VENV:-/home/maoyd/.venvs/mineru_native}"
+VENV_MINERU="${SIQ_MINERU_VENV:-${SIQ_PROJECT_ROOT}/runtimes/mineru-native}"
 WEB_DIR="${SIQ_PDF2MD_ROOT:-${SIQ_PROJECT_ROOT}/apps/pdf-parser}"
-WEB_DATA_DIR="${SIQ_PDF2MD_DATA_DIR:-${SIQ_PROJECT_ROOT}/data/pdf-parser}"
+WEB_DATA_DIR="${SIQ_PDF2MD_DATA_DIR:-${SIQ_DATA_ROOT}/pdf-parser}"
 CONDA_ENV="${MINERU_VLLM_CONDA_ENV:-mineru_vllm_clean}"
 SYSTEMD_USER_DIR="${HOME}/.config/systemd/user"
 WEB_SERVICE_NAME="${SIQ_PDF2MD_SERVICE_NAME:-siq-pdf-parser.service}"

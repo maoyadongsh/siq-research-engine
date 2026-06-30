@@ -3,6 +3,8 @@
 .env.*
 !.env.example
 env/*.env
+infra/env/*.env
+!infra/env/*.example
 config/env/*.local
 config/env/*.production
 
@@ -18,6 +20,7 @@ dist/
 build/
 **/dist/
 **/build/
+artifacts/
 
 # Python caches and test artifacts
 __pycache__/
@@ -26,8 +29,13 @@ __pycache__/
 **/.pytest_cache/
 .mypy_cache/
 .ruff_cache/
+*.egg-info/
+**/*.egg-info/
 .coverage
 htmlcov/
+test-results/
+**/test-results/
+**/playwright-report/
 
 # Logs and temporary files
 logs/
@@ -38,13 +46,23 @@ tmp/
 
 # Large runtime or copied external assets
 _external_assets/
-data/
 downloads/
 runtimes/
+data/**
+var/**
+artifacts/**
 !data/
+!var/
+!artifacts/
 !data/README.md
+!var/README.md
+!artifacts/README.md
 !data/**/
+!var/**/
+!artifacts/**/
 !data/**/.gitkeep
+!var/**/.gitkeep
+!artifacts/**/.gitkeep
 **/__pycache__/
 *.py[cod]
 apps/pdf-parser/results/

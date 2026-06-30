@@ -34,6 +34,19 @@ PDF 原页 / 页码 / 缩放 / bbox 高亮
 
 也就是说：只把截图里的复核对照区域换成通用文档解析那套更高精度、更完整的前端对照体验；其他内容完全保持原样。
 
+### 0.1 2026-06-30 状态复核
+
+本方案仍定位为前端复核对照体验改造方案，不承接后端解析、质量报告、财务抽取或任务状态拆分。
+
+当前相关工程基线：
+
+- `PdfParsing` / 多市场解析入口已共用 workbench，route registry 与导航/preload 已单源化。
+- `PdfSourceWorkbench.tsx` 仍是前端剩余大组件之一，约 1842 行；后续 UI 精修前，建议先按 `F-004` 将 compare pane、reading pane、PDF page pane、review correction pane、artifact pane 拆出。
+- `cd apps/web && npm run lint` 通过。
+- `cd apps/web && npm run build` 通过。
+
+因此，本方案下一步不应直接大改样式；优先做组件边界拆分，再进行视觉复刻和 bbox overlay 精修。
+
 ## 1. 覆盖范围
 
 财报 PDF 解析的多市场入口共用 `PdfParsing` 页面和 `PdfSourceWorkbench` 复核组件，因此该前端替换可覆盖：

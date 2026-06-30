@@ -117,20 +117,28 @@ data/
 | `apps/document-parser` | 通用文档解析服务 |
 | `services/market-report-finder` | 官方公告下载服务 |
 | `services/market-report-rules` | 多市场规则服务 |
+| `packages/market-contracts` | 多市场证据包共享契约 |
 | `agents/hermes` | Hermes profiles、角色规则和共享脚本 |
 | `db/imports` | PostgreSQL 入库和财务查询工具 |
 | `scripts` | 运维、评测、批处理和向量入库脚本 |
 | `infra` | Docker、模型服务和环境样例 |
 | `eval_datasets` | 评测与回归语料 |
-| `data` | 运行态数据目录 |
+| `datasets` | 可版本化小型数据集、fixtures 和样本 |
+| `data` | 旧版兼容运行态数据目录，默认不提交业务内容 |
+| `var` | 新增本地运行态建议目录，默认被 Git 忽略 |
+| `artifacts` | 构建、测试、评测和批处理生成产物，默认被 Git 忽略 |
 
 ## 快速启动
 
 ```bash
 cd /home/maoyd/siq-research-engine
-export SIQ_AUTH_SECRET_KEY="$(openssl rand -hex 32)"
+cp infra/env/local.example infra/env/local.env
+# edit infra/env/local.env and replace secrets before long-running local use
+export SIQ_AUTH_SECRET_KEY="${SIQ_AUTH_SECRET_KEY:-$(openssl rand -hex 32)}"
 ./start_all.sh
 ```
+
+`start_all.sh` 默认读取 `infra/env/local.env`。兼容期内，如果该文件不存在且未显式设置 `SIQ_ENV_FILE`，脚本仍会尝试读取旧路径 `env/backend.env`；前端旧配置 `env/frontend-dev.env` 也会被兼容读取。
 
 启动后访问：
 
@@ -162,7 +170,7 @@ SIQ_START_VECTOR_INGEST=1 ./start_all.sh
 
 ```bash
 docker compose -f infra/docker/docker-compose.yml \
-  --env-file infra/env/local.example \
+  --env-file infra/env/local.env \
   up
 ```
 
@@ -170,11 +178,13 @@ docker compose -f infra/docker/docker-compose.yml \
 
 ```bash
 docker compose -f infra/docker/docker-compose.yml \
-  --env-file infra/env/local.example \
+  --env-file infra/env/local.env \
   --profile external-services \
   --profile monitoring \
   up
 ```
+
+默认 Compose 服务图包含 Web、API、report-finder、PDF parser、document-parser、PostgreSQL 和 Redis；`external-services` profile 额外启动备用 market-report-finder 与 market-report-rules，`monitoring` profile 启动 Grafana。Hermes 网关当前依赖本机 Hermes editable venv，仍通过 `start_all.sh` 或 `scripts/hermes/run_gateway.sh` 启动。
 
 ## 手动启动
 
@@ -246,8 +256,11 @@ curl -s http://localhost:18652/health
 | 变量 | 默认值 | 用途 |
 | --- | --- | --- |
 | `SIQ_PROJECT_ROOT` | 仓库根目录 | 项目根路径 |
-| `SIQ_DATA_ROOT` | `data` | 运行态数据根目录 |
-| `SIQ_WIKI_ROOT` | `data/wiki` | 公司 Wiki、报告和 evidence package |
+| `SIQ_DATA_ROOT` | `data` | 兼容期运行态数据根目录；后续可切到 `var` |
+| `SIQ_RUNTIME_ROOT` | `var` | 新增本地运行态建议根目录 |
+| `SIQ_ARTIFACTS_ROOT` | `artifacts` | 构建、测试、评测和批处理输出根目录 |
+| `SIQ_DATASETS_ROOT` | `datasets` | 可版本化小型 fixtures 和稳定样本根目录 |
+| `SIQ_WIKI_ROOT` | `$SIQ_DATA_ROOT/wiki` | 公司 Wiki、报告和 evidence package |
 | `SIQ_BACKEND_PORT` | `18081` | API 聚合后端端口 |
 | `SIQ_FRONTEND_PORT` | `15173` | Web 工作台端口 |
 | `SIQ_PDF2MD_PORT` | `15000` | PDF 解析服务端口 |
@@ -255,10 +268,10 @@ curl -s http://localhost:18652/health
 | `SIQ_REPORT_FINDER_PORT` | `18000` | 统一公告搜索下载端口 |
 | `SIQ_MARKET_REPORT_FINDER_PORT` | `18010` | 备用下载实例端口 |
 | `SIQ_MARKET_REPORT_RULES_PORT` | `18020` | 多市场规则服务端口 |
-| `SIQ_REPORT_DOWNLOADS_ROOT` | `data/market-report-finder/downloads` | 已下载官方披露文件目录 |
-| `SIQ_PDF2MD_DATA_DIR` | `data/pdf-parser` | PDF 解析运行态目录 |
-| `SIQ_DOCUMENT_PARSE_DATA_DIR` | `data/document-parser` | 通用文档解析运行态目录 |
-| `SIQ_HERMES_HOME` | `data/hermes/home` | Hermes 运行态根目录 |
+| `SIQ_REPORT_DOWNLOADS_ROOT` | `$SIQ_DATA_ROOT/market-report-finder/downloads` | 已下载官方披露文件目录 |
+| `SIQ_PDF2MD_DATA_DIR` | `$SIQ_DATA_ROOT/pdf-parser` | PDF 解析运行态目录 |
+| `SIQ_DOCUMENT_PARSE_DATA_DIR` | `$SIQ_DATA_ROOT/document-parser` | 通用文档解析运行态目录 |
+| `SIQ_HERMES_HOME` | `$SIQ_DATA_ROOT/hermes/home` | Hermes 运行态根目录 |
 | `SIQ_AUTH_SECRET_KEY` | 无 | API 鉴权密钥，必须设置 |
 | `SEC_USER_AGENT` | 服务默认值 | SEC EDGAR 合规请求头 |
 | `DART_API_KEY` | 空 | 韩国 DART / OpenDART API key |
@@ -316,11 +329,16 @@ bash -n apps/document-parser/run.sh
 | `db/imports/README.md` | PostgreSQL 入库和财务查询工具 |
 | `scripts/README.md` | 运维、评测和向量入库脚本 |
 | `infra/model-services/README.md` | 本地模型服务和 systemd 用户单元 |
-| `data/README.md` | 运行态数据目录和边界 |
+| `data/README.md` | 旧版兼容运行态数据目录和边界 |
+| `var/README.md` | 新增本地运行态建议目录 |
+| `artifacts/README.md` | 构建、测试、评测和批处理生成产物目录 |
+| `datasets/README.md` | 可版本化数据集、fixtures 和小型样本目录 |
 | `eval_datasets/README.md` | 评测语料和回归集说明 |
 
 ## 数据安全与运行态边界
 
-`data/` 保存上传文件、下载披露文件、解析结果、SQLite、聊天附件、日志、缓存、PostgreSQL / Milvus / MinIO 数据和 Hermes 状态。除 README、`.gitkeep` 或小型 manifest 外，不提交其中内容。
+`data/` 仍作为现有服务的兼容运行态目录，保存上传文件、下载披露文件、解析结果、SQLite、聊天附件、日志、缓存、PostgreSQL / Milvus / MinIO 数据和 Hermes 状态。新增运行态默认建议落到 `var/`，构建/测试/评测输出落到 `artifacts/`，可版本化小型 fixtures 和稳定样本落到 `datasets/`。
+
+除 README、`.gitkeep` 或明确的小型 fixtures 外，不提交运行态数据、下载披露文件、解析产物、数据库文件、缓存、日志和本地模型运行时。
 
 `.env`、API key、数据库口令、模型服务密钥、用户会话、聊天附件和未公开研究材料不应写入 README、报告、日志或提交记录。涉及财务和法务结论的产物应保留证据来源、生成时间、模型 / 规则版本和人工复核状态。

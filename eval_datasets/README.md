@@ -1,6 +1,8 @@
 # SIQ 评测语料
 
-`eval_datasets` 保存 SIQ Research Engine 的评测语料和回归样本。这里既有财报分析评测，也有市场入库和通用文档解析回归集。
+`eval_datasets` 保存 SIQ Research Engine 早期评测语料和回归样本。这里既有财报分析评测，也有市场入库和通用文档解析回归集。
+
+后续新增可版本化评测集、fixtures 和小型样本时，优先使用仓库根目录 `datasets/`；单次评测运行输出、临时报告和批处理产物应进入 `artifacts/eval-runs/`，不要写回评测基准目录。
 
 ## 数据集概况
 
