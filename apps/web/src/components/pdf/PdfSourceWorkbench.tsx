@@ -1,13 +1,22 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { BookOpen, ChevronLeft, ChevronRight, ExternalLink, FileText, Loader2, Save } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { FileText, Loader2 } from 'lucide-react'
 import type { FocusEvent, MouseEvent, MutableRefObject, RefObject } from 'react'
-import { cn } from '@/lib/utils'
-import type { PdfCtx, PageBlock, PageContent, SelectedTrace, SourceMeta, SourceTable } from '../../lib/pdfTypes'
+import type { BboxExtent, PdfCtx, PageBlock, PageContent, SelectedTrace, SourceMeta, SourceTable } from '../../lib/pdfTypes'
 import { artifactUrl, PDF_API } from '../../lib/pdfApi'
-import { handleAuthenticatedSourceClick } from '../../lib/authenticatedSourceLinks'
 import { apiJson } from '../../lib/apiClient'
-import { useAuthenticatedBlobUrl } from '../../lib/authenticatedFiles'
 import { parseBbox as parsePdfBbox } from '../../lib/pdfSanitize'
+import { PageMergeBridge, PdfPagePreviewCard } from './PdfSourcePagePreview'
+import {
+  PdfArtifactPane,
+  PdfMarkdownContextPane,
+  PdfMobileReviewTabs,
+  PdfReviewComparePane,
+  PdfReviewCorrectionPane,
+  PdfReviewPdfPane,
+  PdfReviewReadingPane,
+  PdfSourceSummary,
+} from './PdfSourceWorkbenchPanels'
+import { blockFocusKey, type EnhancedTable, type PageOverlayEntry, type PagePlanEntry, type TableRelationCandidate } from './pdfSourceWorkbenchTypes'
 import { renderPageContentHtml } from './pdfSourceRendering'
 
 export interface PdfSourceWorkbenchProps {
@@ -33,43 +42,6 @@ export interface PdfSourceWorkbenchProps {
   corrTextRef: RefObject<HTMLTextAreaElement | null>
   corrNoteRef: RefObject<HTMLTextAreaElement | null>
   saveCorrection: () => Promise<void>
-}
-
-type BboxExtent = { width: number; height: number }
-
-type EnhancedTableStructure = {
-  expanded_rows?: number
-  expanded_columns?: number
-  header_row_count?: number
-  has_colspan?: boolean
-  has_rowspan?: boolean
-  multi_level_header_candidate?: boolean
-  header_preview?: string[]
-}
-
-type EnhancedTable = {
-  table_id?: string
-  table_index?: number
-  content_table_source_id?: number
-  line?: number
-  source?: string
-  confidence?: string
-  pdf_page_index?: number
-  pdf_page_number?: number
-  printed_page_number?: string
-  bbox?: number[]
-  source_image_path?: string
-  source_caption?: string[]
-  source_footnote?: string[]
-  rows?: number
-  cells?: number
-  structure?: EnhancedTableStructure
-  preview?: string
-  report_year?: number | string
-  heading?: string
-  unit?: string
-  matched_financial_names?: string[]
-  missing_body?: boolean
 }
 
 type EnhancedArtifact = {
@@ -112,35 +84,6 @@ type TableRelationsArtifact = {
   relations?: TableRelationArtifactEntry[]
 }
 
-type TableRelationCandidate = {
-  relationType: 'continuation' | 'candidate_continuation'
-  confidence: number
-  reasons: string[]
-  fromTable: EnhancedTable
-  toTable: EnhancedTable
-  pageNumbers: [number, number]
-}
-
-type PagePlanEntry = {
-  pageNumber: number
-  focusTableIndex?: number
-  relation?: TableRelationCandidate
-}
-
-type OverlayTone = 'focused' | 'table' | 'trace' | 'block'
-
-type PageOverlayEntry = {
-  tableIndex?: number
-  blockId?: string
-  blockType?: string
-  pageNumber?: number
-  bbox: number[]
-  label: string
-  detail: string
-  tone: OverlayTone
-  source: 'table' | 'trace' | 'block'
-}
-
 type FocusedBlock = {
   key: string
   blockId: string
@@ -159,34 +102,6 @@ function validBbox(value: unknown): number[] {
   if (!bbox || bbox.length !== 4) return []
   if (bbox[2] <= bbox[0] || bbox[3] <= bbox[1]) return []
   return bbox
-}
-
-function clampPercent(value: number) {
-  if (!Number.isFinite(value)) return 0
-  return Math.max(0, Math.min(100, value))
-}
-
-function bboxStyle(bbox: number[], extent: BboxExtent): CSSProperties {
-  const left = clampPercent((bbox[0] / extent.width) * 100)
-  const top = clampPercent((bbox[1] / extent.height) * 100)
-  const right = clampPercent((bbox[2] / extent.width) * 100)
-  const bottom = clampPercent((bbox[3] / extent.height) * 100)
-  return {
-    left: `${left}%`,
-    top: `${top}%`,
-    width: `${Math.max(0.8, right - left)}%`,
-    height: `${Math.max(0.8, bottom - top)}%`,
-  }
-}
-
-function mergeStemStyle(bbox: number[], extent: BboxExtent, mode: 'from' | 'to'): CSSProperties {
-  const x = clampPercent((((bbox[0] + bbox[2]) / 2) / extent.width) * 100)
-  if (mode === 'from') {
-    const top = clampPercent((bbox[3] / extent.height) * 100)
-    return { left: `${x}%`, top: `${top}%`, height: `${Math.max(5, 100 - top)}%` }
-  }
-  const height = clampPercent((bbox[1] / extent.height) * 100)
-  return { left: `${x}%`, top: 0, height: `${Math.max(5, height)}%` }
 }
 
 function normalizeText(value: unknown) {
@@ -451,10 +366,6 @@ function blockOverlayLabel(block: PageBlock) {
   if (type === 'list') return '段'
   if (type === 'header' || type === 'title' || Number(block.text_level || 0) > 0 || isHeadingBlock(block)) return '题'
   return '段'
-}
-
-function blockFocusKey(page: number, blockId: string) {
-  return `${page}:${blockId}`
 }
 
 function blockY(block: PageBlock) {
@@ -806,61 +717,23 @@ function deriveTaskId(urls: string[]) {
   return ''
 }
 
-function PageMergeBridge({
-  relation,
-  onClick,
-}: {
-  relation: TableRelationCandidate
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      className={`pdf-page-merge-bridge ${relation.relationType === 'continuation' ? 'is-accepted' : 'is-candidate'}`}
-      title={`${relation.pageNumbers[0]} -> ${relation.pageNumbers[1]} · ${relation.relationType}`}
-      onClick={onClick}
-    >
-      <span>合并</span>
-    </button>
-  )
-}
-
-function PdfPagePreviewCard({
+function buildPagePreviewOverlays({
   pageNumberValue,
-  pageUrl,
-  pageExtent,
   currentPage,
   focusTableIndex,
   tables,
   blocks,
-  relationEntries,
   currentTrace,
   focusedBlockKey,
-  onReadingClick,
-  onBlockFocus,
 }: {
   pageNumberValue: number
-  pageUrl: string
-  pageExtent: BboxExtent
   currentPage: number
   focusTableIndex: number
   tables: EnhancedTable[]
   blocks: PageBlock[]
-  relationEntries: Array<{ relation: TableRelationCandidate; mode: 'from' | 'to' }>
   currentTrace: SelectedTrace | null
   focusedBlockKey: string
-  onReadingClick: (e: MouseEvent<HTMLDivElement>) => void
-  onBlockFocus: (entry: PageOverlayEntry) => void
 }) {
-  const [pageImageFailed, setPageImageFailed] = useState(false)
-  const pageBlobUrl = useAuthenticatedBlobUrl(pageUrl)
-
-  useEffect(() => {
-    if (!pageUrl || pageBlobUrl) return
-    const timer = window.setTimeout(() => setPageImageFailed(true), 12000)
-    return () => window.clearTimeout(timer)
-  }, [pageBlobUrl, pageUrl])
-
   const pageTables = tables.filter((table) => pageNumber(table.pdf_page_number, 0) === pageNumberValue)
   const overlays: PageOverlayEntry[] = []
 
@@ -908,95 +781,7 @@ function PdfPagePreviewCard({
     })
   }
 
-  return (
-    <article className="pdf-pdf-page-card">
-      <div className="pdf-pdf-page-title">
-        <span>PDF p{pageNumberValue}</span>
-        <a
-          href={pageUrl}
-          target="_blank"
-          rel="noopener"
-          className="text-primary inline-flex items-center gap-1 text-sm font-semibold no-underline"
-          onClick={(event) => {
-            handleAuthenticatedSourceClick(event.nativeEvent, pageUrl).catch((error) => {
-              console.warn('Failed to open authenticated source link', error)
-            })
-          }}
-        >
-          <ExternalLink size={13} />
-          打开页图
-        </a>
-      </div>
-      <div className="pdf-pdf-page-canvas" onClick={onReadingClick}>
-        {pageBlobUrl ? (
-          <>
-            <img src={pageBlobUrl} alt={`PDF 第 ${pageNumberValue} 页`} className="pdf-pdf-page-image" onError={() => setPageImageFailed(true)} />
-            <div className="pdf-overlay-layer" aria-hidden={!overlays.length}>
-              {overlays.map((entry) => {
-                const style = bboxStyle(entry.bbox, pageExtent)
-                const cls =
-                  entry.tone === 'focused'
-                    ? `pdf-bbox ${entry.source === 'block' ? 'pdf-bbox-block' : 'pdf-bbox-table'} pdf-bbox-selected`
-                    : entry.tone === 'trace'
-                      ? 'pdf-bbox pdf-bbox-text'
-                      : entry.tone === 'block'
-                        ? 'pdf-bbox pdf-bbox-block'
-                      : 'pdf-bbox pdf-bbox-table'
-                return (
-                  <button
-                    key={`${pageNumberValue}-${entry.source}-${entry.tableIndex || entry.blockId || 'trace'}-${entry.bbox.join('-')}`}
-                    type="button"
-                    className={cls}
-                    style={style}
-                    title={entry.detail}
-                    aria-label={entry.detail}
-                    data-ptidx={entry.tableIndex || ''}
-                    data-block-id={entry.blockId || ''}
-                    data-block-type={entry.blockType || ''}
-                    data-page-number={entry.pageNumber || ''}
-                    data-focus-key={entry.blockId && entry.pageNumber ? blockFocusKey(entry.pageNumber, entry.blockId) : ''}
-                    onClick={
-                      entry.source === 'block'
-                        ? (event) => {
-                            event.preventDefault()
-                            event.stopPropagation()
-                            onBlockFocus(entry)
-                          }
-                        : undefined
-                    }
-                  >
-                    <span>{entry.label}</span>
-                  </button>
-                )
-              })}
-              {relationEntries.map((item, index) => {
-                const table = item.mode === 'from' ? item.relation.fromTable : item.relation.toTable
-                const bbox = validBbox(table.bbox)
-                if (!bbox.length) return null
-                return (
-                  <button
-                    key={`${pageNumberValue}-${item.mode}-${item.relation.pageNumbers.join('-')}-${index}`}
-                    type="button"
-                    className={`pdf-merge-stem ${item.mode === 'from' ? 'is-from' : 'is-to'} ${item.relation.relationType === 'continuation' ? 'is-accepted' : 'is-candidate'}`}
-                    style={mergeStemStyle(bbox, pageExtent, item.mode)}
-                    title={`p${item.relation.pageNumbers[0]} -> p${item.relation.pageNumbers[1]} · ${item.relation.relationType}`}
-                    aria-label="合并候选"
-                  >
-                    <span>合并</span>
-                  </button>
-                )
-              })}
-            </div>
-          </>
-        ) : (
-          <div className={`pdf-page-state ${pageImageFailed ? 'is-error' : ''}`}>
-            {pageImageFailed ? <FileText className="h-5 w-5" /> : <Loader2 className="h-5 w-5 animate-spin" />}
-            <span>{pageImageFailed ? '页图暂不可用，请稍后重试或打开页图。' : '正在加载页图...'}</span>
-          </div>
-        )}
-      </div>
-    </article>
-  )
+  return overlays
 }
 
 function renderFallbackPageHtml(html: string, pageNumberValue: number, currentPage: number) {
@@ -1493,350 +1278,154 @@ export function PdfSourceWorkbench(props: PdfSourceWorkbenchProps) {
     <div ref={workbenchRef} className="apple-card rounded-[24px] p-4 sm:p-6">
       <h3 className="mb-3 text-base font-semibold text-text">可视化溯源</h3>
 
-      <div className="pdf-source-summary">
-        <div>
-          <strong>表 {srcTable.table_index || '--'}</strong>
-          <span>Markdown 行 {srcTable.line || '-'}</span>
-        </div>
-        <div>
-          <strong>{srcTable.rows || 0}</strong>
-          <span>行</span>
-        </div>
-        <div>
-          <strong>{srcTable.pdf_page_number || '--'}</strong>
-          <span>
-            PDF 页码{srcTable.pdf_page_source === 'markdown_marker_inferred' ? '（推断）' : ''}
-          </span>
-        </div>
-        <div>
-          <strong>{srcTable.cells || 0}</strong>
-          <span>单元格</span>
-        </div>
-        <div>
-          <strong>{Math.round((srcTable.empty_ratio || 0) * 1000) / 10}%</strong>
-          <span>空单元格</span>
-        </div>
-        <div>
-          <strong>{Math.round((srcTable.numeric_ratio || 0) * 1000) / 10}%</strong>
-          <span>数字密度</span>
-        </div>
-      </div>
+      <PdfSourceSummary srcTable={srcTable} />
+      <PdfMobileReviewTabs mobileTab={mobileTab} onChange={setMobileTab} />
 
-      <div className="pdf-source-meta">
-        <span>附近标题</span>
-        <b>{srcTable.heading || '未识别'}</b>
-      </div>
-      <div className="pdf-source-meta">
-        <span>单位</span>
-        <b>{srcTable.unit || '未识别'}</b>
-      </div>
-      <div className="pdf-source-meta">
-        <span>命中类别</span>
-        <b>{(srcTable.matched_financial_names || []).join('、') || '普通表'}</b>
-      </div>
-      <div className="pdf-source-meta">
-        <span>PDF 坐标 bbox</span>
-        <b>{(srcTable.bbox || []).join(', ') || '未识别'}</b>
-      </div>
-      <div className="pdf-source-meta">
-        <span>页面截图</span>
-        <b>{srcTable.source_image_path || '未识别'}</b>
-      </div>
-
-      <div className="pdf-mobile-review-tabs">
-        <button
-          type="button"
-          onClick={() => setMobileTab('pdf')}
-          className={cn(
-            'flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-sm font-semibold transition-colors',
-            mobileTab === 'pdf' ? 'bg-primary text-white' : 'text-text-muted hover:text-text',
-          )}
+      <PdfReviewComparePane>
+        <PdfReviewPdfPane
+          mobileTab={mobileTab}
+          currentPage={currentPage}
+          pageCount={pageCount}
+          pdfZoom={pdfZoom}
+          setPdfZoom={setPdfZoom}
+          onPageChange={changePage}
         >
-          <FileText className="h-4 w-4" />
-          PDF 原页
-        </button>
-        <button
-          type="button"
-          onClick={() => setMobileTab('md')}
-          className={cn(
-            'flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-sm font-semibold transition-colors',
-            mobileTab === 'md' ? 'bg-primary text-white' : 'text-text-muted hover:text-text',
-          )}
-        >
-          <BookOpen className="h-4 w-4" />
-          Markdown
-        </button>
-      </div>
-
-      <div className="pdf-workbench" aria-label="PDF 复核对照工作台">
-        <div className={cn('pdf-source-block pdf-source-pane', mobileTab !== 'pdf' && 'pdf-mobile-hidden')}>
-      <div className="pdf-source-pane-head">
-        <div>
-          <h4>PDF 原页</h4>
-          <p>PDF 第 {currentPage} / {pageCount} 页</p>
-        </div>
-        <div className="pdf-page-toolbar-actions">
-          <div className="pdf-page-nav">
-            <button
-              type="button"
-              className="pdf-nav-btn"
-              disabled={currentPage <= 1}
-              onClick={() => changePage(currentPage - 1)}
-              aria-label="上一页"
-              title="上一页"
-            >
-              <ChevronLeft size={15} />
-            </button>
-            <input
-              className="pdf-page-input"
-              type="number"
-              min={1}
-              max={pageCount}
-              value={currentPage}
-              aria-label="PDF 页码"
-              onChange={(e) => changePage(Number(e.target.value))}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') changePage(Number((e.target as HTMLInputElement).value))
-              }}
-            />
-            <button
-              type="button"
-              className="pdf-nav-btn"
-              disabled={currentPage >= pageCount}
-              onClick={() => changePage(currentPage + 1)}
-              aria-label="下一页"
-              title="下一页"
-            >
-              <ChevronRight size={15} />
-            </button>
-          </div>
-          <div className="pdf-zoom-controls" aria-label="PDF 缩放">
-            {(['50', '100', '150'] as const).map((zoom) => (
-              <button
-                key={zoom}
-                type="button"
-                className={`pdf-zoom-btn ${pdfZoom === zoom ? 'active' : ''}`}
-                onClick={() => setPdfZoom(zoom)}
-                aria-pressed={pdfZoom === zoom}
-              >
-                {zoom}%
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="pdf-pdf-page-stack" data-zoom={pdfZoom}>
-        {enhancedLoading && !enhancedArtifact ? (
-          <div className="pdf-workbench-empty">
-            <Loader2 className="h-5 w-5 animate-spin" />
-            <span>正在加载跨页关系...</span>
-              </div>
-            ) : null}
-            {enhancedError ? <div className="pdf-workbench-empty">{enhancedError}</div> : null}
-            {pagePlan.length ? (
-              pagePlan.map((entry, index) => {
-                const relationEntries = [backwardRelation, forwardRelation]
-                  .filter((relation): relation is TableRelationCandidate => Boolean(relation))
-                  .map((relation) => {
-                    const mode = relationModeForPage(entry.pageNumber, relation)
-                    return mode ? { relation, mode } : null
-                  })
-                  .filter((item): item is { relation: TableRelationCandidate; mode: 'from' | 'to' } => Boolean(item))
-                const nextEntry = pagePlan[index + 1]
-                const bridgeRelation = [backwardRelation, forwardRelation].find(
-                  (relation): relation is TableRelationCandidate =>
-                    Boolean(relation && relation.pageNumbers[0] === entry.pageNumber && nextEntry && relation.pageNumbers[1] === nextEntry.pageNumber),
-                ) || null
-                const overlayTables =
-                  entry.pageNumber === sourcePage && srcTable
-                    ? currentTables.some((table) => Number(table.table_index || 0) === Number(srcTable.table_index || 0))
-                      ? currentTables
-                      : currentTables.concat([
-                          {
-                            table_index: srcTable.table_index,
-                            line: srcTable.line,
-                            rows: srcTable.rows,
-                            cells: srcTable.cells,
-                            pdf_page_number: srcTable.pdf_page_number,
-                            printed_page_number: srcTable.pdf_page_source === 'markdown_marker_inferred' ? undefined : srcMeta?.pdfPageImage?.printed_page_number,
-                            heading: srcTable.heading,
-                            unit: srcTable.unit,
-                            matched_financial_names: srcTable.matched_financial_names,
-                            bbox: srcTable.bbox,
-                            source_image_path: srcTable.source_image_path,
-                            source: 'source_table',
-                            confidence: 'high',
-                          } as EnhancedTable,
-                        ])
-                    : currentTables
-
-                return (
-                  <div key={entry.pageNumber} className="pdf-pdf-page-stack-item">
-                    <PdfPagePreviewCard
-                      pageNumberValue={entry.pageNumber}
-                      pageUrl={getPdfUrl(entry.pageNumber)}
-                      pageExtent={pageExtentForPage(entry.pageNumber, currentTables, pageContentCache[entry.pageNumber], currentExtent, currentPage)}
-                      currentPage={currentPage}
-                      focusTableIndex={Number(entry.focusTableIndex || 0)}
-                      tables={overlayTables}
-                      blocks={pageContentBlocks(pageContentCache[entry.pageNumber])}
-                      relationEntries={relationEntries}
-                      currentTrace={currentTrace}
-                      focusedBlockKey={focusedBlockKey}
-                      onReadingClick={handleWorkbenchReadingClick}
-                      onBlockFocus={focusBlockFromOverlay}
-                    />
-                    {bridgeRelation ? (
-                      <PageMergeBridge
-                        relation={bridgeRelation}
-                        onClick={() => changePage(bridgeRelation.pageNumbers[1])}
-                      />
-                    ) : index < pagePlan.length - 1 ? null : null}
-                  </div>
-                )
-              })
-            ) : (
-              <div className="pdf-workbench-empty">
-                <FileText className="h-5 w-5" />
-                <span>未识别 PDF 页码，无法展示原页。</span>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className={cn('pdf-source-block pdf-source-pane', mobileTab !== 'md' && 'pdf-mobile-hidden')}>
-          <div className="pdf-source-pane-head">
-            <div className="pdf-reading-topline">
-              <div>
-                <h4>Markdown</h4>
-                <p>PDF 第 {currentPage} 页</p>
-              </div>
-              <div className="pdf-reading-mode-switch">
-                <button
-                  type="button"
-                  className={`pdf-reading-mode-btn ${readingMode === 'page' ? 'active' : ''}`}
-                  onClick={() => void switchReadingMode('page')}
-                >
-                  页面
-                </button>
-                <button
-                  type="button"
-                  className={`pdf-reading-mode-btn ${readingMode === 'table' ? 'active' : ''}`}
-                  onClick={() => void switchReadingMode('table')}
-                >
-                  表格
-                </button>
-              </div>
+          {enhancedLoading && !enhancedArtifact ? (
+            <div className="pdf-workbench-empty">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              <span>正在加载跨页关系...</span>
             </div>
-          </div>
+          ) : null}
+          {enhancedError ? <div className="pdf-workbench-empty">{enhancedError}</div> : null}
+          {pagePlan.length ? (
+            pagePlan.map((entry, index) => {
+              const relationEntries = [backwardRelation, forwardRelation]
+                .filter((relation): relation is TableRelationCandidate => Boolean(relation))
+                .map((relation) => {
+                  const mode = relationModeForPage(entry.pageNumber, relation)
+                  return mode ? { relation, mode } : null
+                })
+                .filter((item): item is { relation: TableRelationCandidate; mode: 'from' | 'to' } => Boolean(item))
+              const nextEntry = pagePlan[index + 1]
+              const bridgeRelation =
+                [backwardRelation, forwardRelation].find((relation): relation is TableRelationCandidate =>
+                  Boolean(relation && relation.pageNumbers[0] === entry.pageNumber && nextEntry && relation.pageNumbers[1] === nextEntry.pageNumber),
+                ) || null
+              const overlayTables =
+                entry.pageNumber === sourcePage && srcTable
+                  ? currentTables.some((table) => Number(table.table_index || 0) === Number(srcTable.table_index || 0))
+                    ? currentTables
+                    : currentTables.concat([
+                        {
+                          table_index: srcTable.table_index,
+                          line: srcTable.line,
+                          rows: srcTable.rows,
+                          cells: srcTable.cells,
+                          pdf_page_number: srcTable.pdf_page_number,
+                          printed_page_number: srcTable.pdf_page_source === 'markdown_marker_inferred' ? undefined : srcMeta?.pdfPageImage?.printed_page_number,
+                          heading: srcTable.heading,
+                          unit: srcTable.unit,
+                          matched_financial_names: srcTable.matched_financial_names,
+                          bbox: srcTable.bbox,
+                          source_image_path: srcTable.source_image_path,
+                          source: 'source_table',
+                          confidence: 'high',
+                        } as EnhancedTable,
+                      ])
+                  : currentTables
+              const pageBlocks = pageContentBlocks(pageContentCache[entry.pageNumber])
+              const pageOverlays = buildPagePreviewOverlays({
+                pageNumberValue: entry.pageNumber,
+                currentPage,
+                focusTableIndex: Number(entry.focusTableIndex || 0),
+                tables: overlayTables,
+                blocks: pageBlocks,
+                currentTrace,
+                focusedBlockKey,
+              })
 
-          {readingMode === 'table' ? (
-            <div
-              className="pdf-table-wrap pdf-editable scroll-hint"
-              ref={editTableRef}
-              onClick={handleTableClickWithTrace}
-              onFocus={onTableFocus}
-              onInput={onTableInput}
-              onBlur={onTableInput}
-              dangerouslySetInnerHTML={{ __html: readingHtml }}
-            />
+              return (
+                <div key={entry.pageNumber} className="pdf-pdf-page-stack-item">
+                  <PdfPagePreviewCard
+                    pageNumberValue={entry.pageNumber}
+                    pageUrl={getPdfUrl(entry.pageNumber)}
+                    pageExtent={pageExtentForPage(entry.pageNumber, currentTables, pageContentCache[entry.pageNumber], currentExtent, currentPage)}
+                    overlays={pageOverlays}
+                    relationEntries={relationEntries}
+                    onReadingClick={handleWorkbenchReadingClick}
+                    onBlockFocus={focusBlockFromOverlay}
+                  />
+                  {bridgeRelation ? (
+                    <PageMergeBridge
+                      relation={bridgeRelation}
+                      onClick={() => changePage(bridgeRelation.pageNumbers[1])}
+                    />
+                  ) : index < pagePlan.length - 1 ? null : null}
+                </div>
+              )
+            })
           ) : (
-            <div className="pdf-md-render" ref={markdownPaneRef} onClick={handleWorkbenchReadingClick}>
-              {pagePlan.map((entry) => {
-                const pageData = pageContentCache[entry.pageNumber]
-                if (!pageData) {
-                  if (entry.pageNumber === currentPage && readingHtml) {
-                    return (
-                      <article key={entry.pageNumber} className="pdf-md-block">
-                        <span className="pdf-md-block-meta">p{entry.pageNumber} · 加载中</span>
-                        <div className="pdf-md-html" dangerouslySetInnerHTML={{ __html: renderFallbackPageHtml(readingHtml, entry.pageNumber, currentPage) }} />
-                      </article>
-                    )
-                  }
-                  return (
-                    <article key={entry.pageNumber} className="pdf-md-block pdf-page-block-muted">
-                      <span className="pdf-md-block-meta">p{entry.pageNumber} · 加载中</span>
-                      <div className="pdf-md-html" style={{ color: '#64748b' }}>
-                        正在加载页面内容...
-                      </div>
-                    </article>
-                  )
-                }
+            <div className="pdf-workbench-empty">
+              <FileText className="h-5 w-5" />
+              <span>未识别 PDF 页码，无法展示原页。</span>
+            </div>
+          )}
+        </PdfReviewPdfPane>
+
+        <PdfReviewReadingPane
+          mobileTab={mobileTab}
+          readingMode={readingMode}
+          switchReadingMode={switchReadingMode}
+          currentPage={currentPage}
+          readingHtml={readingHtml}
+          editTableRef={editTableRef}
+          markdownPaneRef={markdownPaneRef}
+          onTableClick={handleTableClickWithTrace}
+          onTableFocus={onTableFocus}
+          onTableInput={onTableInput}
+          onReadingClick={handleWorkbenchReadingClick}
+        >
+          {pagePlan.map((entry) => {
+            const pageData = pageContentCache[entry.pageNumber]
+            if (!pageData) {
+              if (entry.pageNumber === currentPage && readingHtml) {
                 return (
-                  <article key={entry.pageNumber} className={`pdf-md-block ${pageNumber(pageData.page_number, entry.pageNumber) === currentPage ? 'is-focused' : ''}`}>
-                    <span className="pdf-md-block-meta">p{entry.pageNumber} · 页面块</span>
-                    <div className="pdf-md-html" dangerouslySetInnerHTML={{ __html: renderPageContentHtml(pageData) }} />
+                  <article key={entry.pageNumber} className="pdf-md-block">
+                    <span className="pdf-md-block-meta">p{entry.pageNumber} · 加载中</span>
+                    <div className="pdf-md-html" dangerouslySetInnerHTML={{ __html: renderFallbackPageHtml(readingHtml, entry.pageNumber, currentPage) }} />
                   </article>
                 )
-              })}
-            </div>
-          )}
-        </div>
-      </div>
+              }
+              return (
+                <article key={entry.pageNumber} className="pdf-md-block pdf-page-block-muted">
+                  <span className="pdf-md-block-meta">p{entry.pageNumber} · 加载中</span>
+                  <div className="pdf-md-html" style={{ color: '#64748b' }}>
+                    正在加载页面内容...
+                  </div>
+                </article>
+              )
+            }
+            return (
+              <article key={entry.pageNumber} className={`pdf-md-block ${pageNumber(pageData.page_number, entry.pageNumber) === currentPage ? 'is-focused' : ''}`}>
+                <span className="pdf-md-block-meta">p{entry.pageNumber} · 页面块</span>
+                <div className="pdf-md-html" dangerouslySetInnerHTML={{ __html: renderPageContentHtml(pageData) }} />
+              </article>
+            )
+          })}
+        </PdfReviewReadingPane>
+      </PdfReviewComparePane>
 
-      <div className="pdf-source-block">
-        <h4>人工复核修正</h4>
-        <div className="pdf-correction-toolbar">
-          <label>
-            状态
-            <select ref={corrStatusRef} defaultValue={corr.review_status || 'unreviewed'}>
-              {statusOpts.map(([v, l]) => (
-                <option key={v} value={v}>
-                  {l}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button className="pdf-trace-btn inline-flex items-center gap-1" onClick={() => void saveCorrection()}>
-            <Save size={13} />
-            保存修正
-          </button>
-          <span className="text-text-muted text-sm">{corr.updated_at ? `上次保存: ${corr.updated_at}` : ''}</span>
-        </div>
-        <textarea
-          ref={corrTextRef}
-          className="pdf-correction-editor"
-          spellCheck={false}
-          defaultValue={corr.table_markdown || srcTable.table_html || ''}
-        />
-        <textarea
-          ref={corrNoteRef}
-          className="pdf-correction-note"
-          placeholder="复核备注，例如：第 3 列金额错位，应以 PDF 第 67 页为准。"
-          defaultValue={corr.note || ''}
-        />
-      </div>
-
-      {excerpt.length > 0 ? (
-        <div className="pdf-source-block">
-          <h4>Markdown 上下文</h4>
-          {excerpt.map((item, i) => (
-            <div key={i} className={`pdf-source-line ${item.focus ? 'focus' : ''}`}>
-              <span>{item.line}</span>
-              <code>{item.text || ' '}</code>
-            </div>
-          ))}
-        </div>
-      ) : null}
-
-      {Object.keys(sArt).length > 0 ? (
-        <div className="pdf-source-block">
-          <h4>产物文件</h4>
-          {Object.entries(sArt).map(([name, info]) => (
-            <div key={name} className={`pdf-artifact-row ${info.exists ? 'ok' : 'missing'}`}>
-              <span>{name}</span>
-              <code>{info.path || '未生成'}</code>
-              {info.exists && info.url ? (
-                <a className="pdf-trace-btn inline-flex items-center gap-1" href={artifactUrl(info)} target="_blank" rel="noopener">
-                  <ExternalLink size={13} />
-                  打开
-                </a>
-              ) : null}
-            </div>
-          ))}
-        </div>
-      ) : null}
+      <PdfReviewCorrectionPane
+        corr={corr}
+        srcTable={srcTable}
+        statusOptions={statusOpts}
+        corrStatusRef={corrStatusRef}
+        corrTextRef={corrTextRef}
+        corrNoteRef={corrNoteRef}
+        saveCorrection={saveCorrection}
+      />
+      <PdfMarkdownContextPane excerpt={excerpt} />
+      <PdfArtifactPane artifacts={sArt} />
     </div>
   )
 }
