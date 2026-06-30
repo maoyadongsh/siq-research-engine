@@ -55,6 +55,12 @@ def table_item_text(table_item):
     )
 
 
+def statement_line_or_table_line(lines, pos, table_item):
+    if pos < len(lines) and lines[pos]:
+        return lines[pos]
+    return table_item.get("line")
+
+
 def nearest_table_for_statement_lines(report, lines, statement_type):
     if not lines:
         return None
@@ -132,10 +138,11 @@ def statement_display_source(statement, report, statement_type):
         "生息资产",
         "计息负债",
     )
+    fallback_table_item = table_lookup.get(indexes[0]) if indexes else None
     fallback = {
         "table_index": indexes[0] if indexes else None,
-        "line": lines[0] if lines else None,
-        "table_item": table_lookup.get(indexes[0]) if indexes else None,
+        "line": statement_line_or_table_line(lines, 0, fallback_table_item or {}) if indexes else (lines[0] if lines else None),
+        "table_item": fallback_table_item,
     }
     if not indexes and lines:
         nearby_table = nearest_table_for_statement_lines(report, lines, statement_type)
@@ -148,7 +155,7 @@ def statement_display_source(statement, report, statement_type):
             continue
         return {
             "table_index": table_index,
-            "line": lines[pos] if pos < len(lines) else None,
+            "line": statement_line_or_table_line(lines, pos, table_item),
             "table_item": table_item,
         }
     return fallback

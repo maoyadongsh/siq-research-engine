@@ -58,6 +58,47 @@ def test_merge_quality_candidates_from_financial_data_uses_nearby_statement_tabl
     assert "资产负债表" in merged["found_financial_tables"]
 
 
+def test_statement_table_index_without_line_uses_table_line_and_counts_found_table():
+    report = {
+        "report_kind": "annual_report",
+        "key_table_candidates": {},
+        "table_index": [
+            {
+                "table_index": 1,
+                "line": 12,
+                "heading": "合并利润表",
+                "preview": "营业收入 营业利润 利润总额 净利润",
+            }
+        ],
+    }
+    statement = {
+        "statement_type": "income_statement",
+        "scope": "consolidated",
+        "table_indexes": [1],
+        "line_numbers": [],
+        "title": "合并利润表",
+        "unit": "元",
+    }
+    financial_data = {
+        "report_kind": "annual_report",
+        "report_year": 2025,
+        "statements": [statement],
+        "summary": {"statement_count": 1, "key_metric_count": 0},
+    }
+
+    display_source = quality.statement_display_source(statement, report, "income_statement")
+    merged = quality.merge_quality_candidates_from_financial_data(report, financial_data)
+    income_statement = next(
+        item
+        for item in merged["core_financial_table_candidates"]
+        if item["name"] == "利润表"
+    )
+
+    assert display_source["line"] == 12
+    assert income_statement["line"] == 12
+    assert "利润表" in merged["found_financial_tables"]
+
+
 def test_quality_report_warnings_filters_summary_core_table_noise():
     report = {
         "report_kind": "annual_report_summary",
