@@ -88,6 +88,10 @@ DOCUMENT_WIKI_LIGHTWEIGHT_ARTIFACTS = [
     "quality_report.json",
     "source_map.json",
 ]
+DOCUMENT_WIKI_RETAINED_DIRS = [
+    "raw/original",
+    "images/original",
+]
 DOCUMENT_CHUNK_SCRIPT = Path(os.environ.get(
     "SIQ_DOCUMENT_CHUNK_SCRIPT",
     str(REPO_ROOT / "scripts" / "vector-index" / "milvus-ingestion" / "ingest_document_chunks.py"),
@@ -2249,6 +2253,12 @@ def _import_document_task_to_wiki(task_id: str, collection: str | None = None) -
         if _copy_file_if_exists(result_dir / name, package_dir / _document_package_target(name)):
             copied_files.append(name)
 
+    copied_directories: dict[str, int] = {}
+    for rel_dir in DOCUMENT_WIKI_RETAINED_DIRS:
+        copied_count = _copy_tree_contents(result_dir / rel_dir, package_dir / rel_dir)
+        if copied_count:
+            copied_directories[rel_dir] = copied_count
+
     document_markdown = (result_dir / "document.md").read_text(encoding="utf-8")
     document_full_sha = _sha256_file(result_dir / "document_full.json")
     artifacts_manifest = {
@@ -2281,9 +2291,10 @@ def _import_document_task_to_wiki(task_id: str, collection: str | None = None) -
             DOCUMENT_PACKAGE_MANIFEST_NAME,
             ARTIFACT_MANIFEST_NAME,
             *[_document_package_target(name) for name in copied_files],
+            *DOCUMENT_WIKI_RETAINED_DIRS,
         ],
         "full_parse_archive": "document_parser_results_and_postgresql",
-        "note": "Wiki 只保留轻量入口和 artifact_manifest.json；完整解析包继续保存在 source_result_dir，并由 PostgreSQL document_parser schema 入库。",
+        "note": "Wiki 只保留轻量入口、原始源文件树和 artifact_manifest.json；完整解析包继续保存在 source_result_dir，并由 PostgreSQL document_parser schema 入库。",
         "import_targets": {
             "postgres": {"schema": "document_parser", "document_id": f"doc-{task_id}", "last_imported_at": None},
             "milvus": {"collection": "siq_documents", "last_imported_at": None},
@@ -2333,7 +2344,7 @@ def _import_document_task_to_wiki(task_id: str, collection: str | None = None) -
         "packageDir": str(package_dir),
         "manifestPath": str(package_dir / DOCUMENT_PACKAGE_MANIFEST_NAME),
         "copiedFiles": copied_files,
-        "copiedDirectories": {},
+        "copiedDirectories": copied_directories,
         "wiki": _document_wiki_status(task_id, collection_name),
     }
 
