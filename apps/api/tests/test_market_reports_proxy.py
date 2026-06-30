@@ -262,7 +262,7 @@ def test_eu_package_build_accepts_download_relative_path(monkeypatch, tmp_path):
         return Completed()
 
     monkeypatch.setattr(market_reports, "REPORT_DOWNLOADS_ROOT", downloads_root)
-    monkeypatch.setattr(market_reports.subprocess, "run", fake_run)
+    monkeypatch.setattr(market_reports, "run_command", fake_run)
     monkeypatch.setattr(market_reports, "_read_market_package_detail", lambda package_dir: {"package_path": str(package_dir)})
 
     result = market_reports._run_market_package_build({
@@ -300,7 +300,7 @@ def test_us_package_build_accepts_download_relative_path_and_returns_sec_detail(
         return Completed()
 
     monkeypatch.setattr(market_reports, "REPORT_DOWNLOADS_ROOT", downloads_root)
-    monkeypatch.setattr(market_reports.subprocess, "run", fake_run)
+    monkeypatch.setattr(market_reports, "run_command", fake_run)
     monkeypatch.setattr(market_reports, "_read_package_detail", lambda package_dir: {"package_path": str(package_dir), "preview": {"raw_html": "raw/filing.htm"}})
     monkeypatch.setattr(market_reports, "_read_market_package_detail", lambda package_dir: {"unexpected": str(package_dir)})
 
@@ -359,7 +359,7 @@ def test_market_import_command_uses_us_package_flag(monkeypatch):
         seen["kwargs"] = kwargs
         return Completed()
 
-    monkeypatch.setattr(market_reports.subprocess, "run", fake_run)
+    monkeypatch.setattr(market_reports, "run_command", fake_run)
 
     result = market_reports._run_market_package_import({
         "market": "US",
@@ -371,3 +371,38 @@ def test_market_import_command_uses_us_package_flag(monkeypatch):
     package_index = seen["args"].index("--package")
     assert "data/wiki/us_sec/AAPL/2025/10-K_0000320193-25-000079" in seen["args"][package_index + 1]
     assert seen["args"][-1] == "--ddl"
+
+
+def test_market_package_build_queues_background_job(monkeypatch):
+    seen = {}
+
+    def fake_start(kind, target, *, created_by=None):
+        seen["kind"] = kind
+        seen["created_by"] = created_by
+        seen["target_result"] = target()
+        return {"job_id": "job-1", "status": "queued"}
+
+    monkeypatch.setattr(market_reports.market_report_job_service, "start", fake_start)
+    monkeypatch.setattr(market_reports, "_run_market_package_build", lambda payload: {"ok": True, "payload": payload})
+
+    result = asyncio.run(
+        market_reports.build_market_package(
+            JsonRequest({"market": "US", "download_relative_path": "US/demo/report.html"}),
+            wait=False,
+            _ops_user=None,
+        )
+    )
+
+    assert result["ok"] is True
+    assert result["queued"] is True
+    assert seen["kind"] == "market-package-build"
+    assert seen["target_result"]["ok"] is True
+
+
+def test_market_report_job_status_uses_service(monkeypatch):
+    monkeypatch.setattr(market_reports.market_report_job_service, "get", lambda job_id: {"job_id": job_id, "status": "running"})
+
+    result = asyncio.run(market_reports.market_report_job_status("job-123", _ops_user=None))
+
+    assert result["job_id"] == "job-123"
+    assert result["status"] == "running"

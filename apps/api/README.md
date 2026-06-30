@@ -149,15 +149,18 @@ apps/api/
 | --- | --- | --- |
 | `SIQ_PROJECT_ROOT` | 仓库根目录 | 项目根路径 |
 | `SIQ_BACKEND_ROOT` | `apps/api` | API 源码目录 |
-| `SIQ_DATA_ROOT` | `data` | 运行态数据根目录 |
-| `SIQ_BACKEND_DATA_ROOT` | `data/backend` | API 本地数据库、附件、设置和日志 |
-| `SIQ_WIKI_ROOT` | `data/wiki` | 公司 Wiki 与报告产物 |
-| `SIQ_REPORT_DOWNLOADS_ROOT` | `data/market-report-finder/downloads` | 官方披露文件下载目录 |
+| `SIQ_DATA_ROOT` | `data` | 兼容期运行态数据根目录；后续可切到 `var` |
+| `SIQ_RUNTIME_ROOT` | `var` | 新增本地运行态建议根目录 |
+| `SIQ_ARTIFACTS_ROOT` | `artifacts` | 构建、测试、评测和批处理输出根目录 |
+| `SIQ_DATASETS_ROOT` | `datasets` | 可版本化小型 fixtures 和稳定样本根目录 |
+| `SIQ_BACKEND_DATA_ROOT` | `$SIQ_DATA_ROOT/backend` | API 本地数据库、附件、设置和日志 |
+| `SIQ_WIKI_ROOT` | `$SIQ_DATA_ROOT/wiki` | 公司 Wiki 与报告产物 |
+| `SIQ_REPORT_DOWNLOADS_ROOT` | `$SIQ_DATA_ROOT/market-report-finder/downloads` | 官方披露文件下载目录 |
 | `SIQ_PDF2MD_API_BASE` | `http://127.0.0.1:15000` | PDF 解析服务地址 |
 | `SIQ_DOCUMENT_PARSER_API_BASE` | `http://127.0.0.1:15010` | 通用文档解析服务地址 |
 | `SIQ_REPORT_FINDER_BASE` | `http://127.0.0.1:18000` | 公告搜索下载服务地址 |
 | `SIQ_MARKET_REPORT_RULES_BASE` | `http://127.0.0.1:18020` | 多市场规则服务地址 |
-| `SIQ_HERMES_HOME` | `data/hermes/home` | Hermes 运行态根目录 |
+| `SIQ_HERMES_HOME` | `$SIQ_DATA_ROOT/hermes/home` | Hermes 运行态根目录 |
 | `SIQ_DB_ROOT` | `db` | 数据库脚本根目录 |
 | `SIQ_CONFIG_DIR` | `data/backend/.siq` | LLM 设置存储目录 |
 | `SIQ_AUTH_SECRET_KEY` | 无 | JWT/session 密钥，至少 32 字符 |

@@ -46,7 +46,10 @@ def _find_repo_root(start: Path) -> Path:
     for path in (start, *start.parents):
         if (path / ".git").exists():
             return path
-    return Path(__file__).resolve().parents[2]
+    for path in (start, *start.parents):
+        if (path / "apps" / "api").is_dir():
+            return path
+    return Path(__file__).resolve().parents[3]
 
 
 REPO_ROOT = _find_repo_root(Path(__file__).resolve())

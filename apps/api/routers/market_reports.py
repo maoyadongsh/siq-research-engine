@@ -1,12 +1,10 @@
-import os
 import json
 import hashlib
 import re
-import uuid
 import subprocess
+import uuid
 import sys
 import tempfile
-import threading
 from urllib.parse import urlencode
 from datetime import datetime, timezone
 from typing import Any
@@ -22,154 +20,34 @@ from services.auth_dependencies import get_current_user
 from services.auth_service import User
 from services.auth_dependencies import require_permission
 from services.hermes_client import collect_run_result, create_run
+from services.command_runner import format_command, run_command
+from services.job_service import market_report_job_service
 from services.llm_settings import load_llm_settings
 from services.hermes_model_control import infer_model_mode, set_all_profile_model_modes
-from services.path_config import REPORT_DOWNLOADS_ROOT
+from services.market_report_settings import (
+    EU_ESEF_PACKAGE_BUILD_SCRIPT,
+    MARKET_BUILD_SCRIPTS,
+    MARKET_INGESTION_EVAL_MARKDOWN_PATH,
+    MARKET_INGESTION_EVAL_REPORT_PATH,
+    MARKET_INGESTION_EVAL_SCRIPT,
+    MARKET_IMPORT_SCRIPTS,
+    MARKET_REPORT_ASSIST_TIMEOUT,
+    MARKET_REPORT_PROXY_TIMEOUT,
+    MARKET_RULES_BASE,
+    MARKET_VECTOR_INGEST_SCRIPT,
+    MARKET_WIKI_ROOTS,
+    REPORT_FINDER_BASE,
+    US_SEC_CASE_SET_PATH,
+    US_SEC_INGEST_REPORT_PATH,
+    US_SEC_INGEST_SCRIPT,
+    US_SEC_WIKI_ROOT,
+)
+from services.path_config import REPO_ROOT, REPORT_DOWNLOADS_ROOT
+from services import market_package_repository as market_packages
 
 
 router = APIRouter(tags=["market-reports"])
-
-REPORT_FINDER_BASE = (
-    os.environ.get("SIQ_REPORT_FINDER_BASE")
-    or os.environ.get("REPORT_FINDER_BASE")
-    or "http://127.0.0.1:18000"
-).rstrip("/")
-MARKET_RULES_BASE = (
-    os.environ.get("SIQ_MARKET_REPORT_RULES_BASE")
-    or os.environ.get("MARKET_REPORT_RULES_BASE")
-    or "http://127.0.0.1:18020"
-).rstrip("/")
-MARKET_REPORT_PROXY_TIMEOUT = float(os.environ.get("SIQ_MARKET_REPORT_PROXY_TIMEOUT", "120"))
-MARKET_REPORT_ASSIST_TIMEOUT = float(os.environ.get("SIQ_MARKET_REPORT_ASSIST_TIMEOUT", "45"))
-REPO_ROOT = Path(__file__).resolve().parents[3]
-US_SEC_CASE_SET_PATH = Path(
-    os.environ.get("SIQ_US_SEC_CASE_SET_PATH", str(REPO_ROOT / "data" / "wiki" / "us_sec" / "case_set_50_us_10k.json"))
-)
-US_SEC_INGEST_REPORT_PATH = Path(
-    os.environ.get("SIQ_US_SEC_INGEST_REPORT_PATH", str(REPO_ROOT / "data" / "wiki" / "us_sec" / "case_set_50_us_10k_ingest_report.json"))
-)
-US_SEC_INGEST_SCRIPT = Path(
-    os.environ.get("SIQ_US_SEC_INGEST_SCRIPT", str(REPO_ROOT / "scripts" / "us-sec" / "ingest_sec_case_set.py"))
-)
-US_SEC_WIKI_ROOT = Path(
-    os.environ.get("SIQ_US_SEC_WIKI_ROOT", str(REPO_ROOT / "data" / "wiki" / "us_sec"))
-)
-US_SEC_PACKAGE_BUILD_SCRIPT = Path(
-    os.environ.get("SIQ_US_SEC_PACKAGE_BUILD_SCRIPT", str(REPO_ROOT / "scripts" / "us-sec" / "build_sec_evidence_package.py"))
-)
-MARKET_VECTOR_INGEST_SCRIPT = Path(
-    os.environ.get(
-        "SIQ_MARKET_VECTOR_INGEST_SCRIPT",
-        str(REPO_ROOT / "scripts" / "vector-index" / "milvus-ingestion" / "ingest_market_evidence_chunks.py"),
-    )
-)
-MARKET_INGESTION_EVAL_SCRIPT = Path(
-    os.environ.get("SIQ_MARKET_INGESTION_EVAL_SCRIPT", str(REPO_ROOT / "scripts" / "maintenance" / "run_market_ingestion_eval.py"))
-)
-MARKET_INGESTION_EVAL_REPORT_PATH = Path(
-    os.environ.get(
-        "SIQ_MARKET_INGESTION_EVAL_REPORT_PATH",
-        str(REPO_ROOT / "eval_datasets" / "market_ingestion_cases" / "market_ingestion_eval_report.json"),
-    )
-)
-MARKET_INGESTION_EVAL_MARKDOWN_PATH = Path(
-    os.environ.get(
-        "SIQ_MARKET_INGESTION_EVAL_MARKDOWN_PATH",
-        str(REPO_ROOT / "eval_datasets" / "market_ingestion_cases" / "market_ingestion_eval_report.md"),
-    )
-)
-MARKET_WIKI_ROOTS = {
-    "US": Path(os.environ.get("SIQ_US_SEC_WIKI_ROOT", str(REPO_ROOT / "data" / "wiki" / "us_sec"))),
-    "HK": Path(os.environ.get("SIQ_HK_WIKI_ROOT", str(REPO_ROOT / "data" / "wiki" / "hk_reports"))),
-    "JP": Path(os.environ.get("SIQ_JP_WIKI_ROOT", str(REPO_ROOT / "data" / "wiki" / "jp_reports"))),
-    "KR": Path(os.environ.get("SIQ_KR_WIKI_ROOT", str(REPO_ROOT / "data" / "wiki" / "kr_reports"))),
-    "EU": Path(os.environ.get("SIQ_EU_WIKI_ROOT", str(REPO_ROOT / "data" / "wiki" / "eu_reports"))),
-}
-MARKET_BUILD_SCRIPTS = {
-    "US": US_SEC_PACKAGE_BUILD_SCRIPT,
-    "HK": Path(os.environ.get("SIQ_HK_PACKAGE_BUILD_SCRIPT", str(REPO_ROOT / "scripts" / "hk" / "build_hk_evidence_package.py"))),
-    "JP": Path(os.environ.get("SIQ_JP_PACKAGE_BUILD_SCRIPT", str(REPO_ROOT / "scripts" / "jp" / "build_jp_evidence_package.py"))),
-    "KR": Path(os.environ.get("SIQ_KR_PACKAGE_BUILD_SCRIPT", str(REPO_ROOT / "scripts" / "kr" / "build_kr_evidence_package.py"))),
-    "EU": Path(os.environ.get("SIQ_EU_PACKAGE_BUILD_SCRIPT", str(REPO_ROOT / "scripts" / "eu" / "build_eu_pdf_evidence_package.py"))),
-}
-EU_ESEF_PACKAGE_BUILD_SCRIPT = Path(
-    os.environ.get("SIQ_EU_ESEF_PACKAGE_BUILD_SCRIPT", str(REPO_ROOT / "scripts" / "eu" / "build_eu_esef_evidence_package.py"))
-)
-MARKET_IMPORT_SCRIPTS = {
-    "US": Path(os.environ.get("SIQ_US_IMPORT_SCRIPT", str(REPO_ROOT / "db" / "imports" / "import_sec_filing_to_postgres.py"))),
-    "HK": Path(os.environ.get("SIQ_HK_IMPORT_SCRIPT", str(REPO_ROOT / "db" / "imports" / "import_hk_evidence_package_to_postgres.py"))),
-    "JP": Path(os.environ.get("SIQ_JP_IMPORT_SCRIPT", str(REPO_ROOT / "db" / "imports" / "import_jp_evidence_package_to_postgres.py"))),
-    "KR": Path(os.environ.get("SIQ_KR_IMPORT_SCRIPT", str(REPO_ROOT / "db" / "imports" / "import_kr_evidence_package_to_postgres.py"))),
-    "EU": Path(os.environ.get("SIQ_EU_IMPORT_SCRIPT", str(REPO_ROOT / "db" / "imports" / "import_eu_evidence_package_to_postgres.py"))),
-}
 US_SEC_UPLOAD_SUFFIXES = {".pdf", ".html", ".htm", ".xhtml", ".xml", ".xbrl", ".zip"}
-_job_lock = threading.Lock()
-_jobs: dict[str, dict[str, Any]] = {}
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
-def _snapshot_job(job: dict[str, Any]) -> dict[str, Any]:
-    return {
-        key: value
-        for key, value in job.items()
-        if key not in {"target"}
-    }
-
-
-def _remember_job(job: dict[str, Any]) -> None:
-    with _job_lock:
-        _jobs[job["job_id"]] = job
-        if len(_jobs) > 200:
-            old_ids = sorted(_jobs, key=lambda item: _jobs[item].get("created_at", ""))[:-200]
-            for old_id in old_ids:
-                _jobs.pop(old_id, None)
-
-
-def _start_background_job(kind: str, target, *, created_by: str | None = None) -> dict[str, Any]:
-    job_id = f"{kind}-{uuid.uuid4().hex[:12]}"
-    job: dict[str, Any] = {
-        "job_id": job_id,
-        "kind": kind,
-        "status": "queued",
-        "created_at": _now_iso(),
-        "started_at": None,
-        "finished_at": None,
-        "created_by": created_by,
-        "result": None,
-        "error": None,
-    }
-    _remember_job(job)
-
-    def runner() -> None:
-        with _job_lock:
-            job["status"] = "running"
-            job["started_at"] = _now_iso()
-        try:
-            result = target()
-            with _job_lock:
-                job["status"] = "succeeded" if result.get("ok", True) else "failed"
-                job["result"] = result
-                job["finished_at"] = _now_iso()
-        except Exception as exc:
-            with _job_lock:
-                job["status"] = "failed"
-                job["error"] = str(exc)
-                job["finished_at"] = _now_iso()
-
-    thread = threading.Thread(target=runner, name=f"siq-{job_id}", daemon=True)
-    thread.start()
-    return _snapshot_job(job)
-
-
-def _get_job_or_404(job_id: str) -> dict[str, Any]:
-    with _job_lock:
-        job = _jobs.get(job_id)
-        if not job:
-            raise HTTPException(status_code=404, detail="Job not found")
-        return _snapshot_job(job)
 
 
 def _content_type(headers: httpx.Headers) -> str:
@@ -185,17 +63,19 @@ def _json_response(payload: dict[str, Any], status_code: int = 200) -> Response:
 
 
 def _command_for_display(args: list[str]) -> str:
-    redacted: list[str] = []
-    hide_next = False
-    for arg in args:
-        if hide_next:
-            redacted.append("***")
-            hide_next = False
-            continue
-        redacted.append(arg)
-        if arg in {"--database-url"}:
-            hide_next = True
-    return " ".join(redacted)
+    return format_command(args)
+
+
+def _job_created_by(user: User | None) -> dict[str, Any] | None:
+    if user is None:
+        return None
+    return {
+        "id": getattr(user, "id", None),
+        "username": getattr(user, "username", None),
+        "email": getattr(user, "email", None),
+        "full_name": getattr(user, "full_name", None),
+        "role": getattr(user, "role", None),
+    }
 
 
 def _read_json_file(path: Path, default: Any = None) -> Any:
@@ -264,91 +144,31 @@ def _rel_or_abs(path: Path) -> str:
 
 
 def _market_package_paths(package_dir: Path) -> dict[str, str]:
-    files = {
-        "manifest": package_dir / "manifest.json",
-        "quality_report": package_dir / "qa" / "quality_report.json",
-        "source_map": package_dir / "qa" / "source_map.json",
-        "financial_data": package_dir / "metrics" / "financial_data.json",
-        "financial_checks": package_dir / "metrics" / "financial_checks.json",
-        "normalized_metrics": package_dir / "metrics" / "normalized_metrics.json",
-        "table_index": package_dir / "tables" / "table_index.json",
-    }
-    return {key: str(path.relative_to(package_dir)) for key, path in files.items() if path.exists()}
+    return market_packages.market_package_paths(package_dir)
 
 
 def _iter_market_packages(market: str) -> list[Path]:
-    root = MARKET_WIKI_ROOTS[market]
-    if not root.exists():
-        return []
-    patterns = ("*/*/*/*/manifest.json",) if market == "EU" else ("*/*/*/manifest.json",)
-    package_dirs: list[Path] = []
-    for pattern in patterns:
-        package_dirs.extend(path.parent for path in root.glob(pattern))
-    return sorted(package_dirs, key=lambda path: path.stat().st_mtime, reverse=True)
+    return market_packages.iter_market_packages(market, MARKET_WIKI_ROOTS)
 
 
 def _read_market_package_summary(package_dir: Path) -> dict[str, Any]:
-    manifest = _read_json_file(package_dir / "manifest.json", {})
-    quality = _read_json_file(package_dir / "qa" / "quality_report.json", {})
-    metrics = (_read_json_file(package_dir / "metrics" / "normalized_metrics.json", {}) or {}).get("metrics") or []
-    source_map = (_read_json_file(package_dir / "qa" / "source_map.json", {}) or {}).get("entries") or []
-    return {
-        "package_path": _rel_or_abs(package_dir),
-        "paths": _market_package_paths(package_dir),
-        "market": manifest.get("market"),
-        "country": manifest.get("country"),
-        "document_format": manifest.get("document_format"),
-        "filing_id": manifest.get("filing_id"),
-        "parse_run_id": manifest.get("parse_run_id"),
-        "ticker": manifest.get("ticker"),
-        "company_name": manifest.get("company_name"),
-        "form": manifest.get("form"),
-        "report_type": manifest.get("report_type"),
-        "fiscal_year": manifest.get("fiscal_year"),
-        "fiscal_period": manifest.get("fiscal_period"),
-        "period_end": manifest.get("period_end"),
-        "published_at": manifest.get("published_at") or manifest.get("filing_date"),
-        "quality_status": quality.get("overall_status") or manifest.get("quality_status"),
-        "counts": {
-            "sections": quality.get("section_count") or (quality.get("summary") or {}).get("section_count"),
-            "tables": quality.get("table_count") or (quality.get("summary") or {}).get("table_count"),
-            "raw_facts": quality.get("raw_fact_count") or (quality.get("summary") or {}).get("xbrl_fact_count"),
-            "metrics": quality.get("normalized_metric_count") or len(metrics),
-            "evidence": len(source_map),
-        },
-    }
+    return market_packages.read_market_package_summary(package_dir)
 
 
 def _read_market_package_detail(package_dir: Path) -> dict[str, Any]:
-    summary = _read_market_package_summary(package_dir)
-    return {
-        **summary,
-        "manifest": _read_json_file(package_dir / "manifest.json", {}),
-        "quality": _read_json_file(package_dir / "qa" / "quality_report.json", {}),
-        "financial_data": _read_json_file(package_dir / "metrics" / "financial_data.json", {}),
-        "financial_checks": _read_json_file(package_dir / "metrics" / "financial_checks.json", {}),
-        "metrics": (_read_json_file(package_dir / "metrics" / "normalized_metrics.json", {}) or {}).get("metrics") or [],
-        "source_map": (_read_json_file(package_dir / "qa" / "source_map.json", {}) or {}).get("entries") or [],
-        "tables": (_read_json_file(package_dir / "tables" / "table_index.json", {}) or {}).get("tables") or [],
-    }
+    return market_packages.read_market_package_detail(package_dir)
 
 
 def _markets_to_search(market: str | None) -> list[str]:
-    if market:
-        return [_market_code(market)]
-    return list(MARKET_WIKI_ROOTS)
+    return market_packages.markets_to_search(market, MARKET_WIKI_ROOTS)
 
 
 def _find_market_package_by_filing_id(filing_id: str, market: str | None = None) -> tuple[str, Path]:
-    target = str(filing_id or "").strip()
-    if not target:
-        raise HTTPException(status_code=400, detail="filing_id is required")
-    for code in _markets_to_search(market):
-        for package_dir in _iter_market_packages(code):
-            manifest = _read_json_file(package_dir / "manifest.json", {})
-            if str(manifest.get("filing_id") or "") == target:
-                return code, package_dir
-    raise HTTPException(status_code=404, detail="Market evidence package not found")
+    return market_packages.find_market_package_by_filing_id(
+        filing_id,
+        market=market,
+        market_wiki_roots=MARKET_WIKI_ROOTS,
+    )
 
 
 def _find_market_evidence(
@@ -357,19 +177,12 @@ def _find_market_evidence(
     market: str | None = None,
     package_dir: Path | None = None,
 ) -> tuple[str, Path, dict[str, Any]]:
-    target = str(evidence_id or "").strip()
-    if not target:
-        raise HTTPException(status_code=400, detail="evidence_id is required")
-    if package_dir is not None:
-        packages = [(str((_read_json_file(package_dir / "manifest.json", {}) or {}).get("market") or market or "").upper(), package_dir)]
-    else:
-        packages = [(code, path) for code in _markets_to_search(market) for path in _iter_market_packages(code)]
-    for code, path in packages:
-        source_map = _read_json_file(path / "qa" / "source_map.json", {})
-        for entry in source_map.get("entries") or []:
-            if isinstance(entry, dict) and str(entry.get("evidence_id") or "") == target:
-                return code, path, entry
-    raise HTTPException(status_code=404, detail="Evidence not found")
+    return market_packages.find_market_evidence(
+        evidence_id,
+        market=market,
+        package_dir=package_dir,
+        market_wiki_roots=MARKET_WIKI_ROOTS,
+    )
 
 
 def _run_market_package_build(payload: dict[str, Any]) -> dict[str, Any]:
@@ -414,7 +227,7 @@ def _run_market_package_build(payload: dict[str, Any]) -> dict[str, Any]:
     args.extend(["--output-root", str(MARKET_WIKI_ROOTS[market])])
     if payload.get("force"):
         args.append("--force")
-    completed = subprocess.run(args, cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=900, check=False)
+    completed = run_command(args, cwd=REPO_ROOT, timeout=900)
     if completed.returncode != 0:
         return {"ok": False, "returncode": completed.returncode, "stdout": completed.stdout[-4000:], "stderr": completed.stderr[-4000:], "command": _command_for_display(args)}
     output_lines = (completed.stdout or "").strip().splitlines()
@@ -459,7 +272,7 @@ def _run_market_package_import(payload: dict[str, Any]) -> dict[str, Any]:
         args.extend(["--database-url", str(database_url)])
     if payload.get("ddl") or payload.get("run_ddl"):
         args.append("--ddl")
-    completed = subprocess.run(args, cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=900, check=False)
+    completed = run_command(args, cwd=REPO_ROOT, timeout=900)
     return {
         "ok": completed.returncode == 0,
         "returncode": completed.returncode,
@@ -490,7 +303,7 @@ def _run_market_vector_ingest(payload: dict[str, Any]) -> dict[str, Any]:
     dry_run = bool(payload.get("dry_run", True))
     if dry_run:
         args.append("--dry-run")
-    completed = subprocess.run(args, cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=1800, check=False)
+    completed = run_command(args, cwd=REPO_ROOT, timeout=1800)
     parsed: dict[str, Any] | None = None
     if completed.stdout:
         match = re.search(r"\{.*\}", completed.stdout, flags=re.DOTALL)
@@ -520,7 +333,7 @@ def _run_market_ingestion_eval(payload: dict[str, Any]) -> dict[str, Any]:
     if not markdown.is_absolute():
         markdown = REPO_ROOT / markdown
     args = [sys.executable, str(MARKET_INGESTION_EVAL_SCRIPT), "--output", str(output), "--markdown", str(markdown)]
-    completed = subprocess.run(args, cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=900, check=False)
+    completed = run_command(args, cwd=REPO_ROOT, timeout=900)
     return {
         "ok": completed.returncode == 0,
         "returncode": completed.returncode,
@@ -872,14 +685,7 @@ def _run_us_sec_case_set_ingest(payload: dict[str, Any]) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail=f"Missing ingest script: {US_SEC_INGEST_SCRIPT}")
     args = _safe_ingest_args(payload)
     try:
-        completed = subprocess.run(
-            args,
-            cwd=str(REPO_ROOT),
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=1800,
-        )
+        completed = run_command(args, cwd=REPO_ROOT, timeout=1800)
     except subprocess.TimeoutExpired as exc:
         raise HTTPException(status_code=504, detail=f"US SEC ingest timed out: {exc}") from exc
     report = _read_json_file(US_SEC_INGEST_REPORT_PATH, {})
@@ -916,14 +722,7 @@ def _run_us_sec_rebuild_package(ticker: str, payload: dict[str, Any]) -> dict[st
             args.extend(["--metadata", str(tmp_metadata)])
         args.extend(["--output-root", str(US_SEC_WIKI_ROOT)])
         try:
-            completed = subprocess.run(
-                args,
-                cwd=str(REPO_ROOT),
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=900,
-            )
+            completed = run_command(args, cwd=REPO_ROOT, timeout=900)
         except subprocess.TimeoutExpired as exc:
             raise HTTPException(status_code=504, detail=f"US SEC package rebuild timed out: {exc}") from exc
     if completed.returncode != 0:
@@ -1377,7 +1176,11 @@ async def build_market_package(
         raise HTTPException(status_code=400, detail="JSON object payload is required")
     if wait:
         return _run_market_package_build(payload)
-    job = _start_background_job("market-package-build", lambda: _run_market_package_build(payload))
+    job = market_report_job_service.start(
+        "market-package-build",
+        lambda: _run_market_package_build(payload),
+        created_by=_job_created_by(_ops_user),
+    )
     return {"ok": True, "queued": True, **job}
 
 
@@ -1396,7 +1199,11 @@ async def parse_eu_market_report(
     payload = {**payload, "market": "EU"}
     if wait:
         return _run_market_package_build(payload)
-    job = _start_background_job("eu-market-report-parse", lambda: _run_market_package_build(payload))
+    job = market_report_job_service.start(
+        "eu-market-report-parse",
+        lambda: _run_market_package_build(payload),
+        created_by=_job_created_by(_ops_user),
+    )
     return {"ok": True, "queued": True, **job}
 
 
@@ -1414,7 +1221,11 @@ async def import_market_package(
         raise HTTPException(status_code=400, detail="JSON object payload is required")
     if wait:
         return _run_market_package_import(payload)
-    job = _start_background_job("market-package-import", lambda: _run_market_package_import(payload))
+    job = market_report_job_service.start(
+        "market-package-import",
+        lambda: _run_market_package_import(payload),
+        created_by=_job_created_by(_ops_user),
+    )
     return {"ok": True, "queued": True, **job}
 
 
@@ -1432,7 +1243,11 @@ async def vector_ingest_market_package(
         raise HTTPException(status_code=400, detail="JSON object payload is required")
     if wait:
         return _run_market_vector_ingest(payload)
-    job = _start_background_job("market-vector-ingest", lambda: _run_market_vector_ingest(payload))
+    job = market_report_job_service.start(
+        "market-vector-ingest",
+        lambda: _run_market_vector_ingest(payload),
+        created_by=_job_created_by(_ops_user),
+    )
     return {"ok": True, "queued": True, **job}
 
 
@@ -1464,7 +1279,11 @@ async def run_market_ingestion_eval(
         raise HTTPException(status_code=400, detail="JSON object payload is required")
     if wait:
         return _run_market_ingestion_eval(payload)
-    job = _start_background_job("market-ingestion-eval", lambda: _run_market_ingestion_eval(payload))
+    job = market_report_job_service.start(
+        "market-ingestion-eval",
+        lambda: _run_market_ingestion_eval(payload),
+        created_by=_job_created_by(_ops_user),
+    )
     return {"ok": True, "queued": True, **job}
 
 
@@ -1576,7 +1395,11 @@ async def us_sec_case_set_ingest(
         raise HTTPException(status_code=400, detail="JSON object payload is required")
     if wait:
         return _run_us_sec_case_set_ingest(payload)
-    job = _start_background_job("us-sec-ingest", lambda: _run_us_sec_case_set_ingest(payload))
+    job = market_report_job_service.start(
+        "us-sec-ingest",
+        lambda: _run_us_sec_case_set_ingest(payload),
+        created_by=_job_created_by(_ops_user),
+    )
     return {"ok": True, "queued": True, **job}
 
 
@@ -1616,7 +1439,11 @@ async def us_sec_rebuild_package(
         payload = {}
     if wait:
         return _run_us_sec_rebuild_package(ticker, payload)
-    job = _start_background_job("us-sec-rebuild", lambda: _run_us_sec_rebuild_package(ticker, payload))
+    job = market_report_job_service.start(
+        "us-sec-rebuild",
+        lambda: _run_us_sec_rebuild_package(ticker, payload),
+        created_by=_job_created_by(_ops_user),
+    )
     return {"ok": True, "queued": True, **job}
 
 
@@ -1625,4 +1452,7 @@ async def market_report_job_status(
     job_id: str,
     _ops_user=Depends(require_permission("system.config")),
 ) -> dict[str, Any]:
-    return _get_job_or_404(job_id)
+    job = market_report_job_service.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
