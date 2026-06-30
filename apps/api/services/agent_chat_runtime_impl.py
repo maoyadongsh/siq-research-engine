@@ -52,6 +52,10 @@ from services.agent_runtime_loop_guard import (
     _sanitize_assistant_history_reply,
 )
 from services import agent_runtime_progress
+from services import agent_runtime_citations
+from services import agent_runtime_parse_only
+from services import agent_runtime_display
+from services.agent_runtime_tool_output import normalize_tool_output as _normalize_tool_output
 from services.path_config import (
     ASSISTANT_WIKI_ROOT as CONFIG_ASSISTANT_WIKI_ROOT,
     DB_PROGRAM_ROOT,
@@ -1226,79 +1230,37 @@ def _wiki_company_exists_for_pdf2md_info(info: dict[str, Any]) -> bool:
 
 
 def _pdf2md_parse_only_matches(message: str, context: Any | None = None, *, limit: int | None = None) -> list[dict[str, Any]]:
-    if _is_general_assistant_request(message):
-        return []
-    if _resolve_company_dir(message, context):
-        return []
-    matches: list[dict[str, Any]] = []
-    for info in _iter_pdf2md_task_infos():
-        if not _pdf2md_info_matches_message(info, message, context):
-            continue
-        if _wiki_company_exists_for_pdf2md_info(info):
-            continue
-        matches.append(info)
-        if limit and len(matches) >= limit:
-            break
-    return matches
+    return agent_runtime_parse_only._pdf2md_parse_only_matches(
+        message,
+        context,
+        limit=limit,
+        iter_pdf2md_task_infos=_iter_pdf2md_task_infos,
+        pdf2md_info_matches_message=_pdf2md_info_matches_message,
+        wiki_company_exists_for_pdf2md_info=_wiki_company_exists_for_pdf2md_info,
+        is_general_assistant_request=_is_general_assistant_request,
+        resolve_company_dir=_resolve_company_dir,
+    )
 
 
 def _should_consider_pdf2md_parse_only_context(message: str, context: Any | None = None) -> bool:
-    text = re.sub(r"\s+", "", message or "")
-    if not text or _is_general_assistant_request(text):
-        return False
-    if _resolve_company_dir(message, context):
-        return False
-    if any(term.lower() in text.lower() for term in REPORT_FULLTEXT_FALLBACK_TERMS):
-        return bool(_pdf2md_parse_only_matches(message, context, limit=1))
-    company_hint = _context_company_hint(context)
-    return bool(company_hint and _pdf2md_parse_only_matches(message, context, limit=1))
+    return agent_runtime_parse_only._should_consider_pdf2md_parse_only_context(
+        message,
+        context,
+        pdf2md_parse_only_matches=_pdf2md_parse_only_matches,
+        is_general_assistant_request=_is_general_assistant_request,
+        resolve_company_dir=_resolve_company_dir,
+        report_fulltext_fallback_terms=REPORT_FULLTEXT_FALLBACK_TERMS,
+        context_company_hint=_context_company_hint,
+    )
 
 
 def build_pdf2md_parse_only_context(message: str, context: Any | None = None) -> str | None:
-    matches = _pdf2md_parse_only_matches(message, context, limit=PDF2MD_PARSE_ONLY_CONTEXT_LIMIT)
-    if not matches:
-        return None
-    lines = [
-        "以下公司/报告目前只匹配到 PDF parser results 解析产物，未匹配到本地 Wiki 公司工作集。",
-        "输出要求：",
-        "- 不得虚构 Wiki 公司目录、Wiki 报告路径、Wiki metrics/semantic/evidence 文件或不存在的 task_id。",
-        "- 本轮只能使用下列 PDF parser 解析产物回答；如果需要事实数据，必须先读取对应 `result.md`、`document_full.json`、`content_list_enhanced.json`、`table_index.json` 或 `financial_data.json`。",
-        "- 引用来源必须写成 `source_type=pdf2md_parse_result`，并保留下方真实 `task_id`、`pdf_page`/`table_index`/`md_line`；字段没读到时写 `未返回`，不能编造。",
-        "",
-        "## PDF parser 解析产物",
-    ]
-    for index, info in enumerate(matches, start=1):
-        task_id = info.get("task_id")
-        stock_code = info.get("stock_code") or "未返回"
-        company_name = info.get("company_name") or "未返回"
-        filename = info.get("filename") or "未返回"
-        lines.extend(
-            [
-                "",
-                f"### P{index}. {company_name} / 代码 {stock_code}",
-                f"- task_id: {task_id}",
-                f"- 文件名: {filename}",
-                f"- 结果目录: {info.get('result_dir')}",
-            ]
-        )
-        for label, key in (
-            ("Markdown", "result_md"),
-            ("完整Markdown", "result_complete_md"),
-            ("完整JSON", "document_full_json"),
-            ("增强content_list", "content_list_enhanced_json"),
-            ("content_list", "content_list_json"),
-            ("表格索引", "table_index_json"),
-            ("财务抽取", "financial_data_json"),
-        ):
-            value = info.get(key)
-            if value:
-                lines.append(f"- {label}: {value}")
-        lines.append(
-            f"- 可用来源模板: `/api/pdf_page/{task_id}/<pdf_page>?format=html`, "
-            f"`/api/source/{task_id}/page/<pdf_page>?format=html`, "
-            f"`/api/source/{task_id}/table/<table_index>?format=html`"
-        )
-    return "\n".join(lines)
+    return agent_runtime_parse_only.build_pdf2md_parse_only_context(
+        message,
+        context,
+        pdf2md_parse_only_matches=_pdf2md_parse_only_matches,
+        parse_only_context_limit=PDF2MD_PARSE_ONLY_CONTEXT_LIMIT,
+    )
 
 
 def _is_wiki_catalog_query(message: str) -> bool:
@@ -1439,61 +1401,12 @@ def _recent_hermes_sessions(profile: HermesProfile, *, limit: int = 20) -> list[
     return sorted(candidates, key=lambda path: path.stat().st_mtime, reverse=True)[:limit]
 
 
-def _normalize_tool_output(content: Any) -> tuple[str | None, str]:
-    raw = content if isinstance(content, str) else json.dumps(content, ensure_ascii=False)
-    status: str | None = None
-    output = raw
-    try:
-        payload = json.loads(raw)
-        if isinstance(payload, dict):
-            status = str(payload.get("status") or "") or None
-            output = str(payload.get("output") or payload.get("content") or raw)
-    except Exception:
-        pass
-    return status, output.strip()
-
-
 def _hash_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
-LATEX_INLINE_SYMBOLS: dict[str, str] = {
-    r"\to": "→",
-    r"\rightarrow": "→",
-    r"\longrightarrow": "→",
-    r"\leftarrow": "←",
-    r"\longleftarrow": "←",
-    r"\leftrightarrow": "↔",
-    r"\longleftrightarrow": "↔",
-    r"\uparrow": "↑",
-    r"\downarrow": "↓",
-    r"\Rightarrow": "⇒",
-    r"\Leftarrow": "⇐",
-    r"\Leftrightarrow": "⇔",
-    r"\implies": "⇒",
-    r"\le": "≤",
-    r"\leq": "≤",
-    r"\ge": "≥",
-    r"\geq": "≥",
-    r"\neq": "≠",
-    r"\ne": "≠",
-    r"\approx": "≈",
-    r"\times": "×",
-    r"\cdot": "·",
-    r"\pm": "±",
-    r"\%": "%",
-}
-
-
 def normalize_plain_inline_latex(content: str | None) -> str:
-    if not content:
-        return content or ""
-
-    def replace_symbol(match: re.Match[str]) -> str:
-        body = match.group(1).strip()
-        return LATEX_INLINE_SYMBOLS.get(body, match.group(0))
-
-    return re.sub(r"\$(\\[A-Za-z]+|\\%)\$", replace_symbol, content)
+    return agent_runtime_citations.normalize_plain_inline_latex(content)
 
 
 def _force_rebuild_requested(message: str) -> bool:
@@ -2063,30 +1976,8 @@ def _document_attachment_context(attachments: Any | None) -> str:
     return "\n\n".join(blocks)
 
 
-def _markdown_link_label(value: str) -> str:
-    return re.sub(r"\s+", " ", value or "").replace("[", "(").replace("]", ")").strip()
-
-
 def _display_message_with_attachments(message: str, attachments: Any | None) -> str:
-    text = (message or "").strip()
-    all_attachments = _attachment_dicts(attachments)
-    if not all_attachments:
-        return text or message
-    labels = []
-    for item in all_attachments:
-        filename = str(item.get("filename") or Path(str(item.get("path") or "")).name or "attachment").strip()
-        kind = str(item.get("kind") or "image")
-        label = "图片" if kind == "image" else "文档"
-        safe_label = _markdown_link_label(f"{label}: {filename}")
-        url = str(item.get("url") or "").strip()
-        if url and kind == "image":
-            labels.append(f"![{safe_label}]({url})")
-        elif url:
-            labels.append(f"[{safe_label}]({url})")
-        else:
-            labels.append(f"[{safe_label}]")
-    prefix = text or ("请分析这些附件" if len(all_attachments) > 1 else "请分析这个附件")
-    return f"{prefix}\n\n" + "\n".join(labels)
+    return agent_runtime_display._display_message_with_attachments(message, _attachment_dicts(attachments))
 
 
 def _recent_duplicate_reply(profile: HermesProfile, session_id: str, message_hash: str) -> str | None:
@@ -2116,10 +2007,7 @@ def _remember_completed_run(profile: HermesProfile, session_id: str, message_has
 
 
 def normalize_evidence_trace_for_display(content: str | None) -> str:
-    """Apply the single citation/link normalization path used by every agent."""
-    if not content:
-        return content or ""
-    return append_missing_pdf_source_links(normalize_plain_inline_latex(content))
+    return agent_runtime_citations.normalize_evidence_trace_for_display(content)
 
 
 PROGRESS_LINE_RE = agent_runtime_progress.PROGRESS_LINE_RE
@@ -5176,8 +5064,10 @@ def append_human_efficiency_evidence_if_needed(
 
 
 def _has_primary_data_evidence_trace(reply: str) -> bool:
-    text = reply or ""
-    return any(marker in text for marker in PRIMARY_DATA_EVIDENCE_MARKERS) and _has_structured_evidence_trace(text)
+    return agent_runtime_citations._has_primary_data_evidence_trace(
+        reply,
+        markers=PRIMARY_DATA_EVIDENCE_MARKERS,
+    )
 
 
 def _source_locator_text(
@@ -5187,14 +5077,13 @@ def _source_locator_text(
     table_index: Any,
     md_line: Any,
 ) -> str:
-    parts = [
-        f"task_id={task_id or '未返回'}",
-        f"pdf_page={pdf_page or '未返回'}",
-        f"table_index={table_index if table_index not in (None, '') else '未返回'}",
-        f"md_line={md_line or '未返回'}",
-    ]
-    links = _table_source_links(task_id, pdf_page, table_index)
-    return ", ".join(parts) + (f"，{links}" if links else "")
+    return agent_runtime_citations._source_locator_text(
+        task_id=task_id,
+        pdf_page=pdf_page,
+        table_index=table_index,
+        md_line=md_line,
+        table_source_links=_table_source_links,
+    )
 
 
 def _primary_data_source_ref(
@@ -5209,10 +5098,17 @@ def _primary_data_source_ref(
     table_index: Any,
     md_line: Any,
 ) -> str:
-    return (
-        f"[D{index}] source_type={source_type}, file={file or '未返回'}, "
-        f"metric={metric or '未返回'}, period={period or '未返回'}, "
-        f"{_source_locator_text(task_id=task_id, pdf_page=pdf_page, table_index=table_index, md_line=md_line)}"
+    return agent_runtime_citations._primary_data_source_ref(
+        index,
+        source_type=source_type,
+        file=file,
+        metric=metric,
+        period=period,
+        task_id=task_id,
+        pdf_page=pdf_page,
+        table_index=table_index,
+        md_line=md_line,
+        table_source_links=_table_source_links,
     )
 
 
@@ -5229,196 +5125,75 @@ def _append_unique_source_ref(
     table_index: Any,
     md_line: Any,
 ) -> None:
-    key = (task_id, pdf_page, table_index, str(file or ""), str(metric or ""))
-    if key in seen:
-        return
-    seen.add(key)
-    refs.append(
-        _primary_data_source_ref(
-            len(refs) + 1,
-            source_type=source_type,
-            file=file,
-            metric=metric,
-            period=period,
-            task_id=task_id,
-            pdf_page=pdf_page,
-            table_index=table_index,
-            md_line=md_line,
-        )
+    agent_runtime_citations._append_unique_source_ref(
+        refs,
+        seen,
+        source_type=source_type,
+        file=file,
+        metric=metric,
+        period=period,
+        task_id=task_id,
+        pdf_page=pdf_page,
+        table_index=table_index,
+        md_line=md_line,
+        table_source_links=_table_source_links,
     )
 
 
 def _markdown_heading(line: str) -> tuple[int, str] | None:
-    match = re.match(r"^\s{0,3}(#{1,6})\s+(.+?)\s*$", line or "")
-    if not match:
-        return None
-    title = match.group(2).strip().rstrip("#").strip()
-    return len(match.group(1)), title
+    return agent_runtime_citations._markdown_heading(line)
 
 
 def _is_reference_line(line: str) -> bool:
-    text = (line or "").strip()
-    return (
-        "source_type=" in text
-        and "task_id=" in text
-        and ("pdf_page=" in text or "pdf_page_number=" in text)
-        and "table_index=" in text
-        and not text.startswith("|")
-    )
+    return agent_runtime_citations._is_reference_line(line)
 
 
 def _extract_reference_lines(lines: list[str] | str) -> list[str]:
-    source_lines = lines.splitlines() if isinstance(lines, str) else lines
-    return [line.strip() for line in source_lines if _is_reference_line(line)]
+    return agent_runtime_citations._extract_reference_lines(lines)
 
 
 def _source_field_value(line: str, field: str) -> str:
-    match = re.search(rf"{re.escape(field)}=([^,，\]\)\n]+)", line or "")
-    return match.group(1).strip().strip("。；;") if match else ""
+    return agent_runtime_citations._source_field_value(line, field)
 
 
 def _source_reference_key(line: str) -> tuple[str, str, str, str] | tuple[str]:
-    task_id = _source_field_value(line, "task_id")
-    pdf_page = _source_field_value(line, "pdf_page") or _source_field_value(line, "pdf_page_number")
-    table_index = _source_field_value(line, "table_index")
-    md_line = _source_field_value(line, "md_line") or _source_field_value(line, "markdown_line")
-    if task_id or pdf_page or table_index or md_line:
-        return (task_id, pdf_page, table_index, md_line)
-    return (re.sub(r"\s+", " ", line or "").strip(),)
+    return agent_runtime_citations._source_reference_key(line)
 
 
 def _reply_has_requested_metric_evidence(message: str, reply: str) -> bool:
-    if not _has_structured_evidence_trace(reply):
-        return False
-    requested_terms = _postgres_requested_metric_terms(message)
-    if not requested_terms:
-        return True
-    normalized_terms = [_normalize_financial_text(term) for term in requested_terms]
-    reference_text = _normalize_financial_text(" ".join(_extract_reference_lines(reply)))
-    return all(term and term in reference_text for term in normalized_terms)
+    return agent_runtime_citations._reply_has_requested_metric_evidence(
+        message,
+        reply,
+        postgres_requested_metric_terms=_postgres_requested_metric_terms,
+        normalize_financial_text=_normalize_financial_text,
+    )
 
 
 def _strip_auto_evidence_sections(markdown: str) -> tuple[str, list[str]]:
-    lines = (markdown or "").splitlines()
-    kept: list[str] = []
-    refs: list[str] = []
-    index = 0
-    while index < len(lines):
-        heading = _markdown_heading(lines[index])
-        if heading and heading[1] in AUTO_EVIDENCE_SECTION_TITLES:
-            level = heading[0]
-            skipped: list[str] = []
-            index += 1
-            while index < len(lines):
-                next_heading = _markdown_heading(lines[index])
-                if next_heading and next_heading[0] <= level:
-                    break
-                skipped.append(lines[index])
-                index += 1
-            refs.extend(_extract_reference_lines(skipped))
-            while kept and not kept[-1].strip():
-                kept.pop()
-            continue
-        kept.append(lines[index])
-        index += 1
-    return "\n".join(kept).strip(), refs
+    return agent_runtime_citations._strip_auto_evidence_sections(
+        markdown,
+        auto_evidence_section_titles=AUTO_EVIDENCE_SECTION_TITLES,
+    )
 
 
 def _merge_refs_into_reference_section(markdown: str, refs: list[str]) -> str:
-    body = (markdown or "").strip()
-    existing_keys = {_source_reference_key(line) for line in _extract_reference_lines(body)}
-    unique_refs: list[str] = []
-    seen = set(existing_keys)
-    for ref in refs:
-        if not _is_reference_line(ref):
-            continue
-        key = _source_reference_key(ref)
-        if key in seen:
-            continue
-        seen.add(key)
-        unique_refs.append(ref.strip())
-    if not unique_refs:
-        return body
-
-    lines = body.splitlines() if body else []
-    citation_index: int | None = None
-    citation_level = 2
-    for idx, line in enumerate(lines):
-        heading = _markdown_heading(line)
-        if heading and heading[1] == "引用来源":
-            citation_index = idx
-            citation_level = heading[0]
-            break
-
-    if citation_index is None:
-        prefix = f"{body.rstrip()}\n\n" if body else ""
-        return f"{prefix}## 引用来源\n" + "\n".join(unique_refs)
-
-    insert_at = len(lines)
-    for idx in range(citation_index + 1, len(lines)):
-        heading = _markdown_heading(lines[idx])
-        if heading and heading[0] <= citation_level:
-            insert_at = idx
-            break
-
-    insert_lines: list[str] = []
-    if insert_at > 0 and lines[insert_at - 1].strip():
-        insert_lines.append("")
-    insert_lines.extend(unique_refs)
-    if insert_at < len(lines):
-        insert_lines.append("")
-    return "\n".join(lines[:insert_at] + insert_lines + lines[insert_at:]).strip()
+    return agent_runtime_citations._merge_refs_into_reference_section(markdown, refs)
 
 
 def _merge_primary_data_refs_into_citations(reply: str, supplement: str | None = None) -> str:
-    body, refs = _strip_auto_evidence_sections(reply or "")
-    if supplement:
-        _supplement_body, supplement_refs = _strip_auto_evidence_sections(supplement)
-        refs.extend(supplement_refs or _extract_reference_lines(supplement))
-    return _merge_refs_into_reference_section(body, refs)
+    return agent_runtime_citations._merge_primary_data_refs_into_citations(
+        reply,
+        supplement,
+        auto_evidence_section_titles=AUTO_EVIDENCE_SECTION_TITLES,
+    )
 
 
 def _render_three_statement_primary_data_supplement(result: dict[str, Any]) -> str | None:
-    rows = result.get("rows") or []
-    if not rows:
-        return None
-    lines = [
-        "## 主要数据溯源补充",
-        "- 后端已从结构化三大表补充本轮主要财务数据的指标级来源；正文如使用这些数值，应以本表的 PDF 页和表格为准。",
-        "",
-        "| 指标 | 期间 | 原始披露值 | 来源 |",
-        "| --- | --- | ---: | --- |",
-    ]
-    refs: list[str] = []
-    seen_refs: set[tuple[Any, Any, Any, str, str]] = set()
-    for row in rows[:PRIMARY_DATA_SUPPLEMENT_MAX_ROWS]:
-        metric = row.get("metric_name") or row.get("metric_key") or "未返回"
-        value = _format_statement_value(row)
-        locator = _source_locator_text(
-            task_id=row.get("task_id"),
-            pdf_page=row.get("pdf_page"),
-            table_index=row.get("table_index"),
-            md_line=row.get("md_line"),
-        )
-        lines.append(
-            f"| {row.get('statement_label') or row.get('statement_type') or '三大表'} / {metric} | "
-            f"{row.get('period') or result.get('report_id') or '未返回'} | {value or '未返回'} | {locator} |"
-        )
-        _append_unique_source_ref(
-            refs,
-            seen_refs,
-            source_type=row.get("source_type") or "wiki_metrics",
-            file=row.get("file") or "metrics/three_statements.json",
-            metric=row.get("statement_label") or metric,
-            period=row.get("report_id") or result.get("report_id"),
-            task_id=row.get("task_id"),
-            pdf_page=row.get("pdf_page"),
-            table_index=row.get("table_index"),
-            md_line=row.get("md_line"),
-        )
-    if refs:
-        lines.extend(["", "## 主要数据引用来源", *refs])
-    return "\n".join(lines)
+    return agent_runtime_citations._render_three_statement_primary_data_supplement(
+        result,
+        primary_data_supplement_max_rows=PRIMARY_DATA_SUPPLEMENT_MAX_ROWS,
+        table_source_links=_table_source_links,
+    )
 
 
 def _first_record_label(record: dict[str, Any]) -> str:
@@ -5429,240 +5204,55 @@ def _first_record_label(record: dict[str, Any]) -> str:
 
 
 def _record_values_preview(record: dict[str, Any], *, max_values: int = 4) -> str:
-    values = [str(value).strip() for value in list(record.values())[1:] if str(value).strip()]
-    if not values:
-        return "未返回"
-    return " / ".join(values[:max_values])
+    return agent_runtime_citations._record_values_preview(record, max_values=max_values)
 
 
 def _render_statement_table_primary_data_supplement(result: dict[str, Any]) -> str | None:
-    tables = result.get("tables") or []
-    if not tables:
-        return None
-    lines = [
-        "## 主要数据溯源补充",
-        "- 后端已从年报主表补充本轮主要数据来源；主表口径优先于附注跳转或全文片段。",
-        "",
-        "| 指标/行 | 数值预览 | 来源 |",
-        "| --- | --- | --- |",
-    ]
-    refs: list[str] = []
-    seen_refs: set[tuple[Any, Any, Any, str, str]] = set()
-    remaining = PRIMARY_DATA_SUPPLEMENT_MAX_ROWS
-    for table in tables:
-        records = [record for record in (table.get("records") or []) if isinstance(record, dict)]
-        if not records:
-            records = [{}]
-        for record in records:
-            if remaining <= 0:
-                break
-            metric = _first_record_label(record) or table.get("metric") or "主表数据"
-            locator = _source_locator_text(
-                task_id=table.get("task_id"),
-                pdf_page=table.get("pdf_page"),
-                table_index=table.get("table_index"),
-                md_line=table.get("md_line"),
-            )
-            lines.append(f"| {metric} | {_record_values_preview(record)} {table.get('unit') or ''} | {locator} |")
-            remaining -= 1
-        _append_unique_source_ref(
-            refs,
-            seen_refs,
-            source_type=table.get("source_type") or "wiki_metrics",
-            file=table.get("file") or "metrics/three_statements.json",
-            metric=table.get("metric") or "主表数据",
-            period=table.get("report_id") or result.get("report_id"),
-            task_id=table.get("task_id"),
-            pdf_page=table.get("pdf_page"),
-            table_index=table.get("table_index"),
-            md_line=table.get("md_line"),
-        )
-        if remaining <= 0:
-            break
-    if refs:
-        lines.extend(["", "## 主要数据引用来源", *refs])
-    return "\n".join(lines)
+    return agent_runtime_citations._render_statement_table_primary_data_supplement(
+        result,
+        primary_data_supplement_max_rows=PRIMARY_DATA_SUPPLEMENT_MAX_ROWS,
+        table_source_links=_table_source_links,
+    )
 
 
 def _render_note_detail_primary_data_supplement(result: dict[str, Any]) -> str | None:
-    tables = result.get("tables") or []
-    if not tables:
-        return None
-    lines = [
-        "## 主要数据溯源补充",
-        "- 后端已从附注结构化表补充本轮主要明细/构成数据来源；表内所有金额和行项目以对应可打开表格为准。",
-        "",
-        "| 明细表 | 口径 | 来源 |",
-        "| --- | --- | --- |",
-    ]
-    refs: list[str] = []
-    seen_refs: set[tuple[Any, Any, Any, str, str]] = set()
-    for table in tables[:PRIMARY_DATA_SUPPLEMENT_MAX_ROWS]:
-        metric = table.get("metric") or result.get("metric") or "附注明细"
-        records = [record for record in (table.get("records") or []) if isinstance(record, dict)]
-        row_count = len(records or table.get("rows") or [])
-        preview_rows: list[str] = []
-        for record in records[:3]:
-            label = _first_record_label(record)
-            values = _record_values_preview(record, max_values=3)
-            if label:
-                preview_rows.append(f"{label}: {values}")
-        preview = "；".join(preview_rows) if preview_rows else "可打开表格查看完整行"
-        locator = _source_locator_text(
-            task_id=table.get("task_id"),
-            pdf_page=table.get("pdf_page"),
-            table_index=table.get("table_index"),
-            md_line=table.get("md_line"),
-        )
-        lines.append(
-            f"| {metric} | 单位={table.get('unit') or '未返回'}；解析行数={row_count or '未返回'}；明细预览={preview} | {locator} |"
-        )
-        _append_unique_source_ref(
-            refs,
-            seen_refs,
-            source_type=table.get("source_type") or "wiki_document_links",
-            file=table.get("file") or "semantic/document_links.json",
-            metric=metric,
-            period=table.get("report_id") or result.get("report_id"),
-            task_id=table.get("task_id"),
-            pdf_page=table.get("pdf_page"),
-            table_index=table.get("table_index"),
-            md_line=table.get("md_line"),
-        )
-    if refs:
-        lines.extend(["", "## 主要数据引用来源", *refs])
-    return "\n".join(lines)
+    return agent_runtime_citations._render_note_detail_primary_data_supplement(
+        result,
+        primary_data_supplement_max_rows=PRIMARY_DATA_SUPPLEMENT_MAX_ROWS,
+        table_source_links=_table_source_links,
+    )
 
 
 def _render_human_capital_primary_data_supplement(result: dict[str, Any]) -> str | None:
-    sections = result.get("sections") or {}
-    source_locator = _source_locator_text(
-        task_id=result.get("task_id"),
-        pdf_page=result.get("pdf_page"),
-        table_index=result.get("table_index"),
-        md_line=result.get("md_line"),
+    return agent_runtime_citations._render_human_capital_primary_data_supplement(
+        result,
+        primary_data_supplement_max_rows=PRIMARY_DATA_SUPPLEMENT_MAX_ROWS,
+        table_source_links=_table_source_links,
     )
-    lines = [
-        "## 主要数据溯源补充",
-        "- 后端已从年报员工情况表补充本轮人员/人才结构数据来源；员工数、专业构成和学历构成均来自同一张员工情况表。",
-        "",
-        "| 指标 | 数值 | 来源 |",
-        "| --- | ---: | --- |",
-    ]
-    count = 0
-    for rows in (sections.get("scale") or [], sections.get("profession") or [], sections.get("education") or []):
-        for label, value in rows:
-            if count >= PRIMARY_DATA_SUPPLEMENT_MAX_ROWS:
-                break
-            lines.append(f"| {label} | {value} | {source_locator} |")
-            count += 1
-        if count >= PRIMARY_DATA_SUPPLEMENT_MAX_ROWS:
-            break
-    if count == 0:
-        return None
-    lines.extend(
-        [
-            "",
-            "## 主要数据引用来源",
-            _primary_data_source_ref(
-                1,
-                source_type="wiki_report_table",
-                file=f"reports/{result.get('report_id')}/report.md",
-                metric="员工情况/人才结构",
-                period=result.get("report_id"),
-                task_id=result.get("task_id"),
-                pdf_page=result.get("pdf_page"),
-                table_index=result.get("table_index"),
-                md_line=result.get("md_line"),
-            ),
-        ]
-    )
-    return "\n".join(lines)
 
 
 def _render_wiki_fulltext_primary_data_supplement(result: dict[str, Any]) -> str | None:
-    rows = result.get("rows") or []
-    if not rows:
-        return None
-    lines = [
-        "## 主要数据溯源补充",
-        "- 结构化指标未完全命中时，后端已从完整年报 Markdown / document_full.json 补充原文证据片段；正文主要数值应回看对应 PDF 页或文本块。",
-        "",
-        "| 证据片段 | 原文预览 | 来源 |",
-        "| --- | --- | --- |",
-    ]
-    refs: list[str] = []
-    seen_refs: set[tuple[Any, Any, Any, str, str]] = set()
-    for index, row in enumerate(rows[:PRIMARY_DATA_SUPPLEMENT_MAX_ROWS], start=1):
-        snippet = re.sub(r"\s+", " ", str(row.get("snippet") or "")).strip()
-        if len(snippet) > 180:
-            snippet = f"{snippet[:180].rstrip()}..."
-        locator = _source_locator_text(
-            task_id=row.get("task_id"),
-            pdf_page=row.get("pdf_page"),
-            table_index=row.get("table_index"),
-            md_line=row.get("md_line"),
-        )
-        lines.append(f"| F{index} / {row.get('source_type') or '全文证据'} | {snippet or '未返回'} | {locator} |")
-        _append_unique_source_ref(
-            refs,
-            seen_refs,
-            source_type=row.get("source_type") or "wiki_report_fulltext",
-            file=row.get("file") or "reports/2025-annual/report.md",
-            metric=",".join(result.get("terms") or []) or "全文检索",
-            period=result.get("report_id"),
-            task_id=row.get("task_id"),
-            pdf_page=row.get("pdf_page"),
-            table_index=row.get("table_index"),
-            md_line=row.get("md_line"),
-        )
-    if refs:
-        lines.extend(["", "## 主要数据引用来源", *refs])
-    return "\n".join(lines)
+    return agent_runtime_citations._render_wiki_fulltext_primary_data_supplement(
+        result,
+        primary_data_supplement_max_rows=PRIMARY_DATA_SUPPLEMENT_MAX_ROWS,
+        table_source_links=_table_source_links,
+    )
 
 
 def _render_postgres_primary_data_supplement(result: dict[str, Any]) -> str | None:
-    rows = result.get("rows") or []
-    if not rows:
-        return None
-    lines = [
-        "## 主要数据溯源补充",
-        "- Wiki 结构化证据未完全命中时，后端已从 PostgreSQL `pdf2md` 只读结果补充主要数据来源；若后续定位到 Wiki 表格，默认以 Wiki 为主。",
-        "",
-        "| 指标 | 期间 | 原始值/值 | 来源 |",
-        "| --- | --- | ---: | --- |",
-    ]
-    refs: list[str] = []
-    seen_refs: set[tuple[Any, Any, Any, str, str]] = set()
-    for row in rows[:PRIMARY_DATA_SUPPLEMENT_MAX_ROWS]:
-        pdf_page = _postgres_row_pdf_page(row)
-        table_index = _postgres_row_table_index(row)
-        md_line = _postgres_row_md_line(row)
-        locator = _source_locator_text(
-            task_id=row.get("task_id"),
-            pdf_page=pdf_page,
-            table_index=table_index,
-            md_line=md_line,
-        )
-        lines.append(
-            f"| {_postgres_row_metric_name(row)} | {row.get('period_key') or row.get('report_period') or row.get('report_year') or '未返回'} | "
-            f"{_postgres_row_value(row) or '未返回'} {_postgres_row_unit(row) or ''} | {locator} |"
-        )
-        _append_unique_source_ref(
-            refs,
-            seen_refs,
-            source_type="postgresql",
-            file=row.get("source_table") or "pdf2md",
-            metric=_postgres_row_metric_name(row),
-            period=row.get("period_key") or row.get("report_period") or row.get("report_year"),
-            task_id=row.get("task_id"),
-            pdf_page=pdf_page,
-            table_index=table_index,
-            md_line=md_line,
-        )
-    if refs:
-        lines.extend(["", "## 主要数据引用来源", *refs])
-    return "\n".join(lines)
+    return agent_runtime_citations._render_postgres_primary_data_supplement(
+        result,
+        primary_data_supplement_max_rows=PRIMARY_DATA_SUPPLEMENT_MAX_ROWS,
+        evidence_url=_evidence_url,
+        markdown_table_cell=_markdown_table_cell,
+        table_source_links=_table_source_links,
+        postgres_row_pdf_page=_postgres_row_pdf_page,
+        postgres_row_table_index=_postgres_row_table_index,
+        postgres_row_md_line=_postgres_row_md_line,
+        postgres_row_metric_name=_postgres_row_metric_name,
+        postgres_row_value=_postgres_row_value,
+        postgres_row_unit=_postgres_row_unit,
+    )
 
 
 def build_primary_data_evidence_supplement(message: str, context: Any | None = None) -> str | None:
@@ -6038,72 +5628,18 @@ def _markdown_table_cell(value: Any) -> str:
 
 
 def _render_postgres_fallback_context(result: dict[str, Any]) -> str:
-    rows = result.get("rows") or []
-    parsed = result.get("parsed") if isinstance(result.get("parsed"), dict) else {}
-    company_name = parsed.get("resolved_stock_name") or parsed.get("company_name") or "未返回"
-    stock_code = parsed.get("resolved_stock_code") or parsed.get("stock_code") or "未返回"
-    company_id = parsed.get("resolved_company_id") or "未返回"
-    source_tables = [str(item) for item in (result.get("source_tables") or [])]
-
-    lines = [
-        "以下是后端在本地 Wiki 确定性证据未命中或命中不足时，从 PostgreSQL `pdf2md` schema 只读查询得到的补充证据。模型可以基于这些数据回答，但必须说明这是数据库 fallback；若后续定位到 Wiki 结构化证据，默认以 Wiki 为主。",
-        "输出要求：",
-        "- 不得把 PostgreSQL fallback 伪装成 Wiki 证据。",
-        "- 只使用下方返回行里的数值、期间、公司、task_id、pdf_page、table_index 和来源表；字段为空时写 `未返回`。",
-        "- `## 引用来源` 必须保留 `source_type=postgresql`、`table`、`task_id`、`pdf_page`、`table_index`。",
-        f"- 公司: {company_name} / 代码 {stock_code} / company_id={company_id}",
-        f"- 查询类型: {parsed.get('query_type') or '未返回'} / statement_type={parsed.get('statement_type') or '未返回'} / metric={parsed.get('metric_name') or parsed.get('canonical_name') or '未返回'}",
-        f"- 数据源表: {', '.join(source_tables) if source_tables else '未返回'}",
-        "",
-        "## PostgreSQL 补充底稿",
-        "| 来源表 | 项目/指标 | 期间 | 原始值/值 | 单位 | task_id | pdf_page | table_index |",
-        "| --- | --- | --- | ---: | --- | --- | ---: | ---: |",
-    ]
-    for row in rows:
-        pdf_page = _postgres_row_pdf_page(row)
-        table_index = _postgres_row_table_index(row)
-        lines.append(
-            "| "
-            + " | ".join(
-                _markdown_table_cell(value)
-                for value in (
-                    row.get("source_table"),
-                    _postgres_row_metric_name(row),
-                    row.get("period_key") or row.get("report_period") or row.get("report_year"),
-                    _postgres_row_value(row),
-                    _postgres_row_unit(row),
-                    row.get("task_id"),
-                    pdf_page,
-                    table_index,
-                )
-            )
-            + " |"
-        )
-
-    lines.extend(["", "## PostgreSQL 引用"])
-    for index, row in enumerate(rows, start=1):
-        pdf_page = _postgres_row_pdf_page(row)
-        table_index = _postgres_row_table_index(row)
-        task_id = row.get("task_id")
-        links = []
-        pdf_url = _evidence_url(task_id, pdf_page, table_index, "pdf")
-        page_url = _evidence_url(task_id, pdf_page, table_index, "page")
-        table_url = _evidence_url(task_id, pdf_page, table_index, "table")
-        if pdf_url:
-            links.append(f"[打开PDF页]({pdf_url})")
-        if page_url:
-            links.append(f"[查看页来源]({page_url})")
-        if table_url:
-            links.append(f"[查看表格]({table_url})")
-        lines.append(
-            f"[P{index}] source_type=postgresql, table={row.get('source_table') or '未返回'}, "
-            f"statement_id={row.get('statement_id') or '未返回'}, metric={_postgres_row_metric_name(row)}, "
-            f"period_key={row.get('period_key') or '未返回'}, task_id={task_id or '未返回'}, "
-            f"pdf_page={pdf_page or '未返回'}, table_index={table_index if table_index not in (None, '') else '未返回'}, "
-            f"md_line={_postgres_row_md_line(row) or '未返回'}"
-            + (("，" + "，".join(links)) if links else "")
-        )
-    return "\n".join(lines)
+    return agent_runtime_citations._render_postgres_fallback_context(
+        result,
+        evidence_url=_evidence_url,
+        markdown_table_cell=_markdown_table_cell,
+        table_source_links=_table_source_links,
+        postgres_row_pdf_page=_postgres_row_pdf_page,
+        postgres_row_table_index=_postgres_row_table_index,
+        postgres_row_md_line=_postgres_row_md_line,
+        postgres_row_metric_name=_postgres_row_metric_name,
+        postgres_row_value=_postgres_row_value,
+        postgres_row_unit=_postgres_row_unit,
+    )
 
 
 def build_postgres_fallback_context(message: str, context: Any | None = None) -> str | None:
@@ -6126,19 +5662,7 @@ def _needs_financial_evidence_contract(message: str, context: Any | None = None)
 
 
 def _has_structured_evidence_trace(reply: str) -> bool:
-    text = reply or ""
-    if "source_type=" not in text:
-        return False
-    for line in text.splitlines():
-        if "source_type=" not in line or "task_id=" not in line:
-            continue
-        if not re.search(r"\btask_id=[0-9a-fA-F-]{32,36}\b", line):
-            continue
-        has_page = re.search(r"\bpdf_page(?:_number)?=[0-9]+", line)
-        has_table = re.search(r"\btable_index=[0-9]+", line)
-        if has_page or has_table:
-            return True
-    return False
+    return agent_runtime_citations._has_structured_evidence_trace(reply)
 
 
 def _is_runtime_status_reply(reply: str) -> bool:
