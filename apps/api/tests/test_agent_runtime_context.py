@@ -289,7 +289,7 @@ def test_note_detail_direct_and_context_intent_combinations():
     kwargs = {
         "note_detail_query_terms": ("明细", "构成"),
         "note_detail_exclude_terms": ("生成报告",),
-        "financial_note_metric_terms": ("商誉", "递延所得税"),
+        "financial_note_metric_terms": ("商誉", "递延所得税", "营业收入"),
         "statement_terms": ("营业收入", "现金流"),
         "is_general_assistant_request": is_general,
     }
@@ -307,11 +307,36 @@ def test_note_detail_direct_and_context_intent_combinations():
     assert not agent_runtime_context.direct_note_detail_answer_applies("商誉构成明细趋势分析", **direct_kwargs)
     assert not agent_runtime_context.direct_note_detail_answer_applies("你能做什么？商誉构成明细多少", **direct_kwargs)
     assert not agent_runtime_context.direct_note_detail_answer_applies("生成报告里的商誉构成明细多少", **direct_kwargs)
+    assert not agent_runtime_context.direct_note_detail_answer_applies("商誉构成明细", **direct_kwargs)
+    assert not agent_runtime_context.direct_note_detail_answer_applies("商誉多少", **direct_kwargs)
+    assert agent_runtime_context.direct_note_detail_answer_applies("营业收入构成多少", **direct_kwargs)
+    assert not agent_runtime_context.direct_note_detail_answer_applies("营业收入构成明细", **direct_kwargs)
+    assert not agent_runtime_context.direct_note_detail_answer_applies("商誉构成明细多少趋势分析", **direct_kwargs)
+    assert not agent_runtime_context.direct_note_detail_answer_applies(None, **direct_kwargs)
+
+    assert agent_runtime_context.note_detail_query_applies("营业收入构成明细", **kwargs)
+    assert not agent_runtime_context.note_detail_query_applies("现金流构成明细", **kwargs)
+    assert not agent_runtime_context.note_detail_query_applies("你能做什么？商誉构成明细", **kwargs)
+    assert not agent_runtime_context.note_detail_query_applies("生成报告里的商誉构成明细", **kwargs)
+    assert not agent_runtime_context.note_detail_query_applies("  ", **kwargs)
+
+    assert agent_runtime_context.financial_note_metric_query_applies("营业收入构成多少", **context_kwargs)
+    assert not agent_runtime_context.financial_note_metric_query_applies("现金流构成多少", **context_kwargs)
+    assert not agent_runtime_context.financial_note_metric_query_applies("营业收入证据来源", **context_kwargs)
+    assert not agent_runtime_context.financial_note_metric_query_applies("你能做什么？商誉证据来源", **context_kwargs)
+    assert not agent_runtime_context.financial_note_metric_query_applies("生成报告里的商誉证据来源", **context_kwargs)
+    assert not agent_runtime_context.financial_note_metric_query_applies("  ", **context_kwargs)
 
     assert agent_runtime_context.note_detail_context_applies("商誉证据来源", **context_kwargs)
     assert agent_runtime_context.note_detail_context_applies("递延所得税构成", **context_kwargs)
+    assert agent_runtime_context.note_detail_context_applies("营业收入构成明细", **context_kwargs)
+    assert agent_runtime_context.note_detail_context_applies("商誉构成明细", **context_kwargs)
+    assert not agent_runtime_context.note_detail_context_applies("现金流构成明细", **context_kwargs)
     assert not agent_runtime_context.note_detail_context_applies("营业收入是多少", **context_kwargs)
+    assert not agent_runtime_context.note_detail_context_applies("营业收入证据来源", **context_kwargs)
     assert not agent_runtime_context.note_detail_context_applies("你能做什么？商誉证据来源", **context_kwargs)
+    assert not agent_runtime_context.note_detail_context_applies("生成报告里的商誉证据来源", **context_kwargs)
+    assert not agent_runtime_context.note_detail_context_applies("  ", **context_kwargs)
 
 
 def test_attachment_helpers_normalize_and_classify_payloads():
