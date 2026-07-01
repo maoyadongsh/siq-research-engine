@@ -293,6 +293,76 @@ def test_required_core_financial_table_names_excludes_equity_for_quarterly_repor
     assert "所有者权益变动表" in annual_names
 
 
+def test_candidate_summary_list_preserves_primary_candidate_fields_and_missing_group():
+    summary = quality.candidate_summary_list(
+        {
+            "资产负债表": [
+                {
+                    "table_index": 2,
+                    "line": 98,
+                    "candidate_group": "core",
+                    "candidate_score": 98.5,
+                    "confidence": "high",
+                    "preview": "流动资产 非流动资产 资产总计",
+                },
+                {
+                    "table_index": 3,
+                    "line": 110,
+                    "candidate_group": "core",
+                    "candidate_score": 80.0,
+                },
+            ]
+        },
+        ["资产负债表", "利润表"],
+    )
+
+    assert summary[0] == {
+        "name": "资产负债表",
+        "status": "found",
+        "table_index": 2,
+        "line": 98,
+        "candidate_group": "core",
+        "candidate_score": 98.5,
+        "confidence": "high",
+        "preview": "流动资产 非流动资产 资产总计",
+        "candidate_count": 2,
+    }
+    assert summary[1] == {
+        "name": "利润表",
+        "status": "missing",
+        "candidate_group": "core",
+    }
+
+
+def test_priority_review_tables_dedupes_reasons_and_truncates_to_thirty():
+    table_index = [
+        {"table_index": 1, "heading": "合并资产负债表", "suspect_reasons": ["empty_rows"]},
+        {"table_index": 2, "heading": "合并利润表"},
+        *[
+            {"table_index": value, "heading": f"可疑表 {value}", "suspect_reasons": ["thin_table"]}
+            for value in range(3, 36)
+        ],
+    ]
+    core_candidates = [
+        {"status": "found", "table_index": 1, "confidence": "low"},
+        {"status": "found", "table_index": 2, "confidence": "medium"},
+        {"status": "missing", "table_index": 3, "confidence": "low"},
+    ]
+    key_table_candidates = {
+        "资产负债表": [{"table_index": 1}],
+        "现金流量表": [{"table_index": 3}],
+    }
+
+    priority = quality.priority_review_tables(table_index, core_candidates, key_table_candidates)
+
+    assert len(priority) == 30
+    assert [item["table_index"] for item in priority[:3]] == [1, 2, 3]
+    assert priority[0]["suspect_reasons"] == ["empty_rows", "low_confidence_core_candidate"]
+    assert priority[1]["suspect_reasons"] == ["medium_confidence_core_candidate"]
+    assert priority[2]["suspect_reasons"] == ["thin_table"]
+    assert 35 not in {item["table_index"] for item in priority}
+
+
 def test_quality_report_warnings_filters_summary_core_table_noise():
     report = {
         "report_kind": "annual_report_summary",
