@@ -14,6 +14,22 @@ class _ModelLike:
         return {key: value for key, value in self._payload.items() if value is not None}
 
 
+def _write_analysis_package(
+    company_dir: Path,
+    *,
+    stock_code: str = "600104",
+    short_name: str = "SAIC",
+    suffixes: tuple[str, ...] = (".md", ".json", ".html"),
+) -> tuple[Path, Path]:
+    analysis_dir = company_dir / "analysis"
+    work_dir = analysis_dir / ".work" / f"{stock_code}-{short_name}-2025-analysis"
+    work_dir.mkdir(parents=True)
+    for suffix in suffixes:
+        (analysis_dir / f"{stock_code}-{short_name}-2025-analysis{suffix}").write_text("ok", encoding="utf-8")
+    (work_dir / "final_validation.json").write_text("{\"ok\": true}", encoding="utf-8")
+    return analysis_dir, work_dir
+
+
 def test_context_helpers_normalize_model_like_payload():
     context = _ModelLike(
         {
@@ -41,12 +57,7 @@ def test_forced_context_company_dir_respects_root_boundary(tmp_path):
 
 def test_analysis_completed_artifacts_and_format_context(tmp_path):
     wiki_root = tmp_path / "wiki"
-    analysis_dir = wiki_root / "companies" / "600104-SAIC" / "analysis"
-    work_dir = analysis_dir / ".work" / "600104-SAIC-2025-analysis"
-    work_dir.mkdir(parents=True)
-    for suffix in (".md", ".json", ".html"):
-        (analysis_dir / f"600104-SAIC-2025-analysis{suffix}").write_text("ok", encoding="utf-8")
-    (work_dir / "final_validation.json").write_text("{\"ok\": true}", encoding="utf-8")
+    analysis_dir, _work_dir = _write_analysis_package(wiki_root / "companies" / "600104-SAIC")
 
     context = {"company": {"dir": str(analysis_dir.parent), "code": "600104", "name": "SAIC"}}
 
@@ -68,6 +79,84 @@ def test_analysis_completed_artifacts_and_format_context(tmp_path):
         context={"company": {"name": "SAIC", "code": "600104", "dir": str(analysis_dir.parent)}},
         context_header="HEADER",
     )
+
+
+def test_analysis_completed_artifacts_uses_company_code_fallback(tmp_path):
+    wiki_root = tmp_path / "wiki"
+    analysis_dir, work_dir = _write_analysis_package(wiki_root / "companies" / "600104-SAIC")
+    read_paths = []
+
+    artifacts = agent_runtime_context.analysis_completed_artifacts(
+        {"company": {"dir": str(tmp_path / "missing-company-dir"), "code": "600104"}},
+        read_json_file=lambda path: read_paths.append(Path(path)) or {"ok": True},
+        wiki_root=wiki_root,
+    )
+
+    assert artifacts == {
+        "md": str(analysis_dir / "600104-SAIC-2025-analysis.md"),
+        "json": str(analysis_dir / "600104-SAIC-2025-analysis.json"),
+        "html": str(analysis_dir / "600104-SAIC-2025-analysis.html"),
+        "validation": str(work_dir / "final_validation.json"),
+    }
+    assert read_paths == [work_dir / "final_validation.json"]
+
+
+def test_analysis_completed_artifacts_returns_none_for_incomplete_or_invalid_state(tmp_path):
+    wiki_root = tmp_path / "wiki"
+
+    missing_dir = wiki_root / "companies" / "600104-SAIC"
+    _write_analysis_package(missing_dir, suffixes=(".md", ".html"))
+    read_paths = []
+    assert (
+        agent_runtime_context.analysis_completed_artifacts(
+            {"company": {"code": "600104"}},
+            read_json_file=lambda path: read_paths.append(Path(path)) or {"ok": True},
+            wiki_root=wiki_root,
+        )
+        is None
+    )
+    assert read_paths == []
+
+    invalid_dir = wiki_root / "companies" / "000001-PAB"
+    _write_analysis_package(invalid_dir, stock_code="000001", short_name="PAB")
+    invalid_read_paths = []
+    assert (
+        agent_runtime_context.analysis_completed_artifacts(
+            {"company": {"code": "000001"}},
+            read_json_file=lambda path: invalid_read_paths.append(Path(path)) or {"ok": False},
+            wiki_root=wiki_root,
+        )
+        is None
+    )
+    assert invalid_read_paths == [
+        invalid_dir / "analysis" / ".work" / "000001-PAB-2025-analysis" / "final_validation.json"
+    ]
+
+    none_validation_dir = wiki_root / "companies" / "000002-CMB"
+    _write_analysis_package(none_validation_dir, stock_code="000002", short_name="CMB")
+    none_validation_read_paths = []
+    assert (
+        agent_runtime_context.analysis_completed_artifacts(
+            {"company": {"code": "000002"}},
+            read_json_file=lambda path: none_validation_read_paths.append(Path(path)),
+            wiki_root=wiki_root,
+        )
+        is None
+    )
+    assert none_validation_read_paths == [
+        none_validation_dir / "analysis" / ".work" / "000002-CMB-2025-analysis" / "final_validation.json"
+    ]
+
+    no_match_read_paths = []
+    assert (
+        agent_runtime_context.analysis_completed_artifacts(
+            {"company": {"code": "300750"}},
+            read_json_file=lambda path: no_match_read_paths.append(Path(path)) or {"ok": True},
+            wiki_root=wiki_root,
+        )
+        is None
+    )
+    assert no_match_read_paths == []
 
 
 def test_analysis_completion_guard_intent_helpers():
