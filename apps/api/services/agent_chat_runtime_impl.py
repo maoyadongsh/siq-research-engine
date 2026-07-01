@@ -56,6 +56,7 @@ from services import agent_runtime_citations
 from services import agent_runtime_parse_only
 from services import agent_runtime_display
 from services import agent_runtime_memory
+from services import agent_runtime_context
 from services.agent_runtime_fallback_contexts import (
     _markdown_table_cell,
     _postgres_row_md_line,
@@ -2591,91 +2592,35 @@ async def save_message_in_background(
 
 
 def _clean_context_value(value: Any) -> str:
-    return str(value).replace("\n", " ").strip()
+    return agent_runtime_context.clean_context_value(value)
 
 
 def _context_dict(context: Any | None) -> dict[str, Any]:
-    if hasattr(context, "model_dump"):
-        raw = context.model_dump(exclude_none=True)
-    elif isinstance(context, dict):
-        raw = context
-    else:
-        raw = {}
-    return raw if isinstance(raw, dict) else {}
+    return agent_runtime_context.context_dict(context)
 
 
 def _context_company(context: Any | None) -> dict[str, Any]:
-    raw = _context_dict(context)
-    company = raw.get("company")
-    return company if isinstance(company, dict) else {}
+    return agent_runtime_context.context_company(context)
 
 
 def _analysis_completed_artifacts(context: Any | None) -> dict[str, str] | None:
-    company = _context_company(context)
-    company_dir_value = str(company.get("dir") or "").strip()
-    code = str(company.get("code") or "").strip()
-    name = str(company.get("name") or "").strip()
-
-    company_dir: Path | None = None
-    if company_dir_value:
-        candidate = Path(company_dir_value)
-        if not candidate.is_absolute():
-            candidate = WIKI_ROOT / candidate
-        if candidate.exists():
-            company_dir = candidate
-    if not company_dir and code:
-        matches = sorted((WIKI_ROOT / "companies").glob(f"{code}-*"))
-        if matches:
-            company_dir = matches[0]
-    if not company_dir or not company_dir.exists():
-        return None
-
-    stock_code = code or company_dir.name.split("-", 1)[0]
-    short_name = name or (company_dir.name.split("-", 1)[1] if "-" in company_dir.name else company_dir.name)
-    analysis_dir = company_dir / "analysis"
-    prefix = analysis_dir / f"{stock_code}-{short_name}-2025-analysis"
-    files = {
-        "md": prefix.with_suffix(".md"),
-        "json": prefix.with_suffix(".json"),
-        "html": prefix.with_suffix(".html"),
-    }
-    if not all(path.exists() for path in files.values()):
-        return None
-
-    work_dir = analysis_dir / ".work" / prefix.name
-    validation = _read_json_file(work_dir / "final_validation.json")
-    if not isinstance(validation, dict) or not validation.get("ok"):
-        return None
-    return {key: str(path) for key, path in files.items()} | {"validation": str(work_dir / "final_validation.json")}
+    return agent_runtime_context.analysis_completed_artifacts(
+        context,
+        read_json_file=_read_json_file,
+        wiki_root=WIKI_ROOT,
+    )
 
 
 def _analysis_completion_reply(context: Any | None) -> str | None:
-    artifacts = _analysis_completed_artifacts(context)
-    if not artifacts:
-        return None
-    return (
-        f"{ANALYSIS_COMPLETED_MESSAGE}\n\n"
-        f"Markdown：{artifacts['md']}\n"
-        f"HTML：{artifacts['html']}\n"
-        f"验收结果：{artifacts['validation']}"
+    return agent_runtime_context.analysis_completion_reply(
+        context,
+        analysis_completed_artifacts=_analysis_completed_artifacts,
+        analysis_completed_message=ANALYSIS_COMPLETED_MESSAGE,
     )
 
 
 def _analysis_completion_guard_input(message: str, artifacts: dict[str, str]) -> str:
-    return (
-        "后端已做确定性检查：当前公司年度分析报告已经存在，且 final_validation.json 显示验收通过。\n"
-        "这不是要求你机械复述固定模板，而是给你的事实约束。请先理解用户这次具体在问什么，再自然回答。\n\n"
-        "回复要求：\n"
-        "1. 不要启动、建议启动或模拟启动完整报告生成流程；除非用户明确说“强制重建/覆盖重建”。\n"
-        "2. 如果用户是在问是否完成、报告在哪、能否生成，说明报告已完成，并给出相关路径。\n"
-        "3. 如果用户是在表达困惑或追问原因，要解释为什么系统没有重复生成，以及接下来可以怎么问。\n"
-        "4. 语气要像分析助手在思考后回应，不要输出固定模板，不要声称创建了后台生成 run。\n"
-        "5. 回答保持简洁。\n\n"
-        f"Markdown 路径：{artifacts['md']}\n"
-        f"HTML 路径：{artifacts['html']}\n"
-        f"验收结果路径：{artifacts['validation']}\n\n"
-        f"用户原始问题：{message}"
-    )
+    return agent_runtime_context.analysis_completion_guard_input(message, artifacts)
 
 
 def _is_general_assistant_request(message: str) -> bool:
@@ -2751,36 +2696,11 @@ def _should_direct_answer_statement_query(message: str) -> bool:
 
 
 def _context_company_hint(context: Any | None) -> str:
-    raw = _context_dict(context)
-    if not raw:
-        return ""
-    company = raw.get("company") or {}
-    values = [
-        company.get("name"),
-        company.get("code"),
-        company.get("dir"),
-        (raw.get("report") or {}).get("title"),
-        (raw.get("report") or {}).get("filename"),
-    ]
-    return " ".join(str(item) for item in values if item)
+    return agent_runtime_context.context_company_hint(context)
 
 
 def _forced_context_company_dir(context: Any | None) -> Path | None:
-    raw = _context_dict(context)
-    if not raw or not raw.get("force_company"):
-        return None
-    company = raw.get("company") or {}
-    candidate = company.get("dir")
-    if not candidate:
-        return None
-    try:
-        path = Path(str(candidate)).resolve()
-    except OSError:
-        return None
-    wiki_root = WIKI_ROOT.resolve()
-    if path == wiki_root or wiki_root not in path.parents:
-        return None
-    return path if path.exists() else None
+    return agent_runtime_context.forced_context_company_dir(context, wiki_root=WIKI_ROOT)
 
 
 def _normalize_financial_text(value: Any) -> str:
@@ -5801,51 +5721,11 @@ def enforce_financial_evidence_contract(
 
 
 def format_chat_context(context: Any | None) -> str | None:
-    if not context:
-        return None
-
-    raw = _context_dict(context)
-    if not raw:
-        return None
-
-    lines: list[str] = []
-    lines.append(f"- Wiki 根目录: {WIKI_ROOT}")
-    lines.append("- 路径规则: 所有 wiki/company/report 路径必须使用绝对路径，不得从 .hermes 或 profile home 推断。")
-    company = raw.get("company") or {}
-    report = raw.get("report") or {}
-    page = raw.get("page") or {}
-
-    company_parts: list[str] = []
-    if company.get("name"):
-        company_parts.append(_clean_context_value(company["name"]))
-    if company.get("code"):
-        company_parts.append(f"代码 {_clean_context_value(company['code'])}")
-    if company.get("dir"):
-        company_parts.append(f"目录 {_clean_context_value(company['dir'])}")
-    if company_parts:
-        lines.append(f"- 当前公司: {' / '.join(company_parts)}")
-
-    report_parts: list[str] = []
-    if report.get("title"):
-        report_parts.append(_clean_context_value(report["title"]))
-    if report.get("type"):
-        report_parts.append(f"类型 {_clean_context_value(report['type'])}")
-    if report.get("filename"):
-        report_parts.append(f"文件 {_clean_context_value(report['filename'])}")
-    if report.get("mtime"):
-        report_parts.append(f"更新时间 {_clean_context_value(report['mtime'])}")
-    if report.get("url"):
-        report_parts.append(f"URL {_clean_context_value(report['url'])}")
-    if report_parts:
-        lines.append(f"- 当前报告: {' / '.join(report_parts)}")
-
-    if page.get("title"):
-        lines.append(f"- 当前页面: {_clean_context_value(page['title'])}")
-
-    if not lines:
-        return None
-
-    return "\n".join([CONTEXT_HEADER, *lines])
+    return agent_runtime_context.build_format_chat_context(
+        wiki_root=WIKI_ROOT,
+        context=context,
+        context_header=CONTEXT_HEADER,
+    )
 
 
 def get_session_default_context(

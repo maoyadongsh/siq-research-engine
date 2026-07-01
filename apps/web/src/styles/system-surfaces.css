@@ -1,0 +1,18 @@
+.section-label {
+  display: inline-flex; align-items: center; gap: .6rem; border: 1px solid rgba(0,82,255,.18);
+  background: rgba(0,82,255,.055); color: var(--color-primary); border-radius: 9999px; padding: .38rem .78rem;
+  font-family: var(--font-mono); font-size: .68rem; line-height: 1; text-transform: uppercase; letter-spacing: .06em;
+}
+.section-label::before { content: ""; width: .5rem; height: .5rem; border-radius: 9999px; background: var(--color-primary); box-shadow: 0 0 0 5px rgba(0,113,227,.08); animation: pulse-dot 2.4s ease-in-out infinite; }
+.page-title-tag { display: block; border: 0; background: transparent; padding: 0; box-shadow: none; }
+.page-title-tag h1 { color: var(--color-text) !important; }
+.inverted-section { position: relative; overflow: hidden; border: 1px solid rgba(255,255,255,.08); background: linear-gradient(135deg, #0f172a 0%, #111827 100%); color: #fff; }
+.inverted-section::before { content: ""; position: absolute; inset: 0; pointer-events: none; background-image: radial-gradient(circle, rgba(255,255,255,.18) 1px, transparent 1px); background-size: 36px 36px; opacity: .05; }
+.animate-float { animation: float 5.5s ease-in-out infinite; }
+.lift-card { transition: transform 220ms ease, border-color 220ms ease, box-shadow 220ms ease, background 220ms ease; }
+.lift-card:hover { transform: translateY(-2px); border-color: rgba(0,82,255,.16); box-shadow: 0 14px 32px rgba(15,23,42,.06); }
+.form-control { min-height: 2.95rem; border-radius: .95rem; border: 1px solid rgba(205,214,226,.92); background: rgba(255,255,255,.96); color: var(--color-text); box-shadow: 0 1px 2px rgba(15,23,42,.03), 0 1px 0 rgba(255,255,255,.88) inset; }
+.form-control { border-radius: var(--radius-control); }
+.form-control:focus { border-color: rgba(0,113,227,.52); outline: none; box-shadow: var(--shadow-focus), 0 8px 18px rgba(15,23,42,.04); }
+.apple-panel { border: 1px solid rgba(216,225,236,.92); border-radius: var(--radius-panel); background: rgba(255,255,255,.86); box-shadow: var(--shadow-panel); backdrop-filter: blur(20px) saturate(1.12); }
+.apple-card { border: 1px solid rgba(216,225,236,.96); border-radius: var(--radius-card); background: rgba(255,255,255,.97); box-shadow: var(--shadow-card); }

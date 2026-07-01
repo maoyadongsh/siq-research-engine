@@ -59,6 +59,7 @@ except ModuleNotFoundError:
     )
 
 import app
+import pdf_parser_document_full_service as document_full_service
 import pdf_parser_response_service as response_service
 from artifact_manager import cleanup_old_output_dirs
 from path_config import resolve_app_paths
@@ -563,6 +564,81 @@ class PdfParserResponseServiceTest(unittest.TestCase):
         self.assertFalse(payload["tasks"][0]["markdown_ready"])
 
 
+class PdfParserDocumentFullServiceTest(unittest.TestCase):
+    def test_table_relations_payload_normalizes_tables_blocks_and_relation_metadata(self):
+        task = {"task_id": "task-rel", "filename": "report.pdf"}
+        enhanced = {
+            "tables": [
+                {
+                    "table_id": "table-main",
+                    "table_index": 7,
+                    "pdf_page_number": 1,
+                    "bbox": [10, 20, 110, 80],
+                    "heading": "Revenue",
+                    "structure": {"expanded_rows": 3, "expanded_columns": 2},
+                    "table_html": "<table><tr><td>A</td><td>B</td></tr></table>",
+                }
+            ]
+        }
+        content_list = [
+            {"type": "page_number", "page_idx": 0, "text": "12"},
+            {
+                "type": "table",
+                "page_idx": 0,
+                "bbox": [10, 20, 110, 80],
+                "table_body": "<table><tr><td>A</td><td>B</td></tr><tr><td>1</td><td>2</td></tr></table>",
+            },
+            {"type": "list", "page_idx": 0, "list_items": ["first", "second"]},
+        ]
+        captured = {}
+
+        def build_table_relations(task_id, tables, *, blocks, markdown):
+            captured["task_id"] = task_id
+            captured["tables"] = tables
+            captured["blocks"] = blocks
+            captured["markdown"] = markdown
+            return {
+                "relations": [
+                    {
+                        "from_table_id": "table-main",
+                        "to_table_id": "table-main",
+                    }
+                ]
+            }
+
+        payload = document_full_service.build_table_relations_artifact_payload(
+            task,
+            "# Report",
+            enhanced=enhanced,
+            content_list=content_list,
+            build_table_relations=build_table_relations,
+            now_iso=lambda: "2026-05-01T00:00:00Z",
+            table_relation_ruleset_version="rules-v-test",
+        )
+
+        self.assertEqual(captured["task_id"], "task-rel")
+        self.assertEqual(captured["markdown"], "# Report")
+        self.assertEqual(len(captured["tables"]), 1)
+        self.assertEqual(captured["tables"][0]["table_id"], "table-main")
+        self.assertEqual(captured["tables"][0]["quality"], {"row_count": 3, "column_count": 2})
+        self.assertEqual(captured["tables"][0]["content_table_source_id"], 1)
+        self.assertEqual([block["type"] for block in captured["blocks"]], ["page_number", "table", "list"])
+        self.assertEqual(captured["blocks"][1]["text"], "A B 1 2")
+        self.assertEqual(captured["blocks"][2]["markdown"], "first second")
+        self.assertEqual(payload["schema_version"], "document_table_relations_v1")
+        self.assertEqual(payload["ruleset_version"], "rules-v-test")
+        self.assertEqual(payload["task_id"], "task-rel")
+        self.assertEqual(payload["filename"], "report.pdf")
+        self.assertEqual(payload["generated_at"], "2026-05-01T00:00:00Z")
+        self.assertEqual(payload["physical_table_count"], 1)
+        self.assertEqual(payload["relations"][0]["from_table_index"], 7)
+        self.assertEqual(payload["relations"][0]["from_bbox"], [10.0, 20.0, 110.0, 80.0])
+        self.assertEqual(payload["relations"][0]["from_page_number"], 1)
+        self.assertEqual(payload["relations"][0]["to_table_index"], 7)
+        self.assertEqual(payload["relations"][0]["to_bbox"], [10.0, 20.0, 110.0, 80.0])
+        self.assertEqual(payload["relations"][0]["to_page_number"], 1)
+
+
 class AppWrapperCompatibilityTest(unittest.TestCase):
     def test_task_duplicate_payload_wrapper_uses_response_service(self):
         task = {
@@ -610,6 +686,34 @@ class AppWrapperCompatibilityTest(unittest.TestCase):
         self.assertEqual(payload["tasks"][0]["task_id"], "task-wrapper")
         self.assertEqual(payload["tasks"][0]["status"], COMPLETED_MISSING_ARTIFACT)
         self.assertFalse(payload["tasks"][0]["markdown_ready"])
+
+    def test_table_relations_artifact_wrapper_uses_document_full_service(self):
+        task = {"task_id": "task-wrapper", "filename": "wrapper.pdf"}
+        enhanced = {"tables": []}
+        content_list = []
+
+        def load_json_artifact(_task, name):
+            return {
+                "content_list_enhanced.json": enhanced,
+                "content_list.json": content_list,
+            }[name]
+
+        with patch.object(app, "_load_json_artifact", side_effect=load_json_artifact), patch.object(
+            app.document_full_service,
+            "build_table_relations_artifact_payload",
+            return_value={"ok": True},
+        ) as build_payload:
+            payload = app._build_table_relations_artifact(task, "# Report")
+
+        self.assertEqual(payload, {"ok": True})
+        build_payload.assert_called_once()
+        args, kwargs = build_payload.call_args
+        self.assertEqual(args, (task, "# Report"))
+        self.assertIs(kwargs["enhanced"], enhanced)
+        self.assertIs(kwargs["content_list"], content_list)
+        self.assertIs(kwargs["build_table_relations"], app.build_physical_table_relations)
+        self.assertIs(kwargs["now_iso"], app._now_iso)
+        self.assertEqual(kwargs["table_relation_ruleset_version"], app.TABLE_RELATION_RULESET_VERSION)
 
 
 class ApiLayerTest(unittest.TestCase):
