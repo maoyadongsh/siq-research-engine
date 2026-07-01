@@ -44,7 +44,7 @@ def normalize_plain_inline_latex(content: str | None) -> str:
         body = match.group(1).strip()
         return LATEX_INLINE_SYMBOLS.get(body, match.group(0))
 
-    return re.sub(r"\$(\\[A-Za-z]+|\\%)\$", replace_symbol, content)
+    return re.sub(r"\$\s*(\\[A-Za-z]+|\\%)\s*\$", replace_symbol, content)
 
 
 def normalize_evidence_trace_for_display(content: str | None) -> str:

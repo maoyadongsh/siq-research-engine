@@ -34,6 +34,25 @@ def test_display_message_with_attachments_uses_plural_prompt_for_multiple_attach
     assert "请分析这些附件" not in result
 
 
+def test_display_message_with_no_attachments_returns_trimmed_message_or_empty_string():
+    assert agent_runtime_display._display_message_with_attachments("  分析一下  ", None) == "分析一下"
+    assert agent_runtime_display._display_message_with_attachments("", []) == ""
+
+
+def test_display_message_with_multiple_attachments_and_empty_message_uses_plural_prompt():
+    result = agent_runtime_display._display_message_with_attachments(
+        "",
+        [
+            {"filename": "chart.png", "kind": "image", "url": "/api/chat/attachments/1"},
+            {"filename": "report.pdf", "kind": "document"},
+        ],
+    )
+
+    assert result.startswith("请分析这些附件\n\n")
+    assert "![图片: chart.png](/api/chat/attachments/1)" in result
+    assert "[文档: report.pdf]" in result
+
+
 def test_display_message_with_attachments_is_reexported_by_chat_runtime():
     result = runtime._display_message_with_attachments(
         "分析一下",
@@ -52,6 +71,22 @@ def test_display_message_with_attachments_uses_path_name_when_filename_missing()
     assert result == "看下附件\n\n[文档: report.pdf](/api/chat/attachments/doc-1)"
 
 
+def test_display_message_with_attachments_uses_path_name_when_filename_blank_and_normalizes_kind():
+    result = agent_runtime_display._display_message_with_attachments(
+        "",
+        [
+            {
+                "filename": "  ",
+                "kind": " IMAGE ",
+                "url": "/api/chat/attachments/chart.png",
+                "path": "/tmp/reports/chart.png",
+            }
+        ],
+    )
+
+    assert result == "请分析这个附件\n\n![图片: chart.png](/api/chat/attachments/chart.png)"
+
+
 def test_display_message_with_attachments_uses_generic_label_when_name_missing():
     result = agent_runtime_display._display_message_with_attachments(
         "",
@@ -59,6 +94,15 @@ def test_display_message_with_attachments_uses_generic_label_when_name_missing()
     )
 
     assert result == "请分析这个附件\n\n[文档: attachment]"
+
+
+def test_display_message_with_attachments_omits_blank_url_link_target():
+    result = agent_runtime_display._display_message_with_attachments(
+        "",
+        [{"filename": "report.pdf", "kind": "document", "url": "   "}],
+    )
+
+    assert result == "请分析这个附件\n\n[文档: report.pdf]"
 
 
 def test_markdown_link_label_strips_whitespace_and_brackets():

@@ -10,6 +10,59 @@ def test_first_record_label_is_shared_with_runtime_wrapper():
     assert citations._first_record_label({}) == ""
 
 
+def test_record_preview_and_statement_value_helpers_handle_empty_values():
+    assert citations._record_values_preview({"项目": "收入", "2025": "100", "2024": "", "2023": "80"}) == "100 / 80"
+    assert citations._record_values_preview({"项目": "收入"}) == "未返回"
+    assert citations._format_statement_value({"raw_value": "", "normalized_value": 123, "unit": "万元"}) == "123 万元"
+    assert citations._format_statement_value({"raw_value": "1,234", "unit": ""}) == "1,234"
+
+
+def test_render_human_capital_primary_data_supplement_limits_rows_and_adds_refs():
+    calls = []
+
+    def table_source_links(task_id, pdf_page, table_index):
+        calls.append((task_id, pdf_page, table_index))
+        return f"/api/source/{task_id}/table/{table_index}"
+
+    supplement = citations._render_human_capital_primary_data_supplement(
+        {
+            "report_id": "2025-annual",
+            "task_id": "11111111-1111-1111-1111-111111111111",
+            "pdf_page": 42,
+            "table_index": 9,
+            "md_line": 300,
+            "sections": {
+                "scale": [("员工总数", "1000")],
+                "profession": [("研发人员", "300"), ("销售人员", "200")],
+                "education": [("本科", "600")],
+            },
+        },
+        primary_data_supplement_max_rows=3,
+        table_source_links=table_source_links,
+    )
+
+    assert supplement is not None
+    assert supplement.count("| 员工总数 | 1000 |") == 1
+    assert supplement.count("| 研发人员 | 300 |") == 1
+    assert supplement.count("| 销售人员 | 200 |") == 1
+    assert "本科" not in supplement
+    assert "## 主要数据引用来源" in supplement
+    assert "[D1] source_type=wiki_report_table" in supplement
+    assert "metric=员工情况/人才结构" in supplement
+    assert calls == [
+        ("11111111-1111-1111-1111-111111111111", 42, 9),
+        ("11111111-1111-1111-1111-111111111111", 42, 9),
+    ]
+
+
+def test_render_human_capital_primary_data_supplement_returns_none_without_rows():
+    assert citations._render_human_capital_primary_data_supplement(
+        {"sections": {"scale": [], "profession": [], "education": []}},
+        primary_data_supplement_max_rows=3,
+        table_source_links=lambda task_id, pdf_page, table_index: "",
+    ) is None
+
+
 def test_merge_primary_data_refs_moves_auto_evidence_refs_to_citation_section():
     reply = """结论正文。
 
@@ -65,7 +118,7 @@ def test_structured_evidence_requires_real_task_id_and_page_or_table():
 
 
 def test_normalize_plain_inline_latex_replaces_known_symbols_only():
-    text = "A $\\to$ B，x $\\leq$ y，保留 $\\unknown$ 和 $x+1$。"
+    text = "A $\\to$ B，x $ \\leq $ y，保留 $\\unknown$ 和 $x+1$。"
 
     assert citations.normalize_plain_inline_latex(text) == "A → B，x ≤ y，保留 $\\unknown$ 和 $x+1$。"
     assert citations.normalize_plain_inline_latex(None) == ""

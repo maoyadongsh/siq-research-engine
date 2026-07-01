@@ -26,8 +26,11 @@ def _display_message_with_attachments(
         return text or message
     labels: list[str] = []
     for item in attachments:
-        filename = str(item.get("filename") or Path(str(item.get("path") or "")).name or "attachment").strip()
-        kind = str(item.get("kind") or "image")
+        filename = str(item.get("filename") or "").strip()
+        if not filename:
+            filename = Path(str(item.get("path") or "")).name.strip()
+        filename = filename or "attachment"
+        kind = str(item.get("kind") or "image").strip().lower()
         label = "图片" if kind == "image" else "文档"
         safe_label = _markdown_link_label(f"{label}: {filename}")
         url = _markdown_link_url(item.get("url") or "")
