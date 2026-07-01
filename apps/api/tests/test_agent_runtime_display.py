@@ -63,3 +63,19 @@ def test_display_message_with_attachments_uses_generic_label_when_name_missing()
 
 def test_markdown_link_label_strips_whitespace_and_brackets():
     assert agent_runtime_display._markdown_link_label("  图[表]\nA  ") == "图(表) A"
+
+
+def test_display_message_with_attachments_escapes_markdown_link_url():
+    result = agent_runtime_display._display_message_with_attachments(
+        "",
+        [
+            {
+                "filename": "chart [draft].png",
+                "kind": "image",
+                "url": "/api/chat/attachments/chart draft(1).png",
+            }
+        ],
+    )
+
+    assert "![图片: chart (draft).png](/api/chat/attachments/chart%20draft%281%29.png)" in result
+    assert agent_runtime_display._markdown_link_url("/api/a b(1).png") == "/api/a%20b%281%29.png"
