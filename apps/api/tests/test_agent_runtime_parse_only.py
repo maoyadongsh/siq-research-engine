@@ -147,3 +147,19 @@ def test_build_pdf2md_parse_only_context_formats_real_artifact_paths(tmp_path):
     assert "task-1" in context
     assert str(result_dir) in context
     assert str(result_md) in context
+
+
+def test_build_pdf2md_parse_only_context_returns_none_without_matches():
+    def matches(message, context=None, *, limit=None):
+        assert message == "Alpha 年报"
+        assert limit == 2
+        return []
+
+    assert (
+        parse_only.build_pdf2md_parse_only_context(
+            "Alpha 年报",
+            pdf2md_parse_only_matches=matches,
+            parse_only_context_limit=2,
+        )
+        is None
+    )

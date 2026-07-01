@@ -153,6 +153,67 @@ def test_merge_quality_candidates_from_financial_data_backfills_equity_statement
     assert "所有者权益变动表" in merged["found_financial_tables"]
 
 
+def test_merge_quality_candidates_from_financial_metrics_keeps_table_metadata():
+    report = {
+        "report_kind": "annual_report",
+        "key_table_candidates": {},
+        "table_index": [
+            {
+                "table_index": 3,
+                "line": 56,
+                "pdf_page_number": 18,
+                "pdf_page_source": "content_list",
+                "pdf_page_inference_reason": "source_map",
+                "bbox": [5, 6, 7, 8],
+                "rows": 6,
+                "cells": 42,
+                "empty_ratio": 0.02,
+                "numeric_ratio": 0.7,
+                "heading": "主要会计数据和财务指标",
+                "unit": "元",
+                "table_type": "fact",
+                "preview": "营业收入 归属于上市公司股东的净利润 经营活动现金流量净额",
+            }
+        ],
+    }
+    financial_data = {
+        "report_kind": "annual_report",
+        "report_year": 2025,
+        "statements": [],
+        "key_metrics": [
+            {
+                "name": "营业收入",
+                "canonical_name": "operating_revenue",
+                "unit": "元",
+                "sources": {
+                    "2025": {
+                        "table_index": 3,
+                        "line": 57,
+                    }
+                },
+            }
+        ],
+        "summary": {"statement_count": 0, "key_metric_count": 1},
+    }
+
+    merged = quality.merge_quality_candidates_from_financial_data(report, financial_data)
+    accounting_data = next(
+        item
+        for item in merged["core_financial_table_candidates"]
+        if item["name"] == "主要会计数据"
+    )
+
+    assert accounting_data["status"] == "found"
+    assert accounting_data["table_index"] == 3
+    assert accounting_data["line"] == 57
+    assert accounting_data["pdf_page_number"] == 18
+    assert accounting_data["bbox"] == [5, 6, 7, 8]
+    assert accounting_data["rows"] == 6
+    assert accounting_data["cells"] == 42
+    assert accounting_data["heading"] == "主要会计数据和财务指标"
+    assert accounting_data["preview"].startswith("营业收入")
+
+
 def test_balance_sheet_nearby_table_skips_average_balance_noise():
     report = {
         "table_index": [

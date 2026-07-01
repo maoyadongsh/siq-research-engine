@@ -43,5 +43,14 @@ def test_display_message_with_attachments_is_reexported_by_chat_runtime():
     assert result == "分析一下\n\n[文档: note.docx]"
 
 
+def test_display_message_with_attachments_uses_path_name_when_filename_missing():
+    result = agent_runtime_display._display_message_with_attachments(
+        "看下附件",
+        [{"kind": "document", "url": "/api/chat/attachments/doc-1", "path": "/tmp/reports/report.pdf"}],
+    )
+
+    assert result == "看下附件\n\n[文档: report.pdf](/api/chat/attachments/doc-1)"
+
+
 def test_markdown_link_label_strips_whitespace_and_brackets():
     assert agent_runtime_display._markdown_link_label("  图[表]\nA  ") == "图(表) A"

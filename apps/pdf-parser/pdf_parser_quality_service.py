@@ -170,6 +170,11 @@ def merge_quality_candidates_from_financial_data(report, financial_data):
         statements = []
 
     existing = report.get("key_table_candidates") or {}
+    table_lookup = {
+        item.get("table_index"): item
+        for item in (report.get("table_index") or [])
+        if isinstance(item, dict) and item.get("table_index")
+    }
     by_name = {}
     for statement in statements:
         statement_type = statement.get("statement_type")
@@ -232,29 +237,30 @@ def merge_quality_candidates_from_financial_data(report, financial_data):
         }
         for name, (metric_item, metric_source) in metric_sources.items():
             if metric_source is not None:
+                metric_table = table_lookup.get(metric_source.get("table_index")) or {}
                 by_name.setdefault(name, []).append(
                     {
                         "name": name,
                         "status": "found",
                         "table_index": metric_source.get("table_index"),
-                        "line": metric_source.get("line"),
-                        "pdf_page_number": None,
-                        "pdf_page_source": "",
-                        "pdf_page_inference_reason": "",
-                        "bbox": [],
-                        "rows": None,
-                        "cells": None,
-                        "empty_ratio": None,
-                        "numeric_ratio": None,
-                        "heading": metric_item.get("name") if metric_item else name,
-                        "unit": metric_item.get("unit") if metric_item else "",
-                        "table_type": "fact",
+                        "line": metric_source.get("line") or metric_table.get("line"),
+                        "pdf_page_number": metric_table.get("pdf_page_number"),
+                        "pdf_page_source": metric_table.get("pdf_page_source"),
+                        "pdf_page_inference_reason": metric_table.get("pdf_page_inference_reason"),
+                        "bbox": metric_table.get("bbox") or [],
+                        "rows": metric_table.get("rows"),
+                        "cells": metric_table.get("cells"),
+                        "empty_ratio": metric_table.get("empty_ratio"),
+                        "numeric_ratio": metric_table.get("numeric_ratio"),
+                        "heading": metric_table.get("heading") or (metric_item.get("name") if metric_item else name),
+                        "unit": (metric_item.get("unit") if metric_item else "") or metric_table.get("unit") or "",
+                        "table_type": metric_table.get("table_type") or "fact",
                         "year_binding_required": True,
                         "report_year": financial_data.get("report_year"),
                         "candidate_group": quality_candidate_group(name),
                         "candidate_score": 99.0,
                         "confidence": "high",
-                        "preview": metric_item.get("name") if metric_item else name,
+                        "preview": metric_table.get("preview") or (metric_item.get("name") if metric_item else name),
                         "is_primary": True,
                         "_source": "financial_data",
                     }
