@@ -3365,36 +3365,17 @@ def _fetch_and_cache_result(task, force=False):
 
 def _build_status_response(task, logs_slice=None):
     elapsed = _task_elapsed_seconds(task)
-
     page_progress = _calc_page_progress(task, elapsed)
     progress_percent = _calc_progress_percent(task, elapsed)
-
-    # If task is actually completed, override estimates to show 100%.
-    if task.get("status") == COMPLETED and page_progress:
-        page_progress["processed"] = page_progress["total"]
-        page_progress["remaining"] = 0
-        progress_percent = 100.0
-
-    markdown_ready = _has_markdown_artifact(task)
-
-    return {
-        "task_id": task["task_id"],
-        "status": task["status"],
-        "stage": task["stage"],
-        "queue_position": task.get("queue_position"),
-        "local_queue_position": _local_queue_position(task["task_id"]),
-        "filename": task["filename"],
-        "file_size": task.get("file_size"),
-        "pdf_page_count": task.get("pdf_page_count"),
-        "error": task.get("error"),
-        "elapsed_seconds": elapsed,
-        "total_pages": task.get("pdf_page_count"),
-        "processed_pages": page_progress["processed"] if page_progress else None,
-        "progress_percent": progress_percent,
-        "markdown_ready": markdown_ready,
-        "log_count": len(task.get("logs", [])),
-        "logs": logs_slice if logs_slice is not None else [],
-    }
+    return response_service.build_status_response_payload(
+        task,
+        elapsed_seconds=elapsed,
+        page_progress=page_progress,
+        progress_percent=progress_percent,
+        markdown_ready=_has_markdown_artifact(task),
+        local_queue_position=_local_queue_position(task["task_id"]),
+        logs_slice=logs_slice,
+    )
 
 
 def _refresh_task_from_upstream(task):

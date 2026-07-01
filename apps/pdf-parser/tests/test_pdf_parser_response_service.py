@@ -41,6 +41,99 @@ def test_build_task_duplicate_payload_returns_none_without_task():
     assert response.build_task_duplicate_payload(None, has_markdown_artifact=lambda _task: True) is None
 
 
+def test_build_status_response_payload_uses_injected_runtime_values():
+    task = {
+        "task_id": "task-status",
+        "filename": "status.pdf",
+        "status": "processing",
+        "stage": "processing",
+        "queue_position": 3,
+        "file_size": 2048,
+        "pdf_page_count": 12,
+        "error": None,
+        "logs": [{"message": "old"}, {"message": "new"}],
+    }
+
+    payload = response.build_status_response_payload(
+        task,
+        elapsed_seconds=45,
+        page_progress={"total": 12, "processed": 5, "remaining": 7},
+        progress_percent=41.7,
+        markdown_ready=False,
+        local_queue_position=2,
+        logs_slice=[{"message": "new"}],
+    )
+
+    assert payload == {
+        "task_id": "task-status",
+        "status": "processing",
+        "stage": "processing",
+        "queue_position": 3,
+        "local_queue_position": 2,
+        "filename": "status.pdf",
+        "file_size": 2048,
+        "pdf_page_count": 12,
+        "error": None,
+        "elapsed_seconds": 45,
+        "total_pages": 12,
+        "processed_pages": 5,
+        "progress_percent": 41.7,
+        "markdown_ready": False,
+        "log_count": 2,
+        "logs": [{"message": "new"}],
+    }
+
+
+def test_build_status_response_payload_defaults_logs_and_completes_progress():
+    task = {
+        "task_id": "task-done",
+        "filename": "done.pdf",
+        "status": COMPLETED,
+        "stage": COMPLETED,
+        "pdf_page_count": 10,
+        "logs": [{"message": "done"}],
+    }
+    page_progress = {"total": 10, "processed": 4, "remaining": 6}
+
+    payload = response.build_status_response_payload(
+        task,
+        elapsed_seconds=90,
+        page_progress=page_progress,
+        progress_percent=40.0,
+        markdown_ready=True,
+        local_queue_position=None,
+    )
+
+    assert payload["processed_pages"] == 10
+    assert payload["progress_percent"] == 100.0
+    assert payload["markdown_ready"] is True
+    assert payload["logs"] == []
+    assert page_progress == {"total": 10, "processed": 4, "remaining": 6}
+
+
+def test_build_status_response_payload_handles_missing_progress():
+    payload = response.build_status_response_payload(
+        {
+            "task_id": "task-no-progress",
+            "filename": "no-progress.pdf",
+            "status": "queued",
+            "stage": "queued",
+            "pdf_page_count": None,
+        },
+        elapsed_seconds=None,
+        page_progress=None,
+        progress_percent=None,
+        markdown_ready=False,
+        local_queue_position=4,
+    )
+
+    assert payload["total_pages"] is None
+    assert payload["processed_pages"] is None
+    assert payload["progress_percent"] is None
+    assert payload["local_queue_position"] == 4
+    assert payload["logs"] == []
+
+
 def test_clamp_recent_task_limit_uses_default_and_bounds():
     assert response.clamp_recent_task_limit(None) == 300
     assert response.clamp_recent_task_limit("not-a-number") == 300

@@ -42,6 +42,42 @@ def build_recent_tasks_payload(
     }
 
 
+def build_status_response_payload(
+    task: Mapping[str, Any],
+    *,
+    elapsed_seconds: int | None,
+    page_progress: Mapping[str, Any] | None,
+    progress_percent: float | None,
+    markdown_ready: bool,
+    local_queue_position: int | None,
+    logs_slice: list[Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
+    if task.get("status") == COMPLETED and page_progress:
+        page_progress = dict(page_progress)
+        page_progress["processed"] = page_progress["total"]
+        page_progress["remaining"] = 0
+        progress_percent = 100.0
+
+    return {
+        "task_id": task["task_id"],
+        "status": task["status"],
+        "stage": task["stage"],
+        "queue_position": task.get("queue_position"),
+        "local_queue_position": local_queue_position,
+        "filename": task["filename"],
+        "file_size": task.get("file_size"),
+        "pdf_page_count": task.get("pdf_page_count"),
+        "error": task.get("error"),
+        "elapsed_seconds": elapsed_seconds,
+        "total_pages": task.get("pdf_page_count"),
+        "processed_pages": page_progress["processed"] if page_progress else None,
+        "progress_percent": progress_percent,
+        "markdown_ready": bool(markdown_ready),
+        "log_count": len(task.get("logs", [])),
+        "logs": logs_slice if logs_slice is not None else [],
+    }
+
+
 def clamp_recent_task_limit(
     raw_value: Any,
     *,

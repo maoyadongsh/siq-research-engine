@@ -783,6 +783,45 @@ class ApiLayerTest(unittest.TestCase):
 
         self.assertEqual(payload["elapsed_seconds"], 180)
 
+    def test_status_response_wrapper_injects_runtime_values(self):
+        task = {
+            "task_id": "task-wrapper",
+            "filename": "wrapper.pdf",
+            "status": "processing",
+            "stage": "processing",
+            "logs": [{"message": "one"}, {"message": "two"}],
+        }
+        calls = {}
+
+        def build_payload(current_task, **kwargs):
+            calls["task"] = current_task
+            calls["kwargs"] = kwargs
+            return {"ok": True}
+
+        with (
+            patch.object(app, "_task_elapsed_seconds", return_value=30),
+            patch.object(app, "_calc_page_progress", return_value={"total": 5, "processed": 2, "remaining": 3}),
+            patch.object(app, "_calc_progress_percent", return_value=40.0),
+            patch.object(app, "_has_markdown_artifact", return_value=True),
+            patch.object(app, "_local_queue_position", return_value=7),
+            patch.object(response_service, "build_status_response_payload", side_effect=build_payload),
+        ):
+            payload = app._build_status_response(task, logs_slice=[{"message": "two"}])
+
+        self.assertEqual(payload, {"ok": True})
+        self.assertIs(calls["task"], task)
+        self.assertEqual(
+            calls["kwargs"],
+            {
+                "elapsed_seconds": 30,
+                "page_progress": {"total": 5, "processed": 2, "remaining": 3},
+                "progress_percent": 40.0,
+                "markdown_ready": True,
+                "local_queue_position": 7,
+                "logs_slice": [{"message": "two"}],
+            },
+        )
+
     def test_health_endpoint_uses_submit_readiness_payload(self):
         if not hasattr(app.app, "test_client"):
             self.skipTest("Flask test client is unavailable in the lightweight import stub")
