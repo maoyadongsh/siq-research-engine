@@ -69,4 +69,67 @@ test.describe('工作平台响应式验收', () => {
       })
     })
   }
+
+  test('移动端工作平台与系统平台上下区块宽度保持一致', async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await mockAuthenticatedWorkspace(page)
+
+    async function pageWidthMetrics(path: string, heading: string) {
+      await page.goto(path)
+      await page.waitForLoadState('networkidle')
+      await expect(page.getByRole('heading', { name: heading })).toBeVisible()
+      await page.locator('.workflow-step-grid').scrollIntoViewIfNeeded()
+
+      return page.evaluate(() => {
+        const viewportWidth = window.innerWidth
+        const mainInner = document.querySelector('#main-content > div')
+        const hero = document.querySelector('.dashboard-hero')
+        const workflow = document.querySelector('.workflow-step-grid')
+        const mainRect = mainInner?.getBoundingClientRect()
+        const heroRect = hero?.getBoundingClientRect()
+        const workflowRect = workflow?.getBoundingClientRect()
+        return {
+          viewportWidth,
+          scrollWidth: document.documentElement.scrollWidth,
+          mainLeft: Math.round(mainRect?.left || 0),
+          mainRight: Math.round(mainRect?.right || 0),
+          mainWidth: Math.round(mainRect?.width || 0),
+          heroLeft: Math.round(heroRect?.left || 0),
+          heroRight: Math.round(heroRect?.right || 0),
+          heroWidth: Math.round(heroRect?.width || 0),
+          workflowLeft: Math.round(workflowRect?.left || 0),
+          workflowRight: Math.round(workflowRect?.right || 0),
+          workflowWidth: Math.round(workflowRect?.width || 0),
+        }
+      })
+    }
+
+    const workspace = await pageWidthMetrics('/', '工作平台')
+    await page.screenshot({
+      path: testInfo.outputPath('workspace-mobile-width.png'),
+      fullPage: true,
+    })
+
+    const system = await pageWidthMetrics('/system-dashboard', '公司研究工作台')
+    await page.screenshot({
+      path: testInfo.outputPath('system-dashboard-mobile-width.png'),
+      fullPage: true,
+    })
+
+    for (const metrics of [workspace, system]) {
+      expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.viewportWidth + 1)
+      expect(metrics.heroLeft).toBeGreaterThanOrEqual(0)
+      expect(metrics.heroRight).toBeLessThanOrEqual(metrics.viewportWidth)
+      expect(metrics.workflowLeft).toBeGreaterThanOrEqual(0)
+      expect(metrics.workflowRight).toBeLessThanOrEqual(metrics.viewportWidth)
+      expect(metrics.heroLeft).toBe(metrics.workflowLeft)
+      expect(metrics.heroRight).toBe(metrics.workflowRight)
+      expect(Math.abs(metrics.heroWidth - metrics.workflowWidth)).toBeLessThanOrEqual(1)
+      expect(metrics.heroLeft).toBeGreaterThanOrEqual(metrics.mainLeft)
+      expect(metrics.heroRight).toBeLessThanOrEqual(metrics.mainRight)
+    }
+
+    expect(system.heroWidth).toBe(workspace.heroWidth)
+    expect(system.workflowWidth).toBe(workspace.workflowWidth)
+  })
 })

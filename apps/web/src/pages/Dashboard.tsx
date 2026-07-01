@@ -156,32 +156,32 @@ export default function Dashboard() {
   }, [activeCompany])
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6 sm:space-y-8">
       {/* ── Hero + Stats + Active Company ── */}
       <section className="premium-shell hero-band dashboard-hero overflow-hidden rounded-[var(--radius-panel)]">
-        <div className="border-b border-border/80 bg-white/48 px-5 py-4 backdrop-blur sm:px-6">
+        <div className="border-b border-border/80 bg-white/48 px-4 py-3 backdrop-blur sm:px-6 sm:py-4">
           <div className="dashboard-hero-header grid items-center gap-3 sm:grid-cols-[1fr_auto] xl:grid-cols-[1fr_360px] 2xl:gap-6 2xl:grid-cols-[1fr_390px]">
             <div className="secondary-kicker w-fit justify-self-start">
               <LayoutDashboard className="h-3.5 w-3.5" />
               Workspace
             </div>
-            <div className="secondary-step-row w-full justify-center justify-self-stretch sm:w-auto sm:justify-self-end xl:w-full">
+            <div className="secondary-step-row -mx-1 w-full justify-start overflow-x-auto px-1 sm:mx-0 sm:w-auto sm:justify-center sm:overflow-visible sm:px-0 sm:justify-self-end xl:w-full">
               {workflowChips.map((chip) => (
-                <Link key={chip.to} to={chip.to} className="secondary-step-chip">
+                <Link key={chip.to} to={chip.to} className="secondary-step-chip shrink-0">
                   {chip.label}
                 </Link>
               ))}
             </div>
           </div>
         </div>
-        <div className="dashboard-hero-body grid gap-5 px-5 py-5 sm:px-6 sm:py-6 xl:grid-cols-[1fr_360px] 2xl:gap-6 2xl:grid-cols-[1fr_390px]">
+        <div className="dashboard-hero-body grid gap-4 px-4 py-4 sm:gap-5 sm:px-6 sm:py-5 xl:grid-cols-[1fr_360px] 2xl:gap-6 2xl:grid-cols-[1fr_390px]">
           {/* Left: Title + Stats */}
           <div className="dashboard-hero-main flex flex-col justify-between gap-5 2xl:gap-7">
             <div>
-              <div className="page-title-tag"><h1 className="text-[1.75rem] font-bold leading-tight tracking-tight text-text md:text-[2.35rem]">
+              <div className="page-title-tag"><h1 className="text-[1.45rem] font-bold leading-tight tracking-tight text-text sm:text-[1.75rem] md:text-[2.35rem]">
                 公司研究工作台
               </h1></div>
-              <p className="mt-4 max-w-3xl text-base leading-7 text-text-muted md:text-lg">
+              <p className="mt-3 max-w-3xl text-sm leading-6 text-text-muted sm:mt-4 sm:text-base sm:leading-7 md:text-lg">
                 围绕一家公司推进财报下载、解析、分析、核查和持续跟踪，优先处理还缺材料的研究对象。
               </p>
             </div>
@@ -207,17 +207,17 @@ export default function Dashboard() {
                 return (
                   <div
                     key={stat.label}
-                    className="metric-tile rounded-[var(--radius-card)] p-4 2xl:p-5"
+                    className="metric-tile p-3 sm:p-4 2xl:p-5"
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <p className="text-sm font-semibold text-text-muted">{stat.label}</p>
+                      <p className="text-xs font-semibold text-text-muted sm:text-sm">{stat.label}</p>
                       <span className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${toneBg}`}>
                         <Icon className="h-4 w-4" />
                       </span>
                     </div>
-                    <p className="mt-2 font-mono text-[2rem] font-bold tabular-nums tracking-tight text-text md:text-[2.25rem]">
+                    <p className="mt-2 font-mono text-[1.45rem] font-bold tabular-nums text-text sm:mt-2.5 sm:text-[1.8rem] md:text-[2rem] xl:text-[2.25rem]">
                       {stat.value}
-                      <span className="ml-1.5 text-base font-normal text-text-muted">{stat.unit}</span>
+                      <span className="ml-1 text-sm font-normal text-text-muted sm:ml-1.5 sm:text-base">{stat.unit}</span>
                     </p>
                   </div>
                 )
@@ -226,7 +226,7 @@ export default function Dashboard() {
           </div>
 
           {/* Right: Active Company */}
-          <aside className="premium-card dashboard-active-card relative flex flex-col overflow-hidden rounded-[var(--radius-card)] p-5">
+          <aside className="premium-card dashboard-active-card relative flex flex-col overflow-hidden p-4 sm:p-5">
             <div
               className="pointer-events-none absolute right-0 top-0 h-40 w-40 opacity-10 sm:h-48 sm:w-48"
               aria-hidden="true"
@@ -297,30 +297,30 @@ export default function Dashboard() {
       </section>
 
       {/* ── Workflow Steps ── */}
-      <section className="grid grid-cols-2 gap-4 lg:grid-cols-3 2xl:grid-cols-6">
+      <section className="workflow-step-grid grid grid-cols-2 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3 2xl:grid-cols-6">
         {steps.map((step, index) => (
           <Link
             key={step.to}
             to={step.to}
-            className="premium-card group relative flex min-h-[172px] flex-col overflow-hidden rounded-[var(--radius-card)] p-5 text-center transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/25"
+            className="workflow-step-card premium-card group relative flex min-h-[118px] min-w-0 flex-col overflow-hidden p-3 text-left transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/25 sm:min-h-[160px] sm:p-5 sm:text-center"
           >
             <span className="absolute left-0 top-0 h-1 w-full bg-gradient-to-r from-primary/40 via-primary/20 to-transparent sm:h-1.5" aria-hidden="true" />
-            <div className="absolute -right-2 -top-2 flex h-7 w-7 items-center justify-center rounded-full bg-white font-mono text-xs font-bold text-text-muted shadow-md ring-2 ring-card">
+            <div className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-white font-mono text-[0.68rem] font-bold text-text-muted shadow-md ring-2 ring-card sm:-right-2 sm:-top-2 sm:h-7 sm:w-7 sm:text-xs">
               {index + 1}
             </div>
-            <div className="premium-icon mx-auto h-12 w-12 rounded-2xl transition-colors group-hover:text-primary-dark">
-              <step.icon className="h-6 w-6" />
+            <div className="premium-icon h-9 w-9 rounded-xl transition-colors group-hover:text-primary-dark sm:mx-auto sm:h-12 sm:w-12 sm:rounded-2xl">
+              <step.icon className="h-5 w-5 sm:h-6 sm:w-6" />
             </div>
-            <p className="mt-4 text-base font-bold text-text">{step.label}</p>
-            <p className="mt-1.5 text-sm leading-relaxed text-text-muted">{step.desc}</p>
-            <ArrowRight className="mx-auto mt-auto pt-4 h-5 w-5 text-text-muted opacity-0 transition-all group-hover:translate-x-1 group-hover:text-primary group-hover:opacity-100" />
+            <p className="mt-3 pr-6 text-sm font-bold leading-tight text-text sm:mt-4 sm:pr-0 sm:text-base">{step.label}</p>
+            <p className="mt-1 line-clamp-2 text-xs leading-5 text-text-muted sm:mt-1.5 sm:text-sm sm:leading-relaxed">{step.desc}</p>
+            <ArrowRight className="mt-auto h-5 w-5 pt-3 text-text-muted opacity-0 transition-all group-hover:translate-x-1 group-hover:text-primary group-hover:opacity-100 sm:mx-auto sm:pt-4" />
           </Link>
         ))}
       </section>
 
       {/* ── Featured Companies ── */}
       {featuredCompanies.length > 0 && (
-        <section className="premium-shell rounded-[var(--radius-panel)] p-6">
+        <section className="premium-shell rounded-[var(--radius-panel)] p-4 sm:p-6">
           <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h2 className="text-2xl font-bold tracking-tight text-text">研究对象状态</h2>
@@ -345,7 +345,7 @@ export default function Dashboard() {
               return (
                 <div
                   key={company.dir}
-                  className="premium-card rounded-[var(--radius-card)] p-5"
+                  className="premium-card p-4 sm:p-5"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -389,8 +389,8 @@ export default function Dashboard() {
       )}
 
       {/* ── Recent Tasks + Company Overview ── */}
-      <section className="grid gap-6 xl:grid-cols-[1fr_380px]">
-        <div className="premium-shell rounded-[var(--radius-panel)] p-6">
+      <section className="grid min-w-0 gap-4 sm:gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,380px)]">
+        <div className="premium-shell min-w-0 rounded-[var(--radius-panel)] p-4 sm:p-6">
           <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h2 className="text-2xl font-bold tracking-tight text-text">近期任务列表</h2>
@@ -438,7 +438,7 @@ export default function Dashboard() {
           )}
         </div>
 
-        <aside className="premium-shell rounded-[var(--radius-panel)] p-5 2xl:p-6">
+        <aside className="premium-shell min-w-0 rounded-[var(--radius-panel)] p-4 sm:p-5 2xl:p-6">
           <div className="mb-6 flex items-center gap-4">
             <div className="premium-icon h-12 w-12 rounded-2xl">
               <Building2 className="h-6 w-6" />

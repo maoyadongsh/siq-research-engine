@@ -593,8 +593,8 @@ export default function MyWorkspace() {
       )}
 
       {/* ── Recent Tasks + Project Overview ── */}
-      <section className="grid gap-4 sm:gap-6 xl:grid-cols-[1fr_380px]">
-        <div className="premium-shell rounded-[var(--radius-panel)] p-4 sm:p-6">
+      <section className="grid min-w-0 gap-4 sm:gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,380px)]">
+        <div className="premium-shell min-w-0 rounded-[var(--radius-panel)] p-4 sm:p-6">
           <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h2 className="text-2xl font-bold tracking-tight text-text">近期任务列表</h2>
@@ -662,7 +662,7 @@ export default function MyWorkspace() {
           )}
         </div>
 
-        <aside className="premium-shell rounded-[var(--radius-panel)] p-4 sm:p-5 2xl:p-6">
+        <aside className="premium-shell min-w-0 rounded-[var(--radius-panel)] p-4 sm:p-5 2xl:p-6">
           <div className="mb-6 flex items-center gap-4">
             <div className="premium-icon h-12 w-12 rounded-2xl">
               <Building2 className="h-6 w-6" />
