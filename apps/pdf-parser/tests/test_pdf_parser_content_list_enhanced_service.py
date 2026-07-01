@@ -77,6 +77,74 @@ def test_inferred_pdf_page_for_line_and_source_confidence():
     assert content_service.table_source_confidence("unresolved") == "low"
 
 
+def test_build_enhanced_quality_signals_aggregates_tables_notes_and_images():
+    signals = content_service.build_enhanced_quality_signals(
+        [
+            {
+                "source": "content_list_body_exact",
+                "pdf_page_number": 1,
+                "structure": {"multi_level_header_candidate": True},
+            },
+            {
+                "source": "markdown_marker_inferred",
+                "pdf_page_number": 2,
+                "structure": {},
+            },
+            {
+                "source": "unresolved",
+                "pdf_page_number": None,
+                "structure": {},
+            },
+        ],
+        {
+            "summary": {
+                "reference_count": 4,
+                "definition_count": 3,
+                "unbound_count": 1,
+            }
+        },
+        {
+            "summary": {
+                "heading_count": 5,
+                "toc_candidate_count": 2,
+                "content_heading_count": 1,
+            }
+        },
+        [{"page_number": 1}, {"page_number": 2}],
+        financial_note_links={"summary": {"linked_item_count": 7}},
+        image_semantic_blocks=[
+            {
+                "semantic_kind": "chart",
+                "actionability": "data_usable",
+                "recognized_content": "table",
+                "display_content": "chart",
+                "show_in_complete": True,
+            },
+            {
+                "semantic_kind": "natural_image",
+                "actionability": "needs_ocr",
+                "ocr_vlm_candidate": {"needed": True},
+            },
+        ],
+    )
+
+    assert signals["table_exact_rate"] == 0.3333
+    assert signals["table_inferred_rate"] == 0.3333
+    assert signals["table_missing_page_count"] == 1
+    assert signals["multi_level_header_table_count"] == 1
+    assert signals["footnote_reference_count"] == 4
+    assert signals["toc_heading_count"] == 5
+    assert signals["content_heading_count"] == 1
+    assert signals["page_count_with_content_blocks"] == 2
+    assert signals["financial_note_link_count"] == 7
+    assert signals["image_semantic_kind_counts"] == {"chart": 1, "natural_image": 1}
+    assert signals["image_semantic_actionability_counts"] == {"data_usable": 1, "needs_ocr": 1}
+    assert signals["image_semantic_recognized_count"] == 1
+    assert signals["image_semantic_display_count"] == 1
+    assert signals["image_semantic_show_count"] == 1
+    assert signals["image_semantic_ocr_candidate_count"] == 1
+
+
 def test_build_content_list_enhanced_payload_uses_injected_table_sources_and_aggregates():
     exact_table = "<table><tr><td>项目</td><td>金额</td></tr><tr><td>收入</td><td>100</td></tr></table>"
     inferred_table = "<table><tr><td>项目</td><td>金额</td></tr><tr><td>成本</td><td>50</td></tr></table>"

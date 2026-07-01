@@ -181,6 +181,46 @@ def table_source_confidence(source_name):
     return "low"
 
 
+def build_enhanced_quality_signals(tables, footnotes, toc, pages, financial_note_links=None, image_semantic_blocks=None):
+    source_counts = Counter(item.get("source") or "unresolved" for item in tables)
+    table_count = len(tables)
+    exact = source_counts.get("content_list_body_exact", 0) + source_counts.get("content_list_body_normalized", 0)
+    inferred = source_counts.get("markdown_marker_inferred", 0)
+    missing_page = sum(1 for item in tables if not item.get("pdf_page_number"))
+    multi_header = sum(1 for item in tables if (item.get("structure") or {}).get("multi_level_header_candidate"))
+    foot_summary = footnotes.get("summary") or {}
+    toc_summary = toc.get("summary") or {}
+    note_link_summary = (financial_note_links or {}).get("summary") or {}
+    image_blocks = image_semantic_blocks or []
+    image_kind_counts = Counter(item.get("semantic_kind") or "image" for item in image_blocks)
+    image_actionability_counts = Counter(item.get("actionability") or "unknown" for item in image_blocks)
+    image_with_recognition = sum(1 for item in image_blocks if item.get("recognized_content"))
+    image_with_display = sum(1 for item in image_blocks if item.get("display_content"))
+    image_show_count = sum(1 for item in image_blocks if item.get("show_in_complete"))
+    image_ocr_candidate_count = sum(1 for item in image_blocks if (item.get("ocr_vlm_candidate") or {}).get("needed"))
+    return {
+        "table_exact_rate": round(exact / table_count, 4) if table_count else 0,
+        "table_inferred_rate": round(inferred / table_count, 4) if table_count else 0,
+        "table_missing_page_count": missing_page,
+        "multi_level_header_table_count": multi_header,
+        "footnote_reference_count": foot_summary.get("reference_count", 0),
+        "footnote_definition_count": foot_summary.get("definition_count", 0),
+        "footnote_unbound_count": foot_summary.get("unbound_count", 0),
+        "toc_heading_count": toc_summary.get("heading_count", 0),
+        "toc_candidate_count": toc_summary.get("toc_candidate_count", 0),
+        "content_heading_count": toc_summary.get("content_heading_count", 0),
+        "page_count_with_content_blocks": len(pages),
+        "financial_note_link_count": note_link_summary.get("linked_item_count", 0),
+        "image_semantic_block_count": len(image_blocks),
+        "image_semantic_kind_counts": dict(image_kind_counts),
+        "image_semantic_actionability_counts": dict(image_actionability_counts),
+        "image_semantic_recognized_count": image_with_recognition,
+        "image_semantic_display_count": image_with_display,
+        "image_semantic_show_count": image_show_count,
+        "image_semantic_ocr_candidate_count": image_ocr_candidate_count,
+    }
+
+
 def build_content_list_enhanced_payload(
     markdown,
     *,

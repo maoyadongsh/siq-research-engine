@@ -327,3 +327,41 @@ def build_session_contextual_input_text(
             f"用户问题：{message}",
         ]
     )
+
+
+def image_attachment_path_hints(image_attachments: Sequence[dict[str, Any]]) -> str:
+    return "\n".join(
+        f"[Image attached at: {item.get('path')}]"
+        for item in image_attachments
+        if item.get("path")
+    )
+
+
+def build_hermes_run_text(
+    contextual_text: str,
+    *,
+    document_context: str | None = None,
+    image_analysis_context: str | None = None,
+    image_path_hints: str | None = None,
+) -> str:
+    return "\n\n".join(
+        block
+        for block in (
+            contextual_text,
+            document_context,
+            image_analysis_context,
+            image_path_hints,
+        )
+        if block
+    )
+
+
+def build_hermes_multimodal_run_input(
+    text: str,
+    image_data_urls: Sequence[str],
+) -> list[dict[str, Any]]:
+    parts: list[dict[str, Any]] = [{"type": "text", "text": text}]
+    for data_url in image_data_urls:
+        if data_url:
+            parts.append({"type": "image_url", "image_url": {"url": data_url}})
+    return [{"role": "user", "content": parts}]

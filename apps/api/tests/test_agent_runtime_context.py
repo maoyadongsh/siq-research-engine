@@ -170,3 +170,36 @@ def test_session_context_scoping_helpers_build_prompt_text():
         financial_calculation_runtime_contract="CALC",
     )
     assert prompt == "CTX\n\nCHAT\n\nCALC\n\n用户问题：看收入"
+
+
+def test_hermes_run_input_text_helpers():
+    hints = agent_runtime_context.image_attachment_path_hints(
+        [
+            {"path": "/tmp/a.png"},
+            {"filename": "missing-path.png"},
+            {"path": "/tmp/b.png"},
+        ]
+    )
+    assert hints == "[Image attached at: /tmp/a.png]\n[Image attached at: /tmp/b.png]"
+
+    text = agent_runtime_context.build_hermes_run_text(
+        "CTX",
+        document_context="DOC",
+        image_analysis_context="IMG ANALYSIS",
+        image_path_hints=hints,
+    )
+    assert text == "CTX\n\nDOC\n\nIMG ANALYSIS\n\n" + hints
+
+    multimodal = agent_runtime_context.build_hermes_multimodal_run_input(
+        text,
+        ["data:image/png;base64,aaa", ""],
+    )
+    assert multimodal == [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": text},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,aaa"}},
+            ],
+        }
+    ]

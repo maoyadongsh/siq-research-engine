@@ -5873,29 +5873,23 @@ def build_hermes_run_input(
     if not all_attachments:
         return contextual_text
 
-    image_path_hints = "\n".join(
-        f"[Image attached at: {item.get('path')}]"
-        for item in image_attachments
-        if item.get("path")
+    image_path_hints = agent_runtime_context.image_attachment_path_hints(image_attachments)
+    text = agent_runtime_context.build_hermes_run_text(
+        contextual_text,
+        document_context=document_context,
+        image_analysis_context=image_analysis_context,
+        image_path_hints=image_path_hints,
     )
-    text_blocks = [contextual_text]
-    if document_context:
-        text_blocks.append(document_context)
-    if image_analysis_context:
-        text_blocks.append(image_analysis_context)
-    if image_path_hints:
-        text_blocks.append(image_path_hints)
-    text = "\n\n".join(block for block in text_blocks if block)
     if not image_attachments or not use_hermes_image_fallback:
         return text
 
-    parts: list[dict[str, Any]] = [{"type": "text", "text": text}]
+    image_data_urls: list[str] = []
     for item in image_attachments:
         data_url = _image_attachment_data_url(item)
         if data_url:
-            parts.append({"type": "image_url", "image_url": {"url": data_url}})
+            image_data_urls.append(data_url)
 
-    return [{"role": "user", "content": parts}]
+    return agent_runtime_context.build_hermes_multimodal_run_input(text, image_data_urls)
 
 
 def hermes_timeout() -> httpx.Timeout:
