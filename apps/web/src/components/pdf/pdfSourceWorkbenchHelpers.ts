@@ -1,6 +1,6 @@
 import type { BboxExtent, PageBlock, PageContent, SelectedTrace, SourceMeta, SourceTable } from '../../lib/pdfTypes'
-import { parseBbox as parsePdfBbox } from '../../lib/pdfSanitize'
-import { blockFocusKey, type EnhancedTable, type PageOverlayEntry, type TableRelationCandidate } from './pdfSourceWorkbenchTypes'
+import { parseBbox as parsePdfBbox } from '../../lib/pdfSanitize.ts'
+import { blockFocusKey, type EnhancedTable, type PageOverlayEntry, type TableRelationCandidate } from './pdfSourceWorkbenchTypes.ts'
 
 export type EnhancedArtifact = {
   schema_version?: number | string
