@@ -44,6 +44,11 @@ def test_pdf2md_filename_helpers_handle_complex_names_and_blank_aliases():
         "2025年度报告",
         "修订版.pdf",
     ]
+    assert parse_only.pdf2md_task_aliases({"task_id": None, "stock_code": " ", "filename": " A  B.pdf "}) == [
+        "A  B.pdf",
+        "A",
+        "B.pdf",
+    ]
 
 
 def test_pdf2md_info_matches_message_uses_context_hint_and_runtime_wrapper():
@@ -134,6 +139,16 @@ def test_pdf2md_parse_only_matches_filters_general_wiki_and_limit():
         )
         == []
     )
+
+    assert parse_only._pdf2md_parse_only_matches(
+        "Alpha Beta 年报",
+        limit=0,
+        iter_pdf2md_task_infos=lambda: infos[:2],
+        pdf2md_info_matches_message=lambda info, message, context: True,
+        wiki_company_exists_for_pdf2md_info=lambda info: False,
+        is_general_assistant_request=lambda message: False,
+        resolve_company_dir=lambda message, context: None,
+    ) == infos[:2]
 
 
 def test_pdf2md_parse_only_matches_skips_existing_wiki_before_applying_limit():
@@ -226,6 +241,25 @@ def test_should_consider_pdf2md_parse_only_context_handles_blank_and_case_insens
 
     assert parse_only._should_consider_pdf2md_parse_only_context("alpha fulltext", **common_kwargs)
     assert calls == [("alpha fulltext", 1)]
+
+
+def test_should_consider_pdf2md_parse_only_context_requires_non_empty_match():
+    calls: list[tuple[str, int | None]] = []
+
+    def matches(current_message, context=None, *, limit=None):
+        calls.append((current_message, limit))
+        return []
+
+    assert not parse_only._should_consider_pdf2md_parse_only_context(
+        "看看这家公司",
+        {"company": {"name": "Alpha"}},
+        pdf2md_parse_only_matches=matches,
+        is_general_assistant_request=lambda value: False,
+        resolve_company_dir=lambda current_message, context: None,
+        report_fulltext_fallback_terms=("全文",),
+        context_company_hint=lambda context: "Alpha",
+    )
+    assert calls == [("看看这家公司", 1)]
 
 
 def test_build_pdf2md_parse_only_context_formats_real_artifact_paths(tmp_path):

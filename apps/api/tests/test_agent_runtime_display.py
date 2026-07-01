@@ -123,6 +123,10 @@ def test_markdown_link_url_preserves_structure_and_encodes_values():
         agent_runtime_display._markdown_link_url("/api/file?name=a b(1).png&token=x#p 1")
         == "/api/file?name=a%20b%281%29.png&token=x#p%201"
     )
+    assert agent_runtime_display._markdown_link_url("  https://host/a b.png?x=1&y=two words  ") == (
+        "https://host/a%20b.png?x=1&y=two%20words"
+    )
+    assert agent_runtime_display._markdown_link_url(None) == ""
 
 
 def test_display_message_with_attachments_escapes_markdown_link_url():
@@ -154,4 +158,23 @@ def test_display_message_with_mixed_url_attachments_keeps_each_item_independent(
         "请分析这些附件\n\n"
         "[文档: draft (v1).pdf]\n"
         "![图片: chart final.png](/api/chat/attachments/chart%20final.png)"
+    )
+
+
+def test_display_message_with_document_url_encodes_absolute_url_and_path_filename():
+    result = agent_runtime_display._display_message_with_attachments(
+        "",
+        [
+            {
+                "kind": "document",
+                "path": "/tmp/reports/board pack [final].pdf",
+                "url": "https://files.example.com/board pack [final].pdf?download=1",
+            }
+        ],
+    )
+
+    assert result == (
+        "请分析这个附件\n\n"
+        "[文档: board pack (final).pdf]"
+        "(https://files.example.com/board%20pack%20%5Bfinal%5D.pdf?download=1)"
     )
