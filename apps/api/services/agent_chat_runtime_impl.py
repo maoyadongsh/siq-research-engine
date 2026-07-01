@@ -59,6 +59,7 @@ from services import agent_runtime_memory
 from services import agent_runtime_context
 from services import agent_runtime_financial_guard
 from services import agent_runtime_fallback_contexts
+from services import agent_runtime_postgres_fallback
 from services.agent_runtime_fallback_contexts import (
     _markdown_table_cell,
     _postgres_row_md_line,
@@ -5048,57 +5049,33 @@ def _should_consider_postgres_fallback(message: str, context: Any | None = None)
 
 
 def _postgres_query_text(message: str, context: Any | None = None) -> str:
-    hint = _context_company_hint(context)
-    if not hint:
-        return message
-    return f"{message}\n\n当前页面公司提示：{hint}"
+    return agent_runtime_postgres_fallback.postgres_query_text(
+        message,
+        context,
+        context_company_hint=_context_company_hint,
+    )
 
 
 def _postgres_prepare_parsed(parsed: dict[str, Any], message: str) -> dict[str, Any]:
-    output = dict(parsed)
-    if output.get("metric_name") or output.get("canonical_name") or output.get("statement_type"):
-        return output
-    text = re.sub(r"\s+", "", message or "")
-    if any(term in text for term in ("财务", "业绩", "表现", "基本面", "经营情况", "主要数据", "核心数据", "数据", "情况")):
-        output["query_type"] = "company_all"
-    return output
+    return agent_runtime_postgres_fallback.postgres_prepare_parsed(parsed, message)
 
 
 def _postgres_requested_metric_terms(message: str) -> list[str]:
-    text = re.sub(r"\s+", "", message or "").lower()
-    if not text:
-        return []
-    terms: list[str] = []
-    for term in (*FINANCIAL_NOTE_METRIC_TERMS, *CORE_KEY_METRIC_TERMS):
-        if str(term).lower() in text:
-            terms.append(str(term))
-    for aliases in CORE_KEY_METRIC_ALIASES.values():
-        if any(str(alias).lower() in text for alias in aliases):
-            terms.extend(str(alias) for alias in aliases)
-    return sorted(dict.fromkeys(term for term in terms if term), key=len, reverse=True)
+    return agent_runtime_postgres_fallback.postgres_requested_metric_terms(
+        message,
+        financial_note_metric_terms=FINANCIAL_NOTE_METRIC_TERMS,
+        core_key_metric_terms=CORE_KEY_METRIC_TERMS,
+        core_key_metric_aliases=CORE_KEY_METRIC_ALIASES,
+    )
 
 
 def _postgres_row_matches_requested_terms(row: dict[str, Any], requested_terms: list[str]) -> bool:
-    if not requested_terms:
-        return True
-    payload = _postgres_row_payload(row)
-    row_text = _normalize_financial_text(
-        " ".join(
-            str(value)
-            for value in (
-                row.get("item_name"),
-                row.get("metric_name"),
-                row.get("metric_key"),
-                row.get("canonical_name"),
-                payload.get("item_name"),
-                payload.get("metric_name"),
-                payload.get("metric_key"),
-                payload.get("canonical_name"),
-            )
-            if value not in (None, "")
-        )
+    return agent_runtime_postgres_fallback.postgres_row_matches_requested_terms(
+        row,
+        requested_terms,
+        normalize_financial_text=_normalize_financial_text,
+        postgres_row_payload=_postgres_row_payload,
     )
-    return any(_normalize_financial_text(term) in row_text for term in requested_terms)
 
 
 def _postgres_query_metric_rows(

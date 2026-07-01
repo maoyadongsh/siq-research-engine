@@ -335,6 +335,119 @@ def test_build_content_list_enhanced_payload_uses_injected_table_sources_and_agg
     }
 
 
+def test_markdown_image_details_preserves_duplicate_paths_and_empty_boundaries():
+    markdown = (
+        "intro\n"
+        "![first](images/reused.png)\n"
+        "<details><summary>bar</summary>\n\n"
+        "| Year | Value |\n"
+        "|---|---|\n"
+        "| 2025 | 100 |\n"
+        "</details>\n"
+        "![plain](images/plain.png)\n"
+        "![second](images/reused.png)\n"
+        "<details><summary>flowchart</summary>\n\n"
+        "```mermaid\n"
+        "A --> B\n"
+        "```\n"
+        "</details>\n"
+    )
+
+    details = content_service._markdown_image_details(markdown)
+
+    assert content_service._markdown_image_details(None) == {}
+    assert list(details) == ["images/reused.png", "images/plain.png"]
+    assert [item["markdown_image_order"] for item in details["images/reused.png"]] == [1, 3]
+    assert details["images/reused.png"][0]["markdown_line"] == 2
+    assert details["images/reused.png"][0]["summary_type"] == "bar"
+    assert details["images/reused.png"][0]["has_details"] is True
+    assert "| 2025 | 100 |" in details["images/reused.png"][0]["body"]
+    assert details["images/plain.png"][0]["markdown_image_order"] == 2
+    assert details["images/plain.png"][0]["has_details"] is False
+    assert details["images/plain.png"][0]["body"] == ""
+    assert details["images/reused.png"][1]["summary_type"] == "flowchart"
+
+
+def test_markdown_table_to_records_normalizes_headers_and_truncates_rows():
+    markdown_table = (
+        "|  | Value | Value |\n"
+        "|:--|--:|---|\n"
+        "| Revenue | 100 | 101 |\n"
+        "| Cost | 50 |\n"
+        "| Profit | 50 | 51 | ignored |\n"
+    )
+
+    records = content_service._markdown_table_to_records(markdown_table, max_rows=2)
+
+    assert records["headers"] == ["列1", "Value", "Value_2"]
+    assert records["rows"] == [
+        {"列1": "Revenue", "Value": "100", "Value_2": "101"},
+        {"列1": "Cost", "Value": "50", "Value_2": ""},
+    ]
+    assert records["row_count"] == 3
+    assert records["source"] == "markdown_table_in_image_details"
+    assert content_service._markdown_table_to_records("") is None
+    assert content_service._markdown_table_to_records("| only | header |\n|---|---|") is None
+
+
+def test_mermaid_to_nodes_edges_handles_comments_lonely_nodes_and_edge_limit():
+    mermaid = (
+        "```mermaid\n"
+        "flowchart TD\n"
+        "%% comment should be ignored\n"
+        "A[Start] -->|approve| B{Review}\n"
+        "B -.-> C[Done]\n"
+        "D[Lonely]\n"
+        "style A fill:#fff\n"
+        "```\n"
+    )
+
+    graph = content_service._mermaid_to_nodes_edges(mermaid)
+    limited = content_service._mermaid_to_nodes_edges("A --> B\nB --> C\nC --> D", max_edges=2)
+
+    assert [node["id"] for node in graph["nodes"]] == ["A", "B", "C", "D"]
+    assert graph["nodes"][0]["label"] == "Start"
+    assert graph["edges"] == [
+        {"source": "A", "target": "B", "label": "approve"},
+        {"source": "B", "target": "C", "label": ""},
+    ]
+    assert graph["node_count"] == 4
+    assert graph["edge_count"] == 2
+    assert limited["edge_count"] == 2
+    assert [node["id"] for node in limited["nodes"]] == ["A", "B", "C"]
+    assert content_service._mermaid_to_nodes_edges("") is None
+    assert content_service._mermaid_to_nodes_edges("%% only a comment") is None
+
+
+def test_build_image_semantic_blocks_binds_repeated_image_paths_in_markdown_order():
+    markdown = (
+        "![first](images/reused.png)\n"
+        "<details><summary>bar</summary>\n\n"
+        "| Year | Value |\n"
+        "|---|---|\n"
+        "| 2025 | 100 |\n"
+        "</details>\n"
+        "![second](images/reused.png)\n"
+        "<details><summary>flowchart</summary>\n\n"
+        "```mermaid\n"
+        "A[Start] --> B[Done]\n"
+        "```\n"
+        "</details>\n"
+    )
+    content_list = [
+        {"type": "chart", "sub_type": "bar", "img_path": "images/reused.png", "page_idx": 0},
+        {"type": "image", "sub_type": "flowchart", "img_path": "images/reused.png", "page_idx": 0},
+    ]
+
+    blocks = content_service.build_image_semantic_blocks(markdown, content_list=content_list)
+
+    assert [block["markdown_image_order"] for block in blocks] == [1, 2]
+    assert blocks[0]["semantic_kind"] == "chart"
+    assert blocks[0]["chart_data"]["rows"] == [{"年份": "2025", "数值": "100"}]
+    assert blocks[1]["semantic_kind"] == "flowchart"
+    assert blocks[1]["flowchart_graph"]["edge_count"] == 1
+
+
 def test_build_image_semantic_blocks_extracts_chart_and_natural_image():
     markdown = (
         "[PDF_PAGE: 1]\n"
