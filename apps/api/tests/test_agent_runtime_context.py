@@ -263,6 +263,43 @@ def test_session_context_scoping_helpers_build_prompt_text():
     assert prompt == "CTX\n\nCHAT\n\nCALC\n\n用户问题：看收入"
 
 
+def test_company_context_items_handles_empty_dirs_and_multi_company_notice_override():
+    empty_blocks, empty_items = agent_runtime_context.build_company_context_items(
+        "看收入",
+        {"company": {"name": "SAIC"}},
+        [],
+        context_for_company_dir=lambda path: {"company": {"dir": str(path)}},
+        message_for_company=lambda message, path: f"{path.name} {message}",
+    )
+
+    assert empty_blocks == []
+    assert empty_items == [("看收入", {"company": {"name": "SAIC"}}, Path())]
+    assert agent_runtime_context.scoped_evidence_input("看收入", {"original": True}, empty_items) == (
+        "看收入",
+        {"company": {"name": "SAIC"}},
+    )
+
+    dirs = [Path("/wiki/companies/600104-SAIC"), Path("/wiki/companies/000001-PAB")]
+    blocks, items = agent_runtime_context.build_company_context_items(
+        "对比",
+        None,
+        dirs,
+        context_for_company_dir=lambda path: None if path.name.startswith("000001") else {"company": {"dir": str(path)}},
+        message_for_company=lambda message, path: f"{path.name}:{message}",
+        multi_company_scope_notice="CUSTOM NOTICE",
+    )
+
+    assert blocks == ["CUSTOM NOTICE"]
+    assert items == [
+        ("600104-SAIC:对比", {"company": {"dir": "/wiki/companies/600104-SAIC"}}, dirs[0]),
+        ("000001-PAB:对比", None, dirs[1]),
+    ]
+    assert agent_runtime_context.scoped_evidence_input("对比", {"original": True}, items) == (
+        "对比",
+        {"original": True},
+    )
+
+
 def test_hermes_run_input_text_helpers():
     hints = agent_runtime_context.image_attachment_path_hints(
         [

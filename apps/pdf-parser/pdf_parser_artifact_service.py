@@ -8,7 +8,7 @@ import json
 import os
 import re
 import threading
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 import zipfile
 
 
@@ -26,6 +26,58 @@ ARTIFACT_OPEN_ALLOWLIST = {
     "content_list_enhanced.json": ("application/json; charset=utf-8", False),
     "model_output.json": ("application/json; charset=utf-8", False),
 }
+
+
+def classify_open_artifact_name(
+    task_id: str,
+    raw_artifact_name: str,
+    result_directory: str,
+    *,
+    sanitize_filename: Callable[[str], str],
+    allowlist: Mapping[str, tuple[str, bool]] | None = None,
+) -> dict[str, Any]:
+    """Classify an open_artifact raw name without touching Flask or the filesystem."""
+    artifact_name = str(raw_artifact_name or "")
+    images_dir = os.path.join(result_directory, "images")
+    if artifact_name == "images/download":
+        return {
+            "kind": "images_download",
+            "artifact": "images",
+            "images_dir": images_dir,
+            "download_name": f"{task_id}_images.zip",
+        }
+    if artifact_name == "images":
+        return {
+            "kind": "images_index",
+            "artifact": "images",
+            "images_dir": images_dir,
+        }
+    if artifact_name.startswith("images/"):
+        image_name = sanitize_filename(artifact_name.split("/", 1)[1])
+        return {
+            "kind": "image_file",
+            "artifact": "images",
+            "image_name": image_name,
+            "path": os.path.join(images_dir, image_name),
+            "mimetype": "image/png" if image_name.lower().endswith(".png") else "image/jpeg",
+        }
+
+    safe_artifact_name = sanitize_filename(artifact_name)
+    artifact_allowlist = ARTIFACT_OPEN_ALLOWLIST if allowlist is None else allowlist
+    if safe_artifact_name not in artifact_allowlist:
+        return {
+            "kind": "forbidden",
+            "artifact_name": safe_artifact_name,
+        }
+
+    mimetype, binary = artifact_allowlist[safe_artifact_name]
+    return {
+        "kind": "artifact_file",
+        "artifact_name": safe_artifact_name,
+        "path": os.path.join(result_directory, safe_artifact_name),
+        "mimetype": mimetype,
+        "binary": binary,
+    }
 
 
 def legacy_markdown_path(task: dict[str, Any], results_folder: str) -> str:

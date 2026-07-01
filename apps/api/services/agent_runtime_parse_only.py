@@ -27,9 +27,9 @@ def infer_stock_code_from_text(text: str) -> str:
 
 def infer_company_name_from_filename(filename: str) -> str:
     text = Path(str(filename or "")).stem
-    text = re.sub(r"[_-]CN[_-]\d{6}.*$", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"[_-](?:CN|SH|SZ|BJ|HK)[_-]\d{6}.*$", "", text, flags=re.IGNORECASE)
     text = re.sub(r"[_-]\d{6}.*$", "", text)
-    text = re.sub(r"(?:股份有限公司|集团股份有限公司)?[_-]?(?:20\d{2}.*)?$", "", text)
+    text = re.sub(r"(?:集团股份有限公司|股份有限公司)?[_-]?(?:20\d{2}.*)?$", "", text)
     return text.strip("_- ")
 
 

@@ -21,6 +21,29 @@ def test_pdf2md_filename_and_alias_helpers_are_pure_service_logic():
     ) == ["task-1", "300383", "光环新网", filename, "光环新网", "CN", "300383", "2025年度报告.pdf"]
 
 
+def test_pdf2md_filename_helpers_handle_complex_names_and_blank_aliases():
+    filename = "宁德时代集团股份有限公司-SZ-300750-2025年度报告-修订版.pdf"
+
+    assert parse_only.infer_stock_code_from_text("prefix SZ-300750 suffix") == "300750"
+    assert parse_only.infer_company_name_from_filename(filename) == "宁德时代"
+    assert parse_only.pdf2md_task_aliases(
+        {
+            "task_id": " task-2 ",
+            "stock_code": "",
+            "company_name": " ",
+            "filename": filename,
+        }
+    ) == [
+        "task-2",
+        filename,
+        "宁德时代集团股份有限公司",
+        "SZ",
+        "300750",
+        "2025年度报告",
+        "修订版.pdf",
+    ]
+
+
 def test_pdf2md_info_matches_message_uses_context_hint_and_runtime_wrapper():
     info = {
         "task_id": "task-1",
@@ -135,6 +158,32 @@ def test_should_consider_pdf2md_parse_only_context(message, context_hint, expect
         assert calls == [(message, 1)]
     else:
         assert calls == []
+
+
+def test_should_consider_pdf2md_parse_only_context_short_circuits_general_and_existing_company_dir():
+    calls: list[str] = []
+
+    def matches(current_message, context=None, *, limit=None):
+        calls.append(current_message)
+        return [{"task_id": "task-1"}]
+
+    assert not parse_only._should_consider_pdf2md_parse_only_context(
+        "你能做什么",
+        pdf2md_parse_only_matches=matches,
+        is_general_assistant_request=lambda value: True,
+        resolve_company_dir=lambda current_message, context: None,
+        report_fulltext_fallback_terms=("全文",),
+        context_company_hint=lambda context: "Alpha",
+    )
+    assert not parse_only._should_consider_pdf2md_parse_only_context(
+        "Alpha 年报全文",
+        pdf2md_parse_only_matches=matches,
+        is_general_assistant_request=lambda value: False,
+        resolve_company_dir=lambda current_message, context: Path("/wiki/companies/Alpha"),
+        report_fulltext_fallback_terms=("全文",),
+        context_company_hint=lambda context: "Alpha",
+    )
+    assert calls == []
 
 
 def test_build_pdf2md_parse_only_context_formats_real_artifact_paths(tmp_path):
