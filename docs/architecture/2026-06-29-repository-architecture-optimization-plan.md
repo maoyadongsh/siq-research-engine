@@ -54,7 +54,7 @@ Web 工作台
 - 本轮追加：Agent runtime citations/reference 合并边界补测已完成，覆盖空 body 新增引用区、全部无效 refs 原样返回、三级引用来源 section 在 peer/parent heading 前收口；`citation_links.py` 修复 printed_page 空槽位对齐，并补充缺 task_id/pdf_page 原样返回、本地 API 链接 query/fragment 保留和重复链接不追加覆盖。
 - 本轮追加：PDF2MD parse-only context 剩余边界已补，覆盖市场前缀伪 alias 防误匹配、非 dict task info 过滤、空 task/artifact 字段展示兜底；PostgreSQL fallback pure helper 已补空 hint、0 值页码/表号、空 terms callback 短路和缺字段负路径；前端 citation renderer 新增 `rendererUtils.test.ts` smoke，覆盖 source/table action 抽取、普通 Markdown link 保留和长引用行解析。
 - 本轮追加：Agent runtime display/tool-output/context 剩余细边界已补，覆盖 display 的 None URL、无 basename path fallback、控制空白 URL 编码，tool-output 的 None/空白、list JSON、长文本换行、tool/label 字段隔离，以及 context 的非 dict model/nested field、format context、attachment model_dump 脏数据防御。
-- 当前建议：按 0.3 的剩余工作量评估继续推进。下一轮优先回到 PDF parser quality/source-view 低风险补测，或补 Agent runtime attachments/history/local-memory owner 拆分前置覆盖；继续避开 `ACTIVE_RUNS`、SSE lifecycle、本地 queue claim 和 Flask `send_file/jsonify` 行为变更。
+- 当前建议：按 0.4 的智能体集群复盘结果提速推进。下一轮优先做 PDF parser 财报附注链接、table index / source-view 纯 helper 覆盖，其次补 Agent runtime attachments / history / local-memory 前置覆盖；前端仅做 derivation/helper/CSS smoke 尾项；继续避开 `ACTIVE_RUNS`、SSE lifecycle、本地 queue claim 和 Flask `send_file/jsonify` 行为变更。
 
 ### 0.2 2026-06-30 深度全量检查结论
 
@@ -141,6 +141,37 @@ bash -n start_all.sh && find scripts infra apps services -type f -name '*.sh' -p
 - 不改 PDF parser 本地 queue worker / claim / Flask response owner。
 - 不迁移 `PDF_CSS` / `DOCUMENT_CSS` 运行时注入字符串。
 - 不把 DocumentResultWorkbench 的 refs / selection / scroll owner 提前分散。
+
+### 0.4 2026-07-01 智能体集群剩余工作量复盘
+
+本轮启动 3 个只读智能体分别盘点 Agent runtime、PDF parser、前端/文档，并由主线程核对最近提交、当前大文件规模和方案记录。结论：当前优化方案已经从“大模块拆分期”进入“低风险边界补齐 + 红灯 owner 单独设计期”，可以适当提速，但不应把状态 owner 迁移混入普通补测批次。
+
+当前代码规模与状态：
+
+- `agent_chat_runtime_impl.py` 约 6197 行；pure helper 拆分和 `tests/test_agent_runtime_*.py` 覆盖已较充分，最近一次 runtime wildcard 为 189 passed、1 warning。剩余难点不是 helper，而是 attachments/history/local-memory 与 SSE/DB owner 的真实迁移。
+- `pdf_parser_app_impl.py` 约 4102 行；PDF parser 第一阶段拆分基本完成，全量 `apps/pdf-parser` 基线为 245 passed。剩余主要是财报附注链接、table index / 质量候选、markdown page index 和 source-view loader wrapper 的低风险覆盖/小下沉。
+- 前端 F-004 基本收口：`SearchDownload.tsx` 约 961 行但主要保留状态和事件编排，`DocumentResultWorkbench.tsx` 约 548 行，`PdfSourceWorkbench.tsx` 约 708 行，`index.css` 约 85 行。剩余更像维护尾项，而不是架构主风险。
+
+更新后的剩余工作量估计：
+
+- PDF parser：1-2 个小轮次，约 0.25-0.75 天。优先做财报附注链接 service 级测试/小下沉，其次做 table index / markdown page index / source-view loader wrapper 边界覆盖。
+- Agent runtime：2-5 个小轮次，约 0.5-1.5 天。优先补 attachments/history/local-memory owner 拆分前置覆盖，再搬少量纯格式化 helper；真实 owner 迁移另开设计窗口。
+- 前端/文档：0-2 个小轮次，约 0.25-0.75 天。优先补 `documentResultWorkbenchDerivations` 和 `pdfSourceWorkbenchHelpers` 直接单测，必要时做 `PDF_CSS` / `DOCUMENT_CSS` selector 清单和响应式 smoke，不迁移注入机制。
+- 风险可控提速后的总体低风险队列：约 1-2.5 天可完成一轮收口；`ACTIVE_RUNS`/SSE、PDF queue/Flask response、Document workbench refs/selection/scroll 等红灯 owner 另行排期。
+
+下一轮建议按以下并行队列推进：
+
+1. PDF parser 主线：补 `_canonical_financial_note_ref`、`_financial_note_title_line_hit`、`_financial_statement_note_ref_hits`、`_financial_note_title_tree`、`_build_financial_note_amount_check`、`_build_financial_note_links` 的 service 级覆盖，并评估是否下沉到 `pdf_parser_content_list_enhanced_service.py`。
+2. PDF parser 次线：补 `_table_structure_signals`、`_matched_financial_table_names`、`_classify_table_semantics`、`_build_table_index`、`_group_key_table_candidates` 和 `_markdown_page_index` 的直接测试；source-view 只补真实 loader wrapper 的缺失/非 list/content 空值边界。
+3. Agent runtime 主线：补 `_message_attachments`、`chat_message_has_visible_payload`、`normalize_history`、user 历史附件 reference 注入和 local-memory DB 行为测试；如搬迁，只搬 `_attachment_reference_context`、`_pdf_parse_is_terminal`、`_chat_message_payload` 这类纯格式化逻辑，并保留 impl wrapper。
+4. 前端尾项：新增 `documentResultWorkbenchDerivations.test.ts` 覆盖 JSON preview、page model、relations/focus derivation；扩充 `pdfSourceWorkbenchHelpers.test.ts` 的 page content blocks、relation fallback、invalid metadata 边界；CSS 字符串只做评估/smoke。
+
+本轮继续明确红灯边界：
+
+- 不拆 `ACTIVE_RUNS`、`ActiveRunState`、SSE event append、stream/stop run lifecycle。
+- 不迁移普通 chat 与 streaming 共享的 history、attachments、memory、dedupe、run input 顺序。
+- 不改 PDF parser queue claim/worker、MinerU 生命周期、Flask `send_file/jsonify`、`_ensure_*` artifact 编排和 task state/DB 写顺序。
+- 不提前分散 `DocumentResultWorkbench.tsx` 的 refs、selection、scroll、resource open owner。
 
 ## 1. 当前架构事实
 
