@@ -6,6 +6,52 @@ import html
 import re
 from typing import Any
 
+_FULLTEXT_SEARCH_NOISE_TERMS = (
+    "请问",
+    "请",
+    "查询一下",
+    "查一下",
+    "了解一下",
+    "分析一下",
+    "看一下",
+    "一下",
+    "查询",
+    "看看",
+    "帮我",
+    "给我",
+    "列出",
+    "展示",
+    "显示",
+    "打开",
+    "是什么",
+    "有哪些",
+    "多少",
+    "如何",
+    "怎么",
+    "是否",
+    "有没有",
+    "对应",
+    "数据",
+    "表格",
+    "来源",
+    "溯源",
+    "情况",
+    "内容",
+    "报告",
+    "年报",
+    "年度报告",
+    "中的",
+    "里面的",
+    "里的",
+    "关于",
+    "以及",
+    "和",
+    "及",
+    "的",
+    "吗",
+    "呢",
+)
+
 
 def _postgres_row_payload(row: dict[str, Any]) -> dict[str, Any]:
     payload = row.get("metric_payload")
@@ -123,6 +169,44 @@ def _normalize_search_text(value: Any) -> str:
     return re.sub(r"[\s（）()_\-：:、,，;；/]+", "", str(value or "").lower())
 
 
+def _company_aliases(company_id: Any, company: Any) -> list[str]:
+    aliases = (
+        company_id,
+        company.get("company_id") if isinstance(company, dict) else None,
+        company.get("stock_code") if isinstance(company, dict) else None,
+        company.get("company_short_name") if isinstance(company, dict) else None,
+        company.get("company_full_name") if isinstance(company, dict) else None,
+        *((company.get("aliases") or []) if isinstance(company, dict) else []),
+    )
+    return list(dict.fromkeys(str(alias) for alias in aliases if alias))
+
+
+def _remove_company_aliases(text: str, aliases: list[str]) -> str:
+    output = str(text or "")
+    for alias in sorted({str(item) for item in aliases if item}, key=len, reverse=True):
+        output = output.replace(alias, " ")
+    return output
+
+
+def _fallback_search_terms(message: str, aliases: list[str], fallback_terms: tuple[str, ...]) -> list[str]:
+    text = _remove_company_aliases(message, aliases)
+    for pattern in (r"20\d{2}\s*年(?:度)?(?:年报|年度报告|报告)?", r"[?？!！。.,，;；:：]"):
+        text = re.sub(pattern, " ", text)
+    for term in _FULLTEXT_SEARCH_NOISE_TERMS:
+        text = text.replace(term, " ")
+
+    terms: list[str] = []
+    normalized_message = _normalize_search_text(message)
+    for term in fallback_terms:
+        if _normalize_search_text(term) in normalized_message:
+            terms.append(str(term))
+    for token in re.findall(r"[\u4e00-\u9fffA-Za-z0-9%\.]{2,24}", text):
+        if len(token) >= 2 and not re.fullmatch(r"20\d{2}", token):
+            terms.append(token)
+    terms = [term.strip() for term in terms if term and term.strip()]
+    return sorted(dict.fromkeys(terms), key=len, reverse=True)[:8]
+
+
 def _specific_fulltext_terms(terms: list[str], generic_terms: set[str] | tuple[str, ...] = ()) -> list[str]:
     specific: list[str] = []
     normalized_generic = {_normalize_search_text(generic) for generic in generic_terms}
@@ -185,6 +269,8 @@ def _nearest_table_meta(tables: list[dict[str, Any]], line_number: int | None, *
 
 
 __all__ = [
+    "_company_aliases",
+    "_fallback_search_terms",
     "_html_to_text",
     "_line_match_score",
     "_line_matches_any_term",
@@ -200,6 +286,7 @@ __all__ = [
     "_postgres_row_table_index",
     "_postgres_row_unit",
     "_postgres_row_value",
+    "_remove_company_aliases",
     "_snippet_window",
     "_specific_fulltext_terms",
 ]

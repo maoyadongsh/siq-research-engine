@@ -49,6 +49,46 @@ def test_relation_tables_from_artifacts_merges_enhanced_and_content_list_tables(
     ]
 
 
+def test_relation_tables_from_artifacts_backfills_missing_enhanced_table_body_from_content_list():
+    table_body = (
+        "<table><tr><td>项目</td><td>金额</td></tr>"
+        "<tr><td>货币资金</td><td>100</td></tr></table>"
+    )
+    enhanced = {
+        "tables": [
+            {
+                "table_index": 5,
+                "bbox": [10, 20, 200, 260],
+                "pdf_page_number": 3,
+                "printed_page_number": "三",
+                "missing_body": True,
+                "source": "markdown_marker_inferred",
+            }
+        ]
+    }
+    content_list = [
+        {
+            "type": "table",
+            "table_body": table_body,
+            "page_idx": 2,
+            "bbox": [10, 20, 200, 260],
+        }
+    ]
+
+    relation_tables = document_full.relation_tables_from_artifacts(enhanced, content_list)
+
+    assert len(relation_tables) == 1
+    relation_table = relation_tables[0]
+    assert relation_table["table_id"] == "pt-000005"
+    assert relation_table["table_index"] == 5
+    assert relation_table["content_table_source_id"] == 1
+    assert relation_table["html"] == table_body
+    assert relation_table["text"] == "项目 金额 货币资金 100"
+    assert relation_table["quality"] == {"row_count": 2, "column_count": 2}
+    assert relation_table["missing_body"] is False
+    assert relation_table["source"] == "markdown_marker_inferred"
+
+
 def test_relation_blocks_and_payload_helpers_normalize_table_relations():
     content_list = [
         {"type": "text", "page_idx": 0, "text": "标题"},
@@ -115,6 +155,33 @@ def test_augment_table_relations_supports_source_target_aliases_and_non_list_rel
     assert document_full.augment_table_relations({"relations": "invalid"}, relation_tables) == {"relations": "invalid"}
 
 
+def test_augment_table_relations_keeps_unknown_ids_and_non_dict_relations_unchanged():
+    relation_tables = [
+        {"table_id": "known-1", "table_index": 1, "bbox": [1, 2, 3, 4], "page_number": 5},
+    ]
+    payload = {
+        "relations": [
+            {"from_table_id": "missing-source", "to_table_id": "missing-target", "note": "unmatched"},
+            "not-a-dict",
+            42,
+            None,
+        ]
+    }
+    expected = {
+        "relations": [
+            {"from_table_id": "missing-source", "to_table_id": "missing-target", "note": "unmatched"},
+            "not-a-dict",
+            42,
+            None,
+        ]
+    }
+
+    augmented = document_full.augment_table_relations(payload, relation_tables)
+
+    assert augmented is payload
+    assert payload == expected
+
+
 def test_relation_tables_from_artifacts_filters_invalid_tables_and_keeps_content_list_only_table():
     enhanced = {
         "tables": [
@@ -134,6 +201,25 @@ def test_relation_tables_from_artifacts_filters_invalid_tables_and_keeps_content
     assert relation_tables[0]["content_table_source_id"] == 2
     assert relation_tables[0]["source"] == "content_list_table_block"
     assert relation_tables[0]["text"] == "keep"
+
+
+def test_relation_tables_from_artifacts_does_not_reuse_source_ids_for_missing_body_content_tables():
+    body_table = "<table><tr><td>有正文</td></tr></table>"
+    content_list = [
+        {"type": "table", "page_idx": 0, "bbox": [1, 1, 10, 10]},
+        {"type": "table", "page_idx": 0, "bbox": [20, 1, 30, 10]},
+        {"type": "table", "page_idx": 0, "bbox": [40, 1, 50, 10], "table_body": body_table},
+        {"type": "table", "page_idx": 1, "bbox": [1, 1, 10, 10]},
+    ]
+
+    relation_tables = document_full.relation_tables_from_artifacts({"tables": []}, content_list)
+
+    assert len(relation_tables) == 4
+    missing_body_tables = [table for table in relation_tables if table["missing_body"]]
+    body_tables = [table for table in relation_tables if not table["missing_body"]]
+    assert [table["content_table_source_id"] for table in missing_body_tables] == [None, None, None]
+    assert [table["content_table_source_id"] for table in body_tables] == [1]
+    assert len({table["table_id"] for table in missing_body_tables}) == 3
 
 
 def test_resource_indexes_include_images_and_rendered_pages(tmp_path):

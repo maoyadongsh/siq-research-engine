@@ -2934,82 +2934,18 @@ def _normalize_search_text(value: Any) -> str:
 
 def _remove_company_aliases(text: str, company_dir: Path) -> str:
     company = _read_json_file(company_dir / "company.json") or {}
-    aliases = [
-        company_dir.name,
-        company.get("company_id") if isinstance(company, dict) else None,
-        company.get("stock_code") if isinstance(company, dict) else None,
-        company.get("company_short_name") if isinstance(company, dict) else None,
-        company.get("company_full_name") if isinstance(company, dict) else None,
-        *((company.get("aliases") or []) if isinstance(company, dict) else []),
-    ]
-    output = str(text or "")
-    for alias in sorted({str(item) for item in aliases if item}, key=len, reverse=True):
-        output = output.replace(alias, " ")
-    return output
+    aliases = agent_runtime_fallback_contexts._company_aliases(company_dir.name, company)
+    return agent_runtime_fallback_contexts._remove_company_aliases(text, aliases)
 
 
 def _fallback_search_terms(message: str, company_dir: Path) -> list[str]:
-    text = _remove_company_aliases(message, company_dir)
-    for pattern in (r"20\d{2}\s*年(?:度)?(?:年报|年度报告|报告)?", r"[?？!！。.,，;；:：]"):
-        text = re.sub(pattern, " ", text)
-    noise_terms = (
-        "请问",
-        "请",
-        "查询一下",
-        "查一下",
-        "了解一下",
-        "分析一下",
-        "看一下",
-        "一下",
-        "查询",
-        "看看",
-        "帮我",
-        "给我",
-        "列出",
-        "展示",
-        "显示",
-        "打开",
-        "是什么",
-        "有哪些",
-        "多少",
-        "如何",
-        "怎么",
-        "是否",
-        "有没有",
-        "对应",
-        "数据",
-        "表格",
-        "来源",
-        "溯源",
-        "情况",
-        "内容",
-        "报告",
-        "年报",
-        "年度报告",
-        "中的",
-        "里面的",
-        "里的",
-        "关于",
-        "以及",
-        "和",
-        "及",
-        "的",
-        "吗",
-        "呢",
+    company = _read_json_file(company_dir / "company.json") or {}
+    aliases = agent_runtime_fallback_contexts._company_aliases(company_dir.name, company)
+    return agent_runtime_fallback_contexts._fallback_search_terms(
+        message,
+        aliases,
+        REPORT_FULLTEXT_FALLBACK_TERMS,
     )
-    for term in noise_terms:
-        text = text.replace(term, " ")
-
-    terms: list[str] = []
-    normalized_message = _normalize_search_text(message)
-    for term in REPORT_FULLTEXT_FALLBACK_TERMS:
-        if _normalize_search_text(term) in normalized_message:
-            terms.append(str(term))
-    for token in re.findall(r"[\u4e00-\u9fffA-Za-z0-9%\.]{2,24}", text):
-        if len(token) >= 2 and not re.fullmatch(r"20\d{2}", token):
-            terms.append(token)
-    terms = [term.strip() for term in terms if term and term.strip()]
-    return sorted(dict.fromkeys(terms), key=len, reverse=True)[:8]
 
 
 def _specific_fulltext_terms(terms: list[str]) -> list[str]:

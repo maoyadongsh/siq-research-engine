@@ -85,6 +85,49 @@ def test_wiki_fulltext_html_and_search_text_helpers_normalize_content():
     ) == ["市场占有率", "商誉"]
 
 
+def test_wiki_fulltext_company_alias_helpers_extract_and_strip_long_aliases_first():
+    company = {
+        "company_id": "600104-上汽集团",
+        "stock_code": "600104",
+        "company_short_name": "上汽",
+        "company_full_name": "上汽集团股份有限公司",
+        "aliases": ["上汽集团", "SAIC"],
+    }
+
+    aliases = fallback._company_aliases("600104-上汽集团", company)
+    text = fallback._remove_company_aliases("请问上汽集团股份有限公司和上汽集团的市场占有率", aliases)
+
+    assert aliases == [
+        "600104-上汽集团",
+        "600104",
+        "上汽",
+        "上汽集团股份有限公司",
+        "上汽集团",
+        "SAIC",
+    ]
+    assert "上汽集团" not in text
+    assert "上汽" not in text
+    assert "市场占有率" in text
+
+
+def test_wiki_fulltext_fallback_search_terms_clean_aliases_noise_and_dedupe():
+    company = {
+        "company_id": "300383-光环新网",
+        "stock_code": "300383",
+        "company_short_name": "光环新网",
+        "company_full_name": "北京光环新网科技股份有限公司",
+    }
+    aliases = fallback._company_aliases("300383-光环新网", company)
+
+    terms = fallback._fallback_search_terms(
+        "帮我看看光环新网2025年年度报告中的商誉情况，以及商誉减值准备。",
+        aliases,
+        ("商誉", "商誉减值准备", "报告"),
+    )
+
+    assert terms == ["商誉减值准备", "商誉", "报告"]
+
+
 def test_wiki_fulltext_line_scoring_matches_terms_and_boosts_tables():
     plain_score = fallback._line_match_score("市场占有率稳定提升", ["市场占有率"])
     table_score = fallback._line_match_score("<table><tr><td>市场占有率</td><td>13.1%</td></tr></table>", ["市场占有率"])
