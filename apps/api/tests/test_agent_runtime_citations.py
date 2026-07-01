@@ -8,6 +8,8 @@ def test_first_record_label_is_shared_with_runtime_wrapper():
     assert citations._first_record_label(record) == "货币资金"
     assert runtime._first_record_label(record) == "货币资金"
     assert citations._first_record_label({}) == ""
+    assert citations._first_record_label({"项目": "  货币资金  "}) == "货币资金"
+    assert citations._first_record_label({"项目": "   ", "2025": "123"}) == ""
 
 
 def test_record_preview_and_statement_value_helpers_handle_empty_values():
@@ -268,6 +270,29 @@ def test_render_wiki_fulltext_primary_data_supplement_truncates_rows_and_default
     ]
 
 
+def test_render_wiki_fulltext_primary_data_supplement_defaults_file_to_report_id():
+    supplement = citations._render_wiki_fulltext_primary_data_supplement(
+        {
+            "report_id": "2024-annual",
+            "rows": [
+                {
+                    "snippet": "净利润增长",
+                    "task_id": "56565656-5656-5656-5656-565656565656",
+                    "pdf_page": 31,
+                    "table_index": 1,
+                    "md_line": 710,
+                }
+            ],
+        },
+        primary_data_supplement_max_rows=1,
+        table_source_links=lambda task_id, pdf_page, table_index: "",
+    )
+
+    assert supplement is not None
+    assert "file=reports/2024-annual/report.md" in supplement
+    assert "file=reports/2025-annual/report.md" not in supplement
+
+
 def test_render_postgres_primary_data_supplement_adds_rows_refs_and_links():
     evidence_calls = []
     source_calls = []
@@ -413,9 +438,16 @@ def test_structured_evidence_requires_real_task_id_and_page_or_table():
         "pdf_page=7, table_index=2, md_line=50"
     )
     uncited = "[1] source_type=postgresql, task_id=fake, pdf_page=7, table_index=2"
+    table_only = "[1] source_type=postgresql, task_id=22222222-2222-2222-2222-222222222222, table_index=2"
+    page_alias = (
+        "[1] source_type=postgresql, task_id=33333333-3333-3333-3333-333333333333, "
+        "pdf_page_number=8"
+    )
 
     assert citations._has_structured_evidence_trace(cited)
     assert runtime._has_structured_evidence_trace(cited)
+    assert citations._has_structured_evidence_trace(table_only)
+    assert citations._has_structured_evidence_trace(page_alias)
     assert not citations._has_structured_evidence_trace(uncited)
 
 
@@ -423,6 +455,9 @@ def test_normalize_plain_inline_latex_replaces_known_symbols_only():
     text = "A $\\to$ B，x $ \\leq $ y，保留 $\\unknown$ 和 $x+1$。"
 
     assert citations.normalize_plain_inline_latex(text) == "A → B，x ≤ y，保留 $\\unknown$ 和 $x+1$。"
+    assert citations.normalize_plain_inline_latex("毛利率 $\\%$，A $\\Rightarrow$ B，x $\\approx$ y") == (
+        "毛利率 %，A ⇒ B，x ≈ y"
+    )
     assert citations.normalize_plain_inline_latex(None) == ""
 
 
@@ -645,6 +680,30 @@ def test_merge_refs_into_reference_section_skips_refs_already_in_body():
     assert merged.count("source_type=wiki_metrics") == 2
 
 
+def test_merge_refs_into_reference_section_inserts_before_next_peer_heading():
+    body = """结论正文。
+
+## 引用来源
+已有说明。
+
+### 补充说明
+仍属于引用来源章节。
+
+## 风险提示
+请复核。
+"""
+    refs = [
+        "[D1] source_type=wiki_metrics, file=metrics/three_statements.json, metric=收入, period=2025, task_id=11111111-1111-1111-1111-111111111111, pdf_page=7, table_index=2, md_line=50"
+    ]
+
+    merged = citations._merge_refs_into_reference_section(body, refs)
+    citation_section, risk_section = merged.split("## 风险提示")
+
+    assert "### 补充说明" in citation_section
+    assert "metric=收入" in citation_section
+    assert "metric=收入" not in risk_section
+
+
 def test_reply_has_requested_metric_evidence_checks_requested_terms_in_reference_lines():
     reply = """正文提到了利润，但引用只给收入。
 
@@ -669,5 +728,21 @@ def test_reply_has_requested_metric_evidence_checks_requested_terms_in_reference
         "随便分析",
         reply,
         postgres_requested_metric_terms=lambda message: [],
+        normalize_financial_text=normalize,
+    )
+
+
+def test_reply_has_requested_metric_evidence_ignores_metrics_outside_reference_lines():
+    reply = """正文提到了净利润。
+
+[D1] source_type=wiki_metrics, file=metrics/three_statements.json, metric=营业收入, period=2025, task_id=11111111-1111-1111-1111-111111111111, pdf_page=7, table_index=2, md_line=50
+"""
+
+    normalize = lambda value: "".join(str(value).lower().split())
+
+    assert not citations._reply_has_requested_metric_evidence(
+        "净利润是多少",
+        reply,
+        postgres_requested_metric_terms=lambda message: ["净利润"],
         normalize_financial_text=normalize,
     )

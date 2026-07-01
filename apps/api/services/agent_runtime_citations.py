@@ -567,7 +567,7 @@ def _render_wiki_fulltext_primary_data_supplement(
             refs,
             seen_refs,
             source_type=row.get("source_type") or "wiki_report_fulltext",
-            file=row.get("file") or "reports/2025-annual/report.md",
+            file=row.get("file") or f"reports/{result.get('report_id') or '未返回'}/report.md",
             metric=",".join(result.get("terms") or []) or "全文检索",
             period=result.get("report_id"),
             task_id=row.get("task_id"),
