@@ -3996,28 +3996,11 @@ def build_direct_human_capital_reply(message: str, context: Any | None = None) -
 
 
 def _parse_number(value: Any) -> float | None:
-    text = str(value or "").replace(",", "").replace("€", "").replace("%", "").strip()
-    if text in {"", "-", "未返回", "N/A", "None", "null"}:
-        return None
-    match = re.search(r"-?\d+(?:\.\d+)?", text)
-    if not match:
-        return None
-    try:
-        return float(match.group(0))
-    except ValueError:
-        return None
+    return agent_runtime_financial_format._parse_number(value)
 
 
 def _row_numeric_values(row: list[str] | None) -> list[float]:
-    values: list[float] = []
-    for cell in (row or [])[1:]:
-        text = str(cell or "").strip()
-        if not text or re.fullmatch(r"\[\d+\]", text):
-            continue
-        value = _parse_number(text)
-        if value is not None:
-            values.append(value)
-    return values
+    return agent_runtime_financial_format._row_numeric_values(row)
 
 
 def _find_report_table(tables: list[dict[str, Any]], *terms: str) -> dict[str, Any] | None:
@@ -4261,12 +4244,16 @@ def _table_trace(
 ) -> str:
     pdf_page = table.get("pdf_page_number") or table.get("pdf_page") or "未返回"
     table_index = table.get("table_index") if table.get("table_index") not in (None, "") else "未返回"
-    md_line = table.get("line") or table.get("md_line") or table.get("markdown_line") or "未返回"
     links = _table_source_links(task_id, pdf_page, table_index)
-    return (
-        f"[H{index}] source_type={source_type}, file={file}, metric={metric}, period={report_id}, "
-        f"task_id={task_id or '未返回'}, pdf_page={pdf_page}, table_index={table_index}, md_line={md_line}"
-        + (f"，{links}" if links else "")
+    return agent_runtime_financial_format._table_trace(
+        index,
+        source_type=source_type,
+        file=file,
+        metric=metric,
+        report_id=report_id,
+        task_id=task_id,
+        table=table,
+        links=links,
     )
 
 

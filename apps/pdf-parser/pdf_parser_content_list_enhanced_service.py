@@ -1046,6 +1046,90 @@ def build_image_semantic_blocks(markdown, content_list=None):
     return blocks
 
 
+def parse_financial_amount_cell(value):
+    raw = _strip_html(str(value or "")).strip()
+    if not raw or raw in {"-", "—", "--", "－", "不适用", "无"}:
+        return None
+    normalized = raw.replace(",", "").replace("，", "").replace(" ", "")
+    normalized = normalized.replace("人民币", "")
+    negative = False
+    if re.fullmatch(r"[（(].+[）)]", normalized):
+        negative = True
+        normalized = normalized[1:-1]
+    normalized = normalized.replace("%", "")
+    normalized = re.sub(r"(?:元|万元|千元|百万元|百万|亿元|万|千|亿)$", "", normalized)
+    if not re.fullmatch(r"[-+]?\d+(?:\.\d+)?", normalized):
+        return None
+    number = float(normalized)
+    return -abs(number) if negative else number
+
+
+def financial_unit_scale_from_text(text):
+    compact = str(text or "")
+    unit_matches = re.findall(r"(?:单位|金额单位)\s*[：:]?\s*(?:人民币)?\s*(亿元|百万元|万元|千元|元)", compact)
+    if unit_matches:
+        return financial_unit_scale(unit_matches[-1])
+    if "亿元" in compact:
+        return 100000000.0
+    if "百万元" in compact or "百万" in compact:
+        return 1000000.0
+    if "万元" in compact or "人民币万元" in compact:
+        return 10000.0
+    if "千元" in compact:
+        return 1000.0
+    return 1.0
+
+
+def financial_unit_scale(unit):
+    unit = str(unit or "")
+    if unit == "亿元":
+        return 100000000.0
+    if unit == "百万元" or unit == "百万":
+        return 1000000.0
+    if unit == "万元":
+        return 10000.0
+    if unit == "千元":
+        return 1000.0
+    return 1.0
+
+
+def financial_unit_scale_near(text, position):
+    text = str(text or "")
+    position = max(0, min(int(position or 0), len(text)))
+    context = text[max(0, position - 1000) : min(len(text), position + 200)]
+    unit_matches = list(
+        re.finditer(r"(?:单位|金额单位)\s*[：:]?\s*(?:人民币)?\s*(亿元|百万元|万元|千元|元)", context)
+    )
+    if unit_matches:
+        return financial_unit_scale(unit_matches[-1].group(1))
+    return 1.0
+
+
+def normalize_amount_for_compare(value, unit_scale=1.0):
+    if value is None:
+        return None
+    try:
+        return float(value) * float(unit_scale or 1.0)
+    except (TypeError, ValueError):
+        return None
+
+
+def amount_close(left, right):
+    if left is None or right is None:
+        return False, None
+    diff = abs(float(left) - float(right))
+    tolerance = max(1.0, abs(float(left)) * 0.0001, abs(float(right)) * 0.0001)
+    return diff <= tolerance, {"difference": diff, "tolerance": tolerance}
+
+
+_parse_financial_amount_cell = parse_financial_amount_cell
+_financial_unit_scale_from_text = financial_unit_scale_from_text
+_financial_unit_scale = financial_unit_scale
+_financial_unit_scale_near = financial_unit_scale_near
+_normalize_amount_for_compare = normalize_amount_for_compare
+_amount_close = amount_close
+
+
 def complete_markdown_appendix(enhanced):
     signals = enhanced.get("quality_signals") or {}
     toc = enhanced.get("toc") or {}

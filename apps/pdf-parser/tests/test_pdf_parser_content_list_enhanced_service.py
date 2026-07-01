@@ -242,6 +242,34 @@ def test_build_enhanced_quality_signals_aggregates_tables_notes_and_images():
     assert signals["image_semantic_ocr_candidate_count"] == 1
 
 
+def test_financial_amount_helpers_parse_units_parentheses_and_compare_tolerance():
+    assert content_service.parse_financial_amount_cell(None) is None
+    assert content_service.parse_financial_amount_cell("--") is None
+    assert content_service.parse_financial_amount_cell("人民币1,234.50万元") == 1234.5
+    assert content_service.parse_financial_amount_cell("（1,234.50）") == -1234.5
+    assert content_service.parse_financial_amount_cell("(99)") == -99
+    assert content_service.parse_financial_amount_cell("12.5%") == 12.5
+    assert content_service.parse_financial_amount_cell("abc") is None
+
+    assert content_service.financial_unit_scale("亿元") == 100000000.0
+    assert content_service.financial_unit_scale("百万元") == 1000000.0
+    assert content_service.financial_unit_scale("万元") == 10000.0
+    assert content_service.financial_unit_scale("千元") == 1000.0
+    assert content_service.financial_unit_scale("元") == 1.0
+    assert content_service.financial_unit_scale_from_text("单位：万元\n金额单位：亿元") == 100000000.0
+    assert content_service.financial_unit_scale_from_text("本表以人民币万元列示") == 10000.0
+    assert content_service.financial_unit_scale_from_text("no unit") == 1.0
+    assert content_service.financial_unit_scale_near("单位：万元\n项目 金额 123", 10) == 10000.0
+
+    assert content_service.normalize_amount_for_compare("12.3", 10000) == 123000.0
+    assert content_service.normalize_amount_for_compare("bad", 10000) is None
+    matched, detail = content_service.amount_close(1000000, 1000040)
+    assert matched is True
+    assert detail == {"difference": 40.0, "tolerance": 100.004}
+    assert content_service.amount_close(1000000, 1000200)[0] is False
+    assert content_service.amount_close(None, 100)[0] is False
+
+
 def test_build_content_list_enhanced_payload_uses_injected_table_sources_and_aggregates():
     exact_table = "<table><tr><td>项目</td><td>金额</td></tr><tr><td>收入</td><td>100</td></tr></table>"
     inferred_table = "<table><tr><td>项目</td><td>金额</td></tr><tr><td>成本</td><td>50</td></tr></table>"

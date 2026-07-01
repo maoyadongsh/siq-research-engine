@@ -24,6 +24,32 @@ def test_fmt_number_preserves_integer_decimal_and_fallback_formatting(value, dig
     assert fmt._fmt_number(value, digits) == expected
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, None),
+        ("", None),
+        ("-", None),
+        ("未返回", None),
+        ("N/A", None),
+        ("null", None),
+        ("€1,234.50", 1234.5),
+        ("-12.3%", -12.3),
+        ("approx. 8,765 people", 8765.0),
+        ("not-a-number", None),
+    ],
+)
+def test_parse_number_handles_empty_and_mixed_numeric_text(value, expected):
+    assert fmt._parse_number(value) == expected
+
+
+def test_row_numeric_values_skips_label_empty_refs_and_preserves_mixed_numbers():
+    row = ["Sales revenue", "", "[1]", "€68,449 million", "-5.6%", "N/A", "approx. 42"]
+
+    assert fmt._row_numeric_values(row) == [68449.0, -5.6, 42.0]
+    assert fmt._row_numeric_values(None) == []
+
+
 def test_calculator_per_capita_display_formats_preferred_values_and_unknown_preference_falls_back():
     payload = {
         "status": "ok",
@@ -86,6 +112,40 @@ def test_statement_row_table_maps_payload_boundaries(row, expected):
     assert fmt._statement_row_table(row) == expected
 
 
+def test_table_trace_uses_source_fallbacks_and_optional_links():
+    trace = fmt._table_trace(
+        2,
+        source_type="wiki_report_table",
+        file="reports/2025-annual/report.md",
+        metric="营业收入",
+        report_id="2025-annual",
+        task_id="task-1",
+        table={"pdf_page": 12, "table_index": "", "markdown_line": 345},
+        links="[查看表格](https://example.test/table)",
+    )
+
+    assert trace == (
+        "[H2] source_type=wiki_report_table, file=reports/2025-annual/report.md, metric=营业收入, "
+        "period=2025-annual, task_id=task-1, pdf_page=12, table_index=未返回, md_line=345，"
+        "[查看表格](https://example.test/table)"
+    )
+
+
+def test_table_trace_falls_back_to_missing_values_without_links():
+    assert fmt._table_trace(
+        1,
+        source_type="wiki_metrics",
+        file="metrics/three_statements.json",
+        metric="净利润",
+        report_id="2025-annual",
+        task_id=None,
+        table={},
+    ) == (
+        "[H1] source_type=wiki_metrics, file=metrics/three_statements.json, metric=净利润, "
+        "period=2025-annual, task_id=未返回, pdf_page=未返回, table_index=未返回, md_line=未返回"
+    )
+
+
 def test_agent_chat_runtime_financial_format_wrappers_preserve_compatibility():
     pytest.importorskip("sqlmodel")
     from services import agent_chat_runtime as runtime
@@ -101,6 +161,25 @@ def test_agent_chat_runtime_financial_format_wrappers_preserve_compatibility():
     row = {"pdf_page": 7, "table_index": 2, "md_line": 99}
 
     assert runtime._fmt_number(1234.567, 2) == fmt._fmt_number(1234.567, 2)
+    assert runtime._parse_number("€1,234.50") == fmt._parse_number("€1,234.50")
+    assert runtime._row_numeric_values(["label", "[1]", "1,000"]) == fmt._row_numeric_values(["label", "[1]", "1,000"])
     assert runtime._calculator_per_capita_display(payload) == fmt._calculator_per_capita_display(payload)
     assert runtime._calculator_formula_text(payload) == fmt._calculator_formula_text(payload)
     assert runtime._statement_row_table(row) == fmt._statement_row_table(row)
+    assert runtime._table_trace(
+        1,
+        source_type="wiki_metrics",
+        file="metrics/three_statements.json",
+        metric="营业收入",
+        report_id="2025-annual",
+        task_id=None,
+        table=row,
+    ) == fmt._table_trace(
+        1,
+        source_type="wiki_metrics",
+        file="metrics/three_statements.json",
+        metric="营业收入",
+        report_id="2025-annual",
+        task_id=None,
+        table=fmt._statement_row_table(row),
+    )
