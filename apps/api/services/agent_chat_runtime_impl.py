@@ -58,6 +58,7 @@ from services import agent_runtime_display
 from services import agent_runtime_memory
 from services import agent_runtime_context
 from services import agent_runtime_financial_guard
+from services import agent_runtime_financial_format
 from services import agent_runtime_fallback_contexts
 from services import agent_runtime_postgres_fallback
 from services.agent_runtime_fallback_contexts import (
@@ -4474,13 +4475,7 @@ def _human_efficiency_result(message: str, context: Any | None = None) -> dict[s
 
 
 def _fmt_number(value: Any, digits: int = 1) -> str:
-    if value is None:
-        return "未返回"
-    if isinstance(value, (int, float)):
-        if float(value).is_integer():
-            return f"{int(value):,}"
-        return f"{value:,.{digits}f}"
-    return str(value)
+    return agent_runtime_financial_format._fmt_number(value, digits)
 
 
 def _calculator_per_capita(
@@ -4517,41 +4512,15 @@ def _calculator_per_capita(
 
 
 def _calculator_per_capita_display(payload: dict[str, Any] | None, *, preferred: str = "cny_10k") -> str:
-    if not payload or payload.get("status") != "ok":
-        return "未返回"
-    result = payload.get("result") or {}
-    if preferred == "native_10k":
-        value = result.get("native_10k_per")
-        unit = result.get("native_10k_per_unit")
-    elif preferred == "native_per":
-        value = result.get("native_per")
-        unit = result.get("native_per_unit")
-    else:
-        value = result.get("cny_10k_per")
-        unit = result.get("cny_10k_per_unit")
-    if value in (None, "") or not unit:
-        return "未返回"
-    try:
-        digits = 4 if preferred in {"native_10k", "cny_10k"} else 2
-        formatted = float(value)
-        return f"{formatted:,.{digits}f}{unit}"
-    except (TypeError, ValueError):
-        return f"{value}{unit}"
+    return agent_runtime_financial_format._calculator_per_capita_display(payload, preferred=preferred)
 
 
 def _calculator_formula_text(payload: dict[str, Any] | None) -> str:
-    formula = (payload or {}).get("formula") or []
-    if not formula:
-        return "未返回"
-    return "；".join(str(item) for item in formula)
+    return agent_runtime_financial_format._calculator_formula_text(payload)
 
 
 def _statement_row_table(row: dict[str, Any] | None) -> dict[str, Any]:
-    return {
-        "pdf_page_number": (row or {}).get("pdf_page"),
-        "table_index": (row or {}).get("table_index"),
-        "line": (row or {}).get("md_line"),
-    }
+    return agent_runtime_financial_format._statement_row_table(row)
 
 
 def _render_generic_human_efficiency_evidence_markdown(result: dict[str, Any]) -> str:
