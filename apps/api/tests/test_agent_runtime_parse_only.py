@@ -93,6 +93,25 @@ def test_pdf2md_parse_only_matches_filters_general_wiki_and_limit():
     )
 
 
+def test_pdf2md_parse_only_matches_skips_existing_wiki_before_applying_limit():
+    infos = [
+        {"task_id": "task-1", "company_name": "Alpha"},
+        {"task_id": "task-2", "company_name": "Beta"},
+    ]
+
+    matches = parse_only._pdf2md_parse_only_matches(
+        "Alpha Beta 年报",
+        limit=1,
+        iter_pdf2md_task_infos=lambda: infos,
+        pdf2md_info_matches_message=lambda info, message, context: info["company_name"] in message,
+        wiki_company_exists_for_pdf2md_info=lambda info: info["task_id"] == "task-1",
+        is_general_assistant_request=lambda message: False,
+        resolve_company_dir=lambda message, context: None,
+    )
+
+    assert matches == [infos[1]]
+
+
 @pytest.mark.parametrize("message,context_hint,expected", [("Alpha 年报全文", "", True), ("看看这家公司", "Alpha", True), ("随便聊聊", "", False)])
 def test_should_consider_pdf2md_parse_only_context(message, context_hint, expected):
     calls: list[tuple[str, int | None]] = []

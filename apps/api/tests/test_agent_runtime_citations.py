@@ -98,3 +98,22 @@ def test_merge_refs_into_reference_section_dedupes_alias_field_names():
 
     assert "## 引用来源" in merged
     assert merged.count("source_type=postgresql") == 1
+
+
+def test_merge_refs_into_reference_section_skips_refs_already_in_body():
+    body = """结论正文。
+
+## 引用来源
+[D1] source_type=wiki_metrics, file=metrics/three_statements.json, metric=收入, period=2025, task_id=11111111-1111-1111-1111-111111111111, pdf_page=7, table_index=2, md_line=50
+"""
+    refs = [
+        "[D1-copy] source_type=wiki_metrics, file=metrics/three_statements.json, metric=收入, period=2025, task_id=11111111-1111-1111-1111-111111111111, pdf_page=7, table_index=2, md_line=50",
+        "[D2] source_type=wiki_metrics, file=metrics/three_statements.json, metric=利润, period=2025, task_id=22222222-2222-2222-2222-222222222222, pdf_page=8, table_index=3, md_line=60",
+    ]
+
+    merged = citations._merge_refs_into_reference_section(body, refs)
+
+    assert "D1-copy" not in merged
+    assert "metric=收入" in merged
+    assert "metric=利润" in merged
+    assert merged.count("source_type=wiki_metrics") == 2

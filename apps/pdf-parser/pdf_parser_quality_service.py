@@ -81,11 +81,14 @@ def nearest_table_for_statement_lines(report, lines, statement_type):
         "计息负债",
     )
     best = None
-    min_line = min(
+    numeric_lines = [
         int(line)
         for line in lines
         if isinstance(line, int) or (isinstance(line, str) and line.isdigit())
-    )
+    ]
+    if not numeric_lines:
+        return None
+    min_line = min(numeric_lines)
     for line in lines:
         try:
             source_line = int(line)
@@ -144,7 +147,12 @@ def statement_display_source(statement, report, statement_type):
         "line": statement_line_or_table_line(lines, 0, fallback_table_item or {}) if indexes else (lines[0] if lines else None),
         "table_item": fallback_table_item,
     }
-    if not indexes and lines:
+    fallback_is_bad_balance_table = (
+        statement_type == "balance_sheet"
+        and fallback_table_item
+        and any(term in table_item_text(fallback_table_item) for term in bad_balance_terms)
+    )
+    if lines and (not indexes or fallback_is_bad_balance_table):
         nearby_table = nearest_table_for_statement_lines(report, lines, statement_type)
         if nearby_table:
             fallback = nearby_table

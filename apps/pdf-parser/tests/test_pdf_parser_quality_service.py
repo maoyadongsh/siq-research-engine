@@ -238,6 +238,53 @@ def test_balance_sheet_nearby_table_skips_average_balance_noise():
     assert matched["line"] == 100
 
 
+def test_statement_display_source_uses_nearby_balance_table_when_index_is_noise():
+    report = {
+        "table_index": [
+            {
+                "table_index": 1,
+                "line": 90,
+                "heading": "平均余额和平均收益率",
+                "preview": "平均余额 平均收益率 生息资产 利息收入/支出",
+            },
+            {
+                "table_index": 2,
+                "line": 98,
+                "heading": "合并资产负债表",
+                "preview": "流动资产 非流动资产 资产总计",
+            },
+        ]
+    }
+    statement = {
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "table_indexes": [1],
+        "line_numbers": [100],
+        "title": "合并资产负债表",
+    }
+
+    display_source = quality.statement_display_source(statement, report, "balance_sheet")
+
+    assert display_source["table_index"] == 2
+    assert display_source["line"] == 100
+    assert display_source["table_item"]["heading"] == "合并资产负债表"
+
+
+def test_nearest_table_for_statement_lines_ignores_non_numeric_lines():
+    report = {
+        "table_index": [
+            {
+                "table_index": 2,
+                "line": 98,
+                "heading": "合并资产负债表",
+                "preview": "流动资产 非流动资产 资产总计",
+            },
+        ]
+    }
+
+    assert quality.nearest_table_for_statement_lines(report, ["not-a-line"], "balance_sheet") is None
+
+
 def test_required_core_financial_table_names_excludes_equity_for_quarterly_reports():
     quarterly_names = quality.required_core_financial_table_names("quarterly_report")
     annual_names = quality.required_core_financial_table_names("annual_report")

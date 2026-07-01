@@ -52,5 +52,14 @@ def test_display_message_with_attachments_uses_path_name_when_filename_missing()
     assert result == "看下附件\n\n[文档: report.pdf](/api/chat/attachments/doc-1)"
 
 
+def test_display_message_with_attachments_uses_generic_label_when_name_missing():
+    result = agent_runtime_display._display_message_with_attachments(
+        "",
+        [{"kind": "document"}],
+    )
+
+    assert result == "请分析这个附件\n\n[文档: attachment]"
+
+
 def test_markdown_link_label_strips_whitespace_and_brackets():
     assert agent_runtime_display._markdown_link_label("  图[表]\nA  ") == "图(表) A"
