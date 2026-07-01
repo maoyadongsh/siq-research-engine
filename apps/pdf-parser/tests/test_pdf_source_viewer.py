@@ -229,3 +229,96 @@ def test_page_content_payload_matches_table_by_bbox_when_source_id_is_missing():
     assert table["caption"] == ["Content caption"]
     assert table["footnote"] == ["Content footnote"]
     assert table["missing_body"] is False
+
+
+def test_page_content_payload_matches_source_id_zero_to_first_table_body():
+    content_list = [
+        {"type": "text", "page_idx": 0, "text": "before table"},
+        {
+            "type": "table",
+            "page_idx": 0,
+            "bbox": [1, 2, 3, 4],
+            "table_body": "<table><tr><td>Zero source id</td></tr></table>",
+        },
+    ]
+    report = {
+        "table_index": [
+            {
+                "table_index": 21,
+                "content_table_source_id": 0,
+                "line": 210,
+                "pdf_page_number": 1,
+                "heading": "First table via zero source id",
+            }
+        ]
+    }
+
+    payload = page_content_payload_from_content_list(content_list, 1, report=report)
+    table = next(block for block in payload["blocks"] if block["type"] == "table")
+
+    assert table["table_index"] == 21
+    assert table["source_table_index"] == 1
+    assert table["heading"] == "First table via zero source id"
+    assert table["line"] == 210
+    assert payload["page_tables"] == [
+        {
+            "table_index": 21,
+            "source_table_index": 0,
+            "line": 210,
+            "heading": "First table via zero source id",
+            "printed_page_number": None,
+            "matched_financial_names": [],
+        }
+    ]
+
+
+def test_page_content_payload_ignores_invalid_report_table_rows():
+    content_list = [
+        {
+            "type": "table",
+            "page_idx": 0,
+            "bbox": [10, 20, 30, 40],
+            "table_body": "<table><tr><td>Clean table</td></tr></table>",
+        }
+    ]
+    report = {
+        "table_index": [
+            {
+                "table_index": "not-a-number",
+                "content_table_source_id": 1,
+                "line": 999,
+                "pdf_page_number": 1,
+                "heading": "Invalid table index",
+            },
+            {
+                "table_index": 22,
+                "content_table_source_id": 1,
+                "line": 220,
+                "pdf_page_number": "not-a-number",
+                "heading": "Invalid page number",
+            },
+        ]
+    }
+
+    payload = page_content_payload_from_content_list(content_list, 1, report=report)
+    table = payload["blocks"][0]
+
+    assert table["table_index"] == 1
+    assert table["source_table_index"] == 1
+    assert table["heading"] == ""
+    assert table["line"] is None
+    assert payload["page_tables"] == []
+
+
+def test_page_content_payload_raises_for_non_numeric_focus_table():
+    content_list = [
+        {
+            "type": "table",
+            "page_idx": 0,
+            "bbox": [1, 2, 3, 4],
+            "table_body": "<table><tr><td>Focus candidate</td></tr></table>",
+        }
+    ]
+
+    with pytest.raises(ValueError):
+        page_content_payload_from_content_list(content_list, 1, focus_table="not-a-number")

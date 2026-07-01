@@ -96,6 +96,10 @@ def page_content_payload_from_content_list(content_list, page_number, report=Non
                 continue
             if table_index <= 0:
                 continue
+            try:
+                item_pdf_page_number = int(item.get("pdf_page_number") or 0)
+            except (TypeError, ValueError):
+                continue
             table_lookup[table_index] = item
             source_id = item.get("content_table_source_id")
             if source_id is not None:
@@ -108,8 +112,8 @@ def page_content_payload_from_content_list(content_list, page_number, report=Non
                     pass
             bbox_key = _bbox_key(item.get("bbox"))
             if bbox_key is not None:
-                table_lookup_by_bbox[(int(item.get("pdf_page_number") or 0), bbox_key)] = item
-            if int(item.get("pdf_page_number") or 0) == page_number:
+                table_lookup_by_bbox[(item_pdf_page_number, bbox_key)] = item
+            if item_pdf_page_number == page_number:
                 page_tables.append(
                     {
                         "table_index": table_index,

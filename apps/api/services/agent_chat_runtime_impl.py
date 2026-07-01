@@ -61,6 +61,7 @@ from services import agent_runtime_financial_guard
 from services import agent_runtime_financial_format
 from services import agent_runtime_fallback_contexts
 from services import agent_runtime_postgres_fallback
+from services import agent_runtime_statement_context
 from services.agent_runtime_fallback_contexts import (
     _markdown_table_cell,
     _postgres_row_md_line,
@@ -3332,33 +3333,19 @@ def build_company_wiki_scope_context(message: str, context: Any | None = None) -
 
 
 def _iter_metric_records(obj: Any) -> list[dict[str, Any]]:
-    records: list[dict[str, Any]] = []
-    if isinstance(obj, dict):
-        if any(key in obj for key in ("metric_name", "metric_key", "canonical_name", "item_name", "statement_type", "source")):
-            records.append(obj)
-        for value in obj.values():
-            records.extend(_iter_metric_records(value))
-    elif isinstance(obj, list):
-        for item in obj:
-            records.extend(_iter_metric_records(item))
-    return records
+    return agent_runtime_statement_context.iter_metric_records(obj)
 
 
 def _period_sort_key(value: Any) -> tuple[int, str]:
-    text = str(value or "")
-    years = re.findall(r"20\d{2}", text)
-    year = int(years[0]) if years else 0
-    return (year, text)
+    return agent_runtime_statement_context.period_sort_key(value)
 
 
 def _record_source(record: dict[str, Any]) -> dict[str, Any]:
-    source = record.get("source")
-    return source if isinstance(source, dict) else {}
+    return agent_runtime_statement_context.record_source(record)
 
 
 def _record_source_value(record: dict[str, Any], key: str) -> Any:
-    source = _record_source(record)
-    return record.get(key) if record.get(key) not in (None, "") else source.get(key)
+    return agent_runtime_statement_context.record_source_value(record, key)
 
 
 def _normalize_wiki_metric_file_name(file_name: str) -> str:
@@ -3380,46 +3367,29 @@ def _normalize_wiki_metric_file_refs(markdown: str) -> str:
 
 
 def _statement_record_rank(record: dict[str, Any], statement_type: str) -> tuple[int, int, str]:
-    metric_key = str(record.get("metric_key") or record.get("canonical_name") or "")
-    name = str(record.get("metric_name") or record.get("name") or record.get("item_name") or "")
-    key_order = THREE_STATEMENT_CORE_KEYS.get(statement_type, ())
-    if metric_key in key_order:
-        return (0, key_order.index(metric_key), name)
-    if metric_key:
-        return (9, 999, name)
-    normalized_name = _normalize_financial_text(name)
-    for index, term in enumerate(THREE_STATEMENT_CORE_NAME_TERMS.get(statement_type, ())):
-        if _normalize_financial_text(term) in normalized_name:
-            return (1, index, name)
-    return (9, 999, name)
+    return agent_runtime_statement_context.statement_record_rank(
+        record,
+        statement_type,
+        core_keys=THREE_STATEMENT_CORE_KEYS,
+        core_name_terms=THREE_STATEMENT_CORE_NAME_TERMS,
+        normalize_financial_text=_normalize_financial_text,
+    )
 
 
 def _is_core_statement_record(record: dict[str, Any], statement_type: str) -> bool:
-    return _statement_record_rank(record, statement_type)[0] < 9
+    return agent_runtime_statement_context.is_core_statement_record(
+        record,
+        statement_type,
+        statement_record_rank_fn=_statement_record_rank,
+    )
 
 
 def _latest_records_by_statement(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    output: list[dict[str, Any]] = []
-    for statement_type in ("income_statement", "cash_flow_statement", "balance_sheet"):
-        statement_records = [
-            record
-            for record in records
-            if record.get("statement_type") == statement_type and _is_core_statement_record(record, statement_type)
-        ]
-        if not statement_records:
-            continue
-        latest_period = max(
-            (str(record.get("period") or _record_source(record).get("period") or "") for record in statement_records),
-            key=_period_sort_key,
-        )
-        latest_records = [
-            record
-            for record in statement_records
-            if str(record.get("period") or _record_source(record).get("period") or "") == latest_period
-        ]
-        latest_records.sort(key=lambda record: _statement_record_rank(record, statement_type))
-        output.extend(latest_records)
-    return output
+    return agent_runtime_statement_context.latest_records_by_statement(
+        records,
+        is_core_statement_record_fn=_is_core_statement_record,
+        statement_record_rank_fn=_statement_record_rank,
+    )
 
 
 def _evidence_url(task_id: Any, pdf_page: Any, table_index: Any, kind: str) -> str | None:
