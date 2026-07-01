@@ -541,6 +541,27 @@ class PdfParserResponseServiceTest(unittest.TestCase):
         self.assertIn("markdown_path", tasks[0])
         self.assertIn("markdown_path", tasks[1])
 
+    def test_recent_tasks_payload_wraps_normalized_list(self):
+        tasks = [
+            {
+                "task_id": "task-a",
+                "filename": "a.pdf",
+                "status": COMPLETED,
+                "stage": COMPLETED,
+                "created_at": "2026-05-01T00:00:00Z",
+            }
+        ]
+
+        payload = response_service.build_recent_tasks_payload(
+            tasks,
+            has_markdown_artifact=lambda _task: False,
+        )
+
+        self.assertIn("tasks", payload)
+        self.assertEqual(len(payload["tasks"]), 1)
+        self.assertEqual(payload["tasks"][0]["status"], COMPLETED_MISSING_ARTIFACT)
+        self.assertFalse(payload["tasks"][0]["markdown_ready"])
+
 
 class AppWrapperCompatibilityTest(unittest.TestCase):
     def test_task_duplicate_payload_wrapper_uses_response_service(self):
@@ -568,6 +589,27 @@ class AppWrapperCompatibilityTest(unittest.TestCase):
             self.assertEqual(app._recent_task_list_limit(), 1000)
         with patch.dict(os.environ, {"PDF_RECENT_TASK_LIMIT": "invalid"}):
             self.assertEqual(app._recent_task_list_limit(), 300)
+
+    def test_recent_tasks_payload_wrapper_uses_response_service(self):
+        tasks = [
+            {
+                "task_id": "task-wrapper",
+                "filename": "wrapper.pdf",
+                "status": COMPLETED,
+                "stage": COMPLETED,
+                "created_at": "2026-05-01T00:00:00Z",
+            }
+        ]
+
+        with patch.object(app, "_list_recent_tasks", return_value=tasks), patch.object(
+            app, "_has_markdown_artifact", return_value=False
+        ), patch.object(app, "_recent_task_list_limit", return_value=1):
+            payload = app._recent_tasks_payload()
+
+        self.assertEqual(len(payload["tasks"]), 1)
+        self.assertEqual(payload["tasks"][0]["task_id"], "task-wrapper")
+        self.assertEqual(payload["tasks"][0]["status"], COMPLETED_MISSING_ARTIFACT)
+        self.assertFalse(payload["tasks"][0]["markdown_ready"])
 
 
 class ApiLayerTest(unittest.TestCase):

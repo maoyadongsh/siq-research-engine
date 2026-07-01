@@ -48,6 +48,11 @@ import {
   selectedReportsForDownload,
   type SearchDownloadCompanyInfo,
 } from '../features/search-download/flows'
+import {
+  applySearchDownloadSearchParamsPatch,
+  buildSearchDownloadMarketFilterPatch,
+  type SearchDownloadSearchParamsUpdate,
+} from '../features/search-download/urlState'
 import { ReportTableSection } from '../features/search-download/ReportTableSection'
 import {
   MARKET_CONFIGS,
@@ -116,14 +121,9 @@ export default function SearchDownload() {
     loading: marketHealthLoading,
   })
 
-  const syncSearchParams = useCallback((next: { market?: MarketCode; q?: string; year?: string; exchange?: string; form?: string; country?: string; downloaded?: string; ask?: string }, replace = true) => {
-    const params = new URLSearchParams(searchParams)
-    for (const [key, value] of Object.entries(next)) {
-      const trimmed = String(value || '').trim()
-      if (trimmed) params.set(key, trimmed)
-      else params.delete(key)
-    }
-    setSearchParams(params, { replace })
+  const syncSearchParams = useCallback((next: SearchDownloadSearchParamsUpdate, replace = true) => {
+    const { searchParams: nextSearchParams, replace: nextReplace } = applySearchDownloadSearchParamsPatch(searchParams, next, replace)
+    setSearchParams(nextSearchParams, { replace: nextReplace })
   }, [searchParams, setSearchParams])
 
   const setQueryAndUrl = useCallback((value: string) => {
@@ -152,10 +152,7 @@ export default function SearchDownload() {
 
   const setMarketFilterAndUrl = useCallback((value: string) => {
     setMarketFilter(value)
-    const key = MARKET_CONFIGS[market].filterParam || 'exchange'
-    if (key === 'form') syncSearchParams({ form: value, exchange: '', country: '' })
-    else if (key === 'country') syncSearchParams({ country: value, exchange: '', form: '' })
-    else syncSearchParams({ exchange: value, form: '', country: '' })
+    syncSearchParams(buildSearchDownloadMarketFilterPatch(market, value))
   }, [market, syncSearchParams])
 
   const quickDownloadOptions = marketConfig.quickOptions

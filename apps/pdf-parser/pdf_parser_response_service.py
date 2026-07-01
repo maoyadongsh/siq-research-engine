@@ -32,6 +32,16 @@ def build_task_duplicate_payload(
     }
 
 
+def build_recent_tasks_payload(
+    tasks: list[Mapping[str, Any]],
+    *,
+    has_markdown_artifact: Callable[[Mapping[str, Any]], bool],
+) -> dict[str, Any]:
+    return {
+        "tasks": normalize_recent_tasks(tasks, has_markdown_artifact=has_markdown_artifact),
+    }
+
+
 def clamp_recent_task_limit(
     raw_value: Any,
     *,

@@ -290,6 +290,13 @@ def _recent_task_list_limit():
     return response_service.clamp_recent_task_limit(os.environ.get("PDF_RECENT_TASK_LIMIT", "300"))
 
 
+def _recent_tasks_payload():
+    return response_service.build_recent_tasks_payload(
+        _list_recent_tasks(limit=_recent_task_list_limit()),
+        has_markdown_artifact=_has_markdown_artifact,
+    )
+
+
 def _refresh_recent_tasks(limit=50):
     for task_id in task_repository.task_ids_for_recent_refresh(DB_PATH, limit=limit):
         task = _get_task(task_id)
@@ -4810,7 +4817,7 @@ def download_corrected(task_id):
 @app.route("/api/tasks", methods=["GET"])
 def list_tasks():
     _cleanup_old_data()
-    return jsonify({"tasks": _list_recent_tasks(limit=_recent_task_list_limit())})
+    return jsonify(_recent_tasks_payload())
 
 
 @app.route("/api/tasks/<task_id>", methods=["DELETE"])

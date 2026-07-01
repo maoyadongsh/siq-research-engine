@@ -52,7 +52,7 @@ export function isDocumentTerminal(status?: string) {
 
 export function useDocumentTasks(showToast: (message: string) => void) {
   const selectedTaskIdRef = useRef<string | null>(null)
-  const pollRef = useRef<ReturnType<typeof window.setInterval> | null>(null)
+  const pollRef = useRef<number | null>(null)
   const logCountRef = useRef(0)
 
   const [tasks, setTasks] = useState<DocumentTaskItem[]>([])

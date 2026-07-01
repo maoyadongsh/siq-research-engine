@@ -1,6 +1,5 @@
 import asyncio
 import base64
-import hashlib
 import html
 import importlib
 import importlib.util
@@ -30,6 +29,7 @@ from database import async_engine
 from models import ChatMessage, ChatSessionMemory
 from services.citation_links import append_missing_pdf_source_links
 from services.hermes_client import HermesProfile, collect_run_result, create_run, normalize_profile, stop_run, stream_run
+from services import agent_runtime_dedupe
 from services.agent_runtime_loop_guard import (
     CONSECUTIVE_TOOL_ERROR_LIMIT,
     HISTORY_LOOP_SANITIZED_MESSAGE,
@@ -1414,7 +1414,7 @@ def _recent_hermes_sessions(profile: HermesProfile, *, limit: int = 20) -> list[
 
 
 def _hash_text(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+    return agent_runtime_dedupe._hash_text(text)
 
 
 def normalize_plain_inline_latex(content: str | None) -> str:
@@ -1443,17 +1443,7 @@ def _analysis_completed_guard_applies(message: str) -> bool:
 
 
 def _dedupe_hash(message: str, context: Any | None) -> str:
-    if hasattr(context, "model_dump"):
-        raw_context = context.model_dump(exclude_none=True)
-    elif isinstance(context, dict):
-        raw_context = context
-    else:
-        raw_context = None
-    payload = {
-        "message": re.sub(r"\s+", " ", message).strip(),
-        "context": raw_context,
-    }
-    return _hash_text(json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str))
+    return agent_runtime_dedupe._dedupe_hash(message, context)
 
 
 def _attachment_dicts(attachments: Any | None) -> list[dict[str, Any]]:
@@ -1525,25 +1515,7 @@ def _attachment_reference_context(attachments: Any | None) -> str:
 
 
 def _dedupe_hash_with_attachments(message: str, context: Any | None, attachments: Any | None) -> str:
-    if hasattr(context, "model_dump"):
-        raw_context = context.model_dump(exclude_none=True)
-    elif isinstance(context, dict):
-        raw_context = context
-    else:
-        raw_context = None
-    payload = {
-        "message": re.sub(r"\s+", " ", message).strip(),
-        "context": raw_context,
-        "attachments": [
-            {
-                "id": str(item.get("id") or ""),
-                "path": str(item.get("path") or ""),
-                "size": int(item.get("size") or 0),
-            }
-            for item in _attachment_dicts(attachments)
-        ],
-    }
-    return _hash_text(json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str))
+    return agent_runtime_dedupe._dedupe_hash_with_attachments(message, context, attachments)
 
 
 def _image_attachment_data_url(item: dict[str, Any]) -> str | None:
