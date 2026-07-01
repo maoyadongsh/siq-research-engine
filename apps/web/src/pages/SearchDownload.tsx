@@ -38,6 +38,12 @@ import {
   type SearchDownloadLogEntry,
 } from '../features/search-download/logs'
 import {
+  buildDownloadedReportDeleteFailureToast,
+  buildDownloadedReportDeleteToast,
+  buildDownloadedReportOpenFailureToast,
+  shouldRefreshDownloadedReports,
+} from '../features/search-download/downloadStatus'
+import {
   batchDownloadSelectedReports,
   downloadReportsIndividually,
   fetchReportCandidates,
@@ -339,6 +345,10 @@ export default function SearchDownload() {
     }
   }, [market])
 
+  const refreshDownloadedReports = useCallback(() => {
+    void loadDownloadedReports(downloadedQuery)
+  }, [downloadedQuery, loadDownloadedReports])
+
   useEffect(() => {
     async function init() {
       await loadDownloadedReports('')
@@ -520,7 +530,7 @@ export default function SearchDownload() {
       })
       setDownloadResults(data.results)
       addLog(`下载完成: 成功 ${data.succeeded}, 失败 ${data.failed}`, 'success')
-      void loadDownloadedReports(downloadedQuery)
+      if (shouldRefreshDownloadedReports(data.results)) refreshDownloadedReports()
     } catch (err) {
       addLog(`批量下载失败: ${(err as Error).message}, 尝试逐个下载...`, 'warn')
 
@@ -532,6 +542,7 @@ export default function SearchDownload() {
       for (const result of fallbackResults) {
         addLog(`${result.success ? '下载成功' : '下载失败'}: ${result.report.title}`, result.success ? 'success' : 'error')
       }
+      if (shouldRefreshDownloadedReports(fallbackResults)) refreshDownloadedReports()
     } finally {
       setDownloading(false)
       addLog('全部下载任务完成', 'success')
@@ -555,7 +566,7 @@ export default function SearchDownload() {
       })
       setDownloadResults(data.files)
       addLog(`下载完成: ${data.companyName} 成功 ${data.succeeded}/${data.total}`, 'success')
-      void loadDownloadedReports(downloadedQuery)
+      if (shouldRefreshDownloadedReports(data.files)) refreshDownloadedReports()
     } catch (e) {
       addLog(`下载失败: ${(e as Error).message}`, 'error')
     } finally {
@@ -569,9 +580,9 @@ export default function SearchDownload() {
       await deleteDownloadedReportApi(report.relativePath)
       setDownloadedReports((current) => current.filter((item) => item.id !== report.id))
       setConfirmDeletePath('')
-      toast({ type: 'success', title: '文件已删除', description: report.filename })
+      toast(buildDownloadedReportDeleteToast(report))
     } catch {
-      toast({ type: 'error', title: '删除失败', description: '请确认后端服务可用，且文件仍在 downloads 目录内。' })
+      toast(buildDownloadedReportDeleteFailureToast())
     } finally {
       setDeletingPath('')
     }
@@ -581,7 +592,7 @@ export default function SearchDownload() {
     try {
       await openAuthenticatedSourceLink(report.url || `/api/downloads/report-file?path=${encodeURIComponent(report.relativePath)}`)
     } catch {
-      toast({ type: 'error', title: '打开失败', description: '请确认登录状态有效，且文件仍在 downloads 目录内。' })
+      toast(buildDownloadedReportOpenFailureToast())
     }
   }
 
@@ -939,7 +950,7 @@ export default function SearchDownload() {
         confirmDeletePath={confirmDeletePath}
         deletingPath={deletingPath}
         onQueryChange={setDownloadedQueryAndUrl}
-        onRefresh={() => loadDownloadedReports(downloadedQuery)}
+        onRefresh={refreshDownloadedReports}
         onOpen={(report) => void openDownloadedReport(report)}
         onRequestDelete={setConfirmDeletePath}
         onConfirmDelete={(report) => void deleteDownloadedReport(report)}

@@ -85,6 +85,10 @@ def normalized_intent_text(message: str | None) -> str:
     return re.sub(r"\s+", "", message or "").lower()
 
 
+def compact_intent_text(message: str | None) -> str:
+    return re.sub(r"\s+", "", message or "")
+
+
 def force_rebuild_requested(message: str | None, terms: Sequence[str]) -> bool:
     raw_message = message or ""
     return any(term in raw_message for term in terms)
@@ -123,6 +127,149 @@ def should_use_analysis_completion_guard(
         report_terms=report_terms,
         generation_terms=generation_terms,
     )
+
+
+def statement_query_applies(
+    message: str | None,
+    *,
+    statement_terms: Sequence[str],
+    is_general_assistant_request: Callable[[str], bool],
+) -> bool:
+    text = compact_intent_text(message)
+    if is_general_assistant_request(text):
+        return False
+    return bool(text and any(term in text for term in statement_terms))
+
+
+def note_detail_query_applies(
+    message: str | None,
+    *,
+    note_detail_query_terms: Sequence[str],
+    note_detail_exclude_terms: Sequence[str],
+    financial_note_metric_terms: Sequence[str],
+    statement_terms: Sequence[str],
+    is_general_assistant_request: Callable[[str], bool],
+) -> bool:
+    text = compact_intent_text(message)
+    if not text:
+        return False
+    if is_general_assistant_request(text):
+        return False
+    if any(term in text for term in note_detail_exclude_terms):
+        return False
+    has_detail_intent = any(term in text for term in note_detail_query_terms)
+    has_note_metric = any(term in text for term in financial_note_metric_terms)
+    if statement_query_applies(
+        text,
+        statement_terms=statement_terms,
+        is_general_assistant_request=is_general_assistant_request,
+    ) and not (has_detail_intent and has_note_metric):
+        return False
+    return has_detail_intent
+
+
+def direct_note_detail_answer_applies(
+    message: str | None,
+    *,
+    note_detail_query_terms: Sequence[str],
+    note_detail_exclude_terms: Sequence[str],
+    note_detail_direct_terms: Sequence[str],
+    note_detail_analysis_terms: Sequence[str],
+    financial_note_metric_terms: Sequence[str],
+    statement_terms: Sequence[str],
+    is_general_assistant_request: Callable[[str], bool],
+) -> bool:
+    text = compact_intent_text(message)
+    if not note_detail_query_applies(
+        text,
+        note_detail_query_terms=note_detail_query_terms,
+        note_detail_exclude_terms=note_detail_exclude_terms,
+        financial_note_metric_terms=financial_note_metric_terms,
+        statement_terms=statement_terms,
+        is_general_assistant_request=is_general_assistant_request,
+    ):
+        return False
+    if any(term in text for term in note_detail_analysis_terms):
+        return False
+    return any(term in text for term in note_detail_direct_terms)
+
+
+def financial_note_metric_query_applies(
+    message: str | None,
+    *,
+    note_detail_query_terms: Sequence[str],
+    note_detail_exclude_terms: Sequence[str],
+    financial_note_metric_terms: Sequence[str],
+    financial_evidence_action_terms: Sequence[str],
+    statement_terms: Sequence[str],
+    is_general_assistant_request: Callable[[str], bool],
+) -> bool:
+    text = compact_intent_text(message)
+    if not text:
+        return False
+    if is_general_assistant_request(text):
+        return False
+    if any(term in text for term in note_detail_exclude_terms):
+        return False
+    has_detail_intent = any(term in text for term in note_detail_query_terms)
+    if statement_query_applies(
+        text,
+        statement_terms=statement_terms,
+        is_general_assistant_request=is_general_assistant_request,
+    ) and not has_detail_intent:
+        return False
+    return (
+        any(term in text for term in financial_note_metric_terms)
+        and any(term in text for term in financial_evidence_action_terms)
+    )
+
+
+def note_detail_context_applies(
+    message: str | None,
+    *,
+    note_detail_query_terms: Sequence[str],
+    note_detail_exclude_terms: Sequence[str],
+    financial_note_metric_terms: Sequence[str],
+    financial_evidence_action_terms: Sequence[str],
+    statement_terms: Sequence[str],
+    is_general_assistant_request: Callable[[str], bool],
+) -> bool:
+    return note_detail_query_applies(
+        message,
+        note_detail_query_terms=note_detail_query_terms,
+        note_detail_exclude_terms=note_detail_exclude_terms,
+        financial_note_metric_terms=financial_note_metric_terms,
+        statement_terms=statement_terms,
+        is_general_assistant_request=is_general_assistant_request,
+    ) or financial_note_metric_query_applies(
+        message,
+        note_detail_query_terms=note_detail_query_terms,
+        note_detail_exclude_terms=note_detail_exclude_terms,
+        financial_note_metric_terms=financial_note_metric_terms,
+        financial_evidence_action_terms=financial_evidence_action_terms,
+        statement_terms=statement_terms,
+        is_general_assistant_request=is_general_assistant_request,
+    )
+
+
+def direct_statement_answer_applies(
+    message: str | None,
+    *,
+    statement_terms: Sequence[str],
+    statement_direct_terms: Sequence[str],
+    note_detail_analysis_terms: Sequence[str],
+    is_general_assistant_request: Callable[[str], bool],
+) -> bool:
+    text = compact_intent_text(message)
+    if not statement_query_applies(
+        text,
+        statement_terms=statement_terms,
+        is_general_assistant_request=is_general_assistant_request,
+    ):
+        return False
+    if any(term in text for term in note_detail_analysis_terms):
+        return False
+    return any(term in text for term in statement_direct_terms)
 
 
 def forced_context_company_dir(context: Any | None, *, wiki_root: Path) -> Path | None:
@@ -365,3 +512,44 @@ def build_hermes_multimodal_run_input(
         if data_url:
             parts.append({"type": "image_url", "image_url": {"url": data_url}})
     return [{"role": "user", "content": parts}]
+
+
+def attachment_dicts(attachments: Any | None) -> list[dict[str, Any]]:
+    if not attachments:
+        return []
+    items: list[dict[str, Any]] = []
+    for item in attachments:
+        if hasattr(item, "model_dump"):
+            raw = item.model_dump()
+        elif isinstance(item, dict):
+            raw = dict(item)
+        else:
+            continue
+        path = str(raw.get("path") or "").strip()
+        if not path:
+            continue
+        items.append(raw)
+    return items
+
+
+def attachment_dicts_for_kind(attachments: Any | None, kind: str, *, default_kind: str = "") -> list[dict[str, Any]]:
+    return [
+        item
+        for item in attachment_dicts(attachments)
+        if str(item.get("kind") or default_kind) == kind
+    ]
+
+
+def image_attachment_dicts(attachments: Any | None) -> list[dict[str, Any]]:
+    return attachment_dicts_for_kind(attachments, "image", default_kind="image")
+
+
+def document_attachment_dicts(attachments: Any | None) -> list[dict[str, Any]]:
+    return attachment_dicts_for_kind(attachments, "document")
+
+
+def should_reuse_recent_attachments(message: str | None, followup_pattern: re.Pattern[str]) -> bool:
+    text = compact_intent_text(message)
+    if not text:
+        return False
+    return bool(followup_pattern.search(text))

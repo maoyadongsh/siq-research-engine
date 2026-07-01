@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 from services import agent_runtime_context
@@ -126,6 +127,96 @@ def test_general_assistant_request_and_context_input():
     assert text.splitlines()[0] == "GENERAL"
     assert "当前智能体 profile: siq_assistant" in text
     assert "当前智能体名称: 通用助手" in text
+
+
+def test_financial_intent_helpers_are_parameterized_and_exclude_general_requests():
+    is_general = lambda message: agent_runtime_context.is_general_assistant_request(
+        message,
+        request_terms=("你能做什么",),
+        subject_terms=("你", "助手"),
+    )
+    statement_terms = ("营业收入", "现金流")
+    note_terms = ("明细", "构成")
+    note_metric_terms = ("商誉", "营业收入")
+    action_terms = (*note_terms, "多少")
+
+    assert agent_runtime_context.statement_query_applies(
+        "营业 收入是多少？",
+        statement_terms=statement_terms,
+        is_general_assistant_request=is_general,
+    )
+    assert not agent_runtime_context.statement_query_applies(
+        "你能做什么？可以回答营业收入吗？",
+        statement_terms=statement_terms,
+        is_general_assistant_request=is_general,
+    )
+    assert agent_runtime_context.note_detail_query_applies(
+        "商誉构成明细",
+        note_detail_query_terms=note_terms,
+        note_detail_exclude_terms=("生成报告",),
+        financial_note_metric_terms=note_metric_terms,
+        statement_terms=statement_terms,
+        is_general_assistant_request=is_general,
+    )
+    assert not agent_runtime_context.note_detail_query_applies(
+        "营业收入是多少",
+        note_detail_query_terms=note_terms,
+        note_detail_exclude_terms=("生成报告",),
+        financial_note_metric_terms=note_metric_terms,
+        statement_terms=statement_terms,
+        is_general_assistant_request=is_general,
+    )
+    assert agent_runtime_context.financial_note_metric_query_applies(
+        "商誉多少",
+        note_detail_query_terms=note_terms,
+        note_detail_exclude_terms=("生成报告",),
+        financial_note_metric_terms=note_metric_terms,
+        financial_evidence_action_terms=action_terms,
+        statement_terms=statement_terms,
+        is_general_assistant_request=is_general,
+    )
+    assert agent_runtime_context.direct_statement_answer_applies(
+        "现金流核心数据",
+        statement_terms=statement_terms,
+        statement_direct_terms=("核心数据",),
+        note_detail_analysis_terms=("分析",),
+        is_general_assistant_request=is_general,
+    )
+    assert not agent_runtime_context.direct_statement_answer_applies(
+        "现金流分析",
+        statement_terms=statement_terms,
+        statement_direct_terms=("核心数据", "分析"),
+        note_detail_analysis_terms=("分析",),
+        is_general_assistant_request=is_general,
+    )
+
+
+def test_attachment_helpers_normalize_and_classify_payloads():
+    attachments = [
+        _ModelLike({"kind": "image", "path": " /tmp/chart.png ", "filename": "chart.png"}),
+        {"kind": "document", "path": "/tmp/report.pdf"},
+        {"path": "/tmp/default-image.png"},
+        {"kind": "image", "path": " "},
+        object(),
+    ]
+
+    items = agent_runtime_context.attachment_dicts(attachments)
+
+    assert [item["path"] for item in items] == [
+        " /tmp/chart.png ",
+        "/tmp/report.pdf",
+        "/tmp/default-image.png",
+    ]
+    assert [item["path"] for item in agent_runtime_context.image_attachment_dicts(items)] == [
+        " /tmp/chart.png ",
+        "/tmp/default-image.png",
+    ]
+    assert agent_runtime_context.document_attachment_dicts(items) == [{"kind": "document", "path": "/tmp/report.pdf"}]
+    assert agent_runtime_context.should_reuse_recent_attachments(
+        "继续看刚才那张图",
+        re.compile(r"(继续|刚才|图片)"),
+    )
+    assert not agent_runtime_context.should_reuse_recent_attachments("", re.compile(r"继续"))
 
 
 def test_session_context_scoping_helpers_build_prompt_text():

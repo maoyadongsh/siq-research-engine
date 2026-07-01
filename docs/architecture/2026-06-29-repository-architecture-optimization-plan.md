@@ -47,10 +47,10 @@ Web 工作台
 - 已完成阶段性拆分：`P-001` 已将 PDF parser 入口 façade、请求 helper、运行时 helper、page marker、SQLite task repository、artifact service 和 source service 下沉；`A-001` 已将 Agent runtime 入口 façade、loop guard 和 progress/tool-label helper 下沉。
 - 进展补充：`F-002` 已补齐共享 workbench 和市场隔离验证；`F-003` 已新增 `shared/api/client.ts`，并将 `pdfApi`、`documentApi`、`secApi`、`Settings`、`Dashboard`、`ReportViewer`、`NotificationMenu`、`VectorIngest`、`ChatAttachmentList`、`DocumentResultWorkbench`、`PdfSourceWorkbench` 迁入共享请求层和 feature 门面；业务组件/页面已不再直接导入 `lib/apiClient`、`lib/pdfApi`、`lib/secApi`、`lib/documentApi`，E2E/mock 规则也已修正。
 - 已完成：`R-003` 已按主题拆成 8 个提交，运行态/构建产物仍保持 ignored，不进入索引。
-- 进展补充：`F-004` 已完成 `PdfSourceWorkbench.tsx` 第二阶段拆分，新增 `pdfSourceWorkbenchHelpers.ts`，把页码/bbox、跨页表关系、overlay 构建和物理表合并等纯 helper 搬出；`SearchDownload.tsx` 已完成 model/table/downloaded panel、search/download flows、URL state 纯 helper 和日志派生拆分；`index.css` 已将 search/download、dashboard、通用 surface/button/search、quick-question、chat rendered/table/code、agent dock/composer 与 chat page shell 样式迁到 `styles/search-download.css`、`styles/dashboard.css`、`styles/system-surfaces.css`、`styles/quick-questions.css`、`styles/chat.css`；`DocumentResultWorkbench.tsx` 已完成纯 utils、source preview、artifact/table/figure/status/extract/markdown panes 与 source lookup 拆分，父组件保留 overlay `data-*`、mobile tab、refs、selection/scroll 和 resource open owner；移动端工作平台/系统平台宽度不一致已用响应式 E2E 固化。
-- 进展补充：`P-002` 已完成 quality/financial/document_full/content_list_enhanced/MinerU result 第一轮边界拆分，新增 `pdf_parser_quality_service.py`、`pdf_parser_financial_service.py`、`pdf_parser_document_full_service.py`、`pdf_parser_content_list_enhanced_service.py`、`pdf_parser_mineru_result_service.py`、`pdf_parser_response_service.py` 与聚焦测试；`pdf_parser_document_full_service.py` 已继续收拢 table relations payload 和 content_list_enhanced 回写 document_full 的纯 payload helper；`pdf_parser_content_list_enhanced_service.py` 已继续收拢 `build_content_list_enhanced_payload` 顶层 payload 组装、table source 映射/匹配、打印页码映射、Markdown 页码推断 helper 和 enhanced quality signals 聚合；`pdf_parser_app_impl.py` 仍保留 Flask route response、task state、queue claim、路径存在性、文件写入、`_fetch_and_cache_result` 和 `_ensure_*` 重编排 owner。
-- 进展补充：`A-002` 已完成 tool output、parse-only discovery、attachment display、citation/evidence 渲染 helper、PostgreSQL fallback row helpers、local-memory 纯 helper、runtime dedupe helper、context/company helper、analysis completion guard intent helper、general assistant context input helper、multi-company session context helper 和 Hermes run input text/multimodal helper 下沉，新增/扩展 `agent_runtime_tool_output.py`、`agent_runtime_parse_only.py`、`agent_runtime_display.py`、`agent_runtime_citations.py`、`agent_runtime_fallback_contexts.py`、`agent_runtime_memory.py`、`agent_runtime_dedupe.py`、`agent_runtime_context.py` 与聚焦测试；`agent_chat_runtime_impl.py` 仍保留 `ACTIVE_RUNS`、SSE append、run lifecycle、DB session memory 刷新和普通 chat/streaming 共享状态 owner。
-- 当前建议：下一轮优先继续清理 `index.css` 剩余全局/响应式样式或开始收紧 `SearchDownload.tsx` toast/download refresh 共享状态派生；PDF parser 继续只搬 document_full/content_list_enhanced 的纯 payload/resource helper；Agent runtime 继续 context/intent/build-input 周边纯 helper 迁移。继续避开 `ACTIVE_RUNS` 和本地 queue claim 这两个状态 owner。
+- 进展补充：`F-004` 已完成 `PdfSourceWorkbench.tsx` 第二阶段拆分，新增 `pdfSourceWorkbenchHelpers.ts`，把页码/bbox、跨页表关系、overlay 构建和物理表合并等纯 helper 搬出；`SearchDownload.tsx` 已完成 model/table/downloaded panel、search/download flows、URL state、日志派生、download refresh 判定和 toast 文案 helper 拆分；`index.css` 已将 search/download、dashboard、通用 surface/button/search、quick-question、chat rendered/table/code、agent dock/composer 与 chat page shell 样式迁到 `styles/search-download.css`、`styles/dashboard.css`、`styles/system-surfaces.css`、`styles/quick-questions.css`、`styles/chat.css`；`DocumentResultWorkbench.tsx` 已完成纯 utils、source preview、artifact/table/figure/status/extract/markdown panes 与 source lookup 拆分，父组件保留 overlay `data-*`、mobile tab、refs、selection/scroll 和 resource open owner；移动端工作平台/系统平台宽度不一致已用响应式 E2E 固化。
+- 进展补充：`P-002` 已完成 quality/financial/document_full/content_list_enhanced/MinerU result 第一轮边界拆分，新增 `pdf_parser_quality_service.py`、`pdf_parser_financial_service.py`、`pdf_parser_document_full_service.py`、`pdf_parser_content_list_enhanced_service.py`、`pdf_parser_mineru_result_service.py`、`pdf_parser_response_service.py` 与聚焦测试；`pdf_parser_document_full_service.py` 已继续收拢 table relations payload 和 content_list_enhanced 回写 document_full 的纯 payload helper；`pdf_parser_content_list_enhanced_service.py` 已继续收拢 `build_content_list_enhanced_payload` 顶层 payload 组装、table source 映射/匹配、打印页码映射、Markdown 页码推断、脚注/Markdown 行号、目录/标题 helper 和 enhanced quality signals 聚合；`pdf_parser_app_impl.py` 仍保留 Flask route response、task state、queue claim、路径存在性、文件写入、`_fetch_and_cache_result` 和 `_ensure_*` 重编排 owner。
+- 进展补充：`A-002` 已完成 tool output、parse-only discovery、attachment display、citation/evidence 渲染 helper、PostgreSQL fallback row helpers、local-memory 纯 helper、runtime dedupe helper、context/company helper、analysis completion guard intent helper、general assistant context input helper、multi-company session context helper、Hermes run input text/multimodal helper、statement/note detail intent helper 和 attachment classification helper 下沉，新增/扩展 `agent_runtime_tool_output.py`、`agent_runtime_parse_only.py`、`agent_runtime_display.py`、`agent_runtime_citations.py`、`agent_runtime_fallback_contexts.py`、`agent_runtime_memory.py`、`agent_runtime_dedupe.py`、`agent_runtime_context.py` 与聚焦测试；`agent_chat_runtime_impl.py` 仍保留 `ACTIVE_RUNS`、SSE append、run lifecycle、DB session memory 刷新和普通 chat/streaming 共享状态 owner。
+- 当前建议：按 0.3 的剩余工作量评估继续推进。下一轮优先把 `DocumentResultWorkbench.tsx` json preview / page overlay derivation、PDF parser document_full/resource 纯 helper 或 quality/financial 测试补强、Agent runtime citations/display/parse-only 只读 helper 补齐分给并行窗口；继续避开 `ACTIVE_RUNS`、SSE lifecycle 和本地 queue claim 这几个状态 owner。
 
 ### 0.2 2026-06-30 深度全量检查结论
 
@@ -59,7 +59,7 @@ Web 工作台
 - 仓库索引治理有效：`git ls-files data` 只剩 `data/README.md`、`data/backend/.gitkeep`、`data/pdf-parser/.gitkeep`。
 - `R-003` 之前工作树非常脏：`git status --short | wc -l` 约 725 行，包含大量已从索引移出的 data 删除项、前端/后端重构改动、未跟踪新模块和生成目录；该风险已通过分组 review/提交收口。
 - `.gitignore` 已覆盖 `data/**`、`var/**`、`artifacts/**`、`**/.venv/`、`**/.pytest_cache/`、`**/__pycache__/`、`apps/web/dist/`、`apps/web/test-results/`、`apps/web/playwright-report/` 等运行态和生成目录；本地仍存在大量 ignored cache/runtime 目录，不应纳入提交。
-- 当前最大剩余大文件：`agent_chat_runtime_impl.py` 约 6622 行、`pdf_parser_app_impl.py` 已降至约 4417 行、`apps/web/src/index.css` 已降至约 222 行，`apps/web/src/styles/chat.css` 约 1121 行，`SearchDownload.tsx` 已降至约 950 行，`DocumentResultWorkbench.tsx` 已降至约 591 行；`PdfSourceWorkbench.tsx` 已降至约 708 行，新增的 `pdfSourceWorkbenchHelpers.ts` 约 742 行，后续可继续按 UI/数据派生边界拆分。
+- 当前最大剩余大文件：`agent_chat_runtime_impl.py` 已降至约 6604 行、`pdf_parser_app_impl.py` 已降至约 4195 行、`apps/web/src/index.css` 已降至约 222 行，`apps/web/src/styles/chat.css` 约 1121 行，`SearchDownload.tsx` 约 961 行但 download refresh/toast 派生已拆到 feature helper，`DocumentResultWorkbench.tsx` 已降至约 591 行；`PdfSourceWorkbench.tsx` 已降至约 708 行，新增的 `pdfSourceWorkbenchHelpers.ts` 约 742 行，后续可继续按 UI/数据派生边界拆分。
 - 前端 route registry 已单源化；API client 核心能力已收口到 `shared/api/client.ts`，业务组件/页面已迁到 `features/*/api.ts` 或 shared client；`lib/apiClient`、`lib/pdfApi`、`lib/secApi`、`lib/documentApi` 暂作为 feature 门面的兼容适配层保留。
 - PDF parser 已完成入口 façade、request/runtime/page-marker/task-repository/artifact/source 第一阶段拆分；quality/financial/document_full/content_list_enhanced/MinerU 原始产物落盘已完成第一轮 service 下沉，`pdf_parser_app_impl.py` 仍保留任务状态、路由响应、queue claim 和 `_ensure_*` 编排。
 - Agent runtime 已完成入口 façade、loop guard、progress/tool label、tool output normalization、parse-only discovery、display normalization、citation/evidence 渲染 helper、PostgreSQL fallback row helpers 与 local-memory 纯 helper 第一阶段拆分；`ACTIVE_RUNS`、SSE run owner、普通 chat 与 streaming 的共享状态仍必须留在 `agent_chat_runtime_impl.py`，下一阶段只搬同类纯函数。
@@ -82,6 +82,48 @@ bash -n start_all.sh && find scripts infra apps services -type f -name '*.sh' -p
 ```
 
 以上验证说明主要功能基线是绿的。合并前仍需确保本轮新增源码和文档按主题提交，且 ignored runtime/cache/build 目录不进入索引。
+
+### 0.3 2026-07-01 剩余工作量评估与下一轮任务池
+
+本轮以后剩余工作不再适合按“大模块一次性拆完”推进，应继续按小 PR / 小提交切片。粗估如下：
+
+- `F-004` 前端 feature 化与样式收口：剩余约 2-4 个小轮次，约 0.5-1 天。
+  1. `SearchDownload.tsx` toast / download refresh / 下载状态派生收口已完成；状态 owner 留页面层，新增 `features/search-download/downloadStatus.ts` 和直接单测。
+  2. `DocumentResultWorkbench.tsx` json preview / page overlay derivation：中等风险，1-2 个提交；继续避开 refs、selection、scroll 和 resource open owner。
+  3. `index.css` 剩余全局/响应式样式审计：低到中等风险，1 个提交；不与 `PDF_CSS` / `DOCUMENT_CSS` 运行时字符串迁移混做。
+  4. feature API 显式导出清理：低到中等风险，1 个提交；`lib/*Api` 兼容出口暂留。
+- `P-002` / `P-001` PDF parser 边界拆分：剩余约 3-6 个小轮次，约 1-2 天。
+  1. `content_list_enhanced` 脚注、目录、Markdown 页码派生 helper 已继续下沉；`pdf_parser_app_impl.py` 仅保留兼容 wrapper，并补 service 级单测。
+  2. `document_full` resource / table relation / open resolver payload helper 继续下沉：低到中等风险，1 个提交。
+  3. quality / financial 纯规则测试补强：中等风险，1-2 个提交；不改变 `_ensure_quality_report` 和重算时机。
+  4. `pdf_parser_app_impl.py` 状态 owner 清单化：低风险，文档或小范围注释；queue claim / worker / Flask response 不在低风险拆分中修改。
+- `A-002` / `A-001` Agent runtime 纯函数拆分：剩余约 4-7 个小轮次，约 1-2.5 天。
+  1. Hermes run input / session context / intent 周边 helper 已继续下沉；`agent_runtime_context.py` 新增 statement/note detail intent 与 attachment classification helper，保持普通 chat 和 streaming 调用顺序不变。
+  2. citations / display / parse-only 只读 helper 补齐：低到中等风险，1-2 个提交；优先增加直接单测。
+  3. attachments / history / local-memory owner 拆分前置覆盖：高风险，至少 2 个提交；未补足覆盖前不迁移真实 owner。
+  4. `ACTIVE_RUNS`、SSE event append、run lifecycle：高风险，暂缓到单独设计窗口。
+- 验证与文档：每轮都要做，约占开发时间 20%-30%。最低门禁为聚焦测试、`git diff --check`；涉及前端页面时跑 `npm run check:frontend`，涉及 PDF parser 时跑对应 service tests，涉及 Agent runtime 时跑对应 `apps/api` 聚焦测试。
+
+本轮并行执行结果：
+
+1. 前端窗口：完成 `SearchDownload.tsx` download refresh 判定、toast 文案 helper 和直接单测；页面继续保留下载状态 owner。
+2. PDF parser 窗口：完成 `content_list_enhanced` 脚注、Markdown 行号、目录/标题 helper 下沉和直接单测；`pdf_parser_app_impl.py` 继续保留 `_ensure_*` 编排 owner。
+3. Agent runtime 窗口：完成 statement/note detail intent 和 attachment classification helper 下沉；`ACTIVE_RUNS`、SSE、DB session memory refresh 仍留在 impl。
+4. 本轮聚焦验证：`cd apps/web && npm run check:frontend` 通过；`cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_context.py tests/test_agent_chat_runtime_attachments.py::test_attachment_followup_reuses_recent_attachment_intent tests/test_agent_chat_runtime_loops.py::test_agent_intro_does_not_inject_statement_context -q` 通过，11 passed；`cd apps/pdf-parser && python3 -m pytest tests/test_pdf_parser_content_list_enhanced_service.py tests/test_page_markers.py -q` 通过，72 passed。
+
+下一轮并行执行队列：
+
+1. 前端窗口：继续 `DocumentResultWorkbench.tsx` json preview / page overlay derivation；仍不拆 refs、selection、scroll 和 resource open owner。
+2. PDF parser 窗口：继续 `document_full` resource / table relation / open resolver payload helper，或补 quality / financial 纯规则覆盖。
+3. Agent runtime 窗口：继续 citations / display / parse-only 只读 helper 补齐；真实 attachments/history/local-memory owner 拆分前先补覆盖。
+4. 主线收口：合并上述改动后更新本节状态，跑聚焦验证，并按主题提交。
+
+本阶段明确暂缓：
+
+- 不拆 `ACTIVE_RUNS` 和 SSE lifecycle owner。
+- 不改 PDF parser 本地 queue worker / claim / Flask response owner。
+- 不迁移 `PDF_CSS` / `DOCUMENT_CSS` 运行时注入字符串。
+- 不把 DocumentResultWorkbench 的 refs / selection / scroll owner 提前分散。
 
 ## 1. 当前架构事实
 

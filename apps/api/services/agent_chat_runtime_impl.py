@@ -1450,42 +1450,19 @@ def _dedupe_hash(message: str, context: Any | None) -> str:
 
 
 def _attachment_dicts(attachments: Any | None) -> list[dict[str, Any]]:
-    if not attachments:
-        return []
-    items: list[dict[str, Any]] = []
-    for item in attachments:
-        if hasattr(item, "model_dump"):
-            raw = item.model_dump()
-        elif isinstance(item, dict):
-            raw = dict(item)
-        else:
-            continue
-        path = str(raw.get("path") or "").strip()
-        if not path:
-            continue
-        items.append(raw)
-    return items
+    return agent_runtime_context.attachment_dicts(attachments)
 
 
 def _image_attachment_dicts(attachments: Any | None) -> list[dict[str, Any]]:
-    return [
-        item for item in _attachment_dicts(attachments)
-        if str(item.get("kind") or "image") == "image"
-    ]
+    return agent_runtime_context.image_attachment_dicts(attachments)
 
 
 def _document_attachment_dicts(attachments: Any | None) -> list[dict[str, Any]]:
-    return [
-        item for item in _attachment_dicts(attachments)
-        if str(item.get("kind") or "") == "document"
-    ]
+    return agent_runtime_context.document_attachment_dicts(attachments)
 
 
 def _should_reuse_recent_attachments(message: str) -> bool:
-    text = re.sub(r"\s+", "", message or "")
-    if not text:
-        return False
-    return bool(ATTACHMENT_FOLLOWUP_RE.search(text))
+    return agent_runtime_context.should_reuse_recent_attachments(message, ATTACHMENT_FOLLOWUP_RE)
 
 
 def _attachment_reference_context(attachments: Any | None) -> str:
@@ -2634,64 +2611,69 @@ def _is_general_assistant_request(message: str) -> bool:
 
 
 def _is_note_detail_query(message: str) -> bool:
-    text = re.sub(r"\s+", "", message or "")
-    if not text:
-        return False
-    if _is_general_assistant_request(text):
-        return False
-    if any(term in text for term in NOTE_DETAIL_EXCLUDE_TERMS):
-        return False
-    has_detail_intent = any(term in text for term in NOTE_DETAIL_QUERY_TERMS)
-    has_note_metric = any(term in text for term in FINANCIAL_NOTE_METRIC_TERMS)
-    if _is_statement_query(text) and not (has_detail_intent and has_note_metric):
-        return False
-    return has_detail_intent
+    return agent_runtime_context.note_detail_query_applies(
+        message,
+        note_detail_query_terms=NOTE_DETAIL_QUERY_TERMS,
+        note_detail_exclude_terms=NOTE_DETAIL_EXCLUDE_TERMS,
+        financial_note_metric_terms=FINANCIAL_NOTE_METRIC_TERMS,
+        statement_terms=STATEMENT_QUERY_TERMS,
+        is_general_assistant_request=_is_general_assistant_request,
+    )
 
 
 def _should_direct_answer_note_detail(message: str) -> bool:
-    text = re.sub(r"\s+", "", message or "")
-    if not _is_note_detail_query(text):
-        return False
-    if any(term in text for term in NOTE_DETAIL_ANALYSIS_TERMS):
-        return False
-    return any(term in text for term in NOTE_DETAIL_DIRECT_TERMS)
+    return agent_runtime_context.direct_note_detail_answer_applies(
+        message,
+        note_detail_query_terms=NOTE_DETAIL_QUERY_TERMS,
+        note_detail_exclude_terms=NOTE_DETAIL_EXCLUDE_TERMS,
+        note_detail_direct_terms=NOTE_DETAIL_DIRECT_TERMS,
+        note_detail_analysis_terms=NOTE_DETAIL_ANALYSIS_TERMS,
+        financial_note_metric_terms=FINANCIAL_NOTE_METRIC_TERMS,
+        statement_terms=STATEMENT_QUERY_TERMS,
+        is_general_assistant_request=_is_general_assistant_request,
+    )
 
 
 def _is_financial_note_metric_query(message: str) -> bool:
-    text = re.sub(r"\s+", "", message or "")
-    if not text:
-        return False
-    if _is_general_assistant_request(text):
-        return False
-    if any(term in text for term in NOTE_DETAIL_EXCLUDE_TERMS):
-        return False
-    has_detail_intent = any(term in text for term in NOTE_DETAIL_QUERY_TERMS)
-    if _is_statement_query(text) and not has_detail_intent:
-        return False
-    return (
-        any(term in text for term in FINANCIAL_NOTE_METRIC_TERMS)
-        and any(term in text for term in FINANCIAL_EVIDENCE_ACTION_TERMS)
+    return agent_runtime_context.financial_note_metric_query_applies(
+        message,
+        note_detail_query_terms=NOTE_DETAIL_QUERY_TERMS,
+        note_detail_exclude_terms=NOTE_DETAIL_EXCLUDE_TERMS,
+        financial_note_metric_terms=FINANCIAL_NOTE_METRIC_TERMS,
+        financial_evidence_action_terms=FINANCIAL_EVIDENCE_ACTION_TERMS,
+        statement_terms=STATEMENT_QUERY_TERMS,
+        is_general_assistant_request=_is_general_assistant_request,
     )
 
 
 def _should_inject_note_detail_context(message: str) -> bool:
-    return _is_note_detail_query(message) or _is_financial_note_metric_query(message)
+    return agent_runtime_context.note_detail_context_applies(
+        message,
+        note_detail_query_terms=NOTE_DETAIL_QUERY_TERMS,
+        note_detail_exclude_terms=NOTE_DETAIL_EXCLUDE_TERMS,
+        financial_note_metric_terms=FINANCIAL_NOTE_METRIC_TERMS,
+        financial_evidence_action_terms=FINANCIAL_EVIDENCE_ACTION_TERMS,
+        statement_terms=STATEMENT_QUERY_TERMS,
+        is_general_assistant_request=_is_general_assistant_request,
+    )
 
 
 def _is_statement_query(message: str) -> bool:
-    text = re.sub(r"\s+", "", message or "")
-    if _is_general_assistant_request(text):
-        return False
-    return bool(text and any(term in text for term in STATEMENT_QUERY_TERMS))
+    return agent_runtime_context.statement_query_applies(
+        message,
+        statement_terms=STATEMENT_QUERY_TERMS,
+        is_general_assistant_request=_is_general_assistant_request,
+    )
 
 
 def _should_direct_answer_statement_query(message: str) -> bool:
-    text = re.sub(r"\s+", "", message or "")
-    if not _is_statement_query(text):
-        return False
-    if any(term in text for term in NOTE_DETAIL_ANALYSIS_TERMS):
-        return False
-    return any(term in text for term in STATEMENT_DIRECT_TERMS)
+    return agent_runtime_context.direct_statement_answer_applies(
+        message,
+        statement_terms=STATEMENT_QUERY_TERMS,
+        statement_direct_terms=STATEMENT_DIRECT_TERMS,
+        note_detail_analysis_terms=NOTE_DETAIL_ANALYSIS_TERMS,
+        is_general_assistant_request=_is_general_assistant_request,
+    )
 
 
 def _context_company_hint(context: Any | None) -> str:

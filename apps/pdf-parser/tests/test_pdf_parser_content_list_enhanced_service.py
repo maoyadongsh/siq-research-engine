@@ -77,6 +77,103 @@ def test_inferred_pdf_page_for_line_and_source_confidence():
     assert content_service.table_source_confidence("unresolved") == "low"
 
 
+def test_markdown_line_offsets_find_lines_from_character_offsets():
+    markdown = "alpha\nbeta¹\n"
+    offsets = content_service.markdown_line_offsets(markdown)
+
+    assert content_service.markdown_line_offsets("") == [0]
+    assert content_service.line_number_for_offset(offsets, 0) == 1
+    assert content_service.line_number_for_offset(offsets, markdown.index("¹")) == 2
+
+
+def test_build_enhanced_footnotes_binds_markdown_and_content_list_definitions():
+    markdown = (
+        "[PDF_PAGE: 3]\n"
+        "# 公司简介\n"
+        "打造四有¹银行。\n"
+        "¹ 指有担当、有价值、有温度、有特色。\n"
+        "指标1增长。\n"
+        "第1页不应作为脚注引用。\n"
+    )
+    content_list = [
+        {"type": "table", "table_footnote": ["2 表格口径为合并口径"], "page_idx": 4},
+        {"type": "image", "image_footnote": ["图注3"], "page_idx": 5},
+    ]
+
+    footnotes = content_service.build_enhanced_footnotes(
+        markdown,
+        content_list=content_list,
+        pdf_page_markers_by_line=lambda _text: [{"line": 1, "page_number": 3}],
+    )
+
+    assert footnotes["summary"] == {
+        "reference_count": 2,
+        "definition_count": 3,
+        "bound_count": 1,
+        "unbound_count": 1,
+        "inline_digit_refs_suppressed": False,
+    }
+    assert [item["source"] for item in footnotes["references"]] == [
+        "markdown_superscript",
+        "markdown_inline_digit",
+    ]
+    assert footnotes["references"][0]["pdf_page_number"] == 3
+    assert footnotes["bindings"][0]["status"] == "bound"
+    assert footnotes["bindings"][1]["status"] == "unbound"
+    content_definitions = [
+        item for item in footnotes["definitions"] if item["source"] == "content_list_footnote"
+    ]
+    assert [item["pdf_page_number"] for item in content_definitions] == [5, 6]
+
+
+def test_build_enhanced_toc_extracts_markdown_and_content_list_headings():
+    markdown = (
+        "[PDF_PAGE: 1]\n"
+        "# 目录\n"
+        "第一章 公司简介 …… 8\n"
+        "[PDF_PAGE: 8]\n"
+        "## 第一章 公司简介\n"
+    )
+    content_list = [
+        {"type": "text", "text": "公司简介", "text_level": 1, "page_idx": 7},
+        {"type": "text", "text": "Ignored", "text_level": 0, "page_idx": 7},
+    ]
+
+    toc = content_service.build_enhanced_toc(
+        markdown,
+        content_list=content_list,
+        pdf_page_markers_by_line=lambda _text: [
+            {"line": 1, "page_number": 1},
+            {"line": 4, "page_number": 8},
+        ],
+    )
+
+    assert [item["title"] for item in toc["headings"]] == ["目录", "第一章 公司简介"]
+    assert toc["headings"][0]["pdf_page_number"] == 1
+    assert toc["headings"][1]["pdf_page_number"] == 8
+    assert toc["toc_candidates"][0]["title"] == "第一章 公司简介"
+    assert toc["toc_candidates"][0]["level"] == 1
+    assert toc["toc_candidates"][0]["target_page_number"] == 8
+    assert toc["content_headings"] == [
+        {
+            "title": "公司简介",
+            "level": 1,
+            "line": None,
+            "pdf_page_number": 8,
+            "pdf_page_source": "content_list",
+            "pdf_page_inference_reason": "",
+            "source": "content_list_text_level",
+        }
+    ]
+    assert toc["summary"] == {
+        "heading_count": 2,
+        "toc_candidate_count": 1,
+        "content_heading_count": 1,
+        "headings_with_page": 2,
+        "toc_candidates_with_target_page": 1,
+    }
+
+
 def test_build_enhanced_quality_signals_aggregates_tables_notes_and_images():
     signals = content_service.build_enhanced_quality_signals(
         [

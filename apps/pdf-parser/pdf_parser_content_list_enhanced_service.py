@@ -173,6 +173,280 @@ def inferred_pdf_page_for_line(line, markers):
     return None, "no_safe_marker"
 
 
+SUPERSCRIPT_FOOTNOTE_REF_RE = re.compile(r"[\u00b9\u00b2\u00b3\u2070-\u2079]")
+INLINE_FOOTNOTE_REF_RE = re.compile(r"(?<=[\u4e00-\u9fffA-Za-z])[1-9](?=[\u4e00-\u9fff])")
+FOOTNOTE_DEF_RE = re.compile(r"^\s*(?:注|注释|说明)?\s*(?:[\u00b9\u00b2\u00b3\u2070-\u2079]|[1-9][\.、）)])\s*")
+INLINE_FOOTNOTE_PREV_EXCLUDE = set("第表图附注")
+INLINE_FOOTNOTE_NEXT_EXCLUDE = set("页章节条款项年月日号个亿万元股倍")
+
+
+def markdown_line_offsets(markdown):
+    offsets = []
+    pos = 0
+    for line in str(markdown or "").splitlines(True):
+        offsets.append(pos)
+        pos += len(line)
+    if not offsets:
+        offsets.append(0)
+    return offsets
+
+
+def line_number_for_offset(offsets, offset):
+    best = 1
+    for idx, start in enumerate(offsets, start=1):
+        if start > offset:
+            break
+        best = idx
+    return best
+
+
+def _line_text_at(lines, line_number):
+    return lines[line_number - 1] if 0 <= line_number - 1 < len(lines) else ""
+
+
+def build_enhanced_footnotes(
+    markdown,
+    content_list=None,
+    *,
+    pdf_page_markers_by_line=None,
+    infer_pdf_page_for_line=inferred_pdf_page_for_line,
+):
+    text = str(markdown or "")
+    lines = text.splitlines()
+    offsets = markdown_line_offsets(text)
+    page_markers = pdf_page_markers_by_line(text) if callable(pdf_page_markers_by_line) else []
+    references = []
+    for match in SUPERSCRIPT_FOOTNOTE_REF_RE.finditer(text):
+        line = line_number_for_offset(offsets, match.start())
+        if FOOTNOTE_DEF_RE.search(_line_text_at(lines, line)):
+            continue
+        page_number, reason = infer_pdf_page_for_line(line, page_markers)
+        references.append(
+            {
+                "marker": match.group(0),
+                "line": line,
+                "pdf_page_number": page_number,
+                "pdf_page_source": "markdown_marker_inferred" if page_number else "",
+                "pdf_page_inference_reason": reason if page_number else "",
+                "context": _compact_text_fragment(text[max(0, match.start() - 40) : match.end() + 60], 120),
+                "source": "markdown_superscript",
+            }
+        )
+    inline_refs = []
+    for match in INLINE_FOOTNOTE_REF_RE.finditer(text):
+        line = line_number_for_offset(offsets, match.start())
+        if FOOTNOTE_DEF_RE.search(_line_text_at(lines, line)):
+            continue
+        prev_char = text[match.start() - 1] if match.start() > 0 else ""
+        next_char = text[match.end()] if match.end() < len(text) else ""
+        if prev_char in INLINE_FOOTNOTE_PREV_EXCLUDE or next_char in INLINE_FOOTNOTE_NEXT_EXCLUDE:
+            continue
+        inline_refs.append(match)
+    if len(inline_refs) <= 80:
+        for match in inline_refs:
+            line = line_number_for_offset(offsets, match.start())
+            page_number, reason = infer_pdf_page_for_line(line, page_markers)
+            references.append(
+                {
+                    "marker": match.group(0),
+                    "line": line,
+                    "pdf_page_number": page_number,
+                    "pdf_page_source": "markdown_marker_inferred" if page_number else "",
+                    "pdf_page_inference_reason": reason if page_number else "",
+                    "context": _compact_text_fragment(text[max(0, match.start() - 40) : match.end() + 60], 120),
+                    "source": "markdown_inline_digit",
+                }
+            )
+
+    definitions = []
+    for line_number, line in enumerate(lines, start=1):
+        if not FOOTNOTE_DEF_RE.search(line):
+            continue
+        page_number, reason = infer_pdf_page_for_line(line_number, page_markers)
+        definitions.append(
+            {
+                "line": line_number,
+                "pdf_page_number": page_number,
+                "pdf_page_source": "markdown_marker_inferred" if page_number else "",
+                "pdf_page_inference_reason": reason if page_number else "",
+                "text": _compact_text_fragment(line, 220),
+                "source": "markdown_line",
+            }
+        )
+
+    content_list = _coerce_json_artifact(content_list)
+    if isinstance(content_list, list):
+        for block in content_list:
+            if not isinstance(block, dict):
+                continue
+            page_number = _block_page_number(block)
+            footnotes = []
+            if block.get("type") == "table":
+                footnotes.extend(block.get("table_footnote") or [])
+            if block.get("type") == "image":
+                footnotes.extend(block.get("image_footnote") or [])
+            for footnote in footnotes:
+                footnote_text = str(footnote or "").strip()
+                if not footnote_text:
+                    continue
+                definitions.append(
+                    {
+                        "line": None,
+                        "pdf_page_number": page_number,
+                        "pdf_page_source": "content_list",
+                        "pdf_page_inference_reason": "",
+                        "text": _compact_text_fragment(footnote_text, 220),
+                        "source": "content_list_footnote",
+                    }
+                )
+
+    definition_by_marker = {}
+    for definition in definitions:
+        marker_match = re.search(r"[\u00b9\u00b2\u00b3\u2070-\u2079]|[1-9]", definition.get("text") or "")
+        if marker_match:
+            definition_by_marker.setdefault(marker_match.group(0), definition)
+    bindings = []
+    for ref in references:
+        definition = definition_by_marker.get(str(ref.get("marker") or ""))
+        bindings.append(
+            {
+                "marker": ref.get("marker"),
+                "reference_line": ref.get("line"),
+                "definition_line": definition.get("line") if definition else None,
+                "reference_page": ref.get("pdf_page_number"),
+                "definition_page": definition.get("pdf_page_number") if definition else None,
+                "status": "bound" if definition else "unbound",
+            }
+        )
+    return {
+        "references": references[:500],
+        "definitions": definitions[:500],
+        "bindings": bindings[:500],
+        "summary": {
+            "reference_count": len(references),
+            "definition_count": len(definitions),
+            "bound_count": sum(1 for item in bindings if item.get("status") == "bound"),
+            "unbound_count": sum(1 for item in bindings if item.get("status") == "unbound"),
+            "inline_digit_refs_suppressed": len(inline_refs) > 80,
+        },
+    }
+
+
+TOC_LINE_RE = re.compile(r"^(?P<title>第[一二三四五六七八九十百]+[章节篇部][^.\n]{0,80}?|[一二三四五六七八九十]+、[^.\n]{1,80}|[0-9]+(?:\.[0-9]+)*[、. ]+[^.\n]{1,80}?)[\s.·…-]*(?P<page>\d{1,4})?$")
+
+
+def heading_level_from_text(text):
+    title = str(text or "").strip()
+    if re.match(r"^第[一二三四五六七八九十百]+[章节篇部]", title):
+        return 1
+    if re.match(r"^[一二三四五六七八九十]+、", title):
+        return 2
+    if re.match(r"^[0-9]+(?:\.[0-9]+)+", title):
+        return min(6, title.count(".") + 1)
+    return 3
+
+
+def build_enhanced_toc(
+    markdown,
+    content_list=None,
+    *,
+    pdf_page_markers_by_line=None,
+    infer_pdf_page_for_line=inferred_pdf_page_for_line,
+):
+    text = str(markdown or "")
+    page_markers = pdf_page_markers_by_line(text) if callable(pdf_page_markers_by_line) else []
+    headings = []
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        match = re.match(r"^(#{1,6})\s+(.+?)\s*$", line)
+        if not match:
+            continue
+        title = _strip_html(match.group(2)).strip()
+        if not title:
+            continue
+        page_number, reason = infer_pdf_page_for_line(line_number, page_markers)
+        headings.append(
+            {
+                "title": title,
+                "level": len(match.group(1)),
+                "line": line_number,
+                "pdf_page_number": page_number,
+                "pdf_page_source": "markdown_marker_inferred" if page_number else "",
+                "pdf_page_inference_reason": reason if page_number else "",
+                "source": "markdown_heading",
+            }
+        )
+
+    toc_candidates = []
+    toc_zone_lines = set()
+    lines = text.splitlines()
+    for idx, line in enumerate(lines, start=1):
+        cleaned = _strip_html(line).strip()
+        if cleaned in {"目录", "目 录", "目次"} or cleaned.startswith("# 目录"):
+            for target in range(idx, min(len(lines), idx + 180) + 1):
+                toc_zone_lines.add(target)
+    for line_number, line in enumerate(lines, start=1):
+        if toc_zone_lines and line_number not in toc_zone_lines:
+            continue
+        cleaned = _strip_html(line).strip()
+        if len(cleaned) < 4 or len(cleaned) > 120:
+            continue
+        match = TOC_LINE_RE.match(cleaned)
+        if not match:
+            continue
+        title = (match.group("title") or "").strip(" .·…-")
+        page_text = match.group("page")
+        if not title:
+            continue
+        page_number, reason = infer_pdf_page_for_line(line_number, page_markers)
+        toc_candidates.append(
+            {
+                "title": title,
+                "level": heading_level_from_text(title),
+                "line": line_number,
+                "target_page_number": int(page_text) if page_text else None,
+                "pdf_page_number": page_number,
+                "pdf_page_source": "markdown_marker_inferred" if page_number else "",
+                "pdf_page_inference_reason": reason if page_number else "",
+                "source": "markdown_toc_candidate",
+            }
+        )
+
+    content_headings = []
+    content_list = _coerce_json_artifact(content_list)
+    if isinstance(content_list, list):
+        for block in content_list:
+            if not isinstance(block, dict) or block.get("type") != "text":
+                continue
+            title = str(block.get("text") or "").strip()
+            level = block.get("text_level")
+            if not isinstance(level, int) or level <= 0 or not title or len(title) > 120:
+                continue
+            content_headings.append(
+                {
+                    "title": title,
+                    "level": min(level, 6),
+                    "line": None,
+                    "pdf_page_number": _block_page_number(block),
+                    "pdf_page_source": "content_list",
+                    "pdf_page_inference_reason": "",
+                    "source": "content_list_text_level",
+                }
+            )
+
+    return {
+        "headings": headings[:500],
+        "toc_candidates": toc_candidates[:500],
+        "content_headings": content_headings[:500],
+        "summary": {
+            "heading_count": len(headings),
+            "toc_candidate_count": len(toc_candidates),
+            "content_heading_count": len(content_headings),
+            "headings_with_page": sum(1 for item in headings if item.get("pdf_page_number")),
+            "toc_candidates_with_target_page": sum(1 for item in toc_candidates if item.get("target_page_number")),
+        },
+    }
+
+
 def table_source_confidence(source_name):
     if source_name in {"content_list_body_exact", "content_list_body_normalized"}:
         return "high"
