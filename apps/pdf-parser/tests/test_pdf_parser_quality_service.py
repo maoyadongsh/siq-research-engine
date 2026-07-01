@@ -99,6 +99,60 @@ def test_statement_table_index_without_line_uses_table_line_and_counts_found_tab
     assert "利润表" in merged["found_financial_tables"]
 
 
+def test_merge_quality_candidates_from_financial_data_backfills_equity_statement():
+    report = {
+        "report_kind": "annual_report",
+        "key_table_candidates": {},
+        "table_index": [
+            {
+                "table_index": 7,
+                "line": 220,
+                "pdf_page_number": 88,
+                "pdf_page_source": "content_list",
+                "pdf_page_inference_reason": "source_map",
+                "bbox": [10, 20, 30, 40],
+                "rows": 14,
+                "cells": 98,
+                "empty_ratio": 0.05,
+                "numeric_ratio": 0.62,
+                "heading": "合并所有者权益变动表",
+                "unit": "元",
+                "table_type": "fact",
+                "preview": "归属于母公司所有者权益 少数股东权益 所有者权益合计",
+            }
+        ],
+    }
+    financial_data = {
+        "report_kind": "annual_report",
+        "report_year": 2025,
+        "statements": [
+            {
+                "statement_type": "equity_statement",
+                "scope": "consolidated",
+                "line_numbers": [220],
+                "table_indexes": [7],
+                "title": "合并所有者权益变动表",
+                "unit": "元",
+            }
+        ],
+        "summary": {"statement_count": 4, "key_metric_count": 0},
+    }
+
+    merged = quality.merge_quality_candidates_from_financial_data(report, financial_data)
+    equity_statement = next(
+        item
+        for item in merged["core_financial_table_candidates"]
+        if item["name"] == "所有者权益变动表"
+    )
+
+    assert equity_statement["status"] == "found"
+    assert equity_statement["table_index"] == 7
+    assert equity_statement["line"] == 220
+    assert equity_statement["pdf_page_number"] == 88
+    assert equity_statement["_source"] == "financial_data"
+    assert "所有者权益变动表" in merged["found_financial_tables"]
+
+
 def test_balance_sheet_nearby_table_skips_average_balance_noise():
     report = {
         "table_index": [

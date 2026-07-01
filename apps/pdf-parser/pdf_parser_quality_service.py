@@ -192,6 +192,8 @@ def merge_quality_candidates_from_financial_data(report, financial_data):
                 by_name.setdefault("合并现金流量表", []).append(statement)
             elif scope == "parent_company":
                 by_name.setdefault("公司现金流量表", []).append(statement)
+        elif statement_type == "equity_statement":
+            by_name.setdefault("所有者权益变动表", []).append(statement)
 
     if metrics:
         def _metric_source_for(canonical_names):
@@ -257,10 +259,6 @@ def merge_quality_candidates_from_financial_data(report, financial_data):
                         "_source": "financial_data",
                     }
                 )
-
-    for name in ("所有者权益变动表",):
-        if any(statement.get("statement_type") == "equity_statement" for statement in statements):
-            by_name.setdefault(name, [])
 
     for name, statement_rows in by_name.items():
         existing_rows = existing.get(name) or []

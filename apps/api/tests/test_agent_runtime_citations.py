@@ -37,3 +37,39 @@ def test_structured_evidence_requires_real_task_id_and_page_or_table():
     assert citations._has_structured_evidence_trace(cited)
     assert runtime._has_structured_evidence_trace(cited)
     assert not citations._has_structured_evidence_trace(uncited)
+
+
+def test_source_reference_key_normalizes_alias_field_names():
+    line_a = (
+        "[P1] source_type=postgresql, task_id=11111111-1111-1111-1111-111111111111, "
+        "pdf_page_number=7, table_index=2, markdown_line=50"
+    )
+    line_b = (
+        "[P2] source_type=postgresql, task_id=11111111-1111-1111-1111-111111111111, "
+        "pdf_page=7, table_index=2, md_line=50"
+    )
+
+    assert citations._source_field_value(line_a, "pdf_page") == ""
+    assert citations._source_field_value(line_a, "pdf_page_number") == "7"
+    assert citations._source_field_value(line_a, "md_line") == ""
+    assert citations._source_field_value(line_a, "markdown_line") == "50"
+    assert citations._source_reference_key(line_a) == citations._source_reference_key(line_b)
+
+
+def test_merge_refs_into_reference_section_dedupes_alias_field_names():
+    body = "结论正文。"
+    refs = [
+        (
+            "[P1] source_type=postgresql, task_id=11111111-1111-1111-1111-111111111111, "
+            "pdf_page_number=7, table_index=2, markdown_line=50"
+        ),
+        (
+            "[P2] source_type=postgresql, task_id=11111111-1111-1111-1111-111111111111, "
+            "pdf_page=7, table_index=2, md_line=50"
+        ),
+    ]
+
+    merged = citations._merge_refs_into_reference_section(body, refs)
+
+    assert "## 引用来源" in merged
+    assert merged.count("source_type=postgresql") == 1

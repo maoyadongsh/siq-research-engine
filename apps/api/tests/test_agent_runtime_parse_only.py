@@ -39,6 +39,17 @@ def test_pdf2md_info_matches_message_uses_context_hint_and_runtime_wrapper():
     assert runtime._pdf2md_info_matches_message(info, "请分析 300383 年报")
 
 
+def test_pdf2md_info_matches_message_accepts_stock_code_alias_from_filename():
+    info = {"filename": "Alpha_SH_600000_2025年度报告.pdf"}
+
+    assert parse_only.pdf2md_info_matches_message(
+        info,
+        "请看一下 600000 的年报",
+        normalize_text=lambda value: "".join(ch.lower() for ch in str(value) if ch.isalnum()),
+        context_company_hint=lambda context: "",
+    )
+
+
 def test_pdf2md_parse_only_matches_filters_general_wiki_and_limit():
     infos = [
         {"task_id": "task-1", "company_name": "Alpha"},
