@@ -63,6 +63,58 @@ def test_render_human_capital_primary_data_supplement_returns_none_without_rows(
     ) is None
 
 
+def test_render_three_statement_primary_data_supplement_limits_rows_and_adds_refs():
+    calls = []
+
+    def table_source_links(task_id, pdf_page, table_index):
+        calls.append((task_id, pdf_page, table_index))
+        return f"/api/source/{task_id}/table/{table_index}"
+
+    supplement = citations._render_three_statement_primary_data_supplement(
+        {
+            "report_id": "2025-annual",
+            "rows": [
+                {
+                    "statement_label": "利润表",
+                    "metric_name": "营业收入",
+                    "period": "2025",
+                    "raw_value": "1,000",
+                    "unit": "万元",
+                    "task_id": "11111111-1111-1111-1111-111111111111",
+                    "pdf_page": 7,
+                    "table_index": 2,
+                    "md_line": 50,
+                },
+                {
+                    "statement_label": "资产负债表",
+                    "metric_name": "资产总计",
+                    "period": "2025",
+                    "raw_value": "5,000",
+                    "unit": "万元",
+                    "task_id": "22222222-2222-2222-2222-222222222222",
+                    "pdf_page": 8,
+                    "table_index": 3,
+                    "md_line": 60,
+                },
+            ],
+        },
+        primary_data_supplement_max_rows=1,
+        table_source_links=table_source_links,
+    )
+
+    assert supplement is not None
+    assert "| 利润表 / 营业收入 | 2025 | 1,000 万元 |" in supplement
+    assert "资产总计" not in supplement
+    assert "## 主要数据引用来源" in supplement
+    assert "[D1] source_type=wiki_metrics" in supplement
+    assert "file=metrics/three_statements.json" in supplement
+    assert "metric=利润表" in supplement
+    assert calls == [
+        ("11111111-1111-1111-1111-111111111111", 7, 2),
+        ("11111111-1111-1111-1111-111111111111", 7, 2),
+    ]
+
+
 def test_render_statement_table_primary_data_supplement_limits_records_and_adds_refs():
     calls = []
 
@@ -216,9 +268,73 @@ def test_render_wiki_fulltext_primary_data_supplement_truncates_rows_and_default
     ]
 
 
+def test_render_postgres_primary_data_supplement_adds_rows_refs_and_links():
+    evidence_calls = []
+    source_calls = []
+
+    def evidence_url(task_id, pdf_page, table_index, kind):
+        evidence_calls.append((task_id, pdf_page, table_index, kind))
+        return f"/evidence/{kind}/{task_id}/{pdf_page}/{table_index}"
+
+    def markdown_table_cell(value):
+        return str(value or "未返回")
+
+    def table_source_links(task_id, pdf_page, table_index):
+        source_calls.append((task_id, pdf_page, table_index))
+        return f"/api/source/{task_id}/table/{table_index}"
+
+    row = {
+        "source_table": "financial_metrics",
+        "statement_id": "stmt-1",
+        "metric_name": "营业收入",
+        "period_key": "2025",
+        "value": "100",
+        "unit": "万元",
+        "task_id": "77777777-7777-7777-7777-777777777777",
+        "pdf_page": 7,
+        "table_index": 2,
+        "md_line": 50,
+    }
+    supplement = citations._render_postgres_primary_data_supplement(
+        {"rows": [row]},
+        primary_data_supplement_max_rows=1,
+        evidence_url=evidence_url,
+        markdown_table_cell=markdown_table_cell,
+        table_source_links=table_source_links,
+        postgres_row_pdf_page=lambda item: item.get("pdf_page"),
+        postgres_row_table_index=lambda item: item.get("table_index"),
+        postgres_row_md_line=lambda item: item.get("md_line"),
+        postgres_row_metric_name=lambda item: item.get("metric_name") or "未返回",
+        postgres_row_value=lambda item: item.get("value"),
+        postgres_row_unit=lambda item: item.get("unit"),
+    )
+
+    assert supplement is not None
+    assert "| 营业收入 | 2025 | 100 万元 |" in supplement
+    assert "## PostgreSQL 引用" in supplement
+    assert "[P1] source_type=postgresql, table=financial_metrics" in supplement
+    assert "statement_id=stmt-1" in supplement
+    assert "metric=营业收入" in supplement
+    assert "period_key=2025" in supplement
+    assert "[打开PDF页](/evidence/pdf/77777777-7777-7777-7777-777777777777/7/2)" in supplement
+    assert "[查看页来源](/evidence/page/77777777-7777-7777-7777-777777777777/7/2)" in supplement
+    assert "[查看表格](/evidence/table/77777777-7777-7777-7777-777777777777/7/2)" in supplement
+    assert source_calls == [("77777777-7777-7777-7777-777777777777", 7, 2)]
+    assert evidence_calls == [
+        ("77777777-7777-7777-7777-777777777777", 7, 2, "pdf"),
+        ("77777777-7777-7777-7777-777777777777", 7, 2, "page"),
+        ("77777777-7777-7777-7777-777777777777", 7, 2, "table"),
+    ]
+
+
 def test_primary_data_supplement_renderers_return_none_for_empty_inputs():
     table_source_links = lambda task_id, pdf_page, table_index: ""
 
+    assert citations._render_three_statement_primary_data_supplement(
+        {"rows": []},
+        primary_data_supplement_max_rows=3,
+        table_source_links=table_source_links,
+    ) is None
     assert citations._render_statement_table_primary_data_supplement(
         {"tables": []},
         primary_data_supplement_max_rows=3,
@@ -233,6 +349,19 @@ def test_primary_data_supplement_renderers_return_none_for_empty_inputs():
         {"rows": []},
         primary_data_supplement_max_rows=3,
         table_source_links=table_source_links,
+    ) is None
+    assert citations._render_postgres_primary_data_supplement(
+        {"rows": []},
+        primary_data_supplement_max_rows=3,
+        evidence_url=lambda task_id, pdf_page, table_index, kind: "",
+        markdown_table_cell=str,
+        table_source_links=table_source_links,
+        postgres_row_pdf_page=lambda row: row.get("pdf_page"),
+        postgres_row_table_index=lambda row: row.get("table_index"),
+        postgres_row_md_line=lambda row: row.get("md_line"),
+        postgres_row_metric_name=lambda row: row.get("metric_name") or "",
+        postgres_row_value=lambda row: row.get("value"),
+        postgres_row_unit=lambda row: row.get("unit"),
     ) is None
 
 
