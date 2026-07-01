@@ -3,6 +3,80 @@ import re
 import pdf_parser_content_list_enhanced_service as content_service
 
 
+def test_content_table_source_helpers_track_exact_normalized_and_printed_pages():
+    exact_table = "<table><tr><td>收入</td></tr></table>"
+    spaced_table = "<table>\n  <tr><td>成本</td></tr>\n</table>"
+    content_list = [
+        {"type": "page_number", "page_idx": 0, "text": "封面"},
+        {
+            "type": "table",
+            "table_body": exact_table,
+            "page_idx": 0,
+            "bbox": [1, 2, 3, 4],
+            "img_path": "page-1.png",
+            "table_caption": ["收入表"],
+            "table_footnote": ["单位：万元"],
+        },
+        {"type": "table", "table_body": spaced_table, "page_idx": 1},
+    ]
+
+    sources = content_service.content_table_sources(content_list)
+    exact_sources, normalized_sources = content_service.content_table_source_maps(sources)
+    used_source_ids = set()
+
+    assert content_service.printed_page_numbers_by_pdf_page_map(content_list) == {1: "封面"}
+    assert sources[0]["source_id"] == 1
+    assert sources[0]["pdf_page_number"] == 1
+    assert sources[0]["printed_page_number"] == "封面"
+    assert sources[0]["bbox"] == [1, 2, 3, 4]
+    assert sources[0]["image_path"] == "page-1.png"
+    assert sources[0]["caption"] == ["收入表"]
+    assert sources[0]["footnote"] == ["单位：万元"]
+
+    exact_match = content_service.pop_unused_content_table_source(
+        exact_table,
+        exact_sources,
+        normalized_sources,
+        used_source_ids,
+    )
+    normalized_match = content_service.pop_unused_content_table_source(
+        "<table><tr><td>成本</td></tr></table>",
+        exact_sources,
+        normalized_sources,
+        used_source_ids,
+    )
+    duplicate_match = content_service.pop_unused_content_table_source(
+        exact_table,
+        exact_sources,
+        normalized_sources,
+        used_source_ids,
+    )
+
+    assert exact_match["source_match"] == "content_list_body_exact"
+    assert exact_match["source_id"] == 1
+    assert normalized_match["source_match"] == "content_list_body_normalized"
+    assert normalized_match["source_id"] == 2
+    assert duplicate_match == {}
+
+
+def test_inferred_pdf_page_for_line_and_source_confidence():
+    markers = [
+        {"line": 10, "page_number": 1},
+        {"line": 120, "page_number": 2},
+    ]
+
+    assert content_service.inferred_pdf_page_for_line(20, markers) == (1, "between_ordered_markers")
+    assert content_service.inferred_pdf_page_for_line(119, markers) == (1, "between_ordered_markers")
+    assert content_service.inferred_pdf_page_for_line(180, markers) == (2, "tail_near_previous_marker")
+    assert content_service.inferred_pdf_page_for_line(400, markers) == (None, "no_safe_marker")
+    assert content_service.inferred_pdf_page_for_line(None, markers) == (None, "")
+
+    assert content_service.table_source_confidence("content_list_body_exact") == "high"
+    assert content_service.table_source_confidence("content_list_body_normalized") == "high"
+    assert content_service.table_source_confidence("markdown_marker_inferred") == "medium"
+    assert content_service.table_source_confidence("unresolved") == "low"
+
+
 def test_build_content_list_enhanced_payload_uses_injected_table_sources_and_aggregates():
     exact_table = "<table><tr><td>项目</td><td>金额</td></tr><tr><td>收入</td><td>100</td></tr></table>"
     inferred_table = "<table><tr><td>项目</td><td>金额</td></tr><tr><td>成本</td><td>50</td></tr></table>"

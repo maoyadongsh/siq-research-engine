@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
+
+MULTI_COMPANY_SCOPE_NOTICE = (
+    "本轮问题命中多家公司；必须分别使用每家公司自己的 Wiki 工作集和 task_id 做证据回溯。"
+    "不得只读取第一家公司，也不得把一家公司的 PDF/source/table 链接套用到另一家公司。"
+)
 
 
 def clean_context_value(value: Any) -> str:
@@ -262,3 +267,63 @@ def build_format_chat_context(*, wiki_root: Path, context: Any | None, context_h
         return None
 
     return "\n".join([context_header, *lines])
+
+
+def build_company_context_items(
+    message: str,
+    context: Any | None,
+    resolved_company_dirs: Sequence[Path],
+    *,
+    context_for_company_dir: Callable[[Path], Any | None],
+    message_for_company: Callable[[str, Path], str],
+    multi_company_scope_notice: str = MULTI_COMPANY_SCOPE_NOTICE,
+) -> tuple[list[str], list[tuple[str, Any | None, Path]]]:
+    blocks: list[str] = []
+    company_context_items: list[tuple[str, Any | None, Path]] = []
+    if len(resolved_company_dirs) > 1:
+        blocks.append(multi_company_scope_notice)
+        for company_dir in resolved_company_dirs:
+            company_context_items.append(
+                (
+                    message_for_company(message, company_dir),
+                    context_for_company_dir(company_dir),
+                    company_dir,
+                )
+            )
+    else:
+        company_context_items.append(
+            (
+                message,
+                context,
+                resolved_company_dirs[0] if resolved_company_dirs else Path(),
+            )
+        )
+    return blocks, company_context_items
+
+
+def scoped_evidence_input(
+    message: str,
+    context: Any | None,
+    company_context_items: Sequence[tuple[str, Any | None, Path]],
+) -> tuple[str, Any | None]:
+    if len(company_context_items) == 1:
+        scoped_message, scoped_context, _company_dir = company_context_items[0]
+        return scoped_message, scoped_context
+    return message, context
+
+
+def build_session_contextual_input_text(
+    message: str,
+    blocks: Sequence[str],
+    *,
+    chat_output_contract: str,
+    financial_calculation_runtime_contract: str,
+) -> str:
+    return "\n\n".join(
+        [
+            *blocks,
+            chat_output_contract,
+            financial_calculation_runtime_contract,
+            f"用户问题：{message}",
+        ]
+    )

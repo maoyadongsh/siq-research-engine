@@ -5779,16 +5779,14 @@ def build_session_contextual_input(
     if local_memory_context:
         blocks.append(local_memory_context)
     resolved_company_dirs = _resolve_company_dirs(message, context)
-    company_context_items: list[tuple[str, Any | None, Path]] = []
-    if len(resolved_company_dirs) > 1:
-        blocks.append(
-            "本轮问题命中多家公司；必须分别使用每家公司自己的 Wiki 工作集和 task_id 做证据回溯。"
-            "不得只读取第一家公司，也不得把一家公司的 PDF/source/table 链接套用到另一家公司。"
-        )
-        for company_dir in resolved_company_dirs:
-            company_context_items.append((_message_for_company(message, company_dir), _context_for_company_dir(company_dir), company_dir))
-    else:
-        company_context_items.append((message, context, resolved_company_dirs[0] if resolved_company_dirs else Path()))
+    company_scope_blocks, company_context_items = agent_runtime_context.build_company_context_items(
+        message,
+        context,
+        resolved_company_dirs,
+        context_for_company_dir=_context_for_company_dir,
+        message_for_company=_message_for_company,
+    )
+    blocks.extend(company_scope_blocks)
 
     has_deterministic_evidence_context = False
     human_capital_context = None
@@ -5805,10 +5803,11 @@ def build_session_contextual_input(
             blocks.append(current_human_capital_context)
             has_deterministic_evidence_context = True
             human_capital_context = current_human_capital_context
-    if len(company_context_items) == 1:
-        scoped_message, scoped_context, _company_dir = company_context_items[0]
-    else:
-        scoped_message, scoped_context = message, context
+    scoped_message, scoped_context = agent_runtime_context.scoped_evidence_input(
+        message,
+        context,
+        company_context_items,
+    )
     if human_capital_context:
         has_deterministic_evidence_context = True
     else:
@@ -5839,10 +5838,12 @@ def build_session_contextual_input(
         if parse_only_context:
             blocks.append(parse_only_context)
             has_deterministic_evidence_context = True
-    blocks.append(CHAT_OUTPUT_CONTRACT)
-    blocks.append(FINANCIAL_CALCULATION_RUNTIME_CONTRACT)
-    blocks.append(f"用户问题：{message}")
-    return "\n\n".join(blocks)
+    return agent_runtime_context.build_session_contextual_input_text(
+        message,
+        blocks,
+        chat_output_contract=CHAT_OUTPUT_CONTRACT,
+        financial_calculation_runtime_contract=FINANCIAL_CALCULATION_RUNTIME_CONTRACT,
+    )
 
 
 def build_hermes_run_input(

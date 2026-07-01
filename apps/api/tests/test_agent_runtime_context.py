@@ -126,3 +126,47 @@ def test_general_assistant_request_and_context_input():
     assert text.splitlines()[0] == "GENERAL"
     assert "当前智能体 profile: siq_assistant" in text
     assert "当前智能体名称: 通用助手" in text
+
+
+def test_session_context_scoping_helpers_build_prompt_text():
+    dirs = [Path("/wiki/companies/600104-SAIC"), Path("/wiki/companies/000001-PAB")]
+
+    blocks, items = agent_runtime_context.build_company_context_items(
+        "对比收入",
+        {"company": {"name": "ignored"}},
+        dirs,
+        context_for_company_dir=lambda path: {"company": {"dir": str(path)}},
+        message_for_company=lambda message, path: f"{path.name} {message}",
+    )
+
+    assert blocks == [agent_runtime_context.MULTI_COMPANY_SCOPE_NOTICE]
+    assert [item[0] for item in items] == [
+        "600104-SAIC 对比收入",
+        "000001-PAB 对比收入",
+    ]
+    assert items[0][1]["company"]["dir"] == str(dirs[0])
+    assert agent_runtime_context.scoped_evidence_input("对比收入", {"original": True}, items) == (
+        "对比收入",
+        {"original": True},
+    )
+
+    single_blocks, single_items = agent_runtime_context.build_company_context_items(
+        "看收入",
+        {"company": {"name": "SAIC"}},
+        dirs[:1],
+        context_for_company_dir=lambda path: {"company": {"dir": str(path)}},
+        message_for_company=lambda message, path: f"{path.name} {message}",
+    )
+    assert single_blocks == []
+    assert agent_runtime_context.scoped_evidence_input("看收入", None, single_items) == (
+        "看收入",
+        {"company": {"name": "SAIC"}},
+    )
+
+    prompt = agent_runtime_context.build_session_contextual_input_text(
+        "看收入",
+        ["CTX"],
+        chat_output_contract="CHAT",
+        financial_calculation_runtime_contract="CALC",
+    )
+    assert prompt == "CTX\n\nCHAT\n\nCALC\n\n用户问题：看收入"

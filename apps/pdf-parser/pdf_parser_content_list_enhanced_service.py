@@ -63,6 +63,124 @@ def build_enhanced_page_blocks(content_list):
     ]
 
 
+def printed_page_numbers_by_pdf_page_map(content_list):
+    return printed_page_numbers_by_pdf_page(content_list)
+
+
+def content_table_sources(content_list):
+    content_list = _coerce_json_artifact(content_list)
+    if not isinstance(content_list, list):
+        return []
+    printed_pages = printed_page_numbers_by_pdf_page_map(content_list)
+    sources = []
+    table_ordinal = 0
+    for item in content_list:
+        if not isinstance(item, dict) or item.get("type") != "table":
+            continue
+        table_body = item.get("table_body") or ""
+        if not table_body:
+            continue
+        table_ordinal += 1
+        page_idx = item.get("page_idx")
+        page_number = int(page_idx) + 1 if isinstance(page_idx, int) else None
+        sources.append(
+            {
+                "source_id": table_ordinal,
+                "table_body": str(table_body).strip(),
+                "pdf_page_index": page_idx,
+                "pdf_page_number": page_number,
+                "printed_page_number": printed_pages.get(page_number) if page_number else None,
+                "bbox": item.get("bbox") or [],
+                "image_path": item.get("img_path") or "",
+                "caption": item.get("table_caption") or [],
+                "footnote": item.get("table_footnote") or [],
+            }
+        )
+    return sources
+
+
+def normalized_table_html_for_match(table_html):
+    return re.sub(r"\s+", "", str(table_html or "")).strip()
+
+
+def content_table_source_maps(table_sources):
+    exact = {}
+    normalized = {}
+    for source in table_sources:
+        table_body = str(source.get("table_body") or "").strip()
+        if not table_body:
+            continue
+        exact.setdefault(table_body, []).append(source)
+        normalized_body = normalized_table_html_for_match(table_body)
+        if normalized_body and normalized_body != table_body:
+            normalized.setdefault(normalized_body, []).append(source)
+    return exact, normalized
+
+
+def pop_unused_content_table_source(table_html, exact_sources, normalized_sources, used_source_ids):
+    table_html = str(table_html or "").strip()
+    source = _pop_unused_source_from_bucket(exact_sources.get(table_html), used_source_ids)
+    if source:
+        source = dict(source)
+        source["source_match"] = "content_list_body_exact"
+        return source
+
+    normalized_html = normalized_table_html_for_match(table_html)
+    source = _pop_unused_source_from_bucket(normalized_sources.get(normalized_html), used_source_ids)
+    if source:
+        source = dict(source)
+        source["source_match"] = "content_list_body_normalized"
+        return source
+    return {}
+
+
+def _pop_unused_source_from_bucket(bucket, used_source_ids):
+    if not bucket:
+        return None
+    while bucket:
+        source = bucket.pop(0)
+        source_id = source.get("source_id")
+        if source_id in used_source_ids:
+            continue
+        used_source_ids.add(source_id)
+        return source
+    return None
+
+
+def inferred_pdf_page_for_line(line, markers):
+    if not line or not markers:
+        return None, ""
+    previous_marker = None
+    next_marker = None
+    for marker in markers:
+        if marker["line"] <= line:
+            previous_marker = marker
+            continue
+        next_marker = marker
+        break
+    if previous_marker and next_marker:
+        previous_distance = line - previous_marker["line"]
+        next_distance = next_marker["line"] - line
+        if next_marker["page_number"] >= previous_marker["page_number"] and previous_distance <= 220:
+            return previous_marker["page_number"], "between_ordered_markers"
+        if previous_distance <= 80:
+            return previous_marker["page_number"], "near_previous_marker"
+        if next_distance <= 80:
+            return next_marker["page_number"], "near_next_marker"
+        return None, "ambiguous_marker_distance"
+    if previous_marker and line - previous_marker["line"] <= 220:
+        return previous_marker["page_number"], "tail_near_previous_marker"
+    return None, "no_safe_marker"
+
+
+def table_source_confidence(source_name):
+    if source_name in {"content_list_body_exact", "content_list_body_normalized"}:
+        return "high"
+    if source_name == "markdown_marker_inferred":
+        return "medium"
+    return "low"
+
+
 def build_content_list_enhanced_payload(
     markdown,
     *,
