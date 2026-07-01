@@ -191,6 +191,40 @@ def test_financial_intent_helpers_are_parameterized_and_exclude_general_requests
     )
 
 
+def test_note_detail_direct_and_context_intent_combinations():
+    is_general = lambda message: agent_runtime_context.is_general_assistant_request(
+        message,
+        request_terms=("你能做什么",),
+        subject_terms=("你", "助手"),
+    )
+    kwargs = {
+        "note_detail_query_terms": ("明细", "构成"),
+        "note_detail_exclude_terms": ("生成报告",),
+        "financial_note_metric_terms": ("商誉", "递延所得税"),
+        "statement_terms": ("营业收入", "现金流"),
+        "is_general_assistant_request": is_general,
+    }
+    direct_kwargs = {
+        **kwargs,
+        "note_detail_direct_terms": ("多少", "列出"),
+        "note_detail_analysis_terms": ("分析", "趋势"),
+    }
+    context_kwargs = {
+        **kwargs,
+        "financial_evidence_action_terms": ("多少", "证据", "来源"),
+    }
+
+    assert agent_runtime_context.direct_note_detail_answer_applies("商誉构成明细多少", **direct_kwargs)
+    assert not agent_runtime_context.direct_note_detail_answer_applies("商誉构成明细趋势分析", **direct_kwargs)
+    assert not agent_runtime_context.direct_note_detail_answer_applies("你能做什么？商誉构成明细多少", **direct_kwargs)
+    assert not agent_runtime_context.direct_note_detail_answer_applies("生成报告里的商誉构成明细多少", **direct_kwargs)
+
+    assert agent_runtime_context.note_detail_context_applies("商誉证据来源", **context_kwargs)
+    assert agent_runtime_context.note_detail_context_applies("递延所得税构成", **context_kwargs)
+    assert not agent_runtime_context.note_detail_context_applies("营业收入是多少", **context_kwargs)
+    assert not agent_runtime_context.note_detail_context_applies("你能做什么？商誉证据来源", **context_kwargs)
+
+
 def test_attachment_helpers_normalize_and_classify_payloads():
     attachments = [
         _ModelLike({"kind": "image", "path": " /tmp/chart.png ", "filename": "chart.png"}),
