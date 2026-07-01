@@ -298,6 +298,59 @@ def next_queued_task(db_path, *, normalize_task=None):
         conn.close()
 
 
+def claim_next_queued_task(db_path, *, normalize_task=None, lock=None):
+    with _lock_context(lock):
+        conn = connect(db_path)
+        try:
+            row = conn.execute(
+                """
+                SELECT * FROM tasks
+                WHERE cancelled = 0
+                  AND mineru_task_id IS NULL
+                  AND status = 'queued'
+                ORDER BY created_at ASC
+                LIMIT 1
+                """
+            ).fetchone()
+            if row is None:
+                return None
+            task_id = row["task_id"]
+            conn.execute(
+                """
+                UPDATE tasks
+                SET status = 'submitting', stage = 'submitting'
+                WHERE task_id = ? AND status = 'queued' AND mineru_task_id IS NULL
+                """,
+                (task_id,),
+            )
+            conn.commit()
+            row = conn.execute("SELECT * FROM tasks WHERE task_id = ?", (task_id,)).fetchone()
+            return row_to_task(row, normalize_task=normalize_task)
+        finally:
+            conn.close()
+
+
+def recover_stale_submitting_tasks(db_path, cutoff, *, lock=None):
+    with _lock_context(lock):
+        conn = connect(db_path)
+        try:
+            cursor = conn.execute(
+                """
+                UPDATE tasks
+                SET status = 'queued', stage = 'queued'
+                WHERE cancelled = 0
+                  AND mineru_task_id IS NULL
+                  AND status = 'submitting'
+                  AND COALESCE(uploaded_at, created_at) < ?
+                """,
+                (cutoff,),
+            )
+            conn.commit()
+            return cursor.rowcount
+        finally:
+            conn.close()
+
+
 def local_queue_position(db_path, task_id):
     conn = connect(db_path)
     try:

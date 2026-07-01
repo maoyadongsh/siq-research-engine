@@ -54,7 +54,7 @@ Web 工作台
 - 本轮追加：Agent runtime citations/reference 合并边界补测已完成，覆盖空 body 新增引用区、全部无效 refs 原样返回、三级引用来源 section 在 peer/parent heading 前收口；`citation_links.py` 修复 printed_page 空槽位对齐，并补充缺 task_id/pdf_page 原样返回、本地 API 链接 query/fragment 保留和重复链接不追加覆盖。
 - 本轮追加：PDF2MD parse-only context 剩余边界已补，覆盖市场前缀伪 alias 防误匹配、非 dict task info 过滤、空 task/artifact 字段展示兜底；PostgreSQL fallback pure helper 已补空 hint、0 值页码/表号、空 terms callback 短路和缺字段负路径；前端 citation renderer 新增 `rendererUtils.test.ts` smoke，覆盖 source/table action 抽取、普通 Markdown link 保留和长引用行解析。
 - 本轮追加：Agent runtime display/tool-output/context 剩余细边界已补，覆盖 display 的 None URL、无 basename path fallback、控制空白 URL 编码，tool-output 的 None/空白、list JSON、长文本换行、tool/label 字段隔离，以及 context 的非 dict model/nested field、format context、attachment model_dump 脏数据防御。
-- 当前建议：按 0.4 的智能体集群复盘结果继续小步提速。财报附注链接、source-view loader、local-memory DB、document derivation、PDF table index / markdown page index、Agent 附件格式化 wrapper 和 CSS selector smoke 前置覆盖已补；下一轮开始评估是否进入红灯 owner 设计窗口，或先做最后一轮轻量 documentation/CI 收口；继续避开 `ACTIVE_RUNS`、SSE lifecycle、本地 queue claim 和 Flask `send_file/jsonify` 的顺手行为变更。
+- 当前建议：红灯 owner 设计窗口已启动，并已完成首个 PDF parser queue claim/recover 最小试点；Agent runtime 与 Document workbench 本轮先补迁移前护栏，不直接迁移 `ACTIVE_RUNS`/SSE 或 refs/selection/scroll owner。下一轮优先选择 PDF artifact orchestrator 前置测试/最小抽取，或前端 Document hook 试点；Agent runtime streaming owner 继续补 heartbeat、existing active run join、session default context 等矩阵后再迁。
 
 ### 0.2 2026-06-30 深度全量检查结论
 
@@ -201,6 +201,14 @@ bash -n start_all.sh && find scripts infra apps services -type f -name '*.sh' -p
 
 低风险前置覆盖基本收口后，下一阶段不应继续盲目堆小测试，而应进入红灯 owner 的设计窗口。本轮启动 3 个只读智能体盘点 Agent runtime、PDF parser 和前端 Document owner，结论是：先补红灯 owner 的行为矩阵，再选一个最小试点；不要一次性迁移多个状态 owner。
 
+本轮红灯试点进度：
+
+- PDF parser：queue claim/recover 最小试点已完成；新增 `pdf_parser_task_lifecycle_service.py`，`pdf_parser_task_repository.py` 接管 `claim_next_queued_task` / `recover_stale_submitting_tasks` SQLite 状态迁移，`pdf_parser_app_impl.py` 保留 `_claim_next_queued_task` / `_recover_stale_submitting_tasks` wrapper；未触碰 Flask response、MinerU submit/poll、`_fetch_and_cache_result`、`_ensure_*` 和 DB schema。
+- Agent runtime：新增 `test_agent_runtime_active_runs.py` 覆盖 active key/profile alias、SSE offset replay、`done/error` terminal drain、disconnect return、stop replace、404 orphan cleanup 和 missing active stop；本轮仍未迁移 `ACTIVE_RUNS` / SSE owner。
+- Frontend：扩展 `document-result-preview.spec.ts` 多页 fixture，覆盖 markdown focus 后 PDF/markdown focused 同步、prev/next/select page sync、tab scroll buttons、resource open failure `.doc-error` 和 mobile select tab state；未抽 hook、未迁 CSS。
+- 本轮验证：API active-runs 聚焦测试 10 passed、PDF parser 全量 266 passed、Document result preview e2e 5 passed、Web build passed；提交前继续执行 `git diff --check`。
+- 下一步建议：PDF parser 可进入 artifact orchestrator 前置测试/最小抽取，或切到前端 `useDocumentResultViewModel` / focus controller 试点；Agent runtime SSE owner 继续先补 heartbeat、existing active run join、session default context 等剩余矩阵。
+
 推荐试点顺序：
 
 1. PDF parser queue claim / recover：最适合首个红灯试点。范围小、行为可用 SQLite/DB 状态测试锁定，且不必碰 Flask response 或 MinerU HTTP lifecycle。目标是把 `_claim_next_queued_task`、`_recover_stale_submitting_tasks` 先迁到 `pdf_parser_task_lifecycle_service` 或 task repository 层，`pdf_parser_app_impl.py` 保留同名 wrapper。
@@ -226,7 +234,7 @@ bash -n start_all.sh && find scripts infra apps services -type f -name '*.sh' -p
 - 前端 Document 试点：测试矩阵 0.5-1 天，view model + focus controller 1-1.5 天，resource opener 0.5 天；`DOCUMENT_CSS` 小步迁移 0.5-1 天，`PDF_CSS` 另开 1-2 天窗口。
 - Agent runtime streaming 试点：测试矩阵 0.5-1 天，streaming owner 抽取 1-1.5 天，sessions owner 0.5 天，循环依赖修复 0.5-1 天，总计约 2.5-4 天。
 
-下一步建议：先做 PDF parser queue claim/recover 的测试矩阵和最小抽取，作为红灯 owner 迁移的试点。若需要进一步降低风险，可先只落测试，不移动实现。
+下一步建议：PDF parser queue claim/recover 试点已完成；下一轮优先补 artifact orchestrator / MinerU lifecycle 的迁移前测试矩阵，再决定是否做第二个最小抽取。若转向前端，则先抽 Document view model / focus controller；若转向 Agent runtime，则继续补 SSE/active run 剩余矩阵，不急着迁移 owner。
 
 ## 1. 当前架构事实
 

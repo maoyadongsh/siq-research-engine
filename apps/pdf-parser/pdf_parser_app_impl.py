@@ -65,6 +65,7 @@ import pdf_parser_mineru_result_service as mineru_result_service
 import pdf_parser_quality_service as quality_service
 import pdf_parser_response_service as response_service
 import pdf_parser_source_service as source_service
+import pdf_parser_task_lifecycle_service as task_lifecycle_service
 import pdf_parser_task_repository as task_repository
 from quality_engine import (
     candidate_confidence as quality_candidate_confidence,
@@ -329,56 +330,20 @@ def _next_queued_task():
 
 
 def _claim_next_queued_task():
-    with _db_lock:
-        conn = _db_conn()
-        try:
-            row = conn.execute(
-                """
-                SELECT * FROM tasks
-                WHERE cancelled = 0
-                  AND mineru_task_id IS NULL
-                  AND status = 'queued'
-                ORDER BY created_at ASC
-                LIMIT 1
-                """
-            ).fetchone()
-            if row is None:
-                return None
-            task_id = row["task_id"]
-            conn.execute(
-                """
-                UPDATE tasks
-                SET status = 'submitting', stage = 'submitting'
-                WHERE task_id = ? AND status = 'queued' AND mineru_task_id IS NULL
-                """,
-                (task_id,),
-            )
-            conn.commit()
-            row = conn.execute("SELECT * FROM tasks WHERE task_id = ?", (task_id,)).fetchone()
-            return _row_to_task(row)
-        finally:
-            conn.close()
+    return task_lifecycle_service.claim_next_queued_task(
+        DB_PATH,
+        normalize_task=_apply_task_market_fallback,
+        lock=_db_lock,
+    )
 
 
 def _recover_stale_submitting_tasks():
-    cutoff = (_utc_now() - timedelta(seconds=STALE_SUBMITTING_SECONDS)).replace(microsecond=0).isoformat() + "Z"
-    with _db_lock:
-        conn = _db_conn()
-        try:
-            conn.execute(
-                """
-                UPDATE tasks
-                SET status = 'queued', stage = 'queued'
-                WHERE cancelled = 0
-                  AND mineru_task_id IS NULL
-                  AND status = 'submitting'
-                  AND COALESCE(uploaded_at, created_at) < ?
-                """,
-                (cutoff,),
-            )
-            conn.commit()
-        finally:
-            conn.close()
+    return task_lifecycle_service.recover_stale_submitting_tasks(
+        DB_PATH,
+        stale_seconds=STALE_SUBMITTING_SECONDS,
+        now_factory=_utc_now,
+        lock=_db_lock,
+    )
 
 
 def _local_queue_position(task_id):

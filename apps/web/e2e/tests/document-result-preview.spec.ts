@@ -10,7 +10,7 @@ const task = {
   status: 'completed',
   stage: 'completed',
   progress_percent: 100,
-  total_pages: 1,
+  total_pages: 3,
   markdown_ready: true,
   created_at: '2026-06-30T08:00:00.000Z',
   completed_at: '2026-06-30T08:01:00.000Z',
@@ -60,25 +60,53 @@ async function mockDocumentPreviewApis(page: Page) {
     if (url.pathname === `/api/documents/result/${taskId}`) {
       await route.fulfill(json({
         manifest: { task_id: taskId, filename: task.filename, status: 'completed' },
-        markdown: '[PDF_PAGE: 1]\n\n# Preview fixture\n\n表格和图片定位测试。',
-        artifacts: { 'figures/figure-1.png': { exists: true, size: imageBytes.length } },
+        markdown: [
+          '[PDF_PAGE: 1]',
+          '',
+          '# Preview fixture',
+          '',
+          '第一页正文定位测试。',
+          '',
+          '[PDF_PAGE: 2]',
+          '',
+          '## Second page section',
+          '',
+          '第二页 Markdown 块用于同步 PDF overlay。',
+          '',
+          '[PDF_PAGE: 3]',
+          '',
+          '第三页收尾内容。',
+        ].join('\n'),
+        artifacts: {
+          'figures/figure-1.png': { exists: true, size: imageBytes.length },
+          'reports/failing-open.json': { exists: true, size: 24 },
+        },
       }))
       return
     }
     if (url.pathname === `/api/documents/artifact/${taskId}/quality_report.json`) {
-      await route.fulfill(json({ overall_status: 'ok', page_count: 1, block_count: 2, table_count: 1, image_count: 1 }))
+      await route.fulfill(json({ overall_status: 'ok', page_count: 3, block_count: 4, table_count: 1, image_count: 1 }))
       return
     }
     if (url.pathname === `/api/documents/artifact/${taskId}/blocks.json`) {
       await route.fulfill(json({
         blocks: [
           { block_id: 'block-title', type: 'title', page_number: 1, bbox: [60, 60, 220, 110], bbox_unit: 'pixel', markdown: '# Preview fixture' },
+          { block_id: 'block-body-1', type: 'text', page_number: 1, bbox: [70, 130, 460, 210], bbox_unit: 'pixel', markdown: '第一页正文定位测试。' },
+          { block_id: 'block-second', type: 'text', page_number: 2, bbox: [100, 120, 460, 260], bbox_unit: 'pixel', markdown: '## Second page section\n\n第二页 Markdown 块用于同步 PDF overlay。' },
+          { block_id: 'block-third', type: 'text', page_number: 3, bbox: [100, 120, 420, 230], bbox_unit: 'pixel', markdown: '第三页收尾内容。' },
         ],
       }))
       return
     }
     if (url.pathname === `/api/documents/artifact/${taskId}/layout_blocks.json`) {
-      await route.fulfill(json({ pages: [{ page_number: 1, width: 1000, height: 1000, bbox_unit: 'pixel' }] }))
+      await route.fulfill(json({
+        pages: [
+          { page_number: 1, width: 1000, height: 1000, bbox_unit: 'pixel' },
+          { page_number: 2, width: 1000, height: 1000, bbox_unit: 'pixel' },
+          { page_number: 3, width: 1000, height: 1000, bbox_unit: 'pixel' },
+        ],
+      }))
       return
     }
     if (url.pathname === `/api/documents/artifact/${taskId}/tables.json`) {
@@ -114,6 +142,9 @@ async function mockDocumentPreviewApis(page: Page) {
       await route.fulfill(json({
         sources: [
           { block_id: 'block-title', page_number: 1, open_source_url: `/api/documents/source/${taskId}/page-image/1` },
+          { block_id: 'block-body-1', page_number: 1, open_source_url: `/api/documents/source/${taskId}/page-image/1` },
+          { block_id: 'block-second', page_number: 2, open_source_url: `/api/documents/source/${taskId}/page-image/2` },
+          { block_id: 'block-third', page_number: 3, open_source_url: `/api/documents/source/${taskId}/page-image/3` },
           { table_id: 'table-1', page_number: 1, open_source_url: `/api/documents/source/${taskId}/page-image/1` },
           { image_id: 'figure-1', page_number: 1, open_source_url: `/api/documents/artifact/${taskId}/figures/figure-1.png` },
         ],
@@ -134,6 +165,8 @@ async function mockDocumentPreviewApis(page: Page) {
     }
     if (
       url.pathname === `/api/documents/source/${taskId}/page-image/1`
+      || url.pathname === `/api/documents/source/${taskId}/page-image/2`
+      || url.pathname === `/api/documents/source/${taskId}/page-image/3`
       || url.pathname === `/api/documents/artifact/${taskId}/figures/figure-1.png`
     ) {
       await route.fulfill({
@@ -141,6 +174,10 @@ async function mockDocumentPreviewApis(page: Page) {
         contentType: 'image/svg+xml',
         body: imageBytes,
       })
+      return
+    }
+    if (url.pathname === `/api/documents/artifact/${taskId}/reports/failing-open.json`) {
+      await route.fulfill(json({ detail: '产物打开失败：fixture denied' }, 503))
       return
     }
     await route.fulfill(json({}))
@@ -234,4 +271,105 @@ test('文档结果工作台加载受保护页图、overlay 和图片产物', asy
   await page.getByRole('tab', { name: /产物/ }).click()
   const artifactRow = page.locator('.doc-artifact-list .doc-data-row').filter({ hasText: 'figures/figure-1.png' })
   await expect(artifactRow.getByRole('button', { name: '打开', exact: true })).toBeVisible()
+})
+
+test('Markdown 块 focus 后同步 PDF overlay 与 markdown focused 状态', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await mockDocumentPreviewApis(page)
+
+  await page.goto(`/documents?task=${taskId}`)
+  await expect(page.getByText('PDF p1')).toBeVisible()
+  await page.locator('.doc-page-select').selectOption('2')
+  await expect(page.getByText('PDF p2')).toBeVisible()
+
+  const markdownBlock = page.locator('.doc-md-block').filter({ hasText: 'Second page section' }).first()
+  await expect(markdownBlock).toBeVisible()
+  await markdownBlock.click()
+
+  await expect(page.getByText('PDF p2')).toBeVisible()
+  await expect(markdownBlock).toHaveClass(/is-focused/)
+  await expect(page.getByRole('button', { name: /定位 block-second/ })).toHaveClass(/is-focused/)
+  await expect(page.locator('.doc-pdf-page-card').filter({ hasText: 'PDF p1' })).toHaveCount(0)
+})
+
+test('上一页、下一页和页码 select 与预览页同步', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await mockDocumentPreviewApis(page)
+
+  await page.goto(`/documents?task=${taskId}`)
+  const pageSelect = page.locator('.doc-page-select')
+  await expect(pageSelect).toHaveValue('1')
+  await expect(page.getByText('PDF p1')).toBeVisible()
+
+  await page.getByRole('button', { name: '下一页' }).click()
+  await expect(pageSelect).toHaveValue('2')
+  await expect(page.getByText('PDF p2')).toBeVisible()
+  await expect(page.locator('.doc-md-block').filter({ hasText: 'Second page section' })).toBeVisible()
+
+  await pageSelect.selectOption('3')
+  await expect(page.getByText('PDF p3')).toBeVisible()
+  await expect(page.locator('.doc-md-block').filter({ hasText: '第三页收尾内容' })).toBeVisible()
+
+  await page.getByRole('button', { name: '上一页' }).click()
+  await expect(pageSelect).toHaveValue('2')
+  await expect(page.getByText('PDF p2')).toBeVisible()
+  await expect(page.locator('.doc-pdf-page-card').filter({ hasText: 'PDF p3' })).toHaveCount(0)
+})
+
+test('标签滚动按钮更新 tab list scrollLeft，产物打开失败显示错误', async ({ page }) => {
+  await page.setViewportSize({ width: 960, height: 720 })
+  await mockDocumentPreviewApis(page)
+
+  await page.goto(`/documents?task=${taskId}`)
+  const tabList = page.locator('[data-slot="tabs-list"]')
+  await expect(tabList).toBeVisible()
+  await page.evaluate(() => {
+    const el = document.querySelector<HTMLElement>('[data-slot="tabs-list"]')
+    if (!el) throw new Error('missing tabs list')
+    Object.defineProperty(el, 'scrollWidth', { configurable: true, value: 1200 })
+    Object.defineProperty(el, 'clientWidth', { configurable: true, value: 300 })
+    let scrollLeft = 0
+    Object.defineProperty(el, 'scrollLeft', {
+      configurable: true,
+      get: () => scrollLeft,
+      set: (value) => {
+        scrollLeft = Math.max(0, Number(value) || 0)
+      },
+    })
+    Object.defineProperty(el, 'scrollBy', {
+      configurable: true,
+      value: ({ left }: ScrollToOptions) => {
+        el.scrollLeft += Number(left || 0)
+        el.dispatchEvent(new Event('scroll'))
+      },
+    })
+  })
+
+  await page.getByRole('button', { name: '向右滚动标签' }).click()
+  await expect.poll(async () => tabList.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0)
+  await page.getByRole('button', { name: '向左滚动标签' }).click()
+  await expect.poll(async () => tabList.evaluate((el) => el.scrollLeft)).toBe(0)
+
+  await page.getByRole('tab', { name: /产物/ }).click()
+  const failingArtifact = page.locator('.doc-artifact-list .doc-data-row').filter({ hasText: 'reports/failing-open.json' })
+  await failingArtifact.getByRole('button', { name: '打开', exact: true }).click()
+  await expect(page.locator('.doc-error')).toContainText('产物打开失败：fixture denied')
+})
+
+test('移动端 select 切换标签后保持选中状态', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await mockDocumentPreviewApis(page)
+
+  await page.goto(`/documents?task=${taskId}`)
+  const tabSelect = page.getByLabel('切换结果标签')
+  await expect(tabSelect).toBeVisible()
+  await expect(tabSelect).toHaveValue('preview')
+
+  await tabSelect.selectOption('tables')
+  await expect(tabSelect).toHaveValue('tables')
+  await expect(page.locator('[data-slot="tabs-content"][data-state="active"] .doc-table-list')).toBeVisible()
+
+  await tabSelect.selectOption('preview')
+  await expect(tabSelect).toHaveValue('preview')
+  await expect(page.getByText('PDF p1')).toBeVisible()
 })
