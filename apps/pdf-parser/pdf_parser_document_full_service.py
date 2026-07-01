@@ -295,6 +295,50 @@ def build_table_relations_artifact_payload(
     return payload
 
 
+def apply_content_list_enhanced_update_to_document_full(
+    document_full,
+    *,
+    task_id,
+    enhanced,
+    table_relations,
+    content_list_enhanced_path,
+    table_relations_path,
+    complete_markdown_path,
+    complete_markdown_exists,
+):
+    if not isinstance(document_full, dict):
+        return document_full
+    updated = dict(document_full)
+
+    existing_artifacts = updated.get("artifacts")
+    artifacts = dict(existing_artifacts) if isinstance(existing_artifacts, dict) else {}
+    updated["artifacts"] = artifacts
+    artifacts["content_list_enhanced.json"] = {
+        "exists": True,
+        "path": content_list_enhanced_path,
+        "url": f"/api/artifact/{task_id}/content_list_enhanced.json",
+    }
+    artifacts["table_relations.json"] = {
+        "exists": True,
+        "path": table_relations_path,
+        "url": f"/api/artifact/{task_id}/table_relations.json",
+    }
+
+    existing_source_files = updated.get("source_files")
+    source_files = dict(existing_source_files) if isinstance(existing_source_files, dict) else {}
+    updated["source_files"] = source_files
+    existing_complete_markdown = source_files.get("complete_markdown")
+    complete_markdown = dict(existing_complete_markdown) if isinstance(existing_complete_markdown, dict) else {}
+    source_files["complete_markdown"] = complete_markdown
+    complete_markdown["path"] = complete_markdown_path
+    complete_markdown["exists"] = bool(complete_markdown_exists)
+    complete_markdown["url"] = f"/api/artifact/{task_id}/result_complete.md"
+
+    updated["content_list_enhanced"] = enhanced
+    updated["table_relations"] = table_relations
+    return updated
+
+
 def file_reference_payload(path, url=None, kind=None):
     if not path:
         return None

@@ -3148,22 +3148,17 @@ def _ensure_content_list_enhanced_artifact(task, markdown):
         content_list=_load_json_artifact(task, "content_list.json"),
     )
     if isinstance(document_full, dict):
-        document_full["content_list_enhanced"] = enhanced
-        document_full["table_relations"] = table_relations
-        document_full.setdefault("artifacts", {})["content_list_enhanced.json"] = {
-            "exists": True,
-            "path": path,
-            "url": f"/api/artifact/{task['task_id']}/content_list_enhanced.json",
-        }
-        document_full.setdefault("artifacts", {})["table_relations.json"] = {
-            "exists": True,
-            "path": _table_relations_path(task),
-            "url": f"/api/artifact/{task['task_id']}/table_relations.json",
-        }
         complete_path = os.path.join(result_dir, "result_complete.md")
-        document_full.setdefault("source_files", {}).setdefault("complete_markdown", {})["path"] = complete_path
-        document_full.setdefault("source_files", {}).setdefault("complete_markdown", {})["exists"] = os.path.exists(complete_path)
-        document_full.setdefault("source_files", {}).setdefault("complete_markdown", {})["url"] = f"/api/artifact/{task['task_id']}/result_complete.md"
+        document_full = document_full_service.apply_content_list_enhanced_update_to_document_full(
+            document_full,
+            task_id=task["task_id"],
+            enhanced=enhanced,
+            table_relations=table_relations,
+            content_list_enhanced_path=path,
+            table_relations_path=_table_relations_path(task),
+            complete_markdown_path=complete_path,
+            complete_markdown_exists=os.path.exists(complete_path),
+        )
         _write_json(os.path.join(result_dir, "document_full.json"), document_full)
     elif previous_version:
         financial_data, financial_checks = _ensure_financial_artifacts(task, markdown)

@@ -67,3 +67,39 @@ def test_analysis_completed_artifacts_and_format_context(tmp_path):
         context={"company": {"name": "SAIC", "code": "600104", "dir": str(analysis_dir.parent)}},
         context_header="HEADER",
     )
+
+
+def test_analysis_completion_guard_intent_helpers():
+    force_terms = ("强制重建", "--force")
+    status_terms = ("完成了吗", "报告路径")
+    report_terms = ("分析报告", "html", ".md")
+    generation_terms = ("生成", "重建")
+
+    assert agent_runtime_context.normalized_intent_text("  报告\n路径 ") == "报告路径"
+    assert agent_runtime_context.force_rebuild_requested("请 --force 重新来", force_terms)
+
+    assert agent_runtime_context.analysis_completed_guard_applies(
+        "报告 路径 在哪",
+        status_terms=status_terms,
+        report_terms=report_terms,
+        generation_terms=generation_terms,
+    )
+    assert agent_runtime_context.analysis_completed_guard_applies(
+        "请重新生成年度分析报告",
+        status_terms=status_terms,
+        report_terms=report_terms,
+        generation_terms=generation_terms,
+    )
+    assert not agent_runtime_context.analysis_completed_guard_applies(
+        "这家公司收入为什么下降",
+        status_terms=status_terms,
+        report_terms=report_terms,
+        generation_terms=generation_terms,
+    )
+    assert not agent_runtime_context.should_use_analysis_completion_guard(
+        "强制重建年度分析报告",
+        force_rebuild_terms=force_terms,
+        status_terms=status_terms,
+        report_terms=report_terms,
+        generation_terms=generation_terms,
+    )

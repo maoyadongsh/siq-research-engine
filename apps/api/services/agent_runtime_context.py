@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +41,50 @@ def context_company_hint(context: Any | None) -> str:
         (raw.get("report") or {}).get("filename"),
     ]
     return " ".join(str(item) for item in values if item)
+
+
+def normalized_intent_text(message: str | None) -> str:
+    return re.sub(r"\s+", "", message or "").lower()
+
+
+def force_rebuild_requested(message: str | None, terms: Sequence[str]) -> bool:
+    raw_message = message or ""
+    return any(term in raw_message for term in terms)
+
+
+def analysis_completed_guard_applies(
+    message: str | None,
+    *,
+    status_terms: Sequence[str],
+    report_terms: Sequence[str],
+    generation_terms: Sequence[str],
+) -> bool:
+    normalized = normalized_intent_text(message)
+    if not normalized:
+        return False
+    if any(term in normalized for term in status_terms):
+        return True
+    has_report_term = any(term in normalized for term in report_terms)
+    has_generation_term = any(term in normalized for term in generation_terms)
+    return has_report_term and has_generation_term
+
+
+def should_use_analysis_completion_guard(
+    message: str | None,
+    *,
+    force_rebuild_terms: Sequence[str],
+    status_terms: Sequence[str],
+    report_terms: Sequence[str],
+    generation_terms: Sequence[str],
+) -> bool:
+    if force_rebuild_requested(message, force_rebuild_terms):
+        return False
+    return analysis_completed_guard_applies(
+        message,
+        status_terms=status_terms,
+        report_terms=report_terms,
+        generation_terms=generation_terms,
+    )
 
 
 def forced_context_company_dir(context: Any | None, *, wiki_root: Path) -> Path | None:

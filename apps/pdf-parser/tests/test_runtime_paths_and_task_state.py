@@ -638,6 +638,56 @@ class PdfParserDocumentFullServiceTest(unittest.TestCase):
         self.assertEqual(payload["relations"][0]["to_bbox"], [10.0, 20.0, 110.0, 80.0])
         self.assertEqual(payload["relations"][0]["to_page_number"], 1)
 
+    def test_content_list_enhanced_update_adds_artifacts_without_mutating_original(self):
+        original = {
+            "artifacts": {"existing.json": {"exists": True}},
+            "source_files": {"pdf": {"path": "/tmp/report.pdf"}},
+        }
+        enhanced = {"schema_version": 10}
+        table_relations = {"relations": []}
+
+        updated = document_full_service.apply_content_list_enhanced_update_to_document_full(
+            original,
+            task_id="task-update",
+            enhanced=enhanced,
+            table_relations=table_relations,
+            content_list_enhanced_path="/tmp/content_list_enhanced.json",
+            table_relations_path="/tmp/table_relations.json",
+            complete_markdown_path="/tmp/result_complete.md",
+            complete_markdown_exists=True,
+        )
+
+        self.assertIsNot(updated, original)
+        self.assertNotIn("content_list_enhanced", original)
+        self.assertNotIn("content_list_enhanced.json", original["artifacts"])
+        self.assertEqual(updated["content_list_enhanced"], enhanced)
+        self.assertEqual(updated["table_relations"], table_relations)
+        self.assertEqual(updated["artifacts"]["existing.json"], {"exists": True})
+        self.assertEqual(
+            updated["artifacts"]["content_list_enhanced.json"],
+            {
+                "exists": True,
+                "path": "/tmp/content_list_enhanced.json",
+                "url": "/api/artifact/task-update/content_list_enhanced.json",
+            },
+        )
+        self.assertEqual(
+            updated["artifacts"]["table_relations.json"],
+            {
+                "exists": True,
+                "path": "/tmp/table_relations.json",
+                "url": "/api/artifact/task-update/table_relations.json",
+            },
+        )
+        self.assertEqual(
+            updated["source_files"]["complete_markdown"],
+            {
+                "path": "/tmp/result_complete.md",
+                "exists": True,
+                "url": "/api/artifact/task-update/result_complete.md",
+            },
+        )
+
 
 class AppWrapperCompatibilityTest(unittest.TestCase):
     def test_task_duplicate_payload_wrapper_uses_response_service(self):

@@ -1423,24 +1423,26 @@ def normalize_plain_inline_latex(content: str | None) -> str:
 
 
 def _force_rebuild_requested(message: str) -> bool:
-    return any(term in message for term in FORCE_REBUILD_TERMS)
+    return agent_runtime_context.force_rebuild_requested(message, FORCE_REBUILD_TERMS)
 
 
 def _analysis_completed_guard_applies(message: str) -> bool:
-    """Only short-circuit completed reports for report generation/status intents.
+    return agent_runtime_context.analysis_completed_guard_applies(
+        message,
+        status_terms=ANALYSIS_STATUS_TERMS,
+        report_terms=ANALYSIS_REPORT_TERMS,
+        generation_terms=ANALYSIS_GENERATION_TERMS,
+    )
 
-    The analysis chat often carries a default company context. That context is
-    useful for resolving follow-up questions, but it must not turn every user
-    message into a duplicate report-generation request.
-    """
-    normalized = re.sub(r"\s+", "", message).lower()
-    if not normalized:
-        return False
-    if any(term in normalized for term in ANALYSIS_STATUS_TERMS):
-        return True
-    has_report_term = any(term in normalized for term in ANALYSIS_REPORT_TERMS)
-    has_generation_term = any(term in normalized for term in ANALYSIS_GENERATION_TERMS)
-    return has_report_term and has_generation_term
+
+def _should_use_analysis_completion_guard(message: str) -> bool:
+    return agent_runtime_context.should_use_analysis_completion_guard(
+        message,
+        force_rebuild_terms=FORCE_REBUILD_TERMS,
+        status_terms=ANALYSIS_STATUS_TERMS,
+        report_terms=ANALYSIS_REPORT_TERMS,
+        generation_terms=ANALYSIS_GENERATION_TERMS,
+    )
 
 
 def _dedupe_hash(message: str, context: Any | None) -> str:
@@ -5950,7 +5952,7 @@ async def _collect_chat_reply_impl(
         return catalog_reply
 
     completed_guard_input: str | None = None
-    if profile == "siq_analysis" and not _force_rebuild_requested(message) and _analysis_completed_guard_applies(message):
+    if profile == "siq_analysis" and _should_use_analysis_completion_guard(message):
         completed_artifacts = _analysis_completed_artifacts(context)
         if completed_artifacts:
             completed_guard_input = _analysis_completion_guard_input(message, completed_artifacts)
@@ -6490,7 +6492,7 @@ async def _stream_chat_reply_impl(
 
     completed_guard_input: str | None = None
     completed_guard_active = False
-    if profile == "siq_analysis" and not _force_rebuild_requested(message) and _analysis_completed_guard_applies(message):
+    if profile == "siq_analysis" and _should_use_analysis_completion_guard(message):
         completed_artifacts = _analysis_completed_artifacts(context)
         if completed_artifacts:
             completed_guard_active = True
