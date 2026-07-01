@@ -14,6 +14,60 @@ MessagePredicate = Callable[[str], bool]
 MatchPredicate = Callable[[dict[str, Any], str, Any | None], bool]
 ResolveCompanyDir = Callable[[str, Any | None], Path | None]
 ContextHint = Callable[[Any | None], str]
+NormalizeText = Callable[[Any], str]
+
+
+def infer_stock_code_from_text(text: str) -> str:
+    for pattern in (r"\bCN[_-](\d{6})\b", r"\b(?:SH|SZ|BJ|HK)?[_-]?(\d{6})\b"):
+        match = re.search(pattern, text or "", flags=re.IGNORECASE)
+        if match:
+            return match.group(1)
+    return ""
+
+
+def infer_company_name_from_filename(filename: str) -> str:
+    text = Path(str(filename or "")).stem
+    text = re.sub(r"[_-]CN[_-]\d{6}.*$", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"[_-]\d{6}.*$", "", text)
+    text = re.sub(r"(?:股份有限公司|集团股份有限公司)?[_-]?(?:20\d{2}.*)?$", "", text)
+    return text.strip("_- ")
+
+
+def pdf2md_task_aliases(info: dict[str, Any]) -> list[str]:
+    aliases = [
+        info.get("task_id"),
+        info.get("stock_code"),
+        info.get("company_name"),
+        info.get("filename"),
+    ]
+    filename = str(info.get("filename") or "")
+    if filename:
+        aliases.extend(part for part in re.split(r"[_\-\s]+", filename) if part)
+    return [str(alias).strip() for alias in aliases if str(alias or "").strip()]
+
+
+def pdf2md_info_matches_message(
+    info: dict[str, Any],
+    message: str,
+    context: Any | None = None,
+    *,
+    normalize_text: NormalizeText,
+    context_company_hint: ContextHint,
+) -> bool:
+    haystack = normalize_text(f"{message}\n{context_company_hint(context)}")
+    if not haystack:
+        return False
+    for alias in pdf2md_task_aliases(info):
+        normalized = normalize_text(alias)
+        if not normalized:
+            continue
+        if re.fullmatch(r"\d{6}", normalized):
+            if normalized in haystack:
+                return True
+            continue
+        if len(normalized) >= 2 and normalized in haystack:
+            return True
+    return False
 
 
 def _pdf2md_parse_only_matches(
@@ -115,3 +169,14 @@ def build_pdf2md_parse_only_context(
             f"`/api/source/{task_id}/table/<table_index>?format=html`"
         )
     return "\n".join(lines)
+
+
+__all__ = [
+    "build_pdf2md_parse_only_context",
+    "infer_company_name_from_filename",
+    "infer_stock_code_from_text",
+    "pdf2md_info_matches_message",
+    "pdf2md_task_aliases",
+    "_pdf2md_parse_only_matches",
+    "_should_consider_pdf2md_parse_only_context",
+]

@@ -1,24 +1,10 @@
-import type {
-  DocumentBlocksPayload,
-  DocumentFiguresPayload,
-  DocumentManifest,
-  DocumentSourceMapPayload,
-  DocumentTablesPayload,
-} from '@/lib/documentTypes'
+import type { DocumentResultJsonPreview } from './documentResultWorkbenchDerivations'
 import { stringify } from './documentResultWorkbenchUtils'
 
 export function DocumentResultJsonPane({
-  manifest,
-  blocks,
-  tables,
-  figures,
-  sourceMap,
+  preview,
 }: {
-  manifest?: DocumentManifest | null
-  blocks: DocumentBlocksPayload | null
-  tables: DocumentTablesPayload | null
-  figures: DocumentFiguresPayload | null
-  sourceMap: DocumentSourceMapPayload | null
+  preview: DocumentResultJsonPreview
 }) {
-  return <pre className="doc-json">{stringify({ manifest, blocks, tables, figures, sourceMap })}</pre>
+  return <pre className="doc-json">{stringify(preview)}</pre>
 }

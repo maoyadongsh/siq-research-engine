@@ -1,10 +1,14 @@
 import type {
   DocumentBlock,
+  DocumentBlocksPayload,
   DocumentFigure,
+  DocumentFiguresPayload,
   DocumentLayoutPage,
+  DocumentManifest,
   DocumentSourceMapPayload,
   DocumentTable,
   DocumentTableRelation,
+  DocumentTablesPayload,
 } from '@/lib/documentTypes'
 import {
   buildMarkdownBlocks,
@@ -13,13 +17,43 @@ import {
   isPreviewCrossPageTableRelation,
   pageNumber,
   relationPages,
+  relationTableIds,
   tableLabel,
   uniqueStrings,
   validBbox,
+  type FocusTarget,
   type MarkdownBlock,
   type OverlayEntry,
   type SourceMapEntry,
 } from './documentResultWorkbenchUtils'
+
+export type DocumentResultJsonPreview = {
+  manifest?: DocumentManifest | null
+  blocks: DocumentBlocksPayload | null
+  tables: DocumentTablesPayload | null
+  figures: DocumentFiguresPayload | null
+  sourceMap: DocumentSourceMapPayload | null
+}
+
+export type DocumentResultTableLookups = {
+  tableById: Map<string, DocumentTable>
+  tableByBlockId: Map<string, DocumentTable>
+  tableIdByBlockId: Map<string, string>
+  blockIdByTableId: Map<string, string>
+}
+
+export type DocumentResultPreviewPageModel = {
+  pageNumber: number
+  overlays: OverlayEntry[]
+  relations: DocumentTableRelation[]
+  bridgeRelation?: DocumentTableRelation
+  bridgeFocusId: string
+  bridgePage: number
+}
+
+export function buildDocumentResultJsonPreview(preview: DocumentResultJsonPreview) {
+  return preview
+}
 
 export function buildDocumentResultSourceLookups(sourceMap: DocumentSourceMapPayload | null) {
   const sourceByBlockId = new Map<string, SourceMapEntry>()
@@ -44,11 +78,95 @@ export function buildDocumentResultPageByNumber(pages?: DocumentLayoutPage[] | n
   return lookup
 }
 
+export function buildDocumentResultTableLookups(physicalTables: DocumentTable[]): DocumentResultTableLookups {
+  const tableById = new Map<string, DocumentTable>()
+  const tableByBlockId = new Map<string, DocumentTable>()
+  const tableIdByBlockId = new Map<string, string>()
+  const blockIdByTableId = new Map<string, string>()
+
+  physicalTables.forEach((table) => {
+    if (table.table_id) tableById.set(table.table_id, table)
+    if (table.block_id && !tableByBlockId.has(table.block_id)) tableByBlockId.set(table.block_id, table)
+    if (table.block_id && table.table_id && !tableIdByBlockId.has(table.block_id)) {
+      tableIdByBlockId.set(table.block_id, table.table_id)
+    }
+    if (table.table_id && table.block_id && !blockIdByTableId.has(table.table_id)) {
+      blockIdByTableId.set(table.table_id, table.block_id)
+    }
+  })
+
+  return { tableById, tableByBlockId, tableIdByBlockId, blockIdByTableId }
+}
+
 export function buildDocumentResultPreviewRelations(
   relationItems: DocumentTableRelation[],
   tableById: Map<string, DocumentTable>,
 ) {
   return relationItems.filter((relation) => isPreviewCrossPageTableRelation(relation, tableById))
+}
+
+export function buildDocumentResultRelationsByTableId(previewRelations: DocumentTableRelation[]) {
+  const lookup = new Map<string, DocumentTableRelation[]>()
+  previewRelations.forEach((relation) => {
+    relationTableIds(relation).forEach((tableId: string) => {
+      if (!tableId) return
+      const existing = lookup.get(tableId) || []
+      existing.push(relation)
+      lookup.set(tableId, existing)
+    })
+  })
+  return lookup
+}
+
+export function buildDocumentResultFocusDerivation({
+  focused,
+  tableIdByBlockId,
+  blockIdByTableId,
+  relationsByTableId,
+}: {
+  focused: FocusTarget
+  tableIdByBlockId: Map<string, string>
+  blockIdByTableId: Map<string, string>
+  relationsByTableId: Map<string, DocumentTableRelation[]>
+}) {
+  const activeFocusKeys = new Set<string>()
+  let focusedTableId = ''
+
+  if (focused) {
+    activeFocusKeys.add(focusKey(focused.kind, focused.id))
+    if (focused.kind === 'block') {
+      const tableId = tableIdByBlockId.get(focused.id) || ''
+      if (tableId) {
+        activeFocusKeys.add(focusKey('table', tableId))
+        focusedTableId = tableId
+      }
+    } else if (focused.kind === 'table') {
+      focusedTableId = focused.id
+      const blockId = blockIdByTableId.get(focused.id)
+      if (blockId) activeFocusKeys.add(focusKey('block', blockId))
+    }
+  }
+
+  return {
+    activeFocusKeys,
+    focusedTableId,
+    focusedRelations: focusedTableId ? relationsByTableId.get(focusedTableId) || [] : [],
+  }
+}
+
+export function buildDocumentResultVisibleRelations({
+  activePage,
+  focusedRelations,
+  previewRelations,
+  tableById,
+}: {
+  activePage: number
+  focusedRelations: DocumentTableRelation[]
+  previewRelations: DocumentTableRelation[]
+  tableById: Map<string, DocumentTable>
+}) {
+  if (focusedRelations.length) return focusedRelations
+  return previewRelations.filter((relation) => relationPages(relation, tableById).includes(activePage))
 }
 
 export function buildDocumentResultMarkdownBlocks(
@@ -195,4 +313,45 @@ export function buildDocumentResultPreviewMarkdownBlocks(
 ) {
   const visible = new Set(previewPages)
   return markdownBlocks.filter((block) => visible.has(pageNumber(block.pageNumber)))
+}
+
+export function buildDocumentResultPreviewPageModels({
+  previewPages,
+  visibleRelations,
+  tableById,
+  overlays,
+}: {
+  previewPages: number[]
+  visibleRelations: DocumentTableRelation[]
+  tableById: Map<string, DocumentTable>
+  overlays: OverlayEntry[]
+}): DocumentResultPreviewPageModel[] {
+  return previewPages.map((page, index) => {
+    const nextPage = previewPages[index + 1]
+    const bridgeRelation = nextPage
+      ? visibleRelations.find((relation) => {
+        const pages = relationPages(relation, tableById)
+        return pages.includes(page) && pages.includes(nextPage)
+      })
+      : undefined
+    const bridgeTableIds = bridgeRelation ? relationTableIds(bridgeRelation) : []
+    const bridgeFocusId = bridgeTableIds[1] || bridgeTableIds[0] || (bridgeRelation ? `relation-${index + 1}` : '')
+
+    return {
+      pageNumber: page,
+      overlays: overlays.filter((entry) => entry.pageNumber === page),
+      relations: visibleRelations.filter((relation) => relationPages(relation, tableById).includes(page)),
+      bridgeRelation,
+      bridgeFocusId,
+      bridgePage: nextPage || page,
+    }
+  })
+}
+
+export function adjacentDocumentResultPage(pageNumbers: number[], activePage: number, direction: -1 | 1) {
+  if (!pageNumbers.length) return activePage
+  const currentIndex = pageNumbers.indexOf(activePage)
+  const fallbackIndex = direction < 0 ? 0 : pageNumbers.length - 1
+  const nextIndex = currentIndex === -1 ? fallbackIndex : currentIndex + direction
+  return pageNumbers[Math.min(pageNumbers.length - 1, Math.max(0, nextIndex))] || activePage
 }

@@ -18,7 +18,6 @@ import type {
   DocumentQualityReport,
   DocumentResult,
   DocumentSourceMapPayload,
-  DocumentTable,
   DocumentTableRelation,
   DocumentTableRelationsPayload,
   DocumentTablesPayload,
@@ -35,6 +34,9 @@ import { DocumentQualityPane, DocumentWorkflowPane } from './DocumentStatusPanes
 import { DocumentTablePane } from './DocumentTablePane'
 import { PdfPagePreview } from './DocumentSourcePreview'
 import {
+  adjacentDocumentResultPage,
+  buildDocumentResultFocusDerivation,
+  buildDocumentResultJsonPreview,
   buildDocumentResultMarkdownBlocks,
   buildDocumentResultPageByNumber,
   buildDocumentResultPageNumbers,
@@ -42,20 +44,19 @@ import {
   buildDocumentResultPreviewOverlays,
   buildDocumentResultPreviewPages,
   buildDocumentResultPreviewRelations,
+  buildDocumentResultPreviewPageModels,
+  buildDocumentResultRelationsByTableId,
   buildDocumentResultSourceLookups,
+  buildDocumentResultTableLookups,
+  buildDocumentResultVisibleRelations,
 } from './documentResultWorkbenchDerivations'
 import {
   cssAttrValue,
-  focusKey,
   relationFlowTone,
-  relationId,
   relationLabel,
-  relationPages,
-  relationTableIds,
   statusLabel,
   statusTone,
   type FocusTarget,
-  type OverlayEntry,
 } from './documentResultWorkbenchUtils'
 
 function MergePageBridge({
@@ -142,24 +143,18 @@ export function DocumentResultWorkbench({
   const physicalTables = useMemo(() => tables?.physical_tables || tables?.tables || [], [tables?.physical_tables, tables?.tables])
   const figureItems = useMemo(() => figures?.figures || [], [figures?.figures])
   const relationItems = useMemo(() => tableRelations?.relations || [], [tableRelations?.relations])
+  const jsonPreview = useMemo(
+    () => buildDocumentResultJsonPreview({ manifest: result?.manifest, blocks, tables, figures, sourceMap }),
+    [blocks, figures, result?.manifest, sourceMap, tables],
+  )
   const { sourceByBlockId, sourceByTableId, sourceByFigureId } = useMemo(
     () => buildDocumentResultSourceLookups(sourceMap),
     [sourceMap],
   )
-  const tableById = useMemo(() => {
-    const lookup = new Map<string, DocumentTable>()
-    physicalTables.forEach((table) => {
-      if (table.table_id) lookup.set(table.table_id, table)
-    })
-    return lookup
-  }, [physicalTables])
-  const tableByBlockId = useMemo(() => {
-    const lookup = new Map<string, DocumentTable>()
-    physicalTables.forEach((table) => {
-      if (table.block_id && !lookup.has(table.block_id)) lookup.set(table.block_id, table)
-    })
-    return lookup
-  }, [physicalTables])
+  const { tableById, tableByBlockId, tableIdByBlockId, blockIdByTableId } = useMemo(
+    () => buildDocumentResultTableLookups(physicalTables),
+    [physicalTables],
+  )
   const previewRelations = useMemo(
     () => buildDocumentResultPreviewRelations(relationItems, tableById),
     [relationItems, tableById],
@@ -169,60 +164,28 @@ export function DocumentResultWorkbench({
     () => buildDocumentResultMarkdownBlocks(sourceBlocks, result?.markdown || '', tableByBlockId),
     [sourceBlocks, result?.markdown, tableByBlockId],
   )
-  const tableIdByBlockId = useMemo(() => {
-    const lookup = new Map<string, string>()
-    tableByBlockId.forEach((table, blockId) => {
-      if (table.table_id) lookup.set(blockId, table.table_id)
-    })
-    return lookup
-  }, [tableByBlockId])
-  const blockIdByTableId = useMemo(() => {
-    const lookup = new Map<string, string>()
-    physicalTables.forEach((table) => {
-      if (table.table_id && table.block_id && !lookup.has(table.table_id)) lookup.set(table.table_id, table.block_id)
-    })
-    return lookup
-  }, [physicalTables])
-  const relationsByTableId = useMemo(() => {
-    const lookup = new Map<string, DocumentTableRelation[]>()
-    previewRelations.forEach((relation) => {
-      relationTableIds(relation).forEach((tableId: string) => {
-        if (!tableId) return
-        const existing = lookup.get(tableId) || []
-        existing.push(relation)
-        lookup.set(tableId, existing)
-      })
-    })
-    return lookup
-  }, [previewRelations])
-  const activeFocusKeys = useMemo(() => {
-    const keys = new Set<string>()
-    if (!focused) return keys
-    keys.add(focusKey(focused.kind, focused.id))
-    if (focused.kind === 'block') {
-      const tableId = tableIdByBlockId.get(focused.id)
-      if (tableId) keys.add(focusKey('table', tableId))
-    }
-    if (focused.kind === 'table') {
-      const blockId = blockIdByTableId.get(focused.id)
-      if (blockId) keys.add(focusKey('block', blockId))
-    }
-    return keys
-  }, [blockIdByTableId, focused, tableIdByBlockId])
-  const focusedTableId = useMemo(() => {
-    if (!focused) return ''
-    if (focused.kind === 'table') return focused.id
-    if (focused.kind === 'block') return tableIdByBlockId.get(focused.id) || ''
-    return ''
-  }, [focused, tableIdByBlockId])
-  const focusedRelations = useMemo(() => {
-    if (!focusedTableId) return []
-    return relationsByTableId.get(focusedTableId) || []
-  }, [focusedTableId, relationsByTableId])
-  const activePageRelations = useMemo(() => {
-    return previewRelations.filter((relation) => relationPages(relation, tableById).includes(activePage))
-  }, [activePage, previewRelations, tableById])
-  const visibleRelations = focusedRelations.length ? focusedRelations : activePageRelations
+  const relationsByTableId = useMemo(
+    () => buildDocumentResultRelationsByTableId(previewRelations),
+    [previewRelations],
+  )
+  const { activeFocusKeys, focusedRelations } = useMemo(
+    () => buildDocumentResultFocusDerivation({
+      focused,
+      tableIdByBlockId,
+      blockIdByTableId,
+      relationsByTableId,
+    }),
+    [blockIdByTableId, focused, relationsByTableId, tableIdByBlockId],
+  )
+  const visibleRelations = useMemo(
+    () => buildDocumentResultVisibleRelations({
+      activePage,
+      focusedRelations,
+      previewRelations,
+      tableById,
+    }),
+    [activePage, focusedRelations, previewRelations, tableById],
+  )
 
   const pageNumbers = useMemo(() => buildDocumentResultPageNumbers({
     sourceBlocks,
@@ -247,7 +210,7 @@ export function DocumentResultWorkbench({
     }
   }, [taskId, pageNumbers])
 
-  const overlays = useMemo<OverlayEntry[]>(() => buildDocumentResultPreviewOverlays({
+  const overlays = useMemo(() => buildDocumentResultPreviewOverlays({
     sourceBlocks,
     physicalTables,
     figureItems,
@@ -265,6 +228,15 @@ export function DocumentResultWorkbench({
   const previewMarkdownBlocks = useMemo(
     () => buildDocumentResultPreviewMarkdownBlocks(markdownBlocks, previewPages),
     [markdownBlocks, previewPages],
+  )
+  const previewPageModels = useMemo(
+    () => buildDocumentResultPreviewPageModels({
+      previewPages,
+      visibleRelations,
+      tableById,
+      overlays,
+    }),
+    [overlays, previewPages, tableById, visibleRelations],
   )
 
   useEffect(() => {
@@ -423,7 +395,7 @@ export function DocumentResultWorkbench({
                       size="icon-xs"
                       aria-label="上一页"
                       disabled={!pageNumbers.length || activePage <= pageNumbers[0]}
-                      onClick={() => selectPage(pageNumbers[Math.max(0, pageNumbers.indexOf(activePage) - 1)] || activePage)}
+                      onClick={() => selectPage(adjacentDocumentResultPage(pageNumbers, activePage, -1))}
                     >
                       <ChevronLeft className="h-3 w-3" />
                     </Button>
@@ -438,40 +410,31 @@ export function DocumentResultWorkbench({
                       size="icon-xs"
                       aria-label="下一页"
                       disabled={!pageNumbers.length || activePage >= pageNumbers[pageNumbers.length - 1]}
-                      onClick={() => selectPage(pageNumbers[Math.min(pageNumbers.length - 1, pageNumbers.indexOf(activePage) + 1)] || activePage)}
+                      onClick={() => selectPage(adjacentDocumentResultPage(pageNumbers, activePage, 1))}
                     >
                       <ChevronRight className="h-3 w-3" />
                     </Button>
                   </div>
                 </div>
                 <div className="doc-source-page" ref={pdfPaneRef}>
-                  {taskId ? previewPages.map((page, index) => {
-                    const nextPage = previewPages[index + 1]
-                    const bridgeRelation = nextPage
-                      ? visibleRelations.find((relation) => {
-                        const pages = relationPages(relation, tableById)
-                        return pages.includes(page) && pages.includes(nextPage)
-                      })
-                      : undefined
-                    const bridgeTableIds = bridgeRelation ? relationTableIds(bridgeRelation) : []
-                    const bridgeFocusId = bridgeTableIds[1] || bridgeTableIds[0] || (bridgeRelation ? relationId(bridgeRelation, index) : '')
+                  {taskId ? previewPageModels.map((pageModel) => {
                     return (
-                      <div className="doc-pdf-page-stack" key={page}>
+                      <div className="doc-pdf-page-stack" key={pageModel.pageNumber}>
                         <PdfPagePreview
                           taskId={taskId}
-                          pageNumberValue={page}
-                          page={pageByNumber.get(page)}
-                          overlays={overlays.filter((entry) => entry.pageNumber === page)}
-                          relations={visibleRelations.filter((relation) => relationPages(relation, tableById).includes(page))}
+                          pageNumberValue={pageModel.pageNumber}
+                          page={pageByNumber.get(pageModel.pageNumber)}
+                          overlays={pageModel.overlays}
+                          relations={pageModel.relations}
                           tableById={tableById}
                           activeFocusKeys={activeFocusKeys}
                           onFocus={focusTarget}
                           onOpenResource={(url, filename) => void openResource(url, filename)}
                         />
-                        {bridgeRelation ? (
+                        {pageModel.bridgeRelation ? (
                           <MergePageBridge
-                            relation={bridgeRelation}
-                            onClick={() => focusTarget({ kind: 'table', id: bridgeFocusId, page: nextPage || page })}
+                            relation={pageModel.bridgeRelation}
+                            onClick={() => focusTarget({ kind: 'table', id: pageModel.bridgeFocusId, page: pageModel.bridgePage })}
                           />
                         ) : null}
                       </div>
@@ -512,13 +475,7 @@ export function DocumentResultWorkbench({
           </TabsContent>
 
           <TabsContent value="json" className="m-0">
-            <DocumentResultJsonPane
-              manifest={result.manifest}
-              blocks={blocks}
-              tables={tables}
-              figures={figures}
-              sourceMap={sourceMap}
-            />
+            <DocumentResultJsonPane preview={jsonPreview} />
           </TabsContent>
 
           <TabsContent value="tables" className="m-0">

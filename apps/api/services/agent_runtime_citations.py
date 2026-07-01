@@ -733,6 +733,7 @@ def _render_postgres_fallback_context(
 __all__ = [
     "_append_unique_source_ref",
     "_extract_reference_lines",
+    "_first_record_label",
     "_has_primary_data_evidence_trace",
     "_has_structured_evidence_trace",
     "_is_reference_line",

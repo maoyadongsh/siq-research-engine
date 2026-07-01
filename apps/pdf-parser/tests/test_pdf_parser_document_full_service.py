@@ -1,6 +1,94 @@
 import pdf_parser_document_full_service as document_full
 
 
+def test_relation_tables_from_artifacts_merges_enhanced_and_content_list_tables():
+    enhanced = {
+        "tables": [
+            {
+                "table_index": 1,
+                "bbox": [1, 2, 3, 4],
+                "pdf_page_number": 2,
+                "printed_page_number": "1",
+                "preview": "营业收入",
+                "source": "markdown_marker_inferred",
+                "structure": {"expanded_rows": 3, "expanded_columns": 2},
+            }
+        ]
+    }
+    content_list = [
+        {
+            "type": "table",
+            "table_body": "<table><tr><td>营业收入</td></tr></table>",
+            "page_idx": 1,
+            "bbox": [1, 2, 3, 4],
+            "table_caption": ["营业收入表"],
+            "table_footnote": ["单位：万元"],
+        }
+    ]
+
+    relation_tables = document_full.relation_tables_from_artifacts(enhanced, content_list)
+
+    assert relation_tables == [
+        {
+            "table_id": "pt-000001",
+            "table_index": 1,
+            "content_table_source_id": 1,
+            "page_number": 2,
+            "pdf_page_number": 2,
+            "printed_page_number": "1",
+            "bbox": [1.0, 2.0, 3.0, 4.0],
+            "title": "营业收入",
+            "caption": "营业收入",
+            "html": "<table><tr><td>营业收入</td></tr></table>",
+            "markdown": "",
+            "text": "营业收入",
+            "quality": {"row_count": 3, "column_count": 2},
+            "missing_body": False,
+            "source": "markdown_marker_inferred",
+        }
+    ]
+
+
+def test_relation_blocks_and_payload_helpers_normalize_table_relations():
+    content_list = [
+        {"type": "text", "page_idx": 0, "text": "标题"},
+        {"type": "table", "page_idx": 1, "table_body": "<table><tr><td>表</td></tr></table>", "bbox": [1, 2, 3, 4]},
+        {"type": "list", "page_idx": 2, "list_items": ["A", "B"]},
+    ]
+    relation_blocks = document_full.relation_blocks_from_content_list(content_list)
+
+    assert relation_blocks[1]["text"] == "表"
+    assert relation_blocks[2]["text"] == "A B"
+
+    payload = document_full.build_table_relations_artifact_payload(
+        {"task_id": "doc-full", "filename": "sample.pdf"},
+        "[PDF_PAGE: 1]\n正文",
+        enhanced={"tables": []},
+        content_list=content_list,
+        build_table_relations=lambda task_id, relation_tables, blocks, markdown: {
+            "task_id": task_id,
+            "relations": [
+                {
+                    "from_table_id": relation_tables[0]["table_id"],
+                    "to_table_id": relation_tables[0]["table_id"],
+                }
+            ],
+            "relation_tables": relation_tables,
+            "blocks": blocks,
+            "markdown": markdown,
+        },
+        now_iso=lambda: "2026-06-30T00:00:00+00:00",
+        table_relation_ruleset_version="v1",
+    )
+
+    assert payload["schema_version"] == "document_table_relations_v1"
+    assert payload["ruleset_version"] == "v1"
+    assert payload["task_id"] == "doc-full"
+    assert payload["generated_at"] == "2026-06-30T00:00:00+00:00"
+    assert payload["physical_table_count"] == 1
+    assert payload["relations"][0]["from_table_index"] is None
+
+
 def test_resource_indexes_include_images_and_rendered_pages(tmp_path):
     task = {"task_id": "doc-full"}
     result_root = tmp_path / "doc-full"

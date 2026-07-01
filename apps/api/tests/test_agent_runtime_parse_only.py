@@ -3,6 +3,40 @@ from pathlib import Path
 import pytest
 
 from services import agent_runtime_parse_only as parse_only
+from services import agent_chat_runtime as runtime
+
+
+def test_pdf2md_filename_and_alias_helpers_are_pure_service_logic():
+    filename = "光环新网_CN_300383_2025年度报告.pdf"
+
+    assert parse_only.infer_stock_code_from_text("CN_300383") == "300383"
+    assert parse_only.infer_company_name_from_filename(filename) == "光环新网"
+    assert parse_only.pdf2md_task_aliases(
+        {
+            "task_id": "task-1",
+            "stock_code": "300383",
+            "company_name": "光环新网",
+            "filename": filename,
+        }
+    ) == ["task-1", "300383", "光环新网", filename, "光环新网", "CN", "300383", "2025年度报告.pdf"]
+
+
+def test_pdf2md_info_matches_message_uses_context_hint_and_runtime_wrapper():
+    info = {
+        "task_id": "task-1",
+        "stock_code": "300383",
+        "company_name": "光环新网",
+        "filename": "光环新网_CN_300383_2025年度报告.pdf",
+    }
+
+    assert parse_only.pdf2md_info_matches_message(
+        info,
+        "这份年报的商誉是多少",
+        {"company": {"name": "光环新网"}},
+        normalize_text=runtime._normalize_financial_text,
+        context_company_hint=runtime._context_company_hint,
+    )
+    assert runtime._pdf2md_info_matches_message(info, "请分析 300383 年报")
 
 
 def test_pdf2md_parse_only_matches_filters_general_wiki_and_limit():

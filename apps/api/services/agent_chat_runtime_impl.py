@@ -1108,19 +1108,11 @@ def _invalid_task_ids_in_reply(message: str, context: Any | None, reply: str) ->
 
 
 def _infer_stock_code_from_text(text: str) -> str:
-    for pattern in (r"\bCN[_-](\d{6})\b", r"\b(?:SH|SZ|BJ|HK)?[_-]?(\d{6})\b"):
-        match = re.search(pattern, text or "", flags=re.IGNORECASE)
-        if match:
-            return match.group(1)
-    return ""
+    return agent_runtime_parse_only.infer_stock_code_from_text(text)
 
 
 def _infer_company_name_from_filename(filename: str) -> str:
-    text = Path(str(filename or "")).stem
-    text = re.sub(r"[_-]CN[_-]\d{6}.*$", "", text, flags=re.IGNORECASE)
-    text = re.sub(r"[_-]\d{6}.*$", "", text)
-    text = re.sub(r"(?:股份有限公司|集团股份有限公司)?[_-]?(?:20\d{2}.*)?$", "", text)
-    return text.strip("_- ")
+    return agent_runtime_parse_only.infer_company_name_from_filename(filename)
 
 
 def _pdf2md_task_info_from_dir(result_dir: Path) -> dict[str, Any] | None:
@@ -1180,33 +1172,17 @@ def _iter_pdf2md_task_infos() -> list[dict[str, Any]]:
 
 
 def _pdf2md_task_aliases(info: dict[str, Any]) -> list[str]:
-    aliases = [
-        info.get("task_id"),
-        info.get("stock_code"),
-        info.get("company_name"),
-        info.get("filename"),
-    ]
-    filename = str(info.get("filename") or "")
-    if filename:
-        aliases.extend(part for part in re.split(r"[_\-\s]+", filename) if part)
-    return [str(alias).strip() for alias in aliases if str(alias or "").strip()]
+    return agent_runtime_parse_only.pdf2md_task_aliases(info)
 
 
 def _pdf2md_info_matches_message(info: dict[str, Any], message: str, context: Any | None = None) -> bool:
-    haystack = _normalize_financial_text(f"{message}\n{_context_company_hint(context)}")
-    if not haystack:
-        return False
-    for alias in _pdf2md_task_aliases(info):
-        normalized = _normalize_financial_text(alias)
-        if not normalized:
-            continue
-        if re.fullmatch(r"\d{6}", normalized):
-            if normalized in haystack:
-                return True
-            continue
-        if len(normalized) >= 2 and normalized in haystack:
-            return True
-    return False
+    return agent_runtime_parse_only.pdf2md_info_matches_message(
+        info,
+        message,
+        context,
+        normalize_text=_normalize_financial_text,
+        context_company_hint=_context_company_hint,
+    )
 
 
 def _wiki_company_exists_for_pdf2md_info(info: dict[str, Any]) -> bool:
@@ -5033,10 +5009,7 @@ def _render_three_statement_primary_data_supplement(result: dict[str, Any]) -> s
 
 
 def _first_record_label(record: dict[str, Any]) -> str:
-    if not isinstance(record, dict) or not record:
-        return ""
-    first_value = next(iter(record.values()), "")
-    return str(first_value or "").strip()
+    return agent_runtime_citations._first_record_label(record)
 
 
 def _record_values_preview(record: dict[str, Any], *, max_values: int = 4) -> str:
