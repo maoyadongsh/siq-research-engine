@@ -297,6 +297,47 @@ def test_normalize_plain_inline_latex_replaces_known_symbols_only():
     assert citations.normalize_plain_inline_latex(None) == ""
 
 
+def test_normalize_evidence_trace_for_display_normalizes_latex_before_links(monkeypatch):
+    calls = []
+
+    def append_missing_pdf_source_links(content):
+        calls.append(content)
+        return f"linked::{content}"
+
+    monkeypatch.setattr(citations, "append_missing_pdf_source_links", append_missing_pdf_source_links)
+
+    assert citations.normalize_evidence_trace_for_display("A $\\to$ B") == "linked::A → B"
+    assert citations.normalize_evidence_trace_for_display(None) == ""
+    assert calls == ["A → B"]
+
+
+def test_primary_data_evidence_trace_requires_marker_and_structured_locator():
+    valid_reply = (
+        "## 主要数据溯源补充\n"
+        "[D1] source_type=wiki_metrics, task_id=11111111-1111-1111-1111-111111111111, "
+        "pdf_page=7, table_index=2"
+    )
+    no_marker_reply = (
+        "[D1] source_type=wiki_metrics, task_id=11111111-1111-1111-1111-111111111111, "
+        "pdf_page=7, table_index=2"
+    )
+    fake_task_reply = (
+        "## 主要数据溯源补充\n"
+        "[D1] source_type=wiki_metrics, task_id=fake, pdf_page=7, table_index=2"
+    )
+    no_locator_reply = (
+        "## 主要数据溯源补充\n"
+        "[D1] source_type=wiki_metrics, task_id=11111111-1111-1111-1111-111111111111"
+    )
+
+    markers = ("主要数据溯源补充",)
+
+    assert citations._has_primary_data_evidence_trace(valid_reply, markers=markers)
+    assert not citations._has_primary_data_evidence_trace(no_marker_reply, markers=markers)
+    assert not citations._has_primary_data_evidence_trace(fake_task_reply, markers=markers)
+    assert not citations._has_primary_data_evidence_trace(no_locator_reply, markers=markers)
+
+
 def test_source_locator_text_uses_defaults_and_appends_links():
     calls = []
 
@@ -314,6 +355,34 @@ def test_source_locator_text_uses_defaults_and_appends_links():
 
     assert locator == "task_id=task-1, pdf_page=未返回, table_index=3, md_line=未返回，/api/source/task-1/table/3"
     assert calls == [("task-1", 0, 3)]
+
+
+def test_primary_data_source_ref_uses_missing_defaults_without_link():
+    calls = []
+
+    def table_source_links(task_id, pdf_page, table_index):
+        calls.append((task_id, pdf_page, table_index))
+        return ""
+
+    ref = citations._primary_data_source_ref(
+        3,
+        source_type="wiki_metrics",
+        file="",
+        metric="",
+        period=None,
+        task_id=None,
+        pdf_page=None,
+        table_index="",
+        md_line=None,
+        table_source_links=table_source_links,
+    )
+
+    assert (
+        ref
+        == "[D3] source_type=wiki_metrics, file=未返回, metric=未返回, period=未返回, "
+        "task_id=未返回, pdf_page=未返回, table_index=未返回, md_line=未返回"
+    )
+    assert calls == [(None, None, "")]
 
 
 def test_append_unique_source_ref_dedupes_by_locator_file_and_metric():
@@ -340,6 +409,32 @@ def test_append_unique_source_ref_dedupes_by_locator_file_and_metric():
     assert "metric=收入" in refs[0]
     assert refs[1].startswith("[D2] source_type=wiki_metrics")
     assert "metric=利润" in refs[1]
+
+
+def test_extract_reference_lines_filters_table_and_incomplete_rows():
+    complete_ref = (
+        "[D1] source_type=wiki_metrics, task_id=11111111-1111-1111-1111-111111111111, "
+        "pdf_page=7, table_index=2"
+    )
+    table_ref = (
+        "| [D2] source_type=wiki_metrics, task_id=22222222-2222-2222-2222-222222222222, "
+        "pdf_page=8, table_index=3 |"
+    )
+    missing_page_ref = (
+        "[D3] source_type=wiki_metrics, task_id=33333333-3333-3333-3333-333333333333, "
+        "table_index=4"
+    )
+    alias_page_ref = (
+        "[D4] source_type=wiki_metrics, task_id=44444444-4444-4444-4444-444444444444, "
+        "pdf_page_number=9, table_index=5"
+    )
+
+    refs = citations._extract_reference_lines([complete_ref, table_ref, missing_page_ref, alias_page_ref])
+
+    assert refs == [complete_ref, alias_page_ref]
+    assert citations._is_reference_line(complete_ref)
+    assert not citations._is_reference_line(table_ref)
+    assert not citations._is_reference_line(missing_page_ref)
 
 
 def test_source_reference_key_normalizes_alias_field_names():
