@@ -379,6 +379,101 @@ def test_build_image_semantic_blocks_extracts_chart_and_natural_image():
     assert blocks[1]["show_in_complete"] is False
 
 
+def test_build_image_semantic_blocks_extracts_flowchart_graph_for_complete_appendix():
+    markdown = (
+        "[PDF_PAGE: 2]\n"
+        "![](images/flow.png)\n"
+        "<details>\n"
+        "<summary>flowchart</summary>\n\n"
+        "```mermaid\n"
+        "flowchart TD\n"
+        "A[开始] --> B{审核}\n"
+        "B -->|通过| C[结束]\n"
+        "```\n"
+        "</details>\n"
+    )
+    content_list = [
+        {
+            "type": "image",
+            "sub_type": "flowchart",
+            "img_path": "images/flow.png",
+            "bbox": [10, 20, 260, 220],
+            "page_idx": 1,
+        }
+    ]
+
+    blocks = content_service.build_image_semantic_blocks(markdown, content_list=content_list)
+
+    assert blocks[0]["semantic_kind"] == "flowchart"
+    assert blocks[0]["flowchart_graph"]["node_count"] == 3
+    assert blocks[0]["flowchart_graph"]["edge_count"] == 2
+    assert blocks[0]["actionability"] == "structure_usable"
+    assert blocks[0]["show_in_complete"] is True
+
+    appendix = content_service.complete_markdown_appendix(
+        {
+            "table_count": 0,
+            "source_counts": {},
+            "quality_signals": {
+                "image_semantic_block_count": 1,
+                "image_semantic_show_count": 1,
+                "image_semantic_ocr_candidate_count": 0,
+            },
+            "toc": {},
+            "footnotes": {},
+            "financial_note_links": {},
+            "image_semantic_blocks": blocks,
+            "tables": [],
+        }
+    )
+
+    assert "## 图片、图表与公式增强识别" in appendix
+    assert "可用性 structure_usable" in appendix
+    assert "流程结构：3 个节点，2 条关系" in appendix
+
+
+def test_build_image_semantic_blocks_marks_large_blank_image_as_ocr_candidate():
+    markdown = "[PDF_PAGE: 3]\n![](images/big.png)\n"
+    content_list = [
+        {
+            "type": "image",
+            "sub_type": "natural_image",
+            "img_path": "images/big.png",
+            "bbox": [0, 0, 500, 400],
+            "page_idx": 2,
+        }
+    ]
+
+    blocks = content_service.build_image_semantic_blocks(markdown, content_list=content_list)
+
+    candidate = blocks[0]["ocr_vlm_candidate"]
+    assert candidate["needed"] is True
+    assert candidate["priority"] == "high"
+    assert blocks[0]["actionability"] == "needs_ocr"
+    assert blocks[0]["show_in_complete"] is False
+
+    appendix = content_service.complete_markdown_appendix(
+        {
+            "table_count": 0,
+            "source_counts": {},
+            "quality_signals": {
+                "image_semantic_block_count": 1,
+                "image_semantic_show_count": 0,
+                "image_semantic_ocr_candidate_count": 1,
+            },
+            "toc": {},
+            "footnotes": {},
+            "financial_note_links": {},
+            "image_semantic_blocks": blocks,
+            "tables": [],
+        }
+    )
+
+    assert "## 图片、图表与公式增强识别" not in appendix
+    assert "## 按需 OCR/VLM 候选图像" in appendix
+    assert "优先级 high" in appendix
+
+
 def test_complete_markdown_content_applies_table_corrections():
     markdown = "<table><tr><td>项目</td><td>金额</td></tr><tr><td>收入</td><td>100</td></tr></table>\n"
     enhanced = {
