@@ -54,7 +54,7 @@ Web 工作台
 - 本轮追加：Agent runtime citations/reference 合并边界补测已完成，覆盖空 body 新增引用区、全部无效 refs 原样返回、三级引用来源 section 在 peer/parent heading 前收口；`citation_links.py` 修复 printed_page 空槽位对齐，并补充缺 task_id/pdf_page 原样返回、本地 API 链接 query/fragment 保留和重复链接不追加覆盖。
 - 本轮追加：PDF2MD parse-only context 剩余边界已补，覆盖市场前缀伪 alias 防误匹配、非 dict task info 过滤、空 task/artifact 字段展示兜底；PostgreSQL fallback pure helper 已补空 hint、0 值页码/表号、空 terms callback 短路和缺字段负路径；前端 citation renderer 新增 `rendererUtils.test.ts` smoke，覆盖 source/table action 抽取、普通 Markdown link 保留和长引用行解析。
 - 本轮追加：Agent runtime display/tool-output/context 剩余细边界已补，覆盖 display 的 None URL、无 basename path fallback、控制空白 URL 编码，tool-output 的 None/空白、list JSON、长文本换行、tool/label 字段隔离，以及 context 的非 dict model/nested field、format context、attachment model_dump 脏数据防御。
-- 当前建议：按 0.4 的智能体集群复盘结果继续小步提速。财报附注链接、source-view loader、local-memory DB 和 document derivation 前置覆盖已补；下一轮优先做 PDF parser table index / markdown page index 纯规则，其次补 Agent runtime 附件纯格式化 wrapper 前置覆盖，前端仅做 CSS selector smoke 尾项；继续避开 `ACTIVE_RUNS`、SSE lifecycle、本地 queue claim 和 Flask `send_file/jsonify` 行为变更。
+- 当前建议：按 0.4 的智能体集群复盘结果继续小步提速。财报附注链接、source-view loader、local-memory DB、document derivation、PDF table index / markdown page index、Agent 附件格式化 wrapper 和 CSS selector smoke 前置覆盖已补；下一轮开始评估是否进入红灯 owner 设计窗口，或先做最后一轮轻量 documentation/CI 收口；继续避开 `ACTIVE_RUNS`、SSE lifecycle、本地 queue claim 和 Flask `send_file/jsonify` 的顺手行为变更。
 
 ### 0.2 2026-06-30 深度全量检查结论
 
@@ -181,6 +181,14 @@ bash -n start_all.sh && find scripts infra apps services -type f -name '*.sh' -p
 - 前端：新增 `documentResultWorkbenchDerivations.test.ts`，覆盖 JSON preview 原样透传、跨页 relation 过滤和 table id 索引、block/table/figure focus 派生、visible relations fallback、preview pages/page models bridge、overlay/page number、markdown preview 和相邻页边界。
 - 本轮验证：`cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_memory.py tests/test_agent_chat_runtime_attachments.py tests/test_agent_chat_runtime_loops.py -q` 通过，72 passed、39 warnings；`cd apps/pdf-parser && python3 -m py_compile pdf_parser_content_list_enhanced_service.py pdf_parser_app_impl.py && PYTHONPATH=. python3 -m pytest tests/test_pdf_parser_content_list_enhanced_service.py tests/test_page_markers.py -q` 通过，81 passed；`cd apps/web && node --test src/components/document-parser/documentResultWorkbenchDerivations.test.ts` 通过，8 passed；`cd apps/web && npm run build` 通过；`git diff --check` 通过。
 - 下一轮队列再次收窄：PDF parser 转向 table index / markdown page index 直接测试或小下沉；Agent runtime 转向 `_attachment_reference_context` / `_pdf_parse_is_terminal` / `_chat_message_payload` 等纯格式化 wrapper 前置覆盖；前端转向 `PDF_CSS` / `DOCUMENT_CSS` selector 清单和响应式 smoke。
+
+本轮开发进度最终补齐：
+
+- Agent runtime：已补 `_attachment_reference_context` 的安全上传目录、图片/文档格式化、越界/缺失/非法项跳过和空输入边界；已补 `_pdf_parse_is_terminal` 的成功、失败、取消、超时、队列终态以及 pending/running/submitted 非终态；已补 `_chat_message_payload` 的用户内容保留、附件 JSON 过滤、坏 JSON 容错和助手 evidence 展示归一化。
+- PDF parser：新增 `test_pdf_parser_table_index.py`，直接覆盖 `_table_structure_signals`、`_matched_financial_table_names`、`_classify_table_semantics`、`_build_table_index`、`_group_key_table_candidates` 和 `_markdown_page_index`，本轮不改业务代码。
+- 前端：新增 `styleSelectorSmoke.test.ts`，覆盖 `PDF_CSS` / `DOCUMENT_CSS` 非空、关键 selector、selector inventory 下限和已知重复 selector 清单；未迁移运行时 CSS 注入机制。
+- 本轮验证：`cd apps/api && .venv/bin/python -m pytest tests/test_agent_chat_runtime_attachments.py tests/test_agent_chat_runtime_loops.py -q` 通过，72 passed、27 warnings；`cd apps/pdf-parser && PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -p no:cacheprovider -q` 通过，260 passed；`cd apps/web && node --test src/components/document-parser/styleSelectorSmoke.test.ts src/components/document-parser/documentResultWorkbenchDerivations.test.ts src/components/pdf/pdfSourceWorkbenchHelpers.test.ts` 通过，20 passed；`cd apps/web && npm run build` 通过；`git diff --check` 通过。
+- 下一步建议：低风险前置覆盖队列已基本收口。若继续提速，应先写红灯 owner 设计小节和回滚/验证矩阵，再选择一个 owner 试点；否则只做 CI 文档清单、测试命令固化和少量不触碰状态 owner 的维护项。
 
 本轮继续明确红灯边界：
 

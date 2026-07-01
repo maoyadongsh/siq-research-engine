@@ -1,3 +1,5 @@
+import json
+
 import anyio
 from contextlib import contextmanager
 
@@ -277,6 +279,86 @@ def test_loop_polluted_history_payload_displays_stop_message_only():
     assert "系统已整理" not in payload["content"]
     assert "引用来源" not in payload["content"]
     assert "source_type=wiki_document_links" not in payload["content"]
+
+
+def test_chat_message_payload_preserves_user_content_and_filters_attachment_json(tmp_path):
+    attachment_path = tmp_path / "chart.png"
+    attachment_path.write_bytes(b"fake-image")
+    message = ChatMessage(
+        id=10,
+        session_id="payload-user-attachment-test",
+        role="user",
+        content="  请看附件里的趋势  ",
+        attachments_json=json.dumps(
+            [
+                {
+                    "filename": "chart.png",
+                    "content_type": "image/png",
+                    "kind": "image",
+                    "size": attachment_path.stat().st_size,
+                    "path": str(attachment_path),
+                },
+                {"filename": "missing-path.png", "path": "  "},
+                "not-a-dict",
+            ]
+        ),
+    )
+
+    payload = runtime._chat_message_payload(message)
+
+    assert payload["id"] == 10
+    assert payload["session_id"] == "payload-user-attachment-test"
+    assert payload["role"] == "user"
+    assert payload["content"] == "  请看附件里的趋势  "
+    assert payload["created_at"] == message.created_at
+    assert payload["attachments"] == [
+        {
+            "filename": "chart.png",
+            "content_type": "image/png",
+            "kind": "image",
+            "size": attachment_path.stat().st_size,
+            "path": str(attachment_path),
+        }
+    ]
+
+
+def test_chat_message_payload_tolerates_bad_attachment_json():
+    message = ChatMessage(
+        id=11,
+        session_id="payload-bad-attachment-json-test",
+        role="user",
+        content="附件 JSON 坏了也要能展示文字",
+        attachments_json="{not-json",
+    )
+
+    payload = runtime._chat_message_payload(message)
+
+    assert payload["content"] == "附件 JSON 坏了也要能展示文字"
+    assert payload["attachments"] == []
+
+
+def test_chat_message_payload_normalizes_assistant_evidence_for_display():
+    content = (
+        "[1] source_type=report_md, file=reports/2025-annual/report.md, "
+        f"metric=前十名普通股股东, task_id={SH_BANK_TASK_ID}, "
+        "pdf_page=135, table_index=135, md_line=2428。"
+    )
+    message = ChatMessage(
+        id=12,
+        session_id="payload-assistant-evidence-test",
+        role="assistant",
+        content=content,
+    )
+
+    payload = runtime._chat_message_payload(message)
+
+    assert payload["role"] == "assistant"
+    assert "pdf_page=134" in payload["content"]
+    assert "table_index=90" in payload["content"]
+    assert "printed_page=133" in payload["content"]
+    assert f"/api/pdf_page/{SH_BANK_TASK_ID}/134?format=html" in payload["content"]
+    assert f"/api/source/{SH_BANK_TASK_ID}/table/90?format=html" in payload["content"]
+    assert payload["attachments"] == []
 
 
 def test_failed_loop_reply_is_saved_without_evidence_supplement():

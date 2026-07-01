@@ -186,6 +186,65 @@ def test_history_injects_attachment_reference_for_attachment_only_user_message(t
     assert "  - 前端链接: /api/chat/attachments/img_image.jpg" in history[0]["content"]
 
 
+def test_attachment_reference_context_formats_only_safe_saved_files(tmp_path, monkeypatch):
+    monkeypatch.setattr(runtime, "CHAT_UPLOAD_ROOT", tmp_path)
+    image_path = tmp_path / "image.jpg"
+    doc_path = tmp_path / "report.pdf"
+    outside_path = tmp_path.parent / "outside.pdf"
+    image_path.write_bytes(b"fake-image")
+    doc_path.write_bytes(b"%PDF-1.4\nfake")
+    outside_path.write_bytes(b"%PDF-1.4\noutside")
+
+    context = runtime._attachment_reference_context(
+        [
+            {
+                "filename": "image.jpg",
+                "content_type": "image/jpeg",
+                "kind": "image",
+                "size": image_path.stat().st_size,
+                "path": str(image_path),
+                "url": "/api/chat/attachments/img_image.jpg",
+            },
+            {
+                "filename": "report.pdf",
+                "content_type": "application/pdf",
+                "kind": "document",
+                "size": doc_path.stat().st_size,
+                "path": str(doc_path),
+            },
+            {
+                "filename": "outside.pdf",
+                "content_type": "application/pdf",
+                "kind": "document",
+                "size": outside_path.stat().st_size,
+                "path": str(outside_path),
+                "url": "/api/chat/attachments/outside.pdf",
+            },
+            {"filename": "missing.png", "path": str(tmp_path / "missing.png")},
+            "not-a-dict",
+        ]
+    )
+
+    assert context.startswith("历史附件上下文")
+    assert "- 图片附件 1: image.jpg" in context
+    assert f"  - 本地路径: {image_path.resolve()}" in context
+    assert "  - 前端链接: /api/chat/attachments/img_image.jpg" in context
+    assert "- 文档附件 2: report.pdf" in context
+    assert f"  - 本地路径: {doc_path.resolve()}" in context
+    assert "outside.pdf" not in context
+    assert "missing.png" not in context
+
+
+def test_attachment_reference_context_returns_empty_for_no_safe_files(tmp_path, monkeypatch):
+    monkeypatch.setattr(runtime, "CHAT_UPLOAD_ROOT", tmp_path)
+    outside_path = tmp_path.parent / "outside.txt"
+    outside_path.write_text("outside", encoding="utf-8")
+
+    assert runtime._attachment_reference_context(None) == ""
+    assert runtime._attachment_reference_context([]) == ""
+    assert runtime._attachment_reference_context([{"filename": "outside.txt", "path": str(outside_path)}]) == ""
+
+
 def test_attachment_followup_reuses_recent_attachment_intent():
     assert runtime._should_reuse_recent_attachments("继续前面的问题")
     assert runtime._should_reuse_recent_attachments("提取刚才那张照片里的手写体")
@@ -401,3 +460,36 @@ def test_wait_for_pdf_attachment_parse_refreshes_completed_metadata(tmp_path, mo
 
     assert "MinerU completed markdown after wait" in context
     assert str(markdown_path) in context
+
+
+def test_pdf_parse_is_terminal_accepts_success_failure_and_queue_terminal_statuses():
+    terminal_cases = [
+        {"document_parser_status": "completed"},
+        {"document_parser_status": "completed_with_warnings"},
+        {"mineru_parse_status": "completed_without_markdown"},
+        {"mineru_parse_status": "failed"},
+        {"mineru_parse_status": "error"},
+        {"mineru_parse_status": "failure"},
+        {"mineru_parse_status": "cancelled"},
+        {"mineru_parse_status": "timeout"},
+        {"mineru_submit_status": "completed_result_fetch_failed"},
+        {"mineru_submit_status": "status_failed"},
+        {"mineru_submit_status": "poll_failed"},
+    ]
+
+    for metadata in terminal_cases:
+        assert runtime._pdf_parse_is_terminal(metadata), metadata
+
+
+def test_pdf_parse_is_terminal_keeps_pending_latest_queue_statuses_nonterminal():
+    nonterminal_cases = [
+        {},
+        {"document_parser_status": "pending"},
+        {"mineru_parse_status": "running"},
+        {"mineru_submit_status": "submitted"},
+        {"document_parser_status": "queued", "mineru_parse_status": "completed"},
+        {"document_parser_status": " ", "mineru_parse_status": "pending"},
+    ]
+
+    for metadata in nonterminal_cases:
+        assert not runtime._pdf_parse_is_terminal(metadata), metadata
