@@ -4,6 +4,125 @@ from pathlib import Path
 import pdf_parser_quality_service as quality
 
 
+def test_quality_report_messages_cover_warning_and_info_rules():
+    warnings, info_messages = quality.quality_report_messages(
+        markdown_chars=100,
+        pdf_page_count=10,
+        table_count=5,
+        single_row_table_count=2,
+        image_ref_count=1,
+        found_financial_table_count=1,
+        suspicious_table_count=2,
+    )
+
+    assert any("Markdown 字符数相对页数偏少" in item for item in warnings)
+    assert any("单行/空壳表格比例偏高" in item for item in warnings)
+    assert any("财报核心表标题召回偏少" in item for item in warnings)
+    assert any("发现 2 张可疑表样本" in item for item in warnings)
+    assert info_messages == ["Markdown 包含图片引用，images 目录将作为 PDF 视觉元素与截图证据来源。"]
+
+
+def test_quality_report_messages_keep_clean_inputs_quiet():
+    warnings, info_messages = quality.quality_report_messages(
+        markdown_chars=9000,
+        pdf_page_count=10,
+        table_count=5,
+        single_row_table_count=1,
+        image_ref_count=0,
+        found_financial_table_count=3,
+        suspicious_table_count=0,
+    )
+
+    assert warnings == []
+    assert info_messages == []
+
+
+def test_build_quality_report_payload_derives_counts_sections_and_warnings():
+    tables = [
+        "<table><tr><td>资产</td></tr></table>",
+        "<table><tr><td>收入</td><td>100</td></tr><tr><td>利润</td><td>10</td></tr></table>",
+    ]
+    table_index = [
+        {"table_index": 1, "table_type": "fact", "suspect_reasons": ["single_row"]},
+        {"table_index": 2, "table_type": "dimension"},
+    ]
+    core_candidates = [
+        {"name": "资产负债表", "status": "found"},
+        {"name": "利润表", "status": "missing"},
+        {"name": "现金流量表", "status": "missing"},
+    ]
+    payload = quality.build_quality_report_payload(
+        task={"task_id": "quality-payload", "filename": "quality.pdf", "pdf_page_count": 10},
+        filename="override.pdf",
+        schema_version=7,
+        report_kind="annual_report",
+        report_year=2025,
+        markdown_chars=100,
+        tables=tables,
+        table_index=table_index,
+        single_row_tables=[tables[0]],
+        empty_cell_count=3,
+        image_refs=["images/chart.png"],
+        found_sections=["董事会报告"],
+        key_sections=["董事会报告", "财务报告"],
+        key_table_candidates={"资产负债表": [{"table_index": 1}]},
+        core_financial_table_candidates=core_candidates,
+        indicator_table_candidates=[{"name": "营业收入", "status": "missing"}],
+        suspicious_tables=[{"table_index": 1}],
+        generated_at="2026-07-01T00:00:00Z",
+    )
+
+    assert payload["schema_version"] == 7
+    assert payload["task_id"] == "quality-payload"
+    assert payload["filename"] == "override.pdf"
+    assert payload["report_kind"] == "annual_report"
+    assert payload["report_year"] == 2025
+    assert payload["markdown_chars"] == 100
+    assert payload["table_count"] == 2
+    assert payload["fact_table_count"] == 1
+    assert payload["dimension_table_count"] == 1
+    assert payload["single_row_table_count"] == 1
+    assert payload["single_row_table_ratio"] == 0.5
+    assert payload["empty_cell_count"] == 3
+    assert payload["image_ref_count"] == 1
+    assert payload["found_sections"] == ["董事会报告"]
+    assert payload["missing_sections"] == ["财务报告"]
+    assert payload["found_financial_tables"] == ["资产负债表"]
+    assert payload["generated_at"] == "2026-07-01T00:00:00Z"
+    assert any("Markdown 字符数相对页数偏少" in item for item in payload["warnings"])
+    assert any("单行/空壳表格比例偏高" in item for item in payload["warnings"])
+    assert any("财报核心表标题召回偏少" in item for item in payload["warnings"])
+    assert any("优先复核表" in item for item in payload["warnings"])
+    assert any("图片引用" in item for item in payload["info_messages"])
+
+
+def test_build_quality_report_payload_handles_empty_tables_without_ratio_warning():
+    payload = quality.build_quality_report_payload(
+        task={"task_id": "empty-quality", "filename": "empty.pdf"},
+        filename="empty.pdf",
+        schema_version=7,
+        report_kind="document",
+        report_year=None,
+        markdown_chars=0,
+        tables=[],
+        table_index=[],
+        single_row_tables=[],
+        empty_cell_count=0,
+        image_refs=[],
+        found_sections=[],
+        key_sections=["财务报告"],
+        key_table_candidates={},
+        core_financial_table_candidates=[],
+        indicator_table_candidates=[],
+        suspicious_tables=[],
+        generated_at="2026-07-01T00:00:00Z",
+    )
+
+    assert payload["table_count"] == 0
+    assert payload["single_row_table_ratio"] == 0
+    assert payload["warnings"] == ["财报核心表标题召回偏少，建议检查目录、财务报告章节或启用局部重解析。"]
+
+
 def test_merge_quality_candidates_from_financial_data_uses_nearby_statement_table():
     report = {
         "report_kind": "annual_report",

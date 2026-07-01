@@ -463,6 +463,98 @@ def priority_review_tables(table_index, core_candidates, key_table_candidates):
     return priority[:30]
 
 
+def quality_report_messages(
+    *,
+    markdown_chars,
+    pdf_page_count,
+    table_count,
+    single_row_table_count,
+    image_ref_count,
+    found_financial_table_count,
+    suspicious_table_count,
+):
+    warnings = []
+    info_messages = []
+    if pdf_page_count and markdown_chars < int(pdf_page_count) * 800:
+        warnings.append("Markdown 字符数相对页数偏少，建议检查是否有页面漏解析。")
+    if table_count:
+        single_row_ratio = single_row_table_count / table_count
+        if single_row_ratio > 0.2:
+            warnings.append("单行/空壳表格比例偏高，建议用中间 JSON 和页面截图复核表格漏识别。")
+    if image_ref_count:
+        info_messages.append("Markdown 包含图片引用，images 目录将作为 PDF 视觉元素与截图证据来源。")
+    if found_financial_table_count < 3:
+        warnings.append("财报核心表标题召回偏少，建议检查目录、财务报告章节或启用局部重解析。")
+    if suspicious_table_count:
+        warnings.append(f"发现 {suspicious_table_count} 张可疑表样本，建议在前端“优先复核表”中逐项打开可视化溯源。")
+    return warnings, info_messages
+
+
+def build_quality_report_payload(
+    *,
+    task,
+    filename,
+    schema_version,
+    report_kind,
+    report_year,
+    markdown_chars,
+    tables,
+    table_index,
+    single_row_tables,
+    empty_cell_count,
+    image_refs,
+    found_sections,
+    key_sections,
+    key_table_candidates,
+    core_financial_table_candidates,
+    indicator_table_candidates,
+    suspicious_tables,
+    generated_at,
+):
+    found_financial_tables = [
+        item["name"] for item in core_financial_table_candidates
+        if item.get("status") == "found"
+    ]
+    pdf_page_count = task.get("pdf_page_count")
+    warnings, info_messages = quality_report_messages(
+        markdown_chars=markdown_chars,
+        pdf_page_count=pdf_page_count,
+        table_count=len(tables),
+        single_row_table_count=len(single_row_tables),
+        image_ref_count=len(image_refs),
+        found_financial_table_count=len(found_financial_tables),
+        suspicious_table_count=len(suspicious_tables),
+    )
+
+    return {
+        "schema_version": schema_version,
+        "task_id": task["task_id"],
+        "filename": filename,
+        "report_kind": report_kind,
+        "report_year": report_year,
+        "pdf_page_count": pdf_page_count,
+        "markdown_chars": markdown_chars,
+        "table_count": len(tables),
+        "fact_table_count": len([item for item in table_index if item.get("table_type") == "fact"]),
+        "dimension_table_count": len([item for item in table_index if item.get("table_type") == "dimension"]),
+        "single_row_table_count": len(single_row_tables),
+        "single_row_table_ratio": round(len(single_row_tables) / len(tables), 4) if tables else 0,
+        "empty_cell_count": empty_cell_count,
+        "image_ref_count": len(image_refs),
+        "info_messages": info_messages,
+        "found_sections": found_sections,
+        "missing_sections": [section for section in key_sections if section not in found_sections],
+        "found_financial_tables": found_financial_tables,
+        "core_financial_table_candidates": core_financial_table_candidates,
+        "indicator_table_candidates": indicator_table_candidates,
+        "key_table_candidates": key_table_candidates,
+        "suspicious_tables": suspicious_tables,
+        "table_index": table_index,
+        "warnings": warnings,
+        "generated_at": generated_at,
+    }
+
+
 def quality_report_path(task, result_dir):
     return os.path.join(result_dir(task), "quality_report.json")
 

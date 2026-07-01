@@ -3041,10 +3041,6 @@ def _build_quality_report(markdown, task, file_name=None, content_list=None):
     key_table_candidates = _group_key_table_candidates(table_index)
     core_financial_table_candidates = _candidate_summary_list(key_table_candidates, financial_tables)
     indicator_table_candidates = _candidate_summary_list(key_table_candidates, INDICATOR_TABLE_NAMES)
-    found_financial_tables = [
-        item["name"] for item in core_financial_table_candidates
-        if item.get("status") == "found"
-    ]
     suspicious_tables = _priority_review_tables(
         table_index,
         core_financial_table_candidates,
@@ -3052,48 +3048,26 @@ def _build_quality_report(markdown, task, file_name=None, content_list=None):
     )
 
     image_refs = re.findall(r"!\[[^\]]*\]\(([^)]+)\)", markdown)
-    warnings = []
-    info_messages = []
-    if task.get("pdf_page_count") and len(markdown) < int(task["pdf_page_count"]) * 800:
-        warnings.append("Markdown 字符数相对页数偏少，建议检查是否有页面漏解析。")
-    if tables:
-        single_row_ratio = len(single_row_tables) / len(tables)
-        if single_row_ratio > 0.2:
-            warnings.append("单行/空壳表格比例偏高，建议用中间 JSON 和页面截图复核表格漏识别。")
-    if image_refs:
-        info_messages.append("Markdown 包含图片引用，images 目录将作为 PDF 视觉元素与截图证据来源。")
-    if len(found_financial_tables) < 3:
-        warnings.append("财报核心表标题召回偏少，建议检查目录、财务报告章节或启用局部重解析。")
-    if suspicious_tables:
-        warnings.append(f"发现 {len(suspicious_tables)} 张可疑表样本，建议在前端“优先复核表”中逐项打开可视化溯源。")
-
-    return {
-        "schema_version": QUALITY_SCHEMA_VERSION,
-        "task_id": task["task_id"],
-        "filename": file_name or task.get("filename"),
-        "report_kind": report_kind,
-        "report_year": report_year,
-        "pdf_page_count": task.get("pdf_page_count"),
-        "markdown_chars": len(markdown),
-        "table_count": len(tables),
-        "fact_table_count": len([item for item in table_index if item.get("table_type") == "fact"]),
-        "dimension_table_count": len([item for item in table_index if item.get("table_type") == "dimension"]),
-        "single_row_table_count": len(single_row_tables),
-        "single_row_table_ratio": round(len(single_row_tables) / len(tables), 4) if tables else 0,
-        "empty_cell_count": empty_cell_count,
-        "image_ref_count": len(image_refs),
-        "info_messages": info_messages,
-        "found_sections": found_sections,
-        "missing_sections": [section for section in KEY_SECTIONS if section not in found_sections],
-        "found_financial_tables": found_financial_tables,
-        "core_financial_table_candidates": core_financial_table_candidates,
-        "indicator_table_candidates": indicator_table_candidates,
-        "key_table_candidates": key_table_candidates,
-        "suspicious_tables": suspicious_tables,
-        "table_index": table_index,
-        "warnings": warnings,
-        "generated_at": _now_iso(),
-    }
+    return quality_service.build_quality_report_payload(
+        task=task,
+        filename=file_name or task.get("filename"),
+        schema_version=QUALITY_SCHEMA_VERSION,
+        report_kind=report_kind,
+        report_year=report_year,
+        markdown_chars=len(markdown),
+        tables=tables,
+        table_index=table_index,
+        single_row_tables=single_row_tables,
+        empty_cell_count=empty_cell_count,
+        image_refs=image_refs,
+        found_sections=found_sections,
+        key_sections=KEY_SECTIONS,
+        key_table_candidates=key_table_candidates,
+        core_financial_table_candidates=core_financial_table_candidates,
+        indicator_table_candidates=indicator_table_candidates,
+        suspicious_tables=suspicious_tables,
+        generated_at=_now_iso(),
+    )
 
 
 def _write_quality_artifacts(task, markdown, file_name=None, content_list=None, saved_image_count=None):
