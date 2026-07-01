@@ -177,6 +177,59 @@ def test_merge_quality_candidates_from_financial_data_uses_nearby_statement_tabl
     assert "资产负债表" in merged["found_financial_tables"]
 
 
+def test_merge_quality_candidates_from_financial_data_keeps_existing_found_candidate():
+    report = {
+        "report_kind": "annual_report",
+        "key_table_candidates": {
+            "资产负债表": [
+                {
+                    "name": "资产负债表",
+                    "status": "found",
+                    "table_index": 9,
+                    "line": 300,
+                    "candidate_group": "core",
+                    "candidate_score": 88.0,
+                    "confidence": "medium",
+                    "preview": "人工确认资产负债表",
+                }
+            ]
+        },
+        "table_index": [
+            {"table_index": 1, "line": 98, "heading": "合并资产负债表"},
+            {"table_index": 9, "line": 300, "heading": "人工确认资产负债表"},
+        ],
+    }
+    financial_data = {
+        "report_kind": "annual_report",
+        "report_year": 2025,
+        "statements": [
+            {
+                "statement_type": "balance_sheet",
+                "scope": "consolidated",
+                "table_indexes": [1],
+                "line_numbers": [98],
+                "title": "合并资产负债表",
+            }
+        ],
+        "summary": {"statement_count": 1, "key_metric_count": 0},
+    }
+
+    merged = quality.merge_quality_candidates_from_financial_data(report, financial_data)
+    balance_rows = merged["key_table_candidates"]["资产负债表"]
+    balance_sheet = next(
+        item
+        for item in merged["core_financial_table_candidates"]
+        if item["name"] == "资产负债表"
+    )
+
+    assert balance_rows == report["key_table_candidates"]["资产负债表"]
+    assert balance_sheet["status"] == "found"
+    assert balance_sheet["table_index"] == 9
+    assert balance_sheet["line"] == 300
+    assert balance_sheet["confidence"] == "medium"
+    assert "资产负债表" in merged["found_financial_tables"]
+
+
 def test_statement_table_index_without_line_uses_table_line_and_counts_found_table():
     report = {
         "report_kind": "annual_report",
@@ -333,6 +386,55 @@ def test_merge_quality_candidates_from_financial_metrics_keeps_table_metadata():
     assert accounting_data["preview"].startswith("营业收入")
 
 
+def test_merge_quality_candidates_from_financial_metrics_keeps_existing_found_candidate():
+    existing_rows = [
+        {
+            "name": "主要会计数据",
+            "status": "found",
+            "table_index": 9,
+            "line": 300,
+            "candidate_group": "core",
+            "candidate_score": 86.0,
+            "confidence": "medium",
+            "preview": "人工确认主要会计数据",
+        }
+    ]
+    report = {
+        "report_kind": "annual_report",
+        "key_table_candidates": {"主要会计数据": existing_rows},
+        "table_index": [
+            {"table_index": 3, "line": 56, "heading": "主要会计数据和财务指标"},
+            {"table_index": 9, "line": 300, "heading": "人工确认主要会计数据"},
+        ],
+    }
+    financial_data = {
+        "report_kind": "annual_report",
+        "report_year": 2025,
+        "statements": [],
+        "key_metrics": [
+            {
+                "name": "营业收入",
+                "canonical_name": "operating_revenue",
+                "sources": {"2025": {"table_index": 3, "line": 57}},
+            }
+        ],
+        "summary": {"statement_count": 0, "key_metric_count": 1},
+    }
+
+    merged = quality.merge_quality_candidates_from_financial_data(report, financial_data)
+    accounting_data = next(
+        item
+        for item in merged["core_financial_table_candidates"]
+        if item["name"] == "主要会计数据"
+    )
+
+    assert merged["key_table_candidates"]["主要会计数据"] == existing_rows
+    assert accounting_data["status"] == "found"
+    assert accounting_data["table_index"] == 9
+    assert accounting_data["line"] == 300
+    assert accounting_data["confidence"] == "medium"
+
+
 def test_balance_sheet_nearby_table_skips_average_balance_noise():
     report = {
         "table_index": [
@@ -386,6 +488,38 @@ def test_statement_display_source_uses_nearby_balance_table_when_index_is_noise(
 
     assert display_source["table_index"] == 2
     assert display_source["line"] == 100
+    assert display_source["table_item"]["heading"] == "合并资产负债表"
+
+
+def test_statement_display_source_keeps_valid_balance_index_over_nearby_table():
+    report = {
+        "table_index": [
+            {
+                "table_index": 1,
+                "line": 100,
+                "heading": "合并资产负债表",
+                "preview": "流动资产 非流动资产 资产总计",
+            },
+            {
+                "table_index": 2,
+                "line": 118,
+                "heading": "银行平均余额和收益率",
+                "preview": "平均余额 平均收益率 生息资产 利息收入/支出",
+            },
+        ]
+    }
+    statement = {
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "table_indexes": [1],
+        "line_numbers": [119],
+        "title": "合并资产负债表",
+    }
+
+    display_source = quality.statement_display_source(statement, report, "balance_sheet")
+
+    assert display_source["table_index"] == 1
+    assert display_source["line"] == 119
     assert display_source["table_item"]["heading"] == "合并资产负债表"
 
 
@@ -503,6 +637,24 @@ def test_quality_report_warnings_filters_summary_core_table_noise():
     assert "三大表缺失。" not in warnings
     assert any("摘要模式" in item for item in warnings)
     assert any("摘要文件不提供完整三大表" in item for item in warnings)
+
+
+def test_quality_report_warnings_filters_full_report_core_table_noise_when_statements_found():
+    report = {
+        "report_kind": "annual_report",
+        "warnings": [
+            "财报核心表标题召回偏少，建议检查目录、财务报告章节或启用局部重解析。",
+            "核心表缺失。",
+            "其他提示。",
+        ],
+    }
+    financial_data = {
+        "summary": {"statement_count": 3},
+    }
+
+    warnings = quality.quality_report_warnings(report, financial_data)
+
+    assert warnings == ["其他提示。"]
 
 
 def test_write_and_read_quality_report_files_round_trip(tmp_path):
