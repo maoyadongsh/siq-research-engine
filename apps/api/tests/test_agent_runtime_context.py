@@ -160,13 +160,15 @@ def test_analysis_completed_artifacts_returns_none_for_incomplete_or_invalid_sta
 
 
 def test_analysis_completion_guard_intent_helpers():
-    force_terms = ("强制重建", "--force")
+    force_terms = ("强制重建", "覆盖重建", "--force")
     status_terms = ("完成了吗", "报告路径")
     report_terms = ("分析报告", "html", ".md")
     generation_terms = ("生成", "重建")
 
     assert agent_runtime_context.normalized_intent_text("  报告\n路径 ") == "报告路径"
+    assert agent_runtime_context.normalized_intent_text(" HTML\nReport ") == "htmlreport"
     assert agent_runtime_context.force_rebuild_requested("请 --force 重新来", force_terms)
+    assert not agent_runtime_context.force_rebuild_requested("请重新来", force_terms)
 
     assert agent_runtime_context.analysis_completed_guard_applies(
         "报告 路径 在哪",
@@ -180,8 +182,39 @@ def test_analysis_completion_guard_intent_helpers():
         report_terms=report_terms,
         generation_terms=generation_terms,
     )
+    assert agent_runtime_context.analysis_completed_guard_applies(
+        "请生成 HTML",
+        status_terms=status_terms,
+        report_terms=report_terms,
+        generation_terms=generation_terms,
+    )
+    assert not agent_runtime_context.analysis_completed_guard_applies(
+        "  ",
+        status_terms=status_terms,
+        report_terms=report_terms,
+        generation_terms=generation_terms,
+    )
+    assert not agent_runtime_context.analysis_completed_guard_applies(
+        "请生成",
+        status_terms=status_terms,
+        report_terms=report_terms,
+        generation_terms=generation_terms,
+    )
+    assert not agent_runtime_context.analysis_completed_guard_applies(
+        "年度分析报告",
+        status_terms=status_terms,
+        report_terms=report_terms,
+        generation_terms=generation_terms,
+    )
     assert not agent_runtime_context.analysis_completed_guard_applies(
         "这家公司收入为什么下降",
+        status_terms=status_terms,
+        report_terms=report_terms,
+        generation_terms=generation_terms,
+    )
+    assert agent_runtime_context.should_use_analysis_completion_guard(
+        "报告路径在哪里",
+        force_rebuild_terms=force_terms,
         status_terms=status_terms,
         report_terms=report_terms,
         generation_terms=generation_terms,
@@ -193,6 +226,35 @@ def test_analysis_completion_guard_intent_helpers():
         report_terms=report_terms,
         generation_terms=generation_terms,
     )
+    assert not agent_runtime_context.should_use_analysis_completion_guard(
+        "请覆盖重建年度分析报告",
+        force_rebuild_terms=force_terms,
+        status_terms=status_terms,
+        report_terms=report_terms,
+        generation_terms=generation_terms,
+    )
+
+    assert agent_runtime_context.analysis_completion_reply(
+        {"company": {"code": "600104"}},
+        analysis_completed_artifacts=lambda _context: None,
+        analysis_completed_message="done",
+    ) is None
+
+    artifacts = {"md": "/tmp/report.md", "html": "/tmp/report.html", "validation": "/tmp/final_validation.json"}
+    reply = agent_runtime_context.analysis_completion_reply(
+        {"company": {"code": "600104"}},
+        analysis_completed_artifacts=lambda context: artifacts if context["company"]["code"] == "600104" else None,
+        analysis_completed_message="done",
+    )
+    assert reply is not None
+    assert "Markdown：/tmp/report.md" in reply
+    assert "HTML：/tmp/report.html" in reply
+    assert "验收结果：/tmp/final_validation.json" in reply
+
+    guard_input = agent_runtime_context.analysis_completion_guard_input("报告在哪？", artifacts)
+    assert "Markdown 路径：/tmp/report.md" in guard_input
+    assert "HTML 路径：/tmp/report.html" in guard_input
+    assert "用户原始问题：报告在哪？" in guard_input
 
 
 def test_general_assistant_request_and_context_input():
@@ -206,6 +268,16 @@ def test_general_assistant_request_and_context_input():
         request_terms=("你能做什么",),
         subject_terms=("你", "助手"),
     )
+    assert not agent_runtime_context.is_general_assistant_request(
+        "",
+        request_terms=("你能做什么",),
+        subject_terms=("你", "助手"),
+    )
+    assert not agent_runtime_context.is_general_assistant_request(
+        "你能做什么？",
+        request_terms=("你能做什么",),
+        subject_terms=("助手",),
+    )
 
     text = agent_runtime_context.build_general_assistant_context_input(
         "你是谁？",
@@ -216,6 +288,7 @@ def test_general_assistant_request_and_context_input():
     assert text.splitlines()[0] == "GENERAL"
     assert "当前智能体 profile: siq_assistant" in text
     assert "当前智能体名称: 通用助手" in text
+    assert text.endswith("用户问题：你是谁？")
 
 
 def test_financial_intent_helpers_are_parameterized_and_exclude_general_requests():
