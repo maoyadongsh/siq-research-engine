@@ -68,3 +68,73 @@ def test_postgres_row_helpers_handle_empty_payloads_and_markdown_cells():
     assert fallback._markdown_table_cell(None) == "未返回"
     assert fallback._markdown_table_cell("") == "未返回"
     assert fallback._markdown_table_cell("  A|B\nC  ") == "A\\|B C"
+
+
+def test_wiki_fulltext_html_and_search_text_helpers_normalize_content():
+    html = "<table><tr><th>项目</th><th>金额</th></tr><tr><td>商誉&nbsp;</td><td>100</td></tr></table>"
+
+    text = fallback._html_to_text(html)
+
+    assert "项目 | 金额" in text
+    assert "商誉" in text
+    assert "100 |" in text
+    assert fallback._normalize_search_text(" 商誉（账面_净额）/增长率：10% ") == "商誉账面净额增长率10%"
+    assert fallback._specific_fulltext_terms(
+        ["报告", "市场占有率", " 数据 ", "", "商誉"],
+        {"报告", "数据"},
+    ) == ["市场占有率", "商誉"]
+
+
+def test_wiki_fulltext_line_scoring_matches_terms_and_boosts_tables():
+    plain_score = fallback._line_match_score("市场占有率稳定提升", ["市场占有率"])
+    table_score = fallback._line_match_score("<table><tr><td>市场占有率</td><td>13.1%</td></tr></table>", ["市场占有率"])
+
+    assert plain_score == 25
+    assert table_score == 36
+    assert fallback._line_matches_any_term("市场 占有率：13.1%", ["市场占有率"])
+    assert not fallback._line_matches_any_term("营业收入 100", ["市场占有率"])
+
+
+def test_wiki_fulltext_snippet_window_strips_html_and_truncates():
+    lines = [
+        "[PDF_PAGE: 8]",
+        "<p>上文</p>",
+        "<table><tr><td>市场占有率</td><td>13.1%</td></tr></table>",
+        "<p>下文带有很长的说明内容</p>",
+    ]
+
+    snippet = fallback._snippet_window(lines, 3, radius=1, snippet_chars=24)
+
+    assert "上文" in snippet
+    assert "市场占有率 | 13.1%" in snippet
+    assert snippet.endswith("...")
+    assert "<table" not in snippet
+
+
+def test_wiki_fulltext_nearest_pdf_page_searches_backward_and_clamps():
+    lines = [
+        "[PDF_PAGE: 3]",
+        "第一页内容",
+        "继续",
+        "[PDF_PAGE: 8]",
+        "目标行",
+    ]
+
+    assert fallback._nearest_report_pdf_page(lines, 5) == 8
+    assert fallback._nearest_report_pdf_page(lines, 3) == 3
+    assert fallback._nearest_report_pdf_page(lines, 999) == 8
+    assert fallback._nearest_report_pdf_page(lines, None) is None
+
+
+def test_wiki_fulltext_nearest_table_meta_prefers_distance_then_table_index():
+    tables = [
+        {"table_index": 8, "line": 99},
+        {"table_index": 2, "markdown_line": "101"},
+        {"table_index": 5, "md_line": 101},
+        {"table_index": 1, "line": "bad"},
+        {"table_index": 3, "line": 110},
+    ]
+
+    assert fallback._nearest_table_meta(tables, 100) == tables[1]
+    assert fallback._nearest_table_meta(tables, 101) == tables[1]
+    assert fallback._nearest_table_meta(tables, 100, max_distance=0) is None
