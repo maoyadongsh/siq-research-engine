@@ -52,6 +52,7 @@ from services.agent_runtime_loop_guard import (
 )
 from services import agent_runtime_progress
 from services import agent_runtime_citations
+from services import agent_runtime_catalog
 from services import agent_runtime_parse_only
 from services import agent_runtime_display
 from services import agent_runtime_memory
@@ -1254,105 +1255,40 @@ def build_pdf2md_parse_only_context(message: str, context: Any | None = None) ->
 
 
 def _is_wiki_catalog_query(message: str) -> bool:
-    text = re.sub(r"\s+", "", message or "")
-    if not text:
-        return False
-    if _is_general_assistant_request(message):
-        return False
-    lower = text.lower()
-    has_subject = any(term in text for term in WIKI_CATALOG_SUBJECT_TERMS)
-    has_count = any(term in lower for term in WIKI_CATALOG_COUNT_TERMS)
-    has_list = any(term in lower for term in WIKI_CATALOG_LIST_TERMS)
-    if has_subject and (has_count or has_list):
-        return True
-    return "company_catalog" in lower or "公司catalog" in lower
+    return agent_runtime_catalog.is_wiki_catalog_query(
+        message,
+        is_general_assistant_request=_is_general_assistant_request,
+        count_terms=WIKI_CATALOG_COUNT_TERMS,
+        list_terms=WIKI_CATALOG_LIST_TERMS,
+        subject_terms=WIKI_CATALOG_SUBJECT_TERMS,
+    )
 
 
 def _wiki_catalog_path() -> Path:
-    return WIKI_ROOT / "_meta" / "company_catalog.json"
+    return agent_runtime_catalog.wiki_catalog_path(wiki_root=WIKI_ROOT)
 
 
 def _load_wiki_catalog_companies() -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
-    catalog = _read_json_file(_wiki_catalog_path())
-    companies = catalog.get("companies") if isinstance(catalog, dict) else None
-    if not isinstance(companies, list):
-        return catalog if isinstance(catalog, dict) else None, []
-    normalized = [item for item in companies if isinstance(item, dict)]
-    normalized.sort(key=lambda item: str(item.get("stock_code") or item.get("company_id") or ""))
-    return catalog, normalized
+    return agent_runtime_catalog.load_wiki_catalog_companies(
+        wiki_root=WIKI_ROOT,
+        read_json_file=_read_json_file,
+    )
 
 
 def _format_catalog_company_line(index: int, company: dict[str, Any]) -> str:
-    code = str(company.get("stock_code") or "").strip()
-    name = str(company.get("company_short_name") or company.get("company_full_name") or "").strip()
-    company_id = str(company.get("company_id") or "").strip()
-    status = str(company.get("status") or "").strip()
-    report_count = company.get("report_count")
-    parts = [f"{index}. {code} {name}".strip()]
-    if company_id and (not code or company_id != f"{code}-{name}"):
-        parts.append(f"company_id={company_id}")
-    if status:
-        parts.append(f"status={status}")
-    if report_count not in (None, ""):
-        parts.append(f"reports={report_count}")
-    if company.get("has_three_statement_metrics") is False:
-        parts.append("三大表指标=无")
-    return "，".join(parts)
+    return agent_runtime_catalog.format_catalog_company_line(index, company)
 
 
 def build_wiki_catalog_reply(message: str) -> str | None:
-    if not _is_wiki_catalog_query(message):
-        return None
-
-    catalog, companies = _load_wiki_catalog_companies()
-    catalog_path = _wiki_catalog_path()
-    if not companies:
-        return (
-            "## 结论\n"
-            "- 当前无法读取已入库公司清单。\n\n"
-            "## 依据/数据\n"
-            f"- Wiki 根目录：{WIKI_ROOT}\n"
-            f"- catalog：{catalog_path}\n"
-            "- 问题：文件不存在、格式异常，或 `companies` 为空。\n\n"
-            "## 引用来源\n"
-            f"[1] source_type=wiki_metadata, file={catalog_path}, count=0"
-        )
-
-    declared_count = catalog.get("company_count") if isinstance(catalog, dict) else None
-    actual_count = len(companies)
-    generated_at = catalog.get("generated_at") if isinstance(catalog, dict) else None
-    ready_count = sum(1 for company in companies if company.get("status") == "ready")
-    needs_review_count = sum(1 for company in companies if company.get("status") == "needs_review")
-    report_count = sum(int(company.get("report_count") or 0) for company in companies)
-    needs_list = any(term in re.sub(r"\s+", "", message or "").lower() for term in WIKI_CATALOG_LIST_TERMS)
-
-    lines = [
-        "## 结论",
-        f"- 当前 Wiki 已入库公司一共 **{actual_count} 家**。",
-        f"- 统计口径：只认当前生产 Wiki catalog `{catalog_path}`，不使用备份目录、历史 README 或模型记忆。",
-    ]
-    if declared_count not in (None, actual_count):
-        lines.append(f"- 注意：catalog 声明 `company_count={declared_count}`，实际 `companies` 数组为 {actual_count}，本次以数组实际数量为准。")
-
-    lines.extend([
-        "",
-        "## 依据/数据",
-        f"- Wiki 根目录：{WIKI_ROOT}",
-        f"- catalog 生成时间：{generated_at or '未返回'}",
-        f"- ready：{ready_count} 家；needs_review：{needs_review_count} 家；报告合计：{report_count} 份。",
-    ])
-
-    if needs_list:
-        lines.append("")
-        lines.append("## 公司清单")
-        lines.extend(_format_catalog_company_line(index, company) for index, company in enumerate(companies, 1))
-
-    lines.extend([
-        "",
-        "## 引用来源",
-        f"[1] source_type=wiki_metadata, file={catalog_path}, count={actual_count}, generated_at={generated_at or '未返回'}",
-    ])
-    return "\n".join(lines)
+    return agent_runtime_catalog.build_wiki_catalog_reply(
+        message,
+        wiki_root=WIKI_ROOT,
+        is_general_assistant_request=_is_general_assistant_request,
+        read_json_file=_read_json_file,
+        count_terms=WIKI_CATALOG_COUNT_TERMS,
+        list_terms=WIKI_CATALOG_LIST_TERMS,
+        subject_terms=WIKI_CATALOG_SUBJECT_TERMS,
+    )
 
 
 def _latest_hermes_session(profile: HermesProfile) -> Path | None:
