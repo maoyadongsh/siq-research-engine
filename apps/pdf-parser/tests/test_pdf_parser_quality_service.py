@@ -99,6 +99,38 @@ def test_statement_table_index_without_line_uses_table_line_and_counts_found_tab
     assert "利润表" in merged["found_financial_tables"]
 
 
+def test_balance_sheet_nearby_table_skips_average_balance_noise():
+    report = {
+        "table_index": [
+            {
+                "table_index": 1,
+                "line": 90,
+                "heading": "平均余额和平均收益率",
+                "preview": "平均余额 平均收益率 生息资产 利息收入/支出",
+            },
+            {
+                "table_index": 2,
+                "line": 98,
+                "heading": "合并资产负债表",
+                "preview": "流动资产 非流动资产 资产总计",
+            },
+        ]
+    }
+
+    matched = quality.nearest_table_for_statement_lines(report, [100], "balance_sheet")
+
+    assert matched["table_index"] == 2
+    assert matched["line"] == 100
+
+
+def test_required_core_financial_table_names_excludes_equity_for_quarterly_reports():
+    quarterly_names = quality.required_core_financial_table_names("quarterly_report")
+    annual_names = quality.required_core_financial_table_names("annual_report")
+
+    assert "所有者权益变动表" not in quarterly_names
+    assert "所有者权益变动表" in annual_names
+
+
 def test_quality_report_warnings_filters_summary_core_table_noise():
     report = {
         "report_kind": "annual_report_summary",
