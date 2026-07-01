@@ -63,6 +63,7 @@ import pdf_parser_document_full_service as document_full_service
 import pdf_parser_financial_service as financial_service
 import pdf_parser_mineru_result_service as mineru_result_service
 import pdf_parser_quality_service as quality_service
+import pdf_parser_response_service as response_service
 import pdf_parser_source_service as source_service
 import pdf_parser_task_repository as task_repository
 from quality_engine import (
@@ -260,20 +261,7 @@ def _find_duplicate_filename_task(filename):
 
 
 def _task_duplicate_payload(task):
-    if not task:
-        return None
-    return {
-        "task_id": task.get("task_id"),
-        "filename": task.get("filename"),
-        "market": task.get("market"),
-        "status": task.get("status"),
-        "stage": task.get("stage"),
-        "created_at": task.get("created_at"),
-        "uploaded_at": task.get("uploaded_at"),
-        "completed_at": task.get("completed_at"),
-        "pdf_page_count": task.get("pdf_page_count"),
-        "markdown_ready": _has_markdown_artifact(task),
-    }
+    return response_service.build_task_duplicate_payload(task, has_markdown_artifact=_has_markdown_artifact)
 
 
 def _duplicate_filename_response(filename, existing_task=None, message=None):
@@ -295,18 +283,11 @@ def _list_recent_tasks(limit=100):
                 _mark_completed_missing_artifact(full_task)
                 task["status"] = COMPLETED_MISSING_ARTIFACT
                 task["stage"] = COMPLETED_MISSING_ARTIFACT
-        task["markdown_ready"] = _has_markdown_artifact(task)
-        task.pop("markdown_path", None)
-    return tasks
+    return response_service.normalize_recent_tasks(tasks, has_markdown_artifact=_has_markdown_artifact)
 
 
 def _recent_task_list_limit():
-    raw = os.environ.get("PDF_RECENT_TASK_LIMIT", "300")
-    try:
-        value = int(raw)
-    except (TypeError, ValueError):
-        value = 300
-    return max(100, min(value, 1000))
+    return response_service.clamp_recent_task_limit(os.environ.get("PDF_RECENT_TASK_LIMIT", "300"))
 
 
 def _refresh_recent_tasks(limit=50):

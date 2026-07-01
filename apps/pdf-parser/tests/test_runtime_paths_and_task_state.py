@@ -4,7 +4,12 @@ import tempfile
 import time
 import types
 import unittest
+from pathlib import Path
 from unittest.mock import patch
+
+BASE = Path(__file__).resolve().parents[1]
+if str(BASE) not in sys.path:
+    sys.path.insert(0, str(BASE))
 
 try:
     import flask  # noqa: F401
@@ -54,6 +59,7 @@ except ModuleNotFoundError:
     )
 
 import app
+import pdf_parser_response_service as response_service
 from artifact_manager import cleanup_old_output_dirs
 from path_config import resolve_app_paths
 from task_store import CANCELLED, COMPLETED, COMPLETED_MISSING_ARTIFACT, FAILED, is_failed_status, is_success_status, is_terminal_status
@@ -435,6 +441,133 @@ class TaskArtifactStateTest(unittest.TestCase):
         }
 
         self.assertEqual(app._task_market_from_record(task), "JP")
+
+
+class PdfParserResponseServiceTest(unittest.TestCase):
+    def test_duplicate_payload_builder_uses_injected_markdown_checker(self):
+        task = {
+            "task_id": "task-dup",
+            "filename": "dup.pdf",
+            "market": "US",
+            "status": COMPLETED,
+            "stage": COMPLETED,
+            "created_at": "2026-05-01T00:00:00Z",
+            "uploaded_at": "2026-05-01T00:00:30Z",
+            "completed_at": "2026-05-01T00:02:00Z",
+            "pdf_page_count": 12,
+        }
+
+        payload = response_service.build_task_duplicate_payload(
+            task,
+            has_markdown_artifact=lambda _task: True,
+        )
+
+        self.assertEqual(payload["task_id"], "task-dup")
+        self.assertTrue(payload["markdown_ready"])
+        self.assertEqual(set(payload), {
+            "task_id",
+            "filename",
+            "market",
+            "status",
+            "stage",
+            "created_at",
+            "uploaded_at",
+            "completed_at",
+            "pdf_page_count",
+            "markdown_ready",
+        })
+
+    def test_recent_task_limit_clamps_invalid_and_out_of_range_values(self):
+        self.assertEqual(response_service.clamp_recent_task_limit(None), 300)
+        self.assertEqual(response_service.clamp_recent_task_limit("nope"), 300)
+        self.assertEqual(response_service.clamp_recent_task_limit("99"), 100)
+        self.assertEqual(response_service.clamp_recent_task_limit("100"), 100)
+        self.assertEqual(response_service.clamp_recent_task_limit(1000), 1000)
+        self.assertEqual(response_service.clamp_recent_task_limit("1001"), 1000)
+
+    def test_recent_task_normalization_preserves_input_and_marks_missing_artifact(self):
+        task = {
+            "task_id": "task-normalize",
+            "filename": "normalize.pdf",
+            "status": COMPLETED,
+            "stage": COMPLETED,
+            "created_at": "2026-05-01T00:00:00Z",
+            "markdown_path": "/tmp/normalize/result.md",
+        }
+
+        normalized = response_service.normalize_recent_task(
+            task,
+            has_markdown_artifact=lambda _task: False,
+        )
+
+        self.assertEqual(task["status"], COMPLETED)
+        self.assertEqual(normalized["status"], COMPLETED_MISSING_ARTIFACT)
+        self.assertEqual(normalized["stage"], COMPLETED_MISSING_ARTIFACT)
+        self.assertFalse(normalized["markdown_ready"])
+        self.assertNotIn("markdown_path", normalized)
+
+    def test_recent_task_list_normalization_keeps_order_and_uses_ready_injection(self):
+        tasks = [
+            {
+                "task_id": "task-a",
+                "filename": "a.pdf",
+                "status": COMPLETED,
+                "stage": COMPLETED,
+                "created_at": "2026-05-01T00:00:00Z",
+                "markdown_path": "/tmp/a/result.md",
+            },
+            {
+                "task_id": "task-b",
+                "filename": "b.pdf",
+                "status": "queued",
+                "stage": "queued",
+                "created_at": "2026-05-01T00:01:00Z",
+                "markdown_path": "/tmp/b/result.md",
+            },
+        ]
+
+        normalized = response_service.normalize_recent_tasks(
+            tasks,
+            has_markdown_artifact=lambda task: task["task_id"] == "task-b",
+        )
+
+        self.assertEqual([task["task_id"] for task in normalized], ["task-a", "task-b"])
+        self.assertEqual(normalized[0]["status"], COMPLETED_MISSING_ARTIFACT)
+        self.assertFalse(normalized[0]["markdown_ready"])
+        self.assertEqual(normalized[1]["status"], "queued")
+        self.assertTrue(normalized[1]["markdown_ready"])
+        self.assertNotIn("markdown_path", normalized[0])
+        self.assertNotIn("markdown_path", normalized[1])
+        self.assertIn("markdown_path", tasks[0])
+        self.assertIn("markdown_path", tasks[1])
+
+
+class AppWrapperCompatibilityTest(unittest.TestCase):
+    def test_task_duplicate_payload_wrapper_uses_response_service(self):
+        task = {
+            "task_id": "task-wrapper",
+            "filename": "wrapper.pdf",
+            "status": COMPLETED,
+            "stage": COMPLETED,
+            "created_at": "2026-05-01T00:00:00Z",
+            "uploaded_at": "2026-05-01T00:01:00Z",
+            "completed_at": "2026-05-01T00:02:00Z",
+            "pdf_page_count": 4,
+        }
+
+        with patch.object(app, "_has_markdown_artifact", return_value=False):
+            payload = app._task_duplicate_payload(task)
+
+        self.assertFalse(payload["markdown_ready"])
+        self.assertEqual(payload["task_id"], "task-wrapper")
+
+    def test_recent_task_limit_wrapper_clamps_env(self):
+        with patch.dict(os.environ, {"PDF_RECENT_TASK_LIMIT": "42"}):
+            self.assertEqual(app._recent_task_list_limit(), 100)
+        with patch.dict(os.environ, {"PDF_RECENT_TASK_LIMIT": "1001"}):
+            self.assertEqual(app._recent_task_list_limit(), 1000)
+        with patch.dict(os.environ, {"PDF_RECENT_TASK_LIMIT": "invalid"}):
+            self.assertEqual(app._recent_task_list_limit(), 300)
 
 
 class ApiLayerTest(unittest.TestCase):

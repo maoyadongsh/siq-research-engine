@@ -42,6 +42,7 @@ import {
   buildDocumentResultPreviewOverlays,
   buildDocumentResultPreviewPages,
   buildDocumentResultPreviewRelations,
+  buildDocumentResultSourceLookups,
 } from './documentResultWorkbenchDerivations'
 import {
   cssAttrValue,
@@ -55,7 +56,6 @@ import {
   statusTone,
   type FocusTarget,
   type OverlayEntry,
-  type SourceMapEntry,
 } from './documentResultWorkbenchUtils'
 
 function MergePageBridge({
@@ -142,6 +142,10 @@ export function DocumentResultWorkbench({
   const physicalTables = useMemo(() => tables?.physical_tables || tables?.tables || [], [tables?.physical_tables, tables?.tables])
   const figureItems = useMemo(() => figures?.figures || [], [figures?.figures])
   const relationItems = useMemo(() => tableRelations?.relations || [], [tableRelations?.relations])
+  const { sourceByBlockId, sourceByTableId, sourceByFigureId } = useMemo(
+    () => buildDocumentResultSourceLookups(sourceMap),
+    [sourceMap],
+  )
   const tableById = useMemo(() => {
     const lookup = new Map<string, DocumentTable>()
     physicalTables.forEach((table) => {
@@ -160,27 +164,6 @@ export function DocumentResultWorkbench({
     () => buildDocumentResultPreviewRelations(relationItems, tableById),
     [relationItems, tableById],
   )
-  const sourceByBlockId = useMemo(() => {
-    const lookup = new Map<string, SourceMapEntry>()
-    sourceMap?.sources?.forEach((entry) => {
-      if (entry.block_id && !lookup.has(entry.block_id)) lookup.set(entry.block_id, entry)
-    })
-    return lookup
-  }, [sourceMap])
-  const sourceByTableId = useMemo(() => {
-    const lookup = new Map<string, SourceMapEntry>()
-    sourceMap?.sources?.forEach((entry) => {
-      if (entry.table_id && !lookup.has(entry.table_id)) lookup.set(entry.table_id, entry)
-    })
-    return lookup
-  }, [sourceMap])
-  const sourceByFigureId = useMemo(() => {
-    const lookup = new Map<string, SourceMapEntry>()
-    sourceMap?.sources?.forEach((entry) => {
-      if (entry.image_id && !lookup.has(entry.image_id)) lookup.set(entry.image_id, entry)
-    })
-    return lookup
-  }, [sourceMap])
 
   const markdownBlocks = useMemo(
     () => buildDocumentResultMarkdownBlocks(sourceBlocks, result?.markdown || '', tableByBlockId),

@@ -2,6 +2,7 @@ import type {
   DocumentBlock,
   DocumentFigure,
   DocumentLayoutPage,
+  DocumentSourceMapPayload,
   DocumentTable,
   DocumentTableRelation,
 } from '@/lib/documentTypes'
@@ -19,6 +20,20 @@ import {
   type OverlayEntry,
   type SourceMapEntry,
 } from './documentResultWorkbenchUtils'
+
+export function buildDocumentResultSourceLookups(sourceMap: DocumentSourceMapPayload | null) {
+  const sourceByBlockId = new Map<string, SourceMapEntry>()
+  const sourceByTableId = new Map<string, SourceMapEntry>()
+  const sourceByFigureId = new Map<string, SourceMapEntry>()
+
+  sourceMap?.sources?.forEach((entry) => {
+    if (entry.block_id && !sourceByBlockId.has(entry.block_id)) sourceByBlockId.set(entry.block_id, entry)
+    if (entry.table_id && !sourceByTableId.has(entry.table_id)) sourceByTableId.set(entry.table_id, entry)
+    if (entry.image_id && !sourceByFigureId.has(entry.image_id)) sourceByFigureId.set(entry.image_id, entry)
+  })
+
+  return { sourceByBlockId, sourceByTableId, sourceByFigureId }
+}
 
 export function buildDocumentResultPageByNumber(pages?: DocumentLayoutPage[] | null) {
   const lookup = new Map<number, DocumentLayoutPage>()

@@ -33,6 +33,11 @@ import {
 } from '../features/search-download/display'
 import { DownloadedReportsPanel } from '../features/search-download/DownloadedReportsPanel'
 import {
+  getSearchDownloadVisibleLogs,
+  hasSearchDownloadProblemLogs,
+  type SearchDownloadLogEntry,
+} from '../features/search-download/logs'
+import {
   batchDownloadSelectedReports,
   downloadReportsIndividually,
   fetchReportCandidates,
@@ -80,7 +85,7 @@ export default function SearchDownload() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [downloading, setDownloading] = useState(false)
   const [downloadResults, setDownloadResults] = useState<DownloadFileResult[]>([])
-  const [logs, setLogs] = useState<{ time: string; msg: string; type: string }[]>([])
+  const [logs, setLogs] = useState<SearchDownloadLogEntry[]>([])
   const [companyInfo, setCompanyInfo] = useState<SearchDownloadCompanyInfo | null>(null)
   const [downloadedReports, setDownloadedReports] = useState<DownloadedPdf[]>([])
   const [downloadedLoading, setDownloadedLoading] = useState(false)
@@ -167,10 +172,10 @@ export default function SearchDownload() {
   }, [syncSearchParams])
 
   const visibleDownloadResults = useMemo(() => deferredDownloadResults, [deferredDownloadResults])
-  const visibleLogs = useMemo(() => deferredLogs.slice(-200), [deferredLogs])
+  const visibleLogs = useMemo(() => getSearchDownloadVisibleLogs(deferredLogs), [deferredLogs])
   const visibleDownloadedReports = useMemo(() => deferredDownloadedReports, [deferredDownloadedReports])
   const candidateExplanationMap = useMemo(() => explanationMap(candidateExplanations), [candidateExplanations])
-  const hasProblemLogs = useMemo(() => logs.some((log) => log.type === 'error' || log.type === 'warn'), [logs])
+  const hasProblemLogs = useMemo(() => hasSearchDownloadProblemLogs(logs), [logs])
   const totalCandidates = annualReports.length + financialReports.length
 
   const addLog = useCallback((msg: string, type = 'info') => {
