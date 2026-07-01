@@ -89,6 +89,53 @@ def test_relation_blocks_and_payload_helpers_normalize_table_relations():
     assert payload["relations"][0]["from_table_index"] is None
 
 
+def test_augment_table_relations_supports_source_target_aliases_and_non_list_relations():
+    relation_tables = [
+        {"table_id": "source-1", "table_index": 7, "bbox": [1, 2, 3, 4], "page_number": 3},
+        {"table_id": "target-1", "table_index": 8, "bbox": [5, 6, 7, 8], "page_number": 4},
+    ]
+    payload = {
+        "relations": [
+            {
+                "source_table_id": "source-1",
+                "target_table_id": "target-1",
+            }
+        ]
+    }
+
+    augmented = document_full.augment_table_relations(payload, relation_tables)
+
+    assert augmented is payload
+    assert augmented["relations"][0]["from_table_index"] == 7
+    assert augmented["relations"][0]["from_bbox"] == [1, 2, 3, 4]
+    assert augmented["relations"][0]["from_page_number"] == 3
+    assert augmented["relations"][0]["to_table_index"] == 8
+    assert augmented["relations"][0]["to_bbox"] == [5, 6, 7, 8]
+    assert augmented["relations"][0]["to_page_number"] == 4
+    assert document_full.augment_table_relations({"relations": "invalid"}, relation_tables) == {"relations": "invalid"}
+
+
+def test_relation_tables_from_artifacts_filters_invalid_tables_and_keeps_content_list_only_table():
+    enhanced = {
+        "tables": [
+            {"table_index": 1, "bbox": [1, 2, 3], "pdf_page_number": 1, "preview": "invalid bbox"},
+            {"table_index": 2, "bbox": [1, 2, 3, 4], "pdf_page_number": 0, "preview": "invalid page"},
+        ]
+    }
+    content_list = [
+        {"type": "table", "table_body": "<table><tr><td>skip</td></tr></table>", "page_idx": "1", "bbox": [1, 2, 3, 4]},
+        {"type": "table", "table_body": "<table><tr><td>keep</td></tr></table>", "page_idx": 0, "bbox": [10, 20, 30, 40]},
+    ]
+
+    relation_tables = document_full.relation_tables_from_artifacts(enhanced, content_list)
+
+    assert len(relation_tables) == 1
+    assert relation_tables[0]["table_id"] == "pt-p0001-10-20-30-40"
+    assert relation_tables[0]["content_table_source_id"] == 2
+    assert relation_tables[0]["source"] == "content_list_table_block"
+    assert relation_tables[0]["text"] == "keep"
+
+
 def test_resource_indexes_include_images_and_rendered_pages(tmp_path):
     task = {"task_id": "doc-full"}
     result_root = tmp_path / "doc-full"
@@ -116,6 +163,31 @@ def test_resource_indexes_include_images_and_rendered_pages(tmp_path):
     assert page_index["items"][0]["url"] == "/api/pdf_page/doc-full/2"
     assert page_index["items"][1]["page_number"] is None
     assert page_index["items"][1]["url"] == ""
+
+
+def test_file_reference_payload_handles_missing_directory_and_file(tmp_path):
+    missing = document_full.file_reference_payload(str(tmp_path / "missing.pdf"), "/download/missing.pdf", kind="pdf")
+    directory = tmp_path / "pages"
+    directory.mkdir()
+    existing_file = tmp_path / "result.md"
+    existing_file.write_text("hello", encoding="utf-8")
+
+    directory_payload = document_full.file_reference_payload(str(directory), "/api/pages", kind="directory")
+    file_payload = document_full.file_reference_payload(str(existing_file), "/api/result.md", kind="markdown")
+
+    assert missing == {"path": "", "exists": False, "url": "/download/missing.pdf", "kind": "pdf"}
+    assert directory_payload == {
+        "path": str(directory),
+        "exists": True,
+        "url": "/api/pages",
+        "kind": "directory",
+    }
+    assert file_payload["path"] == str(existing_file)
+    assert file_payload["exists"] is True
+    assert file_payload["url"] == "/api/result.md"
+    assert file_payload["kind"] == "markdown"
+    assert file_payload["size_bytes"] == 5
+    assert file_payload["mtime"]
 
 
 def test_build_document_full_json_uses_injected_artifact_readers(tmp_path):
@@ -176,3 +248,103 @@ def test_build_document_full_json_uses_injected_artifact_readers(tmp_path):
     assert payload["resources"]["images"]["summary"]["count"] == 0
     assert payload["resources"]["pdf_pages"]["directory"]["exists"] is False
     assert payload["resources"]["pdf_pages"]["directory"]["kind"] == "directory"
+
+
+def test_build_document_full_json_marks_missing_source_files_without_embedding_resources(tmp_path):
+    task = {"task_id": "doc-full", "filename": "sample.pdf", "status": "processing"}
+    result_root = tmp_path / "doc-full"
+    result_root.mkdir()
+
+    payload = document_full.build_document_full_json(
+        task,
+        "",
+        {},
+        {},
+        result_dir=lambda _task: str(result_root),
+        load_json_artifact=lambda _task, _name: None,
+        artifact_status=lambda _task: {},
+        markdown_page_index=lambda markdown, content_list=None: [],
+        now_iso=lambda: "2026-07-01T00:00:00+00:00",
+        document_full_schema_version=3,
+    )
+
+    assert payload["source_files"]["pdf"] is None
+    assert payload["source_files"]["markdown"]["exists"] is False
+    assert payload["source_files"]["markdown"]["path"] == ""
+    assert payload["source_files"]["complete_markdown"]["exists"] is False
+    assert payload["resources"]["images"]["items"] == []
+    assert payload["resources"]["pdf_pages"]["items"] == []
+    assert payload["markdown"]["content"] == ""
+    assert payload["content_list"] is None
+
+
+def test_apply_content_list_enhanced_update_preserves_existing_metadata():
+    original = {
+        "artifacts": {
+            "result.md": {"exists": True, "path": "/tmp/result.md", "url": "/api/artifact/doc-full/result.md"},
+        },
+        "source_files": {
+            "pdf": {"exists": True, "path": "/tmp/sample.pdf", "kind": "pdf"},
+            "complete_markdown": {"exists": False, "path": "", "url": ""},
+        },
+        "content_list_enhanced": {"old": True},
+        "table_relations": {"old": True},
+    }
+    enhanced = {"tables": [{"table_index": 1}]}
+    table_relations = {"relations": [{"from_table_id": "t1"}]}
+
+    updated = document_full.apply_content_list_enhanced_update_to_document_full(
+        original,
+        task_id="doc-full",
+        enhanced=enhanced,
+        table_relations=table_relations,
+        content_list_enhanced_path="/tmp/content_list_enhanced.json",
+        table_relations_path="/tmp/table_relations.json",
+        complete_markdown_path="/tmp/result_complete.md",
+        complete_markdown_exists=True,
+    )
+
+    assert updated is not original
+    assert updated["artifacts"]["result.md"] == original["artifacts"]["result.md"]
+    assert updated["artifacts"]["content_list_enhanced.json"] == {
+        "exists": True,
+        "path": "/tmp/content_list_enhanced.json",
+        "url": "/api/artifact/doc-full/content_list_enhanced.json",
+    }
+    assert updated["artifacts"]["table_relations.json"] == {
+        "exists": True,
+        "path": "/tmp/table_relations.json",
+        "url": "/api/artifact/doc-full/table_relations.json",
+    }
+    assert updated["source_files"]["pdf"] == original["source_files"]["pdf"]
+    assert updated["source_files"]["complete_markdown"] == {
+        "exists": True,
+        "path": "/tmp/result_complete.md",
+        "url": "/api/artifact/doc-full/result_complete.md",
+    }
+    assert updated["content_list_enhanced"] is enhanced
+    assert updated["table_relations"] is table_relations
+    assert original["content_list_enhanced"] == {"old": True}
+    assert original["table_relations"] == {"old": True}
+
+
+def test_apply_content_list_enhanced_update_initializes_missing_metadata():
+    updated = document_full.apply_content_list_enhanced_update_to_document_full(
+        {},
+        task_id="doc-full",
+        enhanced={"tables": []},
+        table_relations={"relations": []},
+        content_list_enhanced_path="/tmp/content_list_enhanced.json",
+        table_relations_path="/tmp/table_relations.json",
+        complete_markdown_path="/tmp/result_complete.md",
+        complete_markdown_exists=False,
+    )
+
+    assert sorted(updated["artifacts"]) == ["content_list_enhanced.json", "table_relations.json"]
+    assert updated["source_files"]["complete_markdown"] == {
+        "exists": False,
+        "path": "/tmp/result_complete.md",
+        "url": "/api/artifact/doc-full/result_complete.md",
+    }
+    assert updated["content_list_enhanced"] == {"tables": []}
+    assert updated["table_relations"] == {"relations": []}
