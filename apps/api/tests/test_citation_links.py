@@ -16,6 +16,11 @@ MIDEA_TASK_ID = "f4dead73-e0de-42b4-b1b7-d8cf217214ee"
 SABIC_TASK_ID = "914d6a5a-9aed-47ab-b4ae-a380a9b95253"
 BASF_TASK_ID = "03690a47-062e-42eb-9ad7-d609a87cf777"
 WANHUA_TASK_ID = "f256875c-dad2-4fbf-9240-ef288fea0b0f"
+PURE_HELPER_TASK_ID = "11111111-1111-1111-1111-111111111111"
+
+
+def _disable_local_enricher(monkeypatch):
+    monkeypatch.setattr(citation_links, "_get_enrich_citation_line", lambda: None)
 
 
 def test_report_table_records_treats_null_tables_as_empty(tmp_path):
@@ -37,6 +42,52 @@ def test_chat_citation_postprocessor_keeps_reply_when_enricher_fails(monkeypatch
 
     assert "bad citation metadata" not in cleaned
     assert f"task_id={SH_BANK_TASK_ID}" in cleaned
+
+
+def test_postprocessor_skips_citations_without_task_id_or_pdf_page(monkeypatch):
+    _disable_local_enricher(monkeypatch)
+    text = f"""[1] source_type=wiki_metrics, pdf_page=7, table_index=3
+[2] source_type=wiki_metrics, task_id={PURE_HELPER_TASK_ID}, table_index=3
+"""
+
+    assert append_missing_pdf_source_links(text) == text.rstrip("\n")
+
+
+def test_postprocessor_normalizes_local_api_links_preserving_query_and_fragment(monkeypatch):
+    _disable_local_enricher(monkeypatch)
+    monkeypatch.setenv("SIQ_PUBLIC_ORIGIN", "https://public.example")
+    text = (
+        f"[1] source_type=wiki_metrics, task_id={PURE_HELPER_TASK_ID}, pdf_page=7, table_index=3，"
+        f"[打开PDF定位页7](http://localhost:8276/api/pdf_page/{PURE_HELPER_TASK_ID}/7?format=html#page%207)，"
+        f"[查看定位页7来源](/api/source/{PURE_HELPER_TASK_ID}/page/7?format=html#quote%2F7)，"
+        f"[查看可读表格3](http://127.0.0.1:8000/api/source/{PURE_HELPER_TASK_ID}/table/3?format=html#table%203)"
+    )
+
+    cleaned = append_missing_pdf_source_links(text)
+
+    assert "http://localhost" not in cleaned
+    assert "http://127.0.0.1" not in cleaned
+    assert f"https://public.example/api/pdf_page/{PURE_HELPER_TASK_ID}/7?format=html#page%207" in cleaned
+    assert f"https://public.example/api/source/{PURE_HELPER_TASK_ID}/page/7?format=html#quote%2F7" in cleaned
+    assert f"https://public.example/api/source/{PURE_HELPER_TASK_ID}/table/3?format=html#table%203" in cleaned
+    assert cleaned.count(f"/api/pdf_page/{PURE_HELPER_TASK_ID}/7?format=html") == 1
+    assert cleaned.count(f"/api/source/{PURE_HELPER_TASK_ID}/page/7?format=html") == 1
+    assert cleaned.count(f"/api/source/{PURE_HELPER_TASK_ID}/table/3?format=html") == 1
+
+
+def test_postprocessor_keeps_printed_page_labels_aligned_with_missing_slots(monkeypatch):
+    _disable_local_enricher(monkeypatch)
+    text = (
+        f"[1] source_type=wiki_metrics, task_id={PURE_HELPER_TASK_ID}, "
+        "pdf_page=7,8, printed_page=未返回,12, table_index=3"
+    )
+
+    cleaned = append_missing_pdf_source_links(text)
+
+    assert "打开PDF定位页7 / 印刷页12" not in cleaned
+    assert "查看定位页7来源 / 印刷页12" not in cleaned
+    assert "打开PDF定位页8 / 印刷页12" in cleaned
+    assert "查看定位页8来源 / 印刷页12" in cleaned
 
 
 def test_report_md_line_uses_markdown_page_anchor():

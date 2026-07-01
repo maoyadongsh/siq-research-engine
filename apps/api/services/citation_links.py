@@ -135,10 +135,13 @@ def _printed_page_labels(value: str) -> list[str]:
     labels: list[str] = []
     for part in re.split(r"[,，]", value or ""):
         label = part.strip().strip("。.;；")
-        if not label or label in {"未返回", "N/A", "None", "null"}:
+        if not label:
+            continue
+        if label in {"未返回", "N/A", "None", "null"}:
+            labels.append("")
             continue
         labels.append(label)
-    return list(dict.fromkeys(labels))
+    return labels
 
 
 def _append_inline_links(line: str, links: list[str]) -> str:

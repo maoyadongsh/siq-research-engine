@@ -661,6 +661,32 @@ def test_merge_refs_into_reference_section_dedupes_alias_field_names():
     assert merged.count("source_type=postgresql") == 1
 
 
+def test_merge_refs_into_reference_section_handles_empty_body():
+    ref = (
+        "[D1] source_type=wiki_metrics, file=metrics/three_statements.json, metric=收入, "
+        "period=2025, task_id=11111111-1111-1111-1111-111111111111, pdf_page=7, "
+        "table_index=2, md_line=50"
+    )
+
+    merged = citations._merge_refs_into_reference_section("", [ref])
+
+    assert merged == f"## 引用来源\n{ref}"
+
+
+def test_merge_refs_into_reference_section_returns_body_when_all_refs_invalid():
+    body = "结论正文。"
+    refs = [
+        "普通说明文字。",
+        "[D1] source_type=wiki_metrics, pdf_page=7, table_index=2",
+        "[D2] source_type=wiki_metrics, task_id=22222222-2222-2222-2222-222222222222, table_index=3",
+        "| [D3] source_type=wiki_metrics, task_id=33333333-3333-3333-3333-333333333333, pdf_page=9, table_index=4 |",
+    ]
+
+    merged = citations._merge_refs_into_reference_section(body, refs)
+
+    assert merged == body
+
+
 def test_merge_refs_into_reference_section_skips_refs_already_in_body():
     body = """结论正文。
 
@@ -702,6 +728,50 @@ def test_merge_refs_into_reference_section_inserts_before_next_peer_heading():
     assert "### 补充说明" in citation_section
     assert "metric=收入" in citation_section
     assert "metric=收入" not in risk_section
+
+
+def test_merge_refs_into_tertiary_reference_section_stops_before_peer_or_parent_heading():
+    ref = (
+        "[D1] source_type=wiki_metrics, file=metrics/three_statements.json, metric=收入, "
+        "period=2025, task_id=11111111-1111-1111-1111-111111111111, pdf_page=7, "
+        "table_index=2, md_line=50"
+    )
+    peer_body = """## 数据分析
+正文。
+
+### 引用来源
+已有说明。
+
+#### 来源说明
+仍属于引用来源章节。
+
+### 风险提示
+请复核。
+"""
+    parent_body = """## 数据分析
+正文。
+
+### 引用来源
+已有说明。
+
+#### 来源说明
+仍属于引用来源章节。
+
+## 风险提示
+请复核。
+"""
+
+    peer_merged = citations._merge_refs_into_reference_section(peer_body, [ref])
+    parent_merged = citations._merge_refs_into_reference_section(parent_body, [ref])
+    peer_citation_section, peer_risk_section = peer_merged.split("### 风险提示")
+    parent_citation_section, parent_risk_section = parent_merged.split("## 风险提示")
+
+    assert "#### 来源说明" in peer_citation_section
+    assert "metric=收入" in peer_citation_section
+    assert "metric=收入" not in peer_risk_section
+    assert "#### 来源说明" in parent_citation_section
+    assert "metric=收入" in parent_citation_section
+    assert "metric=收入" not in parent_risk_section
 
 
 def test_reply_has_requested_metric_evidence_checks_requested_terms_in_reference_lines():
