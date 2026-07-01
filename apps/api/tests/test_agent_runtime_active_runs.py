@@ -26,6 +26,40 @@ async def _collect_events(profile: str, session_id: str, *, offset: int = 0) -> 
     return events
 
 
+async def _collect_chat_stream_events(
+    profile: str,
+    session_id: str,
+) -> list[dict[str, str]]:
+    events = []
+    async for event in runtime.stream_chat_reply(
+        "join active run",
+        _Request(),
+        object(),
+        profile=profile,
+        session_id=session_id,
+        history_limit=1,
+    ):
+        events.append(event)
+    return events
+
+
+async def _collect_active_events_limit(profile: str, session_id: str, limit: int) -> list[dict[str, str]]:
+    events = []
+    stream = runtime.stream_active_run_events(
+        _Request(),
+        profile=profile,
+        session_id=session_id,
+    )
+    try:
+        async for event in stream:
+            events.append(event)
+            if len(events) >= limit:
+                break
+    finally:
+        await stream.aclose()
+    return events
+
+
 def _event_payload(event: dict[str, str]) -> dict:
     return json.loads(event["data"])
 
@@ -117,6 +151,198 @@ def test_stream_active_run_events_returns_without_yielding_when_request_disconne
             runtime.ACTIVE_RUNS.pop(runtime._active_key(state.profile, state.session_id), None)
 
     assert anyio.run(run_case) == []
+
+
+def test_stream_active_run_events_emits_heartbeat_without_buffering(monkeypatch):
+    async def run_case():
+        state = runtime.ActiveRunState(
+            profile="siq_assistant",
+            session_id="heartbeat-session",
+            run_id="run-heartbeat",
+        )
+        key = runtime._active_key(state.profile, state.session_id)
+        runtime.ACTIVE_RUNS[key] = state
+        monkeypatch.setattr(runtime, "STREAM_EVENT_HEARTBEAT_SECONDS", 0.01)
+
+        stream = runtime.stream_active_run_events(
+            _Request(),
+            profile="assistant",
+            session_id=state.session_id,
+        )
+        try:
+            event = await stream.__anext__()
+            snapshot = runtime.get_active_run_snapshot("siq_assistant", state.session_id)
+            return event, snapshot, list(state.events)
+        finally:
+            await stream.aclose()
+            runtime.ACTIVE_RUNS.pop(key, None)
+
+    event, snapshot, buffered_events = anyio.run(run_case)
+
+    assert event["event"] == "progress"
+    payload = _event_payload(event)
+    assert payload["status"] == "running"
+    assert payload["title"] == "等待模型或工具返回"
+    assert payload["detail"] == "后台 Hermes run 仍在运行；本地模型可能正在生成首轮输出，或工具正在执行。"
+    assert payload["source"] == "runtime"
+    assert payload["updated_at"]
+    assert buffered_events == []
+    assert snapshot["event_count"] == 0
+    assert snapshot["progress"] is None
+
+
+def test_stream_chat_reply_joins_existing_active_run_snapshot(monkeypatch):
+    async def run_case():
+        state = runtime.ActiveRunState(
+            profile="siq_assistant",
+            session_id="join-existing-session",
+            run_id="run-join-existing",
+        )
+        key = runtime._active_key(state.profile, state.session_id)
+        runtime.ACTIVE_RUNS[key] = state
+
+        async def fail_create_run(*_args, **_kwargs):
+            raise AssertionError("join path must not create a second Hermes run")
+
+        monkeypatch.setattr(runtime, "create_run", fail_create_run)
+        try:
+            await runtime._append_state_event(state, "run", {"run_id": state.run_id, "session_id": state.session_id})
+            await runtime._append_state_event(state, "delta", {"content": "already running"})
+            before = runtime.get_active_run_snapshot("assistant", state.session_id)
+
+            async def finish_run():
+                await anyio.sleep(0)
+                await runtime._append_state_event(state, "done", {"content": "already running"})
+
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(finish_run)
+                events = await _collect_chat_stream_events("assistant", state.session_id)
+            after = runtime.get_active_run_snapshot("siq_assistant", state.session_id)
+            return events, before, after
+        finally:
+            runtime.ACTIVE_RUNS.pop(key, None)
+
+    events, before, after = anyio.run(run_case)
+
+    assert [event["event"] for event in events] == ["run", "delta", "done"]
+    assert _event_payload(events[0]) == {
+        "run_id": "run-join-existing",
+        "session_id": "join-existing-session",
+    }
+    assert before["running"] is True
+    assert before["content"] == "already running"
+    assert before["event_count"] == 2
+    assert after["running"] is False
+    assert after["status"] == "completed"
+    assert after["content"] == "already running"
+
+
+def test_session_default_contexts_are_isolated_by_profile_and_session(monkeypatch):
+    touched_keys = [
+        runtime._active_key("assistant", "default-context-a"),
+        runtime._active_key("assistant", "default-context-b"),
+        runtime._active_key("siq_analysis", "default-context-a"),
+    ]
+    for key in touched_keys:
+        runtime.SESSION_DEFAULT_CONTEXTS.pop(key, None)
+
+    def fake_format_context(context):
+        return f"ctx:{context['company']}" if context else None
+
+    monkeypatch.setattr(runtime, "format_chat_context", fake_format_context)
+    try:
+        assistant_a = runtime.get_session_default_context(
+            "assistant",
+            "default-context-a",
+            {"company": "A"},
+            allow_initialize=True,
+        )
+        assistant_b = runtime.get_session_default_context(
+            "siq_assistant",
+            "default-context-b",
+            {"company": "B"},
+            allow_initialize=True,
+        )
+        assistant_a_again = runtime.get_session_default_context(
+            "siq_assistant",
+            "default-context-a",
+            {"company": "ignored"},
+            allow_initialize=True,
+        )
+        analysis_a = runtime.get_session_default_context(
+            "siq_analysis",
+            "default-context-a",
+            {"company": "analysis"},
+            allow_initialize=True,
+        )
+    finally:
+        for key in touched_keys:
+            runtime.SESSION_DEFAULT_CONTEXTS.pop(key, None)
+
+    assert assistant_a == "ctx:A"
+    assert assistant_b == "ctx:B"
+    assert assistant_a_again == "ctx:A"
+    assert analysis_a == "ctx:analysis"
+
+
+def test_stop_by_profile_alias_can_be_streamed_from_canonical_profile(monkeypatch):
+    async def run_case():
+        state = runtime.ActiveRunState(
+            profile="siq_assistant",
+            session_id="alias-stop-stream-session",
+            run_id="run-alias-stop-stream",
+        )
+        key = runtime._active_key(state.profile, state.session_id)
+        runtime.ACTIVE_RUNS[key] = state
+
+        async def fake_stop_run(run_id, *, profile):
+            return {"id": run_id, "status": "stopped", "profile": profile}
+
+        monkeypatch.setattr(runtime, "stop_run", fake_stop_run)
+        try:
+            result = await runtime.stop_active_run("assistant", state.session_id)
+            events = await _collect_active_events_limit("siq_assistant", state.session_id, 2)
+            return result, events, state
+        finally:
+            runtime.ACTIVE_RUNS.pop(key, None)
+
+    result, events, state = anyio.run(run_case)
+
+    assert result["stopped"] is True
+    assert result["run_id"] == "run-alias-stop-stream"
+    assert state.user_stop_requested is True
+    assert [event["event"] for event in events] == ["progress", "replace"]
+    assert _event_payload(events[-1]) == {"content": runtime.STOPPED_MESSAGE}
+
+
+def test_terminal_snapshot_is_stable_after_stream_drain():
+    async def run_case():
+        state = runtime.ActiveRunState(
+            profile="siq_assistant",
+            session_id="terminal-snapshot-session",
+            run_id="run-terminal-snapshot",
+        )
+        key = runtime._active_key(state.profile, state.session_id)
+        runtime.ACTIVE_RUNS[key] = state
+        try:
+            await runtime._append_state_event(state, "delta", {"content": "final answer"})
+            await runtime._append_state_event(state, "done", {"content": "final answer", "new_achievements": []})
+            before = runtime.get_active_run_snapshot("assistant", state.session_id)
+            events = await _collect_events("siq_assistant", state.session_id)
+            after = runtime.get_active_run_snapshot("assistant", state.session_id)
+            return events, before, after, state
+        finally:
+            runtime.ACTIVE_RUNS.pop(key, None)
+
+    events, before, after, state = anyio.run(run_case)
+
+    assert [event["event"] for event in events] == ["delta", "done"]
+    assert before == after
+    assert before["running"] is False
+    assert before["status"] == "completed"
+    assert before["content"] == "final answer"
+    assert before["event_count"] == 2
+    assert state.done_payload == {"content": "final answer", "new_achievements": []}
 
 
 def test_stop_active_run_marks_user_stop_and_emits_replace(monkeypatch):

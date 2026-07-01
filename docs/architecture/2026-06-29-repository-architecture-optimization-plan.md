@@ -209,6 +209,14 @@ bash -n start_all.sh && find scripts infra apps services -type f -name '*.sh' -p
 - 本轮验证：API active-runs 聚焦测试 10 passed、PDF parser 全量 266 passed、Document result preview e2e 5 passed、Web build passed；提交前继续执行 `git diff --check`。
 - 下一步建议：PDF parser 可进入 artifact orchestrator 前置测试/最小抽取，或切到前端 `useDocumentResultViewModel` / focus controller 试点；Agent runtime SSE owner 继续先补 heartbeat、existing active run join、session default context 等剩余矩阵。
 
+本轮迁移前护栏追加：
+
+- PDF parser：新增 `test_pdf_parser_mineru_lifecycle.py`，覆盖 submit 前 `submitting` 持久化、submit 成功写入 `mineru_task_id` / `pending` / `submitted_at`、本地 upload missing -> `failed`、upstream 404 -> `failed`、upstream completed 时先 fetch artifacts 再最终 persist、completed 缺 Markdown -> `completed_missing_artifact`；仍未迁移 MinerU lifecycle / `_fetch_and_cache_result` / `_ensure_*` owner。
+- Agent runtime：扩展 `test_agent_runtime_active_runs.py`，补 SSE heartbeat 不写入 buffer、existing active run join 不创建第二个 Hermes run、session default context 按 profile/session 隔离、alias stop 后 canonical stream 可读、terminal snapshot drain 前后稳定；仍未迁移 `ACTIVE_RUNS`、SSE append 或 DB/session owner。
+- Frontend：扩展 `documentResultWorkbenchDerivations.test.ts` 与 `document-result-preview.spec.ts`，补 block/table/figure/page focus 边界隔离、新 task active page reset、resource opener 失败后成功清错、mobile tab 与 preview page 状态隔离；仍未抽 hook、未迁 `DOCUMENT_CSS` / `PDF_CSS`。
+- 本轮验证：API active-runs + loop 代表用例 15 passed、PDF parser 全量 271 passed、Document derivation 9 passed、Document result preview e2e 6 passed、Web build passed、`git diff --check` 通过。
+- 下一步建议：迁移前护栏已经覆盖到第二层，下一轮可二选一推进：做 PDF artifact orchestrator 最小抽取，或做前端 `useDocumentResultViewModel` / focus controller 最小 hook 试点；Agent runtime streaming owner 仍建议再单独开一轮设计/迁移，不和其他 owner 同批。
+
 推荐试点顺序：
 
 1. PDF parser queue claim / recover：最适合首个红灯试点。范围小、行为可用 SQLite/DB 状态测试锁定，且不必碰 Flask response 或 MinerU HTTP lifecycle。目标是把 `_claim_next_queued_task`、`_recover_stale_submitting_tasks` 先迁到 `pdf_parser_task_lifecycle_service` 或 task repository 层，`pdf_parser_app_impl.py` 保留同名 wrapper。
@@ -234,7 +242,7 @@ bash -n start_all.sh && find scripts infra apps services -type f -name '*.sh' -p
 - 前端 Document 试点：测试矩阵 0.5-1 天，view model + focus controller 1-1.5 天，resource opener 0.5 天；`DOCUMENT_CSS` 小步迁移 0.5-1 天，`PDF_CSS` 另开 1-2 天窗口。
 - Agent runtime streaming 试点：测试矩阵 0.5-1 天，streaming owner 抽取 1-1.5 天，sessions owner 0.5 天，循环依赖修复 0.5-1 天，总计约 2.5-4 天。
 
-下一步建议：PDF parser queue claim/recover 试点已完成；下一轮优先补 artifact orchestrator / MinerU lifecycle 的迁移前测试矩阵，再决定是否做第二个最小抽取。若转向前端，则先抽 Document view model / focus controller；若转向 Agent runtime，则继续补 SSE/active run 剩余矩阵，不急着迁移 owner。
+下一步建议：PDF parser queue claim/recover 试点与 artifact/MinerU lifecycle 迁移前矩阵已完成；下一轮可以做 PDF artifact orchestrator 最小抽取，范围限定在纯编排 service + app wrapper。若转向前端，则先抽 Document view model / focus controller；若转向 Agent runtime，则继续单独设计 streaming owner 迁移，不急着和其他 owner 同批。
 
 ## 1. 当前架构事实
 

@@ -152,6 +152,63 @@ test('focus derivation links blocks and tables without inventing relations for o
   assert.deepEqual(figureFocus.focusedRelations, [])
 })
 
+test('focus derivation keeps block table figure boundaries isolated', () => {
+  const comboTables: DocumentTable[] = [
+    { table_id: 'table-alpha', block_id: 'shared-block', page_number: 2, bbox: [10, 10, 200, 180] },
+    { table_id: 'table-beta', block_id: 'beta-block', page_number: 3, bbox: [10, 10, 200, 180] },
+  ]
+  const comboLookups = buildDocumentResultTableLookups(comboTables)
+  const comboRelations = buildDocumentResultPreviewRelations([
+    {
+      relation_id: 'combo-relation',
+      source_table_id: 'table-alpha',
+      target_table_id: 'table-beta',
+      relation_type: 'continuation',
+    },
+  ], comboLookups.tableById)
+  const comboRelationsByTableId = buildDocumentResultRelationsByTableId(comboRelations)
+
+  const linkedBlockFocus = buildDocumentResultFocusDerivation({
+    focused: { kind: 'block', id: 'shared-block', page: 2 },
+    tableIdByBlockId: comboLookups.tableIdByBlockId,
+    blockIdByTableId: comboLookups.blockIdByTableId,
+    relationsByTableId: comboRelationsByTableId,
+  })
+  assert.deepEqual(Array.from(linkedBlockFocus.activeFocusKeys).sort(), ['block:shared-block', 'table:table-alpha'])
+  assert.equal(linkedBlockFocus.focusedTableId, 'table-alpha')
+  assert.deepEqual(linkedBlockFocus.focusedRelations.map((relation) => relation.relation_id), ['combo-relation'])
+
+  const orphanBlockFocus = buildDocumentResultFocusDerivation({
+    focused: { kind: 'block', id: 'body-only', page: 2 },
+    tableIdByBlockId: comboLookups.tableIdByBlockId,
+    blockIdByTableId: comboLookups.blockIdByTableId,
+    relationsByTableId: comboRelationsByTableId,
+  })
+  assert.deepEqual(Array.from(orphanBlockFocus.activeFocusKeys), ['block:body-only'])
+  assert.equal(orphanBlockFocus.focusedTableId, '')
+  assert.deepEqual(orphanBlockFocus.focusedRelations, [])
+
+  const figureFocus = buildDocumentResultFocusDerivation({
+    focused: { kind: 'figure', id: 'shared-block', page: 2 },
+    tableIdByBlockId: comboLookups.tableIdByBlockId,
+    blockIdByTableId: comboLookups.blockIdByTableId,
+    relationsByTableId: comboRelationsByTableId,
+  })
+  assert.deepEqual(Array.from(figureFocus.activeFocusKeys), ['figure:shared-block'])
+  assert.equal(figureFocus.focusedTableId, '')
+  assert.deepEqual(figureFocus.focusedRelations, [])
+
+  const pageFocus = buildDocumentResultFocusDerivation({
+    focused: { kind: 'page', id: 'page-2', page: 2 },
+    tableIdByBlockId: comboLookups.tableIdByBlockId,
+    blockIdByTableId: comboLookups.blockIdByTableId,
+    relationsByTableId: comboRelationsByTableId,
+  })
+  assert.deepEqual(Array.from(pageFocus.activeFocusKeys), ['page:page-2'])
+  assert.equal(pageFocus.focusedTableId, '')
+  assert.deepEqual(pageFocus.focusedRelations, [])
+})
+
 test('visible relations fall back to active page unless a focus supplies relation context', () => {
   const previewRelations = buildDocumentResultPreviewRelations(relations, tableLookups.tableById)
 
