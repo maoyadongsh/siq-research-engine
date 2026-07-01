@@ -12,6 +12,39 @@ def clean_context_value(value: Any) -> str:
     return str(value).replace("\n", " ").strip()
 
 
+def is_general_assistant_request(
+    message: str | None,
+    *,
+    request_terms: Sequence[str],
+    subject_terms: Sequence[str],
+) -> bool:
+    text = re.sub(r"\s+", "", message or "")
+    if not text:
+        return False
+    lower = text.lower()
+    has_request = any(term in text for term in request_terms)
+    has_subject = any(term in lower for term in subject_terms)
+    return has_request and has_subject
+
+
+def build_general_assistant_context_input(
+    message: str,
+    *,
+    profile: str,
+    profile_label: str,
+    general_assistant_context: str,
+) -> str:
+    return "\n\n".join(
+        [
+            general_assistant_context,
+            f"当前智能体 profile: {profile}",
+            f"当前智能体名称: {profile_label}",
+            "请由当前 Hermes profile 的模型按自身角色设定回答，不要使用后端固定简介模板。",
+            f"用户问题：{message}",
+        ]
+    )
+
+
 def context_dict(context: Any | None) -> dict[str, Any]:
     if hasattr(context, "model_dump"):
         raw = context.model_dump(exclude_none=True)

@@ -103,3 +103,26 @@ def test_analysis_completion_guard_intent_helpers():
         report_terms=report_terms,
         generation_terms=generation_terms,
     )
+
+
+def test_general_assistant_request_and_context_input():
+    assert agent_runtime_context.is_general_assistant_request(
+        "你能做什么？",
+        request_terms=("你能做什么",),
+        subject_terms=("你", "助手"),
+    )
+    assert not agent_runtime_context.is_general_assistant_request(
+        "请分析这份报表",
+        request_terms=("你能做什么",),
+        subject_terms=("你", "助手"),
+    )
+
+    text = agent_runtime_context.build_general_assistant_context_input(
+        "你是谁？",
+        profile="siq_assistant",
+        profile_label="通用助手",
+        general_assistant_context="GENERAL",
+    )
+    assert text.splitlines()[0] == "GENERAL"
+    assert "当前智能体 profile: siq_assistant" in text
+    assert "当前智能体名称: 通用助手" in text

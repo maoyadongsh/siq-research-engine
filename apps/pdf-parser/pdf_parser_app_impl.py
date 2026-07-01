@@ -3205,88 +3205,29 @@ def _ensure_document_full_artifact(task, markdown, report=None):
 
 
 def _build_content_list_enhanced(markdown, content_list=None, report_year=None):
-    markdown = str(markdown or "")
-    table_sources = _content_table_sources(content_list)
-    exact_table_sources, normalized_table_sources = _content_table_source_maps(table_sources)
-    used_source_ids = set()
-    page_markers = _pdf_page_markers_by_line(markdown)
-    printed_pages = _printed_page_numbers_by_pdf_page(content_list)
-    tables = []
-
-    for idx, match in enumerate(re.finditer(r"<table\b.*?</table>", markdown, flags=re.IGNORECASE | re.DOTALL), start=1):
-        table_html = match.group(0)
-        line = markdown.count("\n", 0, match.start()) + 1
-        source = _pop_unused_content_table_source(
-            table_html,
-            exact_table_sources,
-            normalized_table_sources,
-            used_source_ids,
-        )
-        pdf_page_number = source.get("pdf_page_number")
-        pdf_page_index = source.get("pdf_page_index")
-        printed_page_number = source.get("printed_page_number")
-        source_name = source.get("source_match") if pdf_page_number else ""
-        inferred_reason = ""
-        if not pdf_page_number:
-            inferred_page, inferred_reason = _inferred_pdf_page_for_line(line, page_markers)
-            if inferred_page:
-                pdf_page_number = inferred_page
-                pdf_page_index = inferred_page - 1
-                printed_page_number = printed_pages.get(inferred_page)
-                source_name = "markdown_marker_inferred"
-
-        table_html_text = _strip_html(table_html)
-        structure = _table_structure_signals(table_html)
-        tables.append(
-            {
-                "table_index": idx,
-                "line": line,
-                "source": source_name or "unresolved",
-                "confidence": _table_source_confidence(source_name),
-                "pdf_page_index": pdf_page_index,
-                "pdf_page_number": pdf_page_number,
-                "printed_page_number": printed_page_number,
-                "pdf_page_inference_reason": inferred_reason if source_name == "markdown_marker_inferred" else "",
-                "bbox": source.get("bbox") or [],
-                "source_image_path": source.get("image_path") or "",
-                "source_caption": source.get("caption") or [],
-                "source_footnote": source.get("footnote") or [],
-                "content_table_source_id": source.get("source_id"),
-                "rows": _count_table_rows(table_html),
-                "cells": _count_table_cells(table_html),
-                "structure": structure,
-                "preview": table_html_text[:220],
-                "report_year": report_year,
-            }
-        )
-
-    source_counts = Counter(item["source"] for item in tables)
-    pages = _build_enhanced_page_blocks(content_list)
-    footnotes = _build_enhanced_footnotes(markdown, content_list=content_list)
-    toc = _build_enhanced_toc(markdown, content_list=content_list)
-    financial_note_links = _build_financial_note_links(markdown, tables, page_markers)
-    image_semantic_blocks = _build_image_semantic_blocks(markdown, content_list=content_list)
-    return {
-        "schema_version": CONTENT_LIST_ENHANCED_SCHEMA_VERSION,
-        "report_year": report_year,
-        "table_count": len(tables),
-        "content_table_body_count": len(table_sources),
-        "source_counts": dict(source_counts),
-        "tables": tables,
-        "pages": pages,
-        "footnotes": footnotes,
-        "toc": toc,
-        "financial_note_links": financial_note_links,
-        "image_semantic_blocks": image_semantic_blocks,
-        "quality_signals": _build_enhanced_quality_signals(
-            tables,
-            footnotes,
-            toc,
-            pages,
-            financial_note_links=financial_note_links,
-            image_semantic_blocks=image_semantic_blocks,
-        ),
-    }
+    return content_list_enhanced_service.build_content_list_enhanced_payload(
+        markdown,
+        schema_version=CONTENT_LIST_ENHANCED_SCHEMA_VERSION,
+        content_table_sources=_content_table_sources,
+        content_table_source_maps=_content_table_source_maps,
+        pop_unused_content_table_source=_pop_unused_content_table_source,
+        pdf_page_markers_by_line=_pdf_page_markers_by_line,
+        printed_page_numbers_by_pdf_page=_printed_page_numbers_by_pdf_page,
+        inferred_pdf_page_for_line=_inferred_pdf_page_for_line,
+        strip_html=_strip_html,
+        table_structure_signals=_table_structure_signals,
+        table_source_confidence=_table_source_confidence,
+        count_table_rows=_count_table_rows,
+        count_table_cells=_count_table_cells,
+        build_enhanced_page_blocks=_build_enhanced_page_blocks,
+        build_enhanced_footnotes=_build_enhanced_footnotes,
+        build_enhanced_toc=_build_enhanced_toc,
+        build_financial_note_links=_build_financial_note_links,
+        build_image_semantic_blocks=_build_image_semantic_blocks,
+        build_enhanced_quality_signals=_build_enhanced_quality_signals,
+        content_list=content_list,
+        report_year=report_year,
+    )
 
 
 def _build_table_index(markdown, tables, content_list=None, report_year=None):

@@ -2626,14 +2626,11 @@ def _analysis_completion_guard_input(message: str, artifacts: dict[str, str]) ->
 
 
 def _is_general_assistant_request(message: str) -> bool:
-    """Detect product/meta prompts that mention financial terms as capability examples."""
-    text = re.sub(r"\s+", "", message or "")
-    if not text:
-        return False
-    lower = text.lower()
-    has_request = any(term in text for term in GENERAL_ASSISTANT_REQUEST_TERMS)
-    has_subject = any(term in lower for term in GENERAL_ASSISTANT_SUBJECT_TERMS)
-    return has_request and has_subject
+    return agent_runtime_context.is_general_assistant_request(
+        message,
+        request_terms=GENERAL_ASSISTANT_REQUEST_TERMS,
+        subject_terms=GENERAL_ASSISTANT_SUBJECT_TERMS,
+    )
 
 
 def _is_note_detail_query(message: str) -> bool:
@@ -5763,14 +5760,11 @@ def build_session_contextual_input(
     profile = _runtime_profile(profile)
     if _is_general_assistant_request(message):
         profile_label = PROFILE_LABELS.get(profile, profile)
-        return "\n\n".join(
-            [
-                GENERAL_ASSISTANT_CONTEXT,
-                f"当前智能体 profile: {profile}",
-                f"当前智能体名称: {profile_label}",
-                "请由当前 Hermes profile 的模型按自身角色设定回答，不要使用后端固定简介模板。",
-                f"用户问题：{message}",
-            ]
+        return agent_runtime_context.build_general_assistant_context_input(
+            message,
+            profile=profile,
+            profile_label=profile_label,
+            general_assistant_context=GENERAL_ASSISTANT_CONTEXT,
         )
 
     default_context = get_session_default_context(
