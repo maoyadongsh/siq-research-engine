@@ -24,6 +24,8 @@ def test_pdf2md_filename_and_alias_helpers_are_pure_service_logic():
 def test_pdf2md_filename_helpers_handle_complex_names_and_blank_aliases():
     filename = "宁德时代集团股份有限公司-SZ-300750-2025年度报告-修订版.pdf"
 
+    assert parse_only.infer_stock_code_from_text("请看 600000 年报") == "600000"
+    assert parse_only.infer_stock_code_from_text("HK_00700 年报") == ""
     assert parse_only.infer_stock_code_from_text("prefix SZ-300750 suffix") == "300750"
     assert parse_only.infer_company_name_from_filename(filename) == "宁德时代"
     assert parse_only.pdf2md_task_aliases(
@@ -60,6 +62,24 @@ def test_pdf2md_info_matches_message_uses_context_hint_and_runtime_wrapper():
         context_company_hint=runtime._context_company_hint,
     )
     assert runtime._pdf2md_info_matches_message(info, "请分析 300383 年报")
+
+
+def test_pdf2md_info_matches_message_ignores_short_aliases_but_accepts_stock_code():
+    info = {"company_name": "A", "stock_code": "000001"}
+    normalize = lambda value: "".join(ch.lower() for ch in str(value) if ch.isalnum())
+
+    assert not parse_only.pdf2md_info_matches_message(
+        info,
+        "请分析 A 的年报",
+        normalize_text=normalize,
+        context_company_hint=lambda context: "",
+    )
+    assert parse_only.pdf2md_info_matches_message(
+        info,
+        "请分析 000001 的年报",
+        normalize_text=normalize,
+        context_company_hint=lambda context: "",
+    )
 
 
 def test_pdf2md_info_matches_message_accepts_stock_code_alias_from_filename():
@@ -186,6 +206,28 @@ def test_should_consider_pdf2md_parse_only_context_short_circuits_general_and_ex
     assert calls == []
 
 
+def test_should_consider_pdf2md_parse_only_context_handles_blank_and_case_insensitive_terms():
+    calls: list[tuple[str, int | None]] = []
+
+    def matches(current_message, context=None, *, limit=None):
+        calls.append((current_message, limit))
+        return [{"task_id": "task-1"}]
+
+    common_kwargs = {
+        "pdf2md_parse_only_matches": matches,
+        "is_general_assistant_request": lambda value: False,
+        "resolve_company_dir": lambda current_message, context: None,
+        "report_fulltext_fallback_terms": ("FULLTEXT",),
+        "context_company_hint": lambda context: "",
+    }
+
+    assert not parse_only._should_consider_pdf2md_parse_only_context(" \n ", **common_kwargs)
+    assert calls == []
+
+    assert parse_only._should_consider_pdf2md_parse_only_context("alpha fulltext", **common_kwargs)
+    assert calls == [("alpha fulltext", 1)]
+
+
 def test_build_pdf2md_parse_only_context_formats_real_artifact_paths(tmp_path):
     result_dir = tmp_path / "task-1"
     result_md = result_dir / "result.md"
@@ -215,6 +257,39 @@ def test_build_pdf2md_parse_only_context_formats_real_artifact_paths(tmp_path):
     assert "task-1" in context
     assert str(result_dir) in context
     assert str(result_md) in context
+
+
+def test_build_pdf2md_parse_only_context_includes_available_artifact_fields(tmp_path):
+    result_dir = tmp_path / "task-2"
+    artifacts = {
+        "result_complete_md": result_dir / "result_complete.md",
+        "document_full_json": result_dir / "document_full.json",
+        "content_list_enhanced_json": result_dir / "content_list_enhanced.json",
+        "content_list_json": result_dir / "content_list.json",
+        "table_index_json": result_dir / "table_index.json",
+        "financial_data_json": result_dir / "financial_data.json",
+    }
+
+    def matches(message, context=None, *, limit=None):
+        assert limit == 1
+        return [{"task_id": "task-2", "result_dir": result_dir, **artifacts}]
+
+    context = parse_only.build_pdf2md_parse_only_context(
+        "这份报告",
+        pdf2md_parse_only_matches=matches,
+        parse_only_context_limit=1,
+    )
+
+    assert context is not None
+    assert "### P1. 未返回 / 代码 未返回" in context
+    assert "- 文件名: 未返回" in context
+    assert f"- 结果目录: {result_dir}" in context
+    assert f"- 完整Markdown: {artifacts['result_complete_md']}" in context
+    assert f"- 完整JSON: {artifacts['document_full_json']}" in context
+    assert f"- 增强content_list: {artifacts['content_list_enhanced_json']}" in context
+    assert f"- content_list: {artifacts['content_list_json']}" in context
+    assert f"- 表格索引: {artifacts['table_index_json']}" in context
+    assert f"- 财务抽取: {artifacts['financial_data_json']}" in context
 
 
 def test_build_pdf2md_parse_only_context_returns_none_without_matches():
