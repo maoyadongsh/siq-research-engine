@@ -6,7 +6,8 @@ from collections import Counter
 import os
 import re
 
-from pdf_parser_page_markers import _collect_text_fragments, _compact_text_fragment
+from financial_extractor import parse_html_table as financial_parse_html_table
+from pdf_parser_page_markers import _collect_text_fragments, _compact_text_fragment, _pdf_page_markers_by_line as pdf_page_markers_by_line
 from pdf_source_viewer import coerce_json_artifact as _coerce_json_artifact, printed_page_numbers_by_pdf_page
 
 
@@ -1120,6 +1121,718 @@ def amount_close(left, right):
     diff = abs(float(left) - float(right))
     tolerance = max(1.0, abs(float(left)) * 0.0001, abs(float(right)) * 0.0001)
     return diff <= tolerance, {"difference": diff, "tolerance": tolerance}
+
+
+FINANCIAL_NOTE_ITEM_ALIASES = {
+    "货币资金": ("货币资金", "现金及存放中央银行款项"),
+    "交易性金融资产": ("交易性金融资产",),
+    "应收票据": ("应收票据",),
+    "应收账款": ("应收账款", "应收款项"),
+    "预付款项": ("预付款项",),
+    "其他应收款": ("其他应收款",),
+    "存货": ("存货",),
+    "长期股权投资": ("长期股权投资",),
+    "固定资产": ("固定资产",),
+    "在建工程": ("在建工程",),
+    "无形资产": ("无形资产",),
+    "商誉": ("商誉",),
+    "短期借款": ("短期借款",),
+    "应付账款": ("应付账款", "应付款项"),
+    "合同负债": ("合同负债",),
+    "长期借款": ("长期借款",),
+    "吸收存款": ("吸收存款", "客户存款"),
+    "发放贷款和垫款": ("发放贷款和垫款", "客户贷款及垫款", "贷款和垫款"),
+    "拆出资金": ("拆出资金",),
+    "拆入资金": ("拆入资金",),
+    "买入返售金融资产": ("买入返售金融资产",),
+    "卖出回购金融资产款": ("卖出回购金融资产款",),
+    "融出资金": ("融出资金",),
+    "代理买卖证券款": ("代理买卖证券款",),
+    "应付债券": ("应付债券",),
+    "保险合同负债": ("保险合同负债",),
+    "投资资产": ("投资资产",),
+    "营业收入": ("营业收入", "营业总收入"),
+    "营业成本": ("营业成本", "营业总成本"),
+    "利息净收入": ("利息净收入",),
+    "手续费及佣金净收入": ("手续费及佣金净收入",),
+    "保费收入": ("保险业务收入", "已赚保费", "保费收入"),
+    "投资收益": ("投资收益",),
+    "所得税费用": ("所得税费用",),
+    "销售费用": ("销售费用",),
+    "管理费用": ("管理费用",),
+    "研发费用": ("研发费用",),
+    "财务费用": ("财务费用",),
+    "经营活动现金流量净额": ("经营活动产生的现金流量净额", "经营活动现金流量净额"),
+}
+
+
+CHINESE_NOTE_SECTION_NUMBERS = {
+    "一": 1,
+    "二": 2,
+    "三": 3,
+    "四": 4,
+    "五": 5,
+    "六": 6,
+    "七": 7,
+    "八": 8,
+    "九": 9,
+    "十": 10,
+    "十一": 11,
+    "十二": 12,
+    "十三": 13,
+    "十四": 14,
+    "十五": 15,
+    "十六": 16,
+    "十七": 17,
+    "十八": 18,
+    "十九": 19,
+    "二十": 20,
+}
+
+
+def canonical_financial_note_ref(value, current_section=None):
+    text = _strip_html(str(value or "")).strip()
+    if not text or text in {"-", "—", "--", "无", "不适用"}:
+        return None
+    text = re.sub(r"\s+", "", text)
+    text = text.replace("（", "(").replace("）", ")")
+    text = re.sub(r"^(?:附注|注释|附注号|注释号|注|Note|note)", "", text)
+    text = text.strip("：:、,.，。;；()[]【】")
+    if not text:
+        return None
+    match = re.match(r"^([一二三四五六七八九十]{1,3})[、.．-]?(\d{1,3})(?:[、.．-](\d{1,3}))?$", text)
+    if match:
+        section = match.group(1)
+        number = match.group(2)
+        suffix = f".{match.group(3)}" if match.group(3) else ""
+        return f"{section}、{int(number)}{suffix}"
+    match = re.match(r"^([一二三四五六七八九十]{1,3})$", text)
+    if match and current_section:
+        return f"{current_section}、{CHINESE_NOTE_SECTION_NUMBERS.get(match.group(1), match.group(1))}"
+    match = re.match(r"^(\d{1,3})(?:[、.．-](\d{1,3}))?$", text)
+    if match:
+        suffix = f".{int(match.group(2))}" if match.group(2) else ""
+        return f"{current_section}、{int(match.group(1))}{suffix}" if current_section else f"{int(match.group(1))}{suffix}"
+    return None
+
+
+def note_ref_numeric_key(note_ref):
+    match = re.search(r"(\d{1,3})(?:\.\d+)?$", str(note_ref or ""))
+    return match.group(1) if match else ""
+
+
+def canonical_item_name_from_alias(text):
+    compact = _strip_html(str(text or "")).strip()
+    for canonical, aliases in FINANCIAL_NOTE_ITEM_ALIASES.items():
+        if any(alias and alias in compact for alias in aliases):
+            return canonical
+    return None
+
+
+def clean_financial_note_title(text):
+    title = _strip_html(str(text or "")).strip()
+    title = re.sub(r"^#{1,6}\s*", "", title)
+    title = re.sub(r"\s*[（(]\s*续\s*[）)]\s*$", "", title).strip()
+    title = re.sub(r"\s+", " ", title)
+    return title.strip(" ：:")
+
+
+def financial_note_title_line_hit(raw_line):
+    raw_line = _strip_html(str(raw_line or "")).strip()
+    if not raw_line or len(raw_line) > 120:
+        return None
+    is_markdown_heading = bool(re.match(r"^#{1,6}\s+", raw_line))
+    line = re.sub(r"^#{1,6}\s*", "", raw_line).strip()
+    if re.search(r"\.{2,}\s*\d{1,4}\s*$", line) or re.search(r"…+\s*\d{1,4}\s*$", line):
+        return None
+    match = re.match(
+        r"^(?:[（(]\s*(\d{1,3})\s*[）)]|(\d{1,3})|([一二三四五六七八九十]{1,3}))"
+        r"(?:[、.．)]|\s+)\s*(.+?)\s*$",
+        line,
+    )
+    note_key = None
+    title = line
+    if match:
+        note_key = match.group(1) or match.group(2) or match.group(3)
+        title = match.group(4)
+    elif not is_markdown_heading:
+        return None
+    title = clean_financial_note_title(title)
+    canonical = canonical_item_name_from_alias(title)
+    if not canonical:
+        return None
+    if not note_key:
+        starts_with_alias = any(
+            alias and title.startswith(alias)
+            for alias in FINANCIAL_NOTE_ITEM_ALIASES.get(canonical, ())
+        )
+        if not starts_with_alias:
+            return None
+    return {
+        "note_key": note_key,
+        "canonical_name": canonical,
+        "title": title,
+    }
+
+
+def financial_statement_values_from_table_row(row, skip_columns=None, unit_scale=1.0):
+    values = []
+    skip_columns = set(skip_columns or [])
+    for col_idx, cell in enumerate(row or []):
+        if col_idx in skip_columns:
+            continue
+        amount = parse_financial_amount_cell(cell)
+        if amount is None:
+            continue
+        values.append(
+            {
+                "column_index": col_idx,
+                "raw": _strip_html(str(cell or "")).strip(),
+                "value": amount,
+                "normalized_value": normalize_amount_for_compare(amount, unit_scale),
+                "unit_scale": unit_scale,
+            }
+        )
+    return values[:8]
+
+
+def statement_table_row_hit_for_canonical(table_html, canonical):
+    try:
+        grid = financial_parse_html_table(table_html)
+    except Exception:
+        grid = []
+    if len(grid) < 2:
+        return None
+    unit_scale = financial_unit_scale_from_text(table_html)
+    for row_idx, row in enumerate(grid[1:], start=1):
+        first_nonempty = next((_strip_html(str(cell or "")).strip() for cell in row if _strip_html(str(cell or "")).strip()), "")
+        if canonical_item_name_from_alias(first_nonempty) != canonical:
+            continue
+        return {
+            "row_index": row_idx,
+            "matched_alias": first_nonempty,
+            "statement_values": financial_statement_values_from_table_row(row, unit_scale=unit_scale),
+        }
+    return None
+
+
+def financial_note_zone_start(markdown):
+    text = str(markdown or "")
+    explicit_pattern = re.compile(
+        r"(?:^|\n)\s*(?:#{1,6}\s*)?(?:[一二三四五六七八九十]+(?:[、.．]|\s+))?"
+        r"(?:合并|母公司|公司|本集团|集团)?财务报表(?:主要项目|项目)?(?:附注|注释)(?:\s*[（(]续[）)])?|"
+        r"(?:^|\n)\s*(?:#{1,6}\s*)?(?:[一二三四五六七八九十]+(?:[、.．]|\s+))?"
+        r"(?:合并|母公司|公司|本集团|集团)?财务报表项目注释",
+    )
+    explicit_matches = list(explicit_pattern.finditer(text))
+    min_explicit_offset = int(len(text) * 0.2)
+    for match in explicit_matches:
+        if match.start() >= min_explicit_offset:
+            return match.start()
+    if explicit_matches:
+        later = explicit_matches[-1]
+        if len(explicit_matches) > 1 and later.start() > explicit_matches[0].start():
+            return later.start()
+
+    offset = 0
+    min_offset = int(len(text) * 0.35)
+    for line in text.splitlines(True):
+        raw_line = _strip_html(line).strip()
+        if offset >= min_offset and financial_note_title_line_hit(raw_line):
+            return offset
+        offset += len(line)
+    return max(0, int(len(text) * 0.45))
+
+
+def financial_statement_note_ref_hits(markdown, note_start):
+    statement_part = str(markdown or "")[:note_start]
+    hits = {}
+    table_iter = list(re.finditer(r"<table\b.*?</table>", statement_part, flags=re.IGNORECASE | re.DOTALL))
+    for table_index, match in enumerate(table_iter, start=1):
+        table_html = match.group(0)
+        try:
+            grid = financial_parse_html_table(table_html)
+        except Exception:
+            grid = []
+        if len(grid) < 2:
+            continue
+        header_rows = min(4, len(grid))
+        note_columns = []
+        for row in grid[:header_rows]:
+            for col_idx, cell in enumerate(row):
+                cell_text = _strip_html(str(cell or "")).strip()
+                if cell_text in {"附注", "注释", "附注号", "注释号", "注"} or re.fullmatch(r"附注[一二三四五六七八九十]+", cell_text):
+                    note_columns.append((col_idx, canonical_financial_note_ref(cell_text)))
+        if not note_columns:
+            continue
+        note_col_indexes = sorted({col for col, _section in note_columns})
+        row_line_base = statement_part.count("\n", 0, match.start()) + 1
+        for row_idx, row in enumerate(grid[1:], start=1):
+            first_nonempty = next((_strip_html(str(cell or "")).strip() for cell in row if _strip_html(str(cell or "")).strip()), "")
+            canonical = canonical_item_name_from_alias(first_nonempty)
+            if not canonical:
+                continue
+            note_ref = None
+            note_alias = ""
+            for col_idx in note_col_indexes:
+                if col_idx >= len(row):
+                    continue
+                candidate = canonical_financial_note_ref(row[col_idx])
+                if candidate:
+                    note_ref = candidate
+                    note_alias = _strip_html(str(row[col_idx] or "")).strip()
+                    break
+            if not note_ref:
+                continue
+            table_unit_scale = financial_unit_scale_from_text(table_html)
+            statement_values = financial_statement_values_from_table_row(
+                row,
+                skip_columns=note_col_indexes,
+                unit_scale=table_unit_scale,
+            )
+            hits[canonical] = {
+                "canonical_name": canonical,
+                "matched_alias": first_nonempty,
+                "line": row_line_base,
+                "table_index": table_index,
+                "note_ref": note_ref,
+                "note_ref_raw": note_alias,
+                "source": "statement_note_column",
+                "row_index": row_idx,
+                "statement_values": statement_values[:8],
+            }
+    return hits
+
+
+def financial_statement_table_alias_hits(markdown, note_start):
+    statement_part = str(markdown or "")[:note_start]
+    hits = {}
+    statement_heading_re = re.compile(
+        r"(合并资产负债表|资产负债表|合并利润表|利润表|合并现金流量表|现金流量表|"
+        r"CONSOLIDATED\s+STATEMENT|STATEMENT\s+OF\s+FINANCIAL\s+POSITION)",
+        flags=re.IGNORECASE,
+    )
+    table_iter = list(re.finditer(r"<table\b.*?</table>", statement_part, flags=re.IGNORECASE | re.DOTALL))
+    for table_index, match in enumerate(table_iter, start=1):
+        before = _strip_html(statement_part[max(0, match.start() - 900) : match.start()])
+        after = _strip_html(statement_part[match.end() : min(len(statement_part), match.end() + 160)])
+        table_text = _strip_html(match.group(0))
+        has_statement_context = bool(statement_heading_re.search(before))
+        has_period = bool(re.search(r"20\d{2}年|20\d{2}|12月31日|本年|上年|本期|上期", table_text[:1200]))
+        if not has_statement_context or not has_period:
+            continue
+        if re.search(r"(附注|注释|项目注释|项目附注|财务报表附注)", after[:120]):
+            continue
+        try:
+            grid = financial_parse_html_table(match.group(0))
+        except Exception:
+            grid = []
+        if len(grid) < 2:
+            continue
+        unit_scale = financial_unit_scale_from_text(match.group(0))
+        row_line_base = statement_part.count("\n", 0, match.start()) + 1
+        for row_idx, row in enumerate(grid[1:], start=1):
+            first_nonempty = next((_strip_html(str(cell or "")).strip() for cell in row if _strip_html(str(cell or "")).strip()), "")
+            canonical = canonical_item_name_from_alias(first_nonempty)
+            if not canonical or canonical in hits:
+                continue
+            statement_values = financial_statement_values_from_table_row(row, unit_scale=unit_scale)
+            hits[canonical] = {
+                "canonical_name": canonical,
+                "matched_alias": first_nonempty,
+                "line": row_line_base,
+                "table_index": table_index,
+                "source": "statement_table_alias",
+                "row_index": row_idx,
+                "statement_values": statement_values[:8],
+            }
+    return hits
+
+
+def financial_statement_item_hits(markdown):
+    text = str(markdown or "")
+    note_start = financial_note_zone_start(text)
+    statement_part = text[:note_start]
+    hits = {}
+    for canonical, aliases in FINANCIAL_NOTE_ITEM_ALIASES.items():
+        best_pos = None
+        best_alias = None
+        for alias in aliases:
+            pos = statement_part.find(alias)
+            if pos >= 0 and (best_pos is None or pos < best_pos):
+                best_pos = pos
+                best_alias = alias
+        if best_pos is None:
+            continue
+        line = statement_part.count("\n", 0, best_pos) + 1
+        table_index = None
+        statement_values = []
+        row_index = None
+        for idx, match in enumerate(re.finditer(r"<table\b.*?</table>", statement_part, flags=re.IGNORECASE | re.DOTALL), start=1):
+            if match.start() <= best_pos <= match.end():
+                table_index = idx
+                row_hit = statement_table_row_hit_for_canonical(match.group(0), canonical)
+                if row_hit:
+                    statement_values = row_hit.get("statement_values") or []
+                    row_index = row_hit.get("row_index")
+                break
+        hits[canonical] = {
+            "canonical_name": canonical,
+            "matched_alias": best_alias,
+            "line": line,
+            "table_index": table_index,
+            "source": "statement_text_alias",
+            "row_index": row_index,
+            "statement_values": statement_values,
+        }
+    for canonical, hit in financial_statement_table_alias_hits(markdown, note_start).items():
+        hits.setdefault(canonical, hit)
+    hits.update(financial_statement_note_ref_hits(markdown, note_start))
+    return list(hits.values())
+
+
+def financial_note_title_hits(markdown):
+    text = str(markdown or "")
+    note_start = financial_note_zone_start(text)
+    note_part = text[note_start:]
+    hits = {}
+    offset = 0
+    for raw_line in note_part.splitlines(True):
+        hit = financial_note_title_line_hit(raw_line)
+        if not hit:
+            offset += len(raw_line)
+            continue
+        canonical = hit["canonical_name"]
+        if canonical not in hits:
+            absolute_pos = note_start + offset
+            hits[canonical] = {
+                "canonical_name": canonical,
+                "matched_alias": hit["title"],
+                "title": _compact_text_fragment(hit["title"], 160),
+                "line": text.count("\n", 0, absolute_pos) + 1,
+            }
+        offset += len(raw_line)
+    return hits
+
+
+def financial_note_title_tree(markdown):
+    text = str(markdown or "")
+    page_markers = pdf_page_markers_by_line(text)
+    note_start = financial_note_zone_start(text)
+    lines = text.splitlines()
+    tree = {}
+    current_section = None
+    current_scope = ""
+    for line_number, line in enumerate(lines, start=1):
+        if line_number < text.count("\n", 0, note_start) + 1:
+            continue
+        raw_line = _strip_html(line).strip()
+        if not raw_line:
+            continue
+        section_match = re.match(
+            r"^(?:#{1,6}\s*)?([一二三四五六七八九十]{1,3})(?:[、.．]|\s+)"
+            r"\s*(.*(?:财务报表|报表).*(?:附注|注释).*)$",
+            raw_line,
+        )
+        if section_match:
+            current_section = section_match.group(1)
+            section_title = section_match.group(2)
+            if "母公司" in section_title or "公司财务报表" in section_title:
+                current_scope = "parent_company"
+            elif "合并" in section_title or "集团" in section_title:
+                current_scope = "consolidated"
+            else:
+                current_scope = ""
+            continue
+        if len(raw_line) > 100:
+            continue
+        line_hit = financial_note_title_line_hit(raw_line)
+        if not line_hit:
+            continue
+        title = line_hit["title"]
+        canonical = line_hit["canonical_name"]
+        note_ref = canonical_financial_note_ref(line_hit.get("note_key"), current_section=current_section)
+        if not note_ref:
+            continue
+        page_number, reason = inferred_pdf_page_for_line(line_number, page_markers)
+        tree[note_ref] = {
+            "note_ref": note_ref,
+            "numeric_key": note_ref_numeric_key(note_ref),
+            "section": current_section,
+            "scope": current_scope,
+            "canonical_name": canonical,
+            "title": title,
+            "line": line_number,
+            "pdf_page_number": page_number,
+            "pdf_page_source": "markdown_marker_inferred" if page_number else "",
+            "pdf_page_inference_reason": reason if page_number else "",
+            "source": "markdown_note_title_tree",
+        }
+    return tree
+
+
+def financial_note_slice(markdown, note):
+    lines = str(markdown or "").splitlines()
+    start_line = int((note or {}).get("line") or 0)
+    if start_line <= 0 or start_line > len(lines):
+        return ""
+    end_line = len(lines) + 1
+    for line_number in range(start_line + 1, len(lines) + 1):
+        raw_line = _strip_html(lines[line_number - 1]).strip()
+        if len(raw_line) > 100:
+            continue
+        if financial_note_title_line_hit(raw_line):
+            end_line = line_number
+            break
+        if re.match(
+            r"^(?:#{1,6}\s*)?[一二三四五六七八九十]{1,3}(?:[、.．]|\s+)\s*.*(?:财务报表|报表).*(?:附注|注释)",
+            raw_line,
+        ):
+            end_line = line_number
+            break
+    return "\n".join(lines[start_line - 1 : min(end_line - 1, start_line + 420)])
+
+
+def amount_candidates_from_note_slice(note_slice):
+    text = str(note_slice or "")[:360000]
+    unit_scale = financial_unit_scale_from_text(text)
+    candidates = []
+    table_iter = list(re.finditer(r"<table\b.*?</table>", text, flags=re.IGNORECASE | re.DOTALL))
+    max_candidates = 240
+    for table_pos, match in enumerate(table_iter[:24], start=1):
+        try:
+            grid = financial_parse_html_table(match.group(0))
+        except Exception:
+            grid = []
+        table_unit_scale = financial_unit_scale_from_text(match.group(0))
+        if table_unit_scale == 1.0:
+            table_unit_scale = financial_unit_scale_near(text, match.start())
+        if table_unit_scale == 1.0:
+            table_unit_scale = unit_scale
+        for row_idx, row in enumerate(grid):
+            row_label = _compact_text_fragment(" ".join(_strip_html(str(cell or "")) for cell in row[:2]), 80)
+            for col_idx, cell in enumerate(row):
+                amount = parse_financial_amount_cell(cell)
+                if amount is None:
+                    continue
+                candidates.append(
+                    {
+                        "source": "note_table",
+                        "table_position": table_pos,
+                        "row_index": row_idx,
+                        "column_index": col_idx,
+                        "row_label": row_label,
+                        "raw": _strip_html(str(cell or "")).strip(),
+                        "value": amount,
+                        "normalized_value": normalize_amount_for_compare(amount, table_unit_scale),
+                        "unit_scale": table_unit_scale,
+                    }
+                )
+                if len(candidates) >= max_candidates:
+                    break
+            if len(candidates) >= max_candidates:
+                break
+        if len(candidates) >= max_candidates:
+            break
+    without_tables = re.sub(r"<table\b.*?</table>", " ", text, flags=re.IGNORECASE | re.DOTALL)
+    for match in re.finditer(r"[（(]?-?\d{1,3}(?:[,，]\d{3})*(?:\.\d+)?[）)]?|-?\d+(?:\.\d+)?", without_tables):
+        amount = parse_financial_amount_cell(match.group(0))
+        if amount is None:
+            continue
+        candidates.append(
+            {
+                "source": "note_text",
+                "raw": match.group(0),
+                "value": amount,
+                "normalized_value": normalize_amount_for_compare(amount, unit_scale),
+                "unit_scale": unit_scale,
+            }
+        )
+        if len(candidates) >= max_candidates:
+            break
+    return candidates[:max_candidates]
+
+
+def build_financial_note_amount_check(item, note, markdown):
+    statement_values = item.get("statement_values") or []
+    if not statement_values:
+        return {
+            "status": "no_statement_amount",
+            "confidence": "none",
+            "statement_values": [],
+            "note_candidates": [],
+            "matched": None,
+        }
+    note_slice = financial_note_slice(markdown, note)
+    candidates = amount_candidates_from_note_slice(note_slice)
+    sample_statement_values = statement_values[:4]
+    sample_note_candidates = candidates[:12]
+    for candidate_source, confidence in (("note_table", "high"), ("note_text", "medium")):
+        scoped_candidates = [candidate for candidate in candidates if candidate.get("source") == candidate_source]
+        for statement_value in statement_values:
+            left = statement_value.get("normalized_value")
+            for candidate in scoped_candidates:
+                matched, detail = amount_close(left, candidate.get("normalized_value"))
+                if not matched:
+                    continue
+                return {
+                    "status": "verified",
+                    "confidence": confidence,
+                    "statement_values": sample_statement_values,
+                    "note_candidates": sample_note_candidates,
+                    "matched": {
+                        "statement": statement_value,
+                        "note": candidate,
+                        **(detail or {}),
+                    },
+                }
+    return {
+        "status": "unverified",
+        "confidence": "low",
+        "statement_values": sample_statement_values,
+        "note_candidates": sample_note_candidates,
+        "matched": None,
+    }
+
+
+def financial_note_link_precision(link):
+    if link.get("confidence") != "high":
+        return link.get("confidence") or "medium"
+    amount_check = link.get("amount_check") or {}
+    if amount_check.get("status") == "verified" and amount_check.get("confidence") == "high":
+        return "audit_ready_navigation"
+    if amount_check.get("status") == "verified":
+        return "high_with_amount_text_match"
+    return "high_navigation_unverified_amount"
+
+
+def financial_note_amount_summary(links):
+    checks = [item.get("amount_check") or {} for item in links]
+    return {
+        "amount_check_count": len([item for item in checks if item.get("status")]),
+        "amount_verified_count": sum(1 for item in checks if item.get("status") == "verified"),
+        "amount_verified_table_count": sum(
+            1
+            for item in checks
+            if item.get("status") == "verified" and item.get("confidence") == "high"
+        ),
+        "amount_unverified_count": sum(1 for item in checks if item.get("status") == "unverified"),
+        "amount_no_statement_count": sum(1 for item in checks if item.get("status") == "no_statement_amount"),
+    }
+
+
+def build_financial_note_links(markdown, tables, page_markers):
+    statement_items = financial_statement_item_hits(markdown)
+    note_titles = financial_note_title_hits(markdown)
+    note_tree = financial_note_title_tree(markdown)
+    note_tree_by_numeric = {}
+    for note in note_tree.values():
+        note_tree_by_numeric.setdefault(note.get("numeric_key"), []).append(note)
+    table_by_index = {item.get("table_index"): item for item in tables}
+    links = []
+    for item in statement_items:
+        note = None
+        method = "statement_item_to_note_title_alias"
+        confidence = "medium"
+        evidence = []
+        note_ref = item.get("note_ref")
+        if note_ref:
+            direct = note_tree.get(note_ref)
+            numeric_matches = note_tree_by_numeric.get(note_ref_numeric_key(note_ref)) or []
+            if direct:
+                note = direct
+                evidence.append("note_ref_exact")
+            elif len(numeric_matches) == 1:
+                note = numeric_matches[0]
+                evidence.append("note_ref_numeric_unique")
+            elif numeric_matches:
+                same_name = [candidate for candidate in numeric_matches if candidate.get("canonical_name") == item["canonical_name"]]
+                if len(same_name) == 1:
+                    note = same_name[0]
+                    evidence.append("note_ref_numeric_and_title")
+            if note:
+                if note.get("canonical_name") == item["canonical_name"]:
+                    method = "statement_note_ref_to_note_title"
+                    evidence.append("title_match")
+                    confidence = (
+                        "high"
+                        if "note_ref_exact" in evidence and "title_match" in evidence
+                        else "medium"
+                    )
+                else:
+                    note = None
+                    evidence.append("note_ref_title_mismatch")
+        if note is None:
+            note = note_titles.get(item["canonical_name"])
+            evidence.append("title_alias_match")
+        if not note:
+            continue
+        amount_check = build_financial_note_amount_check(item, note, markdown)
+        statement_page, statement_reason = inferred_pdf_page_for_line(item["line"], page_markers)
+        note_page, note_reason = inferred_pdf_page_for_line(note["line"], page_markers)
+        table = table_by_index.get(item.get("table_index")) or {}
+        link = {
+            "statement_item": item["canonical_name"],
+            "statement_alias": item.get("matched_alias"),
+            "statement_line": item.get("line"),
+            "statement_table_index": item.get("table_index"),
+            "statement_note_ref": note_ref,
+            "statement_note_ref_raw": item.get("note_ref_raw"),
+            "statement_page_number": table.get("pdf_page_number") or statement_page,
+            "statement_page_source": table.get("source") if table.get("pdf_page_number") else ("markdown_marker_inferred" if statement_page else ""),
+            "statement_page_inference_reason": table.get("pdf_page_inference_reason") or statement_reason,
+            "note_title": note.get("title"),
+            "note_alias": note.get("matched_alias"),
+            "note_ref": note.get("note_ref"),
+            "note_scope": note.get("scope"),
+            "note_line": note.get("line"),
+            "note_page_number": note.get("pdf_page_number") or note_page,
+            "note_page_source": note.get("pdf_page_source") or ("markdown_marker_inferred" if note_page else ""),
+            "note_page_inference_reason": note.get("pdf_page_inference_reason") or (note_reason if note_page else ""),
+            "confidence": confidence,
+            "method": method,
+            "evidence": evidence,
+            "amount_check": amount_check,
+        }
+        link["precision_level"] = financial_note_link_precision(link)
+        links.append(link)
+    amount_summary = financial_note_amount_summary(links)
+    return {
+        "links": links[:500],
+        "note_title_tree": list(note_tree.values())[:500],
+        "summary": {
+            "statement_item_count": len(statement_items),
+            "note_title_count": len(note_titles),
+            "note_title_tree_count": len(note_tree),
+            "linked_item_count": len(links),
+            "high_confidence_link_count": sum(1 for item in links if item.get("confidence") == "high"),
+            "audit_ready_navigation_count": sum(
+                1 for item in links if item.get("precision_level") == "audit_ready_navigation"
+            ),
+            **amount_summary,
+        },
+    }
+
+
+_canonical_financial_note_ref = canonical_financial_note_ref
+_note_ref_numeric_key = note_ref_numeric_key
+_canonical_item_name_from_alias = canonical_item_name_from_alias
+_clean_financial_note_title = clean_financial_note_title
+_financial_note_title_line_hit = financial_note_title_line_hit
+_financial_statement_values_from_table_row = financial_statement_values_from_table_row
+_statement_table_row_hit_for_canonical = statement_table_row_hit_for_canonical
+_financial_note_zone_start = financial_note_zone_start
+_financial_statement_note_ref_hits = financial_statement_note_ref_hits
+_financial_statement_table_alias_hits = financial_statement_table_alias_hits
+_financial_statement_item_hits = financial_statement_item_hits
+_financial_note_title_hits = financial_note_title_hits
+_financial_note_title_tree = financial_note_title_tree
+_financial_note_slice = financial_note_slice
+_amount_candidates_from_note_slice = amount_candidates_from_note_slice
+_build_financial_note_amount_check = build_financial_note_amount_check
+_financial_note_link_precision = financial_note_link_precision
+_financial_note_amount_summary = financial_note_amount_summary
+_build_financial_note_links = build_financial_note_links
 
 
 _parse_financial_amount_cell = parse_financial_amount_cell

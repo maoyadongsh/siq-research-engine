@@ -270,6 +270,70 @@ def test_financial_amount_helpers_parse_units_parentheses_and_compare_tolerance(
     assert content_service.amount_close(None, 100)[0] is False
 
 
+def test_build_financial_note_links_direct_rule_uses_table_page_and_amount_check():
+    markdown = (
+        "[PDF_PAGE: 10]\n"
+        "# 合并资产负债表\n"
+        "<table><tr><td>项目</td><td>附注</td><td>2025年12月31日</td></tr>"
+        "<tr><td>货币资金</td><td>七、1</td><td>1,000.00</td></tr></table>\n"
+        "[PDF_PAGE: 80]\n"
+        "# 七、合并财务报表项目注释\n"
+        "1、货币资金\n"
+        "<table><tr><td>项目</td><td>期末余额</td></tr><tr><td>合计</td><td>1,000.00</td></tr></table>\n"
+    )
+    tables = [
+        {
+            "table_index": 1,
+            "pdf_page_number": 10,
+            "source": "content_list_body_exact",
+            "pdf_page_inference_reason": "",
+        }
+    ]
+    page_markers = [{"line": 1, "page_number": 10}, {"line": 4, "page_number": 80}]
+
+    result = content_service.build_financial_note_links(markdown, tables, page_markers)
+    link = result["links"][0]
+
+    assert link["statement_item"] == "货币资金"
+    assert link["statement_note_ref"] == "七、1"
+    assert link["note_ref"] == "七、1"
+    assert link["confidence"] == "high"
+    assert link["method"] == "statement_note_ref_to_note_title"
+    assert link["statement_page_number"] == 10
+    assert link["statement_page_source"] == "content_list_body_exact"
+    assert link["note_page_number"] == 80
+    assert link["note_page_source"] == "markdown_marker_inferred"
+    assert link["amount_check"]["status"] == "verified"
+    assert link["amount_check"]["confidence"] == "high"
+    assert link["precision_level"] == "audit_ready_navigation"
+    assert result["summary"]["high_confidence_link_count"] == 1
+    assert result["summary"]["amount_verified_table_count"] == 1
+    assert result["summary"]["audit_ready_navigation_count"] == 1
+
+
+def test_build_financial_note_links_avoids_numeric_ref_title_mismatch():
+    markdown = (
+        "[PDF_PAGE: 10]\n"
+        "# 合并资产负债表\n"
+        "<table><tr><td>项目</td><td>附注</td><td>2025年12月31日</td></tr>"
+        "<tr><td>货币资金</td><td>七、1</td><td>1,000.00</td></tr></table>\n"
+        "[PDF_PAGE: 80]\n"
+        "# 七、合并财务报表项目注释\n"
+        "1、固定资产\n"
+        "<table><tr><td>项目</td><td>期末余额</td></tr><tr><td>合计</td><td>1,000.00</td></tr></table>\n"
+    )
+
+    result = content_service.build_financial_note_links(
+        markdown,
+        tables=[{"table_index": 1, "pdf_page_number": 10, "source": "content_list_body_exact"}],
+        page_markers=[{"line": 1, "page_number": 10}, {"line": 4, "page_number": 80}],
+    )
+
+    assert result["links"] == []
+    assert result["summary"]["linked_item_count"] == 0
+    assert result["summary"]["high_confidence_link_count"] == 0
+
+
 def test_build_content_list_enhanced_payload_uses_injected_table_sources_and_aggregates():
     exact_table = "<table><tr><td>项目</td><td>金额</td></tr><tr><td>收入</td><td>100</td></tr></table>"
     inferred_table = "<table><tr><td>项目</td><td>金额</td></tr><tr><td>成本</td><td>50</td></tr></table>"

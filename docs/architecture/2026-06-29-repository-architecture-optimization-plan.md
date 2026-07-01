@@ -54,7 +54,7 @@ Web 工作台
 - 本轮追加：Agent runtime citations/reference 合并边界补测已完成，覆盖空 body 新增引用区、全部无效 refs 原样返回、三级引用来源 section 在 peer/parent heading 前收口；`citation_links.py` 修复 printed_page 空槽位对齐，并补充缺 task_id/pdf_page 原样返回、本地 API 链接 query/fragment 保留和重复链接不追加覆盖。
 - 本轮追加：PDF2MD parse-only context 剩余边界已补，覆盖市场前缀伪 alias 防误匹配、非 dict task info 过滤、空 task/artifact 字段展示兜底；PostgreSQL fallback pure helper 已补空 hint、0 值页码/表号、空 terms callback 短路和缺字段负路径；前端 citation renderer 新增 `rendererUtils.test.ts` smoke，覆盖 source/table action 抽取、普通 Markdown link 保留和长引用行解析。
 - 本轮追加：Agent runtime display/tool-output/context 剩余细边界已补，覆盖 display 的 None URL、无 basename path fallback、控制空白 URL 编码，tool-output 的 None/空白、list JSON、长文本换行、tool/label 字段隔离，以及 context 的非 dict model/nested field、format context、attachment model_dump 脏数据防御。
-- 当前建议：按 0.4 的智能体集群复盘结果提速推进。下一轮优先做 PDF parser 财报附注链接、table index / source-view 纯 helper 覆盖，其次补 Agent runtime attachments / history / local-memory 前置覆盖；前端仅做 derivation/helper/CSS smoke 尾项；继续避开 `ACTIVE_RUNS`、SSE lifecycle、本地 queue claim 和 Flask `send_file/jsonify` 行为变更。
+- 当前建议：按 0.4 的智能体集群复盘结果继续小步提速。财报附注链接、source-view loader、local-memory DB 和 document derivation 前置覆盖已补；下一轮优先做 PDF parser table index / markdown page index 纯规则，其次补 Agent runtime 附件纯格式化 wrapper 前置覆盖，前端仅做 CSS selector smoke 尾项；继续避开 `ACTIVE_RUNS`、SSE lifecycle、本地 queue claim 和 Flask `send_file/jsonify` 行为变更。
 
 ### 0.2 2026-06-30 深度全量检查结论
 
@@ -173,6 +173,14 @@ bash -n start_all.sh && find scripts infra apps services -type f -name '*.sh' -p
 - 前端：`pdfSourceWorkbenchHelpers.test.ts` 已补 `cssAttrValue` / `deriveTaskId` URL 边界、`chooseFocusTableIndex` 非 source page fallback、`pageExtentForPage` fallback/扩展计算，以及 trace overlay 仅在当前未聚焦页出现。
 - 本轮验证：`cd apps/api && .venv/bin/python -m pytest tests/test_agent_chat_runtime_attachments.py -q` 通过，11 passed、7 warnings；`cd apps/pdf-parser && PYTHONPATH=. python3 -m pytest tests/test_pdf_source_viewer.py tests/test_pdf_parser_source_service.py -q` 通过，26 passed；`cd apps/web && node --test src/components/pdf/pdfSourceWorkbenchHelpers.test.ts` 通过，10 passed；`cd apps/web && npm run build` 通过；`git diff --check` 通过。
 - 下一轮队列收窄：PDF parser 继续优先财报附注链接和 table index / markdown page index 纯规则；Agent runtime 继续 local-memory DB 行为和少量附件纯格式化 helper 前置覆盖；前端优先 `documentResultWorkbenchDerivations.test.ts` 或 CSS selector smoke。
+
+本轮开发进度继续追加：
+
+- Agent runtime：已新增 local-memory DB 路径测试，覆盖 `refresh_session_memory` 只持久化当前 profile/session 的较早消息、不把最近窗口或其他 session 写入记忆，以及 profile/session prefix 不匹配时跳过写入并不加载 local-memory context。
+- PDF parser：`_build_financial_note_links` 已改为 app 层兼容 wrapper，财报附注链接纯规则下沉到 `pdf_parser_content_list_enhanced_service.py`；新增 service 级测试覆盖附注号精确链接、statement table page 来源、markdown note page 来源、金额表校验，以及同数字附注号但标题不匹配时不误连。
+- 前端：新增 `documentResultWorkbenchDerivations.test.ts`，覆盖 JSON preview 原样透传、跨页 relation 过滤和 table id 索引、block/table/figure focus 派生、visible relations fallback、preview pages/page models bridge、overlay/page number、markdown preview 和相邻页边界。
+- 本轮验证：`cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_memory.py tests/test_agent_chat_runtime_attachments.py tests/test_agent_chat_runtime_loops.py -q` 通过，72 passed、39 warnings；`cd apps/pdf-parser && python3 -m py_compile pdf_parser_content_list_enhanced_service.py pdf_parser_app_impl.py && PYTHONPATH=. python3 -m pytest tests/test_pdf_parser_content_list_enhanced_service.py tests/test_page_markers.py -q` 通过，81 passed；`cd apps/web && node --test src/components/document-parser/documentResultWorkbenchDerivations.test.ts` 通过，8 passed；`cd apps/web && npm run build` 通过；`git diff --check` 通过。
+- 下一轮队列再次收窄：PDF parser 转向 table index / markdown page index 直接测试或小下沉；Agent runtime 转向 `_attachment_reference_context` / `_pdf_parse_is_terminal` / `_chat_message_payload` 等纯格式化 wrapper 前置覆盖；前端转向 `PDF_CSS` / `DOCUMENT_CSS` selector 清单和响应式 smoke。
 
 本轮继续明确红灯边界：
 
