@@ -39,28 +39,46 @@ def test_load_and_save_corrections_defaults_and_sanitizes(tmp_path):
     assert saved["tables"]["3"]["markdown_line"] == 88
 
 
-def test_page_content_payload_uses_injected_loader():
+def test_page_content_payload_coerces_page_and_uses_injected_loader():
     task = {"task_id": "task-1"}
     content_list = [
         {"type": "text", "text": "hello", "page_idx": 0, "bbox": [1, 2, 3, 4]},
         {"type": "page_number", "text": "1", "page_idx": 0},
     ]
+    report = {"table_index": [{"table_index": 3}]}
 
     payload = source.page_content_payload(
         task,
-        1,
+        "2",
+        report=report,
         load_json_artifact=lambda _task, name: content_list if name == "content_list.json" else None,
         page_content_payload_from_content_list=lambda content, page, report=None, focus_table=None: {
             "content": content,
             "page": page,
+            "report": report,
             "focus_table": focus_table,
         },
         focus_table=5,
     )
 
     assert payload["content"] == content_list
-    assert payload["page"] == 1
+    assert payload["page"] == 2
+    assert payload["report"] == report
     assert payload["focus_table"] == 5
+
+
+@pytest.mark.parametrize("page_number", ["0", 0, -1])
+def test_page_content_payload_rejects_invalid_page_before_loading(page_number):
+    def fail_loader(_task, _name):
+        raise AssertionError("loader should not be called")
+
+    with pytest.raises(ValueError, match="Invalid page number"):
+        source.page_content_payload(
+            {"task_id": "task-1"},
+            page_number,
+            load_json_artifact=fail_loader,
+            page_content_payload_from_content_list=lambda *_args, **_kwargs: {},
+        )
 
 
 def test_ensure_pdf_page_image_returns_existing_cache(tmp_path):

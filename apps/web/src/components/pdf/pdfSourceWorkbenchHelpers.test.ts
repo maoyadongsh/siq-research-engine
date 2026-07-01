@@ -7,7 +7,11 @@ import type { PageBlock, PageContent, SourceMeta, SourceTable } from '../../lib/
 import type { EnhancedTable } from './pdfSourceWorkbenchTypes.ts'
 import {
   buildPagePreviewOverlays,
+  chooseFocusTableIndex,
+  cssAttrValue,
+  deriveTaskId,
   mergePhysicalTables,
+  pageExtentForPage,
   pageNumber,
   pageTablesForPage,
   relationsFromArtifactForPage,
@@ -41,6 +45,15 @@ test('pageTablesForPage filters invalid boxes and sorts tables by position', () 
     pageTablesForPage(tables, 1).map((table) => table.table_index),
     [1, 2, 3],
   )
+})
+
+test('cssAttrValue and deriveTaskId handle escaping and url boundaries', () => {
+  assert.equal(cssAttrValue('plain'), 'plain')
+  assert.equal(cssAttrValue('a\\b"c'), 'a\\\\b\\"c')
+
+  assert.equal(deriveTaskId(['', '/assets/plain.png', '/api/pdf/source/task%2F42/page/1']), 'task/42')
+  assert.equal(deriveTaskId(['/api/other/task-1', '/api/artifact/task-2/file.json']), 'task-2')
+  assert.equal(deriveTaskId(['/api/pdf/source/', '/api/pdf/not-source/task-3']), '')
 })
 
 test('mergePhysicalTables merges artifact, page-content and source table records', () => {
@@ -104,6 +117,38 @@ test('mergePhysicalTables merges artifact, page-content and source table records
   assert.equal(merged[1]?.source, 'page_block')
   assert.equal(merged[2]?.source, 'source_table')
   assert.equal(merged[2]?.printed_page_number, 'ii')
+})
+
+test('chooseFocusTableIndex falls back to the first sorted table on non-source pages', () => {
+  const tables: EnhancedTable[] = [
+    { table_index: 8, pdf_page_number: 2, bbox: [40, 40, 120, 90] },
+    { table_index: 3, pdf_page_number: 2, bbox: [10, 20, 120, 90] },
+    { table_index: 5, pdf_page_number: 1, bbox: [10, 20, 120, 90] },
+  ]
+
+  assert.equal(chooseFocusTableIndex(1, 1, 5, tables), 5)
+  assert.equal(chooseFocusTableIndex(2, 1, 5, tables), 3)
+  assert.equal(chooseFocusTableIndex(3, 1, 5, tables), 5)
+  assert.equal(chooseFocusTableIndex(3, 1, 0, tables), 0)
+})
+
+test('pageExtentForPage preserves fallback extent and expands from blocks and tables', () => {
+  assert.deepEqual(pageExtentForPage(3, [], undefined, null, 1), { width: 1000, height: 1000 })
+  assert.deepEqual(pageExtentForPage(3, [], { blocks: [] }, { width: 640, height: 480 }, 1), { width: 640, height: 480 })
+
+  const extent = pageExtentForPage(
+    2,
+    [
+      { table_index: 1, pdf_page_number: 2, bbox: [10, 20, 1200, 1300] },
+      { table_index: 2, pdf_page_number: 2, bbox: [1, 1, 1, 4] },
+      { table_index: 3, pdf_page_number: 1, bbox: [1, 1, 2000, 2000] },
+    ],
+    { blocks: [{ type: 'text', bbox: [0, 0, 400, 500] }] },
+    { width: 900, height: 900 },
+    2,
+  )
+
+  assert.deepEqual(extent, { width: 1248, height: 1352 })
 })
 
 test('relationsFromArtifactForPage converts valid adjacent artifact relations only', () => {
@@ -177,6 +222,50 @@ test('buildPagePreviewOverlays ignores chrome blocks and keeps focus state stabl
   )
   assert.equal(overlays.find((overlay) => overlay.blockId === 'body')?.tone, 'focused')
   assert.equal(overlays.find((overlay) => overlay.tableIndex === 10)?.tone, 'focused')
+})
+
+test('buildPagePreviewOverlays adds trace overlays only for the active unfocused page', () => {
+  const tables: EnhancedTable[] = []
+  const blocks: PageBlock[] = []
+  const currentTrace = { pageNumber: 4, bbox: [10, 20, 30, 40], source: 'text_anchor' as const, confidence: 'low' as const }
+
+  const overlays = buildPagePreviewOverlays({
+    pageNumberValue: 4,
+    currentPage: 4,
+    focusTableIndex: 0,
+    tables,
+    blocks,
+    currentTrace,
+    focusedBlockKey: '',
+  })
+  assert.equal(overlays.length, 1)
+  assert.equal(overlays[0]?.source, 'trace')
+  assert.equal(overlays[0]?.tone, 'trace')
+
+  assert.equal(
+    buildPagePreviewOverlays({
+      pageNumberValue: 5,
+      currentPage: 4,
+      focusTableIndex: 0,
+      tables,
+      blocks,
+      currentTrace,
+      focusedBlockKey: '',
+    }).length,
+    0,
+  )
+  assert.equal(
+    buildPagePreviewOverlays({
+      pageNumberValue: 4,
+      currentPage: 4,
+      focusTableIndex: 0,
+      tables,
+      blocks,
+      currentTrace,
+      focusedBlockKey: '4:block-1',
+    }).length,
+    0,
+  )
 })
 
 test('renderFallbackPageHtml wraps bare html once and preserves existing wrapper', () => {

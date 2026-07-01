@@ -103,6 +103,89 @@ def test_history_preserves_attachment_local_path_context(tmp_path, monkeypatch):
     assert "不是 Hermes 8642 网关接口" in history[0]["content"]
 
 
+def test_message_attachments_ignores_malformed_json_and_items_without_path():
+    bad_json = runtime.ChatMessage(
+        role="user",
+        session_id="attachment-filter-test",
+        content="",
+        attachments_json="{not-json",
+    )
+    non_list = runtime.ChatMessage(
+        role="user",
+        session_id="attachment-filter-test",
+        content="",
+        attachments_json=json.dumps({"path": "/tmp/image.jpg"}),
+    )
+    missing_path = runtime.ChatMessage(
+        role="user",
+        session_id="attachment-filter-test",
+        content="",
+        attachments_json=json.dumps(
+            [
+                {"filename": "no-path.png", "path": "  "},
+                "not-a-dict",
+            ]
+        ),
+    )
+
+    assert runtime._message_attachments(bad_json) == []
+    assert runtime._message_attachments(non_list) == []
+    assert runtime._message_attachments(missing_path) == []
+
+
+def test_chat_message_has_visible_payload_accepts_attachment_only_message(tmp_path):
+    image_path = tmp_path / "image.jpg"
+    message = runtime.ChatMessage(
+        role="user",
+        session_id="attachment-visible-payload-test",
+        content=" \n\t ",
+        attachments_json=json.dumps([{"filename": "image.jpg", "path": str(image_path)}]),
+    )
+    empty_message = runtime.ChatMessage(
+        role="user",
+        session_id="attachment-visible-payload-test",
+        content=" \n\t ",
+        attachments_json=json.dumps([{"filename": "image.jpg", "path": " "}]),
+    )
+
+    assert runtime.chat_message_has_visible_payload(message)
+    assert not runtime.chat_message_has_visible_payload(empty_message)
+
+
+def test_history_injects_attachment_reference_for_attachment_only_user_message(tmp_path, monkeypatch):
+    monkeypatch.setattr(runtime, "CHAT_UPLOAD_ROOT", tmp_path)
+    image_path = tmp_path / "image.jpg"
+    image_path.write_bytes(b"fake-image")
+    message = runtime.ChatMessage(
+        role="user",
+        session_id="attachment-only-history-test",
+        content=" ",
+        attachments_json=json.dumps(
+            [
+                {
+                    "id": "img",
+                    "filename": "image.jpg",
+                    "content_type": "image/jpeg",
+                    "kind": "image",
+                    "size": image_path.stat().st_size,
+                    "path": str(image_path),
+                    "url": "/api/chat/attachments/img_image.jpg",
+                }
+            ],
+            ensure_ascii=False,
+        ),
+    )
+
+    history = runtime.normalize_history([message], limit=4)
+
+    assert len(history) == 1
+    assert history[0]["role"] == "user"
+    assert history[0]["content"].lstrip().startswith("历史附件上下文")
+    assert "- 图片附件 1: image.jpg" in history[0]["content"]
+    assert f"  - 本地路径: {image_path.resolve()}" in history[0]["content"]
+    assert "  - 前端链接: /api/chat/attachments/img_image.jpg" in history[0]["content"]
+
+
 def test_attachment_followup_reuses_recent_attachment_intent():
     assert runtime._should_reuse_recent_attachments("继续前面的问题")
     assert runtime._should_reuse_recent_attachments("提取刚才那张照片里的手写体")

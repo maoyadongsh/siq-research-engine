@@ -166,6 +166,14 @@ bash -n start_all.sh && find scripts infra apps services -type f -name '*.sh' -p
 3. Agent runtime 主线：补 `_message_attachments`、`chat_message_has_visible_payload`、`normalize_history`、user 历史附件 reference 注入和 local-memory DB 行为测试；如搬迁，只搬 `_attachment_reference_context`、`_pdf_parse_is_terminal`、`_chat_message_payload` 这类纯格式化逻辑，并保留 impl wrapper。
 4. 前端尾项：新增 `documentResultWorkbenchDerivations.test.ts` 覆盖 JSON preview、page model、relations/focus derivation；扩充 `pdfSourceWorkbenchHelpers.test.ts` 的 page content blocks、relation fallback、invalid metadata 边界；CSS 字符串只做评估/smoke。
 
+本轮开发进度追加：
+
+- Agent runtime：已补 `_message_attachments` 对坏 JSON、非 list、非 dict、空 path 的过滤；`chat_message_has_visible_payload` 已覆盖 attachment-only message 与空 path 负路径；`normalize_history` 已覆盖 attachment-only user 历史注入“历史附件上下文”、本地路径和前端链接。
+- PDF parser：已补 source-view table block 在 `content_list` 缺 caption/footnote 时从 report `source_caption` / `source_footnote` fallback；`page_content_payload` loader wrapper 已覆盖字符串页码 coercion、report/focus_table 透传和 invalid page 预校验。
+- 前端：`pdfSourceWorkbenchHelpers.test.ts` 已补 `cssAttrValue` / `deriveTaskId` URL 边界、`chooseFocusTableIndex` 非 source page fallback、`pageExtentForPage` fallback/扩展计算，以及 trace overlay 仅在当前未聚焦页出现。
+- 本轮验证：`cd apps/api && .venv/bin/python -m pytest tests/test_agent_chat_runtime_attachments.py -q` 通过，11 passed、7 warnings；`cd apps/pdf-parser && PYTHONPATH=. python3 -m pytest tests/test_pdf_source_viewer.py tests/test_pdf_parser_source_service.py -q` 通过，26 passed；`cd apps/web && node --test src/components/pdf/pdfSourceWorkbenchHelpers.test.ts` 通过，10 passed；`cd apps/web && npm run build` 通过；`git diff --check` 通过。
+- 下一轮队列收窄：PDF parser 继续优先财报附注链接和 table index / markdown page index 纯规则；Agent runtime 继续 local-memory DB 行为和少量附件纯格式化 helper 前置覆盖；前端优先 `documentResultWorkbenchDerivations.test.ts` 或 CSS selector smoke。
+
 本轮继续明确红灯边界：
 
 - 不拆 `ACTIVE_RUNS`、`ActiveRunState`、SSE event append、stream/stop run lifecycle。

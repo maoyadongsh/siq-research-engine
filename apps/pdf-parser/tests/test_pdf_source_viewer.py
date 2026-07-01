@@ -231,6 +231,38 @@ def test_page_content_payload_matches_table_by_bbox_when_source_id_is_missing():
     assert table["missing_body"] is False
 
 
+def test_page_content_payload_uses_report_caption_and_footnote_when_content_omits_them():
+    table_html = "<table><tr><td>Inventory</td></tr></table>"
+    content_list = [
+        {
+            "type": "table",
+            "page_idx": 0,
+            "bbox": [1, 2, 3, 4],
+            "table_body": table_html,
+            "table_caption": [],
+            "table_footnote": [],
+        },
+    ]
+    report = {
+        "table_index": [
+            {
+                "table_index": 12,
+                "content_table_source_id": 1,
+                "pdf_page_number": 1,
+                "source_caption": ["Report caption"],
+                "source_footnote": ["Report footnote"],
+            }
+        ]
+    }
+
+    payload = page_content_payload_from_content_list(content_list, 1, report=report)
+    table = payload["blocks"][0]
+
+    assert table["table_index"] == 12
+    assert table["caption"] == ["Report caption"]
+    assert table["footnote"] == ["Report footnote"]
+
+
 def test_page_content_payload_matches_source_id_zero_to_first_table_body():
     content_list = [
         {"type": "text", "page_idx": 0, "text": "before table"},
