@@ -197,6 +197,37 @@ bash -n start_all.sh && find scripts infra apps services -type f -name '*.sh' -p
 - 不改 PDF parser queue claim/worker、MinerU 生命周期、Flask `send_file/jsonify`、`_ensure_*` artifact 编排和 task state/DB 写顺序。
 - 不提前分散 `DocumentResultWorkbench.tsx` 的 refs、selection、scroll、resource open owner。
 
+### 0.5 2026-07-01 红灯 owner 设计窗口
+
+低风险前置覆盖基本收口后，下一阶段不应继续盲目堆小测试，而应进入红灯 owner 的设计窗口。本轮启动 3 个只读智能体盘点 Agent runtime、PDF parser 和前端 Document owner，结论是：先补红灯 owner 的行为矩阵，再选一个最小试点；不要一次性迁移多个状态 owner。
+
+推荐试点顺序：
+
+1. PDF parser queue claim / recover：最适合首个红灯试点。范围小、行为可用 SQLite/DB 状态测试锁定，且不必碰 Flask response 或 MinerU HTTP lifecycle。目标是把 `_claim_next_queued_task`、`_recover_stale_submitting_tasks` 先迁到 `pdf_parser_task_lifecycle_service` 或 task repository 层，`pdf_parser_app_impl.py` 保留同名 wrapper。
+2. 前端 DocumentResultWorkbench hook 拆分：第二优先。先抽 `useDocumentResultViewModel`、`useDocumentResultFocusController`、`useDocumentResourceOpener`，不改 JSX 结构、不改 className、不迁 `DOCUMENT_CSS` / `PDF_CSS` 注入机制。
+3. Agent runtime `ACTIVE_RUNS` / SSE：最后进入试点。先让 `agent_runtime_streaming.py` 成为真实 owner，迁移 `ActiveRunState`、`ACTIVE_RUNS`、event append、snapshot、SSE replay、stop run；`agent_chat_runtime_impl.py` 继续保留 `_collect_stream_run`、`_stream_chat_reply_impl` 和普通/streaming 编排。这里最大风险是 circular import，需要先用 callback 或小型依赖注入解开 display/progress/Hermes stop 依赖。
+
+红灯 owner 行为矩阵：
+
+- Agent runtime 必补：SSE offset replay、heartbeat、disconnect return、`done/error` terminal status、stop run 用户停止事件、Hermes 404 orphan cleanup、existing active run join、profile alias key normalization、session default context 隔离。验证建议：`tests/test_agent_chat_runtime_loops.py`、`tests/test_hermes_client.py`、`tests/test_agent_runtime_context.py`、`tests/test_agent_runtime_memory.py`。
+- PDF parser 必补：oldest queued claim、cancelled / has `mineru_task_id` 不 claim、compare-and-swap 防 double claim、stale submitting recover、submit 前持久化 submitting、submit 成功写 mineru id / pending / submitted_at、upload missing failed、upstream 404 failed、completed fetch artifacts before final completed、missing markdown -> completed_missing_artifact。验证建议：新增 queue/lifecycle tests，并继续跑 `apps/pdf-parser` 全量。
+- Frontend 必补：新 task active page reset、markdown block focus 后 PDF overlay 与 markdown block 同步 focused class、prev/next page 后 select 与 preview page 同步、tab scroll button 改变 `scrollLeft`、resource open 失败显示 `.doc-error`、移动端 select tab 状态保持。验证建议：扩 `documentResultWorkbenchDerivations.test.ts` 和 `e2e/tests/document-result-preview.spec.ts`。
+
+回滚策略：
+
+- 所有试点保留旧 façade / wrapper 名称和签名；路由、页面 import 和外部调用不在首批同步迁移。
+- PDF parser 可用 env flag 或 wrapper switch 灰度新 lifecycle service，默认可回旧 app path；不改 DB schema，不改 artifact 文件名和 schema version。
+- Frontend hook 拆分只移动逻辑，不改 JSX/className；失败时把 hook 内容内联回 `DocumentResultWorkbench.tsx`。CSS 迁移另开窗口，`documentStyles.ts` 保留兼容导出。
+- Agent runtime 不改 `services.agent_chat_runtime` 的兼容策略；如 streaming 试点失败，`agent_runtime_streaming.py` / `agent_runtime_sessions.py` 可恢复为 re-export，router 无需回滚。
+
+工作量估算：
+
+- PDF parser 最小试点：测试矩阵 0.5-1 天，queue claim/recover 抽取 0.5 天；若继续 artifact orchestrator / MinerU lifecycle，则总计约 3-4.5 天。
+- 前端 Document 试点：测试矩阵 0.5-1 天，view model + focus controller 1-1.5 天，resource opener 0.5 天；`DOCUMENT_CSS` 小步迁移 0.5-1 天，`PDF_CSS` 另开 1-2 天窗口。
+- Agent runtime streaming 试点：测试矩阵 0.5-1 天，streaming owner 抽取 1-1.5 天，sessions owner 0.5 天，循环依赖修复 0.5-1 天，总计约 2.5-4 天。
+
+下一步建议：先做 PDF parser queue claim/recover 的测试矩阵和最小抽取，作为红灯 owner 迁移的试点。若需要进一步降低风险，可先只落测试，不移动实现。
+
 ## 1. 当前架构事实
 
 ### 1.1 当前主要目录职责
