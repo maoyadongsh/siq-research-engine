@@ -158,3 +158,134 @@ def test_fetch_completed_task_without_markdown_marks_completed_missing_artifact(
     assert persisted["stage"] == COMPLETED_MISSING_ARTIFACT
     assert persisted["completed_at"] == "2026-05-01T00:00:30Z"
     assert "Markdown" in persisted["error"]
+
+
+def test_fetch_result_preserves_non_404_upstream_error_detail(tmp_path, monkeypatch):
+    _use_temp_app_paths(tmp_path, monkeypatch)
+    task = _base_task(
+        status=COMPLETED,
+        stage=COMPLETED,
+        mineru_task_id="mineru-error",
+        completed_at="2026-05-01T00:00:30Z",
+    )
+    app._save_task(task, allow_insert=True)
+    monkeypatch.setattr(
+        app,
+        "_json_request",
+        lambda *_args, **_kwargs: {"_error": True, "status": 502, "detail": "MinerU gateway unavailable"},
+    )
+
+    result = app._fetch_and_cache_result(task, force=True)
+
+    persisted = app._get_task("task-1")
+    assert result == {"_error": True, "detail": "MinerU gateway unavailable"}
+    assert persisted["status"] == COMPLETED_MISSING_ARTIFACT
+    assert persisted["stage"] == COMPLETED_MISSING_ARTIFACT
+    assert persisted["error"] == "MinerU gateway unavailable"
+
+
+def test_fetch_result_without_results_marks_completed_missing_artifact(tmp_path, monkeypatch):
+    _use_temp_app_paths(tmp_path, monkeypatch)
+    task = _base_task(
+        status=COMPLETED,
+        stage=COMPLETED,
+        mineru_task_id="mineru-empty",
+        completed_at="2026-05-01T00:00:30Z",
+    )
+    app._save_task(task, allow_insert=True)
+    monkeypatch.setattr(app, "_json_request", lambda *_args, **_kwargs: {"status": COMPLETED})
+
+    result = app._fetch_and_cache_result(task, force=True)
+
+    persisted = app._get_task("task-1")
+    assert result["_error"] is True
+    assert result["detail"] == "任务已完成，但 MinerU 结果中没有可用的 Markdown 内容。"
+    assert persisted["status"] == COMPLETED_MISSING_ARTIFACT
+    assert persisted["error"] == result["detail"]
+
+
+def test_fetch_result_without_md_content_marks_completed_missing_artifact(tmp_path, monkeypatch):
+    _use_temp_app_paths(tmp_path, monkeypatch)
+    task = _base_task(
+        status=COMPLETED,
+        stage=COMPLETED,
+        mineru_task_id="mineru-no-md",
+        completed_at="2026-05-01T00:00:30Z",
+    )
+    app._save_task(task, allow_insert=True)
+    monkeypatch.setattr(
+        app,
+        "_json_request",
+        lambda *_args, **_kwargs: {"results": {"task-1.pdf": {"content_list": []}}},
+    )
+
+    result = app._fetch_and_cache_result(task, force=True)
+
+    persisted = app._get_task("task-1")
+    assert result["_error"] is True
+    assert result["detail"] == "任务已完成，但 MinerU 结果中没有可用的 Markdown 内容。"
+    assert persisted["status"] == COMPLETED_MISSING_ARTIFACT
+    assert persisted["error"] == result["detail"]
+
+
+def test_fetch_force_returns_local_markdown_when_no_mineru_task_id(tmp_path, monkeypatch):
+    _use_temp_app_paths(tmp_path, monkeypatch)
+    task = _base_task(status=COMPLETED, stage=COMPLETED, completed_at="2026-05-01T00:00:30Z")
+    app._write_markdown(task, "# local\n")
+    app._save_task(task, allow_insert=True)
+
+    def fail_json_request(*_args, **_kwargs):
+        raise AssertionError("local-only force fetch should not call MinerU")
+
+    monkeypatch.setattr(app, "_json_request", fail_json_request)
+
+    assert app._fetch_and_cache_result(task, force=True) == "# local\n"
+
+
+def test_fetch_force_with_local_markdown_refreshes_from_mineru_and_logs_quality_first(tmp_path, monkeypatch):
+    _use_temp_app_paths(tmp_path, monkeypatch)
+    task = _base_task(
+        status=COMPLETED,
+        stage=COMPLETED,
+        mineru_task_id="mineru-refresh",
+        completed_at="2026-05-01T00:00:30Z",
+    )
+    app._write_markdown(task, "# stale\n")
+    app._save_task(task, allow_insert=True)
+    calls = []
+
+    monkeypatch.setattr(
+        app,
+        "_json_request",
+        lambda *_args, **_kwargs: {
+            "results": {
+                "task-1.pdf": {
+                    "md_content": "# fresh\n",
+                    "content_list": [],
+                }
+            }
+        },
+    )
+    monkeypatch.setattr(app, "_inject_pdf_page_markers", lambda markdown, *_args, **_kwargs: markdown)
+    monkeypatch.setattr(app, "_backfill_sparse_markdown_pages", lambda markdown, *_args, **_kwargs: (markdown, []))
+
+    def fake_save_mineru_artifacts(*_args, **_kwargs):
+        calls.append("save_artifacts")
+        return {"table_count": 2, "single_row_table_count": 1}
+
+    def fake_append_log(_task, message, level="info"):
+        calls.append(("log", level, message))
+
+    monkeypatch.setattr(app, "_save_mineru_artifacts", fake_save_mineru_artifacts)
+    monkeypatch.setattr(app, "_append_log", fake_append_log)
+
+    assert app._fetch_and_cache_result(task, force=True) == "# fresh\n"
+
+    persisted = app._get_task("task-1")
+    assert persisted["status"] == COMPLETED
+    assert app._read_markdown(persisted) == "# fresh\n"
+    assert calls[0] == "save_artifacts"
+    assert calls[1][0:2] == ("log", "info")
+    assert calls[1][2].startswith("质量报告已生成")
+    assert calls[2][0:2] == ("log", "success")
+    assert calls[2][2].startswith("Markdown 结果已获取")

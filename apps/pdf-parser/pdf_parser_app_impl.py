@@ -58,6 +58,7 @@ from pdf_parser_page_markers import (
     _strip_page_markers,
 )
 import pdf_parser_artifact_service as artifact_service
+import pdf_parser_artifact_orchestrator_service as artifact_orchestrator_service
 import pdf_parser_content_list_enhanced_service as content_list_enhanced_service
 import pdf_parser_document_full_service as document_full_service
 import pdf_parser_financial_service as financial_service
@@ -3097,65 +3098,37 @@ def _fetch_and_cache_result(task, force=False):
     mineru_task_id = task.get("mineru_task_id")
     if not mineru_task_id:
         if _task_requires_markdown_artifact(task) and local_markdown is None:
-            _mark_completed_missing_artifact(task)
-            return {"_error": True, "detail": task.get("error") or missing_artifact_message()}
+            return artifact_orchestrator_service.completed_missing_local_markdown(
+                task,
+                mark_completed_missing_artifact=_mark_completed_missing_artifact,
+            )
         return None
 
     result_url = f"{MINERU_API_BASE}/tasks/{mineru_task_id}/result"
     resp = _json_request(result_url, timeout=30)
     if resp.get("_error"):
-        detail = resp.get("detail", "Failed to fetch result")
         if _task_requires_markdown_artifact(task) and local_markdown is None:
-            if resp.get("status") == 404:
-                detail = "任务已完成，但本地 Markdown 结果不存在，且上游 MinerU 结果已不可拉取。"
-            _mark_completed_missing_artifact(task, detail)
-        return {"_error": True, "detail": detail}
-
-    markdown = None
-    selected_file_name = None
-    selected_file_data = None
-    results = resp.get("results")
-    if isinstance(results, dict):
-        for file_name, file_data in results.items():
-            if isinstance(file_data, dict) and "md_content" in file_data:
-                markdown = file_data["md_content"]
-                selected_file_name = file_name
-                selected_file_data = file_data
-                break
-
-    if markdown is not None:
-        markdown = _inject_pdf_page_markers(
-            markdown,
-            selected_file_data.get("content_list") if isinstance(selected_file_data, dict) else None,
-            total_pages=task.get("pdf_page_count"),
-        )
-        markdown, restored_pages = _backfill_sparse_markdown_pages(
-            markdown,
-            selected_file_data.get("content_list") if isinstance(selected_file_data, dict) else None,
-        )
-        _write_markdown(task, markdown)
-        if selected_file_data is not None:
-            quality_report = _save_mineru_artifacts(
-                task, resp, selected_file_name, selected_file_data, markdown
-            )
-            _append_log(
+            return artifact_orchestrator_service.missing_local_markdown_error(
                 task,
-                f"质量报告已生成: {quality_report['table_count']} 个表格, {quality_report['single_row_table_count']} 个单行/空壳表",
-                "info",
+                resp,
+                mark_completed_missing_artifact=_mark_completed_missing_artifact,
             )
-        _append_log(task, f"Markdown 结果已获取 ({len(markdown)} 字符)", "success")
-        if restored_pages:
-            _append_log(task, f"已从 content_list 回填 {len(restored_pages)} 个稀疏 Markdown 页", "info")
-        task["status"] = COMPLETED
-        task["stage"] = COMPLETED
-        task["error"] = None
-        task["completed_at"] = task.get("completed_at") or _now_iso()
-        _persist_task(task)
-    elif _task_requires_markdown_artifact(task) and local_markdown is None:
-        detail = "任务已完成，但 MinerU 结果中没有可用的 Markdown 内容。"
-        _mark_completed_missing_artifact(task, detail)
-        return {"_error": True, "detail": detail}
-    return markdown
+        return {"_error": True, "detail": resp.get("detail", "Failed to fetch result")}
+
+    return artifact_orchestrator_service.cache_mineru_result_artifacts(
+        task,
+        resp,
+        local_markdown=local_markdown,
+        task_requires_markdown_artifact=_task_requires_markdown_artifact,
+        mark_completed_missing_artifact=_mark_completed_missing_artifact,
+        inject_pdf_page_markers=_inject_pdf_page_markers,
+        backfill_sparse_markdown_pages=_backfill_sparse_markdown_pages,
+        write_markdown=_write_markdown,
+        save_mineru_artifacts=_save_mineru_artifacts,
+        append_log=_append_log,
+        now_iso=_now_iso,
+        persist_task=_persist_task,
+    )
 
 
 def _build_status_response(task, logs_slice=None):
