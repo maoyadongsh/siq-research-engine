@@ -225,6 +225,13 @@ bash -n start_all.sh && find scripts infra apps services -type f -name '*.sh' -p
 - 本轮验证：PDF orchestrator/lifecycle 聚焦 14 passed、PDF parser 全量 280 passed、API active-runs 12 passed、Document preview e2e 6 passed、`git diff --check` 通过。
 - 下一步建议：PDF 红灯试点已进入第二个最小抽取点；下一轮更适合转前端 Document hook 最小试点，或单独设计 Agent runtime streaming owner。若继续 PDF，应只推进 artifact orchestrator 后续极小边界，不触碰 MinerU submit/poll 和 `_ensure_*`。
 
+本轮前端 Document focus controller 最小试点：
+
+- Frontend：新增 `documentResultFocusController.ts`，用纯 reducer + `useDocumentResultFocusController` 接管 `activePage` / `focused` / `activeTab` 状态转换；`DocumentResultWorkbench.tsx` 只改 hook 接线，保留 JSX 结构、className、resource opener、tab scroll owner 和 `DOCUMENT_CSS` / `PDF_CSS` 注入机制。
+- 护栏补强：新增 `documentResultFocusController.test.ts`，覆盖 block/table/figure/page focus 同步 active page、新 task reset、mobile tab 切换不污染 active page/focus。
+- 本轮验证：focus controller 3 passed、document derivations 9 passed、Document preview e2e 6 passed、Web build passed、旁路 PDF parser 全量 280 passed、API active-runs 12 passed、`git diff --check` 通过。
+- 下一步建议：前端 hook 试点先停在 focus controller；下一轮可继续抽 `useDocumentResultViewModel`，范围限定为纯 `useMemo` 派生链，不动 resource opener、refs/scroll、CSS 注入或 JSX 结构。
+
 推荐试点顺序：
 
 1. PDF parser queue claim / recover：最适合首个红灯试点。范围小、行为可用 SQLite/DB 状态测试锁定，且不必碰 Flask response 或 MinerU HTTP lifecycle。目标是把 `_claim_next_queued_task`、`_recover_stale_submitting_tasks` 先迁到 `pdf_parser_task_lifecycle_service` 或 task repository 层，`pdf_parser_app_impl.py` 保留同名 wrapper。
@@ -250,7 +257,7 @@ bash -n start_all.sh && find scripts infra apps services -type f -name '*.sh' -p
 - 前端 Document 试点：测试矩阵 0.5-1 天，view model + focus controller 1-1.5 天，resource opener 0.5 天；`DOCUMENT_CSS` 小步迁移 0.5-1 天，`PDF_CSS` 另开 1-2 天窗口。
 - Agent runtime streaming 试点：测试矩阵 0.5-1 天，streaming owner 抽取 1-1.5 天，sessions owner 0.5 天，循环依赖修复 0.5-1 天，总计约 2.5-4 天。
 
-下一步建议：PDF parser queue claim/recover 试点、artifact/MinerU lifecycle 迁移前矩阵和 PDF artifact orchestrator 最小抽取已完成。下一轮建议转向前端 Document view model / focus controller 最小 hook 试点；若转向 Agent runtime，则继续单独设计 streaming owner 迁移，不急着和其他 owner 同批。
+下一步建议：PDF parser queue claim/recover 试点、artifact/MinerU lifecycle 迁移前矩阵、PDF artifact orchestrator 最小抽取，以及前端 Document focus controller 试点已完成。下一轮建议继续前端 `useDocumentResultViewModel` 最小抽取；若转向 Agent runtime，则继续单独设计 streaming owner 迁移，不急着和其他 owner 同批。
 
 ## 1. 当前架构事实
 

@@ -33,6 +33,7 @@ import { DocumentMarkdownPane } from './DocumentMarkdownPane'
 import { DocumentQualityPane, DocumentWorkflowPane } from './DocumentStatusPanes'
 import { DocumentTablePane } from './DocumentTablePane'
 import { PdfPagePreview } from './DocumentSourcePreview'
+import { useDocumentResultFocusController } from './documentResultFocusController'
 import {
   adjacentDocumentResultPage,
   buildDocumentResultFocusDerivation,
@@ -56,7 +57,6 @@ import {
   relationLabel,
   statusLabel,
   statusTone,
-  type FocusTarget,
 } from './documentResultWorkbenchUtils'
 
 function MergePageBridge({
@@ -125,10 +125,7 @@ export function DocumentResultWorkbench({
 }) {
   const pdfPaneRef = useRef<HTMLDivElement | null>(null)
   const markdownPaneRef = useRef<HTMLDivElement | null>(null)
-  const [activePage, setActivePage] = useState(1)
-  const [focused, setFocused] = useState<FocusTarget>(null)
   const [resourceError, setResourceError] = useState('')
-  const [activeTab, setActiveTab] = useState('preview')
   const tabListRef = useRef<HTMLDivElement | null>(null)
   const scrollTabs = useCallback((direction: number) => {
     const el = tabListRef.current
@@ -168,6 +165,23 @@ export function DocumentResultWorkbench({
     () => buildDocumentResultRelationsByTableId(previewRelations),
     [previewRelations],
   )
+
+  const pageNumbers = useMemo(() => buildDocumentResultPageNumbers({
+    sourceBlocks,
+    pageByNumber,
+    physicalTables,
+    figureItems,
+    markdownBlocks,
+    qualityPageCount: quality?.page_count,
+  }), [figureItems, markdownBlocks, pageByNumber, physicalTables, quality?.page_count, sourceBlocks])
+  const {
+    activePage,
+    focused,
+    activeTab,
+    focusTarget,
+    selectPage,
+    setActiveTab,
+  } = useDocumentResultFocusController({ taskId, pageNumbers })
   const { activeFocusKeys, focusedRelations } = useMemo(
     () => buildDocumentResultFocusDerivation({
       focused,
@@ -187,22 +201,10 @@ export function DocumentResultWorkbench({
     [activePage, focusedRelations, previewRelations, tableById],
   )
 
-  const pageNumbers = useMemo(() => buildDocumentResultPageNumbers({
-    sourceBlocks,
-    pageByNumber,
-    physicalTables,
-    figureItems,
-    markdownBlocks,
-    qualityPageCount: quality?.page_count,
-  }), [figureItems, markdownBlocks, pageByNumber, physicalTables, quality?.page_count, sourceBlocks])
-
   useEffect(() => {
     let cancelled = false
-    const nextPage = pageNumbers[0] || 1
     queueMicrotask(() => {
       if (cancelled) return
-      setActivePage(nextPage)
-      setFocused(null)
       setResourceError('')
     })
     return () => {
@@ -269,16 +271,6 @@ export function DocumentResultWorkbench({
     const artifactPath = info.path || name
     void openResource(documentArtifactUrl(taskId, artifactPath), artifactPath)
   }, [openResource, taskId])
-
-  const focusTarget = (nextFocus: FocusTarget) => {
-    setFocused(nextFocus)
-    if (nextFocus?.page) setActivePage(nextFocus.page)
-  }
-
-  const selectPage = (page: number) => {
-    setActivePage(page)
-    setFocused({ kind: 'page', id: `page-${page}`, page })
-  }
 
   if (!selectedTask) {
     return (
