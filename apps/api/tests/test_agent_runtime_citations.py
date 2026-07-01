@@ -64,6 +64,58 @@ def test_structured_evidence_requires_real_task_id_and_page_or_table():
     assert not citations._has_structured_evidence_trace(uncited)
 
 
+def test_normalize_plain_inline_latex_replaces_known_symbols_only():
+    text = "A $\\to$ B，x $\\leq$ y，保留 $\\unknown$ 和 $x+1$。"
+
+    assert citations.normalize_plain_inline_latex(text) == "A → B，x ≤ y，保留 $\\unknown$ 和 $x+1$。"
+    assert citations.normalize_plain_inline_latex(None) == ""
+
+
+def test_source_locator_text_uses_defaults_and_appends_links():
+    calls = []
+
+    def table_source_links(task_id, pdf_page, table_index):
+        calls.append((task_id, pdf_page, table_index))
+        return "/api/source/task-1/table/3"
+
+    locator = citations._source_locator_text(
+        task_id="task-1",
+        pdf_page=0,
+        table_index=3,
+        md_line="",
+        table_source_links=table_source_links,
+    )
+
+    assert locator == "task_id=task-1, pdf_page=未返回, table_index=3, md_line=未返回，/api/source/task-1/table/3"
+    assert calls == [("task-1", 0, 3)]
+
+
+def test_append_unique_source_ref_dedupes_by_locator_file_and_metric():
+    refs = []
+    seen = set()
+
+    for metric in ("收入", "收入", "利润"):
+        citations._append_unique_source_ref(
+            refs,
+            seen,
+            source_type="wiki_metrics",
+            file="metrics/three_statements.json",
+            metric=metric,
+            period="2025",
+            task_id="task-1",
+            pdf_page=7,
+            table_index=2,
+            md_line=50,
+            table_source_links=lambda task_id, pdf_page, table_index: f"/api/source/{task_id}/table/{table_index}",
+        )
+
+    assert len(refs) == 2
+    assert refs[0].startswith("[D1] source_type=wiki_metrics")
+    assert "metric=收入" in refs[0]
+    assert refs[1].startswith("[D2] source_type=wiki_metrics")
+    assert "metric=利润" in refs[1]
+
+
 def test_source_reference_key_normalizes_alias_field_names():
     line_a = (
         "[P1] source_type=postgresql, task_id=11111111-1111-1111-1111-111111111111, "
@@ -79,6 +131,30 @@ def test_source_reference_key_normalizes_alias_field_names():
     assert citations._source_field_value(line_a, "md_line") == ""
     assert citations._source_field_value(line_a, "markdown_line") == "50"
     assert citations._source_reference_key(line_a) == citations._source_reference_key(line_b)
+
+
+def test_strip_auto_evidence_sections_collects_refs_and_keeps_following_sections():
+    markdown = """结论正文。
+
+## 主要数据引用来源
+说明文字。
+[D1] source_type=wiki_metrics, file=metrics/three_statements.json, metric=收入, period=2025, task_id=11111111-1111-1111-1111-111111111111, pdf_page=7, table_index=2, md_line=50
+
+## 风险提示
+请复核。
+"""
+
+    body, refs = citations._strip_auto_evidence_sections(
+        markdown,
+        auto_evidence_section_titles={"主要数据引用来源"},
+    )
+
+    assert "主要数据引用来源" not in body
+    assert "结论正文。" in body
+    assert "## 风险提示" in body
+    assert refs == [
+        "[D1] source_type=wiki_metrics, file=metrics/three_statements.json, metric=收入, period=2025, task_id=11111111-1111-1111-1111-111111111111, pdf_page=7, table_index=2, md_line=50"
+    ]
 
 
 def test_merge_refs_into_reference_section_dedupes_alias_field_names():
@@ -117,3 +193,31 @@ def test_merge_refs_into_reference_section_skips_refs_already_in_body():
     assert "metric=收入" in merged
     assert "metric=利润" in merged
     assert merged.count("source_type=wiki_metrics") == 2
+
+
+def test_reply_has_requested_metric_evidence_checks_requested_terms_in_reference_lines():
+    reply = """正文提到了利润，但引用只给收入。
+
+[D1] source_type=wiki_metrics, file=metrics/three_statements.json, metric=营业收入, period=2025, task_id=11111111-1111-1111-1111-111111111111, pdf_page=7, table_index=2, md_line=50
+"""
+
+    normalize = lambda value: "".join(str(value).lower().split())
+
+    assert citations._reply_has_requested_metric_evidence(
+        "收入是多少",
+        reply,
+        postgres_requested_metric_terms=lambda message: ["营业收入"],
+        normalize_financial_text=normalize,
+    )
+    assert not citations._reply_has_requested_metric_evidence(
+        "利润是多少",
+        reply,
+        postgres_requested_metric_terms=lambda message: ["净利润"],
+        normalize_financial_text=normalize,
+    )
+    assert citations._reply_has_requested_metric_evidence(
+        "随便分析",
+        reply,
+        postgres_requested_metric_terms=lambda message: [],
+        normalize_financial_text=normalize,
+    )
