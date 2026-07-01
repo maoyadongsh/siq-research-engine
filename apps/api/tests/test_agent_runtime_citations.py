@@ -63,6 +63,179 @@ def test_render_human_capital_primary_data_supplement_returns_none_without_rows(
     ) is None
 
 
+def test_render_statement_table_primary_data_supplement_limits_records_and_adds_refs():
+    calls = []
+
+    def table_source_links(task_id, pdf_page, table_index):
+        calls.append((task_id, pdf_page, table_index))
+        return f"/api/source/{task_id}/table/{table_index}"
+
+    supplement = citations._render_statement_table_primary_data_supplement(
+        {
+            "report_id": "2025-annual",
+            "tables": [
+                {
+                    "metric": "营业收入",
+                    "unit": "万元",
+                    "task_id": "11111111-1111-1111-1111-111111111111",
+                    "pdf_page": 7,
+                    "table_index": 2,
+                    "md_line": 50,
+                    "records": [
+                        {"项目": "营业收入", "2025": "100", "2024": "90"},
+                        {"项目": "净利润", "2025": "10", "2024": ""},
+                    ],
+                },
+                {
+                    "metric": "资产总计",
+                    "unit": "万元",
+                    "task_id": "22222222-2222-2222-2222-222222222222",
+                    "pdf_page": 8,
+                    "table_index": 3,
+                    "md_line": 60,
+                    "records": [{"项目": "资产总计", "2025": "500"}],
+                },
+            ],
+        },
+        primary_data_supplement_max_rows=2,
+        table_source_links=table_source_links,
+    )
+
+    assert supplement is not None
+    assert "| 营业收入 | 100 / 90 万元 |" in supplement
+    assert "| 净利润 | 10 万元 |" in supplement
+    assert "资产总计" not in supplement
+    assert "## 主要数据引用来源" in supplement
+    assert "[D1] source_type=wiki_metrics" in supplement
+    assert "file=metrics/three_statements.json" in supplement
+    assert "metric=营业收入" in supplement
+    assert calls == [
+        ("11111111-1111-1111-1111-111111111111", 7, 2),
+        ("11111111-1111-1111-1111-111111111111", 7, 2),
+        ("11111111-1111-1111-1111-111111111111", 7, 2),
+    ]
+
+
+def test_render_note_detail_primary_data_supplement_limits_tables_and_previews_records():
+    calls = []
+
+    def table_source_links(task_id, pdf_page, table_index):
+        calls.append((task_id, pdf_page, table_index))
+        return f"/api/source/{task_id}/table/{table_index}"
+
+    supplement = citations._render_note_detail_primary_data_supplement(
+        {
+            "report_id": "2025-annual",
+            "metric": "附注明细",
+            "tables": [
+                {
+                    "metric": "商誉减值",
+                    "unit": "万元",
+                    "task_id": "33333333-3333-3333-3333-333333333333",
+                    "pdf_page": 88,
+                    "table_index": 12,
+                    "md_line": 500,
+                    "records": [
+                        {"被投资单位": "A公司", "期末余额": "100", "占比": "10%"},
+                        {"被投资单位": "B公司", "期末余额": "200", "占比": "20%"},
+                        {"被投资单位": "C公司", "期末余额": "300", "占比": "30%"},
+                        {"被投资单位": "D公司", "期末余额": "400", "占比": "40%"},
+                    ],
+                },
+                {
+                    "metric": "递延所得税",
+                    "task_id": "44444444-4444-4444-4444-444444444444",
+                    "pdf_page": 89,
+                    "table_index": 13,
+                    "md_line": 510,
+                    "rows": [{"项目": "不应出现"}],
+                },
+            ],
+        },
+        primary_data_supplement_max_rows=1,
+        table_source_links=table_source_links,
+    )
+
+    assert supplement is not None
+    assert "| 商誉减值 | 单位=万元；解析行数=4；明细预览=A公司: 100 / 10%；B公司: 200 / 20%；C公司: 300 / 30% |" in supplement
+    assert "D公司" not in supplement
+    assert "递延所得税" not in supplement
+    assert "## 主要数据引用来源" in supplement
+    assert "[D1] source_type=wiki_document_links" in supplement
+    assert "file=semantic/document_links.json" in supplement
+    assert calls == [
+        ("33333333-3333-3333-3333-333333333333", 88, 12),
+        ("33333333-3333-3333-3333-333333333333", 88, 12),
+    ]
+
+
+def test_render_wiki_fulltext_primary_data_supplement_truncates_rows_and_defaults_refs():
+    calls = []
+
+    def table_source_links(task_id, pdf_page, table_index):
+        calls.append((task_id, pdf_page, table_index))
+        return f"/api/source/{task_id}/table/{table_index}"
+
+    long_snippet = "营业收入\n  继续增长 " + ("同比提升 " * 40)
+    supplement = citations._render_wiki_fulltext_primary_data_supplement(
+        {
+            "report_id": "2025-annual",
+            "terms": ["营业收入", "净利润"],
+            "rows": [
+                {
+                    "snippet": long_snippet,
+                    "task_id": "55555555-5555-5555-5555-555555555555",
+                    "pdf_page": 30,
+                    "table_index": 0,
+                    "md_line": 700,
+                },
+                {
+                    "snippet": "不应出现",
+                    "task_id": "66666666-6666-6666-6666-666666666666",
+                    "pdf_page": 31,
+                    "table_index": 1,
+                    "md_line": 710,
+                },
+            ],
+        },
+        primary_data_supplement_max_rows=1,
+        table_source_links=table_source_links,
+    )
+
+    assert supplement is not None
+    assert "| F1 / 全文证据 | 营业收入 继续增长" in supplement
+    assert "..." in supplement
+    assert "不应出现" not in supplement
+    assert "## 主要数据引用来源" in supplement
+    assert "[D1] source_type=wiki_report_fulltext" in supplement
+    assert "file=reports/2025-annual/report.md" in supplement
+    assert "metric=营业收入,净利润" in supplement
+    assert calls == [
+        ("55555555-5555-5555-5555-555555555555", 30, 0),
+        ("55555555-5555-5555-5555-555555555555", 30, 0),
+    ]
+
+
+def test_primary_data_supplement_renderers_return_none_for_empty_inputs():
+    table_source_links = lambda task_id, pdf_page, table_index: ""
+
+    assert citations._render_statement_table_primary_data_supplement(
+        {"tables": []},
+        primary_data_supplement_max_rows=3,
+        table_source_links=table_source_links,
+    ) is None
+    assert citations._render_note_detail_primary_data_supplement(
+        {"tables": []},
+        primary_data_supplement_max_rows=3,
+        table_source_links=table_source_links,
+    ) is None
+    assert citations._render_wiki_fulltext_primary_data_supplement(
+        {"rows": []},
+        primary_data_supplement_max_rows=3,
+        table_source_links=table_source_links,
+    ) is None
+
+
 def test_merge_primary_data_refs_moves_auto_evidence_refs_to_citation_section():
     reply = """结论正文。
 
