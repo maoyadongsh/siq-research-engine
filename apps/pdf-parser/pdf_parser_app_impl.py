@@ -3882,15 +3882,23 @@ def open_artifact(task_id, artifact_name):
     if not task:
         return jsonify({"error": "Task not found"}), 404
     result_dir = _result_dir(task)
-    if artifact_name == "images/download":
-        images_dir = os.path.join(result_dir, "images")
+    artifact_descriptor = artifact_service.classify_open_artifact_name(
+        task_id,
+        artifact_name,
+        result_dir,
+        sanitize_filename=_safe_client_filename,
+        allowlist=ARTIFACT_OPEN_ALLOWLIST,
+    )
+    kind = artifact_descriptor["kind"]
+    if kind == "images_download":
+        images_dir = artifact_descriptor["images_dir"]
         if not os.path.isdir(images_dir):
             return jsonify({"error": "Images artifact not found"}), 404
         image_names = _image_artifact_names(images_dir)
         if not image_names:
             return jsonify({"error": "No downloadable images found"}), 404
         archive = artifact_service.build_images_zip(images_dir, image_names)
-        filename = _safe_download_name(f"{task_id}_images.zip")
+        filename = _safe_download_name(artifact_descriptor["download_name"])
         response = send_file(
             archive,
             mimetype="application/zip",
@@ -3899,8 +3907,8 @@ def open_artifact(task_id, artifact_name):
         )
         response.headers["X-Content-Type-Options"] = "nosniff"
         return response
-    if artifact_name == "images":
-        images_dir = os.path.join(result_dir, "images")
+    if kind == "images_index":
+        images_dir = artifact_descriptor["images_dir"]
         if not os.path.isdir(images_dir):
             return jsonify({"error": "Images artifact not found"}), 404
         images = [
@@ -3911,21 +3919,17 @@ def open_artifact(task_id, artifact_name):
             for name in _image_artifact_names(images_dir)
         ]
         return jsonify({"task_id": task_id, "artifact": "images", "count": len(images), "images": images})
-    if artifact_name.startswith("images/"):
-        image_name = _safe_client_filename(artifact_name.split("/", 1)[1])
-        image_path = os.path.join(result_dir, "images", image_name)
+    if kind == "image_file":
+        image_path = artifact_descriptor["path"]
         if not os.path.exists(image_path):
             return jsonify({"error": "Image artifact not found"}), 404
-        mimetype = "image/png" if image_name.lower().endswith(".png") else "image/jpeg"
-        return _artifact_file_response(image_path, mimetype)
-    artifact_name = _safe_client_filename(artifact_name)
-    if artifact_name not in ARTIFACT_OPEN_ALLOWLIST:
+        return _artifact_file_response(image_path, artifact_descriptor["mimetype"])
+    if kind == "forbidden":
         return jsonify({"error": "Artifact is not openable"}), 403
-    path = os.path.join(result_dir, artifact_name)
+    path = artifact_descriptor["path"]
     if not os.path.exists(path):
         return jsonify({"error": "Artifact not found"}), 404
-    mimetype, _binary = ARTIFACT_OPEN_ALLOWLIST[artifact_name]
-    return _artifact_file_response(path, mimetype)
+    return _artifact_file_response(path, artifact_descriptor["mimetype"])
 
 
 @app.route("/api/source/<task_id>/table/<int:table_index>", methods=["GET"])
