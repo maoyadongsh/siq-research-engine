@@ -14,6 +14,11 @@ class _ModelLike:
         return {key: value for key, value in self._payload.items() if value is not None}
 
 
+class _BadModelLike:
+    def model_dump(self, exclude_none=True):
+        return ["not", "a", "dict"]
+
+
 def _write_analysis_package(
     company_dir: Path,
     *,
@@ -41,6 +46,29 @@ def test_context_helpers_normalize_model_like_payload():
     assert agent_runtime_context.clean_context_value(" A\nB ") == "A B"
     assert agent_runtime_context.context_company(context)["code"] == " 600104 "
     assert "600104" in agent_runtime_context.context_company_hint(context)
+
+
+def test_context_helpers_ignore_non_dict_payloads_and_nested_fields(tmp_path):
+    wiki_root = tmp_path / "wiki"
+
+    assert agent_runtime_context.context_dict(_BadModelLike()) == {}
+    assert agent_runtime_context.context_company({"company": "SAIC"}) == {}
+    assert agent_runtime_context.context_company_hint({"company": "SAIC", "report": ["bad"]}) == ""
+    assert (
+        agent_runtime_context.forced_context_company_dir(
+            {"force_company": True, "company": "SAIC"},
+            wiki_root=wiki_root,
+        )
+        is None
+    )
+    assert (
+        agent_runtime_context.build_format_chat_context(
+            wiki_root=wiki_root,
+            context={"company": "SAIC", "report": ["bad"], "page": "overview"},
+            context_header="HEADER",
+        )
+        == f"HEADER\n- Wiki 根目录: {wiki_root}\n- 路径规则: 所有 wiki/company/report 路径必须使用绝对路径，不得从 .hermes 或 profile home 推断。"
+    )
 
 
 def test_forced_context_company_dir_respects_root_boundary(tmp_path):
@@ -415,6 +443,7 @@ def test_note_detail_direct_and_context_intent_combinations():
 def test_attachment_helpers_normalize_and_classify_payloads():
     attachments = [
         _ModelLike({"kind": "image", "path": " /tmp/chart.png ", "filename": "chart.png"}),
+        _BadModelLike(),
         {"kind": "document", "path": "/tmp/report.pdf"},
         {"path": "/tmp/default-image.png"},
         {"kind": "image", "path": " "},

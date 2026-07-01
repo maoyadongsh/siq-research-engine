@@ -114,6 +114,24 @@ def test_display_message_with_attachments_omits_blank_url_link_target():
     assert result == "请分析这个附件\n\n[文档: report.pdf]"
 
 
+def test_display_message_with_attachments_omits_none_url_link_target_for_image():
+    result = agent_runtime_display._display_message_with_attachments(
+        "",
+        [{"filename": "chart.png", "kind": "image", "url": None}],
+    )
+
+    assert result == "请分析这个附件\n\n[图片: chart.png]"
+
+
+def test_display_message_with_attachments_uses_generic_label_when_path_has_no_basename():
+    result = agent_runtime_display._display_message_with_attachments(
+        "看下附件",
+        [{"filename": " ", "kind": "document", "path": "/", "url": "/api/chat/attachments/root"}],
+    )
+
+    assert result == "看下附件\n\n[文档: attachment](/api/chat/attachments/root)"
+
+
 def test_markdown_link_label_strips_whitespace_and_brackets():
     assert agent_runtime_display._markdown_link_label("  图[表]\nA  ") == "图(表) A"
 
@@ -127,6 +145,13 @@ def test_markdown_link_url_preserves_structure_and_encodes_values():
         "https://host/a%20b.png?x=1&y=two%20words"
     )
     assert agent_runtime_display._markdown_link_url(None) == ""
+
+
+def test_markdown_link_url_encodes_internal_control_whitespace():
+    assert (
+        agent_runtime_display._markdown_link_url("/api/file?name=line\nbreak\tchart.png")
+        == "/api/file?name=line%0Abreak%09chart.png"
+    )
 
 
 def test_display_message_with_attachments_escapes_markdown_link_url():

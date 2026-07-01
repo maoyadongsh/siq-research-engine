@@ -60,23 +60,28 @@ def context_dict(context: Any | None) -> dict[str, Any]:
     return raw if isinstance(raw, dict) else {}
 
 
+def _dict_field(raw: dict[str, Any], key: str) -> dict[str, Any]:
+    value = raw.get(key)
+    return value if isinstance(value, dict) else {}
+
+
 def context_company(context: Any | None) -> dict[str, Any]:
     raw = context_dict(context)
-    company = raw.get("company")
-    return company if isinstance(company, dict) else {}
+    return _dict_field(raw, "company")
 
 
 def context_company_hint(context: Any | None) -> str:
     raw = context_dict(context)
     if not raw:
         return ""
-    company = raw.get("company") or {}
+    company = _dict_field(raw, "company")
+    report = _dict_field(raw, "report")
     values = [
         company.get("name"),
         company.get("code"),
         company.get("dir"),
-        (raw.get("report") or {}).get("title"),
-        (raw.get("report") or {}).get("filename"),
+        report.get("title"),
+        report.get("filename"),
     ]
     return " ".join(str(item) for item in values if item)
 
@@ -276,7 +281,7 @@ def forced_context_company_dir(context: Any | None, *, wiki_root: Path) -> Path 
     raw = context_dict(context)
     if not raw or not raw.get("force_company"):
         return None
-    company = raw.get("company") or {}
+    company = _dict_field(raw, "company")
     candidate = company.get("dir")
     if not candidate:
         return None
@@ -379,9 +384,9 @@ def build_format_chat_context(*, wiki_root: Path, context: Any | None, context_h
     lines: list[str] = []
     lines.append(f"- Wiki 根目录: {wiki_root}")
     lines.append("- 路径规则: 所有 wiki/company/report 路径必须使用绝对路径，不得从 .hermes 或 profile home 推断。")
-    company = raw.get("company") or {}
-    report = raw.get("report") or {}
-    page = raw.get("page") or {}
+    company = _dict_field(raw, "company")
+    report = _dict_field(raw, "report")
+    page = _dict_field(raw, "page")
 
     company_parts: list[str] = []
     if company.get("name"):
@@ -524,6 +529,8 @@ def attachment_dicts(attachments: Any | None) -> list[dict[str, Any]]:
         elif isinstance(item, dict):
             raw = dict(item)
         else:
+            continue
+        if not isinstance(raw, dict):
             continue
         path = str(raw.get("path") or "").strip()
         if not path:
