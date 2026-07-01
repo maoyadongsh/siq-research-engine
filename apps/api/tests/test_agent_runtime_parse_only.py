@@ -98,6 +98,24 @@ def test_pdf2md_info_matches_message_accepts_stock_code_alias_from_filename():
     )
 
 
+def test_pdf2md_info_matches_message_ignores_market_prefix_aliases_from_filename():
+    info = {"filename": "Alpha_SZ_300750_2025年度报告.pdf"}
+    normalize = lambda value: "".join(ch.lower() for ch in str(value) if ch.isalnum())
+
+    assert not parse_only.pdf2md_info_matches_message(
+        info,
+        "请看 SZ 市场报告",
+        normalize_text=normalize,
+        context_company_hint=lambda context: "",
+    )
+    assert parse_only.pdf2md_info_matches_message(
+        info,
+        "请看 300750 年报",
+        normalize_text=normalize,
+        context_company_hint=lambda context: "",
+    )
+
+
 def test_pdf2md_parse_only_matches_filters_general_wiki_and_limit():
     infos = [
         {"task_id": "task-1", "company_name": "Alpha"},
@@ -168,6 +186,23 @@ def test_pdf2md_parse_only_matches_skips_existing_wiki_before_applying_limit():
     )
 
     assert matches == [infos[1]]
+
+
+def test_pdf2md_parse_only_matches_skips_non_dict_infos_before_predicates():
+    valid_info = {"task_id": "task-1", "company_name": "Alpha"}
+    seen: list[dict[str, str]] = []
+
+    matches = parse_only._pdf2md_parse_only_matches(
+        "Alpha 年报",
+        iter_pdf2md_task_infos=lambda: [None, "bad-row", valid_info],
+        pdf2md_info_matches_message=lambda info, message, context: seen.append(info) or True,
+        wiki_company_exists_for_pdf2md_info=lambda info: False,
+        is_general_assistant_request=lambda message: False,
+        resolve_company_dir=lambda message, context: None,
+    )
+
+    assert matches == [valid_info]
+    assert seen == [valid_info]
 
 
 @pytest.mark.parametrize("message,context_hint,expected", [("Alpha 年报全文", "", True), ("看看这家公司", "Alpha", True), ("随便聊聊", "", False)])
@@ -324,6 +359,41 @@ def test_build_pdf2md_parse_only_context_includes_available_artifact_fields(tmp_
     assert f"- content_list: {artifacts['content_list_json']}" in context
     assert f"- 表格索引: {artifacts['table_index_json']}" in context
     assert f"- 财务抽取: {artifacts['financial_data_json']}" in context
+
+
+def test_build_pdf2md_parse_only_context_skips_non_dict_matches_and_blank_artifacts(tmp_path):
+    document_full = tmp_path / "document_full.json"
+
+    def matches(message, context=None, *, limit=None):
+        assert limit == 3
+        return [
+            None,
+            "bad-row",
+            {
+                "task_id": " ",
+                "stock_code": None,
+                "company_name": "",
+                "filename": " ",
+                "result_dir": None,
+                "result_md": " ",
+                "document_full_json": document_full,
+            },
+        ]
+
+    context = parse_only.build_pdf2md_parse_only_context(
+        "这份报告",
+        pdf2md_parse_only_matches=matches,
+        parse_only_context_limit=3,
+    )
+
+    assert context is not None
+    assert "### P1. 未返回 / 代码 未返回" in context
+    assert "- task_id: 未返回" in context
+    assert "- 文件名: 未返回" in context
+    assert "- 结果目录: 未返回" in context
+    assert "- Markdown:" not in context
+    assert f"- 完整JSON: {document_full}" in context
+    assert "None" not in context
 
 
 def test_build_pdf2md_parse_only_context_returns_none_without_matches():

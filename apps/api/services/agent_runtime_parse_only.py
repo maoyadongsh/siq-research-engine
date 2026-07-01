@@ -61,6 +61,8 @@ def pdf2md_info_matches_message(
         normalized = normalize_text(alias)
         if not normalized:
             continue
+        if normalized.lower() in {"cn", "sh", "sz", "bj", "hk"}:
+            continue
         if re.fullmatch(r"\d{6}", normalized):
             if normalized in haystack:
                 return True
@@ -87,6 +89,8 @@ def _pdf2md_parse_only_matches(
         return []
     matches: list[dict[str, Any]] = []
     for info in iter_pdf2md_task_infos():
+        if not isinstance(info, dict):
+            continue
         if not pdf2md_info_matches_message(info, message, context):
             continue
         if wiki_company_exists_for_pdf2md_info(info):
@@ -125,7 +129,7 @@ def build_pdf2md_parse_only_context(
     pdf2md_parse_only_matches: Callable[..., list[dict[str, Any]]],
     parse_only_context_limit: int,
 ) -> str | None:
-    matches = pdf2md_parse_only_matches(message, context, limit=parse_only_context_limit)
+    matches = [info for info in pdf2md_parse_only_matches(message, context, limit=parse_only_context_limit) if isinstance(info, dict)]
     if not matches:
         return None
     lines = [
@@ -138,17 +142,18 @@ def build_pdf2md_parse_only_context(
         "## PDF parser 解析产物",
     ]
     for index, info in enumerate(matches, start=1):
-        task_id = info.get("task_id")
-        stock_code = info.get("stock_code") or "未返回"
-        company_name = info.get("company_name") or "未返回"
-        filename = info.get("filename") or "未返回"
+        task_id = _display_or_missing(info.get("task_id"))
+        stock_code = _display_or_missing(info.get("stock_code"))
+        company_name = _display_or_missing(info.get("company_name"))
+        filename = _display_or_missing(info.get("filename"))
+        result_dir = _display_or_missing(info.get("result_dir"))
         lines.extend(
             [
                 "",
                 f"### P{index}. {company_name} / 代码 {stock_code}",
                 f"- task_id: {task_id}",
                 f"- 文件名: {filename}",
-                f"- 结果目录: {info.get('result_dir')}",
+                f"- 结果目录: {result_dir}",
             ]
         )
         for label, key in (
@@ -161,7 +166,7 @@ def build_pdf2md_parse_only_context(
             ("财务抽取", "financial_data_json"),
         ):
             value = info.get(key)
-            if value:
+            if _has_display_value(value):
                 lines.append(f"- {label}: {value}")
         lines.append(
             f"- 可用来源模板: `/api/pdf_page/{task_id}/<pdf_page>?format=html`, "
@@ -169,6 +174,15 @@ def build_pdf2md_parse_only_context(
             f"`/api/source/{task_id}/table/<table_index>?format=html`"
         )
     return "\n".join(lines)
+
+
+def _display_or_missing(value: Any) -> str:
+    text = str(value).strip() if value is not None else ""
+    return text or "未返回"
+
+
+def _has_display_value(value: Any) -> bool:
+    return bool(str(value).strip()) if value is not None else False
 
 
 __all__ = [
