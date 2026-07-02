@@ -618,6 +618,70 @@ scripts/check_owner_migration.sh  # API 91/225, PDF source/artifact 53, PDF full
 
 下一步建议：当前主线继续以“维护尾项按回归触发”为主；如果用户要求继续加速，优先补 Agent runtime P1 设计矩阵，而不是直接实现新的 owner 迁移。
 
+### 0.15 2026-07-02 Agent runtime P1 设计窗口矩阵
+
+本轮按 0.14 的建议只补 Agent runtime P1 设计窗口，不修改 API 运行时代码，不新增测试，不继续抽 `stream_chat_reply`、sessions/history/memory/dedupe/build-run-input owner。后台智能体并行只读复核正常路径、短路/兼容入口和回滚/验证边界；结论一致：0.13 的 preflight 薄边界已经是当前实现线的停止点，下一次若继续实现，必须先按本节矩阵选 1 个 owner，并在实现前补对应哨兵测试。
+
+准入与禁区：
+
+- 准入：只允许在下一实现窗口选择 1 个 owner，且先补测试；候选仅限“streaming 编排再薄化”或“history/memory owner 抽取”之一。
+- 禁区：不得同轮迁 `stream_chat_reply` 主编排、ordinary chat、sessions/history/memory/dedupe/build-run-input、Hermes `create_run`、`_collect_stream_run` 主循环、`ACTIVE_RUNS`、SSE append、stop lifecycle、PDF parser 或 Web owner。
+- 兼容入口：`services.agent_chat_runtime` 继续通过 `sys.modules[__name__] = _impl` 暴露 impl 模块对象；所有 monkeypatch 入口必须继续命中 `runtime.*` 全局符号。
+- 注意：`agent_runtime_attachments.py`、`agent_runtime_memory.py`、`agent_runtime_dedupe.py` 当前只能视为纯 helper / façade 边界；真实 owner 接线仍在 `agent_chat_runtime_impl.py`，不得在无新增哨兵测试时迁移。
+
+正常行为矩阵：
+
+| 路径 | 必须保持的顺序 | 关键合同 |
+| --- | --- | --- |
+| Blocking 正常 chat | request envelope -> catalog/general/duplicate 检查 -> analysis completion guard -> `load_history` -> `ensure_local_memory_context` -> PDF wait -> metadata refresh -> save user -> image analysis -> `build_hermes_run_input` -> `create_run` -> register `ACTIVE_RUNS` -> `collect_run_result` -> clear active -> normalize/evidence -> save assistant -> refresh memory -> remember completed | `conversation_history` 是保存当前 user 前的 history；`allow_initialize == not history`；Hermes session id 为 `siq:{profile}:{session_id}`；保存 user 使用 refreshed attachments |
+| Streaming 无 PDF | request envelope -> active join 检查 -> catalog/general/duplicate 检查 -> analysis completion guard -> `load_history` -> `ensure_local_memory_context` -> save user -> image analysis -> `build_hermes_run_input` -> `create_run` -> register `ACTIVE_RUNS` -> append `run` -> spawn `_collect_stream_run` -> replay active stream | 不发“正在等待 PDF 解析” progress；`create_run` history 不包含当前 user；`_collect_stream_run` 仍负责 Hermes stream、assistant save、remember、done/clear |
+| Streaming 有 PDF | request envelope -> active join 检查 -> catalog/general/duplicate 检查 -> analysis completion guard -> `load_history` -> `ensure_local_memory_context` -> yield PDF wait progress -> PDF wait -> metadata refresh -> save user -> image analysis -> `create_run` -> append `run` -> spawn `_collect_stream_run` -> replay active stream | PDF progress 必须早于 wait/refresh；save user 必须晚于 metadata refresh；事件序至少保持 preflight 测试锁定的 `progress, run, progress, done` |
+| General assistant | request envelope -> `_is_general_assistant_request` 命中 -> `_forget_recent_completed_run` -> 继续正常 Hermes run | 这不是终止短路；它只禁止旧 duplicate/evidence/公司目录污染，run input 走 `GENERAL_ASSISTANT_CONTEXT` |
+
+短路与兼容矩阵：
+
+| 分支 | 当前合同 | 禁止事项 / 已有护栏 |
+| --- | --- | --- |
+| Existing active run join | streaming 在 envelope 后立即检查 `has_active_run`，命中后只 replay `stream_active_run_events` | 不得进入 catalog、duplicate、preflight、save、create run；`test_stream_chat_reply_existing_active_run_join_skips_preflight_side_effects` 已锁 |
+| Catalog reply | preflight 前命中 `build_wiki_catalog_reply` 后保存 user/assistant、refresh memory、remember completed，并返回/stream catalog reply | 不得创建 Hermes run；不得进入 `ChatRunPreflightContext` |
+| Duplicate | 非 catalog 且非 general 时查 `_recent_duplicate_reply`；blocking 直接返回，streaming 发 `delta` + `done {deduped: true}` | 不得进入 history/memory/save/refresh/PDF wait/image/create/collect；blocking 与 streaming duplicate 测试已锁 |
+| Stop active run | `agent_runtime_streaming.py` 是 stop owner；无 state、重复 stop、404 orphan 均有固定返回与事件行为 | 不迁 stop lifecycle；`runtime.stop_run` monkeypatch 必须继续注入 streaming stop |
+| Facade / state identity | `runtime.ACTIVE_RUNS`、`agent_runtime_sessions.ACTIVE_RUNS`、`agent_runtime_streaming.ACTIVE_RUNS` 必须是同一个 dict；`ActiveRunState` 与 append/clear helper identity 保持一致 | 不改 `agent_chat_runtime.py` facade；不复制 ACTIVE_RUNS；active run identity 测试已锁 |
+
+回滚矩阵：
+
+| 失败信号 | 立即回滚范围 | 保留项 |
+| --- | --- | --- |
+| preflight 顺序失败、history 包含当前 user、`allow_initialize` 变化 | 回滚本轮 owner 接线到 0.13 inline/薄 helper 调用点 | 保留现有 `test_agent_runtime_chat_preflight.py` 护栏 |
+| streaming PDF progress 顺序变化或无 PDF 时误发等待 progress | 只回滚 streaming 接线，不动 blocking | 保留 PDF wait/refresh 调用点在 streaming callsite 的设计 |
+| duplicate/catalog/active join 进入新 owner 或产生副作用 | 回滚新 owner 的短路前置接线 | 保留 forbidden monkeypatch 哨兵 |
+| attachments owner 试点失败：近期附件复用、附件-only 消息、PDF 独立 parse dir、metadata refresh 或 safe path/context 测试失败 | 回滚 `_attachment_*`、`load_recent_session_attachments`、`wait_for_pdf_attachment_parses` 等真实接线到 `agent_chat_runtime_impl.py` | `agent_runtime_attachments.py` 继续只做 helper / façade |
+| history/local-memory owner 试点失败：profile/session 串线、保存当前 user 前读取旧 history 顺序破坏、`refresh_session_memory` 包含当前轮 | 回滚 `load_history`、`save_message`、`refresh_session_memory`、`ensure_local_memory_context` 接线到 `agent_chat_runtime_impl.py` | `agent_runtime_memory.py` 继续只保留纯 helper |
+| dedupe owner 试点失败：duplicate 未在 preflight 前短路，或 active run join 仍创建新 Hermes run | 回滚 `_recent_duplicate_reply`、`_remember_completed_run`、message hash 接线到 `agent_chat_runtime_impl.py` | `agent_runtime_dedupe.py` 继续只保留 hash/progress signature 等纯函数 |
+| `_collect_stream_run` 再拆分失败：cancel/idle/global timeout/tool-loop/reasoning 顺序、`stop_run` monkeypatch、history save 或 `ACTIVE_RUNS` 清理失败 | 回滚 Hermes `stream_run` 调用、tool/delta 主循环、evidence normalization、save/done payload 接线到 `agent_chat_runtime_impl.py` | 不回滚已稳定的 streaming event primitive |
+| monkeypatch/facade identity 失败 | 立即恢复 `agent_chat_runtime.py` 的 `sys.modules[__name__] = _impl` 与 impl 全局符号调用 | 不保留任何绕过 `runtime.*` 的静态绑定 |
+| stop/active stream drain/404 orphan 回归 | 回滚对 `agent_runtime_streaming.py` 或 stop 注入路径的任何改动 | 保留 active run owner 在 streaming 模块 |
+| API focused 通过但聚合门禁失败 | 不提交实现；只提交设计或测试补充 | 先修门禁，再重新评估 owner |
+
+测试与验证矩阵：
+
+| 阶段 | 必跑命令 |
+| --- | --- |
+| 设计文档窗口 | `git diff --check` |
+| API 实现前 baseline | `cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_chat_preflight.py -q`；`cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_active_runs.py tests/test_agent_chat_runtime_loops.py tests/test_agent_runtime_chat_preflight.py tests/test_agent_chat_runtime_attachments.py tests/test_agent_runtime_memory.py tests/test_agent_runtime_dedupe.py -q` |
+| API 实现后 focused | `cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_*.py -q`；`cd apps/api && .venv/bin/python -m py_compile services/agent_chat_runtime_impl.py services/agent_runtime_sessions.py services/agent_runtime_streaming.py services/agent_runtime_attachments.py services/agent_runtime_memory.py services/agent_runtime_dedupe.py tests/test_agent_runtime_chat_preflight.py` |
+| 全仓收口 | `scripts/check_owner_migration.sh`；`git status --short` |
+
+后续工作量重估：
+
+| 优先级 | 任务 | 范围 | 工作量 | 门禁 |
+| --- | --- | --- | --- | --- |
+| P0 | Agent runtime P1 设计窗口 | 本节已完成；后续只需按矩阵执行 | 0 天 | `git diff --check` |
+| P1 | Agent runtime 下一实现试点 | 只选 1 个 owner，优先“streaming 编排再薄化”或“history/memory owner 抽取”；先补测试再实现 | M，约 0.5-1 天 | API focused + 聚合门禁 |
+| P2 | PDF / Frontend 维护尾项 | 仅按回归触发补测试；不与 Agent runtime 实现同批 | 0-0.25 天 | 对应聚焦门禁 |
+
+下一步建议：若继续开发，先为选定的 1 个 Agent runtime owner 补一条失败态哨兵测试，再做最小实现；如果无法明确 owner，就停止实现线，只做回归触发的维护尾项。
+
 ## 1. 当前架构事实
 
 ### 1.1 当前主要目录职责
