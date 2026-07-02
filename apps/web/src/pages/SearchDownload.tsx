@@ -597,7 +597,7 @@ export default function SearchDownload() {
   }
 
   const MarketSegmentedControl = (
-    <nav className="grid grid-cols-2 gap-2 rounded-[20px] border border-border bg-card p-2 shadow-sm xl:grid-cols-6" aria-label="选择披露市场">
+    <nav className="search-market-grid rounded-[20px] border border-border bg-card p-2 shadow-sm" aria-label="选择披露市场">
       {DISCLOSURE_MARKET_ORDER.map((item) => {
         const marketMeta = DISCLOSURE_MARKETS[item]
         const isActive = market === item
@@ -606,7 +606,7 @@ export default function SearchDownload() {
             key={item}
             type="button"
             onClick={() => setMarketAndUrl(item)}
-            className={`flex min-h-[4.5rem] items-center justify-between gap-2 rounded-2xl px-3 py-2.5 text-left font-semibold transition-colors sm:min-h-20 sm:gap-3 sm:px-4 sm:py-3 ${
+            className={`flex min-h-[4.5rem] min-w-0 items-center justify-between gap-2 overflow-hidden rounded-2xl px-3 py-2.5 text-left font-semibold transition-colors sm:min-h-20 sm:gap-3 sm:px-4 sm:py-3 ${
               isActive
                 ? 'bg-primary/10 text-primary'
                 : 'text-text-muted hover:bg-bg hover:text-text'
@@ -614,10 +614,10 @@ export default function SearchDownload() {
             aria-pressed={isActive}
             title={`${marketMeta.professionalName} · ${marketMeta.exchanges}`}
           >
-            <span className="min-w-0">
-              <span className="block text-[15px] font-extrabold">{marketMeta.label}</span>
+            <span className="min-w-0 flex-1 overflow-hidden">
+              <span className="block truncate text-[15px] font-extrabold">{marketMeta.label}</span>
               <span className="mt-0.5 block truncate font-mono text-[11px] font-bold leading-4 opacity-85">{marketMeta.exchanges}</span>
-              <span className="mt-0.5 block text-xs font-semibold leading-5 opacity-85">{marketMeta.searchDescription}</span>
+              <span className="mt-0.5 block truncate text-xs font-semibold leading-5 opacity-85">{marketMeta.searchDescription}</span>
             </span>
             <span className="flex shrink-0 flex-col items-end gap-1">
               <span className="rounded-full border border-current/20 px-2 py-0.5 font-mono text-xs font-bold">{marketMeta.shortLabel}</span>
@@ -633,7 +633,7 @@ export default function SearchDownload() {
 
       <section className="secondary-hero">
         <div className="secondary-hero-inner">
-          <div className="max-w-3xl">
+          <div className="min-w-0 flex-1">
             <div className="secondary-kicker">
               <Search className="h-3.5 w-3.5" />
               Search & Download
@@ -641,7 +641,7 @@ export default function SearchDownload() {
             <h1 className="secondary-title">搜索下载</h1>
             <p className="secondary-description">按公司名或股票代码检索公告财报，选择目标文件后进入解析与分析流程。</p>
           </div>
-          <div className="flex w-full flex-col gap-3 lg:w-auto lg:items-end">
+          <div className="flex min-w-0 w-full flex-col gap-3 lg:w-auto lg:max-w-full lg:items-end">
             <div className="secondary-step-row">
               <span className="secondary-step-chip is-active">查询</span>
               <span className="secondary-step-chip">候选 {totalCandidates}</span>

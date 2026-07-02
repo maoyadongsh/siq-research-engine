@@ -41,15 +41,15 @@ export function DownloadedReportsPanel({
 }) {
   return (
     <div className="apple-card rounded-[var(--radius-panel)] p-4 sm:p-6">
-      <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div className="min-w-0">
+      <div className="mb-5 flex min-w-0 flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div className="min-w-0 flex-1">
           <h2 className="flex items-center gap-2 text-lg font-semibold text-text sm:text-xl">
             <FolderOpen className="h-5 w-5 text-primary" />
             已下载财报文件
           </h2>
           <p className="mt-1 text-sm leading-6 text-text-muted sm:text-base">来自本地 downloads 目录，PDF 可进入解析；HTML/iXBRL 可在浏览器新标签中打开查看。</p>
         </div>
-        <div className="grid w-full gap-2 sm:grid-cols-[auto_minmax(240px,320px)_auto] sm:items-center lg:w-auto">
+        <div className="grid w-full min-w-0 gap-2 sm:grid-cols-[auto_minmax(0,320px)_auto] sm:items-center lg:w-[min(100%,560px)] lg:shrink-0">
           <label htmlFor="downloaded-report-query" className="text-sm font-semibold leading-5 text-text-muted sm:whitespace-nowrap">
             搜索公司或文件名
           </label>

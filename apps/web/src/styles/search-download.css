@@ -1,5 +1,16 @@
 .search-download-query {
+  min-width: 0;
+  max-width: 100%;
   padding: 1rem 1.25rem 1.15rem;
+}
+
+.search-market-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(12rem, 100%), 1fr));
+  gap: .5rem;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .search-download-heading {
@@ -18,6 +29,9 @@
   grid-template-columns: minmax(13rem, 18rem) minmax(0, 1fr);
   align-items: center;
   gap: 1rem;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   margin-bottom: .85rem;
   border: 1px solid rgba(191, 219, 254, .74);
   border-radius: var(--radius-panel);
@@ -69,6 +83,7 @@
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: .65rem;
+  min-width: 0;
 }
 
 .smart-search-market {
@@ -175,6 +190,9 @@
   align-items: end;
   gap: .7rem;
   justify-content: start;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   border: 1px solid rgba(216,225,236,.84);
   border-radius: var(--radius-panel);
   background: rgba(255,255,255,.62);
@@ -187,11 +205,11 @@
 }
 
 .search-download-form.without-market.has-filter {
-  grid-template-columns: minmax(18rem, 1fr) minmax(7rem, 7.5rem) minmax(7rem, 7.5rem) minmax(7.5rem, auto);
+  grid-template-columns: minmax(0, 1fr) minmax(7rem, 7.5rem) minmax(7rem, 7.5rem) minmax(7.5rem, auto);
 }
 
 .search-download-form.without-market:not(.has-filter) {
-  grid-template-columns: minmax(18rem, 1fr) minmax(7rem, 7.5rem) minmax(7.5rem, auto);
+  grid-template-columns: minmax(0, 1fr) minmax(7rem, 7.5rem) minmax(7.5rem, auto);
 }
 
 .search-download-field {
@@ -216,6 +234,7 @@
   line-height: 1;
   box-shadow: 0 10px 22px rgba(0,113,227,.14);
   transition: transform 180ms ease, filter 180ms ease, opacity 180ms ease;
+  white-space: nowrap;
 }
 
 .search-download-submit:hover {
@@ -250,6 +269,25 @@
 
   .search-download-form .query-field,
   .search-download-submit {
+    grid-column: 1 / -1;
+  }
+
+  .search-download-submit {
+    width: 100%;
+  }
+}
+
+@media (min-width: 1024px) and (max-width: 1439px) {
+  .search-market-grid {
+    grid-template-columns: repeat(auto-fit, minmax(min(13.5rem, 100%), 1fr));
+  }
+
+  .search-download-form.without-market.has-filter,
+  .search-download-form.without-market:not(.has-filter) {
+    grid-template-columns: minmax(0, 1fr) minmax(7rem, 7.5rem);
+  }
+
+  .search-download-form .query-field {
     grid-column: 1 / -1;
   }
 
