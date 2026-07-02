@@ -62,7 +62,22 @@ def select_local_memory_source_messages(
     source_messages = list(messages[:-recent_limit])
     while source_messages and source_messages[-1].role == "user":
         source_messages.pop()
-    return source_messages
+    if not source_messages:
+        return []
+
+    selected: list[MemoryMessage] = []
+    pending_user: MemoryMessage | None = None
+    for message in source_messages:
+        if message.role == "user":
+            if pending_user is not None:
+                selected.append(pending_user)
+            pending_user = message
+        elif message.role == "assistant":
+            if pending_user is None:
+                continue
+            selected.extend([pending_user, message])
+            pending_user = None
+    return selected
 
 
 def build_local_memory_summary(

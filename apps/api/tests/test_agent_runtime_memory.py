@@ -283,6 +283,161 @@ def test_refresh_session_memory_does_not_split_turn_at_recent_boundary(tmp_path)
     anyio.run(_with_temp_chat_session_memory, tmp_path, run_case)
 
 
+def test_refresh_session_memory_isolates_same_profile_sessions(tmp_path):
+    async def run_case(async_session):
+        session_a = "siq-assistant-session-a"
+        session_b = "siq-assistant-session-b"
+        async_session.add_all(
+            [
+                ChatMessage(session_id=session_a, role="user", content="A1：上汽集团"),
+                ChatMessage(session_id=session_a, role="assistant", content="A1答：已记住 A"),
+                ChatMessage(session_id=session_a, role="user", content="A2：商誉"),
+                ChatMessage(session_id=session_a, role="assistant", content="A2答：商誉继续跟踪"),
+                ChatMessage(session_id=session_a, role="user", content="A3：现金流"),
+                ChatMessage(session_id=session_a, role="assistant", content="A3答：现金流继续跟踪"),
+                ChatMessage(session_id=session_b, role="user", content="B1：宁德时代"),
+                ChatMessage(session_id=session_b, role="assistant", content="B1答：已记住 B"),
+                ChatMessage(session_id=session_b, role="user", content="B2：现金流"),
+                ChatMessage(session_id=session_b, role="assistant", content="B2答：现金流继续跟踪"),
+                ChatMessage(session_id=session_b, role="user", content="B3：商誉"),
+                ChatMessage(session_id=session_b, role="assistant", content="B3答：商誉继续跟踪"),
+            ]
+        )
+        await async_session.commit()
+
+        await agent_chat_runtime.refresh_session_memory(
+            async_session,
+            "siq_assistant",
+            session_a,
+            recent_limit=2,
+        )
+
+        result_a = await async_session.exec(
+            select(ChatSessionMemory).where(
+                ChatSessionMemory.profile == "siq_assistant",
+                ChatSessionMemory.session_id == session_a,
+            )
+        )
+        record_a = result_a.first()
+        result_b = await async_session.exec(
+            select(ChatSessionMemory).where(
+                ChatSessionMemory.profile == "siq_assistant",
+                ChatSessionMemory.session_id == session_b,
+            )
+        )
+        record_b = result_b.first()
+
+        assert record_a is not None
+        assert record_b is None
+        assert "A1：上汽集团" in record_a.summary
+        assert "B1：宁德时代" not in record_a.summary
+        assert (
+            await agent_chat_runtime.load_local_memory_context(
+                async_session,
+                "siq_assistant",
+                session_a,
+            )
+        ) is not None
+        assert (
+            await agent_chat_runtime.load_local_memory_context(
+                async_session,
+                "siq_assistant",
+                session_b,
+            )
+        ) is None
+
+    anyio.run(_with_temp_chat_session_memory, tmp_path, run_case)
+
+
+def test_refresh_session_memory_keeps_foreign_profile_record_isolated_for_same_session_id(tmp_path):
+    async def run_case(async_session):
+        session_id = "siq-assistant-foreign-record"
+        async_session.add_all(
+            [
+                ChatMessage(session_id=session_id, role="user", content="当前会话：上汽集团"),
+                ChatMessage(session_id=session_id, role="assistant", content="当前会话答：已记住"),
+                ChatMessage(session_id=session_id, role="user", content="当前会话：商誉"),
+                ChatMessage(session_id=session_id, role="assistant", content="当前会话答：商誉继续跟踪"),
+                ChatMessage(session_id=session_id, role="user", content="当前会话：现金流"),
+                ChatMessage(session_id=session_id, role="assistant", content="当前会话答：现金流继续跟踪"),
+                ChatSessionMemory(
+                    profile="siq_analysis",
+                    session_id=session_id,
+                    summary="foreign sentinel",
+                    last_message_id=999,
+                ),
+            ]
+        )
+        await async_session.commit()
+
+        await agent_chat_runtime.refresh_session_memory(
+            async_session,
+            "siq_assistant",
+            session_id,
+            recent_limit=2,
+        )
+
+        result = await async_session.exec(
+            select(ChatSessionMemory).where(ChatSessionMemory.session_id == session_id)
+        )
+        records = result.all()
+
+        assistant_record = next(record for record in records if record.profile == "siq_assistant")
+        analysis_record = next(record for record in records if record.profile == "siq_analysis")
+
+        assert assistant_record.summary is not None
+        assert "当前会话：上汽集团" in assistant_record.summary
+        assert analysis_record.summary == "foreign sentinel"
+        assert analysis_record.last_message_id == 999
+
+    anyio.run(_with_temp_chat_session_memory, tmp_path, run_case)
+
+
+def test_ensure_local_memory_context_refreshes_and_respects_profile_prefix(tmp_path):
+    async def run_case(async_session):
+        matching_session = "siq-assistant-prefix-gate"
+        foreign_session = "siq-analysis-prefix-gate"
+        async_session.add_all(
+            [
+                *[
+                    item
+                    for i in range(1, 14)
+                    for item in (
+                        ChatMessage(session_id=matching_session, role="user", content=f"匹配会话 {i}"),
+                        ChatMessage(session_id=matching_session, role="assistant", content=f"匹配会话答 {i}"),
+                    )
+                ],
+                ChatMessage(session_id=foreign_session, role="user", content="外部会话旧问题 1"),
+                ChatMessage(session_id=foreign_session, role="assistant", content="外部会话旧回答 1"),
+            ]
+        )
+        await async_session.commit()
+
+        matching_context = await agent_chat_runtime.ensure_local_memory_context(
+            async_session,
+            "siq_assistant",
+            matching_session,
+        )
+        foreign_context = await agent_chat_runtime.ensure_local_memory_context(
+            async_session,
+            "siq_assistant",
+            foreign_session,
+        )
+
+        result = await async_session.exec(select(ChatSessionMemory))
+        records = result.all()
+
+        assert matching_context is not None
+        assert matching_context.startswith("<local-memory>")
+        assert "匹配会话 1" in matching_context
+        assert foreign_context is None
+        assert len(records) == 1
+        assert records[0].profile == "siq_assistant"
+        assert records[0].session_id == matching_session
+
+    anyio.run(_with_temp_chat_session_memory, tmp_path, run_case)
+
+
 def test_refresh_session_memory_skips_non_matching_profile_prefix(tmp_path):
     async def run_case(async_session):
         session_id = "siq-analysis-local-memory"

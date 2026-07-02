@@ -782,6 +782,57 @@ scripts/check_owner_migration.sh  # API 93/230, PDF 53/304, Web unit 44, fronten
 
 下一步建议：继续补 history/memory 隔离哨兵即可，不急于迁 DB owner；如果要实现，仍选择一个纯函数级或同文件薄 helper，避免同时动 preflight、DB upsert 和 streaming lifecycle。
 
+### 0.18 2026-07-02 History/memory 隔离哨兵补强
+
+本轮继续沿 0.17 的 history/memory 方向推进，但仍不迁 `load_history`、`save_message`、`refresh_session_memory` 的 DB owner。后台智能体复核后确认当前实现不必改逻辑；本轮重点是把隔离边界补成可回归的哨兵：同 profile 不同 session、same session foreign profile record、以及 `ensure_local_memory_context` 的 profile/session prefix gate。为避免 local-memory summary 被 recent window 切成半轮，`select_local_memory_source_messages` 继续保持“按 recent window 之前的旧消息、并对尾部 dangling user 向后对齐到完整 turn”的纯函数边界。
+
+完成项：
+
+- 新增 `test_refresh_session_memory_isolates_same_profile_sessions`：验证 `refresh_session_memory` 只影响目标 session，且 `load_local_memory_context` 不会把另一个 session 的内容串进来。
+- 新增 `test_refresh_session_memory_keeps_foreign_profile_record_isolated_for_same_session_id`：同一 session_id 下的 foreign profile 记录保持原样，assistant 记录单独创建/更新。
+- 新增 `test_ensure_local_memory_context_refreshes_and_respects_profile_prefix`：对匹配的 `siq_assistant / siq-assistant-*` 返回 `<local-memory>` 并写入 record；对不匹配 prefix 返回 `None`，不创建 record。
+- 保留前一轮 selector 纯边界：recent window 之前的旧消息仍由 `select_local_memory_source_messages` 产出，不迁 DB 查询和 commit。
+
+行为与风险边界：
+
+| 路径 | 本轮保持 / 改进 |
+| --- | --- |
+| same profile 不同 session | 仅目标 session 进入 summary 与 memory record；其余 session 不被触碰 |
+| same session 不同 profile | 复合主键 `profile + session_id` 继续隔离，foreign record 不覆盖 |
+| ensure prefix gate | `ensure_local_memory_context()` 只在匹配 profile/session prefix 时刷新并读出本地记忆 |
+| selector 边界 | 纯 helper 继续防止 recent window 把 dangling user 写入 summary |
+
+回滚边界：
+
+| 失败信号 | 回滚范围 |
+| --- | --- |
+| 隔离测试失败但 DB 逻辑未变 | 回滚本轮测试哨兵；不改 `refresh_session_memory` / `ensure_local_memory_context` |
+| profile/session 串线或 foreign record 覆盖 | 回滚 `refresh_session_memory` 的本轮接线与 selector helper，恢复到 0.17 版本 |
+| prefix gate 行为变化 | 回滚 `ensure_local_memory_context` 测试扩展，保留已有 preflight/memory 回归护栏 |
+
+本轮验证：
+
+```bash
+cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_memory.py -q  # 13 passed
+cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_chat_preflight.py -q  # 9 passed
+cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_active_runs.py tests/test_agent_chat_runtime_loops.py tests/test_agent_runtime_chat_preflight.py tests/test_agent_chat_runtime_attachments.py tests/test_agent_runtime_memory.py tests/test_agent_runtime_dedupe.py -q  # 123 passed
+cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_*.py -q  # 233 passed
+cd apps/api && .venv/bin/python -m py_compile services/agent_chat_runtime_impl.py services/agent_runtime_sessions.py services/agent_runtime_streaming.py services/agent_runtime_attachments.py services/agent_runtime_memory.py services/agent_runtime_dedupe.py tests/test_agent_runtime_chat_preflight.py tests/test_agent_runtime_memory.py tests/test_agent_runtime_active_runs.py
+git diff --check
+scripts/check_owner_migration.sh  # API / PDF / Web gates passed
+```
+
+后续工作量重估：
+
+| 优先级 | 任务 | 范围 | 工作量 | 门禁 |
+| --- | --- | --- | --- | --- |
+| P0 | History/memory 隔离哨兵补强 | 本节已完成；后续只接受回归修正 | 0 天 | memory + preflight + 聚合门禁 |
+| P1 | history/memory DB owner 设计 | 如果继续推进，先写 owner 矩阵和失败态测试；不得与 streaming/attachments/dedupe 同轮迁移 | M，约 0.5-1 天 | 新增哨兵先红后绿 + `scripts/check_owner_migration.sh` |
+| P1 | 继续补隔离回归面 | 若再推进，优先补 `test_collect_chat_reply_passes_old_history_before_saving_current_user` 这类真实 DB 顺序护栏 | S，约 0.25 天 | `tests/test_agent_runtime_memory.py` + `tests/test_agent_runtime_chat_preflight.py` |
+| P2 | PDF / Frontend 维护尾项 | 继续按回归触发 | 0-0.25 天 | 对应聚焦门禁 |
+
+下一步建议：如果继续加速，优先补真实 DB 顺序护栏，而不是直接迁 history/memory DB owner；这条线目前已经足够稳定，适合只做回归触发的小修小补。
+
 ## 1. 当前架构事实
 
 ### 1.1 当前主要目录职责
