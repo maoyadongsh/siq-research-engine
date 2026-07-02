@@ -2257,13 +2257,11 @@ async def _load_session_memory_record(
     profile: HermesProfile,
     session_id: str,
 ) -> ChatSessionMemory | None:
-    result = await async_session.exec(
-        select(ChatSessionMemory).where(
-            ChatSessionMemory.profile == profile,
-            ChatSessionMemory.session_id == session_id,
-        )
+    return await agent_runtime_memory.load_session_memory_record(
+        async_session,
+        profile,
+        session_id,
     )
-    return result.first()
 
 
 async def refresh_session_memory(
@@ -2273,43 +2271,17 @@ async def refresh_session_memory(
     *,
     recent_limit: int = LOCAL_MEMORY_RECENT_LIMIT,
 ) -> None:
-    if (
-        not LOCAL_MEMORY_ENABLED
-        or profile not in LOCAL_MEMORY_ENABLED_PROFILES
-        or not _session_id_matches_profile(profile, session_id)
-    ):
-        return
-
-    result = await async_session.exec(
-        select(ChatMessage)
-        .where(ChatMessage.session_id == session_id)
-        .order_by(ChatMessage.id)
-    )
-    messages = list(result.all())
-    older_messages = agent_runtime_memory.select_local_memory_source_messages(
-        messages,
+    await agent_runtime_memory.refresh_session_memory(
+        async_session,
+        profile,
+        session_id,
         recent_limit=recent_limit,
+        local_memory_enabled=LOCAL_MEMORY_ENABLED,
+        enabled_profiles=LOCAL_MEMORY_ENABLED_PROFILES,
+        session_id_matches_profile=_session_id_matches_profile,
+        build_summary=build_local_memory_summary,
+        load_record=_load_session_memory_record,
     )
-    summary = build_local_memory_summary(older_messages)
-    last_message_id = older_messages[-1].id if older_messages else None
-    record = await _load_session_memory_record(async_session, profile, session_id)
-
-    if record is None:
-        if not summary:
-            return
-        record = ChatSessionMemory(
-            profile=profile,
-            session_id=session_id,
-            summary=summary,
-            last_message_id=last_message_id,
-        )
-        async_session.add(record)
-    else:
-        record.summary = summary
-        record.last_message_id = last_message_id
-        record.updated_at = datetime.utcnow()
-        async_session.add(record)
-    await async_session.commit()
 
 
 async def load_local_memory_context(
@@ -2317,14 +2289,16 @@ async def load_local_memory_context(
     profile: HermesProfile,
     session_id: str,
 ) -> str | None:
-    if (
-        not LOCAL_MEMORY_ENABLED
-        or profile not in LOCAL_MEMORY_ENABLED_PROFILES
-        or not _session_id_matches_profile(profile, session_id)
-    ):
-        return None
-    record = await _load_session_memory_record(async_session, profile, session_id)
-    return build_local_memory_context(record.summary if record else None)
+    return await agent_runtime_memory.load_local_memory_context(
+        async_session,
+        profile,
+        session_id,
+        local_memory_enabled=LOCAL_MEMORY_ENABLED,
+        enabled_profiles=LOCAL_MEMORY_ENABLED_PROFILES,
+        session_id_matches_profile=_session_id_matches_profile,
+        load_record=_load_session_memory_record,
+        build_context=build_local_memory_context,
+    )
 
 
 async def ensure_local_memory_context(
@@ -2332,8 +2306,13 @@ async def ensure_local_memory_context(
     profile: HermesProfile,
     session_id: str,
 ) -> str | None:
-    await refresh_session_memory(async_session, profile, session_id)
-    return await load_local_memory_context(async_session, profile, session_id)
+    return await agent_runtime_memory.ensure_local_memory_context(
+        async_session,
+        profile,
+        session_id,
+        refresh_memory=refresh_session_memory,
+        load_context=load_local_memory_context,
+    )
 
 
 async def save_message_in_background(

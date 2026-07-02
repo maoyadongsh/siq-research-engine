@@ -235,6 +235,65 @@ def test_refresh_session_memory_uses_memory_source_selector(tmp_path, monkeypatc
     anyio.run(_with_temp_chat_session_memory, tmp_path, run_case)
 
 
+def test_refresh_session_memory_uses_runtime_record_and_summary_patch_points(tmp_path, monkeypatch):
+    async def run_case(async_session):
+        session_id = "siq-assistant-wrapper-memory"
+        async_session.add_all(
+            [
+                ChatMessage(session_id=session_id, role="user", content="第一轮：上汽集团"),
+                ChatMessage(session_id=session_id, role="assistant", content="第一答：已记住"),
+                ChatMessage(session_id=session_id, role="user", content="第二轮：商誉"),
+                ChatMessage(session_id=session_id, role="assistant", content="第二答：继续跟踪"),
+            ]
+        )
+        await async_session.commit()
+
+        record_calls: list[tuple[str, str]] = []
+        summary_calls: list[list[str]] = []
+
+        async def fake_load_session_memory_record(_async_session, profile, current_session_id):
+            record_calls.append((profile, current_session_id))
+            return None
+
+        def fake_build_local_memory_summary(messages):
+            summary_calls.append([message.content for message in messages])
+            return "patched memory summary"
+
+        monkeypatch.setattr(
+            agent_chat_runtime,
+            "_load_session_memory_record",
+            fake_load_session_memory_record,
+        )
+        monkeypatch.setattr(
+            agent_chat_runtime,
+            "build_local_memory_summary",
+            fake_build_local_memory_summary,
+        )
+
+        await agent_chat_runtime.refresh_session_memory(
+            async_session,
+            "siq_assistant",
+            session_id,
+            recent_limit=2,
+        )
+
+        result = await async_session.exec(
+            select(ChatSessionMemory).where(
+                ChatSessionMemory.profile == "siq_assistant",
+                ChatSessionMemory.session_id == session_id,
+            )
+        )
+        record = result.first()
+
+        assert record_calls == [("siq_assistant", session_id)]
+        assert summary_calls == [["第一轮：上汽集团", "第一答：已记住"]]
+        assert record is not None
+        assert record.summary == "patched memory summary"
+        assert record.last_message_id == 2
+
+    anyio.run(_with_temp_chat_session_memory, tmp_path, run_case)
+
+
 def test_refresh_session_memory_does_not_split_turn_at_recent_boundary(tmp_path):
     async def run_case(async_session):
         session_id = "siq-assistant-split-turn-memory"
@@ -436,6 +495,44 @@ def test_ensure_local_memory_context_refreshes_and_respects_profile_prefix(tmp_p
         assert records[0].session_id == matching_session
 
     anyio.run(_with_temp_chat_session_memory, tmp_path, run_case)
+
+
+def test_ensure_local_memory_context_uses_runtime_refresh_and_load_patch_points(monkeypatch):
+    async def run_case():
+        calls: list[tuple[str, str, str]] = []
+
+        async def fake_refresh_session_memory(_async_session, profile, current_session_id):
+            calls.append(("refresh", profile, current_session_id))
+
+        async def fake_load_local_memory_context(_async_session, profile, current_session_id):
+            calls.append(("load", profile, current_session_id))
+            return "<local-memory>patched wrapper memory</local-memory>"
+
+        monkeypatch.setattr(
+            agent_chat_runtime,
+            "refresh_session_memory",
+            fake_refresh_session_memory,
+        )
+        monkeypatch.setattr(
+            agent_chat_runtime,
+            "load_local_memory_context",
+            fake_load_local_memory_context,
+        )
+
+        context = await agent_chat_runtime.ensure_local_memory_context(
+            object(),
+            "siq_assistant",
+            "siq-assistant-wrapper-memory",
+        )
+        return calls, context
+
+    calls, context = anyio.run(run_case)
+
+    assert calls == [
+        ("refresh", "siq_assistant", "siq-assistant-wrapper-memory"),
+        ("load", "siq_assistant", "siq-assistant-wrapper-memory"),
+    ]
+    assert context == "<local-memory>patched wrapper memory</local-memory>"
 
 
 def test_ensure_local_memory_context_clears_stale_record_when_recent_window_has_no_source(tmp_path):

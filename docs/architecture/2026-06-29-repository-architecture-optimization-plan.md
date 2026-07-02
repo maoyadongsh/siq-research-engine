@@ -1068,6 +1068,58 @@ scripts/check_owner_migration.sh  # passed: API active/loop/preflight, runtime f
 
 下一步建议：先不要迁 `save_message`；如果继续推进后端 owner 拆分，优先做 memory record owner 的独立设计和失败态测试，或单独评审 `chat_history_response` display owner。
 
+### 0.24 2026-07-02 memory record owner 迁移
+
+本轮按 0.23 的 P1 建议继续推进 DB owner 拆分：`services/agent_runtime_memory.py` 从“纯摘要 helper”升级为 local-memory record owner，接管 `ChatSessionMemory` 的读取、刷新、上下文加载和 ensure 编排；`agent_chat_runtime_impl.py` 保留 `_load_session_memory_record()`、`refresh_session_memory()`、`load_local_memory_context()`、`ensure_local_memory_context()` 薄 wrapper，把 runtime 配置、profile/session gating、summary/context helper 以依赖注入传入 memory owner，确保 preflight、streaming、catalog、attachment 路径仍命中原 patch point。
+
+完成项：
+
+- `agent_runtime_memory.load_session_memory_record()` 接管 `ChatSessionMemory(profile, session_id)` 查询。
+- `agent_runtime_memory.refresh_session_memory()` 接管当前 session 的 `ChatMessage` 顺序读取、recent window 外 source selection、summary 生成结果持久化、stale record 清空语义。
+- `agent_runtime_memory.load_local_memory_context()` / `ensure_local_memory_context()` 接管 memory context 加载与 refresh-then-load 编排。
+- runtime 保留兼容 wrapper：现有测试可继续 monkeypatch `_load_session_memory_record`、`refresh_session_memory`、`load_local_memory_context`、`ensure_local_memory_context`。
+- 新增 wrapper 哨兵测试：验证 `refresh_session_memory()` 仍使用 runtime record/summary patch point；验证 `ensure_local_memory_context()` 仍按 runtime wrapper 顺序先 refresh 后 load。
+
+行为与风险边界：
+
+| 路径 | 本轮保持 / 改进 |
+| --- | --- |
+| memory DB owner | `ChatSessionMemory` 读写集中到 `agent_runtime_memory.py` |
+| runtime patch point | `_load_session_memory_record`、`refresh_session_memory`、`load_local_memory_context`、`ensure_local_memory_context` 均保留 |
+| profile/session gating | `LOCAL_MEMORY_ENABLED`、`LOCAL_MEMORY_ENABLED_PROFILES`、`_session_id_matches_profile` 仍由 runtime 注入，不在 memory owner 复制业务常量 |
+| summary/context owner | loop 污染过滤、assistant sanitize、context 包装仍通过 runtime wrapper/helper 注入 |
+| history/save/streaming owner | `load_history`、`save_message`、`_collect_stream_run`、`ACTIVE_RUNS` 本轮不动 |
+
+回滚边界：
+
+| 失败信号 | 回滚范围 |
+| --- | --- |
+| memory record DB 行为漂移 | 回滚 `agent_runtime_memory.py` 新增 DB owner 函数与 runtime wrapper 接线 |
+| preflight/catalog monkeypatch 失效 | 保留 runtime wrapper，回滚 `ensure/refresh/load` 直接调用新模块的任何外溢改动 |
+| stale clear 或 profile/session 隔离失败 | 仅回滚 memory owner 迁移，不触碰 history read owner 和 streaming owner |
+
+本轮验证：
+
+```bash
+cd apps/api && .venv/bin/python -m py_compile services/agent_runtime_memory.py services/agent_chat_runtime_impl.py tests/test_agent_runtime_memory.py  # passed
+cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_memory.py -q  # 16 passed
+git diff --check  # passed
+cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_memory.py tests/test_agent_runtime_chat_preflight.py tests/test_agent_chat_runtime_attachments.py tests/test_agent_chat_runtime_loops.py tests/test_agent_runtime_history.py -q  # 100 passed
+cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_*.py -q  # 238 passed
+scripts/check_owner_migration.sh  # passed: API active/loop/preflight, runtime focused, compile, PDF parser, web node unit, frontend lint/build, whitespace/status review
+```
+
+后续工作量重估：
+
+| 优先级 | 任务 | 范围 | 工作量 | 门禁 |
+| --- | --- | --- | --- | --- |
+| P0 | memory record owner 迁移 | 本轮已完成；后续只接受回归修正 | 0 天 | memory + preflight + runtime focused |
+| P1 | `chat_history_response` display owner 评审 | 单独评审对外 history response/display 形状；不得混入 prompt history、memory、save owner | S-M，约 0.5 天 | router/history response 相关测试 + runtime focused |
+| P2 | `save_message` owner 迁移设计 | 后置，先列 attachment metadata、evidence、schema column fallback、background refresh 风险矩阵 | M，约 0.5-1 天 | attachment + preflight + chat history response |
+| P2 | datetime UTC warning 清理 | 横切模型和 runtime 时间戳；只在 owner 迁移暂停时做 | M，约 0.5 天 | API focused + model/migration smoke |
+
+下一步建议：不要继续扩大 memory owner；如果继续按优化方案推进，优先单轮评审 `chat_history_response` display owner。`save_message` 仍应后置，因为它同时牵涉附件 metadata、evidence trace、schema column fallback 和 background memory refresh。
+
 ## 1. 当前架构事实
 
 ### 1.1 当前主要目录职责

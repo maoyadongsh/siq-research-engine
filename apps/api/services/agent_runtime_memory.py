@@ -1,10 +1,16 @@
-"""Pure local-memory helpers for the Hermes agent runtime."""
+"""Local-memory helpers and record storage for the Hermes agent runtime."""
 
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Collection, Sequence
+from datetime import datetime
 from typing import Protocol
+
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from models import ChatMessage, ChatSessionMemory
 
 
 class MemoryMessage(Protocol):
@@ -144,6 +150,130 @@ def build_local_memory_context(summary: str | None) -> str | None:
     )
 
 
+def local_memory_is_available(
+    profile: str,
+    session_id: str,
+    *,
+    local_memory_enabled: bool,
+    enabled_profiles: Collection[str],
+    session_id_matches_profile: Callable[[str, str], bool],
+) -> bool:
+    return bool(
+        local_memory_enabled
+        and profile in enabled_profiles
+        and session_id_matches_profile(profile, session_id)
+    )
+
+
+async def load_session_memory_record(
+    async_session: AsyncSession,
+    profile: str,
+    session_id: str,
+) -> ChatSessionMemory | None:
+    result = await async_session.exec(
+        select(ChatSessionMemory).where(
+            ChatSessionMemory.profile == profile,
+            ChatSessionMemory.session_id == session_id,
+        )
+    )
+    return result.first()
+
+
+async def refresh_session_memory(
+    async_session: AsyncSession,
+    profile: str,
+    session_id: str,
+    *,
+    recent_limit: int,
+    local_memory_enabled: bool,
+    enabled_profiles: Collection[str],
+    session_id_matches_profile: Callable[[str, str], bool],
+    build_summary: Callable[[Sequence[MemoryMessage]], str],
+    load_record: Callable[
+        [AsyncSession, str, str],
+        Awaitable[ChatSessionMemory | None],
+    ] = load_session_memory_record,
+    clock: Callable[[], datetime] = datetime.utcnow,
+) -> None:
+    if not local_memory_is_available(
+        profile,
+        session_id,
+        local_memory_enabled=local_memory_enabled,
+        enabled_profiles=enabled_profiles,
+        session_id_matches_profile=session_id_matches_profile,
+    ):
+        return
+
+    result = await async_session.exec(
+        select(ChatMessage)
+        .where(ChatMessage.session_id == session_id)
+        .order_by(ChatMessage.id)
+    )
+    messages = list(result.all())
+    older_messages = select_local_memory_source_messages(
+        messages,
+        recent_limit=recent_limit,
+    )
+    summary = build_summary(older_messages)
+    last_message_id = getattr(older_messages[-1], "id", None) if older_messages else None
+    record = await load_record(async_session, profile, session_id)
+
+    if record is None:
+        if not summary:
+            return
+        record = ChatSessionMemory(
+            profile=profile,
+            session_id=session_id,
+            summary=summary,
+            last_message_id=last_message_id,
+        )
+        async_session.add(record)
+    else:
+        record.summary = summary
+        record.last_message_id = last_message_id
+        record.updated_at = clock()
+        async_session.add(record)
+    await async_session.commit()
+
+
+async def load_local_memory_context(
+    async_session: AsyncSession,
+    profile: str,
+    session_id: str,
+    *,
+    local_memory_enabled: bool,
+    enabled_profiles: Collection[str],
+    session_id_matches_profile: Callable[[str, str], bool],
+    load_record: Callable[
+        [AsyncSession, str, str],
+        Awaitable[ChatSessionMemory | None],
+    ] = load_session_memory_record,
+    build_context: Callable[[str | None], str | None] = build_local_memory_context,
+) -> str | None:
+    if not local_memory_is_available(
+        profile,
+        session_id,
+        local_memory_enabled=local_memory_enabled,
+        enabled_profiles=enabled_profiles,
+        session_id_matches_profile=session_id_matches_profile,
+    ):
+        return None
+    record = await load_record(async_session, profile, session_id)
+    return build_context(record.summary if record else None)
+
+
+async def ensure_local_memory_context(
+    async_session: AsyncSession,
+    profile: str,
+    session_id: str,
+    *,
+    refresh_memory: Callable[[AsyncSession, str, str], Awaitable[None]],
+    load_context: Callable[[AsyncSession, str, str], Awaitable[str | None]],
+) -> str | None:
+    await refresh_memory(async_session, profile, session_id)
+    return await load_context(async_session, profile, session_id)
+
+
 __all__ = [
     "MemoryMessage",
     "_compact_memory_content",
@@ -151,5 +281,10 @@ __all__ = [
     "_strip_local_memory_blocks",
     "build_local_memory_context",
     "build_local_memory_summary",
+    "ensure_local_memory_context",
+    "load_local_memory_context",
+    "load_session_memory_record",
+    "local_memory_is_available",
+    "refresh_session_memory",
     "select_local_memory_source_messages",
 ]
