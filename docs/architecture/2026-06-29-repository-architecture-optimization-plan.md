@@ -1218,7 +1218,206 @@ scripts/check_owner_migration.sh  # passed: API active run + loops 94 passed; AP
 | P0 | display payload owner 迁移 | 本轮已完成；后续只接受回归修正 | 0 天 | display + loops + history |
 | P1 | router history response 哨兵 | 固定 `/chat/history`、specialist user router、fixed agent router 的 response 形状和 runtime patch point | S，约 0.25-0.5 天 | 新增 router history tests |
 | P1 | `save_message` owner 设计矩阵 | 仅设计，不立即迁移；列 attachment metadata、evidence、schema column fallback、background memory refresh 风险 | S-M，约 0.5 天 | 设计文档 + 现有 attachment/preflight 测试 |
-| P1 | 外部深度检查 P0 止血项 | Tracking 运行时缺陷、Tracking 权限收口、Source token 密钥解耦 | S-M，约 1-2 天分批 | 对应 router/module/source tests |
+| P0 | 外部深度检查 P0 止血项 | 本轮已完成；后续只接受回归修正 | 0 天 | tracking runtime + permissions + source tests |
+
+### 0.27 2026-07-02 外部深度检查 P0 止血项收口
+
+本轮按 0.25 的 P0 止血路线执行三条小切片：Tracking 运行时缺陷、Tracking 权限/旧路由收口、Source token 密钥解耦。后台分工中，source token 与 tracking 权限分别由 worker 并行实现，主线程完成 tracking runtime 修复、旧 router 单例进一步隔离、最终 review 和聚焦门禁。
+
+完成项：
+
+- Tracking runtime：修复两份 `sentiment_monitor.py` 中的 `ne_count` NameError；将 `apps/api/agents/tracking/agent.py` 的季度字符串改为显式 `_report_period_for_quarter()`；补 `tracking-items.md` 回读 parser，使 `get_dashboard()` 能展示 `ReportUpdater.create_tracking_items_file()` 生成的事项。
+- Tracking schema：将 `TrackingDashboard.recent_alerts` 从 `AlertRecordResponse` 对齐为实际运行时返回的 `AlertReport`，避免 `process_report()` 构建 dashboard 时类型漂移。
+- Tracking 权限：保留 `main.py` 对 `tracking_agent.router` 的全局认证，同时在 specialist tracking router 上按方法增加 `tracking.read` / `tracking.write` 细粒度权限；`analyst/admin/super_admin` 拥有读写，`viewer/reviewer` 不拥有。
+- 旧 tracking route：`routers/__init__.py` 不再包级导入旧 `routers/tracking.py`；主应用 route table 不暴露 `/api/tracking/process`、`/api/tracking/dashboard/{stock_code}` 等旧 REST 路径；旧 router 内全局 `TrackingAgent()` 改为惰性初始化，降低误 import 风险。
+- Source token：新增 `SIQ_SOURCE_TOKEN_SECRET`，配置后 source token 使用独立密钥签发/验签；未配置时 fallback 到 `SIQ_AUTH_SECRET_KEY` 保持本地/dev 兼容；兼容期支持当前 auth secret 签名的旧 source token 验签；短 source secret fail closed。
+
+行为与风险边界：
+
+| 路径 | 本轮保持 / 改进 |
+| --- | --- |
+| source token 签发 | 配置 `SIQ_SOURCE_TOKEN_SECRET` 后不再复用 JWT auth secret |
+| source token 兼容 | 仅兼容当前 `SIQ_AUTH_SECRET_KEY` 签出的旧 token；如果 auth secret 已先轮换，更早 token 不再可验 |
+| tracking specialist router | 继续复用 `create_specialist_agent_router()`，只在 route 层叠加权限依赖，不改 chat runtime |
+| legacy tracking REST router | 不接入主应用；保留文件但移除 import-time 全局 agent 实例 |
+| tracking markdown parser | 只解析 `ReportUpdater.create_tracking_items_file()` 生成的稳定格式，不扩展为通用 Markdown parser |
+
+本轮验证：
+
+```bash
+cd apps/api && .venv/bin/python -m pytest tests/test_tracking_runtime.py -q  # 4 passed
+cd apps/api && .venv/bin/python -m pytest tests/test_source_access.py -q  # 13 passed
+cd apps/api && .venv/bin/python -m pytest tests/test_tracking_agent_permissions.py -q  # 5 passed
+cd apps/api && .venv/bin/python -m pytest tests/test_source_access.py tests/test_tracking_runtime.py tests/test_tracking_agent_permissions.py tests/test_agent_router_attachments.py -q  # 31 passed
+cd apps/api && .venv/bin/python -m py_compile routers/source.py routers/tracking.py routers/tracking_agent.py agents/tracking/agent.py agents/tracking/modules/sentiment_monitor.py ../../agents/hermes/profiles/siq_tracking/modules/sentiment_monitor.py  # passed
+git diff --check  # passed
+scripts/check_owner_migration.sh  # passed: API active run + loops 94 passed; API runtime focused 241 passed; PDF parser source/artifact 53 passed; PDF parser full 304 passed; Web node unit 44 passed; npm run check:frontend passed; git diff --check passed
+```
+
+后续工作量重估：
+
+| 优先级 | 任务 | 范围 | 工作量 | 门禁 |
+| --- | --- | --- | --- | --- |
+| P0 | 外部深度检查 P0 止血项 | 本轮已完成；后续只接受回归修正 | 0 天 | tracking runtime + permissions + source tests |
+| P1 | Async DB 使用审计 | 列出 async route 中同步 `Session` 使用点，按 workspace/chat/market reports 分批治理 | M，约 1-2 天 | 审计清单 + 对应 router tests |
+| P1 | `eval_e2e.py` 配置化 | 年份、行业话术、公司定位映射、行业关注点下沉到 profile/rules 配置 | M，约 1-2 天 | eval_e2e 单测覆盖非汽车行业、非 2025 年 |
+| P0 | router history response 哨兵 | 本轮已完成；后续只接受回归修正 | 0 天 | `tests/test_router_history_response.py` |
+| P1 | CI / Playwright | 不与 runtime owner 混批；后续分批做 CI 基线和端口策略 | S-M，约 0.5-1 天分批 | CI smoke；Playwright smoke |
+
+### 0.28 2026-07-02 router history response 哨兵
+
+本轮按 0.26 的 P1 后续项补 router 层 history response 哨兵。目标是固定路由薄包装合同和 runtime patch point，不改 `chat_history_response()` 的 DB 查询、visible filter、display payload owner，也不进入 Hermes / session manager / quota / workspace owner。
+
+完成项：
+
+- 新增 `apps/api/tests/test_router_history_response.py`，覆盖三类 history endpoint：
+  - `routers.chat.chat_history()`：先通过 `resolve_or_create_session(..., "assistant", requested_session_id)` 解析 session，再调用 `routers.chat.chat_history_response()`，返回 `{"messages": <runtime list>, "session_id": <resolved_session_id>}`。
+  - `create_specialist_agent_router()` 生成的 `/chat/history`：先通过 `resolve_or_create_session(..., config.tag, requested_session_id)` 解析 session，再调用 `routers.agent_user_router.chat_history_response()`，返回同样的 envelope。
+  - `create_agent_chat_router()` 生成的 fixed-agent `/chat/history`：继续直接透传 `routers.agent_chat_router.chat_history_response()` 的 runtime list，不包 `messages/session_id`，避免行为漂移。
+- 测试均直调 endpoint coroutine，使用 `SimpleNamespace` async session 和 monkeypatch 的 `chat_history_response()` / `resolve_or_create_session()`，不依赖真实 DB、Hermes、FastAPI auth 或 TestClient。
+- 后台复核确认该测试范围与 0.26 的边界一致：router 哨兵只锁路由合同，runtime display/visibility 仍由 `test_agent_runtime_display.py` 覆盖。
+
+行为与风险边界：
+
+| 路径 | 本轮保持 / 改进 |
+| --- | --- |
+| assistant `/chat/history` | 固定 envelope response shape 和 resolved session id |
+| specialist `/chat/history` | 固定 shared factory response shape，tracking 权限仍由独立测试覆盖 |
+| fixed agent `/chat/history` | 保持 direct-list 既有行为，不做统一 envelope 变更 |
+| runtime history owner | 不触碰 `chat_history_response()` 查询、过滤、payload wrapper |
+
+本轮验证：
+
+```bash
+cd apps/api && .venv/bin/python -m py_compile tests/test_router_history_response.py routers/chat.py routers/agent_user_router.py routers/agent_chat_router.py  # passed
+cd apps/api && .venv/bin/python -m pytest tests/test_router_history_response.py tests/test_agent_router_attachments.py tests/test_tracking_agent_permissions.py -q  # 17 passed
+```
+
+下一步候选：
+
+- Async DB 使用审计：后台预研已列出 `services/auth_dependencies.py:get_current_user`、`routers/chat.py`、`routers/agent_user_router.py`、`routers/workspace.py`、`routers/document_parser.py`、`routers/market_reports.py` 等同步 `Session` 风险点；下一轮应先产出 allowlist / AST 检查设计，不直接大改 DB owner。
+- CI / Playwright：继续按 0.27 重估拆成独立小批次，不和 Async DB 或 runtime owner 混批。
+
+### 0.29 2026-07-02 Async DB 使用审计 baseline 护栏
+
+本轮按 0.28 的下一步候选推进 Async DB 使用审计，但只做“发现与防扩散”护栏，不迁移 DB owner，不修改 async route 行为，也不把既有同步 `Session` 债务一次性变成基础门禁红灯。
+
+完成项：
+
+- 新增 `apps/api/tests/test_async_sync_session_audit.py`，用 AST 扫描 `apps/api/routers/*.py` 与 `apps/api/services/auth_dependencies.py` 中的 `ast.AsyncFunctionDef`。
+- 当前最小规则覆盖两类风险：
+  - async 函数参数默认值为 `Depends(get_session)`，例如 `session: Session = Depends(get_session)` / `sync_session: Session = Depends(get_session)`。
+  - async 函数体内直接调用 `next(get_session())`。
+- 扫描会递归进入 factory 内部的 nested async endpoint，例如 `create_specialist_agent_router.chat` / `chat_stream`，但检查某个 async 函数体时会跳过更内层函数，避免把 `done_payload` 重复计入外层 `chat_stream`。
+- baseline 采用单条 finding allowlist，而不是文件级 allowlist。后续删除已有风险不会失败；新增未登记的同步 Session 使用会失败。
+
+当前 baseline 概况：
+
+| 类型 | 数量 | 主要集中区域 |
+| --- | ---: | --- |
+| `Depends(get_session)` in async def | 56 | `document_parser.py`、`workspace.py`、`source.py`、`chat.py`、`agent_user_router.py`、`auth.py`、`market_reports.py`、`auth_dependencies.py` |
+| `next(get_session())` in async def | 2 | `routers/chat.py::chat`、`routers/chat.py::chat_stream.done_payload` |
+
+边界与风险：
+
+| 路径 | 本轮保持 / 改进 |
+| --- | --- |
+| DB owner | 不迁移同步 `Session` 到 `AsyncSession`，只加防扩散测试 |
+| 门禁接入 | 暂不作为独立脚本 gate 加入 `scripts/check_all.sh` 或 `scripts/check_owner_migration.sh`；全量 API pytest 会间接覆盖该测试 |
+| `run_in_executor` 场景 | 不盲判为必须立即迁移，先进入 allowlist / 分类审计 |
+| 漏报范围 | 暂不覆盖 `Depends(database.get_session)`、`Annotated[..., Depends(get_session)]`、`Session(engine)`、跨函数同步 helper 调用等复杂模式 |
+
+本轮验证：
+
+```bash
+cd apps/api && .venv/bin/python -m pytest tests/test_async_sync_session_audit.py -q  # 1 passed
+```
+
+下一步候选：
+
+- 将 `test_async_sync_session_audit.py` 的 baseline 按模块分桶输出到文档或独立报告，标注 P1/P2 迁移顺序。
+- 优先设计 `auth_dependencies.py:get_current_user` 与 chat / specialist agent route 的迁移方案，因为它们覆盖面广且在主交互路径上。
+- 后续若要进 CI，先作为 advisory 或单独 `check_async_db_audit.sh`，不要直接污染基础合并门禁。
+
+### 0.30 2026-07-02 Async DB 审计工具化
+
+本轮将 0.29 的内联 AST 审计逻辑抽成独立脚本，便于人工生成报告和后续 advisory CI 复用；测试仍只作为 allowlist 防扩散护栏，不作为独立脚本 gate 接入 `scripts/check_all.sh` / `scripts/check_owner_migration.sh`。
+
+完成项：
+
+- 新增 `apps/api/scripts/audit_async_sync_session.py`：
+  - 默认扫描 `apps/api/routers/*.py` 与 `apps/api/services/auth_dependencies.py`。
+  - 文本输出 summary、by_kind、by_path 和 finding key。
+  - 支持 `--json` 输出，便于后续生成报告或接 advisory CI。
+  - 默认退出码保持 0，当前定位为审计报告工具，不是阻断式门禁。
+- `apps/api/tests/test_async_sync_session_audit.py` 改为复用 `scripts.audit_async_sync_session.sync_session_usage()`，测试文件仅保留 allowlist 和防扩散断言。
+- 后台复核确认：工具化本身不应接入 owner migration 门禁或基础全量门禁；若后续接 CI，应单独脚本或 advisory 模式，避免把既有债务转成合并红灯。
+
+当前工具输出概况：
+
+```text
+total: 58
+depends_get_session: 56
+next_get_session: 2
+```
+
+推荐迁移顺序预研：
+
+| 顺序 | 候选 | 理由 | 测试要求 |
+| --- | --- | --- | --- |
+| 1 | `services/auth_dependencies.py:get_current_user` | 覆盖所有受保护 endpoint，局部代码清晰，收益最大 | token by id/by username、missing sub、user missing、pending/rejected/disabled |
+| 2 | chat / specialist chat 的 quota + usage | 主交互路径仍注入同步 `Session`，其余 history/message runtime 已是 async | quota exceeded、usage source、control reply、normal reply、stream done |
+| 3 | `upload_chat_attachments` PDF 分支 | 同步 DB 写入集中在 artifact/usage；文件写入和 parser submit 不应混迁 | non-PDF、PDF submit success、parser failure metadata |
+| 4 | achievements / workspace artifact executor 场景 | 已用 executor 隔离，同步 helper 复用面较大，放后置 | 成就、workspace artifact、后台 done payload |
+
+本轮验证：
+
+```bash
+cd apps/api && .venv/bin/python scripts/audit_async_sync_session.py  # total 58
+cd apps/api && .venv/bin/python scripts/audit_async_sync_session.py --json  # valid JSON
+cd apps/api && .venv/bin/python -m pytest tests/test_async_sync_session_audit.py -q  # 1 passed
+cd apps/api && .venv/bin/python -m py_compile scripts/audit_async_sync_session.py tests/test_async_sync_session_audit.py  # passed
+```
+
+### 0.31 2026-07-02 API 安全线最终收口
+
+本轮在 0.27-0.30 的基础上完成 API 安全线收口。原则是只修正当前安全/权限/source/auth 主题，不继续打开 Agent runtime、PDF parser、前端状态 owner 或新的 Async DB owner。
+
+完成项：
+
+- `services/auth_dependencies.py:get_current_user` 已从同步 `Session = Depends(get_session)` 迁到 `AsyncSession = Depends(get_async_session)`，用户查询改为 `await session.exec(...)`；`require_permission()` 调用形状保持不变。
+- 认证分支覆盖补齐：token decode 失败、数字 subject、username subject、missing subject、missing user、pending、rejected with note、rejected without note、disabled、FastAPI dependency + temp async DB、main app protected route 正负例。
+- Async DB 审计 baseline 更新：`services/auth_dependencies.py:get_current_user` 不再属于同步 Session allowlist；当前防扩散测试继续保护剩余同步 session 债务不新增。当前 `scripts/audit_async_sync_session.py` 输出已更新为 total 57（`depends_get_session` 55、`next_get_session` 2）；0.30 的 total 58 为迁移前 baseline。
+- Source token hardening 更新：配置 `SIQ_SOURCE_TOKEN_SECRET` 后 source token 使用独立密钥；旧 `SIQ_AUTH_SECRET_KEY` 签名的 source token 默认不再验签，只有显式 `SIQ_SOURCE_ACCEPT_LEGACY_AUTH_SECRET=1` 时才兼容；短 source secret fail closed；上游 PDF2MD 代理会大小写不敏感地剥离 `access_token` / `source_token` 查询参数，且不转发登录 `Authorization`。
+- Tracking 权限收口补强：`tracking_agent.router` 在全局认证外继续按方法叠加 `tracking.read` / `tracking.write`；`viewer/reviewer` 对 read/write 均无 tracking 权限；真实 `/api/tracking/chat/history` 路由已覆盖权限、session envelope 和 FastAPI datetime JSON 序列化。
+- Tracking runtime 与 schema 修复保持：`ne_count` NameError、季度字符串、`tracking-items.md` 回读、legacy tracking REST router 不暴露、旧 router agent 惰性初始化、`recent_alerts: list[AlertReport]`。
+
+行为与风险边界：
+
+| 路径 | 当前状态 |
+| --- | --- |
+| service auth dependency | 已迁 AsyncSession；router/auth.py 的本地同步 auth 依赖不在本轮范围 |
+| source token legacy fallback | 默认关闭；显式 env opt-in 才兼容旧 auth secret 签名 |
+| source upstream proxy | 不转发 login/source token 参数；保留业务非敏感 query 参数 |
+| tracking permissions | analyst/admin/super_admin 读写；viewer/reviewer 403，且不会进入 runtime patch point |
+| Async DB audit | 防扩散护栏；不把 workspace/document_parser/chat 等既有同步 Session 债务混入本轮迁移 |
+| Agent/PDF/frontend owner | 本轮不触碰 |
+
+本轮验证：
+
+```bash
+cd apps/api && .venv/bin/python -m pytest tests/test_auth_dependencies.py tests/test_auth_dependencies_smoke.py tests/test_async_sync_session_audit.py tests/test_tracking_agent_permissions.py tests/test_tracking_runtime.py tests/test_router_history_response.py tests/test_source_access.py -q  # 43 passed
+cd apps/api && .venv/bin/python scripts/audit_async_sync_session.py  # total 57
+cd apps/api && .venv/bin/python scripts/audit_async_sync_session.py --json  # valid JSON
+cd apps/api && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m py_compile services/auth_dependencies.py routers/source.py routers/tracking.py routers/tracking_agent.py services/auth_service.py agents/tracking/agent.py agents/tracking/modules/sentiment_monitor.py agents/tracking/schemas.py scripts/audit_async_sync_session.py tests/test_auth_dependencies.py tests/test_auth_dependencies_smoke.py tests/test_source_access.py tests/test_tracking_agent_permissions.py ../../agents/hermes/profiles/siq_tracking/modules/sentiment_monitor.py ../../agents/hermes/profiles/siq_tracking/schemas.py  # passed
+git diff --check  # passed
+```
+
+下一步建议：
+
+- 先做纯提交拆分和文档同步，确保新增脚本/测试纳入同一主题或按主题拆分提交。
+- API 安全线提交后，再单独开启 PDF `_ensure_*` 前置测试切片；只补测试，不改 queue、Flask response、task state 或 `_ensure_*` 编排。
+- Agent runtime `_collect_stream_run` / history / attachments / local-memory owner 继续后置到单独设计窗口。
 
 ## 1. 当前架构事实
 
