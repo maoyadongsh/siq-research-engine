@@ -26,6 +26,7 @@ const {
   adjacentDocumentResultPage,
   buildDocumentResultFocusDerivation,
   buildDocumentResultJsonPreview,
+  buildDocumentResultMarkdownBlocks,
   buildDocumentResultPageByNumber,
   buildDocumentResultPageNumbers,
   buildDocumentResultPreviewMarkdownBlocks,
@@ -356,4 +357,17 @@ test('preview markdown blocks and adjacent page navigation handle empty and miss
   assert.equal(adjacentDocumentResultPage([1, 2, 4], 2, -1), 1)
   assert.equal(adjacentDocumentResultPage([1, 2, 4], 9, 1), 4)
   assert.equal(adjacentDocumentResultPage([1, 2, 4], 9, -1), 1)
+})
+
+test('markdown renderer does not pass through raw html when sanitizer is unavailable', () => {
+  const [block] = buildDocumentResultMarkdownBlocks(
+    [],
+    '[PDF_PAGE: 4]\n\n<table><tr><td onclick="alert(1)">Revenue</td></tr></table>',
+    new Map(),
+  )
+
+  assert.equal(block?.pageNumber, 4)
+  assert.match(block?.html || '', /&lt;table&gt;/)
+  assert.doesNotMatch(block?.html || '', /<td onclick=/)
+  assert.doesNotMatch(block?.html || '', /onclick="/)
 })

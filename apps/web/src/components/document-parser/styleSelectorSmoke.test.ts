@@ -11,6 +11,10 @@ type CssRule = {
   selector: string
 }
 
+type CssRuleBlock = CssRule & {
+  body: string
+}
+
 type StylesheetSmokeCase = {
   css: string
   duplicateSelectors: string[]
@@ -145,6 +149,69 @@ function duplicateRuleKeys(rules: CssRule[]): string[] {
     .sort()
 }
 
+function selectorsForContext(css: string, context: string): string[] {
+  return extractRules(css)
+    .filter((rule) => rule.context === context)
+    .map((rule) => rule.selector)
+    .sort()
+}
+
+function extractRuleBlocks(css: string): CssRuleBlock[] {
+  const text = css.replace(/\/\*[\s\S]*?\*\//g, '')
+  const rules: CssRuleBlock[] = []
+  const stack: Array<{ bodyStart: number; context: string; prelude: string; type: 'at' | 'rule' }> = []
+  let blockStart = 0
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index]
+
+    if (char === '{') {
+      const prelude = text.slice(blockStart, index).trim()
+      if (prelude.startsWith('@')) {
+        stack.push({ type: 'at', prelude, context: '', bodyStart: index + 1 })
+      } else {
+        const context = stack
+          .filter((entry) => entry.type === 'at')
+          .map((entry) => entry.prelude)
+          .join(' | ')
+        stack.push({ type: 'rule', prelude, context, bodyStart: index + 1 })
+      }
+      blockStart = index + 1
+    }
+
+    if (char === '}') {
+      const entry = stack.pop()
+      assert.ok(entry, 'CSS closing brace should match an open block')
+      if (entry.type === 'rule') {
+        const body = text.slice(entry.bodyStart, index).trim()
+        for (const selector of entry.prelude.split(',').map((item) => item.trim()).filter(Boolean)) {
+          rules.push({ context: entry.context, selector, body })
+        }
+      }
+      blockStart = index + 1
+    }
+  }
+
+  assert.equal(stack.length, 0, 'CSS braces should be balanced')
+  return rules
+}
+
+function declarationsFor(css: string, selector: string, context = ''): Map<string, string> {
+  const rule = extractRuleBlocks(css).find((candidate) => candidate.selector === selector && candidate.context === context)
+  assert.ok(rule, `missing CSS rule ${context ? `${context} :: ` : ''}${selector}`)
+
+  const declarations = new Map<string, string>()
+  for (const declaration of rule.body.split(';')) {
+    const separatorIndex = declaration.indexOf(':')
+    if (separatorIndex < 0) continue
+    declarations.set(
+      declaration.slice(0, separatorIndex).trim(),
+      declaration.slice(separatorIndex + 1).trim(),
+    )
+  }
+  return declarations
+}
+
 for (const smokeCase of smokeCases) {
   test(`${smokeCase.name} exposes the expected runtime selector surface`, () => {
     assert.ok(smokeCase.css.trim().length > 0, `${smokeCase.name} should not be empty`)
@@ -166,3 +233,82 @@ for (const smokeCase of smokeCases) {
     assert.deepEqual(duplicateRuleKeys(rules), smokeCase.duplicateSelectors)
   })
 }
+
+test('DOCUMENT_CSS keeps mobile preview selectors collapsed without losing tap targets', () => {
+  const mobile = '@media (max-width: 720px)'
+
+  assert.equal(declarationsFor(DOCUMENT_CSS, '.doc-preview-grid', '@media (max-width: 720px)').get('grid-template-columns'), '1fr')
+  assert.equal(declarationsFor(DOCUMENT_CSS, '.doc-source-pane', '@media (max-width: 720px)').get('border-bottom'), '1px solid var(--border)')
+  assert.equal(declarationsFor(DOCUMENT_CSS, '.doc-segment', mobile).get('grid-template-columns'), 'repeat(2, minmax(0, 1fr))')
+  assert.equal(declarationsFor(DOCUMENT_CSS, '.doc-toggle-grid', mobile).get('grid-template-columns'), '1fr')
+  assert.equal(declarationsFor(DOCUMENT_CSS, '.doc-task-toolbar', mobile).get('grid-template-columns'), '1fr')
+  assert.equal(declarationsFor(DOCUMENT_CSS, '.doc-batch-bar .doc-action-row button', mobile).get('min-height'), '44px')
+  assert.equal(declarationsFor(DOCUMENT_CSS, '.doc-batch-bar .doc-action-row button', mobile).get('min-width'), '44px')
+})
+
+test('DOCUMENT_CSS keeps the narrow viewport selector inventory explicit', () => {
+  assert.deepEqual(selectorsForContext(DOCUMENT_CSS, '@media (max-width: 720px)'), [
+    '.doc-batch-bar',
+    '.doc-batch-bar .doc-action-row',
+    '.doc-batch-bar .doc-action-row button',
+    '.doc-json',
+    '.doc-markdown',
+    '.doc-md-render',
+    '.doc-panel-body',
+    '.doc-panel-head',
+    '.doc-preview-grid',
+    '.doc-preview-grid',
+    '.doc-relation-connector',
+    '.doc-relation-node',
+    '.doc-result-head',
+    '.doc-segment',
+    '.doc-source-page',
+    '.doc-source-pane',
+    '.doc-task-toolbar',
+    '.doc-toggle-grid',
+  ])
+})
+
+test('DOCUMENT_CSS preserves overflow guards for narrow and wide document content', () => {
+  assert.equal(declarationsFor(DOCUMENT_CSS, '.doc-workbench').get('grid-template-columns'), 'minmax(300px, 370px) minmax(0, 1fr)')
+  assert.equal(declarationsFor(DOCUMENT_CSS, '.doc-side').get('min-width'), '0')
+  assert.equal(declarationsFor(DOCUMENT_CSS, '.doc-source-pane').get('min-width'), '0')
+  assert.equal(declarationsFor(DOCUMENT_CSS, '.doc-md-html').get('overflow-x'), 'auto')
+  assert.equal(declarationsFor(DOCUMENT_CSS, '.doc-md-html table').get('min-width'), '100%')
+  assert.equal(declarationsFor(DOCUMENT_CSS, '.doc-md-html th').get('white-space'), 'nowrap')
+  assert.equal(declarationsFor(DOCUMENT_CSS, '.doc-relation-flow').get('overflow-x'), 'auto')
+  assert.equal(declarationsFor(DOCUMENT_CSS, '.doc-relation-step').get('flex'), '0 0 auto')
+})
+
+test('PDF_CSS keeps mobile result controls touchable without widening the viewport', () => {
+  const mobile = '@media (max-width: 720px)'
+  const compact = '@media (max-width: 520px)'
+
+  assert.equal(declarationsFor(PDF_CSS, '.pdf-download-search', mobile).get('grid-template-columns'), 'minmax(0, 1fr) auto')
+  assert.equal(declarationsFor(PDF_CSS, '.pdf-download-search input', mobile).get('height'), '46px')
+  assert.equal(declarationsFor(PDF_CSS, '.pdf-download-item', mobile).get('grid-template-columns'), '1fr')
+  assert.equal(declarationsFor(PDF_CSS, '.pdf-download-actions .pdf-small-action', mobile).get('min-height'), '44px')
+  assert.equal(declarationsFor(PDF_CSS, '.pdf-workbench', mobile).get('grid-template-columns'), '1fr')
+  assert.equal(declarationsFor(PDF_CSS, '.pdf-page-topline', mobile).get('width'), '100%')
+  assert.equal(declarationsFor(PDF_CSS, '.pdf-page-stage[data-zoom="150"]', mobile).get('min-width'), '100%')
+  assert.equal(declarationsFor(PDF_CSS, '.pdf-page-stage[data-zoom="150"]', mobile).get('width'), '100%')
+  assert.equal(declarationsFor(PDF_CSS, '.pdf-md-actions', mobile).get('overflow-x'), 'auto')
+  assert.equal(declarationsFor(PDF_CSS, '.pdf-md-action', mobile).get('min-height'), '46px')
+  assert.equal(declarationsFor(PDF_CSS, '.pdf-md-actions', compact).get('grid-template-columns'), '1fr')
+  assert.equal(declarationsFor(PDF_CSS, '.pdf-md-action', compact).get('min-width'), '0')
+  assert.equal(declarationsFor(PDF_CSS, '.pdf-md-action', compact).get('min-height'), '52px')
+})
+
+test('PDF_CSS preserves mobile overflow affordances for dense PDF tables and task actions', () => {
+  const mobile = '@media (max-width: 720px)'
+
+  assert.equal(declarationsFor(PDF_CSS, '.pdf-table-wrap').get('overflow-x'), 'auto')
+  assert.equal(declarationsFor(PDF_CSS, '.pdf-table-wrap table').get('min-width'), 'max(100%, 1080px)')
+  assert.equal(declarationsFor(PDF_CSS, '.pdf-table-wrap table', mobile).get('min-width'), 'max(100%, 760px)')
+  assert.equal(declarationsFor(PDF_CSS, '.pdf-table-x-scrollbar').get('touch-action'), 'none')
+  assert.equal(declarationsFor(PDF_CSS, '.pdf-table-x-scrollbar', mobile).get('height'), '40px')
+  assert.equal(declarationsFor(PDF_CSS, '.pdf-table-x-scrollbar-thumb', mobile).get('min-width'), '64px')
+  assert.equal(declarationsFor(PDF_CSS, '.pdf-task-item .task-actions', mobile).get('overflow-x'), 'auto')
+  assert.equal(declarationsFor(PDF_CSS, '.pdf-task-action', mobile).get('min-height'), '44px')
+  assert.equal(declarationsFor(PDF_CSS, '.pdf-task-action', mobile).get('min-width'), '0')
+})

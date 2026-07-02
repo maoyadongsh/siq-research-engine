@@ -1,16 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { Archive, Brain, ChevronLeft, ChevronRight, Database, Download, Eye, FileJson, FileText, Image, ListChecks, Loader2, Table2 } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/page'
-import {
-  documentArtifactUrl,
-  documentDownloadUrl,
-  openDocumentResource,
-} from '@/features/document-parser/api'
+import { documentArtifactUrl, documentDownloadUrl } from '@/features/document-parser/api'
 import type {
   DocumentArtifactInfo,
-  DocumentArtifactsMap,
   DocumentBlocksPayload,
   DocumentExtractionTemplate,
   DocumentFiguresPayload,
@@ -34,23 +29,9 @@ import { DocumentQualityPane, DocumentWorkflowPane } from './DocumentStatusPanes
 import { DocumentTablePane } from './DocumentTablePane'
 import { PdfPagePreview } from './DocumentSourcePreview'
 import { useDocumentResultFocusController } from './documentResultFocusController'
-import {
-  adjacentDocumentResultPage,
-  buildDocumentResultFocusDerivation,
-  buildDocumentResultJsonPreview,
-  buildDocumentResultMarkdownBlocks,
-  buildDocumentResultPageByNumber,
-  buildDocumentResultPageNumbers,
-  buildDocumentResultPreviewMarkdownBlocks,
-  buildDocumentResultPreviewOverlays,
-  buildDocumentResultPreviewPages,
-  buildDocumentResultPreviewRelations,
-  buildDocumentResultPreviewPageModels,
-  buildDocumentResultRelationsByTableId,
-  buildDocumentResultSourceLookups,
-  buildDocumentResultTableLookups,
-  buildDocumentResultVisibleRelations,
-} from './documentResultWorkbenchDerivations'
+import { buildDocumentResultBaseViewModel, buildDocumentResultViewModel } from './documentResultViewModel'
+import { useDocumentResourceOpener } from './documentResourceOpener'
+import { adjacentDocumentResultPage } from './documentResultWorkbenchDerivations'
 import {
   cssAttrValue,
   relationFlowTone,
@@ -125,55 +106,34 @@ export function DocumentResultWorkbench({
 }) {
   const pdfPaneRef = useRef<HTMLDivElement | null>(null)
   const markdownPaneRef = useRef<HTMLDivElement | null>(null)
-  const [resourceError, setResourceError] = useState('')
   const tabListRef = useRef<HTMLDivElement | null>(null)
   const scrollTabs = useCallback((direction: number) => {
     const el = tabListRef.current
     if (!el) return
     el.scrollBy({ left: direction * 160, behavior: 'smooth' })
   }, [])
+  const {
+    resourceError,
+    clearResourceError,
+    openResource,
+  } = useDocumentResourceOpener()
 
   const taskId = selectedTask?.task_id || result?.manifest?.task_id || ''
-  const sourceBlocks = useMemo(() => blocks?.blocks || [], [blocks?.blocks])
-  const pageByNumber = useMemo(() => buildDocumentResultPageByNumber(layout?.pages), [layout?.pages])
-  const artifactEntries = useMemo(() => Object.entries((result?.artifacts || {}) as DocumentArtifactsMap), [result?.artifacts])
-  const physicalTables = useMemo(() => tables?.physical_tables || tables?.tables || [], [tables?.physical_tables, tables?.tables])
-  const figureItems = useMemo(() => figures?.figures || [], [figures?.figures])
-  const relationItems = useMemo(() => tableRelations?.relations || [], [tableRelations?.relations])
-  const jsonPreview = useMemo(
-    () => buildDocumentResultJsonPreview({ manifest: result?.manifest, blocks, tables, figures, sourceMap }),
-    [blocks, figures, result?.manifest, sourceMap, tables],
+  const baseViewModel = useMemo(
+    () => buildDocumentResultBaseViewModel({
+      taskId,
+      result,
+      quality,
+      blocks,
+      layout,
+      tables,
+      tableRelations,
+      figures,
+      sourceMap,
+    }),
+    [blocks, figures, layout, quality, result, sourceMap, tableRelations, tables, taskId],
   )
-  const { sourceByBlockId, sourceByTableId, sourceByFigureId } = useMemo(
-    () => buildDocumentResultSourceLookups(sourceMap),
-    [sourceMap],
-  )
-  const { tableById, tableByBlockId, tableIdByBlockId, blockIdByTableId } = useMemo(
-    () => buildDocumentResultTableLookups(physicalTables),
-    [physicalTables],
-  )
-  const previewRelations = useMemo(
-    () => buildDocumentResultPreviewRelations(relationItems, tableById),
-    [relationItems, tableById],
-  )
-
-  const markdownBlocks = useMemo(
-    () => buildDocumentResultMarkdownBlocks(sourceBlocks, result?.markdown || '', tableByBlockId),
-    [sourceBlocks, result?.markdown, tableByBlockId],
-  )
-  const relationsByTableId = useMemo(
-    () => buildDocumentResultRelationsByTableId(previewRelations),
-    [previewRelations],
-  )
-
-  const pageNumbers = useMemo(() => buildDocumentResultPageNumbers({
-    sourceBlocks,
-    pageByNumber,
-    physicalTables,
-    figureItems,
-    markdownBlocks,
-    qualityPageCount: quality?.page_count,
-  }), [figureItems, markdownBlocks, pageByNumber, physicalTables, quality?.page_count, sourceBlocks])
+  const pageNumbers = baseViewModel.pageNumbers
   const {
     activePage,
     focused,
@@ -182,68 +142,18 @@ export function DocumentResultWorkbench({
     selectPage,
     setActiveTab,
   } = useDocumentResultFocusController({ taskId, pageNumbers })
-  const { activeFocusKeys, focusedRelations } = useMemo(
-    () => buildDocumentResultFocusDerivation({
-      focused,
-      tableIdByBlockId,
-      blockIdByTableId,
-      relationsByTableId,
-    }),
-    [blockIdByTableId, focused, relationsByTableId, tableIdByBlockId],
-  )
-  const visibleRelations = useMemo(
-    () => buildDocumentResultVisibleRelations({
+  const viewModel = useMemo(
+    () => buildDocumentResultViewModel({
+      base: baseViewModel,
       activePage,
-      focusedRelations,
-      previewRelations,
-      tableById,
+      focused,
     }),
-    [activePage, focusedRelations, previewRelations, tableById],
+    [activePage, baseViewModel, focused],
   )
 
   useEffect(() => {
-    let cancelled = false
-    queueMicrotask(() => {
-      if (cancelled) return
-      setResourceError('')
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [taskId, pageNumbers])
-
-  const overlays = useMemo(() => buildDocumentResultPreviewOverlays({
-    sourceBlocks,
-    physicalTables,
-    figureItems,
-    sourceByBlockId,
-    sourceByTableId,
-    sourceByFigureId,
-    tableIdByBlockId,
-  }), [figureItems, physicalTables, sourceBlocks, sourceByBlockId, sourceByFigureId, sourceByTableId, tableIdByBlockId])
-
-  const previewPages = useMemo(() => buildDocumentResultPreviewPages({
-    activePage,
-    visibleRelations,
-    tableById,
-  }), [activePage, tableById, visibleRelations])
-  const previewMarkdownBlocks = useMemo(
-    () => buildDocumentResultPreviewMarkdownBlocks(markdownBlocks, previewPages),
-    [markdownBlocks, previewPages],
-  )
-  const previewPageModels = useMemo(
-    () => buildDocumentResultPreviewPageModels({
-      previewPages,
-      visibleRelations,
-      tableById,
-      overlays,
-    }),
-    [overlays, previewPages, tableById, visibleRelations],
-  )
-
-  useEffect(() => {
-    if (!focused || !activeFocusKeys.size) return
-    const selector = Array.from(activeFocusKeys)
+    if (!focused || !viewModel.activeFocusKeys.size) return
+    const selector = Array.from(viewModel.activeFocusKeys)
       .map((key) => `[data-focus-keys~="${cssAttrValue(key)}"]`)
       .join(',')
     if (!selector) return
@@ -255,17 +165,19 @@ export function DocumentResultWorkbench({
       const markdownTarget = markdownPaneRef.current?.querySelector<HTMLElement>(selector)
       markdownTarget?.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' })
     })
-  }, [activeFocusKeys, focused, previewPages])
+  }, [focused, viewModel.activeFocusKeys, viewModel.previewPages])
 
-  const openResource = useCallback(async (url: string, filename?: string) => {
-    if (!url) return
-    setResourceError('')
-    try {
-      await openDocumentResource(url, filename)
-    } catch (err) {
-      setResourceError(err instanceof Error ? err.message : '产物打开失败')
+  useEffect(() => {
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      clearResourceError()
+    })
+    return () => {
+      cancelled = true
     }
-  }, [])
+  }, [clearResourceError, taskId, pageNumbers])
+
   const openArtifact = useCallback((name: string, info: DocumentArtifactInfo) => {
     if (!taskId || !info.exists) return
     const artifactPath = info.path || name
@@ -409,17 +321,17 @@ export function DocumentResultWorkbench({
                   </div>
                 </div>
                 <div className="doc-source-page" ref={pdfPaneRef}>
-                  {taskId ? previewPageModels.map((pageModel) => {
+                  {taskId ? viewModel.previewPageModels.map((pageModel) => {
                     return (
                       <div className="doc-pdf-page-stack" key={pageModel.pageNumber}>
                         <PdfPagePreview
                           taskId={taskId}
                           pageNumberValue={pageModel.pageNumber}
-                          page={pageByNumber.get(pageModel.pageNumber)}
+                          page={viewModel.pageByNumber.get(pageModel.pageNumber)}
                           overlays={pageModel.overlays}
                           relations={pageModel.relations}
-                          tableById={tableById}
-                          activeFocusKeys={activeFocusKeys}
+                          tableById={viewModel.tableById}
+                          activeFocusKeys={viewModel.activeFocusKeys}
                           onFocus={focusTarget}
                           onOpenResource={(url, filename) => void openResource(url, filename)}
                         />
@@ -443,8 +355,8 @@ export function DocumentResultWorkbench({
                 </div>
                 <div className="doc-md-render doc-md-preview" ref={markdownPaneRef}>
                   <DocumentMarkdownPane
-                    blocks={previewMarkdownBlocks}
-                    activeFocusKeys={activeFocusKeys}
+                    blocks={viewModel.previewMarkdownBlocks}
+                    activeFocusKeys={viewModel.activeFocusKeys}
                     emptyTitle="暂无 Markdown 块"
                     emptyDescription="当前页没有可渲染的 Markdown 内容。"
                     onFocusBlock={focusTarget}
@@ -457,8 +369,8 @@ export function DocumentResultWorkbench({
           <TabsContent value="markdown" className="m-0">
             <div className="doc-md-render is-full">
               <DocumentMarkdownPane
-                blocks={markdownBlocks}
-                activeFocusKeys={activeFocusKeys}
+                blocks={viewModel.markdownBlocks}
+                activeFocusKeys={viewModel.activeFocusKeys}
                 emptyTitle="暂无 Markdown 内容"
                 emptyDescription="当前任务没有返回 Markdown 产物。"
                 onFocusBlock={focusTarget}
@@ -467,14 +379,14 @@ export function DocumentResultWorkbench({
           </TabsContent>
 
           <TabsContent value="json" className="m-0">
-            <DocumentResultJsonPane preview={jsonPreview} />
+            <DocumentResultJsonPane preview={viewModel.jsonPreview} />
           </TabsContent>
 
           <TabsContent value="tables" className="m-0">
             <DocumentTablePane
-              physicalTables={physicalTables}
-              relationItems={relationItems}
-              tableById={tableById}
+              physicalTables={viewModel.physicalTables}
+              relationItems={viewModel.relationItems}
+              tableById={viewModel.tableById}
               sourceMap={sourceMap}
               onFocusTable={(tableId, page) => focusTarget({ kind: 'table', id: tableId, page })}
               onReviewTableRelation={onReviewTableRelation}
@@ -484,7 +396,7 @@ export function DocumentResultWorkbench({
 
           <TabsContent value="figures" className="m-0">
             <DocumentFigurePane
-              figures={figureItems}
+              figures={viewModel.figureItems}
               sourceMap={sourceMap}
               taskId={taskId}
               onFocusFigure={(figureId, page) => focusTarget({ kind: 'figure', id: figureId, page })}
@@ -521,7 +433,7 @@ export function DocumentResultWorkbench({
           </TabsContent>
 
           <TabsContent value="artifacts" className="m-0">
-            <DocumentArtifactPane entries={artifactEntries} taskId={taskId} onOpenArtifact={openArtifact} />
+            <DocumentArtifactPane entries={viewModel.artifactEntries} taskId={taskId} onOpenArtifact={openArtifact} />
           </TabsContent>
         </Tabs>
       ) : null}

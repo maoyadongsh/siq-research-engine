@@ -200,7 +200,9 @@ function renderMarkdownTable(lines: string[]) {
 }
 
 function sanitizeMarkdownHtml(html: string) {
-  return DOMPurify.sanitize(html, {
+  const sanitize = (DOMPurify as { sanitize?: (value: string, options: Record<string, unknown>) => string }).sanitize
+  if (typeof sanitize !== 'function') return escapeHtml(html)
+  return sanitize(html, {
     ALLOWED_TAGS: [
       'section',
       'article',
