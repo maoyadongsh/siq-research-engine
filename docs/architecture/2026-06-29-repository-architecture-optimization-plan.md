@@ -2830,6 +2830,62 @@ test-results/**
 - 本轮新增门禁：`cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_active_runs.py -q` 通过，27 passed；`cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_active_runs.py tests/test_agent_chat_runtime_loops.py -q` 通过，84 passed；`cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_*.py -q` 通过，218 passed；`cd apps/api && .venv/bin/python -m py_compile services/agent_chat_runtime_impl.py services/agent_runtime_sessions.py services/agent_runtime_streaming.py tests/test_agent_runtime_active_runs.py` 通过。
 - SSE 事件字段、停止按钮、orphaned run 恢复语义不变。
 
+### 0.6 2026-07-02 全量检查与交互/权限收口记录
+
+本轮按“先全量检查，再补低风险闭环，再收住前端 E2E 矩阵”的节奏推进。结论：主线门禁继续保持绿色，新增改动主要是聊天/侧边栏交互与 workspace/downloads/document parser/chat attachment 的边界测试，不涉及红灯 owner 迁移。
+
+本轮全量验证结果：
+
+```bash
+cd /home/maoyd/siq-research-engine && scripts/check_all.sh
+# apps/api: 486 passed
+# apps/pdf-parser: 326 passed
+# apps/document-parser: 27 passed
+# services/market-report-finder: 46 passed
+# services/market-report-rules: 29 passed
+# apps/web unit: 44 passed
+# apps/web check:frontend: passed
+
+cd packages/market-contracts && uv run pytest -q
+# 2 passed
+
+cd apps/web && npm run e2e -- --project=chromium
+# 25 passed
+
+bash -n start_all.sh && find scripts infra apps services -type f -name '*.sh' -print0 | xargs -0 -r bash -n
+# passed
+
+git diff --check
+# passed
+```
+
+本轮新增后端边界保护：
+
+- `apps/api/tests/test_document_parser_proxy.py` 补齐 document parser 共享 task 删除、最后 owner 删除和 retry usage 记录边界；锁定共享 workspace link 删除不误删 upstream、最后 owner 才代理 upstream delete、retry 成功才记录 `document_retry`。
+- `apps/api/tests/test_workspace_sync.py` 补齐旧 PDF parser workspace 删除共享语义、`duplicate_filename` 复用已有 parse task、download artifact 链接入 workspace，以及 workspace 搜索中 download `pageUrl` 编码派生。
+- `apps/api/tests/test_chat_document_parser_attachment.py` 补齐 chat PDF 附件提交失败和成功但无 `task_id` 的负路径，确保不记录 usage、不创建 artifact、不加入后台轮询任务。
+- 新增 `apps/api/tests/test_downloads.py`，覆盖 downloads 路由非 owner 打开 403、普通 owner 删除只 unlink workspace 不删真实文件、admin 删除真实文件。
+
+本轮新增前端 E2E 与交互收口：
+
+- 新增 `apps/web/e2e/tests/chat-responsive.spec.ts`，覆盖 `/chat` 390/768/1440 视口无横向溢出、顶部“查看历史/删除历史”直接可见、移动端历史选择、历史无效 session 过滤空态、发送后停止生成、全局 ChatBot 打开/最小化/展开/历史弹层。
+- `apps/web/src/pages/ChatPage.tsx` 移动端头部调整为头像/标题靠左、操作区靠右；移动端仅保留图标，`sm` 以上显示“新建会话 / 查看历史 / 删除历史”文字，避免导航标签进入财报问答助手时头部挤压。
+- `apps/web/src/components/layout/Topbar.tsx` 顶部导航开关收口为单个纯三横线按钮：移动端控制导航抽屉，桌面控制侧边栏收缩/展开；不添加底纹、分隔或额外修饰，保持原 UI 风格。
+- `apps/web/src/components/layout/Sidebar.tsx` 桌面侧边栏底部新增收缩/展开箭头；收起态顶部保留 SIQ 图标，底部箭头用于展开，移动端抽屉不显示该桌面 toggle。
+
+当前仓库状态与风险：
+
+- Git 索引治理仍有效：`git ls-files data` 仅剩 `data/README.md`、`data/backend/.gitkeep`、`data/pdf-parser/.gitkeep`；`var/`、`artifacts/` 仅跟踪 README / `.gitkeep`。
+- 当前工作区仍有未提交改动，应按主题拆分提交：后端边界测试、前端聊天 E2E、侧边栏/Topbar/ChatPage UI 交互、以及既有 `apps/web/src/styles/chat.css` 样式改动。
+- 主要剩余大文件仍是 `apps/api/services/agent_chat_runtime_impl.py`（约 6045 行）、`apps/pdf-parser/pdf_parser_app_impl.py`（约 3948 行）、`apps/api/routers/workflow.py`（约 2719 行）、`apps/api/routers/market_reports.py`（约 1458 行）。下一阶段不建议继续盲目拆红灯 owner，应先按主题提交和文档同步。
+
+下一轮建议任务：
+
+1. 先收束当前工作区：按“后端测试 / 前端 E2E / 导航与聊天 UI / 文档”拆提交，确保新增测试文件进入索引，ignored runtime/cache/build 目录不进入索引。
+2. 低风险后端尾项：在 `apps/api/tests/test_downloads.py` 补 path traversal、绝对路径、非白名单后缀拒绝等 downloads 安全边界。
+3. 控制面瘦身候选：继续评估 `apps/api/routers/workflow.py` 与 `apps/api/routers/market_reports.py` 的 service/repository 抽取，但必须先补 route contract / response golden 边界。
+4. 红灯 owner 暂缓混批：Agent runtime 普通 chat/history/attachments/memory/dedupe、PDF parser Flask response / MinerU submit-poll / `_ensure_*` 编排、Document workbench refs/scroll/CSS 注入仍需单独设计窗口。
+
 ## 10. 验收标准总表
 
 ### 仓库治理 DoD
@@ -2849,7 +2905,7 @@ test-results/**
 - evidence package 有共享 reader/validator。
 - settings 可注入、可测试。
 - API-finder-rules contract tests 通过。
-- 当前基础门禁：`scripts/check_all.sh` 已通过，覆盖 `apps/api` 405 tests、`apps/pdf-parser` 302 tests、`apps/document-parser` 27 tests、finder 46 tests、rules 29 tests、Web Node unit 44 tests 和 `npm run check:frontend`。
+- 当前基础门禁：`scripts/check_all.sh` 已通过，覆盖 `apps/api` 486 tests、`apps/pdf-parser` 326 tests、`apps/document-parser` 27 tests、finder 46 tests、rules 29 tests、Web Node unit 44 tests 和 `npm run check:frontend`。
 
 ### 前端 DoD
 
@@ -2858,7 +2914,7 @@ test-results/**
 - API client 收口。
 - legacy UI 不再被新代码默认使用。
 - 核心页面 Playwright smoke 通过。
-- 当前基线：`npm run test:unit` 通过并覆盖全部 `src/**/*.test.ts`，`npm run check:frontend` 通过，关键 Playwright responsive 覆盖通过；后续前端主要剩 `PDF_CSS` / `DOCUMENT_CSS` 运行时字符串单独评估和必要的响应式 smoke。
+- 当前基线：`npm run test:unit` 通过并覆盖全部 `src/**/*.test.ts`，`npm run check:frontend` 通过，Chromium Playwright 25 tests 通过；聊天、工作平台、搜索下载、PDF/文档解析关键响应式 smoke 已覆盖。后续前端主要剩少量维护型交互回归，不建议继续扩大聊天 E2E 矩阵。
 
 ### 运维 DoD
 

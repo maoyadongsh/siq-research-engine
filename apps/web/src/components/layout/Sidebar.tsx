@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { NavLink } from 'react-router-dom'
-import { PanelLeftOpen } from 'lucide-react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { Tooltip } from '../ui'
 import { useAuth } from '../../hooks/useAuth'
 import { preloadRoute } from '../../lib/routePreload'
@@ -68,7 +68,7 @@ export default function Sidebar({ collapsed, mobileOpen = false, onToggle, onClo
     )
   }
 
-  const renderContent = (compact: boolean) => (
+  const renderContent = (compact: boolean, showDesktopToggle = true) => (
     <>
         <div
           className={`flex items-center border-b border-border bg-white/70 ${compact ? 'justify-center px-0' : 'gap-3 px-5'}`}
@@ -86,14 +86,10 @@ export default function Sidebar({ collapsed, mobileOpen = false, onToggle, onClo
           </>
         )}
         {compact && (
-          <button
-            onClick={onToggle}
-            className="ml-auto inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-950 focus:outline-none focus:ring-4 focus:ring-primary/10"
-            aria-label="展开侧边栏"
-            title="展开侧边栏"
-          >
-            <PanelLeftOpen className="h-5 w-5" />
-          </button>
+          <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] bg-gradient-to-br from-[#2ea8ff] via-[#0071e3] to-[#004fb8] text-[14px] font-black text-white tracking-tighter shadow-[0_10px_24px_rgba(29,78,216,0.24)]">
+            <span className="relative z-10">SIQ</span>
+            <div className="pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-br from-white/24 via-white/5 to-transparent" />
+          </div>
         )}
       </div>
       <nav className={`sidebar-scrollbarless flex-1 overflow-y-auto overflow-x-hidden pb-1 ${compact ? 'mt-2 space-y-0.5 px-1.5' : 'mt-3 space-y-0.5 px-2.5'}`}>
@@ -111,6 +107,18 @@ export default function Sidebar({ collapsed, mobileOpen = false, onToggle, onClo
           {visibleBottomItems.map((item) => renderLink(item, compact, 'utility'))}
         </div>
       </div>
+      {showDesktopToggle && (
+        <div className="border-t border-border px-2.5 py-2">
+          <button
+            onClick={onToggle}
+            className={`inline-flex h-11 w-full items-center justify-center rounded-[12px] text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-950 focus:outline-none focus:ring-4 focus:ring-primary/10 ${compact ? 'px-0' : 'px-3'}`}
+            aria-label={compact ? '展开侧边栏' : '收起侧边栏'}
+            title={compact ? '展开侧边栏' : '收起侧边栏'}
+          >
+            {compact ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+          </button>
+        </div>
+      )}
     </>
   )
 
@@ -130,7 +138,7 @@ export default function Sidebar({ collapsed, mobileOpen = false, onToggle, onClo
         } ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
       >
         <div className="hidden h-full flex-col lg:flex">{renderContent(collapsed)}</div>
-        <div className="flex h-full flex-col lg:hidden">{renderContent(false)}</div>
+        <div className="flex h-full flex-col lg:hidden">{renderContent(false, false)}</div>
       </aside>
     </>
   )

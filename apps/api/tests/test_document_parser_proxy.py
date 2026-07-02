@@ -579,6 +579,187 @@ def test_batch_download_proxy_filters_to_accessible_tasks(monkeypatch, tmp_path)
     assert response.media_type == "application/zip"
 
 
+def test_delete_shared_document_task_removes_workspace_link_without_upstream(monkeypatch, tmp_path):
+    class QueryParams:
+        def multi_items(self):
+            return []
+
+    class DeleteRequest(DummyRequest):
+        method = "DELETE"
+        query_params = QueryParams()
+
+    class FakeAsyncClient:
+        def __init__(self, timeout=None):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def request(self, method, url, **kwargs):
+            raise AssertionError("shared document deletion must not call upstream")
+
+    monkeypatch.setattr(document_parser.httpx, "AsyncClient", FakeAsyncClient)
+
+    with make_session(tmp_path) as session:
+        user = make_user(session, "alice")
+        other = make_user(session, "bob")
+        other_id = int(other.id)
+        document_parser._record_document_artifact(
+            session,
+            user_id=int(user.id),
+            task_id="shared-task",
+            filename="alice.md",
+            source="document_upload",
+        )
+        document_parser._record_document_artifact(
+            session,
+            user_id=int(other.id),
+            task_id="shared-task",
+            filename="bob.md",
+            source="document_upload",
+        )
+
+        result = asyncio.run(
+            document_parser.delete_document_task(
+                DeleteRequest(),
+                "shared-task",
+                current_user=user,
+                session=session,
+            )
+        )
+
+        links = session.exec(document_parser._artifact_statement("shared-task")).all()
+
+    assert result == {"success": True, "upstream_deleted": False, "scope": "workspace"}
+    assert len(links) == 1
+    assert links[0].user_id == other_id
+
+
+def test_delete_last_document_task_owner_proxies_upstream_delete(monkeypatch, tmp_path):
+    seen: dict[str, object] = {}
+
+    class QueryParams:
+        def multi_items(self):
+            return []
+
+    class DeleteRequest(DummyRequest):
+        method = "DELETE"
+        query_params = QueryParams()
+
+    class FakeAsyncClient:
+        def __init__(self, timeout=None):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def request(self, method, url, **kwargs):
+            seen["method"] = method
+            seen["url"] = url
+            seen["params"] = kwargs.get("params")
+            return SimpleNamespace(
+                status_code=200,
+                content=b'{"success":true}',
+                headers={"content-type": "application/json"},
+            )
+
+    monkeypatch.setattr(document_parser.httpx, "AsyncClient", FakeAsyncClient)
+
+    with make_session(tmp_path) as session:
+        user = make_user(session, "alice")
+        document_parser._record_document_artifact(
+            session,
+            user_id=int(user.id),
+            task_id="last-task",
+            filename="owned.md",
+            source="document_upload",
+        )
+
+        response = asyncio.run(
+            document_parser.delete_document_task(
+                DeleteRequest(),
+                "last-task",
+                current_user=user,
+                session=session,
+            )
+        )
+
+        links = session.exec(document_parser._artifact_statement("last-task")).all()
+
+    assert seen["method"] == "DELETE"
+    assert str(seen["url"]).endswith("/api/tasks/last-task")
+    assert seen["params"] == []
+    assert response.status_code == 200
+    assert links == []
+
+
+def test_retry_document_task_proxies_and_records_usage(monkeypatch, tmp_path):
+    seen: dict[str, object] = {}
+
+    class QueryParams:
+        def multi_items(self):
+            return []
+
+    class RetryRequest(DummyRequest):
+        method = "POST"
+        query_params = QueryParams()
+
+    class FakeAsyncClient:
+        def __init__(self, timeout=None):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def request(self, method, url, **kwargs):
+            seen["method"] = method
+            seen["url"] = url
+            return SimpleNamespace(
+                status_code=202,
+                content=b'{"task_id":"retry-task","status":"queued"}',
+                headers={"content-type": "application/json"},
+            )
+
+    monkeypatch.setattr(document_parser.httpx, "AsyncClient", FakeAsyncClient)
+
+    with make_session(tmp_path) as session:
+        user = make_user(session, "alice")
+        document_parser._record_document_artifact(
+            session,
+            user_id=int(user.id),
+            task_id="retry-task",
+            filename="retry.md",
+            source="document_upload",
+        )
+
+        response = asyncio.run(
+            document_parser.retry_document_task(
+                RetryRequest(),
+                "retry-task",
+                current_user=user,
+                session=session,
+            )
+        )
+
+        usage = session.exec(select(UsageEvent).where(UsageEvent.source == "document_retry")).one()
+
+    assert seen["method"] == "POST"
+    assert str(seen["url"]).endswith("/api/retry/retry-task")
+    assert response.status_code == 202
+    assert usage.event_type == DOCUMENT_PARSE_EVENT
+    assert usage.count == 1
+    assert json.loads(usage.metadata_json or "{}") == {"task_id": "retry-task"}
+
+
 def test_document_parse_quota_exceeded_returns_429(tmp_path):
     with make_session(tmp_path) as session:
         user = make_user(session, "alice")

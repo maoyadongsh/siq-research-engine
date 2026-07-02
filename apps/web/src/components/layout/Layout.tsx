@@ -55,6 +55,7 @@ export default function Layout() {
       <Topbar
         sidebarCollapsed={collapsed}
         mobileSidebarOpen={mobileSidebarOpen}
+        onToggleSidebar={toggleSidebar}
         onToggleMobileSidebar={toggleMobileSidebar}
       />
       <main

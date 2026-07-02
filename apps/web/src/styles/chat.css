@@ -1059,9 +1059,9 @@ html.dark .chat-md-table td.is-total:first-child { background: rgba(59, 130, 246
   }
   .global-chat-window {
     left: max(.5rem, env(safe-area-inset-left)) !important;
-    right: max(.5rem, env(safe-area-inset-right)) !important;
+    right: auto !important;
     bottom: max(.5rem, env(safe-area-inset-bottom)) !important;
-    width: auto !important;
+    width: min(400px, calc(100dvw - 1rem)) !important;
     height: min(760px, calc(100dvh - 1rem)) !important;
     border-radius: var(--radius-panel) var(--radius-panel) 0 0;
   }

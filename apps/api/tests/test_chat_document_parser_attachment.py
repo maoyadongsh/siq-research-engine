@@ -101,3 +101,110 @@ def test_pdf_chat_attachment_submits_to_document_parser(monkeypatch, tmp_path):
     assert artifact.source == "chat_attachment"
     assert artifact.path == "/documents?task=doc-chat-1"
     assert usage.count == 1
+
+
+def test_pdf_chat_attachment_submit_failure_does_not_record_usage_or_artifact(monkeypatch, tmp_path):
+    class FakeAsyncClient:
+        def __init__(self, timeout=None):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, data=None, files=None, headers=None):
+            return SimpleNamespace(
+                is_success=False,
+                status_code=500,
+                content=b'{"error":"parser unavailable"}',
+                text="parser unavailable",
+                json=lambda: {"error": "parser unavailable"},
+            )
+
+    monkeypatch.setattr(chat.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(chat, "DOCUMENT_PARSER_API_BASE", "http://document-parser.test")
+
+    pdf_path = tmp_path / "failed.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\nfake")
+    parse_dir = tmp_path / "parse-failed"
+    background_tasks = BackgroundTasks()
+
+    with make_session(tmp_path) as session:
+        user = make_user(session)
+        metadata = asyncio.run(
+            chat._submit_pdf_attachment_to_mineru(
+                pdf_path,
+                "stored-failed.pdf",
+                parse_dir,
+                background_tasks,
+                current_user=user,
+                session=session,
+            )
+        )
+
+        artifacts = session.exec(select(UserArtifact)).all()
+        usage = session.exec(select(UsageEvent)).all()
+
+    assert metadata["document_parser_submit_status"] == "failed"
+    assert metadata["document_parser_submit_http_status"] == 500
+    assert metadata["document_parser_submit_error"] == "parser unavailable"
+    assert artifacts == []
+    assert usage == []
+    assert background_tasks.tasks == []
+    assert (parse_dir / "metadata.json").exists()
+
+
+def test_pdf_chat_attachment_without_task_id_does_not_record_usage_or_artifact(monkeypatch, tmp_path):
+    class FakeAsyncClient:
+        def __init__(self, timeout=None):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, data=None, files=None, headers=None):
+            return SimpleNamespace(
+                is_success=True,
+                status_code=200,
+                content=b'{"tasks":[]}',
+                text='{"tasks":[]}',
+                json=lambda: {"tasks": []},
+            )
+
+    monkeypatch.setattr(chat.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(chat, "DOCUMENT_PARSER_API_BASE", "http://document-parser.test")
+
+    pdf_path = tmp_path / "no-task.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\nfake")
+    parse_dir = tmp_path / "parse-no-task"
+    background_tasks = BackgroundTasks()
+
+    with make_session(tmp_path) as session:
+        user = make_user(session)
+        metadata = asyncio.run(
+            chat._submit_pdf_attachment_to_mineru(
+                pdf_path,
+                "stored-no-task.pdf",
+                parse_dir,
+                background_tasks,
+                current_user=user,
+                session=session,
+            )
+        )
+
+        artifacts = session.exec(select(UserArtifact)).all()
+        usage = session.exec(select(UsageEvent)).all()
+
+    assert metadata["document_parser_submit_status"] == "submitted_without_task_id"
+    assert metadata["document_parser_status"] == "unknown"
+    assert metadata["document_parser_task_id"] is None
+    assert metadata["document_parser_page_url"] == ""
+    assert artifacts == []
+    assert usage == []
+    assert background_tasks.tasks == []
+    assert (parse_dir / "metadata.json").exists()
