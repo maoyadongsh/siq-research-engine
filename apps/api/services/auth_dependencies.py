@@ -1,8 +1,9 @@
 """用户认证依赖函数。"""
 from fastapi import Depends, HTTPException, Header
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlmodel import Session, select
-from database import get_session
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
+from database import get_async_session
 from services.auth_service import AuthService, PermissionChecker, User
 
 
@@ -16,7 +17,7 @@ def create_access_token(data: dict, expires_delta=None) -> str:
 
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
-    session: Session = Depends(get_session)
+    session: AsyncSession = Depends(get_async_session)
 ) -> User:
     """
     从JWT token获取当前用户
@@ -37,9 +38,11 @@ async def get_current_user(
         raise HTTPException(401, "Invalid token: missing subject")
 
     if subject.isdigit():
-        user = session.exec(select(User).where(User.id == int(subject))).first()
+        result = await session.exec(select(User).where(User.id == int(subject)))
     else:
-        user = session.exec(select(User).where(User.username == subject)).first()
+        result = await session.exec(select(User).where(User.username == subject))
+
+    user = result.first()
 
     if user is None:
         raise HTTPException(401, "User not found")
