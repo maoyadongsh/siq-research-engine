@@ -48,13 +48,14 @@ Web 工作台
 - 进展补充：`F-002` 已补齐共享 workbench 和市场隔离验证；`F-003` 已新增 `shared/api/client.ts`，并将 `pdfApi`、`documentApi`、`secApi`、`Settings`、`Dashboard`、`ReportViewer`、`NotificationMenu`、`VectorIngest`、`ChatAttachmentList`、`DocumentResultWorkbench`、`PdfSourceWorkbench` 迁入共享请求层和 feature 门面；业务组件/页面已不再直接导入 `lib/apiClient`、`lib/pdfApi`、`lib/secApi`、`lib/documentApi`，E2E/mock 规则也已修正；`features/document-parser/api.ts`、`features/pdf-parsing/api.ts`、`features/market-parsing/api.ts` 已接管对应 API 实现，`lib/documentApi.ts`、`lib/pdfApi.ts`、`lib/secApi.ts` 仅保留兼容 re-export。
 - 已完成：`R-003` 已按主题拆成 8 个提交，运行态/构建产物仍保持 ignored，不进入索引。
 - 进展补充：`F-004` 已完成 `PdfSourceWorkbench.tsx` 第二阶段拆分，新增 `pdfSourceWorkbenchHelpers.ts`，把页码/bbox、跨页表关系、overlay 构建和物理表合并等纯 helper 搬出，并补 `pdfSourceWorkbenchHelpers.test.ts` 直接覆盖 page number/bbox、page table sort、物理表合并、table relation artifact、overlay 和 fallback HTML 边界；`SearchDownload.tsx` 已完成 model/table/downloaded panel、search/download flows、URL state、日志派生、download refresh 判定和 toast 文案 helper 拆分；`index.css` 已将 search/download、dashboard、通用 surface/button/search、quick-question、chat rendered/table/code、agent dock/composer、chat page shell 以及 root/body/dark/focus/reduced-motion/app spacing 全局基线迁到 `styles/search-download.css`、`styles/dashboard.css`、`styles/system-surfaces.css`、`styles/quick-questions.css`、`styles/chat.css`、`styles/app-base.css`，`index.css` 退为 import + theme 外壳；Document/PDF/Market parsing 的 feature API 已成为实现 owner，`lib/documentApi.ts`、`lib/pdfApi.ts`、`lib/secApi.ts` 退为兼容 re-export；`DocumentResultWorkbench.tsx` 已完成纯 utils、source preview、artifact/table/figure/status/extract/markdown panes、source lookup、table lookup、focused relation、preview page model 和 JSON preview 派生拆分，父组件保留 overlay `data-*`、mobile tab、refs、selection/scroll 和 resource open owner；移动端工作平台/系统平台宽度不一致已用响应式 E2E 固化。
+- 进展补充：`DocumentResultWorkbench.tsx` 已完成 `documentResultFocusController.ts`、`documentResultViewModel.ts` 和 `documentResourceOpener.ts` 的最小抽取，分别收口 active page/focus/tab 状态、base/focused 派生链和资源打开错误态；相关测试已补齐并通过，父组件现在主要保留 refs、selection、scroll、resource open 调用位和 JSX 组合。
 - 进展补充：`P-002` 已完成 quality/financial/document_full/content_list_enhanced/MinerU result 第一轮边界拆分，新增 `pdf_parser_quality_service.py`、`pdf_parser_financial_service.py`、`pdf_parser_document_full_service.py`、`pdf_parser_content_list_enhanced_service.py`、`pdf_parser_mineru_result_service.py`、`pdf_parser_response_service.py` 与聚焦测试；`pdf_parser_artifact_service.py` 已新增 open artifact name 纯分类 helper，并已最小接入 `open_artifact` Flask route，覆盖 images/download、images、images/<name>、allowlist artifact、forbidden artifact、missing artifact 和空图片下载；`pdf_parser_response_service.py` 已继续收拢 status response payload 纯 helper，`pdf_parser_app_impl.py` 只保留 elapsed/progress/markdown/local queue 依赖注入；`pdf_parser_quality_service.py` 已继续收拢 quality report payload 与基础 warning/info message 纯 helper，`pdf_parser_app_impl.py` 只保留 report kind/year、table index、candidate grouping 和 generated_at 注入；`pdf_parser_document_full_service.py` 已继续收拢 table relations payload、content_list_enhanced 回写 document_full 的纯 payload helper，并补强 relation table merge、relation alias 回填、无效表过滤、缺 body enhanced table 由 content_list 回填、missing-body content table source id 不串用、未知/非 dict relation 负路径、file reference、缺失 source/resource 状态和 content_list_enhanced 回写初始化覆盖；`pdf_parser_quality_service.py` 已补强银行资产负债表附近表定位噪声过滤、季度报告核心表规则、`equity_statement` 回填“所有者权益变动表”、key_metrics 回填“主要会计数据”时继承 `table_index` 表源元数据覆盖、statement display source 遇到噪声 table index 时回落附近真实资产负债表、有效 table index 不被 nearby fallback 抢走、非数字 `line_numbers` 防御、`candidate_summary_list` 和 `priority_review_tables` 规则、quality fallback 噪声过滤和 statement/metric 既有完整候选不覆盖边界；`quality_engine.py` 已补 report year / candidate confidence / candidate group 纯函数边界；`pdf_parser_financial_service.py` 已补 financial schema/rule mismatch、单边 artifact 读取和 stale checks 触发重写覆盖；`pdf_parser_content_list_enhanced_service.py` 已继续收拢 `build_content_list_enhanced_payload` 顶层 payload 组装、table source 映射/匹配、打印页码映射、Markdown 页码推断、脚注/Markdown 行号、目录/标题 helper、enhanced quality signals 聚合、flowchart 结构化图像和按需 OCR/VLM 候选图像附录覆盖，并补 `_markdown_image_details`、`_markdown_table_to_records`、`_mermaid_to_nodes_edges` 与重复图片路径绑定边界；`pdf_source_viewer.py` 已补 source-view payload 纯 helper 直接覆盖，包含 page bbox extent coercion/非法 bbox/目标页过滤、printed page number 映射、page content JSON 输入、非法页码、非 list 空 payload、source_id/bbox 表匹配、content_table_source_id=0、非法 report table row 跳过、非数字 focus table 行为、image/list/unknown block 边界；`pdf_parser_app_impl.py` 状态 owner 已清单化，仍保留 Flask route response、task state、queue claim、路径存在性、文件写入、`_fetch_and_cache_result` 和 `_ensure_*` 重编排 owner。
 - 进展补充：`A-002` 已完成 tool output、parse-only discovery、attachment display、citation/evidence 渲染 helper、PostgreSQL fallback row helpers、PostgreSQL fallback parse/predicate helper、three-statement record context helper、Wiki fulltext 文本/snippet/alias/search terms 匹配 helper、Wiki catalog 只读 helper、local-memory 纯 helper、runtime dedupe helper、context/company helper、financial guard/calculation trace warning helper、financial display format helper、analysis completion guard intent/reply/input helper、general assistant context input helper、multi-company session context helper、Hermes run input text/multimodal helper、statement/note detail intent helper、attachment classification helper、PDF2MD parse-only alias/match helper 和 citation record label helper 下沉，新增/扩展 `agent_runtime_tool_output.py`、`agent_runtime_parse_only.py`、`agent_runtime_display.py`、`agent_runtime_citations.py`、`agent_runtime_fallback_contexts.py`、`agent_runtime_catalog.py`、`agent_runtime_postgres_fallback.py`、`agent_runtime_statement_context.py`、`agent_runtime_financial_format.py`、`agent_runtime_memory.py`、`agent_runtime_dedupe.py`、`agent_runtime_context.py`、`agent_runtime_financial_guard.py` 与聚焦测试；已补 `pdf_page_number` / `markdown_line` 引用别名去重、supplement 引用合并、正文已有引用去重、LaTeX inline symbol normalization（含带空格写法）、evidence trace 展示归一化调用顺序、primary-data evidence trace 判定、reference line filtering、source locator 默认值与链接追加、primary data source ref 默认值、source ref 去重编号、citation 引用区插入位置与正文 metric guard、auto evidence section strip、requested metric evidence guard、human capital / three-statement / statement table / note detail / wiki fulltext / PostgreSQL supplement renderer、three-statement record 递归迭代/期间排序/source fallback/核心记录判定/latest 选择、PostgreSQL query text/company_all/metric terms/row predicate、financial display number/per-capita/formula/table ref formatting、wiki fulltext report_id 默认 file、wiki fulltext html/text normalization、company alias 提取/剔除、fallback search terms 清洗/去重/sort、specific term filtering、line scoring、snippet 截断、PDF 页回溯、nearest table meta、Wiki catalog intent/排序/格式化/负路径、note detail direct/context statement/direct/empty guard 细边界、analysis_completed_artifacts code 兜底/负路径、analysis completion guard/general context 负路径、progress payload clamp / 文本提取 / tool-label 判定细边界、financial tool availability correction 与 reconciliation trace guard、display 绝对 URL / 空值 URL 编码与 path filename fallback、parse-only alias/limit/context-hint 细边界、record preview/statement value helper、markdown link label 清洗、附件 path basename 与通用 attachment 标签兜底、空白 filename fallback、kind normalization、未知 kind 文档链接兜底、空/多附件默认提示、附件 URL Markdown target 编码、query/fragment URL 编码、空白 URL 与混合附件独立处理、交易所前缀文件名股票代码/公司名匹配、6 位股票代码与港股 5 位边界、短 alias 防误匹配、parse-only 大小写 fallback term、parse-only artifact 字段完整输出、parse-only 无匹配返回空、general/company-dir 短路，以及跳过已存在 Wiki 后再应用 `limit` 的覆盖；`agent_chat_runtime_impl.py` 仍保留 `ACTIVE_RUNS`、SSE append、run lifecycle、DB session memory 刷新和普通 chat/streaming 共享状态 owner。
 - 本轮追加：`pdf_parser_content_list_enhanced_service.py` 已下沉财报附注金额解析、单位倍率、近邻单位和金额误差比较 helper，`pdf_parser_app_impl.py` 保留兼容 wrapper；`agent_runtime_financial_format.py` 已下沉人效/人均场景的数字解析、行数值提取和 table trace 格式化 helper，`agent_chat_runtime_impl.py` 保留 source link 注入 wrapper。
 - 本轮追加：Agent runtime citations/reference 合并边界补测已完成，覆盖空 body 新增引用区、全部无效 refs 原样返回、三级引用来源 section 在 peer/parent heading 前收口；`citation_links.py` 修复 printed_page 空槽位对齐，并补充缺 task_id/pdf_page 原样返回、本地 API 链接 query/fragment 保留和重复链接不追加覆盖。
 - 本轮追加：PDF2MD parse-only context 剩余边界已补，覆盖市场前缀伪 alias 防误匹配、非 dict task info 过滤、空 task/artifact 字段展示兜底；PostgreSQL fallback pure helper 已补空 hint、0 值页码/表号、空 terms callback 短路和缺字段负路径；前端 citation renderer 新增 `rendererUtils.test.ts` smoke，覆盖 source/table action 抽取、普通 Markdown link 保留和长引用行解析。
 - 本轮追加：Agent runtime display/tool-output/context 剩余细边界已补，覆盖 display 的 None URL、无 basename path fallback、控制空白 URL 编码，tool-output 的 None/空白、list JSON、长文本换行、tool/label 字段隔离，以及 context 的非 dict model/nested field、format context、attachment model_dump 脏数据防御。
-- 当前建议：红灯 owner 设计窗口已启动，并已完成首个 PDF parser queue claim/recover 最小试点；Agent runtime 与 Document workbench 本轮先补迁移前护栏，不直接迁移 `ACTIVE_RUNS`/SSE 或 refs/selection/scroll owner。下一轮优先选择 PDF artifact orchestrator 前置测试/最小抽取，或前端 Document hook 试点；Agent runtime streaming owner 继续补 heartbeat、existing active run join、session default context 等矩阵后再迁。
+- 当时建议：红灯 owner 设计窗口启动，并已完成首个 PDF parser queue claim/recover 最小试点；后续 PDF artifact orchestrator、前端 Document hook、Agent runtime active SSE / stop owner 和 `_collect_stream_run` 接线矩阵均已分轮完成，当前建议见 0.5 收口记录。
 
 ### 0.2 2026-06-30 深度全量检查结论
 
@@ -63,10 +64,10 @@ Web 工作台
 - 仓库索引治理有效：`git ls-files data` 只剩 `data/README.md`、`data/backend/.gitkeep`、`data/pdf-parser/.gitkeep`。
 - `R-003` 之前工作树非常脏：`git status --short | wc -l` 约 725 行，包含大量已从索引移出的 data 删除项、前端/后端重构改动、未跟踪新模块和生成目录；该风险已通过分组 review/提交收口。
 - `.gitignore` 已覆盖 `data/**`、`var/**`、`artifacts/**`、`**/.venv/`、`**/.pytest_cache/`、`**/__pycache__/`、`apps/web/dist/`、`apps/web/test-results/`、`apps/web/playwright-report/` 等运行态和生成目录；本地仍存在大量 ignored cache/runtime 目录，不应纳入提交。
-- 当前最大剩余大文件：`agent_chat_runtime_impl.py` 已降至约 6197 行、`pdf_parser_app_impl.py` 已降至约 4102 行、`apps/web/src/index.css` 已降至约 85 行，新增 `apps/web/src/styles/app-base.css` 约 162 行，`apps/web/src/styles/chat.css` 约 1121 行，`SearchDownload.tsx` 约 961 行但 download refresh/toast 派生已拆到 feature helper，`DocumentResultWorkbench.tsx` 已降至约 548 行；`PdfSourceWorkbench.tsx` 已降至约 708 行，新增的 `pdfSourceWorkbenchHelpers.ts` 约 742 行，后续可继续按 UI/数据派生边界拆分。
+- 当前最大剩余大文件：`agent_chat_runtime_impl.py` 已降至约 6013 行、`pdf_parser_app_impl.py` 已降至约 3948 行、`apps/web/src/index.css` 已降至约 85 行，新增 `apps/web/src/styles/app-base.css` 约 162 行，`apps/web/src/styles/chat.css` 约 1121 行，`SearchDownload.tsx` 约 961 行但 download refresh/toast 派生已拆到 feature helper，`DocumentResultWorkbench.tsx` 已降至约 452 行；`PdfSourceWorkbench.tsx` 已降至约 708 行，新增的 `pdfSourceWorkbenchHelpers.ts` 约 742 行，后续可继续按 UI/数据派生边界拆分。
 - 前端 route registry 已单源化；API client 核心能力已收口到 `shared/api/client.ts`，业务组件/页面已迁到 `features/*/api.ts` 或 shared client；`lib/documentApi`、`lib/pdfApi`、`lib/secApi` 已降为 feature API 兼容 re-export，`lib/apiClient` 暂作为 shared client 兼容出口保留。
 - PDF parser 已完成入口 façade、request/runtime/page-marker/task-repository/artifact/source 第一阶段拆分；quality/financial/document_full/content_list_enhanced/MinerU 原始产物落盘已完成第一轮 service 下沉，`pdf_source_viewer.py` 的 source-view/page content payload helper 已有直接边界测试，且 report table 非数字页码防御已固化；`pdf_parser_app_impl.py` 仍保留任务状态、路由响应、queue claim 和 `_ensure_*` 编排。
-- Agent runtime 已完成入口 façade、loop guard、progress/tool label、tool output normalization、parse-only discovery、display normalization、citation/evidence 渲染 helper、PostgreSQL fallback row/parse/predicate helpers 与 local-memory 纯 helper 第一阶段拆分；`ACTIVE_RUNS`、SSE run owner、普通 chat 与 streaming 的共享状态仍必须留在 `agent_chat_runtime_impl.py`，下一阶段只搬同类纯函数。
+- Agent runtime 已完成入口 façade、loop guard、progress/tool label、tool output normalization、parse-only discovery、display normalization、citation/evidence 渲染 helper、PostgreSQL fallback row/parse/predicate helpers 与 local-memory 纯 helper 第一阶段拆分；`ACTIVE_RUNS`、active SSE replay/heartbeat 和 stop owner 已迁入 `agent_runtime_streaming.py`，普通 chat 与 streaming 的 history/attachments/memory/dedupe/build-run-input 顺序仍必须留在 `agent_chat_runtime_impl.py`。
 
 本次验证基线：
 
@@ -96,7 +97,7 @@ bash -n start_all.sh && find scripts infra apps services -type f -name '*.sh' -p
 
 - 绿灯任务批量推进：纯 helper 下沉、只读测试覆盖、feature API 兼容出口收口、文档状态同步可以每轮合并 2-4 个低风险点，统一跑聚焦门禁后提交。
 - 黄灯任务小步验证：涉及组件状态派生、PDF quality/financial 规则行为、Agent runtime 引用/展示输出的改动，每次只改一个行为面，并必须补直接测试。
-- 红灯 owner 暂缓单独设计：`ACTIVE_RUNS`、SSE lifecycle、PDF parser queue claim/worker/Flask response、Document workbench refs/selection/scroll 不混入加速批次。
+- 红灯 owner 当时要求单独设计：`ACTIVE_RUNS`、SSE lifecycle、PDF parser queue claim/worker/Flask response、Document workbench refs/selection/scroll 不混入加速批次；后续已完成 active SSE / stop owner 最小迁移，普通 chat/history/attachments/memory/dedupe 仍不混批。
 - 提速不扩大爆炸半径：每轮优先选择可回滚、可聚焦验证、不会跨越运行时状态 owner 的改动；文档只记录关键决策和验证结果，不做过度整理。
 
 - `F-004` 前端 feature 化与样式收口：剩余约 0-2 个小轮次，约 0.25-0.75 天。
@@ -114,14 +115,14 @@ bash -n start_all.sh && find scripts infra apps services -type f -name '*.sh' -p
   2. citations / display / parse-only 只读 helper 补齐：已补引用别名字段去重、supplement 引用合并、正文已有引用去重、LaTeX inline symbol normalization、evidence trace 展示归一化调用顺序、primary-data evidence trace 判定、reference line filtering、source locator 默认值与链接追加、primary data source ref 默认值、source ref 去重编号、citation 引用区插入位置与正文 metric guard、auto evidence section strip、requested metric evidence guard、human capital / three-statement / statement table / note detail / wiki fulltext / PostgreSQL supplement renderer、wiki fulltext report_id 默认 file、company alias 提取/剔除、fallback search terms 清洗/去重/sort、人效/人均数字解析、行数值提取和 table trace helper、note detail direct/context statement/direct/empty guard 细边界、analysis_completed_artifacts code 兜底/负路径、analysis completion guard/general context 负路径、display 绝对 URL / 空值 URL 编码与 path filename fallback、parse-only alias/limit/context-hint 细边界、record preview/statement value helper、markdown link label 清洗、附件 path basename、通用 attachment 标签兜底、空白 filename fallback、kind normalization、未知 kind 文档链接兜底、空/多附件默认提示、附件 URL Markdown target 编码、query/fragment URL 编码、空白 URL 与混合附件独立处理、交易所前缀文件名股票代码/公司名匹配、6 位股票代码与港股 5 位边界、短 alias 防误匹配、parse-only 大小写 fallback term、parse-only artifact 字段完整输出、parse-only 无匹配返回空、general/company-dir 短路、跳过已存在 Wiki 后再应用 `limit` 覆盖、parse-only 市场前缀防误匹配、非 dict task info 过滤、空 artifact 字段兜底、display None URL/path fallback/URL control whitespace、tool-output None/blank/list/long text/tool-label 隔离、context 非 dict nested field/model_dump 防御，以及 citations/reference 空 body、全无效 refs、三级 section 收口和 citation link printed_page 空槽位对齐覆盖；后续继续按只读 helper + 直接单测推进。
   3. 下一步低风险优先级：PDF parser quality/source-view 低风险补测，或 Agent runtime attachments/history/local-memory owner 拆分前置覆盖。
   4. attachments / history / local-memory owner 拆分前置覆盖：高风险，至少 2 个提交；未补足覆盖前不迁移真实 owner。
-  5. `ACTIVE_RUNS`、SSE event append、run lifecycle：高风险，暂缓到单独设计窗口。
+  5. `ACTIVE_RUNS`、SSE event append、stop lifecycle：已完成最小 owner 迁移；`_collect_stream_run` / `stream_chat_reply` 仍保留单独设计窗口。
 - 验证与文档：每轮都要做，约占开发时间 20%-30%。最低门禁为聚焦测试、`git diff --check`；涉及前端页面时跑 `npm run check:frontend`，涉及 PDF parser 时跑对应 service tests，涉及 Agent runtime 时跑对应 `apps/api` 聚焦测试。
 
 本轮并行执行结果：
 
 1. 前端窗口：完成 `SearchDownload.tsx` download refresh 判定、toast 文案 helper、`DocumentResultWorkbench.tsx` json preview / page overlay derivation、`index.css` 全局基线抽离、Document/PDF/Market parsing feature API 实现 owner 上移和直接/E2E 覆盖；页面继续保留下载状态、refs、selection、scroll 和 resource open owner。
 2. PDF parser 窗口：完成 `content_list_enhanced` 脚注/Markdown 行号/目录标题 helper 下沉、财报附注金额解析/单位倍率/近邻单位/金额误差比较 helper 下沉、flowchart 结构化图像与按需 OCR/VLM 候选图像附录覆盖、artifact name 纯分类 helper及 `open_artifact` route 最小接入、status response payload helper、quality report payload/warning/info message helper、quality fallback 噪声过滤、statement/metric 既有完整候选不覆盖、`document_full` relation payload、relation alias、无效表过滤、缺 body enhanced table 回填、missing-body content source id 隔离、未知/非 dict relation 负路径、file reference、缺失 source/resource 状态、content_list_enhanced 回写初始化覆盖、quality 银行噪声表过滤、季度报告核心表规则、权益变动表回填、key_metrics 表源元数据继承、statement display source 噪声 index 回落附近真实资产负债表、有效 table index 不被 nearby fallback 抢走、非数字行号防御、candidate summary、priority review 去重/截断，以及 financial schema/rule mismatch、单边 artifact 读取、stale checks 触发重写、duplicate response、recent task clamp/normalization、source viewer page content payload 直接测试和 report table 非数字页码防御；`pdf_parser_app_impl.py` 状态 owner 已清单化，并继续保留 `_ensure_*` 编排 owner。
-3. Agent runtime 窗口：完成 statement/note detail intent、attachment classification、PDF2MD parse-only alias/match、citation record label helper、Wiki fulltext alias/search terms helper、人效/人均数字解析/行数值提取/table trace helper 下沉，以及引用别名字段去重 / supplement 引用合并 / 正文已有引用去重 / LaTeX inline symbol normalization / evidence trace 展示归一化调用顺序 / primary-data evidence trace 判定 / reference line filtering / source locator 默认值与链接追加 / primary data source ref 默认值 / source ref 去重编号 / citation 引用区插入位置与正文 metric guard / auto evidence section strip / requested metric evidence guard / human capital、three-statement、statement table、note detail、wiki fulltext、PostgreSQL supplement renderer / three-statement record 递归迭代、期间排序、source fallback、核心记录判定、latest 选择 / wiki fulltext report_id 默认 file / company alias 提取与剔除 / fallback search terms 清洗、去重和排序 / Wiki catalog intent/排序/格式化/负路径 / note detail direct/context statement/direct/empty guard 细边界 / analysis_completed_artifacts code 兜底/负路径 / analysis completion guard/general context 负路径 / progress payload clamp / 文本提取 / tool-label 判定细边界 / display 绝对 URL / 空值 URL 编码与 path filename fallback / parse-only alias/limit/context-hint 细边界 / link label 清洗 / 附件 path basename 与通用 label 兜底 / 空白 filename fallback / kind normalization / 未知 kind 文档链接兜底 / 空/多附件默认提示 / 附件 URL 编码 / query/fragment URL 编码 / 空白 URL 与混合附件独立处理 / 交易所前缀文件名股票代码和公司名匹配 / 6 位股票代码与港股 5 位边界 / 短 alias 防误匹配 / parse-only 大小写 fallback term / parse-only artifact 字段完整输出 / parse-only 空匹配 / general 与已有 company dir 短路 / 跳过已有 Wiki 后再应用 `limit` 覆盖；`ACTIVE_RUNS`、SSE、DB session memory 刷新仍留在 impl。
+3. Agent runtime 窗口：完成 statement/note detail intent、attachment classification、PDF2MD parse-only alias/match、citation record label helper、Wiki fulltext alias/search terms helper、人效/人均数字解析/行数值提取/table trace helper 下沉，以及引用别名字段去重 / supplement 引用合并 / 正文已有引用去重 / LaTeX inline symbol normalization / evidence trace 展示归一化调用顺序 / primary-data evidence trace 判定 / reference line filtering / source locator 默认值与链接追加 / primary data source ref 默认值 / source ref 去重编号 / citation 引用区插入位置与正文 metric guard / auto evidence section strip / requested metric evidence guard / human capital、three-statement、statement table、note detail、wiki fulltext、PostgreSQL supplement renderer / three-statement record 递归迭代、期间排序、source fallback、核心记录判定、latest 选择 / wiki fulltext report_id 默认 file / company alias 提取与剔除 / fallback search terms 清洗、去重和排序 / Wiki catalog intent/排序/格式化/负路径 / note detail direct/context statement/direct/empty guard 细边界 / analysis_completed_artifacts code 兜底/负路径 / analysis completion guard/general context 负路径 / progress payload clamp / 文本提取 / tool-label 判定细边界 / display 绝对 URL / 空值 URL 编码与 path filename fallback / parse-only alias/limit/context-hint 细边界 / link label 清洗 / 附件 path basename 与通用 label 兜底 / 空白 filename fallback / kind normalization / 未知 kind 文档链接兜底 / 空/多附件默认提示 / 附件 URL 编码 / query/fragment URL 编码 / 空白 URL 与混合附件独立处理 / 交易所前缀文件名股票代码和公司名匹配 / 6 位股票代码与港股 5 位边界 / 短 alias 防误匹配 / parse-only 大小写 fallback term / parse-only artifact 字段完整输出 / parse-only 空匹配 / general 与已有 company dir 短路 / 跳过已有 Wiki 后再应用 `limit` 覆盖；当前 `ACTIVE_RUNS` / active SSE / stop owner 已迁到 `agent_runtime_streaming.py`，DB session memory 刷新与普通/streaming 编排仍留在 impl。
 4. Agent runtime 引用边界追加：完成 citations/reference 合并边界补测，覆盖空 body 新增引用区、全部无效 refs 原样返回、三级引用来源 section 在 peer/parent heading 前收口；`citation_links.py` 修复 printed_page 空槽位对齐，并覆盖缺 task_id/pdf_page 原样返回、本地 API 链接 query/fragment 保留和重复链接不追加。
 5. Agent runtime / frontend 追加：完成 parse-only 市场前缀伪 alias 防误匹配、非 dict task info 过滤、空 task/artifact 字段展示兜底；完成 PostgreSQL fallback 空 hint、0 值页码/表号、空 terms callback 短路和缺字段负路径；完成前端 citation renderer smoke，覆盖 source/table action 抽取、普通 Markdown link 保留和长引用行解析。
 6. Agent runtime 细边界追加：完成 display 的 None URL、无 basename path fallback、控制空白 URL 编码；完成 tool-output 的 None/空白、list JSON、长文本换行保留、tool/label 字段隔离；完成 context 非 dict model/nested field、format context 与 attachment model_dump 脏数据防御。
@@ -132,12 +133,12 @@ bash -n start_all.sh && find scripts infra apps services -type f -name '*.sh' -p
 
 1. 前端窗口：CSS 主入口和 feature API owner 已收口；如继续前端，单独评估 `PDF_CSS` / `DOCUMENT_CSS` 运行时字符串或做低风险响应式 smoke，不与业务状态 owner 混做。
 2. PDF parser 窗口：仅补低风险边界覆盖或继续观察 complete markdown 回填；不动 queue、Flask response 行为、`_ensure_*` 编排。
-3. Agent runtime 窗口：citations/reference、PDF2MD parse-only context、PostgreSQL fallback pure helper、前端 citation renderer smoke、display/tool-output/context 细边界已补；下一步如继续 Agent runtime，优先 attachments/history/local-memory owner 拆分前置覆盖，真实 owner 仍暂不迁移。
+3. Agent runtime 窗口：citations/reference、PDF2MD parse-only context、PostgreSQL fallback pure helper、前端 citation renderer smoke、display/tool-output/context 细边界已补；随后已完成 active SSE / stop owner 最小迁移，下一步如继续 Agent runtime，优先 `_collect_stream_run` 极小切片，attachments/history/local-memory owner 仍暂不迁移。
 4. 主线收口：合并上述改动后更新本节状态，跑聚焦验证，并按主题提交。
 
-本阶段明确暂缓：
+本阶段当时明确暂缓：
 
-- 不拆 `ACTIVE_RUNS` 和 SSE lifecycle owner。
+- 当时不拆 `ACTIVE_RUNS` 和 SSE lifecycle owner；随后已完成 active SSE / stop owner 最小迁移。
 - 不改 PDF parser 本地 queue worker / claim / Flask response owner。
 - 不迁移 `PDF_CSS` / `DOCUMENT_CSS` 运行时注入字符串。
 - 不把 DocumentResultWorkbench 的 refs / selection / scroll owner 提前分散。
@@ -190,9 +191,9 @@ bash -n start_all.sh && find scripts infra apps services -type f -name '*.sh' -p
 - 本轮验证：`cd apps/api && .venv/bin/python -m pytest tests/test_agent_chat_runtime_attachments.py tests/test_agent_chat_runtime_loops.py -q` 通过，72 passed、27 warnings；`cd apps/pdf-parser && PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -p no:cacheprovider -q` 通过，260 passed；`cd apps/web && node --test src/components/document-parser/styleSelectorSmoke.test.ts src/components/document-parser/documentResultWorkbenchDerivations.test.ts src/components/pdf/pdfSourceWorkbenchHelpers.test.ts` 通过，20 passed；`cd apps/web && npm run build` 通过；`git diff --check` 通过。
 - 下一步建议：低风险前置覆盖队列已基本收口。若继续提速，应先写红灯 owner 设计小节和回滚/验证矩阵，再选择一个 owner 试点；否则只做 CI 文档清单、测试命令固化和少量不触碰状态 owner 的维护项。
 
-本轮继续明确红灯边界：
+当时继续明确的红灯边界：
 
-- 不拆 `ACTIVE_RUNS`、`ActiveRunState`、SSE event append、stream/stop run lifecycle。
+- 当轮不拆 `ACTIVE_RUNS`、`ActiveRunState`、SSE event append、stream/stop run lifecycle；当前 active SSE 与 stop owner 已完成最小迁移。
 - 不迁移普通 chat 与 streaming 共享的 history、attachments、memory、dedupe、run input 顺序。
 - 不改 PDF parser queue claim/worker、MinerU 生命周期、Flask `send_file/jsonify`、`_ensure_*` artifact 编排和 task state/DB 写顺序。
 - 不提前分散 `DocumentResultWorkbench.tsx` 的 refs、selection、scroll、resource open owner。
@@ -230,13 +231,87 @@ bash -n start_all.sh && find scripts infra apps services -type f -name '*.sh' -p
 - Frontend：新增 `documentResultFocusController.ts`，用纯 reducer + `useDocumentResultFocusController` 接管 `activePage` / `focused` / `activeTab` 状态转换；`DocumentResultWorkbench.tsx` 只改 hook 接线，保留 JSX 结构、className、resource opener、tab scroll owner 和 `DOCUMENT_CSS` / `PDF_CSS` 注入机制。
 - 护栏补强：新增 `documentResultFocusController.test.ts`，覆盖 block/table/figure/page focus 同步 active page、新 task reset、mobile tab 切换不污染 active page/focus。
 - 本轮验证：focus controller 3 passed、document derivations 9 passed、Document preview e2e 6 passed、Web build passed、旁路 PDF parser 全量 280 passed、API active-runs 12 passed、`git diff --check` 通过。
-- 下一步建议：前端 hook 试点先停在 focus controller；下一轮可继续抽 `useDocumentResultViewModel`，范围限定为纯 `useMemo` 派生链，不动 resource opener、refs/scroll、CSS 注入或 JSX 结构。
+- 下一步建议：前端 hook 试点已完成 focus controller、view model 和 resource opener；下一轮如继续前端，建议转向更细的响应式 smoke 或小的行为回归，不动 refs/scroll、CSS 注入或 JSX 结构。
+
+本轮前端 Document view model 最小抽取：
+
+- Frontend：新增 `documentResultViewModel.ts`，把 `DocumentResultWorkbench.tsx` 的纯派生链拆成 `buildDocumentResultBaseViewModel` 和 `buildDocumentResultViewModel` 两层；base 层收口 artifact、source lookup、table lookup、markdown block、page number 和 json preview，focused 层只负责 relation / overlay / preview pages / preview page model。
+- 护栏补强：新增 `documentResultViewModel.test.ts`，直接覆盖 base 视图模型的 page / markdown 派生和 focused 视图模型的 relation / preview 页面边界；新增 `documentResourceOpener.test.ts`，覆盖成功清错、异常报错和空 URL 跳过。
+- 安全修正：`sanitizeMarkdownHtml` 在 `DOMPurify.sanitize` 不可用时不再原样返回 HTML，而是降级为转义文本；`documentResultWorkbenchDerivations.test.ts` 已补恶意表格 HTML 属性回归，避免 Node/SSR 类环境绕过净化。
+- 代码边界：`DocumentResultWorkbench.tsx` 继续保留 refs、selection、scroll、resource open 调用位和 JSX 结构；`documentResultWorkbenchUtils.ts` 只补了清洗器安全降级，不扩大状态 owner。
+- 本轮验证：Document derivations / view model / resource opener 聚焦测试 15 passed，`npm run check:frontend` 通过，`git diff --check` 通过。
+- 下一步建议：前端 Document hook 试点已完成，后续只做维护尾项；如继续前端，优先补响应式 smoke、selector 清单或小型行为回归，不再碰 refs/scroll owner。
+
+本轮多智能体并行推进：
+
+- Agent runtime：`agent_runtime_streaming.py` 从 façade 升级为 ACTIVE_RUNS/SSE 第一阶段 owner，接管 `ActiveRunState`、`ACTIVE_RUNS`、profile/session key、progress/event append、snapshot 基础逻辑和 active stream replay/heartbeat；`agent_chat_runtime_impl.py` 保留 `get_active_run_snapshot` / `stream_active_run_events` 薄 wrapper，用于注入 diagnostic 与 heartbeat 配置，`stop_active_run`、`stream_chat_reply`、`_collect_stream_run` 和普通 chat/history/attachments/memory/dedupe 顺序仍留在 impl。
+- PDF parser：`select_markdown_result` 已补非 dict / 空 payload 防御，artifact orchestrator 测试新增 malformed payload、本地 Markdown 已存在、required markdown 空 payload和 quality/markdown/backfill 日志顺序边界；未碰 MinerU submit/poll、Flask response、DB schema、queue claim/recover 和 `_ensure_*`。
+- Frontend：`styleSelectorSmoke.test.ts` 新增 CSS rule body 解析和 `DOCUMENT_CSS` mobile/overflow smoke，覆盖移动端 preview 单列、source pane 分隔线、segment/toggle/task toolbar 响应式、批量按钮 tap target、workbench/pane `min-width: 0` 和 Markdown/table/relation flow 横向 overflow guard；未改 JSX/CSS 注入和 refs/scroll owner。
+- CI / 文档：Phase 8 新增红灯 owner 迁移准入门禁，明确 Agent runtime、PDF parser、Frontend Document 和通用 `git diff --check` / `git status --short` 命令。
+- 本轮验证：`apps/api` active-runs + loops 70 passed，`apps/api` `tests/test_agent_runtime_*.py` 204 passed，`apps/pdf-parser` artifact/lifecycle 18 passed，`apps/pdf-parser` 全量 284 passed，`apps/web` Document/CSS Node 聚焦 19 passed，`apps/web` `npm run check:frontend` 通过，`git diff --check` 通过。
+- 下一步建议：Agent runtime streaming owner 已完成第一阶段迁移；随后 stop owner 已完成，若继续 Agent runtime，应只推进 `_collect_stream_run` 的极小切片，并保持普通 chat/history/attachments/memory/dedupe 顺序不动。PDF parser 和 Frontend 当前只建议做维护尾项。
+
+本轮多智能体并行继续推进：
+
+- Agent runtime：`stop_active_run` owner 已下沉到 `agent_runtime_streaming.py`，`agent_chat_runtime_impl.py` 只保留薄 wrapper 注入 `stop_run` 和消息常量，继续保持 `runtime.stop_run` monkeypatch 语义；新增 idempotent stop、alias stop 传 canonical profile、Hermes 404 orphan cleanup 后 active stream drain，以及 `services.agent_runtime_streaming.stop_active_run(profile, session_id)` 直接调用兼容护栏。仍未迁移 `_collect_stream_run`、`stream_chat_reply`、普通 chat/history/attachments/memory/dedupe/build-run-input 顺序。
+- PDF parser：`pdf_source_viewer.py` 补 source-view 容错，非数字 `focus_table` 改为忽略、`report.table_index` 非 list 时安全跳过、`content_list` 缺失/非 list 时仍保留 report 中对应页的 `page_tables` fallback；测试覆盖 loader wrapper 的 missing / 非 list / invalid JSON content 与 report fallback。仍未碰 MinerU submit/poll、Flask response、DB schema、queue claim/recover、artifact orchestrator owner 和 `_ensure_*` 编排。
+- Frontend：`styleSelectorSmoke.test.ts` 继续补 `PDF_CSS` mobile smoke，覆盖下载搜索、下载项、workbench、page stage、Markdown actions、dense table 横向滚动、任务 action tap target 和移动端不撑宽边界；未改 `DocumentResultWorkbench.tsx`、view model、resource opener、CSS 注入、refs/scroll 或 JSX 结构。
+- 本轮验证：`cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_active_runs.py tests/test_agent_chat_runtime_loops.py -q` 通过，73 passed；`cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_*.py -q` 通过，207 passed；`cd apps/api && .venv/bin/python -m py_compile services/agent_runtime_streaming.py services/agent_chat_runtime_impl.py services/agent_runtime_sessions.py` 通过；`cd apps/pdf-parser && PYTHONPATH=. python3 -m pytest tests/test_pdf_source_viewer.py tests/test_pdf_parser_source_service.py -q` 通过，33 passed；`cd apps/pdf-parser && PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -p no:cacheprovider -q` 通过，291 passed；`cd apps/web && node --test src/components/document-parser/styleSelectorSmoke.test.ts src/components/document-parser/documentResultWorkbenchDerivations.test.ts src/components/document-parser/documentResultViewModel.test.ts src/components/document-parser/documentResourceOpener.test.ts` 通过，21 passed；`cd apps/web && npm run check:frontend` 通过；`git diff --check` 通过。
+- 下一步建议：Agent runtime stop owner 已完成，默认下一轮只推进 `_collect_stream_run` 极小切片；若不碰 Agent runtime，则只做 PDF `_ensure_*` 前置测试或前端响应式 smoke 维护，不再扩大 owner 迁移面。
+
+本轮多智能体并行再推进：
+
+- Agent runtime：`_collect_stream_run` 主循环继续留在 `agent_chat_runtime_impl.py`，但 terminal state owner 再收口一层到 `agent_runtime_streaming.py`：新增 `_append_completed_active_run`、`_append_user_stopped_active_run`、`_clear_active_run`，由 streaming owner 统一负责 completed/stopped terminal event 和 ACTIVE_RUNS 清理；新增 helper 直接测试和 fake `stream_run` 接线测试，覆盖成功 `progress(completed) -> done`、用户 stop `replace -> error`、`ACTIVE_RUNS` 清理和后台保存语义。未迁移 Hermes `stream_run` 调用、`stop_run` 自动停止、tool/reasoning/delta 主循环、evidence normalization、history/dedupe/save 或 `done_payload_factory`。
+- PDF parser：补 `ensure_pdf_page_image` 非法页码前置护栏测试，覆盖 `"not-a-number"`、`"0"`、`0`、`-1`，断言不调用 `pdftoppm`、不创建任务结果目录、不触碰缺失 PDF；仍未碰 `pdf_parser_app_impl.py`、MinerU submit/poll、Flask response、DB schema、queue claim/recover 和 artifact orchestrator owner。
+- Frontend：`styleSelectorSmoke.test.ts` 新增 `selectorsForContext` 与 `DOCUMENT_CSS` 窄视口 selector inventory 测试，显式锁定 `@media (max-width: 720px)` 下的文档工作台 selector 清单；仍未改组件、view model、resource opener、CSS 注入、refs/scroll 或 JSX。
+- 本轮验证：`cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_active_runs.py tests/test_agent_chat_runtime_loops.py -q` 通过，77 passed；`cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_*.py -q` 通过，211 passed；`cd apps/api && .venv/bin/python -m py_compile services/agent_runtime_streaming.py services/agent_chat_runtime_impl.py services/agent_runtime_sessions.py` 通过；`cd apps/pdf-parser && PYTHONPATH=. python3 -m pytest tests/test_pdf_source_viewer.py tests/test_pdf_parser_source_service.py -q` 通过，37 passed；`cd apps/pdf-parser && PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -p no:cacheprovider -q` 通过，295 passed；`cd apps/web && node --test src/components/document-parser/styleSelectorSmoke.test.ts src/components/document-parser/documentResultWorkbenchDerivations.test.ts src/components/document-parser/documentResultViewModel.test.ts src/components/document-parser/documentResourceOpener.test.ts` 通过，22 passed；`cd apps/web && npm run check:frontend` 通过；`git diff --check` 通过。
+- 当时下一步建议：`_collect_stream_run` 只完成 terminal helper 收口，主循环和 `stream_chat_reply` 仍不迁；cancel/timeout/tool-loop 接线矩阵已在下一轮完成，当前建议见下方收口记录。
+
+本轮多智能体并行收口推进：
+
+- Agent runtime：已补 `_collect_stream_run` cancel / idle timeout / HTTP timeout / repeated tool-call / consecutive tool-error 接线矩阵，覆盖事件顺序、`runtime.stop_run` monkeypatch、history save、ACTIVE_RUNS 清理和当前 timeout 契约。生产主循环未迁移，Hermes `stream_run` 调用、tool/reasoning/delta 主分支、evidence normalization、history/dedupe/save、`done_payload_factory` 和 `stream_chat_reply` 仍留在 `agent_chat_runtime_impl.py`。
+- 关键契约：timeout 当前会调用 `stop_run` 并写入 timeout delta/history，但仍进入 completed/done 终态；tool-loop/tool-error UI 显示具体停止原因，history 保存通过 `_failed_run_reply_for_history` 压缩为 `OUTPUT_LOOP_STOP_MESSAGE`。这两个行为已被测试锁住，后续若要改变语义必须单独设计。
+- 本轮验证：`cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_active_runs.py -q` 通过，25 passed；`cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_active_runs.py tests/test_agent_chat_runtime_loops.py -q` 通过，82 passed；`cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_*.py -q` 通过，216 passed；`cd apps/api && .venv/bin/python -m py_compile services/agent_chat_runtime_impl.py services/agent_runtime_sessions.py services/agent_runtime_streaming.py tests/test_agent_runtime_active_runs.py` 通过；`cd apps/pdf-parser && PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -p no:cacheprovider -q tests/test_pdf_parser_source_service.py tests/test_pdf_source_viewer.py tests/test_pdf_parser_artifact_orchestrator_service.py` 通过，45 passed；`cd apps/pdf-parser && PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -p no:cacheprovider -q` 通过，295 passed；`cd apps/web && node --test src/components/document-parser/styleSelectorSmoke.test.ts src/components/document-parser/documentResultWorkbenchDerivations.test.ts src/components/document-parser/documentResultViewModel.test.ts src/components/document-parser/documentResourceOpener.test.ts` 通过，22 passed；`cd apps/web && npm run check:frontend` 通过。
+- 当时下一步建议：`_collect_stream_run` terminal helper 与 cancel/timeout/tool-loop 接线矩阵均已完成；reasoning 极小事件 helper 已在后续完成，当前建议见下方收口记录。
+
+本轮 Agent runtime 极小事件 helper 抽取：
+
+- Agent runtime：`_collect_stream_run` 的 `reasoning` 单分支已抽为 `agent_runtime_streaming._append_reasoning_active_run`，streaming owner 统一负责 reasoning event 与 reasoning progress；`agent_chat_runtime_impl.py` 只保留 `await _append_reasoning_active_run(state, ev.text)` 接线。该 helper 不修改 `full_reply`、`failed`、`loop_detected`、`idle_timed_out`，不调用 `stop_run`，不触碰 history/attachments/memory/dedupe/build-run-input。
+- 覆盖：新增直接 helper 测试，锁定 `reasoning -> progress` 顺序、payload、`state.content` 不变和 `state.status == "running"`；新增 fake `stream_run` 接线测试，锁定 reasoning 事件在 delta 前、reasoning 不进入 assistant history。
+- 本轮验证：`cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_active_runs.py -q` 通过，27 passed；`cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_active_runs.py tests/test_agent_chat_runtime_loops.py -q` 通过，84 passed；`cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_*.py -q` 通过，218 passed；`cd apps/api && .venv/bin/python -m py_compile services/agent_chat_runtime_impl.py services/agent_runtime_sessions.py services/agent_runtime_streaming.py tests/test_agent_runtime_active_runs.py` 通过；`cd apps/pdf-parser && PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -p no:cacheprovider -q` 通过，295 passed；`cd apps/web && node --test src/components/document-parser/styleSelectorSmoke.test.ts src/components/document-parser/documentResultWorkbenchDerivations.test.ts src/components/document-parser/documentResultViewModel.test.ts src/components/document-parser/documentResourceOpener.test.ts` 通过，22 passed；`cd apps/web && npm run check:frontend` 通过。
+- 下一步建议：Agent runtime 当前 owner 迁移线可以停止，默认进入提交清理与 CI 文档固化；若继续拆 runtime，必须另开独立设计窗口，不把 `stream_chat_reply`、ordinary chat、history、attachments、memory、dedupe 或 build-run-input 与维护尾项混批。
+
+本轮 CI / 文档门禁固化：
+
+- 新增 `scripts/check_owner_migration.sh`，聚合 Agent runtime streaming owner、PDF parser source/artifact、Frontend Document、`git diff --check` 和 `git status --short` 聚焦门禁；该脚本用于当前红灯 owner 收口验证，不替代 `scripts/check_all.sh` 的基础全量检查。
+- README 的“开发验证”已改为“合并前基础门禁”，前端基线统一为 `npm run check:frontend`；`scripts/README.md` 已登记红灯 owner 收口门禁入口。
+- Phase 8 明确：基础合并门禁以 README 为准，红灯 owner 命令只用于对应模块变更的聚焦验证，可用 `scripts/check_owner_migration.sh` 聚合执行。
+- 本轮验证：`bash -n scripts/check_owner_migration.sh` 通过；`scripts/check_owner_migration.sh` 通过，其中 API active run + loops 84 passed，API runtime focused 218 passed，PDF parser source/artifact 45 passed，PDF parser full 295 passed，Web Document node 22 passed，`npm run check:frontend` 通过，`git diff --check` 通过。
+
+当前剩余工作量重估：
+
+- Frontend Document / F-004：主线拆分完成，剩余 0-1 个维护小轮次，约 0-0.25 天。只做响应式 smoke、selector 清单或少量纯 helper 边界；不迁 refs、selection、scroll、CSS 注入和 JSX 主结构。
+- PDF parser：红灯试点已完成 queue claim/recover、artifact orchestrator、malformed payload 防御和 source-view loader/payload 容错，剩余 0-1 个维护小轮次，约 0-0.25 天。只建议补 `_ensure_*` 前置测试或保持观察；不碰 MinerU submit/poll、Flask response、DB schema、任务状态写顺序。
+- Agent runtime：active SSE owner、stop owner、`_collect_stream_run` terminal helper、cancel/timeout/tool-loop 接线矩阵和 reasoning 单分支 helper 已完成，剩余 0-0.25 天，建议只做提交清理和观察；`stream_chat_reply`、history、attachments、memory、dedupe/build-run-input 顺序不和其他任务同批。
+- Repo / CI / 文档：红灯 owner 收口脚本和 README/Phase 8 门禁口径已固化，剩余 0-0.25 天提交分组清理；后续只需按轮次更新验证结果并保证 ignored runtime/cache/build 不进索引。
+
+下一轮推荐任务池：
+
+1. 已完成：Agent runtime `_collect_stream_run` cancel/timeout/tool-loop 接线矩阵，已确认事件顺序、`stop_run` monkeypatch、history save 和 ACTIVE_RUNS 清理。
+2. 已完成：Agent runtime `_collect_stream_run` reasoning 极小事件 helper；Hermes stream 调用、ordinary chat、history、attachments、memory、dedupe、build-run-input 仍未迁移。
+3. PDF / Frontend 维护尾项：默认停止新增，除非发现回归；不再扩大 artifact orchestrator / MinerU lifecycle / Document workbench 状态 owner。
+4. 提交与发布清理：按 API / PDF parser / Web / Docs 分主题提交，提交前跑 `scripts/check_owner_migration.sh` 或对应聚焦门禁，确认 `apps/web/dist/`、runtime cache、pytest cache 和本地数据不进入索引。
 
 推荐试点顺序：
 
-1. PDF parser queue claim / recover：最适合首个红灯试点。范围小、行为可用 SQLite/DB 状态测试锁定，且不必碰 Flask response 或 MinerU HTTP lifecycle。目标是把 `_claim_next_queued_task`、`_recover_stale_submitting_tasks` 先迁到 `pdf_parser_task_lifecycle_service` 或 task repository 层，`pdf_parser_app_impl.py` 保留同名 wrapper。
-2. 前端 DocumentResultWorkbench hook 拆分：第二优先。先抽 `useDocumentResultViewModel`、`useDocumentResultFocusController`、`useDocumentResourceOpener`，不改 JSX 结构、不改 className、不迁 `DOCUMENT_CSS` / `PDF_CSS` 注入机制。
-3. Agent runtime `ACTIVE_RUNS` / SSE：最后进入试点。先让 `agent_runtime_streaming.py` 成为真实 owner，迁移 `ActiveRunState`、`ACTIVE_RUNS`、event append、snapshot、SSE replay、stop run；`agent_chat_runtime_impl.py` 继续保留 `_collect_stream_run`、`_stream_chat_reply_impl` 和普通/streaming 编排。这里最大风险是 circular import，需要先用 callback 或小型依赖注入解开 display/progress/Hermes stop 依赖。
+1. 已完成：PDF parser queue claim / recover 最小试点。
+2. 已完成：PDF parser artifact orchestrator 最小抽取。
+3. 已完成：前端 DocumentResultWorkbench focus controller / view model / resource opener 最小 hook 拆分。
+4. 已完成第一阶段：Agent runtime `ACTIVE_RUNS` / active SSE owner 试点，`agent_runtime_streaming.py` 已成为 active run state owner；`agent_chat_runtime_impl.py` 继续保留 collect stream run、stream chat reply 和普通/streaming 编排。
+5. 已完成：Agent runtime stop owner 最小迁移，使用 wrapper / 小型依赖注入保持 `runtime.stop_run` monkeypatch 语义，并保留 streaming 直接调用兼容。
+6. 已完成：Agent runtime `_collect_stream_run` terminal helper 小切片，streaming owner 接管 completed/stopped terminal event 与 ACTIVE_RUNS 清理。
+7. 已完成：`_collect_stream_run` cancel/timeout/tool-loop 接线矩阵；最大风险仍是 stream 事件顺序、terminal drain、`stop_run` monkeypatch 和 circular import，后续提取 helper 时继续用 wrapper / 惰性出口 / 小型依赖注入控制风险。
+8. 已完成：`_collect_stream_run` reasoning 极小事件 helper；下一优先是停止 Agent runtime owner 迁移，进入提交清理与 CI 文档固化。
 
 红灯 owner 行为矩阵：
 
@@ -253,11 +328,12 @@ bash -n start_all.sh && find scripts infra apps services -type f -name '*.sh' -p
 
 工作量估算：
 
-- PDF parser 最小试点：测试矩阵 0.5-1 天，queue claim/recover 抽取 0.5 天；若继续 artifact orchestrator / MinerU lifecycle，则总计约 3-4.5 天。
-- 前端 Document 试点：测试矩阵 0.5-1 天，view model + focus controller 1-1.5 天，resource opener 0.5 天；`DOCUMENT_CSS` 小步迁移 0.5-1 天，`PDF_CSS` 另开 1-2 天窗口。
-- Agent runtime streaming 试点：测试矩阵 0.5-1 天，streaming owner 抽取 1-1.5 天，sessions owner 0.5 天，循环依赖修复 0.5-1 天，总计约 2.5-4 天。
+- PDF parser：主试点完成，剩余维护/前置测试约 0.25-0.5 天；若强行继续 MinerU lifecycle owner 迁移，需另开 1.5-2.5 天设计与验证窗口。
+- Frontend Document：主试点完成，剩余维护约 0.25 天；`DOCUMENT_CSS` / `PDF_CSS` 迁移不再作为当前优化主线，若要做需另开 1-3 天 UI 验证窗口。
+- Agent runtime streaming：active run state owner、stop owner、collect terminal helper、cancel/timeout/tool-loop 接线矩阵与 reasoning 极小事件 helper 已完成，剩余 0-0.25 天提交清理；若继续 `stream_chat_reply` 或 sessions/history/memory owner，需另开 1-2 天设计窗口。
+- CI / 文档门禁：已完成当前红灯 owner 收口脚本固化；剩余 0-0.25 天提交清理。
 
-下一步建议：PDF parser queue claim/recover 试点、artifact/MinerU lifecycle 迁移前矩阵、PDF artifact orchestrator 最小抽取，以及前端 Document focus controller 试点已完成。下一轮建议继续前端 `useDocumentResultViewModel` 最小抽取；若转向 Agent runtime，则继续单独设计 streaming owner 迁移，不急着和其他 owner 同批。
+下一步建议：PDF parser queue claim/recover、artifact/MinerU lifecycle 迁移前矩阵、PDF artifact orchestrator、前端 Document focus controller / view model / resource opener、Agent runtime ACTIVE_RUNS / active SSE owner 第一阶段、stop owner、`_collect_stream_run` terminal helper、cancel/timeout/tool-loop 接线矩阵、reasoning 极小事件 helper 和红灯 owner 收口门禁脚本均已完成。下一轮默认按 API / PDF parser / Web / Docs 分主题提交；若继续 Agent runtime，需另开 `stream_chat_reply`、sessions/history/memory owner 设计窗口。
 
 ## 1. 当前架构事实
 
@@ -1251,6 +1327,36 @@ cd services/market-report-rules && uv run pytest
 cd apps/web && npm run lint && npm run build
 ```
 
+红灯 owner 迁移准入门禁：
+
+基础合并门禁以 `README.md` 的“合并前基础门禁”为准；以下命令用于对应模块变更的聚焦验证，不作为默认全量 CI。当前可用 `scripts/check_owner_migration.sh` 聚合执行本节 Agent runtime / PDF parser / Frontend Document / 通用提交前检查。
+
+```bash
+# Agent runtime streaming owner / `_collect_stream_run` 接线矩阵迁移前后必须通过
+cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_active_runs.py -q
+cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_active_runs.py tests/test_agent_chat_runtime_loops.py -q
+cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_*.py -q
+cd apps/api && .venv/bin/python -m py_compile services/agent_runtime_streaming.py services/agent_chat_runtime_impl.py services/agent_runtime_sessions.py
+
+# PDF parser artifact / lifecycle 维护尾项必须通过
+cd apps/pdf-parser && PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -p no:cacheprovider tests/test_pdf_parser_artifact_orchestrator_service.py tests/test_pdf_parser_mineru_lifecycle.py -q
+cd apps/pdf-parser && PYTHONPATH=. python3 -m pytest tests/test_pdf_source_viewer.py tests/test_pdf_parser_source_service.py -q
+
+# Frontend Document 维护尾项必须通过
+cd apps/web && node --test src/components/document-parser/styleSelectorSmoke.test.ts src/components/document-parser/documentResultWorkbenchDerivations.test.ts src/components/document-parser/documentResultViewModel.test.ts src/components/document-parser/documentResourceOpener.test.ts
+cd apps/web && npm run check:frontend
+
+# 每轮通用
+git diff --check
+git status --short
+```
+
+准入要求：
+
+- 红灯 owner 迁移前先跑对应聚焦门禁并记录基线，迁移后同命令必须通过。
+- 涉及 `ACTIVE_RUNS` / SSE 时，不与 PDF parser、Document workbench refs/scroll 或 CSS 注入迁移同批。
+- 聚焦门禁失败时先回滚本轮 owner 迁移或降级为测试护栏，不继续扩大改动面。
+
 ## 9. 具体任务卡片
 
 ### R-001：移出已跟踪运行态数据
@@ -1566,11 +1672,12 @@ test-results/**
 动作：
 
 - 入口层已收敛为兼容 façade，原实现下沉到 `agent_chat_runtime_impl.py`。
-- 已新增 `agent_runtime_attachments.py`、`agent_runtime_streaming.py`、`agent_runtime_memory.py`、`agent_runtime_citations.py`、`agent_runtime_loop_guard.py`、`agent_runtime_tools.py`、`agent_runtime_sessions.py` 作为领域边界 façade。
+- 已新增 `agent_runtime_attachments.py`、`agent_runtime_streaming.py`、`agent_runtime_memory.py`、`agent_runtime_citations.py`、`agent_runtime_loop_guard.py`、`agent_runtime_tools.py`、`agent_runtime_sessions.py` 作为领域边界模块。
 - `agent_runtime_loop_guard.py` 已升级为真实实现模块，loop 检测、history sanitizer、失败回复清洗和相关停止消息常量已从 `agent_chat_runtime_impl.py` 搬出；旧 `services.agent_chat_runtime` 入口仍可访问同名符号。
 - `agent_runtime_progress.py` 已新增为真实实现模块，progress payload/signature、文本进度提取、tool preview/label 已从 `agent_chat_runtime_impl.py` 下沉；impl 保留同名 wrapper 并传入当前 hash/clock/wiki root，保持 monkeypatch 语义。
-- 其余 `agent_runtime_*` 仍作为边界和迁移索引，不作为可 monkeypatch 的真实状态 owner；router 仍从兼容入口导入，避免 SSE active-run、history、attachments 的绑定语义发生变化。
-- 继续拆为 session、attachments、streaming、memory、citation、tools；下一步先拆 display normalization / parse-only discovery 等纯函数，再考虑 ACTIVE_RUNS 和 SSE 状态 owner。
+- `agent_runtime_streaming.py` 已升级为 ACTIVE_RUNS / active SSE / stop 第一阶段状态 owner，接管 `ActiveRunState`、`ACTIVE_RUNS`、key normalization、progress/event append、snapshot 基础逻辑、active stream replay/heartbeat 和 `stop_active_run`；`_collect_stream_run` completed/stopped terminal helper、reasoning 单分支 helper 已收口到 streaming owner，cancel/timeout/tool-loop 接线矩阵已补齐；`agent_chat_runtime_impl.py` 保留 stop 薄 wrapper 注入 `stop_run`/消息常量，并继续保留 Hermes `stream_run` 调用、tool/delta 主循环、stream chat reply 和普通/streaming 编排 wrapper。
+- 其余 `agent_runtime_*` 仍作为边界和迁移索引，不作为可 monkeypatch 的真实状态 owner；router 仍从兼容入口导入，避免 history、attachments、memory 的绑定语义发生变化。
+- 继续拆为 session、attachments、streaming、memory、citation、tools；reasoning 单分支 helper 已完成，下一步建议停止 Agent runtime owner 迁移并进入提交清理；如继续 `stream_chat_reply`、sessions/history/memory owner，需另开设计窗口。
 - 先纯搬迁，不改变行为。
 
 验收：
@@ -1580,8 +1687,11 @@ test-results/**
 - `cd apps/api && uv run pytest tests/test_agent_runtime_progress.py tests/test_agent_chat_runtime_loops.py -q` 通过，57 passed。
 - `cd apps/api && uv run pytest tests/test_agent_chat_runtime_attachments.py tests/test_agent_chat_runtime_loops.py tests/test_agent_router_attachments.py tests/test_chat_document_parser_attachment.py -q` 通过，72 passed。
 - `cd apps/api && uv run pytest tests/test_agent_runtime_progress.py tests/test_agent_chat_runtime_attachments.py tests/test_agent_chat_runtime_loops.py tests/test_agent_router_attachments.py tests/test_chat_document_parser_attachment.py -q` 通过，75 passed。
-- SSE 事件语义不变。
-- 高风险项：`ACTIVE_RUNS` 必须保持单一 owner；普通 chat 与 SSE 路径共享 attachments/history/local-memory/build-run-input 顺序，真实拆分前需要先补覆盖或只搬纯函数。
+- 本轮新增 streaming/stop owner 门禁：`cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_active_runs.py tests/test_agent_chat_runtime_loops.py -q` 通过，73 passed；`cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_*.py -q` 通过，207 passed；`cd apps/api && .venv/bin/python -m py_compile services/agent_runtime_streaming.py services/agent_chat_runtime_impl.py services/agent_runtime_sessions.py` 通过。
+- 本轮新增 `_collect_stream_run` 接线矩阵门禁：`cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_active_runs.py tests/test_agent_chat_runtime_loops.py -q` 通过，82 passed，覆盖 terminal helper、cancel、timeout、tool-loop 事件顺序、`stop_run` monkeypatch、history save 和 ACTIVE_RUNS 清理；`cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_*.py -q` 通过，216 passed；`cd apps/api && .venv/bin/python -m py_compile services/agent_chat_runtime_impl.py services/agent_runtime_sessions.py services/agent_runtime_streaming.py tests/test_agent_runtime_active_runs.py` 通过。
+- 本轮新增 reasoning 极小事件 helper 门禁：`cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_active_runs.py -q` 通过，27 passed；`cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_active_runs.py tests/test_agent_chat_runtime_loops.py -q` 通过，84 passed；`cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_*.py -q` 通过，218 passed；`cd apps/api && .venv/bin/python -m py_compile services/agent_chat_runtime_impl.py services/agent_runtime_sessions.py services/agent_runtime_streaming.py tests/test_agent_runtime_active_runs.py` 通过。
+- SSE 事件语义不变，`services.agent_runtime_streaming` 仍可惰性导出 `hermes_timeout`、`stream_chat_reply`、`stream_idle_timeout`，且 `stop_active_run(profile, session_id)` 保留直接调用兼容。
+- 高风险项：`ACTIVE_RUNS` 与 stop owner 已单一归属 `agent_runtime_streaming.py`，`_collect_stream_run` 已有 terminal/cancel/timeout/tool-loop/reasoning 接线矩阵保护；普通 chat 与 SSE 路径共享 attachments/history/local-memory/build-run-input 顺序仍留在 impl，真实拆分前需要先补覆盖或只搬纯函数/单分支 helper。
 
 ### A-002：拆 Agent runtime 纯函数边界
 
@@ -1590,8 +1700,8 @@ test-results/**
 状态：进行中
 背景：
 
-- `agent_chat_runtime_impl.py` 已降至约 6274 行，仍是当前最大后端文件。
-- `ACTIVE_RUNS`、SSE event append、run lifecycle、ordinary chat 与 streaming 状态共享仍高度耦合，暂不迁移 owner。
+- `agent_chat_runtime_impl.py` 已继续下降，仍是当前最大后端文件。
+- `ACTIVE_RUNS`、active stream replay/heartbeat、event append 和 stop owner 已迁到 `agent_runtime_streaming.py`；`_collect_stream_run` 已完成 terminal helper、reasoning 单分支 helper 与 cancel/timeout/tool-loop 接线矩阵，但 Hermes `stream_run` 调用、tool/delta 主循环、`stream_chat_reply`、ordinary chat 与 streaming 共享的 history/attachments/memory/dedupe 顺序仍高度耦合，暂不继续混批迁移。
 - 可继续安全拆分的是纯函数和只读 discovery 逻辑。
 - 已新增 `agent_runtime_tool_output.py`，搬出 `_normalize_tool_output` 的纯函数实现；`agent_chat_runtime_impl.py` 通过 import alias 保持 `_normalize_tool_output` 兼容入口，未迁移 `ACTIVE_RUNS`、SSE、run lifecycle、attachments/history owner。
 - 已新增 `agent_runtime_parse_only.py`，搬出 `_pdf2md_parse_only_matches`、`_should_consider_pdf2md_parse_only_context`、`build_pdf2md_parse_only_context` 的只读 discovery 逻辑；旧同名函数仍由 `agent_chat_runtime_impl.py` wrapper 转发，保持兼容入口。
@@ -1607,15 +1717,15 @@ test-results/**
 
 建议拆分顺序：
 
-1. 若继续 Agent runtime，先补 attachments/history/local-memory owner 拆分前置覆盖；真实 owner 迁移仍需单独窗口。
+1. Agent runtime `_collect_stream_run` reasoning 极小事件 helper 已完成；下一步默认停止 owner 迁移并提交清理，attachments/history/local-memory owner 拆分仍需单独窗口。
 2. 若切回 PDF parser，则只补 quality/source-view 这类低风险覆盖，不动 queue、Flask response 和 `_ensure_*` 编排。
 3. 只在上述纯函数稳定后，再评估 attachments/history/local-memory/build-run-input 的真实 owner 拆分。
 
 不搬迁：
 
-- `ACTIVE_RUNS` dict。
-- `_append_state_event`、`_append_progress_event`。
-- `stream_agent_chat` / `stop_agent_run` run lifecycle。
+- `_collect_stream_run` 的 Hermes `stream_run` 调用、`stop_run` 自动停止、tool/delta 主循环、evidence normalization、history/dedupe/save 和 `done_payload_factory`。
+- `stream_chat_reply` 编排。
+- ordinary chat 与 streaming 共享的 attachments/history/local-memory/build-run-input 顺序。
 - 会改变 monkeypatch 绑定语义的全局配置。
 
 验收：
@@ -1629,6 +1739,10 @@ test-results/**
 - 本轮新增门禁：`cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_parse_only.py tests/test_agent_runtime_postgres_fallback.py -q` 通过，33 passed；`cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_*.py -q` 通过，181 passed、1 warning；`cd apps/web && npm run check:frontend` 通过。
 - 本轮新增门禁：`cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_context.py tests/test_agent_runtime_display.py tests/test_agent_runtime_tool_output.py -q` 通过，40 passed；`cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_*.py -q` 通过，189 passed、1 warning。
 - `cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_display.py tests/test_agent_runtime_parse_only.py tests/test_agent_runtime_tool_output.py tests/test_agent_runtime_progress.py tests/test_agent_chat_runtime_loops.py tests/test_agent_chat_runtime_attachments.py -q` 通过，104 passed。
+- 本轮新增 `_collect_stream_run` 接线矩阵覆盖：cancel 分支、idle/global timeout 分支、tool-loop no-progress 分支均通过 fake `stream_run` 接线测试，覆盖事件顺序、`stop_run` monkeypatch、timeout delta/error、后台保存和 ACTIVE_RUNS 清理。
+- 本轮新增门禁：`cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_active_runs.py -q` 通过，25 passed；`cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_active_runs.py tests/test_agent_chat_runtime_loops.py -q` 通过，82 passed；`cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_*.py -q` 通过，216 passed；`cd apps/api && .venv/bin/python -m py_compile services/agent_chat_runtime_impl.py services/agent_runtime_sessions.py services/agent_runtime_streaming.py tests/test_agent_runtime_active_runs.py` 通过。
+- 本轮新增 reasoning 极小事件 helper 覆盖：直接 helper 测试锁定 `reasoning -> progress` 顺序、payload、`state.content` 不变；fake `stream_run` 接线测试锁定 reasoning 在 delta 前且不进入 assistant history。
+- 本轮新增门禁：`cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_active_runs.py -q` 通过，27 passed；`cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_active_runs.py tests/test_agent_chat_runtime_loops.py -q` 通过，84 passed；`cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_*.py -q` 通过，218 passed；`cd apps/api && .venv/bin/python -m py_compile services/agent_chat_runtime_impl.py services/agent_runtime_sessions.py services/agent_runtime_streaming.py tests/test_agent_runtime_active_runs.py` 通过。
 - SSE 事件字段、停止按钮、orphaned run 恢复语义不变。
 
 ## 10. 验收标准总表

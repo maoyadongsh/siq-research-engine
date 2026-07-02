@@ -282,7 +282,7 @@ curl -s http://localhost:18652/health
 | `DATABASE_URL` | 无 | PostgreSQL 连接串 |
 | `REDIS_URL` | 无 | Redis 连接串 |
 
-## 开发验证
+## 合并前基础门禁
 
 ```bash
 cd /home/maoyd/siq-research-engine/apps/api
@@ -301,9 +301,17 @@ cd /home/maoyd/siq-research-engine/services/market-report-rules
 uv run --extra dev pytest
 
 cd /home/maoyd/siq-research-engine/apps/web
-npm run lint
-npm run build
+npm run check:frontend
 ```
+
+红灯 owner 收口门禁：
+
+```bash
+cd /home/maoyd/siq-research-engine
+scripts/check_owner_migration.sh
+```
+
+该脚本用于当前架构优化收口的聚焦验证，不替代上方基础门禁。
 
 一键脚本和 shell 入口检查：
 
