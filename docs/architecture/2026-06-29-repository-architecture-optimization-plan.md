@@ -1517,6 +1517,42 @@ git diff --check
 - Playwright 后续只在真实需要时跑单文件 smoke；不扩大聊天或搜索下载 E2E 矩阵。
 - 大 owner 仍需单独设计窗口：Agent runtime history/save/message、PDF queue/MinerU/Flask response、Document workbench refs/scroll、workflow/market_reports 控制面瘦身均不与维护尾项混批。
 
+### 0.34 2026-07-02 Async DB audit 非阻断入口
+
+本轮继续按 0.33 的工程化小切片建议推进，只新增本地 advisory 入口，不接入硬门禁，不迁移任何同步 Session owner，也不修改 API router / DB 行为。后台复核确认 TODO/FIXME 分类报告可作为后续 P2 报告型任务，但本轮不混入。
+
+完成项：
+
+- 新增 `scripts/check_async_db_audit.sh`：默认使用 `apps/api/.venv/bin/python`，支持 `API_PY` 覆盖，执行 `apps/api/scripts/audit_async_sync_session.py --summary` 并输出 advisory 摘要。
+- 保持非阻断语义：既有 56 个 finding 不导致失败；只有解释器缺失、审计脚本缺失或命令自身失败才失败。
+- `scripts/README.md` 增加 Async DB audit advisory 入口说明，明确该入口不是合并门禁；需要 Markdown/JSON 报告时由调用方显式重定向输出。
+- 未接入 `scripts/check_all.sh` / `scripts/check_owner_migration.sh`，未生成或提交运行态报告文件。
+- 并行前端维护：搜索下载页根节点补 `search-download-page` class，并继续收紧已下载文件列表的长文件名、长路径和外层卡片 overflow 约束；不改查询/下载/删除业务逻辑。
+
+本轮验证：
+
+```bash
+bash -n scripts/check_async_db_audit.sh
+# passed
+
+scripts/check_async_db_audit.sh
+# total 56, depends_get_session 54, next_get_session 2
+
+cd apps/web && npm run check:frontend
+# passed
+
+cd apps/web && npm run e2e -- e2e/tests/search-download-responsive.spec.ts --project=chromium
+# 3 passed
+
+git diff --check
+# passed
+```
+
+下一步建议：
+
+- TODO/FIXME 治理可单独做报告型切片，只分类不修代码，避免把历史债务修复混入工程化入口。
+- Async DB 后续仍只做报告或设计矩阵；迁移 `chat.py` / `workspace.py` / `document_parser.py` 的同步 Session owner 必须另开单独窗口。
+
 ## 1. 当前架构事实
 
 ### 1.1 当前主要目录职责
