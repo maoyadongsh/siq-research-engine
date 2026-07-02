@@ -33,7 +33,7 @@ run_step "PDF parser full suite" \
     bash -lc "cd '$ROOT_DIR/apps/pdf-parser' && PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -p no:cacheprovider -q"
 
 run_step "Web document parser node gates" \
-    bash -lc "cd '$ROOT_DIR/apps/web' && node --test src/components/document-parser/styleSelectorSmoke.test.ts src/components/document-parser/documentResultWorkbenchDerivations.test.ts src/components/document-parser/documentResultViewModel.test.ts src/components/document-parser/documentResourceOpener.test.ts"
+    bash -lc "cd '$ROOT_DIR/apps/web' && npm run test:unit"
 
 run_step "Web frontend check" \
     bash -lc "cd '$ROOT_DIR/apps/web' && npm run check:frontend"
