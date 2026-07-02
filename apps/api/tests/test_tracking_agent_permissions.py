@@ -1,6 +1,7 @@
 from datetime import datetime
 from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
 
 import main
@@ -215,6 +216,31 @@ def test_tracking_history_route_wraps_messages_and_session_id(monkeypatch):
     assert calls["resolve"]["session_id"] == "requested-session"
     assert calls["history"]["session_id"] == "resolved-tracking-session"
     assert calls["history"]["limit"] == 2
+
+
+@pytest.mark.parametrize("role", [UserRole.VIEWER, UserRole.REVIEWER])
+def test_tracking_history_route_rejects_low_permission_user(monkeypatch, role):
+    called = {"resolve": False, "history": False}
+
+    async def fake_resolve_or_create_session(*args, **kwargs):
+        called["resolve"] = True
+        return "blocked-session"
+
+    async def fake_chat_history_response(*args, **kwargs):
+        called["history"] = True
+        return []
+
+    monkeypatch.setattr(agent_user_router, "resolve_or_create_session", fake_resolve_or_create_session)
+    monkeypatch.setattr(agent_user_router, "chat_history_response", fake_chat_history_response)
+    _install_user(role)
+    client = TestClient(main.app)
+    try:
+        response = client.get("/api/tracking/chat/history?session_id=blocked&limit=2")
+    finally:
+        main.app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    assert called == {"resolve": False, "history": False}
 
 
 def test_main_app_does_not_expose_legacy_tracking_router():
