@@ -130,6 +130,59 @@ def test_page_content_payload_returns_empty_payload_for_non_list_content():
     }
 
 
+def test_page_content_payload_treats_invalid_json_content_as_empty_payload():
+    payload = page_content_payload_from_content_list("{not-json", 2)
+
+    assert payload == {
+        "page_number": 2,
+        "pdf_page_number": 2,
+        "printed_page_number": None,
+        "page_index": 1,
+        "block_count": 0,
+        "table_count": 0,
+        "page_tables": [],
+        "blocks": [],
+    }
+
+
+def test_page_content_payload_uses_report_page_tables_when_content_list_is_missing():
+    report = {
+        "table_index": [
+            {
+                "table_index": 12,
+                "content_table_source_id": 3,
+                "line": 120,
+                "pdf_page_number": 4,
+                "heading": "Report-only table",
+                "printed_page_number": "F-4",
+                "matched_financial_names": ["cash"],
+            },
+            {
+                "table_index": 11,
+                "content_table_source_id": 2,
+                "line": 110,
+                "pdf_page_number": 3,
+                "heading": "Wrong page table",
+            },
+        ]
+    }
+
+    payload = page_content_payload_from_content_list(None, 4, report=report)
+
+    assert payload["block_count"] == 0
+    assert payload["table_count"] == 0
+    assert payload["page_tables"] == [
+        {
+            "table_index": 12,
+            "source_table_index": 3,
+            "line": 120,
+            "heading": "Report-only table",
+            "printed_page_number": "F-4",
+            "matched_financial_names": ["cash"],
+        }
+    ]
+
+
 def test_page_content_payload_matches_tables_by_source_id_and_focus_table():
     first_table = "<table><tr><td>Revenue</td></tr></table>"
     second_table = "<table><tr><td>Assets</td></tr></table>"
@@ -342,7 +395,27 @@ def test_page_content_payload_ignores_invalid_report_table_rows():
     assert payload["page_tables"] == []
 
 
-def test_page_content_payload_raises_for_non_numeric_focus_table():
+def test_page_content_payload_ignores_non_list_report_table_index_and_falls_back_to_content_table():
+    content_list = [
+        {
+            "type": "table",
+            "page_idx": 0,
+            "bbox": [10, 20, 30, 40],
+            "table_body": "<table><tr><td>Fallback table</td></tr></table>",
+        }
+    ]
+
+    payload = page_content_payload_from_content_list(content_list, 1, report={"table_index": None})
+    table = payload["blocks"][0]
+
+    assert table["table_index"] == 1
+    assert table["source_table_index"] == 1
+    assert table["heading"] == ""
+    assert table["line"] is None
+    assert payload["page_tables"] == []
+
+
+def test_page_content_payload_ignores_non_numeric_focus_table():
     content_list = [
         {
             "type": "table",
@@ -352,5 +425,6 @@ def test_page_content_payload_raises_for_non_numeric_focus_table():
         }
     ]
 
-    with pytest.raises(ValueError):
-        page_content_payload_from_content_list(content_list, 1, focus_table="not-a-number")
+    payload = page_content_payload_from_content_list(content_list, 1, focus_table="not-a-number")
+
+    assert payload["blocks"][0]["is_focus_table"] is False

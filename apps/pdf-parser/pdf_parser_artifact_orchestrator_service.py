@@ -6,6 +6,8 @@ from task_store import COMPLETED, missing_artifact_message
 
 
 def select_markdown_result(upstream_response):
+    if not isinstance(upstream_response, dict):
+        return None, None, None
     results = upstream_response.get("results")
     if not isinstance(results, dict):
         return None, None, None

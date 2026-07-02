@@ -3,6 +3,7 @@ import os
 
 import pytest
 
+from pdf_source_viewer import page_content_payload_from_content_list
 import pdf_parser_source_service as source
 
 
@@ -81,6 +82,61 @@ def test_page_content_payload_rejects_invalid_page_before_loading(page_number):
         )
 
 
+@pytest.mark.parametrize("content_list", [None, {"content": None}, "{not-json"])
+def test_page_content_payload_wrapper_handles_missing_non_list_and_invalid_json_content(content_list):
+    payload = source.page_content_payload(
+        {"task_id": "task-1"},
+        3,
+        load_json_artifact=lambda _task, name: content_list if name == "content_list.json" else None,
+        page_content_payload_from_content_list=page_content_payload_from_content_list,
+    )
+
+    assert payload == {
+        "page_number": 3,
+        "pdf_page_number": 3,
+        "printed_page_number": None,
+        "page_index": 2,
+        "block_count": 0,
+        "table_count": 0,
+        "page_tables": [],
+        "blocks": [],
+    }
+
+
+def test_page_content_payload_wrapper_keeps_report_page_tables_when_content_list_is_missing():
+    report = {
+        "table_index": [
+            {
+                "table_index": 8,
+                "content_table_source_id": 1,
+                "line": 80,
+                "pdf_page_number": 2,
+                "heading": "Report fallback",
+            }
+        ]
+    }
+
+    payload = source.page_content_payload(
+        {"task_id": "task-1"},
+        2,
+        report=report,
+        load_json_artifact=lambda _task, name: None if name == "content_list.json" else [],
+        page_content_payload_from_content_list=page_content_payload_from_content_list,
+    )
+
+    assert payload["blocks"] == []
+    assert payload["page_tables"] == [
+        {
+            "table_index": 8,
+            "source_table_index": 1,
+            "line": 80,
+            "heading": "Report fallback",
+            "printed_page_number": None,
+            "matched_financial_names": [],
+        }
+    ]
+
+
 def test_ensure_pdf_page_image_returns_existing_cache(tmp_path):
     task = {"task_id": "task-1", "upload_path": ""}
     image_path = source.pdf_page_image_path(task, 2, results_folder=str(tmp_path))
@@ -88,6 +144,20 @@ def test_ensure_pdf_page_image_returns_existing_cache(tmp_path):
         outfile.write(b"png")
 
     assert source.ensure_pdf_page_image(task, 2, results_folder=str(tmp_path)) == image_path
+
+
+@pytest.mark.parametrize("page_number", ["not-a-number", "0", 0, -1])
+def test_ensure_pdf_page_image_rejects_invalid_page_before_touching_files(tmp_path, monkeypatch, page_number):
+    def fail_run(*_args, **_kwargs):
+        raise AssertionError("pdftoppm should not be called")
+
+    monkeypatch.setattr(source.subprocess, "run", fail_run)
+    task = {"task_id": "task-invalid-page", "upload_path": os.path.join(str(tmp_path), "missing.pdf")}
+
+    with pytest.raises(ValueError):
+        source.ensure_pdf_page_image(task, page_number, results_folder=str(tmp_path))
+
+    assert not os.path.exists(os.path.join(str(tmp_path), "task-invalid-page"))
 
 
 def test_ensure_pdf_page_image_requires_original_pdf(tmp_path):

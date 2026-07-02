@@ -2,6 +2,25 @@ import pdf_parser_artifact_orchestrator_service as orchestrator
 from task_store import COMPLETED, COMPLETED_MISSING_ARTIFACT
 
 
+def _no_artifact_side_effects():
+    return {
+        "inject_pdf_page_markers": lambda *_args, **_kwargs: "",
+        "backfill_sparse_markdown_pages": lambda markdown, _content_list: (markdown, []),
+        "write_markdown": lambda *_args, **_kwargs: None,
+        "save_mineru_artifacts": lambda *_args, **_kwargs: {},
+        "append_log": lambda *_args, **_kwargs: None,
+        "now_iso": lambda: "2026-05-01T00:01:00Z",
+        "persist_task": lambda _task: None,
+    }
+
+
+def test_select_markdown_result_ignores_empty_or_malformed_payloads():
+    assert orchestrator.select_markdown_result(None) == (None, None, None)
+    assert orchestrator.select_markdown_result([]) == (None, None, None)
+    assert orchestrator.select_markdown_result({}) == (None, None, None)
+    assert orchestrator.select_markdown_result({"results": []}) == (None, None, None)
+
+
 def test_cache_mineru_result_artifacts_writes_markdown_artifacts_and_completes_task():
     task = {
         "task_id": "orchestrated",
@@ -73,6 +92,44 @@ def test_cache_mineru_result_artifacts_writes_markdown_artifacts_and_completes_t
     assert calls[-1][0] == "persist"
 
 
+def test_cache_mineru_result_artifacts_logs_quality_markdown_and_backfill_in_order():
+    task = {"task_id": "ordered", "pdf_page_count": 1, "status": "pending", "stage": "submitted"}
+    response = {
+        "results": {
+            "ordered.pdf": {
+                "md_content": "# ordered\n",
+                "content_list": [{"type": "text", "page_idx": 0, "text": "ordered"}],
+            }
+        }
+    }
+    calls = []
+
+    result = orchestrator.cache_mineru_result_artifacts(
+        task,
+        response,
+        task_requires_markdown_artifact=lambda _task: True,
+        mark_completed_missing_artifact=lambda *_args, **_kwargs: None,
+        inject_pdf_page_markers=lambda markdown, *_args, **_kwargs: markdown,
+        backfill_sparse_markdown_pages=lambda markdown, _content_list: (markdown + "\n[PDF_PAGE: 2]\n", [2]),
+        write_markdown=lambda _task, _markdown: calls.append("write_markdown"),
+        save_mineru_artifacts=lambda *_args, **_kwargs: calls.append("save_mineru_artifacts")
+        or {"table_count": 1, "single_row_table_count": 0},
+        append_log=lambda _task, message, level="info": calls.append(("log", level, message)),
+        now_iso=lambda: "2026-05-01T00:01:00Z",
+        persist_task=lambda _task: calls.append("persist"),
+    )
+
+    assert result == "# ordered\n\n[PDF_PAGE: 2]\n"
+    assert calls == [
+        "write_markdown",
+        "save_mineru_artifacts",
+        ("log", "info", "质量报告已生成: 1 个表格, 0 个单行/空壳表"),
+        ("log", "success", f"Markdown 结果已获取 ({len(result)} 字符)"),
+        ("log", "info", "已从 content_list 回填 1 个稀疏 Markdown 页"),
+        "persist",
+    ]
+
+
 def test_cache_mineru_result_artifacts_missing_markdown_marks_completed_missing_artifact():
     task = {"task_id": "missing-md", "status": COMPLETED}
     marked = []
@@ -83,17 +140,45 @@ def test_cache_mineru_result_artifacts_missing_markdown_marks_completed_missing_
         local_markdown=None,
         task_requires_markdown_artifact=lambda _task: True,
         mark_completed_missing_artifact=lambda value, detail=None: marked.append((value["task_id"], detail)),
-        inject_pdf_page_markers=lambda *_args, **_kwargs: "",
-        backfill_sparse_markdown_pages=lambda markdown, _content_list: (markdown, []),
-        write_markdown=lambda *_args, **_kwargs: None,
-        save_mineru_artifacts=lambda *_args, **_kwargs: {},
-        append_log=lambda *_args, **_kwargs: None,
-        now_iso=lambda: "2026-05-01T00:01:00Z",
-        persist_task=lambda _task: None,
+        **_no_artifact_side_effects(),
     )
 
     assert result == {"_error": True, "detail": "任务已完成，但 MinerU 结果中没有可用的 Markdown 内容。"}
     assert marked == [("missing-md", "任务已完成，但 MinerU 结果中没有可用的 Markdown 内容。")]
+
+
+def test_cache_mineru_result_artifacts_missing_markdown_keeps_existing_local_artifact():
+    task = {"task_id": "local-md", "status": COMPLETED}
+    marked = []
+
+    result = orchestrator.cache_mineru_result_artifacts(
+        task,
+        None,
+        local_markdown="# local\n",
+        task_requires_markdown_artifact=lambda _task: True,
+        mark_completed_missing_artifact=lambda value, detail=None: marked.append((value["task_id"], detail)),
+        **_no_artifact_side_effects(),
+    )
+
+    assert result is None
+    assert marked == []
+
+
+def test_cache_mineru_result_artifacts_empty_payload_marks_missing_when_required():
+    task = {"task_id": "empty-payload", "status": COMPLETED}
+    marked = []
+
+    result = orchestrator.cache_mineru_result_artifacts(
+        task,
+        None,
+        local_markdown=None,
+        task_requires_markdown_artifact=lambda _task: True,
+        mark_completed_missing_artifact=lambda value, detail=None: marked.append((value["task_id"], detail)),
+        **_no_artifact_side_effects(),
+    )
+
+    assert result == {"_error": True, "detail": "任务已完成，但 MinerU 结果中没有可用的 Markdown 内容。"}
+    assert marked == [("empty-payload", "任务已完成，但 MinerU 结果中没有可用的 Markdown 内容。")]
 
 
 def test_missing_local_markdown_error_uses_specific_404_message():

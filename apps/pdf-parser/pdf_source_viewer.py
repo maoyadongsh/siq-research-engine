@@ -67,27 +67,23 @@ def page_content_payload_from_content_list(content_list, page_number, report=Non
     page_number = int(page_number)
     if page_number <= 0:
         raise ValueError("Invalid page number")
+    try:
+        focus_table_index = int(focus_table) if focus_table is not None else None
+    except (TypeError, ValueError):
+        focus_table_index = None
     page_index = page_number - 1
     content_list = coerce_json_artifact(content_list)
     printed_pages = printed_page_numbers_by_pdf_page(content_list)
-    if not isinstance(content_list, list):
-        return {
-            "page_number": page_number,
-            "pdf_page_number": page_number,
-            "printed_page_number": printed_pages.get(page_number),
-            "page_index": page_index,
-            "block_count": 0,
-            "table_count": 0,
-            "page_tables": [],
-            "blocks": [],
-        }
 
     table_lookup = {}
     table_lookup_by_source_id = {}
     table_lookup_by_bbox = {}
     page_tables = []
     if isinstance(report, dict):
-        for item in report.get("table_index", []):
+        report_table_index = report.get("table_index", [])
+        if not isinstance(report_table_index, list):
+            report_table_index = []
+        for item in report_table_index:
             if not isinstance(item, dict):
                 continue
             try:
@@ -124,6 +120,19 @@ def page_content_payload_from_content_list(content_list, page_number, report=Non
                         "matched_financial_names": item.get("matched_financial_names") or [],
                     }
                 )
+
+    if not isinstance(content_list, list):
+        page_tables.sort(key=lambda item: item.get("table_index") or 0)
+        return {
+            "page_number": page_number,
+            "pdf_page_number": page_number,
+            "printed_page_number": printed_pages.get(page_number),
+            "page_index": page_index,
+            "block_count": 0,
+            "table_count": 0,
+            "page_tables": page_tables,
+            "blocks": [],
+        }
 
     blocks = []
     table_seq = 0
@@ -170,7 +179,7 @@ def page_content_payload_from_content_list(content_list, page_number, report=Non
             block["line"] = source.get("line")
             block["printed_page_number"] = source.get("printed_page_number") or printed_pages.get(page_number)
             block["matched_financial_names"] = source.get("matched_financial_names") or []
-            block["is_focus_table"] = bool(endpoint_table_index and focus_table and int(focus_table) == int(endpoint_table_index))
+            block["is_focus_table"] = bool(endpoint_table_index and focus_table_index == int(endpoint_table_index))
             block["missing_body"] = not bool(table_html)
         elif block_type == "image":
             block["image_path"] = item.get("img_path") or ""
