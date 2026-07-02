@@ -876,6 +876,49 @@ cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_chat_prefligh
 
 下一步建议：继续做“少量真实 DB 顺序护栏 + 不迁 owner”的路线；只有当这类回归足够稳定、且能明确拆出 owner 矩阵时，再进入 history/memory DB owner 设计。
 
+### 0.20 2026-07-02 attachment 真实 DB 顺序护栏补强
+
+本轮继续沿“少量真实 DB 顺序护栏 + 不迁 owner”的路线推进，但把分支换到了 attachment：新增 `test_collect_chat_reply_image_attachment_passes_old_history_before_saving_current_user`，用独立 SQLite 临时库预置旧对话，再通过真实 `load_history` / `save_message` 包一层记录，确认 `collect_chat_reply()` 在保存当前 user 之前拿到的仍是旧历史，且当前 image attachment 真实写入 `attachments_json`。
+
+完成项：
+
+- 新增 attachment 真实 DB 顺序哨兵：`load_history` 读到的历史只包含旧轮次，`save_user` 仍发生在 preflight 之后。
+- 保留真实 `load_history` / `save_message` 行为，只对调用顺序做记录，确保测试验证的是真实 SQLite 写入。
+- 顺带验证保存后的 DB 结果：当前 user 与 assistant reply 都落库，当前 user 的 attachment 元数据也真实写入。
+
+行为与风险边界：
+
+| 路径 | 本轮保持 / 改进 |
+| --- | --- |
+| preflight 读写顺序 | `load_history` 先于 `save_message(user)`，`create_run()` 只看到旧 history |
+| attachment 持久化 | 当前 user 的 `attachments_json` 真实落库，可回归检查 |
+| 测试真实性 | 只包一层调用记录，不替换核心读写逻辑 |
+
+回滚边界：
+
+| 失败信号 | 回滚范围 |
+| --- | --- |
+| 顺序护栏失败 | 仅回滚 `test_collect_chat_reply_image_attachment_passes_old_history_before_saving_current_user` |
+| attachment 写入行为变化 | 回滚该测试中的 wrapper，恢复到纯 mock 顺序测试 |
+| 旧历史被当前轮污染 | 先修 `collect_chat_reply` 的 preflight / save 顺序，再决定是否扩展 streaming 侧哨兵 |
+
+本轮验证：
+
+```bash
+cd apps/api && .venv/bin/python -m pytest tests/test_agent_chat_runtime_attachments.py -q  # 16 passed
+```
+
+后续工作量重估：
+
+| 优先级 | 任务 | 范围 | 工作量 | 门禁 |
+| --- | --- | --- | --- | --- |
+| P0 | 继续保持 preflight / attachment 顺序哨兵 | 仅回归修正，不主动改 owner 结构 | 0 天 | `tests/test_agent_runtime_chat_preflight.py` + `tests/test_agent_chat_runtime_attachments.py` |
+| P1 | 拓展 streaming 真实 DB 顺序护栏 | 继续把 `test_stream_chat_reply_preflight_refreshes_pdf_metadata_before_saving_user` 升级成真实 SQLite wrapper | S，约 0.25-0.5 天 | `tests/test_agent_runtime_chat_preflight.py` + `git diff --check` |
+| P1 | history/memory DB owner 设计 | 若继续推进，先写 owner 矩阵和失败态测试；不得与 streaming/attachments/dedupe 同轮迁移 | M，约 0.5-1 天 | 新增哨兵先红后绿 + `scripts/check_owner_migration.sh` |
+| P2 | PDF / Frontend 维护尾项 | 继续按回归触发 | 0-0.25 天 | 对应聚焦门禁 |
+
+下一步建议：优先补 streaming 的真实 DB 顺序护栏，让 chat preflight 的两条主分支都落到真实 SQLite 验证上；等这两条稳定了，再考虑 history/memory DB owner 设计。
+
 ## 1. 当前架构事实
 
 ### 1.1 当前主要目录职责

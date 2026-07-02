@@ -5,9 +5,13 @@ import json
 from pathlib import Path
 
 import anyio
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlmodel import SQLModel, select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from models import ChatMessage
 from services import agent_chat_runtime as runtime
 
 
@@ -249,6 +253,190 @@ def test_attachment_followup_reuses_recent_attachment_intent():
     assert runtime._should_reuse_recent_attachments("继续前面的问题")
     assert runtime._should_reuse_recent_attachments("提取刚才那张照片里的手写体")
     assert not runtime._should_reuse_recent_attachments("上海建工的营收是多少？")
+
+
+def test_collect_chat_reply_image_attachment_passes_old_history_before_saving_current_user(tmp_path, monkeypatch):
+    expected_attachment: dict[str, object] = {
+        "filename": "chart.png",
+        "content_type": "image/png",
+        "kind": "image",
+        "size": 0,
+        "path": "",
+        "url": "/api/chat/attachments/chart.png",
+    }
+
+    async def run_case():
+        image_path = tmp_path / "chart.png"
+        image_path.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+        attachment = dict(expected_attachment)
+        attachment["size"] = image_path.stat().st_size
+        attachment["path"] = str(image_path)
+
+        engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'attachment-history-order.db'}")
+        try:
+            async with engine.begin() as connection:
+                await connection.run_sync(SQLModel.metadata.create_all)
+            async with AsyncSession(engine) as async_session:
+                session_id = "attachment-history-order-session"
+                async_session.add_all(
+                    [
+                        ChatMessage(session_id=session_id, role="user", content="旧问题 1"),
+                        ChatMessage(session_id=session_id, role="assistant", content="旧回答 1"),
+                    ]
+                )
+                await async_session.commit()
+
+                calls: list[str] = []
+                saved: list[tuple[str, str, list[dict] | None]] = []
+                captured_history: list[dict[str, str]] = []
+                original_load_history = runtime.load_history
+                original_save_message = runtime.save_message
+
+                async def wrapped_load_history(_async_session, current_session_id, *, limit):
+                    calls.append("load_history")
+                    assert current_session_id == session_id
+                    assert limit == 7
+                    return await original_load_history(_async_session, current_session_id, limit=limit)
+
+                async def fake_ensure_local_memory_context(_async_session, profile, current_session_id):
+                    calls.append("ensure_local_memory_context")
+                    assert profile == "siq_assistant"
+                    assert current_session_id == session_id
+                    return "<local-memory>older turns only</local-memory>"
+
+                async def wrapped_save_message(_async_session, role, content, current_session_id, attachments=None):
+                    calls.append(f"save_{role}")
+                    assert current_session_id == session_id
+                    saved.append((role, content, attachments))
+                    await original_save_message(
+                        _async_session,
+                        role,
+                        content,
+                        current_session_id,
+                        attachments=attachments,
+                    )
+
+                async def fake_analyze_images_with_primary_model(message, attachments):
+                    calls.append("analyze_images_with_primary_model")
+                    assert message == "分析这张图"
+                    assert attachments == [attachment]
+                    return ("image analysis context", True)
+
+                def fake_build_hermes_run_input(
+                    message,
+                    *,
+                    profile,
+                    session_id: str,
+                    context,
+                    allow_initialize,
+                    attachments,
+                    local_memory_context,
+                    image_analysis_context,
+                    use_hermes_image_fallback,
+                ):
+                    calls.append("build_hermes_run_input")
+                    assert message == "分析这张图"
+                    assert profile == "siq_assistant"
+                    assert session_id == "attachment-history-order-session"
+                    assert context == {"company": "demo"}
+                    assert allow_initialize is False
+                    assert attachments == [attachment]
+                    assert local_memory_context == "<local-memory>older turns only</local-memory>"
+                    assert image_analysis_context == "image analysis context"
+                    assert use_hermes_image_fallback is False
+                    return "run input"
+
+                async def fake_create_run(run_input, conversation_history, *, profile, session_id):
+                    calls.append("create_run")
+                    assert run_input == "run input"
+                    assert profile == "siq_assistant"
+                    assert session_id == "siq:siq_assistant:attachment-history-order-session"
+                    captured_history.extend(conversation_history)
+                    assert all(item["content"] != "分析这张图" for item in conversation_history)
+                    return "run-attachment"
+
+                async def fake_collect_run_result(run_id, *, profile, timeout):
+                    calls.append("collect_run_result")
+                    assert run_id == "run-attachment"
+                    assert profile == "siq_assistant"
+                    return "assistant reply"
+
+                async def fake_refresh_session_memory(_async_session, profile, current_session_id):
+                    calls.append("refresh_session_memory")
+                    assert profile == "siq_assistant"
+                    assert current_session_id == session_id
+
+                def fake_remember_completed_run(profile, current_session_id, message_hash, reply):
+                    calls.append("remember_completed_run")
+                    assert profile == "siq_assistant"
+                    assert current_session_id == session_id
+                    assert reply == "assistant reply"
+
+                monkeypatch.setattr(runtime, "load_history", wrapped_load_history)
+                monkeypatch.setattr(runtime, "ensure_local_memory_context", fake_ensure_local_memory_context)
+                monkeypatch.setattr(runtime, "save_message", wrapped_save_message)
+                monkeypatch.setattr(runtime, "analyze_images_with_primary_model", fake_analyze_images_with_primary_model)
+                monkeypatch.setattr(runtime, "build_hermes_run_input", fake_build_hermes_run_input)
+                monkeypatch.setattr(runtime, "create_run", fake_create_run)
+                monkeypatch.setattr(runtime, "collect_run_result", fake_collect_run_result)
+                monkeypatch.setattr(runtime, "refresh_session_memory", fake_refresh_session_memory)
+                monkeypatch.setattr(runtime, "_remember_completed_run", fake_remember_completed_run)
+                monkeypatch.setattr(runtime, "_recent_duplicate_reply", lambda *_args, **_kwargs: None)
+                monkeypatch.setattr(runtime, "build_wiki_catalog_reply", lambda _message: None)
+                monkeypatch.setattr(runtime, "normalize_evidence_trace_for_display", lambda value: value)
+                monkeypatch.setattr(runtime, "enforce_financial_evidence_contract", lambda _message, _context, reply: reply)
+                monkeypatch.setattr(runtime, "hermes_timeout", lambda: object())
+
+                reply = await runtime.collect_chat_reply(
+                    "分析这张图",
+                    async_session,
+                    session_id=session_id,
+                    profile="siq_assistant",
+                    context={"company": "demo"},
+                    attachments=[attachment],
+                    history_limit=7,
+                )
+                result = await async_session.exec(
+                    select(ChatMessage)
+                    .where(ChatMessage.session_id == session_id)
+                    .order_by(ChatMessage.id)
+                )
+                persisted = result.all()
+                return reply, calls, saved, captured_history, persisted, image_path
+        finally:
+            await engine.dispose()
+
+    reply, calls, saved, captured_history, persisted, image_path = anyio.run(run_case)
+
+    assert reply == "assistant reply"
+    assert calls[:3] == [
+        "load_history",
+        "ensure_local_memory_context",
+        "save_user",
+    ]
+    assert "analyze_images_with_primary_model" in calls
+    assert calls.index("analyze_images_with_primary_model") > calls.index("save_user")
+    assert calls.index("build_hermes_run_input") > calls.index("analyze_images_with_primary_model")
+    assert "create_run" in calls
+    assert calls.index("create_run") > calls.index("save_user")
+    assert captured_history == [
+        {"role": "user", "content": "旧问题 1"},
+        {"role": "assistant", "content": "旧回答 1"},
+    ]
+    assert [message.role for message in persisted] == [
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+    ]
+    current_user = persisted[-2]
+    assert current_user.attachments_json is not None
+    current_user_attachments = json.loads(current_user.attachments_json)
+    assert current_user_attachments[0]["filename"] == "chart.png"
+    assert current_user_attachments[0]["path"] == str(image_path)
+    assert saved[0][0] == "user"
+    assert saved[0][2] == [expected_attachment | {"size": image_path.stat().st_size, "path": str(image_path)}]
+    assert saved[1] == ("assistant", "assistant reply", None)
 
 
 def test_pdf_attachment_context_uses_independent_mineru_parse_dir(tmp_path, monkeypatch):
