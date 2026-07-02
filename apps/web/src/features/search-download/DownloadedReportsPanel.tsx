@@ -40,14 +40,14 @@ export function DownloadedReportsPanel({
   onCancelDelete: () => void
 }) {
   return (
-    <div className="apple-card rounded-[var(--radius-panel)] p-4 sm:p-6">
+    <div className="apple-card min-w-0 max-w-full overflow-hidden rounded-[var(--radius-panel)] p-4 sm:p-6">
       <div className="mb-5 flex min-w-0 flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div className="min-w-0 flex-1">
-          <h2 className="flex items-center gap-2 text-lg font-semibold text-text sm:text-xl">
-            <FolderOpen className="h-5 w-5 text-primary" />
+          <h2 className="flex min-w-0 items-center gap-2 text-lg font-semibold text-text sm:text-xl">
+            <FolderOpen className="h-5 w-5 shrink-0 text-primary" />
             已下载财报文件
           </h2>
-          <p className="mt-1 text-sm leading-6 text-text-muted sm:text-base">来自本地 downloads 目录，PDF 可进入解析；HTML/iXBRL 可在浏览器新标签中打开查看。</p>
+          <p className="mt-1 max-w-full text-sm leading-6 text-text-muted [overflow-wrap:anywhere] sm:text-base">来自本地 downloads 目录，PDF 可进入解析；HTML/iXBRL 可在浏览器新标签中打开查看。</p>
         </div>
         <div className="grid w-full min-w-0 gap-2 sm:grid-cols-[auto_minmax(0,320px)_auto] sm:items-center lg:w-[min(100%,560px)] lg:shrink-0">
           <label htmlFor="downloaded-report-query" className="text-sm font-semibold leading-5 text-text-muted sm:whitespace-nowrap">
@@ -89,26 +89,30 @@ export function DownloadedReportsPanel({
           className="border-dashed"
         />
       ) : (
-        <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border">
+        <div className="min-w-0 max-w-full divide-y divide-border overflow-hidden rounded-2xl border border-border">
           {reports.map((report) => {
             const isPdf = report.isPdf !== false
             const actionGridColumns = confirmDeletePath === report.relativePath ? 'repeat(2, minmax(0, 1fr))' : 'repeat(3, minmax(0, 1fr))'
             return (
               <div
                 key={report.id}
-                className="content-auto group flex flex-col gap-3 bg-card px-4 py-4 transition-colors hover:bg-primary/[0.035] sm:flex-row sm:items-center sm:gap-4 sm:px-5"
+                className="content-auto group flex min-w-0 max-w-full flex-col gap-3 bg-card px-4 py-4 transition-colors hover:bg-primary/[0.035] sm:flex-row sm:items-center sm:gap-4 sm:px-5"
               >
                 <button
                   type="button"
                   onClick={() => onOpen(report)}
-                  className="flex min-w-0 flex-1 items-start gap-3 text-left sm:items-center sm:gap-4"
+                  className="flex min-w-0 max-w-full flex-1 items-start gap-3 text-left sm:items-center sm:gap-4"
                 >
                   <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
                     <FileText className="h-5 w-5" />
                   </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block break-words text-sm font-semibold leading-6 text-text sm:truncate sm:text-base">{report.filename}</span>
-                    <span className="mt-1 block break-words text-xs leading-5 text-text-muted sm:truncate sm:text-sm">{report.company} · {report.category} · {report.relativePath}</span>
+                  <span className="min-w-0 max-w-full flex-1">
+                    <span className="block max-w-full break-all text-[13px] font-semibold leading-5 text-text [overflow-wrap:anywhere] sm:text-sm">
+                      {report.filename}
+                    </span>
+                    <span className="mt-1 block max-w-full break-all text-[11px] leading-5 text-text-muted [overflow-wrap:anywhere] sm:text-xs">
+                      {report.company} · {report.category} · {report.relativePath}
+                    </span>
                     {!isPdf ? <span className="mt-1 block text-xs font-semibold text-warning">非 PDF 文件：{report.contentType || 'HTML/iXBRL'}</span> : null}
                   </span>
                 </button>
@@ -117,7 +121,7 @@ export function DownloadedReportsPanel({
                   <span className="mt-1 block">{formatDateTime(report.mtime)}</span>
                 </span>
                 <div
-                  className="grid gap-2 sm:flex sm:shrink-0 sm:items-center"
+                  className="grid min-w-0 gap-2 sm:flex sm:shrink-0 sm:items-center"
                   style={{ gridTemplateColumns: actionGridColumns }}
                 >
                   {isPdf ? (

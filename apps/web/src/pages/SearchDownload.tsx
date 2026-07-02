@@ -629,7 +629,7 @@ export default function SearchDownload() {
   )
 
   return (
-    <div className="secondary-page min-w-0 overflow-x-hidden">
+    <div className="secondary-page search-download-page min-w-0 overflow-x-hidden">
 
       <section className="secondary-hero">
         <div className="secondary-hero-inner">

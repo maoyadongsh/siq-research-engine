@@ -4,6 +4,16 @@
   padding: 1rem 1.25rem 1.15rem;
 }
 
+.search-download-page {
+  width: 100%;
+  max-width: 100%;
+}
+
+.search-download-page > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
 .search-market-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(12rem, 100%), 1fr));
