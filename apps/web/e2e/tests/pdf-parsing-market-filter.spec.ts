@@ -105,6 +105,51 @@ test.describe('财报解析市场隔离', () => {
     await expect(page.getByText('文档解析上传未显式市场.pdf')).toHaveCount(0)
   })
 
+  test('移动端 A 股任务列表保持市场隔离且不横向溢出', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await mockPdfParsingApis(page)
+
+    await page.goto('/parse')
+    await expect(page.getByRole('heading', { name: '智能解析' })).toBeVisible()
+    await expect(page.getByText('贵州茅台_CN_600519_2025-12-31_年报.pdf')).toBeVisible()
+    await expect(page.getByText('手工上传未带市场码.pdf')).toBeVisible()
+    await expect(page.getByText('Tencent-Holdings_HK_00700_2025-12-31_年报.pdf')).toHaveCount(0)
+    await expect(page.getByText('NVIDIA-US-manual-upload.pdf')).toHaveCount(0)
+    await expect(page.getByText('安 纳 达_2025年年度报告.pdf')).toHaveCount(0)
+    await expect(page.getByText('文档解析上传未显式市场.pdf')).toHaveCount(0)
+
+    const layout = await page.evaluate(() => {
+      const viewportWidth = document.documentElement.clientWidth
+      const selectors = ['.pdf-task-item', '.task-actions', '.pdf-task-action']
+      const boxes = selectors.flatMap((selector) =>
+        Array.from(document.querySelectorAll<HTMLElement>(selector)).map((element) => {
+          const rect = element.getBoundingClientRect()
+          return {
+            selector,
+            left: rect.left,
+            right: rect.right,
+            height: rect.height,
+          }
+        }),
+      )
+      return {
+        viewportWidth,
+        scrollWidth: document.documentElement.scrollWidth,
+        boxes,
+      }
+    })
+
+    expect(layout.scrollWidth).toBeLessThanOrEqual(layout.viewportWidth + 1)
+    expect(layout.boxes.length).toBeGreaterThan(0)
+    for (const box of layout.boxes) {
+      expect(box.left).toBeGreaterThanOrEqual(-1)
+      expect(box.right).toBeLessThanOrEqual(layout.viewportWidth + 1)
+      if (box.selector === '.pdf-task-action') {
+        expect(box.height).toBeGreaterThanOrEqual(44)
+      }
+    }
+  })
+
   test('美股 PDF 兼容入口只展示 US 任务', async ({ page }) => {
     await mockPdfParsingApis(page)
 

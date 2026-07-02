@@ -114,6 +114,51 @@ class PdfTableRelationsTests(unittest.TestCase):
         finally:
             app.RESULTS_FOLDER = old_results_folder
 
+    def test_ensure_table_relations_artifact_rewrites_stale_artifact(self):
+        old_results_folder = app.RESULTS_FOLDER
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                app.RESULTS_FOLDER = tmpdir
+                task = {
+                    "task_id": "stale-relations-task",
+                    "filename": "旧关系缓存.pdf",
+                    "upload_path": "",
+                }
+                result_dir = os.path.join(tmpdir, task["task_id"])
+                os.makedirs(result_dir, exist_ok=True)
+                relation_path = os.path.join(result_dir, "table_relations.json")
+                with open(relation_path, "w", encoding="utf-8") as fh:
+                    json.dump(
+                        {
+                            "schema_version": "old",
+                            "ruleset_version": "old",
+                            "sentinel": "must be replaced",
+                            "relations": [{"relation_type": "stale"}],
+                        },
+                        fh,
+                        ensure_ascii=False,
+                    )
+
+                relations = app._ensure_table_relations_artifact(
+                    task,
+                    "# 无跨页表格\n",
+                    enhanced={"tables": []},
+                    content_list=[],
+                )
+
+                self.assertEqual(relations["schema_version"], "document_table_relations_v1")
+                self.assertEqual(relations["ruleset_version"], app.TABLE_RELATION_RULESET_VERSION)
+                self.assertEqual(relations["relations"], [])
+                self.assertNotIn("sentinel", relations)
+                with open(relation_path, "r", encoding="utf-8") as fh:
+                    saved = json.load(fh)
+                self.assertEqual(saved["schema_version"], "document_table_relations_v1")
+                self.assertEqual(saved["ruleset_version"], app.TABLE_RELATION_RULESET_VERSION)
+                self.assertEqual(saved["relations"], [])
+                self.assertNotIn("sentinel", saved)
+        finally:
+            app.RESULTS_FOLDER = old_results_folder
+
     def test_real_title_before_target_table_blocks_relation(self):
         markdown = f"[PDF_PAGE: 134]\n{_first_fragment_html()}\n"
         content_list = [

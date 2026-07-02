@@ -580,6 +580,44 @@ scripts/check_owner_migration.sh  # API 91/225, PDF source/artifact 52, PDF full
 
 下一步建议：当前 A4 已满足“复用 preflight 合同 + 保持兼容入口与 monkeypatch 语义”的目标，默认应停止本条 owner 迁移线并提交清理。若继续开发，应先开 P1 设计窗口，不直接在 `agent_chat_runtime_impl.py` 上继续抽主流程。
 
+### 0.14 2026-07-02 PDF `_ensure_*` 与前端移动 smoke 维护护栏
+
+本轮按 0.13 的风险边界执行：不继续 Agent runtime owner 实现，不动 PDF MinerU lifecycle / Flask response / DB schema / task state / `_ensure_*` 编排 owner，只补 PDF source-view 与 table relations 的 `_ensure_*` 前置测试，并补一个前端 PDF 任务列表移动端真实 DOM smoke。后台智能体对 Agent runtime 的只读复核结论是：0.13 已到适合停手的位置，若继续 runtime 必须先写 P1 设计矩阵，本轮不应再抽主流程。
+
+本轮完成：
+
+- 在 `test_pdf_parser_source_service.py` 新增 `test_ensure_pdf_page_image_rerenders_empty_cache`。
+- 锁定 `ensure_pdf_page_image` 对已存在但 0 字节的 page image cache 不可直接返回，必须重新调用 `pdftoppm` 并用生成图片覆盖空缓存。
+- 在 `test_table_relations.py` 新增 `test_ensure_table_relations_artifact_rewrites_stale_artifact`。
+- 锁定 stale `table_relations.json` 的 schema/ruleset 不可被复用，必须重写为当前 `document_table_relations_v1` 与 `TABLE_RELATION_RULESET_VERSION`，旧 payload 哨兵字段不应保留。
+- 在 `pdf-parsing-market-filter.spec.ts` 新增移动端 `390x844` smoke，复用现有 mock，锁定 A 股解析页只展示 CN/未标记任务，同时 `.pdf-task-item`、`.task-actions`、`.pdf-task-action` 不造成页面横向溢出，任务按钮高度不低于 `44px`。
+- 未修改 `pdf_parser_source_service.py`、PDF app 实现、前端组件或 CSS；当前实现已经满足这些合同。
+
+本轮验证：
+
+```bash
+cd apps/pdf-parser && PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -p no:cacheprovider tests/test_pdf_parser_source_service.py -q  # 19 passed
+cd apps/pdf-parser && PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -p no:cacheprovider tests/test_table_relations.py -q  # 3 passed
+cd apps/pdf-parser && PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -p no:cacheprovider tests/test_table_relations.py tests/test_pdf_parser_document_full_service.py -q  # 16 passed
+cd apps/pdf-parser && PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -p no:cacheprovider -q  # 304 passed
+cd apps/web && npm run e2e -- e2e/tests/pdf-parsing-market-filter.spec.ts  # 3 passed
+cd apps/web && npm run test:unit  # 44 passed
+cd apps/web && npm run check:frontend
+git diff --check
+scripts/check_owner_migration.sh  # API 91/225, PDF source/artifact 53, PDF full 304, Web unit 44, frontend check passed
+```
+
+当前剩余工作量重估：
+
+| 优先级 | 任务 | 范围 | 工作量 | 风险控制 / 门禁 |
+| --- | --- | --- | --- | --- |
+| P0 | 停止 Agent runtime 当前 owner 迁移线 | 0.13 已完成薄 helper 边界；本轮只接受 P1 设计文档，不继续实现 | 0 天 | 继续保持 API runtime gates 绿 |
+| P1 | Agent runtime 下一设计窗口 | 行为矩阵、短路矩阵、回滚矩阵；不改 runtime 代码 | S，约 0.5 天 | `git diff --check`；如加测试再跑 API focused suite |
+| P2 | PDF parser 维护尾项 | source-view / artifact payload 负路径仅按回归触发补测；不迁 MinerU / response / task state owner | 0-0.25 天 | 聚焦测试 + PDF parser full suite |
+| P2 | Frontend 维护尾项 | quality tab 与 PDF task mobile smoke 已有；仅按回归触发补 selector 或响应式 smoke | 0-0.25 天 | Web unit + frontend check，必要时 Playwright 聚焦 |
+
+下一步建议：当前主线继续以“维护尾项按回归触发”为主；如果用户要求继续加速，优先补 Agent runtime P1 设计矩阵，而不是直接实现新的 owner 迁移。
+
 ## 1. 当前架构事实
 
 ### 1.1 当前主要目录职责
