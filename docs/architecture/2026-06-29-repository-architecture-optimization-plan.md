@@ -303,7 +303,7 @@ bash -n start_all.sh && find scripts infra apps services -type f -name '*.sh' -p
 
 ```bash
 cd apps/web && npm run test:unit                                   # 44 passed
-scripts/check_owner_migration.sh                                  # API 84/218, PDF 51/301, Web unit 44, frontend check passed
+scripts/check_owner_migration.sh                                  # API 84/218, PDF 52/302, Web unit 44, frontend check passed
 ```
 
 后续任务与工作量：
@@ -311,7 +311,7 @@ scripts/check_owner_migration.sh                                  # API 84/218, 
 | 优先级 | 任务 | 范围 | 工作量 | 风险控制 / 门禁 |
 | --- | --- | --- | --- | --- |
 | P0 | 本轮提交清理 | Web test gate、README、脚本标签、方案文档 | S，约 0.25 天 | `scripts/check_owner_migration.sh`、`git diff --check`、`git status --short` |
-| P0 | 已完成：对齐 `scripts/check_all.sh` 与 README 基础门禁 | 已增加 `apps/document-parser`、`services/market-report-rules`、`apps/web npm run test:unit` 和 `npm run check:frontend` | S，本轮完成 | `bash -n scripts/check_all.sh`；全量执行仍作为较重合并门禁 |
+| P0 | 已完成：对齐 `scripts/check_all.sh` 与 README 基础门禁 | 已增加 `apps/document-parser`、`services/market-report-rules`、`apps/web npm run test:unit` 和 `npm run check:frontend` | S，本轮完成 | 语法检查：`bash -n scripts/check_all.sh`；全量门禁：`scripts/check_all.sh` |
 | P1 | PDF parser 维护尾项 | source-view payload 脏数据容错已补；后续仅补 `_ensure_*` 前置测试或回归触发的 source/artifact 负路径，不迁 MinerU lifecycle / Flask response / DB schema | S，约 0-0.25 天，按回归触发 | `apps/pdf-parser` 聚焦测试 + 全量 301 tests |
 | P1 | Frontend 维护尾项 | 仅补响应式 smoke、selector inventory 或纯 helper 边界；不迁 refs、selection、scroll、CSS 注入 | S，约 0-0.5 天，按回归触发 | `npm run test:unit`、`npm run check:frontend`，必要时 Playwright 聚焦用例 |
 | P2 | Agent runtime 新 owner 设计窗口 | `stream_chat_reply`、sessions/history/memory/dedupe/build-run-input | M-L，约 1-2 天 | 先写设计/回滚矩阵，再选 1 个 owner；必须跑 API runtime focused suite |
@@ -345,7 +345,7 @@ scripts/check_owner_migration.sh                                  # API 84/218, 
 ```bash
 cd apps/pdf-parser && PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -p no:cacheprovider -q tests/test_pdf_source_viewer.py tests/test_pdf_parser_source_service.py  # 43 passed
 python3 -m py_compile apps/pdf-parser/pdf_source_viewer.py apps/pdf-parser/pdf_parser_source_service.py
-scripts/check_owner_migration.sh  # API 84/218, PDF source/artifact 51, PDF full 301, Web unit 44, frontend check passed
+scripts/check_owner_migration.sh  # API 84/218, PDF source/artifact 52, PDF full 302, Web unit 44, frontend check passed
 ```
 
 ### 0.8 2026-07-02 Web Document quality tab smoke 收口
@@ -402,8 +402,8 @@ cd apps/pdf-parser && PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -p no:cachepro
 
 - Frontend Document / F-004：主线拆分完成，桌面与移动端 quality tab smoke 已补，剩余 0 个计划内维护轮次，约 0 天。默认停止新增；若发现回归，只补响应式 smoke、selector 清单或少量纯 helper 边界；不迁 refs、selection、scroll、CSS 注入和 JSX 主结构。
 - PDF parser：红灯试点已完成 queue claim/recover、artifact orchestrator、malformed payload 防御、source-view loader/payload 容错、坏 bbox 防御和 page image render path 前置测试；当前 source/artifact 聚焦门禁为 52 passed，全量基线为 302 passed。剩余 0 个计划内维护轮次，约 0 天；默认停止新增，只在回归触发时补 source/artifact 负路径。不碰 MinerU submit/poll、Flask response、DB schema、任务状态写顺序。
-- Agent runtime：active SSE owner、stop owner、`_collect_stream_run` terminal helper、cancel/timeout/tool-loop 接线矩阵和 reasoning 单分支 helper 已完成，剩余 0-0.25 天，建议只做提交清理和观察；`stream_chat_reply`、history、attachments、memory、dedupe/build-run-input 顺序不和其他任务同批。
-- Repo / CI / 文档：红灯 owner 收口脚本和 README/Phase 8 门禁口径已固化，剩余 0-0.25 天提交分组清理；后续只需按轮次更新验证结果并保证 ignored runtime/cache/build 不进索引。
+- Agent runtime：active SSE owner、stop owner、`_collect_stream_run` terminal helper、cancel/timeout/tool-loop 接线矩阵和 reasoning 单分支 helper 已完成，剩余 0 个计划内维护轮次，约 0 天；默认停止 owner 迁移。`stream_chat_reply`、sessions/history/attachments/memory/dedupe/build-run-input 必须另开设计窗口。
+- Repo / CI / 文档：红灯 owner 收口脚本、README/Phase 8 门禁口径和当前基线数字已固化，剩余 0 个计划内维护轮次，约 0 天；后续只需按轮次记录验证结果并保证 ignored runtime/cache/build 不进索引。
 - Repo / CI / 文档补充：`scripts/README.md` 已明确 `git diff --check` 是失败门禁，`git status --short` 仅作为收尾 review 输出；Web 步骤口径同步为 Web Node unit + `npm run check:frontend`。
 
 下一轮推荐任务池：
@@ -411,7 +411,7 @@ cd apps/pdf-parser && PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -p no:cachepro
 1. 已完成：Agent runtime `_collect_stream_run` cancel/timeout/tool-loop 接线矩阵，已确认事件顺序、`stop_run` monkeypatch、history save 和 ACTIVE_RUNS 清理。
 2. 已完成：Agent runtime `_collect_stream_run` reasoning 极小事件 helper；Hermes stream 调用、ordinary chat、history、attachments、memory、dedupe、build-run-input 仍未迁移。
 3. PDF / Frontend 维护尾项：默认停止新增，除非发现回归；不再扩大 artifact orchestrator / MinerU lifecycle / Document workbench 状态 owner。已补 PDF source-view payload 容错、PDF page image render path 测试、Web Document 桌面 quality tab smoke 和移动端 quality select smoke。
-4. 提交与发布清理：按 API / PDF parser / Web / Docs 分主题提交，提交前跑 `scripts/check_owner_migration.sh` 或对应聚焦门禁，确认 `apps/web/dist/`、runtime cache、pytest cache 和本地数据不进入索引。
+4. 提交与发布清理：当前主线已完成；后续只在实际变更后按 API / PDF parser / Web / Docs 分主题提交，提交前跑 `scripts/check_owner_migration.sh` 或对应聚焦门禁，确认 `apps/web/dist/`、runtime cache、pytest cache 和本地数据不进入索引。
 
 推荐试点顺序：
 
@@ -439,12 +439,12 @@ cd apps/pdf-parser && PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -p no:cachepro
 
 工作量估算：
 
-- PDF parser：主试点完成，剩余维护/前置测试约 0.25-0.5 天；若强行继续 MinerU lifecycle owner 迁移，需另开 1.5-2.5 天设计与验证窗口。
-- Frontend Document：主试点完成，剩余维护约 0.25 天；`DOCUMENT_CSS` / `PDF_CSS` 迁移不再作为当前优化主线，若要做需另开 1-3 天 UI 验证窗口。
-- Agent runtime streaming：active run state owner、stop owner、collect terminal helper、cancel/timeout/tool-loop 接线矩阵与 reasoning 极小事件 helper 已完成，剩余 0-0.25 天提交清理；若继续 `stream_chat_reply` 或 sessions/history/memory owner，需另开 1-2 天设计窗口。
-- CI / 文档门禁：已完成当前红灯 owner 收口脚本固化；剩余 0-0.25 天提交清理。
+- PDF parser：主试点与维护前置测试已完成，剩余 0 天；若强行继续 MinerU lifecycle owner 迁移，需另开 1.5-2.5 天设计与验证窗口。
+- Frontend Document：主试点与桌面/移动端 quality smoke 已完成，剩余 0 天；`DOCUMENT_CSS` / `PDF_CSS` 迁移不再作为当前优化主线，若要做需另开 1-3 天 UI 验证窗口。
+- Agent runtime streaming：active run state owner、stop owner、collect terminal helper、cancel/timeout/tool-loop 接线矩阵与 reasoning 极小事件 helper 已完成，剩余 0 天；若继续 `stream_chat_reply` 或 sessions/history/memory owner，需另开 1-2 天设计窗口。
+- CI / 文档门禁：已完成当前红灯 owner 收口脚本、README 口径和基础门禁基线固化，剩余 0 天。
 
-下一步建议：PDF parser queue claim/recover、artifact/MinerU lifecycle 迁移前矩阵、PDF artifact orchestrator、前端 Document focus controller / view model / resource opener、Agent runtime ACTIVE_RUNS / active SSE owner 第一阶段、stop owner、`_collect_stream_run` terminal helper、cancel/timeout/tool-loop 接线矩阵、reasoning 极小事件 helper 和红灯 owner 收口门禁脚本均已完成。下一轮默认按 API / PDF parser / Web / Docs 分主题提交；若继续 Agent runtime，需另开 `stream_chat_reply`、sessions/history/memory owner 设计窗口。
+下一步建议：PDF parser queue claim/recover、artifact/MinerU lifecycle 迁移前矩阵、PDF artifact orchestrator、前端 Document focus controller / view model / resource opener、Agent runtime ACTIVE_RUNS / active SSE owner 第一阶段、stop owner、`_collect_stream_run` terminal helper、cancel/timeout/tool-loop 接线矩阵、reasoning 极小事件 helper 和红灯 owner 收口门禁脚本均已完成。当前主线应停止新增维护切片；若继续 Agent runtime，需另开 `stream_chat_reply`、sessions/history/memory owner 设计窗口。
 
 ## 1. 当前架构事实
 
