@@ -1120,6 +1120,106 @@ scripts/check_owner_migration.sh  # passed: API active/loop/preflight, runtime f
 
 下一步建议：不要继续扩大 memory owner；如果继续按优化方案推进，优先单轮评审 `chat_history_response` display owner。`save_message` 仍应后置，因为它同时牵涉附件 metadata、evidence trace、schema column fallback 和 background memory refresh。
 
+### 0.25 2026-07-02 外部深度检查建议采纳矩阵
+
+本轮对 Kimi Code 的深度检查建议做本地事实校验后纳入优化方案。处理原则：只采纳可被当前代码事实支撑、能形成明确验收门禁的任务；对已过时或表述过重的判断降级，不把未验证的数字或泛化结论写成事实。
+
+本地校验结论：
+
+- `tracking` 并非“完全未认证”：当前 `apps/api/main.py` 已对 `tracking_agent.router` 挂载 `Depends(get_current_user)`；但 `apps/api/routers/tracking.py` 仍存在未被主路由纳入的旧实现、全局 `TrackingAgent()` 单例和缺少细粒度权限的问题，仍应纳入安全治理。
+- `sentiment_monitor.py` 的 `ne_count` 未定义问题成立，且 `apps/api/agents/tracking` 与 `agents/hermes/profiles/siq_tracking` 两份镜像均存在。
+- `apps/api/agents/tracking/agent.py` 的 `strftime("%Y-Q%q")` 问题成立，应改为显式季度计算。
+- `source_token` 与 `SIQ_AUTH_SECRET_KEY` 耦合成立：`apps/api/routers/source.py` 当前用 `AuthService.secret_key()` 为 source token 签名，应拆出独立 source token secret。
+- `services/market-report-rules` 未纳入 `check_all.sh` 的说法已过时：当前 `scripts/check_all.sh` 已包含 rules 测试。
+- Playwright `baseURL` 与 `webServer` 在 `15174` 内部一致，并非简单“端口不一致导致必然失败”；但 README / 本地默认前端端口为 `15173`，应统一为可配置策略并更新文档。
+- `agent_user_router.py` 的 `_sync_agent_workspace_after_reply()` 已通过 `run_in_executor` 包裹同步 `Session(engine)`，不是直接阻塞事件循环；但全仓仍有多个 async route 注入同步 `Session`，需要做专项审计，不应盲目替换。
+- `eval_e2e.py` 中默认年份、汽车行业话术和公司定位硬编码仍明显存在；`services/market-report-rules` 已有 `IndustryProfile`，可作为配置化落点。
+
+采纳任务：
+
+| 优先级 | 任务 | 采纳范围 | 工作量 | 验收门禁 |
+| --- | --- | --- | --- | --- |
+| P0 | Tracking 运行时缺陷修复 | 修复两份 `sentiment_monitor.py` 的 `ne_count`、`agent.py` 的季度字符串、`get_dashboard()` 对 `tracking-items.md` 的回读/空面板问题 | S，约 0.25-0.5 天 | 新增 tracking module 单测；`py_compile` 两份 tracking 包 |
+| P0 | Tracking 权限和旧路由收口 | 保留 `tracking_agent.router` 的全局认证；为 tracking route 加 `tracking:read/write` 或等价权限；确认 `apps/api/routers/tracking.py` 是否废弃，若废弃则移除或隔离；消除旧实现全局 `TrackingAgent()` 单例风险 | S-M，约 0.5-1 天 | router 权限测试；未授权/低权限访问失败；主路由只暴露一个 tracking 实现 |
+| P0 | Source token 密钥解耦 | 新增 `SIQ_SOURCE_TOKEN_SECRET`，source token 不再复用 JWT auth secret；设计兼容期双验或一次性切换策略；补过期、签名、任务归属测试 | S-M，约 0.5-1 天 | `tests/test_source_access.py` 扩展；环境变量缺失/轮换场景测试 |
+| P1 | Async DB 使用审计 | 不盲改 `run_in_executor` 场景；优先列出 async route 中直接依赖同步 `Session` 的路径，按 workspace/chat/market reports 分批迁移或隔离线程池 | M，约 1-2 天 | 新增审计清单；每批迁移跑对应 router 测试 + API focused |
+| P1 | `eval_e2e.py` 配置化 | 将默认年份、汽车行业话术、公司定位映射、行业关注点抽到 `IndustryProfile` 或 rules service 配置；保留默认 profile 兼容现有 demo | M，约 1-2 天 | eval_e2e 单测覆盖非汽车行业、非 2025 年、非 A 股代码 |
+| P1 | CI 基线落地 | 新增 CI workflow，先跑 `scripts/check_all.sh` 的稳定子集和前端检查；owner 迁移继续用 `scripts/check_owner_migration.sh` 做专项门禁 | M，约 1 天 | PR/Push CI 可复现；README 标明本地/CI 门禁关系 |
+| P1 | Playwright 端口策略统一 | 不直接认定当前配置失败；改为通过 `SIQ_FRONTEND_PORT` / `PLAYWRIGHT_BASE_URL` 统一 dev、README、E2E 端口说明 | S，约 0.25-0.5 天 | Playwright smoke 可启动；README / `apps/web/e2e/README.md` 对齐 |
+| P1 | 前端 token 存储安全设计 | 将 localStorage JWT 迁移到 httpOnly Cookie + CSRF 作为单独安全设计，不与当前 owner 拆分混批 | L，约 3-5 天 | threat model、后端 cookie auth、CSRF 测试、前端 auth 回归 |
+| P2 | 代码质量工具渐进接入 | 不一次性全仓开启 ruff/black/mypy；先对新增/触碰 Python 文件启用 ruff check，后续再分模块扩大 | M，约 1-2 天起 | 不产生大规模格式 churn；CI 先以 advisory 或 touched-files 模式运行 |
+| P2 | TODO/FIXME 治理 | 先生成分类报告，不直接承诺外部统计数字；按安全、运行时、架构、文档分桶 | S，约 0.5 天 | `rg` 统计脚本 + issue/taskbook 输出 |
+| P2 | Hermes gateway 容器化与部署统一 | 当前 README 已明确 Hermes 仍依赖本机 editable venv；作为生产化任务纳入，但不阻塞近期安全/架构收口 | M-L，约 2-4 天 | Compose profile 可启动 Hermes gateway；health check 覆盖 |
+| P2 | 可观测性基线 | Prometheus/Grafana/结构化日志作为生产化后续，不与当前 runtime owner 拆分同批 | M-L，约 2-4 天 | API 关键路径 metrics、JSON log、dashboard smoke |
+
+不按原文采纳或降级处理：
+
+| 原建议 | 处理 |
+| --- | --- |
+| “tracking 完全未认证” | 降级为“缺细粒度权限 + 旧路由/单例收口”，因为主路由已挂 `get_current_user` |
+| “market-report-rules 未纳入 check_all.sh” | 不纳入新任务，当前已完成 |
+| “Playwright baseURL 端口不一致导致失败” | 降级为端口配置/文档统一；当前 Playwright `baseURL` 与 `webServer.url` 均为 `15174` |
+| “同步 Session 在 async 中多处直接阻塞” | 改为审计任务；已看到 `run_in_executor` 包裹场景，需逐条判断 |
+| “全仓一次性 ruff/black/mypy/pre-commit” | 降级为渐进式工具接入，避免大规模无关 churn |
+| “立刻统一所有部署方式” | 降级为生产化阶段任务，近期优先 P0 安全/运行时缺陷 |
+
+更新后的近期路线图：
+
+| 阶段 | 目标 | 任务 |
+| --- | --- | --- |
+| 第 1 阶段：止血 | 让 demo 和内测路径不暴露明显安全/运行时风险 | Tracking 运行时缺陷；Tracking 权限/旧路由收口；Source token 独立密钥 |
+| 第 2 阶段：架构收口 | 延续当前 owner 拆分，保持小步可回滚 | `chat_history_response` display payload owner；`save_message` owner 设计矩阵；Async DB 审计 |
+| 第 3 阶段：扩展性 | 减少多市场/多行业阻塞 | `eval_e2e.py` 配置化；CN rules 迁移设计；向量入库入口梳理 |
+| 第 4 阶段：工程化 | 提升持续交付和可运维性 | CI 基线；Playwright 端口策略；ruff 渐进接入；Hermes 容器化；可观测性 |
+
+### 0.26 2026-07-02 display payload owner 迁移
+
+本轮按 0.24/0.25 的架构收口路线执行 `chat_history_response` display owner 的最小切片。根据后台复核，`chat_history_response` 的 DB 查询、`fetch_limit * 3`、session 过滤和 visible filter 暂留 `agent_chat_runtime_impl.py`，只将 `_chat_message_payload()` 的对外 response payload 组装迁入 `services/agent_runtime_display.py`；runtime 保留 `_chat_message_payload()` wrapper，用依赖注入传入 `_message_attachments`、`_assistant_reply_for_display` 和 `normalize_evidence_trace_for_display`。
+
+完成项：
+
+- 新增 `agent_runtime_display.chat_message_payload()`：接管对外历史消息 payload 字段组装，包括 `id/session_id/role/content/created_at/attachments`。
+- runtime `_chat_message_payload()` 保留兼容入口，继续作为现有测试和调用点的 patch/read target。
+- 新增真实 SQLite display response 合同测试：验证 foreign session 忽略、空内容无附件过滤、attachment-only user 仍展示为空 content + attachments、loop-polluted assistant 在 UI history 中显示 stop message、assistant evidence 做展示归一化、limit 后仍按时间正序。
+- 新增 wrapper 哨兵测试：验证 `chat_history_response()` 仍使用 runtime 的 `chat_message_has_visible_payload` 与 `_chat_message_payload` patch point。
+
+行为与风险边界：
+
+| 路径 | 本轮保持 / 改进 |
+| --- | --- |
+| display payload owner | `_chat_message_payload` 主体迁入 `agent_runtime_display.py` |
+| `chat_history_response` DB 查询 | 暂留 runtime，不迁入 display module，避免 query/visibility owner 扩大 |
+| prompt history owner | `load_history` / `normalize_history` 不动，避免 UI history 与 Hermes prompt history 混用 |
+| DB write owner | `save_message` / `save_message_in_background` 不动，避免保存顺序和附件 metadata 风险 |
+| memory/streaming owner | `ensure_local_memory_context`、`refresh_session_memory`、`ACTIVE_RUNS`、`_collect_stream_run` 不动 |
+
+回滚边界：
+
+| 失败信号 | 回滚范围 |
+| --- | --- |
+| UI history payload 字段漂移 | 回滚 `agent_runtime_display.chat_message_payload()` 与 runtime wrapper 接线 |
+| prompt history 或 attachment 语义漂移 | 确认未复用 `load_history` / `_attachment_reference_context`；仅回滚 display payload helper |
+| router response 形状漂移 | 后续补 router history 哨兵，不扩大本轮 display owner |
+
+本轮验证：
+
+```bash
+cd apps/api && .venv/bin/python -m py_compile services/agent_runtime_display.py services/agent_chat_runtime_impl.py tests/test_agent_runtime_display.py tests/test_agent_chat_runtime_loops.py  # passed
+cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_display.py tests/test_agent_chat_runtime_loops.py tests/test_agent_runtime_history.py -q  # 79 passed
+cd apps/api && .venv/bin/python -m py_compile services/agent_chat_runtime.py services/agent_chat_runtime_impl.py services/agent_runtime_history.py services/agent_runtime_display.py tests/test_agent_runtime_display.py tests/test_agent_chat_runtime_loops.py tests/test_agent_chat_runtime_attachments.py tests/test_agent_runtime_chat_preflight.py tests/test_agent_router_attachments.py  # passed
+cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_history.py tests/test_agent_chat_runtime_loops.py tests/test_agent_chat_runtime_attachments.py tests/test_agent_runtime_chat_preflight.py tests/test_agent_runtime_display.py tests/test_agent_router_attachments.py -q  # 114 passed
+scripts/check_owner_migration.sh  # passed: API active run + loops 94 passed; API runtime focused 241 passed; PDF parser source/artifact 53 passed; PDF parser full 304 passed; Web node unit 44 passed; npm run check:frontend passed; git diff --check passed
+```
+
+后续工作量重估：
+
+| 优先级 | 任务 | 范围 | 工作量 | 门禁 |
+| --- | --- | --- | --- | --- |
+| P0 | display payload owner 迁移 | 本轮已完成；后续只接受回归修正 | 0 天 | display + loops + history |
+| P1 | router history response 哨兵 | 固定 `/chat/history`、specialist user router、fixed agent router 的 response 形状和 runtime patch point | S，约 0.25-0.5 天 | 新增 router history tests |
+| P1 | `save_message` owner 设计矩阵 | 仅设计，不立即迁移；列 attachment metadata、evidence、schema column fallback、background memory refresh 风险 | S-M，约 0.5 天 | 设计文档 + 现有 attachment/preflight 测试 |
+| P1 | 外部深度检查 P0 止血项 | Tracking 运行时缺陷、Tracking 权限收口、Source token 密钥解耦 | S-M，约 1-2 天分批 | 对应 router/module/source tests |
+
 ## 1. 当前架构事实
 
 ### 1.1 当前主要目录职责

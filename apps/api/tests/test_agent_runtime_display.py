@@ -1,5 +1,26 @@
+import json
+
+import anyio
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlmodel import SQLModel
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from models import ChatMessage
 from services import agent_chat_runtime as runtime
 from services import agent_runtime_display
+
+SH_BANK_TASK_ID = "fb07089b-9570-4902-bf20-eb38578f2b76"
+
+
+async def _with_temp_chat_history(tmp_path, callback):
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'display-history.db'}")
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(SQLModel.metadata.create_all)
+        async with AsyncSession(engine) as session:
+            return await callback(session)
+    finally:
+        await engine.dispose()
 
 
 def test_display_message_with_attachments_uses_default_prompt_for_single_attachment():
@@ -203,3 +224,139 @@ def test_display_message_with_document_url_encodes_absolute_url_and_path_filenam
         "[文档: board pack (final).pdf]"
         "(https://files.example.com/board%20pack%20%5Bfinal%5D.pdf?download=1)"
     )
+
+
+def test_chat_history_response_limits_after_visible_filtering_and_session_scope(tmp_path):
+    async def run_case(async_session):
+        session_id = "display-history-session"
+        async_session.add_all(
+            [
+                ChatMessage(session_id="foreign-display-history-session", role="user", content="foreign"),
+                ChatMessage(session_id=session_id, role="user", content="旧问题"),
+                ChatMessage(session_id=session_id, role="user", content=""),
+                ChatMessage(session_id=session_id, role="assistant", content="旧回答"),
+                ChatMessage(
+                    session_id=session_id,
+                    role="user",
+                    content="",
+                    attachments_json=json.dumps(
+                        [
+                            {
+                                "filename": "chart.png",
+                                "kind": "image",
+                                "path": "/tmp/chart.png",
+                            }
+                        ],
+                        ensure_ascii=False,
+                    ),
+                ),
+                ChatMessage(session_id=session_id, role="assistant", content="附件回答"),
+                ChatMessage(session_id=session_id, role="user", content="最后问题"),
+            ]
+        )
+        await async_session.commit()
+        return await runtime.chat_history_response(async_session, session_id, limit=3)
+
+    messages = anyio.run(_with_temp_chat_history, tmp_path, run_case)
+
+    assert [item["role"] for item in messages] == ["user", "assistant", "user"]
+    assert messages[0]["content"] == ""
+    assert messages[0]["attachments"] == [
+        {
+            "filename": "chart.png",
+            "kind": "image",
+            "path": "/tmp/chart.png",
+        }
+    ]
+    assert messages[1]["content"] == "附件回答"
+    assert messages[2]["content"] == "最后问题"
+    assert all(item["session_id"] == "display-history-session" for item in messages)
+    assert all(item["content"] != "foreign" for item in messages)
+    assert all(item["content"] != "旧问题" for item in messages)
+    assert all(item["content"] != "旧回答" for item in messages)
+
+
+def test_chat_history_response_uses_display_payload_contract_for_real_db_rows(tmp_path):
+    polluted = (
+        "[系统已整理] 上一轮助手输出疑似进入循环，详细重复内容已从后续上下文中移除。"
+        "请基于当前用户问题重新定位数据，不要沿用上一轮的逐页扫描或重复搜索过程。\n\n"
+        "## 引用来源\n"
+        "[D1] source_type=wiki_document_links, file=semantic/document_links.json"
+    )
+    evidence = (
+        "[1] source_type=report_md, file=reports/2025-annual/report.md, "
+        f"metric=前十名普通股股东, task_id={SH_BANK_TASK_ID}, "
+        "pdf_page=135, table_index=135, md_line=2428。"
+    )
+
+    async def run_case(async_session):
+        session_id = "display-history-payload-contract"
+        async_session.add_all(
+            [
+                ChatMessage(session_id=session_id, role="user", content="请看股东表"),
+                ChatMessage(session_id=session_id, role="assistant", content=polluted),
+                ChatMessage(session_id=session_id, role="assistant", content=evidence),
+            ]
+        )
+        await async_session.commit()
+        return await runtime.chat_history_response(async_session, session_id, limit=5)
+
+    messages = anyio.run(_with_temp_chat_history, tmp_path, run_case)
+
+    assert [item["role"] for item in messages] == ["user", "assistant", "assistant"]
+    assert messages[0]["content"] == "请看股东表"
+    assert messages[1]["content"] == runtime.OUTPUT_LOOP_STOP_MESSAGE
+    assert "系统已整理" not in messages[1]["content"]
+    assert "source_type=wiki_document_links" not in messages[1]["content"]
+    assert "pdf_page=134" in messages[2]["content"]
+    assert "table_index=90" in messages[2]["content"]
+    assert "printed_page=133" in messages[2]["content"]
+    assert f"/api/pdf_page/{SH_BANK_TASK_ID}/134?format=html" in messages[2]["content"]
+    assert f"/api/source/{SH_BANK_TASK_ID}/table/90?format=html" in messages[2]["content"]
+
+
+def test_chat_history_response_uses_runtime_visibility_and_payload_patch_points(tmp_path, monkeypatch):
+    async def run_case(async_session):
+        session_id = "display-history-wrapper-session"
+        async_session.add_all(
+            [
+                ChatMessage(session_id=session_id, role="user", content="first"),
+                ChatMessage(session_id=session_id, role="assistant", content="hidden"),
+                ChatMessage(session_id=session_id, role="user", content="second"),
+            ]
+        )
+        await async_session.commit()
+
+        visibility_calls: list[str] = []
+        payload_calls: list[str] = []
+
+        def fake_chat_message_has_visible_payload(message):
+            visibility_calls.append(message.content)
+            return message.content != "hidden"
+
+        def fake_chat_message_payload(message):
+            payload_calls.append(message.content)
+            return {"role": message.role, "content": f"payload:{message.content}"}
+
+        monkeypatch.setattr(
+            runtime,
+            "chat_message_has_visible_payload",
+            fake_chat_message_has_visible_payload,
+        )
+        monkeypatch.setattr(runtime, "_chat_message_payload", fake_chat_message_payload)
+
+        messages = await runtime.chat_history_response(async_session, session_id, limit=2)
+        return visibility_calls, payload_calls, messages
+
+    visibility_calls, payload_calls, messages = anyio.run(
+        _with_temp_chat_history,
+        tmp_path,
+        run_case,
+    )
+
+    assert visibility_calls == ["first", "hidden", "second"]
+    assert payload_calls == ["first", "second"]
+    assert messages == [
+        {"role": "user", "content": "payload:first"},
+        {"role": "user", "content": "payload:second"},
+    ]

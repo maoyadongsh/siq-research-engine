@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, Mapping
 from urllib.parse import quote
+
+from models import ChatMessage
 
 
 def _markdown_link_label(value: str) -> str:
@@ -44,4 +46,29 @@ def _display_message_with_attachments(
     return f"{prefix}\n\n" + "\n".join(labels)
 
 
-__all__ = ["_display_message_with_attachments", "_markdown_link_label", "_markdown_link_url"]
+def chat_message_payload(
+    message: ChatMessage,
+    *,
+    message_attachments: Callable[[ChatMessage], list[dict[str, Any]]],
+    assistant_reply_for_display: Callable[[str], str],
+    normalize_evidence_trace_for_display: Callable[[str], str],
+) -> dict[str, Any]:
+    content = message.content or ""
+    if message.role == "assistant":
+        content = normalize_evidence_trace_for_display(assistant_reply_for_display(content))
+    return {
+        "id": message.id,
+        "session_id": message.session_id,
+        "role": message.role,
+        "content": content,
+        "created_at": message.created_at,
+        "attachments": message_attachments(message),
+    }
+
+
+__all__ = [
+    "_display_message_with_attachments",
+    "_markdown_link_label",
+    "_markdown_link_url",
+    "chat_message_payload",
+]

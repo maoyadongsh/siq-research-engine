@@ -2191,18 +2191,12 @@ async def chat_history_response(
 
 
 def _chat_message_payload(message: ChatMessage) -> dict[str, Any]:
-    content = message.content or ""
-    if message.role == "assistant":
-        content = normalize_evidence_trace_for_display(_assistant_reply_for_display(content))
-    attachments = _message_attachments(message)
-    return {
-        "id": message.id,
-        "session_id": message.session_id,
-        "role": message.role,
-        "content": content,
-        "created_at": message.created_at,
-        "attachments": attachments,
-    }
+    return agent_runtime_display.chat_message_payload(
+        message,
+        message_attachments=_message_attachments,
+        assistant_reply_for_display=_assistant_reply_for_display,
+        normalize_evidence_trace_for_display=normalize_evidence_trace_for_display,
+    )
 
 
 def _session_id_matches_profile(profile: HermesProfile, session_id: str) -> bool:
