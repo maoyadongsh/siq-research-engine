@@ -1387,7 +1387,7 @@ cd apps/api && .venv/bin/python -m py_compile scripts/audit_async_sync_session.p
 
 - `services/auth_dependencies.py:get_current_user` 已从同步 `Session = Depends(get_session)` 迁到 `AsyncSession = Depends(get_async_session)`，用户查询改为 `await session.exec(...)`；`require_permission()` 调用形状保持不变。
 - 认证分支覆盖补齐：token decode 失败、数字 subject、username subject、missing subject、missing user、pending、rejected with note、rejected without note、disabled、FastAPI dependency + temp async DB、main app protected route 正负例。
-- Async DB 审计 baseline 更新：`services/auth_dependencies.py:get_current_user` 不再属于同步 Session allowlist；当前防扩散测试继续保护剩余同步 session 债务不新增。当前 `scripts/audit_async_sync_session.py` 输出已更新为 total 57（`depends_get_session` 55、`next_get_session` 2）；0.30 的 total 58 为迁移前 baseline。
+- Async DB 审计 baseline 更新：`services/auth_dependencies.py:get_current_user` 不再属于同步 Session allowlist；当前防扩散测试继续保护剩余同步 session 债务不新增。当前 `scripts/audit_async_sync_session.py` 输出已更新为 total 56（`depends_get_session` 54、`next_get_session` 2）；0.30 的 total 58 为迁移前 baseline，0.31 初稿中的 total 57 为中间态。
 - Source token hardening 更新：配置 `SIQ_SOURCE_TOKEN_SECRET` 后 source token 使用独立密钥；旧 `SIQ_AUTH_SECRET_KEY` 签名的 source token 默认不再验签，只有显式 `SIQ_SOURCE_ACCEPT_LEGACY_AUTH_SECRET=1` 时才兼容；短 source secret fail closed；上游 PDF2MD 代理会大小写不敏感地剥离 `access_token` / `source_token` 查询参数，且不转发登录 `Authorization`。
 - Tracking 权限收口补强：`tracking_agent.router` 在全局认证外继续按方法叠加 `tracking.read` / `tracking.write`；`viewer/reviewer` 对 read/write 均无 tracking 权限；真实 `/api/tracking/chat/history` 路由已覆盖权限、session envelope 和 FastAPI datetime JSON 序列化。
 - Tracking runtime 与 schema 修复保持：`ne_count` NameError、季度字符串、`tracking-items.md` 回读、legacy tracking REST router 不暴露、旧 router agent 惰性初始化、`recent_alerts: list[AlertReport]`。
@@ -1407,7 +1407,7 @@ cd apps/api && .venv/bin/python -m py_compile scripts/audit_async_sync_session.p
 
 ```bash
 cd apps/api && .venv/bin/python -m pytest tests/test_auth_dependencies.py tests/test_auth_dependencies_smoke.py tests/test_async_sync_session_audit.py tests/test_tracking_agent_permissions.py tests/test_tracking_runtime.py tests/test_router_history_response.py tests/test_source_access.py -q  # 43 passed
-cd apps/api && .venv/bin/python scripts/audit_async_sync_session.py  # total 57
+cd apps/api && .venv/bin/python scripts/audit_async_sync_session.py  # total 56
 cd apps/api && .venv/bin/python scripts/audit_async_sync_session.py --json  # valid JSON
 cd apps/api && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m py_compile services/auth_dependencies.py routers/source.py routers/tracking.py routers/tracking_agent.py services/auth_service.py agents/tracking/agent.py agents/tracking/modules/sentiment_monitor.py agents/tracking/schemas.py scripts/audit_async_sync_session.py tests/test_auth_dependencies.py tests/test_auth_dependencies_smoke.py tests/test_source_access.py tests/test_tracking_agent_permissions.py ../../agents/hermes/profiles/siq_tracking/modules/sentiment_monitor.py ../../agents/hermes/profiles/siq_tracking/schemas.py  # passed
 git diff --check  # passed
@@ -1418,6 +1418,56 @@ git diff --check  # passed
 - 先做纯提交拆分和文档同步，确保新增脚本/测试纳入同一主题或按主题拆分提交。
 - API 安全线提交后，再单独开启 PDF `_ensure_*` 前置测试切片；只补测试，不改 queue、Flask response、task state 或 `_ensure_*` 编排。
 - Agent runtime `_collect_stream_run` / history / attachments / local-memory owner 继续后置到单独设计窗口。
+
+### 0.32 2026-07-02 低风险维护切片与 Login 收口
+
+本轮按后台智能体复核后的风险队列推进：先收束已存在的 Login UI 未提交切片，再补 downloads 安全边界和 PDF `_ensure_*` 脏数据前置测试。原则仍是只做维护尾项，不打开 Agent runtime、PDF queue / Flask response / MinerU lifecycle、Document workbench refs/selection/scroll 或新的 Async DB owner。
+
+完成项：
+
+- Login UI 收口：`Login.tsx` 接入双栏品牌文案和表单面板；`auth.css` 补齐 `min-width: 0`、窄屏 padding、长中英文换行和按钮/输入响应式保护。`/login` 与 `/register` 在 1440、768、360、320 宽度均无横向溢出；注册页仍使用普通 `.auth-card` 与 mobile poster。
+- downloads 安全边界补测：`tests/test_downloads.py` 覆盖 open/delete 两条路由对 path traversal、绝对路径和非白名单后缀的拒绝；现有 `_safe_relative_path()` / `safe_path_join()` / suffix allowlist 行为保持不变。
+- PDF `_ensure_*` 维护尾项：`test_pdf_parser_ensure_wrappers.py` 新增非 dict `content_list_enhanced.json`、缺 markdown / 非 dict enhanced 短路、非 dict cached quality report 三个脏数据边界；`_ensure_quality_report()` 只做一行防御修正，要求 cached report 必须是 dict 才读取 `.get()`。
+- Async DB 审计数字同步：当前 `scripts/audit_async_sync_session.py` 实测为 total 56（`depends_get_session` 54、`next_get_session` 2），仅记录基线漂移，不迁移新的同步 Session owner。
+
+本轮未触碰：
+
+| 红线 owner | 状态 |
+| --- | --- |
+| Agent runtime ordinary chat/history/attachments/local-memory/dedupe/build-run-input | 不迁移 |
+| `stream_chat_reply` / Hermes `stream_run` / `_collect_stream_run` 主循环 | 不迁移 |
+| PDF parser queue、task state、MinerU submit/poll/fetch/cache、Flask response | 不修改 |
+| Document workbench refs/selection/scroll/resource open/CSS 运行时注入 | 不修改 |
+| `workflow.py`、`market_reports.py` 控制面实质抽取 | 不混入 |
+| 新 Async DB owner 迁移 | 不混入 |
+
+本轮验证：
+
+```bash
+cd apps/api && .venv/bin/python -m pytest tests/test_downloads.py -q
+# 9 passed, 2 warnings
+
+cd apps/pdf-parser && PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -p no:cacheprovider -q tests/test_pdf_parser_ensure_wrappers.py
+# 10 passed
+
+cd apps/pdf-parser && PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -p no:cacheprovider -q
+# 329 passed
+
+cd apps/web && npm run check:frontend
+# passed
+
+cd apps/api && .venv/bin/python scripts/audit_async_sync_session.py
+# total 56
+
+git diff --check
+# passed
+```
+
+下一步建议：
+
+- 先提交本轮维护切片；ignored `apps/web/dist/`、`apps/web/playwright-report/`、`apps/web/test-results/` 不进入索引。
+- 若继续推进，优先只做 Async DB 审计报告分桶或 CI advisory，不直接迁移 chat/workspace/document_parser DB owner。
+- 其余大 owner 继续按单独设计窗口处理，避免与 UI/测试维护尾项混批。
 
 ## 1. 当前架构事实
 
