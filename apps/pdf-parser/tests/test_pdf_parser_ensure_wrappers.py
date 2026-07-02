@@ -309,6 +309,79 @@ def test_ensure_content_list_enhanced_stale_standalone_bootstraps_document_full(
     ]
 
 
+def test_ensure_content_list_enhanced_non_dict_standalone_rebuilds_without_bootstrap(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(app, "RESULTS_FOLDER", str(tmp_path))
+    monkeypatch.setattr(app, "_now_iso", lambda: "2026-07-02T00:00:00Z")
+    task = {"task_id": "dirty-enhanced", "filename": "report.pdf"}
+    result_dir = tmp_path / task["task_id"]
+    content_list = [{"type": "text", "text": "hello"}]
+    _write_json(result_dir / "content_list_enhanced.json", ["dirty", "payload"])
+    _write_json(result_dir / "content_list.json", content_list)
+    events = []
+    table_relations = {"schema_version": "document_table_relations_v1", "relations": []}
+
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("non-dict enhanced payload must not bootstrap document_full")
+
+    def fake_build_content_list_enhanced(markdown, content_list=None, report_year=None):
+        events.append(("build", markdown, content_list, report_year))
+        return {
+            "schema_version": app.CONTENT_LIST_ENHANCED_SCHEMA_VERSION,
+            "tables": [],
+        }
+
+    def record_write_json(path, payload):
+        events.append(("write_json", Path(path).name, payload.copy()))
+        _write_json(Path(path), payload)
+
+    monkeypatch.setattr(app, "_build_content_list_enhanced", fake_build_content_list_enhanced)
+    monkeypatch.setattr(app, "_detect_report_year", lambda *_args, **_kwargs: 2026)
+    monkeypatch.setattr(app, "_write_json", record_write_json)
+    monkeypatch.setattr(app, "_load_corrections", lambda _task: {})
+    monkeypatch.setattr(
+        app,
+        "_write_complete_markdown_artifact",
+        lambda task_arg, markdown, enhanced, corrections=None: events.append(
+            ("complete_markdown", task_arg["task_id"], enhanced["schema_version"], corrections)
+        ),
+    )
+    monkeypatch.setattr(
+        app,
+        "_ensure_table_relations_artifact",
+        lambda task_arg, markdown, enhanced=None, content_list=None: events.append(
+            ("table_relations", task_arg["task_id"], enhanced["schema_version"], content_list)
+        )
+        or table_relations,
+    )
+    monkeypatch.setattr(app, "_ensure_financial_artifacts", fail_if_called)
+    monkeypatch.setattr(app, "_read_quality_report", fail_if_called)
+    monkeypatch.setattr(app, "_build_quality_report", fail_if_called)
+    monkeypatch.setattr(app, "_write_document_full_artifact", fail_if_called)
+
+    enhanced = app._ensure_content_list_enhanced_artifact(task, "markdown")
+
+    assert enhanced["schema_version"] == app.CONTENT_LIST_ENHANCED_SCHEMA_VERSION
+    assert enhanced["task_id"] == "dirty-enhanced"
+    assert enhanced["filename"] == "report.pdf"
+    assert enhanced["generated_at"] == "2026-07-02T00:00:00Z"
+    assert [event[0] for event in events] == [
+        "build",
+        "write_json",
+        "complete_markdown",
+        "table_relations",
+    ]
+    assert events[0] == ("build", "markdown", content_list, 2026)
+    assert events[-1] == (
+        "table_relations",
+        "dirty-enhanced",
+        app.CONTENT_LIST_ENHANCED_SCHEMA_VERSION,
+        content_list,
+    )
+    assert not (result_dir / "document_full.json").exists()
+
+
 def test_ensure_document_full_missing_file_builds_prerequisites_in_order(
     tmp_path, monkeypatch
 ):
@@ -392,6 +465,24 @@ def test_ensure_document_full_missing_file_builds_prerequisites_in_order(
     ]
 
 
+def test_write_document_full_artifact_short_circuits_missing_markdown_or_bad_enhanced(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(app, "RESULTS_FOLDER", str(tmp_path))
+    task = {"task_id": "short-circuit-doc-full", "filename": "report.pdf"}
+
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("invalid document_full prerequisites must not trigger downstream writes")
+
+    monkeypatch.setattr(app, "_ensure_table_relations_artifact", fail_if_called)
+    monkeypatch.setattr(app, "_build_document_full_json", fail_if_called)
+    monkeypatch.setattr(app, "_write_json", fail_if_called)
+
+    assert app._write_document_full_artifact(task, None, {"tables": []}, {"warnings": []}) is None
+    assert app._write_document_full_artifact(task, "markdown", ["not", "dict"], {"warnings": []}) is None
+    assert not (tmp_path / task["task_id"]).exists()
+
+
 def test_write_document_full_artifact_ensures_table_relations_when_missing(
     tmp_path, monkeypatch
 ):
@@ -455,3 +546,59 @@ def test_ensure_table_relations_artifact_reuses_current_ruleset(tmp_path, monkey
     returned = app._ensure_table_relations_artifact(task, "markdown")
 
     assert returned == current
+
+
+def test_ensure_quality_report_rebuilds_non_dict_cached_report(tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "RESULTS_FOLDER", str(tmp_path))
+    task = {"task_id": "dirty-quality", "filename": "report.pdf"}
+    content_list = [{"type": "text", "text": "hello"}]
+    rebuilt_report = {
+        "schema_version": app.QUALITY_SCHEMA_VERSION,
+        "rebuilt": True,
+    }
+    events = []
+
+    monkeypatch.setattr(
+        app,
+        "_ensure_financial_artifacts",
+        lambda task_arg, markdown: events.append(("financial", task_arg["task_id"], markdown))
+        or (
+            {"summary": {"statement_count": 0, "key_metric_count": 0}},
+            {"summary": {}, "overall_status": "ok"},
+        ),
+    )
+    monkeypatch.setattr(
+        app,
+        "_read_quality_report",
+        lambda task_arg: events.append(("read_quality", task_arg["task_id"]))
+        or ["dirty", "payload"],
+    )
+    monkeypatch.setattr(
+        app,
+        "_load_json_artifact",
+        lambda task_arg, filename: events.append(("load_json", task_arg["task_id"], filename))
+        or content_list,
+    )
+    monkeypatch.setattr(
+        app,
+        "_write_quality_artifacts",
+        lambda task_arg, markdown, **kwargs: events.append(
+            ("write_quality", task_arg["task_id"], markdown, kwargs)
+        )
+        or rebuilt_report,
+    )
+
+    report = app._ensure_quality_report(task, "markdown")
+
+    assert report == rebuilt_report
+    assert events == [
+        ("financial", "dirty-quality", "markdown"),
+        ("read_quality", "dirty-quality"),
+        ("load_json", "dirty-quality", "content_list.json"),
+        (
+            "write_quality",
+            "dirty-quality",
+            "markdown",
+            {"file_name": "report.pdf", "content_list": content_list},
+        ),
+    ]

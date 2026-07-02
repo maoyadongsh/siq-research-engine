@@ -3024,7 +3024,7 @@ def _read_quality_report(task):
 def _ensure_quality_report(task, markdown):
     financial_data, financial_checks = _ensure_financial_artifacts(task, markdown)
     report = _read_quality_report(task)
-    if report is not None and report.get("schema_version") == QUALITY_SCHEMA_VERSION:
+    if isinstance(report, dict) and report.get("schema_version") == QUALITY_SCHEMA_VERSION:
         original_fields = {
             "found_financial_tables": report.get("found_financial_tables"),
             "core_financial_table_candidates": report.get("core_financial_table_candidates"),
