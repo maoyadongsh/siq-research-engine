@@ -64,10 +64,10 @@ Web 工作台
 - 仓库索引治理有效：`git ls-files data` 只剩 `data/README.md`、`data/backend/.gitkeep`、`data/pdf-parser/.gitkeep`。
 - `R-003` 之前工作树非常脏：`git status --short | wc -l` 约 725 行，包含大量已从索引移出的 data 删除项、前端/后端重构改动、未跟踪新模块和生成目录；该风险已通过分组 review/提交收口。
 - `.gitignore` 已覆盖 `data/**`、`var/**`、`artifacts/**`、`**/.venv/`、`**/.pytest_cache/`、`**/__pycache__/`、`apps/web/dist/`、`apps/web/test-results/`、`apps/web/playwright-report/` 等运行态和生成目录；本地仍存在大量 ignored cache/runtime 目录，不应纳入提交。
-- 当前最大剩余大文件：`agent_chat_runtime_impl.py` 已降至约 6013 行、`pdf_parser_app_impl.py` 已降至约 3948 行、`apps/web/src/index.css` 已降至约 85 行，新增 `apps/web/src/styles/app-base.css` 约 162 行，`apps/web/src/styles/chat.css` 约 1121 行，`SearchDownload.tsx` 约 961 行但 download refresh/toast 派生已拆到 feature helper，`DocumentResultWorkbench.tsx` 已降至约 452 行；`PdfSourceWorkbench.tsx` 已降至约 708 行，新增的 `pdfSourceWorkbenchHelpers.ts` 约 742 行，后续可继续按 UI/数据派生边界拆分。
+- 当前最大剩余大文件：`agent_chat_runtime_impl.py` 约 6061 行、`pdf_parser_app_impl.py` 已降至约 3948 行、`apps/web/src/index.css` 已降至约 85 行，新增 `apps/web/src/styles/app-base.css` 约 162 行，`apps/web/src/styles/chat.css` 约 1121 行，`SearchDownload.tsx` 约 961 行但 download refresh/toast 派生已拆到 feature helper，`DocumentResultWorkbench.tsx` 已降至约 452 行；`PdfSourceWorkbench.tsx` 已降至约 708 行，新增的 `pdfSourceWorkbenchHelpers.ts` 约 742 行，后续可继续按 UI/数据派生边界拆分。
 - 前端 route registry 已单源化；API client 核心能力已收口到 `shared/api/client.ts`，业务组件/页面已迁到 `features/*/api.ts` 或 shared client；`lib/documentApi`、`lib/pdfApi`、`lib/secApi` 已降为 feature API 兼容 re-export，`lib/apiClient` 暂作为 shared client 兼容出口保留。
 - PDF parser 已完成入口 façade、request/runtime/page-marker/task-repository/artifact/source 第一阶段拆分；quality/financial/document_full/content_list_enhanced/MinerU 原始产物落盘已完成第一轮 service 下沉，`pdf_source_viewer.py` 的 source-view/page content payload helper 已有直接边界测试，且 report table 非数字页码防御已固化；`pdf_parser_app_impl.py` 仍保留任务状态、路由响应、queue claim 和 `_ensure_*` 编排。
-- Agent runtime 已完成入口 façade、loop guard、progress/tool label、tool output normalization、parse-only discovery、display normalization、citation/evidence 渲染 helper、PostgreSQL fallback row/parse/predicate helpers 与 local-memory 纯 helper 第一阶段拆分；`ACTIVE_RUNS`、active SSE replay/heartbeat 和 stop owner 已迁入 `agent_runtime_streaming.py`，普通 chat 与 streaming 的 history/attachments/memory/dedupe/build-run-input 顺序仍必须留在 `agent_chat_runtime_impl.py`。
+- Agent runtime 已完成入口 façade、loop guard、progress/tool label、tool output normalization、parse-only discovery、display normalization、citation/evidence 渲染 helper、PostgreSQL fallback row/parse/predicate helpers、local-memory 纯 helper，以及普通 chat / streaming 的请求 envelope 与 run preflight context 薄边界；`ACTIVE_RUNS`、active SSE replay/heartbeat 和 stop owner 已迁入 `agent_runtime_streaming.py`，sessions/history/memory/dedupe/build-run-input owner 仍必须留在 `agent_chat_runtime_impl.py`，后续继续拆分需单独设计窗口。
 
 本次验证基线：
 
@@ -538,6 +538,47 @@ git diff --check
 - PDF parser / Frontend CSS：继续保持备选窗口，不与 Agent runtime A4 同批。
 
 下一步建议：A3 护栏已在 `scripts/check_owner_migration.sh` 完整聚合中通过；若继续进入 A4，应把改动限制在“复用 preflight 合同 + 保持兼容入口与 monkeypatch 语义”范围内。
+
+### 0.13 2026-07-02 Agent runtime preflight 最小实现收口
+
+本轮按 A4 最小实现试点推进，但继续遵守 0.12 的风险边界：只把普通 chat 与 streaming 共享的请求准备和运行前上下文加载收成薄 helper，不迁 `stream_chat_reply` owner，不迁 sessions/history/memory/dedupe/build-run-input owner，不改 `services.agent_chat_runtime` facade / monkeypatch 语义，不移动 Hermes run 创建、ACTIVE_RUNS 状态或 `_collect_stream_run`。
+
+后台智能体并行复核后的关键取舍：
+
+- 将“请求 envelope”和“运行 preflight context”分开，避免把 dedupe/hash/display 文本误归为真正 run preflight。
+- `ChatRequestEnvelope` / `_prepare_chat_request_envelope` 只负责附件归一化、近期附件复用、dedupe hash 和用户展示文本。
+- `ChatRunPreflightContext` / `_load_chat_run_preflight_context` 只负责加载当前 user 保存前的 history 与 local memory，并暴露 `allow_initialize`；附件 metadata 的等待/刷新仍留在调用点，以保持 streaming PDF progress 事件顺序。
+- duplicate、catalog、general assistant 和 existing active run join 的短路语义不进入 `ChatRunPreflightContext`；active run join 仍沿用既有顺序，在请求 envelope 后直接复用 active event stream。
+
+本轮完成：
+
+- `agent_chat_runtime_impl.py` 新增 `ChatRequestEnvelope`、`ChatRunPreflightContext`、`_prepare_chat_request_envelope`、`_load_chat_run_preflight_context`，并让 blocking / streaming 共用同一请求准备与 history/memory preflight 合同。
+- blocking 路径保持 `wait_for_pdf_attachment_parses` 与 `_attachments_with_fresh_metadata` 在 save user 前执行；streaming 路径保持先发 PDF progress，再等待/刷新 metadata，再 save user。
+- `build_hermes_run_input(... allow_initialize=...)` 统一读取 `preflight_context.allow_initialize`，`create_run` 仍接收当前 user 保存前的 `preflight_context.history`。
+- `test_agent_runtime_chat_preflight.py` 从 5 个哨兵扩展到 7 个：新增 envelope patch-point 测试、run preflight context patch-point 测试，并补 duplicate / active join 不进入 run preflight context 的红线。
+
+本轮验证：
+
+```bash
+cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_chat_preflight.py -q  # 7 passed
+cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_active_runs.py tests/test_agent_chat_runtime_loops.py tests/test_agent_runtime_chat_preflight.py -q  # 91 passed
+cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_*.py -q  # 225 passed
+cd apps/api && .venv/bin/python -m py_compile services/agent_chat_runtime_impl.py services/agent_runtime_sessions.py services/agent_runtime_streaming.py tests/test_agent_runtime_chat_preflight.py
+git diff --check
+scripts/check_owner_migration.sh  # API 91/225, PDF source/artifact 52, PDF full 302, Web unit 44, frontend check passed
+```
+
+当前剩余工作量重估：
+
+| 优先级 | 任务 | 范围 | 工作量 | 风险控制 / 门禁 |
+| --- | --- | --- | --- | --- |
+| P0 | 停止当前 Agent runtime owner 迁移线 | A4 已完成为薄 helper 边界；后续不继续拆普通 chat / streaming 主流程 | 0 天 | 保持 `scripts/check_owner_migration.sh` 绿；仅记录回归 |
+| P1 | Agent runtime 下一设计窗口 | 如确需继续，先单独设计 `stream_chat_reply` 编排边界或 sessions/history/memory owner；不得与 PDF/Web 同批 | S-M，约 0.5-1 天设计，不含实现 | 先出行为矩阵、短路矩阵、回滚矩阵；新增护栏测试后再实现 |
+| P2 | Agent runtime 后续实现试点 | 只有 P1 通过后选择 1 个 owner；候选为 streaming 编排再薄化或 history/memory owner 抽取 | M，约 0.5-1 天 / owner | API focused suite、runtime 通配测试、`py_compile`、聚合门禁全部通过 |
+| P2 | PDF parser 维护尾项 | 只补 `_ensure_*` 前置测试或 source/artifact payload 负路径；不碰 MinerU lifecycle / response owner | S，约 0-0.25 天，按回归触发 | `apps/pdf-parser` 聚焦 + full suite |
+| P2 | Frontend 维护尾项 | 只做响应式 smoke、selector 清单或小行为回归；不迁 refs/scroll/CSS runtime owner | S，约 0-0.25 天，按回归触发 | `npm run test:unit` + `npm run check:frontend` |
+
+下一步建议：当前 A4 已满足“复用 preflight 合同 + 保持兼容入口与 monkeypatch 语义”的目标，默认应停止本条 owner 迁移线并提交清理。若继续开发，应先开 P1 设计窗口，不直接在 `agent_chat_runtime_impl.py` 上继续抽主流程。
 
 ## 1. 当前架构事实
 

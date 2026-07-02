@@ -963,6 +963,24 @@ class RecentRunRecord:
     created_at: datetime = field(default_factory=datetime.utcnow)
 
 
+@dataclass
+class ChatRequestEnvelope:
+    all_attachments: list[dict[str, Any]]
+    message_hash: str
+    user_display_message: str
+
+
+@dataclass(frozen=True)
+class ChatRunPreflightContext:
+    history: list[dict[str, Any]]
+    local_memory_context: str | None
+    attachments: list[dict[str, Any]]
+
+    @property
+    def allow_initialize(self) -> bool:
+        return not self.history
+
+
 SESSION_DEFAULT_CONTEXTS: dict[tuple[HermesProfile, str], str] = {}
 RECENT_COMPLETED_RUNS: dict[tuple[HermesProfile, str], RecentRunRecord] = {}
 
@@ -5337,6 +5355,47 @@ def stream_idle_timeout(profile: HermesProfile) -> int:
     return SPECIALIST_STREAM_IDLE_TIMEOUT_SECONDS
 
 
+async def _prepare_chat_request_envelope(
+    message: str,
+    async_session: AsyncSession,
+    *,
+    session_id: str,
+    context: Any | None = None,
+    display_message: str | None = None,
+    attachments: Any | None = None,
+) -> ChatRequestEnvelope:
+    all_attachments = _attachment_dicts(attachments)
+    if not all_attachments and _should_reuse_recent_attachments(message):
+        all_attachments = await load_recent_session_attachments(async_session, session_id)
+    message_hash = _dedupe_hash_with_attachments(message, context, all_attachments)
+    user_display_message = _display_message_with_attachments(
+        (display_message or message).strip() or message,
+        all_attachments,
+    )
+    return ChatRequestEnvelope(
+        all_attachments=all_attachments,
+        message_hash=message_hash,
+        user_display_message=user_display_message,
+    )
+
+
+async def _load_chat_run_preflight_context(
+    async_session: AsyncSession,
+    *,
+    session_id: str,
+    profile: HermesProfile,
+    attachments: list[dict[str, Any]],
+    history_limit: int,
+) -> ChatRunPreflightContext:
+    history = await load_history(async_session, session_id, limit=history_limit)
+    local_memory_context = await ensure_local_memory_context(async_session, profile, session_id)
+    return ChatRunPreflightContext(
+        history=history,
+        local_memory_context=local_memory_context,
+        attachments=attachments,
+    )
+
+
 async def _collect_chat_reply_impl(
     message: str,
     async_session: AsyncSession,
@@ -5348,14 +5407,17 @@ async def _collect_chat_reply_impl(
     attachments: Any | None = None,
     history_limit: int = HISTORY_LIMIT,
 ) -> str:
-    all_attachments = _attachment_dicts(attachments)
-    if not all_attachments and _should_reuse_recent_attachments(message):
-        all_attachments = await load_recent_session_attachments(async_session, session_id)
-    message_hash = _dedupe_hash_with_attachments(message, context, all_attachments)
-    user_display_message = _display_message_with_attachments(
-        (display_message or message).strip() or message,
-        all_attachments,
+    envelope = await _prepare_chat_request_envelope(
+        message,
+        async_session,
+        session_id=session_id,
+        context=context,
+        display_message=display_message,
+        attachments=attachments,
     )
+    all_attachments = envelope.all_attachments
+    message_hash = envelope.message_hash
+    user_display_message = envelope.user_display_message
     catalog_reply = build_wiki_catalog_reply(message)
     if catalog_reply or _is_general_assistant_request(message):
         _forget_recent_completed_run(profile, session_id, message_hash)
@@ -5377,10 +5439,15 @@ async def _collect_chat_reply_impl(
         if completed_artifacts:
             completed_guard_input = _analysis_completion_guard_input(message, completed_artifacts)
 
-    history = await load_history(async_session, session_id, limit=history_limit)
-    local_memory_context = await ensure_local_memory_context(async_session, profile, session_id)
-    await wait_for_pdf_attachment_parses(all_attachments)
-    all_attachments = _attachments_with_fresh_metadata(all_attachments)
+    preflight_context = await _load_chat_run_preflight_context(
+        async_session,
+        session_id=session_id,
+        profile=profile,
+        attachments=all_attachments,
+        history_limit=history_limit,
+    )
+    await wait_for_pdf_attachment_parses(preflight_context.attachments)
+    all_attachments = _attachments_with_fresh_metadata(preflight_context.attachments)
     await save_message(async_session, "user", user_display_message, session_id, attachments=all_attachments)
     image_analysis_context, image_model_succeeded = await analyze_images_with_primary_model(
         completed_guard_input or message,
@@ -5393,13 +5460,13 @@ async def _collect_chat_reply_impl(
             profile=profile,
             session_id=session_id,
             context=context,
-            allow_initialize=not history,
+            allow_initialize=preflight_context.allow_initialize,
             attachments=all_attachments,
-            local_memory_context=local_memory_context,
+            local_memory_context=preflight_context.local_memory_context,
             image_analysis_context=image_analysis_context,
             use_hermes_image_fallback=not image_model_succeeded,
         ),
-        history,
+        preflight_context.history,
         profile=profile,
         session_id=hermes_runs_session_id(profile, session_id),
     )
@@ -5829,14 +5896,17 @@ async def _stream_chat_reply_impl(
     history_limit: int = HISTORY_LIMIT,
     done_payload_factory: Callable[[str], Awaitable[dict]] | None = None,
 ) -> AsyncGenerator[dict, None]:
-    all_attachments = _attachment_dicts(attachments)
-    if not all_attachments and _should_reuse_recent_attachments(message):
-        all_attachments = await load_recent_session_attachments(async_session, session_id)
-    message_hash = _dedupe_hash_with_attachments(message, context, all_attachments)
-    user_display_message = _display_message_with_attachments(
-        (display_message or message).strip() or message,
-        all_attachments,
+    envelope = await _prepare_chat_request_envelope(
+        message,
+        async_session,
+        session_id=session_id,
+        context=context,
+        display_message=display_message,
+        attachments=attachments,
     )
+    all_attachments = envelope.all_attachments
+    message_hash = envelope.message_hash
+    user_display_message = envelope.user_display_message
 
     if has_active_run(profile, session_id):
         async for event in stream_active_run_events(
@@ -5886,8 +5956,14 @@ async def _stream_chat_reply_impl(
             completed_guard_active = True
             completed_guard_input = _analysis_completion_guard_input(message, completed_artifacts)
 
-    history = await load_history(async_session, session_id, limit=history_limit)
-    local_memory_context = await ensure_local_memory_context(async_session, profile, session_id)
+    preflight_context = await _load_chat_run_preflight_context(
+        async_session,
+        session_id=session_id,
+        profile=profile,
+        attachments=all_attachments,
+        history_limit=history_limit,
+    )
+    all_attachments = preflight_context.attachments
     if _pdf_attachment_parse_dirs(all_attachments):
         yield {
             "event": "progress",
@@ -5915,13 +5991,13 @@ async def _stream_chat_reply_impl(
             profile=profile,
             session_id=session_id,
             context=context,
-            allow_initialize=not history,
+            allow_initialize=preflight_context.allow_initialize,
             attachments=all_attachments,
-            local_memory_context=local_memory_context,
+            local_memory_context=preflight_context.local_memory_context,
             image_analysis_context=image_analysis_context,
             use_hermes_image_fallback=not image_model_succeeded,
         ),
-        history,
+        preflight_context.history,
         profile=profile,
         session_id=hermes_runs_session_id(profile, session_id),
     )

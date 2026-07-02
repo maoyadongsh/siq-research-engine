@@ -14,6 +14,112 @@ def _event_payload(event: dict[str, str]) -> dict:
     return json.loads(event["data"])
 
 
+def test_prepare_chat_request_envelope_uses_runtime_patch_points(monkeypatch):
+    async def run_case():
+        calls: list[str] = []
+        recent_attachments = [
+            {
+                "path": "/tmp/reused.png",
+                "kind": "image",
+                "content_type": "image/png",
+            }
+        ]
+
+        def fake_should_reuse_recent_attachments(message):
+            calls.append("should_reuse_recent_attachments")
+            assert message == "继续分析这张图片"
+            return True
+
+        async def fake_load_recent_session_attachments(_async_session, session_id):
+            calls.append("load_recent_session_attachments")
+            assert session_id == "preflight-helper-session"
+            return recent_attachments
+
+        def fake_dedupe_hash_with_attachments(message, context, attachments):
+            calls.append("dedupe_hash_with_attachments")
+            assert message == "继续分析这张图片"
+            assert context == {"scope": "image"}
+            assert attachments == recent_attachments
+            return "hash-from-patch"
+
+        def fake_display_message_with_attachments(message, attachments):
+            calls.append("display_message_with_attachments")
+            assert message == "前端展示文本"
+            assert attachments == recent_attachments
+            return "display-from-patch"
+
+        monkeypatch.setattr(runtime, "_should_reuse_recent_attachments", fake_should_reuse_recent_attachments)
+        monkeypatch.setattr(runtime, "load_recent_session_attachments", fake_load_recent_session_attachments)
+        monkeypatch.setattr(runtime, "_dedupe_hash_with_attachments", fake_dedupe_hash_with_attachments)
+        monkeypatch.setattr(runtime, "_display_message_with_attachments", fake_display_message_with_attachments)
+
+        return await runtime._prepare_chat_request_envelope(
+            "继续分析这张图片",
+            object(),
+            session_id="preflight-helper-session",
+            context={"scope": "image"},
+            display_message="前端展示文本",
+            attachments=None,
+        ), calls
+
+    envelope, calls = anyio.run(run_case)
+
+    assert calls == [
+        "should_reuse_recent_attachments",
+        "load_recent_session_attachments",
+        "dedupe_hash_with_attachments",
+        "display_message_with_attachments",
+    ]
+    assert envelope.all_attachments == [
+        {
+            "path": "/tmp/reused.png",
+            "kind": "image",
+            "content_type": "image/png",
+        }
+    ]
+    assert envelope.message_hash == "hash-from-patch"
+    assert envelope.user_display_message == "display-from-patch"
+
+
+def test_load_chat_run_preflight_context_uses_runtime_patch_points(monkeypatch):
+    async def run_case():
+        calls: list[str] = []
+        attachments = [{"path": "/tmp/report.pdf", "kind": "document"}]
+        history = [{"role": "assistant", "content": "older reply"}]
+
+        async def fake_load_history(_async_session, current_session_id, *, limit):
+            calls.append("load_history")
+            assert current_session_id == "preflight-context-session"
+            assert limit == 3
+            return history
+
+        async def fake_ensure_local_memory_context(_async_session, profile, current_session_id):
+            calls.append("ensure_local_memory_context")
+            assert profile == "siq_assistant"
+            assert current_session_id == "preflight-context-session"
+            return "<local-memory>older turns only</local-memory>"
+
+        monkeypatch.setattr(runtime, "load_history", fake_load_history)
+        monkeypatch.setattr(runtime, "ensure_local_memory_context", fake_ensure_local_memory_context)
+
+        return await runtime._load_chat_run_preflight_context(
+            object(),
+            session_id="preflight-context-session",
+            profile="siq_assistant",
+            attachments=attachments,
+            history_limit=3,
+        ), calls, history, attachments
+
+    preflight_context, calls, history, attachments = anyio.run(run_case)
+
+    assert calls == ["load_history", "ensure_local_memory_context"]
+    assert preflight_context.history is history
+    assert preflight_context.local_memory_context == "<local-memory>older turns only</local-memory>"
+    assert preflight_context.attachments is attachments
+    assert preflight_context.allow_initialize is False
+    assert runtime.ChatRunPreflightContext(history=[], local_memory_context=None, attachments=[]).allow_initialize is True
+
+
 def test_collect_chat_reply_preflight_loads_context_before_saving_current_user(monkeypatch):
     async def run_case():
         session_id = "preflight-blocking-session"
@@ -334,6 +440,7 @@ def test_stream_chat_reply_duplicate_short_circuits_before_preflight(monkeypatch
         monkeypatch.setattr(runtime, "analyze_images_with_primary_model", forbidden)
         monkeypatch.setattr(runtime, "create_run", forbidden)
         monkeypatch.setattr(runtime, "_collect_stream_run", forbidden)
+        monkeypatch.setattr(runtime, "_load_chat_run_preflight_context", forbidden)
         monkeypatch.setattr(runtime, "build_wiki_catalog_reply", lambda _message: None)
         monkeypatch.setattr(runtime, "_is_general_assistant_request", lambda _message: False)
 
@@ -384,6 +491,7 @@ def test_collect_chat_reply_duplicate_short_circuits_before_preflight(monkeypatc
         monkeypatch.setattr(runtime, "analyze_images_with_primary_model", forbidden)
         monkeypatch.setattr(runtime, "create_run", forbidden)
         monkeypatch.setattr(runtime, "collect_run_result", forbidden)
+        monkeypatch.setattr(runtime, "_load_chat_run_preflight_context", forbidden)
         monkeypatch.setattr(runtime, "build_wiki_catalog_reply", lambda _message: None)
         monkeypatch.setattr(runtime, "_is_general_assistant_request", lambda _message: False)
 
@@ -437,6 +545,7 @@ def test_stream_chat_reply_existing_active_run_join_skips_preflight_side_effects
         monkeypatch.setattr(runtime, "refresh_session_memory", forbidden)
         monkeypatch.setattr(runtime, "create_run", forbidden)
         monkeypatch.setattr(runtime, "_collect_stream_run", forbidden)
+        monkeypatch.setattr(runtime, "_load_chat_run_preflight_context", forbidden)
 
         try:
             await runtime._append_state_event(state, "run", {"run_id": state.run_id, "session_id": state.session_id})
