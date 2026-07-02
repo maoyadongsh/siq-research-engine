@@ -1469,6 +1469,54 @@ git diff --check
 - 若继续推进，优先只做 Async DB 审计报告分桶或 CI advisory，不直接迁移 chat/workspace/document_parser DB owner。
 - 其余大 owner 继续按单独设计窗口处理，避免与 UI/测试维护尾项混批。
 
+### 0.33 2026-07-02 Async 审计 advisory 与 Playwright 端口策略
+
+本轮继续按“工程化小切片 + 不迁 owner”推进。后台智能体并行复核后确认：Async DB 现阶段只适合做报告分桶和 advisory 能力，不进入 chat/workspace/document_parser 的同步 Session owner 迁移；Playwright 端口策略可独立收口；前端搜索下载响应式修补可作为维护尾项验证后单独提交。
+
+完成项：
+
+- Async DB audit advisory：`apps/api/scripts/audit_async_sync_session.py` 新增 `--summary`、`--markdown` 和 advisory migration priority 分桶；默认仍退出 0，不接入 `scripts/check_all.sh` 或 `scripts/check_owner_migration.sh` 阻断门禁。
+- Async DB audit 测试加固：`tests/test_async_sync_session_audit.py` 继续锁定 allowlist 防扩散，并新增 total 56、by_kind、by_path、advisory bucket 顺序/计数、临时 nested async AST fixture 和 `--json --summary` 输出测试。
+- Playwright 端口策略：`apps/web/playwright.config.ts` 支持 `PLAYWRIGHT_BASE_URL` 与 `SIQ_FRONTEND_PORT`，默认仍为 15174；`use.baseURL`、`webServer.url` 与 dev server 端口由同一 URL 派生，`PLAYWRIGHT_BASE_URL` 未显式端口时会补齐配置端口；`apps/web/e2e/README.md` 已补端口说明。
+- 搜索下载响应式维护：`SearchDownload.tsx`、`DownloadedReportsPanel.tsx` 与 `search-download.css` 收紧市场选择栅格、hero 操作区、查询表单和已下载文件搜索栏的 `min-width: 0` / grid 约束，避免 1024-1439 与移动视口横向撑开。
+
+本轮验证：
+
+```bash
+cd apps/api && .venv/bin/python -m pytest tests/test_async_sync_session_audit.py -q
+# 4 passed
+
+cd apps/api && .venv/bin/python scripts/audit_async_sync_session.py --summary
+# total 56, advisory buckets emitted
+
+cd apps/api && .venv/bin/python scripts/audit_async_sync_session.py --json --summary
+# valid JSON, findings omitted by request
+
+cd apps/api && .venv/bin/python scripts/audit_async_sync_session.py --markdown --summary
+# valid Markdown summary
+
+cd apps/web && npx eslint playwright.config.ts
+# passed
+
+cd apps/web && npx playwright test --list
+# 25 tests in 5 files
+
+cd apps/web && npm run check:frontend
+# passed
+
+cd apps/web && npm run e2e -- e2e/tests/search-download-responsive.spec.ts --project=chromium
+# 3 passed
+
+git diff --check
+# passed
+```
+
+下一步建议：
+
+- 若继续工程化，Async DB audit 可新增非阻断脚本入口或生成报告产物，但仍不要接入硬 CI，也不要迁移 DB owner。
+- Playwright 后续只在真实需要时跑单文件 smoke；不扩大聊天或搜索下载 E2E 矩阵。
+- 大 owner 仍需单独设计窗口：Agent runtime history/save/message、PDF queue/MinerU/Flask response、Document workbench refs/scroll、workflow/market_reports 控制面瘦身均不与维护尾项混批。
+
 ## 1. 当前架构事实
 
 ### 1.1 当前主要目录职责
