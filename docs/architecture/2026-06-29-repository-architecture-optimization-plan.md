@@ -1018,6 +1018,56 @@ cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_memory.py -q 
 
 下一步建议：优先迁 `normalize_history + load_history` 到独立 history store，并在 `agent_chat_runtime_impl.py` 保留兼容入口；不要同时迁 `save_message`、memory record owner 或 streaming lifecycle。
 
+### 0.23 2026-07-02 history read owner 迁移
+
+本轮按 0.22 的建议执行第一段 DB owner 迁移：新增 `services/agent_runtime_history.py`，把 `normalize_history` 的主体算法和 `load_history` 的只读 DB 查询迁到独立 history store；`agent_chat_runtime_impl.py` 继续保留同名薄 wrapper，并把 attachment、loop、evidence 相关 helper 以依赖注入传入新模块，确保现有 monkeypatch 点和 preflight 顺序护栏不变。
+
+完成项：
+
+- 新增 `agent_runtime_history.normalize_history()`：承接 role 过滤、可见 payload 过滤、assistant loop 污染过滤、连续同 role 折叠、leading assistant 裁剪、limit 截断。
+- 新增 `agent_runtime_history.load_history()`：只负责读取当前 `session_id` 的 `ChatMessage`，按 id 还原顺序，再调用传入的 normalize 回调。
+- 保留 `agent_chat_runtime_impl.normalize_history()` / `load_history()` 兼容入口：外部测试、monkeypatch、preflight 编排仍命中 runtime wrapper。
+- 新增 `test_load_history_applies_normalize_history_contract_to_real_db_rows`：用真实 SQLite 验证 current session 过滤、顺序恢复、空/非法 role 过滤、leading assistant 裁剪、连续同 role 折叠、attachment-only user 注入历史附件上下文、loop-polluted assistant 过滤、以及 normalized history 上的 limit。
+
+行为与风险边界：
+
+| 路径 | 本轮保持 / 改进 |
+| --- | --- |
+| `load_history` patch point | 仍保留在 `agent_chat_runtime_impl.py`，preflight 测试可继续 monkeypatch |
+| attachment owner | `_message_attachments`、`chat_message_has_visible_payload`、`_attachment_reference_context` 不迁出，只作为依赖注入 |
+| loop/evidence owner | `_is_loop_polluted_assistant_message`、`_sanitize_assistant_history_reply`、`normalize_evidence_trace_for_display` 不迁出 |
+| DB 写入 owner | `save_message` 未迁移，不触碰 attachment metadata 二次刷新和 schema column 兜底 |
+| streaming/memory owner | `_collect_stream_run`、`ACTIVE_RUNS`、`refresh_session_memory` 本轮不动 |
+
+回滚边界：
+
+| 失败信号 | 回滚范围 |
+| --- | --- |
+| normalization 合同失败 | 回滚 `agent_runtime_history.py` 与 runtime wrapper 接线 |
+| preflight monkeypatch 失效 | 保留 wrapper，回滚 `_load_chat_run_preflight_context` 任何直接调用新模块的改动 |
+| attachment/loop/evidence 语义漂移 | 回滚依赖注入接线，不迁相关 helper |
+
+本轮验证：
+
+```bash
+cd apps/api && .venv/bin/python -m py_compile services/agent_runtime_history.py services/agent_chat_runtime_impl.py services/agent_runtime_memory.py services/agent_runtime_attachments.py services/agent_runtime_streaming.py tests/test_agent_runtime_history.py tests/test_agent_runtime_chat_preflight.py tests/test_agent_chat_runtime_attachments.py tests/test_agent_chat_runtime_loops.py tests/test_agent_runtime_memory.py  # passed
+git diff --check  # passed
+cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_history.py tests/test_agent_runtime_chat_preflight.py tests/test_agent_chat_runtime_attachments.py tests/test_agent_chat_runtime_loops.py tests/test_agent_runtime_memory.py -q  # 98 passed
+cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_*.py -q  # 236 passed
+scripts/check_owner_migration.sh  # passed: API active/loop/preflight, runtime focused, compile, PDF parser, web node unit, frontend lint/build, whitespace/status review
+```
+
+后续工作量重估：
+
+| 优先级 | 任务 | 范围 | 工作量 | 门禁 |
+| --- | --- | --- | --- | --- |
+| P0 | history read owner 迁移 | 本轮已完成；后续只接受回归修正 | 0 天 | history + preflight + attachment + loops |
+| P1 | memory record owner 迁移设计 | 若继续迁 `_load_session_memory_record/refresh/load/ensure`，先拆 memory store，保持 stale clear 护栏 | M，约 0.5-1 天 | memory 全套 + owner 总门禁 |
+| P1 | `chat_history_response` display owner 评审 | 可后置迁响应展示形状；不得混入 prompt history 或 save owner | S-M，约 0.5 天 | router/history response 相关测试 |
+| P2 | `save_message` owner 迁移 | 继续后置，需单独处理 attachments/evidence/schema column 风险 | M，约 0.5-1 天 | attachment + preflight + chat history response |
+
+下一步建议：先不要迁 `save_message`；如果继续推进后端 owner 拆分，优先做 memory record owner 的独立设计和失败态测试，或单独评审 `chat_history_response` display owner。
+
 ## 1. 当前架构事实
 
 ### 1.1 当前主要目录职责

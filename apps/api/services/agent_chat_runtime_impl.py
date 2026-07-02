@@ -56,6 +56,7 @@ from services import agent_runtime_catalog
 from services import agent_runtime_parse_only
 from services import agent_runtime_display
 from services import agent_runtime_memory
+from services import agent_runtime_history
 from services import agent_runtime_context
 from services import agent_runtime_financial_guard
 from services import agent_runtime_financial_format
@@ -2080,30 +2081,16 @@ async def stream_active_run_events(
 
 
 def normalize_history(messages: list[ChatMessage], limit: int = HISTORY_LIMIT) -> list[dict]:
-    normalized: list[dict] = []
-    for message in messages:
-        if message.role not in {"user", "assistant"}:
-            continue
-        if not chat_message_has_visible_payload(message):
-            continue
-        content = message.content
-        if message.role == "assistant":
-            if _is_loop_polluted_assistant_message(content):
-                continue
-            content = normalize_evidence_trace_for_display(_sanitize_assistant_history_reply(content))
-        elif message.role == "user":
-            attachment_context = _attachment_reference_context(_message_attachments(message))
-            if attachment_context:
-                content = f"{content}\n\n{attachment_context}" if content else attachment_context
-        item = {"role": message.role, "content": content}
-        if normalized and normalized[-1]["role"] == message.role:
-            normalized[-1] = item
-        else:
-            normalized.append(item)
-
-    while normalized and normalized[0]["role"] != "user":
-        normalized.pop(0)
-    return normalized[-limit:]
+    return agent_runtime_history.normalize_history(
+        messages,
+        limit=limit,
+        chat_message_has_visible_payload=chat_message_has_visible_payload,
+        message_attachments=_message_attachments,
+        attachment_reference_context=_attachment_reference_context,
+        is_loop_polluted_assistant_message=_is_loop_polluted_assistant_message,
+        normalize_evidence_trace_for_display=normalize_evidence_trace_for_display,
+        sanitize_assistant_history_reply=_sanitize_assistant_history_reply,
+    )
 
 
 async def load_history(
@@ -2112,13 +2099,12 @@ async def load_history(
     *,
     limit: int = HISTORY_LIMIT,
 ) -> list[dict]:
-    result = await async_session.exec(
-        select(ChatMessage)
-        .where(ChatMessage.session_id == session_id)
-        .order_by(ChatMessage.id.desc())
-        .limit(limit * 3)
+    return await agent_runtime_history.load_history(
+        async_session,
+        session_id,
+        limit=limit,
+        normalize_messages=lambda messages: normalize_history(messages, limit=limit),
     )
-    return normalize_history(list(reversed(result.all())), limit=limit)
 
 
 async def load_recent_session_attachments(
