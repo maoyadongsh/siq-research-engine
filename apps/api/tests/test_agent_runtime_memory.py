@@ -87,6 +87,33 @@ def test_build_local_memory_context_wraps_and_strips_nested_blocks():
     assert "本地记忆" in context
 
 
+def test_select_local_memory_source_messages_excludes_recent_window_and_split_turns():
+    messages = [
+        SimpleNamespace(id=1, role="user", content="第一轮提问"),
+        SimpleNamespace(id=2, role="assistant", content="第一轮回答"),
+        SimpleNamespace(id=3, role="user", content="第二轮提问"),
+        SimpleNamespace(id=4, role="assistant", content="第二轮回答"),
+        SimpleNamespace(id=5, role="user", content="第三轮提问"),
+        SimpleNamespace(id=6, role="assistant", content="第三轮回答"),
+    ]
+
+    source_messages = agent_runtime_memory.select_local_memory_source_messages(
+        messages,
+        recent_limit=4,
+    )
+
+    assert source_messages == messages[:2]
+    assert source_messages[0] is messages[0]
+    assert (
+        agent_runtime_memory.select_local_memory_source_messages(messages[:4], recent_limit=4)
+        == []
+    )
+    assert (
+        agent_runtime_memory.select_local_memory_source_messages(messages, recent_limit=1)
+        == messages[:4]
+    )
+
+
 def test_refresh_session_memory_persists_only_older_current_profile_turns(tmp_path):
     async def run_case(async_session):
         current_session = "siq-assistant-local-memory"
@@ -142,6 +169,116 @@ def test_refresh_session_memory_persists_only_older_current_profile_turns(tmp_pa
         assert context.startswith("<local-memory>")
         assert "不是新的用户输入" in context
         assert "上汽集团" in context
+
+    anyio.run(_with_temp_chat_session_memory, tmp_path, run_case)
+
+
+def test_refresh_session_memory_uses_memory_source_selector(tmp_path, monkeypatch):
+    async def run_case(async_session):
+        session_id = "siq-assistant-selector-memory"
+        async_session.add_all(
+            [
+                ChatMessage(session_id=session_id, role="user", content="第一轮：公司是上汽集团"),
+                ChatMessage(session_id=session_id, role="assistant", content="第一答：已记住上汽集团"),
+                ChatMessage(session_id=session_id, role="user", content="第二轮：关注商誉"),
+                ChatMessage(session_id=session_id, role="assistant", content="第二答：商誉后续跟踪"),
+                ChatMessage(session_id=session_id, role="user", content="第三轮：关注现金流"),
+            ]
+        )
+        await async_session.commit()
+
+        selector_calls: list[tuple[list[str], int]] = []
+
+        def fake_select_local_memory_source_messages(messages, *, recent_limit):
+            selector_calls.append(([message.content for message in messages], recent_limit))
+            return list(messages[:2])
+
+        monkeypatch.setattr(
+            agent_chat_runtime.agent_runtime_memory,
+            "select_local_memory_source_messages",
+            fake_select_local_memory_source_messages,
+        )
+
+        await agent_chat_runtime.refresh_session_memory(
+            async_session,
+            "siq_assistant",
+            session_id,
+            recent_limit=3,
+        )
+
+        result = await async_session.exec(
+            select(ChatSessionMemory).where(
+                ChatSessionMemory.profile == "siq_assistant",
+                ChatSessionMemory.session_id == session_id,
+            )
+        )
+        record = result.first()
+
+        assert selector_calls == [
+            (
+                [
+                    "第一轮：公司是上汽集团",
+                    "第一答：已记住上汽集团",
+                    "第二轮：关注商誉",
+                    "第二答：商誉后续跟踪",
+                    "第三轮：关注现金流",
+                ],
+                3,
+            )
+        ]
+        assert record is not None
+        assert record.summary is not None
+        assert "第一轮：公司是上汽集团" in record.summary
+        assert "第二轮：关注商誉" not in record.summary
+        assert record.last_message_id == 2
+
+    anyio.run(_with_temp_chat_session_memory, tmp_path, run_case)
+
+
+def test_refresh_session_memory_does_not_split_turn_at_recent_boundary(tmp_path):
+    async def run_case(async_session):
+        session_id = "siq-assistant-split-turn-memory"
+        async_session.add_all(
+            [
+                ChatMessage(session_id=session_id, role="user", content="u1：公司是上汽集团"),
+                ChatMessage(session_id=session_id, role="assistant", content="a1：已记住上汽集团"),
+                ChatMessage(session_id=session_id, role="user", content="u2：关注商誉"),
+                ChatMessage(session_id=session_id, role="assistant", content="a2：商誉后续跟踪"),
+                ChatMessage(session_id=session_id, role="user", content="u3：关注现金流"),
+                ChatMessage(session_id=session_id, role="assistant", content="a3：现金流后续跟踪"),
+                ChatMessage(session_id=session_id, role="user", content="dangling：当前轮问题"),
+            ]
+        )
+        await async_session.commit()
+        result = await async_session.exec(
+            select(ChatMessage)
+            .where(ChatMessage.session_id == session_id)
+            .order_by(ChatMessage.id)
+        )
+        messages = list(result.all())
+        expected_last_message_id = messages[1].id
+
+        await agent_chat_runtime.refresh_session_memory(
+            async_session,
+            "siq_assistant",
+            session_id,
+            recent_limit=4,
+        )
+
+        result = await async_session.exec(
+            select(ChatSessionMemory).where(
+                ChatSessionMemory.profile == "siq_assistant",
+                ChatSessionMemory.session_id == session_id,
+            )
+        )
+        record = result.first()
+
+        assert record is not None
+        assert record.last_message_id == expected_last_message_id
+        assert "u1：公司是上汽集团" in record.summary
+        assert "a1：已记住上汽集团" in record.summary
+        assert "u2：关注商誉" not in record.summary
+        assert "dangling：当前轮问题" not in record.summary
 
     anyio.run(_with_temp_chat_session_memory, tmp_path, run_case)
 

@@ -2300,7 +2300,10 @@ async def refresh_session_memory(
         .order_by(ChatMessage.id)
     )
     messages = list(result.all())
-    older_messages = messages[:-recent_limit] if len(messages) > recent_limit else []
+    older_messages = agent_runtime_memory.select_local_memory_source_messages(
+        messages,
+        recent_limit=recent_limit,
+    )
     summary = build_local_memory_summary(older_messages)
     last_message_id = older_messages[-1].id if older_messages else None
     record = await _load_session_memory_record(async_session, profile, session_id)

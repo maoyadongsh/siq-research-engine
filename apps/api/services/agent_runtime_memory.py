@@ -52,6 +52,19 @@ def _local_memory_turn_line(user_text: str, assistant_text: str | None) -> str:
     return f"- 用户曾问：{user_text}"
 
 
+def select_local_memory_source_messages(
+    messages: Sequence[MemoryMessage],
+    *,
+    recent_limit: int,
+) -> list[MemoryMessage]:
+    if recent_limit <= 0 or len(messages) <= recent_limit:
+        return []
+    source_messages = list(messages[:-recent_limit])
+    while source_messages and source_messages[-1].role == "user":
+        source_messages.pop()
+    return source_messages
+
+
 def build_local_memory_summary(
     messages: Sequence[MemoryMessage],
     *,
@@ -123,4 +136,5 @@ __all__ = [
     "_strip_local_memory_blocks",
     "build_local_memory_context",
     "build_local_memory_summary",
+    "select_local_memory_source_messages",
 ]
