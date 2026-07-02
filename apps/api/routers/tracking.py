@@ -19,8 +19,15 @@ from agents.tracking.schemas import (
 
 router = APIRouter(prefix="/tracking", tags=["tracking"])
 
-# 全局Agent实例
-tracking_agent = TrackingAgent()
+
+_tracking_agent: TrackingAgent | None = None
+
+
+def _get_tracking_agent() -> TrackingAgent:
+    global _tracking_agent
+    if _tracking_agent is None:
+        _tracking_agent = TrackingAgent()
+    return _tracking_agent
 
 
 def _company_tracking_dirs(stock_code: str) -> list[str]:
@@ -49,7 +56,7 @@ async def process_report(
     - 触发预警
     """
     try:
-        dashboard = await tracking_agent.process_report(
+        dashboard = await _get_tracking_agent().process_report(
             stock_code=stock_code,
             company_name=company_name,
             report_text=report_text,
@@ -68,7 +75,7 @@ async def get_dashboard(stock_code: str, company_name: Optional[str] = None):
     if not company_name:
         company_name = stock_code
 
-    dashboard = tracking_agent.get_dashboard(stock_code, company_name)
+    dashboard = _get_tracking_agent().get_dashboard(stock_code, company_name)
     if not dashboard:
         raise HTTPException(status_code=404, detail="跟踪面板不存在")
 
@@ -79,7 +86,7 @@ async def get_dashboard(stock_code: str, company_name: Optional[str] = None):
 async def refresh_sentiment(stock_code: str, company_name: str):
     """刷新舆情数据并生成日报"""
     try:
-        report = await tracking_agent.refresh_sentiment(stock_code, company_name)
+        report = await _get_tracking_agent().refresh_sentiment(stock_code, company_name)
         return report
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -96,7 +103,7 @@ async def refresh_metrics(
 ):
     """刷新指标追踪面板"""
     try:
-        panel = tracking_agent.refresh_metrics(
+        panel = _get_tracking_agent().refresh_metrics(
             stock_code=stock_code,
             company_name=company_name,
             report_period=report_period,

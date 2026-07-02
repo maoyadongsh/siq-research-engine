@@ -29,6 +29,7 @@ ROLE_PERMISSIONS = {
     UserRole.SUPER_ADMIN: [
         "system.config",
         "user.manage",
+        "tracking.read", "tracking.write",
         "report.create", "report.edit", "report.delete", "report.view", "report.review",
         "company.create", "company.edit", "company.delete", "company.view",
         "audit.view",
@@ -37,11 +38,13 @@ ROLE_PERMISSIONS = {
     UserRole.ADMIN: [
         "system.config",
         "user.manage",
+        "tracking.read", "tracking.write",
         "report.create", "report.edit", "report.delete", "report.view", "report.review",
         "company.create", "company.edit", "company.view",
         "audit.view",
     ],
     UserRole.ANALYST: [
+        "tracking.read", "tracking.write",
         "report.create", "report.edit", "report.view",
         "company.view",
     ],
