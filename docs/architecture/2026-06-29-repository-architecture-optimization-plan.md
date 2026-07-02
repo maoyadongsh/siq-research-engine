@@ -303,7 +303,7 @@ bash -n start_all.sh && find scripts infra apps services -type f -name '*.sh' -p
 
 ```bash
 cd apps/web && npm run test:unit                                   # 44 passed
-scripts/check_owner_migration.sh                                  # API 84/218, PDF 45/295, Web unit 44, frontend check passed
+scripts/check_owner_migration.sh                                  # API 84/218, PDF 51/301, Web unit 44, frontend check passed
 ```
 
 后续任务与工作量：
@@ -312,7 +312,7 @@ scripts/check_owner_migration.sh                                  # API 84/218, 
 | --- | --- | --- | --- | --- |
 | P0 | 本轮提交清理 | Web test gate、README、脚本标签、方案文档 | S，约 0.25 天 | `scripts/check_owner_migration.sh`、`git diff --check`、`git status --short` |
 | P0 | 已完成：对齐 `scripts/check_all.sh` 与 README 基础门禁 | 已增加 `apps/document-parser`、`services/market-report-rules`、`apps/web npm run test:unit` 和 `npm run check:frontend` | S，本轮完成 | `bash -n scripts/check_all.sh`；全量执行仍作为较重合并门禁 |
-| P1 | PDF parser 维护尾项 | 仅补 `_ensure_*` 前置测试或 source/artifact payload 负路径；不迁 MinerU lifecycle / Flask response / DB schema | S，约 0-0.25 天，按回归触发 | `apps/pdf-parser` 聚焦测试 + 全量 295 tests |
+| P1 | PDF parser 维护尾项 | source-view payload 脏数据容错已补；后续仅补 `_ensure_*` 前置测试或回归触发的 source/artifact 负路径，不迁 MinerU lifecycle / Flask response / DB schema | S，约 0-0.25 天，按回归触发 | `apps/pdf-parser` 聚焦测试 + 全量 301 tests |
 | P1 | Frontend 维护尾项 | 仅补响应式 smoke、selector inventory 或纯 helper 边界；不迁 refs、selection、scroll、CSS 注入 | S，约 0-0.5 天，按回归触发 | `npm run test:unit`、`npm run check:frontend`，必要时 Playwright 聚焦用例 |
 | P2 | Agent runtime 新 owner 设计窗口 | `stream_chat_reply`、sessions/history/memory/dedupe/build-run-input | M-L，约 1-2 天 | 先写设计/回滚矩阵，再选 1 个 owner；必须跑 API runtime focused suite |
 | P2 | PDF parser 新 owner 设计窗口 | MinerU lifecycle、`_ensure_*` 编排、Flask response 或任务状态写顺序 | L，约 1.5-2.5 天 | 单独窗口，不和 Agent/Web owner 同批；先补状态机矩阵 |
@@ -330,10 +330,28 @@ scripts/check_owner_migration.sh                                  # API 84/218, 
 - Node test alias loader 已统一负责 `@/` 运行时别名和 `apps/web/src` 内 extensionless 相对导入；4 个 Document parser 测试文件移除本地 `registerHooks` 样板。
 - 新增 `nodeTestAliasLoaderSmoke.test.ts`，锁定 runtime alias import 与 extensionless relative import 行为；Web Node unit 当前覆盖 10 个测试文件、44 个子测试。
 
+### 0.7 2026-07-02 PDF source-view payload 容错收口
+
+本轮在后台智能体只读复核后，继续选择低风险维护尾项，不扩大 MinerU lifecycle、Flask response、DB schema、queue claim、前端 refs/selection/scroll 或 Agent runtime 新 owner。结论：PDF source-view 当前只需收紧坏 artifact 的 payload 形态，避免上游脏数据把前端 source-view 视图打断。
+
+本轮完成：
+
+- `pdf_source_viewer.py` 新增 bbox 与文本列表规范化 helper：标量 / dict / 非四元组 bbox 不再触发 `len()` 或索引异常，只作为不可匹配 bbox 处理；caption、footnote、list items、matched financial names 等字段统一输出为字符串数组。
+- `page_content_payload_from_content_list` 保持既有 source_id / bbox / report fallback 匹配语义，额外覆盖标量 bbox 无法匹配 report table 时回退为普通 table payload。
+- `pdf_parser_source_service.page_bbox_extent` wrapper 补 loader 负路径测试，确认只读取 `content_list.json`，坏 JSON / 缺失 artifact 返回 `None`。
+
+本轮验证：
+
+```bash
+cd apps/pdf-parser && PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -p no:cacheprovider -q tests/test_pdf_source_viewer.py tests/test_pdf_parser_source_service.py  # 43 passed
+python3 -m py_compile apps/pdf-parser/pdf_source_viewer.py apps/pdf-parser/pdf_parser_source_service.py
+scripts/check_owner_migration.sh  # API 84/218, PDF source/artifact 51, PDF full 301, Web unit 44, frontend check passed
+```
+
 当前剩余工作量重估：
 
 - Frontend Document / F-004：主线拆分完成，剩余 0-1 个维护小轮次，约 0-0.25 天。只做响应式 smoke、selector 清单或少量纯 helper 边界；不迁 refs、selection、scroll、CSS 注入和 JSX 主结构。
-- PDF parser：红灯试点已完成 queue claim/recover、artifact orchestrator、malformed payload 防御和 source-view loader/payload 容错，剩余 0-1 个维护小轮次，约 0-0.25 天。只建议补 `_ensure_*` 前置测试或保持观察；不碰 MinerU submit/poll、Flask response、DB schema、任务状态写顺序。
+- PDF parser：红灯试点已完成 queue claim/recover、artifact orchestrator、malformed payload 防御、source-view loader/payload 容错和坏 bbox 防御；当前聚焦门禁为 51 passed，全量基线为 301 passed。剩余 0-1 个维护小轮次，约 0-0.25 天，只建议补 `_ensure_*` 前置测试或保持观察；不碰 MinerU submit/poll、Flask response、DB schema、任务状态写顺序。
 - Agent runtime：active SSE owner、stop owner、`_collect_stream_run` terminal helper、cancel/timeout/tool-loop 接线矩阵和 reasoning 单分支 helper 已完成，剩余 0-0.25 天，建议只做提交清理和观察；`stream_chat_reply`、history、attachments、memory、dedupe/build-run-input 顺序不和其他任务同批。
 - Repo / CI / 文档：红灯 owner 收口脚本和 README/Phase 8 门禁口径已固化，剩余 0-0.25 天提交分组清理；后续只需按轮次更新验证结果并保证 ignored runtime/cache/build 不进索引。
 
@@ -1807,7 +1825,7 @@ test-results/**
 - evidence package 有共享 reader/validator。
 - settings 可注入、可测试。
 - API-finder-rules contract tests 通过。
-- 当前基础门禁：`scripts/check_all.sh` 已通过，覆盖 `apps/api` 405 tests、`apps/pdf-parser` 295 tests、`apps/document-parser` 27 tests、finder 46 tests、rules 29 tests、Web Node unit 44 tests 和 `npm run check:frontend`。
+- 当前基础门禁：`scripts/check_all.sh` 已通过，覆盖 `apps/api` 405 tests、`apps/pdf-parser` 301 tests、`apps/document-parser` 27 tests、finder 46 tests、rules 29 tests、Web Node unit 44 tests 和 `npm run check:frontend`。
 
 ### 前端 DoD
 

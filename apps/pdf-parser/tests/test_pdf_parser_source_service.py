@@ -4,6 +4,7 @@ import os
 import pytest
 
 from pdf_source_viewer import page_content_payload_from_content_list
+from pdf_source_viewer import page_bbox_extent_from_content_list
 import pdf_parser_source_service as source
 
 
@@ -135,6 +136,25 @@ def test_page_content_payload_wrapper_keeps_report_page_tables_when_content_list
             "matched_financial_names": [],
         }
     ]
+
+
+@pytest.mark.parametrize("content_list", [None, "{not-json"])
+def test_page_bbox_extent_wrapper_uses_content_list_loader_and_handles_bad_payload(content_list):
+    requested_names = []
+
+    def load_json_artifact(_task, name):
+        requested_names.append(name)
+        return content_list
+
+    payload = source.page_bbox_extent(
+        {"task_id": "task-1"},
+        0,
+        load_json_artifact=load_json_artifact,
+        page_bbox_extent_from_content_list=page_bbox_extent_from_content_list,
+    )
+
+    assert payload is None
+    assert requested_names == ["content_list.json"]
 
 
 def test_ensure_pdf_page_image_returns_existing_cache(tmp_path):

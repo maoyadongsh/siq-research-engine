@@ -34,6 +34,8 @@ def test_page_bbox_extent_coerces_json_and_uses_valid_bboxes_for_target_page_onl
         ({"page_idx": 0, "bbox": [1, 2, 3, 4]}, 0),
         ([{"page_idx": 0, "bbox": [1, 2, 3, 4]}], None),
         ([{"page_idx": 0, "bbox": [1, 2, 3]}], 0),
+        ([{"page_idx": 0, "bbox": 42}], 0),
+        ([{"page_idx": 0, "bbox": {"x0": 1, "y0": 2, "x1": 3, "y1": 4}}], 0),
         ([{"page_idx": 0, "bbox": [0, 2, 0, 4]}], 0),
         ([{"page_idx": 0, "bbox": [1, 0, 3, 0]}], 0),
         ([{"page_idx": 1, "bbox": [1, 2, 3, 4]}], 0),
@@ -284,6 +286,48 @@ def test_page_content_payload_matches_table_by_bbox_when_source_id_is_missing():
     assert table["missing_body"] is False
 
 
+def test_page_content_payload_ignores_scalar_bbox_when_matching_report_table():
+    table_html = "<table><tr><td>Fallback table</td></tr></table>"
+    content_list = [
+        {
+            "type": "table",
+            "page_idx": 0,
+            "bbox": 42,
+            "table_body": table_html,
+        },
+    ]
+    report = {
+        "table_index": [
+            {
+                "table_index": 9,
+                "pdf_page_number": 1,
+                "bbox": 42,
+                "heading": "Invalid bbox table",
+            }
+        ]
+    }
+
+    payload = page_content_payload_from_content_list(content_list, 1, report=report)
+    table = payload["blocks"][0]
+
+    assert table["bbox"] == []
+    assert table["table_index"] == 1
+    assert table["source_table_index"] == 1
+    assert table["heading"] == ""
+    assert table["line"] is None
+    assert table["table_html"] == table_html
+    assert payload["page_tables"] == [
+        {
+            "table_index": 9,
+            "source_table_index": None,
+            "line": None,
+            "heading": "Invalid bbox table",
+            "printed_page_number": None,
+            "matched_financial_names": [],
+        }
+    ]
+
+
 def test_page_content_payload_uses_report_caption_and_footnote_when_content_omits_them():
     table_html = "<table><tr><td>Inventory</td></tr></table>"
     content_list = [
@@ -314,6 +358,98 @@ def test_page_content_payload_uses_report_caption_and_footnote_when_content_omit
     assert table["table_index"] == 12
     assert table["caption"] == ["Report caption"]
     assert table["footnote"] == ["Report footnote"]
+
+
+def test_page_content_payload_normalizes_scalar_text_list_fields():
+    first_table_html = "<table><tr><td>Content metadata</td></tr></table>"
+    second_table_html = "<table><tr><td>Report metadata</td></tr></table>"
+    content_list = [
+        {
+            "type": "list",
+            "page_idx": 0,
+            "bbox": [1, 2, 3, 4],
+            "list_items": "single item",
+            "sub_type": 123,
+        },
+        {
+            "type": "image",
+            "page_idx": 0,
+            "bbox": [5, 6, 7, 8],
+            "img_path": "images/chart.png",
+            "sub_type": 0,
+            "image_caption": "Chart caption",
+            "image_footnote": 99,
+        },
+        {
+            "type": "table",
+            "page_idx": 0,
+            "bbox": [10, 20, 30, 40],
+            "table_body": first_table_html,
+            "table_caption": "Content caption",
+            "table_footnote": 0,
+        },
+        {
+            "type": "table",
+            "page_idx": 0,
+            "bbox": [11, 21, 31, 41],
+            "table_body": second_table_html,
+            "table_caption": None,
+            "table_footnote": None,
+        },
+    ]
+    report = {
+        "table_index": [
+            {
+                "table_index": 31,
+                "content_table_source_id": 1,
+                "pdf_page_number": 1,
+                "heading": 100,
+                "matched_financial_names": "资产负债表",
+            },
+            {
+                "table_index": 32,
+                "content_table_source_id": 2,
+                "pdf_page_number": 1,
+                "source_caption": ["Fallback caption"],
+                "source_footnote": "Fallback footnote",
+                "matched_financial_names": ["利润表", 2025, None, " "],
+            },
+        ]
+    }
+
+    payload = page_content_payload_from_content_list(content_list, 1, report=report)
+    blocks = payload["blocks"]
+
+    assert blocks[0]["list_items"] == ["single item"]
+    assert blocks[0]["sub_type"] == "123"
+    assert blocks[1]["caption"] == ["Chart caption"]
+    assert blocks[1]["footnote"] == ["99"]
+    assert blocks[1]["sub_type"] == "0"
+    assert blocks[2]["caption"] == ["Content caption"]
+    assert blocks[2]["footnote"] == ["0"]
+    assert blocks[2]["heading"] == "100"
+    assert blocks[2]["matched_financial_names"] == ["资产负债表"]
+    assert blocks[3]["caption"] == ["Fallback caption"]
+    assert blocks[3]["footnote"] == ["Fallback footnote"]
+    assert blocks[3]["matched_financial_names"] == ["利润表", "2025"]
+    assert payload["page_tables"] == [
+        {
+            "table_index": 31,
+            "source_table_index": 1,
+            "line": None,
+            "heading": "100",
+            "printed_page_number": None,
+            "matched_financial_names": ["资产负债表"],
+        },
+        {
+            "table_index": 32,
+            "source_table_index": 2,
+            "line": None,
+            "heading": "",
+            "printed_page_number": None,
+            "matched_financial_names": ["利润表", "2025"],
+        },
+    ]
 
 
 def test_page_content_payload_matches_source_id_zero_to_first_table_body():
