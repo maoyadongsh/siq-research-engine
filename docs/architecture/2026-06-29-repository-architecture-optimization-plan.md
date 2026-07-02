@@ -919,6 +919,50 @@ cd apps/api && .venv/bin/python -m pytest tests/test_agent_chat_runtime_attachme
 
 下一步建议：优先补 streaming 的真实 DB 顺序护栏，让 chat preflight 的两条主分支都落到真实 SQLite 验证上；等这两条稳定了，再考虑 history/memory DB owner 设计。
 
+### 0.21 2026-07-02 streaming 真实 DB 顺序护栏补强
+
+本轮按 0.20 的建议推进，把 `test_stream_chat_reply_preflight_refreshes_pdf_metadata_before_saving_user` 从纯 mock 读写升级为真实 SQLite wrapper：`load_history` / `save_message` 只包一层调用记录，底层仍走真实实现；PDF metadata、Hermes run、stream collect 和 local memory 继续 mock，避免把测试扩大成完整 streaming 集成链。
+
+完成项：
+
+- streaming 分支使用独立 SQLite 临时库预置旧对话，验证 `create_run()` 收到的 `conversation_history` 仍是 preflight 捕获的旧 history。
+- `save_message(user)` 真实写入 DB，验证当前 streaming user message 与刷新后的 PDF attachment metadata 写入 `attachments_json`。
+- 断言从完整调用列表改为关键偏序：`load_history < attachments_with_fresh_metadata < save_user < analyze_images < build_input < create_run`，避开 `save_message()` 内部二次刷新 metadata 带来的脆弱顺序。
+
+行为与风险边界：
+
+| 路径 | 本轮保持 / 改进 |
+| --- | --- |
+| streaming preflight 顺序 | `load_history` 先于 `save_message(user)`，`create_run()` 只看到旧 history |
+| PDF attachment 持久化 | 刷新后的 `markdown_path` 写入当前 user 的 `attachments_json` |
+| streaming 生命周期 | `_collect_stream_run` 仍 fake，只产生 terminal done；测试 finally 清理 `ACTIVE_RUNS` |
+| local memory | `ensure_local_memory_context` 继续 fake，不牵连 memory refresh |
+
+回滚边界：
+
+| 失败信号 | 回滚范围 |
+| --- | --- |
+| streaming 顺序护栏失败 | 回滚 `test_stream_chat_reply_preflight_refreshes_pdf_metadata_before_saving_user` 的 SQLite wrapper 改造 |
+| SSE 事件收尾不稳定 | 只回滚 streaming 测试改造，不影响 blocking / attachment 顺序护栏 |
+| attachment metadata 写入变化 | 调整该测试的落库断言；不迁 `save_message` owner |
+
+本轮验证：
+
+```bash
+cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_chat_preflight.py -q  # 10 passed
+```
+
+后续工作量重估：
+
+| 优先级 | 任务 | 范围 | 工作量 | 门禁 |
+| --- | --- | --- | --- | --- |
+| P0 | chat preflight 真实 DB 顺序护栏 | blocking / attachment / streaming 主路径已补齐；后续只接受回归修正 | 0 天 | preflight + attachment 聚焦测试 |
+| P1 | history/memory DB owner 设计 | 先写 owner 矩阵、失败态测试和回滚边界；不得与 streaming/attachments/dedupe 同轮迁移 | M，约 0.5-1 天 | 新增哨兵先红后绿 + `scripts/check_owner_migration.sh` |
+| P1 | DB owner 迁移候选落点评审 | 若设计通过，优先选择 `load_history/save_message` 或 memory record owner 的单一落点，不跨 owner 混改 | S-M，约 0.5 天 | owner 矩阵 + 聚合门禁 |
+| P2 | PDF / Frontend 维护尾项 | 继续按回归触发 | 0-0.25 天 | 对应聚焦门禁 |
+
+下一步建议：真实 DB 顺序护栏已经覆盖 blocking、attachment、streaming 三条主路径；下一轮应进入 history/memory DB owner 设计文档与失败态测试，不建议再继续堆同类顺序测试。
+
 ## 1. 当前架构事实
 
 ### 1.1 当前主要目录职责
