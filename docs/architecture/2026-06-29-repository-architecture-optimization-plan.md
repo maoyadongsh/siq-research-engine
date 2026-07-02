@@ -288,6 +288,42 @@ bash -n start_all.sh && find scripts infra apps services -type f -name '*.sh' -p
 - Phase 8 明确：基础合并门禁以 README 为准，红灯 owner 命令只用于对应模块变更的聚焦验证，可用 `scripts/check_owner_migration.sh` 聚合执行。
 - 本轮验证：`bash -n scripts/check_owner_migration.sh` 通过；`scripts/check_owner_migration.sh` 通过，其中 API active run + loops 84 passed，API runtime focused 218 passed，PDF parser source/artifact 45 passed，PDF parser full 295 passed，Web Document node 22 passed，`npm run check:frontend` 通过，`git diff --check` 通过。
 
+### 0.6 2026-07-02 Web 单测门禁与后续工作量更新
+
+本轮在后台智能体并行复核后，继续选择低风险门禁治理，不再扩大红灯 owner 迁移面。结论：当前红灯 owner 主线已经进入“阶段完成 + 维护尾项”状态，下一阶段优先做门禁一致性、文档同步和独立设计窗口，而不是继续混批拆状态 owner。
+
+本轮完成：
+
+- Web Node 单测门禁从手写 4 个 Document parser 测试文件升级为自动发现 `apps/web/src/**/*.test.ts`；新增 Node ESM alias loader，支持测试中直接解析 Vite 风格 `@/` 别名。
+- `apps/web` 当前 9 个 `.test.ts` 全部纳入 `npm run test:unit`，验证结果为 43 passed、0 failed。
+- `scripts/check_owner_migration.sh` 的 Web 步骤已改为 `Web node unit gates`，聚合门禁现在覆盖 Web Node unit、`npm run check:frontend`、API runtime、PDF parser 和通用提交前检查。
+- `README.md`、`apps/web/README.md` 和 `scripts/README.md` 已同步 Web unit gate 入口，避免后续只跑 lint/build 而漏掉 Node 单测。
+
+本轮验证：
+
+```bash
+cd apps/web && npm run test:unit                                   # 43 passed
+scripts/check_owner_migration.sh                                  # API 84/218, PDF 45/295, Web unit 43, frontend check passed
+```
+
+后续任务与工作量：
+
+| 优先级 | 任务 | 范围 | 工作量 | 风险控制 / 门禁 |
+| --- | --- | --- | --- | --- |
+| P0 | 本轮提交清理 | Web test gate、README、脚本标签、方案文档 | S，约 0.25 天 | `scripts/check_owner_migration.sh`、`git diff --check`、`git status --short` |
+| P0 | 已完成：对齐 `scripts/check_all.sh` 与 README 基础门禁 | 已增加 `apps/document-parser`、`services/market-report-rules`、`apps/web npm run test:unit` 和 `npm run check:frontend` | S，本轮完成 | `bash -n scripts/check_all.sh`；全量执行仍作为较重合并门禁 |
+| P1 | PDF parser 维护尾项 | 仅补 `_ensure_*` 前置测试或 source/artifact payload 负路径；不迁 MinerU lifecycle / Flask response / DB schema | S，约 0-0.25 天，按回归触发 | `apps/pdf-parser` 聚焦测试 + 全量 295 tests |
+| P1 | Frontend 维护尾项 | 仅补响应式 smoke、selector inventory 或纯 helper 边界；不迁 refs、selection、scroll、CSS 注入 | S，约 0-0.5 天，按回归触发 | `npm run test:unit`、`npm run check:frontend`，必要时 Playwright 聚焦用例 |
+| P2 | Agent runtime 新 owner 设计窗口 | `stream_chat_reply`、sessions/history/memory/dedupe/build-run-input | M-L，约 1-2 天 | 先写设计/回滚矩阵，再选 1 个 owner；必须跑 API runtime focused suite |
+| P2 | PDF parser 新 owner 设计窗口 | MinerU lifecycle、`_ensure_*` 编排、Flask response 或任务状态写顺序 | L，约 1.5-2.5 天 | 单独窗口，不和 Agent/Web owner 同批；先补状态机矩阵 |
+| P2 | 前端运行时 CSS 字符串迁移 | `DOCUMENT_CSS` / `PDF_CSS` 注入机制与样式模块化 | L，约 1-3 天 | 需要桌面/移动 Playwright + 截图或视觉 smoke；不与业务状态迁移同批 |
+
+状态同步：
+
+- `F-004`、`P-001`、`P-002`、`A-001`、`A-002` 均改为阶段完成，后续只保留维护尾项或单独设计窗口。
+- 红灯 owner 收口脚本已成为当前主线的聚合验证入口，但仍不替代 README 的基础合并门禁。
+- `scripts/check_all.sh` 已对齐 README 基础门禁；下一轮若继续治理，优先验证全量执行耗时和 CI 可用性。
+
 当前剩余工作量重估：
 
 - Frontend Document / F-004：主线拆分完成，剩余 0-1 个维护小轮次，约 0-0.25 天。只做响应式 smoke、selector 清单或少量纯 helper 边界；不迁 refs、selection、scroll、CSS 注入和 JSX 主结构。
@@ -1324,7 +1360,8 @@ find scripts -type f -name '*.sh' -print0 | xargs -0 -r bash -n
 cd apps/api && uv run python -m pytest tests
 cd services/market-report-finder && uv run pytest
 cd services/market-report-rules && uv run pytest
-cd apps/web && npm run lint && npm run build
+cd apps/document-parser && python3 -m pytest tests
+cd apps/web && npm run test:unit && npm run check:frontend
 ```
 
 红灯 owner 迁移准入门禁：
@@ -1343,7 +1380,7 @@ cd apps/pdf-parser && PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -p no:cachepro
 cd apps/pdf-parser && PYTHONPATH=. python3 -m pytest tests/test_pdf_source_viewer.py tests/test_pdf_parser_source_service.py -q
 
 # Frontend Document 维护尾项必须通过
-cd apps/web && node --test src/components/document-parser/styleSelectorSmoke.test.ts src/components/document-parser/documentResultWorkbenchDerivations.test.ts src/components/document-parser/documentResultViewModel.test.ts src/components/document-parser/documentResourceOpener.test.ts
+cd apps/web && npm run test:unit
 cd apps/web && npm run check:frontend
 
 # 每轮通用
@@ -1549,7 +1586,7 @@ test-results/**
 
 优先级：P1
 范围：`apps/web`
-状态：进行中
+状态：阶段完成，后续仅维护尾项
 背景：
 
 - `npm run lint`、`npm run build` 与 `npm run check:frontend` 已通过。
@@ -1576,20 +1613,20 @@ test-results/**
 - 已拆 `DocumentResultWorkbench.tsx` 的 `AuthenticatedImage` 与 `PdfPagePreview` 到 `DocumentSourcePreview.tsx`；`imageSize`、objectURL cleanup、overlay click 和 protected figure image 加载已由 `document-result-preview.spec.ts` 覆盖。
 - 已拆 `DocumentResultWorkbench.tsx` 的 source preview、artifact pane、table/source relation pane、figure pane、quality/workflow pane、extract/evidence pane、markdown pane 和 source lookup 派生；父组件继续保留 selection、scroll、resource open owner。
 - 下一步如继续前端，可单独评估 `PDF_CSS` / `DOCUMENT_CSS` 字符串迁移，或继续做低风险响应式 smoke；状态 owner、refs 和 selection/scroll 仍不提前分散。
+- Web Node unit gate 已固化为 `npm run test:unit`，自动发现 `src/**/*.test.ts`，当前覆盖 9 个测试文件。
 
 验收：
 
 - 新代码不再直接从业务组件调用裸 `fetch`。
 - 新增页面 API 只暴露在 `features/*/api.ts` 或 shared client。
-- `npm run lint && npm run build` 通过；本轮额外执行 `npm run check:frontend` 通过。
-- `node --test src/features/search-download/urlState.test.ts src/features/search-download/downloadStatus.test.ts src/components/pdf/pdfSourceWorkbenchHelpers.test.ts` 通过，12 passed。
+- `npm run test:unit` 通过，43 passed；`npm run check:frontend` 通过。
 - 关键 Playwright：`document-result-preview.spec.ts`、`pdf-parsing-market-filter.spec.ts`、`search-download-responsive.spec.ts`、`workspace-responsive.spec.ts` 相关覆盖已通过。
 
 ### P-001：拆 `apps/pdf-parser/app.py`
 
 优先级：P1
 范围：`apps/pdf-parser`
-状态：进行中
+状态：阶段完成，后续仅维护尾项
 动作：
 
 - 入口层已收敛为兼容 façade，原实现下沉到 `pdf_parser_app_impl.py`。
@@ -1599,8 +1636,8 @@ test-results/**
 - SQLite task repository 已抽到 `pdf_parser_task_repository.py`，包含 schema/init、row hydration、CRUD、重复文件查询、recent summary、refresh candidate、queue 只读查询和 referenced paths；`app.py` 旧私有入口继续由 wrapper 暴露。
 - Artifact 文件与路径 helper 已抽到 `pdf_parser_artifact_service.py`，包含 Markdown 路径解析、JSON 原子写、JSON artifact 加载、Markdown 写入、artifact status、图片保存/列表/ZIP、表格 HTML 定位和 correction 应用纯函数；`pdf_parser_app_impl.py` 保留同名 wrapper 与 Flask response owner。
 - Source workbench IO helper 已抽到 `pdf_parser_source_service.py`，包含 corrections 路径/读写、source page payload wrapper、page bbox extent wrapper 和 PDF page image 缓存/渲染；route、markdown fetch、quality report、complete markdown 写入仍由 `pdf_parser_app_impl.py` 编排。
-- DB 队列 claim、worker、artifact 写入编排仍留在 `pdf_parser_app_impl.py`，避免 WSGI 多进程/本地队列 claim 语义在纯拆分中顺手改变。
-- 继续按 router/task/artifact/source/financial/quality 拆模块。
+- DB 队列 claim/recover 和 artifact orchestrator 已完成最小 owner 试点；worker、Flask response、MinerU lifecycle、`_ensure_*` 编排仍留在 `pdf_parser_app_impl.py`，避免 WSGI 多进程/本地队列 claim 语义在纯拆分中顺手改变。
+- 后续只补 `_ensure_*` 前置测试或 source/artifact payload 负路径；新的 MinerU / response / task state owner 迁移必须另开设计窗口。
 - 保持外部 API 不变。
 
 验收：
@@ -1613,13 +1650,13 @@ test-results/**
 - `cd apps/pdf-parser && python3 -m pytest tests -q` 通过，125 passed。
 - `cd apps/pdf-parser && python3 -m flask --app app.py routes` 通过。
 - `app.py` 行数明显下降。
-- 下一步优先：quality/financial/document_full 边界梳理，或继续抽 source table payload builder / artifact open resolver 这类纯函数。高风险项：多进程 WSGI 下本地 queue worker / claim 需要单独设计，不能在纯拆分中顺手修改。
+- 下一步优先：保持观察或补低风险 `_ensure_*` 前置测试。高风险项：MinerU lifecycle、Flask response、任务状态写顺序和多进程 WSGI 下本地 queue worker 必须单独设计，不能在维护尾项中顺手修改。
 
 ### P-002：拆 PDF quality / financial / document_full 边界
 
 优先级：P1
 范围：`apps/pdf-parser`
-状态：进行中
+状态：阶段完成，后续仅维护尾项
 背景：
 
 - `pdf_parser_app_impl.py` 已从约 6700 行降到约 4154 行，但仍承担 task state、route response、queue claim、路径存在性、文件写入、`_fetch_and_cache_result` 和 `_ensure_*` 编排 owner。
@@ -1668,7 +1705,7 @@ test-results/**
 
 优先级：P1
 范围：`apps/api/services`
-状态：进行中
+状态：阶段完成，后续需单独设计窗口
 动作：
 
 - 入口层已收敛为兼容 façade，原实现下沉到 `agent_chat_runtime_impl.py`。
@@ -1677,7 +1714,7 @@ test-results/**
 - `agent_runtime_progress.py` 已新增为真实实现模块，progress payload/signature、文本进度提取、tool preview/label 已从 `agent_chat_runtime_impl.py` 下沉；impl 保留同名 wrapper 并传入当前 hash/clock/wiki root，保持 monkeypatch 语义。
 - `agent_runtime_streaming.py` 已升级为 ACTIVE_RUNS / active SSE / stop 第一阶段状态 owner，接管 `ActiveRunState`、`ACTIVE_RUNS`、key normalization、progress/event append、snapshot 基础逻辑、active stream replay/heartbeat 和 `stop_active_run`；`_collect_stream_run` completed/stopped terminal helper、reasoning 单分支 helper 已收口到 streaming owner，cancel/timeout/tool-loop 接线矩阵已补齐；`agent_chat_runtime_impl.py` 保留 stop 薄 wrapper 注入 `stop_run`/消息常量，并继续保留 Hermes `stream_run` 调用、tool/delta 主循环、stream chat reply 和普通/streaming 编排 wrapper。
 - 其余 `agent_runtime_*` 仍作为边界和迁移索引，不作为可 monkeypatch 的真实状态 owner；router 仍从兼容入口导入，避免 history、attachments、memory 的绑定语义发生变化。
-- 继续拆为 session、attachments、streaming、memory、citation、tools；reasoning 单分支 helper 已完成，下一步建议停止 Agent runtime owner 迁移并进入提交清理；如继续 `stream_chat_reply`、sessions/history/memory owner，需另开设计窗口。
+- 当前 owner 迁移线停止在 active run / stop / terminal / cancel-timeout-tool-loop / reasoning helper；如继续 `stream_chat_reply`、sessions/history/memory owner，需另开设计窗口。
 - 先纯搬迁，不改变行为。
 
 验收：
@@ -1697,7 +1734,7 @@ test-results/**
 
 优先级：P1
 范围：`apps/api/services`
-状态：进行中
+状态：阶段完成，后续需单独设计窗口
 背景：
 
 - `agent_chat_runtime_impl.py` 已继续下降，仍是当前最大后端文件。

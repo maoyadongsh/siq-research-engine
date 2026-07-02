@@ -28,6 +28,7 @@ http://localhost:15173
 
 ```bash
 npm run lint
+npm run test:unit
 npm run build
 npm run e2e
 ```

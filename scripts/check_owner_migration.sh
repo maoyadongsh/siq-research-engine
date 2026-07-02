@@ -32,7 +32,7 @@ run_step "PDF parser source and artifact gates" \
 run_step "PDF parser full suite" \
     bash -lc "cd '$ROOT_DIR/apps/pdf-parser' && PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -p no:cacheprovider -q"
 
-run_step "Web document parser node gates" \
+run_step "Web node unit gates" \
     bash -lc "cd '$ROOT_DIR/apps/web' && npm run test:unit"
 
 run_step "Web frontend check" \

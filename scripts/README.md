@@ -49,4 +49,4 @@ cd /home/maoyd/siq-research-engine
 scripts/check_owner_migration.sh
 ```
 
-该脚本聚合 Agent runtime streaming owner、PDF parser source/artifact、Frontend Document 和提交前 `git diff --check` / `git status --short` 检查。它是当前架构优化收口门禁，不替代 `scripts/check_all.sh` 的全量基础检查。
+该脚本聚合 Agent runtime streaming owner、PDF parser source/artifact、Web Node unit / Frontend Document 和提交前 `git diff --check` / `git status --short` 检查。它是当前架构优化收口门禁，不替代 `scripts/check_all.sh` 的全量基础检查；`scripts/check_all.sh` 对齐 README 的合并前基础门禁，用于更重的全仓验证。

@@ -301,6 +301,7 @@ cd /home/maoyd/siq-research-engine/services/market-report-rules
 uv run --extra dev pytest
 
 cd /home/maoyd/siq-research-engine/apps/web
+npm run test:unit
 npm run check:frontend
 ```
 
