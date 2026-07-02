@@ -438,6 +438,45 @@ def test_ensure_local_memory_context_refreshes_and_respects_profile_prefix(tmp_p
     anyio.run(_with_temp_chat_session_memory, tmp_path, run_case)
 
 
+def test_ensure_local_memory_context_clears_stale_record_when_recent_window_has_no_source(tmp_path):
+    async def run_case(async_session):
+        session_id = "siq-assistant-stale-memory-clear"
+        async_session.add_all(
+            [
+                ChatSessionMemory(
+                    profile="siq_assistant",
+                    session_id=session_id,
+                    summary="stale sentinel：旧公司上汽集团",
+                    last_message_id=999,
+                ),
+                ChatMessage(session_id=session_id, role="user", content="当前问题：现金流"),
+                ChatMessage(session_id=session_id, role="assistant", content="当前回答：只看当前轮"),
+            ]
+        )
+        await async_session.commit()
+
+        context = await agent_chat_runtime.ensure_local_memory_context(
+            async_session,
+            "siq_assistant",
+            session_id,
+        )
+
+        result = await async_session.exec(
+            select(ChatSessionMemory).where(
+                ChatSessionMemory.profile == "siq_assistant",
+                ChatSessionMemory.session_id == session_id,
+            )
+        )
+        record = result.first()
+
+        assert context is None
+        assert record is not None
+        assert record.summary == ""
+        assert record.last_message_id is None
+
+    anyio.run(_with_temp_chat_session_memory, tmp_path, run_case)
+
+
 def test_refresh_session_memory_skips_non_matching_profile_prefix(tmp_path):
     async def run_case(async_session):
         session_id = "siq-analysis-local-memory"

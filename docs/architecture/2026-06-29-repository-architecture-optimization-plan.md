@@ -963,6 +963,61 @@ cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_chat_prefligh
 
 下一步建议：真实 DB 顺序护栏已经覆盖 blocking、attachment、streaming 三条主路径；下一轮应进入 history/memory DB owner 设计文档与失败态测试，不建议再继续堆同类顺序测试。
 
+### 0.22 2026-07-02 history/memory DB owner 设计护栏
+
+本轮没有直接迁 history/memory DB owner，而是先补 owner 矩阵和一个最小失败态护栏：`test_ensure_local_memory_context_clears_stale_record_when_recent_window_has_no_source`。该测试验证已有 `ChatSessionMemory` 记录时，如果当前消息窗口已经没有可进入 local memory 的 older turns，`ensure_local_memory_context()` 必须清空 stale summary 并返回 `None`，避免旧公司/旧口径继续被喂给 preflight。
+
+Owner 矩阵：
+
+| 类别 | 函数 / 区域 | 下一步处理 | 原因 |
+| --- | --- | --- | --- |
+| 编排 owner 保留 | `_collect_chat_reply_impl`、`_stream_chat_reply_impl`、`_load_chat_run_preflight_context` | 暂留 `agent_chat_runtime_impl.py` | 它们控制 `load_history -> memory -> attachment refresh -> save_user -> create_run` 顺序，不能与 DB owner 迁移同轮动 |
+| streaming owner 保留 | `_collect_stream_run`、`_start_streaming_chat_run`、`ACTIVE_RUNS` | 不与 history/memory 同轮迁移 | 涉及 SSE 收尾、后台 task、terminal events |
+| attachment owner 保留 | `load_recent_session_attachments`、`_message_attachments`、`chat_message_has_visible_payload`、`_attachments_with_fresh_metadata` | 暂留 | 与 attachment payload、metadata 刷新、`attachments_json` 写入耦合 |
+| 候选 A | `normalize_history`、`load_history` | 第一迁移候选，迁出时保留 runtime 兼容入口 | 只读 DB，边界最小，已有 blocking/attachment/streaming 真实 DB 顺序护栏覆盖 |
+| 候选 B | `_load_session_memory_record`、`refresh_session_memory`、`load_local_memory_context`、`ensure_local_memory_context` | 单独一轮迁移到 memory store | 语义集中在 `ChatSessionMemory`；本轮新增 stale clear 失败态护栏 |
+| 候选 C | `save_message` | 后置单独迁移 | 真实写入 owner，同时包含 assistant evidence normalization、attachment metadata 二次刷新、schema column 兜底 |
+| 候选 D | `chat_history_response`、`_chat_message_payload` | 后置 | 属于对外 history response/display 形状，不是第一 DB owner 核心 |
+
+完成项：
+
+- 新增 stale memory 失败态护栏：已有 memory record 但当前 recent window 无可总结 source 时，清空 stale summary、`last_message_id=None`、`ensure_local_memory_context()` 返回 `None`。
+- 明确第一迁移候选为 `normalize_history + load_history`，而不是直接迁 `save_message` 或 streaming lifecycle。
+- 明确 memory record owner 迁移必须单独成轮，不与 `save_message`、attachment metadata、dedupe/catalog 或 streaming active run 混改。
+
+行为与风险边界：
+
+| 路径 | 本轮保持 / 改进 |
+| --- | --- |
+| stale memory record | 已有记录不再因为当前无 source 而继续输出旧 context |
+| memory owner 迁移准备 | 先有失败态护栏，再谈迁移 |
+| runtime 行为 | 本轮只新增测试和文档，不改运行时代码 |
+
+回滚边界：
+
+| 失败信号 | 回滚范围 |
+| --- | --- |
+| stale clear 护栏不稳定 | 仅回滚 `test_ensure_local_memory_context_clears_stale_record_when_recent_window_has_no_source` |
+| owner 矩阵与实际迁移冲突 | 更新 0.22 矩阵，不回退已通过的 preflight/attachment/streaming 顺序护栏 |
+| 后续迁移影响 streaming / attachment | 停止迁移，回到本轮 owner 矩阵重新拆分 |
+
+本轮验证：
+
+```bash
+cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_memory.py -q  # 14 passed
+```
+
+后续工作量重估：
+
+| 优先级 | 任务 | 范围 | 工作量 | 门禁 |
+| --- | --- | --- | --- | --- |
+| P0 | history/memory owner 失败态护栏 | 本轮已完成；后续只接受回归修正 | 0 天 | `tests/test_agent_runtime_memory.py` |
+| P1 | 迁移 `normalize_history + load_history` owner | 新建 history store，runtime 保留薄 wrapper；不迁 save/memory/streaming | S-M，约 0.5 天 | preflight + runtime 聚焦 + owner 总门禁 |
+| P1 | memory record owner 迁移设计 | 若继续迁 `_load_session_memory_record/refresh/load/ensure`，必须单独成轮 | M，约 0.5-1 天 | memory 全套 + stale clear 护栏 |
+| P2 | `save_message` owner 迁移 | 后置，需单独处理 attachments/evidence/schema column 风险 | M，约 0.5-1 天 | attachment + preflight + chat history response |
+
+下一步建议：优先迁 `normalize_history + load_history` 到独立 history store，并在 `agent_chat_runtime_impl.py` 保留兼容入口；不要同时迁 `save_message`、memory record owner 或 streaming lifecycle。
+
 ## 1. 当前架构事实
 
 ### 1.1 当前主要目录职责
