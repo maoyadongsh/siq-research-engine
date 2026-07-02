@@ -105,3 +105,67 @@ def test_admin_delete_downloaded_report_removes_file(monkeypatch, tmp_path):
     assert result["deleted"] is True
     assert result["relativePath"] == relative_path
     assert not report_path.exists()
+
+
+@pytest.mark.parametrize(
+    "route_callable",
+    [downloads.open_downloaded_report, downloads.delete_downloaded_report],
+)
+def test_download_report_routes_reject_path_traversal(monkeypatch, tmp_path, route_callable):
+    root = tmp_path / "downloads"
+    monkeypatch.setattr(downloads, "DOWNLOADS_ROOT", root)
+
+    with make_session(tmp_path) as session:
+        with pytest.raises(HTTPException) as exc:
+            route_callable(
+                "../outside.pdf",
+                current_user=SimpleNamespace(id=99, role="super_admin"),
+                session=session,
+            )
+
+    assert exc.value.status_code == 403
+    assert "path traversal" in str(exc.value.detail)
+
+
+@pytest.mark.parametrize(
+    "route_callable",
+    [downloads.open_downloaded_report, downloads.delete_downloaded_report],
+)
+def test_download_report_routes_reject_absolute_paths(monkeypatch, tmp_path, route_callable):
+    root = tmp_path / "downloads"
+    outside = tmp_path / "outside.pdf"
+    outside.write_bytes(b"%PDF-1.4\noutside")
+    monkeypatch.setattr(downloads, "DOWNLOADS_ROOT", root)
+
+    with make_session(tmp_path) as session:
+        with pytest.raises(HTTPException) as exc:
+            route_callable(
+                str(outside),
+                current_user=SimpleNamespace(id=99, role="super_admin"),
+                session=session,
+            )
+
+    assert exc.value.status_code == 403
+    assert "path traversal" in str(exc.value.detail)
+
+
+@pytest.mark.parametrize(
+    "route_callable",
+    [downloads.open_downloaded_report, downloads.delete_downloaded_report],
+)
+def test_download_report_routes_reject_non_openable_suffix(monkeypatch, tmp_path, route_callable):
+    root = tmp_path / "downloads"
+    relative_path = "CN/Demo/2025/annual/report.exe"
+    write_report(root, relative_path)
+    monkeypatch.setattr(downloads, "DOWNLOADS_ROOT", root)
+
+    with make_session(tmp_path) as session:
+        with pytest.raises(HTTPException) as exc:
+            route_callable(
+                relative_path,
+                current_user=SimpleNamespace(id=99, role="super_admin"),
+                session=session,
+            )
+
+    assert exc.value.status_code == 400
+    assert "not allowed" in str(exc.value.detail)
