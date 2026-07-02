@@ -166,6 +166,41 @@ def test_ensure_pdf_page_image_returns_existing_cache(tmp_path):
     assert source.ensure_pdf_page_image(task, 2, results_folder=str(tmp_path)) == image_path
 
 
+def test_ensure_pdf_page_image_renders_and_moves_generated_page(tmp_path, monkeypatch):
+    upload_path = tmp_path / "source.pdf"
+    upload_path.write_bytes(b"%PDF-1.4")
+    task = {"task_id": "task-render", "upload_path": str(upload_path)}
+    calls = []
+
+    def fake_run(args, **kwargs):
+        calls.append((args, kwargs))
+        prefix = args[-1]
+        with open(f"{prefix}-3.png", "wb") as outfile:
+            outfile.write(b"rendered")
+
+    monkeypatch.setattr(source.subprocess, "run", fake_run)
+
+    image_path = source.ensure_pdf_page_image(
+        task,
+        3,
+        results_folder=str(tmp_path),
+    )
+
+    assert image_path == source.pdf_page_image_path(task, 3, results_folder=str(tmp_path))
+    assert os.path.exists(image_path)
+    with open(image_path, "rb") as infile:
+        assert infile.read() == b"rendered"
+    assert len(calls) == 1
+    args, kwargs = calls[0]
+    assert args[:8] == ["pdftoppm", "-f", "3", "-l", "3", "-png", "-r", "144"]
+    assert args[8] == str(upload_path)
+    assert args[9].endswith(os.path.join("pdf_pages", "page_0003"))
+    assert kwargs["check"] is True
+    assert kwargs["stdout"] is source.subprocess.DEVNULL
+    assert kwargs["stderr"] is source.subprocess.PIPE
+    assert kwargs["timeout"] == 60
+
+
 @pytest.mark.parametrize("page_number", ["not-a-number", "0", 0, -1])
 def test_ensure_pdf_page_image_rejects_invalid_page_before_touching_files(tmp_path, monkeypatch, page_number):
     def fail_run(*_args, **_kwargs):

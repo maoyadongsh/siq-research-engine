@@ -247,7 +247,7 @@ bash -n start_all.sh && find scripts infra apps services -type f -name '*.sh' -p
 - Agent runtime：`agent_runtime_streaming.py` 从 façade 升级为 ACTIVE_RUNS/SSE 第一阶段 owner，接管 `ActiveRunState`、`ACTIVE_RUNS`、profile/session key、progress/event append、snapshot 基础逻辑和 active stream replay/heartbeat；`agent_chat_runtime_impl.py` 保留 `get_active_run_snapshot` / `stream_active_run_events` 薄 wrapper，用于注入 diagnostic 与 heartbeat 配置，`stop_active_run`、`stream_chat_reply`、`_collect_stream_run` 和普通 chat/history/attachments/memory/dedupe 顺序仍留在 impl。
 - PDF parser：`select_markdown_result` 已补非 dict / 空 payload 防御，artifact orchestrator 测试新增 malformed payload、本地 Markdown 已存在、required markdown 空 payload和 quality/markdown/backfill 日志顺序边界；未碰 MinerU submit/poll、Flask response、DB schema、queue claim/recover 和 `_ensure_*`。
 - Frontend：`styleSelectorSmoke.test.ts` 新增 CSS rule body 解析和 `DOCUMENT_CSS` mobile/overflow smoke，覆盖移动端 preview 单列、source pane 分隔线、segment/toggle/task toolbar 响应式、批量按钮 tap target、workbench/pane `min-width: 0` 和 Markdown/table/relation flow 横向 overflow guard；未改 JSX/CSS 注入和 refs/scroll owner。
-- CI / 文档：Phase 8 新增红灯 owner 迁移准入门禁，明确 Agent runtime、PDF parser、Frontend Document 和通用 `git diff --check` / `git status --short` 命令。
+- CI / 文档：Phase 8 新增红灯 owner 迁移准入门禁，明确 Agent runtime、PDF parser、Web Node unit / frontend check，以及通用 `git diff --check` 失败门禁和 `git status --short` 收尾 review 输出。
 - 本轮验证：`apps/api` active-runs + loops 70 passed，`apps/api` `tests/test_agent_runtime_*.py` 204 passed，`apps/pdf-parser` artifact/lifecycle 18 passed，`apps/pdf-parser` 全量 284 passed，`apps/web` Document/CSS Node 聚焦 19 passed，`apps/web` `npm run check:frontend` 通过，`git diff --check` 通过。
 - 下一步建议：Agent runtime streaming owner 已完成第一阶段迁移；随后 stop owner 已完成，若继续 Agent runtime，应只推进 `_collect_stream_run` 的极小切片，并保持普通 chat/history/attachments/memory/dedupe 顺序不动。PDF parser 和 Frontend 当前只建议做维护尾项。
 
@@ -283,7 +283,7 @@ bash -n start_all.sh && find scripts infra apps services -type f -name '*.sh' -p
 
 本轮 CI / 文档门禁固化：
 
-- 新增 `scripts/check_owner_migration.sh`，聚合 Agent runtime streaming owner、PDF parser source/artifact、Frontend Document、`git diff --check` 和 `git status --short` 聚焦门禁；该脚本用于当前红灯 owner 收口验证，不替代 `scripts/check_all.sh` 的基础全量检查。
+- 新增 `scripts/check_owner_migration.sh`，聚合 Agent runtime streaming owner、PDF parser source/artifact、Web Node unit、frontend check、`git diff --check` 失败门禁和 `git status --short` 收尾 review 输出；该脚本用于当前红灯 owner 收口验证，不替代 `scripts/check_all.sh` 的基础全量检查。
 - README 的“开发验证”已改为“合并前基础门禁”，前端基线统一为 `npm run check:frontend`；`scripts/README.md` 已登记红灯 owner 收口门禁入口。
 - Phase 8 明确：基础合并门禁以 README 为准，红灯 owner 命令只用于对应模块变更的聚焦验证，可用 `scripts/check_owner_migration.sh` 聚合执行。
 - 本轮验证：`bash -n scripts/check_owner_migration.sh` 通过；`scripts/check_owner_migration.sh` 通过，其中 API active run + loops 84 passed，API runtime focused 218 passed，PDF parser source/artifact 45 passed，PDF parser full 295 passed，Web Document node 22 passed，`npm run check:frontend` 通过，`git diff --check` 通过。
@@ -382,18 +382,35 @@ cd apps/web && npm run test:unit                                         # 44 pa
 cd apps/web && npm run check:frontend                                    # lint/build passed
 ```
 
+### 0.10 2026-07-02 PDF page image render path test 收口
+
+本轮回到 PDF parser 维护尾项，只补 `_ensure_*` 前置测试，不迁 MinerU lifecycle、Flask response、DB schema、任务状态写顺序或 queue owner。改动仅覆盖 `pdf_parser_source_service.ensure_pdf_page_image` 的 pdftoppm 成功渲染与缓存落点行为。
+
+本轮完成：
+
+- `test_pdf_parser_source_service.py` 新增 monkeypatch 测试，模拟 `pdftoppm` 生成 `page_0003-3.png`，断言 service 会移动到标准缓存路径 `pdf_pages/page_0003.png`。
+- 同时锁定 `pdftoppm` 的页码参数、输入 PDF、输出 prefix、`check/stdout/stderr/timeout` 参数，补齐此前仅覆盖缓存命中、非法页码和缺原 PDF 的空白。
+
+本轮验证：
+
+```bash
+cd apps/pdf-parser && PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -p no:cacheprovider -q tests/test_pdf_parser_source_service.py  # 18 passed
+cd apps/pdf-parser && PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -p no:cacheprovider -q tests/test_pdf_source_viewer.py tests/test_pdf_parser_source_service.py tests/test_pdf_parser_artifact_orchestrator_service.py  # 52 passed
+```
+
 当前剩余工作量重估：
 
 - Frontend Document / F-004：主线拆分完成，桌面与移动端 quality tab smoke 已补，剩余 0 个计划内维护轮次，约 0 天。默认停止新增；若发现回归，只补响应式 smoke、selector 清单或少量纯 helper 边界；不迁 refs、selection、scroll、CSS 注入和 JSX 主结构。
-- PDF parser：红灯试点已完成 queue claim/recover、artifact orchestrator、malformed payload 防御、source-view loader/payload 容错和坏 bbox 防御；当前聚焦门禁为 51 passed，全量基线为 301 passed。剩余 0-1 个维护小轮次，约 0-0.25 天，只建议补 `_ensure_*` 前置测试或保持观察；不碰 MinerU submit/poll、Flask response、DB schema、任务状态写顺序。
+- PDF parser：红灯试点已完成 queue claim/recover、artifact orchestrator、malformed payload 防御、source-view loader/payload 容错、坏 bbox 防御和 page image render path 前置测试；当前 source/artifact 聚焦门禁为 52 passed，全量基线为 302 passed。剩余 0 个计划内维护轮次，约 0 天；默认停止新增，只在回归触发时补 source/artifact 负路径。不碰 MinerU submit/poll、Flask response、DB schema、任务状态写顺序。
 - Agent runtime：active SSE owner、stop owner、`_collect_stream_run` terminal helper、cancel/timeout/tool-loop 接线矩阵和 reasoning 单分支 helper 已完成，剩余 0-0.25 天，建议只做提交清理和观察；`stream_chat_reply`、history、attachments、memory、dedupe/build-run-input 顺序不和其他任务同批。
 - Repo / CI / 文档：红灯 owner 收口脚本和 README/Phase 8 门禁口径已固化，剩余 0-0.25 天提交分组清理；后续只需按轮次更新验证结果并保证 ignored runtime/cache/build 不进索引。
+- Repo / CI / 文档补充：`scripts/README.md` 已明确 `git diff --check` 是失败门禁，`git status --short` 仅作为收尾 review 输出；Web 步骤口径同步为 Web Node unit + `npm run check:frontend`。
 
 下一轮推荐任务池：
 
 1. 已完成：Agent runtime `_collect_stream_run` cancel/timeout/tool-loop 接线矩阵，已确认事件顺序、`stop_run` monkeypatch、history save 和 ACTIVE_RUNS 清理。
 2. 已完成：Agent runtime `_collect_stream_run` reasoning 极小事件 helper；Hermes stream 调用、ordinary chat、history、attachments、memory、dedupe、build-run-input 仍未迁移。
-3. PDF / Frontend 维护尾项：默认停止新增，除非发现回归；不再扩大 artifact orchestrator / MinerU lifecycle / Document workbench 状态 owner。已补 PDF source-view payload 容错、Web Document 桌面 quality tab smoke 和移动端 quality select smoke。
+3. PDF / Frontend 维护尾项：默认停止新增，除非发现回归；不再扩大 artifact orchestrator / MinerU lifecycle / Document workbench 状态 owner。已补 PDF source-view payload 容错、PDF page image render path 测试、Web Document 桌面 quality tab smoke 和移动端 quality select smoke。
 4. 提交与发布清理：按 API / PDF parser / Web / Docs 分主题提交，提交前跑 `scripts/check_owner_migration.sh` 或对应聚焦门禁，确认 `apps/web/dist/`、runtime cache、pytest cache 和本地数据不进入索引。
 
 推荐试点顺序：
@@ -1424,7 +1441,7 @@ cd apps/web && npm run test:unit && npm run check:frontend
 
 红灯 owner 迁移准入门禁：
 
-基础合并门禁以 `README.md` 的“合并前基础门禁”为准；以下命令用于对应模块变更的聚焦验证，不作为默认全量 CI。当前可用 `scripts/check_owner_migration.sh` 聚合执行本节 Agent runtime / PDF parser / Frontend Document / 通用提交前检查。
+基础合并门禁以 `README.md` 的“合并前基础门禁”为准；以下命令用于对应模块变更的聚焦验证，不作为默认全量 CI。当前可用 `scripts/check_owner_migration.sh` 聚合执行本节 Agent runtime / PDF parser / Web Node unit / frontend check / 通用提交前检查。
 
 ```bash
 # Agent runtime streaming owner / `_collect_stream_run` 接线矩阵迁移前后必须通过
@@ -1443,7 +1460,7 @@ cd apps/web && npm run check:frontend
 
 # 每轮通用
 git diff --check
-git status --short
+git status --short  # review 输出；有内容时人工确认是否为本轮预期改动或 ignored runtime/cache/build
 ```
 
 准入要求：
@@ -1859,7 +1876,7 @@ test-results/**
 - evidence package 有共享 reader/validator。
 - settings 可注入、可测试。
 - API-finder-rules contract tests 通过。
-- 当前基础门禁：`scripts/check_all.sh` 已通过，覆盖 `apps/api` 405 tests、`apps/pdf-parser` 301 tests、`apps/document-parser` 27 tests、finder 46 tests、rules 29 tests、Web Node unit 44 tests 和 `npm run check:frontend`。
+- 当前基础门禁：`scripts/check_all.sh` 已通过，覆盖 `apps/api` 405 tests、`apps/pdf-parser` 302 tests、`apps/document-parser` 27 tests、finder 46 tests、rules 29 tests、Web Node unit 44 tests 和 `npm run check:frontend`。
 
 ### 前端 DoD
 
