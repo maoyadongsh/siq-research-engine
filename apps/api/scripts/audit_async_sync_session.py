@@ -14,10 +14,31 @@ import json
 from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, TypedDict
 
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
+
+PRIORITY_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
+PRIORITY_LEGEND = {
+    "P0": "inline sync Session acquisition inside async code",
+    "P1": "large module-level route surface",
+    "P2": "medium module-level route surface",
+    "P3": "small isolated route surface",
+}
+ADVISORY_NOTES = (
+    "Advisory report only; this script exits 0 by default.",
+    "Buckets are for planning async DB ownership slices, not a migration gate.",
+)
+
+
+class AdvisoryBucket(TypedDict):
+    priority: str
+    path: str
+    total: int
+    depends_get_session: int
+    next_get_session: int
+    recommendation: str
 
 
 @dataclass(frozen=True, order=True)
@@ -125,10 +146,7 @@ def sync_session_usage(backend_root: Path = BACKEND_ROOT) -> set[str]:
 def finding_summary(findings: Iterable[SyncSessionFinding]) -> dict[str, object]:
     findings = list(findings)
     by_path = Counter(finding.path for finding in findings)
-    by_kind = Counter(
-        "next_get_session" if finding.kind == "body" else "depends_get_session"
-        for finding in findings
-    )
+    by_kind = Counter(_finding_kind_key(finding) for finding in findings)
     return {
         "total": len(findings),
         "by_kind": dict(sorted(by_kind.items())),
@@ -136,9 +154,77 @@ def finding_summary(findings: Iterable[SyncSessionFinding]) -> dict[str, object]
     }
 
 
-def _print_text_report(findings: list[SyncSessionFinding]) -> None:
+def _finding_kind_key(finding: SyncSessionFinding) -> str:
+    return "next_get_session" if finding.kind == "body" else "depends_get_session"
+
+
+def _bucket_priority(total: int, next_get_session: int) -> tuple[str, str]:
+    if next_get_session:
+        return (
+            "P0",
+            "Audit inline next(get_session()) call sites before dependency-only modules.",
+        )
+    if total >= 10:
+        return (
+            "P1",
+            "Plan as an owner-sized module slice; migrate dependency injection consistently.",
+        )
+    if total >= 3:
+        return (
+            "P2",
+            "Batch with related service/data-access cleanup when the owner slice is active.",
+        )
+    return (
+        "P3",
+        "Keep advisory; defer until the parent owner migration reaches this module.",
+    )
+
+
+def advisory_buckets(findings: Iterable[SyncSessionFinding]) -> list[AdvisoryBucket]:
+    grouped: dict[str, list[SyncSessionFinding]] = {}
+    for finding in findings:
+        grouped.setdefault(finding.path, []).append(finding)
+
+    buckets: list[AdvisoryBucket] = []
+    for path, path_findings in grouped.items():
+        by_kind = Counter(_finding_kind_key(finding) for finding in path_findings)
+        total = len(path_findings)
+        next_get_session = by_kind.get("next_get_session", 0)
+        priority, recommendation = _bucket_priority(total, next_get_session)
+        buckets.append(
+            {
+                "priority": priority,
+                "path": path,
+                "total": total,
+                "depends_get_session": by_kind.get("depends_get_session", 0),
+                "next_get_session": next_get_session,
+                "recommendation": recommendation,
+            }
+        )
+
+    return sorted(
+        buckets,
+        key=lambda bucket: (
+            PRIORITY_ORDER[bucket["priority"]],
+            -bucket["next_get_session"],
+            -bucket["total"],
+            bucket["path"],
+        ),
+    )
+
+
+def advisory_report(findings: Iterable[SyncSessionFinding]) -> dict[str, object]:
+    return {
+        "priority_legend": PRIORITY_LEGEND,
+        "buckets": advisory_buckets(findings),
+        "notes": list(ADVISORY_NOTES),
+    }
+
+
+def _print_text_report(findings: list[SyncSessionFinding], *, summary_only: bool) -> None:
     summary = finding_summary(findings)
     print("Async sync Session audit")
+    print("status: advisory")
     print(f"total: {summary['total']}")
     print("by_kind:")
     for kind, count in summary["by_kind"].items():
@@ -146,9 +232,70 @@ def _print_text_report(findings: list[SyncSessionFinding]) -> None:
     print("by_path:")
     for path, count in summary["by_path"].items():
         print(f"  {path}: {count}")
-    print("findings:")
+    print("migration_priority:")
+    for bucket in advisory_buckets(findings):
+        print(
+            "  "
+            f"{bucket['priority']} {bucket['path']}: "
+            f"total={bucket['total']}, "
+            f"depends_get_session={bucket['depends_get_session']}, "
+            f"next_get_session={bucket['next_get_session']}"
+        )
+        print(f"    recommendation: {bucket['recommendation']}")
+    print("notes:")
+    for note in ADVISORY_NOTES:
+        print(f"  {note}")
+    if summary_only:
+        print("findings: omitted (--summary)")
+    else:
+        print("findings:")
+        for finding in findings:
+            print(f"  {finding.key}")
+
+
+def _print_markdown_report(findings: list[SyncSessionFinding], *, summary_only: bool) -> None:
+    summary = finding_summary(findings)
+    print("# Async Sync Session Audit")
+    print()
+    print("Status: advisory. This report is not a blocking gate.")
+    print()
+    print("## Summary")
+    print()
+    print(f"- total: {summary['total']}")
+    for kind, count in summary["by_kind"].items():
+        print(f"- {kind}: {count}")
+    print()
+    print("## By Path")
+    print()
+    print("| path | findings |")
+    print("| --- | ---: |")
+    for path, count in summary["by_path"].items():
+        print(f"| `{path}` | {count} |")
+    print()
+    print("## Migration Priority")
+    print()
+    print("| priority | path | total | depends_get_session | next_get_session | recommendation |")
+    print("| --- | --- | ---: | ---: | ---: | --- |")
+    for bucket in advisory_buckets(findings):
+        print(
+            f"| {bucket['priority']} | `{bucket['path']}` | {bucket['total']} | "
+            f"{bucket['depends_get_session']} | {bucket['next_get_session']} | "
+            f"{bucket['recommendation']} |"
+        )
+    print()
+    print("## Notes")
+    print()
+    for note in ADVISORY_NOTES:
+        print(f"- {note}")
+
+    if summary_only:
+        return
+
+    print()
+    print("## Findings")
+    print()
     for finding in findings:
-        print(f"  {finding.key}")
+        print(f"- `{finding.key}`")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -159,24 +306,26 @@ def main(argv: list[str] | None = None) -> int:
         default=BACKEND_ROOT,
         help="apps/api root to scan",
     )
-    parser.add_argument("--json", action="store_true", help="emit JSON instead of text")
+    output_group = parser.add_mutually_exclusive_group()
+    output_group.add_argument("--json", action="store_true", help="emit JSON instead of text")
+    output_group.add_argument("--markdown", action="store_true", help="emit Markdown instead of text")
+    parser.add_argument("--summary", action="store_true", help="omit individual findings")
     args = parser.parse_args(argv)
 
     backend_root = args.backend_root.resolve()
     findings = iter_sync_session_findings(backend_root)
     if args.json:
-        print(
-            json.dumps(
-                {
-                    "summary": finding_summary(findings),
-                    "findings": [asdict(finding) | {"key": finding.key} for finding in findings],
-                },
-                ensure_ascii=False,
-                indent=2,
-            )
-        )
+        payload = {
+            "summary": finding_summary(findings),
+            "advisory": advisory_report(findings),
+        }
+        if not args.summary:
+            payload["findings"] = [asdict(finding) | {"key": finding.key} for finding in findings]
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    elif args.markdown:
+        _print_markdown_report(findings, summary_only=args.summary)
     else:
-        _print_text_report(findings)
+        _print_text_report(findings, summary_only=args.summary)
     return 0
 
 
