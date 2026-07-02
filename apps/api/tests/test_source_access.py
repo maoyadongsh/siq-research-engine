@@ -7,15 +7,34 @@ import anyio
 import httpx
 import pytest
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import main
 from routers import source
 
 
 class DummyRequest:
     def __init__(self, query_params=None):
         self.query_params = query_params or {}
+
+
+@pytest.fixture
+def source_route_client():
+    original_overrides = main.app.dependency_overrides.copy()
+
+    def fake_session():
+        yield object()
+
+    main.app.dependency_overrides[source.get_session] = fake_session
+    client = TestClient(main.app)
+    try:
+        yield client
+    finally:
+        client.close()
+        main.app.dependency_overrides.clear()
+        main.app.dependency_overrides.update(original_overrides)
 
 
 def test_source_access_token_is_bound_to_task(monkeypatch):
@@ -113,6 +132,94 @@ def test_append_source_token_strips_login_token():
     assert query == [("format", "json"), ("keep", "1"), ("source_token", "signed")]
     assert "access_token" not in query_keys
     assert [value for key, value in query if key == "source_token"] == ["signed"]
+
+
+def test_source_access_route_requires_token_without_upstream_proxy(
+    source_route_client,
+    monkeypatch,
+):
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("unauthorized source access must not call PDF2MD upstream")
+
+    monkeypatch.setattr(source, "_request_pdf2md", fail_if_called)
+    monkeypatch.setattr(source, "_proxy_pdf2md", fail_if_called)
+
+    response = source_route_client.get("/api/source_access/source_page/task-a/3")
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Missing source access token"
+
+
+def test_source_access_route_rejects_non_owner_without_upstream_proxy(
+    source_route_client,
+    monkeypatch,
+):
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("forbidden source access must not call PDF2MD upstream")
+
+    monkeypatch.setattr(source, "_request_pdf2md", fail_if_called)
+    monkeypatch.setattr(source, "_proxy_pdf2md", fail_if_called)
+    monkeypatch.setattr(source, "_token_user", lambda token, session: SimpleNamespace(id=9, role="user"))
+    monkeypatch.setattr(source, "_user_has_task_access", lambda session, user, task_id: False)
+
+    response = source_route_client.get("/api/source_access/source_page/task-a/3?access_token=jwt")
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "PDF task does not belong to current user"
+
+
+def test_source_access_route_mints_clean_signed_url_for_owner(
+    source_route_client,
+    monkeypatch,
+):
+    monkeypatch.setenv("SIQ_AUTH_SECRET_KEY", "source-route-secret-with-enough-length")
+    monkeypatch.delenv("SIQ_SOURCE_TOKEN_SECRET", raising=False)
+    monkeypatch.setattr(source, "_token_user", lambda token, session: SimpleNamespace(id=7, role="user"))
+    monkeypatch.setattr(source, "_user_has_task_access", lambda session, user, task_id: True)
+
+    response = source_route_client.get(
+        "/api/source_access/source_page/task-a/3"
+        "?access_token=jwt&Access_Token=jwt-upper&SOURCE_TOKEN=old-source"
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    parsed = urlsplit(body["url"])
+    query = parse_qsl(parsed.query, keep_blank_values=True)
+    query_keys = {key.lower() for key, _value in query}
+    signed_token = dict(query)["source_token"]
+
+    assert parsed.path == "/api/source/task-a/page/3"
+    assert query == [("format", "html"), ("source_token", signed_token)]
+    assert "access_token" not in query_keys
+    assert source._valid_source_access_token("task-a", signed_token)
+    assert body["expires_in"] == source.SOURCE_ACCESS_TOKEN_TTL_SECONDS
+
+
+def test_source_access_route_reuses_existing_signed_token_without_user_lookup(
+    source_route_client,
+    monkeypatch,
+):
+    monkeypatch.setenv("SIQ_AUTH_SECRET_KEY", "source-route-secret-with-enough-length")
+    monkeypatch.delenv("SIQ_SOURCE_TOKEN_SECRET", raising=False)
+    signed_token = source.create_source_access_token("task-a", ttl_seconds=60)
+
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("valid source_token must not fall back to user token lookup")
+
+    monkeypatch.setattr(source, "_token_user", fail_if_called)
+    monkeypatch.setattr(source, "_user_has_task_access", fail_if_called)
+
+    response = source_route_client.get(
+        f"/api/source_access/source_table/task-a/9?source_token={signed_token}&Access_Token=jwt"
+    )
+
+    assert response.status_code == 200
+    parsed = urlsplit(response.json()["url"])
+    query = parse_qsl(parsed.query, keep_blank_values=True)
+
+    assert parsed.path == "/api/source/task-a/table/9"
+    assert query == [("format", "html"), ("source_token", signed_token)]
 
 
 def test_resolve_source_open_path_adds_html_format():
