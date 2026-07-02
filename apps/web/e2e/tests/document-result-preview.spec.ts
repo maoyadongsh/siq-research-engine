@@ -333,6 +333,16 @@ test('文档结果工作台加载受保护页图、overlay 和图片产物', asy
   await expect(figureImage).toBeVisible()
   await expect(page.getByText('测试图片')).toBeVisible()
 
+  await page.getByRole('tab', { name: /质量/ }).click()
+  const qualityPane = page.locator('[data-slot="tabs-content"][data-state="active"] .doc-quality-list')
+  await expect(qualityPane).toBeVisible()
+  await expect(qualityPane.locator('.doc-data-row').filter({ hasText: '总体状态' })).toContainText('ok')
+  await expect(qualityPane.locator('.doc-data-row').filter({ hasText: '页数' })).toContainText('3')
+  await expect(qualityPane.locator('.doc-data-row').filter({ hasText: '块数' })).toContainText('4')
+  await expect(qualityPane.locator('.doc-data-row').filter({ hasText: '表格' })).toContainText('1')
+  await expect(qualityPane.locator('.doc-data-row').filter({ hasText: '图片' })).toContainText('1')
+  await expect(qualityPane).toContainText('无阻塞警告')
+
   await page.getByRole('tab', { name: /产物/ }).click()
   const artifactRow = page.locator('.doc-artifact-list .doc-data-row').filter({ hasText: 'figures/figure-1.png' })
   await expect(artifactRow.getByRole('button', { name: '打开', exact: true })).toBeVisible()

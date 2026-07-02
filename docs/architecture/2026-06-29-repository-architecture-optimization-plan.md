@@ -348,9 +348,26 @@ python3 -m py_compile apps/pdf-parser/pdf_source_viewer.py apps/pdf-parser/pdf_p
 scripts/check_owner_migration.sh  # API 84/218, PDF source/artifact 51, PDF full 301, Web unit 44, frontend check passed
 ```
 
+### 0.8 2026-07-02 Web Document quality tab smoke 收口
+
+本轮继续按维护尾项推进，只补 Playwright smoke，不改 Document workbench 组件、refs / selection / scroll 状态，也不迁 `DOCUMENT_CSS` / `PDF_CSS` 运行时注入字符串。后台智能体复核结论：现有 `document-result-preview.spec.ts` 已 mock `quality_report.json`，质量页组件有稳定 `.doc-quality-list` / `.doc-data-row` 结构，适合做低风险断言。
+
+本轮完成：
+
+- `document-result-preview.spec.ts` 的桌面结果工作台 smoke 增加“质量”tab 断言，覆盖总体状态、页数、块数、表格数、图片数和无 warning 状态。
+- 断言复用现有 fixture 与 mock API，不新增产品代码，不触碰 Document focus controller、view model、resource opener 或样式注入。
+
+本轮验证：
+
+```bash
+cd apps/web && npm run e2e -- e2e/tests/document-result-preview.spec.ts  # 6 passed
+cd apps/web && npm run test:unit                                         # 44 passed
+cd apps/web && npm run check:frontend                                    # lint/build passed
+```
+
 当前剩余工作量重估：
 
-- Frontend Document / F-004：主线拆分完成，剩余 0-1 个维护小轮次，约 0-0.25 天。只做响应式 smoke、selector 清单或少量纯 helper 边界；不迁 refs、selection、scroll、CSS 注入和 JSX 主结构。
+- Frontend Document / F-004：主线拆分完成，质量 tab smoke 已补，剩余 0-1 个维护小轮次，约 0-0.25 天。默认观察；若发现回归，只补响应式 smoke、selector 清单或少量纯 helper 边界；不迁 refs、selection、scroll、CSS 注入和 JSX 主结构。
 - PDF parser：红灯试点已完成 queue claim/recover、artifact orchestrator、malformed payload 防御、source-view loader/payload 容错和坏 bbox 防御；当前聚焦门禁为 51 passed，全量基线为 301 passed。剩余 0-1 个维护小轮次，约 0-0.25 天，只建议补 `_ensure_*` 前置测试或保持观察；不碰 MinerU submit/poll、Flask response、DB schema、任务状态写顺序。
 - Agent runtime：active SSE owner、stop owner、`_collect_stream_run` terminal helper、cancel/timeout/tool-loop 接线矩阵和 reasoning 单分支 helper 已完成，剩余 0-0.25 天，建议只做提交清理和观察；`stream_chat_reply`、history、attachments、memory、dedupe/build-run-input 顺序不和其他任务同批。
 - Repo / CI / 文档：红灯 owner 收口脚本和 README/Phase 8 门禁口径已固化，剩余 0-0.25 天提交分组清理；后续只需按轮次更新验证结果并保证 ignored runtime/cache/build 不进索引。
@@ -359,7 +376,7 @@ scripts/check_owner_migration.sh  # API 84/218, PDF source/artifact 51, PDF full
 
 1. 已完成：Agent runtime `_collect_stream_run` cancel/timeout/tool-loop 接线矩阵，已确认事件顺序、`stop_run` monkeypatch、history save 和 ACTIVE_RUNS 清理。
 2. 已完成：Agent runtime `_collect_stream_run` reasoning 极小事件 helper；Hermes stream 调用、ordinary chat、history、attachments、memory、dedupe、build-run-input 仍未迁移。
-3. PDF / Frontend 维护尾项：默认停止新增，除非发现回归；不再扩大 artifact orchestrator / MinerU lifecycle / Document workbench 状态 owner。
+3. PDF / Frontend 维护尾项：默认停止新增，除非发现回归；不再扩大 artifact orchestrator / MinerU lifecycle / Document workbench 状态 owner。已补 PDF source-view payload 容错和 Web Document quality tab smoke。
 4. 提交与发布清理：按 API / PDF parser / Web / Docs 分主题提交，提交前跑 `scripts/check_owner_migration.sh` 或对应聚焦门禁，确认 `apps/web/dist/`、runtime cache、pytest cache 和本地数据不进入索引。
 
 推荐试点顺序：
