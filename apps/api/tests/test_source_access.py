@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import parse_qsl, urlsplit
 
 import anyio
 import httpx
@@ -99,13 +100,19 @@ def test_source_access_token_rejects_short_configured_secret(monkeypatch):
 
 
 def test_append_source_token_strips_login_token():
-    url = "https://example.test/api/source/task-a/page/1?format=json&access_token=jwt"
+    url = (
+        "https://example.test/api/source/task-a/page/1"
+        "?format=json&access_token=jwt&Access_Token=jwt-upper"
+        "&source_token=old-signed&SOURCE_TOKEN=old-signed-upper&keep=1"
+    )
 
     signed_url = source._append_source_token(url, "signed")
+    query = parse_qsl(urlsplit(signed_url).query, keep_blank_values=True)
+    query_keys = {key.lower() for key, _value in query}
 
-    assert "source_token=signed" in signed_url
-    assert "format=json" in signed_url
-    assert "access_token=" not in signed_url
+    assert query == [("format", "json"), ("keep", "1"), ("source_token", "signed")]
+    assert "access_token" not in query_keys
+    assert [value for key, value in query if key == "source_token"] == ["signed"]
 
 
 def test_resolve_source_open_path_adds_html_format():

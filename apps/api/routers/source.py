@@ -30,6 +30,7 @@ SOURCE_ACCESS_TOKEN_TTL_SECONDS = int(os.environ.get("SIQ_SOURCE_ACCESS_TOKEN_TT
 SOURCE_TOKEN_SECRET_ENV = "SIQ_SOURCE_TOKEN_SECRET"
 SOURCE_ACCEPT_LEGACY_AUTH_SECRET_ENV = "SIQ_SOURCE_ACCEPT_LEGACY_AUTH_SECRET"
 MIN_SOURCE_TOKEN_SECRET_LENGTH = 32
+SOURCE_AUTH_QUERY_PARAM_NAMES = {"access_token", "source_token"}
 
 
 def _content_type(headers: httpx.Headers) -> str:
@@ -217,9 +218,12 @@ def _append_source_token(url: str, source_token: str | None) -> str:
     if not source_token:
         return url
     parsed = urlsplit(url)
-    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
-    query["source_token"] = source_token
-    query.pop("access_token", None)
+    query = [
+        (key, value)
+        for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+        if key.lower() not in SOURCE_AUTH_QUERY_PARAM_NAMES
+    ]
+    query.append(("source_token", source_token))
     return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment))
 
 
@@ -249,7 +253,7 @@ async def _request_pdf2md(
     upstream_params = [
         (key, value)
         for key, value in request.query_params.multi_items()
-        if key.lower() not in {"access_token", "source_token"}
+        if key.lower() not in SOURCE_AUTH_QUERY_PARAM_NAMES
     ]
     kwargs: dict[str, Any] = {"params": upstream_params, "headers": _pdf2md_headers()}
 
