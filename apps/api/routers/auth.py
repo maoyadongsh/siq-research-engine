@@ -8,8 +8,9 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlmodel import Session, select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
-from database import get_session
+from database import get_async_session, get_session
 from services.auth_service import (
     User, AuditLog, ReportReview,
     AuthService, PermissionChecker, AuditLogger, ReportSignature,
@@ -106,7 +107,7 @@ def _apply_user_update_fields(target_user: User, user_data: UserUpdate, current_
 
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_async_session),
 ) -> User:
     """获取当前登录用户"""
     token = credentials.credentials
@@ -126,7 +127,8 @@ async def get_current_user(
             detail="令牌格式错误",
         )
 
-    user = session.exec(select(User).where(User.username == username)).first()
+    result = await session.exec(select(User).where(User.username == username))
+    user = result.first()
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

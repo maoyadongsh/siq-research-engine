@@ -4,7 +4,6 @@ from scripts.audit_async_sync_session import sync_session_usage
 ALLOWED_SYNC_SESSION_USAGE = {
     "routers/agent_user_router.py::create_specialist_agent_router.chat::param sync_session: Session = Depends(get_session)",
     "routers/agent_user_router.py::create_specialist_agent_router.chat_stream::param sync_session: Session = Depends(get_session)",
-    "routers/auth.py::get_current_user::param session: Session = Depends(get_session)",
     "routers/chat.py::upload_chat_attachments::param session: Session = Depends(get_session)",
     "routers/chat.py::chat::param sync_session: Session = Depends(get_session)",
     "routers/chat.py::chat::body next(get_session())",
@@ -65,7 +64,9 @@ ALLOWED_SYNC_SESSION_USAGE = {
 def test_async_routes_do_not_add_new_sync_session_usage():
     findings = sync_session_usage()
     unexpected = findings - ALLOWED_SYNC_SESSION_USAGE
+    stale = ALLOWED_SYNC_SESSION_USAGE - findings
 
     assert not unexpected, "Unexpected sync Session usage in async routes:\n" + "\n".join(
         sorted(unexpected)
     )
+    assert not stale, "Stale sync Session allowlist entries:\n" + "\n".join(sorted(stale))
