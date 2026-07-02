@@ -5883,6 +5883,26 @@ async def _collect_stream_run(
             _clear_active_run(state)
 
 
+async def _start_streaming_chat_run(
+    *,
+    profile: HermesProfile,
+    session_id: str,
+    run_id: str,
+    message_hash: str | None,
+    message: str,
+    context: Any | None,
+    done_payload_factory: Callable[[str], Awaitable[dict]] | None,
+) -> ActiveRunState:
+    state = ActiveRunState(profile=profile, session_id=session_id, run_id=run_id)
+    state.message_hash = message_hash
+    state.original_message = message
+    state.context = context
+    ACTIVE_RUNS[_active_key(profile, session_id)] = state
+    await _append_state_event(state, "run", {"run_id": run_id, "session_id": session_id})
+    state.task = asyncio.create_task(_collect_stream_run(state, done_payload_factory))
+    return state
+
+
 async def _stream_chat_reply_impl(
     message: str,
     request: Request,
@@ -6001,18 +6021,20 @@ async def _stream_chat_reply_impl(
         profile=profile,
         session_id=hermes_runs_session_id(profile, session_id),
     )
-    state = ActiveRunState(profile=profile, session_id=session_id, run_id=run_id)
-    state.message_hash = message_hash
-    state.original_message = message
-    state.context = context
-    ACTIVE_RUNS[_active_key(profile, session_id)] = state
-    await _append_state_event(state, "run", {"run_id": run_id, "session_id": session_id})
     async def guarded_done_payload(reply: str) -> dict:
         if completed_guard_active:
             return {"new_achievements": [], "stage": "already_completed_llm_reply", "deduped": True}
         return await done_payload_factory(reply) if done_payload_factory else {"new_achievements": []}
 
-    state.task = asyncio.create_task(_collect_stream_run(state, guarded_done_payload))
+    await _start_streaming_chat_run(
+        profile=profile,
+        session_id=session_id,
+        run_id=run_id,
+        message_hash=message_hash,
+        message=message,
+        context=context,
+        done_payload_factory=guarded_done_payload,
+    )
 
     async for event in stream_active_run_events(
         request,

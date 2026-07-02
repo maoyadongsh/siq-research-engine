@@ -425,6 +425,82 @@ def test_stream_chat_reply_preflight_refreshes_pdf_metadata_before_saving_user(m
     assert _event_payload(events[-1]) == {"new_achievements": [], "content": "stream reply"}
 
 
+def test_start_streaming_chat_run_uses_runtime_patch_points(monkeypatch):
+    async def run_case():
+        session_id = "preflight-start-stream-session"
+        calls: list[tuple] = []
+        original_append_state_event = runtime._append_state_event
+
+        async def fake_append_state_event(state, event_name, payload):
+            calls.append(("append", event_name, payload.copy()))
+            await original_append_state_event(state, event_name, payload)
+
+        async def fake_collect_stream_run(state, done_payload_factory):
+            calls.append(
+                (
+                    "collect",
+                    state.run_id,
+                    state.message_hash,
+                    state.original_message,
+                    state.context,
+                )
+            )
+            done_payload = await done_payload_factory("helper reply")
+            await runtime._append_completed_active_run(state, {**done_payload, "content": "helper reply"})
+
+        async def fake_done_payload(reply):
+            calls.append(("done_payload", reply))
+            return {"new_achievements": ["helper"], "reply_seen": reply}
+
+        monkeypatch.setattr(runtime, "_append_state_event", fake_append_state_event)
+        monkeypatch.setattr(runtime, "_collect_stream_run", fake_collect_stream_run)
+
+        key = runtime._active_key("siq_assistant", session_id)
+        try:
+            state = await runtime._start_streaming_chat_run(
+                profile="siq_assistant",
+                session_id=session_id,
+                run_id="run-start-stream",
+                message_hash="hash-start-stream",
+                message="启动流式运行",
+                context={"scope": "patch-points"},
+                done_payload_factory=fake_done_payload,
+            )
+            assert runtime.ACTIVE_RUNS[key] is state
+            assert state.task is not None
+            await state.task
+            return state, calls, key in runtime.ACTIVE_RUNS
+        finally:
+            runtime.ACTIVE_RUNS.pop(key, None)
+
+    state, calls, still_active = anyio.run(run_case)
+
+    assert state.profile == "siq_assistant"
+    assert state.session_id == "preflight-start-stream-session"
+    assert state.run_id == "run-start-stream"
+    assert calls[:3] == [
+        (
+            "append",
+            "run",
+            {"run_id": "run-start-stream", "session_id": "preflight-start-stream-session"},
+        ),
+        (
+            "collect",
+            "run-start-stream",
+            "hash-start-stream",
+            "启动流式运行",
+            {"scope": "patch-points"},
+        ),
+        ("done_payload", "helper reply"),
+    ]
+    assert _event_payload(state.events[-1]) == {
+        "new_achievements": ["helper"],
+        "reply_seen": "helper reply",
+        "content": "helper reply",
+    }
+    assert still_active is True
+
+
 def test_stream_chat_reply_duplicate_short_circuits_before_preflight(monkeypatch):
     async def run_case():
         calls: list[str] = []
@@ -440,6 +516,7 @@ def test_stream_chat_reply_duplicate_short_circuits_before_preflight(monkeypatch
         monkeypatch.setattr(runtime, "analyze_images_with_primary_model", forbidden)
         monkeypatch.setattr(runtime, "create_run", forbidden)
         monkeypatch.setattr(runtime, "_collect_stream_run", forbidden)
+        monkeypatch.setattr(runtime, "_start_streaming_chat_run", forbidden)
         monkeypatch.setattr(runtime, "_load_chat_run_preflight_context", forbidden)
         monkeypatch.setattr(runtime, "build_wiki_catalog_reply", lambda _message: None)
         monkeypatch.setattr(runtime, "_is_general_assistant_request", lambda _message: False)
@@ -473,6 +550,63 @@ def test_stream_chat_reply_duplicate_short_circuits_before_preflight(monkeypatch
         "new_achievements": [],
         "deduped": True,
         "content": "[已处理] duplicate reply",
+    }
+
+
+def test_stream_chat_reply_catalog_short_circuits_before_streaming_run_start(monkeypatch):
+    async def run_case():
+        calls: list[tuple] = []
+
+        async def forbidden(*_args, **_kwargs):
+            raise AssertionError("catalog path must not enter streaming run startup")
+
+        async def fake_save_message(_async_session, role, content, current_session_id, attachments=None):
+            calls.append(("save", role, content, current_session_id, attachments))
+
+        async def fake_refresh_session_memory(_async_session, profile, current_session_id):
+            calls.append(("refresh_session_memory", profile, current_session_id))
+
+        def fake_remember_completed_run(profile, current_session_id, message_hash, reply):
+            calls.append(("remember_completed_run", profile, current_session_id, bool(message_hash), reply))
+
+        monkeypatch.setattr(runtime, "build_wiki_catalog_reply", lambda _message: "catalog reply")
+        monkeypatch.setattr(runtime, "save_message", fake_save_message)
+        monkeypatch.setattr(runtime, "refresh_session_memory", fake_refresh_session_memory)
+        monkeypatch.setattr(runtime, "_remember_completed_run", fake_remember_completed_run)
+        monkeypatch.setattr(runtime, "load_history", forbidden)
+        monkeypatch.setattr(runtime, "ensure_local_memory_context", forbidden)
+        monkeypatch.setattr(runtime, "wait_for_pdf_attachment_parses", forbidden)
+        monkeypatch.setattr(runtime, "analyze_images_with_primary_model", forbidden)
+        monkeypatch.setattr(runtime, "create_run", forbidden)
+        monkeypatch.setattr(runtime, "_collect_stream_run", forbidden)
+        monkeypatch.setattr(runtime, "_start_streaming_chat_run", forbidden)
+        monkeypatch.setattr(runtime, "_load_chat_run_preflight_context", forbidden)
+
+        events = []
+        async for event in runtime.stream_chat_reply(
+            "现在入库了多少家公司",
+            _Request(),
+            object(),
+            session_id="preflight-catalog-session",
+            profile="siq_assistant",
+        ):
+            events.append(event)
+        return calls, events
+
+    calls, events = anyio.run(run_case)
+
+    assert calls == [
+        ("save", "user", "现在入库了多少家公司", "preflight-catalog-session", []),
+        ("save", "assistant", "catalog reply", "preflight-catalog-session", None),
+        ("refresh_session_memory", "siq_assistant", "preflight-catalog-session"),
+        ("remember_completed_run", "siq_assistant", "preflight-catalog-session", True, "catalog reply"),
+    ]
+    assert [event["event"] for event in events] == ["delta", "done"]
+    assert _event_payload(events[0]) == {"content": "catalog reply"}
+    assert _event_payload(events[1]) == {
+        "new_achievements": [],
+        "catalog": True,
+        "content": "catalog reply",
     }
 
 
@@ -545,6 +679,7 @@ def test_stream_chat_reply_existing_active_run_join_skips_preflight_side_effects
         monkeypatch.setattr(runtime, "refresh_session_memory", forbidden)
         monkeypatch.setattr(runtime, "create_run", forbidden)
         monkeypatch.setattr(runtime, "_collect_stream_run", forbidden)
+        monkeypatch.setattr(runtime, "_start_streaming_chat_run", forbidden)
         monkeypatch.setattr(runtime, "_load_chat_run_preflight_context", forbidden)
 
         try:

@@ -682,6 +682,56 @@ scripts/check_owner_migration.sh  # API 91/225, PDF source/artifact 53, PDF full
 
 下一步建议：若继续开发，先为选定的 1 个 Agent runtime owner 补一条失败态哨兵测试，再做最小实现；如果无法明确 owner，就停止实现线，只做回归触发的维护尾项。
 
+### 0.16 2026-07-02 Agent runtime streaming 启动薄化收口
+
+本轮按 0.15 矩阵选择唯一 owner：“streaming 编排再薄化”。后台智能体并行复核候选 owner、monkeypatch / 兼容入口和门禁覆盖后，结论是 history/memory owner 仍会同时触碰 DB 顺序、profile/session 隔离和当前 user 是否污染 history，暂不进入实现；本轮只在 `agent_chat_runtime_impl.py` 同文件内抽出 `_start_streaming_chat_run`，将原本内联的 `ActiveRunState` 创建、`ACTIVE_RUNS` 注册、`run` 事件 append、`_collect_stream_run` task 启动收进一个 helper。
+
+完成项：
+
+- 新增 `test_start_streaming_chat_run_uses_runtime_patch_points`：锁定 `_start_streaming_chat_run` 必须继续通过 `runtime._append_state_event` 与 `runtime._collect_stream_run` 全局符号工作，确保 `services.agent_chat_runtime` facade 的 monkeypatch 入口仍命中 impl。
+- 在 streaming duplicate、catalog、existing active join 三条短路路径补 forbid 护栏，禁止进入 `_start_streaming_chat_run`、preflight、history/memory、Hermes `create_run` 或 `_collect_stream_run`。
+- 保持 `ACTIVE_RUNS` owner 不变，仍由 `agent_runtime_streaming.py` 暴露共享 dict；本轮不迁 SSE append、stop lifecycle、`_collect_stream_run` 主循环、history/memory/dedupe/build-run-input、PDF parser 或 Web owner。
+
+行为边界：
+
+| 路径 | 本轮保持的合同 |
+| --- | --- |
+| Streaming 正常路径 | `create_run` 后调用 `_start_streaming_chat_run`；helper 注册同一个 `ActiveRunState`、先 append `run`、再启动 `_collect_stream_run`；随后仍由 `stream_active_run_events` replay |
+| Streaming PDF 路径 | PDF wait progress、wait、metadata refresh、save user 顺序不变；事件序仍由测试锁定为 `progress, run, progress, done` |
+| Duplicate / catalog / active join | 均不得进入 `_start_streaming_chat_run`；duplicate 只发 `delta/done deduped`，catalog 只保存 user/assistant 并返回 catalog reply，active join 只 replay 既有事件 |
+
+回滚边界：
+
+| 失败信号 | 回滚范围 |
+| --- | --- |
+| streaming PDF 事件顺序变化、无 PDF 时误发 wait progress、run event 丢失或重复 | 只回滚 `_start_streaming_chat_run` 接线到 0.15 前内联代码 |
+| `runtime._append_state_event` / `runtime._collect_stream_run` monkeypatch 失效 | 回滚 helper 内静态绑定，恢复通过 impl 全局符号调用 |
+| duplicate / catalog / active join 进入新 helper | 回滚 helper 调用位置，保留短路 forbid 测试 |
+| active state identity 变化或 stop lifecycle 回归 | 不迁 `ACTIVE_RUNS` / `agent_runtime_streaming.py`；只撤回本轮 helper |
+
+本轮验证：
+
+```bash
+cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_chat_preflight.py -q  # 9 passed
+cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_active_runs.py tests/test_agent_chat_runtime_loops.py tests/test_agent_runtime_chat_preflight.py tests/test_agent_chat_runtime_attachments.py tests/test_agent_runtime_memory.py tests/test_agent_runtime_dedupe.py -q  # 116 passed
+cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_active_runs.py tests/test_agent_chat_runtime_loops.py tests/test_agent_runtime_chat_preflight.py -q  # 92 passed
+cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_*.py -q  # 226 passed
+cd apps/api && .venv/bin/python -m py_compile services/agent_chat_runtime_impl.py services/agent_runtime_sessions.py services/agent_runtime_streaming.py services/agent_runtime_attachments.py services/agent_runtime_memory.py services/agent_runtime_dedupe.py tests/test_agent_runtime_chat_preflight.py tests/test_agent_runtime_active_runs.py
+git diff --check
+scripts/check_owner_migration.sh  # API 93/227, PDF 53/304, Web unit 44, frontend check passed
+```
+
+后续工作量重估：
+
+| 优先级 | 任务 | 范围 | 工作量 | 门禁 |
+| --- | --- | --- | --- | --- |
+| P0 | Agent runtime streaming 启动薄化 | 本节已完成；后续只接受回归修复 | 0 天 | 保持 preflight / active-run / 聚合门禁绿 |
+| P1 | Agent runtime 下一 owner 选择 | 二选一：继续 `_collect_stream_run` 内部纯函数级薄化，或重新评估 history/memory owner；必须先补失败态哨兵测试 | M，约 0.5-1 天 | `tests/test_agent_runtime_chat_preflight.py` + `tests/test_agent_runtime_active_runs.py` + `tests/test_agent_runtime_*.py` |
+| P1 | history/memory owner 设计再确认 | 只做设计或测试哨兵，暂不迁 DB 写读 owner；重点锁 profile/session、保存当前 user 前 history、`refresh_session_memory` 轮次边界 | S-M，约 0.5 天 | 新增哨兵测试先红后绿；API focused |
+| P2 | PDF / Frontend 维护尾项 | 仅按回归触发补测试；不与 Agent runtime owner 迁移同批 | 0-0.25 天 | 对应聚焦门禁 + `scripts/check_owner_migration.sh` |
+
+下一步建议：若继续加速，优先做 history/memory owner 的只读设计和失败态哨兵测试；如果要继续实现，则仍只选 1 个极窄 owner，并在同轮禁止迁 `stream_chat_reply` 主编排、Hermes `create_run`、`_collect_stream_run` 主循环和 `ACTIVE_RUNS` owner。
+
 ## 1. 当前架构事实
 
 ### 1.1 当前主要目录职责
