@@ -490,6 +490,12 @@ test('移动端 select 切换标签后保持选中状态，且不污染预览页
   await expect(tabSelect).toHaveValue('figures')
   await expect(page.getByText('测试图片')).toBeVisible()
 
+  await tabSelect.selectOption('quality')
+  await expect(tabSelect).toHaveValue('quality')
+  const qualityPane = page.locator('[data-slot="tabs-content"][data-state="active"] .doc-quality-list')
+  await expect(qualityPane).toBeVisible()
+  await expect(qualityPane.locator('.doc-data-row').filter({ hasText: '页数' })).toContainText('3')
+
   await tabSelect.selectOption('preview')
   await expect(tabSelect).toHaveValue('preview')
   await expect(pageSelect).toHaveValue('2')
