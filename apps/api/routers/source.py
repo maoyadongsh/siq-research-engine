@@ -27,6 +27,9 @@ PUBLIC_ORIGIN = (os.environ.get("SIQ_PUBLIC_ORIGIN") or os.environ.get("SIQ_PUBL
 router = APIRouter(tags=["source"])
 optional_security = HTTPBearer(auto_error=False)
 SOURCE_ACCESS_TOKEN_TTL_SECONDS = int(os.environ.get("SIQ_SOURCE_ACCESS_TOKEN_TTL_SECONDS", "900"))
+SOURCE_TOKEN_SECRET_ENV = "SIQ_SOURCE_TOKEN_SECRET"
+SOURCE_ACCEPT_LEGACY_AUTH_SECRET_ENV = "SIQ_SOURCE_ACCEPT_LEGACY_AUTH_SECRET"
+MIN_SOURCE_TOKEN_SECRET_LENGTH = 32
 
 
 def _content_type(headers: httpx.Headers) -> str:
@@ -104,9 +107,56 @@ def _user_has_task_access(session: Session, user: User, task_id: str) -> bool:
     return item is not None
 
 
-def _source_token_signature(task_id: str, expires_at: int) -> str:
+def _configured_source_token_secret() -> str | None:
+    secret = (os.environ.get(SOURCE_TOKEN_SECRET_ENV) or "").strip()
+    if not secret:
+        return None
+    if len(secret) < MIN_SOURCE_TOKEN_SECRET_LENGTH:
+        raise RuntimeError(
+            f"{SOURCE_TOKEN_SECRET_ENV} must be at least {MIN_SOURCE_TOKEN_SECRET_LENGTH} characters."
+        )
+    return secret
+
+
+def _source_token_signing_secret() -> str:
+    return _configured_source_token_secret() or AuthService.secret_key()
+
+
+def _source_token_verification_secrets() -> list[str]:
+    source_secret = _configured_source_token_secret()
+    if not source_secret:
+        return [AuthService.secret_key()]
+    return [source_secret]
+
+
+def _accept_legacy_source_token_secret() -> bool:
+    return (os.environ.get(SOURCE_ACCEPT_LEGACY_AUTH_SECRET_ENV) or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _legacy_source_token_verification_secret() -> str | None:
+    if not _accept_legacy_source_token_secret():
+        return None
+    source_secret = _configured_source_token_secret()
+    if not source_secret:
+        return None
+    try:
+        legacy_auth_secret = AuthService.secret_key()
+    except RuntimeError:
+        return None
+    if hmac.compare_digest(source_secret, legacy_auth_secret):
+        return None
+    return legacy_auth_secret
+
+
+def _source_token_signature(task_id: str, expires_at: int, *, secret: str | None = None) -> str:
     payload = f"{task_id}:{expires_at}".encode("utf-8")
-    return hmac.new(AuthService.secret_key().encode("utf-8"), payload, hashlib.sha256).hexdigest()
+    signing_secret = secret or _source_token_signing_secret()
+    return hmac.new(signing_secret.encode("utf-8"), payload, hashlib.sha256).hexdigest()
 
 
 def create_source_access_token(task_id: str, ttl_seconds: int = SOURCE_ACCESS_TOKEN_TTL_SECONDS) -> str:
@@ -124,8 +174,15 @@ def _valid_source_access_token(task_id: str, token: str | None) -> bool:
         return False
     if expires_at < int(time.time()):
         return False
-    expected = _source_token_signature(task_id, expires_at)
-    return hmac.compare_digest(signature, expected)
+    for secret in _source_token_verification_secrets():
+        expected = _source_token_signature(task_id, expires_at, secret=secret)
+        if hmac.compare_digest(signature, expected):
+            return True
+    legacy_secret = _legacy_source_token_verification_secret()
+    if legacy_secret:
+        expected = _source_token_signature(task_id, expires_at, secret=legacy_secret)
+        return hmac.compare_digest(signature, expected)
+    return False
 
 
 def _request_access_token(request: Request, credentials: HTTPAuthorizationCredentials | None) -> str:
@@ -192,7 +249,7 @@ async def _request_pdf2md(
     upstream_params = [
         (key, value)
         for key, value in request.query_params.multi_items()
-        if key not in {"access_token", "source_token"}
+        if key.lower() not in {"access_token", "source_token"}
     ]
     kwargs: dict[str, Any] = {"params": upstream_params, "headers": _pdf2md_headers()}
 
