@@ -446,6 +446,67 @@ cd apps/pdf-parser && PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -p no:cachepro
 
 下一步建议：PDF parser queue claim/recover、artifact/MinerU lifecycle 迁移前矩阵、PDF artifact orchestrator、前端 Document focus controller / view model / resource opener、Agent runtime ACTIVE_RUNS / active SSE owner 第一阶段、stop owner、`_collect_stream_run` terminal helper、cancel/timeout/tool-loop 接线矩阵、reasoning 极小事件 helper 和红灯 owner 收口门禁脚本均已完成。当前主线应停止新增维护切片；若继续 Agent runtime，需另开 `stream_chat_reply`、sessions/history/memory owner 设计窗口。
 
+### 0.11 2026-07-02 下一阶段独立设计窗口准入
+
+本轮按“继续加速但严控风险”的要求，调用后台智能体并行只读复核 Agent runtime、PDF parser 与整体风险边界，并同步抽样检查 `apps/api/services/agent_chat_runtime_impl.py`、`agent_runtime_streaming.py` 和当前 API runtime 测试。结论：维护主线继续保持关闭；下一阶段若继续开发，首选开启 Agent runtime `stream_chat_reply` 独立设计窗口，但第一步只锁普通 chat 与 streaming 共享 preflight 编排合同，先产出设计矩阵、护栏测试矩阵和回滚矩阵，不在本轮直接迁运行时 owner。
+
+选择依据：
+
+- Agent runtime 已完成 `ACTIVE_RUNS` / active SSE / stop / `_collect_stream_run` terminal、cancel、timeout、tool-loop、reasoning 的维护切片；`agent_runtime_streaming.py` 已成为 active run state 与事件 append owner。
+- `agent_chat_runtime_impl.py` 仍约 5985 行，`_stream_chat_reply_impl` 同时承载 existing active run join、dedupe、catalog reply、completion guard、history/memory、PDF 附件等待、图片预分析、`create_run`、ACTIVE_RUNS 注册、done payload 和 SSE join。下一步风险集中且边界清晰，适合先做 owner 设计。
+- PDF parser 的 MinerU lifecycle、Flask response、DB schema / task state 写顺序、`_ensure_*` 编排仍是高耦合状态机，后台复核建议只作为备选设计窗口；当前不直接实现迁移。
+- Frontend Document 当前只剩回归触发型维护；`DOCUMENT_CSS` / `PDF_CSS` 迁移需要视觉 smoke 和截图验证，不应与 Agent/PDF 状态 owner 同批。
+
+第一窗口准入任务：
+
+| 顺序 | 任务 | 范围 | 工作量 | 交付物 / 门禁 |
+| --- | --- | --- | --- | --- |
+| A0 | 本轮完成：下一窗口准入固化 | 更新优化方案，明确候选窗口、禁止混批、工作量和门禁 | S，约 0.25 天 | 本节文档；`git diff --check` |
+| A1 | Agent runtime preflight 行为矩阵 | 只读梳理 blocking 与 streaming 共享顺序：`load_history`、`ensure_local_memory_context`、PDF 附件等待与 metadata refresh、save user、`build_hermes_run_input(... allow_initialize=not history ...)`、Hermes session id、`create_run` | S-M，约 0.5 天 | 1 页设计说明；不得迁 owner；API runtime focused baseline 先跑一次 |
+| A2 | Agent runtime 回滚与测试矩阵 | 明确 wrapper / façade 保留点、monkeypatch 语义、circular import 防线、失败恢复路径；列出新增/复用测试 | S，约 0.25-0.5 天 | 回滚矩阵 + 测试矩阵；`services.agent_chat_runtime` 兼容入口不变 |
+| A3 | Agent runtime preflight 护栏测试 | 仅补 blocking / streaming 编排哨兵测试，锁定当前 user 保存前加载 history/memory、PDF metadata 刷新后保存、catalog/dedupe short-circuit 不创建 run | M，约 0.5-1 天 | API focused suite 通过；仍不迁 sessions/history/memory/dedupe/build-run-input |
+| A4 | Agent runtime 最小实现试点 | 仅在 A1-A3 通过后选择 1 个 owner，建议先抽 `stream_chat_reply` 编排边界，不混入 sessions/history/memory/dedupe/build-run-input | M，约 0.5-1 天 | API focused suite 通过；新增测试只覆盖迁移 owner，不顺手改行为 |
+| B1 | PDF parser MinerU lifecycle 设计窗口 | 状态机、MinerU submit/poll/result fetch、local markdown fast path、completed_missing_artifact、日志与持久化时机 | L，约 1.5-2.5 天 | 单独窗口；先写状态机矩阵，不碰 Flask response / DB schema |
+| C1 | Frontend CSS 注入迁移窗口 | `DOCUMENT_CSS` / `PDF_CSS` 模块化和视觉回归 | L，约 1-3 天 | 单独 UI 验证窗口；桌面/移动 Playwright + 截图或视觉 smoke |
+
+禁止混批清单：
+
+- Agent runtime 窗口不同时迁 `stream_chat_reply`、ordinary chat、sessions、history、attachments、memory、dedupe、build-run-input 多个 owner。
+- Agent runtime 窗口不改变 `services.agent_chat_runtime` 兼容入口、router import、`runtime.stop_run` / `runtime.create_run` 等测试 monkeypatch 语义。
+- PDF parser 窗口不与 Agent/Web 同批；未完成状态机矩阵前不动 MinerU submit/poll、Flask response、DB schema、任务状态写顺序和 `_ensure_*` 编排。
+- Frontend 窗口不与 Agent/PDF 状态 owner 同批；CSS 注入迁移前不改 Document workbench refs、selection、scroll 和 JSX 主结构。
+- 任一窗口都不把 `apps/web/dist/`、pytest cache、runtime cache、本地 DB、下载文件或解析产物加入索引。
+
+Agent runtime 第一窗口建议门禁：
+
+```bash
+(cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_active_runs.py tests/test_agent_chat_runtime_loops.py tests/test_agent_chat_runtime_attachments.py tests/test_agent_runtime_memory.py tests/test_agent_runtime_dedupe.py tests/test_agent_runtime_context.py -q)
+(cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_active_runs.py tests/test_agent_chat_runtime_loops.py -q)
+(cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_*.py -q)
+(cd apps/api && .venv/bin/python -m py_compile services/agent_runtime_streaming.py services/agent_chat_runtime_impl.py services/agent_runtime_sessions.py)
+scripts/check_owner_migration.sh
+git diff --check
+```
+
+PDF parser 备选窗口门禁：
+
+```bash
+(cd apps/pdf-parser && PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -p no:cacheprovider -q tests/test_pdf_parser_mineru_lifecycle.py tests/test_pdf_parser_artifact_orchestrator_service.py tests/test_pdf_parser_task_lifecycle_service.py)
+(cd apps/pdf-parser && PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -p no:cacheprovider -q)
+git diff --check
+```
+
+当前排期建议：下一轮先做 A1/A2 设计产物，预计 0.75-1 天；随后做 A3 preflight 护栏测试，预计 0.5-1 天；只有设计矩阵、回滚矩阵、护栏测试和 API focused baseline 同时通过后，再进入 A4 最小实现。PDF parser 和 Frontend CSS 均保持备选，不在 Agent runtime 第一窗口中并行修改。
+
+本轮验证：
+
+```bash
+git diff --check
+bash -n scripts/check_owner_migration.sh
+bash -n scripts/check_all.sh
+scripts/check_owner_migration.sh  # API 84/218, PDF source/artifact 52, PDF full 302, Web unit 44, frontend check passed
+```
+
 ## 1. 当前架构事实
 
 ### 1.1 当前主要目录职责
