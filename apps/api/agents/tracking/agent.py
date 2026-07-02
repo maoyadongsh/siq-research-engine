@@ -20,7 +20,6 @@ from agents.tracking.schemas import (
     TrackingItemResponse,
     SentimentDailyReport,
     MetricTrackingPanel,
-    AlertReport,
 )
 
 
@@ -83,11 +82,7 @@ class TrackingAgent:
         # 3. 追踪指标
         metric_panel = None
         if metrics_data:
-            report_period = datetime.now().strftime("%Y-Q%q")  # 简化，实际需要计算季度
-            # 修正季度计算
-            month = datetime.now().month
-            quarter = (month - 1) // 3 + 1
-            report_period = f"{datetime.now().year}-Q{quarter}"
+            report_period = _report_period_for_quarter()
 
             metric_panel = self.metric_tracker.track_metrics(
                 stock_code=stock_code,
@@ -220,21 +215,22 @@ class TrackingAgent:
                 resolved_company_name = parent_name.split("-", 1)[1]
 
         # 读取跟踪事项
-        items = []
         items_path = os.path.join(company_dir, "tracking-items.md")
-        if os.path.exists(items_path):
-            # 简化：实际应解析文件内容
-            pass
+        items = _read_tracking_items(items_path, stock_code, resolved_company_name)
 
         # 构建面板
         return TrackingDashboard(
             stock_code=stock_code,
             company_name=resolved_company_name,
-            active_items=[],
+            active_items=items,
             latest_sentiment=None,
             latest_metrics=None,
             recent_alerts=[],
-            summary=f"跟踪目录已创建: {company_dir}",
+            summary=(
+                f"跟踪目录已创建: {company_dir}"
+                if not items
+                else f"已加载 {len(items)} 项跟踪事项: {company_dir}"
+            ),
         )
 
     def _generate_summary(
@@ -266,3 +262,134 @@ class TrackingAgent:
         parts.append("*数据更新时间: " + datetime.now().strftime("%Y-%m-%d %H:%M") + "*")
 
         return "\n".join(parts)
+
+
+def _report_period_for_quarter(now: datetime | None = None) -> str:
+    now = now or datetime.now()
+    quarter = (now.month - 1) // 3 + 1
+    return f"{now.year}-Q{quarter}"
+
+
+def _read_tracking_items(
+    items_path: str | os.PathLike[str], stock_code: str, company_name: str
+) -> list[TrackingItemResponse]:
+    if not os.path.exists(items_path):
+        return []
+
+    with open(items_path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    return _parse_tracking_items_markdown(content, stock_code, company_name)
+
+
+def _parse_tracking_items_markdown(
+    content: str, stock_code: str, company_name: str
+) -> list[TrackingItemResponse]:
+    items: list[dict] = []
+    category = "其他"
+    current: dict | None = None
+
+    def flush_current() -> None:
+        nonlocal current
+        if current and current.get("title"):
+            items.append(current)
+        current = None
+
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        if line.startswith("## ") and not line.startswith("### "):
+            flush_current()
+            category = line.removeprefix("## ").strip() or "其他"
+            continue
+
+        if line.startswith("### "):
+            flush_current()
+            current = {
+                "category": category,
+                "title": line.removeprefix("### ").strip() or "未命名",
+                "description": "-",
+                "due_date": None,
+                "threshold_value": None,
+                "verification_method": None,
+                "status": "active",
+                "source_report": None,
+            }
+            continue
+
+        if not current or not line.startswith("- **"):
+            continue
+
+        field_name, field_value = _parse_tracking_item_field(line)
+        if field_name == "描述":
+            current["description"] = field_value or "-"
+        elif field_name == "到期日":
+            current["due_date"] = _parse_optional_datetime(field_value)
+        elif field_name == "阈值":
+            current["threshold_value"] = _none_if_empty_marker(field_value)
+        elif field_name == "验证方式":
+            current["verification_method"] = _none_if_empty_marker(field_value)
+        elif field_name == "状态":
+            current["status"] = field_value or "active"
+        elif field_name in {"来源报告", "来源"}:
+            current["source_report"] = _none_if_empty_marker(field_value)
+
+    flush_current()
+
+    now = datetime.now()
+    responses: list[TrackingItemResponse] = []
+    for idx, item in enumerate(items, 1):
+        responses.append(
+            TrackingItemResponse(
+                id=idx,
+                stock_code=stock_code,
+                company_name=company_name,
+                category=item.get("category") or "其他",
+                title=item.get("title") or "未命名",
+                description=item.get("description") or "-",
+                due_date=item.get("due_date"),
+                threshold_value=item.get("threshold_value"),
+                verification_method=item.get("verification_method"),
+                status=item.get("status") or "active",
+                source_report=item.get("source_report"),
+                created_at=now,
+                updated_at=now,
+            )
+        )
+    return responses
+
+
+def _parse_tracking_item_field(line: str) -> tuple[str, str]:
+    try:
+        label, value = line.removeprefix("- **").split("**:", 1)
+    except ValueError:
+        return "", ""
+    return label.strip(), value.strip()
+
+
+def _none_if_empty_marker(value: str | None) -> str | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    return None if stripped in {"", "-", "无", "None", "null"} else stripped
+
+
+def _parse_optional_datetime(value: str | None) -> datetime | None:
+    stripped = _none_if_empty_marker(value)
+    if not stripped:
+        return None
+
+    normalized = stripped.replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(normalized)
+    except ValueError:
+        pass
+
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(stripped, fmt)
+        except ValueError:
+            continue
+    return None

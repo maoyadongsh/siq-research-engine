@@ -192,7 +192,7 @@ class SentimentMonitor:
 | 舆情总量 | {len(records)} |
 | 正面 | {pos_count} |
 | 负面 | {neg_count} |
-| 中性 | {ne_count} |
+| 中性 | {neu_count} |
 | 平均情感得分 | {avg_score:+.3f} |
 
 ---

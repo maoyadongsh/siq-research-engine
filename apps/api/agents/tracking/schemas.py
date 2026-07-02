@@ -135,5 +135,5 @@ class TrackingDashboard(BaseModel):
     active_items: list[TrackingItemResponse]
     latest_sentiment: Optional[SentimentDailyReport]
     latest_metrics: Optional[MetricTrackingPanel]
-    recent_alerts: list[AlertRecordResponse]
+    recent_alerts: list[AlertReport]
     summary: str
