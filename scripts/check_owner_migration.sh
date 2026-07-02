@@ -17,14 +17,14 @@ if [[ ! -x "$API_PY" ]]; then
     exit 1
 fi
 
-run_step "API active run and loop gates" \
-    bash -lc "cd '$ROOT_DIR/apps/api' && '$API_PY' -m pytest tests/test_agent_runtime_active_runs.py tests/test_agent_chat_runtime_loops.py -q"
+run_step "API active run, loop, and preflight gates" \
+    bash -lc "cd '$ROOT_DIR/apps/api' && '$API_PY' -m pytest tests/test_agent_runtime_active_runs.py tests/test_agent_chat_runtime_loops.py tests/test_agent_runtime_chat_preflight.py -q"
 
 run_step "API runtime focused suite" \
     bash -lc "cd '$ROOT_DIR/apps/api' && '$API_PY' -m pytest tests/test_agent_runtime_*.py -q"
 
 run_step "API runtime compile gate" \
-    bash -lc "cd '$ROOT_DIR/apps/api' && '$API_PY' -m py_compile services/agent_chat_runtime_impl.py services/agent_runtime_sessions.py services/agent_runtime_streaming.py tests/test_agent_runtime_active_runs.py"
+    bash -lc "cd '$ROOT_DIR/apps/api' && '$API_PY' -m py_compile services/agent_chat_runtime_impl.py services/agent_runtime_sessions.py services/agent_runtime_streaming.py tests/test_agent_runtime_active_runs.py tests/test_agent_runtime_chat_preflight.py"
 
 run_step "PDF parser source and artifact gates" \
     bash -lc "cd '$ROOT_DIR/apps/pdf-parser' && PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -p no:cacheprovider -q tests/test_pdf_parser_source_service.py tests/test_pdf_source_viewer.py tests/test_pdf_parser_artifact_orchestrator_service.py"

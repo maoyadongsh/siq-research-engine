@@ -507,6 +507,38 @@ bash -n scripts/check_all.sh
 scripts/check_owner_migration.sh  # API 84/218, PDF source/artifact 52, PDF full 302, Web unit 44, frontend check passed
 ```
 
+### 0.12 2026-07-02 Agent runtime preflight 护栏测试收口
+
+本轮按 0.11 的 A3 范围推进，只补普通 chat 与 streaming 共享 preflight 的哨兵测试，不迁 `stream_chat_reply`、sessions/history/memory/dedupe/build-run-input owner，也不改变 `agent_chat_runtime_impl.py` 的运行时路径。后台智能体只读复核结论一致：先锁顺序与短路分支，再考虑 A4 最小实现。
+
+本轮完成：
+
+- 新增 `test_agent_runtime_chat_preflight.py`，覆盖 blocking `collect_chat_reply` 的 preflight 顺序：`load_history`、`ensure_local_memory_context`、PDF 附件等待、metadata refresh、save user、image analysis、`build_hermes_run_input`、`create_run`、`collect_run_result`、save assistant、refresh memory。
+- 覆盖 streaming `stream_chat_reply` 的 preflight 顺序：history/memory 在当前 user 保存前加载，PDF metadata refresh 在 save user 前完成，`create_run` 收到的 `conversation_history` 不包含当前 user，Hermes session id 仍为 `siq:{profile}:{session_id}`。
+- 锁定 `allow_initialize=not history` 合同：blocking 空历史为 `True`，streaming 有历史为 `False`。
+- 补 streaming duplicate 与 blocking duplicate 早退哨兵，断言 duplicate path 不进入 history/memory/save/refresh/PDF wait/image/create run。
+- 补 streaming existing active run join 哨兵，断言 join path 不进入 catalog/dedupe/history/memory/save/refresh/create run，只复用已有 active event stream。
+- `scripts/check_owner_migration.sh` 的 API 首段门禁改为显式包含 preflight 测试，compile gate 同步编译新测试文件；`scripts/README.md` 同步说明 Agent runtime preflight 护栏已纳入红灯 owner 收口门禁。
+
+本轮验证：
+
+```bash
+cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_chat_preflight.py -q  # 5 passed
+cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_active_runs.py tests/test_agent_chat_runtime_loops.py tests/test_agent_runtime_chat_preflight.py -q  # 89 passed
+cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_*.py -q  # 223 passed
+cd apps/api && .venv/bin/python -m py_compile services/agent_runtime_streaming.py services/agent_chat_runtime_impl.py services/agent_runtime_sessions.py tests/test_agent_runtime_chat_preflight.py
+scripts/check_owner_migration.sh  # API 89/223, PDF source/artifact 52, PDF full 302, Web unit 44, frontend check passed
+git diff --check
+```
+
+当前剩余工作量重估：
+
+- A3 preflight 护栏测试：已完成，剩余 0 天。
+- A4 Agent runtime 最小实现试点：仍需单独窗口，约 0.5-1 天；只允许选择 1 个 owner，优先考虑 `stream_chat_reply` preflight 边界的薄封装或纯函数化，不迁 sessions/history/memory/dedupe/build-run-input。
+- PDF parser / Frontend CSS：继续保持备选窗口，不与 Agent runtime A4 同批。
+
+下一步建议：A3 护栏已在 `scripts/check_owner_migration.sh` 完整聚合中通过；若继续进入 A4，应把改动限制在“复用 preflight 合同 + 保持兼容入口与 monkeypatch 语义”范围内。
+
 ## 1. 当前架构事实
 
 ### 1.1 当前主要目录职责
