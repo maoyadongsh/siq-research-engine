@@ -42,6 +42,15 @@ bash -n start_all.sh
 find scripts -type f -name '*.sh' -print0 | xargs -0 -r bash -n
 ```
 
+Async DB audit advisory 入口：
+
+```bash
+cd /home/maoyd/siq-research-engine
+scripts/check_async_db_audit.sh
+```
+
+该入口默认使用 `apps/api/.venv/bin/python`，可通过 `API_PY` 覆盖；它只输出 `apps/api/scripts/audit_async_sync_session.py --summary` 的 advisory 摘要，既有 finding 不作为失败门禁。需要显式生成其他格式时，可用同一解释器运行 `apps/api/scripts/audit_async_sync_session.py --markdown --summary` 或 `--json --summary` 并自行重定向输出。
+
 红灯 owner 收口门禁：
 
 ```bash
