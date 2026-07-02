@@ -27,7 +27,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from database import async_engine
 from models import ChatMessage, ChatSessionMemory
 from services.citation_links import append_missing_pdf_source_links
-from services.hermes_client import HermesProfile, collect_run_result, create_run, normalize_profile, stop_run, stream_run
+from services.hermes_client import HermesProfile, collect_run_result, create_run, stop_run, stream_run
 from services import agent_runtime_dedupe
 from services.agent_runtime_loop_guard import (
     CONSECUTIVE_TOOL_ERROR_LIMIT,
@@ -62,6 +62,27 @@ from services import agent_runtime_financial_format
 from services import agent_runtime_fallback_contexts
 from services import agent_runtime_postgres_fallback
 from services import agent_runtime_statement_context
+from services.agent_runtime_streaming import (
+    ACTIVE_RUNS,
+    ActiveRunState,
+    PROGRESS_BAR_RE,
+    PROGRESS_LINE_RE,
+    _active_key,
+    _append_completed_active_run,
+    _append_progress_event,
+    _append_reasoning_active_run,
+    _append_state_event,
+    _append_user_stopped_active_run,
+    _clear_active_run,
+    _extract_progress_from_text,
+    _progress_payload,
+    _progress_signature,
+    _runtime_profile,
+    get_active_run_snapshot as _streaming_get_active_run_snapshot,
+    has_active_run,
+    stop_active_run as _streaming_stop_active_run,
+    stream_active_run_events as _streaming_stream_active_run_events,
+)
 from services.agent_runtime_fallback_contexts import (
     _markdown_table_cell,
     _postgres_row_md_line,
@@ -942,51 +963,8 @@ class RecentRunRecord:
     created_at: datetime = field(default_factory=datetime.utcnow)
 
 
-@dataclass
-class ActiveRunState:
-    profile: HermesProfile
-    session_id: str
-    run_id: str
-    status: str = "running"
-    content: str = ""
-    events: list[dict[str, str]] = field(default_factory=list)
-    progress: dict[str, Any] | None = None
-    progress_signature: str | None = None
-    started_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
-    error: str | None = None
-    done_payload: dict[str, Any] | None = None
-    stop_requested: bool = False
-    user_stop_requested: bool = False
-    message_hash: str | None = None
-    original_message: str | None = None
-    context: Any | None = None
-    consecutive_tool_errors: int = 0
-    total_tool_errors: int = 0
-    last_tool_error_tool: str | None = None
-    last_tool_started_signature: str | None = None
-    last_tool_error_signature: str | None = None
-    last_tool_signature: str | None = None
-    last_tool_label: str | None = None
-    last_tool_preview: str | None = None
-    consecutive_same_tool_calls: int = 0
-    tool_events_since_delta: int = 0
-    condition: asyncio.Condition = field(default_factory=asyncio.Condition)
-    task: asyncio.Task | None = None
-
-
-ACTIVE_RUNS: dict[tuple[HermesProfile, str], ActiveRunState] = {}
 SESSION_DEFAULT_CONTEXTS: dict[tuple[HermesProfile, str], str] = {}
 RECENT_COMPLETED_RUNS: dict[tuple[HermesProfile, str], RecentRunRecord] = {}
-
-
-def _runtime_profile(profile: HermesProfile | str) -> HermesProfile:
-    return normalize_profile(profile)
-
-
-def _active_key(profile: HermesProfile | str, session_id: str) -> tuple[HermesProfile, str]:
-    profile = _runtime_profile(profile)
-    return (profile, session_id)
 
 
 def _read_json_file(path: Path) -> Any | None:
@@ -1890,40 +1868,6 @@ def normalize_evidence_trace_for_display(content: str | None) -> str:
     return agent_runtime_citations.normalize_evidence_trace_for_display(content)
 
 
-PROGRESS_LINE_RE = agent_runtime_progress.PROGRESS_LINE_RE
-PROGRESS_BAR_RE = agent_runtime_progress.PROGRESS_BAR_RE
-
-
-def _progress_signature(payload: dict[str, Any]) -> str:
-    return agent_runtime_progress.progress_signature(payload, hash_text=_hash_text)
-
-
-def _progress_payload(
-    *,
-    status: str = "running",
-    title: str,
-    detail: str | None = None,
-    current: int | None = None,
-    total: int | None = None,
-    source: str = "runtime",
-    tool: str | None = None,
-) -> dict[str, Any]:
-    return agent_runtime_progress.progress_payload(
-        status=status,
-        title=title,
-        detail=detail,
-        current=current,
-        total=total,
-        source=source,
-        tool=tool,
-        clock=datetime.utcnow,
-    )
-
-
-def _extract_progress_from_text(text: str) -> dict[str, Any] | None:
-    return agent_runtime_progress.extract_progress_from_text(text, clock=datetime.utcnow)
-
-
 def _diagnose_latest_hermes_session(profile: HermesProfile) -> dict[str, Any] | None:
     profile_dir = HERMES_PROFILE_DIRS.get(profile)
     if not profile_dir:
@@ -2070,41 +2014,6 @@ def _latest_successful_analysis_recovery() -> dict[str, Any] | None:
     }
 
 
-async def _append_state_event(
-    state: ActiveRunState,
-    event_name: str,
-    payload: dict[str, Any],
-) -> None:
-    if event_name == "delta":
-        state.content += str(payload.get("content", ""))
-    elif event_name == "replace":
-        state.content = str(payload.get("content", ""))
-    elif event_name == "done":
-        state.status = "completed"
-        state.done_payload = payload
-    elif event_name == "error":
-        state.status = "failed"
-        state.error = str(payload.get("message") or payload.get("content") or "Unknown error")
-
-    state.updated_at = datetime.utcnow()
-    event = {
-        "event": event_name,
-        "data": json.dumps(payload, ensure_ascii=False),
-    }
-    async with state.condition:
-        state.events.append(event)
-        state.condition.notify_all()
-
-
-async def _append_progress_event(state: ActiveRunState, payload: dict[str, Any]) -> None:
-    signature = _progress_signature(payload)
-    if signature == state.progress_signature:
-        return
-    state.progress = payload
-    state.progress_signature = signature
-    await _append_state_event(state, "progress", payload)
-
-
 def _trim_tool_preview(value: Any, limit: int = 280) -> str:
     return agent_runtime_progress.trim_tool_preview(value, limit=limit)
 
@@ -2128,31 +2037,11 @@ def _display_tool_label(tool: str | None, preview: str | None = None) -> str:
 
 
 def get_active_run_snapshot(profile: HermesProfile, session_id: str) -> dict[str, Any]:
-    state = ACTIVE_RUNS.get(_active_key(profile, session_id))
-    if not state:
-        snapshot: dict[str, Any] = {"running": False}
-        diagnostic = _diagnose_latest_hermes_session(profile)
-        if diagnostic:
-            snapshot["diagnostic"] = diagnostic
-        return snapshot
-
-    return {
-        "running": state.status == "running",
-        "status": state.status,
-        "run_id": state.run_id,
-        "session_id": state.session_id,
-        "content": normalize_evidence_trace_for_display(state.content),
-        "progress": state.progress,
-        "event_count": len(state.events),
-        "started_at": state.started_at.isoformat(),
-        "updated_at": state.updated_at.isoformat(),
-        "error": state.error,
-    }
-
-
-def has_active_run(profile: HermesProfile, session_id: str) -> bool:
-    state = ACTIVE_RUNS.get(_active_key(profile, session_id))
-    return bool(state and state.status == "running")
+    return _streaming_get_active_run_snapshot(
+        profile,
+        session_id,
+        diagnose_latest_hermes_session=_diagnose_latest_hermes_session,
+    )
 
 
 async def stream_active_run_events(
@@ -2162,47 +2051,14 @@ async def stream_active_run_events(
     session_id: str,
     offset: int = 0,
 ) -> AsyncGenerator[dict[str, str], None]:
-    state = ACTIVE_RUNS.get(_active_key(profile, session_id))
-    if not state:
-        return
-
-    next_index = max(0, offset)
-    while True:
-        if await request.is_disconnected():
-            return
-
-        heartbeat: dict[str, str] | None = None
-        async with state.condition:
-            if next_index >= len(state.events) and state.status == "running":
-                try:
-                    await asyncio.wait_for(
-                        state.condition.wait(),
-                        timeout=STREAM_EVENT_HEARTBEAT_SECONDS,
-                    )
-                except asyncio.TimeoutError:
-                    heartbeat = _progress_payload(
-                        status="running",
-                        title="等待模型或工具返回",
-                        detail="后台 Hermes run 仍在运行；本地模型可能正在生成首轮输出，或工具正在执行。",
-                        source="runtime",
-                    )
-
-            pending = state.events[next_index:]
-            is_terminal = state.status != "running"
-
-        if heartbeat and not pending:
-            yield {
-                "event": "progress",
-                "data": json.dumps(heartbeat, ensure_ascii=False),
-            }
-            continue
-
-        for event in pending:
-            yield event
-            next_index += 1
-
-        if is_terminal and next_index >= len(state.events):
-            return
+    async for event in _streaming_stream_active_run_events(
+        request,
+        profile=profile,
+        session_id=session_id,
+        offset=offset,
+        heartbeat_seconds=STREAM_EVENT_HEARTBEAT_SECONDS,
+    ):
+        yield event
 
 
 def normalize_history(messages: list[ChatMessage], limit: int = HISTORY_LIMIT) -> list[dict]:
@@ -5815,16 +5671,7 @@ async def _collect_stream_run(
                         )
                         break
                 elif ev.type == "reasoning":
-                    await _append_state_event(state, "reasoning", {"text": ev.text})
-                    await _append_progress_event(
-                        state,
-                        _progress_payload(
-                            status="running",
-                            title="正在推理",
-                            detail=ev.text[:180] if ev.text else None,
-                            source="reasoning",
-                        ),
-                    )
+                    await _append_reasoning_active_run(state, ev.text)
                 elif ev.type == "done":
                     if loop_detected:
                         break
@@ -5962,34 +5809,11 @@ async def _collect_stream_run(
                     done_payload = {"new_achievements": [], "warning": str(exc)}
                 if full_reply:
                     done_payload = {**done_payload, "content": full_reply}
-                await _append_progress_event(
-                    state,
-                    _progress_payload(
-                        status="completed",
-                        title="任务完成",
-                        detail="结果已写入对话并同步历史记录",
-                        current=1,
-                        total=1,
-                    ),
-                )
-                await _append_state_event(state, "done", done_payload)
+                await _append_completed_active_run(state, done_payload)
             elif state.user_stop_requested:
-                await _append_progress_event(
-                    state,
-                    _progress_payload(
-                        status="stopped",
-                        title="任务已停止",
-                        detail=STOPPED_MESSAGE,
-                        source="runtime",
-                    ),
-                )
-                await _append_state_event(
-                    state,
-                    "error",
-                    {"message": STOPPED_MESSAGE, "reason": "user_stop_requested"},
-                )
+                await _append_user_stopped_active_run(state, STOPPED_MESSAGE)
         finally:
-            ACTIVE_RUNS.pop(_active_key(state.profile, state.session_id), None)
+            _clear_active_run(state)
 
 
 async def _stream_chat_reply_impl(
@@ -6152,46 +5976,10 @@ async def stream_chat_reply(
 
 
 async def stop_active_run(profile: HermesProfile, session_id: str) -> dict:
-    state = ACTIVE_RUNS.get(_active_key(profile, session_id))
-    if not state:
-        return {"stopped": False, "detail": "No active Hermes run"}
-    state.stop_requested = True
-    state.user_stop_requested = True
-    await _append_progress_event(
-        state,
-        _progress_payload(
-            status="stopped",
-            title="任务已停止",
-            detail=STOPPED_MESSAGE,
-            source="runtime",
-        ),
+    return await _streaming_stop_active_run(
+        profile,
+        session_id,
+        stop_run_call=stop_run,
+        stopped_message=STOPPED_MESSAGE,
+        orphaned_run_message=ORPHANED_RUN_MESSAGE,
     )
-    await _append_state_event(state, "replace", {"content": STOPPED_MESSAGE})
-    try:
-        result = await stop_run(state.run_id, profile=profile)
-    except httpx.HTTPStatusError as exc:
-        if exc.response.status_code == 404:
-            await _append_progress_event(
-                state,
-                _progress_payload(
-                    status="stopped",
-                    title="后台任务已不存在",
-                    detail=ORPHANED_RUN_MESSAGE,
-                    source="runtime",
-                ),
-            )
-            await _append_state_event(state, "replace", {"content": ORPHANED_RUN_MESSAGE})
-            await _append_state_event(
-                state,
-                "error",
-                {"message": ORPHANED_RUN_MESSAGE, "reason": "hermes_run_not_found"},
-            )
-            ACTIVE_RUNS.pop(_active_key(profile, session_id), None)
-            return {
-                "stopped": True,
-                "run_id": state.run_id,
-                "detail": ORPHANED_RUN_MESSAGE,
-                "hermes": {"error": "run_not_found"},
-            }
-        raise
-    return {"stopped": True, "run_id": state.run_id, "hermes": result}
