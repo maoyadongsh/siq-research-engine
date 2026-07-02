@@ -2,6 +2,10 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import anyio
+import pytest
+from fastapi import HTTPException
+from fastapi.responses import Response
 from sqlmodel import Session, SQLModel, create_engine, select
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -111,3 +115,70 @@ def test_search_workspace_artifacts_finds_document_parse_for_current_user(tmp_pa
     assert item["typeLabel"] == "文档解析"
     assert item["pageUrl"] == "/documents?task=doc-task-001"
     assert item["name"] == "供应合同 Demo.pdf"
+
+
+def test_proxy_pdf_task_rejects_non_owner_without_upstream_call(monkeypatch, tmp_path):
+    called = {"proxy": False}
+
+    async def fake_proxy_pdf2md(*args, **kwargs):
+        called["proxy"] = True
+        return Response(content=b"should not proxy", status_code=200)
+
+    monkeypatch.setattr(workspace.source_proxy, "_proxy_pdf2md", fake_proxy_pdf2md)
+
+    async def run_case(session):
+        with pytest.raises(HTTPException) as exc:
+            await workspace._proxy_pdf_task(
+                SimpleNamespace(method="GET"),
+                "blocked-task",
+                "/api/result/blocked-task",
+                current_user=SimpleNamespace(id=1, role="user"),
+                session=session,
+            )
+        assert exc.value.status_code == 403
+        assert exc.value.detail == "PDF task does not belong to current user"
+
+    with _session(tmp_path) as session:
+        anyio.run(run_case, session)
+
+    assert called == {"proxy": False}
+
+
+def test_proxy_pdf_task_for_owner_calls_expected_upstream(monkeypatch, tmp_path):
+    calls = []
+
+    async def fake_proxy_pdf2md(request, upstream_path, *, method=None):
+        calls.append((request, upstream_path, method))
+        return Response(content=b'{"ok": true}', status_code=202, media_type="application/json")
+
+    monkeypatch.setattr(workspace.source_proxy, "_proxy_pdf2md", fake_proxy_pdf2md)
+    request = SimpleNamespace(method="POST")
+
+    async def run_case(session):
+        response = await workspace._proxy_pdf_task(
+            request,
+            "owned-task",
+            "/api/refetch/owned-task",
+            current_user=SimpleNamespace(id=1, role="user"),
+            session=session,
+            method="POST",
+        )
+        assert response.status_code == 202
+        assert response.body == b'{"ok": true}'
+
+    with _session(tmp_path) as session:
+        session.add(
+            UserArtifact(
+                user_id=1,
+                artifact_type="parse",
+                artifact_key="owned-task",
+                title="owned-task.pdf",
+                path="/pdf/result/owned-task",
+                source="pdf_parser",
+                global_artifact_id="owned-task",
+            )
+        )
+        session.commit()
+        anyio.run(run_case, session)
+
+    assert calls == [(request, "/api/refetch/owned-task", "POST")]
