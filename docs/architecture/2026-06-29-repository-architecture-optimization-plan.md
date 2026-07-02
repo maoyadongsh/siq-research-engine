@@ -833,6 +833,49 @@ scripts/check_owner_migration.sh  # API / PDF / Web gates passed
 
 下一步建议：如果继续加速，优先补真实 DB 顺序护栏，而不是直接迁 history/memory DB owner；这条线目前已经足够稳定，适合只做回归触发的小修小补。
 
+### 0.19 2026-07-02 真实 DB 顺序护栏补强
+
+本轮把上一节建议里的“真实 DB 顺序护栏”落成了：新增 `test_collect_chat_reply_passes_old_history_before_saving_current_user`，用独立 SQLite 临时库预置一段旧对话，再通过真实 `load_history` / `save_message` 包一层轻量计数，确认 `collect_chat_reply()` 在保存当前 user 之前拿到的仍是旧历史，且后续 `create_run()` 看到的 conversation_history 不包含当前轮问题。
+
+完成项：
+
+- 新增真实 DB 顺序哨兵：`load_history` 读到的历史只包含旧轮次，`save_user` 发生在预加载之后。
+- 保留真实 `load_history` / `save_message` 行为，只对调用顺序做记录，避免测试变成纯 mock 流程图。
+- 顺带验证保存后的 DB 结果：当前 user 与 assistant reply 都落库，旧消息顺序保持不变。
+
+行为与风险边界：
+
+| 路径 | 本轮保持 / 改进 |
+| --- | --- |
+| preflight 读写顺序 | `load_history` 先于 `save_message(user)`，`create_run()` 只看到旧 history |
+| DB 持久化 | 新 user / assistant 回复都会真实落库，便于后续回归核对 |
+| 测试真实性 | 只对调用顺序做包裹，不替换核心读写逻辑 |
+
+回滚边界：
+
+| 失败信号 | 回滚范围 |
+| --- | --- |
+| 顺序护栏失败 | 仅回滚 `test_collect_chat_reply_passes_old_history_before_saving_current_user` |
+| DB 真实读写行为变化 | 回滚该测试中的 wrapper 方式，恢复到纯 mock 顺序测试 |
+| 旧历史被当前轮污染 | 先修 `collect_chat_reply` 的 preflight / save 顺序，再决定是否扩展 memory 侧哨兵 |
+
+本轮验证：
+
+```bash
+cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_chat_preflight.py -q  # 10 passed
+```
+
+后续工作量重估：
+
+| 优先级 | 任务 | 范围 | 工作量 | 门禁 |
+| --- | --- | --- | --- | --- |
+| P0 | 继续保持 preflight / memory 顺序哨兵 | 仅回归修正，不主动改 owner 结构 | 0 天 | `tests/test_agent_runtime_chat_preflight.py` + `tests/test_agent_runtime_memory.py` |
+| P1 | history/memory DB owner 设计 | 若继续推进，先写 owner 矩阵和失败态测试；不得与 streaming/attachments/dedupe 同轮迁移 | M，约 0.5-1 天 | 新增哨兵先红后绿 + `scripts/check_owner_migration.sh` |
+| P1 | 拓展更多真实 DB 顺序护栏 | 可优先覆盖 stream / attachment 分支，但保持单个场景一条测试 | S，约 0.25 天 | 对应聚焦测试 + `git diff --check` |
+| P2 | PDF / Frontend 维护尾项 | 继续按回归触发 | 0-0.25 天 | 对应聚焦门禁 |
+
+下一步建议：继续做“少量真实 DB 顺序护栏 + 不迁 owner”的路线；只有当这类回归足够稳定、且能明确拆出 owner 矩阵时，再进入 history/memory DB owner 设计。
+
 ## 1. 当前架构事实
 
 ### 1.1 当前主要目录职责
