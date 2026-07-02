@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "check:frontend": "npm run lint && npm run build",
-    "test:unit": "node --import ./scripts/register-node-test-alias-loader.mjs --test $(find src -name '*.test.ts' -print | sort)",
+    "test:unit": "node scripts/run-node-unit-tests.mjs",
     "e2e": "playwright test",
     "smoke": "playwright test",
     "preview": "vite preview",

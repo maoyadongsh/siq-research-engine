@@ -1,19 +1,9 @@
 /// <reference types="node" />
 
 import { strict as assert } from 'node:assert'
-import { registerHooks } from 'node:module'
 import { test } from 'node:test'
 
 import type { FocusTarget } from './documentResultWorkbenchUtils.ts'
-
-registerHooks({
-  resolve(specifier, context, nextResolve) {
-    if (specifier.startsWith('./documentResultWorkbenchUtils')) {
-      return nextResolve(`${specifier}.ts`, context)
-    }
-    return nextResolve(specifier, context)
-  },
-})
 
 const {
   documentResultFocusControllerReducer,

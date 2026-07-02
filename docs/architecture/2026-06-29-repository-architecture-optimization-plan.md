@@ -295,15 +295,15 @@ bash -n start_all.sh && find scripts infra apps services -type f -name '*.sh' -p
 本轮完成：
 
 - Web Node 单测门禁从手写 4 个 Document parser 测试文件升级为自动发现 `apps/web/src/**/*.test.ts`；新增 Node ESM alias loader，支持测试中直接解析 Vite 风格 `@/` 别名。
-- `apps/web` 当前 9 个 `.test.ts` 全部纳入 `npm run test:unit`，验证结果为 43 passed、0 failed。
+- `apps/web` 当前 10 个 `.test.ts` 全部纳入 `npm run test:unit`，验证结果为 44 passed、0 failed。
 - `scripts/check_owner_migration.sh` 的 Web 步骤已改为 `Web node unit gates`，聚合门禁现在覆盖 Web Node unit、`npm run check:frontend`、API runtime、PDF parser 和通用提交前检查。
 - `README.md`、`apps/web/README.md` 和 `scripts/README.md` 已同步 Web unit gate 入口，避免后续只跑 lint/build 而漏掉 Node 单测。
 
 本轮验证：
 
 ```bash
-cd apps/web && npm run test:unit                                   # 43 passed
-scripts/check_owner_migration.sh                                  # API 84/218, PDF 45/295, Web unit 43, frontend check passed
+cd apps/web && npm run test:unit                                   # 44 passed
+scripts/check_owner_migration.sh                                  # API 84/218, PDF 45/295, Web unit 44, frontend check passed
 ```
 
 后续任务与工作量：
@@ -323,6 +323,12 @@ scripts/check_owner_migration.sh                                  # API 84/218, 
 - `F-004`、`P-001`、`P-002`、`A-001`、`A-002` 均改为阶段完成，后续只保留维护尾项或单独设计窗口。
 - 红灯 owner 收口脚本已成为当前主线的聚合验证入口，但仍不替代 README 的基础合并门禁。
 - `scripts/check_all.sh` 已对齐 README 基础门禁；下一轮若继续治理，优先验证全量执行耗时和 CI 可用性。
+
+本轮追加维护：
+
+- Web Node unit runner 已从 shell `find` 参数拼接改为 `scripts/run-node-unit-tests.mjs`，由 Node 递归收集 `src/**/*.test.ts`，无测试文件时显式失败，避免文件名和 shell 展开差异造成门禁漂移。
+- Node test alias loader 已统一负责 `@/` 运行时别名和 `apps/web/src` 内 extensionless 相对导入；4 个 Document parser 测试文件移除本地 `registerHooks` 样板。
+- 新增 `nodeTestAliasLoaderSmoke.test.ts`，锁定 runtime alias import 与 extensionless relative import 行为；Web Node unit 当前覆盖 10 个测试文件、44 个子测试。
 
 当前剩余工作量重估：
 
@@ -1613,13 +1619,13 @@ test-results/**
 - 已拆 `DocumentResultWorkbench.tsx` 的 `AuthenticatedImage` 与 `PdfPagePreview` 到 `DocumentSourcePreview.tsx`；`imageSize`、objectURL cleanup、overlay click 和 protected figure image 加载已由 `document-result-preview.spec.ts` 覆盖。
 - 已拆 `DocumentResultWorkbench.tsx` 的 source preview、artifact pane、table/source relation pane、figure pane、quality/workflow pane、extract/evidence pane、markdown pane 和 source lookup 派生；父组件继续保留 selection、scroll、resource open owner。
 - 下一步如继续前端，可单独评估 `PDF_CSS` / `DOCUMENT_CSS` 字符串迁移，或继续做低风险响应式 smoke；状态 owner、refs 和 selection/scroll 仍不提前分散。
-- Web Node unit gate 已固化为 `npm run test:unit`，自动发现 `src/**/*.test.ts`，当前覆盖 9 个测试文件。
+- Web Node unit gate 已固化为 `npm run test:unit`，自动发现 `src/**/*.test.ts`，当前覆盖 10 个测试文件。
 
 验收：
 
 - 新代码不再直接从业务组件调用裸 `fetch`。
 - 新增页面 API 只暴露在 `features/*/api.ts` 或 shared client。
-- `npm run test:unit` 通过，43 passed；`npm run check:frontend` 通过。
+- `npm run test:unit` 通过，44 passed；`npm run check:frontend` 通过。
 - 关键 Playwright：`document-result-preview.spec.ts`、`pdf-parsing-market-filter.spec.ts`、`search-download-responsive.spec.ts`、`workspace-responsive.spec.ts` 相关覆盖已通过。
 
 ### P-001：拆 `apps/pdf-parser/app.py`
@@ -1801,7 +1807,7 @@ test-results/**
 - evidence package 有共享 reader/validator。
 - settings 可注入、可测试。
 - API-finder-rules contract tests 通过。
-- 当前基线：`apps/api` Agent runtime wildcard 84 tests、`apps/pdf-parser` 138 tests、`apps/document-parser` 27 tests、finder 46 tests、rules 29 tests、market-contracts 2 tests 已通过；本轮未重跑完整 `apps/api` 全量。
+- 当前基础门禁：`scripts/check_all.sh` 已通过，覆盖 `apps/api` 405 tests、`apps/pdf-parser` 295 tests、`apps/document-parser` 27 tests、finder 46 tests、rules 29 tests、Web Node unit 44 tests 和 `npm run check:frontend`。
 
 ### 前端 DoD
 
@@ -1810,7 +1816,7 @@ test-results/**
 - API client 收口。
 - legacy UI 不再被新代码默认使用。
 - 核心页面 Playwright smoke 通过。
-- 当前基线：`npm run check:frontend` 通过，关键 Playwright responsive 覆盖通过；后续前端主要剩 `PDF_CSS` / `DOCUMENT_CSS` 运行时字符串单独评估和必要的响应式 smoke。
+- 当前基线：`npm run test:unit` 通过并覆盖全部 `src/**/*.test.ts`，`npm run check:frontend` 通过，关键 Playwright responsive 覆盖通过；后续前端主要剩 `PDF_CSS` / `DOCUMENT_CSS` 运行时字符串单独评估和必要的响应式 smoke。
 
 ### 运维 DoD
 

@@ -1,7 +1,6 @@
 /// <reference types="node" />
 
 import { strict as assert } from 'node:assert'
-import { registerHooks } from 'node:module'
 import { test } from 'node:test'
 
 import type {
@@ -13,18 +12,6 @@ import type {
   DocumentTableRelation,
   DocumentTablesPayload,
 } from '@/lib/documentTypes.ts'
-
-registerHooks({
-  resolve(specifier, context, nextResolve) {
-    if (specifier.startsWith('./documentResultWorkbenchDerivations')) {
-      return nextResolve(specifier.endsWith('.ts') ? specifier : `${specifier}.ts`, context)
-    }
-    if (specifier.startsWith('./documentResultWorkbenchUtils')) {
-      return nextResolve(specifier.endsWith('.ts') ? specifier : `${specifier}.ts`, context)
-    }
-    return nextResolve(specifier, context)
-  },
-})
 
 const {
   buildDocumentResultBaseViewModel,

@@ -284,6 +284,15 @@ curl -s http://localhost:18652/health
 
 ## 合并前基础门禁
 
+一键执行：
+
+```bash
+cd /home/maoyd/siq-research-engine
+scripts/check_all.sh
+```
+
+分步定位：
+
 ```bash
 cd /home/maoyd/siq-research-engine/apps/api
 uv run python -m pytest tests
@@ -295,7 +304,8 @@ cd /home/maoyd/siq-research-engine/apps/document-parser
 python3 -m pytest tests
 
 cd /home/maoyd/siq-research-engine/services/market-report-finder
-uv run pytest
+uv sync --extra dev
+uv run python -m pytest tests
 
 cd /home/maoyd/siq-research-engine/services/market-report-rules
 uv run --extra dev pytest
@@ -318,6 +328,8 @@ scripts/check_owner_migration.sh
 
 ```bash
 cd /home/maoyd/siq-research-engine
+bash -n scripts/check_all.sh
+bash -n scripts/check_owner_migration.sh
 bash -n start_all.sh
 bash -n apps/api/start.sh
 bash -n apps/pdf-parser/run.sh

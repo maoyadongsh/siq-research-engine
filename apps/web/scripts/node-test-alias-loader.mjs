@@ -23,12 +23,7 @@ function isDirectory(path) {
   }
 }
 
-function resolveAliasSpecifier(specifier) {
-  const target = resolvePath(srcRoot, specifier.slice(2))
-  if (target !== srcRoot && !target.startsWith(`${srcRoot}${sep}`)) {
-    throw new Error(`Refusing to resolve alias outside src: ${specifier}`)
-  }
-
+function resolveSourceFile(target) {
   for (const extension of extensions) {
     const candidate = `${target}${extension}`
     if (isFile(candidate)) return candidate
@@ -41,7 +36,32 @@ function resolveAliasSpecifier(specifier) {
     }
   }
 
-  return target
+  return ''
+}
+
+function assertSrcPath(target, specifier) {
+  if (target !== srcRoot && !target.startsWith(`${srcRoot}${sep}`)) {
+    throw new Error(`Refusing to resolve alias outside src: ${specifier}`)
+  }
+}
+
+function resolveAliasSpecifier(specifier) {
+  const target = resolvePath(srcRoot, specifier.slice(2))
+  assertSrcPath(target, specifier)
+
+  return resolveSourceFile(target) || target
+}
+
+function resolveRelativeSpecifier(specifier, parentURL) {
+  if (!parentURL?.startsWith('file:')) return ''
+
+  const parentPath = fileURLToPath(parentURL)
+  if (parentPath !== srcRoot && !parentPath.startsWith(`${srcRoot}${sep}`)) return ''
+
+  const target = resolvePath(dirname(parentPath), specifier)
+  assertSrcPath(target, specifier)
+
+  return resolveSourceFile(target)
 }
 
 export async function resolve(specifier, context, nextResolve) {
@@ -49,6 +69,16 @@ export async function resolve(specifier, context, nextResolve) {
     return {
       url: pathToFileURL(resolveAliasSpecifier(specifier)).href,
       shortCircuit: true,
+    }
+  }
+
+  if (specifier.startsWith('./') || specifier.startsWith('../')) {
+    const resolvedPath = resolveRelativeSpecifier(specifier, context.parentURL)
+    if (resolvedPath) {
+      return {
+        url: pathToFileURL(resolvedPath).href,
+        shortCircuit: true,
+      }
     }
   }
 

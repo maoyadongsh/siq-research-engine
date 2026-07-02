@@ -1,20 +1,7 @@
 /// <reference types="node" />
 
 import { strict as assert } from 'node:assert'
-import { registerHooks } from 'node:module'
 import { test } from 'node:test'
-
-registerHooks({
-  resolve(specifier, context, nextResolve) {
-    if (specifier === '../../features/document-parser/api') {
-      return nextResolve('../../features/document-parser/api.ts', context)
-    }
-    if (specifier === '../../shared/api/client') {
-      return nextResolve('../../shared/api/client.ts', context)
-    }
-    return nextResolve(specifier, context)
-  },
-})
 
 const { openDocumentResourceWithFeedback } = await import('./documentResourceOpener.ts')
 

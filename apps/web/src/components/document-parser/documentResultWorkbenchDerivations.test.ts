@@ -1,7 +1,6 @@
 /// <reference types="node" />
 
 import { strict as assert } from 'node:assert'
-import { registerHooks } from 'node:module'
 import { test } from 'node:test'
 
 import type {
@@ -12,15 +11,6 @@ import type {
   DocumentTableRelation,
 } from '@/lib/documentTypes.ts'
 import type { OverlayEntry } from './documentResultWorkbenchUtils.ts'
-
-registerHooks({
-  resolve(specifier, context, nextResolve) {
-    if (specifier.startsWith('./documentResultWorkbenchUtils')) {
-      return nextResolve(`${specifier}.ts`, context)
-    }
-    return nextResolve(specifier, context)
-  },
-})
 
 const {
   adjacentDocumentResultPage,
