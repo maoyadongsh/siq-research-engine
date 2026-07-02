@@ -1,5 +1,29 @@
 import { defineConfig, devices } from '@playwright/test'
 
+const defaultPlaywrightPort = 15174
+
+function parseTcpPort(value: string, label: string): number {
+  const port = Number(value)
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error(`${label} must be an integer TCP port, got "${value}"`)
+  }
+  return port
+}
+
+const configuredPort = parseTcpPort(
+  process.env.SIQ_FRONTEND_PORT || String(defaultPlaywrightPort),
+  'SIQ_FRONTEND_PORT',
+)
+
+const configuredBaseURL =
+  process.env.PLAYWRIGHT_BASE_URL || `http://127.0.0.1:${configuredPort}`
+const parsedBaseURL = new URL(configuredBaseURL)
+if (!parsedBaseURL.port) {
+  parsedBaseURL.port = String(configuredPort)
+}
+const baseURL = parsedBaseURL.toString()
+const webServerPort = parseTcpPort(parsedBaseURL.port, 'PLAYWRIGHT_BASE_URL port')
+
 export default defineConfig({
   testDir: './e2e/tests',
   timeout: 30_000,
@@ -9,13 +33,13 @@ export default defineConfig({
     timeout: 10_000,
   },
   use: {
-    baseURL: 'http://127.0.0.1:15174',
+    baseURL,
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
   },
   webServer: {
-    command: 'npm run dev -- --host 127.0.0.1 --port 15174',
-    url: 'http://127.0.0.1:15174/',
+    command: `npm run dev -- --host 127.0.0.1 --port ${webServerPort}`,
+    url: baseURL,
     reuseExistingServer: true,
     timeout: 120_000,
   },

@@ -42,6 +42,20 @@ npm run e2e
 
 `npm run smoke` 当前等价于 `npm run e2e`。
 
+## 端口配置
+
+Playwright 默认使用独立的本地前端端口 `15174`，避免和完整本地服务的 Web 工作台默认端口 `15173` 冲突。`playwright.config.ts` 会用同一个 URL 配置 `use.baseURL` 和 `webServer.url`。
+
+可通过环境变量覆盖：
+
+```bash
+cd /home/maoyd/siq-research-engine/apps/web
+SIQ_FRONTEND_PORT=15175 npm run e2e
+PLAYWRIGHT_BASE_URL=http://127.0.0.1:15175 npm run e2e
+```
+
+设置 `PLAYWRIGHT_BASE_URL` 时，建议使用带显式端口的本地 URL；配置中的 dev server 命令会优先使用该 URL 里的端口。普通开发和 `start_all.sh` 仍默认使用 `SIQ_FRONTEND_PORT=15173`。
+
 ## 测试账号
 
 当前工作平台首页验收使用 `e2e/support/mockApi.ts` 注入 mock 登录态和 mock API，因此不依赖后端、数据库或真实测试账号。
