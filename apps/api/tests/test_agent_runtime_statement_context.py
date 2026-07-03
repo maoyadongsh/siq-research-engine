@@ -130,6 +130,47 @@ def test_latest_records_by_statement_keeps_latest_period_and_core_rank_order():
     assert output == [records[2], records[1], records[4], records[6], records[5]]
 
 
+def test_latest_records_by_statement_falls_back_to_source_period_for_empty_and_none_periods():
+    records = [
+        {"statement_type": "income_statement", "metric_key": "operating_revenue", "period": "2024", "value": 1},
+        {
+            "statement_type": "income_statement",
+            "metric_key": "net_profit",
+            "period": None,
+            "source": {"period": "2025年度"},
+            "value": 2,
+        },
+        {
+            "statement_type": "income_statement",
+            "metric_key": "operating_revenue",
+            "period": "",
+            "source": {"period": "2025年度"},
+            "value": 3,
+        },
+        {
+            "statement_type": "cash_flow_statement",
+            "metric_key": "operating_cash_flow_net",
+            "period": None,
+            "source": {"period": "2025年度"},
+            "value": 4,
+        },
+        {
+            "statement_type": "cash_flow_statement",
+            "metric_key": "operating_cash_flow_net",
+            "period": "2024年度",
+            "value": 5,
+        },
+    ]
+
+    output = context.latest_records_by_statement(
+        records,
+        is_core_statement_record_fn=is_core,
+        statement_record_rank_fn=rank,
+    )
+
+    assert output == [records[2], records[1], records[3]]
+
+
 def test_agent_chat_runtime_statement_context_wrappers_preserve_compatibility(monkeypatch):
     pytest.importorskip("sqlmodel")
     from services import agent_chat_runtime as runtime
