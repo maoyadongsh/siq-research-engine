@@ -3323,6 +3323,34 @@ cd apps/api && .venv/bin/python -m pytest tests/test_auth_report_review.py tests
 python3 scripts/scan_todo_fixme.py --root . --max-examples 50  # total 4; 安全 0; 运行时 0
 ```
 
+### 0.46 2026-07-03 Deal OS 后端与 IC Hermes profile / policy 切片
+
+本轮按主题收口 primary-market / IC 后端能力，不混入前端 Deal 页面、infra/env 或 Hermes 启动脚本改动。目标是先让 `/api/deals` 具备可验证的文件系统 Deal package 能力，并让 Hermes IC profiles、公开 policy 和 deal preflight 合同被 API 控制面识别。
+
+完成范围：
+
+- 新增 `routers/deals.py`：提供 deal 列表、创建、详情、workflow、decision、audit、manifest、IC profiles、公开 IC policy、deal preflight、OpenClaw 导入和导入 job 查询接口；路由通过既有 `require_permission` 做 `report.view` / `report.create` / `audit.view` 权限控制。
+- 新增 `services/deal_store.py`：集中处理 `data/wiki/deals` 下的 deal package 路径安全、manifest/project/workflow JSON 合同、审计事件追加和 API-facing payload 脱敏。
+- 新增 `services/ic_openclaw_importer.py`：把 OpenClaw IC project 的核心 phase、discussion、decision 和 audit 文件映射到 SIQ deal package；覆盖 source root 限制、symlink 拒绝、overwrite 清理和 hash manifest。
+- 新增 `services/ic_policy.py`：只读加载 IC workflow policy、profile matrix 和 manifest，输出不含本地绝对目录的公开 policy / profile readiness payload。
+- 新增 `services/deal_contracts.py`：只读执行 deal preflight，检查核心文件、schema、deal_id 一致性、R1 专家报告、startup retrieval receipt、evidence gate 和 R4 decision 合同。
+- `main.py` 挂载 `/api/deals`；`hermes_client.py`、`hermes_model_control.py`、`path_config.py` 增加 `siq_ic_*` profile 的 alias、默认端口、兼容端口、profile root 和模型控制矩阵。
+- 新增 `tests/test_deal_store.py`、`tests/test_deals_router.py`、`tests/test_ic_policy.py`、`tests/test_hermes_ic_profiles.py`，覆盖 service 安全边界、FastAPI 路由合同、OpenClaw project_id 导入、异步 job envelope、preflight 合同、公开 policy 脱敏以及 Hermes IC profile 映射。
+
+风险边界：
+
+- `FileBackedJobService` 当前仍是本地单进程持久 job 方案，适合本地/单 worker；多 worker 并发写 `data/backend/deals/jobs.json` 需要后续单独设计。
+- `OpenClawImportRequest.metadata` 当前保留为前端/后续扩展字段，本轮不落盘、不参与导入合同。
+- `overwrite=True` 会删除既有 deal package；API 已做 deal_id/path 安全约束，产品入口仍应做显式确认。
+
+验证：
+
+```bash
+cd apps/api && .venv/bin/python -m pytest tests/test_deal_store.py tests/test_ic_policy.py tests/test_deals_router.py tests/test_hermes_ic_profiles.py tests/test_job_service.py -q  # 31 passed, 14 warnings
+cd apps/api && .venv/bin/python -m py_compile routers/deals.py services/deal_contracts.py services/deal_store.py services/ic_openclaw_importer.py services/ic_policy.py services/hermes_client.py services/hermes_model_control.py services/path_config.py main.py
+cd apps/api && .venv/bin/python -c "import main; print(main.app.title)"  # SIQ API
+```
+
 ## 10. 验收标准总表
 
 ### 仓库治理 DoD

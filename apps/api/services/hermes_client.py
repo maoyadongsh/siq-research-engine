@@ -13,6 +13,13 @@ SIQ_HERMES_DEFAULT_PORTS = {
     "siq_factchecker": 18649,
     "siq_tracking": 18650,
     "siq_legal": 18652,
+    "siq_ic_master_coordinator": 18660,
+    "siq_ic_chairman": 18661,
+    "siq_ic_strategist": 18662,
+    "siq_ic_sector_expert": 18663,
+    "siq_ic_finance_auditor": 18664,
+    "siq_ic_legal_scanner": 18665,
+    "siq_ic_risk_controller": 18666,
 }
 HERMES_COMPAT_PORTS = {
     "siq_assistant": 8642,
@@ -20,6 +27,13 @@ HERMES_COMPAT_PORTS = {
     "siq_factchecker": 8649,
     "siq_tracking": 8650,
     "siq_legal": 8652,
+    "siq_ic_master_coordinator": 8660,
+    "siq_ic_chairman": 8661,
+    "siq_ic_strategist": 8662,
+    "siq_ic_sector_expert": 8663,
+    "siq_ic_finance_auditor": 8664,
+    "siq_ic_legal_scanner": 8665,
+    "siq_ic_risk_controller": 8666,
 }
 
 HERMES_PROFILE_ALIASES = {
@@ -28,11 +42,27 @@ HERMES_PROFILE_ALIASES = {
     "factchecker": "siq_factchecker",
     "tracking": "siq_tracking",
     "legal": "siq_legal",
+    "ic_master": "siq_ic_master_coordinator",
+    "ic_coordinator": "siq_ic_master_coordinator",
+    "ic_chairman": "siq_ic_chairman",
+    "ic_strategy": "siq_ic_strategist",
+    "ic_strategist": "siq_ic_strategist",
+    "ic_sector": "siq_ic_sector_expert",
+    "ic_finance": "siq_ic_finance_auditor",
+    "ic_legal": "siq_ic_legal_scanner",
+    "ic_risk": "siq_ic_risk_controller",
     "siq_assistant": "siq_assistant",
     "siq_analysis": "siq_analysis",
     "siq_factchecker": "siq_factchecker",
     "siq_tracking": "siq_tracking",
     "siq_legal": "siq_legal",
+    "siq_ic_master_coordinator": "siq_ic_master_coordinator",
+    "siq_ic_chairman": "siq_ic_chairman",
+    "siq_ic_strategist": "siq_ic_strategist",
+    "siq_ic_sector_expert": "siq_ic_sector_expert",
+    "siq_ic_finance_auditor": "siq_ic_finance_auditor",
+    "siq_ic_legal_scanner": "siq_ic_legal_scanner",
+    "siq_ic_risk_controller": "siq_ic_risk_controller",
 }
 HERMES_ENV_PREFIXES = {
     "siq_assistant": "ASSISTANT",
@@ -40,6 +70,13 @@ HERMES_ENV_PREFIXES = {
     "siq_factchecker": "FACTCHECKER",
     "siq_tracking": "TRACKING",
     "siq_legal": "LEGAL",
+    "siq_ic_master_coordinator": "IC_MASTER",
+    "siq_ic_chairman": "IC_CHAIRMAN",
+    "siq_ic_strategist": "IC_STRATEGIST",
+    "siq_ic_sector_expert": "IC_SECTOR",
+    "siq_ic_finance_auditor": "IC_FINANCE",
+    "siq_ic_legal_scanner": "IC_LEGAL",
+    "siq_ic_risk_controller": "IC_RISK",
 }
 HERMES_PROFILE_MODELS = {
     "siq_assistant": "siq_assistant",
@@ -47,6 +84,13 @@ HERMES_PROFILE_MODELS = {
     "siq_factchecker": "siq_factchecker",
     "siq_tracking": "siq_tracking",
     "siq_legal": "siq_legal",
+    "siq_ic_master_coordinator": "siq_ic_master_coordinator",
+    "siq_ic_chairman": "siq_ic_chairman",
+    "siq_ic_strategist": "siq_ic_strategist",
+    "siq_ic_sector_expert": "siq_ic_sector_expert",
+    "siq_ic_finance_auditor": "siq_ic_finance_auditor",
+    "siq_ic_legal_scanner": "siq_ic_legal_scanner",
+    "siq_ic_risk_controller": "siq_ic_risk_controller",
 }
 
 
@@ -121,13 +165,33 @@ def _profile_model_name(profile: str, env_prefix: str) -> str:
     return profile
 
 
-HermesProfile = Literal["siq_assistant", "siq_analysis", "siq_factchecker", "siq_tracking", "siq_legal"]
+HermesProfile = Literal[
+    "siq_assistant",
+    "siq_analysis",
+    "siq_factchecker",
+    "siq_tracking",
+    "siq_legal",
+    "siq_ic_master_coordinator",
+    "siq_ic_chairman",
+    "siq_ic_strategist",
+    "siq_ic_sector_expert",
+    "siq_ic_finance_auditor",
+    "siq_ic_legal_scanner",
+    "siq_ic_risk_controller",
+]
 HERMES_PROFILE_ORDER: tuple[HermesProfile, ...] = (
     "siq_assistant",
     "siq_analysis",
     "siq_factchecker",
     "siq_tracking",
     "siq_legal",
+    "siq_ic_master_coordinator",
+    "siq_ic_chairman",
+    "siq_ic_strategist",
+    "siq_ic_sector_expert",
+    "siq_ic_finance_auditor",
+    "siq_ic_legal_scanner",
+    "siq_ic_risk_controller",
 )
 
 

@@ -11,6 +11,13 @@
 | `siq_factchecker` | `18649` | `/verify` | `/api/factchecker/*` | 对分析报告做事实、计算、证据和合规边界核查 |
 | `siq_tracking` | `18650` | `/tracking` | `/api/tracking/*` | 持续跟踪事项、指标面板、预警和更新报告 |
 | `siq_legal` | `18652` | `/legal` | `/api/legal/*` | 法规检索、合规问答和法律意见书初稿 |
+| `siq_ic_master_coordinator` | `18660` | 待接入 | 待接入 | 一级市场投委会流程编排、证据门禁、专家报告汇总和决策报告组装 |
+| `siq_ic_chairman` | `18661` | 待接入 | 待接入 | 投委会最终综合、加权评分、分歧裁决和投资条件 |
+| `siq_ic_strategist` | `18662` | 待接入 | 待接入 | 战略匹配、基金 thesis 对齐、投资时点和可选性评估 |
+| `siq_ic_sector_expert` | `18663` | 待接入 | 待接入 | 行业格局、竞争、产品、客户和市场采用判断 |
+| `siq_ic_finance_auditor` | `18664` | 待接入 | 待接入 | 财务一致性、单位经济、预测、估值和财务合理性核查 |
+| `siq_ic_legal_scanner` | `18665` | 待接入 | 待接入 | 法务尽调、合同合规、知识产权、监管和交易风险扫描 |
+| `siq_ic_risk_controller` | `18666` | 待接入 | 待接入 | 下行情景、风险控制、投后监控指标和否决条件 |
 
 ## 设计原则
 

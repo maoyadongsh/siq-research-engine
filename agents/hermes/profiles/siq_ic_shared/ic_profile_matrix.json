@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "group": "ic",
+  "profiles": [
+    {
+      "id": "siq_ic_master_coordinator",
+      "role": "master_coordinator",
+      "label": "投委会总协调",
+      "port": 18660,
+      "source_workspace": "ic_master_coordinator_workspace",
+      "responsibilities": [
+        "workflow orchestration",
+        "evidence gate tracking",
+        "expert report collection",
+        "decision report assembly"
+      ]
+    },
+    {
+      "id": "siq_ic_chairman",
+      "role": "chairman",
+      "label": "投委会主席",
+      "port": 18661,
+      "source_workspace": "ic_chairman_workspace",
+      "responsibilities": [
+        "final synthesis",
+        "weighted scoring",
+        "dispute ruling",
+        "investment conditions"
+      ]
+    },
+    {
+      "id": "siq_ic_strategist",
+      "role": "strategy",
+      "label": "战略委员",
+      "port": 18662,
+      "source_workspace": "ic_strategist_workspace",
+      "responsibilities": [
+        "strategic fit",
+        "fund thesis alignment",
+        "timing and optionality"
+      ]
+    },
+    {
+      "id": "siq_ic_sector_expert",
+      "role": "sector",
+      "label": "行业专家",
+      "port": 18663,
+      "source_workspace": "ic_sector_expert_workspace",
+      "responsibilities": [
+        "market structure",
+        "competition",
+        "product and customer validation"
+      ]
+    },
+    {
+      "id": "siq_ic_finance_auditor",
+      "role": "finance",
+      "label": "财务审计委员",
+      "port": 18664,
+      "source_workspace": "ic_finance_auditor_workspace",
+      "responsibilities": [
+        "financial consistency",
+        "unit economics",
+        "valuation and forecast audit"
+      ]
+    },
+    {
+      "id": "siq_ic_legal_scanner",
+      "role": "legal",
+      "label": "法务扫描委员",
+      "port": 18665,
+      "source_workspace": "ic_legal_scanner_workspace",
+      "responsibilities": [
+        "legal diligence",
+        "contract and compliance risk",
+        "IP and regulatory exposure"
+      ]
+    },
+    {
+      "id": "siq_ic_risk_controller",
+      "role": "risk",
+      "label": "风控委员",
+      "port": 18666,
+      "source_workspace": "ic_risk_controller_workspace",
+      "responsibilities": [
+        "downside scenarios",
+        "risk controls",
+        "post-investment monitoring metrics"
+      ]
+    }
+  ]
+}

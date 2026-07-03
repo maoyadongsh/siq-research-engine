@@ -99,6 +99,13 @@ PROFILE_CONFIGS: dict[HermesProfile, Path] = {
     "siq_factchecker": HERMES_PROFILE_ROOTS["siq_factchecker"] / "config.yaml",
     "siq_tracking": HERMES_PROFILE_ROOTS["siq_tracking"] / "config.yaml",
     "siq_legal": HERMES_PROFILE_ROOTS["siq_legal"] / "config.yaml",
+    "siq_ic_master_coordinator": HERMES_PROFILE_ROOTS["siq_ic_master_coordinator"] / "config.yaml",
+    "siq_ic_chairman": HERMES_PROFILE_ROOTS["siq_ic_chairman"] / "config.yaml",
+    "siq_ic_strategist": HERMES_PROFILE_ROOTS["siq_ic_strategist"] / "config.yaml",
+    "siq_ic_sector_expert": HERMES_PROFILE_ROOTS["siq_ic_sector_expert"] / "config.yaml",
+    "siq_ic_finance_auditor": HERMES_PROFILE_ROOTS["siq_ic_finance_auditor"] / "config.yaml",
+    "siq_ic_legal_scanner": HERMES_PROFILE_ROOTS["siq_ic_legal_scanner"] / "config.yaml",
+    "siq_ic_risk_controller": HERMES_PROFILE_ROOTS["siq_ic_risk_controller"] / "config.yaml",
 }
 PROFILE_ORDER: tuple[HermesProfile, ...] = tuple(PROFILE_CONFIGS.keys())
 PROFILE_LABELS: dict[HermesProfile, str] = {
@@ -107,6 +114,13 @@ PROFILE_LABELS: dict[HermesProfile, str] = {
     "siq_factchecker": "SIQ Factchecker",
     "siq_tracking": "SIQ Tracking",
     "siq_legal": "SIQ Legal",
+    "siq_ic_master_coordinator": "SIQ IC Master Coordinator",
+    "siq_ic_chairman": "SIQ IC Chairman",
+    "siq_ic_strategist": "SIQ IC Strategist",
+    "siq_ic_sector_expert": "SIQ IC Sector Expert",
+    "siq_ic_finance_auditor": "SIQ IC Finance Auditor",
+    "siq_ic_legal_scanner": "SIQ IC Legal Scanner",
+    "siq_ic_risk_controller": "SIQ IC Risk Controller",
 }
 
 LOCAL_PATTERNS = (

@@ -8,8 +8,27 @@
     "siq_factchecker",
     "siq_tracking",
     "siq_legal",
+    "siq_ic_master_coordinator",
+    "siq_ic_chairman",
+    "siq_ic_strategist",
+    "siq_ic_sector_expert",
+    "siq_ic_finance_auditor",
+    "siq_ic_legal_scanner",
+    "siq_ic_risk_controller",
+    "siq_ic_shared",
     "shared"
   ],
+  "groups": {
+    "ic": [
+      "siq_ic_master_coordinator",
+      "siq_ic_chairman",
+      "siq_ic_strategist",
+      "siq_ic_sector_expert",
+      "siq_ic_finance_auditor",
+      "siq_ic_legal_scanner",
+      "siq_ic_risk_controller"
+    ]
+  },
   "notes": [
     "Profile names remain SIQ-compatible during the SIQ migration.",
     "Runtime state, sessions, logs, auth files, and response stores stay under data/hermes/home unless SIQ_HERMES_HOME overrides it."

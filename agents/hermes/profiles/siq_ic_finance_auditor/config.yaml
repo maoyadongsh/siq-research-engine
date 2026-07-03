@@ -1,0 +1,74 @@
+model:
+  default: MiniMax-M3
+  provider: minimax-cn
+providers: {}
+fallback_providers:
+- provider: kimi-coding
+  model: kimi-for-coding
+- provider: custom:qwen3.6-local
+  model: Qwen3.6-35B-A3B-FP8
+  temperature: 0.2
+- provider: custom:gemma4-local
+  model: Gemma-4-26B-A4B-it-NVFP4
+  temperature: 0.2
+toolsets:
+- terminal
+- file
+- code_execution
+- web
+agent:
+  max_turns: 80
+  gateway_timeout: 1800
+  api_max_retries: 1
+  tool_use_enforcement: true
+  disabled_toolsets:
+  - browser
+  - skills
+  - memory
+  - session_search
+  - todo
+  - cronjob
+terminal:
+  backend: local
+  cwd: /home/maoyd/siq-research-engine
+  timeout: 300
+  env_passthrough:
+  - PATH
+  - HOME
+  - USER
+  - LANG
+  - LC_ALL
+  - TAVILY_API_KEY
+  - EXA_API_KEY
+  persistent_shell: true
+web:
+  search_backend: tavily
+  extract_backend: exa
+checkpoints:
+  enabled: true
+compression:
+  enabled: true
+memory:
+  memory_enabled: false
+custom_providers:
+- name: Gemma4 Local
+  base_url: http://127.0.0.1:8006/v1
+  model: Gemma-4-26B-A4B-it-NVFP4
+  api_mode: openai_chat
+  context_length: 262144
+  temperature: 0.2
+- name: Qwen3.6 Local
+  base_url: http://127.0.0.1:8004/v1
+  model: Qwen3.6-35B-A3B-FP8
+  api_mode: openai_chat
+  context_length: 262144
+  temperature: 0.2
+platforms:
+  api_server:
+    enabled: true
+    key: ''
+    cors_origins: '*'
+    extra:
+      port: 18664
+      host: 127.0.0.1
+      model_name: siq_ic_finance_auditor

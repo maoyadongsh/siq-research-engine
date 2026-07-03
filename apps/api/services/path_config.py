@@ -194,52 +194,33 @@ HERMES_SHARED_SCRIPTS_ROOT = _env_path(
     "SIQ_HERMES_SHARED_SCRIPTS_ROOT",
     default=PROJECT_ROOT / "agents" / "hermes" / "profiles" / "shared" / "scripts",
 )
+
+
+def _hermes_profile_root(profile: str, env_prefix: str) -> Path:
+    return _first_existing_env_path(
+        f"SIQ_HERMES_{env_prefix}_PROFILE_ROOT",
+        f"HERMES_{env_prefix}_PROFILE_ROOT",
+        candidates=(
+            HERMES_PROFILES_ROOT / profile,
+            PROJECT_ROOT / "agents" / "hermes" / "profiles" / profile,
+        ),
+        default=HERMES_PROFILES_ROOT / profile,
+    )
+
+
 HERMES_PROFILE_ROOTS = {
-    "siq_assistant": _first_existing_env_path(
-        "SIQ_HERMES_ASSISTANT_PROFILE_ROOT",
-        "HERMES_ASSISTANT_PROFILE_ROOT",
-        candidates=(
-            HERMES_PROFILES_ROOT / "siq_assistant",
-            PROJECT_ROOT / "agents" / "hermes" / "profiles" / "siq_assistant",
-        ),
-        default=HERMES_PROFILES_ROOT / "siq_assistant",
-    ),
-    "siq_analysis": _first_existing_env_path(
-        "SIQ_HERMES_ANALYSIS_PROFILE_ROOT",
-        "HERMES_ANALYSIS_PROFILE_ROOT",
-        candidates=(
-            HERMES_PROFILES_ROOT / "siq_analysis",
-            PROJECT_ROOT / "agents" / "hermes" / "profiles" / "siq_analysis",
-        ),
-        default=HERMES_PROFILES_ROOT / "siq_analysis",
-    ),
-    "siq_factchecker": _first_existing_env_path(
-        "SIQ_HERMES_FACTCHECKER_PROFILE_ROOT",
-        "HERMES_FACTCHECKER_PROFILE_ROOT",
-        candidates=(
-            HERMES_PROFILES_ROOT / "siq_factchecker",
-            PROJECT_ROOT / "agents" / "hermes" / "profiles" / "siq_factchecker",
-        ),
-        default=HERMES_PROFILES_ROOT / "siq_factchecker",
-    ),
-    "siq_tracking": _first_existing_env_path(
-        "SIQ_HERMES_TRACKING_PROFILE_ROOT",
-        "HERMES_TRACKING_PROFILE_ROOT",
-        candidates=(
-            HERMES_PROFILES_ROOT / "siq_tracking",
-            PROJECT_ROOT / "agents" / "hermes" / "profiles" / "siq_tracking",
-        ),
-        default=HERMES_PROFILES_ROOT / "siq_tracking",
-    ),
-    "siq_legal": _first_existing_env_path(
-        "SIQ_HERMES_LEGAL_PROFILE_ROOT",
-        "HERMES_LEGAL_PROFILE_ROOT",
-        candidates=(
-            HERMES_PROFILES_ROOT / "siq_legal",
-            PROJECT_ROOT / "agents" / "hermes" / "profiles" / "siq_legal",
-        ),
-        default=HERMES_PROFILES_ROOT / "siq_legal",
-    ),
+    "siq_assistant": _hermes_profile_root("siq_assistant", "ASSISTANT"),
+    "siq_analysis": _hermes_profile_root("siq_analysis", "ANALYSIS"),
+    "siq_factchecker": _hermes_profile_root("siq_factchecker", "FACTCHECKER"),
+    "siq_tracking": _hermes_profile_root("siq_tracking", "TRACKING"),
+    "siq_legal": _hermes_profile_root("siq_legal", "LEGAL"),
+    "siq_ic_master_coordinator": _hermes_profile_root("siq_ic_master_coordinator", "IC_MASTER"),
+    "siq_ic_chairman": _hermes_profile_root("siq_ic_chairman", "IC_CHAIRMAN"),
+    "siq_ic_strategist": _hermes_profile_root("siq_ic_strategist", "IC_STRATEGIST"),
+    "siq_ic_sector_expert": _hermes_profile_root("siq_ic_sector_expert", "IC_SECTOR"),
+    "siq_ic_finance_auditor": _hermes_profile_root("siq_ic_finance_auditor", "IC_FINANCE"),
+    "siq_ic_legal_scanner": _hermes_profile_root("siq_ic_legal_scanner", "IC_LEGAL"),
+    "siq_ic_risk_controller": _hermes_profile_root("siq_ic_risk_controller", "IC_RISK"),
 }
 FINANCIAL_CALCULATOR_SCRIPT = _env_path(
     "SIQ_FINANCIAL_CALCULATOR_SCRIPT",

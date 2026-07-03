@@ -1,0 +1,188 @@
+{
+  "version": "2026-04-13",
+  "workflow": {
+    "name": "SIQ Investment Committee",
+    "decision_mode": "fixed_v2",
+    "phases": [
+      "R0",
+      "R1",
+      "R1.5",
+      "R2",
+      "R3",
+      "R4"
+    ],
+    "discussion_rounds": [
+      1,
+      2,
+      3
+    ],
+    "stage_timeouts_minutes": {
+      "R0": 10,
+      "R1": 30,
+      "R1.5": 10,
+      "R2": 20,
+      "R3": 20,
+      "R4": 10
+    }
+  },
+  "weights": {
+    "chairman": 0.3,
+    "strategy": 0.15,
+    "sector": 0.15,
+    "finance": 0.15,
+    "risk": 0.15,
+    "legal": 0.1
+  },
+  "thresholds": {
+    "pass": 70,
+    "review_min": 68,
+    "review_max": 69
+  },
+  "roles": {
+    "chairman": {
+      "agent_id": "siq_ic_chairman",
+      "label": "主席"
+    },
+    "strategy": {
+      "agent_id": "siq_ic_strategist",
+      "label": "战略"
+    },
+    "sector": {
+      "agent_id": "siq_ic_sector_expert",
+      "label": "行业"
+    },
+    "finance": {
+      "agent_id": "siq_ic_finance_auditor",
+      "label": "财务"
+    },
+    "risk": {
+      "agent_id": "siq_ic_risk_controller",
+      "label": "风险"
+    },
+    "legal": {
+      "agent_id": "siq_ic_legal_scanner",
+      "label": "法务"
+    }
+  },
+  "directories": {
+    "project_root": "/home/maoyd/siq-research-engine/data/ic/projects",
+    "phases_dir": "phases",
+    "rounds_dir": "10_rounds",
+    "conflicts_dir": "20_conflicts",
+    "decision_dir": "40_decision",
+    "audit_dir": "90_audit",
+    "final_report_file": "IC_DECISION_REPORT.md",
+    "audit_log_file": "audit_log.json"
+  },
+  "evidence_gate": {
+    "required_verified_items": 3,
+    "required_dimensions": [
+      "business",
+      "finance",
+      "legal",
+      "risk"
+    ],
+    "max_unresolved_disputes": 0,
+    "min_expert_reports": 5,
+    "required_report_fields": [
+      "score",
+      "recommendation"
+    ],
+    "required_report_metadata": [
+      "verified",
+      "assumed",
+      "open_questions"
+    ]
+  },
+  "report_contract": {
+    "required_sections": [
+      "结论",
+      "证据充分度",
+      "关键已验证事实",
+      "关键未验证假设",
+      "核心分歧与主席裁决",
+      "投资条件与投后监控指标"
+    ]
+  },
+  "chairman_scoring": {
+    "method": "six_dimension_weighted",
+    "dimensions": {
+      "market_attraction": {
+        "label": "市场吸引力",
+        "default_weight": 0.15
+      },
+      "team_execution": {
+        "label": "团队执行力",
+        "default_weight": 0.3
+      },
+      "product_competitiveness": {
+        "label": "产品竞争力",
+        "default_weight": 0.2
+      },
+      "financial_reasonableness": {
+        "label": "财务合理性",
+        "default_weight": 0.15
+      },
+      "risk_controllability": {
+        "label": "风险可控性",
+        "default_weight": 0.1
+      },
+      "strategic_alignment": {
+        "label": "战略对齐度",
+        "default_weight": 0.1
+      }
+    },
+    "stage_overrides": {
+      "seed": {
+        "label": "种子轮/天使轮",
+        "team_execution": 0.4,
+        "product_competitiveness": 0.2,
+        "market_attraction": 0.15,
+        "financial_reasonableness": 0.05,
+        "risk_controllability": 0.1,
+        "strategic_alignment": 0.1
+      },
+      "pre_a": {
+        "label": "Pre-A/A 轮",
+        "team_execution": 0.3,
+        "product_competitiveness": 0.25,
+        "market_attraction": 0.2,
+        "financial_reasonableness": 0.1,
+        "risk_controllability": 0.1,
+        "strategic_alignment": 0.05
+      },
+      "series_b": {
+        "label": "B 轮",
+        "team_execution": 0.2,
+        "product_competitiveness": 0.2,
+        "market_attraction": 0.15,
+        "financial_reasonableness": 0.25,
+        "risk_controllability": 0.1,
+        "strategic_alignment": 0.1
+      },
+      "series_c_plus": {
+        "label": "C/D 轮",
+        "team_execution": 0.15,
+        "product_competitiveness": 0.15,
+        "market_attraction": 0.1,
+        "financial_reasonableness": 0.35,
+        "risk_controllability": 0.15,
+        "strategic_alignment": 0.1
+      },
+      "pre_ipo": {
+        "label": "Pre-IPO/IPO",
+        "team_execution": 0.1,
+        "product_competitiveness": 0.15,
+        "market_attraction": 0.1,
+        "financial_reasonableness": 0.4,
+        "risk_controllability": 0.2,
+        "strategic_alignment": 0.05
+      }
+    },
+    "conversion": {
+      "dimension_scale": "0-10",
+      "output_scale": "0-100",
+      "formula": "sum(dim_score_i * dim_weight_i) * 10"
+    }
+  }
+}
