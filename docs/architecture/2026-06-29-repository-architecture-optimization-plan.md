@@ -3386,6 +3386,23 @@ cd apps/api && .venv/bin/python -c "import main; print(main.app.title)"  # SIQ A
 cd apps/api && .venv/bin/python -m pytest tests/test_deal_store.py tests/test_deal_documents.py tests/test_deals_router.py -q  # 27 passed, 22 warnings
 ```
 
+### 0.49 2026-07-03 ReportViewer report skin smoke
+
+本轮选择独立前端维护切片，只调整 `ReportViewer` 注入到报告 iframe 的兼容主题，不触碰 Deal 页面、登录页、全局布局或 E2E 配置。
+
+完成范围：
+
+- `reportViewerTheme.ts` 扩展 legal / audit / status 类报告的 card、verdict、status、badge、icon、header 等颜色兼容规则。
+- 明确保留 `.report-header` 不被通用 `.header` override 误伤。
+- 新增 `reportViewerTheme.test.ts`，用 Node smoke 锁住关键 selector，防止后续清理时删掉 legal verdict/status 表面规则。
+
+验证：
+
+```bash
+cd apps/web && node --test src/components/report/reportViewerTheme.test.ts  # 2 passed
+cd apps/web && npm run check:frontend  # passed
+```
+
 ## 10. 验收标准总表
 
 ### 仓库治理 DoD

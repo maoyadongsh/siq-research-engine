@@ -45,12 +45,98 @@ export const REPORT_VIEWER_THEME = `
   }
   .section,.kpi-card,.chart-container:not(.income-bridge-panel),.risk-card,.table-wrapper,.evidence-panel,
   .summary,.overview,.executive-summary,.abstract,.key-points,.metrics,.kpi,.risk-summary,
+  .card,.panel,.verdict-banner,.finding,.finding-card,.check-card,.result-card,.audit-card,.status-card,
   [class*="summary"],[class*="overview"],[class*="highlight"],[class*="insight"]{
     background:#ffffff!important;
     color:#0f172a!important;
     border-color:#e2e8f0!important;
     box-shadow:0 10px 28px rgba(15,23,42,.055)!important;
   }
+  .header:not(.report-header){
+    border-bottom-color:#e2e8f0!important;
+    color:#0f172a!important;
+  }
+  .card p,.card li,.card .card-desc,.card .card-note,.verdict-banner p,.verdict-banner .stat-label,
+  .finding p,.check-card p,.result-card p,.audit-card p{
+    color:#475569!important;
+  }
+  .card-title,.verdict-text h2,.verdict-banner h2,.verdict-banner h3{
+    color:#0f172a!important;
+  }
+  .header:not(.report-header),.hero:not(.chart-area),.cover,.opinion-header,.legal-header,.report-cover,[class*="hero"]:not(.chart-area),[class*="cover"]{
+    background:linear-gradient(135deg,#ffffff 0%,#f8fbff 54%,#eef6ff 100%)!important;
+    color:#0f172a!important;
+    border-color:#dbeafe!important;
+    box-shadow:0 12px 34px rgba(15,23,42,.06)!important;
+  }
+  .header:not(.report-header) h1,.header:not(.report-header) h2,.header:not(.report-header) h3,
+  .hero:not(.chart-area) h1,.hero:not(.chart-area) h2,.cover h1,.cover h2{
+    color:#0f172a!important;
+    -webkit-text-fill-color:#0f172a!important;
+  }
+  .header:not(.report-header) p,.header:not(.report-header) span,.header:not(.report-header) .meta,
+  .hero:not(.chart-area) p,.hero:not(.chart-area) span,.cover p,.cover span{
+    color:#475569!important;
+    opacity:1!important;
+  }
+  .verdict-banner{
+    align-items:center!important;
+    gap:18px!important;
+    padding:20px 22px!important;
+    overflow:visible!important;
+  }
+  .verdict-badge{
+    width:58px!important;
+    height:58px!important;
+    min-width:58px!important;
+    flex:0 0 58px!important;
+    font-size:17px!important;
+    line-height:1!important;
+    border-width:2px!important;
+    letter-spacing:0!important;
+    transform:none!important;
+  }
+  .verdict-badge::before,.verdict-badge::after{display:none!important}
+  .verdict-text{min-width:0!important;flex:1 1 auto!important}
+  .verdict-stats{flex:0 0 auto!important}
+  .card-icon,.finding-icon,.section-icon,.meta-icon,.source-icon,.risk-icon,.badge-icon,.status-icon,
+  .header:not(.report-header) .badge,.icon:not(svg):not(path):not(circle):not(rect):not(line):not(polyline):not(polygon),
+  [class*="icon"]:not(svg):not(path):not(circle):not(rect):not(line):not(polyline):not(polygon){
+    background:#eff6ff!important;
+    color:#1d4ed8!important;
+    border:1px solid #bfdbfe!important;
+    box-shadow:none!important;
+  }
+  .card-icon svg,.finding-icon svg,.section-icon svg,.meta-icon svg,.source-icon svg,.risk-icon svg,.badge-icon svg,.status-icon svg,
+  .icon svg,[class*="icon"] svg{
+    color:inherit!important;
+    stroke:currentColor!important;
+  }
+  .card-icon.green,.finding-icon.green,.icon.green,[class*="icon"].green{background:#dcfce7!important;color:#15803d!important;border-color:#bbf7d0!important}
+  .card-icon.yellow,.finding-icon.yellow,.icon.yellow,.card-icon.warning,.finding-icon.warning,.icon.warning,[class*="icon"].yellow,[class*="icon"].warning{background:#fef3c7!important;color:#b45309!important;border-color:#fde68a!important}
+  .card-icon.red,.finding-icon.red,.icon.red,.card-icon.danger,.finding-icon.danger,.icon.danger,[class*="icon"].red,[class*="icon"].danger{background:#fee2e2!important;color:#b91c1c!important;border-color:#fecaca!important}
+  .badge,.tag,.chip,.pill,[class*="badge"],[class*="tag"],[class*="chip"],[class*="pill"]{
+    background:#eff6ff!important;
+    color:#1d4ed8!important;
+    border-color:#bfdbfe!important;
+    box-shadow:none!important;
+  }
+  .card-status.pass,.status.pass,.badge.pass,.tag.safe,.tag.pass,.chip.pass,.pill.pass,.verified,.status.verified,.badge.verified,.tag.verified,[class*="verified"]{background:#dcfce7!important;color:#166534!important;border-color:#bbf7d0!important}
+  .card-status.warn,.status.warn,.status.warning,.badge.warning,.tag.warn,.tag.warning,.chip.warning,.pill.warning{background:#fef3c7!important;color:#92400e!important;border-color:#fde68a!important}
+  .card-status.fail,.status.fail,.status.error,.badge.risk,.tag.risk,.tag.fail,.chip.fail,.pill.fail{background:#fee2e2!important;color:#991b1b!important;border-color:#fecaca!important}
+  @media(max-width:760px){
+    .verdict-banner{flex-wrap:wrap!important}
+    .verdict-stats{width:100%!important;justify-content:flex-start!important}
+  }
+  .verdict-badge.approve,.card-icon.green{background:#dcfce7!important;border-color:#22c55e!important;color:#15803d!important}
+  .verdict-badge.request_changes,.card-icon.yellow{background:#fef3c7!important;border-color:#f59e0b!important;color:#b45309!important}
+  .verdict-badge.block,.card-icon.red{background:#fee2e2!important;border-color:#ef4444!important;color:#b91c1c!important}
+  .stat.critical .stat-num{color:#dc2626!important}
+  .stat.warning .stat-num{color:#d97706!important}
+  .stat.suggestion .stat-num{color:#0284c7!important}
+  .card-status.pass,.status.pass{background:#dcfce7!important;color:#166534!important}
+  .card-status.warn,.status.warn,.card-status.warning,.status.warning{background:#fef3c7!important;color:#92400e!important}
+  .card-status.fail,.status.fail,.card-status.error,.status.error{background:#fee2e2!important;color:#991b1b!important}
   .chart-container:not(.income-bridge-panel){
     background:#f8fafc!important;
   }
