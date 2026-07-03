@@ -83,6 +83,15 @@ def _job_created_by(user: User | None) -> dict[str, Any] | None:
     }
 
 
+def _queue_market_report_job(kind: str, target, *, created_by: User | None = None) -> dict[str, Any]:
+    job = market_report_job_service.start(
+        kind,
+        target,
+        created_by=_job_created_by(created_by),
+    )
+    return {"ok": True, "queued": True, **job}
+
+
 def _read_json_file(path: Path, default: Any = None) -> Any:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -1099,12 +1108,11 @@ async def build_market_package(
         raise HTTPException(status_code=400, detail="JSON object payload is required")
     if wait:
         return _run_market_package_build(payload)
-    job = market_report_job_service.start(
+    return _queue_market_report_job(
         "market-package-build",
         lambda: _run_market_package_build(payload),
-        created_by=_job_created_by(_ops_user),
+        created_by=_ops_user,
     )
-    return {"ok": True, "queued": True, **job}
 
 
 @router.post("/market-reports/eu/parse")
@@ -1122,12 +1130,11 @@ async def parse_eu_market_report(
     payload = {**payload, "market": "EU"}
     if wait:
         return _run_market_package_build(payload)
-    job = market_report_job_service.start(
+    return _queue_market_report_job(
         "eu-market-report-parse",
         lambda: _run_market_package_build(payload),
-        created_by=_job_created_by(_ops_user),
+        created_by=_ops_user,
     )
-    return {"ok": True, "queued": True, **job}
 
 
 @router.post("/market-reports/packages/import")
@@ -1144,12 +1151,11 @@ async def import_market_package(
         raise HTTPException(status_code=400, detail="JSON object payload is required")
     if wait:
         return _run_market_package_import(payload)
-    job = market_report_job_service.start(
+    return _queue_market_report_job(
         "market-package-import",
         lambda: _run_market_package_import(payload),
-        created_by=_job_created_by(_ops_user),
+        created_by=_ops_user,
     )
-    return {"ok": True, "queued": True, **job}
 
 
 @router.post("/market-reports/packages/vector-ingest")
@@ -1166,12 +1172,11 @@ async def vector_ingest_market_package(
         raise HTTPException(status_code=400, detail="JSON object payload is required")
     if wait:
         return _run_market_vector_ingest(payload)
-    job = market_report_job_service.start(
+    return _queue_market_report_job(
         "market-vector-ingest",
         lambda: _run_market_vector_ingest(payload),
-        created_by=_job_created_by(_ops_user),
+        created_by=_ops_user,
     )
-    return {"ok": True, "queued": True, **job}
 
 
 @router.get("/market-reports/eval")
@@ -1202,12 +1207,11 @@ async def run_market_ingestion_eval(
         raise HTTPException(status_code=400, detail="JSON object payload is required")
     if wait:
         return _run_market_ingestion_eval(payload)
-    job = market_report_job_service.start(
+    return _queue_market_report_job(
         "market-ingestion-eval",
         lambda: _run_market_ingestion_eval(payload),
-        created_by=_job_created_by(_ops_user),
+        created_by=_ops_user,
     )
-    return {"ok": True, "queued": True, **job}
 
 
 @router.get("/market-reports/packages/{filing_id}")
@@ -1275,12 +1279,11 @@ async def us_sec_case_set_ingest(
         raise HTTPException(status_code=400, detail="JSON object payload is required")
     if wait:
         return _run_us_sec_case_set_ingest(payload)
-    job = market_report_job_service.start(
+    return _queue_market_report_job(
         "us-sec-ingest",
         lambda: _run_us_sec_case_set_ingest(payload),
-        created_by=_job_created_by(_ops_user),
+        created_by=_ops_user,
     )
-    return {"ok": True, "queued": True, **job}
 
 
 @router.get("/us-sec/packages/{ticker}")
@@ -1319,12 +1322,11 @@ async def us_sec_rebuild_package(
         payload = {}
     if wait:
         return _run_us_sec_rebuild_package(ticker, payload)
-    job = market_report_job_service.start(
+    return _queue_market_report_job(
         "us-sec-rebuild",
         lambda: _run_us_sec_rebuild_package(ticker, payload),
-        created_by=_job_created_by(_ops_user),
+        created_by=_ops_user,
     )
-    return {"ok": True, "queued": True, **job}
 
 
 @router.get("/jobs/{job_id}")
