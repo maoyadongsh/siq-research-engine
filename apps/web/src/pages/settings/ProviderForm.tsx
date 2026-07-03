@@ -124,7 +124,7 @@ export function ProviderForm({
                 '供应商名称',
                 provider.providerName,
                 'providerName',
-                activeKey === 'cloud' ? '例如 Hermes / Minimax' : '例如 vLLM / Qwen3.6 或 vLLM / Gemma4',
+                activeKey === 'cloud' ? '例如 StepFun / Step-3.7 Flash' : '例如 vLLM / Qwen3.6 或 vLLM / Gemma4',
                 <CheckCircle2 className="h-5 w-5 text-primary" />,
               )}
               {modelField(
@@ -132,13 +132,13 @@ export function ProviderForm({
                 provider.baseUrl,
                 'baseUrl',
                 activeKey === 'cloud'
-                  ? 'hermes://minimax-cn'
+                  ? 'https://api.stepfun.com/v1、hermes://minimax-cn 或 hermes://kimi-coding'
                   : 'http://127.0.0.1:8004/v1 或 http://127.0.0.1:8006/v1',
                 <Globe2 className="h-5 w-5 text-primary" />,
                 {
                   mono: true,
                   helper:
-                    '本地模型调用 OpenAI-compatible /chat/completions；云端 hermes:// 标识复用 Hermes 已有鉴权。',
+                    'StepFun 走 OpenAI-compatible 接口；Minimax/Kimi 的 hermes:// 预设复用 Hermes 已配置的模型与鉴权。',
                 },
               )}
             </div>
@@ -152,7 +152,7 @@ export function ProviderForm({
                 provider.model,
                 'model',
                 activeKey === 'cloud'
-                  ? '例如 MiniMax-M3'
+                  ? '例如 step-3.7-flash、MiniMax-M3 或 kimi-for-coding'
                   : '例如 Qwen3.6-35B-A3B-FP8 或 Gemma-4-26B-A4B-it-NVFP4',
                 <BrainCircuit className="h-5 w-5 text-primary" />,
               )}
@@ -208,7 +208,7 @@ export function ProviderForm({
                     provider.hasApiKey
                       ? '已保存密钥；留空则继续沿用'
                       : activeKey === 'cloud'
-                        ? 'Hermes 已有密钥时这里留空'
+                        ? 'StepFun 需填写 API Key；Hermes 预设可留空'
                         : '本地服务如无鉴权可留空'
                   }
                   className="form-control min-w-0 flex-1 px-4 text-base"

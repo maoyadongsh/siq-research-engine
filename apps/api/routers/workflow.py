@@ -13,6 +13,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 
+from services.command_runner import run_command as run_subprocess_command
 from services.llm_settings import load_llm_settings
 from services.path_config import (
     DB_CONFIG_PY,
@@ -29,6 +30,14 @@ from services.path_config import (
     WORKFLOW_JOB_STORE,
 )
 from services.security_utils import validate_table_name
+from services import document_workflow_service
+from services.workflow_job_service import (
+    create_workflow_job,
+    load_workflow_jobs,
+    persist_workflow_jobs,
+    record_workflow_job_step,
+    update_workflow_job,
+)
 
 router = APIRouter(prefix="/workflow", tags=["workflow"])
 
@@ -104,29 +113,11 @@ _job_lock = threading.Lock()
 
 
 def _load_workflow_jobs() -> dict[str, dict]:
-    try:
-        payload = json.loads(WORKFLOW_JOB_STORE.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    raw_jobs = payload.get("jobs") if isinstance(payload, dict) else payload
-    if not isinstance(raw_jobs, list):
-        return {}
-    jobs: dict[str, dict] = {}
-    for job in raw_jobs:
-        if isinstance(job, dict) and isinstance(job.get("jobId"), str):
-            jobs[job["jobId"]] = job
-    return jobs
+    return load_workflow_jobs(WORKFLOW_JOB_STORE)
 
 
 def _persist_workflow_jobs_locked() -> None:
-    try:
-        WORKFLOW_JOB_STORE.parent.mkdir(parents=True, exist_ok=True)
-        jobs = sorted(_workflow_jobs.values(), key=lambda item: item.get("createdAt", ""))[-200:]
-        tmp_path = WORKFLOW_JOB_STORE.with_suffix(f"{WORKFLOW_JOB_STORE.suffix}.tmp")
-        tmp_path.write_text(json.dumps({"jobs": jobs}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        tmp_path.replace(WORKFLOW_JOB_STORE)
-    except Exception:
-        return
+    persist_workflow_jobs(WORKFLOW_JOB_STORE, _workflow_jobs)
 
 
 _workflow_jobs: dict[str, dict] = _load_workflow_jobs()
@@ -178,12 +169,17 @@ def _find_document_result_dir(task_id: str) -> Path | None:
 
 
 def _document_package_dir(task_id: str, collection: str | None = None, manifest: dict | None = None) -> Path:
-    task_id = _safe_task_id(task_id)
-    collection_name = _safe_document_collection(collection)
-    if manifest is None:
-        result_dir = _find_document_result_dir(task_id)
-        manifest = _read_json(result_dir / "manifest.json", {}) if result_dir else {}
-    return DOCUMENT_WIKI_ROOT / collection_name / _document_key_from_manifest(task_id, manifest or {})
+    return document_workflow_service.document_package_dir(
+        task_id,
+        collection,
+        manifest,
+        safe_task_id=_safe_task_id,
+        safe_collection=_safe_document_collection,
+        find_result_dir=_find_document_result_dir,
+        read_json=_read_json,
+        wiki_root=DOCUMENT_WIKI_ROOT,
+        document_key_from_manifest=_document_key_from_manifest,
+    )
 
 
 def _find_task_document_full(task_id: str) -> Path | None:
@@ -1904,7 +1900,7 @@ def _db_status(task_id: str) -> dict:
 
 
 def _run_command(args: list[str], timeout: int = 180, env: dict[str, str] | None = None) -> dict:
-    completed = subprocess.run(args, check=False, capture_output=True, text=True, timeout=timeout, env=env)
+    completed = run_subprocess_command(args, timeout=timeout, env=env)
     return {
         "returnCode": completed.returncode,
         "stdout": completed.stdout[-6000:],
@@ -2054,183 +2050,78 @@ def _workflow_status_payload(task_id: str) -> dict:
 
 
 def _document_artifact_status(task_id: str) -> dict:
-    task_id = _safe_task_id(task_id)
-    result_dir = _find_document_result_dir(task_id)
-    if not result_dir:
-        return {
-            "status": "missing",
-            "taskId": task_id,
-            "ready": False,
-            "resultDir": "",
-            "readyCount": 0,
-            "total": len(DOCUMENT_CORE_ARTIFACTS),
-            "missing": list(DOCUMENT_CORE_ARTIFACTS),
-            "message": "未找到通用文档解析产物目录",
-        }
-    artifacts = {}
-    missing = []
-    for name in DOCUMENT_CORE_ARTIFACTS:
-        info = _artifact_file_info(result_dir, name)
-        artifacts[name] = info
-        if not info["exists"]:
-            missing.append(name)
-    ready = not missing
-    return {
-        "status": "ready" if ready else "missing",
-        "taskId": task_id,
-        "ready": ready,
-        "resultDir": str(result_dir),
-        "readyCount": len(DOCUMENT_CORE_ARTIFACTS) - len(missing),
-        "total": len(DOCUMENT_CORE_ARTIFACTS),
-        "missing": missing,
-        "artifacts": artifacts,
-        "message": f"{len(DOCUMENT_CORE_ARTIFACTS) - len(missing)}/{len(DOCUMENT_CORE_ARTIFACTS)} 个核心文件已生成" if ready else f"缺少 {len(missing)} 个核心文件",
-    }
+    return document_workflow_service.document_artifact_status(
+        task_id,
+        safe_task_id=_safe_task_id,
+        find_result_dir=_find_document_result_dir,
+        core_artifacts=DOCUMENT_CORE_ARTIFACTS,
+        artifact_file_info=_artifact_file_info,
+    )
 
 
 def _document_wiki_status(task_id: str, collection: str | None = None) -> dict:
-    task_id = _safe_task_id(task_id)
-    collection_name = _safe_document_collection(collection)
-    result_dir = _find_document_result_dir(task_id)
-    manifest = _read_json(result_dir / "manifest.json", {}) if result_dir else {}
-    package_dir = _document_package_dir(task_id, collection_name, manifest)
-    package_manifest = _read_json(package_dir / DOCUMENT_PACKAGE_MANIFEST_NAME, {}) if package_dir.is_dir() else {}
-    source_sha = _sha256_file(result_dir / "document_full.json") if result_dir else None
-    package_sha = package_manifest.get("document_full_sha256")
-    stale = bool(package_manifest and source_sha and package_sha and source_sha != package_sha)
-    status = "stale" if stale else ("ready" if package_manifest else ("missing" if result_dir else "unavailable"))
-    return {
-        "status": status,
-        "taskId": task_id,
-        "collection": collection_name,
-        "documentKey": package_dir.name,
-        "path": str(package_dir),
-        "manifestPath": str(package_dir / DOCUMENT_PACKAGE_MANIFEST_NAME),
-        "documentFullSha256": package_sha or "",
-        "sourceDocumentFullSha256": source_sha or "",
-        "stale": stale,
-        "message": "通用文档 Wiki 包需刷新" if stale else ("已归档到通用文档 Wiki" if package_manifest else ("可归档到通用文档 Wiki" if result_dir else "未找到解析产物")),
-    }
+    return document_workflow_service.document_wiki_status(
+        task_id,
+        collection,
+        safe_task_id=_safe_task_id,
+        safe_collection=_safe_document_collection,
+        find_result_dir=_find_document_result_dir,
+        read_json=_read_json,
+        sha256_file=_sha256_file,
+        wiki_root=DOCUMENT_WIKI_ROOT,
+        package_manifest_name=DOCUMENT_PACKAGE_MANIFEST_NAME,
+        document_key_from_manifest=_document_key_from_manifest,
+    )
 
 
 def _document_workflow_status_payload(task_id: str, collection: str | None = None) -> dict:
-    artifact_status = _document_artifact_status(task_id)
-    wiki_status = _document_wiki_status(task_id, collection)
-    postgres_status = _document_postgres_status(task_id, collection)
-    return {
-        "taskId": _safe_task_id(task_id),
-        "targets": {
-            "wiki": wiki_status,
-            "postgres": postgres_status,
-            "milvus": _document_milvus_status(task_id, collection),
-            "full_text": {"status": "disabled"},
-            "object_storage": {"status": "disabled"},
-        },
-        "artifacts": artifact_status,
-    }
+    return document_workflow_service.document_workflow_status_payload(
+        task_id,
+        collection,
+        safe_task_id=_safe_task_id,
+        artifact_status=_document_artifact_status,
+        wiki_status=_document_wiki_status,
+        postgres_status=_document_postgres_status,
+        milvus_status=_document_milvus_status,
+    )
 
 
 def _document_postgres_status(task_id: str, collection: str | None = None) -> dict:
     wiki = _document_wiki_status(task_id, collection)
-    if not DOCUMENT_DB_IMPORT_SCRIPT.is_file():
-        return {
-            "status": "missing",
-            "schema": "document_parser",
-            "script": str(DOCUMENT_DB_IMPORT_SCRIPT),
-            "message": "通用文档 PostgreSQL importer 不存在",
-        }
-    if wiki.get("status") not in {"ready", "stale"}:
-        return {
-            "status": "waiting_for_wiki",
-            "schema": "document_parser",
-            "script": str(DOCUMENT_DB_IMPORT_SCRIPT),
-            "message": "请先导入 Wiki 包",
-        }
-    return {
-        "status": "ready",
-        "schema": "document_parser",
-        "script": str(DOCUMENT_DB_IMPORT_SCRIPT),
-        "packagePath": wiki.get("path") or "",
-        "document_id": f"doc-{_safe_task_id(task_id)}",
-        "message": "可导入 PostgreSQL document_parser schema",
-    }
+    return document_workflow_service.document_postgres_status_payload(
+        task_id=_safe_task_id(task_id),
+        wiki_status=wiki,
+        script_path=DOCUMENT_DB_IMPORT_SCRIPT,
+        script_exists=DOCUMENT_DB_IMPORT_SCRIPT.is_file(),
+    )
 
 
 def _document_milvus_status(task_id: str, collection: str | None = None) -> dict:
     wiki = _document_wiki_status(task_id, collection)
-    if not DOCUMENT_CHUNK_SCRIPT.is_file():
-        return {
-            "status": "missing",
-            "collection": "siq_documents",
-            "script": str(DOCUMENT_CHUNK_SCRIPT),
-            "message": "通用文档 chunk 脚本不存在",
-        }
-    if wiki.get("status") not in {"ready", "stale"}:
-        return {
-            "status": "waiting_for_wiki",
-            "collection": "siq_documents",
-            "script": str(DOCUMENT_CHUNK_SCRIPT),
-            "message": "请先导入 Wiki 包",
-        }
     package_dir = Path(str(wiki.get("path") or ""))
     chunks_path = package_dir / "semantic" / "chunks.jsonl"
     report_path = package_dir / "semantic" / "ingest_report.json"
     report = _read_json(report_path, {}) if report_path.is_file() else {}
-    inserted = int(report.get("milvus_inserted") or 0) if isinstance(report, dict) else 0
-    if inserted:
-        return {
-            "status": "completed",
-            "collection": report.get("collection") or "siq_documents",
-            "script": str(DOCUMENT_CHUNK_SCRIPT),
-            "packagePath": str(package_dir),
-            "chunksPath": str(chunks_path),
-            "reportPath": str(report_path),
-            "chunkCount": int(report.get("chunk_count") or 0),
-            "insertedCount": inserted,
-            "batchTag": report.get("batch_tag") or "",
-            "message": f"已写入 Milvus {inserted} 个 chunks",
-        }
-    if not chunks_path.is_file():
-        return {
-            "status": "ready",
-            "collection": "siq_documents",
-            "script": str(DOCUMENT_CHUNK_SCRIPT),
-            "packagePath": str(package_dir),
-            "chunksPath": str(chunks_path),
-            "chunkCount": 0,
-            "message": "可生成语义 chunks",
-        }
-    chunk_count = sum(1 for line in chunks_path.read_text(encoding="utf-8").splitlines() if line.strip())
-    return {
-        "status": "chunks_ready",
-        "collection": "siq_documents",
-        "script": str(DOCUMENT_CHUNK_SCRIPT),
-        "packagePath": str(package_dir),
-        "chunksPath": str(chunks_path),
-        "reportPath": str(report_path) if report_path.is_file() else "",
-        "chunkCount": chunk_count,
-        "message": f"已生成 {chunk_count} 个语义 chunks",
-    }
+    chunk_count = 0
+    if chunks_path.is_file():
+        chunk_count = sum(1 for line in chunks_path.read_text(encoding="utf-8").splitlines() if line.strip())
+    return document_workflow_service.document_milvus_status_payload(
+        wiki_status=wiki,
+        script_path=DOCUMENT_CHUNK_SCRIPT,
+        script_exists=DOCUMENT_CHUNK_SCRIPT.is_file(),
+        chunks_exists=chunks_path.is_file(),
+        chunk_count=chunk_count,
+        report_path=report_path if report_path.is_file() else None,
+        report=report if isinstance(report, dict) else {},
+    )
 
 
 def _write_document_package_readme(package_dir: Path, package_manifest: dict, document_markdown: str) -> None:
-    title = package_manifest.get("filename") or package_manifest.get("document_key") or package_manifest.get("task_id")
-    preview = "\n".join(document_markdown.splitlines()[:80]).strip()
-    content = [
-        f"# {title}",
-        "",
-        f"- task_id: `{package_manifest.get('task_id')}`",
-        f"- document_kind: `{package_manifest.get('document_kind')}`",
-        f"- parser_provider: `{package_manifest.get('parser_provider')}`",
-        f"- source_result_dir: `{package_manifest.get('source_result_dir')}`",
-        "",
-        "## Preview",
-        "",
-        preview or "_No markdown preview available._",
-        "",
-    ]
     package_dir.mkdir(parents=True, exist_ok=True)
-    (package_dir / "README.md").write_text("\n".join(content), encoding="utf-8")
+    (package_dir / "README.md").write_text(
+        document_workflow_service.document_package_readme_content(package_manifest, document_markdown),
+        encoding="utf-8",
+    )
 
 
 def _import_document_task_to_wiki(task_id: str, collection: str | None = None) -> dict:
@@ -2261,80 +2152,41 @@ def _import_document_task_to_wiki(task_id: str, collection: str | None = None) -
 
     document_markdown = (result_dir / "document.md").read_text(encoding="utf-8")
     document_full_sha = _sha256_file(result_dir / "document_full.json")
-    artifacts_manifest = {
-        name: {
-            "source": str(result_dir / name),
-            "package_path": _document_package_target(name) if name in DOCUMENT_WIKI_LIGHTWEIGHT_ARTIFACTS else "",
-            "sha256": _sha256_file(result_dir / name),
-            "size_bytes": (result_dir / name).stat().st_size if (result_dir / name).is_file() else 0,
-            "version": _json_artifact_meta(result_dir / name).get("schemaVersion") or "",
-        }
-        for name in DOCUMENT_CORE_ARTIFACTS + DOCUMENT_OPTIONAL_ARTIFACTS
-        if (result_dir / name).is_file()
-    }
-    package_manifest = {
-        "schema_version": "generic_document_package_v1",
-        "document_id": f"doc-{task_id}",
-        "task_id": task_id,
-        "collection": collection_name,
-        "document_key": document_key,
-        "filename": manifest.get("filename") or "",
-        "document_kind": manifest.get("document_kind") or "",
-        "parser_provider": manifest.get("parser_provider") or "",
-        "source_result_dir": str(result_dir),
-        "package_version": "1",
-        "created_at": _now_iso(),
-        "document_full_sha256": document_full_sha,
-        "artifacts": artifacts_manifest,
-        "wiki_keeps": [
-            "README.md",
-            DOCUMENT_PACKAGE_MANIFEST_NAME,
-            ARTIFACT_MANIFEST_NAME,
-            *[_document_package_target(name) for name in copied_files],
-            *DOCUMENT_WIKI_RETAINED_DIRS,
-        ],
-        "full_parse_archive": "document_parser_results_and_postgresql",
-        "note": "Wiki 只保留轻量入口、原始源文件树和 artifact_manifest.json；完整解析包继续保存在 source_result_dir，并由 PostgreSQL document_parser schema 入库。",
-        "import_targets": {
-            "postgres": {"schema": "document_parser", "document_id": f"doc-{task_id}", "last_imported_at": None},
-            "milvus": {"collection": "siq_documents", "last_imported_at": None},
-        },
-    }
+    package_manifest, artifact_manifest = document_workflow_service.build_document_package_manifests(
+        task_id=task_id,
+        collection_name=collection_name,
+        document_key=document_key,
+        result_dir=result_dir,
+        parser_manifest=manifest,
+        created_at=_now_iso(),
+        document_full_sha=document_full_sha,
+        core_artifacts=DOCUMENT_CORE_ARTIFACTS,
+        optional_artifacts=DOCUMENT_OPTIONAL_ARTIFACTS,
+        lightweight_artifacts=set(DOCUMENT_WIKI_LIGHTWEIGHT_ARTIFACTS),
+        copied_files=copied_files,
+        retained_dirs=DOCUMENT_WIKI_RETAINED_DIRS,
+        package_manifest_name=DOCUMENT_PACKAGE_MANIFEST_NAME,
+        artifact_manifest_name=ARTIFACT_MANIFEST_NAME,
+        sha256_file=_sha256_file,
+        json_artifact_meta=_json_artifact_meta,
+    )
     _write_json(package_dir / DOCUMENT_PACKAGE_MANIFEST_NAME, package_manifest)
-    _write_json(package_dir / ARTIFACT_MANIFEST_NAME, {
-        "schema_version": "generic_document_artifact_manifest_v1",
-        "task_id": task_id,
-        "collection": collection_name,
-        "document_key": document_key,
-        "source_result_dir": str(result_dir),
-        "generated_at": package_manifest["created_at"],
-        "artifacts": artifacts_manifest,
-    })
+    _write_json(package_dir / ARTIFACT_MANIFEST_NAME, artifact_manifest)
     _write_document_package_readme(package_dir, package_manifest, document_markdown)
 
     index_path = DOCUMENT_WIKI_ROOT / collection_name / "index.json"
     index_payload = _read_json(index_path, {"schema_version": "generic_document_collection_index_v1", "collection": collection_name, "documents": []}) or {}
-    documents = [
-        item for item in (index_payload.get("documents") or [])
-        if (item or {}).get("task_id") != task_id
-    ]
-    documents.append({
-        "task_id": task_id,
-        "document_id": package_manifest["document_id"],
-        "document_key": document_key,
-        "filename": package_manifest["filename"],
-        "document_kind": package_manifest["document_kind"],
-        "path": str(package_dir),
-        "updated_at": package_manifest["created_at"],
-    })
-    index_payload.update({
-        "schema_version": "generic_document_collection_index_v1",
-        "collection": collection_name,
-        "generated_at": _now_iso(),
-        "document_count": len(documents),
-        "documents": sorted(documents, key=lambda item: str(item.get("updated_at") or ""), reverse=True),
-    })
-    _write_json(index_path, index_payload)
+    _write_json(
+        index_path,
+        document_workflow_service.build_document_collection_index(
+            index_payload,
+            task_id=task_id,
+            collection_name=collection_name,
+            package_dir=package_dir,
+            package_manifest=package_manifest,
+            generated_at=_now_iso(),
+        ),
+    )
 
     return {
         "ok": True,
@@ -2350,27 +2202,7 @@ def _import_document_task_to_wiki(task_id: str, collection: str | None = None) -
 
 
 def _document_package_target(artifact_name: str) -> str:
-    mapping = {
-        "manifest.json": "qa/parse_manifest.json",
-        "document.md": "sections/document.md",
-        "blocks.json": "sections/blocks.json",
-        "tables.json": "tables/tables.json",
-        "logical_tables.json": "logical_tables/logical_tables.json",
-        "table_relations.json": "logical_tables/table_relations.json",
-        "table_merge_corrections.json": "logical_tables/table_merge_corrections.json",
-        "figures.json": "figures/figures.json",
-        "figure_index.json": "figures/figure_index.json",
-        "comparison_map.json": "comparison/comparison_map.json",
-        "layout_blocks.json": "comparison/layout_blocks.json",
-        "reading_order.json": "comparison/reading_order.json",
-        "source_map.json": "qa/source_map.json",
-        "quality_report.json": "qa/quality_report.json",
-        "extraction/schema.json": "extraction/schema.json",
-        "extraction/result.json": "extraction/result.json",
-        "extraction/evidence_map.json": "extraction/evidence_map.json",
-        "extraction/validation_report.json": "extraction/validation_report.json",
-    }
-    return mapping.get(artifact_name, artifact_name)
+    return document_workflow_service.document_package_target(artifact_name)
 
 
 @router.get("/task/{task_id}/status")
@@ -2400,22 +2232,22 @@ def import_document_task_to_database(task_id: str, collection: str = "default"):
     if not (package_dir / DOCUMENT_PACKAGE_MANIFEST_NAME).is_file():
         raise HTTPException(404, "Document Wiki package manifest not found")
     pg_config = _db_connect_config()
-    command_env = os.environ.copy()
-    command_env.update({
-        "PGHOST": str(pg_config["host"]),
-        "PGPORT": str(pg_config["port"]),
-        "PGDATABASE": str(pg_config["dbname"]),
-        "PGUSER": str(pg_config["user"]),
-        "PGPASSWORD": str(pg_config["password"]),
-        "DATABASE_URL": _postgres_database_url(pg_config),
-    })
-    result = _run_command([
-        sys.executable,
-        str(DOCUMENT_DB_IMPORT_SCRIPT),
-        str(package_dir),
-        "--database-url",
-        _postgres_database_url(pg_config),
-    ], timeout=300, env=command_env)
+    database_url = _postgres_database_url(pg_config)
+    command_env = document_workflow_service.document_db_import_env(
+        os.environ,
+        pg_config=pg_config,
+        database_url=database_url,
+    )
+    result = _run_command(
+        document_workflow_service.document_db_import_command(
+            executable=sys.executable,
+            script_path=DOCUMENT_DB_IMPORT_SCRIPT,
+            package_dir=package_dir,
+            database_url=database_url,
+        ),
+        timeout=300,
+        env=command_env,
+    )
     if result["returnCode"] != 0:
         raise HTTPException(500, result)
     return {
@@ -2441,22 +2273,13 @@ def build_document_semantic_chunks(
     if not DOCUMENT_CHUNK_SCRIPT.is_file():
         raise HTTPException(500, f"Document chunk script not found: {DOCUMENT_CHUNK_SCRIPT}")
     package_dir = Path(str(wiki.get("path") or ""))
-    output = package_dir / "semantic" / "chunks.jsonl"
-    report = package_dir / "semantic" / "ingest_report.json"
-    args = [
-        sys.executable,
-        str(DOCUMENT_CHUNK_SCRIPT),
-        str(package_dir),
-        "--collection",
-        "siq_documents",
-        "--output",
-        str(output),
-        "--report",
-        str(report),
-    ]
-    if milvus:
-        args.append("--milvus")
-    result = _run_command(args, timeout=1800 if milvus else 300)
+    command = document_workflow_service.document_semantic_command(
+        executable=sys.executable,
+        script_path=DOCUMENT_CHUNK_SCRIPT,
+        package_dir=package_dir,
+        milvus=milvus,
+    )
+    result = _run_command(command["args"], timeout=command["timeout"])
     if result["returnCode"] != 0:
         raise HTTPException(500, result)
     return {
@@ -2465,7 +2288,7 @@ def build_document_semantic_chunks(
         "collection": _safe_document_collection(collection),
         "packageDir": str(package_dir),
         "result": result,
-        "semanticMode": "milvus" if milvus else "chunks",
+        "semanticMode": command["semantic_mode"],
         "milvus": _document_milvus_status(task_id, collection),
     }
 
@@ -2613,29 +2436,14 @@ def import_task_to_database(task_id: str):
 
 def _job_update(job_id: str, **updates) -> None:
     with _job_lock:
-        job = _workflow_jobs.get(job_id)
-        if not job:
-            return
-        job.update(updates)
-        job["updatedAt"] = _now_iso()
-        _persist_workflow_jobs_locked()
+        if update_workflow_job(_workflow_jobs, job_id, now=_now_iso, **updates):
+            _persist_workflow_jobs_locked()
 
 
 def _job_step(job_id: str, step: str, status: str, **updates) -> None:
     with _job_lock:
-        job = _workflow_jobs.get(job_id)
-        if not job:
-            return
-        steps = job.setdefault("steps", [])
-        current = next((item for item in steps if item.get("step") == step), None)
-        if not current:
-            current = {"step": step, "startedAt": _now_iso()}
-            steps.append(current)
-        current.update({"status": status, **updates})
-        if status in {"succeeded", "failed", "skipped"}:
-            current.setdefault("finishedAt", _now_iso())
-        job["updatedAt"] = _now_iso()
-        _persist_workflow_jobs_locked()
+        if record_workflow_job_step(_workflow_jobs, job_id, step, status, now=_now_iso, **updates):
+            _persist_workflow_jobs_locked()
 
 
 def _run_remaining_pipeline(job_id: str, task_id: str) -> None:
@@ -2696,14 +2504,7 @@ def run_remaining_workflow(task_id: str):
         raise HTTPException(422, {"message": "预检未通过", "blocking": preflight["blocking"], "checks": preflight["checks"]})
     job_id = uuid.uuid4().hex
     with _job_lock:
-        _workflow_jobs[job_id] = {
-            "jobId": job_id,
-            "taskId": task_id,
-            "status": "queued",
-            "steps": [],
-            "createdAt": _now_iso(),
-            "updatedAt": _now_iso(),
-        }
+        create_workflow_job(_workflow_jobs, job_id=job_id, task_id=task_id, now=_now_iso)
         _persist_workflow_jobs_locked()
     thread = threading.Thread(target=_run_remaining_pipeline, args=(job_id, task_id), daemon=True)
     thread.start()

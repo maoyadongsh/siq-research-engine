@@ -1553,6 +1553,165 @@ git diff --check
 - 债务标记治理可单独做报告型切片，只分类不修代码，避免把历史债务修复混入工程化入口。
 - Async DB 后续仍只做报告或设计矩阵；迁移 `chat.py` / `workspace.py` / `document_parser.py` 的同步 Session owner 必须另开单独窗口。
 
+### 0.35 2026-07-03 Market / Document Workflow 小切片收口
+
+本轮按“继续加速但严控风险”的要求，先由后台智能体只读复核 market/report、document workflow 和 Deal/IC 三条并行主线，再由主线程只落低风险纯 service / wrapper 切片。不回退或整理当前 Deal/IC 大块改动，不触碰年度报告 workflow、长任务线程 owner、Agent runtime、PDF parser 或前端 CSS / refs owner。
+
+完成项：
+
+- Market proxy：`market_report_proxy.finder_assist()` 对 200 但 malformed JSON 的上游响应改为明确 `HTTPException 502`，避免异常裸漏成 500；非 dict JSON 继续按空对象处理，保持 finder assist 响应合同收敛。
+- Market status：`us_sec_case_set_status_payload()` 增加安全计数转换，`quality_summary` 中 `"n/a"`、对象、负数等脏计数字段按 0 处理，避免 `/us-sec/case-set` 因单条坏数据整体失败。
+- Document workflow：`document_workflow_service.py` 新增 `document_db_import_command()`、`document_db_import_env()`、`document_semantic_command()` 纯 helper；`workflow.py` 仅把通用文档 DB import / semantic chunks 的命令和 env 拼接改为调用 helper，仍保留 Wiki 状态校验、脚本存在性、`_run_command`、HTTPException 和结果状态回读 owner。
+- Deal/IC：本轮只读复核确认后端 Deal/IC 聚焦测试可通过，但不继续修改；该主线仍需单独处理前端页面 smoke / typecheck 和 StepFun profile 运行态配置风险。
+
+本轮验证：
+
+```bash
+cd apps/api && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_market_reports_proxy.py tests/test_market_report_proxy_service.py tests/test_market_report_queueing.py tests/test_market_report_commands.py tests/test_market_report_status_service.py tests/test_market_package_repository.py
+# 75 passed, 2 warnings
+
+cd apps/api && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_command_runner.py tests/test_job_service.py tests/test_workflow_job_service.py tests/test_document_workflow_service.py tests/test_document_workflow_package.py
+# 39 passed
+
+cd apps/api && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_deal_store.py tests/test_deals_router.py tests/test_ic_policy.py tests/test_hermes_model_control.py
+# 66 passed, warnings only
+
+cd apps/api && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m py_compile services/market_report_proxy.py services/market_report_status_service.py services/document_workflow_service.py routers/workflow.py
+# passed
+
+git diff --check
+# passed
+```
+
+下一步建议：
+
+- Market/report 下一刀优先只做 `market_report_queueing.py` 小 service 或 package quality payload builder；保留 router wrapper 和 `market_report_job_service.start` patch 点，不迁命令执行 owner。
+- Document workflow 下一刀若继续，只补 DB/chunk route contract 或命令 helper 负路径；仍不碰年度报告 workflow、语义/LLM/Obsidian、PostgreSQL 年报入库和 `_run_remaining_pipeline` 线程 owner。
+- Deal/IC 下一步应单独做前端 `npm run check:frontend` 与关键 Deal 路由 smoke；不要与 market/workflow 控制面瘦身混批。
+
+### 0.36 2026-07-03 Market Queueing / Quality 与 Deal 前端 Smoke 收口
+
+本轮继续按小切片推进，并由后台智能体并行只读复核 market/report、document workflow 和前端 Deal/IC。结论：document workflow 结构性拆分应暂停，market/report 可继续完成 queueing service 和 package quality payload builder 两个低风险切片；前端 Deal/IC 优先补纯 Node unit smoke，而不是改页面或后端。
+
+完成项：
+
+- Market queueing：新增 `market_report_queueing.py`，下沉 `job_created_by()` 和 queued job envelope；`market_reports.py` 保留 `_job_created_by()` / `_queue_market_report_job()` 薄 wrapper，继续注入 `market_report_job_service`，保持现有 monkeypatch 和路由测试合同。
+- Market 验证：新增 `test_market_report_queueing_service.py`，覆盖 created_by 快照和 job service envelope；现有 `test_market_report_queueing.py` 继续覆盖 build/import/vector/eval/US SEC rebuild 等路由排队合同。
+- Market quality：`market_report_status_service.py` 新增 `market_package_quality_payload()`，`market_reports.py` 的 path / filing_id quality routes 改为薄调用；path 版继续保留 `source_map_summary`，filing_id 版保持既有无该字段的响应合同。
+- Frontend Deal smoke：新增 `routes.test.ts` 源码级 smoke，锁定 Deal agents/workflow/reports/decision/audit 路由注册；新增 `dealApi.test.ts`，用 mock `fetch` 锁定 Deal status/agents/R1 reports URL encoding，以及 startup retrieval / workflow R1 dry-run 的默认 `R1` 与 `dry_run: true` body。
+- Workflow 决策：document workflow 当前 status、manifest/index、Postgres/Milvus status、DB import command/env、semantic command 已抽入 service；后续只补负路径 contract，不再继续搬 `_import_document_task_to_wiki` 的文件复制 / manifest 写入 IO 编排。
+
+本轮验证：
+
+```bash
+cd apps/api && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_market_report_queueing_service.py tests/test_market_report_queueing.py
+# 9 passed, 2 warnings
+
+cd apps/api && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_market_report_queueing_service.py tests/test_market_report_queueing.py tests/test_market_reports_proxy.py tests/test_market_report_proxy_service.py tests/test_market_report_commands.py tests/test_market_report_status_service.py tests/test_market_package_repository.py
+# 77 passed, 2 warnings
+
+cd apps/api && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_command_runner.py tests/test_job_service.py tests/test_workflow_job_service.py tests/test_document_workflow_service.py tests/test_document_workflow_package.py tests/test_market_report_queueing_service.py tests/test_market_report_queueing.py tests/test_market_reports_proxy.py tests/test_market_report_proxy_service.py tests/test_market_report_commands.py tests/test_market_report_status_service.py tests/test_market_package_repository.py
+# 117 passed, 2 warnings
+
+cd apps/web && npm run test:unit
+# 49 passed
+
+cd apps/web && npm run check:frontend
+# passed
+
+git diff --check
+# passed
+```
+
+下一步建议：
+
+- Market/report 如继续，只做 command result parsing helper 或 package-file route contract；不要迁 `run_command`、cwd/timeout、upload 或 LLM assist provider owner。
+- Document workflow 停止结构性拆分；如发现回归，只补 DB import / semantic chunks 的 HTTPException 负路径测试。
+- Deal/IC 前端下一步可选一条轻量 Playwright mock smoke，但仍不改页面实现、不碰后端 `deal_*` / `ic_*` service 或 Hermes profile 配置。
+
+### 0.37 2026-07-03 Market Command Result Payload Helper
+
+本轮继续 market/report 的最低风险收口，只下沉命令结果解析和 payload 组装；不迁 `run_command`、cwd/timeout、脚本存在性检查、上传、LLM assist provider、后台 job owner 或 route 权限。
+
+完成项：
+
+- Market command result：`market_report_commands.py` 新增 package build/import、vector ingest、ingestion eval、US SEC case-set ingest 的 completed process payload helper，统一 stdout/stderr 截断、`ok/returncode`、parse run id、vector stdout JSON summary 容错和 report/markdown 字段组装。
+- Market router：`market_reports.py` 的 build/import/vector/eval/US SEC ingest route runner 改为薄调用 helper；router 仍保留路径校验、脚本选择、`run_command` 调用、package detail 读取和 HTTPException owner。
+- Market 验证：`test_market_report_commands.py` 补 helper 纯测试，覆盖失败、缺 package path、成功 package、parse_run_id 只在成功时提取、vector bad JSON / 非 object 容错、eval/SEC ingest report 保留和日志截断。
+
+本轮验证：
+
+```bash
+cd apps/api && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_market_report_commands.py tests/test_market_reports_proxy.py tests/test_market_report_queueing_service.py tests/test_market_report_queueing.py tests/test_market_report_status_service.py tests/test_market_package_repository.py
+# 78 passed, 2 warnings
+```
+
+### 0.38 2026-07-03 Market Vector Summary / Deal API Contract Smoke
+
+本轮继续按后台智能体复核后的低风险队列推进，只修 pure helper 和补 API client contract；不迁 `run_command`、cwd/timeout、上传、LLM assist provider、Document workflow、Deal 后端 service、前端页面 JSX 或 Playwright e2e。
+
+完成项：
+
+- Market vector summary：`market_report_commands._json_object_from_stdout()` 支持真实 dry-run 脚本形态，即 pretty JSON summary 后追加 `chunks=N` 日志；仍拒绝同一行 trailing text，并避免 nested object 抢占 summary。
+- Market 验证：`test_market_report_commands.py` 新增真实 stdout 形态覆盖，锁定 nested `first` 对象、`chunks=3` 后缀和同一行 trailing text 负路径；package-file route contract 继续覆盖 inline header、media type、路径穿越、package root escape 和 missing file 404。
+- Frontend Deal contract：`dealApi.test.ts` 扩展 Deal workspace GET API smoke，锁定 workflow/preflight/disputes/phase-artifacts/decision/audit/manifest/reports 路由，以及 `fetchDealReport()` 对 report path 的分段 URL encode。
+
+本轮验证：
+
+```bash
+cd apps/api && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_market_report_commands.py tests/test_market_reports_proxy.py -k "vector_ingest or package_file"
+# 13 passed, 53 deselected, 2 warnings
+
+cd apps/api && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_market_report_commands.py tests/test_market_reports_proxy.py tests/test_market_report_queueing_service.py tests/test_market_report_queueing.py tests/test_market_report_status_service.py tests/test_market_package_repository.py
+# 85 passed, 2 warnings
+
+cd apps/web && node --import ./scripts/register-node-test-alias-loader.mjs --test src/lib/dealApi.test.ts src/app/routes.test.ts
+# 4 passed
+
+cd apps/web && npm run test:unit
+# 50 passed
+
+git diff --check
+# passed
+```
+
+下一步建议：
+
+- Market/report 如继续，只补命令 stdout 真实脚本样本或 package-file 下载行为边界；仍不迁命令执行 owner。
+- Frontend 如继续，优先 proxy-config `/api/deals` ordering smoke 或轻量 Deal mock e2e；不要改 Deal 页面实现。
+- IC matrix 测试如后续变脆，可把 exact count 改成关键项 + 下限断言；不和 market/workflow 小切片混批。
+
+### 0.39 2026-07-03 Proxy Ordering Smoke / IC Matrix Test Hardening
+
+本轮继续只做维护型验证补强。后台智能体复核后确认 `/api/deals` proxy ordering 和 IC matrix exact counts 是最高收益低风险项；本轮不修改前端页面实现、不碰 Deal 后端 service、不迁 IC policy runtime owner，也不调整 Vite/proxy 运行时代码。
+
+完成项：
+
+- Frontend proxy smoke：新增 `src/app/proxyConfig.test.ts`，直接覆盖 `createProxyRules()` 中 `/api/deals` 位于泛 `/api` fallback 之前，并确认 `createViteProxy()` 的 `/api/deals` 目标为 backend 且不继承 finder rewrite。测试放在 `src/**/*.test.ts` 下，确保被 `npm run test:unit` 收集。
+- IC matrix 抗脆化：`test_ic_policy.py` 不再断言迁移矩阵 exact entry/status count，改为断言 public payload 自洽（`entries == len(entries)`、status count 求和等于 entries）、关键状态存在和关键脚本状态/目标不变，避免未来正常扩展矩阵时误红。
+
+本轮验证：
+
+```bash
+cd apps/api && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_ic_policy.py tests/test_deals_router.py
+# 22 passed, warnings only
+
+cd apps/web && npm run test:unit
+# 52 passed
+
+cd apps/web && npm run build
+# passed
+
+git diff --check
+# passed
+```
+
+下一步建议：
+
+- 若继续前端 Deal/IC，只做轻量 mock e2e 或 `check:frontend`/CI 脚本补强；不要改 Deal 页面状态流。
+- 若继续 API，优先 pure-helper 或 route contract 负路径；不要混入 Deal workflow 执行、Agent runtime 或 PDF parser owner。
+- IC matrix 后续如要更进一步，可抽 `public_openclaw_script_migration_matrix_payload(matrix)` 纯 helper，并用小 fixture 覆盖 summary 规则；不与 runtime profile 配置混批。
+
 ## 1. 当前架构事实
 
 ### 1.1 当前主要目录职责
@@ -3593,6 +3752,557 @@ python3 scripts/scan_todo_fixme.py --max-examples 3  # total 7; 安全 0; 运行
 python3 scripts/scan_todo_fixme.py --markdown /tmp/todo-fixme-governance-report.md --max-examples 3
 ```
 
+### 0.60 2026-07-03 原架构任务最新复核（排除一级市场）
+
+本节按“暂不关注新增加的一级市场 / Deal / IC 功能”的口径，重新核对本文与当前项目现状。若 0.36-0.59 的历史流水、测试数量或任务排序与本节冲突，原仓库架构优化主线以后以本节和第 12 节为准；0.46-0.58 的 Deal / IC 记录只作为并行变更背景，不纳入原任务剩余工作判断。
+
+本轮事实检查：
+
+```bash
+git status --short --untracked-files=all
+git ls-files data var artifacts
+scripts/check_async_db_audit.sh
+python3 scripts/scan_todo_fixme.py --root . --max-examples 50
+wc -l apps/api/services/agent_chat_runtime_impl.py apps/pdf-parser/pdf_parser_app_impl.py apps/api/routers/workflow.py apps/api/routers/market_reports.py apps/api/routers/eval_e2e.py apps/api/routers/workspace.py apps/web/src/pages/SearchDownload.tsx apps/web/src/components/pdf/PdfSourceWorkbench.tsx apps/web/src/components/document-parser/DocumentResultWorkbench.tsx apps/web/src/index.css
+rg -n "localStorage|access_token|Authorization|Bearer" apps/web/src/lib/auth.tsx apps/web/src/shared/api/client.ts
+```
+
+当前校准结论：
+
+- 当前未提交工作区改动只集中在 Deal / IC / 一级市场相关文件：`apps/api/routers/deals.py`、`services/ic_policy.py`、`apps/web/src/lib/dealApi.ts`、`DealWorkflow.tsx` 等，以及未跟踪的 `apps/api/services/ic_startup_retrieval.py`。这些不是原架构优化主线的未完成项；后续处理原任务时不要回退或混入这些改动。
+- 运行态索引治理仍有效：`git ls-files data var artifacts` 只返回 `README.md` / `.gitkeep` 级文件，没有 PDF、DB、备份或解析产物重新入索引。
+- `Async DB` advisory 已归零：`scripts/check_async_db_audit.sh` 输出 `total: 0`，`tests/test_async_sync_session_audit.py` 的 allowlist 已清空。后续不再把 `workspace.py` / `document_parser.py` / `source.py` 的旧 finding 当作未完成，只保留防回流护栏。
+- CI 与工程化入口已入索引：`.github/workflows/ci.yml`、`scripts/scan_todo_fixme.py`、`docs/architecture/2026-07-02-debt-marker-governance-report.md` 均已被 Git 跟踪。CI 当前是 P0 稳定子集，不等价于 `scripts/check_all.sh` 全量重门禁。
+- 债务标记治理已完成报告与分诊：当前扫描 `total 4`，安全 / 运行时均为 0；真实后续动作只剩 `scripts/vector-index/milvus-ingestion/tools/knowledge_ingest/knowledge_ingest_ui.py` 的 DashScope 图像 embedding，另外 3 条是 legal 质量规则中用于检测占位符的规则文本。
+- 前端 API client 原主线已收口：业务组件内没有新增裸 `fetch(`，旧 `lib/apiClient` / `lib/pdfApi` / `lib/secApi` / `lib/documentApi` 不再被业务页面直接引用；`shared/api/client.ts` 是底层 fetch owner。
+- 前端鉴权安全仍未完成：`apps/web/src/lib/auth.tsx` 与 `apps/web/src/shared/api/client.ts` 仍使用 localStorage `access_token` + Bearer header；httpOnly Cookie + CSRF 仍是独立安全设计窗口。
+- Python 质量工具仍未接入：`apps/api`、`services/market-report-finder`、`services/market-report-rules`、`packages/market-contracts` 的 `pyproject.toml` 未配置 ruff / black / mypy / pre-commit；PDF parser 与 document-parser 也尚未项目化到 `pyproject.toml`。
+- Hermes gateway 容器化和可观测性仍未完成：README 仍说明 Compose 默认不启动 Hermes gateway，Hermes 依赖本机 editable venv / `start_all.sh` / `scripts/hermes/run_gateway.sh`；`monitoring` profile 只有 Grafana，不等于 Prometheus/API metrics/结构化日志基线完成。
+- 当前主要原主线大文件：`agent_chat_runtime_impl.py` 6045 行、`pdf_parser_app_impl.py` 3948 行、`workflow.py` 2719 行、`market_reports.py` 1457 行、`eval_e2e.py` 1380 行、`workspace.py` 1294 行、`SearchDownload.tsx` 961 行、`PdfSourceWorkbench.tsx` 708 行、`DocumentResultWorkbench.tsx` 452 行、`index.css` 85 行。行数只是风险信号，不能作为直接拆分理由。
+
+原任务卡片状态重估：
+
+| 任务 | 当前状态 | 说明 |
+| --- | --- | --- |
+| R-001 / R-002 / R-003 | 已完成 | 运行态索引、`var/` / `artifacts/` / `datasets/`、工作树历史收口已完成；当前脏改动属于并行一级市场线。 |
+| B-001 / B-002 / C-001 | 已完成 | market settings、`MarketPackageRepository`、`packages/market-contracts` 已落地。 |
+| B-003 | 最小完成，中期未完成 | 已有 `CommandRunner`、`FileBackedJobService` 和 market report jobs，且有文件持久化与 `created_by`；但仍是本地线程 + JSON 文件方案，不支持真正多 worker、可靠取消、重试、队列调度。`workflow.py` 还保留自有 `_workflow_jobs`、thread 和 `subprocess`。 |
+| F-001 / F-002 / F-003 | 已完成 | route registry、PDF/多市场 workbench、API client 收口均已达成。 |
+| F-004 | 阶段完成，维护态 | 大页面和 CSS 已显著拆分；后续只按回归补响应式 smoke 或小 helper，不把 refs / selection / scroll / runtime CSS 注入作为当前原任务继续拆。 |
+| P-001 / P-002 | 阶段完成，维护态 | PDF parser façade、task repository、source/artifact/quality/financial/document_full/content_list/MinerU result service 等已落地；MinerU lifecycle、Flask response、task state 写顺序、`_ensure_*` 编排仍是红灯 owner，需单独设计窗口。 |
+| A-001 / A-002 | 阶段完成，维护态 | Agent runtime active run / SSE / stop / terminal / preflight / history read / memory record / display payload 等已拆出多轮边界；`save_message`、ordinary chat、`stream_chat_reply` 主编排、attachments/evidence/schema column fallback 仍是红灯 owner，需单独设计窗口。 |
+| Phase 2 env / 启动形态 | 阶段完成 | env 样例、README、本地脚本已统一到可用状态；Compose 仍未覆盖 Hermes gateway，生产化服务图未完成。 |
+| Phase 4 API 控制面瘦身 | 未完成 | `market_reports.py` 仍 1457 行且保留若干 subprocess / service wrapper；`workflow.py` 2719 行并有自有 job 状态和 subprocess。后续需先补 route contract / golden response，再抽 service。 |
+| Phase 5 持久任务与 worker | 阶段完成，worker 未完成 | 文件持久化 job 是短期方案；Redis/RQ/Arq/Celery 或独立 worker 仍未做。 |
+| Phase 8 测试 / CI / 观测 | 测试和 CI 阶段完成，观测未完成 | `scripts/check_all.sh` 是本地重门禁，GitHub Actions 是稳定子集；Prometheus/metrics/structured log 仍未完成。 |
+
+更新后的原任务剩余池：
+
+| 优先级 | 任务 | 下一步范围 | 验收门禁 |
+| --- | --- | --- | --- |
+| P0 | 保护当前并行改动边界 | 当前脏改动属于一级市场 / Deal / IC；原任务窗口不要回退、整理或混入这些文件。若要提交，一级市场线单独分组。 | `git status --short` 可解释；本轮原任务 diff 不包含 Deal / IC 文件。 |
+| P1 | 控制面瘦身第二轮 | `workflow.py` 或 `market_reports.py` 二选一。先补 route contract / golden response，再抽 service/repository；不同时拆多个控制面。 | 目标 router 聚焦测试；`git diff --check`；endpoint 字段不漂移。 |
+| P1 | Job / worker 中期设计 | 明确 `FileBackedJobService` 到 Redis/RQ/Arq 或 worker process 的迁移路线，并把 `workflow.py` 自有 `_workflow_jobs` 纳入设计，而不是顺手合并。 | job lifecycle tests；重启恢复 / 失败 tail / 取消或重试语义测试。 |
+| P1 | 前端 token 安全设计 | 单独设计 httpOnly Cookie + CSRF、兼容期、登出/刷新、跨域和回滚；不与 API client / UI 重构混批。 | auth router tests；登录/刷新/登出回归；CSRF 正负例。 |
+| P2 | Python 质量工具渐进接入 | ruff/format 先做 touched-files 或 advisory，不做全仓格式化 churn。 | 无大规模格式 diff；CI/advisory 输出可解释。 |
+| P2 | Hermes gateway 容器化 | 设计 Compose profile、profile 同步、env、health check、本机 venv fallback。 | Compose smoke；health check。 |
+| P2 | 可观测性基线 | API/PDF parser 关键路径 metrics 或 structured log；Grafana 只算展示层。 | `/metrics` 或等价 smoke；JSON log 样例；dashboard smoke。 |
+| P2 | 债务分诊动作 | 仅剩 DashScope 图像 embedding 真实动作；legal 占位符检测文本保留为规则哨兵。 | `python3 scripts/scan_todo_fixme.py --root .` 输出可解释；对应 mocked smoke。 |
+| P3 | 红灯 owner 新窗口 | Agent runtime `save_message` / ordinary chat、PDF MinerU lifecycle / Flask response / task state、Document runtime CSS / refs / scroll。 | 先写状态/回滚矩阵，再实现一个 owner。 |
+
+### 0.61 2026-07-03 Workflow job store 小 owner 收口
+
+本轮按 0.60 的原架构主线继续推进，仍排除 Deal / IC / 一级市场改动。后台智能体并行只读复核后给出两个候选：`market_reports.py` HTTP proxy owner 和 `workflow.py` 通用文档 workflow owner；另一路复核建议先补 job lifecycle contract，再接入已有 job store 小 service。为避免混多个 owner，本轮只做 workflow job store 的纯边界接线，不迁 pipeline 执行、不统一 job schema、不碰 subprocess runner。
+
+完成范围：
+
+- 新增 `services/workflow_job_service.py`，集中 `workflow.py` 的 camelCase workflow job store 逻辑：load、persist、create、update、record step。
+- `routers/workflow.py` 保留 `_load_workflow_jobs()`、`_persist_workflow_jobs_locked()`、`_job_update()`、`_job_step()` 和 `run_remaining_workflow()` 旧入口，只把内部 mutation / persistence 委托给新 service。
+- 保持外部 job payload 字段不变：`jobId`、`taskId`、`status`、`steps`、`createdAt`、`updatedAt`；不把它和 `FileBackedJobService` 的 snake_case schema 混合。
+- 保持 thread 启动、`_run_remaining_pipeline`、preflight、step 顺序、`/workflow/job/{job_id}` 响应不变。
+- 新增 `test_workflow_job_service.py`，覆盖脏 job store 读取过滤、persist trim、create/update/step 时间字段、missing job 返回 False，以及 router wrapper 仍创建 queued job、持久化并启动后台线程。
+
+明确未做：
+
+- 不迁 `workflow.py` 的 `_run_remaining_pipeline`、subprocess、年度报告主流程、document package owner、DB/chunk 命令编排。
+- 不统一 `workflow.py` camelCase job schema 与 `FileBackedJobService` snake_case job schema。
+- 不抽 `market_reports.py` HTTP proxy；该切片保留为下一轮独立 owner。
+
+本轮验证：
+
+```bash
+cd apps/api && .venv/bin/python -m pytest tests/test_workflow_job_service.py -q  # 3 passed
+cd apps/api && .venv/bin/python -m py_compile services/workflow_job_service.py routers/workflow.py tests/test_workflow_job_service.py
+cd apps/api && .venv/bin/python -m pytest tests/test_document_workflow_package.py tests/test_workflow_pdf_refs.py tests/test_workflow_job_service.py tests/test_job_service.py -q  # 14 passed
+cd apps/api && .venv/bin/python -m pytest tests/test_market_reports_proxy.py tests/test_market_package_repository.py tests/test_market_report_settings.py -q  # 20 passed
+```
+
+下一轮候选：
+
+| 优先级 | 候选 | 范围 | 门禁 |
+| --- | --- | --- | --- |
+| P1 | `market_reports.py` HTTP proxy owner | 抽 `_content_type` / `_proxy_request` / `_finder_assist` 到 service，router 保留同名 wrapper；不碰 package/job/vector/eval/SEC upload | `tests/test_market_reports_proxy.py`，新增 upstream error / malformed health / assist edge tests |
+| P1 | 通用文档 workflow owner | 从 `workflow.py` 抽 document artifact/status/wiki package/import/DB/chunk owner；保留 router wrapper 和 monkeypatch 点 | `tests/test_document_workflow_package.py` + 新 owner tests |
+| P1 | workflow worker contract | 补 `_run_remaining_pipeline` happy/fail/skipped contract，再考虑下一刀 | 新增 worker tests + `tests/test_workflow_job_service.py` |
+
+### 0.62 2026-07-03 Market reports HTTP proxy owner 收口
+
+本轮继续按 0.60 的原架构主线推进，采用后台智能体建议的低风险 proxy owner 切片。范围只限 HTTP proxy / upstream health，不碰 market package build/import/vector/eval/SEC upload，也不碰 Deal / IC / 一级市场。
+
+完成范围：
+
+- 新增 `services/market_report_proxy.py`，接管 `content_type`、finder `/v1/*` proxy、finder assist upstream 调用、rules GET proxy、market report health 聚合。
+- `routers/market_reports.py` 保留 `_content_type()`、`_proxy_request()`、`_finder_assist()`、`market_modules()`、`cn_market_rules()`、`market_report_health()` 旧入口和 route 签名，只委托新 service。
+- 保持 `/v1/reports/assist` 优先于 `/v1/{upstream_path:path}` catch-all；LLM enhance / merge 仍留在 router，不混入 proxy owner。
+- 保持重复 query、多值 query、request body、`content-type`、upstream status/media/body 透传，以及 HEAD 响应丢弃 upstream body 的现有合同。
+- 新增 service 级边界测试：upstream `RequestError` -> 502、finder assist 空响应 -> `{}`、finder assist 4xx/5xx 原 status 抛出、rules proxy status/body/media type 透传与 502 映射、health 对 finder malformed JSON 容错且 market rules 单边错误仍返回 dict。
+
+明确未做：
+
+- 不迁 package/job wrapper、US SEC upload/rebuild、vector ingest、market ingestion eval 或 SEC case set。
+- 不统一 proxy auth / cookie / token 转发策略；当前只转发 `content-type`。
+- 不改 package/job endpoint 字段和 `market_report_job_service` 行为。
+
+本轮验证：
+
+```bash
+cd apps/api && .venv/bin/python -m pytest tests/test_market_reports_proxy.py tests/test_market_package_repository.py tests/test_market_report_settings.py -q  # 25 passed, 2 warnings
+cd apps/api && .venv/bin/python -m py_compile services/market_report_proxy.py routers/market_reports.py tests/test_market_reports_proxy.py
+```
+
+下一轮候选：
+
+| 优先级 | 候选 | 范围 | 门禁 |
+| --- | --- | --- | --- |
+| P1 | 通用文档 workflow owner | 从 `workflow.py` 抽 document artifact/status/wiki package/import/DB/chunk owner；保留 router wrapper 和 monkeypatch 点 | `tests/test_document_workflow_package.py` + 新 owner tests |
+| P1 | workflow worker contract | 补 `_run_remaining_pipeline` happy/fail/skipped contract，再考虑下一刀 | 新增 worker tests + `tests/test_workflow_job_service.py` |
+| P1 | market package/job wrapper 前置测试 | 先补 vector/eval/SEC queued route 和 script 参数 contract，再考虑抽 package/job owner | `tests/test_market_reports_proxy.py` 新增 package/job route cases |
+
+### 0.63 2026-07-03 Workflow worker contract 护栏补强
+
+本轮继续保持 contract-only，不迁 `_run_remaining_pipeline`、不抽 subprocess runner、不改 job schema。目标是为后续 workflow worker / document workflow owner 抽取先锁住副作用顺序和失败语义。
+
+完成范围：
+
+- `test_workflow_job_service.py` 增加 `_run_remaining_pipeline` artifact bundle 不完整路径：直接 `failed`，错误为 `解析产物包不完整`，不写任何 step，并持久化失败状态。
+- 增加正常路径合同：wiki missing -> `wiki-import succeeded`，semantic missing -> `semantic succeeded`，obsidian ready -> `obsidian skipped`，database missing -> `db-import succeeded`，最终 job `succeeded` 且 result 来自最后一次 status payload。
+- 增加中途失败合同：wiki 已成功后 semantic 抛错，job 变为 `failed`，保留已完成 `wiki-import succeeded` 和当前 `semantic running` step。
+- 这些测试使用 monkeypatch 的 status / action helper，不触碰真实文件系统、PostgreSQL、Milvus 或 subprocess。
+
+明确未做：
+
+- 不改变 worker 当前“失败 step 保持 running、job 记录 failed/error”的既有语义；如后续要把失败 step 标为 `failed`，必须单独改合同。
+- 不把 workflow job 合并到 `FileBackedJobService`，不迁执行线程，不接队列。
+
+本轮验证：
+
+```bash
+cd apps/api && .venv/bin/python -m pytest tests/test_workflow_job_service.py -q  # 6 passed
+cd apps/api && .venv/bin/python -m py_compile services/workflow_job_service.py services/market_report_proxy.py routers/workflow.py routers/market_reports.py tests/test_workflow_job_service.py tests/test_market_reports_proxy.py
+cd apps/api && .venv/bin/python -m pytest tests/test_workflow_job_service.py tests/test_document_workflow_package.py tests/test_workflow_pdf_refs.py tests/test_job_service.py tests/test_market_reports_proxy.py tests/test_market_package_repository.py tests/test_market_report_settings.py -q  # 40 passed, 2 warnings
+git diff --check
+```
+
+下一步建议：本轮已经连续完成 workflow job store 小 owner、market reports HTTP proxy owner 和 workflow worker contract 护栏。继续开发时更适合二选一：要么抽通用文档 workflow owner，要么补 market package/job wrapper 前置测试；不要同轮再动 job schema、subprocess runner 或 worker 队列。
+
+### 0.64 2026-07-03 FileBackedJobService 生命周期护栏补强
+
+本轮继续做 job / worker 中期设计前的 contract 护栏，不改生产代码。目标是把 `FileBackedJobService` 的短期 job 语义测得更确定，避免后续统一 job schema 或迁 worker 时误改现有 market report / Deal job 行为。
+
+完成范围：
+
+- `test_job_service.py` 增加等待终态 helper，避免只断言 `queued/running/succeeded` 的松散中间态。
+- 锁定成功 job：最终 `succeeded`，`started_at` / `finished_at` 存在，`result` 持久，snapshot 和 JSON store 不包含不可序列化的 `target`。
+- 锁定 `{"ok": false}` job：最终 `failed`，`result` 保留，`error` 为 `None`。
+- 锁定异常 job：异常信息写入 `error`，最终 `failed`。
+- 锁定 `max_jobs` trim / reload 合同：按 `created_at/job_id` 排序后只保留最近 job；测试使用递增时钟，不绑定后台线程调度步数。
+
+明确未做：
+
+- 不改 `FileBackedJobService.start()` 立即启动 daemon thread 的语义；start 返回 snapshot 仍可能已经是 `queued`、`running` 或终态。
+- 不把 `FileBackedJobService` 和 workflow camelCase job schema 合并。
+- 不实现取消、重试、多 worker 或 Redis queue。
+
+本轮验证：
+
+```bash
+cd apps/api && .venv/bin/python -m pytest tests/test_job_service.py tests/test_workflow_job_service.py -q  # 10 passed
+cd apps/api && .venv/bin/python -m py_compile services/job_service.py tests/test_job_service.py
+cd apps/api && .venv/bin/python -m pytest tests/test_job_service.py tests/test_workflow_job_service.py tests/test_document_workflow_package.py tests/test_workflow_pdf_refs.py tests/test_market_reports_proxy.py tests/test_market_package_repository.py tests/test_market_report_settings.py -q  # 42 passed, 2 warnings
+git diff --check
+```
+
+### 0.65 2026-07-03 CommandRunner 脱敏护栏补强
+
+本轮只做命令展示脱敏的小修正和测试，不迁 workflow `_run_command`，不统一 subprocess timeout / stderr / env 合同。
+
+完成范围：
+
+- `services/command_runner.py` 的 `format_command()` 新增 `--database-url=value` 形式脱敏，原有 `--database-url value` 形式保持不变。
+- `tests/test_command_runner.py` 补齐分离参数和等号参数两种合同，确保 PostgreSQL URL 不进入 command display。
+
+明确未做：
+
+- 不修改 `workflow.py` 自有 `_run_command` 返回结构。
+- 不改变 `run_command()` 的 `subprocess.run(..., check=False)` 语义。
+- 不处理 stdout/stderr/env 脱敏；这些需要单独定义 command runner contract 后再迁。
+
+本轮验证：
+
+```bash
+cd apps/api && .venv/bin/python -m pytest tests/test_command_runner.py tests/test_job_service.py tests/test_workflow_job_service.py tests/test_market_reports_proxy.py tests/test_market_package_repository.py tests/test_market_report_settings.py -q  # 35 passed, 2 warnings
+cd apps/api && .venv/bin/python -m py_compile services/command_runner.py tests/test_command_runner.py
+git diff --check
+```
+
+### 0.66 2026-07-03 通用文档 workflow status owner 第一刀
+
+本轮按原架构主线继续推进 `workflow.py` 控制面瘦身，但只抽通用文档 workflow 的状态 / package target 小边界；不碰 DB/chunk subprocess、Wiki package 写入主流程、年度报告 workflow 或 `_workflow_jobs`。
+
+完成范围：
+
+- 新增 `services/document_workflow_service.py`，以依赖注入方式接管：
+  - `document_artifact_status`
+  - `document_wiki_status`
+  - `document_workflow_status_payload`
+  - `document_package_dir`
+  - `document_package_target`
+  - `document_package_manifest_artifact` helper
+- `routers/workflow.py` 保留 `_document_artifact_status()`、`_document_wiki_status()`、`_document_workflow_status_payload()`、`_document_package_dir()`、`_document_package_target()` 同名 wrapper；wrapper 每次从 router 当前全局常量和 helper 注入依赖，保持现有 monkeypatch 测试语义。
+- 新增 `test_document_workflow_service.py`，直接覆盖 artifact missing/ready、wiki missing/ready/stale、workflow target shape 和 package target mapping。
+- 现有 `test_document_workflow_package.py` 继续覆盖 router wrapper、Wiki lightweight package、DB import command 和 semantic chunk command，确认第一刀未破坏外部合同。
+
+明确未做：
+
+- 不迁 `_import_document_task_to_wiki()` 主体，不改 package manifest schema，不改 copied files/dirs。
+- 不迁 `import_document_task_to_database()` 或 `build_document_semantic_chunks()`，不改 CLI 参数、timeout、env 或 `_run_command`。
+- 不引入 dataclass config；先保持 wrapper 注入，避免测试 monkeypatch 失效。
+
+本轮验证：
+
+```bash
+cd apps/api && .venv/bin/python -m pytest tests/test_document_workflow_service.py tests/test_document_workflow_package.py -q  # 11 passed
+cd apps/api && .venv/bin/python -m py_compile services/document_workflow_service.py routers/workflow.py tests/test_document_workflow_service.py
+```
+
+下一步建议：若继续通用文档 workflow owner，优先抽 `_write_document_package_readme()`、`_import_document_task_to_wiki()` 的 package manifest/payload builder；DB/chunk execution 仍后置，因为会触碰 subprocess 和数据库 env 合同。
+
+### 0.67 2026-07-03 Workflow command runner 合同前置与最小接线
+
+本轮响应“持续协同、严控风险、加快开发”的要求，继续沿 0.60 原架构主线推进，并复用后台智能体只读复核结论。范围只限 workflow command runner 合同和最小接线；不迁 `_run_remaining_pipeline`、不统一 workflow/market job schema、不改 DB/chunk CLI 参数、不触碰 Deal / IC / 一级市场前端。
+
+完成范围：
+
+- `services/command_runner.py` 扩展 `format_command()` 脱敏白名单，覆盖 `--database-url=value`、`--db-url value`、`--api-key=value`、`--password value`、`DATABASE_URL=value`、`PGPASSWORD=value` 等常见凭据展示形态。
+- `services/command_runner.py` 的 `run_command()` 增加 `env` 透传参数，仍保持 `subprocess.run(..., check=False)` 语义不变。
+- `routers/workflow.py` 的 `_run_command()` 改为调用共享 `run_command()`，保留原有返回 envelope：`returnCode`、`stdout[-6000:]`、`stderr[-6000:]`。
+- `tests/test_command_runner.py` 补齐敏感参数脱敏、非零退出不抛异常、`env` 透传合同。
+- `tests/test_workflow_job_service.py` 补 `_run_command()` adapter 测试，锁定 timeout/env 传递和 stdout/stderr tail 截断。
+
+明确未做：
+
+- 不修改 workflow job lifecycle、线程模型、取消/重试、多 worker 或持久化 schema。
+- 不迁年度报告 worker、通用文档 DB import / chunk command owner。
+- 不处理 stdout/stderr 内容脱敏；当前只治理 command display / 参数展示层，后续若需要应单独定义日志脱敏合同。
+
+本轮验证：
+
+```bash
+cd apps/api && .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_command_runner.py tests/test_workflow_job_service.py tests/test_document_workflow_service.py tests/test_document_workflow_package.py tests/test_market_reports_proxy.py tests/test_job_service.py  # 49 passed, 2 warnings
+git diff --check
+```
+
+### 0.68 2026-07-03 Market package/job wrapper 合同补强
+
+本轮继续低风险加速，但只补 contract tests，不抽 `market_reports.py` 的 package/job owner，不改 endpoint 字段，不执行真实 package build、vector ingest、eval 或 US SEC ingest。
+
+完成范围：
+
+- `tests/test_market_reports_proxy.py` 新增后台 job capture helper，统一验证 `market_report_job_service.start()` 的 `kind`、`target()` 和 `created_by` 透传。
+- 扩展 `/market-reports/packages/build` queued 合同，确认 `created_by` 来自 ops user。
+- 新增 `/market-reports/packages/vector-ingest` queued 合同，确认 job id / kind / payload dry-run 保持。
+- 新增 `/market-reports/eval/run` queued 合同，确认 eval payload 进入后台 target。
+- 新增 `/us-sec/case-set/ingest` queued 合同，确认 tickers/dry-run payload 不在 wrapper 层漂移。
+
+明确未做：
+
+- 不迁 `_run_market_package_build()`、`_run_market_vector_ingest()`、`_run_market_ingestion_eval()` 或 `_run_us_sec_case_set_ingest()`。
+- 不改 `FileBackedJobService` start/trim/reload 语义。
+- 不触碰 Deal / IC / 一级市场前端，也不混入真实 PostgreSQL / Milvus 写入。
+
+本轮验证：
+
+```bash
+cd apps/api && .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_market_reports_proxy.py tests/test_job_service.py tests/test_command_runner.py tests/test_workflow_job_service.py  # 41 passed, 2 warnings
+git diff --check -- apps/api/tests/test_market_reports_proxy.py
+```
+
+### 0.69 2026-07-03 通用文档 workflow package builder 第二刀
+
+本轮继续通用文档 workflow owner 收口，采用后台智能体只读复核建议的最小安全边界：只下沉“生成内容/字典”的纯 builder，不迁文件副作用、路径配置、HTTP 错误或 DB/chunk 脚本执行。
+
+完成范围：
+
+- `services/document_workflow_service.py` 新增 `document_package_readme_content()`，接管 README 内容拼装；`routers/workflow.py` 仍负责 `mkdir` 和 `write_text`。
+- `services/document_workflow_service.py` 新增 `build_document_package_manifests()`，统一生成 `package_manifest` 和 `artifact_manifest` payload；router 继续注入 artifact 清单、轻量包清单、hash/meta helper 和当前时间。
+- `services/document_workflow_service.py` 新增 `build_document_collection_index()`，接管 collection `index.json` 的替换、排序和计数 payload。
+- `routers/workflow.py` 的 `_import_document_task_to_wiki()` 保留复制文件、保留目录、写 JSON、写 README、返回 envelope 等副作用 owner，只把 payload builder 调到 service。
+- `tests/test_document_workflow_service.py` 新增 README preview、manifest payload、artifact manifest、collection index 替换排序的直接测试。
+
+明确未做：
+
+- 不迁 `_copy_file_if_exists()`、`_copy_tree_contents()`、`_write_json()` 或实际 README/index 写盘。
+- 不迁 `_safe_task_id()`、`_safe_document_collection()`、`_document_key_from_manifest()`、`DOCUMENT_WIKI_ROOT` / `DOCUMENT_PARSER_RESULTS_ROOT` 配置 owner。
+- 不碰 `import_document_task_to_database()`、`build_document_semantic_chunks()`、年度报告 workflow、`_workflow_jobs` 或任何 worker/thread owner。
+
+本轮验证：
+
+```bash
+cd apps/api && .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_document_workflow_service.py tests/test_document_workflow_package.py  # 15 passed
+cd apps/api && .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_document_workflow_service.py tests/test_document_workflow_package.py tests/test_workflow_job_service.py tests/test_command_runner.py tests/test_market_reports_proxy.py tests/test_job_service.py  # 56 passed, 2 warnings
+cd apps/api && .venv/bin/python -m py_compile services/document_workflow_service.py routers/workflow.py tests/test_document_workflow_service.py tests/test_document_workflow_package.py
+git diff --check
+```
+
+### 0.70 2026-07-03 Market queued job wrapper 极小抽取
+
+本轮继续 `market_reports.py` 控制面瘦身，但只抽 queued job wrapper 的重复样板，不迁 package build/import/vector/eval/US SEC 真实执行 owner，不改 wait 分支或 endpoint 字段。
+
+完成范围：
+
+- `routers/market_reports.py` 新增 `_queue_market_report_job(kind, target, created_by=...)`，统一执行 `market_report_job_service.start()` 和返回 `{"ok": True, "queued": True, **job}`。
+- `/market-reports/packages/build`、`/market-reports/eu/parse`、`/market-reports/packages/import`、`/market-reports/packages/vector-ingest`、`/market-reports/eval/run`、`/us-sec/case-set/ingest`、`/us-sec/packages/{ticker}/rebuild` 的 queued 分支改为调用 helper。
+- `tests/test_market_reports_proxy.py` 在已有 package/vector/eval/US SEC ingest queued 合同基础上，补齐 EU parse、package import、US SEC rebuild queued 合同，锁住 job kind、payload target、`created_by` 和响应 envelope。
+
+明确未做：
+
+- 不迁 `_run_market_package_build()`、`_run_market_package_import()`、`_run_market_vector_ingest()`、`_run_market_ingestion_eval()`、`_run_us_sec_case_set_ingest()` 或 `_run_us_sec_rebuild_package()`。
+- 不改 `FileBackedJobService` 生命周期、trim/reload、异常处理或 schema。
+- 不触碰 Deal / IC / 一级市场前端，不执行真实 PostgreSQL / Milvus / package build 写入。
+
+本轮验证：
+
+```bash
+cd apps/api && .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_market_reports_proxy.py tests/test_job_service.py  # 32 passed, 2 warnings
+cd apps/api && .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_market_reports_proxy.py tests/test_job_service.py tests/test_command_runner.py tests/test_workflow_job_service.py tests/test_document_workflow_service.py tests/test_document_workflow_package.py  # 59 passed, 2 warnings
+cd apps/api && .venv/bin/python -m py_compile routers/market_reports.py services/job_service.py tests/test_market_reports_proxy.py
+git diff --check
+```
+
+### 0.71 2026-07-03 通用文档 DB/Milvus status builder 下沉
+
+本轮继续通用文档 workflow owner 的低风险瘦身，只下沉 PostgreSQL / Milvus 状态 payload builder，不碰 `import_document_task_to_database()`、`build_document_semantic_chunks()` 的脚本执行、env、timeout、HTTPException 或 CLI 参数。
+
+完成范围：
+
+- `services/document_workflow_service.py` 新增 `document_postgres_status_payload()`，接管 PostgreSQL target 的 `missing`、`waiting_for_wiki`、`ready` 三种响应 payload。
+- `services/document_workflow_service.py` 新增 `document_milvus_status_payload()`，接管 Milvus target 的 `missing`、`waiting_for_wiki`、`ready`、`chunks_ready`、`completed` 五种响应 payload。
+- `routers/workflow.py` 保留 `_document_postgres_status()` / `_document_milvus_status()` wrapper；wrapper 仍负责读取 wiki status、判断脚本是否存在、读取 ingest report、统计 chunk 行数，再把事实注入 service builder。
+- `tests/test_document_workflow_service.py` 直接覆盖 DB/Milvus status builder 的分支优先级、字段命名、中文 message、`stale` wiki 可继续导入、report collection 覆盖和 completed 优先级。
+
+明确未做：
+
+- 不迁 `import_document_task_to_database()`、`build_document_semantic_chunks()`。
+- 不改 `DOCUMENT_DB_IMPORT_SCRIPT`、`DOCUMENT_CHUNK_SCRIPT`、PostgreSQL env、Milvus collection 默认值或 chunk/report 文件布局。
+- 不移动 `_read_json()`、chunk file 读取、`Path.is_file()` 等 IO owner。
+
+本轮验证：
+
+```bash
+cd apps/api && .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_document_workflow_service.py tests/test_document_workflow_package.py  # 17 passed
+cd apps/api && .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_document_workflow_service.py tests/test_document_workflow_package.py tests/test_workflow_job_service.py tests/test_command_runner.py tests/test_market_reports_proxy.py tests/test_job_service.py  # 61 passed, 2 warnings
+cd apps/api && .venv/bin/python -m py_compile services/document_workflow_service.py routers/workflow.py tests/test_document_workflow_service.py tests/test_document_workflow_package.py
+git diff --check
+```
+
+### 0.72 2026-07-03 Market job status 与 Document artifact 合同尾项
+
+本轮继续按“最高收益/最低风险”收口，只做薄 helper 接线和 test-only 合同补强，不打开真实执行链或红灯 owner。
+
+完成范围：
+
+- `services/market_report_queueing.py` 新增 `get_market_report_job()`，接管 market job status 的只读 job lookup；`routers/market_reports.py` 仍保留 `HTTPException 404` 语义。
+- `tests/test_market_report_queueing_service.py` 直接覆盖 job lookup 的 found / missing 分支。
+- `tests/test_market_reports_proxy.py` 补 `/market-reports/jobs/{job_id}` missing job 的 404 合同。
+- `tests/test_document_workflow_service.py` 补 `document_package_manifest_artifact()` 直接合同，锁住 lightweight artifact 的 `package_path`、heavy artifact 空 `package_path`，以及 `source`、`sha256`、`size_bytes`、`version` 字段。
+
+明确未做：
+
+- 不改 `FileBackedJobService.get()`、start/runner/trim/reload/schema。
+- 不迁 market package build/import/vector/eval/US SEC rebuild 的真实执行 owner。
+- 不改 `workflow.py` 的 DB import / semantic chunks 执行链、文件复制、manifest 写盘、index 写盘或 `_workflow_jobs`。
+- 不触碰 Deal / IC / 一级市场文件。
+
+本轮验证：
+
+```bash
+cd apps/api && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_document_workflow_service.py tests/test_document_workflow_package.py tests/test_workflow_job_service.py tests/test_command_runner.py tests/test_market_reports_proxy.py tests/test_market_report_queueing_service.py tests/test_job_service.py  # 90 passed, 2 warnings
+cd apps/api && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m py_compile services/document_workflow_service.py services/workflow_job_service.py services/market_report_queueing.py services/command_runner.py routers/workflow.py routers/market_reports.py tests/test_document_workflow_service.py tests/test_market_report_queueing_service.py tests/test_market_reports_proxy.py
+cd apps/web && npm run test:unit  # 49 passed
+git diff --check
+```
+
+### 0.73 2026-07-03 Market command summary 与 job snapshot 合同
+
+本轮继续沿 market/job 低风险尾项推进，只改纯 helper 和 route contract 测试，不触碰真实 package/vector/eval/SEC 执行链。
+
+完成范围：
+
+- `services/market_report_commands.py` 的 vector ingest stdout summary 解析改为按行从后往前寻找最后一个完整 JSON object，避免多段日志、坏 JSON 片段或行尾噪声导致 summary 误解析。
+- `tests/test_market_report_commands.py` 补多段 stdout、坏 JSON、非 object JSON、行尾噪声和日志截断合同。
+- `tests/test_market_reports_proxy.py` 将 `/market-reports/jobs/{job_id}` found case 升级为完整 snapshot golden contract，锁住 `job_id`、`kind`、`status`、时间字段、`created_by`、`result`、`error`，并确认不暴露 `target`。
+
+明确未做：
+
+- 不改 `market_report_job_service` 生命周期、schema、thread runner 或持久化格式。
+- 不迁 `_run_market_package_build()`、`_run_market_package_import()`、`_run_market_vector_ingest()`、`_run_market_ingestion_eval()`、`_run_us_sec_case_set_ingest()` 或 `_run_us_sec_rebuild_package()`。
+- 不改 `run_command`、cwd、timeout、secret 脱敏、PostgreSQL / Milvus 写入语义。
+- 不触碰 workflow 执行链、Deal / IC / 一级市场文件。
+
+本轮验证：
+
+```bash
+cd apps/api && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_document_workflow_service.py tests/test_document_workflow_package.py tests/test_workflow_job_service.py tests/test_command_runner.py tests/test_market_reports_proxy.py tests/test_market_report_queueing_service.py tests/test_market_report_commands.py tests/test_job_service.py  # 106 passed, 2 warnings
+cd apps/api && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m py_compile services/document_workflow_service.py services/workflow_job_service.py services/market_report_queueing.py services/market_report_commands.py services/command_runner.py routers/workflow.py routers/market_reports.py tests/test_document_workflow_service.py tests/test_market_report_queueing_service.py tests/test_market_report_commands.py tests/test_market_reports_proxy.py
+cd apps/web && npm run test:unit  # 49 passed
+git diff --check
+```
+
+### 0.74 2026-07-03 Market result payload helper 与前端门禁收尾
+
+本轮继续沿 0.60 的原架构尾项推进，只做 pure helper / thin wrapper 下沉和聚焦合同测试，不打开真实 package build、vector ingest、eval、US SEC ingest 或 Deal / IC 执行链。
+
+完成范围：
+
+- `services/market_report_commands.py` 新增 market package build/import、vector ingest、ingestion eval、US SEC case-set ingest 的 result payload helper，`routers/market_reports.py` 只保留参数准备、脚本执行和 artifact/report 读取 owner。
+- vector ingest stdout summary helper 已支持多段日志、pretty JSON、坏 JSON 片段、非 object JSON 和同行尾噪声防御；summary 解析只接受完整 JSON object。
+- `services/market_report_queueing.py` 接管 `created_by` snapshot、queued envelope 和 job lookup，router 保留 404 HTTP 语义。
+- `services/market_report_status_service.py` 新增 market package quality payload helper，并让 US SEC status 计数容忍非数字、负数和异常 shape。
+- `tests/test_market_report_commands.py`、`tests/test_market_report_queueing_service.py`、`tests/test_market_report_status_service.py`、`tests/test_market_reports_proxy.py` 补直接 helper 与 route contract 覆盖。
+- `apps/web` 新增 Deal agents route/API/type/page 入口相关改动已通过 `npm run check:frontend`；本轮前端只做门禁验证，不继续扩大 UI 变更。
+
+明确未做：
+
+- 不迁 `_run_market_package_build()`、`_run_market_package_import()`、`_run_market_vector_ingest()`、`_run_market_ingestion_eval()`、`_run_us_sec_case_set_ingest()` 或 `_run_us_sec_rebuild_package()` 的真实执行 owner。
+- 不改 `market_report_job_service` 生命周期、持久化 schema、worker/thread 行为、timeout、cwd 或命令参数。
+- 不执行真实 PostgreSQL / Milvus / package / eval / SEC 写入，不新增端到端数据产物。
+
+本轮验证：
+
+```bash
+cd apps/api && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_market_report_commands.py tests/test_market_report_queueing_service.py tests/test_market_report_status_service.py tests/test_market_reports_proxy.py tests/test_job_service.py  # 82 passed, 2 warnings
+cd apps/api && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m py_compile services/market_report_commands.py services/market_report_queueing.py services/market_report_status_service.py routers/market_reports.py tests/test_market_report_commands.py tests/test_market_report_queueing_service.py tests/test_market_report_status_service.py tests/test_market_reports_proxy.py
+cd apps/web && npm run check:frontend  # passed
+git diff --check  # passed
+```
+
+### 0.75 2026-07-03 Market rebuild payload 与 build routing helper 收口
+
+本轮按后台只读复核建议继续 market_reports 控制面瘦身，只做两处 pure helper 下沉；不触碰真实 package/vector/eval/SEC 执行链、不改 endpoint 合同、不碰 Deal / IC 文件。
+
+完成范围：
+
+- `services/market_report_commands.py` 新增 `us_sec_rebuild_package_result_payload()`，接管 US SEC rebuild 成功响应 payload；`routers/market_reports.py` 仍保留 latest case 查找、路径安全、raw/metadata 临时复制、`run_command`、timeout、非零 returncode `HTTPException 500`、stdout 最后一行 package path 解析和 package detail 读取。
+- `tests/test_market_report_commands.py` 补 US SEC rebuild payload 直接测试，锁定 `ticker.upper()`、`ok/ticker/stdout/stderr/package` 字段和 stdout/stderr 4000 截断。
+- `tests/test_market_reports_proxy.py` 在现有 rebuild command contract 中补 `stdout` / `stderr` 断言，确认 router 接线后成功响应形状不漂移。
+- `services/market_report_commands.py` 新增 `select_market_build_script()`、`market_build_requires_parser_result()`、`market_build_accepts_parser_result()`，接管 EU ESEF/PDF、HK、JP、KR、US 的 build script 与 parser-result 纯判定。
+- `routers/market_reports.py` 的 `_market_build_script()`、`_market_build_requires_parser_result()`、`_market_build_accepts_parser_result()` 退为薄 wrapper，保留现有测试入口和 HTTP adapter 行为。
+- `tests/test_market_report_commands.py` 新增市场矩阵直接测试：EU PDF 要 parser result、EU xhtml/zip 走 ESEF 且不接 parser result、HK 必需 parser result、JP/KR 可接 parser result、US 不接 parser result。
+
+明确未做：
+
+- 不迁 `_run_market_package_build()`、`_run_us_sec_rebuild_package()` 的脚本执行、路径存在检查、HTTPException 或 package detail 读取 owner。
+- 不把 rebuild 非零 returncode 改成 `{"ok": False}`；继续保持现有 HTTP 500 合同。
+- 不扩大到 path safety / latest case selector 抽取；这些可作为后续独立小窗口。
+
+本轮验证：
+
+```bash
+cd apps/api && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_market_report_commands.py tests/test_market_reports_proxy.py -k 'us_sec_rebuild'  # 4 passed, 63 deselected, 2 warnings
+cd apps/api && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_market_report_commands.py tests/test_market_reports_proxy.py::test_eu_package_build_routes_pdf_and_esef_sources tests/test_market_reports_proxy.py::test_eu_package_build_accepts_download_relative_path tests/test_market_reports_proxy.py::test_us_sec_rebuild_package_command_contract tests/test_market_reports_proxy.py::test_us_sec_rebuild_queues_background_job  # 23 passed, 2 warnings
+cd apps/api && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_market_report_commands.py tests/test_market_report_queueing_service.py tests/test_market_report_status_service.py tests/test_market_reports_proxy.py tests/test_market_report_proxy_service.py tests/test_job_service.py  # 91 passed, 2 warnings
+cd apps/api && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m py_compile services/market_report_commands.py routers/market_reports.py tests/test_market_report_commands.py tests/test_market_reports_proxy.py
+```
+
+### 0.76 2026-07-03 US SEC latest case selector 纯 helper
+
+本轮继续按后台只读复核建议推进，只抽 US SEC case-set payload 中“按 ticker 选择最新 filing”的纯派生逻辑；不碰 path safety、不改 `_package_from_selector()` 的 HTTPException 映射、不改 rebuild 执行链。
+
+完成范围：
+
+- `services/market_report_status_service.py` 新增 `latest_case_item_for_ticker(case_set, ticker)`，接管 case-set `items` 过滤和 `(filing_date, period_end)` 倒序选择。
+- `routers/market_reports.py` 的 `_latest_case_item_for_ticker()` 保留为薄 wrapper，只负责读取 `US_SEC_CASE_SET_PATH` 后调用 service helper。
+- `tests/test_market_report_status_service.py` 补 selector 直接测试，覆盖同 ticker 多 filings、输入 ticker 大小写/空白归一、非 dict item 忽略、`items` 非 list、case_set 非 dict、无匹配和空 ticker。
+- `tests/test_market_reports_proxy.py` 补 `_package_from_selector()` adapter 合同，锁住 `package_path` 优先于 ticker、缺 selector 仍 400、无匹配 ticker 仍 404。
+- 按复核建议保持旧语义：case item 内的 `ticker` 只做 `upper()`，不额外 `strip()`，避免抽 helper 时悄悄放宽脏数据匹配。
+
+明确未做：
+
+- 不迁 `_safe_under()`、`_safe_package_path()`、`_safe_market_package_path()` 或 `_safe_download_path()`，路径安全仍留 router adapter。
+- 不改 `_run_us_sec_rebuild_package()` 的 raw source / metadata copy、`run_command`、stdout package path 解析、非零 returncode `HTTPException 500` 或 package detail 读取。
+- 不返回投影后的 case item；helper 继续返回原始 item，避免截断后续字段。
+
+本轮验证：
+
+```bash
+cd apps/api && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_market_report_status_service.py tests/test_market_reports_proxy.py::test_us_sec_package_selector_preserves_error_mapping_and_package_path_priority tests/test_market_reports_proxy.py::test_us_sec_rebuild_package_command_contract  # 8 passed, 2 warnings
+cd apps/api && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_market_report_commands.py tests/test_market_report_queueing_service.py tests/test_market_report_status_service.py tests/test_market_reports_proxy.py tests/test_market_report_proxy_service.py tests/test_job_service.py  # 93 passed, 2 warnings
+cd apps/api && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m py_compile services/market_report_status_service.py routers/market_reports.py tests/test_market_report_status_service.py tests/test_market_reports_proxy.py
+```
+
+### 0.77 2026-07-03 Market package path safety helper 下沉
+
+本轮继续按后台只读复核建议推进，但只抽 package path safety 小切片；不碰 `download_relative_path`，避免混入 build source/metadata/parser-result 分支。
+
+完成范围：
+
+- `services/market_package_repository.py` 新增公开 `market_code()`，`routers/market_reports.py` 的 `_market_code()` 退为薄 wrapper，保留原错误文案。
+- `services/market_package_repository.py` 新增 `safe_under()`、`safe_market_package_path()`、`safe_us_sec_package_path()`，照搬原 `Path.resolve()` + `relative_to()` 语义和 HTTPException status/detail。
+- `routers/market_reports.py` 的 `_safe_under()`、`_safe_market_package_path()`、`_safe_package_path()` 退为薄 wrapper；`_safe_download_path()` 暂留 router。
+- `tests/test_market_package_repository.py` 补 `market_code()` 直接测试，锁定大小写归一和 unknown market 400 文案。
+- `tests/test_market_package_repository.py` 补 package path safety 直接测试，覆盖 root 内 valid package、相对路径按 `repo_root` 解析、绝对路径、root escape 400、空 package_path 400、market/US SEC 缺 manifest 的不同 404 文案。
+- 保留现有 router package-file、selector、rebuild 合同测试，确认 wrappers 接线后 API 行为不变。
+
+明确未做：
+
+- 不迁 `_safe_download_path()`；download root、source path、metadata sidecar 和 parser result 仍留在 build route adapter。
+- 不改变 symlink/`Path.resolve()` 行为，不改成字符串前缀判断。
+- 不合并 market package 与 US SEC package 的 404 文案。
+
+本轮验证：
+
+```bash
+cd apps/api && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_market_package_repository.py tests/test_market_reports_proxy.py -k 'safe or package_file or package_selector or us_sec_rebuild'  # 10 passed, 46 deselected, 2 warnings
+cd apps/api && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_market_package_repository.py tests/test_market_report_commands.py tests/test_market_report_queueing_service.py tests/test_market_report_status_service.py tests/test_market_reports_proxy.py tests/test_market_report_proxy_service.py tests/test_job_service.py  # 99 passed, 2 warnings
+cd apps/api && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m py_compile services/market_package_repository.py routers/market_reports.py tests/test_market_package_repository.py tests/test_market_reports_proxy.py
+```
+
+### 0.78 2026-07-03 Download path safety helper 下沉
+
+本轮继续 path safety 收口，只下沉 `_safe_download_path()`；不改 `_run_market_package_build()` 的 source/metadata/parser-result 编排，也不触碰真实 package build 执行链。
+
+完成范围：
+
+- `services/market_package_repository.py` 新增 `safe_download_path(value, downloads_root=...)`，照搬原空值、绝对路径、`..`、`resolve()`、`relative_to()`、`is_file()` 检查和 HTTPException status/detail。
+- `routers/market_reports.py` 的 `_safe_download_path()` 退为薄 wrapper，继续由 build route 注入 `REPORT_DOWNLOADS_ROOT`。
+- `tests/test_market_package_repository.py` 补 download path 直接测试，覆盖 valid file、空值 400、absolute/`..` 400、symlink resolve escape 400、missing file 404。
+- `tests/test_market_reports_proxy.py` 补 build route 前置失败合同，确认非法 `download_relative_path` 在 `run_command` 前返回 400。
+- 保留既有 EU/US `download_relative_path` build 测试，确认 metadata sidecar、script selection 和 package detail 读取不变。
+
+明确未做：
+
+- 不迁 source_path、metadata_path、parser_result 校验。
+- 不改变 `Path(str(value))`、`resolve()` 或目录必须 `is_file()` 的现有语义。
+- 不新增 symlink 防御行为，只用测试锁定当前 resolve escape 400 合同。
+
+本轮验证：
+
+```bash
+cd apps/api && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_market_package_repository.py tests/test_market_reports_proxy.py -k 'download_relative_path or safe_download'  # 3 passed, 55 deselected, 2 warnings
+cd apps/api && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_market_package_repository.py tests/test_market_report_commands.py tests/test_market_report_queueing_service.py tests/test_market_report_status_service.py tests/test_market_reports_proxy.py tests/test_market_report_proxy_service.py tests/test_job_service.py  # 101 passed, 2 warnings
+cd apps/api && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m py_compile services/market_package_repository.py routers/market_reports.py tests/test_market_package_repository.py tests/test_market_reports_proxy.py
+```
+
 ## 10. 验收标准总表
 
 ### 仓库治理 DoD
@@ -3676,14 +4386,15 @@ python3 scripts/scan_todo_fixme.py --markdown /tmp/todo-fixme-governance-report.
 
 ## 12. 后续窗口建议执行顺序
 
-建议后续窗口按以下节奏接力。早期 Phase 1-8 与 R/B/C/F/P/A 卡片已经大多完成或阶段完成，当前不再从“仓库治理第一步”重新开始。
+建议后续窗口按以下节奏接力。早期 Phase 1-8 与 R/B/C/F/P/A 卡片已经大多完成或阶段完成，当前不再从“仓库治理第一步”重新开始；若只处理原架构优化任务，应先排除当前并行的一级市场 / Deal / IC 改动。
 
-1. 窗口 A：当前工作区收口。按“后端 Async DB / usage / document-parser / 前端交互与 E2E / CI 与脚本 / 文档”拆分 review，确认 `.github/workflows/ci.yml`、`scripts/scan_todo_fixme.py` 和债务报告是否入索引，继续确保 ignored runtime/cache/build/data 不进入提交。
+1. 窗口 A：保护当前并行改动边界。当前 `git status --short` 主要是 Deal / IC / 一级市场文件，原任务窗口不要回退、整理或混入这些文件；继续确保 ignored runtime/cache/build/data 不进入提交。
 2. 窗口 B：Async DB advisory 归零后的守护。`scripts/audit_async_sync_session.py --summary` 当前为 `total 0`，`tests/test_async_sync_session_audit.py` allowlist 已清空；后续只允许通过聚焦测试保持不回流，不在本窗口继续扩展 DB owner 语义。
 3. 窗口 C：控制面瘦身第二轮的合同前置。先为 `workflow.py` 或 `market_reports.py` 补 route contract / golden response，再选择一个 owner 抽 service/repository；不因行数同时拆多个控制面。
-4. 窗口 D：债务分诊动作。报告审核 `generated_by` 来源已完成；DashScope 图像 embedding 单独开小窗口；债务标记文本不作为 blanket 清理目标。
-5. 窗口 E：安全与生产化设计。前端 httpOnly Cookie + CSRF、Hermes gateway 容器化、Prometheus/结构化日志、Python ruff/touched-files advisory 分别开小窗口；`eval_e2e.py` 只有新增真实行业 profile 时才继续扩展。
-6. 窗口 F：红灯 owner 新设计。只有在有明确回归或收益时，才单独推进 Agent runtime `save_message` / ordinary chat、PDF MinerU lifecycle / Flask response / task state、Document CSS 注入 / refs / scroll 等高耦合 owner。
+4. 窗口 D：Job / worker 中期设计。`FileBackedJobService` 已满足短期文件持久化，但 `workflow.py` 仍有自有 `_workflow_jobs`、thread 和 `subprocess`；下一步先设计统一 job lifecycle、取消/重试/多 worker 策略，再选一个低风险 job 迁移。
+5. 窗口 E：债务分诊动作。报告审核 `generated_by` 来源已完成；DashScope 图像 embedding 单独开小窗口；legal 占位符检测文本保留为规则哨兵，不做 blanket 清理。
+6. 窗口 F：安全与生产化设计。前端 httpOnly Cookie + CSRF、Hermes gateway 容器化、Prometheus/结构化日志、Python ruff/touched-files advisory 分别开小窗口；`eval_e2e.py` 只有新增真实行业 profile 时才继续扩展。
+7. 窗口 G：红灯 owner 新设计。只有在有明确回归或收益时，才单独推进 Agent runtime `save_message` / ordinary chat、PDF MinerU lifecycle / Flask response / task state、Document CSS 注入 / refs / scroll 等高耦合 owner。
 
 每个窗口开工前应先执行：
 

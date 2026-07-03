@@ -13,6 +13,7 @@ This directory is not a runnable agent profile. Runtime profiles should referenc
 | `ic_report_contract.md` | Required structure and quality gate for committee and expert reports. |
 | `ic_evidence_contract.md` | Evidence classification, citation, verification, and dispute handling rules. |
 | `ic_prompt_contract.md` | Prompt composition and role-boundary rules shared by all IC profiles. |
+| `openclaw_script_migration_matrix.json` | Machine-readable migration status for OpenClaw workspace scripts and their SIQ owners. |
 | `templates/` | Placeholder directory for future IC report and expert submission templates. |
 
 ## Scope

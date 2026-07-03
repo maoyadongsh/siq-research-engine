@@ -3,6 +3,13 @@ from pathlib import Path
 from services import market_report_commands as commands
 
 
+class Completed:
+    def __init__(self, *, returncode: int, stdout: str = "", stderr: str = ""):
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+
+
 def test_market_package_build_args_includes_metadata_parser_output_and_force():
     args = commands.market_package_build_args(
         executable="/usr/bin/python",
@@ -43,6 +50,260 @@ def test_market_package_build_args_omits_optional_flags():
         "--output-root",
         "/repo/data/wiki/us_sec",
     ]
+
+
+def test_market_build_script_and_parser_result_helpers_cover_market_matrix():
+    market_scripts = {
+        "US": Path("/repo/scripts/build_us.py"),
+        "HK": Path("/repo/scripts/build_hk.py"),
+        "JP": Path("/repo/scripts/build_jp.py"),
+        "KR": Path("/repo/scripts/build_kr.py"),
+        "EU": Path("/repo/scripts/build_eu_pdf.py"),
+    }
+    esef_script = Path("/repo/scripts/build_eu_esef.py")
+    eu_pdf = Path("/tmp/report.pdf")
+    eu_xhtml = Path("/tmp/report.xhtml")
+    eu_zip_upper = Path("/tmp/report.ZIP")
+
+    assert commands.select_market_build_script(
+        market="EU",
+        source_path=eu_pdf,
+        market_build_scripts=market_scripts,
+        eu_esef_package_build_script=esef_script,
+    ) == market_scripts["EU"]
+    assert commands.select_market_build_script(
+        market="EU",
+        source_path=eu_xhtml,
+        market_build_scripts=market_scripts,
+        eu_esef_package_build_script=esef_script,
+    ) == esef_script
+    assert commands.select_market_build_script(
+        market="EU",
+        source_path=eu_zip_upper,
+        market_build_scripts=market_scripts,
+        eu_esef_package_build_script=esef_script,
+    ) == esef_script
+    assert commands.select_market_build_script(
+        market="HK",
+        source_path=Path("/tmp/report.pdf"),
+        market_build_scripts=market_scripts,
+        eu_esef_package_build_script=esef_script,
+    ) == market_scripts["HK"]
+
+    assert commands.market_build_requires_parser_result(
+        market="HK",
+        source_path=Path("/tmp/report.pdf"),
+        market_build_scripts=market_scripts,
+        eu_esef_package_build_script=esef_script,
+    ) is True
+    assert commands.market_build_requires_parser_result(
+        market="EU",
+        source_path=eu_pdf,
+        market_build_scripts=market_scripts,
+        eu_esef_package_build_script=esef_script,
+    ) is True
+    assert commands.market_build_requires_parser_result(
+        market="EU",
+        source_path=eu_xhtml,
+        market_build_scripts=market_scripts,
+        eu_esef_package_build_script=esef_script,
+    ) is False
+    assert commands.market_build_requires_parser_result(
+        market="US",
+        source_path=Path("/tmp/report.html"),
+        market_build_scripts=market_scripts,
+        eu_esef_package_build_script=esef_script,
+    ) is False
+
+    assert commands.market_build_accepts_parser_result(
+        market="JP",
+        script=market_scripts["JP"],
+        eu_esef_package_build_script=esef_script,
+    ) is True
+    assert commands.market_build_accepts_parser_result(
+        market="KR",
+        script=market_scripts["KR"],
+        eu_esef_package_build_script=esef_script,
+    ) is True
+    assert commands.market_build_accepts_parser_result(
+        market="EU",
+        script=market_scripts["EU"],
+        eu_esef_package_build_script=esef_script,
+    ) is True
+    assert commands.market_build_accepts_parser_result(
+        market="EU",
+        script=esef_script,
+        eu_esef_package_build_script=esef_script,
+    ) is False
+    assert commands.market_build_accepts_parser_result(
+        market="US",
+        script=market_scripts["US"],
+        eu_esef_package_build_script=esef_script,
+    ) is False
+
+
+def test_market_package_build_plan_prefers_download_path_and_adjacent_metadata(tmp_path):
+    repo_root = tmp_path / "repo"
+    downloads_root = tmp_path / "downloads"
+    wiki_roots = {"US": tmp_path / "wiki" / "us_sec"}
+    build_script = repo_root / "scripts" / "build_us.py"
+    source_from_download = downloads_root / "US" / "Apple" / "2025" / "report.html"
+    ignored_source = repo_root / "ignored.html"
+    metadata = source_from_download.with_suffix(source_from_download.suffix + ".metadata.json")
+    for path in (build_script, source_from_download, ignored_source, metadata):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x", encoding="utf-8")
+
+    plan = commands.build_market_package_build_plan(
+        payload={
+            "download_relative_path": "US/Apple/2025/report.html",
+            "source_path": "ignored.html",
+            "force": True,
+        },
+        market="US",
+        repo_root=repo_root,
+        market_wiki_roots=wiki_roots,
+        market_build_scripts={"US": build_script},
+        eu_esef_package_build_script=repo_root / "scripts" / "build_eu_esef.py",
+        safe_download_path=lambda value: source_from_download,
+        adjacent_metadata_path=lambda path: metadata if path == source_from_download else None,
+    )
+
+    assert plan.market == "US"
+    assert plan.source_path == source_from_download
+    assert plan.metadata_path == metadata
+    assert plan.parser_result_path is None
+    assert plan.script == build_script
+    assert plan.output_root == wiki_roots["US"]
+    assert plan.force is True
+
+
+def test_market_package_build_plan_resolves_relative_source_and_metadata(tmp_path):
+    repo_root = tmp_path / "repo"
+    wiki_roots = {"US": tmp_path / "wiki" / "us_sec"}
+    build_script = repo_root / "scripts" / "build_us.py"
+    source = repo_root / "downloads" / "US" / "report.html"
+    metadata = repo_root / "downloads" / "US" / "report.metadata.json"
+    for path in (build_script, source, metadata):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x", encoding="utf-8")
+
+    plan = commands.build_market_package_build_plan(
+        payload={
+            "source_path": "downloads/US/report.html",
+            "metadata_path": "downloads/US/report.metadata.json",
+        },
+        market="US",
+        repo_root=repo_root,
+        market_wiki_roots=wiki_roots,
+        market_build_scripts={"US": build_script},
+        eu_esef_package_build_script=repo_root / "scripts" / "build_eu_esef.py",
+        safe_download_path=lambda value: (_ for _ in ()).throw(AssertionError("download path should not be used")),
+        adjacent_metadata_path=lambda path: (_ for _ in ()).throw(AssertionError("explicit metadata should win")),
+    )
+
+    assert plan.source_path == source
+    assert plan.metadata_path == metadata
+
+
+def test_market_package_build_plan_requires_parser_result_for_hk_and_eu_pdf(tmp_path):
+    repo_root = tmp_path / "repo"
+    wiki_roots = {"HK": tmp_path / "wiki" / "hk", "EU": tmp_path / "wiki" / "eu"}
+    hk_script = repo_root / "scripts" / "build_hk.py"
+    eu_pdf_script = repo_root / "scripts" / "build_eu_pdf.py"
+    eu_esef_script = repo_root / "scripts" / "build_eu_esef.py"
+    hk_source = repo_root / "downloads" / "HK" / "report.pdf"
+    eu_pdf_source = repo_root / "downloads" / "EU" / "report.pdf"
+    parser_result = repo_root / "parser" / "task-1"
+    for path in (hk_script, eu_pdf_script, eu_esef_script, hk_source, eu_pdf_source, parser_result):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x", encoding="utf-8")
+
+    common = {
+        "repo_root": repo_root,
+        "market_wiki_roots": wiki_roots,
+        "market_build_scripts": {"HK": hk_script, "EU": eu_pdf_script},
+        "eu_esef_package_build_script": eu_esef_script,
+        "safe_download_path": lambda value: (_ for _ in ()).throw(AssertionError("download path should not be used")),
+        "adjacent_metadata_path": lambda path: None,
+    }
+    for market, source in (("HK", hk_source), ("EU", eu_pdf_source)):
+        try:
+            commands.build_market_package_build_plan(
+                payload={"source_path": source},
+                market=market,
+                **common,
+            )
+        except commands.MarketPackageBuildPlanError as exc:
+            assert exc.status_code == 400
+            assert exc.detail == f"parser_result is required for {market} package builds"
+        else:
+            raise AssertionError("expected missing parser_result error")
+
+    plan = commands.build_market_package_build_plan(
+        payload={"source_path": hk_source, "parser_result": parser_result},
+        market="HK",
+        **common,
+    )
+
+    assert plan.parser_result_path == parser_result
+
+
+def test_market_package_build_plan_ignores_parser_result_for_eu_esef(tmp_path):
+    repo_root = tmp_path / "repo"
+    wiki_roots = {"EU": tmp_path / "wiki" / "eu"}
+    eu_pdf_script = repo_root / "scripts" / "build_eu_pdf.py"
+    eu_esef_script = repo_root / "scripts" / "build_eu_esef.py"
+    source = repo_root / "downloads" / "EU" / "report.xhtml"
+    for path in (eu_pdf_script, eu_esef_script, source):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x", encoding="utf-8")
+
+    plan = commands.build_market_package_build_plan(
+        payload={"source_path": source, "parser_result": "missing-parser-result"},
+        market="EU",
+        repo_root=repo_root,
+        market_wiki_roots=wiki_roots,
+        market_build_scripts={"EU": eu_pdf_script},
+        eu_esef_package_build_script=eu_esef_script,
+        safe_download_path=lambda value: (_ for _ in ()).throw(AssertionError("download path should not be used")),
+        adjacent_metadata_path=lambda path: None,
+    )
+
+    assert plan.script == eu_esef_script
+    assert plan.parser_result_path is None
+
+
+def test_market_package_build_plan_reports_missing_metadata_and_parser_result(tmp_path):
+    repo_root = tmp_path / "repo"
+    wiki_roots = {"HK": tmp_path / "wiki" / "hk"}
+    build_script = repo_root / "scripts" / "build_hk.py"
+    source = repo_root / "downloads" / "HK" / "report.pdf"
+    for path in (build_script, source):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x", encoding="utf-8")
+
+    common = {
+        "market": "HK",
+        "repo_root": repo_root,
+        "market_wiki_roots": wiki_roots,
+        "market_build_scripts": {"HK": build_script},
+        "eu_esef_package_build_script": repo_root / "scripts" / "build_eu_esef.py",
+        "safe_download_path": lambda value: (_ for _ in ()).throw(AssertionError("download path should not be used")),
+        "adjacent_metadata_path": lambda path: None,
+    }
+    cases = [
+        ({"source_path": source, "metadata_path": "missing.json", "parser_result": source}, 404, "metadata_path not found"),
+        ({"source_path": source, "parser_result": "missing-parser-result"}, 404, "parser_result not found"),
+    ]
+    for payload, status_code, detail in cases:
+        try:
+            commands.build_market_package_build_plan(payload=payload, **common)
+        except commands.MarketPackageBuildPlanError as exc:
+            assert exc.status_code == status_code
+            assert exc.detail == detail
+        else:
+            raise AssertionError("expected plan error")
 
 
 def test_market_package_import_args_uses_us_package_flag_and_database_url():
@@ -245,3 +506,174 @@ def test_us_sec_rebuild_package_args_includes_force_metadata_and_output_root():
         "--output-root",
         "/repo/data/wiki/us_sec",
     ]
+
+
+def test_market_package_build_result_payload_handles_failure_missing_path_and_success():
+    failed = commands.market_package_build_result_payload(
+        completed=Completed(returncode=2, stdout="x" * 5000, stderr="bad"),
+        command="python build.py",
+    )
+    missing_path = commands.market_package_build_result_payload(
+        completed=Completed(returncode=0, stdout="", stderr=""),
+        command="python build.py",
+    )
+    succeeded = commands.market_package_build_result_payload(
+        completed=Completed(returncode=0, stdout="log\n/tmp/package\n", stderr="warn"),
+        package={"package_path": "/tmp/package"},
+        command="python build.py",
+    )
+
+    assert failed["ok"] is False
+    assert failed["returncode"] == 2
+    assert failed["stdout"] == "x" * 4000
+    assert missing_path == {
+        "ok": False,
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "Package build did not print a package path",
+        "command": "python build.py",
+    }
+    assert succeeded == {
+        "ok": True,
+        "package": {"package_path": "/tmp/package"},
+        "stdout": "log\n/tmp/package\n",
+        "stderr": "warn",
+        "command": "python build.py",
+    }
+
+
+def test_market_package_import_result_payload_extracts_parse_run_id_only_on_success():
+    ok = commands.market_package_import_result_payload(
+        completed=Completed(returncode=0, stdout="log\nparse-run-1\n", stderr=""),
+        command="python import.py --database-url ***",
+    )
+    failed = commands.market_package_import_result_payload(
+        completed=Completed(returncode=1, stdout="parse-run-should-not-leak\n", stderr="failed"),
+        command="python import.py",
+    )
+
+    assert ok["ok"] is True
+    assert ok["parse_run_id"] == "parse-run-1"
+    assert ok["command"] == "python import.py --database-url ***"
+    assert failed["ok"] is False
+    assert failed["parse_run_id"] is None
+
+
+def test_market_vector_ingest_result_payload_parses_summary_and_tolerates_bad_stdout():
+    parsed = commands.market_vector_ingest_result_payload(
+        completed=Completed(returncode=0, stdout='log\n{"inserted": 3}\n', stderr="warn"),
+        dry_run=True,
+        command="python ingest.py --dry-run",
+    )
+    malformed = commands.market_vector_ingest_result_payload(
+        completed=Completed(returncode=0, stdout="log\n{bad json}\n", stderr=""),
+        dry_run=False,
+        command="python ingest.py",
+    )
+    non_object = commands.market_vector_ingest_result_payload(
+        completed=Completed(returncode=0, stdout='["not", "object"]', stderr=""),
+        dry_run=True,
+        command="python ingest.py",
+    )
+
+    assert parsed["summary"] == {"inserted": 3}
+    assert parsed["dry_run"] is True
+    assert parsed["stderr"] == "warn"
+    assert malformed["summary"] is None
+    assert malformed["dry_run"] is False
+    assert non_object["summary"] is None
+
+
+def test_market_vector_ingest_result_payload_uses_last_complete_json_object_line():
+    payload = commands.market_vector_ingest_result_payload(
+        completed=Completed(
+            returncode=0,
+            stdout='{"inserted": 1}\nprogress {bad json}\n{"inserted": 3, "collection": "siq_market"}\n',
+        ),
+        dry_run=False,
+        command="python ingest.py",
+    )
+    trailing_noise = commands.market_vector_ingest_result_payload(
+        completed=Completed(returncode=0, stdout='{"inserted": 3} trailing text\n'),
+        dry_run=True,
+        command="python ingest.py",
+    )
+
+    assert payload["summary"] == {"inserted": 3, "collection": "siq_market"}
+    assert trailing_noise["summary"] is None
+
+
+def test_market_vector_ingest_result_payload_accepts_pretty_json_summary_before_trailing_log():
+    payload = commands.market_vector_ingest_result_payload(
+        completed=Completed(
+            returncode=0,
+            stdout=(
+                'progress\n'
+                '{\n'
+                '  "collection": "siq_market",\n'
+                '  "chunk_count": 3,\n'
+                '  "first": {\n'
+                '    "ticker": "AAPL"\n'
+                '  }\n'
+                '}\n'
+                'chunks=3\n'
+            ),
+        ),
+        dry_run=True,
+        command="python ingest.py --dry-run",
+    )
+    trailing_same_line = commands.market_vector_ingest_result_payload(
+        completed=Completed(
+            returncode=0,
+            stdout='progress\n{\n  "chunk_count": 3\n} chunks=3\n',
+        ),
+        dry_run=True,
+        command="python ingest.py --dry-run",
+    )
+
+    assert payload["summary"] == {"collection": "siq_market", "chunk_count": 3, "first": {"ticker": "AAPL"}}
+    assert trailing_same_line["summary"] is None
+
+
+def test_eval_and_us_sec_ingest_result_payloads_keep_reports_and_truncate_logs():
+    eval_payload = commands.market_ingestion_eval_result_payload(
+        completed=Completed(returncode=0, stdout="eval ok\n", stderr=""),
+        report={"score": 0.98},
+        markdown_path="tmp/eval.md",
+        command="python eval.py",
+    )
+    ingest_payload = commands.us_sec_case_set_ingest_result_payload(
+        completed=Completed(returncode=1, stdout="x" * 9000, stderr="e" * 9000),
+        report={"inserted": 0},
+        command="python ingest.py",
+    )
+
+    assert eval_payload == {
+        "ok": True,
+        "returncode": 0,
+        "stdout": "eval ok\n",
+        "stderr": "",
+        "report": {"score": 0.98},
+        "markdown_path": "tmp/eval.md",
+        "command": "python eval.py",
+    }
+    assert ingest_payload["ok"] is False
+    assert ingest_payload["report"] == {"inserted": 0}
+    assert ingest_payload["stdout"] == "x" * 8000
+    assert ingest_payload["stderr"] == "e" * 8000
+
+
+def test_us_sec_rebuild_package_result_payload_normalizes_ticker_and_truncates_logs():
+    payload = commands.us_sec_rebuild_package_result_payload(
+        completed=Completed(returncode=0, stdout="x" * 5000, stderr="e" * 5000),
+        ticker="aapl",
+        package={"package_path": "data/wiki/us_sec/AAPL/package"},
+    )
+
+    assert payload == {
+        "ok": True,
+        "ticker": "AAPL",
+        "stdout": "x" * 4000,
+        "stderr": "e" * 4000,
+        "package": {"package_path": "data/wiki/us_sec/AAPL/package"},
+    }

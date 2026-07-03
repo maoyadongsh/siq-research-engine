@@ -1,20 +1,33 @@
 import { ApiError, apiJson } from '@/shared/api/client'
 import type {
   DealAuditResponse,
+  DealAgentsResponse,
+  DealAgentTaskDryRunResponse,
+  DealDecisionHumanConfirmationPayload,
+  DealDecisionHumanConfirmationUpdateResponse,
   DealDecisionResponse,
   DealDetailResponse,
   DealDocumentResponse,
   DealDocumentsResponse,
+  DealDisputesResponse,
   DealEvidenceIngestDryRunResponse,
   DealEvidenceResponse,
   DealEvidenceFilters,
+  DealManifestResponse,
   DealListResponse,
+  DealPhaseArtifactsResponse,
   DealQuery,
   DealJobStatus,
   DealPreflightResponse,
+  DealR1AgentReportsResponse,
+  DealR2AgentReportsResponse,
+  DealR3ReviewSummaryResponse,
   DealReportDetailResponse,
   DealReportsResponse,
+  DealStatusResponse,
+  DealStartupRetrievalResponse,
   DealWorkflowResponse,
+  DealWorkflowRunR1AgentDryRunResponse,
   DeleteDealDocumentResponse,
   OpenClawImportOptions,
   OpenClawImportPayload,
@@ -46,6 +59,14 @@ export function fetchDeal(dealId: string, signal?: AbortSignal) {
   return apiJson<DealDetailResponse>(`/api/deals/${encodeURIComponent(dealId)}`, { signal })
 }
 
+export function fetchDealStatus(dealId: string, signal?: AbortSignal) {
+  return apiJson<DealStatusResponse>(`/api/deals/${encodeURIComponent(dealId)}/status`, { signal })
+}
+
+export function fetchDealAgents(dealId: string, signal?: AbortSignal) {
+  return apiJson<DealAgentsResponse>(`/api/deals/${encodeURIComponent(dealId)}/agents`, { signal })
+}
+
 export function fetchDealWorkflow(dealId: string, signal?: AbortSignal) {
   return apiJson<DealWorkflowResponse>(`/api/deals/${encodeURIComponent(dealId)}/workflow`, { signal })
 }
@@ -54,16 +75,70 @@ export function fetchDealPreflight(dealId: string, signal?: AbortSignal) {
   return apiJson<DealPreflightResponse>(`/api/deals/${encodeURIComponent(dealId)}/preflight`, { signal })
 }
 
+export function fetchDealDisputes(dealId: string, signal?: AbortSignal) {
+  return apiJson<DealDisputesResponse>(`/api/deals/${encodeURIComponent(dealId)}/disputes`, { signal })
+}
+
+export function fetchDealPhaseArtifacts(dealId: string, signal?: AbortSignal) {
+  return apiJson<DealPhaseArtifactsResponse>(
+    `/api/deals/${encodeURIComponent(dealId)}/phase-artifacts`,
+    { signal },
+  )
+}
+
 export function fetchDealDecision(dealId: string, signal?: AbortSignal) {
   return apiJson<DealDecisionResponse>(`/api/deals/${encodeURIComponent(dealId)}/decision`, { signal })
+}
+
+export function postDealDecisionHumanConfirmation(
+  dealId: string,
+  payload: DealDecisionHumanConfirmationPayload,
+  signal?: AbortSignal,
+) {
+  return apiJson<DealDecisionHumanConfirmationUpdateResponse>(
+    `/api/deals/${encodeURIComponent(dealId)}/decision/human-confirmation`,
+    {
+      method: 'POST',
+      body: {
+        dry_run: true,
+        ...payload,
+      },
+      signal,
+    },
+  )
 }
 
 export function fetchDealAudit(dealId: string, signal?: AbortSignal) {
   return apiJson<DealAuditResponse>(`/api/deals/${encodeURIComponent(dealId)}/audit`, { signal })
 }
 
+export function fetchDealManifest(dealId: string, signal?: AbortSignal) {
+  return apiJson<DealManifestResponse>(`/api/deals/${encodeURIComponent(dealId)}/manifest`, { signal })
+}
+
 export function fetchDealReports(dealId: string, signal?: AbortSignal) {
   return apiJson<DealReportsResponse>(`/api/deals/${encodeURIComponent(dealId)}/reports`, { signal })
+}
+
+export function fetchDealR1AgentReports(dealId: string, signal?: AbortSignal) {
+  return apiJson<DealR1AgentReportsResponse>(
+    `/api/deals/${encodeURIComponent(dealId)}/reports/r1-agents`,
+    { signal },
+  )
+}
+
+export function fetchDealR2AgentReports(dealId: string, signal?: AbortSignal) {
+  return apiJson<DealR2AgentReportsResponse>(
+    `/api/deals/${encodeURIComponent(dealId)}/reports/r2-agents`,
+    { signal },
+  )
+}
+
+export function fetchDealR3ReviewSummary(dealId: string, signal?: AbortSignal) {
+  return apiJson<DealR3ReviewSummaryResponse>(
+    `/api/deals/${encodeURIComponent(dealId)}/reports/r3-review`,
+    { signal },
+  )
 }
 
 export function fetchDealReport(dealId: string, reportPath: string, signal?: AbortSignal) {
@@ -71,6 +146,69 @@ export function fetchDealReport(dealId: string, reportPath: string, signal?: Abo
   return apiJson<DealReportDetailResponse>(
     `/api/deals/${encodeURIComponent(dealId)}/reports/${encodedReportPath}`,
     { signal },
+  )
+}
+
+export function generateDealStartupRetrieval(
+  dealId: string,
+  profileId: string,
+  payload: { round_name?: string; query?: string; limit?: number } = {},
+  signal?: AbortSignal,
+) {
+  return apiJson<DealStartupRetrievalResponse>(
+    `/api/deals/${encodeURIComponent(dealId)}/agents/${encodeURIComponent(profileId)}/startup-retrieval`,
+    {
+      method: 'POST',
+      body: {
+        round_name: payload.round_name || 'R1',
+        query: payload.query,
+        limit: payload.limit ?? 10,
+      },
+      signal,
+    },
+  )
+}
+
+export function fetchDealStartupRetrieval(dealId: string, profileId: string, signal?: AbortSignal) {
+  return apiJson<DealStartupRetrievalResponse>(
+    `/api/deals/${encodeURIComponent(dealId)}/agents/${encodeURIComponent(profileId)}/startup-retrieval`,
+    { signal },
+  )
+}
+
+export function dryRunDealAgentTask(
+  dealId: string,
+  profileId: string,
+  payload: { round_name?: string } = {},
+  signal?: AbortSignal,
+) {
+  return apiJson<DealAgentTaskDryRunResponse>(
+    `/api/deals/${encodeURIComponent(dealId)}/agents/${encodeURIComponent(profileId)}/dry-run`,
+    {
+      method: 'POST',
+      body: { round_name: payload.round_name || 'R1' },
+      signal,
+    },
+  )
+}
+
+export function dryRunDealWorkflowR1Agent(
+  dealId: string,
+  profileId: string,
+  payload: { round_name?: string } = {},
+  signal?: AbortSignal,
+) {
+  return apiJson<DealWorkflowRunR1AgentDryRunResponse>(
+    `/api/deals/${encodeURIComponent(dealId)}/workflow/run-r1-agent`,
+    {
+      method: 'POST',
+      body: {
+        profile_id: profileId,
+        round_name: payload.round_name || 'R1',
+        dry_run: true,
+      },
+      signal,
+    },
   )
 }
 

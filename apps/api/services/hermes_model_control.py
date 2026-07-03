@@ -10,7 +10,7 @@ import yaml
 from services.hermes_client import HermesProfile, normalize_profile
 from services.path_config import HERMES_PROFILE_ROOTS
 
-ModelMode = Literal["local", "qwen36", "gemma4", "cloud", "kimi", "minimax"]
+ModelMode = Literal["local", "qwen36", "gemma4", "cloud", "kimi", "minimax", "stepfun"]
 
 GEMMA4_MODEL = "Gemma-4-26B-A4B-it-NVFP4"
 GEMMA4_PROVIDER = "custom:gemma4-local"
@@ -32,6 +32,13 @@ KIMI_PROVIDER = "kimi-coding"
 KIMI_BASE_URL = "https://api.kimi.com/coding"
 MINIMAX_MODEL = "MiniMax-M3"
 MINIMAX_PROVIDER = "minimax-cn"
+STEPFUN_MODEL = "step-3.7-flash"
+STEPFUN_PROVIDER = "custom:stepfun-step-3.7-flash"
+STEPFUN_PROVIDER_NAME = "StepFun Step-3.7 Flash"
+STEPFUN_BASE_URL = "https://api.stepfun.com/v1"
+STEPFUN_CONTEXT_LENGTH = 200000
+STEPFUN_TEMPERATURE = 0.2
+STEPFUN_KEY_ENV = "SIQ_STEPFUN_LLM_API_KEY"
 
 MODEL_OPTIONS: dict[ModelMode, dict[str, Any]] = {
     "local": {
@@ -65,10 +72,16 @@ MODEL_OPTIONS: dict[ModelMode, dict[str, Any]] = {
         "temperature": GEMMA4_TEMPERATURE,
     },
     "cloud": {
-        "label": "云端 Minimax",
+        "label": "云端 StepFun",
         "kind": "cloud",
-        "provider": MINIMAX_PROVIDER,
-        "model": MINIMAX_MODEL,
+        "provider_name": STEPFUN_PROVIDER_NAME,
+        "provider": STEPFUN_PROVIDER,
+        "base_url": STEPFUN_BASE_URL,
+        "model": STEPFUN_MODEL,
+        "api_mode": "openai_chat",
+        "context_length": STEPFUN_CONTEXT_LENGTH,
+        "temperature": STEPFUN_TEMPERATURE,
+        "key_env": STEPFUN_KEY_ENV,
     },
     "kimi": {
         "label": "云端 Kimi",
@@ -83,15 +96,27 @@ MODEL_OPTIONS: dict[ModelMode, dict[str, Any]] = {
         "provider": MINIMAX_PROVIDER,
         "model": MINIMAX_MODEL,
     },
+    "stepfun": {
+        "label": "云端 StepFun",
+        "kind": "cloud",
+        "provider_name": STEPFUN_PROVIDER_NAME,
+        "provider": STEPFUN_PROVIDER,
+        "base_url": STEPFUN_BASE_URL,
+        "model": STEPFUN_MODEL,
+        "api_mode": "openai_chat",
+        "context_length": STEPFUN_CONTEXT_LENGTH,
+        "temperature": STEPFUN_TEMPERATURE,
+        "key_env": STEPFUN_KEY_ENV,
+    },
 }
-CANONICAL_MODEL_MODES: tuple[ModelMode, ...] = ("qwen36", "gemma4", "kimi", "minimax")
+CANONICAL_MODEL_MODES: tuple[ModelMode, ...] = ("qwen36", "gemma4", "kimi", "minimax", "stepfun")
 LOCAL_MODEL_OPTIONS: dict[ModelMode, dict[str, Any]] = {
     key: MODEL_OPTIONS[key]
     for key in ("qwen36", "gemma4")
 }
 CLOUD_MODEL_OPTIONS: dict[ModelMode, dict[str, Any]] = {
     key: MODEL_OPTIONS[key]
-    for key in ("kimi", "minimax")
+    for key in ("kimi", "minimax", "stepfun")
 }
 PROFILE_CONFIGS: dict[HermesProfile, Path] = {
     "siq_assistant": HERMES_PROFILE_ROOTS["siq_assistant"] / "config.yaml",
@@ -180,6 +205,16 @@ MINIMAX_PATTERNS = (
     "m2.7",
     "海螺",
 )
+STEPFUN_PATTERNS = (
+    "stepfun",
+    "step fun",
+    "step-3.7",
+    "step 3.7",
+    "step3.7",
+    "step-3.7-flash",
+    "阶跃星辰",
+    "阶跃",
+)
 STATUS_PATTERNS = ("模型状态", "当前模型", "查看模型", "model status", "current model")
 SWITCH_VERB_RE = re.compile(
     r"(切换|切到|切回|改用|换成|换到|使用|启用|设为|设置为|用|switch|change|set|use)",
@@ -197,7 +232,7 @@ STATUS_RE = re.compile(
     re.IGNORECASE,
 )
 CONTROL_HINT = re.compile(
-    r"(切换|切到|切回|使用|改用|模型|model|gemma|qwen|kimi|minimax|local|cloud|云端|本地)",
+    r"(切换|切到|切回|使用|改用|模型|model|gemma|qwen|kimi|minimax|stepfun|step|local|cloud|云端|本地|阶跃)",
     re.IGNORECASE,
 )
 
@@ -218,22 +253,24 @@ def _save_yaml(path: Path, data: dict[str, Any]) -> None:
     )
 
 
-def _ensure_local_provider(config: dict[str, Any]) -> None:
+def _ensure_custom_provider(config: dict[str, Any]) -> None:
     providers = config.get("custom_providers")
     if not isinstance(providers, list):
         providers = []
 
-    for mode in ("qwen36", "gemma4"):
+    for mode in ("qwen36", "gemma4", "stepfun"):
         option = MODEL_OPTIONS[mode]
         provider_payload = {
             "name": option["provider_name"],
             "base_url": option["base_url"],
             "model": option["model"],
-            "api_mode": "openai_chat",
+            "api_mode": option.get("api_mode") or "openai_chat",
             "context_length": option["context_length"],
             "temperature": option["temperature"],
             "models": {option["model"]: {"context_length": option["context_length"]}},
         }
+        if option.get("key_env"):
+            provider_payload["key_env"] = option["key_env"]
         for entry in providers:
             if isinstance(entry, dict) and (
                 entry.get("name") == option["provider_name"]
@@ -251,15 +288,17 @@ def _fallback_chain_for_mode(mode: ModelMode) -> list[dict[str, Any]]:
     mode = _canonical_mode(mode)
     fallback_modes: tuple[ModelMode, ...]
     if mode in {"local", "qwen36"}:
-        fallback_modes = ("minimax", "kimi", "gemma4")
+        fallback_modes = ("stepfun", "minimax", "kimi", "gemma4")
     elif mode == "gemma4":
-        fallback_modes = ("minimax", "kimi", "qwen36")
+        fallback_modes = ("stepfun", "minimax", "kimi", "qwen36")
     elif mode == "kimi":
-        fallback_modes = ("minimax", "qwen36", "gemma4")
+        fallback_modes = ("stepfun", "minimax", "qwen36", "gemma4")
     elif mode == "minimax":
-        fallback_modes = ("kimi", "qwen36", "gemma4")
+        fallback_modes = ("stepfun", "kimi", "qwen36", "gemma4")
+    elif mode == "stepfun":
+        fallback_modes = ("qwen36", "gemma4", "minimax", "kimi")
     else:
-        fallback_modes = ("qwen36", "gemma4", "kimi", "minimax")
+        fallback_modes = ("qwen36", "gemma4", "stepfun", "kimi", "minimax")
 
     chain: list[dict[str, Any]] = []
     current = _canonical_mode(mode)
@@ -270,6 +309,12 @@ def _fallback_chain_for_mode(mode: ModelMode) -> list[dict[str, Any]]:
         entry = {"provider": option["provider"], "model": option["model"]}
         if option.get("temperature") is not None:
             entry["temperature"] = option["temperature"]
+        if option.get("base_url"):
+            entry["base_url"] = option["base_url"]
+        if option.get("api_mode"):
+            entry["api_mode"] = option["api_mode"]
+        if option.get("key_env"):
+            entry["key_env"] = option["key_env"]
         chain.append(entry)
     return chain
 
@@ -303,17 +348,19 @@ def _set_model(config: dict[str, Any], mode: ModelMode) -> None:
 
     mode = _canonical_mode(mode)
     option = MODEL_OPTIONS[mode]
-    if option["kind"] == "local":
+    if option["kind"] == "local" or str(option["provider"]).startswith("custom:"):
         model_config.update(
             {
                 "default": option["model"],
                 "provider": option["provider"],
                 "base_url": option["base_url"],
-                "api_mode": "openai_chat",
+                "api_mode": option.get("api_mode") or "openai_chat",
                 "context_length": option["context_length"],
                 "temperature": option["temperature"],
             }
         )
+        if option.get("key_env"):
+            model_config["key_env"] = option["key_env"]
     else:
         model_config.update(
             {
@@ -328,6 +375,7 @@ def _set_model(config: dict[str, Any], mode: ModelMode) -> None:
         model_config.pop("api_mode", None)
         model_config.pop("context_length", None)
         model_config.pop("temperature", None)
+        model_config.pop("key_env", None)
 
     config["model"] = model_config
 
@@ -336,7 +384,7 @@ def _canonical_mode(mode: ModelMode) -> ModelMode:
     if mode == "local":
         return "qwen36"
     if mode == "cloud":
-        return "minimax"
+        return "stepfun"
     return mode
 
 
@@ -360,6 +408,8 @@ def current_model_mode(profile: HermesProfile | str) -> ModelMode:
         return "qwen36"
     if provider == "custom" and ("gemma" in normalized_model or "gemma" in base_url.lower()):
         return "gemma4"
+    if "stepfun" in provider.lower() or "stepfun" in base_url.lower() or "step3" in normalized_model or "step37" in normalized_model:
+        return "stepfun"
     if "minimax" in provider.lower() or "minimax" in normalized_model:
         return "minimax"
     if "kimi" in provider.lower() or "kimi" in normalized_model:
@@ -371,7 +421,7 @@ def set_profile_model_mode(profile: HermesProfile | str, mode: ModelMode) -> dic
     profile = normalize_profile(profile)
     path = PROFILE_CONFIGS[profile]
     config = _load_yaml(path)
-    _ensure_local_provider(config)
+    _ensure_custom_provider(config)
     _set_model(config, mode)
     _ensure_model_fallback(config, mode)
     _ensure_tool_use_enforcement(config)
@@ -393,7 +443,7 @@ def ensure_profile_fallback(profile: HermesProfile | str) -> None:
     profile = normalize_profile(profile)
     path = PROFILE_CONFIGS[profile]
     config = _load_yaml(path)
-    _ensure_local_provider(config)
+    _ensure_custom_provider(config)
     _ensure_model_fallback(config)
     _ensure_tool_use_enforcement(config)
     _save_yaml(path, config)
@@ -446,6 +496,8 @@ def infer_model_mode(*, provider_name: str = "", provider: str = "", model: str 
         return "minimax"
     if KIMI_MODEL.lower() in normalized or KIMI_PROVIDER in normalized or "kimi" in normalized or "moonshot" in normalized:
         return "kimi"
+    if STEPFUN_MODEL.lower() in normalized or STEPFUN_PROVIDER in normalized or "stepfun" in normalized or "阶跃星辰" in normalized or "阶跃" in normalized:
+        return "stepfun"
     return None
 
 
@@ -473,6 +525,8 @@ def maybe_handle_model_control(message: str, profile: HermesProfile | str) -> st
 
 
 def _requested_model_mode(normalized: str) -> ModelMode | None:
+    if any(pattern in normalized for pattern in STEPFUN_PATTERNS):
+        return "stepfun"
     if any(pattern in normalized for pattern in GEMMA4_PATTERNS):
         return "gemma4"
     if any(pattern in normalized for pattern in QWEN36_PATTERNS):
@@ -484,7 +538,7 @@ def _requested_model_mode(normalized: str) -> ModelMode | None:
     if any(pattern in normalized for pattern in LOCAL_PATTERNS):
         return "qwen36"
     if any(pattern in normalized for pattern in CLOUD_PATTERNS):
-        return "minimax"
+        return "stepfun"
     return None
 
 

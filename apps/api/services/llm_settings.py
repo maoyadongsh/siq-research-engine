@@ -56,6 +56,21 @@ MINIMAX_PROVIDER = {
     "timeoutSeconds": 180,
     "chatTemplateKwargs": {},
 }
+STEPFUN_PROVIDER = {
+    "enabled": True,
+    "providerName": "StepFun / Step-3.7 Flash",
+    "baseUrl": _env_value("SIQ_STEPFUN_LLM_BASE_URL", "https://api.stepfun.com/v1"),
+    "apiKey": _env_first(
+        "SIQ_STEPFUN_LLM_API_KEY",
+        "STEPFUN_API_KEY",
+        "STEP_API_KEY",
+    ),
+    "model": _env_value("SIQ_STEPFUN_LLM_MODEL", "step-3.7-flash"),
+    "temperature": 0.2,
+    "maxTokens": 8192,
+    "timeoutSeconds": 180,
+    "chatTemplateKwargs": {},
+}
 LOCAL_GEMMA4_PROVIDER = {
     "enabled": True,
     "providerName": "本地 vLLM / Gemma4",
@@ -98,6 +113,7 @@ LOCAL_MODEL_PRESETS = {
     "gemma4": deepcopy(LOCAL_GEMMA4_PROVIDER),
 }
 CLOUD_MODEL_PRESETS = {
+    "stepfun": deepcopy(STEPFUN_PROVIDER),
     "kimi": deepcopy(KIMI_PROVIDER),
     "minimax": deepcopy(MINIMAX_PROVIDER),
 }
@@ -187,7 +203,8 @@ def _apply_cloud_model_preset_extras(provider: dict[str, Any]) -> dict[str, Any]
     for preset in CLOUD_MODEL_PRESETS.values():
         if model == preset["model"]:
             provider["chatTemplateKwargs"] = deepcopy(preset.get("chatTemplateKwargs") or {})
-            provider["apiKey"] = ""
+            if str(preset.get("baseUrl") or "").startswith("hermes://"):
+                provider["apiKey"] = ""
             break
     return provider
 

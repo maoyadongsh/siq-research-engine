@@ -31,9 +31,9 @@ from services.auth_service import User
 from services.hermes_client import HermesProfile
 from services.hermes_model_control import maybe_handle_model_control
 from services.session_manager import get_session_manager, keeps_sessions_forever
-from routers.workspace import enforce_quota_or_429_async, record_user_artifact
+from routers.workspace import _quota_error_payload, record_user_artifact
 from routers.workspace import extract_report_artifact_from_text, company_identity_from_dir
-from services.usage_service import AGENT_QUESTION_EVENT, record_usage_async
+from services.usage_service import AGENT_QUESTION_EVENT, ensure_within_quota_async, record_usage_async
 
 
 @dataclass(frozen=True)
@@ -95,7 +95,7 @@ def _reply_counts_as_completed(reply: str) -> bool:
 def _record_agent_workspace_artifact(
     sync_session: Session,
     *,
-    current_user: User,
+    current_user_id: int,
     config: SpecialistAgentConfig,
     session_id: str,
     req: ChatRequest,
@@ -131,7 +131,7 @@ def _record_agent_workspace_artifact(
     try:
         record_user_artifact(
             sync_session,
-            user_id=int(current_user.id),
+            user_id=current_user_id,
             artifact_type="report",
             artifact_key=artifact_key,
             title=title[:255],
@@ -143,12 +143,12 @@ def _record_agent_workspace_artifact(
             company_dir=company_dir,
         )
     except Exception as exc:
-        print(f"[workspace] failed to record agent artifact for user={current_user.id} tag={config.tag}: {exc}")
+        print(f"[workspace] failed to record agent artifact for user={current_user_id} tag={config.tag}: {exc}")
 
 
 async def _record_agent_workspace_artifact_background(
     *,
-    current_user: User,
+    current_user_id: int,
     config: SpecialistAgentConfig,
     session_id: str,
     req: ChatRequest,
@@ -163,7 +163,7 @@ async def _record_agent_workspace_artifact_background(
         with Session(engine) as sync_session:
             _record_agent_workspace_artifact(
                 sync_session,
-                current_user=current_user,
+                current_user_id=current_user_id,
                 config=config,
                 session_id=session_id,
                 req=req,
@@ -179,9 +179,12 @@ async def resolve_or_create_session(
     current_user: User,
     profile: str,
     session_id: str | None = None,
+    *,
+    user_id: str | None = None,
+    user_role: object | None = None,
 ) -> str:
-    user_id = str(current_user.id)
-    user_role = current_user.role
+    user_id = user_id or str(current_user.id)
+    user_role = current_user.role if user_role is None else user_role
     session_mgr = get_session_manager()
     if session_id:
         _assert_session_belongs_to_user(session_id, user_id, profile)
@@ -403,6 +406,40 @@ def _session_limit(current_user: User, requested: int | None) -> int | None:
     return min(max(int(requested or 100), 1), 100)
 
 
+def _role_value(user: User) -> str:
+    return str(user.role.value if hasattr(user.role, "value") else user.role)
+
+
+def _detach_current_user(async_session: AsyncSession, current_user: User) -> None:
+    try:
+        async_session.expunge(current_user)
+    except Exception:
+        pass
+
+
+async def enforce_quota_or_429_async(
+    async_session: AsyncSession,
+    *,
+    user_id: int,
+    user_role: str,
+    event_type: str,
+    increment: int = 1,
+) -> tuple[int, int | None]:
+    try:
+        return await ensure_within_quota_async(
+            async_session,
+            user_id=user_id,
+            user_role=user_role,
+            event_type=event_type,
+            increment=increment,
+        )
+    except ValueError as exc:
+        parts = str(exc).split(":")
+        if len(parts) == 4 and parts[0] == "daily_quota_exceeded":
+            raise _quota_error_payload(parts[1], int(parts[2]), int(parts[3])) from exc
+        raise
+
+
 async def _delete_chat_messages(async_session: AsyncSession, session_ids: list[str]) -> None:
     if not session_ids:
         return
@@ -425,14 +462,24 @@ def create_specialist_agent_router(config: SpecialistAgentConfig) -> APIRouter:
         current_user: User = Depends(get_current_user),
         async_session: AsyncSession = Depends(get_async_session),
     ):
-        await enforce_quota_or_429_async(async_session, current_user, AGENT_QUESTION_EVENT)
-        await record_usage_async(async_session, user_id=int(current_user.id), event_type=AGENT_QUESTION_EVENT, source=config.tag)
+        current_user_id = int(current_user.id)
+        current_user_role = _role_value(current_user)
+        _detach_current_user(async_session, current_user)
+        await enforce_quota_or_429_async(
+            async_session,
+            user_id=current_user_id,
+            user_role=current_user_role,
+            event_type=AGENT_QUESTION_EVENT,
+        )
+        await record_usage_async(async_session, user_id=current_user_id, event_type=AGENT_QUESTION_EVENT, source=config.tag)
         # 后端重启后内存会话索引可能丢失；优先从数据库历史恢复旧 session。
         session_id = await resolve_or_create_session(
             async_session,
             current_user,
             config.tag,
             getattr(req, "session_id", None),
+            user_id=str(current_user_id),
+            user_role=current_user_role,
         )
         control_reply = maybe_handle_model_control(req.message, config.profile)
         if control_reply:
@@ -456,7 +503,7 @@ def create_specialist_agent_router(config: SpecialistAgentConfig) -> APIRouter:
             attachments=req.attachments,
         )
         await _record_agent_workspace_artifact_background(
-            current_user=current_user,
+            current_user_id=current_user_id,
             config=config,
             session_id=session_id,
             req=req,
@@ -471,14 +518,24 @@ def create_specialist_agent_router(config: SpecialistAgentConfig) -> APIRouter:
         current_user: User = Depends(get_current_user),
         async_session: AsyncSession = Depends(get_async_session),
     ):
-        await enforce_quota_or_429_async(async_session, current_user, AGENT_QUESTION_EVENT)
-        await record_usage_async(async_session, user_id=int(current_user.id), event_type=AGENT_QUESTION_EVENT, source=config.tag)
+        current_user_id = int(current_user.id)
+        current_user_role = _role_value(current_user)
+        _detach_current_user(async_session, current_user)
+        await enforce_quota_or_429_async(
+            async_session,
+            user_id=current_user_id,
+            user_role=current_user_role,
+            event_type=AGENT_QUESTION_EVENT,
+        )
+        await record_usage_async(async_session, user_id=current_user_id, event_type=AGENT_QUESTION_EVENT, source=config.tag)
         # 后端重启后内存会话索引可能丢失；优先从数据库历史恢复旧 session。
         session_id = await resolve_or_create_session(
             async_session,
             current_user,
             config.tag,
             getattr(req, "session_id", None),
+            user_id=str(current_user_id),
+            user_role=current_user_role,
         )
 
         async def event_generator():
@@ -509,7 +566,7 @@ def create_specialist_agent_router(config: SpecialistAgentConfig) -> APIRouter:
                 display_message=req.display_message,
                 attachments=req.attachments,
                 done_payload_factory=lambda reply: _record_agent_workspace_artifact_background(
-                    current_user=current_user,
+                    current_user_id=current_user_id,
                     config=config,
                     session_id=session_id,
                     req=req,
@@ -572,8 +629,9 @@ def create_specialist_agent_router(config: SpecialistAgentConfig) -> APIRouter:
         async_session: AsyncSession = Depends(get_async_session),
     ):
         user_id = str(current_user.id)
-        session_mgr = get_session_manager()
         requested_limit = _session_limit(current_user, limit)
+        _detach_current_user(async_session, current_user)
+        session_mgr = get_session_manager()
         redis_sessions = session_mgr.list_user_sessions(user_id, config.tag, limit=requested_limit)
         db_sessions = await _db_session_summaries(
             async_session,
@@ -593,10 +651,13 @@ def create_specialist_agent_router(config: SpecialistAgentConfig) -> APIRouter:
         current_user: User = Depends(get_current_user),
         async_session: AsyncSession = Depends(get_async_session),
     ):
+        user_id = str(current_user.id)
+        user_role = current_user.role
+        _detach_current_user(async_session, current_user)
         session_id, deleted_session_ids = get_session_manager().create_session(
-            str(current_user.id),
+            user_id,
             config.tag,
-            user_role=current_user.role,
+            user_role=user_role,
             return_deleted=True,
         )
         await _delete_chat_messages(async_session, deleted_session_ids)
@@ -609,6 +670,8 @@ def create_specialist_agent_router(config: SpecialistAgentConfig) -> APIRouter:
     ):
         session_mgr = get_session_manager()
         user_id = str(current_user.id)
+        user_role = current_user.role
+        _detach_current_user(async_session, current_user)
         try:
             _assert_session_belongs_to_user(session_id, user_id, config.tag)
             session_mgr.set_current_session(user_id, config.tag, session_id)
@@ -622,7 +685,7 @@ def create_specialist_agent_router(config: SpecialistAgentConfig) -> APIRouter:
                 user_id,
                 config.tag,
                 session_id,
-                user_role=current_user.role,
+                user_role=user_role,
                 created_at=summary.get("created_at"),
                 updated_at=summary.get("updated_at"),
                 message_count=int(summary.get("message_count") or 0),
@@ -635,14 +698,23 @@ def create_specialist_agent_router(config: SpecialistAgentConfig) -> APIRouter:
         async_session: AsyncSession = Depends(get_async_session),
     ):
         user_id = str(current_user.id)
-        resolved_session_id = await resolve_or_create_session(async_session, current_user, config.tag, session_id)
+        user_role = current_user.role
+        _detach_current_user(async_session, current_user)
+        resolved_session_id = await resolve_or_create_session(
+            async_session,
+            current_user,
+            config.tag,
+            session_id,
+            user_id=user_id,
+            user_role=user_role,
+        )
         session_mgr = get_session_manager()
         session_mgr.delete_session(resolved_session_id, user_id)
         await _delete_chat_messages(async_session, [resolved_session_id])
         new_session_id, deleted_session_ids = session_mgr.create_session(
             user_id,
             config.tag,
-            user_role=current_user.role,
+            user_role=user_role,
             return_deleted=True,
         )
         await _delete_chat_messages(async_session, deleted_session_ids)

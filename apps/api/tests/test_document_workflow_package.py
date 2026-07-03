@@ -251,6 +251,46 @@ def test_document_db_import_endpoint_uses_wiki_package(monkeypatch, tmp_path):
     assert result["postgres"]["status"] == "ready"
 
 
+def test_document_db_import_rejects_missing_package_manifest(monkeypatch, tmp_path):
+    package_dir = tmp_path / "wiki" / "documents" / "contracts" / "doc"
+    package_dir.mkdir(parents=True)
+    script = tmp_path / "import_document_parse_package_to_postgres.py"
+    script.write_text("print('ok')\n", encoding="utf-8")
+    monkeypatch.setattr(workflow, "DOCUMENT_DB_IMPORT_SCRIPT", script)
+    monkeypatch.setattr(
+        workflow,
+        "_document_wiki_status",
+        lambda task_id, collection: {"status": "ready", "path": str(package_dir)},
+    )
+
+    with pytest.raises(workflow.HTTPException) as exc:
+        workflow.import_document_task_to_database("task-doc-missing-manifest", "contracts")
+
+    assert exc.value.status_code == 404
+
+
+def test_document_db_import_maps_command_failure_to_500(monkeypatch, tmp_path):
+    task_id = "task-doc-db-failure"
+    results_root = tmp_path / "results"
+    wiki_root = tmp_path / "wiki" / "documents"
+    script = tmp_path / "import_document_parse_package_to_postgres.py"
+    script.write_text("print('ok')\n", encoding="utf-8")
+    build_result_dir(results_root, task_id)
+    monkeypatch.setattr(workflow, "DOCUMENT_PARSER_RESULTS_ROOT", results_root)
+    monkeypatch.setattr(workflow, "DOCUMENT_WIKI_ROOT", wiki_root)
+    monkeypatch.setattr(workflow, "DOCUMENT_DB_IMPORT_SCRIPT", script)
+    monkeypatch.setattr(workflow, "_db_connect_config", lambda: {"host": "h", "port": 5432, "dbname": "d", "user": "u", "password": "p"})
+    failure = {"returnCode": 1, "stdout": "", "stderr": "boom"}
+    monkeypatch.setattr(workflow, "_run_command", lambda *args, **kwargs: failure)
+    workflow._import_document_task_to_wiki(task_id, "contracts")
+
+    with pytest.raises(workflow.HTTPException) as exc:
+        workflow.import_document_task_to_database(task_id, "contracts")
+
+    assert exc.value.status_code == 500
+    assert exc.value.detail == failure
+
+
 def test_document_semantic_endpoint_builds_chunks(monkeypatch, tmp_path):
     task_id = "task-doc-004"
     results_root = tmp_path / "results"
@@ -280,6 +320,27 @@ def test_document_semantic_endpoint_builds_chunks(monkeypatch, tmp_path):
     assert "--milvus" not in seen["args"]
     assert result["milvus"]["status"] == "chunks_ready"
     assert result["milvus"]["chunkCount"] == 1
+
+
+def test_document_semantic_maps_command_failure_to_500(monkeypatch, tmp_path):
+    task_id = "task-doc-semantic-failure"
+    results_root = tmp_path / "results"
+    wiki_root = tmp_path / "wiki" / "documents"
+    script = tmp_path / "ingest_document_chunks.py"
+    script.write_text("print('ok')\n", encoding="utf-8")
+    build_result_dir(results_root, task_id)
+    monkeypatch.setattr(workflow, "DOCUMENT_PARSER_RESULTS_ROOT", results_root)
+    monkeypatch.setattr(workflow, "DOCUMENT_WIKI_ROOT", wiki_root)
+    monkeypatch.setattr(workflow, "DOCUMENT_CHUNK_SCRIPT", script)
+    failure = {"returnCode": 2, "stdout": "", "stderr": "chunk failure"}
+    monkeypatch.setattr(workflow, "_run_command", lambda *args, **kwargs: failure)
+    workflow._import_document_task_to_wiki(task_id, "contracts")
+
+    with pytest.raises(workflow.HTTPException) as exc:
+        workflow.build_document_semantic_chunks(task_id, "contracts")
+
+    assert exc.value.status_code == 500
+    assert exc.value.detail == failure
 
 
 def test_document_semantic_endpoint_can_request_milvus_ingest(monkeypatch, tmp_path):

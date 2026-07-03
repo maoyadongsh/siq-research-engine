@@ -225,6 +225,19 @@ def import_openclaw_project(
     workflow.setdefault("current_phase", "R0")
     deal_store.write_json(package_dir / "phases" / "workflow_state.json", workflow)
 
+    imported_count = len([item for item in file_results if item.get("status") == "imported"])
+    audit_event = deal_store.append_audit_event(
+        deal_id,
+        {
+            "event_type": "openclaw_imported",
+            "legacy_project_id": legacy_project_id,
+            "source_root": source.name,
+            "file_count": imported_count,
+            "created_by": _created_by_payload(created_by),
+        },
+        wiki_root=wiki_root,
+    )
+
     for item in file_results:
         if item.get("status") == "imported":
             target = package_dir / str(item.get("target") or "")
@@ -249,7 +262,7 @@ def import_openclaw_project(
         "source_root": source.name,
         "legacy_project_id": legacy_project_id,
         "imported_at": deal_store.utc_now_iso(),
-        "file_count": len([item for item in file_results if item.get("status") == "imported"]),
+        "file_count": imported_count,
         "files": file_results,
     }
     if import_metadata:
@@ -266,17 +279,6 @@ def import_openclaw_project(
         "files": file_results,
     }
     deal_store.write_json(package_dir / "audit" / "archive_manifest.json", archive_manifest)
-    audit_event = deal_store.append_audit_event(
-        deal_id,
-        {
-            "event_type": "openclaw_imported",
-            "legacy_project_id": legacy_project_id,
-            "source_root": source.name,
-            "file_count": archive_manifest["file_count"],
-            "created_by": _created_by_payload(created_by),
-        },
-        wiki_root=wiki_root,
-    )
     return {
         "deal": deal_store.read_deal_detail(deal_id, wiki_root=wiki_root),
         "summary": summary,

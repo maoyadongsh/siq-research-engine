@@ -182,6 +182,131 @@ class _MissingSessionManager:
         return "user-1-assistant-new"
 
 
+class _CommitSensitiveUser:
+    def __init__(self):
+        self.expired = False
+        self.username = "commit-sensitive"
+        self.email = "commit-sensitive@example.test"
+        self.hashed_password = "x"
+        self.full_name = "Commit Sensitive"
+        self.is_active = True
+        self.approval_status = "approved"
+
+    @property
+    def id(self):
+        if self.expired:
+            raise AssertionError("current_user.id was accessed after async usage commit")
+        return 7
+
+    @property
+    def role(self):
+        if self.expired:
+            raise AssertionError("current_user.role was accessed after async usage commit")
+        return UserRole.ANALYST
+
+
+class _SpecialistSessionManager:
+    def __init__(self):
+        self.created = []
+        self.incremented = []
+
+    def get_current_session_id(self, *args, **kwargs):
+        return None
+
+    def create_session(self, user_id, profile, **kwargs):
+        self.created.append((user_id, profile, kwargs))
+        return f"user-{user_id}-{profile}-created"
+
+    def increment_message_count(self, session_id):
+        self.incremented.append(session_id)
+
+
+def test_specialized_agent_chat_uses_stable_user_values_after_usage_commit(monkeypatch, tmp_path):
+    async def run_case(async_session):
+        user = _CommitSensitiveUser()
+        session_mgr = _SpecialistSessionManager()
+        captured = {}
+
+        async def fake_enforce_quota_or_429_async(*args, **kwargs):
+            assert not user.expired
+            return (0, None)
+
+        async def fake_record_usage_async(*args, **kwargs):
+            user.expired = True
+            return None
+
+        async def fake_collect_chat_reply(message, async_session, **kwargs):
+            captured["profile"] = kwargs["profile"]
+            captured["session_id"] = kwargs["session_id"]
+            return "ok"
+
+        async def fake_record_agent_workspace_artifact_background(**kwargs):
+            captured["workspace_user_id"] = kwargs["current_user_id"]
+            return {"workspace_synced": True}
+
+        monkeypatch.setattr(agent_user_router, "get_session_manager", lambda: session_mgr)
+        monkeypatch.setattr(agent_user_router, "maybe_handle_model_control", lambda *args, **kwargs: None)
+        monkeypatch.setattr(agent_user_router, "enforce_quota_or_429_async", fake_enforce_quota_or_429_async)
+        monkeypatch.setattr(agent_user_router, "record_usage_async", fake_record_usage_async)
+        monkeypatch.setattr(agent_user_router, "collect_chat_reply", fake_collect_chat_reply)
+        monkeypatch.setattr(
+            agent_user_router,
+            "_record_agent_workspace_artifact_background",
+            fake_record_agent_workspace_artifact_background,
+        )
+
+        router = create_specialist_agent_router(
+            SpecialistAgentConfig(prefix="/analysis", tag="analysis", profile="siq_analysis")
+        )
+        endpoint = next(route.endpoint for route in router.routes if route.path == "/analysis/chat")
+        response = await endpoint(_sample_request(), current_user=user, async_session=async_session)
+
+        assert response.reply == "ok"
+        assert session_mgr.created == [("7", "analysis", {"user_role": "analyst"})]
+        assert session_mgr.incremented == ["user-7-analysis-created"]
+        assert captured == {
+            "profile": "siq_analysis",
+            "session_id": "user-7-analysis-created",
+            "workspace_user_id": 7,
+        }
+
+    anyio.run(_with_temp_chat_session, tmp_path, run_case)
+
+
+def test_specialized_agent_stream_resolves_session_after_usage_commit_without_user_reload(monkeypatch, tmp_path):
+    async def run_case(async_session):
+        user = _CommitSensitiveUser()
+        session_mgr = _SpecialistSessionManager()
+
+        async def fake_enforce_quota_or_429_async(*args, **kwargs):
+            assert not user.expired
+            return (0, None)
+
+        async def fake_record_usage_async(*args, **kwargs):
+            user.expired = True
+            return None
+
+        monkeypatch.setattr(agent_user_router, "get_session_manager", lambda: session_mgr)
+        monkeypatch.setattr(agent_user_router, "enforce_quota_or_429_async", fake_enforce_quota_or_429_async)
+        monkeypatch.setattr(agent_user_router, "record_usage_async", fake_record_usage_async)
+
+        router = create_specialist_agent_router(
+            SpecialistAgentConfig(prefix="/legal", tag="legal", profile="siq_legal")
+        )
+        endpoint = next(route.endpoint for route in router.routes if route.path == "/legal/chat/stream")
+        response = await endpoint(
+            _sample_request(),
+            request=SimpleNamespace(),
+            current_user=user,
+            async_session=async_session,
+        )
+
+        assert response.status_code == 200
+        assert session_mgr.created == [("7", "legal", {"user_role": "analyst"})]
+
+    anyio.run(_with_temp_chat_session, tmp_path, run_case)
+
+
 def test_chat_resolves_stale_memory_session_from_db(monkeypatch, tmp_path):
     async def run_case(async_session):
         session_mgr = _MissingSessionManager()

@@ -50,7 +50,13 @@ async def finder_assist(*, report_finder_base: str, payload: dict[str, Any], tim
         raise HTTPException(status_code=502, detail=f"Market report assist upstream unavailable: {exc}") from exc
     if upstream.status_code >= 400:
         raise HTTPException(status_code=upstream.status_code, detail=upstream.text[:1000])
-    return upstream.json() if upstream.content else {}
+    if not upstream.content:
+        return {}
+    try:
+        parsed = upstream.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail="Market report assist returned invalid JSON") from exc
+    return parsed if isinstance(parsed, dict) else {}
 
 
 async def proxy_rules_get(*, market_rules_base: str, upstream_path: str, timeout: float = 10.0) -> Response:

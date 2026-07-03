@@ -236,6 +236,47 @@ def test_finder_assist_handles_empty_and_error_response(monkeypatch):
     assert calls[1] == ("post", "http://finder/v1/reports/assist", {"prompt": "demo"})
 
 
+def test_finder_assist_maps_malformed_json_to_502(monkeypatch):
+    class FakeResponse:
+        status_code = 200
+        content = b"{not-json"
+        text = "{not-json"
+
+        def json(self):
+            raise ValueError("bad json")
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            assert timeout == 2.5
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def post(self, url, *, json):
+            assert url == "http://finder/v1/reports/assist"
+            assert json == {"prompt": "demo"}
+            return FakeResponse()
+
+    monkeypatch.setattr(market_report_proxy.httpx, "AsyncClient", FakeAsyncClient)
+
+    try:
+        asyncio.run(
+            market_report_proxy.finder_assist(
+                report_finder_base="http://finder",
+                payload={"prompt": "demo"},
+                timeout=2.5,
+            )
+        )
+    except HTTPException as exc:
+        assert exc.status_code == 502
+        assert exc.detail == "Market report assist returned invalid JSON"
+    else:
+        raise AssertionError("expected HTTPException")
+
+
 def test_market_report_health_tolerates_malformed_finder_json(monkeypatch):
     class FakeResponse:
         def __init__(self, *, status_code, payload=None, json_error=False):

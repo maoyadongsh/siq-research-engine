@@ -11,12 +11,21 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from database import get_async_session
 from services.auth_dependencies import require_permission
 from services.auth_service import User
+from services import deal_agents
 from services import deal_contracts
+from services import deal_audit
+from services import deal_decision
 from services import deal_documents
+from services import deal_disputes
 from services import deal_evidence
+from services import deal_manifest
+from services import deal_phase_artifacts
 from services import deal_reports
+from services import deal_status
 from services import deal_store
+from services import ic_agent_runtime
 from services import ic_policy
+from services import ic_startup_retrieval
 from services.ic_openclaw_importer import DEFAULT_OPENCLAW_PROJECTS_ROOT, import_openclaw_project
 from services.job_service import FileBackedJobService
 from services.path_config import BACKEND_DATA_ROOT
@@ -48,6 +57,30 @@ class DealDocumentBindParserTaskRequest(BaseModel):
     task_id: str = Field(..., min_length=2)
     artifact_path: str | None = None
     note: str = ""
+
+
+class StartupRetrievalRequest(BaseModel):
+    round_name: str = "R1"
+    query: str | None = None
+    limit: int = Field(default=10, ge=1, le=50)
+
+
+class AgentTaskDryRunRequest(BaseModel):
+    round_name: str = "R1"
+
+
+class WorkflowRunR1AgentRequest(BaseModel):
+    profile_id: str = Field(..., min_length=1)
+    round_name: str = "R1"
+    dry_run: bool = True
+
+
+class DealDecisionHumanConfirmationRequest(BaseModel):
+    status: str = Field(..., min_length=3)
+    override_reason: str | None = None
+    override_decision: str | None = None
+    override_score: float | str | None = None
+    dry_run: bool = True
 
 
 def _user_payload(user: User) -> dict[str, Any]:
@@ -216,6 +249,54 @@ def _limited_list(value: Any, limit: int = 5) -> list[Any]:
     return value[:limit]
 
 
+def _read_r1_agent_readiness(package_dir: Path) -> dict[str, Any]:
+    try:
+        wiki_root = package_dir.parent.parent if package_dir.parent.name == "deals" else None
+        return ic_agent_runtime.build_r1_agent_readiness(package_dir.name, wiki_root=wiki_root)
+    except (FileNotFoundError, ValueError):
+        agents = []
+        profiles = {profile["id"]: profile for profile in ic_policy.list_ic_profiles(include_runtime=False)}
+        for profile_id in ic_policy.R1_AGENT_SEQUENCE:
+            profile = profiles.get(profile_id, {"id": profile_id, "label": profile_id, "role": profile_id})
+            agents.append({
+                "agent_id": profile_id,
+                "role": profile.get("role"),
+                "label": profile.get("label") or profile_id,
+                "r1_sequence_index": profile.get("r1_sequence_index"),
+                "round_name": "R1",
+                "allowed": False,
+                "would_queue": False,
+                "blocking_reasons": ["readiness_unavailable"],
+                "warnings": [],
+                "preflight_status": "unavailable",
+                "has_startup_receipt": False,
+                "startup_receipt_id": None,
+                "has_report": False,
+                "submitted": False,
+                "dry_run": True,
+                "hermes_called": False,
+                "report_written": False,
+                "workflow_advanced": False,
+            })
+        return {
+            "schema_version": "siq_ic_r1_agent_readiness_v1",
+            "deal_id": package_dir.name,
+            "round_name": "R1",
+            "workflow_action": "run-r1-agent",
+            "dry_run": True,
+            "current_phase": None,
+            "workflow_status": None,
+            "preflight_status": "unavailable",
+            "next_agent_id": None,
+            "ready_count": 0,
+            "blocked_count": len(agents),
+            "agents": agents,
+            "hermes_called": False,
+            "report_written": False,
+            "workflow_advanced": False,
+        }
+
+
 def _read_deal_workflow_artifacts(package_dir: Path) -> dict[str, Any]:
     reports = _canonical_keyed_payload(
         deal_store.redact_public_payload(deal_store.read_json(package_dir / "phases" / "r1_reports.json", {}) or {})
@@ -223,12 +304,8 @@ def _read_deal_workflow_artifacts(package_dir: Path) -> dict[str, Any]:
     receipts = _receipt_agents(
         deal_store.redact_public_payload(deal_store.read_json(package_dir / "phases" / "startup_receipts.json", {}) or {})
     )
-    raw_disputes = deal_store.redact_public_payload(
-        deal_store.read_json(package_dir / "phases" / "r1_5_disputes.json", {}) or {}
-    )
-    dispute_items = raw_disputes.get("disputes") if isinstance(raw_disputes, dict) else raw_disputes
-    if not isinstance(dispute_items, list):
-        dispute_items = []
+    disputes_summary = deal_disputes.summarize_deal_disputes_package(package_dir)
+    dispute_summaries = disputes_summary.get("disputes") if isinstance(disputes_summary.get("disputes"), list) else []
 
     profiles = {profile["id"]: profile for profile in ic_policy.list_ic_profiles(include_runtime=False)}
     agent_reports: list[dict[str, Any]] = []
@@ -256,25 +333,10 @@ def _read_deal_workflow_artifacts(package_dir: Path) -> dict[str, Any]:
             "created_at": report.get("created_at"),
         })
 
-    dispute_summaries: list[dict[str, Any]] = []
-    for index, dispute in enumerate(dispute_items, start=1):
-        if not isinstance(dispute, dict):
-            continue
-        positions = dispute.get("positions")
-        ruling = dispute.get("chairman_ruling")
-        dispute_summaries.append({
-            "dispute_id": dispute.get("dispute_id") or f"DISP-{index:03d}",
-            "topic": dispute.get("topic"),
-            "dimension": dispute.get("dimension"),
-            "severity": dispute.get("severity"),
-            "resolved": bool(dispute.get("resolved")),
-            "position_count": len(positions) if isinstance(positions, list) else 0,
-            "chairman_ruling": ruling if isinstance(ruling, dict) else None,
-        })
-
     return {
         "r1_agent_sequence": list(ic_policy.R1_AGENT_SEQUENCE),
         "agent_reports": agent_reports,
+        "r1_agent_readiness": _read_r1_agent_readiness(package_dir),
         "startup_receipts": {
             "count": len(receipts),
             "agents": sorted(receipts.keys()),
@@ -397,6 +459,31 @@ def get_ic_policy(
         return {"policy": ic_policy.public_ic_workflow_policy()}
     except (FileNotFoundError, ValueError) as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/ic/script-migration")
+def get_ic_script_migration(
+    current_user: User = Depends(require_permission("report.view")),
+) -> dict[str, Any]:
+    del current_user
+    try:
+        return {"matrix": ic_policy.public_openclaw_script_migration_matrix()}
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/{deal_id}/status")
+def get_deal_status(
+    deal_id: str,
+    current_user: User = Depends(require_permission("report.view")),
+) -> dict[str, Any]:
+    del current_user
+    try:
+        return deal_status.summarize_deal_status(deal_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
 
 
 @router.get("/{deal_id}")
@@ -620,6 +707,48 @@ def list_deal_reports(
         raise _not_found(deal_id) from exc
 
 
+@router.get("/{deal_id}/reports/r1-agents")
+def list_deal_r1_agent_reports(
+    deal_id: str,
+    current_user: User = Depends(require_permission("report.view")),
+) -> dict[str, Any]:
+    del current_user
+    try:
+        return deal_store.redact_public_payload(deal_reports.list_r1_agent_reports(deal_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+
+
+@router.get("/{deal_id}/reports/r2-agents")
+def list_deal_r2_agent_reports(
+    deal_id: str,
+    current_user: User = Depends(require_permission("report.view")),
+) -> dict[str, Any]:
+    del current_user
+    try:
+        return deal_store.redact_public_payload(deal_reports.list_r2_agent_reports(deal_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+
+
+@router.get("/{deal_id}/reports/r3-review")
+def get_deal_r3_review(
+    deal_id: str,
+    current_user: User = Depends(require_permission("report.view")),
+) -> dict[str, Any]:
+    del current_user
+    try:
+        return deal_store.redact_public_payload(deal_reports.summarize_r3_review(deal_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+
+
 @router.get("/{deal_id}/reports/{report_path:path}")
 def get_deal_report(
     deal_id: str,
@@ -633,6 +762,165 @@ def get_deal_report(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=f"Deal report not found: {report_path}") from exc
+
+
+@router.get("/{deal_id}/agents")
+def list_deal_agents(
+    deal_id: str,
+    current_user: User = Depends(require_permission("report.view")),
+) -> dict[str, Any]:
+    del current_user
+    try:
+        return deal_agents.summarize_deal_agents(deal_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+
+
+@router.get("/{deal_id}/disputes")
+def get_deal_disputes(
+    deal_id: str,
+    current_user: User = Depends(require_permission("report.view")),
+) -> dict[str, Any]:
+    del current_user
+    try:
+        return deal_disputes.summarize_deal_disputes(deal_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+
+
+@router.get("/{deal_id}/phase-artifacts")
+def get_deal_phase_artifacts(
+    deal_id: str,
+    current_user: User = Depends(require_permission("report.view")),
+) -> dict[str, Any]:
+    del current_user
+    try:
+        return deal_phase_artifacts.summarize_deal_phase_artifacts(deal_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+
+
+@router.post("/{deal_id}/agents/{profile_id}/startup-retrieval")
+def generate_agent_startup_retrieval(
+    deal_id: str,
+    profile_id: str,
+    payload: StartupRetrievalRequest | None = None,
+    current_user: User = Depends(require_permission("report.create")),
+) -> dict[str, Any]:
+    request = payload or StartupRetrievalRequest()
+    try:
+        receipt = ic_startup_retrieval.generate_startup_retrieval_receipt(
+            deal_id,
+            profile_id,
+            round_name=request.round_name,
+            query=request.query,
+            limit=request.limit,
+            created_by=_user_payload(current_user),
+        )
+        redacted = deal_store.redact_public_payload(receipt)
+        return {
+            "deal_id": deal_store.validate_deal_id(deal_id),
+            "agent_id": redacted.get("agent_id") if isinstance(redacted, dict) else profile_id,
+            "receipt": redacted,
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+
+
+@router.get("/{deal_id}/agents/{profile_id}/startup-retrieval")
+def get_agent_startup_retrieval(
+    deal_id: str,
+    profile_id: str,
+    current_user: User = Depends(require_permission("report.view")),
+) -> dict[str, Any]:
+    del current_user
+    try:
+        return deal_store.redact_public_payload(
+            ic_startup_retrieval.read_startup_retrieval_receipt(deal_id, profile_id)
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+
+
+@router.get("/{deal_id}/agents/{profile_id}/task-payload")
+def get_agent_task_payload_dry_run(
+    deal_id: str,
+    profile_id: str,
+    round_name: str = Query(default="R1"),
+    current_user: User = Depends(require_permission("report.view")),
+) -> dict[str, Any]:
+    del current_user
+    try:
+        return deal_store.redact_public_payload(
+            ic_agent_runtime.build_ic_agent_task_dry_run(
+                deal_id,
+                profile_id,
+                round_name=round_name,
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+
+
+@router.post("/{deal_id}/agents/{profile_id}/dry-run")
+def post_agent_task_dry_run(
+    deal_id: str,
+    profile_id: str,
+    payload: AgentTaskDryRunRequest | None = None,
+    current_user: User = Depends(require_permission("report.create")),
+) -> dict[str, Any]:
+    del current_user
+    request = payload or AgentTaskDryRunRequest()
+    try:
+        return deal_store.redact_public_payload(
+            ic_agent_runtime.build_ic_agent_task_dry_run(
+                deal_id,
+                profile_id,
+                round_name=request.round_name,
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+
+
+@router.post("/{deal_id}/workflow/run-r1-agent")
+def post_workflow_run_r1_agent(
+    deal_id: str,
+    payload: WorkflowRunR1AgentRequest,
+    current_user: User = Depends(require_permission("report.create")),
+) -> dict[str, Any]:
+    del current_user
+    if not payload.dry_run:
+        raise HTTPException(
+            status_code=400,
+            detail="workflow run-r1-agent currently supports dry_run=true only",
+        )
+    try:
+        return deal_store.redact_public_payload(
+            ic_agent_runtime.build_workflow_r1_agent_run_dry_run(
+                deal_id,
+                payload.profile_id,
+                round_name=payload.round_name,
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
 
 
 @router.get("/{deal_id}/evidence/{evidence_id}")
@@ -698,11 +986,40 @@ def get_deal_decision(
     report_markdown = report_path.read_text(encoding="utf-8") if report_path.is_file() else ""
     if not decision_json and not report_markdown:
         raise _not_found(deal_id)
+    try:
+        contract = deal_reports.summarize_r4_decision(deal_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
     return {
         "decision": decision_json,
         "report_markdown": report_markdown,
         "report_path": "decision/IC_DECISION_REPORT.md" if report_markdown else None,
+        "contract": contract,
     }
+
+
+@router.post("/{deal_id}/decision/human-confirmation")
+def post_deal_decision_human_confirmation(
+    deal_id: str,
+    payload: DealDecisionHumanConfirmationRequest,
+    current_user: User = Depends(require_permission("report.create")),
+) -> dict[str, Any]:
+    try:
+        return deal_decision.update_human_confirmation(
+            deal_id,
+            status=payload.status,
+            confirmed_by=_user_payload(current_user),
+            override_reason=payload.override_reason,
+            override_decision=payload.override_decision,
+            override_score=payload.override_score,
+            dry_run=payload.dry_run,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
 
 
 @router.get("/{deal_id}/audit")
@@ -720,7 +1037,16 @@ def get_deal_audit(
         audit = deal_store.read_json(package_dir / "phases" / "audit_log.json", None)
     if audit is None:
         raise _not_found(deal_id)
-    return {"audit": deal_store.redact_public_payload(audit)}
+    try:
+        summary = deal_audit.summarize_deal_audit(deal_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+    return {
+        "audit": deal_store.redact_public_payload(audit),
+        "summary": summary,
+    }
 
 
 @router.get("/{deal_id}/manifest")
@@ -736,4 +1062,13 @@ def get_deal_manifest(
     manifest = deal_store.read_json(package_dir / "manifest.json", None)
     if manifest is None:
         raise _not_found(deal_id)
-    return {"manifest": deal_store.redact_public_payload(manifest)}
+    try:
+        summary = deal_manifest.summarize_deal_manifest(deal_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+    return {
+        "manifest": deal_store.redact_public_payload(manifest),
+        "summary": summary,
+    }

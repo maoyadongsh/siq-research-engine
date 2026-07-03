@@ -1,0 +1,314 @@
+{
+  "schema_version": "siq_ic_openclaw_script_migration_matrix_v1",
+  "updated_at": "2026-07-03",
+  "purpose": "Track how OpenClaw IC workspace scripts are migrated into SIQ Deal OS without copying unsafe runtime state, credentials, caches, or one-off local glue.",
+  "source_scope": [
+    "ic_master_coordinator_workspace/scripts",
+    "ic_risk_controller_workspace/scripts"
+  ],
+  "status_definitions": {
+    "migrated": "The required behavior is already represented by SIQ code, contracts, or profile assets.",
+    "planned": "The behavior is in scope, but still needs SIQ-native implementation.",
+    "wrap_required": "The behavior is in scope only behind SIQ API/service boundaries, permission checks, configuration, and audit logging.",
+    "reference_only": "Keep as design reference; do not port as executable P0 behavior.",
+    "do_not_migrate": "Do not migrate because it is local runtime glue, cache, virtualenv handling, or obsolete one-off tooling."
+  },
+  "entries": [
+    {
+      "script": "ic_master_coordinator_workspace/scripts/activate_venv.sh",
+      "category": "runtime_glue",
+      "status": "do_not_migrate",
+      "owner": "platform",
+      "siq_target": "scripts/hermes/run_gateway.sh",
+      "reason": "Virtualenv activation is local OpenClaw runtime glue. SIQ uses repo-managed environments and gateway scripts."
+    },
+    {
+      "script": "ic_master_coordinator_workspace/scripts/agent_retriever.py",
+      "category": "retrieval",
+      "status": "wrap_required",
+      "owner": "deal_retrieval",
+      "siq_target": "apps/api/services/ic_startup_retrieval.py; apps/api/services/deal_evidence.py",
+      "reason": "Agent-specific retrieval must run through SIQ evidence packages, retrieval receipts, auth, and audit boundaries."
+    },
+    {
+      "script": "ic_master_coordinator_workspace/scripts/audit_logger.py",
+      "category": "audit",
+      "status": "migrated",
+      "owner": "deal_os",
+      "siq_target": "apps/api/services/deal_store.py::append_audit_event; apps/api/services/deal_audit.py",
+      "reason": "SIQ writes mirrored phase/audit logs and exposes a redacted audit summary."
+    },
+    {
+      "script": "ic_master_coordinator_workspace/scripts/baseline_v1.py",
+      "category": "prototype",
+      "status": "reference_only",
+      "owner": "ic_methodology",
+      "siq_target": "agents/hermes/profiles/siq_ic_shared/*",
+      "reason": "Prototype behavior should inform contracts, not become a maintained executable path."
+    },
+    {
+      "script": "ic_master_coordinator_workspace/scripts/coordinator_intake.py",
+      "category": "r0_intake",
+      "status": "wrap_required",
+      "owner": "deal_intake",
+      "siq_target": "planned apps/api/services/ic_intake.py",
+      "reason": "R0 public/company checks depend on external data clients and must be wrapped with credentials, rate limits, and audit logging."
+    },
+    {
+      "script": "ic_master_coordinator_workspace/scripts/coordinator_workflow.py",
+      "category": "workflow",
+      "status": "planned",
+      "owner": "deal_workflow",
+      "siq_target": "planned apps/api/services/ic_workflow.py",
+      "reason": "Workflow orchestration is in scope, but SIQ currently exposes read-only state and dry-run readiness before enabling real execution."
+    },
+    {
+      "script": "ic_master_coordinator_workspace/scripts/discussion_writer.py",
+      "category": "report_writing",
+      "status": "planned",
+      "owner": "deal_reports",
+      "siq_target": "planned apps/api/services/deal_discussion.py",
+      "reason": "Discussion markdown generation should be implemented as deterministic SIQ report builders over deal package contracts."
+    },
+    {
+      "script": "ic_master_coordinator_workspace/scripts/dispute_identifier.py",
+      "category": "r1_5_disputes",
+      "status": "planned",
+      "owner": "deal_workflow",
+      "siq_target": "planned apps/api/services/ic_disputes.py",
+      "reason": "R1.5 dispute detection is in scope after R1 report contracts and receipts are stable."
+    },
+    {
+      "script": "ic_master_coordinator_workspace/scripts/dynamic_r3_controller.py",
+      "category": "r3_red_blue",
+      "status": "planned",
+      "owner": "deal_workflow",
+      "siq_target": "planned apps/api/services/ic_red_blue.py",
+      "reason": "R3 can be executed or explicitly skipped, but either path needs SIQ state, evidence gates, and audit events."
+    },
+    {
+      "script": "ic_master_coordinator_workspace/scripts/dynamic_retrieval_engine.py",
+      "category": "retrieval",
+      "status": "wrap_required",
+      "owner": "deal_retrieval",
+      "siq_target": "planned apps/api/services/deal_retrieval.py",
+      "reason": "Dynamic retrieval strategy is valuable but must not bypass SIQ evidence, vector collection, and access controls."
+    },
+    {
+      "script": "ic_master_coordinator_workspace/scripts/embedding_client.py",
+      "category": "embedding",
+      "status": "migrated",
+      "owner": "vector_platform",
+      "siq_target": "scripts/vector-index/milvus-ingestion/scripts/embedding_client.py; planned embedding provider service",
+      "reason": "The low-level OpenClaw script is present with identical content under vector-index/milvus-ingestion. Deal OS usage still requires a service boundary for provider configuration, telemetry, and key handling."
+    },
+    {
+      "script": "ic_master_coordinator_workspace/scripts/exa_client.py",
+      "category": "external_client",
+      "status": "wrap_required",
+      "owner": "external_data",
+      "siq_target": "planned apps/api/services/external_research_clients.py",
+      "reason": "External search clients require credential isolation, rate limits, source attribution, and audit logging."
+    },
+    {
+      "script": "ic_master_coordinator_workspace/scripts/expert_report_contract.py",
+      "category": "report_contract",
+      "status": "migrated",
+      "owner": "deal_reports",
+      "siq_target": "apps/api/services/deal_reports.py::list_r1_agent_reports",
+      "reason": "SIQ validates R1 required fields, startup receipt linkage, markdown section status, and artifact availability."
+    },
+    {
+      "script": "ic_master_coordinator_workspace/scripts/full_auto_workflow.py",
+      "category": "workflow",
+      "status": "planned",
+      "owner": "deal_workflow",
+      "siq_target": "planned apps/api/services/ic_workflow.py",
+      "reason": "Full automation is intentionally deferred until dry-run gates, human control, and audit contracts are stable."
+    },
+    {
+      "script": "ic_master_coordinator_workspace/scripts/hybrid_retriever_with_rerank.py",
+      "category": "retrieval",
+      "status": "wrap_required",
+      "owner": "deal_retrieval",
+      "siq_target": "planned apps/api/services/deal_retrieval.py",
+      "reason": "Hybrid search and rerank should be a SIQ retrieval service, not direct profile-local script execution."
+    },
+    {
+      "script": "ic_master_coordinator_workspace/scripts/ic_decision_report_generator.py",
+      "category": "r4_decision",
+      "status": "planned",
+      "owner": "deal_reports",
+      "siq_target": "planned apps/api/services/ic_decision_report.py; apps/api/services/deal_reports.py::summarize_r4_decision",
+      "reason": "R4 contract summary exists; deterministic markdown/html generation still needs SIQ-native implementation."
+    },
+    {
+      "script": "ic_master_coordinator_workspace/scripts/knowledge_ingestor.py",
+      "category": "ingestion",
+      "status": "migrated",
+      "owner": "vector_platform",
+      "siq_target": "scripts/vector-index/milvus-ingestion/scripts/knowledge_ingestor.py; apps/api/services/deal_evidence.py",
+      "reason": "The low-level OpenClaw script is present with identical content. SIQ-native Deal OS ingestion should still use document parsing, evidence normalization, vector collection naming, and dry-run support."
+    },
+    {
+      "script": "ic_master_coordinator_workspace/scripts/milvus_connection_manager.py",
+      "category": "vector_platform",
+      "status": "migrated",
+      "owner": "vector_platform",
+      "siq_target": "scripts/vector-index/milvus-ingestion/scripts/milvus_connection_manager.py; planned vector repository",
+      "reason": "The low-level OpenClaw script is present with identical content. Milvus access for Deal OS should still be centralized and environment-configured."
+    },
+    {
+      "script": "ic_master_coordinator_workspace/scripts/milvus_mcp_server.py",
+      "category": "retrieval",
+      "status": "wrap_required",
+      "owner": "deal_retrieval",
+      "siq_target": "planned SIQ retrieval API/MCP adapter",
+      "reason": "MCP retrieval can be supported later, but only behind SIQ auth, collection aliases, and audit receipts."
+    },
+    {
+      "script": "ic_master_coordinator_workspace/scripts/project_discussion_manager.py",
+      "category": "report_writing",
+      "status": "planned",
+      "owner": "deal_reports",
+      "siq_target": "planned apps/api/services/deal_discussion.py",
+      "reason": "Project discussion files map to SIQ discussion artifacts and should be generated from deal package state."
+    },
+    {
+      "script": "ic_master_coordinator_workspace/scripts/project_ingestor.py",
+      "category": "ingestion",
+      "status": "migrated",
+      "owner": "deal_evidence",
+      "siq_target": "scripts/vector-index/milvus-ingestion/scripts/project_ingestor.py; apps/api/services/ic_openclaw_importer.py; apps/api/services/deal_evidence.py",
+      "reason": "The low-level OpenClaw script is present with identical content. SIQ also has Deal OS import/evidence services; full project ingestion still needs API-level orchestration."
+    },
+    {
+      "script": "ic_master_coordinator_workspace/scripts/project_workflow_snapshot.py",
+      "category": "observability",
+      "status": "migrated",
+      "owner": "deal_os",
+      "siq_target": "apps/api/services/deal_status.py; apps/api/services/deal_agents.py; apps/api/services/deal_manifest.py",
+      "reason": "SIQ exposes read-only status, agent, manifest, reports, decision, and audit summaries."
+    },
+    {
+      "script": "ic_master_coordinator_workspace/scripts/qcc_client.py",
+      "category": "external_client",
+      "status": "wrap_required",
+      "owner": "external_data",
+      "siq_target": "planned apps/api/services/external_research_clients.py",
+      "reason": "Company registry access requires credential isolation, vendor-specific error handling, and audit logging."
+    },
+    {
+      "script": "ic_master_coordinator_workspace/scripts/qwen3_vl_reranker_http.py",
+      "category": "reranker",
+      "status": "wrap_required",
+      "owner": "model_platform",
+      "siq_target": "planned rerank provider adapter",
+      "reason": "Rerank model serving is platform infrastructure and should not live inside IC profiles."
+    },
+    {
+      "script": "ic_master_coordinator_workspace/scripts/r1_serial_dispatcher.py",
+      "category": "workflow",
+      "status": "planned",
+      "owner": "deal_workflow",
+      "siq_target": "apps/api/services/ic_agent_runtime.py; planned apps/api/services/ic_workflow.py",
+      "reason": "SIQ has R1 dry-run/readiness and fixed order; real serial dispatch remains gated until execution controls are added."
+    },
+    {
+      "script": "ic_master_coordinator_workspace/scripts/round_state_machine.py",
+      "category": "workflow",
+      "status": "planned",
+      "owner": "deal_workflow",
+      "siq_target": "planned apps/api/services/ic_workflow.py",
+      "reason": "Round transitions should update SIQ workflow_state.json with preflight gates and audit events."
+    },
+    {
+      "script": "ic_master_coordinator_workspace/scripts/runtime_compat.py",
+      "category": "runtime_glue",
+      "status": "migrated",
+      "owner": "platform",
+      "siq_target": "scripts/vector-index/milvus-ingestion/scripts/runtime_compat.py; apps/api/services/hermes_client.py; scripts/hermes/run_gateway.sh",
+      "reason": "The low-level vector-ingestion compatibility helper is present with identical content. Agent runtime compatibility is superseded by SIQ Hermes profile registry and gateway scripts."
+    },
+    {
+      "script": "ic_master_coordinator_workspace/scripts/siq_local_workflow.py",
+      "category": "workflow_cli",
+      "status": "reference_only",
+      "owner": "deal_workflow",
+      "siq_target": "planned scripts/deals/* CLI wrappers over SIQ API",
+      "reason": "Local CLI commands can be reintroduced as API clients after backend workflow services are stable."
+    },
+    {
+      "script": "ic_master_coordinator_workspace/scripts/submit_chairman_ruling.py",
+      "category": "r1_5_disputes",
+      "status": "planned",
+      "owner": "deal_workflow",
+      "siq_target": "planned apps/api/services/ic_disputes.py",
+      "reason": "Chairman rulings need structured payload validation, human confirmation, and audit events."
+    },
+    {
+      "script": "ic_master_coordinator_workspace/scripts/submit_expert_report.py",
+      "category": "report_contract",
+      "status": "planned",
+      "owner": "deal_reports",
+      "siq_target": "planned apps/api/services/ic_report_submission.py",
+      "reason": "Expert report submission should validate contracts and receipt linkage before writing phase artifacts."
+    },
+    {
+      "script": "ic_master_coordinator_workspace/scripts/tavily_client.py",
+      "category": "external_client",
+      "status": "wrap_required",
+      "owner": "external_data",
+      "siq_target": "planned apps/api/services/external_research_clients.py",
+      "reason": "External web search needs key isolation, rate limits, source capture, and audit logging."
+    },
+    {
+      "script": "ic_master_coordinator_workspace/scripts/unified_data_fetcher.py",
+      "category": "external_client",
+      "status": "wrap_required",
+      "owner": "external_data",
+      "siq_target": "planned apps/api/services/external_research_clients.py",
+      "reason": "Unified external data fetching should become a SIQ service with vendor boundaries and redaction."
+    },
+    {
+      "script": "ic_master_coordinator_workspace/scripts/unified_hybrid_retriever.py",
+      "category": "retrieval",
+      "status": "wrap_required",
+      "owner": "deal_retrieval",
+      "siq_target": "planned apps/api/services/deal_retrieval.py",
+      "reason": "Hybrid retrieval should operate over SIQ deal evidence and vector collection aliases."
+    },
+    {
+      "script": "ic_master_coordinator_workspace/scripts/unified_retriever.py",
+      "category": "retrieval",
+      "status": "wrap_required",
+      "owner": "deal_retrieval",
+      "siq_target": "planned apps/api/services/deal_retrieval.py",
+      "reason": "Unified retrieval/report generation must be split into SIQ retrieval, evidence, and report services."
+    },
+    {
+      "script": "ic_master_coordinator_workspace/scripts/weighted_scoring.py",
+      "category": "scoring",
+      "status": "planned",
+      "owner": "deal_reports",
+      "siq_target": "planned apps/api/services/ic_scoring.py; agents/hermes/profiles/siq_ic_shared/ic_workflow_policy.json",
+      "reason": "Policy weights are migrated, but weighted score calculation and sensitivity helpers need SIQ tests before execution."
+    },
+    {
+      "script": "ic_master_coordinator_workspace/scripts/workflow_policy.py",
+      "category": "policy",
+      "status": "migrated",
+      "owner": "deal_os",
+      "siq_target": "apps/api/services/ic_policy.py; agents/hermes/profiles/siq_ic_shared/ic_workflow_policy.json",
+      "reason": "Policy reading, thresholds, weights, and R1 sequence are represented by SIQ shared policy and ic_policy service."
+    },
+    {
+      "script": "ic_risk_controller_workspace/scripts/startup_retrieval.py",
+      "category": "retrieval",
+      "status": "migrated",
+      "owner": "deal_retrieval",
+      "siq_target": "apps/api/services/ic_startup_retrieval.py",
+      "reason": "SIQ writes startup retrieval receipts with canonical siq_ic_* agent IDs, evidence hits, and audit-safe payloads."
+    }
+  ]
+}

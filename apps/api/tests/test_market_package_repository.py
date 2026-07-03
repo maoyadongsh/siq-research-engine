@@ -128,6 +128,162 @@ def test_repository_rejects_empty_ids(tmp_path):
             raise AssertionError("expected HTTPException")
 
 
+def test_repository_market_code_normalizes_and_rejects_unknown_market(tmp_path):
+    roots = {"US": tmp_path / "us_sec", "HK": tmp_path / "hk_reports"}
+
+    assert repository.market_code("us", roots) == "US"
+    assert repository.market_code("HK", roots) == "HK"
+
+    for value in ("", "CN", None):
+        try:
+            repository.market_code(value, roots)
+        except HTTPException as exc:
+            assert exc.status_code == 400
+            assert exc.detail == "market must be one of US/HK/JP/KR/EU"
+        else:
+            raise AssertionError("expected HTTPException")
+
+
+def test_repository_safe_package_paths_preserve_status_and_detail_contracts(tmp_path):
+    repo_root = tmp_path / "repo"
+    hk_root = repo_root / "data" / "wiki" / "hk_reports"
+    us_root = repo_root / "data" / "wiki" / "us_sec"
+    hk_package = _write_package(repo_root / "data" / "wiki")
+    us_package = us_root / "AAPL" / "2025" / "10-K_demo"
+    _write_json(us_package / "manifest.json", {"ticker": "AAPL"})
+    hk_missing_manifest = hk_root / "00700" / "2024" / "annual_missing"
+    hk_missing_manifest.mkdir(parents=True)
+    us_missing_manifest = us_root / "AAPL" / "2024" / "10-K_missing"
+    us_missing_manifest.mkdir(parents=True)
+    outside = tmp_path / "outside" / "package"
+    _write_json(outside / "manifest.json", {"ticker": "ESCAPE"})
+    roots = {"HK": hk_root, "US": us_root}
+
+    assert repository.safe_under(hk_root, hk_package) == hk_package.resolve()
+    assert repository.safe_market_package_path(
+        "HK",
+        str(hk_package.relative_to(repo_root)),
+        repo_root=repo_root,
+        market_wiki_roots=roots,
+    ) == hk_package.resolve()
+    assert repository.safe_market_package_path(
+        "HK",
+        str(hk_package),
+        repo_root=repo_root,
+        market_wiki_roots=roots,
+    ) == hk_package.resolve()
+    assert repository.safe_us_sec_package_path(
+        str(us_package),
+        repo_root=repo_root,
+        us_sec_wiki_root=us_root,
+    ) == us_package.resolve()
+
+    cases = (
+        lambda: repository.safe_under(hk_root, outside),
+        lambda: repository.safe_market_package_path("HK", str(outside), repo_root=repo_root, market_wiki_roots=roots),
+        lambda: repository.safe_us_sec_package_path(str(outside), repo_root=repo_root, us_sec_wiki_root=us_root),
+    )
+    for call in cases:
+        try:
+            call()
+        except HTTPException as exc:
+            assert exc.status_code == 400
+            assert exc.detail == "Path is outside the allowed evidence package root"
+        else:
+            raise AssertionError("expected HTTPException")
+
+    for call in (
+        lambda: repository.safe_market_package_path("HK", "", repo_root=repo_root, market_wiki_roots=roots),
+        lambda: repository.safe_us_sec_package_path(None, repo_root=repo_root, us_sec_wiki_root=us_root),
+    ):
+        try:
+            call()
+        except HTTPException as exc:
+            assert exc.status_code == 400
+            assert exc.detail == "package_path is required"
+        else:
+            raise AssertionError("expected HTTPException")
+
+    for call, detail in (
+        (
+            lambda: repository.safe_market_package_path(
+                "HK",
+                str(hk_missing_manifest),
+                repo_root=repo_root,
+                market_wiki_roots=roots,
+            ),
+            "Market evidence package not found",
+        ),
+        (
+            lambda: repository.safe_us_sec_package_path(
+                str(us_missing_manifest),
+                repo_root=repo_root,
+                us_sec_wiki_root=us_root,
+            ),
+            "US SEC package not found",
+        ),
+    ):
+        try:
+            call()
+        except HTTPException as exc:
+            assert exc.status_code == 404
+            assert exc.detail == detail
+        else:
+            raise AssertionError("expected HTTPException")
+
+
+def test_repository_safe_download_path_preserves_status_and_detail_contracts(tmp_path):
+    downloads_root = tmp_path / "downloads"
+    report = downloads_root / "EU" / "NL" / "ASML" / "2025" / "report.xhtml"
+    report.parent.mkdir(parents=True)
+    report.write_text("<html></html>", encoding="utf-8")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    escaped_report = outside / "report.xhtml"
+    escaped_report.write_text("<html></html>", encoding="utf-8")
+    symlink = downloads_root / "linked-outside"
+    symlink.symlink_to(outside, target_is_directory=True)
+
+    assert repository.safe_download_path(
+        "EU/NL/ASML/2025/report.xhtml",
+        downloads_root=downloads_root,
+    ) == report.resolve()
+
+    for value in ("", None):
+        try:
+            repository.safe_download_path(value, downloads_root=downloads_root)
+        except HTTPException as exc:
+            assert exc.status_code == 400
+            assert exc.detail == "download_relative_path is required"
+        else:
+            raise AssertionError("expected HTTPException")
+
+    for value in ("/etc/passwd", "../escape.html", "EU/../escape.html"):
+        try:
+            repository.safe_download_path(value, downloads_root=downloads_root)
+        except HTTPException as exc:
+            assert exc.status_code == 400
+            assert exc.detail == "Invalid download_relative_path"
+        else:
+            raise AssertionError("expected HTTPException")
+
+    try:
+        repository.safe_download_path("linked-outside/report.xhtml", downloads_root=downloads_root)
+    except HTTPException as exc:
+        assert exc.status_code == 400
+        assert exc.detail == "download_relative_path is outside downloads root"
+    else:
+        raise AssertionError("expected HTTPException")
+
+    try:
+        repository.safe_download_path("EU/NL/ASML/2025/missing.xhtml", downloads_root=downloads_root)
+    except HTTPException as exc:
+        assert exc.status_code == 404
+        assert exc.detail == "download_relative_path not found"
+    else:
+        raise AssertionError("expected HTTPException")
+
+
 def test_repository_reports_missing_package_and_evidence(tmp_path):
     package_dir = _write_package(tmp_path)
     roots = {"HK": tmp_path / "hk_reports", "EU": tmp_path / "eu_reports"}

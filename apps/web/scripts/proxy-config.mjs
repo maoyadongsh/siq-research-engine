@@ -18,6 +18,7 @@ const BACKEND_PREFIXES = [
   '/api/workflow',
   '/api/workspace',
   '/api/documents',
+  '/api/deals',
   '/api/pdf',
   '/api/pdf_page',
   '/api/source',

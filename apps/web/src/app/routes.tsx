@@ -72,6 +72,7 @@ export const appRoutes: AppRoute[] = [
   defineRoute('/deals/:dealId', () => import('../pages/DealWorkspace')),
   defineRoute('/deals/:dealId/data-room', () => import('../pages/DealDataRoom')),
   defineRoute('/deals/:dealId/evidence', () => import('../pages/DealEvidence')),
+  defineRoute('/deals/:dealId/agents', () => import('../pages/DealAgents')),
   defineRoute('/deals/:dealId/workflow', () => import('../pages/DealWorkflow')),
   defineRoute('/deals/:dealId/reports', () => import('../pages/DealReports')),
   defineRoute('/deals/:dealId/decision', () => import('../pages/DealDecision')),

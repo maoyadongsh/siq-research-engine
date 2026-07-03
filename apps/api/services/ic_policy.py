@@ -41,6 +41,7 @@ IC_PROFILES_ROOT = PROJECT_ROOT / "agents" / "hermes" / "profiles"
 IC_SHARED_ROOT = IC_PROFILES_ROOT / "siq_ic_shared"
 IC_WORKFLOW_POLICY_PATH = IC_SHARED_ROOT / "ic_workflow_policy.json"
 IC_PROFILE_MATRIX_PATH = IC_SHARED_ROOT / "ic_profile_matrix.json"
+IC_SCRIPT_MIGRATION_MATRIX_PATH = IC_SHARED_ROOT / "openclaw_script_migration_matrix.json"
 IC_PROFILES_MANIFEST_PATH = IC_PROFILES_ROOT / "manifest.json"
 
 
@@ -68,13 +69,52 @@ def read_ic_profiles_manifest(*, manifest_path: Path | str | None = None) -> dic
     return _read_json_file(Path(manifest_path) if manifest_path else IC_PROFILES_MANIFEST_PATH)
 
 
+def read_openclaw_script_migration_matrix(*, matrix_path: Path | str | None = None) -> dict[str, Any]:
+    return _read_json_file(Path(matrix_path) if matrix_path else IC_SCRIPT_MIGRATION_MATRIX_PATH)
+
+
+def public_openclaw_script_migration_matrix_payload(matrix: dict[str, Any]) -> dict[str, Any]:
+    entries = [
+        item for item in matrix.get("entries", [])
+        if isinstance(item, dict)
+    ]
+    status_counts: dict[str, int] = {}
+    category_counts: dict[str, int] = {}
+    owner_counts: dict[str, int] = {}
+    for item in entries:
+        status = str(item.get("status") or "unknown")
+        category = str(item.get("category") or "unknown")
+        owner = str(item.get("owner") or "unknown")
+        status_counts[status] = status_counts.get(status, 0) + 1
+        category_counts[category] = category_counts.get(category, 0) + 1
+        owner_counts[owner] = owner_counts.get(owner, 0) + 1
+    return {
+        "schema_version": matrix.get("schema_version"),
+        "updated_at": matrix.get("updated_at"),
+        "purpose": matrix.get("purpose"),
+        "source_scope": matrix.get("source_scope") or [],
+        "status_definitions": matrix.get("status_definitions") or {},
+        "counts": {
+            "entries": len(entries),
+            "by_status": dict(sorted(status_counts.items())),
+            "by_category": dict(sorted(category_counts.items())),
+            "by_owner": dict(sorted(owner_counts.items())),
+        },
+        "entries": entries,
+    }
+
+
+def public_openclaw_script_migration_matrix() -> dict[str, Any]:
+    return public_openclaw_script_migration_matrix_payload(read_openclaw_script_migration_matrix())
+
+
 def _aliases_for(profile_id: str) -> list[str]:
     return sorted(alias for alias, canonical in HERMES_PROFILE_ALIASES.items() if canonical == profile_id and alias != profile_id)
 
 
 def canonical_ic_profile_id(agent_id: str | None) -> str:
     normalized = str(agent_id or "").strip()
-    return LEGACY_PROFILE_IDS.get(normalized, normalized)
+    return HERMES_PROFILE_ALIASES.get(normalized, LEGACY_PROFILE_IDS.get(normalized, normalized))
 
 
 def list_ic_profiles(*, include_runtime: bool = False) -> list[dict[str, Any]]:

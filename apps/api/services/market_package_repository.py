@@ -47,10 +47,76 @@ def _rel_or_abs(path: Path, repo_root: Path = REPO_ROOT) -> str:
 
 
 def _market_code(value: str | None, market_wiki_roots: Mapping[str, Path]) -> str:
+    return market_code(value, market_wiki_roots)
+
+
+def market_code(value: str | None, market_wiki_roots: Mapping[str, Path]) -> str:
     market = str(value or "").upper()
     if market not in market_wiki_roots:
         raise HTTPException(status_code=400, detail="market must be one of US/HK/JP/KR/EU")
     return market
+
+
+def safe_under(root: Path, path: Path) -> Path:
+    root_resolved = root.resolve()
+    resolved = path.resolve()
+    try:
+        resolved.relative_to(root_resolved)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Path is outside the allowed evidence package root") from exc
+    return resolved
+
+
+def safe_market_package_path(
+    market: str,
+    value: str | None,
+    *,
+    repo_root: Path,
+    market_wiki_roots: Mapping[str, Path],
+) -> Path:
+    if not value:
+        raise HTTPException(status_code=400, detail="package_path is required")
+    path = Path(value)
+    if not path.is_absolute():
+        path = repo_root / path
+    package_dir = safe_under(market_wiki_roots[market], path)
+    if not (package_dir / "manifest.json").is_file():
+        raise HTTPException(status_code=404, detail="Market evidence package not found")
+    return package_dir
+
+
+def safe_us_sec_package_path(
+    value: str | None,
+    *,
+    repo_root: Path,
+    us_sec_wiki_root: Path,
+) -> Path:
+    if not value:
+        raise HTTPException(status_code=400, detail="package_path is required")
+    path = Path(value)
+    if not path.is_absolute():
+        path = repo_root / path
+    package_dir = safe_under(us_sec_wiki_root, path)
+    if not (package_dir / "manifest.json").is_file():
+        raise HTTPException(status_code=404, detail="US SEC package not found")
+    return package_dir
+
+
+def safe_download_path(value: str | None, *, downloads_root: Path) -> Path:
+    if not value:
+        raise HTTPException(status_code=400, detail="download_relative_path is required")
+    relative = Path(str(value))
+    if relative.is_absolute() or ".." in relative.parts:
+        raise HTTPException(status_code=400, detail="Invalid download_relative_path")
+    root = downloads_root.resolve()
+    resolved = (root / relative).resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="download_relative_path is outside downloads root") from exc
+    if not resolved.is_file():
+        raise HTTPException(status_code=404, detail="download_relative_path not found")
+    return resolved
 
 
 def iter_market_packages(market: str, market_wiki_roots: Mapping[str, Path]) -> list[Path]:

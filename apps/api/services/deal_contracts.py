@@ -20,6 +20,27 @@ R4_REQUIRED_FIELDS = (
     "chairman_dimension_score",
     "chairman_qualitative_decision",
 )
+RECEIPT_REQUIRED_FIELDS = (
+    "receipt_id",
+    "agent_id",
+    "round_name",
+    "query",
+    "project_tag",
+    "shared_hits",
+    "private_hits",
+    "workspace_rules_read",
+    "gaps",
+    "created_at",
+)
+REPORT_EVIDENCE_KEYS = (
+    "evidence_ids",
+    "evidence_refs",
+    "citations",
+    "verified",
+    "assumed",
+    "key_points",
+    "risk_flags",
+)
 
 
 def _check(check_id: str, label: str, status: str, message: str, **details: Any) -> dict[str, Any]:
@@ -63,7 +84,7 @@ def _receipt_agents(value: Any) -> dict[str, dict[str, Any]]:
 
 
 def _read_evidence_items(package_dir: Path) -> tuple[list[dict[str, Any]], int]:
-    path = package_dir / "evidence" / "evidence_items.ndjson"
+    path = _evidence_items_path(package_dir)
     items: list[dict[str, Any]] = []
     invalid = 0
     try:
@@ -86,8 +107,139 @@ def _read_evidence_items(package_dir: Path) -> tuple[list[dict[str, Any]], int]:
     return items, invalid
 
 
+def _safe_manifest_relative_path(package_dir: Path, value: Any, default: str) -> Path:
+    raw = str(value or default).strip().replace("\\", "/")
+    path = Path(raw)
+    if path.is_absolute() or ".." in path.parts:
+        return package_dir / default
+    candidate = (package_dir / path).resolve()
+    try:
+        candidate.relative_to(package_dir.resolve())
+    except ValueError:
+        return package_dir / default
+    return candidate
+
+
+def _evidence_items_path(package_dir: Path) -> Path:
+    manifest = deal_store.read_json(package_dir / "manifest.json", {}) or {}
+    evidence = manifest.get("evidence") if isinstance(manifest.get("evidence"), dict) else {}
+    return _safe_manifest_relative_path(package_dir, evidence.get("items_path"), "evidence/evidence_items.ndjson")
+
+
 def _missing_required_fields(payload: dict[str, Any], fields: list[str] | tuple[str, ...]) -> list[str]:
     return [field for field in fields if field not in payload or payload.get(field) in (None, "")]
+
+
+def _collect_evidence_ids(items: list[dict[str, Any]]) -> set[str]:
+    return {str(item.get("evidence_id")) for item in items if item.get("evidence_id")}
+
+
+def _extract_evidence_ids(value: Any) -> set[str]:
+    ids: set[str] = set()
+    if isinstance(value, str):
+        if value.startswith("EVID-"):
+            ids.add(value)
+        return ids
+    if isinstance(value, dict):
+        for key in ("evidence_id", "id"):
+            candidate = value.get(key)
+            if isinstance(candidate, str) and candidate.startswith("EVID-"):
+                ids.add(candidate)
+        for nested in value.values():
+            ids.update(_extract_evidence_ids(nested))
+        return ids
+    if isinstance(value, list):
+        for item in value:
+            ids.update(_extract_evidence_ids(item))
+    return ids
+
+
+def _report_evidence_ids(report: dict[str, Any]) -> set[str]:
+    ids: set[str] = set()
+    for key in REPORT_EVIDENCE_KEYS:
+        ids.update(_extract_evidence_ids(report.get(key)))
+    evidence_stats = report.get("evidence_stats")
+    if isinstance(evidence_stats, dict):
+        ids.update(_extract_evidence_ids(evidence_stats))
+    return ids
+
+
+def _receipt_contract_issues(
+    receipts: dict[str, dict[str, Any]],
+    *,
+    evidence_ids: set[str],
+    deal_id: str,
+) -> list[dict[str, Any]]:
+    issues: list[dict[str, Any]] = []
+    for profile_id, receipt in sorted(receipts.items()):
+        missing = _missing_required_fields(receipt, RECEIPT_REQUIRED_FIELDS)
+        if receipt.get("agent_id") and ic_policy.canonical_ic_profile_id(str(receipt.get("agent_id"))) != profile_id:
+            missing.append("agent_id_matches_key")
+        if receipt.get("project_tag") and receipt.get("project_tag") != deal_id:
+            missing.append("project_tag_matches_deal")
+        if not isinstance(receipt.get("workspace_rules_read"), list) or not receipt.get("workspace_rules_read"):
+            missing.append("workspace_rules_read_non_empty")
+        if not isinstance(receipt.get("gaps"), list):
+            missing.append("gaps_list")
+        if not isinstance(receipt.get("shared_hits"), int) or receipt.get("shared_hits", 0) < 0:
+            missing.append("shared_hits_non_negative_int")
+        if not isinstance(receipt.get("private_hits"), int) or receipt.get("private_hits", 0) < 0:
+            missing.append("private_hits_non_negative_int")
+        evidence_hits = receipt.get("evidence_hits")
+        if evidence_hits is not None and not isinstance(evidence_hits, list):
+            missing.append("evidence_hits_list")
+        referenced = _extract_evidence_ids(evidence_hits)
+        unknown = sorted(referenced - evidence_ids)
+        if unknown:
+            missing.append("evidence_hits_known")
+        if missing or unknown:
+            issues.append({
+                "agent_id": profile_id,
+                "missing_or_invalid": sorted(set(missing)),
+                "unknown_evidence_ids": unknown,
+            })
+    return issues
+
+
+def _report_evidence_issues(
+    reports: dict[str, dict[str, Any]],
+    receipts: dict[str, dict[str, Any]],
+    evidence_ids: set[str],
+) -> list[dict[str, Any]]:
+    issues: list[dict[str, Any]] = []
+    for profile_id, report in sorted(reports.items()):
+        report_ids = _report_evidence_ids(report)
+        unknown = sorted(report_ids - evidence_ids)
+        if unknown:
+            issues.append({
+                "agent_id": profile_id,
+                "missing_or_invalid": ["known_evidence_id_reference"],
+                "unknown_evidence_ids": unknown,
+            })
+    return issues
+
+
+def _report_evidence_advisories(
+    reports: dict[str, dict[str, Any]],
+    receipts: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    advisories: list[dict[str, Any]] = []
+    for profile_id, report in sorted(reports.items()):
+        report_ids = _report_evidence_ids(report)
+        receipt = receipts.get(profile_id, {})
+        receipt_ids = _extract_evidence_ids(receipt.get("evidence_hits")) if isinstance(receipt, dict) else set()
+        notes: list[str] = []
+        if not report.get("startup_receipt_id"):
+            notes.append("startup_receipt_id_missing")
+        elif receipt and report.get("startup_receipt_id") != receipt.get("receipt_id"):
+            notes.append("startup_receipt_id_differs_from_receipt")
+        if not report_ids:
+            notes.append("structured_evidence_id_missing")
+        if receipt_ids and report_ids and not report_ids.intersection(receipt_ids):
+            notes.append("report_does_not_reference_startup_receipt_hits")
+        if notes:
+            advisories.append({"agent_id": profile_id, "notes": notes})
+    return advisories
 
 
 def run_deal_preflight(deal_id: str, *, wiki_root: Path | str | None = None) -> dict[str, Any]:
@@ -172,6 +324,9 @@ def run_deal_preflight(deal_id: str, *, wiki_root: Path | str | None = None) -> 
         issues=report_issues,
     ))
 
+    evidence_items, invalid_evidence_lines = _read_evidence_items(package_dir)
+    evidence_ids = _collect_evidence_ids(evidence_items)
+
     receipts = _receipt_agents(deal_store.read_json(package_dir / "phases" / "startup_receipts.json", {}) or {})
     missing_receipts = sorted(profile_id for profile_id in reports if profile_id not in receipts)
     checks.append(_check(
@@ -183,7 +338,33 @@ def run_deal_preflight(deal_id: str, *, wiki_root: Path | str | None = None) -> 
         receipt_count=len(receipts),
     ))
 
-    evidence_items, invalid_evidence_lines = _read_evidence_items(package_dir)
+    receipt_issues = _receipt_contract_issues(receipts, evidence_ids=evidence_ids, deal_id=deal_id)
+    checks.append(_check(
+        "retrieval.receipt_contract",
+        "Startup receipt contract",
+        "warn" if receipt_issues else "pass",
+        "Startup receipts have contract issues" if receipt_issues else "Startup receipts satisfy required fields",
+        issues=receipt_issues,
+        required_fields=list(RECEIPT_REQUIRED_FIELDS),
+    ))
+
+    report_evidence_issues = _report_evidence_issues(reports, receipts, evidence_ids)
+    checks.append(_check(
+        "r1.report_evidence_refs",
+        "R1 report evidence references",
+        "warn" if report_evidence_issues else "pass",
+        "R1 reports reference unknown evidence IDs" if report_evidence_issues else "R1 reports do not reference unknown evidence IDs",
+        issues=report_evidence_issues,
+    ))
+    report_evidence_advisories = _report_evidence_advisories(reports, receipts)
+    checks.append(_check(
+        "r1.report_evidence_advisory",
+        "R1 report evidence advisory",
+        "info" if report_evidence_advisories else "pass",
+        "R1 reports use legacy or broad evidence references" if report_evidence_advisories else "R1 reports include structured startup evidence references",
+        advisories=report_evidence_advisories,
+    ))
+
     verified_items = [item for item in evidence_items if item.get("evidence_type") == "verified"]
     verified_dimensions = sorted({str(item.get("dimension")) for item in verified_items if item.get("dimension")})
     required_dimensions = list(evidence_gate.get("required_dimensions") or [])

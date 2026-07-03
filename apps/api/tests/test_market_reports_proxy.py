@@ -1,7 +1,12 @@
 import sys
 import asyncio
 import importlib.util
+import hashlib
+import io
+import json
 from pathlib import Path
+
+from fastapi import HTTPException
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
@@ -11,6 +16,7 @@ spec = importlib.util.spec_from_file_location("market_reports", BACKEND_ROOT / "
 market_reports = importlib.util.module_from_spec(spec)
 assert spec and spec.loader
 spec.loader.exec_module(market_reports)
+market_report_proxy = market_reports.market_report_proxy
 
 
 class DummyRequest:
@@ -32,6 +38,44 @@ class JsonRequest:
 
 class UploadRouteRequest:
     pass
+
+
+def _write_market_package(root: Path, *parts: str) -> Path:
+    package_dir = root.joinpath(*parts)
+    package_dir.mkdir(parents=True)
+    (package_dir / "manifest.json").write_text("{}", encoding="utf-8")
+    return package_dir
+
+
+class DummyUser:
+    id = 42
+    username = "ops"
+    email = "ops@example.test"
+    full_name = "Ops User"
+    role = "admin"
+
+
+def capture_background_job(monkeypatch):
+    seen = {}
+
+    def fake_start(kind, target, *, created_by=None):
+        seen["kind"] = kind
+        seen["created_by"] = created_by
+        seen["target_result"] = target()
+        return {"job_id": f"{kind}-job-1", "status": "queued", "created_by": created_by}
+
+    monkeypatch.setattr(market_reports.market_report_job_service, "start", fake_start)
+    return seen
+
+
+def test_market_report_route_order_keeps_static_routes_before_catchalls():
+    paths = [route.path for route in market_reports.router.routes]
+
+    assert paths.index("/v1/reports/assist") < paths.index("/v1/{upstream_path:path}")
+    assert paths.index("/market-reports/package-file") < paths.index("/market-reports/packages/{filing_id}")
+    assert paths.index("/market-reports/packages/build") < paths.index("/market-reports/packages/{filing_id}")
+    assert paths.index("/market-reports/packages/import") < paths.index("/market-reports/packages/{filing_id}")
+    assert paths.index("/market-reports/packages/vector-ingest") < paths.index("/market-reports/packages/{filing_id}")
 
 
 def test_v1_proxy_preserves_finder_path(monkeypatch):
@@ -95,7 +139,7 @@ def test_proxy_request_preserves_query_body_content_type_and_response(monkeypatc
                 },
             )()
 
-    monkeypatch.setattr(market_reports.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(market_report_proxy.httpx, "AsyncClient", FakeAsyncClient)
 
     response = asyncio.run(
         market_reports._proxy_request(
@@ -150,7 +194,7 @@ def test_proxy_request_head_discards_upstream_body(monkeypatch):
                 },
             )()
 
-    monkeypatch.setattr(market_reports.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(market_report_proxy.httpx, "AsyncClient", FakeAsyncClient)
 
     response = asyncio.run(
         market_reports._proxy_request(
@@ -163,6 +207,278 @@ def test_proxy_request_head_discards_upstream_body(monkeypatch):
     assert response.status_code == 204
     assert response.media_type == "application/octet-stream"
     assert response.body == b""
+
+
+def test_proxy_request_maps_request_error_to_502(monkeypatch):
+    class QueryParams:
+        def multi_items(self):
+            return []
+
+    class Request:
+        method = "GET"
+        query_params = QueryParams()
+        headers = {}
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def request(self, method, url, *, params, content, headers):
+            raise market_report_proxy.httpx.RequestError("offline")
+
+    monkeypatch.setattr(market_report_proxy.httpx, "AsyncClient", FakeAsyncClient)
+
+    try:
+        asyncio.run(
+            market_report_proxy.proxy_request(
+                base_url="http://finder",
+                upstream_path="/v1/ping",
+                request=Request(),
+                timeout=1.0,
+            )
+        )
+    except HTTPException as exc:
+        assert exc.status_code == 502
+        assert "offline" in exc.detail
+    else:
+        raise AssertionError("expected HTTPException")
+
+
+def test_finder_assist_handles_empty_and_error_response(monkeypatch):
+    calls = []
+
+    class FakeResponse:
+        def __init__(self, *, status_code=200, content=b"", text="", payload=None):
+            self.status_code = status_code
+            self.content = content
+            self.text = text
+            self._payload = payload or {}
+
+        def json(self):
+            return self._payload
+
+    class FakeAsyncClient:
+        responses = [
+            FakeResponse(content=b"", payload={"ignored": True}),
+            FakeResponse(status_code=503, content=b"fail", text="upstream failed"),
+        ]
+
+        def __init__(self, timeout):
+            calls.append(("timeout", timeout))
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def post(self, url, *, json):
+            calls.append(("post", url, json))
+            return self.responses.pop(0)
+
+    monkeypatch.setattr(market_report_proxy.httpx, "AsyncClient", FakeAsyncClient)
+
+    result = asyncio.run(
+        market_report_proxy.finder_assist(
+            report_finder_base="http://finder",
+            payload={"prompt": "demo"},
+            timeout=2.5,
+        )
+    )
+    assert result == {}
+
+    try:
+        asyncio.run(
+            market_report_proxy.finder_assist(
+                report_finder_base="http://finder",
+                payload={"prompt": "demo"},
+                timeout=2.5,
+            )
+        )
+    except HTTPException as exc:
+        assert exc.status_code == 503
+        assert exc.detail == "upstream failed"
+    else:
+        raise AssertionError("expected HTTPException")
+
+    assert calls[0] == ("timeout", 2.5)
+    assert calls[1] == ("post", "http://finder/v1/reports/assist", {"prompt": "demo"})
+
+
+def test_market_report_health_tolerates_malformed_finder_json(monkeypatch):
+    class FakeResponse:
+        def __init__(self, *, status_code, payload=None, json_error=False):
+            self.status_code = status_code
+            self._payload = payload or {}
+            self._json_error = json_error
+
+        def json(self):
+            if self._json_error:
+                raise ValueError("bad json")
+            return self._payload
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            assert timeout == 5.0
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def get(self, url):
+            if url.endswith("/health"):
+                return FakeResponse(status_code=200, json_error=True)
+            if url.endswith("/healthz"):
+                return FakeResponse(status_code=503)
+            raise AssertionError(url)
+
+    monkeypatch.setattr(market_report_proxy.httpx, "AsyncClient", FakeAsyncClient)
+
+    result = asyncio.run(
+        market_report_proxy.market_report_health(
+            report_finder_base="http://finder",
+            market_rules_base="http://rules",
+        )
+    )
+
+    assert result["report_finder"] == {"status": "ok", "code": 200, "config": {}, "markets": {}}
+    assert result["market_rules"] == {"status": "error", "code": 503}
+
+
+def test_proxy_rules_get_preserves_status_body_and_media_type(monkeypatch):
+    seen = {}
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            seen["timeout"] = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def get(self, url):
+            seen["url"] = url
+            return type(
+                "Upstream",
+                (),
+                {
+                    "content": b'{"rules":[]}',
+                    "status_code": 206,
+                    "headers": {"content-type": "application/vnd.rules+json"},
+                },
+            )()
+
+    monkeypatch.setattr(market_report_proxy.httpx, "AsyncClient", FakeAsyncClient)
+
+    response = asyncio.run(
+        market_report_proxy.proxy_rules_get(
+            market_rules_base="http://rules",
+            upstream_path="/markets/cn/rules",
+            timeout=3.0,
+        )
+    )
+
+    assert seen == {"timeout": 3.0, "url": "http://rules/markets/cn/rules"}
+    assert response.status_code == 206
+    assert response.media_type == "application/vnd.rules+json"
+    assert response.body == b'{"rules":[]}'
+
+
+def test_proxy_rules_get_maps_request_error_to_502(monkeypatch):
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def get(self, url):
+            raise market_report_proxy.httpx.RequestError("rules offline")
+
+    monkeypatch.setattr(market_report_proxy.httpx, "AsyncClient", FakeAsyncClient)
+
+    try:
+        asyncio.run(
+            market_report_proxy.proxy_rules_get(
+                market_rules_base="http://rules",
+                upstream_path="/markets",
+            )
+        )
+    except HTTPException as exc:
+        assert exc.status_code == 502
+        assert "rules offline" in exc.detail
+    else:
+        raise AssertionError("expected HTTPException")
+
+
+def test_finder_assist_wrapper_uses_router_settings(monkeypatch):
+    seen = {}
+
+    async def fake_finder_assist(*, report_finder_base, payload, timeout):
+        seen.update({"report_finder_base": report_finder_base, "payload": payload, "timeout": timeout})
+        return {"ok": True}
+
+    monkeypatch.setattr(market_report_proxy, "finder_assist", fake_finder_assist)
+
+    result = asyncio.run(market_reports._finder_assist({"prompt": "demo"}))
+
+    assert result == {"ok": True}
+    assert seen == {
+        "report_finder_base": market_reports.REPORT_FINDER_BASE,
+        "payload": {"prompt": "demo"},
+        "timeout": market_reports.MARKET_REPORT_PROXY_TIMEOUT,
+    }
+
+
+def test_market_rules_route_wrappers_use_rules_base(monkeypatch):
+    calls = []
+
+    async def fake_proxy_rules_get(*, market_rules_base, upstream_path):
+        calls.append({"market_rules_base": market_rules_base, "upstream_path": upstream_path})
+        return {"path": upstream_path}
+
+    monkeypatch.setattr(market_report_proxy, "proxy_rules_get", fake_proxy_rules_get)
+
+    modules = asyncio.run(market_reports.market_modules())
+    cn_rules = asyncio.run(market_reports.cn_market_rules())
+
+    assert modules == {"path": "/markets"}
+    assert cn_rules == {"path": "/markets/cn/rules"}
+    assert calls == [
+        {"market_rules_base": market_reports.MARKET_RULES_BASE, "upstream_path": "/markets"},
+        {"market_rules_base": market_reports.MARKET_RULES_BASE, "upstream_path": "/markets/cn/rules"},
+    ]
+
+
+def test_market_report_health_wrapper_uses_router_bases(monkeypatch):
+    seen = {}
+
+    async def fake_market_report_health(*, report_finder_base, market_rules_base):
+        seen.update({"report_finder_base": report_finder_base, "market_rules_base": market_rules_base})
+        return {"ok": True}
+
+    monkeypatch.setattr(market_report_proxy, "market_report_health", fake_market_report_health)
+
+    result = asyncio.run(market_reports.market_report_health())
+
+    assert result == {"ok": True}
+    assert seen == {
+        "report_finder_base": market_reports.REPORT_FINDER_BASE,
+        "market_rules_base": market_reports.MARKET_RULES_BASE,
+    }
 
 
 def test_assist_merge_prefers_llm_explanations():
@@ -201,7 +517,7 @@ def test_assist_merge_prefers_llm_explanations():
     assert merged["assistant_mode"] == "llm:local:test"
 
 
-def test_active_llm_provider_prefers_cloud_minimax(monkeypatch):
+def test_active_llm_provider_prefers_cloud_stepfun(monkeypatch):
     monkeypatch.setattr(
         market_reports,
         "load_llm_settings",
@@ -216,9 +532,9 @@ def test_active_llm_provider_prefers_cloud_minimax(monkeypatch):
                 },
                 "cloud": {
                     "enabled": True,
-                    "providerName": "Hermes / Minimax",
-                    "baseUrl": "hermes://minimax-cn",
-                    "model": "MiniMax-M3",
+                    "providerName": "StepFun / Step-3.7 Flash",
+                    "baseUrl": "https://api.stepfun.com/v1",
+                    "model": "step-3.7-flash",
                 },
             },
         },
@@ -227,7 +543,7 @@ def test_active_llm_provider_prefers_cloud_minimax(monkeypatch):
     active, provider = market_reports._active_llm_provider()
 
     assert active == "cloud"
-    assert provider["baseUrl"] == "hermes://minimax-cn"
+    assert provider["baseUrl"] == "https://api.stepfun.com/v1"
 
 
 def test_hermes_assist_uses_runs_api(monkeypatch):
@@ -376,6 +692,99 @@ def test_us_sec_upload_swallow_workspace_artifact_error(monkeypatch):
     assert result["files"][0]["relative_path"] == "us-sec/uploads/aapl-10k.pdf"
 
 
+def test_us_sec_upload_persist_writes_build_compatible_metadata(monkeypatch, tmp_path):
+    content = b"<html><body>10-K</body></html>"
+    digest = hashlib.sha256(content).hexdigest()
+
+    class FixedDateTime(market_reports.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 7, 3, 12, 34, 56, tzinfo=tz)
+
+    monkeypatch.setattr(market_reports, "REPORT_DOWNLOADS_ROOT", tmp_path / "downloads")
+    monkeypatch.setattr(market_reports, "datetime", FixedDateTime)
+    upload = type(
+        "Upload",
+        (),
+        {
+            "filename": "apple-10k.htm",
+            "content_type": "text/html",
+            "file": io.BytesIO(content),
+        },
+    )()
+
+    result = market_reports._persist_us_sec_upload(
+        upload,
+        ticker="AAPL",
+        company_name="Apple Inc.",
+        report_type="10-K",
+        fiscal_year=2025,
+        period_end="2025-09-27",
+        filing_date="2025-10-31",
+    )
+
+    saved_path = Path(result["saved_path"])
+    metadata_path = Path(result["metadata_path"])
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+
+    assert saved_path.is_file()
+    assert saved_path.read_bytes() == content
+    assert result["relative_path"].startswith("US/Apple-Inc/2025/年报/")
+    assert result["relative_path"].endswith(f"_20260703T123456Z_{digest[:10]}.html")
+    assert metadata_path == saved_path.with_suffix(saved_path.suffix + ".metadata.json")
+    assert metadata["candidate"]["market"] == "US"
+    assert metadata["candidate"]["ticker"] == "AAPL"
+    assert metadata["candidate"]["company_name"] == "Apple Inc."
+    assert metadata["candidate"]["report_type"] == "annual"
+    assert metadata["candidate"]["report_family"] == "annual"
+    assert metadata["candidate"]["form"] == "10-K"
+    assert metadata["candidate"]["report_end"] == "2025-09-27"
+    assert metadata["candidate"]["published_at"] == "2025-10-31"
+    assert metadata["candidate"]["metadata"] == {"uploaded_filename": "apple-10k.htm", "content_type": "text/html"}
+    assert metadata["downloaded_file"]["saved_path"] == str(saved_path)
+    assert metadata["downloaded_file"]["content_sha256"] == digest
+    assert metadata["downloaded_file"]["size_bytes"] == len(content)
+    assert metadata["downloaded_file"]["content_type"] == "text/html"
+
+
+def test_us_sec_upload_persist_rejects_unsupported_suffix_and_empty_file(monkeypatch, tmp_path):
+    monkeypatch.setattr(market_reports, "REPORT_DOWNLOADS_ROOT", tmp_path / "downloads")
+    bad_suffix = type("Upload", (), {"filename": "notes.exe", "content_type": "application/octet-stream", "file": io.BytesIO(b"x")})()
+    empty_file = type("Upload", (), {"filename": "empty.pdf", "content_type": "application/pdf", "file": io.BytesIO(b"")})()
+
+    try:
+        market_reports._persist_us_sec_upload(
+            bad_suffix,
+            ticker="AAPL",
+            company_name="Apple Inc.",
+            report_type="10-K",
+            fiscal_year=2025,
+            period_end="2025-09-27",
+            filing_date="2025-10-31",
+        )
+    except HTTPException as exc:
+        assert exc.status_code == 400
+        assert "Only PDF" in exc.detail
+    else:
+        raise AssertionError("expected HTTPException")
+
+    try:
+        market_reports._persist_us_sec_upload(
+            empty_file,
+            ticker="AAPL",
+            company_name="Apple Inc.",
+            report_type="10-K",
+            fiscal_year=2025,
+            period_end="2025-09-27",
+            filing_date="2025-10-31",
+        )
+    except HTTPException as exc:
+        assert exc.status_code == 400
+        assert exc.detail == "Uploaded file is empty"
+    else:
+        raise AssertionError("expected HTTPException")
+
+
 def test_market_package_summary_reads_us_package():
     package_dir = (
         market_reports.REPO_ROOT
@@ -394,6 +803,132 @@ def test_market_package_summary_reads_us_package():
     assert summary["counts"]["metrics"] >= 1
     assert summary["counts"]["evidence"] >= 1
     assert summary["paths"]["source_map"].endswith("qa/source_map.json")
+
+
+def test_market_package_quality_routes_keep_response_contract(monkeypatch, tmp_path):
+    wiki_root = tmp_path / "wiki" / "us_sec"
+    package_dir = _write_market_package(wiki_root, "AAPL", "2025", "10-K_demo")
+    (package_dir / "manifest.json").write_text(json.dumps({"filing_id": "AAPL-10K"}), encoding="utf-8")
+    (package_dir / "qa").mkdir()
+    (package_dir / "qa" / "quality_report.json").write_text(json.dumps({"overall_status": "pass"}), encoding="utf-8")
+    (package_dir / "qa" / "source_map.json").write_text(
+        json.dumps({"entries": [{"evidence_id": "e1"}, {"evidence_id": "e2"}]}),
+        encoding="utf-8",
+    )
+    (package_dir / "metrics").mkdir()
+    (package_dir / "metrics" / "financial_checks.json").write_text(json.dumps({"status": "warning"}), encoding="utf-8")
+    monkeypatch.setitem(market_reports.MARKET_WIKI_ROOTS, "US", wiki_root)
+
+    by_path = asyncio.run(market_reports.market_package_quality_by_path("US", str(package_dir)))
+    by_filing_id = asyncio.run(market_reports.market_package_quality_by_filing_id("AAPL-10K", "US"))
+
+    assert by_path["manifest"] == {"filing_id": "AAPL-10K"}
+    assert by_path["quality"] == {"overall_status": "pass"}
+    assert by_path["financial_checks"] == {"status": "warning"}
+    assert by_path["source_map_summary"] == {"evidence": 2}
+    assert by_filing_id["package_path"] == str(package_dir)
+    assert "source_map_summary" not in by_filing_id
+
+
+def test_market_package_file_serves_market_files_and_controls_inline_header(monkeypatch, tmp_path):
+    wiki_root = tmp_path / "wiki" / "hk_reports"
+    package_dir = _write_market_package(wiki_root, "00700", "2025", "annual_demo")
+    sections_dir = package_dir / "sections"
+    sections_dir.mkdir()
+    report_path = sections_dir / "report.md"
+    report_path.write_text("# Tencent annual report", encoding="utf-8")
+    manifest_path = package_dir / "manifest.json"
+    monkeypatch.setitem(market_reports.MARKET_WIKI_ROOTS, "HK", wiki_root)
+
+    inline_response = asyncio.run(
+        market_reports.market_package_file("hk", str(package_dir), "sections/report.md", inline=True)
+    )
+    attachment_response = asyncio.run(
+        market_reports.market_package_file("HK", str(package_dir), "manifest.json", inline=False)
+    )
+
+    assert Path(inline_response.path) == report_path
+    assert inline_response.media_type == "text/markdown; charset=utf-8"
+    assert inline_response.headers["content-disposition"] == "inline"
+    assert Path(attachment_response.path) == manifest_path
+    assert attachment_response.media_type == "application/json; charset=utf-8"
+    assert "content-disposition" not in attachment_response.headers
+
+
+def test_market_package_file_rejects_file_and_package_path_escape(monkeypatch, tmp_path):
+    wiki_root = tmp_path / "wiki" / "hk_reports"
+    package_dir = _write_market_package(wiki_root, "00700", "2025", "annual_demo")
+    outside_package = _write_market_package(tmp_path / "outside", "00700", "2025", "annual_demo")
+    monkeypatch.setitem(market_reports.MARKET_WIKI_ROOTS, "HK", wiki_root)
+
+    for file_path in ("../manifest.json", "/etc/passwd", "sections/../../secret.txt"):
+        try:
+            asyncio.run(market_reports.market_package_file("HK", str(package_dir), file_path))
+        except HTTPException as exc:
+            assert exc.status_code == 400
+            assert exc.detail == "Invalid file path"
+        else:
+            raise AssertionError("expected HTTPException")
+
+    try:
+        asyncio.run(market_reports.market_package_file("HK", str(outside_package), "manifest.json"))
+    except HTTPException as exc:
+        assert exc.status_code == 400
+        assert "outside the allowed evidence package root" in exc.detail
+    else:
+        raise AssertionError("expected HTTPException")
+
+
+def test_market_package_file_returns_404_for_missing_file(monkeypatch, tmp_path):
+    wiki_root = tmp_path / "wiki" / "hk_reports"
+    package_dir = _write_market_package(wiki_root, "00700", "2025", "annual_demo")
+    monkeypatch.setitem(market_reports.MARKET_WIKI_ROOTS, "HK", wiki_root)
+
+    try:
+        asyncio.run(market_reports.market_package_file("HK", str(package_dir), "sections/missing.md"))
+    except HTTPException as exc:
+        assert exc.status_code == 404
+        assert exc.detail == "Package file not found"
+    else:
+        raise AssertionError("expected HTTPException")
+
+
+def test_us_sec_package_file_uses_us_root_and_rejects_escape(monkeypatch, tmp_path):
+    wiki_root = tmp_path / "wiki" / "us_sec"
+    package_dir = _write_market_package(wiki_root, "AAPL", "2025", "10-K_demo")
+    raw_dir = package_dir / "raw"
+    raw_dir.mkdir()
+    filing_path = raw_dir / "filing.htm"
+    filing_path.write_text("<html><body>10-K</body></html>", encoding="utf-8")
+    monkeypatch.setattr(market_reports, "US_SEC_WIKI_ROOT", wiki_root)
+
+    response = asyncio.run(market_reports.us_sec_package_file(str(package_dir), "raw/filing.htm", inline=True))
+
+    assert Path(response.path) == filing_path
+    assert response.media_type == "text/html; charset=utf-8"
+    assert response.headers["content-disposition"] == "inline"
+
+    try:
+        asyncio.run(market_reports.us_sec_package_file(str(package_dir), "../manifest.json"))
+    except HTTPException as exc:
+        assert exc.status_code == 400
+        assert exc.detail == "Invalid file path"
+    else:
+        raise AssertionError("expected HTTPException")
+
+
+def test_us_sec_package_file_returns_404_for_missing_file(monkeypatch, tmp_path):
+    wiki_root = tmp_path / "wiki" / "us_sec"
+    package_dir = _write_market_package(wiki_root, "AAPL", "2025", "10-K_demo")
+    monkeypatch.setattr(market_reports, "US_SEC_WIKI_ROOT", wiki_root)
+
+    try:
+        asyncio.run(market_reports.us_sec_package_file(str(package_dir), "raw/missing.htm"))
+    except HTTPException as exc:
+        assert exc.status_code == 404
+        assert exc.detail == "Package file not found"
+    else:
+        raise AssertionError("expected HTTPException")
 
 
 def test_find_market_evidence_returns_package_and_entry():
@@ -510,6 +1045,27 @@ def test_us_package_build_accepts_download_relative_path_and_returns_sec_detail(
     assert seen["args"][-1] == "--force"
 
 
+def test_market_package_build_rejects_invalid_download_path_before_command(monkeypatch, tmp_path):
+    downloads_root = tmp_path / "downloads"
+    monkeypatch.setattr(market_reports, "REPORT_DOWNLOADS_ROOT", downloads_root)
+
+    def fail_run(*_args, **_kwargs):
+        raise AssertionError("run_command should not be called")
+
+    monkeypatch.setattr(market_reports, "run_command", fail_run)
+
+    try:
+        market_reports._run_market_package_build({
+            "market": "US",
+            "download_relative_path": "../secret.html",
+        })
+    except HTTPException as exc:
+        assert exc.status_code == 400
+        assert exc.detail == "Invalid download_relative_path"
+    else:
+        raise AssertionError("expected HTTPException")
+
+
 def test_eu_parse_endpoint_wraps_market_package_build(monkeypatch, tmp_path):
     downloads_root = tmp_path / "downloads"
     source_path = downloads_root / "EU" / "NL" / "ASML" / "2025" / "年报" / "report.html"
@@ -564,30 +1120,448 @@ def test_market_import_command_uses_us_package_flag(monkeypatch):
     assert seen["args"][-1] == "--ddl"
 
 
-def test_market_package_build_queues_background_job(monkeypatch):
+def test_market_import_command_uses_positional_package_for_non_us(monkeypatch, tmp_path):
+    wiki_root = tmp_path / "wiki" / "hk_reports"
+    package_dir = _write_market_package(wiki_root, "00700", "2025", "annual_abc123")
+    import_script = tmp_path / "scripts" / "import_hk.py"
+    import_script.parent.mkdir(parents=True)
+    import_script.write_text("# import", encoding="utf-8")
     seen = {}
 
-    def fake_start(kind, target, *, created_by=None):
-        seen["kind"] = kind
-        seen["created_by"] = created_by
-        seen["target_result"] = target()
-        return {"job_id": "job-1", "status": "queued"}
+    class Completed:
+        returncode = 0
+        stdout = "parse-run-hk\n"
+        stderr = ""
 
-    monkeypatch.setattr(market_reports.market_report_job_service, "start", fake_start)
+    def fake_run(args, **kwargs):
+        seen["args"] = args
+        seen["kwargs"] = kwargs
+        return Completed()
+
+    monkeypatch.setitem(market_reports.MARKET_WIKI_ROOTS, "HK", wiki_root)
+    monkeypatch.setitem(market_reports.MARKET_IMPORT_SCRIPTS, "HK", import_script)
+    monkeypatch.setattr(market_reports, "run_command", fake_run)
+
+    result = market_reports._run_market_package_import(
+        {
+            "market": "HK",
+            "package_path": str(package_dir),
+            "database_url": "postgres://secret",
+            "run_ddl": True,
+        }
+    )
+
+    assert result["ok"] is True
+    assert result["parse_run_id"] == "parse-run-hk"
+    assert seen["args"][:3] == [market_reports.sys.executable, str(import_script), str(package_dir)]
+    assert "--package" not in seen["args"]
+    assert seen["args"][-3:] == ["--database-url", "postgres://secret", "--ddl"]
+    assert seen["kwargs"] == {"cwd": market_reports.REPO_ROOT, "timeout": 900}
+    assert "postgres://secret" not in result["command"]
+    assert "--database-url ***" in result["command"]
+
+
+def test_market_vector_ingest_command_contract_and_summary(monkeypatch, tmp_path):
+    wiki_root = tmp_path / "wiki" / "hk_reports"
+    package_dir = _write_market_package(wiki_root, "00700", "2025", "annual_abc123")
+    ingest_script = tmp_path / "scripts" / "ingest_market_package.py"
+    ingest_script.parent.mkdir(parents=True)
+    ingest_script.write_text("# ingest", encoding="utf-8")
+    seen = {}
+
+    class Completed:
+        returncode = 0
+        stdout = 'log line\n{"inserted": 3, "collection": "siq_market"}\n'
+        stderr = "warn\n"
+
+    def fake_run(args, **kwargs):
+        seen["args"] = args
+        seen["kwargs"] = kwargs
+        return Completed()
+
+    monkeypatch.setitem(market_reports.MARKET_WIKI_ROOTS, "HK", wiki_root)
+    monkeypatch.setattr(market_reports, "MARKET_VECTOR_INGEST_SCRIPT", ingest_script)
+    monkeypatch.setattr(market_reports, "run_command", fake_run)
+
+    result = market_reports._run_market_vector_ingest(
+        {
+            "market": "HK",
+            "package_path": str(package_dir),
+            "collection": "siq_market",
+            "embed_url": "http://embed.local",
+            "embed_model": "text-embedding-3-small",
+            "vector_dim": 1536,
+        }
+    )
+
+    assert result["ok"] is True
+    assert result["dry_run"] is True
+    assert result["summary"] == {"inserted": 3, "collection": "siq_market"}
+    assert seen["args"] == [
+        market_reports.sys.executable,
+        str(ingest_script),
+        "--package",
+        str(package_dir),
+        "--batch-tag",
+        "market-evidence",
+        "--collection",
+        "siq_market",
+        "--embed-url",
+        "http://embed.local",
+        "--embed-model",
+        "text-embedding-3-small",
+        "--vector-dim",
+        "1536",
+        "--dry-run",
+    ]
+    assert seen["kwargs"] == {"cwd": market_reports.REPO_ROOT, "timeout": 1800}
+
+
+def test_market_vector_ingest_can_disable_dry_run(monkeypatch, tmp_path):
+    wiki_root = tmp_path / "wiki" / "us_sec"
+    package_dir = _write_market_package(wiki_root, "AAPL", "2025", "10-K_demo")
+    ingest_script = tmp_path / "scripts" / "ingest_market_package.py"
+    ingest_script.parent.mkdir(parents=True)
+    ingest_script.write_text("# ingest", encoding="utf-8")
+    seen = {}
+
+    class Completed:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(args, **kwargs):
+        seen["args"] = args
+        return Completed()
+
+    monkeypatch.setitem(market_reports.MARKET_WIKI_ROOTS, "US", wiki_root)
+    monkeypatch.setattr(market_reports, "MARKET_VECTOR_INGEST_SCRIPT", ingest_script)
+    monkeypatch.setattr(market_reports, "run_command", fake_run)
+
+    result = market_reports._run_market_vector_ingest(
+        {
+            "market": "US",
+            "package_path": str(package_dir),
+            "batch_tag": "prod-load",
+            "dry_run": False,
+        }
+    )
+
+    assert result["ok"] is True
+    assert result["dry_run"] is False
+    assert result["summary"] is None
+    assert "--dry-run" not in seen["args"]
+    assert seen["args"][seen["args"].index("--batch-tag") + 1] == "prod-load"
+
+
+def test_market_ingestion_eval_run_reads_requested_output(monkeypatch, tmp_path):
+    eval_script = tmp_path / "scripts" / "run_market_ingestion_eval.py"
+    eval_script.parent.mkdir(parents=True)
+    eval_script.write_text("# eval", encoding="utf-8")
+    output_path = tmp_path / "reports" / "eval.json"
+    markdown_path = tmp_path / "reports" / "eval.md"
+    seen = {}
+
+    class Completed:
+        returncode = 0
+        stdout = "eval ok\n"
+        stderr = ""
+
+    def fake_run(args, **kwargs):
+        seen["args"] = args
+        seen["kwargs"] = kwargs
+        output_path.parent.mkdir(parents=True)
+        output_path.write_text(json.dumps({"score": 0.98, "cases": 4}), encoding="utf-8")
+        markdown_path.write_text("# Eval", encoding="utf-8")
+        return Completed()
+
+    monkeypatch.setattr(market_reports, "MARKET_INGESTION_EVAL_SCRIPT", eval_script)
+    monkeypatch.setattr(market_reports, "run_command", fake_run)
+
+    result = market_reports._run_market_ingestion_eval(
+        {
+            "output": str(output_path),
+            "markdown": str(markdown_path),
+        }
+    )
+
+    assert result["ok"] is True
+    assert result["report"] == {"score": 0.98, "cases": 4}
+    assert result["markdown_path"] == str(markdown_path)
+    assert seen["args"] == [
+        market_reports.sys.executable,
+        str(eval_script),
+        "--output",
+        str(output_path),
+        "--markdown",
+        str(markdown_path),
+    ]
+    assert seen["kwargs"] == {"cwd": market_reports.REPO_ROOT, "timeout": 900}
+
+
+def test_market_ingestion_eval_report_reads_files_and_optional_markdown(monkeypatch, tmp_path):
+    report_path = tmp_path / "market_eval.json"
+    markdown_path = tmp_path / "market_eval.md"
+    report_path.write_text(json.dumps({"summary": {"passed": 2}}), encoding="utf-8")
+    markdown_path.write_text("# Market Eval", encoding="utf-8")
+
+    monkeypatch.setattr(market_reports, "MARKET_INGESTION_EVAL_REPORT_PATH", report_path)
+    monkeypatch.setattr(market_reports, "MARKET_INGESTION_EVAL_MARKDOWN_PATH", markdown_path)
+
+    result = asyncio.run(market_reports.market_ingestion_eval_report(include_markdown=True))
+
+    assert result["ok"] is True
+    assert result["report_path"] == str(report_path)
+    assert result["markdown_path"] == str(markdown_path)
+    assert result["report"] == {"summary": {"passed": 2}}
+    assert result["markdown"] == "# Market Eval"
+
+    without_markdown = asyncio.run(market_reports.market_ingestion_eval_report(include_markdown=False))
+    assert "markdown" not in without_markdown
+
+
+def test_us_sec_case_set_status_reads_files_and_keeps_response_shape(monkeypatch, tmp_path):
+    case_set_path = tmp_path / "case_set.json"
+    ingest_report_path = tmp_path / "ingest_report.json"
+    case_set_path.write_text(
+        json.dumps(
+            {
+                "items": [
+                    {
+                        "ticker": "AAPL",
+                        "company_name": "Apple Inc.",
+                        "fiscal_year": 2025,
+                        "period_end": "2025-09-27",
+                        "filing_date": "2025-10-31",
+                        "quality_status": "pass",
+                        "quality_summary": {
+                            "xbrl_fact_count": 10,
+                            "normalized_metric_count": 4,
+                            "section_count": 2,
+                            "table_count": 3,
+                        },
+                        "package_path": "data/wiki/us_sec/AAPL/package",
+                    },
+                    {
+                        "ticker": "MSFT",
+                        "quality_status": "warning",
+                        "quality_summary": {"xbrl_fact_count": 5, "section_count": 1},
+                        "package_path": "data/wiki/us_sec/MSFT/package",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    ingest_report_path.write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-07-03T00:00:00Z",
+                "summary": {"inserted": 7},
+                "package_count": 2,
+                "collection": "siq_documents",
+                "batch_tag": "market-evidence",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(market_reports, "US_SEC_CASE_SET_PATH", case_set_path)
+    monkeypatch.setattr(market_reports, "US_SEC_INGEST_REPORT_PATH", ingest_report_path)
+
+    result = asyncio.run(market_reports.us_sec_case_set_status())
+
+    assert result["case_set_path"] == str(case_set_path)
+    assert result["ingest_report_path"] == str(ingest_report_path)
+    assert result["company_count"] == 2
+    assert result["quality"] == {"pass": 1, "warning": 1}
+    assert result["counts"] == {
+        "xbrl_fact_count": 15,
+        "normalized_metric_count": 4,
+        "section_count": 3,
+        "table_count": 3,
+    }
+    assert result["items"][0]["ticker"] == "AAPL"
+    assert result["items"][1]["company_name"] is None
+    assert result["ingest_report"] == {
+        "generated_at": "2026-07-03T00:00:00Z",
+        "summary": {"inserted": 7},
+        "package_count": 2,
+        "collection": "siq_documents",
+        "batch_tag": "market-evidence",
+    }
+
+
+def test_us_sec_package_selector_preserves_error_mapping_and_package_path_priority(monkeypatch, tmp_path):
+    wiki_root = tmp_path / "wiki" / "us_sec"
+    package_dir = _write_market_package(wiki_root, "AAPL", "2025", "10-K_demo")
+    case_set_path = tmp_path / "case_set.json"
+    case_set_path.write_text(
+        json.dumps({"items": [{"ticker": "MSFT", "package_path": str(wiki_root / "MSFT" / "missing")}]}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(market_reports, "US_SEC_WIKI_ROOT", wiki_root)
+    monkeypatch.setattr(market_reports, "US_SEC_CASE_SET_PATH", case_set_path)
+
+    assert market_reports._package_from_selector({
+        "package_path": str(package_dir),
+        "ticker": "MSFT",
+    }) == package_dir
+
+    for payload, status_code, detail in (
+        ({}, 400, "ticker or package_path is required"),
+        ({"ticker": "TSLA"}, 404, "No package for ticker TSLA"),
+    ):
+        try:
+            market_reports._package_from_selector(payload)
+        except HTTPException as exc:
+            assert exc.status_code == status_code
+            assert exc.detail == detail
+        else:
+            raise AssertionError("expected HTTPException")
+
+
+def test_market_package_build_queues_background_job(monkeypatch):
+    seen = capture_background_job(monkeypatch)
     monkeypatch.setattr(market_reports, "_run_market_package_build", lambda payload: {"ok": True, "payload": payload})
 
     result = asyncio.run(
         market_reports.build_market_package(
             JsonRequest({"market": "US", "download_relative_path": "US/demo/report.html"}),
             wait=False,
-            _ops_user=None,
+            _ops_user=DummyUser(),
         )
     )
 
     assert result["ok"] is True
     assert result["queued"] is True
     assert seen["kind"] == "market-package-build"
+    assert seen["created_by"]["username"] == "ops"
     assert seen["target_result"]["ok"] is True
+
+
+def test_eu_parse_queues_background_job_and_forces_market(monkeypatch):
+    seen = capture_background_job(monkeypatch)
+    monkeypatch.setattr(market_reports, "_run_market_package_build", lambda payload: {"ok": True, "payload": payload})
+
+    result = asyncio.run(
+        market_reports.parse_eu_market_report(
+            JsonRequest({"market": "HK", "download_relative_path": "EU/NL/ASML/2025/年报/report.html"}),
+            wait=False,
+            _ops_user=DummyUser(),
+        )
+    )
+
+    assert result["ok"] is True
+    assert result["queued"] is True
+    assert result["job_id"] == "eu-market-report-parse-job-1"
+    assert seen["kind"] == "eu-market-report-parse"
+    assert seen["target_result"]["payload"]["market"] == "EU"
+    assert seen["target_result"]["payload"]["download_relative_path"] == "EU/NL/ASML/2025/年报/report.html"
+
+
+def test_market_package_import_queues_background_job(monkeypatch):
+    seen = capture_background_job(monkeypatch)
+    monkeypatch.setattr(market_reports, "_run_market_package_import", lambda payload: {"ok": True, "payload": payload})
+
+    result = asyncio.run(
+        market_reports.import_market_package(
+            JsonRequest({"market": "US", "package_path": "data/wiki/us_sec/AAPL/package", "ddl": True}),
+            wait=False,
+            _ops_user=DummyUser(),
+        )
+    )
+
+    assert result["ok"] is True
+    assert result["queued"] is True
+    assert result["job_id"] == "market-package-import-job-1"
+    assert seen["kind"] == "market-package-import"
+    assert seen["target_result"]["payload"]["ddl"] is True
+
+
+def test_market_vector_ingest_queues_background_job(monkeypatch):
+    seen = capture_background_job(monkeypatch)
+    monkeypatch.setattr(market_reports, "_run_market_vector_ingest", lambda payload: {"ok": True, "payload": payload})
+
+    result = asyncio.run(
+        market_reports.vector_ingest_market_package(
+            JsonRequest({"market": "US", "package_path": "data/wiki/us_sec/AAPL/package", "dry_run": True}),
+            wait=False,
+            _ops_user=DummyUser(),
+        )
+    )
+
+    assert result["ok"] is True
+    assert result["queued"] is True
+    assert result["job_id"] == "market-vector-ingest-job-1"
+    assert seen["kind"] == "market-vector-ingest"
+    assert seen["created_by"]["email"] == "ops@example.test"
+    assert seen["target_result"]["payload"]["dry_run"] is True
+
+
+def test_market_ingestion_eval_queues_background_job(monkeypatch):
+    seen = capture_background_job(monkeypatch)
+    monkeypatch.setattr(market_reports, "_run_market_ingestion_eval", lambda payload: {"ok": True, "payload": payload})
+
+    result = asyncio.run(
+        market_reports.run_market_ingestion_eval(
+            JsonRequest({"output": "tmp/eval.json"}),
+            wait=False,
+            _ops_user=DummyUser(),
+        )
+    )
+
+    assert result["ok"] is True
+    assert result["queued"] is True
+    assert result["job_id"] == "market-ingestion-eval-job-1"
+    assert seen["kind"] == "market-ingestion-eval"
+    assert seen["target_result"]["payload"] == {"output": "tmp/eval.json"}
+
+
+def test_us_sec_safe_ingest_args_validates_filters(monkeypatch, tmp_path):
+    ingest_script = tmp_path / "scripts" / "ingest_sec_case_set.py"
+    ingest_script.parent.mkdir(parents=True)
+    ingest_script.write_text("# ingest", encoding="utf-8")
+    case_set_path = tmp_path / "case_set.json"
+    report_path = tmp_path / "ingest_report.json"
+    monkeypatch.setattr(market_reports, "US_SEC_INGEST_SCRIPT", ingest_script)
+    monkeypatch.setattr(market_reports, "US_SEC_CASE_SET_PATH", case_set_path)
+    monkeypatch.setattr(market_reports, "US_SEC_INGEST_REPORT_PATH", report_path)
+
+    args = market_reports._safe_ingest_args(
+        {
+            "tickers": " aapl,msft ",
+            "batch_tag": "market-evidence:2026",
+            "postgres": True,
+            "dry_run": False,
+        }
+    )
+
+    assert args == [
+        market_reports.sys.executable,
+        str(ingest_script),
+        "--case-set",
+        str(case_set_path),
+        "--report",
+        str(report_path),
+        "--postgres",
+        "--tickers",
+        "AAPL,MSFT",
+        "--batch-tag",
+        "market-evidence:2026",
+    ]
+
+    for payload, detail in (
+        ({"tickers": "../AAPL"}, "Invalid tickers"),
+        ({"batch_tag": "bad tag"}, "Invalid batch_tag"),
+    ):
+        try:
+            market_reports._safe_ingest_args(payload)
+        except HTTPException as exc:
+            assert exc.status_code == 400
+            assert exc.detail == detail
+        else:
+            raise AssertionError("expected HTTPException")
 
 
 def test_us_sec_rebuild_package_command_contract(monkeypatch, tmp_path):
@@ -651,16 +1625,84 @@ def test_us_sec_rebuild_package_command_contract(monkeypatch, tmp_path):
     assert result["ok"] is True
     assert result["ticker"] == "AAPL"
     assert result["package"] == {"package_path": str(package_dir)}
+    assert result["stdout"] == f"{package_dir}\n"
+    assert result["stderr"] == "warn\n"
     assert seen["args"][:2] == [market_reports.sys.executable, str(build_script)]
     assert seen["args"][3] == "--force"
     assert seen["args"][seen["args"].index("--output-root") + 1] == str(wiki_root)
     assert seen["kwargs"] == {"cwd": market_reports.REPO_ROOT, "timeout": 900}
 
 
+def test_us_sec_ingest_queues_background_job(monkeypatch):
+    seen = capture_background_job(monkeypatch)
+    monkeypatch.setattr(market_reports, "_run_us_sec_case_set_ingest", lambda payload: {"ok": True, "payload": payload})
+
+    result = asyncio.run(
+        market_reports.us_sec_case_set_ingest(
+            JsonRequest({"tickers": "AAPL,MSFT", "dry_run": True}),
+            wait=False,
+            _ops_user=DummyUser(),
+        )
+    )
+
+    assert result["ok"] is True
+    assert result["queued"] is True
+    assert result["job_id"] == "us-sec-ingest-job-1"
+    assert seen["kind"] == "us-sec-ingest"
+    assert seen["target_result"]["payload"]["tickers"] == "AAPL,MSFT"
+
+
+def test_us_sec_rebuild_queues_background_job(monkeypatch):
+    seen = capture_background_job(monkeypatch)
+    monkeypatch.setattr(
+        market_reports,
+        "_run_us_sec_rebuild_package",
+        lambda ticker, payload: {"ok": True, "ticker": ticker, "payload": payload},
+    )
+
+    result = asyncio.run(
+        market_reports.us_sec_rebuild_package(
+            "aapl",
+            JsonRequest({"force": True}),
+            wait=False,
+            _ops_user=DummyUser(),
+        )
+    )
+
+    assert result["ok"] is True
+    assert result["queued"] is True
+    assert result["job_id"] == "us-sec-rebuild-job-1"
+    assert seen["kind"] == "us-sec-rebuild"
+    assert seen["target_result"] == {"ok": True, "ticker": "aapl", "payload": {"force": True}}
+
+
 def test_market_report_job_status_uses_service(monkeypatch):
-    monkeypatch.setattr(market_reports.market_report_job_service, "get", lambda job_id: {"job_id": job_id, "status": "running"})
+    snapshot = {
+        "job_id": "job-123",
+        "kind": "market-vector-ingest",
+        "status": "running",
+        "created_at": "2026-07-03T10:00:00Z",
+        "started_at": "2026-07-03T10:00:01Z",
+        "finished_at": None,
+        "created_by": {"id": 42, "username": "ops"},
+        "result": None,
+        "error": None,
+    }
+    monkeypatch.setattr(market_reports.market_report_job_service, "get", lambda job_id: snapshot)
 
     result = asyncio.run(market_reports.market_report_job_status("job-123", _ops_user=None))
 
-    assert result["job_id"] == "job-123"
-    assert result["status"] == "running"
+    assert result == snapshot
+    assert "target" not in result
+
+
+def test_market_report_job_status_returns_404_for_missing_job(monkeypatch):
+    monkeypatch.setattr(market_reports.market_report_job_service, "get", lambda job_id: None)
+
+    try:
+        asyncio.run(market_reports.market_report_job_status("missing-job", _ops_user=None))
+    except HTTPException as exc:
+        assert exc.status_code == 404
+        assert exc.detail == "Job not found"
+    else:
+        raise AssertionError("expected HTTPException")

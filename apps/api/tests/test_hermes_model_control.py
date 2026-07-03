@@ -40,7 +40,7 @@ def test_status_reports_qwen36_when_runtime_profile_uses_qwen(tmp_path, monkeypa
     assert control.GEMMA4_MODEL not in reply.split("备用顺序：", 1)[0]
 
 
-def test_switch_commands_cover_all_four_models(tmp_path, monkeypatch):
+def test_switch_commands_cover_all_models(tmp_path, monkeypatch):
     config_path = tmp_path / "config.yaml"
     _write_config(config_path)
     _patch_profile(monkeypatch, config_path)
@@ -48,6 +48,7 @@ def test_switch_commands_cover_all_four_models(tmp_path, monkeypatch):
     cases = [
         ("切换到 Kimi", "kimi", control.KIMI_MODEL, control.KIMI_PROVIDER),
         ("切换到 MiniMax", "minimax", control.MINIMAX_MODEL, control.MINIMAX_PROVIDER),
+        ("切换到 stepfun", "stepfun", control.STEPFUN_MODEL, control.STEPFUN_PROVIDER),
         ("切换到 Qwen3.6", "qwen36", control.QWEN36_MODEL, control.QWEN36_PROVIDER),
         ("切换到 Gemma4", "gemma4", control.GEMMA4_MODEL, control.GEMMA4_PROVIDER),
     ]
@@ -85,7 +86,7 @@ def test_local_alias_switches_to_qwen36_not_gemma4(tmp_path, monkeypatch):
     assert data["model"]["base_url"] == control.QWEN36_BASE_URL
 
 
-def test_cloud_alias_switches_to_minimax(tmp_path, monkeypatch):
+def test_cloud_alias_switches_to_stepfun(tmp_path, monkeypatch):
     config_path = tmp_path / "config.yaml"
     _write_config(config_path)
     _patch_profile(monkeypatch, config_path)
@@ -94,10 +95,11 @@ def test_cloud_alias_switches_to_minimax(tmp_path, monkeypatch):
     data = _read_config(config_path)
 
     assert reply is not None
-    assert "云端 Minimax" in reply
-    assert data["model"]["default"] == control.MINIMAX_MODEL
-    assert data["model"]["provider"] == control.MINIMAX_PROVIDER
-    assert data["fallback_providers"][0]["model"] == control.KIMI_MODEL
+    assert "云端 StepFun" in reply
+    assert data["model"]["default"] == control.STEPFUN_MODEL
+    assert data["model"]["provider"] == control.STEPFUN_PROVIDER
+    assert data["model"]["base_url"] == control.STEPFUN_BASE_URL
+    assert data["fallback_providers"][0]["model"] == control.QWEN36_MODEL
 
 
 def test_status_question_mentioning_gemma4_does_not_switch(tmp_path, monkeypatch):

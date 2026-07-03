@@ -77,6 +77,7 @@ npm run e2e
 | `/api/tracking` | `http://127.0.0.1:18081` | 跟踪 Agent 和跟踪业务 API |
 | `/api/legal` | `http://127.0.0.1:18081` | 法务 Agent |
 | `/api/documents` | `http://127.0.0.1:18081` | 通用文档解析鉴权代理 |
+| `/api/deals` | `http://127.0.0.1:18081` | 一级市场 Deal OS、投委会工作流、项目证据包 |
 | `/api/workflow` | `http://127.0.0.1:18081` | PDF/文档导入工作流 |
 | `/api/market-reports`, `/api/us-sec`, `/api/jobs` | `http://127.0.0.1:18081` | 多市场 evidence package、SEC 案例集、后台 job |
 | `/api/downloads` | `http://127.0.0.1:18081` | 已下载文件管理 |

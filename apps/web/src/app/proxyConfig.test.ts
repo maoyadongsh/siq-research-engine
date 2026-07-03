@@ -1,0 +1,52 @@
+/// <reference types="node" />
+
+import { strict as assert } from 'node:assert'
+import { resolve as resolvePath } from 'node:path'
+import { test } from 'node:test'
+import { pathToFileURL } from 'node:url'
+
+type ProxyRule = {
+  prefix: string
+  target: string
+  rewrite?: (url: string) => string
+}
+
+type ViteProxyRule = {
+  target: string
+  rewrite?: (url: string) => string
+}
+
+type ProxyConfigModule = {
+  createProxyRules: (options: { backendUrl: string; reportFinderUrl: string }) => ProxyRule[]
+  createViteProxy: (options: { backendUrl: string; reportFinderUrl: string }) => Record<string, ViteProxyRule>
+}
+
+const proxyConfigUrl = pathToFileURL(resolvePath('scripts/proxy-config.mjs')).href
+const { createProxyRules, createViteProxy } = await import(/* @vite-ignore */ proxyConfigUrl) as ProxyConfigModule
+
+test('proxy rules keep deal APIs on the backend before the market finder fallback', () => {
+  const rules = createProxyRules({
+    backendUrl: 'http://backend.local',
+    reportFinderUrl: 'http://finder.local',
+  })
+  const prefixes = rules.map((rule) => rule.prefix)
+
+  assert.ok(prefixes.includes('/api/deals'))
+  assert.ok(prefixes.indexOf('/api/deals') < prefixes.indexOf('/api'))
+  assert.equal(rules.find((rule) => rule.prefix === '/api/deals')?.target, 'http://backend.local')
+  assert.equal(rules.find((rule) => rule.prefix === '/api')?.target, 'http://finder.local')
+})
+
+test('vite proxy exposes deal APIs without inheriting the finder rewrite', () => {
+  const proxy = createViteProxy({
+    backendUrl: 'http://backend.local',
+    reportFinderUrl: 'http://finder.local',
+  })
+
+  assert.equal(proxy['/api/deals'].target, 'http://backend.local')
+  assert.equal(proxy['/api/deals'].rewrite, undefined)
+  assert.equal(proxy['/api'].target, 'http://finder.local')
+  const finderRewrite = proxy['/api'].rewrite
+  if (!finderRewrite) throw new Error('Expected /api fallback rewrite')
+  assert.equal(finderRewrite('/api/v1/reports/search'), '/v1/reports/search')
+})
