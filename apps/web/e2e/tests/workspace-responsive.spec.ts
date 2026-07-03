@@ -132,4 +132,31 @@ test.describe('工作平台响应式验收', () => {
     expect(system.heroWidth).toBe(workspace.heroWidth)
     expect(system.workflowWidth).toBe(workspace.workflowWidth)
   })
+
+  test('移动端侧边栏导航入口可打开和关闭抽屉', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await mockAuthenticatedWorkspace(page)
+
+    await page.goto('/')
+    await page.waitForLoadState('networkidle')
+    await expect(page.getByRole('heading', { name: '工作平台' })).toBeVisible()
+
+    const sidebar = page.locator('#app-sidebar')
+    await expect(page.getByRole('button', { name: '打开导航' })).toBeVisible()
+    await expect
+      .poll(() => sidebar.evaluate((element) => Math.round(element.getBoundingClientRect().right)))
+      .toBeLessThanOrEqual(1)
+
+    await page.getByRole('button', { name: '打开导航' }).click()
+    await expect(page.getByRole('button', { name: '关闭导航' })).toBeVisible()
+    await expect
+      .poll(() => sidebar.evaluate((element) => Math.round(element.getBoundingClientRect().left)))
+      .toBeGreaterThanOrEqual(0)
+
+    await page.mouse.click(360, 120)
+    await expect(page.getByRole('button', { name: '打开导航' })).toBeVisible()
+    await expect
+      .poll(() => sidebar.evaluate((element) => Math.round(element.getBoundingClientRect().right)))
+      .toBeLessThanOrEqual(1)
+  })
 })

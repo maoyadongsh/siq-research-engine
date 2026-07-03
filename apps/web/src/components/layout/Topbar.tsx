@@ -5,6 +5,8 @@ import { useAuth } from '../../hooks/useAuth'
 import GlobalSearch from './GlobalSearch'
 import NotificationMenu from './NotificationMenu'
 
+const DESKTOP_NAV_QUERY = '(min-width: 1024px)'
+
 interface TopbarProps {
   sidebarCollapsed: boolean
   mobileSidebarOpen: boolean
@@ -28,6 +30,9 @@ export default function Topbar({ sidebarCollapsed, mobileSidebarOpen, onToggleSi
   const navigate = useNavigate()
   const { user, logout } = useAuth()
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
+  const [desktopNav, setDesktopNav] = useState(() => (
+    typeof window !== 'undefined' ? window.matchMedia(DESKTOP_NAV_QUERY).matches : true
+  ))
   const accountMenuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -50,18 +55,30 @@ export default function Topbar({ sidebarCollapsed, mobileSidebarOpen, onToggleSi
     }
   }, [accountMenuOpen])
 
+  useEffect(() => {
+    const media = window.matchMedia(DESKTOP_NAV_QUERY)
+    const syncDesktopNav = () => setDesktopNav(media.matches)
+
+    syncDesktopNav()
+    media.addEventListener('change', syncDesktopNav)
+    return () => media.removeEventListener('change', syncDesktopNav)
+  }, [])
+
+  const accountLabel = user
+    ? `${user.full_name || user.username || '我的账户'}（${roleLabel(user.role)}）`
+    : '我的账户'
+  const navigationExpanded = desktopNav ? !sidebarCollapsed : mobileSidebarOpen
+  const navigationLabel = desktopNav
+    ? sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'
+    : mobileSidebarOpen ? '关闭导航' : '打开导航'
+  const accountName = user?.full_name || user?.username || '我的账户'
   const handleToggleNavigation = () => {
-    if (typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches) {
+    if (desktopNav) {
       onToggleSidebar()
       return
     }
     onToggleMobileSidebar()
   }
-  const accountLabel = user
-    ? `${user.full_name || user.username || '我的账户'}（${roleLabel(user.role)}）`
-    : '我的账户'
-  const navigationLabel = sidebarCollapsed ? '展开侧边栏' : mobileSidebarOpen ? '关闭导航' : '收起侧边栏'
-  const accountName = user?.full_name || user?.username || '我的账户'
   const handleLogout = () => {
     setAccountMenuOpen(false)
     logout()
@@ -86,10 +103,10 @@ export default function Topbar({ sidebarCollapsed, mobileSidebarOpen, onToggleSi
       <button
         type="button"
         onClick={handleToggleNavigation}
-        className="inline-flex h-10 w-10 shrink-0 items-center justify-center text-slate-500 transition-colors hover:text-slate-950 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-transparent text-slate-500 transition hover:border-border hover:bg-white hover:text-slate-950 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
         aria-label={navigationLabel}
         aria-controls="app-sidebar"
-        aria-expanded={mobileSidebarOpen || !sidebarCollapsed}
+        aria-expanded={navigationExpanded}
         title={navigationLabel}
       >
         <Menu className="h-5 w-5" />

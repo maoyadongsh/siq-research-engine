@@ -4,7 +4,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { Tooltip } from '../ui'
 import { useAuth } from '../../hooks/useAuth'
 import { preloadRoute } from '../../lib/routePreload'
-import { navItems, bottomItems, userAdminItems, systemAdminItems, assistantItem, type SidebarItem, type SidebarLinkVariant } from './layoutData'
+import { navItems, userAdminItems, systemAdminItems, assistantItem, bottomItems, type SidebarItem, type SidebarLinkVariant } from './layoutData'
 
 interface SidebarProps {
   collapsed: boolean
@@ -95,15 +95,9 @@ export default function Sidebar({ collapsed, mobileOpen = false, onToggle, onClo
       <nav className={`sidebar-scrollbarless flex-1 overflow-y-auto overflow-x-hidden pb-1 ${compact ? 'mt-2 space-y-0.5 px-1.5' : 'mt-3 space-y-0.5 px-2.5'}`}>
         {visibleNavItems.map((item) => renderLink(item, compact))}
       </nav>
-      {!compact && (
-        <div className="mx-2.5 mb-2.5 rounded-[14px] border border-slate-200/90 bg-slate-50 px-2.5 py-2.5 text-left">
-          <div className="text-xs font-bold leading-4 text-slate-900">Research OS</div>
-          <div className="mt-1 whitespace-nowrap text-xs font-medium leading-4 text-slate-700">基于全链路可审计的公司、行业研究平台。</div>
-        </div>
-      )}
       <div className={`border-t border-border ${compact ? 'px-1.5 py-1.5' : 'px-2.5 py-2'}`}>{renderLink(assistantItem, compact, 'assistant')}</div>
       <div className={`border-t border-border ${compact ? 'px-1.5 py-1.5' : 'px-2.5 py-2'}`}>
-        <div className={compact ? 'flex flex-col gap-1' : 'grid grid-cols-3 gap-1.5'}>
+        <div className={compact ? 'space-y-1' : 'grid grid-cols-3 gap-1.5'}>
           {visibleBottomItems.map((item) => renderLink(item, compact, 'utility'))}
         </div>
       </div>

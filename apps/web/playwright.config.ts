@@ -38,7 +38,7 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   webServer: {
-    command: `npm run dev -- --host 127.0.0.1 --port ${webServerPort}`,
+    command: `SIQ_FRONTEND_PORT=${webServerPort} npm run dev -- --host 127.0.0.1 --port ${webServerPort}`,
     url: baseURL,
     reuseExistingServer: true,
     timeout: 120_000,

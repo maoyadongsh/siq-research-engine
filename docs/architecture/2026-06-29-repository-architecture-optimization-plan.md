@@ -3459,6 +3459,24 @@ cd apps/web && npx playwright test e2e/tests/auth-responsive.spec.ts  # 4 passed
 cd apps/web && npm run check:frontend  # passed
 ```
 
+### 0.53 2026-07-03 工作台导航响应式与 Playwright 端口策略
+
+本轮只收口工作台导航响应式和 E2E dev server 端口策略，不混入 infra/env、Hermes 脚本或 Deal 页面后续小改。
+
+完成范围：
+
+- `Topbar` 根据 `1024px` 断点区分桌面侧边栏折叠与移动端抽屉开关，修正 `aria-label` / `aria-expanded`，避免移动端关闭状态仍被读成桌面展开。
+- `Sidebar` 保留底部入口的权限过滤，确保 `/settings` 只对 `system.config` 用户可见；同时移除移动抽屉里占空间的说明卡片，让底部工具入口在窄屏更稳定。
+- 新增 workspace 移动端抽屉 E2E smoke，覆盖打开、关闭和抽屉位置恢复。
+- `playwright.config.ts` 将 `SIQ_FRONTEND_PORT` 注入 Vite dev server，和 `PLAYWRIGHT_BASE_URL` / 默认 `15174` 端口策略保持一致；E2E README 同步说明当前 smoke 覆盖面和端口覆盖方式。
+
+验证：
+
+```bash
+cd apps/web && npx playwright test e2e/tests/workspace-responsive.spec.ts  # 7 passed
+cd apps/web && npm run check:frontend  # passed
+```
+
 ## 10. 验收标准总表
 
 ### 仓库治理 DoD
