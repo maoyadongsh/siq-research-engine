@@ -17,8 +17,14 @@ from routers import source
 
 
 class DummyRequest:
-    def __init__(self, query_params=None):
+    def __init__(self, query_params=None, headers=None):
         self.query_params = query_params or {}
+        self.headers = headers or {}
+
+
+class QueryParams(dict):
+    def multi_items(self):
+        return list(self.items())
 
 
 @pytest.fixture
@@ -279,19 +285,61 @@ def test_source_url_keeps_format_when_adding_signed_token():
     assert "access_token=" not in url
 
 
+def test_wants_html_respects_explicit_format_over_accept_header():
+    assert source._wants_html(DummyRequest({"format": "json"}, {"accept": "text/html"})) is False
+    assert source._wants_html(DummyRequest({"format": "html"}, {"accept": "application/json"})) is True
+    assert source._wants_html(DummyRequest({}, {"accept": "application/json,text/html"})) is False
+    assert source._wants_html(DummyRequest({}, {"accept": "text/html"})) is True
+
+
+def test_clean_table_html_removes_script_and_inline_event_handlers():
+    cleaned = source._clean_table_html(
+        "<table onclick=\"steal()\"><tr><td onmouseover='bad()'>Revenue</td></tr></table>"
+        "<script>alert('x')</script>"
+    )
+
+    assert "<script" not in cleaned.lower()
+    assert "onclick" not in cleaned.lower()
+    assert "onmouseover" not in cleaned.lower()
+    assert "Revenue" in cleaned
+
+
+def test_source_page_helpers_infer_total_pages_and_printed_page_number():
+    data = {
+        "blocks": [
+            {"type": "paragraph", "text": "Annual report page 3 / 18"},
+            {"type": "page_number", "text": "II-7"},
+        ]
+    }
+
+    assert source._infer_total_pages({"page_count": 9}) == 9
+    assert source._infer_total_pages(data) == 18
+    assert source._printed_page_number(data) == "II-7"
+    assert source._printed_page_number({"printed_page": "  F-12  "}) == "F-12"
+
+
+def test_page_nav_html_carries_source_token_without_login_token():
+    nav = source._page_nav_html(
+        "task-a",
+        1,
+        mode="source",
+        total_pages=2,
+        source_token="signed-source",
+    )
+
+    assert "上一页" in nav
+    assert "aria-disabled='true'" in nav
+    assert "/api/source/task-a/page/2?source_token=signed-source" in nav
+    assert "access_token" not in nav
+
+    last_nav = source._page_nav_html("task-a", 2, mode="pdf", total_pages=2, source_token="signed-source")
+    assert "/api/pdf_page/task-a/1?source_token=signed-source" in last_nav
+    assert "下一页" in last_nav
+    assert last_nav.count("aria-disabled='true'") == 1
+
+
 def test_request_pdf2md_does_not_forward_source_tokens(monkeypatch):
     calls = {}
-
-    class QueryParams:
-        def multi_items(self):
-            return [
-                ("format", "json"),
-                ("access_token", "login-token"),
-                ("source_token", "signed-source-token"),
-                ("Access_Token", "login-token-upper"),
-                ("SOURCE_TOKEN", "signed-source-token-upper"),
-                ("keep", "1"),
-            ]
 
     class FakeAsyncClient:
         def __init__(self, *, timeout):
@@ -315,7 +363,16 @@ def test_request_pdf2md_does_not_forward_source_tokens(monkeypatch):
         monkeypatch.setattr(source, "PDF2MD_ACCESS_TOKEN", "")
         request = SimpleNamespace(
             method="GET",
-            query_params=QueryParams(),
+            query_params=QueryParams(
+                {
+                    "format": "json",
+                    "access_token": "login-token",
+                    "source_token": "signed-source-token",
+                    "Access_Token": "login-token-upper",
+                    "SOURCE_TOKEN": "signed-source-token-upper",
+                    "keep": "1",
+                }
+            ),
             headers={"authorization": "Bearer login-token"},
         )
 
@@ -333,10 +390,6 @@ def test_request_pdf2md_does_not_forward_source_tokens(monkeypatch):
 
 def test_source_table_route_uses_async_authorization_before_proxy(monkeypatch):
     calls = {}
-
-    class QueryParams(dict):
-        def multi_items(self):
-            return list(self.items())
 
     async def fake_authorize_task_access_async(*, request, task_id, async_session, credentials):
         calls["auth"] = (request, task_id, async_session, credentials)
@@ -375,10 +428,6 @@ def test_source_table_route_uses_async_authorization_before_proxy(monkeypatch):
 
 def test_source_table_correction_uses_async_access_check(monkeypatch):
     calls = {}
-
-    class QueryParams(dict):
-        def multi_items(self):
-            return list(self.items())
 
     class CorrectionRequest:
         method = "POST"
