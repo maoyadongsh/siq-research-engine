@@ -606,6 +606,101 @@ def test_rule_deal_dispute_dry_run_write_and_completion(tmp_path):
     assert by_component["r1_5_disputes"]["blocking"] is False
 
 
+def test_generate_deal_dispute_rulings_dry_run_write_and_skip_existing(tmp_path):
+    deal_store.create_deal_package(
+        deal_id="DEAL-YUSHU-2026-001",
+        company_name="宇树科技",
+        wiki_root=tmp_path,
+    )
+    package_dir = tmp_path / "deals" / "DEAL-YUSHU-2026-001"
+    _write_json(
+        package_dir / "phases" / "r1_5_disputes.json",
+        {
+            "schema_version": "siq_ic_disputes_v1",
+            "deal_id": "DEAL-YUSHU-2026-001",
+            "disputes": [
+                {
+                    "dispute_id": "DISP-001",
+                    "topic": "Recommendation divergence",
+                    "dimension": "committee_alignment",
+                    "severity": "high",
+                    "positions": [
+                        {"agent_id": "siq_ic_strategist", "evidence_ids": ["EVID-001"]},
+                        {"agent_id": "siq_ic_finance_auditor", "evidence_ids": ["EVID-002"]},
+                    ],
+                    "required_followups": ["Document valuation tie-break rationale"],
+                    "resolved": False,
+                },
+                {
+                    "dispute_id": "DISP-002",
+                    "topic": "Evidence gap",
+                    "dimension": "evidence_sufficiency",
+                    "severity": "medium",
+                    "positions": [{"agent_id": "siq_ic_legal_scanner", "evidence_ids": ["EVID-003"]}],
+                    "resolved": False,
+                },
+                {
+                    "dispute_id": "DISP-003",
+                    "topic": "Already ruled",
+                    "dimension": "risk",
+                    "severity": "low",
+                    "positions": [{"agent_id": "siq_ic_risk_controller", "evidence_ids": ["EVID-004"]}],
+                    "resolved": True,
+                    "chairman_ruling": {"decision": "keep_existing", "resolved": True},
+                },
+            ],
+        },
+    )
+    (package_dir / deal_disputes.DISPUTES_MARKDOWN_PATH).write_text("# before\n", encoding="utf-8")
+    json_before = (package_dir / "phases" / "r1_5_disputes.json").read_text(encoding="utf-8")
+    audit_before = (package_dir / "audit" / "audit_log.json").read_text(encoding="utf-8")
+
+    dry_run = deal_disputes.generate_deal_dispute_rulings(
+        "DEAL-YUSHU-2026-001",
+        dry_run=True,
+        created_by={"id": 7, "username": "chair", "email": "hide@example.test"},
+        wiki_root=tmp_path,
+    )
+
+    assert dry_run["schema_version"] == "siq_deal_r1_5_dispute_ruling_generation_v1"
+    assert dry_run["dry_run"] is True
+    assert dry_run["would_write"] is False
+    assert dry_run["generated_count"] == 2
+    assert dry_run["skipped_count"] == 1
+    assert dry_run["summary"]["counts"]["resolved"] == 3
+    assert dry_run["rulings"][0]["ruling"]["generation_mode"] == "deterministic_r1_5_dispute_scan_v1"
+    assert dry_run["rulings"][0]["ruling"]["decision"] == "resolved_with_conditions"
+    assert dry_run["rulings"][0]["ruling"]["required_followups"] == ["Document valuation tie-break rationale"]
+    assert "hide@example.test" not in json.dumps(dry_run, ensure_ascii=False)
+    assert (package_dir / "phases" / "r1_5_disputes.json").read_text(encoding="utf-8") == json_before
+    assert (package_dir / "audit" / "audit_log.json").read_text(encoding="utf-8") == audit_before
+
+    write = deal_disputes.generate_deal_dispute_rulings(
+        "DEAL-YUSHU-2026-001",
+        dry_run=False,
+        created_by={"id": 7, "username": "chair"},
+        wiki_root=tmp_path,
+    )
+
+    assert write["written"] is True
+    assert write["generated_count"] == 2
+    assert write["summary"]["status"] == "pass"
+    assert write["summary"]["counts"]["resolved"] == 3
+    assert write["summary"]["counts"]["unresolved"] == 0
+    persisted = json.loads((package_dir / "phases" / "r1_5_disputes.json").read_text(encoding="utf-8"))
+    by_id = {item["dispute_id"]: item for item in persisted["disputes"]}
+    assert by_id["DISP-001"]["chairman_ruling"]["agent_id"] == "siq_ic_chairman"
+    assert by_id["DISP-001"]["chairman_ruling"]["evidence_ids"] == ["EVID-001", "EVID-002"]
+    assert by_id["DISP-002"]["chairman_ruling"]["required_followups"] == ["Resolve evidence sufficiency gaps before R2"]
+    assert by_id["DISP-003"]["chairman_ruling"]["decision"] == "keep_existing"
+    workflow = json.loads((package_dir / "phases" / "workflow_state.json").read_text(encoding="utf-8"))
+    assert workflow["current_phase"] == "R1.5"
+    assert workflow["status"] == "r1_5_disputes_resolved"
+    assert workflow["phases"]["R1.5"]["status"] == "completed"
+    audit = json.loads((package_dir / "audit" / "audit_log.json").read_text(encoding="utf-8"))
+    assert audit["events"][-1]["event_type"] == "deal_r1_5_dispute_rulings_generated"
+
+
 def test_deal_phase_artifacts_summary_tracks_r2_and_r3_skip(tmp_path):
     deal_store.create_deal_package(
         deal_id="DEAL-YUSHU-2026-001",

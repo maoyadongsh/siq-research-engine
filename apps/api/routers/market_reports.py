@@ -291,14 +291,10 @@ def _run_market_ingestion_eval(payload: dict[str, Any]) -> dict[str, Any]:
         )
     except market_report_commands.MarketPackagePlanError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
-    args, output, markdown = market_report_commands.market_ingestion_eval_args(
+    args, _output, _markdown = market_report_commands.market_ingestion_eval_args(
         executable=sys.executable,
         script=plan.script,
-        payload={
-            **payload,
-            "output": plan.output_path,
-            "markdown": plan.markdown_path,
-        },
+        payload={},
         repo_root=REPO_ROOT,
         default_output=plan.output_path,
         default_markdown=plan.markdown_path,
@@ -306,8 +302,8 @@ def _run_market_ingestion_eval(payload: dict[str, Any]) -> dict[str, Any]:
     completed = run_command(args, cwd=REPO_ROOT, timeout=900)
     return market_report_commands.market_ingestion_eval_result_payload(
         completed=completed,
-        report=_read_json_file(output, {}),
-        markdown_path=_rel_or_abs(markdown),
+        report=_read_json_file(plan.output_path, {}),
+        markdown_path=_rel_or_abs(plan.markdown_path),
         command=_command_for_display(args),
     )
 

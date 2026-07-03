@@ -15,7 +15,9 @@ DEAL_DISPUTES_SCHEMA = "siq_ic_disputes_v1"
 DEAL_DISPUTES_IDENTIFICATION_SCHEMA = "siq_deal_r1_5_disputes_identification_v1"
 DEAL_DISPUTE_RULING_SCHEMA = "siq_deal_r1_5_dispute_ruling_v1"
 DEAL_DISPUTE_RULING_RESPONSE_SCHEMA = "siq_deal_r1_5_dispute_ruling_response_v1"
+DEAL_DISPUTE_RULING_GENERATION_SCHEMA = "siq_deal_r1_5_dispute_ruling_generation_v1"
 DEAL_DISPUTES_GENERATION_MODE = "deterministic_r1_report_scan_v1"
+DEAL_DISPUTE_RULING_GENERATION_MODE = "deterministic_r1_5_dispute_scan_v1"
 DISPUTES_JSON_PATH = "phases/r1_5_disputes.json"
 DISPUTES_MARKDOWN_PATH = "discussion/02_R1.5_\u88c1\u51b3\u8bb0\u5f55.md"
 NEGATIVE_RECOMMENDATIONS = {"reject", "no_go", "pass_on", "caution", "insufficient_evidence"}
@@ -540,6 +542,191 @@ def _update_workflow_after_ruling(
     workflow["updated_at"] = now
     deal_store.write_json(package_dir / "phases" / "workflow_state.json", workflow)
     return workflow
+
+
+def _dispute_evidence_ids(dispute: dict[str, Any]) -> list[str]:
+    return _dedupe_strings(
+        _string_values(dispute.get("evidence_ids"))
+        + _string_values(dispute.get("evidence_id"))
+        + _position_evidence_ids(_as_list(dispute.get("positions")))
+    )
+
+
+def _dispute_agent_ids(dispute: dict[str, Any]) -> list[str]:
+    return _canonical_agent_ids(
+        _string_values(dispute.get("agent_ids"))
+        + _string_values(dispute.get("agent_id"))
+        + _position_agents(_as_list(dispute.get("positions")))
+    )
+
+
+def _ruling_decision_for_dispute(dispute: dict[str, Any], followups: list[str]) -> str:
+    severity = str(dispute.get("severity") or "").strip().lower()
+    dimension = str(dispute.get("dimension") or "").strip().lower()
+    if severity in {"high", "critical"} or followups or dimension in {"evidence_sufficiency", "scoring_consistency"}:
+        return "resolved_with_conditions"
+    return "resolved_no_followup"
+
+
+def _ruling_followups_for_dispute(dispute: dict[str, Any]) -> list[str]:
+    followups = _dedupe_strings(
+        _string_values(dispute.get("required_followups"))
+        + _string_values(dispute.get("required_followup"))
+    )
+    if followups:
+        return followups
+    dimension = str(dispute.get("dimension") or "").strip().lower()
+    if dimension == "evidence_sufficiency":
+        return ["Resolve evidence sufficiency gaps before R2"]
+    if dimension == "scoring_consistency":
+        return ["Normalize score assumptions before R2"]
+    if dimension == "committee_alignment":
+        return ["Document chairman tie-break rationale before R2"]
+    return []
+
+
+def _ruling_rationale_for_dispute(dispute: dict[str, Any], *, decision: str) -> str:
+    dispute_id = str(dispute.get("dispute_id") or "").strip()
+    topic = str(dispute.get("topic") or "R1.5 dispute").strip()
+    dimension = str(dispute.get("dimension") or "unknown").strip()
+    severity = str(dispute.get("severity") or "unknown").strip()
+    agents = ", ".join(_dispute_agent_ids(dispute)) or "unknown agents"
+    return (
+        f"Deterministic chairman draft for {dispute_id or topic}: {topic}. "
+        f"Dimension={dimension}, severity={severity}, agents={agents}. "
+        f"Decision={decision}; final human review is still required before R2/R4 progression."
+    )
+
+
+def _build_generated_ruling(
+    normalized_deal_id: str,
+    dispute: dict[str, Any],
+    *,
+    now: str,
+    created_by: dict[str, Any] | None,
+) -> dict[str, Any]:
+    followups = _ruling_followups_for_dispute(dispute)
+    decision = _ruling_decision_for_dispute(dispute, followups)
+    normalized_dispute_id = str(dispute.get("dispute_id") or "").strip()
+    return {
+        "schema_version": DEAL_DISPUTE_RULING_SCHEMA,
+        "deal_id": normalized_deal_id,
+        "dispute_id": normalized_dispute_id,
+        "agent_id": "siq_ic_chairman",
+        "chairman_agent_id": "siq_ic_chairman",
+        "decision": decision,
+        "rationale": _ruling_rationale_for_dispute(dispute, decision=decision),
+        "required_followups": followups,
+        "evidence_ids": _dispute_evidence_ids(dispute),
+        "resolved": True,
+        "generation_mode": DEAL_DISPUTE_RULING_GENERATION_MODE,
+        "created_at": now,
+        "created_by": created_by,
+        "ruled_at": now,
+        "ruled_by": created_by,
+    }
+
+
+def generate_deal_dispute_rulings(
+    deal_id: str,
+    *,
+    dry_run: bool = True,
+    overwrite: bool = False,
+    created_by: dict[str, Any] | None = None,
+    wiki_root: Path | str | None = None,
+) -> dict[str, Any]:
+    package_dir = _require_package_dir(deal_id, wiki_root=wiki_root)
+    normalized_deal_id = deal_store.validate_deal_id(deal_id)
+    payload = _load_disputes_payload(package_dir)
+    now = deal_store.utc_now_iso()
+    generated: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    warnings: list[str] = []
+
+    for dispute in _as_list(payload.get("disputes")):
+        if not isinstance(dispute, dict):
+            warnings.append("invalid_dispute_item_skipped")
+            continue
+        dispute_id = str(dispute.get("dispute_id") or "").strip()
+        if not dispute_id:
+            warnings.append("dispute_id_missing_skipped")
+            continue
+        if dispute.get("chairman_ruling") and not overwrite:
+            skipped.append({"dispute_id": dispute_id, "reason": "chairman_ruling_exists"})
+            continue
+        ruling = _build_generated_ruling(
+            normalized_deal_id,
+            dispute,
+            now=now,
+            created_by=created_by,
+        )
+        updated_dispute = _apply_dispute_ruling(
+            payload,
+            dispute_id=dispute_id,
+            ruling=ruling,
+            overwrite=True,
+        )
+        generated.append({
+            "dispute_id": dispute_id,
+            "ruling": ruling,
+            "dispute": updated_dispute,
+        })
+
+    payload["schema_version"] = str(payload.get("schema_version") or DEAL_DISPUTES_SCHEMA)
+    payload["deal_id"] = str(payload.get("deal_id") or normalized_deal_id)
+    payload["last_generated_rulings_at"] = now
+    payload["last_generated_ruling_count"] = len(generated)
+    if warnings:
+        payload["warnings"] = _dedupe_strings(_string_values(payload.get("warnings")) + warnings)
+    summary = _summarize_deal_disputes_raw(package_dir, payload)
+    result = {
+        "schema_version": DEAL_DISPUTE_RULING_GENERATION_SCHEMA,
+        "deal_id": normalized_deal_id,
+        "dry_run": bool(dry_run),
+        "would_write": bool(generated) and not dry_run,
+        "overwrite": bool(overwrite),
+        "generation_mode": DEAL_DISPUTE_RULING_GENERATION_MODE,
+        "json_path": DISPUTES_JSON_PATH,
+        "markdown_path": DISPUTES_MARKDOWN_PATH,
+        "generated_count": len(generated),
+        "skipped_count": len(skipped),
+        "warnings": warnings,
+        "skipped": skipped,
+        "rulings": generated,
+        "payload": payload,
+        "summary": summary,
+    }
+    if dry_run or not generated:
+        if not dry_run:
+            result["written"] = False
+        return deal_store.redact_public_payload(result)
+
+    deal_store.write_json(package_dir / DISPUTES_JSON_PATH, payload)
+    markdown_path = package_dir / DISPUTES_MARKDOWN_PATH
+    markdown_path.parent.mkdir(parents=True, exist_ok=True)
+    markdown_path.write_text(_markdown_for_disputes(payload), encoding="utf-8")
+    summary = summarize_deal_disputes(normalized_deal_id, wiki_root=wiki_root)
+    workflow = _update_workflow_after_ruling(package_dir, summary=summary, now=now)
+    audit_event = deal_store.append_audit_event(
+        normalized_deal_id,
+        {
+            "event_type": "deal_r1_5_dispute_rulings_generated",
+            "deal_id": normalized_deal_id,
+            "generated_count": len(generated),
+            "skipped_count": len(skipped),
+            "overwrite": bool(overwrite),
+            "warnings": warnings,
+            "json_path": DISPUTES_JSON_PATH,
+            "markdown_path": DISPUTES_MARKDOWN_PATH,
+            "created_by": created_by,
+        },
+        wiki_root=wiki_root,
+    )
+    result["written"] = True
+    result["summary"] = summary
+    result["workflow"] = workflow
+    result["audit_event"] = audit_event
+    return deal_store.redact_public_payload(result)
 
 
 def rule_deal_dispute(

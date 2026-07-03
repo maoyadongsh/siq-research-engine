@@ -22,6 +22,7 @@ REQUIRED_AUDIT_EVENTS = (
 TRACKED_AUDIT_EVENTS = (
     "deal_created",
     "openclaw_imported",
+    "deal_r1_5_dispute_rulings_generated",
     "r4_decision_generated",
 )
 

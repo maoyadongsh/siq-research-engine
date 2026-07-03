@@ -97,6 +97,11 @@ class WorkflowDisputeRulingRequest(BaseModel):
     dry_run: bool = True
 
 
+class WorkflowGenerateDisputeRulingsRequest(BaseModel):
+    dry_run: bool = True
+    overwrite: bool = False
+
+
 class DealDecisionHumanConfirmationRequest(BaseModel):
     status: str = Field(..., min_length=3)
     override_reason: str | None = None
@@ -859,6 +864,26 @@ def post_workflow_dispute_ruling(
         if detail.startswith("Dispute not found:"):
             raise HTTPException(status_code=404, detail=detail) from exc
         raise HTTPException(status_code=400, detail=detail) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+
+
+@router.post("/{deal_id}/workflow/generate-dispute-rulings")
+def post_workflow_generate_dispute_rulings(
+    deal_id: str,
+    payload: WorkflowGenerateDisputeRulingsRequest | None = None,
+    current_user: User = Depends(require_permission("report.create")),
+) -> dict[str, Any]:
+    request = payload or WorkflowGenerateDisputeRulingsRequest()
+    try:
+        return deal_disputes.generate_deal_dispute_rulings(
+            deal_id,
+            dry_run=request.dry_run,
+            overwrite=request.overwrite,
+            created_by=_user_payload(current_user),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise _not_found(deal_id) from exc
 

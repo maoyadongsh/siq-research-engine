@@ -1066,6 +1066,24 @@ def test_market_package_build_rejects_invalid_download_path_before_command(monke
         raise AssertionError("expected HTTPException")
 
 
+def test_market_ingestion_eval_missing_script_does_not_run_command(monkeypatch, tmp_path):
+    missing_script = tmp_path / "scripts" / "run_market_ingestion_eval.py"
+
+    def fail_run(*_args, **_kwargs):
+        raise AssertionError("run_command should not be called")
+
+    monkeypatch.setattr(market_reports, "MARKET_INGESTION_EVAL_SCRIPT", missing_script)
+    monkeypatch.setattr(market_reports, "run_command", fail_run)
+
+    try:
+        market_reports._run_market_ingestion_eval({})
+    except HTTPException as exc:
+        assert exc.status_code == 404
+        assert exc.detail == f"Missing eval script: {missing_script}"
+    else:
+        raise AssertionError("expected HTTPException")
+
+
 def test_eu_parse_endpoint_wraps_market_package_build(monkeypatch, tmp_path):
     downloads_root = tmp_path / "downloads"
     source_path = downloads_root / "EU" / "NL" / "ASML" / "2025" / "年报" / "report.html"
@@ -1516,6 +1534,48 @@ def test_market_ingestion_eval_queues_background_job(monkeypatch):
     assert result["job_id"] == "market-ingestion-eval-job-1"
     assert seen["kind"] == "market-ingestion-eval"
     assert seen["target_result"]["payload"] == {"output": "tmp/eval.json"}
+
+
+def test_market_ingestion_eval_wait_runs_inline(monkeypatch):
+    seen = {}
+
+    def fake_run(payload):
+        seen["payload"] = payload
+        return {"ok": True, "payload": payload}
+
+    monkeypatch.setattr(market_reports, "_run_market_ingestion_eval", fake_run)
+
+    result = asyncio.run(
+        market_reports.run_market_ingestion_eval(
+            JsonRequest({"output": "tmp/eval.json", "markdown": "tmp/eval.md"}),
+            wait=True,
+            _ops_user=DummyUser(),
+        )
+    )
+
+    assert result == {"ok": True, "payload": {"output": "tmp/eval.json", "markdown": "tmp/eval.md"}}
+    assert seen["payload"] == {"output": "tmp/eval.json", "markdown": "tmp/eval.md"}
+
+
+def test_market_ingestion_eval_rejects_non_object_payload(monkeypatch):
+    def fail_run(*_args, **_kwargs):
+        raise AssertionError("_run_market_ingestion_eval should not be called")
+
+    monkeypatch.setattr(market_reports, "_run_market_ingestion_eval", fail_run)
+
+    try:
+        asyncio.run(
+            market_reports.run_market_ingestion_eval(
+                JsonRequest(["tmp/eval.json"]),
+                wait=True,
+                _ops_user=DummyUser(),
+            )
+        )
+    except HTTPException as exc:
+        assert exc.status_code == 400
+        assert exc.detail == "JSON object payload is required"
+    else:
+        raise AssertionError("expected HTTPException")
 
 
 def test_us_sec_safe_ingest_args_validates_filters(monkeypatch, tmp_path):

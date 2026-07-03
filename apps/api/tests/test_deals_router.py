@@ -545,6 +545,57 @@ def test_deals_router_dispute_ruling_dry_run_and_write(monkeypatch, tmp_path):
     assert missing.status_code == 404
 
 
+def test_deals_router_generate_dispute_rulings_dry_run_and_write(monkeypatch, tmp_path):
+    client = _client(monkeypatch, tmp_path)
+    assert client.post(
+        "/api/deals",
+        json={"deal_id": "DEAL-ROUTER-GEN-RULINGS", "company_name": "Router Robotics"},
+    ).status_code == 200
+    package_dir = tmp_path / "wiki" / "deals" / "DEAL-ROUTER-GEN-RULINGS"
+    _write_json(
+        package_dir / "phases" / "r1_5_disputes.json",
+        {
+            "schema_version": "siq_ic_disputes_v1",
+            "deal_id": "DEAL-ROUTER-GEN-RULINGS",
+            "disputes": [
+                {
+                    "dispute_id": "DISP-ROUTER-001",
+                    "topic": "Valuation support",
+                    "dimension": "finance",
+                    "severity": "high",
+                    "positions": [{"agent_id": "siq_ic_finance_auditor", "evidence_ids": ["EVID-001"]}],
+                    "required_followups": ["Refresh valuation sensitivity"],
+                    "resolved": False,
+                }
+            ],
+        },
+    )
+    before = (package_dir / "phases" / "r1_5_disputes.json").read_text(encoding="utf-8")
+
+    dry_run = client.post("/api/deals/DEAL-ROUTER-GEN-RULINGS/workflow/generate-dispute-rulings")
+    assert dry_run.status_code == 200
+    dry_run_payload = dry_run.json()
+    assert dry_run_payload["schema_version"] == "siq_deal_r1_5_dispute_ruling_generation_v1"
+    assert dry_run_payload["dry_run"] is True
+    assert dry_run_payload["would_write"] is False
+    assert dry_run_payload["generated_count"] == 1
+    assert (package_dir / "phases" / "r1_5_disputes.json").read_text(encoding="utf-8") == before
+
+    write = client.post(
+        "/api/deals/DEAL-ROUTER-GEN-RULINGS/workflow/generate-dispute-rulings",
+        json={"dry_run": False},
+    )
+    assert write.status_code == 200
+    write_payload = write.json()
+    assert write_payload["written"] is True
+    assert write_payload["summary"]["status"] == "pass"
+    payload = json.loads((package_dir / "phases" / "r1_5_disputes.json").read_text(encoding="utf-8"))
+    assert payload["disputes"][0]["chairman_ruling"]["agent_id"] == "siq_ic_chairman"
+    assert payload["disputes"][0]["chairman_ruling"]["decision"] == "resolved_with_conditions"
+    audit = json.loads((package_dir / "audit" / "audit_log.json").read_text(encoding="utf-8"))
+    assert audit["events"][-1]["event_type"] == "deal_r1_5_dispute_rulings_generated"
+
+
 def test_deals_router_phase_artifacts_summary(monkeypatch, tmp_path):
     client = _client(monkeypatch, tmp_path)
     assert client.post(

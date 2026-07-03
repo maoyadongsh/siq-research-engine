@@ -765,6 +765,63 @@ def test_market_vector_ingest_plan_reports_missing_script(tmp_path):
         raise AssertionError("expected missing vector ingest script error")
 
 
+def test_market_ingestion_eval_plan_resolves_outputs_and_keeps_script(tmp_path):
+    repo_root = tmp_path / "repo"
+    eval_script = repo_root / "scripts" / "maintenance" / "run_market_ingestion_eval.py"
+    eval_script.parent.mkdir(parents=True)
+    eval_script.write_text("# eval", encoding="utf-8")
+
+    plan = commands.build_market_ingestion_eval_plan(
+        payload={"output": "tmp/eval.json", "markdown": tmp_path / "reports" / "eval.md"},
+        eval_script=eval_script,
+        repo_root=repo_root,
+        default_output=repo_root / "default" / "eval.json",
+        default_markdown=repo_root / "default" / "eval.md",
+    )
+
+    assert plan.script == eval_script
+    assert plan.output_path == repo_root / "tmp" / "eval.json"
+    assert plan.markdown_path == tmp_path / "reports" / "eval.md"
+
+
+def test_market_ingestion_eval_plan_uses_absolute_defaults(tmp_path):
+    repo_root = tmp_path / "repo"
+    eval_script = repo_root / "scripts" / "maintenance" / "run_market_ingestion_eval.py"
+    eval_script.parent.mkdir(parents=True)
+    eval_script.write_text("# eval", encoding="utf-8")
+    default_output = tmp_path / "reports" / "default_eval.json"
+    default_markdown = tmp_path / "reports" / "default_eval.md"
+
+    plan = commands.build_market_ingestion_eval_plan(
+        payload={},
+        eval_script=eval_script,
+        repo_root=repo_root,
+        default_output=default_output,
+        default_markdown=default_markdown,
+    )
+
+    assert plan.output_path == default_output
+    assert plan.markdown_path == default_markdown
+
+
+def test_market_ingestion_eval_plan_reports_missing_script(tmp_path):
+    missing_script = tmp_path / "scripts" / "maintenance" / "run_market_ingestion_eval.py"
+
+    try:
+        commands.build_market_ingestion_eval_plan(
+            payload={},
+            eval_script=missing_script,
+            repo_root=tmp_path / "repo",
+            default_output=tmp_path / "reports" / "eval.json",
+            default_markdown=tmp_path / "reports" / "eval.md",
+        )
+    except commands.MarketPackagePlanError as exc:
+        assert exc.status_code == 404
+        assert exc.detail == f"Missing eval script: {missing_script}"
+    else:
+        raise AssertionError("expected missing eval script error")
+
+
 def test_market_ingestion_eval_args_resolves_relative_paths_against_repo_root():
     args, output, markdown = commands.market_ingestion_eval_args(
         executable="/usr/bin/python",
