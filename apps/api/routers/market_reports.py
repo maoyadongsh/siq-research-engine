@@ -25,6 +25,7 @@ from services.command_runner import format_command, run_command
 from services.job_service import market_report_job_service
 from services.llm_settings import load_llm_settings
 from services.hermes_model_control import infer_model_mode, set_all_profile_model_modes
+from services import market_report_commands
 from services.market_report_settings import (
     EU_ESEF_PACKAGE_BUILD_SCRIPT,
     MARKET_BUILD_SCRIPTS,
@@ -41,6 +42,7 @@ from services.market_report_settings import (
     US_SEC_CASE_SET_PATH,
     US_SEC_INGEST_REPORT_PATH,
     US_SEC_INGEST_SCRIPT,
+    US_SEC_PACKAGE_BUILD_SCRIPT,
     US_SEC_WIKI_ROOT,
 )
 from services.path_config import REPO_ROOT, REPORT_DOWNLOADS_ROOT
@@ -716,10 +718,14 @@ def _run_us_sec_rebuild_package(ticker: str, payload: dict[str, Any]) -> dict[st
         if metadata.is_file():
             tmp_metadata = Path(tmp_dir) / "filing.metadata.json"
             tmp_metadata.write_bytes(metadata.read_bytes())
-        args = [sys.executable, str(US_SEC_PACKAGE_BUILD_SCRIPT), str(tmp_source), "--force"]
-        if tmp_metadata:
-            args.extend(["--metadata", str(tmp_metadata)])
-        args.extend(["--output-root", str(US_SEC_WIKI_ROOT)])
+        args = market_report_commands.us_sec_rebuild_package_args(
+            executable=sys.executable,
+            script=US_SEC_PACKAGE_BUILD_SCRIPT,
+            source_path=tmp_source,
+            output_root=US_SEC_WIKI_ROOT,
+            metadata_path=tmp_metadata,
+            force=True,
+        )
         try:
             completed = run_command(args, cwd=REPO_ROOT, timeout=900)
         except subprocess.TimeoutExpired as exc:

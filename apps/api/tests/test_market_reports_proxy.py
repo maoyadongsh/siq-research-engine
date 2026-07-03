@@ -590,6 +590,73 @@ def test_market_package_build_queues_background_job(monkeypatch):
     assert seen["target_result"]["ok"] is True
 
 
+def test_us_sec_rebuild_package_command_contract(monkeypatch, tmp_path):
+    wiki_root = tmp_path / "wiki" / "us_sec"
+    package_dir = wiki_root / "AAPL" / "2025" / "10-K_demo"
+    raw_dir = package_dir / "raw"
+    raw_dir.mkdir(parents=True)
+    source_path = raw_dir / "filing.htm"
+    source_path.write_text("<html><body>10-K</body></html>", encoding="utf-8")
+    metadata_path = raw_dir / "filing.metadata.json"
+    metadata_path.write_text('{"ticker":"AAPL"}', encoding="utf-8")
+    (package_dir / "manifest.json").write_text(
+        json.dumps({"local_source_path": "raw/filing.htm"}),
+        encoding="utf-8",
+    )
+    case_set_path = tmp_path / "case_set.json"
+    case_set_path.write_text(
+        json.dumps(
+            {
+                "items": [
+                    {
+                        "ticker": "AAPL",
+                        "filing_date": "2025-10-31",
+                        "period_end": "2025-09-27",
+                        "package_path": str(package_dir),
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    build_script = tmp_path / "scripts" / "build_sec_evidence_package.py"
+    build_script.parent.mkdir(parents=True)
+    build_script.write_text("# build", encoding="utf-8")
+    seen = {}
+
+    class Completed:
+        returncode = 0
+        stdout = f"{package_dir}\n"
+        stderr = "warn\n"
+
+    def fake_run(args, **kwargs):
+        seen["args"] = args
+        seen["kwargs"] = kwargs
+        tmp_source = Path(args[2])
+        tmp_metadata = Path(args[args.index("--metadata") + 1])
+        assert tmp_source.name == "filing.htm"
+        assert tmp_source.read_text(encoding="utf-8") == "<html><body>10-K</body></html>"
+        assert tmp_metadata.name == "filing.metadata.json"
+        assert tmp_metadata.read_text(encoding="utf-8") == '{"ticker":"AAPL"}'
+        return Completed()
+
+    monkeypatch.setattr(market_reports, "US_SEC_WIKI_ROOT", wiki_root)
+    monkeypatch.setattr(market_reports, "US_SEC_CASE_SET_PATH", case_set_path)
+    monkeypatch.setattr(market_reports, "US_SEC_PACKAGE_BUILD_SCRIPT", build_script)
+    monkeypatch.setattr(market_reports, "run_command", fake_run)
+    monkeypatch.setattr(market_reports, "_read_package_detail", lambda package: {"package_path": str(package)})
+
+    result = market_reports._run_us_sec_rebuild_package("aapl", {"force": True})
+
+    assert result["ok"] is True
+    assert result["ticker"] == "AAPL"
+    assert result["package"] == {"package_path": str(package_dir)}
+    assert seen["args"][:2] == [market_reports.sys.executable, str(build_script)]
+    assert seen["args"][3] == "--force"
+    assert seen["args"][seen["args"].index("--output-root") + 1] == str(wiki_root)
+    assert seen["kwargs"] == {"cwd": market_reports.REPO_ROOT, "timeout": 900}
+
+
 def test_market_report_job_status_uses_service(monkeypatch):
     monkeypatch.setattr(market_reports.market_report_job_service, "get", lambda job_id: {"job_id": job_id, "status": "running"})
 
