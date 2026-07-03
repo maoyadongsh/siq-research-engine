@@ -68,6 +68,11 @@ import {
   buildAssistSearchPlan,
   recommendedCandidateUrls,
 } from '../features/search-download/assist'
+import {
+  buildCuratedAnnualsApplyResult,
+  buildCuratedAnnualsRequestPlan,
+  canLoadCuratedAnnuals,
+} from '../features/search-download/curatedAnnuals'
 import { buildSearchDownloadViewModel } from '../features/search-download/viewModel'
 import { evaluateOfficialSourceReadiness } from '../features/search-download/officialSourceReadiness'
 import { ReportTableSection } from '../features/search-download/ReportTableSection'
@@ -80,7 +85,6 @@ import {
   reportTypeLabel,
   typeLabels,
   typeStyles,
-  uniqueBy,
   type AssistResult,
   type CandidateExplanation,
   type DownloadFileResult,
@@ -472,7 +476,8 @@ export default function SearchDownload() {
   }
 
   const handleLoadCuratedAnnuals = async () => {
-    if (market !== 'JP' && market !== 'KR') return
+    if (!canLoadCuratedAnnuals(market)) return
+    const plan = buildCuratedAnnualsRequestPlan(market, year)
     setCuratedLoading(true)
     setLoading(true)
     setSelected(new Set())
@@ -483,16 +488,15 @@ export default function SearchDownload() {
     setCandidateExplanations([])
     setAssistResult(null)
     setMarketConfigWarning(null)
-    addLog(`正在载入 ${marketConfig.label} 主流 10 家年报样本 (${year})`, 'info')
+    addLog(plan.loadingLog, 'info')
     try {
-      const params = new URLSearchParams({ market, report_year: year, limit: '10' })
-      const data = await fetchCuratedAnnuals<{ reports?: ReportItem[] }>(params)
-      const reports = uniqueBy((data.reports || []) as ReportItem[], (report) => report.document_url)
-      setAnnualReports(reports)
+      const data = await fetchCuratedAnnuals<{ reports?: ReportItem[] }>(plan.params)
+      const curated = buildCuratedAnnualsApplyResult(market, (data.reports || []) as ReportItem[])
+      setAnnualReports(curated.reports)
       setFinancialReports([])
-      setSelected(new Set(reports.map((report) => report.document_url)))
-      setCompanyInfo({ name: `${marketConfig.label}主流公司年报样本`, ticker: '', curated: true })
-      addLog(`已载入 ${reports.length} 家${marketConfig.label}主流公司年报，并自动勾选`, 'success')
+      setSelected(curated.selected)
+      setCompanyInfo(curated.companyInfo)
+      addLog(curated.successLog, 'success')
     } catch (e) {
       addLog((e as Error).message, 'error')
     } finally {

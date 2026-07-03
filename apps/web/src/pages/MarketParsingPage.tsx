@@ -25,6 +25,7 @@ import {
   buildMarketParsingPageViewModel,
   type MarketParsingCode,
 } from '../features/market-parsing/viewModel'
+import { validateMarketParsingUploadFiles } from '../features/market-parsing/uploadFiles'
 import { taskMatchesMarket } from '../lib/pdfTaskMarkets'
 import type { DownloadedPdf, HealthStatus, TaskItem } from '../lib/pdfTypes'
 
@@ -277,23 +278,13 @@ export function MarketParsingPage({
 
   const handleFiles = useCallback(
     (files: FileList | File[]) => {
-      const incoming = Array.from(files)
-      if (!incoming.length) return
-      if (incoming.length > 5) {
-        tasks.setError('一次最多选择 5 个 PDF')
+      const result = validateMarketParsingUploadFiles(files)
+      if (!result.files.length && !result.error) return
+      if (result.error) {
+        tasks.setError(result.error)
         return
       }
-      for (const f of incoming) {
-        if (!f.name.toLowerCase().endsWith('.pdf')) {
-          tasks.setError('仅支持 PDF 文件')
-          return
-        }
-        if (f.size > 100 * 1024 * 1024) {
-          tasks.setError('文件超过 100 MB: ' + f.name)
-          return
-        }
-      }
-      setSelectedFiles(incoming)
+      setSelectedFiles(result.files)
       tasks.setError(null)
     },
     [tasks],
