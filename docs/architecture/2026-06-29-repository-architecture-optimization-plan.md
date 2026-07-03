@@ -3497,7 +3497,7 @@ cd apps/web && npm run check:frontend  # passed
 
 ### 0.55 2026-07-03 IC Hermes 脚本启动开关与健康检查
 
-本轮只收口本地脚本层的 `siq_ic_*` profile 可调用性，不混入 Deal evidence ingest dry-run、CI workflow 或 TODO scanner。
+本轮只收口本地脚本层的 `siq_ic_*` profile 可调用性，不混入 Deal evidence ingest dry-run、CI workflow 或债务标记 scanner。
 
 完成范围：
 
@@ -3537,7 +3537,7 @@ cd apps/api && .venv/bin/python -m py_compile routers/deals.py services/deal_evi
 
 ### 0.57 2026-07-03 Deal report artifact reader service 补齐
 
-本轮补齐 Deal reports 路由依赖的只读 service 文件，不混入前端 dry-run 面板、CI 或 TODO scanner。
+本轮补齐 Deal reports 路由依赖的只读 service 文件，不混入前端 dry-run 面板、CI 或债务标记 scanner。
 
 完成范围：
 
@@ -3554,7 +3554,7 @@ cd apps/api && .venv/bin/python -m py_compile services/deal_reports.py routers/d
 
 ### 0.58 2026-07-03 Deal reports 页面与 evidence dry-run 面板
 
-本轮收口 Deal 前端对 reports / evidence dry-run 合同的展示，不混入 CI、TODO scanner 或一级市场长设计文档。
+本轮收口 Deal 前端对 reports / evidence dry-run 合同的展示，不混入 CI、债务标记 scanner 或一级市场长设计文档。
 
 完成范围：
 
@@ -3570,6 +3570,27 @@ cd apps/api && .venv/bin/python -m py_compile services/deal_reports.py routers/d
 cd apps/api && .venv/bin/python -m pytest tests/test_deal_store.py::test_deal_reports_index_and_read_detail tests/test_deal_store.py::test_deal_reports_reject_unsafe_paths tests/test_deals_router.py::test_deals_router_reports_index_and_detail -q  # 3 passed, 8 warnings
 cd apps/api && .venv/bin/python -m py_compile services/deal_reports.py routers/deals.py
 cd apps/web && npm run check:frontend  # passed
+```
+
+### 0.59 2026-07-03 CI 稳定子集与债务标记 advisory scanner
+
+本轮只收口工程化入口，不扩大到全量 heavy parser / market / Playwright E2E。
+
+完成范围：
+
+- 新增 `.github/workflows/ci.yml`：包含脚本语法检查、API focused tests、async DB advisory 和 Web unit/frontend check。
+- CI script syntax 覆盖 `scripts/check_*`、`start_all.sh`、API/PDF/document-parser 启动脚本、Hermes profile scripts、`scripts/scan_todo_fixme.py` 和 `scripts/ops/health_check.py`。
+- API focused tests 纳入 Deal OS 核心 tests、Hermes IC profile/policy tests、source access、tracking、workspace 和 async DB audit 等稳定子集。
+- 新增 `scripts/scan_todo_fixme.py`，按安全、运行时、架构、文档/质量规则分桶输出债务标记 advisory；默认排除依赖、构建、运行态和虚拟环境目录。
+- `scripts/README.md` 说明 GitHub Actions 是 P0 稳定子集，重门禁仍按变更范围本地补跑。
+
+验证：
+
+```bash
+bash -n scripts/check_all.sh scripts/check_owner_migration.sh scripts/check_async_db_audit.sh start_all.sh apps/api/start.sh apps/pdf-parser/run.sh apps/document-parser/run.sh scripts/hermes/profile_dir.sh scripts/hermes/run_gateway.sh
+python3 -m py_compile scripts/scan_todo_fixme.py scripts/ops/health_check.py
+python3 scripts/scan_todo_fixme.py --max-examples 3  # total 7; 安全 0; 运行时 0
+python3 scripts/scan_todo_fixme.py --markdown /tmp/todo-fixme-governance-report.md --max-examples 3
 ```
 
 ## 10. 验收标准总表

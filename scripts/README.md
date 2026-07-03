@@ -36,6 +36,8 @@
 
 ## 常用检查
 
+GitHub Actions 的 `CI` workflow 只固定稳定子集：脚本语法检查、API 聚焦测试、Web unit 和 frontend check。PDF parser、document-parser、market-report-finder、market-report-rules 和 contracts 相关扩展覆盖不默认进入 CI，需按变更范围用 `scripts/check_all.sh` 或对应目录测试补跑。
+
 ```bash
 cd /home/maoyd/siq-research-engine
 bash -n start_all.sh
@@ -50,6 +52,15 @@ scripts/check_async_db_audit.sh
 ```
 
 该入口默认使用 `apps/api/.venv/bin/python`，可通过 `API_PY` 覆盖；它只输出 `apps/api/scripts/audit_async_sync_session.py --summary` 的 advisory 摘要，既有 finding 不作为失败门禁。需要显式生成其他格式时，可用同一解释器运行 `apps/api/scripts/audit_async_sync_session.py --markdown --summary` 或 `--json --summary` 并自行重定向输出。
+
+债务标记 advisory 扫描入口：
+
+```bash
+cd /home/maoyd/siq-research-engine
+python3 scripts/scan_todo_fixme.py --markdown docs/architecture/2026-07-02-debt-marker-governance-report.md
+```
+
+该脚本按安全、运行时、架构、文档/质量规则分桶输出摘要，并可生成 Markdown 报告；默认跳过依赖、构建、运行态目录和 sourcemap，不作为失败门禁。
 
 红灯 owner 收口门禁：
 

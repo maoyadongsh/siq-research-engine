@@ -1,0 +1,113 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  script-syntax:
+    name: Script syntax
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Check shell entrypoints
+        run: |
+          bash -n scripts/check_all.sh
+          bash -n scripts/check_owner_migration.sh
+          bash -n scripts/check_async_db_audit.sh
+          bash -n start_all.sh
+          bash -n apps/api/start.sh
+          bash -n apps/pdf-parser/run.sh
+          bash -n apps/document-parser/run.sh
+          bash -n scripts/hermes/profile_dir.sh
+          bash -n scripts/hermes/run_gateway.sh
+          python3 -m py_compile scripts/scan_todo_fixme.py scripts/ops/health_check.py
+
+  api-focused:
+    name: API focused tests
+    runs-on: ubuntu-latest
+    env:
+      SIQ_AUTH_SECRET_KEY: ci-auth-secret-with-at-least-32-chars
+      SIQ_SOURCE_TOKEN_SECRET: ci-source-secret-with-at-least-32-chars
+      DATABASE_URL: sqlite:///${{ runner.temp }}/siq-api-test.db
+      SIQ_DATA_ROOT: ${{ runner.temp }}/siq-data
+      SIQ_RUNTIME_ROOT: ${{ runner.temp }}/siq-runtime
+      SIQ_ARTIFACTS_ROOT: ${{ runner.temp }}/siq-artifacts
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        run: python -m pip install --upgrade uv
+
+      - name: Install API dependencies
+        working-directory: apps/api
+        run: uv sync --frozen --extra dev
+
+      - name: Run API focused tests
+        working-directory: apps/api
+        run: |
+          uv run python -m pytest \
+            tests/test_async_sync_session_audit.py \
+            tests/test_agent_runtime_active_runs.py \
+            tests/test_agent_chat_runtime_loops.py \
+            tests/test_agent_runtime_chat_preflight.py \
+            tests/test_auth_dependencies_smoke.py \
+            tests/test_chat_async_achievements.py \
+            tests/test_chat_document_parser_attachment.py \
+            tests/test_chat_route_usage.py \
+            tests/test_deal_documents.py \
+            tests/test_deal_store.py \
+            tests/test_deals_router.py \
+            tests/test_document_parser_proxy.py \
+            tests/test_eval_e2e_config.py \
+            tests/test_hermes_ic_profiles.py \
+            tests/test_ic_policy.py \
+            tests/test_source_access.py \
+            tests/test_tracking_agent_permissions.py \
+            tests/test_tracking_runtime.py \
+            tests/test_usage_service_async.py \
+            tests/test_workspace_sync.py \
+            -q
+
+      - name: Run async DB audit advisory
+        run: API_PY=apps/api/.venv/bin/python scripts/check_async_db_audit.sh
+
+  web-check:
+    name: Web checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install web dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Run web unit tests
+        working-directory: apps/web
+        run: npm run test:unit
+
+      - name: Run frontend check
+        working-directory: apps/web
+        run: npm run check:frontend
