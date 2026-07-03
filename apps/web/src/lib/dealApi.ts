@@ -6,6 +6,7 @@ import type {
   DealDocumentResponse,
   DealDocumentsResponse,
   DealEvidenceResponse,
+  DealEvidenceFilters,
   DealListResponse,
   DealQuery,
   DealJobStatus,
@@ -58,8 +59,30 @@ export function fetchDealAudit(dealId: string, signal?: AbortSignal) {
   return apiJson<DealAuditResponse>(`/api/deals/${encodeURIComponent(dealId)}/audit`, { signal })
 }
 
-export function fetchDealEvidence(dealId: string, signal?: AbortSignal) {
-  return apiJson<DealEvidenceResponse>(`/api/deals/${encodeURIComponent(dealId)}/evidence`, { signal })
+function isAbortSignal(value: DealEvidenceFilters | AbortSignal | undefined): value is AbortSignal {
+  return Boolean(value && typeof value === 'object' && 'aborted' in value && 'addEventListener' in value)
+}
+
+export function fetchDealEvidence(
+  dealId: string,
+  filtersOrSignal?: DealEvidenceFilters | AbortSignal,
+  maybeSignal?: AbortSignal,
+) {
+  const filters = isAbortSignal(filtersOrSignal) ? undefined : filtersOrSignal
+  const signal = isAbortSignal(filtersOrSignal) ? filtersOrSignal : maybeSignal
+  const params = new URLSearchParams()
+  const q = filters?.q?.toString().trim()
+  const dimension = filters?.dimension?.toString().trim()
+  const documentId = filters?.document_id?.toString().trim()
+  const sourceUrl = filters?.source_url?.toString().trim()
+  const limit = filters?.limit?.toString().trim()
+  if (q) params.set('q', q)
+  if (dimension) params.set('dimension', dimension)
+  if (documentId) params.set('document_id', documentId)
+  if (sourceUrl) params.set('source_url', sourceUrl)
+  if (limit) params.set('limit', limit)
+  const suffix = params.toString() ? `?${params.toString()}` : ''
+  return apiJson<DealEvidenceResponse>(`/api/deals/${encodeURIComponent(dealId)}/evidence${suffix}`, { signal })
 }
 
 export function buildDealEvidence(dealId: string, signal?: AbortSignal) {

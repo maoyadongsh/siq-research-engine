@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, Boxes, FileSearch, Loader2, PackageCheck, RefreshCw } from 'lucide-react'
+import { ArrowLeft, Boxes, ExternalLink, FileSearch, Loader2, PackageCheck, RefreshCw, Search } from 'lucide-react'
 
 import { EmptyState, PageHeader, PageSection, PageShell, StatusBadge, Surface } from '@/components/page'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { buildDealEvidence, fetchDealEvidence } from '@/lib/dealApi'
-import type { DealEvidenceItem, DealEvidenceQualityReport, DealEvidenceResponse } from '@/lib/dealTypes'
+import type { DealEvidenceFilters, DealEvidenceItem, DealEvidenceQualityReport, DealEvidenceResponse } from '@/lib/dealTypes'
 
 function text(value: unknown, fallback = '未记录') {
   if (value === null || value === undefined || value === '') return fallback
@@ -60,6 +61,30 @@ function itemKey(item: DealEvidenceItem, index: number) {
   return item.evidence_id || `${item.document_id}-${item.dimension}-${index}`
 }
 
+function stringValue(value: unknown) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function uniqueStrings(values: Array<string | null | undefined>) {
+  return Array.from(new Set(values.map((value) => value?.trim()).filter(Boolean) as string[])).sort((a, b) => a.localeCompare(b))
+}
+
+function documentLabel(document: Record<string, unknown>, fallback: string) {
+  return stringValue(document.filename)
+    || stringValue(document.original_filename)
+    || stringValue(document.title)
+    || stringValue(document.label)
+    || fallback
+}
+
+function sourceLinks(item: DealEvidenceItem) {
+  return [
+    { label: 'Source', href: item.source_url },
+    { label: 'Artifact', href: item.artifact_url },
+    { label: 'Parser', href: item.parser_page_url },
+  ].filter((link): link is { label: string; href: string } => Boolean(link.href?.trim()))
+}
+
 export default function DealEvidence() {
   const { dealId = '' } = useParams()
   const [data, setData] = useState<DealEvidenceResponse | null>(null)
@@ -67,12 +92,23 @@ export default function DealEvidence() {
   const [error, setError] = useState('')
   const [building, setBuilding] = useState(false)
   const [buildError, setBuildError] = useState('')
+  const [query, setQuery] = useState('')
+  const [dimension, setDimension] = useState('')
+  const [documentId, setDocumentId] = useState('')
+  const [limit, setLimit] = useState('20')
 
-  const loadEvidence = async (signal?: AbortSignal) => {
+  const evidenceFilters = useMemo<DealEvidenceFilters>(() => ({
+    q: query,
+    dimension,
+    document_id: documentId,
+    limit,
+  }), [dimension, documentId, limit, query])
+
+  const loadEvidence = useCallback(async (filters: DealEvidenceFilters = evidenceFilters, signal?: AbortSignal) => {
     setLoading(true)
     setError('')
     try {
-      setData(await fetchDealEvidence(dealId, signal))
+      setData(await fetchDealEvidence(dealId, filters, signal))
     } catch (err) {
       if (!signal?.aborted) {
         setError(err instanceof Error ? err.message : '证据包加载失败')
@@ -82,27 +118,22 @@ export default function DealEvidence() {
         setLoading(false)
       }
     }
-  }
+  }, [dealId, evidenceFilters])
 
   useEffect(() => {
     const controller = new AbortController()
-    void (async () => {
-      setLoading(true)
-      setError('')
-      try {
-        setData(await fetchDealEvidence(dealId, controller.signal))
-      } catch (err) {
-        if (!controller.signal.aborted) {
-          setError(err instanceof Error ? err.message : '证据包加载失败')
-        }
-      } finally {
-        if (!controller.signal.aborted) {
-          setLoading(false)
-        }
-      }
-    })()
-    return () => controller.abort()
-  }, [dealId])
+    const timer = window.setTimeout(() => {
+      void loadEvidence(evidenceFilters, controller.signal)
+    }, 250)
+    return () => {
+      window.clearTimeout(timer)
+      controller.abort()
+    }
+  }, [evidenceFilters, loadEvidence])
+
+  const refresh = () => {
+    void loadEvidence(evidenceFilters)
+  }
 
   const handleBuild = async () => {
     setBuilding(true)
@@ -110,6 +141,7 @@ export default function DealEvidence() {
     try {
       setData(await buildDealEvidence(dealId))
       setError('')
+      await loadEvidence(evidenceFilters)
     } catch (err) {
       setBuildError(err instanceof Error ? err.message : '证据包构建失败')
     } finally {
@@ -118,10 +150,39 @@ export default function DealEvidence() {
   }
 
   const report = data?.quality_report
-  const items = Array.isArray(data?.items_preview) ? data.items_preview : []
-  const dimensions = sortedDimensions(report)
-  const missingDimensions = sortedMissingDimensions(report)
+  const items = useMemo(() => (Array.isArray(data?.items_preview) ? data.items_preview : []), [data])
+  const dimensions = useMemo(() => sortedDimensions(report), [report])
+  const missingDimensions = useMemo(() => sortedMissingDimensions(report), [report])
   const warnings = Array.isArray(report?.warnings) ? report.warnings : []
+  const availableDimensions = useMemo(() => uniqueStrings([
+    ...(Array.isArray(data?.available_filters?.dimensions) ? data.available_filters.dimensions : []),
+    ...dimensions,
+    ...items.map((item) => item.dimension),
+  ]), [data, dimensions, items])
+  const availableDocuments = useMemo(() => {
+    const documents = Array.isArray(data?.available_filters?.documents) ? data.available_filters.documents : []
+    const byId = new Map<string, string>()
+    documents.forEach((document) => {
+      const id = stringValue(document.document_id)
+      if (id) byId.set(id, documentLabel(document, id))
+    })
+    const ids = [
+      ...(Array.isArray(data?.available_filters?.document_ids) ? data.available_filters.document_ids : []),
+      ...items.map((item) => item.document_id),
+    ]
+    ids.forEach((id) => {
+      const value = id?.trim()
+      if (value && !byId.has(value)) byId.set(value, value)
+    })
+    return Array.from(byId.entries()).sort((a, b) => a[1].localeCompare(b[1]))
+  }, [data, items])
+  const availableLimits = useMemo(() => uniqueStrings([
+    ...(Array.isArray(data?.available_filters?.limits) ? data.available_filters.limits.map(String) : []),
+    '10',
+    '20',
+    '50',
+    '100',
+  ]), [data])
 
   return (
     <PageShell variant="secondary" className="space-y-5">
@@ -151,6 +212,67 @@ export default function DealEvidence() {
           {buildError}
         </div>
       ) : null}
+
+      <Surface kind="card">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-end">
+          <div className="min-w-0 flex-1">
+            <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-text-muted">Search</p>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
+              <Input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                className="pl-9"
+                placeholder="搜索 claim、quote、citation"
+              />
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3 xl:min-w-[560px]">
+            <label className="min-w-0">
+              <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-text-muted">Dimension</span>
+              <select
+                value={dimension}
+                onChange={(event) => setDimension(event.target.value)}
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-text shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              >
+                <option value="">全部维度</option>
+                {availableDimensions.map((value) => (
+                  <option key={value} value={value}>{value}</option>
+                ))}
+              </select>
+            </label>
+            <label className="min-w-0">
+              <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-text-muted">Document</span>
+              <select
+                value={documentId}
+                onChange={(event) => setDocumentId(event.target.value)}
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-text shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              >
+                <option value="">全部文档</option>
+                {availableDocuments.map(([id, label]) => (
+                  <option key={id} value={id}>{label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="min-w-0">
+              <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-text-muted">Limit</span>
+              <select
+                value={limit}
+                onChange={(event) => setLimit(event.target.value)}
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-text shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              >
+                {availableLimits.map((value) => (
+                  <option key={value} value={value}>{value} 条</option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <Button type="button" variant="secondary" onClick={refresh} disabled={loading} className="xl:mb-0">
+            {loading ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+            刷新
+          </Button>
+        </div>
+      </Surface>
 
       {error ? (
         <PageSection>
@@ -269,23 +391,43 @@ export default function DealEvidence() {
                           <span className="text-xs text-text-muted">{formatTime(item.created_at)}</span>
                         </div>
                         <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-text">{text(item.claim)}</p>
+                        {item.quote ? (
+                          <blockquote className="mt-2 border-l-2 border-primary/30 pl-3 text-sm leading-6 text-text-muted">
+                            {item.quote}
+                          </blockquote>
+                        ) : null}
                         <p className="mt-2 break-all font-mono text-xs text-text-muted">{text(item.evidence_id)}</p>
                       </div>
-                      <div className="grid min-w-56 gap-2 text-sm sm:grid-cols-2 lg:max-w-md">
-                        <div>
-                          <p className="text-xs text-text-muted">Confidence</p>
-                          <p className="font-semibold text-text">{formatConfidence(item.confidence)}</p>
+                      <div className="grid min-w-56 gap-3 text-sm lg:max-w-md">
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <div>
+                            <p className="text-xs text-text-muted">Confidence</p>
+                            <p className="font-semibold text-text">{formatConfidence(item.confidence)}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-text-muted">Document</p>
+                            <p className="break-all font-semibold text-text">{text(item.document_id)}</p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="text-xs text-text-muted">Document</p>
-                          <p className="break-all font-semibold text-text">{text(item.document_id)}</p>
-                        </div>
+                        {sourceLinks(item).length ? (
+                          <div className="flex flex-wrap gap-2 lg:justify-end">
+                            {sourceLinks(item).map((link) => (
+                              <Button key={link.label} asChild variant="outline" size="sm">
+                                <a href={link.href} target="_blank" rel="noreferrer">
+                                  <ExternalLink />
+                                  {link.label}
+                                </a>
+                              </Button>
+                            ))}
+                          </div>
+                        ) : null}
                       </div>
                     </div>
                     <div className="mt-3 grid gap-2 text-xs text-text-muted md:grid-cols-2">
                       <p className="break-all">Source: {text(item.source_path)}</p>
                       <p className="break-all">Anchor: {text(item.source_anchor)}</p>
                       <p className="break-all">Citation: {text(item.citation)}</p>
+                      <p className="break-all">Locator: {text(item.locator)}</p>
                       <p className="break-all">Roles: {item.role_hints?.length ? item.role_hints.join(' / ') : '未记录'}</p>
                     </div>
                   </Surface>

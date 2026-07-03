@@ -534,11 +534,23 @@ def build_deal_evidence(
 @router.get("/{deal_id}/evidence")
 def get_deal_evidence(
     deal_id: str,
+    q: str | None = Query(default=None, max_length=300),
+    dimension: str | None = Query(default=None, max_length=80),
+    document_id: str | None = Query(default=None, max_length=80),
+    source_url: str | None = Query(default=None, max_length=300),
+    limit: int = Query(default=50, ge=1, le=200),
     current_user: User = Depends(require_permission("report.view")),
 ) -> dict[str, Any]:
     del current_user
     try:
-        return deal_store.redact_public_payload(deal_evidence.read_deal_evidence_package(deal_id))
+        return deal_store.redact_public_payload(deal_evidence.read_deal_evidence_package(
+            deal_id,
+            preview_limit=limit,
+            q=q,
+            dimension=dimension,
+            document_id=document_id,
+            source_url=source_url,
+        ))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:

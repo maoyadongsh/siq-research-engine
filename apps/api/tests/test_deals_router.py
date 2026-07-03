@@ -291,6 +291,31 @@ def test_deals_router_build_and_read_evidence(monkeypatch, tmp_path):
     assert read_back.status_code == 200
     assert read_back.json()["evidence_index"]["counts"]["items"] == 2
 
+    filtered = client.get(
+        "/api/deals/DEAL-ROUTER-007/evidence",
+        params={"q": "gross", "dimension": "finance", "document_id": document_id, "limit": 1},
+    )
+    assert filtered.status_code == 200
+    filtered_payload = filtered.json()
+    assert filtered_payload["matched_count"] == 1
+    assert len(filtered_payload["items_preview"]) == 1
+    assert filtered_payload["counts"]["items"] == 2
+    assert filtered_payload["applied_filters"] == {
+        "q": "gross",
+        "dimension": "finance",
+        "document_id": document_id,
+        "source_url": "",
+        "limit": 1,
+    }
+    assert "finance" in filtered_payload["available_filters"]["dimensions"]
+    assert document_id in filtered_payload["available_filters"]["document_ids"]
+    assert filtered_payload["available_filters"]["limits"] == [10, 20, 50, 100, 200]
+
+    empty = client.get("/api/deals/DEAL-ROUTER-007/evidence", params={"q": "not-present"})
+    assert empty.status_code == 200
+    assert empty.json()["matched_count"] == 0
+    assert empty.json()["items_preview"] == []
+
     quality = client.get("/api/deals/DEAL-ROUTER-007/evidence/quality")
     assert quality.status_code == 200
     assert quality.json()["quality_report"]["counts"]["documents_indexed"] == 1

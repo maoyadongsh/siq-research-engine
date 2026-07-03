@@ -3477,6 +3477,24 @@ cd apps/web && npx playwright test e2e/tests/workspace-responsive.spec.ts  # 7 p
 cd apps/web && npm run check:frontend  # passed
 ```
 
+### 0.54 2026-07-03 Deal evidence 筛选与溯源链接合同
+
+本轮只收口 Deal Evidence 浏览体验和后端读取合同，不混入 Hermes 启动脚本、CI workflow 或 source token infra 文档。
+
+完成范围：
+
+- `/api/deals/{deal_id}/evidence` 接入 `q`、`dimension`、`document_id`、`source_url`、`limit` 查询参数，返回 `applied_filters`、`available_filters`、`matched_count` 和 `total_item_count`，避免前端筛选只停留在 UI 层。
+- Evidence package reader 读取完整 `evidence_items.ndjson` 后再筛选和截断；`available_filters` 始终基于完整条目集合生成，便于前端保留所有可选维度和文档。
+- `DealEvidence` 页面新增搜索、维度、文档、limit 控件，显示 quote、locator，以及 `source_url` / `artifact_url` / `parser_page_url` 三类溯源入口。
+- 前端 `dealApi` / `dealTypes` 同步 evidence filter 与 available filter 合同，同时保留旧的 `fetchDealEvidence(dealId, signal)` 调用兼容。
+
+验证：
+
+```bash
+cd apps/api && .venv/bin/python -m pytest tests/test_deals_router.py tests/test_deal_documents.py tests/test_deal_store.py -q  # 30 passed, 31 warnings
+cd apps/web && npm run check:frontend  # passed
+```
+
 ## 10. 验收标准总表
 
 ### 仓库治理 DoD

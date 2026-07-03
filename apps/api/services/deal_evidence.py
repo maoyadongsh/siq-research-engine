@@ -25,6 +25,8 @@ BUILD_MODE = "offline_document_md_v1"
 MAX_CHUNK_CHARS = 1600
 MAX_QUOTE_CHARS = 1200
 ITEMS_PREVIEW_LIMIT = 50
+ITEMS_PREVIEW_MAX_LIMIT = 200
+ITEMS_PREVIEW_LIMIT_OPTIONS = (10, 20, 50, 100, 200)
 
 DOC_BLOCK_RE = re.compile(r"<!--\s*DOC_BLOCK:\s*(?P<block_id>[^\s>]+)(?P<attrs>.*?)-->", re.I)
 ATTR_RE = re.compile(r"(?P<key>[A-Za-z_][\w-]*)=(?P<value>\"[^\"]*\"|'[^']*'|[^\s>]+)")
@@ -355,6 +357,78 @@ def _read_ndjson(path: Path, *, limit: int | None = None) -> tuple[list[dict[str
     return items, invalid
 
 
+def _normalize_preview_limit(value: int | str | None) -> int:
+    try:
+        parsed = int(value) if value is not None else ITEMS_PREVIEW_LIMIT
+    except (TypeError, ValueError):
+        parsed = ITEMS_PREVIEW_LIMIT
+    return max(1, min(parsed, ITEMS_PREVIEW_MAX_LIMIT))
+
+
+def _clean_filter(value: str | None) -> str:
+    return str(value or "").strip()
+
+
+def _item_search_text(item: dict[str, Any]) -> str:
+    fields = (
+        item.get("claim"),
+        item.get("quote"),
+        item.get("citation"),
+        item.get("locator"),
+        item.get("evidence_id"),
+        item.get("source_path"),
+        item.get("document_id"),
+    )
+    return " ".join(str(value or "") for value in fields).lower()
+
+
+def _matches_evidence_filters(
+    item: dict[str, Any],
+    *,
+    q: str = "",
+    dimension: str = "",
+    document_id: str = "",
+    source_url: str = "",
+) -> bool:
+    if dimension and str(item.get("dimension") or "").lower() != dimension.lower():
+        return False
+    if document_id and str(item.get("document_id") or "") != document_id:
+        return False
+    if source_url and source_url.lower() not in str(item.get("source_url") or "").lower():
+        return False
+    if q and q.lower() not in _item_search_text(item):
+        return False
+    return True
+
+
+def _available_filters(items: list[dict[str, Any]], quality: dict[str, Any] | None) -> dict[str, Any]:
+    dimensions = sorted({str(item.get("dimension")) for item in items if item.get("dimension")})
+    document_ids = sorted({str(item.get("document_id")) for item in items if item.get("document_id")})
+    quality_documents = quality.get("documents") if isinstance(quality, dict) else []
+    documents: list[dict[str, Any]] = []
+    if isinstance(quality_documents, list):
+        for document in quality_documents:
+            if isinstance(document, dict) and document.get("document_id"):
+                documents.append({
+                    "document_id": document.get("document_id"),
+                    "filename": document.get("filename"),
+                    "original_filename": document.get("original_filename"),
+                    "document_type": document.get("document_type"),
+                    "status": document.get("status"),
+                    "items": document.get("items"),
+                })
+    known = {str(document.get("document_id") or "") for document in documents}
+    for document_id in document_ids:
+        if document_id not in known:
+            documents.append({"document_id": document_id})
+    return {
+        "dimensions": dimensions,
+        "document_ids": document_ids,
+        "documents": documents,
+        "limits": list(ITEMS_PREVIEW_LIMIT_OPTIONS),
+    }
+
+
 def _write_ndjson(path: Path, items: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("".join(json.dumps(item, ensure_ascii=False) + "\n" for item in items), encoding="utf-8")
@@ -630,12 +704,34 @@ def read_deal_evidence_package(
     *,
     wiki_root: Path | str | None = None,
     preview_limit: int = ITEMS_PREVIEW_LIMIT,
+    q: str | None = None,
+    dimension: str | None = None,
+    document_id: str | None = None,
+    source_url: str | None = None,
 ) -> dict[str, Any]:
     package_dir = _require_package_dir(deal_id, wiki_root=wiki_root)
     normalized_deal_id = deal_store.validate_deal_id(deal_id)
     index = deal_store.read_json(package_dir / "evidence" / "evidence_index.json", None)
     quality = deal_store.read_json(package_dir / "evidence" / "evidence_quality_report.json", None)
-    items, invalid_lines = _read_ndjson(package_dir / "evidence" / "evidence_items.ndjson", limit=preview_limit)
+    items, invalid_lines = _read_ndjson(package_dir / "evidence" / "evidence_items.ndjson")
+    normalized_limit = _normalize_preview_limit(preview_limit)
+    applied_filters = {
+        "q": _clean_filter(q),
+        "dimension": _clean_filter(dimension),
+        "document_id": _clean_filter(document_id),
+        "source_url": _clean_filter(source_url),
+        "limit": normalized_limit,
+    }
+    filtered_items = [
+        item for item in items
+        if _matches_evidence_filters(
+            item,
+            q=applied_filters["q"],
+            dimension=applied_filters["dimension"],
+            document_id=applied_filters["document_id"],
+            source_url=applied_filters["source_url"],
+        )
+    ]
     if isinstance(quality, dict) and invalid_lines:
         quality = dict(quality)
         quality.setdefault("warnings", [])
@@ -647,7 +743,11 @@ def read_deal_evidence_package(
         "counts": quality.get("counts") if isinstance(quality, dict) else {},
         "evidence_index": index if isinstance(index, dict) else None,
         "quality_report": quality if isinstance(quality, dict) else None,
-        "items_preview": items,
+        "items_preview": filtered_items[:normalized_limit],
+        "matched_count": len(filtered_items),
+        "total_item_count": len(items),
+        "applied_filters": applied_filters,
+        "available_filters": _available_filters(items, quality if isinstance(quality, dict) else None),
         "index": index if isinstance(index, dict) else None,
         "quality": quality if isinstance(quality, dict) else None,
     }

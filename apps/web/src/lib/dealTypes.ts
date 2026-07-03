@@ -146,6 +146,9 @@ export interface DealEvidenceItem {
   evidence_type: string
   dimension: string
   source_path: string
+  source_url?: string | null
+  artifact_url?: string | null
+  parser_page_url?: string | null
   source_anchor?: string | Record<string, unknown> | null
   citation?: string | null
   confidence?: number | string | null
@@ -166,10 +169,37 @@ export interface DealEvidenceQualityReport {
   documents?: Record<string, unknown>[]
 }
 
+export interface DealEvidenceFilters {
+  q?: string | null
+  dimension?: string | null
+  document_id?: string | null
+  source_url?: string | null
+  limit?: number | string | null
+}
+
+export interface DealEvidenceAvailableFilters {
+  dimensions?: string[]
+  document_ids?: string[]
+  documents?: Array<{
+    document_id?: string | null
+    filename?: string | null
+    original_filename?: string | null
+    title?: string | null
+    label?: string | null
+    [key: string]: unknown
+  }>
+  limits?: Array<number | string>
+  [key: string]: unknown
+}
+
 export interface DealEvidenceResponse {
   evidence_index: Record<string, unknown>
   quality_report: DealEvidenceQualityReport
   items_preview: DealEvidenceItem[]
+  matched_count?: number
+  total_item_count?: number
+  applied_filters?: DealEvidenceFilters
+  available_filters?: DealEvidenceAvailableFilters
 }
 
 export interface DealDocument {
