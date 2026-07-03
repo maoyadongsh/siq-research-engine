@@ -93,3 +93,16 @@ def test_get_dashboard_resolves_company_name_from_existing_stock_directory(tmp_p
     assert dashboard is not None
     assert dashboard.company_name == "万科A"
     assert dashboard.active_items[0].company_name == "万科A"
+
+
+def test_get_dashboard_returns_empty_items_when_tracking_items_missing(tmp_path):
+    agent = TrackingAgent(wiki_base_path=str(tmp_path))
+    company_dir = tmp_path / "000003-中兴通讯" / "tracking"
+    company_dir.mkdir(parents=True)
+
+    dashboard = agent.get_dashboard("000003", "中兴通讯")
+
+    assert dashboard is not None
+    assert dashboard.company_name == "中兴通讯"
+    assert dashboard.active_items == []
+    assert "跟踪目录已创建" in dashboard.summary

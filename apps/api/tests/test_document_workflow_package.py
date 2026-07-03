@@ -81,6 +81,134 @@ def test_document_wiki_import_builds_package_from_existing_artifacts(monkeypatch
     assert next_status["targets"]["wiki"]["status"] == "ready"
 
 
+def test_document_workflow_status_payload_keeps_target_contract(monkeypatch, tmp_path):
+    task_id = "task-doc-status"
+    results_root = tmp_path / "results"
+    wiki_root = tmp_path / "wiki" / "documents"
+    build_result_dir(results_root, task_id)
+    monkeypatch.setattr(workflow, "DOCUMENT_PARSER_RESULTS_ROOT", results_root)
+    monkeypatch.setattr(workflow, "DOCUMENT_WIKI_ROOT", wiki_root)
+    monkeypatch.setattr(workflow, "DOCUMENT_DB_IMPORT_SCRIPT", tmp_path / "missing_db_import.py")
+    monkeypatch.setattr(workflow, "DOCUMENT_CHUNK_SCRIPT", tmp_path / "missing_chunks.py")
+
+    payload = workflow._document_workflow_status_payload(task_id, "contracts")
+
+    assert set(payload) == {"taskId", "targets", "artifacts"}
+    assert payload["taskId"] == task_id
+    assert payload["artifacts"]["ready"] is True
+
+    targets = payload["targets"]
+    assert set(targets) == {"wiki", "postgres", "milvus", "full_text", "object_storage"}
+    assert targets["full_text"] == {"status": "disabled"}
+    assert targets["object_storage"] == {"status": "disabled"}
+
+    wiki = targets["wiki"]
+    assert {
+        "status",
+        "taskId",
+        "collection",
+        "documentKey",
+        "path",
+        "manifestPath",
+        "documentFullSha256",
+        "sourceDocumentFullSha256",
+        "stale",
+        "message",
+    }.issubset(wiki)
+    assert wiki["status"] == "missing"
+    assert wiki["collection"] == "contracts"
+    assert wiki["sourceDocumentFullSha256"]
+    assert targets["postgres"]["status"] == "missing"
+    assert targets["milvus"]["status"] == "missing"
+
+
+def test_document_wiki_import_response_keeps_lightweight_package_contract(monkeypatch, tmp_path):
+    task_id = "task-doc-import-contract"
+    results_root = tmp_path / "results"
+    wiki_root = tmp_path / "wiki" / "documents"
+    build_result_dir(results_root, task_id)
+    monkeypatch.setattr(workflow, "DOCUMENT_PARSER_RESULTS_ROOT", results_root)
+    monkeypatch.setattr(workflow, "DOCUMENT_WIKI_ROOT", wiki_root)
+
+    result = workflow._import_document_task_to_wiki(task_id, "contracts")
+    package_dir = Path(result["packageDir"])
+    package_manifest = json.loads((package_dir / "manifest.json").read_text(encoding="utf-8"))
+    artifact_manifest = json.loads((package_dir / "artifact_manifest.json").read_text(encoding="utf-8"))
+
+    assert {
+        "ok",
+        "taskId",
+        "collection",
+        "documentKey",
+        "packageDir",
+        "manifestPath",
+        "copiedFiles",
+        "copiedDirectories",
+        "wiki",
+    } == set(result)
+    assert result["ok"] is True
+    assert result["taskId"] == task_id
+    assert result["collection"] == "contracts"
+    assert result["documentKey"] == result["wiki"]["documentKey"]
+    assert result["manifestPath"] == str(package_dir / "manifest.json")
+    assert set(result["copiedFiles"]) == {"manifest.json", "document.md", "quality_report.json", "source_map.json"}
+    assert result["copiedDirectories"] == {"raw/original": 1}
+    assert result["wiki"]["status"] == "ready"
+    assert result["wiki"]["path"] == result["packageDir"]
+    assert result["wiki"]["manifestPath"] == result["manifestPath"]
+    assert result["wiki"]["stale"] is False
+
+    assert package_manifest["schema_version"] == "generic_document_package_v1"
+    assert package_manifest["document_id"] == f"doc-{task_id}"
+    assert package_manifest["task_id"] == task_id
+    assert package_manifest["document_key"] == result["documentKey"]
+    assert package_manifest["filename"] == "Contract Demo.pdf"
+    assert package_manifest["document_kind"] == "pdf"
+    assert package_manifest["parser_provider"] == "pypdf_text_parser"
+    assert package_manifest["package_version"] == "1"
+    assert package_manifest["document_full_sha256"]
+    assert package_manifest["full_parse_archive"] == "document_parser_results_and_postgresql"
+    assert set(package_manifest["wiki_keeps"]) >= {
+        "README.md",
+        "manifest.json",
+        "artifact_manifest.json",
+        "qa/parse_manifest.json",
+        "sections/document.md",
+        "qa/quality_report.json",
+        "qa/source_map.json",
+        "raw/original",
+        "images/original",
+    }
+    assert package_manifest["import_targets"] == {
+        "postgres": {"schema": "document_parser", "document_id": f"doc-{task_id}", "last_imported_at": None},
+        "milvus": {"collection": "siq_documents", "last_imported_at": None},
+    }
+
+    artifacts = package_manifest["artifacts"]
+    assert artifacts["document.md"]["package_path"] == "sections/document.md"
+    for artifact_name in [
+        "document_full.json",
+        "blocks.json",
+        "tables.json",
+        "logical_tables.json",
+        "table_relations.json",
+        "figures.json",
+        "figure_index.json",
+        "comparison_map.json",
+    ]:
+        artifact = artifacts[artifact_name]
+        assert artifact["package_path"] == ""
+        assert artifact["sha256"]
+        assert artifact["size_bytes"] > 0
+        assert artifact["source"].startswith(str(results_root))
+    assert not (package_dir / "document_full.json").exists()
+    assert not (package_dir / "blocks.json").exists()
+    assert (package_dir / "raw" / "original" / "Contract Demo.pdf").is_file()
+
+    assert artifact_manifest["schema_version"] == "generic_document_artifact_manifest_v1"
+    assert artifact_manifest["artifacts"] == package_manifest["artifacts"]
+
+
 def test_document_wiki_import_rejects_incomplete_artifacts(monkeypatch, tmp_path):
     task_id = "task-doc-002"
     results_root = tmp_path / "results"

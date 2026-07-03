@@ -11,7 +11,7 @@ from sqlmodel import delete as sql_delete, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
-from database import engine, get_async_session, get_session
+from database import engine, get_async_session
 from models import ChatMessage
 from schemas import ChatRequest, ChatResponse
 from services.agent_chat_runtime import (
@@ -31,9 +31,9 @@ from services.auth_service import User
 from services.hermes_client import HermesProfile
 from services.hermes_model_control import maybe_handle_model_control
 from services.session_manager import get_session_manager, keeps_sessions_forever
-from routers.workspace import enforce_quota_or_429, record_user_artifact
+from routers.workspace import enforce_quota_or_429_async, record_user_artifact
 from routers.workspace import extract_report_artifact_from_text, company_identity_from_dir
-from services.usage_service import AGENT_QUESTION_EVENT, record_usage
+from services.usage_service import AGENT_QUESTION_EVENT, record_usage_async
 
 
 @dataclass(frozen=True)
@@ -424,10 +424,9 @@ def create_specialist_agent_router(config: SpecialistAgentConfig) -> APIRouter:
         req: ChatRequest,
         current_user: User = Depends(get_current_user),
         async_session: AsyncSession = Depends(get_async_session),
-        sync_session: Session = Depends(get_session),
     ):
-        enforce_quota_or_429(sync_session, current_user, AGENT_QUESTION_EVENT)
-        record_usage(sync_session, user_id=int(current_user.id), event_type=AGENT_QUESTION_EVENT, source=config.tag)
+        await enforce_quota_or_429_async(async_session, current_user, AGENT_QUESTION_EVENT)
+        await record_usage_async(async_session, user_id=int(current_user.id), event_type=AGENT_QUESTION_EVENT, source=config.tag)
         # 后端重启后内存会话索引可能丢失；优先从数据库历史恢复旧 session。
         session_id = await resolve_or_create_session(
             async_session,
@@ -471,10 +470,9 @@ def create_specialist_agent_router(config: SpecialistAgentConfig) -> APIRouter:
         request: Request,
         current_user: User = Depends(get_current_user),
         async_session: AsyncSession = Depends(get_async_session),
-        sync_session: Session = Depends(get_session),
     ):
-        enforce_quota_or_429(sync_session, current_user, AGENT_QUESTION_EVENT)
-        record_usage(sync_session, user_id=int(current_user.id), event_type=AGENT_QUESTION_EVENT, source=config.tag)
+        await enforce_quota_or_429_async(async_session, current_user, AGENT_QUESTION_EVENT)
+        await record_usage_async(async_session, user_id=int(current_user.id), event_type=AGENT_QUESTION_EVENT, source=config.tag)
         # 后端重启后内存会话索引可能丢失；优先从数据库历史恢复旧 session。
         session_id = await resolve_or_create_session(
             async_session,

@@ -2,15 +2,16 @@ import json
 import os
 import re
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from urllib.parse import quote, unquote
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, Response
 from sqlmodel import Session, select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
-from database import get_session
+from database import get_async_session, get_session
 from services.auth_dependencies import get_current_user
 from services.auth_service import User
 from services.path_config import REPORT_DOWNLOADS_ROOT, WIKI_ROOT as CONFIG_WIKI_ROOT
@@ -21,8 +22,10 @@ from services.usage_service import (
     UserArtifact,
     WorkspaceProject,
     ensure_within_quota,
+    ensure_within_quota_async,
     next_midnight_shanghai,
     record_usage,
+    record_usage_async,
     usage_response_payload,
 )
 from routers import source as source_proxy
@@ -93,16 +96,35 @@ def _parse_artifact_statement(task_id: str):
     )
 
 
+def _user_has_parse_artifact(session: Session, user_id: int, task_id: str) -> bool:
+    return session.exec(_parse_artifact_statement(task_id).where(UserArtifact.user_id == user_id)).first() is not None
+
+
+async def _user_has_parse_artifact_async(async_session: AsyncSession, user_id: int, task_id: str) -> bool:
+    result = await async_session.exec(_parse_artifact_statement(task_id).where(UserArtifact.user_id == user_id))
+    return result.first() is not None
+
+
+async def _ensure_pdf_task_access_async(async_session: AsyncSession, current_user: User, task_id: str) -> None:
+    if source_proxy._is_admin(current_user):
+        return
+    if not await _user_has_parse_artifact_async(async_session, int(current_user.id), task_id):
+        raise HTTPException(status_code=403, detail="PDF task does not belong to current user")
+
+
 async def _proxy_pdf_task(
     request: Request,
     task_id: str,
     upstream_path: str,
     *,
     current_user: User,
-    session: Session,
+    session: Session | AsyncSession,
     method: str | None = None,
 ) -> Response:
-    _ensure_pdf_task_access(session, current_user, task_id)
+    if isinstance(session, AsyncSession):
+        await _ensure_pdf_task_access_async(session, current_user, task_id)
+    else:
+        _ensure_pdf_task_access(session, current_user, task_id)
     return await source_proxy._proxy_pdf2md(request, upstream_path, method=method)
 
 
@@ -114,6 +136,27 @@ def enforce_quota_or_429(session: Session, current_user: User, event_type: str, 
     try:
         return ensure_within_quota(
             session,
+            user_id=int(current_user.id),
+            user_role=_role_value(current_user),
+            event_type=event_type,
+            increment=increment,
+        )
+    except ValueError as exc:
+        parts = str(exc).split(":")
+        if len(parts) == 4 and parts[0] == "daily_quota_exceeded":
+            raise _quota_error_payload(parts[1], int(parts[2]), int(parts[3])) from exc
+        raise
+
+
+async def enforce_quota_or_429_async(
+    async_session: AsyncSession,
+    current_user: User,
+    event_type: str,
+    increment: int = 1,
+) -> tuple[int, int | None]:
+    try:
+        return await ensure_within_quota_async(
+            async_session,
             user_id=int(current_user.id),
             user_role=_role_value(current_user),
             event_type=event_type,
@@ -186,6 +229,67 @@ def record_user_artifact(
     return item
 
 
+async def record_user_artifact_async(
+    async_session: AsyncSession,
+    *,
+    user_id: int,
+    artifact_type: str,
+    artifact_key: str,
+    title: str,
+    path: str,
+    source: str,
+    global_artifact_id: str | None = None,
+    company_code: str | None = None,
+    company_name: str | None = None,
+    company_dir: str | None = None,
+) -> UserArtifact:
+    await _upsert_workspace_project_async(
+        async_session,
+        user_id=user_id,
+        company_code=company_code,
+        company_name=company_name,
+        company_dir=company_dir,
+        fallback_name=title,
+    )
+    result = await async_session.exec(
+        select(UserArtifact).where(
+            UserArtifact.user_id == user_id,
+            UserArtifact.artifact_type == artifact_type,
+            UserArtifact.artifact_key == artifact_key,
+        )
+    )
+    existing = result.first()
+    if existing:
+        changed = False
+        for field, value in {
+            "title": title,
+            "path": path,
+            "source": source,
+            "global_artifact_id": global_artifact_id,
+        }.items():
+            if value and getattr(existing, field) != value:
+                setattr(existing, field, value)
+                changed = True
+        if changed:
+            async_session.add(existing)
+            await async_session.commit()
+            await async_session.refresh(existing)
+        return existing
+    item = UserArtifact(
+        user_id=user_id,
+        artifact_type=artifact_type,
+        artifact_key=artifact_key,
+        title=title,
+        path=path,
+        source=source,
+        global_artifact_id=global_artifact_id,
+    )
+    async_session.add(item)
+    await async_session.commit()
+    await async_session.refresh(item)
+    return item
+
+
 def _split_company_dir(company_dir: str | None) -> tuple[str | None, str | None]:
     text = str(company_dir or "").strip()
     if not text:
@@ -250,7 +354,7 @@ def _upsert_workspace_project(
         statement = statement.where(candidates[0] if len(candidates) == 1 else candidates[0] | candidates[1])
         existing = session.exec(statement).first()
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC).replace(tzinfo=None)
     project_name = name or fallback_name or code
     if existing:
         changed = False
@@ -282,6 +386,66 @@ def _upsert_workspace_project(
     return project
 
 
+async def _upsert_workspace_project_async(
+    async_session: AsyncSession,
+    *,
+    user_id: int,
+    company_code: str | None = None,
+    company_name: str | None = None,
+    company_dir: str | None = None,
+    fallback_name: str | None = None,
+) -> WorkspaceProject | None:
+    identity = company_identity_from_dir(company_dir)
+    code = (company_code or identity.get("company_code") or "").strip()
+    name = (company_name or identity.get("company_name") or "").strip()
+    if not code and not name:
+        return None
+
+    candidates = []
+    if code:
+        candidates.append(WorkspaceProject.company_code == code)
+    if name:
+        candidates.append(WorkspaceProject.company_name == name)
+
+    existing = None
+    if candidates:
+        statement = select(WorkspaceProject).where(WorkspaceProject.user_id == user_id)
+        statement = statement.where(candidates[0] if len(candidates) == 1 else candidates[0] | candidates[1])
+        result = await async_session.exec(statement)
+        existing = result.first()
+
+    now = datetime.now(UTC).replace(tzinfo=None)
+    project_name = name or fallback_name or code
+    if existing:
+        changed = False
+        if code and existing.company_code != code:
+            existing.company_code = code
+            changed = True
+        if name and existing.company_name != name:
+            existing.company_name = name
+            changed = True
+        if project_name and existing.name != project_name:
+            existing.name = project_name
+            changed = True
+        existing.updated_at = now
+        async_session.add(existing)
+        await async_session.commit()
+        await async_session.refresh(existing)
+        return existing
+
+    project = WorkspaceProject(
+        user_id=user_id,
+        name=project_name,
+        company_code=code or None,
+        company_name=name or None,
+        updated_at=now,
+    )
+    async_session.add(project)
+    await async_session.commit()
+    await async_session.refresh(project)
+    return project
+
+
 def _report_route(section: str, company_dir: str, filename: str | None = None) -> str:
     route = REPORT_SOURCE_ROUTES.get(section, "/analysis")
     query = f"?company={quote(company_dir, safe='')}"
@@ -292,6 +456,16 @@ def _report_route(section: str, company_dir: str, filename: str | None = None) -
 
 def _report_key(section: str, company_dir: str, filename: str) -> str:
     return f"wiki:{section}:{company_dir}:{filename}"
+
+
+def _utc_isoformat(value):
+    if not isinstance(value, datetime):
+        return value
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    else:
+        value = value.astimezone(UTC)
+    return value.isoformat().replace("+00:00", "Z")
 
 
 def _report_title(section: str, company_name: str, filename: str) -> str:
@@ -353,8 +527,8 @@ def _project_payload(item: WorkspaceProject) -> dict:
         "company_code": item.company_code,
         "company_name": item.company_name,
         "status": item.status,
-        "created_at": item.created_at,
-        "updated_at": item.updated_at,
+        "created_at": _utc_isoformat(item.created_at),
+        "updated_at": _utc_isoformat(item.updated_at),
     }
 
 
@@ -367,8 +541,8 @@ def _artifact_payload(item: UserArtifact) -> dict:
         "path": item.path,
         "source": item.source,
         "globalArtifactId": item.global_artifact_id,
-        "createdAt": item.created_at,
-        "created_at": item.created_at,
+        "createdAt": _utc_isoformat(item.created_at),
+        "created_at": _utc_isoformat(item.created_at),
     }
 
 
@@ -617,8 +791,8 @@ def create_workspace_project(
         "company_code": project.company_code,
         "company_name": project.company_name,
         "status": project.status,
-        "created_at": project.created_at,
-        "updated_at": project.updated_at,
+        "created_at": _utc_isoformat(project.created_at),
+        "updated_at": _utc_isoformat(project.updated_at),
     }
 
 
@@ -664,7 +838,7 @@ async def authenticated_pdf_upload(
     formula_enable: str = Form("true"),
     table_enable: str = Form("true"),
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
     form = {
         "backend": backend,
@@ -686,7 +860,7 @@ async def authenticated_pdf_upload(
     existing_tasks = await _pdf_tasks_by_filename()
     new_parse_count = sum(1 for filename in filenames if filename not in existing_tasks)
     if new_parse_count:
-        enforce_quota_or_429(session, current_user, PARSE_EVENT, increment=new_parse_count)
+        await enforce_quota_or_429_async(async_session, current_user, PARSE_EVENT, increment=new_parse_count)
 
     async with httpx.AsyncClient(timeout=None) as client:
         response = await client.post(f"{PDF2MD_API_BASE}/api/upload", data=form, files=multipart, headers=_pdf2md_headers())
@@ -702,8 +876,8 @@ async def authenticated_pdf_upload(
         task_id = str(existing.get("task_id") or "")
         filename = str(payload.get("filename") or existing.get("filename") or "已有解析任务")
         if task_id:
-            record_user_artifact(
-                session,
+            await record_user_artifact_async(
+                async_session,
                 user_id=int(current_user.id),
                 artifact_type="parse",
                 artifact_key=task_id,
@@ -716,30 +890,53 @@ async def authenticated_pdf_upload(
 
     if 200 <= response.status_code < 300:
         created_tasks = payload.get("tasks") if isinstance(payload, dict) else []
-        task_count = len(created_tasks or [])
-        if task_count:
-            record_usage(
-                session,
-                user_id=int(current_user.id),
+        new_tasks = []
+        reused_tasks = []
+        for task in created_tasks or []:
+            filename = str(task.get("filename") or "").strip()
+            if filename and filename in existing_tasks:
+                reused_tasks.append(task)
+            else:
+                new_tasks.append(task)
+
+        user_id = int(current_user.id)
+        if new_tasks:
+            await record_usage_async(
+                async_session,
+                user_id=user_id,
                 event_type=PARSE_EVENT,
-                count=task_count,
+                count=len(new_tasks),
                 source="pdf_upload",
-                metadata_json=json.dumps({"tasks": created_tasks}, ensure_ascii=False),
+                metadata_json=json.dumps({"tasks": new_tasks}, ensure_ascii=False),
             )
-            for task in created_tasks:
-                task_id = str(task.get("task_id") or "")
-                filename = str(task.get("filename") or task_id or "解析任务")
-                if task_id:
-                    record_user_artifact(
-                        session,
-                        user_id=int(current_user.id),
-                        artifact_type="parse",
-                        artifact_key=task_id,
-                        title=filename,
-                        path=f"{PDF2MD_API_BASE}/api/result/{quote(task_id, safe='')}",
-                        source="new_parse",
-                        global_artifact_id=task_id,
-                    )
+        for task in new_tasks:
+            task_id = str(task.get("task_id") or "")
+            filename = str(task.get("filename") or task_id or "解析任务")
+            if task_id:
+                await record_user_artifact_async(
+                    async_session,
+                    user_id=user_id,
+                    artifact_type="parse",
+                    artifact_key=task_id,
+                    title=filename,
+                    path=f"{PDF2MD_API_BASE}/api/result/{quote(task_id, safe='')}",
+                    source="new_parse",
+                    global_artifact_id=task_id,
+                )
+        for task in reused_tasks:
+            task_id = str(task.get("task_id") or "")
+            filename = str(task.get("filename") or task_id or "已有解析任务")
+            if task_id and not await _user_has_parse_artifact_async(async_session, user_id, task_id):
+                await record_user_artifact_async(
+                    async_session,
+                    user_id=user_id,
+                    artifact_type="parse",
+                    artifact_key=task_id,
+                    title=filename,
+                    path=f"{PDF2MD_API_BASE}/api/result/{quote(task_id, safe='')}",
+                    source="reused_parse",
+                    global_artifact_id=task_id,
+                )
         return payload
 
     return Response(
@@ -770,7 +967,7 @@ async def pdf_health(request: Request):
 @pdf_router.get("/tasks")
 async def list_my_pdf_tasks(
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
@@ -787,12 +984,13 @@ async def list_my_pdf_tasks(
     if os.environ.get("SIQ_PDF_TASK_LIST_WORKSPACE_ONLY", "").strip().lower() not in {"1", "true", "yes"}:
         return {"tasks": tasks or [], "scope": "system"}
 
-    parse_links = session.exec(
+    result = await async_session.exec(
         select(UserArtifact).where(
             UserArtifact.user_id == int(current_user.id),
             UserArtifact.artifact_type == "parse",
         )
-    ).all()
+    )
+    parse_links = result.all()
     allowed_task_ids = {item.artifact_key for item in parse_links if item.artifact_key}
     if not allowed_task_ids:
         return {"tasks": [], "scope": "workspace"}
@@ -809,14 +1007,14 @@ async def pdf_task_status(
     request: Request,
     task_id: str,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
     return await _proxy_pdf_task(
         request,
         task_id,
         f"/api/status/{quote(task_id, safe='')}",
         current_user=current_user,
-        session=session,
+        session=async_session,
     )
 
 
@@ -825,14 +1023,14 @@ async def pdf_task_result(
     request: Request,
     task_id: str,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
     return await _proxy_pdf_task(
         request,
         task_id,
         f"/api/result/{quote(task_id, safe='')}",
         current_user=current_user,
-        session=session,
+        session=async_session,
     )
 
 
@@ -841,14 +1039,14 @@ async def pdf_task_quality(
     request: Request,
     task_id: str,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
     return await _proxy_pdf_task(
         request,
         task_id,
         f"/api/quality/{quote(task_id, safe='')}",
         current_user=current_user,
-        session=session,
+        session=async_session,
     )
 
 
@@ -857,14 +1055,14 @@ async def pdf_task_financial(
     request: Request,
     task_id: str,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
     return await _proxy_pdf_task(
         request,
         task_id,
         f"/api/financial/{quote(task_id, safe='')}",
         current_user=current_user,
-        session=session,
+        session=async_session,
     )
 
 
@@ -873,14 +1071,14 @@ async def pdf_task_cancel(
     request: Request,
     task_id: str,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
     return await _proxy_pdf_task(
         request,
         task_id,
         f"/api/cancel/{quote(task_id, safe='')}",
         current_user=current_user,
-        session=session,
+        session=async_session,
         method="POST",
     )
 
@@ -890,14 +1088,14 @@ async def pdf_task_refetch(
     request: Request,
     task_id: str,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
     return await _proxy_pdf_task(
         request,
         task_id,
         f"/api/refetch/{quote(task_id, safe='')}",
         current_user=current_user,
-        session=session,
+        session=async_session,
         method="POST",
     )
 
@@ -907,14 +1105,14 @@ async def pdf_task_reparse(
     request: Request,
     task_id: str,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
     return await _proxy_pdf_task(
         request,
         task_id,
         f"/api/reparse/{quote(task_id, safe='')}",
         current_user=current_user,
-        session=session,
+        session=async_session,
         method="POST",
     )
 
@@ -925,14 +1123,14 @@ async def pdf_task_artifact(
     task_id: str,
     artifact_name: str,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
     return await _proxy_pdf_task(
         request,
         task_id,
         f"/api/artifact/{quote(task_id, safe='')}/{artifact_name}",
         current_user=current_user,
-        session=session,
+        session=async_session,
     )
 
 
@@ -941,14 +1139,14 @@ async def pdf_task_download(
     request: Request,
     task_id: str,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
     return await _proxy_pdf_task(
         request,
         task_id,
         f"/api/download/{quote(task_id, safe='')}",
         current_user=current_user,
-        session=session,
+        session=async_session,
     )
 
 
@@ -957,14 +1155,14 @@ async def pdf_task_download_complete(
     request: Request,
     task_id: str,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
     return await _proxy_pdf_task(
         request,
         task_id,
         f"/api/download_complete/{quote(task_id, safe='')}",
         current_user=current_user,
-        session=session,
+        session=async_session,
     )
 
 
@@ -973,14 +1171,14 @@ async def pdf_task_download_corrected(
     request: Request,
     task_id: str,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
     return await _proxy_pdf_task(
         request,
         task_id,
         f"/api/download_corrected/{quote(task_id, safe='')}",
         current_user=current_user,
-        session=session,
+        session=async_session,
     )
 
 
@@ -990,14 +1188,14 @@ async def pdf_task_source_table(
     task_id: str,
     table_index: int,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
     return await _proxy_pdf_task(
         request,
         task_id,
         f"/api/source/{quote(task_id, safe='')}/table/{table_index}",
         current_user=current_user,
-        session=session,
+        session=async_session,
     )
 
 
@@ -1007,14 +1205,14 @@ async def pdf_task_source_page(
     task_id: str,
     page_number: int,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
     return await _proxy_pdf_task(
         request,
         task_id,
         f"/api/source/{quote(task_id, safe='')}/page/{page_number}",
         current_user=current_user,
-        session=session,
+        session=async_session,
     )
 
 
@@ -1024,14 +1222,14 @@ async def pdf_task_source_correction(
     task_id: str,
     table_index: int,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
     return await _proxy_pdf_task(
         request,
         task_id,
         f"/api/source/{quote(task_id, safe='')}/table/{table_index}/correction",
         current_user=current_user,
-        session=session,
+        session=async_session,
         method="POST",
     )
 
@@ -1042,14 +1240,14 @@ async def pdf_task_page_image(
     task_id: str,
     page_number: int,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
     return await _proxy_pdf_task(
         request,
         task_id,
         f"/api/pdf_page/{quote(task_id, safe='')}/{page_number}",
         current_user=current_user,
-        session=session,
+        session=async_session,
     )
 
 
@@ -1058,22 +1256,24 @@ async def delete_my_pdf_task(
     request: Request,
     task_id: str,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
-    _ensure_pdf_task_access(session, current_user, task_id)
-    user_links = session.exec(
+    await _ensure_pdf_task_access_async(async_session, current_user, task_id)
+    result = await async_session.exec(
         select(UserArtifact).where(
             UserArtifact.user_id == int(current_user.id),
             UserArtifact.artifact_type == "parse",
             (UserArtifact.artifact_key == task_id) | (UserArtifact.global_artifact_id == task_id),
         )
-    ).all()
+    )
+    user_links = result.all()
     for item in user_links:
-        session.delete(item)
+        await async_session.delete(item)
     if user_links:
-        session.commit()
+        await async_session.commit()
 
-    remaining_links = session.exec(_parse_artifact_statement(task_id)).all()
+    result = await async_session.exec(_parse_artifact_statement(task_id))
+    remaining_links = result.all()
     if remaining_links and not source_proxy._is_admin(current_user):
         return {"success": True, "upstream_deleted": False, "scope": "workspace"}
 

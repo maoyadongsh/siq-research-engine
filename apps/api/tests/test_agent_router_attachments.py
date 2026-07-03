@@ -60,8 +60,14 @@ def test_specialized_agent_chat_routes_forward_attachments(monkeypatch):
 
         monkeypatch.setattr(agent_user_router, "maybe_handle_model_control", lambda message, profile: None)
         monkeypatch.setattr(agent_user_router, "collect_chat_reply", fake_collect_chat_reply)
-        monkeypatch.setattr(agent_user_router, "enforce_quota_or_429", lambda *args, **kwargs: (0, None))
-        monkeypatch.setattr(agent_user_router, "record_usage", lambda *args, **kwargs: None)
+        async def fake_enforce_quota_or_429_async(*args, **kwargs):
+            return (0, None)
+
+        async def fake_record_usage_async(*args, **kwargs):
+            return None
+
+        monkeypatch.setattr(agent_user_router, "enforce_quota_or_429_async", fake_enforce_quota_or_429_async)
+        monkeypatch.setattr(agent_user_router, "record_usage_async", fake_record_usage_async)
         monkeypatch.setattr(agent_user_router, "resolve_or_create_session", fake_resolve_or_create_session)
 
         session = object()
@@ -77,7 +83,6 @@ def test_specialized_agent_chat_routes_forward_attachments(monkeypatch):
             _sample_request(),
             current_user=current_user,
             async_session=session,
-            sync_session=SimpleNamespace(),
         )
 
         assert response.reply == "ok"

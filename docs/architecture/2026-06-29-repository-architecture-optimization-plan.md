@@ -1141,14 +1141,14 @@ scripts/check_owner_migration.sh  # passed: API active/loop/preflight, runtime f
 | --- | --- | --- | --- | --- |
 | P0 | Tracking 运行时缺陷修复 | 修复两份 `sentiment_monitor.py` 的 `ne_count`、`agent.py` 的季度字符串、`get_dashboard()` 对 `tracking-items.md` 的回读/空面板问题 | S，约 0.25-0.5 天 | 新增 tracking module 单测；`py_compile` 两份 tracking 包 |
 | P0 | Tracking 权限和旧路由收口 | 保留 `tracking_agent.router` 的全局认证；为 tracking route 加 `tracking:read/write` 或等价权限；确认 `apps/api/routers/tracking.py` 是否废弃，若废弃则移除或隔离；消除旧实现全局 `TrackingAgent()` 单例风险 | S-M，约 0.5-1 天 | router 权限测试；未授权/低权限访问失败；主路由只暴露一个 tracking 实现 |
-| P0 | Source token 密钥解耦 | 新增 `SIQ_SOURCE_TOKEN_SECRET`，source token 不再复用 JWT auth secret；设计兼容期双验或一次性切换策略；补过期、签名、任务归属测试 | S-M，约 0.5-1 天 | `tests/test_source_access.py` 扩展；环境变量缺失/轮换场景测试 |
+| P0 | Source token 密钥解耦 | 新增 `SIQ_SOURCE_TOKEN_SECRET`，source token 不再复用 JWT auth secret；默认切到 source secret 签发与验签，旧 auth secret 只允许显式 env opt-in 兼容；补过期、签名、任务归属测试 | S-M，约 0.5-1 天 | `tests/test_source_access.py` 扩展；环境变量缺失/轮换场景测试 |
 | P1 | Async DB 使用审计 | 不盲改 `run_in_executor` 场景；优先列出 async route 中直接依赖同步 `Session` 的路径，按 workspace/chat/market reports 分批迁移或隔离线程池 | M，约 1-2 天 | 新增审计清单；每批迁移跑对应 router 测试 + API focused |
 | P1 | `eval_e2e.py` 配置化 | 将默认年份、汽车行业话术、公司定位映射、行业关注点抽到 `IndustryProfile` 或 rules service 配置；保留默认 profile 兼容现有 demo | M，约 1-2 天 | eval_e2e 单测覆盖非汽车行业、非 2025 年、非 A 股代码 |
 | P1 | CI 基线落地 | 新增 CI workflow，先跑 `scripts/check_all.sh` 的稳定子集和前端检查；owner 迁移继续用 `scripts/check_owner_migration.sh` 做专项门禁 | M，约 1 天 | PR/Push CI 可复现；README 标明本地/CI 门禁关系 |
 | P1 | Playwright 端口策略统一 | 不直接认定当前配置失败；改为通过 `SIQ_FRONTEND_PORT` / `PLAYWRIGHT_BASE_URL` 统一 dev、README、E2E 端口说明 | S，约 0.25-0.5 天 | Playwright smoke 可启动；README / `apps/web/e2e/README.md` 对齐 |
 | P1 | 前端 token 存储安全设计 | 将 localStorage JWT 迁移到 httpOnly Cookie + CSRF 作为单独安全设计，不与当前 owner 拆分混批 | L，约 3-5 天 | threat model、后端 cookie auth、CSRF 测试、前端 auth 回归 |
 | P2 | 代码质量工具渐进接入 | 不一次性全仓开启 ruff/black/mypy；先对新增/触碰 Python 文件启用 ruff check，后续再分模块扩大 | M，约 1-2 天起 | 不产生大规模格式 churn；CI 先以 advisory 或 touched-files 模式运行 |
-| P2 | TODO/FIXME 治理 | 先生成分类报告，不直接承诺外部统计数字；按安全、运行时、架构、文档分桶 | S，约 0.5 天 | `rg` 统计脚本 + issue/taskbook 输出 |
+| P2 | 债务标记治理 | 先生成分类报告，不直接承诺外部统计数字；按安全、运行时、架构、文档分桶 | S，约 0.5 天 | `rg` 统计脚本 + issue/taskbook 输出 |
 | P2 | Hermes gateway 容器化与部署统一 | 当前 README 已明确 Hermes 仍依赖本机 editable venv；作为生产化任务纳入，但不阻塞近期安全/架构收口 | M-L，约 2-4 天 | Compose profile 可启动 Hermes gateway；health check 覆盖 |
 | P2 | 可观测性基线 | Prometheus/Grafana/结构化日志作为生产化后续，不与当前 runtime owner 拆分同批 | M-L，约 2-4 天 | API 关键路径 metrics、JSON log、dashboard smoke |
 
@@ -1388,7 +1388,7 @@ cd apps/api && .venv/bin/python -m py_compile scripts/audit_async_sync_session.p
 - `services/auth_dependencies.py:get_current_user` 已从同步 `Session = Depends(get_session)` 迁到 `AsyncSession = Depends(get_async_session)`，用户查询改为 `await session.exec(...)`；`require_permission()` 调用形状保持不变。
 - 认证分支覆盖补齐：token decode 失败、数字 subject、username subject、missing subject、missing user、pending、rejected with note、rejected without note、disabled、FastAPI dependency + temp async DB、main app protected route 正负例。
 - Async DB 审计 baseline 更新：`services/auth_dependencies.py:get_current_user` 不再属于同步 Session allowlist；当前防扩散测试继续保护剩余同步 session 债务不新增。当前 `scripts/audit_async_sync_session.py` 输出已更新为 total 56（`depends_get_session` 54、`next_get_session` 2）；0.30 的 total 58 为迁移前 baseline，0.31 初稿中的 total 57 为中间态。
-- Source token hardening 更新：配置 `SIQ_SOURCE_TOKEN_SECRET` 后 source token 使用独立密钥；旧 `SIQ_AUTH_SECRET_KEY` 签名的 source token 默认不再验签，只有显式 `SIQ_SOURCE_ACCEPT_LEGACY_AUTH_SECRET=1` 时才兼容；短 source secret fail closed；上游 PDF2MD 代理会大小写不敏感地剥离 `access_token` / `source_token` 查询参数，且不转发登录 `Authorization`。
+- Source token hardening 更新：配置 `SIQ_SOURCE_TOKEN_SECRET` 后 source token 使用独立密钥；新 token 用 source secret 签发，默认不再接受当前 `SIQ_AUTH_SECRET_KEY` 签过的旧 source token；只有显式 `SIQ_SOURCE_ACCEPT_LEGACY_AUTH_SECRET=1` 时才进入兼容验签；未配置 source secret 时保持旧 auth secret 行为；短 source secret fail closed；上游 PDF2MD 代理会大小写不敏感地剥离 `access_token` / `source_token` 查询参数，且不转发登录 `Authorization`。
 - Tracking 权限收口补强：`tracking_agent.router` 在全局认证外继续按方法叠加 `tracking.read` / `tracking.write`；`viewer/reviewer` 对 read/write 均无 tracking 权限；真实 `/api/tracking/chat/history` 路由已覆盖权限、session envelope 和 FastAPI datetime JSON 序列化。
 - Tracking runtime 与 schema 修复保持：`ne_count` NameError、季度字符串、`tracking-items.md` 回读、legacy tracking REST router 不暴露、旧 router agent 惰性初始化、`recent_alerts: list[AlertReport]`。
 
@@ -1397,7 +1397,7 @@ cd apps/api && .venv/bin/python -m py_compile scripts/audit_async_sync_session.p
 | 路径 | 当前状态 |
 | --- | --- |
 | service auth dependency | 已迁 AsyncSession；router/auth.py 的本地同步 auth 依赖不在本轮范围 |
-| source token legacy fallback | 默认关闭；显式 env opt-in 才兼容旧 auth secret 签名 |
+| source token legacy fallback | 配置 source secret 后默认关闭；只有显式 `SIQ_SOURCE_ACCEPT_LEGACY_AUTH_SECRET=1` 才接受旧 auth secret 签名，新 token 用 source secret 签发 |
 | source upstream proxy | 不转发 login/source token 参数；保留业务非敏感 query 参数 |
 | tracking permissions | analyst/admin/super_admin 读写；viewer/reviewer 403，且不会进入 runtime patch point |
 | Async DB audit | 防扩散护栏；不把 workspace/document_parser/chat 等既有同步 Session 债务混入本轮迁移 |
@@ -1519,7 +1519,7 @@ git diff --check
 
 ### 0.34 2026-07-02 Async DB audit 非阻断入口
 
-本轮继续按 0.33 的工程化小切片建议推进，只新增本地 advisory 入口，不接入硬门禁，不迁移任何同步 Session owner，也不修改 API router / DB 行为。后台复核确认 TODO/FIXME 分类报告可作为后续 P2 报告型任务，但本轮不混入。
+本轮继续按 0.33 的工程化小切片建议推进，只新增本地 advisory 入口，不接入硬门禁，不迁移任何同步 Session owner，也不修改 API router / DB 行为。后台复核确认债务标记分类报告可作为后续 P2 报告型任务，但本轮不混入。
 
 完成项：
 
@@ -1550,7 +1550,7 @@ git diff --check
 
 下一步建议：
 
-- TODO/FIXME 治理可单独做报告型切片，只分类不修代码，避免把历史债务修复混入工程化入口。
+- 债务标记治理可单独做报告型切片，只分类不修代码，避免把历史债务修复混入工程化入口。
 - Async DB 后续仍只做报告或设计矩阵；迁移 `chat.py` / `workspace.py` / `document_parser.py` 的同步 Session owner 必须另开单独窗口。
 
 ## 1. 当前架构事实
@@ -2964,7 +2964,7 @@ test-results/**
 - 本轮新增门禁：`cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_active_runs.py -q` 通过，27 passed；`cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_active_runs.py tests/test_agent_chat_runtime_loops.py -q` 通过，84 passed；`cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_*.py -q` 通过，218 passed；`cd apps/api && .venv/bin/python -m py_compile services/agent_chat_runtime_impl.py services/agent_runtime_sessions.py services/agent_runtime_streaming.py tests/test_agent_runtime_active_runs.py` 通过。
 - SSE 事件字段、停止按钮、orphaned run 恢复语义不变。
 
-### 0.6 2026-07-02 全量检查与交互/权限收口记录
+### 0.35 2026-07-02 全量检查与交互/权限收口记录
 
 本轮按“先全量检查，再补低风险闭环，再收住前端 E2E 矩阵”的节奏推进。结论：主线门禁继续保持绿色，新增改动主要是聊天/侧边栏交互与 workspace/downloads/document parser/chat attachment 的边界测试，不涉及红灯 owner 迁移。
 
@@ -3020,6 +3020,309 @@ git diff --check
 3. 控制面瘦身候选：继续评估 `apps/api/routers/workflow.py` 与 `apps/api/routers/market_reports.py` 的 service/repository 抽取，但必须先补 route contract / response golden 边界。
 4. 红灯 owner 暂缓混批：Agent runtime 普通 chat/history/attachments/memory/dedupe、PDF parser Flask response / MinerU submit-poll / `_ensure_*` 编排、Document workbench refs/scroll/CSS 注入仍需单独设计窗口。
 
+### 0.36 2026-07-03 深度复核与后续任务更新
+
+本节按用户要求重新深度核对本方案与当前工作区事实，并已按 0.37 的后续开发结果同步最新状态。若早期 0.3-0.34 的“下一步建议”与本节冲突，以本节为准。
+
+本地复核范围：
+
+- Git 索引与运行态目录：`git ls-files data var artifacts`。
+- 关键文件规模：`agent_chat_runtime_impl.py`、`pdf_parser_app_impl.py`、`workflow.py`、`market_reports.py`、`eval_e2e.py`。
+- 工程化入口：`.github/workflows/ci.yml`、`scripts/check_all.sh`、`scripts/check_owner_migration.sh`、`scripts/check_async_db_audit.sh`、`scripts/scan_todo_fixme.py`。
+- 风险主题抽样：Async DB 审计、localStorage token、Hermes/Compose、eval_e2e 行业硬编码、债务标记报告。
+
+复核结论：
+
+- R/B/C/F/P/A 主任务仍维持“已完成或阶段完成”。`R-001/R-002` 的运行态索引治理有效，当前 Git 只跟踪 `data/README.md`、`data/backend/.gitkeep`、`data/pdf-parser/.gitkeep`、`var/README.md`、`var/logs/.gitkeep`、`var/run/.gitkeep` 和 `artifacts/README.md`。
+- `B-003` 已有 `FileBackedJobService` 和 market report jobs，且记录 `created_by`；但这仍是文件持久化线程 job，不是可取消/可重试/多 worker 的中期 worker 平台。
+- API 安全线 P0 已完成：auth dependency 已迁 `AsyncSession`，tracking 权限/旧 router 隔离和 source token 独立密钥均有测试覆盖。source token 当前策略是“配置 source secret 后新 token 用 source secret 签发，默认不再接受当前 auth secret 签过的旧 source token；短期迁移需要兼容时显式设置 `SIQ_SOURCE_ACCEPT_LEGACY_AUTH_SECRET=1`”。
+- 工程化产物已存在但未完全收口：`.github/workflows/ci.yml`、`docs/architecture/2026-07-02-debt-marker-governance-report.md`、`scripts/scan_todo_fixme.py` 仍处于未跟踪状态；多个 README / env / compose 文件仍是 modified。
+- CI 基线阶段完成为“稳定子集 CI”：workflow 已覆盖 shell syntax、API focused 和 Web checks，shell syntax 已包含 `scripts/check_async_db_audit.sh`；PDF parser、document-parser、market-report-finder、market-report-rules 和 `packages/market-contracts` 仍保留为本地重门禁或后续矩阵扩展。
+- Async DB 治理仍未完成，但 `routers/chat.py` 已从同步 Session finding 中清零；后续 0.40/0.41 又推进了 `routers/document_parser.py` 多轮迁移。当前以 0.41 的 `total 29` advisory 为准：`workspace.py` 18 条为下一主 owner，`source.py` 5 条和 `document_parser.py` 3 条为 P2，`agent_user_router.py` 2 条、`market_reports.py` 1 条后置。该审计目前只作为 advisory，不是硬门禁。
+- `eval_e2e.py` 配置化阶段完成：已支持 `industry_profile`，默认 `automotive` profile 保持现有汽车 demo 兼容，新增 `generic/general` profile 覆盖非汽车输出；更多行业 profile 和 profile 配置来源仍可后续扩展。
+- 前端 token 存储安全仍未完成：`apps/web/src/lib/auth.tsx` 和 `shared/api/client.ts` 仍使用 localStorage `access_token` + Bearer header；httpOnly Cookie + CSRF 仍是独立安全设计窗口。
+- 债务标记治理已从“生成报告”变为“分诊报告”：`scripts/scan_todo_fixme.py` 可生成 advisory，当前报告显示 8 条 finding；分诊结论已写入 `docs/architecture/2026-07-02-debt-marker-governance-report.md`，后续不应再把“生成报告/分诊”当作未完成，只跟踪 P1 报告审核元数据和 P2 DashScope 图像 embedding 两个真实后续动作。
+- Hermes 容器化与可观测性仍未完成：Compose 没有 Hermes gateway service；README 也明确 Hermes 仍依赖本机 editable venv。`monitoring` profile 只有 Grafana，不等于 Prometheus/API metrics/结构化日志基线完成。
+- Python 质量工具仍未完成：API / finder / rules / contracts 的 `pyproject.toml` 尚未接入 ruff/black/mypy/pre-commit；前端已有 eslint/tsc。
+- 当前主要剩余大文件：`apps/api/services/agent_chat_runtime_impl.py` 6045 行、`apps/pdf-parser/pdf_parser_app_impl.py` 3948 行、`apps/api/routers/workflow.py` 2719 行、`apps/api/routers/market_reports.py` 1458 行、`apps/api/routers/eval_e2e.py` 1380 行、`apps/api/routers/workspace.py` 1131 行、`apps/web/src/pages/SearchDownload.tsx` 961 行、`apps/web/src/components/pdf/PdfSourceWorkbench.tsx` 708 行。后续不应因为行数继续盲拆；必须先补 route / 状态机 / UI 回归合同。
+
+更新后的后续任务池：
+
+| 优先级 | 任务 | 当前状态 | 下一步范围 | 验收门禁 |
+| --- | --- | --- | --- | --- |
+| P0 | 当前工作区按主题收口 | 未完成 | 将后端测试、前端交互、CI workflow、债务标记报告/脚本、文档更新分组 review；确认 `.github/workflows/ci.yml`、`scripts/scan_todo_fixme.py` 和债务报告是否纳入索引；继续排除 runtime/cache/build | `git status --short` 可解释；`git diff --check`；相关主题测试 |
+| P0 | CI 基线定稿 | 稳定子集阶段完成 | 保持 GitHub Actions 为 P0 稳定子集；如需扩大，后续单独评估 PDF parser、document-parser、finder、rules、contracts 矩阵成本 | workflow 入索引；本地 `bash -n`；API/Web CI 子集可本地复现 |
+| P1 | Async DB owner 治理 | chat owner 已完成，P1 大 owner 未完成 | 后续分别评估 `document_parser.py` 和 `workspace.py` owner，不能一次性替换所有同步 `Session`；`agent_user_router.py` 2 条后置 | `tests/test_async_sync_session_audit.py`；目标 router 聚焦测试；advisory finding 不新增 |
+| P1 | 控制面瘦身第二轮 | 未完成 | `workflow.py` 与 `market_reports.py` 先补 route contract / golden response，再选一个 service/repository 抽取；`workflow.py` 自有 `_workflow_jobs` 不与 market job service 顺手合并 | 新增 route contract tests；目标 router 聚焦测试 |
+| P1 | `eval_e2e.py` 配置化 | 阶段完成 | 保留默认 `automotive` 兼容与 `generic/general` profile；后续只在新增行业时扩展 profile/rules 配置，不继续在路由里散落行业话术 | eval_e2e 单测覆盖默认 profile 与非汽车 profile；新增行业需补 profile 测试 |
+| P1 | 前端 token 存储安全设计 | 未完成 | 单独设计 httpOnly Cookie + CSRF；先写 threat model、兼容期和回滚策略，不与 feature/API client 重构混批 | auth router tests；前端登录/刷新/登出回归；CSRF 正负例 |
+| P2 | 债务标记分诊 | 报告已生成，分诊未完成 | 基于 8 条 finding 决定 issue/backlog/误报；治理报告可保留为 advisory，不接硬门禁 | `python3 scripts/scan_todo_fixme.py --root .` 输出可解释 |
+| P2 | Python 质量工具渐进接入 | 未完成 | 先对新增/触碰 Python 文件启用 ruff advisory 或 touched-files 模式；不做全仓格式化 churn | CI/advisory 不阻断历史债务；无大规模格式 diff |
+| P2 | Hermes gateway 容器化 | 未完成 | 设计 Compose profile 或独立 service；明确 profile 同步、env、health check 与本机 venv fallback | Compose profile 可启动；health check smoke |
+| P2 | 可观测性基线 | 未完成 | 在 API/PDF parser 关键路径增加 metrics / structured log 设计；Grafana 只是展示层，不替代采集层 | `/metrics` 或等价 smoke；JSON log 样例；dashboard smoke |
+| P2 | 红灯 owner 新窗口 | 暂缓 | Agent runtime `save_message` / ordinary chat、PDF MinerU lifecycle / Flask response / task state、Document CSS 注入 / refs / scroll 只能单独设计 | 先写状态/回滚矩阵，再实现一个 owner |
+
+0.36 初始复核没有重跑 `scripts/check_all.sh` 或 Playwright 全量；0.37 后续开发已补聚焦验证。下一轮如果要提交当前工作区，提交前应至少跑 `git diff --check`、对应主题聚焦测试，并在需要时跑 `scripts/check_all.sh`。
+
+### 0.37 2026-07-03 后续开发推进记录
+
+本轮在 0.36 复核基础上继续推进低风险切片，优先选择可用聚焦测试锁住的工程化和配置化任务，不打开红灯 owner。
+
+完成项：
+
+- CI 稳定子集收口：`.github/workflows/ci.yml` 的 shell syntax 检查纳入 `scripts/check_async_db_audit.sh`；README / scripts 文档明确 GitHub Actions 是 P0 稳定子集，本地 `scripts/check_all.sh` 仍是重门禁。
+- `eval_e2e.py` profile 配置化：新增 profile helper，默认 `automotive` 保持原汽车/新能源/价格战 demo 兼容；新增 `generic/general` profile，非汽车输出不再带汽车行业术语。
+- Chat Async DB P0 清零：`routers/chat.py` 中两处 `next(get_session())` 内联同步会话改为 `AsyncSession` helper；streaming 完成回调使用 fresh async session；审计从 total 56 降为 54，当前无 P0 bucket。
+- 测试护栏补齐：新增 `tests/test_chat_async_achievements.py`，锁定 chat achievement 更新走 async session，并覆盖 streaming done payload 使用 fresh async session；`tests/test_async_sync_session_audit.py` 同步到 54 条 finding 和新的 advisory bucket 顺序。
+
+当前未完成但顺序已更新：
+
+| 优先级 | 任务 | 最新状态 | 下一步 |
+| --- | --- | --- | --- |
+| P0 | 当前工作区按主题收口 | 未完成 | 继续按后端测试、前端交互/E2E、CI/脚本、文档拆 review；确认未跟踪文件纳入策略 |
+| P1 | Async DB dependency owner | chat owner 已完成 | 下一步进入 `document_parser.py` / `workspace.py` owner 设计，不能混批 |
+| P1 | CI 扩展矩阵 | 稳定子集已定 | 暂不默认扩大到 check_all 等价矩阵；如扩展，单独评估耗时和 flaky 风险 |
+| P1 | `eval_e2e.py` 多行业扩展 | generic profile 已完成 | 后续新增真实行业 profile 时复用当前 profile helper，并补对应测试 |
+| P1 | 控制面瘦身第二轮 | 未开始 | `workflow.py` / `market_reports.py` 先补 route contract / golden response，再抽 service |
+| P1 | 前端 token 存储安全 | 未开始 | 单独设计 httpOnly Cookie + CSRF，不与 API client 或 UI 改造混批 |
+| P2 | 债务标记分诊 / Python 质量工具 / Hermes / 可观测性 | 未完成 | 保持 advisory 或设计窗口，不在当前 owner 未收口前升硬门禁 |
+
+本轮验证：
+
+```bash
+cd apps/api && .venv/bin/python -m py_compile routers/chat.py routers/eval_e2e.py tests/test_async_sync_session_audit.py tests/test_chat_async_achievements.py tests/test_eval_e2e_config.py
+cd apps/api && .venv/bin/python -m pytest tests/test_async_sync_session_audit.py tests/test_chat_async_achievements.py tests/test_eval_e2e_config.py -q  # 8 passed
+scripts/check_async_db_audit.sh  # total 54, no P0 bucket
+bash -n scripts/check_all.sh scripts/check_owner_migration.sh scripts/check_async_db_audit.sh
+cd apps/api && .venv/bin/python -m pytest tests/test_agent_runtime_active_runs.py tests/test_agent_runtime_chat_preflight.py -q  # 37 passed
+cd apps/api && .venv/bin/python -m pytest tests/test_agent_router_attachments.py tests/test_chat_document_parser_attachment.py -q  # 12 passed
+```
+
+### 0.38 2026-07-03 财报问答助手可用性修复
+
+本轮响应“财报问答助手无法正常问答”的故障反馈，停止继续扩大迁移，先修复普通 `/api/chat` 路由的可用性，并补专业智能体回归。
+
+根因：
+
+- `record_usage_async()` 在同一个 `AsyncSession` 内 `commit()` 后，会让 session 中的 ORM 对象过期。
+- `/api/chat` 在记 usage 后继续使用 `current_user.id/current_user.role` 做 session 恢复与消息保存，可能触发异步懒加载异常，导致财报问答助手无法正常返回。
+- PDF 附件路径也有同类风险：document artifact 写入 commit 后再次读取 `current_user.id`，会导致 usage 未写入或提交分支被异常吞掉。
+
+完成项：
+
+- `routers/chat.py` 在写 usage/artifact 前先捕获 `current_user_id/current_user_role`，并将认证用户对象从当前写事务 session 中分离，避免 commit 后再次懒加载。
+- `services/usage_service.py` 增加 async usage helper；`routers/chat.py` 剩余 3 条 `Session = Depends(get_session)` 已迁完，chat 路由从 Async DB allowlist 中移除。
+- 新增 `tests/test_chat_route_usage.py`，覆盖 `/chat` 与 `/chat/stream` 在记 usage 后仍能继续使用当前用户并正常返回。
+- `tests/test_chat_document_parser_attachment.py` 迁到 async session，继续锁定 PDF 附件成功才写 usage/artifact、失败或无 task_id 不写的语义。
+- `tests/test_async_sync_session_audit.py` 更新为 total 51；当前 advisory 无 P0，且 `routers/chat.py` 已无同步 Session finding。
+
+本轮验证：
+
+```bash
+cd apps/api && .venv/bin/python -m py_compile routers/chat.py services/usage_service.py tests/test_chat_route_usage.py tests/test_chat_document_parser_attachment.py tests/test_async_sync_session_audit.py
+cd apps/api && .venv/bin/python -m pytest tests/test_chat_route_usage.py tests/test_chat_document_parser_attachment.py tests/test_async_sync_session_audit.py tests/test_chat_async_achievements.py -q  # 11 passed
+cd apps/api && .venv/bin/python -m pytest tests/test_agent_router_attachments.py tests/test_agent_runtime_chat_preflight.py tests/test_agent_runtime_active_runs.py -q  # 46 passed
+cd apps/api && .venv/bin/python -m pytest tests/test_tracking_agent_permissions.py tests/test_tracking_runtime.py tests/test_router_history_response.py -q  # 22 passed
+scripts/check_async_db_audit.sh  # total 51, no P0 bucket, routers/chat.py absent
+```
+
+### 0.39 2026-07-03 后续护栏补强与安全默认收紧
+
+本轮按 0.38 后的工作区收口要求继续推进，只做可由聚焦测试锁住的小切片，不进入 `document_parser.py` / `workspace.py` Async DB owner 大迁移，也不打开并发 quota 计数器、PDF 批量 partial response 或前端 Cookie/CSRF 设计窗口。
+
+完成项：
+
+- `usage_service.py` async helper 增加直接单测：覆盖 async usage 记录、按日聚合、admin unlimited、普通用户超额错误字符串，并加入 CI API focused 子集。
+- `eval_e2e.py` profile 护栏补强：新增 `input.profile` / `input.industry_profile` alias、顶层 `industry_profile` 优先级和未知 profile fallback 的单测，继续保持默认 automotive 兼容与 generic/general 非汽车输出边界。
+- Source token 安全默认收紧：配置独立 `SIQ_SOURCE_TOKEN_SECRET` 后，旧 `SIQ_AUTH_SECRET_KEY` 签名的 source token 默认不再被验证；短期迁移需要时必须显式设置 `SIQ_SOURCE_ACCEPT_LEGACY_AUTH_SECRET=1`。未配置独立 source secret 的环境仍 fallback 到 auth secret，保持旧部署可启动。
+- Workspace API 时间出口修正：`WorkspaceProject` 与 `UserArtifact` payload 的 `created_at` / `updated_at` 从 naive UTC datetime 序列化为 `...Z` UTC 字符串，避免前端 `Date` 按本地时区误解析；DB 内部仍保持 naive UTC，避免模型/SQLite 兼容 churn。
+- README、API README、local development 文档、Docker/本地/生产 env 样例和 compose 默认值同步为 `SIQ_SOURCE_ACCEPT_LEGACY_AUTH_SECRET=0`，迁移兼容改为显式 opt-in。
+
+仍保留为后续设计窗口：
+
+| 风险 | 本轮处理 | 后续要求 |
+| --- | --- | --- |
+| usage/quota 并发下 check-then-insert 非原子 | 记录为中期风险，不在当前收口切片硬改 | 设计 per-user/event/day counter 或事务串行化，并补并发回归 |
+| PDF chat attachment 多 PDF 跨额度 partial side effect | 不混入本轮 | 设计前置额度检查或 partial response 语义，再补测试 |
+| chat_stream 创建 SSE 前扣 usage | 保持现有“请求即计费”语义 | 若改为成功回答后计费，需同步产品语义和失败回滚测试 |
+| unknown industry profile fallback automotive | 当前测试锁定现有 fallback | 若产品要求非汽车默认 generic 或 400，需单独改 API 合约 |
+
+本轮验证：
+
+```bash
+cd apps/api && .venv/bin/python -m py_compile routers/source.py routers/workspace.py routers/eval_e2e.py services/usage_service.py tests/test_source_access.py tests/test_workspace_sync.py tests/test_eval_e2e_config.py tests/test_usage_service_async.py
+cd apps/api && .venv/bin/python -m pytest tests/test_source_access.py tests/test_workspace_sync.py tests/test_eval_e2e_config.py tests/test_usage_service_async.py -q  # 39 passed
+cd apps/api && .venv/bin/python -m pytest tests/test_async_sync_session_audit.py tests/test_agent_runtime_active_runs.py tests/test_agent_chat_runtime_loops.py tests/test_agent_runtime_chat_preflight.py tests/test_auth_dependencies_smoke.py tests/test_chat_async_achievements.py tests/test_chat_document_parser_attachment.py tests/test_chat_route_usage.py tests/test_document_parser_proxy.py tests/test_eval_e2e_config.py tests/test_source_access.py tests/test_tracking_agent_permissions.py tests/test_tracking_runtime.py tests/test_usage_service_async.py tests/test_workspace_sync.py -q  # 183 passed
+```
+
+### 0.40 2026-07-03 高风险 owner 前置窗口启动
+
+本轮在用户要求“为什么不选择一个高风险的大项目开始做”后，正式启动高风险项目的受控前置窗口。原则是：先补迁移矩阵和副作用顺序 contract，不直接盲迁 `Depends(get_session)`，不碰刚收口的 `chat.py` / `usage_service.py` / `source.py` / `workspace.py` 热点。
+
+完成项：
+
+- 债务标记治理完成分诊：`docs/architecture/2026-07-02-debt-marker-governance-report.md` 新增分诊结论、后续任务清单和接受的规则哨兵说明；扫描仍保持 advisory，不接硬 CI。
+- `routers/document_parser.py` Async DB owner 前置矩阵启动：在 `tests/test_document_parser_proxy.py` 扩展副作用顺序、owner scope 与失败路径 contract。
+  - 额度已满的 URL 创建请求不创建上游 client、不写 usage、不写 artifact。
+  - multipart 上传额度不足时先 429，不读取上传文件内容，也不创建上游 client。
+  - 上游 `500` 返回时透传失败响应，不扣 `DOCUMENT_PARSE_EVENT` usage，也不写 `UserArtifact`。
+  - retry 上游 `500` 返回时透传失败响应，不扣 `source="document_retry"` usage。
+  - retry 缺少 owner access 时先返回 `403`，即使用户当天 quota 已满也不进入 quota/upstream；owner access 存在但 quota 已满时返回 `429`，不创建上游 client、不记录 `source="document_retry"` usage。
+  - `list_document_tasks` 普通用户只返回当前用户 `document_parse` link 对应任务，且支持 `artifact_key` / `global_artifact_id` 两种匹配。
+  - admin 默认返回 system scope 全量任务；显式 `SIQ_DOCUMENT_TASK_LIST_WORKSPACE_ONLY=true` 时改为 workspace 过滤，不泄露其他用户或未链接任务。
+  - `download_document_batch` 普通用户在所选任务全部不可访问时直接返回 403，且不创建上游 client；已有正例继续锁定“部分可访问时静默过滤后代理”的 contract。
+  - `download_document_batch` admin 支持 camelCase `taskIds`，会 trim / 去重 / 过滤空值后，以 `{"task_ids": [...]}` 代理到上游，不依赖 workspace link。
+  - `delete_document_task` 明确当前 contract：先删除并 commit 当前用户 workspace link，再处理上游 DELETE；最后 owner 遇到上游 `500` 或 `RequestError` 时，本地 link 仍保持已删除，不回滚。
+- `routers/document_parser.py` 前置矩阵用于锁定后续 async owner 迁移必须保持的“成功后才扣量/写 artifact、前置额度失败无副作用、删除先解绑本地 link”语义；真实迁移第一刀只切只读 `/documents/quota`，不触碰 create/retry/delete 写路径。
+- `workspace.authenticated_pdf_upload` 增加上游失败无副作用 contract：新文件上传在 PDF parser 上游返回 `500` 时透传失败响应，不记录 `PARSE_EVENT` usage，也不写 `UserArtifact`。
+- `workspace.authenticated_pdf_upload` 增加 duplicate 满额复用 contract：普通用户当天 `PARSE_EVENT` 已满时，命中 `_pdf_tasks_by_filename()` 的 duplicate 文件仍可返回 `409 duplicate_filename`，记录 `source="reused_parse"` artifact，且不新增 usage。
+- `workspace.authenticated_pdf_upload` 增加 mixed reused/new 安全子集 contract：上传列表包含已存在文件和新文件时，quota 预检只按新文件数 `increment=1`；当上游 `2xx` 只返回新任务时，只记录一条 `pdf_upload` usage 和一个 `source="new_parse"` artifact。
+- `workspace.authenticated_pdf_upload` 修复 mixed `2xx` payload 分类：上游同时返回 reused task + new task 时，只按 new tasks 记录 `PARSE_EVENT` usage 和 `source="new_parse"` artifact；reused tasks 不计费，缺少本地链接时补 `source="reused_parse"` artifact，已有 artifact 不被覆盖成 `new_parse`。
+- `services/usage_service.py` 新增 `usage_response_payload_async()`，`document_parse_quota` 改为 `async def` + `Depends(get_async_session)`；该 route 原本是同步 `def`，不在 async sync-session audit finding 内，因此 advisory 计数保持 51 不变。
+- `routers/document_parser.py` 第二刀真实迁移新增 async access helper，并将 `list_document_tasks` 与 `source_image` 切到 `AsyncSession = Depends(get_async_session)`；对应测试改用 async sqlite seed，async sync-session audit 从 total 51 / document_parser 25 降到 total 49 / document_parser 23。
+- `routers/document_parser.py` 第三刀将 13 个 GET、无 body、无本地写入的同构 proxy routes 切到 async access helper，并用参数化 async session 测试覆盖每条 upstream path；async sync-session audit 从 total 49 / document_parser 23 降到 total 36 / document_parser 10，P1 排序变为 `workspace.py` 在前。
+- `routers/document_parser.py` 第四刀将 4 个 POST body 转发但无本地 DB 写入的 routes 切到 async access helper：`review_document_table_relation`、`split_document_logical_table`、`merge_document_logical_tables`、`extract_document_schema`；补齐 review/extract async seed 测试和 split/merge 参数化 body 转发测试。async sync-session audit 从 total 36 / document_parser 10 降到 total 32 / document_parser 6，`document_parser.py` 从 P1 降为 P2。
+- `routers/document_parser.py` 第五刀将 `cancel_document_task` 与 `download_document_batch` 切到 async access helper；补充 cancel route 测试并将 batch download 三条 owner/admin contract 测试改为 async sqlite seed。该轮 async sync-session audit 从 total 32 / document_parser 6 降到 total 30 / document_parser 4；后续又降到 0.41 记录的 total 29 / document_parser 3。
+- `tests/test_agent_chat_runtime_loops.py` 收窄 wiki catalog 数量断言，只排除旧业务文案 `一共 **121 家**`，避免临时目录名中的数字触发假失败。
+
+后续矩阵：当前 `document_parser` owner 前置矩阵和 `workspace.authenticated_pdf_upload` mixed `2xx` 风险已收口。0.41 复核后实际剩余同步 Session finding 只剩 `create_document_tasks`、`import_document_from_mineru` 和 `delete_document_task`；下一批真实 async owner 迁移应围绕 create/import 的 quota/usage/artifact 写入，以及 delete 的先删本地 link 顺序继续一刀一验。
+
+本轮验证：
+
+```bash
+python3 scripts/scan_todo_fixme.py --root . --max-examples 50  # total 8, advisory unchanged
+cd apps/api && .venv/bin/python -m pytest tests/test_document_parser_proxy.py tests/test_chat_document_parser_attachment.py tests/test_async_sync_session_audit.py -q  # 30 passed
+cd apps/api && .venv/bin/python -m pytest tests/test_workspace_sync.py tests/test_document_parser_proxy.py tests/test_async_sync_session_audit.py -q  # 41 passed
+cd apps/api && .venv/bin/python -m pytest tests/test_document_parser_proxy.py tests/test_async_sync_session_audit.py -q  # 33 passed
+cd apps/api && .venv/bin/python -m pytest tests/test_workspace_sync.py tests/test_async_sync_session_audit.py -q  # 19 passed
+cd apps/api && .venv/bin/python -m pytest tests/test_usage_service_async.py tests/test_document_parser_proxy.py tests/test_async_sync_session_audit.py -q  # 37 passed
+cd apps/api && .venv/bin/python -m pytest tests/test_document_parser_proxy.py tests/test_async_sync_session_audit.py -q  # 34 passed
+cd apps/api && .venv/bin/python -m pytest tests/test_document_parser_proxy.py tests/test_async_sync_session_audit.py -q  # 48 passed
+cd apps/api && .venv/bin/python -m pytest tests/test_document_parser_proxy.py tests/test_async_sync_session_audit.py -q  # 50 passed
+cd apps/api && .venv/bin/python -m pytest tests/test_document_parser_proxy.py tests/test_async_sync_session_audit.py -q  # 51 passed
+cd apps/api && .venv/bin/python -m pytest tests/test_agent_chat_runtime_loops.py::test_wiki_catalog_reply_reads_current_catalog_for_count_and_list -q  # 1 passed
+cd apps/api && .venv/bin/python -m pytest tests/test_async_sync_session_audit.py tests/test_agent_runtime_active_runs.py tests/test_agent_chat_runtime_loops.py tests/test_agent_runtime_chat_preflight.py tests/test_auth_dependencies_smoke.py tests/test_chat_async_achievements.py tests/test_chat_document_parser_attachment.py tests/test_chat_route_usage.py tests/test_document_parser_proxy.py tests/test_eval_e2e_config.py tests/test_source_access.py tests/test_tracking_agent_permissions.py tests/test_tracking_runtime.py tests/test_usage_service_async.py tests/test_workspace_sync.py -q  # 219 passed
+```
+
+### 0.41 2026-07-03 深度复核最终校准
+
+本节是对整份方案的最新执行锚点。若 0.1-0.40 的历史流水、测试数量或下一步建议与本节冲突，以本节和第 12 节为准。
+
+现状事实：
+
+- 仓库运行态索引仍干净：`git ls-files data var artifacts` 只返回 `artifacts/README.md`、`data/README.md`、`data/backend/.gitkeep`、`data/pdf-parser/.gitkeep`、`var/README.md`、`var/logs/.gitkeep`、`var/run/.gitkeep`。
+- Source token 策略已确认：配置 `SIQ_SOURCE_TOKEN_SECRET` 后新 token 用 source secret 签发，默认拒绝旧 `SIQ_AUTH_SECRET_KEY` source token；只有显式 `SIQ_SOURCE_ACCEPT_LEGACY_AUTH_SECRET=1` 才兼容旧 token。
+- 前端鉴权仍是 localStorage `access_token` + Bearer header；httpOnly Cookie + CSRF 未做，必须单独开安全设计窗口。
+- Async DB advisory 当前为 `total 29`，全部是 `Depends(get_session)`：`workspace.py` 18、`source.py` 5、`document_parser.py` 3、`agent_user_router.py` 2、`market_reports.py` 1。`routers/chat.py` 已清零；`document_parser.py` 已从 P1 降为 P2。
+- 债务标记 advisory 当前已完成报告审核 `generated_by` 来源修复；后续只剩 DashScope 图像 embedding 真实动作，Hermes legal 规则里的占位符检测文本属于接受的规则哨兵。
+- 当前工作区仍有多主题改动和未跟踪工程化文件，至少包括 `.github/workflows/ci.yml`、`scripts/scan_todo_fixme.py`、`docs/architecture/2026-07-02-debt-marker-governance-report.md`；提交前必须按主题 review 和分组提交。
+- 当前主要剩余大文件：`agent_chat_runtime_impl.py` 6045 行、`pdf_parser_app_impl.py` 3948 行、`workflow.py` 2719 行、`market_reports.py` 1458 行、`eval_e2e.py` 1380 行、`workspace.py` 1131 行、`SearchDownload.tsx` 961 行、`PdfSourceWorkbench.tsx` 708 行。行数只是信号，不能作为直接拆分理由。
+
+本轮全量验证：
+
+```bash
+scripts/check_all.sh
+```
+
+通过结果：
+
+- `apps/api`: 552 passed，468 warnings。
+- `apps/pdf-parser`: 329 passed。
+- `apps/document-parser`: 27 passed。
+- `services/market-report-finder`: 46 passed。
+- `services/market-report-rules`: 29 passed，1 warning。
+- `apps/web`: Node unit 46 passed。
+- `apps/web`: `npm run check:frontend` 通过，包含 lint、TypeScript build 和 Vite build。
+
+更新后的后续任务池：
+
+| 优先级 | 任务 | 当前状态 | 下一步范围 | 验收门禁 |
+| --- | --- | --- | --- | --- |
+| P0 | 当前工作区收口 | 未完成 | 按后端 Async/usage/document-parser、前端交互/E2E、CI/脚本、文档四组 review；确认 `.github/workflows/ci.yml`、`scripts/scan_todo_fixme.py`、债务报告是否入索引；排除 `dist/cache/runtime/data` | `git status --short` 可解释；`git diff --check`；主题聚焦测试 |
+| P1 | `workspace.py` Async DB owner | 未完成，18 条 finding | 先补 workspace route contract，再分读路径、PDF proxy 读路径、`authenticated_pdf_upload` 写路径迁移；保留 duplicate/reused/new quota 语义 | `tests/test_workspace_sync.py`；`tests/test_async_sync_session_audit.py` finding 不新增 |
+| P1 | `document_parser.py` 剩余写路径 | 阶段完成，剩 3 条 finding | 只迁 `create_document_tasks`、`import_document_from_mineru`、`delete_document_task`；保持成功后才扣量/写 artifact、失败无副作用、delete 先解绑本地 link 的合同 | `tests/test_document_parser_proxy.py`；audit 降到 `document_parser.py: 0` |
+| P1 | 控制面瘦身第二轮 | 未开始 | `workflow.py` 或 `market_reports.py` 二选一；先补 route contract / golden response，再抽 service/repository | 目标 router 聚焦测试；不改 endpoint 字段 |
+| P1 | Source routes Async / 安全尾项 | 未完成，5 条 finding | 先评审 `/api/source*` access token、workspace 权限和 proxy 参数剥离合同，再迁 async session | `tests/test_source_access.py`；source token 正负例 |
+| P1 | 前端 token 安全设计 | 未开始 | 设计 httpOnly Cookie + CSRF、兼容期、登出/刷新、跨域和回滚；不与 UI/API client 重构混批 | auth router tests；登录/刷新/登出回归；CSRF 正负例 |
+| P2 | Python 质量工具渐进接入 | 未完成 | ruff/format 先做 touched-files 或 advisory，不全仓格式化 | 无大规模格式 churn；CI/advisory 可解释 |
+| P2 | Hermes gateway 容器化 | 未完成 | 设计 Compose profile、profile 同步、env、health check、本机 venv fallback | Compose smoke；health check |
+| P2 | 可观测性基线 | 未完成 | API/PDF parser 关键路径 metrics 或 structured log；Grafana 只算展示层 | `/metrics` 或等价 smoke；JSON log 样例 |
+| P2 | 债务分诊动作 | 分诊完成，动作未做 | 报告审核 `generated_by` 来源、DashScope 图像 embedding 设计分别开小窗口 | 对应单测或 mocked smoke |
+| P3 | 红灯 owner 新窗口 | 暂缓 | Agent runtime `save_message` / ordinary chat、PDF MinerU lifecycle / Flask response / task state、Document CSS 注入 / refs / scroll | 先写状态/回滚矩阵，再实现一个 owner |
+
+### 0.42 2026-07-03 Async DB advisory 归零
+
+本轮接续 0.41 的 Async DB owner 队列，按“一刀一验”完成剩余 async route 中 `Depends(get_session)` 的迁移；`apps/api/tests/test_async_sync_session_audit.py` 的 allowlist 已清空，审计基线更新为 `total 0`。
+
+完成范围：
+
+- `routers/workspace.py`：PDF proxy 读路径、`delete_my_pdf_task`、`authenticated_pdf_upload` 迁到 `AsyncSession`；补齐 async quota / artifact helper，保留 duplicate / reused / new parse quota 语义。
+- `routers/document_parser.py`：剩余 create/import/delete 写路径已迁到 async quota / usage / artifact / access helper，保持“成功后才扣量/写 artifact、delete 先解绑本地 link”的合同。
+- `routers/source.py`：source access、table/page/pdf page、table correction 迁到 async 授权 helper；保留 token 剥离和 source token 复用合同。
+- `routers/agent_user_router.py`：specialist chat/chat_stream 的 quota 与 usage 改用 async helper；workspace artifact background sync write 暂不混入本轮。
+- `routers/market_reports.py`：US SEC upload 的 best-effort workspace link 改用 `record_user_artifact_async()`，并新增异常吞掉合同测试。
+
+本轮验证：
+
+```bash
+cd apps/api && .venv/bin/python -m pytest tests/test_workspace_sync.py tests/test_document_parser_proxy.py tests/test_source_access.py tests/test_agent_router_attachments.py tests/test_tracking_agent_permissions.py tests/test_market_reports_proxy.py tests/test_async_sync_session_audit.py -q  # 131 passed, 31 warnings
+cd apps/api && .venv/bin/python -m pytest -q  # 557 passed, 458 warnings
+cd apps/web && npm run check:frontend  # passed
+scripts/check_all.sh  # API 557 passed; PDF parser 329 passed; Document parser 27 passed; finder 46 passed; rules 29 passed; Web unit 46 passed; frontend check passed
+```
+
+说明：本轮没有重跑前端 Playwright 全量；0.41 的 Playwright 基线仍作为提交前浏览器重门禁参考。
+
+### 0.43 2026-07-03 控制面瘦身合同前置
+
+本轮接续 0.42，但不直接抽 `workflow.py` / `market_reports.py` service，也不改 endpoint 字段；只补控制面瘦身前置 contract tests，确保后续拆薄路由时关键响应 envelope 和 proxy 行为不漂移。
+
+完成范围：
+
+- `tests/test_market_reports_proxy.py` 增加 `_proxy_request` 合同：多值 query、POST body、`content-type` 和 upstream response media type 必须透传；`HEAD` 响应必须丢弃 upstream body。
+- `tests/test_document_workflow_package.py` 增加 `_document_workflow_status_payload` envelope 合同：顶层固定 `taskId` / `targets` / `artifacts`，`targets` 固定包含 `wiki`、`postgres`、`milvus`、`full_text`、`object_storage`，并保留通用文档 Wiki status 的关键字段。
+
+验证：
+
+```bash
+cd apps/api && .venv/bin/python -m pytest tests/test_document_workflow_package.py tests/test_market_reports_proxy.py -q  # 23 passed, 2 warnings
+```
+
+### 0.44 2026-07-03 通用文档 Wiki package 合同加固
+
+本轮继续 0.43 的 contract-only 策略，不抽 service、不改 endpoint 字段。重点加固通用文档 Wiki import 的轻量包合同，确保后续拆 `workflow.py` 时不会把完整解析产物误复制进 Wiki，也不会漂移控制面响应字段。
+
+完成范围：
+
+- `tests/test_document_workflow_package.py` 增加 `_import_document_task_to_wiki` 响应合同：固定 `ok`、`taskId`、`collection`、`documentKey`、`packageDir`、`manifestPath`、`copiedFiles`、`copiedDirectories`、`wiki` 顶层字段。
+- 固定 package `manifest.json` 的核心策略字段：`generic_document_package_v1`、`document_id`、`package_version`、`full_parse_archive`、`import_targets`、`wiki_keeps`。
+- 明确轻量/重型边界：`manifest.json`、`document.md`、`quality_report.json`、`source_map.json` 复制进 Wiki；`document_full.json`、blocks/tables/relations/figures/comparison 等完整解析产物只在 manifest 中以 source/sha/size 表示，不要求复制。
+
+验证：
+
+```bash
+cd apps/api && .venv/bin/python -m pytest tests/test_document_workflow_package.py tests/test_market_reports_proxy.py -q  # 24 passed, 2 warnings
+```
+
+### 0.45 2026-07-03 报告审核 metadata 债务修复
+
+本轮处理债务分诊中的 `ReportReview.generated_by` 来源问题，保持 `ReportReviewCreate` 请求合同不变，不混入 auth/token 安全改造。
+
+完成范围：
+
+- `routers/auth.py` 新增报告生成元数据解析 helper：优先读取同名前缀 `.json` 中的 `report_meta.generator` / `report_meta.generated_by` / `quality_report.generated_by`；缺失或 JSON 损坏时回退到旧行为 `system`。
+- 同步解析 `generated_at`，支持 ISO 字符串和 `Z` 时区；无效或缺失时继续使用当前时间。
+- 保留报告正文 front matter / HTML meta / 简单 JSON metadata 的兼容兜底，避免旧报告或非标准渲染产物无法审核。
+- 新增 `tests/test_auth_report_review.py`，覆盖 sibling metadata、缺失 metadata、损坏 metadata 三条合同。
+- 重新生成 `docs/architecture/2026-07-02-debt-marker-governance-report.md`；当前扫描为 `total 4`，安全/运行时均为 0，真实剩余动作只剩 DashScope 图像 embedding，另外 3 条是 legal 质量规则的占位符检测文本。
+
+验证：
+
+```bash
+cd apps/api && .venv/bin/python -m pytest tests/test_auth_report_review.py tests/test_auth_dependencies.py tests/test_auth_router_current_user.py -q  # 15 passed, 37 warnings
+python3 scripts/scan_todo_fixme.py --root . --max-examples 50  # total 4; 安全 0; 运行时 0
+```
+
 ## 10. 验收标准总表
 
 ### 仓库治理 DoD
@@ -3039,7 +3342,7 @@ git diff --check
 - evidence package 有共享 reader/validator。
 - settings 可注入、可测试。
 - API-finder-rules contract tests 通过。
-- 当前基础门禁：`scripts/check_all.sh` 已通过，覆盖 `apps/api` 486 tests、`apps/pdf-parser` 326 tests、`apps/document-parser` 27 tests、finder 46 tests、rules 29 tests、Web Node unit 44 tests 和 `npm run check:frontend`。
+- 当前基础门禁：`scripts/check_all.sh` 已通过，覆盖 `apps/api` 552 tests、`apps/pdf-parser` 329 tests、`apps/document-parser` 27 tests、finder 46 tests、rules 29 tests、Web Node unit 46 tests 和 `npm run check:frontend`。
 
 ### 前端 DoD
 
@@ -3048,7 +3351,7 @@ git diff --check
 - API client 收口。
 - legacy UI 不再被新代码默认使用。
 - 核心页面 Playwright smoke 通过。
-- 当前基线：`npm run test:unit` 通过并覆盖全部 `src/**/*.test.ts`，`npm run check:frontend` 通过，Chromium Playwright 25 tests 通过；聊天、工作平台、搜索下载、PDF/文档解析关键响应式 smoke 已覆盖。后续前端主要剩少量维护型交互回归，不建议继续扩大聊天 E2E 矩阵。
+- 当前基线：`npm run test:unit` 46 passed，`npm run check:frontend` 通过；此前 Chromium Playwright 25 tests 通过，0.41 未重跑 Playwright 全量。聊天、工作平台、搜索下载、PDF/文档解析关键响应式 smoke 已覆盖。后续前端主要剩少量维护型交互回归，不建议继续扩大聊天 E2E 矩阵。
 
 ### 运维 DoD
 
@@ -3103,14 +3406,14 @@ git diff --check
 
 ## 12. 后续窗口建议执行顺序
 
-建议后续窗口按以下节奏接力：
+建议后续窗口按以下节奏接力。早期 Phase 1-8 与 R/B/C/F/P/A 卡片已经大多完成或阶段完成，当前不再从“仓库治理第一步”重新开始。
 
-1. 窗口 A：只做 Phase 1，完成 Git 索引和目录治理，不碰业务代码。
-2. 窗口 B：实现 `CommandRunner` 和持久 job，先接一个 package build 任务。
-3. 窗口 C：合并 PDF / Market parsing workbench，并补市场隔离回归。
-4. 窗口 D：统一前端 API client，先覆盖高频页面。
-5. 窗口 E：拆 `pdf-parser/app.py` 和 `agent_chat_runtime.py`。
-6. 窗口 F：补 contract tests、job tests、Playwright 主流程。
+1. 窗口 A：当前工作区收口。按“后端 Async DB / usage / document-parser / 前端交互与 E2E / CI 与脚本 / 文档”拆分 review，确认 `.github/workflows/ci.yml`、`scripts/scan_todo_fixme.py` 和债务报告是否入索引，继续确保 ignored runtime/cache/build/data 不进入提交。
+2. 窗口 B：Async DB advisory 归零后的守护。`scripts/audit_async_sync_session.py --summary` 当前为 `total 0`，`tests/test_async_sync_session_audit.py` allowlist 已清空；后续只允许通过聚焦测试保持不回流，不在本窗口继续扩展 DB owner 语义。
+3. 窗口 C：控制面瘦身第二轮的合同前置。先为 `workflow.py` 或 `market_reports.py` 补 route contract / golden response，再选择一个 owner 抽 service/repository；不因行数同时拆多个控制面。
+4. 窗口 D：债务分诊动作。报告审核 `generated_by` 来源已完成；DashScope 图像 embedding 单独开小窗口；债务标记文本不作为 blanket 清理目标。
+5. 窗口 E：安全与生产化设计。前端 httpOnly Cookie + CSRF、Hermes gateway 容器化、Prometheus/结构化日志、Python ruff/touched-files advisory 分别开小窗口；`eval_e2e.py` 只有新增真实行业 profile 时才继续扩展。
+6. 窗口 F：红灯 owner 新设计。只有在有明确回归或收益时，才单独推进 Agent runtime `save_message` / ordinary chat、PDF MinerU lifecycle / Flask response / task state、Document CSS 注入 / refs / scroll 等高耦合 owner。
 
 每个窗口开工前应先执行：
 
@@ -3120,6 +3423,14 @@ git status --short
 ```
 
 如果发现与自己任务无关的改动，不要回退；只在自己的文件范围内工作。
+
+每个窗口收尾至少执行：
+
+```bash
+git diff --check
+```
+
+涉及代码时追加对应聚焦测试；涉及全仓提交前再跑 `scripts/check_all.sh`。Async DB 当前已经归零但仍作为 advisory/防回流护栏；债务标记当前也是 advisory，不应在未完成 owner 设计前升级为硬门禁。
 
 ## 13. 参考审查结论
 

@@ -4,6 +4,7 @@ import json
 import os
 import re
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
@@ -54,7 +55,86 @@ class EvalE2ERequest(BaseModel):
     run_slow_steps: bool = True
     generate_missing_reports: bool = True
     include_html: bool = False
+    industry_profile: str | None = None
     timeout_seconds: int | None = Field(default=None, ge=30, le=3600)
+
+
+@dataclass(frozen=True)
+class EvalIndustryProfile:
+    key: str
+    label: str
+    intent_triggers: tuple[str, ...]
+    focus_checklist: tuple[str, ...]
+    default_position: str
+    company_positions: dict[str, str]
+    insight_topics: tuple[str, str, str]
+    risk_row: tuple[str, str, str, str]
+    formal_focus: str
+    tracking_focus: str
+
+
+AUTOMOTIVE_PROFILE = EvalIndustryProfile(
+    key="automotive",
+    label="汽车行业",
+    intent_triggers=("行业", "经营问题", "经营模式", "新能源", "乘用车", "汽车", "价格战", "产品结构", "行业特征"),
+    focus_checklist=("汽车行业价格竞争", "新能源转型", "产品结构", "销量与毛利", "经营现金流"),
+    default_position="汽车行业公司普遍受新能源渗透率、价格竞争、产品结构、资本开支和渠道库存变化影响。",
+    company_positions={
+        "长安汽车": "自主品牌与合资品牌并行，新能源转型和产品结构升级决定利润修复质量。",
+        "比亚迪": "新能源整车与电池产业链一体化龙头，规模扩张、价格竞争和资本开支节奏是核心观察线。",
+        "上汽集团": "传统合资体系与自主新能源转型并行，合资利润承压和自主板块修复是经营主线。",
+        "江淮汽车": "处于新能源合作车型放量验证阶段，收入增长、单车毛利和主业亏损收窄是关键。",
+        "北汽蓝谷": "新能源品牌规模化仍在验证，持续亏损、净资产安全垫和融资能力是核心压力点。",
+        "赛力斯": "智能电动车爆款放量后进入盈利与现金流可持续验证阶段，供应链票据和交付节奏需重点跟踪。",
+        "广汽集团": "合资品牌利润下行与自主新能源转型并存，销量结构、库存和毛利修复是核心变量。",
+        "长城汽车": "SUV/皮卡基本盘、出口增长和新能源转型共同驱动，产品 mix 与海外业务质量需持续验证。",
+    },
+    insight_topics=(
+        "产品结构与价格竞争",
+        "汽车企业在新能源平台、渠道和产能投入阶段容易出现利润与现金流背离",
+        "销量、回款和供应链票据",
+    ),
+    risk_row=("行业竞争与产品结构", "新能源销量、单车毛利、价格调整、出口占比", "价格战加剧或高毛利车型占比下降", "结合年报经营讨论、公告和后续季度报告复核"),
+    formal_focus="利润质量、现金流可持续性、以及汽车行业价格竞争和新能源转型对经营表现的影响",
+    tracking_focus="利润现金含量、应收和存货变化、短债和票据压力、新能源车型销量及价格策略变化",
+)
+
+GENERIC_PROFILE = EvalIndustryProfile(
+    key="generic",
+    label="通用行业",
+    intent_triggers=("行业", "经营问题", "经营模式", "产品结构", "行业特征", "竞争格局", "业务结构"),
+    focus_checklist=("行业竞争格局", "业务结构", "收入与毛利", "经营现金流", "营运资本"),
+    default_position="目标公司所处行业需结合主营业务结构、竞争格局、毛利变化、资本开支和营运资本周转综合判断。",
+    company_positions={},
+    insight_topics=(
+        "业务结构与竞争格局",
+        "企业在业务扩张、产能投入或渠道调整阶段可能出现利润与现金流背离",
+        "订单、回款和库存周转",
+    ),
+    risk_row=("行业竞争与业务结构", "收入结构、毛利率、客户集中度、库存周转", "核心业务毛利下滑或营运资本占用上升", "结合年报经营讨论、公告和后续季度报告复核"),
+    formal_focus="利润质量、现金流可持续性、以及行业竞争格局和业务结构对经营表现的影响",
+    tracking_focus="利润现金含量、应收和存货变化、短债压力、主营业务毛利和营运资本周转变化",
+)
+
+INDUSTRY_PROFILES = {
+    AUTOMOTIVE_PROFILE.key: AUTOMOTIVE_PROFILE,
+    "auto": AUTOMOTIVE_PROFILE,
+    "car": AUTOMOTIVE_PROFILE,
+    GENERIC_PROFILE.key: GENERIC_PROFILE,
+    "general": GENERIC_PROFILE,
+}
+
+
+def _industry_profile(name: str | None = None) -> EvalIndustryProfile:
+    return INDUSTRY_PROFILES.get((name or "").strip().lower(), AUTOMOTIVE_PROFILE)
+
+
+def _request_industry_profile(req: EvalE2ERequest) -> EvalIndustryProfile:
+    name = req.industry_profile
+    if not name and isinstance(req.input, dict):
+        raw = req.input.get("industry_profile") or req.input.get("profile")
+        name = str(raw) if raw else None
+    return _industry_profile(name)
 
 
 class _TextExtractor(HTMLParser):
@@ -542,7 +622,8 @@ def _question_text(req: EvalE2ERequest) -> str:
     return (req.message or req.prompt or "").strip()
 
 
-def _task_focus(question: str) -> dict[str, Any]:
+def _task_focus(question: str, profile: EvalIndustryProfile | None = None) -> dict[str, Any]:
+    profile = profile or AUTOMOTIVE_PROFILE
     rules: list[tuple[str, list[str], list[str]]] = [
         ("公开财报检索与下载能力", ["检索", "下载", "PDF转Markdown", "Markdown", "入库", "向量化", "时效"], ["目标公司与年度", "download_status", "pdf_to_markdown_status", "wiki_vector_injected", "本地资料来源"]),
         ("核心财务指标抽取", ["营业收入", "净利润", "现金流", "总资产", "净资产", "资产负债率"], ["营业收入", "归母净利润", "经营活动现金流量净额", "总资产", "归母净资产", "资产负债率"]),
@@ -552,7 +633,7 @@ def _task_focus(question: str) -> dict[str, Any]:
         ("三大表一致性检查", ["利润表", "资产负债表", "现金流量表", "一致性", "勾稽关系"], ["净利润与经营现金流", "货币资金变动与现金流量表", "资产减值与利润", "应收存货与收入现金流"]),
         ("资产质量与风险识别", ["资产质量", "应收账款", "存货", "商誉", "固定资产", "减值"], ["应收账款", "存货", "商誉", "固定资产", "减值准备"]),
         ("盈利质量与驱动因素", ["盈利能力", "毛利率", "期间费用", "研发", "非经常性"], ["毛利率", "期间费用率", "研发投入", "减值损失", "非经常性损益"]),
-        ("行业调研与经营分析能力", ["行业", "经营问题", "经营模式", "新能源", "乘用车", "汽车", "价格战", "产品结构", "行业特征"], ["汽车行业价格竞争", "新能源转型", "产品结构", "销量与毛利", "经营现金流"]),
+        ("行业调研与经营分析能力", list(profile.intent_triggers), list(profile.focus_checklist)),
         ("专业财务报告生成能力", ["报告", "可采纳", "跟踪事项", "监控指标", "触发阈值", "证据缺口", "保守结论", "专业"], ["结论先行", "事实/计算/推断分层", "证据缺口", "风险提示", "不构成投资建议"]),
         ("证据忠实度与可追溯性", ["证据", "来源", "页码", "可追溯", "引用"], ["年报原文", "结构化指标", "semantic 证据链", "Wiki 路径"]),
     ]
@@ -571,8 +652,9 @@ def _task_focus(question: str) -> dict[str, Any]:
     return {"focus": focus, "checklist": checklist[:10]}
 
 
-def _question_intent(question: str) -> str:
+def _question_intent(question: str, profile: EvalIndustryProfile | None = None) -> str:
     """Keep broad metric words from stealing more specific finance tasks."""
+    profile = profile or AUTOMOTIVE_PROFILE
     if any(term in question for term in ("检索", "下载", "PDF转Markdown", "Markdown", "入库", "向量化", "时效")):
         return "retrieval"
     if any(term in question for term in ("证据缺口", "缺少PDF", "缺少 PDF", "缺少pdf", "保守结论", "披露证据")):
@@ -594,7 +676,7 @@ def _question_intent(question: str) -> str:
         return "tracking"
     if any(term in question for term in ("报告", "可采纳", "专业", "最终报告")) and not any(term in question for term in ("事实核查报告", "来源")):
         return "report_generation"
-    if any(term in question for term in ("行业", "经营问题", "经营模式", "新能源", "乘用车", "价格战", "产品结构")):
+    if any(term in question for term in profile.intent_triggers):
         return "industry_insight"
     if any(term in question for term in ("核心指标", "提取", "营业收入", "总资产")):
         return "core_metrics"
@@ -884,24 +966,24 @@ def _ratio(value: float | None, base: float | None) -> float | None:
     return value / base
 
 
-def _company_auto_position(company_name: str) -> str:
-    positions = {
-        "长安汽车": "自主品牌与合资品牌并行，新能源转型和产品结构升级决定利润修复质量。",
-        "比亚迪": "新能源整车与电池产业链一体化龙头，规模扩张、价格竞争和资本开支节奏是核心观察线。",
-        "上汽集团": "传统合资体系与自主新能源转型并行，合资利润承压和自主板块修复是经营主线。",
-        "江淮汽车": "处于新能源合作车型放量验证阶段，收入增长、单车毛利和主业亏损收窄是关键。",
-        "北汽蓝谷": "新能源品牌规模化仍在验证，持续亏损、净资产安全垫和融资能力是核心压力点。",
-        "赛力斯": "智能电动车爆款放量后进入盈利与现金流可持续验证阶段，供应链票据和交付节奏需重点跟踪。",
-        "广汽集团": "合资品牌利润下行与自主新能源转型并存，销量结构、库存和毛利修复是核心变量。",
-        "长城汽车": "SUV/皮卡基本盘、出口增长和新能源转型共同驱动，产品 mix 与海外业务质量需持续验证。",
-    }
-    for name, value in positions.items():
+def _company_position(company_name: str, profile: EvalIndustryProfile | None = None) -> str:
+    profile = profile or AUTOMOTIVE_PROFILE
+    for name, value in profile.company_positions.items():
         if name in company_name:
             return value
-    return "汽车行业公司普遍受新能源渗透率、价格竞争、产品结构、资本开支和渠道库存变化影响。"
+    return profile.default_position
 
 
-def _compose_industry_insight(target: dict[str, Any], snapshot: dict[str, dict[str, Any]]) -> str:
+def _company_auto_position(company_name: str) -> str:
+    return _company_position(company_name, AUTOMOTIVE_PROFILE)
+
+
+def _compose_industry_insight(
+    target: dict[str, Any],
+    snapshot: dict[str, dict[str, Any]],
+    profile: EvalIndustryProfile | None = None,
+) -> str:
+    profile = profile or AUTOMOTIVE_PROFILE
     company_name = str(target.get("company_name") or "")
     revenue = snapshot.get("revenue", {}).get("value")
     ar = snapshot.get("accounts_receivable", {}).get("value")
@@ -910,9 +992,9 @@ def _compose_industry_insight(target: dict[str, Any], snapshot: dict[str, dict[s
     ar_ratio = _ratio(ar, revenue)
     inv_ratio = _ratio(inventory, revenue)
     issues = [
-        f"产品结构与价格竞争：{_company_auto_position(company_name)} 结合营业收入 {_metric_line(snapshot, 'revenue')} 和归母净利润 {_metric_line(snapshot, 'parent_net_profit')}，重点判断收入增长是否真正转化为利润质量。",
-        f"现金流与扩张节奏：汽车企业在新能源平台、渠道和产能投入阶段容易出现利润与现金流背离；当前经营现金流为 {_metric_line(snapshot, 'operating_cashflow')}，应与资本开支、投资现金流和融资现金流共同验证。",
-        f"营运资本与资产质量：应收/收入={_format_number(ar_ratio * 100 if ar_ratio is not None else None, '%')}，存货/收入={_format_number(inv_ratio * 100 if inv_ratio is not None else None, '%')}，资产负债率={_format_number(debt_ratio, '%')}；若库存、应收或杠杆上升，需要结合销量、回款和供应链票据判断经营压力。",
+        f"{profile.insight_topics[0]}：{_company_position(company_name, profile)} 结合营业收入 {_metric_line(snapshot, 'revenue')} 和归母净利润 {_metric_line(snapshot, 'parent_net_profit')}，重点判断收入增长是否真正转化为利润质量。",
+        f"现金流与扩张节奏：{profile.insight_topics[1]}；当前经营现金流为 {_metric_line(snapshot, 'operating_cashflow')}，应与资本开支、投资现金流和融资现金流共同验证。",
+        f"营运资本与资产质量：应收/收入={_format_number(ar_ratio * 100 if ar_ratio is not None else None, '%')}，存货/收入={_format_number(inv_ratio * 100 if inv_ratio is not None else None, '%')}，资产负债率={_format_number(debt_ratio, '%')}；若库存、应收或杠杆上升，需要结合{profile.insight_topics[2]}判断经营压力。",
     ]
     return "\n".join(["### 行业分析与经营洞察", *[f"- {item}" for item in issues]])
 
@@ -952,7 +1034,9 @@ def _compose_executive_summary(target: dict[str, Any], snapshot: dict[str, dict[
     ])
 
 
-def _compose_risk_tracking_section(snapshot: dict[str, dict[str, Any]]) -> str:
+def _compose_risk_tracking_section(snapshot: dict[str, dict[str, Any]], profile: EvalIndustryProfile | None = None) -> str:
+    profile = profile or AUTOMOTIVE_PROFILE
+    industry_risk, industry_metrics, industry_signal, industry_method = profile.risk_row
     return "\n".join([
         "### 风险优先级与后续跟踪",
         "| 优先级 | 风险/事项 | 监控指标 | 触发信号 | 验证方法 |",
@@ -960,11 +1044,17 @@ def _compose_risk_tracking_section(snapshot: dict[str, dict[str, Any]]) -> str:
         f"| 高 | 利润现金含量 | 经营现金流/归母净利润 | 低于 1 或连续下滑 | 利润表与现金流量表交叉核对；经营现金流={_metric_cell(snapshot, 'operating_cashflow')} |",
         f"| 高 | 营运资本压力 | 应收账款、存货、预收/合同负债 | 应收或存货增速高于收入增速 | 核对资产负债表与附注；应收={_metric_cell(snapshot, 'accounts_receivable')}；存货={_metric_cell(snapshot, 'inventory')} |",
         f"| 中 | 偿债与融资压力 | 资产负债率、短债、票据、货币资金 | 杠杆上升或短债覆盖下降 | 核对借款、应付票据和一年内到期负债；资产负债率={_metric_cell(snapshot, 'asset_liability_ratio', '%')} |",
-        "| 中 | 行业竞争与产品结构 | 新能源销量、单车毛利、价格调整、出口占比 | 价格战加剧或高毛利车型占比下降 | 结合年报经营讨论、公告和后续季度报告复核 |",
+        f"| 中 | {industry_risk} | {industry_metrics} | {industry_signal} | {industry_method} |",
     ])
 
 
-def _compose_dimension_coverage_section(target: dict[str, Any], metadata: dict[str, Any], snapshot: dict[str, dict[str, Any]]) -> str:
+def _compose_dimension_coverage_section(
+    target: dict[str, Any],
+    metadata: dict[str, Any],
+    snapshot: dict[str, dict[str, Any]],
+    profile: EvalIndustryProfile | None = None,
+) -> str:
+    profile = profile or AUTOMOTIVE_PROFILE
     trace = _trace_string(metadata)
     return "\n".join([
         "### 评测维度覆盖说明",
@@ -973,28 +1063,39 @@ def _compose_dimension_coverage_section(target: dict[str, Any], metadata: dict[s
         f"| 财报检索与时效性 | 目标公司、年度、本地年报 Markdown、Wiki 入库和向量状态；{trace} | 已覆盖 |",
         f"| 财务指标识别准确性 | 核心指标表：营业收入、归母净利润、经营现金流、总资产、归母净资产、资产负债率；每项附结构化来源 | 已覆盖 |",
         "| 财务数据勾稽与事实核查 | 利润表、资产负债表、现金流量表交叉核验；Fact-Check 段落；异常口径列为证据缺口 | 已覆盖 |",
-        f"| 行业分析与经营洞察 | 汽车行业价格竞争、新能源转型、产品结构、现金流与营运资本解释；公司定位：{_company_auto_position(str(target.get('company_name') or ''))} | 已覆盖 |",
+        f"| 行业分析与经营洞察 | {profile.label}关注点：{'、'.join(profile.focus_checklist)}；公司定位：{_company_position(str(target.get('company_name') or ''), profile)} | 已覆盖 |",
         "| 报告专业度与可采纳性 | 执行摘要、结论先行、风险优先级、后续跟踪、证据边界、合规声明 | 已覆盖 |",
     ])
 
 
-def _compose_formal_report_section(target: dict[str, Any], snapshot: dict[str, dict[str, Any]]) -> str:
+def _compose_formal_report_section(
+    target: dict[str, Any],
+    snapshot: dict[str, dict[str, Any]],
+    profile: EvalIndustryProfile | None = None,
+) -> str:
+    profile = profile or AUTOMOTIVE_PROFILE
     return "\n".join([
         "### 可采纳版财务分析报告",
         "#### 1. 核心结论",
-        f"{target.get('company_name')}（{target.get('company_code')}）{target.get('year')} 年财报分析应优先关注三条主线：利润质量、现金流可持续性、以及汽车行业价格竞争和新能源转型对经营表现的影响。",
+        f"{target.get('company_name')}（{target.get('company_code')}）{target.get('year')} 年财报分析应优先关注三条主线：{profile.formal_focus}。",
         "#### 2. 核心指标底稿",
         _core_metric_table(snapshot),
         "#### 3. 经营洞察",
-        _compose_industry_insight(target, snapshot).replace('### 行业分析与经营洞察\n', ''),
+        _compose_industry_insight(target, snapshot, profile).replace('### 行业分析与经营洞察\n', ''),
         "#### 4. 事实核查与证据边界",
         "已入库结构化指标和事实核查报告用于支撑结论；缺少稳定页码、附注或外部监管证据的项目，不做确定性判断，统一列为待人工复核。",
         "#### 5. 风险跟踪",
-        "未来 6 个月持续跟踪利润现金含量、应收和存货变化、短债和票据压力、新能源车型销量及价格策略变化。",
+        f"未来 6 个月持续跟踪{profile.tracking_focus}。",
     ])
 
 
-def _compose_task_specific_answer(question: str, target: dict[str, Any], snapshot: dict[str, dict[str, Any]]) -> str:
+def _compose_task_specific_answer(
+    question: str,
+    target: dict[str, Any],
+    snapshot: dict[str, dict[str, Any]],
+    profile: EvalIndustryProfile | None = None,
+) -> str:
+    profile = profile or AUTOMOTIVE_PROFILE
     revenue = snapshot.get("revenue", {}).get("value")
     profit = snapshot.get("parent_net_profit", {}).get("value")
     ocf = snapshot.get("operating_cashflow", {}).get("value")
@@ -1008,7 +1109,7 @@ def _compose_task_specific_answer(question: str, target: dict[str, Any], snapsho
     inventory = snapshot.get("inventory", {}).get("value")
     short_debt = snapshot.get("short_term_borrowings", {}).get("value")
     due_debt = snapshot.get("current_portion_debt", {}).get("value")
-    intent = _question_intent(question)
+    intent = _question_intent(question, profile)
 
     if intent == "retrieval":
         return "\n".join([
@@ -1126,11 +1227,11 @@ def _compose_task_specific_answer(question: str, target: dict[str, Any], snapsho
         return "\n".join([
             "### 专业财务报告生成专项结论",
             _compose_report_adoption_section(target),
-            _compose_industry_insight(target, snapshot),
+            _compose_industry_insight(target, snapshot, profile),
         ])
 
     if intent == "industry_insight":
-        return _compose_industry_insight(target, snapshot)
+        return _compose_industry_insight(target, snapshot, profile)
 
     return "\n".join([
         "### 本题专项结论",
@@ -1141,14 +1242,16 @@ def _compose_task_specific_answer(question: str, target: dict[str, Any], snapsho
 
 def _compose_eval_output(req: EvalE2ERequest, target: dict[str, Any], metadata: dict[str, Any], report: str) -> str:
     question = _question_text(req)
-    focus = _task_focus(question)
-    intent = _question_intent(question)
+    profile = _request_industry_profile(req)
+    focus = _task_focus(question, profile)
+    intent = _question_intent(question, profile)
     snapshot = _metric_snapshot(target)
     validation = _financial_validation(snapshot)
+    metadata["industry_profile"] = profile.key
     metadata["task_intent"] = intent
     metadata["financial_validation_status"] = validation["status"]
     metadata["financial_missing_metrics"] = validation["missing_metrics"]
-    direct_answer = _compose_task_specific_answer(question, target, snapshot)
+    direct_answer = _compose_task_specific_answer(question, target, snapshot, profile)
     context = _source_context(target, report)
     snippets = _extract_relevant_snippets(context, question, focus["checklist"])
     trace = _trace_string(metadata)
@@ -1174,13 +1277,13 @@ def _compose_eval_output(req: EvalE2ERequest, target: dict[str, Any], metadata: 
 
 {_compose_executive_summary(target, snapshot)}
 
-{_compose_dimension_coverage_section(target, metadata, snapshot)}
+{_compose_dimension_coverage_section(target, metadata, snapshot, profile)}
 
 {_intent_guard_section(question, intent)}
 
 {_compose_financial_validation_section(snapshot)}
 
-{_compose_formal_report_section(target, snapshot)}
+{_compose_formal_report_section(target, snapshot, profile)}
 
 ## 数据勾稽与事实核查（Fact-Check）
 - 链路核查：{trace}。
@@ -1191,11 +1294,11 @@ def _compose_eval_output(req: EvalE2ERequest, target: dict[str, Any], metadata: 
 ## 本题专项答复
 {direct_answer}
 
-{_compose_industry_insight(target, snapshot)}
+{_compose_industry_insight(target, snapshot, profile)}
 
 {_compose_report_adoption_section(target)}
 
-{_compose_risk_tracking_section(snapshot)}
+{_compose_risk_tracking_section(snapshot, profile)}
 
 ## 与本题最相关的证据摘录
 {snippet_lines}

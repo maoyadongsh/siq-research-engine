@@ -12,12 +12,12 @@ from urllib.parse import quote
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
-from sqlmodel import Session, select
+from sqlmodel import select, func
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
-from database import get_session, get_async_session
-from models import AgentState, ChatMessage, InteractionLog
+from database import async_engine, get_async_session
+from models import Achievement, AgentState, ChatMessage, InteractionLog
 from services.auth_service import User
 from schemas import (
     ChatAttachment,
@@ -40,14 +40,19 @@ from services.agent_chat_runtime import (
     stream_chat_reply,
 )
 from services.hermes_model_control import maybe_handle_model_control
-from services.achievement_checker import check_achievements
 from services.session_manager import get_session_manager, keeps_sessions_forever
 from services.auth_dependencies import get_current_user
 from services.path_config import BACKEND_DATA_ROOT
 from routers.agent import apply_decay, perform_action
-from routers.document_parser import DOCUMENT_PARSER_API_BASE, _document_headers, _record_document_artifact
-from routers.workspace import enforce_quota_or_429
-from services.usage_service import AGENT_QUESTION_EVENT, DOCUMENT_PARSE_EVENT, record_usage
+from routers.document_parser import DOCUMENT_PARSER_API_BASE, _document_headers
+from routers.workspace import _quota_error_payload
+from services.usage_service import (
+    AGENT_QUESTION_EVENT,
+    DOCUMENT_PARSE_EVENT,
+    UserArtifact,
+    ensure_within_quota_async,
+    record_usage_async,
+)
 
 router = APIRouter(tags=["chat"])
 
@@ -779,14 +784,99 @@ def _decode_chat_image(filename: str, content_type: str, data_url: str) -> tuple
     return raw, content_type, normalized_name
 
 
+def _role_value(user: User) -> str:
+    return str(user.role.value if hasattr(user.role, "value") else user.role)
+
+
+def _detach_current_user(async_session: AsyncSession, current_user: User) -> None:
+    try:
+        async_session.expunge(current_user)
+    except Exception:
+        pass
+
+
+async def enforce_quota_or_429_async(
+    async_session: AsyncSession,
+    *,
+    user_id: int,
+    user_role: str,
+    event_type: str,
+    increment: int = 1,
+) -> tuple[int, int | None]:
+    try:
+        return await ensure_within_quota_async(
+            async_session,
+            user_id=user_id,
+            user_role=user_role,
+            event_type=event_type,
+            increment=increment,
+        )
+    except ValueError as exc:
+        parts = str(exc).split(":")
+        if len(parts) == 4 and parts[0] == "daily_quota_exceeded":
+            raise _quota_error_payload(parts[1], int(parts[2]), int(parts[3])) from exc
+        raise
+
+
+async def record_document_artifact_async(
+    async_session: AsyncSession,
+    *,
+    user_id: int,
+    task_id: str,
+    filename: str,
+    source: str,
+) -> UserArtifact:
+    existing = (
+        await async_session.exec(
+            select(UserArtifact).where(
+                UserArtifact.user_id == user_id,
+                UserArtifact.artifact_type == "document_parse",
+                UserArtifact.artifact_key == task_id,
+            )
+        )
+    ).first()
+    path = f"/documents?task={quote(task_id, safe='')}"
+    if existing:
+        changed = False
+        for field, value in {
+            "title": filename or task_id,
+            "path": path,
+            "source": source,
+            "global_artifact_id": task_id,
+        }.items():
+            if value and getattr(existing, field) != value:
+                setattr(existing, field, value)
+                changed = True
+        if changed:
+            async_session.add(existing)
+            await async_session.commit()
+            await async_session.refresh(existing)
+        return existing
+
+    item = UserArtifact(
+        user_id=user_id,
+        artifact_type="document_parse",
+        artifact_key=task_id,
+        title=filename or task_id,
+        path=path,
+        source=source,
+        global_artifact_id=task_id,
+    )
+    async_session.add(item)
+    await async_session.commit()
+    await async_session.refresh(item)
+    return item
+
+
 async def _submit_pdf_attachment_to_mineru(
     path: Path,
     stored_name: str,
     parse_dir: Path,
     background_tasks: BackgroundTasks,
     *,
-    current_user: User,
-    session: Session,
+    current_user_id: int,
+    current_user_role: str,
+    async_session: AsyncSession,
 ) -> dict:
     parse_dir.mkdir(parents=True, exist_ok=True)
     metadata: dict = {
@@ -805,7 +895,12 @@ async def _submit_pdf_attachment_to_mineru(
         _write_json(parse_dir / "metadata.json", metadata)
         return metadata
 
-    enforce_quota_or_429(session, current_user, DOCUMENT_PARSE_EVENT)
+    await enforce_quota_or_429_async(
+        async_session,
+        user_id=current_user_id,
+        user_role=current_user_role,
+        event_type=DOCUMENT_PARSE_EVENT,
+    )
     form = {
         "source_type": "upload",
         "model_version": "auto",
@@ -850,16 +945,16 @@ async def _submit_pdf_attachment_to_mineru(
                 }
             )
             if task_id:
-                _record_document_artifact(
-                    session,
-                    user_id=int(current_user.id),
+                await record_document_artifact_async(
+                    async_session,
+                    user_id=current_user_id,
                     task_id=str(task_id),
                     filename=path.name,
                     source="chat_attachment",
                 )
-                record_usage(
-                    session,
-                    user_id=int(current_user.id),
+                await record_usage_async(
+                    async_session,
+                    user_id=current_user_id,
                     event_type=DOCUMENT_PARSE_EVENT,
                     source="chat_attachment",
                     metadata_json=json.dumps({"task_id": task_id, "filename": path.name}, ensure_ascii=False),
@@ -892,15 +987,56 @@ async def _submit_pdf_attachment_to_mineru(
     return metadata
 
 
-def update_agent_and_achievements(sync_session: Session) -> list[AchievementResponse]:
-    """Sync helper: update agent state and check achievements."""
-    agent = sync_session.get(AgentState, 1)
+async def _check_achievements_async(async_session: AsyncSession) -> list[AchievementResponse]:
+    """Async equivalent of the achievement checker used by chat routes."""
+    achievements = (await async_session.exec(select(Achievement))).all()
+    agent = await async_session.get(AgentState, 1)
+
+    chat_count = (await async_session.exec(select(func.count()).where(InteractionLog.action == "chat"))).one()
+    feed_count = (await async_session.exec(select(func.count()).where(InteractionLog.action == "feed"))).one()
+
+    conditions = {
+        "first_chat": chat_count >= 1,
+        "chat_10": chat_count >= 10,
+        "feed_5": feed_count >= 5,
+        "level_5": agent.level >= 5,
+        "all_max": agent.hunger > 90 and agent.mood > 90 and agent.energy > 90,
+    }
+    progress_map = {
+        "first_chat": (chat_count, 1),
+        "chat_10": (chat_count, 10),
+        "feed_5": (feed_count, 5),
+        "level_5": (agent.level, 5),
+        "all_max": (1 if conditions["all_max"] else 0, 1),
+    }
+
+    newly_unlocked = []
+    for achievement in achievements:
+        progress, target = progress_map.get(achievement.id, (0, achievement.target))
+        achievement.progress = min(progress, target)
+        if achievement.unlocked_at is None and conditions.get(achievement.id, False):
+            achievement.unlocked_at = datetime.utcnow()
+            newly_unlocked.append(AchievementResponse.model_validate(achievement))
+
+    await async_session.commit()
+    return newly_unlocked
+
+
+async def update_agent_and_achievements(async_session: AsyncSession) -> list[AchievementResponse]:
+    """Update agent state and achievements without opening a sync DB session in async routes."""
+    agent = await async_session.get(AgentState, 1)
     apply_decay(agent)
     perform_action(agent, "chat")
-    sync_session.add(InteractionLog(action="chat"))
-    sync_session.add(agent)
-    sync_session.commit()
-    return check_achievements(sync_session)
+    async_session.add(InteractionLog(action="chat"))
+    async_session.add(agent)
+    await async_session.commit()
+    return await _check_achievements_async(async_session)
+
+
+async def update_agent_and_achievements_in_new_session() -> list[AchievementResponse]:
+    """Open a fresh async session for streaming completion callbacks."""
+    async with AsyncSession(async_engine) as async_session:
+        return await update_agent_and_achievements(async_session)
 
 
 @router.post("/chat/attachments", response_model=ChatAttachmentUploadResponse)
@@ -908,7 +1044,7 @@ async def upload_chat_attachments(
     req: ChatAttachmentUploadRequest,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
     files = req.files or []
     if not files:
@@ -916,7 +1052,11 @@ async def upload_chat_attachments(
     if len(files) > MAX_CHAT_ATTACHMENT_COUNT:
         raise HTTPException(status_code=400, detail=f"Upload up to {MAX_CHAT_ATTACHMENT_COUNT} files per message")
 
-    user_upload_dir = CHAT_UPLOAD_DIR / str(current_user.id)
+    current_user_id = int(current_user.id)
+    current_user_role = _role_value(current_user)
+    _detach_current_user(async_session, current_user)
+
+    user_upload_dir = CHAT_UPLOAD_DIR / str(current_user_id)
     user_upload_dir.mkdir(parents=True, exist_ok=True)
     attachments: list[ChatAttachment] = []
     for item in files:
@@ -934,10 +1074,11 @@ async def upload_chat_attachments(
             metadata = await _submit_pdf_attachment_to_mineru(
                 target,
                 stored_name,
-                CHAT_PDF_PARSE_DIR / str(current_user.id) / attachment_id,
+                CHAT_PDF_PARSE_DIR / str(current_user_id) / attachment_id,
                 background_tasks,
-                current_user=current_user,
-                session=session,
+                current_user_id=current_user_id,
+                current_user_role=current_user_role,
+                async_session=async_session,
             )
         attachments.append(
             ChatAttachment(
@@ -972,10 +1113,18 @@ async def chat(
     req: ChatRequest,
     current_user: User = Depends(get_current_user),
     async_session: AsyncSession = Depends(get_async_session),
-    sync_session: Session = Depends(get_session),
 ):
-    enforce_quota_or_429(sync_session, current_user, AGENT_QUESTION_EVENT)
-    record_usage(sync_session, user_id=int(current_user.id), event_type=AGENT_QUESTION_EVENT, source="assistant")
+    current_user_id = int(current_user.id)
+    current_user_role = _role_value(current_user)
+    _detach_current_user(async_session, current_user)
+
+    await enforce_quota_or_429_async(
+        async_session,
+        user_id=current_user_id,
+        user_role=current_user_role,
+        event_type=AGENT_QUESTION_EVENT,
+    )
+    await record_usage_async(async_session, user_id=current_user_id, event_type=AGENT_QUESTION_EVENT, source="assistant")
     # 获取或创建用户会话；后端重启导致内存索引丢失时，从数据库历史恢复。
     session_id = await resolve_or_create_session(
         async_session,
@@ -1008,12 +1157,7 @@ async def chat(
     )
     get_session_manager().increment_message_count(session_id)
 
-    # Update agent and achievements (sync DB)
-    loop = asyncio.get_event_loop()
-    with next(get_session()) as sync_session:
-        new_achs = await loop.run_in_executor(
-            None, update_agent_and_achievements, sync_session
-        )
+    new_achs = await update_agent_and_achievements(async_session)
 
     return ChatResponse(reply=reply, new_achievements=[a.model_dump(mode="json") for a in new_achs])
 
@@ -1024,10 +1168,18 @@ async def chat_stream(
     request: Request,
     current_user: User = Depends(get_current_user),
     async_session: AsyncSession = Depends(get_async_session),
-    sync_session: Session = Depends(get_session),
 ):
-    enforce_quota_or_429(sync_session, current_user, AGENT_QUESTION_EVENT)
-    record_usage(sync_session, user_id=int(current_user.id), event_type=AGENT_QUESTION_EVENT, source="assistant")
+    current_user_id = int(current_user.id)
+    current_user_role = _role_value(current_user)
+    _detach_current_user(async_session, current_user)
+
+    await enforce_quota_or_429_async(
+        async_session,
+        user_id=current_user_id,
+        user_role=current_user_role,
+        event_type=AGENT_QUESTION_EVENT,
+    )
+    await record_usage_async(async_session, user_id=current_user_id, event_type=AGENT_QUESTION_EVENT, source="assistant")
     # 获取或创建用户会话；后端重启导致内存索引丢失时，从数据库历史恢复。
     session_id = await resolve_or_create_session(
         async_session,
@@ -1036,11 +1188,7 @@ async def chat_stream(
         session_id=getattr(req, "session_id", None),
     )
     async def done_payload(_reply: str = "") -> dict:
-        loop = asyncio.get_event_loop()
-        with next(get_session()) as sync_session:
-            new_achs = await loop.run_in_executor(
-                None, update_agent_and_achievements, sync_session
-            )
+        new_achs = await update_agent_and_achievements_in_new_session()
         return {"new_achievements": [a.model_dump(mode="json") for a in new_achs]}
 
     async def event_generator() -> AsyncGenerator[dict, None]:

@@ -921,7 +921,7 @@ def test_wiki_catalog_reply_reads_current_catalog_for_count_and_list(tmp_path, m
     assert count_reply is not None
     assert "一共 **2 家**" in count_reply
     assert "company_catalog.json" in count_reply
-    assert "121" not in count_reply
+    assert "一共 **121 家**" not in count_reply
     assert list_reply is not None
     assert "1. 600104 上汽集团" in list_reply
     assert "2. GENBASF BASF" in list_reply

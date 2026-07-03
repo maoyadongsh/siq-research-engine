@@ -30,6 +30,10 @@ class JsonRequest:
         return self.payload
 
 
+class UploadRouteRequest:
+    pass
+
+
 def test_v1_proxy_preserves_finder_path(monkeypatch):
     seen = {}
 
@@ -44,6 +48,121 @@ def test_v1_proxy_preserves_finder_path(monkeypatch):
     assert result == "ok"
     assert seen["base_url"] == market_reports.REPORT_FINDER_BASE
     assert seen["upstream_path"] == "/v1/reports/recent"
+
+
+def test_proxy_request_preserves_query_body_content_type_and_response(monkeypatch):
+    seen = {}
+
+    class QueryParams:
+        def multi_items(self):
+            return [("ticker", "AAPL"), ("ticker", "MSFT"), ("limit", "2")]
+
+    class Request:
+        method = "POST"
+        query_params = QueryParams()
+        headers = {"content-type": "application/json; charset=utf-8"}
+
+        async def body(self):
+            return b'{"q":"annual"}'
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            seen["timeout"] = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def request(self, method, url, *, params, content, headers):
+            seen.update(
+                {
+                    "method": method,
+                    "url": url,
+                    "params": params,
+                    "content": content,
+                    "headers": headers,
+                }
+            )
+            return type(
+                "Upstream",
+                (),
+                {
+                    "content": b'{"ok":true}',
+                    "status_code": 207,
+                    "headers": {"content-type": "application/vnd.finder+json"},
+                },
+            )()
+
+    monkeypatch.setattr(market_reports.httpx, "AsyncClient", FakeAsyncClient)
+
+    response = asyncio.run(
+        market_reports._proxy_request(
+            base_url="http://finder",
+            upstream_path="/v1/reports/search",
+            request=Request(),
+            timeout=1.25,
+        )
+    )
+
+    assert seen["method"] == "POST"
+    assert seen["url"] == "http://finder/v1/reports/search"
+    assert seen["params"] == [("ticker", "AAPL"), ("ticker", "MSFT"), ("limit", "2")]
+    assert seen["content"] == b'{"q":"annual"}'
+    assert seen["headers"] == {"content-type": "application/json; charset=utf-8"}
+    assert seen["timeout"] == 1.25
+    assert response.status_code == 207
+    assert response.media_type == "application/vnd.finder+json"
+    assert response.body == b'{"ok":true}'
+
+
+def test_proxy_request_head_discards_upstream_body(monkeypatch):
+    class QueryParams:
+        def multi_items(self):
+            return []
+
+    class Request:
+        method = "HEAD"
+        query_params = QueryParams()
+        headers = {}
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def request(self, method, url, *, params, content, headers):
+            assert method == "HEAD"
+            assert content is None
+            return type(
+                "Upstream",
+                (),
+                {
+                    "content": b"should-not-leak",
+                    "status_code": 204,
+                    "headers": {},
+                },
+            )()
+
+    monkeypatch.setattr(market_reports.httpx, "AsyncClient", FakeAsyncClient)
+
+    response = asyncio.run(
+        market_reports._proxy_request(
+            base_url="http://finder",
+            upstream_path="/v1/ping",
+            request=Request(),
+        )
+    )
+
+    assert response.status_code == 204
+    assert response.media_type == "application/octet-stream"
+    assert response.body == b""
 
 
 def test_assist_merge_prefers_llm_explanations():
@@ -183,6 +302,78 @@ def test_hermes_assist_uses_runs_api(monkeypatch):
     assert seen["run_id"] == "run_123"
     assert "不要生成或修改下载 URL" in seen["input"]
     assert "https://dart.example/doc" in seen["input"]
+
+
+def test_us_sec_upload_records_workspace_artifact_async(monkeypatch):
+    calls = []
+
+    def fake_persist_us_sec_upload(item, **kwargs):
+        calls.append({"filename": item.filename, "kwargs": kwargs})
+        return {
+            "file_name": item.filename,
+            "relative_path": f"us-sec/uploads/{item.filename}",
+        }
+
+    async def fake_record_user_artifact_async(async_session, **kwargs):
+        calls.append({"async_session": async_session, "artifact": kwargs})
+
+    monkeypatch.setattr(market_reports, "_persist_us_sec_upload", fake_persist_us_sec_upload)
+    monkeypatch.setattr(market_reports, "record_user_artifact_async", fake_record_user_artifact_async)
+
+    result = asyncio.run(
+        market_reports.us_sec_upload_files(
+            UploadRouteRequest(),
+            files=[type("Upload", (), {"filename": "aapl-10k.pdf"})()],
+            ticker="aapl",
+            company_name="Apple Inc.",
+            report_type="10-K",
+            fiscal_year="2025",
+            period_end="2025-09-27",
+            filing_date="2025-10-31",
+            current_user=type("User", (), {"id": 7})(),
+            async_session=object(),
+        )
+    )
+
+    assert result["ok"] is True
+    assert result["count"] == 1
+    assert calls[0]["kwargs"]["ticker"] == "AAPL"
+    assert calls[1]["artifact"]["user_id"] == 7
+    assert calls[1]["artifact"]["artifact_type"] == "download"
+    assert calls[1]["artifact"]["artifact_key"] == "us-sec/uploads/aapl-10k.pdf"
+    assert calls[1]["artifact"]["source"] == "us-sec-upload"
+
+
+def test_us_sec_upload_swallow_workspace_artifact_error(monkeypatch):
+    def fake_persist_us_sec_upload(item, **kwargs):
+        return {
+            "file_name": item.filename,
+            "relative_path": f"us-sec/uploads/{item.filename}",
+        }
+
+    async def fake_record_user_artifact_async(*args, **kwargs):
+        raise RuntimeError("workspace unavailable")
+
+    monkeypatch.setattr(market_reports, "_persist_us_sec_upload", fake_persist_us_sec_upload)
+    monkeypatch.setattr(market_reports, "record_user_artifact_async", fake_record_user_artifact_async)
+
+    result = asyncio.run(
+        market_reports.us_sec_upload_files(
+            UploadRouteRequest(),
+            files=[type("Upload", (), {"filename": "aapl-10k.pdf"})()],
+            ticker="",
+            company_name="",
+            report_type="",
+            fiscal_year="",
+            period_end="",
+            filing_date="",
+            current_user=type("User", (), {"id": 7})(),
+            async_session=object(),
+        )
+    )
+
+    assert result["ok"] is True
+    assert result["files"][0]["relative_path"] == "us-sec/uploads/aapl-10k.pdf"
 
 
 def test_market_package_summary_reads_us_package():

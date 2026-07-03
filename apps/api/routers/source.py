@@ -12,8 +12,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlmodel import Session, select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
-from database import get_session
+from database import get_async_session
 from services.auth_dependencies import get_current_user
 from services.auth_service import AuthService, User
 from services.usage_service import UserArtifact
@@ -86,6 +87,25 @@ def _token_user(token: str, session: Session) -> User | None:
     return user
 
 
+async def _token_user_async(token: str, async_session: AsyncSession) -> User | None:
+    payload = AuthService.decode_token(token)
+    if not payload:
+        return None
+    subject = str(payload.get("sub") or "").strip()
+    if not subject:
+        return None
+    if subject.isdigit():
+        result = await async_session.exec(select(User).where(User.id == int(subject)))
+    else:
+        result = await async_session.exec(select(User).where(User.username == subject))
+    user = result.first()
+    if not user or not user.is_active:
+        return None
+    if getattr(user, "approval_status", "approved") != "approved":
+        return None
+    return user
+
+
 def _user_has_task_access(session: Session, user: User, task_id: str) -> bool:
     if _is_admin(user):
         return True
@@ -108,6 +128,28 @@ def _user_has_task_access(session: Session, user: User, task_id: str) -> bool:
     return item is not None
 
 
+async def _user_has_task_access_async(async_session: AsyncSession, user: User, task_id: str) -> bool:
+    if _is_admin(user):
+        return True
+    result = await async_session.exec(
+        select(UserArtifact).where(
+            UserArtifact.user_id == int(user.id),
+            UserArtifact.artifact_type == "parse",
+            UserArtifact.artifact_key == task_id,
+        )
+    )
+    if result.first():
+        return True
+    result = await async_session.exec(
+        select(UserArtifact).where(
+            UserArtifact.user_id == int(user.id),
+            UserArtifact.artifact_type == "parse",
+            UserArtifact.global_artifact_id == task_id,
+        )
+    )
+    return result.first() is not None
+
+
 def _configured_source_token_secret() -> str | None:
     secret = (os.environ.get(SOURCE_TOKEN_SECRET_ENV) or "").strip()
     if not secret:
@@ -123,35 +165,28 @@ def _source_token_signing_secret() -> str:
     return _configured_source_token_secret() or AuthService.secret_key()
 
 
+def _accept_legacy_source_token_secret() -> bool:
+    raw = (os.environ.get(SOURCE_ACCEPT_LEGACY_AUTH_SECRET_ENV) or "").strip().lower()
+    if not raw:
+        return False
+    return raw in {"1", "true", "yes", "on"}
+
+
 def _source_token_verification_secrets() -> list[str]:
     source_secret = _configured_source_token_secret()
     if not source_secret:
         return [AuthService.secret_key()]
-    return [source_secret]
-
-
-def _accept_legacy_source_token_secret() -> bool:
-    return (os.environ.get(SOURCE_ACCEPT_LEGACY_AUTH_SECRET_ENV) or "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
-
-
-def _legacy_source_token_verification_secret() -> str | None:
+    secrets = [source_secret]
     if not _accept_legacy_source_token_secret():
-        return None
-    source_secret = _configured_source_token_secret()
-    if not source_secret:
-        return None
+        return secrets
     try:
         legacy_auth_secret = AuthService.secret_key()
     except RuntimeError:
-        return None
+        return secrets
     if hmac.compare_digest(source_secret, legacy_auth_secret):
-        return None
-    return legacy_auth_secret
+        return secrets
+    secrets.append(legacy_auth_secret)
+    return secrets
 
 
 def _source_token_signature(task_id: str, expires_at: int, *, secret: str | None = None) -> str:
@@ -179,10 +214,6 @@ def _valid_source_access_token(task_id: str, token: str | None) -> bool:
         expected = _source_token_signature(task_id, expires_at, secret=secret)
         if hmac.compare_digest(signature, expected):
             return True
-    legacy_secret = _legacy_source_token_verification_secret()
-    if legacy_secret:
-        expected = _source_token_signature(task_id, expires_at, secret=legacy_secret)
-        return hmac.compare_digest(signature, expected)
     return False
 
 
@@ -210,6 +241,28 @@ def _authorize_task_access(
     if not user:
         raise HTTPException(status_code=401, detail="Invalid or expired source access token")
     if not _user_has_task_access(session, user, task_id):
+        raise HTTPException(status_code=403, detail="PDF task does not belong to current user")
+    return create_source_access_token(task_id)
+
+
+async def _authorize_task_access_async(
+    *,
+    request: Request,
+    task_id: str,
+    async_session: AsyncSession,
+    credentials: HTTPAuthorizationCredentials | None,
+) -> str:
+    source_token = str(request.query_params.get("source_token") or "").strip()
+    if _valid_source_access_token(task_id, source_token):
+        return source_token
+
+    access_token = _request_access_token(request, credentials)
+    if not access_token:
+        raise HTTPException(status_code=401, detail="Missing source access token")
+    user = await _token_user_async(access_token, async_session)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid or expired source access token")
+    if not await _user_has_task_access_async(async_session, user, task_id):
         raise HTTPException(status_code=403, detail="PDF task does not belong to current user")
     return create_source_access_token(task_id)
 
@@ -646,12 +699,12 @@ async def get_source_open_url(
     task_id: str,
     identifier: int,
     credentials: HTTPAuthorizationCredentials | None = Depends(optional_security),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
-    source_token = _authorize_task_access(
+    source_token = await _authorize_task_access_async(
         request=request,
         task_id=task_id,
-        session=session,
+        async_session=async_session,
         credentials=credentials,
     )
     path = _resolve_source_open_path(kind, task_id, identifier)
@@ -668,12 +721,12 @@ async def get_source_table(
     task_id: str,
     table_index: int,
     credentials: HTTPAuthorizationCredentials | None = Depends(optional_security),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
-    source_token = _authorize_task_access(
+    source_token = await _authorize_task_access_async(
         request=request,
         task_id=task_id,
-        session=session,
+        async_session=async_session,
         credentials=credentials,
     )
     if request.method == "HEAD" or not _wants_html(request):
@@ -699,12 +752,12 @@ async def get_source_page(
     task_id: str,
     page_number: int,
     credentials: HTTPAuthorizationCredentials | None = Depends(optional_security),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
-    source_token = _authorize_task_access(
+    source_token = await _authorize_task_access_async(
         request=request,
         task_id=task_id,
-        session=session,
+        async_session=async_session,
         credentials=credentials,
     )
     if request.method == "HEAD" or not _wants_html(request):
@@ -730,12 +783,12 @@ async def get_pdf_page(
     task_id: str,
     page_number: int,
     credentials: HTTPAuthorizationCredentials | None = Depends(optional_security),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
-    source_token = _authorize_task_access(
+    source_token = await _authorize_task_access_async(
         request=request,
         task_id=task_id,
-        session=session,
+        async_session=async_session,
         credentials=credentials,
     )
     raw_format = (request.query_params.get("format") or "").lower()
@@ -766,9 +819,9 @@ async def submit_source_table_correction(
     task_id: str,
     table_index: int,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
-    if not _user_has_task_access(session, current_user, task_id):
+    if not await _user_has_task_access_async(async_session, current_user, task_id):
         raise HTTPException(status_code=403, detail="PDF task does not belong to current user")
     body = await request.json()
     return await _proxy_pdf2md(

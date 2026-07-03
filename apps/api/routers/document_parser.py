@@ -7,17 +7,19 @@ import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 from sqlmodel import Session, select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
-from database import get_session
+from database import get_async_session
 from services.auth_dependencies import get_current_user
 from services.auth_service import User
 from services.usage_service import (
     DOCUMENT_PARSE_EVENT,
     UserArtifact,
     ensure_within_quota,
+    ensure_within_quota_async,
     next_midnight_shanghai,
-    record_usage,
-    usage_response_payload,
+    record_usage_async,
+    usage_response_payload_async,
 )
 
 
@@ -73,6 +75,26 @@ def _enforce_quota_or_429(session: Session, current_user: User, increment: int =
         raise
 
 
+async def _enforce_quota_or_429_async(
+    async_session: AsyncSession,
+    current_user: User,
+    increment: int = 1,
+) -> tuple[int, int | None]:
+    try:
+        return await ensure_within_quota_async(
+            async_session,
+            user_id=int(current_user.id),
+            user_role=_role_value(current_user),
+            event_type=DOCUMENT_PARSE_EVENT,
+            increment=increment,
+        )
+    except ValueError as exc:
+        parts = str(exc).split(":")
+        if len(parts) == 4 and parts[0] == "daily_quota_exceeded":
+            raise _quota_error_payload(parts[1], int(parts[2]), int(parts[3])) from exc
+        raise
+
+
 def _document_headers(extra: dict[str, str] | None = None) -> dict[str, str]:
     headers = dict(extra or {})
     if DOCUMENT_PARSER_ACCESS_TOKEN:
@@ -108,6 +130,41 @@ def _user_has_document_task_access(session: Session, current_user: User, task_id
 
 def _ensure_document_task_access(session: Session, current_user: User, task_id: str) -> None:
     if not _user_has_document_task_access(session, current_user, task_id):
+        raise HTTPException(status_code=403, detail="Document task does not belong to current user")
+
+
+async def _user_has_document_task_access_async(
+    async_session: AsyncSession,
+    current_user: User,
+    task_id: str,
+) -> bool:
+    if _is_admin(current_user):
+        return True
+    result = await async_session.exec(
+        select(UserArtifact).where(
+            UserArtifact.user_id == int(current_user.id),
+            UserArtifact.artifact_type == "document_parse",
+            UserArtifact.artifact_key == task_id,
+        )
+    )
+    if result.first():
+        return True
+    result = await async_session.exec(
+        select(UserArtifact).where(
+            UserArtifact.user_id == int(current_user.id),
+            UserArtifact.artifact_type == "document_parse",
+            UserArtifact.global_artifact_id == task_id,
+        )
+    )
+    return result.first() is not None
+
+
+async def _ensure_document_task_access_async(
+    async_session: AsyncSession,
+    current_user: User,
+    task_id: str,
+) -> None:
+    if not await _user_has_document_task_access_async(async_session, current_user, task_id):
         raise HTTPException(status_code=403, detail="Document task does not belong to current user")
 
 
@@ -165,6 +222,54 @@ def _record_document_artifact(
     return item
 
 
+async def _record_document_artifact_async(
+    async_session: AsyncSession,
+    *,
+    user_id: int,
+    task_id: str,
+    filename: str,
+    source: str,
+) -> UserArtifact:
+    result = await async_session.exec(
+        select(UserArtifact).where(
+            UserArtifact.user_id == user_id,
+            UserArtifact.artifact_type == "document_parse",
+            UserArtifact.artifact_key == task_id,
+        )
+    )
+    existing = result.first()
+    path = f"/documents?task={quote(task_id, safe='')}"
+    if existing:
+        changed = False
+        for field, value in {
+            "title": filename or task_id,
+            "path": path,
+            "source": source,
+            "global_artifact_id": task_id,
+        }.items():
+            if value and getattr(existing, field) != value:
+                setattr(existing, field, value)
+                changed = True
+        if changed:
+            async_session.add(existing)
+            await async_session.commit()
+            await async_session.refresh(existing)
+        return existing
+    item = UserArtifact(
+        user_id=user_id,
+        artifact_type="document_parse",
+        artifact_key=task_id,
+        title=filename or task_id,
+        path=path,
+        source=source,
+        global_artifact_id=task_id,
+    )
+    async_session.add(item)
+    await async_session.commit()
+    await async_session.refresh(item)
+    return item
+
+
 async def _proxy_document_parser(
     request: Request,
     upstream_path: str,
@@ -198,12 +303,12 @@ async def _proxy_document_parser(
 
 
 @router.get("/quota")
-def document_parse_quota(
+async def document_parse_quota(
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
-    return usage_response_payload(
-        session,
+    return await usage_response_payload_async(
+        async_session,
         user_id=int(current_user.id),
         user_role=_role_value(current_user),
         event_type=DOCUMENT_PARSE_EVENT,
@@ -230,7 +335,7 @@ async def create_document_tasks(
     no_cache: str = Form("false"),
     data_id: str = Form(""),
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
     content_type = request.headers.get("content-type", "")
     is_multipart = "multipart/form-data" in content_type.lower()
@@ -238,7 +343,7 @@ async def create_document_tasks(
         upload_files = files or []
         if not upload_files:
             raise HTTPException(status_code=400, detail="请上传文件")
-        _enforce_quota_or_429(session, current_user, increment=len(upload_files))
+        await _enforce_quota_or_429_async(async_session, current_user, increment=len(upload_files))
         form = {
             "source_type": source_type,
             "model_version": model_version,
@@ -267,7 +372,7 @@ async def create_document_tasks(
             raise HTTPException(status_code=502, detail=f"文档解析服务不可用: {exc}") from exc
     else:
         payload = await request.json()
-        _enforce_quota_or_429(session, current_user, increment=1)
+        await _enforce_quota_or_429_async(async_session, current_user, increment=1)
         try:
             async with httpx.AsyncClient(timeout=None) as client:
                 response = await client.post(
@@ -288,8 +393,8 @@ async def create_document_tasks(
         created_tasks = payload.get("tasks") if isinstance(payload, dict) else []
         task_count = len(created_tasks or [])
         if task_count:
-            record_usage(
-                session,
+            await record_usage_async(
+                async_session,
                 user_id=int(current_user.id),
                 event_type=DOCUMENT_PARSE_EVENT,
                 count=task_count,
@@ -300,8 +405,8 @@ async def create_document_tasks(
                 task_id = str(task.get("task_id") or "")
                 filename = str(task.get("filename") or task_id or "文档解析任务")
                 if task_id:
-                    _record_document_artifact(
-                        session,
+                    await _record_document_artifact_async(
+                        async_session,
                         user_id=int(current_user.id),
                         task_id=task_id,
                         filename=filename,
@@ -320,10 +425,10 @@ async def create_document_tasks(
 async def import_document_from_mineru(
     request: Request,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
     payload = await request.json()
-    _enforce_quota_or_429(session, current_user, increment=1)
+    await _enforce_quota_or_429_async(async_session, current_user, increment=1)
     try:
         async with httpx.AsyncClient(timeout=None) as client:
             response = await client.post(
@@ -345,8 +450,8 @@ async def import_document_from_mineru(
         task_id = str(task.get("task_id") or "")
         filename = str(task.get("filename") or task_id or "MinerU 导入任务")
         if task_id:
-            record_usage(
-                session,
+            await record_usage_async(
+                async_session,
                 user_id=int(current_user.id),
                 event_type=DOCUMENT_PARSE_EVENT,
                 count=1,
@@ -359,8 +464,8 @@ async def import_document_from_mineru(
                     ensure_ascii=False,
                 ),
             )
-            _record_document_artifact(
-                session,
+            await _record_document_artifact_async(
+                async_session,
                 user_id=int(current_user.id),
                 task_id=task_id,
                 filename=filename,
@@ -386,7 +491,7 @@ async def list_mineru_import_candidates(
 @router.get("/tasks")
 async def list_document_tasks(
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
@@ -398,12 +503,13 @@ async def list_document_tasks(
     tasks = payload.get("tasks") if isinstance(payload, dict) else []
     if _is_admin(current_user) and os.environ.get("SIQ_DOCUMENT_TASK_LIST_WORKSPACE_ONLY", "").lower() not in {"1", "true", "yes"}:
         return {"tasks": tasks or [], "scope": "system"}
-    links = session.exec(
+    result = await async_session.exec(
         select(UserArtifact).where(
             UserArtifact.user_id == int(current_user.id),
             UserArtifact.artifact_type == "document_parse",
         )
-    ).all()
+    )
+    links = result.all()
     allowed = {
         value
         for item in links
@@ -419,9 +525,9 @@ async def get_document_task(
     request: Request,
     task_id: str,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
-    _ensure_document_task_access(session, current_user, task_id)
+    await _ensure_document_task_access_async(async_session, current_user, task_id)
     return await _proxy_document_parser(request, f"/api/tasks/{quote(task_id, safe='')}")
 
 
@@ -430,9 +536,9 @@ async def get_document_status(
     request: Request,
     task_id: str,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
-    _ensure_document_task_access(session, current_user, task_id)
+    await _ensure_document_task_access_async(async_session, current_user, task_id)
     return await _proxy_document_parser(request, f"/api/status/{quote(task_id, safe='')}")
 
 
@@ -441,9 +547,9 @@ async def get_document_result(
     request: Request,
     task_id: str,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
-    _ensure_document_task_access(session, current_user, task_id)
+    await _ensure_document_task_access_async(async_session, current_user, task_id)
     return await _proxy_document_parser(request, f"/api/result/{quote(task_id, safe='')}")
 
 
@@ -452,9 +558,9 @@ async def cancel_document_task(
     request: Request,
     task_id: str,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
-    _ensure_document_task_access(session, current_user, task_id)
+    await _ensure_document_task_access_async(async_session, current_user, task_id)
     return await _proxy_document_parser(request, f"/api/cancel/{quote(task_id, safe='')}", method="POST")
 
 
@@ -463,14 +569,14 @@ async def retry_document_task(
     request: Request,
     task_id: str,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
-    _ensure_document_task_access(session, current_user, task_id)
-    _enforce_quota_or_429(session, current_user, increment=1)
+    await _ensure_document_task_access_async(async_session, current_user, task_id)
+    await _enforce_quota_or_429_async(async_session, current_user, increment=1)
     response = await _proxy_document_parser(request, f"/api/retry/{quote(task_id, safe='')}", method="POST")
     if 200 <= response.status_code < 300:
-        record_usage(
-            session,
+        await record_usage_async(
+            async_session,
             user_id=int(current_user.id),
             event_type=DOCUMENT_PARSE_EVENT,
             count=1,
@@ -485,21 +591,23 @@ async def delete_document_task(
     request: Request,
     task_id: str,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
-    _ensure_document_task_access(session, current_user, task_id)
-    user_links = session.exec(
+    await _ensure_document_task_access_async(async_session, current_user, task_id)
+    result = await async_session.exec(
         select(UserArtifact).where(
             UserArtifact.user_id == int(current_user.id),
             UserArtifact.artifact_type == "document_parse",
             (UserArtifact.artifact_key == task_id) | (UserArtifact.global_artifact_id == task_id),
         )
-    ).all()
+    )
+    user_links = result.all()
     for item in user_links:
-        session.delete(item)
+        await async_session.delete(item)
     if user_links:
-        session.commit()
-    remaining_links = session.exec(_artifact_statement(task_id)).all()
+        await async_session.commit()
+    result = await async_session.exec(_artifact_statement(task_id))
+    remaining_links = result.all()
     if remaining_links and not _is_admin(current_user):
         return {"success": True, "upstream_deleted": False, "scope": "workspace"}
     return await _proxy_document_parser(request, f"/api/tasks/{quote(task_id, safe='')}", method="DELETE")
@@ -511,9 +619,9 @@ async def get_document_artifact(
     task_id: str,
     artifact: str,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
-    _ensure_document_task_access(session, current_user, task_id)
+    await _ensure_document_task_access_async(async_session, current_user, task_id)
     return await _proxy_document_parser(request, f"/api/artifact/{quote(task_id, safe='')}/{artifact}")
 
 
@@ -522,9 +630,9 @@ async def download_document_package(
     request: Request,
     task_id: str,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
-    _ensure_document_task_access(session, current_user, task_id)
+    await _ensure_document_task_access_async(async_session, current_user, task_id)
     return await _proxy_document_parser(request, f"/api/download/{quote(task_id, safe='')}")
 
 
@@ -532,7 +640,7 @@ async def download_document_package(
 async def download_document_batch(
     request: Request,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
     body = await request.json()
     raw_task_ids = body.get("task_ids") or body.get("taskIds") or []
@@ -543,7 +651,7 @@ async def download_document_batch(
         task_id = str(raw_task_id or "").strip()
         if not task_id or task_id in allowed_task_ids:
             continue
-        if _user_has_document_task_access(session, current_user, task_id):
+        if await _user_has_document_task_access_async(async_session, current_user, task_id):
             allowed_task_ids.append(task_id)
     if not allowed_task_ids:
         raise HTTPException(status_code=403, detail="No selected document tasks are accessible")
@@ -561,9 +669,9 @@ async def source_page(
     task_id: str,
     page_number: int,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
-    _ensure_document_task_access(session, current_user, task_id)
+    await _ensure_document_task_access_async(async_session, current_user, task_id)
     return await _proxy_document_parser(request, f"/api/source/{quote(task_id, safe='')}/page/{page_number}")
 
 
@@ -573,9 +681,9 @@ async def source_page_image(
     task_id: str,
     page_number: int,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
-    _ensure_document_task_access(session, current_user, task_id)
+    await _ensure_document_task_access_async(async_session, current_user, task_id)
     return await _proxy_document_parser(request, f"/api/source/{quote(task_id, safe='')}/page-image/{page_number}")
 
 
@@ -585,9 +693,9 @@ async def source_block(
     task_id: str,
     block_id: str,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
-    _ensure_document_task_access(session, current_user, task_id)
+    await _ensure_document_task_access_async(async_session, current_user, task_id)
     return await _proxy_document_parser(request, f"/api/source/{quote(task_id, safe='')}/block/{quote(block_id, safe='')}")
 
 
@@ -597,9 +705,9 @@ async def source_table(
     task_id: str,
     table_id: str,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
-    _ensure_document_task_access(session, current_user, task_id)
+    await _ensure_document_task_access_async(async_session, current_user, task_id)
     return await _proxy_document_parser(request, f"/api/source/{quote(task_id, safe='')}/table/{quote(table_id, safe='')}")
 
 
@@ -609,9 +717,9 @@ async def source_image(
     task_id: str,
     image_id: str,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
-    _ensure_document_task_access(session, current_user, task_id)
+    await _ensure_document_task_access_async(async_session, current_user, task_id)
     return await _proxy_document_parser(request, f"/api/source/{quote(task_id, safe='')}/image/{quote(image_id, safe='')}")
 
 
@@ -620,9 +728,9 @@ async def document_figures(
     request: Request,
     task_id: str,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
-    _ensure_document_task_access(session, current_user, task_id)
+    await _ensure_document_task_access_async(async_session, current_user, task_id)
     return await _proxy_document_parser(request, f"/api/figures/{quote(task_id, safe='')}")
 
 
@@ -632,9 +740,9 @@ async def document_figure(
     task_id: str,
     image_id: str,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
-    _ensure_document_task_access(session, current_user, task_id)
+    await _ensure_document_task_access_async(async_session, current_user, task_id)
     return await _proxy_document_parser(request, f"/api/figures/{quote(task_id, safe='')}/{quote(image_id, safe='')}")
 
 
@@ -643,9 +751,9 @@ async def document_table_relations(
     request: Request,
     task_id: str,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
-    _ensure_document_task_access(session, current_user, task_id)
+    await _ensure_document_task_access_async(async_session, current_user, task_id)
     return await _proxy_document_parser(request, f"/api/table-relations/{quote(task_id, safe='')}")
 
 
@@ -655,9 +763,9 @@ async def review_document_table_relation(
     task_id: str,
     relation_id: str,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
-    _ensure_document_task_access(session, current_user, task_id)
+    await _ensure_document_task_access_async(async_session, current_user, task_id)
     body = await request.json()
     return await _proxy_document_parser(
         request,
@@ -673,9 +781,9 @@ async def split_document_logical_table(
     task_id: str,
     logical_table_id: str,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
-    _ensure_document_task_access(session, current_user, task_id)
+    await _ensure_document_task_access_async(async_session, current_user, task_id)
     body = await request.json()
     return await _proxy_document_parser(
         request,
@@ -690,9 +798,9 @@ async def merge_document_logical_tables(
     request: Request,
     task_id: str,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
-    _ensure_document_task_access(session, current_user, task_id)
+    await _ensure_document_task_access_async(async_session, current_user, task_id)
     body = await request.json()
     return await _proxy_document_parser(
         request,
@@ -715,9 +823,9 @@ async def extract_document_schema(
     request: Request,
     task_id: str,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
-    _ensure_document_task_access(session, current_user, task_id)
+    await _ensure_document_task_access_async(async_session, current_user, task_id)
     body = await request.json()
     return await _proxy_document_parser(request, f"/api/extract/{quote(task_id, safe='')}", method="POST", json_body=body)
 
@@ -728,7 +836,7 @@ async def get_document_extraction(
     task_id: str,
     extract_id: str,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ):
-    _ensure_document_task_access(session, current_user, task_id)
+    await _ensure_document_task_access_async(async_session, current_user, task_id)
     return await _proxy_document_parser(request, f"/api/extract/{quote(task_id, safe='')}/{quote(extract_id, safe='')}")

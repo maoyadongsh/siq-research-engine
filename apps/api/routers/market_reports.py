@@ -13,9 +13,10 @@ from pathlib import Path
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
-from sqlmodel import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
-from database import get_session
+from database import get_async_session
+from routers.workspace import record_user_artifact_async
 from services.auth_dependencies import get_current_user
 from services.auth_service import User
 from services.auth_dependencies import require_permission
@@ -612,7 +613,7 @@ async def us_sec_upload_files(
     period_end: str = Form(""),
     filing_date: str = Form(""),
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ) -> dict[str, Any]:
     del request
     if not files:
@@ -631,10 +632,8 @@ async def us_sec_upload_files(
         uploaded.append(result)
         try:
             # best effort: keep uploads visible in personal workspace
-            from routers.workspace import record_user_artifact as _record_user_artifact
-
-            _record_user_artifact(
-                session,
+            await record_user_artifact_async(
+                async_session,
                 user_id=int(current_user.id),
                 artifact_type="download",
                 artifact_key=str(result["relative_path"]),

@@ -2,8 +2,12 @@
 认证与权限管理路由
 提供用户登录、注册、权限验证等API
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from html import unescape
+import json
 import os
+import re
+from pathlib import Path
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -28,6 +32,113 @@ from services.usage_service import (
 
 router = APIRouter(tags=["authentication"])
 security = HTTPBearer()
+
+REPORT_GENERATOR_METADATA_KEYS = {"generated_by", "generatedby", "generator", "siq:generated_by", "siq:generator"}
+
+
+def _clean_report_generated_by(value: object) -> str:
+    text = str(value or "").strip()
+    return text[:100] if text else ""
+
+
+def _report_generated_by_from_metadata(content: str) -> str:
+    """Best-effort report generator metadata extraction with a stable fallback."""
+    head = content[:8192]
+
+    for match in re.finditer(r"<meta\s+([^>]+)>", head, flags=re.IGNORECASE):
+        attrs = {
+            key.lower(): unescape(value).strip()
+            for key, value in re.findall(r"""([:\w-]+)\s*=\s*["']([^"']*)["']""", match.group(1))
+        }
+        name = attrs.get("name", "").lower()
+        if name in REPORT_GENERATOR_METADATA_KEYS:
+            generated_by = _clean_report_generated_by(attrs.get("content"))
+            if generated_by:
+                return generated_by
+
+    if head.startswith("---"):
+        front_matter = head.split("---", 2)
+        if len(front_matter) >= 3:
+            for line in front_matter[1].splitlines():
+                if ":" not in line:
+                    continue
+                key, raw_value = line.split(":", 1)
+                if key.strip().lower() in REPORT_GENERATOR_METADATA_KEYS:
+                    generated_by = _clean_report_generated_by(raw_value.strip().strip("\"'"))
+                    if generated_by:
+                        return generated_by
+
+    for key in ("generated_by", "generatedBy", "generator"):
+        match = re.search(rf'"{key}"\s*:\s*"([^"]+)"', head)
+        if match:
+            generated_by = _clean_report_generated_by(match.group(1))
+            if generated_by:
+                return generated_by
+
+    return "system"
+
+
+def _parse_report_generated_at(value: object) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed
+
+
+def _nested_metadata_value(payload: dict, *paths: tuple[str, ...]) -> object:
+    for path in paths:
+        current: object = payload
+        for key in path:
+            if not isinstance(current, dict):
+                current = None
+                break
+            current = current.get(key)
+        if current not in (None, ""):
+            return current
+    return None
+
+
+def _read_sibling_report_metadata(report_path: Path) -> dict:
+    metadata_path = report_path.with_suffix(".json")
+    if not metadata_path.is_file():
+        return {}
+    try:
+        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _report_generation_metadata(report_path: Path, content: str) -> tuple[str, datetime]:
+    metadata = _read_sibling_report_metadata(report_path)
+    generated_by = _clean_report_generated_by(
+        _nested_metadata_value(
+            metadata,
+            ("report_meta", "generator"),
+            ("report_meta", "generated_by"),
+            ("quality_report", "generated_by"),
+            ("generator",),
+            ("generated_by",),
+        )
+    )
+    if not generated_by:
+        generated_by = _report_generated_by_from_metadata(content)
+
+    generated_at = _parse_report_generated_at(
+        _nested_metadata_value(
+            metadata,
+            ("report_meta", "generated_at"),
+            ("quality_report", "generated_at"),
+            ("generated_at",),
+        )
+    ) or datetime.utcnow()
+    return generated_by or "system", generated_at
 
 
 def _demo_mode_enabled() -> bool:
@@ -634,9 +745,6 @@ def create_report_review(
     session: Session = Depends(get_session),
 ):
     """创建报告审核记录"""
-    import json
-    from pathlib import Path
-
     # 读取报告内容计算哈希
     report_path = Path(review_data.report_path)
     if not report_path.exists():
@@ -645,9 +753,9 @@ def create_report_review(
     content = report_path.read_text(encoding="utf-8")
     content_hash = ReportSignature.calculate_hash(content)
     signature = ReportSignature.sign_report(content, current_user.id)
+    generated_by, generated_at = _report_generation_metadata(report_path, content)
 
     # 创建审核记录
-    from datetime import datetime
     review = ReportReview(
         report_path=review_data.report_path,
         company_id=review_data.company_id,
@@ -657,8 +765,8 @@ def create_report_review(
         status=review_data.status,
         review_result=json.dumps(review_data.review_result, ensure_ascii=False) if review_data.review_result else None,
         reviewed_at=datetime.utcnow(),
-        generated_by="system",  # TODO: 从报告元数据获取
-        generated_at=datetime.utcnow(),
+        generated_by=generated_by,
+        generated_at=generated_at,
         content_hash=content_hash,
         signature=signature,
     )

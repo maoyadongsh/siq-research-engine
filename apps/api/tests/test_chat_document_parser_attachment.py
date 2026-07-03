@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-import asyncio
 import importlib.util
 import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import anyio
 from fastapi import BackgroundTasks
-from sqlmodel import SQLModel, Session, create_engine, select
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlmodel import SQLModel, select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
@@ -22,13 +24,18 @@ from services.auth_service import User, UserRole
 from services.usage_service import DOCUMENT_PARSE_EVENT, UsageEvent, UserArtifact
 
 
-def make_session(tmp_path):
-    engine = create_engine(f"sqlite:///{tmp_path / 'chat-attachments.db'}")
-    SQLModel.metadata.create_all(engine)
-    return Session(engine)
+async def _with_session(tmp_path, callback):
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'chat-attachments.db'}")
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(SQLModel.metadata.create_all)
+        async with AsyncSession(engine) as session:
+            await callback(session)
+    finally:
+        await engine.dispose()
 
 
-def make_user(session: Session) -> User:
+async def make_user(session: AsyncSession) -> User:
     user = User(
         username="alice",
         email="alice@example.test",
@@ -39,8 +46,8 @@ def make_user(session: Session) -> User:
         approval_status="approved",
     )
     session.add(user)
-    session.commit()
-    session.refresh(user)
+    await session.commit()
+    await session.refresh(user)
     return user
 
 
@@ -76,31 +83,33 @@ def test_pdf_chat_attachment_submits_to_document_parser(monkeypatch, tmp_path):
     pdf_path.write_bytes(b"%PDF-1.4\nfake")
     parse_dir = tmp_path / "parse"
 
-    with make_session(tmp_path) as session:
-        user = make_user(session)
-        metadata = asyncio.run(
-            chat._submit_pdf_attachment_to_mineru(
+    async def run_case(session):
+        user = await make_user(session)
+        metadata = await chat._submit_pdf_attachment_to_mineru(
                 pdf_path,
                 "stored-report.pdf",
                 parse_dir,
                 BackgroundTasks(),
-                current_user=user,
-                session=session,
+                current_user_id=int(user.id),
+                current_user_role=str(user.role.value if hasattr(user.role, "value") else user.role),
+                async_session=session,
             )
-        )
 
-        artifact = session.exec(select(UserArtifact).where(UserArtifact.artifact_key == "doc-chat-1")).one()
-        usage = session.exec(select(UsageEvent).where(UsageEvent.event_type == DOCUMENT_PARSE_EVENT)).one()
+        artifact = (await session.exec(select(UserArtifact).where(UserArtifact.artifact_key == "doc-chat-1"))).one()
+        usage = (await session.exec(select(UsageEvent).where(UsageEvent.event_type == DOCUMENT_PARSE_EVENT))).one()
+
+        assert metadata["document_parser_task_id"] == "doc-chat-1"
+        assert metadata["document_parser_page_url"] == "/documents?task=doc-chat-1"
+        assert metadata["queue_policy"] == "document_parser_chat_attachment"
+        assert artifact.source == "chat_attachment"
+        assert artifact.path == "/documents?task=doc-chat-1"
+        assert usage.count == 1
+
+    anyio.run(_with_session, tmp_path, run_case)
 
     assert submitted["url"] == "http://document-parser.test/api/tasks"
     assert submitted["data"]["data_id"] == "chat_attachment:stored-report.pdf"
     assert submitted["files"]["files"][0] == "stored-report.pdf"
-    assert metadata["document_parser_task_id"] == "doc-chat-1"
-    assert metadata["document_parser_page_url"] == "/documents?task=doc-chat-1"
-    assert metadata["queue_policy"] == "document_parser_chat_attachment"
-    assert artifact.source == "chat_attachment"
-    assert artifact.path == "/documents?task=doc-chat-1"
-    assert usage.count == 1
 
 
 def test_pdf_chat_attachment_submit_failure_does_not_record_usage_or_artifact(monkeypatch, tmp_path):
@@ -131,27 +140,29 @@ def test_pdf_chat_attachment_submit_failure_does_not_record_usage_or_artifact(mo
     parse_dir = tmp_path / "parse-failed"
     background_tasks = BackgroundTasks()
 
-    with make_session(tmp_path) as session:
-        user = make_user(session)
-        metadata = asyncio.run(
-            chat._submit_pdf_attachment_to_mineru(
+    async def run_case(session):
+        user = await make_user(session)
+        metadata = await chat._submit_pdf_attachment_to_mineru(
                 pdf_path,
                 "stored-failed.pdf",
                 parse_dir,
                 background_tasks,
-                current_user=user,
-                session=session,
+                current_user_id=int(user.id),
+                current_user_role=str(user.role.value if hasattr(user.role, "value") else user.role),
+                async_session=session,
             )
-        )
 
-        artifacts = session.exec(select(UserArtifact)).all()
-        usage = session.exec(select(UsageEvent)).all()
+        artifacts = (await session.exec(select(UserArtifact))).all()
+        usage = (await session.exec(select(UsageEvent))).all()
 
-    assert metadata["document_parser_submit_status"] == "failed"
-    assert metadata["document_parser_submit_http_status"] == 500
-    assert metadata["document_parser_submit_error"] == "parser unavailable"
-    assert artifacts == []
-    assert usage == []
+        assert metadata["document_parser_submit_status"] == "failed"
+        assert metadata["document_parser_submit_http_status"] == 500
+        assert metadata["document_parser_submit_error"] == "parser unavailable"
+        assert artifacts == []
+        assert usage == []
+
+    anyio.run(_with_session, tmp_path, run_case)
+
     assert background_tasks.tasks == []
     assert (parse_dir / "metadata.json").exists()
 
@@ -184,27 +195,29 @@ def test_pdf_chat_attachment_without_task_id_does_not_record_usage_or_artifact(m
     parse_dir = tmp_path / "parse-no-task"
     background_tasks = BackgroundTasks()
 
-    with make_session(tmp_path) as session:
-        user = make_user(session)
-        metadata = asyncio.run(
-            chat._submit_pdf_attachment_to_mineru(
+    async def run_case(session):
+        user = await make_user(session)
+        metadata = await chat._submit_pdf_attachment_to_mineru(
                 pdf_path,
                 "stored-no-task.pdf",
                 parse_dir,
                 background_tasks,
-                current_user=user,
-                session=session,
+                current_user_id=int(user.id),
+                current_user_role=str(user.role.value if hasattr(user.role, "value") else user.role),
+                async_session=session,
             )
-        )
 
-        artifacts = session.exec(select(UserArtifact)).all()
-        usage = session.exec(select(UsageEvent)).all()
+        artifacts = (await session.exec(select(UserArtifact))).all()
+        usage = (await session.exec(select(UsageEvent))).all()
 
-    assert metadata["document_parser_submit_status"] == "submitted_without_task_id"
-    assert metadata["document_parser_status"] == "unknown"
-    assert metadata["document_parser_task_id"] is None
-    assert metadata["document_parser_page_url"] == ""
-    assert artifacts == []
-    assert usage == []
+        assert metadata["document_parser_submit_status"] == "submitted_without_task_id"
+        assert metadata["document_parser_status"] == "unknown"
+        assert metadata["document_parser_task_id"] is None
+        assert metadata["document_parser_page_url"] == ""
+        assert artifacts == []
+        assert usage == []
+
+    anyio.run(_with_session, tmp_path, run_case)
+
     assert background_tasks.tasks == []
     assert (parse_dir / "metadata.json").exists()

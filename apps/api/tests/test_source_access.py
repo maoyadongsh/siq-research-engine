@@ -7,6 +7,7 @@ import anyio
 import httpx
 import pytest
 from fastapi import HTTPException
+from fastapi.responses import Response
 from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -27,7 +28,7 @@ def source_route_client():
     def fake_session():
         yield object()
 
-    main.app.dependency_overrides[source.get_session] = fake_session
+    main.app.dependency_overrides[source.get_async_session] = fake_session
     client = TestClient(main.app)
     try:
         yield client
@@ -52,7 +53,6 @@ def test_source_access_token_uses_independent_secret(monkeypatch):
     auth_secret = "auth-secret-with-enough-length-original"
     monkeypatch.setenv("SIQ_SOURCE_TOKEN_SECRET", source_secret)
     monkeypatch.setenv("SIQ_AUTH_SECRET_KEY", auth_secret)
-    monkeypatch.delenv("SIQ_SOURCE_ACCEPT_LEGACY_AUTH_SECRET", raising=False)
 
     token = source.create_source_access_token("task-a", ttl_seconds=60)
     expires_at = int(token.split(".", 1)[0])
@@ -68,11 +68,22 @@ def test_source_access_token_uses_independent_secret(monkeypatch):
 def test_source_access_token_independent_secret_does_not_require_auth_secret(monkeypatch):
     monkeypatch.setenv("SIQ_SOURCE_TOKEN_SECRET", "source-token-secret-with-enough-length-no-auth")
     monkeypatch.delenv("SIQ_AUTH_SECRET_KEY", raising=False)
-    monkeypatch.delenv("SIQ_SOURCE_ACCEPT_LEGACY_AUTH_SECRET", raising=False)
 
     token = source.create_source_access_token("task-a", ttl_seconds=60)
 
     assert source._valid_source_access_token("task-a", token)
+
+
+def test_source_access_token_accepts_legacy_auth_secret_when_source_secret_exists(monkeypatch):
+    legacy_auth_secret = "legacy-auth-secret-with-enough-length"
+    monkeypatch.setenv("SIQ_SOURCE_TOKEN_SECRET", "source-token-secret-with-enough-length-2")
+    monkeypatch.setenv("SIQ_AUTH_SECRET_KEY", legacy_auth_secret)
+    monkeypatch.setenv("SIQ_SOURCE_ACCEPT_LEGACY_AUTH_SECRET", "1")
+    expires_at = 4_102_444_800
+    legacy_signature = source._source_token_signature("task-a", expires_at, secret=legacy_auth_secret)
+    legacy_token = f"{expires_at}.{legacy_signature}"
+
+    assert source._valid_source_access_token("task-a", legacy_token)
 
 
 def test_source_access_token_rejects_legacy_auth_secret_by_default(monkeypatch):
@@ -87,16 +98,27 @@ def test_source_access_token_rejects_legacy_auth_secret_by_default(monkeypatch):
     assert not source._valid_source_access_token("task-a", legacy_token)
 
 
-def test_source_access_token_accepts_legacy_auth_secret_when_enabled(monkeypatch):
+def test_source_access_token_rejects_legacy_auth_secret_when_disabled(monkeypatch):
     legacy_auth_secret = "legacy-auth-secret-with-enough-length"
     monkeypatch.setenv("SIQ_SOURCE_TOKEN_SECRET", "source-token-secret-with-enough-length-2")
     monkeypatch.setenv("SIQ_AUTH_SECRET_KEY", legacy_auth_secret)
-    monkeypatch.setenv("SIQ_SOURCE_ACCEPT_LEGACY_AUTH_SECRET", "1")
+    monkeypatch.setenv("SIQ_SOURCE_ACCEPT_LEGACY_AUTH_SECRET", "0")
     expires_at = 4_102_444_800
     legacy_signature = source._source_token_signature("task-a", expires_at, secret=legacy_auth_secret)
     legacy_token = f"{expires_at}.{legacy_signature}"
 
-    assert source._valid_source_access_token("task-a", legacy_token)
+    assert not source._valid_source_access_token("task-a", legacy_token)
+
+
+def test_source_access_token_rejects_wrong_signature(monkeypatch):
+    wrong_secret = "wrong-source-token-secret-with-enough-length"
+    monkeypatch.setenv("SIQ_SOURCE_TOKEN_SECRET", "source-token-secret-with-enough-length-2")
+    monkeypatch.setenv("SIQ_AUTH_SECRET_KEY", "legacy-auth-secret-with-enough-length")
+    expires_at = 4_102_444_800
+    wrong_signature = source._source_token_signature("task-a", expires_at, secret=wrong_secret)
+    wrong_token = f"{expires_at}.{wrong_signature}"
+
+    assert not source._valid_source_access_token("task-a", wrong_token)
 
 
 def test_source_access_token_rejects_expired_token(monkeypatch):
@@ -159,8 +181,14 @@ def test_source_access_route_rejects_non_owner_without_upstream_proxy(
 
     monkeypatch.setattr(source, "_request_pdf2md", fail_if_called)
     monkeypatch.setattr(source, "_proxy_pdf2md", fail_if_called)
-    monkeypatch.setattr(source, "_token_user", lambda token, session: SimpleNamespace(id=9, role="user"))
-    monkeypatch.setattr(source, "_user_has_task_access", lambda session, user, task_id: False)
+    async def fake_token_user(token, async_session):
+        return SimpleNamespace(id=9, role="user")
+
+    async def fake_user_has_task_access(async_session, user, task_id):
+        return False
+
+    monkeypatch.setattr(source, "_token_user_async", fake_token_user)
+    monkeypatch.setattr(source, "_user_has_task_access_async", fake_user_has_task_access)
 
     response = source_route_client.get("/api/source_access/source_page/task-a/3?access_token=jwt")
 
@@ -174,8 +202,14 @@ def test_source_access_route_mints_clean_signed_url_for_owner(
 ):
     monkeypatch.setenv("SIQ_AUTH_SECRET_KEY", "source-route-secret-with-enough-length")
     monkeypatch.delenv("SIQ_SOURCE_TOKEN_SECRET", raising=False)
-    monkeypatch.setattr(source, "_token_user", lambda token, session: SimpleNamespace(id=7, role="user"))
-    monkeypatch.setattr(source, "_user_has_task_access", lambda session, user, task_id: True)
+    async def fake_token_user(token, async_session):
+        return SimpleNamespace(id=7, role="user")
+
+    async def fake_user_has_task_access(async_session, user, task_id):
+        return True
+
+    monkeypatch.setattr(source, "_token_user_async", fake_token_user)
+    monkeypatch.setattr(source, "_user_has_task_access_async", fake_user_has_task_access)
 
     response = source_route_client.get(
         "/api/source_access/source_page/task-a/3"
@@ -207,8 +241,8 @@ def test_source_access_route_reuses_existing_signed_token_without_user_lookup(
     def fail_if_called(*_args, **_kwargs):
         raise AssertionError("valid source_token must not fall back to user token lookup")
 
-    monkeypatch.setattr(source, "_token_user", fail_if_called)
-    monkeypatch.setattr(source, "_user_has_task_access", fail_if_called)
+    monkeypatch.setattr(source, "_token_user_async", fail_if_called)
+    monkeypatch.setattr(source, "_user_has_task_access_async", fail_if_called)
 
     response = source_route_client.get(
         f"/api/source_access/source_table/task-a/9?source_token={signed_token}&Access_Token=jwt"
@@ -295,6 +329,93 @@ def test_request_pdf2md_does_not_forward_source_tokens(monkeypatch):
     assert calls["url"] == "https://pdf2md.internal/api/source/task-a/page/1"
     assert calls["kwargs"]["params"] == [("format", "json"), ("keep", "1")]
     assert "authorization" not in {key.lower() for key in calls["kwargs"]["headers"]}
+
+
+def test_source_table_route_uses_async_authorization_before_proxy(monkeypatch):
+    calls = {}
+
+    class QueryParams(dict):
+        def multi_items(self):
+            return list(self.items())
+
+    async def fake_authorize_task_access_async(*, request, task_id, async_session, credentials):
+        calls["auth"] = (request, task_id, async_session, credentials)
+        return "signed-source-token"
+
+    async def fake_proxy_pdf2md(request, upstream_path, *, method=None, json_body=None):
+        calls["proxy"] = (request, upstream_path, method, json_body)
+        return Response(content=b'{"ok": true}', status_code=200, media_type="application/json")
+
+    async def run_case():
+        monkeypatch.setattr(source, "_authorize_task_access_async", fake_authorize_task_access_async)
+        monkeypatch.setattr(source, "_proxy_pdf2md", fake_proxy_pdf2md)
+        request = SimpleNamespace(
+            method="GET",
+            query_params=QueryParams(),
+            headers={"accept": "application/json"},
+        )
+
+        response = await source.get_source_table(
+            request,
+            "task-a",
+            9,
+            credentials=None,
+            async_session=object(),
+        )
+
+        assert response.status_code == 200
+
+    anyio.run(run_case)
+
+    assert calls["auth"][1] == "task-a"
+    assert calls["proxy"][1] == "/api/source/task-a/table/9"
+    assert calls["proxy"][2] is None
+    assert calls["proxy"][3] is None
+
+
+def test_source_table_correction_uses_async_access_check(monkeypatch):
+    calls = {}
+
+    class QueryParams(dict):
+        def multi_items(self):
+            return list(self.items())
+
+    class CorrectionRequest:
+        method = "POST"
+        query_params = QueryParams()
+        headers = {"content-type": "application/json"}
+
+        async def json(self):
+            return {"cells": [{"row": 1, "column": 2, "value": "ok"}]}
+
+    async def fake_user_has_task_access_async(async_session, user, task_id):
+        calls["access"] = (async_session, user, task_id)
+        return True
+
+    async def fake_proxy_pdf2md(request, upstream_path, *, method=None, json_body=None):
+        calls["proxy"] = (request, upstream_path, method, json_body)
+        return Response(content=b'{"saved": true}', status_code=200, media_type="application/json")
+
+    async def run_case():
+        monkeypatch.setattr(source, "_user_has_task_access_async", fake_user_has_task_access_async)
+        monkeypatch.setattr(source, "_proxy_pdf2md", fake_proxy_pdf2md)
+
+        response = await source.submit_source_table_correction(
+            CorrectionRequest(),
+            "task-a",
+            9,
+            current_user=SimpleNamespace(id=1, role="user"),
+            async_session=object(),
+        )
+
+        assert response.status_code == 200
+
+    anyio.run(run_case)
+
+    assert calls["access"][2] == "task-a"
+    assert calls["proxy"][1] == "/api/source/task-a/table/9/correction"
+    assert calls["proxy"][2] == "POST"
+    assert calls["proxy"][3] == {"cells": [{"row": 1, "column": 2, "value": "ok"}]}
 
 
 def test_authorize_task_access_requires_token(monkeypatch):

@@ -1,7 +1,9 @@
 from datetime import datetime
+import inspect
 from types import SimpleNamespace
 
 import pytest
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 import main
@@ -110,8 +112,14 @@ def test_tracking_chat_with_write_permission_reaches_runtime_patch_point(monkeyp
     monkeypatch.setattr(agent_user_router, "maybe_handle_model_control", lambda *args, **kwargs: None)
     monkeypatch.setattr(agent_user_router, "collect_chat_reply", fake_collect_chat_reply)
     monkeypatch.setattr(agent_user_router, "resolve_or_create_session", fake_resolve_or_create_session)
-    monkeypatch.setattr(agent_user_router, "enforce_quota_or_429", lambda *args, **kwargs: None)
-    monkeypatch.setattr(agent_user_router, "record_usage", lambda *args, **kwargs: None)
+    async def fake_enforce_quota_or_429_async(*args, **kwargs):
+        return None
+
+    async def fake_record_usage_async(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(agent_user_router, "enforce_quota_or_429_async", fake_enforce_quota_or_429_async)
+    monkeypatch.setattr(agent_user_router, "record_usage_async", fake_record_usage_async)
     async def fake_record_agent_workspace_artifact_background(*args, **kwargs):
         return {"workspace_synced": False}
 
@@ -243,9 +251,83 @@ def test_tracking_history_route_rejects_low_permission_user(monkeypatch, role):
     assert called == {"resolve": False, "history": False}
 
 
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("post", "/api/tracking/chat/session"),
+        ("post", "/api/tracking/chat/session/existing-session"),
+        ("delete", "/api/tracking/chat/session"),
+    ],
+)
+@pytest.mark.parametrize("role", [UserRole.VIEWER, UserRole.REVIEWER])
+def test_tracking_session_write_routes_reject_low_permission_user(monkeypatch, method, path, role):
+    called = {"session_manager": False, "resolve": False, "delete": False}
+
+    class FakeSessionManager:
+        def create_session(self, *args, **kwargs):
+            called["session_manager"] = True
+            return "should-not-create", []
+
+        def delete_session(self, *args, **kwargs):
+            called["delete"] = True
+
+    async def fake_resolve_or_create_session(*args, **kwargs):
+        called["resolve"] = True
+        return "should-not-resolve"
+
+    async def fake_delete_chat_messages(*args, **kwargs):
+        called["delete"] = True
+
+    monkeypatch.setattr(agent_user_router, "get_session_manager", lambda: FakeSessionManager())
+    monkeypatch.setattr(agent_user_router, "resolve_or_create_session", fake_resolve_or_create_session)
+    monkeypatch.setattr(agent_user_router, "_delete_chat_messages", fake_delete_chat_messages)
+    _install_user(role)
+    client = TestClient(main.app)
+    try:
+        response = getattr(client, method)(path)
+    finally:
+        main.app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    assert called == {"session_manager": False, "resolve": False, "delete": False}
+
+
 def test_main_app_does_not_expose_legacy_tracking_router():
     paths = {route.path for route in main.app.routes}
 
     assert "/api/tracking/chat" in paths
     assert "/api/tracking/process" not in paths
     assert "/api/tracking/dashboard/{stock_code}" not in paths
+
+
+def _tracking_permission_dependencies(route: APIRoute) -> list[str]:
+    permissions = []
+    for dependency in route.dependencies:
+        call = dependency.dependency
+        if getattr(call, "__name__", None) != "permission_checker":
+            continue
+        permission = inspect.getclosurevars(call).nonlocals.get("permission")
+        if permission in {"tracking.read", "tracking.write"}:
+            permissions.append(permission)
+    return permissions
+
+
+def test_main_app_tracking_routes_bind_expected_permissions_by_method():
+    routes = [
+        route
+        for route in main.app.routes
+        if isinstance(route, APIRoute) and route.path.startswith("/api/tracking/")
+    ]
+    paths = {route.path for route in routes}
+
+    assert routes
+    assert "/api/tracking/process" not in paths
+    assert "/api/tracking/dashboard/{stock_code}" not in paths
+
+    for route in routes:
+        expected_permission = "tracking.read" if "GET" in route.methods else "tracking.write"
+
+        assert _tracking_permission_dependencies(route) == [expected_permission], (
+            route.path,
+            route.methods,
+        )
