@@ -157,3 +157,289 @@ def test_repair_and_validate_wiki_naming_maps_repair_failure(monkeypatch, tmp_pa
             "stderr": "cannot repair",
         },
     }
+
+
+def test_extract_semantic_for_task_runs_rule_llm_obsidian_and_naming_contract(monkeypatch, tmp_path):
+    wiki_root = tmp_path / "wiki"
+    semantic_script = tmp_path / "extract_company_semantics.py"
+    llm_script = tmp_path / "llm_semantic_enrichment.py"
+    semantic_script.write_text("# rule\n", encoding="utf-8")
+    llm_script.write_text("# llm\n", encoding="utf-8")
+    calls = []
+    find_results = iter(["000001-旧名称", "000001-新名称"])
+
+    def fake_run_command(args, timeout=180, env=None):
+        calls.append({"kind": Path(args[1]).name, "args": args, "timeout": timeout, "env": env})
+        return {"returnCode": 0, "stdout": f"{Path(args[1]).stem} ok", "stderr": ""}
+
+    naming_calls = []
+
+    def fake_naming_check():
+        naming_calls.append(len(naming_calls) + 1)
+        return {"repair": {"returncode": 0}, "validation": {"returncode": 0}, "call": len(naming_calls)}
+
+    obsidian_calls = []
+
+    def fake_obsidian(company_dir):
+        obsidian_calls.append(company_dir)
+        return {"returnCode": 0, "stdout": "obsidian ok", "stderr": ""}
+
+    monkeypatch.setattr(workflow, "WIKI_ROOT", wiki_root)
+    monkeypatch.setattr(workflow, "SEMANTIC_SCRIPT", semantic_script)
+    monkeypatch.setattr(workflow, "LLM_SEMANTIC_SCRIPT", llm_script)
+    monkeypatch.setattr(workflow, "LLM_SEMANTIC_ENABLED", True)
+    monkeypatch.setattr(workflow, "LLM_SEMANTIC_REQUIRED", True)
+    monkeypatch.setattr(workflow, "LLM_SEMANTIC_TIMEOUT", 77)
+    monkeypatch.setattr(workflow, "_find_company_for_task", lambda task_id: next(find_results))
+    monkeypatch.setattr(workflow, "_repair_and_validate_wiki_naming", fake_naming_check)
+    monkeypatch.setattr(workflow, "_generate_obsidian_for_company", fake_obsidian)
+    monkeypatch.setattr(workflow, "_semantic_status", lambda company_dir, task_id: {"companyDir": company_dir, "taskId": task_id, "status": "ready"})
+    monkeypatch.setattr(workflow, "_run_command", fake_run_command)
+    monkeypatch.setattr(
+        workflow,
+        "load_llm_settings",
+        lambda include_secrets=True: {
+            "providers": {
+                "local": {
+                    "baseUrl": "http://llm.local/v1",
+                    "model": "qwen-local",
+                    "apiKey": "secret",
+                    "timeoutSeconds": 44,
+                    "maxTokens": 2048,
+                    "temperature": 0.2,
+                    "chatTemplateKwargs": {"enable_thinking": False},
+                }
+            }
+        },
+    )
+
+    result = workflow.extract_semantic_for_task("task-semantic-contract")
+
+    assert result["ok"] is True
+    assert result["companyDir"] == "000001-新名称"
+    assert result["naming"]["before"]["call"] == 1
+    assert result["naming"]["after"]["call"] == 2
+    assert obsidian_calls == ["000001-新名称"]
+    assert [call["kind"] for call in calls] == ["extract_company_semantics.py", "llm_semantic_enrichment.py"]
+    assert calls[0]["args"] == [
+        sys.executable,
+        str(semantic_script),
+        "--wiki-root",
+        str(wiki_root),
+        "--company",
+        "000001-新名称",
+    ]
+    assert calls[0]["timeout"] == 180
+    assert calls[0]["env"] is None
+    assert calls[1]["args"] == [
+        sys.executable,
+        str(llm_script),
+        "--wiki-root",
+        str(wiki_root),
+        "--company",
+        "000001-新名称",
+    ]
+    assert calls[1]["timeout"] == 77
+    assert calls[1]["env"]["SIQ_LOCAL_LLM_BASE_URL"] == "http://llm.local/v1"
+    assert calls[1]["env"]["SIQ_LOCAL_LLM_MODEL"] == "qwen-local"
+    assert calls[1]["env"]["SIQ_LOCAL_LLM_API_KEY"] == "secret"
+    assert calls[1]["env"]["SIQ_LLM_SEMANTIC_TIMEOUT"] == "44"
+    assert calls[1]["env"]["SIQ_LLM_SEMANTIC_MAX_TOKENS"] == "2048"
+    assert calls[1]["env"]["SIQ_LLM_SEMANTIC_TEMPERATURE"] == "0.2"
+    assert calls[1]["env"]["SIQ_LLM_SEMANTIC_CHAT_TEMPLATE_KWARGS"] == '{"enable_thinking": false}'
+
+
+def test_extract_generic_semantic_rejects_non_generic_identity_without_command(monkeypatch, tmp_path):
+    wiki_root = tmp_path / "wiki"
+    company_dir = "000001-测试公司"
+    company_path = wiki_root / "companies" / company_dir
+    company_path.mkdir(parents=True)
+    (company_path / "company.json").write_text('{"identity_route":"a_share_wiki_import"}', encoding="utf-8")
+
+    def fail_run(*_args, **_kwargs):
+        raise AssertionError("semantic command should not run for non-generic company identity")
+
+    monkeypatch.setattr(workflow, "WIKI_ROOT", wiki_root)
+    monkeypatch.setattr(workflow, "_find_company_for_task", lambda task_id: company_dir)
+    monkeypatch.setattr(workflow, "_run_command", fail_run)
+
+    with pytest.raises(HTTPException) as exc_info:
+        workflow.extract_generic_semantic_for_task("task-generic-contract")
+
+    assert exc_info.value.status_code == 422
+    assert exc_info.value.detail == "该任务不是通用主体入库路线，请使用标准语义层接口"
+
+
+def test_extract_semantic_for_task_maps_rule_failure(monkeypatch, tmp_path):
+    semantic_script = tmp_path / "extract_company_semantics.py"
+    semantic_script.write_text("# rule\n", encoding="utf-8")
+    failure = {"returnCode": 2, "stdout": "", "stderr": "rule failed"}
+
+    monkeypatch.setattr(workflow, "SEMANTIC_SCRIPT", semantic_script)
+    monkeypatch.setattr(workflow, "_find_company_for_task", lambda task_id: "000001-测试公司")
+    monkeypatch.setattr(workflow, "_repair_and_validate_wiki_naming", lambda: {"ok": True})
+    monkeypatch.setattr(workflow, "_run_command", lambda *args, **kwargs: failure)
+
+    with pytest.raises(HTTPException) as exc_info:
+        workflow.extract_semantic_for_task("task-semantic-rule-failure")
+
+    assert exc_info.value.status_code == 500
+    assert exc_info.value.detail == {"stage": "rule_semantic", **failure}
+
+
+def test_extract_semantic_for_task_maps_required_llm_failure(monkeypatch, tmp_path):
+    semantic_script = tmp_path / "extract_company_semantics.py"
+    llm_script = tmp_path / "llm_semantic_enrichment.py"
+    semantic_script.write_text("# rule\n", encoding="utf-8")
+    llm_script.write_text("# llm\n", encoding="utf-8")
+    calls = []
+
+    def fake_run_command(args, timeout=180, env=None):
+        calls.append(Path(args[1]).name)
+        if Path(args[1]) == llm_script:
+            return {"returnCode": 3, "stdout": "", "stderr": "llm failed"}
+        return {"returnCode": 0, "stdout": "rule ok", "stderr": ""}
+
+    monkeypatch.setattr(workflow, "SEMANTIC_SCRIPT", semantic_script)
+    monkeypatch.setattr(workflow, "LLM_SEMANTIC_SCRIPT", llm_script)
+    monkeypatch.setattr(workflow, "LLM_SEMANTIC_ENABLED", True)
+    monkeypatch.setattr(workflow, "LLM_SEMANTIC_REQUIRED", True)
+    monkeypatch.setattr(workflow, "_find_company_for_task", lambda task_id: "000001-测试公司")
+    monkeypatch.setattr(workflow, "_repair_and_validate_wiki_naming", lambda: {"ok": True})
+    monkeypatch.setattr(workflow, "_run_command", fake_run_command)
+    monkeypatch.setattr(workflow, "load_llm_settings", lambda include_secrets=True: {"providers": {}})
+
+    with pytest.raises(HTTPException) as exc_info:
+        workflow.extract_semantic_for_task("task-semantic-llm-failure")
+
+    assert calls == ["extract_company_semantics.py", "llm_semantic_enrichment.py"]
+    assert exc_info.value.status_code == 500
+    assert exc_info.value.detail == {
+        "stage": "llm_semantic",
+        "returnCode": 3,
+        "stdout": "",
+        "stderr": "llm failed",
+    }
+
+
+def test_extract_semantic_for_task_keeps_optional_missing_llm_detail(monkeypatch, tmp_path):
+    semantic_script = tmp_path / "extract_company_semantics.py"
+    missing_llm_script = tmp_path / "missing_llm_semantic_enrichment.py"
+    semantic_script.write_text("# rule\n", encoding="utf-8")
+    obsidian_calls = []
+
+    def fake_run_command(args, timeout=180, env=None):
+        return {"returnCode": 0, "stdout": "rule ok", "stderr": ""}
+
+    monkeypatch.setattr(workflow, "SEMANTIC_SCRIPT", semantic_script)
+    monkeypatch.setattr(workflow, "LLM_SEMANTIC_SCRIPT", missing_llm_script)
+    monkeypatch.setattr(workflow, "LLM_SEMANTIC_ENABLED", True)
+    monkeypatch.setattr(workflow, "LLM_SEMANTIC_REQUIRED", False)
+    monkeypatch.setattr(workflow, "_find_company_for_task", lambda task_id: "000001-测试公司")
+    monkeypatch.setattr(workflow, "_repair_and_validate_wiki_naming", lambda: {"ok": True})
+    monkeypatch.setattr(workflow, "_generate_obsidian_for_company", lambda company_dir: obsidian_calls.append(company_dir) or {"returnCode": 0})
+    monkeypatch.setattr(workflow, "_semantic_status", lambda company_dir, task_id: {"status": "ready"})
+    monkeypatch.setattr(workflow, "_run_command", fake_run_command)
+
+    result = workflow.extract_semantic_for_task("task-semantic-optional-llm")
+
+    assert result["ok"] is True
+    assert result["result"]["llm"] == {
+        "stage": "llm_semantic",
+        "returnCode": 127,
+        "stdout": "",
+        "stderr": f"LLM semantic script not found: {missing_llm_script}",
+    }
+    assert obsidian_calls == ["000001-测试公司"]
+
+
+def test_extract_semantic_for_task_keeps_optional_llm_failure_non_blocking(monkeypatch, tmp_path):
+    semantic_script = tmp_path / "extract_company_semantics.py"
+    llm_script = tmp_path / "llm_semantic_enrichment.py"
+    semantic_script.write_text("# rule\n", encoding="utf-8")
+    llm_script.write_text("# llm\n", encoding="utf-8")
+    obsidian_calls = []
+
+    def fake_run_command(args, timeout=180, env=None):
+        if Path(args[1]) == llm_script:
+            return {"returnCode": 9, "stdout": "", "stderr": "optional llm failed"}
+        return {"returnCode": 0, "stdout": "rule ok", "stderr": ""}
+
+    monkeypatch.setattr(workflow, "SEMANTIC_SCRIPT", semantic_script)
+    monkeypatch.setattr(workflow, "LLM_SEMANTIC_SCRIPT", llm_script)
+    monkeypatch.setattr(workflow, "LLM_SEMANTIC_ENABLED", True)
+    monkeypatch.setattr(workflow, "LLM_SEMANTIC_REQUIRED", False)
+    monkeypatch.setattr(workflow, "_find_company_for_task", lambda task_id: "000001-测试公司")
+    monkeypatch.setattr(workflow, "_repair_and_validate_wiki_naming", lambda: {"ok": True})
+    monkeypatch.setattr(workflow, "_generate_obsidian_for_company", lambda company_dir: obsidian_calls.append(company_dir) or {"returnCode": 0})
+    monkeypatch.setattr(workflow, "_semantic_status", lambda company_dir, task_id: {"status": "ready"})
+    monkeypatch.setattr(workflow, "_run_command", fake_run_command)
+    monkeypatch.setattr(workflow, "load_llm_settings", lambda include_secrets=True: {"providers": {}})
+
+    result = workflow.extract_semantic_for_task("task-semantic-optional-llm-failure")
+
+    assert result["ok"] is True
+    assert result["result"]["llm"] == {"returnCode": 9, "stdout": "", "stderr": "optional llm failed"}
+    assert obsidian_calls == ["000001-测试公司"]
+
+
+def test_extract_generic_semantic_success_runs_rule_llm_obsidian_without_naming(monkeypatch, tmp_path):
+    wiki_root = tmp_path / "wiki"
+    company_dir = "ACME_US_ACME"
+    company_path = wiki_root / "companies" / company_dir
+    semantic_script = tmp_path / "extract_company_semantics.py"
+    llm_script = tmp_path / "llm_semantic_enrichment.py"
+    company_path.mkdir(parents=True)
+    (company_path / "company.json").write_text('{"identity_route":"generic_non_a_share_wiki_import"}', encoding="utf-8")
+    semantic_script.write_text("# rule\n", encoding="utf-8")
+    llm_script.write_text("# llm\n", encoding="utf-8")
+    calls = []
+    obsidian_calls = []
+
+    def fake_run_command(args, timeout=180, env=None):
+        calls.append({"kind": Path(args[1]).name, "args": args, "timeout": timeout, "env": env})
+        return {"returnCode": 0, "stdout": "ok", "stderr": ""}
+
+    def fail_naming():
+        raise AssertionError("generic semantic route should not run naming repair/validate")
+
+    monkeypatch.setattr(workflow, "WIKI_ROOT", wiki_root)
+    monkeypatch.setattr(workflow, "SEMANTIC_SCRIPT", semantic_script)
+    monkeypatch.setattr(workflow, "LLM_SEMANTIC_SCRIPT", llm_script)
+    monkeypatch.setattr(workflow, "LLM_SEMANTIC_ENABLED", True)
+    monkeypatch.setattr(workflow, "LLM_SEMANTIC_REQUIRED", False)
+    monkeypatch.setattr(workflow, "LLM_SEMANTIC_TIMEOUT", 66)
+    monkeypatch.setattr(workflow, "_find_company_for_task", lambda task_id: company_dir)
+    monkeypatch.setattr(workflow, "_repair_and_validate_wiki_naming", fail_naming)
+    monkeypatch.setattr(workflow, "_generate_obsidian_for_company", lambda seen_company_dir: obsidian_calls.append(seen_company_dir) or {"returnCode": 0})
+    monkeypatch.setattr(workflow, "_semantic_status", lambda seen_company_dir, task_id: {"companyDir": seen_company_dir, "taskId": task_id, "status": "ready"})
+    monkeypatch.setattr(workflow, "_run_command", fake_run_command)
+    monkeypatch.setattr(workflow, "load_llm_settings", lambda include_secrets=True: {"providers": {"local": {"model": "qwen-local"}}})
+
+    result = workflow.extract_generic_semantic_for_task("task-generic-success")
+
+    assert result["ok"] is True
+    assert result["companyDir"] == company_dir
+    assert obsidian_calls == [company_dir]
+    assert [call["kind"] for call in calls] == ["extract_company_semantics.py", "llm_semantic_enrichment.py"]
+    assert calls[0]["args"] == [
+        sys.executable,
+        str(semantic_script),
+        "--wiki-root",
+        str(wiki_root),
+        "--company",
+        company_dir,
+    ]
+    assert calls[0]["timeout"] == 180
+    assert calls[0]["env"] is None
+    assert calls[1]["args"] == [
+        sys.executable,
+        str(llm_script),
+        "--wiki-root",
+        str(wiki_root),
+        "--company",
+        company_dir,
+    ]
+    assert calls[1]["timeout"] == 66
+    assert calls[1]["env"]["SIQ_LOCAL_LLM_MODEL"] == "qwen-local"
+    assert result["semantic"] == {"companyDir": company_dir, "taskId": "task-generic-success", "status": "ready"}
