@@ -190,3 +190,28 @@ def test_file_backed_job_service_returns_none_for_missing_job(tmp_path):
     service = job_service.FileBackedJobService(store_path=tmp_path / "jobs.json")
 
     assert service.get("missing") is None
+
+
+def test_file_backed_job_service_ignores_malformed_store_payloads(tmp_path):
+    store_path = tmp_path / "jobs.json"
+
+    store_path.write_text("{not-json", encoding="utf-8")
+    service = job_service.FileBackedJobService(store_path=store_path)
+    assert service.get("anything") is None
+
+    store_path.write_text(json.dumps({"jobs": {"job_id": "not-a-list"}}), encoding="utf-8")
+    service = job_service.FileBackedJobService(store_path=store_path)
+    assert service.get("not-a-list") is None
+
+
+def test_file_backed_job_service_persist_failure_does_not_block_runtime_snapshot(tmp_path):
+    blocked_parent = tmp_path / "blocked"
+    blocked_parent.write_text("not a directory", encoding="utf-8")
+    store_path = blocked_parent / "jobs.json"
+    service = job_service.FileBackedJobService(store_path=store_path)
+
+    started = service.start("demo", lambda: {"ok": True, "value": "runtime-only"})
+    terminal = wait_for_terminal(service, started["job_id"])
+
+    assert terminal["status"] == "succeeded"
+    assert terminal["result"] == {"ok": True, "value": "runtime-only"}

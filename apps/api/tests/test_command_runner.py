@@ -61,6 +61,44 @@ def test_format_command_redacts_common_secret_options():
     assert "--safe visible" in command
 
 
+def test_format_command_normalizes_sensitive_option_names():
+    command = command_runner.format_command(
+        [
+            "python",
+            "script.py",
+            "--connection_string",
+            "AccountKey=secret",
+            "--TOKEN=abc123",
+            "POSTGRES_PASSWORD=env-secret",
+            "--safe-option",
+            "visible",
+        ]
+    )
+
+    assert "AccountKey=secret" not in command
+    assert "abc123" not in command
+    assert "env-secret" not in command
+    assert "--connection_string ***" in command
+    assert "--TOKEN=***" in command
+    assert "POSTGRES_PASSWORD=***" in command
+    assert "--safe-option visible" in command
+
+
+def test_format_command_only_redacts_exact_sensitive_env_assignments():
+    command = command_runner.format_command(
+        [
+            "DATABASE_URL=postgres://secret",
+            "DATABASE_URL_EXTRA=postgres://visible",
+            "SAFE_TOKEN_VALUE=visible-token",
+        ]
+    )
+
+    assert "DATABASE_URL=***" in command
+    assert "postgres://secret" not in command
+    assert "DATABASE_URL_EXTRA=postgres://visible" in command
+    assert "SAFE_TOKEN_VALUE=visible-token" in command
+
+
 def test_run_command_returns_nonzero_result_without_raising(tmp_path):
     completed = command_runner.run_command(
         [
@@ -91,3 +129,34 @@ def test_run_command_passes_env_mapping(tmp_path):
 
     assert completed.returncode == 0
     assert completed.stdout.strip() == "from-env"
+
+
+def test_run_command_passes_subprocess_contract(monkeypatch, tmp_path):
+    calls = {}
+
+    def fake_run(args, **kwargs):
+        calls["args"] = args
+        calls["kwargs"] = kwargs
+        return "completed"
+
+    env = {"COMMAND_RUNNER_TEST_VALUE": "from-env"}
+    monkeypatch.setattr(command_runner.subprocess, "run", fake_run)
+
+    result = command_runner.run_command(
+        ("python", "script.py"),
+        cwd=tmp_path,
+        timeout=12,
+        env=env,
+    )
+
+    assert result == "completed"
+    assert calls["args"] == ["python", "script.py"]
+    assert calls["kwargs"] == {
+        "cwd": str(tmp_path),
+        "capture_output": True,
+        "text": True,
+        "timeout": 12,
+        "env": {"COMMAND_RUNNER_TEST_VALUE": "from-env"},
+        "check": False,
+    }
+    assert calls["kwargs"]["env"] is not env

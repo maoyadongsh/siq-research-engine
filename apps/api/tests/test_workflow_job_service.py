@@ -144,6 +144,87 @@ def test_workflow_job_mutators_keep_existing_contract():
     )
 
 
+def test_workflow_job_step_update_reuses_existing_step_and_preserves_terminal_finished_at():
+    timestamps = iter(
+        [
+            "2026-07-04T10:00:00Z",
+            "2026-07-04T10:01:00Z",
+            "2026-07-04T10:02:00Z",
+            "2026-07-04T10:03:00Z",
+            "2026-07-04T10:04:00Z",
+            "2026-07-04T10:05:00Z",
+            "2026-07-04T10:06:00Z",
+        ]
+    )
+    jobs = {}
+    workflow_jobs.create_workflow_job(jobs, job_id="job-1", task_id="task-1", now=lambda: next(timestamps))
+
+    assert workflow_jobs.record_workflow_job_step(
+        jobs,
+        "job-1",
+        "semantic",
+        "running",
+        now=lambda: next(timestamps),
+        detail={"phase": "rule"},
+    )
+    assert workflow_jobs.record_workflow_job_step(
+        jobs,
+        "job-1",
+        "semantic",
+        "succeeded",
+        now=lambda: next(timestamps),
+        detail={"phase": "llm"},
+    )
+    assert workflow_jobs.record_workflow_job_step(
+        jobs,
+        "job-1",
+        "semantic",
+        "succeeded",
+        now=lambda: next(timestamps),
+        result={"ok": True},
+    )
+
+    assert jobs["job-1"]["steps"] == [
+        {
+            "step": "semantic",
+            "startedAt": "2026-07-04T10:01:00Z",
+            "status": "succeeded",
+            "detail": {"phase": "llm"},
+            "finishedAt": "2026-07-04T10:03:00Z",
+            "result": {"ok": True},
+        }
+    ]
+    assert jobs["job-1"]["updatedAt"] == "2026-07-04T10:06:00Z"
+
+
+def test_update_workflow_job_custom_fields_refresh_updated_at_only_for_existing_jobs():
+    timestamps = iter(["2026-07-04T11:00:00Z", "2026-07-04T11:01:00Z"])
+    jobs = {}
+    workflow_jobs.create_workflow_job(jobs, job_id="job-1", task_id="task-1", now=lambda: next(timestamps))
+
+    assert workflow_jobs.update_workflow_job(
+        jobs,
+        "job-1",
+        now=lambda: next(timestamps),
+        status="running",
+        error=None,
+        result={"stage": "wiki"},
+    )
+    assert jobs["job-1"]["status"] == "running"
+    assert jobs["job-1"]["error"] is None
+    assert jobs["job-1"]["result"] == {"stage": "wiki"}
+    assert jobs["job-1"]["updatedAt"] == "2026-07-04T11:01:00Z"
+
+    before = dict(jobs["job-1"])
+    assert workflow_jobs.update_workflow_job(
+        jobs,
+        "missing",
+        now=lambda: "should-not-be-used",
+        status="failed",
+    ) is False
+    assert jobs["job-1"] == before
+
+
 def test_workflow_router_uses_job_service_contract(monkeypatch, tmp_path):
     store_path = tmp_path / "workflow-jobs.json"
     monkeypatch.setattr(workflow, "WORKFLOW_JOB_STORE", store_path)
