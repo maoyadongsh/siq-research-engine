@@ -3535,6 +3535,23 @@ cd apps/api && .venv/bin/python -m pytest tests/test_deal_store.py tests/test_de
 cd apps/api && .venv/bin/python -m py_compile routers/deals.py services/deal_evidence.py services/deal_store.py
 ```
 
+### 0.57 2026-07-03 Deal report artifact reader service 补齐
+
+本轮补齐 Deal reports 路由依赖的只读 service 文件，不混入前端 dry-run 面板、CI 或 TODO scanner。
+
+完成范围：
+
+- 新增 `deal_reports.py`，对 `phases`、`discussion`、`decision`、`evidence`、`audit` 下的报告产物建立索引，并标记预期但缺失的核心投委会产物。
+- 读取报告详情时限制路径逃逸、目录范围和文件后缀，限制单文件读取大小；JSON / NDJSON 输出统一经过 `redact_public_payload`，避免本地路径和用户 email 泄露。
+- 支持 Markdown / HTML / TXT 原文读取，JSON 返回解析后的 `json` payload，NDJSON 返回 `rows_preview` 和 invalid line 计数。
+
+验证：
+
+```bash
+cd apps/api && .venv/bin/python -m pytest tests/test_deal_store.py::test_deal_reports_index_and_read_detail tests/test_deal_store.py::test_deal_reports_reject_unsafe_paths tests/test_deals_router.py::test_deals_router_reports_index_and_detail -q  # 3 passed, 7 warnings
+cd apps/api && .venv/bin/python -m py_compile services/deal_reports.py routers/deals.py
+```
+
 ## 10. 验收标准总表
 
 ### 仓库治理 DoD
