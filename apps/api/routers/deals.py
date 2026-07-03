@@ -3,17 +3,22 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
+from database import get_async_session
 from services.auth_dependencies import require_permission
 from services.auth_service import User
 from services import deal_contracts
+from services import deal_documents
 from services import deal_store
 from services import ic_policy
 from services.ic_openclaw_importer import DEFAULT_OPENCLAW_PROJECTS_ROOT, import_openclaw_project
 from services.job_service import FileBackedJobService
 from services.path_config import BACKEND_DATA_ROOT
+from services.usage_service import UserArtifact
 
 
 router = APIRouter(prefix="/deals", tags=["deals"])
@@ -37,6 +42,12 @@ class OpenClawImportRequest(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class DealDocumentBindParserTaskRequest(BaseModel):
+    task_id: str = Field(..., min_length=2)
+    artifact_path: str | None = None
+    note: str = ""
+
+
 def _user_payload(user: User) -> dict[str, Any]:
     return {
         "id": getattr(user, "id", None),
@@ -46,6 +57,44 @@ def _user_payload(user: User) -> dict[str, Any]:
 
 def _not_found(deal_id: str) -> HTTPException:
     return HTTPException(status_code=404, detail=f"Deal not found: {deal_id}")
+
+
+def _role_value(user: User) -> str:
+    role = getattr(user, "role", "")
+    return str(role.value if hasattr(role, "value") else role)
+
+
+def _is_admin_user(user: User) -> bool:
+    return _role_value(user) in {"admin", "super_admin"}
+
+
+async def _user_has_document_task_access(
+    async_session: AsyncSession,
+    current_user: User,
+    task_id: str,
+) -> bool:
+    if _is_admin_user(current_user):
+        return True
+    user_id = getattr(current_user, "id", None)
+    if user_id is None:
+        return False
+    result = await async_session.exec(
+        select(UserArtifact).where(
+            UserArtifact.user_id == int(user_id),
+            UserArtifact.artifact_type == "document_parse",
+            UserArtifact.artifact_key == task_id,
+        )
+    )
+    if result.first():
+        return True
+    result = await async_session.exec(
+        select(UserArtifact).where(
+            UserArtifact.user_id == int(user_id),
+            UserArtifact.artifact_type == "document_parse",
+            UserArtifact.global_artifact_id == task_id,
+        )
+    )
+    return result.first() is not None
 
 
 def _resolve_openclaw_source(payload: OpenClawImportRequest) -> str:
@@ -359,6 +408,109 @@ def get_deal(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise _not_found(deal_id) from exc
+
+
+@router.get("/{deal_id}/documents")
+def list_deal_documents(
+    deal_id: str,
+    current_user: User = Depends(require_permission("report.view")),
+) -> dict[str, Any]:
+    del current_user
+    try:
+        return {"documents": deal_documents.list_deal_documents(deal_id)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+
+
+@router.post("/{deal_id}/documents")
+def upload_deal_document(
+    deal_id: str,
+    file: UploadFile = File(...),
+    document_type: str = Form(""),
+    source_note: str = Form(""),
+    current_user: User = Depends(require_permission("report.create")),
+) -> dict[str, Any]:
+    try:
+        document = deal_documents.create_deal_document(
+            deal_id=deal_id,
+            filename=file.filename,
+            content_type=file.content_type,
+            stream=file.file,
+            document_type=document_type,
+            source_note=source_note,
+            created_by=_user_payload(current_user),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+    finally:
+        file.file.close()
+    return {"document": document}
+
+
+@router.get("/{deal_id}/documents/{document_id}")
+def get_deal_document(
+    deal_id: str,
+    document_id: str,
+    current_user: User = Depends(require_permission("report.view")),
+) -> dict[str, Any]:
+    del current_user
+    try:
+        return {"document": deal_documents.get_deal_document(deal_id, document_id)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"Deal document not found: {document_id}") from exc
+
+
+@router.delete("/{deal_id}/documents/{document_id}")
+def delete_deal_document(
+    deal_id: str,
+    document_id: str,
+    current_user: User = Depends(require_permission("report.create")),
+) -> dict[str, Any]:
+    try:
+        return deal_documents.delete_deal_document(
+            deal_id,
+            document_id,
+            deleted_by=_user_payload(current_user),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"Deal document not found: {document_id}") from exc
+
+
+@router.post("/{deal_id}/documents/{document_id}/bind-parser-task")
+async def bind_deal_document_parser_task(
+    deal_id: str,
+    document_id: str,
+    payload: DealDocumentBindParserTaskRequest,
+    current_user: User = Depends(require_permission("report.create")),
+    async_session: AsyncSession = Depends(get_async_session),
+) -> dict[str, Any]:
+    try:
+        task_id = deal_documents.validate_parser_task_id(payload.task_id)
+        if not await _user_has_document_task_access(async_session, current_user, task_id):
+            raise HTTPException(status_code=403, detail="Document parser task does not belong to current user")
+        document = deal_documents.bind_parser_task(
+            deal_id,
+            document_id,
+            task_id=task_id,
+            artifact_path=payload.artifact_path,
+            note=payload.note,
+            bound_by=_user_payload(current_user),
+        )
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"Deal document not found: {document_id}") from exc
+    return {"document": document}
 
 
 @router.get("/{deal_id}/workflow")

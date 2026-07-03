@@ -144,3 +144,99 @@ def test_deals_router_async_import_queues_compact_job(monkeypatch, tmp_path):
     status = client.get("/api/deals/jobs/deal-openclaw-import-test")
     assert status.status_code == 200
     assert status.json()["created_by"] == {"id": 7, "username": "ic-admin"}
+
+
+def test_deals_router_data_room_document_lifecycle(monkeypatch, tmp_path):
+    client = _client(monkeypatch, tmp_path)
+    response = client.post(
+        "/api/deals",
+        json={"deal_id": "DEAL-ROUTER-004", "company_name": "Router Robotics"},
+    )
+    assert response.status_code == 200
+
+    upload = client.post(
+        "/api/deals/DEAL-ROUTER-004/documents",
+        data={"document_type": "business_plan", "source_note": "founder upload"},
+        files={"file": ("../bp.pdf", b"router bp", "application/pdf")},
+    )
+    assert upload.status_code == 200
+    document = upload.json()["document"]
+    assert document["document_id"].startswith("DOC-")
+    assert document["original_filename"] == "bp.pdf"
+    assert document["document_type"] == "business_plan"
+    assert document["created_by"] == {"id": 7, "username": "ic-admin"}
+    assert not document["storage_path"].startswith("/")
+
+    listed = client.get("/api/deals/DEAL-ROUTER-004/documents")
+    assert listed.status_code == 200
+    assert listed.json()["documents"][0]["document_id"] == document["document_id"]
+
+    detail = client.get(f"/api/deals/DEAL-ROUTER-004/documents/{document['document_id']}")
+    assert detail.status_code == 200
+    assert detail.json()["document"]["sha256"] == document["sha256"]
+
+    deleted = client.delete(f"/api/deals/DEAL-ROUTER-004/documents/{document['document_id']}")
+    assert deleted.status_code == 200
+    assert deleted.json() == {"ok": True, "document_id": document["document_id"]}
+    assert client.get("/api/deals/DEAL-ROUTER-004/documents").json()["documents"] == []
+
+
+def test_deals_router_bind_parser_task_updates_document(monkeypatch, tmp_path):
+    client = _client(monkeypatch, tmp_path)
+    assert client.post(
+        "/api/deals",
+        json={"deal_id": "DEAL-ROUTER-005", "company_name": "Router Robotics"},
+    ).status_code == 200
+    upload = client.post(
+        "/api/deals/DEAL-ROUTER-005/documents",
+        files={"file": ("bp.pdf", b"router bp", "application/pdf")},
+    )
+    assert upload.status_code == 200
+    document_id = upload.json()["document"]["document_id"]
+
+    response = client.post(
+        f"/api/deals/DEAL-ROUTER-005/documents/{document_id}/bind-parser-task",
+        json={"task_id": "parser-task-router-1", "artifact_path": "document.md", "note": "manual bind"},
+    )
+
+    assert response.status_code == 200
+    document = response.json()["document"]
+    assert document["status"] == "parse_bound"
+    assert document["parse_task_id"] == "parser-task-router-1"
+    assert document["parsed_artifact_path"] == "document.md"
+    assert document["parser_page_url"] == "/documents?task=parser-task-router-1"
+    assert document["parse_bound_by"] == {"id": 7, "username": "ic-admin"}
+
+    detail = client.get(f"/api/deals/DEAL-ROUTER-005/documents/{document_id}")
+    assert detail.status_code == 200
+    assert detail.json()["document"]["parse_task_id"] == "parser-task-router-1"
+
+
+def test_deals_router_bind_parser_task_requires_task_access(monkeypatch, tmp_path):
+    client = _client(monkeypatch, tmp_path)
+    assert client.post(
+        "/api/deals",
+        json={"deal_id": "DEAL-ROUTER-006", "company_name": "Router Robotics"},
+    ).status_code == 200
+    upload = client.post(
+        "/api/deals/DEAL-ROUTER-006/documents",
+        files={"file": ("bp.pdf", b"router bp", "application/pdf")},
+    )
+    assert upload.status_code == 200
+    document_id = upload.json()["document"]["document_id"]
+
+    async def deny_task_access(*args, **kwargs):
+        return False
+
+    monkeypatch.setattr(deals, "_user_has_document_task_access", deny_task_access)
+
+    response = client.post(
+        f"/api/deals/DEAL-ROUTER-006/documents/{document_id}/bind-parser-task",
+        json={"task_id": "parser-task-other-user"},
+    )
+
+    assert response.status_code == 403
+    assert "does not belong" in response.json()["detail"]
+    detail = client.get(f"/api/deals/DEAL-ROUTER-006/documents/{document_id}")
+    assert detail.status_code == 200
+    assert detail.json()["document"]["parse_task_id"] is None

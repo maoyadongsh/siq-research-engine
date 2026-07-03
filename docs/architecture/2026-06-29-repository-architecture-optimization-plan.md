@@ -3351,6 +3351,26 @@ cd apps/api && .venv/bin/python -m py_compile routers/deals.py services/deal_con
 cd apps/api && .venv/bin/python -c "import main; print(main.app.title)"  # SIQ API
 ```
 
+### 0.47 2026-07-03 Deal data-room document API
+
+本轮继续沿 Deal OS 后端小切片推进，只处理 deal package 内 data room 文档的同步文件系统读写，不接入解析 pipeline、Milvus、前端页面或异步任务。
+
+完成范围：
+
+- 新增 `services/deal_documents.py`：提供 document id 校验、上传落盘、metadata 写入、manifest documents 同步、列表/详情读取和删除。
+- `routers/deals.py` 新增 `/api/deals/{deal_id}/documents` 的 list/upload/detail/delete 路由；读路径用 `report.view`，写/删路径用 `report.create`。
+- 上传文件名只保留 basename，兼容 POSIX/Windows 路径片段；存储文件名使用 `DOC-*` id + 安全扩展名，不复用用户原始文件名。
+- 上传大小超过 `SIQ_DEAL_DOCUMENT_MAX_BYTES` 时删除半写文件；API-facing metadata 继续通过 `deal_store.redact_public_payload` 脱敏，不暴露绝对路径。
+- 新增 `tests/test_deal_documents.py`，并扩展 `tests/test_deals_router.py` 覆盖文档上传、列表、详情、删除生命周期。
+
+验证：
+
+```bash
+cd apps/api && .venv/bin/python -m pytest tests/test_deal_documents.py tests/test_deals_router.py tests/test_deal_store.py tests/test_ic_policy.py -q  # 31 passed, 18 warnings
+cd apps/api && .venv/bin/python -m py_compile routers/deals.py services/deal_documents.py services/deal_contracts.py services/deal_store.py services/ic_policy.py
+cd apps/api && .venv/bin/python -c "import main; print(main.app.title)"  # SIQ API
+```
+
 ## 10. 验收标准总表
 
 ### 仓库治理 DoD
