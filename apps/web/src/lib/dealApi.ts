@@ -29,6 +29,8 @@ import type {
   DealWorkflowResponse,
   DealWorkflowDisputeRulingRequest,
   DealWorkflowDisputeRulingResponse,
+  DealWorkflowGenerateDisputeRulingsRequest,
+  DealWorkflowGenerateDisputeRulingsResponse,
   DealWorkflowIdentifyDisputesRequest,
   DealWorkflowIdentifyDisputesResponse,
   DealWorkflowRunR1AgentDryRunResponse,
@@ -120,6 +122,24 @@ export function ruleDealWorkflowDispute(
         resolved: payload.resolved ?? true,
         overwrite: payload.overwrite ?? false,
         dry_run: payload.dry_run ?? true,
+      },
+      signal,
+    },
+  )
+}
+
+export function generateDealWorkflowDisputeRulings(
+  dealId: string,
+  payload: DealWorkflowGenerateDisputeRulingsRequest = {},
+  signal?: AbortSignal,
+) {
+  return apiJson<DealWorkflowGenerateDisputeRulingsResponse>(
+    `/api/deals/${encodeURIComponent(dealId)}/workflow/generate-dispute-rulings`,
+    {
+      method: 'POST',
+      body: {
+        dry_run: payload.dry_run ?? true,
+        overwrite: payload.overwrite ?? false,
       },
       signal,
     },

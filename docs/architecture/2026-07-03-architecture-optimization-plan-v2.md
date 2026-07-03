@@ -751,6 +751,12 @@ YYYY-MM-DD:
 - 完成: 新增 agent_runtime_preflight.plan_chat_preflight_short_circuit()，收口 catalog/general/duplicate gate 决策；普通 chat 与 streaming 复用该 helper，DB save、active-run join、SSE 生命周期和 Hermes run 编排不迁移。
 - 测试: apps/api .venv pytest test_agent_runtime_preflight.py + test_agent_runtime_chat_preflight.py 17 passed，31 个既有 utcnow deprecation warnings；py_compile passed。
 - 下一步: 后续可进入 Market ingestion eval plan helper；继续避免触碰 Deal/IC/OpenClaw 与 Agent runtime DB/SSE 高风险 owner。
+
+2026-07-03:
+- Owner: Market reports / ingestion eval plan
+- 完成: 新增并接入 build_market_ingestion_eval_plan()，把 eval script preflight 与 output/markdown 路径归一化下沉；router 仍保留 HTTPException 映射、run_command(cwd/timeout)、报告读取、queue/wait 分支和 result payload。
+- 测试: Market reports owner 门禁 129 passed，2 个既有 Pydantic deprecation warnings；eval/queue/status 聚焦 111 passed；git diff --check passed。
+- 下一步: 后续优先选择 Workflow router 命令合同测试或其它纯 helper 小窗口，继续避免 Deal/IC/OpenClaw 与真实执行链迁移。
 ```
 
 详细技术记录可以新建独立 task note，例如：

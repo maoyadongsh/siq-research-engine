@@ -19,6 +19,7 @@ const {
   fetchDealReports,
   fetchDealStatus,
   fetchDealWorkflow,
+  generateDealWorkflowDisputeRulings,
   generateDealStartupRetrieval,
   identifyDealWorkflowDisputes,
   postDealDecisionHumanConfirmation,
@@ -112,6 +113,8 @@ test('deal agent APIs preserve R1 defaults and dry-run contract', async () => {
   await identifyDealWorkflowDisputes('DEAL-1')
   await identifyDealWorkflowDisputes('DEAL 1/测试', { dry_run: false, preserve_rulings: false })
   await ruleDealWorkflowDispute('DEAL-1', 'DISP-001', { decision: 'resolved_with_conditions' })
+  await generateDealWorkflowDisputeRulings('DEAL-1')
+  await generateDealWorkflowDisputeRulings('DEAL 1/测试', { dry_run: false, overwrite: true })
   await ruleDealWorkflowDispute('DEAL 1/测试', 'DISP 1/测试', {
     decision: 'resolved_no_followup',
     rationale: 'Chair accepted the gap.',
@@ -186,6 +189,22 @@ test('deal agent APIs preserve R1 defaults and dry-run contract', async () => {
         resolved: true,
         overwrite: false,
         dry_run: true,
+      },
+    },
+    {
+      url: '/api/deals/DEAL-1/workflow/generate-dispute-rulings',
+      method: 'POST',
+      body: {
+        dry_run: true,
+        overwrite: false,
+      },
+    },
+    {
+      url: '/api/deals/DEAL%201%2F%E6%B5%8B%E8%AF%95/workflow/generate-dispute-rulings',
+      method: 'POST',
+      body: {
+        dry_run: false,
+        overwrite: true,
       },
     },
     {
