@@ -206,7 +206,6 @@ def _run_market_package_build(payload: dict[str, Any]) -> dict[str, Any]:
     script = _market_build_script(market, source_path)
     if not script.is_file():
         raise HTTPException(status_code=404, detail=f"Missing package build script: {script}")
-    args = [sys.executable, str(script), str(source_path)]
     metadata = payload.get("metadata_path")
     meta_path: Path | None = None
     if metadata:
@@ -216,20 +215,24 @@ def _run_market_package_build(payload: dict[str, Any]) -> dict[str, Any]:
             raise HTTPException(status_code=404, detail="metadata_path not found")
     else:
         meta_path = _adjacent_metadata_path(source_path)
-    if meta_path:
-        args.extend(["--metadata", str(meta_path)])
     parser_result = payload.get("parser_result")
     if _market_build_requires_parser_result(market, source_path) and not parser_result:
         raise HTTPException(status_code=400, detail=f"parser_result is required for {market} package builds")
+    parser_path: Path | None = None
     if parser_result and market in {"HK", "JP", "KR", "EU"} and _market_build_accepts_parser_result(market, script):
         parser_path = Path(str(parser_result))
         parser_path = parser_path if parser_path.is_absolute() else REPO_ROOT / parser_path
         if not parser_path.exists():
             raise HTTPException(status_code=404, detail="parser_result not found")
-        args.extend(["--parser-result", str(parser_path)])
-    args.extend(["--output-root", str(MARKET_WIKI_ROOTS[market])])
-    if payload.get("force"):
-        args.append("--force")
+    args = market_report_commands.market_package_build_args(
+        executable=sys.executable,
+        script=script,
+        source_path=source_path,
+        output_root=MARKET_WIKI_ROOTS[market],
+        metadata_path=meta_path,
+        parser_result_path=parser_path,
+        force=bool(payload.get("force")),
+    )
     completed = run_command(args, cwd=REPO_ROOT, timeout=900)
     if completed.returncode != 0:
         return {"ok": False, "returncode": completed.returncode, "stdout": completed.stdout[-4000:], "stderr": completed.stderr[-4000:], "command": _command_for_display(args)}
@@ -265,16 +268,13 @@ def _run_market_package_import(payload: dict[str, Any]) -> dict[str, Any]:
     script = MARKET_IMPORT_SCRIPTS[market]
     if not script.is_file():
         raise HTTPException(status_code=404, detail=f"Missing package import script: {script}")
-    args = [sys.executable, str(script)]
-    if market == "US":
-        args.extend(["--package", str(package_dir)])
-    else:
-        args.append(str(package_dir))
-    database_url = payload.get("database_url")
-    if database_url:
-        args.extend(["--database-url", str(database_url)])
-    if payload.get("ddl") or payload.get("run_ddl"):
-        args.append("--ddl")
+    args = market_report_commands.market_package_import_args(
+        executable=sys.executable,
+        script=script,
+        market=market,
+        package_dir=package_dir,
+        payload=payload,
+    )
     completed = run_command(args, cwd=REPO_ROOT, timeout=900)
     return {
         "ok": completed.returncode == 0,
@@ -291,21 +291,12 @@ def _run_market_vector_ingest(payload: dict[str, Any]) -> dict[str, Any]:
     package_dir = _safe_market_package_path(market, str(payload.get("package_path") or ""))
     if not MARKET_VECTOR_INGEST_SCRIPT.is_file():
         raise HTTPException(status_code=404, detail=f"Missing vector ingest script: {MARKET_VECTOR_INGEST_SCRIPT}")
-    args = [
-        sys.executable,
-        str(MARKET_VECTOR_INGEST_SCRIPT),
-        "--package",
-        str(package_dir),
-        "--batch-tag",
-        str(payload.get("batch_tag") or "market-evidence"),
-    ]
-    for key, flag in (("collection", "--collection"), ("embed_url", "--embed-url"), ("embed_model", "--embed-model"), ("vector_dim", "--vector-dim")):
-        value = payload.get(key)
-        if value not in (None, ""):
-            args.extend([flag, str(value)])
-    dry_run = bool(payload.get("dry_run", True))
-    if dry_run:
-        args.append("--dry-run")
+    args, dry_run = market_report_commands.market_vector_ingest_args(
+        executable=sys.executable,
+        script=MARKET_VECTOR_INGEST_SCRIPT,
+        package_dir=package_dir,
+        payload=payload,
+    )
     completed = run_command(args, cwd=REPO_ROOT, timeout=1800)
     parsed: dict[str, Any] | None = None
     if completed.stdout:
@@ -329,13 +320,14 @@ def _run_market_vector_ingest(payload: dict[str, Any]) -> dict[str, Any]:
 def _run_market_ingestion_eval(payload: dict[str, Any]) -> dict[str, Any]:
     if not MARKET_INGESTION_EVAL_SCRIPT.is_file():
         raise HTTPException(status_code=404, detail=f"Missing eval script: {MARKET_INGESTION_EVAL_SCRIPT}")
-    output = Path(str(payload.get("output") or MARKET_INGESTION_EVAL_REPORT_PATH))
-    markdown = Path(str(payload.get("markdown") or MARKET_INGESTION_EVAL_MARKDOWN_PATH))
-    if not output.is_absolute():
-        output = REPO_ROOT / output
-    if not markdown.is_absolute():
-        markdown = REPO_ROOT / markdown
-    args = [sys.executable, str(MARKET_INGESTION_EVAL_SCRIPT), "--output", str(output), "--markdown", str(markdown)]
+    args, output, markdown = market_report_commands.market_ingestion_eval_args(
+        executable=sys.executable,
+        script=MARKET_INGESTION_EVAL_SCRIPT,
+        payload=payload,
+        repo_root=REPO_ROOT,
+        default_output=MARKET_INGESTION_EVAL_REPORT_PATH,
+        default_markdown=MARKET_INGESTION_EVAL_MARKDOWN_PATH,
+    )
     completed = run_command(args, cwd=REPO_ROOT, timeout=900)
     return {
         "ok": completed.returncode == 0,
@@ -650,35 +642,23 @@ async def us_sec_upload_files(
 
 
 def _safe_ingest_args(payload: dict[str, Any]) -> list[str]:
-    args = [
-        sys.executable,
-        str(US_SEC_INGEST_SCRIPT),
-        "--case-set",
-        str(US_SEC_CASE_SET_PATH),
-        "--report",
-        str(US_SEC_INGEST_REPORT_PATH),
-    ]
-    if payload.get("include_fail"):
-        args.append("--include-fail")
-    if payload.get("postgres"):
-        args.append("--postgres")
-    if payload.get("milvus"):
-        args.append("--milvus")
-    if payload.get("ddl"):
-        args.append("--ddl")
-    if payload.get("dry_run", True):
-        args.append("--dry-run")
     tickers = str(payload.get("tickers") or "").strip().upper()
     if tickers:
         if not re.fullmatch(r"[A-Z0-9.,_-]{1,240}", tickers):
             raise HTTPException(status_code=400, detail="Invalid tickers")
-        args.extend(["--tickers", tickers])
     batch_tag = str(payload.get("batch_tag") or "").strip()
     if batch_tag:
         if not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", batch_tag):
             raise HTTPException(status_code=400, detail="Invalid batch_tag")
-        args.extend(["--batch-tag", batch_tag])
-    return args
+    return market_report_commands.us_sec_ingest_args(
+        executable=sys.executable,
+        script=US_SEC_INGEST_SCRIPT,
+        case_set_path=US_SEC_CASE_SET_PATH,
+        report_path=US_SEC_INGEST_REPORT_PATH,
+        payload=payload,
+        tickers=tickers,
+        batch_tag=batch_tag,
+    )
 
 
 def _run_us_sec_case_set_ingest(payload: dict[str, Any]) -> dict[str, Any]:
