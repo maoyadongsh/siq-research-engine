@@ -1066,6 +1066,33 @@ def test_market_package_build_rejects_invalid_download_path_before_command(monke
         raise AssertionError("expected HTTPException")
 
 
+def test_market_package_build_missing_parser_result_returns_404_before_command(monkeypatch, tmp_path):
+    source_path = tmp_path / "downloads" / "HK" / "00700" / "2025" / "annual.pdf"
+    source_path.parent.mkdir(parents=True)
+    source_path.write_text("pdf", encoding="utf-8")
+    build_script = tmp_path / "scripts" / "build_hk.py"
+    build_script.parent.mkdir(parents=True)
+    build_script.write_text("print('build')\n", encoding="utf-8")
+    monkeypatch.setattr(market_reports, "MARKET_BUILD_SCRIPTS", {**market_reports.MARKET_BUILD_SCRIPTS, "HK": build_script})
+
+    def fail_run(*_args, **_kwargs):
+        raise AssertionError("run_command should not be called")
+
+    monkeypatch.setattr(market_reports, "run_command", fail_run)
+
+    try:
+        market_reports._run_market_package_build({
+            "market": "HK",
+            "source_path": source_path,
+            "parser_result": "missing-parser-result",
+        })
+    except HTTPException as exc:
+        assert exc.status_code == 404
+        assert exc.detail == "parser_result not found"
+    else:
+        raise AssertionError("expected HTTPException")
+
+
 def test_market_ingestion_eval_missing_script_does_not_run_command(monkeypatch, tmp_path):
     missing_script = tmp_path / "scripts" / "run_market_ingestion_eval.py"
 

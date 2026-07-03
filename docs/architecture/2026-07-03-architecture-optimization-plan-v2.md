@@ -859,6 +859,24 @@ YYYY-MM-DD:
 - 完成: 在不扩大代码面的前提下跑完更高层合并候选门禁，覆盖 API 全量、Web 全量 unit/build/Deal e2e、Document parser 全量、PDF parser 全量、Market report finder/rules 和 market contracts；并行只读智能体继续复核提交切分与 owner 风险，主线程未新增业务代码。
 - 测试: apps/api 全量 867 passed，545 个既有 Pydantic/utcnow warnings；apps/web npm run test:unit 101 passed；apps/web npm run build passed；apps/web Deal workflow e2e 1 passed，既有 FORCE_COLOR/NO_COLOR 提示；apps/document-parser 全量 49 passed；apps/pdf-parser 全量 343 passed；services/market-report-finder 全量 46 passed；services/market-report-rules 全量 29 passed，1 个既有 StarletteDeprecationWarning；packages/market-contracts 2 passed；git diff --check passed。
 - 下一步: 质量线已接近合并候选；后续优先按 `2026-07-04-worktree-owner-split-audit.md` 拆分提交并在每个 owner commit 后跑对应 focused gate，不再追加新的 helper/test 窗口，除非提交切分暴露真实失败。
+
+2026-07-04:
+- Owner: PDF parser / status lifecycle helper
+- 完成: 新增 status_log_since_index() 与 should_refresh_task_from_upstream()，把 /api/status/<task_id> 的 since 参数归一化和取消任务刷新判定下沉到 pdf_parser_task_lifecycle_service；Flask route 仍保留 request/jsonify、上游刷新、异常映射、队列唤醒和 response payload。
+- 测试: lifecycle/status 聚焦 14 passed；lifecycle + response + runtime state 组合 49 passed。
+- 下一步: 继续避免扩大 PDF parser worker loop、queue claim 和 MinerU 网络调用；若继续 PDF parser，仅选择 route response 的纯派生或薄合同测试。
+
+2026-07-04:
+- Owner: Market reports / package build router contract
+- 完成: 补强 _run_market_package_build() router 边界测试，锁住 HK/EU PDF 等需要 parser_result 的场景在 parser_result 路径不存在时返回 404 且不执行 run_command；生产代码不变。
+- 测试: parser_result missing 聚焦 2 passed；Market reports owner 门禁 151 passed，2 个既有 Pydantic deprecation warnings；git diff --check passed。
+- 下一步: Market build plan helper 继续视为完成态；后续不要扩大 market_reports.py，实现类任务转向其它未完成 owner 或提交切分验收。
+
+2026-07-04:
+- Owner: Job / worker middle design
+- 完成: 新增 `2026-07-04-job-worker-middle-design.md`，明确 FileBackedJobService 与 workflow_job_service 的 schema / 执行模型差异，建议先以 canonical adapter + SQLite-backed local worker 作为中期路线，并把 Market ingestion eval 作为首个低风险迁移候选；未改生产执行代码。
+- 测试: 文档设计窗口，无代码测试；git diff --check passed。
+- 下一步: 迁移前先补 canonical adapter contract tests，继续禁止顺手合并 workflow `_workflow_jobs` 与 Market reports job schema。
 ```
 
 详细技术记录可以新建独立 task note，例如：

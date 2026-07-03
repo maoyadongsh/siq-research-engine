@@ -333,13 +333,22 @@ def summarize_deal_status(
     )
 
     preflight_status = str(preflight.get("status") if isinstance(preflight, dict) else "missing")
+    preflight_blocks = (
+        ic_agent_runtime.preflight_execution_blocks(preflight, downstream=True)
+        if isinstance(preflight, dict)
+        else []
+    )
     components = [
         _component(
             "preflight",
             "Deal Preflight",
             preflight_status,
-            blocking=preflight_status == "fail",
-            message=f"Preflight status: {preflight_status}.",
+            blocking=preflight_status == "fail" or bool(preflight_blocks),
+            message=(
+                f"Preflight status: {preflight_status}."
+                if not preflight_blocks
+                else f"Preflight status: {preflight_status}; execution blocked by {', '.join(preflight_blocks)}."
+            ),
             href="workflow",
             metrics=preflight.get("counts") if isinstance(preflight, dict) else {},
             warnings=preflight_warnings,

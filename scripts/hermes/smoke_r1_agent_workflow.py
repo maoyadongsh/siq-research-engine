@@ -37,6 +37,7 @@ from services import ic_policy  # noqa: E402
 DEAL_ID = "DEAL-HERMES-SMOKE-001"
 EVIDENCE_ID = "EVID-DEAL-HERMES-SMOKE-001-000001"
 SMOKE_TOKEN = "local-smoke-token"
+SMOKE_EVIDENCE_DIMENSIONS = ("business", "finance", "legal", "risk")
 
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -215,6 +216,21 @@ def seed_prior_r1_reports(package_dir: Path, profile_id: str) -> list[str]:
     return prior_agents
 
 
+def smoke_evidence_rows() -> list[dict[str, Any]]:
+    return [
+        {
+            "evidence_id": f"EVID-DEAL-HERMES-SMOKE-001-{index:06d}",
+            "evidence_type": "verified",
+            "dimension": dimension,
+            "claim": f"Temporary {dimension} smoke evidence for R1 workflow validation.",
+            "quote": "This synthetic item exists only inside a temporary wiki root.",
+            "document_id": f"smoke-doc-{index}",
+            "source_path": f"parsed_documents/smoke-doc-{index}.md",
+        }
+        for index, dimension in enumerate(SMOKE_EVIDENCE_DIMENSIONS, start=1)
+    ]
+
+
 def build_smoke_package(wiki_root: Path, profile_id: str, *, seed_prior_reports: bool = False) -> Path:
     deal_store.create_deal_package(
         deal_id=DEAL_ID,
@@ -226,17 +242,7 @@ def build_smoke_package(wiki_root: Path, profile_id: str, *, seed_prior_reports:
     package_dir = wiki_root / "deals" / DEAL_ID
     write_ndjson(
         package_dir / "evidence" / "evidence_items.ndjson",
-        [
-            {
-                "evidence_id": EVIDENCE_ID,
-                "evidence_type": "verified",
-                "dimension": "business",
-                "claim": "Temporary smoke evidence for R1 workflow validation.",
-                "quote": "This synthetic item exists only inside a temporary wiki root.",
-                "document_id": "smoke-doc-1",
-                "source_path": "parsed_documents/smoke-doc-1.md",
-            }
-        ],
+        smoke_evidence_rows(),
     )
     write_json(
         package_dir / "phases" / "startup_receipts.json",
@@ -287,9 +293,57 @@ def print_result(title: str, payload: dict[str, Any]) -> None:
     print(json.dumps(compact, ensure_ascii=False, indent=2))
 
 
+def run_dry_run_smoke(profile_id: str, *, keep: bool = False) -> dict[str, Any]:
+    temp_root = Path(tempfile.mkdtemp(prefix=f"siq-r1-agent-smoke-{profile_id}-"))
+    wiki_root = temp_root / "wiki"
+    try:
+        build_smoke_package(
+            wiki_root,
+            profile_id,
+            seed_prior_reports=bool(prior_r1_agents(profile_id)),
+        )
+        dry_run = ic_agent_runtime.build_workflow_r1_agent_run_dry_run(
+            DEAL_ID,
+            profile_id,
+            wiki_root=wiki_root,
+        )
+        print_result(f"R1 agent dry-run smoke ({profile_id})", dry_run)
+        return dry_run
+    finally:
+        if keep:
+            print(f"Kept smoke wiki root for {profile_id}: {wiki_root}")
+        else:
+            shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def run_r1_profile_matrix(*, keep: bool = False) -> dict[str, Any]:
+    results = [
+        run_dry_run_smoke(profile_id, keep=keep)
+        for profile_id in ic_policy.R1_AGENT_SEQUENCE
+    ]
+    summary = {
+        "schema_version": "siq_ic_r1_smoke_matrix_v1",
+        "profiles": [
+            {
+                "agent_id": item.get("agent_id"),
+                "allowed": item.get("allowed"),
+                "blocking_reasons": item.get("blocking_reasons"),
+                "warnings": item.get("warnings"),
+            }
+            for item in results
+        ],
+        "allowed_count": sum(1 for item in results if item.get("allowed")),
+        "blocked_count": sum(1 for item in results if not item.get("allowed")),
+    }
+    print("R1 profile dry-run smoke matrix:")
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
+    return summary
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profile", default="siq_ic_strategist", help="R1 profile to smoke")
+    parser.add_argument("--all-r1-profiles", action="store_true", help="Run dry-run smoke for every R1 profile in policy order")
     parser.add_argument("--real", action="store_true", help="Call Hermes and write the report into the temporary package")
     parser.add_argument("--require-gateway-health", action="store_true", help="Fail unless the target profile gateway /health is ready")
     parser.add_argument("--start-gateway", action="store_true", help="Start the target profile gateway with a temporary runtime")
@@ -303,6 +357,12 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    if args.all_r1_profiles:
+        if args.real or args.start_gateway or args.require_gateway_health:
+            raise RuntimeError("--all-r1-profiles is dry-run only; run real gateway smoke one profile at a time")
+        summary = run_r1_profile_matrix(keep=args.keep)
+        return 0 if summary.get("blocked_count") == 0 else 1
+
     temp_root = Path(tempfile.mkdtemp(prefix="siq-r1-agent-smoke-"))
     wiki_root = temp_root / "wiki"
     gateway_process: subprocess.Popen[bytes] | None = None

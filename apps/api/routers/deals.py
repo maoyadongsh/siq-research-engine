@@ -102,6 +102,21 @@ class WorkflowGenerateDisputeRulingsRequest(BaseModel):
     overwrite: bool = False
 
 
+class WorkflowRunR2Request(BaseModel):
+    dry_run: bool = True
+
+
+class WorkflowRunR3Request(BaseModel):
+    dry_run: bool = True
+    skip: bool = False
+    skip_reason: str | None = None
+
+
+class WorkflowFinalizeR4Request(BaseModel):
+    dry_run: bool = True
+    overwrite: bool = False
+
+
 class DealDecisionHumanConfirmationRequest(BaseModel):
     status: str = Field(..., min_length=3)
     override_reason: str | None = None
@@ -1054,6 +1069,88 @@ async def post_workflow_run_r1_serial(
         raise _not_found(deal_id) from exc
     except (RuntimeError, httpx.HTTPError) as exc:
         raise HTTPException(status_code=502, detail=f"Hermes R1 serial run failed: {exc}") from exc
+
+
+@router.post("/{deal_id}/workflow/run-r2")
+def post_workflow_run_r2(
+    deal_id: str,
+    payload: WorkflowRunR2Request | None = None,
+    current_user: User = Depends(require_permission("report.create")),
+) -> dict[str, Any]:
+    request = payload or WorkflowRunR2Request()
+    try:
+        if not request.dry_run:
+            return deal_store.redact_public_payload(
+                ic_agent_runtime.run_workflow_r2(
+                    deal_id,
+                    created_by=_user_payload(current_user),
+                )
+            )
+        return deal_store.redact_public_payload(
+            ic_agent_runtime.build_workflow_r2_run_dry_run(deal_id)
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+
+
+@router.post("/{deal_id}/workflow/run-r3")
+def post_workflow_run_r3(
+    deal_id: str,
+    payload: WorkflowRunR3Request | None = None,
+    current_user: User = Depends(require_permission("report.create")),
+) -> dict[str, Any]:
+    request = payload or WorkflowRunR3Request()
+    try:
+        if not request.dry_run:
+            return deal_store.redact_public_payload(
+                ic_agent_runtime.run_workflow_r3(
+                    deal_id,
+                    skip=request.skip,
+                    skip_reason=request.skip_reason,
+                    created_by=_user_payload(current_user),
+                )
+            )
+        return deal_store.redact_public_payload(
+            ic_agent_runtime.build_workflow_r3_run_dry_run(
+                deal_id,
+                skip=request.skip,
+                skip_reason=request.skip_reason,
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+
+
+@router.post("/{deal_id}/workflow/finalize-r4")
+def post_workflow_finalize_r4(
+    deal_id: str,
+    payload: WorkflowFinalizeR4Request | None = None,
+    current_user: User = Depends(require_permission("report.create")),
+) -> dict[str, Any]:
+    request = payload or WorkflowFinalizeR4Request()
+    try:
+        if not request.dry_run:
+            return deal_store.redact_public_payload(
+                ic_agent_runtime.finalize_workflow_r4(
+                    deal_id,
+                    overwrite=request.overwrite,
+                    created_by=_user_payload(current_user),
+                )
+            )
+        return deal_store.redact_public_payload(
+            ic_agent_runtime.build_workflow_r4_finalize_dry_run(
+                deal_id,
+                overwrite=request.overwrite,
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
 
 
 @router.get("/{deal_id}/evidence/{evidence_id}")

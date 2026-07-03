@@ -38,3 +38,63 @@ def test_prior_r1_agents_respects_fixed_sequence():
         "siq_ic_sector_expert",
     ]
     assert smoke_r1_agent_workflow.prior_r1_agents("siq_ic_strategist") == []
+
+
+def test_build_smoke_package_satisfies_evidence_gate_for_default_dry_run(tmp_path):
+    smoke_r1_agent_workflow.build_smoke_package(tmp_path, "siq_ic_strategist")
+
+    dry_run = smoke_r1_agent_workflow.ic_agent_runtime.build_workflow_r1_agent_run_dry_run(
+        smoke_r1_agent_workflow.DEAL_ID,
+        "siq_ic_strategist",
+        wiki_root=tmp_path,
+    )
+
+    assert dry_run["allowed"] is True
+    assert dry_run["blocking_reasons"] == []
+    assert dry_run["preflight_status"] == "warn"
+    assert "preflight:evidence.gate:warn" not in dry_run["warnings"]
+
+
+def test_build_smoke_package_seed_prior_reports_allows_later_sequence_profile(tmp_path):
+    package_dir = smoke_r1_agent_workflow.build_smoke_package(
+        tmp_path,
+        "siq_ic_legal_scanner",
+        seed_prior_reports=True,
+    )
+
+    dry_run = smoke_r1_agent_workflow.ic_agent_runtime.build_workflow_r1_agent_run_dry_run(
+        smoke_r1_agent_workflow.DEAL_ID,
+        "siq_ic_legal_scanner",
+        wiki_root=tmp_path,
+    )
+
+    assert dry_run["allowed"] is True
+    assert dry_run["blocking_reasons"] == []
+    workflow = smoke_r1_agent_workflow.deal_store.read_json(
+        package_dir / "phases" / "workflow_state.json",
+        {},
+    )
+    assert workflow["phases"]["R1"]["submitted_agents"] == [
+        "siq_ic_strategist",
+        "siq_ic_sector_expert",
+        "siq_ic_finance_auditor",
+    ]
+
+
+def test_r1_profile_matrix_covers_all_sequence_profiles(monkeypatch, tmp_path):
+    roots = iter(tmp_path / profile_id for profile_id in smoke_r1_agent_workflow.ic_policy.R1_AGENT_SEQUENCE)
+    monkeypatch.setattr(
+        smoke_r1_agent_workflow.tempfile,
+        "mkdtemp",
+        lambda prefix: str(next(roots)),
+    )
+
+    summary = smoke_r1_agent_workflow.run_r1_profile_matrix()
+
+    assert summary["schema_version"] == "siq_ic_r1_smoke_matrix_v1"
+    assert summary["allowed_count"] == len(smoke_r1_agent_workflow.ic_policy.R1_AGENT_SEQUENCE)
+    assert summary["blocked_count"] == 0
+    assert [item["agent_id"] for item in summary["profiles"]] == list(
+        smoke_r1_agent_workflow.ic_policy.R1_AGENT_SEQUENCE
+    )
+    assert all(item["blocking_reasons"] == [] for item in summary["profiles"])

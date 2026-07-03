@@ -82,6 +82,13 @@ def _event_sort_key(event: dict[str, Any]) -> str:
     return str(value) if value not in (None, "") else ""
 
 
+def _is_manual_override_event(event: dict[str, Any]) -> bool:
+    event_type = _event_type(event)
+    if "override" in event_type:
+        return True
+    return str(event.get("status") or "").lower() == "overridden"
+
+
 def _audit_status(consistency: str, event_count: int, missing_required: list[str]) -> str:
     if event_count <= 0:
         return "missing"
@@ -149,7 +156,7 @@ def summarize_deal_audit(
             "events": len(events),
             "event_types": dict(sorted(event_types.items())),
             "human_confirmation": sum(1 for event in events if "confirmation" in _event_type(event)),
-            "manual_override": sum(1 for event in events if "override" in _event_type(event)),
+            "manual_override": sum(1 for event in events if _is_manual_override_event(event)),
         },
         "latest_event": latest_event,
         "required_event_status": [

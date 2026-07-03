@@ -4,24 +4,39 @@ import { ArrowLeft, GitBranch, Loader2, RefreshCw } from 'lucide-react'
 
 import { EmptyState, PageHeader, PageSection, PageShell, StatusBadge, Surface } from '@/components/page'
 import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
 import {
   dryRunDealWorkflowR1Agent,
   fetchDealDisputes,
   fetchDealPhaseArtifacts,
   fetchDealPreflight,
   fetchDealWorkflow,
+  finalizeDealWorkflowR4,
+  generateDealWorkflowDisputeRulings,
   generateDealStartupRetrieval,
   identifyDealWorkflowDisputes,
   runDealWorkflowR1Serial,
+  runDealWorkflowR2,
+  runDealWorkflowR3,
 } from '@/lib/dealApi'
+import {
+  canWriteGeneratedRulingDrafts,
+  disputeCountsFor,
+  disputePositionCount,
+  generatedRulingDraftsFor,
+} from '@/features/deals/workflowViewModel'
 import type {
-  DealDisputeSummary,
   DealAgentTaskDryRunResponse,
   DealPhaseArtifactsResponse,
   DealDisputesResponse,
   DealPreflight,
+  DealWorkflowFinalizeR4Response,
+  DealWorkflowPhaseRunResponse,
+  DealWorkflowGenerateDisputeRulingsResponse,
   DealWorkflowIdentifyDisputesResponse,
   DealWorkflowRunR1SerialResponse,
+  DealWorkflowRunR2Response,
+  DealWorkflowRunR3Response,
   DealWorkflowResponse,
 } from '@/lib/dealTypes'
 
@@ -106,22 +121,94 @@ function dryRunOutputContract(dryRun: DealAgentTaskDryRunResponse | null) {
   return asRecord(asRecord(dryRun?.payload).output_contract)
 }
 
-function disputePositionCount(dispute: DealDisputeSummary) {
-  if (typeof dispute.position_count === 'number') return dispute.position_count
-  const positions = dispute.positions
-  return Array.isArray(positions) ? positions.length : 0
+function outputPathList(result: DealWorkflowPhaseRunResponse | null) {
+  if (!result?.output_paths) return []
+  return Object.entries(result.output_paths).filter(([, value]) => value)
 }
 
-function disputeCountsFor(disputes: DealDisputeSummary[]) {
-  const resolved = disputes.filter((item) => item.resolved).length
-  return {
-    disputes: disputes.length,
-    resolved,
-    unresolved: disputes.length - resolved,
-    high_severity: disputes.filter((item) => String(item.severity || '').toLowerCase() === 'high').length,
-    positions: disputes.reduce((total, item) => total + disputePositionCount(item), 0),
-    rulings: disputes.filter((item) => item.chairman_ruling).length,
+function responsePreviewCount(result: DealWorkflowPhaseRunResponse | null) {
+  const preview = asRecord(result?.reports_preview || result?.payload_preview || result?.decision_preview)
+  if (!Object.keys(preview).length) return 0
+  const reports = asRecord(preview.reports)
+  if (Object.keys(reports).length) return Object.keys(reports).length
+  return Object.keys(preview).length
+}
+
+function phaseRunTone(result: DealWorkflowPhaseRunResponse | null): 'neutral' | 'info' | 'success' | 'warning' | 'error' {
+  if (!result) return 'neutral'
+  if (result.allowed === false) return 'error'
+  if (result.workflow_advanced || result.report_written || result.written) return 'success'
+  if (result.dry_run) return 'info'
+  return 'warning'
+}
+
+function PhaseRunResultSummary({ result }: { result: DealWorkflowPhaseRunResponse | null }) {
+  if (!result) {
+    return <p className="text-sm text-text-muted">先执行 dry-run，确认门禁、输出路径和预览内容。</p>
   }
+  const blockingReasons = result.blocking_reasons || []
+  const warnings = result.warnings || []
+  const paths = outputPathList(result)
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <StatusBadge tone={phaseRunTone(result)}>
+          {result.allowed === false ? 'blocked' : result.dry_run ? 'dry-run preview' : 'written'}
+        </StatusBadge>
+        <StatusBadge tone={result.hermes_called ? 'info' : 'neutral'}>
+          Hermes · {result.hermes_called ? 'called' : 'not called'}
+        </StatusBadge>
+        <StatusBadge tone={result.workflow_advanced ? 'success' : 'neutral'}>
+          Workflow · {result.workflow_advanced ? 'advanced' : 'not advanced'}
+        </StatusBadge>
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-3">
+        <Surface kind="muted" padding="sm">
+          <p className="text-xs text-text-muted">Action</p>
+          <p className="mt-1 break-all font-semibold text-text">{text(result.workflow_action)}</p>
+        </Surface>
+        <Surface kind="muted" padding="sm">
+          <p className="text-xs text-text-muted">Preview items</p>
+          <p className="mt-1 font-semibold text-text">{responsePreviewCount(result)}</p>
+        </Surface>
+        <Surface kind="muted" padding="sm">
+          <p className="text-xs text-text-muted">Mode</p>
+          <p className="mt-1 break-all font-semibold text-text">{text(result.mode || result.skip_reason || (result.overwrite ? 'overwrite' : 'normal'))}</p>
+        </Surface>
+      </div>
+
+      {paths.length ? (
+        <div className="grid gap-1">
+          {paths.map(([key, value]) => (
+            <p key={key} className="break-all font-mono text-xs text-text-muted">
+              {key}: {text(value)}
+            </p>
+          ))}
+        </div>
+      ) : null}
+
+      {blockingReasons.length ? (
+        <div className="grid gap-1">
+          {blockingReasons.map((reason) => (
+            <p key={reason} className="break-all font-mono text-xs text-destructive">
+              blocking: {reason}
+            </p>
+          ))}
+        </div>
+      ) : null}
+
+      {warnings.length ? (
+        <div className="grid gap-1">
+          {warnings.map((warning, index) => (
+            <p key={`${warning}-${index}`} className="break-all font-mono text-xs text-warning">
+              warning: {warning}
+            </p>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 export default function DealWorkflow() {
@@ -146,6 +233,21 @@ export default function DealWorkflow() {
   const [identifyDisputesPreview, setIdentifyDisputesPreview] = useState<DealWorkflowIdentifyDisputesResponse | null>(null)
   const [identifyDisputesBusy, setIdentifyDisputesBusy] = useState(false)
   const [identifyDisputesError, setIdentifyDisputesError] = useState('')
+  const [generateRulingsPreview, setGenerateRulingsPreview] = useState<DealWorkflowGenerateDisputeRulingsResponse | null>(null)
+  const [generateRulingsBusy, setGenerateRulingsBusy] = useState(false)
+  const [generateRulingsError, setGenerateRulingsError] = useState('')
+  const [generateRulingsOverwrite, setGenerateRulingsOverwrite] = useState(false)
+  const [confirmGeneratedRulingsWrite, setConfirmGeneratedRulingsWrite] = useState(false)
+  const [generateRulingsWriteResult, setGenerateRulingsWriteResult] = useState<DealWorkflowGenerateDisputeRulingsResponse | null>(null)
+  const [phaseRunBusy, setPhaseRunBusy] = useState<'r2' | 'r3' | 'r4' | ''>('')
+  const [phaseRunError, setPhaseRunError] = useState('')
+  const [r2RunResult, setR2RunResult] = useState<DealWorkflowRunR2Response | null>(null)
+  const [r3RunResult, setR3RunResult] = useState<DealWorkflowRunR3Response | null>(null)
+  const [r4FinalizeResult, setR4FinalizeResult] = useState<DealWorkflowFinalizeR4Response | null>(null)
+  const [r3Skip, setR3Skip] = useState(true)
+  const [r3SkipReason, setR3SkipReason] = useState('R2 已覆盖核心分歧，P0 留痕跳过。')
+  const [r4Overwrite, setR4Overwrite] = useState(false)
+  const [confirmPhaseWrite, setConfirmPhaseWrite] = useState(false)
 
   const fetchWorkflowBundle = useCallback(async (signal?: AbortSignal) => {
     const [workflowResult, preflightResult, disputesResult, phaseArtifactsResult] = await Promise.allSettled([
@@ -174,6 +276,15 @@ export default function DealWorkflow() {
     setDisputesError('')
     setIdentifyDisputesPreview(null)
     setIdentifyDisputesError('')
+    setGenerateRulingsPreview(null)
+    setGenerateRulingsError('')
+    setGenerateRulingsWriteResult(null)
+    setConfirmGeneratedRulingsWrite(false)
+    setPhaseRunError('')
+    setR2RunResult(null)
+    setR3RunResult(null)
+    setR4FinalizeResult(null)
+    setConfirmPhaseWrite(false)
     setPhaseArtifacts(null)
     setPhaseArtifactsError('')
     try {
@@ -223,6 +334,15 @@ export default function DealWorkflow() {
       setDisputesError('')
       setIdentifyDisputesPreview(null)
       setIdentifyDisputesError('')
+      setGenerateRulingsPreview(null)
+      setGenerateRulingsError('')
+      setGenerateRulingsWriteResult(null)
+      setConfirmGeneratedRulingsWrite(false)
+      setPhaseRunError('')
+      setR2RunResult(null)
+      setR3RunResult(null)
+      setR4FinalizeResult(null)
+      setConfirmPhaseWrite(false)
       setPhaseArtifacts(null)
       setPhaseArtifactsError('')
       try {
@@ -301,12 +421,139 @@ export default function DealWorkflow() {
   const handleIdentifyDisputesDryRun = async () => {
     setIdentifyDisputesBusy(true)
     setIdentifyDisputesError('')
+    setGenerateRulingsPreview(null)
+    setGenerateRulingsError('')
+    setGenerateRulingsWriteResult(null)
+    setConfirmGeneratedRulingsWrite(false)
     try {
       setIdentifyDisputesPreview(await identifyDealWorkflowDisputes(dealId, { dry_run: true }))
     } catch (err) {
       setIdentifyDisputesError(err instanceof Error ? err.message : '分歧识别 dry-run 失败')
     } finally {
       setIdentifyDisputesBusy(false)
+    }
+  }
+
+  const handleGenerateRulingsDryRun = async () => {
+    setGenerateRulingsBusy(true)
+    setGenerateRulingsError('')
+    setGenerateRulingsWriteResult(null)
+    setConfirmGeneratedRulingsWrite(false)
+    try {
+      setGenerateRulingsPreview(await generateDealWorkflowDisputeRulings(dealId, {
+        dry_run: true,
+        overwrite: generateRulingsOverwrite,
+      }))
+    } catch (err) {
+      setGenerateRulingsError(err instanceof Error ? err.message : '主席裁决草案 dry-run 失败')
+    } finally {
+      setGenerateRulingsBusy(false)
+    }
+  }
+
+  const handleWriteGeneratedRulings = async () => {
+    setGenerateRulingsBusy(true)
+    setGenerateRulingsError('')
+    try {
+      const result = await generateDealWorkflowDisputeRulings(dealId, {
+        dry_run: false,
+        overwrite: generateRulingsOverwrite,
+      })
+      setGenerateRulingsPreview(null)
+      setConfirmGeneratedRulingsWrite(false)
+      await loadWorkflow()
+      setGenerateRulingsWriteResult(result)
+    } catch (err) {
+      setGenerateRulingsError(err instanceof Error ? err.message : '主席裁决草案写入失败')
+    } finally {
+      setGenerateRulingsBusy(false)
+    }
+  }
+
+  const handleR2DryRun = async () => {
+    setPhaseRunBusy('r2')
+    setPhaseRunError('')
+    try {
+      setR2RunResult(await runDealWorkflowR2(dealId, { dry_run: true }))
+    } catch (err) {
+      setPhaseRunError(err instanceof Error ? err.message : 'R2 dry-run 失败')
+    } finally {
+      setPhaseRunBusy('')
+    }
+  }
+
+  const handleWriteR2 = async () => {
+    setPhaseRunBusy('r2')
+    setPhaseRunError('')
+    try {
+      const result = await runDealWorkflowR2(dealId, { dry_run: false })
+      await loadWorkflow()
+      setR2RunResult(result)
+      setConfirmPhaseWrite(false)
+    } catch (err) {
+      setPhaseRunError(err instanceof Error ? err.message : 'R2 写入失败')
+    } finally {
+      setPhaseRunBusy('')
+    }
+  }
+
+  const r3Payload = (dryRun: boolean) => ({
+    dry_run: dryRun,
+    skip: r3Skip,
+    skip_reason: r3Skip ? r3SkipReason.trim() : null,
+  })
+
+  const handleR3DryRun = async () => {
+    setPhaseRunBusy('r3')
+    setPhaseRunError('')
+    try {
+      setR3RunResult(await runDealWorkflowR3(dealId, r3Payload(true)))
+    } catch (err) {
+      setPhaseRunError(err instanceof Error ? err.message : 'R3 dry-run 失败')
+    } finally {
+      setPhaseRunBusy('')
+    }
+  }
+
+  const handleWriteR3 = async () => {
+    setPhaseRunBusy('r3')
+    setPhaseRunError('')
+    try {
+      const result = await runDealWorkflowR3(dealId, r3Payload(false))
+      await loadWorkflow()
+      setR3RunResult(result)
+      setConfirmPhaseWrite(false)
+    } catch (err) {
+      setPhaseRunError(err instanceof Error ? err.message : 'R3 写入失败')
+    } finally {
+      setPhaseRunBusy('')
+    }
+  }
+
+  const handleR4DryRun = async () => {
+    setPhaseRunBusy('r4')
+    setPhaseRunError('')
+    try {
+      setR4FinalizeResult(await finalizeDealWorkflowR4(dealId, { dry_run: true, overwrite: r4Overwrite }))
+    } catch (err) {
+      setPhaseRunError(err instanceof Error ? err.message : 'R4 dry-run 失败')
+    } finally {
+      setPhaseRunBusy('')
+    }
+  }
+
+  const handleWriteR4 = async () => {
+    setPhaseRunBusy('r4')
+    setPhaseRunError('')
+    try {
+      const result = await finalizeDealWorkflowR4(dealId, { dry_run: false, overwrite: r4Overwrite })
+      await loadWorkflow()
+      setR4FinalizeResult(result)
+      setConfirmPhaseWrite(false)
+    } catch (err) {
+      setPhaseRunError(err instanceof Error ? err.message : 'R4 写入失败')
+    } finally {
+      setPhaseRunBusy('')
     }
   }
 
@@ -331,6 +578,21 @@ export default function DealWorkflow() {
   const displayedDisputeWarnings = identifyDisputesPreview
     ? identifyDisputesPreview.warnings || identifyDisputesPreview.payload?.warnings || []
     : disputeWarnings
+  const canPreviewRulings = Boolean(disputesSummary?.artifacts?.json?.available && !identifyDisputesPreview)
+  const generatedRulings = generatedRulingDraftsFor(generateRulingsPreview)
+  const skippedGeneratedRulings = generateRulingsPreview?.skipped || []
+  const generatedRulingWarnings = generateRulingsPreview?.warnings || []
+  const canWriteGeneratedRulings = canWriteGeneratedRulingDrafts({
+    preview: generateRulingsPreview,
+    confirmed: confirmGeneratedRulingsWrite,
+    busy: generateRulingsBusy,
+    canPreviewRulings,
+  })
+  const phaseRunBusyAny = Boolean(phaseRunBusy)
+  const r3SkipReasonRequired = r3Skip && !r3SkipReason.trim()
+  const canWriteR2 = Boolean(confirmPhaseWrite && r2RunResult?.dry_run && r2RunResult.allowed && !phaseRunBusyAny)
+  const canWriteR3 = Boolean(confirmPhaseWrite && r3RunResult?.dry_run && r3RunResult.allowed && !phaseRunBusyAny && !r3SkipReasonRequired)
+  const canWriteR4 = Boolean(confirmPhaseWrite && r4FinalizeResult?.dry_run && r4FinalizeResult.allowed && !phaseRunBusyAny)
   const preflightFindings = preflight?.checks.filter((check) => check.status !== 'pass') || []
   const phaseArtifactPhases = phaseArtifacts?.phases || []
   const phaseArtifactWarnings = phaseArtifacts?.warnings || []
@@ -379,6 +641,24 @@ export default function DealWorkflow() {
       {identifyDisputesError ? (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
           {identifyDisputesError}
+        </div>
+      ) : null}
+
+      {generateRulingsError ? (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+          {generateRulingsError}
+        </div>
+      ) : null}
+
+      {phaseRunError ? (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+          {phaseRunError}
+        </div>
+      ) : null}
+
+      {generateRulingsWriteResult?.written ? (
+        <div className="rounded-lg border border-success/30 bg-success/10 p-3 text-sm text-success">
+          已写入 {generateRulingsWriteResult.generated_count ?? 0} 条主席裁决草案；Workflow 与 R1.5 产物已刷新。
         </div>
       ) : null}
 
@@ -889,6 +1169,178 @@ export default function DealWorkflow() {
           ) : null}
 
           <PageSection
+            title="R2-R4 推进"
+            description="Deterministic 阶段产物先 dry-run，再由人工确认后写入项目包和审计链。"
+            actions={
+              <label className="inline-flex min-h-8 items-center gap-2 rounded-md border border-border bg-background px-3 py-1 text-xs font-semibold text-text-muted">
+                <input
+                  type="checkbox"
+                  checked={confirmPhaseWrite}
+                  onChange={(event) => setConfirmPhaseWrite(event.target.checked)}
+                />
+                已复核 dry-run，允许写入
+              </label>
+            }
+          >
+            <div className="space-y-4">
+              <div className="grid gap-3 xl:grid-cols-3">
+                <Surface kind="row" padding="sm">
+                  <div className="flex flex-col gap-3">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-semibold text-text">R2 观点完善</p>
+                        <StatusBadge tone={phaseRunTone(r2RunResult)}>
+                          {r2RunResult?.dry_run ? 'preview' : r2RunResult ? 'written' : 'ready'}
+                        </StatusBadge>
+                      </div>
+                      <p className="mt-1 text-sm text-text-muted">
+                        从 R1 reports 和已裁决分歧生成 R2 修订合同。
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void handleR2DryRun()}
+                        disabled={phaseRunBusyAny}
+                      >
+                        {phaseRunBusy === 'r2' ? <Loader2 className="animate-spin" /> : <GitBranch />}
+                        R2 dry-run
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => void handleWriteR2()}
+                        disabled={!canWriteR2}
+                        title={confirmPhaseWrite ? undefined : '需要先勾选人工确认。'}
+                      >
+                        {phaseRunBusy === 'r2' ? <Loader2 className="animate-spin" /> : <GitBranch />}
+                        写入 R2
+                      </Button>
+                    </div>
+                    <PhaseRunResultSummary result={r2RunResult} />
+                  </div>
+                </Surface>
+
+                <Surface kind="row" padding="sm">
+                  <div className="flex flex-col gap-3">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-semibold text-text">R3 红蓝对抗</p>
+                        <StatusBadge tone={phaseRunTone(r3RunResult)}>
+                          {r3RunResult?.dry_run ? 'preview' : r3RunResult ? 'written' : 'ready'}
+                        </StatusBadge>
+                      </div>
+                      <p className="mt-1 text-sm text-text-muted">
+                        P0 默认允许显式 skip，但必须记录原因。
+                      </p>
+                    </div>
+                    <label className="inline-flex items-center gap-2 text-sm text-text-muted">
+                      <input
+                        type="checkbox"
+                        checked={r3Skip}
+                        onChange={(event) => {
+                          setR3Skip(event.target.checked)
+                          setR3RunResult(null)
+                        }}
+                      />
+                      留痕跳过 R3
+                    </label>
+                    {r3Skip ? (
+                      <Textarea
+                        value={r3SkipReason}
+                        onChange={(event) => {
+                          setR3SkipReason(event.target.value)
+                          setR3RunResult(null)
+                        }}
+                        className="min-h-20 text-sm"
+                        placeholder="记录跳过 R3 的原因"
+                      />
+                    ) : null}
+                    {r3SkipReasonRequired ? (
+                      <p className="text-xs text-warning">跳过 R3 必须填写原因。</p>
+                    ) : null}
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void handleR3DryRun()}
+                        disabled={phaseRunBusyAny || r3SkipReasonRequired}
+                      >
+                        {phaseRunBusy === 'r3' ? <Loader2 className="animate-spin" /> : <GitBranch />}
+                        R3 dry-run
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => void handleWriteR3()}
+                        disabled={!canWriteR3}
+                        title={confirmPhaseWrite ? undefined : '需要先勾选人工确认。'}
+                      >
+                        {phaseRunBusy === 'r3' ? <Loader2 className="animate-spin" /> : <GitBranch />}
+                        写入 R3
+                      </Button>
+                    </div>
+                    <PhaseRunResultSummary result={r3RunResult} />
+                  </div>
+                </Surface>
+
+                <Surface kind="row" padding="sm">
+                  <div className="flex flex-col gap-3">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-semibold text-text">R4 投决归档</p>
+                        <StatusBadge tone={phaseRunTone(r4FinalizeResult)}>
+                          {r4FinalizeResult?.dry_run ? 'preview' : r4FinalizeResult ? 'written' : 'ready'}
+                        </StatusBadge>
+                      </div>
+                      <p className="mt-1 text-sm text-text-muted">
+                        生成 R4 decision JSON、Markdown、HTML 和审计事件。
+                      </p>
+                    </div>
+                    <label className="inline-flex items-center gap-2 text-sm text-text-muted">
+                      <input
+                        type="checkbox"
+                        checked={r4Overwrite}
+                        onChange={(event) => {
+                          setR4Overwrite(event.target.checked)
+                          setR4FinalizeResult(null)
+                        }}
+                      />
+                      覆盖已有 R4 决策
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void handleR4DryRun()}
+                        disabled={phaseRunBusyAny}
+                      >
+                        {phaseRunBusy === 'r4' ? <Loader2 className="animate-spin" /> : <GitBranch />}
+                        R4 dry-run
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => void handleWriteR4()}
+                        disabled={!canWriteR4}
+                        title={confirmPhaseWrite ? undefined : '需要先勾选人工确认。'}
+                      >
+                        {phaseRunBusy === 'r4' ? <Loader2 className="animate-spin" /> : <GitBranch />}
+                        写入 R4
+                      </Button>
+                    </div>
+                    <PhaseRunResultSummary result={r4FinalizeResult} />
+                  </div>
+                </Surface>
+              </div>
+            </div>
+          </PageSection>
+
+          <PageSection
             title="显性分歧"
             actions={
               <div className="flex flex-wrap gap-2">
@@ -905,6 +1357,30 @@ export default function DealWorkflow() {
                   {identifyDisputesBusy ? <Loader2 className="animate-spin" /> : <GitBranch />}
                   识别分歧 dry-run
                 </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void handleGenerateRulingsDryRun()}
+                  disabled={generateRulingsBusy || !canPreviewRulings}
+                  title={canPreviewRulings ? undefined : '需要已写入的 r1_5_disputes.json，当前 identify-disputes preview 不会作为裁决输入。'}
+                >
+                  {generateRulingsBusy ? <Loader2 className="animate-spin" /> : <GitBranch />}
+                  主席裁决 dry-run
+                </Button>
+                <label className="inline-flex h-8 items-center gap-2 rounded-md border border-border bg-background px-3 text-xs font-semibold text-text-muted">
+                  <input
+                    type="checkbox"
+                    checked={generateRulingsOverwrite}
+                    onChange={(event) => {
+                      setGenerateRulingsOverwrite(event.target.checked)
+                      setGenerateRulingsPreview(null)
+                      setGenerateRulingsWriteResult(null)
+                      setConfirmGeneratedRulingsWrite(false)
+                    }}
+                  />
+                  覆盖已有裁决
+                </label>
               </div>
             }
           >
@@ -918,6 +1394,12 @@ export default function DealWorkflow() {
               {identifyDisputesPreview ? (
                 <div className="rounded-lg border border-info/30 bg-info/5 p-3 text-sm text-info">
                   当前展示为 dry-run preview，未写入 `r1_5_disputes.json` 或 Markdown。
+                </div>
+              ) : null}
+
+              {!canPreviewRulings && !identifyDisputesPreview ? (
+                <div className="rounded-lg border border-warning/30 bg-warning/5 p-3 text-sm text-warning">
+                  主席裁决 dry-run 需要已写入的 `r1_5_disputes.json`；可先完成分歧识别写入或导入含 R1.5 产物的项目包。
                 </div>
               ) : null}
 
@@ -979,6 +1461,104 @@ export default function DealWorkflow() {
                           </p>
                         ))}
                       </div>
+                    </Surface>
+                  ) : null}
+
+                  {generateRulingsPreview ? (
+                    <Surface kind="muted" padding="sm">
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-sm font-semibold text-text">主席裁决草案 dry-run</p>
+                            <StatusBadge tone="info">preview · not written</StatusBadge>
+                          </div>
+                          <p className="mt-1 text-xs text-text-muted">
+                            generation: {text(generateRulingsPreview.generation_mode)} · generated {generateRulingsPreview.generated_count ?? 0} · skipped {generateRulingsPreview.skipped_count ?? 0}
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <StatusBadge tone={generatedRulings.length ? 'success' : 'neutral'}>
+                            {generatedRulings.length} drafts
+                          </StatusBadge>
+                          {skippedGeneratedRulings.length ? (
+                            <StatusBadge tone="warning">{skippedGeneratedRulings.length} skipped</StatusBadge>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      {generatedRulingWarnings.length ? (
+                        <div className="mt-3 grid gap-1">
+                          {generatedRulingWarnings.map((warning, index) => (
+                            <p key={`${warning}-${index}`} className="break-all font-mono text-xs text-warning">
+                              {warning}
+                            </p>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      {generatedRulings.length ? (
+                        <div className="mt-3 flex flex-col gap-3 rounded-lg border border-border bg-background p-3 lg:flex-row lg:items-center lg:justify-between">
+                          <label className="flex min-w-0 items-start gap-2 text-sm text-text-muted">
+                            <input
+                              type="checkbox"
+                              className="mt-1"
+                              checked={confirmGeneratedRulingsWrite}
+                              onChange={(event) => setConfirmGeneratedRulingsWrite(event.target.checked)}
+                            />
+                            <span>
+                              已复核 dry-run 草案，确认写入 R1.5 主席裁决；该操作只写入 R1.5 产物和审计，不推进 R2。
+                            </span>
+                          </label>
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => void handleWriteGeneratedRulings()}
+                            disabled={!canWriteGeneratedRulings}
+                            title={confirmGeneratedRulingsWrite ? undefined : '需要先勾选人工确认。'}
+                          >
+                            {generateRulingsBusy ? <Loader2 className="animate-spin" /> : <GitBranch />}
+                            写入裁决草案
+                          </Button>
+                        </div>
+                      ) : null}
+
+                      {generatedRulings.length ? (
+                        <div className="mt-3 grid gap-3 md:grid-cols-2">
+                          {generatedRulings.map((item) => (
+                            <Surface key={item.dispute_id} kind="row" padding="sm">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="font-semibold text-text">{item.topic || item.dispute_id}</p>
+                                  <p className="mt-1 break-all font-mono text-xs text-text-muted">{item.dispute_id}</p>
+                                  <p className="mt-1 text-xs text-text-muted">
+                                    decision: {text(item.decision)} · resolved: {text(item.resolved)}
+                                  </p>
+                                </div>
+                                <StatusBadge tone="info">draft</StatusBadge>
+                              </div>
+                              <p className="mt-3 text-sm leading-6 text-text-muted">
+                                {text(item.rationale)}
+                              </p>
+                              {item.required_followups.length ? (
+                                <div className="mt-3 grid gap-1">
+                                  {item.required_followups.map((followup, followupIndex) => (
+                                    <p key={`${followup}-${followupIndex}`} className="break-all font-mono text-xs text-text-muted">
+                                      follow-up: {followup}
+                                    </p>
+                                  ))}
+                                </div>
+                              ) : null}
+                              {item.evidence_ids.length ? (
+                                <p className="mt-3 break-all font-mono text-xs text-text-muted">
+                                  evidence: {item.evidence_ids.join(', ')}
+                                </p>
+                              ) : null}
+                            </Surface>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-3 text-sm text-text-muted">没有新的主席裁决草案；已有裁决会默认跳过。</p>
+                      )}
                     </Surface>
                   ) : null}
                 </div>

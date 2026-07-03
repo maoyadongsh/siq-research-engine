@@ -29,10 +29,16 @@ import type {
   DealWorkflowResponse,
   DealWorkflowDisputeRulingRequest,
   DealWorkflowDisputeRulingResponse,
+  DealWorkflowFinalizeR4Request,
+  DealWorkflowFinalizeR4Response,
   DealWorkflowGenerateDisputeRulingsRequest,
   DealWorkflowGenerateDisputeRulingsResponse,
   DealWorkflowIdentifyDisputesRequest,
   DealWorkflowIdentifyDisputesResponse,
+  DealWorkflowRunR2Request,
+  DealWorkflowRunR2Response,
+  DealWorkflowRunR3Request,
+  DealWorkflowRunR3Response,
   DealWorkflowRunR1AgentDryRunResponse,
   DealWorkflowRunR1SerialResponse,
   DeleteDealDocumentResponse,
@@ -292,6 +298,60 @@ export function runDealWorkflowR1Serial(
         round_name: payload.round_name || 'R1',
         dry_run: payload.dry_run ?? true,
         max_agents: payload.max_agents ?? 6,
+      },
+      signal,
+    },
+  )
+}
+
+export function runDealWorkflowR2(
+  dealId: string,
+  payload: DealWorkflowRunR2Request = {},
+  signal?: AbortSignal,
+) {
+  return apiJson<DealWorkflowRunR2Response>(
+    `/api/deals/${encodeURIComponent(dealId)}/workflow/run-r2`,
+    {
+      method: 'POST',
+      body: {
+        dry_run: payload.dry_run ?? true,
+      },
+      signal,
+    },
+  )
+}
+
+export function runDealWorkflowR3(
+  dealId: string,
+  payload: DealWorkflowRunR3Request = {},
+  signal?: AbortSignal,
+) {
+  return apiJson<DealWorkflowRunR3Response>(
+    `/api/deals/${encodeURIComponent(dealId)}/workflow/run-r3`,
+    {
+      method: 'POST',
+      body: {
+        dry_run: payload.dry_run ?? true,
+        skip: payload.skip ?? false,
+        skip_reason: payload.skip_reason ?? null,
+      },
+      signal,
+    },
+  )
+}
+
+export function finalizeDealWorkflowR4(
+  dealId: string,
+  payload: DealWorkflowFinalizeR4Request = {},
+  signal?: AbortSignal,
+) {
+  return apiJson<DealWorkflowFinalizeR4Response>(
+    `/api/deals/${encodeURIComponent(dealId)}/workflow/finalize-r4`,
+    {
+      method: 'POST',
+      body: {
+        dry_run: payload.dry_run ?? true,
+        overwrite: payload.overwrite ?? false,
       },
       signal,
     },

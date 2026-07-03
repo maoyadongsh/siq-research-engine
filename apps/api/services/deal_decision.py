@@ -70,6 +70,87 @@ def build_human_confirmation_payload(
     return payload
 
 
+def _numeric(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value.strip())
+        except ValueError:
+            return None
+    return None
+
+
+def _sync_confirmation_state(
+    package_dir: Path,
+    *,
+    decision: dict[str, Any],
+    confirmation: dict[str, Any],
+) -> None:
+    now = deal_store.utc_now_iso()
+    status = str(confirmation.get("status") or "pending")
+    override_decision = confirmation.get("override_decision")
+    override_score = _numeric(confirmation.get("override_score"))
+    decision_value = decision.get("decision")
+    decision_score = _numeric(decision.get("final_score"))
+
+    workflow_path = package_dir / "phases" / "workflow_state.json"
+    workflow = deal_store.read_json(workflow_path, {}) or {}
+    if isinstance(workflow, dict):
+        phases = workflow.setdefault("phases", {})
+        if not isinstance(phases, dict):
+            phases = {}
+            workflow["phases"] = phases
+        r4 = phases.setdefault("R4", {})
+        if not isinstance(r4, dict):
+            r4 = {}
+            phases["R4"] = r4
+        r4.update({
+            "human_confirmation_status": status,
+            "human_confirmation": confirmation,
+            "human_confirmation_updated_at": now,
+        })
+        if override_decision:
+            r4["manual_override_decision"] = override_decision
+        if override_score is not None:
+            r4["manual_override_score"] = override_score
+        if status == "confirmed":
+            if decision_value:
+                workflow["final_decision"] = decision_value
+            if decision_score is not None:
+                workflow["final_score"] = decision_score
+        if status == "overridden":
+            workflow["final_decision"] = "manual_override"
+            if override_decision:
+                workflow["manual_override_decision"] = override_decision
+            if override_score is not None:
+                workflow["final_score"] = override_score
+        workflow["updated_at"] = now
+        deal_store.write_json(workflow_path, workflow)
+
+    project_meta_path = package_dir / "project_meta.json"
+    project_meta = deal_store.read_json(project_meta_path, {}) or {}
+    if isinstance(project_meta, dict):
+        project_meta.update({
+            "human_confirmation_status": status,
+            "human_confirmation": confirmation,
+            "updated_at": now,
+        })
+        if status == "confirmed":
+            project_meta["final_decision"] = decision_value or project_meta.get("final_decision")
+            if decision_score is not None:
+                project_meta["final_score"] = decision_score
+        if status == "overridden":
+            project_meta["final_decision"] = "manual_override"
+            if override_decision:
+                project_meta["manual_override_decision"] = override_decision
+            if override_score is not None:
+                project_meta["final_score"] = override_score
+        deal_store.write_json(project_meta_path, project_meta)
+
+
 def update_human_confirmation(
     deal_id: str,
     *,
@@ -112,6 +193,11 @@ def update_human_confirmation(
         return deal_store.redact_public_payload(result)
 
     deal_store.write_json(decision_path, planned_decision)
+    _sync_confirmation_state(
+        package_dir,
+        decision=planned_decision,
+        confirmation=confirmation,
+    )
     deal_store.append_audit_event(
         normalized_deal_id,
         {
@@ -119,6 +205,8 @@ def update_human_confirmation(
             "status": confirmation["status"],
             "confirmed_by": confirmation.get("confirmed_by"),
             "override_reason": confirmation.get("override_reason"),
+            "override_decision": confirmation.get("override_decision"),
+            "override_score": confirmation.get("override_score"),
         },
         wiki_root=wiki_root,
     )

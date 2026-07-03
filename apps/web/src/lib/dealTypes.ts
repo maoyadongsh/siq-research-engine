@@ -292,6 +292,61 @@ export interface DealWorkflowRunR1SerialResponse {
   [key: string]: unknown
 }
 
+export interface DealWorkflowRunR2Request {
+  dry_run?: boolean
+}
+
+export interface DealWorkflowRunR3Request {
+  dry_run?: boolean
+  skip?: boolean
+  skip_reason?: string | null
+}
+
+export interface DealWorkflowFinalizeR4Request {
+  dry_run?: boolean
+  overwrite?: boolean
+}
+
+export interface DealWorkflowPhaseRunResponse {
+  schema_version?: string
+  deal_id?: string
+  workflow_action?: 'run-r2' | 'run-r3' | 'finalize-r4' | string
+  dry_run?: boolean
+  allowed?: boolean
+  would_write?: boolean
+  written?: boolean
+  overwrite?: boolean
+  queued?: boolean
+  job_id?: string | null
+  blocking_reasons?: string[]
+  warnings?: string[]
+  counts?: Record<string, unknown>
+  output_paths?: Record<string, string | null | undefined>
+  mode?: string | null
+  skip_reason?: string | null
+  hermes_called?: boolean
+  report_written?: boolean
+  workflow_advanced?: boolean
+  workflow?: DealWorkflow | null
+  audit_event?: Record<string, unknown> | null
+  [key: string]: unknown
+}
+
+export interface DealWorkflowRunR2Response extends DealWorkflowPhaseRunResponse {
+  reports_preview?: Record<string, unknown>
+  reports?: Record<string, unknown>
+}
+
+export interface DealWorkflowRunR3Response extends DealWorkflowPhaseRunResponse {
+  payload_preview?: Record<string, unknown>
+  payload?: Record<string, unknown>
+}
+
+export interface DealWorkflowFinalizeR4Response extends DealWorkflowPhaseRunResponse {
+  decision_preview?: Record<string, unknown>
+  decision?: Record<string, unknown>
+}
+
 export interface DealR1AgentReadinessItem {
   agent_id: string
   role?: string

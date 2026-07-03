@@ -19,12 +19,15 @@ const {
   fetchDealReports,
   fetchDealStatus,
   fetchDealWorkflow,
+  finalizeDealWorkflowR4,
   generateDealWorkflowDisputeRulings,
   generateDealStartupRetrieval,
   identifyDealWorkflowDisputes,
   postDealDecisionHumanConfirmation,
   ruleDealWorkflowDispute,
   runDealWorkflowR1Serial,
+  runDealWorkflowR2,
+  runDealWorkflowR3,
 } = await import('./dealApi.ts')
 
 type FetchCall = {
@@ -110,6 +113,12 @@ test('deal agent APIs preserve R1 defaults and dry-run contract', async () => {
   await dryRunDealWorkflowR1Agent('DEAL-1', 'siq/ic strategist')
   await runDealWorkflowR1Serial('DEAL-1')
   await runDealWorkflowR1Serial('DEAL 1/测试', { dry_run: false, max_agents: 2 })
+  await runDealWorkflowR2('DEAL-1')
+  await runDealWorkflowR2('DEAL 1/测试', { dry_run: false })
+  await runDealWorkflowR3('DEAL-1', { skip: true, skip_reason: 'R2 已闭环，留痕跳过。' })
+  await runDealWorkflowR3('DEAL 1/测试', { dry_run: false })
+  await finalizeDealWorkflowR4('DEAL-1')
+  await finalizeDealWorkflowR4('DEAL 1/测试', { dry_run: false, overwrite: true })
   await identifyDealWorkflowDisputes('DEAL-1')
   await identifyDealWorkflowDisputes('DEAL 1/测试', { dry_run: false, preserve_rulings: false })
   await ruleDealWorkflowDispute('DEAL-1', 'DISP-001', { decision: 'resolved_with_conditions' })
@@ -160,6 +169,54 @@ test('deal agent APIs preserve R1 defaults and dry-run contract', async () => {
         round_name: 'R1',
         dry_run: false,
         max_agents: 2,
+      },
+    },
+    {
+      url: '/api/deals/DEAL-1/workflow/run-r2',
+      method: 'POST',
+      body: {
+        dry_run: true,
+      },
+    },
+    {
+      url: '/api/deals/DEAL%201%2F%E6%B5%8B%E8%AF%95/workflow/run-r2',
+      method: 'POST',
+      body: {
+        dry_run: false,
+      },
+    },
+    {
+      url: '/api/deals/DEAL-1/workflow/run-r3',
+      method: 'POST',
+      body: {
+        dry_run: true,
+        skip: true,
+        skip_reason: 'R2 已闭环，留痕跳过。',
+      },
+    },
+    {
+      url: '/api/deals/DEAL%201%2F%E6%B5%8B%E8%AF%95/workflow/run-r3',
+      method: 'POST',
+      body: {
+        dry_run: false,
+        skip: false,
+        skip_reason: null,
+      },
+    },
+    {
+      url: '/api/deals/DEAL-1/workflow/finalize-r4',
+      method: 'POST',
+      body: {
+        dry_run: true,
+        overwrite: false,
+      },
+    },
+    {
+      url: '/api/deals/DEAL%201%2F%E6%B5%8B%E8%AF%95/workflow/finalize-r4',
+      method: 'POST',
+      body: {
+        dry_run: false,
+        overwrite: true,
       },
     },
     {

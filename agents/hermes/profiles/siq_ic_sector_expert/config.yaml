@@ -1,13 +1,17 @@
 model:
-  default: step-3.7-flash
-  provider: custom:stepfun-step-3.7-flash
-  base_url: https://api.stepfun.com/v1
-  api_mode: openai_chat
-  context_length: 200000
-  temperature: 0.2
-  key_env: SIQ_STEPFUN_LLM_API_KEY
+  default: MiniMax-M3
+  provider: minimax-cn
 providers: {}
 fallback_providers:
+- provider: custom:stepfun-step-3.7-flash
+  model: step-3.7-flash
+  temperature: 0.2
+  base_url: https://api.stepfun.com/v1
+  api_mode: openai_chat
+  key_env: SIQ_STEPFUN_LLM_API_KEY
+- provider: kimi-coding
+  model: kimi-for-coding
+  base_url: https://api.kimi.com/coding
 - provider: custom:qwen3.6-local
   model: Qwen3.6-35B-A3B-FP8
   temperature: 0.2
@@ -16,11 +20,6 @@ fallback_providers:
   model: Gemma-4-26B-A4B-it-NVFP4
   temperature: 0.2
   base_url: http://127.0.0.1:8006/v1
-- provider: minimax-cn
-  model: MiniMax-M3
-- provider: kimi-coding
-  model: kimi-for-coding
-  base_url: https://api.kimi.com/coding
 toolsets:
 - terminal
 - file

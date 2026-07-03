@@ -27,6 +27,27 @@ def _write_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
 
+def _append_verified_evidence_dimensions(package_dir: Path, *, deal_id: str, document_id: str) -> None:
+    evidence_path = package_dir / "evidence" / "evidence_items.ndjson"
+    existing = evidence_path.read_text(encoding="utf-8") if evidence_path.is_file() else ""
+    rows = []
+    for index, dimension in enumerate(("business", "legal", "risk"), start=900001):
+        rows.append({
+            "evidence_id": f"EVID-{deal_id}-{index}",
+            "deal_id": deal_id,
+            "document_id": document_id,
+            "source_path": f"parsed_documents/{document_id}.md",
+            "quote": f"{dimension} verified evidence",
+            "evidence_type": "verified",
+            "dimension": dimension,
+            "claim": f"{dimension} gate fixture",
+        })
+    evidence_path.write_text(
+        existing + "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+
+
 def _client(monkeypatch, tmp_path: Path) -> TestClient:
     monkeypatch.setattr(deal_store, "WIKI_ROOT", tmp_path / "wiki")
     app = FastAPI()
@@ -925,6 +946,9 @@ def test_deals_router_build_and_read_evidence(monkeypatch, tmp_path):
     assert dry_run_alias.status_code == 200
     assert dry_run_alias.json()["ingest_dry_run"]["counts"]["milvus_chunks_planned"] == 2
 
+    package_dir = tmp_path / "wiki" / "deals" / "DEAL-ROUTER-007"
+    _append_verified_evidence_dimensions(package_dir, deal_id="DEAL-ROUTER-007", document_id=document_id)
+
     receipt_response = client.post(
         "/api/deals/DEAL-ROUTER-007/agents/siq_ic_finance_auditor/startup-retrieval",
         json={"round_name": "R1", "limit": 1},
@@ -1033,7 +1057,6 @@ def test_deals_router_build_and_read_evidence(monkeypatch, tmp_path):
     assert workflow_run_json["report_written"] is True
     assert workflow_run_json["workflow_advanced"] is True
     assert workflow_run_json["markdown_path"] == "discussion/01_R1_strategist_report.md"
-    package_dir = tmp_path / "wiki" / "deals" / "DEAL-ROUTER-007"
     assert (package_dir / "discussion" / "01_R1_strategist_report.md").is_file()
     router_reports = json.loads((package_dir / "phases" / "r1_reports.json").read_text(encoding="utf-8"))
     assert router_reports["siq_ic_strategist"]["score"] == 81
@@ -1060,3 +1083,171 @@ def test_deals_router_build_and_read_evidence(monkeypatch, tmp_path):
     item = client.get(f"/api/deals/DEAL-ROUTER-007/evidence/{evidence_id}")
     assert item.status_code == 200
     assert item.json()["evidence"]["document_id"] == document_id
+
+
+def test_deals_router_r2_r3_r4_workflow_endpoints(monkeypatch, tmp_path):
+    client = _client(monkeypatch, tmp_path)
+    assert client.post(
+        "/api/deals",
+        json={
+            "deal_id": "DEAL-ROUTER-R234",
+            "company_name": "Router Robotics",
+            "industry": "Robotics",
+            "stage": "Pre-IPO",
+        },
+    ).status_code == 200
+    package_dir = tmp_path / "wiki" / "deals" / "DEAL-ROUTER-R234"
+    agents = [
+        "siq_ic_strategist",
+        "siq_ic_sector_expert",
+        "siq_ic_finance_auditor",
+        "siq_ic_legal_scanner",
+        "siq_ic_risk_controller",
+        "siq_ic_chairman",
+    ]
+    evidence_by_agent = {
+        "siq_ic_strategist": "EVID-DEAL-ROUTER-R234-000001",
+        "siq_ic_sector_expert": "EVID-DEAL-ROUTER-R234-000001",
+        "siq_ic_finance_auditor": "EVID-DEAL-ROUTER-R234-000002",
+        "siq_ic_legal_scanner": "EVID-DEAL-ROUTER-R234-000003",
+        "siq_ic_risk_controller": "EVID-DEAL-ROUTER-R234-000004",
+        "siq_ic_chairman": "EVID-DEAL-ROUTER-R234-000001",
+    }
+    _write_json(
+        package_dir / "phases" / "r1_reports.json",
+        {
+            agent_id: {
+                "agent_id": agent_id,
+                "round_name": "R1",
+                "score": 78 if agent_id == "siq_ic_chairman" else 80,
+                "recommendation": "SUPPORT",
+                "verified": [{"claim": "verified", "evidence_id": evidence_by_agent[agent_id]}],
+                "assumed": [],
+                "open_questions": ["补充估值敏感性"] if agent_id == "siq_ic_finance_auditor" else [],
+                "startup_receipt_id": f"startup-{agent_id}-R1-001",
+                "key_points": ["evidence-backed view"],
+                "risk_flags": [],
+                "evidence_stats": {"shared": 1, "private": 0, "total": 1},
+                "artifact_path": f"discussion/01_R1_{agent_id.removeprefix('siq_ic_')}_report.md",
+                "created_at": "2026-07-03T10:30:00+08:00",
+                "evidence_ids": [evidence_by_agent[agent_id]],
+            }
+            for agent_id in agents
+        },
+    )
+    _write_json(
+        package_dir / "phases" / "startup_receipts.json",
+        {
+            "schema_version": "siq_ic_startup_receipts_v1",
+            "deal_id": "DEAL-ROUTER-R234",
+            "agents": {
+                agent_id: {
+                    "agent_id": agent_id,
+                    "receipt_id": f"startup-{agent_id}-R1-001",
+                    "round_name": "R1",
+                    "query": "Router Robotics Pre-IPO",
+                    "project_tag": "DEAL-ROUTER-R234",
+                    "shared_hits": 1,
+                    "private_hits": 0,
+                    "workspace_rules_read": ["SOUL.md", "AGENTS.md"],
+                    "gaps": [],
+                    "evidence_hits": [{"evidence_id": evidence_by_agent[agent_id]}],
+                    "created_at": "2026-07-03T10:20:00+08:00",
+                }
+                for agent_id in agents
+            },
+        },
+    )
+    evidence_items = [
+        {"evidence_id": "EVID-DEAL-ROUTER-R234-000001", "evidence_type": "verified", "dimension": "business", "claim": "business"},
+        {"evidence_id": "EVID-DEAL-ROUTER-R234-000002", "evidence_type": "verified", "dimension": "finance", "claim": "finance"},
+        {"evidence_id": "EVID-DEAL-ROUTER-R234-000003", "evidence_type": "verified", "dimension": "legal", "claim": "legal"},
+        {"evidence_id": "EVID-DEAL-ROUTER-R234-000004", "evidence_type": "verified", "dimension": "risk", "claim": "risk"},
+    ]
+    evidence_path = package_dir / "evidence" / "evidence_items.ndjson"
+    evidence_path.parent.mkdir(parents=True, exist_ok=True)
+    evidence_path.write_text(
+        "\n".join(json.dumps(item, ensure_ascii=False) for item in evidence_items) + "\n",
+        encoding="utf-8",
+    )
+    for agent_id in agents:
+        (package_dir / "discussion" / f"01_R1_{agent_id.removeprefix('siq_ic_')}_report.md").write_text(
+            "\n".join([
+                "# R1",
+                "## 检索结果摘要",
+                "### 共享底稿证据",
+                "### 私有知识库证据",
+                "### 信息缺口清单",
+                "### 检索后观点",
+            ]),
+            encoding="utf-8",
+        )
+    _write_json(
+        package_dir / "phases" / "r1_5_disputes.json",
+        {
+            "schema_version": "siq_ic_disputes_v1",
+            "deal_id": "DEAL-ROUTER-R234",
+            "disputes": [
+                {
+                    "dispute_id": "DISP-001",
+                    "topic": "估值保护",
+                    "dimension": "finance",
+                    "severity": "high",
+                    "positions": [],
+                    "chairman_ruling": {
+                        "agent_id": "siq_ic_chairman",
+                        "decision": "resolved_with_conditions",
+                        "rationale": "加入估值和退出保护条款",
+                        "required_followups": ["设置 IPO 时间表触发的回购保护"],
+                    },
+                    "resolved": True,
+                }
+            ],
+        },
+    )
+
+    r2_dry_run = client.post("/api/deals/DEAL-ROUTER-R234/workflow/run-r2", json={"dry_run": True})
+    assert r2_dry_run.status_code == 200
+    assert r2_dry_run.json()["schema_version"] == "siq_ic_workflow_r2_run_dry_run_v1"
+    assert r2_dry_run.json()["allowed"] is True
+    assert not (package_dir / "phases" / "r2_reports.json").is_file()
+
+    r2 = client.post("/api/deals/DEAL-ROUTER-R234/workflow/run-r2", json={"dry_run": False})
+    assert r2.status_code == 200
+    assert r2.json()["schema_version"] == "siq_ic_workflow_r2_run_v1"
+    assert r2.json()["report_written"] is True
+    assert r2.json()["hermes_called"] is False
+    assert (package_dir / "phases" / "r2_reports.json").is_file()
+
+    r3 = client.post(
+        "/api/deals/DEAL-ROUTER-R234/workflow/run-r3",
+        json={"dry_run": False, "skip": True, "skip_reason": "P0 deterministic skip with audit trail."},
+    )
+    assert r3.status_code == 200
+    assert r3.json()["schema_version"] == "siq_ic_workflow_r3_run_v1"
+    assert r3.json()["mode"] == "skip"
+    assert (package_dir / "phases" / "r3_reports.json").is_file()
+
+    r4_dry_run = client.post("/api/deals/DEAL-ROUTER-R234/workflow/finalize-r4", json={"dry_run": True})
+    assert r4_dry_run.status_code == 200
+    assert r4_dry_run.json()["schema_version"] == "siq_ic_workflow_r4_finalize_dry_run_v1"
+    assert r4_dry_run.json()["decision_preview"]["weighted_agent_score"] == 79.4
+    assert r4_dry_run.json()["decision_preview"]["chairman_dimension_score"] == 78
+
+    r4 = client.post("/api/deals/DEAL-ROUTER-R234/workflow/finalize-r4", json={"dry_run": False})
+    assert r4.status_code == 200
+    r4_payload = r4.json()
+    assert r4_payload["schema_version"] == "siq_ic_workflow_r4_finalize_v1"
+    assert r4_payload["decision"]["decision"] == "pass"
+    assert r4_payload["decision"]["weighted_agent_score"] == 79.4
+    assert r4_payload["decision"]["chairman_dimension_score"] == 78
+    assert r4_payload["decision"]["human_confirmation"]["status"] == "pending"
+    assert (package_dir / "phases" / "r4_decision.json").is_file()
+    assert (package_dir / "decision" / "IC_DECISION_REPORT.md").is_file()
+    assert (package_dir / "decision" / "IC_DECISION_REPORT.html").is_file()
+    audit = json.loads((package_dir / "audit" / "audit_log.json").read_text(encoding="utf-8"))
+    assert [event["event_type"] for event in audit["events"][-3:]] == [
+        "deal_r2_run_completed",
+        "deal_r3_run_completed",
+        "r4_decision_generated",
+    ]

@@ -3533,13 +3533,9 @@ def status(task_id):
     if not task:
         return jsonify({"error": "Task not found"}), 404
 
-    since = request.args.get("since", "0").strip()
-    try:
-        since_index = max(0, int(since))
-    except ValueError:
-        since_index = 0
+    since_index = task_lifecycle_service.status_log_since_index(request.args.get("since", "0"))
 
-    if not task.get("cancelled"):
+    if task_lifecycle_service.should_refresh_task_from_upstream(task):
         try:
             task = _refresh_task_from_upstream(task)
         except RuntimeError as exc:

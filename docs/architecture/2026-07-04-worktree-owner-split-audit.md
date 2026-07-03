@@ -64,6 +64,7 @@ PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider \
 Verified:
 
 - 2026-07-04: focused Market Reports API gate above passed, 150 passed, 2 existing Pydantic deprecation warnings.
+- 2026-07-04: follow-up router parser_result-missing contract kept this owner green, 151 passed, 2 existing Pydantic deprecation warnings.
 
 ### Agent Runtime Contracts
 
@@ -270,6 +271,9 @@ Verified:
 Files:
 
 - `apps/api/routers/deals.py`
+- `apps/api/services/deal_audit.py`
+- `apps/api/services/deal_decision.py`
+- `apps/api/services/deal_status.py`
 - `apps/api/services/ic_agent_runtime.py`
 - `apps/api/services/ic_openclaw_importer.py`
 - `apps/api/tests/test_deal_store.py`
@@ -283,6 +287,12 @@ Files:
 - `apps/web/e2e/support/mockApi.ts`
 - `apps/web/e2e/tests/deals-workflow.spec.ts`
 - `docs/architecture/2026-06-28-primary-market-openclaw-compat-design.md`
+- `agents/hermes/profiles/siq_ic_finance_auditor/config.yaml`
+- `agents/hermes/profiles/siq_ic_legal_scanner/config.yaml`
+- `agents/hermes/profiles/siq_ic_master_coordinator/config.yaml`
+- `agents/hermes/profiles/siq_ic_risk_controller/config.yaml`
+- `agents/hermes/profiles/siq_ic_sector_expert/config.yaml`
+- `agents/hermes/profiles/siq_ic_strategist/config.yaml`
 
 Recommended commit:
 
@@ -295,6 +305,9 @@ cd apps/api
 PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider \
   tests/test_deal_store.py \
   tests/test_deals_router.py
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider \
+  tests/test_hermes_model_control.py \
+  tests/test_hermes_ic_profiles.py
 cd ../web
 npm run test:unit -- workflowViewModel
 npm run e2e -- e2e/tests/deals-workflow.spec.ts

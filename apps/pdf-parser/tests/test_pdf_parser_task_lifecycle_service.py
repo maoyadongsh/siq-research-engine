@@ -164,6 +164,19 @@ def test_calc_progress_percent_rounds_and_clamps_to_100():
     assert lifecycle.calc_progress_percent({"pdf_page_count": 4}, 80, page_estimate_seconds=10) == 100.0
 
 
+def test_status_log_since_index_normalizes_query_value():
+    assert lifecycle.status_log_since_index(" 7 ") == 7
+    assert lifecycle.status_log_since_index("-3") == 0
+    assert lifecycle.status_log_since_index("not-a-number") == 0
+    assert lifecycle.status_log_since_index(None) == 0
+
+
+def test_should_refresh_task_from_upstream_skips_cancelled_tasks():
+    assert lifecycle.should_refresh_task_from_upstream({"cancelled": True}) is False
+    assert lifecycle.should_refresh_task_from_upstream({"cancelled": False}) is True
+    assert lifecycle.should_refresh_task_from_upstream({}) is True
+
+
 def test_build_cancel_task_update_preserves_completed_at_and_log_variants():
     now = "2026-05-01T00:00:00Z"
 

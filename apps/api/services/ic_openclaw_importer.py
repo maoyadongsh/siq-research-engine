@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import os
 import shutil
@@ -9,9 +10,31 @@ from pathlib import Path
 from typing import Any
 
 from services import deal_store
+from services import ic_policy
 
 
 OPENCLAW_IMPORT_SCHEMA = "siq_openclaw_import_v1"
+R4_DECISION_SCHEMA = "siq_ic_r4_decision_v1"
+STARTUP_RECEIPTS_SCHEMA = "siq_ic_startup_receipts_v1"
+DEFAULT_R4_ARTIFACT_PATHS = {
+    "markdown": "decision/IC_DECISION_REPORT.md",
+    "html": "decision/IC_DECISION_REPORT.html",
+}
+DEFAULT_WORKSPACE_RULES_READ = ["SOUL.md", "AGENTS.md"]
+LEGACY_STARTUP_RECEIPTS_META_KEYS = {
+    "compatibility",
+    "created_at",
+    "deal_id",
+    "generated_at",
+    "project_id",
+    "project_tag",
+    "schema_version",
+    "source",
+    "summary",
+    "total",
+    "total_count",
+    "updated_at",
+}
 DEFAULT_OPENCLAW_PROJECTS_ROOT = Path(
     os.environ.get(
         "SIQ_OPENCLAW_PROJECTS_ROOT",
@@ -131,7 +154,217 @@ def _import_metadata_payload(metadata: dict[str, Any] | None) -> dict[str, Any] 
     return redacted if isinstance(redacted, dict) else None
 
 
-def _normalize_r4_decision_contract(package_dir: Path) -> None:
+def _non_negative_int(value: Any, default: int = 0) -> int:
+    if isinstance(value, bool):
+        return default
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(parsed, 0)
+
+
+def _first_present_count(payload: dict[str, Any], keys: tuple[str, ...]) -> int | None:
+    for key in keys:
+        if key in payload and payload.get(key) is not None:
+            return _non_negative_int(payload.get(key))
+    return None
+
+
+def _is_legacy_startup_summary(value: Any) -> bool:
+    return (
+        isinstance(value, dict)
+        and not value.get("receipt_id")
+        and ("count" in value or isinstance(value.get("types"), dict))
+    )
+
+
+def _legacy_startup_agents(payload: dict[str, Any]) -> tuple[dict[str, dict[str, Any]], bool]:
+    if isinstance(payload.get("agents"), dict):
+        raw_agents = payload["agents"]
+    else:
+        raw_agents = {
+            key: value
+            for key, value in payload.items()
+            if key not in LEGACY_STARTUP_RECEIPTS_META_KEYS
+        }
+
+    agents: dict[str, dict[str, Any]] = {}
+    found_legacy = False
+    for key, value in raw_agents.items():
+        if not isinstance(value, dict):
+            continue
+        profile_id = ic_policy.canonical_ic_profile_id(str(value.get("agent_id") or key))
+        if _is_legacy_startup_summary(value):
+            found_legacy = True
+        agents[profile_id] = value
+    return agents, found_legacy
+
+
+def _legacy_startup_hit_counts(item: dict[str, Any]) -> tuple[int, int]:
+    types = item.get("types") if isinstance(item.get("types"), dict) else {}
+    shared = _first_present_count(
+        item,
+        ("shared_hits", "shared_count", "shared"),
+    )
+    private = _first_present_count(
+        item,
+        ("private_hits", "private_count", "private"),
+    )
+    if shared is None:
+        shared = _first_present_count(types, ("shared", "shared_hits", "public", "workspace"))
+    if private is None:
+        private = _first_present_count(types, ("private", "private_hits", "knowledge_base", "local"))
+
+    total = _non_negative_int(item.get("count"), default=0)
+    if shared is None and private is None:
+        return total, 0
+    if shared is None:
+        shared = max(total - (private or 0), 0)
+    if private is None:
+        private = max(total - shared, 0) if total else 0
+    return shared, private
+
+
+def _legacy_startup_receipt_query(
+    payload: dict[str, Any],
+    item: dict[str, Any],
+    *,
+    company_name: str,
+    industry: str,
+    stage: str,
+    deal_id: str,
+) -> str:
+    for candidate in (item.get("query"), item.get("search_query"), payload.get("query")):
+        if candidate:
+            return str(candidate)
+    parts = [company_name, industry, stage]
+    query = " ".join(str(part).strip() for part in parts if str(part or "").strip())
+    return query or deal_id
+
+
+def _legacy_startup_evidence_hits(item: dict[str, Any]) -> list[dict[str, Any]]:
+    evidence_hits = item.get("evidence_hits")
+    if isinstance(evidence_hits, list):
+        return [hit for hit in evidence_hits if isinstance(hit, dict)]
+    evidence_ids = item.get("evidence_ids")
+    if isinstance(evidence_ids, list):
+        return [
+            {"evidence_id": evidence_id}
+            for evidence_id in evidence_ids
+            if isinstance(evidence_id, str) and evidence_id
+        ]
+    return []
+
+
+def _normalize_legacy_startup_receipt(
+    payload: dict[str, Any],
+    profile_id: str,
+    item: dict[str, Any],
+    *,
+    deal_id: str,
+    company_name: str,
+    industry: str,
+    stage: str,
+) -> dict[str, Any]:
+    round_name = str(item.get("round_name") or item.get("round") or payload.get("round_name") or "R1")
+    shared_hits, private_hits = _legacy_startup_hit_counts(item)
+    workspace_rules = item.get("workspace_rules_read") or payload.get("workspace_rules_read")
+    if not isinstance(workspace_rules, list) or not workspace_rules:
+        workspace_rules = list(DEFAULT_WORKSPACE_RULES_READ)
+    gaps = item.get("gaps")
+    if not isinstance(gaps, list):
+        gaps = []
+    created_at = (
+        item.get("created_at")
+        or item.get("generated_at")
+        or payload.get("created_at")
+        or payload.get("generated_at")
+        or deal_store.utc_now_iso()
+    )
+
+    return {
+        "agent_id": profile_id,
+        "receipt_id": item.get("receipt_id") or f"startup-{profile_id}-{round_name}-001",
+        "round_name": round_name,
+        "query": _legacy_startup_receipt_query(
+            payload,
+            item,
+            company_name=company_name,
+            industry=industry,
+            stage=stage,
+            deal_id=deal_id,
+        ),
+        "project_tag": item.get("project_tag") or payload.get("project_tag") or deal_id,
+        "shared_hits": shared_hits,
+        "private_hits": private_hits,
+        "workspace_rules_read": workspace_rules,
+        "gaps": gaps,
+        "evidence_hits": _legacy_startup_evidence_hits(item),
+        "created_at": created_at,
+        "compatibility": {
+            "source": "openclaw_legacy_startup_summary",
+            "openclaw_legacy_summary": copy.deepcopy(item),
+        },
+    }
+
+
+def _normalize_startup_receipts_contract(
+    package_dir: Path,
+    *,
+    deal_id: str,
+    company_name: str,
+    industry: str,
+    stage: str,
+) -> None:
+    """Backfill SIQ startup receipt fields from legacy OpenClaw count summaries."""
+
+    path = package_dir / "phases" / "startup_receipts.json"
+    payload = deal_store.read_json(path, None)
+    if not isinstance(payload, dict):
+        return
+
+    agents, found_legacy = _legacy_startup_agents(payload)
+    if not found_legacy:
+        return
+
+    normalized_agents: dict[str, dict[str, Any]] = {}
+    for profile_id, item in agents.items():
+        if _is_legacy_startup_summary(item):
+            normalized_agents[profile_id] = _normalize_legacy_startup_receipt(
+                payload,
+                profile_id,
+                item,
+                deal_id=deal_id,
+                company_name=company_name,
+                industry=industry,
+                stage=stage,
+            )
+        else:
+            normalized_agents[profile_id] = copy.deepcopy(item)
+
+    compatibility = (
+        copy.deepcopy(payload.get("compatibility"))
+        if isinstance(payload.get("compatibility"), dict)
+        else {}
+    )
+    compatibility.setdefault("source", "openclaw_legacy_startup_receipts")
+    compatibility["openclaw_legacy_summary"] = copy.deepcopy(payload)
+
+    normalized: dict[str, Any] = {
+        "schema_version": STARTUP_RECEIPTS_SCHEMA,
+        "deal_id": deal_id,
+        "agents": normalized_agents,
+        "updated_at": deal_store.utc_now_iso(),
+        "compatibility": compatibility,
+    }
+    if payload.get("generated_at") is not None:
+        normalized["generated_at"] = payload.get("generated_at")
+
+    deal_store.write_json(path, normalized)
+
+
+def _normalize_r4_decision_contract(package_dir: Path, *, deal_id: str) -> None:
     """Backfill SIQ R4 contract fields from legacy OpenClaw decision payloads."""
 
     path = package_dir / "phases" / "r4_decision.json"
@@ -151,7 +384,27 @@ def _normalize_r4_decision_contract(package_dir: Path) -> None:
         chairman = {}
 
     if decision.get("schema_version") is None:
-        decision["schema_version"] = "siq_ic_r4_decision_v1"
+        decision["schema_version"] = R4_DECISION_SCHEMA
+        changed = True
+    if decision.get("deal_id") is None:
+        decision["deal_id"] = deal_id
+        changed = True
+    if decision.get("conditions") is None:
+        decision["conditions"] = []
+        changed = True
+    if decision.get("monitoring_metrics") is None:
+        decision["monitoring_metrics"] = []
+        changed = True
+    if decision.get("artifact_paths") is None:
+        decision["artifact_paths"] = dict(DEFAULT_R4_ARTIFACT_PATHS)
+        changed = True
+    if decision.get("human_confirmation") is None:
+        decision["human_confirmation"] = {
+            "status": "pending",
+            "confirmed_by": None,
+            "confirmed_at": None,
+            "override_reason": None,
+        }
         changed = True
     if decision.get("weighted_agent_score") is None and decision.get("final_score") is not None:
         decision["weighted_agent_score"] = decision.get("final_score")
@@ -165,6 +418,11 @@ def _normalize_r4_decision_contract(package_dir: Path) -> None:
         qualitative = decision.get("decision_text") or decision.get("decision") or decision.get("final_decision")
         if qualitative is not None:
             decision["chairman_qualitative_decision"] = qualitative
+            changed = True
+    if decision.get("threshold_result") is None:
+        threshold_result = decision.get("decision") or decision.get("final_decision")
+        if threshold_result is not None:
+            decision["threshold_result"] = threshold_result
             changed = True
     if changed:
         compatibility = decision.setdefault("compatibility", {})
@@ -268,7 +526,14 @@ def import_openclaw_project(
         workflow["status"] = "r4_completed"
     workflow.setdefault("current_phase", "R0")
     deal_store.write_json(package_dir / "phases" / "workflow_state.json", workflow)
-    _normalize_r4_decision_contract(package_dir)
+    _normalize_r4_decision_contract(package_dir, deal_id=deal_id)
+    _normalize_startup_receipts_contract(
+        package_dir,
+        deal_id=deal_id,
+        company_name=company_name,
+        industry=industry,
+        stage=stage,
+    )
 
     imported_count = len([item for item in file_results if item.get("status") == "imported"])
     audit_event = deal_store.append_audit_event(

@@ -947,7 +947,7 @@ apps/api/services/ic_openclaw_importer.py
 | `deal_store.py` | 创建、读取、更新项目和项目包路径 |
 | `deal_documents.py` | 数据室上传、文档解析任务绑定 |
 | `deal_evidence.py` | 从文档 artifact 构建 evidence index |
-| `deal_disputes.py` | R1.5 分歧摘要与 deterministic 分歧识别 |
+| `deal_disputes.py` | R1.5 分歧摘要、deterministic 分歧识别、主席裁决草案生成与裁决写入 |
 | `deal_status.py` | 汇总 preflight、R1-R4、disputes、audit 等状态 |
 | `ic_policy.py` | 读取 `siq_ic_shared/ic_workflow_policy.json`，提供权重、阈值、阶段顺序 |
 | `ic_workflow.py` | R0-R4 状态机、门禁、阶段推进 |
@@ -1129,7 +1129,7 @@ IC_PROFILES = {
 | R3 | 红蓝对抗执行 / 跳过，跳过必须写理由 |
 | R4 | 生成投决报告、人工确认、归档 |
 
-前端当前状态：`DealWorkflow` 已接入 `workflow/run-r1-serial` 的 `dry_run=true` 结果展示，以及 `workflow/identify-disputes` 的 R1.5 dry-run preview；前端 API client 已具备 R1.5 主席裁决记录调用合同但暂不在页面暴露写入按钮。真实 `dry_run=false` 执行按钮在 Hermes gateway 完成冒烟前不对用户开放，仅保留为后端显式调用能力。
+前端当前状态：`DealWorkflow` 已接入 `workflow/run-r1-serial` 的 `dry_run=true` 结果展示、`workflow/identify-disputes` 的 R1.5 dry-run preview、`workflow/generate-dispute-rulings` 的 deterministic 主席裁决草案 dry-run preview，以及受控写入入口。裁决草案写入必须先勾选人工确认，可选择 `overwrite=true`，显式 `dry_run=false` 只更新 R1.5 JSON/Markdown、workflow 和 audit，不推进 R2。真实 R1 `dry_run=false` 执行按钮在 Hermes gateway 完成冒烟前不对用户开放，仅保留为后端显式调用能力。
 
 ### 10.5 前端文件建议
 
@@ -1326,18 +1326,22 @@ append_audit_event(deal_id, event)
   - 结果：临时 wiki_root + synthetic evidence/startup receipt 的 R1 agent workflow dry-run 通过，`allowed=true`，不调用 Hermes，不启动 gateway，不写真实项目包。
 - `scripts/hermes/smoke_r1_agent_workflow.py --profile siq_ic_strategist --start-gateway --gateway-timeout 20`
   - 结果：临时启动目标 IC gateway，等待 `/health` 通过后执行 R1 agent workflow dry-run，脚本退出后无残留 18662 监听。
+- `scripts/hermes/smoke_r1_agent_workflow.py --profile siq_ic_strategist --real --start-gateway --require-gateway-health --gateway-timeout 45 --timeout 180`
+  - 结果：真实 `run-r1-agent` Hermes 模型调用冒烟通过，`hermes_called=true`、`report_written=true`、`workflow_advanced=true`；脚本使用临时 wiki root 和临时 gateway runtime，退出后无残留 18662 监听。已修复 smoke 脚本中 client/gateway token 可能因本地 `API_SERVER_KEY` 不一致导致 `/v1/runs` 返回 401 的问题。
+- `scripts/hermes/smoke_r1_agent_workflow.py --profile siq_ic_finance_auditor --real --start-gateway --require-gateway-health --seed-prior-reports --gateway-timeout 45 --timeout 180`
+  - 结果：真实 `siq_ic_finance_auditor` R1 agent Hermes 模型调用冒烟通过，`hermes_called=true`、`report_written=true`、`workflow_advanced=true`；`--seed-prior-reports` 仅在临时 package 中写入 strategist / sector 前序 synthetic R1 报告，以满足 R1 严格串行门禁，退出后无残留 18664 监听。
 
-未覆盖项：真实 `run-r1-agent` Hermes 模型调用、PostgreSQL/Milvus 实写、Playwright E2E、完整 R0-R4 自动执行。
+未覆盖项：PostgreSQL/Milvus 实写、Playwright E2E、完整 R0-R4 自动执行。
 
 | 阶段 | 当前状态 | 已确认完成 | 仍未完成 / 需要补齐 |
 | --- | --- | --- | --- |
 | P0-A Profile 家族落地 | 基本完成 | `siq_ic_shared`、7 个 `siq_ic_*` profile 目录、`ic_workflow_policy.json`、共享 contracts、`manifest.json groups.ic` 已存在；7 个角色 README 已补齐；profile 文档中的机器可执行 ID 已统一为 `siq_ic_*`；旧 `ic_*` 和 `data/ic/projects` 仅作为 legacy 追溯字段保留。 | 需要实际启动 profile gateway 做冒烟，并对迁移后的角色 prompt 做人工方法论复核，确认没有因口径清理损失 OpenClaw 语义。 |
-| P0-B Hermes Runtime 识别与日常调用 | 基本完成 | `hermes_client.py`、`path_config.py`、`hermes_model_control.py`、`profile_dir.sh`、`run_gateway.sh`、`start_all.sh` 已支持 IC profiles、aliases、端口和 `SIQ_ENABLE_IC_HERMES=1`；`smoke_gateway_health.sh siq_ic_chairman` 单 profile health 冒烟通过；`smoke_r1_agent_workflow.py` 已可用临时 package 验证 R1 agent dry-run 合同，并支持 `--start-gateway` / `--require-gateway-health` 门禁；系统状态页按 `disabled / enabled / degraded` 展示 IC Hermes，且 `disabled` 不影响项目浏览、导入、报告查看和 dry-run。相关单测通过。 | 需要完成 `smoke_r1_agent_workflow.py --real --start-gateway --require-gateway-health` 的真实 Hermes 模型调用冒烟。 |
+| P0-B Hermes Runtime 识别与日常调用 | 基本完成 | `hermes_client.py`、`path_config.py`、`hermes_model_control.py`、`profile_dir.sh`、`run_gateway.sh`、`start_all.sh` 已支持 IC profiles、aliases、端口和 `SIQ_ENABLE_IC_HERMES=1`；`smoke_gateway_health.sh siq_ic_chairman` 单 profile health 冒烟通过；`smoke_r1_agent_workflow.py` 已可用临时 package 验证 R1 agent dry-run 合同，并支持 `--start-gateway` / `--require-gateway-health` 门禁；`siq_ic_strategist` 和 `siq_ic_finance_auditor` 真实 Hermes 模型调用冒烟通过；系统状态页按 `disabled / enabled / degraded` 展示 IC Hermes，且 `disabled` 不影响项目浏览、导入、报告查看和 dry-run。相关单测通过。 | 需要逐步补齐其他 IC profiles 的真实调用冒烟，并对迁移后的角色 prompt 做人工方法论复核。 |
 | P0-C Deal Package 和 OpenClaw Import | 基本完成 | `deal_store.py`、`ic_openclaw_importer.py`、manifest/project_meta/workflow_state、legacy metadata、hash、audit summary 相关服务和测试已存在；已从 OpenClaw 导入 `DEAL-YUSHU-2026-001` demo，关键 `phases/*`、`decision/IC_DECISION_REPORT.md`、`audit/archive_manifest.json` 均存在；legacy R4 decision 已归一化为 SIQ contract，`summarize_r4_decision` 必需字段检查为 `pass`。 | 需要确认 demo 数据是否应纳入版本控制或作为本地 seed/导入脚本产物保留；还需用 Web 页面做一次端到端人工验收。 |
-| P0-D 最小 API 和 Web 工作台 | 基本完成 | `/api/deals`、详情、documents、evidence、agents、workflow、decision、audit、manifest 等路由已存在；Web 已有 `/deals`、`/deals/:id`、data-room、evidence、agents、workflow、reports、decision、audit 路由；DealWorkflow 已接入 R1 serial dry-run 和 R1.5 identify-disputes dry-run 结果展示；前端 API client 已覆盖 R1.5 主席裁决记录合同；前端 unit tests 和 build 通过。 | 需要用真实导入 demo 做端到端人工验收；下载/预览鉴权路径需要结合实际文件代理再做一次安全检查。 |
-| P0-E R0-R4 最小运行闭环 | 部分完成 | 数据室文档管理、parser task 绑定、file-based evidence build、startup retrieval receipt、R1 agent payload dry-run、显式 `dry_run=false` 的真实 R1 单 agent Hermes 调用入口、临时 R1 agent workflow smoke、R1 严格串行调度入口、deterministic R1.5 分歧识别入口、人工/显式 R1.5 主席裁决记录入口、前端 serial/dispute dry-run 展示、报告写入、workflow 更新、审计事件、human confirmation/audit 等能力已存在。 | 尚未实现自动主席裁决生成、R2/R3/R4 自动产物写入和最终投决报告生成；真实 `run-r1-agent` Hermes 模型调用仍需联调冒烟，真实执行状态标记为“待联调”。 |
+| P0-D 最小 API 和 Web 工作台 | 基本完成 | `/api/deals`、详情、documents、evidence、agents、workflow、decision、audit、manifest 等路由已存在；Web 已有 `/deals`、`/deals/:id`、data-room、evidence、agents、workflow、reports、decision、audit 路由；DealWorkflow 已接入 R1 serial dry-run、R1.5 identify-disputes dry-run、deterministic 主席裁决草案 dry-run 和人工确认写入入口；前端 API client 已覆盖 R1.5 主席裁决记录和 deterministic 裁决草案生成合同；前端 unit tests 和 build 通过。 | 需要用真实导入 demo 做端到端人工验收；下载/预览鉴权路径需要结合实际文件代理再做一次安全检查。 |
+| P0-E R0-R4 最小运行闭环 | 部分完成 | 数据室文档管理、parser task 绑定、file-based evidence build、startup retrieval receipt、R1 agent payload dry-run、显式 `dry_run=false` 的真实 R1 单 agent Hermes 调用入口、`siq_ic_strategist` / `siq_ic_finance_auditor` 临时 R1 agent workflow real smoke、R1 严格串行调度入口、deterministic R1.5 分歧识别入口、deterministic 主席裁决草案生成入口、人工/显式 R1.5 主席裁决记录入口、前端 serial/dispute/ruling dry-run 展示、受控主席裁决草案写入 UI、报告写入、workflow 更新、审计事件、human confirmation/audit 等能力已存在。 | 尚未实现模型生成主席裁决、R2/R3/R4 自动产物写入和最终投决报告生成；真实 R1 串行多 agent 调用仍需扩大冒烟覆盖。 |
 | P1 证据层和检索增强 | 部分完成 | 本地 evidence package、quality report、coverage/gap 展示、PostgreSQL/Milvus ingest dry-run、startup retrieval receipt 已有实现。 | PostgreSQL/Milvus 仍是 dry-run，未实写；startup retrieval 仍是本地文件证据模式，未接真实向量检索/私有知识库；需强制 agent 报告附检索摘要并阻断缺 receipt 的提交。 |
-| P2 工作流自动化增强 | 部分完成 | 已有 workflow/job service 基础、dry-run readiness、R1 严格串行调度入口、deterministic R1.5 分歧识别入口和人工/显式主席裁决记录入口；R1 串行调度复用单 agent run 的 preflight、startup receipt、sequence 和重复提交阻断。 | 需要实现一键推进阶段、自动主席裁决生成、R2/R3/R4 自动化、失败恢复/重试、完整审计事件链；真实 Hermes gateway 仍需冒烟。 |
+| P2 工作流自动化增强 | 部分完成 | 已有 workflow/job service 基础、dry-run readiness、R1 严格串行调度入口、deterministic R1.5 分歧识别入口、deterministic 主席裁决草案生成入口、受控主席裁决草案写入 UI 和人工/显式主席裁决记录入口；R1 串行调度复用单 agent run 的 preflight、startup receipt、sequence 和重复提交阻断。 | 需要实现一键推进阶段、模型生成主席裁决、R2/R3/R4 自动化、失败恢复/重试、完整审计事件链；真实 Hermes gateway 仍需冒烟。 |
 | P3 一级市场产品化 | 未完成 | Web 工作台骨架已具备。 | 需要项目模板、投委会报告 HTML 生成/渲染、投后监控入口、复盘入口、角色优化和行业模板。 |
 
 优先级最高的未完成任务：
@@ -1354,15 +1358,18 @@ append_audit_event(deal_id, event)
 8. DealWorkflow 页面接入 R1.5 identify-disputes dry-run preview；真实写入能力仅保留为后端显式调用，UI 按钮等待 gateway 冒烟和人工验收后再评估开放。
 9. 新增 `workflow/disputes/{dispute_id}/ruling` 人工/显式主席裁决记录入口，默认 `dry_run=true`；真实写入会更新 R1.5 JSON/Markdown、workflow、audit，但不推进 R2。前端 API client 已覆盖该合同，页面暂不暴露写入按钮。
 10. `workflow/identify-disputes` 新增 `preserve_rulings=true` 默认合并语义；重新识别时按 `dispute_id` 保留已有 `chairman_ruling` 和 `resolved` 状态，显式 `preserve_rulings=false` 才允许破坏性重建。
+11. 新增 `workflow/generate-dispute-rulings` deterministic 主席裁决草案生成入口，默认 `dry_run=true`；真实写入需显式 `dry_run=false`，会为未裁决 dispute 写入 `siq_ic_chairman` ruling、更新 R1.5 workflow/audit，但不推进 R2。默认不覆盖已有裁决，除非显式 `overwrite=true`。
+12. DealWorkflow 页面接入主席裁决草案 dry-run preview 和受控写入入口；写入前必须勾选人工确认，支持覆盖已有裁决开关，写入后刷新 R1.5 summary/workflow 并展示成功提示。
 
 后续最高优先级任务：
 
 1. 确认 YUSHU demo 数据的交付方式：纳入版本控制、保留本地 seed，或提供一键导入命令。
-2. 基于已通过的单 profile health 冒烟，构造 R0/R1 临时 deal package，用真实 `siq_ic_strategist` 或 `siq_ic_finance_auditor` 完成 `run-r1-agent` 模型调用冒烟；在该冒烟完成前，真实执行仍标为“待联调”。
-3. 实现自动主席裁决生成、R2/R3/R4 的状态推进和产物写入，确保 R4 JSON 同时保留 `weighted_agent_score`、`chairman_dimension_score`、`chairman_qualitative_decision`。
-4. 将 evidence ingest 从 dry-run 升级到可配置实写 PostgreSQL/Milvus，并保留 dry-run/preflight 安全模式。
-5. 将 startup retrieval 从本地 evidence receipt 升级为真实共享证据库 + 私有 profile collection 检索，并在报告提交入口强制校验 receipt。
-6. 增加 Playwright E2E：访问 `/deals`，打开 demo，检查 workflow、agents、decision、audit 页面和关键审计事件。
+2. 用 YUSHU demo 对 DealWorkflow 的主席裁决草案 dry-run、人工确认写入、overwrite 语义和审计刷新做一次端到端人工验收。
+3. 扩大真实 Hermes 调用冒烟覆盖：补 `siq_ic_sector_expert`、`siq_ic_legal_scanner`、`siq_ic_risk_controller`、`siq_ic_chairman`，再评估开放受控真实 R1 单 agent / serial UI。
+4. 在人工验收后评估接入可选模型生成裁决，并实现 R2/R3/R4 的状态推进和产物写入，确保 R4 JSON 同时保留 `weighted_agent_score`、`chairman_dimension_score`、`chairman_qualitative_decision`。
+5. 将 evidence ingest 从 dry-run 升级到可配置实写 PostgreSQL/Milvus，并保留 dry-run/preflight 安全模式。
+6. 将 startup retrieval 从本地 evidence receipt 升级为真实共享证据库 + 私有 profile collection 检索，并在报告提交入口强制校验 receipt。
+7. 增加 Playwright E2E：访问 `/deals`，打开 demo，检查 workflow、agents、decision、audit 页面和关键审计事件。
 
 ### P0-A：Profile 家族落地
 
@@ -1451,7 +1458,7 @@ append_audit_event(deal_id, event)
 2. 新增 evidence build。
 3. 新增 startup retrieval receipt。
 4. 新增 R1 单 agent 运行，再扩展为串行顺序运行。
-5. 已新增 deterministic R1.5 分歧识别和人工/显式主席裁决记录；自动主席裁决生成仍待补齐。
+5. 已新增 deterministic R1.5 分歧识别、deterministic 主席裁决草案生成、受控主席裁决草案写入 UI 和人工/显式主席裁决记录；模型生成裁决和阶段推进仍待补齐。
 6. 新增 R2/R3/R4 产物写入。
 7. 新增 `IC_DECISION_REPORT.md` 生成和审计归档。
 
@@ -1485,7 +1492,7 @@ append_audit_event(deal_id, event)
 任务：
 
 1. 已具备 R1 严格串行调度入口；继续补一键推进和失败恢复。
-2. 已具备 deterministic R1.5 自动分歧识别、人工/显式主席裁决记录和裁决审计；继续补自动裁决生成/阶段推进。
+2. 已具备 deterministic R1.5 自动分歧识别、deterministic 主席裁决草案生成、受控 UI 写入、人工/显式主席裁决记录和裁决审计；继续补模型裁决和阶段推进。
 3. R2 自动发起修订任务。
 4. R3 动态执行或跳过。
 5. R4 自动生成投决报告。
@@ -1592,17 +1599,20 @@ apps/api/tests/test_deal_store.py
   - 创建 deal package 后 manifest/project_meta/workflow_state 均存在
   - legacy_project_id 可选但不丢失
   - 路径不能逃逸 data/wiki/deals
-  - R1 agent run、R1 serial run、R1.5 identify-disputes dry-run/write、R1.5 chairman ruling dry-run/write 均有持久化和审计覆盖
+  - R1 agent run、R1 serial run、R1.5 identify-disputes dry-run/write、R1.5 generate-dispute-rulings dry-run/write、R1.5 chairman ruling dry-run/write 均有持久化和审计覆盖
   - R1 reports 缺失时 R1.5 生成结果保持 warn/blocking，不误标 clear
 
 apps/api/tests/test_deals_router.py
   - `/api/deals/*` 核心 route contract、URL 编码、redaction、R1/R1.5 workflow endpoint 覆盖
 
 apps/web/src/lib/dealApi.test.ts
-  - Deal API client URL 编码、R1 serial dry-run、R1.5 identify-disputes dry-run、R1.5 chairman ruling dry-run/write 请求体覆盖
+  - Deal API client URL 编码、R1 serial dry-run、R1.5 identify-disputes dry-run、R1.5 generate-dispute-rulings dry-run/write、R1.5 chairman ruling dry-run/write 请求体覆盖
+
+apps/web/src/features/deals/workflowViewModel.test.ts
+  - R1.5 分歧计数、主席裁决草案 payload 规整、受控写入按钮启用条件覆盖
 ```
 
-仍缺口：真实 `run-r1-agent` Hermes 模型调用、PostgreSQL/Milvus 实写、Playwright E2E、完整 R2/R3/R4 自动化链路。
+仍缺口：剩余 R1 IC profiles 真实 Hermes 调用冒烟、R1 serial real smoke、PostgreSQL/Milvus 实写、Playwright E2E、完整 R2/R3/R4 自动化链路。
 
 ### 17.3 `start_all.sh` 启动策略
 
@@ -1760,9 +1770,9 @@ P0 的完成标准：
 建议按以下顺序进入实现：
 
 1. 确认 YUSHU demo 数据交付方式：纳入版本控制、保留本地 seed，或提供一键导入命令。
-2. 基于单 profile health 冒烟和临时 R1 workflow dry-run smoke，运行 `scripts/hermes/smoke_r1_agent_workflow.py --profile siq_ic_strategist --real --start-gateway --require-gateway-health` 完成真实 `run-r1-agent` 模型调用冒烟；在 real smoke 通过前，Web 继续只开放 dry-run。
-3. 实现自动主席裁决生成和受控 UI 表单；现有人工/显式 ruling API 继续保持默认 dry-run 和审计写入。
-4. 实现 R2/R3/R4 产物写入和最终投决报告生成，保留 `weighted_agent_score`、`chairman_dimension_score`、`chairman_qualitative_decision`。
+2. 用 YUSHU demo 对 DealWorkflow 的主席裁决草案 dry-run、人工确认写入、overwrite 语义和审计刷新做一次端到端人工验收。
+3. 扩大真实 Hermes 调用冒烟覆盖：补 `siq_ic_sector_expert`、`siq_ic_legal_scanner`、`siq_ic_risk_controller`、`siq_ic_chairman`，再评估开放受控真实 R1 单 agent / serial UI。
+4. 在人工验收后评估接入模型生成主席裁决，再实现 R2/R3/R4 产物写入和最终投决报告生成，保留 `weighted_agent_score`、`chairman_dimension_score`、`chairman_qualitative_decision`。
 5. 将 evidence ingest 和 startup retrieval 从本地/dry-run 升级为可配置 PostgreSQL/Milvus 实写，并保留 preflight 安全模式。
 6. 增加 Playwright E2E：访问 `/deals`，打开 demo，检查 workflow、agents、reports、decision、audit 页面和关键审计事件。
 

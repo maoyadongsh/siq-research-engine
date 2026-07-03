@@ -39,6 +39,17 @@ def calc_progress_percent(
     return round((estimated_pages / float(total)) * 100, 1)
 
 
+def status_log_since_index(raw_value: Any) -> int:
+    try:
+        return max(0, int(str(raw_value).strip()))
+    except (TypeError, ValueError):
+        return 0
+
+
+def should_refresh_task_from_upstream(task: Mapping[str, Any]) -> bool:
+    return not bool(task.get("cancelled"))
+
+
 def build_cancel_task_update(
     task: Mapping[str, Any],
     *,
