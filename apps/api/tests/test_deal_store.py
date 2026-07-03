@@ -16,6 +16,7 @@ from routers import deals
 from services import deal_contracts
 from services import deal_documents
 from services import deal_evidence
+from services import deal_reports
 from services import deal_store
 from services.ic_openclaw_importer import import_openclaw_project
 
@@ -53,6 +54,72 @@ def test_create_and_read_deal_package(tmp_path):
     assert detail["project_meta"]["company_name"] == "杭州宇树科技股份有限公司"
     assert detail["workflow"]["current_phase"] == "R0"
     assert deal_store.list_deals(wiki_root=tmp_path)[0]["stage"] == "Pre-IPO"
+
+
+def test_deal_reports_index_and_read_detail(tmp_path):
+    deal_store.create_deal_package(
+        deal_id="DEAL-YUSHU-2026-001",
+        company_name="杭州宇树科技股份有限公司",
+        wiki_root=tmp_path,
+    )
+    package_dir = tmp_path / "deals" / "DEAL-YUSHU-2026-001"
+    _write_json(
+        package_dir / "phases" / "r1_reports.json",
+        {
+            "siq_ic_strategist": {
+                "score": 82,
+                "recommendation": "SUPPORT",
+                "source_root": "/tmp/hidden",
+                "created_by": {"id": 7, "username": "analyst", "email": "hide@example.test"},
+            }
+        },
+    )
+    (package_dir / "discussion" / "01_R1_strategist_report.md").write_text("# R1\n\n战略窗口明确。", encoding="utf-8")
+    _write_ndjson(
+        package_dir / "evidence" / "evidence_items.ndjson",
+        [{"evidence_id": "EVID-001", "source_root": "/tmp/hidden"}],
+    )
+
+    index = deal_reports.list_deal_reports("DEAL-YUSHU-2026-001", wiki_root=tmp_path)
+
+    report_paths = {item["path"] for item in index["reports"]}
+    assert index["schema_version"] == "siq_deal_reports_index_v1"
+    assert "phases/r1_reports.json" in report_paths
+    assert "discussion/01_R1_strategist_report.md" in report_paths
+    assert "evidence/evidence_items.ndjson" in report_paths
+    assert index["counts"]["reports"] >= 4
+    assert any(item["path"] == "decision/IC_DECISION_REPORT.md" for item in index["missing_expected"])
+
+    detail = deal_reports.read_deal_report(
+        "DEAL-YUSHU-2026-001",
+        "phases/r1_reports.json",
+        wiki_root=tmp_path,
+    )
+    assert detail["schema_version"] == "siq_deal_report_detail_v1"
+    assert detail["report"]["format"] == "json"
+    assert "/tmp/hidden" not in detail["content"]
+    assert "hide@example.test" not in detail["content"]
+    assert detail["json"]["siq_ic_strategist"]["created_by"] == {"id": 7, "username": "analyst"}
+
+    ndjson = deal_reports.read_deal_report(
+        "DEAL-YUSHU-2026-001",
+        "evidence/evidence_items.ndjson",
+        wiki_root=tmp_path,
+    )
+    assert ndjson["rows_preview"] == [{"evidence_id": "EVID-001"}]
+
+
+def test_deal_reports_reject_unsafe_paths(tmp_path):
+    deal_store.create_deal_package(
+        deal_id="DEAL-YUSHU-2026-001",
+        company_name="杭州宇树科技股份有限公司",
+        wiki_root=tmp_path,
+    )
+
+    with pytest.raises(ValueError):
+        deal_reports.read_deal_report("DEAL-YUSHU-2026-001", "../manifest.json", wiki_root=tmp_path)
+    with pytest.raises(ValueError):
+        deal_reports.read_deal_report("DEAL-YUSHU-2026-001", "data_room/raw/file.pdf", wiki_root=tmp_path)
 
 
 def test_deal_id_rejects_path_escape(tmp_path):
@@ -764,6 +831,31 @@ def test_deal_evidence_builds_offline_package_from_bound_parser_docs(tmp_path, m
         wiki_root=tmp_path,
     )
     assert item["evidence"]["source_anchor"]["page"] == 4
+
+    dry_run = deal_evidence.build_deal_evidence_ingest_dry_run(
+        "DEAL-YUSHU-2026-001",
+        created_by={"id": 7, "username": "analyst", "email": "hidden@example.com"},
+        wiki_root=tmp_path,
+    )
+    assert dry_run["schema_version"] == "siq_deal_evidence_ingest_dry_run_v1"
+    assert dry_run["postgres_written"] is False
+    assert dry_run["milvus_written"] is False
+    assert dry_run["counts"]["items_total"] == 2
+    assert dry_run["counts"]["postgres_rows_planned"] == 2
+    assert dry_run["counts"]["milvus_chunks_planned"] == 2
+    assert dry_run["target_postgres"]["write_enabled"] is False
+    assert dry_run["target_milvus"]["write_enabled"] is False
+    assert dry_run["postgres_rows_preview"][0]["artifact_path"] == "parser_results/task-fin/document.md"
+    assert dry_run["milvus_chunks_preview"][0]["collection"] == "siq_deal_shared"
+    assert dry_run["milvus_chunks_preview"][0]["evidence_id"] == "EVID-DEAL-YUSHU-2026-001-000001"
+    assert dry_run["milvus_chunks_preview"][0]["confidence"] == 0.6
+    assert "hidden@example.com" not in json.dumps(deal_store.redact_public_payload(dry_run), ensure_ascii=False)
+    assert (package_dir / "evidence" / "evidence_ingest_dry_run.json").is_file()
+    manifest = json.loads((package_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["evidence"]["last_ingest_dry_run"]["postgres_written"] is False
+    assert manifest["evidence"]["last_ingest_dry_run"]["milvus_written"] is False
+    loaded_dry_run = deal_evidence.read_deal_evidence_ingest_dry_run("DEAL-YUSHU-2026-001", wiki_root=tmp_path)
+    assert loaded_dry_run["ingest_dry_run"]["counts"]["items_valid"] == 2
 
 
 def test_deal_evidence_build_is_idempotent_and_preflight_counts_items(tmp_path, monkeypatch):

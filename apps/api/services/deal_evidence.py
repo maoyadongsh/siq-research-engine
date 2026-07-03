@@ -21,7 +21,9 @@ from services.path_config import DOCUMENT_PARSER_RESULTS_ROOT
 EVIDENCE_ITEM_SCHEMA = "siq_deal_evidence_item_v1"
 EVIDENCE_INDEX_SCHEMA = "siq_deal_evidence_index_v1"
 EVIDENCE_QUALITY_SCHEMA = "siq_deal_evidence_quality_v1"
+EVIDENCE_INGEST_DRY_RUN_SCHEMA = "siq_deal_evidence_ingest_dry_run_v1"
 BUILD_MODE = "offline_document_md_v1"
+INGEST_DRY_RUN_MODE = "deal_evidence_ingest_dry_run_v1"
 MAX_CHUNK_CHARS = 1600
 MAX_QUOTE_CHARS = 1200
 ITEMS_PREVIEW_LIMIT = 50
@@ -486,6 +488,196 @@ def _sync_manifest_evidence(package_dir: Path, index: dict[str, Any], quality: d
     manifest["evidence"] = evidence
     manifest["updated_at"] = deal_store.utc_now_iso()
     deal_store.write_json(package_dir / "manifest.json", manifest)
+
+
+def _sync_manifest_ingest_dry_run(package_dir: Path, report: dict[str, Any]) -> None:
+    manifest = deal_store.read_json(package_dir / "manifest.json", {}) or {}
+    evidence = manifest.get("evidence") if isinstance(manifest.get("evidence"), dict) else {}
+    evidence["ingest_dry_run_path"] = "evidence/evidence_ingest_dry_run.json"
+    evidence["last_ingest_dry_run"] = {
+        "status": report.get("status"),
+        "created_at": report.get("created_at"),
+        "counts": report.get("counts") or {},
+        "postgres_written": False,
+        "milvus_written": False,
+    }
+    manifest["evidence"] = evidence
+    manifest["updated_at"] = deal_store.utc_now_iso()
+    deal_store.write_json(package_dir / "manifest.json", manifest)
+
+
+def _as_text(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _ingest_status(errors: list[str], warnings: list[str]) -> str:
+    if errors:
+        return "fail"
+    if warnings:
+        return "warn"
+    return "pass"
+
+
+def _postgres_row_plan(item: dict[str, Any]) -> dict[str, Any]:
+    anchor = item.get("source_anchor") if isinstance(item.get("source_anchor"), dict) else {}
+    return {
+        "schema_version": "siq_deal_evidence_row_v1",
+        "deal_id": item.get("deal_id"),
+        "document_id": item.get("document_id"),
+        "evidence_id": item.get("evidence_id"),
+        "artifact_path": item.get("source_path"),
+        "source_path": item.get("source_path"),
+        "source_type": item.get("source_type"),
+        "evidence_type": item.get("evidence_type"),
+        "dimension": item.get("dimension"),
+        "claim": item.get("claim"),
+        "quote": item.get("quote"),
+        "citation": item.get("citation"),
+        "confidence": item.get("confidence"),
+        "locator": item.get("locator"),
+        "page": anchor.get("page"),
+        "block_id": anchor.get("block_id"),
+        "md_line_start": anchor.get("md_line_start"),
+        "md_line_end": anchor.get("md_line_end"),
+        "source_url": item.get("source_url"),
+        "artifact_url": item.get("artifact_url"),
+        "created_at": item.get("created_at"),
+    }
+
+
+def _milvus_chunk_plan(item: dict[str, Any]) -> dict[str, Any]:
+    role_hints = item.get("role_hints") if isinstance(item.get("role_hints"), list) else []
+    text = _as_text(item.get("quote") or item.get("claim"))
+    return {
+        "schema_version": "siq_deal_chunk_v1",
+        "collection": "siq_deal_shared",
+        "deal_id": item.get("deal_id"),
+        "document_id": item.get("document_id"),
+        "evidence_id": item.get("evidence_id"),
+        "source_path": item.get("source_path"),
+        "source_type": item.get("source_type"),
+        "confidence": item.get("confidence"),
+        "role_hint": role_hints[0] if role_hints else None,
+        "role_hints": role_hints,
+        "citation": item.get("citation"),
+        "dimension": item.get("dimension"),
+        "text": text,
+        "text_length": len(text),
+        "source_url": item.get("source_url"),
+        "artifact_url": item.get("artifact_url"),
+    }
+
+
+def build_deal_evidence_ingest_dry_run(
+    deal_id: str,
+    *,
+    created_by: dict[str, Any] | None = None,
+    wiki_root: Path | str | None = None,
+) -> dict[str, Any]:
+    package_dir = _require_package_dir(deal_id, wiki_root=wiki_root)
+    normalized_deal_id = deal_store.validate_deal_id(deal_id)
+    created_at = deal_store.utc_now_iso()
+    items, invalid_lines = _read_ndjson(package_dir / "evidence" / "evidence_items.ndjson")
+    quality = deal_store.read_json(package_dir / "evidence" / "evidence_quality_report.json", {}) or {}
+
+    errors: list[str] = []
+    warnings: list[str] = []
+    if invalid_lines:
+        errors.append(f"evidence_items.ndjson has {invalid_lines} invalid lines")
+    if not items:
+        errors.append("No evidence items found. Build evidence package before ingest dry-run.")
+    quality_status = quality.get("status") if isinstance(quality, dict) else None
+    if quality_status == "fail":
+        warnings.append("Evidence quality status is fail; dry-run generated for inspection only.")
+    elif quality_status == "warn":
+        warnings.append("Evidence quality status is warn; review quality report before real ingest.")
+
+    required_fields = ("evidence_id", "deal_id", "document_id", "source_path", "quote", "evidence_type", "dimension")
+    postgres_rows: list[dict[str, Any]] = []
+    milvus_chunks: list[dict[str, Any]] = []
+    item_errors: list[dict[str, Any]] = []
+    seen_evidence_ids: set[str] = set()
+    duplicate_evidence_ids: set[str] = set()
+    for item in items:
+        evidence_id = _as_text(item.get("evidence_id"))
+        missing = [field for field in required_fields if not _as_text(item.get(field))]
+        if evidence_id in seen_evidence_ids:
+            duplicate_evidence_ids.add(evidence_id)
+        if evidence_id:
+            seen_evidence_ids.add(evidence_id)
+        if missing:
+            item_errors.append({"evidence_id": evidence_id or None, "missing": missing})
+            continue
+        postgres_rows.append(_postgres_row_plan(item))
+        milvus_chunks.append(_milvus_chunk_plan(item))
+
+    if duplicate_evidence_ids:
+        errors.append(f"Duplicate evidence_id values: {', '.join(sorted(duplicate_evidence_ids))}")
+    if item_errors:
+        errors.append(f"{len(item_errors)} evidence items are missing required ingest fields")
+
+    counts = {
+        "items_total": len(items),
+        "items_valid": len(postgres_rows),
+        "items_invalid": len(item_errors),
+        "postgres_rows_planned": len(postgres_rows),
+        "milvus_chunks_planned": len(milvus_chunks),
+        "invalid_ndjson_lines": invalid_lines,
+    }
+    report = {
+        "schema_version": EVIDENCE_INGEST_DRY_RUN_SCHEMA,
+        "deal_id": normalized_deal_id,
+        "mode": INGEST_DRY_RUN_MODE,
+        "status": _ingest_status(errors, warnings),
+        "created_at": created_at,
+        "postgres_written": False,
+        "milvus_written": False,
+        "target_postgres": {
+            "schema": "deal_os",
+            "tables": ["deal_os.evidence_items"],
+            "write_enabled": False,
+        },
+        "target_milvus": {
+            "collections": ["siq_deal_shared"],
+            "write_enabled": False,
+        },
+        "counts": counts,
+        "quality_status": quality_status,
+        "required_fields": list(required_fields),
+        "errors": errors,
+        "warnings": warnings,
+        "item_errors": item_errors,
+        "postgres_rows_preview": postgres_rows[:20],
+        "milvus_chunks_preview": milvus_chunks[:20],
+        "created_by": created_by,
+    }
+    evidence_dir = package_dir / "evidence"
+    deal_store.write_json(evidence_dir / "evidence_ingest_dry_run.json", report)
+    _sync_manifest_ingest_dry_run(package_dir, report)
+    deal_store.append_audit_event(
+        normalized_deal_id,
+        {
+            "event_type": "deal_evidence_ingest_dry_run_generated",
+            "status": report["status"],
+            "counts": counts,
+            "created_by": created_by,
+        },
+        wiki_root=wiki_root,
+    )
+    return report
+
+
+def read_deal_evidence_ingest_dry_run(
+    deal_id: str,
+    *,
+    wiki_root: Path | str | None = None,
+) -> dict[str, Any]:
+    package_dir = _require_package_dir(deal_id, wiki_root=wiki_root)
+    report = deal_store.read_json(package_dir / "evidence" / "evidence_ingest_dry_run.json", None)
+    return {
+        "deal_id": deal_store.validate_deal_id(deal_id),
+        "ingest_dry_run": report if isinstance(report, dict) else None,
+    }
 
 
 def build_deal_evidence_package(

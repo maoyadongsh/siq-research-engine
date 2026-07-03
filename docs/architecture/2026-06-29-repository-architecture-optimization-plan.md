@@ -3517,6 +3517,24 @@ scripts/hermes/profile_dir.sh siq_ic_chairman  # agents/hermes/profiles/siq_ic_c
 scripts/hermes/profile_dir.sh ic_coordinator  # agents/hermes/profiles/siq_ic_master_coordinator
 ```
 
+### 0.56 2026-07-03 Deal evidence Postgres / Milvus ingest dry-run
+
+本轮只增加 Deal evidence 入库前的 dry-run 计划，不执行真实 PostgreSQL 或 Milvus 写入，也不混入前端 UI、CI 或 Hermes 启动脚本。
+
+完成范围：
+
+- `deal_evidence.py` 新增 `build_deal_evidence_ingest_dry_run`，从现有 `evidence_items.ndjson` 生成 Postgres row plan 和 Milvus chunk plan，输出 `postgres_written=false` / `milvus_written=false`。
+- dry-run 检查 evidence item 必需字段、重复 `evidence_id`、invalid ndjson lines，并同步 `manifest.evidence.ingest_dry_run_path` / `last_ingest_dry_run`。
+- `/api/deals/{deal_id}/evidence/ingest/dry-run` 和兼容短路径 `/evidence/ingest-dry-run` 提供 POST 生成、GET 读取；写路径需要 `report.create`，读路径需要 `report.view`。
+- dry-run payload 继续经过 `redact_public_payload`，只保留 `created_by` 的 id / username，不暴露 email 或本地绝对路径；Milvus chunk `confidence` 使用 evidence item 的数值 confidence。
+
+验证：
+
+```bash
+cd apps/api && .venv/bin/python -m pytest tests/test_deal_store.py tests/test_deals_router.py tests/test_deal_documents.py -q  # 30 passed, 33 warnings
+cd apps/api && .venv/bin/python -m py_compile routers/deals.py services/deal_evidence.py services/deal_store.py
+```
+
 ## 10. 验收标准总表
 
 ### 仓库治理 DoD

@@ -72,6 +72,51 @@ def test_deals_router_create_list_and_detail(monkeypatch, tmp_path):
     }
 
 
+def test_deals_router_reports_index_and_detail(monkeypatch, tmp_path):
+    client = _client(monkeypatch, tmp_path)
+    assert client.post(
+        "/api/deals",
+        json={"deal_id": "DEAL-ROUTER-REPORTS", "company_name": "Router Robotics"},
+    ).status_code == 200
+    package_dir = tmp_path / "wiki" / "deals" / "DEAL-ROUTER-REPORTS"
+    _write_json(
+        package_dir / "phases" / "r1_reports.json",
+        {
+            "siq_ic_strategist": {
+                "score": 82,
+                "recommendation": "SUPPORT",
+                "source_root": "/tmp/hidden",
+                "created_by": {"id": 7, "username": "ic-admin", "email": "hide@example.test"},
+            }
+        },
+    )
+    (package_dir / "discussion" / "01_R1_strategist_report.md").write_text("# R1\n\n战略窗口明确。", encoding="utf-8")
+
+    index = client.get("/api/deals/DEAL-ROUTER-REPORTS/reports")
+    assert index.status_code == 200
+    index_payload = index.json()
+    assert index_payload["schema_version"] == "siq_deal_reports_index_v1"
+    paths = {item["path"] for item in index_payload["reports"]}
+    assert "phases/r1_reports.json" in paths
+    assert "discussion/01_R1_strategist_report.md" in paths
+    assert index_payload["counts"]["reports"] >= 4
+    assert any(item["path"] == "decision/IC_DECISION_REPORT.md" for item in index_payload["missing_expected"])
+
+    detail = client.get("/api/deals/DEAL-ROUTER-REPORTS/reports/phases/r1_reports.json")
+    assert detail.status_code == 200
+    detail_payload = detail.json()
+    assert detail_payload["schema_version"] == "siq_deal_report_detail_v1"
+    assert detail_payload["report"]["path"] == "phases/r1_reports.json"
+    assert "/tmp/hidden" not in detail_payload["content"]
+    assert "hide@example.test" not in detail_payload["content"]
+    assert detail_payload["json"]["siq_ic_strategist"]["created_by"] == {"id": 7, "username": "ic-admin"}
+
+    missing = client.get("/api/deals/DEAL-ROUTER-REPORTS/reports/discussion/missing.md")
+    assert missing.status_code == 404
+    blocked = client.get("/api/deals/DEAL-ROUTER-REPORTS/reports/data_room/raw/secret.pdf")
+    assert blocked.status_code == 400
+
+
 def test_deals_router_wait_import_accepts_project_id(monkeypatch, tmp_path):
     openclaw_root = tmp_path / "openclaw" / "projects"
     source = openclaw_root / "SIQ-ROUTER-2026-001"
@@ -319,6 +364,19 @@ def test_deals_router_build_and_read_evidence(monkeypatch, tmp_path):
     quality = client.get("/api/deals/DEAL-ROUTER-007/evidence/quality")
     assert quality.status_code == 200
     assert quality.json()["quality_report"]["counts"]["documents_indexed"] == 1
+
+    dry_run = client.post("/api/deals/DEAL-ROUTER-007/evidence/ingest/dry-run")
+    assert dry_run.status_code == 200
+    dry_run_payload = dry_run.json()["ingest_dry_run"]
+    assert dry_run_payload["postgres_written"] is False
+    assert dry_run_payload["milvus_written"] is False
+    assert dry_run_payload["counts"]["items_valid"] == 2
+    assert dry_run_payload["postgres_rows_preview"][0]["evidence_id"] == evidence_id
+    assert dry_run_payload["milvus_chunks_preview"][0]["collection"] == "siq_deal_shared"
+
+    dry_run_alias = client.get("/api/deals/DEAL-ROUTER-007/evidence/ingest-dry-run")
+    assert dry_run_alias.status_code == 200
+    assert dry_run_alias.json()["ingest_dry_run"]["counts"]["milvus_chunks_planned"] == 2
 
     item = client.get(f"/api/deals/DEAL-ROUTER-007/evidence/{evidence_id}")
     assert item.status_code == 200
