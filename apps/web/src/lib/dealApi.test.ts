@@ -20,7 +20,10 @@ const {
   fetchDealStatus,
   fetchDealWorkflow,
   generateDealStartupRetrieval,
+  identifyDealWorkflowDisputes,
   postDealDecisionHumanConfirmation,
+  ruleDealWorkflowDispute,
+  runDealWorkflowR1Serial,
 } = await import('./dealApi.ts')
 
 type FetchCall = {
@@ -104,6 +107,20 @@ test('deal agent APIs preserve R1 defaults and dry-run contract', async () => {
 
   await generateDealStartupRetrieval('DEAL-1', 'siq/ic strategist', { query: 'revenue', limit: 3 })
   await dryRunDealWorkflowR1Agent('DEAL-1', 'siq/ic strategist')
+  await runDealWorkflowR1Serial('DEAL-1')
+  await runDealWorkflowR1Serial('DEAL 1/测试', { dry_run: false, max_agents: 2 })
+  await identifyDealWorkflowDisputes('DEAL-1')
+  await identifyDealWorkflowDisputes('DEAL 1/测试', { dry_run: false, preserve_rulings: false })
+  await ruleDealWorkflowDispute('DEAL-1', 'DISP-001', { decision: 'resolved_with_conditions' })
+  await ruleDealWorkflowDispute('DEAL 1/测试', 'DISP 1/测试', {
+    decision: 'resolved_no_followup',
+    rationale: 'Chair accepted the gap.',
+    required_followups: ['Archive note'],
+    evidence_ids: ['EVID-001'],
+    resolved: true,
+    overwrite: true,
+    dry_run: false,
+  })
 
   assert.deepEqual(calls, [
     {
@@ -122,6 +139,66 @@ test('deal agent APIs preserve R1 defaults and dry-run contract', async () => {
         profile_id: 'siq/ic strategist',
         round_name: 'R1',
         dry_run: true,
+      },
+    },
+    {
+      url: '/api/deals/DEAL-1/workflow/run-r1-serial',
+      method: 'POST',
+      body: {
+        round_name: 'R1',
+        dry_run: true,
+        max_agents: 6,
+      },
+    },
+    {
+      url: '/api/deals/DEAL%201%2F%E6%B5%8B%E8%AF%95/workflow/run-r1-serial',
+      method: 'POST',
+      body: {
+        round_name: 'R1',
+        dry_run: false,
+        max_agents: 2,
+      },
+    },
+    {
+      url: '/api/deals/DEAL-1/workflow/identify-disputes',
+      method: 'POST',
+      body: {
+        dry_run: true,
+        preserve_rulings: true,
+      },
+    },
+    {
+      url: '/api/deals/DEAL%201%2F%E6%B5%8B%E8%AF%95/workflow/identify-disputes',
+      method: 'POST',
+      body: {
+        dry_run: false,
+        preserve_rulings: false,
+      },
+    },
+    {
+      url: '/api/deals/DEAL-1/workflow/disputes/DISP-001/ruling',
+      method: 'POST',
+      body: {
+        decision: 'resolved_with_conditions',
+        rationale: '',
+        required_followups: [],
+        evidence_ids: [],
+        resolved: true,
+        overwrite: false,
+        dry_run: true,
+      },
+    },
+    {
+      url: '/api/deals/DEAL%201%2F%E6%B5%8B%E8%AF%95/workflow/disputes/DISP%201%2F%E6%B5%8B%E8%AF%95/ruling',
+      method: 'POST',
+      body: {
+        decision: 'resolved_no_followup',
+        rationale: 'Chair accepted the gap.',
+        required_followups: ['Archive note'],
+        evidence_ids: ['EVID-001'],
+        resolved: true,
+        overwrite: true,
+        dry_run: false,
       },
     },
   ])

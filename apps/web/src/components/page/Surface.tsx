@@ -1,5 +1,6 @@
 import type { ComponentPropsWithoutRef, ElementType, ReactNode } from 'react'
 import { cn } from '@/lib/utils'
+export { StatusBadge } from './StatusBadge'
 
 type SurfaceKind = 'card' | 'panel' | 'row' | 'muted'
 type Padding = 'none' | 'sm' | 'md' | 'lg'
@@ -39,32 +40,5 @@ export function Surface<T extends ElementType = 'div'>({
     <Component className={cn(kindClass[kind], paddingClass[padding], className)} {...props}>
       {children}
     </Component>
-  )
-}
-
-export function StatusBadge({
-  children,
-  tone = 'neutral',
-  icon: Icon,
-  className,
-}: {
-  children: ReactNode
-  tone?: 'neutral' | 'info' | 'success' | 'warning' | 'error'
-  icon?: ElementType
-  className?: string
-}) {
-  const toneClass = {
-    neutral: '',
-    info: 'secondary-status-info',
-    success: 'secondary-status-success',
-    warning: 'secondary-status-warning',
-    error: 'secondary-status-error',
-  }[tone]
-
-  return (
-    <span className={cn('secondary-status', toneClass, className)}>
-      {Icon ? <Icon className="h-3.5 w-3.5" /> : null}
-      {children}
-    </span>
   )
 }

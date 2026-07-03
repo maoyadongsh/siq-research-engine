@@ -238,6 +238,7 @@ def test_document_db_import_endpoint_uses_wiki_package(monkeypatch, tmp_path):
 
     def fake_run_command(args, timeout=300, env=None):
         seen["args"] = args
+        seen["timeout"] = timeout
         seen["env"] = env
         return {"returnCode": 0, "stdout": '{"ok":true}', "stderr": ""}
 
@@ -248,6 +249,13 @@ def test_document_db_import_endpoint_uses_wiki_package(monkeypatch, tmp_path):
 
     assert result["ok"] is True
     assert str(script) in seen["args"]
+    assert seen["timeout"] == 300
+    assert seen["env"]["PGHOST"] == "h"
+    assert seen["env"]["PGPORT"] == "5432"
+    assert seen["env"]["PGDATABASE"] == "d"
+    assert seen["env"]["PGUSER"] == "u"
+    assert seen["env"]["PGPASSWORD"] == "p"
+    assert seen["env"]["DATABASE_URL"] == "postgresql://u:p@h:5432/d"
     assert result["postgres"]["status"] == "ready"
 
 
@@ -267,6 +275,50 @@ def test_document_db_import_rejects_missing_package_manifest(monkeypatch, tmp_pa
         workflow.import_document_task_to_database("task-doc-missing-manifest", "contracts")
 
     assert exc.value.status_code == 404
+
+
+def test_document_db_import_rejects_missing_wiki_without_running_command(monkeypatch, tmp_path):
+    script = tmp_path / "import_document_parse_package_to_postgres.py"
+    script.write_text("print('ok')\n", encoding="utf-8")
+    monkeypatch.setattr(workflow, "DOCUMENT_DB_IMPORT_SCRIPT", script)
+    monkeypatch.setattr(
+        workflow,
+        "_document_wiki_status",
+        lambda task_id, collection: {"status": "missing"},
+    )
+
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("DB import must not run without a ready Wiki package")
+
+    monkeypatch.setattr(workflow, "_run_command", fail_if_called)
+
+    with pytest.raises(workflow.HTTPException) as exc:
+        workflow.import_document_task_to_database("task-doc-missing-wiki", "contracts")
+
+    assert exc.value.status_code == 422
+
+
+def test_document_db_import_rejects_missing_script_without_running_command(monkeypatch, tmp_path):
+    package_dir = tmp_path / "wiki" / "documents" / "contracts" / "doc"
+    package_dir.mkdir(parents=True)
+    write_json(package_dir / "manifest.json", {"schema_version": "generic_document_package_v1"})
+    monkeypatch.setattr(workflow, "DOCUMENT_DB_IMPORT_SCRIPT", tmp_path / "missing_import.py")
+    monkeypatch.setattr(
+        workflow,
+        "_document_wiki_status",
+        lambda task_id, collection: {"status": "ready", "path": str(package_dir)},
+    )
+
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("DB import must not run without its script")
+
+    monkeypatch.setattr(workflow, "_run_command", fail_if_called)
+
+    with pytest.raises(workflow.HTTPException) as exc:
+        workflow.import_document_task_to_database("task-doc-missing-script", "contracts")
+
+    assert exc.value.status_code == 500
+    assert "Document DB import script not found" in exc.value.detail
 
 
 def test_document_db_import_maps_command_failure_to_500(monkeypatch, tmp_path):
@@ -291,6 +343,98 @@ def test_document_db_import_maps_command_failure_to_500(monkeypatch, tmp_path):
     assert exc.value.detail == failure
 
 
+def test_task_db_import_uses_config_py_without_env(monkeypatch, tmp_path):
+    document_full = tmp_path / "document_full.json"
+    document_full.write_text("{}", encoding="utf-8")
+    script = tmp_path / "db_import.py"
+    script.write_text("print('ok')\n", encoding="utf-8")
+    config_py = tmp_path / "config.py"
+    config_py.write_text("DATABASE_URL = 'postgresql://from-config'\n", encoding="utf-8")
+    seen = {}
+
+    def fake_run_command(args, timeout=300, env=None):
+        seen["args"] = args
+        seen["timeout"] = timeout
+        seen["env"] = env
+        return {"returnCode": 0, "stdout": "ok", "stderr": ""}
+
+    monkeypatch.setattr(workflow, "_find_task_document_full", lambda task_id: document_full)
+    monkeypatch.setattr(workflow, "DB_IMPORT_SCRIPT", script)
+    monkeypatch.setattr(workflow, "DB_CONFIG_PY", config_py)
+    monkeypatch.setattr(workflow, "_run_command", fake_run_command)
+    monkeypatch.setattr(workflow, "_db_status", lambda task_id: {"status": "ready", "task_id": task_id})
+
+    result = workflow.import_task_to_database("task-db-config")
+
+    assert result == {
+        "ok": True,
+        "taskId": "task-db-config",
+        "documentFull": str(document_full),
+        "result": {"returnCode": 0, "stdout": "ok", "stderr": ""},
+        "database": {"status": "ready", "task_id": "task-db-config"},
+    }
+    assert seen["args"] == [sys.executable, str(script), str(document_full), "--config-py", str(config_py)]
+    assert seen["timeout"] == 300
+    assert seen["env"] is None
+
+
+def test_task_db_import_uses_database_url_env_without_config_py(monkeypatch, tmp_path):
+    document_full = tmp_path / "document_full.json"
+    document_full.write_text("{}", encoding="utf-8")
+    script = tmp_path / "db_import.py"
+    script.write_text("print('ok')\n", encoding="utf-8")
+    missing_config = tmp_path / "missing_config.py"
+    seen = {}
+
+    def fake_run_command(args, timeout=300, env=None):
+        seen["args"] = args
+        seen["timeout"] = timeout
+        seen["env"] = env
+        return {"returnCode": 0, "stdout": "ok", "stderr": ""}
+
+    monkeypatch.setattr(workflow, "_find_task_document_full", lambda task_id: document_full)
+    monkeypatch.setattr(workflow, "DB_IMPORT_SCRIPT", script)
+    monkeypatch.setattr(workflow, "DB_CONFIG_PY", missing_config)
+    monkeypatch.setattr(workflow, "_db_connect_config", lambda: {"host": "h", "port": 5432, "dbname": "d", "user": "u", "password": "p"})
+    monkeypatch.setattr(workflow, "_run_command", fake_run_command)
+    monkeypatch.setattr(workflow, "_db_status", lambda task_id: {"status": "ready"})
+
+    workflow.import_task_to_database("task-db-env")
+
+    assert seen["args"] == [
+        sys.executable,
+        str(script),
+        str(document_full),
+        "--database-url",
+        "postgresql://u:p@h:5432/d",
+    ]
+    assert seen["timeout"] == 300
+    assert seen["env"]["PGHOST"] == "h"
+    assert seen["env"]["PGPORT"] == "5432"
+    assert seen["env"]["PGDATABASE"] == "d"
+    assert seen["env"]["PGUSER"] == "u"
+    assert seen["env"]["PGPASSWORD"] == "p"
+    assert seen["env"]["DATABASE_URL"] == "postgresql://u:p@h:5432/d"
+
+
+def test_task_db_import_rejects_missing_script_without_running_command(monkeypatch, tmp_path):
+    document_full = tmp_path / "document_full.json"
+    document_full.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(workflow, "_find_task_document_full", lambda task_id: document_full)
+    monkeypatch.setattr(workflow, "DB_IMPORT_SCRIPT", tmp_path / "missing_db_import.py")
+
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("DB import must not run without its script")
+
+    monkeypatch.setattr(workflow, "_run_command", fail_if_called)
+
+    with pytest.raises(workflow.HTTPException) as exc:
+        workflow.import_task_to_database("task-db-missing-script")
+
+    assert exc.value.status_code == 500
+    assert "DB import script not found" in exc.value.detail
+
+
 def test_document_semantic_endpoint_builds_chunks(monkeypatch, tmp_path):
     task_id = "task-doc-004"
     results_root = tmp_path / "results"
@@ -305,6 +449,7 @@ def test_document_semantic_endpoint_builds_chunks(monkeypatch, tmp_path):
 
     def fake_run_command(args, timeout=300, env=None):
         seen["args"] = args
+        seen["timeout"] = timeout
         output = Path(args[args.index("--output") + 1])
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text('{"chunk_uid":"c1"}\n', encoding="utf-8")
@@ -317,6 +462,7 @@ def test_document_semantic_endpoint_builds_chunks(monkeypatch, tmp_path):
 
     assert result["ok"] is True
     assert str(script) in seen["args"]
+    assert seen["timeout"] == 300
     assert "--milvus" not in seen["args"]
     assert result["milvus"]["status"] == "chunks_ready"
     assert result["milvus"]["chunkCount"] == 1
@@ -343,6 +489,49 @@ def test_document_semantic_maps_command_failure_to_500(monkeypatch, tmp_path):
     assert exc.value.detail == failure
 
 
+def test_document_semantic_rejects_missing_wiki_without_running_command(monkeypatch, tmp_path):
+    script = tmp_path / "ingest_document_chunks.py"
+    script.write_text("print('ok')\n", encoding="utf-8")
+    monkeypatch.setattr(workflow, "DOCUMENT_CHUNK_SCRIPT", script)
+    monkeypatch.setattr(
+        workflow,
+        "_document_wiki_status",
+        lambda task_id, collection: {"status": "missing"},
+    )
+
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("semantic command must not run without a ready Wiki package")
+
+    monkeypatch.setattr(workflow, "_run_command", fail_if_called)
+
+    with pytest.raises(workflow.HTTPException) as exc:
+        workflow.build_document_semantic_chunks("task-doc-missing-wiki", "contracts")
+
+    assert exc.value.status_code == 422
+
+
+def test_document_semantic_rejects_missing_script_without_running_command(monkeypatch, tmp_path):
+    package_dir = tmp_path / "wiki" / "documents" / "contracts" / "doc"
+    package_dir.mkdir(parents=True)
+    monkeypatch.setattr(workflow, "DOCUMENT_CHUNK_SCRIPT", tmp_path / "missing_chunks.py")
+    monkeypatch.setattr(
+        workflow,
+        "_document_wiki_status",
+        lambda task_id, collection: {"status": "ready", "path": str(package_dir)},
+    )
+
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("semantic command must not run without its script")
+
+    monkeypatch.setattr(workflow, "_run_command", fail_if_called)
+
+    with pytest.raises(workflow.HTTPException) as exc:
+        workflow.build_document_semantic_chunks("task-doc-missing-script", "contracts")
+
+    assert exc.value.status_code == 500
+    assert "Document chunk script not found" in exc.value.detail
+
+
 def test_document_semantic_endpoint_can_request_milvus_ingest(monkeypatch, tmp_path):
     task_id = "task-doc-005"
     results_root = tmp_path / "results"
@@ -357,6 +546,7 @@ def test_document_semantic_endpoint_can_request_milvus_ingest(monkeypatch, tmp_p
 
     def fake_run_command(args, timeout=300, env=None):
         seen["args"] = args
+        seen["timeout"] = timeout
         output = Path(args[args.index("--output") + 1])
         report = Path(args[args.index("--report") + 1])
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -371,6 +561,7 @@ def test_document_semantic_endpoint_can_request_milvus_ingest(monkeypatch, tmp_p
 
     assert result["ok"] is True
     assert "--milvus" in seen["args"]
+    assert seen["timeout"] == 1800
     assert result["semanticMode"] == "milvus"
     assert result["milvus"]["status"] == "completed"
     assert result["milvus"]["insertedCount"] == 1

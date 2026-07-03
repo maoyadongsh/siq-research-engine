@@ -131,6 +131,50 @@ def _import_metadata_payload(metadata: dict[str, Any] | None) -> dict[str, Any] 
     return redacted if isinstance(redacted, dict) else None
 
 
+def _normalize_r4_decision_contract(package_dir: Path) -> None:
+    """Backfill SIQ R4 contract fields from legacy OpenClaw decision payloads."""
+
+    path = package_dir / "phases" / "r4_decision.json"
+    decision = deal_store.read_json(path, None)
+    if not isinstance(decision, dict):
+        return
+
+    changed = False
+    breakdown = decision.get("breakdown") if isinstance(decision.get("breakdown"), dict) else {}
+    chairman = (
+        breakdown.get("siq_ic_chairman")
+        or breakdown.get("ic_chairman")
+        or breakdown.get("chairman")
+        or {}
+    )
+    if not isinstance(chairman, dict):
+        chairman = {}
+
+    if decision.get("schema_version") is None:
+        decision["schema_version"] = "siq_ic_r4_decision_v1"
+        changed = True
+    if decision.get("weighted_agent_score") is None and decision.get("final_score") is not None:
+        decision["weighted_agent_score"] = decision.get("final_score")
+        changed = True
+    if decision.get("chairman_dimension_score") is None:
+        chairman_score = chairman.get("raw_score") or chairman.get("score") or chairman.get("weighted_score")
+        if chairman_score is not None:
+            decision["chairman_dimension_score"] = chairman_score
+            changed = True
+    if decision.get("chairman_qualitative_decision") is None:
+        qualitative = decision.get("decision_text") or decision.get("decision") or decision.get("final_decision")
+        if qualitative is not None:
+            decision["chairman_qualitative_decision"] = qualitative
+            changed = True
+    if changed:
+        compatibility = decision.setdefault("compatibility", {})
+        if isinstance(compatibility, dict):
+            compatibility.setdefault("source", "openclaw_legacy_r4_decision")
+            compatibility.setdefault("normalized_at", deal_store.utc_now_iso())
+        decision["updated_at"] = deal_store.utc_now_iso()
+        deal_store.write_json(path, decision)
+
+
 def import_openclaw_project(
     *,
     source_root: str | Path,
@@ -224,6 +268,7 @@ def import_openclaw_project(
         workflow["status"] = "r4_completed"
     workflow.setdefault("current_phase", "R0")
     deal_store.write_json(package_dir / "phases" / "workflow_state.json", workflow)
+    _normalize_r4_decision_contract(package_dir)
 
     imported_count = len([item for item in file_results if item.get("status") == "imported"])
     audit_event = deal_store.append_audit_event(

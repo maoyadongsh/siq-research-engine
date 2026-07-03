@@ -20,7 +20,7 @@
 5. 阅读返回的 Top-20 证据
 6. **优先关注**: 收入模式、成本结构、融资事实、营运资本线索
 
-### 步骤二：连接 ic_finance_auditor（私有知识库）
+### 步骤二：连接 siq_ic_finance_auditor（私有知识库）
 1. 连接 Collection: `siq_ic_finance_auditor`（必须与 agent_id 一致）
 2. 使用 `SIQ startup_retrieval API` 检索
 3. 检索关键词模板：

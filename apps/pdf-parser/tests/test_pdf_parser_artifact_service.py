@@ -67,6 +67,29 @@ def test_classify_open_artifact_image_file_uses_sanitized_name_and_mimetype(tmp_
     }
 
 
+def test_build_images_index_payload_keeps_route_shape_and_order():
+    payload = artifacts.build_images_index_payload("task-images", ["a.jpg", "b.png"])
+
+    assert payload == {
+        "task_id": "task-images",
+        "artifact": "images",
+        "count": 2,
+        "images": [
+            {"name": "a.jpg", "url": "/api/artifact/task-images/images/a.jpg"},
+            {"name": "b.png", "url": "/api/artifact/task-images/images/b.png"},
+        ],
+    }
+
+
+def test_build_images_index_payload_handles_empty_names():
+    assert artifacts.build_images_index_payload("task-images", []) == {
+        "task_id": "task-images",
+        "artifact": "images",
+        "count": 0,
+        "images": [],
+    }
+
+
 def test_classify_open_artifact_allowed_file_uses_sanitized_allowlist_name(tmp_path):
     calls = []
 

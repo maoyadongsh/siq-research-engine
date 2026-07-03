@@ -232,15 +232,20 @@ def _market_build_accepts_parser_result(market: str, script: Path) -> bool:
 
 def _run_market_package_import(payload: dict[str, Any]) -> dict[str, Any]:
     market = _market_code(payload.get("market"))
-    package_dir = _safe_market_package_path(market, str(payload.get("package_path") or ""))
-    script = MARKET_IMPORT_SCRIPTS[market]
-    if not script.is_file():
-        raise HTTPException(status_code=404, detail=f"Missing package import script: {script}")
+    try:
+        plan = market_report_commands.build_market_package_import_plan(
+            payload=payload,
+            market=market,
+            market_import_scripts=MARKET_IMPORT_SCRIPTS,
+            safe_market_package_path=_safe_market_package_path,
+        )
+    except market_report_commands.MarketPackagePlanError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     args = market_report_commands.market_package_import_args(
         executable=sys.executable,
-        script=script,
-        market=market,
-        package_dir=package_dir,
+        script=plan.script,
+        market=plan.market,
+        package_dir=plan.package_dir,
         payload=payload,
     )
     completed = run_command(args, cwd=REPO_ROOT, timeout=900)
@@ -252,33 +257,51 @@ def _run_market_package_import(payload: dict[str, Any]) -> dict[str, Any]:
 
 def _run_market_vector_ingest(payload: dict[str, Any]) -> dict[str, Any]:
     market = _market_code(payload.get("market"))
-    package_dir = _safe_market_package_path(market, str(payload.get("package_path") or ""))
-    if not MARKET_VECTOR_INGEST_SCRIPT.is_file():
-        raise HTTPException(status_code=404, detail=f"Missing vector ingest script: {MARKET_VECTOR_INGEST_SCRIPT}")
-    args, dry_run = market_report_commands.market_vector_ingest_args(
+    try:
+        plan = market_report_commands.build_market_vector_ingest_plan(
+            payload=payload,
+            market=market,
+            vector_ingest_script=MARKET_VECTOR_INGEST_SCRIPT,
+            safe_market_package_path=_safe_market_package_path,
+        )
+    except market_report_commands.MarketPackagePlanError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    args, _dry_run = market_report_commands.market_vector_ingest_args(
         executable=sys.executable,
-        script=MARKET_VECTOR_INGEST_SCRIPT,
-        package_dir=package_dir,
+        script=plan.script,
+        package_dir=plan.package_dir,
         payload=payload,
     )
     completed = run_command(args, cwd=REPO_ROOT, timeout=1800)
     return market_report_commands.market_vector_ingest_result_payload(
         completed=completed,
-        dry_run=dry_run,
+        dry_run=plan.dry_run,
         command=_command_for_display(args),
     )
 
 
 def _run_market_ingestion_eval(payload: dict[str, Any]) -> dict[str, Any]:
-    if not MARKET_INGESTION_EVAL_SCRIPT.is_file():
-        raise HTTPException(status_code=404, detail=f"Missing eval script: {MARKET_INGESTION_EVAL_SCRIPT}")
+    try:
+        plan = market_report_commands.build_market_ingestion_eval_plan(
+            payload=payload,
+            eval_script=MARKET_INGESTION_EVAL_SCRIPT,
+            repo_root=REPO_ROOT,
+            default_output=MARKET_INGESTION_EVAL_REPORT_PATH,
+            default_markdown=MARKET_INGESTION_EVAL_MARKDOWN_PATH,
+        )
+    except market_report_commands.MarketPackagePlanError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     args, output, markdown = market_report_commands.market_ingestion_eval_args(
         executable=sys.executable,
-        script=MARKET_INGESTION_EVAL_SCRIPT,
-        payload=payload,
+        script=plan.script,
+        payload={
+            **payload,
+            "output": plan.output_path,
+            "markdown": plan.markdown_path,
+        },
         repo_root=REPO_ROOT,
-        default_output=MARKET_INGESTION_EVAL_REPORT_PATH,
-        default_markdown=MARKET_INGESTION_EVAL_MARKDOWN_PATH,
+        default_output=plan.output_path,
+        default_markdown=plan.markdown_path,
     )
     completed = run_command(args, cwd=REPO_ROOT, timeout=900)
     return market_report_commands.market_ingestion_eval_result_payload(
@@ -616,28 +639,30 @@ def _run_us_sec_case_set_ingest(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _run_us_sec_rebuild_package(ticker: str, payload: dict[str, Any]) -> dict[str, Any]:
-    item = _latest_case_item_for_ticker(ticker)
-    if not item:
-        raise HTTPException(status_code=404, detail=f"No package for ticker {ticker}")
-    package_dir = _safe_package_path(str(item.get("package_path") or ""))
-    manifest = _read_json_file(package_dir / "manifest.json", {})
-    source = package_dir / str(manifest.get("local_source_path") or "raw/filing.htm")
-    source = _safe_under(package_dir, source)
-    if not source.is_file():
-        raise HTTPException(status_code=404, detail="Raw SEC filing source not found in package")
-    metadata = package_dir / "raw" / "filing.metadata.json"
+    try:
+        plan = market_report_commands.build_us_sec_rebuild_package_plan(
+            ticker=ticker,
+            latest_case_item=_latest_case_item_for_ticker,
+            safe_package_path=_safe_package_path,
+            read_json_file=_read_json_file,
+            safe_under=_safe_under,
+            package_build_script=US_SEC_PACKAGE_BUILD_SCRIPT,
+            output_root=US_SEC_WIKI_ROOT,
+        )
+    except market_report_commands.MarketPackagePlanError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     with tempfile.TemporaryDirectory(prefix="siq-sec-rebuild-") as tmp_dir:
         tmp_source = Path(tmp_dir) / "filing.htm"
-        tmp_source.write_bytes(source.read_bytes())
+        tmp_source.write_bytes(plan.source_path.read_bytes())
         tmp_metadata = None
-        if metadata.is_file():
+        if plan.metadata_path is not None:
             tmp_metadata = Path(tmp_dir) / "filing.metadata.json"
-            tmp_metadata.write_bytes(metadata.read_bytes())
+            tmp_metadata.write_bytes(plan.metadata_path.read_bytes())
         args = market_report_commands.us_sec_rebuild_package_args(
             executable=sys.executable,
-            script=US_SEC_PACKAGE_BUILD_SCRIPT,
+            script=plan.script,
             source_path=tmp_source,
-            output_root=US_SEC_WIKI_ROOT,
+            output_root=plan.output_root,
             metadata_path=tmp_metadata,
             force=True,
         )
@@ -651,7 +676,7 @@ def _run_us_sec_rebuild_package(ticker: str, payload: dict[str, Any]) -> dict[st
     detail = _read_package_detail(_safe_package_path(str(rebuilt_path)))
     return market_report_commands.us_sec_rebuild_package_result_payload(
         completed=completed,
-        ticker=ticker,
+        ticker=plan.ticker,
         package=detail,
     )
 

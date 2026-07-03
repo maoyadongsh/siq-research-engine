@@ -2233,20 +2233,18 @@ def import_document_task_to_database(task_id: str, collection: str = "default"):
         raise HTTPException(404, "Document Wiki package manifest not found")
     pg_config = _db_connect_config()
     database_url = _postgres_database_url(pg_config)
-    command_env = document_workflow_service.document_db_import_env(
-        os.environ,
+    command = document_workflow_service.document_db_import_plan(
+        executable=sys.executable,
+        script_path=DOCUMENT_DB_IMPORT_SCRIPT,
+        package_dir=package_dir,
+        base_env=os.environ,
         pg_config=pg_config,
         database_url=database_url,
     )
     result = _run_command(
-        document_workflow_service.document_db_import_command(
-            executable=sys.executable,
-            script_path=DOCUMENT_DB_IMPORT_SCRIPT,
-            package_dir=package_dir,
-            database_url=database_url,
-        ),
-        timeout=300,
-        env=command_env,
+        command["args"],
+        timeout=command["timeout"],
+        env=command["env"],
     )
     if result["returnCode"] != 0:
         raise HTTPException(500, result)
@@ -2273,7 +2271,7 @@ def build_document_semantic_chunks(
     if not DOCUMENT_CHUNK_SCRIPT.is_file():
         raise HTTPException(500, f"Document chunk script not found: {DOCUMENT_CHUNK_SCRIPT}")
     package_dir = Path(str(wiki.get("path") or ""))
-    command = document_workflow_service.document_semantic_command(
+    command = document_workflow_service.document_semantic_plan(
         executable=sys.executable,
         script_path=DOCUMENT_CHUNK_SCRIPT,
         package_dir=package_dir,

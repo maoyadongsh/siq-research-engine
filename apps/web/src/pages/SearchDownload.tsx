@@ -26,21 +26,20 @@ import {
 } from '../features/search-download/api'
 import {
   logMessageClassName,
-  marketSourceDisplay,
-  missingMarketSourceConfig,
-  reportTableTitlesForMarket,
   smartSearchPlaceholderForMarket,
 } from '../features/search-download/display'
 import { DownloadedReportsPanel } from '../features/search-download/DownloadedReportsPanel'
+import { type SearchDownloadLogEntry } from '../features/search-download/logs'
 import {
-  getSearchDownloadVisibleLogs,
-  hasSearchDownloadProblemLogs,
-  type SearchDownloadLogEntry,
-} from '../features/search-download/logs'
-import {
+  buildAllDownloadsFinishedLog,
+  buildBatchDownloadCompleteLog,
+  buildBatchDownloadFallbackLog,
   buildDownloadedReportDeleteFailureToast,
   buildDownloadedReportDeleteToast,
   buildDownloadedReportOpenFailureToast,
+  buildIndividualDownloadLogs,
+  buildQuickDownloadCompleteLog,
+  buildQuickDownloadFailureLog,
   shouldRefreshDownloadedReports,
 } from '../features/search-download/downloadStatus'
 import {
@@ -57,12 +56,23 @@ import {
 import {
   applySearchDownloadSearchParamsPatch,
   buildSearchDownloadMarketFilterPatch,
+  readSearchDownloadInitialState,
   type SearchDownloadSearchParamsUpdate,
 } from '../features/search-download/urlState'
+import {
+  toggleSearchDownloadReportGroupSelection,
+  toggleSearchDownloadSelection,
+} from '../features/search-download/selection'
+import {
+  buildAssistIntentChips,
+  buildAssistSearchPlan,
+  recommendedCandidateUrls,
+} from '../features/search-download/assist'
+import { buildSearchDownloadViewModel } from '../features/search-download/viewModel'
+import { evaluateOfficialSourceReadiness } from '../features/search-download/officialSourceReadiness'
 import { ReportTableSection } from '../features/search-download/ReportTableSection'
 import {
   MARKET_CONFIGS,
-  explanationMap,
   formatBytes,
   friendlyRemoteConfigError,
   isMarketCode,
@@ -83,13 +93,11 @@ import {
 export default function SearchDownload() {
   const { toast } = useToast()
   const [searchParams, setSearchParams] = useSearchParams()
-  const [market, setMarket] = useState<MarketCode>(() => {
-    const value = searchParams.get('market')
-    return isMarketCode(value) ? value : 'CN'
-  })
-  const [query, setQuery] = useState(() => searchParams.get('q') || '')
-  const [year, setYear] = useState(() => searchParams.get('year') || '2025')
-  const [marketFilter, setMarketFilter] = useState(() => searchParams.get('exchange') || searchParams.get('form') || searchParams.get('country') || '')
+  const initialState = useMemo(() => readSearchDownloadInitialState(searchParams), []) // eslint-disable-line react-hooks/exhaustive-deps
+  const [market, setMarket] = useState<MarketCode>(() => initialState.market)
+  const [query, setQuery] = useState(() => initialState.query)
+  const [year, setYear] = useState(() => initialState.year)
+  const [marketFilter, setMarketFilter] = useState(() => initialState.marketFilter)
   const [loading, setLoading] = useState(false)
   const [annualReports, setAnnualReports] = useState<ReportItem[]>([])
   const [financialReports, setFinancialReports] = useState<ReportItem[]>([])
@@ -100,11 +108,11 @@ export default function SearchDownload() {
   const [companyInfo, setCompanyInfo] = useState<SearchDownloadCompanyInfo | null>(null)
   const [downloadedReports, setDownloadedReports] = useState<DownloadedPdf[]>([])
   const [downloadedLoading, setDownloadedLoading] = useState(false)
-  const [downloadedQuery, setDownloadedQuery] = useState(() => searchParams.get('downloaded') || '')
+  const [downloadedQuery, setDownloadedQuery] = useState(() => initialState.downloadedQuery)
   const [confirmDeletePath, setConfirmDeletePath] = useState('')
   const [deletingPath, setDeletingPath] = useState('')
   const [curatedLoading, setCuratedLoading] = useState(false)
-  const [smartPrompt, setSmartPrompt] = useState(() => searchParams.get('ask') || '')
+  const [smartPrompt, setSmartPrompt] = useState(() => initialState.smartPrompt)
   const [assistLoading, setAssistLoading] = useState(false)
   const [assistResult, setAssistResult] = useState<AssistResult | null>(null)
   const [candidateExplanations, setCandidateExplanations] = useState<CandidateExplanation[]>([])
@@ -113,19 +121,51 @@ export default function SearchDownload() {
   const [marketConfigWarning, setMarketConfigWarning] = useState<string | null>(null)
   const [logsExpanded, setLogsExpanded] = useState(false)
 
-  const currentYear = new Date().getFullYear()
-  const years = Array.from({ length: 10 }, (_, i) => String(currentYear - i))
   const deferredDownloadResults = useDeferredValue(downloadResults)
   const deferredLogs = useDeferredValue(logs)
   const deferredDownloadedReports = useDeferredValue(downloadedReports)
 
-  const marketConfig = MARKET_CONFIGS[market]
-  const activeMarketSource = marketHealth?.report_finder?.markets?.[market]
-  const activeMarketSourceDisplay = marketSourceDisplay({
+  const viewModel = useMemo(() => buildSearchDownloadViewModel({
     market,
-    source: activeMarketSource,
-    loading: marketHealthLoading,
-  })
+    marketHealth,
+    marketHealthLoading,
+    annualReports,
+    financialReports,
+    selected,
+    downloadResults: deferredDownloadResults,
+    logs,
+    visibleLogs: deferredLogs,
+    downloadedReports: deferredDownloadedReports,
+    candidateExplanations,
+  }), [
+    market,
+    marketHealth,
+    marketHealthLoading,
+    annualReports,
+    financialReports,
+    selected,
+    deferredDownloadResults,
+    logs,
+    deferredLogs,
+    deferredDownloadedReports,
+    candidateExplanations,
+  ])
+  const {
+    marketConfig,
+    quickDownloadOptions,
+    annualTitle,
+    financialTitle,
+    years,
+    activeMarketSourceDisplay,
+    visibleDownloadResults,
+    visibleLogs,
+    visibleDownloadedReports,
+    candidateExplanationMap,
+    hasProblemLogs,
+    totalCandidates,
+    hasReports,
+    selectedCount,
+  } = viewModel
 
   const syncSearchParams = useCallback((next: SearchDownloadSearchParamsUpdate, replace = true) => {
     const { searchParams: nextSearchParams, replace: nextReplace } = applySearchDownloadSearchParamsPatch(searchParams, next, replace)
@@ -161,9 +201,6 @@ export default function SearchDownload() {
     syncSearchParams(buildSearchDownloadMarketFilterPatch(market, value))
   }, [market, syncSearchParams])
 
-  const quickDownloadOptions = marketConfig.quickOptions
-  const { annualTitle, financialTitle } = reportTableTitlesForMarket(market)
-
   const setDownloadedQueryAndUrl = useCallback((value: string) => {
     setDownloadedQuery(value)
     syncSearchParams({ downloaded: value })
@@ -173,13 +210,6 @@ export default function SearchDownload() {
     setSmartPrompt(value)
     syncSearchParams({ ask: value })
   }, [syncSearchParams])
-
-  const visibleDownloadResults = useMemo(() => deferredDownloadResults, [deferredDownloadResults])
-  const visibleLogs = useMemo(() => getSearchDownloadVisibleLogs(deferredLogs), [deferredLogs])
-  const visibleDownloadedReports = useMemo(() => deferredDownloadedReports, [deferredDownloadedReports])
-  const candidateExplanationMap = useMemo(() => explanationMap(candidateExplanations), [candidateExplanations])
-  const hasProblemLogs = useMemo(() => hasSearchDownloadProblemLogs(logs), [logs])
-  const totalCandidates = annualReports.length + financialReports.length
 
   const addLog = useCallback((msg: string, type = 'info') => {
     const time = new Date().toLocaleTimeString('zh-CN')
@@ -207,29 +237,11 @@ export default function SearchDownload() {
     }
     const health = marketHealth || await fetchMarketHealth()
     const source = health?.report_finder?.markets?.[targetMarket]
-    if (!source && targetMarket === 'JP') {
-      const message = '暂未获取到日股官方源状态；将继续尝试公司 IR 官方 PDF 与免费的 TDnet 官方近期披露列表。'
-      setMarketConfigWarning(message)
-      addLog(message, 'warn')
-      return true
-    }
-    const missing = missingMarketSourceConfig(targetMarket, source)
-    if (source?.report_search_ready === false && missing.length > 0) {
-      const sourceName = source?.official_source || (targetMarket === 'JP' ? 'EDINET' : 'DART')
-      const message = `${MARKET_CONFIGS[targetMarket].label}${sourceName} 增强源需要配置 ${missing.join('、')}；将继续使用当前可用的官方 fallback。`
-      setMarketConfigWarning(message)
-      addLog(message, 'warn')
-      toast({ type: 'warning', title: '官方源配置缺失', description: message })
-      return false
-    }
-    if (missing.length > 0) {
-      const message = `${MARKET_CONFIGS[targetMarket].label}部分官方源缺少 ${missing.join('、')}；将优先使用可用的免费官方源查询，法定报告全量可能不完整。`
-      setMarketConfigWarning(message)
-      addLog(message, 'warn')
-      return true
-    }
-    setMarketConfigWarning(null)
-    return true
+    const readiness = evaluateOfficialSourceReadiness(targetMarket, source)
+    setMarketConfigWarning(readiness.message)
+    if (readiness.message) addLog(readiness.message, 'warn')
+    if (readiness.toast) toast(readiness.toast)
+    return readiness.ok
   }, [addLog, fetchMarketHealth, marketHealth, toast])
 
   useEffect(() => {
@@ -250,32 +262,29 @@ export default function SearchDownload() {
       const result = await requestAssist({
         prompt: smartPrompt,
         market,
-        report_year: parseInt(year),
+        report_year: parseInt(year, 10),
       })
       const intent = result.intent || {}
       if (intent.market && isMarketCode(intent.market)) setMarketAndUrl(intent.market)
       if (intent.report_year) setYearAndUrl(String(intent.report_year))
-      const nextQuery = intent.ticker || intent.company_id || intent.company_query || ''
-      if (nextQuery) setQueryAndUrl(nextQuery)
+      const plan = buildAssistSearchPlan(result, {
+        currentMarket: market,
+        currentYear: year,
+        currentMarketFilter: marketFilter,
+        smartPrompt,
+      })
+      if (plan.nextQuery) setQueryAndUrl(plan.nextQuery)
       setAssistResult(result)
-      const targetMarket = intent.market && isMarketCode(intent.market) ? intent.market : market
-      const targetYear = String(intent.report_year || year)
-      const targetQuery = String(intent.company_query || intent.ticker || intent.company_id || nextQuery || smartPrompt).trim()
-      const codeText = [intent.ticker, intent.company_id].filter(Boolean).join(' / ')
-      addLog(
-        `已理解: ${MARKET_CONFIGS[targetMarket].label} · ${intent.company_query || targetQuery || '公司待确认'}${codeText ? ` · ${codeText}` : ''} / ${(intent.report_types || []).join('+') || '年报'}`,
-        'success',
-      )
-      if (targetQuery) {
-        const targetCountry = targetMarket === 'EU' ? marketFilter : undefined
+      addLog(plan.understoodLog, 'success')
+      if (plan.targetQuery) {
         await runSearch({
-          targetMarket,
-          targetQuery,
-          targetYear,
-          targetTicker: intent.ticker,
-          targetCompanyId: intent.company_id,
-          targetCountry,
-          reportTypes: intent.report_types || [],
+          targetMarket: plan.targetMarket,
+          targetQuery: plan.targetQuery,
+          targetYear: plan.targetYear,
+          targetTicker: plan.targetTicker,
+          targetCompanyId: plan.targetCompanyId,
+          targetCountry: plan.targetCountry,
+          reportTypes: plan.reportTypes,
           source: 'smart',
         })
       }
@@ -302,7 +311,7 @@ export default function SearchDownload() {
         market: options?.targetMarket || market,
         company_name: companyName,
         ticker: ticker || undefined,
-        report_year: parseInt(options?.targetYear || year),
+        report_year: parseInt(options?.targetYear || year, 10),
         report_types: options?.reportTypes || [],
         candidates: reports.map((report) => ({
           document_url: report.document_url,
@@ -322,7 +331,7 @@ export default function SearchDownload() {
         intent: result.intent || current?.intent || {},
         assistant_mode: result.assistant_mode || current?.assistant_mode,
       }))
-      const recommended = explanations.filter((item) => item.recommended).map((item) => item.document_url)
+      const recommended = recommendedCandidateUrls(explanations)
       if (recommended.length > 0) {
         setSelected(new Set(recommended))
         addLog(`智能推荐 ${recommended.length} 份官方候选，已自动勾选`, 'success')
@@ -493,30 +502,18 @@ export default function SearchDownload() {
   }
 
   const toggleSelect = (key: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
+    setSelected((prev) => toggleSearchDownloadSelection(prev, key))
   }
 
   const toggleAll = (reports: ReportItem[]) => {
-    const keys = reports.map((r) => r.document_url)
-    setSelected((prev) => {
-      const next = new Set(prev)
-      const allSelected = keys.every((k) => next.has(k))
-      if (allSelected) keys.forEach((k) => next.delete(k))
-      else keys.forEach((k) => next.add(k))
-      return next
-    })
+    setSelected((prev) => toggleSearchDownloadReportGroupSelection(prev, reports))
   }
 
   const handleDownload = async () => {
-    if (selected.size === 0 || !companyInfo) return
+    if (selectedCount === 0 || !companyInfo) return
     setDownloading(true)
     setDownloadResults([])
-    addLog(`开始下载 ${selected.size} 份${marketConfig.label}披露文件...`, 'info')
+    addLog(`开始下载 ${selectedCount} 份${marketConfig.label}披露文件...`, 'info')
 
     const allReports = [...annualReports, ...financialReports]
     const selectedReports = selectedReportsForDownload(allReports, selected)
@@ -529,23 +526,26 @@ export default function SearchDownload() {
         reports: selectedReports,
       })
       setDownloadResults(data.results)
-      addLog(`下载完成: 成功 ${data.succeeded}, 失败 ${data.failed}`, 'success')
+      const completeLog = buildBatchDownloadCompleteLog(data)
+      addLog(completeLog.message, completeLog.type)
       if (shouldRefreshDownloadedReports(data.results)) refreshDownloadedReports()
     } catch (err) {
-      addLog(`批量下载失败: ${(err as Error).message}, 尝试逐个下载...`, 'warn')
+      const fallbackLog = buildBatchDownloadFallbackLog(err as Error)
+      addLog(fallbackLog.message, fallbackLog.type)
 
       const fallbackResults = await downloadReportsIndividually({
         market,
         companyInfo,
         reports: selectedReports,
       })
-      for (const result of fallbackResults) {
-        addLog(`${result.success ? '下载成功' : '下载失败'}: ${result.report.title}`, result.success ? 'success' : 'error')
+      for (const log of buildIndividualDownloadLogs(fallbackResults)) {
+        addLog(log.message, log.type)
       }
       if (shouldRefreshDownloadedReports(fallbackResults)) refreshDownloadedReports()
     } finally {
       setDownloading(false)
-      addLog('全部下载任务完成', 'success')
+      const finishedLog = buildAllDownloadsFinishedLog()
+      addLog(finishedLog.message, finishedLog.type)
     }
   }
 
@@ -565,10 +565,12 @@ export default function SearchDownload() {
         year,
       })
       setDownloadResults(data.files)
-      addLog(`下载完成: ${data.companyName} 成功 ${data.succeeded}/${data.total}`, 'success')
+      const completeLog = buildQuickDownloadCompleteLog(data)
+      addLog(completeLog.message, completeLog.type)
       if (shouldRefreshDownloadedReports(data.files)) refreshDownloadedReports()
     } catch (e) {
-      addLog(`下载失败: ${(e as Error).message}`, 'error')
+      const failureLog = buildQuickDownloadFailureLog(e as Error)
+      addLog(failureLog.message, failureLog.type)
     } finally {
       setDownloading(false)
     }
@@ -627,6 +629,15 @@ export default function SearchDownload() {
       })}
     </nav>
   )
+  const assistIntentChips = assistResult?.intent
+    ? buildAssistIntentChips(assistResult.intent, {
+        currentMarketLabel: marketConfig.label,
+        currentQuery: query,
+        currentYear: year,
+        assistantMode: assistResult.assistant_mode,
+        typeLabels,
+      })
+    : []
 
   return (
     <div className="secondary-page search-download-page min-w-0 overflow-x-hidden">
@@ -645,7 +656,7 @@ export default function SearchDownload() {
             <div className="secondary-step-row">
               <span className="secondary-step-chip is-active">查询</span>
               <span className="secondary-step-chip">候选 {totalCandidates}</span>
-              <span className="secondary-step-chip">已选 {selected.size}</span>
+              <span className="secondary-step-chip">已选 {selectedCount}</span>
             </div>
           </div>
         </div>
@@ -688,21 +699,11 @@ export default function SearchDownload() {
             </div>
             {assistResult?.intent ? (
               <div className="smart-search-intent">
-                <span className="smart-search-chip is-primary">
-                  市场：{assistResult.intent.market ? MARKET_CONFIGS[assistResult.intent.market]?.label || assistResult.intent.market : marketConfig.label}
-                </span>
-                <span className="smart-search-chip">
-                  公司：{assistResult.intent.company_query || assistResult.intent.ticker || query || '待确认'}
-                </span>
-                <span className="smart-search-chip">
-                  年份：{assistResult.intent.report_year || year}
-                </span>
-                <span className="smart-search-chip">
-                  报告：{(assistResult.intent.report_types || []).map((item) => typeLabels[item] || item).join(' / ') || '年报'}
-                </span>
-                <span className="smart-search-chip">
-                  模式：{assistResult.assistant_mode?.startsWith('llm:') ? '模型增强' : '规则辅助'}
-                </span>
+                {assistIntentChips.map((label, index) => (
+                  <span key={label} className={`smart-search-chip ${index === 0 ? 'is-primary' : ''}`}>
+                    {label}
+                  </span>
+                ))}
               </div>
             ) : null}
             {market === 'JP' || market === 'KR' ? (
@@ -788,7 +789,7 @@ export default function SearchDownload() {
       </section>
 
       {/* Quick Download */}
-      {companyInfo && !companyInfo.curated && (annualReports.length > 0 || financialReports.length > 0) && (
+      {companyInfo && !companyInfo.curated && hasReports && (
         <div className="secondary-panel grid grid-cols-2 gap-2 px-4 py-3 sm:flex sm:flex-wrap sm:items-center">
           <span className="col-span-2 self-center text-sm font-semibold text-text-muted sm:col-auto">快捷下载:</span>
           {quickDownloadOptions.map((option) => (
@@ -830,7 +831,7 @@ export default function SearchDownload() {
       />
 
       {/* Download Selected Bar */}
-      {(annualReports.length > 0 || financialReports.length > 0) && (
+      {hasReports && (
         <MobileActionBar className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
@@ -838,14 +839,14 @@ export default function SearchDownload() {
             </span>
             <div>
               <p className="text-sm font-semibold text-text">
-                已选择 <span className="font-mono text-base text-primary">{selected.size}</span> 份披露文件
+                已选择 <span className="font-mono text-base text-primary">{selectedCount}</span> 份披露文件
               </p>
               <p className="text-xs text-text-muted">选择后点击下载，系统将自动拉取到本地</p>
             </div>
           </div>
           <button
             onClick={handleDownload}
-            disabled={downloading || selected.size === 0}
+            disabled={downloading || selectedCount === 0}
             className="flex h-11 w-full items-center justify-center gap-2 rounded-xl accent-gradient px-5 text-sm font-semibold text-white shadow-lg shadow-primary/15 transition-all hover:-translate-y-0.5 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none sm:h-10 sm:w-auto"
           >
             {downloading ? (
@@ -934,7 +935,7 @@ export default function SearchDownload() {
       )}
 
       {/* Empty State */}
-      {annualReports.length === 0 && financialReports.length === 0 && !loading && (
+      {!hasReports && !loading && (
         <EmptyState
           icon={Search}
           title={marketConfig.emptyText}

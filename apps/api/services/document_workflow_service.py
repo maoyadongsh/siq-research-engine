@@ -441,7 +441,33 @@ def document_db_import_env(
     return env
 
 
-def document_semantic_command(
+def document_db_import_plan(
+    *,
+    executable: str,
+    script_path: Path,
+    package_dir: Path,
+    base_env: Mapping[str, str],
+    pg_config: Mapping[str, Any],
+    database_url: str,
+    timeout: int = 300,
+) -> dict[str, Any]:
+    return {
+        "args": document_db_import_command(
+            executable=executable,
+            script_path=script_path,
+            package_dir=package_dir,
+            database_url=database_url,
+        ),
+        "env": document_db_import_env(
+            base_env,
+            pg_config=pg_config,
+            database_url=database_url,
+        ),
+        "timeout": timeout,
+    }
+
+
+def document_semantic_plan(
     *,
     executable: str,
     script_path: Path,
@@ -471,3 +497,20 @@ def document_semantic_command(
         "timeout": 1800 if milvus else 300,
         "semantic_mode": "milvus" if milvus else "chunks",
     }
+
+
+def document_semantic_command(
+    *,
+    executable: str,
+    script_path: Path,
+    package_dir: Path,
+    milvus: bool = False,
+    collection: str = "siq_documents",
+) -> dict[str, Any]:
+    return document_semantic_plan(
+        executable=executable,
+        script_path=script_path,
+        package_dir=package_dir,
+        milvus=milvus,
+        collection=collection,
+    )

@@ -14,14 +14,14 @@
 ```
 □ Step 1: 连接 Milvus 数据库
     └─□ 确认 siq_deal_shared 可访问
-    └─□ 确认 ic_risk_controller 可访问
+    └─□ 确认 siq_ic_risk_controller 可访问
 
 □ Step 2: 项目底稿检索 (siq_deal_shared)
     └─□ 按 project_tag 过滤当前项目
     └─□ 提取 Top-20 关键事实
     └─□ 分类：业务/财务/团队/市场/风险
 
-□ Step 3: 私有知识库检索 (ic_risk_controller)
+□ Step 3: 私有知识库检索 (siq_ic_risk_controller)
     └─□ 按6维度风险框架检索
     └─□ 提取 Top-20 专业背景知识
 
@@ -47,16 +47,11 @@
 - `{industry} 行业周期 竞争格局 黑天鹅 风险事件`
 - `{industry} 监管预警 政策限制 合规风险`
 
-### 自动化脚本
+### Legacy OpenClaw 参考（非 SIQ 执行命令）
 
-```bash
-# 快速启动检索命令
-cd ~/.openclaw/workspace/ic_risk_controller_workspace && \
-  python3 scripts/startup_retrieval.py --project {project_tag} \
-    --company {company_name} --industry {industry}
-```
+旧 OpenClaw 风控启动检索脚本仅作为迁移追溯来源，不在 SIQ profile 中直接执行。SIQ 中的可执行入口必须走 Deal OS 后端的 startup retrieval API，并使用 canonical profile ID `siq_ic_risk_controller`。
 
-详细协议见：`STARTUP_PROTOCOL.md`
+SIQ 执行入口以 `agent_startup_retrieval` / Deal OS 后端的 `siq_ic_risk_controller` profile 为准。
 
 ---
 

@@ -2,7 +2,7 @@
 
 ## Role
 
-**ic_risk_controller** - SIQ 投委会中观风险控制专家
+**siq_ic_risk_controller** - SIQ 投委会中观风险控制专家
 
 **核心定位：公司的外部环境监测器**
 > 不管内部运营，只看外部风吹草动
@@ -438,7 +438,7 @@ KOL态度：[支持/中立/反对]
 ┌─────────────────────────────────────────────────────────────┐
 │  🚀 启动序列（固化版）                                        │
 ├─────────────────────────────────────────────────────────────┤
-│  1. 连接 Milvus → siq_deal_shared + ic_risk_controller│
+│  1. 连接 Milvus → siq_deal_shared + siq_ic_risk_controller│
 │  2. 检索项目底稿（按 project_tag）→ Top-20 证据              │
 │  3. 检索私有知识库（6维度风险框架）→ Top-20 证据             │
 │  4. 交叉验证 → verified / assumed / 待核实                   │

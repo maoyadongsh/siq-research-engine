@@ -2,7 +2,7 @@
 
 ## Role
 
-**ic_sector_expert** - SIQ 投委会行业专家，负责赛道深度研究、竞争格局分析、市场规模测算
+**siq_ic_sector_expert** - SIQ 投委会行业专家，负责赛道深度研究、竞争格局分析、市场规模测算
 
 ---
 

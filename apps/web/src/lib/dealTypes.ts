@@ -252,6 +252,46 @@ export interface DealWorkflowRunR1AgentDryRunResponse extends DealAgentTaskDryRu
   agent_task?: DealAgentTaskDryRunResponse
 }
 
+export interface DealWorkflowRunR1SerialAgent {
+  agent_id?: string
+  action?: string
+  would_run?: boolean
+  submitted?: boolean
+  has_startup_receipt?: boolean
+  startup_receipt_id?: string | null
+  blocking_reasons?: string[]
+  warnings?: string[]
+  hermes_called?: boolean
+  report_written?: boolean
+  workflow_advanced?: boolean
+  [key: string]: unknown
+}
+
+export interface DealWorkflowRunR1SerialResponse {
+  schema_version?: string
+  deal_id?: string
+  round_name?: string
+  workflow_action?: 'run-r1-serial' | string
+  dry_run?: boolean
+  allowed?: boolean
+  would_run?: boolean
+  queued?: boolean
+  job_id?: string | null
+  planned_agent_ids?: string[]
+  executed_agent_ids?: string[]
+  submitted_agent_ids?: string[]
+  next_agent_id?: string | null
+  stop_reason?: string | null
+  blocking_reasons?: string[]
+  warnings?: string[]
+  agents?: DealWorkflowRunR1SerialAgent[]
+  agent_runs?: DealWorkflowRunR1AgentDryRunResponse[]
+  hermes_called?: boolean
+  report_written?: boolean
+  workflow_advanced?: boolean
+  [key: string]: unknown
+}
+
 export interface DealR1AgentReadinessItem {
   agent_id: string
   role?: string
@@ -338,6 +378,67 @@ export interface DealDisputesResponse {
   artifacts?: DealDisputesArtifacts
   disputes?: DealDisputeSummary[]
   warnings?: string[]
+  [key: string]: unknown
+}
+
+export interface DealWorkflowIdentifyDisputesRequest {
+  dry_run?: boolean
+  preserve_rulings?: boolean
+}
+
+export interface DealWorkflowIdentifyDisputesResponse {
+  schema_version?: 'siq_deal_r1_5_disputes_identification_v1' | string
+  deal_id?: string
+  dry_run?: boolean
+  would_write?: boolean
+  written?: boolean
+  preserve_rulings?: boolean
+  preserved_ruling_count?: number
+  json_path?: string | null
+  markdown_path?: string | null
+  dispute_count?: number
+  warnings?: string[]
+  payload?: {
+    schema_version?: string
+    deal_id?: string
+    phase?: string
+    disputes?: DealDisputeSummary[]
+    warnings?: string[]
+    [key: string]: unknown
+  } | null
+  summary?: DealDisputesResponse | null
+  [key: string]: unknown
+}
+
+export interface DealWorkflowDisputeRulingRequest {
+  decision: string
+  rationale?: string
+  required_followups?: string[]
+  evidence_ids?: string[]
+  resolved?: boolean
+  overwrite?: boolean
+  dry_run?: boolean
+}
+
+export interface DealWorkflowDisputeRulingResponse {
+  schema_version?: 'siq_deal_r1_5_dispute_ruling_response_v1' | string
+  deal_id?: string
+  dispute_id?: string
+  dry_run?: boolean
+  would_write?: boolean
+  written?: boolean
+  json_path?: string | null
+  markdown_path?: string | null
+  overwrite?: boolean
+  ruling?: Record<string, unknown> | null
+  dispute?: DealDisputeSummary | null
+  payload?: {
+    schema_version?: string
+    deal_id?: string
+    disputes?: DealDisputeSummary[]
+    [key: string]: unknown
+  } | null
+  summary?: DealDisputesResponse | null
   [key: string]: unknown
 }
 

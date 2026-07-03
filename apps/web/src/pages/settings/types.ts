@@ -32,7 +32,9 @@ export type ServiceStatus = {
   category: string
   url: string
   required: boolean
+  enabled?: boolean
   ok: boolean
+  status?: 'running' | 'unavailable' | 'disabled' | string
   statusCode: number | null
   latencyMs: number
   detail: unknown
@@ -81,6 +83,7 @@ export type ProviderMeta = {
 
 export type ServiceCounts = {
   total: number
+  disabled: number
   ok: number
   requiredDown: number
 }

@@ -819,6 +819,53 @@ def test_stream_chat_reply_catalog_short_circuits_before_streaming_run_start(mon
     }
 
 
+def test_collect_chat_reply_catalog_short_circuits_before_preflight(monkeypatch):
+    async def run_case():
+        calls: list[tuple] = []
+
+        async def forbidden(*_args, **_kwargs):
+            raise AssertionError("catalog path must not enter preflight")
+
+        async def fake_save_message(_async_session, role, content, current_session_id, attachments=None):
+            calls.append(("save", role, content, current_session_id, attachments))
+
+        async def fake_refresh_session_memory(_async_session, profile, current_session_id):
+            calls.append(("refresh_session_memory", profile, current_session_id))
+
+        def fake_remember_completed_run(profile, current_session_id, message_hash, reply):
+            calls.append(("remember_completed_run", profile, current_session_id, bool(message_hash), reply))
+
+        monkeypatch.setattr(runtime, "build_wiki_catalog_reply", lambda _message: "catalog reply")
+        monkeypatch.setattr(runtime, "save_message", fake_save_message)
+        monkeypatch.setattr(runtime, "refresh_session_memory", fake_refresh_session_memory)
+        monkeypatch.setattr(runtime, "_remember_completed_run", fake_remember_completed_run)
+        monkeypatch.setattr(runtime, "load_history", forbidden)
+        monkeypatch.setattr(runtime, "ensure_local_memory_context", forbidden)
+        monkeypatch.setattr(runtime, "wait_for_pdf_attachment_parses", forbidden)
+        monkeypatch.setattr(runtime, "analyze_images_with_primary_model", forbidden)
+        monkeypatch.setattr(runtime, "create_run", forbidden)
+        monkeypatch.setattr(runtime, "collect_run_result", forbidden)
+        monkeypatch.setattr(runtime, "_load_chat_run_preflight_context", forbidden)
+
+        reply = await runtime.collect_chat_reply(
+            "现在入库了多少家公司",
+            object(),
+            session_id="preflight-blocking-catalog-session",
+            profile="siq_assistant",
+        )
+        return reply, calls
+
+    reply, calls = anyio.run(run_case)
+
+    assert reply == "catalog reply"
+    assert calls == [
+        ("save", "user", "现在入库了多少家公司", "preflight-blocking-catalog-session", []),
+        ("save", "assistant", "catalog reply", "preflight-blocking-catalog-session", None),
+        ("refresh_session_memory", "siq_assistant", "preflight-blocking-catalog-session"),
+        ("remember_completed_run", "siq_assistant", "preflight-blocking-catalog-session", True, "catalog reply"),
+    ]
+
+
 def test_collect_chat_reply_duplicate_short_circuits_before_preflight(monkeypatch):
     async def run_case():
         calls: list[str] = []

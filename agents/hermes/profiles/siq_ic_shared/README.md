@@ -19,5 +19,6 @@ This directory is not a runnable agent profile. Runtime profiles should referenc
 ## Scope
 
 - Use `siq_ic_*` as the canonical Hermes profile IDs.
+- Use `data/wiki/deals` as the canonical SIQ project execution artifact root.
 - Do not store sessions, memory, vector stores, `.venv`, or OpenClaw runtime state here.
 - Keep project execution artifacts outside this directory unless they are stable templates or contracts.

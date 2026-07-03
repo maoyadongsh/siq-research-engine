@@ -933,9 +933,17 @@ def test_import_mineru_output_dir_normalizes_artifacts_and_raw_archive(tmp_path)
 
     figures = client.get("/api/figures/import-case-a")
     assert figures.status_code == 200
+    assert set(figures.json) == {"schema_version", "task_id", "figures"}
+    assert figures.json["schema_version"] == "document_figures_v1"
+    assert figures.json["task_id"] == "import-case-a"
     figure = figures.json["figures"][0]
+    assert figure["image_id"] == "img-000001"
     assert figure["image_path"] == "images/original/chart.png"
     assert figure["bbox"] == [10.0, 20.0, 300.0, 240.0]
+
+    missing_figures = client.get("/api/figures/missing-task")
+    assert missing_figures.status_code == 404
+    assert missing_figures.json == {"error": "not_found"}
 
     image = client.get("/api/artifact/import-case-a/images/original/chart.png")
     assert image.status_code == 200

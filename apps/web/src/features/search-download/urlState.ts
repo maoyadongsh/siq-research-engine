@@ -28,10 +28,23 @@ export interface SearchDownloadSearchParamsApplyResult {
 
 type SearchDownloadMarket = NonNullable<SearchDownloadSearchParamsUpdate['market']>
 
+export interface SearchDownloadInitialState {
+  market: SearchDownloadMarket
+  query: string
+  year: string
+  marketFilter: string
+  downloadedQuery: string
+  smartPrompt: string
+}
+
 const SEARCH_DOWNLOAD_MARKET_FILTER_KEYS: Partial<Record<SearchDownloadMarket, SearchDownloadSearchParamKey>> = {
   CN: 'exchange',
   US: 'form',
   EU: 'country',
+}
+
+function isSearchDownloadMarket(value: string | null): value is SearchDownloadMarket {
+  return value === 'CN' || value === 'HK' || value === 'US' || value === 'EU' || value === 'KR' || value === 'JP'
 }
 
 function normalizeSearchDownloadSearchParamValue(value: string | null | undefined) {
@@ -50,6 +63,18 @@ export function buildSearchDownloadMarketFilterPatch(
   if (key === 'form') return { form: value, exchange: '', country: '' }
   if (key === 'country') return { country: value, exchange: '', form: '' }
   return { exchange: value, form: '', country: '' }
+}
+
+export function readSearchDownloadInitialState(searchParams: URLSearchParams): SearchDownloadInitialState {
+  const market = searchParams.get('market')
+  return {
+    market: isSearchDownloadMarket(market) ? market : 'CN',
+    query: searchParams.get('q') || '',
+    year: searchParams.get('year') || '2025',
+    marketFilter: searchParams.get('exchange') || searchParams.get('form') || searchParams.get('country') || '',
+    downloadedQuery: searchParams.get('downloaded') || '',
+    smartPrompt: searchParams.get('ask') || '',
+  }
 }
 
 export function buildSearchDownloadSearchParamsPatch(

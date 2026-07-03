@@ -276,7 +276,17 @@ def redact_public_payload(value: Any) -> Any:
     for key, item in value.items():
         if key in {"source_root", "absolute_path"}:
             continue
-        if key in {"created_by", "updated_by", "confirmed_by", "deleted_by", "bound_by", "parse_bound_by", "built_by"}:
+        if key in {
+            "created_by",
+            "updated_by",
+            "confirmed_by",
+            "deleted_by",
+            "bound_by",
+            "parse_bound_by",
+            "built_by",
+            "generated_by",
+            "ruled_by",
+        }:
             redacted[key] = _redact_user_payload(item)
             continue
         if key == "package_path" and isinstance(item, str):

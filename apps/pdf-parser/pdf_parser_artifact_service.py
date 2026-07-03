@@ -80,6 +80,22 @@ def classify_open_artifact_name(
     }
 
 
+def build_images_index_payload(task_id: str, image_names: list[str]) -> dict[str, Any]:
+    images = [
+        {
+            "name": name,
+            "url": f"/api/artifact/{task_id}/images/{name}",
+        }
+        for name in image_names
+    ]
+    return {
+        "task_id": task_id,
+        "artifact": "images",
+        "count": len(images),
+        "images": images,
+    }
+
+
 def legacy_markdown_path(task: dict[str, Any], results_folder: str) -> str:
     return os.path.join(results_folder, f"{task['task_id']}.md")
 

@@ -146,7 +146,7 @@ def _r1_5_disputes_component(summary: dict[str, Any] | None, warnings: list[str]
         "r1_5_disputes",
         "R1.5 Disputes",
         status,
-        blocking=unresolved > 0,
+        blocking=unresolved > 0 or (status != "missing" and bool(summary_warnings)),
         message=f"{resolved} resolved, {unresolved} unresolved, {total} total.",
         href="workflow",
         metrics={

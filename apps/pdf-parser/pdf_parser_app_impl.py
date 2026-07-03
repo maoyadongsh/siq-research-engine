@@ -605,24 +605,19 @@ def _get_pdf_page_count(pdf_path):
 
 
 def _calc_page_progress(task, elapsed):
-    if elapsed is None or elapsed <= 0:
-        return None
-    total = task.get("pdf_page_count")
-    if not total or total <= 0:
-        return None
-    processed = min(total, max(0, int(elapsed / PAGE_ESTIMATE_SECONDS)))
-    remaining = max(0, total - processed)
-    return {"total": total, "processed": processed, "remaining": remaining}
+    return task_lifecycle_service.calc_page_progress(
+        task,
+        elapsed,
+        page_estimate_seconds=PAGE_ESTIMATE_SECONDS,
+    )
 
 
 def _calc_progress_percent(task, elapsed):
-    total = task.get("pdf_page_count")
-    if not total or total <= 0 or elapsed is None or elapsed <= 0:
-        return None
-    estimated_pages = min(float(total), max(0.0, elapsed / PAGE_ESTIMATE_SECONDS))
-    if total <= 0:
-        return None
-    return round((estimated_pages / float(total)) * 100, 1)
+    return task_lifecycle_service.calc_progress_percent(
+        task,
+        elapsed,
+        page_estimate_seconds=PAGE_ESTIMATE_SECONDS,
+    )
 
 
 def _legacy_markdown_path(task):
@@ -3421,17 +3416,13 @@ def cancel_task(task_id):
         cancel_resp = _json_request(f"{MINERU_API_BASE}/tasks/{mineru_task_id}", method="DELETE", timeout=10)
         upstream_cancelled = not cancel_resp.get("_error")
 
-    task["cancelled"] = True
-    task["status"] = "cancelled"
-    task["stage"] = "cancelled"
-    task["completed_at"] = task.get("completed_at") or _now_iso()
-    if upstream_cancelled:
-        _append_log(task, "任务已取消，已通知 MinerU 停止处理。", "warn")
-    else:
-        if mineru_task_id:
-            _append_log(task, "已停止本地查看；MinerU 后端可能仍在处理。", "warn")
-        else:
-            _append_log(task, "任务已从本地排队队列中移除。", "warn")
+    update = task_lifecycle_service.build_cancel_task_update(
+        task,
+        upstream_cancelled=upstream_cancelled,
+        now_iso=_now_iso(),
+    )
+    task.update(update["patch"])
+    _append_log(task, update["log"]["message"], update["log"]["level"])
     _persist_task(task)
     _wake_queue_worker()
     return jsonify(
@@ -3552,19 +3543,14 @@ def status(task_id):
         try:
             task = _refresh_task_from_upstream(task)
         except RuntimeError as exc:
-            task["consecutive_status_failures"] = int(task.get("consecutive_status_failures") or 0) + 1
-            task["error"] = f"任务状态查询失败: {exc}"
-            if task["consecutive_status_failures"] >= MINERU_STATUS_FAILURE_TOLERANCE:
-                task["status"] = "failed"
-                task["stage"] = "failed"
-                task["completed_at"] = task.get("completed_at") or _now_iso()
-                _append_log(task, task["error"], "error")
-            else:
-                _append_log(
-                    task,
-                    f"状态查询超时，第 {task['consecutive_status_failures']}/{MINERU_STATUS_FAILURE_TOLERANCE} 次，继续等待...",
-                    "warn",
+            update = task_lifecycle_service.build_status_failure_update(
+                task,
+                error_detail=str(exc),
+                tolerance=MINERU_STATUS_FAILURE_TOLERANCE,
+                now_iso=_now_iso(),
             )
+            task.update(update["patch"])
+            _append_log(task, update["log"]["message"], update["log"]["level"])
             _persist_task(task)
 
     _wake_queue_worker()
@@ -3584,7 +3570,7 @@ def result(task_id):
     if markdown is not None:
         report = _ensure_quality_report(task, markdown)
         _ensure_document_full_artifact(task, markdown, report=report)
-    return jsonify({"markdown": markdown, "artifacts": _artifact_status(task)})
+    return jsonify(response_service.build_result_response_payload(markdown, _artifact_status(task)))
 
 
 @app.route("/api/quality/<task_id>", methods=["GET"])
@@ -3600,7 +3586,7 @@ def quality(task_id):
             return jsonify({"error": markdown["detail"]}), 502
     if markdown is None:
         return jsonify({"error": "No markdown available yet"}), 400
-    return jsonify({"quality": _ensure_quality_report(task, markdown)})
+    return jsonify(response_service.build_quality_response_payload(_ensure_quality_report(task, markdown)))
 
 
 @app.route("/api/financial/<task_id>", methods=["GET"])
@@ -3617,12 +3603,7 @@ def financial(task_id):
     if markdown is None:
         return jsonify({"error": "No markdown available yet"}), 400
     financial_data, financial_checks = _ensure_financial_artifacts(task, markdown)
-    return jsonify(
-        {
-            "financial_data": financial_data,
-            "financial_checks": financial_checks,
-        }
-    )
+    return jsonify(response_service.build_financial_response_payload(financial_data, financial_checks))
 
 
 @app.route("/api/artifact/<task_id>/<path:artifact_name>", methods=["GET"])
@@ -3660,14 +3641,8 @@ def open_artifact(task_id, artifact_name):
         images_dir = artifact_descriptor["images_dir"]
         if not os.path.isdir(images_dir):
             return jsonify({"error": "Images artifact not found"}), 404
-        images = [
-            {
-                "name": name,
-                "url": f"/api/artifact/{task_id}/images/{name}",
-            }
-            for name in _image_artifact_names(images_dir)
-        ]
-        return jsonify({"task_id": task_id, "artifact": "images", "count": len(images), "images": images})
+        image_names = _image_artifact_names(images_dir)
+        return jsonify(artifact_service.build_images_index_payload(task_id, image_names))
     if kind == "image_file":
         image_path = artifact_descriptor["path"]
         if not os.path.exists(image_path):
@@ -3696,42 +3671,29 @@ def table_source(task_id, table_index):
         return jsonify({"error": "No markdown available yet"}), 400
 
     report = _ensure_quality_report(task, markdown)
-    table_item = None
-    for item in report.get("table_index", []):
-        if int(item.get("table_index") or 0) == table_index:
-            table_item = item
-            break
+    table_item = source_service.find_source_table(report, table_index)
     if table_item is None:
         return jsonify({"error": "Table source not found"}), 404
 
+    page_content = _page_content_payload(
+        task,
+        table_item.get("pdf_page_number") or 1,
+        report=report,
+        focus_table=table_index,
+    )
+    bbox_extent = _page_bbox_extent(task, table_item.get("pdf_page_index"))
     return jsonify(
-        {
-            "task_id": task_id,
-            "filename": task.get("filename"),
-            "table": table_item,
-            "table_html": _table_html_by_index(markdown, table_index),
-            "markdown_excerpt": _markdown_excerpt(markdown, table_item.get("line"), radius=14),
-            "artifacts": _artifact_status(task),
-            "correction": _load_corrections(task).get("tables", {}).get(str(table_index)),
-            "page_content": _page_content_payload(
-                task,
-                table_item.get("pdf_page_number") or 1,
-                report=report,
-                focus_table=table_index,
-            ),
-            "pdf_page_image": {
-                "url": (
-                    f"/api/pdf_page/{task_id}/{table_item.get('pdf_page_number')}"
-                    if table_item.get("pdf_page_number") else ""
-                ),
-                "page_number": table_item.get("pdf_page_number"),
-                "pdf_page_number": table_item.get("pdf_page_number"),
-                "printed_page_number": table_item.get("printed_page_number"),
-                "page_count": task.get("pdf_page_count"),
-                "bbox": table_item.get("bbox") or [],
-                "bbox_extent": _page_bbox_extent(task, table_item.get("pdf_page_index")),
-            },
-        }
+        source_service.source_table_payload(
+            task_id=task_id,
+            task=task,
+            table_item=table_item,
+            table_html=_table_html_by_index(markdown, table_index),
+            markdown_excerpt=_markdown_excerpt(markdown, table_item.get("line"), radius=14),
+            artifacts=_artifact_status(task),
+            correction=_load_corrections(task).get("tables", {}).get(str(table_index)),
+            page_content=page_content,
+            bbox_extent=bbox_extent,
+        )
     )
 
 

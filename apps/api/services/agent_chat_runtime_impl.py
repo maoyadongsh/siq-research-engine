@@ -57,6 +57,7 @@ from services import agent_runtime_parse_only
 from services import agent_runtime_display
 from services import agent_runtime_memory
 from services import agent_runtime_history
+from services import agent_runtime_preflight
 from services import agent_runtime_context
 from services import agent_runtime_financial_guard
 from services import agent_runtime_financial_format
@@ -964,22 +965,8 @@ class RecentRunRecord:
     created_at: datetime = field(default_factory=datetime.utcnow)
 
 
-@dataclass
-class ChatRequestEnvelope:
-    all_attachments: list[dict[str, Any]]
-    message_hash: str
-    user_display_message: str
-
-
-@dataclass(frozen=True)
-class ChatRunPreflightContext:
-    history: list[dict[str, Any]]
-    local_memory_context: str | None
-    attachments: list[dict[str, Any]]
-
-    @property
-    def allow_initialize(self) -> bool:
-        return not self.history
+ChatRequestEnvelope = agent_runtime_preflight.ChatRequestEnvelope
+ChatRunPreflightContext = agent_runtime_preflight.ChatRunPreflightContext
 
 
 SESSION_DEFAULT_CONTEXTS: dict[tuple[HermesProfile, str], str] = {}
@@ -5326,18 +5313,18 @@ async def _prepare_chat_request_envelope(
     display_message: str | None = None,
     attachments: Any | None = None,
 ) -> ChatRequestEnvelope:
-    all_attachments = _attachment_dicts(attachments)
-    if not all_attachments and _should_reuse_recent_attachments(message):
-        all_attachments = await load_recent_session_attachments(async_session, session_id)
-    message_hash = _dedupe_hash_with_attachments(message, context, all_attachments)
-    user_display_message = _display_message_with_attachments(
-        (display_message or message).strip() or message,
-        all_attachments,
-    )
-    return ChatRequestEnvelope(
-        all_attachments=all_attachments,
-        message_hash=message_hash,
-        user_display_message=user_display_message,
+    return await agent_runtime_preflight.prepare_chat_request_envelope(
+        message,
+        async_session,
+        session_id=session_id,
+        context=context,
+        display_message=display_message,
+        attachments=attachments,
+        attachment_dicts=_attachment_dicts,
+        should_reuse_recent_attachments=_should_reuse_recent_attachments,
+        load_recent_session_attachments=load_recent_session_attachments,
+        dedupe_hash_with_attachments=_dedupe_hash_with_attachments,
+        display_message_with_attachments=_display_message_with_attachments,
     )
 
 
@@ -5349,12 +5336,14 @@ async def _load_chat_run_preflight_context(
     attachments: list[dict[str, Any]],
     history_limit: int,
 ) -> ChatRunPreflightContext:
-    history = await load_history(async_session, session_id, limit=history_limit)
-    local_memory_context = await ensure_local_memory_context(async_session, profile, session_id)
-    return ChatRunPreflightContext(
-        history=history,
-        local_memory_context=local_memory_context,
+    return await agent_runtime_preflight.load_chat_run_preflight_context(
+        async_session,
+        session_id=session_id,
+        profile=profile,
         attachments=attachments,
+        history_limit=history_limit,
+        load_history=load_history,
+        ensure_local_memory_context=ensure_local_memory_context,
     )
 
 
@@ -5381,19 +5370,23 @@ async def _collect_chat_reply_impl(
     message_hash = envelope.message_hash
     user_display_message = envelope.user_display_message
     catalog_reply = build_wiki_catalog_reply(message)
-    if catalog_reply or _is_general_assistant_request(message):
+    short_circuit = agent_runtime_preflight.plan_chat_preflight_short_circuit(
+        catalog_reply=catalog_reply,
+        is_general_assistant_request=_is_general_assistant_request(message),
+    )
+    if short_circuit.forget_recent_completed_run:
         _forget_recent_completed_run(profile, session_id, message_hash)
-    else:
+    elif short_circuit.should_check_duplicate:
         duplicate_reply = _recent_duplicate_reply(profile, session_id, message_hash)
         if duplicate_reply:
             return duplicate_reply
 
-    if catalog_reply:
+    if short_circuit.catalog_reply:
         await save_message(async_session, "user", user_display_message, session_id, attachments=all_attachments)
-        await save_message(async_session, "assistant", catalog_reply, session_id)
+        await save_message(async_session, "assistant", short_circuit.catalog_reply, session_id)
         await refresh_session_memory(async_session, profile, session_id)
-        _remember_completed_run(profile, session_id, message_hash, catalog_reply)
-        return catalog_reply
+        _remember_completed_run(profile, session_id, message_hash, short_circuit.catalog_reply)
+        return short_circuit.catalog_reply
 
     completed_guard_input: str | None = None
     if profile == "siq_analysis" and _should_use_analysis_completion_guard(message):
@@ -5900,9 +5893,13 @@ async def _stream_chat_reply_impl(
         return
 
     catalog_reply = build_wiki_catalog_reply(message)
-    if catalog_reply or _is_general_assistant_request(message):
+    short_circuit = agent_runtime_preflight.plan_chat_preflight_short_circuit(
+        catalog_reply=catalog_reply,
+        is_general_assistant_request=_is_general_assistant_request(message),
+    )
+    if short_circuit.forget_recent_completed_run:
         _forget_recent_completed_run(profile, session_id, message_hash)
-    else:
+    elif short_circuit.should_check_duplicate:
         duplicate_reply = _recent_duplicate_reply(profile, session_id, message_hash)
         if duplicate_reply:
             yield {"event": "delta", "data": json.dumps({"content": duplicate_reply}, ensure_ascii=False)}
@@ -5915,16 +5912,16 @@ async def _stream_chat_reply_impl(
             }
             return
 
-    if catalog_reply:
+    if short_circuit.catalog_reply:
         await save_message(async_session, "user", user_display_message, session_id, attachments=all_attachments)
-        await save_message(async_session, "assistant", catalog_reply, session_id)
+        await save_message(async_session, "assistant", short_circuit.catalog_reply, session_id)
         await refresh_session_memory(async_session, profile, session_id)
-        _remember_completed_run(profile, session_id, message_hash, catalog_reply)
-        yield {"event": "delta", "data": json.dumps({"content": catalog_reply}, ensure_ascii=False)}
+        _remember_completed_run(profile, session_id, message_hash, short_circuit.catalog_reply)
+        yield {"event": "delta", "data": json.dumps({"content": short_circuit.catalog_reply}, ensure_ascii=False)}
         yield {
             "event": "done",
             "data": json.dumps(
-                {"new_achievements": [], "catalog": True, "content": catalog_reply},
+                {"new_achievements": [], "catalog": True, "content": short_circuit.catalog_reply},
                 ensure_ascii=False,
             ),
         }

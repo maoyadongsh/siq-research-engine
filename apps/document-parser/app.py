@@ -21,6 +21,11 @@ import zipfile
 from flask import Flask, jsonify, request, send_file
 
 from artifacts import artifact_summary, build_artifacts, read_json, write_json
+from batch_download_payload import (
+    MAX_BATCH_DOWNLOAD_TASKS,
+    build_batch_download_manifest,
+    requested_batch_download_task_ids,
+)
 from contracts import (
     ARTIFACT_ALLOWLIST,
     APP_VERSION,
@@ -45,9 +50,14 @@ from file_utils import (
     validate_extension,
 )
 from mineru_import import copy_mineru_images_to_result, parse_mineru_output_dir, rewrite_image_paths_to_result
+from mineru_candidates_payload import build_mineru_import_candidates_payload
 from page_metadata import load_mineru_page_metadata, merge_layout_page_metadata
 from path_config import resolve_app_paths
 from provider_router import parse_source
+from request_args import parse_int_arg, query_flag_enabled
+from source_image_payload import build_source_image_payload, find_figure_by_image_id
+from source_page_payload import build_source_page_payload
+from status_payload import build_task_status_payload
 from providers.simple import (
     _bridge_task_id,
     _json_request as pdf_parser_json_request,
@@ -842,22 +852,16 @@ def import_mineru_result():
 
 @app.get("/api/import/mineru/candidates")
 def mineru_import_candidates():
-    try:
-        limit = int(request.args.get("limit") or 50)
-    except ValueError:
-        limit = 50
-    return jsonify(
-        {
-            "schema_version": "mineru_import_candidates_v1",
-            "allowed_roots": [str(root) for root in _allowed_mineru_import_roots()],
-            "candidates": _list_mineru_import_candidates(limit=limit),
-        }
-    )
+    limit = parse_int_arg(request.args, "limit", 50, invalid_default=50)
+    return jsonify(build_mineru_import_candidates_payload(
+        _allowed_mineru_import_roots(),
+        _list_mineru_import_candidates(limit=limit),
+    ))
 
 
 @app.get("/api/tasks")
 def list_tasks():
-    limit = int(request.args.get("limit") or 200)
+    limit = parse_int_arg(request.args, "limit", 200)
     tasks = []
     for task in store.list_tasks(limit=limit):
         if task.get("status") == FAILED:
@@ -881,12 +885,8 @@ def task_status(task_id: str):
         return jsonify({"error": "not_found"}), 404
     if task.get("status") == FAILED:
         task = _recover_pdf_bridge_task(task)
-    logs, log_count = store.get_logs(task_id, since=int(request.args.get("since") or 0))
-    payload = dict(task)
-    payload["logs"] = logs
-    payload["log_count"] = log_count
-    payload["artifacts_ready"] = payload.get("status") in {COMPLETED, COMPLETED_WITH_WARNINGS}
-    return jsonify(payload)
+    logs, log_count = store.get_logs(task_id, since=parse_int_arg(request.args, "since", 0))
+    return jsonify(build_task_status_payload(task, logs, log_count))
 
 
 @app.post("/api/cancel/<task_id>")
@@ -962,6 +962,7 @@ def result(task_id: str):
 def artifact(task_id: str, artifact: str):
     result_dir = _task_result_dir(task_id)
     normalized = artifact.strip().replace("\\", "/").rstrip("/")
+    download_requested = query_flag_enabled(request.args, "download")
     if normalized == "images":
         zip_path = result_dir / "exports" / "images.zip"
         with __import__("zipfile").ZipFile(zip_path, "w") as archive:
@@ -981,16 +982,16 @@ def artifact(task_id: str, artifact: str):
         return jsonify({"error": "invalid_artifact"}), 400
     if not path.exists() or not path.is_file():
         return jsonify({"error": "not_found"}), 404
-    if normalized == "layout_blocks.json" and request.args.get("download") not in {"1", "true", "yes"}:
+    if normalized == "layout_blocks.json" and not download_requested:
         return jsonify(_read_layout_blocks_with_page_metadata(result_dir))
     if normalized == "table_relations.json":
         _read_table_relations_payload(task_id, result_dir)
         if not path.exists() or not path.is_file():
             return jsonify({"error": "not_found"}), 404
-        if request.args.get("download") not in {"1", "true", "yes"}:
+        if not download_requested:
             payload = read_json(path)
             return jsonify(payload)
-    as_attachment = request.args.get("download") in {"1", "true", "yes"} or normalized.startswith("exports/")
+    as_attachment = download_requested or normalized.startswith("exports/")
     return send_file(path, as_attachment=as_attachment, download_name=path.name if as_attachment else None)
 
 
@@ -1002,18 +1003,13 @@ def download_full(task_id: str):
 @app.post("/api/download/batch")
 def download_batch():
     payload = request.get_json(silent=True) or {}
-    task_ids = payload.get("task_ids") or payload.get("taskIds") or []
-    if not isinstance(task_ids, list):
+    normalized_ids = requested_batch_download_task_ids(payload)
+    if normalized_ids is None:
         return jsonify({"error": "invalid_task_ids"}), 400
-    normalized_ids = []
-    for raw_id in task_ids:
-        task_id = str(raw_id or "").strip()
-        if task_id and task_id not in normalized_ids:
-            normalized_ids.append(task_id)
     if not normalized_ids:
         return jsonify({"error": "no_tasks"}), 400
-    if len(normalized_ids) > 50:
-        return jsonify({"error": "too_many_tasks", "message": "一次最多下载 50 个任务"}), 400
+    if len(normalized_ids) > MAX_BATCH_DOWNLOAD_TASKS:
+        return jsonify({"error": "too_many_tasks", "message": f"一次最多下载 {MAX_BATCH_DOWNLOAD_TASKS} 个任务"}), 400
 
     batch_id = uuid.uuid4().hex[:12]
     zip_path = OUTPUT_FOLDER / f"document-parser-batch-{batch_id}.zip"
@@ -1037,14 +1033,12 @@ def download_batch():
         archive.writestr(
             "batch_manifest.json",
             json.dumps(
-                {
-                    "schema_version": "document_parse_batch_download_v1",
-                    "batch_id": batch_id,
-                    "requested_task_ids": normalized_ids,
-                    "included": included,
-                    "missing": missing,
-                    "task_count": len(included),
-                },
+                build_batch_download_manifest(
+                    batch_id=batch_id,
+                    requested_task_ids=normalized_ids,
+                    included=included,
+                    missing=missing,
+                ),
                 ensure_ascii=False,
                 indent=2,
             ),
@@ -1069,9 +1063,9 @@ def get_figure(task_id: str, image_id: str):
     if not figures_path.exists():
         return jsonify({"error": "not_found"}), 404
     figures = read_json(figures_path).get("figures") or []
-    for figure in figures:
-        if figure.get("image_id") == image_id:
-            return jsonify({"figure": figure})
+    figure = find_figure_by_image_id(figures, image_id)
+    if figure:
+        return jsonify({"figure": figure})
     return jsonify({"error": "not_found"}), 404
 
 
@@ -1082,30 +1076,8 @@ def source_page(task_id: str, page_number: int):
     if not blocks_path.exists():
         return jsonify({"error": "not_found"}), 404
     blocks = read_json(blocks_path).get("blocks") or []
-    page_blocks = [block for block in blocks if int(block.get("page_number") or 1) == page_number]
     layout = _read_layout_blocks_with_page_metadata(result_dir)
-    page_meta = {}
-    for page in layout.get("pages") or []:
-        if isinstance(page, dict) and int(page.get("page_number") or 0) == page_number:
-            page_meta = page
-            break
-    return jsonify(
-        {
-            "task_id": task_id,
-            "page_number": page_number,
-            "page": {
-                "page_number": page_number,
-                "page_index": page_number - 1,
-                "width": page_meta.get("width") or 0,
-                "height": page_meta.get("height") or 0,
-                "page_size": page_meta.get("page_size") or [],
-                "bbox_unit": page_meta.get("bbox_unit") or "none",
-            },
-            "blocks": page_blocks,
-            "block_count": len(page_blocks),
-            "page_image_url": f"/api/source/{task_id}/page-image/{page_number}",
-        }
-    )
+    return jsonify(build_source_page_payload(task_id, page_number, blocks, layout))
 
 
 @app.get("/api/source/<task_id>/page-image/<int:page_number>")
@@ -1154,27 +1126,9 @@ def source_image(task_id: str, image_id: str):
     if not figures_path.exists():
         return jsonify({"error": "not_found"}), 404
     figures = read_json(figures_path).get("figures") or []
-    for figure in figures:
-        if figure.get("image_id") == image_id:
-            image_path = str(figure.get("image_path") or "")
-            crop_path = str(figure.get("crop_path") or image_path)
-            thumbnail_path = str(figure.get("thumbnail_path") or "")
-            return jsonify(
-                {
-                    "task_id": task_id,
-                    "image_id": image_id,
-                    "page_number": figure.get("page_number") or 1,
-                    "bbox": figure.get("bbox") or [],
-                    "bbox_unit": figure.get("bbox_unit") or "none",
-                    "caption": figure.get("caption") or figure.get("alt_text") or "",
-                    "ocr_text": figure.get("ocr_text") or "",
-                    "figure": figure,
-                    "image_url": f"/api/artifact/{task_id}/{image_path}" if image_path else "",
-                    "crop_url": f"/api/artifact/{task_id}/{crop_path}" if crop_path else "",
-                    "thumbnail_url": f"/api/artifact/{task_id}/{thumbnail_path}" if thumbnail_path else "",
-                    "open_artifact_url": f"/api/documents/artifact/{task_id}/{image_path}" if image_path else "",
-                }
-            )
+    figure = find_figure_by_image_id(figures, image_id)
+    if figure:
+        return jsonify(build_source_image_payload(task_id, image_id, figure))
     return jsonify({"error": "not_found"}), 404
 
 

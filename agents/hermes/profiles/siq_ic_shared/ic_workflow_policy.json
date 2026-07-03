@@ -65,7 +65,8 @@
     }
   },
   "directories": {
-    "project_root": "/home/maoyd/siq-research-engine/data/ic/projects",
+    "project_root": "/home/maoyd/siq-research-engine/data/wiki/deals",
+    "legacy_project_root": "/home/maoyd/siq-research-engine/data/ic/projects",
     "phases_dir": "phases",
     "rounds_dir": "10_rounds",
     "conflicts_dir": "20_conflicts",

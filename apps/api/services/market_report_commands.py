@@ -18,6 +18,13 @@ class MarketPackageBuildPlanError(Exception):
         self.detail = detail
 
 
+class MarketPackagePlanError(Exception):
+    def __init__(self, status_code: int, detail: str):
+        super().__init__(detail)
+        self.status_code = status_code
+        self.detail = detail
+
+
 @dataclass(frozen=True)
 class MarketPackageBuildPlan:
     market: str
@@ -27,6 +34,38 @@ class MarketPackageBuildPlan:
     metadata_path: Path | None
     parser_result_path: Path | None
     force: bool
+
+
+@dataclass(frozen=True)
+class MarketPackageImportPlan:
+    market: str
+    package_dir: Path
+    script: Path
+
+
+@dataclass(frozen=True)
+class MarketVectorIngestPlan:
+    market: str
+    package_dir: Path
+    script: Path
+    dry_run: bool
+
+
+@dataclass(frozen=True)
+class MarketIngestionEvalPlan:
+    script: Path
+    output_path: Path
+    markdown_path: Path
+
+
+@dataclass(frozen=True)
+class UsSecRebuildPackagePlan:
+    ticker: str
+    package_dir: Path
+    source_path: Path
+    metadata_path: Path | None
+    script: Path
+    output_root: Path
 
 
 def select_market_build_script(
@@ -188,6 +227,24 @@ def market_package_import_args(
     return args
 
 
+def build_market_package_import_plan(
+    *,
+    payload: Mapping[str, Any],
+    market: str,
+    market_import_scripts: Mapping[str, Path],
+    safe_market_package_path: Callable[[str, str], Path],
+) -> MarketPackageImportPlan:
+    package_dir = safe_market_package_path(market, str(payload.get("package_path") or ""))
+    script = market_import_scripts[market]
+    if not script.is_file():
+        raise MarketPackagePlanError(404, f"Missing package import script: {script}")
+    return MarketPackageImportPlan(
+        market=market,
+        package_dir=package_dir,
+        script=script,
+    )
+
+
 def market_vector_ingest_args(
     *,
     executable: str,
@@ -218,9 +275,44 @@ def market_vector_ingest_args(
     return args, dry_run
 
 
+def build_market_vector_ingest_plan(
+    *,
+    payload: Mapping[str, Any],
+    market: str,
+    vector_ingest_script: Path,
+    safe_market_package_path: Callable[[str, str], Path],
+) -> MarketVectorIngestPlan:
+    package_dir = safe_market_package_path(market, str(payload.get("package_path") or ""))
+    if not vector_ingest_script.is_file():
+        raise MarketPackagePlanError(404, f"Missing vector ingest script: {vector_ingest_script}")
+    return MarketVectorIngestPlan(
+        market=market,
+        package_dir=package_dir,
+        script=vector_ingest_script,
+        dry_run=bool(payload.get("dry_run", True)),
+    )
+
+
 def _absolute_path(value: str | Path, *, repo_root: Path) -> Path:
     path = Path(str(value))
     return path if path.is_absolute() else repo_root / path
+
+
+def build_market_ingestion_eval_plan(
+    *,
+    payload: Mapping[str, Any],
+    eval_script: Path,
+    repo_root: Path,
+    default_output: Path,
+    default_markdown: Path,
+) -> MarketIngestionEvalPlan:
+    if not eval_script.is_file():
+        raise MarketPackagePlanError(404, f"Missing eval script: {eval_script}")
+    return MarketIngestionEvalPlan(
+        script=eval_script,
+        output_path=_absolute_path(payload.get("output") or default_output, repo_root=repo_root),
+        markdown_path=_absolute_path(payload.get("markdown") or default_markdown, repo_root=repo_root),
+    )
 
 
 def market_ingestion_eval_args(
@@ -299,6 +391,39 @@ def us_sec_rebuild_package_args(
         args.extend(["--metadata", str(metadata_path)])
     args.extend(["--output-root", str(output_root)])
     return args
+
+
+def build_us_sec_rebuild_package_plan(
+    *,
+    ticker: str,
+    latest_case_item: Callable[[str], Mapping[str, Any] | None],
+    safe_package_path: Callable[[str], Path],
+    read_json_file: Callable[[Path, Any], Any],
+    safe_under: Callable[[Path, Path], Path],
+    package_build_script: Path,
+    output_root: Path,
+) -> UsSecRebuildPackagePlan:
+    normalized_ticker = str(ticker or "").strip().upper()
+    item = latest_case_item(normalized_ticker)
+    if not item:
+        raise MarketPackagePlanError(404, f"No package for ticker {normalized_ticker}")
+    package_dir = safe_package_path(str(item.get("package_path") or ""))
+    manifest = read_json_file(package_dir / "manifest.json", {}) or {}
+    local_source = str(manifest.get("local_source_path") or "raw/filing.htm")
+    source_path = safe_under(package_dir, package_dir / local_source)
+    if not source_path.is_file():
+        raise MarketPackagePlanError(404, "Raw SEC filing source not found in package")
+    if not package_build_script.is_file():
+        raise MarketPackagePlanError(404, f"Missing package build script: {package_build_script}")
+    metadata_path = package_dir / "raw" / "filing.metadata.json"
+    return UsSecRebuildPackagePlan(
+        ticker=normalized_ticker,
+        package_dir=package_dir,
+        source_path=source_path,
+        metadata_path=metadata_path if metadata_path.is_file() else None,
+        script=package_build_script,
+        output_root=output_root,
+    )
 
 
 def _tail(value: str | None, limit: int) -> str:

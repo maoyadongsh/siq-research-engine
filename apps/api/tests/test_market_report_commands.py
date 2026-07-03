@@ -206,6 +206,171 @@ def test_market_package_build_plan_resolves_relative_source_and_metadata(tmp_pat
     assert plan.metadata_path == metadata
 
 
+def test_market_package_build_plan_supports_legacy_pdf_path_alias(tmp_path):
+    repo_root = tmp_path / "repo"
+    wiki_roots = {"US": tmp_path / "wiki" / "us_sec"}
+    build_script = repo_root / "scripts" / "build_us.py"
+    source = repo_root / "downloads" / "US" / "legacy.pdf"
+    ignored_pdf = repo_root / "downloads" / "US" / "ignored.pdf"
+    for path in (build_script, source, ignored_pdf):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x", encoding="utf-8")
+
+    alias_plan = commands.build_market_package_build_plan(
+        payload={"pdf_path": "downloads/US/legacy.pdf"},
+        market="US",
+        repo_root=repo_root,
+        market_wiki_roots=wiki_roots,
+        market_build_scripts={"US": build_script},
+        eu_esef_package_build_script=repo_root / "scripts" / "build_eu_esef.py",
+        safe_download_path=lambda value: (_ for _ in ()).throw(AssertionError("download path should not be used")),
+        adjacent_metadata_path=lambda path: None,
+    )
+    source_wins_plan = commands.build_market_package_build_plan(
+        payload={"source_path": source, "pdf_path": ignored_pdf},
+        market="US",
+        repo_root=repo_root,
+        market_wiki_roots=wiki_roots,
+        market_build_scripts={"US": build_script},
+        eu_esef_package_build_script=repo_root / "scripts" / "build_eu_esef.py",
+        safe_download_path=lambda value: (_ for _ in ()).throw(AssertionError("download path should not be used")),
+        adjacent_metadata_path=lambda path: None,
+    )
+
+    assert alias_plan.source_path == source
+    assert source_wins_plan.source_path == source
+
+
+def test_market_package_build_plan_preserves_absolute_source_path(tmp_path):
+    repo_root = tmp_path / "repo"
+    wiki_roots = {"US": tmp_path / "wiki" / "us_sec"}
+    build_script = repo_root / "scripts" / "build_us.py"
+    source = tmp_path / "external-downloads" / "US" / "report.html"
+    for path in (build_script, source):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x", encoding="utf-8")
+
+    plan = commands.build_market_package_build_plan(
+        payload={"source_path": source},
+        market="US",
+        repo_root=repo_root,
+        market_wiki_roots=wiki_roots,
+        market_build_scripts={"US": build_script},
+        eu_esef_package_build_script=repo_root / "scripts" / "build_eu_esef.py",
+        safe_download_path=lambda value: (_ for _ in ()).throw(AssertionError("download path should not be used")),
+        adjacent_metadata_path=lambda path: None,
+    )
+
+    assert plan.source_path == source
+    assert plan.output_root == wiki_roots["US"]
+
+
+def test_market_package_build_plan_uses_absolute_metadata_path(tmp_path):
+    repo_root = tmp_path / "repo"
+    wiki_roots = {"US": tmp_path / "wiki" / "us_sec"}
+    build_script = repo_root / "scripts" / "build_us.py"
+    source = repo_root / "downloads" / "US" / "report.html"
+    metadata = tmp_path / "metadata" / "report.metadata.json"
+    for path in (build_script, source, metadata):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x", encoding="utf-8")
+
+    plan = commands.build_market_package_build_plan(
+        payload={"source_path": source, "metadata_path": metadata},
+        market="US",
+        repo_root=repo_root,
+        market_wiki_roots=wiki_roots,
+        market_build_scripts={"US": build_script},
+        eu_esef_package_build_script=repo_root / "scripts" / "build_eu_esef.py",
+        safe_download_path=lambda value: (_ for _ in ()).throw(AssertionError("download path should not be used")),
+        adjacent_metadata_path=lambda path: (_ for _ in ()).throw(AssertionError("explicit metadata should win")),
+    )
+
+    assert plan.metadata_path == metadata
+
+
+def test_market_package_build_plan_requires_source_or_download_path(tmp_path):
+    repo_root = tmp_path / "repo"
+    wiki_roots = {"US": tmp_path / "wiki" / "us_sec"}
+    build_script = repo_root / "scripts" / "build_us.py"
+    build_script.parent.mkdir(parents=True, exist_ok=True)
+    build_script.write_text("x", encoding="utf-8")
+
+    try:
+        commands.build_market_package_build_plan(
+            payload={},
+            market="US",
+            repo_root=repo_root,
+            market_wiki_roots=wiki_roots,
+            market_build_scripts={"US": build_script},
+            eu_esef_package_build_script=repo_root / "scripts" / "build_eu_esef.py",
+            safe_download_path=lambda value: (_ for _ in ()).throw(AssertionError("download path should not be used")),
+            adjacent_metadata_path=lambda path: None,
+        )
+    except commands.MarketPackageBuildPlanError as exc:
+        assert exc.status_code == 400
+        assert exc.detail == "source_path or download_relative_path is required"
+    else:
+        raise AssertionError("expected missing source/download error")
+
+
+def test_market_package_build_plan_reports_missing_selected_source(tmp_path):
+    repo_root = tmp_path / "repo"
+    wiki_roots = {"US": tmp_path / "wiki" / "us_sec"}
+    build_script = repo_root / "scripts" / "build_us.py"
+    missing_download = tmp_path / "downloads" / "US" / "missing.html"
+    build_script.parent.mkdir(parents=True, exist_ok=True)
+    build_script.write_text("x", encoding="utf-8")
+
+    cases = [
+        {"source_path": "downloads/US/missing.html"},
+        {"download_relative_path": "US/missing.html"},
+    ]
+    for payload in cases:
+        try:
+            commands.build_market_package_build_plan(
+                payload=payload,
+                market="US",
+                repo_root=repo_root,
+                market_wiki_roots=wiki_roots,
+                market_build_scripts={"US": build_script},
+                eu_esef_package_build_script=repo_root / "scripts" / "build_eu_esef.py",
+                safe_download_path=lambda value: missing_download,
+                adjacent_metadata_path=lambda path: None,
+            )
+        except commands.MarketPackageBuildPlanError as exc:
+            assert exc.status_code == 404
+            assert exc.detail == "source_path not found"
+        else:
+            raise AssertionError("expected source_path not found error")
+
+
+def test_market_package_build_plan_reports_missing_selected_script(tmp_path):
+    repo_root = tmp_path / "repo"
+    wiki_roots = {"US": tmp_path / "wiki" / "us_sec"}
+    missing_script = repo_root / "scripts" / "missing_build_us.py"
+    source = repo_root / "downloads" / "US" / "report.html"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text("x", encoding="utf-8")
+
+    try:
+        commands.build_market_package_build_plan(
+            payload={"source_path": source},
+            market="US",
+            repo_root=repo_root,
+            market_wiki_roots=wiki_roots,
+            market_build_scripts={"US": missing_script},
+            eu_esef_package_build_script=repo_root / "scripts" / "build_eu_esef.py",
+            safe_download_path=lambda value: (_ for _ in ()).throw(AssertionError("download path should not be used")),
+            adjacent_metadata_path=lambda path: None,
+        )
+    except commands.MarketPackageBuildPlanError as exc:
+        assert exc.status_code == 404
+        assert exc.detail == f"Missing package build script: {missing_script}"
+    else:
+        raise AssertionError("expected missing build script error")
+
+
 def test_market_package_build_plan_requires_parser_result_for_hk_and_eu_pdf(tmp_path):
     repo_root = tmp_path / "repo"
     wiki_roots = {"HK": tmp_path / "wiki" / "hk", "EU": tmp_path / "wiki" / "eu"}
@@ -247,6 +412,121 @@ def test_market_package_build_plan_requires_parser_result_for_hk_and_eu_pdf(tmp_
     )
 
     assert plan.parser_result_path == parser_result
+
+
+def test_market_package_build_plan_accepts_eu_pdf_with_parser_result_directory(tmp_path):
+    repo_root = tmp_path / "repo"
+    wiki_roots = {"EU": tmp_path / "wiki" / "eu"}
+    eu_pdf_script = repo_root / "scripts" / "build_eu_pdf.py"
+    eu_esef_script = repo_root / "scripts" / "build_eu_esef.py"
+    source = repo_root / "downloads" / "EU" / "report.pdf"
+    parser_result = repo_root / "parser" / "task-1"
+    for path in (eu_pdf_script, eu_esef_script, source):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x", encoding="utf-8")
+    parser_result.mkdir(parents=True)
+
+    plan = commands.build_market_package_build_plan(
+        payload={"source_path": source, "parser_result": parser_result},
+        market="EU",
+        repo_root=repo_root,
+        market_wiki_roots=wiki_roots,
+        market_build_scripts={"EU": eu_pdf_script},
+        eu_esef_package_build_script=eu_esef_script,
+        safe_download_path=lambda value: (_ for _ in ()).throw(AssertionError("download path should not be used")),
+        adjacent_metadata_path=lambda path: None,
+    )
+
+    assert plan.script == eu_pdf_script
+    assert plan.parser_result_path == parser_result
+
+
+def test_market_package_build_plan_ignores_parser_result_for_us(tmp_path):
+    repo_root = tmp_path / "repo"
+    wiki_roots = {"US": tmp_path / "wiki" / "us_sec"}
+    build_script = repo_root / "scripts" / "build_us.py"
+    source = repo_root / "downloads" / "US" / "report.html"
+    for path in (build_script, source):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x", encoding="utf-8")
+
+    plan = commands.build_market_package_build_plan(
+        payload={"source_path": source, "parser_result": "missing-parser-result"},
+        market="US",
+        repo_root=repo_root,
+        market_wiki_roots=wiki_roots,
+        market_build_scripts={"US": build_script},
+        eu_esef_package_build_script=repo_root / "scripts" / "build_eu_esef.py",
+        safe_download_path=lambda value: (_ for _ in ()).throw(AssertionError("download path should not be used")),
+        adjacent_metadata_path=lambda path: None,
+    )
+
+    assert plan.parser_result_path is None
+
+
+def test_market_package_build_plan_accepts_parser_result_for_jp_and_kr(tmp_path):
+    repo_root = tmp_path / "repo"
+    wiki_roots = {"JP": tmp_path / "wiki" / "jp", "KR": tmp_path / "wiki" / "kr"}
+    jp_script = repo_root / "scripts" / "build_jp.py"
+    kr_script = repo_root / "scripts" / "build_kr.py"
+    jp_source = repo_root / "downloads" / "JP" / "report.pdf"
+    kr_source = repo_root / "downloads" / "KR" / "report.pdf"
+    parser_result = repo_root / "parser" / "task-1"
+    for path in (jp_script, kr_script, jp_source, kr_source, parser_result):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x", encoding="utf-8")
+
+    common = {
+        "repo_root": repo_root,
+        "market_wiki_roots": wiki_roots,
+        "market_build_scripts": {"JP": jp_script, "KR": kr_script},
+        "eu_esef_package_build_script": repo_root / "scripts" / "build_eu_esef.py",
+        "safe_download_path": lambda value: (_ for _ in ()).throw(AssertionError("download path should not be used")),
+        "adjacent_metadata_path": lambda path: None,
+    }
+
+    jp_plan = commands.build_market_package_build_plan(
+        payload={"source_path": jp_source, "parser_result": parser_result},
+        market="JP",
+        **common,
+    )
+    kr_plan = commands.build_market_package_build_plan(
+        payload={"source_path": kr_source, "parser_result": parser_result},
+        market="KR",
+        **common,
+    )
+
+    assert jp_plan.parser_result_path == parser_result
+    assert kr_plan.parser_result_path == parser_result
+
+
+def test_market_package_build_plan_routes_all_esef_suffixes_without_parser_result(tmp_path):
+    repo_root = tmp_path / "repo"
+    wiki_roots = {"EU": tmp_path / "wiki" / "eu"}
+    eu_pdf_script = repo_root / "scripts" / "build_eu_pdf.py"
+    eu_esef_script = repo_root / "scripts" / "build_eu_esef.py"
+    for path in (eu_pdf_script, eu_esef_script):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x", encoding="utf-8")
+
+    for suffix in (".zip", ".xhtml", ".html", ".htm", ".xml", ".xbrl"):
+        source = repo_root / "downloads" / "EU" / f"report{suffix}"
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text("x", encoding="utf-8")
+
+        plan = commands.build_market_package_build_plan(
+            payload={"source_path": source},
+            market="EU",
+            repo_root=repo_root,
+            market_wiki_roots=wiki_roots,
+            market_build_scripts={"EU": eu_pdf_script},
+            eu_esef_package_build_script=eu_esef_script,
+            safe_download_path=lambda value: (_ for _ in ()).throw(AssertionError("download path should not be used")),
+            adjacent_metadata_path=lambda path: None,
+        )
+
+        assert plan.script == eu_esef_script
+        assert plan.parser_result_path is None
 
 
 def test_market_package_build_plan_ignores_parser_result_for_eu_esef(tmp_path):
@@ -343,6 +623,52 @@ def test_market_package_import_args_uses_positional_package_for_non_us():
     ]
 
 
+def test_market_package_import_plan_selects_script_and_package_dir(tmp_path):
+    package_dir = tmp_path / "wiki" / "hk_reports" / "00700" / "2025" / "annual_demo"
+    script = tmp_path / "scripts" / "import_hk.py"
+    script.parent.mkdir(parents=True)
+    script.write_text("# import", encoding="utf-8")
+    seen = {}
+
+    def safe_package(market: str, value: str) -> Path:
+        seen["market"] = market
+        seen["value"] = value
+        return package_dir
+
+    plan = commands.build_market_package_import_plan(
+        payload={"package_path": "data/wiki/hk_reports/00700/2025/annual_demo"},
+        market="HK",
+        market_import_scripts={"HK": script},
+        safe_market_package_path=safe_package,
+    )
+
+    assert plan.market == "HK"
+    assert plan.package_dir == package_dir
+    assert plan.script == script
+    assert seen == {
+        "market": "HK",
+        "value": "data/wiki/hk_reports/00700/2025/annual_demo",
+    }
+
+
+def test_market_package_import_plan_reports_missing_script(tmp_path):
+    package_dir = tmp_path / "wiki" / "us_sec" / "AAPL" / "2025" / "10-K_demo"
+    missing_script = tmp_path / "scripts" / "missing_import_us.py"
+
+    try:
+        commands.build_market_package_import_plan(
+            payload={"package_path": str(package_dir)},
+            market="US",
+            market_import_scripts={"US": missing_script},
+            safe_market_package_path=lambda market, value: package_dir,
+        )
+    except commands.MarketPackagePlanError as exc:
+        assert exc.status_code == 404
+        assert exc.detail == f"Missing package import script: {missing_script}"
+    else:
+        raise AssertionError("expected missing import script error")
+
+
 def test_market_vector_ingest_args_defaults_to_dry_run_and_optional_flags():
     args, dry_run = commands.market_vector_ingest_args(
         executable="/usr/bin/python",
@@ -393,6 +719,50 @@ def test_market_vector_ingest_args_can_disable_dry_run_and_override_batch():
         "--batch-tag",
         "prod-load",
     ]
+
+
+def test_market_vector_ingest_plan_selects_script_package_and_dry_run(tmp_path):
+    package_dir = tmp_path / "wiki" / "hk_reports" / "00700" / "2025" / "annual_demo"
+    script = tmp_path / "scripts" / "ingest_market_package.py"
+    script.parent.mkdir(parents=True)
+    script.write_text("# ingest", encoding="utf-8")
+
+    dry_run_plan = commands.build_market_vector_ingest_plan(
+        payload={"package_path": str(package_dir)},
+        market="HK",
+        vector_ingest_script=script,
+        safe_market_package_path=lambda market, value: package_dir,
+    )
+    prod_plan = commands.build_market_vector_ingest_plan(
+        payload={"package_path": str(package_dir), "dry_run": False},
+        market="HK",
+        vector_ingest_script=script,
+        safe_market_package_path=lambda market, value: package_dir,
+    )
+
+    assert dry_run_plan.market == "HK"
+    assert dry_run_plan.package_dir == package_dir
+    assert dry_run_plan.script == script
+    assert dry_run_plan.dry_run is True
+    assert prod_plan.dry_run is False
+
+
+def test_market_vector_ingest_plan_reports_missing_script(tmp_path):
+    package_dir = tmp_path / "wiki" / "hk_reports" / "00700" / "2025" / "annual_demo"
+    missing_script = tmp_path / "scripts" / "missing_ingest.py"
+
+    try:
+        commands.build_market_vector_ingest_plan(
+            payload={"package_path": str(package_dir)},
+            market="HK",
+            vector_ingest_script=missing_script,
+            safe_market_package_path=lambda market, value: package_dir,
+        )
+    except commands.MarketPackagePlanError as exc:
+        assert exc.status_code == 404
+        assert exc.detail == f"Missing vector ingest script: {missing_script}"
+    else:
+        raise AssertionError("expected missing vector ingest script error")
 
 
 def test_market_ingestion_eval_args_resolves_relative_paths_against_repo_root():
@@ -506,6 +876,115 @@ def test_us_sec_rebuild_package_args_includes_force_metadata_and_output_root():
         "--output-root",
         "/repo/data/wiki/us_sec",
     ]
+
+
+def test_us_sec_rebuild_package_plan_selects_source_metadata_and_script(tmp_path):
+    package_dir = tmp_path / "wiki" / "us_sec" / "AAPL" / "2025" / "10-K_demo"
+    raw_dir = package_dir / "raw"
+    raw_dir.mkdir(parents=True)
+    source = raw_dir / "filing.htm"
+    source.write_text("<html>10-K</html>", encoding="utf-8")
+    metadata = raw_dir / "filing.metadata.json"
+    metadata.write_text('{"ticker":"AAPL"}', encoding="utf-8")
+    (package_dir / "manifest.json").write_text(
+        '{"local_source_path":"raw/filing.htm"}',
+        encoding="utf-8",
+    )
+    script = tmp_path / "scripts" / "build_sec_evidence_package.py"
+    script.parent.mkdir(parents=True)
+    script.write_text("# build", encoding="utf-8")
+
+    plan = commands.build_us_sec_rebuild_package_plan(
+        ticker="aapl",
+        latest_case_item=lambda ticker: {"ticker": ticker, "package_path": str(package_dir)},
+        safe_package_path=lambda value: package_dir if value == str(package_dir) else None,
+        read_json_file=lambda path, default: {"local_source_path": "raw/filing.htm"},
+        safe_under=lambda root, path: path,
+        package_build_script=script,
+        output_root=tmp_path / "wiki" / "us_sec",
+    )
+
+    assert plan.ticker == "AAPL"
+    assert plan.package_dir == package_dir
+    assert plan.source_path == source
+    assert plan.metadata_path == metadata
+    assert plan.script == script
+    assert plan.output_root == tmp_path / "wiki" / "us_sec"
+
+
+def test_us_sec_rebuild_package_plan_uses_default_source_and_optional_metadata(tmp_path):
+    package_dir = tmp_path / "wiki" / "us_sec" / "MSFT" / "2025" / "10-K_demo"
+    source = package_dir / "raw" / "filing.htm"
+    source.parent.mkdir(parents=True)
+    source.write_text("<html>10-K</html>", encoding="utf-8")
+    script = tmp_path / "scripts" / "build_sec_evidence_package.py"
+    script.parent.mkdir(parents=True)
+    script.write_text("# build", encoding="utf-8")
+
+    plan = commands.build_us_sec_rebuild_package_plan(
+        ticker="MSFT",
+        latest_case_item=lambda ticker: {"ticker": ticker, "package_path": str(package_dir)},
+        safe_package_path=lambda value: package_dir,
+        read_json_file=lambda path, default: {},
+        safe_under=lambda root, path: path,
+        package_build_script=script,
+        output_root=tmp_path / "wiki" / "us_sec",
+    )
+
+    assert plan.source_path == source
+    assert plan.metadata_path is None
+
+
+def test_us_sec_rebuild_package_plan_reports_missing_case_source_and_script(tmp_path):
+    package_dir = tmp_path / "wiki" / "us_sec" / "AAPL" / "2025" / "10-K_demo"
+    script = tmp_path / "scripts" / "build_sec_evidence_package.py"
+    source = package_dir / "raw" / "filing.htm"
+    source.parent.mkdir(parents=True)
+
+    cases = [
+        (
+            {"latest_case_item": lambda ticker: None, "package_build_script": script},
+            404,
+            "No package for ticker AAPL",
+        ),
+        (
+            {"latest_case_item": lambda ticker: {"package_path": str(package_dir)}, "package_build_script": script},
+            404,
+            "Raw SEC filing source not found in package",
+        ),
+    ]
+    for overrides, status_code, detail in cases:
+        try:
+            commands.build_us_sec_rebuild_package_plan(
+                ticker="aapl",
+                safe_package_path=lambda value: package_dir,
+                read_json_file=lambda path, default: {},
+                safe_under=lambda root, path: path,
+                output_root=tmp_path / "wiki" / "us_sec",
+                **overrides,
+            )
+        except commands.MarketPackagePlanError as exc:
+            assert exc.status_code == status_code
+            assert exc.detail == detail
+        else:
+            raise AssertionError("expected US SEC rebuild plan error")
+
+    source.write_text("<html>10-K</html>", encoding="utf-8")
+    try:
+        commands.build_us_sec_rebuild_package_plan(
+            ticker="aapl",
+            latest_case_item=lambda ticker: {"package_path": str(package_dir)},
+            safe_package_path=lambda value: package_dir,
+            read_json_file=lambda path, default: {},
+            safe_under=lambda root, path: path,
+            package_build_script=script,
+            output_root=tmp_path / "wiki" / "us_sec",
+        )
+    except commands.MarketPackagePlanError as exc:
+        assert exc.status_code == 404
+        assert exc.detail == f"Missing package build script: {script}"
+    else:
+        raise AssertionError("expected missing package build script error")
 
 
 def test_market_package_build_result_payload_handles_failure_missing_path_and_success():

@@ -447,14 +447,71 @@ def test_document_db_import_command_and_env_contract():
     assert env["DATABASE_URL"] == database_url
 
 
-def test_document_semantic_command_contract_for_chunks_and_milvus():
+def test_document_db_import_plan_keeps_args_env_and_timeout_together():
+    pg_config = {
+        "host": "db.local",
+        "port": 5432,
+        "dbname": "siq",
+        "user": "doc_user",
+        "password": "secret",
+    }
+    database_url = "postgresql://doc_user:secret@db.local:5432/siq"
+
+    plan = service.document_db_import_plan(
+        executable="/usr/bin/python",
+        script_path=Path("/repo/scripts/import_document.py"),
+        package_dir=Path("/wiki/documents/contracts/doc-task-1"),
+        base_env={"KEEP": "1", "PGHOST": "old"},
+        pg_config=pg_config,
+        database_url=database_url,
+    )
+
+    assert plan["args"] == [
+        "/usr/bin/python",
+        "/repo/scripts/import_document.py",
+        "/wiki/documents/contracts/doc-task-1",
+        "--database-url",
+        database_url,
+    ]
+    assert plan["timeout"] == 300
+    assert plan["env"]["KEEP"] == "1"
+    assert plan["env"]["PGHOST"] == "db.local"
+    assert plan["env"]["PGPORT"] == "5432"
+    assert plan["env"]["PGDATABASE"] == "siq"
+    assert plan["env"]["PGUSER"] == "doc_user"
+    assert plan["env"]["PGPASSWORD"] == "secret"
+    assert plan["env"]["DATABASE_URL"] == database_url
+
+
+def test_document_db_import_plan_honors_timeout_override():
+    pg_config = {
+        "host": "db.local",
+        "port": 5432,
+        "dbname": "siq",
+        "user": "doc_user",
+        "password": "secret",
+    }
+    plan = service.document_db_import_plan(
+        executable="/usr/bin/python",
+        script_path=Path("/repo/scripts/import_document.py"),
+        package_dir=Path("/wiki/documents/contracts/doc-task-1"),
+        base_env={},
+        pg_config=pg_config,
+        database_url="postgresql://doc_user:secret@db.local:5432/siq",
+        timeout=900,
+    )
+
+    assert plan["timeout"] == 900
+
+
+def test_document_semantic_plan_contract_for_chunks_and_milvus():
     package_dir = Path("/wiki/documents/contracts/doc-task-1")
-    chunks = service.document_semantic_command(
+    chunks = service.document_semantic_plan(
         executable="/usr/bin/python",
         script_path=Path("/repo/scripts/ingest_document_chunks.py"),
         package_dir=package_dir,
     )
-    milvus = service.document_semantic_command(
+    milvus = service.document_semantic_plan(
         executable="/usr/bin/python",
         script_path=Path("/repo/scripts/ingest_document_chunks.py"),
         package_dir=package_dir,
@@ -480,3 +537,32 @@ def test_document_semantic_command_contract_for_chunks_and_milvus():
     assert milvus["args"] == [*chunks["args"], "--milvus"]
     assert milvus["timeout"] == 1800
     assert milvus["semantic_mode"] == "milvus"
+
+
+def test_document_semantic_plan_honors_collection_override():
+    plan = service.document_semantic_plan(
+        executable="/usr/bin/python",
+        script_path=Path("/repo/scripts/ingest_document_chunks.py"),
+        package_dir=Path("/wiki/documents/contracts/doc-task-1"),
+        collection="custom_docs",
+    )
+
+    assert plan["args"][plan["args"].index("--collection") + 1] == "custom_docs"
+
+
+def test_document_semantic_command_remains_compatible_with_plan():
+    package_dir = Path("/wiki/documents/contracts/doc-task-1")
+
+    assert service.document_semantic_command(
+        executable="/usr/bin/python",
+        script_path=Path("/repo/scripts/ingest_document_chunks.py"),
+        package_dir=package_dir,
+        milvus=True,
+        collection="custom_docs",
+    ) == service.document_semantic_plan(
+        executable="/usr/bin/python",
+        script_path=Path("/repo/scripts/ingest_document_chunks.py"),
+        package_dir=package_dir,
+        milvus=True,
+        collection="custom_docs",
+    )

@@ -59,7 +59,9 @@ export SIQ_HERMES_HOME=/path/to/hermes_home
 export SIQ_HERMES_PROFILES_ROOT=$SIQ_HERMES_HOME/profiles
 ```
 
-`scripts/hermes/profile_dir.sh` 会根据 profile 名称解析真实目录，`start_all.sh` 会按五个默认端口启动网关。
+`scripts/hermes/profile_dir.sh` 会根据 profile 名称解析真实目录，`start_all.sh` 默认启动五个通用 Hermes 网关；设置 `SIQ_ENABLE_IC_HERMES=1` 后才会额外启动 7 个 `siq_ic_*` 网关。
+
+状态页口径：未设置 `SIQ_ENABLE_IC_HERMES=1` 时，IC profiles 展示为 `IC Hermes disabled` / `未启用`；设置后仅当对应 gateway `/health` 通过才展示为 enabled，部分失败应展示 degraded。
 
 ## 启动
 
@@ -76,6 +78,21 @@ export SIQ_AUTH_SECRET_KEY="$(openssl rand -hex 32)"
 ```bash
 cd /home/maoyd/siq-research-engine
 scripts/hermes/run_gateway.sh siq_analysis
+```
+
+单 profile health 冒烟：
+
+```bash
+cd /home/maoyd/siq-research-engine
+scripts/hermes/smoke_gateway_health.sh siq_ic_chairman 20
+```
+
+R1 agent workflow 临时冒烟：
+
+```bash
+cd /home/maoyd/siq-research-engine
+scripts/hermes/smoke_r1_agent_workflow.py
+scripts/hermes/smoke_r1_agent_workflow.py --profile siq_ic_strategist --real --start-gateway --require-gateway-health
 ```
 
 健康检查：

@@ -30,6 +30,17 @@ def _env_url_any(names: tuple[str, ...], fallback: str) -> str:
     return fallback
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _is_ic_profile(profile: str) -> bool:
+    return profile.startswith("siq_ic_")
+
+
 def _hermes_health_url(runs_url: str) -> str:
     parsed = urlparse(runs_url)
     if not parsed.scheme or not parsed.netloc:
@@ -63,7 +74,9 @@ async def _probe_service(
             "category": category,
             "url": url,
             "required": required,
+            "enabled": True,
             "ok": ok,
+            "status": "running" if ok else "unavailable",
             "statusCode": response.status_code,
             "latencyMs": latency_ms,
             "detail": detail,
@@ -76,11 +89,39 @@ async def _probe_service(
             "category": category,
             "url": url,
             "required": required,
+            "enabled": True,
             "ok": False,
+            "status": "unavailable",
             "statusCode": None,
             "latencyMs": latency_ms,
             "detail": str(exc)[:300],
         }
+
+
+def _disabled_service(
+    *,
+    service_id: str,
+    name: str,
+    category: str,
+    url: str,
+    reason: str,
+) -> dict[str, Any]:
+    return {
+        "id": service_id,
+        "name": name,
+        "category": category,
+        "url": url,
+        "required": False,
+        "enabled": False,
+        "ok": False,
+        "status": "disabled",
+        "statusCode": None,
+        "latencyMs": 0,
+        "detail": {
+            "status": "disabled",
+            "reason": reason,
+        },
+    }
 
 
 def _wiki_status() -> dict[str, Any]:
@@ -126,6 +167,7 @@ def _model_status() -> dict[str, Any]:
 
 
 async def collect_system_status() -> dict[str, Any]:
+    ic_hermes_enabled = _env_bool("SIQ_ENABLE_IC_HERMES", False)
     service_specs = [
         {
             "service_id": "report_finder",
@@ -155,18 +197,34 @@ async def collect_system_status() -> dict[str, Any]:
             "required": False,
         },
     ]
+    disabled_services: list[dict[str, Any]] = []
 
     for profile, config in HERMES_PROFILES.items():
         display_name = "Hermes siq_assistant" if profile == "siq_assistant" else f"Hermes {profile}"
+        health_url = _env_url(
+            f"HERMES_{profile.upper()}_HEALTH_URL",
+            _hermes_health_url(config["base"]),
+        )
+        if _is_ic_profile(profile) and not ic_hermes_enabled:
+            disabled_services.append(
+                _disabled_service(
+                    service_id=f"hermes_{profile}",
+                    name=display_name,
+                    category="agent",
+                    url=health_url,
+                    reason=(
+                        "SIQ_ENABLE_IC_HERMES is not enabled; IC Hermes gateways are optional "
+                        "and are skipped by start_all.sh by default."
+                    ),
+                )
+            )
+            continue
         service_specs.append(
             {
                 "service_id": f"hermes_{profile}",
                 "name": display_name,
                 "category": "agent",
-                "url": _env_url(
-                    f"HERMES_{profile.upper()}_HEALTH_URL",
-                    _hermes_health_url(config["base"]),
-                ),
+                "url": health_url,
                 "required": profile != "siq_assistant",
             }
         )
@@ -186,6 +244,7 @@ async def collect_system_status() -> dict[str, Any]:
                 for spec in service_specs
             ]
         )
+    services.extend(disabled_services)
 
     required_services = [service for service in services if service["required"]]
     required_ok = all(service["ok"] for service in required_services)

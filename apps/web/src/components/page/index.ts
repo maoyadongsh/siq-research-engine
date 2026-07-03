@@ -1,4 +1,5 @@
 export * from './PageShell'
-export * from './Surface'
+export { Surface } from './Surface'
+export * from './StatusBadge'
 export * from './EmptyState'
 export * from './MobileActionBar'

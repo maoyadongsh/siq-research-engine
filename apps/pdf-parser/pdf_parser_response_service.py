@@ -78,6 +78,29 @@ def build_status_response_payload(
     }
 
 
+def build_result_response_payload(markdown: Any, artifacts: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "markdown": markdown,
+        "artifacts": dict(artifacts),
+    }
+
+
+def build_quality_response_payload(quality_report: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "quality": dict(quality_report),
+    }
+
+
+def build_financial_response_payload(
+    financial_data: Mapping[str, Any],
+    financial_checks: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        "financial_data": dict(financial_data),
+        "financial_checks": dict(financial_checks),
+    }
+
+
 def clamp_recent_task_limit(
     raw_value: Any,
     *,

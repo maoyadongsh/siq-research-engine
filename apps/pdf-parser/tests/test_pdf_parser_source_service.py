@@ -157,6 +157,188 @@ def test_page_bbox_extent_wrapper_uses_content_list_loader_and_handles_bad_paylo
     assert requested_names == ["content_list.json"]
 
 
+def test_find_source_table_matches_numeric_and_string_indexes():
+    table_3 = {"table_index": "3", "heading": "target"}
+    report = {
+        "table_index": [
+            {"table_index": 1},
+            "not-a-table",
+            table_3,
+        ]
+    }
+
+    assert source.find_source_table(report, 3) is table_3
+    assert source.find_source_table(report, 9) is None
+    assert source.find_source_table({}, 3) is None
+
+
+def test_find_source_table_ignores_malformed_report_entries():
+    table_3 = {"table_index": 3, "heading": "target"}
+    report = {
+        "table_index": [
+            {"table_index": "not-a-number"},
+            {"table_index": None},
+            table_3,
+        ]
+    }
+
+    assert source.find_source_table(report, 3) is table_3
+    assert source.find_source_table({"table_index": {"3": table_3}}, 3) is None
+    assert source.find_source_table("not-a-report", 3) is None
+
+
+def test_source_table_pdf_page_image_payload_handles_page_and_empty_bbox():
+    payload = source.source_table_pdf_page_image_payload(
+        task_id="source-table",
+        task={"pdf_page_count": 8},
+        table_item={
+            "pdf_page_number": 5,
+            "printed_page_number": "F-5",
+        },
+        bbox_extent={"width": 600, "height": 800},
+    )
+
+    assert payload == {
+        "url": "/api/pdf_page/source-table/5",
+        "page_number": 5,
+        "pdf_page_number": 5,
+        "printed_page_number": "F-5",
+        "page_count": 8,
+        "bbox": [],
+        "bbox_extent": {"width": 600, "height": 800},
+    }
+
+
+def test_source_table_pdf_page_image_payload_handles_missing_page():
+    payload = source.source_table_pdf_page_image_payload(
+        task_id="source-table",
+        task={"pdf_page_count": 8},
+        table_item={"bbox": [1, 2, 3, 4]},
+        bbox_extent=None,
+    )
+
+    assert payload == {
+        "url": "",
+        "page_number": None,
+        "pdf_page_number": None,
+        "printed_page_number": None,
+        "page_count": 8,
+        "bbox": [1, 2, 3, 4],
+        "bbox_extent": None,
+    }
+
+
+def test_source_table_pdf_page_image_payload_coerces_page_and_bbox_shape():
+    payload = source.source_table_pdf_page_image_payload(
+        task_id="source-table",
+        task={"pdf_page_count": 8},
+        table_item={
+            "pdf_page_number": "5",
+            "printed_page_number": "F-5",
+            "bbox": (1, 2, 30, 40),
+        },
+        bbox_extent=None,
+    )
+
+    assert payload == {
+        "url": "/api/pdf_page/source-table/5",
+        "page_number": 5,
+        "pdf_page_number": 5,
+        "printed_page_number": "F-5",
+        "page_count": 8,
+        "bbox": [1, 2, 30, 40],
+        "bbox_extent": None,
+    }
+
+    bad_payload = source.source_table_pdf_page_image_payload(
+        task_id="source-table",
+        task={"pdf_page_count": 8},
+        table_item={"pdf_page_number": "bad", "bbox": "bad-bbox"},
+        bbox_extent=None,
+    )
+    assert bad_payload["url"] == ""
+    assert bad_payload["page_number"] is None
+    assert bad_payload["bbox"] == []
+
+
+def test_source_table_payload_keeps_route_shape_without_loading_artifacts():
+    table_item = {
+        "table_index": 3,
+        "line": 12,
+        "pdf_page_number": 5,
+        "printed_page_number": "F-5",
+        "bbox": [1, 2, 30, 40],
+    }
+
+    payload = source.source_table_payload(
+        task_id="source-table",
+        task={"filename": "report.pdf", "pdf_page_count": 8},
+        table_item=table_item,
+        table_html="<table>target</table>",
+        markdown_excerpt="line-12-r14",
+        artifacts={"quality_report": {"exists": True}},
+        correction=None,
+        page_content={"page_number": 5, "focus_table": 3},
+        bbox_extent={"width": 600, "height": 800},
+    )
+
+    assert payload == {
+        "task_id": "source-table",
+        "filename": "report.pdf",
+        "table": table_item,
+        "table_html": "<table>target</table>",
+        "markdown_excerpt": "line-12-r14",
+        "artifacts": {"quality_report": {"exists": True}},
+        "correction": None,
+        "page_content": {"page_number": 5, "focus_table": 3},
+        "pdf_page_image": {
+            "url": "/api/pdf_page/source-table/5",
+            "page_number": 5,
+            "pdf_page_number": 5,
+            "printed_page_number": "F-5",
+            "page_count": 8,
+            "bbox": [1, 2, 30, 40],
+            "bbox_extent": {"width": 600, "height": 800},
+        },
+    }
+
+
+def test_source_table_payload_falls_back_when_page_content_is_malformed():
+    table_item = {
+        "table_index": 3,
+        "line": 12,
+        "pdf_page_number": "5",
+        "pdf_page_index": "4",
+        "printed_page_number": "F-5",
+        "bbox": "bad-bbox",
+    }
+
+    payload = source.source_table_payload(
+        task_id="source-table",
+        task={"filename": "report.pdf", "pdf_page_count": 8},
+        table_item=table_item,
+        table_html="<table>target</table>",
+        markdown_excerpt="line-12-r14",
+        artifacts=["not", "a", "dict"],
+        correction=None,
+        page_content=None,
+        bbox_extent=None,
+    )
+
+    assert payload["artifacts"] == {}
+    assert payload["page_content"] == {
+        "page_number": 5,
+        "pdf_page_number": 5,
+        "printed_page_number": "F-5",
+        "page_index": 4,
+        "block_count": 0,
+        "table_count": 0,
+        "page_tables": [],
+        "blocks": [],
+    }
+    assert payload["pdf_page_image"]["bbox"] == []
+
+
 def test_ensure_pdf_page_image_returns_existing_cache(tmp_path):
     task = {"task_id": "task-1", "upload_path": ""}
     image_path = source.pdf_page_image_path(task, 2, results_folder=str(tmp_path))

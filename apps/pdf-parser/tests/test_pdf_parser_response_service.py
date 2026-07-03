@@ -134,6 +134,35 @@ def test_build_status_response_payload_handles_missing_progress():
     assert payload["logs"] == []
 
 
+def test_result_quality_and_financial_payloads_keep_route_shapes():
+    artifacts = {"markdown": {"exists": True, "path": "result.md"}}
+    quality_report = {"warnings": [], "schema_version": "quality_v1"}
+    financial_data = {"summary": {"statement_count": 1}}
+    financial_checks = {"overall_status": "ok"}
+
+    result_payload = response.build_result_response_payload("# report", artifacts)
+    quality_payload = response.build_quality_response_payload(quality_report)
+    financial_payload = response.build_financial_response_payload(financial_data, financial_checks)
+
+    assert result_payload == {
+        "markdown": "# report",
+        "artifacts": {"markdown": {"exists": True, "path": "result.md"}},
+    }
+    assert quality_payload == {"quality": {"warnings": [], "schema_version": "quality_v1"}}
+    assert financial_payload == {
+        "financial_data": {"summary": {"statement_count": 1}},
+        "financial_checks": {"overall_status": "ok"},
+    }
+
+    artifacts["extra"] = True
+    quality_report["warnings"].append("late")
+    financial_checks["overall_status"] = "changed"
+
+    assert "extra" not in result_payload["artifacts"]
+    assert quality_payload["quality"]["warnings"] == ["late"]
+    assert financial_payload["financial_checks"]["overall_status"] == "ok"
+
+
 def test_clamp_recent_task_limit_uses_default_and_bounds():
     assert response.clamp_recent_task_limit(None) == 300
     assert response.clamp_recent_task_limit("not-a-number") == 300

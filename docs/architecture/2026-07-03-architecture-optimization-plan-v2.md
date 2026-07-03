@@ -613,6 +613,146 @@ YYYY-MM-DD:
 - 下一步:
 ```
 
+```text
+2026-07-03:
+- Owner: Market reports / package build plan
+- 完成: 确认 _run_market_package_build() 已通过 market_report_commands.build_market_package_build_plan() 下沉 source selection、metadata fallback、script selection 和 parser_result 判定；router 仍保留 run_command() 与 package detail 读取。
+- 测试: apps/api tests/test_market_report_commands.py 34 passed；Market reports 聚焦门禁 116 passed，2 个既有 Pydantic deprecation warnings。
+- 下一步: 进入 Workflow document command plan helper，抽 DB import / semantic chunk command args plan，不迁 subprocess。
+
+2026-07-03:
+- Owner: Workflow / document command plan
+- 完成: 确认 document_workflow_service.document_db_import_plan() 与 document_semantic_plan() 已承接 DB import / semantic chunk command args、env、timeout plan；workflow router 仍保留 _run_command() 与 HTTPException。
+- 测试: apps/api Workflow 聚焦门禁 45 passed。
+- 下一步: 进入 PDF parser task status / lifecycle helper，继续验证 terminal/cancel/progress 派生下沉。
+
+2026-07-03:
+- Owner: PDF parser / task lifecycle
+- 完成: 确认 pdf_parser_task_lifecycle_service 已承接 page progress、progress percent、cancel update、status failure update、stale submitting recovery 和 queue claim wrapper；Flask app 仍保留 worker loop 与 queue claim 调用点。
+- 测试: apps/pdf-parser lifecycle/runtime 聚焦 56 passed；parser service 聚焦 105 passed。
+- 下一步: 进入 Agent runtime ordinary chat preflight，确认 request/preflight helper 与 DB/SSE 顺序合同。
+
+2026-07-03:
+- Owner: Agent runtime / ordinary chat preflight
+- 完成: 确认 agent_runtime_preflight 已承接 request envelope 与 run preflight context；agent_chat_runtime_impl 保留 wrapper/monkeypatch 入口，普通 chat 与 streaming 仍保留 catalog、duplicate、active-run join、DB save 和 SSE 生命周期顺序。
+- 测试: apps/api agent runtime 聚焦门禁 114 passed，257 个既有 utcnow deprecation warnings。
+- 下一步: 暂停继续开大窗口，先收尾 P0 门禁与工作区 touch set 审计；后续可进入 SearchDownload view model。
+
+2026-07-03:
+- Owner: SearchDownload / page view model
+- 完成: 新增 features/search-download/viewModel.ts，收口年份列表、市场源提示、表格标题、visible/deferred 列表、候选解释 map、日志风险、候选/选中计数和 hasReports 派生；SearchDownload.tsx 继续保留 state owner、URL 同步、API/下载/toast handlers 与 JSX。
+- 测试: apps/web npm run test:unit 56 passed；apps/web npm run build passed。
+- 下一步: 后续如继续前端窗口，可再按 handler 分层评估搜索/下载编排，不迁 API 合同。
+
+2026-07-03:
+- Owner: Frontend / MarketParsing view model + SearchDownload selection
+- 完成: 新增 features/market-parsing/viewModel.ts，收口移动端 section/tab 顺序、日志风险/展开文案、完成态 workflow/result gate、空态和 EU 结构化入口开关派生；新增 features/search-download/selection.ts，收口单项/分组选择 Set 纯变换；页面继续保留 task/workflow hooks、URL/API、上传/下载/结构化解析 handlers 和 JSX。
+- 测试: apps/web npm run test:unit 63 passed；apps/web npm run build passed；git diff --check passed。
+- 下一步: 前端继续建议按纯 helper 推进 SearchDownload officialSourceReadiness 或 assist payload；后端可按智能体评估进入 document-parser status payload helper。
+
+2026-07-03:
+- Owner: Document parser / status payload
+- 完成: 新增 status_payload.build_task_status_payload()，收口 /api/status/<task_id> 的 task/log/log_count/artifacts_ready payload 组装；app.py 仍保留 Flask route、store、failed bridge recovery 和 request since 解析。
+- 测试: apps/document-parser tests/test_status_payload.py + tests/test_document_parser_app.py 18 passed；apps/document-parser 全量 29 passed。
+- 下一步: 后端后续可继续抽 MinerU import candidates payload 或 SearchDownload officialSourceReadiness，仍保持副作用 owner 不迁移。
+
+2026-07-03:
+- Owner: SearchDownload readiness / Document parser MinerU candidates
+- 完成: 新增 features/search-download/officialSourceReadiness.ts，收口 JP/KR 官方源可用性决策，页面仅保留 health fetch、warning state、log 和 toast 副作用；新增 mineru_candidates_payload.build_mineru_import_candidates_payload()，收口 MinerU import candidates response shape，app.py 仍保留 limit parsing、allowed roots 和目录扫描。
+- 测试: apps/web npm run test:unit 72 passed；apps/web npm run build passed；apps/document-parser candidates/status/app 聚焦 19 passed；apps/document-parser 全量 30 passed；目标 diff --check passed。
+- 下一步: 避开 MarketEvidencePackagesPanel/packageActions 外部并行 slice；后续可继续 SearchDownload assist payload 纯 helper 或 document-parser candidates limit parser helper。
+
+2026-07-03:
+- Owner: Market reports / package import + vector ingest plan
+- 完成: 新增 build_market_package_import_plan() 与 build_market_vector_ingest_plan()，把 package path、script selection 和 dry_run 派生从 router 下沉到 market_report_commands；router 仍保留 run_command()、timeout 与 result payload。
+- 测试: Market reports owner 门禁 120 passed；本轮 API 组合门禁 159 passed；git diff --check passed。
+- 下一步: Market reports 后续可继续 US SEC rebuild selector/plan helper，不迁 tempfile 写入和 run_command()。
+
+2026-07-03:
+- Owner: PDF parser / route response payload
+- 完成: 新增 result/quality/financial response payload helper，/api/result、/api/quality、/api/financial 仍保留 Flask jsonify、upstream fetch/cache、quality/document_full/financial artifact 生成和错误分支。
+- 测试: response/result/quality/financial/lifecycle 聚焦 30 passed；apps/pdf-parser 全量 334 passed。
+- 下一步: PDF parser 后续可继续 images index 或 source-table payload helper，仍不迁 worker loop、queue claim 或 MinerU 网络调用。
+
+2026-07-03:
+- Owner: Workflow / document command plan contracts
+- 完成: 补强 document_db_import_plan timeout override、document_semantic_plan collection override 与 document_semantic_command 兼容测试；生产代码不变。
+- 测试: Workflow owner 门禁 47 passed；本轮 API 组合门禁 159 passed。
+- 下一步: Workflow 若继续推进，优先补 router 层 command env/timeout/gating contract，再考虑中期 job schema 设计。
+
+2026-07-03:
+- Owner: Market reports / US SEC rebuild plan
+- 完成: 新增 build_us_sec_rebuild_package_plan()，把 ticker latest-case selector、package path、manifest source fallback、raw metadata detection、build script/output root plan 下沉；router 仍保留 tempfile 复制、run_command()、stdout package path 解析与 package detail 读取。
+- 测试: Market reports owner 门禁 123 passed；git diff --check passed。
+- 下一步: 避免继续扩大 Market 窗口；后续可进入 PDF parser images index payload helper 或 Workflow router command gating tests。
+
+2026-07-03:
+- Owner: PDF parser / images index payload
+- 完成: 新增 build_images_index_payload()，收口 /api/artifact/<task_id>/images 响应 shape；Flask route 仍保留 task lookup、目录存在检查、image scan、send_file/zip、错误映射和 nosniff header。
+- 测试: artifact service/route 聚焦 13 passed；apps/pdf-parser 全量 336 passed；git diff --check passed。
+- 下一步: PDF parser 若继续，source-table payload helper 需单独窗口并先锁 route contract；Workflow 可补 router command env/timeout/gating tests。
+
+2026-07-03:
+- Owner: Workflow / router command contracts
+- 完成: 补强 document DB import 与 semantic router tests，锁住 _run_command env/timeout、chunks/milvus timeout、wiki not-ready gating 和 missing script 不执行命令；生产代码不变。
+- 测试: Workflow owner 门禁 51 passed；本轮 API 组合门禁 166 passed；git diff --check passed。
+- 下一步: 后续若继续 PDF parser source-table payload helper，应单独开窗，只下沉 find_source_table/source_table_payload 纯逻辑，不迁 markdown fetch、quality/artifact/page_content/bbox 副作用。
+
+2026-07-03:
+- Owner: PDF parser / source-table payload
+- 完成: 新增 find_source_table()、source_table_pdf_page_image_payload() 与 source_table_payload()，收口 /api/source/<task_id>/table/<int> 响应查找和 payload shape；Flask route 仍保留 task lookup、markdown fetch、quality report、table HTML/excerpt、artifact status、corrections、page_content、bbox extent 与错误映射。
+- 测试: source service/route 聚焦 27 passed；apps/pdf-parser 全量 340 passed；git diff --check passed。
+- 下一步: PDF parser 可暂停继续扩大 app_impl touch set；后续优先考虑 document-parser route parsing helper 或 Web 纯 view-model 小窗口。
+
+2026-07-03:
+- Owner: Document parser / batch + source page payload
+- 完成: 新增 batch_download_payload 与 source_page_payload，收口批量下载 task_id 解析、batch_manifest.json 组装和 /api/source/<task_id>/page/<int> 响应 shape；Flask app 仍保留 store、文件存在检查、zip 写入、layout 读取、send_file/jsonify 和错误映射。
+- 测试: apps/document-parser 全量 42 passed；git diff --check passed。
+- 下一步: document-parser 后续可继续抽 figures/source image payload 等纯响应 helper，但先避免迁 worker/provider/task lifecycle。
+
+2026-07-03:
+- Owner: SearchDownload / assist helper
+- 完成: 新增 features/search-download/assist.ts，收口 smart assist 搜索计划、intent chips 和推荐 URL 派生；SearchDownload.tsx 仍保留 requestAssist、runSearch、URL/state 同步、toast 和日志副作用。
+- 测试: apps/web npm run test:unit 78 passed；apps/web npm run check:frontend passed；git diff --check passed。
+- 下一步: 前端后续可继续评估 download refresh plan 或 URL state 小 helper，不改 API/路由/视觉。
+
+2026-07-03:
+- Owner: Document parser / source image payload
+- 完成: 新增 source_image_payload.find_figure_by_image_id() 与 build_source_image_payload()，收口 /api/figures/<task_id>/<image_id> 查找和 /api/source/<task_id>/image/<image_id> 响应 shape；Flask app 仍保留 figures.json 读取、404、jsonify 和文件路径存在检查。
+- 测试: apps/document-parser 全量 46 passed；git diff --check passed。
+- 下一步: document-parser 后续可继续 figures list 轻量合同测试，仍不迁 artifact path safety、provider 或 worker/task lifecycle。
+
+2026-07-03:
+- Owner: SearchDownload / URL initial state
+- 完成: 新增 readSearchDownloadInitialState()，收口 URLSearchParams 初始读取、market fallback、filter 优先级和未 trim 行为；SearchDownload.tsx 仍保留 React state owner、URL patch/write side 和所有下载/assist 副作用。
+- 测试: apps/web npm run test:unit 81 passed；apps/web npm run check:frontend passed；git diff --check passed。
+- 下一步: 前端后续若继续，优先选择 download status 文案或 refreshed-list 纯派生，不改 API/路由/视觉。
+
+2026-07-03:
+- Owner: Document parser / figures route contract
+- 完成: 补强 /api/figures/<task_id> route 合同测试，锁住 figures.json 原样 passthrough、schema/task_id/figure 字段和 missing task 404；未新增低收益 passthrough helper，避免为抽象而抽象。
+- 测试: apps/document-parser 全量 46 passed；git diff --check passed。
+- 下一步: document-parser 后续只在存在真实派生逻辑时再抽 helper，继续避免迁 artifact path safety、provider 或 worker/task lifecycle。
+
+2026-07-03:
+- Owner: Workflow / standard DB import command contracts
+- 完成: 补强 import_task_to_database() 标准任务 DB import route command contract，锁住 DB_CONFIG_PY 分支 env=None、database-url 分支 PG/DATABASE_URL env、timeout=300、missing script 不执行命令；生产代码不变。
+- 测试: Workflow owner 门禁 54 passed；git diff --check passed。
+- 下一步: Workflow 后续可继续补 Obsidian command contract 或 naming repair/validate subprocess contract，仍不迁线程模型和 job schema。
+
+2026-07-03:
+- Owner: SearchDownload / download status logs
+- 完成: 扩展 features/search-download/downloadStatus.ts，收口批量下载完成、fallback、逐个下载、全部完成和快捷下载成功/失败日志文案/类型派生；SearchDownload.tsx 仍保留 API 调用、状态、刷新和 toast 副作用。
+- 测试: apps/web npm run test:unit 84 passed；apps/web npm run check:frontend passed；git diff --check passed。
+- 下一步: 暂停继续扩大 SearchDownload；后续优先考虑 Agent runtime chat preflight short-circuit 纯 helper，或 Market ingestion eval plan helper。
+
+2026-07-03:
+- Owner: Agent runtime / chat preflight short-circuit
+- 完成: 新增 agent_runtime_preflight.plan_chat_preflight_short_circuit()，收口 catalog/general/duplicate gate 决策；普通 chat 与 streaming 复用该 helper，DB save、active-run join、SSE 生命周期和 Hermes run 编排不迁移。
+- 测试: apps/api .venv pytest test_agent_runtime_preflight.py + test_agent_runtime_chat_preflight.py 17 passed，31 个既有 utcnow deprecation warnings；py_compile passed。
+- 下一步: 后续可进入 Market ingestion eval plan helper；继续避免触碰 Deal/IC/OpenClaw 与 Agent runtime DB/SSE 高风险 owner。
+```
+
 详细技术记录可以新建独立 task note，例如：
 
 ```text

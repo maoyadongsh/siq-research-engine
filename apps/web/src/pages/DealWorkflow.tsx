@@ -11,12 +11,17 @@ import {
   fetchDealPreflight,
   fetchDealWorkflow,
   generateDealStartupRetrieval,
+  identifyDealWorkflowDisputes,
+  runDealWorkflowR1Serial,
 } from '@/lib/dealApi'
 import type {
+  DealDisputeSummary,
   DealAgentTaskDryRunResponse,
   DealPhaseArtifactsResponse,
   DealDisputesResponse,
   DealPreflight,
+  DealWorkflowIdentifyDisputesResponse,
+  DealWorkflowRunR1SerialResponse,
   DealWorkflowResponse,
 } from '@/lib/dealTypes'
 
@@ -40,6 +45,14 @@ function summaryTone(status?: string): 'neutral' | 'info' | 'success' | 'warning
   if (status === 'warn') return 'warning'
   if (status === 'missing') return 'neutral'
   if (status === 'fail') return 'error'
+  return 'neutral'
+}
+
+function serialActionTone(action?: string): 'neutral' | 'info' | 'success' | 'warning' | 'error' {
+  if (action === 'would_run') return 'info'
+  if (action === 'skipped_submitted') return 'success'
+  if (action === 'blocked') return 'error'
+  if (action === 'not_planned_max_agents') return 'warning'
   return 'neutral'
 }
 
@@ -93,6 +106,24 @@ function dryRunOutputContract(dryRun: DealAgentTaskDryRunResponse | null) {
   return asRecord(asRecord(dryRun?.payload).output_contract)
 }
 
+function disputePositionCount(dispute: DealDisputeSummary) {
+  if (typeof dispute.position_count === 'number') return dispute.position_count
+  const positions = dispute.positions
+  return Array.isArray(positions) ? positions.length : 0
+}
+
+function disputeCountsFor(disputes: DealDisputeSummary[]) {
+  const resolved = disputes.filter((item) => item.resolved).length
+  return {
+    disputes: disputes.length,
+    resolved,
+    unresolved: disputes.length - resolved,
+    high_severity: disputes.filter((item) => String(item.severity || '').toLowerCase() === 'high').length,
+    positions: disputes.reduce((total, item) => total + disputePositionCount(item), 0),
+    rulings: disputes.filter((item) => item.chairman_ruling).length,
+  }
+}
+
 export default function DealWorkflow() {
   const { dealId = '' } = useParams()
   const [data, setData] = useState<DealWorkflowResponse | null>(null)
@@ -109,6 +140,12 @@ export default function DealWorkflow() {
   const [taskDryRun, setTaskDryRun] = useState<DealAgentTaskDryRunResponse | null>(null)
   const [taskDryRunBusy, setTaskDryRunBusy] = useState('')
   const [taskDryRunError, setTaskDryRunError] = useState('')
+  const [serialDryRun, setSerialDryRun] = useState<DealWorkflowRunR1SerialResponse | null>(null)
+  const [serialDryRunBusy, setSerialDryRunBusy] = useState(false)
+  const [serialDryRunError, setSerialDryRunError] = useState('')
+  const [identifyDisputesPreview, setIdentifyDisputesPreview] = useState<DealWorkflowIdentifyDisputesResponse | null>(null)
+  const [identifyDisputesBusy, setIdentifyDisputesBusy] = useState(false)
+  const [identifyDisputesError, setIdentifyDisputesError] = useState('')
 
   const fetchWorkflowBundle = useCallback(async (signal?: AbortSignal) => {
     const [workflowResult, preflightResult, disputesResult, phaseArtifactsResult] = await Promise.allSettled([
@@ -135,6 +172,8 @@ export default function DealWorkflow() {
     setPreflightError('')
     setDisputesSummary(null)
     setDisputesError('')
+    setIdentifyDisputesPreview(null)
+    setIdentifyDisputesError('')
     setPhaseArtifacts(null)
     setPhaseArtifactsError('')
     try {
@@ -182,6 +221,8 @@ export default function DealWorkflow() {
       setPreflightError('')
       setDisputesSummary(null)
       setDisputesError('')
+      setIdentifyDisputesPreview(null)
+      setIdentifyDisputesError('')
       setPhaseArtifacts(null)
       setPhaseArtifactsError('')
       try {
@@ -245,6 +286,30 @@ export default function DealWorkflow() {
     }
   }
 
+  const handleSerialDryRun = async () => {
+    setSerialDryRunBusy(true)
+    setSerialDryRunError('')
+    try {
+      setSerialDryRun(await runDealWorkflowR1Serial(dealId, { round_name: 'R1', dry_run: true }))
+    } catch (err) {
+      setSerialDryRunError(err instanceof Error ? err.message : 'R1 serial dry-run 失败')
+    } finally {
+      setSerialDryRunBusy(false)
+    }
+  }
+
+  const handleIdentifyDisputesDryRun = async () => {
+    setIdentifyDisputesBusy(true)
+    setIdentifyDisputesError('')
+    try {
+      setIdentifyDisputesPreview(await identifyDealWorkflowDisputes(dealId, { dry_run: true }))
+    } catch (err) {
+      setIdentifyDisputesError(err instanceof Error ? err.message : '分歧识别 dry-run 失败')
+    } finally {
+      setIdentifyDisputesBusy(false)
+    }
+  }
+
   const workflow = data?.workflow
   const phases = workflow?.phases ? Object.entries(workflow.phases) : []
   const agentReports = data?.agent_reports || []
@@ -252,9 +317,20 @@ export default function DealWorkflow() {
   const readinessByAgent = new Map((r1Readiness?.agents || []).map((item) => [item.agent_id, item]))
   const startupReceipts = data?.startup_receipts
   const disputes = disputesSummary ? disputesSummary.disputes || [] : data?.disputes || []
+  const previewDisputes = identifyDisputesPreview?.payload?.disputes || []
+  const displayedDisputes = identifyDisputesPreview ? previewDisputes : disputes
   const disputeCounts = disputesSummary?.counts
-  const disputeArtifacts = disputesSummary?.artifacts
+  const displayedDisputeCounts = identifyDisputesPreview ? disputeCountsFor(previewDisputes) : disputeCounts
+  const disputeArtifacts = identifyDisputesPreview
+    ? {
+        json: { path: identifyDisputesPreview.json_path, available: false },
+        markdown: { path: identifyDisputesPreview.markdown_path, available: false },
+      }
+    : disputesSummary?.artifacts
   const disputeWarnings = disputesSummary?.warnings || []
+  const displayedDisputeWarnings = identifyDisputesPreview
+    ? identifyDisputesPreview.warnings || identifyDisputesPreview.payload?.warnings || []
+    : disputeWarnings
   const preflightFindings = preflight?.checks.filter((check) => check.status !== 'pass') || []
   const phaseArtifactPhases = phaseArtifacts?.phases || []
   const phaseArtifactWarnings = phaseArtifacts?.warnings || []
@@ -291,6 +367,18 @@ export default function DealWorkflow() {
       {taskDryRunError ? (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
           {taskDryRunError}
+        </div>
+      ) : null}
+
+      {serialDryRunError ? (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+          {serialDryRunError}
+        </div>
+      ) : null}
+
+      {identifyDisputesError ? (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+          {identifyDisputesError}
         </div>
       ) : null}
 
@@ -576,6 +664,10 @@ export default function DealWorkflow() {
                     Startup receipts · {startupReceipts.count}
                   </StatusBadge>
                 ) : null}
+                <Button type="button" variant="outline" size="sm" onClick={() => void handleSerialDryRun()} disabled={serialDryRunBusy}>
+                  {serialDryRunBusy ? <Loader2 className="animate-spin" /> : <GitBranch />}
+                  Serial dry-run
+                </Button>
               </div>
             }
           >
@@ -670,6 +762,79 @@ export default function DealWorkflow() {
             )}
           </PageSection>
 
+          {serialDryRun ? (
+            <PageSection
+              title="R1 Serial Dry-run"
+              description={serialDryRun.planned_agent_ids?.length ? serialDryRun.planned_agent_ids.join(' → ') : '暂无可运行计划'}
+              actions={
+                <StatusBadge tone={serialDryRun.would_run ? 'info' : serialDryRun.allowed ? 'success' : 'warning'}>
+                  {serialDryRun.would_run ? 'would run' : serialDryRun.allowed ? 'no-op' : 'blocked'}
+                </StatusBadge>
+              }
+            >
+              <div className="grid gap-3 md:grid-cols-4">
+                <Surface kind="muted" padding="sm">
+                  <p className="text-xs text-text-muted">Planned</p>
+                  <p className="mt-1 font-semibold text-text">{serialDryRun.planned_agent_ids?.length ?? 0}</p>
+                </Surface>
+                <Surface kind="muted" padding="sm">
+                  <p className="text-xs text-text-muted">Next</p>
+                  <p className="mt-1 break-all font-semibold text-text">{text(serialDryRun.next_agent_id)}</p>
+                </Surface>
+                <Surface kind="muted" padding="sm">
+                  <p className="text-xs text-text-muted">Stop reason</p>
+                  <p className="mt-1 break-all font-semibold text-text">{text(serialDryRun.stop_reason, 'none')}</p>
+                </Surface>
+                <Surface kind="muted" padding="sm">
+                  <p className="text-xs text-text-muted">Hermes</p>
+                  <p className="mt-1 font-semibold text-text">{serialDryRun.hermes_called ? 'called' : 'not called'}</p>
+                </Surface>
+              </div>
+              {serialDryRun.blocking_reasons?.length ? (
+                <Surface kind="muted" padding="sm">
+                  <p className="text-sm font-semibold text-text">Blocking reasons</p>
+                  <div className="mt-2 grid gap-1">
+                    {serialDryRun.blocking_reasons.map((reason) => (
+                      <p key={reason} className="break-all font-mono text-xs text-text-muted">{reason}</p>
+                    ))}
+                  </div>
+                </Surface>
+              ) : null}
+              {serialDryRun.agents?.length ? (
+                <div className="grid gap-3 xl:grid-cols-2">
+                  {serialDryRun.agents.map((agent) => (
+                    <Surface key={String(agent.agent_id)} kind="row" padding="sm">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="break-all font-mono text-sm font-semibold text-text">{text(agent.agent_id)}</p>
+                            <StatusBadge tone={serialActionTone(agent.action)}>{text(agent.action)}</StatusBadge>
+                            <StatusBadge tone={agent.has_startup_receipt ? 'success' : 'warning'}>
+                              {agent.has_startup_receipt ? 'receipt' : 'no receipt'}
+                            </StatusBadge>
+                          </div>
+                          <p className="mt-1 break-all text-xs text-text-muted">{text(agent.startup_receipt_id)}</p>
+                        </div>
+                        <StatusBadge tone={agent.would_run ? 'info' : 'neutral'}>
+                          {agent.would_run ? 'planned' : agent.submitted ? 'submitted' : 'not planned'}
+                        </StatusBadge>
+                      </div>
+                      {agent.blocking_reasons?.length ? (
+                        <div className="mt-3 grid gap-1">
+                          {agent.blocking_reasons.map((reason) => (
+                            <p key={reason} className="break-all font-mono text-xs text-text-muted">{reason}</p>
+                          ))}
+                        </div>
+                      ) : null}
+                    </Surface>
+                  ))}
+                </div>
+              ) : (
+                <EmptyState title="暂无串行计划" size="sm" />
+              )}
+            </PageSection>
+          ) : null}
+
           {taskDryRun ? (
             <PageSection
               title="Agent Task Dry-run"
@@ -726,13 +891,21 @@ export default function DealWorkflow() {
           <PageSection
             title="显性分歧"
             actions={
-              disputesSummary ? (
-                <StatusBadge tone={summaryTone(disputesSummary.status)}>
-                  {text(disputesSummary.status)}
-                </StatusBadge>
-              ) : disputesError ? (
-                <StatusBadge tone="warning">fallback</StatusBadge>
-              ) : null
+              <div className="flex flex-wrap gap-2">
+                {identifyDisputesPreview ? (
+                  <StatusBadge tone="info">preview · not written</StatusBadge>
+                ) : disputesSummary ? (
+                  <StatusBadge tone={summaryTone(disputesSummary.status)}>
+                    {text(disputesSummary.status)}
+                  </StatusBadge>
+                ) : disputesError ? (
+                  <StatusBadge tone="warning">fallback</StatusBadge>
+                ) : null}
+                <Button type="button" variant="outline" size="sm" onClick={() => void handleIdentifyDisputesDryRun()} disabled={identifyDisputesBusy}>
+                  {identifyDisputesBusy ? <Loader2 className="animate-spin" /> : <GitBranch />}
+                  识别分歧 dry-run
+                </Button>
+              </div>
             }
           >
             <div className="space-y-3">
@@ -742,32 +915,38 @@ export default function DealWorkflow() {
                 </div>
               ) : null}
 
-              {disputesSummary ? (
+              {identifyDisputesPreview ? (
+                <div className="rounded-lg border border-info/30 bg-info/5 p-3 text-sm text-info">
+                  当前展示为 dry-run preview，未写入 `r1_5_disputes.json` 或 Markdown。
+                </div>
+              ) : null}
+
+              {disputesSummary || identifyDisputesPreview ? (
                 <div className="space-y-3">
                   <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
                     <Surface kind="muted" padding="sm">
                       <p className="text-xs text-text-muted">Disputes</p>
-                      <p className="mt-1 font-semibold text-text">{disputeCounts?.disputes ?? disputes.length}</p>
+                      <p className="mt-1 font-semibold text-text">{displayedDisputeCounts?.disputes ?? displayedDisputes.length}</p>
                     </Surface>
                     <Surface kind="muted" padding="sm">
                       <p className="text-xs text-text-muted">Resolved</p>
-                      <p className="mt-1 font-semibold text-text">{disputeCounts?.resolved ?? 0}</p>
+                      <p className="mt-1 font-semibold text-text">{displayedDisputeCounts?.resolved ?? 0}</p>
                     </Surface>
                     <Surface kind="muted" padding="sm">
                       <p className="text-xs text-text-muted">Unresolved</p>
-                      <p className="mt-1 font-semibold text-text">{disputeCounts?.unresolved ?? 0}</p>
+                      <p className="mt-1 font-semibold text-text">{displayedDisputeCounts?.unresolved ?? 0}</p>
                     </Surface>
                     <Surface kind="muted" padding="sm">
                       <p className="text-xs text-text-muted">High</p>
-                      <p className="mt-1 font-semibold text-text">{disputeCounts?.high_severity ?? 0}</p>
+                      <p className="mt-1 font-semibold text-text">{displayedDisputeCounts?.high_severity ?? 0}</p>
                     </Surface>
                     <Surface kind="muted" padding="sm">
                       <p className="text-xs text-text-muted">Positions</p>
-                      <p className="mt-1 font-semibold text-text">{disputeCounts?.positions ?? 0}</p>
+                      <p className="mt-1 font-semibold text-text">{displayedDisputeCounts?.positions ?? 0}</p>
                     </Surface>
                     <Surface kind="muted" padding="sm">
                       <p className="text-xs text-text-muted">Rulings</p>
-                      <p className="mt-1 font-semibold text-text">{disputeCounts?.rulings ?? 0}</p>
+                      <p className="mt-1 font-semibold text-text">{displayedDisputeCounts?.rulings ?? 0}</p>
                     </Surface>
                   </div>
 
@@ -790,11 +969,11 @@ export default function DealWorkflow() {
                     })}
                   </div>
 
-                  {disputeWarnings.length ? (
+                  {displayedDisputeWarnings.length ? (
                     <Surface kind="muted" padding="sm">
                       <p className="text-sm font-semibold text-text">Warnings</p>
                       <div className="mt-2 grid gap-1">
-                        {disputeWarnings.map((warning, index) => (
+                        {displayedDisputeWarnings.map((warning, index) => (
                           <p key={`${warning}-${index}`} className="break-all font-mono text-xs text-text-muted">
                             {warning}
                           </p>
@@ -805,15 +984,15 @@ export default function DealWorkflow() {
                 </div>
               ) : null}
 
-              {disputes.length ? (
+              {displayedDisputes.length ? (
                 <div className="grid gap-3 md:grid-cols-2">
-                  {disputes.map((dispute, index) => (
+                  {displayedDisputes.map((dispute, index) => (
                     <Surface key={dispute.dispute_id || index} kind="row" padding="sm">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p className="font-semibold text-text">{text(dispute.topic)}</p>
                           <p className="mt-1 text-xs text-text-muted">
-                            {text(dispute.dimension)} · {text(dispute.severity)} · positions {dispute.position_count ?? 0}
+                            {text(dispute.dimension)} · {text(dispute.severity)} · positions {disputePositionCount(dispute)}
                           </p>
                           {dispute.agent_ids?.length ? (
                             <p className="mt-1 break-all font-mono text-xs text-text-muted">
@@ -848,7 +1027,7 @@ export default function DealWorkflow() {
                   ))}
                 </div>
               ) : (
-                <EmptyState title="暂无显性分歧" description="项目包中没有 r1_5_disputes.json 摘要。" size="sm" />
+                <EmptyState title="暂无显性分歧" description="项目包中没有 r1_5_disputes.json 摘要，或 dry-run 未识别到分歧。" size="sm" />
               )}
             </div>
           </PageSection>

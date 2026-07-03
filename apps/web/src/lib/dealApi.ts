@@ -27,7 +27,12 @@ import type {
   DealStatusResponse,
   DealStartupRetrievalResponse,
   DealWorkflowResponse,
+  DealWorkflowDisputeRulingRequest,
+  DealWorkflowDisputeRulingResponse,
+  DealWorkflowIdentifyDisputesRequest,
+  DealWorkflowIdentifyDisputesResponse,
   DealWorkflowRunR1AgentDryRunResponse,
+  DealWorkflowRunR1SerialResponse,
   DeleteDealDocumentResponse,
   OpenClawImportOptions,
   OpenClawImportPayload,
@@ -77,6 +82,48 @@ export function fetchDealPreflight(dealId: string, signal?: AbortSignal) {
 
 export function fetchDealDisputes(dealId: string, signal?: AbortSignal) {
   return apiJson<DealDisputesResponse>(`/api/deals/${encodeURIComponent(dealId)}/disputes`, { signal })
+}
+
+export function identifyDealWorkflowDisputes(
+  dealId: string,
+  payload: DealWorkflowIdentifyDisputesRequest = {},
+  signal?: AbortSignal,
+) {
+  return apiJson<DealWorkflowIdentifyDisputesResponse>(
+    `/api/deals/${encodeURIComponent(dealId)}/workflow/identify-disputes`,
+    {
+      method: 'POST',
+      body: {
+        dry_run: payload.dry_run ?? true,
+        preserve_rulings: payload.preserve_rulings ?? true,
+      },
+      signal,
+    },
+  )
+}
+
+export function ruleDealWorkflowDispute(
+  dealId: string,
+  disputeId: string,
+  payload: DealWorkflowDisputeRulingRequest,
+  signal?: AbortSignal,
+) {
+  return apiJson<DealWorkflowDisputeRulingResponse>(
+    `/api/deals/${encodeURIComponent(dealId)}/workflow/disputes/${encodeURIComponent(disputeId)}/ruling`,
+    {
+      method: 'POST',
+      body: {
+        decision: payload.decision,
+        rationale: payload.rationale ?? '',
+        required_followups: payload.required_followups ?? [],
+        evidence_ids: payload.evidence_ids ?? [],
+        resolved: payload.resolved ?? true,
+        overwrite: payload.overwrite ?? false,
+        dry_run: payload.dry_run ?? true,
+      },
+      signal,
+    },
+  )
 }
 
 export function fetchDealPhaseArtifacts(dealId: string, signal?: AbortSignal) {
@@ -206,6 +253,25 @@ export function dryRunDealWorkflowR1Agent(
         profile_id: profileId,
         round_name: payload.round_name || 'R1',
         dry_run: true,
+      },
+      signal,
+    },
+  )
+}
+
+export function runDealWorkflowR1Serial(
+  dealId: string,
+  payload: { round_name?: string; dry_run?: boolean; max_agents?: number } = {},
+  signal?: AbortSignal,
+) {
+  return apiJson<DealWorkflowRunR1SerialResponse>(
+    `/api/deals/${encodeURIComponent(dealId)}/workflow/run-r1-serial`,
+    {
+      method: 'POST',
+      body: {
+        round_name: payload.round_name || 'R1',
+        dry_run: payload.dry_run ?? true,
+        max_agents: payload.max_agents ?? 6,
       },
       signal,
     },

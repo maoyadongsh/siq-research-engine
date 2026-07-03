@@ -4,15 +4,15 @@ import {
   fetchMarketPackageDetail,
   fetchMarketPackages,
   marketPackageFileUrl,
-  runMarketPackageBuild,
-  runMarketPackageImport,
-  runMarketPackageVectorIngest,
-  waitForMarketReportJob,
   type MarketCode,
-  type MarketPackageActionResponse,
   type MarketPackageDetail,
   type MarketPackageSummary,
 } from '../../features/market-parsing/api'
+import {
+  runMarketPackageBuildAction,
+  runMarketPackageImportAction,
+  runMarketPackageVectorDryRunAction,
+} from '../../features/market-parsing/packageActions'
 
 function numberText(value: unknown): string {
   const n = Number(value || 0)
@@ -107,11 +107,8 @@ export function MarketEvidencePackagesPanel({ market }: { market: MarketCode }) 
     setError('')
     setOutput('')
     try {
-      const response = await runMarketPackageImport(market, selectedPath, true)
-      const result = response.job_id
-        ? await waitForMarketReportJob<MarketPackageActionResponse>(response.job_id)
-        : response
-      setOutput(result.stdout || result.stderr || `parse_run_id=${result.parse_run_id || ''}`)
+      const result = await runMarketPackageImportAction({ market, packagePath: selectedPath, ddl: true })
+      setOutput(result.output)
       await loadDetail(selectedPath)
     } catch (err) {
       setError(err instanceof Error ? err.message : '入库失败')
@@ -126,11 +123,8 @@ export function MarketEvidencePackagesPanel({ market }: { market: MarketCode }) 
     setError('')
     setOutput('')
     try {
-      const response = await runMarketPackageVectorIngest(market, selectedPath, true)
-      const result = response.job_id
-        ? await waitForMarketReportJob<MarketPackageActionResponse>(response.job_id)
-        : response
-      setOutput(JSON.stringify(result.summary || { stdout: result.stdout, stderr: result.stderr }, null, 2))
+      const result = await runMarketPackageVectorDryRunAction({ market, packagePath: selectedPath, dryRun: true })
+      setOutput(result.output)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Milvus dry-run 失败')
     } finally {
@@ -147,19 +141,16 @@ export function MarketEvidencePackagesPanel({ market }: { market: MarketCode }) 
     setError('')
     setOutput('')
     try {
-      const response = await runMarketPackageBuild(market, {
-        source_path: buildSource.trim(),
-        parser_result: buildParserResult.trim() || undefined,
-        metadata_path: buildMetadata.trim() || undefined,
+      const result = await runMarketPackageBuildAction({
+        market,
+        sourcePath: buildSource,
+        parserResult: buildParserResult,
+        metadataPath: buildMetadata,
         force: true,
       })
-      const result = response.job_id
-        ? await waitForMarketReportJob<MarketPackageActionResponse>(response.job_id)
-        : response
-      setOutput(result.stdout || result.stderr || 'package built')
+      setOutput(result.output)
       await load()
-      const builtPath = result.package?.package_path
-      if (builtPath) setSelectedPath(String(builtPath))
+      if (result.builtPath) setSelectedPath(result.builtPath)
     } catch (err) {
       setError(err instanceof Error ? err.message : '构建证据包失败')
     } finally {

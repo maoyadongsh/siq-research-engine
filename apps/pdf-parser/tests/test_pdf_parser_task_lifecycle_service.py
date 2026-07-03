@@ -143,6 +143,89 @@ def test_recover_stale_submitting_tasks_uses_strict_cutoff(tmp_path):
     assert repository.get_task(db_path, "before-cutoff")["status"] == "queued"
 
 
+def test_calc_page_progress_handles_missing_elapsed_and_clamps_processed_pages():
+    assert lifecycle.calc_page_progress({"pdf_page_count": 5}, None, page_estimate_seconds=10) is None
+    assert lifecycle.calc_page_progress({"pdf_page_count": 0}, 30, page_estimate_seconds=10) is None
+
+    progress = lifecycle.calc_page_progress(
+        {"pdf_page_count": 5},
+        80,
+        page_estimate_seconds=10,
+    )
+
+    assert progress == {"total": 5, "processed": 5, "remaining": 0}
+
+
+def test_calc_progress_percent_rounds_and_clamps_to_100():
+    assert lifecycle.calc_progress_percent({"pdf_page_count": 5}, 0, page_estimate_seconds=10) is None
+    assert lifecycle.calc_progress_percent({"pdf_page_count": None}, 30, page_estimate_seconds=10) is None
+
+    assert lifecycle.calc_progress_percent({"pdf_page_count": 4}, 15, page_estimate_seconds=10) == 37.5
+    assert lifecycle.calc_progress_percent({"pdf_page_count": 4}, 80, page_estimate_seconds=10) == 100.0
+
+
+def test_build_cancel_task_update_preserves_completed_at_and_log_variants():
+    now = "2026-05-01T00:00:00Z"
+
+    upstream = lifecycle.build_cancel_task_update(
+        {"completed_at": "done", "mineru_task_id": "mineru-1"},
+        upstream_cancelled=True,
+        now_iso=now,
+    )
+    upstream_failed = lifecycle.build_cancel_task_update(
+        {"mineru_task_id": "mineru-1"},
+        upstream_cancelled=False,
+        now_iso=now,
+    )
+    local_only = lifecycle.build_cancel_task_update(
+        {},
+        upstream_cancelled=False,
+        now_iso=now,
+    )
+
+    assert upstream["patch"] == {
+        "cancelled": True,
+        "status": "cancelled",
+        "stage": "cancelled",
+        "completed_at": "done",
+    }
+    assert upstream["log"] == {"message": "任务已取消，已通知 MinerU 停止处理。", "level": "warn"}
+    assert upstream_failed["patch"]["completed_at"] == now
+    assert upstream_failed["log"] == {"message": "已停止本地查看；MinerU 后端可能仍在处理。", "level": "warn"}
+    assert local_only["log"] == {"message": "任务已从本地排队队列中移除。", "level": "warn"}
+
+
+def test_build_status_failure_update_warns_then_fails_at_tolerance():
+    now = "2026-05-01T00:00:00Z"
+
+    waiting = lifecycle.build_status_failure_update(
+        {"status": "processing", "stage": "processing", "consecutive_status_failures": 1},
+        error_detail="timeout",
+        tolerance=3,
+        now_iso=now,
+    )
+    failed = lifecycle.build_status_failure_update(
+        {"status": "processing", "stage": "processing", "consecutive_status_failures": 2, "completed_at": "done"},
+        error_detail="timeout",
+        tolerance=3,
+        now_iso=now,
+    )
+
+    assert waiting["patch"] == {
+        "consecutive_status_failures": 2,
+        "error": "任务状态查询失败: timeout",
+    }
+    assert waiting["log"] == {"message": "状态查询超时，第 2/3 次，继续等待...", "level": "warn"}
+    assert failed["patch"] == {
+        "consecutive_status_failures": 3,
+        "error": "任务状态查询失败: timeout",
+        "status": "failed",
+        "stage": "failed",
+        "completed_at": "done",
+    }
+    assert failed["log"] == {"message": "任务状态查询失败: timeout", "level": "error"}
+
+
 def test_app_claim_and_recover_wrappers_keep_compatible_db_behavior(tmp_path, monkeypatch):
     db_path = str(tmp_path / "tasks.db")
     old_db_path = app.DB_PATH

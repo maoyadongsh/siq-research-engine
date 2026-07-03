@@ -44,6 +44,24 @@ bash -n start_all.sh
 find scripts -type f -name '*.sh' -print0 | xargs -0 -r bash -n
 ```
 
+单个 Hermes gateway health 冒烟入口会使用临时 runtime home，启动一个 profile、等待 `/health`、退出并清理，不会拉起全套服务：
+
+```bash
+cd /home/maoyd/siq-research-engine
+scripts/hermes/smoke_gateway_health.sh siq_ic_chairman 20
+```
+
+R1 agent workflow 冒烟入口会创建临时 deal package。默认只验证 `workflow/run-r1-agent` dry-run contract、preflight、startup receipt 和 R1 sequence，不调用真实模型，不启动 Hermes gateway，也不写真实项目包。显式 `--real` 才会通过 Hermes profile 执行真实模型调用并写入临时 package；如本地没有对应 gateway，可加 `--start-gateway` 让脚本临时启动目标 profile gateway；如希望把 `/health` 作为前置门禁，可加 `--require-gateway-health`。
+
+这些冒烟脚本只验证目标 profile 或临时 workflow 合同，不代表全局 IC Hermes 已启用。全局状态页仍以 `SIQ_ENABLE_IC_HERMES=1` 和当前 gateway `/health` 结果展示 disabled、enabled 或 degraded。
+
+```bash
+cd /home/maoyd/siq-research-engine
+scripts/hermes/smoke_r1_agent_workflow.py
+scripts/hermes/smoke_r1_agent_workflow.py --profile siq_ic_strategist --real
+scripts/hermes/smoke_r1_agent_workflow.py --profile siq_ic_strategist --real --start-gateway --require-gateway-health
+```
+
 Async DB audit advisory 入口：
 
 ```bash

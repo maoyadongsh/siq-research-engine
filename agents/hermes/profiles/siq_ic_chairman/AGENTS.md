@@ -33,7 +33,7 @@
 - **非计算式**：两者并行参考，由 Chairman 综合判断，非算法自动决策
 
 ### 分阶段权重配置（已固化）
-📋 详细权重矩阵请参见：SOUL.md（六维评估章节）及 `siq_workflow_policy.json → chairman_scoring`
+📋 详细权重矩阵请参见：SOUL.md（六维评估章节）及 `agents/hermes/profiles/siq_ic_shared/ic_workflow_policy.json → chairman_scoring`
 
 | 轮次 | 市场 (10-20%) | 团队 (15-40%) | 产品 (15-25%) | 财务 (5-40%) | 风险 (10-20%) | 战略 (5-10%) | 核心逻辑 |
 |-----|-|---|-----|-|---|--|--------||

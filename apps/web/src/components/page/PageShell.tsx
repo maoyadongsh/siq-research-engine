@@ -24,6 +24,7 @@ interface PageSectionProps {
   title?: ReactNode
   description?: ReactNode
   actions?: ReactNode
+  compact?: boolean
   className?: string
   contentClassName?: string
   id?: string
@@ -78,6 +79,7 @@ export function PageSection({
   title,
   description,
   actions,
+  compact = false,
   className,
   contentClassName,
   id,
@@ -85,15 +87,28 @@ export function PageSection({
   return (
     <section id={id} className={cn('surface-panel', className)}>
       {(title || description || actions) && (
-        <div className="flex flex-col gap-3 border-b border-border/70 px-4 py-4 sm:px-5 lg:flex-row lg:items-end lg:justify-between">
+        <div
+          className={cn(
+            'flex flex-col gap-3 border-b border-border/70 px-4 py-4 sm:px-5 lg:flex-row lg:items-end lg:justify-between',
+            compact && 'py-3 sm:py-3.5'
+          )}
+        >
           <div className="min-w-0">
-            {title ? <h2 className="text-lg font-bold text-text sm:text-xl">{title}</h2> : null}
-            {description ? <p className="mt-1 text-sm leading-6 text-text-muted">{description}</p> : null}
+            {title ? (
+              <h2 className={cn('text-lg font-bold text-text sm:text-xl', compact && 'text-base sm:text-lg')}>
+                {title}
+              </h2>
+            ) : null}
+            {description ? (
+              <p className={cn('mt-1 text-sm leading-6 text-text-muted', compact && 'text-xs leading-5')}>
+                {description}
+              </p>
+            ) : null}
           </div>
           {actions ? <div className="shrink-0">{actions}</div> : null}
         </div>
       )}
-      <div className={cn('p-4 sm:p-5', contentClassName)}>{children}</div>
+      <div className={cn(compact ? 'p-3 sm:p-4' : 'p-4 sm:p-5', contentClassName)}>{children}</div>
     </section>
   )
 }

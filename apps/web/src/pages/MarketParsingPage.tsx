@@ -21,23 +21,25 @@ import { PdfWorkflowPanel } from '../components/pdf/PdfWorkflowPanel'
 import { MarketParsingTabs } from '../components/pdf/MarketParsingTabs'
 import { useToast } from '../hooks/useToast'
 import { runMarketPackageBuild, waitForMarketReportJob, type MarketPackageActionResponse } from '../features/market-parsing/api'
+import {
+  buildMarketParsingPageViewModel,
+  type MarketParsingCode,
+} from '../features/market-parsing/viewModel'
 import { taskMatchesMarket } from '../lib/pdfTaskMarkets'
 import type { DownloadedPdf, HealthStatus, TaskItem } from '../lib/pdfTypes'
 
-export type MarketParsingCode = 'CN' | 'HK' | 'US' | 'JP' | 'KR' | 'EU'
+export type { MarketParsingCode }
 
-const sectionLabels: Record<string, string> = {
-  'pdf-upload': '上传',
-  'pdf-status': '状态',
-  'pdf-result': '结果',
-  'pdf-source': '溯源',
-  'pdf-tasks': '任务',
-}
-
-function MobileTabStrip({ activeSection }: { activeSection: string }) {
+function MobileTabStrip({
+  activeSection,
+  sectionLabelEntries,
+}: {
+  activeSection: string
+  sectionLabelEntries: [string, string][]
+}) {
   return (
     <div className="mobile-tab-strip">
-      {Object.entries(sectionLabels).map(([id, label]) => (
+      {sectionLabelEntries.map(([id, label]) => (
         <a key={id} href={`#${id}`} className={activeSection === id ? 'is-active' : ''}>
           {label}
         </a>
@@ -135,9 +137,6 @@ export function MarketParsingPage({
 
   const workflowRef = useRef<{ loadWorkflowStatus: () => Promise<void> }>({ loadWorkflowStatus: async () => {} })
 
-  const sectionIds = useMemo(() => ['pdf-upload', 'pdf-status', 'pdf-result', 'pdf-source', 'pdf-tasks'], [])
-  const activeSection = useActiveSection(sectionIds)
-
   const showToast = useCallback((msg: string) => {
     toast({ type: 'info', title: msg })
   }, [toast])
@@ -159,6 +158,27 @@ export function MarketParsingPage({
   })
 
   const workflow = usePdfWorkflow(tasks.taskIdRef, showToast, (msg: string | null) => tasks.setError(msg))
+
+  const viewModel = useMemo(() => buildMarketParsingPageViewModel({
+    market,
+    parseBadgeClass: tasks.parseBadge.cls,
+    resultDeferred: Boolean(tasks.resultDeferred),
+    markdown: tasks.markdown,
+    parseActive: tasks.parseActive,
+    taskCount: tasks.tasks.length,
+    logs: tasks.logs,
+    logsExpanded,
+  }), [
+    market,
+    tasks.parseBadge.cls,
+    tasks.resultDeferred,
+    tasks.markdown,
+    tasks.parseActive,
+    tasks.tasks.length,
+    tasks.logs,
+    logsExpanded,
+  ])
+  const activeSection = useActiveSection(viewModel.sectionIds)
 
   useEffect(() => {
     workflowRef.current.loadWorkflowStatus = workflow.loadWorkflowStatus
@@ -352,9 +372,6 @@ export function MarketParsingPage({
     [sourceTrace],
   )
 
-  const isCompleted = tasks.parseBadge.cls === 'completed'
-  const hasLogErrors = tasks.logs.some((entry) => entry.level === 'error' || entry.level === 'warn')
-
   return (
     <div className="secondary-page min-w-0 overflow-x-hidden">
       <style>{PDF_CSS}</style>
@@ -383,7 +400,7 @@ export function MarketParsingPage({
 
       {extraPanel}
 
-      <MobileTabStrip activeSection={activeSection} />
+      <MobileTabStrip activeSection={activeSection} sectionLabelEntries={viewModel.sectionLabelEntries} />
 
       <div id="pdf-upload">
         <PdfUploadPanel
@@ -407,7 +424,7 @@ export function MarketParsingPage({
         loadDownloadedReports={loadDownloadedReports}
         selectDownloadedReport={onSelectDownloaded}
         parseDownloadedReport={onParseDownloaded}
-        buildDownloadedPackage={market === 'EU' ? onBuildDownloadedPackage : undefined}
+        buildDownloadedPackage={viewModel.canBuildDownloadedPackage ? onBuildDownloadedPackage : undefined}
         backend={backend}
         setBackend={setBackend}
         parseMethod={parseMethod}
@@ -473,7 +490,7 @@ export function MarketParsingPage({
         </div>
       )}
 
-      {tasks.taskIdRef.current && isCompleted && tasks.resultDeferred && !tasks.markdown && (
+      {tasks.taskIdRef.current && viewModel.shouldShowResultGate && (
         <div className="pdf-mobile-result-gate">
           <div>
             <h3>解析结果已就绪</h3>
@@ -492,17 +509,17 @@ export function MarketParsingPage({
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h3 className="text-base font-semibold text-text">处理日志</h3>
-              <p className="mt-1 text-sm text-text-muted">{hasLogErrors ? '解析过程中有需要关注的提示。' : '默认收起，保留解析过程可审计记录。'}</p>
+              <p className="mt-1 text-sm text-text-muted">{viewModel.logDescription}</p>
             </div>
             <button
               type="button"
               onClick={() => setLogsExpanded((value) => !value)}
               className="inline-flex h-10 items-center justify-center rounded-[var(--radius-control)] border border-border bg-card px-4 text-sm font-semibold text-text-muted hover:bg-bg hover:text-text"
             >
-              {logsExpanded || hasLogErrors ? '收起日志' : `展开 ${tasks.logs.length} 条`}
+              {viewModel.logToggleText}
             </button>
           </div>
-          {(logsExpanded || hasLogErrors) && (
+          {viewModel.shouldShowLogs && (
             <div className="pdf-log mt-3" ref={logRef}>
               {tasks.logs.map((l, i) => (
                 <div key={i} className="flex gap-2.5 py-0.5 border-b border-gray-100 last:border-0">
@@ -529,7 +546,7 @@ export function MarketParsingPage({
         </div>
       )}
 
-      {isCompleted && (
+      {viewModel.shouldShowWorkflow && (
         <div id="pdf-pipeline">
           <PdfWorkflowPanel
           workflowStatus={workflow.workflowStatus}
@@ -623,7 +640,7 @@ export function MarketParsingPage({
         />
       </PageSection>
 
-      {!tasks.markdown && !tasks.parseActive && tasks.tasks.length === 0 && (
+      {viewModel.shouldShowEmptyState && (
         <EmptyState
           icon={FileText}
           title={emptyTitle}

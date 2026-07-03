@@ -3,6 +3,7 @@ import { Outlet, useLocation } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import Topbar from './Topbar'
 import ChatBot from '../chat/ChatBot'
+import { useScrollHintState } from '@/hooks/useScrollHintState'
 
 const AGENT_PAGE_PATHS = ['/analysis', '/verify', '/tracking', '/legal']
 const COMPACT_DESKTOP_QUERY = '(min-width: 1024px) and (max-width: 1439px), (min-width: 1024px) and (max-height: 820px)'
@@ -18,6 +19,8 @@ export default function Layout() {
   const sidebarManuallyChanged = useRef(false)
   const { pathname } = useLocation()
   const hideGlobalChat = AGENT_PAGE_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`))
+
+  useScrollHintState(pathname)
 
   useEffect(() => {
     const timer = window.setTimeout(() => setMobileSidebarOpen(false), 0)

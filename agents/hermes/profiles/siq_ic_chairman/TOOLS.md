@@ -12,7 +12,7 @@
 
 ### 评分框架
 - 六维评估（Market/Team/Product/Finance/Risk/Strategy）
-- 权重按项目阶段自动切换（参见 `siq_workflow_policy.json → chairman_scoring`）
+- 权重按项目阶段自动切换（参见 `agents/hermes/profiles/siq_ic_shared/ic_workflow_policy.json → chairman_scoring`）
 - 六维每项 0-10 分，加权求和 ×10 → chairman 分数 (0-100)
 
 ### 决策阈值

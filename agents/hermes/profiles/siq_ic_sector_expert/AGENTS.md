@@ -18,7 +18,7 @@
 ```bash
 # 启动检索命令示例
 python3 scripts/SIQ startup_retrieval API \
-  --agent ic_sector_expert \
+  --agent siq_ic_sector_expert \
   --query "{company_name}" \
   --project-tag {project_tag} \
   --company "{company_name}" \

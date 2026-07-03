@@ -30,7 +30,7 @@
 
 - `--ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1)` — 弹出/展开。
 - `--duration-fast: 150ms` — hover、颜色过渡。
-- `--duration-normal: 250ms` — 面板、抽屉、toast。
+- `--duration-normal: 220ms` — 面板、抽屉、toast。
 
 ## 2. 页面外壳规范
 
@@ -62,6 +62,7 @@
 - 标题、描述、actions 自动排列在面板头部。
 - 内容区自动带 `p-4 sm:p-5` 内边距；可通过 `contentClassName` 覆盖。
 - 支持 `id` 属性，用于锚点跳转。
+- `compact` 用于高密度工作台，收紧标题、描述和内容区间距。
 
 ### 2.4 `Surface`
 
@@ -103,7 +104,8 @@
 </MobileActionBar>
 ```
 
-- 桌面端为 sticky 面板。
+- `className` 会应用到内容区；需要改外层容器时使用 `rootClassName`。
+- 桌面端为 sticky 面板，不遮挡页面阅读。
 - 移动端为 fixed bottom sheet，带拖动小横条可收起。
 
 ## 3. 移动端适配规则
@@ -121,6 +123,8 @@
 ```tsx
 <div className="scroll-hint overflow-x-auto">...</div>
 ```
+
+`Layout` 会通过 `useScrollHintState` 自动维护 `is-scrollable-left/right` 状态类，容器内容异步变化时也会重新计算。
 
 ### 3.3 Tab / 市场选择器
 

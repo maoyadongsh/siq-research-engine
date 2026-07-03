@@ -84,7 +84,7 @@
 - Expert 完成后通过 sessions_send 回复 coordinator
 
 ## 规则源
-- `config/siq_workflow_policy.json`
+- `agents/hermes/profiles/siq_ic_shared/ic_workflow_policy.json`
   阶段、时长、权重、阈值、证据门槛、目录规则
 - `scripts/workflow_policy.py`
   读取与应用上述规则

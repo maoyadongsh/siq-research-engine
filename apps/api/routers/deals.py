@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 from sqlmodel import select
@@ -72,6 +73,27 @@ class AgentTaskDryRunRequest(BaseModel):
 class WorkflowRunR1AgentRequest(BaseModel):
     profile_id: str = Field(..., min_length=1)
     round_name: str = "R1"
+    dry_run: bool = True
+
+
+class WorkflowRunR1SerialRequest(BaseModel):
+    round_name: str = "R1"
+    dry_run: bool = True
+    max_agents: int = Field(default=6, ge=1, le=6)
+
+
+class WorkflowIdentifyDisputesRequest(BaseModel):
+    dry_run: bool = True
+    preserve_rulings: bool = True
+
+
+class WorkflowDisputeRulingRequest(BaseModel):
+    decision: str = Field(..., min_length=1)
+    rationale: str = ""
+    required_followups: list[str] = Field(default_factory=list)
+    evidence_ids: list[str] = Field(default_factory=list)
+    resolved: bool = True
+    overwrite: bool = False
     dry_run: bool = True
 
 
@@ -792,6 +814,55 @@ def get_deal_disputes(
         raise _not_found(deal_id) from exc
 
 
+@router.post("/{deal_id}/workflow/identify-disputes")
+def post_workflow_identify_disputes(
+    deal_id: str,
+    payload: WorkflowIdentifyDisputesRequest | None = None,
+    current_user: User = Depends(require_permission("report.create")),
+) -> dict[str, Any]:
+    request = payload or WorkflowIdentifyDisputesRequest()
+    try:
+        return deal_disputes.identify_deal_disputes(
+            deal_id,
+            dry_run=request.dry_run,
+            preserve_rulings=request.preserve_rulings,
+            created_by=_user_payload(current_user),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+
+
+@router.post("/{deal_id}/workflow/disputes/{dispute_id}/ruling")
+def post_workflow_dispute_ruling(
+    deal_id: str,
+    dispute_id: str,
+    payload: WorkflowDisputeRulingRequest,
+    current_user: User = Depends(require_permission("report.create")),
+) -> dict[str, Any]:
+    try:
+        return deal_disputes.rule_deal_dispute(
+            deal_id,
+            dispute_id,
+            decision=payload.decision,
+            rationale=payload.rationale,
+            required_followups=payload.required_followups,
+            evidence_ids=payload.evidence_ids,
+            resolved=payload.resolved,
+            overwrite=payload.overwrite,
+            dry_run=payload.dry_run,
+            created_by=_user_payload(current_user),
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        if detail.startswith("Dispute not found:"):
+            raise HTTPException(status_code=404, detail=detail) from exc
+        raise HTTPException(status_code=400, detail=detail) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+
+
 @router.get("/{deal_id}/phase-artifacts")
 def get_deal_phase_artifacts(
     deal_id: str,
@@ -898,18 +969,21 @@ def post_agent_task_dry_run(
 
 
 @router.post("/{deal_id}/workflow/run-r1-agent")
-def post_workflow_run_r1_agent(
+async def post_workflow_run_r1_agent(
     deal_id: str,
     payload: WorkflowRunR1AgentRequest,
     current_user: User = Depends(require_permission("report.create")),
 ) -> dict[str, Any]:
-    del current_user
-    if not payload.dry_run:
-        raise HTTPException(
-            status_code=400,
-            detail="workflow run-r1-agent currently supports dry_run=true only",
-        )
     try:
+        if not payload.dry_run:
+            return deal_store.redact_public_payload(
+                await ic_agent_runtime.run_workflow_r1_agent(
+                    deal_id,
+                    payload.profile_id,
+                    round_name=payload.round_name,
+                    created_by=_user_payload(current_user),
+                )
+            )
         return deal_store.redact_public_payload(
             ic_agent_runtime.build_workflow_r1_agent_run_dry_run(
                 deal_id,
@@ -921,6 +995,40 @@ def post_workflow_run_r1_agent(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise _not_found(deal_id) from exc
+    except (RuntimeError, httpx.HTTPError) as exc:
+        raise HTTPException(status_code=502, detail=f"Hermes R1 agent run failed: {exc}") from exc
+
+
+@router.post("/{deal_id}/workflow/run-r1-serial")
+async def post_workflow_run_r1_serial(
+    deal_id: str,
+    payload: WorkflowRunR1SerialRequest | None = None,
+    current_user: User = Depends(require_permission("report.create")),
+) -> dict[str, Any]:
+    request = payload or WorkflowRunR1SerialRequest()
+    try:
+        if not request.dry_run:
+            return deal_store.redact_public_payload(
+                await ic_agent_runtime.run_workflow_r1_serial(
+                    deal_id,
+                    round_name=request.round_name,
+                    max_agents=request.max_agents,
+                    created_by=_user_payload(current_user),
+                )
+            )
+        return deal_store.redact_public_payload(
+            ic_agent_runtime.build_workflow_r1_serial_run_dry_run(
+                deal_id,
+                round_name=request.round_name,
+                max_agents=request.max_agents,
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+    except (RuntimeError, httpx.HTTPError) as exc:
+        raise HTTPException(status_code=502, detail=f"Hermes R1 serial run failed: {exc}") from exc
 
 
 @router.get("/{deal_id}/evidence/{evidence_id}")

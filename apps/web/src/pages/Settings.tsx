@@ -99,7 +99,16 @@ export default function Settings() {
 
   const providerMeta = { local: { title: '本地大模型', desc: '在本机 vLLM 的 Qwen3.6 与 Gemma4 之间切换。', icon: Cpu, iconClass: 'bg-success/10 text-success', panelClass: 'border-primary/20 bg-card' }, cloud: { title: '云端大模型', desc: '在 StepFun、Minimax 与 Kimi 之间切换；Hermes profiles 会保留本地模型备用链。', icon: Cloud, iconClass: 'bg-primary/10 text-primary', panelClass: 'border-primary/20 bg-card' } } as const
   const activeProvider = llmSettings.providers[llmSettings.activeProvider]; const activeMeta = providerMeta[llmSettings.activeProvider]; const activeTest = testState[llmSettings.activeProvider]
-  const counts = useMemo(() => { const services = systemStatus?.services || []; return { total: services.length, ok: services.filter((s) => s.ok).length, requiredDown: services.filter((s) => s.required && !s.ok).length } }, [systemStatus])
+  const counts = useMemo(() => {
+    const services = systemStatus?.services || []
+    const enabledServices = services.filter((s) => s.enabled !== false && s.status !== 'disabled')
+    return {
+      total: enabledServices.length,
+      disabled: services.length - enabledServices.length,
+      ok: enabledServices.filter((s) => s.ok).length,
+      requiredDown: enabledServices.filter((s) => s.required && !s.ok).length,
+    }
+  }, [systemStatus])
 
   return (
     <PageShell className="space-y-5 sm:space-y-7">

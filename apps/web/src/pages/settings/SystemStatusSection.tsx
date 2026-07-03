@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, XCircle } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Loader2, PowerOff, RefreshCw, XCircle } from 'lucide-react'
 import { MetricCard } from '@/components/research/MetricCard'
 import { formatCheckedAt } from './utils'
 import type { ProviderFormData, ServiceStatus, ServiceCounts, SystemStatus } from './types'
@@ -20,47 +20,61 @@ export function SystemStatusSection({
   counts,
   activeProvider,
 }: SystemStatusSectionProps) {
-  const serviceStatus = (service: ServiceStatus) => (
-    <div
-      key={service.id}
-      className="rounded-[var(--radius-card)] border border-border bg-card p-4 shadow-sm"
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-base font-semibold text-text">{service.name}</h3>
-            <span
-              className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
-                service.required ? 'bg-primary/10 text-primary' : 'bg-bg text-text-muted'
-              }`}
+  const serviceStatus = (service: ServiceStatus) => {
+    const disabled = service.enabled === false || service.status === 'disabled'
+    const statusIcon = disabled ? (
+      <PowerOff className="h-5 w-5" />
+    ) : service.ok ? (
+      <CheckCircle2 className="h-5 w-5" />
+    ) : (
+      <XCircle className="h-5 w-5" />
+    )
+    const statusTone = disabled
+      ? 'bg-bg text-text-muted'
+      : service.ok
+        ? 'bg-success/10 text-success'
+        : 'bg-error/10 text-error'
+    const statusText = disabled ? '未启用' : service.ok ? '运行中' : '不可用'
+    const statusTextTone = disabled ? 'text-text-muted' : service.ok ? 'text-success' : 'text-error'
+
+    return (
+      <div
+        key={service.id}
+        className="rounded-[var(--radius-card)] border border-border bg-card p-4 shadow-sm"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-base font-semibold text-text">{service.name}</h3>
+              <span
+                className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                  service.required ? 'bg-primary/10 text-primary' : 'bg-bg text-text-muted'
+                }`}
+              >
+                {service.required ? '核心' : '可选'}
+              </span>
+            </div>
+            <p
+              className="mt-1 truncate font-mono text-xs text-text-muted"
+              title={service.url}
             >
-              {service.required ? '核心' : '可选'}
-            </span>
+              {service.url}
+            </p>
           </div>
-          <p
-            className="mt-1 truncate font-mono text-xs text-text-muted"
-            title={service.url}
+          <div
+            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl ${statusTone}`}
           >
-            {service.url}
-          </p>
+            {statusIcon}
+          </div>
         </div>
-        <div
-          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl ${
-            service.ok ? 'bg-success/10 text-success' : 'bg-error/10 text-error'
-          }`}
-        >
-          {service.ok ? <CheckCircle2 className="h-5 w-5" /> : <XCircle className="h-5 w-5" />}
+        <div className="mt-4 flex flex-wrap items-center gap-2 text-sm text-text-muted">
+          <span className={`font-semibold ${statusTextTone}`}>{statusText}</span>
+          <span>{disabled ? '按需启动' : service.statusCode ? `HTTP ${service.statusCode}` : '无响应'}</span>
+          {!disabled ? <span>{service.latencyMs}ms</span> : null}
         </div>
       </div>
-      <div className="mt-4 flex flex-wrap items-center gap-2 text-sm text-text-muted">
-        <span className={`font-semibold ${service.ok ? 'text-success' : 'text-error'}`}>
-          {service.ok ? '运行中' : '不可用'}
-        </span>
-        <span>{service.statusCode ? `HTTP ${service.statusCode}` : '无响应'}</span>
-        <span>{service.latencyMs}ms</span>
-      </div>
-    </div>
-  )
+    )
+  }
 
   return (
     <section className="apple-card rounded-[var(--radius-card)] p-4 sm:rounded-[var(--radius-panel)] sm:p-6">
@@ -119,6 +133,8 @@ export function SystemStatusSection({
               trend={
                 counts.requiredDown > 0
                   ? `${counts.requiredDown} 个核心服务异常`
+                  : counts.disabled > 0
+                    ? `${counts.disabled} 个 IC Hermes 网关未启用`
                   : '核心服务状态良好'
               }
             />
