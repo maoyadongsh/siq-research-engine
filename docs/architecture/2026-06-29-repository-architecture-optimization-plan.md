@@ -3552,6 +3552,26 @@ cd apps/api && .venv/bin/python -m pytest tests/test_deal_store.py::test_deal_re
 cd apps/api && .venv/bin/python -m py_compile services/deal_reports.py routers/deals.py
 ```
 
+### 0.58 2026-07-03 Deal reports 页面与 evidence dry-run 面板
+
+本轮收口 Deal 前端对 reports / evidence dry-run 合同的展示，不混入 CI、TODO scanner 或一级市场长设计文档。
+
+完成范围：
+
+- `/deals/:dealId/reports` 接入 Deal report artifact index/detail API，支持分类和搜索，展示可用报告、缺失预期产物以及 JSON/Markdown/NDJSON 内容预览。
+- Deal 工作台快捷入口新增 `Reports`，路由懒加载 `DealReports` 页面。
+- `DealEvidence` 页面新增 `Dry-run 入库计划` 操作，调用 evidence ingest dry-run API，并展示 Postgres / Milvus target、counts、warnings、errors 和 preview。
+- `deal_reports.py` 收紧 reports reader 边界：reports 页面不读取 audit log，审计仍走 `/audit` 专用接口；对应 service/router 测试补齐阻断断言。
+- 前端 `dealApi` / `dealTypes` 增加 reports 和 evidence dry-run 类型与 client 方法。
+
+验证：
+
+```bash
+cd apps/api && .venv/bin/python -m pytest tests/test_deal_store.py::test_deal_reports_index_and_read_detail tests/test_deal_store.py::test_deal_reports_reject_unsafe_paths tests/test_deals_router.py::test_deals_router_reports_index_and_detail -q  # 3 passed, 8 warnings
+cd apps/api && .venv/bin/python -m py_compile services/deal_reports.py routers/deals.py
+cd apps/web && npm run check:frontend  # passed
+```
+
 ## 10. 验收标准总表
 
 ### 仓库治理 DoD

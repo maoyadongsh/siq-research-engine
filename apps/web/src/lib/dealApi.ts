@@ -1,16 +1,19 @@
-import { apiJson } from '@/shared/api/client'
+import { ApiError, apiJson } from '@/shared/api/client'
 import type {
   DealAuditResponse,
   DealDecisionResponse,
   DealDetailResponse,
   DealDocumentResponse,
   DealDocumentsResponse,
+  DealEvidenceIngestDryRunResponse,
   DealEvidenceResponse,
   DealEvidenceFilters,
   DealListResponse,
   DealQuery,
   DealJobStatus,
   DealPreflightResponse,
+  DealReportDetailResponse,
+  DealReportsResponse,
   DealWorkflowResponse,
   DeleteDealDocumentResponse,
   OpenClawImportOptions,
@@ -59,6 +62,18 @@ export function fetchDealAudit(dealId: string, signal?: AbortSignal) {
   return apiJson<DealAuditResponse>(`/api/deals/${encodeURIComponent(dealId)}/audit`, { signal })
 }
 
+export function fetchDealReports(dealId: string, signal?: AbortSignal) {
+  return apiJson<DealReportsResponse>(`/api/deals/${encodeURIComponent(dealId)}/reports`, { signal })
+}
+
+export function fetchDealReport(dealId: string, reportPath: string, signal?: AbortSignal) {
+  const encodedReportPath = reportPath.split('/').map((part) => encodeURIComponent(part)).join('/')
+  return apiJson<DealReportDetailResponse>(
+    `/api/deals/${encodeURIComponent(dealId)}/reports/${encodedReportPath}`,
+    { signal },
+  )
+}
+
 function isAbortSignal(value: DealEvidenceFilters | AbortSignal | undefined): value is AbortSignal {
   return Boolean(value && typeof value === 'object' && 'aborted' in value && 'addEventListener' in value)
 }
@@ -90,6 +105,37 @@ export function buildDealEvidence(dealId: string, signal?: AbortSignal) {
     method: 'POST',
     signal,
   })
+}
+
+export async function dryRunDealEvidenceIngest(dealId: string, signal?: AbortSignal) {
+  const encodedDealId = encodeURIComponent(dealId)
+  const paths = [
+    `/api/deals/${encodedDealId}/evidence/ingest/dry-run`,
+    `/api/deals/${encodedDealId}/evidence/ingest-dry-run`,
+  ]
+  const attempts = paths.flatMap((path) => [
+    { path, method: 'POST' },
+    { path, method: 'GET' },
+  ])
+  let lastError: unknown
+
+  for (const attempt of attempts) {
+    try {
+      return await apiJson<DealEvidenceIngestDryRunResponse>(attempt.path, {
+        method: attempt.method,
+        signal,
+      })
+    } catch (err) {
+      if (signal?.aborted) throw err
+      if (err instanceof ApiError && (err.status === 404 || err.status === 405)) {
+        lastError = err
+        continue
+      }
+      throw err
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error('Evidence ingest dry-run 接口不可用')
 }
 
 export function fetchDealDocuments(dealId: string, signal?: AbortSignal) {

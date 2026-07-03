@@ -120,6 +120,8 @@ def test_deal_reports_reject_unsafe_paths(tmp_path):
         deal_reports.read_deal_report("DEAL-YUSHU-2026-001", "../manifest.json", wiki_root=tmp_path)
     with pytest.raises(ValueError):
         deal_reports.read_deal_report("DEAL-YUSHU-2026-001", "data_room/raw/file.pdf", wiki_root=tmp_path)
+    with pytest.raises(ValueError):
+        deal_reports.read_deal_report("DEAL-YUSHU-2026-001", "audit/audit_log.json", wiki_root=tmp_path)
 
 
 def test_deal_id_rejects_path_escape(tmp_path):

@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, Boxes, ExternalLink, FileSearch, Loader2, PackageCheck, RefreshCw, Search } from 'lucide-react'
+import { ArrowLeft, Boxes, ExternalLink, FileSearch, ListChecks, Loader2, PackageCheck, RefreshCw, Search } from 'lucide-react'
 
 import { EmptyState, PageHeader, PageSection, PageShell, StatusBadge, Surface } from '@/components/page'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { buildDealEvidence, fetchDealEvidence } from '@/lib/dealApi'
-import type { DealEvidenceFilters, DealEvidenceItem, DealEvidenceQualityReport, DealEvidenceResponse } from '@/lib/dealTypes'
+import { buildDealEvidence, dryRunDealEvidenceIngest, fetchDealEvidence } from '@/lib/dealApi'
+import type { DealEvidenceFilters, DealEvidenceIngestDryRun, DealEvidenceItem, DealEvidenceQualityReport, DealEvidenceResponse } from '@/lib/dealTypes'
 
 function text(value: unknown, fallback = '未记录') {
   if (value === null || value === undefined || value === '') return fallback
@@ -85,6 +85,20 @@ function sourceLinks(item: DealEvidenceItem) {
   ].filter((link): link is { label: string; href: string } => Boolean(link.href?.trim()))
 }
 
+function jsonPreview(value: unknown) {
+  if (value === null || value === undefined || value === '') return '未返回'
+  if (typeof value === 'string') return value
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
+function unknownList(value: unknown) {
+  return Array.isArray(value) ? value : []
+}
+
 export default function DealEvidence() {
   const { dealId = '' } = useParams()
   const [data, setData] = useState<DealEvidenceResponse | null>(null)
@@ -92,6 +106,9 @@ export default function DealEvidence() {
   const [error, setError] = useState('')
   const [building, setBuilding] = useState(false)
   const [buildError, setBuildError] = useState('')
+  const [dryRun, setDryRun] = useState<DealEvidenceIngestDryRun | null>(null)
+  const [dryRunLoading, setDryRunLoading] = useState(false)
+  const [dryRunError, setDryRunError] = useState('')
   const [query, setQuery] = useState('')
   const [dimension, setDimension] = useState('')
   const [documentId, setDocumentId] = useState('')
@@ -149,11 +166,29 @@ export default function DealEvidence() {
     }
   }
 
+  const handleDryRun = async () => {
+    setDryRunLoading(true)
+    setDryRunError('')
+    try {
+      const response = await dryRunDealEvidenceIngest(dealId)
+      setDryRun(response.ingest_dry_run)
+    } catch (err) {
+      setDryRunError(err instanceof Error ? err.message : 'Evidence ingest dry-run 失败')
+    } finally {
+      setDryRunLoading(false)
+    }
+  }
+
   const report = data?.quality_report
   const items = useMemo(() => (Array.isArray(data?.items_preview) ? data.items_preview : []), [data])
   const dimensions = useMemo(() => sortedDimensions(report), [report])
   const missingDimensions = useMemo(() => sortedMissingDimensions(report), [report])
   const warnings = Array.isArray(report?.warnings) ? report.warnings : []
+  const dryRunCounts = dryRun?.counts && typeof dryRun.counts === 'object' ? Object.entries(dryRun.counts) : []
+  const dryRunWarnings = unknownList(dryRun?.warnings)
+  const dryRunErrors = unknownList(dryRun?.errors)
+  const postgresRowsPreview = unknownList(dryRun?.postgres_rows_preview)
+  const milvusChunksPreview = unknownList(dryRun?.milvus_chunks_preview)
   const availableDimensions = useMemo(() => uniqueStrings([
     ...(Array.isArray(data?.available_filters?.dimensions) ? data.available_filters.dimensions : []),
     ...dimensions,
@@ -203,6 +238,10 @@ export default function DealEvidence() {
               {building ? <Loader2 className="animate-spin" /> : <PackageCheck />}
               构建证据包
             </Button>
+            <Button type="button" variant="secondary" onClick={() => void handleDryRun()} disabled={dryRunLoading || building}>
+              {dryRunLoading ? <Loader2 className="animate-spin" /> : <ListChecks />}
+              Dry-run 入库计划
+            </Button>
           </div>
         }
       />
@@ -211,6 +250,114 @@ export default function DealEvidence() {
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
           {buildError}
         </div>
+      ) : null}
+
+      {dryRunError ? (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+          {dryRunError}
+        </div>
+      ) : null}
+
+      {dryRun ? (
+        <PageSection
+          title="Dry-run 入库计划"
+          description={`Postgres ${dryRun.postgres_written ? '会写入' : '未写入'} · Milvus ${dryRun.milvus_written ? '会写入' : '未写入'}`}
+          actions={<StatusBadge tone={statusTone(dryRun.status)}>{text(dryRun.status)}</StatusBadge>}
+        >
+          <div className="grid gap-3 md:grid-cols-4">
+            <Surface kind="card">
+              <p className="text-sm text-text-muted">Schema</p>
+              <p className="mt-1 break-all text-sm font-semibold text-text">{text(dryRun.schema_version)}</p>
+            </Surface>
+            <Surface kind="card">
+              <p className="text-sm text-text-muted">Postgres</p>
+              <p className="mt-1 text-sm font-semibold text-text">{dryRun.postgres_written ? '会写入' : 'dry-run 未写入'}</p>
+            </Surface>
+            <Surface kind="card">
+              <p className="text-sm text-text-muted">Milvus</p>
+              <p className="mt-1 text-sm font-semibold text-text">{dryRun.milvus_written ? '会写入' : 'dry-run 未写入'}</p>
+            </Surface>
+            <Surface kind="card">
+              <p className="text-sm text-text-muted">Preview</p>
+              <p className="mt-1 text-sm font-semibold text-text">{postgresRowsPreview.length} rows / {milvusChunksPreview.length} chunks</p>
+            </Surface>
+          </div>
+
+          <div className="grid gap-3 lg:grid-cols-2">
+            <Surface kind="muted" padding="sm">
+              <p className="text-sm font-semibold text-text">Counts</p>
+              {dryRunCounts.length ? (
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {dryRunCounts.map(([key, value]) => (
+                    <div key={key} className="rounded-md border border-border/70 bg-background/70 px-3 py-2">
+                      <p className="text-xs text-text-muted">{key}</p>
+                      <p className="mt-0.5 break-all text-sm font-semibold text-text">{text(value, '0')}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-2 text-sm text-text-muted">未返回 counts。</p>
+              )}
+            </Surface>
+            <Surface kind="muted" padding="sm">
+              <p className="text-sm font-semibold text-text">Targets</p>
+              <div className="mt-3 grid gap-2 md:grid-cols-2">
+                <pre className="max-h-48 overflow-auto rounded-md bg-background/70 p-3 text-xs text-text-muted">
+                  {jsonPreview(dryRun.target_postgres)}
+                </pre>
+                <pre className="max-h-48 overflow-auto rounded-md bg-background/70 p-3 text-xs text-text-muted">
+                  {jsonPreview(dryRun.target_milvus)}
+                </pre>
+              </div>
+            </Surface>
+          </div>
+
+          <div className="grid gap-3 lg:grid-cols-2">
+            <Surface kind="muted" padding="sm">
+              <p className="text-sm font-semibold text-text">Warnings</p>
+              {dryRunWarnings.length ? (
+                <div className="mt-3 grid gap-2">
+                  {dryRunWarnings.map((warning, index) => (
+                    <p key={index} className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-sm leading-6 text-text">
+                      {text(warning)}
+                    </p>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-2 text-sm text-text-muted">暂无 warnings。</p>
+              )}
+            </Surface>
+            <Surface kind="muted" padding="sm">
+              <p className="text-sm font-semibold text-text">Errors</p>
+              {dryRunErrors.length ? (
+                <div className="mt-3 grid gap-2">
+                  {dryRunErrors.map((error, index) => (
+                    <p key={index} className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm leading-6 text-destructive">
+                      {text(error)}
+                    </p>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-2 text-sm text-text-muted">暂无 errors。</p>
+              )}
+            </Surface>
+          </div>
+
+          <div className="grid gap-3 lg:grid-cols-2">
+            <Surface kind="muted" padding="sm">
+              <p className="text-sm font-semibold text-text">Postgres rows preview</p>
+              <pre className="mt-3 max-h-72 overflow-auto rounded-md bg-background/70 p-3 text-xs text-text-muted">
+                {jsonPreview(postgresRowsPreview)}
+              </pre>
+            </Surface>
+            <Surface kind="muted" padding="sm">
+              <p className="text-sm font-semibold text-text">Milvus chunks preview</p>
+              <pre className="mt-3 max-h-72 overflow-auto rounded-md bg-background/70 p-3 text-xs text-text-muted">
+                {jsonPreview(milvusChunksPreview)}
+              </pre>
+            </Surface>
+          </div>
+        </PageSection>
       ) : null}
 
       <Surface kind="card">

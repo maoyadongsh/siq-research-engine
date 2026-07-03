@@ -99,7 +99,7 @@ def test_deals_router_reports_index_and_detail(monkeypatch, tmp_path):
     paths = {item["path"] for item in index_payload["reports"]}
     assert "phases/r1_reports.json" in paths
     assert "discussion/01_R1_strategist_report.md" in paths
-    assert index_payload["counts"]["reports"] >= 4
+    assert index_payload["counts"]["reports"] >= 3
     assert any(item["path"] == "decision/IC_DECISION_REPORT.md" for item in index_payload["missing_expected"])
 
     detail = client.get("/api/deals/DEAL-ROUTER-REPORTS/reports/phases/r1_reports.json")
@@ -115,6 +115,8 @@ def test_deals_router_reports_index_and_detail(monkeypatch, tmp_path):
     assert missing.status_code == 404
     blocked = client.get("/api/deals/DEAL-ROUTER-REPORTS/reports/data_room/raw/secret.pdf")
     assert blocked.status_code == 400
+    audit_blocked = client.get("/api/deals/DEAL-ROUTER-REPORTS/reports/audit/audit_log.json")
+    assert audit_blocked.status_code == 400
 
 
 def test_deals_router_wait_import_accepts_project_id(monkeypatch, tmp_path):

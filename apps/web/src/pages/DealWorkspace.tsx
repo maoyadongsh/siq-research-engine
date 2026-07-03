@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, BriefcaseBusiness, FileSearch, FileText, FolderOpen, GitBranch, ShieldCheck } from 'lucide-react'
+import { ArrowLeft, BriefcaseBusiness, FileJson, FileSearch, FileText, FolderOpen, GitBranch, ShieldCheck } from 'lucide-react'
 
 import { EmptyState, PageHeader, PageSection, PageShell, StatusBadge, Surface } from '@/components/page'
 import { Button } from '@/components/ui/button'
@@ -143,11 +143,12 @@ export default function DealWorkspace() {
           </PageSection>
 
           <PageSection title="快捷入口">
-            <div className="grid gap-3 md:grid-cols-5">
+            <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
               {[
                 { to: `/deals/${encodeURIComponent(summary.deal_id)}/data-room`, title: 'Data Room', desc: '上传和管理项目文档', icon: FolderOpen },
                 { to: `/deals/${encodeURIComponent(summary.deal_id)}/evidence`, title: 'Evidence', desc: '查看和构建证据包', icon: FileSearch },
                 { to: `/deals/${encodeURIComponent(summary.deal_id)}/workflow`, title: 'Workflow', desc: '查看 R0-R4 状态', icon: GitBranch },
+                { to: `/deals/${encodeURIComponent(summary.deal_id)}/reports`, title: 'Reports', desc: '查看报告与产物索引', icon: FileJson },
                 { to: `/deals/${encodeURIComponent(summary.deal_id)}/decision`, title: 'Decision', desc: '查看最终投决报告', icon: FileText },
                 { to: `/deals/${encodeURIComponent(summary.deal_id)}/audit`, title: 'Audit', desc: '查看审计事件链', icon: ShieldCheck },
               ].map((item) => {

@@ -138,6 +138,39 @@ export interface DealAuditResponse {
   }
 }
 
+export interface DealReportMeta {
+  path: string
+  title?: string | null
+  category?: string | null
+  format?: string | null
+  status?: string | null
+  size_bytes?: number | null
+  sha256?: string | null
+  updated_at?: string | null
+  [key: string]: unknown
+}
+
+export interface DealReportsResponse {
+  schema_version?: string
+  deal_id?: string
+  generated_at?: string | null
+  counts?: Record<string, number>
+  available_categories?: string[]
+  reports: DealReportMeta[]
+  missing_expected?: DealReportMeta[]
+}
+
+export interface DealReportDetailResponse {
+  schema_version?: string
+  deal_id?: string
+  report: DealReportMeta
+  content?: string
+  json?: unknown
+  rows_preview?: unknown[]
+  invalid_lines?: number | null
+  parse_error?: string | null
+}
+
 export interface DealEvidenceItem {
   evidence_id: string
   deal_id: string
@@ -200,6 +233,25 @@ export interface DealEvidenceResponse {
   total_item_count?: number
   applied_filters?: DealEvidenceFilters
   available_filters?: DealEvidenceAvailableFilters
+}
+
+export interface DealEvidenceIngestDryRun {
+  schema_version?: string | null
+  status?: string | null
+  counts?: Record<string, number | string | boolean | null | undefined>
+  postgres_written?: boolean
+  milvus_written?: boolean
+  target_postgres?: unknown
+  target_milvus?: unknown
+  errors?: unknown[]
+  warnings?: unknown[]
+  postgres_rows_preview?: unknown[]
+  milvus_chunks_preview?: unknown[]
+  [key: string]: unknown
+}
+
+export interface DealEvidenceIngestDryRunResponse {
+  ingest_dry_run: DealEvidenceIngestDryRun
 }
 
 export interface DealDocument {

@@ -13,10 +13,11 @@ from services import deal_store
 
 REPORTS_INDEX_SCHEMA = "siq_deal_reports_index_v1"
 REPORT_DETAIL_SCHEMA = "siq_deal_report_detail_v1"
-ALLOWED_REPORT_DIRS = ("phases", "discussion", "decision", "evidence", "audit")
+ALLOWED_REPORT_DIRS = ("phases", "discussion", "decision", "evidence")
 ALLOWED_REPORT_SUFFIXES = (".json", ".md", ".html", ".txt", ".ndjson")
 MAX_REPORT_DETAIL_BYTES = 2_000_000
 NDJSON_PREVIEW_LIMIT = 100
+EXCLUDED_REPORT_PATHS = {"phases/audit_log.json", "audit/audit_log.json"}
 
 EXPECTED_REPORTS: tuple[dict[str, str], ...] = (
     {"path": "phases/workflow_state.json", "title": "Workflow state", "category": "workflow"},
@@ -31,7 +32,6 @@ EXPECTED_REPORTS: tuple[dict[str, str], ...] = (
     {"path": "evidence/evidence_index.json", "title": "Evidence index", "category": "evidence"},
     {"path": "evidence/evidence_quality_report.json", "title": "Evidence quality report", "category": "evidence"},
     {"path": "evidence/evidence_ingest_dry_run.json", "title": "Evidence ingest dry-run", "category": "evidence"},
-    {"path": "audit/audit_log.json", "title": "Audit log", "category": "audit"},
 )
 
 
@@ -49,8 +49,10 @@ def _normalize_report_path(report_path: str) -> str:
     path = Path(normalized)
     if path.is_absolute() or ".." in path.parts:
         raise ValueError("report_path must stay inside the deal package")
+    if path.as_posix() in EXCLUDED_REPORT_PATHS:
+        raise ValueError("audit logs must be read through the audit endpoint")
     if path.parts[0] not in ALLOWED_REPORT_DIRS:
-        raise ValueError("report_path must be under phases, discussion, decision, evidence, or audit")
+        raise ValueError("report_path must be under phases, discussion, decision, or evidence")
     if path.suffix.lower() not in ALLOWED_REPORT_SUFFIXES:
         raise ValueError("unsupported report file type")
     return path.as_posix()
@@ -138,6 +140,8 @@ def _iter_report_files(package_dir: Path) -> list[str]:
                 resolved.relative_to(root)
                 relative = resolved.relative_to(root).as_posix()
             except ValueError:
+                continue
+            if relative in EXCLUDED_REPORT_PATHS:
                 continue
             paths.append(relative)
     return sorted(dict.fromkeys(paths))
