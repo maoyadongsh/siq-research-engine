@@ -442,6 +442,36 @@ export interface DealWorkflowDisputeRulingResponse {
   [key: string]: unknown
 }
 
+export interface DealWorkflowGenerateDisputeRulingsRequest {
+  dry_run?: boolean
+  overwrite?: boolean
+}
+
+export interface DealWorkflowGenerateDisputeRulingsResponse {
+  schema_version?: 'siq_deal_r1_5_dispute_ruling_generation_v1' | string
+  deal_id?: string
+  dry_run?: boolean
+  would_write?: boolean
+  written?: boolean
+  overwrite?: boolean
+  generation_mode?: string
+  json_path?: string | null
+  markdown_path?: string | null
+  generated_count?: number
+  skipped_count?: number
+  warnings?: string[]
+  skipped?: Array<Record<string, unknown>>
+  rulings?: Array<Record<string, unknown>>
+  payload?: {
+    schema_version?: string
+    deal_id?: string
+    disputes?: DealDisputeSummary[]
+    [key: string]: unknown
+  } | null
+  summary?: DealDisputesResponse | null
+  [key: string]: unknown
+}
+
 export interface DealPhaseArtifact {
   path?: string | null
   available?: boolean
