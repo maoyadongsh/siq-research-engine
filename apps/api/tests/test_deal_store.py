@@ -545,3 +545,78 @@ def test_deal_document_delete_removes_symlink_not_target(tmp_path):
     assert result == {"ok": True, "document_id": "DOC-ABCDEF1234567890"}
     assert not link.exists()
     assert protected.read_text(encoding="utf-8") == "keep"
+
+
+def test_deal_document_bind_parser_task_updates_metadata_manifest_and_audit(tmp_path, monkeypatch):
+    deal_store.create_deal_package(
+        deal_id="DEAL-YUSHU-2026-001",
+        company_name="宇树科技",
+        wiki_root=tmp_path,
+    )
+    document = deal_documents.create_deal_document(
+        deal_id="DEAL-YUSHU-2026-001",
+        filename="bp.pdf",
+        content_type="application/pdf",
+        stream=BytesIO(b"hello"),
+        wiki_root=tmp_path,
+    )
+    parser_root = tmp_path / "parser-results"
+    artifact = parser_root / "parser-task-1" / "document.md"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_text("# parsed", encoding="utf-8")
+    monkeypatch.setattr(deal_documents, "DOCUMENT_PARSER_RESULTS_ROOT", parser_root)
+
+    bound = deal_documents.bind_parser_task(
+        "DEAL-YUSHU-2026-001",
+        document["document_id"],
+        task_id="parser-task-1",
+        artifact_path="document.md",
+        note="manual link",
+        bound_by={"id": 7, "username": "analyst", "email": "hidden@example.com"},
+        wiki_root=tmp_path,
+    )
+
+    assert bound["status"] == "parse_bound"
+    assert bound["parse_task_id"] == "parser-task-1"
+    assert bound["parsed_artifact_path"] == "document.md"
+    assert bound["parser_status_url"] == "/api/documents/status/parser-task-1"
+    assert bound["parser_artifact_url"] == "/api/documents/artifact/parser-task-1/document.md"
+    assert bound["parser_artifact_exists"] is True
+    assert bound["parse_bound_by"] == {"id": 7, "username": "analyst"}
+    assert "hidden@example.com" not in json.dumps(bound, ensure_ascii=False)
+    package_dir = tmp_path / "deals" / "DEAL-YUSHU-2026-001"
+    manifest = json.loads((package_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["documents"][0]["parse_task_id"] == "parser-task-1"
+    audit = json.loads((package_dir / "audit" / "audit_log.json").read_text(encoding="utf-8"))
+    assert audit["events"][-1]["event_type"] == "deal_document_parser_task_bound"
+
+
+def test_deal_document_bind_parser_task_rejects_unsafe_inputs(tmp_path):
+    deal_store.create_deal_package(
+        deal_id="DEAL-YUSHU-2026-001",
+        company_name="宇树科技",
+        wiki_root=tmp_path,
+    )
+    document = deal_documents.create_deal_document(
+        deal_id="DEAL-YUSHU-2026-001",
+        filename="bp.pdf",
+        content_type="application/pdf",
+        stream=BytesIO(b"hello"),
+        wiki_root=tmp_path,
+    )
+
+    with pytest.raises(ValueError):
+        deal_documents.bind_parser_task(
+            "DEAL-YUSHU-2026-001",
+            document["document_id"],
+            task_id="../bad",
+            wiki_root=tmp_path,
+        )
+    with pytest.raises(ValueError):
+        deal_documents.bind_parser_task(
+            "DEAL-YUSHU-2026-001",
+            document["document_id"],
+            task_id="parser-task-1",
+            artifact_path="../secret.md",
+            wiki_root=tmp_path,
+        )

@@ -3371,6 +3371,21 @@ cd apps/api && .venv/bin/python -m py_compile routers/deals.py services/deal_doc
 cd apps/api && .venv/bin/python -c "import main; print(main.app.title)"  # SIQ API
 ```
 
+### 0.48 2026-07-03 Deal document parser binding 脱敏护栏
+
+本轮只修正 Deal document parser-task 绑定的公开 payload 脱敏，不改变解析任务生命周期，也不把 Deal data room 直接接入异步解析队列。
+
+完成范围：
+
+- `deal_store.redact_public_payload` 将 `deleted_by`、`bound_by`、`parse_bound_by` 纳入用户字段脱敏，只保留 `id` / `username`。
+- 补充 `deal_documents.bind_parser_task` 合同测试：metadata、manifest、audit 同步；parser status / result / artifact URL；artifact 存在性；非法 task id / artifact path 拒绝；绑定人 email 不进入 API-facing payload。
+
+验证：
+
+```bash
+cd apps/api && .venv/bin/python -m pytest tests/test_deal_store.py tests/test_deal_documents.py tests/test_deals_router.py -q  # 27 passed, 22 warnings
+```
+
 ## 10. 验收标准总表
 
 ### 仓库治理 DoD
