@@ -730,6 +730,34 @@ def test_deal_evidence_builds_offline_package_from_bound_parser_docs(tmp_path, m
 
     read_back = deal_evidence.read_deal_evidence_package("DEAL-YUSHU-2026-001", wiki_root=tmp_path)
     assert read_back["items_preview"][0]["evidence_id"] == "EVID-DEAL-YUSHU-2026-001-000001"
+    filtered = deal_evidence.read_deal_evidence_package(
+        "DEAL-YUSHU-2026-001",
+        wiki_root=tmp_path,
+        q="gross",
+        dimension="finance",
+        preview_limit=10,
+    )
+    assert filtered["matched_count"] == 1
+    assert filtered["counts"]["items"] == 2
+    assert filtered["items_preview"][0]["source_anchor"]["page"] == 4
+    source_filtered = deal_evidence.read_deal_evidence_package(
+        "DEAL-YUSHU-2026-001",
+        wiki_root=tmp_path,
+        source_url="/api/documents/source/task-fin/block/b000001",
+    )
+    assert source_filtered["matched_count"] == 1
+    assert source_filtered["items_preview"][0]["source_anchor"]["block_id"] == "b000001"
+    limited = deal_evidence.read_deal_evidence_package(
+        "DEAL-YUSHU-2026-001",
+        wiki_root=tmp_path,
+        document_id=financial_doc["document_id"],
+        preview_limit=1,
+    )
+    assert limited["matched_count"] == 2
+    assert limited["total_item_count"] == 2
+    assert len(limited["items_preview"]) == 1
+    assert limited["available_filters"]["dimensions"] == ["finance"]
+    assert financial_doc["document_id"] in limited["available_filters"]["document_ids"]
     item = deal_evidence.get_deal_evidence_item(
         "DEAL-YUSHU-2026-001",
         "EVID-DEAL-YUSHU-2026-001-000002",
