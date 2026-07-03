@@ -135,6 +135,7 @@ cd /home/maoyd/siq-research-engine
 cp infra/env/local.example infra/env/local.env
 # edit infra/env/local.env and replace secrets before long-running local use
 export SIQ_AUTH_SECRET_KEY="${SIQ_AUTH_SECRET_KEY:-$(openssl rand -hex 32)}"
+export SIQ_SOURCE_TOKEN_SECRET="${SIQ_SOURCE_TOKEN_SECRET:-$(openssl rand -hex 32)}"
 ./start_all.sh
 ```
 
@@ -193,6 +194,7 @@ API：
 ```bash
 cd /home/maoyd/siq-research-engine/apps/api
 export SIQ_AUTH_SECRET_KEY="$(openssl rand -hex 32)"
+export SIQ_SOURCE_TOKEN_SECRET="$(openssl rand -hex 32)"
 ./start.sh
 ```
 
@@ -272,7 +274,9 @@ curl -s http://localhost:18652/health
 | `SIQ_PDF2MD_DATA_DIR` | `$SIQ_DATA_ROOT/pdf-parser` | PDF 解析运行态目录 |
 | `SIQ_DOCUMENT_PARSE_DATA_DIR` | `$SIQ_DATA_ROOT/document-parser` | 通用文档解析运行态目录 |
 | `SIQ_HERMES_HOME` | `$SIQ_DATA_ROOT/hermes/home` | Hermes 运行态根目录 |
-| `SIQ_AUTH_SECRET_KEY` | 无 | API 鉴权密钥，必须设置 |
+| `SIQ_AUTH_SECRET_KEY` | 无 | JWT/session 密钥，必须设置，至少 32 字符 |
+| `SIQ_SOURCE_TOKEN_SECRET` | fallback 到 `SIQ_AUTH_SECRET_KEY` | `/api/source*` 短期签名访问 token 密钥，建议使用独立至少 32 字符密钥；设置后新 token 用该 source secret 签发，默认不再验证旧 auth secret token |
+| `SIQ_SOURCE_ACCEPT_LEGACY_AUTH_SECRET` | `0` | 配置独立 source secret 后是否继续验证旧 auth secret 签发的 source token；短期迁移需要时显式设为 `1` |
 | `SEC_USER_AGENT` | 服务默认值 | SEC EDGAR 合规请求头 |
 | `DART_API_KEY` | 空 | 韩国 DART / OpenDART API key |
 | `EDINET_API_KEY` | 空 | 日本 EDINET API key |
@@ -283,6 +287,8 @@ curl -s http://localhost:18652/health
 | `REDIS_URL` | 无 | Redis 连接串 |
 
 ## 合并前基础门禁
+
+GitHub Actions 的 `CI` workflow 是 P0 稳定子集：它在 GitHub runner 上执行脚本语法检查、API 聚焦测试、Web unit 和 frontend check，避免依赖本机服务或过重的解析链路。PDF parser、document-parser、market-report-finder、market-report-rules 和 `packages/market-contracts` 的扩展覆盖仍以本地 `scripts/check_all.sh` 或对应目录测试为准，按变更范围在合并前补跑。
 
 一键执行：
 
@@ -330,6 +336,7 @@ scripts/check_owner_migration.sh
 cd /home/maoyd/siq-research-engine
 bash -n scripts/check_all.sh
 bash -n scripts/check_owner_migration.sh
+bash -n scripts/check_async_db_audit.sh
 bash -n start_all.sh
 bash -n apps/api/start.sh
 bash -n apps/pdf-parser/run.sh
@@ -362,4 +369,4 @@ bash -n apps/document-parser/run.sh
 
 除 README、`.gitkeep` 或明确的小型 fixtures 外，不提交运行态数据、下载披露文件、解析产物、数据库文件、缓存、日志和本地模型运行时。
 
-`.env`、API key、数据库口令、模型服务密钥、用户会话、聊天附件和未公开研究材料不应写入 README、报告、日志或提交记录。涉及财务和法务结论的产物应保留证据来源、生成时间、模型 / 规则版本和人工复核状态。
+`.env`、API key、数据库口令、模型服务密钥、用户会话、聊天附件和未公开研究材料不应写入 README、报告、日志或提交记录。`SIQ_AUTH_SECRET_KEY` 和 `SIQ_SOURCE_TOKEN_SECRET` 都应使用至少 32 字符随机密钥；`SIQ_SOURCE_TOKEN_SECRET` 建议独立于 auth secret 配置，未设置时 source token 会 fallback 到 `SIQ_AUTH_SECRET_KEY`，设置后新 token 使用 source secret，默认不再验证旧 auth secret token；如短期迁移必须接受旧 token，可显式设置 `SIQ_SOURCE_ACCEPT_LEGACY_AUTH_SECRET=1`。涉及财务和法务结论的产物应保留证据来源、生成时间、模型 / 规则版本和人工复核状态。

@@ -92,6 +92,8 @@ uv run uvicorn market_report_rules_service.app:app --host 127.0.0.1 --port 18020
 | 变量 | 用途 |
 | --- | --- |
 | `SIQ_AUTH_SECRET_KEY` | API 鉴权密钥，开发环境也必须设置 |
+| `SIQ_SOURCE_TOKEN_SECRET` | PDF/source 溯源短期访问 token 密钥；建议与 `SIQ_AUTH_SECRET_KEY` 不同，至少 32 字符 |
+| `SIQ_SOURCE_ACCEPT_LEGACY_AUTH_SECRET` | source token 迁移兼容开关；默认 `0` 不接受旧 auth secret source token，短期迁移需要时显式设 `1` |
 | `SIQ_DATA_ROOT` | 兼容期运行态根目录，默认 `data`，后续可切到 `var` |
 | `SIQ_RUNTIME_ROOT` | 新增本地运行态建议根目录，默认 `var` |
 | `SIQ_ARTIFACTS_ROOT` | 构建、测试、评测和批处理输出根目录，默认 `artifacts` |

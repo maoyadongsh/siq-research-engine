@@ -8,6 +8,8 @@ SIQ_ARTIFACTS_ROOT=/var/lib/siq-research-engine/artifacts
 SIQ_DATASETS_ROOT=/opt/siq-research-engine/datasets
 
 SIQ_AUTH_SECRET_KEY=replace-with-secret-manager-value
+SIQ_SOURCE_TOKEN_SECRET=replace-with-secret-manager-value
+SIQ_SOURCE_ACCEPT_LEGACY_AUTH_SECRET=0
 SIQ_ALLOW_REGISTRATION=0
 SIQ_DEMO_MODE=0
 SIQ_INITIAL_ADMIN_PASSWORD=replace-with-secret-manager-value

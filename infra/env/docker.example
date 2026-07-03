@@ -1,6 +1,8 @@
 # Safe Docker Compose template.
 
 SIQ_AUTH_SECRET_KEY=replace-with-at-least-32-random-characters
+SIQ_SOURCE_TOKEN_SECRET=replace-with-different-at-least-32-random-characters
+SIQ_SOURCE_ACCEPT_LEGACY_AUTH_SECRET=0
 SIQ_ALLOW_REGISTRATION=0
 SIQ_DEMO_MODE=0
 

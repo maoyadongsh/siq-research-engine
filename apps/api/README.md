@@ -164,6 +164,9 @@ apps/api/
 | `SIQ_DB_ROOT` | `db` | 数据库脚本根目录 |
 | `SIQ_CONFIG_DIR` | `data/backend/.siq` | LLM 设置存储目录 |
 | `SIQ_AUTH_SECRET_KEY` | 无 | JWT/session 密钥，至少 32 字符 |
+| `SIQ_SOURCE_TOKEN_SECRET` | fallback 到 `SIQ_AUTH_SECRET_KEY` | `/api/source*` 短期签名访问 token 密钥，建议独立设置，至少 32 字符 |
+| `SIQ_SOURCE_ACCEPT_LEGACY_AUTH_SECRET` | `0` | 设置独立 source secret 后是否继续验证旧 auth secret source token；短期迁移需要时显式设为 `1` |
+| `SIQ_SOURCE_ACCESS_TOKEN_TTL_SECONDS` | `900` | source access token 有效期秒数，签发时最小 TTL 为 60 秒 |
 
 ## 开发验证
 
