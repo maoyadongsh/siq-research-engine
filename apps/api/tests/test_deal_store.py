@@ -15,6 +15,7 @@ if str(BACKEND_ROOT) not in sys.path:
 from routers import deals
 from services import deal_contracts
 from services import deal_documents
+from services import deal_evidence
 from services import deal_store
 from services.ic_openclaw_importer import import_openclaw_project
 
@@ -620,3 +621,154 @@ def test_deal_document_bind_parser_task_rejects_unsafe_inputs(tmp_path):
             artifact_path="../secret.md",
             wiki_root=tmp_path,
         )
+
+
+def test_deal_evidence_builds_offline_package_from_bound_parser_docs(tmp_path, monkeypatch):
+    deal_store.create_deal_package(
+        deal_id="DEAL-YUSHU-2026-001",
+        company_name="宇树科技",
+        wiki_root=tmp_path,
+    )
+    financial_doc = deal_documents.create_deal_document(
+        deal_id="DEAL-YUSHU-2026-001",
+        filename="financial-model.pdf",
+        content_type="application/pdf",
+        stream=BytesIO(b"financial"),
+        document_type="financial_model",
+        wiki_root=tmp_path,
+    )
+    missing_doc = deal_documents.create_deal_document(
+        deal_id="DEAL-YUSHU-2026-001",
+        filename="license.pdf",
+        content_type="application/pdf",
+        stream=BytesIO(b"legal"),
+        document_type="legal_contract",
+        wiki_root=tmp_path,
+    )
+    parser_root = tmp_path / "parser-results"
+    document_md = parser_root / "task-fin" / "document.md"
+    document_md.parent.mkdir(parents=True)
+    document_md.write_text(
+        "\n".join([
+            "<!-- DOC_BLOCK: b000001 page=3 evidence=doc:task-fin:p3:b000001 -->",
+            "# Revenue",
+            "2025 revenue reached RMB 100m.",
+            "",
+            "<!-- DOC_BLOCK: b000002 page=4 evidence=doc:task-fin:p4:b000002 -->",
+            "Gross margin improved after scale production.",
+        ]),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(deal_documents, "DOCUMENT_PARSER_RESULTS_ROOT", parser_root)
+    monkeypatch.setattr(deal_evidence, "DOCUMENT_PARSER_RESULTS_ROOT", parser_root)
+    deal_documents.bind_parser_task(
+        "DEAL-YUSHU-2026-001",
+        financial_doc["document_id"],
+        task_id="task-fin",
+        artifact_path="document.md",
+        wiki_root=tmp_path,
+    )
+    deal_documents.bind_parser_task(
+        "DEAL-YUSHU-2026-001",
+        missing_doc["document_id"],
+        task_id="task-missing",
+        artifact_path="document.md",
+        wiki_root=tmp_path,
+    )
+
+    result = deal_evidence.build_deal_evidence_package(
+        "DEAL-YUSHU-2026-001",
+        built_by={"id": 7, "username": "analyst", "email": "hidden@example.com"},
+        wiki_root=tmp_path,
+    )
+
+    package_dir = tmp_path / "deals" / "DEAL-YUSHU-2026-001"
+    assert result["status"] == "warn"
+    assert result["counts"]["documents_bound"] == 2
+    assert result["counts"]["documents_indexed"] == 1
+    assert result["counts"]["items"] == 2
+    assert result["quality_report"]["llm_used"] is False
+    assert result["quality_report"]["agent_used"] is False
+    assert result["quality_report"]["milvus_written"] is False
+    assert (package_dir / "evidence" / "evidence_index.json").is_file()
+    assert (package_dir / "evidence" / "evidence_items.ndjson").is_file()
+    assert (package_dir / "evidence" / "evidence_quality_report.json").is_file()
+
+    rows = [
+        json.loads(line)
+        for line in (package_dir / "evidence" / "evidence_items.ndjson").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert [row["evidence_id"] for row in rows] == [
+        "EVID-DEAL-YUSHU-2026-001-000001",
+        "EVID-DEAL-YUSHU-2026-001-000002",
+    ]
+    assert rows[0]["schema_version"] == "siq_deal_evidence_item_v1"
+    assert rows[0]["document_id"] == financial_doc["document_id"]
+    assert rows[0]["dimension"] == "finance"
+    assert rows[0]["source_anchor"]["page"] == 3
+    assert rows[0]["source_anchor"]["block_id"] == "b000001"
+    assert rows[0]["source_anchor"]["md_line_start"] == 2
+    assert rows[0]["source_url"] == "/api/documents/source/task-fin/block/b000001"
+    assert "hidden@example.com" not in json.dumps(result, ensure_ascii=False)
+
+    quality = json.loads((package_dir / "evidence" / "evidence_quality_report.json").read_text(encoding="utf-8"))
+    quality_documents = {item["document_id"]: item for item in quality["documents"]}
+    assert quality_documents[financial_doc["document_id"]]["status"] == "indexed"
+    assert quality_documents[missing_doc["document_id"]]["status"] == "missing_task_dir"
+    assert "business" in quality["missing_dimensions"]
+    index = json.loads((package_dir / "evidence" / "evidence_index.json").read_text(encoding="utf-8"))
+    assert index["items"][0]["locator"] == "document.md:L2-L3"
+    manifest = json.loads((package_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["evidence"]["last_build"]["status"] == "warn"
+    audit = json.loads((package_dir / "audit" / "audit_log.json").read_text(encoding="utf-8"))
+    assert audit["events"][-1]["event_type"] == "deal_evidence_built"
+
+    read_back = deal_evidence.read_deal_evidence_package("DEAL-YUSHU-2026-001", wiki_root=tmp_path)
+    assert read_back["items_preview"][0]["evidence_id"] == "EVID-DEAL-YUSHU-2026-001-000001"
+    item = deal_evidence.get_deal_evidence_item(
+        "DEAL-YUSHU-2026-001",
+        "EVID-DEAL-YUSHU-2026-001-000002",
+        wiki_root=tmp_path,
+    )
+    assert item["evidence"]["source_anchor"]["page"] == 4
+
+
+def test_deal_evidence_build_is_idempotent_and_preflight_counts_items(tmp_path, monkeypatch):
+    deal_store.create_deal_package(
+        deal_id="DEAL-YUSHU-2026-001",
+        company_name="宇树科技",
+        wiki_root=tmp_path,
+    )
+    document = deal_documents.create_deal_document(
+        deal_id="DEAL-YUSHU-2026-001",
+        filename="bp.md",
+        content_type="text/markdown",
+        stream=BytesIO(b"bp"),
+        document_type="business_plan",
+        wiki_root=tmp_path,
+    )
+    parser_root = tmp_path / "parser-results"
+    document_md = parser_root / "task-bp" / "document.md"
+    document_md.parent.mkdir(parents=True)
+    document_md.write_text("# Business\n\nRobot demand is expanding.\n\nCustomers include industrial users.", encoding="utf-8")
+    monkeypatch.setattr(deal_documents, "DOCUMENT_PARSER_RESULTS_ROOT", parser_root)
+    monkeypatch.setattr(deal_evidence, "DOCUMENT_PARSER_RESULTS_ROOT", parser_root)
+    deal_documents.bind_parser_task(
+        "DEAL-YUSHU-2026-001",
+        document["document_id"],
+        task_id="task-bp",
+        artifact_path="document.md",
+        wiki_root=tmp_path,
+    )
+
+    first = deal_evidence.build_deal_evidence_package("DEAL-YUSHU-2026-001", wiki_root=tmp_path)
+    second = deal_evidence.build_deal_evidence_package("DEAL-YUSHU-2026-001", wiki_root=tmp_path)
+
+    first_ids = [item["evidence_id"] for item in first["items_preview"]]
+    second_ids = [item["evidence_id"] for item in second["items_preview"]]
+    assert first_ids == second_ids
+    assert second["counts"]["items"] == 1
+    preflight = deal_contracts.run_deal_preflight("DEAL-YUSHU-2026-001", wiki_root=tmp_path)
+    assert preflight["counts"]["evidence_items"] == 1
+    assert preflight["counts"]["verified_evidence_items"] == 1

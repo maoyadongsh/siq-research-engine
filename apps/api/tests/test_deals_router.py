@@ -10,6 +10,8 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from routers import deals
+from services import deal_documents
+from services import deal_evidence
 from services import deal_store
 from services import ic_openclaw_importer
 from services.auth_dependencies import get_current_user
@@ -240,3 +242,59 @@ def test_deals_router_bind_parser_task_requires_task_access(monkeypatch, tmp_pat
     detail = client.get(f"/api/deals/DEAL-ROUTER-006/documents/{document_id}")
     assert detail.status_code == 200
     assert detail.json()["document"]["parse_task_id"] is None
+
+
+def test_deals_router_build_and_read_evidence(monkeypatch, tmp_path):
+    client = _client(monkeypatch, tmp_path)
+    assert client.post(
+        "/api/deals",
+        json={"deal_id": "DEAL-ROUTER-007", "company_name": "Router Robotics"},
+    ).status_code == 200
+    upload = client.post(
+        "/api/deals/DEAL-ROUTER-007/documents",
+        data={"document_type": "financial_model"},
+        files={"file": ("model.pdf", b"router financial model", "application/pdf")},
+    )
+    assert upload.status_code == 200
+    document_id = upload.json()["document"]["document_id"]
+
+    parser_root = tmp_path / "parser-results"
+    document_md = parser_root / "router-task-fin" / "document.md"
+    document_md.parent.mkdir(parents=True)
+    document_md.write_text(
+        "<!-- DOC_BLOCK: b000001 page=2 evidence=doc:router-task-fin:p2:b000001 -->\n"
+        "Revenue grew with a signed customer pipeline.\n\n"
+        "<!-- DOC_BLOCK: b000002 page=3 evidence=doc:router-task-fin:p3:b000002 -->\n"
+        "Gross margin is expected to improve after tooling investment.\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(deal_documents, "DOCUMENT_PARSER_RESULTS_ROOT", parser_root)
+    monkeypatch.setattr(deal_evidence, "DOCUMENT_PARSER_RESULTS_ROOT", parser_root)
+
+    bind = client.post(
+        f"/api/deals/DEAL-ROUTER-007/documents/{document_id}/bind-parser-task",
+        json={"task_id": "router-task-fin", "artifact_path": "document.md"},
+    )
+    assert bind.status_code == 200
+
+    built = client.post("/api/deals/DEAL-ROUTER-007/evidence/build")
+    assert built.status_code == 200
+    payload = built.json()
+    assert payload["deal_id"] == "DEAL-ROUTER-007"
+    assert payload["quality_report"]["llm_used"] is False
+    assert payload["quality_report"]["milvus_written"] is False
+    assert payload["counts"]["items"] == 2
+    assert payload["items_preview"][0]["source_anchor"]["page"] == 2
+    evidence_id = payload["items_preview"][0]["evidence_id"]
+
+    read_back = client.get("/api/deals/DEAL-ROUTER-007/evidence")
+    assert read_back.status_code == 200
+    assert read_back.json()["evidence_index"]["counts"]["items"] == 2
+
+    quality = client.get("/api/deals/DEAL-ROUTER-007/evidence/quality")
+    assert quality.status_code == 200
+    assert quality.json()["quality_report"]["counts"]["documents_indexed"] == 1
+
+    item = client.get(f"/api/deals/DEAL-ROUTER-007/evidence/{evidence_id}")
+    assert item.status_code == 200
+    assert item.json()["evidence"]["document_id"] == document_id

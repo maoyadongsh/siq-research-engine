@@ -13,6 +13,7 @@ from services.auth_dependencies import require_permission
 from services.auth_service import User
 from services import deal_contracts
 from services import deal_documents
+from services import deal_evidence
 from services import deal_store
 from services import ic_policy
 from services.ic_openclaw_importer import DEFAULT_OPENCLAW_PROJECTS_ROOT, import_openclaw_project
@@ -511,6 +512,65 @@ async def bind_deal_document_parser_task(
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=f"Deal document not found: {document_id}") from exc
     return {"document": document}
+
+
+@router.post("/{deal_id}/evidence/build")
+def build_deal_evidence(
+    deal_id: str,
+    current_user: User = Depends(require_permission("report.create")),
+) -> dict[str, Any]:
+    try:
+        return deal_store.redact_public_payload(deal_evidence.build_deal_evidence_package(
+            deal_id,
+            built_by=_user_payload(current_user),
+        ))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+
+
+@router.get("/{deal_id}/evidence")
+def get_deal_evidence(
+    deal_id: str,
+    current_user: User = Depends(require_permission("report.view")),
+) -> dict[str, Any]:
+    del current_user
+    try:
+        return deal_store.redact_public_payload(deal_evidence.read_deal_evidence_package(deal_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+
+
+@router.get("/{deal_id}/evidence/quality")
+def get_deal_evidence_quality(
+    deal_id: str,
+    current_user: User = Depends(require_permission("report.view")),
+) -> dict[str, Any]:
+    del current_user
+    try:
+        return deal_store.redact_public_payload(deal_evidence.read_deal_evidence_quality(deal_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+
+
+@router.get("/{deal_id}/evidence/{evidence_id}")
+def get_deal_evidence_item(
+    deal_id: str,
+    evidence_id: str,
+    current_user: User = Depends(require_permission("report.view")),
+) -> dict[str, Any]:
+    del current_user
+    try:
+        return deal_store.redact_public_payload(deal_evidence.get_deal_evidence_item(deal_id, evidence_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"Deal evidence not found: {evidence_id}") from exc
 
 
 @router.get("/{deal_id}/workflow")

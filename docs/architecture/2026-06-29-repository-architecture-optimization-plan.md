@@ -3403,6 +3403,26 @@ cd apps/web && node --test src/components/report/reportViewerTheme.test.ts  # 2 
 cd apps/web && npm run check:frontend  # passed
 ```
 
+### 0.50 2026-07-03 Deal evidence offline package builder
+
+本轮补齐前端 DealEvidence 需要的后端合同，但仍保持 P0 本地确定性边界：只读取已绑定 document-parser 的 `document.md`，写 deal package 内 evidence index / NDJSON / quality report；不调用 LLM、Hermes agent、PostgreSQL 或 Milvus。
+
+完成范围：
+
+- 新增 `services/deal_evidence.py`，从 data-room 文档 metadata 和 parser Markdown artifact 构建 `evidence/evidence_index.json`、`evidence/evidence_items.ndjson`、`evidence/evidence_quality_report.json`。
+- `routers/deals.py` 新增 evidence build/read/quality/item 路由，分别用于构建证据包、读取证据包、读取质量报告和按 evidence_id 查看条目。
+- evidence builder 支持 DOC_BLOCK marker 的 page/block/source evidence 解析；无 marker 时按 Markdown 段落生成 deterministic evidence chunk。
+- quality report 明确标注 `llm_used=false`、`agent_used=false`、`milvus_written=false`，并输出 document binding、parser artifact、verified item、dimension coverage、NDJSON validity gates。
+- manifest 写入 `evidence.last_build`，audit 写入 `deal_evidence_built`；公开 payload 对 `built_by` 脱敏。
+
+验证：
+
+```bash
+cd apps/api && .venv/bin/python -m pytest tests/test_deal_store.py tests/test_deals_router.py -q  # 27 passed, 29 warnings
+cd apps/api && .venv/bin/python -m py_compile routers/deals.py services/deal_evidence.py services/deal_documents.py services/deal_contracts.py services/deal_store.py
+cd apps/api && .venv/bin/python -c "import main; print(main.app.title)"  # SIQ API
+```
+
 ## 10. 验收标准总表
 
 ### 仓库治理 DoD
