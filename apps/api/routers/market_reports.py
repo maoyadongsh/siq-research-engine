@@ -26,6 +26,7 @@ from services.job_service import market_report_job_service
 from services.llm_settings import load_llm_settings
 from services.hermes_model_control import infer_model_mode, set_all_profile_model_modes
 from services import market_report_commands
+from services import market_report_status_service
 from services.market_report_settings import (
     EU_ESEF_PACKAGE_BUILD_SCRIPT,
     MARKET_BUILD_SCRIPTS,
@@ -1239,15 +1240,15 @@ async def vector_ingest_market_package(
 @router.get("/market-reports/eval")
 async def market_ingestion_eval_report(include_markdown: bool = False) -> dict[str, Any]:
     report = _read_json_file(MARKET_INGESTION_EVAL_REPORT_PATH, {})
-    result: dict[str, Any] = {
-        "ok": bool(report),
-        "report_path": _rel_or_abs(MARKET_INGESTION_EVAL_REPORT_PATH),
-        "markdown_path": _rel_or_abs(MARKET_INGESTION_EVAL_MARKDOWN_PATH),
-        "report": report,
-    }
+    markdown = None
     if include_markdown and MARKET_INGESTION_EVAL_MARKDOWN_PATH.is_file():
-        result["markdown"] = MARKET_INGESTION_EVAL_MARKDOWN_PATH.read_text(encoding="utf-8")
-    return result
+        markdown = MARKET_INGESTION_EVAL_MARKDOWN_PATH.read_text(encoding="utf-8")
+    return market_report_status_service.market_ingestion_eval_report_payload(
+        report=report,
+        report_path=_rel_or_abs(MARKET_INGESTION_EVAL_REPORT_PATH),
+        markdown_path=_rel_or_abs(MARKET_INGESTION_EVAL_MARKDOWN_PATH),
+        markdown=markdown,
+    )
 
 
 @router.post("/market-reports/eval/run")
@@ -1315,55 +1316,12 @@ async def market_evidence_detail(
 async def us_sec_case_set_status() -> dict[str, Any]:
     case_set = _read_json_file(US_SEC_CASE_SET_PATH, {})
     ingest_report = _read_json_file(US_SEC_INGEST_REPORT_PATH, {})
-    items = case_set.get("items") if isinstance(case_set, dict) else []
-    if not isinstance(items, list):
-        items = []
-    quality: dict[str, int] = {}
-    total_counts = {
-        "xbrl_fact_count": 0,
-        "normalized_metric_count": 0,
-        "section_count": 0,
-        "table_count": 0,
-    }
-    by_ticker = []
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        status = str(item.get("quality_status") or "unknown")
-        quality[status] = quality.get(status, 0) + 1
-        summary = item.get("quality_summary") if isinstance(item.get("quality_summary"), dict) else {}
-        total_counts["xbrl_fact_count"] += int(summary.get("xbrl_fact_count") or 0)
-        total_counts["normalized_metric_count"] += int(summary.get("normalized_metric_count") or 0)
-        total_counts["section_count"] += int(summary.get("section_count") or 0)
-        total_counts["table_count"] += int(summary.get("table_count") or 0)
-        by_ticker.append({
-            "ticker": item.get("ticker"),
-            "company_name": item.get("company_name"),
-            "fiscal_year": item.get("fiscal_year"),
-            "period_end": item.get("period_end"),
-            "filing_date": item.get("filing_date"),
-            "quality_status": status,
-            "quality_summary": summary,
-            "package_path": item.get("package_path"),
-        })
-    relationship = {}
-    if isinstance(ingest_report, dict):
-        relationship = {
-            "generated_at": ingest_report.get("generated_at"),
-            "summary": ingest_report.get("summary") or {},
-            "package_count": ingest_report.get("package_count"),
-            "collection": ingest_report.get("collection"),
-            "batch_tag": ingest_report.get("batch_tag"),
-        }
-    return {
-        "case_set_path": str(US_SEC_CASE_SET_PATH),
-        "ingest_report_path": str(US_SEC_INGEST_REPORT_PATH),
-        "company_count": len(by_ticker),
-        "quality": quality,
-        "counts": total_counts,
-        "items": by_ticker,
-        "ingest_report": relationship,
-    }
+    return market_report_status_service.us_sec_case_set_status_payload(
+        case_set=case_set,
+        ingest_report=ingest_report,
+        case_set_path=str(US_SEC_CASE_SET_PATH),
+        ingest_report_path=str(US_SEC_INGEST_REPORT_PATH),
+    )
 
 
 @router.post("/us-sec/case-set/ingest")
