@@ -1,6 +1,7 @@
 import { lazy, type ComponentType, type LazyExoticComponent } from 'react'
 import {
   BarChart3,
+  BriefcaseBusiness,
   DatabaseZap,
   FileText,
   Files,
@@ -65,6 +66,15 @@ export const appRoutes: AppRoute[] = [
   defineRoute('/documents', () => import('../pages/DocumentParsing'), {
     sidebar: { group: 'nav', to: '/documents', icon: Files, label: '文档解析' },
   }),
+  defineRoute('/deals', () => import('../pages/Deals'), {
+    sidebar: { group: 'nav', to: '/deals', icon: BriefcaseBusiness, label: '交易工作台' },
+  }),
+  defineRoute('/deals/:dealId', () => import('../pages/DealWorkspace')),
+  defineRoute('/deals/:dealId/data-room', () => import('../pages/DealDataRoom')),
+  defineRoute('/deals/:dealId/evidence', () => import('../pages/DealEvidence')),
+  defineRoute('/deals/:dealId/workflow', () => import('../pages/DealWorkflow')),
+  defineRoute('/deals/:dealId/decision', () => import('../pages/DealDecision')),
+  defineRoute('/deals/:dealId/audit', () => import('../pages/DealAudit')),
   defineRoute('/analysis', () => import('../pages/AnalysisReport'), {
     sidebar: { group: 'nav', to: '/analysis', icon: BarChart3, label: '智能分析' },
   }),

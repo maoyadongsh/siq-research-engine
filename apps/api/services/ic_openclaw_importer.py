@@ -124,11 +124,19 @@ def _created_by_payload(created_by: dict[str, Any] | None) -> dict[str, Any] | N
     return {key: value for key, value in created_by.items() if value is not None}
 
 
+def _import_metadata_payload(metadata: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not metadata:
+        return None
+    redacted = deal_store.redact_public_payload(metadata)
+    return redacted if isinstance(redacted, dict) else None
+
+
 def import_openclaw_project(
     *,
     source_root: str | Path,
     deal_id: str,
     created_by: dict[str, Any] | None = None,
+    metadata: dict[str, Any] | None = None,
     wiki_root: str | Path | None = None,
     openclaw_projects_root: str | Path | None = None,
     overwrite: bool = False,
@@ -148,6 +156,7 @@ def import_openclaw_project(
     )
     industry = source_project_meta.get("industry") or source_workflow.get("industry") or ""
     stage = source_project_meta.get("stage") or source_workflow.get("stage") or ""
+    import_metadata = _import_metadata_payload(metadata)
 
     summary = deal_store.create_deal_package(
         deal_id=deal_id,
@@ -195,6 +204,8 @@ def import_openclaw_project(
         "updated_at": deal_store.utc_now_iso(),
     })
     project_meta.setdefault("created_by", _created_by_payload(created_by))
+    if import_metadata:
+        project_meta["import_metadata"] = import_metadata
     deal_store.write_json(package_dir / "project_meta.json", project_meta)
 
     workflow = deal_store.read_json(package_dir / "phases" / "workflow_state.json", {}) or {}
@@ -241,6 +252,8 @@ def import_openclaw_project(
         "file_count": len([item for item in file_results if item.get("status") == "imported"]),
         "files": file_results,
     }
+    if import_metadata:
+        manifest["openclaw_import"]["metadata"] = import_metadata
     deal_store.write_json(package_dir / "manifest.json", manifest)
 
     archive_manifest = {

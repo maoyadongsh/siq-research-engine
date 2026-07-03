@@ -164,6 +164,7 @@ def _run_openclaw_import(payload: OpenClawImportRequest, created_by: dict[str, A
         source_root=_resolve_openclaw_source(payload),
         deal_id=payload.deal_id,
         created_by=created_by,
+        metadata=payload.metadata,
         overwrite=payload.overwrite,
     )
 

@@ -3340,7 +3340,7 @@ python3 scripts/scan_todo_fixme.py --root . --max-examples 50  # total 4; 安全
 风险边界：
 
 - `FileBackedJobService` 当前仍是本地单进程持久 job 方案，适合本地/单 worker；多 worker 并发写 `data/backend/deals/jobs.json` 需要后续单独设计。
-- `OpenClawImportRequest.metadata` 当前保留为前端/后续扩展字段，本轮不落盘、不参与导入合同。
+- `OpenClawImportRequest.metadata` 已写入 `project_meta.import_metadata` 和 `manifest.openclaw_import.metadata`，并通过 `redact_public_payload` 过滤本地路径字段；后续如需结构化字段语义再单独扩展。
 - `overwrite=True` 会删除既有 deal package；API 已做 deal_id/path 安全约束，产品入口仍应做显式确认。
 
 验证：
@@ -3421,6 +3421,24 @@ cd apps/web && npm run check:frontend  # passed
 cd apps/api && .venv/bin/python -m pytest tests/test_deal_store.py tests/test_deals_router.py -q  # 27 passed, 29 warnings
 cd apps/api && .venv/bin/python -m py_compile routers/deals.py services/deal_evidence.py services/deal_documents.py services/deal_contracts.py services/deal_store.py
 cd apps/api && .venv/bin/python -c "import main; print(main.app.title)"  # SIQ API
+```
+
+### 0.51 2026-07-03 Deal 工作台前端纵切
+
+本轮在 Deal 后端、document data-room 和 evidence offline builder 已提交后，补齐前端 Deal 工作台入口；仍不混入登录页重绘、Sidebar/Topbar 移动导航、Playwright 配置或 infra/env 改动。
+
+完成范围：
+
+- `routes.tsx` 新增 `/deals`、`/deals/:dealId`、data-room、evidence、workflow、decision、audit 页面路由，并在主导航暴露 `交易工作台`。
+- 新增 `dealApi.ts` / `dealTypes.ts`，收口 Deal list/detail/import job、document lifecycle、parser task binding、evidence build/read、workflow、decision、audit 的前端 API 合同。
+- 新增 `Deals`、`DealWorkspace`、`DealDataRoom`、`DealEvidence`、`DealWorkflow`、`DealDecision`、`DealAudit` 页面，覆盖 OpenClaw 导入、项目概览、preflight、data-room 上传/绑定解析任务、offline evidence build、流程报告、投决报告和审计日志查看。
+- 将 OpenClaw 导入 Deal ID 示例改为后端可接受的大写格式，避免用户按小写 placeholder 填写后被后端拒绝。
+
+验证：
+
+```bash
+cd apps/api && .venv/bin/python -m pytest tests/test_deal_store.py tests/test_deals_router.py -q  # 27 passed, 29 warnings
+cd apps/web && npm run check:frontend  # passed
 ```
 
 ## 10. 验收标准总表

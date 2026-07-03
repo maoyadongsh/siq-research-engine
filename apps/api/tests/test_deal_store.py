@@ -90,6 +90,7 @@ def test_import_openclaw_project_maps_core_files(tmp_path):
     result = import_openclaw_project(
         source_root=source,
         deal_id="DEAL-YUSHU-2026-001",
+        metadata={"memo": "IC import", "source_root": "/tmp/hidden"},
         wiki_root=tmp_path / "wiki",
         openclaw_projects_root=openclaw_root,
     )
@@ -105,8 +106,11 @@ def test_import_openclaw_project_maps_core_files(tmp_path):
     assert workflow["current_phase"] == "R4"
     manifest = json.loads((package_dir / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["openclaw_import"]["file_count"] >= 4
+    assert manifest["openclaw_import"]["metadata"] == {"memo": "IC import"}
     assert manifest["hashes"]["decision/IC_DECISION_REPORT.md"]
     assert manifest["hashes"]["phases/workflow_state.json"] == _sha256(package_dir / "phases" / "workflow_state.json")
+    project_meta = json.loads((package_dir / "project_meta.json").read_text(encoding="utf-8"))
+    assert project_meta["import_metadata"] == {"memo": "IC import"}
     assert "source_root" not in result["deal"]["manifest"]["openclaw_import"]
     assert not result["deal"]["summary"]["package_path"].startswith("/")
 
