@@ -757,6 +757,108 @@ YYYY-MM-DD:
 - 完成: 新增并接入 build_market_ingestion_eval_plan()，把 eval script preflight 与 output/markdown 路径归一化下沉；router 仍保留 HTTPException 映射、run_command(cwd/timeout)、报告读取、queue/wait 分支和 result payload。
 - 测试: Market reports owner 门禁 129 passed，2 个既有 Pydantic deprecation warnings；eval/queue/status 聚焦 111 passed；git diff --check passed。
 - 下一步: 后续优先选择 Workflow router 命令合同测试或其它纯 helper 小窗口，继续避免 Deal/IC/OpenClaw 与真实执行链迁移。
+
+2026-07-03:
+- Owner: Workflow / semantic route command contracts
+- 完成: 补强旧 Wiki semantic route 合同测试，锁住标准 semantic 的 rule/LLM 命令参数、LLM timeout/env、pre/post naming 与 obsidian 顺序、rule/required LLM 失败 stage，以及 generic semantic 的 identity gate 不执行命令；生产代码不变。
+- 测试: test_workflow_subprocess_contracts.py 9 passed；Workflow/command runner 组合门禁 55 passed；git diff --check passed。
+- 下一步: 后续若继续 Workflow，优先补 LLM optional/missing-script 合同或 generic semantic 成功路径；仍不迁 subprocess、线程模型、job schema 或一键 workflow。
+
+2026-07-03:
+- Owner: Workflow / semantic optional + generic contracts
+- 完成: 继续补强旧 Wiki semantic route 合同测试，锁住 optional LLM missing-script/detail、optional LLM failure 非阻断、generic semantic 成功路径的 rule/LLM/obsidian 命令与不执行 naming；生产代码不变。
+- 测试: test_workflow_subprocess_contracts.py 12 passed；Workflow/command runner 组合门禁 58 passed；git diff --check passed。
+- 下一步: Workflow semantic route 暂停继续扩大；后续优先选择其它 owner 的纯 helper/合同测试，仍避开 Deal/IC/OpenClaw 与真实执行链迁移。
+
+2026-07-04:
+- Owner: Document parser / source route contracts
+- 完成: 补强 MinerU import route 合同测试，锁住 /api/source/<task_id>/block/<block_id> 与 /api/source/<task_id>/table/<table_id> 的成功响应和 missing 404；生产代码不变。
+- 测试: apps/document-parser test_document_parser_app.py 16 passed；payload/app 聚焦 30 passed；apps/document-parser 全量 46 passed；git diff --check passed。
+- 下一步: Document parser 后续可考虑 table-relations response payload helper，仍不迁 table_merge ruleset、stale refresh、zip rebuild、worker/provider/task lifecycle。
+
+2026-07-04:
+- Owner: Document parser / table relations payload
+- 完成: 新增 table_relations_payload.build_table_relations_response_payload()，收口 table relation corrections 合并、orphan manual_review relation 追加和 corrections 回显；route 仍保留文件存在检查、stale ruleset refresh、读 JSON、zip rebuild 和 jsonify。
+- 测试: table_relations_payload + stale endpoint 聚焦 4 passed；document app + helper 19 passed；apps/document-parser 全量 49 passed；git diff --check passed。
+- 下一步: 暂停继续扩大 Document parser；后续优先选择其它干净 owner 的纯 helper/合同测试，继续避开 Deal/IC/OpenClaw、Hermes smoke、Settings 并行改动。
+
+2026-07-04:
+- Owner: API source access / viewer contracts
+- 完成: 补强 source access/viewer 纯 helper 合同测试，锁住显式 format 优先于 Accept、table HTML 清洗、source page total/printed page 推断、分页导航仅携带 source_token，以及 PDF2MD proxy 不转发 login/source token；生产代码不变。
+- 测试: test_source_access.py 28 passed，仅有既有 Pydantic/utcnow warnings；git diff --check passed。
+- 下一步: API source access 暂停继续扩大；后续优先选择其它纯 helper 或合同测试小窗口，继续避免迁移 PDF2MD proxy、鉴权策略和真实上游调用链。
+
+2026-07-04:
+- Owner: SearchDownload / curated annuals helper
+- 完成: 新增 curatedAnnuals helper，收口 JP/KR 主流年报样本加载的 market gate、请求参数、去重、默认选中、companyInfo 与日志文案派生；SearchDownload.tsx 仍保留 API 调用、React state、toast/log 副作用和页面渲染。
+- 测试: search-download 聚焦 node tests 34 passed；apps/web npm run test:unit 90 passed；apps/web npm run build passed；git diff --check passed。
+- 下一步: 前端后续可继续按纯 helper 小窗口推进 MarketParsing 上传文件校验或其它未触碰 view-model，不改视觉、不改 API 合同。
+
+2026-07-04:
+- Owner: MarketParsing / upload validation helper
+- 完成: 新增 uploadFiles.validateMarketParsingUploadFiles()，收口上传 PDF 数量、后缀和 100MB 文件大小校验；MarketParsingPage.tsx 仍保留 selectedFiles/error state、上传启动、拖拽和解析流程。顺手修复并行 DealWorkflow view-model 抽取遗留的类型/build 阻断：disputePositionCount 接收可选 positions，并补回页面导入。
+- 测试: market-parsing 聚焦 node tests 13 passed；Deal/SearchDownload/MarketParsing 聚焦 13 passed；apps/web npm run test:unit 99 passed；apps/web npm run build passed；git diff --check passed。
+- 下一步: 前端暂缓继续扩大；后续可接 Russell 建议的 agent_runtime_statement_context 纯合同测试，或先拆分/验收 Deal/OpenClaw 与 Hermes smoke 并行改动。
+
+2026-07-04:
+- Owner: Agent runtime / statement context contracts
+- 完成: 补强 agent_runtime_statement_context 纯 helper 合同测试，锁住 latest_records_by_statement() 对 period="" / period=None 时回退 source.period 的行为，以及 latest period 选择和 core rank 输出顺序；生产代码不变。
+- 测试: test_agent_runtime_statement_context.py 10 passed；git diff --check passed。
+- 下一步: 先做工作树分组审计和提交切分建议；后续开发优先从未触碰的纯 helper/合同测试继续，避免继续扩大 Deal/OpenClaw、Hermes smoke、Document parser 和前端页面 owner。
+
+2026-07-04:
+- Owner: Market reports / status service ticker normalization
+- 完成: 修复 latest_case_item_for_ticker() 候选 case ticker 未 strip 导致带空格 ticker 漏匹配的问题，并补合同测试锁住用户输入与 case item 双侧归一化；无 route、文件 IO 或 run_command 迁移。
+- 测试: test_market_report_status_service.py 6 passed；git diff --check passed。
+- 下一步: Market reports 暂停继续扩大；后续优先做工作树 owner 切分与验证，或选择未触碰的 Agent runtime 纯格式/helper 合同测试。
+
+2026-07-04:
+- Owner: Agent runtime / loop guard contracts
+- 完成: 新增 agent_runtime_loop_guard service-level 合同测试，锁住重复状态行检测、正式答案标题不误杀 process trace、循环历史清洗不保留长重复原文，以及 display/history failed reply 对污染输出的替换策略；生产代码不变。
+- 测试: test_agent_runtime_loop_guard.py + test_agent_chat_runtime_loops.py 61 passed，20 个既有 utcnow warnings；py_compile passed；git diff --check passed。
+- 下一步: 停止继续扩大 Agent runtime；优先拆分当前工作树 owner 并跑对应门禁，避免 Deal/OpenClaw/Hermes 与 v2 纯 helper 主线混合提交。
+
+2026-07-04:
+- Owner: Market reports / proxy service contracts
+- 完成: 补强 market_report_proxy service 合同测试，锁住 finder assist 成功 dict 透传、非 object JSON 空对象回退、assist upstream request error 的 502 映射、market rules GET 响应透传与 request error 502 映射，以及 health 单侧 request error 不阻断另一侧；生产代码不变，不触碰真实上游调用。
+- 测试: test_market_report_proxy_service.py 13 passed，2 个既有 Pydantic deprecation warnings；Market reports owner 门禁 136 passed，2 个既有 Pydantic deprecation warnings。
+- 下一步: 继续优先选择未触碰文件的纯 helper/合同测试小窗口；避免扩大 Deal/IC/OpenClaw、Hermes smoke、Document parser 和前端页面 owner。
+
+2026-07-04:
+- Owner: Shared command runner contracts
+- 完成: 补强 command_runner 纯合同测试，锁住敏感参数大小写/下划线归一化脱敏、仅精确敏感 env assignment 脱敏，以及 run_command() 对 subprocess.run 的 list(args)、cwd、capture_output、text、timeout、env copy 和 check=False 调用契约；生产代码不变，不迁 subprocess owner。
+- 测试: test_command_runner.py 8 passed；test_workflow_subprocess_contracts.py + test_command_runner.py 20 passed。
+- 下一步: 继续以未触碰文件的 service-level 合同测试为主；若进入 Job service，只补 FileBackedJobService 纯行为合同，不迁 job lifecycle 或 route schema。
+
+2026-07-04:
+- Owner: Shared file-backed job service contracts
+- 完成: 补强 FileBackedJobService 纯合同测试，锁住 malformed JSON / 非 list store payload 回退为空，以及持久化路径写入失败时不阻断运行时 job snapshot 与 terminal result；生产代码不变，不迁 job lifecycle、线程模型或 route schema。
+- 测试: test_job_service.py 10 passed；document workflow/job/command 组合门禁 59 passed。
+- 下一步: 优先停止扩大已脏 owner，必要时继续选择未触碰文件的只读合同测试；更大窗口需先做 owner 切分和提交规划。
+
+2026-07-04:
+- Owner: Workflow job service mutator contracts
+- 完成: 补强 workflow_job_service 纯状态 mutator 合同测试，锁住重复 step 更新复用既有条目、不重复 append、终态 finishedAt 不被后续更新覆盖，以及 update_workflow_job 自定义字段更新刷新 updatedAt 且 missing job 不改已有 job；生产代码不变，不触碰 router/subprocess/job schema。
+- 测试: test_workflow_job_service.py 9 passed；document workflow/job/command 组合门禁 61 passed。
+- 下一步: 暂停扩大 Workflow job/service owner；继续按 v2 文档优先选择独立、未触碰文件的 service-level 合同测试，或进入工作树 owner 切分验收。
+
+2026-07-04:
+- Owner: Market reports / settings contracts
+- 完成: 确认 market_report_queueing service 与 router 排队入口已有覆盖，未追加重复测试；补强 market_report_settings 配置合同测试，锁住空白主 env 回退 legacy env、URL trim/rstrip、非法 float 回默认值，以及市场级路径 override resolve 行为；生产代码不变。
+- 测试: test_market_report_settings.py 5 passed；settings + queueing 小组合 15 passed，2 个既有 Pydantic deprecation warnings；git diff --check passed。
+- 下一步: Market reports 配置/排队窗口收口；后续优先进入工作树 owner 切分验收，或继续只选未触碰文件的纯合同测试。
+
+2026-07-04:
+- Owner: Worktree owner split verification
+- 完成: 复用并行智能体做只读 owner 风险审计，结论一致指向暂停扩大功能面、优先验收当前 dirty worktree；更新 `2026-07-04-worktree-owner-split-audit.md`，补齐 Market/API、Shared job/command、Deal/IC/OpenClaw、Hermes、Web、Document parser 等 owner 的完整 touch set 与实际验证结果。
+- 测试: Market Reports API 组合 150 passed；Agent Runtime Contracts 71 passed；Source/Workflow/Shared 组合 57 passed；Document parser 聚焦 19 passed、全量 49 passed；Hermes smoke 3 passed 且脚本 py_compile passed；Deal API 81 passed；Web 聚焦 unit 101 passed；Web build passed；Deal workflow e2e 1 passed；git diff --check passed。warnings 均为既有 Pydantic/utcnow 或 Node FORCE_COLOR 提示。
+- 下一步: 当前批次不再扩大代码面；按 owner audit 的提交顺序拆分提交或进入更高层合并门禁，继续保持 Deal/IC/OpenClaw 与 v2 主线分离。
+
+2026-07-04:
+- Owner: Higher-level merge gates
+- 完成: 在不扩大代码面的前提下跑完更高层合并候选门禁，覆盖 API 全量、Web 全量 unit/build/Deal e2e、Document parser 全量、PDF parser 全量、Market report finder/rules 和 market contracts；并行只读智能体继续复核提交切分与 owner 风险，主线程未新增业务代码。
+- 测试: apps/api 全量 867 passed，545 个既有 Pydantic/utcnow warnings；apps/web npm run test:unit 101 passed；apps/web npm run build passed；apps/web Deal workflow e2e 1 passed，既有 FORCE_COLOR/NO_COLOR 提示；apps/document-parser 全量 49 passed；apps/pdf-parser 全量 343 passed；services/market-report-finder 全量 46 passed；services/market-report-rules 全量 29 passed，1 个既有 StarletteDeprecationWarning；packages/market-contracts 2 passed；git diff --check passed。
+- 下一步: 质量线已接近合并候选；后续优先按 `2026-07-04-worktree-owner-split-audit.md` 拆分提交并在每个 owner commit 后跑对应 focused gate，不再追加新的 helper/test 窗口，除非提交切分暴露真实失败。
 ```
 
 详细技术记录可以新建独立 task note，例如：
