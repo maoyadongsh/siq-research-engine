@@ -1,4 +1,4 @@
-import type { ProviderFormData, ProviderKey } from './types'
+import type { ProviderFormData, ProviderKey, ServiceCounts, ServiceStatus } from './types'
 
 export function readSetting(key: string, fallback: string) {
   if (typeof window === 'undefined') return fallback
@@ -41,4 +41,14 @@ export function mapProviderFromApi(
 
 export function isProviderKey(value: unknown): value is ProviderKey {
   return value === 'cloud' || value === 'local'
+}
+
+export function countEnabledServices(services: ServiceStatus[] = []): ServiceCounts {
+  const enabledServices = services.filter((service) => service.enabled !== false && service.status !== 'disabled')
+  return {
+    total: enabledServices.length,
+    disabled: services.length - enabledServices.length,
+    ok: enabledServices.filter((service) => service.ok).length,
+    requiredDown: enabledServices.filter((service) => service.required && !service.ok).length,
+  }
 }
