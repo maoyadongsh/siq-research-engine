@@ -27,6 +27,7 @@ from services.llm_settings import load_llm_settings
 from services.hermes_model_control import infer_model_mode, set_all_profile_model_modes
 from services import market_report_commands
 from services import market_report_status_service
+from services import market_report_proxy
 from services.market_report_settings import (
     EU_ESEF_PACKAGE_BUILD_SCRIPT,
     MARKET_BUILD_SCRIPTS,
@@ -55,7 +56,7 @@ US_SEC_UPLOAD_SUFFIXES = {".pdf", ".html", ".htm", ".xhtml", ".xml", ".xbrl", ".
 
 
 def _content_type(headers: httpx.Headers) -> str:
-    return headers.get("content-type") or "application/octet-stream"
+    return market_report_proxy.content_type(headers)
 
 
 def _json_response(payload: dict[str, Any], status_code: int = 200) -> Response:
@@ -731,40 +732,20 @@ async def _proxy_request(
     request: Request,
     timeout: float = MARKET_REPORT_PROXY_TIMEOUT,
 ) -> Response:
-    method = request.method
-    params = list(request.query_params.multi_items())
-    body = await request.body() if method in {"POST", "PUT", "PATCH", "DELETE"} else None
-    headers: dict[str, str] = {}
-    content_type = request.headers.get("content-type")
-    if content_type:
-        headers["content-type"] = content_type
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            upstream = await client.request(
-                method,
-                f"{base_url}{upstream_path}",
-                params=params,
-                content=body,
-                headers=headers,
-            )
-    except httpx.RequestError as exc:
-        raise HTTPException(status_code=502, detail=f"Market report upstream unavailable: {exc}") from exc
-    return Response(
-        content=b"" if method == "HEAD" else upstream.content,
-        status_code=upstream.status_code,
-        media_type=_content_type(upstream.headers),
+    return await market_report_proxy.proxy_request(
+        base_url=base_url,
+        upstream_path=upstream_path,
+        request=request,
+        timeout=timeout,
     )
 
 
 async def _finder_assist(payload: dict[str, Any]) -> dict[str, Any]:
-    try:
-        async with httpx.AsyncClient(timeout=MARKET_REPORT_PROXY_TIMEOUT) as client:
-            upstream = await client.post(f"{REPORT_FINDER_BASE}/v1/reports/assist", json=payload)
-    except httpx.RequestError as exc:
-        raise HTTPException(status_code=502, detail=f"Market report assist upstream unavailable: {exc}") from exc
-    if upstream.status_code >= 400:
-        raise HTTPException(status_code=upstream.status_code, detail=upstream.text[:1000])
-    return upstream.json() if upstream.content else {}
+    return await market_report_proxy.finder_assist(
+        report_finder_base=REPORT_FINDER_BASE,
+        payload=payload,
+        timeout=MARKET_REPORT_PROXY_TIMEOUT,
+    )
 
 
 def _active_llm_provider() -> tuple[str, dict[str, Any] | None]:
@@ -1025,64 +1006,20 @@ async def proxy_market_report_finder(upstream_path: str, request: Request) -> Re
 
 @router.get("/markets")
 async def market_modules() -> Response:
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            upstream = await client.get(f"{MARKET_RULES_BASE}/markets")
-    except httpx.RequestError as exc:
-        raise HTTPException(status_code=502, detail=f"Market rules service unavailable: {exc}") from exc
-    return Response(
-        content=upstream.content,
-        status_code=upstream.status_code,
-        media_type=_content_type(upstream.headers),
-    )
+    return await market_report_proxy.proxy_rules_get(market_rules_base=MARKET_RULES_BASE, upstream_path="/markets")
 
 
 @router.get("/markets/cn/rules")
 async def cn_market_rules() -> Response:
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            upstream = await client.get(f"{MARKET_RULES_BASE}/markets/cn/rules")
-    except httpx.RequestError as exc:
-        raise HTTPException(status_code=502, detail=f"Market rules service unavailable: {exc}") from exc
-    return Response(
-        content=upstream.content,
-        status_code=upstream.status_code,
-        media_type=_content_type(upstream.headers),
-    )
+    return await market_report_proxy.proxy_rules_get(market_rules_base=MARKET_RULES_BASE, upstream_path="/markets/cn/rules")
 
 
 @router.get("/market-report-health")
 async def market_report_health() -> dict[str, Any]:
-    result: dict[str, Any] = {
-        "report_finder_base": REPORT_FINDER_BASE,
-        "market_rules_base": MARKET_RULES_BASE,
-        "report_finder": {"status": "unknown"},
-        "market_rules": {"status": "unknown"},
-    }
-    async with httpx.AsyncClient(timeout=5.0) as client:
-        try:
-            finder = await client.get(f"{REPORT_FINDER_BASE}/health")
-            finder_payload: dict[str, Any] = {}
-            try:
-                parsed = finder.json()
-                if isinstance(parsed, dict):
-                    finder_payload = parsed
-            except Exception:
-                finder_payload = {}
-            result["report_finder"] = {
-                "status": "ok" if finder.status_code < 400 else "error",
-                "code": finder.status_code,
-                "config": finder_payload.get("config") or {},
-                "markets": finder_payload.get("markets") or {},
-            }
-        except httpx.RequestError as exc:
-            result["report_finder"] = {"status": "error", "error": str(exc)}
-        try:
-            rules = await client.get(f"{MARKET_RULES_BASE}/healthz")
-            result["market_rules"] = {"status": "ok" if rules.status_code < 400 else "error", "code": rules.status_code}
-        except httpx.RequestError as exc:
-            result["market_rules"] = {"status": "error", "error": str(exc)}
-    return result
+    return await market_report_proxy.market_report_health(
+        report_finder_base=REPORT_FINDER_BASE,
+        market_rules_base=MARKET_RULES_BASE,
+    )
 
 
 @router.get("/market-reports/packages")
