@@ -46,3 +46,40 @@ def test_market_report_settings_env_overrides(monkeypatch, tmp_path):
     assert settings.MARKET_REPORT_PROXY_TIMEOUT == 12.5
     assert settings.MARKET_REPORT_ASSIST_TIMEOUT == 6.75
     assert settings.US_SEC_CASE_SET_PATH == (tmp_path / "case_set.json").resolve()
+
+
+def test_market_report_settings_ignores_blank_primary_env_and_trims_legacy_url(monkeypatch):
+    monkeypatch.setenv("SIQ_REPORT_FINDER_BASE", "   ")
+    monkeypatch.setenv("REPORT_FINDER_BASE", "  http://legacy-finder.test/api/  ")
+    monkeypatch.setenv("SIQ_MARKET_REPORT_RULES_BASE", "")
+    monkeypatch.setenv("MARKET_REPORT_RULES_BASE", " http://legacy-rules.test/ ")
+
+    settings = _load_settings_module("temp_market_report_settings_legacy_urls")
+
+    assert settings.REPORT_FINDER_BASE == "http://legacy-finder.test/api"
+    assert settings.MARKET_RULES_BASE == "http://legacy-rules.test"
+
+
+def test_market_report_settings_invalid_float_env_falls_back_to_default(monkeypatch):
+    monkeypatch.setenv("SIQ_MARKET_REPORT_PROXY_TIMEOUT", "not-a-float")
+    monkeypatch.setenv("SIQ_MARKET_REPORT_ASSIST_TIMEOUT", "   ")
+
+    settings = _load_settings_module("temp_market_report_settings_invalid_float")
+
+    assert settings.MARKET_REPORT_PROXY_TIMEOUT == 120.0
+    assert settings.MARKET_REPORT_ASSIST_TIMEOUT == 45.0
+
+
+def test_market_report_settings_market_specific_paths_resolve_env_overrides(monkeypatch, tmp_path):
+    hk_root = tmp_path / "relative-root"
+    jp_script = tmp_path / "scripts" / "jp_build.py"
+    eu_import = tmp_path / "imports" / "eu_import.py"
+    monkeypatch.setenv("SIQ_HK_WIKI_ROOT", str(hk_root))
+    monkeypatch.setenv("SIQ_JP_PACKAGE_BUILD_SCRIPT", str(jp_script))
+    monkeypatch.setenv("SIQ_EU_IMPORT_SCRIPT", str(eu_import))
+
+    settings = _load_settings_module("temp_market_report_settings_market_paths")
+
+    assert settings.MARKET_WIKI_ROOTS["HK"] == hk_root.resolve()
+    assert settings.MARKET_BUILD_SCRIPTS["JP"] == jp_script.resolve()
+    assert settings.MARKET_IMPORT_SCRIPTS["EU"] == eu_import.resolve()

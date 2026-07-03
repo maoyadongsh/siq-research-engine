@@ -61,7 +61,7 @@ def latest_case_item_for_ticker(case_set: Any, ticker: str) -> dict[str, Any] | 
         return None
     candidates = [
         item for item in items
-        if isinstance(item, dict) and str(item.get("ticker") or "").upper() == normalized_ticker
+        if isinstance(item, dict) and str(item.get("ticker") or "").strip().upper() == normalized_ticker
     ]
     if not candidates:
         return None

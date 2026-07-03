@@ -94,6 +94,9 @@ def test_latest_case_item_for_ticker_selects_latest_case_and_tolerates_malformed
 
     assert service.latest_case_item_for_ticker(case_set, "aapl")["package_path"] == "latest-filing"
     assert service.latest_case_item_for_ticker(case_set, "MSFT")["package_path"] == "ignored"
+    assert service.latest_case_item_for_ticker({"items": [{"ticker": " tsla ", "package_path": "padded"}]}, "TSLA")[
+        "package_path"
+    ] == "padded"
     assert service.latest_case_item_for_ticker(case_set, "TSLA") is None
     assert service.latest_case_item_for_ticker({"items": {"bad": "shape"}}, "AAPL") is None
     assert service.latest_case_item_for_ticker(["not-a-dict"], "AAPL") is None

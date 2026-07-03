@@ -277,6 +277,188 @@ def test_finder_assist_maps_malformed_json_to_502(monkeypatch):
         raise AssertionError("expected HTTPException")
 
 
+def test_finder_assist_returns_object_json(monkeypatch):
+    class FakeResponse:
+        status_code = 200
+        content = b'{"answer":"ok"}'
+        text = '{"answer":"ok"}'
+
+        def json(self):
+            return {"answer": "ok", "sources": ["finder"]}
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            assert timeout == 2.5
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def post(self, url, *, json):
+            assert url == "http://finder/v1/reports/assist"
+            assert json == {"prompt": "demo"}
+            return FakeResponse()
+
+    monkeypatch.setattr(market_report_proxy.httpx, "AsyncClient", FakeAsyncClient)
+
+    result = asyncio.run(
+        market_report_proxy.finder_assist(
+            report_finder_base="http://finder",
+            payload={"prompt": "demo"},
+            timeout=2.5,
+        )
+    )
+
+    assert result == {"answer": "ok", "sources": ["finder"]}
+
+
+def test_finder_assist_returns_empty_for_non_object_json(monkeypatch):
+    class FakeResponse:
+        status_code = 200
+        content = b'["not", "object"]'
+        text = '["not", "object"]'
+
+        def json(self):
+            return ["not", "object"]
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            assert timeout == 2.5
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def post(self, url, *, json):
+            assert url == "http://finder/v1/reports/assist"
+            assert json == {"prompt": "demo"}
+            return FakeResponse()
+
+    monkeypatch.setattr(market_report_proxy.httpx, "AsyncClient", FakeAsyncClient)
+
+    result = asyncio.run(
+        market_report_proxy.finder_assist(
+            report_finder_base="http://finder",
+            payload={"prompt": "demo"},
+            timeout=2.5,
+        )
+    )
+
+    assert result == {}
+
+
+def test_finder_assist_maps_request_error_to_502(monkeypatch):
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            assert timeout == 2.5
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def post(self, url, *, json):
+            assert url == "http://finder/v1/reports/assist"
+            assert json == {"prompt": "demo"}
+            raise market_report_proxy.httpx.RequestError("assist offline")
+
+    monkeypatch.setattr(market_report_proxy.httpx, "AsyncClient", FakeAsyncClient)
+
+    try:
+        asyncio.run(
+            market_report_proxy.finder_assist(
+                report_finder_base="http://finder",
+                payload={"prompt": "demo"},
+                timeout=2.5,
+            )
+        )
+    except HTTPException as exc:
+        assert exc.status_code == 502
+        assert "Market report assist upstream unavailable" in exc.detail
+        assert "assist offline" in exc.detail
+    else:
+        raise AssertionError("expected HTTPException")
+
+
+def test_proxy_rules_get_preserves_response_contract(monkeypatch):
+    seen = {}
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            seen["timeout"] = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def get(self, url):
+            seen["url"] = url
+            return type(
+                "Upstream",
+                (),
+                {
+                    "content": b'{"rules":[1]}',
+                    "status_code": 206,
+                    "headers": {"content-type": "application/vnd.rules+json"},
+                },
+            )()
+
+    monkeypatch.setattr(market_report_proxy.httpx, "AsyncClient", FakeAsyncClient)
+
+    response = asyncio.run(
+        market_report_proxy.proxy_rules_get(
+            market_rules_base="http://rules",
+            upstream_path="/api/rules?market=HK",
+            timeout=3.5,
+        )
+    )
+
+    assert seen == {"timeout": 3.5, "url": "http://rules/api/rules?market=HK"}
+    assert response.status_code == 206
+    assert response.media_type == "application/vnd.rules+json"
+    assert response.body == b'{"rules":[1]}'
+
+
+def test_proxy_rules_get_maps_request_error_to_502(monkeypatch):
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            assert timeout == 3.5
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def get(self, url):
+            assert url == "http://rules/api/rules"
+            raise market_report_proxy.httpx.RequestError("rules offline")
+
+    monkeypatch.setattr(market_report_proxy.httpx, "AsyncClient", FakeAsyncClient)
+
+    try:
+        asyncio.run(
+            market_report_proxy.proxy_rules_get(
+                market_rules_base="http://rules",
+                upstream_path="/api/rules",
+                timeout=3.5,
+            )
+        )
+    except HTTPException as exc:
+        assert exc.status_code == 502
+        assert "Market rules service unavailable" in exc.detail
+        assert "rules offline" in exc.detail
+    else:
+        raise AssertionError("expected HTTPException")
+
+
 def test_market_report_health_tolerates_malformed_finder_json(monkeypatch):
     class FakeResponse:
         def __init__(self, *, status_code, payload=None, json_error=False):
@@ -317,6 +499,45 @@ def test_market_report_health_tolerates_malformed_finder_json(monkeypatch):
 
     assert result["report_finder"] == {"status": "ok", "code": 200, "config": {}, "markets": {}}
     assert result["market_rules"] == {"status": "error", "code": 503}
+
+
+def test_market_report_health_keeps_single_side_request_errors_isolated(monkeypatch):
+    class FakeResponse:
+        def __init__(self, *, status_code, payload=None):
+            self.status_code = status_code
+            self._payload = payload or {}
+
+        def json(self):
+            return self._payload
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            assert timeout == 5.0
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def get(self, url):
+            if url == "http://finder/health":
+                raise market_report_proxy.httpx.RequestError("finder offline")
+            if url == "http://rules/healthz":
+                return FakeResponse(status_code=200)
+            raise AssertionError(url)
+
+    monkeypatch.setattr(market_report_proxy.httpx, "AsyncClient", FakeAsyncClient)
+
+    result = asyncio.run(
+        market_report_proxy.market_report_health(
+            report_finder_base="http://finder",
+            market_rules_base="http://rules",
+        )
+    )
+
+    assert result["report_finder"] == {"status": "error", "error": "finder offline"}
+    assert result["market_rules"] == {"status": "ok", "code": 200}
 
 
 def test_router_proxy_wrappers_use_configured_bases(monkeypatch):

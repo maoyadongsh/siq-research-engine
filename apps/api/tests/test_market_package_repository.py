@@ -303,3 +303,39 @@ def test_repository_reports_missing_package_and_evidence(tmp_path):
         assert exc.detail == "Evidence not found"
     else:
         raise AssertionError("expected HTTPException")
+
+
+def test_repository_find_market_evidence_tolerates_malformed_source_map(tmp_path):
+    package_dir = _write_package(tmp_path)
+    _write_json(package_dir / "qa" / "source_map.json", {"entries": [{"evidence_id": "hk:valid"}]})
+    malformed_package = tmp_path / "hk_reports" / "00700" / "2024" / "annual_malformed"
+    _write_json(
+        malformed_package / "manifest.json",
+        {"market": "HK", "filing_id": "HK:00700:malformed"},
+    )
+    (malformed_package / "qa").mkdir(parents=True, exist_ok=True)
+    (malformed_package / "qa" / "source_map.json").write_text("[]", encoding="utf-8")
+    roots = {"HK": tmp_path / "hk_reports"}
+
+    market, found_package, evidence = repository.find_market_evidence(
+        "hk:valid",
+        market="HK",
+        market_wiki_roots=roots,
+    )
+
+    assert market == "HK"
+    assert found_package == package_dir
+    assert evidence == {"evidence_id": "hk:valid"}
+
+    try:
+        repository.find_market_evidence(
+            "missing-evidence",
+            package_dir=malformed_package,
+            market="HK",
+            market_wiki_roots=roots,
+        )
+    except HTTPException as exc:
+        assert exc.status_code == 404
+        assert exc.detail == "Evidence not found"
+    else:
+        raise AssertionError("expected HTTPException")
