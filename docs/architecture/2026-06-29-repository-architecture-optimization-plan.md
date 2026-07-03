@@ -3495,6 +3495,28 @@ cd apps/api && .venv/bin/python -m pytest tests/test_deals_router.py tests/test_
 cd apps/web && npm run check:frontend  # passed
 ```
 
+### 0.55 2026-07-03 IC Hermes 脚本启动开关与健康检查
+
+本轮只收口本地脚本层的 `siq_ic_*` profile 可调用性，不混入 Deal evidence ingest dry-run、CI workflow 或 TODO scanner。
+
+完成范围：
+
+- `scripts/hermes/profile_dir.sh` 和 `scripts/hermes/run_gateway.sh` 支持 `siq_ic_*` canonical profile 以及 `ic_master` / `ic_finance` 等短 alias。
+- `start_all.sh` 增加 18660-18666 的 IC Hermes 端口变量，并用 `SIQ_ENABLE_IC_HERMES=1` 显式控制是否启动 7 个 IC gateway；默认跳过，避免普通本地启动额外占用资源。
+- `scripts/ops/health_check.py` 读取 Hermes 端口 env，并仅在 `SIQ_ENABLE_IC_HERMES=1` 时检查 IC gateway health。
+
+验证：
+
+```bash
+bash -n start_all.sh
+bash -n scripts/hermes/profile_dir.sh
+bash -n scripts/hermes/run_gateway.sh
+python3 -m py_compile scripts/ops/health_check.py
+scripts/hermes/profile_dir.sh ic_finance  # agents/hermes/profiles/siq_ic_finance_auditor
+scripts/hermes/profile_dir.sh siq_ic_chairman  # agents/hermes/profiles/siq_ic_chairman
+scripts/hermes/profile_dir.sh ic_coordinator  # agents/hermes/profiles/siq_ic_master_coordinator
+```
+
 ## 10. 验收标准总表
 
 ### 仓库治理 DoD

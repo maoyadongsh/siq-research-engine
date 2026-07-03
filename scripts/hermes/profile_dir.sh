@@ -3,7 +3,7 @@ set -euo pipefail
 
 profile="${1:-}"
 if [[ -z "$profile" ]]; then
-    echo "usage: $0 <siq_assistant|assistant|siq_analysis|analysis|siq_factchecker|factchecker|siq_tracking|tracking|siq_legal|legal>" >&2
+    echo "usage: $0 <siq_assistant|assistant|siq_analysis|analysis|siq_factchecker|factchecker|siq_tracking|tracking|siq_legal|legal|siq_ic_*|ic_*>" >&2
     exit 2
 fi
 
@@ -32,6 +32,34 @@ case "$profile" in
     legal|siq_legal)
         canonical="siq_legal"
         env_prefix="LEGAL"
+        ;;
+    ic_master|ic_coordinator|siq_ic_master_coordinator)
+        canonical="siq_ic_master_coordinator"
+        env_prefix="IC_MASTER"
+        ;;
+    ic_chairman|siq_ic_chairman)
+        canonical="siq_ic_chairman"
+        env_prefix="IC_CHAIRMAN"
+        ;;
+    ic_strategy|ic_strategist|siq_ic_strategist)
+        canonical="siq_ic_strategist"
+        env_prefix="IC_STRATEGIST"
+        ;;
+    ic_sector|siq_ic_sector_expert)
+        canonical="siq_ic_sector_expert"
+        env_prefix="IC_SECTOR"
+        ;;
+    ic_finance|siq_ic_finance_auditor)
+        canonical="siq_ic_finance_auditor"
+        env_prefix="IC_FINANCE"
+        ;;
+    ic_legal|siq_ic_legal_scanner)
+        canonical="siq_ic_legal_scanner"
+        env_prefix="IC_LEGAL"
+        ;;
+    ic_risk|siq_ic_risk_controller)
+        canonical="siq_ic_risk_controller"
+        env_prefix="IC_RISK"
         ;;
     *)
         echo "Unknown Hermes profile: $profile" >&2

@@ -63,7 +63,15 @@ HERMES_FACTCHECKER_PORT="${SIQ_HERMES_FACTCHECKER_PORT:-${HERMES_FACTCHECKER_POR
 HERMES_TRACKING_PORT="${SIQ_HERMES_TRACKING_PORT:-${HERMES_TRACKING_PORT:-18650}}"
 HERMES_ANALYSIS_PORT="${SIQ_HERMES_ANALYSIS_PORT:-${HERMES_ANALYSIS_PORT:-18651}}"
 HERMES_LEGAL_PORT="${SIQ_HERMES_LEGAL_PORT:-${HERMES_LEGAL_PORT:-18652}}"
+HERMES_IC_MASTER_PORT="${SIQ_HERMES_IC_MASTER_PORT:-${HERMES_IC_MASTER_PORT:-18660}}"
+HERMES_IC_CHAIRMAN_PORT="${SIQ_HERMES_IC_CHAIRMAN_PORT:-${HERMES_IC_CHAIRMAN_PORT:-18661}}"
+HERMES_IC_STRATEGIST_PORT="${SIQ_HERMES_IC_STRATEGIST_PORT:-${HERMES_IC_STRATEGIST_PORT:-18662}}"
+HERMES_IC_SECTOR_PORT="${SIQ_HERMES_IC_SECTOR_PORT:-${HERMES_IC_SECTOR_PORT:-18663}}"
+HERMES_IC_FINANCE_PORT="${SIQ_HERMES_IC_FINANCE_PORT:-${HERMES_IC_FINANCE_PORT:-18664}}"
+HERMES_IC_LEGAL_PORT="${SIQ_HERMES_IC_LEGAL_PORT:-${HERMES_IC_LEGAL_PORT:-18665}}"
+HERMES_IC_RISK_PORT="${SIQ_HERMES_IC_RISK_PORT:-${HERMES_IC_RISK_PORT:-18666}}"
 START_HERMES_GATEWAYS="${SIQ_START_HERMES_GATEWAYS:-1}"
+ENABLE_IC_HERMES="${SIQ_ENABLE_IC_HERMES:-0}"
 START_MARKET_REPORT_FINDER="${SIQ_START_MARKET_REPORT_FINDER:-0}"
 START_MARKET_REPORT_RULES="${SIQ_START_MARKET_REPORT_RULES:-0}"
 START_VECTOR_INGEST="${SIQ_START_VECTOR_INGEST:-0}"
@@ -105,6 +113,14 @@ export SIQ_HERMES_FACTCHECKER_PORT="$HERMES_FACTCHECKER_PORT"
 export SIQ_HERMES_TRACKING_PORT="$HERMES_TRACKING_PORT"
 export SIQ_HERMES_ANALYSIS_PORT="$HERMES_ANALYSIS_PORT"
 export SIQ_HERMES_LEGAL_PORT="$HERMES_LEGAL_PORT"
+export SIQ_HERMES_IC_MASTER_PORT="$HERMES_IC_MASTER_PORT"
+export SIQ_HERMES_IC_CHAIRMAN_PORT="$HERMES_IC_CHAIRMAN_PORT"
+export SIQ_HERMES_IC_STRATEGIST_PORT="$HERMES_IC_STRATEGIST_PORT"
+export SIQ_HERMES_IC_SECTOR_PORT="$HERMES_IC_SECTOR_PORT"
+export SIQ_HERMES_IC_FINANCE_PORT="$HERMES_IC_FINANCE_PORT"
+export SIQ_HERMES_IC_LEGAL_PORT="$HERMES_IC_LEGAL_PORT"
+export SIQ_HERMES_IC_RISK_PORT="$HERMES_IC_RISK_PORT"
+export SIQ_ENABLE_IC_HERMES="$ENABLE_IC_HERMES"
 export SIQ_VECTOR_INGEST_ROOT="$VECTOR_INGEST_DIR"
 export SIQ_VECTOR_INGEST_PORT="$VECTOR_INGEST_PORT"
 export SIQ_VECTOR_INGEST_URL="${SIQ_VECTOR_INGEST_URL:-http://127.0.0.1:$VECTOR_INGEST_PORT}"
@@ -198,6 +214,15 @@ if [[ "$START_HERMES_GATEWAYS" != "0" ]]; then
     require_free_port "$HERMES_TRACKING_PORT" "Hermes 跟踪"
     require_free_port "$HERMES_ANALYSIS_PORT" "Hermes 分析"
     require_free_port "$HERMES_LEGAL_PORT" "Hermes 法务"
+    if [[ "$ENABLE_IC_HERMES" == "1" ]]; then
+        require_free_port "$HERMES_IC_MASTER_PORT" "Hermes IC 总协调"
+        require_free_port "$HERMES_IC_CHAIRMAN_PORT" "Hermes IC 主席"
+        require_free_port "$HERMES_IC_STRATEGIST_PORT" "Hermes IC 策略"
+        require_free_port "$HERMES_IC_SECTOR_PORT" "Hermes IC 行业"
+        require_free_port "$HERMES_IC_FINANCE_PORT" "Hermes IC 财务"
+        require_free_port "$HERMES_IC_LEGAL_PORT" "Hermes IC 法务"
+        require_free_port "$HERMES_IC_RISK_PORT" "Hermes IC 风控"
+    fi
 fi
 if [[ "$START_VECTOR_INGEST" != "0" ]]; then
     command -v python3 &>/dev/null || die "缺少命令: python3。无法启动 Milvus 向量入库控制台。"
@@ -219,6 +244,17 @@ if [[ "$START_HERMES_GATEWAYS" != "0" ]]; then
     start_hermes_gateway "siq_factchecker" "事实核查"
     start_hermes_gateway "siq_tracking" "持续跟踪"
     start_hermes_gateway "siq_legal" "法务合规"
+    if [[ "$ENABLE_IC_HERMES" == "1" ]]; then
+        start_hermes_gateway "siq_ic_master_coordinator" "IC 总协调"
+        start_hermes_gateway "siq_ic_chairman" "IC 主席"
+        start_hermes_gateway "siq_ic_strategist" "IC 策略"
+        start_hermes_gateway "siq_ic_sector_expert" "IC 行业专家"
+        start_hermes_gateway "siq_ic_finance_auditor" "IC 财务审计"
+        start_hermes_gateway "siq_ic_legal_scanner" "IC 法务扫描"
+        start_hermes_gateway "siq_ic_risk_controller" "IC 风控"
+    else
+        warn "已跳过 IC Hermes 网关；需要时设置 SIQ_ENABLE_IC_HERMES=1。"
+    fi
 fi
 
 if [[ "$START_VECTOR_INGEST" != "0" ]]; then
@@ -340,6 +376,15 @@ if [[ "$START_HERMES_GATEWAYS" != "0" ]]; then
     wait_for_http "http://localhost:$HERMES_FACTCHECKER_PORT/health" "Hermes 事实核查" 45
     wait_for_http "http://localhost:$HERMES_TRACKING_PORT/health" "Hermes 持续跟踪" 45
     wait_for_http "http://localhost:$HERMES_LEGAL_PORT/health" "Hermes 法务合规" 45
+    if [[ "$ENABLE_IC_HERMES" == "1" ]]; then
+        wait_for_http "http://localhost:$HERMES_IC_MASTER_PORT/health" "Hermes IC 总协调" 45
+        wait_for_http "http://localhost:$HERMES_IC_CHAIRMAN_PORT/health" "Hermes IC 主席" 45
+        wait_for_http "http://localhost:$HERMES_IC_STRATEGIST_PORT/health" "Hermes IC 策略" 45
+        wait_for_http "http://localhost:$HERMES_IC_SECTOR_PORT/health" "Hermes IC 行业" 45
+        wait_for_http "http://localhost:$HERMES_IC_FINANCE_PORT/health" "Hermes IC 财务" 45
+        wait_for_http "http://localhost:$HERMES_IC_LEGAL_PORT/health" "Hermes IC 法务" 45
+        wait_for_http "http://localhost:$HERMES_IC_RISK_PORT/health" "Hermes IC 风控" 45
+    fi
     ok "Hermes 智能体网关已就绪"
 else
     warn "已跳过 Hermes 智能体网关启动，相关智能体聊天将不可用。"

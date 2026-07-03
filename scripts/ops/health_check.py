@@ -3,8 +3,21 @@
 统一健康检查脚本 - 检查所有 SIQ 服务状态
 """
 import sys
+import os
 import requests
 from typing import Dict, List, Tuple
+
+
+def env_port(name: str, default: int) -> int:
+    return int(os.getenv(name, str(default)))
+
+
+def env_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
 
 # 服务配置
 SERVICES = [
@@ -12,12 +25,24 @@ SERVICES = [
     ("后端API", "http://localhost:18081/health", "GET"),
     ("PDF下载服务", "http://localhost:18000/health", "GET"),
     ("PDF解析服务", "http://localhost:15000/api/health", "GET"),
-    ("Hermes-助手", "http://localhost:18642/health", "GET"),
-    ("Hermes-分析", "http://localhost:18651/health", "GET"),
-    ("Hermes-核查", "http://localhost:18649/health", "GET"),
-    ("Hermes-跟踪", "http://localhost:18650/health", "GET"),
-    ("Hermes-法务", "http://localhost:18652/health", "GET"),
+    ("Hermes-助手", f"http://localhost:{env_port('SIQ_HERMES_ASSISTANT_PORT', 18642)}/health", "GET"),
+    ("Hermes-分析", f"http://localhost:{env_port('SIQ_HERMES_ANALYSIS_PORT', 18651)}/health", "GET"),
+    ("Hermes-核查", f"http://localhost:{env_port('SIQ_HERMES_FACTCHECKER_PORT', 18649)}/health", "GET"),
+    ("Hermes-跟踪", f"http://localhost:{env_port('SIQ_HERMES_TRACKING_PORT', 18650)}/health", "GET"),
+    ("Hermes-法务", f"http://localhost:{env_port('SIQ_HERMES_LEGAL_PORT', 18652)}/health", "GET"),
 ]
+if env_bool("SIQ_ENABLE_IC_HERMES", False):
+    SERVICES.extend(
+        [
+            ("Hermes-IC总协调", f"http://localhost:{env_port('SIQ_HERMES_IC_MASTER_PORT', 18660)}/health", "GET"),
+            ("Hermes-IC主席", f"http://localhost:{env_port('SIQ_HERMES_IC_CHAIRMAN_PORT', 18661)}/health", "GET"),
+            ("Hermes-IC策略", f"http://localhost:{env_port('SIQ_HERMES_IC_STRATEGIST_PORT', 18662)}/health", "GET"),
+            ("Hermes-IC行业", f"http://localhost:{env_port('SIQ_HERMES_IC_SECTOR_PORT', 18663)}/health", "GET"),
+            ("Hermes-IC财务", f"http://localhost:{env_port('SIQ_HERMES_IC_FINANCE_PORT', 18664)}/health", "GET"),
+            ("Hermes-IC法务", f"http://localhost:{env_port('SIQ_HERMES_IC_LEGAL_PORT', 18665)}/health", "GET"),
+            ("Hermes-IC风控", f"http://localhost:{env_port('SIQ_HERMES_IC_RISK_PORT', 18666)}/health", "GET"),
+        ]
+    )
 
 def check_service(name: str, url: str, method: str = "GET") -> Tuple[bool, str]:
     """检查单个服务状态"""
