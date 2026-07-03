@@ -74,17 +74,11 @@ export function RegisterPage() {
 
   return (
     <main className="auth-shell">
-      <section className="auth-card" aria-labelledby="register-title">
-        <div className="auth-mobile-poster" aria-hidden="true">
-          <UserPlus className="h-8 w-8 text-white/90" />
-        </div>
-        <div className="auth-brand">
-          <div className="auth-logo" aria-hidden="true">SIQ</div>
-          <div>
-            <p className="auth-kicker">Account Access</p>
-            <h1 id="register-title" className="auth-title">创建账户</h1>
-            <p className="auth-description">提交后由管理员审核开通权限。</p>
-          </div>
+      <section className="auth-card auth-card-register" aria-labelledby="register-title">
+        <div className="auth-register-head">
+          <div className="auth-form-kicker auth-register-kicker" aria-hidden="true">SIQ Research Engine</div>
+          <h1 id="register-title" className="auth-title">创建账户</h1>
+          <p className="auth-description">提交后由管理员审核开通权限</p>
         </div>
 
         {submitted ? (
@@ -107,7 +101,7 @@ export function RegisterPage() {
             )}
 
             <label className="auth-field" htmlFor="username">
-              <span>用户名</span>
+              <span>用户名 <b className="auth-required" aria-hidden="true">*</b></span>
               <input
                 id="username"
                 name="username"
@@ -125,7 +119,7 @@ export function RegisterPage() {
             </label>
 
             <label className="auth-field" htmlFor="email">
-              <span>邮箱</span>
+              <span>邮箱 <b className="auth-required" aria-hidden="true">*</b></span>
               <input
                 id="email"
                 name="email"
@@ -135,7 +129,7 @@ export function RegisterPage() {
                 spellCheck={false}
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                placeholder="name@example.com"
+                placeholder="请输入邮箱地址"
               />
             </label>
 
@@ -148,12 +142,12 @@ export function RegisterPage() {
                 autoComplete="name"
                 value={formData.full_name}
                 onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
-                placeholder="可选"
+                placeholder="请输入真实姓名（可选）"
               />
             </label>
 
             <label className="auth-field" htmlFor="password">
-              <span>密码</span>
+              <span>密码 <b className="auth-required" aria-hidden="true">*</b></span>
               <input
                 id="password"
                 name="password"
@@ -168,7 +162,7 @@ export function RegisterPage() {
             </label>
 
             <label className="auth-field" htmlFor="password2">
-              <span>确认密码</span>
+              <span>确认密码 <b className="auth-required" aria-hidden="true">*</b></span>
               <input
                 id="password2"
                 name="password2"
@@ -183,8 +177,13 @@ export function RegisterPage() {
 
             <button type="submit" disabled={loading} className="auth-primary">
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
-              {loading ? '注册中…' : '提交注册'}
+              {loading ? '注册中…' : '注册'}
             </button>
+
+            <div className="auth-register-divider" aria-hidden="true">
+              <span>已有账户？</span>
+            </div>
+
             <button type="button" onClick={() => navigate('/login')} className="auth-secondary">
               <ArrowLeft className="h-4 w-4" aria-hidden="true" />
               返回登录
@@ -192,7 +191,7 @@ export function RegisterPage() {
           </form>
         )}
 
-        <p className="auth-version">SIQ v2.0 · 企业级财务分析系统</p>
+        <p className="auth-version">SIQ v3.1 · 智能投研分析决策系统</p>
       </section>
     </main>
   )

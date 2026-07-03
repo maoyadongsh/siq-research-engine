@@ -15,7 +15,7 @@ Web 工作台强调三件事：
 ```bash
 cd /home/maoyd/siq-research-engine/apps/web
 npm install
-npm run dev -- --host 0.0.0.0 --port 15173
+SIQ_FRONTEND_PORT=15173 npm run dev -- --host 0.0.0.0
 ```
 
 打开：
@@ -32,6 +32,10 @@ npm run test:unit
 npm run build
 npm run e2e
 ```
+
+普通开发默认前端端口为 `15173`，可通过 `SIQ_FRONTEND_PORT` 覆盖。E2E 默认使用独立端口 `15174`，并可通过 `SIQ_FRONTEND_PORT` 或 `PLAYWRIGHT_BASE_URL` 覆盖；详见 [`e2e/README.md`](./e2e/README.md#端口配置)。
+
+普通构建的 `/login` 不预填账号密码。受控演示环境如需默认填充管理员账号，可设置 `VITE_SIQ_DEMO_LOGIN_DEFAULTS=1` 使用 `admin / Admin@123456`，或设置 `VITE_SIQ_LOGIN_DEFAULT_USERNAME` 与 `VITE_SIQ_LOGIN_DEFAULT_PASSWORD` 覆盖默认值；这些值会进入前端产物，仅用于受控演示环境。
 
 ## 路由功能
 
@@ -121,7 +125,7 @@ cd /home/maoyd/siq-research-engine/apps/web
 SIQ_PUBLIC_HOST=arthurmao.synology.me \
 SIQ_PUBLIC_HMR_PROTOCOL=wss \
 SIQ_PUBLIC_HMR_CLIENT_PORT=8276 \
-npm run dev -- --host 0.0.0.0 --port 15173
+SIQ_FRONTEND_PORT=15173 npm run dev -- --host 0.0.0.0
 ```
 
 ## 目录结构

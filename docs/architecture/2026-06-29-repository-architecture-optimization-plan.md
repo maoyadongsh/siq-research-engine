@@ -3441,6 +3441,24 @@ cd apps/api && .venv/bin/python -m pytest tests/test_deal_store.py tests/test_de
 cd apps/web && npm run check:frontend  # passed
 ```
 
+### 0.52 2026-07-03 认证页响应式与演示默认账号开关
+
+本轮只处理登录/注册页视觉与响应式验收，不混入 Sidebar/Topbar、Playwright 端口策略、infra/env 或 Deal 页面。
+
+完成范围：
+
+- 登录页重绘为 SIQ Research Engine 双栏视觉，默认不预填账号密码。
+- 新增 `VITE_SIQ_DEMO_LOGIN_DEFAULTS=1` 和 `VITE_SIQ_LOGIN_DEFAULT_USERNAME` / `VITE_SIQ_LOGIN_DEFAULT_PASSWORD` 受控演示默认值；文档明确这些值会进入前端产物，仅用于受控演示环境。
+- 注册页改为更紧凑的单卡片布局，必填星号保持 `aria-hidden`，表单控件在移动/桌面下不横向溢出。
+- 新增 `auth-responsive.spec.ts` 覆盖登录页不预填弱默认、注册页控件存在、移动/桌面无横向溢出和截图留档；测试定位使用 input id，避免 password role / 隐藏星号造成 ARIA 差异。
+
+验证：
+
+```bash
+cd apps/web && npx playwright test e2e/tests/auth-responsive.spec.ts  # 4 passed
+cd apps/web && npm run check:frontend  # passed
+```
+
 ## 10. 验收标准总表
 
 ### 仓库治理 DoD
