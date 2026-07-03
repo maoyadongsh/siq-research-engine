@@ -58,6 +58,7 @@ from request_args import parse_int_arg, query_flag_enabled
 from source_image_payload import build_source_image_payload, find_figure_by_image_id
 from source_page_payload import build_source_page_payload
 from status_payload import build_task_status_payload
+from table_relations_payload import build_table_relations_response_payload
 from providers.simple import (
     _bridge_task_id,
     _json_request as pdf_parser_json_request,
@@ -1143,35 +1144,7 @@ def table_relations(task_id: str):
         return jsonify({"error": "not_found"}), 404
     corrections_path = result_dir / "table_merge_corrections.json"
     corrections = read_json(corrections_path) if corrections_path.exists() else {}
-    relation_corrections = corrections.get("relations") if isinstance(corrections, dict) else {}
-    if isinstance(relation_corrections, dict):
-        seen_relation_ids = set()
-        for relation in payload.get("relations") or []:
-            relation_id = str(relation.get("relation_id") or relation.get("id") or "")
-            if relation_id:
-                seen_relation_ids.add(relation_id)
-            correction = relation_corrections.get(relation_id)
-            if isinstance(correction, dict):
-                relation["review_status"] = correction.get("review_status") or relation.get("review_status") or ""
-                relation["review_note"] = correction.get("note") or ""
-                relation["reviewed_at"] = correction.get("updated_at") or ""
-        for relation_id, correction in relation_corrections.items():
-            if relation_id in seen_relation_ids or not isinstance(correction, dict):
-                continue
-            payload.setdefault("relations", []).append(
-                {
-                    "relation_id": relation_id,
-                    "relation_type": "manual_review",
-                    "merge_status": "manual_review",
-                    "confidence": 0.0,
-                    "reasons": ["manual_review_without_candidate"],
-                    "review_status": correction.get("review_status") or "",
-                    "review_note": correction.get("note") or "",
-                    "reviewed_at": correction.get("updated_at") or "",
-                }
-            )
-        payload["corrections"] = corrections
-    return jsonify(payload)
+    return jsonify(build_table_relations_response_payload(payload, corrections))
 
 
 @app.post("/api/table-relations/<task_id>/<relation_id>/review")

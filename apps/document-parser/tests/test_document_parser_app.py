@@ -959,6 +959,26 @@ def test_import_mineru_output_dir_normalizes_artifacts_and_raw_archive(tmp_path)
     assert source_page.json["page"]["page_size"] == [595, 842]
     assert source_page.json["page"]["bbox_unit"] == "pdf_point"
 
+    source_block = client.get("/api/source/import-case-a/block/b000001")
+    assert source_block.status_code == 200
+    assert source_block.json["task_id"] == "import-case-a"
+    assert source_block.json["block"]["block_id"] == "b000001"
+    assert source_block.json["block"]["source_ref"]["path"] == "raw/mineru/content_list.json"
+
+    missing_block = client.get("/api/source/import-case-a/block/missing-block")
+    assert missing_block.status_code == 404
+    assert missing_block.json == {"error": "not_found"}
+
+    source_table = client.get(f"/api/source/import-case-a/table/{table['table_id']}")
+    assert source_table.status_code == 200
+    assert source_table.json["task_id"] == "import-case-a"
+    assert source_table.json["table"]["table_id"] == table["table_id"]
+    assert source_table.json["table"]["caption"] == "Key metrics"
+
+    missing_table = client.get("/api/source/import-case-a/table/missing-table")
+    assert missing_table.status_code == 404
+    assert missing_table.json == {"error": "not_found"}
+
     candidates = client.get("/api/import/mineru/candidates?limit=5")
     assert candidates.status_code == 200
     assert any(item["source_dir"] == str(source_dir) for item in candidates.json["candidates"])
