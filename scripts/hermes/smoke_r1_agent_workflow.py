@@ -13,6 +13,7 @@ import asyncio
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -30,10 +31,12 @@ if str(API_ROOT) not in sys.path:
 
 from services import deal_store  # noqa: E402
 from services import ic_agent_runtime  # noqa: E402
+from services import ic_policy  # noqa: E402
 
 
 DEAL_ID = "DEAL-HERMES-SMOKE-001"
 EVIDENCE_ID = "EVID-DEAL-HERMES-SMOKE-001-000001"
+SMOKE_TOKEN = "local-smoke-token"
 
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -76,16 +79,54 @@ def gateway_health(host: str, port: int) -> dict[str, Any] | None:
         return None
 
 
+def is_tcp_port_open(host: str, port: int, timeout: float = 0.2) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def write_smoke_env_file(runtime_root: Path, token: str = SMOKE_TOKEN) -> Path:
+    """Append-only env file for smoke-specific gateway auth overrides.
+
+    run_gateway.sh sources SIQ_ENV_FILE after inheriting the parent env. Writing
+    these values there keeps the gateway server token and this script's client
+    token aligned even when the developer's local env already has a different
+    API_SERVER_KEY.
+    """
+    env_path = runtime_root / "smoke.env"
+    env_path.write_text(
+        "\n".join([
+            f"HERMES_API_KEY={token}",
+            f"HERMES_TOKEN={token}",
+            f"API_SERVER_KEY={token}",
+            "",
+        ]),
+        encoding="utf-8",
+    )
+    return env_path
+
+
 def start_gateway(profile_id: str, host: str, port: int, timeout_seconds: int) -> tuple[subprocess.Popen[bytes], Path]:
     if gateway_health(host, port):
         raise RuntimeError(f"Gateway is already healthy at http://{host}:{port}; refusing to replace it")
+    if is_tcp_port_open(host, port):
+        raise RuntimeError(
+            f"Port {port} is already listening at {host}, but /health is not healthy; "
+            "refusing to replace an existing process."
+        )
     runtime_root = Path(tempfile.mkdtemp(prefix=f"siq-r1-gateway-{profile_id}-"))
     log_path = runtime_root / "gateway.log"
+    smoke_env_file = write_smoke_env_file(runtime_root)
     env = os.environ.copy()
-    env.setdefault("HERMES_API_KEY", "local-smoke-token")
+    env["HERMES_API_KEY"] = SMOKE_TOKEN
+    env["HERMES_TOKEN"] = SMOKE_TOKEN
+    env["API_SERVER_KEY"] = SMOKE_TOKEN
     env["SIQ_PROJECT_ROOT"] = str(PROJECT_ROOT)
     env["SIQ_HERMES_HOME"] = str(runtime_root / "home")
     env["SIQ_HERMES_PROFILES_ROOT"] = str(runtime_root / "home" / "profiles")
+    env["SIQ_ENV_FILE"] = str(smoke_env_file)
     process = subprocess.Popen(
         [str(PROJECT_ROOT / "scripts" / "hermes" / "run_gateway.sh"), profile_id],
         cwd=PROJECT_ROOT,
@@ -98,7 +139,8 @@ def start_gateway(profile_id: str, host: str, port: int, timeout_seconds: int) -
             health = gateway_health(host, port)
             if health:
                 print(f"Gateway health OK: {json.dumps(health, ensure_ascii=False)}")
-                os.environ.setdefault("HERMES_API_KEY", env["HERMES_API_KEY"])
+                os.environ["HERMES_API_KEY"] = SMOKE_TOKEN
+                os.environ["HERMES_TOKEN"] = SMOKE_TOKEN
                 return process, runtime_root
             if process.poll() is not None:
                 tail = log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-80:]
@@ -125,7 +167,55 @@ def stop_gateway(process: subprocess.Popen[bytes] | None, runtime_root: Path | N
         shutil.rmtree(runtime_root, ignore_errors=True)
 
 
-def build_smoke_package(wiki_root: Path, profile_id: str) -> Path:
+def prior_r1_agents(profile_id: str) -> list[str]:
+    canonical = ic_policy.canonical_ic_profile_id(profile_id)
+    if canonical not in ic_policy.R1_AGENT_SEQUENCE:
+        return []
+    return list(ic_policy.R1_AGENT_SEQUENCE[:ic_policy.R1_AGENT_SEQUENCE.index(canonical)])
+
+
+def seed_prior_r1_reports(package_dir: Path, profile_id: str) -> list[str]:
+    prior_agents = prior_r1_agents(profile_id)
+    if not prior_agents:
+        return []
+    report_payload = {
+        agent_id: {
+            "schema_version": "siq_ic_r1_agent_report_v1",
+            "agent_id": agent_id,
+            "round_name": "R1",
+            "score": 75,
+            "recommendation": "conditional_pass",
+            "confidence": "medium",
+            "summary": f"Synthetic prior R1 smoke report for {agent_id}.",
+            "verified": [EVIDENCE_ID],
+            "assumed": [],
+            "open_questions": [],
+            "risk_flags": [],
+            "evidence_ids": [EVIDENCE_ID],
+            "created_at": "2026-07-03T10:15:00+08:00",
+        }
+        for agent_id in prior_agents
+    }
+    write_json(package_dir / "phases" / "r1_reports.json", report_payload)
+
+    workflow_path = package_dir / "phases" / "workflow_state.json"
+    workflow = deal_store.read_json(workflow_path, {}) or {}
+    phases = workflow.setdefault("phases", {})
+    r1 = phases.setdefault("R1", {})
+    r1.update({
+        "status": "in_progress",
+        "submitted_agents": prior_agents,
+        "submitted_count": len(prior_agents),
+        "updated_at": "2026-07-03T10:15:00+08:00",
+    })
+    workflow["current_phase"] = "R1"
+    workflow["status"] = "r1_in_progress"
+    workflow["updated_at"] = "2026-07-03T10:15:00+08:00"
+    write_json(workflow_path, workflow)
+    return prior_agents
+
+
+def build_smoke_package(wiki_root: Path, profile_id: str, *, seed_prior_reports: bool = False) -> Path:
     deal_store.create_deal_package(
         deal_id=DEAL_ID,
         company_name="Hermes Smoke Robotics",
@@ -154,9 +244,9 @@ def build_smoke_package(wiki_root: Path, profile_id: str) -> Path:
             "schema_version": "siq_ic_startup_receipts_v1",
             "deal_id": DEAL_ID,
             "agents": {
-                profile_id: {
-                    "receipt_id": f"startup-{profile_id}-R1-smoke",
-                    "agent_id": profile_id,
+                agent_id: {
+                    "receipt_id": f"startup-{agent_id}-R1-smoke",
+                    "agent_id": agent_id,
                     "round_name": "R1",
                     "query": "Hermes Smoke Robotics",
                     "project_tag": DEAL_ID,
@@ -167,9 +257,14 @@ def build_smoke_package(wiki_root: Path, profile_id: str) -> Path:
                     "evidence_hits": [{"evidence_id": EVIDENCE_ID}],
                     "created_at": "2026-07-03T10:20:00+08:00",
                 }
+                for agent_id in [*prior_r1_agents(profile_id), ic_policy.canonical_ic_profile_id(profile_id)]
             },
         },
     )
+    if seed_prior_reports:
+        prior_agents = seed_prior_r1_reports(package_dir, profile_id)
+        if prior_agents:
+            print(f"Seeded prior R1 reports for sequence: {', '.join(prior_agents)}")
     return package_dir
 
 
@@ -200,6 +295,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--start-gateway", action="store_true", help="Start the target profile gateway with a temporary runtime")
     parser.add_argument("--gateway-timeout", type=int, default=45, help="Seconds to wait for --start-gateway health")
     parser.add_argument("--timeout", type=float, default=120.0, help="Hermes collect timeout for --real")
+    parser.add_argument("--seed-prior-reports", action="store_true", help="Seed synthetic prior R1 reports in the temporary package so later sequence agents can be smoked without running earlier agents")
     parser.add_argument("--keep", action="store_true", help="Keep the temporary wiki root for inspection")
     parser.add_argument("--keep-gateway-runtime", action="store_true", help="Keep temporary gateway runtime when using --start-gateway")
     return parser.parse_args()
@@ -214,7 +310,8 @@ def main() -> int:
     try:
         host, port = profile_api_server(args.profile)
         if args.real:
-            os.environ.setdefault("HERMES_API_KEY", "local-smoke-token")
+            os.environ["HERMES_API_KEY"] = SMOKE_TOKEN
+            os.environ["HERMES_TOKEN"] = SMOKE_TOKEN
         if args.start_gateway:
             gateway_process, gateway_runtime = start_gateway(args.profile, host, port, args.gateway_timeout)
         elif args.real or args.require_gateway_health:
@@ -226,7 +323,7 @@ def main() -> int:
                 )
             print(f"Gateway health OK: {json.dumps(health, ensure_ascii=False)}")
 
-        build_smoke_package(wiki_root, args.profile)
+        build_smoke_package(wiki_root, args.profile, seed_prior_reports=args.seed_prior_reports)
         dry_run = ic_agent_runtime.build_workflow_r1_agent_run_dry_run(
             DEAL_ID,
             args.profile,
