@@ -137,3 +137,63 @@ def test_infer_kr_pdf_metadata_prefers_metadata_file(tmp_path: Path):
     assert metadata["company_name"] == "LG Chem"
     assert metadata["report_year"] == 2024
     assert metadata["report_type"] == "annual"
+
+
+def test_write_kr_pdf_wiki_package_reads_legacy_table_index(tmp_path: Path):
+    pdf_path = tmp_path / "005930_2025_annual.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\n")
+    result_dir = tmp_path / "results" / "legacy-task"
+    _write_json(
+        result_dir / "manifest.json",
+        {
+            "task_id": "legacy-task",
+            "market": "KR",
+            "company_name": "Samsung Electronics",
+            "ticker": "005930",
+            "report_year": 2025,
+            "report_type": "annual",
+        },
+    )
+    _write_json(
+        result_dir / "document_full.json",
+        {
+            "schema_version": 1,
+            "task": {"task_id": "legacy-task"},
+        },
+    )
+    _write_json(
+        result_dir / "content_list_enhanced.json",
+        {
+            "schema_version": 10,
+            "tables": [],
+        },
+    )
+    _write_json(
+        result_dir / "table_index.json",
+        [
+            {
+                "table_index": 556,
+                "heading": "Consolidated Statement of Financial Position",
+                "line": 6053,
+                "pdf_page_number": 320,
+                "rows": 40,
+                "cells": 160,
+                "preview": "Assets Total assets",
+            }
+        ],
+    )
+    (result_dir / "report_complete.md").write_text(
+        "# Samsung Electronics\n\n"
+        "## Consolidated Statement of Financial Position\n\n"
+        "| Assets | 2025 |\n",
+        encoding="utf-8",
+    )
+
+    package_dir = krwiki.write_kr_pdf_wiki_package(pdf_path, result_dir, tmp_path / "wiki" / "kr", force=True)
+
+    source_map = json.loads((package_dir / "qa" / "source_map.json").read_text(encoding="utf-8"))
+    evidence = source_map["evidence"][0]
+    assert evidence["table_index"] == 556
+    assert evidence["pdf_page_number"] == 320
+    assert evidence["caption"] == "Consolidated Statement of Financial Position"
+    assert evidence["md_line"] == 6053

@@ -127,6 +127,44 @@ def _iter_tables(parser_result_dir: Path) -> list[dict[str, Any]]:
                 "pdf_page_number": int(page_idx) + 1 if page_idx is not None else None,
             }
         )
+    if tables:
+        return tables
+
+    for item in content.get("tables", []):
+        if not isinstance(item, dict):
+            continue
+        caption = item.get("caption") or item.get("heading") or item.get("title") or ""
+        if not caption and isinstance(item.get("source_caption"), list):
+            caption = " ".join(str(part) for part in item["source_caption"] if part)
+        tables.append(
+            {
+                "table_index": item.get("table_index") or len(tables) + 1,
+                "caption": str(caption or item.get("preview") or ""),
+                "pdf_page_number": item.get("pdf_page_number"),
+                "md_line": item.get("line"),
+            }
+        )
+    if tables:
+        return tables
+
+    table_index_path = parser_result_dir / "table_index.json"
+    if table_index_path.exists():
+        payload = json.loads(table_index_path.read_text(encoding="utf-8"))
+        if isinstance(payload, list):
+            for item in payload:
+                if not isinstance(item, dict):
+                    continue
+                caption = item.get("caption") or item.get("heading") or item.get("title") or ""
+                if not caption and isinstance(item.get("source_caption"), list):
+                    caption = " ".join(str(part) for part in item["source_caption"] if part)
+                tables.append(
+                    {
+                        "table_index": item.get("table_index") or len(tables) + 1,
+                        "caption": str(caption or item.get("preview") or ""),
+                        "pdf_page_number": item.get("pdf_page_number"),
+                        "md_line": item.get("line"),
+                    }
+                )
     return tables
 
 
@@ -159,7 +197,7 @@ def _build_source_map(metadata: dict[str, Any], parser_result_dir: Path) -> dict
                 "caption": caption,
                 "md_path": "parser/report_complete.md",
                 "wiki_path": "parser/report_complete.md",
-                "md_line": _line_for_caption(report_md, caption) or 1,
+                "md_line": table.get("md_line") or _line_for_caption(report_md, caption) or 1,
             }
         )
     return {"market": "KR", "report_id": metadata["report_id"], "evidence": evidence}
@@ -288,7 +326,7 @@ def write_kr_pdf_wiki_package(
         (package_dir / dirname).mkdir(parents=True, exist_ok=True)
 
     _copy_if_exists(pdf_path, package_dir / "raw" / pdf_path.name)
-    for name in ("document_full.json", "content_list_enhanced.json", "table_relations.json", "report_complete.md", "manifest.json"):
+    for name in ("document_full.json", "content_list_enhanced.json", "table_index.json", "table_relations.json", "report_complete.md", "manifest.json"):
         _copy_if_exists(parser_result_dir / name, package_dir / "parser" / name)
 
     source_map = _build_source_map(metadata, parser_result_dir)
@@ -322,6 +360,7 @@ def write_kr_pdf_wiki_package(
                 "report_complete": "parser/report_complete.md",
                 "document_full": "parser/document_full.json",
                 "content_list_enhanced": "parser/content_list_enhanced.json",
+                "table_index": "parser/table_index.json",
                 "quality_report": "qa/quality_report.json",
                 "source_map": "qa/source_map.json",
                 "evidence_index": "evidence/evidence_index.json",
