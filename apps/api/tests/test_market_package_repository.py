@@ -33,3 +33,21 @@ def test_iter_market_packages_finds_hk_company_report_layout(tmp_path):
     assert packages == [package_dir]
     assert found_code == "HK"
     assert found_package == package_dir
+
+
+def test_iter_market_packages_finds_kr_company_report_layout(tmp_path):
+    repo = _load_repository()
+    kr_root = tmp_path / "data" / "wiki" / "kr"
+    package_dir = kr_root / "companies" / "005930-SamsungElectronics" / "reports" / "2025-annual-task-kr"
+    _write_manifest(package_dir / "manifest.json", "KR:005930:task-kr")
+
+    packages = repo.iter_market_packages("KR", {"KR": kr_root})
+    found_code, found_package = repo.find_market_package_by_filing_id(
+        "KR:005930:task-kr",
+        market="KR",
+        market_wiki_roots={"KR": kr_root},
+    )
+
+    assert packages == [package_dir]
+    assert found_code == "KR"
+    assert found_package == package_dir

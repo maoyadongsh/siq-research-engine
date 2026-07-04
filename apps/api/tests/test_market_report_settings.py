@@ -30,6 +30,7 @@ def test_market_report_settings_defaults(monkeypatch):
     assert settings.MARKET_REPORT_ASSIST_TIMEOUT == 45.0
     assert settings.MARKET_WIKI_ROOTS["US"].name == "us_sec"
     assert settings.MARKET_WIKI_ROOTS["HK"].parts[-3:] == ("data", "wiki", "hk")
+    assert settings.MARKET_WIKI_ROOTS["KR"].parts[-3:] == ("data", "wiki", "kr")
     assert settings.MARKET_DATABASES["HK"] == "siq_hk"
     assert settings.MARKET_VECTOR_COLLECTIONS["HK"] == "siq_hk_reports"
     assert settings.MARKET_BUILD_SCRIPTS["EU"].name == "build_eu_pdf_evidence_package.py"

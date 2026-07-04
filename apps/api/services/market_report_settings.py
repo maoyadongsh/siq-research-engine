@@ -84,7 +84,7 @@ MARKET_WIKI_ROOTS = {
     "US": _env_path("SIQ_US_SEC_WIKI_ROOT", default=REPO_ROOT / "data" / "wiki" / "us_sec"),
     "HK": _env_path("SIQ_HK_WIKI_ROOT", default=REPO_ROOT / "data" / "wiki" / "hk"),
     "JP": _env_path("SIQ_JP_WIKI_ROOT", default=REPO_ROOT / "data" / "wiki" / "jp_reports"),
-    "KR": _env_path("SIQ_KR_WIKI_ROOT", default=REPO_ROOT / "data" / "wiki" / "kr_reports"),
+    "KR": _env_path("SIQ_KR_WIKI_ROOT", default=REPO_ROOT / "data" / "wiki" / "kr"),
     "EU": _env_path("SIQ_EU_WIKI_ROOT", default=REPO_ROOT / "data" / "wiki" / "eu_reports"),
 }
 
