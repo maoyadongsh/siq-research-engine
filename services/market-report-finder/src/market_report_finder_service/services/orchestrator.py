@@ -65,18 +65,23 @@ class ReportFinderOrchestrator:
         market: Market,
         report_year: int | None = None,
         limit: int = 10,
+        country: str | None = None,
     ) -> dict:
         finder = self._market(market)
         if not hasattr(finder, "curated_annual_reports"):
             raise HTTPException(status_code=400, detail=f"{market.value} does not provide curated annual-report samples")
-        reports = finder.curated_annual_reports(report_year=report_year, limit=limit)  # type: ignore[attr-defined]
+        if market == Market.eu:
+            reports = finder.curated_annual_reports(report_year=report_year, limit=limit, country=country)  # type: ignore[attr-defined]
+        else:
+            reports = finder.curated_annual_reports(report_year=report_year, limit=limit)  # type: ignore[attr-defined]
         return {
             "market": market,
             "report_year": report_year,
             "limit": limit,
+            "country": country,
             "candidates_total": len(reports),
             "reports": reports,
-            "ranking_rule": "Curated mainstream companies by market, each resolved to the latest matching annual-report candidate.",
+            "ranking_rule": "Curated mainstream companies by market, balanced by country when applicable.",
             "checked_at": datetime.now(timezone.utc),
         }
 

@@ -64,8 +64,9 @@ def curated_annual_reports(
     market: Market = Query(...),
     report_year: int | None = Query(default=None, ge=1900, le=2100),
     limit: int = Query(default=10, ge=1, le=50),
+    country: str | None = Query(default=None, max_length=16),
 ):
-    return orchestrator.curated_annual_reports(market=market, report_year=report_year, limit=limit)
+    return orchestrator.curated_annual_reports(market=market, report_year=report_year, limit=limit, country=country)
 
 
 @router.post("/v1/reports/select-download", response_model=SelectiveDownloadResponse)

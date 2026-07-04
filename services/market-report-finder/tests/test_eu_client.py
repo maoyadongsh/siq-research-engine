@@ -4,6 +4,7 @@ from market_report_finder_service.markets.eu.catalog import EuAnnualReportCatalo
 from market_report_finder_service.markets.eu.client import EsefIndexClient
 from market_report_finder_service.markets.eu.service import EuReportFinder
 from market_report_finder_service.models.schemas import Market, ReportTarget
+from market_report_finder_service.services.orchestrator import ReportFinderOrchestrator
 
 
 def _index_payload():
@@ -90,6 +91,25 @@ def test_catalog_resolves_current_major_company_report():
     assert reports[0].metadata["source_tier"] == "official_direct"
 
 
+def test_eu_catalog_curated_country_samples_return_ten_for_uk():
+    reports = EuAnnualReportCatalog.sample_filings(country="UK", report_year=2025, limit=10)
+
+    assert len(reports) == 10
+    assert {item.metadata["country"] for item in reports} == {"GB"}
+    assert {item.report_end.year for item in reports} == {2025}
+
+
+def test_eu_catalog_curated_all_samples_are_balanced_by_country():
+    reports = EuAnnualReportCatalog.sample_filings(report_year=2025, limit=50)
+
+    counts: dict[str, int] = {}
+    for item in reports:
+        counts[item.metadata["country"]] = counts.get(item.metadata["country"], 0) + 1
+
+    assert len(reports) == 50
+    assert counts == {"GB": 10, "FR": 10, "DE": 10, "NL": 10, "CH": 10}
+
+
 def test_eu_finder_uses_catalog_for_switzerland_search():
     finder = EuReportFinder()
 
@@ -107,3 +127,52 @@ def test_eu_finder_uses_catalog_for_switzerland_search():
     assert company.metadata["country"] == "CH"
     assert len(reports) == 1
     assert reports[0].document_url.endswith("annual-review-2025-en.pdf")
+
+
+def test_eu_finder_exposes_curated_country_samples():
+    finder = EuReportFinder()
+
+    reports = finder.curated_annual_reports(country="FR", report_year=2025, limit=10)
+
+    assert len(reports) == 10
+    assert {item.metadata["country"] for item in reports} == {"FR"}
+
+
+def test_orchestrator_passes_country_to_eu_curated_samples(monkeypatch):
+    calls: list[tuple[int | None, int, str | None]] = []
+
+    class StubEuFinder:
+        def curated_annual_reports(
+            self,
+            *,
+            report_year: int | None = None,
+            limit: int = 10,
+            country: str | None = None,
+        ):
+            calls.append((report_year, limit, country))
+            return []
+
+    orchestrator = ReportFinderOrchestrator()
+    monkeypatch.setattr(orchestrator, "_market", lambda market: StubEuFinder())
+
+    response = orchestrator.curated_annual_reports(market=Market.eu, report_year=2025, limit=10, country="FR")
+
+    assert calls == [(2025, 10, "FR")]
+    assert response["country"] == "FR"
+
+
+def test_orchestrator_keeps_non_eu_curated_samples_country_compatible(monkeypatch):
+    calls: list[tuple[int | None, int]] = []
+
+    class StubJpFinder:
+        def curated_annual_reports(self, *, report_year: int | None = None, limit: int = 10):
+            calls.append((report_year, limit))
+            return []
+
+    orchestrator = ReportFinderOrchestrator()
+    monkeypatch.setattr(orchestrator, "_market", lambda market: StubJpFinder())
+
+    response = orchestrator.curated_annual_reports(market=Market.jp, report_year=2025, limit=10, country="FR")
+
+    assert calls == [(2025, 10)]
+    assert response["country"] == "FR"
