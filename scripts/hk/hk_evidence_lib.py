@@ -235,7 +235,7 @@ def write_hk_evidence_package(
     if package_dir.exists() and force:
         shutil.rmtree(package_dir)
     package_dir.mkdir(parents=True, exist_ok=True)
-    for name in ("raw", "sections", "tables", "xbrl", "metrics", "qa"):
+    for name in ("raw", "sections", "tables", "xbrl", "metrics", "qa", "parser"):
         (package_dir / name).mkdir(exist_ok=True)
 
     shutil.copy2(pdf_path, package_dir / "raw" / "report.pdf")
@@ -317,6 +317,9 @@ def write_hk_evidence_package(
     write_json(package_dir / "qa" / "quality_report.json", quality)
     write_json(package_dir / "qa" / "source_map.json", source_map)
     write_json(package_dir / "qa" / "extraction_warnings.json", {"warnings": quality["parser_warnings"] + quality["rule_warnings"]})
+    _write_parser_artifacts(package_dir, parser_result_dir, document_full, financial_data, financial_checks)
+    _write_report_complete(package_dir, markdown, document_full, quality)
+    _write_enhancement_qa(package_dir, document_full)
     manifest["artifact_hashes"] = compute_artifact_hashes(package_dir)
     write_json(package_dir / "manifest.json", manifest)
     (package_dir / "README.md").write_text(_readme(manifest, quality), encoding="utf-8")
@@ -325,6 +328,94 @@ def write_hk_evidence_package(
     if not validation.ok:
         write_json(package_dir / "qa" / "contract_validation.json", validation.as_dict())
     return package_dir
+
+
+def _content_list_enhanced(document_full: dict[str, Any]) -> dict[str, Any]:
+    enhanced = document_full.get("content_list_enhanced")
+    return enhanced if isinstance(enhanced, dict) else {}
+
+
+def _write_parser_artifacts(
+    package_dir: Path,
+    parser_result_dir: Path,
+    document_full: dict[str, Any],
+    financial_data: dict[str, Any],
+    financial_checks: dict[str, Any],
+) -> None:
+    enhanced = _content_list_enhanced(document_full)
+    tables = enhanced.get("tables") if isinstance(enhanced.get("tables"), list) else []
+    relations: list[dict[str, Any]] = []
+    for table in tables:
+        if not isinstance(table, dict):
+            continue
+        base = {
+            "table_index": table.get("table_index"),
+            "content_table_source_id": table.get("content_table_source_id"),
+            "pdf_page_number": table.get("pdf_page_number"),
+        }
+        table_relations = table.get("relations") if isinstance(table.get("relations"), list) else []
+        for relation in table_relations:
+            if isinstance(relation, dict):
+                relations.append({**base, **relation})
+    write_json(package_dir / "parser" / "document_full.json", document_full or {})
+    write_json(package_dir / "parser" / "content_list_enhanced.json", enhanced)
+    write_json(package_dir / "parser" / "table_relations.json", {"schema_version": "hk_table_relations_v1", "relations": relations})
+    write_json(
+        package_dir / "parser" / "quality_report.json",
+        read_json(parser_result_dir / "quality_report.json", {"schema_version": "hk_parser_quality_report_v1", "overall_status": "unknown", "warnings": []}),
+    )
+    write_json(
+        package_dir / "parser" / "financial_data.json",
+        read_json(parser_result_dir / "financial_data.json", financial_data),
+    )
+    write_json(
+        package_dir / "parser" / "financial_checks.json",
+        read_json(parser_result_dir / "financial_checks.json", financial_checks),
+    )
+
+
+def _write_report_complete(package_dir: Path, markdown: str, document_full: dict[str, Any], quality: dict[str, Any]) -> None:
+    enhanced = _content_list_enhanced(document_full)
+    footnotes = enhanced.get("footnotes") if isinstance(enhanced.get("footnotes"), dict) else {}
+    toc = enhanced.get("toc") if isinstance(enhanced.get("toc"), dict) else {}
+    note_links = enhanced.get("financial_note_links") if isinstance(enhanced.get("financial_note_links"), dict) else {}
+    pages = enhanced.get("pages") if isinstance(enhanced.get("pages"), list) else []
+    tables = enhanced.get("tables") if isinstance(enhanced.get("tables"), list) else []
+    sections = [
+        markdown.rstrip(),
+        "## 可恢复结构摘要",
+        json.dumps({"parser_quality_status": quality.get("parser_status"), "table_count": len(tables), "page_count": len(pages)}, ensure_ascii=False, indent=2),
+        "## 目录候选",
+        json.dumps(toc or {"headings": [], "toc_candidates": [], "content_headings": [], "summary": {}}, ensure_ascii=False, indent=2),
+        "## 脚注摘要",
+        json.dumps(footnotes or {"references": [], "definitions": [], "bindings": [], "summary": {}}, ensure_ascii=False, indent=2),
+        "## 附注关系摘要",
+        json.dumps(note_links or {"links": [], "summary": {}}, ensure_ascii=False, indent=2),
+        "## 图片/表格摘要",
+        json.dumps({"pages": pages, "tables": tables}, ensure_ascii=False, indent=2),
+    ]
+    content = "\n\n".join(part for part in sections if part) + "\n"
+    (package_dir / "sections" / "report_complete.md").write_text(content, encoding="utf-8")
+
+
+def _write_enhancement_qa(package_dir: Path, document_full: dict[str, Any]) -> None:
+    enhanced = _content_list_enhanced(document_full)
+    write_json(package_dir / "qa" / "footnotes.json", {
+        "schema_version": "hk_footnotes_v1",
+        "payload": enhanced.get("footnotes") or {"references": [], "definitions": [], "bindings": [], "summary": {}},
+    })
+    write_json(package_dir / "qa" / "toc.json", {
+        "schema_version": "hk_toc_v1",
+        "payload": enhanced.get("toc") or {"headings": [], "toc_candidates": [], "content_headings": [], "summary": {}},
+    })
+    write_json(package_dir / "qa" / "financial_note_links.json", {
+        "schema_version": "hk_financial_note_links_v1",
+        "payload": enhanced.get("financial_note_links") or {"links": [], "summary": {}},
+    })
+    write_json(package_dir / "qa" / "table_quality_signals.json", {
+        "schema_version": "hk_table_quality_signals_v1",
+        "payload": enhanced.get("quality_signals") or {"signals": [], "summary": {}},
+    })
 
 
 def _write_tables(package_dir: Path, tables: list[ParsedTable]) -> list[dict[str, Any]]:
