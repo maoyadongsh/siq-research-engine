@@ -2,12 +2,12 @@
 
 ## 状态
 
-已确认方向：第一版韩国年报 wiki 管线以 PDF 解析产物为主输入，同时保持产物包兼容 PostgreSQL 和多市场 evidence API。DART/XBRL 后续可以补强同一个产物包，但不是第一版生产落地的前置条件。
+已确认方向：第一版韩国年报 wiki 管线以 PDF 解析产物为主输入，同时保持产物包兼容 PostgreSQL 和多市场 evidence API。DART/XBRL 后续可以补强同一个产物包，但不是第一版生产落地的前置条件。路径规则按 A 股 wiki 对齐：长期主路径是 `data/wiki/kr/companies/`，不以 `kr_reports` 作为主写入路径。
 
 ## 目标
 
-- 基于已完成的韩国市场 PDF 解析结果，在 `data/wiki/kr_reports` 下生成韩国市场 wiki 根目录。
-- 参考 A 股 wiki 的公司中心化组织方式，保留报告、指标、证据、语义路由和可审计 catalog。
+- 基于已完成的韩国市场 PDF 解析结果，在 `data/wiki/kr/companies` 下生成韩国市场 wiki 公司目录。
+- 参考 A 股 wiki 的公司中心化组织方式，保留 `company.json`、`reports`、`metrics`、`evidence`、`semantic`、`graph`、`analysis`、`factcheck`、`tracking` 和可审计 catalog。
 - 韩国市场数据与 A 股 `data/wiki/companies` 列表、A 股 `_meta` catalog 隔离。
 - 固化证据契约，确保智能体问答能回溯到原始 PDF 页码、表格索引、Markdown 行号和解析任务。
 - 将生成后的韩国市场 package 接入现有前端/后端市场报告交互。
@@ -24,7 +24,7 @@
 
 A 股 wiki 使用 `data/wiki/companies/<stock_code>-<name>`，并在公司目录下组织 `reports`、`metrics`、`evidence`、`semantic`，同时通过 `_meta` catalog 做全局索引。它最重要的契约是可回溯性：财务数字和经营判断必须能回到 `task_id`、`report_id`、PDF 页码、表格索引和 Markdown 行号。
 
-当前仓库已经有 HK、JP、KR、EU、US 的多市场 package 框架。后端 API 已有 `MARKET_WIKI_ROOTS`、`MARKET_BUILD_SCRIPTS` 和 `MARKET_IMPORT_SCRIPTS`；其中 KR 默认根目录是 `data/wiki/kr_reports`，当前构建脚本是 `scripts/kr/build_kr_evidence_package.py`，PostgreSQL 入库脚本是 `db/imports/import_kr_evidence_package_to_postgres.py`，目标 schema 为 `dart_kr`。
+当前仓库已经有 HK、JP、KR、EU、US 的多市场 package 框架。后端 API 已有 `MARKET_WIKI_ROOTS`、`MARKET_BUILD_SCRIPTS` 和 `MARKET_IMPORT_SCRIPTS`；当前代码中的 KR 默认根目录需要从历史 `data/wiki/kr_reports` 调整为 `data/wiki/kr`，当前构建脚本是 `scripts/kr/build_kr_evidence_package.py`，PostgreSQL 入库脚本是 `db/imports/import_kr_evidence_package_to_postgres.py`，目标 schema 为 `dart_kr`。
 
 现有 KR 脚本偏 DART XBRL/API 输入，PDF 解析目录只是可选补充。新的第一版工作流需要倒过来：PDF 解析产物是主来源，`xbrl/facts_raw.json` 可以为空，但必须写入明确 warning。
 
@@ -33,7 +33,7 @@ A 股 wiki 使用 `data/wiki/companies/<stock_code>-<name>`，并在公司目录
 韩国市场 wiki package 使用独立根目录：
 
 ```text
-data/wiki/kr_reports/
+data/wiki/kr/
   README.md
   AGENTS.md
   _meta/
@@ -46,6 +46,13 @@ data/wiki/kr_reports/
     005930-SamsungElectronics/
       company.md
       company.json
+      metrics/
+      evidence/
+      semantic/
+      graph/
+      analysis/
+      factcheck/
+      tracking/
       reports/
         2025-annual_<task_or_rcp>/
           manifest.json
@@ -95,7 +102,7 @@ data/wiki/kr_reports/
             facts_raw.json
 ```
 
-package 路径采用 A 股式公司/报告组织，但每个报告目录仍通过 `manifest.json` 保持为合法的 `market_evidence_package_v1`。这样智能体可以把它当 wiki 读，`/api/market-reports/*`、PostgreSQL 入库和向量入库也能把它当多市场 evidence package 读。
+package 路径采用 A 股式公司/报告组织，但每个报告目录仍通过 `manifest.json` 保持为合法的 `market_evidence_package_v1`。这样智能体可以按 A 股 wiki 的公司目录方式读取，也可以让 `/api/market-reports/*`、PostgreSQL 入库和向量入库把单份报告目录当多市场 evidence package 读。
 
 路径里的 `company_id` 采用文件系统安全格式：`<six_digit_ticker>-<ascii_company_slug>`。技术 ID 仍明确写在 JSON 中，例如 `company_id: "KR:005930"`、`ticker: "005930"`。
 
@@ -156,7 +163,7 @@ eval_datasets/market_ingestion_cases/kr_30_pdf_cases.json
 python3 scripts/kr/build_kr_pdf_wiki_package.py \
   --pdf data/market-report-finder/downloads/KR/.../Samsung_KR_005930_2025-12-31_年报_2026-03-10_dart_public_x.pdf \
   --parser-result data/pdf-parser/results/<task_id> \
-  --output-root data/wiki/kr_reports \
+  --output-root data/wiki/kr \
   --force
 ```
 
@@ -186,7 +193,7 @@ python3 scripts/kr/build_kr_pdf_wiki_package.py \
 ```bash
 python3 scripts/kr/ingest_kr_case_set.py \
   --case-set eval_datasets/market_ingestion_cases/kr_30_pdf_cases.json \
-  --output-root data/wiki/kr_reports \
+  --output-root data/wiki/kr \
   --force
 ```
 
@@ -240,10 +247,10 @@ python3 scripts/kr/ingest_kr_case_set.py \
 
 ## 前端与 API 联动
 
-现有后端配置已经定义：
+实现后的后端配置应统一为：
 
 ```text
-MARKET_WIKI_ROOTS["KR"] = data/wiki/kr_reports
+MARKET_WIKI_ROOTS["KR"] = data/wiki/kr
 MARKET_BUILD_SCRIPTS["KR"] = scripts/kr/build_kr_evidence_package.py
 MARKET_IMPORT_SCRIPTS["KR"] = db/imports/import_kr_evidence_package_to_postgres.py
 ```
@@ -255,6 +262,8 @@ MARKET_IMPORT_SCRIPTS["KR"] = db/imports/import_kr_evidence_package_to_postgres.
 ```text
 companies/*/reports/*/manifest.json
 ```
+
+KR 构建器、批量 ingest 脚本和 API build plan 默认都必须写入 `data/wiki/kr`。历史 `data/wiki/kr_reports` 不作为第一版 KR wiki 的输出目标。
 
 完成后，以下既有端点应能直接读取 KR package：
 
@@ -279,7 +288,9 @@ companies/*/reports/*/manifest.json
 
 第一版 wiki 产物必须保持与 `db/imports/import_kr_evidence_package_to_postgres.py` 兼容。PostgreSQL 入库后应写入 `dart_kr.companies`、`filings`、`parse_runs`、`pdf_tables`、`evidence_citations`、`financial_facts`、`operating_metric_facts`、`financial_checks` 和 `retrieval_chunks`。
 
-`retrieval_chunks` 应保留 `wiki_path`、`evidence_id`、`page_number`、`table_index`、`canonical_name` 和 `period_key`，这样后续 chat retrieval 无需重读整个 package，也能引用 PDF 页码。
+`retrieval_chunks` 应保留 `wiki_path`、`evidence_id`、`page_number`、`table_index`、`canonical_name` 和 `period_key`，其中 `wiki_path` 应以 `data/wiki/kr/companies/<company>/reports/<report_id>/...` 为规范前缀。这样后续 chat retrieval 无需重读整个 package，也能引用 PDF 页码。
+
+智能体查询说明写入 `data/wiki/kr/AGENTS.md` 和公司/报告 README：检索优先读 `semantic/retrieval_index.json`，引用证据优先读 `evidence/evidence_index.json`，跨市场 API 证据回溯读 `qa/source_map.json`。这三个入口必须指向同一组 evidence ID，避免 wiki 查询、PostgreSQL 查询和 PDF 页码回溯各走一套坐标。
 
 ## 校验与测试
 
@@ -289,9 +300,10 @@ companies/*/reports/*/manifest.json
 - 只发现 KR case，并验证市场隔离
 - 单个 package 目录生成
 - `manifest.json` 必填字段
-- A 股兼容的 `metrics/three_statements.json`、`evidence/evidence_index.json` 和 `semantic/retrieval_index.json`
+- A 股兼容的公司级目录、`metrics/three_statements.json`、`evidence/evidence_index.json` 和 `semantic/retrieval_index.json`
 - evidence entry 包含 PDF 页码和表格锚点
-- `data/wiki/kr_reports/_meta` 下 catalog 生成
+- `data/wiki/kr/_meta` 下 catalog 生成
+- `MARKET_WIKI_ROOTS["KR"]` 默认指向 `data/wiki/kr`
 - 后端支持扫描 `companies/*/reports/*/manifest.json`
 - 前端/API payload 返回 KR package detail 和 evidence file URL
 

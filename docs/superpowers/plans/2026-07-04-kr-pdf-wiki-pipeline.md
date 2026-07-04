@@ -4,15 +4,16 @@
 
 **Goal:** 基于韩国市场 PDF 解析产物生成独立 KR wiki package，并让后端、前端、PostgreSQL 入库和智能体检索都能按 evidence 回溯到 PDF 页码、表格序号和解析任务。
 
-**Architecture:** 第一版以 `data/pdf-parser/results/<task_id>` 为主输入，在 `data/wiki/kr_reports/companies/<ticker>-<slug>/reports/<report_id>/` 生成 A 股式目录，同时保持 `market_evidence_package_v1` manifest。现有 `scripts/kr/build_kr_evidence_package.py` 保持兼容：PDF 加 `--parser-result` 委派给新的 PDF wiki builder，DART/XBRL 输入继续走原有 KR evidence 逻辑。
+**Architecture:** 第一版以 `data/pdf-parser/results/<task_id>` 为主输入，在 `data/wiki/kr/companies/<ticker>-<slug>/reports/<report_id>/` 生成 A 股式目录，同时保持 `market_evidence_package_v1` manifest。公司目录必须包含 A 股同构的 `company.json`、`reports`、`metrics`、`evidence`、`semantic`、`graph`、`analysis`、`factcheck`、`tracking`；现有 `scripts/kr/build_kr_evidence_package.py` 保持兼容：PDF 加 `--parser-result` 委派给新的 PDF wiki builder，DART/XBRL 输入继续走原有 KR evidence 逻辑。
 
 **Tech Stack:** Python 3、pytest、FastAPI service helper、React/TypeScript、Vitest/Jest、现有 `market_report_rules_service.evidence_package` 和 `siq_market_contracts`。
 
 ## Global Constraints
 
 - 所有新增说明文档和计划文档使用中文；代码标识符、API 名称、路径和 JSON 字段保持英文。
-- KR wiki 只写入 `data/wiki/kr_reports`，不能写入 A 股目录 `data/wiki/companies` 或 A 股 `_meta`。
+- KR wiki 只写入 `data/wiki/kr`，不能写入 A 股目录 `data/wiki/companies`、A 股 `_meta` 或历史 `data/wiki/kr_reports` 输出路径。
 - 每条可被检索的 evidence 必须保留 `report_id`、`pdf_page_number`、`table_index`、`md_line`、`pdf_parser_task_id`、`parser_result_dir`。
+- `evidence/evidence_index.json`、`semantic/retrieval_index.json` 和 `qa/source_map.json` 必须共享同一组 evidence ID，保证 wiki 查询、PostgreSQL 查询和 PDF 页码回溯坐标一致。
 - `manifest.json` 必须继续使用 `package_schema = market_evidence_package_v1`，以便现有 API、PostgreSQL 导入和向量入库复用。
 - 第一版面向 PDF 解析产物；DART/XBRL 路径不做删除或破坏性改动。
 - 不提交批量生成的 30 家 wiki 大文件，除非用户另行要求；代码、测试、计划文档和小型 fixture 可以提交。
@@ -28,6 +29,8 @@
 - Modify `scripts/kr/build_kr_evidence_package.py`: 保留旧入口；当输入是 PDF 且传入 `--parser-result` 时转到新 builder。
 - Modify `apps/api/services/market_report_commands.py`: KR PDF package build 要求 parser result，避免前端误触发空 package。
 - Modify `apps/api/services/market_package_repository.py`: 后端发现 KR A 股式目录 `companies/*/reports/*/manifest.json`。
+- Modify `apps/api/services/market_report_settings.py`: KR wiki 默认根目录改为 `data/wiki/kr`。
+- Modify `apps/api/tests/test_market_report_settings.py`: 锁定 KR 默认根目录，防止回退到 `kr_reports`。
 - Create `apps/web/src/features/market-parsing/marketPackagesPanelModel.ts`: 前端 package 面板的纯函数模型，便于单测覆盖排序、标题和主文件选择。
 - Create `apps/web/src/components/pdf/MarketEvidencePackagesPanel.tsx`: 市场解析页通用 package 面板，第一版只挂到 KR 页面。
 - Modify `apps/web/src/pages/KrParsing.tsx`: 在韩国解析页显示 KR wiki package 和 evidence 入口。
@@ -127,7 +130,7 @@ def test_write_kr_pdf_wiki_package_keeps_pdf_page_evidence(tmp_path: Path):
     pdf_path = tmp_path / "005930_2025_annual.pdf"
     pdf_path.write_bytes(b"%PDF-1.4\n")
     result_dir = _minimal_parser_result(tmp_path / "results")
-    output_root = tmp_path / "wiki" / "kr_reports"
+    output_root = tmp_path / "wiki" / "kr"
 
     package_dir = krwiki.write_kr_pdf_wiki_package(pdf_path, result_dir, output_root, force=True)
 
@@ -157,6 +160,16 @@ def test_write_kr_pdf_wiki_package_keeps_pdf_page_evidence(tmp_path: Path):
     report_catalog = json.loads((output_root / "_meta" / "reports.json").read_text(encoding="utf-8"))
     assert company_catalog["companies"][0]["ticker"] == "005930"
     assert report_catalog["reports"][0]["package_path"].endswith("2025-annual_task-kr-1")
+
+    company_dir = output_root / "companies" / "005930-SamsungElectronics"
+    for dirname in ("reports", "metrics", "evidence", "semantic", "graph", "analysis", "factcheck", "tracking"):
+        assert (company_dir / dirname).is_dir()
+    company_json = json.loads((company_dir / "company.json").read_text(encoding="utf-8"))
+    assert company_json["company_id"] == "KR:005930"
+    evidence_index = json.loads((package_dir / "evidence" / "evidence_index.json").read_text(encoding="utf-8"))
+    retrieval_index = json.loads((package_dir / "semantic" / "retrieval_index.json").read_text(encoding="utf-8"))
+    assert evidence_index["evidence"][0]["evidence_id"] == evidence["evidence_id"]
+    assert retrieval_index["chunks"][0]["evidence_id"] == evidence["evidence_id"]
 
 
 def test_infer_kr_pdf_metadata_prefers_metadata_file(tmp_path: Path):
@@ -376,6 +389,58 @@ def _quality_report(metadata: dict[str, Any], source_map: dict[str, Any]) -> dic
     }
 
 
+def _evidence_index(source_map: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "market": "KR",
+        "report_id": source_map["report_id"],
+        "evidence": source_map["evidence"],
+    }
+
+
+def _retrieval_index(metadata: dict[str, Any], source_map: dict[str, Any]) -> dict[str, Any]:
+    chunks = []
+    for entry in source_map["evidence"]:
+        chunks.append(
+            {
+                "chunk_id": f"{entry['evidence_id']}-retrieval",
+                "market": "KR",
+                "ticker": metadata["ticker"],
+                "company_id": f"KR:{metadata['ticker']}",
+                "report_id": metadata["report_id"],
+                "evidence_id": entry["evidence_id"],
+                "title": entry.get("caption") or "KR report evidence",
+                "wiki_path": entry["md_path"],
+                "page_number": entry.get("pdf_page_number"),
+                "table_index": entry.get("table_index"),
+                "source": {
+                    "pdf_page_number": entry.get("pdf_page_number"),
+                    "table_index": entry.get("table_index"),
+                    "md_path": entry["md_path"],
+                    "md_line": entry.get("md_line"),
+                },
+            }
+        )
+    return {"market": "KR", "report_id": metadata["report_id"], "chunks": chunks}
+
+
+def _ensure_company_scaffold(company_dir: Path, metadata: dict[str, Any]) -> None:
+    for dirname in ("reports", "metrics", "evidence", "semantic", "graph", "analysis", "factcheck", "tracking"):
+        (company_dir / dirname).mkdir(parents=True, exist_ok=True)
+    _write_json(
+        company_dir / "company.json",
+        {
+            "market": "KR",
+            "company_id": f"KR:{metadata['ticker']}",
+            "ticker": metadata["ticker"],
+            "company_name": metadata["company_name"],
+            "wiki_root": "data/wiki/kr",
+        },
+    )
+    company_md = company_dir / "company.md"
+    if not company_md.exists():
+        company_md.write_text(f"# {metadata['company_name']}\n\n시장: KR\nTicker: {metadata['ticker']}\n", encoding="utf-8")
+
+
 def _update_catalogs(output_root: Path, package_dir: Path, metadata: dict[str, Any]) -> None:
     meta_dir = output_root / "_meta"
     company_catalog_path = meta_dir / "companies.json"
@@ -412,13 +477,15 @@ def write_kr_pdf_wiki_package(
     parser_result_dir = Path(parser_result_dir)
     output_root = Path(output_root)
     metadata = infer_kr_pdf_metadata(pdf_path, parser_result_dir, metadata_path)
-    package_dir = output_root / "companies" / kr_company_dir_name(metadata["ticker"], metadata["company_name"]) / "reports" / metadata["report_id"]
+    company_dir = output_root / "companies" / kr_company_dir_name(metadata["ticker"], metadata["company_name"])
+    _ensure_company_scaffold(company_dir, metadata)
+    package_dir = company_dir / "reports" / metadata["report_id"]
     if package_dir.exists() and force:
         shutil.rmtree(package_dir)
     if package_dir.exists():
         raise FileExistsError(f"Package already exists: {package_dir}")
 
-    for dirname in ("raw", "sections", "tables", "xbrl", "metrics", "qa", "parser"):
+    for dirname in ("raw", "sections", "tables", "xbrl", "metrics", "evidence", "semantic", "qa", "parser"):
         (package_dir / dirname).mkdir(parents=True, exist_ok=True)
 
     _copy_if_exists(pdf_path, package_dir / "raw" / pdf_path.name)
@@ -429,6 +496,8 @@ def write_kr_pdf_wiki_package(
     quality = _quality_report(metadata, source_map)
     _write_json(package_dir / "qa" / "source_map.json", source_map)
     _write_json(package_dir / "qa" / "quality_report.json", quality)
+    _write_json(package_dir / "evidence" / "evidence_index.json", _evidence_index(source_map))
+    _write_json(package_dir / "semantic" / "retrieval_index.json", _retrieval_index(metadata, source_map))
     _write_json(package_dir / "metrics" / "financial_data.json", {"market": "KR", "report_id": metadata["report_id"], "metrics": []})
     _write_json(package_dir / "metrics" / "financial_checks.json", quality["financial_checks"])
     _write_json(package_dir / "metrics" / "load_plan.json", {"market": "KR", "report_id": metadata["report_id"], "load_targets": ["wiki", "postgresql", "vector_index"]})
@@ -453,6 +522,8 @@ def write_kr_pdf_wiki_package(
                 "content_list_enhanced": "parser/content_list_enhanced.json",
                 "quality_report": "qa/quality_report.json",
                 "source_map": "qa/source_map.json",
+                "evidence_index": "evidence/evidence_index.json",
+                "retrieval_index": "semantic/retrieval_index.json",
                 "financial_data": "metrics/financial_data.json",
                 "financial_checks": "metrics/financial_checks.json",
                 "load_plan": "metrics/load_plan.json",
@@ -569,7 +640,7 @@ def test_discover_kr_cases_links_parser_result_to_download(tmp_path: Path):
 def test_ingest_case_set_writes_packages_and_meta_manifest(tmp_path: Path):
     results_root = tmp_path / "results"
     downloads_root = tmp_path / "downloads"
-    output_root = tmp_path / "wiki" / "kr_reports"
+    output_root = tmp_path / "wiki" / "kr"
     _write_case(results_root, downloads_root, "task-1", "005930", "Samsung Electronics")
     case_set_path = tmp_path / "kr_cases.json"
     _write_json(
@@ -625,7 +696,7 @@ def main() -> None:
     parser.add_argument("pdf", type=Path)
     parser.add_argument("--parser-result", required=True, type=Path)
     parser.add_argument("--metadata", type=Path)
-    parser.add_argument("--output-root", type=Path, default=Path("data/wiki/kr_reports"))
+    parser.add_argument("--output-root", type=Path, default=Path("data/wiki/kr"))
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
     package_dir = write_kr_pdf_wiki_package(args.pdf, args.parser_result, args.output_root, args.metadata, force=args.force)
@@ -764,7 +835,7 @@ def test_kr_pdf_package_build_requires_parser_result(tmp_path: Path):
     plan = market_report_commands.build_market_package_command(
         "KR",
         source,
-        tmp_path / "wiki" / "kr_reports",
+        tmp_path / "wiki" / "kr",
         parser_result=tmp_path / "results" / "task-kr-1",
         force=True,
     )
@@ -854,61 +925,90 @@ Expected: commit succeeds and includes only Task 3 files.
 ### Task 4: 后端 package 扫描和 evidence API 兼容
 
 **Files:**
+- Modify: `apps/api/services/market_report_settings.py`
 - Modify: `apps/api/services/market_package_repository.py`
+- Modify: `apps/api/tests/test_market_report_settings.py`
 - Modify: `apps/api/tests/test_market_package_repository.py`
 
 **Interfaces:**
 - Consumes from Task 1: KR package path `companies/<ticker>-<slug>/reports/<report_id>/manifest.json`。
-- Produces: `GET /api/market-reports/packages?market=KR` can discover KR A 股式 package roots.
+- Produces: `MARKET_WIKI_ROOTS["KR"]` defaults to `data/wiki/kr` and `GET /api/market-reports/packages?market=KR` discovers KR A 股式 package roots.
 
-- [ ] **Step 1: Write the failing repository test**
+- [ ] **Step 1: Write the failing settings and repository tests**
+
+In `apps/api/tests/test_market_report_settings.py`, add this assertion to `test_market_report_settings_defaults` after the existing `MARKET_WIKI_ROOTS["US"]` assertion:
+
+```python
+    assert settings.MARKET_WIKI_ROOTS["KR"].name == "kr"
+    assert settings.MARKET_WIKI_ROOTS["KR"].parent.name == "wiki"
+```
 
 Append this test to `apps/api/tests/test_market_package_repository.py`:
 
 ```python
 def test_iter_market_packages_discovers_kr_company_report_layout(tmp_path: Path):
-    root = tmp_path / "kr_reports"
-    manifest = root / "companies" / "005930-SamsungElectronics" / "reports" / "2025-annual_task-kr" / "manifest.json"
-    _write_json(
-        manifest,
-        {
-            "package_schema": "market_evidence_package_v1",
-            "market": "KR",
-            "ticker": "005930",
-            "company_name": "Samsung Electronics",
-            "report_id": "2025-annual_task-kr",
-            "filing_id": "2025-annual_task-kr",
-            "report_year": 2025,
-            "paths": {"report_complete": "parser/report_complete.md", "source_map": "qa/source_map.json"},
-        },
+    root = tmp_path / "kr"
+    package_dir = root / "companies" / "005930-SamsungElectronics" / "reports" / "2025-annual_task-kr"
+    (package_dir / "manifest.json").parent.mkdir(parents=True, exist_ok=True)
+    (package_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "package_schema": "market_evidence_package_v1",
+                "market": "KR",
+                "ticker": "005930",
+                "company_name": "Samsung Electronics",
+                "report_id": "2025-annual_task-kr",
+                "filing_id": "KR:005930:task-kr",
+                "report_year": 2025,
+                "paths": {"report_complete": "parser/report_complete.md", "source_map": "qa/source_map.json"},
+            }
+        ),
+        encoding="utf-8",
     )
 
-    packages = list(market_package_repository.iter_market_packages("KR", [root]))
+    repo = _load_repository()
+    packages = repo.iter_market_packages("KR", {"KR": root})
+    found_code, found_package = repo.find_market_package_by_filing_id(
+        "KR:005930:task-kr",
+        market="KR",
+        market_wiki_roots={"KR": root},
+    )
 
-    assert len(packages) == 1
-    assert packages[0].market == "KR"
-    assert packages[0].ticker == "005930"
-    assert packages[0].relative_path == "companies/005930-SamsungElectronics/reports/2025-annual_task-kr"
+    assert packages == [package_dir]
+    assert found_code == "KR"
+    assert found_package == package_dir
 ```
 
-If the test file imports functions directly, add:
+If the test file does not import `json`, add:
 
 ```python
-from apps.api.services import market_package_repository
+import json
 ```
 
-- [ ] **Step 2: Run the repository test to verify it fails**
+- [ ] **Step 2: Run the settings and repository tests to verify they fail**
 
 Run:
 
 ```bash
 cd /home/maoyd/siq-research-engine
-python3 -m pytest apps/api/tests/test_market_package_repository.py -q
+python3 -m pytest apps/api/tests/test_market_report_settings.py apps/api/tests/test_market_package_repository.py -q
 ```
 
-Expected: the new KR test fails with zero discovered packages.
+Expected: the new settings assertion fails because KR still points to the historical reports root, and the new KR repository test fails with zero discovered packages.
 
-- [ ] **Step 3: Add market-specific package patterns**
+- [ ] **Step 3: Change KR default wiki root and add market-specific package patterns**
+
+In `apps/api/services/market_report_settings.py`, update the KR default root:
+
+```python
+MARKET_WIKI_ROOTS = {
+    "US": _env_path("SIQ_US_SEC_WIKI_ROOT", default=REPO_ROOT / "data" / "wiki" / "us_sec"),
+    "HK": _env_path("SIQ_HK_WIKI_ROOT", default=REPO_ROOT / "data" / "wiki" / "hk_reports"),
+    "JP": _env_path("SIQ_JP_WIKI_ROOT", default=REPO_ROOT / "data" / "wiki" / "jp_reports"),
+    "KR": _env_path("SIQ_KR_WIKI_ROOT", default=REPO_ROOT / "data" / "wiki" / "kr"),
+    "EU": _env_path("SIQ_EU_WIKI_ROOT", default=REPO_ROOT / "data" / "wiki" / "eu_reports"),
+}
+```
 
 In `apps/api/services/market_package_repository.py`, add:
 
@@ -917,7 +1017,7 @@ def _package_patterns_for_market(market: str) -> tuple[str, ...]:
     market = market.upper()
     if market == "EU":
         return ("*/*/*/*/manifest.json",)
-    if market == "KR":
+    if market in {"HK", "KR"}:
         return ("companies/*/reports/*/manifest.json", "*/*/*/manifest.json")
     return ("*/*/*/manifest.json",)
 ```
@@ -925,21 +1025,25 @@ def _package_patterns_for_market(market: str) -> tuple[str, ...]:
 Then update `iter_market_packages` to use:
 
 ```python
+root = market_wiki_roots[market]
+if not root.exists():
+    return []
 patterns = _package_patterns_for_market(market)
-for root in market_wiki_roots:
-    for pattern in patterns:
-        manifest_paths.extend(root.glob(pattern))
+package_dirs: list[Path] = []
+for pattern in patterns:
+    package_dirs.extend(path.parent for path in root.glob(pattern))
+return sorted(package_dirs, key=lambda path: path.stat().st_mtime, reverse=True)
 ```
 
 Keep the existing manifest parsing and sorting logic unchanged.
 
-- [ ] **Step 4: Run the repository tests to verify they pass**
+- [ ] **Step 4: Run the settings and repository tests to verify they pass**
 
 Run:
 
 ```bash
 cd /home/maoyd/siq-research-engine
-python3 -m pytest apps/api/tests/test_market_package_repository.py -q
+python3 -m pytest apps/api/tests/test_market_report_settings.py apps/api/tests/test_market_package_repository.py -q
 ```
 
 Expected: all selected tests pass.
@@ -950,7 +1054,7 @@ Run:
 
 ```bash
 cd /home/maoyd/siq-research-engine
-git add apps/api/services/market_package_repository.py apps/api/tests/test_market_package_repository.py
+git add apps/api/services/market_report_settings.py apps/api/services/market_package_repository.py apps/api/tests/test_market_report_settings.py apps/api/tests/test_market_package_repository.py
 git commit -m "feat(kr): discover pdf wiki packages in market API"
 ```
 
@@ -1235,7 +1339,7 @@ Expected: commit succeeds and includes only Task 5 files.
 **Files:**
 - No source file changes required.
 - Generated local artifacts: `eval_datasets/market_ingestion_cases/kr_30_pdf_cases.json`
-- Generated local artifacts: `data/wiki/kr_reports/companies/<company>/reports/<report_id>/`
+- Generated local artifacts: `data/wiki/kr/companies/<company>/reports/<report_id>/`
 
 **Interfaces:**
 - Consumes from Tasks 1-5: CLI scripts、backend scan、frontend package panel。
@@ -1295,12 +1399,12 @@ Run:
 cd /home/maoyd/siq-research-engine
 python3 scripts/kr/ingest_kr_case_set.py \
   --case-set eval_datasets/market_ingestion_cases/kr_30_pdf_cases.json \
-  --output-root data/wiki/kr_reports \
+  --output-root data/wiki/kr \
   --limit 1 \
   --force
 ```
 
-Expected: JSON output has `created = 1`, `failed = 0`, and one path under `data/wiki/kr_reports/companies/`.
+Expected: JSON output has `created = 1`, `failed = 0`, and one path under `data/wiki/kr/companies/`.
 
 - [ ] **Step 5: Start or reuse the API service and run package scan smoke**
 
@@ -1333,7 +1437,7 @@ Run:
 cd /home/maoyd/siq-research-engine
 python3 scripts/kr/ingest_kr_case_set.py \
   --case-set eval_datasets/market_ingestion_cases/kr_30_pdf_cases.json \
-  --output-root data/wiki/kr_reports \
+  --output-root data/wiki/kr \
   --force
 ```
 
@@ -1345,7 +1449,7 @@ Run:
 
 ```bash
 cd /home/maoyd/siq-research-engine
-git status --short data/wiki/kr_reports eval_datasets/market_ingestion_cases/kr_30_pdf_cases.json
+git status --short data/wiki/kr eval_datasets/market_ingestion_cases/kr_30_pdf_cases.json
 ```
 
 Expected: generated wiki data appears as untracked or modified local artifacts; do not include these files in the implementation commits unless the user requests checked-in datasets.
