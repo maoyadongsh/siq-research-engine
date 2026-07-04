@@ -275,6 +275,29 @@ def test_import_v2_artifacts_writes_parser_and_qa_tables(tmp_path):
     }
 
 
+def test_hk_parser_artifacts_normalize_object_target_to_text(tmp_path):
+    importer = _load_importer()
+    package_dir = tmp_path
+    _write_json(
+        package_dir / "parser" / "content_list_enhanced.json",
+        {
+            "schema_version": "hk_content_list_enhanced_v1",
+            "target": {"id": "hk_table_0001", "kind": "table"},
+            "page_number": 88,
+            "table_index": [{"table_index": 1, "heading": "Definitions"}],
+            "payload": {"tables": []},
+        },
+    )
+
+    conn = FakeConnection()
+    importer._insert_parser_artifacts(conn, "pdf2md_hk", package_dir, "filing-1", "run-1")
+
+    assert conn.calls
+    _sql, params = conn.calls[0]
+    assert params[5] is None
+    assert params[6] == "hk_table_0001"
+
+
 def test_malformed_optional_v2_json_files_are_skipped(tmp_path):
     importer = _load_importer()
     package_dir = tmp_path
@@ -314,3 +337,21 @@ def test_strict_json_reader_still_raises_for_malformed_json(tmp_path):
 
     with pytest.raises(json.JSONDecodeError):
         importer.read_json(path)
+
+
+
+def test_hk_importer_writes_financial_read_model_tables(tmp_path):
+    importer = _load_importer()
+    package_dir = tmp_path
+    _write_json(package_dir / "metrics" / "financial_data.json", {"statements": [{"statement_id": "balance_sheet", "statement_type": "balance_sheet", "statement_name": "Balance Sheet", "scope": "consolidated", "scope_name": "Consolidated", "title": "Balance Sheet", "unit": "RMB in millions", "scale": "1000000", "currency": "CNY", "table_indexes": [1], "columns": [{"period_key": "2025-12-31", "label": "2025-12-31"}], "items": [{"item_index": 1, "name": "Total assets", "canonical_name": "total_assets", "statement_type": "balance_sheet", "values": {"2025-12-31": "1000"}, "raw_values": {"2025-12-31": "1,000"}, "sources": {"2025-12-31": {"page_number": 4, "table_index": 1, "row_index": 2, "column_index": 1}}, "unit": "RMB in millions", "currency": "CNY", "scale": "1000000", "periods": {"2025-12-31": {"period_end": "2025-12-31", "fiscal_year": 2025, "fiscal_period": "FY"}}, "confidence": "0.84", "raw": []}]}], "key_metrics": [{"metric_index": 1, "name": "Basic EPS", "canonical_name": "basic_eps", "statement_type": "key_metrics", "values": {"2025-12-31": "1.2"}, "raw_values": {"2025-12-31": "1.2"}, "sources": {"2025-12-31": {"page_number": 5, "table_index": 2}}, "unit": "RMB/share", "currency": "CNY", "scale": "1", "periods": {"2025-12-31": {"period_end": "2025-12-31", "fiscal_year": 2025, "fiscal_period": "FY"}}, "confidence": "0.80", "raw": []}], "operating_metrics": []})
+    manifest = {"filing_id": "HK:00700:12100024", "company_id": "HK:00700", "ticker": "00700", "stock_code": "00700", "company_name": "TENCENT", "exchange": "HKEX", "report_type": "annual", "fiscal_year": 2025, "fiscal_period": "FY", "period_end": "2025-12-31", "accounting_standard": "HKFRS", "industry_profile": "internet_platform"}
+    conn = FakeConnection()
+
+    importer._insert_financial_read_models(conn, "pdf2md_hk", package_dir, manifest, manifest["filing_id"], "run-1")
+
+    touched = _touched_tables(conn)
+    assert {"financial_statements", "financial_statement_items", "financial_key_metrics", "financial_balance_sheet_items", "financial_all_metrics_wide"} <= touched
+    statement_item_call = next(call for call in conn.calls if "financial_statement_items" in call[0])
+    assert "stock_code" in statement_item_call[0]
+    assert "source_page_number" in statement_item_call[0]
+    assert "source_table_index" in statement_item_call[0]

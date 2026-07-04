@@ -225,3 +225,47 @@ def test_hk_mixed_summary_allows_exact_balance_totals():
     assert total_assets["values"]["2025-12-31"] == "76009821"
     assert total_liabilities["values"]["2025-12-31"] == "-33923894"
     assert total_equity["values"]["2025-12-31"] == "42085927"
+
+
+
+def test_hk_period_columns_use_month_day_header_for_non_december_fiscal_year():
+    artifact = ParsedArtifact(
+        artifact_id="hk-non-december-fye",
+        market=Market.HK,
+        company_id="HK:09988",
+        ticker="09988",
+        company_name="BABA-W",
+        report_type="annual",
+        fiscal_year=2025,
+        period_end="2025-12-31",
+        accounting_standard=AccountingStandard.HKFRS,
+        currency="CNY",
+        unit="RMB in millions",
+        tables=[
+            ParsedTable(
+                table_id="bs-march",
+                title="Consolidated Balance Sheets",
+                table_index=61,
+                page_number=247,
+                unit="RMB in millions",
+                currency="CNY",
+                rows=[
+                    ["", "As of March 31,"],
+                    ["", "2025", "2024"],
+                    ["Assets"],
+                    ["Total assets", "250000", "230000"],
+                    ["Total liabilities", "120000", "100000"],
+                    ["Total equity", "130000", "130000"],
+                ],
+            )
+        ],
+    )
+
+    result = process_artifact(artifact)
+    data = financial_data_contract(result.extraction)
+
+    balance = next(statement for statement in data["statements"] if statement["statement_type"] == "balance_sheet")
+    total_assets = next(item for item in balance["items"] if item["canonical_name"] == "total_assets")
+    assert total_assets["values"]["2025-03-31"] == "250000"
+    assert total_assets["values"]["2024-03-31"] == "230000"
+    assert "2025-12-31" not in total_assets["values"]

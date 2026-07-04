@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from datetime import date
 from decimal import Decimal
 from typing import Any
 
@@ -138,6 +139,7 @@ def _period_columns_for_table(
     if from_raw:
         return _PeriodColumns(from_raw, set(), label_columns)
 
+    month_day_hint = _month_day_hint_for_table(table)
     best_row_index: int | None = None
     best_periods: dict[int, str] = {}
     max_columns = max((len(row) for row in table.rows), default=1)
@@ -147,7 +149,7 @@ def _period_columns_for_table(
         for column_index, cell in enumerate(aligned_row):
             if column_index < label_columns or _is_note_column(cell):
                 continue
-            parsed = _period_from_header_cell(cell, artifact, statement_type)
+            parsed = _period_from_header_cell(cell, artifact, statement_type, month_day_hint)
             if parsed:
                 periods[column_index] = parsed
         if len(periods) > len(best_periods):
@@ -241,7 +243,12 @@ def _period_columns_from_raw(raw: dict[str, Any]) -> dict[int, str]:
     return {index: period for index, period in periods.items() if index > 0}
 
 
-def _period_from_header_cell(cell: Any, artifact: ParsedArtifact, statement_type: StatementType | None) -> str | None:
+def _period_from_header_cell(
+    cell: Any,
+    artifact: ParsedArtifact,
+    statement_type: StatementType | None,
+    month_day_hint: tuple[int, int] | None = None,
+) -> str | None:
     text = str(cell or "").strip()
     parsed = _safe_parse_date(text)
     if parsed:
@@ -250,6 +257,12 @@ def _period_from_header_cell(cell: Any, artifact: ParsedArtifact, statement_type
     if not year_match:
         return None
     year = int(year_match.group(1))
+    if month_day_hint:
+        month, day = month_day_hint
+        try:
+            return date(year, month, day).isoformat()
+        except ValueError:
+            pass
     if statement_type == StatementType.BALANCE_SHEET and artifact.period_end:
         return artifact.period_end.replace(year=year).isoformat()
     if artifact.period_end and artifact.period_end.year == year:
@@ -264,6 +277,77 @@ def _safe_parse_date(value: Any):
         return parse_date(value)
     except (TypeError, ValueError):
         return None
+
+
+_MONTHS = {
+    "january": 1,
+    "jan": 1,
+    "february": 2,
+    "feb": 2,
+    "march": 3,
+    "mar": 3,
+    "april": 4,
+    "apr": 4,
+    "may": 5,
+    "june": 6,
+    "jun": 6,
+    "july": 7,
+    "jul": 7,
+    "august": 8,
+    "aug": 8,
+    "september": 9,
+    "sep": 9,
+    "sept": 9,
+    "october": 10,
+    "oct": 10,
+    "november": 11,
+    "nov": 11,
+    "december": 12,
+    "dec": 12,
+}
+
+
+def _month_day_hint_for_table(table: ParsedTable) -> tuple[int, int] | None:
+    parts: list[str] = []
+    if table.title:
+        parts.append(str(table.title))
+    for row in table.rows[:5]:
+        parts.append(" ".join(str(cell or "") for cell in row))
+    raw = table.raw if isinstance(table.raw, dict) else {}
+    if raw.get("preview"):
+        parts.append(str(raw.get("preview")))
+    structure = raw.get("structure") if isinstance(raw.get("structure"), dict) else {}
+    for value in structure.get("header_preview") or []:
+        parts.append(str(value))
+    return _month_day_from_text(" ".join(parts))
+
+
+def _month_day_from_text(text: str) -> tuple[int, int] | None:
+    if not text:
+        return None
+    lowered = text.lower()
+    month_names = "|".join(sorted(_MONTHS, key=len, reverse=True))
+    for pattern in (
+        rf"\b({month_names})\.?\s+(\d{{1,2}})(?:st|nd|rd|th)?\b",
+        rf"\b(\d{{1,2}})(?:st|nd|rd|th)?\s+({month_names})\.?\b",
+    ):
+        match = re.search(pattern, lowered)
+        if match:
+            first, second = match.groups()
+            if first.isdigit():
+                day = int(first)
+                month = _MONTHS.get(second.rstrip("."))
+            else:
+                month = _MONTHS.get(first.rstrip("."))
+                day = int(second)
+            if month and 1 <= day <= 31:
+                return month, day
+    zh = re.search(r"(\d{1,2})\s*月\s*(\d{1,2})\s*[日號号]", text)
+    if zh:
+        month, day = (int(part) for part in zh.groups())
+        if 1 <= month <= 12 and 1 <= day <= 31:
+            return month, day
+    return None
 
 
 def _numeric_cells_for_periods(row: list[Any], column_periods: dict[int, str]) -> list[tuple[int, Decimal]]:

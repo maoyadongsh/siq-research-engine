@@ -121,7 +121,7 @@ INDUSTRY_PROFILES: dict[str, IndustryProfile] = {
     "semiconductor": IndustryProfile(
         profile_id="semiconductor",
         label="Semiconductor and semiconductor equipment issuer",
-        markets=(Market.EU,),
+        markets=(Market.HK, Market.EU,),
         required_financial_metrics=("operating_revenue", "gross_profit", "net_profit", "inventories", "property_plant_equipment", "operating_cash_flow_net"),
         optional_financial_metrics=("capital_expenditure", "research_and_development_expense"),
         operating_metric_profiles=("general", "manufacturing"),
@@ -151,7 +151,7 @@ INDUSTRY_PROFILES: dict[str, IndustryProfile] = {
     "telecom": IndustryProfile(
         profile_id="telecom",
         label="Telecommunications issuer",
-        markets=(Market.EU,),
+        markets=(Market.HK, Market.EU,),
         required_financial_metrics=("operating_revenue", "net_profit", "total_assets", "total_liabilities", "total_equity", "operating_cash_flow_net"),
         optional_financial_metrics=("capital_expenditure", "lease_liabilities", "right_of_use_assets"),
         operating_metric_profiles=("general",),

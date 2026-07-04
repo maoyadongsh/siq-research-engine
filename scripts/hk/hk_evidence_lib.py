@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import html
 import hashlib
 import json
@@ -30,7 +31,7 @@ from market_report_rules_service.evidence_package import (
     write_json,
 )
 from market_report_rules_service.models import AccountingStandard, Market, ParsedArtifact, ParsedTable
-from market_report_rules_service.normalization import infer_currency, parse_date
+from market_report_rules_service.normalization import infer_currency, infer_scale, parse_date
 from market_report_rules_service.pipeline import process_artifact
 
 
@@ -72,6 +73,17 @@ def read_json(path: Path, default: Any = None) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _metadata_path_for_pdf(pdf_path: Path) -> Path:
+    candidates = [
+        pdf_path.with_suffix(pdf_path.suffix + ".metadata.json"),
+        pdf_path.with_suffix(".metadata.json"),
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
 def _clean_cell(value: Any) -> str:
     text = html.unescape(str(value or ""))
     text = re.sub(r"<[^>]+>", " ", text)
@@ -85,8 +97,27 @@ def _html_table_rows(table_body: str) -> list[list[str]]:
     return parser.rows
 
 
+def _enhanced_table_rows(item: dict[str, Any]) -> list[list[str]]:
+    structure = item.get("structure") if isinstance(item.get("structure"), dict) else {}
+    header_preview = structure.get("header_preview") if isinstance(structure, dict) else None
+    rows: list[list[str]] = []
+    if isinstance(header_preview, list):
+        for line in header_preview:
+            if not isinstance(line, str):
+                continue
+            cells = [_clean_cell(cell) for cell in line.split("|")]
+            cells = [cell for cell in cells if cell]
+            if len(cells) >= 2:
+                rows.append(cells)
+    if rows:
+        return rows
+    preview = str(item.get("preview") or "")
+    cells = [_clean_cell(cell) for cell in re.split(r"\s{2,}|\s+\|\s+", preview) if _clean_cell(cell)]
+    return [cells] if len(cells) >= 2 else []
+
+
 def infer_metadata(pdf_path: Path, metadata_path: Path | None = None) -> dict[str, Any]:
-    metadata = read_json(metadata_path or pdf_path.with_suffix(pdf_path.suffix + ".metadata.json"), {})
+    metadata = read_json(metadata_path or _metadata_path_for_pdf(pdf_path), {})
     candidate = metadata.get("candidate") if isinstance(metadata, dict) else {}
     if not isinstance(candidate, dict):
         candidate = {}
@@ -113,6 +144,7 @@ def infer_metadata(pdf_path: Path, metadata_path: Path | None = None) -> dict[st
         "accession_number": candidate.get("accession_number") or pdf_path.stem.rsplit("_", 1)[-1],
         "accounting_standard": _accounting_standard(metadata),
         "language": candidate.get("language"),
+        "industry_profile": _industry_profile(candidate, company_name),
     }
 
 
@@ -175,12 +207,12 @@ def parsed_tables_from_document_full(
         for item in enhanced_tables:
             if not isinstance(item, dict):
                 continue
-            preview = str(item.get("preview") or "")
-            rows = [[cell.strip() for cell in re.split(r"\s{2,}|\s+\|\s+", preview) if cell.strip()]]
-            if not rows or len(rows[0]) < 2:
+            rows = _enhanced_table_rows(item)
+            if not rows:
                 continue
             index = int(item.get("table_index") or len(parsed) + 1)
             title = _table_title({}, item)
+            unit = _infer_unit(title, rows)
             parsed.append(
                 ParsedTable(
                     table_id=f"hk_table_{index:04d}",
@@ -188,6 +220,8 @@ def parsed_tables_from_document_full(
                     rows=rows,
                     page_number=item.get("pdf_page_number"),
                     table_index=index,
+                    unit=unit,
+                    currency=infer_currency(unit, title, default=None),
                     raw=item,
                 )
             )
@@ -211,6 +245,7 @@ def build_hk_artifact(pdf_path: Path, parser_result_dir: Path, metadata_path: Pa
         fiscal_period=metadata["fiscal_period"],
         period_end=parse_date(metadata["period_end"]),
         accounting_standard=AccountingStandard(metadata["accounting_standard"]),
+        industry_profile=metadata.get("industry_profile") or "general",
         currency=_default_currency(metadata),
         unit=_default_unit(document_full),
         source_url=metadata["source_url"],
@@ -235,6 +270,13 @@ def write_hk_evidence_package(
     result = process_artifact(artifact, include_load_plan=True)
     financial_data = financial_data_contract(result.extraction)
     financial_checks = financial_checks_contract(result.validation)
+    parser_financial_data = read_json(parser_result_dir / "financial_data.json", {})
+    parser_financial_checks = read_json(parser_result_dir / "financial_checks.json", {})
+    if _financial_metric_count(financial_data) == 0 and _financial_metric_count(parser_financial_data) > 0:
+        financial_data = parser_financial_data
+        if parser_financial_checks:
+            financial_checks = parser_financial_checks
+    financial_data = _normalize_financial_data_units(financial_data)
 
     filing_key = metadata["accession_number"] or stable_id(pdf_path.name)[:12]
     package_dir = output_root / artifact.ticker / str(artifact.fiscal_year or "unknown") / f"{artifact.report_type}_{filing_key}"
@@ -275,6 +317,8 @@ def write_hk_evidence_package(
     (package_dir / "sections" / "report.md").write_text(markdown, encoding="utf-8")
     _write_section_index(package_dir, markdown, document_full)
     table_index = _write_tables(package_dir, artifact.tables)
+    if not table_index:
+        table_index = _write_parser_table_index(package_dir, source_parser_result_dir, document_full, standalone_enhanced)
     write_json(package_dir / "xbrl" / "facts_raw.json", {"schema_version": "hk_xbrl_facts_raw_v1", "facts": []})
     parser_quality = read_json(source_parser_result_dir / "quality_report.json", {})
 
@@ -515,6 +559,120 @@ def _write_enhancement_qa(
     })
 
 
+def _normalize_financial_data_units(financial_data: dict[str, Any]) -> dict[str, Any]:
+    normalized = copy.deepcopy(financial_data)
+    for statement in normalized.get("statements") or []:
+        if not isinstance(statement, dict):
+            continue
+        _normalize_unit_fields(statement)
+        for item in statement.get("items") or []:
+            if isinstance(item, dict):
+                _normalize_unit_fields(item, fallback_unit=statement.get("unit"), fallback_currency=statement.get("currency"))
+    for bucket in ("key_metrics", "operating_metrics"):
+        for item in normalized.get(bucket) or []:
+            if isinstance(item, dict):
+                _normalize_unit_fields(item)
+    return normalized
+
+
+def _normalize_unit_fields(
+    item: dict[str, Any],
+    *,
+    fallback_unit: str | None = None,
+    fallback_currency: str | None = None,
+) -> None:
+    unit = item.get("unit") or fallback_unit
+    inferred_currency = infer_currency(unit, default=None) or infer_currency(item.get("currency"), fallback_currency, default=item.get("currency") or fallback_currency)
+    if inferred_currency:
+        item["currency"] = inferred_currency
+    if unit:
+        scale = infer_scale(unit)
+        if scale != 1:
+            item["scale"] = str(scale)
+
+
+def _financial_metric_count(financial_data: dict[str, Any]) -> int:
+    count = 0
+    for statement in financial_data.get("statements") or []:
+        if not isinstance(statement, dict):
+            continue
+        for item in statement.get("items") or []:
+            count += _metric_item_value_count(item)
+    for bucket in ("key_metrics", "operating_metrics"):
+        for item in financial_data.get(bucket) or []:
+            count += _metric_item_value_count(item)
+    return count
+
+
+def _metric_item_value_count(item: Any) -> int:
+    if not isinstance(item, dict):
+        return 0
+    values = item.get("values")
+    if isinstance(values, dict):
+        return len([value for value in values.values() if value not in (None, "")])
+    if item.get("value") not in (None, "") and (item.get("period_key") or item.get("canonical_name") or item.get("label")):
+        return 1
+    return 0
+
+
+def _write_parser_table_index(
+    package_dir: Path,
+    parser_result_dir: Path,
+    document_full: dict[str, Any],
+    content_list_enhanced: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    payload = read_json(parser_result_dir / "table_index.json", {})
+    if isinstance(payload, list):
+        tables = payload
+    elif isinstance(payload, dict):
+        tables = payload.get("tables") if isinstance(payload.get("tables"), list) else []
+    else:
+        tables = []
+    if not tables:
+        enhanced = _content_list_enhanced(document_full, content_list_enhanced)
+        tables = enhanced.get("tables") if isinstance(enhanced.get("tables"), list) else []
+    rows: list[dict[str, Any]] = []
+    for offset, item in enumerate((table for table in tables if isinstance(table, dict)), start=1):
+        raw = item.get("raw") if isinstance(item.get("raw"), dict) else item
+        table_index = _int_or_none(item.get("table_index") or raw.get("table_index")) or offset
+        structure = raw.get("structure") if isinstance(raw.get("structure"), dict) else {}
+        rel_path = str(item.get("table_json_path") or f"tables/table_{int(table_index):04d}.json")
+        if not rel_path.startswith("tables/"):
+            rel_path = f"tables/{Path(rel_path).name}"
+        normalized = {
+            "table_id": item.get("table_id") or f"hk_table_{int(table_index):04d}",
+            "table_index": table_index,
+            "title": item.get("title") or raw.get("title") or raw.get("heading"),
+            "page_number": item.get("page_number") or item.get("pdf_page_number") or raw.get("pdf_page_number") or raw.get("page_number"),
+            "row_count": item.get("row_count") or raw.get("rows") or structure.get("expanded_rows"),
+            "column_count": item.get("column_count") or structure.get("expanded_columns"),
+            "table_json_path": rel_path,
+            "unit": item.get("unit") or raw.get("unit"),
+            "currency": item.get("currency") or raw.get("currency"),
+            "raw": raw,
+        }
+        rows.append(normalized)
+        write_json(package_dir / rel_path, {**normalized, "rows": _table_rows_from_index_item(item, raw)})
+    write_json(package_dir / "tables" / "table_index.json", {"schema_version": "hk_table_index_v1", "tables": rows})
+    return rows
+
+
+def _table_rows_from_index_item(item: dict[str, Any], raw: dict[str, Any]) -> list[list[str]]:
+    existing_rows = item.get("rows")
+    if isinstance(existing_rows, list) and existing_rows and all(isinstance(row, list) for row in existing_rows):
+        return existing_rows
+    structure = raw.get("structure") if isinstance(raw.get("structure"), dict) else {}
+    rows: list[list[str]] = []
+    for value in structure.get("header_preview") or []:
+        row = [cell.strip() for cell in str(value).split("|")]
+        if any(row):
+            rows.append(row)
+    preview = str(raw.get("preview") or item.get("preview") or "").strip()
+    if preview:
+        rows.append([preview])
+    return rows
+
+
 def _write_tables(package_dir: Path, tables: list[ParsedTable]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for table in tables:
@@ -611,7 +769,7 @@ def _page_number(item: dict[str, Any]) -> int | None:
 def _default_unit(document_full: dict[str, Any]) -> str | None:
     filename = str(document_full.get("task", {}).get("filename") if isinstance(document_full.get("task"), dict) else "")
     if "HK" in filename:
-        return "HKD"
+        return None
     return None
 
 
@@ -621,7 +779,7 @@ def _default_currency(metadata: dict[str, Any]) -> str | None:
         return "CNY"
     if "usd" in text or "us$" in text:
         return "USD"
-    return "HKD"
+    return None
 
 
 def _parser_warnings(document_full: dict[str, Any], tables: list[ParsedTable]) -> list[str]:
@@ -668,6 +826,49 @@ def _int_or_none(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _industry_profile(candidate: dict[str, Any], company_name: str | None) -> str:
+    explicit = str(candidate.get("industry_profile") or candidate.get("industry") or "").strip().lower()
+    if explicit in {
+        "bank",
+        "insurance",
+        "internet_platform",
+        "semiconductor",
+        "telecom",
+        "energy",
+        "manufacturing",
+        "real_estate",
+        "retail",
+        "saas",
+    }:
+        return explicit
+    text = " ".join(
+        str(value or "")
+        for value in (
+            candidate.get("ticker"),
+            candidate.get("company_id"),
+            company_name,
+            candidate.get("stock_name"),
+            (candidate.get("metadata") or {}).get("stock_name") if isinstance(candidate.get("metadata"), dict) else None,
+        )
+    ).lower()
+    compact = re.sub(r"[^0-9a-z]+", " ", text)
+    rules: tuple[tuple[str, tuple[str, ...]], ...] = (
+        ("bank", ("bank", "hsbc", "hang seng", "standard chartered", "icbc", "ccb", "abc", "boc", "bankcomm")),
+        ("insurance", ("insurance", "insur", "aia", "ping an", "china life", "cpic", "picc", "prudential")),
+        ("internet_platform", ("tencent", "alibaba", "baba", "jd", "meituan", "kuaishou", "netease", "baidu", "trip com", "bilibili")),
+        ("semiconductor", ("semiconductor", "smic", "hua hong", "chip", "microelectronics")),
+        ("telecom", ("telecom", "mobile", "unicom", "tower")),
+        ("energy", ("sinopec", "petrochina", "cnooc", "shenhua", "coal", "oil", "gas", "energy", "power")),
+        ("manufacturing", ("auto", "automobile", "geely", "byd", "great wall", "li auto", "motor", "machinery")),
+        ("real_estate", ("property", "properties", "land", "real estate", "developer", "reit")),
+        ("retail", ("retail", "consumer", "restaurant", "stores")),
+    )
+    for profile, aliases in rules:
+        if any(alias in compact for alias in aliases):
+            return profile
+    return "general"
 
 
 def _accounting_standard(metadata: dict[str, Any]) -> str:

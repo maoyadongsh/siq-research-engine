@@ -153,6 +153,111 @@ create table if not exists pdf2md_hk.financial_facts (
 create index if not exists idx_pdf2md_hk_financial_facts_ticker_metric_period on pdf2md_hk.financial_facts (ticker, canonical_name, period_key);
 create index if not exists idx_pdf2md_hk_financial_facts_filing_statement on pdf2md_hk.financial_facts (filing_id, statement_type);
 
+
+create table if not exists pdf2md_hk.financial_statements (
+    parse_run_id text not null references pdf2md_hk.parse_runs(parse_run_id) on delete cascade,
+    filing_id text not null references pdf2md_hk.filings(filing_id) on delete cascade,
+    statement_id text not null,
+    statement_type text,
+    statement_name text,
+    scope text,
+    scope_name text,
+    title text,
+    unit text,
+    scale numeric,
+    currency text,
+    table_indexes jsonb not null default '[]'::jsonb,
+    columns jsonb not null default '[]'::jsonb,
+    raw jsonb not null default '{}'::jsonb,
+    created_at timestamptz not null default now(),
+    primary key (parse_run_id, statement_id)
+);
+
+create index if not exists idx_pdf2md_hk_financial_statements_filing on pdf2md_hk.financial_statements (filing_id, statement_type);
+
+create table if not exists pdf2md_hk.financial_statement_items (
+    item_uid text primary key,
+    filing_id text not null references pdf2md_hk.filings(filing_id) on delete cascade,
+    parse_run_id text not null references pdf2md_hk.parse_runs(parse_run_id) on delete cascade,
+    company_id text,
+    ticker text not null,
+    stock_code text,
+    company_name text,
+    exchange text,
+    statement_id text,
+    statement_type text,
+    statement_name text,
+    scope text,
+    scope_name text,
+    item_index integer,
+    period_key text not null,
+    item_name text,
+    canonical_name text,
+    value numeric,
+    raw_value text,
+    unit text,
+    currency text,
+    scale numeric,
+    period_start date,
+    period_end date,
+    fiscal_year integer,
+    fiscal_period text,
+    accounting_standard text,
+    industry_profile text,
+    confidence numeric,
+    source_page_number integer,
+    source_table_index integer,
+    source_row_index integer,
+    source_column_index integer,
+    source_bbox jsonb,
+    evidence_id text references pdf2md_hk.evidence_citations(evidence_id),
+    raw jsonb not null default '{}'::jsonb,
+    created_at timestamptz not null default now()
+);
+
+create index if not exists idx_pdf2md_hk_statement_items_lookup on pdf2md_hk.financial_statement_items (ticker, statement_type, canonical_name, period_key);
+create index if not exists idx_pdf2md_hk_statement_items_source on pdf2md_hk.financial_statement_items (filing_id, source_page_number, source_table_index);
+
+create table if not exists pdf2md_hk.financial_key_metrics (
+    like pdf2md_hk.financial_statement_items including defaults including constraints including indexes
+);
+
+create table if not exists pdf2md_hk.financial_balance_sheet_items (
+    like pdf2md_hk.financial_statement_items including defaults including constraints including indexes
+);
+
+create table if not exists pdf2md_hk.financial_income_statement_items (
+    like pdf2md_hk.financial_statement_items including defaults including constraints including indexes
+);
+
+create table if not exists pdf2md_hk.financial_cash_flow_statement_items (
+    like pdf2md_hk.financial_statement_items including defaults including constraints including indexes
+);
+
+create table if not exists pdf2md_hk.financial_all_metrics_wide (
+    parse_run_id text not null references pdf2md_hk.parse_runs(parse_run_id) on delete cascade,
+    filing_id text not null references pdf2md_hk.filings(filing_id) on delete cascade,
+    company_id text,
+    ticker text not null,
+    stock_code text,
+    company_name text,
+    exchange text,
+    period_key text not null,
+    fiscal_year integer,
+    fiscal_period text,
+    balance_sheet jsonb not null default '{}'::jsonb,
+    income_statement jsonb not null default '{}'::jsonb,
+    cash_flow_statement jsonb not null default '{}'::jsonb,
+    key_metrics jsonb not null default '{}'::jsonb,
+    all_metrics jsonb not null default '{}'::jsonb,
+    raw jsonb not null default '{}'::jsonb,
+    created_at timestamptz not null default now(),
+    primary key (parse_run_id, period_key)
+);
+
+create index if not exists idx_pdf2md_hk_all_metrics_wide_lookup on pdf2md_hk.financial_all_metrics_wide (ticker, fiscal_year, fiscal_period, period_key);
+create index if not exists idx_pdf2md_hk_all_metrics_wide_gin on pdf2md_hk.financial_all_metrics_wide using gin (all_metrics);
+
 create table if not exists pdf2md_hk.operating_metric_facts (
     metric_id text primary key,
     filing_id text not null references pdf2md_hk.filings(filing_id) on delete cascade,
