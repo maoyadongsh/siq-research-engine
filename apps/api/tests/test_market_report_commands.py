@@ -586,7 +586,7 @@ def test_market_package_build_plan_reports_missing_metadata_and_parser_result(tm
             raise AssertionError("expected plan error")
 
 
-def test_market_package_import_args_uses_us_package_flag_and_database_url():
+def test_market_package_import_args_uses_us_package_flag_without_database_url():
     args = commands.market_package_import_args(
         executable="/usr/bin/python",
         script=Path("/repo/scripts/import_us.py"),
@@ -600,10 +600,10 @@ def test_market_package_import_args_uses_us_package_flag_and_database_url():
         "/repo/scripts/import_us.py",
         "--package",
         "/repo/data/wiki/us_sec/AAPL/package",
-        "--database-url",
-        "postgres://secret",
         "--ddl",
     ]
+    assert "postgres://secret" not in args
+    assert "--database-url" not in args
 
 
 def test_market_package_import_args_uses_positional_package_for_non_us():
@@ -644,6 +644,22 @@ def test_market_package_import_env_sanitizes_inherited_database_url_for_hk():
     assert hk_env["SIQ_HK_PGDATABASE"] == "siq_hk"
     assert hk_env["PATH"] == "/usr/bin"
     assert "DATABASE_URL" not in hk_env
+
+
+def test_market_package_import_env_uses_explicit_database_url_over_inherited_and_hk_default():
+    hk_env = commands.market_package_import_env(
+        "HK",
+        {"HK": "siq_hk"},
+        base_env={
+            "DATABASE_URL": "postgresql://postgres:inherited@db/siq",
+            "PATH": "/usr/bin",
+        },
+        database_url="postgresql://postgres:explicit@db/siq_private",
+    )
+
+    assert hk_env["DATABASE_URL"] == "postgresql://postgres:explicit@db/siq_private"
+    assert hk_env["SIQ_HK_PGDATABASE"] == "siq_hk"
+    assert hk_env["PATH"] == "/usr/bin"
 
 
 def test_market_package_import_plan_selects_script_and_package_dir(tmp_path):

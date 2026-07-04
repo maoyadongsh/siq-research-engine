@@ -96,3 +96,36 @@ Result:
 ```text
 113 passed, 4 warnings in 0.53s
 ```
+
+---
+
+## Re-review Fix: keep explicit database URLs out of argv
+
+Fixed the Task 5 re-review blocker:
+
+- Removed `--database-url <url>` from market package import command argv, including explicit payload `database_url` cases.
+- Added `database_url` support to `market_package_import_env(...)`, where explicit payload values are written as `DATABASE_URL` and overwrite any inherited `DATABASE_URL`.
+- Updated `_run_market_package_import()` to always ask the command helper for import env. HK no-payload imports still receive a sanitized env without inherited `DATABASE_URL` and with `SIQ_HK_PGDATABASE=siq_hk`; non-HK no-payload imports still avoid an env override.
+- Updated command and router proxy tests to assert explicit URLs are present in env, absent from argv, and absent from displayed commands.
+
+Red phase:
+
+```text
+3 failed, 2 warnings in 0.52s
+AssertionError: --database-url still present in args
+TypeError: market_package_import_env() got an unexpected keyword argument 'database_url'
+AssertionError: explicit HK import argv still contained --database-url postgres://secret
+```
+
+Verification:
+
+```bash
+cd /home/maoyd/siq-research-engine/apps/api
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_market_report_settings.py tests/test_market_report_commands.py tests/test_market_reports_proxy.py
+```
+
+Result:
+
+```text
+114 passed, 4 warnings in 0.53s
+```

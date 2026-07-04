@@ -209,23 +209,24 @@ def market_package_import_env(
     market: str,
     market_databases: Mapping[str, str],
     base_env: Mapping[str, str] | None = None,
+    database_url: str | None = None,
 ) -> dict[str, str]:
     market_code = market.upper()
     database = market_databases.get(market_code)
-    if not database:
+    default_database = str(database).strip() if database else ""
+    explicit_database_url = str(database_url).strip() if database_url else ""
+    if not default_database and not explicit_database_url:
         return {}
 
-    env_name = f"SIQ_{market_code}_PGDATABASE"
-    default_database = str(database).strip()
-    if not default_database:
-        return {}
-    if base_env is None:
-        return {env_name: default_database}
-
-    env = dict(base_env)
-    existing = env.get(env_name)
-    env[env_name] = str(existing).strip() if existing and str(existing).strip() else default_database
-    env.pop("DATABASE_URL", None)
+    env = dict(base_env) if base_env is not None else {}
+    if explicit_database_url:
+        env["DATABASE_URL"] = explicit_database_url
+    else:
+        env.pop("DATABASE_URL", None)
+    if default_database:
+        env_name = f"SIQ_{market_code}_PGDATABASE"
+        existing = env.get(env_name)
+        env[env_name] = str(existing).strip() if existing and str(existing).strip() else default_database
     return env
 
 
@@ -243,9 +244,6 @@ def market_package_import_args(
     else:
         args.append(str(package_dir))
 
-    database_url = payload.get("database_url")
-    if database_url:
-        args.extend(["--database-url", str(database_url)])
     if payload.get("ddl") or payload.get("run_ddl"):
         args.append("--ddl")
     return args

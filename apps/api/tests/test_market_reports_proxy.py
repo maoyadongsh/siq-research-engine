@@ -1247,6 +1247,7 @@ def test_market_import_command_uses_positional_package_for_non_us(monkeypatch, t
         seen["kwargs"] = kwargs
         return Completed()
 
+    monkeypatch.setenv("DATABASE_URL", "postgres://inherited")
     monkeypatch.setitem(market_reports.MARKET_WIKI_ROOTS, "HK", wiki_root)
     monkeypatch.setitem(market_reports.MARKET_IMPORT_SCRIPTS, "HK", import_script)
     monkeypatch.setattr(market_reports, "run_command", fake_run)
@@ -1264,10 +1265,14 @@ def test_market_import_command_uses_positional_package_for_non_us(monkeypatch, t
     assert result["parse_run_id"] == "parse-run-hk"
     assert seen["args"][:3] == [market_reports.sys.executable, str(import_script), str(package_dir)]
     assert "--package" not in seen["args"]
-    assert seen["args"][-3:] == ["--database-url", "postgres://secret", "--ddl"]
-    assert seen["kwargs"] == {"cwd": market_reports.REPO_ROOT, "timeout": 900}
+    assert seen["args"][-1] == "--ddl"
+    assert "--database-url" not in seen["args"]
+    assert "postgres://secret" not in seen["args"]
+    assert seen["kwargs"]["cwd"] == market_reports.REPO_ROOT
+    assert seen["kwargs"]["timeout"] == 900
+    assert seen["kwargs"]["env"]["DATABASE_URL"] == "postgres://secret"
     assert "postgres://secret" not in result["command"]
-    assert "--database-url ***" in result["command"]
+    assert "--database-url" not in result["command"]
 
 
 def test_market_import_command_hk_default_env_sanitizes_inherited_database_url(monkeypatch, tmp_path):

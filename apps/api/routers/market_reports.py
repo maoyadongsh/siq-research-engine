@@ -252,14 +252,14 @@ def _run_market_package_import(payload: dict[str, Any]) -> dict[str, Any]:
         payload=payload,
     )
     run_kwargs: dict[str, Any] = {"cwd": REPO_ROOT, "timeout": 900}
-    if not payload.get("database_url"):
-        import_env = market_report_commands.market_package_import_env(
-            plan.market,
-            MARKET_DATABASES,
-            base_env=os.environ,
-        )
-        if import_env:
-            run_kwargs["env"] = import_env
+    import_env = market_report_commands.market_package_import_env(
+        plan.market,
+        MARKET_DATABASES,
+        base_env=os.environ,
+        database_url=payload.get("database_url"),
+    )
+    if import_env:
+        run_kwargs["env"] = import_env
     completed = run_command(args, **run_kwargs)
     return market_report_commands.market_package_import_result_payload(
         completed=completed,
