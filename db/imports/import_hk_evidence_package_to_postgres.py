@@ -26,7 +26,13 @@ DDL_PATH = REPO_ROOT / "db" / "ddl" / "020_create_pdf2md_hk_schema.sql"
 
 
 def read_json(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    if not path.exists():
+        return {}
+    text = path.read_text(encoding="utf-8")
+    if not text.strip():
+        return {}
+    payload = json.loads(text)
+    return payload if isinstance(payload, dict) else {}
 
 
 def parse_date(value: Any) -> Any:
@@ -39,13 +45,51 @@ def parse_numeric(value: Any) -> Any:
     return str(value)
 
 
+def _first_value(item: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        value = item.get(key)
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def _page_number(item: dict[str, Any]) -> Any:
+    page_number = _first_value(item, "page_number", "pdf_page_number", "page")
+    if page_number not in (None, ""):
+        return page_number
+    page_idx = item.get("page_idx")
+    try:
+        return int(page_idx) + 1
+    except (TypeError, ValueError):
+        return None
+
+
+def _table_index(item: dict[str, Any]) -> Any:
+    return _first_value(item, "table_index", "content_table_source_id", "source_table_index")
+
+
+def _payload_items(payload: dict[str, Any], *keys: str) -> list[tuple[str, dict[str, Any]]]:
+    body = payload.get("payload") if isinstance(payload.get("payload"), dict) else payload
+    items: list[tuple[str, dict[str, Any]]] = []
+    for key in keys:
+        values = body.get(key) if isinstance(body, dict) else None
+        if isinstance(values, list):
+            items.extend((key, item) for item in values if isinstance(item, dict))
+    return items
+
+
 def database_url(explicit: str | None) -> str:
     url = explicit or os.environ.get("DATABASE_URL")
     if url:
         return url.replace("postgresql+psycopg://", "postgresql://")
+    db = (
+        os.environ.get("SIQ_HK_PGDATABASE")
+        or os.environ.get("SIQ_PGDATABASE")
+        or os.environ.get("PGDATABASE")
+        or "siq_hk"
+    )
     host = os.environ.get("SIQ_PGHOST") or os.environ.get("PGHOST") or "127.0.0.1"
     port = os.environ.get("SIQ_PGPORT") or os.environ.get("PGPORT") or "15432"
-    db = os.environ.get("SIQ_PGDATABASE") or os.environ.get("PGDATABASE") or "siq"
     user = os.environ.get("SIQ_PGUSER") or os.environ.get("PGUSER") or "postgres"
     password = os.environ.get("SIQ_PGPASSWORD") or os.environ.get("PGPASSWORD") or ""
     auth = f"{user}:{password}" if password else user
@@ -80,6 +124,13 @@ def import_package(conn: Any, package_dir: Path, schema: str = "pdf2md_hk") -> s
         _upsert_parse_run(conn, schema, manifest, package_dir, parse_run_id, artifact_hashes, quality, warnings)
         _delete_run_rows(conn, schema, parse_run_id)
         _insert_artifacts(conn, schema, package_dir, parse_run_id)
+        _insert_parser_artifacts(conn, schema, package_dir, manifest["filing_id"], parse_run_id)
+        _insert_content_blocks(conn, schema, package_dir, manifest["filing_id"], parse_run_id)
+        _insert_footnotes(conn, schema, package_dir, manifest["filing_id"], parse_run_id)
+        _insert_toc_entries(conn, schema, package_dir, manifest["filing_id"], parse_run_id)
+        _insert_financial_note_links(conn, schema, package_dir, manifest["filing_id"], parse_run_id)
+        _insert_table_relations(conn, schema, package_dir, manifest["filing_id"], parse_run_id)
+        _insert_table_quality_signals(conn, schema, package_dir, manifest["filing_id"], parse_run_id)
         _insert_sections(conn, schema, package_dir, manifest["filing_id"], parse_run_id)
         _insert_pdf_pages(conn, schema, package_dir, manifest["filing_id"], parse_run_id)
         _insert_tables(conn, schema, package_dir, manifest["filing_id"], parse_run_id)
@@ -93,15 +144,34 @@ def import_package(conn: Any, package_dir: Path, schema: str = "pdf2md_hk") -> s
 def _upsert_company(conn: Any, schema: str, manifest: dict[str, Any]) -> None:
     conn.execute(
         f"""
-        insert into {schema}.companies (company_id, ticker, company_name, raw, updated_at)
-        values (%s,%s,%s,%s,now())
+        insert into {schema}.companies (
+          company_id, ticker, company_name, stock_code, hkex_stock_code, short_name,
+          company_name_en, company_name_zh, aliases, raw, updated_at
+        ) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,now())
         on conflict (company_id) do update set
           ticker = excluded.ticker,
           company_name = excluded.company_name,
+          stock_code = excluded.stock_code,
+          hkex_stock_code = excluded.hkex_stock_code,
+          short_name = excluded.short_name,
+          company_name_en = excluded.company_name_en,
+          company_name_zh = excluded.company_name_zh,
+          aliases = excluded.aliases,
           raw = excluded.raw,
           updated_at = now()
         """,
-        (manifest["company_id"], manifest["ticker"], manifest.get("company_name"), Jsonb(manifest)),
+        (
+            manifest["company_id"],
+            manifest["ticker"],
+            manifest.get("company_name"),
+            manifest.get("stock_code"),
+            manifest.get("hkex_stock_code"),
+            manifest.get("short_name"),
+            manifest.get("company_name_en"),
+            manifest.get("company_name_zh"),
+            Jsonb(manifest.get("aliases") or []),
+            Jsonb(manifest),
+        ),
     )
 
 
@@ -193,6 +263,13 @@ def _delete_run_rows(conn: Any, schema: str, parse_run_id: str) -> None:
         "operating_metric_facts",
         "financial_facts",
         "evidence_citations",
+        "table_quality_signals",
+        "table_relations",
+        "financial_note_links",
+        "toc_entries",
+        "footnotes",
+        "content_blocks",
+        "parser_artifacts",
         "pdf_tables",
         "pdf_pages",
         "filing_sections",
@@ -209,6 +286,229 @@ def _insert_artifacts(conn: Any, schema: str, package_dir: Path, parse_run_id: s
         conn.execute(
             f"insert into {schema}.artifacts (parse_run_id, artifact_type, local_path, sha256, size_bytes, raw) values (%s,%s,%s,%s,%s,%s)",
             (parse_run_id, rel.replace("/", "."), rel, hashlib.sha256(path.read_bytes()).hexdigest(), path.stat().st_size, Jsonb({})),
+        )
+
+
+def _insert_parser_artifacts(conn: Any, schema: str, package_dir: Path, filing_id: str, parse_run_id: str) -> None:
+    parser_dir = package_dir / "parser"
+    if not parser_dir.is_dir():
+        return
+    for path in sorted(parser_dir.rglob("*.json")):
+        payload = read_json(path)
+        if not payload:
+            continue
+        rel = path.relative_to(package_dir).as_posix()
+        conn.execute(
+            f"""
+            insert into {schema}.parser_artifacts (
+              parse_run_id, filing_id, artifact_key, local_path, page_number,
+              table_index, target, schema_version, raw
+            ) values (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """,
+            (
+                parse_run_id,
+                filing_id,
+                rel,
+                rel,
+                _page_number(payload),
+                _table_index(payload),
+                payload.get("target"),
+                payload.get("schema_version"),
+                Jsonb(payload),
+            ),
+        )
+
+
+def _insert_content_blocks(conn: Any, schema: str, package_dir: Path, filing_id: str, parse_run_id: str) -> None:
+    artifact_key = "parser/content_list_enhanced.json"
+    payload = read_json(package_dir / artifact_key)
+    body = payload.get("payload") if isinstance(payload.get("payload"), dict) else payload
+    blocks = body.get("blocks") or body.get("content_blocks") if isinstance(body, dict) else []
+    if not blocks:
+        artifact_key = "parser/document_full.json"
+        document_full = read_json(package_dir / artifact_key)
+        blocks = document_full.get("content_list") if isinstance(document_full.get("content_list"), list) else []
+    if not isinstance(blocks, list):
+        return
+    for index, block in enumerate((item for item in blocks if isinstance(item, dict)), start=1):
+        page_number = _page_number(block)
+        table_index = _table_index(block)
+        target_id = _first_value(block, "block_id", "id", "content_id", "target", "type", "block_type")
+        block_id = stable_id(parse_run_id, artifact_key, page_number, table_index, target_id, index)
+        conn.execute(
+            f"""
+            insert into {schema}.content_blocks (
+              block_id, filing_id, parse_run_id, page_number, table_index, target,
+              block_type, block_order, markdown_path, raw
+            ) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """,
+            (
+                block_id,
+                filing_id,
+                parse_run_id,
+                page_number,
+                table_index,
+                block.get("target"),
+                block.get("block_type") or block.get("type"),
+                _first_value(block, "block_order", "order", "reading_order") or index,
+                block.get("markdown_path"),
+                Jsonb(block),
+            ),
+        )
+
+
+def _insert_footnotes(conn: Any, schema: str, package_dir: Path, filing_id: str, parse_run_id: str) -> None:
+    artifact_key = "qa/footnotes.json"
+    payload = read_json(package_dir / artifact_key)
+    for index, (group, item) in enumerate(
+        _payload_items(payload, "references", "definitions", "bindings", "footnotes"),
+        start=1,
+    ):
+        page_number = _page_number(item)
+        table_index = _table_index(item)
+        target_id = _first_value(item, "id", "footnote_id", "reference_id", "definition_id", "marker", "note")
+        footnote_id = stable_id(parse_run_id, artifact_key, page_number, table_index, target_id, index)
+        conn.execute(
+            f"""
+            insert into {schema}.footnotes (
+              footnote_id, filing_id, parse_run_id, page_number, table_index,
+              target, footnote_key, content, raw
+            ) values (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """,
+            (
+                footnote_id,
+                filing_id,
+                parse_run_id,
+                page_number,
+                table_index,
+                item.get("target"),
+                _first_value(item, "footnote_key", "id", "marker", "reference_id", "definition_id", "note"),
+                _first_value(item, "content", "text", "definition"),
+                Jsonb({"group": group, **item}),
+            ),
+        )
+
+
+def _insert_toc_entries(conn: Any, schema: str, package_dir: Path, filing_id: str, parse_run_id: str) -> None:
+    artifact_key = "qa/toc.json"
+    payload = read_json(package_dir / artifact_key)
+    for index, (group, item) in enumerate(
+        _payload_items(payload, "headings", "toc_candidates", "content_headings", "entries"),
+        start=1,
+    ):
+        page_number = _page_number(item)
+        table_index = _table_index(item)
+        title = _first_value(item, "title", "text", "heading")
+        toc_entry_id = stable_id(parse_run_id, artifact_key, page_number, table_index, title, index)
+        conn.execute(
+            f"""
+            insert into {schema}.toc_entries (
+              toc_entry_id, filing_id, parse_run_id, page_number, table_index,
+              target, title, level, destination_page_number, raw
+            ) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """,
+            (
+                toc_entry_id,
+                filing_id,
+                parse_run_id,
+                page_number,
+                table_index,
+                item.get("target"),
+                title,
+                item.get("level"),
+                _first_value(item, "destination_page_number", "destination_page", "page_number", "page"),
+                Jsonb({"group": group, **item}),
+            ),
+        )
+
+
+def _insert_financial_note_links(conn: Any, schema: str, package_dir: Path, filing_id: str, parse_run_id: str) -> None:
+    artifact_key = "qa/financial_note_links.json"
+    payload = read_json(package_dir / artifact_key)
+    for index, (_group, item) in enumerate(_payload_items(payload, "links", "financial_note_links"), start=1):
+        page_number = _page_number(item)
+        table_index = _table_index(item)
+        note_key = _first_value(item, "note_key", "note", "marker")
+        target_id = _first_value(item, "id", "link_id") or note_key or _first_value(item, "note_target", "target")
+        link_id = stable_id(parse_run_id, artifact_key, page_number, table_index, target_id, index)
+        conn.execute(
+            f"""
+            insert into {schema}.financial_note_links (
+              link_id, filing_id, parse_run_id, page_number, table_index,
+              target, note_key, note_target, raw
+            ) values (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """,
+            (
+                link_id,
+                filing_id,
+                parse_run_id,
+                page_number,
+                table_index,
+                item.get("target") or item.get("statement"),
+                note_key,
+                _first_value(item, "note_target", "target_note", "destination"),
+                Jsonb(item),
+            ),
+        )
+
+
+def _insert_table_relations(conn: Any, schema: str, package_dir: Path, filing_id: str, parse_run_id: str) -> None:
+    artifact_key = "parser/table_relations.json"
+    payload = read_json(package_dir / artifact_key)
+    for index, (_group, item) in enumerate(_payload_items(payload, "relations", "table_relations"), start=1):
+        page_number = _page_number(item)
+        table_index = _table_index(item)
+        related_table_id = _first_value(item, "related_table_id", "target_table_id", "target_table_index")
+        target_id = _first_value(item, "id", "relation_id") or related_table_id or _first_value(item, "target", "relation_type", "type")
+        relation_id = stable_id(parse_run_id, artifact_key, page_number, table_index, target_id, index)
+        conn.execute(
+            f"""
+            insert into {schema}.table_relations (
+              relation_id, filing_id, parse_run_id, page_number, table_index,
+              target, related_table_id, relation_type, raw
+            ) values (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """,
+            (
+                relation_id,
+                filing_id,
+                parse_run_id,
+                page_number,
+                table_index,
+                item.get("target") or item.get("source_table_id"),
+                related_table_id,
+                item.get("relation_type") or item.get("type"),
+                Jsonb(item),
+            ),
+        )
+
+
+def _insert_table_quality_signals(conn: Any, schema: str, package_dir: Path, filing_id: str, parse_run_id: str) -> None:
+    artifact_key = "qa/table_quality_signals.json"
+    payload = read_json(package_dir / artifact_key)
+    for index, (group, item) in enumerate(_payload_items(payload, "signals", "tables", "table_quality_signals"), start=1):
+        page_number = _page_number(item)
+        table_index = _table_index(item)
+        signal_type = _first_value(item, "signal_type", "type", "status")
+        target_id = _first_value(item, "id", "signal_id") or signal_type or _first_value(item, "target", "table_id")
+        signal_id = stable_id(parse_run_id, artifact_key, page_number, table_index, target_id, index)
+        conn.execute(
+            f"""
+            insert into {schema}.table_quality_signals (
+              signal_id, filing_id, parse_run_id, page_number, table_index,
+              target, signal_type, signal_value, raw
+            ) values (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """,
+            (
+                signal_id,
+                filing_id,
+                parse_run_id,
+                page_number,
+                table_index,
+                item.get("target") or item.get("table_id"),
+                signal_type,
+                _first_value(item, "signal_value", "value", "score", "status"),
+                Jsonb({"group": group, **item}),
+            ),
         )
 
 
