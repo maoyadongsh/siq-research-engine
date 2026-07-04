@@ -1,6 +1,7 @@
+from collections import Counter
 from datetime import date
 
-from market_report_finder_service.markets.eu.catalog import EuAnnualReportCatalog
+from market_report_finder_service.markets.eu.catalog import EU_ANNUAL_REPORT_CATALOG, EuAnnualReportCatalog
 from market_report_finder_service.markets.eu.client import EsefIndexClient
 from market_report_finder_service.markets.eu.service import EuReportFinder
 from market_report_finder_service.models.schemas import Market, ReportTarget
@@ -99,6 +100,10 @@ def test_eu_catalog_curated_country_samples_return_ten_for_uk():
     assert {item.report_end.year for item in reports} == {2025}
 
 
+def test_eu_catalog_curated_unknown_country_returns_no_samples():
+    assert EuAnnualReportCatalog.sample_filings(country="ES", report_year=2025, limit=10) == []
+
+
 def test_eu_catalog_curated_all_samples_are_balanced_by_country():
     reports = EuAnnualReportCatalog.sample_filings(report_year=2025, limit=50)
 
@@ -108,6 +113,34 @@ def test_eu_catalog_curated_all_samples_are_balanced_by_country():
 
     assert len(reports) == 50
     assert counts == {"GB": 10, "FR": 10, "DE": 10, "NL": 10, "CH": 10}
+
+
+def test_eu_catalog_curated_all_samples_distributes_remainder_by_country_order():
+    reports = EuAnnualReportCatalog.sample_filings(report_year=2025, limit=13)
+
+    counts: dict[str, int] = {}
+    for item in reports:
+        counts[item.metadata["country"]] = counts.get(item.metadata["country"], 0) + 1
+
+    assert len(reports) == 13
+    assert counts == {"GB": 3, "FR": 3, "DE": 3, "NL": 2, "CH": 2}
+
+
+def test_eu_catalog_2025_counts_and_sample_urls_are_unique():
+    counts = Counter(entry.country for entry in EU_ANNUAL_REPORT_CATALOG if entry.report_end.year == 2025)
+    reports = EuAnnualReportCatalog.sample_filings(report_year=2025, limit=50)
+
+    assert counts == {"CH": 10, "DE": 10, "FR": 10, "GB": 10, "NL": 10}
+    assert len({item.document_url for item in reports}) == 50
+
+
+def test_eu_finder_owns_catalog_urls_without_platform_wildcards():
+    assert all(EuReportFinder.owns_url(entry.document_url) for entry in EU_ANNUAL_REPORT_CATALOG)
+    assert EuReportFinder.owns_url("https://lvmh-com.cdn.prismic.io/lvmh-com/report.pdf")
+    assert not EuReportFinder.owns_url("https://not-hsbc.com/report.pdf")
+    assert not EuReportFinder.owns_url("https://hsbc.com.evil.example/report.pdf")
+    assert not EuReportFinder.owns_url("https://other.cdn.prismic.io/report.pdf")
+    assert not EuReportFinder.owns_url("https://example.sitecorecloud.io/report.pdf")
 
 
 def test_eu_finder_uses_catalog_for_switzerland_search():

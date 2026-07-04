@@ -20,6 +20,76 @@ from market_report_finder_service.models.schemas import (
 
 class EuReportFinder(MarketReportFinder):
     market = Market.eu
+    URL_HOST_SUFFIXES = (
+        "filings.xbrl.org",
+        "annualreports.ai",
+        "financialreports.eu",
+        "financialfilings.com",
+        "fca.org.uk",
+        "amf-france.org",
+        "info-financiere.fr",
+        "unternehmensregister.de",
+        "bundesanzeiger.de",
+        "afm.nl",
+        "six-group.com",
+        "ser-ag.com",
+        "astrazeneca.com",
+        "bp.com",
+        "barclays",
+        "totalenergies.com",
+        "sanofi.com",
+        "airliquide.com",
+        "siemens.com",
+        "sap.com",
+        "telekom.com",
+        "asml.com",
+        "philips.com",
+        "heinekencompany.com",
+        "theheinekencompany.com",
+        "nestle.com",
+        "novartis.com",
+        "roche.com",
+        "hsbc.com",
+        "shell.com",
+        "londonstockexchange.com",
+        "investegate.co.uk",
+        "unilever.com",
+        "diageo.com",
+        "cdn-rio.dataweavers.io",
+        "riotinto.com",
+        "glencore.com",
+        "lseg.com",
+        "lvmh-com.cdn.prismic.io",
+        "www-axa-com.cdn.prismic.io",
+        "lvmh.com",
+        "loreal-finance.com",
+        "schneider-electric.com",
+        "se.com",
+        "bnpparibas",
+        "airbus.com",
+        "vinci.com",
+        "allianz.com",
+        "eqs-news.com",
+        "bmwgroup.com",
+        "vw-mms.de",
+        "volkswagen-group.com",
+        "basf.com",
+        "infineon.com",
+        "munichre.com",
+        "ing.com",
+        "prosus.com",
+        "adyen.com",
+        "aholddelhaize.com",
+        "dsm-firmenich.com",
+        "ubs.com",
+        "zurich.com",
+        "edge.sitecorecloud.io",
+        "abb.com",
+        "richemont.com",
+        "swissre.com",
+        "sika.com",
+        "holcim.com",
+    )
 
     def __init__(self) -> None:
         self.client = EsefIndexClient()
@@ -146,6 +216,15 @@ class EuReportFinder(MarketReportFinder):
                 forms.append("annual")
         return list(dict.fromkeys(forms))
 
+    def curated_annual_reports(
+        self,
+        *,
+        report_year: int | None = None,
+        limit: int = 10,
+        country: str | None = None,
+    ) -> list[FilingCandidate]:
+        return EuAnnualReportCatalog.sample_filings(limit=limit, report_year=report_year, country=country)
+
     def direct_candidate(self, request: DirectReportDownloadRequest) -> FilingCandidate:
         catalog_entry = EuAnnualReportCatalog.entry_for_url(request.document_url)
         if catalog_entry is not None:
@@ -227,36 +306,14 @@ class EuReportFinder(MarketReportFinder):
 
     @staticmethod
     def owns_url(document_url: str) -> bool:
-        host = urlparse(document_url).netloc.lower()
-        return (
-            "filings.xbrl.org" in host
-            or "annualreports.ai" in host
-            or "financialreports.eu" in host
-            or "financialfilings.com" in host
-            or "fca.org.uk" in host
-            or "amf-france.org" in host
-            or "info-financiere.fr" in host
-            or "unternehmensregister.de" in host
-            or "bundesanzeiger.de" in host
-            or "afm.nl" in host
-            or "six-group.com" in host
-            or "ser-ag.com" in host
-            or "astrazeneca.com" in host
-            or "bp.com" in host
-            or "barclays" in host
-            or "totalenergies.com" in host
-            or "sanofi.com" in host
-            or "airliquide.com" in host
-            or "siemens.com" in host
-            or "sap.com" in host
-            or "telekom.com" in host
-            or "asml.com" in host
-            or "philips.com" in host
-            or "heinekencompany.com" in host
-            or "nestle.com" in host
-            or "novartis.com" in host
-            or "roche.com" in host
-        )
+        host = urlparse(document_url).hostname or ""
+        return any(EuReportFinder._host_matches(host, suffix) for suffix in EuReportFinder.URL_HOST_SUFFIXES)
+
+    @staticmethod
+    def _host_matches(host: str, suffix: str) -> bool:
+        normalized_host = host.rstrip(".").lower()
+        normalized_suffix = suffix.rstrip(".").lower()
+        return normalized_host == normalized_suffix or normalized_host.endswith(f".{normalized_suffix}")
 
     @staticmethod
     def _allows_annual_reports(*, target: ReportTarget, forms: list[str]) -> bool:

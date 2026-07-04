@@ -104,3 +104,14 @@ def test_orchestrator_infers_cn_from_six_digit_ticker_and_cninfo_url():
         )
         == Market.cn
     )
+
+
+def test_orchestrator_infers_eu_from_new_curated_report_domain():
+    assert (
+        ReportFinderOrchestrator._infer_market_from_url_or_identifier(
+            document_url="https://www.hsbc.com/-/files/hsbc/investors/hsbc-results/2025/annual/pdfs/hsbc-holdings-plc/260225-annual-report-and-accounts-2025.pdf",
+            ticker=None,
+            company_id=None,
+        )
+        == Market.eu
+    )
