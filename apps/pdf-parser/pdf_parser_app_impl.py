@@ -2784,6 +2784,7 @@ def _build_table_index(markdown, tables, content_list=None, report_year=None):
                 "classification_reasons": semantics["classification_reasons"],
                 "suspect_reasons": reasons,
                 "preview": text[:220],
+                "signal_preview": text[:1600],
             }
         )
 
@@ -2925,6 +2926,7 @@ def _build_quality_report(markdown, task, file_name=None, content_list=None):
             suspicious_table_count=len(suspicious_tables),
         )
         report["market_profile"] = "JP"
+        report["market_profile_rule_version"] = jp_market_profile.JP_PROFILE_RULE_VERSION
         report["warnings"] = warnings
         report["info_messages"] = info_messages
     elif is_kr_profile:
@@ -3075,7 +3077,10 @@ def _ensure_quality_report(task, markdown):
     financial_data, financial_checks = _ensure_financial_artifacts(task, markdown)
     report = _read_quality_report(task)
     if isinstance(report, dict) and report.get("schema_version") == QUALITY_SCHEMA_VERSION:
-        if jp_market_profile.is_jp_market(task, task.get("filename")) and report.get("market_profile") != "JP":
+        if jp_market_profile.is_jp_market(task, task.get("filename")) and (
+            report.get("market_profile") != "JP"
+            or report.get("market_profile_rule_version") != jp_market_profile.JP_PROFILE_RULE_VERSION
+        ):
             return _write_quality_artifacts(
                 task,
                 markdown,
