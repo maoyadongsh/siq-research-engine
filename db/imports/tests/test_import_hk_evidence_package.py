@@ -2,6 +2,8 @@ import importlib.util
 import json
 from pathlib import Path
 
+import pytest
+
 
 def _load_importer():
     path = Path(__file__).resolve().parents[1] / "import_hk_evidence_package_to_postgres.py"
@@ -244,3 +246,44 @@ def test_import_v2_artifacts_writes_parser_and_qa_tables(tmp_path):
         "table_relations": importer.stable_id(parse_run_id, "parser/table_relations.json", 88, 1, "table-2", 1),
         "table_quality_signals": importer.stable_id(parse_run_id, "qa/table_quality_signals.json", 88, 1, "table_header", 1),
     }
+
+
+def test_malformed_optional_v2_json_files_are_skipped(tmp_path):
+    importer = _load_importer()
+    package_dir = tmp_path
+    for relative_path in (
+        "parser/content_list_enhanced.json",
+        "parser/document_full.json",
+        "parser/table_relations.json",
+        "qa/footnotes.json",
+        "qa/toc.json",
+        "qa/financial_note_links.json",
+        "qa/table_quality_signals.json",
+    ):
+        path = package_dir / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{ malformed", encoding="utf-8")
+
+    conn = FakeConnection()
+    for insert in (
+        importer._insert_parser_artifacts,
+        importer._insert_content_blocks,
+        importer._insert_footnotes,
+        importer._insert_toc_entries,
+        importer._insert_financial_note_links,
+        importer._insert_table_relations,
+        importer._insert_table_quality_signals,
+    ):
+        insert(conn, "pdf2md_hk", package_dir, "filing-1", "run-1")
+
+    assert conn.calls == []
+
+
+def test_strict_json_reader_still_raises_for_malformed_json(tmp_path):
+    importer = _load_importer()
+    path = tmp_path / "qa" / "quality_report.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{ malformed", encoding="utf-8")
+
+    with pytest.raises(json.JSONDecodeError):
+        importer.read_json(path)

@@ -35,6 +35,13 @@ def read_json(path: Path) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+def read_optional_v2_json(path: Path) -> dict[str, Any]:
+    try:
+        return read_json(path)
+    except json.JSONDecodeError:
+        return {}
+
+
 def parse_date(value: Any) -> Any:
     return str(value)[:10] if value else None
 
@@ -294,7 +301,7 @@ def _insert_parser_artifacts(conn: Any, schema: str, package_dir: Path, filing_i
     if not parser_dir.is_dir():
         return
     for path in sorted(parser_dir.rglob("*.json")):
-        payload = read_json(path)
+        payload = read_optional_v2_json(path)
         if not payload:
             continue
         rel = path.relative_to(package_dir).as_posix()
@@ -321,12 +328,12 @@ def _insert_parser_artifacts(conn: Any, schema: str, package_dir: Path, filing_i
 
 def _insert_content_blocks(conn: Any, schema: str, package_dir: Path, filing_id: str, parse_run_id: str) -> None:
     artifact_key = "parser/content_list_enhanced.json"
-    payload = read_json(package_dir / artifact_key)
+    payload = read_optional_v2_json(package_dir / artifact_key)
     body = payload.get("payload") if isinstance(payload.get("payload"), dict) else payload
     blocks = body.get("blocks") or body.get("content_blocks") if isinstance(body, dict) else []
     if not blocks:
         artifact_key = "parser/document_full.json"
-        document_full = read_json(package_dir / artifact_key)
+        document_full = read_optional_v2_json(package_dir / artifact_key)
         blocks = document_full.get("content_list") if isinstance(document_full.get("content_list"), list) else []
     if not isinstance(blocks, list):
         return
@@ -359,7 +366,7 @@ def _insert_content_blocks(conn: Any, schema: str, package_dir: Path, filing_id:
 
 def _insert_footnotes(conn: Any, schema: str, package_dir: Path, filing_id: str, parse_run_id: str) -> None:
     artifact_key = "qa/footnotes.json"
-    payload = read_json(package_dir / artifact_key)
+    payload = read_optional_v2_json(package_dir / artifact_key)
     for index, (group, item) in enumerate(
         _payload_items(payload, "references", "definitions", "bindings", "footnotes"),
         start=1,
@@ -391,7 +398,7 @@ def _insert_footnotes(conn: Any, schema: str, package_dir: Path, filing_id: str,
 
 def _insert_toc_entries(conn: Any, schema: str, package_dir: Path, filing_id: str, parse_run_id: str) -> None:
     artifact_key = "qa/toc.json"
-    payload = read_json(package_dir / artifact_key)
+    payload = read_optional_v2_json(package_dir / artifact_key)
     for index, (group, item) in enumerate(
         _payload_items(payload, "headings", "toc_candidates", "content_headings", "entries"),
         start=1,
@@ -424,7 +431,7 @@ def _insert_toc_entries(conn: Any, schema: str, package_dir: Path, filing_id: st
 
 def _insert_financial_note_links(conn: Any, schema: str, package_dir: Path, filing_id: str, parse_run_id: str) -> None:
     artifact_key = "qa/financial_note_links.json"
-    payload = read_json(package_dir / artifact_key)
+    payload = read_optional_v2_json(package_dir / artifact_key)
     for index, (_group, item) in enumerate(_payload_items(payload, "links", "financial_note_links"), start=1):
         page_number = _page_number(item)
         table_index = _table_index(item)
@@ -454,7 +461,7 @@ def _insert_financial_note_links(conn: Any, schema: str, package_dir: Path, fili
 
 def _insert_table_relations(conn: Any, schema: str, package_dir: Path, filing_id: str, parse_run_id: str) -> None:
     artifact_key = "parser/table_relations.json"
-    payload = read_json(package_dir / artifact_key)
+    payload = read_optional_v2_json(package_dir / artifact_key)
     for index, (_group, item) in enumerate(_payload_items(payload, "relations", "table_relations"), start=1):
         page_number = _page_number(item)
         table_index = _table_index(item)
@@ -484,7 +491,7 @@ def _insert_table_relations(conn: Any, schema: str, package_dir: Path, filing_id
 
 def _insert_table_quality_signals(conn: Any, schema: str, package_dir: Path, filing_id: str, parse_run_id: str) -> None:
     artifact_key = "qa/table_quality_signals.json"
-    payload = read_json(package_dir / artifact_key)
+    payload = read_optional_v2_json(package_dir / artifact_key)
     for index, (group, item) in enumerate(_payload_items(payload, "signals", "tables", "table_quality_signals"), start=1):
         page_number = _page_number(item)
         table_index = _table_index(item)
