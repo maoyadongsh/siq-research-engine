@@ -68,7 +68,14 @@ def test_kr_candidate_groups_prefer_financial_statement_zone_over_business_or_no
             "pdf_page_number": 78,
             "heading": "(단위 : 백만원)",
             "source_footnote": ["제82기(당기)는 주주총회 승인 전 연결재무제표입니다."],
-            "preview": "제 82 기 제 81 기 제 80 기 매출액 매출원가 매출총이익 판매비와관리비 영업이익 법인세비용차감전순이익 당기순이익",
+            "preview": "제 82 기 제 81 기 제 80 기 매출액 매출원가 매출총이익 판매비와관리비",
+        },
+        {
+            "table_index": 68,
+            "line": 1563,
+            "pdf_page_number": 85,
+            "heading": "① 제 82(당) 기",
+            "preview": "(단위: 백만원) 회사명 자산총액 부채총액 매출액 당기순이익 KUS 14,695,685 7,217,965 41,924,262 1,170,322",
         },
         {
             "table_index": 556,
