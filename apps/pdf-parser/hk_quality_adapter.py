@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 HK_STATEMENT_LABELS = {
@@ -42,6 +43,8 @@ def merge_hk_quality_candidates(report: dict[str, Any], financial_data: dict[str
     for statement_type, label in HK_STATEMENT_LABELS.items():
         statement = by_type.get(statement_type)
         row = _candidate_from_statement(label, statement, table_lookup, financial_data) if statement else None
+        if not row:
+            row = _locate_hk_statement_candidate(label, table_lookup.values(), financial_data)
         if row:
             found.append(label)
             key_table_candidates[label] = [row]
@@ -117,3 +120,186 @@ def _candidate(label: str, table_index: Any, line: Any, table: dict[str, Any], f
         "is_primary": True,
         "_source": "financial_data",
     }
+
+
+def _locate_hk_statement_candidate(label: str, tables: Any, financial_data: dict[str, Any]) -> dict[str, Any] | None:
+    candidates: list[tuple[float, dict[str, Any]]] = []
+    for table in tables:
+        if not isinstance(table, dict):
+            continue
+        score = _hk_statement_score(label, table)
+        if score <= 0:
+            continue
+        row = _candidate(label, table.get("table_index"), table.get("line"), table, financial_data, table.get("unit"))
+        if not row:
+            continue
+        row["candidate_score"] = score
+        row["confidence"] = "high" if score >= 85 else "medium"
+        row["_source"] = "hk_table_locator"
+        candidates.append((score, row))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (-(item[0]), item[1].get("table_index") or 10**9))
+    return candidates[0][1]
+
+
+def _hk_statement_score(label: str, table: dict[str, Any]) -> float:
+    signal = _table_signal(table)
+    compact = _compact(signal)
+    if not compact:
+        return 0.0
+    if label == "Statement of Financial Position":
+        if any(term in compact for term in ("statementoffinancialposition", "consolidatedstatementoffinancialposition")):
+            return 96.0
+        hits = _hits(compact, ("totalassets", "totalliabilities", "netassets", "totalequity", "equityandliabilities"))
+        if hits >= 3:
+            return 88.0
+        if any(term in compact for term in ("財務狀況表", "财务状况表", "資產負債表", "资产负债表")):
+            return 92.0
+    if label == "Statement of Profit or Loss":
+        if any(
+            term in compact
+            for term in (
+                "statementofprofitorloss",
+                "consolidatedstatementofprofitorloss",
+                "statementofprofitorlossandothercomprehensiveincome",
+            )
+        ):
+            return 96.0
+        hits = _hits(compact, ("revenue", "grossprofit", "profitbeforetax", "profitfortheyear", "earningspershare"))
+        if hits >= 3:
+            return 88.0
+        if any(term in compact for term in ("損益表", "损益表", "利潤表", "利润表", "全面收益表")):
+            return 90.0
+    if label == "Statement of Cash Flows":
+        if _looks_like_cash_flow_note(compact):
+            return 0.0
+        if any(term in compact for term in ("statementofcashflows", "consolidatedstatementofcashflows", "cashflowstatement")):
+            return 96.0
+        activity_hits = _hits(
+            compact,
+            (
+                "cashflowsfromoperatingactivities",
+                "cashflowsfrominvestingactivities",
+                "cashflowsfromfinancingactivities",
+                "netcashgeneratedfromoperatingactivities",
+                "netcashusedinoperatingactivities",
+                "cashgeneratedfromoperations",
+            ),
+        )
+        if activity_hits >= 1 and not _looks_like_cash_flow_note(compact):
+            return 90.0 if "cashflowsfromoperatingactivities" in compact else 84.0
+        if any(term in compact for term in ("現金流量表", "现金流量表", "經營活動所得現金", "经营活动所得现金")):
+            return 90.0
+    if label == "Statement of Changes in Equity":
+        if any(
+            term in compact
+            for term in (
+                "statementofchangesinequity",
+                "consolidatedstatementofchangesinequity",
+                "changesinequity",
+                "變動表",
+                "变动表",
+            )
+        ):
+            return 96.0
+        if _looks_like_equity_note(compact):
+            return 0.0
+        column_hits = _hits(
+            compact,
+            (
+                "sharecapital",
+                "sharepremium",
+                "treasuryshares",
+                "capitalreserve",
+                "fairvaluereserve",
+                "issuedcapital",
+                "retainedprofits",
+                "retainedearnings",
+                "revenuereserve",
+                "reserves",
+                "totalequity",
+                "unitholdersequity",
+                "proposeddeclareddividend",
+                "noncontrollinginterests",
+                "attributabletoownersoftheparent",
+                "attributabletoownersofthecompany",
+                "本公司擁有人應佔",
+                "本公司拥有人应占",
+                "股本",
+                "儲備",
+                "储备",
+            ),
+        )
+        movement_hits = _hits(
+            compact,
+            (
+                "at1january",
+                "at31december",
+                "balanceat1january",
+                "changesinequityfor",
+                "profitfortheyear",
+                "totalcomprehensiveincome",
+                "othercomprehensiveincome",
+                "dividends",
+                "transactionswithowners",
+            ),
+        )
+        if column_hits >= 3 and movement_hits >= 2:
+            return 90.0
+        if any(term in compact for term in ("權益變動", "权益变动", "股本", "儲備", "储备")) and movement_hits >= 1:
+            return 86.0
+    return 0.0
+
+
+def _table_signal(table: dict[str, Any]) -> str:
+    parts = [
+        table.get("heading"),
+        table.get("title"),
+        table.get("source_caption"),
+        table.get("caption"),
+        table.get("preview"),
+        table.get("signal_preview"),
+        table.get("text_preview"),
+        table.get("near_text"),
+        table.get("source_footnote"),
+        table.get("footnote"),
+    ]
+    return " ".join(str(part or "") for part in parts)
+
+
+def _compact(value: Any) -> str:
+    text = str(value or "").replace("&amp;", "&").replace("&#x27;", "'").replace("’", "'")
+    return re.sub(r"[^0-9a-zA-Z\u4e00-\u9fff]+", "", text).lower()
+
+
+def _hits(compact: str, terms: tuple[str, ...]) -> int:
+    return sum(1 for term in terms if _compact(term) in compact)
+
+
+def _looks_like_cash_flow_note(compact: str) -> bool:
+    return any(
+        term in compact
+        for term in (
+            "changesinliabilitiesarisingfromfinancingactivities",
+            "notestotheconsolidatedstatementofcashflows",
+            "notestostatementofcashflows",
+            "totalcashoutflowforleases",
+            "netoutflowofcashandequivalentsincludedincashflow",
+        )
+    )
+
+
+def _looks_like_equity_note(compact: str) -> bool:
+    return any(
+        term in compact
+        for term in (
+            "percentageofequity",
+            "equityinterestsheld",
+            "fairvaluehierarchy",
+            "foreigncurrencyrisk",
+            "equityinvestments",
+            "equitysecurities",
+            "equityshares",
+        )
+    )
