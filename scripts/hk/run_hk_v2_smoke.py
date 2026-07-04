@@ -47,6 +47,8 @@ REQUIRED_V2_FILES = {
 
 DETAIL_REQUIRED_V2_KEYS = tuple(REQUIRED_V2_FILES)
 FAIL_QUALITY_STATUSES = {"fail", "failed", "error", "critical"}
+STATUS_LABELS = {"pass": "通过", "warning": "警告", "fail": "失败"}
+DetailReader = Callable[..., dict[str, Any]]
 
 
 @dataclass
@@ -64,6 +66,12 @@ class ValidatorResult:
 
 
 @dataclass
+class DetailPathResult:
+    missing_paths: list[str] = field(default_factory=list)
+    error: str | None = None
+
+
+@dataclass
 class SampleResult:
     sample: str
     package_path: str
@@ -75,6 +83,7 @@ class SampleResult:
     missing_files: list[str] = field(default_factory=list)
     missing_v2_files: list[str] = field(default_factory=list)
     missing_detail_paths: list[str] = field(default_factory=list)
+    detail_error: str | None = None
     validator: ValidatorResult = field(default_factory=lambda: ValidatorResult(ok=False))
     warnings: list[str] = field(default_factory=list)
     failures: list[str] = field(default_factory=list)
@@ -116,6 +125,23 @@ def _load_validator() -> Callable[[Path], ValidatorResult]:
     return run
 
 
+def _load_package_detail_reader() -> DetailReader:
+    try:
+        from siq_market_contracts.evidence_package import read_market_package_detail
+    except ModuleNotFoundError:
+        try:
+            from market_report_rules_service.evidence_package import read_market_package_detail
+        except ModuleNotFoundError as exc:
+            message = f"无法导入 package detail reader: {exc}"
+
+            def unavailable(_: Path, *, display_path: str | None = None) -> dict[str, Any]:
+                raise RuntimeError(message)
+
+            return unavailable
+
+    return read_market_package_detail
+
+
 def _resolve_path(value: Path) -> Path:
     return value if value.is_absolute() else (Path.cwd() / value).resolve()
 
@@ -146,9 +172,27 @@ def _quality_warnings(quality: dict[str, Any]) -> list[str]:
     return warnings
 
 
-def _detail_paths(package_dir: Path) -> dict[str, str]:
-    paths = {key: rel for key, rel in {**REQUIRED_BASE_FILES, **REQUIRED_V2_FILES}.items() if (package_dir / rel).exists()}
-    return paths
+def _read_detail_v2_paths(package_dir: Path, display_path: str, detail_reader: DetailReader) -> DetailPathResult:
+    try:
+        detail = detail_reader(package_dir, display_path=display_path)
+    except Exception as exc:  # noqa: BLE001 - smoke report should explain package-detail read failures.
+        return DetailPathResult(
+            missing_paths=list(DETAIL_REQUIRED_V2_KEYS),
+            error=f"无法读取 package detail: {exc}",
+        )
+
+    if not isinstance(detail, dict):
+        return DetailPathResult(
+            missing_paths=list(DETAIL_REQUIRED_V2_KEYS),
+            error="package detail 顶层不是对象",
+        )
+    paths = detail.get("paths")
+    if not isinstance(paths, dict):
+        return DetailPathResult(
+            missing_paths=list(DETAIL_REQUIRED_V2_KEYS),
+            error="package detail 缺少 paths 对象",
+        )
+    return DetailPathResult(missing_paths=[key for key in DETAIL_REQUIRED_V2_KEYS if key not in paths])
 
 
 def _display(path: Path) -> str:
@@ -158,7 +202,12 @@ def _display(path: Path) -> str:
         return str(path)
 
 
-def _sample_result(root: Path, sample: Path, validator: Callable[[Path], ValidatorResult]) -> SampleResult:
+def _sample_result(
+    root: Path,
+    sample: Path,
+    validator: Callable[[Path], ValidatorResult],
+    detail_reader: DetailReader | None = None,
+) -> SampleResult:
     package_dir = root / sample
     result = SampleResult(sample=str(sample), package_path=_display(package_dir))
     if not package_dir.is_dir():
@@ -167,7 +216,10 @@ def _sample_result(root: Path, sample: Path, validator: Callable[[Path], Validat
 
     result.missing_files = [rel for rel in REQUIRED_BASE_FILES.values() if not (package_dir / rel).is_file()]
     result.missing_v2_files = [rel for rel in REQUIRED_V2_FILES.values() if not (package_dir / rel).is_file()]
-    result.missing_detail_paths = [key for key in DETAIL_REQUIRED_V2_KEYS if key not in _detail_paths(package_dir)]
+    detail_reader = detail_reader or _load_package_detail_reader()
+    detail_paths = _read_detail_v2_paths(package_dir, result.package_path, detail_reader)
+    result.missing_detail_paths = detail_paths.missing_paths
+    result.detail_error = detail_paths.error
 
     manifest_read = _read_json(package_dir / "manifest.json")
     quality_read = _read_json(package_dir / "qa" / "quality_report.json")
@@ -206,6 +258,8 @@ def _sample_result(root: Path, sample: Path, validator: Callable[[Path], Validat
         result.failures.append(validation.unavailable)
     elif not validation.ok:
         result.failures.append("validator 失败: " + "; ".join(validation.errors[:8]))
+    if result.detail_error:
+        result.failures.append(result.detail_error)
     if result.counts["metrics"] == 0:
         result.failures.append("metrics/normalized_metrics.json 中 metrics 为空")
     if result.counts["evidence"] == 0:
@@ -270,6 +324,7 @@ def _report_payload(root: Path, samples: list[SampleResult]) -> dict[str, Any]:
                 "missing_files": sample.missing_files,
                 "missing_v2_files": sample.missing_v2_files,
                 "missing_detail_paths": sample.missing_detail_paths,
+                "detail_error": sample.detail_error,
                 "import_dry_run": {
                     "status": "pass" if sample.validator.ok else "fail",
                     "scope": "validator 前置契约检查；未连接数据库，未写入数据。",
@@ -293,8 +348,12 @@ def _md_cell(value: Any) -> str:
     return text.replace("|", "\\|").replace("\n", "<br>")
 
 
+def _status_label(status: Any) -> str:
+    return STATUS_LABELS.get(str(status), str(status))
+
+
 def _render_markdown(payload: dict[str, Any]) -> str:
-    status_label = {"pass": "通过", "warning": "警告", "fail": "失败"}.get(str(payload["status"]), str(payload["status"]))
+    status_label = _status_label(payload["status"])
     lines = [
         "# HK V2 5 样本 Smoke 报告",
         "",
@@ -324,7 +383,7 @@ def _render_markdown(payload: dict[str, Any]) -> str:
                     counts.get("tables", 0),
                     counts.get("metrics", 0),
                     counts.get("evidence", 0),
-                    sample["status"],
+                    _status_label(sample["status"]),
                 )
             )
             + " |"
@@ -333,10 +392,7 @@ def _render_markdown(payload: dict[str, Any]) -> str:
     lines.extend(["", "## 失败与缺口", ""])
     for sample in payload["samples"]:
         lines.append(f"### {sample['sample']}")
-        if sample["status"] == "pass":
-            lines.append("- 状态: 通过")
-        else:
-            lines.append(f"- 状态: {sample['status']}")
+        lines.append(f"- 状态: {_status_label(sample['status'])}")
         lines.append(
             "- 导入 dry run: "
             + ("validator 通过（未连接数据库，未写入数据）" if sample["import_dry_run"]["status"] == "pass" else "validator 失败（未连接数据库，未写入数据）")
@@ -347,6 +403,8 @@ def _render_markdown(payload: dict[str, Any]) -> str:
             lines.append("- 缺失 V2 文件: " + ", ".join(f"`{item}`" for item in sample["missing_v2_files"]))
         if sample["missing_detail_paths"]:
             lines.append("- package detail 缺少 V2 paths: " + ", ".join(f"`{item}`" for item in sample["missing_detail_paths"]))
+        if sample["detail_error"]:
+            lines.append(f"- package detail 读取错误: {sample['detail_error']}")
         if sample["validator"]["errors"]:
             lines.append("- validator 错误: " + "; ".join(sample["validator"]["errors"][:8]))
         if sample["warnings"] or sample["validator"]["warnings"]:
@@ -384,7 +442,8 @@ def main(argv: list[str] | None = None) -> int:
     output = _resolve_path(args.output)
     json_output = _resolve_path(args.json_output)
     validator = _load_validator()
-    samples = [_sample_result(root, sample, validator) for sample in SAMPLE_PACKAGES]
+    detail_reader = _load_package_detail_reader()
+    samples = [_sample_result(root, sample, validator, detail_reader) for sample in SAMPLE_PACKAGES]
     payload = _report_payload(root, samples)
     _write_outputs(payload, output, json_output)
     print(f"HK V2 smoke {payload['status']}: {output}")
