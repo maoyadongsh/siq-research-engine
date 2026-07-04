@@ -938,6 +938,8 @@ def test_deals_router_build_and_read_evidence(monkeypatch, tmp_path):
     dry_run_payload = dry_run.json()["ingest_dry_run"]
     assert dry_run_payload["postgres_written"] is False
     assert dry_run_payload["milvus_written"] is False
+    assert dry_run_payload["write_readiness"] == "fail"
+    assert dry_run_payload["plan_hash"]
     assert dry_run_payload["counts"]["items_valid"] == 2
     assert dry_run_payload["postgres_rows_preview"][0]["evidence_id"] == evidence_id
     assert dry_run_payload["milvus_chunks_preview"][0]["collection"] == "siq_deal_shared"
@@ -1008,6 +1010,7 @@ def test_deals_router_build_and_read_evidence(monkeypatch, tmp_path):
         json={"round_name": "R1", "limit": 1},
     )
     assert strategist_receipt.status_code == 200
+    strategist_evidence_id = strategist_receipt.json()["receipt"]["evidence_hits"][0]["evidence_id"]
     serial_dry_run = client.post(
         "/api/deals/DEAL-ROUTER-007/workflow/run-r1-serial",
         json={"round_name": "R1", "dry_run": True, "max_agents": 1},
@@ -1037,7 +1040,7 @@ def test_deals_router_build_and_read_evidence(monkeypatch, tmp_path):
             "{\"score\": 81, \"recommendation\": \"conditional_pass\", "
             "\"verified\": [\"market evidence\"], \"assumed\": [], "
             "\"open_questions\": [\"gross margin\"], "
-            "\"evidence_ids\": [\"" + evidence_id + "\"], "
+            "\"evidence_ids\": [\"" + strategist_evidence_id + "\"], "
             "\"summary\": \"Route-level strategist run completed.\"}\n"
             "```"
         )
@@ -1205,6 +1208,12 @@ def test_deals_router_r2_r3_r4_workflow_endpoints(monkeypatch, tmp_path):
             ],
         },
     )
+
+    advance_next_dry_run = client.post("/api/deals/DEAL-ROUTER-R234/workflow/advance-next", json={"dry_run": True})
+    assert advance_next_dry_run.status_code == 200
+    assert advance_next_dry_run.json()["schema_version"] == "siq_ic_workflow_advance_next_dry_run_v1"
+    assert advance_next_dry_run.json()["selected_action"] == "run-r2"
+    assert advance_next_dry_run.json()["allowed"] is True
 
     r2_dry_run = client.post("/api/deals/DEAL-ROUTER-R234/workflow/run-r2", json={"dry_run": True})
     assert r2_dry_run.status_code == 200

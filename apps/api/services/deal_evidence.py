@@ -8,6 +8,7 @@ deal package. It does not call LLMs, Hermes agents, PostgreSQL, or Milvus.
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 from pathlib import Path
 from typing import Any
@@ -518,6 +519,81 @@ def _ingest_status(errors: list[str], warnings: list[str]) -> str:
     return "pass"
 
 
+def _stable_hash(payload: Any) -> str:
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _readiness_status(checks: list[dict[str, Any]]) -> str:
+    statuses = {str(check.get("status") or "") for check in checks}
+    if "fail" in statuses:
+        return "fail"
+    if "warn" in statuses:
+        return "warn"
+    return "pass"
+
+
+def _readiness_check(check_id: str, status: str, message: str, **details: Any) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "id": check_id,
+        "status": status,
+        "message": message,
+    }
+    if details:
+        payload["details"] = details
+    return payload
+
+
+def _ingest_readiness_checks(
+    *,
+    errors: list[str],
+    quality_status: Any,
+    counts: dict[str, Any],
+    postgres_write_enabled: bool,
+    milvus_write_enabled: bool,
+) -> list[dict[str, Any]]:
+    items_valid = int(counts.get("items_valid") or 0)
+    rows_planned = int(counts.get("postgres_rows_planned") or 0)
+    chunks_planned = int(counts.get("milvus_chunks_planned") or 0)
+    checks = [
+        _readiness_check(
+            "items.required_fields",
+            "fail" if errors else "pass",
+            "Evidence items satisfy ingest required fields" if not errors else "Evidence items have ingest blockers",
+            errors=errors,
+        ),
+        _readiness_check(
+            "quality.status",
+            "pass" if quality_status == "pass" else "fail",
+            "Evidence quality report is pass" if quality_status == "pass" else "Evidence quality must be pass before real ingest",
+            quality_status=quality_status,
+        ),
+        _readiness_check(
+            "plan.count_consistency",
+            "pass" if items_valid == rows_planned == chunks_planned else "fail",
+            "Planned PostgreSQL rows and Milvus chunks match valid evidence items"
+            if items_valid == rows_planned == chunks_planned
+            else "Planned ingest counts are inconsistent",
+            items_valid=items_valid,
+            postgres_rows_planned=rows_planned,
+            milvus_chunks_planned=chunks_planned,
+        ),
+        _readiness_check(
+            "target.postgres_write",
+            "pass" if postgres_write_enabled else "warn",
+            "PostgreSQL write target is enabled" if postgres_write_enabled else "PostgreSQL write target is disabled in dry-run",
+            write_enabled=postgres_write_enabled,
+        ),
+        _readiness_check(
+            "target.milvus_write",
+            "pass" if milvus_write_enabled else "warn",
+            "Milvus write target is enabled" if milvus_write_enabled else "Milvus write target is disabled in dry-run",
+            write_enabled=milvus_write_enabled,
+        ),
+    ]
+    return checks
+
+
 def _postgres_row_plan(item: dict[str, Any]) -> dict[str, Any]:
     anchor = item.get("source_anchor") if isinstance(item.get("source_anchor"), dict) else {}
     return {
@@ -624,22 +700,41 @@ def build_deal_evidence_ingest_dry_run(
         "milvus_chunks_planned": len(milvus_chunks),
         "invalid_ndjson_lines": invalid_lines,
     }
+    postgres_write_enabled = False
+    milvus_write_enabled = False
+    preflight_checks = _ingest_readiness_checks(
+        errors=errors,
+        quality_status=quality_status,
+        counts=counts,
+        postgres_write_enabled=postgres_write_enabled,
+        milvus_write_enabled=milvus_write_enabled,
+    )
+    plan_hash = _stable_hash({
+        "deal_id": normalized_deal_id,
+        "mode": INGEST_DRY_RUN_MODE,
+        "counts": counts,
+        "postgres_rows": postgres_rows,
+        "milvus_chunks": milvus_chunks,
+    })
     report = {
         "schema_version": EVIDENCE_INGEST_DRY_RUN_SCHEMA,
         "deal_id": normalized_deal_id,
         "mode": INGEST_DRY_RUN_MODE,
         "status": _ingest_status(errors, warnings),
+        "write_readiness": _readiness_status(preflight_checks),
+        "preflight_checks": preflight_checks,
+        "plan_hash": plan_hash,
         "created_at": created_at,
         "postgres_written": False,
         "milvus_written": False,
         "target_postgres": {
             "schema": "deal_os",
             "tables": ["deal_os.evidence_items"],
-            "write_enabled": False,
+            "write_enabled": postgres_write_enabled,
         },
         "target_milvus": {
             "collections": ["siq_deal_shared"],
-            "write_enabled": False,
+            "write_enabled": milvus_write_enabled,
         },
         "counts": counts,
         "quality_status": quality_status,

@@ -28,6 +28,8 @@ WORKFLOW_R3_RUN_DRY_RUN_SCHEMA = "siq_ic_workflow_r3_run_dry_run_v1"
 WORKFLOW_R3_RUN_SCHEMA = "siq_ic_workflow_r3_run_v1"
 WORKFLOW_R4_FINALIZE_DRY_RUN_SCHEMA = "siq_ic_workflow_r4_finalize_dry_run_v1"
 WORKFLOW_R4_FINALIZE_SCHEMA = "siq_ic_workflow_r4_finalize_v1"
+WORKFLOW_ADVANCE_NEXT_DRY_RUN_SCHEMA = "siq_ic_workflow_advance_next_dry_run_v1"
+WORKFLOW_ADVANCE_NEXT_SCHEMA = "siq_ic_workflow_advance_next_v1"
 R1_AGENT_READINESS_SCHEMA = "siq_ic_r1_agent_readiness_v1"
 R1_AGENT_REPORT_SCHEMA = "siq_ic_r1_agent_report_v1"
 R2_AGENT_REPORT_SCHEMA = "siq_ic_r2_agent_report_v1"
@@ -64,6 +66,13 @@ DOWNSTREAM_BLOCKING_PREFLIGHT_WARN_IDS = frozenset({
     "r1.report_contract",
     "r1.report_evidence_refs",
 })
+DEFAULT_R3_SKIP_REASON = "R2 已覆盖核心分歧，P0 留痕跳过。"
+
+
+class R1ReportContractError(ValueError):
+    def __init__(self, errors: list[str]) -> None:
+        self.errors = errors
+        super().__init__("R1 Hermes output contract invalid: " + "; ".join(errors))
 
 
 def _require_package_dir(deal_id: str, *, wiki_root: Path | str | None = None) -> Path:
@@ -234,7 +243,7 @@ def _output_contract(profile_id: str, round_name: str) -> dict[str, Any]:
         "json_path": "phases/r1_reports.json",
         "json_key": profile_id,
         "markdown_path": f"discussion/01_R1_{stem}_report.md",
-        "required_fields": ["score", "recommendation", "verified", "assumed", "open_questions"],
+        "required_fields": ["score", "recommendation", "verified", "assumed", "open_questions", "evidence_ids"],
         "round_name": round_name,
     }
 
@@ -411,8 +420,11 @@ def _validate_r1_report_contract(
         errors.append("recommendation_missing")
 
     for field in ("verified", "assumed", "open_questions"):
-        if field not in parsed or parsed.get(field) in (None, ""):
+        value = parsed.get(field)
+        if field not in parsed or value in (None, ""):
             errors.append(f"{field}_missing")
+        elif not isinstance(value, list):
+            errors.append(f"{field}_not_list")
 
     parsed_agent_id = str(parsed.get("agent_id") or "").strip()
     if parsed_agent_id:
@@ -424,6 +436,12 @@ def _validate_r1_report_contract(
     if parsed_round and parsed_round != "R1":
         errors.append("round_name_mismatch")
 
+    payload = task.get("payload") if isinstance(task.get("payload"), dict) else {}
+    expected_receipt_id = str(payload.get("startup_receipt_id") or "").strip()
+    parsed_receipt_id = str(parsed.get("startup_receipt_id") or "").strip()
+    if parsed_receipt_id and expected_receipt_id and parsed_receipt_id != expected_receipt_id:
+        errors.append("startup_receipt_id_mismatch")
+
     known_ids = _known_evidence_ids(package_dir)
     evidence_ids = _report_evidence_ids(parsed)
     if not evidence_ids:
@@ -431,9 +449,13 @@ def _validate_r1_report_contract(
     unknown_ids = sorted(set(evidence_ids) - known_ids)
     if unknown_ids:
         errors.append("evidence_ids_unknown:" + ",".join(unknown_ids))
+    receipt = _receipt_for(package_dir, str(task.get("deal_id") or ""), str(task.get("agent_id") or ""))
+    receipt_ids = _extract_evidence_ids(receipt.get("evidence_hits")) if isinstance(receipt, dict) else set()
+    if receipt_ids and evidence_ids and not receipt_ids.intersection(evidence_ids):
+        errors.append("evidence_ids_not_in_startup_receipt")
 
     if errors:
-        raise ValueError("R1 Hermes output contract invalid: " + "; ".join(errors))
+        raise R1ReportContractError(errors)
 
     normalized = dict(parsed)
     normalized["score"] = int(score) if score.is_integer() else score
@@ -1965,6 +1987,12 @@ async def run_workflow_r1_agent(
             parsed=parsed,
         )
     except ValueError as exc:
+        contract_errors = exc.errors if isinstance(exc, R1ReportContractError) else [str(exc)]
+        missing_fields = [
+            error.removesuffix("_missing")
+            for error in contract_errors
+            if error.endswith("_missing")
+        ]
         deal_store.append_audit_event(
             task["deal_id"],
             {
@@ -1973,7 +2001,15 @@ async def run_workflow_r1_agent(
                 "agent_id": task["agent_id"],
                 "round_name": task["round_name"],
                 "hermes_run_id": run_id,
+                "startup_receipt_id": payload.get("startup_receipt_id"),
                 "reason": str(exc),
+                "contract_errors": contract_errors,
+                "missing_fields": missing_fields,
+                "invalid_fields": [error for error in contract_errors if not error.endswith("_missing")],
+                "required_fields": (payload.get("output_contract") or {}).get("required_fields"),
+                "report_written": False,
+                "workflow_advanced": False,
+                "output_preview": _text_preview(output_text),
                 "created_by": created_by,
             },
             wiki_root=wiki_root,
@@ -2141,4 +2177,210 @@ async def run_workflow_r1_serial(
         "workflow_advanced": bool(executed),
         "workflow": workflow,
         "audit_event": audit_event,
+    })
+
+
+def build_workflow_advance_next_dry_run(
+    deal_id: str,
+    *,
+    allow_hermes: bool = False,
+    max_agents: int | None = 1,
+    r3_skip: bool = True,
+    r3_skip_reason: str | None = DEFAULT_R3_SKIP_REASON,
+    r4_overwrite: bool = False,
+    wiki_root: Path | str | None = None,
+) -> dict[str, Any]:
+    """Plan the next safe workflow step without side effects."""
+
+    package_dir = _require_package_dir(deal_id, wiki_root=wiki_root)
+    normalized_deal_id = deal_store.validate_deal_id(deal_id)
+    workflow = deal_store.read_json(package_dir / "phases" / "workflow_state.json", {}) or {}
+    blocking_reasons: list[str] = []
+    selected_action = "no-op"
+    action_dry_run: dict[str, Any] = {}
+    requires_hermes = False
+
+    r1_reports = _r1_reports(package_dir)
+    r1_reports_complete = all(agent_id in r1_reports for agent_id in ic_policy.R1_AGENT_SEQUENCE)
+    if not r1_reports_complete:
+        r1_plan = build_workflow_r1_serial_run_dry_run(
+            normalized_deal_id,
+            max_agents=max_agents,
+            wiki_root=wiki_root,
+        )
+        if r1_plan.get("would_run"):
+            selected_action = "run-r1-serial"
+            action_dry_run = r1_plan
+            requires_hermes = True
+            if not allow_hermes:
+                blocking_reasons.append("r1_serial_requires_allow_hermes")
+        elif not r1_plan.get("allowed") and r1_plan.get("blocking_reasons"):
+            selected_action = "run-r1-serial"
+            action_dry_run = r1_plan
+            requires_hermes = True
+            blocking_reasons.extend(str(item) for item in r1_plan.get("blocking_reasons") or [])
+    if selected_action == "no-op":
+        disputes_path = package_dir / deal_disputes.DISPUTES_JSON_PATH
+        disputes_summary = deal_disputes.summarize_deal_disputes(normalized_deal_id, wiki_root=wiki_root)
+        dispute_counts = disputes_summary.get("counts") if isinstance(disputes_summary.get("counts"), dict) else {}
+        unresolved = int(dispute_counts.get("unresolved") or 0)
+        if not disputes_path.is_file() or str(disputes_summary.get("status") or "") == "missing":
+            selected_action = "identify-disputes"
+            action_dry_run = deal_disputes.identify_deal_disputes(
+                normalized_deal_id,
+                dry_run=True,
+                preserve_rulings=True,
+                wiki_root=wiki_root,
+            )
+        elif unresolved > 0:
+            selected_action = "generate-dispute-rulings"
+            action_dry_run = deal_disputes.generate_deal_dispute_rulings(
+                normalized_deal_id,
+                dry_run=True,
+                overwrite=False,
+                wiki_root=wiki_root,
+            )
+            if int(action_dry_run.get("generated_count") or 0) <= 0:
+                blocking_reasons.append("r1_5_unresolved_disputes_without_generated_rulings")
+        elif not (package_dir / "phases" / "r2_reports.json").is_file():
+            selected_action = "run-r2"
+            action_dry_run = build_workflow_r2_run_dry_run(normalized_deal_id, wiki_root=wiki_root)
+            blocking_reasons.extend(str(item) for item in action_dry_run.get("blocking_reasons") or [])
+        elif not (package_dir / "phases" / "r3_reports.json").is_file():
+            selected_action = "run-r3"
+            action_dry_run = build_workflow_r3_run_dry_run(
+                normalized_deal_id,
+                skip=r3_skip,
+                skip_reason=r3_skip_reason,
+                wiki_root=wiki_root,
+            )
+            blocking_reasons.extend(str(item) for item in action_dry_run.get("blocking_reasons") or [])
+        elif r4_overwrite or not (package_dir / "phases" / "r4_decision.json").is_file():
+            selected_action = "finalize-r4"
+            action_dry_run = build_workflow_r4_finalize_dry_run(
+                normalized_deal_id,
+                overwrite=r4_overwrite,
+                wiki_root=wiki_root,
+            )
+            blocking_reasons.extend(str(item) for item in action_dry_run.get("blocking_reasons") or [])
+
+    if action_dry_run and action_dry_run.get("allowed") is False and not blocking_reasons:
+        blocking_reasons.extend(str(item) for item in action_dry_run.get("blocking_reasons") or [])
+    allowed = selected_action != "no-op" and not blocking_reasons
+    return deal_store.redact_public_payload({
+        "schema_version": WORKFLOW_ADVANCE_NEXT_DRY_RUN_SCHEMA,
+        "deal_id": normalized_deal_id,
+        "workflow_action": "advance-next",
+        "dry_run": True,
+        "allowed": allowed,
+        "would_write": allowed,
+        "selected_action": selected_action,
+        "requires_hermes": requires_hermes,
+        "allow_hermes": bool(allow_hermes),
+        "blocking_reasons": _dedupe_strings(blocking_reasons),
+        "current_phase": workflow.get("current_phase"),
+        "workflow_status": workflow.get("status"),
+        "action_dry_run": action_dry_run,
+        "hermes_called": False,
+        "report_written": False,
+        "workflow_advanced": False,
+    })
+
+
+async def run_workflow_advance_next(
+    deal_id: str,
+    *,
+    allow_hermes: bool = False,
+    max_agents: int | None = 1,
+    r3_skip: bool = True,
+    r3_skip_reason: str | None = DEFAULT_R3_SKIP_REASON,
+    r4_overwrite: bool = False,
+    created_by: dict[str, Any] | None = None,
+    wiki_root: Path | str | None = None,
+    timeout: float | None = None,
+) -> dict[str, Any]:
+    """Execute exactly one planned workflow step."""
+
+    plan = build_workflow_advance_next_dry_run(
+        deal_id,
+        allow_hermes=allow_hermes,
+        max_agents=max_agents,
+        r3_skip=r3_skip,
+        r3_skip_reason=r3_skip_reason,
+        r4_overwrite=r4_overwrite,
+        wiki_root=wiki_root,
+    )
+    selected_action = str(plan.get("selected_action") or "no-op")
+    if selected_action == "no-op":
+        return {
+            **plan,
+            "schema_version": WORKFLOW_ADVANCE_NEXT_SCHEMA,
+            "dry_run": False,
+            "status": "no_op",
+            "would_write": False,
+            "action_result": {},
+        }
+    if not plan.get("allowed"):
+        reasons = ", ".join(str(item) for item in plan.get("blocking_reasons") or [])
+        raise ValueError(f"Workflow advance-next blocked: {reasons or selected_action}")
+
+    if selected_action == "run-r1-serial":
+        result = await run_workflow_r1_serial(
+            deal_id,
+            max_agents=max_agents,
+            created_by=created_by,
+            wiki_root=wiki_root,
+            timeout=timeout,
+        )
+    elif selected_action == "identify-disputes":
+        result = deal_disputes.identify_deal_disputes(
+            deal_id,
+            dry_run=False,
+            preserve_rulings=True,
+            created_by=created_by,
+            wiki_root=wiki_root,
+        )
+    elif selected_action == "generate-dispute-rulings":
+        result = deal_disputes.generate_deal_dispute_rulings(
+            deal_id,
+            dry_run=False,
+            overwrite=False,
+            created_by=created_by,
+            wiki_root=wiki_root,
+        )
+    elif selected_action == "run-r2":
+        result = run_workflow_r2(deal_id, created_by=created_by, wiki_root=wiki_root)
+    elif selected_action == "run-r3":
+        result = run_workflow_r3(
+            deal_id,
+            skip=r3_skip,
+            skip_reason=r3_skip_reason,
+            created_by=created_by,
+            wiki_root=wiki_root,
+        )
+    elif selected_action == "finalize-r4":
+        result = finalize_workflow_r4(
+            deal_id,
+            overwrite=r4_overwrite,
+            created_by=created_by,
+            wiki_root=wiki_root,
+        )
+    else:
+        raise ValueError(f"Unknown workflow advance-next action: {selected_action}")
+
+    return deal_store.redact_public_payload({
+        "schema_version": WORKFLOW_ADVANCE_NEXT_SCHEMA,
+        "deal_id": deal_store.validate_deal_id(deal_id),
+        "workflow_action": "advance-next",
+        "dry_run": False,
+        "allowed": True,
+        "would_write": True,
+        "selected_action": selected_action,
+        "requires_hermes": bool(plan.get("requires_hermes")),
+        "allow_hermes": bool(allow_hermes),
+        "blocking_reasons": [],
+        "action_result": result,
+        "hermes_called": bool(result.get("hermes_called")),
+        "report_written": bool(result.get("report_written") or result.get("written")),
+        "workflow_advanced": bool(result.get("workflow_advanced") or result.get("workflow")),
     })

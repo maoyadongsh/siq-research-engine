@@ -162,7 +162,7 @@ http://localhost:15173
 SIQ_START_HERMES_GATEWAYS=0 ./start_all.sh
 SIQ_START_MARKET_REPORT_RULES=1 ./start_all.sh
 SIQ_START_MARKET_REPORT_FINDER=1 ./start_all.sh
-SIQ_START_VECTOR_INGEST=1 ./start_all.sh
+SIQ_START_VECTOR_INGEST=1 SIQ_MILVUS_COLLECTION=ic_collaboration_shared ./start_all.sh
 ```
 
 ## Docker Compose

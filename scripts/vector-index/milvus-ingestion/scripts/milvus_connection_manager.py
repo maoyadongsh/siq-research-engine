@@ -12,7 +12,7 @@ SIQ Milvus 连接管理器 - Milvus Connection Manager
 
 使用示例：
     from milvus_connection_manager import MilvusConnectionManager
-    
+
     manager = MilvusConnectionManager()
     manager.connect_all_agents()
     manager.start_monitoring()  # 启动变化监控
@@ -26,65 +26,82 @@ from datetime import datetime
 from dataclasses import dataclass, field
 from enum import Enum
 
+from runtime_compat import normalize_collection_name
+
 
 # ============================================================================
 # 常量配置
 # ============================================================================
 
 # Agent与Collection的映射（与Milvus中的Collection名称一致）
-# 每个Agent同时连接：私有库 + ic_collaboration_shared（共享库）
+# 每个Agent同时连接：私有物理库 + ic_collaboration_shared（共享库）
 AGENT_COLLECTION_MAP = {
-    "ic_master_coordinator": {
-        "private": "ic_master_coordinator",      # Collection名称与Agent ID一致
-        "shared": "ic_collaboration_shared",      # 共享库
+    "siq_ic_master_coordinator": {
+        "private": normalize_collection_name("ic_master_coordinator"),
+        "shared": normalize_collection_name("ic_collaboration_shared"),
         "entity_count": 0,
         "description": "协调者"
     },
-    "ic_strategist": {
-        "private": "ic_strategist",               # Collection名称与Agent ID一致
-        "shared": "ic_collaboration_shared",        # 共享库
+    "siq_ic_strategist": {
+        "private": normalize_collection_name("ic_strategist"),
+        "shared": normalize_collection_name("ic_collaboration_shared"),
         "entity_count": 985,
         "description": "战略专家"
     },
-    "ic_sector_expert": {
-        "private": "ic_sector_expert",             # Collection名称与Agent ID一致
-        "shared": "ic_collaboration_shared",        # 共享库
+    "siq_ic_sector_expert": {
+        "private": normalize_collection_name("ic_sector_expert"),
+        "shared": normalize_collection_name("ic_collaboration_shared"),
         "entity_count": 3750,
         "description": "行业专家"
     },
-    "ic_finance_auditor": {
-        "private": "ic_finance_auditor",           # Collection名称与Agent ID一致
-        "shared": "ic_collaboration_shared",        # 共享库
+    "siq_ic_finance_auditor": {
+        "private": normalize_collection_name("ic_finance_auditor"),
+        "shared": normalize_collection_name("ic_collaboration_shared"),
         "entity_count": 1335,
         "description": "财务专家"
     },
-    "ic_risk_controller": {
-        "private": "ic_risk_controller",           # Collection名称与Agent ID一致
-        "shared": "ic_collaboration_shared",         # 共享库
+    "siq_ic_risk_controller": {
+        "private": normalize_collection_name("ic_risk_controller"),
+        "shared": normalize_collection_name("ic_collaboration_shared"),
         "entity_count": 1239,
         "description": "风控专家"
     },
-    "ic_legal_scanner": {
-        "private": "ic_legal_scanner",             # Collection名称与Agent ID一致
-        "shared": "ic_collaboration_shared",         # 共享库
+    "siq_ic_legal_scanner": {
+        "private": normalize_collection_name("ic_legal_scanner"),
+        "shared": normalize_collection_name("ic_collaboration_shared"),
         "entity_count": 12662,
         "description": "法务专家"
     },
-    "ic_chairman": {
-        "private": "ic_chairman",                  # Collection名称与Agent ID一致
-        "shared": "ic_collaboration_shared",         # 共享库
+    "siq_ic_chairman": {
+        "private": normalize_collection_name("ic_chairman"),
+        "shared": normalize_collection_name("ic_collaboration_shared"),
         "entity_count": 1599,
         "description": "主席"
     }
 }
 
+AGENT_ID_ALIASES = {
+    "ic_master_coordinator": "siq_ic_master_coordinator",
+    "ic_strategist": "siq_ic_strategist",
+    "ic_sector_expert": "siq_ic_sector_expert",
+    "ic_finance_auditor": "siq_ic_finance_auditor",
+    "ic_risk_controller": "siq_ic_risk_controller",
+    "ic_legal_scanner": "siq_ic_legal_scanner",
+    "ic_chairman": "siq_ic_chairman",
+}
+
 # 全局共享Collection（固定）
-SHARED_COLLECTION = "ic_collaboration_shared"
+SHARED_COLLECTION = normalize_collection_name("ic_collaboration_shared")
 ARCHIVE_COLLECTION = "ic_archive_sop"
 
 # 监控配置
 DEFAULT_CHECK_INTERVAL = 300  # 5分钟检查一次
 DEFAULT_LEARN_THRESHOLD = 10  # 新增超过10条触发学习
+
+
+def normalize_agent_id(agent_id: Optional[str]) -> Optional[str]:
+    value = str(agent_id or "").strip()
+    return AGENT_ID_ALIASES.get(value, value) if value else None
 
 
 # ============================================================================
@@ -340,7 +357,8 @@ class MilvusConnectionManager:
         Returns:
             Agent连接状态
         """
-        return self.connections.get(agent_id)
+        canonical_agent_id = normalize_agent_id(agent_id)
+        return self.connections.get(canonical_agent_id)
     
     def check_connection_status(self) -> Dict[str, ConnectionStatus]:
         """
@@ -400,7 +418,7 @@ class MilvusConnectionManager:
         all_collections.add(SHARED_COLLECTION)
         all_collections.add(ARCHIVE_COLLECTION)
         
-        collections = [collection_name] if collection_name else list(all_collections)
+        collections = [normalize_collection_name(collection_name)] if collection_name else list(all_collections)
         
         for coll_name in collections:
             try:
@@ -554,14 +572,15 @@ class MilvusConnectionManager:
     def _find_affected_agents(self, collection_name: str) -> List[str]:
         """找出受影响的Agent"""
         affected = []
-        
+        canonical_collection = normalize_collection_name(collection_name)
+
         for agent_id, config in AGENT_COLLECTION_MAP.items():
-            if (config["private"] == collection_name or 
-                config["shared"] == collection_name):
+            if (config["private"] == canonical_collection or
+                config["shared"] == canonical_collection):
                 affected.append(agent_id)
-        
+
         return affected
-    
+
     def _get_new_entities(
         self, 
         agent_id: str, 
@@ -622,13 +641,15 @@ class MilvusConnectionManager:
         Returns:
             学习任务
         """
+        canonical_agent_id = normalize_agent_id(agent_id) or agent_id
+        canonical_collection = normalize_collection_name(collection_name)
         if new_entities is None:
-            new_entities = self._get_new_entities(agent_id, collection_name, 10)
+            new_entities = self._get_new_entities(canonical_agent_id, canonical_collection, 10)
         
         task = LearningTask(
-            task_id=f"learn_{agent_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}",
-            agent_id=agent_id,
-            collection_name=collection_name,
+            task_id=f"learn_{canonical_agent_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}",
+            agent_id=canonical_agent_id,
+            collection_name=canonical_collection,
             new_entities_count=len(new_entities),
             new_entities=new_entities,
             status=LearningStatus.LEARNING,
@@ -638,8 +659,8 @@ class MilvusConnectionManager:
         self.learning_tasks.append(task)
         
         print(f"\n📚 触发Agent学习:")
-        print(f"   Agent: {agent_id}")
-        print(f"   Collection: {collection_name}")
+        print(f"   Agent: {canonical_agent_id}")
+        print(f"   Collection: {canonical_collection}")
         print(f"   新增实体: {len(new_entities)}")
         
         # 这里实际应该通过sessions_send通知Agent
@@ -689,7 +710,8 @@ class MilvusConnectionManager:
         tasks = self.learning_tasks
         
         if agent_id:
-            tasks = [t for t in tasks if t.agent_id == agent_id]
+            canonical_agent_id = normalize_agent_id(agent_id) or agent_id
+            tasks = [t for t in tasks if t.agent_id == canonical_agent_id]
         
         if status:
             tasks = [t for t in tasks if t.status == status]
@@ -714,10 +736,11 @@ class MilvusConnectionManager:
             return False
         
         if agent_id:
-            config = AGENT_COLLECTION_MAP.get(agent_id)
+            canonical_agent_id = normalize_agent_id(agent_id) or agent_id
+            config = AGENT_COLLECTION_MAP.get(canonical_agent_id)
             if config:
-                connection = self._connect_agent(agent_id, config)
-                self.connections[agent_id] = connection
+                connection = self._connect_agent(canonical_agent_id, config)
+                self.connections[canonical_agent_id] = connection
                 return connection.status == ConnectionStatus.CONNECTED
         else:
             self.connect_all_agents()

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+CANONICAL_SCHEMA_VERSION = "siq_job_envelope_v1"
+
 
 def _public_copy(value: Any) -> Any:
     if isinstance(value, dict):
@@ -27,9 +29,33 @@ def _market_legacy_payload(job: Mapping[str, Any]) -> dict[str, Any]:
     return _public_copy({key: value for key, value in dict(job).items() if key != "target"})
 
 
+def _is_canonical_job(job: Mapping[str, Any]) -> bool:
+    return job.get("schema_version") == CANONICAL_SCHEMA_VERSION and bool(str(job.get("id") or "").strip())
+
+
+def _canonical_step_to_workflow_public(step: Mapping[str, Any]) -> dict[str, Any]:
+    legacy = step.get("legacy_payload") if isinstance(step.get("legacy_payload"), Mapping) else None
+    if legacy is not None:
+        return _public_copy(legacy)
+
+    payload: dict[str, Any] = {
+        "step": step.get("name"),
+        "status": step.get("status"),
+    }
+    if step.get("started_at") is not None:
+        payload["startedAt"] = step.get("started_at")
+    if step.get("finished_at") is not None:
+        payload["finishedAt"] = step.get("finished_at")
+    if step.get("result") is not None:
+        payload["result"] = _public_copy(step.get("result"))
+    if step.get("message") is not None:
+        payload["message"] = step.get("message")
+    return payload
+
+
 def market_job_to_canonical(job: Mapping[str, Any]) -> dict[str, Any]:
     return {
-        "schema_version": "siq_job_envelope_v1",
+        "schema_version": CANONICAL_SCHEMA_VERSION,
         "id": job.get("job_id"),
         "kind": job.get("kind"),
         "subject": job.get("subject"),
@@ -52,7 +78,7 @@ def market_job_to_canonical(job: Mapping[str, Any]) -> dict[str, Any]:
 def workflow_job_to_canonical(job: Mapping[str, Any]) -> dict[str, Any]:
     steps = job.get("steps") if isinstance(job.get("steps"), list) else []
     return {
-        "schema_version": "siq_job_envelope_v1",
+        "schema_version": CANONICAL_SCHEMA_VERSION,
         "id": job.get("jobId"),
         "kind": "workflow-run-remaining",
         "subject": {"task_id": job.get("taskId")},
@@ -74,7 +100,7 @@ def workflow_job_to_canonical(job: Mapping[str, Any]) -> dict[str, Any]:
 
 def canonical_to_market_public(job: Mapping[str, Any]) -> dict[str, Any]:
     legacy = job.get("legacy_payload") if isinstance(job.get("legacy_payload"), Mapping) else {}
-    payload = {
+    base_payload = {
         "job_id": job.get("id"),
         "kind": job.get("kind"),
         "status": job.get("status"),
@@ -85,6 +111,11 @@ def canonical_to_market_public(job: Mapping[str, Any]) -> dict[str, Any]:
         "result": _public_copy(job.get("result")),
         "error": job.get("error"),
     }
+    payload = (
+        {key: value for key, value in base_payload.items() if key in legacy}
+        if legacy
+        else dict(base_payload)
+    )
     if "updated_at" in legacy or job.get("updated_at") is not None:
         payload["updated_at"] = job.get("updated_at")
     if "subject" in legacy:
@@ -95,11 +126,7 @@ def canonical_to_market_public(job: Mapping[str, Any]) -> dict[str, Any]:
 def canonical_to_workflow_public(job: Mapping[str, Any]) -> dict[str, Any]:
     legacy = job.get("legacy_payload") if isinstance(job.get("legacy_payload"), Mapping) else {}
     subject = job.get("subject") if isinstance(job.get("subject"), Mapping) else {}
-    steps = [
-        _public_copy(step.get("legacy_payload"))
-        for step in job.get("steps", [])
-        if isinstance(step, Mapping) and isinstance(step.get("legacy_payload"), Mapping)
-    ]
+    steps = [_canonical_step_to_workflow_public(step) for step in job.get("steps", []) if isinstance(step, Mapping)]
     return {
         "jobId": job.get("id"),
         "taskId": subject.get("task_id") or legacy.get("taskId"),
@@ -107,8 +134,8 @@ def canonical_to_workflow_public(job: Mapping[str, Any]) -> dict[str, Any]:
         "steps": steps,
         "createdAt": job.get("created_at"),
         "updatedAt": job.get("updated_at"),
-        **({"result": _public_copy(job.get("result"))} if "result" in legacy else {}),
-        **({"error": job.get("error")} if "error" in legacy else {}),
+        **({"result": _public_copy(job.get("result"))} if "result" in legacy or job.get("result") is not None else {}),
+        **({"error": job.get("error")} if "error" in legacy or job.get("error") is not None else {}),
     }
 
 
@@ -121,6 +148,9 @@ def load_canonical_compatible_jobs(payload: Any, *, source: str) -> list[dict[st
     canonical_jobs: list[dict[str, Any]] = []
     for item in raw_jobs:
         if not isinstance(item, Mapping):
+            continue
+        if _is_canonical_job(item):
+            canonical_jobs.append(_public_copy(dict(item)))
             continue
         if source == "market":
             if not str(item.get("job_id") or "").strip():

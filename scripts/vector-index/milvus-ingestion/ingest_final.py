@@ -95,11 +95,24 @@ MILVUS_DEFAULT_DB = (
     or os.getenv("MILVUS_DB_NAME")
     or "default"
 ).strip() or "default"
-MILVUS_DEFAULT_COLLECTION = (
+PHYSICAL_SHARED_COLLECTION = "ic_collaboration_shared"
+COLLECTION_ALIASES = {
+    "siq_deal_shared": PHYSICAL_SHARED_COLLECTION,
+    "siq_ic_chairman": "ic_chairman",
+    "siq_ic_finance_auditor": "ic_finance_auditor",
+    "siq_ic_legal_scanner": "ic_legal_scanner",
+    "siq_ic_risk_controller": "ic_risk_controller",
+    "siq_ic_sector_expert": "ic_sector_expert",
+    "siq_ic_strategist": "ic_strategist",
+    "siq_ic_master_coordinator": "ic_master_coordinator",
+}
+
+_DEFAULT_COLLECTION_VALUE = (
     os.getenv("SIQ_MILVUS_COLLECTION")
     or os.getenv("MILVUS_COLLECTION")
-    or "ic_collaboration_shared"
-).strip() or "ic_collaboration_shared"
+    or PHYSICAL_SHARED_COLLECTION
+).strip() or PHYSICAL_SHARED_COLLECTION
+MILVUS_DEFAULT_COLLECTION = COLLECTION_ALIASES.get(_DEFAULT_COLLECTION_VALUE, _DEFAULT_COLLECTION_VALUE)
 
 # HNSW 索引配置 (CPU高性能)
 INDEX_TYPE = "HNSW"
@@ -262,8 +275,8 @@ class AsyncKnowledgeIngestor:
         db_name: str = MILVUS_DEFAULT_DB,
     ):
         self.db_name = (db_name or MILVUS_DEFAULT_DB).strip() or MILVUS_DEFAULT_DB
-        self.collection_name = collection_name
-        self.role_desc = ROLE_REGISTRY.get(collection_name, {}).get("desc", collection_name)
+        self.collection_name = _normalize_collection_name(collection_name)
+        self.role_desc = ROLE_REGISTRY.get(self.collection_name, {}).get("desc", self.collection_name)
         self.progress_file = str(project_dir / f".progress_{self.db_name}_{self.collection_name}.json")
         self.chunk_size = max(256, int(chunk_size))
         # 重叠必须小于切片长度
@@ -775,15 +788,13 @@ class AsyncKnowledgeIngestor:
         _ensure_milvus_connection(self.db_name)
         
         if reset:
-            # 同时处理当前规范 Collection 与历史 _ws 后缀 Collection。
-            for target in [self.collection_name, f"{self.collection_name}_ws"]:
-                if utility.has_collection(target):
-                    self._record_reset_manifest(target)
-                    try:
-                        Collection(target).release()
-                    except Exception:
-                        pass
-                    utility.drop_collection(target)
+            if utility.has_collection(self.collection_name):
+                self._record_reset_manifest(self.collection_name)
+                try:
+                    Collection(self.collection_name).release()
+                except Exception:
+                    pass
+                utility.drop_collection(self.collection_name)
             if os.path.exists(self.progress_file):
                 os.remove(self.progress_file)
         
@@ -2062,25 +2073,16 @@ def _list_databases() -> List[str]:
 
 
 def _canonical_collection_name(name: str) -> str:
-    raw = (name or "").strip()
-    if raw.endswith("_ws"):
-        return raw[:-3]
-    return raw
+    return (name or "").strip()
 
 
 def _normalize_collection_name(name: str) -> str:
-    return _canonical_collection_name(name)
+    raw = _canonical_collection_name(name)
+    return COLLECTION_ALIASES.get(raw, raw)
 
 
 def _resolve_existing_collection_name(name: str) -> str:
-    """优先无后缀Collection，兼容历史 _ws Collection"""
-    coll = _normalize_collection_name(name)
-    legacy = f"{coll}_ws"
-    if utility.has_collection(coll):
-        return coll
-    if utility.has_collection(legacy):
-        return legacy
-    return coll
+    return _normalize_collection_name(name)
 
 
 def _choose_valid_value(preferred: Optional[str], choices: List[str]) -> Optional[str]:
@@ -2273,11 +2275,8 @@ def _create_collection(db_name: str, name: str) -> str:
     try:
         db = _normalize_db_name(db_name)
         _ensure_milvus_connection(db)
-        legacy = f"{coll}_ws"
         if utility.has_collection(coll):
             return f"⚠️ Collection 已存在: {db}.{coll}"
-        if utility.has_collection(legacy):
-            return f"⚠️ 检测到历史 Collection: {legacy}，请先迁移或删除后再创建 {coll}"
 
         fields = [
             FieldSchema(name="id", dtype=DataType.INT64, is_primary=True, auto_id=True),
@@ -2306,8 +2305,6 @@ def _drop_collection(db_name: str, name: str) -> str:
         if not utility.has_collection(target):
             return f"⚠️ Collection 不存在: {coll}"
         utility.drop_collection(target)
-        if target != coll:
-            return f"✅ Collection 已删除: {db}.{target}（对应显示名: {coll}）"
         return f"✅ Collection 已删除: {db}.{coll}"
     except Exception as e:
         return f"❌ 删除失败: {e}"

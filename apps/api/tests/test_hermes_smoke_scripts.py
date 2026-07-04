@@ -98,3 +98,22 @@ def test_r1_profile_matrix_covers_all_sequence_profiles(monkeypatch, tmp_path):
         smoke_r1_agent_workflow.ic_policy.R1_AGENT_SEQUENCE
     )
     assert all(item["blocking_reasons"] == [] for item in summary["profiles"])
+
+
+def test_serial_dry_run_smoke_plans_full_r1_sequence(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        smoke_r1_agent_workflow.tempfile,
+        "mkdtemp",
+        lambda prefix: str(tmp_path / "serial"),
+    )
+
+    dry_run = smoke_r1_agent_workflow.run_serial_dry_run_smoke()
+
+    assert dry_run["schema_version"] == "siq_ic_workflow_r1_serial_run_dry_run_v1"
+    assert dry_run["allowed"] is True
+    assert dry_run["planned_agent_ids"] == list(smoke_r1_agent_workflow.ic_policy.R1_AGENT_SEQUENCE)
+    assert dry_run["planned_count"] == len(smoke_r1_agent_workflow.ic_policy.R1_AGENT_SEQUENCE)
+    assert dry_run["blocking_reasons"] == []
+    assert [item["action"] for item in dry_run["agents"]] == ["would_run"] * len(
+        smoke_r1_agent_workflow.ic_policy.R1_AGENT_SEQUENCE
+    )

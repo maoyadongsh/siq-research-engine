@@ -401,6 +401,8 @@ npm run e2e
 3. 定义取消、重试、日志 tail、重启恢复语义。
 4. 先写 contract tests，再迁一个低风险 job。
 
+2026-07-04 更新：canonical schema 与 adapter rules 已在 `2026-07-04-job-worker-middle-design.md` 中明确；`apps/api/services/job_envelope.py` 和 `apps/api/tests/test_job_envelope.py` 已补齐首批 adapter 合同。该更新只关闭设计与合同测试前置项，不代表 Market / Workflow job store、route schema 或 worker loop 已迁移。
+
 ## 5. 不做事项
 
 以下事项不纳入本方案：
@@ -877,6 +879,36 @@ YYYY-MM-DD:
 - 完成: 新增 `2026-07-04-job-worker-middle-design.md`，明确 FileBackedJobService 与 workflow_job_service 的 schema / 执行模型差异，建议先以 canonical adapter + SQLite-backed local worker 作为中期路线，并把 Market ingestion eval 作为首个低风险迁移候选；未改生产执行代码。
 - 测试: 文档设计窗口，无代码测试；git diff --check passed。
 - 下一步: 迁移前先补 canonical adapter contract tests，继续禁止顺手合并 workflow `_workflow_jobs` 与 Market reports job schema。
+
+2026-07-04:
+- Owner: Job / worker canonical adapter contracts
+- 完成: 补强 `job_envelope.py` canonical adapter，锁住 legacy Market / Workflow job 到 canonical envelope、canonical-native store reader、Market snake_case public projection、Workflow camelCase public projection，以及无 legacy step payload 时的 workflow step 回投；未迁移 job store、route schema、worker loop 或 subprocess owner。
+- 测试: `test_job_envelope.py` 9 passed；Shared job/command adapter 组合 `test_job_envelope.py test_job_service.py test_workflow_job_service.py test_command_runner.py` 36 passed；job/queue focused gate `test_job_envelope.py test_job_service.py test_workflow_job_service.py test_market_report_queueing_service.py test_market_report_queueing.py test_market_reports_proxy.py` 93 passed，2 个既有 Pydantic deprecation warnings；`py_compile` passed。
+- 下一步: 首个真实迁移候选仍限定为 Market ingestion eval queued job；迁移前需按 owner audit 跑 focused gate，并继续禁止顺手合并 workflow `_workflow_jobs` 与 Market reports job schema。
+
+2026-07-04:
+- Owner: Market ingestion eval / canonical queue adapter
+- 完成: 在 `market_report_queueing.py` 为 `market-ingestion-eval` 接入 canonical adapter round-trip，queue start snapshot 与 job status read 先转 canonical 再投影回既有 Market snake_case public payload；`wait=true` inline 执行、`FileBackedJobService` 持久化 schema、线程生命周期、route schema 和 command execution 均未迁移。同步补强 sparse legacy payload 投影，避免测试 fake 或旧 job snapshot 被补出额外字段。
+- 测试: `test_job_envelope.py test_market_report_queueing_service.py test_market_report_queueing.py test_market_reports_proxy.py` 78 passed，2 个既有 Pydantic deprecation warnings；first-migration focused gate `test_job_envelope.py test_job_service.py test_workflow_job_service.py test_market_report_queueing_service.py test_market_report_queueing.py test_market_reports_proxy.py` 97 passed，2 个既有 Pydantic deprecation warnings；`py_compile` passed。
+- 下一步: 暂停继续扩大 job/worker 迁移；后续若继续，先做 owner split 验收或只补 Market job status/public payload 合同，仍禁止迁 Workflow `_workflow_jobs`、FileBackedJobService store schema 或 worker loop。
+
+2026-07-04:
+- Owner: Market reports / job status public payload contracts
+- 完成: 补强 router-level `/jobs/{job_id}`（app 挂载后为 `/api/jobs/{job_id}`）route 合同测试，锁住底层返回 canonical `market-ingestion-eval` envelope 时仍投影为既有 Market snake_case public payload，且不泄漏 `schema_version`、`id`、`subject`、`steps`、`logs`、`attempts`、`source_schema`、`legacy_payload`、`target` 或 workflow camelCase 字段；生产代码不变。
+- 测试: `test_market_report_queueing_service.py test_market_reports_proxy.py` 62 passed，2 个既有 Pydantic deprecation warnings；first-migration focused gate `test_job_envelope.py test_job_service.py test_workflow_job_service.py test_market_report_queueing_service.py test_market_report_queueing.py test_market_reports_proxy.py` 98 passed，2 个既有 Pydantic deprecation warnings；`py_compile tests/test_market_reports_proxy.py` passed。
+- 下一步: job/worker 迁移窗口继续暂停；优先做 owner split 验收，或转向其它未触碰 owner 的纯合同测试，继续避开 Deal/IC/OpenClaw 与 Hermes smoke 并行改动。
+
+2026-07-04:
+- Owner: Market reports / job status HTTP route contracts
+- 完成: 补强局部 FastAPI app + TestClient 合同，锁住 `/api/jobs/{job_id}` 的 200 JSON public payload 与 missing job 404 JSON `{"detail":"Job not found"}`；只覆盖 route HTTP envelope，不改生产代码、不引入 `main.app` 全量依赖。
+- 测试: `test_market_report_queueing_service.py test_market_reports_proxy.py` 64 passed，2 个既有 Pydantic deprecation warnings 和 2 个既有 utcnow warnings；first-migration focused gate `test_job_envelope.py test_job_service.py test_workflow_job_service.py test_market_report_queueing_service.py test_market_report_queueing.py test_market_reports_proxy.py` 100 passed，2 个既有 Pydantic deprecation warnings 和 2 个既有 utcnow warnings；`py_compile tests/test_market_reports_proxy.py` passed。
+- 下一步: Market job/worker 迁移继续暂停；优先进入 owner split 验收或选择未触碰 owner 的纯合同测试，不再扩大 Market queue/schema 面。
+
+2026-07-04:
+- Owner: Market/Shared owner split gate verification
+- 完成: 停止新增功能面，按 `2026-07-04-worktree-owner-split-audit.md` 重跑当前受影响的 Market Reports API 与 Shared Job/Command focused gates；同步确认 owner audit touch set 已覆盖 Market/Shared 活跃文件，并补充 Deal/IC/OpenClaw 并行组的 `deal_evidence.py` 文档归属。
+- 测试: Market Reports API owner gate 157 passed，2 个既有 Pydantic deprecation warnings 和 2 个既有 utcnow warnings；Shared Job/Command gate 37 passed；`py_compile services/job_envelope.py services/market_report_queueing.py tests/test_job_envelope.py tests/test_market_report_queueing_service.py tests/test_market_reports_proxy.py` passed；`git diff --check` passed。
+- 下一步: 当前 v2 Market/Shared job adapter 批次进入提交切分/合并候选验收；后续不要继续扩大 Market queue/schema/job worker 面，优先处理 owner split 提交或选择完全独立的未触碰 owner。
 ```
 
 详细技术记录可以新建独立 task note，例如：

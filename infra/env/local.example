@@ -73,6 +73,7 @@ SIQ_START_HERMES_GATEWAYS=1
 SIQ_START_MARKET_REPORT_FINDER=0
 SIQ_START_MARKET_REPORT_RULES=0
 SIQ_START_VECTOR_INGEST=0
+SIQ_MILVUS_COLLECTION=ic_collaboration_shared
 
 # Optional official market data API keys for Korea/Japan report downloads.
 DART_API_KEY=replace-with-opendart-key

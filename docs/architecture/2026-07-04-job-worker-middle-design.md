@@ -104,6 +104,12 @@ CanonicalJobV1
   attempts
 ```
 
+Adapter metadata used by the first implementation:
+
+- `schema_version`: currently `siq_job_envelope_v1`.
+- `source_schema`: records the original owner schema, such as `market_file_backed_job_v1` or `workflow_job_v1`.
+- `legacy_payload`: preserves the existing route-facing payload for lossless public projection.
+
 Adapter rules:
 
 - Market reports routes keep returning current snake_case fields until a route contract explicitly changes.
@@ -132,7 +138,7 @@ Long term:
 
 ## First Contract Tests
 
-Before any migration, add tests for a canonical adapter layer:
+Before any migration, add tests for a canonical adapter layer. The first implementation lives in `apps/api/services/job_envelope.py` with focused tests in `apps/api/tests/test_job_envelope.py`.
 
 1. Snake-case Market job to canonical:
    - preserves `job_id`, `kind`, `created_by`, `result`, `error`
@@ -152,12 +158,16 @@ Before any migration, add tests for a canonical adapter layer:
 4. Canonical to Workflow public payload:
    - keeps camelCase response fields
    - preserves `steps` exactly enough for existing UI/tests
+   - projects canonical-native steps even when no legacy step payload exists
 
 5. Store migration reader:
    - accepts legacy list payload
    - accepts `{jobs: [...]}` payload
+   - accepts canonical-native envelope payloads
    - ignores malformed jobs
-   - never blocks runtime snapshots when persistence fails
+   - pairs with existing `FileBackedJobService` persistence-failure tests so runtime snapshots are not blocked by store write failures
+
+Owner split note: track this with the Shared Job And Command Contracts group in `2026-07-04-worktree-owner-split-audit.md`. Adding adapter contracts does not authorize changing any job store, route schema, worker loop, or subprocess owner in the same window.
 
 ## First Low-Risk Migration Candidate
 
@@ -169,6 +179,12 @@ Why:
 - The queued route has a `wait=true` inline path for comparison.
 - Existing tests already fake `run_command` / queue start.
 - It has no user-facing step timeline today, so a canonical internal envelope can be introduced behind the same public payload.
+
+2026-07-04 implementation note:
+
+- `market_report_queueing.py` now uses `job_envelope` as an internal adapter for `market-ingestion-eval` queue snapshots and job status reads.
+- Public API payloads still project back to the existing Market snake_case shape.
+- `FileBackedJobService` persistence, thread lifecycle, route schemas, `wait=true` inline execution, and command execution remain unchanged.
 
 Do not start with:
 
@@ -183,6 +199,7 @@ Minimum gate:
 ```bash
 cd apps/api
 PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider \
+  tests/test_job_envelope.py \
   tests/test_job_service.py \
   tests/test_workflow_job_service.py \
   tests/test_market_report_queueing_service.py \

@@ -6,7 +6,8 @@ import io
 import json
 from pathlib import Path
 
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
@@ -17,6 +18,8 @@ market_reports = importlib.util.module_from_spec(spec)
 assert spec and spec.loader
 spec.loader.exec_module(market_reports)
 market_report_proxy = market_reports.market_report_proxy
+from services.auth_dependencies import get_current_user
+from services.auth_service import User, UserRole
 
 
 class DummyRequest:
@@ -53,6 +56,24 @@ class DummyUser:
     email = "ops@example.test"
     full_name = "Ops User"
     role = "admin"
+
+
+def market_reports_client() -> TestClient:
+    app = FastAPI()
+    app.include_router(market_reports.router, prefix="/api")
+
+    async def current_user() -> User:
+        return User(
+            id=42,
+            username="ops",
+            email="ops@example.test",
+            hashed_password="x",
+            full_name="Ops User",
+            role=UserRole.ADMIN,
+        )
+
+    app.dependency_overrides[get_current_user] = current_user
+    return TestClient(app)
 
 
 def capture_background_job(monkeypatch):
@@ -1561,6 +1582,8 @@ def test_market_ingestion_eval_queues_background_job(monkeypatch):
     assert result["job_id"] == "market-ingestion-eval-job-1"
     assert seen["kind"] == "market-ingestion-eval"
     assert seen["target_result"]["payload"] == {"output": "tmp/eval.json"}
+    for internal_key in ("schema_version", "id", "subject", "steps", "logs", "attempts", "source_schema", "legacy_payload"):
+        assert internal_key not in result
 
 
 def test_market_ingestion_eval_wait_runs_inline(monkeypatch):
@@ -1781,6 +1804,115 @@ def test_market_report_job_status_uses_service(monkeypatch):
 
     assert result == snapshot
     assert "target" not in result
+
+
+def canonical_market_eval_job_snapshot() -> dict:
+    return {
+        "schema_version": "siq_job_envelope_v1",
+        "id": "market-ingestion-eval-job-1",
+        "kind": "market-ingestion-eval",
+        "subject": {"output": "tmp/eval.json"},
+        "status": "succeeded",
+        "created_at": "2026-07-04T12:00:00Z",
+        "started_at": "2026-07-04T12:01:00Z",
+        "finished_at": "2026-07-04T12:02:00Z",
+        "updated_at": "2026-07-04T12:02:00Z",
+        "created_by": {"id": 42, "username": "ops"},
+        "result": {"ok": True, "report": "tmp/eval.json"},
+        "error": None,
+        "steps": [],
+        "logs": [{"message": "internal only"}],
+        "attempts": 1,
+        "source_schema": "market_file_backed_job_v1",
+        "legacy_payload": {
+            "job_id": "market-ingestion-eval-job-1",
+            "kind": "market-ingestion-eval",
+            "status": "succeeded",
+            "created_at": "2026-07-04T12:00:00Z",
+            "started_at": "2026-07-04T12:01:00Z",
+            "finished_at": "2026-07-04T12:02:00Z",
+            "updated_at": "2026-07-04T12:02:00Z",
+            "created_by": {"id": 42, "username": "ops"},
+            "result": {"ok": True, "report": "tmp/eval.json"},
+            "error": None,
+            "target": lambda: None,
+        },
+        "target": lambda: None,
+    }
+
+
+def test_market_report_job_status_projects_market_eval_canonical_payload(monkeypatch):
+    canonical_snapshot = canonical_market_eval_job_snapshot()
+    monkeypatch.setattr(market_reports.market_report_job_service, "get", lambda job_id: canonical_snapshot)
+
+    result = asyncio.run(market_reports.market_report_job_status("market-ingestion-eval-job-1", _ops_user=None))
+
+    assert result == {
+        "job_id": "market-ingestion-eval-job-1",
+        "kind": "market-ingestion-eval",
+        "status": "succeeded",
+        "created_at": "2026-07-04T12:00:00Z",
+        "started_at": "2026-07-04T12:01:00Z",
+        "finished_at": "2026-07-04T12:02:00Z",
+        "updated_at": "2026-07-04T12:02:00Z",
+        "created_by": {"id": 42, "username": "ops"},
+        "result": {"ok": True, "report": "tmp/eval.json"},
+        "error": None,
+    }
+    for internal_key in (
+        "schema_version",
+        "id",
+        "subject",
+        "steps",
+        "logs",
+        "attempts",
+        "source_schema",
+        "legacy_payload",
+        "target",
+        "jobId",
+        "createdAt",
+        "updatedAt",
+        "finishedAt",
+    ):
+        assert internal_key not in result
+
+
+def test_market_report_job_status_http_route_projects_public_payload(monkeypatch):
+    canonical_snapshot = canonical_market_eval_job_snapshot()
+    monkeypatch.setattr(market_reports.market_report_job_service, "get", lambda job_id: canonical_snapshot)
+
+    client = market_reports_client()
+    try:
+        response = client.get("/api/jobs/market-ingestion-eval-job-1")
+    finally:
+        client.close()
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "job_id": "market-ingestion-eval-job-1",
+        "kind": "market-ingestion-eval",
+        "status": "succeeded",
+        "created_at": "2026-07-04T12:00:00Z",
+        "started_at": "2026-07-04T12:01:00Z",
+        "finished_at": "2026-07-04T12:02:00Z",
+        "updated_at": "2026-07-04T12:02:00Z",
+        "created_by": {"id": 42, "username": "ops"},
+        "result": {"ok": True, "report": "tmp/eval.json"},
+        "error": None,
+    }
+
+
+def test_market_report_job_status_http_route_returns_404_json(monkeypatch):
+    monkeypatch.setattr(market_reports.market_report_job_service, "get", lambda job_id: None)
+
+    client = market_reports_client()
+    try:
+        response = client.get("/api/jobs/missing-job")
+    finally:
+        client.close()
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Job not found"}
 
 
 def test_market_report_job_status_returns_404_for_missing_job(monkeypatch):

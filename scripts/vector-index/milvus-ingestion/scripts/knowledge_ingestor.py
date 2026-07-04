@@ -422,14 +422,14 @@ def main():
   # 入库单个 PDF 到战略专家库
   python3 knowledge_ingestor.py \\
       --source /path/to/宏观策略手册.pdf \\
-      --collection ic_strategist_ws \\
+      --collection ic_strategist \\
       --tag macro_strategy \\
       --category methodology
 
   # 批量入库整个目录到财务专家库
   python3 knowledge_ingestor.py \\
       --source /path/to/财务分析文档/ \\
-      --collection ic_finance_auditor_ws \\
+      --collection ic_finance_auditor \\
       --tag valuation_methods \\
       --category background_knowledge
 

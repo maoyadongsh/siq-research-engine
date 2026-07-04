@@ -40,7 +40,7 @@ MILVUS_HOST = "127.0.0.1"
 MILVUS_PORT = 19530
 VECTOR_DIM = 1024
 
-# Collection 注册表（不含 _ws 后缀，与 Gradio 入库脚本统一）
+# Collection 注册表（与当前 Milvus 物理名称一致）
 WORKSPACES = {
     "ic_chairman":              "投委会主席 (Chairman)",
     "ic_finance_auditor":       "财务审计官 (Finance Auditor)",
@@ -53,13 +53,9 @@ WORKSPACES = {
     "ic_archive_sop":           "机构历史案例库 (SOP Archive)",
 }
 
-# 兼容旧脚本 _ws 后缀名（映射到标准名）
-_WS_ALIAS = {f"{k}_ws": k for k in WORKSPACES}
-
-
 def resolve_target(name: str) -> str:
-    """将旧名 _ws 或新名统一为标准 collection 名"""
-    return _WS_ALIAS.get(name, name)
+    """Return the current physical collection name."""
+    return name
 
 
 # ==================== GPU 检测 ====================

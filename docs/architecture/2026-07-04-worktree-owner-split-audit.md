@@ -11,6 +11,7 @@ Purpose: stop expanding active work, split the current worktree by owner, and ve
 Files:
 
 - `docs/architecture/2026-07-03-architecture-optimization-plan-v2.md`
+- `docs/architecture/2026-07-04-job-worker-middle-design.md`
 - `docs/architecture/2026-07-04-worktree-owner-split-audit.md`
 
 Recommended commit:
@@ -20,7 +21,7 @@ Recommended commit:
 Gate:
 
 - `git diff --check -- docs/architecture/2026-07-03-architecture-optimization-plan-v2.md`
-- `git diff --check -- docs/architecture/2026-07-03-architecture-optimization-plan-v2.md docs/architecture/2026-07-04-worktree-owner-split-audit.md`
+- `git diff --check -- docs/architecture/2026-07-03-architecture-optimization-plan-v2.md docs/architecture/2026-07-04-job-worker-middle-design.md docs/architecture/2026-07-04-worktree-owner-split-audit.md`
 
 Verified:
 
@@ -31,6 +32,7 @@ Verified:
 Files:
 
 - `apps/api/services/market_package_repository.py`
+- `apps/api/services/market_report_queueing.py`
 - `apps/api/services/market_report_status_service.py`
 - `apps/api/tests/test_market_package_repository.py`
 - `apps/api/tests/test_market_report_commands.py`
@@ -65,6 +67,10 @@ Verified:
 
 - 2026-07-04: focused Market Reports API gate above passed, 150 passed, 2 existing Pydantic deprecation warnings.
 - 2026-07-04: follow-up router parser_result-missing contract kept this owner green, 151 passed, 2 existing Pydantic deprecation warnings.
+- 2026-07-04: Market ingestion eval canonical queue adapter focused gate passed, 97 passed, 2 existing Pydantic deprecation warnings.
+- 2026-07-04: Market job status public payload route contract kept first-migration focused gate green, 98 passed, 2 existing Pydantic deprecation warnings.
+- 2026-07-04: Market job status HTTP route contract kept first-migration focused gate green, 100 passed, 2 existing Pydantic deprecation warnings and 2 existing utcnow warnings.
+- 2026-07-04: post-HTTP-route owner gate above passed, 157 passed, 2 existing Pydantic deprecation warnings and 2 existing utcnow warnings.
 
 ### Agent Runtime Contracts
 
@@ -139,19 +145,22 @@ Verified:
 
 Files:
 
+- `apps/api/services/job_envelope.py`
 - `apps/api/tests/test_command_runner.py`
+- `apps/api/tests/test_job_envelope.py`
 - `apps/api/tests/test_job_service.py`
 - `apps/api/tests/test_workflow_job_service.py`
 
 Recommended commit:
 
-- `api: add shared job and command contract coverage`
+- `api: add shared job and command adapter coverage`
 
 Focused gate:
 
 ```bash
 cd apps/api
 PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider \
+  tests/test_job_envelope.py \
   tests/test_command_runner.py \
   tests/test_job_service.py \
   tests/test_workflow_job_service.py
@@ -160,6 +169,8 @@ PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider \
 Verified:
 
 - 2026-07-04: covered by Market Reports API gate for `test_job_service.py` and combined Source/Workflow/Shared gate for `test_command_runner.py` and `test_workflow_job_service.py`; both gates passed.
+- 2026-07-04: canonical adapter follow-up gate above passed, 36 passed; `py_compile services/job_envelope.py tests/test_job_envelope.py` passed.
+- 2026-07-04: post-HTTP-route shared job/command gate above passed, 37 passed.
 
 ### Document Parser
 
@@ -266,6 +277,67 @@ Verified:
 
 - 2026-07-04: focused Hermes smoke gate above passed, 3 passed; `py_compile` passed.
 
+### Milvus / Vector Ingest Runtime Compatibility
+
+Files:
+
+- `README.md`
+- `apps/web/src/pages/VectorIngest.tsx`
+- `infra/env/local.example`
+- `infra/env/production.example`
+- `start_all.sh`
+- `scripts/vector-index/milvus-ingestion/ingest_final.py`
+- `scripts/vector-index/milvus-ingestion/init_collections.py`
+- `scripts/vector-index/milvus-ingestion/scripts/knowledge_ingestor.py`
+- `scripts/vector-index/milvus-ingestion/scripts/milvus_connection_manager.py`
+- `scripts/vector-index/milvus-ingestion/scripts/project_ingestor.py`
+- `scripts/vector-index/milvus-ingestion/scripts/runtime_compat.py`
+
+Recommended commit:
+
+- `vector-ingest: align Milvus collection runtime defaults`
+
+Focused gate:
+
+```bash
+git diff --check -- \
+  README.md \
+  apps/web/src/pages/VectorIngest.tsx \
+  infra/env/local.example \
+  infra/env/production.example \
+  start_all.sh \
+  scripts/vector-index/milvus-ingestion/ingest_final.py \
+  scripts/vector-index/milvus-ingestion/init_collections.py \
+  scripts/vector-index/milvus-ingestion/scripts/knowledge_ingestor.py \
+  scripts/vector-index/milvus-ingestion/scripts/milvus_connection_manager.py \
+  scripts/vector-index/milvus-ingestion/scripts/project_ingestor.py \
+  scripts/vector-index/milvus-ingestion/scripts/runtime_compat.py
+bash -n start_all.sh
+cd scripts/vector-index/milvus-ingestion
+PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile \
+  ingest_final.py \
+  init_collections.py \
+  scripts/knowledge_ingestor.py \
+  scripts/milvus_connection_manager.py \
+  scripts/project_ingestor.py \
+  scripts/runtime_compat.py
+PYTHONPATH=scripts PYTHONDONTWRITEBYTECODE=1 python3 - <<'PY'
+from runtime_compat import normalize_collection_name
+assert normalize_collection_name("siq_deal_shared") == "ic_collaboration_shared"
+assert normalize_collection_name("siq_ic_strategist") == "ic_strategist"
+assert normalize_collection_name("ic_collaboration_shared") == "ic_collaboration_shared"
+assert normalize_collection_name("ic_strategist") == "ic_strategist"
+PY
+PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider tests/test_ingest_document_chunks.py
+cd ../../../apps/web
+npm run build
+```
+
+Verified:
+
+- 2026-07-04: live Milvus probe on `127.0.0.1:19530` found `default` database collections `ic_archive_sop`, `ic_chairman`, `ic_collaboration_shared`, `ic_finance_auditor`, `ic_legal_scanner`, `ic_master_coordinator`, `ic_risk_controller`, `ic_sector_expert`, and `ic_strategist`; no `_ws` collections found. Runtime defaults should use current physical collection names, while `siq_*` names remain logical aliases only.
+- 2026-07-04: focused gate above passed: `git diff --check`, `bash -n start_all.sh`, Python `py_compile`, alias smoke, `tests/test_ingest_document_chunks.py` with 2 passed, and `npm run build`.
+
 ### Deal / IC / OpenClaw Parallel Work
 
 Files:
@@ -273,6 +345,7 @@ Files:
 - `apps/api/routers/deals.py`
 - `apps/api/services/deal_audit.py`
 - `apps/api/services/deal_decision.py`
+- `apps/api/services/deal_evidence.py`
 - `apps/api/services/deal_status.py`
 - `apps/api/services/ic_agent_runtime.py`
 - `apps/api/services/ic_openclaw_importer.py`
@@ -334,7 +407,8 @@ This group is explicitly outside the v2 optimization mainline and must not be mi
 7. Web Market Helpers.
 8. Web Settings.
 9. Hermes Smoke.
-10. Deal / IC / OpenClaw parallel work.
+10. Milvus / Vector Ingest Runtime Compatibility.
+11. Deal / IC / OpenClaw parallel work.
 
 ## Global Gates
 

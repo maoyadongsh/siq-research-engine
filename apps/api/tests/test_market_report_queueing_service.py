@@ -43,6 +43,62 @@ def test_queue_market_report_job_uses_job_service_and_envelopes_result():
     assert seen["target_result"] == {"ok": True, "package": "demo"}
 
 
+def test_market_ingestion_eval_queue_uses_canonical_adapter_without_public_schema_drift():
+    seen = {}
+
+    class JobService:
+        def start(self, kind, target, *, created_by=None):
+            seen["kind"] = kind
+            seen["target_result"] = target()
+            return {
+                "job_id": "market-ingestion-eval-job-1",
+                "kind": kind,
+                "status": "queued",
+                "created_at": "2026-07-04T12:00:00Z",
+                "started_at": None,
+                "finished_at": None,
+                "updated_at": "2026-07-04T12:00:00Z",
+                "created_by": created_by,
+                "result": None,
+                "error": None,
+                "target": target,
+            }
+
+    result = service.queue_market_report_job(
+        job_service=JobService(),
+        kind="market-ingestion-eval",
+        target=lambda: {"ok": True, "report": "eval.json"},
+        created_by=DummyUser(),
+    )
+
+    assert result == {
+        "ok": True,
+        "queued": True,
+        "job_id": "market-ingestion-eval-job-1",
+        "kind": "market-ingestion-eval",
+        "status": "queued",
+        "created_at": "2026-07-04T12:00:00Z",
+        "started_at": None,
+        "finished_at": None,
+        "updated_at": "2026-07-04T12:00:00Z",
+        "created_by": {
+            "id": 42,
+            "username": "ops",
+            "email": "ops@example.test",
+            "full_name": "Ops User",
+            "role": "admin",
+        },
+        "result": None,
+        "error": None,
+    }
+    assert seen == {
+        "kind": "market-ingestion-eval",
+        "target_result": {"ok": True, "report": "eval.json"},
+    }
+    for internal_key in ("schema_version", "id", "subject", "steps", "logs", "attempts", "source_schema", "legacy_payload", "target"):
+        assert internal_key not in result
+
+
 def test_get_market_report_job_delegates_to_job_service():
     class JobService:
         def get(self, job_id):
@@ -55,3 +111,63 @@ def test_get_market_report_job_delegates_to_job_service():
         "status": "running",
     }
     assert service.get_market_report_job(job_service=JobService(), job_id="missing") is None
+
+
+def test_get_market_report_job_projects_canonical_market_eval_to_public_shape():
+    class JobService:
+        def get(self, job_id):
+            assert job_id == "job-1"
+            return {
+                "schema_version": "siq_job_envelope_v1",
+                "id": "job-1",
+                "kind": "market-ingestion-eval",
+                "subject": {"output": "eval.json"},
+                "status": "succeeded",
+                "created_at": "2026-07-04T12:00:00Z",
+                "started_at": "2026-07-04T12:01:00Z",
+                "finished_at": "2026-07-04T12:02:00Z",
+                "updated_at": "2026-07-04T12:02:00Z",
+                "created_by": {"username": "ops"},
+                "result": {"ok": True},
+                "error": None,
+                "steps": [],
+                "logs": [{"message": "internal"}],
+                "attempts": 1,
+                "source_schema": "market_file_backed_job_v1",
+            }
+
+    result = service.get_market_report_job(job_service=JobService(), job_id="job-1")
+
+    assert result == {
+        "job_id": "job-1",
+        "kind": "market-ingestion-eval",
+        "status": "succeeded",
+        "created_at": "2026-07-04T12:00:00Z",
+        "started_at": "2026-07-04T12:01:00Z",
+        "finished_at": "2026-07-04T12:02:00Z",
+        "updated_at": "2026-07-04T12:02:00Z",
+        "created_by": {"username": "ops"},
+        "result": {"ok": True},
+        "error": None,
+    }
+
+
+def test_get_market_report_job_projects_legacy_market_eval_snapshot():
+    class JobService:
+        def get(self, job_id):
+            return {
+                "job_id": job_id,
+                "kind": "market-ingestion-eval",
+                "status": "running",
+                "created_at": "2026-07-04T12:00:00Z",
+                "target": lambda: None,
+            }
+
+    result = service.get_market_report_job(job_service=JobService(), job_id="job-1")
+
+    assert result == {
+        "job_id": "job-1",
+        "kind": "market-ingestion-eval",
+        "status": "running",
+        "created_at": "2026-07-04T12:00:00Z",
+    }

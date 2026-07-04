@@ -132,6 +132,22 @@ def test_canonical_to_market_public_keeps_snake_case_payload_shape():
     assert "logs" not in public
 
 
+def test_canonical_to_market_public_preserves_sparse_legacy_field_set():
+    canonical = job_envelope.market_job_to_canonical(
+        {
+            "job_id": "market-job-1",
+            "status": "queued",
+        }
+    )
+
+    public = job_envelope.canonical_to_market_public(canonical)
+
+    assert public == {
+        "job_id": "market-job-1",
+        "status": "queued",
+    }
+
+
 def test_canonical_to_workflow_public_keeps_camel_case_payload_shape():
     workflow_job = {
         "jobId": "workflow-job-1",
@@ -148,6 +164,66 @@ def test_canonical_to_workflow_public_keeps_camel_case_payload_shape():
     public = job_envelope.canonical_to_workflow_public(canonical)
 
     assert public == workflow_job
+    assert "logs" not in public
+
+
+def test_canonical_to_workflow_public_projects_native_steps_without_legacy_payload():
+    canonical = {
+        "schema_version": "siq_job_envelope_v1",
+        "id": "workflow-canonical-1",
+        "kind": "workflow-run-remaining",
+        "subject": {"task_id": "task-canonical"},
+        "status": "failed",
+        "created_at": "2026-07-04T12:00:00Z",
+        "updated_at": "2026-07-04T12:05:00Z",
+        "result": {"package": "artifact.zip"},
+        "error": "semantic failed",
+        "steps": [
+            {
+                "name": "wiki-import",
+                "status": "succeeded",
+                "started_at": "2026-07-04T12:01:00Z",
+                "finished_at": "2026-07-04T12:02:00Z",
+                "result": {"ok": True},
+            },
+            {
+                "name": "semantic",
+                "status": "failed",
+                "started_at": "2026-07-04T12:03:00Z",
+                "finished_at": "2026-07-04T12:04:00Z",
+                "message": "rule stage failed",
+            },
+        ],
+        "logs": [{"message": "internal only"}],
+    }
+
+    public = job_envelope.canonical_to_workflow_public(canonical)
+
+    assert public == {
+        "jobId": "workflow-canonical-1",
+        "taskId": "task-canonical",
+        "status": "failed",
+        "steps": [
+            {
+                "step": "wiki-import",
+                "status": "succeeded",
+                "startedAt": "2026-07-04T12:01:00Z",
+                "finishedAt": "2026-07-04T12:02:00Z",
+                "result": {"ok": True},
+            },
+            {
+                "step": "semantic",
+                "status": "failed",
+                "startedAt": "2026-07-04T12:03:00Z",
+                "finishedAt": "2026-07-04T12:04:00Z",
+                "message": "rule stage failed",
+            },
+        ],
+        "createdAt": "2026-07-04T12:00:00Z",
+        "updatedAt": "2026-07-04T12:05:00Z",
+        "result": {"package": "artifact.zip"},
+        "error": "semantic failed",
+    }
     assert "logs" not in public
 
 
@@ -187,6 +263,43 @@ def test_load_canonical_compatible_jobs_accepts_legacy_list_and_jobs_payload():
     assert market[0]["source_schema"] == "market_file_backed_job_v1"
     assert [job["id"] for job in workflow] == ["workflow-1"]
     assert workflow[0]["source_schema"] == "workflow_job_v1"
+
+
+def test_load_canonical_compatible_jobs_accepts_canonical_native_payloads():
+    market_canonical = {
+        "schema_version": "siq_job_envelope_v1",
+        "id": "market-canonical-1",
+        "kind": "market-ingestion-eval",
+        "status": "running",
+        "created_at": "2026-07-04T12:00:00Z",
+        "steps": [],
+        "logs": [{"message": "kept internal for future adapter use"}],
+    }
+    workflow_canonical = {
+        "schema_version": "siq_job_envelope_v1",
+        "id": "workflow-canonical-1",
+        "kind": "workflow-run-remaining",
+        "subject": {"task_id": "task-canonical"},
+        "status": "queued",
+        "created_at": "2026-07-04T12:00:00Z",
+        "updated_at": "2026-07-04T12:00:00Z",
+        "steps": [],
+    }
+
+    market = job_envelope.load_canonical_compatible_jobs(
+        {
+            "jobs": [
+                market_canonical,
+                {"schema_version": "siq_job_envelope_v1", "id": ""},
+                {"id": "missing-schema-version"},
+            ]
+        },
+        source="market",
+    )
+    workflow = job_envelope.load_canonical_compatible_jobs([workflow_canonical], source="workflow")
+
+    assert market == [market_canonical]
+    assert workflow == [workflow_canonical]
 
 
 def test_load_canonical_compatible_jobs_ignores_malformed_payload_and_rejects_unknown_source():

@@ -117,6 +117,15 @@ class WorkflowFinalizeR4Request(BaseModel):
     overwrite: bool = False
 
 
+class WorkflowAdvanceNextRequest(BaseModel):
+    dry_run: bool = True
+    allow_hermes: bool = False
+    max_agents: int = Field(default=1, ge=1, le=6)
+    r3_skip: bool = True
+    r3_skip_reason: str | None = "R2 已覆盖核心分歧，P0 留痕跳过。"
+    r4_overwrite: bool = False
+
+
 class DealDecisionHumanConfirmationRequest(BaseModel):
     status: str = Field(..., min_length=3)
     override_reason: str | None = None
@@ -1151,6 +1160,44 @@ def post_workflow_finalize_r4(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise _not_found(deal_id) from exc
+
+
+@router.post("/{deal_id}/workflow/advance-next")
+async def post_workflow_advance_next(
+    deal_id: str,
+    payload: WorkflowAdvanceNextRequest | None = None,
+    current_user: User = Depends(require_permission("report.create")),
+) -> dict[str, Any]:
+    request = payload or WorkflowAdvanceNextRequest()
+    try:
+        if not request.dry_run:
+            return deal_store.redact_public_payload(
+                await ic_agent_runtime.run_workflow_advance_next(
+                    deal_id,
+                    allow_hermes=request.allow_hermes,
+                    max_agents=request.max_agents,
+                    r3_skip=request.r3_skip,
+                    r3_skip_reason=request.r3_skip_reason,
+                    r4_overwrite=request.r4_overwrite,
+                    created_by=_user_payload(current_user),
+                )
+            )
+        return deal_store.redact_public_payload(
+            ic_agent_runtime.build_workflow_advance_next_dry_run(
+                deal_id,
+                allow_hermes=request.allow_hermes,
+                max_agents=request.max_agents,
+                r3_skip=request.r3_skip,
+                r3_skip_reason=request.r3_skip_reason,
+                r4_overwrite=request.r4_overwrite,
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+    except (RuntimeError, httpx.HTTPError) as exc:
+        raise HTTPException(status_code=502, detail=f"Workflow advance-next failed: {exc}") from exc
 
 
 @router.get("/{deal_id}/evidence/{evidence_id}")

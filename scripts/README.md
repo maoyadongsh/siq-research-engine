@@ -55,7 +55,7 @@ R1 agent workflow 冒烟入口会创建临时 deal package。默认只验证 `wo
 
 `--start-gateway` 会先检查目标端口：如果端口已经监听但 `/health` 不健康，脚本会拒绝替换现有进程。临时 gateway 使用独立 `SIQ_HERMES_HOME`，并通过临时 env 文件把 `HERMES_API_KEY`、`HERMES_TOKEN`、`API_SERVER_KEY` 对齐为 smoke token，避免本地 `API_SERVER_KEY` 与客户端 token 不一致导致 `/v1/runs` 401。`/health` 通过只代表 gateway 已启动，不代表真实模型凭证或上游模型调用一定成功。
 
-R1 后序 profile 仍遵守严格串行门禁。若要单独冒烟 `siq_ic_finance_auditor` 等后序角色，可加 `--seed-prior-reports`，脚本只会在临时 package 中写入前序 agent 的 synthetic R1 报告和 `submitted_agents`，不会改真实项目包。扩展真实 gateway/model smoke 覆盖前，建议先跑 `--all-r1-profiles` dry-run 矩阵，确认所有 R1 profile 的临时包、preflight、startup receipt 和 sequence 门禁都可通过；该矩阵模式不会调用 Hermes，也不会启动 gateway。
+R1 后序 profile 仍遵守严格串行门禁。若要单独冒烟 `siq_ic_finance_auditor` 等后序角色，可加 `--seed-prior-reports`，脚本只会在临时 package 中写入前序 agent 的 synthetic R1 报告和 `submitted_agents`，不会改真实项目包。扩展真实 gateway/model smoke 覆盖前，建议先跑 `--all-r1-profiles` dry-run 矩阵，确认所有 R1 profile 的临时包、preflight、startup receipt 和 sequence 门禁都可通过；再跑 `--serial` dry-run，确认 R1 严格串行调度能一次规划完整 6 个 agent。这两个矩阵/串行模式不会调用 Hermes，也不会启动 gateway。
 
 这些冒烟脚本只验证目标 profile 或临时 workflow 合同，不代表全局 IC Hermes 已启用。全局状态页仍以 `SIQ_ENABLE_IC_HERMES=1` 和当前 gateway `/health` 结果展示 disabled、enabled 或 degraded。
 
@@ -63,6 +63,7 @@ R1 后序 profile 仍遵守严格串行门禁。若要单独冒烟 `siq_ic_finan
 cd /home/maoyd/siq-research-engine
 scripts/hermes/smoke_r1_agent_workflow.py
 scripts/hermes/smoke_r1_agent_workflow.py --all-r1-profiles
+scripts/hermes/smoke_r1_agent_workflow.py --serial
 scripts/hermes/smoke_r1_agent_workflow.py --profile siq_ic_strategist --real
 scripts/hermes/smoke_r1_agent_workflow.py --profile siq_ic_strategist --real --start-gateway --require-gateway-health
 scripts/hermes/smoke_r1_agent_workflow.py --profile siq_ic_finance_auditor --real --start-gateway --require-gateway-health --seed-prior-reports

@@ -2608,6 +2608,11 @@ def test_deal_evidence_builds_offline_package_from_bound_parser_docs(tmp_path, m
     assert dry_run["schema_version"] == "siq_deal_evidence_ingest_dry_run_v1"
     assert dry_run["postgres_written"] is False
     assert dry_run["milvus_written"] is False
+    assert dry_run["write_readiness"] == "fail"
+    assert dry_run["plan_hash"]
+    by_check = {item["id"]: item for item in dry_run["preflight_checks"]}
+    assert by_check["quality.status"]["status"] == "fail"
+    assert by_check["plan.count_consistency"]["status"] == "pass"
     assert dry_run["counts"]["items_total"] == 2
     assert dry_run["counts"]["postgres_rows_planned"] == 2
     assert dry_run["counts"]["milvus_chunks_planned"] == 2
@@ -2624,6 +2629,57 @@ def test_deal_evidence_builds_offline_package_from_bound_parser_docs(tmp_path, m
     assert manifest["evidence"]["last_ingest_dry_run"]["milvus_written"] is False
     loaded_dry_run = deal_evidence.read_deal_evidence_ingest_dry_run("DEAL-YUSHU-2026-001", wiki_root=tmp_path)
     assert loaded_dry_run["ingest_dry_run"]["counts"]["items_valid"] == 2
+
+
+def test_deal_evidence_ingest_dry_run_marks_write_targets_as_readiness_warnings(tmp_path):
+    deal_store.create_deal_package(
+        deal_id="DEAL-YUSHU-2026-001",
+        company_name="宇树科技",
+        wiki_root=tmp_path,
+    )
+    package_dir = tmp_path / "deals" / "DEAL-YUSHU-2026-001"
+    rows = [
+        {
+            "schema_version": "siq_deal_evidence_item_v1",
+            "deal_id": "DEAL-YUSHU-2026-001",
+            "document_id": f"doc-{dimension}",
+            "evidence_id": f"EVID-DEAL-YUSHU-2026-001-00000{index}",
+            "source_path": f"parsed_documents/doc-{dimension}.md",
+            "quote": f"{dimension} quote",
+            "claim": f"{dimension} claim",
+            "evidence_type": "verified",
+            "dimension": dimension,
+            "confidence": 0.8,
+        }
+        for index, dimension in enumerate(("business", "finance", "legal", "risk"), start=1)
+    ]
+    _write_ndjson(package_dir / "evidence" / "evidence_items.ndjson", rows)
+    _write_json(
+        package_dir / "evidence" / "evidence_quality_report.json",
+        {
+            "schema_version": "siq_deal_evidence_quality_v1",
+            "deal_id": "DEAL-YUSHU-2026-001",
+            "status": "pass",
+        },
+    )
+
+    dry_run = deal_evidence.build_deal_evidence_ingest_dry_run(
+        "DEAL-YUSHU-2026-001",
+        wiki_root=tmp_path,
+    )
+
+    assert dry_run["status"] == "pass"
+    assert dry_run["write_readiness"] == "warn"
+    by_check = {item["id"]: item for item in dry_run["preflight_checks"]}
+    assert by_check["items.required_fields"]["status"] == "pass"
+    assert by_check["quality.status"]["status"] == "pass"
+    assert by_check["plan.count_consistency"]["status"] == "pass"
+    assert by_check["target.postgres_write"]["status"] == "warn"
+    assert by_check["target.milvus_write"]["status"] == "warn"
+    assert dry_run["plan_hash"] == deal_store.read_json(
+        package_dir / "evidence" / "evidence_ingest_dry_run.json",
+        {},
+    )["plan_hash"]
 
 
 def test_startup_retrieval_generates_local_receipt_from_evidence(tmp_path, monkeypatch):
@@ -2774,6 +2830,7 @@ def test_ic_agent_task_dry_run_builds_payload_when_receipt_exists(tmp_path):
     assert payload["startup_receipt_path"] == "phases/startup_receipts.json"
     assert payload["output_contract"]["json_path"] == "phases/r1_reports.json"
     assert payload["output_contract"]["markdown_path"] == "discussion/01_R1_finance_auditor_report.md"
+    assert "evidence_ids" in payload["output_contract"]["required_fields"]
     assert "必须先读取 startup receipt" in payload["hard_rules"]
     assert "/home/maoyd" not in json.dumps(result, ensure_ascii=False)
 
@@ -3076,6 +3133,71 @@ def test_workflow_r1_agent_run_rejects_invalid_hermes_contract_without_phase_sid
     assert audit["events"][-1]["event_type"] == "deal_r1_agent_run_rejected"
     assert "score_missing_or_not_numeric" in audit["events"][-1]["reason"]
     assert "evidence_ids_unknown:EVID-DEAL-YUSHU-2026-001-UNKNOWN" in audit["events"][-1]["reason"]
+    assert audit["events"][-1]["contract_errors"]
+    assert audit["events"][-1]["report_written"] is False
+    assert audit["events"][-1]["workflow_advanced"] is False
+
+
+def test_workflow_r1_agent_run_rejects_invalid_contract_types_and_receipt_refs(tmp_path, monkeypatch):
+    deal_store.create_deal_package(
+        deal_id="DEAL-YUSHU-2026-001",
+        company_name="宇树科技",
+        industry="机器人",
+        stage="Pre-IPO",
+        wiki_root=tmp_path,
+    )
+    package_dir = tmp_path / "deals" / "DEAL-YUSHU-2026-001"
+    _write_verified_evidence_gate_pass(package_dir)
+    _write_json(
+        package_dir / "phases" / "startup_receipts.json",
+        {
+            "schema_version": "siq_ic_startup_receipts_v1",
+            "deal_id": "DEAL-YUSHU-2026-001",
+            "agents": {
+                "siq_ic_strategist": _receipt_payload(
+                    "siq_ic_strategist",
+                    evidence_id="EVID-DEAL-YUSHU-2026-001-000002",
+                )
+            },
+        },
+    )
+
+    async def fake_create_run(input, conversation_history, *, profile, session_id=None):
+        del input, conversation_history, profile, session_id
+        return "run-invalid-r1-types-001"
+
+    async def fake_collect_run_result(run_id, *, profile, timeout=None):
+        del run_id, profile, timeout
+        return (
+            "## 检索结果摘要\n\n### 共享底稿证据\n\n### 私有知识库证据\n\n"
+            "### 信息缺口清单\n\n### 检索后观点\n\n字段类型和 receipt 引用不合格。\n"
+            "```json\n"
+            "{\"score\": 80, \"recommendation\": \"conditional_pass\", "
+            "\"verified\": \"market evidence\", \"assumed\": [], "
+            "\"open_questions\": [], "
+            "\"startup_receipt_id\": \"startup-siq_ic_strategist-R1-001\", "
+            "\"evidence_ids\": [\"EVID-DEAL-YUSHU-2026-001-000001\"]}\n"
+            "```"
+        )
+
+    monkeypatch.setattr(ic_agent_runtime.hermes_client, "create_run", fake_create_run)
+    monkeypatch.setattr(ic_agent_runtime.hermes_client, "collect_run_result", fake_collect_run_result)
+
+    with pytest.raises(ValueError, match="R1 Hermes output contract invalid"):
+        asyncio.run(
+            ic_agent_runtime.run_workflow_r1_agent(
+                "DEAL-YUSHU-2026-001",
+                "siq_ic_strategist",
+                wiki_root=tmp_path,
+            )
+        )
+
+    assert not (package_dir / "discussion" / "01_R1_strategist_report.md").exists()
+    assert not (package_dir / "phases" / "r1_reports.json").exists()
+    audit = json.loads((package_dir / "audit" / "audit_log.json").read_text(encoding="utf-8"))
+    errors = audit["events"][-1]["contract_errors"]
+    assert "verified_not_list" in errors
+    assert "evidence_ids_not_in_startup_receipt" in errors
 
 
 def test_workflow_r1_serial_dry_run_plans_contiguous_agents(tmp_path):
@@ -3189,6 +3311,107 @@ def test_workflow_r1_serial_run_executes_planned_agents_in_order(tmp_path, monke
     )
     assert duplicate["allowed"] is False
     assert "agent_already_submitted" in duplicate["blocking_reasons"]
+
+
+def test_workflow_advance_next_blocks_r1_hermes_by_default(tmp_path):
+    deal_store.create_deal_package(
+        deal_id="DEAL-YUSHU-2026-001",
+        company_name="宇树科技",
+        industry="机器人",
+        stage="Pre-IPO",
+        wiki_root=tmp_path,
+    )
+    package_dir = tmp_path / "deals" / "DEAL-YUSHU-2026-001"
+    _write_verified_evidence_gate_pass(package_dir)
+    _write_json(
+        package_dir / "phases" / "startup_receipts.json",
+        {
+            "schema_version": "siq_ic_startup_receipts_v1",
+            "deal_id": "DEAL-YUSHU-2026-001",
+            "agents": {
+                "siq_ic_strategist": _receipt_payload("siq_ic_strategist")
+            },
+        },
+    )
+
+    plan = ic_agent_runtime.build_workflow_advance_next_dry_run(
+        "DEAL-YUSHU-2026-001",
+        wiki_root=tmp_path,
+    )
+
+    assert plan["schema_version"] == "siq_ic_workflow_advance_next_dry_run_v1"
+    assert plan["selected_action"] == "run-r1-serial"
+    assert plan["requires_hermes"] is True
+    assert plan["allowed"] is False
+    assert "r1_serial_requires_allow_hermes" in plan["blocking_reasons"]
+    assert plan["action_dry_run"]["planned_agent_ids"] == ["siq_ic_strategist"]
+
+
+def test_workflow_advance_next_runs_deterministic_steps_one_at_a_time(tmp_path):
+    deal_store.create_deal_package(
+        deal_id="DEAL-YUSHU-2026-001",
+        company_name="宇树科技",
+        industry="机器人",
+        stage="Pre-IPO",
+        wiki_root=tmp_path,
+    )
+    package_dir = tmp_path / "deals" / "DEAL-YUSHU-2026-001"
+    _write_minimum_complete_deal_contract(package_dir)
+    (package_dir / "phases" / "r4_decision.json").unlink()
+    (package_dir / "decision" / "IC_DECISION_REPORT.md").unlink()
+
+    plan = ic_agent_runtime.build_workflow_advance_next_dry_run(
+        "DEAL-YUSHU-2026-001",
+        wiki_root=tmp_path,
+    )
+    assert plan["allowed"] is True
+    assert plan["selected_action"] == "identify-disputes"
+
+    first = asyncio.run(
+        ic_agent_runtime.run_workflow_advance_next(
+            "DEAL-YUSHU-2026-001",
+            wiki_root=tmp_path,
+            created_by={"id": 7, "username": "ic-admin"},
+        )
+    )
+    assert first["schema_version"] == "siq_ic_workflow_advance_next_v1"
+    assert first["selected_action"] == "identify-disputes"
+    assert (package_dir / "phases" / "r1_5_disputes.json").is_file()
+
+    second = asyncio.run(
+        ic_agent_runtime.run_workflow_advance_next(
+            "DEAL-YUSHU-2026-001",
+            wiki_root=tmp_path,
+            created_by={"id": 7, "username": "ic-admin"},
+        )
+    )
+    assert second["selected_action"] == "run-r2"
+    assert second["action_result"]["workflow_advanced"] is True
+    assert (package_dir / "phases" / "r2_reports.json").is_file()
+
+    third = asyncio.run(
+        ic_agent_runtime.run_workflow_advance_next(
+            "DEAL-YUSHU-2026-001",
+            wiki_root=tmp_path,
+            created_by={"id": 7, "username": "ic-admin"},
+        )
+    )
+    assert third["selected_action"] == "run-r3"
+    assert third["action_result"]["mode"] == "skip"
+    assert (package_dir / "phases" / "r3_reports.json").is_file()
+
+    fourth = asyncio.run(
+        ic_agent_runtime.run_workflow_advance_next(
+            "DEAL-YUSHU-2026-001",
+            wiki_root=tmp_path,
+            created_by={"id": 7, "username": "ic-admin"},
+        )
+    )
+    assert fourth["selected_action"] == "finalize-r4"
+    assert fourth["action_result"]["decision"]["weighted_agent_score"] == 80.0
+    assert fourth["action_result"]["decision"]["chairman_dimension_score"] == 80
+    assert fourth["workflow_advanced"] is True
+    assert (package_dir / "decision" / "IC_DECISION_REPORT.md").is_file()
 
 
 def test_workflow_r2_r3_r4_deterministic_closes_artifact_loop(tmp_path):

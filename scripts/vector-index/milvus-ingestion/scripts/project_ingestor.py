@@ -14,7 +14,7 @@ Sovereign-IQ Project Ingestor - 人类底稿入库脚本 (V1.0)
 使用流程：
 1. 人类将待入库底稿放入 incoming 目录
 2. 运行本脚本，输入项目标签
-3. 脚本解析文件、生成向量、入库至 ic_collaboration_shared_ws
+3. 脚本解析文件、生成向量、入库至 ic_collaboration_shared
 4. 文件自动移动至 processed 或 failed 目录
 """
 
@@ -92,7 +92,7 @@ class ProjectIngestor:
     职责：
     1. 解析多种格式的底稿文件（MD/TXT/PDF/DOCX）
     2. 生成分片并调用向量化接口
-    3. 写入协同共享库 ic_collaboration_shared_ws
+    3. 写入协同共享库 ic_collaboration_shared
     4. 管理文件状态（incoming -> processed/failed）
     """
     

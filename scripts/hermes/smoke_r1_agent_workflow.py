@@ -232,6 +232,21 @@ def smoke_evidence_rows() -> list[dict[str, Any]]:
 
 
 def build_smoke_package(wiki_root: Path, profile_id: str, *, seed_prior_reports: bool = False) -> Path:
+    return build_smoke_package_for_profile(
+        wiki_root,
+        profile_id,
+        seed_prior_reports=seed_prior_reports,
+        all_receipts=False,
+    )
+
+
+def build_smoke_package_for_profile(
+    wiki_root: Path,
+    profile_id: str,
+    *,
+    seed_prior_reports: bool = False,
+    all_receipts: bool = False,
+) -> Path:
     deal_store.create_deal_package(
         deal_id=DEAL_ID,
         company_name="Hermes Smoke Robotics",
@@ -263,7 +278,11 @@ def build_smoke_package(wiki_root: Path, profile_id: str, *, seed_prior_reports:
                     "evidence_hits": [{"evidence_id": EVIDENCE_ID}],
                     "created_at": "2026-07-03T10:20:00+08:00",
                 }
-                for agent_id in [*prior_r1_agents(profile_id), ic_policy.canonical_ic_profile_id(profile_id)]
+                for agent_id in (
+                    ic_policy.R1_AGENT_SEQUENCE
+                    if all_receipts
+                    else [*prior_r1_agents(profile_id), ic_policy.canonical_ic_profile_id(profile_id)]
+                )
             },
         },
     )
@@ -282,10 +301,15 @@ def print_result(title: str, payload: dict[str, Any]) -> None:
         "dry_run": payload.get("dry_run"),
         "allowed": payload.get("allowed"),
         "would_queue": payload.get("would_queue"),
+        "would_run": payload.get("would_run"),
         "hermes_called": payload.get("hermes_called"),
         "report_written": payload.get("report_written"),
         "workflow_advanced": payload.get("workflow_advanced"),
         "preflight_status": payload.get("preflight_status"),
+        "planned_agent_ids": payload.get("planned_agent_ids"),
+        "planned_count": payload.get("planned_count"),
+        "next_agent_id": payload.get("next_agent_id"),
+        "stop_reason": payload.get("stop_reason"),
         "blocking_reasons": payload.get("blocking_reasons"),
         "warnings": payload.get("warnings"),
     }
@@ -340,10 +364,33 @@ def run_r1_profile_matrix(*, keep: bool = False) -> dict[str, Any]:
     return summary
 
 
+def run_serial_dry_run_smoke(*, keep: bool = False) -> dict[str, Any]:
+    temp_root = Path(tempfile.mkdtemp(prefix="siq-r1-serial-smoke-"))
+    wiki_root = temp_root / "wiki"
+    try:
+        build_smoke_package_for_profile(
+            wiki_root,
+            "siq_ic_strategist",
+            all_receipts=True,
+        )
+        dry_run = ic_agent_runtime.build_workflow_r1_serial_run_dry_run(
+            DEAL_ID,
+            wiki_root=wiki_root,
+        )
+        print_result("R1 serial dry-run smoke", dry_run)
+        return dry_run
+    finally:
+        if keep:
+            print(f"Kept serial smoke wiki root: {wiki_root}")
+        else:
+            shutil.rmtree(temp_root, ignore_errors=True)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profile", default="siq_ic_strategist", help="R1 profile to smoke")
     parser.add_argument("--all-r1-profiles", action="store_true", help="Run dry-run smoke for every R1 profile in policy order")
+    parser.add_argument("--serial", action="store_true", help="Run R1 serial workflow dry-run smoke with receipts for every R1 profile")
     parser.add_argument("--real", action="store_true", help="Call Hermes and write the report into the temporary package")
     parser.add_argument("--require-gateway-health", action="store_true", help="Fail unless the target profile gateway /health is ready")
     parser.add_argument("--start-gateway", action="store_true", help="Start the target profile gateway with a temporary runtime")
@@ -362,6 +409,11 @@ def main() -> int:
             raise RuntimeError("--all-r1-profiles is dry-run only; run real gateway smoke one profile at a time")
         summary = run_r1_profile_matrix(keep=args.keep)
         return 0 if summary.get("blocked_count") == 0 else 1
+    if args.serial:
+        if args.real or args.start_gateway or args.require_gateway_health:
+            raise RuntimeError("--serial is dry-run only; run real gateway smoke one profile at a time")
+        dry_run = run_serial_dry_run_smoke(keep=args.keep)
+        return 0 if dry_run.get("allowed") and dry_run.get("planned_count") == len(ic_policy.R1_AGENT_SEQUENCE) else 1
 
     temp_root = Path(tempfile.mkdtemp(prefix="siq-r1-agent-smoke-"))
     wiki_root = temp_root / "wiki"
