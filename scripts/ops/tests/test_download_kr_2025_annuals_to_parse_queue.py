@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import sqlite3
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -86,6 +87,68 @@ def test_existing_downloaded_pdf_for_ticker_finds_2025_annual_pdf(tmp_path: Path
     assert kr_download._existing_downloaded_pdf_for_ticker(tmp_path, "000660", 2025) is None
 
 
+def test_existing_tasks_by_filename_returns_task_ids(tmp_path: Path):
+    db_path = tmp_path / "tasks.db"
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute("CREATE TABLE tasks (task_id TEXT PRIMARY KEY, filename TEXT NOT NULL)")
+        conn.execute("INSERT INTO tasks(task_id, filename) VALUES (?, ?)", ("task-123", "one.pdf"))
+        conn.execute("INSERT INTO tasks(task_id, filename) VALUES (?, ?)", ("task-456", "two.pdf"))
+        conn.commit()
+    finally:
+        conn.close()
+
+    assert kr_download._existing_tasks_by_filename(db_path) == {
+        "one.pdf": "task-123",
+        "two.pdf": "task-456",
+    }
+
+
+def test_enqueue_or_mark_uses_existing_task_id_for_duplicate_queue_entry(tmp_path: Path):
+    pdf_path = tmp_path / "duplicate.pdf"
+    pdf_path.write_bytes(b"%PDF-1.7\n")
+    args = SimpleNamespace(download_only=False, pdf_api_base="http://127.0.0.1:15000")
+    item = {}
+
+    queued = kr_download._enqueue_or_mark(
+        item=item,
+        pdf_path=pdf_path,
+        args=args,
+        pdf_token="token",
+        existing_tasks_by_filename={"duplicate.pdf": "task-dup-1"},
+    )
+
+    assert queued is True
+    assert item["status"] == "already_in_queue"
+    assert item["reason"] == "filename already exists in pdf-parser tasks"
+    assert item["task_id"] == "task-dup-1"
+
+
+def test_enqueue_or_mark_marks_2xx_without_task_id_as_upload_failed(tmp_path: Path, monkeypatch):
+    pdf_path = tmp_path / "fresh.pdf"
+    pdf_path.write_bytes(b"%PDF-1.7\n")
+    args = SimpleNamespace(download_only=False, pdf_api_base="http://127.0.0.1:15000")
+    item = {}
+
+    monkeypatch.setattr(
+        kr_download,
+        "_upload_pdf",
+        lambda pdf_api_base, token, pdf_path: {"status_code": 202, "payload": {"tasks": [{"filename": "fresh.pdf"}]}},
+    )
+
+    queued = kr_download._enqueue_or_mark(
+        item=item,
+        pdf_path=pdf_path,
+        args=args,
+        pdf_token="token",
+        existing_tasks_by_filename={},
+    )
+
+    assert queued is False
+    assert item["status"] == "upload_failed"
+    assert item["reason"] == "Upload succeeded but parser returned no task_id"
+
+
 def test_main_counts_only_active_candidates_and_records_skips(tmp_path: Path, monkeypatch):
     download_root = tmp_path / "downloads"
     pdf_path = (
@@ -122,7 +185,7 @@ def test_main_counts_only_active_candidates_and_records_skips(tmp_path: Path, mo
         ],
     )
     monkeypatch.setattr(kr_download, "_resolve_pdf_token", lambda pdf_api_base: "token")
-    monkeypatch.setattr(kr_download, "_existing_task_filenames", lambda db_path: set())
+    monkeypatch.setattr(kr_download, "_existing_tasks_by_filename", lambda db_path: {})
     monkeypatch.setattr(
         kr_download,
         "_existing_downloaded_pdf_for_ticker",
@@ -194,7 +257,7 @@ def test_main_errors_when_explicit_target_exceeds_active_candidates_after_skips(
     monkeypatch.setattr(kr_download, "DartPublicClient", lambda: SimpleNamespace())
     monkeypatch.setattr(kr_download, "ReportDownloader", lambda: DummyDownloader())
     monkeypatch.setattr(kr_download, "_resolve_pdf_token", lambda pdf_api_base: "token")
-    monkeypatch.setattr(kr_download, "_existing_task_filenames", lambda db_path: set())
+    monkeypatch.setattr(kr_download, "_existing_tasks_by_filename", lambda db_path: {})
     monkeypatch.setattr(kr_download, "_existing_downloaded_pdf_for_ticker", lambda download_root, ticker, report_year: None)
     monkeypatch.setattr(
         kr_download,

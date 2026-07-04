@@ -100,13 +100,17 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _existing_task_filenames(db_path: Path) -> set[str]:
+def _existing_tasks_by_filename(db_path: Path) -> dict[str, str]:
     if not db_path.exists():
-        return set()
+        return {}
     conn = sqlite3.connect(db_path)
     try:
-        rows = conn.execute("SELECT filename FROM tasks").fetchall()
-        return {str(row[0]) for row in rows if row and row[0]}
+        rows = conn.execute("SELECT task_id, filename FROM tasks").fetchall()
+        return {
+            str(filename): str(task_id)
+            for task_id, filename in rows
+            if task_id and filename
+        }
     finally:
         conn.close()
 
@@ -184,7 +188,7 @@ def _enqueue_or_mark(
     pdf_path: Path,
     args: argparse.Namespace,
     pdf_token: str,
-    existing_filenames: set[str],
+    existing_tasks_by_filename: dict[str, str],
 ) -> bool:
     if pdf_path.suffix.lower() != ".pdf":
         item["status"] = "skipped"
@@ -199,23 +203,40 @@ def _enqueue_or_mark(
         item["status"] = "already_downloaded" if item.get("existing_download") else "downloaded"
         item["reason"] = "download-only mode; parser enqueue deferred"
         return True
-    if pdf_path.name in existing_filenames:
+    if pdf_path.name in existing_tasks_by_filename:
         item["status"] = "already_in_queue"
         item["reason"] = "filename already exists in pdf-parser tasks"
+        item["task_id"] = existing_tasks_by_filename[pdf_path.name]
         return True
     upload = _upload_pdf(args.pdf_api_base, pdf_token, pdf_path)
     item["upload"] = upload
     if 200 <= upload["status_code"] < 300:
+        task_id = upload["payload"].get("task_id")
+        if not task_id:
+            for task in upload["payload"].get("tasks") or []:
+                if task.get("task_id"):
+                    task_id = task["task_id"]
+                    break
+        if not task_id:
+            item["status"] = "upload_failed"
+            item["reason"] = "Upload succeeded but parser returned no task_id"
+            return False
         item["status"] = "queued"
-        item["task_id"] = upload["payload"].get("task_id")
+        item["task_id"] = str(task_id)
         for task in upload["payload"].get("tasks") or []:
-            if task.get("filename"):
-                existing_filenames.add(str(task["filename"]))
+            filename = task.get("filename")
+            nested_task_id = task.get("task_id")
+            if filename and nested_task_id:
+                existing_tasks_by_filename[str(filename)] = str(nested_task_id)
+        if pdf_path.name not in existing_tasks_by_filename:
+            existing_tasks_by_filename[pdf_path.name] = str(task_id)
         return True
     if upload["status_code"] == 409:
         item["status"] = "already_in_queue"
         item["reason"] = upload["payload"].get("message") or "duplicate filename"
-        existing_filenames.add(pdf_path.name)
+        if upload["payload"].get("task_id"):
+            item["task_id"] = str(upload["payload"]["task_id"])
+            existing_tasks_by_filename[pdf_path.name] = item["task_id"]
         return True
     item["status"] = "upload_failed"
     item["reason"] = str(upload["payload"])[:500]
@@ -252,7 +273,7 @@ def main() -> int:
     public = DartPublicClient()
     downloader = ReportDownloader()
     pdf_token = "" if args.download_only else _resolve_pdf_token(args.pdf_api_base)
-    existing_filenames = set() if args.download_only else _existing_task_filenames(Path(args.task_db))
+    existing_tasks_by_filename = {} if args.download_only else _existing_tasks_by_filename(Path(args.task_db))
     download_root = Path(os.environ.get("MARKET_REPORT_DOWNLOAD_DIR", PROJECT_ROOT / "data" / "market-report-finder" / "downloads"))
 
     manifest = {
@@ -283,7 +304,7 @@ def main() -> int:
                     pdf_path=existing_pdf,
                     args=args,
                     pdf_token=pdf_token,
-                    existing_filenames=existing_filenames,
+                    existing_tasks_by_filename=existing_tasks_by_filename,
                 ):
                     manifest["items"].append(item)
                     succeeded += 1
@@ -308,7 +329,7 @@ def main() -> int:
                 pdf_path=pdf_path,
                 args=args,
                 pdf_token=pdf_token,
-                existing_filenames=existing_filenames,
+                existing_tasks_by_filename=existing_tasks_by_filename,
             ):
                 manifest["items"].append(item)
                 succeeded += 1
