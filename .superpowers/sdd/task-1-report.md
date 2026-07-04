@@ -43,3 +43,20 @@ DONE
 
 ## Concerns
 - `parser/financial_data.json` 与 `parser/financial_checks.json` 在 parser 原始文件缺失时回退为规则产出的契约数据；当前 brief 未给出更具体的原始 parser financial 文件命名规范，后续若 contract reader 对这两份 parser 侧文件有更严格要求，需要在后续任务再对齐。
+
+## Review fix follow-up
+- 修复 review finding 1：`parser/financial_data.json` 与 `parser/financial_checks.json` 仅在 parser 原始文件存在时原样保留；文件缺失时改写为空契约，不再把规则侧 `financial_data` / `financial_checks` 冒充为 parser 产物。
+- 修复 review finding 2：测试新增两类回归断言：
+  - parser financial 文件缺失时，parser 包内 financial artifacts 使用空契约；
+  - parser financial 文件存在时，原始 parser 文件按原样保留。
+- 修复 review finding 3：对 `content_list_enhanced` 中非预期字符串/非 dict/list 的 `footnotes`、`toc`、`financial_note_links`、`quality_signals`、`pages`、`tables[*].relations` 做归一化，QA/parser 产物统一落为空契约。
+
+## Review fix TDD / verification
+1. 先仅同步测试到远端并运行：
+   - 命令：`cd /home/maoyd/siq-research-engine/services/market-report-rules && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_hk_evidence_package.py`
+   - 结果：`2 failed in 0.08s`
+   - 失败点：
+     - `parser/financial_data.json` 写入了规则侧抽取结果，而不是空 parser 契约；
+     - malformed enhanced payload 被原样写入 `qa/footnotes.json`。
+2. 再同步 `scripts/hk/hk_evidence_lib.py` 修复并重跑同一命令。
+3. 结果：`2 passed in 0.07s`。

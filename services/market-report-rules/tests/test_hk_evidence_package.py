@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from market_report_rules_service.evidence_package import validate_evidence_package
@@ -101,3 +102,121 @@ def test_build_hk_evidence_package_from_parser_result(tmp_path, monkeypatch):
     for rel_path in expected_files:
         assert (package_dir / rel_path).is_file(), rel_path
         assert rel_path in result.manifest["artifact_hashes"]
+    parser_financial_data = json.loads((package_dir / "parser" / "financial_data.json").read_text(encoding="utf-8"))
+    parser_financial_checks = json.loads((package_dir / "parser" / "financial_checks.json").read_text(encoding="utf-8"))
+    assert parser_financial_data == {
+        "statements": [],
+        "key_metrics": [],
+        "operating_metrics": [],
+        "warnings": [],
+        "summary": {},
+    }
+    assert parser_financial_checks == {
+        "overall_status": "unknown",
+        "checks": [],
+        "warnings": [],
+        "summary": {},
+    }
+
+
+def test_build_hk_evidence_package_preserves_parser_financial_files_and_normalizes_malformed_enhanced_payloads(tmp_path, monkeypatch):
+    repo_root = Path(__file__).resolve().parents[3]
+    scripts_hk = repo_root / "scripts" / "hk"
+    monkeypatch.syspath_prepend(str(scripts_hk))
+    from hk_evidence_lib import write_hk_evidence_package, write_json
+
+    pdf = tmp_path / "TENCENT_HK_00700_2025-12-31_年报_2026-04-09_hkex_test.pdf"
+    pdf.write_bytes(b"%PDF-1.4")
+    metadata = pdf.with_suffix(pdf.suffix + ".metadata.json")
+    write_json(
+        metadata,
+        {
+            "candidate": {
+                "source_id": "hkex",
+                "market": "HK",
+                "ticker": "00700",
+                "company_id": "00700",
+                "company_name": "TENCENT",
+                "report_type": "annual",
+                "form": "annual",
+                "accession_number": "12100024",
+                "report_end": "2025-12-31",
+                "published_at": "2026-04-09",
+                "document_url": "https://www1.hkexnews.hk/test.pdf",
+            }
+        },
+    )
+    parser_dir = tmp_path / "parser"
+    parser_dir.mkdir()
+    write_json(
+        parser_dir / "document_full.json",
+        {
+            "task": {"filename": pdf.name},
+            "markdown": {"content": "# TENCENT\n"},
+            "content_list": [],
+            "content_list_enhanced": {
+                "footnotes": "broken",
+                "toc": "broken",
+                "financial_note_links": "broken",
+                "quality_signals": "broken",
+                "tables": [{"table_index": 1, "content_table_source_id": 1, "pdf_page_number": 88, "relations": "broken"}],
+                "pages": "broken",
+            },
+        },
+    )
+    parser_financial_data = {
+        "schema_version": 13,
+        "task_id": "parser-task",
+        "statements": [{"statement_id": "parser-balance-sheet"}],
+        "key_metrics": [],
+        "operating_metrics": [],
+        "warnings": [],
+        "summary": {"statement_count": 1},
+    }
+    parser_financial_checks = {
+        "schema_version": 12,
+        "task_id": "parser-task",
+        "overall_status": "pass",
+        "checks": [{"rule_id": "parser-check"}],
+        "warnings": [],
+        "summary": {"total": 1},
+    }
+    write_json(parser_dir / "financial_data.json", parser_financial_data)
+    write_json(parser_dir / "financial_checks.json", parser_financial_checks)
+
+    package_dir = write_hk_evidence_package(pdf, parser_dir, tmp_path / "wiki", metadata, force=True)
+
+    assert json.loads((package_dir / "parser" / "financial_data.json").read_text(encoding="utf-8")) == parser_financial_data
+    assert json.loads((package_dir / "parser" / "financial_checks.json").read_text(encoding="utf-8")) == parser_financial_checks
+    assert json.loads((package_dir / "qa" / "footnotes.json").read_text(encoding="utf-8"))["payload"] == {
+        "references": [],
+        "definitions": [],
+        "bindings": [],
+        "summary": {},
+    }
+    assert json.loads((package_dir / "qa" / "toc.json").read_text(encoding="utf-8"))["payload"] == {
+        "headings": [],
+        "toc_candidates": [],
+        "content_headings": [],
+        "summary": {},
+    }
+    assert json.loads((package_dir / "qa" / "financial_note_links.json").read_text(encoding="utf-8"))["payload"] == {
+        "links": [],
+        "summary": {},
+    }
+    assert json.loads((package_dir / "qa" / "table_quality_signals.json").read_text(encoding="utf-8"))["payload"] == {
+        "signals": [],
+        "summary": {},
+    }
+    assert json.loads((package_dir / "parser" / "content_list_enhanced.json").read_text(encoding="utf-8")) == {
+        "footnotes": {},
+        "toc": {},
+        "financial_note_links": {},
+        "quality_signals": {},
+        "tables": [{"table_index": 1, "content_table_source_id": 1, "pdf_page_number": 88, "relations": []}],
+        "pages": [],
+    }
+    assert json.loads((package_dir / "parser" / "table_relations.json").read_text(encoding="utf-8")) == {
+        "schema_version": "hk_table_relations_v1",
+        "relations": [],
+    }

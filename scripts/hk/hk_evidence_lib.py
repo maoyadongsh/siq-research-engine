@@ -332,7 +332,45 @@ def write_hk_evidence_package(
 
 def _content_list_enhanced(document_full: dict[str, Any]) -> dict[str, Any]:
     enhanced = document_full.get("content_list_enhanced")
-    return enhanced if isinstance(enhanced, dict) else {}
+    if not isinstance(enhanced, dict):
+        return {}
+    tables = enhanced.get("tables") if isinstance(enhanced.get("tables"), list) else []
+    normalized_tables: list[dict[str, Any]] = []
+    for table in tables:
+        if not isinstance(table, dict):
+            continue
+        normalized_table = dict(table)
+        if not isinstance(normalized_table.get("relations"), list):
+            normalized_table["relations"] = []
+        normalized_tables.append(normalized_table)
+    return {
+        **enhanced,
+        "footnotes": enhanced.get("footnotes") if isinstance(enhanced.get("footnotes"), dict) else {},
+        "toc": enhanced.get("toc") if isinstance(enhanced.get("toc"), dict) else {},
+        "financial_note_links": enhanced.get("financial_note_links") if isinstance(enhanced.get("financial_note_links"), dict) else {},
+        "quality_signals": enhanced.get("quality_signals") if isinstance(enhanced.get("quality_signals"), dict) else {},
+        "tables": normalized_tables,
+        "pages": enhanced.get("pages") if isinstance(enhanced.get("pages"), list) else [],
+    }
+
+
+def _empty_parser_financial_data() -> dict[str, Any]:
+    return {
+        "statements": [],
+        "key_metrics": [],
+        "operating_metrics": [],
+        "warnings": [],
+        "summary": {},
+    }
+
+
+def _empty_parser_financial_checks() -> dict[str, Any]:
+    return {
+        "overall_status": "unknown",
+        "checks": [],
+        "warnings": [],
+        "summary": {},
+    }
 
 
 def _write_parser_artifacts(
@@ -366,11 +404,11 @@ def _write_parser_artifacts(
     )
     write_json(
         package_dir / "parser" / "financial_data.json",
-        read_json(parser_result_dir / "financial_data.json", financial_data),
+        read_json(parser_result_dir / "financial_data.json", _empty_parser_financial_data()),
     )
     write_json(
         package_dir / "parser" / "financial_checks.json",
-        read_json(parser_result_dir / "financial_checks.json", financial_checks),
+        read_json(parser_result_dir / "financial_checks.json", _empty_parser_financial_checks()),
     )
 
 
