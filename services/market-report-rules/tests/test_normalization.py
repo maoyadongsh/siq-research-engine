@@ -9,6 +9,11 @@ def test_parse_date_accepts_common_formats():
     assert parse_date("20260331").isoformat() == "2026-03-31"
 
 
+def test_parse_date_ignores_invalid_embedded_date_like_text():
+    assert parse_date("2025-13-31") is None
+    assert parse_date("header 2025/99/31") is None
+
+
 def test_parse_decimal_handles_accounting_format():
     assert parse_decimal("(1,234.50)") == Decimal("-1234.50")
     assert parse_decimal("HK$ 2,000 million") == Decimal("2000")
