@@ -16,6 +16,12 @@
 | `scripts/kr` | 韩股 DART evidence package 构建和批处理 |
 | `scripts/eu` | 欧股 PDF/ESEF evidence package 构建和批处理 |
 
+## 多市场 Wiki 迁移
+
+日本市场旧版 `data/wiki/jp_reports/<ticker>/<year>/<report>_doc/` 只作历史兼容来源。需要把旧包迁入公司级 Wiki 主路径时运行：
+
+`PYTHONPATH=scripts/jp:services/market-report-rules/src:scripts/hk python3 scripts/jp/migrate_jp_reports_to_company_wiki.py --force`
+
 ## 应用启动入口
 
 | 入口 | 用途 |
