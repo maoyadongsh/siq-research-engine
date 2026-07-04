@@ -127,6 +127,51 @@ def test_hk_operating_metrics_are_separate_from_statement_tables():
     assert all(item.statement_type == "operating_metrics" for item in result.extraction.operating_metrics)
 
 
+def test_hk_reit_operating_metrics_are_extracted_for_real_estate_profile():
+    artifact = ParsedArtifact(
+        artifact_id="hk-reit-kpi",
+        market=Market.HK,
+        company_id="HK:00823",
+        ticker="00823",
+        company_name="LINK REIT",
+        report_type="annual",
+        fiscal_year=2026,
+        period_end="2026-03-31",
+        accounting_standard=AccountingStandard.HKFRS,
+        industry_profile="real_estate",
+        tables=[
+            ParsedTable(
+                table_id="reit1",
+                title="Operational Statistics",
+                table_index=2,
+                page_number=8,
+                rows=[
+                    ["Occupancy rate (%)", "As at 31 March 2026", "As at 31 March 2025"],
+                    ["Shops", "98.1", "98.2"],
+                    ["Total", "97.8", "97.8"],
+                ],
+            ),
+            ParsedTable(
+                table_id="reit2",
+                title="Portfolio Valuation",
+                table_index=8,
+                page_number=18,
+                rows=[
+                    ["Valuation", "As at 31 March 2026 HK$M", "As at 31 March 2025 HK$M"],
+                    ["Hong Kong Retail properties", "110,352", "117,724"],
+                    ["Total", "215,000", "230,000"],
+                ],
+            ),
+        ],
+    )
+
+    result = process_artifact(artifact)
+
+    names = {item.canonical_name for item in result.extraction.operating_metrics}
+    assert "occupancy_rate" in names
+    assert "portfolio_valuation" in names
+
+
 def test_hk_bilingual_statement_tables_align_note_and_period_columns():
     artifact = ParsedArtifact(
         artifact_id="hk-bilingual-2025-annual",

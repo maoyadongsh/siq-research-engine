@@ -602,3 +602,37 @@ def test_ensure_quality_report_rebuilds_non_dict_cached_report(tmp_path, monkeyp
             {"file_name": "report.pdf", "content_list": content_list},
         ),
     ]
+
+
+def test_write_quality_artifacts_writes_enhanced_before_financial(tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "RESULTS_FOLDER", str(tmp_path))
+    task = {"task_id": "hk-order", "filename": "LINK-REIT_HK_00823_2025-12-31_annual_hkex.pdf"}
+    result_dir = tmp_path / task["task_id"]
+    events = []
+
+    def write_json(path, payload):
+        path = Path(path)
+        events.append(("write_json", path.name))
+        _write_json(path, payload)
+
+    def write_financial(task_arg, markdown, file_name=None):
+        events.append(("financial", (result_dir / "content_list_enhanced.json").exists(), file_name))
+        return (
+            {"summary": {"statement_count": 0, "key_metric_count": 0}},
+            {"summary": {}, "overall_status": "ok"},
+        )
+
+    monkeypatch.setattr(app, "_write_json", write_json)
+    monkeypatch.setattr(app, "_build_content_list_enhanced", lambda *args, **kwargs: {"schema_version": app.CONTENT_LIST_ENHANCED_SCHEMA_VERSION, "tables": []})
+    monkeypatch.setattr(app, "_build_quality_report", lambda *args, **kwargs: {"schema_version": app.QUALITY_SCHEMA_VERSION, "table_index": [], "warnings": []})
+    monkeypatch.setattr(app, "_write_financial_artifacts", write_financial)
+    monkeypatch.setattr(app, "_write_complete_markdown_artifact", lambda *args, **kwargs: None)
+    monkeypatch.setattr(app, "_write_table_relations_artifact", lambda *args, **kwargs: {})
+    monkeypatch.setattr(app, "_write_document_full_artifact", lambda *args, **kwargs: None)
+
+    app._write_quality_artifacts(task, "markdown", file_name=task["filename"], content_list=[])
+
+    assert ("write_json", "content_list_enhanced.json") in events
+    financial_event = next(event for event in events if event[0] == "financial")
+    assert financial_event == ("financial", True, task["filename"])
+    assert events.index(("write_json", "content_list_enhanced.json")) < events.index(financial_event)

@@ -97,8 +97,28 @@ def _html_table_rows(table_body: str) -> list[list[str]]:
     return parser.rows
 
 
+def _table_raw(item: dict[str, Any]) -> dict[str, Any]:
+    raw = item.get("raw")
+    return raw if isinstance(raw, dict) else {}
+
+
+def _table_structure(item: dict[str, Any]) -> dict[str, Any]:
+    structure = item.get("structure")
+    if isinstance(structure, dict):
+        return structure
+    structure = _table_raw(item).get("structure")
+    return structure if isinstance(structure, dict) else {}
+
+
+def _table_value(item: dict[str, Any], key: str) -> Any:
+    value = item.get(key)
+    if value not in (None, "", [], {}):
+        return value
+    return _table_raw(item).get(key)
+
+
 def _enhanced_table_rows(item: dict[str, Any]) -> list[list[str]]:
-    structure = item.get("structure") if isinstance(item.get("structure"), dict) else {}
+    structure = _table_structure(item)
     header_preview = structure.get("header_preview") if isinstance(structure, dict) else None
     rows: list[list[str]] = []
     if isinstance(header_preview, list):
@@ -111,7 +131,7 @@ def _enhanced_table_rows(item: dict[str, Any]) -> list[list[str]]:
                 rows.append(cells)
     if rows:
         return rows
-    preview = str(item.get("preview") or "")
+    preview = str(_table_value(item, "preview") or "")
     cells = [_clean_cell(cell) for cell in re.split(r"\s{2,}|\s+\|\s+", preview) if _clean_cell(cell)]
     return [cells] if len(cells) >= 2 else []
 
@@ -218,7 +238,7 @@ def parsed_tables_from_document_full(
                     table_id=f"hk_table_{index:04d}",
                     title=title,
                     rows=rows,
-                    page_number=item.get("pdf_page_number"),
+                    page_number=_table_value(item, "pdf_page_number") or _table_value(item, "page_number"),
                     table_index=index,
                     unit=unit,
                     currency=infer_currency(unit, title, default=None),
