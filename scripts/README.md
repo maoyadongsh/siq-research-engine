@@ -22,6 +22,10 @@
 
 `PYTHONPATH=scripts/jp:services/market-report-rules/src:scripts/hk python3 scripts/jp/migrate_jp_reports_to_company_wiki.py --force`
 
+日本市场如果只有 PDF parser 产物、没有旧 `jp_reports` package，可直接从已完成的 parser 结果重建公司级 Wiki 包：
+
+`PYTHONPATH=scripts/jp:services/market-report-rules/src:scripts/hk python3 scripts/jp/ingest_jp_parser_results.py --force`
+
 ## 应用启动入口
 
 | 入口 | 用途 |
