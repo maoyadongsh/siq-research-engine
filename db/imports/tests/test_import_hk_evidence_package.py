@@ -50,3 +50,16 @@ def test_hk_importer_database_url_prefers_hk_database_env(monkeypatch):
     monkeypatch.setenv("SIQ_HK_PGDATABASE", "siq_hk_custom")
 
     assert importer.database_url(None).endswith("/siq_hk_custom")
+
+
+def test_hk_ddl_exposes_agent_recall_columns_and_views():
+    importer = _load_importer()
+    ddl = importer.DDL_PATH.read_text(encoding="utf-8")
+
+    assert "alter table pdf2md_hk.filings add column if not exists report_id text" in ddl
+    assert "alter table pdf2md_hk.pdf_tables add column if not exists bbox jsonb" in ddl
+    assert "alter table pdf2md_hk.evidence_citations add column if not exists bbox jsonb" in ddl
+    assert "alter table pdf2md_hk.retrieval_chunks add column if not exists company_id text" in ddl
+    assert "alter table pdf2md_hk.retrieval_chunks add column if not exists text text" in ddl
+    assert "create or replace view pdf2md_hk.v_agent_financial_facts" in ddl
+    assert "create or replace view pdf2md_hk.v_latest_company_reports" in ddl

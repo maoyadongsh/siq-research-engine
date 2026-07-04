@@ -455,3 +455,98 @@ select distinct on (f.filing_id)
 from pdf2md_hk.filings f
 join pdf2md_hk.parse_runs pr on pr.filing_id = f.filing_id
 order by f.filing_id, pr.completed_at desc nulls last, pr.parse_run_id desc;
+
+alter table pdf2md_hk.companies add column if not exists exchange text;
+alter table pdf2md_hk.filings add column if not exists report_id text;
+alter table pdf2md_hk.pdf_tables add column if not exists bbox jsonb;
+alter table pdf2md_hk.evidence_citations add column if not exists bbox jsonb;
+alter table pdf2md_hk.retrieval_chunks add column if not exists company_id text;
+alter table pdf2md_hk.retrieval_chunks add column if not exists section_title text;
+alter table pdf2md_hk.retrieval_chunks add column if not exists statement_type text;
+alter table pdf2md_hk.retrieval_chunks add column if not exists page_number integer;
+alter table pdf2md_hk.retrieval_chunks add column if not exists table_index integer;
+alter table pdf2md_hk.retrieval_chunks add column if not exists text text;
+
+create unique index if not exists uq_pdf2md_hk_companies_hkex_stock_code on pdf2md_hk.companies (hkex_stock_code) where hkex_stock_code is not null and hkex_stock_code <> '';
+create index if not exists idx_pdf2md_hk_companies_aliases_gin on pdf2md_hk.companies using gin (aliases);
+create index if not exists idx_pdf2md_hk_filings_company_year on pdf2md_hk.filings (company_id, fiscal_year desc, report_type);
+create index if not exists idx_pdf2md_hk_retrieval_chunks_agent on pdf2md_hk.retrieval_chunks (company_id, doc_type, canonical_name, period_key);
+
+create or replace view pdf2md_hk.v_agent_financial_facts as
+select
+    c.company_id,
+    c.ticker as company_ticker,
+    c.stock_code,
+    c.hkex_stock_code,
+    c.company_name,
+    c.company_name_en,
+    c.company_name_zh,
+    f.filing_id,
+    f.report_id,
+    f.report_type,
+    f.fiscal_year,
+    f.fiscal_period,
+    f.period_end as filing_period_end,
+    f.published_at,
+    pr.parse_run_id,
+    pr.completed_at as parse_completed_at,
+    pr.wiki_package_path,
+    fsi.item_uid,
+    fsi.statement_id,
+    fsi.statement_type,
+    fsi.statement_name,
+    fsi.item_index,
+    fsi.canonical_name,
+    fsi.item_name,
+    fsi.period_key,
+    fsi.period_start,
+    fsi.period_end,
+    fsi.value,
+    fsi.raw_value,
+    fsi.unit,
+    fsi.currency,
+    fsi.scale,
+    fsi.confidence,
+    coalesce(ec.evidence_id, fsi.evidence_id) as evidence_id,
+    coalesce(ec.page_number, fsi.source_page_number) as evidence_page_number,
+    coalesce(ec.table_index, fsi.source_table_index) as evidence_table_index,
+    coalesce(ec.row_index, fsi.source_row_index) as evidence_row_index,
+    coalesce(ec.column_index, fsi.source_column_index) as evidence_column_index,
+    coalesce(ec.bbox, fsi.source_bbox) as evidence_bbox,
+    ec.quote_text,
+    coalesce(ec.source_url, f.source_url) as source_url
+from pdf2md_hk.financial_statement_items fsi
+join pdf2md_hk.filings f on f.filing_id = fsi.filing_id
+join pdf2md_hk.companies c on c.company_id = f.company_id
+join pdf2md_hk.parse_runs pr on pr.parse_run_id = fsi.parse_run_id
+left join pdf2md_hk.evidence_citations ec on ec.evidence_id = fsi.evidence_id;
+
+create or replace view pdf2md_hk.v_latest_company_reports as
+select distinct on (f.company_id, f.report_type)
+    c.company_id,
+    c.ticker as company_ticker,
+    c.stock_code,
+    c.hkex_stock_code,
+    c.company_name,
+    c.company_name_en,
+    c.company_name_zh,
+    f.filing_id,
+    f.report_id,
+    f.report_type,
+    f.fiscal_year,
+    f.fiscal_period,
+    f.period_end,
+    f.published_at,
+    f.source_url,
+    f.local_path,
+    f.quality_status,
+    pr.parse_run_id,
+    pr.parser_version,
+    pr.rules_version,
+    pr.status as parse_status,
+    pr.completed_at,
+    pr.wiki_package_path
+from pdf2md_hk.filings f
+join pdf2md_hk.companies c on c.company_id = f.company_id
+join pdf2md_hk.parse_runs pr on pr.filing_id = f.filing_id
+order by f.company_id, f.report_type, f.period_end desc nulls last, f.fiscal_year desc nulls last, pr.completed_at desc nulls last, pr.parse_run_id desc;
