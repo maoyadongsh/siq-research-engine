@@ -1,0 +1,938 @@
+# KR 30 Company Download Expansion Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Expand the Korean market 2025 annual-report download set from 10 to 30 mainstream companies across industries, and enqueue PDFs into the parser when available.
+
+**Architecture:** Extend the existing KR curated catalog, add focused tests for the 30-company target, and add a KR operational batch helper modeled on the existing HK helper. The helper uses ticker-based DART public PDF search as the baseline, records every outcome in a manifest, skips duplicates, and uploads PDFs to the existing PDF parser API when not in download-only mode.
+
+**Tech Stack:** Python 3.13, pytest, Pydantic models in `market_report_finder_service`, DART public HTML/PDF flow, `httpx`, existing `ReportDownloader`, existing pdf-parser `/api/upload`.
+
+## Global Constraints
+
+- Keep the existing 10 downloaded 2025 KR annual-report PDFs.
+- Add 20 additional mainstream Korean listed companies.
+- Download each additional company's 2025 annual report PDF from public DART where possible.
+- Enqueue successfully downloaded PDFs into the existing PDF parser queue when the parser service is reachable.
+- Leave a manifest that records selected companies, industry labels, download paths, parser task IDs, skips, and errors.
+- This work expands the download and parser-input dataset only; it does not claim KR evidence-package, PostgreSQL import, Milvus rebuild, or evidence-click workflow completion.
+- Use ticker-based DART public search as the reliable baseline because `DartPublicClient` does not require `DART_API_KEY`.
+- Do not fabricate DART corp codes; use `company_id=""` for unverified catalog entries and allow later evidence-package work to enrich corp codes.
+- Do not modify A-share parser behavior or CN schemas.
+- Do not use LLMs to invent financial facts or fill missing DART data.
+
+---
+
+## File Structure
+
+- Modify `services/market-report-finder/src/market_report_finder_service/markets/kr/catalog.py`
+  - Owns KR curated company seeds and catalog matching.
+  - Add 20 new industry-diverse companies.
+  - Filter empty aliases so unverified blank `company_id` values do not leak into aliases.
+- Create `services/market-report-finder/tests/test_kr_catalog.py`
+  - Locks the 30-company target list, uniqueness, industry coverage, and ticker resolution.
+- Create `scripts/ops/download_kr_2025_annuals_to_parse_queue.py`
+  - Operational helper for download-only and download-plus-parser-enqueue runs.
+  - Writes incremental manifest to `data/market-report-finder/kr_2025_annual_download_queue_manifest.json`.
+- Create `scripts/ops/tests/test_download_kr_2025_annuals_to_parse_queue.py`
+  - Unit tests helper behavior without network or parser calls.
+
+---
+
+### Task 1: Add KR Catalog Target Tests
+
+**Files:**
+- Create: `services/market-report-finder/tests/test_kr_catalog.py`
+
+**Interfaces:**
+- Consumes: `KR_ANNUAL_REPORT_CATALOG`, `KrAnnualReportCatalog.resolve_company()`.
+- Produces: failing tests that define the 30-company target and catalog hygiene requirements.
+
+- [ ] **Step 1: Write the failing catalog tests**
+
+Create `services/market-report-finder/tests/test_kr_catalog.py` with:
+
+```python
+from market_report_finder_service.markets.kr.catalog import KR_ANNUAL_REPORT_CATALOG, KrAnnualReportCatalog
+
+
+TARGET_TICKERS = (
+    "005930",
+    "000660",
+    "035420",
+    "005380",
+    "003490",
+    "005490",
+    "051910",
+    "055550",
+    "068270",
+    "017670",
+    "000270",
+    "012330",
+    "373220",
+    "006400",
+    "207940",
+    "066570",
+    "105560",
+    "086790",
+    "032830",
+    "000810",
+    "015760",
+    "036460",
+    "329180",
+    "012450",
+    "034020",
+    "035720",
+    "259960",
+    "090430",
+    "023530",
+    "097950",
+)
+
+
+def test_kr_catalog_contains_30_unique_target_companies():
+    tickers = [entry.ticker for entry in KR_ANNUAL_REPORT_CATALOG]
+
+    assert len(KR_ANNUAL_REPORT_CATALOG) == 30
+    assert len(set(tickers)) == 30
+    assert tickers == list(TARGET_TICKERS)
+
+
+def test_kr_catalog_has_broad_industry_coverage():
+    industries = {entry.industry for entry in KR_ANNUAL_REPORT_CATALOG}
+
+    assert len(industries) >= 18
+    assert "Automotive" in industries
+    assert "Banking" in industries
+    assert "Batteries" in industries
+    assert "Gaming" in industries
+    assert "Shipbuilding" in industries
+    assert "Utilities" in industries
+
+
+def test_kr_catalog_resolves_each_target_by_ticker():
+    for ticker in TARGET_TICKERS:
+        company, candidates = KrAnnualReportCatalog.resolve_company(ticker=ticker)
+
+        assert candidates
+        assert company.ticker == ticker
+        assert company.market.value == "KR"
+        assert company.exchange == "KRX"
+        assert company.company_name
+        assert company.metadata["stock_code"] == ticker
+
+
+def test_kr_catalog_does_not_emit_blank_aliases():
+    for entry in KR_ANNUAL_REPORT_CATALOG:
+        company = KrAnnualReportCatalog.company_entity(entry)
+
+        assert all(alias for alias in company.aliases)
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run:
+
+```bash
+cd /home/maoyd/siq-research-engine/services/market-report-finder
+uv run pytest tests/test_kr_catalog.py -q
+```
+
+Expected: FAIL because the catalog currently has 10 entries and the new test file expects 30.
+
+- [ ] **Step 3: Commit only the failing tests if working in SDD mode**
+
+Do not commit this failing-test-only state on `master`. If using a subagent branch/worktree, commit with:
+
+```bash
+git add services/market-report-finder/tests/test_kr_catalog.py
+git commit -m "test(kr): define 30 company catalog target"
+```
+
+---
+
+### Task 2: Expand The KR Curated Catalog To 30 Entries
+
+**Files:**
+- Modify: `services/market-report-finder/src/market_report_finder_service/markets/kr/catalog.py`
+- Test: `services/market-report-finder/tests/test_kr_catalog.py`
+
+**Interfaces:**
+- Consumes: `KrAnnualReportCatalogEntry`.
+- Produces: `KR_ANNUAL_REPORT_CATALOG` with exactly 30 ordered entries and no blank aliases in `company_entity()`.
+
+- [ ] **Step 1: Filter empty aliases in `company_entity()`**
+
+In `KrAnnualReportCatalog.company_entity()`, replace:
+
+```python
+aliases = list(dict.fromkeys([entry.company_name, entry.ticker, entry.company_id, *entry.aliases]))
+```
+
+with:
+
+```python
+aliases = list(dict.fromkeys(part for part in [entry.company_name, entry.ticker, entry.company_id, *entry.aliases] if part))
+```
+
+- [ ] **Step 2: Append the 20 new entries after SK Telecom**
+
+Add these entries to `KR_ANNUAL_REPORT_CATALOG` after the existing 10 entries. Use `company_id=""` unless a verified DART corp code is available during implementation.
+
+```python
+    KrAnnualReportCatalogEntry(
+        industry="Automotive",
+        company_id="",
+        ticker="000270",
+        company_name="Kia Corporation",
+        aliases=("Kia", "기아", "起亚", "起亞"),
+    ),
+    KrAnnualReportCatalogEntry(
+        industry="Auto Parts",
+        company_id="",
+        ticker="012330",
+        company_name="Hyundai Mobis Co., Ltd.",
+        aliases=("Hyundai Mobis", "현대모비스", "现代摩比斯", "現代摩比斯"),
+    ),
+    KrAnnualReportCatalogEntry(
+        industry="Batteries",
+        company_id="",
+        ticker="373220",
+        company_name="LG Energy Solution, Ltd.",
+        aliases=("LG Energy Solution", "LG에너지솔루션", "LG新能源", "LG新能源"),
+    ),
+    KrAnnualReportCatalogEntry(
+        industry="Batteries / Electronic Materials",
+        company_id="",
+        ticker="006400",
+        company_name="Samsung SDI Co., Ltd.",
+        aliases=("Samsung SDI", "삼성SDI", "三星SDI"),
+    ),
+    KrAnnualReportCatalogEntry(
+        industry="Biopharmaceuticals",
+        company_id="",
+        ticker="207940",
+        company_name="Samsung Biologics Co., Ltd.",
+        aliases=("Samsung Biologics", "삼성바이오로직스", "三星生物制剂", "三星生物製劑"),
+    ),
+    KrAnnualReportCatalogEntry(
+        industry="Consumer Electronics",
+        company_id="",
+        ticker="066570",
+        company_name="LG Electronics Inc.",
+        aliases=("LG Electronics", "LG전자", "LG电子", "LG電子"),
+    ),
+    KrAnnualReportCatalogEntry(
+        industry="Banking",
+        company_id="",
+        ticker="105560",
+        company_name="KB Financial Group Inc.",
+        aliases=("KB Financial Group", "KB금융", "KB金融"),
+    ),
+    KrAnnualReportCatalogEntry(
+        industry="Banking",
+        company_id="",
+        ticker="086790",
+        company_name="Hana Financial Group Inc.",
+        aliases=("Hana Financial Group", "하나금융지주", "韩亚金融", "韓亞金融"),
+    ),
+    KrAnnualReportCatalogEntry(
+        industry="Insurance",
+        company_id="",
+        ticker="032830",
+        company_name="Samsung Life Insurance Co., Ltd.",
+        aliases=("Samsung Life", "삼성생명", "三星生命"),
+    ),
+    KrAnnualReportCatalogEntry(
+        industry="Insurance",
+        company_id="",
+        ticker="000810",
+        company_name="Samsung Fire & Marine Insurance Co., Ltd.",
+        aliases=("Samsung Fire & Marine", "삼성화재", "三星火灾海上保险", "三星火災海上保險"),
+    ),
+    KrAnnualReportCatalogEntry(
+        industry="Utilities",
+        company_id="",
+        ticker="015760",
+        company_name="Korea Electric Power Corporation",
+        aliases=("KEPCO", "한국전력공사", "韩国电力公社", "韓國電力公社"),
+    ),
+    KrAnnualReportCatalogEntry(
+        industry="Utilities / Gas",
+        company_id="",
+        ticker="036460",
+        company_name="Korea Gas Corporation",
+        aliases=("KOGAS", "한국가스공사", "韩国天然气公社", "韓國天然氣公社"),
+    ),
+    KrAnnualReportCatalogEntry(
+        industry="Shipbuilding",
+        company_id="",
+        ticker="329180",
+        company_name="HD Hyundai Heavy Industries Co., Ltd.",
+        aliases=("HD Hyundai Heavy Industries", "HD현대중공업", "现代重工", "現代重工"),
+    ),
+    KrAnnualReportCatalogEntry(
+        industry="Aerospace / Defense",
+        company_id="",
+        ticker="012450",
+        company_name="Hanwha Aerospace Co., Ltd.",
+        aliases=("Hanwha Aerospace", "한화에어로스페이스", "韩华航空航天", "韓華航空航天"),
+    ),
+    KrAnnualReportCatalogEntry(
+        industry="Power Equipment",
+        company_id="",
+        ticker="034020",
+        company_name="Doosan Enerbility Co., Ltd.",
+        aliases=("Doosan Enerbility", "두산에너빌리티", "斗山能源", "斗山能源"),
+    ),
+    KrAnnualReportCatalogEntry(
+        industry="Internet Platforms",
+        company_id="",
+        ticker="035720",
+        company_name="Kakao Corp.",
+        aliases=("Kakao", "카카오", "韩国 Kakao", "可可"),
+    ),
+    KrAnnualReportCatalogEntry(
+        industry="Gaming",
+        company_id="",
+        ticker="259960",
+        company_name="Krafton, Inc.",
+        aliases=("Krafton", "크래프톤", "魁匠团", "魁匠團"),
+    ),
+    KrAnnualReportCatalogEntry(
+        industry="Consumer / Beauty",
+        company_id="",
+        ticker="090430",
+        company_name="Amorepacific Corporation",
+        aliases=("Amorepacific", "아모레퍼시픽", "爱茉莉太平洋", "愛茉莉太平洋"),
+    ),
+    KrAnnualReportCatalogEntry(
+        industry="Retail",
+        company_id="",
+        ticker="023530",
+        company_name="Lotte Shopping Co., Ltd.",
+        aliases=("Lotte Shopping", "롯데쇼핑", "乐天购物", "樂天購物"),
+    ),
+    KrAnnualReportCatalogEntry(
+        industry="Food / Consumer Staples",
+        company_id="",
+        ticker="097950",
+        company_name="CJ CheilJedang Corporation",
+        aliases=("CJ CheilJedang", "CJ제일제당", "CJ 第一制糖", "CJ第一製糖"),
+    ),
+```
+
+- [ ] **Step 3: Run catalog tests**
+
+Run:
+
+```bash
+cd /home/maoyd/siq-research-engine/services/market-report-finder
+uv run pytest tests/test_kr_catalog.py -q
+```
+
+Expected: PASS.
+
+- [ ] **Step 4: Run existing DART tests**
+
+Run:
+
+```bash
+cd /home/maoyd/siq-research-engine/services/market-report-finder
+uv run pytest tests/test_dart_client.py -q
+```
+
+Expected: PASS.
+
+- [ ] **Step 5: Commit catalog changes**
+
+Run:
+
+```bash
+cd /home/maoyd/siq-research-engine
+git add services/market-report-finder/src/market_report_finder_service/markets/kr/catalog.py services/market-report-finder/tests/test_kr_catalog.py
+git commit -m "feat(kr): expand curated annual report catalog"
+```
+
+---
+
+### Task 3: Add Unit Tests For The KR Batch Helper
+
+**Files:**
+- Create: `scripts/ops/tests/test_download_kr_2025_annuals_to_parse_queue.py`
+
+**Interfaces:**
+- Consumes: planned helper functions `_normalize_kr_code()`, `_requested_codes()`, `_candidate_pool()`, `_existing_downloaded_pdf_for_ticker()`.
+- Produces: failing tests for code parsing, candidate selection, skip behavior, and existing-download discovery.
+
+- [ ] **Step 1: Write the failing script helper tests**
+
+Create `scripts/ops/tests/test_download_kr_2025_annuals_to_parse_queue.py` with:
+
+```python
+from __future__ import annotations
+
+import importlib.util
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+
+
+SCRIPT_PATH = Path(__file__).resolve().parents[1] / "download_kr_2025_annuals_to_parse_queue.py"
+SPEC = importlib.util.spec_from_file_location("download_kr_2025_annuals_to_parse_queue", SCRIPT_PATH)
+assert SPEC is not None
+kr_download = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = kr_download
+assert SPEC.loader is not None
+SPEC.loader.exec_module(kr_download)
+
+
+def test_normalize_kr_code_pads_to_six_digits():
+    assert kr_download._normalize_kr_code("5930") == "005930"
+    assert kr_download._normalize_kr_code("KR:270") == "000270"
+    assert kr_download._normalize_kr_code("") == ""
+
+
+def test_requested_codes_accepts_repeated_and_combined_values():
+    args = SimpleNamespace(code=["5930", "000660"], codes="270, 12330 373220")
+
+    assert kr_download._requested_codes(args) == ["005930", "000660", "000270", "012330", "373220"]
+
+
+def test_candidate_pool_defaults_to_30_catalog_entries():
+    pool = kr_download._candidate_pool([])
+
+    assert len(pool) == 30
+    assert pool[0]["ticker"] == "005930"
+    assert pool[-1]["ticker"] == "097950"
+    assert all(seed["market"] == "KR" for seed in pool)
+
+
+def test_candidate_pool_keeps_manual_unknown_codes():
+    pool = kr_download._candidate_pool(["005930", "123456"])
+
+    assert pool[0]["ticker"] == "005930"
+    assert pool[0]["name"] == "Samsung Electronics Co., Ltd."
+    assert pool[1] == {"market": "KR", "ticker": "123456", "industry": "manual", "name": "123456"}
+
+
+def test_existing_downloaded_pdf_for_ticker_finds_2025_annual_pdf(tmp_path: Path):
+    pdf_path = (
+        tmp_path
+        / "KR"
+        / "Samsung-Electronics-Co.,-Ltd"
+        / "2025"
+        / "年报"
+        / "Samsung-Electronics-Co.,-Ltd_KR_005930_2025-12-31_年报_2026-03-10_dart_public_a4d8816f.pdf"
+    )
+    pdf_path.parent.mkdir(parents=True)
+    pdf_path.write_bytes(b"%PDF-1.7\n")
+
+    assert kr_download._existing_downloaded_pdf_for_ticker(tmp_path, "005930", 2025) == pdf_path
+    assert kr_download._existing_downloaded_pdf_for_ticker(tmp_path, "000660", 2025) is None
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run:
+
+```bash
+cd /home/maoyd/siq-research-engine
+python3 -m pytest scripts/ops/tests/test_download_kr_2025_annuals_to_parse_queue.py -q
+```
+
+Expected: FAIL because `scripts/ops/download_kr_2025_annuals_to_parse_queue.py` does not exist yet.
+
+---
+
+### Task 4: Implement The KR Batch Download And Parser Enqueue Helper
+
+**Files:**
+- Create: `scripts/ops/download_kr_2025_annuals_to_parse_queue.py`
+- Test: `scripts/ops/tests/test_download_kr_2025_annuals_to_parse_queue.py`
+
+**Interfaces:**
+- Consumes: `KrAnnualReportCatalog`, `DartPublicClient`, `ReportDownloader`, `ReportTarget`, pdf-parser `/api/upload`.
+- Produces: CLI helper supporting `--target-count`, `--report-year`, `--download-only`, `--code`, `--codes`, `--skip-code`, `--manifest`, `--pdf-api-base`, `--task-db`.
+
+- [ ] **Step 1: Create the script imports, constants, and path setup**
+
+Create `scripts/ops/download_kr_2025_annuals_to_parse_queue.py` starting with:
+
+```python
+#!/usr/bin/env python3
+"""Download KR annual reports and enqueue them in the PDF parser."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import sqlite3
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+import httpx
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+MARKET_FINDER_SRC = PROJECT_ROOT / "services" / "market-report-finder" / "src"
+sys.path.insert(0, str(MARKET_FINDER_SRC))
+
+os.environ.setdefault(
+    "MARKET_REPORT_DOWNLOAD_DIR",
+    str(PROJECT_ROOT / "data" / "market-report-finder" / "downloads"),
+)
+
+from market_report_finder_service.markets.kr.catalog import KR_ANNUAL_REPORT_CATALOG, KrAnnualReportCatalog  # noqa: E402
+from market_report_finder_service.markets.kr.public_dart import DartPublicClient  # noqa: E402
+from market_report_finder_service.models.schemas import ReportTarget  # noqa: E402
+from market_report_finder_service.services.downloader import ReportDownloader  # noqa: E402
+
+
+PDF_MAX_BYTES = 100 * 1024 * 1024
+DEFAULT_TARGET_COUNT = 30
+DEFAULT_MANIFEST = PROJECT_ROOT / "data" / "market-report-finder" / "kr_2025_annual_download_queue_manifest.json"
+```
+
+- [ ] **Step 2: Add pure helper functions**
+
+Add these functions below the constants:
+
+```python
+def _normalize_kr_code(raw: str) -> str:
+    digits = re.sub(r"\D+", "", str(raw or ""))
+    return digits.zfill(6) if digits else ""
+
+
+def _requested_codes(args: argparse.Namespace) -> list[str]:
+    raw_values = [*args.code]
+    if args.codes:
+        raw_values.append(args.codes)
+    codes: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_values:
+        for token in re.split(r"[,;\s]+", str(raw)):
+            code = _normalize_kr_code(token)
+            if not code or code in seen:
+                continue
+            codes.append(code)
+            seen.add(code)
+    return codes
+
+
+def _candidate_pool(include_codes: list[str]) -> list[dict[str, str]]:
+    known = {
+        entry.ticker: {
+            "market": "KR",
+            "ticker": entry.ticker,
+            "company_id": entry.company_id,
+            "industry": entry.industry,
+            "name": entry.company_name,
+        }
+        for entry in KR_ANNUAL_REPORT_CATALOG
+    }
+    if include_codes:
+        return [known.get(code, {"market": "KR", "ticker": code, "industry": "manual", "name": code}) for code in include_codes]
+    return list(known.values())
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _existing_task_filenames(db_path: Path) -> set[str]:
+    if not db_path.exists():
+        return set()
+    conn = sqlite3.connect(db_path)
+    try:
+        rows = conn.execute("SELECT filename FROM tasks").fetchall()
+        return {str(row[0]) for row in rows if row and row[0]}
+    finally:
+        conn.close()
+
+
+def _existing_downloaded_pdf_for_ticker(download_root: Path, ticker: str, report_year: int) -> Path | None:
+    pattern = f"*_KR_{ticker}_{report_year}-*_年报_*_dart_public_*.pdf"
+    matches = sorted((download_root / "KR").glob(f"*/{report_year}/年报/{pattern}"))
+    return matches[-1] if matches else None
+```
+
+- [ ] **Step 3: Add parser token and upload helpers**
+
+Add:
+
+```python
+def _resolve_pdf_token(pdf_api_base: str) -> str:
+    token = (os.environ.get("PDF2MD_ACCESS_TOKEN") or os.environ.get("SIQ_PDF2MD_ACCESS_TOKEN") or "").strip()
+    if token:
+        return token
+    for child in Path("/proc").iterdir():
+        if not child.name.isdigit():
+            continue
+        try:
+            cmdline = (child / "cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", "ignore")
+            if "siq-research-engine/apps/pdf-parser/app.py" not in cmdline:
+                continue
+            env = (child / "environ").read_bytes().split(b"\0")
+        except OSError:
+            continue
+        for item in env:
+            if item.startswith(b"PDF2MD_ACCESS_TOKEN="):
+                return item.split(b"=", 1)[1].decode("utf-8", "ignore").strip()
+    raise RuntimeError(f"PDF2MD access token not found for {pdf_api_base}")
+
+
+def _upload_pdf(pdf_api_base: str, token: str, pdf_path: Path) -> dict:
+    headers = {"X-PDF2MD-Token": token} if token else {}
+    data = {
+        "backend": "hybrid-http-client",
+        "parse_method": "auto",
+        "formula_enable": "true",
+        "table_enable": "true",
+    }
+    with httpx.Client(timeout=None, headers=headers) as client:
+        with pdf_path.open("rb") as infile:
+            response = client.post(
+                f"{pdf_api_base.rstrip('/')}/api/upload",
+                data=data,
+                files=[("files", (pdf_path.name, infile, "application/pdf"))],
+            )
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = {"raw": response.text[:500]}
+    return {"status_code": response.status_code, "payload": payload}
+```
+
+- [ ] **Step 4: Add DART selection and enqueue helpers**
+
+Add:
+
+```python
+def _company_for_seed(seed: dict[str, str]):
+    return KrAnnualReportCatalog.resolve_company(
+        ticker=seed.get("ticker"),
+        company_name=seed.get("name"),
+        company_id=seed.get("company_id") or None,
+    )[0]
+
+
+def _selected_annual(public: DartPublicClient, company, year: int):
+    filings = public.list_filings(
+        company,
+        target=ReportTarget.annual_report,
+        forms=["annual"],
+        report_year=year,
+    )
+    matches = [item for item in filings if item.report_end.year == year and item.file_format == "pdf"]
+    return matches[0] if matches else None
+
+
+def _enqueue_or_mark(
+    *,
+    item: dict,
+    pdf_path: Path,
+    args: argparse.Namespace,
+    pdf_token: str,
+    existing_filenames: set[str],
+) -> bool:
+    if pdf_path.suffix.lower() != ".pdf":
+        item["status"] = "skipped"
+        item["reason"] = f"Downloaded file is not PDF: {pdf_path.name}"
+        return False
+    if pdf_path.stat().st_size > PDF_MAX_BYTES:
+        item["status"] = "skipped"
+        item["reason"] = f"PDF exceeds parser limit: {pdf_path.stat().st_size} bytes"
+        return False
+    if args.download_only:
+        item["status"] = "already_downloaded" if item.get("existing_download") else "downloaded"
+        item["reason"] = "download-only mode; parser enqueue deferred"
+        return True
+    if pdf_path.name in existing_filenames:
+        item["status"] = "already_in_queue"
+        item["reason"] = "filename already exists in pdf-parser tasks"
+        return True
+    upload = _upload_pdf(args.pdf_api_base, pdf_token, pdf_path)
+    item["upload"] = upload
+    if 200 <= upload["status_code"] < 300:
+        item["status"] = "queued"
+        item["task_id"] = upload["payload"].get("task_id")
+        for task in upload["payload"].get("tasks") or []:
+            if task.get("filename"):
+                existing_filenames.add(str(task["filename"]))
+        return True
+    if upload["status_code"] == 409:
+        item["status"] = "already_in_queue"
+        item["reason"] = upload["payload"].get("message") or "duplicate filename"
+        existing_filenames.add(pdf_path.name)
+        return True
+    item["status"] = "upload_failed"
+    item["reason"] = str(upload["payload"])[:500]
+    return False
+```
+
+- [ ] **Step 5: Add `main()` and argument parsing**
+
+Add:
+
+```python
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--target-count", type=int, default=0)
+    parser.add_argument("--report-year", type=int, default=2025)
+    parser.add_argument("--pdf-api-base", default=os.environ.get("SIQ_PDF2MD_API_BASE", "http://127.0.0.1:15000"))
+    parser.add_argument("--task-db", default=str(PROJECT_ROOT / "data" / "pdf-parser" / "db" / "tasks.db"))
+    parser.add_argument("--download-only", action="store_true")
+    parser.add_argument("--code", action="append", default=[])
+    parser.add_argument("--codes", default="")
+    parser.add_argument("--skip-code", action="append", default=[])
+    parser.add_argument("--manifest", default=str(DEFAULT_MANIFEST))
+    args = parser.parse_args()
+
+    include_codes = _requested_codes(args)
+    candidate_pool = _candidate_pool(include_codes)
+    target_count = args.target_count or (len(candidate_pool) if include_codes else DEFAULT_TARGET_COUNT)
+    if target_count <= 0:
+        parser.error("--target-count must be positive when no --code/--codes values are provided")
+    if include_codes and target_count > len(candidate_pool):
+        parser.error("--target-count cannot exceed the number of selected --code/--codes values")
+
+    public = DartPublicClient()
+    downloader = ReportDownloader()
+    pdf_token = "" if args.download_only else _resolve_pdf_token(args.pdf_api_base)
+    existing_filenames = set() if args.download_only else _existing_task_filenames(Path(args.task_db))
+    download_root = Path(os.environ.get("MARKET_REPORT_DOWNLOAD_DIR", PROJECT_ROOT / "data" / "market-report-finder" / "downloads"))
+    skip_codes = {_normalize_kr_code(code) for code in args.skip_code if _normalize_kr_code(code)}
+
+    manifest = {
+        "started_at": _now(),
+        "report_year": args.report_year,
+        "target_count": target_count,
+        "mode": "download_only" if args.download_only else "download_and_enqueue",
+        "selection_note": "Mainstream Korean listed companies selected from the curated KR catalog with broad industry coverage.",
+        "include_codes": include_codes,
+        "items": [],
+        "skipped": [],
+    }
+
+    succeeded = 0
+    for seed in candidate_pool:
+        if succeeded >= target_count:
+            break
+        ticker = seed["ticker"]
+        if ticker in skip_codes:
+            continue
+        print(f"[{succeeded}/{target_count}] {ticker} {seed['name']}", flush=True)
+        item = {"seed": seed, "status": "started", "events": []}
+        try:
+            existing_pdf = _existing_downloaded_pdf_for_ticker(download_root, ticker, args.report_year)
+            if existing_pdf is not None:
+                item["existing_download"] = True
+                item["downloaded_file"] = {"saved_path": str(existing_pdf.resolve()), "file_name": existing_pdf.name}
+                if _enqueue_or_mark(
+                    item=item,
+                    pdf_path=existing_pdf,
+                    args=args,
+                    pdf_token=pdf_token,
+                    existing_filenames=existing_filenames,
+                ):
+                    manifest["items"].append(item)
+                    succeeded += 1
+                else:
+                    manifest["skipped"].append(item)
+                continue
+
+            company = _company_for_seed(seed)
+            item["company"] = company.model_dump(mode="json")
+            annual = _selected_annual(public, company, args.report_year)
+            if annual is None:
+                item["status"] = "not_found"
+                item["reason"] = f"No {args.report_year} DART public annual report PDF found"
+                manifest["skipped"].append(item)
+                continue
+            item["filing"] = annual.model_dump(mode="json")
+            downloaded = downloader.download(annual)
+            item["downloaded_file"] = downloaded.model_dump(mode="json")
+            pdf_path = Path(downloaded.saved_path)
+            if _enqueue_or_mark(
+                item=item,
+                pdf_path=pdf_path,
+                args=args,
+                pdf_token=pdf_token,
+                existing_filenames=existing_filenames,
+            ):
+                manifest["items"].append(item)
+                succeeded += 1
+            else:
+                manifest["skipped"].append(item)
+        except Exception as exc:
+            item["status"] = "error"
+            item["reason"] = repr(exc)
+            manifest["skipped"].append(item)
+        finally:
+            Path(args.manifest).parent.mkdir(parents=True, exist_ok=True)
+            manifest["updated_at"] = _now()
+            manifest["downloaded_or_existing_count"] = succeeded
+            Path(args.manifest).write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+            time.sleep(0.5)
+
+    manifest["completed_at"] = _now()
+    manifest["downloaded_or_existing_count"] = succeeded
+    Path(args.manifest).write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(json.dumps({"downloaded_or_existing_count": succeeded, "manifest": args.manifest}, ensure_ascii=False, indent=2))
+    return 0 if succeeded >= target_count else 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+```
+
+- [ ] **Step 6: Run script helper tests**
+
+Run:
+
+```bash
+cd /home/maoyd/siq-research-engine
+python3 -m pytest scripts/ops/tests/test_download_kr_2025_annuals_to_parse_queue.py -q
+```
+
+Expected: PASS.
+
+- [ ] **Step 7: Run market-report-finder tests touched by this work**
+
+Run:
+
+```bash
+cd /home/maoyd/siq-research-engine/services/market-report-finder
+uv run pytest tests/test_kr_catalog.py tests/test_dart_client.py tests/test_downloader.py -q
+```
+
+Expected: PASS.
+
+- [ ] **Step 8: Commit script implementation**
+
+Run:
+
+```bash
+cd /home/maoyd/siq-research-engine
+git add scripts/ops/download_kr_2025_annuals_to_parse_queue.py scripts/ops/tests/test_download_kr_2025_annuals_to_parse_queue.py
+git commit -m "feat(kr): add annual report batch download helper"
+```
+
+---
+
+### Task 5: Run The KR 30 Download And Parser Queue Verification
+
+**Files:**
+- Runtime output: `data/market-report-finder/kr_2025_annual_download_queue_manifest.json`
+- Runtime output: `data/market-report-finder/downloads/KR/**/2025/年报/*.pdf`
+- Runtime output if parser runs: `data/pdf-parser/results/<task_id>/*.json`
+
+**Interfaces:**
+- Consumes: `scripts/ops/download_kr_2025_annuals_to_parse_queue.py`.
+- Produces: 30 KR annual PDFs present locally, or a manifest with explicit shortfall reasons.
+
+- [ ] **Step 1: Run download-only first**
+
+Run:
+
+```bash
+cd /home/maoyd/siq-research-engine
+python3 scripts/ops/download_kr_2025_annuals_to_parse_queue.py --target-count 30 --report-year 2025 --download-only
+```
+
+Expected:
+
+- Exit code `0` if all 30 are downloaded or already present.
+- Exit code `2` if DART public did not expose one or more selected reports.
+- Manifest exists at `data/market-report-finder/kr_2025_annual_download_queue_manifest.json`.
+
+- [ ] **Step 2: Count downloaded KR annual PDFs**
+
+Run:
+
+```bash
+cd /home/maoyd/siq-research-engine
+find data/market-report-finder/downloads/KR -type f -name '*.pdf' | wc -l
+find data/market-report-finder/downloads/KR -mindepth 1 -maxdepth 1 -type d | wc -l
+```
+
+Expected: both counts are at least `30`. If either count is below `30`, inspect the manifest `skipped` list and record the exact company tickers and reasons.
+
+- [ ] **Step 3: Enqueue parser tasks if the parser is reachable**
+
+Run:
+
+```bash
+cd /home/maoyd/siq-research-engine
+python3 scripts/ops/download_kr_2025_annuals_to_parse_queue.py --target-count 30 --report-year 2025
+```
+
+Expected:
+
+- Existing first 10 are reported as `already_in_queue` or `queued`.
+- Newly downloaded PDFs are reported as `queued` or `already_in_queue`.
+- If the parser token or service is unavailable, do not rerun destructive commands; keep the download-only manifest as the completed download evidence and report the parser enqueue blocker.
+
+- [ ] **Step 4: Summarize manifest status**
+
+Run:
+
+```bash
+cd /home/maoyd/siq-research-engine
+python3 - <<'PY'
+import json
+from collections import Counter
+from pathlib import Path
+
+path = Path("data/market-report-finder/kr_2025_annual_download_queue_manifest.json")
+data = json.loads(path.read_text(encoding="utf-8"))
+statuses = Counter(item.get("status", "unknown") for item in data.get("items", []))
+skips = Counter(item.get("status", "unknown") for item in data.get("skipped", []))
+print("items", dict(statuses))
+print("skipped", dict(skips))
+for item in data.get("skipped", []):
+    seed = item.get("seed", {})
+    print(seed.get("ticker"), seed.get("name"), item.get("status"), item.get("reason"))
+PY
+```
+
+Expected: `items` total is `30`. If there are skipped items, each has a clear `status` and `reason`.
+
+- [ ] **Step 5: Final verification test suite**
+
+Run:
+
+```bash
+cd /home/maoyd/siq-research-engine/services/market-report-finder
+uv run pytest tests/test_kr_catalog.py tests/test_dart_client.py tests/test_downloader.py -q
+
+cd /home/maoyd/siq-research-engine
+python3 -m pytest scripts/ops/tests/test_download_kr_2025_annuals_to_parse_queue.py -q
+```
+
+Expected: all tests PASS.
+
+- [ ] **Step 6: Commit any final code-only adjustments**
+
+If Task 5 required code fixes, commit only code and tests:
+
+```bash
+cd /home/maoyd/siq-research-engine
+git add services/market-report-finder/src/market_report_finder_service/markets/kr/catalog.py services/market-report-finder/tests/test_kr_catalog.py scripts/ops/download_kr_2025_annuals_to_parse_queue.py scripts/ops/tests/test_download_kr_2025_annuals_to_parse_queue.py
+git commit -m "fix(kr): harden 30 company annual download flow"
+```
+
+Do not commit downloaded PDFs or parser result data unless the repository already tracks those data artifacts and the user explicitly asks for data commits.
+
+---
+
+## Self-Review
+
+- Spec coverage: Tasks 1-2 implement the 30-company industry-diverse catalog; Tasks 3-4 implement the batch helper, duplicate detection, manifest, and parser enqueue behavior; Task 5 verifies real downloads and parser queue status.
+- Placeholder scan: The plan contains no unfinished markers or unspecified implementation steps. The only conditional path is operational parser availability, which has an explicit fallback and reporting requirement.
+- Type consistency: Helper names used in tests match the script functions defined in Task 4. Catalog tests use existing `KrAnnualReportCatalog` APIs and existing Pydantic model fields.
