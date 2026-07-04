@@ -1,3 +1,4 @@
+import { MarketEvidencePackagesPanel } from '../components/pdf/MarketEvidencePackagesPanel'
 import { MarketParsingPage } from './MarketParsingPage'
 
 export default function KrParsing() {
@@ -13,6 +14,7 @@ export default function KrParsing() {
       workflowDescription="PostgreSQL 与 results 目录保存全量解析信息；Wiki 保留报告入口、公司级知识资产和轻量产物清单。"
       emptyTitle="选择一份韩股 PDF 后开始解析"
       emptyDescription="优先从 downloads/KR 中选择已下载 PDF；也支持上传本地 PDF。"
+      extraPanel={<MarketEvidencePackagesPanel market="KR" />}
     />
   )
 }
