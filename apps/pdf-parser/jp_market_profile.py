@@ -35,7 +35,7 @@ JP_INDICATOR_TABLE_NAMES = [
 ]
 
 JP_KEY_TABLE_DISPLAY_ORDER = JP_CORE_FINANCIAL_TABLE_NAMES + JP_INDICATOR_TABLE_NAMES
-JP_PROFILE_RULE_VERSION = "jp-pdf-profile-v2"
+JP_PROFILE_RULE_VERSION = "jp-pdf-profile-v3"
 
 _ANNUAL_SECURITIES_TERMS = (
     "annual securities report",
@@ -210,6 +210,27 @@ def _score_candidate(signal: str, terms: Iterable[str]) -> float:
 def _fallback_rule_score(name: str, signal: str) -> float:
     tokens = set(re.findall(r"[a-z]+", signal))
     year_hits = len(set(re.findall(r"(?:20\d{2}|fy\d{2,4}|\d{4}\.3|\d{4}/3)", signal)))
+    has_revenue_signal = (
+        "revenue" in tokens
+        or "revenues" in tokens
+        or {"net", "sales"}.issubset(tokens)
+        or {"operating", "revenue"}.issubset(tokens)
+    )
+    has_operating_profit_signal = {"operating", "profit"}.issubset(tokens) or {"operating", "income"}.issubset(tokens)
+    has_profit_attributable_signal = (
+        "profit attributable" in signal
+        or "profits attributable" in signal
+        or "income attributable" in signal
+    )
+    has_total_assets_signal = {"total", "assets"}.issubset(tokens)
+    has_total_equity_signal = (
+        {"total", "equity"}.issubset(tokens)
+        or {"net", "assets"}.issubset(tokens)
+        or "equity attributable" in signal
+        or {"owners", "equity"}.issubset(tokens)
+        or {"shareholders", "equity"}.issubset(tokens)
+        or {"shareholder", "equity"}.issubset(tokens)
+    )
     bad_summary_terms = (
         "non-financial data",
         "financial instruments",
@@ -231,25 +252,43 @@ def _fallback_rule_score(name: str, signal: str) -> float:
                 "eleven-year key consolidated financial data",
                 "11-year summary",
                 "5-year financial data",
+                "financial results",
                 "consolidated operating results",
                 "operating results (for the year)",
             )
         )
         has_metric_cluster = (
-            ("revenue" in tokens or {"net", "sales"}.issubset(tokens) or {"operating", "revenue"}.issubset(tokens))
-            and ({"operating", "profit"}.issubset(tokens) or {"operating", "income"}.issubset(tokens))
+            has_revenue_signal
+            and has_operating_profit_signal
             and (
                 {"net", "income"}.issubset(tokens)
                 or {"net", "profit"}.issubset(tokens)
+                or has_profit_attributable_signal
                 or "eps" in tokens
                 or {"per", "share"}.issubset(tokens)
-                or {"total", "assets"}.issubset(tokens)
+                or has_total_assets_signal
+                or {"cash", "flow"}.issubset(tokens)
+                or {"cash", "flows"}.issubset(tokens)
             )
         )
+        has_bank_result_cluster = (
+            ({"gross", "profits"}.issubset(tokens) or {"gross", "profit"}.issubset(tokens))
+            and ({"operating", "profits"}.issubset(tokens) or {"operating", "profit"}.issubset(tokens))
+            and ({"ordinary", "profits"}.issubset(tokens) or {"ordinary", "profit"}.issubset(tokens))
+            and has_profit_attributable_signal
+        )
+        has_period_summary_label = "for the year" in signal or "at year-end" in signal
+        has_income_data_label = "statement of income data" in signal or "income data" in signal
+        if not has_bad_summary and has_income_data_label and has_bank_result_cluster:
+            return 90.0
+        if not has_bad_summary and has_bank_result_cluster and ("results change" in signal or year_hits >= 2):
+            return 86.0
         if not has_bad_summary and has_summary_title and has_metric_cluster:
             return 90.0
         if not has_bad_summary and has_metric_cluster and year_hits >= 4:
             return 86.0
+        if not has_bad_summary and has_metric_cluster and has_period_summary_label:
+            return 84.0
         if not has_bad_summary and has_metric_cluster and ("per common share" in signal or {"amounts", "share"}.issubset(tokens)):
             return 84.0
     if name == "Consolidated Statement of Financial Position":
@@ -257,10 +296,22 @@ def _fallback_rule_score(name: str, signal: str) -> float:
             return 86.0
         if {"assets", "current"}.issubset(tokens) and {"total", "assets"}.issubset(tokens) and "liabilities" in tokens:
             return 84.0
+        has_financial_position_label = (
+            "financial position" in signal
+            or "balance sheet data" in signal
+            or "balance sheet" in signal
+            or "at year-end" in signal
+            or "financial indicators" in signal
+            or "financial and non-financial data" in signal
+            or "selected financial data" in signal
+            or "financial data" in signal
+        )
+        if has_financial_position_label and has_total_assets_signal and has_total_equity_signal:
+            return 86.0 if "financial position" in signal or "balance sheet" in signal else 84.0
     if name == "Consolidated Statement of Profit or Loss":
-        if ("sales" in tokens or "revenue" in tokens) and ("income" in tokens or "profit" in tokens):
+        if has_revenue_signal and ("income" in tokens or "profit" in tokens):
             return 86.0
-        if ("sales" in tokens or "revenue" in tokens) and {"cost", "gross"}.intersection(tokens) and {"operating", "income"}.issubset(tokens):
+        if has_revenue_signal and {"cost", "gross"}.intersection(tokens) and {"operating", "income"}.issubset(tokens):
             return 84.0
     if name == "Consolidated Statement of Comprehensive Income":
         if {"other", "comprehensive", "income"}.issubset(tokens) or {"total", "comprehensive", "income"}.issubset(tokens):
