@@ -15,6 +15,12 @@ CORE_STATEMENT_KEYWORDS = (
     "statement of cash flows",
     "statement of changes in equity",
     "summary financial information",
+    "연결 재무상태표",
+    "연결 손익계산서",
+    "연결 포괄손익계산서",
+    "연결 현금흐름표",
+    "연결 자본변동표",
+    "요약재무정보",
 )
 
 
@@ -38,7 +44,7 @@ def normalize_kr_ticker(value: Any) -> str:
 
 
 def _slug(value: str) -> str:
-    parts = re.findall(r"[A-Za-z0-9]+", value or "Company")
+    parts = re.findall(r"[A-Za-z0-9가-힣]+", value or "Company")
     slug = "".join(part[:1].upper() + part[1:] for part in parts)
     return slug or "Company"
 
@@ -173,7 +179,7 @@ def _quality_report(metadata: dict[str, Any], source_map: dict[str, Any]) -> dic
             "failed": 0,
             "skipped": 0,
             "notes": [
-                "KR PDF structured consolidated statements are not fully confirmed; review source tables or DART/XBRL for numeric tie-outs."
+                "KR PDF 未确认完整结构化连接财务报表，已按候选识别模式处理；完整数值勾稽建议结合 DART/XBRL 或原文表格复核。"
             ],
         },
     }
@@ -229,7 +235,7 @@ def _ensure_company_scaffold(company_dir: Path, metadata: dict[str, Any]) -> Non
     company_md = company_dir / "company.md"
     if not company_md.exists():
         company_md.write_text(
-            f"# {metadata['company_name']}\n\nMarket: KR\nTicker: {metadata['ticker']}\n",
+            f"# {metadata['company_name']}\n\n市场：KR\n股票代码：{metadata['ticker']}\n",
             encoding="utf-8",
         )
 
@@ -328,7 +334,7 @@ def write_kr_pdf_wiki_package(
     )
     (package_dir / "README.md").write_text(
         f"# {metadata['company_name']} {metadata['report_year']} {metadata['report_type']}\n\n"
-        "Generated from KR PDF parser artifacts with Markdown, table evidence, quality report, and PDF page traceability.\n",
+        "本目录由韩国市场 PDF 解析产物生成，包含 Markdown、表格证据、质量报告以及可回溯到 PDF 页码的来源索引。\n",
         encoding="utf-8",
     )
     _update_catalogs(output_root, package_dir, metadata)
