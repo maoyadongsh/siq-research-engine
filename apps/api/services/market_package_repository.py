@@ -193,7 +193,8 @@ def find_market_evidence(
         source_map = _read_json_file(path / "qa" / "source_map.json", {}) or {}
         if not isinstance(source_map, dict):
             source_map = {}
-        for entry in source_map.get("entries") or []:
+        entries = source_map.get("entries") or source_map.get("evidence") or []
+        for entry in entries:
             if isinstance(entry, dict) and str(entry.get("evidence_id") or "") == target:
                 return code, path, entry
     raise HTTPException(status_code=404, detail="Evidence not found")
