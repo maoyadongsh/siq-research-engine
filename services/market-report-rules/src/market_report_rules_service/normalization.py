@@ -83,7 +83,10 @@ def parse_date(value: Any) -> date | None:
     match = re.search(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})", text)
     if match:
         year, month, day = (int(part) for part in match.groups())
-        return date(year, month, day)
+        try:
+            return date(year, month, day)
+        except ValueError:
+            return None
     return None
 
 
