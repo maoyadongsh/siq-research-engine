@@ -65,3 +65,55 @@ def test_hk_ddl_exposes_agent_recall_columns_and_views():
     assert "on pdf2md_hk.companies (hkex_stock_code)" in ddl
     assert "create or replace view pdf2md_hk.v_agent_financial_facts" in ddl
     assert "create or replace view pdf2md_hk.v_latest_company_reports" in ddl
+
+
+def test_hk_importer_builds_stable_company_and_filing_records(tmp_path):
+    importer = _load_importer()
+    manifest = {
+        "market": "HK",
+        "company_id": "HK:00700",
+        "ticker": "00700",
+        "stock_code": "00700",
+        "hkex_stock_code": "00700",
+        "company_name": "TENCENT",
+        "company_name_en": "Tencent Holdings Limited",
+        "company_name_zh": "腾讯控股有限公司",
+        "exchange": "HKEX",
+        "filing_id": "HK:00700:12100024",
+        "report_id": "2025-annual-12100024",
+        "report_type": "annual",
+        "fiscal_year": 2025,
+        "period_end": "2025-12-31",
+        "published_at": "2026-04-09",
+        "source_url": "https://www1.hkexnews.hk/test.pdf",
+        "local_source_path": "raw/report.pdf",
+    }
+
+    company = importer.build_company_record(manifest)
+    assert company["company_id"] == "HK:00700"
+    assert company["hkex_stock_code"] == "00700"
+    assert company["stock_code"] == "00700"
+    assert company["exchange"] == "HKEX"
+    assert "Tencent Holdings Limited" in company["aliases"]
+    assert "腾讯控股有限公司" in company["aliases"]
+
+    filing = importer.build_filing_record(manifest, tmp_path, {"overall_status": "pass"})
+    assert filing["filing_id"] == "HK:00700:12100024"
+    assert filing["company_id"] == "HK:00700"
+    assert filing["report_id"] == "2025-annual-12100024"
+    assert filing["local_path"].endswith("raw/report.pdf")
+
+
+def test_hk_importer_evidence_rows_preserve_bbox_and_page_coordinates():
+    importer = _load_importer()
+    row = importer.build_evidence_row(
+        {"evidence_id": "e1", "page_number": 25, "table_index": 6, "row_index": 3, "column_index": 2, "bbox": [1, 2, 3, 4], "quote_text": "Total assets"},
+        filing_id="HK:00700:12100024",
+        parse_run_id="run1",
+    )
+    assert row["evidence_id"] == "e1"
+    assert row["page_number"] == 25
+    assert row["table_index"] == 6
+    assert row["row_index"] == 3
+    assert row["column_index"] == 2
+    assert row["bbox"] == [1, 2, 3, 4]
