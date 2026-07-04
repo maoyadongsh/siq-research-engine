@@ -365,7 +365,58 @@ def test_force_rebuild_preserves_package_local_source_inputs(tmp_path, monkeypat
         "<tr><td>Total equity</td><td>400</td><td>350</td></tr>"
         "</table>"
     )
-    write_json(parser_dir / "quality_report.json", {"overall_status": "ok", "warnings": []})
+    parser_quality = {"schema_version": "hk_parser_quality_report_v1", "overall_status": "ok", "warnings": ["parser retained"]}
+    parser_financial_data = {
+        "schema_version": 13,
+        "task_id": "package-local-parser-task",
+        "statements": [{"statement_id": "parser-balance-sheet"}],
+        "key_metrics": [{"metric_id": "parser-revenue"}],
+        "operating_metrics": [],
+        "warnings": ["parser financial retained"],
+        "summary": {"statement_count": 1},
+    }
+    parser_financial_checks = {
+        "schema_version": 12,
+        "task_id": "package-local-parser-task",
+        "overall_status": "pass",
+        "checks": [{"rule_id": "parser-check"}],
+        "warnings": ["parser checks retained"],
+        "summary": {"total": 1},
+    }
+    enhanced_payload = {
+        "footnotes": {
+            "references": [{"id": "fn_ref_1", "marker": "1", "page": 88}],
+            "definitions": [{"id": "fn_def_1", "marker": "1", "text": "Retained footnote"}],
+            "bindings": [{"reference_id": "fn_ref_1", "definition_id": "fn_def_1"}],
+            "summary": {"count": 1},
+        },
+        "toc": {
+            "headings": [{"level": 1, "title": "Retained heading", "page": 3}],
+            "toc_candidates": [{"title": "Retained toc", "page": 2}],
+            "content_headings": [{"title": "Retained content", "page": 88}],
+            "summary": {"count": 3},
+        },
+        "financial_note_links": {
+            "links": [{"statement": "balance_sheet", "note": "1", "page": 88}],
+            "summary": {"count": 1},
+        },
+        "quality_signals": {
+            "signals": [{"type": "package_local_parser", "status": "ok", "page": 88}],
+            "summary": {"count": 1},
+        },
+        "tables": [
+            {
+                "table_index": 1,
+                "content_table_source_id": 1,
+                "pdf_page_number": 88,
+                "relations": [{"target_table_index": 1, "relation_type": "retained_relation"}],
+            }
+        ],
+        "pages": [{"page_number": 88, "image_count": 0, "table_count": 1}],
+    }
+    write_json(parser_dir / "quality_report.json", parser_quality)
+    write_json(parser_dir / "financial_data.json", parser_financial_data)
+    write_json(parser_dir / "financial_checks.json", parser_financial_checks)
     write_json(
         parser_dir / "document_full.json",
         {
@@ -379,25 +430,26 @@ def test_force_rebuild_preserves_package_local_source_inputs(tmp_path, monkeypat
                     "page_idx": 87,
                 }
             ],
-            "content_list_enhanced": {
-                "footnotes": {},
-                "toc": {},
-                "financial_note_links": {},
-                "quality_signals": {},
-                "tables": [{"table_index": 1, "content_table_source_id": 1, "pdf_page_number": 88, "relations": []}],
-                "pages": [],
-            },
+            "content_list_enhanced": enhanced_payload,
         },
     )
 
     package_dir = write_hk_evidence_package(pdf, parser_dir, tmp_path / "wiki", metadata, force=True)
     package_pdf = package_dir / "raw" / "report.pdf"
     package_metadata = package_dir / "raw" / "report.metadata.json"
+    package_parser_dir = package_dir / "parser"
 
-    rebuilt_dir = write_hk_evidence_package(package_pdf, parser_dir, tmp_path / "wiki", package_metadata, force=True)
+    rebuilt_dir = write_hk_evidence_package(package_pdf, package_parser_dir, tmp_path / "wiki", package_metadata, force=True)
     result = validate_evidence_package(rebuilt_dir)
 
     assert rebuilt_dir == package_dir
     assert package_pdf.is_file()
     assert package_metadata.is_file()
+    assert package_parser_dir.is_dir()
     assert result.ok, result.errors
+    assert json.loads((rebuilt_dir / "parser" / "quality_report.json").read_text(encoding="utf-8")) == parser_quality
+    assert json.loads((rebuilt_dir / "parser" / "financial_data.json").read_text(encoding="utf-8")) == parser_financial_data
+    assert json.loads((rebuilt_dir / "parser" / "financial_checks.json").read_text(encoding="utf-8")) == parser_financial_checks
+    assert json.loads((rebuilt_dir / "parser" / "content_list_enhanced.json").read_text(encoding="utf-8")) == enhanced_payload
+    assert json.loads((rebuilt_dir / "qa" / "financial_note_links.json").read_text(encoding="utf-8"))["payload"] == enhanced_payload["financial_note_links"]
+    assert json.loads((rebuilt_dir / "qa" / "table_quality_signals.json").read_text(encoding="utf-8"))["payload"] == enhanced_payload["quality_signals"]

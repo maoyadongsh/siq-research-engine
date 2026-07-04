@@ -240,6 +240,7 @@ def write_hk_evidence_package(
     package_dir = output_root / artifact.ticker / str(artifact.fiscal_year or "unknown") / f"{artifact.report_type}_{filing_key}"
     source_pdf_path = pdf_path
     source_metadata_path = metadata_path
+    source_parser_result_dir = parser_result_dir
     staged_inputs = None
     if package_dir.exists() and force:
         staged_inputs = tempfile.TemporaryDirectory(prefix="hk-package-inputs-")
@@ -250,6 +251,9 @@ def write_hk_evidence_package(
         if metadata_path and metadata_path.exists() and _path_is_within(metadata_path, package_dir):
             source_metadata_path = staged_root / "report.metadata.json"
             shutil.copy2(metadata_path, source_metadata_path)
+        if parser_result_dir.is_dir() and _path_is_within(parser_result_dir, package_dir):
+            source_parser_result_dir = staged_root / "parser_result"
+            shutil.copytree(parser_result_dir, source_parser_result_dir)
         shutil.rmtree(package_dir)
     package_dir.mkdir(parents=True, exist_ok=True)
     for name in ("raw", "sections", "tables", "xbrl", "metrics", "qa", "parser"):
@@ -263,15 +267,16 @@ def write_hk_evidence_package(
         else:
             write_json(package_dir / "raw" / "report.metadata.json", metadata.get("raw_metadata") or {})
     finally:
-        if staged_inputs is not None:
+        if staged_inputs is not None and source_parser_result_dir == parser_result_dir:
             staged_inputs.cleanup()
+            staged_inputs = None
 
-    markdown = _markdown_from_document_full(document_full, parser_result_dir)
+    markdown = _markdown_from_document_full(document_full, source_parser_result_dir)
     (package_dir / "sections" / "report.md").write_text(markdown, encoding="utf-8")
     _write_section_index(package_dir, markdown, document_full)
     table_index = _write_tables(package_dir, artifact.tables)
     write_json(package_dir / "xbrl" / "facts_raw.json", {"schema_version": "hk_xbrl_facts_raw_v1", "facts": []})
-    parser_quality = read_json(parser_result_dir / "quality_report.json", {})
+    parser_quality = read_json(source_parser_result_dir / "quality_report.json", {})
 
     manifest = {
         "schema_version": SCHEMA_VERSION,
@@ -339,9 +344,12 @@ def write_hk_evidence_package(
     write_json(package_dir / "qa" / "quality_report.json", quality)
     write_json(package_dir / "qa" / "source_map.json", source_map)
     write_json(package_dir / "qa" / "extraction_warnings.json", {"warnings": quality["parser_warnings"] + quality["rule_warnings"]})
-    _write_parser_artifacts(package_dir, parser_result_dir, document_full, standalone_enhanced, financial_data, financial_checks)
+    _write_parser_artifacts(package_dir, source_parser_result_dir, document_full, standalone_enhanced, financial_data, financial_checks)
     _write_report_complete(package_dir, markdown, document_full, quality, standalone_enhanced)
     _write_enhancement_qa(package_dir, document_full, standalone_enhanced)
+    if staged_inputs is not None:
+        staged_inputs.cleanup()
+        staged_inputs = None
     manifest["artifact_hashes"] = compute_artifact_hashes(package_dir)
     write_json(package_dir / "manifest.json", manifest)
     (package_dir / "README.md").write_text(_readme(manifest, quality), encoding="utf-8")
