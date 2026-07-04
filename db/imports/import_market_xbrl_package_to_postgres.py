@@ -35,6 +35,10 @@ def parse_numeric(value: Any) -> Any:
     return str(value)
 
 
+def wiki_package_path(manifest: dict[str, Any], package_dir: Path) -> str:
+    return str(manifest.get("wiki_report_path") or manifest.get("package_path") or package_dir)
+
+
 def database_url(explicit: str | None, *, market: str | None = None, default_database: str = "siq") -> str:
     url = explicit or os.environ.get("DATABASE_URL")
     if url:
@@ -180,7 +184,7 @@ def _upsert_parse_run(conn: Any, schema: str, manifest: dict[str, Any], package_
             manifest["filing_id"],
             manifest.get("parser_version"),
             manifest.get("rules_version"),
-            str(package_dir),
+            wiki_package_path(manifest, package_dir),
             quality.get("overall_status") or manifest.get("quality_status") or "warning",
             Jsonb(warnings),
             Jsonb(artifact_hashes),

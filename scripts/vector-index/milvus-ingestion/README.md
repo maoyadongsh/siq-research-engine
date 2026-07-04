@@ -98,6 +98,7 @@ export MINIMAX_EMBED_MODEL=embo-01
 ## 维护原则
 
 - `project_tag` 必须稳定，建议使用 `SIQ-{项目或公司}-{年份}`。
+- 多市场财报 evidence package 入库必须保留公司级 Wiki 路径。日本市场主入口是 `data/wiki/jp/companies/<ticker>-<company>/reports/<report_id>/`，metadata 中应同时保留 `company_wiki_path`、`wiki_report_path` 和 `report_id`；`jp_reports` 等旧路径只作兼容来源。
 - 重置 collection 前确认已有数据可重建。
 - API key 和数据库口令只放环境变量，不写入脚本和 README。
 - 大文件先小批量试跑，检查质量报告后再全量入库。

@@ -6,6 +6,7 @@ import re
 import shutil
 import sys
 import zipfile
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -41,8 +42,62 @@ PARSER_VERSION = os.environ.get("SIQ_JP_PARSER_VERSION", "jp_edinet_evidence_par
 RULES_VERSION = os.environ.get("SIQ_JP_RULES_VERSION", "jp_edinet_rules_v1")
 
 
+@dataclass(frozen=True)
+class CompanyWikiReportPaths:
+    company_id: str
+    report_id: str
+    company_dir: Path
+    report_dir: Path
+    company_wiki_path: str
+    wiki_report_path: str
+
+
 def read_json(path: Path, default: Any = None) -> Any:
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else ({} if default is None else default)
+
+
+def safe_wiki_slug(value: Any, fallback: str = "unknown") -> str:
+    text = str(value or "").strip()
+    text = re.sub(r"[\\/:*?\"<>|\r\n\t]+", "-", text)
+    text = re.sub(r"[,&]+", "", text)
+    text = re.sub(r"[()\[\]{}]+", "", text)
+    text = re.sub(r"\s+", "-", text)
+    text = re.sub(r"-+", "-", text)
+    return text.strip(" ._-") or fallback
+
+
+def _repo_or_wiki_relative(path: Path, output_root: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(REPO_ROOT))
+    except ValueError:
+        pass
+    try:
+        rel = path.resolve().relative_to(output_root.resolve())
+        if output_root.name == "wiki":
+            return str(Path("data") / "wiki" / rel)
+    except ValueError:
+        pass
+    return str(path)
+
+
+def company_wiki_report_paths(output_root: Path, metadata: dict[str, Any]) -> CompanyWikiReportPaths:
+    ticker = safe_wiki_slug(metadata.get("security_code") or metadata.get("ticker"), "UNKNOWN")
+    company_name = safe_wiki_slug(metadata.get("company_name") or metadata.get("company_name_en") or metadata.get("company_name_ja"), "unknown")
+    company_id = f"{ticker}-{company_name}"
+    fiscal_year = metadata.get("fiscal_year") or "unknown"
+    report_type = safe_wiki_slug(metadata.get("report_type") or _report_type(metadata.get("form")), "report").replace("_", "-")
+    doc_id = safe_wiki_slug(metadata.get("doc_id") or metadata.get("filing_id") or metadata.get("document_id"), "unknown")
+    report_id = f"{fiscal_year}-{report_type}-{doc_id}"
+    company_dir = output_root / "jp" / "companies" / company_id
+    report_dir = company_dir / "reports" / report_id
+    return CompanyWikiReportPaths(
+        company_id=company_id,
+        report_id=report_id,
+        company_dir=company_dir,
+        report_dir=report_dir,
+        company_wiki_path=_repo_or_wiki_relative(company_dir, output_root),
+        wiki_report_path=_repo_or_wiki_relative(report_dir, output_root),
+    )
 
 
 def infer_metadata(source_path: Path, metadata_path: Path | None = None) -> dict[str, Any]:
@@ -65,6 +120,8 @@ def infer_metadata(source_path: Path, metadata_path: Path | None = None) -> dict
         "company_id": f"JP:{edinet_code or ticker}",
         "ticker": str(ticker),
         "company_name": candidate.get("company_name") or (stem_parts[0] if stem_parts else source_path.stem),
+        "company_name_en": candidate.get("company_name_en"),
+        "company_name_ja": candidate.get("company_name_ja"),
         "source_id": candidate.get("source_id") or "edinet",
         "form": candidate.get("form") or candidate.get("title") or "有価証券報告書",
         "report_type": report_type,
@@ -168,15 +225,16 @@ def write_jp_evidence_package(
     force: bool = False,
 ) -> Path:
     artifact, metadata, document_full, raw_facts = build_jp_artifact(source_path, metadata_path, parser_result_dir)
+    paths = company_wiki_report_paths(output_root, metadata)
     result = process_artifact(artifact, include_load_plan=True)
     financial_data = financial_data_contract(result.extraction)
     financial_checks = financial_checks_contract(result.validation)
 
-    package_dir = output_root / artifact.ticker / str(artifact.fiscal_year or "unknown") / f"{artifact.report_type}_{metadata['doc_id']}"
+    package_dir = paths.report_dir
     if package_dir.exists() and force:
         shutil.rmtree(package_dir)
     package_dir.mkdir(parents=True, exist_ok=True)
-    for name in ("raw", "sections", "tables", "xbrl", "metrics", "qa"):
+    for name in ("raw", "sections", "tables", "xbrl", "metrics", "evidence", "parser", "qa", "images"):
         (package_dir / name).mkdir(exist_ok=True)
     shutil.copy2(source_path, package_dir / "raw" / source_path.name)
     if metadata_path and metadata_path.exists():
@@ -184,6 +242,7 @@ def write_jp_evidence_package(
     else:
         write_json(package_dir / "raw" / "report.metadata.json", metadata.get("raw_metadata") or {})
     (package_dir / "sections" / "report.md").write_text(_markdown(document_full, metadata), encoding="utf-8")
+    _copy_parser_artifacts(package_dir, parser_result_dir)
     table_index = _write_tables(package_dir, artifact.tables)
     write_json(package_dir / "xbrl" / "facts_raw.json", {"schema_version": "edinet_xbrl_facts_raw_v1", "facts": raw_facts})
 
@@ -191,9 +250,15 @@ def write_jp_evidence_package(
         "schema_version": SCHEMA_VERSION,
         "market": "JP",
         "filing_id": artifact.report_id,
+        "report_id": paths.report_id,
         "company_id": artifact.company_id,
+        "company_wiki_id": paths.company_id,
+        "company_wiki_path": paths.company_wiki_path,
+        "wiki_report_path": paths.wiki_report_path,
         "ticker": artifact.ticker,
         "company_name": artifact.company_name,
+        "company_name_en": metadata.get("company_name_en"),
+        "company_name_ja": metadata.get("company_name_ja"),
         "source_id": metadata["source_id"],
         "form": metadata["form"],
         "report_type": metadata["report_type"],
@@ -231,10 +296,68 @@ def write_jp_evidence_package(
     manifest["artifact_hashes"] = compute_artifact_hashes(package_dir)
     write_json(package_dir / "manifest.json", manifest)
     (package_dir / "README.md").write_text(_readme(manifest, quality), encoding="utf-8")
+    _write_company_index(paths, manifest)
     validation = validate_evidence_package(package_dir)
     if not validation.ok:
         write_json(package_dir / "qa" / "contract_validation.json", validation.as_dict())
     return package_dir
+
+
+def _copy_parser_artifacts(package_dir: Path, parser_result_dir: Path | None) -> None:
+    if not parser_result_dir or not parser_result_dir.exists():
+        return
+    for name in (
+        "document_full.json",
+        "content_list_enhanced.json",
+        "quality_report.json",
+        "financial_data.json",
+        "financial_checks.json",
+        "table_relations.json",
+    ):
+        source = parser_result_dir / name
+        if source.exists():
+            shutil.copy2(source, package_dir / "parser" / name)
+
+
+def _write_company_index(paths: CompanyWikiReportPaths, manifest: dict[str, Any]) -> None:
+    company_path = paths.company_dir / "company.json"
+    existing = read_json(company_path, {})
+    reports = existing.get("reports") if isinstance(existing.get("reports"), list) else []
+    report_entry = {
+        "report_id": paths.report_id,
+        "filing_id": manifest.get("filing_id"),
+        "report_type": manifest.get("report_type"),
+        "fiscal_year": manifest.get("fiscal_year"),
+        "period_end": manifest.get("period_end"),
+        "published_at": manifest.get("published_at"),
+        "wiki_report_path": paths.wiki_report_path,
+        "quality_status": manifest.get("quality_status"),
+    }
+    reports = [row for row in reports if not isinstance(row, dict) or row.get("report_id") != paths.report_id]
+    reports.append(report_entry)
+    payload = {
+        "schema_version": "jp_company_wiki_v1",
+        "market": "JP",
+        "company_id": manifest.get("company_id"),
+        "company_wiki_id": paths.company_id,
+        "ticker": manifest.get("ticker"),
+        "security_code": manifest.get("security_code"),
+        "edinet_code": manifest.get("edinet_code"),
+        "company_name": manifest.get("company_name"),
+        "company_name_en": manifest.get("company_name_en"),
+        "company_name_ja": manifest.get("company_name_ja"),
+        "company_wiki_path": paths.company_wiki_path,
+        "currency": "JPY",
+        "reports": sorted(reports, key=lambda row: str(row.get("report_id") if isinstance(row, dict) else "")),
+    }
+    write_json(company_path, payload)
+    (paths.company_dir / "README.md").write_text(
+        f"# {manifest.get('ticker')} {manifest.get('company_name')}\n\n"
+        f"- Market: `JP`\n"
+        f"- EDINET: `{manifest.get('edinet_code') or ''}`\n"
+        f"- Wiki path: `{paths.company_wiki_path}`\n",
+        encoding="utf-8",
+    )
 
 
 def _xml_payloads(path: Path) -> list[tuple[str, bytes]]:
@@ -367,6 +490,10 @@ def _markdown(document_full: dict[str, Any], metadata: dict[str, Any]) -> str:
 
 def _report_type(value: Any) -> str:
     text = str(value or "").lower()
+    if "annual securities" in text or "有価証券報告書" in text:
+        return "annual_securities_report"
+    if "integrated report" in text:
+        return "integrated_report"
     if any(token in text for token in ("semi", "half", "半期", "中間")):
         return "semiannual"
     if any(token in text for token in ("quarter", "四半期", "q1", "q2", "q3")):

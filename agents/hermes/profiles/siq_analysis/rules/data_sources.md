@@ -18,12 +18,15 @@
 
 必须通过 `resolve_company.py` 唯一定位公司；严禁手写猜测 `/home/maoyd/siq-research-engine/data/wiki/companies/<公司名>`。
 
+多市场公司 wiki 使用同一套公司级入口语义：A 股主路径为 `data/wiki/companies/<stock_code>-<company_name>/`；海外市场主路径为 `data/wiki/<market>/companies/<ticker>-<company_name>/`，例如日本市场必须从 `data/wiki/jp/companies/<ticker>-<company_name>/` 进入。`data/wiki/jp_reports/`、`data/wiki/hk_reports/` 等旧路径只作历史兼容或迁移来源，禁止作为智能体查询主入口。
+
 输出功能介绍、提问示例、示例命令或示例问题时，所有公司名必须来自 `company_catalog.json` 的实时内容；不得使用任何不在实时 catalog 中的公司。无法确认 catalog 时，不列具体公司名，改写为“某个已入库公司”。
 
 ## 数据读取优先级
 
 1. 目标公司 wiki 目录全量盘点
    - 必须先通过 `resolve_company.py` 确认唯一公司目录。
+   - 日本市场报告优先读取 `data/wiki/jp/companies/<ticker>-<company>/company.json`，再进入 `reports/<report_id>/manifest.json`、`parser/quality_report.json`、`metrics/normalized_metrics.json`、`evidence/` 和 `sections/report.md`。
    - 必须按 `/home/maoyd/siq-research-engine/data/wiki/_meta/AGENT_GUIDE.md` 读取：`company_catalog.json` -> `company.json` -> `company.md` -> `semantic/` -> `metrics/` -> `evidence/` -> `report.md`。
    - 完整报告可盘点单公司目录下 `company`、`reports`、`metrics`、`evidence`、`semantic`、`graph`、`tracking`、`factcheck`、既有 `analysis` 与 `_index.json`，但普通问答不需要全量读大文件。
    - 大文件可以索引化/摘要化读取，但必须记录读取状态、缺失文件、解析失败和采用口径。

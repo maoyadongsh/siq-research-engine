@@ -41,6 +41,15 @@ def test_jp_importer_rejects_wrong_schema():
         raise AssertionError("JP importer should reject pdf2md")
 
 
+def test_market_xbrl_import_prefers_manifest_wiki_report_path(tmp_path):
+    module = _load("import_market_xbrl_package_to_postgres")
+    manifest = {
+        "wiki_report_path": "data/wiki/jp/companies/7203-Toyota/reports/2025-annual-securities-report-S100TEST",
+    }
+
+    assert module.wiki_package_path(manifest, tmp_path / "unused") == manifest["wiki_report_path"]
+
+
 def test_kr_importer_rejects_wrong_schema():
     module = _load("import_kr_evidence_package_to_postgres")
     try:

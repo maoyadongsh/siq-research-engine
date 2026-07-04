@@ -12,7 +12,7 @@
 | `scripts/vector-index` | Milvus、知识库入库和向量检索相关工具 |
 | `scripts/us-sec` | SEC evidence package、iXBRL/XBRL 提取、行业归类、批量入库 |
 | `scripts/hk` | 港股 evidence package 构建和批处理 |
-| `scripts/jp` | 日股 EDINET evidence package 构建和批处理 |
+| `scripts/jp` | 日股 EDINET evidence package 构建和批处理；主 Wiki 输出对齐 A 股公司级结构 `data/wiki/jp/companies/<ticker>-<company>/reports/<report_id>/` |
 | `scripts/kr` | 韩股 DART evidence package 构建和批处理 |
 | `scripts/eu` | 欧股 PDF/ESEF evidence package 构建和批处理 |
 

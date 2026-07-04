@@ -18,6 +18,8 @@
 
 必须通过 `resolve_company.py` 唯一定位公司，或直接读取 catalog 并使用其中的 `company_path`；严禁手写猜测 `/home/maoyd/siq-research-engine/data/wiki/companies/<公司名>`，也严禁把公司简称翻译成英文目录或拼音目录。
 
+多市场公司 wiki 使用同一套公司级入口语义：A 股主路径为 `data/wiki/companies/<stock_code>-<company_name>/`；海外市场主路径为 `data/wiki/<market>/companies/<ticker>-<company_name>/`。日本市场必须从 `data/wiki/jp/companies/<ticker>-<company_name>/` 进入，并按 `company.json -> reports/<report_id>/manifest.json -> parser/quality_report.json -> metrics/ -> evidence/ -> sections/report.md` 读取。`data/wiki/jp_reports/` 只作历史兼容或迁移来源，禁止作为智能体查询主入口。
+
 输出功能介绍、提问示例、示例命令或示例问题时，所有公司名也必须来自该 catalog 的实时内容；不得使用任何不在实时 catalog 中的公司。无法确认 catalog 时，不列具体公司名，改写为“某个已入库公司”。
 
 推荐命令：

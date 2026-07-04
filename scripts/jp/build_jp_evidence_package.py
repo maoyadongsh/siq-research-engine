@@ -13,7 +13,7 @@ def main() -> None:
     parser.add_argument("source", type=Path)
     parser.add_argument("--metadata", type=Path, default=None)
     parser.add_argument("--parser-result", type=Path, default=None, help="Optional PDF parser result directory for fallback tables.")
-    parser.add_argument("--output-root", type=Path, default=Path(os.environ.get("SIQ_JP_WIKI_ROOT", REPO_ROOT / "data" / "wiki" / "jp_reports")))
+    parser.add_argument("--output-root", type=Path, default=Path(os.environ.get("SIQ_JP_WIKI_ROOT", REPO_ROOT / "data" / "wiki")))
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
     package_dir = write_jp_evidence_package(
