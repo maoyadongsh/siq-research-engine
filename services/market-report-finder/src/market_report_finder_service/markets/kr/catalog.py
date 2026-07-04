@@ -99,6 +99,146 @@ KR_ANNUAL_REPORT_CATALOG: tuple[KrAnnualReportCatalogEntry, ...] = (
         company_name="SK Telecom Co., Ltd.",
         aliases=("SK Telecom", "SK텔레콤", "SK 电讯", "SK電訊"),
     ),
+    KrAnnualReportCatalogEntry(
+        industry="Automotive",
+        company_id="",
+        ticker="000270",
+        company_name="Kia Corporation",
+        aliases=("Kia", "기아", "起亚", "起亞"),
+    ),
+    KrAnnualReportCatalogEntry(
+        industry="Auto Parts",
+        company_id="",
+        ticker="012330",
+        company_name="Hyundai Mobis Co., Ltd.",
+        aliases=("Hyundai Mobis", "현대모비스", "现代摩比斯", "現代摩比斯"),
+    ),
+    KrAnnualReportCatalogEntry(
+        industry="Batteries",
+        company_id="",
+        ticker="373220",
+        company_name="LG Energy Solution, Ltd.",
+        aliases=("LG Energy Solution", "LG에너지솔루션", "LG新能源", "LG新能源"),
+    ),
+    KrAnnualReportCatalogEntry(
+        industry="Batteries / Electronic Materials",
+        company_id="",
+        ticker="006400",
+        company_name="Samsung SDI Co., Ltd.",
+        aliases=("Samsung SDI", "삼성SDI", "三星SDI"),
+    ),
+    KrAnnualReportCatalogEntry(
+        industry="Biopharmaceuticals",
+        company_id="",
+        ticker="207940",
+        company_name="Samsung Biologics Co., Ltd.",
+        aliases=("Samsung Biologics", "삼성바이오로직스", "三星生物制剂", "三星生物製劑"),
+    ),
+    KrAnnualReportCatalogEntry(
+        industry="Consumer Electronics",
+        company_id="",
+        ticker="066570",
+        company_name="LG Electronics Inc.",
+        aliases=("LG Electronics", "LG전자", "LG电子", "LG電子"),
+    ),
+    KrAnnualReportCatalogEntry(
+        industry="Banking",
+        company_id="",
+        ticker="105560",
+        company_name="KB Financial Group Inc.",
+        aliases=("KB Financial Group", "KB금융", "KB金融"),
+    ),
+    KrAnnualReportCatalogEntry(
+        industry="Banking",
+        company_id="",
+        ticker="086790",
+        company_name="Hana Financial Group Inc.",
+        aliases=("Hana Financial Group", "하나금융지주", "韩亚金融", "韓亞金融"),
+    ),
+    KrAnnualReportCatalogEntry(
+        industry="Insurance",
+        company_id="",
+        ticker="032830",
+        company_name="Samsung Life Insurance Co., Ltd.",
+        aliases=("Samsung Life", "삼성생명", "三星生命"),
+    ),
+    KrAnnualReportCatalogEntry(
+        industry="Insurance",
+        company_id="",
+        ticker="000810",
+        company_name="Samsung Fire & Marine Insurance Co., Ltd.",
+        aliases=("Samsung Fire & Marine", "삼성화재", "三星火灾海上保险", "三星火災海上保險"),
+    ),
+    KrAnnualReportCatalogEntry(
+        industry="Utilities",
+        company_id="",
+        ticker="015760",
+        company_name="Korea Electric Power Corporation",
+        aliases=("KEPCO", "한국전력공사", "韩国电力公社", "韓國電力公社"),
+    ),
+    KrAnnualReportCatalogEntry(
+        industry="Utilities / Gas",
+        company_id="",
+        ticker="036460",
+        company_name="Korea Gas Corporation",
+        aliases=("KOGAS", "한국가스공사", "韩国天然气公社", "韓國天然氣公社"),
+    ),
+    KrAnnualReportCatalogEntry(
+        industry="Shipbuilding",
+        company_id="",
+        ticker="329180",
+        company_name="HD Hyundai Heavy Industries Co., Ltd.",
+        aliases=("HD Hyundai Heavy Industries", "HD현대중공업", "现代重工", "現代重工"),
+    ),
+    KrAnnualReportCatalogEntry(
+        industry="Aerospace / Defense",
+        company_id="",
+        ticker="012450",
+        company_name="Hanwha Aerospace Co., Ltd.",
+        aliases=("Hanwha Aerospace", "한화에어로스페이스", "韩华航空航天", "韓華航空航天"),
+    ),
+    KrAnnualReportCatalogEntry(
+        industry="Power Equipment",
+        company_id="",
+        ticker="034020",
+        company_name="Doosan Enerbility Co., Ltd.",
+        aliases=("Doosan Enerbility", "두산에너빌리티", "斗山能源", "斗山能源"),
+    ),
+    KrAnnualReportCatalogEntry(
+        industry="Internet Platforms",
+        company_id="",
+        ticker="035720",
+        company_name="Kakao Corp.",
+        aliases=("Kakao", "카카오", "韩国 Kakao", "可可"),
+    ),
+    KrAnnualReportCatalogEntry(
+        industry="Gaming",
+        company_id="",
+        ticker="259960",
+        company_name="Krafton, Inc.",
+        aliases=("Krafton", "크래프톤", "魁匠团", "魁匠團"),
+    ),
+    KrAnnualReportCatalogEntry(
+        industry="Consumer / Beauty",
+        company_id="",
+        ticker="090430",
+        company_name="Amorepacific Corporation",
+        aliases=("Amorepacific", "아모레퍼시픽", "爱茉莉太平洋", "愛茉莉太平洋"),
+    ),
+    KrAnnualReportCatalogEntry(
+        industry="Retail",
+        company_id="",
+        ticker="023530",
+        company_name="Lotte Shopping Co., Ltd.",
+        aliases=("Lotte Shopping", "롯데쇼핑", "乐天购物", "樂天購物"),
+    ),
+    KrAnnualReportCatalogEntry(
+        industry="Food / Consumer Staples",
+        company_id="",
+        ticker="097950",
+        company_name="CJ CheilJedang Corporation",
+        aliases=("CJ CheilJedang", "CJ제일제당", "CJ 第一制糖", "CJ第一製糖"),
+    ),
 )
 
 
@@ -155,7 +295,7 @@ class KrAnnualReportCatalog:
 
     @classmethod
     def company_entity(cls, entry: KrAnnualReportCatalogEntry, *, score: float = 0.99, reason: str = "catalog_match") -> CompanyEntity:
-        aliases = list(dict.fromkeys([entry.company_name, entry.ticker, entry.company_id, *entry.aliases]))
+        aliases = list(dict.fromkeys(part for part in [entry.company_name, entry.ticker, entry.company_id, *entry.aliases] if part))
         return CompanyEntity(
             market=Market.kr,
             company_id=entry.company_id,
