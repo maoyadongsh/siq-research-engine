@@ -94,6 +94,8 @@ def market_build_requires_parser_result(
             market_build_scripts=market_build_scripts,
             eu_esef_package_build_script=eu_esef_package_build_script,
         ) == market_build_scripts[market]
+    if market == "KR" and source_path.suffix.lower() == ".pdf":
+        return True
     return market == "HK"
 
 

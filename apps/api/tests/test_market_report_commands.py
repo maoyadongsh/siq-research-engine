@@ -97,6 +97,12 @@ def test_market_build_script_and_parser_result_helpers_cover_market_matrix():
         eu_esef_package_build_script=esef_script,
     ) is True
     assert commands.market_build_requires_parser_result(
+        market="KR",
+        source_path=Path("/tmp/report.pdf"),
+        market_build_scripts=market_scripts,
+        eu_esef_package_build_script=esef_script,
+    ) is True
+    assert commands.market_build_requires_parser_result(
         market="EU",
         source_path=eu_pdf,
         market_build_scripts=market_scripts,
@@ -371,28 +377,30 @@ def test_market_package_build_plan_reports_missing_selected_script(tmp_path):
         raise AssertionError("expected missing build script error")
 
 
-def test_market_package_build_plan_requires_parser_result_for_hk_and_eu_pdf(tmp_path):
+def test_market_package_build_plan_requires_parser_result_for_hk_kr_and_eu_pdf(tmp_path):
     repo_root = tmp_path / "repo"
-    wiki_roots = {"HK": tmp_path / "wiki" / "hk", "EU": tmp_path / "wiki" / "eu"}
+    wiki_roots = {"HK": tmp_path / "wiki" / "hk", "KR": tmp_path / "wiki" / "kr", "EU": tmp_path / "wiki" / "eu"}
     hk_script = repo_root / "scripts" / "build_hk.py"
+    kr_script = repo_root / "scripts" / "build_kr.py"
     eu_pdf_script = repo_root / "scripts" / "build_eu_pdf.py"
     eu_esef_script = repo_root / "scripts" / "build_eu_esef.py"
     hk_source = repo_root / "downloads" / "HK" / "report.pdf"
+    kr_source = repo_root / "downloads" / "KR" / "report.pdf"
     eu_pdf_source = repo_root / "downloads" / "EU" / "report.pdf"
     parser_result = repo_root / "parser" / "task-1"
-    for path in (hk_script, eu_pdf_script, eu_esef_script, hk_source, eu_pdf_source, parser_result):
+    for path in (hk_script, kr_script, eu_pdf_script, eu_esef_script, hk_source, kr_source, eu_pdf_source, parser_result):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("x", encoding="utf-8")
 
     common = {
         "repo_root": repo_root,
         "market_wiki_roots": wiki_roots,
-        "market_build_scripts": {"HK": hk_script, "EU": eu_pdf_script},
+        "market_build_scripts": {"HK": hk_script, "KR": kr_script, "EU": eu_pdf_script},
         "eu_esef_package_build_script": eu_esef_script,
         "safe_download_path": lambda value: (_ for _ in ()).throw(AssertionError("download path should not be used")),
         "adjacent_metadata_path": lambda path: None,
     }
-    for market, source in (("HK", hk_source), ("EU", eu_pdf_source)):
+    for market, source in (("HK", hk_source), ("KR", kr_source), ("EU", eu_pdf_source)):
         try:
             commands.build_market_package_build_plan(
                 payload={"source_path": source},
