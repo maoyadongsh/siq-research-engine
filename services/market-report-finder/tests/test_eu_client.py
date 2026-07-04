@@ -134,8 +134,18 @@ def test_eu_catalog_2025_counts_and_sample_urls_are_unique():
     assert len({item.document_url for item in reports}) == 50
 
 
+def test_eu_catalog_uses_smoke_verified_download_urls():
+    entries = {entry.company_id: entry for entry in EU_ANNUAL_REPORT_CATALOG}
+
+    assert entries["DE:BMW"].document_url.endswith("/BMW-Group-Financial-Statements-2025-en.pdf")
+    assert entries["CH:UBSG"].source_id == "sec"
+    assert entries["CH:UBSG"].document_url == "https://www.sec.gov/Archives/edgar/data/1610520/000161052026000023/ubs-20251231.htm"
+    assert entries["CH:UBSG"].file_format == "html"
+    assert "ABB%20Integrated%20Report%202025.pdf" in entries["CH:ABBN"].document_url
+
+
 def test_eu_finder_owns_catalog_urls_without_platform_wildcards():
-    assert all(EuReportFinder.owns_url(entry.document_url) for entry in EU_ANNUAL_REPORT_CATALOG)
+    assert all(entry.source_id == "sec" or EuReportFinder.owns_url(entry.document_url) for entry in EU_ANNUAL_REPORT_CATALOG)
     assert EuReportFinder.owns_url("https://lvmh-com.cdn.prismic.io/lvmh-com/report.pdf")
     assert not EuReportFinder.owns_url("https://not-hsbc.com/report.pdf")
     assert not EuReportFinder.owns_url("https://hsbc.com.evil.example/report.pdf")

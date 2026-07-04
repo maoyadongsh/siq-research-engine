@@ -95,7 +95,8 @@ class ReportDownloader:
             headers["Referer"] = "https://disclosure2.edinet-fsa.go.jp/"
             if settings.edinet_api_key:
                 headers["Subscription-Key"] = settings.edinet_api_key
-        if candidate.market.value == "EU":
+        host = urlparse(candidate.document_url).netloc.lower()
+        if candidate.market.value == "EU" and candidate.source_id != "sec" and "bmwgroup.com" not in host:
             headers["User-Agent"] = settings.eu_user_agent
             headers["Accept"] = "application/pdf,application/zip,text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
             headers["Accept-Language"] = "en-US,en;q=0.9"
@@ -344,6 +345,8 @@ class ReportDownloader:
 
     @staticmethod
     def _should_cache_landing_url(candidate: FilingCandidate) -> bool:
+        if candidate.source_id == "issuer_annual_report":
+            return False
         if candidate.source_id == "dart_public" and candidate.document_url != candidate.landing_url:
             return False
         return True
