@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import sys
+import tempfile
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
@@ -232,17 +233,33 @@ def write_hk_evidence_package(
 
     filing_key = metadata["accession_number"] or stable_id(pdf_path.name)[:12]
     package_dir = output_root / artifact.ticker / str(artifact.fiscal_year or "unknown") / f"{artifact.report_type}_{filing_key}"
+    source_pdf_path = pdf_path
+    source_metadata_path = metadata_path
+    staged_inputs = None
     if package_dir.exists() and force:
+        staged_inputs = tempfile.TemporaryDirectory(prefix="hk-package-inputs-")
+        staged_root = Path(staged_inputs.name)
+        if _path_is_within(pdf_path, package_dir):
+            source_pdf_path = staged_root / "report.pdf"
+            shutil.copy2(pdf_path, source_pdf_path)
+        if metadata_path and metadata_path.exists() and _path_is_within(metadata_path, package_dir):
+            source_metadata_path = staged_root / "report.metadata.json"
+            shutil.copy2(metadata_path, source_metadata_path)
         shutil.rmtree(package_dir)
     package_dir.mkdir(parents=True, exist_ok=True)
     for name in ("raw", "sections", "tables", "xbrl", "metrics", "qa", "parser"):
         (package_dir / name).mkdir(exist_ok=True)
 
-    shutil.copy2(pdf_path, package_dir / "raw" / "report.pdf")
-    if metadata_path and metadata_path.exists():
-        shutil.copy2(metadata_path, package_dir / "raw" / "report.metadata.json")
-    else:
-        write_json(package_dir / "raw" / "report.metadata.json", metadata.get("raw_metadata") or {})
+    try:
+        source_pdf_sha256 = _sha256_file(source_pdf_path)
+        shutil.copy2(source_pdf_path, package_dir / "raw" / "report.pdf")
+        if source_metadata_path and source_metadata_path.exists():
+            shutil.copy2(source_metadata_path, package_dir / "raw" / "report.metadata.json")
+        else:
+            write_json(package_dir / "raw" / "report.metadata.json", metadata.get("raw_metadata") or {})
+    finally:
+        if staged_inputs is not None:
+            staged_inputs.cleanup()
 
     markdown = _markdown_from_document_full(document_full, parser_result_dir)
     (package_dir / "sections" / "report.md").write_text(markdown, encoding="utf-8")
@@ -281,7 +298,7 @@ def write_hk_evidence_package(
         "parser_result_dir": str(parser_result_dir),
         "pdf_parser_task_id": str(parser_result_dir.name),
         "pdf_parser_quality_status": parser_quality.get("overall_status") or parser_quality.get("status") or "unknown",
-        "source_pdf_sha256": _sha256_file(pdf_path),
+        "source_pdf_sha256": source_pdf_sha256,
         "industry_profile": artifact.industry_profile or metadata.get("industry_profile") or "general",
     }
     manifest["parse_run_id"] = result.load_plan.parse_run_id if result.load_plan else stable_parse_run_id(manifest, {})
@@ -328,6 +345,14 @@ def write_hk_evidence_package(
     if not validation.ok:
         write_json(package_dir / "qa" / "contract_validation.json", validation.as_dict())
     return package_dir
+
+
+def _path_is_within(path: Path, parent: Path) -> bool:
+    try:
+        path.resolve().relative_to(parent.resolve())
+    except ValueError:
+        return False
+    return True
 
 
 def _content_list_enhanced(document_full: dict[str, Any]) -> dict[str, Any]:
