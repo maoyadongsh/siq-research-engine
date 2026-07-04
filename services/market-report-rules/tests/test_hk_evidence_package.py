@@ -234,3 +234,66 @@ def test_build_hk_evidence_package_preserves_parser_financial_files_and_normaliz
         "schema_version": "hk_table_relations_v1",
         "relations": [],
     }
+
+
+def test_migrate_legacy_hk_reports_to_company_wiki_layout(tmp_path, monkeypatch):
+    repo_root = Path(__file__).resolve().parents[3]
+    scripts_hk = repo_root / "scripts" / "hk"
+    monkeypatch.syspath_prepend(str(scripts_hk))
+    from hk_evidence_lib import write_json
+    from migrate_hk_reports_to_company_wiki import migrate_packages
+
+    legacy_package = tmp_path / "wiki" / "hk_reports" / "00700" / "2025" / "annual_12100024"
+    for name in ("raw", "sections", "tables", "xbrl", "metrics", "qa"):
+        (legacy_package / name).mkdir(parents=True, exist_ok=True)
+    (legacy_package / "raw" / "report.pdf").write_bytes(b"%PDF-1.4")
+    (legacy_package / "sections" / "report.md").write_text("# TENCENT\n", encoding="utf-8")
+    write_json(legacy_package / "tables" / "table_index.json", {"tables": []})
+    write_json(legacy_package / "xbrl" / "facts_raw.json", {"facts": []})
+    write_json(legacy_package / "metrics" / "financial_data.json", {"statements": [], "key_metrics": [], "operating_metrics": [], "warnings": []})
+    write_json(legacy_package / "metrics" / "financial_checks.json", {"overall_status": "warning", "checks": [], "warnings": []})
+    write_json(legacy_package / "qa" / "quality_report.json", {"overall_status": "warning", "table_count": 0})
+    write_json(legacy_package / "qa" / "source_map.json", {"entries": []})
+    write_json(
+        legacy_package / "manifest.json",
+        {
+            "schema_version": "market_evidence_package_v1",
+            "market": "HK",
+            "filing_id": "HK:00700:12100024",
+            "company_id": "HK:00700",
+            "ticker": "00700",
+            "stock_code": "00700",
+            "hkex_stock_code": "00700",
+            "company_name": "TENCENT",
+            "source_id": "hkex",
+            "form": "annual",
+            "report_type": "annual",
+            "fiscal_year": 2025,
+            "fiscal_period": "FY",
+            "period_end": "2025-12-31",
+            "published_at": "2026-04-09",
+            "local_source_path": "raw/report.pdf",
+            "accounting_standard": "HKFRS",
+            "parser_version": "p1",
+            "rules_version": "r1",
+            "quality_status": "warning",
+            "accession_number": "12100024",
+            "artifact_hashes": {},
+        },
+    )
+
+    summary = migrate_packages(tmp_path / "wiki" / "hk_reports", tmp_path / "wiki" / "hk", force=True)
+
+    target = tmp_path / "wiki" / "hk" / "companies" / "00700-TENCENT" / "reports" / "2025-annual-12100024"
+    assert summary["migrated"] == 1
+    assert target.is_dir()
+    manifest = json.loads((target / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["report_id"] == "2025-annual-12100024"
+    assert manifest["wiki_company_path"] == "companies/00700-TENCENT"
+    assert manifest["wiki_report_path"] == "companies/00700-TENCENT/reports/2025-annual-12100024"
+    company_json = json.loads((tmp_path / "wiki" / "hk" / "companies" / "00700-TENCENT" / "company.json").read_text(encoding="utf-8"))
+    assert company_json["primary_report_id"] == "2025-annual-12100024"
+    assert company_json["metrics"]["latest"]["financial_data"] == "reports/2025-annual-12100024/metrics/financial_data.json"
+    catalog = json.loads((tmp_path / "wiki" / "hk" / "_meta" / "company_catalog.json").read_text(encoding="utf-8"))
+    assert catalog["company_count"] == 1
+    assert catalog["companies"][0]["company_path"] == "companies/00700-TENCENT"

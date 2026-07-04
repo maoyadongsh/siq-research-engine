@@ -50,3 +50,25 @@ test('vite proxy exposes deal APIs without inheriting the finder rewrite', () =>
   if (!finderRewrite) throw new Error('Expected /api fallback rewrite')
   assert.equal(finderRewrite('/api/v1/reports/search'), '/v1/reports/search')
 })
+
+test('proxy rules keep market report wiki APIs on the backend before the finder fallback', () => {
+  const rules = createProxyRules({
+    backendUrl: 'http://backend.local',
+    reportFinderUrl: 'http://finder.local',
+  })
+  const prefixes = rules.map((rule) => rule.prefix)
+
+  assert.ok(prefixes.includes('/api/market-reports'))
+  assert.ok(prefixes.indexOf('/api/market-reports') < prefixes.indexOf('/api'))
+  assert.equal(rules.find((rule) => rule.prefix === '/api/market-reports')?.target, 'http://backend.local')
+})
+
+test('vite proxy exposes market report wiki APIs without inheriting the finder rewrite', () => {
+  const proxy = createViteProxy({
+    backendUrl: 'http://backend.local',
+    reportFinderUrl: 'http://finder.local',
+  })
+
+  assert.equal(proxy['/api/market-reports'].target, 'http://backend.local')
+  assert.equal(proxy['/api/market-reports'].rewrite, undefined)
+})

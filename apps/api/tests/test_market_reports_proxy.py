@@ -851,6 +851,41 @@ def test_market_package_summary_reads_us_package():
     assert summary["paths"]["source_map"].endswith("qa/source_map.json")
 
 
+def test_market_packages_route_lists_hk_company_wiki_layout(monkeypatch, tmp_path):
+    wiki_root = tmp_path / "wiki" / "hk"
+    package_dir = _write_market_package(wiki_root, "companies", "00700-TENCENT", "reports", "2025-annual-12100024")
+    (package_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "market_evidence_package_v1",
+                "market": "HK",
+                "filing_id": "HK:00700:12100024",
+                "company_id": "HK:00700",
+                "ticker": "00700",
+                "company_name": "TENCENT",
+                "form": "annual",
+                "report_type": "annual",
+                "fiscal_year": 2025,
+                "period_end": "2025-12-31",
+                "quality_status": "warning",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setitem(market_reports.MARKET_WIKI_ROOTS, "HK", wiki_root)
+
+    response = market_reports_client().get("/api/market-reports/packages?market=HK&limit=5")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["count"] == 1
+    assert payload["packages"][0]["package_path"].endswith(
+        "wiki/hk/companies/00700-TENCENT/reports/2025-annual-12100024"
+    )
+    assert payload["packages"][0]["filing_id"] == "HK:00700:12100024"
+
+
 def test_market_package_detail_returns_hk_v2_paths(monkeypatch, tmp_path):
     wiki_root = tmp_path / "wiki" / "hk_reports"
     package_dir = _write_hk_v2_package(wiki_root, "00700", "2025", "annual_12100024")
