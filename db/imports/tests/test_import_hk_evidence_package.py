@@ -117,3 +117,51 @@ def test_hk_importer_evidence_rows_preserve_bbox_and_page_coordinates():
     assert row["row_index"] == 3
     assert row["column_index"] == 2
     assert row["bbox"] == [1, 2, 3, 4]
+
+
+def test_hk_importer_statement_items_keep_source_page_and_bbox():
+    importer = _load_importer()
+    manifest = {"filing_id": "HK:00700:12100024", "company_id": "HK:00700", "ticker": "00700", "stock_code": "00700", "company_name": "TENCENT", "exchange": "HKEX"}
+    financial_data = {
+        "statements": [{
+            "statement_id": "bs-1",
+            "statement_type": "balance_sheet",
+            "statement_name": "Statement of Financial Position",
+            "items": [{
+                "item_name": "Total assets",
+                "canonical_name": "total_assets",
+                "period_key": "2025-12-31",
+                "value": "1000",
+                "unit": "million",
+                "currency": "HKD",
+                "source": {"page_number": 25, "table_index": 6, "row_index": 10, "column_index": 2, "bbox": [1, 2, 3, 4]},
+                "evidence_id": "ev-total-assets",
+            }],
+        }]
+    }
+
+    rows = importer.build_statement_item_rows(manifest, financial_data, {"entries": []}, "run1")
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["company_id"] == "HK:00700"
+    assert row["statement_type"] == "balance_sheet"
+    assert row["canonical_name"] == "total_assets"
+    assert row["source_page_number"] == 25
+    assert row["source_table_index"] == 6
+    assert row["source_bbox"] == [1, 2, 3, 4]
+
+
+def test_hk_importer_retrieval_chunks_are_agent_friendly(tmp_path):
+    importer = _load_importer()
+    manifest = {"filing_id": "HK:00700:12100024", "company_id": "HK:00700", "ticker": "00700", "stock_code": "00700", "report_id": "2025-annual-12100024"}
+    financial_data = {"statements": [{"statement_type": "income_statement", "items": [{"canonical_name": "revenue", "item_name": "Revenue", "period_key": "2025", "raw_value": "100", "source": {"page_number": 6, "table_index": 1}}]}]}
+
+    rows = importer.build_retrieval_chunk_rows(manifest, financial_data, {"overall_status": "pass"}, {"entries": []}, "run1", tmp_path)
+
+    assert rows
+    assert rows[0]["company_id"] == "HK:00700"
+    assert rows[0]["doc_type"] == "financial_fact"
+    assert rows[0]["canonical_name"] == "revenue"
+    assert rows[0]["page_number"] == 6
+    assert "Revenue" in rows[0]["text"]
