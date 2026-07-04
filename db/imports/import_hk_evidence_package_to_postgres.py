@@ -186,12 +186,13 @@ def _upsert_filing(conn: Any, schema: str, manifest: dict[str, Any], package_dir
     conn.execute(
         f"""
         insert into {schema}.filings (
-          filing_id, company_id, ticker, form, report_type, fiscal_year, fiscal_period,
+          filing_id, company_id, ticker, stock_code, form, report_type, fiscal_year, fiscal_period,
           period_end, published_at, source_id, source_url, local_path, accounting_standard,
           quality_status, raw, updated_at
-        ) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,now())
+        ) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,now())
         on conflict (filing_id) do update set
           ticker = excluded.ticker,
+          stock_code = excluded.stock_code,
           form = excluded.form,
           report_type = excluded.report_type,
           fiscal_year = excluded.fiscal_year,
@@ -209,6 +210,7 @@ def _upsert_filing(conn: Any, schema: str, manifest: dict[str, Any], package_dir
             manifest["filing_id"],
             manifest["company_id"],
             manifest["ticker"],
+            manifest.get("stock_code") or manifest.get("ticker"),
             manifest.get("form"),
             manifest.get("report_type"),
             manifest.get("fiscal_year"),

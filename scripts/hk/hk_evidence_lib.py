@@ -116,9 +116,12 @@ def infer_metadata(pdf_path: Path, metadata_path: Path | None = None) -> dict[st
     }
 
 
-def parsed_tables_from_document_full(document_full: dict[str, Any]) -> list[ParsedTable]:
+def parsed_tables_from_document_full(
+    document_full: dict[str, Any],
+    content_list_enhanced: dict[str, Any] | None = None,
+) -> list[ParsedTable]:
     content = document_full.get("content_list") or []
-    enhanced = document_full.get("content_list_enhanced") or {}
+    enhanced = _content_list_enhanced(document_full, content_list_enhanced)
     enhanced_tables = enhanced.get("tables") if isinstance(enhanced, dict) else []
     enhanced_by_source: dict[int, dict[str, Any]] = {}
     enhanced_by_index: dict[int, dict[str, Any]] = {}
@@ -193,6 +196,7 @@ def parsed_tables_from_document_full(document_full: dict[str, Any]) -> list[Pars
 
 def build_hk_artifact(pdf_path: Path, parser_result_dir: Path, metadata_path: Path | None = None) -> tuple[ParsedArtifact, dict[str, Any], dict[str, Any]]:
     document_full = read_json(parser_result_dir / "document_full.json", {})
+    standalone_enhanced = _standalone_content_list_enhanced(parser_result_dir)
     metadata = infer_metadata(pdf_path, metadata_path)
     artifact = ParsedArtifact(
         artifact_id=f"HK:{metadata['ticker']}:{metadata['accession_number']}",
@@ -211,7 +215,7 @@ def build_hk_artifact(pdf_path: Path, parser_result_dir: Path, metadata_path: Pa
         unit=_default_unit(document_full),
         source_url=metadata["source_url"],
         source_files={"pdf": str(pdf_path), "parser_result": str(parser_result_dir)},
-        tables=parsed_tables_from_document_full(document_full),
+        tables=parsed_tables_from_document_full(document_full, standalone_enhanced),
         document_full=document_full,
         metadata=metadata,
     )
@@ -227,6 +231,7 @@ def write_hk_evidence_package(
     force: bool = False,
 ) -> Path:
     artifact, metadata, document_full = build_hk_artifact(pdf_path, parser_result_dir, metadata_path)
+    standalone_enhanced = _standalone_content_list_enhanced(parser_result_dir)
     result = process_artifact(artifact, include_load_plan=True)
     financial_data = financial_data_contract(result.extraction)
     financial_checks = financial_checks_contract(result.validation)
@@ -334,9 +339,9 @@ def write_hk_evidence_package(
     write_json(package_dir / "qa" / "quality_report.json", quality)
     write_json(package_dir / "qa" / "source_map.json", source_map)
     write_json(package_dir / "qa" / "extraction_warnings.json", {"warnings": quality["parser_warnings"] + quality["rule_warnings"]})
-    _write_parser_artifacts(package_dir, parser_result_dir, document_full, financial_data, financial_checks)
-    _write_report_complete(package_dir, markdown, document_full, quality)
-    _write_enhancement_qa(package_dir, document_full)
+    _write_parser_artifacts(package_dir, parser_result_dir, document_full, standalone_enhanced, financial_data, financial_checks)
+    _write_report_complete(package_dir, markdown, document_full, quality, standalone_enhanced)
+    _write_enhancement_qa(package_dir, document_full, standalone_enhanced)
     manifest["artifact_hashes"] = compute_artifact_hashes(package_dir)
     write_json(package_dir / "manifest.json", manifest)
     (package_dir / "README.md").write_text(_readme(manifest, quality), encoding="utf-8")
@@ -355,8 +360,18 @@ def _path_is_within(path: Path, parent: Path) -> bool:
     return True
 
 
-def _content_list_enhanced(document_full: dict[str, Any]) -> dict[str, Any]:
+def _standalone_content_list_enhanced(parser_result_dir: Path) -> dict[str, Any]:
+    enhanced = read_json(parser_result_dir / "content_list_enhanced.json", {})
+    return enhanced if isinstance(enhanced, dict) else {}
+
+
+def _content_list_enhanced(
+    document_full: dict[str, Any],
+    fallback: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     enhanced = document_full.get("content_list_enhanced")
+    if not (isinstance(enhanced, dict) and enhanced):
+        enhanced = fallback
     if not isinstance(enhanced, dict):
         return {}
     tables = enhanced.get("tables") if isinstance(enhanced.get("tables"), list) else []
@@ -402,10 +417,11 @@ def _write_parser_artifacts(
     package_dir: Path,
     parser_result_dir: Path,
     document_full: dict[str, Any],
+    content_list_enhanced: dict[str, Any] | None,
     financial_data: dict[str, Any],
     financial_checks: dict[str, Any],
 ) -> None:
-    enhanced = _content_list_enhanced(document_full)
+    enhanced = _content_list_enhanced(document_full, content_list_enhanced)
     tables = enhanced.get("tables") if isinstance(enhanced.get("tables"), list) else []
     relations: list[dict[str, Any]] = []
     for table in tables:
@@ -437,8 +453,14 @@ def _write_parser_artifacts(
     )
 
 
-def _write_report_complete(package_dir: Path, markdown: str, document_full: dict[str, Any], quality: dict[str, Any]) -> None:
-    enhanced = _content_list_enhanced(document_full)
+def _write_report_complete(
+    package_dir: Path,
+    markdown: str,
+    document_full: dict[str, Any],
+    quality: dict[str, Any],
+    content_list_enhanced: dict[str, Any] | None = None,
+) -> None:
+    enhanced = _content_list_enhanced(document_full, content_list_enhanced)
     footnotes = enhanced.get("footnotes") if isinstance(enhanced.get("footnotes"), dict) else {}
     toc = enhanced.get("toc") if isinstance(enhanced.get("toc"), dict) else {}
     note_links = enhanced.get("financial_note_links") if isinstance(enhanced.get("financial_note_links"), dict) else {}
@@ -461,8 +483,12 @@ def _write_report_complete(package_dir: Path, markdown: str, document_full: dict
     (package_dir / "sections" / "report_complete.md").write_text(content, encoding="utf-8")
 
 
-def _write_enhancement_qa(package_dir: Path, document_full: dict[str, Any]) -> None:
-    enhanced = _content_list_enhanced(document_full)
+def _write_enhancement_qa(
+    package_dir: Path,
+    document_full: dict[str, Any],
+    content_list_enhanced: dict[str, Any] | None = None,
+) -> None:
+    enhanced = _content_list_enhanced(document_full, content_list_enhanced)
     write_json(package_dir / "qa" / "footnotes.json", {
         "schema_version": "hk_footnotes_v1",
         "payload": enhanced.get("footnotes") or {"references": [], "definitions": [], "bindings": [], "summary": {}},

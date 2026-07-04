@@ -111,6 +111,33 @@ def test_hk_upsert_company_writes_identity_columns():
     assert params[3:8] == ("00700", "00700", "TENCENT", "Tencent Holdings", "腾讯控股")
 
 
+def test_hk_upsert_filing_writes_stock_code_and_falls_back_to_ticker(tmp_path):
+    importer = _load_importer()
+    manifest = {
+        "filing_id": "HK:00700:12100024",
+        "company_id": "HK:00700",
+        "ticker": "00700",
+        "stock_code": "0700",
+        "form": "annual",
+        "report_type": "annual",
+    }
+
+    conn = FakeConnection()
+    importer._upsert_filing(conn, "pdf2md_hk", manifest, tmp_path, {})
+
+    sql, params = conn.calls[0]
+    assert "stock_code" in sql
+    assert "stock_code = excluded.stock_code" in sql
+    assert params[3] == "0700"
+
+    fallback_manifest = {key: value for key, value in manifest.items() if key != "stock_code"}
+    fallback_conn = FakeConnection()
+    importer._upsert_filing(fallback_conn, "pdf2md_hk", fallback_manifest, tmp_path, {})
+
+    _fallback_sql, fallback_params = fallback_conn.calls[0]
+    assert fallback_params[3] == "00700"
+
+
 def test_delete_run_rows_includes_v2_tables():
     importer = _load_importer()
     conn = FakeConnection()
