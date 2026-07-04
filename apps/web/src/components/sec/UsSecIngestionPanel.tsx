@@ -9,11 +9,9 @@ import {
   Network,
   PackageCheck,
   RefreshCw,
-  Search,
   SearchCheck,
   ShieldCheck,
   SplitSquareHorizontal,
-  Upload,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import {
@@ -34,6 +32,8 @@ import {
 } from '../../features/market-parsing/api'
 import type { DownloadedPdf } from '../../lib/pdfTypes'
 import { loadDownloadedReports as loadDownloadedReportsApi } from '../../features/pdf-parsing/api'
+import { UsSecDownloadedReportsPanel } from './UsSecDownloadedReportsPanel'
+import { deriveUsSecDownloadedRows, type UsSecDownloadedRow } from '../../features/market-parsing/usSecWorkbench'
 
 function numberText(value: unknown): string {
   const n = Number(value || 0)
@@ -62,32 +62,6 @@ function StatTile({ label, value, icon }: { label: string; value: string; icon: 
 
 function CheckStatusPill({ status }: { status?: string }) {
   return <span className={`rounded-full border px-2 py-0.5 text-xs ${statusClass(status)}`}>{status || 'unknown'}</span>
-}
-
-function DownloadRow({
-  item,
-  active,
-  onSelect,
-}: {
-  item: DownloadedPdf
-  active: boolean
-  onSelect: (item: DownloadedPdf) => void
-}) {
-  return (
-    <button
-      onClick={() => onSelect(item)}
-      className={`block w-full border-b border-border px-3 py-2 text-left text-xs last:border-0 ${active ? 'bg-primary/10' : 'hover:bg-surface-soft'}`}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <span className="min-w-0 truncate font-mono text-sm font-semibold text-text">{item.ticker || item.company || item.filename}</span>
-        <span className={`rounded-full border px-2 py-0.5 ${statusClass(item.reportFamily === 'annual' ? 'pass' : 'warning')}`}>{item.form || item.reportType || item.category}</span>
-      </div>
-      <div className="mt-1 truncate text-text-muted">{item.companyName || item.company}</div>
-      <div className="mt-1 text-[.72rem] text-text-muted">
-        {[item.reportEnd, item.publishedAt, item.relativePath].filter(Boolean).join(' · ')}
-      </div>
-    </button>
-  )
 }
 
 export function UsSecIngestionPanel() {
@@ -215,17 +189,21 @@ export function UsSecIngestionPanel() {
   const bridgeSummary = packageDetail?.bridge_checks?.summary || {}
   const uploadCount = uploadResults.length
   const displayTicker = String(packageDetail?.manifest?.ticker || selectedTicker || '')
+  const downloadedRows = useMemo(
+    () => deriveUsSecDownloadedRows(downloadedReports, status, busy),
+    [busy, downloadedReports, status],
+  )
 
-  const run = useCallback(async (mode: 'plan' | 'postgres' | 'milvus') => {
+  const run = useCallback(async (mode: 'plan' | 'postgres') => {
     setBusy(mode)
     setError('')
     setLastOutput('')
     try {
       const response = await runUsSecCaseSetIngest({
         dry_run: mode === 'plan',
-        postgres: mode === 'postgres' || mode === 'milvus',
-        milvus: mode === 'milvus',
-        ddl: mode === 'postgres' || mode === 'milvus',
+        postgres: mode === 'postgres',
+        milvus: false,
+        ddl: mode === 'postgres',
         include_fail: includeFail,
         tickers: selectedTicker,
         batch_tag: 'us-sec-case-set-50',
@@ -357,8 +335,39 @@ export function UsSecIngestionPanel() {
     [applyPackageDetail, downloadQuery, load, loadDownloads],
   )
 
+  const onSelectDownloadedRow = useCallback(
+    async (row: UsSecDownloadedRow) => {
+      await onSelectDownloaded(row.report)
+    },
+    [onSelectDownloaded],
+  )
+
+  const onParseDownloadedRow = useCallback(
+    async (row: UsSecDownloadedRow) => {
+      await onBuildDownloadedPackage(row.report)
+    },
+    [onBuildDownloadedPackage],
+  )
+
   return (
-    <section className="rounded-lg border border-border bg-card p-4 shadow-sm sm:p-5">
+    <div className="space-y-4">
+      <UsSecDownloadedReportsPanel
+        rows={downloadedRows}
+        query={downloadQuery}
+        loading={downloadedLoading}
+        busyPath={busy}
+        selectedPath={selectedDownloadPath}
+        onQueryChange={(value) => {
+          setDownloadQuery(value)
+          void loadDownloads(value)
+        }}
+        onRefresh={() => loadDownloads(downloadQuery)}
+        onSelect={onSelectDownloadedRow}
+        onParse={onParseDownloadedRow}
+        onUploadClick={openFilePicker}
+      />
+
+      <section className="rounded-lg border border-border bg-card p-4 shadow-sm sm:p-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="max-w-3xl">
           <div className="flex items-center gap-2 text-sm font-semibold text-primary">
@@ -367,7 +376,7 @@ export function UsSecIngestionPanel() {
           </div>
           <h2 className="mt-1 text-lg font-semibold text-text">美股 SEC 入库工作台</h2>
           <p className="mt-1 text-sm text-text-muted">
-            已入库公司、US 下载目录、手动上传附件、Wiki 证据包、PostgreSQL facts 与 Milvus chunk 都在这里串联。
+            已入库公司、US 下载目录、手动上传附件、Wiki 证据包与 PostgreSQL facts 在这里串联；向量化入口后续接回。
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -391,40 +400,6 @@ export function UsSecIngestionPanel() {
 
       <div className="mt-4 grid gap-4 xl:grid-cols-[20rem_minmax(0,1fr)]">
         <aside className="space-y-4">
-          <div className="rounded-lg border border-border bg-surface-soft p-4">
-            <div className="text-sm font-semibold text-text">US 下载目录</div>
-            <label className="mt-3 flex h-10 items-center gap-2 rounded-md border border-border bg-white px-3 text-sm">
-              <Search className="h-4 w-4 text-text-muted" />
-              <input
-                value={downloadQuery}
-                onChange={(event) => {
-                  setDownloadQuery(event.target.value)
-                  void loadDownloads(event.target.value)
-                }}
-                placeholder="搜索 ticker / 公司 / 文件"
-                className="min-w-0 flex-1 bg-transparent outline-none"
-              />
-            </label>
-            <div className="mt-3 max-h-72 overflow-auto rounded-md border border-border bg-white">
-              {downloadedReports.map((item) => (
-                <DownloadRow key={item.id} item={item} active={item.relativePath === selectedDownloadPath} onSelect={onSelectDownloaded} />
-              ))}
-              {!downloadedReports.length && (
-                <div className="px-3 py-8 text-center text-xs text-text-muted">{downloadedLoading ? '加载中...' : '暂无可导入文件'}</div>
-              )}
-            </div>
-            <div className="mt-3 flex items-center gap-2">
-              <button onClick={() => void loadDownloads(downloadQuery)} disabled={downloadedLoading} className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-white px-3 text-xs font-semibold hover:bg-surface-soft disabled:opacity-60">
-                {downloadedLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                刷新列表
-              </button>
-              <button onClick={openFilePicker} className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-xs font-semibold text-white">
-                <Upload className="h-4 w-4" />
-                上传附件
-              </button>
-            </div>
-          </div>
-
           <div className="rounded-lg border border-border bg-surface-soft p-4">
             <div className="text-sm font-semibold text-text">上传入口</div>
             <input ref={fileInput} type="file" multiple accept=".pdf,.html,.htm,.xhtml,.xml,.xbrl,.zip" className="hidden" onChange={() => void handleUpload()} />
@@ -475,7 +450,7 @@ export function UsSecIngestionPanel() {
                   {String(packageDetail?.manifest?.company_name || selectedItem?.company_name || '')} · {String(packageDetail?.manifest?.form || '10-K')} · {String(packageDetail?.manifest?.period_end || selectedItem?.period_end || '')}
                 </p>
               </div>
-              <div className="grid gap-2 sm:grid-cols-4">
+              <div className="grid gap-2 sm:grid-cols-3">
                 <button onClick={() => void rebuild()} disabled={!!busy || !selectedTicker} className="h-9 rounded-md border border-border bg-white px-3 text-xs font-semibold hover:bg-surface-soft disabled:opacity-60">
                   {busy === 'rebuild' ? '生成中...' : '生成 Wiki'}
                 </button>
@@ -484,9 +459,6 @@ export function UsSecIngestionPanel() {
                 </button>
                 <button onClick={() => void run('postgres')} disabled={!!busy} className="h-9 rounded-md border border-primary/30 bg-primary/10 px-3 text-xs font-semibold text-primary disabled:opacity-60">
                   {busy === 'postgres' ? '入库中...' : 'PostgreSQL'}
-                </button>
-                <button onClick={() => void run('milvus')} disabled={!!busy} className="h-9 rounded-md bg-primary px-3 text-xs font-semibold text-white disabled:opacity-60">
-                  {busy === 'milvus' ? '向量化中...' : 'Milvus'}
                 </button>
               </div>
             </div>
@@ -665,6 +637,7 @@ export function UsSecIngestionPanel() {
 
       {error && <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
       {lastOutput && <pre className="mt-3 max-h-56 overflow-auto rounded-md border border-border bg-slate-950 p-3 text-xs text-slate-100">{lastOutput}</pre>}
-    </section>
+      </section>
+    </div>
   )
 }

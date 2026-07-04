@@ -27,6 +27,7 @@ export default function UsParsing() {
       </section>
 
       <MarketParsingTabs active="US" />
+      <UsSecIngestionPanel />
       <section className="secondary-panel p-4 sm:p-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
@@ -47,7 +48,6 @@ export default function UsParsing() {
           </Link>
         </div>
       </section>
-      <UsSecIngestionPanel />
     </div>
   )
 }
