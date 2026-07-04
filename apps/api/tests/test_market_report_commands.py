@@ -623,6 +623,14 @@ def test_market_package_import_args_uses_positional_package_for_non_us():
     ]
 
 
+def test_market_package_import_env_defaults_hk_database():
+    hk_env = commands.market_package_import_env("HK", {"HK": "siq_hk"})
+    us_env = commands.market_package_import_env("US", {"HK": "siq_hk"})
+
+    assert hk_env["SIQ_HK_PGDATABASE"] == "siq_hk"
+    assert "SIQ_HK_PGDATABASE" not in us_env
+
+
 def test_market_package_import_plan_selects_script_and_package_dir(tmp_path):
     package_dir = tmp_path / "wiki" / "hk_reports" / "00700" / "2025" / "annual_demo"
     script = tmp_path / "scripts" / "import_hk.py"
@@ -698,6 +706,30 @@ def test_market_vector_ingest_args_defaults_to_dry_run_and_optional_flags():
         "text-embedding-3-small",
         "--vector-dim",
         "1536",
+        "--dry-run",
+    ]
+
+
+def test_market_vector_ingest_args_defaults_hk_collection():
+    args, dry_run = commands.market_vector_ingest_args(
+        executable="/usr/bin/python",
+        script=Path("/repo/scripts/ingest.py"),
+        package_dir=Path("/repo/data/wiki/hk_reports/00700/package"),
+        payload={},
+        market="HK",
+        market_vector_collections={"HK": "siq_hk_reports"},
+    )
+
+    assert dry_run is True
+    assert args == [
+        "/usr/bin/python",
+        "/repo/scripts/ingest.py",
+        "--package",
+        "/repo/data/wiki/hk_reports/00700/package",
+        "--batch-tag",
+        "market-evidence",
+        "--collection",
+        "siq_hk_reports",
         "--dry-run",
     ]
 

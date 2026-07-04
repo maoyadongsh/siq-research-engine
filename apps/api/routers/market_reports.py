@@ -32,6 +32,7 @@ from services import market_report_status_service
 from services.market_report_settings import (
     EU_ESEF_PACKAGE_BUILD_SCRIPT,
     MARKET_BUILD_SCRIPTS,
+    MARKET_DATABASES,
     MARKET_INGESTION_EVAL_MARKDOWN_PATH,
     MARKET_INGESTION_EVAL_REPORT_PATH,
     MARKET_INGESTION_EVAL_SCRIPT,
@@ -39,6 +40,7 @@ from services.market_report_settings import (
     MARKET_REPORT_ASSIST_TIMEOUT,
     MARKET_REPORT_PROXY_TIMEOUT,
     MARKET_RULES_BASE,
+    MARKET_VECTOR_COLLECTIONS,
     MARKET_VECTOR_INGEST_SCRIPT,
     MARKET_WIKI_ROOTS,
     REPORT_FINDER_BASE,
@@ -248,7 +250,16 @@ def _run_market_package_import(payload: dict[str, Any]) -> dict[str, Any]:
         package_dir=plan.package_dir,
         payload=payload,
     )
-    completed = run_command(args, cwd=REPO_ROOT, timeout=900)
+    env = None
+    if not payload.get("database_url"):
+        import_env = market_report_commands.market_package_import_env(
+            plan.market,
+            MARKET_DATABASES,
+            base_env=os.environ,
+        )
+        if import_env:
+            env = {**os.environ, **import_env}
+    completed = run_command(args, cwd=REPO_ROOT, timeout=900, env=env)
     return market_report_commands.market_package_import_result_payload(
         completed=completed,
         command=_command_for_display(args),
@@ -271,6 +282,8 @@ def _run_market_vector_ingest(payload: dict[str, Any]) -> dict[str, Any]:
         script=plan.script,
         package_dir=plan.package_dir,
         payload=payload,
+        market=plan.market,
+        market_vector_collections=MARKET_VECTOR_COLLECTIONS,
     )
     completed = run_command(args, cwd=REPO_ROOT, timeout=1800)
     return market_report_commands.market_vector_ingest_result_payload(

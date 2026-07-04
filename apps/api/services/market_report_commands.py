@@ -205,6 +205,24 @@ def market_package_build_args(
     return args
 
 
+def market_package_import_env(
+    market: str,
+    market_databases: Mapping[str, str],
+    base_env: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    market_code = market.upper()
+    database = market_databases.get(market_code)
+    if not database:
+        return {}
+
+    env_name = f"SIQ_{market_code}_PGDATABASE"
+    if base_env is not None:
+        existing = base_env.get(env_name)
+        if existing and str(existing).strip():
+            return {env_name: str(existing).strip()}
+    return {env_name: str(database)}
+
+
 def market_package_import_args(
     *,
     executable: str,
@@ -251,6 +269,8 @@ def market_vector_ingest_args(
     script: Path,
     package_dir: Path,
     payload: dict[str, Any],
+    market: str | None = None,
+    market_vector_collections: Mapping[str, str] | None = None,
 ) -> tuple[list[str], bool]:
     args = [
         executable,
@@ -260,13 +280,22 @@ def market_vector_ingest_args(
         "--batch-tag",
         str(payload.get("batch_tag") or "market-evidence"),
     ]
+    collection = payload.get("collection")
+    if collection in (None, "") and market and market_vector_collections:
+        collection = market_vector_collections.get(market.upper())
+    optional_values = {
+        "collection": collection,
+        "embed_url": payload.get("embed_url"),
+        "embed_model": payload.get("embed_model"),
+        "vector_dim": payload.get("vector_dim"),
+    }
     for key, flag in (
         ("collection", "--collection"),
         ("embed_url", "--embed-url"),
         ("embed_model", "--embed-model"),
         ("vector_dim", "--vector-dim"),
     ):
-        value = payload.get(key)
+        value = optional_values.get(key)
         if value not in (None, ""):
             args.extend([flag, str(value)])
     dry_run = bool(payload.get("dry_run", True))

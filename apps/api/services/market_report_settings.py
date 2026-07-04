@@ -88,6 +88,14 @@ MARKET_WIKI_ROOTS = {
     "EU": _env_path("SIQ_EU_WIKI_ROOT", default=REPO_ROOT / "data" / "wiki" / "eu_reports"),
 }
 
+MARKET_DATABASES = {
+    "HK": _env_str("SIQ_HK_PGDATABASE", default="siq_hk"),
+}
+
+MARKET_VECTOR_COLLECTIONS = {
+    "HK": _env_str("SIQ_HK_MILVUS_COLLECTION", default="siq_hk_reports"),
+}
+
 MARKET_BUILD_SCRIPTS = {
     "US": US_SEC_PACKAGE_BUILD_SCRIPT,
     "HK": _env_path("SIQ_HK_PACKAGE_BUILD_SCRIPT", default=REPO_ROOT / "scripts" / "hk" / "build_hk_evidence_package.py"),
