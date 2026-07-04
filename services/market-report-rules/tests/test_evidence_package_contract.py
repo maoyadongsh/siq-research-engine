@@ -48,7 +48,7 @@ def _minimal_financial_data() -> dict:
 
 
 def _write_package(root: Path) -> Path:
-    package_dir = root / "hk_reports" / "00700" / "2025" / "annual_12100024"
+    package_dir = root / "hk" / "companies" / "00700-TENCENT" / "reports" / "2025-annual-12100024"
     for name in ("raw", "sections", "tables", "xbrl", "metrics", "qa"):
         (package_dir / name).mkdir(parents=True, exist_ok=True)
     (package_dir / "README.md").write_text("# Test\n", encoding="utf-8")

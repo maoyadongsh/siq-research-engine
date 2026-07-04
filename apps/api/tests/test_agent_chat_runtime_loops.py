@@ -928,6 +928,43 @@ def test_wiki_catalog_reply_reads_current_catalog_for_count_and_list(tmp_path, m
     assert "三大表指标=无" in list_reply
 
 
+def test_hk_company_wiki_financial_data_is_core_metrics_candidate(tmp_path, monkeypatch):
+    wiki_root = tmp_path / "wiki" / "hk"
+    company_dir = wiki_root / "companies" / "00700-TENCENT"
+    metrics_file = company_dir / "reports" / "2025-annual-12100024" / "metrics" / "financial_data.json"
+    metrics_file.parent.mkdir(parents=True)
+    metrics_file.write_text(json.dumps({"statements": []}), encoding="utf-8")
+    (company_dir / "company.json").write_text(
+        json.dumps(
+            {
+                "market": "HK",
+                "company_id": "HK:00700",
+                "stock_code": "00700",
+                "company_short_name": "TENCENT",
+                "primary_report_id": "2025-annual-12100024",
+                "metrics": {
+                    "latest": {
+                        "financial_data": "reports/2025-annual-12100024/metrics/financial_data.json"
+                    }
+                },
+                "reports": [
+                    {
+                        "report_id": "2025-annual-12100024",
+                        "financial_data": "reports/2025-annual-12100024/metrics/financial_data.json",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(runtime, "WIKI_ROOT", wiki_root)
+
+    paths = runtime._company_artifact_paths(company_dir, "2025-annual-12100024")
+
+    assert paths["three_statements"] == metrics_file
+
+
 def test_agent_intro_does_not_trigger_wiki_catalog_reply():
     assert runtime.build_wiki_catalog_reply("智能体简介") is None
     assert runtime.build_wiki_catalog_reply(

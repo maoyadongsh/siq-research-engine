@@ -8,6 +8,14 @@
 /home/maoyd/siq-research-engine/data/wiki/_meta/company_catalog.json
 ```
 
+港股 HK 使用独立但同构的市场 Wiki 根目录：
+
+```text
+/home/maoyd/siq-research-engine/data/wiki/hk/_meta/company_catalog.json
+/home/maoyd/siq-research-engine/data/wiki/hk/companies/<ticker>-<company>/company.json
+/home/maoyd/siq-research-engine/data/wiki/hk/companies/<ticker>-<company>/reports/<report_id>/
+```
+
 必须通过 `resolve_company.py` 唯一定位公司；严禁手写猜测 `/home/maoyd/siq-research-engine/data/wiki/companies/<公司名>`。
 
 输出功能介绍、提问示例、示例命令或示例问题时，所有公司名必须来自 `company_catalog.json` 的实时内容；不得使用任何不在实时 catalog 中的公司。无法确认 catalog 时，不列具体公司名，改写为“某个已入库公司”。
@@ -28,6 +36,7 @@
    - 指定年份或 `report_id`：优先 `metrics/reports/<report_id>/three_statements.json`、`key_metrics.json`、`validation.json`。
    - 未指定年份：优先 `metrics/latest/three_statements.json`、`key_metrics.json`、`validation.json`。
    - 旧路径 `metrics/three_statements.json`、`metrics/key_metrics.json`、`metrics/validation.json` 只作兼容入口。
+   - HK 公司级 Wiki 中，核心财务底稿优先读取 `reports/<report_id>/metrics/financial_data.json`、`financial_checks.json`、`qa/source_map.json`；这是 HK 对齐 A 股三大表底稿的市场化 package 路径。
 4. `evidence/evidence_index.json`
 5. `reports/<report_id>/report.md`
 6. `reports/<report_id>/document_full.json` 仅用于深度审计、重放或证据补全失败。
@@ -52,6 +61,8 @@ PostgreSQL 的角色是“数据补充查询平台”，不是完整报告写作
 - 需要从 `document_tables`、宽表或入库元数据补 PDF 页码、表格编号、入库时间。
 - 需要验证同一指标在 wiki 与数据库中的数值、单位、期间是否一致。
 - 用户明确要求使用数据库补充某项数据。
+
+HK PostgreSQL fallback 只读查询目标为同一 PostgreSQL 实例内的 `siq_hk.pdf2md_hk`。不要把 HK 财报写入或查询为 A 股 `siq.pdf2md` 默认口径；HK 的公司主键为 `HK:<5位股票代码>`，例如 `HK:00700`。
 
 推荐查询入口：
 

@@ -26,20 +26,7 @@ DDL_PATH = REPO_ROOT / "db" / "ddl" / "020_create_pdf2md_hk_schema.sql"
 
 
 def read_json(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        return {}
-    text = path.read_text(encoding="utf-8")
-    if not text.strip():
-        return {}
-    payload = json.loads(text)
-    return payload if isinstance(payload, dict) else {}
-
-
-def read_optional_v2_json(path: Path) -> dict[str, Any]:
-    try:
-        return read_json(path)
-    except json.JSONDecodeError:
-        return {}
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
 
 
 def parse_date(value: Any) -> Any:
@@ -52,72 +39,13 @@ def parse_numeric(value: Any) -> Any:
     return str(value)
 
 
-def _first_value(item: dict[str, Any], *keys: str) -> Any:
-    for key in keys:
-        value = item.get(key)
-        if value not in (None, ""):
-            return value
-    return None
-
-
-def _target_text(value: Any) -> str | None:
-    if value in (None, ""):
-        return None
-    if isinstance(value, dict):
-        nested = _first_value(value, "id", "target_id", "table_id", "name", "key", "statement", "type")
-        if nested not in (None, ""):
-            return _target_text(nested)
-        return json.dumps(value, ensure_ascii=False, sort_keys=True)
-    if isinstance(value, (list, tuple, set)):
-        parts = [_target_text(item) for item in value]
-        parts = [part for part in parts if part]
-        return ",".join(parts) if parts else None
-    return str(value)
-
-
-def _scalar_value(value: Any) -> Any:
-    if value in (None, "") or isinstance(value, (dict, list, tuple, set)):
-        return None
-    return value
-
-
-def _page_number(item: dict[str, Any]) -> Any:
-    page_number = _scalar_value(_first_value(item, "page_number", "pdf_page_number", "page"))
-    if page_number not in (None, ""):
-        return page_number
-    page_idx = _scalar_value(item.get("page_idx"))
-    try:
-        return int(page_idx) + 1
-    except (TypeError, ValueError):
-        return None
-
-
-def _table_index(item: dict[str, Any]) -> Any:
-    return _scalar_value(_first_value(item, "table_index", "content_table_source_id", "source_table_index"))
-
-
-def _payload_items(payload: dict[str, Any], *keys: str) -> list[tuple[str, dict[str, Any]]]:
-    body = payload.get("payload") if isinstance(payload.get("payload"), dict) else payload
-    items: list[tuple[str, dict[str, Any]]] = []
-    for key in keys:
-        values = body.get(key) if isinstance(body, dict) else None
-        if isinstance(values, list):
-            items.extend((key, item) for item in values if isinstance(item, dict))
-    return items
-
-
 def database_url(explicit: str | None) -> str:
     url = explicit or os.environ.get("DATABASE_URL")
     if url:
         return url.replace("postgresql+psycopg://", "postgresql://")
-    db = (
-        os.environ.get("SIQ_HK_PGDATABASE")
-        or os.environ.get("SIQ_PGDATABASE")
-        or os.environ.get("PGDATABASE")
-        or "siq_hk"
-    )
     host = os.environ.get("SIQ_PGHOST") or os.environ.get("PGHOST") or "127.0.0.1"
     port = os.environ.get("SIQ_PGPORT") or os.environ.get("PGPORT") or "15432"
+    db = os.environ.get("SIQ_HK_PGDATABASE") or os.environ.get("SIQ_PGDATABASE") or os.environ.get("PGDATABASE") or "siq_hk"
     user = os.environ.get("SIQ_PGUSER") or os.environ.get("PGUSER") or "postgres"
     password = os.environ.get("SIQ_PGPASSWORD") or os.environ.get("PGPASSWORD") or ""
     auth = f"{user}:{password}" if password else user
@@ -152,19 +80,11 @@ def import_package(conn: Any, package_dir: Path, schema: str = "pdf2md_hk") -> s
         _upsert_parse_run(conn, schema, manifest, package_dir, parse_run_id, artifact_hashes, quality, warnings)
         _delete_run_rows(conn, schema, parse_run_id)
         _insert_artifacts(conn, schema, package_dir, parse_run_id)
-        _insert_parser_artifacts(conn, schema, package_dir, manifest["filing_id"], parse_run_id)
-        _insert_content_blocks(conn, schema, package_dir, manifest["filing_id"], parse_run_id)
-        _insert_footnotes(conn, schema, package_dir, manifest["filing_id"], parse_run_id)
-        _insert_toc_entries(conn, schema, package_dir, manifest["filing_id"], parse_run_id)
-        _insert_financial_note_links(conn, schema, package_dir, manifest["filing_id"], parse_run_id)
-        _insert_table_relations(conn, schema, package_dir, manifest["filing_id"], parse_run_id)
-        _insert_table_quality_signals(conn, schema, package_dir, manifest["filing_id"], parse_run_id)
         _insert_sections(conn, schema, package_dir, manifest["filing_id"], parse_run_id)
         _insert_pdf_pages(conn, schema, package_dir, manifest["filing_id"], parse_run_id)
         _insert_tables(conn, schema, package_dir, manifest["filing_id"], parse_run_id)
         _insert_evidence(conn, schema, package_dir, manifest["filing_id"], parse_run_id)
         _insert_financial_facts(conn, schema, package_dir, manifest["filing_id"], parse_run_id)
-        _insert_financial_read_models(conn, schema, package_dir, manifest, manifest["filing_id"], parse_run_id)
         _insert_checks(conn, schema, package_dir, manifest["filing_id"], parse_run_id)
         _insert_quality_report(conn, schema, package_dir, manifest["filing_id"], parse_run_id)
     return parse_run_id
@@ -173,34 +93,15 @@ def import_package(conn: Any, package_dir: Path, schema: str = "pdf2md_hk") -> s
 def _upsert_company(conn: Any, schema: str, manifest: dict[str, Any]) -> None:
     conn.execute(
         f"""
-        insert into {schema}.companies (
-          company_id, ticker, company_name, stock_code, hkex_stock_code, short_name,
-          company_name_en, company_name_zh, aliases, raw, updated_at
-        ) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,now())
+        insert into {schema}.companies (company_id, ticker, company_name, raw, updated_at)
+        values (%s,%s,%s,%s,now())
         on conflict (company_id) do update set
           ticker = excluded.ticker,
           company_name = excluded.company_name,
-          stock_code = excluded.stock_code,
-          hkex_stock_code = excluded.hkex_stock_code,
-          short_name = excluded.short_name,
-          company_name_en = excluded.company_name_en,
-          company_name_zh = excluded.company_name_zh,
-          aliases = excluded.aliases,
           raw = excluded.raw,
           updated_at = now()
         """,
-        (
-            manifest["company_id"],
-            manifest["ticker"],
-            manifest.get("company_name"),
-            manifest.get("stock_code"),
-            manifest.get("hkex_stock_code"),
-            manifest.get("short_name"),
-            manifest.get("company_name_en"),
-            manifest.get("company_name_zh"),
-            Jsonb(manifest.get("aliases") or []),
-            Jsonb(manifest),
-        ),
+        (manifest["company_id"], manifest["ticker"], manifest.get("company_name"), Jsonb(manifest)),
     )
 
 
@@ -208,13 +109,12 @@ def _upsert_filing(conn: Any, schema: str, manifest: dict[str, Any], package_dir
     conn.execute(
         f"""
         insert into {schema}.filings (
-          filing_id, company_id, ticker, stock_code, form, report_type, fiscal_year, fiscal_period,
+          filing_id, company_id, ticker, form, report_type, fiscal_year, fiscal_period,
           period_end, published_at, source_id, source_url, local_path, accounting_standard,
           quality_status, raw, updated_at
-        ) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,now())
+        ) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,now())
         on conflict (filing_id) do update set
           ticker = excluded.ticker,
-          stock_code = excluded.stock_code,
           form = excluded.form,
           report_type = excluded.report_type,
           fiscal_year = excluded.fiscal_year,
@@ -232,7 +132,6 @@ def _upsert_filing(conn: Any, schema: str, manifest: dict[str, Any], package_dir
             manifest["filing_id"],
             manifest["company_id"],
             manifest["ticker"],
-            manifest.get("stock_code") or manifest.get("ticker"),
             manifest.get("form"),
             manifest.get("report_type"),
             manifest.get("fiscal_year"),
@@ -291,23 +190,9 @@ def _delete_run_rows(conn: Any, schema: str, parse_run_id: str) -> None:
         "retrieval_chunks",
         "quality_reports",
         "financial_checks",
-        "financial_all_metrics_wide",
-        "financial_cash_flow_statement_items",
-        "financial_income_statement_items",
-        "financial_balance_sheet_items",
-        "financial_key_metrics",
-        "financial_statement_items",
-        "financial_statements",
         "operating_metric_facts",
         "financial_facts",
         "evidence_citations",
-        "table_quality_signals",
-        "table_relations",
-        "financial_note_links",
-        "toc_entries",
-        "footnotes",
-        "content_blocks",
-        "parser_artifacts",
         "pdf_tables",
         "pdf_pages",
         "filing_sections",
@@ -324,229 +209,6 @@ def _insert_artifacts(conn: Any, schema: str, package_dir: Path, parse_run_id: s
         conn.execute(
             f"insert into {schema}.artifacts (parse_run_id, artifact_type, local_path, sha256, size_bytes, raw) values (%s,%s,%s,%s,%s,%s)",
             (parse_run_id, rel.replace("/", "."), rel, hashlib.sha256(path.read_bytes()).hexdigest(), path.stat().st_size, Jsonb({})),
-        )
-
-
-def _insert_parser_artifacts(conn: Any, schema: str, package_dir: Path, filing_id: str, parse_run_id: str) -> None:
-    parser_dir = package_dir / "parser"
-    if not parser_dir.is_dir():
-        return
-    for path in sorted(parser_dir.rglob("*.json")):
-        payload = read_optional_v2_json(path)
-        if not payload:
-            continue
-        rel = path.relative_to(package_dir).as_posix()
-        conn.execute(
-            f"""
-            insert into {schema}.parser_artifacts (
-              parse_run_id, filing_id, artifact_key, local_path, page_number,
-              table_index, target, schema_version, raw
-            ) values (%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            """,
-            (
-                parse_run_id,
-                filing_id,
-                rel,
-                rel,
-                _page_number(payload),
-                _table_index(payload),
-                _target_text(payload.get("target")),
-                _target_text(payload.get("schema_version")),
-                Jsonb(payload),
-            ),
-        )
-
-
-def _insert_content_blocks(conn: Any, schema: str, package_dir: Path, filing_id: str, parse_run_id: str) -> None:
-    artifact_key = "parser/content_list_enhanced.json"
-    payload = read_optional_v2_json(package_dir / artifact_key)
-    body = payload.get("payload") if isinstance(payload.get("payload"), dict) else payload
-    blocks = body.get("blocks") or body.get("content_blocks") if isinstance(body, dict) else []
-    if not blocks:
-        artifact_key = "parser/document_full.json"
-        document_full = read_optional_v2_json(package_dir / artifact_key)
-        blocks = document_full.get("content_list") if isinstance(document_full.get("content_list"), list) else []
-    if not isinstance(blocks, list):
-        return
-    for index, block in enumerate((item for item in blocks if isinstance(item, dict)), start=1):
-        page_number = _page_number(block)
-        table_index = _table_index(block)
-        target_id = _first_value(block, "block_id", "id", "content_id", "target", "type", "block_type")
-        block_id = stable_id(parse_run_id, artifact_key, page_number, table_index, target_id, index)
-        conn.execute(
-            f"""
-            insert into {schema}.content_blocks (
-              block_id, filing_id, parse_run_id, page_number, table_index, target,
-              block_type, block_order, markdown_path, raw
-            ) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            """,
-            (
-                block_id,
-                filing_id,
-                parse_run_id,
-                page_number,
-                table_index,
-                _target_text(block.get("target")),
-                block.get("block_type") or block.get("type"),
-                _first_value(block, "block_order", "order", "reading_order") or index,
-                block.get("markdown_path"),
-                Jsonb(block),
-            ),
-        )
-
-
-def _insert_footnotes(conn: Any, schema: str, package_dir: Path, filing_id: str, parse_run_id: str) -> None:
-    artifact_key = "qa/footnotes.json"
-    payload = read_optional_v2_json(package_dir / artifact_key)
-    for index, (group, item) in enumerate(
-        _payload_items(payload, "references", "definitions", "bindings", "footnotes"),
-        start=1,
-    ):
-        page_number = _page_number(item)
-        table_index = _table_index(item)
-        target_id = _first_value(item, "id", "footnote_id", "reference_id", "definition_id", "marker", "note")
-        footnote_id = stable_id(parse_run_id, artifact_key, page_number, table_index, target_id, index)
-        conn.execute(
-            f"""
-            insert into {schema}.footnotes (
-              footnote_id, filing_id, parse_run_id, page_number, table_index,
-              target, footnote_key, content, raw
-            ) values (%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            """,
-            (
-                footnote_id,
-                filing_id,
-                parse_run_id,
-                page_number,
-                table_index,
-                _target_text(item.get("target")),
-                _first_value(item, "footnote_key", "id", "marker", "reference_id", "definition_id", "note"),
-                _first_value(item, "content", "text", "definition"),
-                Jsonb({"group": group, **item}),
-            ),
-        )
-
-
-def _insert_toc_entries(conn: Any, schema: str, package_dir: Path, filing_id: str, parse_run_id: str) -> None:
-    artifact_key = "qa/toc.json"
-    payload = read_optional_v2_json(package_dir / artifact_key)
-    for index, (group, item) in enumerate(
-        _payload_items(payload, "headings", "toc_candidates", "content_headings", "entries"),
-        start=1,
-    ):
-        page_number = _page_number(item)
-        table_index = _table_index(item)
-        title = _first_value(item, "title", "text", "heading")
-        toc_entry_id = stable_id(parse_run_id, artifact_key, page_number, table_index, title, index)
-        conn.execute(
-            f"""
-            insert into {schema}.toc_entries (
-              toc_entry_id, filing_id, parse_run_id, page_number, table_index,
-              target, title, level, destination_page_number, raw
-            ) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            """,
-            (
-                toc_entry_id,
-                filing_id,
-                parse_run_id,
-                page_number,
-                table_index,
-                _target_text(item.get("target")),
-                title,
-                item.get("level"),
-                _first_value(item, "destination_page_number", "destination_page", "page_number", "page"),
-                Jsonb({"group": group, **item}),
-            ),
-        )
-
-
-def _insert_financial_note_links(conn: Any, schema: str, package_dir: Path, filing_id: str, parse_run_id: str) -> None:
-    artifact_key = "qa/financial_note_links.json"
-    payload = read_optional_v2_json(package_dir / artifact_key)
-    for index, (_group, item) in enumerate(_payload_items(payload, "links", "financial_note_links"), start=1):
-        page_number = _page_number(item)
-        table_index = _table_index(item)
-        note_key = _first_value(item, "note_key", "note", "marker")
-        target_id = _first_value(item, "id", "link_id") or note_key or _first_value(item, "note_target", "target")
-        link_id = stable_id(parse_run_id, artifact_key, page_number, table_index, target_id, index)
-        conn.execute(
-            f"""
-            insert into {schema}.financial_note_links (
-              link_id, filing_id, parse_run_id, page_number, table_index,
-              target, note_key, note_target, raw
-            ) values (%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            """,
-            (
-                link_id,
-                filing_id,
-                parse_run_id,
-                page_number,
-                table_index,
-                _target_text(_first_value(item, "target", "statement")),
-                note_key,
-                _target_text(_first_value(item, "note_target", "target_note", "destination")),
-                Jsonb(item),
-            ),
-        )
-
-
-def _insert_table_relations(conn: Any, schema: str, package_dir: Path, filing_id: str, parse_run_id: str) -> None:
-    artifact_key = "parser/table_relations.json"
-    payload = read_optional_v2_json(package_dir / artifact_key)
-    for index, (_group, item) in enumerate(_payload_items(payload, "relations", "table_relations"), start=1):
-        page_number = _page_number(item)
-        table_index = _table_index(item)
-        related_table_id = _first_value(item, "related_table_id", "target_table_id", "target_table_index")
-        target_id = _first_value(item, "id", "relation_id") or related_table_id or _first_value(item, "target", "relation_type", "type")
-        relation_id = stable_id(parse_run_id, artifact_key, page_number, table_index, target_id, index)
-        conn.execute(
-            f"""
-            insert into {schema}.table_relations (
-              relation_id, filing_id, parse_run_id, page_number, table_index,
-              target, related_table_id, relation_type, raw
-            ) values (%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            """,
-            (
-                relation_id,
-                filing_id,
-                parse_run_id,
-                page_number,
-                table_index,
-                _target_text(_first_value(item, "target", "source_table_id")),
-                _target_text(related_table_id),
-                item.get("relation_type") or item.get("type"),
-                Jsonb(item),
-            ),
-        )
-
-
-def _insert_table_quality_signals(conn: Any, schema: str, package_dir: Path, filing_id: str, parse_run_id: str) -> None:
-    artifact_key = "qa/table_quality_signals.json"
-    payload = read_optional_v2_json(package_dir / artifact_key)
-    for index, (group, item) in enumerate(_payload_items(payload, "signals", "tables", "table_quality_signals"), start=1):
-        page_number = _page_number(item)
-        table_index = _table_index(item)
-        signal_type = _first_value(item, "signal_type", "type", "status")
-        target_id = _first_value(item, "id", "signal_id") or signal_type or _first_value(item, "target", "table_id")
-        signal_id = stable_id(parse_run_id, artifact_key, page_number, table_index, target_id, index)
-        conn.execute(
-            f"""
-            insert into {schema}.table_quality_signals (
-              signal_id, filing_id, parse_run_id, page_number, table_index,
-              target, signal_type, signal_value, raw
-            ) values (%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            """,
-            (
-                signal_id,
-                filing_id,
-                parse_run_id,
-                page_number,
-                table_index,
-                _target_text(_first_value(item, "target", "table_id")),
-                signal_type,
-                _target_text(_first_value(item, "signal_value", "value", "score", "status")),
-                Jsonb({"group": group, **item}),
-            ),
         )
 
 
@@ -624,7 +286,7 @@ def _insert_evidence(conn: Any, schema: str, package_dir: Path, filing_id: str, 
                 item.get("quote_text"),
                 item.get("local_path"),
                 item.get("source_url"),
-                _target_text(item.get("target")),
+                item.get("target"),
                 Jsonb(item.get("raw") or item),
             ),
         )
@@ -690,281 +352,6 @@ def _insert_financial_facts(conn: Any, schema: str, package_dir: Path, filing_id
                 Jsonb(item),
             ),
         )
-
-
-def _insert_financial_read_models(
-    conn: Any,
-    schema: str,
-    package_dir: Path,
-    manifest: dict[str, Any],
-    filing_id: str,
-    parse_run_id: str,
-) -> None:
-    financial_data = read_json(package_dir / "metrics" / "financial_data.json")
-    statements = financial_data.get("statements") if isinstance(financial_data.get("statements"), list) else []
-    for index, statement in enumerate((item for item in statements if isinstance(item, dict)), start=1):
-        statement_id = str(statement.get("statement_id") or statement.get("statement_type") or f"statement_{index}")
-        conn.execute(
-            f"""
-            insert into {schema}.financial_statements (
-              parse_run_id, filing_id, statement_id, statement_type, statement_name,
-              scope, scope_name, title, unit, scale, currency, table_indexes, columns, raw
-            ) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            on conflict (parse_run_id, statement_id) do update set raw = excluded.raw
-            """,
-            (
-                parse_run_id,
-                filing_id,
-                statement_id,
-                statement.get("statement_type"),
-                statement.get("statement_name"),
-                statement.get("scope"),
-                statement.get("scope_name"),
-                statement.get("title"),
-                statement.get("unit"),
-                parse_numeric(statement.get("scale")),
-                statement.get("currency"),
-                Jsonb(statement.get("table_indexes") or []),
-                Jsonb(statement.get("columns") or []),
-                Jsonb(statement),
-            ),
-        )
-        for item_index, item in enumerate((row for row in statement.get("items") or [] if isinstance(row, dict)), start=1):
-            for row in _read_model_item_rows(manifest, filing_id, parse_run_id, statement, item, item_index):
-                _insert_statement_item(conn, schema, "financial_statement_items", row)
-                split_table = _split_statement_table(row.get("statement_type"))
-                if split_table:
-                    _insert_statement_item(conn, schema, split_table, row)
-
-    for metric_index, metric in enumerate((row for row in financial_data.get("key_metrics") or [] if isinstance(row, dict)), start=1):
-        statement = {
-            "statement_id": "key_metrics",
-            "statement_type": "key_metrics",
-            "statement_name": "Key Metrics",
-            "scope": "consolidated",
-            "scope_name": "Consolidated",
-        }
-        for row in _read_model_item_rows(manifest, filing_id, parse_run_id, statement, metric, metric_index):
-            _insert_statement_item(conn, schema, "financial_key_metrics", row)
-
-    for row in _wide_metric_rows(manifest, filing_id, parse_run_id, financial_data):
-        conn.execute(
-            f"""
-            insert into {schema}.financial_all_metrics_wide (
-              parse_run_id, filing_id, company_id, ticker, stock_code, company_name, exchange,
-              period_key, fiscal_year, fiscal_period, balance_sheet, income_statement,
-              cash_flow_statement, key_metrics, all_metrics, raw
-            ) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            on conflict (parse_run_id, period_key) do update set all_metrics = excluded.all_metrics, raw = excluded.raw
-            """,
-            (
-                parse_run_id,
-                filing_id,
-                manifest.get("company_id"),
-                manifest.get("ticker"),
-                manifest.get("stock_code") or manifest.get("ticker"),
-                manifest.get("company_name"),
-                manifest.get("exchange") or "HKEX",
-                row["period_key"],
-                row.get("fiscal_year"),
-                row.get("fiscal_period"),
-                Jsonb(row["balance_sheet"]),
-                Jsonb(row["income_statement"]),
-                Jsonb(row["cash_flow_statement"]),
-                Jsonb(row["key_metrics"]),
-                Jsonb(row["all_metrics"]),
-                Jsonb(row["raw"]),
-            ),
-        )
-
-
-def _read_model_item_rows(
-    manifest: dict[str, Any],
-    filing_id: str,
-    parse_run_id: str,
-    statement: dict[str, Any],
-    item: dict[str, Any],
-    item_index: int,
-) -> list[dict[str, Any]]:
-    values = item.get("values") if isinstance(item.get("values"), dict) else {}
-    raw_values = item.get("raw_values") if isinstance(item.get("raw_values"), dict) else {}
-    sources = item.get("sources") if isinstance(item.get("sources"), dict) else {}
-    periods = item.get("periods") if isinstance(item.get("periods"), dict) else {}
-    rows: list[dict[str, Any]] = []
-    for period_key, value in values.items():
-        source = sources.get(period_key) if isinstance(sources.get(period_key), dict) else {}
-        period = periods.get(period_key) if isinstance(periods.get(period_key), dict) else {}
-        statement_type = item.get("statement_type") or statement.get("statement_type")
-        item_uid = stable_id(parse_run_id, statement.get("statement_id"), item.get("canonical_name"), item.get("name"), period_key, item_index, source.get("table_index"), source.get("row_index"), source.get("column_index"))
-        rows.append(
-            {
-                "item_uid": item_uid,
-                "filing_id": filing_id,
-                "parse_run_id": parse_run_id,
-                "company_id": manifest.get("company_id"),
-                "ticker": manifest.get("ticker"),
-                "stock_code": manifest.get("stock_code") or manifest.get("ticker"),
-                "company_name": manifest.get("company_name"),
-                "exchange": manifest.get("exchange") or "HKEX",
-                "statement_id": statement.get("statement_id"),
-                "statement_type": statement_type,
-                "statement_name": statement.get("statement_name"),
-                "scope": statement.get("scope"),
-                "scope_name": statement.get("scope_name"),
-                "item_index": item.get("item_index") or item.get("metric_index") or item_index,
-                "period_key": str(period_key),
-                "item_name": item.get("name"),
-                "canonical_name": item.get("canonical_name"),
-                "value": parse_numeric(value),
-                "raw_value": raw_values.get(period_key),
-                "unit": item.get("unit") or statement.get("unit"),
-                "currency": item.get("currency") or statement.get("currency"),
-                "scale": parse_numeric(item.get("scale") or statement.get("scale")),
-                "period_start": parse_date(period.get("period_start")),
-                "period_end": parse_date(period.get("period_end") or period_key),
-                "fiscal_year": period.get("fiscal_year") or manifest.get("fiscal_year"),
-                "fiscal_period": period.get("fiscal_period") or manifest.get("fiscal_period"),
-                "accounting_standard": manifest.get("accounting_standard"),
-                "industry_profile": manifest.get("industry_profile"),
-                "confidence": parse_numeric(item.get("confidence")),
-                "source_page_number": _first_value(source, "page_number", "pdf_page_number", "page"),
-                "source_table_index": _first_value(source, "table_index", "source_table_index"),
-                "source_row_index": source.get("row_index"),
-                "source_column_index": source.get("column_index"),
-                "source_bbox": source.get("bbox"),
-                "evidence_id": item.get("evidence_id") or source.get("evidence_id"),
-                "raw": {"item": item, "source": source, "period": period},
-            }
-        )
-    return rows
-
-
-def _insert_statement_item(conn: Any, schema: str, table: str, row: dict[str, Any]) -> None:
-    conn.execute(
-        f"""
-        insert into {schema}.{table} (
-          item_uid, filing_id, parse_run_id, company_id, ticker, stock_code, company_name,
-          exchange, statement_id, statement_type, statement_name, scope, scope_name,
-          item_index, period_key, item_name, canonical_name, value, raw_value, unit,
-          currency, scale, period_start, period_end, fiscal_year, fiscal_period,
-          accounting_standard, industry_profile, confidence, source_page_number,
-          source_table_index, source_row_index, source_column_index, source_bbox,
-          evidence_id, raw
-        ) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-        on conflict (item_uid) do update set value = excluded.value, raw = excluded.raw
-        """,
-        (
-            row["item_uid"],
-            row["filing_id"],
-            row["parse_run_id"],
-            row.get("company_id"),
-            row.get("ticker"),
-            row.get("stock_code"),
-            row.get("company_name"),
-            row.get("exchange"),
-            row.get("statement_id"),
-            row.get("statement_type"),
-            row.get("statement_name"),
-            row.get("scope"),
-            row.get("scope_name"),
-            row.get("item_index"),
-            row.get("period_key"),
-            row.get("item_name"),
-            row.get("canonical_name"),
-            row.get("value"),
-            row.get("raw_value"),
-            row.get("unit"),
-            row.get("currency"),
-            row.get("scale"),
-            row.get("period_start"),
-            row.get("period_end"),
-            row.get("fiscal_year"),
-            row.get("fiscal_period"),
-            row.get("accounting_standard"),
-            row.get("industry_profile"),
-            row.get("confidence"),
-            row.get("source_page_number"),
-            row.get("source_table_index"),
-            row.get("source_row_index"),
-            row.get("source_column_index"),
-            Jsonb(row.get("source_bbox") or []),
-            row.get("evidence_id"),
-            Jsonb(row.get("raw") or {}),
-        ),
-    )
-
-
-def _split_statement_table(statement_type: Any) -> str | None:
-    return {
-        "balance_sheet": "financial_balance_sheet_items",
-        "income_statement": "financial_income_statement_items",
-        "cash_flow_statement": "financial_cash_flow_statement_items",
-    }.get(str(statement_type or ""))
-
-
-def _wide_metric_rows(manifest: dict[str, Any], filing_id: str, parse_run_id: str, financial_data: dict[str, Any]) -> list[dict[str, Any]]:
-    by_period: dict[str, dict[str, Any]] = {}
-
-    def bucket(period_key: str) -> dict[str, Any]:
-        return by_period.setdefault(
-            period_key,
-            {
-                "period_key": period_key,
-                "fiscal_year": manifest.get("fiscal_year"),
-                "fiscal_period": manifest.get("fiscal_period"),
-                "balance_sheet": {},
-                "income_statement": {},
-                "cash_flow_statement": {},
-                "key_metrics": {},
-                "all_metrics": {},
-                "raw": {"items": []},
-            },
-        )
-
-    for statement in financial_data.get("statements") or []:
-        if not isinstance(statement, dict):
-            continue
-        family_name = str(statement.get("statement_type") or "")
-        if family_name not in {"balance_sheet", "income_statement", "cash_flow_statement"}:
-            continue
-        for item in statement.get("items") or []:
-            if not isinstance(item, dict):
-                continue
-            for row in _read_model_item_rows(manifest, filing_id, parse_run_id, statement, item, int(item.get("item_index") or 1)):
-                _add_wide_metric(bucket(row["period_key"]), family_name, row)
-    statement = {"statement_id": "key_metrics", "statement_type": "key_metrics", "statement_name": "Key Metrics"}
-    for item in financial_data.get("key_metrics") or []:
-        if not isinstance(item, dict):
-            continue
-        for row in _read_model_item_rows(manifest, filing_id, parse_run_id, statement, item, int(item.get("metric_index") or 1)):
-            _add_wide_metric(bucket(row["period_key"]), "key_metrics", row)
-    return [row for _, row in sorted(by_period.items())]
-
-
-def _add_wide_metric(bucket: dict[str, Any], family_name: str, row: dict[str, Any]) -> None:
-    key = str(row.get("canonical_name") or row.get("item_name") or "unknown")
-    payload = {
-        "value": row.get("value"),
-        "raw_value": row.get("raw_value"),
-        "item_name": row.get("item_name"),
-        "canonical_name": row.get("canonical_name"),
-        "statement_type": row.get("statement_type"),
-        "unit": row.get("unit"),
-        "currency": row.get("currency"),
-        "scale": row.get("scale"),
-        "source_page_number": row.get("source_page_number"),
-        "source_table_index": row.get("source_table_index"),
-    }
-    family = bucket[family_name]
-    suffix = 2
-    scoped_key = key
-    while scoped_key in family:
-        scoped_key = f"{key}_{suffix}"
-        suffix += 1
-    family[scoped_key] = payload
-    all_key = f"{family_name}.{scoped_key}"
-    bucket["all_metrics"][all_key] = payload
-    bucket["raw"]["items"].append({"family": family_name, "key": scoped_key, "period_key": row.get("period_key")})
 
 
 def _insert_checks(conn: Any, schema: str, package_dir: Path, filing_id: str, parse_run_id: str) -> None:

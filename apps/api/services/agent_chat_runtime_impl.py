@@ -2687,6 +2687,9 @@ def _company_artifact_paths(company_dir: Path, report_id: str) -> dict[str, Path
             "metrics/latest/three_statements.json",
             metrics.get("three_statements") if isinstance(metrics, dict) else None,
             "metrics/three_statements.json",
+            by_report.get("financial_data") if isinstance(by_report, dict) else None,
+            latest.get("financial_data") if isinstance(latest, dict) else None,
+            f"reports/{report_id}/metrics/financial_data.json",
         ],
         "key_metrics": [
             by_report.get("key_metrics") if isinstance(by_report, dict) else None,

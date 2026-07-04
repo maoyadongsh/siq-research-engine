@@ -19,12 +19,6 @@ def test_market_report_settings_defaults(monkeypatch):
         "MARKET_REPORT_RULES_BASE",
         "SIQ_MARKET_REPORT_PROXY_TIMEOUT",
         "SIQ_MARKET_REPORT_ASSIST_TIMEOUT",
-        "SIQ_US_PGDATABASE",
-        "SIQ_HK_PGDATABASE",
-        "SIQ_JP_PGDATABASE",
-        "SIQ_KR_PGDATABASE",
-        "SIQ_EU_PGDATABASE",
-        "SIQ_HK_MILVUS_COLLECTION",
     ]:
         monkeypatch.delenv(name, raising=False)
 
@@ -35,13 +29,10 @@ def test_market_report_settings_defaults(monkeypatch):
     assert settings.MARKET_REPORT_PROXY_TIMEOUT == 120.0
     assert settings.MARKET_REPORT_ASSIST_TIMEOUT == 45.0
     assert settings.MARKET_WIKI_ROOTS["US"].name == "us_sec"
-    assert settings.MARKET_BUILD_SCRIPTS["EU"].name == "build_eu_pdf_evidence_package.py"
-    assert settings.MARKET_DATABASES["US"] == "siq_us"
+    assert settings.MARKET_WIKI_ROOTS["HK"].parts[-3:] == ("data", "wiki", "hk")
     assert settings.MARKET_DATABASES["HK"] == "siq_hk"
-    assert settings.MARKET_DATABASES["JP"] == "siq_jp"
-    assert settings.MARKET_DATABASES["KR"] == "siq_kr"
-    assert settings.MARKET_DATABASES["EU"] == "siq_eu"
     assert settings.MARKET_VECTOR_COLLECTIONS["HK"] == "siq_hk_reports"
+    assert settings.MARKET_BUILD_SCRIPTS["EU"].name == "build_eu_pdf_evidence_package.py"
 
 
 def test_market_report_settings_env_overrides(monkeypatch, tmp_path):
@@ -50,9 +41,6 @@ def test_market_report_settings_env_overrides(monkeypatch, tmp_path):
     monkeypatch.setenv("SIQ_MARKET_REPORT_PROXY_TIMEOUT", "12.5")
     monkeypatch.setenv("SIQ_MARKET_REPORT_ASSIST_TIMEOUT", "6.75")
     monkeypatch.setenv("SIQ_US_SEC_CASE_SET_PATH", str(tmp_path / "case_set.json"))
-    monkeypatch.setenv("SIQ_US_PGDATABASE", "siq_us_test")
-    monkeypatch.setenv("SIQ_HK_PGDATABASE", "siq_hk_test")
-    monkeypatch.setenv("SIQ_HK_MILVUS_COLLECTION", "siq_hk_vectors_test")
 
     settings = _load_settings_module("temp_market_report_settings_overrides")
 
@@ -61,9 +49,6 @@ def test_market_report_settings_env_overrides(monkeypatch, tmp_path):
     assert settings.MARKET_REPORT_PROXY_TIMEOUT == 12.5
     assert settings.MARKET_REPORT_ASSIST_TIMEOUT == 6.75
     assert settings.US_SEC_CASE_SET_PATH == (tmp_path / "case_set.json").resolve()
-    assert settings.MARKET_DATABASES["US"] == "siq_us_test"
-    assert settings.MARKET_DATABASES["HK"] == "siq_hk_test"
-    assert settings.MARKET_VECTOR_COLLECTIONS["HK"] == "siq_hk_vectors_test"
 
 
 def test_market_report_settings_ignores_blank_primary_env_and_trims_legacy_url(monkeypatch):

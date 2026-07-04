@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 import html
 import hashlib
 import json
@@ -8,7 +7,7 @@ import os
 import re
 import shutil
 import sys
-import tempfile
+from datetime import datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
@@ -31,7 +30,7 @@ from market_report_rules_service.evidence_package import (
     write_json,
 )
 from market_report_rules_service.models import AccountingStandard, Market, ParsedArtifact, ParsedTable
-from market_report_rules_service.normalization import infer_currency, infer_scale, parse_date
+from market_report_rules_service.normalization import infer_currency, parse_date
 from market_report_rules_service.pipeline import process_artifact
 
 
@@ -73,17 +72,6 @@ def read_json(path: Path, default: Any = None) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _metadata_path_for_pdf(pdf_path: Path) -> Path:
-    candidates = [
-        pdf_path.with_suffix(pdf_path.suffix + ".metadata.json"),
-        pdf_path.with_suffix(".metadata.json"),
-    ]
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    return candidates[0]
-
-
 def _clean_cell(value: Any) -> str:
     text = html.unescape(str(value or ""))
     text = re.sub(r"<[^>]+>", " ", text)
@@ -97,47 +85,8 @@ def _html_table_rows(table_body: str) -> list[list[str]]:
     return parser.rows
 
 
-def _table_raw(item: dict[str, Any]) -> dict[str, Any]:
-    raw = item.get("raw")
-    return raw if isinstance(raw, dict) else {}
-
-
-def _table_structure(item: dict[str, Any]) -> dict[str, Any]:
-    structure = item.get("structure")
-    if isinstance(structure, dict):
-        return structure
-    structure = _table_raw(item).get("structure")
-    return structure if isinstance(structure, dict) else {}
-
-
-def _table_value(item: dict[str, Any], key: str) -> Any:
-    value = item.get(key)
-    if value not in (None, "", [], {}):
-        return value
-    return _table_raw(item).get(key)
-
-
-def _enhanced_table_rows(item: dict[str, Any]) -> list[list[str]]:
-    structure = _table_structure(item)
-    header_preview = structure.get("header_preview") if isinstance(structure, dict) else None
-    rows: list[list[str]] = []
-    if isinstance(header_preview, list):
-        for line in header_preview:
-            if not isinstance(line, str):
-                continue
-            cells = [_clean_cell(cell) for cell in line.split("|")]
-            cells = [cell for cell in cells if cell]
-            if len(cells) >= 2:
-                rows.append(cells)
-    if rows:
-        return rows
-    preview = str(_table_value(item, "preview") or "")
-    cells = [_clean_cell(cell) for cell in re.split(r"\s{2,}|\s+\|\s+", preview) if _clean_cell(cell)]
-    return [cells] if len(cells) >= 2 else []
-
-
 def infer_metadata(pdf_path: Path, metadata_path: Path | None = None) -> dict[str, Any]:
-    metadata = read_json(metadata_path or _metadata_path_for_pdf(pdf_path), {})
+    metadata = read_json(metadata_path or pdf_path.with_suffix(pdf_path.suffix + ".metadata.json"), {})
     candidate = metadata.get("candidate") if isinstance(metadata, dict) else {}
     if not isinstance(candidate, dict):
         candidate = {}
@@ -164,16 +113,12 @@ def infer_metadata(pdf_path: Path, metadata_path: Path | None = None) -> dict[st
         "accession_number": candidate.get("accession_number") or pdf_path.stem.rsplit("_", 1)[-1],
         "accounting_standard": _accounting_standard(metadata),
         "language": candidate.get("language"),
-        "industry_profile": _industry_profile(candidate, company_name),
     }
 
 
-def parsed_tables_from_document_full(
-    document_full: dict[str, Any],
-    content_list_enhanced: dict[str, Any] | None = None,
-) -> list[ParsedTable]:
+def parsed_tables_from_document_full(document_full: dict[str, Any]) -> list[ParsedTable]:
     content = document_full.get("content_list") or []
-    enhanced = _content_list_enhanced(document_full, content_list_enhanced)
+    enhanced = document_full.get("content_list_enhanced") or {}
     enhanced_tables = enhanced.get("tables") if isinstance(enhanced, dict) else []
     enhanced_by_source: dict[int, dict[str, Any]] = {}
     enhanced_by_index: dict[int, dict[str, Any]] = {}
@@ -227,21 +172,19 @@ def parsed_tables_from_document_full(
         for item in enhanced_tables:
             if not isinstance(item, dict):
                 continue
-            rows = _enhanced_table_rows(item)
-            if not rows:
+            preview = str(item.get("preview") or "")
+            rows = [[cell.strip() for cell in re.split(r"\s{2,}|\s+\|\s+", preview) if cell.strip()]]
+            if not rows or len(rows[0]) < 2:
                 continue
             index = int(item.get("table_index") or len(parsed) + 1)
             title = _table_title({}, item)
-            unit = _infer_unit(title, rows)
             parsed.append(
                 ParsedTable(
                     table_id=f"hk_table_{index:04d}",
                     title=title,
                     rows=rows,
-                    page_number=_table_value(item, "pdf_page_number") or _table_value(item, "page_number"),
+                    page_number=item.get("pdf_page_number"),
                     table_index=index,
-                    unit=unit,
-                    currency=infer_currency(unit, title, default=None),
                     raw=item,
                 )
             )
@@ -250,7 +193,6 @@ def parsed_tables_from_document_full(
 
 def build_hk_artifact(pdf_path: Path, parser_result_dir: Path, metadata_path: Path | None = None) -> tuple[ParsedArtifact, dict[str, Any], dict[str, Any]]:
     document_full = read_json(parser_result_dir / "document_full.json", {})
-    standalone_enhanced = _standalone_content_list_enhanced(parser_result_dir)
     metadata = infer_metadata(pdf_path, metadata_path)
     artifact = ParsedArtifact(
         artifact_id=f"HK:{metadata['ticker']}:{metadata['accession_number']}",
@@ -265,12 +207,11 @@ def build_hk_artifact(pdf_path: Path, parser_result_dir: Path, metadata_path: Pa
         fiscal_period=metadata["fiscal_period"],
         period_end=parse_date(metadata["period_end"]),
         accounting_standard=AccountingStandard(metadata["accounting_standard"]),
-        industry_profile=metadata.get("industry_profile") or "general",
         currency=_default_currency(metadata),
         unit=_default_unit(document_full),
         source_url=metadata["source_url"],
         source_files={"pdf": str(pdf_path), "parser_result": str(parser_result_dir)},
-        tables=parsed_tables_from_document_full(document_full, standalone_enhanced),
+        tables=parsed_tables_from_document_full(document_full),
         document_full=document_full,
         metadata=metadata,
     )
@@ -286,61 +227,32 @@ def write_hk_evidence_package(
     force: bool = False,
 ) -> Path:
     artifact, metadata, document_full = build_hk_artifact(pdf_path, parser_result_dir, metadata_path)
-    standalone_enhanced = _standalone_content_list_enhanced(parser_result_dir)
     result = process_artifact(artifact, include_load_plan=True)
     financial_data = financial_data_contract(result.extraction)
     financial_checks = financial_checks_contract(result.validation)
-    parser_financial_data = read_json(parser_result_dir / "financial_data.json", {})
-    parser_financial_checks = read_json(parser_result_dir / "financial_checks.json", {})
-    if _financial_metric_count(financial_data) == 0 and _financial_metric_count(parser_financial_data) > 0:
-        financial_data = parser_financial_data
-        if parser_financial_checks:
-            financial_checks = parser_financial_checks
-    financial_data = _normalize_financial_data_units(financial_data)
 
     filing_key = metadata["accession_number"] or stable_id(pdf_path.name)[:12]
-    package_dir = output_root / artifact.ticker / str(artifact.fiscal_year or "unknown") / f"{artifact.report_type}_{filing_key}"
-    source_pdf_path = pdf_path
-    source_metadata_path = metadata_path
-    source_parser_result_dir = parser_result_dir
-    staged_inputs = None
+    report_id = _report_id(artifact.fiscal_year, artifact.report_type, filing_key)
+    company_dir = output_root / "companies" / _company_dir_name(artifact.ticker, artifact.company_name)
+    package_dir = company_dir / "reports" / report_id
     if package_dir.exists() and force:
-        staged_inputs = tempfile.TemporaryDirectory(prefix="hk-package-inputs-")
-        staged_root = Path(staged_inputs.name)
-        if _path_is_within(pdf_path, package_dir):
-            source_pdf_path = staged_root / "report.pdf"
-            shutil.copy2(pdf_path, source_pdf_path)
-        if metadata_path and metadata_path.exists() and _path_is_within(metadata_path, package_dir):
-            source_metadata_path = staged_root / "report.metadata.json"
-            shutil.copy2(metadata_path, source_metadata_path)
-        if parser_result_dir.is_dir() and _path_is_within(parser_result_dir, package_dir):
-            source_parser_result_dir = staged_root / "parser_result"
-            shutil.copytree(parser_result_dir, source_parser_result_dir)
         shutil.rmtree(package_dir)
     package_dir.mkdir(parents=True, exist_ok=True)
     for name in ("raw", "sections", "tables", "xbrl", "metrics", "qa", "parser"):
         (package_dir / name).mkdir(exist_ok=True)
 
-    try:
-        source_pdf_sha256 = _sha256_file(source_pdf_path)
-        shutil.copy2(source_pdf_path, package_dir / "raw" / "report.pdf")
-        if source_metadata_path and source_metadata_path.exists():
-            shutil.copy2(source_metadata_path, package_dir / "raw" / "report.metadata.json")
-        else:
-            write_json(package_dir / "raw" / "report.metadata.json", metadata.get("raw_metadata") or {})
-    finally:
-        if staged_inputs is not None and source_parser_result_dir == parser_result_dir:
-            staged_inputs.cleanup()
-            staged_inputs = None
+    shutil.copy2(pdf_path, package_dir / "raw" / "report.pdf")
+    if metadata_path and metadata_path.exists():
+        shutil.copy2(metadata_path, package_dir / "raw" / "report.metadata.json")
+    else:
+        write_json(package_dir / "raw" / "report.metadata.json", metadata.get("raw_metadata") or {})
 
-    markdown = _markdown_from_document_full(document_full, source_parser_result_dir)
+    markdown = _markdown_from_document_full(document_full, parser_result_dir)
     (package_dir / "sections" / "report.md").write_text(markdown, encoding="utf-8")
     _write_section_index(package_dir, markdown, document_full)
     table_index = _write_tables(package_dir, artifact.tables)
-    if not table_index:
-        table_index = _write_parser_table_index(package_dir, source_parser_result_dir, document_full, standalone_enhanced)
     write_json(package_dir / "xbrl" / "facts_raw.json", {"schema_version": "hk_xbrl_facts_raw_v1", "facts": []})
-    parser_quality = read_json(source_parser_result_dir / "quality_report.json", {})
+    parser_quality = read_json(parser_result_dir / "quality_report.json", {})
 
     manifest = {
         "schema_version": SCHEMA_VERSION,
@@ -367,13 +279,16 @@ def write_hk_evidence_package(
         "quality_status": financial_checks.get("overall_status") or "warning",
         "artifact_hashes": {},
         "accession_number": metadata["accession_number"],
+        "report_id": report_id,
         "language": metadata.get("language"),
         "report_language": metadata.get("language") or "unknown",
         "parser_result_dir": str(parser_result_dir),
         "pdf_parser_task_id": str(parser_result_dir.name),
         "pdf_parser_quality_status": parser_quality.get("overall_status") or parser_quality.get("status") or "unknown",
-        "source_pdf_sha256": source_pdf_sha256,
+        "source_pdf_sha256": _sha256_file(pdf_path),
         "industry_profile": artifact.industry_profile or metadata.get("industry_profile") or "general",
+        "wiki_company_path": _rel_to(output_root, company_dir),
+        "wiki_report_path": _rel_to(output_root, package_dir),
     }
     manifest["parse_run_id"] = result.load_plan.parse_run_id if result.load_plan else stable_parse_run_id(manifest, {})
     source_map = source_map_from_financial_data(manifest=manifest, financial_data=financial_data, package_dir=package_dir)
@@ -408,12 +323,9 @@ def write_hk_evidence_package(
     write_json(package_dir / "qa" / "quality_report.json", quality)
     write_json(package_dir / "qa" / "source_map.json", source_map)
     write_json(package_dir / "qa" / "extraction_warnings.json", {"warnings": quality["parser_warnings"] + quality["rule_warnings"]})
-    _write_parser_artifacts(package_dir, source_parser_result_dir, document_full, standalone_enhanced, financial_data, financial_checks)
-    _write_report_complete(package_dir, markdown, document_full, quality, standalone_enhanced)
-    _write_enhancement_qa(package_dir, document_full, standalone_enhanced)
-    if staged_inputs is not None:
-        staged_inputs.cleanup()
-        staged_inputs = None
+    _write_parser_artifacts(package_dir, parser_result_dir, document_full, financial_data, financial_checks)
+    _write_report_complete(package_dir, markdown, document_full, quality)
+    _write_enhancement_qa(package_dir, document_full)
     manifest["artifact_hashes"] = compute_artifact_hashes(package_dir)
     write_json(package_dir / "manifest.json", manifest)
     (package_dir / "README.md").write_text(_readme(manifest, quality), encoding="utf-8")
@@ -421,29 +333,12 @@ def write_hk_evidence_package(
     validation = validate_evidence_package(package_dir)
     if not validation.ok:
         write_json(package_dir / "qa" / "contract_validation.json", validation.as_dict())
+    _write_company_wiki_indexes(output_root, company_dir, manifest, quality)
     return package_dir
 
 
-def _path_is_within(path: Path, parent: Path) -> bool:
-    try:
-        path.resolve().relative_to(parent.resolve())
-    except ValueError:
-        return False
-    return True
-
-
-def _standalone_content_list_enhanced(parser_result_dir: Path) -> dict[str, Any]:
-    enhanced = read_json(parser_result_dir / "content_list_enhanced.json", {})
-    return enhanced if isinstance(enhanced, dict) else {}
-
-
-def _content_list_enhanced(
-    document_full: dict[str, Any],
-    fallback: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+def _content_list_enhanced(document_full: dict[str, Any]) -> dict[str, Any]:
     enhanced = document_full.get("content_list_enhanced")
-    if not (isinstance(enhanced, dict) and enhanced):
-        enhanced = fallback
     if not isinstance(enhanced, dict):
         return {}
     tables = enhanced.get("tables") if isinstance(enhanced.get("tables"), list) else []
@@ -464,6 +359,194 @@ def _content_list_enhanced(
         "tables": normalized_tables,
         "pages": enhanced.get("pages") if isinstance(enhanced.get("pages"), list) else [],
     }
+
+
+def _report_id(fiscal_year: Any, report_type: str, filing_key: str) -> str:
+    year = str(fiscal_year or "unknown")
+    kind = re.sub(r"[^A-Za-z0-9_-]+", "-", str(report_type or "annual")).strip("-").lower() or "annual"
+    key = re.sub(r"[^A-Za-z0-9_-]+", "-", str(filing_key or stable_id(year, kind))).strip("-") or "unknown"
+    return f"{year}-{kind}-{key}"
+
+
+def _company_dir_name(ticker: str, company_name: str | None) -> str:
+    code = str(ticker).zfill(5) if str(ticker).isdigit() else str(ticker)
+    return f"{code}-{_slug_part(company_name or code)}"
+
+
+def _slug_part(value: Any) -> str:
+    text = str(value or "").strip()
+    text = re.sub(r"[\\/:*?\"<>|]+", "-", text)
+    text = re.sub(r"\s+", "-", text)
+    text = re.sub(r"-+", "-", text).strip("-.")
+    return text[:80] or "UNKNOWN"
+
+
+def _rel_to(root: Path, path: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(root.resolve()))
+    except ValueError:
+        return str(path)
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _read_existing_json(path: Path) -> dict[str, Any]:
+    payload = read_json(path, {})
+    return payload if isinstance(payload, dict) else {}
+
+
+def _unique_values(values: list[Any]) -> list[str]:
+    seen: set[str] = set()
+    output: list[str] = []
+    for value in values:
+        text = str(value or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        output.append(text)
+    return output
+
+
+def _write_company_wiki_indexes(output_root: Path, company_dir: Path, manifest: dict[str, Any], quality: dict[str, Any]) -> None:
+    report_id = str(manifest.get("report_id") or "")
+    if not report_id:
+        return
+    report_rel = f"reports/{report_id}"
+    report_entry = {
+        "report_id": report_id,
+        "filing_id": manifest.get("filing_id"),
+        "task_id": manifest.get("pdf_parser_task_id"),
+        "market": "HK",
+        "report_kind": manifest.get("report_type"),
+        "report_type": manifest.get("report_type"),
+        "fiscal_year": manifest.get("fiscal_year"),
+        "fiscal_period": manifest.get("fiscal_period"),
+        "period_end": manifest.get("period_end"),
+        "published_at": manifest.get("published_at"),
+        "source_url": manifest.get("source_url"),
+        "source_filename": "report.pdf",
+        "package_path": report_rel,
+        "manifest": f"{report_rel}/manifest.json",
+        "report_md": f"{report_rel}/sections/report.md",
+        "report_complete": f"{report_rel}/sections/report_complete.md",
+        "document_full": f"{report_rel}/parser/document_full.json",
+        "content_list_enhanced": f"{report_rel}/parser/content_list_enhanced.json",
+        "financial_data": f"{report_rel}/metrics/financial_data.json",
+        "financial_checks": f"{report_rel}/metrics/financial_checks.json",
+        "quality_report": f"{report_rel}/qa/quality_report.json",
+        "source_map": f"{report_rel}/qa/source_map.json",
+        "quality_status": quality.get("overall_status") or manifest.get("quality_status"),
+    }
+    existing = _read_existing_json(company_dir / "company.json")
+    reports = [item for item in existing.get("reports") or [] if isinstance(item, dict) and item.get("report_id") != report_id]
+    reports.append(report_entry)
+    reports.sort(key=lambda item: str(item.get("period_end") or item.get("published_at") or ""), reverse=True)
+    primary_report_id = str(reports[0].get("report_id") or report_id)
+    latest_report = next((item for item in reports if item.get("report_id") == primary_report_id), report_entry)
+    company_path_rel = _rel_to(output_root, company_dir)
+    aliases = _unique_values([
+        manifest.get("ticker"),
+        manifest.get("stock_code"),
+        manifest.get("hkex_stock_code"),
+        manifest.get("company_name"),
+        *((manifest.get("aliases") or []) if isinstance(manifest.get("aliases"), list) else []),
+    ])
+    company_json = {
+        **existing,
+        "schema_version": "hk_company_wiki_v1",
+        "market": "HK",
+        "company_id": manifest.get("company_id"),
+        "stock_code": manifest.get("stock_code") or manifest.get("ticker"),
+        "hkex_stock_code": manifest.get("hkex_stock_code") or manifest.get("ticker"),
+        "ticker": manifest.get("ticker"),
+        "exchange": manifest.get("exchange") or "HKEX",
+        "company_short_name": manifest.get("company_name"),
+        "company_full_name": manifest.get("company_name"),
+        "company_name": manifest.get("company_name"),
+        "aliases": aliases,
+        "company_path": company_path_rel,
+        "primary_report_id": primary_report_id,
+        "report_count": len(reports),
+        "reports": reports,
+        "metrics": {
+            "latest": {
+                "financial_data": latest_report.get("financial_data"),
+                "financial_checks": latest_report.get("financial_checks"),
+                "quality_report": latest_report.get("quality_report"),
+            },
+            "by_report": {
+                str(item.get("report_id")): {
+                    "financial_data": item.get("financial_data"),
+                    "financial_checks": item.get("financial_checks"),
+                    "quality_report": item.get("quality_report"),
+                }
+                for item in reports
+                if item.get("report_id")
+            },
+        },
+        "evidence": {
+            "latest_source_map": latest_report.get("source_map"),
+            "latest_manifest": latest_report.get("manifest"),
+        },
+        "updated_at": _now_iso(),
+    }
+    write_json(company_dir / "company.json", company_json)
+    write_json(company_dir / "_index.json", {
+        "schema_version": "hk_company_index_v1",
+        "market": "HK",
+        "company_id": company_json["company_id"],
+        "company_path": company_path_rel,
+        "primary_report_id": primary_report_id,
+        "reports": reports,
+        "updated_at": company_json["updated_at"],
+    })
+    _write_root_catalog(output_root)
+
+
+def _write_root_catalog(output_root: Path) -> None:
+    companies: list[dict[str, Any]] = []
+    for company_json_path in sorted((output_root / "companies").glob("*/company.json")):
+        company = _read_existing_json(company_json_path)
+        if not company:
+            continue
+        companies.append({
+            "company_id": company.get("company_id"),
+            "market": "HK",
+            "stock_code": company.get("stock_code"),
+            "ticker": company.get("ticker"),
+            "exchange": company.get("exchange") or "HKEX",
+            "company_short_name": company.get("company_short_name"),
+            "company_full_name": company.get("company_full_name"),
+            "aliases": company.get("aliases") or [],
+            "company_path": company.get("company_path") or _rel_to(output_root, company_json_path.parent),
+            "primary_report_id": company.get("primary_report_id"),
+            "report_count": company.get("report_count") or len(company.get("reports") or []),
+            "status": "ready",
+        })
+    companies.sort(key=lambda item: str(item.get("stock_code") or item.get("company_id") or ""))
+    write_json(output_root / "_meta" / "company_catalog.json", {
+        "schema_version": "hk_company_catalog_v1",
+        "market": "HK",
+        "company_count": len(companies),
+        "companies": companies,
+        "generated_at": _now_iso(),
+    })
+    guide = output_root / "_meta" / "AGENT_GUIDE.md"
+    if not guide.exists():
+        guide.write_text(
+            "# HK Wiki Agent Guide\n\n"
+            "港股 Wiki 与 A 股保持同类路径语义：先读取 `_meta/company_catalog.json`，"
+            "再进入 `companies/<ticker>-<company>/company.json`，最后按 "
+            "`reports/<report_id>/` 读取单份报告包。\n\n"
+            "数据优先级：`company.json` -> `reports/<report_id>/metrics/financial_data.json` -> "
+            "`reports/<report_id>/metrics/financial_checks.json` -> "
+            "`reports/<report_id>/qa/source_map.json` -> "
+            "`reports/<report_id>/sections/report.md` -> "
+            "`reports/<report_id>/parser/document_full.json` -> PostgreSQL `siq_hk.pdf2md_hk` fallback。\n",
+            encoding="utf-8",
+        )
 
 
 def _empty_parser_financial_data() -> dict[str, Any]:
@@ -489,11 +572,10 @@ def _write_parser_artifacts(
     package_dir: Path,
     parser_result_dir: Path,
     document_full: dict[str, Any],
-    content_list_enhanced: dict[str, Any] | None,
     financial_data: dict[str, Any],
     financial_checks: dict[str, Any],
 ) -> None:
-    enhanced = _content_list_enhanced(document_full, content_list_enhanced)
+    enhanced = _content_list_enhanced(document_full)
     tables = enhanced.get("tables") if isinstance(enhanced.get("tables"), list) else []
     relations: list[dict[str, Any]] = []
     for table in tables:
@@ -525,14 +607,8 @@ def _write_parser_artifacts(
     )
 
 
-def _write_report_complete(
-    package_dir: Path,
-    markdown: str,
-    document_full: dict[str, Any],
-    quality: dict[str, Any],
-    content_list_enhanced: dict[str, Any] | None = None,
-) -> None:
-    enhanced = _content_list_enhanced(document_full, content_list_enhanced)
+def _write_report_complete(package_dir: Path, markdown: str, document_full: dict[str, Any], quality: dict[str, Any]) -> None:
+    enhanced = _content_list_enhanced(document_full)
     footnotes = enhanced.get("footnotes") if isinstance(enhanced.get("footnotes"), dict) else {}
     toc = enhanced.get("toc") if isinstance(enhanced.get("toc"), dict) else {}
     note_links = enhanced.get("financial_note_links") if isinstance(enhanced.get("financial_note_links"), dict) else {}
@@ -555,12 +631,8 @@ def _write_report_complete(
     (package_dir / "sections" / "report_complete.md").write_text(content, encoding="utf-8")
 
 
-def _write_enhancement_qa(
-    package_dir: Path,
-    document_full: dict[str, Any],
-    content_list_enhanced: dict[str, Any] | None = None,
-) -> None:
-    enhanced = _content_list_enhanced(document_full, content_list_enhanced)
+def _write_enhancement_qa(package_dir: Path, document_full: dict[str, Any]) -> None:
+    enhanced = _content_list_enhanced(document_full)
     write_json(package_dir / "qa" / "footnotes.json", {
         "schema_version": "hk_footnotes_v1",
         "payload": enhanced.get("footnotes") or {"references": [], "definitions": [], "bindings": [], "summary": {}},
@@ -577,120 +649,6 @@ def _write_enhancement_qa(
         "schema_version": "hk_table_quality_signals_v1",
         "payload": enhanced.get("quality_signals") or {"signals": [], "summary": {}},
     })
-
-
-def _normalize_financial_data_units(financial_data: dict[str, Any]) -> dict[str, Any]:
-    normalized = copy.deepcopy(financial_data)
-    for statement in normalized.get("statements") or []:
-        if not isinstance(statement, dict):
-            continue
-        _normalize_unit_fields(statement)
-        for item in statement.get("items") or []:
-            if isinstance(item, dict):
-                _normalize_unit_fields(item, fallback_unit=statement.get("unit"), fallback_currency=statement.get("currency"))
-    for bucket in ("key_metrics", "operating_metrics"):
-        for item in normalized.get(bucket) or []:
-            if isinstance(item, dict):
-                _normalize_unit_fields(item)
-    return normalized
-
-
-def _normalize_unit_fields(
-    item: dict[str, Any],
-    *,
-    fallback_unit: str | None = None,
-    fallback_currency: str | None = None,
-) -> None:
-    unit = item.get("unit") or fallback_unit
-    inferred_currency = infer_currency(unit, default=None) or infer_currency(item.get("currency"), fallback_currency, default=item.get("currency") or fallback_currency)
-    if inferred_currency:
-        item["currency"] = inferred_currency
-    if unit:
-        scale = infer_scale(unit)
-        if scale != 1:
-            item["scale"] = str(scale)
-
-
-def _financial_metric_count(financial_data: dict[str, Any]) -> int:
-    count = 0
-    for statement in financial_data.get("statements") or []:
-        if not isinstance(statement, dict):
-            continue
-        for item in statement.get("items") or []:
-            count += _metric_item_value_count(item)
-    for bucket in ("key_metrics", "operating_metrics"):
-        for item in financial_data.get(bucket) or []:
-            count += _metric_item_value_count(item)
-    return count
-
-
-def _metric_item_value_count(item: Any) -> int:
-    if not isinstance(item, dict):
-        return 0
-    values = item.get("values")
-    if isinstance(values, dict):
-        return len([value for value in values.values() if value not in (None, "")])
-    if item.get("value") not in (None, "") and (item.get("period_key") or item.get("canonical_name") or item.get("label")):
-        return 1
-    return 0
-
-
-def _write_parser_table_index(
-    package_dir: Path,
-    parser_result_dir: Path,
-    document_full: dict[str, Any],
-    content_list_enhanced: dict[str, Any] | None,
-) -> list[dict[str, Any]]:
-    payload = read_json(parser_result_dir / "table_index.json", {})
-    if isinstance(payload, list):
-        tables = payload
-    elif isinstance(payload, dict):
-        tables = payload.get("tables") if isinstance(payload.get("tables"), list) else []
-    else:
-        tables = []
-    if not tables:
-        enhanced = _content_list_enhanced(document_full, content_list_enhanced)
-        tables = enhanced.get("tables") if isinstance(enhanced.get("tables"), list) else []
-    rows: list[dict[str, Any]] = []
-    for offset, item in enumerate((table for table in tables if isinstance(table, dict)), start=1):
-        raw = item.get("raw") if isinstance(item.get("raw"), dict) else item
-        table_index = _int_or_none(item.get("table_index") or raw.get("table_index")) or offset
-        structure = raw.get("structure") if isinstance(raw.get("structure"), dict) else {}
-        rel_path = str(item.get("table_json_path") or f"tables/table_{int(table_index):04d}.json")
-        if not rel_path.startswith("tables/"):
-            rel_path = f"tables/{Path(rel_path).name}"
-        normalized = {
-            "table_id": item.get("table_id") or f"hk_table_{int(table_index):04d}",
-            "table_index": table_index,
-            "title": item.get("title") or raw.get("title") or raw.get("heading"),
-            "page_number": item.get("page_number") or item.get("pdf_page_number") or raw.get("pdf_page_number") or raw.get("page_number"),
-            "row_count": item.get("row_count") or raw.get("rows") or structure.get("expanded_rows"),
-            "column_count": item.get("column_count") or structure.get("expanded_columns"),
-            "table_json_path": rel_path,
-            "unit": item.get("unit") or raw.get("unit"),
-            "currency": item.get("currency") or raw.get("currency"),
-            "raw": raw,
-        }
-        rows.append(normalized)
-        write_json(package_dir / rel_path, {**normalized, "rows": _table_rows_from_index_item(item, raw)})
-    write_json(package_dir / "tables" / "table_index.json", {"schema_version": "hk_table_index_v1", "tables": rows})
-    return rows
-
-
-def _table_rows_from_index_item(item: dict[str, Any], raw: dict[str, Any]) -> list[list[str]]:
-    existing_rows = item.get("rows")
-    if isinstance(existing_rows, list) and existing_rows and all(isinstance(row, list) for row in existing_rows):
-        return existing_rows
-    structure = raw.get("structure") if isinstance(raw.get("structure"), dict) else {}
-    rows: list[list[str]] = []
-    for value in structure.get("header_preview") or []:
-        row = [cell.strip() for cell in str(value).split("|")]
-        if any(row):
-            rows.append(row)
-    preview = str(raw.get("preview") or item.get("preview") or "").strip()
-    if preview:
-        rows.append([preview])
-    return rows
 
 
 def _write_tables(package_dir: Path, tables: list[ParsedTable]) -> list[dict[str, Any]]:
@@ -789,7 +747,7 @@ def _page_number(item: dict[str, Any]) -> int | None:
 def _default_unit(document_full: dict[str, Any]) -> str | None:
     filename = str(document_full.get("task", {}).get("filename") if isinstance(document_full.get("task"), dict) else "")
     if "HK" in filename:
-        return None
+        return "HKD"
     return None
 
 
@@ -799,7 +757,7 @@ def _default_currency(metadata: dict[str, Any]) -> str | None:
         return "CNY"
     if "usd" in text or "us$" in text:
         return "USD"
-    return None
+    return "HKD"
 
 
 def _parser_warnings(document_full: dict[str, Any], tables: list[ParsedTable]) -> list[str]:
@@ -846,49 +804,6 @@ def _int_or_none(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
-
-
-def _industry_profile(candidate: dict[str, Any], company_name: str | None) -> str:
-    explicit = str(candidate.get("industry_profile") or candidate.get("industry") or "").strip().lower()
-    if explicit in {
-        "bank",
-        "insurance",
-        "internet_platform",
-        "semiconductor",
-        "telecom",
-        "energy",
-        "manufacturing",
-        "real_estate",
-        "retail",
-        "saas",
-    }:
-        return explicit
-    text = " ".join(
-        str(value or "")
-        for value in (
-            candidate.get("ticker"),
-            candidate.get("company_id"),
-            company_name,
-            candidate.get("stock_name"),
-            (candidate.get("metadata") or {}).get("stock_name") if isinstance(candidate.get("metadata"), dict) else None,
-        )
-    ).lower()
-    compact = re.sub(r"[^0-9a-z]+", " ", text)
-    rules: tuple[tuple[str, tuple[str, ...]], ...] = (
-        ("bank", ("bank", "hsbc", "hang seng", "standard chartered", "icbc", "ccb", "abc", "boc", "bankcomm")),
-        ("insurance", ("insurance", "insur", "aia", "ping an", "china life", "cpic", "picc", "prudential")),
-        ("internet_platform", ("tencent", "alibaba", "baba", "jd", "meituan", "kuaishou", "netease", "baidu", "trip com", "bilibili")),
-        ("semiconductor", ("semiconductor", "smic", "hua hong", "chip", "microelectronics")),
-        ("telecom", ("telecom", "mobile", "unicom", "tower")),
-        ("energy", ("sinopec", "petrochina", "cnooc", "shenhua", "coal", "oil", "gas", "energy", "power")),
-        ("manufacturing", ("auto", "automobile", "geely", "byd", "great wall", "li auto", "motor", "machinery")),
-        ("real_estate", ("property", "properties", "land", "real estate", "developer", "reit")),
-        ("retail", ("retail", "consumer", "restaurant", "stores")),
-    )
-    for profile, aliases in rules:
-        if any(alias in compact for alias in aliases):
-            return profile
-    return "general"
 
 
 def _accounting_standard(metadata: dict[str, Any]) -> str:

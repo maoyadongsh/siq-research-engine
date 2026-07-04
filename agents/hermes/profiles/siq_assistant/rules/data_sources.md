@@ -8,6 +8,14 @@
 /home/maoyd/siq-research-engine/data/wiki/_meta/company_catalog.json
 ```
 
+港股 HK 使用独立但同构的市场 Wiki 根目录：
+
+```text
+/home/maoyd/siq-research-engine/data/wiki/hk/_meta/company_catalog.json
+/home/maoyd/siq-research-engine/data/wiki/hk/companies/<ticker>-<company>/company.json
+/home/maoyd/siq-research-engine/data/wiki/hk/companies/<ticker>-<company>/reports/<report_id>/
+```
+
 必须通过 `resolve_company.py` 唯一定位公司，或直接读取 catalog 并使用其中的 `company_path`；严禁手写猜测 `/home/maoyd/siq-research-engine/data/wiki/companies/<公司名>`，也严禁把公司简称翻译成英文目录或拼音目录。
 
 输出功能介绍、提问示例、示例命令或示例问题时，所有公司名也必须来自该 catalog 的实时内容；不得使用任何不在实时 catalog 中的公司。无法确认 catalog 时，不列具体公司名，改写为“某个已入库公司”。
@@ -28,6 +36,7 @@
 1. `company_catalog.json` / `resolve_company.py`
 2. `company.json` / `company.md`
 3. 主表、核心指标和所有财务数字，先读 `metrics/reports/<report_id>/three_statements.json`、`key_metrics.json`、`validation.json`；未指定时读 `metrics/latest/`，旧 `metrics/*.json` 只作兼容入口
+   - HK 公司级 Wiki 中，核心财务数字优先读 `reports/<report_id>/metrics/financial_data.json`、`financial_checks.json`、`qa/source_map.json`；路径和 A 股同样挂在 `companies/<company>/reports/<report_id>/` 下。
 4. `semantic/retrieval_index.json`、`document_links.json`、`note_links.json`、`facts.json`、`claims.json` 只用于管理层讨论、风险因素、业务结构和主表项目的附注展开
 5. `evidence/evidence_index.json`
 6. `reports/<report_id>/report.md`
@@ -53,6 +62,8 @@
 ## PostgreSQL 备用/增强接口
 
 默认优先使用 wiki 的 `metrics/*.json` 与 `evidence/*.json`。当 wiki 文件缺失、损坏、需要交叉校验，或用户明确要求使用数据库时，才查询 PostgreSQL。
+
+HK PostgreSQL fallback 只读查询目标为同一 PostgreSQL 实例内的 `siq_hk.pdf2md_hk`。不要把 HK 财报当成 A 股 `siq.pdf2md` 查询；HK 公司主键为 `HK:<5位股票代码>`，例如 `HK:00700`。
 
 推荐查询入口：
 

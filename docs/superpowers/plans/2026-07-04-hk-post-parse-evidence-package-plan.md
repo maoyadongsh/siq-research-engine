@@ -4,14 +4,14 @@
 
 **Goal:** 将 HK 解析产物处理升级为与 A 股 PDF 后处理产物结构对齐的 V2 evidence package，并完成 HK 独立 PostgreSQL 数据库 `siq_hk.pdf2md_hk` 入库管道、前端状态入口可见性、以及可重复的样本验收。结构复用 A 股的工程契约；抽取规则只按 HKEX 年报/中报的实际 PDF 产物适配。
 
-**Architecture:** HK 构建器从 `document_full.json`、`content_list_enhanced`、`quality_report.json` 等 parser 产物生成 `data/wiki/hk_reports/<ticker>/<fiscal_year>/<report_type>_<filing_key>/`。包内保留原始 parser 产物、增强 Markdown、表格索引、脚注/目录/附注关系、质量报告、财务指标与 evidence 坐标。统一 package contract 读取这些路径，API 将 HK 导入路由到 `siq_hk`，importer 将 V2 结构写入 `pdf2md_hk` 新增表。Milvus 继续使用市场级 collection 参数，HK 默认 collection 为 `siq_hk_reports`。
+**Architecture:** HK 构建器从 `document_full.json`、`content_list_enhanced`、`quality_report.json` 等 parser 产物生成 `data/wiki/hk/companies/<ticker>-<company>/reports/<fiscal_year>-<report_type>-<filing_key>/`。包内保留原始 parser 产物、增强 Markdown、表格索引、脚注/目录/附注关系、质量报告、财务指标与 evidence 坐标，并写入公司级 `company.json`、`_index.json` 与 `_meta/company_catalog.json`。统一 package contract 读取这些路径，API 将 HK 导入路由到 `siq_hk`，importer 将 V2 结构写入 `pdf2md_hk` 新增表。Milvus 继续使用市场级 collection 参数，HK 默认 collection 为 `siq_hk_reports`。
 
 **Tech Stack:** Python 3.13, pytest, psycopg, PostgreSQL, existing `market-report-rules`, `market-contracts`, `apps/api`, `scripts/hk`, `db/ddl`, `db/imports`, existing evidence package validator.
 
 ## Global Constraints
 
 - 不修改 A 股 CN 默认流程、schema、产物路径和解析结果。
-- HK wiki 根目录固定为 `data/wiki/hk_reports`；HK PostgreSQL 默认目标库为同一 Postgres 实例内的 `siq_hk`，schema 为 `pdf2md_hk`。
+- HK wiki 根目录固定为 `data/wiki/hk`，单报告包固定在 `companies/<ticker>-<company>/reports/<report_id>`；旧 `data/wiki/hk_reports` 仅作为迁移兼容路径。HK PostgreSQL 默认目标库为同一 Postgres 实例内的 `siq_hk`，schema 为 `pdf2md_hk`。
 - `company_id` 使用 `HK:<5位股票代码>`，例如 `HK:00700`；`ticker`、`stock_code`、`hkex_stock_code` 均保留 `00700` 形式；公司名称、简称、别名只作为属性或搜索字段，不作为主键。
 - HK 数值抽取不得由 LLM 猜测。所有 `financial_facts`、`operating_metric_facts` 和 `evidence_citations` 必须可追溯到 package 内的 page/table/row/column/quote/path/source 信息。
 - HK 可以复用 A 股“PDF 表格 -> 科目 alias -> evidence 坐标 -> 入库”的工程方式，但科目 alias、报表识别、会计准则、币种/单位、双语标题和 HKEX 披露字段必须独立适配。
@@ -324,13 +324,13 @@ Expected: HK package detail 后端返回 V2 文件，前端能够消费动态 pa
 - `docs/superpowers/reports/`
 
 **Behavior:**
-对现有 `data/wiki/hk_reports` 中 5 个代表性 package 做结构、质量、导入 dry run 检查，并输出中文报告。首批样本固定为：
+对现有 `data/wiki/hk/companies/*/reports/*` 中 5 个代表性 package 做结构、质量、导入 dry run 检查，并输出中文报告。首批样本对应：
 
-- `data/wiki/hk_reports/00700/2025/annual_12100024`
-- `data/wiki/hk_reports/01299/2025/annual_12106543`
-- `data/wiki/hk_reports/00981/2025/annual_12097338`
-- `data/wiki/hk_reports/03988/2025/annual_12132549`
-- `data/wiki/hk_reports/09988/2025/annual_11727038`
+- `data/wiki/hk/companies/00700-*/reports/2025-annual-12100024`
+- `data/wiki/hk/companies/01299-*/reports/2025-annual-12106543`
+- `data/wiki/hk/companies/00981-*/reports/2025-annual-12097338`
+- `data/wiki/hk/companies/03988-*/reports/2025-annual-12132549`
+- `data/wiki/hk/companies/09988-*/reports/2025-annual-11727038`
 
 **TDD Steps:**
 
@@ -339,7 +339,7 @@ Expected: HK package detail 后端返回 V2 文件，前端能够消费动态 pa
 
 **Implementation Steps:**
 
-- [ ] 脚本参数：`--root data/wiki/hk_reports`、`--output docs/superpowers/reports/hk_v2_smoke_report.md`、`--json-output docs/superpowers/reports/hk_v2_smoke_report.json`。
+- [ ] 脚本参数：`--root data/wiki/hk`、`--output docs/superpowers/reports/hk_v2_smoke_report.md`、`--json-output docs/superpowers/reports/hk_v2_smoke_report.json`。
 - [ ] 对每个样本读取 `manifest.json`、`qa/quality_report.json`、`tables/table_index.json`、`metrics/normalized_metrics.json`、`qa/source_map.json`。
 - [ ] 输出每个样本：公司、ticker、filing_id、quality、sections、tables、metrics、evidence、缺失文件、主要 warnings。
 - [ ] 输出聚合结论：通过/警告/失败、下一步需要补的 HK alias 或表格规则。
@@ -349,7 +349,7 @@ Expected: HK package detail 后端返回 V2 文件，前端能够消费动态 pa
 ```bash
 cd /home/maoyd/siq-research-engine
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/hk/run_hk_v2_smoke.py \
-  --root data/wiki/hk_reports \
+  --root data/wiki/hk \
   --output docs/superpowers/reports/hk_v2_smoke_report.md \
   --json-output docs/superpowers/reports/hk_v2_smoke_report.json
 ```
@@ -379,7 +379,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 scripts/hk/build_hk_evidence_package.py \
   <source_pdf_path> \
   --parser-result <parser_result_dir> \
   --metadata <metadata_path> \
-  --output-root data/wiki/hk_reports \
+  --output-root data/wiki/hk \
   --force
 ```
 
@@ -390,7 +390,7 @@ cd /home/maoyd/siq-research-engine/packages/market-contracts
 PYTHONDONTWRITEBYTECODE=1 .venv/bin/python - <<'PY'
 from pathlib import Path
 from siq_market_contracts.evidence_package import validate_evidence_package, read_market_package_detail
-p = Path('/home/maoyd/siq-research-engine/data/wiki/hk_reports/00700/2025/annual_12100024')
+p = next(Path('/home/maoyd/siq-research-engine/data/wiki/hk/companies').glob('00700-*/reports/2025-annual-12100024'))
 result = validate_evidence_package(p)
 print(result.ok, result.errors)
 print(read_market_package_detail(p)['paths'])
@@ -402,7 +402,7 @@ PY
 ```bash
 cd /home/maoyd/siq-research-engine
 SIQ_HK_PGDATABASE=siq_hk PYTHONDONTWRITEBYTECODE=1 python3 db/imports/import_hk_evidence_package_to_postgres.py \
-  data/wiki/hk_reports/00700/2025/annual_12100024 \
+  data/wiki/hk/companies/00700-TENCENT/reports/2025-annual-12100024 \
   --ddl
 ```
 
@@ -428,7 +428,7 @@ union all select 'financial_note_links', count(*) from pdf2md_hk.financial_note_
 ```bash
 cd /home/maoyd/siq-research-engine
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/vector-index/milvus-ingestion/ingest_market_evidence_chunks.py \
-  --package data/wiki/hk_reports/00700/2025/annual_12100024 \
+  --package data/wiki/hk/companies/00700-TENCENT/reports/2025-annual-12100024 \
   --batch-tag hk-v2-smoke \
   --collection siq_hk_reports \
   --dry-run

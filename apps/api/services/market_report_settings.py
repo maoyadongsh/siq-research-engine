@@ -82,22 +82,10 @@ MARKET_INGESTION_EVAL_MARKDOWN_PATH = _env_path(
 
 MARKET_WIKI_ROOTS = {
     "US": _env_path("SIQ_US_SEC_WIKI_ROOT", default=REPO_ROOT / "data" / "wiki" / "us_sec"),
-    "HK": _env_path("SIQ_HK_WIKI_ROOT", default=REPO_ROOT / "data" / "wiki" / "hk_reports"),
+    "HK": _env_path("SIQ_HK_WIKI_ROOT", default=REPO_ROOT / "data" / "wiki" / "hk"),
     "JP": _env_path("SIQ_JP_WIKI_ROOT", default=REPO_ROOT / "data" / "wiki" / "jp_reports"),
     "KR": _env_path("SIQ_KR_WIKI_ROOT", default=REPO_ROOT / "data" / "wiki" / "kr_reports"),
     "EU": _env_path("SIQ_EU_WIKI_ROOT", default=REPO_ROOT / "data" / "wiki" / "eu_reports"),
-}
-
-MARKET_DATABASES = {
-    "US": _env_str("SIQ_US_PGDATABASE", default="siq_us"),
-    "HK": _env_str("SIQ_HK_PGDATABASE", default="siq_hk"),
-    "JP": _env_str("SIQ_JP_PGDATABASE", default="siq_jp"),
-    "KR": _env_str("SIQ_KR_PGDATABASE", default="siq_kr"),
-    "EU": _env_str("SIQ_EU_PGDATABASE", default="siq_eu"),
-}
-
-MARKET_VECTOR_COLLECTIONS = {
-    "HK": _env_str("SIQ_HK_MILVUS_COLLECTION", default="siq_hk_reports"),
 }
 
 MARKET_BUILD_SCRIPTS = {
@@ -119,4 +107,20 @@ MARKET_IMPORT_SCRIPTS = {
     "JP": _env_path("SIQ_JP_IMPORT_SCRIPT", default=REPO_ROOT / "db" / "imports" / "import_jp_evidence_package_to_postgres.py"),
     "KR": _env_path("SIQ_KR_IMPORT_SCRIPT", default=REPO_ROOT / "db" / "imports" / "import_kr_evidence_package_to_postgres.py"),
     "EU": _env_path("SIQ_EU_IMPORT_SCRIPT", default=REPO_ROOT / "db" / "imports" / "import_eu_evidence_package_to_postgres.py"),
+}
+
+MARKET_DATABASES = {
+    "US": _env_str("SIQ_US_PGDATABASE", default="siq_us"),
+    "HK": _env_str("SIQ_HK_PGDATABASE", default="siq_hk"),
+    "JP": _env_str("SIQ_JP_PGDATABASE", default="siq_jp"),
+    "KR": _env_str("SIQ_KR_PGDATABASE", default="siq_kr"),
+    "EU": _env_str("SIQ_EU_PGDATABASE", default="siq_eu"),
+}
+
+MARKET_VECTOR_COLLECTIONS = {
+    "US": _env_str("SIQ_US_VECTOR_COLLECTION", default="siq_us_sec_reports"),
+    "HK": _env_str("SIQ_HK_VECTOR_COLLECTION", default="siq_hk_reports"),
+    "JP": _env_str("SIQ_JP_VECTOR_COLLECTION", default="siq_jp_reports"),
+    "KR": _env_str("SIQ_KR_VECTOR_COLLECTION", default="siq_kr_reports"),
+    "EU": _env_str("SIQ_EU_VECTOR_COLLECTION", default="siq_eu_reports"),
 }

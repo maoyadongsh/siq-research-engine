@@ -12,7 +12,7 @@ HK 应该在解析产物结构上对齐 A 股 PDF 解析后的增强合同，但
 
 - 不修改 A 股默认行为。
 - 不把 HK 数据写入 `siq.pdf2md`。
-- HK package 输出到 `data/wiki/hk_reports`。
+- HK package 输出到 `data/wiki/hk/companies/<ticker>-<company>/reports/<report_id>`，路径语义对齐 A 股 `data/wiki/companies/<code>-<company>/reports/<report_id>`。
 - HK PostgreSQL 目标是 `siq_hk.pdf2md_hk`。
 - HK Milvus collection 目标是 `siq_hk_reports`。
 - 财务数字只能来自解析表格、parser 产物或明确的人工修正记录，不能由 LLM 猜数。
@@ -69,47 +69,58 @@ HK 抽取规则必须符合 HKEX PDF 的真实披露情况：
 
 ## 4. HK Evidence Package V2 结构
 
-HK package 保持当前市场包根路径，同时补齐与 A 股对齐的 parser/enhancement 产物：
+HK package 使用市场独立根路径，但目录语义与 A 股公司 Wiki 对齐：
 
 ```text
-data/wiki/hk_reports/<ticker>/<fiscal_year>/<report_type>_<filing_key>/
-  manifest.json
-  README.md
-  raw/
-    report.pdf
-    report.metadata.json
-  sections/
-    report.md
-    report_complete.md
-    section_index.json
-  parser/
-    document_full.json
-    content_list_enhanced.json
-    table_relations.json
-    quality_report.original.json
-    financial_data.original.json
-    financial_checks.original.json
-  tables/
-    table_index.json
-    table_0001.json
-    table_0002.json
-  metrics/
-    financial_data.json
-    financial_checks.json
-    load_plan.json
-    normalized_metrics.json
-    operating_metrics.json
-  qa/
-    quality_report.json
-    source_map.json
-    extraction_warnings.json
-    footnotes.json
-    toc.json
-    financial_note_links.json
-    table_quality_signals.json
+data/wiki/hk/
+  _meta/
+    company_catalog.json
+    AGENT_GUIDE.md
+  companies/
+    <ticker>-<company>/
+      company.json
+      _index.json
+      reports/
+        <fiscal_year>-<report_type>-<filing_key>/
+          manifest.json
+          README.md
+          raw/
+            report.pdf
+            report.metadata.json
+          sections/
+            report.md
+            report_complete.md
+            section_index.json
+          parser/
+            document_full.json
+            content_list_enhanced.json
+            table_relations.json
+            quality_report.json
+            financial_data.json
+            financial_checks.json
+          tables/
+            table_index.json
+            table_0001.json
+            table_0002.json
+          metrics/
+            financial_data.json
+            financial_checks.json
+            load_plan.json
+            normalized_metrics.json
+            operating_metrics.json
+          qa/
+            quality_report.json
+            source_map.json
+            extraction_warnings.json
+            footnotes.json
+            toc.json
+            financial_note_links.json
+            table_quality_signals.json
 ```
 
 `parser/` 保存 parser 侧原始增强产物，作为 provenance。`metrics/` 保存 HK 规则归一化后的市场事实。`qa/` 保存 evidence、溯源、warning 和审计辅助信息。
+
+旧 `data/wiki/hk_reports` 仅作为迁移兼容路径，不作为长期主路径。
 
 ## 5. 主体身份和主键规则
 
