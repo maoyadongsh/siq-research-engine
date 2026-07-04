@@ -50,6 +50,31 @@ def _write_market_package(root: Path, *parts: str) -> Path:
     return package_dir
 
 
+def _write_hk_v2_package(root: Path, *parts: str) -> Path:
+    package_dir = root.joinpath(*parts)
+    for name in ("raw", "sections", "tables", "xbrl", "metrics", "qa", "parser"):
+        (package_dir / name).mkdir(parents=True, exist_ok=True)
+    (package_dir / "README.md").write_text("# HK package\n", encoding="utf-8")
+    (package_dir / "raw" / "report.pdf").write_bytes(b"%PDF-1.4 hk")
+    (package_dir / "sections" / "report.md").write_text("# Report\n", encoding="utf-8")
+    (package_dir / "sections" / "report_complete.md").write_text("# Report Complete\n", encoding="utf-8")
+    (package_dir / "tables" / "table_index.json").write_text(json.dumps({"tables": [{"table_index": 1}]}, ensure_ascii=False), encoding="utf-8")
+    (package_dir / "metrics" / "financial_data.json").write_text(json.dumps({"statements": []}, ensure_ascii=False), encoding="utf-8")
+    (package_dir / "metrics" / "financial_checks.json").write_text(json.dumps({"overall_status": "warning"}, ensure_ascii=False), encoding="utf-8")
+    (package_dir / "metrics" / "normalized_metrics.json").write_text(json.dumps({"metrics": [{"metric_id": "m1"}]}, ensure_ascii=False), encoding="utf-8")
+    (package_dir / "qa" / "quality_report.json").write_text(json.dumps({"overall_status": "warning", "section_count": 2, "table_count": 3, "raw_fact_count": 4, "normalized_metric_count": 5}, ensure_ascii=False), encoding="utf-8")
+    (package_dir / "qa" / "source_map.json").write_text(json.dumps({"entries": [{"evidence_id": "e1"}, {"evidence_id": "e2"}]}, ensure_ascii=False), encoding="utf-8")
+    (package_dir / "parser" / "document_full.json").write_text(json.dumps({"content_list_enhanced": {"footnotes": {"references": [{"id": "fn1"}]}, "toc": {"headings": [{"title": "Overview"}]}}}, ensure_ascii=False), encoding="utf-8")
+    (package_dir / "parser" / "content_list_enhanced.json").write_text(json.dumps({"footnotes": {"references": [{"id": "fn1"}]}, "toc": {"headings": [{"title": "Overview"}]}, "financial_note_links": {"links": [{"note": "1"}]}, "tables": [{"table_index": 1, "relations": [{"type": "footnote", "target": "fn1"}]}], "quality_signals": {"tables": [{"table_index": 1, "score": 0.95}]}, "pages": [{"page_number": 1}]}, ensure_ascii=False), encoding="utf-8")
+    (package_dir / "parser" / "table_relations.json").write_text(json.dumps({"schema_version": "hk_table_relations_v1", "relations": [{"type": "footnote", "target": "fn1"}]}, ensure_ascii=False), encoding="utf-8")
+    (package_dir / "qa" / "footnotes.json").write_text(json.dumps({"schema_version": "hk_footnotes_v1", "payload": {"references": [{"id": "fn1"}]}}, ensure_ascii=False), encoding="utf-8")
+    (package_dir / "qa" / "toc.json").write_text(json.dumps({"schema_version": "hk_toc_v1", "payload": {"headings": [{"title": "Overview"}]}}, ensure_ascii=False), encoding="utf-8")
+    (package_dir / "qa" / "financial_note_links.json").write_text(json.dumps({"schema_version": "hk_financial_note_links_v1", "payload": {"links": [{"note": "1"}]}}, ensure_ascii=False), encoding="utf-8")
+    (package_dir / "qa" / "table_quality_signals.json").write_text(json.dumps({"schema_version": "hk_table_quality_signals_v1", "payload": {"tables": [{"table_index": 1, "score": 0.95}]}}, ensure_ascii=False), encoding="utf-8")
+    (package_dir / "manifest.json").write_text(json.dumps({"market": "HK", "filing_id": "HK:00700:12100024", "ticker": "00700", "company_name": "TENCENT", "form": "annual", "report_type": "annual", "fiscal_year": 2025, "fiscal_period": "FY", "period_end": "2025-12-31", "published_at": "2026-04-09", "quality_status": "warning", "parse_run_id": "run-1"}, ensure_ascii=False), encoding="utf-8")
+    return package_dir
+
+
 class DummyUser:
     id = 42
     username = "ops"
@@ -824,6 +849,24 @@ def test_market_package_summary_reads_us_package():
     assert summary["counts"]["metrics"] >= 1
     assert summary["counts"]["evidence"] >= 1
     assert summary["paths"]["source_map"].endswith("qa/source_map.json")
+
+
+def test_market_package_detail_returns_hk_v2_paths(monkeypatch, tmp_path):
+    wiki_root = tmp_path / "wiki" / "hk_reports"
+    package_dir = _write_hk_v2_package(wiki_root, "00700", "2025", "annual_12100024")
+    monkeypatch.setitem(market_reports.MARKET_WIKI_ROOTS, "HK", wiki_root)
+
+    by_path = asyncio.run(market_reports.market_package_detail_by_path("HK", str(package_dir)))
+    by_filing_id = asyncio.run(market_reports.market_package_detail_by_filing_id("HK:00700:12100024", "HK"))
+
+    for payload in (by_path, by_filing_id):
+        assert payload["paths"]["document_full"] == "parser/document_full.json"
+        assert payload["paths"]["content_list_enhanced"] == "parser/content_list_enhanced.json"
+        assert payload["paths"]["report_complete"] == "sections/report_complete.md"
+        assert payload["paths"]["footnotes"] == "qa/footnotes.json"
+        assert payload["paths"]["toc"] == "qa/toc.json"
+        assert payload["paths"]["financial_note_links"] == "qa/financial_note_links.json"
+        assert payload["paths"]["table_quality_signals"] == "qa/table_quality_signals.json"
 
 
 def test_market_package_quality_routes_keep_response_contract(monkeypatch, tmp_path):

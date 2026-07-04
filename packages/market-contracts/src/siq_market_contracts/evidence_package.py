@@ -50,6 +50,14 @@ PACKAGE_FILE_PATHS = {
     "financial_checks": "metrics/financial_checks.json",
     "normalized_metrics": "metrics/normalized_metrics.json",
     "table_index": "tables/table_index.json",
+    "report_complete": "sections/report_complete.md",
+    "document_full": "parser/document_full.json",
+    "content_list_enhanced": "parser/content_list_enhanced.json",
+    "table_relations": "parser/table_relations.json",
+    "footnotes": "qa/footnotes.json",
+    "toc": "qa/toc.json",
+    "financial_note_links": "qa/financial_note_links.json",
+    "table_quality_signals": "qa/table_quality_signals.json",
 }
 
 
@@ -146,6 +154,14 @@ def _tables(payload: dict[str, Any]) -> list[Any]:
     return tables if isinstance(tables, list) else []
 
 
+def _artifact_payloads(package_dir: Path, artifacts: dict[str, str]) -> dict[str, Any]:
+    return {
+        key: read_json(package_dir / rel, {})
+        for key, rel in artifacts.items()
+        if (package_dir / rel).exists()
+    }
+
+
 def read_market_package_summary(package_dir: Path, *, display_path: str | None = None) -> dict[str, Any]:
     package_dir = package_dir.resolve()
     manifest = read_json(package_dir / "manifest.json", {})
@@ -185,6 +201,17 @@ def read_market_package_detail(package_dir: Path, *, display_path: str | None = 
     source_map = read_json(package_dir / "qa" / "source_map.json", {})
     table_index = read_json(package_dir / "tables" / "table_index.json", {})
     normalized_metrics = read_json(package_dir / "metrics" / "normalized_metrics.json", {})
+    parser_artifact_paths = {
+        "document_full": PACKAGE_FILE_PATHS["document_full"],
+        "content_list_enhanced": PACKAGE_FILE_PATHS["content_list_enhanced"],
+        "table_relations": PACKAGE_FILE_PATHS["table_relations"],
+    }
+    qa_artifact_paths = {
+        "footnotes": PACKAGE_FILE_PATHS["footnotes"],
+        "toc": PACKAGE_FILE_PATHS["toc"],
+        "financial_note_links": PACKAGE_FILE_PATHS["financial_note_links"],
+        "table_quality_signals": PACKAGE_FILE_PATHS["table_quality_signals"],
+    }
     return {
         **summary,
         "manifest": read_json(package_dir / "manifest.json", {}),
@@ -194,6 +221,8 @@ def read_market_package_detail(package_dir: Path, *, display_path: str | None = 
         "metrics": _normalized_metrics(normalized_metrics),
         "source_map": _source_map_entries(source_map),
         "tables": _tables(table_index),
+        "parser_artifacts": _artifact_payloads(package_dir, parser_artifact_paths),
+        "qa_artifacts": _artifact_payloads(package_dir, qa_artifact_paths),
     }
 
 
