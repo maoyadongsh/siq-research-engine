@@ -13,6 +13,7 @@ import {
   runMarketPackageImportAction,
   runMarketPackageVectorDryRunAction,
 } from '../../features/market-parsing/packageActions'
+import { groupMarketPackagePaths } from '../../features/market-parsing/packageFiles'
 
 function numberText(value: unknown): string {
   const n = Number(value || 0)
@@ -100,6 +101,7 @@ export function MarketEvidencePackagesPanel({ market }: { market: MarketCode }) 
   const metrics = detail?.metrics || []
   const tables = detail?.tables || []
   const paths = detail?.paths || selected?.paths || {}
+  const pathGroups = groupMarketPackagePaths(paths)
 
   const runPostgres = useCallback(async () => {
     if (!selectedPath) return
@@ -290,21 +292,26 @@ export function MarketEvidencePackagesPanel({ market }: { market: MarketCode }) 
                 <Database className="h-4 w-4 text-primary" />
                 Package Files
               </div>
-              <div className="mt-3 space-y-2 text-xs">
-                {Object.entries(paths).map(([name, path]) => {
-                  const file = path.replace(/^\/+/, '')
-                  return (
-                    <a
-                      key={name}
-                      href={selectedPath ? marketPackageFileUrl(market, selectedPath, file) : '#'}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="block truncate rounded-md border border-border bg-surface-soft px-3 py-2 text-primary hover:bg-white"
-                    >
-                      {name}: {file}
-                    </a>
-                  )
-                })}
+              <div className="mt-3 space-y-3 text-xs">
+                {pathGroups.map((group) => (
+                  <div key={group.id}>
+                    <div className="mb-1 font-semibold text-text-muted">{group.label}</div>
+                    <div className="space-y-2">
+                      {group.entries.map(({ name, file }) => (
+                        <a
+                          key={`${name}:${file}`}
+                          href={selectedPath ? marketPackageFileUrl(market, selectedPath, file) : '#'}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block truncate rounded-md border border-border bg-surface-soft px-3 py-2 text-primary hover:bg-white"
+                        >
+                          {name}: {file}
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                {!pathGroups.length && <div className="rounded-md bg-surface-soft px-3 py-8 text-center text-text-muted">暂无文件</div>}
               </div>
             </div>
           </div>

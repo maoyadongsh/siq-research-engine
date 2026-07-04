@@ -138,6 +138,8 @@ export interface MarketPackageDetail extends MarketPackageSummary {
   metrics?: Array<Record<string, unknown>>
   source_map?: Array<Record<string, unknown>>
   tables?: Array<Record<string, unknown>>
+  parser_artifacts?: Record<string, unknown>
+  qa_artifacts?: Record<string, unknown>
 }
 
 export interface MarketPackagesResponse {
