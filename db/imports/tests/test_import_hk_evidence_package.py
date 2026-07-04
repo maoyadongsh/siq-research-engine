@@ -61,5 +61,7 @@ def test_hk_ddl_exposes_agent_recall_columns_and_views():
     assert "alter table pdf2md_hk.evidence_citations add column if not exists bbox jsonb" in ddl
     assert "alter table pdf2md_hk.retrieval_chunks add column if not exists company_id text" in ddl
     assert "alter table pdf2md_hk.retrieval_chunks add column if not exists text text" in ddl
+    assert "uq_pdf2md_hk_companies_hkex_stock_code" in ddl
+    assert "on pdf2md_hk.companies (hkex_stock_code)" in ddl
     assert "create or replace view pdf2md_hk.v_agent_financial_facts" in ddl
     assert "create or replace view pdf2md_hk.v_latest_company_reports" in ddl
