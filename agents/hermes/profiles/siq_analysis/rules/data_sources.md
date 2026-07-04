@@ -48,6 +48,14 @@
 
 附注明细匹配规则：查询要拆成“基础科目 + 意图”，例如 `商誉明细` 拆为基础科目 `商誉` 和意图 `明细`；基础科目必须出现在目标表标题或表格预览中，不能仅凭继承的 `note_title` 命中跨节表格。
 
+### HK 财报证据读取顺序
+
+HK 市场以 `data/wiki/hk/companies/<stock>-<name>/reports/<report_id>` evidence package 为主证据入口。优先读取 `manifest.json`、`metrics/financial_data.json`、`qa/source_map.json`、`tables/table_index.json`、`parser/document_full.json`、`metrics/financial_checks.json`。
+
+PostgreSQL `siq_hk.pdf2md_hk` 是结构化索引与兜底查询层，不是二次抽取来源。只有在需要跨公司/跨年度聚合、批量筛选、质量统计，或 Wiki package 证据路径缺失时，才查询 `v_agent_financial_facts`、`v_latest_company_reports`、`financial_statement_items`、`evidence_citations`。
+
+回答财务事实时必须保留 evidence 信息：优先使用 Wiki `qa/source_map.json` 中的页码、表格、行列、bbox；若使用 PostgreSQL 兜底，必须带回 `page_number`、`table_index`、`row_index`、`column_index`、`bbox`、`quote_text` 或说明缺失原因。
+
 ## 行业对比数据
 
 - 同行业公司从 `company_catalog.json` 筛选相同 `industry_sw1_code` 或 `industry_sw2_code`。

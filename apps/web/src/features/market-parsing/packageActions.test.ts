@@ -90,6 +90,21 @@ test('runMarketPackageImportAction keeps parse_run fallback output', async () =>
   assert.equal(result.output, 'parse_run_id=parse-42')
 })
 
+test('runMarketPackageImportAction imports HK packages with ddl and stdout output', async () => {
+  const deps = makeDeps({
+    runImport: async (market, packagePath, ddl) => {
+      assert.equal(market, 'HK')
+      assert.equal(packagePath, 'HK/pkg')
+      assert.equal(ddl, true)
+      return { ok: true, stdout: 'hk import ok\n' }
+    },
+  })
+
+  const result = await runMarketPackageImportAction({ market: 'HK', packagePath: 'HK/pkg' }, deps)
+
+  assert.equal(result.output, 'hk import ok\n')
+})
+
 test('runMarketPackageVectorDryRunAction serializes summary output', async () => {
   const deps = makeDeps({
     runVectorIngest: async (market, packagePath, dryRun) => {

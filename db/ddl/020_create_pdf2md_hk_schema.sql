@@ -455,3 +455,170 @@ select distinct on (f.filing_id)
 from pdf2md_hk.filings f
 join pdf2md_hk.parse_runs pr on pr.filing_id = f.filing_id
 order by f.filing_id, pr.completed_at desc nulls last, pr.parse_run_id desc;
+
+alter table pdf2md_hk.companies add column if not exists stock_code text;
+alter table pdf2md_hk.companies add column if not exists hkex_stock_code text;
+alter table pdf2md_hk.companies add column if not exists exchange text;
+alter table pdf2md_hk.companies add column if not exists company_short_name text;
+alter table pdf2md_hk.companies add column if not exists company_name_en text;
+alter table pdf2md_hk.companies add column if not exists company_name_zh text;
+alter table pdf2md_hk.companies add column if not exists aliases jsonb not null default '[]'::jsonb;
+alter table pdf2md_hk.companies add column if not exists industry_profile text default 'general';
+alter table pdf2md_hk.filings add column if not exists report_id text;
+alter table pdf2md_hk.filings add column if not exists accession_number text;
+alter table pdf2md_hk.pdf_tables add column if not exists bbox jsonb;
+alter table pdf2md_hk.evidence_citations add column if not exists bbox jsonb;
+alter table pdf2md_hk.retrieval_chunks add column if not exists company_id text;
+alter table pdf2md_hk.retrieval_chunks add column if not exists section_title text;
+alter table pdf2md_hk.retrieval_chunks add column if not exists statement_type text;
+alter table pdf2md_hk.retrieval_chunks add column if not exists page_number integer;
+alter table pdf2md_hk.retrieval_chunks add column if not exists table_index integer;
+alter table pdf2md_hk.retrieval_chunks add column if not exists text text;
+
+create unique index if not exists uq_pdf2md_hk_companies_hkex_stock_code on pdf2md_hk.companies (hkex_stock_code) where hkex_stock_code is not null and hkex_stock_code <> '';
+create index if not exists idx_pdf2md_hk_companies_aliases_gin on pdf2md_hk.companies using gin (aliases);
+create index if not exists idx_pdf2md_hk_filings_company_year on pdf2md_hk.filings (company_id, fiscal_year desc, report_type);
+create index if not exists idx_pdf2md_hk_retrieval_chunks_agent on pdf2md_hk.retrieval_chunks (company_id, doc_type, canonical_name, period_key);
+
+create table if not exists pdf2md_hk.financial_statement_items (
+    item_uid text primary key,
+    filing_id text not null references pdf2md_hk.filings(filing_id) on delete cascade,
+    parse_run_id text not null references pdf2md_hk.parse_runs(parse_run_id) on delete cascade,
+    company_id text not null references pdf2md_hk.companies(company_id),
+    ticker text not null,
+    stock_code text,
+    company_name text,
+    exchange text,
+    statement_id text,
+    statement_type text,
+    statement_name text,
+    scope text,
+    scope_name text,
+    item_index integer,
+    period_key text,
+    item_name text,
+    canonical_name text not null,
+    value numeric,
+    raw_value text,
+    unit text,
+    currency text,
+    scale text,
+    period_start date,
+    period_end date,
+    fiscal_year integer,
+    fiscal_period text,
+    accounting_standard text,
+    industry_profile text,
+    confidence numeric,
+    source_page_number integer,
+    source_table_index integer,
+    source_row_index integer,
+    source_column_index integer,
+    source_bbox jsonb,
+    evidence_id text references pdf2md_hk.evidence_citations(evidence_id),
+    raw jsonb not null default '{}'::jsonb,
+    created_at timestamptz not null default now()
+);
+
+create index if not exists idx_pdf2md_hk_stmt_items_metric_period on pdf2md_hk.financial_statement_items (ticker, statement_type, canonical_name, period_key);
+create index if not exists idx_pdf2md_hk_stmt_items_source on pdf2md_hk.financial_statement_items (filing_id, source_page_number, source_table_index);
+create index if not exists idx_pdf2md_hk_stmt_items_company_year on pdf2md_hk.financial_statement_items (company_id, fiscal_year, canonical_name, period_key);
+
+create or replace view pdf2md_hk.financial_balance_sheet_items as
+select item.*
+from pdf2md_hk.financial_statement_items item
+join pdf2md_hk.v_latest_parse_runs latest using (parse_run_id)
+where item.statement_type = 'balance_sheet';
+
+create or replace view pdf2md_hk.financial_income_statement_items as
+select item.*
+from pdf2md_hk.financial_statement_items item
+join pdf2md_hk.v_latest_parse_runs latest using (parse_run_id)
+where item.statement_type = 'income_statement';
+
+create or replace view pdf2md_hk.financial_cash_flow_statement_items as
+select item.*
+from pdf2md_hk.financial_statement_items item
+join pdf2md_hk.v_latest_parse_runs latest using (parse_run_id)
+where item.statement_type = 'cash_flow_statement';
+
+create or replace view pdf2md_hk.financial_all_metrics_wide as
+select
+    item.parse_run_id,
+    item.filing_id,
+    item.company_id,
+    item.ticker,
+    item.stock_code,
+    item.company_name,
+    item.exchange,
+    item.period_key,
+    item.fiscal_year,
+    item.fiscal_period,
+    jsonb_object_agg(item.canonical_name, item.value order by item.canonical_name) filter (where item.statement_type = 'balance_sheet') as balance_sheet,
+    jsonb_object_agg(item.canonical_name, item.value order by item.canonical_name) filter (where item.statement_type = 'income_statement') as income_statement,
+    jsonb_object_agg(item.canonical_name, item.value order by item.canonical_name) filter (where item.statement_type = 'cash_flow_statement') as cash_flow_statement,
+    '{}'::jsonb as key_metrics,
+    jsonb_object_agg(item.canonical_name, item.value order by item.canonical_name) as all_metrics
+from pdf2md_hk.financial_statement_items item
+join pdf2md_hk.v_latest_parse_runs latest using (parse_run_id)
+group by item.parse_run_id, item.filing_id, item.company_id, item.ticker, item.stock_code, item.company_name, item.exchange, item.period_key, item.fiscal_year, item.fiscal_period;
+
+create or replace view pdf2md_hk.v_agent_financial_facts as
+select
+    item.item_uid,
+    item.company_id,
+    coalesce(c.hkex_stock_code, item.stock_code, item.ticker) as hkex_stock_code,
+    item.ticker,
+    c.company_name,
+    item.filing_id,
+    f.report_id,
+    f.report_type,
+    f.fiscal_year,
+    f.fiscal_period,
+    f.period_end,
+    item.parse_run_id,
+    item.statement_type,
+    item.statement_name,
+    item.item_name,
+    item.canonical_name,
+    item.period_key,
+    item.value,
+    item.raw_value,
+    item.unit,
+    item.currency,
+    coalesce(e.page_number, item.source_page_number) as page_number,
+    coalesce(e.table_index, item.source_table_index) as table_index,
+    coalesce(e.row_index, item.source_row_index) as row_index,
+    coalesce(e.column_index, item.source_column_index) as column_index,
+    coalesce(e.bbox, item.source_bbox) as bbox,
+    e.quote_text,
+    pr.wiki_package_path,
+    coalesce(e.source_url, f.source_url) as source_url,
+    item.raw
+from pdf2md_hk.financial_statement_items item
+join pdf2md_hk.filings f on f.filing_id = item.filing_id
+join pdf2md_hk.companies c on c.company_id = item.company_id
+join pdf2md_hk.parse_runs pr on pr.parse_run_id = item.parse_run_id
+left join pdf2md_hk.evidence_citations e on e.evidence_id = item.evidence_id;
+
+create or replace view pdf2md_hk.v_latest_company_reports as
+select distinct on (f.company_id, f.report_type)
+    f.company_id,
+    c.hkex_stock_code,
+    c.ticker,
+    c.company_name,
+    f.filing_id,
+    f.report_id,
+    f.report_type,
+    f.fiscal_year,
+    f.fiscal_period,
+    f.period_end,
+    f.published_at,
+    pr.parse_run_id,
+    pr.status,
+    pr.completed_at,
+    pr.wiki_package_path
+from pdf2md_hk.filings f
+join pdf2md_hk.companies c on c.company_id = f.company_id
+join pdf2md_hk.parse_runs pr on pr.filing_id = f.filing_id
+order by f.company_id, f.report_type, f.period_end desc nulls last, f.fiscal_year desc nulls last, pr.completed_at desc nulls last, pr.parse_run_id desc;

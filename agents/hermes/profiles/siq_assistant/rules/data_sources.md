@@ -46,6 +46,14 @@
 
 禁止从无证据的模型总结中直接生成事实。所有关键数字必须绑定 evidence。
 
+### HK 财报证据读取顺序
+
+HK 市场以 `data/wiki/hk/companies/<stock>-<name>/reports/<report_id>` evidence package 为主证据入口。优先读取 `manifest.json`、`metrics/financial_data.json`、`qa/source_map.json`、`tables/table_index.json`、`parser/document_full.json`、`metrics/financial_checks.json`。
+
+PostgreSQL `siq_hk.pdf2md_hk` 是结构化索引与兜底查询层，不是二次抽取来源。只有在需要跨公司/跨年度聚合、批量筛选、质量统计，或 Wiki package 证据路径缺失时，才查询 `v_agent_financial_facts`、`v_latest_company_reports`、`financial_statement_items`、`evidence_citations`。
+
+回答财务事实时必须保留 evidence 信息：优先使用 Wiki `qa/source_map.json` 中的页码、表格、行列、bbox；若使用 PostgreSQL 兜底，必须带回 `page_number`、`table_index`、`row_index`、`column_index`、`bbox`、`quote_text` 或说明缺失原因。
+
 ## 文本定位规则
 
 - 主表类问题（资产负债表、利润表、现金流量表、资产负债结构、现金流质量、总资产/总负债/经营现金流等）必须先回到 `three_statements.json` 指向的正文主表 PDF 页和 `table_index`。

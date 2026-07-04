@@ -14,10 +14,12 @@ export function PdfQualityPanel({ quality, market, onShowTableSource }: PdfQuali
   const ind = (quality.indicator_table_candidates || []).filter((i) => i.status === 'found')
   const cFound = core.filter((i) => i.status === 'found')
   const susp = quality.suspicious_tables || []
+  const profile = [quality.market, quality.accounting_standard, quality.industry_profile].filter(Boolean).join(' / ')
 
   return (
     <div className="apple-card rounded-[24px] p-4 sm:p-6">
       <h3 className="text-base font-semibold text-text mb-3">{pdfQualityPanelTitle(market)}</h3>
+      {profile ? <p className="mb-3 text-xs font-medium text-text-muted">{profile}</p> : null}
       <div className="pdf-quality-grid">
         <div>
           <strong>{quality.table_count || 0}</strong>

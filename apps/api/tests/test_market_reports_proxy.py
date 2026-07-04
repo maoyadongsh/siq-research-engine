@@ -1264,6 +1264,36 @@ def test_market_import_command_uses_us_package_flag(monkeypatch):
     assert seen["args"][-1] == "--ddl"
 
 
+def test_hk_market_package_import_uses_hk_database_env(monkeypatch, tmp_path):
+    wiki_root = tmp_path / "wiki" / "hk"
+    package_dir = _write_market_package(wiki_root, "companies", "00700-TENCENT", "reports", "2025-annual-12100024")
+    captured = {}
+
+    class Completed:
+        returncode = 0
+        stdout = "parse-run-hk\n"
+        stderr = ""
+
+    def fake_run(args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return Completed()
+
+    monkeypatch.setitem(market_reports.MARKET_WIKI_ROOTS, "HK", wiki_root)
+    monkeypatch.setattr(market_reports, "run_command", fake_run)
+
+    result = market_reports._run_market_package_import({
+        "market": "HK",
+        "package_path": str(package_dir),
+        "ddl": True,
+    })
+
+    assert result["ok"] is True
+    assert "import_hk_evidence_package_to_postgres.py" in " ".join(captured["args"])
+    assert "--ddl" in captured["args"]
+    assert captured["kwargs"]["env"]["SIQ_HK_PGDATABASE"] == "siq_hk"
+
+
 def test_market_import_command_uses_positional_package_for_non_us(monkeypatch, tmp_path):
     wiki_root = tmp_path / "wiki" / "hk_reports"
     package_dir = _write_market_package(wiki_root, "00700", "2025", "annual_abc123")

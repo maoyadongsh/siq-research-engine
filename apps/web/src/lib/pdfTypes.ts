@@ -127,6 +127,9 @@ export interface WorkflowJob {
 
 export interface QualityReport {
   market_profile?: string
+  market?: string
+  accounting_standard?: string
+  industry_profile?: string
   table_count?: number
   single_row_table_count?: number
   single_row_table_ratio?: number
@@ -136,6 +139,7 @@ export interface QualityReport {
   missing_sections?: string[]
   core_financial_table_candidates?: Array<Record<string, unknown>>
   key_table_candidates?: Record<string, Array<Record<string, unknown>>>
+  hk_key_table_candidates?: Record<string, Array<Record<string, unknown>>>
   indicator_table_candidates?: Array<Record<string, unknown>>
   found_financial_tables?: string[]
   warnings?: string[]
@@ -143,10 +147,13 @@ export interface QualityReport {
 
 export interface FinancialData {
   market?: string
+  accounting_standard?: string
+  industry_profile?: string
   report_year?: string
-  summary?: { statement_count?: number; key_metric_count?: number; scopes?: string[] }
+  summary?: { statement_count?: number; key_metric_count?: number; operating_metric_count?: number; scopes?: string[] }
   statements?: unknown[]
   key_metrics?: unknown[]
+  operating_metrics?: unknown[]
 }
 
 export interface FinancialChecks {
