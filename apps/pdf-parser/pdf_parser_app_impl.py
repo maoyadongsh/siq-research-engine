@@ -5,6 +5,7 @@ Flask backend for converting PDFs using the local MinerU API.
 """
 
 from collections import Counter
+import hashlib
 import io
 import os
 import re
@@ -62,8 +63,6 @@ import pdf_parser_artifact_orchestrator_service as artifact_orchestrator_service
 import pdf_parser_content_list_enhanced_service as content_list_enhanced_service
 import pdf_parser_document_full_service as document_full_service
 import pdf_parser_financial_service as financial_service
-import jp_market_profile
-import kr_market_profile
 import pdf_parser_mineru_result_service as mineru_result_service
 import pdf_parser_quality_service as quality_service
 import pdf_parser_response_service as response_service
@@ -264,18 +263,34 @@ def _find_duplicate_filename_task(filename):
     )
 
 
+def _find_duplicate_file_hash_task(file_sha256):
+    return task_repository.find_duplicate_file_hash_task(
+        DB_PATH,
+        file_sha256,
+        normalize_task=_apply_task_market_fallback,
+    )
+
+
 def _task_duplicate_payload(task):
     return response_service.build_task_duplicate_payload(task, has_markdown_artifact=_has_markdown_artifact)
 
 
-def _duplicate_filename_response(filename, existing_task=None, message=None):
+def _duplicate_task_response(error_code, filename, existing_task=None, message=None):
     payload = {
-        "error": "duplicate_filename",
+        "error": error_code,
         "message": message or "该文件已存在解析任务，请勿重复解析",
         "filename": filename,
         "existingTask": _task_duplicate_payload(existing_task),
     }
     return jsonify(payload), 409
+
+
+def _duplicate_filename_response(filename, existing_task=None, message=None):
+    return _duplicate_task_response("duplicate_filename", filename, existing_task, message)
+
+
+def _duplicate_content_response(filename, existing_task=None, message=None):
+    return _duplicate_task_response("duplicate_file_content", filename, existing_task, message)
 
 
 def _list_recent_tasks(limit=100):
@@ -351,6 +366,24 @@ def _recover_stale_submitting_tasks():
 
 def _local_queue_position(task_id):
     return task_repository.local_queue_position(DB_PATH, task_id)
+
+
+def _sha256_file(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as infile:
+        while True:
+            chunk = infile.read(UPLOAD_CHUNK_SIZE)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _cleanup_pending_uploads(prepared_uploads, current_path=None):
+    if current_path:
+        _safe_unlink(current_path)
+    for item in prepared_uploads:
+        _safe_unlink(item.get("upload_path"))
 
 
 def _submit_task_to_mineru(task):
@@ -2784,7 +2817,6 @@ def _build_table_index(markdown, tables, content_list=None, report_year=None):
                 "classification_reasons": semantics["classification_reasons"],
                 "suspect_reasons": reasons,
                 "preview": text[:220],
-                "signal_preview": text[:1600],
             }
         )
 
@@ -2850,44 +2882,17 @@ def _priority_review_tables(table_index, core_candidates, key_table_candidates):
 def _build_quality_report(markdown, task, file_name=None, content_list=None):
     markdown = markdown or ""
     tables = re.findall(r"<table\b.*?</table>", markdown, flags=re.IGNORECASE | re.DOTALL)
-    filename = file_name or task.get("filename")
-    is_jp_profile = jp_market_profile.is_jp_market(task, filename)
-    is_kr_profile = kr_market_profile.is_kr_market(task, filename)
-    report_year = _detect_report_year(markdown, file_name=filename)
+    report_year = _detect_report_year(markdown, file_name=file_name or task.get("filename"))
     table_index = _build_table_index(markdown, tables, content_list=content_list, report_year=report_year)
     single_row_tables = [table for table in tables if _count_table_rows(table) <= 1]
     empty_cell_count = sum(_count_empty_cells(table) for table in tables)
 
-    if is_jp_profile:
-        report_kind = jp_market_profile.detect_jp_report_kind(markdown, filename=filename)
-        financial_tables = jp_market_profile.JP_CORE_FINANCIAL_TABLE_NAMES
-        key_sections = jp_market_profile.JP_KEY_SECTIONS
-        found_sections = jp_market_profile.found_sections(markdown, table_index)
-        key_table_candidates = jp_market_profile.group_jp_key_table_candidates(table_index)
-        core_financial_table_candidates = jp_market_profile.candidate_summary_list(key_table_candidates, financial_tables)
-        indicator_table_candidates = jp_market_profile.candidate_summary_list(
-            key_table_candidates,
-            jp_market_profile.JP_INDICATOR_TABLE_NAMES,
-        )
-    elif is_kr_profile:
-        report_kind = kr_market_profile.detect_kr_report_kind(markdown, filename=filename)
-        financial_tables = kr_market_profile.KR_CORE_FINANCIAL_TABLE_NAMES
-        key_sections = kr_market_profile.KR_KEY_SECTIONS
-        found_sections = kr_market_profile.found_sections(markdown, table_index)
-        key_table_candidates = kr_market_profile.group_kr_key_table_candidates(table_index)
-        core_financial_table_candidates = kr_market_profile.candidate_summary_list(key_table_candidates, financial_tables)
-        indicator_table_candidates = kr_market_profile.candidate_summary_list(
-            key_table_candidates,
-            kr_market_profile.KR_INDICATOR_TABLE_NAMES,
-        )
-    else:
-        report_kind = _detect_report_kind(markdown, filename=filename)
-        financial_tables = _required_core_financial_table_names(report_kind)
-        key_sections = KEY_SECTIONS
-        found_sections = [section for section in KEY_SECTIONS if section in markdown]
-        key_table_candidates = _group_key_table_candidates(table_index)
-        core_financial_table_candidates = _candidate_summary_list(key_table_candidates, financial_tables)
-        indicator_table_candidates = _candidate_summary_list(key_table_candidates, INDICATOR_TABLE_NAMES)
+    report_kind = _detect_report_kind(markdown, filename=file_name or task.get("filename"))
+    financial_tables = _required_core_financial_table_names(report_kind)
+    found_sections = [section for section in KEY_SECTIONS if section in markdown]
+    key_table_candidates = _group_key_table_candidates(table_index)
+    core_financial_table_candidates = _candidate_summary_list(key_table_candidates, financial_tables)
+    indicator_table_candidates = _candidate_summary_list(key_table_candidates, INDICATOR_TABLE_NAMES)
     suspicious_tables = _priority_review_tables(
         table_index,
         core_financial_table_candidates,
@@ -2895,9 +2900,9 @@ def _build_quality_report(markdown, task, file_name=None, content_list=None):
     )
 
     image_refs = re.findall(r"!\[[^\]]*\]\(([^)]+)\)", markdown)
-    report = quality_service.build_quality_report_payload(
+    return quality_service.build_quality_report_payload(
         task=task,
-        filename=filename,
+        filename=file_name or task.get("filename"),
         schema_version=QUALITY_SCHEMA_VERSION,
         report_kind=report_kind,
         report_year=report_year,
@@ -2908,40 +2913,13 @@ def _build_quality_report(markdown, task, file_name=None, content_list=None):
         empty_cell_count=empty_cell_count,
         image_refs=image_refs,
         found_sections=found_sections,
-        key_sections=key_sections,
+        key_sections=KEY_SECTIONS,
         key_table_candidates=key_table_candidates,
         core_financial_table_candidates=core_financial_table_candidates,
         indicator_table_candidates=indicator_table_candidates,
         suspicious_tables=suspicious_tables,
         generated_at=_now_iso(),
     )
-    if is_jp_profile:
-        found_core_count = len([item for item in core_financial_table_candidates if item.get("status") == "found"])
-        warnings, info_messages = jp_market_profile.jp_quality_report_messages(
-            report_kind=report_kind,
-            table_count=len(tables),
-            single_row_table_count=len(single_row_tables),
-            image_ref_count=len(image_refs),
-            found_core_table_count=found_core_count,
-            suspicious_table_count=len(suspicious_tables),
-        )
-        report["market_profile"] = "JP"
-        report["market_profile_rule_version"] = jp_market_profile.JP_PROFILE_RULE_VERSION
-        report["warnings"] = warnings
-        report["info_messages"] = info_messages
-    elif is_kr_profile:
-        found_core_count = len([item for item in core_financial_table_candidates if item.get("status") == "found"])
-        warnings, info_messages = kr_market_profile.kr_quality_report_messages(
-            table_count=len(tables),
-            single_row_table_count=len(single_row_tables),
-            image_ref_count=len(image_refs),
-            found_core_table_count=found_core_count,
-            suspicious_table_count=len(suspicious_tables),
-        )
-        report["market_profile"] = "KR"
-        report["warnings"] = warnings
-        report["info_messages"] = info_messages
-    return report
 
 
 def _write_quality_artifacts(task, markdown, file_name=None, content_list=None, saved_image_count=None):
@@ -2968,7 +2946,6 @@ def _write_quality_artifacts(task, markdown, file_name=None, content_list=None, 
     )
     if saved_image_count is not None:
         report["saved_image_count"] = saved_image_count
-    _write_json(os.path.join(result_dir, "content_list_enhanced.json"), enhanced_content_list)
     try:
         financial_data, financial_checks = _write_financial_artifacts(
             task,
@@ -2986,6 +2963,7 @@ def _write_quality_artifacts(task, markdown, file_name=None, content_list=None, 
         report["financial_overall_status"] = "error"
         financial_data = None
         financial_checks = None
+    _write_json(os.path.join(result_dir, "content_list_enhanced.json"), enhanced_content_list)
     _write_complete_markdown_artifact(task, markdown, enhanced_content_list)
     quality_service.write_quality_report_files(task, report, _result_dir, _write_json)
     table_relations = _write_table_relations_artifact(
@@ -3077,23 +3055,6 @@ def _ensure_quality_report(task, markdown):
     financial_data, financial_checks = _ensure_financial_artifacts(task, markdown)
     report = _read_quality_report(task)
     if isinstance(report, dict) and report.get("schema_version") == QUALITY_SCHEMA_VERSION:
-        if jp_market_profile.is_jp_market(task, task.get("filename")) and (
-            report.get("market_profile") != "JP"
-            or report.get("market_profile_rule_version") != jp_market_profile.JP_PROFILE_RULE_VERSION
-        ):
-            return _write_quality_artifacts(
-                task,
-                markdown,
-                file_name=task.get("filename"),
-                content_list=_load_json_artifact(task, "content_list.json"),
-            )
-        if kr_market_profile.is_kr_market(task, task.get("filename")) and report.get("market_profile") != "KR":
-            return _write_quality_artifacts(
-                task,
-                markdown,
-                file_name=task.get("filename"),
-                content_list=_load_json_artifact(task, "content_list.json"),
-            )
         original_fields = {
             "found_financial_tables": report.get("found_financial_tables"),
             "core_financial_table_candidates": report.get("core_financial_table_candidates"),
@@ -3401,11 +3362,15 @@ def upload():
         display_filenames.append(display_filename)
 
     created_tasks = []
+    prepared_uploads = []
+    seen_hashes = set()
     for file, display_filename in zip(files, display_filenames):
         local_task_id = requested_task_id or str(uuid.uuid4())
+        skip_duplicate_lookup = bool(requested_task_id)
         requested_task_id = None
         upload_path = os.path.join(UPLOAD_FOLDER, f"{local_task_id}.pdf")
         total_size = 0
+        digest = hashlib.sha256()
 
         with open(upload_path, "wb") as outfile:
             while True:
@@ -3414,28 +3379,61 @@ def upload():
                     break
                 total_size += len(chunk)
                 if total_size > MAX_FILE_SIZE:
-                    _safe_unlink(upload_path)
+                    _cleanup_pending_uploads(prepared_uploads, upload_path)
                     return jsonify({"error": f"文件超过 {MAX_FILE_SIZE // 1024 // 1024} MB 限制: {display_filename}"}), 400
+                digest.update(chunk)
                 outfile.write(chunk)
 
         if total_size == 0:
-            _safe_unlink(upload_path)
+            _cleanup_pending_uploads(prepared_uploads, upload_path)
             return jsonify({"error": f"空文件: {display_filename}"}), 400
         if not _looks_like_pdf(upload_path):
-            _safe_unlink(upload_path)
+            _cleanup_pending_uploads(prepared_uploads, upload_path)
             return jsonify({"error": f"文件内容不是有效 PDF: {display_filename}"}), 400
 
         pdf_page_count = _get_pdf_page_count(upload_path)
         if pdf_page_count and submit_config.get("end_page_id") not in (None, ""):
             if int(submit_config["end_page_id"]) >= int(pdf_page_count):
-                _safe_unlink(upload_path)
+                _cleanup_pending_uploads(prepared_uploads, upload_path)
                 return jsonify({"error": f"结束页码超出 PDF 页数: {display_filename} 共 {pdf_page_count} 页"}), 400
+        file_sha256 = digest.hexdigest()
+        if file_sha256 in seen_hashes:
+            _cleanup_pending_uploads(prepared_uploads, upload_path)
+            return _duplicate_content_response(
+                display_filename,
+                message=f"本次上传中包含重复文档内容，请勿重复解析: {display_filename}",
+            )
+        if not skip_duplicate_lookup:
+            duplicate_task = _find_duplicate_file_hash_task(file_sha256)
+            if duplicate_task:
+                duplicate_status = str(duplicate_task.get("status") or "").lower()
+                _cleanup_pending_uploads(prepared_uploads, upload_path)
+                if duplicate_status in {"queued", "uploaded", "submitting", "submitted", "pending", "processing"}:
+                    message = f"该文档内容正在解析或排队中，请勿重复提交: {display_filename}"
+                else:
+                    message = f"该文档内容已存在解析任务，请查看已有结果: {display_filename}"
+                return _duplicate_content_response(display_filename, duplicate_task, message=message)
+        seen_hashes.add(file_sha256)
+        prepared_uploads.append(
+            {
+                "task_id": local_task_id,
+                "filename": display_filename,
+                "upload_path": upload_path,
+                "file_size": total_size,
+                "pdf_page_count": pdf_page_count,
+                "submit_config": dict(submit_config),
+                "file_sha256": file_sha256,
+            }
+        )
+
+    for prepared in prepared_uploads:
         task = {
-            "task_id": local_task_id,
+            "task_id": prepared["task_id"],
             "mineru_task_id": None,
-            "filename": display_filename,
-            "file_size": total_size,
-            "pdf_page_count": pdf_page_count,
+            "filename": prepared["filename"],
+            "file_sha256": prepared["file_sha256"],
+            "file_size": prepared["file_size"],
+            "pdf_page_count": prepared["pdf_page_count"],
             "status": "queued",
             "stage": "queued",
             "created_at": _now_iso(),
@@ -3446,23 +3444,23 @@ def upload():
             "cancelled": False,
             "error": None,
             "markdown_path": None,
-            "upload_path": upload_path,
+            "upload_path": prepared["upload_path"],
             "last_progress_log_time": None,
             "last_status_payload": None,
             "last_polled_at": None,
             "consecutive_status_failures": 0,
             "queue_position": None,
-            "submit_config": submit_config,
+            "submit_config": prepared["submit_config"],
             "logs": [],
         }
-        _append_log(task, f"文件上传成功: {display_filename} ({total_size // 1024 // 1024}MB)", "info")
+        _append_log(task, f"文件上传成功: {prepared['filename']} ({prepared['file_size'] // 1024 // 1024}MB)", "info")
         _append_log(task, "已加入本地解析队列，等待轮到当前任务。", "info")
         _persist_task(task, allow_insert=True)
         created_tasks.append(
             {
-                "task_id": local_task_id,
-                "filename": display_filename,
-                "pdf_page_count": pdf_page_count,
+                "task_id": prepared["task_id"],
+                "filename": prepared["filename"],
+                "pdf_page_count": prepared["pdf_page_count"],
             }
         )
 
@@ -3565,6 +3563,7 @@ def reparse_task(task_id):
         "task_id": local_task_id,
         "mineru_task_id": None,
         "filename": display_filename,
+        "file_sha256": source_task.get("file_sha256") or _sha256_file(upload_path),
         "file_size": total_size,
         "pdf_page_count": pdf_page_count,
         "status": "queued",

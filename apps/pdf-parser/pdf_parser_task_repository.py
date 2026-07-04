@@ -39,6 +39,7 @@ def init_db(db_path, lock=None):
                     task_id TEXT PRIMARY KEY,
                     mineru_task_id TEXT,
                     filename TEXT NOT NULL,
+                    file_sha256 TEXT,
                     file_size INTEGER,
                     pdf_page_count INTEGER,
                     status TEXT NOT NULL,
@@ -67,6 +68,9 @@ def init_db(db_path, lock=None):
                 conn.execute("ALTER TABLE tasks ADD COLUMN consecutive_status_failures INTEGER NOT NULL DEFAULT 0")
             if "submit_config_json" not in columns:
                 conn.execute("ALTER TABLE tasks ADD COLUMN submit_config_json TEXT")
+            if "file_sha256" not in columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN file_sha256 TEXT")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_file_sha256 ON tasks(file_sha256)")
             conn.commit()
         finally:
             conn.close()
@@ -96,6 +100,7 @@ def save_task(db_path, task, *, allow_insert=False, lock=None):
     payload = dict(task)
     logs = payload.pop("logs", [])
     submit_config = payload.pop("submit_config", {})
+    payload.setdefault("file_sha256", None)
     last_status_payload = payload.get("last_status_payload")
     payload["logs_json"] = json.dumps(logs, ensure_ascii=False)
     payload["submit_config_json"] = json.dumps(submit_config or {}, ensure_ascii=False)
@@ -110,13 +115,13 @@ def save_task(db_path, task, *, allow_insert=False, lock=None):
             conn.execute(
                 """
                 INSERT INTO tasks (
-                    task_id, mineru_task_id, filename, file_size, pdf_page_count,
+                    task_id, mineru_task_id, filename, file_sha256, file_size, pdf_page_count,
                     status, stage, created_at, uploaded_at, submitted_at, started_at,
                     completed_at, cancelled, error, markdown_path, upload_path,
                     last_progress_log_time, last_status_payload, last_polled_at,
                     consecutive_status_failures, submit_config_json, logs_json
                 ) VALUES (
-                    :task_id, :mineru_task_id, :filename, :file_size, :pdf_page_count,
+                    :task_id, :mineru_task_id, :filename, :file_sha256, :file_size, :pdf_page_count,
                     :status, :stage, :created_at, :uploaded_at, :submitted_at, :started_at,
                     :completed_at, :cancelled, :error, :markdown_path, :upload_path,
                     :last_progress_log_time, :last_status_payload, :last_polled_at,
@@ -125,6 +130,7 @@ def save_task(db_path, task, *, allow_insert=False, lock=None):
                 ON CONFLICT(task_id) DO UPDATE SET
                     mineru_task_id=excluded.mineru_task_id,
                     filename=excluded.filename,
+                    file_sha256=excluded.file_sha256,
                     file_size=excluded.file_size,
                     pdf_page_count=excluded.pdf_page_count,
                     status=excluded.status,
@@ -193,11 +199,34 @@ def find_duplicate_filename_task(db_path, filename, *, normalize_filename=None, 
     return None
 
 
+def find_duplicate_file_hash_task(db_path, file_sha256, *, normalize_task=None):
+    digest = str(file_sha256 or "").strip().lower()
+    if not digest:
+        return None
+    conn = connect(db_path)
+    try:
+        rows = conn.execute(
+            """
+            SELECT * FROM tasks
+            WHERE file_sha256 = ?
+            ORDER BY created_at DESC
+            """,
+            (digest,),
+        ).fetchall()
+    finally:
+        conn.close()
+    for row in rows:
+        task = row_to_task(row, normalize_task=normalize_task)
+        if task_blocks_duplicate_upload(task):
+            return task
+    return None
+
+
 def list_recent_tasks(db_path, limit=100, *, normalize_task=None):
     conn = connect(db_path)
     try:
         rows = conn.execute(
-            "SELECT task_id, filename, status, stage, created_at, markdown_path, submit_config_json FROM tasks ORDER BY created_at DESC LIMIT ?",
+            "SELECT task_id, filename, file_sha256, status, stage, created_at, markdown_path, submit_config_json FROM tasks ORDER BY created_at DESC LIMIT ?",
             (limit,),
         ).fetchall()
         tasks = [dict(row) for row in rows]

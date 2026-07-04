@@ -1,6 +1,6 @@
 import json
 import os
-from urllib.parse import quote
+from urllib.parse import parse_qs, quote, urlencode, urlparse
 from typing import Any
 
 import httpx
@@ -32,6 +32,7 @@ DOCUMENT_PARSER_API_BASE = (
 ).rstrip("/")
 DOCUMENT_PARSER_ACCESS_TOKEN = os.environ.get("SIQ_DOCUMENT_PARSER_ACCESS_TOKEN", "").strip()
 DOCUMENT_PARSER_PROXY_TIMEOUT = float(os.environ.get("SIQ_DOCUMENT_PARSER_PROXY_TIMEOUT", "120"))
+SUPPORTED_DOCUMENT_MARKETS = {"CN", "HK", "US", "EU", "KR", "JP", "DOC"}
 
 
 def _role_value(user: User) -> str:
@@ -104,6 +105,50 @@ def _document_headers(extra: dict[str, str] | None = None) -> dict[str, str]:
 
 def _content_type(headers: httpx.Headers) -> str:
     return headers.get("content-type") or "application/octet-stream"
+
+
+def _normalize_market(value: Any) -> str:
+    market = str(value or "").strip().upper()
+    return market if market in SUPPORTED_DOCUMENT_MARKETS else ""
+
+
+def _market_from_filename(filename: str) -> str:
+    text = str(filename or "").upper()
+    for market in ("CN", "HK", "US", "EU", "KR", "JP", "DOC"):
+        if f"_{market}_" in text:
+            return market
+    return ""
+
+
+def _document_task_path(task_id: str, market: str | None = None) -> str:
+    query = {"task": task_id}
+    normalized_market = _normalize_market(market)
+    if normalized_market:
+        query["market"] = normalized_market
+    return f"/documents?{urlencode(query)}"
+
+
+def _market_from_artifact(item: UserArtifact | None) -> str:
+    if item is None:
+        return ""
+    path = str(getattr(item, "path", "") or "")
+    if path:
+        try:
+            query = parse_qs(urlparse(path).query)
+        except Exception:
+            query = {}
+        market = _normalize_market((query.get("market") or [""])[0])
+        if market:
+            return market
+    return _market_from_filename(str(getattr(item, "title", "") or ""))
+
+
+def _enrich_document_task_market(task: dict[str, Any], item: UserArtifact | None = None) -> dict[str, Any]:
+    enriched = dict(task)
+    market = _normalize_market(enriched.get("market")) or _market_from_artifact(item) or _market_from_filename(str(enriched.get("filename") or ""))
+    if market:
+        enriched["market"] = market
+    return enriched
 
 
 def _user_has_document_task_access(session: Session, current_user: User, task_id: str) -> bool:
@@ -182,6 +227,7 @@ def _record_document_artifact(
     task_id: str,
     filename: str,
     source: str,
+    market: str | None = None,
 ) -> UserArtifact:
     existing = session.exec(
         select(UserArtifact).where(
@@ -190,7 +236,7 @@ def _record_document_artifact(
             UserArtifact.artifact_key == task_id,
         )
     ).first()
-    path = f"/documents?task={quote(task_id, safe='')}"
+    path = _document_task_path(task_id, market)
     if existing:
         changed = False
         for field, value in {
@@ -229,6 +275,7 @@ async def _record_document_artifact_async(
     task_id: str,
     filename: str,
     source: str,
+    market: str | None = None,
 ) -> UserArtifact:
     result = await async_session.exec(
         select(UserArtifact).where(
@@ -238,7 +285,7 @@ async def _record_document_artifact_async(
         )
     )
     existing = result.first()
-    path = f"/documents?task={quote(task_id, safe='')}"
+    path = _document_task_path(task_id, market)
     if existing:
         changed = False
         for field, value in {
@@ -325,6 +372,7 @@ async def create_document_tasks(
     request: Request,
     files: list[UploadFile] | None = File(default=None),
     source_type: str = Form("upload"),
+    market: str = Form(""),
     model_version: str = Form("auto"),
     ocr: str = Form("auto"),
     enable_formula: str = Form("true"),
@@ -337,6 +385,7 @@ async def create_document_tasks(
     current_user: User = Depends(get_current_user),
     async_session: AsyncSession = Depends(get_async_session),
 ):
+    requested_market = ""
     content_type = request.headers.get("content-type", "")
     is_multipart = "multipart/form-data" in content_type.lower()
     if is_multipart:
@@ -344,6 +393,7 @@ async def create_document_tasks(
         if not upload_files:
             raise HTTPException(status_code=400, detail="请上传文件")
         await _enforce_quota_or_429_async(async_session, current_user, increment=len(upload_files))
+        requested_market = _normalize_market(market)
         form = {
             "source_type": source_type,
             "model_version": model_version,
@@ -372,6 +422,7 @@ async def create_document_tasks(
             raise HTTPException(status_code=502, detail=f"文档解析服务不可用: {exc}") from exc
     else:
         payload = await request.json()
+        requested_market = _normalize_market(payload.get("market")) if isinstance(payload, dict) else ""
         await _enforce_quota_or_429_async(async_session, current_user, increment=1)
         try:
             async with httpx.AsyncClient(timeout=None) as client:
@@ -393,15 +444,23 @@ async def create_document_tasks(
         created_tasks = payload.get("tasks") if isinstance(payload, dict) else []
         task_count = len(created_tasks or [])
         if task_count:
+            enriched_tasks = []
+            for task in created_tasks:
+                base_task = dict(task)
+                if requested_market and not _normalize_market(base_task.get("market")):
+                    base_task["market"] = requested_market
+                enriched_tasks.append(_enrich_document_task_market(base_task))
+            if isinstance(payload, dict):
+                payload["tasks"] = enriched_tasks
             await record_usage_async(
                 async_session,
                 user_id=int(current_user.id),
                 event_type=DOCUMENT_PARSE_EVENT,
                 count=task_count,
                 source="document_upload" if is_multipart else "document_url",
-                metadata_json=json.dumps({"tasks": created_tasks}, ensure_ascii=False),
+                metadata_json=json.dumps({"tasks": payload.get("tasks")}, ensure_ascii=False),
             )
-            for task in created_tasks:
+            for task in payload.get("tasks") or []:
                 task_id = str(task.get("task_id") or "")
                 filename = str(task.get("filename") or task_id or "文档解析任务")
                 if task_id:
@@ -411,6 +470,7 @@ async def create_document_tasks(
                         task_id=task_id,
                         filename=filename,
                         source="document_upload" if is_multipart else "document_url",
+                        market=task.get("market"),
                     )
         return payload
 
@@ -502,7 +562,18 @@ async def list_document_tasks(
         raise HTTPException(status_code=502, detail=f"文档解析任务服务不可用: {exc}") from exc
     tasks = payload.get("tasks") if isinstance(payload, dict) else []
     if _is_admin(current_user) and os.environ.get("SIQ_DOCUMENT_TASK_LIST_WORKSPACE_ONLY", "").lower() not in {"1", "true", "yes"}:
-        return {"tasks": tasks or [], "scope": "system"}
+        result = await async_session.exec(select(UserArtifact).where(UserArtifact.artifact_type == "document_parse"))
+        artifacts = result.all()
+        by_task_id = {
+            value: item
+            for item in artifacts
+            for value in (item.artifact_key, item.global_artifact_id)
+            if value
+        }
+        return {
+            "tasks": [_enrich_document_task_market(task, by_task_id.get(str(task.get("task_id") or ""))) for task in (tasks or [])],
+            "scope": "system",
+        }
     result = await async_session.exec(
         select(UserArtifact).where(
             UserArtifact.user_id == int(current_user.id),
@@ -516,7 +587,17 @@ async def list_document_tasks(
         for value in [item.artifact_key, item.global_artifact_id]
         if value
     }
-    visible_tasks = [task for task in (tasks or []) if str(task.get("task_id") or "") in allowed]
+    by_task_id = {
+        value: item
+        for item in links
+        for value in (item.artifact_key, item.global_artifact_id)
+        if value
+    }
+    visible_tasks = [
+        _enrich_document_task_market(task, by_task_id.get(str(task.get("task_id") or "")))
+        for task in (tasks or [])
+        if str(task.get("task_id") or "") in allowed
+    ]
     return {"tasks": visible_tasks, "scope": "workspace"}
 
 

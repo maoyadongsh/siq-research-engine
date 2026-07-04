@@ -11,6 +11,12 @@ export interface CuratedAnnualsRequestPlan {
   loadingLog: string
 }
 
+export type CuratedAnnualsLoadOptions =
+  | number
+  | { mode?: 'default'; limit?: number }
+  | { mode: 'country'; country: string; limit?: number }
+  | { mode: 'all-eu'; limit?: number }
+
 export interface CuratedAnnualsApplyResult {
   reports: ReportItem[]
   selected: Set<string>
@@ -19,20 +25,43 @@ export interface CuratedAnnualsApplyResult {
 }
 
 export function canLoadCuratedAnnuals(market: MarketCode) {
-  return market === 'JP' || market === 'KR'
+  return market === 'JP' || market === 'KR' || market === 'EU'
 }
 
 export function buildCuratedAnnualsRequestPlan(
   market: MarketCode,
   year: string,
-  limit = 10,
+  options: CuratedAnnualsLoadOptions = 10,
 ): CuratedAnnualsRequestPlan {
-  const marketLabel = MARKET_CONFIGS[market].label
-  const params = new URLSearchParams({ market, report_year: year, limit: String(limit) })
+  const plan = normalizeCuratedAnnualsLoadOptions(market, options)
+  const marketLabel = market === 'EU' ? '欧股' : MARKET_CONFIGS[market].label
+  const params = new URLSearchParams({ market, report_year: year, limit: String(plan.limit) })
+  if (plan.country) {
+    params.set('country', plan.country)
+  }
   return {
     params,
-    loadingLog: `正在载入 ${marketLabel} 主流 ${limit} 家年报样本 (${year})`,
+    loadingLog: `正在载入 ${marketLabel} ${plan.sampleLabel} ${plan.limit} 家年报样本 (${year})`,
   }
+}
+
+function normalizeCuratedAnnualsLoadOptions(
+  market: MarketCode,
+  options: CuratedAnnualsLoadOptions,
+): { limit: number; sampleLabel: string; country?: string } {
+  if (typeof options === 'number') {
+    return { limit: options, sampleLabel: '主流' }
+  }
+
+  if (market === 'EU' && options.mode === 'all-eu') {
+    return { limit: options.limit ?? 50, sampleLabel: '五国' }
+  }
+
+  if (market === 'EU' && options.mode === 'country') {
+    return { limit: options.limit ?? 10, sampleLabel: '当前国家', country: options.country }
+  }
+
+  return { limit: options.limit ?? 10, sampleLabel: '主流' }
 }
 
 export function buildCuratedAnnualsApplyResult(

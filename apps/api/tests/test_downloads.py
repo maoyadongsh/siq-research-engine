@@ -107,6 +107,55 @@ def test_admin_delete_downloaded_report_removes_file(monkeypatch, tmp_path):
     assert not report_path.exists()
 
 
+def test_non_admin_list_downloaded_reports_includes_system_downloads_when_workspace_only_disabled(monkeypatch, tmp_path):
+    root = tmp_path / "downloads"
+    relative_path = "EU/FR/Demo/2025/annual/report.pdf"
+    write_report(root, relative_path)
+    monkeypatch.setattr(downloads, "DOWNLOADS_ROOT", root)
+    monkeypatch.delenv("SIQ_DOWNLOAD_LIST_WORKSPACE_ONLY", raising=False)
+
+    with make_session(tmp_path) as session:
+        result = downloads.list_downloaded_reports(
+            q="",
+            market="EU",
+            limit=20,
+            current_user=SimpleNamespace(id=2, role="analyst"),
+            session=session,
+        )
+
+    assert [item["relativePath"] for item in result["reports"]] == [relative_path]
+    assert result["reports"][0]["accessible"] is False
+
+
+def test_non_admin_list_downloaded_reports_honors_workspace_only_setting(monkeypatch, tmp_path):
+    root = tmp_path / "downloads"
+    relative_path = "EU/DE/Demo/2025/annual/report.pdf"
+    write_report(root, relative_path)
+    monkeypatch.setattr(downloads, "DOWNLOADS_ROOT", root)
+    monkeypatch.setenv("SIQ_DOWNLOAD_LIST_WORKSPACE_ONLY", "1")
+
+    with make_session(tmp_path) as session:
+        hidden = downloads.list_downloaded_reports(
+            q="",
+            market="EU",
+            limit=20,
+            current_user=SimpleNamespace(id=2, role="analyst"),
+            session=session,
+        )
+        link_download(session, user_id=2, relative_path=relative_path)
+        visible = downloads.list_downloaded_reports(
+            q="",
+            market="EU",
+            limit=20,
+            current_user=SimpleNamespace(id=2, role="analyst"),
+            session=session,
+        )
+
+    assert hidden["reports"] == []
+    assert [item["relativePath"] for item in visible["reports"]] == [relative_path]
+    assert visible["reports"][0]["accessible"] is True
+
+
 @pytest.mark.parametrize(
     "route_callable",
     [downloads.open_downloaded_report, downloads.delete_downloaded_report],

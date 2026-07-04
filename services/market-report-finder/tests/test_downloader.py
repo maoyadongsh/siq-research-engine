@@ -1,5 +1,6 @@
 from datetime import date
 
+from market_report_finder_service.core.config import settings
 from market_report_finder_service.models.schemas import FilingCandidate, Market, ReportFamily, ReportType
 from market_report_finder_service.services.downloader import ReportDownloader
 
@@ -92,6 +93,116 @@ def test_eu_download_dir_uses_country_between_market_and_company():
     path = downloader._download_dir(candidate)
 
     assert path.as_posix().endswith("downloads/EU/NL/ASML-Holding-N.V/2025/年报")
+
+
+def test_eu_sec_source_uses_sec_user_agent(monkeypatch):
+    captured: dict[str, object] = {}
+
+    class StubResponse:
+        content = b"<html>ok</html>"
+        headers = {"content-type": "text/html"}
+
+        def raise_for_status(self) -> None:
+            return None
+
+    class StubClient:
+        def __init__(self, *, timeout, headers, follow_redirects):
+            captured["timeout"] = timeout
+            captured["headers"] = headers
+            captured["follow_redirects"] = follow_redirects
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, url: str):
+            captured["url"] = url
+            return StubResponse()
+
+    monkeypatch.setattr("market_report_finder_service.services.downloader.httpx.Client", StubClient)
+    candidate = _candidate().model_copy(
+        update={
+            "market": Market.eu,
+            "company_id": "CH:UBSG",
+            "ticker": "UBSG",
+            "company_name": "UBS Group AG",
+            "document_url": "https://www.sec.gov/Archives/edgar/data/1610520/000161052026000023/ubs-20251231.htm",
+            "metadata": {"country": "CH"},
+        }
+    )
+
+    content, content_type = ReportDownloader()._fetch_content(candidate)
+
+    assert content == b"<html>ok</html>"
+    assert content_type == "text/html"
+    assert captured["url"] == candidate.document_url
+    assert captured["headers"]["User-Agent"] == settings.sec_user_agent
+    assert captured["headers"]["Host"] == "www.sec.gov"
+
+
+def test_eu_bmw_download_uses_base_user_agent(monkeypatch):
+    captured: dict[str, object] = {}
+
+    class StubResponse:
+        content = b"%PDF-1.7 ok"
+        headers = {"content-type": "application/pdf"}
+
+        def raise_for_status(self) -> None:
+            return None
+
+    class StubClient:
+        def __init__(self, *, timeout, headers, follow_redirects):
+            captured["headers"] = headers
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, url: str):
+            captured["url"] = url
+            return StubResponse()
+
+    monkeypatch.setattr("market_report_finder_service.services.downloader.httpx.Client", StubClient)
+    candidate = _candidate().model_copy(
+        update={
+            "source_id": "issuer_annual_report",
+            "market": Market.eu,
+            "company_id": "DE:BMW",
+            "ticker": "BMW",
+            "company_name": "Bayerische Motoren Werke Aktiengesellschaft",
+            "document_url": "https://www.bmwgroup.com/en/report/2025/downloads/BMW-Group-Financial-Statements-2025-en.pdf",
+            "metadata": {"country": "DE"},
+        }
+    )
+
+    content, content_type = ReportDownloader()._fetch_content(candidate)
+
+    assert content == b"%PDF-1.7 ok"
+    assert content_type == "application/pdf"
+    assert captured["url"] == candidate.document_url
+    assert captured["headers"]["User-Agent"] == settings.sec_user_agent
+    assert "Accept-Language" not in captured["headers"]
+
+
+def test_issuer_direct_cache_lookup_does_not_alias_landing_url():
+    candidate = _candidate().model_copy(
+        update={
+            "source_id": "issuer_annual_report",
+            "market": Market.eu,
+            "company_id": "CH:ABBN",
+            "ticker": "ABBN",
+            "company_name": "ABB Ltd",
+            "document_url": "https://library.e.abb.com/public/c81058c6d8cc4437bba6acf6a43a21d2/ABB%20Integrated%20Report%202025.pdf",
+            "landing_url": "https://www.abb.com/global/en/company/annual-reporting-suite",
+            "metadata": {"country": "CH"},
+        }
+    )
+
+    assert ReportDownloader._cache_lookup_urls(candidate) == (candidate.document_url,)
 
 
 def test_cn_quarter_file_name_uses_specific_report_label():

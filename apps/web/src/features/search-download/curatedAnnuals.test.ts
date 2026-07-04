@@ -27,9 +27,10 @@ const sonyAnnual = {
   document_url: 'https://example.com/sony.pdf',
 } satisfies ReportItem
 
-test('canLoadCuratedAnnuals gates curated sample loading to JP and KR', () => {
+test('canLoadCuratedAnnuals includes EU with JP and KR', () => {
   assert.equal(canLoadCuratedAnnuals('JP'), true)
   assert.equal(canLoadCuratedAnnuals('KR'), true)
+  assert.equal(canLoadCuratedAnnuals('EU'), true)
   assert.equal(canLoadCuratedAnnuals('US'), false)
   assert.equal(canLoadCuratedAnnuals('CN'), false)
 })
@@ -46,6 +47,27 @@ test('buildCuratedAnnualsRequestPlan supports explicit sample limits', () => {
 
   assert.equal(plan.params.toString(), 'market=KR&report_year=2024&limit=3')
   assert.equal(plan.loadingLog, '正在载入 韩国市场 主流 3 家年报样本 (2024)')
+})
+
+test('buildCuratedAnnualsRequestPlan supports EU selected-country samples', () => {
+  const plan = buildCuratedAnnualsRequestPlan('EU', '2025', { mode: 'country', country: 'UK' })
+
+  assert.equal(plan.params.toString(), 'market=EU&report_year=2025&limit=10&country=UK')
+  assert.equal(plan.loadingLog, '正在载入 欧股 当前国家 10 家年报样本 (2025)')
+})
+
+test('buildCuratedAnnualsRequestPlan supports balanced all-EU samples', () => {
+  const plan = buildCuratedAnnualsRequestPlan('EU', '2025', { mode: 'all-eu' })
+
+  assert.equal(plan.params.toString(), 'market=EU&report_year=2025&limit=50')
+  assert.equal(plan.loadingLog, '正在载入 欧股 五国 50 家年报样本 (2025)')
+})
+
+test('buildCuratedAnnualsRequestPlan respects EU object-form custom limits', () => {
+  const plan = buildCuratedAnnualsRequestPlan('EU', '2025', { mode: 'country', country: 'FR', limit: 7 })
+
+  assert.equal(plan.params.toString(), 'market=EU&report_year=2025&limit=7&country=FR')
+  assert.equal(plan.loadingLog, '正在载入 欧股 当前国家 7 家年报样本 (2025)')
 })
 
 test('buildCuratedAnnualsApplyResult dedupes reports and preselects downloads', () => {

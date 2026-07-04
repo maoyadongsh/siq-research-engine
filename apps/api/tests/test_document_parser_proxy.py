@@ -307,6 +307,87 @@ def test_list_document_tasks_admin_workspace_only_env_filters(monkeypatch, tmp_p
     assert [item["task_id"] for item in result["tasks"]] == ["admin-owned"]
 
 
+def test_list_document_tasks_enriches_market_from_artifact_path_and_filename_fallback(monkeypatch, tmp_path):
+    patch_document_task_list(
+        monkeypatch,
+        [
+            {"task_id": "eu-task", "filename": "plain-eu.pdf"},
+            {"task_id": "us-task", "filename": "NVIDIA_US_manual_upload.pdf"},
+        ],
+    )
+
+    async def run_case(async_session: AsyncSession):
+        user = SimpleNamespace(id=1, role=UserRole.ANALYST)
+        async_session.add(
+            UserArtifact(
+                user_id=int(user.id),
+                artifact_type="document_parse",
+                artifact_key="eu-task",
+                title="plain-eu.pdf",
+                path="/documents?task=eu-task&market=EU",
+                source="document_upload",
+                global_artifact_id="eu-task",
+            )
+        )
+        async_session.add(
+            UserArtifact(
+                user_id=int(user.id),
+                artifact_type="document_parse",
+                artifact_key="us-task",
+                title="NVIDIA_US_manual_upload.pdf",
+                path="/documents?task=us-task",
+                source="document_upload",
+                global_artifact_id="us-task",
+            )
+        )
+        await async_session.commit()
+
+        return await document_parser.list_document_tasks(current_user=user, async_session=async_session)
+
+    result = asyncio.run(with_async_session(tmp_path, run_case))
+
+    assert result["scope"] == "workspace"
+    assert [(item["task_id"], item.get("market")) for item in result["tasks"]] == [
+        ("eu-task", "EU"),
+        ("us-task", "US"),
+    ]
+
+
+def test_list_document_tasks_admin_system_scope_enriches_market_from_any_user_artifact(monkeypatch, tmp_path):
+    monkeypatch.delenv("SIQ_DOCUMENT_TASK_LIST_WORKSPACE_ONLY", raising=False)
+    patch_document_task_list(
+        monkeypatch,
+        [
+            {"task_id": "eu-task", "filename": "plain-eu.pdf"},
+            {"task_id": "cn-task", "filename": "plain-cn.pdf", "market": "CN"},
+        ],
+    )
+
+    async def run_case(async_session: AsyncSession):
+        async_session.add(
+            UserArtifact(
+                user_id=2,
+                artifact_type="document_parse",
+                artifact_key="eu-task",
+                title="plain-eu.pdf",
+                path="/documents?task=eu-task&market=EU",
+                source="document_upload",
+                global_artifact_id="eu-task",
+            )
+        )
+        await async_session.commit()
+        admin = SimpleNamespace(id=1, role=UserRole.ADMIN)
+        return await document_parser.list_document_tasks(current_user=admin, async_session=async_session)
+
+    result = asyncio.run(with_async_session(tmp_path, run_case))
+
+    assert result["scope"] == "system"
+    assert [(item["task_id"], item.get("market")) for item in result["tasks"]] == [
+        ("eu-task", "EU"),
+        ("cn-task", "CN"),
+    ]
+
+
 def test_create_document_tasks_records_usage_and_artifacts(monkeypatch, tmp_path):
     class FakeAsyncClient:
         def __init__(self, timeout=None):
@@ -356,6 +437,54 @@ def test_create_document_tasks_records_usage_and_artifacts(monkeypatch, tmp_path
     assert usage.count == 1
     assert artifact.user_id == user_id
     assert artifact.source == "document_url"
+
+
+def test_create_document_tasks_records_explicit_market_on_artifact_and_response(monkeypatch, tmp_path):
+    class FakeAsyncClient:
+        def __init__(self, timeout=None):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, json=None, headers=None):
+            assert url.endswith("/api/tasks")
+            return SimpleNamespace(
+                status_code=200,
+                headers={"content-type": "application/json"},
+                json=lambda: {
+                    "tasks": [
+                        {"task_id": "task-eu", "filename": "annual-report.pdf", "status": "queued"},
+                    ]
+                },
+            )
+
+    class JsonRequest:
+        headers = {"content-type": "application/json"}
+
+        async def json(self):
+            return {"source_type": "url", "url": "https://example.test/report.pdf", "market": "EU"}
+
+    monkeypatch.setattr(document_parser.httpx, "AsyncClient", FakeAsyncClient)
+
+    async def run_case(async_session: AsyncSession):
+        user = SimpleNamespace(id=1, role=UserRole.ANALYST)
+        result = await document_parser.create_document_tasks(
+            request=JsonRequest(),
+            files=None,
+            current_user=user,
+            async_session=async_session,
+        )
+        artifact_result = await async_session.exec(select(UserArtifact).where(UserArtifact.artifact_key == "task-eu"))
+        return result, artifact_result.one()
+
+    result, artifact = asyncio.run(with_async_session(tmp_path, run_case))
+
+    assert result["tasks"][0]["market"] == "EU"
+    assert artifact.path == "/documents?task=task-eu&market=EU"
 
 
 def test_create_document_tasks_quota_exceeded_does_not_call_upstream_or_record_side_effects(monkeypatch, tmp_path):

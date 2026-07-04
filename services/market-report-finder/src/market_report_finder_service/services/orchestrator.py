@@ -65,18 +65,23 @@ class ReportFinderOrchestrator:
         market: Market,
         report_year: int | None = None,
         limit: int = 10,
+        country: str | None = None,
     ) -> dict:
         finder = self._market(market)
         if not hasattr(finder, "curated_annual_reports"):
             raise HTTPException(status_code=400, detail=f"{market.value} does not provide curated annual-report samples")
-        reports = finder.curated_annual_reports(report_year=report_year, limit=limit)  # type: ignore[attr-defined]
+        if market == Market.eu:
+            reports = finder.curated_annual_reports(report_year=report_year, limit=limit, country=country)  # type: ignore[attr-defined]
+        else:
+            reports = finder.curated_annual_reports(report_year=report_year, limit=limit)  # type: ignore[attr-defined]
         return {
             "market": market,
             "report_year": report_year,
             "limit": limit,
+            "country": country,
             "candidates_total": len(reports),
             "reports": reports,
-            "ranking_rule": "Curated mainstream companies by market, each resolved to the latest matching annual-report candidate.",
+            "ranking_rule": "Curated mainstream companies by market, balanced by country when applicable.",
             "checked_at": datetime.now(timezone.utc),
         }
 
@@ -491,35 +496,7 @@ class ReportFinderOrchestrator:
             return Market.cn
         if "hkexnews.hk" in host or "hkex.com.hk" in host:
             return Market.hk
-        if (
-            "filings.xbrl.org" in host
-            or "annualreports.ai" in host
-            or "financialreports.eu" in host
-            or "financialfilings.com" in host
-            or "fca.org.uk" in host
-            or "info-financiere.fr" in host
-            or "amf-france.org" in host
-            or "unternehmensregister.de" in host
-            or "bundesanzeiger.de" in host
-            or "afm.nl" in host
-            or "six-group.com" in host
-            or "ser-ag.com" in host
-            or "astrazeneca.com" in host
-            or "bp.com" in host
-            or "barclays" in host
-            or "totalenergies.com" in host
-            or "sanofi.com" in host
-            or "airliquide.com" in host
-            or "siemens.com" in host
-            or "sap.com" in host
-            or "telekom.com" in host
-            or "asml.com" in host
-            or "philips.com" in host
-            or "heinekencompany.com" in host
-            or "nestle.com" in host
-            or "novartis.com" in host
-            or "roche.com" in host
-        ):
+        if EuReportFinder.owns_url(document_url):
             return Market.eu
         if "dart.fss.or.kr" in host or "opendart.fss.or.kr" in host or "kind.krx.co.kr" in host:
             return Market.kr

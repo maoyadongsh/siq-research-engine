@@ -1,3 +1,4 @@
+import io
 import os
 import sys
 import tempfile
@@ -316,6 +317,57 @@ class TaskArtifactStateTest(unittest.TestCase):
                 app._save_task(cancelled, allow_insert=True)
 
                 self.assertIsNone(app._find_duplicate_filename_task("retry.pdf"))
+        finally:
+            app.DB_PATH = old_db_path
+
+    def test_duplicate_file_hash_finds_existing_non_failed_task(self):
+        old_db_path = app.DB_PATH
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                app.DB_PATH = os.path.join(tmpdir, "tasks.db")
+                app._init_db()
+                base = {
+                    "task_id": "completed-task",
+                    "mineru_task_id": None,
+                    "filename": "original.pdf",
+                    "file_size": 1,
+                    "pdf_page_count": 1,
+                    "status": COMPLETED,
+                    "stage": COMPLETED,
+                    "created_at": "2026-05-01T00:00:00Z",
+                    "uploaded_at": "2026-05-01T00:00:00Z",
+                    "submitted_at": None,
+                    "started_at": None,
+                    "completed_at": "2026-05-01T00:01:00Z",
+                    "cancelled": False,
+                    "error": None,
+                    "markdown_path": None,
+                    "upload_path": None,
+                    "last_progress_log_time": None,
+                    "last_status_payload": None,
+                    "last_polled_at": None,
+                    "consecutive_status_failures": 0,
+                    "submit_config": {},
+                    "logs": [],
+                    "file_sha256": "same-hash",
+                }
+                app._save_task(base, allow_insert=True)
+                failed = dict(base)
+                failed.update(
+                    {
+                        "task_id": "failed-newer-task",
+                        "status": FAILED,
+                        "stage": FAILED,
+                        "created_at": "2026-05-01T00:02:00Z",
+                        "completed_at": "2026-05-01T00:03:00Z",
+                    }
+                )
+                app._save_task(failed, allow_insert=True)
+
+                duplicate = app._find_duplicate_file_hash_task("same-hash")
+
+                self.assertIsNotNone(duplicate)
+                self.assertEqual(duplicate["task_id"], "completed-task")
         finally:
             app.DB_PATH = old_db_path
 
@@ -843,6 +895,50 @@ class ApiLayerTest(unittest.TestCase):
         self.assertTrue(payload["flask"])
         self.assertTrue(payload["submit_ready"])
         self.assertEqual(payload["mineru_stats"], {"status": "healthy"})
+
+    def test_upload_endpoint_rejects_same_content_different_filenames(self):
+        if not hasattr(app.app, "test_client"):
+            self.skipTest("Flask test client is unavailable in the lightweight import stub")
+        old_db_path = app.DB_PATH
+        old_upload_folder = app.UPLOAD_FOLDER
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                app.DB_PATH = os.path.join(tmpdir, "tasks.db")
+                app.UPLOAD_FOLDER = os.path.join(tmpdir, "uploads")
+                os.makedirs(app.UPLOAD_FOLDER, exist_ok=True)
+                app._init_db()
+                pdf_bytes = b"%PDF-1.4\nsame document"
+
+                with patch.object(app, "initialize_app"), patch.object(
+                    app, "_request_has_valid_token", return_value=True
+                ), patch.object(app, "_cleanup_old_data"), patch.object(
+                    app, "_wake_queue_worker"
+                ), patch.object(
+                    app, "_looks_like_pdf", return_value=True
+                ), patch.object(
+                    app, "_get_pdf_page_count", return_value=1
+                ):
+                    client = app.app.test_client()
+                    first = client.post(
+                        "/api/upload",
+                        data={"files": [(io.BytesIO(pdf_bytes), "first.pdf")]},
+                        content_type="multipart/form-data",
+                    )
+                    second = client.post(
+                        "/api/upload",
+                        data={"files": [(io.BytesIO(pdf_bytes), "second.pdf")]},
+                        content_type="multipart/form-data",
+                    )
+
+                self.assertEqual(first.status_code, 200)
+                self.assertEqual(second.status_code, 409)
+                payload = second.get_json()
+                self.assertEqual(payload["error"], "duplicate_file_content")
+                self.assertEqual(payload["filename"], "second.pdf")
+                self.assertEqual(payload["existingTask"]["filename"], "first.pdf")
+        finally:
+            app.DB_PATH = old_db_path
+            app.UPLOAD_FOLDER = old_upload_folder
 
 
 if __name__ == "__main__":

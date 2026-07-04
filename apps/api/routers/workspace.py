@@ -1,9 +1,10 @@
+import hashlib
 import json
 import os
 import re
 from pathlib import Path
 from datetime import UTC, datetime
-from urllib.parse import quote, unquote
+from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
@@ -39,6 +40,7 @@ PDF2MD_ACCESS_TOKEN = os.environ.get("PDF2MD_ACCESS_TOKEN", "").strip()
 DOWNLOADS_ROOT = REPORT_DOWNLOADS_ROOT
 WIKI_ROOT = CONFIG_WIKI_ROOT
 TERMINAL_FAILED = {"failed", "error", "failure", "cancelled"}
+SUPPORTED_PARSE_MARKETS = {"CN", "HK", "US", "EU", "KR", "JP"}
 COMPANY_DIR_RE = re.compile(r"^(?P<code>[A-Za-z0-9]+)-(?P<name>.+)$")
 REPORT_URL_RE = re.compile(
     r"(?:/api/wiki)?/companies/(?P<company>[^\s`'\"<>]+)/"
@@ -82,6 +84,50 @@ def _quota_error_payload(event_type: str, limit: int, used: int) -> HTTPExceptio
 
 def _pdf2md_headers() -> dict[str, str]:
     return {"X-PDF2MD-Token": PDF2MD_ACCESS_TOKEN} if PDF2MD_ACCESS_TOKEN else {}
+
+
+def _normalize_parse_market(value: object) -> str:
+    market = str(value or "").strip().upper()
+    return market if market in SUPPORTED_PARSE_MARKETS else ""
+
+
+def _market_from_parse_filename(filename: str) -> str:
+    text = str(filename or "").upper()
+    for market in ("CN", "HK", "US", "EU", "KR", "JP"):
+        if f"_{market}_" in text:
+            return market
+    return ""
+
+
+def _parse_result_artifact_path(task_id: str, market: str | None = None) -> str:
+    base = f"{PDF2MD_API_BASE}/api/result/{quote(task_id, safe='')}"
+    normalized_market = _normalize_parse_market(market)
+    if not normalized_market:
+        return base
+    return f"{base}?{urlencode({'market': normalized_market})}"
+
+
+def _market_from_parse_artifact(item: UserArtifact | None) -> str:
+    if item is None:
+        return ""
+    path = str(getattr(item, "path", "") or "")
+    if path:
+        try:
+            query = parse_qs(urlparse(path).query)
+        except Exception:
+            query = {}
+        market = _normalize_parse_market((query.get("market") or [""])[0])
+        if market:
+            return market
+    return _market_from_parse_filename(str(getattr(item, "title", "") or ""))
+
+
+def _enrich_parse_task_market(task: dict[str, object], item: UserArtifact | None = None) -> dict[str, object]:
+    enriched = dict(task)
+    market = _normalize_parse_market(enriched.get("market")) or _market_from_parse_artifact(item) or _market_from_parse_filename(str(enriched.get("filename") or ""))
+    if market:
+        enriched["market"] = market
+    return enriched
 
 
 def _ensure_pdf_task_access(session: Session, current_user: User, task_id: str) -> None:
@@ -652,6 +698,10 @@ def _download_path_from_payload(payload: dict) -> Path:
     raise HTTPException(status_code=404, detail="PDF not found")
 
 
+def _sha256_bytes(content: bytes) -> str:
+    return hashlib.sha256(content).hexdigest()
+
+
 async def _pdf_tasks_by_filename() -> dict[str, dict]:
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
@@ -840,28 +890,62 @@ async def authenticated_pdf_upload(
     current_user: User = Depends(get_current_user),
     async_session: AsyncSession = Depends(get_async_session),
 ):
+    requested_market = _normalize_parse_market(market)
     form = {
         "backend": backend,
         "parse_method": parse_method,
-        "market": market,
+        "market": requested_market or market,
         "start_page_id": start_page_id,
         "end_page_id": end_page_id,
         "formula_enable": formula_enable,
         "table_enable": table_enable,
     }
-    multipart = []
-    filenames: list[str] = []
+    uploads: list[dict[str, object]] = []
+    seen_hashes: set[str] = set()
     for item in files:
         content = await item.read()
         filename = item.filename or "upload.pdf"
-        filenames.append(filename)
-        multipart.append(("files", (filename, content, item.content_type or "application/pdf")))
+        file_sha256 = _sha256_bytes(content)
+        if file_sha256 in seen_hashes:
+            return JSONResponse(
+                content={
+                    "error": "duplicate_file_content",
+                    "message": f"本次上传中包含重复文档内容，请勿重复解析: {filename}",
+                    "filename": filename,
+                    "existingTask": None,
+                },
+                status_code=409,
+            )
+        seen_hashes.add(file_sha256)
+        uploads.append(
+            {
+                "filename": filename,
+                "content": content,
+                "content_type": item.content_type or "application/pdf",
+                "file_sha256": file_sha256,
+            }
+        )
 
     existing_tasks = await _pdf_tasks_by_filename()
-    new_parse_count = sum(1 for filename in filenames if filename not in existing_tasks)
+    existing_hash_tasks = {
+        digest: task
+        for task in existing_tasks.values()
+        for digest in [str(task.get("file_sha256") or "").strip().lower()]
+        if digest
+    }
+    new_parse_count = sum(
+        1
+        for upload in uploads
+        if str(upload["filename"]) not in existing_tasks
+        and str(upload["file_sha256"]) not in existing_hash_tasks
+    )
     if new_parse_count:
         await enforce_quota_or_429_async(async_session, current_user, PARSE_EVENT, increment=new_parse_count)
 
+    multipart = [
+        ("files", (str(upload["filename"]), upload["content"], str(upload["content_type"])))
+        for upload in uploads
+    ]
     async with httpx.AsyncClient(timeout=None) as client:
         response = await client.post(f"{PDF2MD_API_BASE}/api/upload", data=form, files=multipart, headers=_pdf2md_headers())
 
@@ -871,10 +955,16 @@ async def authenticated_pdf_upload(
     except ValueError:
         return Response(content=response.content, status_code=response.status_code, media_type=content_type)
 
-    if response.status_code == 409 and isinstance(payload, dict) and payload.get("error") == "duplicate_filename":
+    if response.status_code == 409 and isinstance(payload, dict) and payload.get("error") in {"duplicate_filename", "duplicate_file_content"}:
         existing = payload.get("existingTask") or payload.get("existing_task") or {}
         task_id = str(existing.get("task_id") or "")
         filename = str(payload.get("filename") or existing.get("filename") or "已有解析任务")
+        if requested_market and isinstance(existing, dict) and not _normalize_parse_market(existing.get("market")):
+            existing["market"] = requested_market
+            if isinstance(payload.get("existingTask"), dict):
+                payload["existingTask"] = existing
+            if isinstance(payload.get("existing_task"), dict):
+                payload["existing_task"] = existing
         if task_id:
             await record_user_artifact_async(
                 async_session,
@@ -882,7 +972,7 @@ async def authenticated_pdf_upload(
                 artifact_type="parse",
                 artifact_key=task_id,
                 title=filename,
-                path=f"{PDF2MD_API_BASE}/api/result/{quote(task_id, safe='')}",
+                path=_parse_result_artifact_path(task_id, existing.get("market")),
                 source="reused_parse",
                 global_artifact_id=task_id,
             )
@@ -890,11 +980,23 @@ async def authenticated_pdf_upload(
 
     if 200 <= response.status_code < 300:
         created_tasks = payload.get("tasks") if isinstance(payload, dict) else []
+        if isinstance(payload, dict):
+            payload["tasks"] = [
+                _enrich_parse_task_market(
+                    {
+                        **dict(task),
+                        **({"market": requested_market} if requested_market and not _normalize_parse_market(task.get("market")) else {}),
+                    }
+                )
+                for task in (created_tasks or [])
+            ]
+        created_tasks = payload.get("tasks") if isinstance(payload, dict) else created_tasks
         new_tasks = []
         reused_tasks = []
         for task in created_tasks or []:
             filename = str(task.get("filename") or "").strip()
-            if filename and filename in existing_tasks:
+            task_file_sha256 = str(task.get("file_sha256") or "").strip().lower()
+            if (filename and filename in existing_tasks) or (task_file_sha256 and task_file_sha256 in existing_hash_tasks):
                 reused_tasks.append(task)
             else:
                 new_tasks.append(task)
@@ -919,7 +1021,7 @@ async def authenticated_pdf_upload(
                     artifact_type="parse",
                     artifact_key=task_id,
                     title=filename,
-                    path=f"{PDF2MD_API_BASE}/api/result/{quote(task_id, safe='')}",
+                    path=_parse_result_artifact_path(task_id, task.get("market")),
                     source="new_parse",
                     global_artifact_id=task_id,
                 )
@@ -933,7 +1035,7 @@ async def authenticated_pdf_upload(
                     artifact_type="parse",
                     artifact_key=task_id,
                     title=filename,
-                    path=f"{PDF2MD_API_BASE}/api/result/{quote(task_id, safe='')}",
+                    path=_parse_result_artifact_path(task_id, task.get("market")),
                     source="reused_parse",
                     global_artifact_id=task_id,
                 )
@@ -982,7 +1084,18 @@ async def list_my_pdf_tasks(
     # scripts and the UI. Return the queue to authenticated users; per-task
     # result/source access remains protected by the existing task access checks.
     if os.environ.get("SIQ_PDF_TASK_LIST_WORKSPACE_ONLY", "").strip().lower() not in {"1", "true", "yes"}:
-        return {"tasks": tasks or [], "scope": "system"}
+        result = await async_session.exec(select(UserArtifact).where(UserArtifact.artifact_type == "parse"))
+        parse_links = result.all()
+        by_task_id = {
+            value: item
+            for item in parse_links
+            for value in (item.artifact_key, item.global_artifact_id)
+            if value
+        }
+        return {
+            "tasks": [_enrich_parse_task_market(task, by_task_id.get(str(task.get("task_id") or ""))) for task in (tasks or [])],
+            "scope": "system",
+        }
 
     result = await async_session.exec(
         select(UserArtifact).where(
@@ -995,8 +1108,15 @@ async def list_my_pdf_tasks(
     if not allowed_task_ids:
         return {"tasks": [], "scope": "workspace"}
 
+    by_task_id = {
+        value: item
+        for item in parse_links
+        for value in (item.artifact_key, item.global_artifact_id)
+        if value
+    }
     visible_tasks = [
-        task for task in (tasks or [])
+        _enrich_parse_task_market(task, by_task_id.get(str(task.get("task_id") or "")))
+        for task in (tasks or [])
         if str(task.get("task_id") or "") in allowed_task_ids
     ]
     return {"tasks": visible_tasks, "scope": "workspace"}

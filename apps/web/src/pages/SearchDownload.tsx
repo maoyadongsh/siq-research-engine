@@ -475,9 +475,17 @@ export default function SearchDownload() {
     })
   }
 
-  const handleLoadCuratedAnnuals = async () => {
+  const handleLoadCuratedAnnuals = async (mode: 'default' | 'eu-country' | 'eu-all' = 'default') => {
     if (!canLoadCuratedAnnuals(market)) return
-    const plan = buildCuratedAnnualsRequestPlan(market, year)
+    if (market === 'EU' && mode === 'eu-country' && !marketFilter) {
+      addLog('请先选择一个欧股国家，再载入当前国家 10 家年报', 'warn')
+      return
+    }
+    const plan = market === 'EU' && mode === 'eu-country'
+      ? buildCuratedAnnualsRequestPlan(market, year, { mode: 'country', country: marketFilter })
+      : market === 'EU' && mode === 'eu-all'
+        ? buildCuratedAnnualsRequestPlan(market, year, { mode: 'all-eu' })
+        : buildCuratedAnnualsRequestPlan(market, year)
     setCuratedLoading(true)
     setLoading(true)
     setSelected(new Set())
@@ -774,11 +782,35 @@ export default function SearchDownload() {
               查询列表
             </button>
           </div>
-          {(market === 'JP' || market === 'KR') ? (
+          {market === 'EU' ? (
             <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
               <button
                 type="button"
-                onClick={handleLoadCuratedAnnuals}
+                onClick={() => handleLoadCuratedAnnuals('eu-country')}
+                disabled={curatedLoading || loading || !marketFilter}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-primary/25 bg-primary/5 px-4 text-sm font-semibold text-primary transition-colors hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {curatedLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+                载入当前国家 10 家年报
+              </button>
+              <button
+                type="button"
+                onClick={() => handleLoadCuratedAnnuals('eu-all')}
+                disabled={curatedLoading || loading}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-border bg-card px-4 text-sm font-semibold text-text transition-colors hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {curatedLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+                载入五国 50 家年报
+              </button>
+              <span className="text-xs leading-5 text-text-muted">
+                当前国家需先选择 UK/FR/DE/NL/CH；五国模式会自动载入 50 家
+              </span>
+            </div>
+          ) : (market === 'JP' || market === 'KR') ? (
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+              <button
+                type="button"
+                onClick={() => handleLoadCuratedAnnuals()}
                 disabled={curatedLoading || loading}
                 className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-primary/25 bg-primary/5 px-4 text-sm font-semibold text-primary transition-colors hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-60"
               >

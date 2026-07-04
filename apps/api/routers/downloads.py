@@ -175,6 +175,32 @@ def _user_has_download_link(session: Session, user_id: int, relative_path: str) 
     return item is not None
 
 
+def _all_download_candidate_paths() -> list[Path]:
+    return [
+        path
+        for path in DOWNLOADS_ROOT.rglob("*")
+        if path.is_file() and path.suffix.lower() in OPENABLE_SUFFIXES
+    ]
+
+
+def _linked_download_candidate_paths(session: Session, user_id: int) -> list[Path]:
+    links = session.exec(
+        select(UserArtifact).where(
+            UserArtifact.user_id == user_id,
+            UserArtifact.artifact_type == "download",
+        )
+    ).all()
+    candidate_paths: list[Path] = []
+    for item in links:
+        try:
+            path = _safe_relative_path(item.artifact_key)
+        except HTTPException:
+            continue
+        if path.is_file():
+            candidate_paths.append(path)
+    return candidate_paths
+
+
 @router.get("/reports")
 def list_downloaded_reports(
     q: str = "",
@@ -193,27 +219,10 @@ def list_downloaded_reports(
     reports = []
 
     system_downloads_visible = os.environ.get("SIQ_DOWNLOAD_LIST_WORKSPACE_ONLY", "").strip().lower() not in {"1", "true", "yes"}
-    if _is_admin(current_user):
-        candidate_paths = [
-            path
-            for path in DOWNLOADS_ROOT.rglob("*")
-            if path.is_file() and path.suffix.lower() in OPENABLE_SUFFIXES
-        ]
+    if _is_admin(current_user) or system_downloads_visible:
+        candidate_paths = _all_download_candidate_paths()
     else:
-        links = session.exec(
-            select(UserArtifact).where(
-                UserArtifact.user_id == int(current_user.id),
-                UserArtifact.artifact_type == "download",
-            )
-        ).all()
-        candidate_paths = []
-        for item in links:
-            try:
-                path = _safe_relative_path(item.artifact_key)
-            except HTTPException:
-                continue
-            if path.is_file():
-                candidate_paths.append(path)
+        candidate_paths = _linked_download_candidate_paths(session, int(current_user.id))
 
     for path in candidate_paths:
         if not path.is_file():

@@ -1,3 +1,4 @@
+import hashlib
 import json
 import sys
 from datetime import datetime
@@ -566,6 +567,96 @@ def test_authenticated_pdf_upload_duplicate_filename_ignores_full_quota(monkeypa
     assert [item.source for item in usage] == ["existing_parse"]
 
 
+def test_authenticated_pdf_upload_duplicate_file_content_records_reused_parse_without_quota(
+    monkeypatch, tmp_path
+):
+    posted: dict[str, object] = {}
+    file_bytes = b"%PDF-1.4\nsame-content"
+    file_sha256 = hashlib.sha256(file_bytes).hexdigest()
+    duplicate_payload = {
+        "error": "duplicate_file_content",
+        "filename": "renamed.pdf",
+        "existingTask": {
+            "task_id": "existing-task",
+            "filename": "original.pdf",
+            "file_sha256": file_sha256,
+        },
+    }
+    quota_calls: list[dict[str, object]] = []
+
+    class FakeUpload:
+        filename = "renamed.pdf"
+        content_type = "application/pdf"
+
+        async def read(self):
+            return file_bytes
+
+    class FakeAsyncClient:
+        def __init__(self, timeout=None):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, data=None, files=None, headers=None):
+            posted["url"] = url
+            posted["files"] = files
+            return SimpleNamespace(
+                status_code=409,
+                headers={"content-type": "application/json"},
+                content=json.dumps(duplicate_payload).encode("utf-8"),
+                json=lambda: duplicate_payload,
+            )
+
+    async def fake_pdf_tasks_by_filename():
+        return {
+            "original.pdf": {
+                "task_id": "existing-task",
+                "filename": "original.pdf",
+                "file_sha256": file_sha256,
+            }
+        }
+
+    async def fake_enforce_quota(async_session, current_user, event_type, increment=1):
+        quota_calls.append({"event_type": event_type, "increment": increment})
+        return (0, 2)
+
+    monkeypatch.setattr(workspace, "PDF2MD_API_BASE", "http://pdf2md.test")
+    monkeypatch.setattr(workspace, "_pdf_tasks_by_filename", fake_pdf_tasks_by_filename)
+    monkeypatch.setattr(workspace, "enforce_quota_or_429_async", fake_enforce_quota)
+    monkeypatch.setattr(workspace.httpx, "AsyncClient", FakeAsyncClient)
+
+    async def run_case(async_session):
+        response = await workspace.authenticated_pdf_upload(
+            files=[FakeUpload()],
+            current_user=SimpleNamespace(id=1, role="user"),
+            async_session=async_session,
+        )
+        artifact_result = await async_session.exec(
+            select(UserArtifact).where(UserArtifact.artifact_key == "existing-task")
+        )
+        usage_result = await async_session.exec(select(UsageEvent).where(UsageEvent.event_type == PARSE_EVENT))
+        return response, artifact_result.one(), usage_result.all()
+
+    response, artifact, usage = anyio.run(
+        _with_async_session,
+        tmp_path,
+        "workspace-upload-duplicate-content.db",
+        run_case,
+    )
+
+    assert posted["url"] == "http://pdf2md.test/api/upload"
+    assert quota_calls == []
+    assert response.status_code == 409
+    assert json.loads(response.body) == duplicate_payload
+    assert artifact.source == "reused_parse"
+    assert artifact.artifact_key == "existing-task"
+    assert usage == []
+
+
 def test_authenticated_pdf_upload_mixed_existing_and_new_uses_new_parse_quota(monkeypatch, tmp_path):
     quota_calls: list[dict[str, object]] = []
     success_payload = {
@@ -628,6 +719,91 @@ def test_authenticated_pdf_upload_mixed_existing_and_new_uses_new_parse_quota(mo
         _with_async_session,
         tmp_path,
         "workspace-upload-mixed-existing-new.db",
+        run_case,
+    )
+
+    assert response == success_payload
+    assert quota_calls == [{"event_type": PARSE_EVENT, "increment": 1}]
+    assert [(item.artifact_key, item.source) for item in artifacts] == [("new-task", "new_parse")]
+    assert len(usage) == 1
+    assert usage[0].count == 1
+    assert usage[0].source == "pdf_upload"
+
+
+def test_authenticated_pdf_upload_mixed_existing_hash_and_new_uses_new_parse_quota(monkeypatch, tmp_path):
+    quota_calls: list[dict[str, object]] = []
+    shared_bytes = b"%PDF-1.4\nshared-content"
+    shared_sha256 = hashlib.sha256(shared_bytes).hexdigest()
+    success_payload = {
+        "tasks": [
+            {"task_id": "new-task", "filename": "new.pdf", "status": "queued"},
+        ]
+    }
+
+    class FakeUpload:
+        def __init__(self, filename: str, content: bytes):
+            self.filename = filename
+            self.content_type = "application/pdf"
+            self._content = content
+
+        async def read(self):
+            return self._content
+
+    class FakeAsyncClient:
+        def __init__(self, timeout=None):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, data=None, files=None, headers=None):
+            assert url == "http://pdf2md.test/api/upload"
+            assert [item[1][0] for item in files] == ["renamed.pdf", "new.pdf"]
+            return SimpleNamespace(
+                status_code=200,
+                headers={"content-type": "application/json"},
+                content=json.dumps(success_payload).encode("utf-8"),
+                json=lambda: success_payload,
+            )
+
+    async def fake_pdf_tasks_by_filename():
+        return {
+            "original.pdf": {
+                "task_id": "shared-task",
+                "filename": "original.pdf",
+                "file_sha256": shared_sha256,
+            }
+        }
+
+    async def fake_enforce_quota(async_session, current_user, event_type, increment=1):
+        quota_calls.append({"event_type": event_type, "increment": increment})
+        return (0, 2)
+
+    monkeypatch.setattr(workspace, "PDF2MD_API_BASE", "http://pdf2md.test")
+    monkeypatch.setattr(workspace, "_pdf_tasks_by_filename", fake_pdf_tasks_by_filename)
+    monkeypatch.setattr(workspace, "enforce_quota_or_429_async", fake_enforce_quota)
+    monkeypatch.setattr(workspace.httpx, "AsyncClient", FakeAsyncClient)
+
+    async def run_case(async_session):
+        response = await workspace.authenticated_pdf_upload(
+            files=[
+                FakeUpload("renamed.pdf", shared_bytes),
+                FakeUpload("new.pdf", b"%PDF-1.4\nnew-content"),
+            ],
+            current_user=SimpleNamespace(id=1, role="user"),
+            async_session=async_session,
+        )
+        artifacts_result = await async_session.exec(select(UserArtifact).order_by(UserArtifact.artifact_key))
+        usage_result = await async_session.exec(select(UsageEvent).where(UsageEvent.event_type == PARSE_EVENT))
+        return response, artifacts_result.all(), usage_result.all()
+
+    response, artifacts, usage = anyio.run(
+        _with_async_session,
+        tmp_path,
+        "workspace-upload-mixed-existing-hash-new.db",
         run_case,
     )
 
@@ -739,6 +915,67 @@ def test_authenticated_pdf_upload_mixed_reused_and_new_tasks_classifies_usage_an
     }
 
 
+def test_authenticated_pdf_upload_records_market_on_tasks_and_artifacts(monkeypatch, tmp_path):
+    success_payload = {
+        "tasks": [
+            {"task_id": "eu-task", "filename": "annual-report.pdf", "status": "queued"},
+        ]
+    }
+
+    class FakeUpload:
+        filename = "annual-report.pdf"
+        content_type = "application/pdf"
+
+        async def read(self):
+            return b"%PDF-1.4\nmarket"
+
+    class FakeAsyncClient:
+        def __init__(self, timeout=None):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, data=None, files=None, headers=None):
+            assert data["market"] == "EU"
+            return SimpleNamespace(
+                status_code=200,
+                headers={"content-type": "application/json"},
+                content=json.dumps(success_payload).encode("utf-8"),
+                json=lambda: success_payload,
+            )
+
+    async def fake_pdf_tasks_by_filename():
+        return {}
+
+    monkeypatch.setattr(workspace, "PDF2MD_API_BASE", "http://pdf2md.test")
+    monkeypatch.setattr(workspace, "_pdf_tasks_by_filename", fake_pdf_tasks_by_filename)
+    monkeypatch.setattr(workspace.httpx, "AsyncClient", FakeAsyncClient)
+
+    async def run_case(async_session):
+        response = await workspace.authenticated_pdf_upload(
+            files=[FakeUpload()],
+            market="EU",
+            current_user=SimpleNamespace(id=1, role="user"),
+            async_session=async_session,
+        )
+        artifact_result = await async_session.exec(select(UserArtifact).where(UserArtifact.artifact_key == "eu-task"))
+        return response, artifact_result.one()
+
+    response, artifact = anyio.run(
+        _with_async_session,
+        tmp_path,
+        "workspace-upload-market.db",
+        run_case,
+    )
+
+    assert response["tasks"][0]["market"] == "EU"
+    assert artifact.path == "http://pdf2md.test/api/result/eu-task?market=EU"
+
+
 def test_authenticated_pdf_upload_upstream_error_does_not_record_usage_or_artifact(monkeypatch, tmp_path):
     posted: dict[str, object] = {}
     error_payload = {"error": "upstream_failed"}
@@ -800,3 +1037,118 @@ def test_authenticated_pdf_upload_upstream_error_does_not_record_usage_or_artifa
     assert response.body == json.dumps(error_payload, ensure_ascii=False).encode("utf-8")
     assert usage == []
     assert artifacts == []
+
+
+def test_list_my_pdf_tasks_enriches_market_for_system_scope(monkeypatch, tmp_path):
+    upstream_tasks = {
+        "tasks": [
+            {"task_id": "eu-task", "filename": "plain.pdf", "status": "queued"},
+            {"task_id": "us-task", "filename": "NVIDIA_US_manual_upload.pdf", "status": "queued"},
+        ]
+    }
+
+    class FakeAsyncClient:
+        def __init__(self, timeout=None):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url, headers=None):
+            assert url == "http://pdf2md.test/api/tasks"
+            return SimpleNamespace(
+                raise_for_status=lambda: None,
+                json=lambda: upstream_tasks,
+            )
+
+    monkeypatch.setattr(workspace, "PDF2MD_API_BASE", "http://pdf2md.test")
+    monkeypatch.setattr(workspace.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.delenv("SIQ_PDF_TASK_LIST_WORKSPACE_ONLY", raising=False)
+
+    async def run_case(async_session):
+        await workspace.record_user_artifact_async(
+            async_session,
+            user_id=2,
+            artifact_type="parse",
+            artifact_key="eu-task",
+            title="plain.pdf",
+            path="http://pdf2md.test/api/result/eu-task?market=EU",
+            source="new_parse",
+            global_artifact_id="eu-task",
+        )
+        return await workspace.list_my_pdf_tasks(
+            current_user=SimpleNamespace(id=1, role="user"),
+            async_session=async_session,
+        )
+
+    result = anyio.run(
+        _with_async_session,
+        tmp_path,
+        "workspace-list-market-system.db",
+        run_case,
+    )
+
+    assert result["scope"] == "system"
+    assert [(item["task_id"], item.get("market")) for item in result["tasks"]] == [
+        ("eu-task", "EU"),
+        ("us-task", "US"),
+    ]
+
+
+def test_list_my_pdf_tasks_workspace_only_enriches_market_from_user_artifact(monkeypatch, tmp_path):
+    upstream_tasks = {
+        "tasks": [
+            {"task_id": "eu-task", "filename": "plain.pdf", "status": "queued"},
+            {"task_id": "hk-task", "filename": "Tencent_HK_00700_annual.pdf", "status": "queued"},
+        ]
+    }
+
+    class FakeAsyncClient:
+        def __init__(self, timeout=None):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url, headers=None):
+            assert url == "http://pdf2md.test/api/tasks"
+            return SimpleNamespace(
+                raise_for_status=lambda: None,
+                json=lambda: upstream_tasks,
+            )
+
+    monkeypatch.setattr(workspace, "PDF2MD_API_BASE", "http://pdf2md.test")
+    monkeypatch.setattr(workspace.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setenv("SIQ_PDF_TASK_LIST_WORKSPACE_ONLY", "true")
+
+    async def run_case(async_session):
+        await workspace.record_user_artifact_async(
+            async_session,
+            user_id=1,
+            artifact_type="parse",
+            artifact_key="eu-task",
+            title="plain.pdf",
+            path="http://pdf2md.test/api/result/eu-task?market=EU",
+            source="new_parse",
+            global_artifact_id="eu-task",
+        )
+        return await workspace.list_my_pdf_tasks(
+            current_user=SimpleNamespace(id=1, role="user"),
+            async_session=async_session,
+        )
+
+    result = anyio.run(
+        _with_async_session,
+        tmp_path,
+        "workspace-list-market-workspace-only.db",
+        run_case,
+    )
+
+    assert result["scope"] == "workspace"
+    assert [(item["task_id"], item.get("market")) for item in result["tasks"]] == [("eu-task", "EU")]
