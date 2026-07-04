@@ -1270,6 +1270,45 @@ def test_market_import_command_uses_positional_package_for_non_us(monkeypatch, t
     assert "--database-url ***" in result["command"]
 
 
+def test_market_import_command_hk_default_env_sanitizes_inherited_database_url(monkeypatch, tmp_path):
+    wiki_root = tmp_path / "wiki" / "hk_reports"
+    package_dir = _write_market_package(wiki_root, "00700", "2025", "annual_abc123")
+    import_script = tmp_path / "scripts" / "import_hk.py"
+    import_script.parent.mkdir(parents=True)
+    import_script.write_text("# import", encoding="utf-8")
+    seen = {}
+
+    class Completed:
+        returncode = 0
+        stdout = "parse-run-hk\n"
+        stderr = ""
+
+    def fake_run(args, **kwargs):
+        seen["args"] = args
+        seen["kwargs"] = kwargs
+        return Completed()
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql://postgres:secret@db/siq")
+    monkeypatch.delenv("SIQ_HK_PGDATABASE", raising=False)
+    monkeypatch.setitem(market_reports.MARKET_WIKI_ROOTS, "HK", wiki_root)
+    monkeypatch.setitem(market_reports.MARKET_IMPORT_SCRIPTS, "HK", import_script)
+    monkeypatch.setitem(market_reports.MARKET_DATABASES, "HK", "siq_hk")
+    monkeypatch.setattr(market_reports, "run_command", fake_run)
+
+    result = market_reports._run_market_package_import(
+        {
+            "market": "HK",
+            "package_path": str(package_dir),
+        }
+    )
+
+    assert result["ok"] is True
+    assert "--database-url" not in seen["args"]
+    assert seen["kwargs"]["env"]["SIQ_HK_PGDATABASE"] == "siq_hk"
+    assert "DATABASE_URL" not in seen["kwargs"]["env"]
+    assert "postgresql://postgres:secret@db/siq" not in result["command"]
+
+
 def test_market_vector_ingest_command_contract_and_summary(monkeypatch, tmp_path):
     wiki_root = tmp_path / "wiki" / "hk_reports"
     package_dir = _write_market_package(wiki_root, "00700", "2025", "annual_abc123")

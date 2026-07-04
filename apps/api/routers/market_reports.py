@@ -1,5 +1,6 @@
 import json
 import hashlib
+import os
 import re
 import subprocess
 import uuid
@@ -250,7 +251,7 @@ def _run_market_package_import(payload: dict[str, Any]) -> dict[str, Any]:
         package_dir=plan.package_dir,
         payload=payload,
     )
-    env = None
+    run_kwargs: dict[str, Any] = {"cwd": REPO_ROOT, "timeout": 900}
     if not payload.get("database_url"):
         import_env = market_report_commands.market_package_import_env(
             plan.market,
@@ -258,8 +259,8 @@ def _run_market_package_import(payload: dict[str, Any]) -> dict[str, Any]:
             base_env=os.environ,
         )
         if import_env:
-            env = {**os.environ, **import_env}
-    completed = run_command(args, cwd=REPO_ROOT, timeout=900, env=env)
+            run_kwargs["env"] = import_env
+    completed = run_command(args, **run_kwargs)
     return market_report_commands.market_package_import_result_payload(
         completed=completed,
         command=_command_for_display(args),

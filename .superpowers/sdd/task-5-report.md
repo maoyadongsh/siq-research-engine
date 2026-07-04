@@ -61,3 +61,38 @@ Result:
 
 ## Concerns
 The brief listed four owned files, but actual API command execution required a small router call-site change so the env overlay and vector defaults are passed to subprocess execution. I kept that router change narrowly scoped to the Task 5 behavior.
+
+---
+
+## Review Fix: HK import env precedence
+
+Fixed review findings from `review-4881fcf..cc55375.diff`:
+
+- HK package import with no payload `database_url` now passes a sanitized subprocess environment that removes inherited `DATABASE_URL` and sets/preserves `SIQ_HK_PGDATABASE`, allowing the HK importer to target `siq_hk`.
+- Explicit payload `database_url` behavior remains unchanged: the URL is still passed as `--database-url`, and no subprocess env override is attached for that path.
+- Added router/call-site coverage proving inherited `DATABASE_URL` is absent from the HK command env while `SIQ_HK_PGDATABASE=siq_hk` is present.
+- Added command coverage proving explicit HK vector `collection` wins over the HK default collection.
+- Added settings override coverage for `SIQ_HK_PGDATABASE` and `SIQ_HK_MILVUS_COLLECTION`.
+
+Red phase:
+
+```text
+4 failed, 109 passed, 4 warnings in 0.65s
+KeyError: 'PATH'
+NameError: name 'os' is not defined
+AssertionError: explicit database_url path received env=None
+NameError: name 'os' is not defined
+```
+
+Verification:
+
+```bash
+cd /home/maoyd/siq-research-engine/apps/api
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_market_report_settings.py tests/test_market_report_commands.py tests/test_market_reports_proxy.py
+```
+
+Result:
+
+```text
+113 passed, 4 warnings in 0.53s
+```

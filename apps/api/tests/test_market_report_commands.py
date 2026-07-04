@@ -631,6 +631,21 @@ def test_market_package_import_env_defaults_hk_database():
     assert "SIQ_HK_PGDATABASE" not in us_env
 
 
+def test_market_package_import_env_sanitizes_inherited_database_url_for_hk():
+    hk_env = commands.market_package_import_env(
+        "HK",
+        {"HK": "siq_hk"},
+        base_env={
+            "DATABASE_URL": "postgresql://postgres:secret@db/siq",
+            "PATH": "/usr/bin",
+        },
+    )
+
+    assert hk_env["SIQ_HK_PGDATABASE"] == "siq_hk"
+    assert hk_env["PATH"] == "/usr/bin"
+    assert "DATABASE_URL" not in hk_env
+
+
 def test_market_package_import_plan_selects_script_and_package_dir(tmp_path):
     package_dir = tmp_path / "wiki" / "hk_reports" / "00700" / "2025" / "annual_demo"
     script = tmp_path / "scripts" / "import_hk.py"
@@ -732,6 +747,21 @@ def test_market_vector_ingest_args_defaults_hk_collection():
         "siq_hk_reports",
         "--dry-run",
     ]
+
+
+def test_market_vector_ingest_args_explicit_hk_collection_wins_over_default():
+    args, _dry_run = commands.market_vector_ingest_args(
+        executable="/usr/bin/python",
+        script=Path("/repo/scripts/ingest.py"),
+        package_dir=Path("/repo/data/wiki/hk_reports/00700/package"),
+        payload={"collection": "explicit_hk_collection"},
+        market="HK",
+        market_vector_collections={"HK": "siq_hk_reports"},
+    )
+
+    collection_index = args.index("--collection")
+    assert args[collection_index + 1] == "explicit_hk_collection"
+    assert "siq_hk_reports" not in args
 
 
 def test_market_vector_ingest_args_can_disable_dry_run_and_override_batch():

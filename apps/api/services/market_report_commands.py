@@ -216,11 +216,17 @@ def market_package_import_env(
         return {}
 
     env_name = f"SIQ_{market_code}_PGDATABASE"
-    if base_env is not None:
-        existing = base_env.get(env_name)
-        if existing and str(existing).strip():
-            return {env_name: str(existing).strip()}
-    return {env_name: str(database)}
+    default_database = str(database).strip()
+    if not default_database:
+        return {}
+    if base_env is None:
+        return {env_name: default_database}
+
+    env = dict(base_env)
+    existing = env.get(env_name)
+    env[env_name] = str(existing).strip() if existing and str(existing).strip() else default_database
+    env.pop("DATABASE_URL", None)
+    return env
 
 
 def market_package_import_args(
