@@ -144,6 +144,7 @@ function json(body: unknown, status = 200) {
 
 async function mockUsSecWorkbenchApis(page: Page) {
   const buildRequests: unknown[] = []
+  const packageFileRequests: Array<{ file: string | null; authorization: string }> = []
 
   await page.addInitScript((user) => {
     window.localStorage.setItem('access_token', 'playwright-token')
@@ -166,7 +167,6 @@ async function mockUsSecWorkbenchApis(page: Page) {
     }
 
     if (pathname === '/api/downloads/reports') {
-      expect(url.searchParams.get('market')).toBe('US')
       await route.fulfill(json({ reports: [structuredReport, pdfAttachment] }))
       return
     }
@@ -187,6 +187,21 @@ async function mockUsSecWorkbenchApis(page: Page) {
     }
 
     if (pathname === '/api/us-sec/package-file') {
+      const file = url.searchParams.get('file')
+      const authorization = route.request().headers().authorization || ''
+      packageFileRequests.push({ file, authorization })
+      if (file === 'raw/filing.htm' && authorization !== 'Bearer playwright-token') {
+        await route.fulfill(json({ detail: 'Not authenticated' }, 401))
+        return
+      }
+      if (file === 'raw/filing.htm') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'text/html',
+          body: '<!doctype html><html><body><h1>SEC raw HTML preview</h1></body></html>',
+        })
+        return
+      }
       await route.fulfill({
         status: 200,
         contentType: 'text/markdown',
@@ -213,12 +228,12 @@ async function mockUsSecWorkbenchApis(page: Page) {
     await route.fulfill(json({ items: [], data: [], results: [], artifacts: [] }))
   })
 
-  return { buildRequests }
+  return { buildRequests, packageFileRequests }
 }
 
 test.describe('美股 SEC 解析工作台', () => {
   test('先展示已下载财报并从下载文件生成 Wiki 证据包', async ({ page }) => {
-    const { buildRequests } = await mockUsSecWorkbenchApis(page)
+    const { buildRequests, packageFileRequests } = await mockUsSecWorkbenchApis(page)
 
     await page.goto('/parse-us')
 
@@ -232,13 +247,35 @@ test.describe('美股 SEC 解析工作台', () => {
     await expect(page.getByRole('heading', { name: '数据管线', exact: true })).toHaveCount(0)
     await expect(page.getByRole('heading', { name: '上传附件', exact: true })).toBeVisible()
     await expect(page.getByRole('link', { name: '美股 PDF 兼容入口' })).toBeVisible()
-    await expect(page.getByRole('link', { name: '打开 PDF 解析' })).toHaveCount(0)
+    await expect(page.getByRole('link', { name: '打开 PDF 解析' })).toBeVisible()
 
     const downloadedHeadingTop = await page.getByRole('heading', { name: '已下载财报', exact: true }).evaluate((element) => element.getBoundingClientRect().top)
     const uploadHeadingTop = await page.getByRole('heading', { name: '上传附件', exact: true }).evaluate((element) => element.getBoundingClientRect().top)
+    const pdfEntryTop = await page.getByRole('link', { name: '打开 PDF 解析' }).evaluate((element) => element.getBoundingClientRect().top)
     const recentTasksTop = await page.getByRole('heading', { name: '最近任务', exact: true }).evaluate((element) => element.getBoundingClientRect().top)
     expect(downloadedHeadingTop).toBeLessThan(uploadHeadingTop)
     expect(uploadHeadingTop).toBeLessThan(recentTasksTop)
+    expect(recentTasksTop).toBeLessThan(pdfEntryTop)
+
+    const searchSurfaceStyle = await page.locator('.pdf-download-search').evaluate((element) => {
+      const style = window.getComputedStyle(element)
+      return {
+        borderRadius: style.borderRadius,
+        backgroundColor: style.backgroundColor,
+      }
+    })
+    expect(searchSurfaceStyle.borderRadius).toBe('16px')
+    expect(searchSurfaceStyle.backgroundColor).toBe('rgb(248, 250, 252)')
+
+    const taskRowStyle = await page.locator('.pdf-task-item').first().evaluate((element) => {
+      const style = window.getComputedStyle(element)
+      return {
+        borderRadius: style.borderRadius,
+        backgroundColor: style.backgroundColor,
+      }
+    })
+    expect(taskRowStyle.borderRadius).toBe('10px')
+    expect(taskRowStyle.backgroundColor).toBe('rgb(248, 250, 252)')
 
     await expect(structuredRow.getByRole('button', { name: /解析/ })).toBeEnabled()
 
@@ -258,6 +295,8 @@ test.describe('美股 SEC 解析工作台', () => {
     await expect(page.getByRole('heading', { name: 'Markdown 结果', exact: true })).toBeVisible()
     await expect(page.getByRole('heading', { name: '解析质量报告', exact: true })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'HTML/iXBRL 可视化溯源', exact: true })).toBeVisible()
+    await expect.poll(() => packageFileRequests.find((request) => request.file === 'raw/filing.htm')?.authorization).toBe('Bearer playwright-token')
+    await expect(page.frameLocator('iframe[title="SEC 原始 HTML"]').getByText('SEC raw HTML preview')).toBeVisible()
     await expect(page.getByRole('heading', { name: '财务勾稽校验', exact: true })).toBeVisible()
 
     expect(buildRequests).toEqual([

@@ -3,6 +3,7 @@ import { apiJson, apiText } from '../../shared/api/client'
 export interface UsSecCaseSetItem {
   ticker?: string
   company_name?: string
+  form?: string
   fiscal_year?: number
   period_end?: string
   filing_date?: string
