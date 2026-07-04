@@ -38,7 +38,13 @@ export function MarketEvidencePackagesPanel({ market }: MarketEvidencePackagesPa
   }, [market, query])
 
   useEffect(() => {
-    void loadPackages()
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) void loadPackages()
+    })
+    return () => {
+      cancelled = true
+    }
   }, [loadPackages])
 
   const rows = useMemo(() => deriveMarketPackageRows(payload, busyPath), [payload, busyPath])
