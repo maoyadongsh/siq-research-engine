@@ -490,9 +490,10 @@ def _markdown(document_full: dict[str, Any], metadata: dict[str, Any]) -> str:
 
 def _report_type(value: Any) -> str:
     text = str(value or "").lower()
-    if "annual securities" in text or "有価証券報告書" in text:
+    normalized = text.replace("_", " ").replace("-", " ")
+    if "annual securities" in normalized or "有価証券報告書" in text:
         return "annual_securities_report"
-    if "integrated report" in text:
+    if "integrated" in normalized and "report" in normalized:
         return "integrated_report"
     if any(token in text for token in ("semi", "half", "半期", "中間")):
         return "semiannual"

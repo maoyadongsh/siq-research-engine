@@ -27,3 +27,4 @@ def test_jp_report_type_distinguishes_annual_securities_report():
     assert jp._report_type("Annual Securities Report") == "annual_securities_report"
     assert jp._report_type("有価証券報告書") == "annual_securities_report"
     assert jp._report_type("Integrated Report") == "integrated_report"
+    assert jp._report_type("integrated_report") == "integrated_report"
