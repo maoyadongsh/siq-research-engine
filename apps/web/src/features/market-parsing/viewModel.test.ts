@@ -46,7 +46,7 @@ test('view model derives completed workflow, result gate, and empty state flags'
   assert.equal(running.shouldShowWorkflow, false)
   assert.equal(running.shouldShowResultGate, false)
   assert.equal(running.shouldShowEmptyState, false)
-  assert.equal(running.canBuildDownloadedPackage, true)
+  assert.equal(running.canBuildDownloadedPackage, false)
 })
 
 test('view model keeps log risk and expanded display derived together', () => {

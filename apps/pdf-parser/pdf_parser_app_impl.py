@@ -62,6 +62,7 @@ import pdf_parser_artifact_orchestrator_service as artifact_orchestrator_service
 import pdf_parser_content_list_enhanced_service as content_list_enhanced_service
 import pdf_parser_document_full_service as document_full_service
 import pdf_parser_financial_service as financial_service
+import jp_market_profile
 import pdf_parser_mineru_result_service as mineru_result_service
 import pdf_parser_quality_service as quality_service
 import pdf_parser_response_service as response_service
@@ -2847,17 +2848,32 @@ def _priority_review_tables(table_index, core_candidates, key_table_candidates):
 def _build_quality_report(markdown, task, file_name=None, content_list=None):
     markdown = markdown or ""
     tables = re.findall(r"<table\b.*?</table>", markdown, flags=re.IGNORECASE | re.DOTALL)
-    report_year = _detect_report_year(markdown, file_name=file_name or task.get("filename"))
+    filename = file_name or task.get("filename")
+    is_jp_profile = jp_market_profile.is_jp_market(task, filename)
+    report_year = _detect_report_year(markdown, file_name=filename)
     table_index = _build_table_index(markdown, tables, content_list=content_list, report_year=report_year)
     single_row_tables = [table for table in tables if _count_table_rows(table) <= 1]
     empty_cell_count = sum(_count_empty_cells(table) for table in tables)
 
-    report_kind = _detect_report_kind(markdown, filename=file_name or task.get("filename"))
-    financial_tables = _required_core_financial_table_names(report_kind)
-    found_sections = [section for section in KEY_SECTIONS if section in markdown]
-    key_table_candidates = _group_key_table_candidates(table_index)
-    core_financial_table_candidates = _candidate_summary_list(key_table_candidates, financial_tables)
-    indicator_table_candidates = _candidate_summary_list(key_table_candidates, INDICATOR_TABLE_NAMES)
+    if is_jp_profile:
+        report_kind = jp_market_profile.detect_jp_report_kind(markdown, filename=filename)
+        financial_tables = jp_market_profile.JP_CORE_FINANCIAL_TABLE_NAMES
+        key_sections = jp_market_profile.JP_KEY_SECTIONS
+        found_sections = jp_market_profile.found_sections(markdown, table_index)
+        key_table_candidates = jp_market_profile.group_jp_key_table_candidates(table_index)
+        core_financial_table_candidates = jp_market_profile.candidate_summary_list(key_table_candidates, financial_tables)
+        indicator_table_candidates = jp_market_profile.candidate_summary_list(
+            key_table_candidates,
+            jp_market_profile.JP_INDICATOR_TABLE_NAMES,
+        )
+    else:
+        report_kind = _detect_report_kind(markdown, filename=filename)
+        financial_tables = _required_core_financial_table_names(report_kind)
+        key_sections = KEY_SECTIONS
+        found_sections = [section for section in KEY_SECTIONS if section in markdown]
+        key_table_candidates = _group_key_table_candidates(table_index)
+        core_financial_table_candidates = _candidate_summary_list(key_table_candidates, financial_tables)
+        indicator_table_candidates = _candidate_summary_list(key_table_candidates, INDICATOR_TABLE_NAMES)
     suspicious_tables = _priority_review_tables(
         table_index,
         core_financial_table_candidates,
@@ -2865,9 +2881,9 @@ def _build_quality_report(markdown, task, file_name=None, content_list=None):
     )
 
     image_refs = re.findall(r"!\[[^\]]*\]\(([^)]+)\)", markdown)
-    return quality_service.build_quality_report_payload(
+    report = quality_service.build_quality_report_payload(
         task=task,
-        filename=file_name or task.get("filename"),
+        filename=filename,
         schema_version=QUALITY_SCHEMA_VERSION,
         report_kind=report_kind,
         report_year=report_year,
@@ -2878,13 +2894,27 @@ def _build_quality_report(markdown, task, file_name=None, content_list=None):
         empty_cell_count=empty_cell_count,
         image_refs=image_refs,
         found_sections=found_sections,
-        key_sections=KEY_SECTIONS,
+        key_sections=key_sections,
         key_table_candidates=key_table_candidates,
         core_financial_table_candidates=core_financial_table_candidates,
         indicator_table_candidates=indicator_table_candidates,
         suspicious_tables=suspicious_tables,
         generated_at=_now_iso(),
     )
+    if is_jp_profile:
+        found_core_count = len([item for item in core_financial_table_candidates if item.get("status") == "found"])
+        warnings, info_messages = jp_market_profile.jp_quality_report_messages(
+            report_kind=report_kind,
+            table_count=len(tables),
+            single_row_table_count=len(single_row_tables),
+            image_ref_count=len(image_refs),
+            found_core_table_count=found_core_count,
+            suspicious_table_count=len(suspicious_tables),
+        )
+        report["market_profile"] = "JP"
+        report["warnings"] = warnings
+        report["info_messages"] = info_messages
+    return report
 
 
 def _write_quality_artifacts(task, markdown, file_name=None, content_list=None, saved_image_count=None):
@@ -2911,6 +2941,7 @@ def _write_quality_artifacts(task, markdown, file_name=None, content_list=None, 
     )
     if saved_image_count is not None:
         report["saved_image_count"] = saved_image_count
+    _write_json(os.path.join(result_dir, "content_list_enhanced.json"), enhanced_content_list)
     try:
         financial_data, financial_checks = _write_financial_artifacts(
             task,
@@ -2928,7 +2959,6 @@ def _write_quality_artifacts(task, markdown, file_name=None, content_list=None, 
         report["financial_overall_status"] = "error"
         financial_data = None
         financial_checks = None
-    _write_json(os.path.join(result_dir, "content_list_enhanced.json"), enhanced_content_list)
     _write_complete_markdown_artifact(task, markdown, enhanced_content_list)
     quality_service.write_quality_report_files(task, report, _result_dir, _write_json)
     table_relations = _write_table_relations_artifact(
@@ -3020,6 +3050,13 @@ def _ensure_quality_report(task, markdown):
     financial_data, financial_checks = _ensure_financial_artifacts(task, markdown)
     report = _read_quality_report(task)
     if isinstance(report, dict) and report.get("schema_version") == QUALITY_SCHEMA_VERSION:
+        if jp_market_profile.is_jp_market(task, task.get("filename")) and report.get("market_profile") != "JP":
+            return _write_quality_artifacts(
+                task,
+                markdown,
+                file_name=task.get("filename"),
+                content_list=_load_json_artifact(task, "content_list.json"),
+            )
         original_fields = {
             "found_financial_tables": report.get("found_financial_tables"),
             "core_financial_table_candidates": report.get("core_financial_table_candidates"),

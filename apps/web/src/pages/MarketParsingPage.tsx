@@ -20,7 +20,6 @@ import { PdfUploadPanel } from '../components/pdf/PdfUploadPanel'
 import { PdfWorkflowPanel } from '../components/pdf/PdfWorkflowPanel'
 import { MarketParsingTabs } from '../components/pdf/MarketParsingTabs'
 import { useToast } from '../hooks/useToast'
-import { runMarketPackageBuild, waitForMarketReportJob, type MarketPackageActionResponse } from '../features/market-parsing/api'
 import {
   buildMarketParsingPageViewModel,
   type MarketParsingCode,
@@ -311,32 +310,6 @@ export function MarketParsingPage({
     [sourceTrace, tasks],
   )
 
-  const onBuildDownloadedPackage = useCallback(
-    async (report: DownloadedPdf, onBusy: (path: string) => void) => {
-      if (market !== 'EU') return
-      sourceTrace.setSourceVisible(false)
-      onBusy(report.relativePath)
-      tasks.setError(null)
-      try {
-        const response = await runMarketPackageBuild('EU', {
-          download_relative_path: report.relativePath,
-          force: true,
-        })
-        const result = response.job_id
-          ? await waitForMarketReportJob<MarketPackageActionResponse>(response.job_id, { timeoutMs: 15 * 60 * 1000 })
-          : response
-        if (result.ok === false) {
-          throw new Error(String(result.stderr || result.stdout || '欧股结构化证据包构建失败'))
-        }
-        showToast('欧股结构化证据包已生成')
-      } catch (err) {
-        tasks.setError(err instanceof Error ? err.message : '欧股结构化证据包构建失败')
-      } finally {
-        onBusy('')
-      }
-    },
-    [market, showToast, sourceTrace, tasks],
-  )
 
   const onTaskResume = useCallback(
     async (task: TaskItem) => {
@@ -415,7 +388,6 @@ export function MarketParsingPage({
         loadDownloadedReports={loadDownloadedReports}
         selectDownloadedReport={onSelectDownloaded}
         parseDownloadedReport={onParseDownloaded}
-        buildDownloadedPackage={viewModel.canBuildDownloadedPackage ? onBuildDownloadedPackage : undefined}
         backend={backend}
         setBackend={setBackend}
         parseMethod={parseMethod}
@@ -574,9 +546,9 @@ export function MarketParsingPage({
 
           <PdfArtifactList artifacts={tasks.artifacts || {}} />
 
-          {tasks.quality && <PdfQualityPanel quality={tasks.quality} onShowTableSource={sourceTrace.showTableSource} />}
+          {tasks.quality && <PdfQualityPanel quality={tasks.quality} market={market} onShowTableSource={sourceTrace.showTableSource} />}
 
-          {tasks.financial && <PdfFinancialPanel financial={tasks.financial} taskId={tasks.taskIdRef.current} />}
+          {tasks.financial && <PdfFinancialPanel financial={tasks.financial} taskId={tasks.taskIdRef.current} market={market} />}
         </div>
       </PageSection>
 

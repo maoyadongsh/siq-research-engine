@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import json
 import os
+import inspect
 from typing import Any, Callable
+
+from hk_financial_artifacts import build_hk_financial_artifacts
 
 from financial_extractor import (
     FINANCIAL_CHECKS_SCHEMA_VERSION,
@@ -52,6 +55,53 @@ def financial_artifacts_are_current(
     )
 
 
+def financial_artifacts_match_market(
+    market: str | None,
+    financial_data: Any,
+    financial_checks: Any,
+) -> bool:
+    market = str(market or "").upper()
+    if market not in {"HK", "JP"}:
+        return True
+    return (
+        isinstance(financial_data, dict)
+        and isinstance(financial_checks, dict)
+        and str(financial_data.get("market") or "").upper() == market
+        and str(financial_checks.get("market") or "").upper() == market
+    )
+
+
+def _call_build_financial_data(
+    build_data: Callable[..., dict[str, Any]],
+    markdown: str,
+    **kwargs,
+) -> dict[str, Any]:
+    try:
+        signature = inspect.signature(build_data)
+        accepts_kwargs = any(param.kind == inspect.Parameter.VAR_KEYWORD for param in signature.parameters.values())
+        if not accepts_kwargs:
+            kwargs = {key: value for key, value in kwargs.items() if key in signature.parameters}
+    except (TypeError, ValueError):
+        pass
+    return build_data(markdown, **kwargs)
+
+
+def detect_market(task: dict[str, Any], filename: str | None = None) -> str:
+    submit_config = task.get("submit_config") if isinstance(task.get("submit_config"), dict) else {}
+    explicit = submit_config.get("market") or task.get("market")
+    if explicit:
+        return str(explicit).upper()
+    name = str(filename or task.get("filename") or "")
+    lowered = name.lower()
+    if "_hk_" in lowered or "hkex" in lowered or "sehk" in lowered:
+        return "HK"
+    if "_jp_" in lowered or "edinet" in lowered:
+        return "JP"
+    if "_cn_" in lowered or "sse" in lowered or "szse" in lowered or "bse" in lowered:
+        return "CN"
+    return "CN"
+
+
 def write_financial_artifacts(
     task: dict[str, Any],
     markdown: str,
@@ -65,13 +115,27 @@ def write_financial_artifacts(
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     directory = result_dir(task)
     os.makedirs(directory, exist_ok=True)
-    financial_data = build_data(
-        markdown,
-        task_id=task.get("task_id"),
-        filename=file_name or task.get("filename"),
-        llm_cache_dir=os.path.join(financial_llm_cache_folder, task.get("task_id") or "unknown"),
-    )
-    financial_checks = build_checks(financial_data)
+    resolved_filename = file_name or task.get("filename")
+    market = detect_market(task, resolved_filename)
+    if market == "HK":
+        financial_data, financial_checks = build_hk_financial_artifacts(
+            task,
+            markdown,
+            result_dir_path=directory,
+            filename=resolved_filename,
+        )
+    else:
+        financial_data = _call_build_financial_data(
+            build_data,
+            markdown,
+            task_id=task.get("task_id"),
+            filename=resolved_filename,
+            market=market if market == "JP" else None,
+            llm_cache_dir=os.path.join(financial_llm_cache_folder, task.get("task_id") or "unknown"),
+        )
+        if market == "JP" and isinstance(financial_data, dict):
+            financial_data["market"] = "JP"
+        financial_checks = build_checks(financial_data)
     write_json(financial_data_path(task, result_dir), financial_data)
     write_json(financial_checks_path(task, result_dir), financial_checks)
     return financial_data, financial_checks
@@ -87,7 +151,13 @@ def ensure_financial_artifacts(
     file_name: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     financial_data, financial_checks = read_financial_artifacts(task, result_dir)
-    if financial_artifacts_are_current(financial_data, financial_checks):
+    resolved_filename = file_name or task.get("filename")
+    market = detect_market(task, resolved_filename)
+    if financial_artifacts_are_current(financial_data, financial_checks) and financial_artifacts_match_market(
+        market,
+        financial_data,
+        financial_checks,
+    ):
         return financial_data, financial_checks
     return write_financial_artifacts(
         task,
@@ -95,5 +165,5 @@ def ensure_financial_artifacts(
         result_dir=result_dir,
         write_json=write_json,
         financial_llm_cache_folder=financial_llm_cache_folder,
-        file_name=file_name or task.get("filename"),
+        file_name=resolved_filename,
     )

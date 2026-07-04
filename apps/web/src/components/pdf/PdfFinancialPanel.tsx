@@ -3,13 +3,15 @@ import type { FinancialResult } from '../../lib/pdfTypes'
 import { PDF_API } from '../../features/pdf-parsing/api'
 import { formatFinancialNumber, scopeName } from '../../lib/pdfFormatting'
 import { handleAuthenticatedSourceClick } from '../../lib/authenticatedSourceLinks'
+import { pdfFinancialPanelTitle } from './pdfMarketPanelLabels'
 
 export interface PdfFinancialPanelProps {
   financial: FinancialResult
   taskId: string | null
+  market?: string | null
 }
 
-export function PdfFinancialPanel({ financial, taskId }: PdfFinancialPanelProps) {
+export function PdfFinancialPanel({ financial, taskId, market }: PdfFinancialPanelProps) {
   const data = financial.financial_data
   const checks = financial.financial_checks
   const metrics = data?.key_metrics || []
@@ -30,7 +32,7 @@ export function PdfFinancialPanel({ financial, taskId }: PdfFinancialPanelProps)
         <div>
           <h3 className="flex items-center gap-2 text-base font-semibold text-text">
             <BarChart3 className="h-4 w-4 text-primary" />
-            财务勾稽校验
+            {pdfFinancialPanelTitle(market)}
           </h3>
           {taskId ? <p className="text-xs text-text-muted">任务 {taskId}</p> : null}
         </div>

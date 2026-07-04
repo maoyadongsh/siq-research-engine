@@ -44,7 +44,6 @@ export function hasMarketParsingLogIssues(logs: LogEntry[]) {
 }
 
 export function buildMarketParsingPageViewModel({
-  market,
   parseBadgeClass,
   resultDeferred,
   markdown,
@@ -68,6 +67,6 @@ export function buildMarketParsingPageViewModel({
     shouldShowResultGate: isCompleted && resultDeferred && !markdown,
     shouldShowWorkflow: isCompleted,
     shouldShowEmptyState: !markdown && !parseActive && taskCount === 0,
-    canBuildDownloadedPackage: market === 'EU',
+    canBuildDownloadedPackage: false,
   }
 }

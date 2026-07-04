@@ -1,12 +1,14 @@
 import type { QualityReport } from '../../lib/pdfTypes'
 import { candidateMeta, suspectReasons, suspectTableMeta } from '../../lib/pdfFormatting'
+import { pdfQualityPanelTitle } from './pdfMarketPanelLabels'
 
 export interface PdfQualityPanelProps {
   quality: QualityReport
+  market?: string | null
   onShowTableSource: (tableIndex: number, line?: number) => void
 }
 
-export function PdfQualityPanel({ quality, onShowTableSource }: PdfQualityPanelProps) {
+export function PdfQualityPanel({ quality, market, onShowTableSource }: PdfQualityPanelProps) {
   const core = quality.core_financial_table_candidates || []
   const key = quality.key_table_candidates || {}
   const ind = (quality.indicator_table_candidates || []).filter((i) => i.status === 'found')
@@ -15,7 +17,7 @@ export function PdfQualityPanel({ quality, onShowTableSource }: PdfQualityPanelP
 
   return (
     <div className="apple-card rounded-[24px] p-4 sm:p-6">
-      <h3 className="text-base font-semibold text-text mb-3">解析质量报告</h3>
+      <h3 className="text-base font-semibold text-text mb-3">{pdfQualityPanelTitle(market)}</h3>
       <div className="pdf-quality-grid">
         <div>
           <strong>{quality.table_count || 0}</strong>

@@ -126,6 +126,7 @@ export interface WorkflowJob {
 }
 
 export interface QualityReport {
+  market_profile?: string
   table_count?: number
   single_row_table_count?: number
   single_row_table_ratio?: number
@@ -141,6 +142,7 @@ export interface QualityReport {
 }
 
 export interface FinancialData {
+  market?: string
   report_year?: string
   summary?: { statement_count?: number; key_metric_count?: number; scopes?: string[] }
   statements?: unknown[]
@@ -148,6 +150,7 @@ export interface FinancialData {
 }
 
 export interface FinancialChecks {
+  market?: string
   overall_status?: string
   summary?: { pass?: number; fail?: number; skipped?: number }
   checks?: Array<Record<string, unknown>>

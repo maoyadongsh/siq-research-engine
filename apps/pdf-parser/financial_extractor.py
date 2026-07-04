@@ -2553,12 +2553,20 @@ def _apply_llm_judge(data, statements, candidates, missing_types, llm_judge, fil
         missing_types = _missing_consolidated_statement_types(statements)
 
 
-def build_financial_data(markdown, task_id=None, filename=None, llm_judge=None, llm_cache_dir=None):
+def build_financial_data(markdown, task_id=None, filename=None, llm_judge=None, llm_cache_dir=None, market=None):
     markdown = markdown or ""
+    market = str(market or "").upper() or None
     report_year = _detect_report_year(markdown, filename=filename)
-    report_kind = _detect_report_kind(markdown, filename=filename)
+    if market == "JP":
+        from jp_market_profile import detect_jp_report_kind
+
+        report_kind = detect_jp_report_kind(markdown, filename=filename)
+    else:
+        report_kind = _detect_report_kind(markdown, filename=filename)
     industry_profile = _detect_industry_profile(markdown, filename=filename)
     looks_like_financial_report = _looks_like_financial_report(markdown, filename=filename)
+    if market == "JP":
+        looks_like_financial_report = True
     if report_kind in _NON_FINANCIAL_REPORT_KINDS:
         looks_like_financial_report = False
     if llm_judge is None:
@@ -2568,6 +2576,7 @@ def build_financial_data(markdown, task_id=None, filename=None, llm_judge=None, 
         "rule_version": FINANCIAL_RULE_VERSION,
         "task_id": task_id,
         "filename": filename,
+        "market": market,
         "report_kind": report_kind,
         "report_year": report_year,
         "industry_profile": industry_profile,
@@ -2582,11 +2591,16 @@ def build_financial_data(markdown, task_id=None, filename=None, llm_judge=None, 
         "looks_like_financial_report": looks_like_financial_report,
         "report_kind_blocked": report_kind in _NON_FINANCIAL_REPORT_KINDS,
     }
+    if market:
+        data["classification_summary"]["market_profile"] = market
 
     if not looks_like_financial_report:
-        data["warnings"].append(
-            "当前内容不像财报或财报摘要，已跳过三大表/关键指标抽取。"
-        )
+        if market == "JP":
+            data["warnings"].append("当前 JP PDF 未确认可用于结构化勾稽的完整财务报表，已按候选识别模式处理。")
+        else:
+            data["warnings"].append(
+                "当前内容不像财报或财报摘要，已跳过三大表/关键指标抽取。"
+            )
         data["summary"] = {
             "statement_count": 0,
             "key_metric_count": 0,
@@ -2671,7 +2685,7 @@ def build_financial_data(markdown, task_id=None, filename=None, llm_judge=None, 
         missing_types = _missing_consolidated_statement_types(statements)
     _apply_llm_judge(data, statements, llm_candidates, missing_types, llm_judge, filename, report_year)
     remaining_missing_types = _missing_consolidated_statement_types(statements)
-    if report_kind not in {"annual_report_summary", "interim_report_summary"} and remaining_missing_types:
+    if market != "JP" and report_kind not in {"annual_report_summary", "interim_report_summary"} and remaining_missing_types:
         missing_names = "、".join(_statement_title(statement_type) for statement_type in remaining_missing_types)
         if not llm_judge:
             data["warnings"].append(f"完整年报未识别到合并三大表: {missing_names}；本地大模型裁判未启用")
@@ -3070,6 +3084,11 @@ def build_financial_checks(data):
     warnings = []
     if not isinstance(data, dict):
         data = {}
+    market = str(data.get("market") or "").upper()
+    if market == "JP":
+        from jp_market_profile import build_jp_financial_checks
+
+        return build_jp_financial_checks(data)
     classification_summary = data.get("classification_summary") if isinstance(data.get("classification_summary"), dict) else {}
     looks_like_financial_report = bool(classification_summary.get("looks_like_financial_report", True))
     report_kind_blocked = bool(classification_summary.get("report_kind_blocked"))
@@ -3114,6 +3133,7 @@ def build_financial_checks(data):
         "rule_version": FINANCIAL_RULE_VERSION,
         "task_id": data.get("task_id"),
         "filename": data.get("filename"),
+        "market": data.get("market"),
         "report_kind": data.get("report_kind"),
         "report_year": data.get("report_year"),
         "industry_profile": data.get("industry_profile"),

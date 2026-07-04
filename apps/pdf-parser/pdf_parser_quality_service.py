@@ -7,6 +7,7 @@ import re
 
 from quality_engine import candidate_group as quality_candidate_group
 from quality_report import CORE_FINANCIAL_TABLE_NAMES
+from hk_quality_adapter import merge_hk_quality_candidates
 
 
 def compact_candidate_text(text):
@@ -171,6 +172,10 @@ def statement_display_source(statement, report, statement_type):
 
 def merge_quality_candidates_from_financial_data(report, financial_data):
     if not isinstance(report, dict) or not isinstance(financial_data, dict):
+        return report
+    if str(financial_data.get("market") or "").upper() == "HK":
+        return merge_hk_quality_candidates(report, financial_data)
+    if str(financial_data.get("market") or "").upper() == "JP":
         return report
     statements = financial_data.get("statements") or []
     metrics = financial_data.get("key_metrics") or []
@@ -381,6 +386,8 @@ def merge_quality_candidates_from_financial_data(report, financial_data):
 
 def quality_report_warnings(report, financial_data=None):
     warnings = list(report.get("warnings") or [])
+    if str((financial_data or {}).get("market") or report.get("market_profile") or "").upper() == "JP":
+        return warnings
     if financial_data and financial_data.get("summary", {}).get("statement_count", 0) >= 3:
         warnings = [
             item
