@@ -42,6 +42,9 @@ class HybridMarketSpec:
     find_label_rule: Callable[[str], MetricRule | None]
     companyfacts_keys: tuple[str, ...]
     warnings_prefix: str
+    allow_mixed_statement_summary_tables: bool = False
+    inherit_adjacent_header_periods: bool = False
+    skip_ratio_rows: bool = False
 
 
 def extract_hybrid_artifact(artifact: ParsedArtifact, spec: HybridMarketSpec) -> ExtractionResult:
@@ -127,28 +130,49 @@ def _extract_table_facts(
 ) -> list[ExtractedFact]:
     extracted: list[ExtractedFact] = []
     table_seen: set[tuple[str, str, int | None, int, int]] = set()
+    previous_header_periods: _PeriodColumns | None = None
+    previous_header_page: int | None = None
     for table in tables:
         detected_statement_type = detect_table_statement_type(table)
         period_columns = _period_columns_for_table(table, artifact, detected_statement_type)
-        table_unit = table.unit or artifact.unit
-        table_currency = infer_currency(table.currency, table.unit, table.title, artifact.currency, default=artifact.currency or spec.default_currency)
-        scale = infer_scale(table_unit)
+        if (
+            spec.inherit_adjacent_header_periods
+            and period_columns.source == "fallback"
+            and previous_header_periods is not None
+            and previous_header_page == table.page_number
+        ):
+            period_columns = previous_header_periods.without_header_rows("inherited")
+        mixed_statement_summary = spec.allow_mixed_statement_summary_tables and _is_mixed_statement_summary_table(table, spec.find_label_rule)
+        table_unit = table.unit or _unit_from_table(table) or artifact.unit
+        table_currency = infer_currency(table.currency, table_unit, table.title, artifact.currency, default=artifact.currency or spec.default_currency)
         for row_index, row in enumerate(table.rows):
             if len(row) < 2 or row_index in period_columns.header_rows:
                 continue
-            label = str(row[0] or "").strip()
-            rule = spec.find_label_rule(label)
+            label, rule = _row_label(row, spec.find_label_rule, combine_cells=mixed_statement_summary)
             if not rule:
                 continue
-            if detected_statement_type and rule.statement_type != detected_statement_type and rule.statement_type != StatementType.KEY_METRICS:
+            if spec.skip_ratio_rows and _is_ratio_or_per_share_label(label) and rule.statement_type != StatementType.KEY_METRICS:
                 continue
-            for column_index, value in _numeric_cells_for_periods(row, period_columns.column_periods):
-                row_period_key = period_columns.column_periods.get(column_index) or table_period_key(artifact, table)
+            if (
+                detected_statement_type
+                and not mixed_statement_summary
+                and rule.statement_type != detected_statement_type
+                and rule.statement_type != StatementType.KEY_METRICS
+            ):
+                continue
+            fact_unit = _row_unit(row, table_unit)
+            scale = infer_scale(fact_unit)
+            for column_index, row_period_key, value in _numeric_cells_for_periods(
+                row,
+                period_columns,
+                align_to_numeric=spec.allow_mixed_statement_summary_tables,
+            ):
                 xbrl_key = (rule.canonical_name, row_period_key, None)
                 table_key = (rule.canonical_name, row_period_key, table.table_index, row_index, column_index)
                 if xbrl_key in seen or table_key in table_seen:
                     continue
                 table_seen.add(table_key)
+                raw_value = str(row[column_index]) if column_index < len(row) else None
                 extracted.append(
                     ExtractedFact(
                         canonical_name=rule.canonical_name,
@@ -156,9 +180,9 @@ def _extract_table_facts(
                         label=label,
                         statement_type=rule.statement_type,
                         value=value,
-                        raw_value=str(row[column_index]) if column_index < len(row) else None,
-                        unit=table_unit,
-                        currency=table_currency,
+                        raw_value=raw_value,
+                        unit=fact_unit,
+                        currency=infer_currency(table_currency, fact_unit, raw_value, default=table_currency),
                         period_key=row_period_key,
                         period_end=parse_date(row_period_key),
                         fiscal_year=_year_from_period(row_period_key) or artifact.fiscal_year,
@@ -168,9 +192,9 @@ def _extract_table_facts(
                         accounting_standard=_accounting_standard(artifact, "", spec.default_accounting_standard),
                         taxonomy=f"{spec.market.value.lower()}_pdf_table",
                         gaap_status="reported_gaap",
-                        confidence=Decimal("0.80") if detected_statement_type else Decimal("0.72"),
+                        confidence=Decimal("0.80") if detected_statement_type or mixed_statement_summary else Decimal("0.72"),
                         evidence=EvidenceRef(
-                            source_type=spec.table_source_type if detected_statement_type else "parsed_financial_table",
+                            source_type=spec.table_source_type if detected_statement_type or mixed_statement_summary else "parsed_financial_table",
                             source_id=table.table_id,
                             page_number=table.page_number,
                             table_index=table.table_index,
@@ -180,6 +204,7 @@ def _extract_table_facts(
                             quote_text=" | ".join(str(cell) for cell in row),
                             raw={
                                 "detected_statement_type": detected_statement_type.value if detected_statement_type else None,
+                                "mixed_statement_summary": mixed_statement_summary,
                                 "period_columns": period_columns.column_periods,
                                 "table": table.raw,
                                 "row": row,
@@ -189,16 +214,24 @@ def _extract_table_facts(
                             "table_id": table.table_id,
                             "row": row,
                             "detected_statement_type": detected_statement_type.value if detected_statement_type else None,
+                            "mixed_statement_summary": mixed_statement_summary,
                         },
                     )
                 )
+        if spec.inherit_adjacent_header_periods and period_columns.source == "header" and _is_period_header_table(table, period_columns):
+            previous_header_periods = period_columns.without_header_rows("header")
+            previous_header_page = table.page_number
     return extracted
 
 
 class _PeriodColumns:
-    def __init__(self, column_periods: dict[int, str], header_rows: set[int]):
+    def __init__(self, column_periods: dict[int, str], header_rows: set[int], source: str):
         self.column_periods = column_periods
         self.header_rows = header_rows
+        self.source = source
+
+    def without_header_rows(self, source: str) -> "_PeriodColumns":
+        return _PeriodColumns(dict(self.column_periods), set(), source)
 
 
 def _period_columns_for_table(
@@ -208,7 +241,7 @@ def _period_columns_for_table(
 ) -> _PeriodColumns:
     from_raw = _period_columns_from_raw(table.raw)
     if from_raw:
-        return _PeriodColumns(from_raw, set())
+        return _PeriodColumns(from_raw, set(), "raw")
 
     best_row_index: int | None = None
     best_periods: dict[int, str] = {}
@@ -225,11 +258,11 @@ def _period_columns_for_table(
             best_periods = periods
 
     if best_periods:
-        return _PeriodColumns(best_periods, {best_row_index} if best_row_index is not None else set())
+        return _PeriodColumns(best_periods, {best_row_index} if best_row_index is not None else set(), "header")
 
     fallback = table_period_key(artifact, table)
     max_columns = max((len(row) for row in table.rows), default=1)
-    return _PeriodColumns({index: fallback for index in range(1, max_columns) if not _is_note_column(_cell_at(table.rows[0] if table.rows else [], index))}, set())
+    return _PeriodColumns({index: fallback for index in range(1, max_columns) if not _is_note_column(_cell_at(table.rows[0] if table.rows else [], index))}, set(), "fallback")
 
 
 def _period_columns_from_raw(raw: dict[str, Any]) -> dict[int, str]:
@@ -267,15 +300,152 @@ def _period_from_header_cell(cell: Any, artifact: ParsedArtifact, statement_type
     return str(year)
 
 
-def _numeric_cells_for_periods(row: list[Any], column_periods: dict[int, str]) -> list[tuple[int, Decimal]]:
-    values: list[tuple[int, Decimal]] = []
+def _numeric_cells_for_periods(row: list[Any], period_columns: _PeriodColumns, *, align_to_numeric: bool = False) -> list[tuple[int, str, Decimal]]:
+    column_periods = period_columns.column_periods
+    if align_to_numeric:
+        aligned = _aligned_numeric_cells_for_periods(row, column_periods)
+        if aligned:
+            return aligned
+    values: list[tuple[int, str, Decimal]] = []
     for column_index in sorted(column_periods):
         if column_index >= len(row):
             continue
         value = parse_decimal(row[column_index])
         if value is not None:
-            values.append((column_index, value))
+            values.append((column_index, column_periods[column_index], value))
     return values
+
+
+def _aligned_numeric_cells_for_periods(row: list[Any], column_periods: dict[int, str]) -> list[tuple[int, str, Decimal]]:
+    period_items = sorted(column_periods.items())
+    if not period_items:
+        return []
+    numeric_cells = [(index, parse_decimal(cell)) for index, cell in enumerate(row[1:], start=1)]
+    numeric_cells = [(index, value) for index, value in numeric_cells if value is not None]
+    if len(numeric_cells) != len(period_items):
+        return []
+    return [(numeric_index, period_key, value) for (_, period_key), (numeric_index, value) in zip(period_items, numeric_cells)]
+
+
+def _row_label(row: list[Any], find_label_rule: Callable[[str], MetricRule | None], *, combine_cells: bool) -> tuple[str, MetricRule | None]:
+    candidates: list[str] = []
+    if combine_cells:
+        cells: list[str] = []
+        for cell in row[:4]:
+            text = str(cell or "").strip()
+            if not text:
+                continue
+            if _looks_like_value_cell(text):
+                break
+            if _is_unit_cell(text) or _is_note_column(text):
+                continue
+            cells.append(text)
+        if len(cells) > 1:
+            candidates.append(" ".join(cells))
+        candidates.extend(cells)
+    first = str(row[0] or "").strip()
+    if first:
+        candidates.append(first)
+    seen: set[str] = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        rule = find_label_rule(candidate)
+        if rule:
+            return candidate, rule
+    return first, None
+
+
+def _looks_like_value_cell(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return False
+    if re.fullmatch(r"[-+()]?[¥$€£]?\s*[0-9][0-9,]*(?:\.[0-9]+)?%?[)]?", stripped):
+        return True
+    return bool(re.fullmatch(r"[-+()]?[0-9][0-9,]*(?:\.[0-9]+)?\s*(?:million|billion|thousand|mn|bn)?[)]?", stripped, flags=re.I))
+
+
+def _is_mixed_statement_summary_table(table: ParsedTable, find_label_rule: Callable[[str], MetricRule | None]) -> bool:
+    if _has_summary_keyword(table):
+        return True
+    statement_types: set[StatementType] = set()
+    for row in table.rows[:80]:
+        label, rule = _row_label(row, find_label_rule, combine_cells=False)
+        if not rule and len(row) > 1:
+            label, rule = _row_label(row, find_label_rule, combine_cells=True)
+        if rule and rule.statement_type not in {StatementType.KEY_METRICS, StatementType.OPERATING_METRICS} and not _is_ratio_or_per_share_label(label):
+            statement_types.add(rule.statement_type)
+    return len(statement_types) >= 2
+
+
+def _has_summary_keyword(table: ParsedTable) -> bool:
+    raw = table.raw if isinstance(table.raw, dict) else {}
+    parts = [str(table.title or ""), str(raw.get("heading") or ""), str(raw.get("preview") or "")]
+    for caption in raw.get("source_caption") or []:
+        parts.append(str(caption))
+    text = " ".join(parts).lower()
+    return any(
+        keyword in text
+        for keyword in (
+            "financial summary",
+            "financial highlights",
+            "eleven-year summary",
+            "eleven year summary",
+            "selected financial data",
+            "key performance indicators",
+            "for the year",
+            "at year-end",
+            "at year end",
+        )
+    )
+
+
+def _unit_from_table(table: ParsedTable) -> str | None:
+    raw = table.raw if isinstance(table.raw, dict) else {}
+    parts = [str(table.unit or ""), str(table.title or ""), str(raw.get("heading") or "")]
+    for caption in raw.get("source_caption") or []:
+        parts.append(str(caption))
+    for row in table.rows[:4]:
+        parts.extend(str(cell or "") for cell in row[:4])
+    return _unit_from_text(" ".join(parts))
+
+
+def _row_unit(row: list[Any], fallback: str | None) -> str | None:
+    for cell in row[:4]:
+        unit = _unit_from_text(str(cell or ""))
+        if unit:
+            return unit
+    return fallback
+
+
+def _unit_from_text(text: str) -> str | None:
+    match = re.search(r"(?i)(?:JPY|¥|yen|円)?[^,;\n]{0,20}(?:million|billion|thousand)[^,;\n]{0,20}(?:JPY|yen|円)?", text)
+    if match:
+        return match.group(0).strip()
+    if re.search(r"(?i)\b(JPY|yen)\b|¥|円", text):
+        return "JPY"
+    return None
+
+
+def _is_unit_cell(text: str) -> bool:
+    return bool(_unit_from_text(text)) or bool(re.fullmatch(r"(?i)[()\s]*(?:millions?|billions?|thousands?)\s+of\s+yen[()\s]*", text or ""))
+
+
+def _is_period_header_table(table: ParsedTable, period_columns: _PeriodColumns) -> bool:
+    if len(table.rows) > 2 or not period_columns.column_periods:
+        return False
+    non_empty = [str(cell or "").strip() for row in table.rows for cell in row if str(cell or "").strip()]
+    return bool(non_empty) and all(re.fullmatch(r"(?i)(?:FY|Fiscal\s*)?(?:19|20)\d{2}", cell) for cell in non_empty)
+
+
+def _is_ratio_or_per_share_label(label: str) -> bool:
+    text = str(label or "").lower()
+    return bool(
+        re.search(r"\b(?:margin|ratio|rate|roe|roa|roic|eps)\b", text)
+        or re.search(r"\bper\s+share\b", text)
+        or "dividend payout" in text
+    )
 
 
 def _is_note_column(cell: Any) -> bool:
