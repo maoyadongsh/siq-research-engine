@@ -146,6 +146,7 @@ def _upload_pdf(pdf_api_base: str, token: str, pdf_path: Path) -> dict:
     data = {
         "backend": "hybrid-http-client",
         "parse_method": "auto",
+        "market": "KR",
         "formula_enable": "true",
         "table_enable": "true",
     }

@@ -22,7 +22,7 @@ def validate_schema(schema: str) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Import a JP EDINET evidence package into PostgreSQL siq/edinet_jp.")
+    parser = argparse.ArgumentParser(description="Import a JP EDINET evidence package into PostgreSQL siq_jp/edinet_jp.")
     parser.add_argument("package", type=Path, nargs="?")
     parser.add_argument("--package", dest="package_opt", type=Path)
     parser.add_argument("--database-url", default=None)
@@ -32,7 +32,7 @@ def main() -> None:
     args = parser.parse_args()
     package_dir = args.package_opt or args.package
     validate_schema(args.schema)
-    with psycopg.connect(database_url(args.database_url), autocommit=False) as conn:
+    with psycopg.connect(database_url(args.database_url, market="JP", default_database="siq_jp"), autocommit=False) as conn:
         if args.ddl or args.ddl_only:
             run_ddl(conn, DDL_PATH)
             conn.commit()

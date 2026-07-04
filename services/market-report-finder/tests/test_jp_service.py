@@ -45,3 +45,18 @@ def test_jp_finder_does_not_fail_when_edinet_key_missing_and_tdnet_has_no_recent
     )
 
     assert result == []
+
+
+def test_jp_curated_annual_reports_cover_30_mainstream_companies():
+    finder = JpReportFinder()
+
+    reports = finder.curated_annual_reports(report_year=2025, limit=30)
+
+    company_keys = {(report.company_id, report.ticker, report.company_name) for report in reports}
+    industries = {str(report.metadata.get("industry")) for report in reports}
+    assert len(reports) == 30
+    assert len(company_keys) == 30
+    assert all(report.market == Market.jp for report in reports)
+    assert all(report.source_id == "issuer_annual_report" for report in reports)
+    assert all(report.file_format == "pdf" for report in reports)
+    assert len(industries) >= 12

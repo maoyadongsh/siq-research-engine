@@ -15,7 +15,7 @@ SIQ_DEMO_MODE=0
 SIQ_INITIAL_ADMIN_PASSWORD=replace-with-secret-manager-value
 SIQ_CREATE_DEMO_USERS=0
 
-DATABASE_URL=postgresql+psycopg://siq:replace-with-db-password@postgres.example.internal:5432/siq
+SIQ_APP_DATABASE_URL=postgresql+psycopg://siq:replace-with-db-password@postgres.example.internal:5432/siq_app
 REDIS_URL=redis://redis.example.internal:6379/0
 
 SIQ_WIKI_ROOT=/var/lib/siq-research-engine/wiki
@@ -36,6 +36,12 @@ SIQ_REPORT_DOWNLOADS_ROOT=/var/lib/siq-research-engine/market-report-finder/down
 SIQ_MARKET_REPORT_DOWNLOADS_ROOT=/var/lib/siq-research-engine/market-report-finder/downloads
 
 SIQ_DB_ROOT=/opt/siq-research-engine/db
+SIQ_DOCUMENT_PGDATABASE=siq_document_parser
+SIQ_US_PGDATABASE=siq_us
+SIQ_HK_PGDATABASE=siq_hk
+SIQ_JP_PGDATABASE=siq_jp
+SIQ_KR_PGDATABASE=siq_kr
+SIQ_EU_PGDATABASE=siq_eu
 SIQ_HERMES_HOME=/var/lib/siq-research-engine/hermes/home
 SIQ_HERMES_PROFILES_ROOT=/var/lib/siq-research-engine/hermes/home/profiles
 SIQ_MINERU_VENV=/opt/siq-research-engine/runtimes/mineru-native

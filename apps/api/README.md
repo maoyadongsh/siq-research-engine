@@ -167,6 +167,7 @@ apps/api/
 | `SIQ_SOURCE_TOKEN_SECRET` | fallback 到 `SIQ_AUTH_SECRET_KEY` | `/api/source*` 短期签名访问 token 密钥，建议独立设置，至少 32 字符 |
 | `SIQ_SOURCE_ACCEPT_LEGACY_AUTH_SECRET` | `0` | 设置独立 source secret 后是否继续验证旧 auth secret source token；短期迁移需要时显式设为 `1` |
 | `SIQ_SOURCE_ACCESS_TOKEN_TTL_SECONDS` | `900` | source access token 有效期秒数，签发时最小 TTL 为 60 秒 |
+| `SIQ_APP_DATABASE_URL` | fallback 到 `DATABASE_URL` 或本地 SQLite | API 应用状态库连接串，PostgreSQL 部署使用 `siq_app` |
 
 ## 开发验证
 

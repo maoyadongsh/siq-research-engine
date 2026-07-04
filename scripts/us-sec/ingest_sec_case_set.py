@@ -6,6 +6,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -19,6 +20,8 @@ POSTGRES_IMPORT_PATH = REPO_ROOT / "db" / "imports" / "import_sec_filing_to_post
 MILVUS_INGEST_PATH = REPO_ROOT / "scripts" / "vector-index" / "milvus-ingestion" / "ingest_sec_wiki_chunks.py"
 BUILD_PACKAGE_PATH = REPO_ROOT / "scripts" / "us-sec" / "build_sec_evidence_package.py"
 DEFAULT_DOWNLOADS_ROOT = REPO_ROOT / "data" / "market-report-finder" / "downloads" / "US"
+DEFAULT_COLLECTION = os.environ.get("SIQ_US_SEC_MILVUS_COLLECTION", "siq_us_sec_filings")
+DEFAULT_VECTOR_DIM = int(os.environ.get("SIQ_EMBED_VECTOR_DIM", "1024"))
 
 
 def load_module(path: Path, name: str):
@@ -32,7 +35,14 @@ def load_module(path: Path, name: str):
 
 
 pg_import = load_module(POSTGRES_IMPORT_PATH, "siq_sec_pg_import")
-milvus_ingest = load_module(MILVUS_INGEST_PATH, "siq_sec_milvus_ingest")
+_milvus_ingest = None
+
+
+def load_milvus_ingest():
+    global _milvus_ingest
+    if _milvus_ingest is None:
+        _milvus_ingest = load_module(MILVUS_INGEST_PATH, "siq_sec_milvus_ingest")
+    return _milvus_ingest
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -127,13 +137,13 @@ def _form_from_filename(filename: str) -> str | None:
     return None
 
 
-def package_counts(package_dir: Path) -> dict[str, int]:
+def package_counts(package_dir: Path, chunks: list[dict[str, Any]] | None = None) -> dict[str, int]:
     facts = read_json(package_dir / "xbrl" / "facts_raw.json").get("facts") or []
     metrics = read_json(package_dir / "metrics" / "normalized_metrics.json").get("metrics") or []
     sections = read_json(package_dir / "sections.json").get("sections") or []
     evidence = read_json(package_dir / "qa" / "source_map.json").get("entries") or []
-    tables = list((package_dir / "tables").glob("table_*.json"))
-    chunks = milvus_ingest.iter_chunks(package_dir, include_sections=True, include_metrics=True)
+    tables = [path for path in (package_dir / "tables").glob("table_*.json") if path.stem.removeprefix("table_").isdigit()]
+    chunks = chunks or []
     return {
         "xbrl_facts": len(facts),
         "normalized_metrics": len(metrics),
@@ -241,15 +251,15 @@ def upsert_retrieval_chunks(conn: Any, package_dir: Path, chunks: list[dict[str,
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Ingest a curated US SEC case set into wiki/PostgreSQL/Milvus retrieval layers.")
+    parser = argparse.ArgumentParser(description="Ingest a curated US SEC case set from wiki packages into PostgreSQL, with optional Milvus ingestion.")
     parser.add_argument("--case-set", type=Path, default=DEFAULT_CASE_SET)
     parser.add_argument("--report", type=Path, default=DEFAULT_REPORT)
     parser.add_argument("--database-url", default=None)
-    parser.add_argument("--collection", default=os.environ.get("SIQ_US_SEC_MILVUS_COLLECTION", milvus_ingest.DEFAULT_COLLECTION))
+    parser.add_argument("--collection", default=DEFAULT_COLLECTION)
     parser.add_argument("--batch-tag", default="us-sec-case-set-50")
     parser.add_argument("--embed-url", default=os.environ.get("SIQ_EMBED_URL", "http://127.0.0.1:8000/v1/embeddings"))
     parser.add_argument("--embed-model", default=os.environ.get("SIQ_EMBED_MODEL", "Qwen3-VL-Embedding-2B"))
-    parser.add_argument("--vector-dim", type=int, default=milvus_ingest.DEFAULT_VECTOR_DIM)
+    parser.add_argument("--vector-dim", type=int, default=DEFAULT_VECTOR_DIM)
     parser.add_argument("--tickers", default="", help="Comma-separated ticker subset.")
     parser.add_argument("--ticker", default="", help="Single ticker alias for --tickers.")
     parser.add_argument("--form", default="", help="Comma-separated SEC form subset when scanning downloads, e.g. 10-K,20-F.")
@@ -311,6 +321,7 @@ def main() -> None:
     }
 
     conn = None
+    milvus_ingest = load_milvus_ingest() if args.milvus else None
     if args.postgres and not args.dry_run:
         conn = connect_postgres(args.database_url)
         if args.ddl:
@@ -321,9 +332,9 @@ def main() -> None:
         for item in items:
             package_dir = Path(item["package_path"])
             manifest = read_json(package_dir / "manifest.json")
-            counts = package_counts(package_dir)
+            chunks = milvus_ingest.iter_chunks(package_dir, include_sections=True, include_metrics=True) if milvus_ingest else []
+            counts = package_counts(package_dir, chunks)
             relationship = build_relationship_summary(package_dir)
-            chunks = milvus_ingest.iter_chunks(package_dir, include_sections=True, include_metrics=True)
             quality = str(manifest.get("quality_status") or item.get("quality_status") or "unknown")
             report["summary"]["quality"][quality] = report["summary"]["quality"].get(quality, 0) + 1
             for key, value in counts.items():
@@ -343,10 +354,13 @@ def main() -> None:
             }
             if conn is not None:
                 parse_run_id = pg_import.import_package(conn, package_dir, "sec_us")
-                audit_count = upsert_retrieval_chunks(conn, package_dir, chunks, collection=args.collection, batch_tag=args.batch_tag, embedded=bool(args.milvus))
+                audit_count = 0
+                if milvus_ingest:
+                    audit_count = upsert_retrieval_chunks(conn, package_dir, chunks, collection=args.collection, batch_tag=args.batch_tag, embedded=bool(args.milvus))
                 conn.commit()
                 row["postgres"] = {"status": "imported", "parse_run_id": parse_run_id, "retrieval_chunks": audit_count}
             if args.milvus and not args.dry_run:
+                assert milvus_ingest is not None
                 inserted = milvus_ingest.ingest(
                     package_dir,
                     args.collection,

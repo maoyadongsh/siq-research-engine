@@ -177,6 +177,8 @@ def merge_quality_candidates_from_financial_data(report, financial_data):
         return merge_hk_quality_candidates(report, financial_data)
     if str(financial_data.get("market") or "").upper() == "JP":
         return report
+    if str(financial_data.get("market") or "").upper() == "KR":
+        return report
     statements = financial_data.get("statements") or []
     metrics = financial_data.get("key_metrics") or []
     if not statements:
@@ -387,6 +389,8 @@ def merge_quality_candidates_from_financial_data(report, financial_data):
 def quality_report_warnings(report, financial_data=None):
     warnings = list(report.get("warnings") or [])
     if str((financial_data or {}).get("market") or report.get("market_profile") or "").upper() == "JP":
+        return warnings
+    if str((financial_data or {}).get("market") or report.get("market_profile") or "").upper() == "KR":
         return warnings
     if financial_data and financial_data.get("summary", {}).get("statement_count", 0) >= 3:
         warnings = [

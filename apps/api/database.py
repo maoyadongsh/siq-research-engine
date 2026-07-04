@@ -10,11 +10,10 @@ DB_DIR = BACKEND_DATA_ROOT
 DB_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DB_DIR / "agent.db"
 
-# 优先使用PostgreSQL（用于认证系统），否则回退到SQLite
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    f"sqlite:///{DB_PATH}"
-)
+# API 应用状态库：认证、聊天、审计、workspace、usage 等表。
+# SIQ_APP_DATABASE_URL 优先，DATABASE_URL 仅保留为兼容入口；市场事实库导入不应复用这里的连接串。
+APP_DATABASE_URL = os.getenv("SIQ_APP_DATABASE_URL") or os.getenv("DATABASE_URL") or f"sqlite:///{DB_PATH}"
+DATABASE_URL = APP_DATABASE_URL
 
 # 异步数据库URL
 if DATABASE_URL.startswith("postgresql"):

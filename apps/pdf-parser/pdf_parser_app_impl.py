@@ -63,6 +63,7 @@ import pdf_parser_content_list_enhanced_service as content_list_enhanced_service
 import pdf_parser_document_full_service as document_full_service
 import pdf_parser_financial_service as financial_service
 import jp_market_profile
+import kr_market_profile
 import pdf_parser_mineru_result_service as mineru_result_service
 import pdf_parser_quality_service as quality_service
 import pdf_parser_response_service as response_service
@@ -2850,6 +2851,7 @@ def _build_quality_report(markdown, task, file_name=None, content_list=None):
     tables = re.findall(r"<table\b.*?</table>", markdown, flags=re.IGNORECASE | re.DOTALL)
     filename = file_name or task.get("filename")
     is_jp_profile = jp_market_profile.is_jp_market(task, filename)
+    is_kr_profile = kr_market_profile.is_kr_market(task, filename)
     report_year = _detect_report_year(markdown, file_name=filename)
     table_index = _build_table_index(markdown, tables, content_list=content_list, report_year=report_year)
     single_row_tables = [table for table in tables if _count_table_rows(table) <= 1]
@@ -2865,6 +2867,17 @@ def _build_quality_report(markdown, task, file_name=None, content_list=None):
         indicator_table_candidates = jp_market_profile.candidate_summary_list(
             key_table_candidates,
             jp_market_profile.JP_INDICATOR_TABLE_NAMES,
+        )
+    elif is_kr_profile:
+        report_kind = kr_market_profile.detect_kr_report_kind(markdown, filename=filename)
+        financial_tables = kr_market_profile.KR_CORE_FINANCIAL_TABLE_NAMES
+        key_sections = kr_market_profile.KR_KEY_SECTIONS
+        found_sections = kr_market_profile.found_sections(markdown, table_index)
+        key_table_candidates = kr_market_profile.group_kr_key_table_candidates(table_index)
+        core_financial_table_candidates = kr_market_profile.candidate_summary_list(key_table_candidates, financial_tables)
+        indicator_table_candidates = kr_market_profile.candidate_summary_list(
+            key_table_candidates,
+            kr_market_profile.KR_INDICATOR_TABLE_NAMES,
         )
     else:
         report_kind = _detect_report_kind(markdown, filename=filename)
@@ -2912,6 +2925,18 @@ def _build_quality_report(markdown, task, file_name=None, content_list=None):
             suspicious_table_count=len(suspicious_tables),
         )
         report["market_profile"] = "JP"
+        report["warnings"] = warnings
+        report["info_messages"] = info_messages
+    elif is_kr_profile:
+        found_core_count = len([item for item in core_financial_table_candidates if item.get("status") == "found"])
+        warnings, info_messages = kr_market_profile.kr_quality_report_messages(
+            table_count=len(tables),
+            single_row_table_count=len(single_row_tables),
+            image_ref_count=len(image_refs),
+            found_core_table_count=found_core_count,
+            suspicious_table_count=len(suspicious_tables),
+        )
+        report["market_profile"] = "KR"
         report["warnings"] = warnings
         report["info_messages"] = info_messages
     return report
@@ -3051,6 +3076,13 @@ def _ensure_quality_report(task, markdown):
     report = _read_quality_report(task)
     if isinstance(report, dict) and report.get("schema_version") == QUALITY_SCHEMA_VERSION:
         if jp_market_profile.is_jp_market(task, task.get("filename")) and report.get("market_profile") != "JP":
+            return _write_quality_artifacts(
+                task,
+                markdown,
+                file_name=task.get("filename"),
+                content_list=_load_json_artifact(task, "content_list.json"),
+            )
+        if kr_market_profile.is_kr_market(task, task.get("filename")) and report.get("market_profile") != "KR":
             return _write_quality_artifacts(
                 task,
                 markdown,

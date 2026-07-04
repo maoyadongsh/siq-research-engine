@@ -1,6 +1,6 @@
 # 美股 SEC 财报归档与入库设计
 
-本文设计一条面向美股 SEC 年报、季报和 20-F/6-K 的确定性归档入库链路。目标是复用 A 股现有“文件证据包 + PostgreSQL 事实库 + Milvus 语义检索”的思想，但不把 SEC HTML/iXBRL 强行塞进 PDF/OCR 管线。
+本文设计一条面向美股 SEC 年报、季报和 20-F/6-K 的确定性归档入库链路。当前阶段先收口“文件证据包 + PostgreSQL 事实库”，Milvus 语义检索入库暂不纳入本轮交付；整体目标仍是不把 SEC HTML/iXBRL 强行塞进 PDF/OCR 管线。
 
 核心原则：
 
@@ -22,10 +22,10 @@ SIQ 的财报知识库应按市场隔离三类存储：Wiki 文件层、PostgreS
 | 市场 | 宿主机 Wiki 目录 | 容器内 Wiki 目录 | PostgreSQL 服务/数据库 | PostgreSQL Schema | Milvus 服务 | Milvus Collection | 证据定位主键 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | A 股 CN | `$SIQ_PROJECT_ROOT/data/wiki/cn_reports` | `/data/wiki/cn_reports` | `postgres` / `siq` | `pdf2md`（现有 legacy），后续可迁移 `pdf2md_cn` | `infra/vector-index/milvus` / `standalone:19530` | `siq_cn_reports` | `task_id + pdf_page + table_index` |
-| 港股 HK | `$SIQ_PROJECT_ROOT/data/wiki/hk_reports` | `/data/wiki/hk_reports` | `postgres` / `siq` | `pdf2md_hk` | `infra/vector-index/milvus` / `standalone:19530` | `siq_hk_reports` | `filing_id + pdf_page/table_index` |
-| 美股 US | `$SIQ_PROJECT_ROOT/data/wiki/us_sec` | `/data/wiki/us_sec` | `postgres` / `siq` | `sec_us` | `infra/vector-index/milvus` / `standalone:19530` | `siq_us_sec_filings` | `filing_id + accession + section/html_anchor/context_ref` |
+| 港股 HK | `$SIQ_PROJECT_ROOT/data/wiki/hk_reports` | `/data/wiki/hk_reports` | `postgres` / `siq_hk` | `pdf2md_hk` | `infra/vector-index/milvus` / `standalone:19530` | `siq_hk_reports` | `filing_id + pdf_page/table_index` |
+| 美股 US | `$SIQ_PROJECT_ROOT/data/wiki/us_sec` | `/data/wiki/us_sec` | `postgres` / `siq_us` | `sec_us` | `infra/vector-index/milvus` / `standalone:19530` | `siq_us_sec_filings` | `filing_id + accession + section/html_anchor/context_ref` |
 
-本项目本地开发的 PostgreSQL 连接来自 `env/backend.env` 或 compose 环境变量：宿主机连接 `127.0.0.1:15432/siq`，容器内连接 `postgres:5432/siq`。市场隔离优先使用不同 schema，不要求创建任何外部市场数据库。Agent 层必须禁止跨 schema 自动 fallback。
+本项目本地开发的 API 应用状态库连接来自 `SIQ_APP_DATABASE_URL`，PostgreSQL 部署目标为 `siq_app`。市场事实库使用独立 database：US 使用 `SIQ_US_PGDATABASE=siq_us` + schema `sec_us`，HK 使用 `SIQ_HK_PGDATABASE=siq_hk` + schema `pdf2md_hk`。Agent 层必须禁止跨 market database/schema 自动 fallback。
 
 ### 为什么必须隔离
 
@@ -80,7 +80,10 @@ data/market-report-finder/downloads/US/<company>/<year>/<folder>/<filing>.htm
 
 | 脚本 | 作用 | 是否依赖大模型 |
 | --- | --- | --- |
+| `scripts/us-sec/discover_sec_downloaded_cases.py` | 扫描已下载 SEC HTML/iXBRL，生成 `_meta/downloads_index.json` | 否 |
 | `scripts/us-sec/build_sec_evidence_package.py` | 从 SEC HTML/iXBRL/metadata 生成 Wiki 证据包 | 否 |
+| `scripts/us-sec/build_sec_wiki_index.py` | 汇总证据包，生成 ticker 级 company wiki、package index、quality summary 和 case set | 否 |
+| `scripts/us-sec/build_sec_wiki.py` | 批量执行 discover -> evidence package -> company wiki index | 否 |
 | `scripts/us-sec/extract_sec_xbrl_facts.py` | 提取 inline XBRL facts、contexts、units、labels | 否 |
 | `scripts/us-sec/normalize_sec_metrics.py` | 使用规则映射 canonical metrics | 否 |
 | `db/imports/import_sec_filing_to_postgres.py` | 幂等写入 PostgreSQL | 否 |
@@ -235,7 +238,7 @@ html_anchor: item_1a
 
 ## 三、PostgreSQL 如何存
 
-PostgreSQL 是“可计算事实库”。美股必须写入本项目 compose 管理的 PostgreSQL 服务，不连接外部数据库。当前项目数据库为 `siq`，美股使用独立 schema `sec_us`，避免和 A 股、港股口径混淆：
+PostgreSQL 是“可计算事实库”。美股必须写入本项目 compose 管理的 PostgreSQL 服务，不连接外部数据库。当前美股事实库为 `siq_us`，美股使用 schema `sec_us`，避免和 A 股、港股口径混淆：
 
 ```text
 service: postgres
@@ -650,7 +653,7 @@ siq_us_sec_filings
 后端设计分为“控制面”和“数据面”：
 
 - 控制面由 `apps/api` 暴露任务、文件、质量报告、入库状态和前端所需查询 API。
-- 数据面由 `scripts/us-sec/*`、`services/market-report-rules`、`db/imports/import_sec_filing_to_postgres.py` 和本项目 PostgreSQL `siq.sec_us` 共同完成。
+- 数据面由 `scripts/us-sec/*`、`services/market-report-rules`、`db/imports/import_sec_filing_to_postgres.py` 和本项目 PostgreSQL `siq_us.sec_us` 共同完成。
 - `services/market-report-finder` 仍负责下载与本地文件发现，不承担 SEC 结构化入库逻辑。
 - `apps/pdf-parser` 不参与 SEC HTML/iXBRL 主链路；只有美股 PDF 附件才继续走通用 PDF 解析。
 
@@ -881,14 +884,14 @@ queued
 - artifact 读取必须通过 `parse_run_id + artifact_type` 或白名单相对路径解析。
 - `source_url` 只作为外部跳转，不由后端代理抓取任意 URL。
 - HTML 预览接口默认返回文本或经过 sanitization 的 HTML；原始 HTML 下载走附件响应。
-- PostgreSQL 写入只允许连接本项目 `siq` 数据库，并且只写 `sec_us` schema；不得写入外部非本项目数据库或 CN/HK schema。
+- PostgreSQL 写入只允许连接本项目 `siq_us` 数据库，并且只写 `sec_us` schema；不得写入外部非本项目数据库或 CN/HK schema。
 - Milvus 写入只允许连接本项目 `infra/vector-index/milvus` 管理的实例，目标 collection 必须显式为 `siq_us_sec_filings`，不得落入 `ic_collaboration_shared` 等通用默认 collection。
 
 ### 配置项
 
 | 环境变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `DATABASE_URL` | 宿主机 `postgresql+psycopg://...@127.0.0.1:15432/siq` / 容器内 `postgresql+psycopg://...@postgres:5432/siq` | 本项目 PostgreSQL 连接 |
+| `SIQ_US_PGDATABASE` | `siq_us` | 美股 PostgreSQL database；显式 `--database-url` 可覆盖 |
 | `SIQ_US_SEC_SCHEMA` | `sec_us` | 美股 PostgreSQL schema |
 | `SIQ_WIKI_ROOT` | `$SIQ_PROJECT_ROOT/data/wiki` / 容器内 `/data/wiki` | 本项目 Wiki 根目录 |
 | `SIQ_US_SEC_WIKI_ROOT` | `$SIQ_WIKI_ROOT/us_sec` | SEC 证据包根目录 |
@@ -911,7 +914,7 @@ queued
 | 项目根目录 | `SIQ_PROJECT_ROOT` 默认 `/home/maoyd/siq-research-engine`，所有宿主机路径必须位于该目录下 |
 | Wiki 根目录 | `SIQ_US_SEC_WIKI_ROOT` 必须解析到 `$SIQ_PROJECT_ROOT/data/wiki/us_sec` 或容器内 `/data/wiki/us_sec` |
 | 下载根目录 | `SIQ_US_SEC_DOWNLOAD_ROOT` 必须解析到 `$SIQ_PROJECT_ROOT/data/market-report-finder/downloads/US` 或容器内 `/data/downloads/US` |
-| PostgreSQL 数据库 | `DATABASE_URL` 的 database name 必须是 `siq` |
+| PostgreSQL 数据库 | 默认 database name 必须是 `siq_us`；显式 `--database-url` 也必须指向 `siq_us` |
 | PostgreSQL schema | 美股写入 schema 必须是 `sec_us` |
 | Milvus host | 本地为 `127.0.0.1:19530`，容器网络为本项目 Milvus standalone 服务 |
 | Milvus collection | 美股写入 collection 必须是 `siq_us_sec_filings` |
@@ -1158,7 +1161,7 @@ export interface SecIngestionJob {
 | PDF 页码/table_index | SEC section/html_anchor/xpath/context_ref |
 | `financial_data.json` | 同名 contract，来源 XBRL 规则 |
 | `financial_checks.json` | 同名 contract，增加 QTD/YTD/XBRL 校验 |
-| `pdf2md.financial_*` | `siq.sec_us.financial_*` |
+| `pdf2md.financial_*` | `siq_us.sec_us.financial_*` |
 | Wiki company reports | `data/wiki/us_sec/<ticker>/<year>/<filing>/` |
 | Milvus report chunks | SEC sections chunks + metric evidence chunks |
 
@@ -1222,6 +1225,16 @@ export interface SecIngestionJob {
 
 前端 `/parse-us` 的“财务勾稽校验”面板展示每条规则的状态、期间、差异、容差和失败原因；阻断性 fail 应优先进入规则修复或人工复核。
 
+### Wiki 构建命令
+
+已下载的美股财报先构建为 wiki 证据包和公司级索引，再交给 PostgreSQL 入库脚本。常规增量构建：
+
+```bash
+PYTHONPATH=scripts/us-sec:services/market-report-rules/src services/market-report-rules/.venv/bin/python scripts/us-sec/build_sec_wiki.py --downloads-root data/market-report-finder/downloads/US --output-root data/wiki/us_sec --forms 10-K --incremental --report data/wiki/us_sec/_meta/build_report.json
+```
+
+当 manifest/package contract 有升级时，使用 `--force` 重新生成旧包，确保 `manifest.json` 写入 `market_evidence_package_v1`、`country=US`、`document_format=ixbrl_html` 和 hash-based `parse_run_id`。
+
 ### 入库命令
 
 只做计划和质量统计：
@@ -1230,17 +1243,13 @@ export interface SecIngestionJob {
 python scripts/us-sec/ingest_sec_case_set.py --dry-run --include-fail
 ```
 
-写入 PostgreSQL，包括 `sec_us.retrieval_chunks` 审计表：
+写入 PostgreSQL（当前阶段不写 Milvus，也不写 retrieval chunk 审计行）：
 
 ```bash
 python scripts/us-sec/ingest_sec_case_set.py --postgres --ddl --include-fail
 ```
 
-写入 PostgreSQL 并向量化入 Milvus：
-
-```bash
-python scripts/us-sec/ingest_sec_case_set.py --postgres --milvus --ddl --include-fail
-```
+Milvus 向量化入库作为后续阶段处理，本轮不执行 `--milvus`。
 
 截至当前 50 家 dry-run 统计：
 

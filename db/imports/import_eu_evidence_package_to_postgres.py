@@ -62,7 +62,12 @@ def database_url(explicit: str | None) -> str:
         return url.replace("postgresql+psycopg://", "postgresql://")
     host = os.environ.get("SIQ_PGHOST") or os.environ.get("PGHOST") or "127.0.0.1"
     port = os.environ.get("SIQ_PGPORT") or os.environ.get("PGPORT") or "15432"
-    db = os.environ.get("SIQ_PGDATABASE") or os.environ.get("PGDATABASE") or "siq"
+    db = (
+        os.environ.get("SIQ_EU_PGDATABASE")
+        or os.environ.get("SIQ_PGDATABASE")
+        or os.environ.get("PGDATABASE")
+        or "siq_eu"
+    )
     user = os.environ.get("SIQ_PGUSER") or os.environ.get("PGUSER") or "postgres"
     password = os.environ.get("SIQ_PGPASSWORD") or os.environ.get("PGPASSWORD") or ""
     auth = f"{user}:{password}" if password else user

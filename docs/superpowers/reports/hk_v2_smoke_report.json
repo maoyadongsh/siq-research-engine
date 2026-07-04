@@ -1,0 +1,294 @@
+{
+  "generated_at": "2026-07-04T10:11:53.845709+00:00",
+  "root": "data/wiki/hk_reports",
+  "samples": [
+    {
+      "company": "TENCENT",
+      "counts": {
+        "evidence": 0,
+        "metrics": 0,
+        "sections": 1,
+        "tables": 0
+      },
+      "detail_error": null,
+      "failures": [
+        "metrics/normalized_metrics.json 中 metrics 为空",
+        "qa/source_map.json 中 entries 为空",
+        "quality_report overall_status 为 fail"
+      ],
+      "filing_id": "HK:00700:12100024",
+      "import_dry_run": {
+        "scope": "validator 前置契约检查；未连接数据库，未写入数据。",
+        "status": "pass"
+      },
+      "missing_detail_paths": [],
+      "missing_files": [],
+      "missing_v2_files": [],
+      "package_path": "data/wiki/hk_reports/00700/2025/annual_12100024",
+      "quality": "fail",
+      "sample": "00700/2025/annual_12100024",
+      "status": "fail",
+      "ticker": "00700",
+      "validator": {
+        "errors": [],
+        "ok": true,
+        "unavailable": null,
+        "warnings": []
+      },
+      "warnings": [
+        "{'type': 'missing_statement', 'required_statement_status': {'balance_sheet': 'missing', 'income_statement': 'missing', 'cash_flow_statement': 'missing'}}",
+        "No parsed PDF tables were converted to ParsedTable.",
+        "No mapped HKEX/PDF table rows were extracted. Check table parsing quality or add issuer-specific aliases.",
+        "No mapped HKEX/PDF table rows were extracted. Check table parsing quality or add issuer-specific aliases.",
+        "Use standard three-statement bridge checks."
+      ]
+    },
+    {
+      "company": "AIA",
+      "counts": {
+        "evidence": 153,
+        "metrics": 153,
+        "sections": 1,
+        "tables": 250
+      },
+      "detail_error": null,
+      "failures": [
+        "缺失必需 V2 文件: sections/report_complete.md, parser/document_full.json, parser/content_list_enhanced.json, parser/table_relations.json, qa/footnotes.json, qa/toc.json, qa/financial_note_links.json, qa/table_quality_signals.json",
+        "package detail 缺少 V2 paths: report_complete, document_full, content_list_enhanced, table_relations, footnotes, toc, financial_note_links, table_quality_signals"
+      ],
+      "filing_id": "HK:01299:12106543",
+      "import_dry_run": {
+        "scope": "validator 前置契约检查；未连接数据库，未写入数据。",
+        "status": "pass"
+      },
+      "missing_detail_paths": [
+        "report_complete",
+        "document_full",
+        "content_list_enhanced",
+        "table_relations",
+        "footnotes",
+        "toc",
+        "financial_note_links",
+        "table_quality_signals"
+      ],
+      "missing_files": [],
+      "missing_v2_files": [
+        "sections/report_complete.md",
+        "parser/document_full.json",
+        "parser/content_list_enhanced.json",
+        "parser/table_relations.json",
+        "qa/footnotes.json",
+        "qa/toc.json",
+        "qa/financial_note_links.json",
+        "qa/table_quality_signals.json"
+      ],
+      "package_path": "data/wiki/hk_reports/01299/2025/annual_12106543",
+      "quality": "pass",
+      "sample": "01299/2025/annual_12106543",
+      "status": "fail",
+      "ticker": "01299",
+      "validator": {
+        "errors": [],
+        "ok": true,
+        "unavailable": null,
+        "warnings": []
+      },
+      "warnings": [
+        "Use standard three-statement bridge checks."
+      ]
+    },
+    {
+      "company": "SMIC",
+      "counts": {
+        "evidence": 253,
+        "metrics": 253,
+        "sections": 1,
+        "tables": 208
+      },
+      "detail_error": null,
+      "failures": [
+        "缺失必需 V2 文件: sections/report_complete.md, parser/document_full.json, parser/content_list_enhanced.json, parser/table_relations.json, qa/footnotes.json, qa/toc.json, qa/financial_note_links.json, qa/table_quality_signals.json",
+        "package detail 缺少 V2 paths: report_complete, document_full, content_list_enhanced, table_relations, footnotes, toc, financial_note_links, table_quality_signals"
+      ],
+      "filing_id": "HK:00981:12097338",
+      "import_dry_run": {
+        "scope": "validator 前置契约检查；未连接数据库，未写入数据。",
+        "status": "pass"
+      },
+      "missing_detail_paths": [
+        "report_complete",
+        "document_full",
+        "content_list_enhanced",
+        "table_relations",
+        "footnotes",
+        "toc",
+        "financial_note_links",
+        "table_quality_signals"
+      ],
+      "missing_files": [],
+      "missing_v2_files": [
+        "sections/report_complete.md",
+        "parser/document_full.json",
+        "parser/content_list_enhanced.json",
+        "parser/table_relations.json",
+        "qa/footnotes.json",
+        "qa/toc.json",
+        "qa/financial_note_links.json",
+        "qa/table_quality_signals.json"
+      ],
+      "package_path": "data/wiki/hk_reports/00981/2025/annual_12097338",
+      "quality": "pass",
+      "sample": "00981/2025/annual_12097338",
+      "status": "fail",
+      "ticker": "00981",
+      "validator": {
+        "errors": [],
+        "ok": true,
+        "unavailable": null,
+        "warnings": []
+      },
+      "warnings": [
+        "Use standard three-statement bridge checks."
+      ]
+    },
+    {
+      "company": "BANK OF CHINA",
+      "counts": {
+        "evidence": 112,
+        "metrics": 112,
+        "sections": 1,
+        "tables": 234
+      },
+      "detail_error": null,
+      "failures": [
+        "缺失必需 V2 文件: sections/report_complete.md, parser/document_full.json, parser/content_list_enhanced.json, parser/table_relations.json, qa/footnotes.json, qa/toc.json, qa/financial_note_links.json, qa/table_quality_signals.json",
+        "package detail 缺少 V2 paths: report_complete, document_full, content_list_enhanced, table_relations, footnotes, toc, financial_note_links, table_quality_signals",
+        "quality_report overall_status 为 fail"
+      ],
+      "filing_id": "HK:03988:12132549",
+      "import_dry_run": {
+        "scope": "validator 前置契约检查；未连接数据库，未写入数据。",
+        "status": "pass"
+      },
+      "missing_detail_paths": [
+        "report_complete",
+        "document_full",
+        "content_list_enhanced",
+        "table_relations",
+        "footnotes",
+        "toc",
+        "financial_note_links",
+        "table_quality_signals"
+      ],
+      "missing_files": [],
+      "missing_v2_files": [
+        "sections/report_complete.md",
+        "parser/document_full.json",
+        "parser/content_list_enhanced.json",
+        "parser/table_relations.json",
+        "qa/footnotes.json",
+        "qa/toc.json",
+        "qa/financial_note_links.json",
+        "qa/table_quality_signals.json"
+      ],
+      "package_path": "data/wiki/hk_reports/03988/2025/annual_12132549",
+      "quality": "fail",
+      "sample": "03988/2025/annual_12132549",
+      "status": "fail",
+      "ticker": "03988",
+      "validator": {
+        "errors": [],
+        "ok": true,
+        "unavailable": null,
+        "warnings": []
+      },
+      "warnings": [
+        "Use standard three-statement bridge checks."
+      ]
+    },
+    {
+      "company": "BABA-W",
+      "counts": {
+        "evidence": 202,
+        "metrics": 202,
+        "sections": 1,
+        "tables": 130
+      },
+      "detail_error": null,
+      "failures": [
+        "缺失必需 V2 文件: sections/report_complete.md, parser/document_full.json, parser/content_list_enhanced.json, parser/table_relations.json, qa/footnotes.json, qa/toc.json, qa/financial_note_links.json, qa/table_quality_signals.json",
+        "package detail 缺少 V2 paths: report_complete, document_full, content_list_enhanced, table_relations, footnotes, toc, financial_note_links, table_quality_signals"
+      ],
+      "filing_id": "HK:09988:11727038",
+      "import_dry_run": {
+        "scope": "validator 前置契约检查；未连接数据库，未写入数据。",
+        "status": "pass"
+      },
+      "missing_detail_paths": [
+        "report_complete",
+        "document_full",
+        "content_list_enhanced",
+        "table_relations",
+        "footnotes",
+        "toc",
+        "financial_note_links",
+        "table_quality_signals"
+      ],
+      "missing_files": [],
+      "missing_v2_files": [
+        "sections/report_complete.md",
+        "parser/document_full.json",
+        "parser/content_list_enhanced.json",
+        "parser/table_relations.json",
+        "qa/footnotes.json",
+        "qa/toc.json",
+        "qa/financial_note_links.json",
+        "qa/table_quality_signals.json"
+      ],
+      "package_path": "data/wiki/hk_reports/09988/2025/annual_11727038",
+      "quality": "pass",
+      "sample": "09988/2025/annual_11727038",
+      "status": "fail",
+      "ticker": "09988",
+      "validator": {
+        "errors": [],
+        "ok": true,
+        "unavailable": null,
+        "warnings": []
+      },
+      "warnings": [
+        "Use standard three-statement bridge checks."
+      ]
+    }
+  ],
+  "status": "fail",
+  "summary": {
+    "fail_count": 5,
+    "next_steps": [
+      "重建 5 个 HK 样本为 V2 package，补齐 parser、report_complete 与 V2 QA artifacts。",
+      "补充 HK 指标 alias 和财务表格规则，确保 normalized_metrics 至少产出一条指标。",
+      "补齐 source_map 生成逻辑，确保每个指标有可追溯 evidence。",
+      "复查 quality_report 为 fail 的样本，优先补银行/保险等行业表格规则。"
+    ],
+    "pass_count": 0,
+    "required_base_files": {
+      "manifest": "manifest.json",
+      "normalized_metrics": "metrics/normalized_metrics.json",
+      "quality_report": "qa/quality_report.json",
+      "source_map": "qa/source_map.json",
+      "table_index": "tables/table_index.json"
+    },
+    "required_v2_files": {
+      "content_list_enhanced": "parser/content_list_enhanced.json",
+      "document_full": "parser/document_full.json",
+      "financial_note_links": "qa/financial_note_links.json",
+      "footnotes": "qa/footnotes.json",
+      "report_complete": "sections/report_complete.md",
+      "table_quality_signals": "qa/table_quality_signals.json",
+      "table_relations": "parser/table_relations.json",
+      "toc": "qa/toc.json"
+    },
+    "sample_count": 5,
+    "warning_count": 0
+  }
+}

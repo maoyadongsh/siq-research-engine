@@ -108,7 +108,8 @@ uv run uvicorn market_report_rules_service.app:app --host 127.0.0.1 --port 18020
 | `SIQ_START_MARKET_REPORT_RULES` | 是否随一键脚本启动境外市场规则服务，默认 `0` |
 | `SIQ_HERMES_HOME` | Hermes 运行态目录，默认 `$SIQ_DATA_ROOT/hermes/home` |
 | `SIQ_HERMES_PROFILES_ROOT` | Hermes profiles 目录，默认 `$SIQ_HERMES_HOME/profiles` |
-| `DATABASE_URL` | PostgreSQL 连接串 |
+| `SIQ_APP_DATABASE_URL` | API 应用状态库连接串，PostgreSQL 部署使用 `siq_app` |
+| `DATABASE_URL` | 导入脚本兼容连接串；API 应用优先使用 `SIQ_APP_DATABASE_URL` |
 
 ## 健康检查
 

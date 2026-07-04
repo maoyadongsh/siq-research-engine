@@ -18,7 +18,7 @@ SIQ_DEMO_MODE=0
 SIQ_INITIAL_ADMIN_PASSWORD=replace-with-strong-admin-password
 SIQ_CREATE_DEMO_USERS=0
 
-DATABASE_URL=sqlite:////home/maoyd/siq-research-engine/data/backend/agent.db
+SIQ_APP_DATABASE_URL=sqlite:////home/maoyd/siq-research-engine/data/backend/agent.db
 REDIS_URL=redis://localhost:16379/0
 
 SIQ_WIKI_ROOT=/home/maoyd/siq-research-engine/data/wiki
@@ -39,6 +39,12 @@ SIQ_REPORT_DOWNLOADS_ROOT=/home/maoyd/siq-research-engine/data/market-report-fin
 SIQ_MARKET_REPORT_DOWNLOADS_ROOT=/home/maoyd/siq-research-engine/data/market-report-finder/downloads
 
 SIQ_DB_ROOT=/home/maoyd/siq-research-engine/db
+SIQ_DOCUMENT_PGDATABASE=siq_document_parser
+SIQ_US_PGDATABASE=siq_us
+SIQ_HK_PGDATABASE=siq_hk
+SIQ_JP_PGDATABASE=siq_jp
+SIQ_KR_PGDATABASE=siq_kr
+SIQ_EU_PGDATABASE=siq_eu
 SIQ_HERMES_HOME=/home/maoyd/siq-research-engine/data/hermes/home
 SIQ_HERMES_PROFILES_ROOT=/home/maoyd/siq-research-engine/data/hermes/home/profiles
 SIQ_MINERU_VENV=/home/maoyd/siq-research-engine/runtimes/mineru-native

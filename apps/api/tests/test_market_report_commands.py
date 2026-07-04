@@ -623,12 +623,19 @@ def test_market_package_import_args_uses_positional_package_for_non_us():
     ]
 
 
-def test_market_package_import_env_defaults_hk_database():
-    hk_env = commands.market_package_import_env("HK", {"HK": "siq_hk"})
-    us_env = commands.market_package_import_env("US", {"HK": "siq_hk"})
+def test_market_package_import_env_defaults_market_database():
+    market_databases = {
+        "US": "siq_us",
+        "HK": "siq_hk",
+        "JP": "siq_jp",
+        "KR": "siq_kr",
+        "EU": "siq_eu",
+    }
 
-    assert hk_env["SIQ_HK_PGDATABASE"] == "siq_hk"
-    assert "SIQ_HK_PGDATABASE" not in us_env
+    for market, database in market_databases.items():
+        env = commands.market_package_import_env(market, market_databases)
+        assert env[f"SIQ_{market}_PGDATABASE"] == database
+        assert "DATABASE_URL" not in env
 
 
 def test_market_package_import_env_sanitizes_inherited_database_url_for_hk():

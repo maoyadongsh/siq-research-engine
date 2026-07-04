@@ -42,6 +42,12 @@ def stable_id(*parts: Any) -> str:
     return hashlib.sha256("\x1f".join("" if p is None else str(p) for p in parts).encode("utf-8")).hexdigest()
 
 
+def db_fact_id(filing_id: str, local_fact_id: Any) -> str | None:
+    if not local_fact_id:
+        return None
+    return stable_id(filing_id, local_fact_id)
+
+
 def package_hashes(package_dir: Path) -> dict[str, str]:
     hashes = {}
     for path in sorted(package_dir.rglob("*")):
@@ -51,12 +57,22 @@ def package_hashes(package_dir: Path) -> dict[str, str]:
 
 
 def database_url(explicit: str | None) -> str:
-    url = explicit or os.environ.get("DATABASE_URL")
+    url = explicit or os.environ.get("SIQ_US_DATABASE_URL")
     if url:
         return url.replace("postgresql+psycopg://", "postgresql://")
     host = os.environ.get("SIQ_PGHOST") or os.environ.get("PGHOST") or "127.0.0.1"
     port = os.environ.get("SIQ_PGPORT") or os.environ.get("PGPORT") or "15432"
-    db = os.environ.get("SIQ_PGDATABASE") or os.environ.get("PGDATABASE") or "siq"
+    db = (
+        os.environ.get("SIQ_US_PGDATABASE")
+        or os.environ.get("SIQ_PGDATABASE")
+        or os.environ.get("PGDATABASE")
+        or "siq_us"
+    )
+    if not db:
+        generic_url = os.environ.get("DATABASE_URL")
+        if generic_url:
+            return generic_url.replace("postgresql+psycopg://", "postgresql://")
+        db = "siq_us"
     user = os.environ.get("SIQ_PGUSER") or os.environ.get("PGUSER") or "postgres"
     password = os.environ.get("SIQ_PGPASSWORD") or os.environ.get("PGPASSWORD") or ""
     auth = f"{user}:{password}" if password else user
@@ -305,7 +321,7 @@ def _insert_facts_raw(conn: Any, schema: str, package_dir: Path, filing_id: str,
               raw = excluded.raw
             """,
             (
-                fact.get("fact_id"),
+                db_fact_id(filing_id, fact.get("fact_id")),
                 parse_run_id,
                 filing_id,
                 fact.get("concept"),
@@ -397,7 +413,7 @@ def _insert_financial_facts(conn: Any, schema: str, package_dir: Path, filing_id
                 Jsonb(item.get("dimensions") or {}),
                 parse_numeric(item.get("confidence")),
                 item.get("evidence_id"),
-                item.get("raw_fact_id"),
+                db_fact_id(filing_id, item.get("raw_fact_id")),
                 Jsonb(item.get("raw") or item),
             ),
         )
@@ -432,7 +448,7 @@ def _insert_operating_metrics(conn: Any, schema: str, package_dir: Path, filing_
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Import a US SEC evidence package into PostgreSQL siq/sec_us.")
+    parser = argparse.ArgumentParser(description="Import a US SEC evidence package into PostgreSQL siq_us/sec_us.")
     parser.add_argument("--package", type=Path, help="Evidence package directory")
     parser.add_argument("--database-url", default=None)
     parser.add_argument("--schema", default=os.environ.get("SIQ_US_SEC_SCHEMA", "sec_us"))

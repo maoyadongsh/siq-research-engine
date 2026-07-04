@@ -24,6 +24,7 @@ from market_report_rules_service.evidence_package import (
     SCHEMA_VERSION as MARKET_EVIDENCE_SCHEMA_VERSION,
     build_quality_report,
     compute_artifact_hashes,
+    stable_parse_run_id,
 )
 from market_report_rules_service.models import AccountingStandard, Market, ParsedArtifact, ParsedFact, ParsedTable
 from market_report_rules_service.pipeline import process_artifact
@@ -478,14 +479,17 @@ def write_evidence_package(source_path: Path, output_root: Path, metadata_path: 
     manifest = {
         "schema_version": MARKET_EVIDENCE_SCHEMA_VERSION,
         "market": "US",
+        "country": "US",
         "filing_id": filing_id,
         "company_id": f"US:{cik}",
         "ticker": meta["ticker"],
         "cik": cik,
         "company_name": meta["company_name"],
         "source_id": "sec",
+        "source_tier": "official",
         "form": meta["form"],
         "report_type": "annual" if str(meta["form"]).upper() in {"10-K", "20-F"} else "quarterly",
+        "document_format": "ixbrl_html" if facts_raw else "html",
         "accession_number": accession,
         "fiscal_year": meta["fiscal_year"],
         "fiscal_period": meta.get("fiscal_period") or "FY",
@@ -501,11 +505,19 @@ def write_evidence_package(source_path: Path, output_root: Path, metadata_path: 
         "rules_version": RULES_VERSION,
         "artifacts": {
             "sections": "sections.json",
+            "table_index": "tables/table_index.json",
             "xbrl_facts_raw": "xbrl/facts_raw.json",
+            "xbrl_contexts": "xbrl/contexts.json",
+            "xbrl_units": "xbrl/units.json",
+            "xbrl_labels": "xbrl/labels.json",
+            "xbrl_taxonomy_summary": "xbrl/taxonomy_summary.json",
             "financial_data": "metrics/financial_data.json",
             "financial_checks": "metrics/financial_checks.json",
+            "normalized_metrics": "metrics/normalized_metrics.json",
+            "operating_metrics": "metrics/operating_metrics.json",
             "quality_report": "qa/quality_report.json",
             "source_map": "qa/source_map.json",
+            "extraction_warnings": "qa/extraction_warnings.json",
         },
     }
     package_dir = output_root / manifest["ticker"] / str(manifest["fiscal_year"] or "unknown") / f"{manifest['form']}_{accession}"
@@ -571,6 +583,7 @@ def write_evidence_package(source_path: Path, output_root: Path, metadata_path: 
     write_json(qa_dir / "source_map.json", source_map)
     manifest["quality_status"] = quality["overall_status"]
     manifest["artifact_hashes"] = compute_artifact_hashes(package_dir)
+    manifest["parse_run_id"] = stable_parse_run_id(manifest, manifest["artifact_hashes"])
     write_json(package_dir / "manifest.json", manifest)
     (package_dir / "README.md").write_text(_readme(manifest, quality), encoding="utf-8")
     return package_dir

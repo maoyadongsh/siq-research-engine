@@ -426,6 +426,47 @@ def test_hk_financial_artifact_builder_extracts_link_reit_sample():
     assert checks["summary"]["total"] >= 1
 
 
+def test_write_financial_artifacts_dispatches_kr_market_to_kr_checks(tmp_path, monkeypatch):
+    task = {"task_id": "kr-task", "filename": "Samsung-Electronics-Co.,-Ltd_KR_005930_2025.pdf"}
+    result_dir = lambda value: str(tmp_path / value["task_id"])
+    writes = {}
+
+    def write_json(path, payload):
+        writes[Path(path).name] = payload
+
+    def fake_build_data(markdown, **kwargs):
+        assert kwargs["market"] == "KR"
+        return {
+            "schema_version": financial.FINANCIAL_DATA_SCHEMA_VERSION,
+            "rule_version": financial.FINANCIAL_RULE_VERSION,
+            "task_id": kwargs["task_id"],
+            "filename": kwargs["filename"],
+            "market": kwargs["market"],
+            "report_kind": "kr_business_report",
+            "report_year": "2025",
+            "statements": [],
+            "warnings": [],
+            "summary": {"statement_count": 0, "key_metric_count": 0, "scopes": []},
+        }
+
+    data, checks = financial.write_financial_artifacts(
+        task,
+        "III. 재무에 관한 사항\n2-1. 연결 재무상태표",
+        result_dir=result_dir,
+        write_json=write_json,
+        financial_llm_cache_folder=str(tmp_path / "cache"),
+        build_data=fake_build_data,
+    )
+
+    assert data["market"] == "KR"
+    assert checks["market"] == "KR"
+    assert checks["overall_status"] == "skipped"
+    assert writes["financial_data.json"]["market"] == "KR"
+    assert writes["financial_checks.json"]["market"] == "KR"
+    assert any("KR PDF" in item for item in checks["warnings"])
+    assert not any("合并资产负债表" in item for item in checks["warnings"])
+
+
 def test_write_financial_artifacts_uses_jp_profile_without_a_share_missing_warnings(tmp_path):
     task = {"task_id": "jp-task", "filename": "Keyence-Corporation_JP_6861_2025.pdf", "submit_config": {"market": "JP"}}
     result_dir = lambda value: str(tmp_path / value["task_id"])

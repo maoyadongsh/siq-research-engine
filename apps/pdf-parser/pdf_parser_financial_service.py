@@ -61,7 +61,7 @@ def financial_artifacts_match_market(
     financial_checks: Any,
 ) -> bool:
     market = str(market or "").upper()
-    if market not in {"HK", "JP"}:
+    if market not in {"HK", "JP", "KR"}:
         return True
     return (
         isinstance(financial_data, dict)
@@ -97,6 +97,8 @@ def detect_market(task: dict[str, Any], filename: str | None = None) -> str:
         return "HK"
     if "_jp_" in lowered or "edinet" in lowered:
         return "JP"
+    if "_kr_" in lowered or "dart_public" in lowered:
+        return "KR"
     if "_cn_" in lowered or "sse" in lowered or "szse" in lowered or "bse" in lowered:
         return "CN"
     return "CN"
@@ -130,11 +132,11 @@ def write_financial_artifacts(
             markdown,
             task_id=task.get("task_id"),
             filename=resolved_filename,
-            market=market if market == "JP" else None,
+            market=market if market in {"JP", "KR"} else None,
             llm_cache_dir=os.path.join(financial_llm_cache_folder, task.get("task_id") or "unknown"),
         )
-        if market == "JP" and isinstance(financial_data, dict):
-            financial_data["market"] = "JP"
+        if market in {"JP", "KR"} and isinstance(financial_data, dict):
+            financial_data["market"] = market
         financial_checks = build_checks(financial_data)
     write_json(financial_data_path(task, result_dir), financial_data)
     write_json(financial_checks_path(task, result_dir), financial_checks)

@@ -54,6 +54,8 @@ export PGUSER=postgres
 export PGPASSWORD='replace-me'
 ```
 
+通用文档解析包导入默认目标库是 `siq_document_parser`，可用 `SIQ_DOCUMENT_PGDATABASE` 覆盖；A 股 `pdf2md` 导入仍默认使用 `siq`。
+
 常用 SIQ 路径：
 
 ```bash

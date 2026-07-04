@@ -13,6 +13,7 @@ import httpx
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+SUPPORTED_MARKETS = {"CN", "HK", "US", "EU", "JP", "KR", "DOC"}
 
 
 def _existing_task_filenames(db_path: Path) -> set[str]:
@@ -46,7 +47,22 @@ def _resolve_pdf_token() -> str:
     raise RuntimeError("PDF2MD access token not found")
 
 
-def _upload_pdf(pdf_api_base: str, token: str, pdf_path: Path) -> dict:
+def _normalize_market(value: object) -> str | None:
+    market = str(value or "").strip().upper()
+    return market if market in SUPPORTED_MARKETS else None
+
+
+def _market_for_manifest_item(item: dict) -> str | None:
+    seed = item.get("seed") if isinstance(item.get("seed"), dict) else {}
+    downloaded = item.get("downloaded_file") if isinstance(item.get("downloaded_file"), dict) else {}
+    for value in (item.get("market"), seed.get("market"), downloaded.get("market")):
+        market = _normalize_market(value)
+        if market:
+            return market
+    return None
+
+
+def _upload_pdf(pdf_api_base: str, token: str, pdf_path: Path, *, market: str | None = None) -> dict:
     headers = {"X-PDF2MD-Token": token} if token else {}
     data = {
         "backend": "hybrid-http-client",
@@ -54,6 +70,9 @@ def _upload_pdf(pdf_api_base: str, token: str, pdf_path: Path) -> dict:
         "formula_enable": "true",
         "table_enable": "true",
     }
+    normalized_market = _normalize_market(market)
+    if normalized_market:
+        data["market"] = normalized_market
     with httpx.Client(timeout=None, headers=headers) as client:
         with pdf_path.open("rb") as infile:
             response = client.post(
@@ -107,7 +126,10 @@ def main() -> int:
             result["items"].append(row)
             count += 1
             continue
-        upload = _upload_pdf(args.pdf_api_base, token, path)
+        market = _market_for_manifest_item(item)
+        if market:
+            row["market"] = market
+        upload = _upload_pdf(args.pdf_api_base, token, path, market=market)
         row["upload"] = upload
         if 200 <= upload["status_code"] < 300:
             row["status"] = "queued"

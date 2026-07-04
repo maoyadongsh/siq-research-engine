@@ -126,6 +126,23 @@ def build_lightweight_package(package_dir: Path, source_dir: Path):
     write_json(package_dir / "qa" / "quality_report.json", {"overall_status": "pass", "warnings": []})
 
 
+def test_document_database_url_defaults_to_document_parser_database(monkeypatch):
+    importer = _load_importer()
+    for key in ("DATABASE_URL", "SIQ_DOCUMENT_PGDATABASE", "SIQ_PGDATABASE", "PGDATABASE"):
+        monkeypatch.delenv(key, raising=False)
+
+    assert importer.database_url(None).endswith("/siq_document_parser")
+
+
+def test_document_database_url_prefers_document_database_env(monkeypatch):
+    importer = _load_importer()
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("SIQ_PGDATABASE", "siq")
+    monkeypatch.setenv("SIQ_DOCUMENT_PGDATABASE", "siq_document_parser_custom")
+
+    assert importer.database_url(None).endswith("/siq_document_parser_custom")
+
+
 def test_document_importer_rejects_wrong_schema():
     importer = _load_importer()
     try:

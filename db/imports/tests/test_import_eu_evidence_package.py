@@ -11,6 +11,23 @@ def _load_importer():
     return module
 
 
+def test_eu_database_url_defaults_to_siq_eu(monkeypatch):
+    importer = _load_importer()
+    for key in ("DATABASE_URL", "SIQ_EU_PGDATABASE", "SIQ_PGDATABASE", "PGDATABASE"):
+        monkeypatch.delenv(key, raising=False)
+
+    assert importer.database_url(None).endswith("/siq_eu")
+
+
+def test_eu_database_url_prefers_eu_database_env(monkeypatch):
+    importer = _load_importer()
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("SIQ_PGDATABASE", "siq")
+    monkeypatch.setenv("SIQ_EU_PGDATABASE", "siq_eu_custom")
+
+    assert importer.database_url(None).endswith("/siq_eu_custom")
+
+
 def test_eu_importer_rejects_non_eu_schema():
     importer = _load_importer()
     try:

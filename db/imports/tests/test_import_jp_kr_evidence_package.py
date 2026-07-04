@@ -11,6 +11,26 @@ def _load(name: str):
     return module
 
 
+def test_market_xbrl_database_url_defaults_to_market_database(monkeypatch):
+    module = _load("import_market_xbrl_package_to_postgres")
+    for key in ("DATABASE_URL", "SIQ_JP_PGDATABASE", "SIQ_KR_PGDATABASE", "SIQ_PGDATABASE", "PGDATABASE"):
+        monkeypatch.delenv(key, raising=False)
+
+    assert module.database_url(None, market="JP", default_database="siq_jp").endswith("/siq_jp")
+    assert module.database_url(None, market="KR", default_database="siq_kr").endswith("/siq_kr")
+
+
+def test_market_xbrl_database_url_prefers_market_database_env(monkeypatch):
+    module = _load("import_market_xbrl_package_to_postgres")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("SIQ_PGDATABASE", "siq")
+    monkeypatch.setenv("SIQ_JP_PGDATABASE", "siq_jp_custom")
+    monkeypatch.setenv("SIQ_KR_PGDATABASE", "siq_kr_custom")
+
+    assert module.database_url(None, market="JP", default_database="siq_jp").endswith("/siq_jp_custom")
+    assert module.database_url(None, market="KR", default_database="siq_kr").endswith("/siq_kr_custom")
+
+
 def test_jp_importer_rejects_wrong_schema():
     module = _load("import_jp_evidence_package_to_postgres")
     try:

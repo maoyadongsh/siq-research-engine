@@ -1,5 +1,5 @@
 import type { DownloadedPdf } from '../../lib/pdfTypes'
-import type { UsSecCaseSetItem, UsSecCaseSetStatus } from './api'
+import type { UsSecCaseSetItem, UsSecCaseSetStatus, UsSecPackageDetail } from './api'
 
 export type UsSecParseStatus = 'unparsed' | 'building' | 'package_ready' | 'postgres_ready' | 'warning' | 'failed'
 
@@ -20,12 +20,114 @@ export interface UsSecDownloadedRow {
   report: DownloadedPdf
 }
 
+export interface UsSecRecentTaskRow {
+  id: string
+  packagePath: string
+  ticker: string
+  companyName: string
+  form: string
+  fiscalYear: string
+  periodEnd: string
+  filingDate: string
+  status: UsSecParseStatus
+  statusText: string
+  qualityStatus: string
+  sectionCount: number
+  tableCount: number
+  factCount: number
+  metricCount: number
+  item: UsSecCaseSetItem
+}
+
+export interface UsSecArtifactChip {
+  name: string
+  ready: boolean
+}
+
+export interface UsSecArtifactCheck {
+  label: string
+  status: 'ready' | 'missing' | 'unknown'
+  description: string
+}
+
+export interface UsSecArtifactManifestView {
+  chips: UsSecArtifactChip[]
+  checks: UsSecArtifactCheck[]
+  readyCount: number
+  total: number
+}
+
+export interface UsSecWorkflowStepView {
+  label: string
+  status: 'ready' | 'pending' | 'unknown' | 'warning'
+  description: string
+}
+
+export interface UsSecWorkflowSummary {
+  steps: UsSecWorkflowStepView[]
+  cards: UsSecWorkflowStepView[]
+}
+
+export interface UsSecQualitySummary {
+  tiles: Array<{ label: string; value: string; description: string }>
+  bridgeStatus: string
+  bridgeCounts: Record<string, number>
+  missingCoreSections: string[]
+}
+
+const usSecArtifactNames = [
+  'manifest.json',
+  'sections/*.md',
+  'tables.json',
+  'xbrl_facts.json',
+  'normalized_metrics.json',
+  'evidence_map.json',
+  'quality_report.json',
+  'bridge_checks.json',
+]
+
+const parseStatusText: Record<UsSecParseStatus, string> = {
+  unparsed: '未解析',
+  building: '解析中',
+  package_ready: '证据包已生成',
+  postgres_ready: 'PostgreSQL 已入库',
+  warning: '质量警告',
+  failed: '质量失败',
+}
+
 function normalized(value: unknown): string {
   return String(value || '').trim()
 }
 
 function upper(value: unknown): string {
   return normalized(value).toUpperCase()
+}
+
+function numberValue(value: unknown): number {
+  const n = Number(value || 0)
+  return Number.isFinite(n) ? n : 0
+}
+
+function qualityStatus(value: unknown): string {
+  return normalized(value).toLowerCase() || 'unknown'
+}
+
+function packageReady(detail: UsSecPackageDetail | null | undefined): boolean {
+  return Boolean(detail?.package_path)
+}
+
+function countText(value: unknown): string {
+  return String(numberValue(value))
+}
+
+function formFromPackagePath(packagePath: unknown): string {
+  const leaf = normalized(packagePath).split('/').pop() || ''
+  const match = leaf.match(/^([A-Z0-9-]+)_/i)
+  return match?.[1] ? match[1].toUpperCase() : ''
+}
+
+function formFromItem(item: UsSecCaseSetItem): string {
+  return normalized(item.form || formFromPackagePath(item.package_path) || 'SEC')
 }
 
 function pathIncludesAccession(packagePath: string | undefined, accession: string): boolean {
@@ -114,4 +216,132 @@ export function deriveUsSecDownloadedRows(
       report,
     }
   })
+}
+
+export function deriveUsSecRecentTasks(status?: UsSecCaseSetStatus | null): UsSecRecentTaskRow[] {
+  const items = status?.items || []
+  return items
+    .filter((item) => normalized(item.package_path))
+    .map((item) => {
+      const syntheticReport = {
+        id: normalized(item.package_path),
+        market: 'US',
+        company: normalized(item.company_name),
+        companyName: normalized(item.company_name),
+        ticker: upper(item.ticker),
+        category: formFromItem(item),
+        filename: normalized(item.package_path).split('/').pop() || normalized(item.package_path),
+        relativePath: normalized(item.package_path),
+        size: 0,
+        mtime: normalized(item.filing_date || item.period_end),
+        url: '',
+        form: formFromItem(item),
+        reportEnd: normalized(item.period_end),
+        publishedAt: normalized(item.filing_date),
+      } as DownloadedPdf
+      const derivedStatus = deriveUsSecParseStatus({ report: syntheticReport, item, status })
+      const summary = item.quality_summary || {}
+      return {
+        id: normalized(item.package_path),
+        packagePath: normalized(item.package_path),
+        ticker: upper(item.ticker),
+        companyName: normalized(item.company_name) || '未知公司',
+        form: formFromItem(item),
+        fiscalYear: normalized(item.fiscal_year),
+        periodEnd: normalized(item.period_end),
+        filingDate: normalized(item.filing_date),
+        status: derivedStatus,
+        statusText: parseStatusText[derivedStatus],
+        qualityStatus: qualityStatus(item.quality_status),
+        sectionCount: numberValue(summary.section_count),
+        tableCount: numberValue(summary.table_count),
+        factCount: numberValue(summary.xbrl_fact_count),
+        metricCount: numberValue(summary.normalized_metric_count),
+        item,
+      }
+    })
+    .sort((a, b) => new Date(b.filingDate || b.periodEnd || 0).getTime() - new Date(a.filingDate || a.periodEnd || 0).getTime())
+}
+
+export function deriveUsSecArtifactManifest(detail?: UsSecPackageDetail | null): UsSecArtifactManifestView {
+  const ready = packageReady(detail)
+  const chips = usSecArtifactNames.map((name) => ({ name, ready }))
+  const readyCount = chips.filter((chip) => chip.ready).length
+  return {
+    chips,
+    readyCount,
+    total: chips.length,
+    checks: [
+      {
+        label: 'SEC 证据包',
+        status: ready ? 'ready' : 'missing',
+        description: ready ? `${readyCount}/${chips.length} 个核心文件已生成` : '等待生成 SEC 证据包',
+      },
+      {
+        label: 'Wiki 身份识别',
+        status: ready ? 'unknown' : 'missing',
+        description: ready ? '可导入 Wiki' : '等待 SEC 证据包',
+      },
+      {
+        label: 'PostgreSQL 入库脚本',
+        status: 'ready',
+        description: 'scripts/us-sec/ingest_sec_case_set.py',
+      },
+    ],
+  }
+}
+
+export function deriveUsSecWorkflowSummary(
+  status?: UsSecCaseSetStatus | null,
+  detail?: UsSecPackageDetail | null,
+): UsSecWorkflowSummary {
+  const artifactManifest = deriveUsSecArtifactManifest(detail)
+  const packageStatus: UsSecWorkflowStepView['status'] = packageReady(detail) ? 'ready' : 'pending'
+  const importedPackages = numberValue(status?.ingest_report?.package_count)
+  const importedFacts = numberValue(status?.ingest_report?.summary?.xbrl_facts)
+  const postgresReady = importedPackages > 0 && importedFacts > 0
+  const steps: UsSecWorkflowStepView[] = [
+    {
+      label: 'SEC 证据包',
+      status: packageStatus,
+      description: packageReady(detail) ? `${artifactManifest.readyCount}/${artifactManifest.total} 个核心文件已生成` : '等待解析生成 evidence package',
+    },
+    {
+      label: 'Wiki 入库',
+      status: 'pending',
+      description: '可导入 Wiki',
+    },
+    {
+      label: 'PostgreSQL',
+      status: postgresReady ? 'ready' : 'pending',
+      description: postgresReady ? `XBRL facts ${importedFacts}` : '等待 PostgreSQL 入库',
+    },
+  ]
+  return { steps, cards: steps }
+}
+
+export function deriveUsSecQualitySummary(detail?: UsSecPackageDetail | null): UsSecQualitySummary {
+  const counts = detail?.counts || {}
+  const quality = (detail?.quality || {}) as Record<string, unknown>
+  const bridgeSummary = detail?.bridge_checks?.summary || {}
+  const missingCoreSections = Array.isArray(quality.missing_core_sections)
+    ? quality.missing_core_sections.map((value) => normalized(value)).filter(Boolean)
+    : []
+  return {
+    tiles: [
+      { label: 'Sections', value: countText(counts.sections), description: '主体章节' },
+      { label: 'Tables', value: countText(counts.tables), description: '表格' },
+      { label: 'Metrics', value: countText(counts.metrics), description: '标准指标' },
+      { label: 'Evidence', value: countText(counts.evidence), description: '证据项' },
+      { label: 'Dimensions', value: countText(counts.dimension_metrics), description: '维度事实' },
+    ],
+    bridgeStatus: normalized(detail?.bridge_checks?.overall_status || quality.status || 'unknown'),
+    bridgeCounts: {
+      pass: numberValue(bridgeSummary.pass),
+      warning: numberValue(bridgeSummary.warning),
+      fail: numberValue(bridgeSummary.fail),
+      skipped: numberValue(bridgeSummary.skipped),
+    },
+    missingCoreSections,
+  }
 }

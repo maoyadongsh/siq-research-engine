@@ -6,8 +6,12 @@ import type { DownloadedPdf } from '../../lib/pdfTypes.ts'
 import type { UsSecCaseSetStatus } from './api.ts'
 
 const {
+  deriveUsSecArtifactManifest,
   deriveUsSecDownloadedRows,
   deriveUsSecParseStatus,
+  deriveUsSecQualitySummary,
+  deriveUsSecRecentTasks,
+  deriveUsSecWorkflowSummary,
   findUsSecCaseItem,
   usSecDocumentKind,
 } = await import('./usSecWorkbench.ts')
@@ -61,6 +65,41 @@ const status: UsSecCaseSetStatus = {
   },
 }
 
+const packageDetail = {
+  package_path: 'data/wiki/us_sec/NVDA/2025/10-K_0001045810-25-000023',
+  manifest: {
+    ticker: 'NVDA',
+    company_name: 'NVIDIA Corporation',
+    form: '10-K',
+    period_end: '2025-01-31',
+    filing_date: '2025-03-18',
+  },
+  counts: {
+    sections: 8,
+    tables: 5,
+    metrics: 20,
+    evidence: 180,
+    dimension_metrics: 3,
+  },
+  quality: {
+    status: 'pass',
+    missing_core_sections: ['risk_factors'],
+  },
+  bridge_checks: {
+    overall_status: 'pass',
+    summary: { pass: 10, warning: 1, fail: 0, skipped: 2 },
+    checks: [],
+  },
+  sections: [
+    { section_id: 'business', file: 'business.md' },
+    { section_id: 'risk_factors', file: 'risk_factors.md' },
+  ],
+  metrics: [
+    { metric_id: 'revenue', canonical_name: 'Revenue', concept: 'us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax' },
+  ],
+  dimension_metrics: [{ metric_id: 'segment-revenue' }],
+}
+
 test('usSecDocumentKind labels SEC files', () => {
   assert.equal(usSecDocumentKind(report()), 'HTML')
   assert.equal(usSecDocumentKind(report({ filename: 'filing.xhtml', contentType: 'application/xhtml+xml' })), 'iXBRL')
@@ -93,4 +132,50 @@ test('deriveUsSecDownloadedRows exposes list row metadata', () => {
   assert.equal(rows[0].fileType, 'HTML')
   assert.equal(rows[0].parseStatus, 'postgres_ready')
   assert.equal(rows[0].packagePath, 'data/wiki/us_sec/NVDA/2025/10-K_0001045810-25-000023')
+})
+
+test('deriveUsSecRecentTasks exposes parsed SEC packages as A-share style tasks', () => {
+  const rows = deriveUsSecRecentTasks(status)
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].id, 'data/wiki/us_sec/NVDA/2025/10-K_0001045810-25-000023')
+  assert.equal(rows[0].ticker, 'NVDA')
+  assert.equal(rows[0].companyName, 'NVIDIA Corporation')
+  assert.equal(rows[0].form, '10-K')
+  assert.equal(rows[0].periodEnd, '2025-01-31')
+  assert.equal(rows[0].status, 'postgres_ready')
+  assert.equal(rows[0].statusText, 'PostgreSQL 已入库')
+})
+
+test('deriveUsSecArtifactManifest maps SEC package outputs to result chips', () => {
+  const manifest = deriveUsSecArtifactManifest(packageDetail)
+  assert.equal(manifest.readyCount, 8)
+  assert.equal(manifest.total, 8)
+  assert.deepEqual(manifest.chips.map((chip) => chip.name), [
+    'manifest.json',
+    'sections/*.md',
+    'tables.json',
+    'xbrl_facts.json',
+    'normalized_metrics.json',
+    'evidence_map.json',
+    'quality_report.json',
+    'bridge_checks.json',
+  ])
+  assert.equal(manifest.checks[0].label, 'SEC 证据包')
+  assert.equal(manifest.checks[0].status, 'ready')
+})
+
+test('deriveUsSecWorkflowSummary keeps Milvus out of the current US pipeline', () => {
+  const workflow = deriveUsSecWorkflowSummary(status, packageDetail)
+  assert.deepEqual(workflow.steps.map((step) => step.label), ['SEC 证据包', 'Wiki 入库', 'PostgreSQL'])
+  assert.equal(workflow.cards[0].status, 'ready')
+  assert.equal(workflow.cards[2].status, 'ready')
+})
+
+test('deriveUsSecQualitySummary formats SEC quality metrics for the result panel', () => {
+  const quality = deriveUsSecQualitySummary(packageDetail)
+  assert.deepEqual(quality.tiles.map((tile) => tile.label), ['Sections', 'Tables', 'Metrics', 'Evidence', 'Dimensions'])
+  assert.equal(quality.tiles[0].value, '8')
+  assert.equal(quality.bridgeStatus, 'pass')
+  assert.equal(quality.bridgeCounts.pass, 10)
+  assert.equal(quality.missingCoreSections[0], 'risk_factors')
 })

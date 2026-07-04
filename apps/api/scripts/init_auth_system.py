@@ -44,7 +44,7 @@ def init_database():
 
         print("📦 连接数据库...")
 
-        database_url = _required_env("DATABASE_URL")
+        database_url = _required_env_any("SIQ_APP_DATABASE_URL", "DATABASE_URL")
 
         print(f"🔗 数据库URL: {database_url.replace(':@', ':***@')}")
 
@@ -75,7 +75,7 @@ def create_admin_user():
 
         print("\n👤 创建初始管理员账户...")
 
-        database_url = _required_env("DATABASE_URL")
+        database_url = _required_env_any("SIQ_APP_DATABASE_URL", "DATABASE_URL")
         admin_password = _required_env_any("SIQ_INITIAL_ADMIN_PASSWORD", "SIQ_INITIAL_ADMIN_PASSWORD")
         if len(admin_password) < 12:
             raise RuntimeError("SIQ_INITIAL_ADMIN_PASSWORD / SIQ_INITIAL_ADMIN_PASSWORD 至少需要 12 个字符")
@@ -157,7 +157,7 @@ def create_demo_users():
             print("   演示用户创建已关闭，设置 SIQ_CREATE_DEMO_USERS=1 可启用。")
             return True
 
-        database_url = _required_env("DATABASE_URL")
+        database_url = _required_env_any("SIQ_APP_DATABASE_URL", "DATABASE_URL")
         engine = create_engine(database_url, echo=False)
 
         with Session(engine) as session:
@@ -208,7 +208,7 @@ def test_login():
 
         print("\n🔐 测试登录功能...")
 
-        database_url = _required_env("DATABASE_URL")
+        database_url = _required_env_any("SIQ_APP_DATABASE_URL", "DATABASE_URL")
         admin_password = _required_env_any("SIQ_INITIAL_ADMIN_PASSWORD", "SIQ_INITIAL_ADMIN_PASSWORD")
         engine = create_engine(database_url, echo=False)
 
@@ -264,8 +264,8 @@ def main():
         print("\n❌ 初始化失败，请检查数据库连接")
         print("\n💡 提示：")
         print("   1. 确保PostgreSQL正在运行")
-        print("   2. 确保 siq 数据库存在")
-        print("   3. 设置 DATABASE_URL、SIQ_AUTH_SECRET_KEY 和 SIQ_INITIAL_ADMIN_PASSWORD")
+        print("   2. 确保 siq_app 应用状态数据库存在")
+        print("   3. 设置 SIQ_APP_DATABASE_URL、SIQ_AUTH_SECRET_KEY 和 SIQ_INITIAL_ADMIN_PASSWORD")
         return False
 
     # 2. 创建管理员

@@ -2561,11 +2561,17 @@ def build_financial_data(markdown, task_id=None, filename=None, llm_judge=None, 
         from jp_market_profile import detect_jp_report_kind
 
         report_kind = detect_jp_report_kind(markdown, filename=filename)
+    elif market == "KR":
+        from kr_market_profile import detect_kr_report_kind
+
+        report_kind = detect_kr_report_kind(markdown, filename=filename)
     else:
         report_kind = _detect_report_kind(markdown, filename=filename)
     industry_profile = _detect_industry_profile(markdown, filename=filename)
     looks_like_financial_report = _looks_like_financial_report(markdown, filename=filename)
     if market == "JP":
+        looks_like_financial_report = True
+    if market == "KR":
         looks_like_financial_report = True
     if report_kind in _NON_FINANCIAL_REPORT_KINDS:
         looks_like_financial_report = False
@@ -2597,6 +2603,8 @@ def build_financial_data(markdown, task_id=None, filename=None, llm_judge=None, 
     if not looks_like_financial_report:
         if market == "JP":
             data["warnings"].append("当前 JP PDF 未确认可用于结构化勾稽的完整财务报表，已按候选识别模式处理。")
+        elif market == "KR":
+            data["warnings"].append("当前 KR PDF 未确认可用于结构化勾稽的完整财务报表，已按候选识别模式处理。")
         else:
             data["warnings"].append(
                 "当前内容不像财报或财报摘要，已跳过三大表/关键指标抽取。"
@@ -3089,6 +3097,10 @@ def build_financial_checks(data):
         from jp_market_profile import build_jp_financial_checks
 
         return build_jp_financial_checks(data)
+    if market == "KR":
+        from kr_market_profile import build_kr_financial_checks
+
+        return build_kr_financial_checks(data)
     classification_summary = data.get("classification_summary") if isinstance(data.get("classification_summary"), dict) else {}
     looks_like_financial_report = bool(classification_summary.get("looks_like_financial_report", True))
     report_kind_blocked = bool(classification_summary.get("report_kind_blocked"))

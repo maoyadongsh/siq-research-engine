@@ -61,7 +61,7 @@ echo "   监听地址: 0.0.0.0:$SIQ_BACKEND_PORT"
 echo "   允许注册: $SIQ_ALLOW_REGISTRATION"
 echo "   演示登录: $SIQ_DEMO_MODE"
 echo "   WIKI_ROOT: $WIKI_ROOT"
-echo "   DATABASE_URL: ${DATABASE_URL:-sqlite fallback}"
+echo "   SIQ_APP_DATABASE_URL: ${SIQ_APP_DATABASE_URL:-${DATABASE_URL:-sqlite fallback}}"
 echo ""
 
 uv run python -m uvicorn main:app --host 0.0.0.0 --port "$SIQ_BACKEND_PORT" --reload

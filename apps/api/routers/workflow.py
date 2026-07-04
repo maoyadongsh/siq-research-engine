@@ -960,7 +960,11 @@ def _db_connect_config() -> dict:
     return {
         "host": os.environ.get("SIQ_PGHOST") or os.environ.get("PGHOST", "127.0.0.1"),
         "port": int(os.environ.get("SIQ_PGPORT") or os.environ.get("PGPORT", "15432")),
-        "dbname": os.environ.get("SIQ_PGDATABASE") or os.environ.get("PGDATABASE", "siq"),
+        "dbname": (
+            os.environ.get("SIQ_DOCUMENT_PGDATABASE")
+            or os.environ.get("SIQ_PGDATABASE")
+            or os.environ.get("PGDATABASE", "siq_document_parser")
+        ),
         "user": os.environ.get("SIQ_PGUSER") or os.environ.get("PGUSER", "postgres"),
         "password": os.environ.get("SIQ_PGPASSWORD") or os.environ.get("PGPASSWORD", ""),
     }
@@ -973,7 +977,7 @@ def _postgres_database_url(config: dict) -> str:
     password = quote(str(config.get("password") or ""), safe="")
     host = str(config.get("host") or "127.0.0.1")
     port = int(config.get("port") or 15432)
-    dbname = quote(str(config.get("dbname") or "siq"), safe="")
+    dbname = quote(str(config.get("dbname") or "siq_document_parser"), safe="")
     auth = user if not password else f"{user}:{password}"
     return f"postgresql://{auth}@{host}:{port}/{dbname}"
 

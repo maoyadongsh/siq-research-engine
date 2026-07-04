@@ -223,6 +223,22 @@ def test_document_wiki_import_rejects_incomplete_artifacts(monkeypatch, tmp_path
     assert exc.value.status_code == 422
 
 
+def test_document_db_connect_config_defaults_to_document_parser_database(monkeypatch):
+    monkeypatch.setattr(workflow, "_load_pg_config", lambda: None)
+    for key in ("SIQ_DOCUMENT_PGDATABASE", "SIQ_PGDATABASE", "PGDATABASE"):
+        monkeypatch.delenv(key, raising=False)
+
+    assert workflow._db_connect_config()["dbname"] == "siq_document_parser"
+
+
+def test_document_db_connect_config_prefers_document_database_env(monkeypatch):
+    monkeypatch.setattr(workflow, "_load_pg_config", lambda: None)
+    monkeypatch.setenv("SIQ_PGDATABASE", "siq")
+    monkeypatch.setenv("SIQ_DOCUMENT_PGDATABASE", "siq_document_parser_custom")
+
+    assert workflow._db_connect_config()["dbname"] == "siq_document_parser_custom"
+
+
 def test_document_db_import_endpoint_uses_wiki_package(monkeypatch, tmp_path):
     task_id = "task-doc-003"
     results_root = tmp_path / "results"

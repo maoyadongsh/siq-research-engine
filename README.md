@@ -283,7 +283,8 @@ curl -s http://localhost:18652/health
 | `PDF2MD_ACCESS_TOKEN` | 无 | PDF 解析服务访问令牌 |
 | `MINERU_API_URL` | `http://127.0.0.1:8003` | MinerU API 地址 |
 | `VLM_API_URL` | `http://127.0.0.1:8002` | VLM 地址 |
-| `DATABASE_URL` | 无 | PostgreSQL 连接串 |
+| `SIQ_APP_DATABASE_URL` | fallback 到 `DATABASE_URL` 或本地 SQLite | API 应用状态库连接串，PostgreSQL 部署使用 `siq_app` |
+| `DATABASE_URL` | 无 | 导入脚本兼容连接串；API 应用优先使用 `SIQ_APP_DATABASE_URL` |
 | `REDIS_URL` | 无 | Redis 连接串 |
 
 ## 合并前基础门禁

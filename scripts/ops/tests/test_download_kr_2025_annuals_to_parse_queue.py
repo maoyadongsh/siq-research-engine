@@ -104,6 +104,45 @@ def test_existing_tasks_by_filename_returns_task_ids(tmp_path: Path):
     }
 
 
+def test_upload_pdf_submits_kr_market(tmp_path: Path, monkeypatch):
+    pdf_path = tmp_path / "Samsung-Electronics-Co.,-Ltd_KR_005930_2025-12-31_年报_2026-03-10_dart_public_a4d8816f.pdf"
+    pdf_path.write_bytes(b"%PDF-1.7\n")
+    captured = {}
+
+    class DummyResponse:
+        status_code = 202
+        text = ""
+
+        def json(self):
+            return {"task_id": "task-kr-1"}
+
+    class DummyClient:
+        def __init__(self, *, timeout, headers):
+            captured["headers"] = headers
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, url, *, data, files):
+            captured["url"] = url
+            captured["data"] = dict(data)
+            captured["filename"] = files[0][1][0]
+            return DummyResponse()
+
+    monkeypatch.setattr(kr_download.httpx, "Client", DummyClient)
+
+    result = kr_download._upload_pdf("http://127.0.0.1:15000/", "secret-token", pdf_path)
+
+    assert result == {"status_code": 202, "payload": {"task_id": "task-kr-1"}}
+    assert captured["headers"] == {"X-PDF2MD-Token": "secret-token"}
+    assert captured["url"] == "http://127.0.0.1:15000/api/upload"
+    assert captured["filename"] == pdf_path.name
+    assert captured["data"]["market"] == "KR"
+
+
 def test_enqueue_or_mark_uses_existing_task_id_for_duplicate_queue_entry(tmp_path: Path):
     pdf_path = tmp_path / "duplicate.pdf"
     pdf_path.write_bytes(b"%PDF-1.7\n")

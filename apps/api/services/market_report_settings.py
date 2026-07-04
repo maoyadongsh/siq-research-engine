@@ -89,7 +89,11 @@ MARKET_WIKI_ROOTS = {
 }
 
 MARKET_DATABASES = {
+    "US": _env_str("SIQ_US_PGDATABASE", default="siq_us"),
     "HK": _env_str("SIQ_HK_PGDATABASE", default="siq_hk"),
+    "JP": _env_str("SIQ_JP_PGDATABASE", default="siq_jp"),
+    "KR": _env_str("SIQ_KR_PGDATABASE", default="siq_kr"),
+    "EU": _env_str("SIQ_EU_PGDATABASE", default="siq_eu"),
 }
 
 MARKET_VECTOR_COLLECTIONS = {
