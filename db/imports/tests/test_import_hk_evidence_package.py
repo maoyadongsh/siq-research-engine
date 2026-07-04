@@ -32,3 +32,18 @@ def test_hk_importer_parse_run_id_is_stable():
     first = importer.stable_parse_run_id(manifest, manifest["artifact_hashes"])
     second = importer.stable_parse_run_id(manifest, manifest["artifact_hashes"])
     assert first == second
+
+
+def test_hk_ddl_contains_v2_tables_and_identity_columns():
+    ddl_path = Path(__file__).resolve().parents[2] / "ddl" / "020_create_pdf2md_hk_schema.sql"
+    ddl_text = ddl_path.read_text()
+
+    assert "short_name" in ddl_text
+    assert "stock_code" in ddl_text
+    assert "hkex_stock_code" in ddl_text
+    assert "content_blocks" in ddl_text
+    assert "footnotes" in ddl_text
+    assert "toc_entries" in ddl_text
+    assert "financial_note_links" in ddl_text
+    assert "table_relations" in ddl_text
+    assert "parser_artifacts" in ddl_text
