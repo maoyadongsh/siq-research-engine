@@ -36,6 +36,42 @@ def test_jp_candidate_groups_find_financial_highlights_and_statements():
     assert all(row["candidate_group"] in {"core", "indicator"} for rows in candidates.values() for row in rows)
 
 
+def test_jp_candidate_groups_use_long_signal_for_truncated_statement_previews():
+    table_index = [
+        {
+            "table_index": 1,
+            "heading": "</details>",
+            "preview": "Millions of Yen 2025 2024 Net Sales Operating Income",
+            "signal_preview": "Millions of Yen 2025 2024 Net Sales Operating Income Net Income Amounts Per Common Share Total Assets",
+        },
+        {
+            "table_index": 2,
+            "heading": "YEAR ENDED MARCH 20, 2025",
+            "preview": "ASSETS: CURRENT ASSETS Cash and cash equivalents Time deposits Marketable securities",
+            "signal_preview": "ASSETS: CURRENT ASSETS Cash and cash equivalents Time deposits Marketable securities Total assets LIABILITIES AND NET ASSETS Total liabilities Total equity",
+        },
+        {
+            "table_index": 3,
+            "heading": "OPERATING ACTIVITIES:",
+            "preview": "Income before income taxes Adjustments for",
+            "signal_preview": "OPERATING ACTIVITIES: Income before income taxes Adjustments for Income taxes paid Depreciation and amortization INVESTING ACTIVITIES FINANCING ACTIVITIES",
+        },
+        {
+            "table_index": 4,
+            "heading": "YEAR ENDED MARCH 20, 2025",
+            "preview": "Outstanding number of shares of common stock Common stock Capital surplus Retained earnings Treasury stock",
+            "signal_preview": "Outstanding number of shares of common stock Common stock Capital surplus Retained earnings Treasury stock Accumulated other comprehensive income Total equity",
+        },
+    ]
+
+    candidates = jp.group_jp_key_table_candidates(table_index)
+
+    assert candidates["Financial Highlights"][0]["table_index"] == 1
+    assert candidates["Consolidated Statement of Financial Position"][0]["table_index"] == 2
+    assert candidates["Consolidated Statement of Cash Flows"][0]["table_index"] == 3
+    assert candidates["Consolidated Statement of Changes in Equity"][0]["table_index"] == 4
+
+
 def test_jp_quality_messages_do_not_use_a_share_core_table_warning_for_integrated_reports():
     warnings, info = jp.jp_quality_report_messages(
         report_kind="jp_integrated_report",

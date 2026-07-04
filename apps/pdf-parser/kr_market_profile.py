@@ -200,6 +200,10 @@ def _fallback_rule_score(name: str, signal: str) -> float:
         if {"assets", "liabilities"}.issubset(tokens) and ("equity" in tokens or "capital" in tokens):
             return 86.0
     if name == "Consolidated Statement of Profit or Loss":
+        if "연결재무제표" in compact and "매출액" in compact and any(
+            term in compact for term in ("매출원가", "매출총이익", "판매비와관리비")
+        ):
+            return 86.0
         if "매출액" in compact and ("영업이익" in compact or "당기순이익" in compact):
             return 86.0
     if name == "Consolidated Statement of Comprehensive Income":
@@ -237,6 +241,7 @@ def _context_adjusted_score(name: str, signal: str, score: float) -> float:
             "단일사업부문",
             "사업부문별",
             "주요제품",
+            "회사명자산총액부채총액",
         )
     ):
         score -= 45.0

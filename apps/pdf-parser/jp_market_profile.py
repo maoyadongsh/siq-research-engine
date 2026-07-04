@@ -35,6 +35,7 @@ JP_INDICATOR_TABLE_NAMES = [
 ]
 
 JP_KEY_TABLE_DISPLAY_ORDER = JP_CORE_FINANCIAL_TABLE_NAMES + JP_INDICATOR_TABLE_NAMES
+JP_PROFILE_RULE_VERSION = "jp-pdf-profile-v2"
 
 _ANNUAL_SECURITIES_TERMS = (
     "annual securities report",
@@ -183,10 +184,13 @@ def _table_signal_text(item: dict[str, Any]) -> str:
     parts = [
         item.get("heading"),
         item.get("caption"),
+        item.get("source_caption"),
         item.get("preview"),
+        item.get("signal_preview"),
         item.get("text_preview"),
         item.get("near_text"),
         item.get("unit"),
+        item.get("source_footnote"),
     ]
     return _normalize_text(" ".join(str(part or "") for part in parts))
 
@@ -205,18 +209,79 @@ def _score_candidate(signal: str, terms: Iterable[str]) -> float:
 
 def _fallback_rule_score(name: str, signal: str) -> float:
     tokens = set(re.findall(r"[a-z]+", signal))
+    year_hits = len(set(re.findall(r"(?:20\d{2}|fy\d{2,4}|\d{4}\.3|\d{4}/3)", signal)))
+    bad_summary_terms = (
+        "non-financial data",
+        "financial instruments",
+        "cash flow allocation",
+        "cash flow-related indicators",
+        "financial kpis",
+        "impact-weighted accounting",
+    )
+    if name == "Financial Highlights":
+        has_bad_summary = any(term in signal for term in bad_summary_terms)
+        has_summary_title = any(
+            term in signal
+            for term in (
+                "financial data",
+                "financial summary",
+                "selected financial data",
+                "key consolidated financial data",
+                "consolidated eleven-year summary",
+                "eleven-year key consolidated financial data",
+                "11-year summary",
+                "5-year financial data",
+                "consolidated operating results",
+                "operating results (for the year)",
+            )
+        )
+        has_metric_cluster = (
+            ("revenue" in tokens or {"net", "sales"}.issubset(tokens) or {"operating", "revenue"}.issubset(tokens))
+            and ({"operating", "profit"}.issubset(tokens) or {"operating", "income"}.issubset(tokens))
+            and (
+                {"net", "income"}.issubset(tokens)
+                or {"net", "profit"}.issubset(tokens)
+                or "eps" in tokens
+                or {"per", "share"}.issubset(tokens)
+                or {"total", "assets"}.issubset(tokens)
+            )
+        )
+        if not has_bad_summary and has_summary_title and has_metric_cluster:
+            return 90.0
+        if not has_bad_summary and has_metric_cluster and year_hits >= 4:
+            return 86.0
+        if not has_bad_summary and has_metric_cluster and ("per common share" in signal or {"amounts", "share"}.issubset(tokens)):
+            return 84.0
     if name == "Consolidated Statement of Financial Position":
         if {"assets", "liabilities"}.issubset(tokens) and ("equity" in tokens or "net" in tokens):
             return 86.0
+        if {"assets", "current"}.issubset(tokens) and {"total", "assets"}.issubset(tokens) and "liabilities" in tokens:
+            return 84.0
     if name == "Consolidated Statement of Profit or Loss":
         if ("sales" in tokens or "revenue" in tokens) and ("income" in tokens or "profit" in tokens):
+            return 86.0
+        if ("sales" in tokens or "revenue" in tokens) and {"cost", "gross"}.intersection(tokens) and {"operating", "income"}.issubset(tokens):
+            return 84.0
+    if name == "Consolidated Statement of Comprehensive Income":
+        if {"other", "comprehensive", "income"}.issubset(tokens) or {"total", "comprehensive", "income"}.issubset(tokens):
             return 86.0
     if name == "Consolidated Statement of Cash Flows":
         if "cash" in tokens and ("flows" in tokens or "flow" in tokens) and "operating" in tokens:
             return 86.0
+        if {"operating", "activities"}.issubset(tokens) and (
+            "depreciation" in tokens
+            or {"income", "taxes"}.issubset(tokens)
+            or {"investing", "activities"}.issubset(tokens)
+            or {"financing", "activities"}.issubset(tokens)
+        ):
+            return 84.0
     if name == "Consolidated Statement of Changes in Equity":
         if "equity" in tokens and ({"share", "capital"}.issubset(tokens) or "retained" in tokens):
             return 84.0
+        if {"common", "stock", "retained", "earnings", "treasury", "stock"}.issubset(tokens):
+            return 84.0
+        if {"capital", "surplus", "retained", "earnings"}.issubset(tokens) and {"comprehensive", "income"}.issubset(tokens):
+            return 82.0
     return 0.0
 
 
