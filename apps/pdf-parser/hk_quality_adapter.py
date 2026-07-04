@@ -154,9 +154,14 @@ def _hk_statement_score(label: str, table: dict[str, Any]) -> float:
         hits = _hits(compact, ("totalassets", "totalliabilities", "netassets", "totalequity", "equityandliabilities"))
         if hits >= 3:
             return 88.0
+        asset_section_hits = _hits(compact, ("noncurrentassets", "currentassets", "propertyplantandequipment", "rightofuseassets", "goodwill", "intangibleassets"))
+        if asset_section_hits >= 3 and any(term in compact for term in ("atdecember31", "31december", "於12月31日")):
+            return 86.0
         if any(term in compact for term in ("財務狀況表", "财务状况表", "資產負債表", "资产负债表")):
             return 92.0
     if label == "Statement of Profit or Loss":
+        if _looks_like_cash_flow_table(compact) or _looks_like_non_statement_profit_table(compact):
+            return 0.0
         if any(
             term in compact
             for term in (
@@ -166,9 +171,52 @@ def _hk_statement_score(label: str, table: dict[str, Any]) -> float:
             )
         ):
             return 96.0
-        hits = _hits(compact, ("revenue", "grossprofit", "profitbeforetax", "profitfortheyear", "earningspershare"))
+        hits = _hits(
+            compact,
+            (
+                "revenue",
+                "turnover",
+                "grossprofit",
+                "profitbeforetax",
+                "profitlossbeforetax",
+                "profitfortheyear",
+                "profitlossfortheyear",
+                "rawmaterialsandconsumablesused",
+                "directcosts",
+                "costofsales",
+                "operatingprofit",
+                "administrativeexpenses",
+                "sellingandmarketingexpenses",
+                "otherincome",
+                "othernetincome",
+                "financecosts",
+                "incometaxexpense",
+                "incometax",
+                "earningspershare",
+                "收入",
+                "收益",
+                "營業額",
+                "营业额",
+                "毛利",
+                "除稅前",
+                "除税前",
+                "年內溢利",
+                "年内溢利",
+            ),
+        )
         if hits >= 3:
             return 88.0
+        if (
+            any(term in compact for term in ("netprofitfortheyear", "profitfortheyear", "profitbeforeincometax"))
+            and any(term in compact for term in ("othercomprehensiveincome", "totalcomprehensiveincome", "comprehensiveincome"))
+            and any(term in compact for term in ("fortheyearended", "截至", "yearended", "notes2025", "notes2024"))
+        ):
+            return 90.0
+        if (
+            any(term in compact for term in ("othercomprehensiveexpenseincomefortheyear", "othercomprehensiveincomeaftertaxnet", "itemsthatmaybereclassified"))
+            and any(term in compact for term in ("fortheyearended", "截至", "yearended"))
+        ):
+            return 86.0
         if any(term in compact for term in ("損益表", "损益表", "利潤表", "利润表", "全面收益表")):
             return 90.0
     if label == "Statement of Cash Flows":
@@ -185,13 +233,22 @@ def _hk_statement_score(label: str, table: dict[str, Any]) -> float:
                 "netcashgeneratedfromoperatingactivities",
                 "netcashusedinoperatingactivities",
                 "cashgeneratedfromoperations",
+                "operatingactivities",
+                "經營活動",
+                "经营活动",
             ),
         )
         if activity_hits >= 1 and not _looks_like_cash_flow_note(compact):
-            return 90.0 if "cashflowsfromoperatingactivities" in compact else 84.0
+            if "cashflowsfromoperatingactivities" in compact or "netcash" in compact:
+                return 90.0
+            if any(term in compact for term in ("profitbeforetax", "除稅前", "除税前", "adjustmentsfor", "就以下各項作出調整")):
+                return 88.0
+            return 84.0
         if any(term in compact for term in ("現金流量表", "现金流量表", "經營活動所得現金", "经营活动所得现金")):
             return 90.0
     if label == "Statement of Changes in Equity":
+        if _looks_like_financial_position_table(compact):
+            return 0.0
         if any(
             term in compact
             for term in (
@@ -217,6 +274,9 @@ def _hk_statement_score(label: str, table: dict[str, Any]) -> float:
                 "retainedprofits",
                 "retainedearnings",
                 "revenuereserve",
+                "exchangereserve",
+                "cashflowhedgingreserve",
+                "earningsretainedforreserveadjustments",
                 "reserves",
                 "totalequity",
                 "unitholdersequity",
@@ -224,8 +284,14 @@ def _hk_statement_score(label: str, table: dict[str, Any]) -> float:
                 "noncontrollinginterests",
                 "attributabletoownersoftheparent",
                 "attributabletoownersofthecompany",
+                "equityattributabletoownersofthecompany",
+                "attributabletoequityholdersoftheparentcompany",
+                "attributabletoshareholdersofthecompany",
+                "attributabletocompanysshareholders",
                 "本公司擁有人應佔",
                 "本公司拥有人应占",
+                "歸屬於母公司股東權益",
+                "归属于母公司股东权益",
                 "股本",
                 "儲備",
                 "储备",
@@ -235,6 +301,8 @@ def _hk_statement_score(label: str, table: dict[str, Any]) -> float:
             compact,
             (
                 "at1january",
+                "at1april",
+                "at1july",
                 "at31december",
                 "balanceat1january",
                 "changesinequityfor",
@@ -247,6 +315,25 @@ def _hk_statement_score(label: str, table: dict[str, Any]) -> float:
         )
         if column_hits >= 3 and movement_hits >= 2:
             return 90.0
+        if column_hits >= 4 and any(
+            term in compact
+            for term in (
+                "attributabletoownersoftheparent",
+                "attributabletoownersofthecompany",
+                "equityattributabletoownersofthecompany",
+                "attributabletoequityholdersoftheparentcompany",
+                "attributabletoshareholdersofthecompany",
+                "attributabletocompanysshareholders",
+                "本公司擁有人應佔",
+                "本公司拥有人应占",
+                "歸屬於母公司股東權益",
+                "归属于母公司股东权益",
+                "unitholdersequity",
+            )
+        ):
+            return 88.0
+        if column_hits >= 3 and any(term in compact for term in ("movementinthecompanysreserves", "movementsinthecompanysreserves", "unitholdersequity")):
+            return 88.0
         if any(term in compact for term in ("權益變動", "权益变动", "股本", "儲備", "储备")) and movement_hits >= 1:
             return 86.0
     return 0.0
@@ -284,8 +371,59 @@ def _looks_like_cash_flow_note(compact: str) -> bool:
             "changesinliabilitiesarisingfromfinancingactivities",
             "notestotheconsolidatedstatementofcashflows",
             "notestostatementofcashflows",
+            "supplementaryinformationtothecashflowstatement",
+            "explanationsonpresentationofcashflows",
             "totalcashoutflowforleases",
             "netoutflowofcashandequivalentsincludedincashflow",
+        )
+    )
+
+
+def _looks_like_financial_position_table(compact: str) -> bool:
+    if "statementoffinancialposition" in compact or "balance sheets" in compact or "balancesheets" in compact:
+        return True
+    return (
+        any(term in compact for term in ("noncurrentassets", "currentassets", "totalassets", "assets"))
+        and any(term in compact for term in ("noncurrentliabilities", "currentliabilities", "totalliabilities", "liabilities"))
+        and any(term in compact for term in ("equityattributable", "totalequity", "netassets"))
+    )
+
+
+def _looks_like_cash_flow_table(compact: str) -> bool:
+    return any(
+        term in compact
+        for term in (
+            "cashflowsfromoperatingactivities",
+            "cashflowsfrominvestingactivities",
+            "cashflowsfromfinancingactivities",
+            "netcashgeneratedfromoperatingactivities",
+            "netcashusedinoperatingactivities",
+            "operatingactivities經營活動",
+            "operatingactivities经营活动",
+        )
+    )
+
+
+def _looks_like_non_statement_profit_table(compact: str) -> bool:
+    return any(
+        term in compact
+        for term in (
+            "fiveyear",
+            "5year",
+            "financialhighlights",
+            "keyfinancial",
+            "coreoperatingprofit",
+            "nonifrs",
+            "adjustednetprofit",
+            "adjustedprofit",
+            "geographical",
+            "segment",
+            "分拆客戶合約收入",
+            "客户合约收入",
+            "核心經營利潤",
+            "核心经营利润",
+            "非國際財務報告準則",
+            "非国际财务报告准则",
         )
     )
 
@@ -297,9 +435,13 @@ def _looks_like_equity_note(compact: str) -> bool:
             "percentageofequity",
             "equityinterestsheld",
             "fairvaluehierarchy",
+            "fairvalueusingquotedprices",
             "foreigncurrencyrisk",
-            "equityinvestments",
-            "equitysecurities",
-            "equityshares",
+            "sensitivityanalysis",
+            "name of subsidiaries",
+            "nameofsubsidiaries",
+            "placeofincorporation",
+            "proportionownershipinterest",
+            "principalactivities",
         )
     )

@@ -95,3 +95,105 @@ def test_merge_quality_candidates_falls_back_to_hk_table_locator_for_missing_cor
     assert by_name["Statement of Changes in Equity"]["status"] == "found"
     assert by_name["Statement of Changes in Equity"]["table_index"] == 20
     assert by_name["Statement of Changes in Equity"]["_source"] == "hk_table_locator"
+
+
+def test_merge_quality_candidates_keeps_equity_statement_with_financial_asset_reserve():
+    report = {
+        "table_index": [
+            {
+                "table_index": 20,
+                "line": 1664,
+                "pdf_page_number": 75,
+                "heading": "Attributable to owners of the parent",
+                "preview": "Notes Share capital RMB'000 Share premium account RMB'000 Treasury shares RMB'000 "
+                "Capital reserve RMB'000 Asset revaluation reserve RMB'000 Fair value reserve of financial assets "
+                "at fair value through other comprehensive income RMB'000 Retained profits RMB'000 Total RMB'000 "
+                "Non-controlling interests RMB'000 Total equity RMB'000 At 1 January 2025 Profit for the year "
+                "Other comprehensive income Total comprehensive income Dividends",
+            },
+            {
+                "table_index": 58,
+                "line": 2748,
+                "pdf_page_number": 129,
+                "heading": "Financial assets at fair value through other comprehensive income",
+                "preview": "2025 RMB'000 2024 RMB'000 Equity investments designated at fair value through "
+                "other comprehensive income Equity investments, at fair value 9,470,879 10,911,529",
+            },
+        ]
+    }
+    financial_data = {"market": "HK", "report_year": 2025, "statements": []}
+
+    merged = quality.merge_quality_candidates_from_financial_data(report, financial_data)
+    by_name = {item["name"]: item for item in merged["core_financial_table_candidates"]}
+
+    assert by_name["Statement of Changes in Equity"]["status"] == "found"
+    assert by_name["Statement of Changes in Equity"]["table_index"] == 20
+
+
+def test_merge_quality_candidates_does_not_use_balance_sheet_as_equity_statement():
+    report = {
+        "table_index": [
+            {
+                "table_index": 43,
+                "line": 1723,
+                "pdf_page_number": 14,
+                "heading": "Consolidated Statement of Financial Position",
+                "preview": "Notes 31 December 2025 31 December 2024 EQUITY Issued capital Reserves "
+                "Equity attributable to owners of the parent Non-controlling interests TOTAL EQUITY "
+                "ASSETS Total assets LIABILITIES Total liabilities",
+            }
+        ]
+    }
+    financial_data = {"market": "HK", "report_year": 2025, "statements": []}
+
+    merged = quality.merge_quality_candidates_from_financial_data(report, financial_data)
+    by_name = {item["name"]: item for item in merged["core_financial_table_candidates"]}
+
+    assert by_name["Statement of Financial Position"]["status"] == "found"
+    assert by_name["Statement of Changes in Equity"]["status"] == "missing"
+
+
+def test_merge_quality_candidates_locates_comprehensive_income_as_profit_or_loss():
+    report = {
+        "table_index": [
+            {
+                "table_index": 41,
+                "line": 1706,
+                "pdf_page_number": 13,
+                "heading": "FOR THE YEAR ENDED 31 DECEMBER 2025",
+                "preview": "Notes 2025 2024 NET PROFIT FOR THE YEAR 40,377 32,161 "
+                "OTHER COMPREHENSIVE INCOME Items that may be reclassified subsequently to profit or loss "
+                "TOTAL COMPREHENSIVE INCOME FOR THE YEAR",
+            }
+        ]
+    }
+    financial_data = {"market": "HK", "report_year": 2025, "statements": []}
+
+    merged = quality.merge_quality_candidates_from_financial_data(report, financial_data)
+    by_name = {item["name"]: item for item in merged["core_financial_table_candidates"]}
+
+    assert by_name["Statement of Profit or Loss"]["status"] == "found"
+    assert by_name["Statement of Profit or Loss"]["table_index"] == 41
+
+
+def test_merge_quality_candidates_locates_equity_attributable_header():
+    report = {
+        "table_index": [
+            {
+                "table_index": 30,
+                "line": 1644,
+                "pdf_page_number": 90,
+                "heading": "For the year ended 31 December 2025",
+                "preview": "Equity attributable to owners of the Company Equity attributable to non-controlling interests "
+                "Share capital RMB'000 Treasury share reserve RMB'000 Employee share-based compensation reserve RMB'000 "
+                "Other reserves RMB'000 Retained profits RMB'000 Total equity RMB'000 Profit for the year Other comprehensive income Dividends",
+            }
+        ]
+    }
+    financial_data = {"market": "HK", "report_year": 2025, "statements": []}
+
+    merged = quality.merge_quality_candidates_from_financial_data(report, financial_data)
+    by_name = {item["name"]: item for item in merged["core_financial_table_candidates"]}
+
+    assert by_name["Statement of Changes in Equity"]["status"] == "found"
+    assert by_name["Statement of Changes in Equity"]["table_index"] == 30
