@@ -76,6 +76,26 @@ def _candidate_pool(include_codes: list[str]) -> list[dict[str, str]]:
     return list(known.values())
 
 
+def _partition_candidate_pool(
+    candidate_pool: list[dict[str, str]],
+    skip_codes: set[str],
+) -> tuple[list[dict[str, str]], list[dict[str, object]]]:
+    active_candidates: list[dict[str, str]] = []
+    skipped_items: list[dict[str, object]] = []
+    for seed in candidate_pool:
+        if seed["ticker"] in skip_codes:
+            skipped_items.append(
+                {
+                    "seed": dict(seed),
+                    "status": "skipped",
+                    "reason": "Skipped by --skip-code",
+                }
+            )
+        else:
+            active_candidates.append(seed)
+    return active_candidates, skipped_items
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -217,18 +237,23 @@ def main() -> int:
 
     include_codes = _requested_codes(args)
     candidate_pool = _candidate_pool(include_codes)
-    target_count = args.target_count or (len(candidate_pool) if include_codes else DEFAULT_TARGET_COUNT)
+    skip_codes = {_normalize_kr_code(code) for code in args.skip_code}
+    skip_codes.discard("")
+    active_candidates, skipped_manifest_items = _partition_candidate_pool(candidate_pool, skip_codes)
+    if args.target_count:
+        if args.target_count > len(active_candidates):
+            parser.error("--target-count cannot exceed the number of active candidates after applying --skip-code")
+        target_count = args.target_count
+    else:
+        target_count = len(active_candidates) if include_codes else min(DEFAULT_TARGET_COUNT, len(active_candidates))
     if target_count <= 0:
         parser.error("--target-count must be positive when no --code/--codes values are provided")
-    if include_codes and target_count > len(candidate_pool):
-        parser.error("--target-count cannot exceed the number of selected --code/--codes values")
 
     public = DartPublicClient()
     downloader = ReportDownloader()
     pdf_token = "" if args.download_only else _resolve_pdf_token(args.pdf_api_base)
     existing_filenames = set() if args.download_only else _existing_task_filenames(Path(args.task_db))
     download_root = Path(os.environ.get("MARKET_REPORT_DOWNLOAD_DIR", PROJECT_ROOT / "data" / "market-report-finder" / "downloads"))
-    skip_codes = {_normalize_kr_code(code) for code in args.skip_code if _normalize_kr_code(code)}
 
     manifest = {
         "started_at": _now(),
@@ -238,16 +263,14 @@ def main() -> int:
         "selection_note": "Mainstream Korean listed companies selected from the curated KR catalog with broad industry coverage.",
         "include_codes": include_codes,
         "items": [],
-        "skipped": [],
+        "skipped": skipped_manifest_items,
     }
 
     succeeded = 0
-    for seed in candidate_pool:
+    for seed in active_candidates:
         if succeeded >= target_count:
             break
         ticker = seed["ticker"]
-        if ticker in skip_codes:
-            continue
         print(f"[{succeeded}/{target_count}] {ticker} {seed['name']}", flush=True)
         item = {"seed": seed, "status": "started", "events": []}
         try:

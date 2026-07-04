@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import argparse
 import importlib.util
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -44,6 +46,30 @@ def test_candidate_pool_keeps_manual_unknown_codes():
     assert pool[1] == {"market": "KR", "ticker": "123456", "industry": "manual", "name": "123456"}
 
 
+def test_partition_candidate_pool_marks_requested_skips_for_manifest():
+    pool = [
+        {"market": "KR", "ticker": "005930", "name": "Samsung Electronics Co., Ltd."},
+        {"market": "KR", "ticker": "000660", "name": "SK hynix Inc."},
+        {"market": "KR", "ticker": "373220", "name": "LG Energy Solution, Ltd."},
+    ]
+
+    active, skipped = kr_download._partition_candidate_pool(pool, {"000660", "373220"})
+
+    assert [seed["ticker"] for seed in active] == ["005930"]
+    assert skipped == [
+        {
+            "seed": {"market": "KR", "ticker": "000660", "name": "SK hynix Inc."},
+            "status": "skipped",
+            "reason": "Skipped by --skip-code",
+        },
+        {
+            "seed": {"market": "KR", "ticker": "373220", "name": "LG Energy Solution, Ltd."},
+            "status": "skipped",
+            "reason": "Skipped by --skip-code",
+        },
+    ]
+
+
 def test_existing_downloaded_pdf_for_ticker_finds_2025_annual_pdf(tmp_path: Path):
     pdf_path = (
         tmp_path
@@ -58,3 +84,156 @@ def test_existing_downloaded_pdf_for_ticker_finds_2025_annual_pdf(tmp_path: Path
 
     assert kr_download._existing_downloaded_pdf_for_ticker(tmp_path, "005930", 2025) == pdf_path
     assert kr_download._existing_downloaded_pdf_for_ticker(tmp_path, "000660", 2025) is None
+
+
+def test_main_counts_only_active_candidates_and_records_skips(tmp_path: Path, monkeypatch):
+    download_root = tmp_path / "downloads"
+    pdf_path = (
+        download_root
+        / "KR"
+        / "Samsung-Electronics-Co.,-Ltd"
+        / "2025"
+        / "年报"
+        / "Samsung-Electronics-Co.,-Ltd_KR_005930_2025-12-31_年报_2026-03-10_dart_public_a4d8816f.pdf"
+    )
+    pdf_path.parent.mkdir(parents=True, exist_ok=True)
+    pdf_path.write_bytes(b"%PDF-1.7\n")
+    manifest_path = tmp_path / "manifest.json"
+
+    class DummyAnnual:
+        def model_dump(self, mode="json"):
+            return {"report_year": 2025, "status": "dummy"}
+
+    class DummyDownloader:
+        def download(self, annual):
+            return SimpleNamespace(
+                model_dump=lambda mode="json": {"saved_path": str(pdf_path), "file_name": pdf_path.name},
+                saved_path=str(pdf_path),
+            )
+
+    monkeypatch.setenv("MARKET_REPORT_DOWNLOAD_DIR", str(download_root))
+    monkeypatch.setattr(
+        kr_download,
+        "_candidate_pool",
+        lambda include_codes: [
+            {"market": "KR", "ticker": "005930", "name": "Samsung Electronics Co., Ltd."},
+            {"market": "KR", "ticker": "000660", "name": "SK hynix Inc."},
+            {"market": "KR", "ticker": "373220", "name": "LG Energy Solution, Ltd."},
+        ],
+    )
+    monkeypatch.setattr(kr_download, "_resolve_pdf_token", lambda pdf_api_base: "token")
+    monkeypatch.setattr(kr_download, "_existing_task_filenames", lambda db_path: set())
+    monkeypatch.setattr(
+        kr_download,
+        "_existing_downloaded_pdf_for_ticker",
+        lambda download_root, ticker, report_year: pdf_path if ticker == "005930" else None,
+    )
+    monkeypatch.setattr(
+        kr_download,
+        "_company_for_seed",
+        lambda seed: SimpleNamespace(model_dump=lambda mode="json": {"ticker": seed["ticker"]}),
+    )
+    monkeypatch.setattr(kr_download, "_selected_annual", lambda public, company, year: DummyAnnual())
+    monkeypatch.setattr(kr_download, "DartPublicClient", lambda: SimpleNamespace())
+    monkeypatch.setattr(kr_download, "ReportDownloader", lambda: DummyDownloader())
+    monkeypatch.setattr(kr_download.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "download_kr_2025_annuals_to_parse_queue.py",
+            "--codes",
+            "005930,000660,373220",
+            "--skip-code",
+            "000660",
+            "--manifest",
+            str(manifest_path),
+            "--download-only",
+        ],
+    )
+
+    exit_code = kr_download.main()
+
+    assert exit_code == 0
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["target_count"] == 2
+    assert manifest["downloaded_or_existing_count"] == 2
+    assert [item["seed"]["ticker"] for item in manifest["items"]] == ["005930", "373220"]
+    assert manifest["skipped"] == [
+        {
+            "seed": {"market": "KR", "ticker": "000660", "name": "SK hynix Inc."},
+            "status": "skipped",
+            "reason": "Skipped by --skip-code",
+        }
+    ]
+
+
+def test_main_errors_when_explicit_target_exceeds_active_candidates_after_skips(tmp_path: Path, monkeypatch):
+    manifest_path = tmp_path / "manifest.json"
+
+    class DummyAnnual:
+        def model_dump(self, mode="json"):
+            return {"report_year": 2025, "status": "dummy"}
+
+    class DummyDownloader:
+        def download(self, annual):
+            return SimpleNamespace(
+                model_dump=lambda mode="json": {"saved_path": str(tmp_path / "unused.pdf"), "file_name": "unused.pdf"},
+                saved_path=str(tmp_path / "unused.pdf"),
+            )
+
+    monkeypatch.setattr(
+        kr_download,
+        "_candidate_pool",
+        lambda include_codes: [
+            {"market": "KR", "ticker": "005930", "name": "Samsung Electronics Co., Ltd."},
+            {"market": "KR", "ticker": "000660", "name": "SK hynix Inc."},
+            {"market": "KR", "ticker": "373220", "name": "LG Energy Solution, Ltd."},
+        ],
+    )
+    monkeypatch.setattr(kr_download, "DartPublicClient", lambda: SimpleNamespace())
+    monkeypatch.setattr(kr_download, "ReportDownloader", lambda: DummyDownloader())
+    monkeypatch.setattr(kr_download, "_resolve_pdf_token", lambda pdf_api_base: "token")
+    monkeypatch.setattr(kr_download, "_existing_task_filenames", lambda db_path: set())
+    monkeypatch.setattr(kr_download, "_existing_downloaded_pdf_for_ticker", lambda download_root, ticker, report_year: None)
+    monkeypatch.setattr(
+        kr_download,
+        "_company_for_seed",
+        lambda seed: SimpleNamespace(model_dump=lambda mode="json": {"ticker": seed["ticker"]}),
+    )
+    monkeypatch.setattr(kr_download, "_selected_annual", lambda public, company, year: DummyAnnual())
+    monkeypatch.setattr(kr_download.time, "sleep", lambda seconds: None)
+
+    errors = []
+
+    def fake_error(self, message):
+        errors.append(message)
+        raise SystemExit(2)
+
+    monkeypatch.setattr(argparse.ArgumentParser, "error", fake_error)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "download_kr_2025_annuals_to_parse_queue.py",
+            "--codes",
+            "005930,000660,373220",
+            "--skip-code",
+            "000660",
+            "--target-count",
+            "3",
+            "--manifest",
+            str(manifest_path),
+            "--download-only",
+        ],
+    )
+
+    raised = False
+    try:
+        kr_download.main()
+    except SystemExit as exc:
+        raised = True
+        assert exc.code == 2
+
+    assert raised
+    assert errors == ["--target-count cannot exceed the number of active candidates after applying --skip-code"]
