@@ -1,0 +1,358 @@
+# Review package: 30e2b6b0eceeb010f1f52efa7371f1c98a6c11d6..898e3c5dd7a1e0a1f0519ea29b0a5ca1cd01af7e
+
+## Commits
+898e3c5 Show HK V2 package files in status panel
+
+## Files changed
+ .superpowers/sdd/task-6-report.md                  | 86 ++++++++++++++++++++++
+ .../components/sec/MarketEvidencePackagesPanel.tsx | 37 ++++++----
+ apps/web/src/features/market-parsing/api.ts        |  2 +
+ .../features/market-parsing/packageFiles.test.ts   | 34 +++++++++
+ .../src/features/market-parsing/packageFiles.ts    | 75 +++++++++++++++++++
+ 5 files changed, 219 insertions(+), 15 deletions(-)
+
+## Diff
+diff --git a/.superpowers/sdd/task-6-report.md b/.superpowers/sdd/task-6-report.md
+new file mode 100644
+index 0000000..7f5a65e
+--- /dev/null
++++ b/.superpowers/sdd/task-6-report.md
+@@ -0,0 +1,86 @@
++# Task 6 Report: HK frontend/status package visibility
++
++## Status
++Complete on `master` in `/home/maoyd/siq-research-engine` via SSH alias `spark-1319`.
++
++## Requirements Source
++Read `/home/maoyd/siq-research-engine/.superpowers/sdd/task-6-brief.md` before implementation. Requirements were clear; no `NEEDS_CONTEXT` was needed.
++
++## Existing Backend State
++The required backend regression `test_market_package_detail_returns_hk_v2_paths` was already present in `apps/api/tests/test_market_reports_proxy.py`. The API router already routes market package detail through `_read_market_package_detail()`, which delegates to the shared package reader and returns `paths`, `parser_artifacts`, and `qa_artifacts`.
++
++No backend production changes were needed.
++
++## Red Phase
++Added a lightweight frontend unit test for the new path grouping helper:
++
++- `groupMarketPackagePaths groups HK V2 parser and QA files from dynamic paths`
++- It asserts returned dynamic paths are grouped into `manifest/quality/source/financial/parser/qa/sections/tables`, including `parser/document_full.json`, `parser/content_list_enhanced.json`, `sections/report_complete.md`, and `qa/footnotes.json`.
++
++After fixing an initial test syntax typo, the meaningful red failure was:
++
++```text
++Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/home/maoyd/siq-research-engine/apps/web/src/features/market-parsing/packageFiles.ts'
++```
++
++## Implementation
++Changed only the frontend package status surface:
++
++- Added `apps/web/src/features/market-parsing/packageFiles.ts` with `groupMarketPackagePaths()`.
++- Updated `MarketEvidencePackagesPanel` to render backend-returned `paths` dynamically in stable groups instead of one flat list.
++- Kept existing counts and quality JSON rendering intact.
++- Added `parser_artifacts` and `qa_artifacts` to the `MarketPackageDetail` TypeScript contract, matching the API payload already returned by the shared package reader.
++
++No importer, DDL, API command defaults, package generation, or backend router behavior was changed.
++
++## Verification
++Ran the focused backend command from the brief:
++
++```bash
++cd /home/maoyd/siq-research-engine/apps/api
++PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_market_reports_proxy.py
++```
++
++Result:
++
++```text
++60 passed, 4 warnings in 0.56s
++```
++
++Ran the frontend unit command for the new helper. The repo runner currently executes all node unit tests rather than honoring the file argument:
++
++```bash
++cd /home/maoyd/siq-research-engine/apps/web
++npm run test:unit -- src/features/market-parsing/packageFiles.test.ts
++```
++
++Result:
++
++```text
++102 passed, 0 failed
++```
++
++Ran frontend build/typecheck:
++
++```bash
++cd /home/maoyd/siq-research-engine/apps/web
++npm run build
++```
++
++Result:
++
++```text
++tsc -b && vite build
++✓ built
++```
++
++## Files Changed
++
++- `apps/web/src/components/sec/MarketEvidencePackagesPanel.tsx`
++- `apps/web/src/features/market-parsing/api.ts`
++- `apps/web/src/features/market-parsing/packageFiles.ts`
++- `apps/web/src/features/market-parsing/packageFiles.test.ts`
++- `.superpowers/sdd/task-6-report.md`
++
++## Concerns
++The checked-in/live HK packages under `data/wiki/hk_reports` currently have manifests but no sampled V2 parser/QA files, so browser UI verification with real package artifacts is deferred to Task 8 or to a host state where HK V2 package files exist.
+diff --git a/apps/web/src/components/sec/MarketEvidencePackagesPanel.tsx b/apps/web/src/components/sec/MarketEvidencePackagesPanel.tsx
+index a6682a3..399cd13 100644
+--- a/apps/web/src/components/sec/MarketEvidencePackagesPanel.tsx
++++ b/apps/web/src/components/sec/MarketEvidencePackagesPanel.tsx
+@@ -6,20 +6,21 @@ import {
+   marketPackageFileUrl,
+   type MarketCode,
+   type MarketPackageDetail,
+   type MarketPackageSummary,
+ } from '../../features/market-parsing/api'
+ import {
+   runMarketPackageBuildAction,
+   runMarketPackageImportAction,
+   runMarketPackageVectorDryRunAction,
+ } from '../../features/market-parsing/packageActions'
++import { groupMarketPackagePaths } from '../../features/market-parsing/packageFiles'
+ 
+ function numberText(value: unknown): string {
+   const n = Number(value || 0)
+   return Number.isFinite(n) ? n.toLocaleString('zh-CN') : '0'
+ }
+ 
+ function statusClass(status?: string): string {
+   if (status === 'pass') return 'bg-green-50 text-green-700 border-green-200'
+   if (status === 'warning') return 'bg-blue-50 text-blue-700 border-blue-200'
+   if (status === 'fail') return 'bg-amber-50 text-amber-700 border-amber-200'
+@@ -93,20 +94,21 @@ export function MarketEvidencePackagesPanel({ market }: { market: MarketCode })
+ 
+   const selected = useMemo(
+     () => packages.find((item) => item.package_path === selectedPath),
+     [packages, selectedPath],
+   )
+ 
+   const sourceMap = detail?.source_map || []
+   const metrics = detail?.metrics || []
+   const tables = detail?.tables || []
+   const paths = detail?.paths || selected?.paths || {}
++  const pathGroups = groupMarketPackagePaths(paths)
+ 
+   const runPostgres = useCallback(async () => {
+     if (!selectedPath) return
+     setBusy('postgres')
+     setError('')
+     setOutput('')
+     try {
+       const result = await runMarketPackageImportAction({ market, packagePath: selectedPath, ddl: true })
+       setOutput(result.output)
+       await loadDetail(selectedPath)
+@@ -283,35 +285,40 @@ export function MarketEvidencePackagesPanel({ market }: { market: MarketCode })
+                 <ShieldCheck className="h-4 w-4 text-primary" />
+                 Quality
+               </div>
+               <pre className="mt-3 max-h-72 overflow-auto rounded-md bg-surface-soft p-3 text-xs leading-5 text-text">{JSON.stringify(detail?.quality || {}, null, 2)}</pre>
+             </div>
+             <div className="rounded-lg border border-border bg-white p-4">
+               <div className="flex items-center gap-2 text-sm font-semibold text-text">
+                 <Database className="h-4 w-4 text-primary" />
+                 Package Files
+               </div>
+-              <div className="mt-3 space-y-2 text-xs">
+-                {Object.entries(paths).map(([name, path]) => {
+-                  const file = path.replace(/^\/+/, '')
+-                  return (
+-                    <a
+-                      key={name}
+-                      href={selectedPath ? marketPackageFileUrl(market, selectedPath, file) : '#'}
+-                      target="_blank"
+-                      rel="noreferrer"
+-                      className="block truncate rounded-md border border-border bg-surface-soft px-3 py-2 text-primary hover:bg-white"
+-                    >
+-                      {name}: {file}
+-                    </a>
+-                  )
+-                })}
++              <div className="mt-3 space-y-3 text-xs">
++                {pathGroups.map((group) => (
++                  <div key={group.id}>
++                    <div className="mb-1 font-semibold text-text-muted">{group.label}</div>
++                    <div className="space-y-2">
++                      {group.entries.map(({ name, file }) => (
++                        <a
++                          key={`${name}:${file}`}
++                          href={selectedPath ? marketPackageFileUrl(market, selectedPath, file) : '#'}
++                          target="_blank"
++                          rel="noreferrer"
++                          className="block truncate rounded-md border border-border bg-surface-soft px-3 py-2 text-primary hover:bg-white"
++                        >
++                          {name}: {file}
++                        </a>
++                      ))}
++                    </div>
++                  </div>
++                ))}
++                {!pathGroups.length && <div className="rounded-md bg-surface-soft px-3 py-8 text-center text-text-muted">暂无文件</div>}
+               </div>
+             </div>
+           </div>
+ 
+           <div className="grid gap-4 xl:grid-cols-2">
+             <div className="rounded-lg border border-border bg-white p-4">
+               <div className="text-sm font-semibold text-text">Evidence 路径</div>
+               <div className="mt-3 max-h-80 overflow-auto rounded-md border border-border">
+                 {sourceMap.slice(0, 80).map((item, index) => (
+                   <div key={String(item.evidence_id || index)} className="border-b border-border p-3 text-xs last:border-0">
+diff --git a/apps/web/src/features/market-parsing/api.ts b/apps/web/src/features/market-parsing/api.ts
+index 6d6cf85..54412c9 100644
+--- a/apps/web/src/features/market-parsing/api.ts
++++ b/apps/web/src/features/market-parsing/api.ts
+@@ -131,20 +131,22 @@ export interface MarketPackageSummary {
+ }
+ 
+ export interface MarketPackageDetail extends MarketPackageSummary {
+   manifest?: Record<string, unknown>
+   quality?: Record<string, unknown>
+   financial_data?: Record<string, unknown>
+   financial_checks?: Record<string, unknown>
+   metrics?: Array<Record<string, unknown>>
+   source_map?: Array<Record<string, unknown>>
+   tables?: Array<Record<string, unknown>>
++  parser_artifacts?: Record<string, unknown>
++  qa_artifacts?: Record<string, unknown>
+ }
+ 
+ export interface MarketPackagesResponse {
+   ok?: boolean
+   market?: string | null
+   markets?: string[]
+   roots?: Record<string, string>
+   count?: number
+   packages?: MarketPackageSummary[]
+ }
+diff --git a/apps/web/src/features/market-parsing/packageFiles.test.ts b/apps/web/src/features/market-parsing/packageFiles.test.ts
+new file mode 100644
+index 0000000..b3d7118
+--- /dev/null
++++ b/apps/web/src/features/market-parsing/packageFiles.test.ts
+@@ -0,0 +1,34 @@
++/// <reference types="node" />
++
++import { strict as assert } from 'node:assert'
++import { test } from 'node:test'
++
++const { groupMarketPackagePaths } = await import('./packageFiles.ts')
++
++test('groupMarketPackagePaths groups HK V2 parser and QA files from dynamic paths', () => {
++  const groups = groupMarketPackagePaths({
++    manifest: 'manifest.json',
++    quality_report: 'qa/quality_report.json',
++    source_map: 'qa/source_map.json',
++    financial_data: 'metrics/financial_data.json',
++    document_full: '/parser/document_full.json',
++    content_list_enhanced: 'parser/content_list_enhanced.json',
++    report_complete: 'sections/report_complete.md',
++    footnotes: 'qa/footnotes.json',
++    table_index: 'tables/table_index.json',
++  })
++
++  assert.deepEqual(
++    groups.map((group) => [group.id, group.entries.map((entry) => `${entry.name}:${entry.file}`)]),
++    [
++      ['manifest', ['manifest:manifest.json']],
++      ['quality', ['quality_report:qa/quality_report.json']],
++      ['source', ['source_map:qa/source_map.json']],
++      ['financial', ['financial_data:metrics/financial_data.json']],
++      ['parser', ['document_full:parser/document_full.json', 'content_list_enhanced:parser/content_list_enhanced.json']],
++      ['qa', ['footnotes:qa/footnotes.json']],
++      ['sections', ['report_complete:sections/report_complete.md']],
++      ['tables', ['table_index:tables/table_index.json']],
++    ],
++  )
++})
+diff --git a/apps/web/src/features/market-parsing/packageFiles.ts b/apps/web/src/features/market-parsing/packageFiles.ts
+new file mode 100644
+index 0000000..b3630d7
+--- /dev/null
++++ b/apps/web/src/features/market-parsing/packageFiles.ts
+@@ -0,0 +1,75 @@
++export type MarketPackagePathGroupId =
++  | 'manifest'
++  | 'quality'
++  | 'source'
++  | 'financial'
++  | 'parser'
++  | 'qa'
++  | 'sections'
++  | 'tables'
++
++export interface MarketPackagePathEntry {
++  name: string
++  file: string
++}
++
++export interface MarketPackagePathGroup {
++  id: MarketPackagePathGroupId
++  label: string
++  entries: MarketPackagePathEntry[]
++}
++
++const PACKAGE_FILE_GROUPS: Array<{ id: MarketPackagePathGroupId; label: string }> = [
++  { id: 'manifest', label: 'Manifest' },
++  { id: 'quality', label: 'Quality' },
++  { id: 'source', label: 'Source' },
++  { id: 'financial', label: 'Financial' },
++  { id: 'parser', label: 'Parser' },
++  { id: 'qa', label: 'QA' },
++  { id: 'sections', label: 'Sections' },
++  { id: 'tables', label: 'Tables' },
++]
++
++const PACKAGE_FILE_GROUP_BY_KEY: Record<string, MarketPackagePathGroupId> = {
++  manifest: 'manifest',
++  quality_report: 'quality',
++  source_map: 'source',
++  financial_data: 'financial',
++  financial_checks: 'financial',
++  normalized_metrics: 'financial',
++  document_full: 'parser',
++  content_list_enhanced: 'parser',
++  table_relations: 'parser',
++  footnotes: 'qa',
++  toc: 'qa',
++  financial_note_links: 'qa',
++  table_quality_signals: 'qa',
++  report_complete: 'sections',
++  table_index: 'tables',
++}
++
++function groupForPath(name: string, file: string): MarketPackagePathGroupId {
++  const byKey = PACKAGE_FILE_GROUP_BY_KEY[name]
++  if (byKey) return byKey
++  const [topLevel] = file.split('/')
++  if (topLevel === 'metrics') return 'financial'
++  if (topLevel === 'parser' || topLevel === 'qa' || topLevel === 'sections' || topLevel === 'tables') {
++    return topLevel
++  }
++  return 'source'
++}
++
++export function groupMarketPackagePaths(paths: Record<string, string> | null | undefined): MarketPackagePathGroup[] {
++  const grouped = new Map<MarketPackagePathGroupId, MarketPackagePathEntry[]>()
++  for (const [name, value] of Object.entries(paths || {})) {
++    const file = String(value || '').trim().replace(/^\/+/, '')
++    if (!file) continue
++    const group = groupForPath(name, file)
++    grouped.set(group, [...(grouped.get(group) || []), { name, file }])
++  }
++
++  return PACKAGE_FILE_GROUPS.flatMap((group) => {
++    const entries = grouped.get(group.id) || []
++    return entries.length ? [{ ...group, entries }] : []
++  })
++}

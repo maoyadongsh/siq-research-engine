@@ -1,0 +1,461 @@
+# Review package: a7836970eda8b27b12f7bcbba8e0f958e32f26a6..fe15e3bf707416170aac0c15799416eccfee8f0e
+
+## Commits
+fe15e3b Expose HK V2 evidence package artifacts
+
+## Files changed
+ .superpowers/sdd/task-2-report.md                  | 117 +++++++++++++++++++++
+ apps/api/tests/test_market_reports_proxy.py        |  43 ++++++++
+ .../src/siq_market_contracts/evidence_package.py   |  29 +++++
+ .../tests/test_evidence_package.py                 |  46 +++++++-
+ 4 files changed, 234 insertions(+), 1 deletion(-)
+
+## Diff
+diff --git a/.superpowers/sdd/task-2-report.md b/.superpowers/sdd/task-2-report.md
+new file mode 100644
+index 0000000..27e0eef
+--- /dev/null
++++ b/.superpowers/sdd/task-2-report.md
+@@ -0,0 +1,117 @@
++# Task 2 Report: package reader exposes HK V2 paths/counts
++
++## Scope
++- Repo: `/home/maoyd/siq-research-engine`
++- Branch: `master`
++- Owned files:
++  - `packages/market-contracts/src/siq_market_contracts/evidence_package.py`
++  - `packages/market-contracts/tests/test_evidence_package.py`
++  - `apps/api/tests/test_market_reports_proxy.py`
++
++## Requirements handled
++- `read_market_package_summary()` now exposes optional HK V2 file paths in `paths`.
++- `read_market_package_detail()` now exposes grouped `parser_artifacts` and `qa_artifacts` payloads.
++- Existing package compatibility is preserved because no HK V2 file was added to `REQUIRED_FILES`.
++- API-level coverage confirms the shared reader output flows through the market package detail endpoints.
++
++## TDD log
++1. Extended the HK fixture in `packages/market-contracts/tests/test_evidence_package.py` with V2 artifacts:
++   - `parser/document_full.json`
++   - `parser/content_list_enhanced.json`
++   - `parser/table_relations.json`
++   - `sections/report_complete.md`
++   - `qa/footnotes.json`
++   - `qa/toc.json`
++   - `qa/financial_note_links.json`
++   - `qa/table_quality_signals.json`
++2. Added assertions that `summary["paths"]` includes:
++   - `document_full`
++   - `content_list_enhanced`
++   - `report_complete`
++   - `footnotes`
++   - `toc`
++   - `financial_note_links`
++   - `table_quality_signals`
++3. Added assertions that `detail` exposes `parser_artifacts` and `qa_artifacts` JSON payloads.
++4. Added API test `test_market_package_detail_returns_hk_v2_paths` in `apps/api/tests/test_market_reports_proxy.py` covering both by-path and by-filing-id detail readers.
++
++## Red phase evidence
++### 1) Package contracts test
++Command:
++```bash
++cd /home/maoyd/siq-research-engine/packages/market-contracts
++PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_evidence_package.py
++```
++Result:
++- Failed in `test_validate_and_read_market_package`
++- Failure: `KeyError: 'document_full'` from `summary["paths"]["document_full"]`
++
++### 2) API test command from brief
++Command from brief:
++```bash
++cd /home/maoyd/siq-research-engine/apps/api
++PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_market_reports_proxy.py::test_market_package_quality_by_path_and_filing_id
++```
++Result:
++- Stale on current branch
++- Pytest reported `not found` for `test_market_package_quality_by_path_and_filing_id`
++
++Decision:
++- Used the nearest focused API targets in the same file after implementation:
++  - `tests/test_market_reports_proxy.py::test_market_package_detail_returns_hk_v2_paths`
++  - `tests/test_market_reports_proxy.py::test_market_package_quality_routes_keep_response_contract`
++
++## Implementation summary
++### `packages/market-contracts/src/siq_market_contracts/evidence_package.py`
++- Extended `PACKAGE_FILE_PATHS` with optional HK V2 mappings:
++  - `report_complete`
++  - `document_full`
++  - `content_list_enhanced`
++  - `table_relations`
++  - `footnotes`
++  - `toc`
++  - `financial_note_links`
++  - `table_quality_signals`
++- Added `_artifact_payloads()` helper to load only existing optional artifacts.
++- Updated `read_market_package_detail()` to return:
++  - `parser_artifacts`
++  - `qa_artifacts`
++- Left `REQUIRED_FILES` unchanged, so legacy US/JP/KR/EU packages remain valid without V2 files.
++
++### `packages/market-contracts/tests/test_evidence_package.py`
++- Expanded HK package fixture with representative parser/QA V2 files.
++- Added summary path assertions and detail artifact assertions.
++
++### `apps/api/tests/test_market_reports_proxy.py`
++- Added `_write_hk_v2_package()` helper fixture builder.
++- Added `test_market_package_detail_returns_hk_v2_paths` to verify endpoint/helper output includes HK V2 file paths.
++
++## Verification
++### Package contracts
++Command:
++```bash
++cd /home/maoyd/siq-research-engine/packages/market-contracts
++PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_evidence_package.py
++```
++Result:
++- `2 passed in 0.02s`
++
++### API focused tests
++Command:
++```bash
++cd /home/maoyd/siq-research-engine/apps/api
++PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider \
++  tests/test_market_reports_proxy.py::test_market_package_detail_returns_hk_v2_paths \
++  tests/test_market_reports_proxy.py::test_market_package_quality_routes_keep_response_contract
++```
++Result:
++- `2 passed, 2 warnings in 0.43s`
++- Warnings are existing Pydantic deprecation warnings from `apps/api/schemas.py`
++
++## Compatibility / risk notes
++- HK V2 file exposure is optional-by-presence only.
++- No validator requirements were tightened.
++- No package generation, importer, DDL, frontend, or API default behavior was changed.
++
++## Commit
++- Commit created after focused verification.
+diff --git a/apps/api/tests/test_market_reports_proxy.py b/apps/api/tests/test_market_reports_proxy.py
+index a2140d8..51cdb18 100644
+--- a/apps/api/tests/test_market_reports_proxy.py
++++ b/apps/api/tests/test_market_reports_proxy.py
+@@ -43,20 +43,45 @@ class UploadRouteRequest:
+     pass
+ 
+ 
+ def _write_market_package(root: Path, *parts: str) -> Path:
+     package_dir = root.joinpath(*parts)
+     package_dir.mkdir(parents=True)
+     (package_dir / "manifest.json").write_text("{}", encoding="utf-8")
+     return package_dir
+ 
+ 
++def _write_hk_v2_package(root: Path, *parts: str) -> Path:
++    package_dir = root.joinpath(*parts)
++    for name in ("raw", "sections", "tables", "xbrl", "metrics", "qa", "parser"):
++        (package_dir / name).mkdir(parents=True, exist_ok=True)
++    (package_dir / "README.md").write_text("# HK package\n", encoding="utf-8")
++    (package_dir / "raw" / "report.pdf").write_bytes(b"%PDF-1.4 hk")
++    (package_dir / "sections" / "report.md").write_text("# Report\n", encoding="utf-8")
++    (package_dir / "sections" / "report_complete.md").write_text("# Report Complete\n", encoding="utf-8")
++    (package_dir / "tables" / "table_index.json").write_text(json.dumps({"tables": [{"table_index": 1}]}, ensure_ascii=False), encoding="utf-8")
++    (package_dir / "metrics" / "financial_data.json").write_text(json.dumps({"statements": []}, ensure_ascii=False), encoding="utf-8")
++    (package_dir / "metrics" / "financial_checks.json").write_text(json.dumps({"overall_status": "warning"}, ensure_ascii=False), encoding="utf-8")
++    (package_dir / "metrics" / "normalized_metrics.json").write_text(json.dumps({"metrics": [{"metric_id": "m1"}]}, ensure_ascii=False), encoding="utf-8")
++    (package_dir / "qa" / "quality_report.json").write_text(json.dumps({"overall_status": "warning", "section_count": 2, "table_count": 3, "raw_fact_count": 4, "normalized_metric_count": 5}, ensure_ascii=False), encoding="utf-8")
++    (package_dir / "qa" / "source_map.json").write_text(json.dumps({"entries": [{"evidence_id": "e1"}, {"evidence_id": "e2"}]}, ensure_ascii=False), encoding="utf-8")
++    (package_dir / "parser" / "document_full.json").write_text(json.dumps({"content_list_enhanced": {"footnotes": {"references": [{"id": "fn1"}]}, "toc": {"headings": [{"title": "Overview"}]}}}, ensure_ascii=False), encoding="utf-8")
++    (package_dir / "parser" / "content_list_enhanced.json").write_text(json.dumps({"footnotes": {"references": [{"id": "fn1"}]}, "toc": {"headings": [{"title": "Overview"}]}, "financial_note_links": {"links": [{"note": "1"}]}, "tables": [{"table_index": 1, "relations": [{"type": "footnote", "target": "fn1"}]}], "quality_signals": {"tables": [{"table_index": 1, "score": 0.95}]}, "pages": [{"page_number": 1}]}, ensure_ascii=False), encoding="utf-8")
++    (package_dir / "parser" / "table_relations.json").write_text(json.dumps({"schema_version": "hk_table_relations_v1", "relations": [{"type": "footnote", "target": "fn1"}]}, ensure_ascii=False), encoding="utf-8")
++    (package_dir / "qa" / "footnotes.json").write_text(json.dumps({"schema_version": "hk_footnotes_v1", "payload": {"references": [{"id": "fn1"}]}}, ensure_ascii=False), encoding="utf-8")
++    (package_dir / "qa" / "toc.json").write_text(json.dumps({"schema_version": "hk_toc_v1", "payload": {"headings": [{"title": "Overview"}]}}, ensure_ascii=False), encoding="utf-8")
++    (package_dir / "qa" / "financial_note_links.json").write_text(json.dumps({"schema_version": "hk_financial_note_links_v1", "payload": {"links": [{"note": "1"}]}}, ensure_ascii=False), encoding="utf-8")
++    (package_dir / "qa" / "table_quality_signals.json").write_text(json.dumps({"schema_version": "hk_table_quality_signals_v1", "payload": {"tables": [{"table_index": 1, "score": 0.95}]}}, ensure_ascii=False), encoding="utf-8")
++    (package_dir / "manifest.json").write_text(json.dumps({"market": "HK", "filing_id": "HK:00700:12100024", "ticker": "00700", "company_name": "TENCENT", "form": "annual", "report_type": "annual", "fiscal_year": 2025, "fiscal_period": "FY", "period_end": "2025-12-31", "published_at": "2026-04-09", "quality_status": "warning", "parse_run_id": "run-1"}, ensure_ascii=False), encoding="utf-8")
++    return package_dir
++
++
+ class DummyUser:
+     id = 42
+     username = "ops"
+     email = "ops@example.test"
+     full_name = "Ops User"
+     role = "admin"
+ 
+ 
+ def market_reports_client() -> TestClient:
+     app = FastAPI()
+@@ -819,20 +844,38 @@ def test_market_package_summary_reads_us_package():
+     summary = market_reports._read_market_package_summary(package_dir)
+ 
+     assert summary["market"] == "US"
+     assert summary["ticker"] == "AAPL"
+     assert summary["quality_status"] == "pass"
+     assert summary["counts"]["metrics"] >= 1
+     assert summary["counts"]["evidence"] >= 1
+     assert summary["paths"]["source_map"].endswith("qa/source_map.json")
+ 
+ 
++def test_market_package_detail_returns_hk_v2_paths(monkeypatch, tmp_path):
++    wiki_root = tmp_path / "wiki" / "hk_reports"
++    package_dir = _write_hk_v2_package(wiki_root, "00700", "2025", "annual_12100024")
++    monkeypatch.setitem(market_reports.MARKET_WIKI_ROOTS, "HK", wiki_root)
++
++    by_path = asyncio.run(market_reports.market_package_detail_by_path("HK", str(package_dir)))
++    by_filing_id = asyncio.run(market_reports.market_package_detail_by_filing_id("HK:00700:12100024", "HK"))
++
++    for payload in (by_path, by_filing_id):
++        assert payload["paths"]["document_full"] == "parser/document_full.json"
++        assert payload["paths"]["content_list_enhanced"] == "parser/content_list_enhanced.json"
++        assert payload["paths"]["report_complete"] == "sections/report_complete.md"
++        assert payload["paths"]["footnotes"] == "qa/footnotes.json"
++        assert payload["paths"]["toc"] == "qa/toc.json"
++        assert payload["paths"]["financial_note_links"] == "qa/financial_note_links.json"
++        assert payload["paths"]["table_quality_signals"] == "qa/table_quality_signals.json"
++
++
+ def test_market_package_quality_routes_keep_response_contract(monkeypatch, tmp_path):
+     wiki_root = tmp_path / "wiki" / "us_sec"
+     package_dir = _write_market_package(wiki_root, "AAPL", "2025", "10-K_demo")
+     (package_dir / "manifest.json").write_text(json.dumps({"filing_id": "AAPL-10K"}), encoding="utf-8")
+     (package_dir / "qa").mkdir()
+     (package_dir / "qa" / "quality_report.json").write_text(json.dumps({"overall_status": "pass"}), encoding="utf-8")
+     (package_dir / "qa" / "source_map.json").write_text(
+         json.dumps({"entries": [{"evidence_id": "e1"}, {"evidence_id": "e2"}]}),
+         encoding="utf-8",
+     )
+diff --git a/packages/market-contracts/src/siq_market_contracts/evidence_package.py b/packages/market-contracts/src/siq_market_contracts/evidence_package.py
+index a1877e8..c3f730d 100644
+--- a/packages/market-contracts/src/siq_market_contracts/evidence_package.py
++++ b/packages/market-contracts/src/siq_market_contracts/evidence_package.py
+@@ -43,20 +43,28 @@ REQUIRED_FILES = (
+ )
+ 
+ PACKAGE_FILE_PATHS = {
+     "manifest": "manifest.json",
+     "quality_report": "qa/quality_report.json",
+     "source_map": "qa/source_map.json",
+     "financial_data": "metrics/financial_data.json",
+     "financial_checks": "metrics/financial_checks.json",
+     "normalized_metrics": "metrics/normalized_metrics.json",
+     "table_index": "tables/table_index.json",
++    "report_complete": "sections/report_complete.md",
++    "document_full": "parser/document_full.json",
++    "content_list_enhanced": "parser/content_list_enhanced.json",
++    "table_relations": "parser/table_relations.json",
++    "footnotes": "qa/footnotes.json",
++    "toc": "qa/toc.json",
++    "financial_note_links": "qa/financial_note_links.json",
++    "table_quality_signals": "qa/table_quality_signals.json",
+ }
+ 
+ 
+ @dataclass
+ class EvidencePackageValidation:
+     package_dir: Path
+     ok: bool
+     errors: list[str] = field(default_factory=list)
+     warnings: list[str] = field(default_factory=list)
+     manifest: dict[str, Any] = field(default_factory=dict)
+@@ -139,20 +147,28 @@ def _source_map_entries(source_map: dict[str, Any]) -> list[Any]:
+ def _normalized_metrics(payload: dict[str, Any]) -> list[Any]:
+     metrics = payload.get("metrics") if isinstance(payload, dict) else []
+     return metrics if isinstance(metrics, list) else []
+ 
+ 
+ def _tables(payload: dict[str, Any]) -> list[Any]:
+     tables = payload.get("tables") if isinstance(payload, dict) else []
+     return tables if isinstance(tables, list) else []
+ 
+ 
++def _artifact_payloads(package_dir: Path, artifacts: dict[str, str]) -> dict[str, Any]:
++    return {
++        key: read_json(package_dir / rel, {})
++        for key, rel in artifacts.items()
++        if (package_dir / rel).exists()
++    }
++
++
+ def read_market_package_summary(package_dir: Path, *, display_path: str | None = None) -> dict[str, Any]:
+     package_dir = package_dir.resolve()
+     manifest = read_json(package_dir / "manifest.json", {})
+     quality = read_json(package_dir / "qa" / "quality_report.json", {})
+     metrics = _normalized_metrics(read_json(package_dir / "metrics" / "normalized_metrics.json", {}))
+     source_map = _source_map_entries(read_json(package_dir / "qa" / "source_map.json", {}))
+     return {
+         "package_path": display_path or str(package_dir),
+         "paths": market_package_paths(package_dir),
+         "market": manifest.get("market") if isinstance(manifest, dict) else None,
+@@ -178,29 +194,42 @@ def read_market_package_summary(package_dir: Path, *, display_path: str | None =
+         },
+     }
+ 
+ 
+ def read_market_package_detail(package_dir: Path, *, display_path: str | None = None) -> dict[str, Any]:
+     package_dir = package_dir.resolve()
+     summary = read_market_package_summary(package_dir, display_path=display_path)
+     source_map = read_json(package_dir / "qa" / "source_map.json", {})
+     table_index = read_json(package_dir / "tables" / "table_index.json", {})
+     normalized_metrics = read_json(package_dir / "metrics" / "normalized_metrics.json", {})
++    parser_artifact_paths = {
++        "document_full": PACKAGE_FILE_PATHS["document_full"],
++        "content_list_enhanced": PACKAGE_FILE_PATHS["content_list_enhanced"],
++        "table_relations": PACKAGE_FILE_PATHS["table_relations"],
++    }
++    qa_artifact_paths = {
++        "footnotes": PACKAGE_FILE_PATHS["footnotes"],
++        "toc": PACKAGE_FILE_PATHS["toc"],
++        "financial_note_links": PACKAGE_FILE_PATHS["financial_note_links"],
++        "table_quality_signals": PACKAGE_FILE_PATHS["table_quality_signals"],
++    }
+     return {
+         **summary,
+         "manifest": read_json(package_dir / "manifest.json", {}),
+         "quality": read_json(package_dir / "qa" / "quality_report.json", {}),
+         "financial_data": read_json(package_dir / "metrics" / "financial_data.json", {}),
+         "financial_checks": read_json(package_dir / "metrics" / "financial_checks.json", {}),
+         "metrics": _normalized_metrics(normalized_metrics),
+         "source_map": _source_map_entries(source_map),
+         "tables": _tables(table_index),
++        "parser_artifacts": _artifact_payloads(package_dir, parser_artifact_paths),
++        "qa_artifacts": _artifact_payloads(package_dir, qa_artifact_paths),
+     }
+ 
+ 
+ def validate_evidence_package(package_dir: Path, *, strict_hashes: bool = True) -> EvidencePackageValidation:
+     package_dir = package_dir.resolve()
+     errors: list[str] = []
+     warnings: list[str] = []
+     manifest_path = package_dir / "manifest.json"
+     manifest = read_json(manifest_path, {})
+ 
+diff --git a/packages/market-contracts/tests/test_evidence_package.py b/packages/market-contracts/tests/test_evidence_package.py
+index 611198e..611c116 100644
+--- a/packages/market-contracts/tests/test_evidence_package.py
++++ b/packages/market-contracts/tests/test_evidence_package.py
+@@ -44,25 +44,26 @@ def _financial_data() -> dict:
+             }
+         ],
+         "key_metrics": [],
+         "operating_metrics": [],
+         "warnings": [],
+     }
+ 
+ 
+ def _write_package(root: Path) -> Path:
+     package_dir = root / "hk_reports" / "00700" / "2025" / "annual_12100024"
+-    for name in ("raw", "sections", "tables", "xbrl", "metrics", "qa"):
++    for name in ("raw", "sections", "tables", "xbrl", "metrics", "qa", "parser"):
+         (package_dir / name).mkdir(parents=True, exist_ok=True)
+     (package_dir / "README.md").write_text("# Test\n", encoding="utf-8")
+     (package_dir / "raw" / "report.pdf").write_bytes(b"%PDF-1.4 test")
+     (package_dir / "sections" / "report.md").write_text("# Report\n", encoding="utf-8")
++    (package_dir / "sections" / "report_complete.md").write_text("# Report Complete\n", encoding="utf-8")
+     write_json(package_dir / "tables" / "table_index.json", {"tables": [{"table_index": 1}]})
+     write_json(package_dir / "xbrl" / "facts_raw.json", {"facts": []})
+     financial_data = _financial_data()
+     financial_checks = {"overall_status": "warning", "warnings": [], "checks": []}
+     manifest = {
+         "schema_version": SCHEMA_VERSION,
+         "market": "HK",
+         "filing_id": "HK:00700:12100024",
+         "company_id": "HK:00700",
+         "ticker": "00700",
+@@ -80,55 +81,98 @@ def _write_package(root: Path) -> Path:
+         "parser_version": "test_parser_v1",
+         "rules_version": "test_rules_v1",
+         "quality_status": "warning",
+         "artifact_hashes": {},
+     }
+     manifest["parse_run_id"] = stable_parse_run_id(manifest, {})
+     source_map = source_map_from_financial_data(manifest=manifest, financial_data=financial_data, package_dir=package_dir)
+     write_json(package_dir / "metrics" / "financial_data.json", financial_data)
+     write_json(package_dir / "metrics" / "financial_checks.json", financial_checks)
+     write_json(package_dir / "metrics" / "normalized_metrics.json", {"metrics": [{"metric_id": "m1"}]})
++    write_json(
++        package_dir / "parser" / "document_full.json",
++        {
++            "content_list_enhanced": {
++                "footnotes": {"references": [{"id": "fn1"}], "definitions": [], "bindings": [], "summary": {"count": 1}},
++                "toc": {"headings": [{"title": "Overview"}], "toc_candidates": [], "content_headings": [], "summary": {"count": 1}},
++                "financial_note_links": {"links": [{"note": "1"}], "summary": {"count": 1}},
++                "tables": [{"table_index": 1, "relations": [{"type": "footnote", "target": "fn1"}]}],
++                "quality_signals": {"tables": [{"table_index": 1, "score": 0.95}], "summary": {"count": 1}},
++                "pages": [{"page_number": 88}],
++            }
++        },
++    )
++    write_json(
++        package_dir / "parser" / "content_list_enhanced.json",
++        {
++            "footnotes": {"references": [{"id": "fn1"}], "definitions": [], "bindings": [], "summary": {"count": 1}},
++            "toc": {"headings": [{"title": "Overview"}], "toc_candidates": [], "content_headings": [], "summary": {"count": 1}},
++            "financial_note_links": {"links": [{"note": "1"}], "summary": {"count": 1}},
++            "tables": [{"table_index": 1, "relations": [{"type": "footnote", "target": "fn1"}]}],
++            "quality_signals": {"tables": [{"table_index": 1, "score": 0.95}], "summary": {"count": 1}},
++            "pages": [{"page_number": 88}],
++        },
++    )
++    write_json(package_dir / "parser" / "table_relations.json", {"schema_version": "hk_table_relations_v1", "relations": [{"type": "footnote", "target": "fn1"}]})
+     write_json(
+         package_dir / "qa" / "quality_report.json",
+         {
+             "overall_status": "warning",
+             "section_count": 1,
+             "table_count": 1,
+             "raw_fact_count": 0,
+             "normalized_metric_count": 1,
+             "evidence_coverage_ratio": 1,
+             "required_statement_status": {"balance_sheet": "present"},
+             "critical_warnings": [],
+             "parser_warnings": [],
+             "rule_warnings": [],
+         },
+     )
+     write_json(package_dir / "qa" / "source_map.json", source_map)
++    write_json(package_dir / "qa" / "footnotes.json", {"schema_version": "hk_footnotes_v1", "payload": {"references": [{"id": "fn1"}], "definitions": [], "bindings": [], "summary": {"count": 1}}})
++    write_json(package_dir / "qa" / "toc.json", {"schema_version": "hk_toc_v1", "payload": {"headings": [{"title": "Overview"}], "toc_candidates": [], "content_headings": [], "summary": {"count": 1}}})
++    write_json(package_dir / "qa" / "financial_note_links.json", {"schema_version": "hk_financial_note_links_v1", "payload": {"links": [{"note": "1"}], "summary": {"count": 1}}})
++    write_json(package_dir / "qa" / "table_quality_signals.json", {"schema_version": "hk_table_quality_signals_v1", "payload": {"tables": [{"table_index": 1, "score": 0.95}], "summary": {"count": 1}}})
+     manifest["artifact_hashes"] = compute_artifact_hashes(package_dir)
+     write_json(package_dir / "manifest.json", manifest)
+     return package_dir
+ 
+ 
+ def test_validate_and_read_market_package(tmp_path):
+     package_dir = _write_package(tmp_path)
+ 
+     validation = validate_evidence_package(package_dir)
+     summary = read_market_package_summary(package_dir, display_path="hk_reports/00700/2025/annual_12100024")
+     detail = read_market_package_detail(package_dir, display_path="hk_reports/00700/2025/annual_12100024")
+ 
+     assert validation.ok, validation.errors
+     assert summary["package_path"] == "hk_reports/00700/2025/annual_12100024"
+     assert summary["paths"]["manifest"] == "manifest.json"
++    assert summary["paths"]["document_full"] == "parser/document_full.json"
++    assert summary["paths"]["content_list_enhanced"] == "parser/content_list_enhanced.json"
++    assert summary["paths"]["report_complete"] == "sections/report_complete.md"
++    assert summary["paths"]["footnotes"] == "qa/footnotes.json"
++    assert summary["paths"]["toc"] == "qa/toc.json"
++    assert summary["paths"]["financial_note_links"] == "qa/financial_note_links.json"
++    assert summary["paths"]["table_quality_signals"] == "qa/table_quality_signals.json"
+     assert summary["counts"] == {"sections": 1, "tables": 1, "raw_facts": 0, "metrics": 1, "evidence": 1}
+     assert detail["manifest"]["schema_version"] == SCHEMA_VERSION
+     assert detail["metrics"] == [{"metric_id": "m1"}]
+     assert detail["tables"] == [{"table_index": 1}]
++    assert detail["parser_artifacts"]["document_full"]["content_list_enhanced"]["footnotes"]["references"] == [{"id": "fn1"}]
++    assert detail["parser_artifacts"]["content_list_enhanced"]["toc"]["headings"] == [{"title": "Overview"}]
++    assert detail["parser_artifacts"]["table_relations"]["relations"] == [{"type": "footnote", "target": "fn1"}]
++    assert detail["qa_artifacts"]["footnotes"]["payload"]["references"] == [{"id": "fn1"}]
++    assert detail["qa_artifacts"]["toc"]["payload"]["headings"] == [{"title": "Overview"}]
++    assert detail["qa_artifacts"]["financial_note_links"]["payload"]["links"] == [{"note": "1"}]
++    assert detail["qa_artifacts"]["table_quality_signals"]["payload"]["tables"] == [{"table_index": 1, "score": 0.95}]
+ 
+ 
+ def test_validate_rejects_missing_evidence(tmp_path):
+     package_dir = _write_package(tmp_path)
+     data_path = package_dir / "metrics" / "financial_data.json"
+     payload = json.loads(data_path.read_text(encoding="utf-8"))
+     payload["statements"][0]["items"][0]["sources"] = {}
+     write_json(data_path, payload)
+     manifest = json.loads((package_dir / "manifest.json").read_text(encoding="utf-8"))
+     manifest["artifact_hashes"] = compute_artifact_hashes(package_dir)

@@ -1,0 +1,291 @@
+# Review package: 3ccb535d4cb75073a8d9b522ea48cbb81c43ccaa..75d4682aa5e4aae409172baa235d1e8fc9d9baf6
+
+## Commits
+75d4682 Add HK V2 evidence package artifacts
+
+## Files changed
+ .superpowers/sdd/task-1-report.md                  | 45 +++++++++++
+ scripts/hk/hk_evidence_lib.py                      | 93 +++++++++++++++++++++-
+ .../tests/test_hk_evidence_package.py              | 51 +++++++++++-
+ 3 files changed, 185 insertions(+), 4 deletions(-)
+
+## Diff
+diff --git a/.superpowers/sdd/task-1-report.md b/.superpowers/sdd/task-1-report.md
+new file mode 100644
+index 0000000..cb96736
+--- /dev/null
++++ b/.superpowers/sdd/task-1-report.md
+@@ -0,0 +1,45 @@
++# Task 1 Report: HK V2 Package artifact contract
++
++## Status
++DONE
++
++## Scope
++- `/home/maoyd/siq-research-engine/services/market-report-rules/tests/test_hk_evidence_package.py`
++- `/home/maoyd/siq-research-engine/scripts/hk/hk_evidence_lib.py`
++
++## Requirements handled
++- 扩展 HK package 测试，使用带 `content_list_enhanced.footnotes`、`toc`、`financial_note_links`、`quality_signals`、`tables`、`pages` 的 fake `document_full.json`。
++- 先验证新增断言会失败，失败点为缺少 `parser/document_full.json`。
++- 在 HK builder 中补齐 V2 package 产物：
++  - `parser/document_full.json`
++  - `parser/content_list_enhanced.json`
++  - `parser/table_relations.json`
++  - `sections/report_complete.md`
++  - `qa/footnotes.json`
++  - `qa/toc.json`
++  - `qa/financial_note_links.json`
++  - `qa/table_quality_signals.json`
++- 保持 `manifest.schema_version == market_evidence_package_v1`，并在计算 `artifact_hashes` 之前完成上述文件写入。
++- `validate_evidence_package(package_dir).ok` 继续为 `true`。
++
++## TDD evidence
++1. 先修改测试并运行：
++   - 命令：`cd /home/maoyd/siq-research-engine/services/market-report-rules && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_hk_evidence_package.py`
++   - 结果：失败，断言缺少 `parser/document_full.json`。
++2. 再做最小实现并重跑同一命令。
++3. 结果：`1 passed in 0.06s`。
++
++## Implementation notes
++- 新增 `parser` 目录创建。
++- 新增 `_content_list_enhanced()`，统一读取增强结构。
++- 新增 `_write_parser_artifacts()`，写入 parser 侧 V2 产物，并在缺失 parser financial/quality 文件时回退到可用契约数据。
++- 新增 `_write_report_complete()`，在正文后追加“可恢复结构摘要”“目录候选”“脚注摘要”“附注关系摘要”“图片/表格摘要”。
++- 新增 `_write_enhancement_qa()`，从 `content_list_enhanced` 抽取脚注、目录、附注关系、质量信号 QA 文件。
++
++## Verification
++- Focused test passed with the brief’s exact command.
++- `manifest.artifact_hashes` now includes the HK V2 artifact paths asserted by the test.
++- Existing `market_evidence_package_v1` validation remains green for the HK package fixture.
++
++## Concerns
++- `parser/financial_data.json` 与 `parser/financial_checks.json` 在 parser 原始文件缺失时回退为规则产出的契约数据；当前 brief 未给出更具体的原始 parser financial 文件命名规范，后续若 contract reader 对这两份 parser 侧文件有更严格要求，需要在后续任务再对齐。
+diff --git a/scripts/hk/hk_evidence_lib.py b/scripts/hk/hk_evidence_lib.py
+index e12cb5e..6d4f728 100644
+--- a/scripts/hk/hk_evidence_lib.py
++++ b/scripts/hk/hk_evidence_lib.py
+@@ -228,21 +228,21 @@ def write_hk_evidence_package(
+     artifact, metadata, document_full = build_hk_artifact(pdf_path, parser_result_dir, metadata_path)
+     result = process_artifact(artifact, include_load_plan=True)
+     financial_data = financial_data_contract(result.extraction)
+     financial_checks = financial_checks_contract(result.validation)
+ 
+     filing_key = metadata["accession_number"] or stable_id(pdf_path.name)[:12]
+     package_dir = output_root / artifact.ticker / str(artifact.fiscal_year or "unknown") / f"{artifact.report_type}_{filing_key}"
+     if package_dir.exists() and force:
+         shutil.rmtree(package_dir)
+     package_dir.mkdir(parents=True, exist_ok=True)
+-    for name in ("raw", "sections", "tables", "xbrl", "metrics", "qa"):
++    for name in ("raw", "sections", "tables", "xbrl", "metrics", "qa", "parser"):
+         (package_dir / name).mkdir(exist_ok=True)
+ 
+     shutil.copy2(pdf_path, package_dir / "raw" / "report.pdf")
+     if metadata_path and metadata_path.exists():
+         shutil.copy2(metadata_path, package_dir / "raw" / "report.metadata.json")
+     else:
+         write_json(package_dir / "raw" / "report.metadata.json", metadata.get("raw_metadata") or {})
+ 
+     markdown = _markdown_from_document_full(document_full, parser_result_dir)
+     (package_dir / "sections" / "report.md").write_text(markdown, encoding="utf-8")
+@@ -310,30 +310,121 @@ def write_hk_evidence_package(
+     manifest["quality_status"] = quality["overall_status"]
+ 
+     write_json(package_dir / "metrics" / "financial_data.json", financial_data)
+     write_json(package_dir / "metrics" / "financial_checks.json", financial_checks)
+     write_json(package_dir / "metrics" / "load_plan.json", result.load_plan.model_dump(mode="json") if result.load_plan else {})
+     write_json(package_dir / "metrics" / "normalized_metrics.json", {"schema_version": "market_normalized_metrics_v1", "metrics": normalized_metrics})
+     write_json(package_dir / "metrics" / "operating_metrics.json", {"schema_version": "market_operating_metrics_v1", "metrics": [row for row in normalized_metrics if row.get("statement_type") == "operating_metrics"]})
+     write_json(package_dir / "qa" / "quality_report.json", quality)
+     write_json(package_dir / "qa" / "source_map.json", source_map)
+     write_json(package_dir / "qa" / "extraction_warnings.json", {"warnings": quality["parser_warnings"] + quality["rule_warnings"]})
++    _write_parser_artifacts(package_dir, parser_result_dir, document_full, financial_data, financial_checks)
++    _write_report_complete(package_dir, markdown, document_full, quality)
++    _write_enhancement_qa(package_dir, document_full)
+     manifest["artifact_hashes"] = compute_artifact_hashes(package_dir)
+     write_json(package_dir / "manifest.json", manifest)
+     (package_dir / "README.md").write_text(_readme(manifest, quality), encoding="utf-8")
+ 
+     validation = validate_evidence_package(package_dir)
+     if not validation.ok:
+         write_json(package_dir / "qa" / "contract_validation.json", validation.as_dict())
+     return package_dir
+ 
+ 
++def _content_list_enhanced(document_full: dict[str, Any]) -> dict[str, Any]:
++    enhanced = document_full.get("content_list_enhanced")
++    return enhanced if isinstance(enhanced, dict) else {}
++
++
++def _write_parser_artifacts(
++    package_dir: Path,
++    parser_result_dir: Path,
++    document_full: dict[str, Any],
++    financial_data: dict[str, Any],
++    financial_checks: dict[str, Any],
++) -> None:
++    enhanced = _content_list_enhanced(document_full)
++    tables = enhanced.get("tables") if isinstance(enhanced.get("tables"), list) else []
++    relations: list[dict[str, Any]] = []
++    for table in tables:
++        if not isinstance(table, dict):
++            continue
++        base = {
++            "table_index": table.get("table_index"),
++            "content_table_source_id": table.get("content_table_source_id"),
++            "pdf_page_number": table.get("pdf_page_number"),
++        }
++        table_relations = table.get("relations") if isinstance(table.get("relations"), list) else []
++        for relation in table_relations:
++            if isinstance(relation, dict):
++                relations.append({**base, **relation})
++    write_json(package_dir / "parser" / "document_full.json", document_full or {})
++    write_json(package_dir / "parser" / "content_list_enhanced.json", enhanced)
++    write_json(package_dir / "parser" / "table_relations.json", {"schema_version": "hk_table_relations_v1", "relations": relations})
++    write_json(
++        package_dir / "parser" / "quality_report.json",
++        read_json(parser_result_dir / "quality_report.json", {"schema_version": "hk_parser_quality_report_v1", "overall_status": "unknown", "warnings": []}),
++    )
++    write_json(
++        package_dir / "parser" / "financial_data.json",
++        read_json(parser_result_dir / "financial_data.json", financial_data),
++    )
++    write_json(
++        package_dir / "parser" / "financial_checks.json",
++        read_json(parser_result_dir / "financial_checks.json", financial_checks),
++    )
++
++
++def _write_report_complete(package_dir: Path, markdown: str, document_full: dict[str, Any], quality: dict[str, Any]) -> None:
++    enhanced = _content_list_enhanced(document_full)
++    footnotes = enhanced.get("footnotes") if isinstance(enhanced.get("footnotes"), dict) else {}
++    toc = enhanced.get("toc") if isinstance(enhanced.get("toc"), dict) else {}
++    note_links = enhanced.get("financial_note_links") if isinstance(enhanced.get("financial_note_links"), dict) else {}
++    pages = enhanced.get("pages") if isinstance(enhanced.get("pages"), list) else []
++    tables = enhanced.get("tables") if isinstance(enhanced.get("tables"), list) else []
++    sections = [
++        markdown.rstrip(),
++        "## 可恢复结构摘要",
++        json.dumps({"parser_quality_status": quality.get("parser_status"), "table_count": len(tables), "page_count": len(pages)}, ensure_ascii=False, indent=2),
++        "## 目录候选",
++        json.dumps(toc or {"headings": [], "toc_candidates": [], "content_headings": [], "summary": {}}, ensure_ascii=False, indent=2),
++        "## 脚注摘要",
++        json.dumps(footnotes or {"references": [], "definitions": [], "bindings": [], "summary": {}}, ensure_ascii=False, indent=2),
++        "## 附注关系摘要",
++        json.dumps(note_links or {"links": [], "summary": {}}, ensure_ascii=False, indent=2),
++        "## 图片/表格摘要",
++        json.dumps({"pages": pages, "tables": tables}, ensure_ascii=False, indent=2),
++    ]
++    content = "\n\n".join(part for part in sections if part) + "\n"
++    (package_dir / "sections" / "report_complete.md").write_text(content, encoding="utf-8")
++
++
++def _write_enhancement_qa(package_dir: Path, document_full: dict[str, Any]) -> None:
++    enhanced = _content_list_enhanced(document_full)
++    write_json(package_dir / "qa" / "footnotes.json", {
++        "schema_version": "hk_footnotes_v1",
++        "payload": enhanced.get("footnotes") or {"references": [], "definitions": [], "bindings": [], "summary": {}},
++    })
++    write_json(package_dir / "qa" / "toc.json", {
++        "schema_version": "hk_toc_v1",
++        "payload": enhanced.get("toc") or {"headings": [], "toc_candidates": [], "content_headings": [], "summary": {}},
++    })
++    write_json(package_dir / "qa" / "financial_note_links.json", {
++        "schema_version": "hk_financial_note_links_v1",
++        "payload": enhanced.get("financial_note_links") or {"links": [], "summary": {}},
++    })
++    write_json(package_dir / "qa" / "table_quality_signals.json", {
++        "schema_version": "hk_table_quality_signals_v1",
++        "payload": enhanced.get("quality_signals") or {"signals": [], "summary": {}},
++    })
++
++
+ def _write_tables(package_dir: Path, tables: list[ParsedTable]) -> list[dict[str, Any]]:
+     rows: list[dict[str, Any]] = []
+     for table in tables:
+         table_index = table.table_index or len(rows) + 1
+         item = {
+             "table_id": table.table_id,
+             "table_index": table_index,
+             "title": table.title,
+             "page_number": table.page_number,
+             "row_count": len(table.rows),
+diff --git a/services/market-report-rules/tests/test_hk_evidence_package.py b/services/market-report-rules/tests/test_hk_evidence_package.py
+index cc7b4e2..0eb3b5d 100644
+--- a/services/market-report-rules/tests/test_hk_evidence_package.py
++++ b/services/market-report-rules/tests/test_hk_evidence_package.py
+@@ -33,26 +33,71 @@ def test_build_hk_evidence_package_from_parser_result(tmp_path, monkeypatch):
+     parser_dir = tmp_path / "parser"
+     parser_dir.mkdir()
+     table = (
+         "<table>"
+         "<tr><td></td><td>2025</td><td>2024</td></tr>"
+         "<tr><td>Total assets</td><td>1000</td><td>900</td></tr>"
+         "<tr><td>Total liabilities</td><td>600</td><td>550</td></tr>"
+         "<tr><td>Total equity</td><td>400</td><td>350</td></tr>"
+         "</table>"
+     )
++    write_json(parser_dir / "quality_report.json", {"overall_status": "ok", "warnings": []})
+     write_json(
+         parser_dir / "document_full.json",
+         {
+             "task": {"filename": pdf.name},
+-            "markdown": {"content": "# TENCENT\n"},
+-            "content_list": [{"type": "table", "table_body": table, "table_caption": ["Consolidated Statement of Financial Position"], "page_idx": 87}],
+-            "content_list_enhanced": {"tables": [{"table_index": 1, "content_table_source_id": 1, "pdf_page_number": 88}]},
++            "markdown": {"content": "# TENCENT\n\n管理层讨论与分析。\n"},
++            "content_list": [
++                {
++                    "type": "table",
++                    "table_body": table,
++                    "table_caption": ["Consolidated Statement of Financial Position"],
++                    "page_idx": 87,
++                }
++            ],
++            "content_list_enhanced": {
++                "footnotes": {
++                    "references": [{"id": "fn_ref_1", "marker": "1", "page": 88}],
++                    "definitions": [{"id": "fn_def_1", "marker": "1", "text": "Footnote definition"}],
++                    "bindings": [{"reference_id": "fn_ref_1", "definition_id": "fn_def_1"}],
++                    "summary": {"count": 1},
++                },
++                "toc": {
++                    "headings": [{"level": 1, "title": "管理层讨论与分析", "page": 3}],
++                    "toc_candidates": [{"title": "Financial Highlights", "page": 2}],
++                    "content_headings": [{"title": "Consolidated Financial Statements", "page": 88}],
++                    "summary": {"count": 3},
++                },
++                "financial_note_links": {
++                    "links": [{"statement": "balance_sheet", "note": "1", "page": 88}],
++                    "summary": {"count": 1},
++                },
++                "quality_signals": {
++                    "signals": [{"type": "table_header", "status": "ok", "page": 88}],
++                    "summary": {"count": 1},
++                },
++                "tables": [{"table_index": 1, "content_table_source_id": 1, "pdf_page_number": 88, "relations": [{"target_table_index": 1, "relation_type": "statement_note"}]}],
++                "pages": [{"page_number": 88, "image_count": 0, "table_count": 1}],
++            },
+         },
+     )
+ 
+     package_dir = write_hk_evidence_package(pdf, parser_dir, tmp_path / "wiki", metadata, force=True)
+     result = validate_evidence_package(package_dir)
+ 
++    expected_files = [
++        "parser/document_full.json",
++        "parser/content_list_enhanced.json",
++        "parser/table_relations.json",
++        "sections/report_complete.md",
++        "qa/footnotes.json",
++        "qa/toc.json",
++        "qa/financial_note_links.json",
++        "qa/table_quality_signals.json",
++    ]
++
+     assert result.ok, result.errors
+     assert (package_dir / "metrics" / "load_plan.json").is_file()
+     assert (package_dir / "qa" / "source_map.json").is_file()
++    for rel_path in expected_files:
++        assert (package_dir / rel_path).is_file(), rel_path
++        assert rel_path in result.manifest["artifact_hashes"]

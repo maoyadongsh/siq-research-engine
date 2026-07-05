@@ -1,0 +1,231 @@
+# Review package: 7605b7aead82c2abeb190ef664d11b165eaf5b3b..5e085e95e91029af4fd8739c1aa4b35f69c76fbf
+
+## Commits
+5e085e9 fix: preserve hk package-local inputs on rebuild
+
+## Files changed
+ scripts/hk/hk_evidence_lib.py                      | 37 +++++++++--
+ .../tests/test_hk_evidence_package.py              | 75 ++++++++++++++++++++++
+ 2 files changed, 106 insertions(+), 6 deletions(-)
+
+## Diff
+diff --git a/scripts/hk/hk_evidence_lib.py b/scripts/hk/hk_evidence_lib.py
+index 8d23652..f0cc6e2 100644
+--- a/scripts/hk/hk_evidence_lib.py
++++ b/scripts/hk/hk_evidence_lib.py
+@@ -1,19 +1,20 @@
+ from __future__ import annotations
+ 
+ import html
+ import hashlib
+ import json
+ import os
+ import re
+ import shutil
+ import sys
++import tempfile
+ from html.parser import HTMLParser
+ from pathlib import Path
+ from typing import Any
+ 
+ REPO_ROOT = Path(__file__).resolve().parents[2]
+ RULES_SRC = REPO_ROOT / "services" / "market-report-rules" / "src"
+ if str(RULES_SRC) not in sys.path:
+     sys.path.insert(0, str(RULES_SRC))
+ 
+ from market_report_rules_service.contracts import financial_checks_contract, financial_data_contract
+@@ -225,31 +226,47 @@ def write_hk_evidence_package(
+     *,
+     force: bool = False,
+ ) -> Path:
+     artifact, metadata, document_full = build_hk_artifact(pdf_path, parser_result_dir, metadata_path)
+     result = process_artifact(artifact, include_load_plan=True)
+     financial_data = financial_data_contract(result.extraction)
+     financial_checks = financial_checks_contract(result.validation)
+ 
+     filing_key = metadata["accession_number"] or stable_id(pdf_path.name)[:12]
+     package_dir = output_root / artifact.ticker / str(artifact.fiscal_year or "unknown") / f"{artifact.report_type}_{filing_key}"
++    source_pdf_path = pdf_path
++    source_metadata_path = metadata_path
++    staged_inputs = None
+     if package_dir.exists() and force:
++        staged_inputs = tempfile.TemporaryDirectory(prefix="hk-package-inputs-")
++        staged_root = Path(staged_inputs.name)
++        if _path_is_within(pdf_path, package_dir):
++            source_pdf_path = staged_root / "report.pdf"
++            shutil.copy2(pdf_path, source_pdf_path)
++        if metadata_path and metadata_path.exists() and _path_is_within(metadata_path, package_dir):
++            source_metadata_path = staged_root / "report.metadata.json"
++            shutil.copy2(metadata_path, source_metadata_path)
+         shutil.rmtree(package_dir)
+     package_dir.mkdir(parents=True, exist_ok=True)
+     for name in ("raw", "sections", "tables", "xbrl", "metrics", "qa", "parser"):
+         (package_dir / name).mkdir(exist_ok=True)
+ 
+-    shutil.copy2(pdf_path, package_dir / "raw" / "report.pdf")
+-    if metadata_path and metadata_path.exists():
+-        shutil.copy2(metadata_path, package_dir / "raw" / "report.metadata.json")
+-    else:
+-        write_json(package_dir / "raw" / "report.metadata.json", metadata.get("raw_metadata") or {})
++    try:
++        source_pdf_sha256 = _sha256_file(source_pdf_path)
++        shutil.copy2(source_pdf_path, package_dir / "raw" / "report.pdf")
++        if source_metadata_path and source_metadata_path.exists():
++            shutil.copy2(source_metadata_path, package_dir / "raw" / "report.metadata.json")
++        else:
++            write_json(package_dir / "raw" / "report.metadata.json", metadata.get("raw_metadata") or {})
++    finally:
++        if staged_inputs is not None:
++            staged_inputs.cleanup()
+ 
+     markdown = _markdown_from_document_full(document_full, parser_result_dir)
+     (package_dir / "sections" / "report.md").write_text(markdown, encoding="utf-8")
+     _write_section_index(package_dir, markdown, document_full)
+     table_index = _write_tables(package_dir, artifact.tables)
+     write_json(package_dir / "xbrl" / "facts_raw.json", {"schema_version": "hk_xbrl_facts_raw_v1", "facts": []})
+     parser_quality = read_json(parser_result_dir / "quality_report.json", {})
+ 
+     manifest = {
+         "schema_version": SCHEMA_VERSION,
+@@ -274,21 +291,21 @@ def write_hk_evidence_package(
+         "parser_version": PARSER_VERSION,
+         "rules_version": RULES_VERSION,
+         "quality_status": financial_checks.get("overall_status") or "warning",
+         "artifact_hashes": {},
+         "accession_number": metadata["accession_number"],
+         "language": metadata.get("language"),
+         "report_language": metadata.get("language") or "unknown",
+         "parser_result_dir": str(parser_result_dir),
+         "pdf_parser_task_id": str(parser_result_dir.name),
+         "pdf_parser_quality_status": parser_quality.get("overall_status") or parser_quality.get("status") or "unknown",
+-        "source_pdf_sha256": _sha256_file(pdf_path),
++        "source_pdf_sha256": source_pdf_sha256,
+         "industry_profile": artifact.industry_profile or metadata.get("industry_profile") or "general",
+     }
+     manifest["parse_run_id"] = result.load_plan.parse_run_id if result.load_plan else stable_parse_run_id(manifest, {})
+     source_map = source_map_from_financial_data(manifest=manifest, financial_data=financial_data, package_dir=package_dir)
+     normalized_metrics = normalized_metrics_from_financial_data(manifest=manifest, financial_data=financial_data, source_map=source_map)
+     quality = build_quality_report(
+         manifest=manifest,
+         financial_data=financial_data,
+         financial_checks=financial_checks,
+         section_count=1 if markdown else 0,
+@@ -323,20 +340,28 @@ def write_hk_evidence_package(
+     manifest["artifact_hashes"] = compute_artifact_hashes(package_dir)
+     write_json(package_dir / "manifest.json", manifest)
+     (package_dir / "README.md").write_text(_readme(manifest, quality), encoding="utf-8")
+ 
+     validation = validate_evidence_package(package_dir)
+     if not validation.ok:
+         write_json(package_dir / "qa" / "contract_validation.json", validation.as_dict())
+     return package_dir
+ 
+ 
++def _path_is_within(path: Path, parent: Path) -> bool:
++    try:
++        path.resolve().relative_to(parent.resolve())
++    except ValueError:
++        return False
++    return True
++
++
+ def _content_list_enhanced(document_full: dict[str, Any]) -> dict[str, Any]:
+     enhanced = document_full.get("content_list_enhanced")
+     if not isinstance(enhanced, dict):
+         return {}
+     tables = enhanced.get("tables") if isinstance(enhanced.get("tables"), list) else []
+     normalized_tables: list[dict[str, Any]] = []
+     for table in tables:
+         if not isinstance(table, dict):
+             continue
+         normalized_table = dict(table)
+diff --git a/services/market-report-rules/tests/test_hk_evidence_package.py b/services/market-report-rules/tests/test_hk_evidence_package.py
+index 0c2ea40..fd5ec8e 100644
+--- a/services/market-report-rules/tests/test_hk_evidence_package.py
++++ b/services/market-report-rules/tests/test_hk_evidence_package.py
+@@ -213,10 +213,85 @@ def test_build_hk_evidence_package_preserves_parser_financial_files_and_normaliz
+         "toc": {},
+         "financial_note_links": {},
+         "quality_signals": {},
+         "tables": [{"table_index": 1, "content_table_source_id": 1, "pdf_page_number": 88, "relations": []}],
+         "pages": [],
+     }
+     assert json.loads((package_dir / "parser" / "table_relations.json").read_text(encoding="utf-8")) == {
+         "schema_version": "hk_table_relations_v1",
+         "relations": [],
+     }
++
++
++def test_force_rebuild_preserves_package_local_source_inputs(tmp_path, monkeypatch):
++    repo_root = Path(__file__).resolve().parents[3]
++    scripts_hk = repo_root / "scripts" / "hk"
++    monkeypatch.syspath_prepend(str(scripts_hk))
++    from hk_evidence_lib import write_hk_evidence_package, write_json
++
++    pdf = tmp_path / "TENCENT_HK_00700_2025-12-31_年报_2026-04-09_hkex_test.pdf"
++    pdf.write_bytes(b"%PDF-1.4")
++    metadata = pdf.with_suffix(pdf.suffix + ".metadata.json")
++    write_json(
++        metadata,
++        {
++            "candidate": {
++                "source_id": "hkex",
++                "market": "HK",
++                "ticker": "00700",
++                "company_id": "00700",
++                "company_name": "TENCENT",
++                "report_type": "annual",
++                "form": "annual",
++                "accession_number": "12100024",
++                "report_end": "2025-12-31",
++                "published_at": "2026-04-09",
++                "document_url": "https://www1.hkexnews.hk/test.pdf",
++            }
++        },
++    )
++    parser_dir = tmp_path / "parser"
++    parser_dir.mkdir()
++    table = (
++        "<table>"
++        "<tr><td></td><td>2025</td><td>2024</td></tr>"
++        "<tr><td>Total assets</td><td>1000</td><td>900</td></tr>"
++        "<tr><td>Total liabilities</td><td>600</td><td>550</td></tr>"
++        "<tr><td>Total equity</td><td>400</td><td>350</td></tr>"
++        "</table>"
++    )
++    write_json(parser_dir / "quality_report.json", {"overall_status": "ok", "warnings": []})
++    write_json(
++        parser_dir / "document_full.json",
++        {
++            "task": {"filename": pdf.name},
++            "markdown": {"content": "# TENCENT\n\n管理层讨论与分析。\n"},
++            "content_list": [
++                {
++                    "type": "table",
++                    "table_body": table,
++                    "table_caption": ["Consolidated Statement of Financial Position"],
++                    "page_idx": 87,
++                }
++            ],
++            "content_list_enhanced": {
++                "footnotes": {},
++                "toc": {},
++                "financial_note_links": {},
++                "quality_signals": {},
++                "tables": [{"table_index": 1, "content_table_source_id": 1, "pdf_page_number": 88, "relations": []}],
++                "pages": [],
++            },
++        },
++    )
++
++    package_dir = write_hk_evidence_package(pdf, parser_dir, tmp_path / "wiki", metadata, force=True)
++    package_pdf = package_dir / "raw" / "report.pdf"
++    package_metadata = package_dir / "raw" / "report.metadata.json"
++
++    rebuilt_dir = write_hk_evidence_package(package_pdf, parser_dir, tmp_path / "wiki", package_metadata, force=True)
++    result = validate_evidence_package(rebuilt_dir)
++
++    assert rebuilt_dir == package_dir
++    assert package_pdf.is_file()
++    assert package_metadata.is_file()
++    assert result.ok, result.errors
