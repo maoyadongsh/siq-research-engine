@@ -62,3 +62,27 @@ SIQ_START_VECTOR_INGEST=1 ./start_all.sh
 - collection schema 或 metadata contract 变化时，要同步检查 Agent 检索消费侧。
 - embedding 模型切换时，要显式记录向量维度、metric 和 index 参数。
 - 文档型 README 应始终强调“Milvus 是语义层，不是事实层”。
+
+常用本地模型环境变量示例：
+
+```bash
+export VLLM_EMBED_MODEL=qwen3-vl-embedding-2b
+export VLLM_EMBED_MODEL_FALLBACK=Qwen3-VL-Embedding-2B
+export MINERU_API_URL=http://127.0.0.1:8003
+export VLM_API_URL=http://127.0.0.1:8002
+```
+
+云端 embedding 可按需配置：
+
+```bash
+export DASHSCOPE_API_KEY=...
+export MINIMAX_API_KEY=...
+export MINIMAX_EMBED_MODEL=embo-01
+```
+
+- `project_tag` 必须稳定，建议使用 `SIQ-{项目或公司}-{年份}`。
+- 多市场财报 evidence package 入库必须保留公司级 Wiki 路径。日本市场主入口是 `data/wiki/jp/companies/<ticker>-<company>/reports/<report_id>/`，metadata 中应同时保留 `company_wiki_path`、`wiki_report_path` 和 `report_id`；`jp_reports` 等旧路径只作兼容来源。
+- 重置 collection 前确认已有数据可重建。
+- API key 和数据库口令只放环境变量，不写入脚本和 README。
+- 大文件先小批量试跑，检查质量报告后再全量入库。
+- 运行态文件如 `.progress_*`、`.ingest_runtime_state.json`、`.mineru_ingest_cache/`、`ingest_quality_reports/` 不作为源码提交。

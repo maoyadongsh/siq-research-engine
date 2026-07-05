@@ -28,6 +28,16 @@
 | `scripts/kr` | 韩股 package 构建与批处理 |
 | `scripts/eu` | 欧股 PDF / ESEF package 构建与批处理 |
 
+## 多市场 Wiki 迁移
+
+日本市场旧版 `data/wiki/jp_reports/<ticker>/<year>/<report>_doc/` 只作历史兼容来源。需要把旧包迁入公司级 Wiki 主路径时运行：
+
+`PYTHONPATH=scripts/jp:services/market-report-rules/src:scripts/hk python3 scripts/jp/migrate_jp_reports_to_company_wiki.py --force`
+
+日本市场如果只有 PDF parser 产物、没有旧 `jp_reports` package，可直接从已完成的 parser 结果重建公司级 Wiki 包：
+
+`PYTHONPATH=scripts/jp:services/market-report-rules/src:scripts/hk python3 scripts/jp/ingest_jp_parser_results.py --force`
+
 ## 典型用法
 
 ### 基础脚本健全性检查
