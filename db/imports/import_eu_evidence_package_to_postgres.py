@@ -234,7 +234,7 @@ def _upsert_parse_run(
             manifest["filing_id"],
             manifest.get("parser_version"),
             manifest.get("rules_version"),
-            str(package_dir),
+            manifest.get("wiki_report_path") or manifest.get("package_path") or str(package_dir),
             quality.get("overall_status") or manifest.get("quality_status") or "warning",
             Jsonb(warnings),
             Jsonb(artifact_hashes),

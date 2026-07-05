@@ -130,6 +130,9 @@ export interface QualityReport {
   market?: string
   accounting_standard?: string
   industry_profile?: string
+  detected_currencies?: string[]
+  currency?: string
+  unit?: string
   table_count?: number
   single_row_table_count?: number
   single_row_table_ratio?: number
@@ -147,9 +150,13 @@ export interface QualityReport {
 
 export interface FinancialData {
   market?: string
+  market_profile?: string
   accounting_standard?: string
   industry_profile?: string
   report_year?: string
+  currency?: string
+  unit?: string
+  detected_currencies?: string[]
   summary?: { statement_count?: number; key_metric_count?: number; operating_metric_count?: number; scopes?: string[] }
   statements?: unknown[]
   key_metrics?: unknown[]
@@ -158,8 +165,13 @@ export interface FinancialData {
 
 export interface FinancialChecks {
   market?: string
+  market_profile?: string
+  accounting_standard?: string
+  currency?: string
+  unit?: string
+  detected_currencies?: string[]
   overall_status?: string
-  summary?: { pass?: number; fail?: number; skipped?: number }
+  summary?: { total?: number; pass?: number; fail?: number; warning?: number; skipped?: number }
   checks?: Array<Record<string, unknown>>
   warnings?: string[]
 }

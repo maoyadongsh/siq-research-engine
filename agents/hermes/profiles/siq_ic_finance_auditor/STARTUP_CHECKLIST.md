@@ -1,0 +1,170 @@
+# SIQ 财务专家启动检查清单 (STARTUP_CHECKLIST.md)
+
+**Agent ID**: `siq_ic_finance_auditor`
+**版本**: v1.0 | **生效日期**: 2026-05-01
+**规则状态**: 🔒 已固化 — 任何项目任务执行前**必须**完成本清单
+
+---
+
+## 一、强制启动协议（任务触发后自动执行）
+
+收到任何项目任务后，在输出财务观点前，**必须**按以下顺序完成 Milvus 双库检索。
+
+### ☐ 步骤一：环境确认
+
+| 检查项 | 命令/方法 | 通过标准 |
+|--------|----------|---------|
+| Milvus 服务状态 | `python3 -c "from pymilvus import connections; connections.connect('default', host='localhost', port='19530'); print('OK')"` | 连接成功 |
+| Embedding 服务 | `curl -s http://127.0.0.1:8000/v1/embeddings` | HTTP 200 |
+| Rerank 服务 | `curl -s http://127.0.0.1:8001/v1/rerank` | HTTP 200 |
+| 检索脚本可用 | `test -f ~/.../scripts/SIQ startup-retrieval API` | 文件存在 |
+
+### ☐ 步骤二：获取项目标签
+
+1. 读取 `data/wiki/deals/{deal_id}/project_brief.md`
+2. 提取 `项目标签` 字段（如 `dajin`）
+3. **重要**：Milvus 中实际存储的 `project_tag` 可能与项目标签不同（如 `ingest_0430_2033`），需通过采样查询确认
+
+```python
+# 确认实际 project_tag
+from pymilvus import Collection
+Collection("siq_deal_shared").query(
+    expr="", output_fields=["project_tag"], limit=5
+)
+```
+
+### ☐ 步骤三：共享项目底稿检索（siq_deal_shared）
+
+**Collection**: `siq_deal_shared`
+**方法**: `SIQ startup-retrieval API` 优先，降级用 `pymilvus` 直接向量搜索
+**检索关键词模板**（财务专家专用）：
+
+```
+{company_name} 收入 利润 现金流 估值 财务
+{company_name} 可比公司 估值倍数 PE PB
+{company_name} 客户 订单 产能 毛利率
+```
+
+**优先关注**: 收入模式、成本结构、融资事实、营运资本线索
+**目标**: Top-20 去重证据
+**阅读要求**: 必须浏览返回证据的摘要内容
+
+### ☐ 步骤四：私有知识库检索（siq_ic_finance_auditor）
+
+**Collection**: `siq_ic_finance_auditor`（必须与 agent_id 一致）
+**方法**: 同上
+**检索关键词模板**（财务专家专用）：
+
+```
+Pre-IPO 估值 DCF 可比公司 装备制造 港股上市 锚定投资
+财务尽调 收入确认 现金流 毛利率 单位经济
+国资条款 退出框架 对赌 回购 清算优先
+```
+
+**优先关注**: 阶段估值方法、单位经济模型、国资条款、退出框架
+**目标**: Top-20 去重证据
+**阅读要求**: 必须浏览返回证据的摘要内容
+
+### ☐ 步骤五：本地底稿 Fallback
+
+无论 Milvus 检索是否成功，**必须**读取本地底稿：
+
+```
+data/wiki/deals/{deal_id}/
+  ├── project_brief.md          (必读)
+  ├── R0_信息校验报告.md         (必读)
+  ├── r1_finance_auditor_report*.md  (如存在，必读)
+  ├── r2_finance_auditor_report*.md  (如存在，必读)
+  └── *.json 数据文件            (按需)
+```
+
+### ☐ 步骤六：深度学习与交叉验证
+
+- [ ] 先看共享底稿中的 **verified** 财务数字
+- [ ] 再看私有知识库中的估值方法论
+- [ ] 所有数字必须标注 `verified` 或 `assumed`
+- [ ] 没完成双库检索时 **不得** 直接输出估值建议
+
+---
+
+## 二、检索失败降级方案（按优先级）
+
+| 优先级 | 失败场景 | 降级动作 | 报告标注 |
+|--------|---------|---------|---------|
+| 1 | `SIQ startup-retrieval API` rerank 超时 | 改用 `pymilvus` 直接执行向量搜索 | "检索方式降级：rerank超时，改用纯向量搜索，置信度调整为 Medium" |
+| 2 | `SIQ startup-retrieval API` 嵌入服务失败 | 改用 `pymilvus` 直接搜索（若 embedding 缓存可用）或读取本地底稿 | "检索方式降级：嵌入服务不可用，退化为本地文件读取，置信度调整为 Low" |
+| 3 | Milvus 连接失败 | 退化为读取本地 `data/wiki/deals/{deal_id}/` 底稿文件 | "检索方式降级：Milvus连接失败，退化为本地文件读取，置信度调整为 Low" |
+| 4 | project_tag 不匹配 | 先采样确认实际 tag 值，再执行无过滤搜索 + 本地过滤 | "检索方式降级：project_tag不匹配，改用采样确认后搜索" |
+
+**强制要求**: 任何降级必须在最终报告中注明 `"检索方式降级，置信度调整"`
+
+---
+
+## 三、检索后观点发表规则
+
+### 必须先完成的检查
+
+- [ ] 双库检索已完成（或已执行降级并标注）
+- [ ] 本地底稿已阅读
+- [ ] Verified vs Assumed 已区分
+- [ ] 红旗项已识别（如有，评分上限 60）
+- [ ] 未验证假设已计数（>3项则评分≤70）
+
+### 输出格式强制要求
+
+每份专家报告**必须包含**以下结构：
+
+1. **综合评分**: 0-100 分整数
+2. **子维度评分**: 根据自身分析框架拆解
+3. **置信度**: High / Medium / Low（受检索方式影响）
+4. **红旗项**: 存在即扣分的硬伤（如有则评分上限 60）
+5. **已验证事实** vs **未验证假设**: 明确区分
+6. **开放问题**: 需要进一步尽调的待定事项
+
+### 评分纪律
+
+- 置信度 Low 时，分数浮动范围 ±15
+- 存在红旗项，评分不得超过 60（除非有充分对冲方案）
+- 未验证假设超过 3 项，评分不得超过 70
+- 数据来源必须标注（verified / assumed / estimated）
+
+---
+
+## 四、快速参考：常用项目目录
+
+| 项目 | 目录 | 项目标签 | Milvus Tag |
+|------|------|---------|-----------|
+| 大金重工港股锚定 | `SIQ-大金重工-20260430` | `dajin` | `ingest_0430_2033` |
+| SJSEMI | `SIQ-SJSEMI-2026-0422` | — | — |
+| 宇树科技 | `SIQ-YUSHU-2026-002` | — | — |
+
+---
+
+## 五、自动化入口（SIQ/Hermes）
+
+在 Hermes 中不再直接执行 OpenClaw 本地检索脚本。财务专家使用 Deal OS 后端：
+
+```text
+POST /api/deals/{deal_id}/agents/siq_ic_finance_auditor/startup-retrieval
+```
+
+请求体：
+
+```json
+{
+  "round_name": "R1",
+  "query": "{company_name} 收入 利润 现金流 估值 财务",
+  "limit": 20
+}
+```
+
+若 API 不可用，降级读取 `data/wiki/deals/{deal_id}` 项目包，并在报告中标注 `retrieval_degraded`。
+
+---
+
+**固化确认**: 本清单于 2026-05-01 由 siq_ic_finance_auditor 固化，经 Milvus 双库检索验证后生效。
+**下次审阅**: 2026-06-01 或新技能发布后
+
+---
+
+*📊 SIQ 投委会财务专家 | Precision, skepticism, stage-aware valuation*

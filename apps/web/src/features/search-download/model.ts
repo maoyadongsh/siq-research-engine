@@ -208,13 +208,13 @@ export const MARKET_CONFIGS: Record<MarketCode, MarketConfig> = {
     shortLabel: 'JP',
     queryLabel: '日本证券代码 / 公司名称 / EDINET Code',
     queryPlaceholder: '如：7203、トヨタ自動車 或 E02144',
-    helpText: '使用日本公司 IR 官方 PDF、EDINET 与 TDnet；无 EDINET_API_KEY 时可下载主流公司 IR 年报。',
+    helpText: '主年报链路使用 EDINET 有价证券报告书；Integrated Report 仅作为显式选择的辅助 IR 资料。',
     emptyText: '输入日股证券代码、EDINET Code 或公司名称开始检索',
     quickOptions: [
-      { label: '有价证券报告书', types: ['annual'] },
+      { label: '有价证券报告书', types: ['yuho'] },
       { label: '半期报告书', types: ['semiannual'] },
       { label: '季度报告书', types: ['quarterly'] },
-      { label: '全部下载', types: ['annual', 'semiannual', 'quarterly'], primary: true },
+      { label: '全部下载', types: ['yuho', 'semiannual', 'quarterly'], primary: true },
     ],
   },
 }
@@ -225,6 +225,8 @@ export const typeLabels: Record<string, string> = {
   quarterly: '季报',
   q1: '一季报',
   q3: '三季报',
+  yuho: '有价证券报告书',
+  'integrated-report': 'Integrated Report',
   '10-K': '10-K',
   '10-Q': '10-Q',
   '20-F': '20-F',
@@ -238,6 +240,8 @@ export const typeStyles: Record<string, string> = {
   quarterly: 'secondary-table-chip',
   q1: 'secondary-table-chip',
   q3: 'secondary-table-chip',
+  yuho: 'secondary-table-chip',
+  'integrated-report': 'secondary-table-chip',
   '10-K': 'secondary-table-chip',
   '10-Q': 'secondary-table-chip',
   '20-F': 'secondary-table-chip',
@@ -260,7 +264,7 @@ export function isRemoteConfigError(message: string) {
 
 export function friendlyRemoteConfigError(message: string) {
   if (message.includes('EDINET_API_KEY')) {
-    return '日股 EDINET 全量法定披露需要后端配置 EDINET_API_KEY；当前仍可使用公司 IR 官方 PDF 与 TDnet 免费披露。'
+    return '日股完整法定年报下载需要后端配置 EDINET_API_KEY；Integrated Report/IR PDF 只作为辅助资料，不再作为主年报兜底。'
   }
   if (message.includes('DART_API_KEY')) {
     return '韩股 OpenDART ZIP 下载需要后端配置 DART_API_KEY；当前仍可使用 DART 官方 PDF 下载主流公司年报。'

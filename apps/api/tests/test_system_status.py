@@ -86,6 +86,7 @@ def _ic_services(result: dict) -> list[dict]:
 def test_system_status_marks_ic_hermes_disabled_by_default(monkeypatch):
     monkeypatch.delenv("SIQ_ENABLE_IC_HERMES", raising=False)
     calls = _install_status_stubs(monkeypatch)
+    monkeypatch.setattr(system_status, "_health_url_is_open", lambda url: False)
 
     result = asyncio.run(system_status.collect_system_status())
 
@@ -98,9 +99,25 @@ def test_system_status_marks_ic_hermes_disabled_by_default(monkeypatch):
     assert all(service["status"] == "disabled" for service in ic_services)
 
 
+def test_system_status_probes_running_ic_hermes_even_when_env_disabled(monkeypatch):
+    monkeypatch.delenv("SIQ_ENABLE_IC_HERMES", raising=False)
+    calls = _install_status_stubs(monkeypatch)
+    monkeypatch.setattr(system_status, "_health_url_is_open", lambda url: "1866" in url)
+
+    result = asyncio.run(system_status.collect_system_status())
+
+    ic_services = _ic_services(result)
+    assert result["status"] == "ok"
+    assert len(ic_services) == 7
+    assert len([call for call in calls if call.startswith("hermes_siq_ic_")]) == 7
+    assert all(service["enabled"] is True for service in ic_services)
+    assert all(service["status"] == "running" for service in ic_services)
+
+
 def test_system_status_probes_ic_hermes_when_enabled(monkeypatch):
     monkeypatch.setenv("SIQ_ENABLE_IC_HERMES", "1")
     calls = _install_status_stubs(monkeypatch, {"hermes_siq_ic_chairman"})
+    monkeypatch.setattr(system_status, "_health_url_is_open", lambda url: False)
 
     result = asyncio.run(system_status.collect_system_status())
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from market_report_finder_service.data.foreign_aliases import foreign_alias_entry
 from market_report_finder_service.models.schemas import (
     Market,
     ReportAssistCandidate,
@@ -14,34 +15,6 @@ from market_report_finder_service.models.schemas import (
 
 
 class ReportAssistService:
-    KR_ALIASES = {
-        "三星": ("005930", "삼성전자", "00126380"),
-        "三星电子": ("005930", "삼성전자", "00126380"),
-        "samsung": ("005930", "Samsung Electronics", "00126380"),
-        "samsung electronics": ("005930", "Samsung Electronics", "00126380"),
-        "现代汽车": ("005380", "현대자동차", None),
-        "hyundai": ("005380", "Hyundai Motor", None),
-        "sk海力士": ("000660", "SK하이닉스", None),
-        "sk hynix": ("000660", "SK hynix", None),
-    }
-    JP_ALIASES = {
-        "丰田": ("7203", "トヨタ自動車", "E02144"),
-        "丰田汽车": ("7203", "トヨタ自動車", "E02144"),
-        "toyota": ("7203", "Toyota Motor", "E02144"),
-        "索尼": ("6758", "ソニーグループ", "E01777"),
-        "sony": ("6758", "Sony Group", "E01777"),
-        "任天堂": ("7974", "任天堂", None),
-        "nintendo": ("7974", "Nintendo", None),
-        "铠侠": ("285A", "キオクシアホールディングス", None),
-        "鎧俠": ("285A", "キオクシアホールディングス", None),
-        "铠侠控股": ("285A", "キオクシアホールディングス", None),
-        "kioxia": ("285A", "Kioxia Holdings", None),
-        "住友重工": ("6302", "住友重機械工業", None),
-        "住友重机械": ("6302", "住友重機械工業", None),
-        "住友重機械": ("6302", "住友重機械工業", None),
-        "sumitomo heavy": ("6302", "Sumitomo Heavy Industries", None),
-    }
-
     def assist(self, request: ReportAssistRequest) -> ReportAssistResponse:
         intent = self._parse_intent(request)
         explanations = [self._explain_candidate(candidate, intent) for candidate in request.candidates]
@@ -65,7 +38,7 @@ class ReportAssistService:
             notes.append(f"根据常见别名识别为 {alias_name} / {alias_ticker}")
         if alias_company_id and not company_id:
             company_id = alias_company_id
-        if alias_name and not company_query:
+        if alias_name and market in {Market.us, Market.eu}:
             company_query = alias_name
 
         if not report_types:
@@ -127,10 +100,15 @@ class ReportAssistService:
             return Market.jp
         if any(token in text for token in ("港股", "hkex", ".hk")):
             return Market.hk
-        if any(token in text for token in ("美股", "sec", "10-k", "10-q", "aapl", "msft")):
+        if any(token in text for token in ("美股", "sec", "10-k", "10-q", "aapl", "msft", "amzn", "苹果", "亚马逊", "微软")):
             return Market.us
+        if any(token in text for token in ("欧股", "欧洲", "asml", "siemens", "airbus", "nestle", "ubs", "阿斯麦", "西门子", "空客", "雀巢", "瑞银")):
+            return Market.eu
         if any(token in text for token in ("a股", "巨潮", "cninfo")):
             return Market.cn
+        for alias_market in (Market.jp, Market.kr, Market.us, Market.eu, Market.hk):
+            if foreign_alias_entry(alias_market.value, text):
+                return alias_market
         return None
 
     @staticmethod
@@ -141,7 +119,7 @@ class ReportAssistService:
     @staticmethod
     def _infer_report_types(text: str) -> list[str]:
         types: list[str] = []
-        if any(token in text for token in ("年报", "年度", "annual", "10-k", "20-f", "사업보고서", "有価証券報告書")):
+        if any(token in text for token in ("年报", "年度", "annual", "10-k", "20-f", "사업보고서", "有価証券報告書", "有价证券报告书", "有價證券報告書")):
             types.append("annual")
         if any(token in text for token in ("半年", "半年度", "中报", "半期", "半期報告", "semi", "interim", "반기")):
             types.append("semiannual")
@@ -162,23 +140,25 @@ class ReportAssistService:
             return None
         cleaned = re.sub(r"20\d{2}年?", " ", text)
         cleaned = re.sub(r"(下载|查找|搜索|帮我|请|财报|报告|有价证券报告书|有價證券報告書|年报|年度|半年报|半年度|中报|季报|季度|三季度|一季度|二季度|q[1-4]|Q[1-4])", " ", cleaned)
-        cleaned = re.sub(r"(韩国|韩股|日本|日股|美股|港股|A股|a股)", " ", cleaned)
+        cleaned = re.sub(r"(韩国|韩股|日本|日股|美股|港股|欧股|欧洲|A股|a股)", " ", cleaned)
         cleaned = re.sub(r"\b(年|和|及|与)\b", " ", cleaned)
         cleaned = re.sub(r"\s+", " ", cleaned).strip(" ，,。.")
         if cleaned:
             return cleaned
-        for aliases in (cls.KR_ALIASES if market == Market.kr else cls.JP_ALIASES if market == Market.jp else {}):
-            if aliases in prompt.lower():
-                return aliases
+        alias = foreign_alias_entry(market.value if market else None, prompt)
+        if alias:
+            return str(alias.get("canonical_name") or alias.get("aliases", [""])[0] or "").strip() or None
         return None
 
     @classmethod
     def _alias_for_company(cls, query: str, market: Market | None) -> tuple[str | None, str | None, str | None]:
-        normalized = query.strip().lower()
-        aliases = cls.KR_ALIASES if market == Market.kr else cls.JP_ALIASES if market == Market.jp else {}
-        for key, value in aliases.items():
-            if key.lower() in normalized or normalized in key.lower():
-                return value
+        alias = foreign_alias_entry(market.value if market else None, query)
+        if alias:
+            return (
+                str(alias.get("ticker") or "") or None,
+                str(alias.get("canonical_name") or "") or None,
+                str(alias.get("company_id") or "") or None,
+            )
         return None, None, None
 
     @staticmethod

@@ -22,9 +22,9 @@ STORAGE = MarketStorageProfile(
     market=Market.EU,
     postgres_database="siq",
     postgres_schema="eu_ifrs",
-    wiki_namespace="data/wiki/eu_reports",
+    wiki_namespace="data/wiki/eu",
     raw_download_root="data/market-report-finder/downloads/EU",
-    parsed_artifact_root="data/wiki/eu_reports",
+    parsed_artifact_root="data/wiki/eu",
     agent_policy="market_specific_agents_only",
     notes=(
         "EU report facts must stay in the project-managed siq/eu_ifrs namespace.",

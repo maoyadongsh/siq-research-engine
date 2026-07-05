@@ -858,6 +858,15 @@ def test_deals_router_bind_parser_task_requires_task_access(monkeypatch, tmp_pat
 
 
 def test_deals_router_build_and_read_evidence(monkeypatch, tmp_path):
+    for name in (
+        "SIQ_VECTOR_RETRIEVAL_ENABLED",
+        "SIQ_EMBEDDING_BASE_URL",
+        "EMBEDDING_BASE_URL",
+        "SIQ_RERANK_ENABLED",
+        "SIQ_RERANK_BASE_URL",
+        "RERANK_BASE_URL",
+    ):
+        monkeypatch.delenv(name, raising=False)
     client = _client(monkeypatch, tmp_path)
     assert client.post(
         "/api/deals",
@@ -963,6 +972,12 @@ def test_deals_router_build_and_read_evidence(monkeypatch, tmp_path):
     assert receipt["agent_id"] == "siq_ic_finance_auditor"
     assert receipt["shared_hits"] == 2
     assert receipt["private_hits"] == 0
+    assert receipt["hybrid_hit_count"] == 1
+    assert receipt["hybrid_hits"][0]["evidence_id"] == evidence_id
+    assert receipt["vector_retrieval"]["status"] == "skipped"
+    assert receipt["rerank"]["status"] == "skipped"
+    assert receipt["milvus_used"] is False
+    assert receipt["reranker_used"] is False
     assert len(receipt["evidence_hits"]) == 1
     assert receipt["evidence_hits"][0]["evidence_id"] == evidence_id
     assert receipt["created_by"] == {"id": 7, "username": "ic-admin"}

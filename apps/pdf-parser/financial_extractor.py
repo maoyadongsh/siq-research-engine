@@ -2556,6 +2556,17 @@ def _apply_llm_judge(data, statements, candidates, missing_types, llm_judge, fil
 def build_financial_data(markdown, task_id=None, filename=None, llm_judge=None, llm_cache_dir=None, market=None):
     markdown = markdown or ""
     market = str(market or "").upper() or None
+    if market == "EU":
+        from eu_market_profile import build_eu_financial_data
+
+        return build_eu_financial_data(
+            markdown,
+            task_id=task_id,
+            filename=filename,
+            llm_judge=llm_judge,
+            llm_cache_dir=llm_cache_dir,
+            market=market,
+        )
     report_year = _detect_report_year(markdown, filename=filename)
     if market == "JP":
         from jp_market_profile import detect_jp_report_kind
@@ -3101,6 +3112,14 @@ def build_financial_checks(data):
         from kr_market_profile import build_kr_financial_checks
 
         return build_kr_financial_checks(data)
+    if market == "EU":
+        from eu_market_profile import build_eu_financial_checks
+
+        return build_eu_financial_checks(data)
+    if market == "US":
+        from us_market_profile import build_us_financial_checks
+
+        return build_us_financial_checks(data)
     classification_summary = data.get("classification_summary") if isinstance(data.get("classification_summary"), dict) else {}
     looks_like_financial_report = bool(classification_summary.get("looks_like_financial_report", True))
     report_kind_blocked = bool(classification_summary.get("report_kind_blocked"))

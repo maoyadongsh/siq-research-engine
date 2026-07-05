@@ -83,6 +83,9 @@ def test_write_kr_pdf_wiki_package_keeps_pdf_page_evidence(tmp_path: Path):
     assert manifest["market"] == "KR"
     assert manifest["ticker"] == "005930"
     assert manifest["report_id"] == "2025-annual_task-kr-1"
+    assert manifest["company_wiki_id"] == "005930-SamsungElectronics"
+    assert manifest["company_wiki_path"] == (output_root / "companies" / "005930-SamsungElectronics").resolve().as_posix()
+    assert manifest["wiki_report_path"] == package_dir.resolve().as_posix()
     assert manifest["pdf_parser_task_id"] == "task-kr-1"
     assert manifest["paths"]["report_complete"] == "parser/report_complete.md"
 
@@ -97,8 +100,16 @@ def test_write_kr_pdf_wiki_package_keeps_pdf_page_evidence(tmp_path: Path):
 
     quality = json.loads((package_dir / "qa" / "quality_report.json").read_text(encoding="utf-8"))
     assert quality["market"] == "KR"
-    assert quality["financial_checks"]["status"] == "not_generated"
-    assert "KR PDF" in quality["financial_checks"]["notes"][0]
+    assert quality["schema_version"] == "market_quality_report_v1"
+    assert quality["profile_id"] == "kr_dart_pdf_quality_v1"
+    assert quality["rule_profile_id"] == "kr_dart_xbrl_tables_v1"
+
+    financial_checks = json.loads((package_dir / "metrics" / "financial_checks.json").read_text(encoding="utf-8"))
+    assert financial_checks["market"] == "KR"
+    assert financial_checks["profile_id"] == "kr_dart_xbrl_tables_v1"
+    assert financial_checks["rule_profile_id"] == "kr_dart_xbrl_tables_v1"
+    assert isinstance(financial_checks["checks"], list)
+    assert any(check["rule_id"] == "required.statement.balance_sheet" for check in financial_checks["checks"])
 
     company_catalog = json.loads((output_root / "_meta" / "companies.json").read_text(encoding="utf-8"))
     report_catalog = json.loads((output_root / "_meta" / "reports.json").read_text(encoding="utf-8"))

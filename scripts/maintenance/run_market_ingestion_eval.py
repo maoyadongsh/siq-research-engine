@@ -10,11 +10,11 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CASE_ROOT = REPO_ROOT / "eval_datasets" / "market_ingestion_cases"
 WIKI_ROOTS = {
-    "US": REPO_ROOT / "data" / "wiki" / "us_sec",
-    "HK": REPO_ROOT / "data" / "wiki" / "hk_reports",
-    "JP": REPO_ROOT / "data" / "wiki" / "jp_reports",
-    "KR": REPO_ROOT / "data" / "wiki" / "kr_reports",
-    "EU": REPO_ROOT / "data" / "wiki" / "eu_reports",
+    "US": REPO_ROOT / "data" / "wiki" / "us",
+    "HK": REPO_ROOT / "data" / "wiki" / "hk",
+    "JP": REPO_ROOT / "data" / "wiki" / "jp",
+    "KR": REPO_ROOT / "data" / "wiki" / "kr",
+    "EU": REPO_ROOT / "data" / "wiki" / "eu",
 }
 
 
@@ -60,24 +60,87 @@ def find_package(case: dict[str, Any]) -> Path | None:
     root = WIKI_ROOTS.get(market)
     if not root:
         return None
-    ticker = str(case.get("ticker") or "")
-    year = str(case.get("fiscal_year") or "")
-    if market == "EU":
-        country = str(case.get("country") or "")
-        ticker_root = root / country / ticker / year if country else root / ticker / year
-        candidates = [path.parent for path in ticker_root.glob("*/manifest.json")] if ticker_root.exists() else []
-        if not candidates and country:
-            candidates = [path.parent for path in root.glob(f"*/{ticker}/{year}/*/manifest.json")]
-        if not candidates:
-            return None
-        return sorted(candidates, key=lambda path: path.stat().st_mtime, reverse=True)[0]
-    ticker_root = root / ticker / year
-    if not ticker_root.exists():
+    if not root.exists():
         return None
-    candidates = [path.parent for path in ticker_root.glob("*/manifest.json")]
+    candidates = []
+    for manifest_path in root.rglob("manifest.json"):
+        manifest = read_json(manifest_path, {})
+        if not isinstance(manifest, dict) or not _manifest_matches_case(manifest, case):
+            continue
+        candidates.append(manifest_path.parent)
     if not candidates:
         return None
     return sorted(candidates, key=lambda path: path.stat().st_mtime, reverse=True)[0]
+
+
+def _manifest_matches_case(manifest: dict[str, Any], case: dict[str, Any]) -> bool:
+    market = str(case.get("market") or "").upper()
+    if str(manifest.get("market") or "").upper() != market:
+        return False
+    if not _ticker_matches(manifest, case):
+        return False
+    if not _year_matches(manifest, case):
+        return False
+    if market == "EU" and case.get("country") and str(manifest.get("country") or "").upper() != str(case.get("country")).upper():
+        return False
+    return _report_type_matches(manifest, case)
+
+
+def _ticker_matches(manifest: dict[str, Any], case: dict[str, Any]) -> bool:
+    expected = str(case.get("ticker") or case.get("stock_code") or "").strip()
+    if not expected:
+        return True
+    candidates = [
+        manifest.get("ticker"),
+        manifest.get("stock_code"),
+        manifest.get("hkex_stock_code"),
+        manifest.get("security_code"),
+    ]
+    normalized_expected = _normalize_code(expected)
+    return any(_normalize_code(value) == normalized_expected for value in candidates if value not in (None, ""))
+
+
+def _year_matches(manifest: dict[str, Any], case: dict[str, Any]) -> bool:
+    expected = str(case.get("fiscal_year") or "").strip()
+    if not expected:
+        return True
+    candidates = [
+        manifest.get("fiscal_year"),
+        manifest.get("report_year"),
+        str(manifest.get("period_end") or "")[:4],
+        str(manifest.get("report_id") or "")[:4],
+    ]
+    return expected in {str(value).strip() for value in candidates if value not in (None, "")}
+
+
+def _report_type_matches(manifest: dict[str, Any], case: dict[str, Any]) -> bool:
+    expected = _normalize_report_type(case.get("report_type"))
+    if not expected:
+        return True
+    candidates = {
+        _normalize_report_type(manifest.get("report_type")),
+        _normalize_report_type(manifest.get("form")),
+    }
+    if expected == "annual":
+        return bool(candidates.intersection({"annual", "annualsecuritiesreport", "integratedreport", "esef", "10k", "20f"}))
+    return expected in candidates
+
+
+def _normalize_code(value: Any) -> str:
+    text = str(value or "").strip().upper()
+    digits = "".join(ch for ch in text if ch.isdigit())
+    return digits.lstrip("0") or digits or text
+
+
+def _normalize_report_type(value: Any) -> str:
+    return "".join(ch for ch in str(value or "").lower() if ch.isalnum())
+
+
+def _metric_entries(payload: Any) -> list[Any]:
+    if not isinstance(payload, dict):
+        return []
+    metrics = payload.get("metrics")
+    return metrics if isinstance(metrics, list) else []
 
 
 def evaluate_case(case: dict[str, Any]) -> dict[str, Any]:
@@ -87,10 +150,11 @@ def evaluate_case(case: dict[str, Any]) -> dict[str, Any]:
     manifest = read_json(package_dir / "manifest.json", {})
     quality = read_json(package_dir / "qa" / "quality_report.json", {})
     metrics_payload = read_json(package_dir / "metrics" / "normalized_metrics.json", {})
-    metrics = metrics_payload.get("metrics") if isinstance(metrics_payload, dict) else []
+    metrics = _metric_entries(metrics_payload)
     metric_names = {item.get("canonical_name") for item in metrics if isinstance(item, dict)}
     source_map = read_json(package_dir / "qa" / "source_map.json", {})
-    evidence_count = len(source_map.get("entries") or []) if isinstance(source_map, dict) else 0
+    source_entries = _source_entries(source_map)
+    evidence_count = len(source_entries)
     expected = set(case.get("expected_metrics") or [])
     missing_metrics = sorted(expected - metric_names)
     missing_evidence = bool(case.get("expected_evidence")) and evidence_count == 0
@@ -209,6 +273,16 @@ def _records(payload: Any, key: str) -> list[dict[str, Any]]:
             return [item for item in value.values() if isinstance(item, dict)]
     if isinstance(payload, list):
         return [item for item in payload if isinstance(item, dict)]
+    return []
+
+
+def _source_entries(source_map: Any) -> list[dict[str, Any]]:
+    if not isinstance(source_map, dict):
+        return []
+    for key in ("entries", "evidence"):
+        value = source_map.get(key)
+        if isinstance(value, list):
+            return [item for item in value if isinstance(item, dict)]
     return []
 
 

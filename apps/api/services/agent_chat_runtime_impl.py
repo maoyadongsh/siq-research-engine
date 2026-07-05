@@ -5360,6 +5360,7 @@ async def _collect_chat_reply_impl(
     display_message: str | None = None,
     attachments: Any | None = None,
     history_limit: int = HISTORY_LIMIT,
+    enforce_evidence_contract: bool = True,
 ) -> str:
     envelope = await _prepare_chat_request_envelope(
         message,
@@ -5445,7 +5446,8 @@ async def _collect_chat_reply_impl(
         ACTIVE_RUNS.pop(_active_key(profile, session_id), None)
 
     reply = normalize_evidence_trace_for_display(reply)
-    reply = enforce_financial_evidence_contract(message, context, reply)
+    if enforce_evidence_contract:
+        reply = enforce_financial_evidence_contract(message, context, reply)
     reply = normalize_evidence_trace_for_display(reply)
     await save_message(async_session, "assistant", reply, session_id)
     await refresh_session_memory(async_session, profile, session_id)
@@ -5463,6 +5465,7 @@ async def collect_chat_reply(
     display_message: str | None = None,
     attachments: Any | None = None,
     history_limit: int = HISTORY_LIMIT,
+    enforce_evidence_contract: bool = True,
 ) -> str:
     with _profile_wiki_context(profile):
         return await _collect_chat_reply_impl(
@@ -5474,12 +5477,14 @@ async def collect_chat_reply(
             display_message=display_message,
             attachments=attachments,
             history_limit=history_limit,
+            enforce_evidence_contract=enforce_evidence_contract,
         )
 
 
 async def _collect_stream_run(
     state: ActiveRunState,
     done_payload_factory: Callable[[str], Awaitable[dict]] | None,
+    enforce_evidence_contract: bool = True,
 ) -> None:
     full_reply = ""
     failed = False
@@ -5814,11 +5819,12 @@ async def _collect_stream_run(
                     reply = _failed_run_reply_for_history(full_reply)
                 else:
                     reply = normalize_evidence_trace_for_display(full_reply)
-                    reply = enforce_financial_evidence_contract(
-                        state.original_message or "",
-                        state.context,
-                        reply,
-                    )
+                    if enforce_evidence_contract:
+                        reply = enforce_financial_evidence_contract(
+                            state.original_message or "",
+                            state.context,
+                            reply,
+                        )
                     reply = normalize_evidence_trace_for_display(reply)
 
                 if reply != full_reply and not failed:
@@ -5850,6 +5856,7 @@ async def _start_streaming_chat_run(
     message: str,
     context: Any | None,
     done_payload_factory: Callable[[str], Awaitable[dict]] | None,
+    enforce_evidence_contract: bool = True,
 ) -> ActiveRunState:
     state = ActiveRunState(profile=profile, session_id=session_id, run_id=run_id)
     state.message_hash = message_hash
@@ -5857,7 +5864,7 @@ async def _start_streaming_chat_run(
     state.context = context
     ACTIVE_RUNS[_active_key(profile, session_id)] = state
     await _append_state_event(state, "run", {"run_id": run_id, "session_id": session_id})
-    state.task = asyncio.create_task(_collect_stream_run(state, done_payload_factory))
+    state.task = asyncio.create_task(_collect_stream_run(state, done_payload_factory, enforce_evidence_contract))
     return state
 
 
@@ -5873,6 +5880,7 @@ async def _stream_chat_reply_impl(
     attachments: Any | None = None,
     history_limit: int = HISTORY_LIMIT,
     done_payload_factory: Callable[[str], Awaitable[dict]] | None = None,
+    enforce_evidence_contract: bool = True,
 ) -> AsyncGenerator[dict, None]:
     envelope = await _prepare_chat_request_envelope(
         message,
@@ -5996,6 +6004,7 @@ async def _stream_chat_reply_impl(
         message=message,
         context=context,
         done_payload_factory=guarded_done_payload,
+        enforce_evidence_contract=enforce_evidence_contract,
     )
 
     async for event in stream_active_run_events(
@@ -6018,6 +6027,7 @@ async def stream_chat_reply(
     attachments: Any | None = None,
     history_limit: int = HISTORY_LIMIT,
     done_payload_factory: Callable[[str], Awaitable[dict]] | None = None,
+    enforce_evidence_contract: bool = True,
 ) -> AsyncGenerator[dict, None]:
     with _profile_wiki_context(profile):
         async for event in _stream_chat_reply_impl(
@@ -6031,6 +6041,7 @@ async def stream_chat_reply(
             attachments=attachments,
             history_limit=history_limit,
             done_payload_factory=done_payload_factory,
+            enforce_evidence_contract=enforce_evidence_contract,
         ):
             yield event
 

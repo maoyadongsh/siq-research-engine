@@ -38,6 +38,8 @@ def extract_artifact(artifact: ParsedArtifact) -> ExtractionResult:
     seen: set[tuple[str, str, int | None, int, int]] = set()
     for table in tables:
         detected_statement_type = detect_table_statement_type(table)
+        if _is_non_group_statement_table(table, detected_statement_type):
+            continue
         period_columns = _period_columns_for_table(table, artifact, detected_statement_type)
         table_unit = table.unit or artifact.unit
         table_currency = infer_currency(table.currency, table.unit, table.title, artifact.currency, default=artifact.currency)
@@ -59,6 +61,7 @@ def extract_artifact(artifact: ParsedArtifact) -> ExtractionResult:
             ):
                 continue
             for column_index, value in _numeric_cells_for_periods(row, period_columns.column_periods):
+                value = _normalize_statement_value(rule.canonical_name, value)
                 row_period_key = period_columns.column_periods.get(column_index) or table_period_key(artifact, table)
                 key = (rule.canonical_name, row_period_key, table.table_index, row_index, column_index)
                 if key in seen:
@@ -114,6 +117,7 @@ def extract_artifact(artifact: ParsedArtifact) -> ExtractionResult:
     if not extracted:
         warnings.append("No mapped HKEX/PDF table rows were extracted. Check table parsing quality or add issuer-specific aliases.")
 
+    extracted = _prefer_hk_primary_cash_flow_rows(extracted)
     derived = _derive_missing_facts(extracted, artifact)
     if derived:
         extracted.extend(derived)
@@ -178,6 +182,8 @@ def _label_column_count(rows: list[list[Any]]) -> int:
         second = str(row[1] or "").strip()
         if not first or not second or _is_note_column(second):
             continue
+        if _is_note_reference_cell(second):
+            continue
         if parse_decimal(second) is not None or _looks_like_period_header(second):
             continue
         if re.search(r"[A-Za-z]", second):
@@ -224,6 +230,101 @@ def _allow_cross_statement_fact(rule: Any, label: str, detected_statement_type: 
         "資產淨值",
         "资产净值",
     }
+
+
+def _is_non_group_statement_table(table: ParsedTable, statement_type: StatementType | None) -> bool:
+    raw = table.raw if isinstance(table.raw, dict) else {}
+    parts = [str(table.title or ""), str(raw.get("heading") or ""), str(raw.get("preview") or "")[:300]]
+    for value in raw.get("source_caption") or []:
+        parts.append(str(value))
+    text = compact_label(" ".join(parts))
+    if "consolidated" in text or "綜合" in text or "综合" in text:
+        return False
+    if any(
+        token in text
+        for token in (
+            "statementoffinancialpositionofthecompany",
+            "balancesheetofthecompany",
+            "balancesheetofcompany",
+            "companybalancesheet",
+            "financialpositionofthecompany",
+            "ofthecompany",
+            "companylevel",
+        )
+    ):
+        return True
+    if statement_type != StatementType.BALANCE_SHEET:
+        return False
+    return any(
+        token in text
+        for token in (
+            "balancesheetofinsurancemanufacturingsubsidiaries",
+            "subsidiariesbytypeofcontract",
+            "parentcompany",
+            "subsidiary",
+            "subsidiaries",
+        )
+    )
+
+
+def _normalize_statement_value(canonical_name: str, value: Decimal) -> Decimal:
+    if canonical_name in {
+        "total_liabilities",
+        "current_liabilities",
+        "non_current_liabilities",
+        "borrowings",
+        "lease_liabilities",
+        "contract_liabilities",
+    } and value < 0:
+        return abs(value)
+    return value
+
+
+def _prefer_hk_primary_cash_flow_rows(facts: list[ExtractedFact]) -> list[ExtractedFact]:
+    grouped: dict[tuple[str, str, int | None, int | None], list[ExtractedFact]] = {}
+    for fact in facts:
+        if fact.canonical_name != "operating_cash_flow_net":
+            continue
+        grouped.setdefault(
+            (
+                fact.canonical_name,
+                fact.period_key,
+                fact.evidence.table_index,
+                fact.evidence.column_index,
+            ),
+            [],
+        ).append(fact)
+
+    drop_ids: set[int] = set()
+    for items in grouped.values():
+        if not any(_is_primary_operating_cash_flow_label(item.local_name) for item in items):
+            continue
+        for item in items:
+            if _is_pre_bridge_cash_generated_label(item.local_name):
+                drop_ids.add(id(item))
+
+    if not drop_ids:
+        return facts
+    return [fact for fact in facts if id(fact) not in drop_ids]
+
+
+def _is_primary_operating_cash_flow_label(value: Any) -> bool:
+    normalized = compact_label(value)
+    return (
+        "operatingactivities" in normalized
+        and (
+            normalized.startswith("netcash")
+            or "netcashflow" in normalized
+            or "netcashflows" in normalized
+            or "cashflowsgeneratedfrom" in normalized
+            or "cashflowsusedin" in normalized
+        )
+    )
+
+
+def _is_pre_bridge_cash_generated_label(value: Any) -> bool:
+    normalized = compact_label(value)
+    return normalized in {"cashgeneratedfromoperations", "netcashgeneratedfromoperations"}
 
 
 def _period_columns_from_raw(raw: dict[str, Any]) -> dict[int, str]:
@@ -371,6 +472,13 @@ def _is_note_column(cell: Any) -> bool:
     return text in {"note", "notes", "附注", "附註"} or "notes" == text
 
 
+def _is_note_reference_cell(cell: Any) -> bool:
+    text = str(cell or "").strip()
+    if not text:
+        return False
+    return bool(re.fullmatch(r"(?:note\s*)?\d+[A-Za-z]?(?:\([A-Za-z0-9]+\))*", text, flags=re.I))
+
+
 def _cell_at(row: list[Any], index: int) -> Any:
     return row[index] if index < len(row) else None
 
@@ -428,6 +536,15 @@ def _derive_missing_facts(facts: list[ExtractedFact], artifact: ParsedArtifact) 
             "parent_net_profit",
             StatementType.INCOME_STATEMENT,
             (("net_profit", Decimal("1")), ("nci_profit", Decimal("-1"))),
+        )
+        _derive_one(
+            derived,
+            bucket,
+            artifact,
+            period_key,
+            "total_equity",
+            StatementType.BALANCE_SHEET,
+            (("parent_equity", Decimal("1")), ("nci_equity", Decimal("1"))),
         )
         _derive_one(
             derived,

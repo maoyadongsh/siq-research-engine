@@ -838,6 +838,25 @@ def _merge_quality_candidates_from_financial_data(report, financial_data):
     return quality_service.merge_quality_candidates_from_financial_data(report, financial_data)
 
 
+def _sync_quality_profile_from_financial_data(report, financial_data, financial_checks=None):
+    if not isinstance(report, dict) or not isinstance(financial_data, dict):
+        return report
+    for key in ("market", "market_profile", "accounting_standard", "currency", "unit"):
+        if financial_data.get(key):
+            report[key] = financial_data.get(key)
+    if financial_data.get("profile_rule_version"):
+        report["financial_profile_rule_version"] = financial_data.get("profile_rule_version")
+    detected_currencies = (
+        financial_data.get("detected_currencies")
+        or (financial_data.get("summary") or {}).get("detected_currencies")
+        or (financial_checks or {}).get("detected_currencies")
+        or []
+    )
+    if detected_currencies:
+        report["detected_currencies"] = detected_currencies
+    return report
+
+
 def _quality_report_warnings(report, financial_data=None):
     return quality_service.quality_report_warnings(report, financial_data)
 
@@ -2879,20 +2898,130 @@ def _priority_review_tables(table_index, core_candidates, key_table_candidates):
     return quality_service.priority_review_tables(table_index, core_candidates, key_table_candidates)
 
 
+def _market_quality_profile(market, markdown, filename, table_index, report_year, report_kind):
+    market = str(market or "").upper()
+    if market == "JP":
+        import jp_market_profile as jp
+
+        profile_report_kind = jp.detect_jp_report_kind(markdown, filename=filename)
+        financial_tables = jp.core_financial_table_names_for_report(profile_report_kind)
+        return {
+            "market": "JP",
+            "market_profile": "JP",
+            "profile_rule_version": getattr(jp, "JP_PROFILE_RULE_VERSION", "jp-pdf-profile"),
+            "report_kind": profile_report_kind,
+            "report_year": report_year,
+            "key_sections": jp.JP_KEY_SECTIONS,
+            "financial_tables": financial_tables,
+            "indicator_tables": jp.JP_INDICATOR_TABLE_NAMES,
+            "found_sections": jp.found_sections(markdown, table_index),
+            "key_table_candidates": jp.group_jp_key_table_candidates(table_index, report_kind=profile_report_kind),
+            "candidate_summary_list": jp.candidate_summary_list,
+            "quality_messages": lambda **kwargs: jp.jp_quality_report_messages(
+                report_kind=profile_report_kind,
+                **kwargs,
+            ),
+        }
+    if market == "KR":
+        import kr_market_profile as kr
+
+        return {
+            "market": "KR",
+            "market_profile": "KR",
+            "profile_rule_version": "kr-pdf-profile-v1",
+            "report_kind": kr.detect_kr_report_kind(markdown, filename=filename),
+            "report_year": report_year,
+            "key_sections": kr.KR_KEY_SECTIONS,
+            "financial_tables": kr.KR_CORE_FINANCIAL_TABLE_NAMES,
+            "indicator_tables": kr.KR_INDICATOR_TABLE_NAMES,
+            "found_sections": kr.found_sections(markdown, table_index),
+            "key_table_candidates": kr.group_kr_key_table_candidates(table_index),
+            "candidate_summary_list": kr.candidate_summary_list,
+            "quality_messages": kr.kr_quality_report_messages,
+        }
+    if market == "EU":
+        import eu_market_profile as eu
+
+        profile_report_year = eu.detect_eu_report_year(markdown, filename=filename) or report_year
+        profile_report_kind = eu.detect_eu_report_kind(markdown, filename=filename)
+        return {
+            "market": "EU",
+            "market_profile": "EU",
+            "profile_rule_version": eu.EU_PROFILE_RULE_VERSION,
+            "accounting_standard": eu.EU_DEFAULT_ACCOUNTING_STANDARD,
+            "report_kind": profile_report_kind,
+            "report_year": profile_report_year,
+            "key_sections": eu.EU_KEY_SECTIONS,
+            "financial_tables": eu.EU_CORE_FINANCIAL_TABLE_NAMES,
+            "indicator_tables": eu.EU_INDICATOR_TABLE_NAMES,
+            "found_sections": eu.found_sections(markdown, table_index),
+            "key_table_candidates": eu.group_eu_key_table_candidates(table_index),
+            "candidate_summary_list": eu.candidate_summary_list,
+            "quality_messages": lambda **kwargs: eu.eu_quality_report_messages(
+                report_kind=profile_report_kind,
+                **kwargs,
+            ),
+        }
+    if market == "US":
+        import us_market_profile as us
+
+        profile_report_kind = us.detect_us_report_kind(markdown, filename=filename)
+        return {
+            "market": "US",
+            "market_profile": "US",
+            "profile_rule_version": us.US_PROFILE_RULE_VERSION,
+            "accounting_standard": us.US_DEFAULT_ACCOUNTING_STANDARD,
+            "report_kind": profile_report_kind,
+            "report_year": report_year,
+            "key_sections": us.US_KEY_SECTIONS,
+            "financial_tables": us.US_CORE_FINANCIAL_TABLE_NAMES,
+            "indicator_tables": us.US_INDICATOR_TABLE_NAMES,
+            "found_sections": us.found_sections(markdown, table_index),
+            "key_table_candidates": us.group_us_key_table_candidates(table_index),
+            "candidate_summary_list": us.candidate_summary_list,
+            "quality_messages": lambda **kwargs: us.us_quality_report_messages(
+                report_kind=profile_report_kind,
+                **kwargs,
+            ),
+        }
+    return None
+
+
 def _build_quality_report(markdown, task, file_name=None, content_list=None):
     markdown = markdown or ""
     tables = re.findall(r"<table\b.*?</table>", markdown, flags=re.IGNORECASE | re.DOTALL)
-    report_year = _detect_report_year(markdown, file_name=file_name or task.get("filename"))
+    resolved_filename = file_name or task.get("filename")
+    market = financial_service.detect_market(task, resolved_filename)
+    report_year = _detect_report_year(markdown, file_name=resolved_filename)
+    if market == "EU":
+        import eu_market_profile as eu
+
+        report_year = eu.detect_eu_report_year(markdown, filename=resolved_filename) or report_year
     table_index = _build_table_index(markdown, tables, content_list=content_list, report_year=report_year)
     single_row_tables = [table for table in tables if _count_table_rows(table) <= 1]
     empty_cell_count = sum(_count_empty_cells(table) for table in tables)
 
-    report_kind = _detect_report_kind(markdown, filename=file_name or task.get("filename"))
-    financial_tables = _required_core_financial_table_names(report_kind)
-    found_sections = [section for section in KEY_SECTIONS if section in markdown]
-    key_table_candidates = _group_key_table_candidates(table_index)
-    core_financial_table_candidates = _candidate_summary_list(key_table_candidates, financial_tables)
-    indicator_table_candidates = _candidate_summary_list(key_table_candidates, INDICATOR_TABLE_NAMES)
+    report_kind = _detect_report_kind(markdown, filename=resolved_filename)
+    profile = _market_quality_profile(market, markdown, resolved_filename, table_index, report_year, report_kind)
+    if profile:
+        report_kind = profile["report_kind"]
+        report_year = profile["report_year"]
+        financial_tables = profile["financial_tables"]
+        found_sections = profile["found_sections"]
+        key_sections = profile["key_sections"]
+        key_table_candidates = profile["key_table_candidates"]
+        core_financial_table_candidates = profile["candidate_summary_list"](key_table_candidates, financial_tables)
+        indicator_table_candidates = profile["candidate_summary_list"](
+            key_table_candidates,
+            profile["indicator_tables"],
+        )
+    else:
+        financial_tables = _required_core_financial_table_names(report_kind)
+        found_sections = [section for section in KEY_SECTIONS if section in markdown]
+        key_sections = KEY_SECTIONS
+        key_table_candidates = _group_key_table_candidates(table_index)
+        core_financial_table_candidates = _candidate_summary_list(key_table_candidates, financial_tables)
+        indicator_table_candidates = _candidate_summary_list(key_table_candidates, INDICATOR_TABLE_NAMES)
     suspicious_tables = _priority_review_tables(
         table_index,
         core_financial_table_candidates,
@@ -2900,9 +3029,9 @@ def _build_quality_report(markdown, task, file_name=None, content_list=None):
     )
 
     image_refs = re.findall(r"!\[[^\]]*\]\(([^)]+)\)", markdown)
-    return quality_service.build_quality_report_payload(
+    report = quality_service.build_quality_report_payload(
         task=task,
-        filename=file_name or task.get("filename"),
+        filename=resolved_filename,
         schema_version=QUALITY_SCHEMA_VERSION,
         report_kind=report_kind,
         report_year=report_year,
@@ -2913,13 +3042,32 @@ def _build_quality_report(markdown, task, file_name=None, content_list=None):
         empty_cell_count=empty_cell_count,
         image_refs=image_refs,
         found_sections=found_sections,
-        key_sections=KEY_SECTIONS,
+        key_sections=key_sections,
         key_table_candidates=key_table_candidates,
         core_financial_table_candidates=core_financial_table_candidates,
         indicator_table_candidates=indicator_table_candidates,
         suspicious_tables=suspicious_tables,
         generated_at=_now_iso(),
     )
+    if profile:
+        found_core_table_count = len(
+            [item for item in core_financial_table_candidates if item.get("status") == "found"]
+        )
+        warnings, info_messages = profile["quality_messages"](
+            table_count=len(tables),
+            single_row_table_count=len(single_row_tables),
+            image_ref_count=len(image_refs),
+            found_core_table_count=found_core_table_count,
+            suspicious_table_count=len(suspicious_tables),
+        )
+        report["market"] = profile["market"]
+        report["market_profile"] = profile["market_profile"]
+        report["profile_rule_version"] = profile["profile_rule_version"]
+        if profile.get("accounting_standard"):
+            report["accounting_standard"] = profile["accounting_standard"]
+        report["warnings"] = warnings
+        report["info_messages"] = _unique_preserve_order(list(report.get("info_messages") or []) + info_messages)
+    return report
 
 
 def _write_quality_artifacts(task, markdown, file_name=None, content_list=None, saved_image_count=None):
@@ -2953,6 +3101,7 @@ def _write_quality_artifacts(task, markdown, file_name=None, content_list=None, 
             file_name=file_name or task.get("filename"),
         )
         report = _merge_quality_candidates_from_financial_data(report, financial_data)
+        report = _sync_quality_profile_from_financial_data(report, financial_data, financial_checks)
         report["financial_summary"] = financial_checks.get("summary", {})
         report["financial_overall_status"] = financial_checks.get("overall_status")
         report["financial_statement_count"] = financial_data.get("summary", {}).get("statement_count", 0)
@@ -3051,10 +3200,83 @@ def _read_quality_report(task):
     return quality_service.read_quality_report(task, _result_dir, _read_json_cached)
 
 
+def _market_profile_candidate_names(market):
+    market = str(market or "").upper()
+    if market == "HK":
+        import hk_quality_adapter as hk
+
+        return set(hk.HK_STATEMENT_LABELS.values())
+    if market == "JP":
+        import jp_market_profile as jp
+
+        return set(jp.JP_CORE_FINANCIAL_TABLE_NAMES)
+    if market == "KR":
+        import kr_market_profile as kr
+
+        return set(kr.KR_CORE_FINANCIAL_TABLE_NAMES)
+    if market == "EU":
+        import eu_market_profile as eu
+
+        return set(eu.EU_CORE_FINANCIAL_TABLE_NAMES)
+    if market == "US":
+        import us_market_profile as us
+
+        return set(us.US_CORE_FINANCIAL_TABLE_NAMES)
+    return set()
+
+
+def _market_profile_rule_version(market):
+    market = str(market or "").upper()
+    if market == "JP":
+        import jp_market_profile as jp
+
+        return getattr(jp, "JP_PROFILE_RULE_VERSION", "")
+    if market == "EU":
+        import eu_market_profile as eu
+
+        return getattr(eu, "EU_PROFILE_RULE_VERSION", "")
+    if market == "US":
+        import us_market_profile as us
+
+        return getattr(us, "US_PROFILE_RULE_VERSION", "")
+    if market == "KR":
+        return "kr-pdf-profile-v1"
+    return ""
+
+
+def _quality_report_matches_market_profile(report, expected_market):
+    expected_market = str(expected_market or "").upper()
+    if expected_market not in {"HK", "JP", "KR", "EU", "US"}:
+        return True
+    if not isinstance(report, dict):
+        return False
+    expected_rule_version = _market_profile_rule_version(expected_market)
+    if expected_rule_version and report.get("profile_rule_version") != expected_rule_version:
+        return False
+    expected_names = _market_profile_candidate_names(expected_market)
+    if not expected_names:
+        return True
+    names = {
+        str(item.get("name") or "")
+        for item in (report.get("core_financial_table_candidates") or [])
+        if isinstance(item, dict)
+    }
+    return bool(names) and names.issubset(expected_names)
+
+
 def _ensure_quality_report(task, markdown):
     financial_data, financial_checks = _ensure_financial_artifacts(task, markdown)
     report = _read_quality_report(task)
-    if isinstance(report, dict) and report.get("schema_version") == QUALITY_SCHEMA_VERSION:
+    expected_market = financial_service.detect_market(task, task.get("filename"))
+    cached_market = str(report.get("market") or report.get("market_profile") or "").upper() if isinstance(report, dict) else ""
+    market_profile_matches = expected_market not in {"HK", "JP", "KR", "EU", "US"} or cached_market == expected_market
+    candidate_profile_matches = _quality_report_matches_market_profile(report, expected_market)
+    if (
+        isinstance(report, dict)
+        and report.get("schema_version") == QUALITY_SCHEMA_VERSION
+        and market_profile_matches
+        and candidate_profile_matches
+    ):
         original_fields = {
             "found_financial_tables": report.get("found_financial_tables"),
             "core_financial_table_candidates": report.get("core_financial_table_candidates"),
@@ -3062,9 +3284,15 @@ def _ensure_quality_report(task, markdown):
             "financial_overall_status": report.get("financial_overall_status"),
             "financial_statement_count": report.get("financial_statement_count"),
             "financial_key_metric_count": report.get("financial_key_metric_count"),
+            "profile_rule_version": report.get("profile_rule_version"),
+            "accounting_standard": report.get("accounting_standard"),
+            "detected_currencies": report.get("detected_currencies"),
+            "currency": report.get("currency"),
+            "unit": report.get("unit"),
             "warnings": report.get("warnings"),
         }
         report = _merge_quality_candidates_from_financial_data(report, financial_data)
+        report = _sync_quality_profile_from_financial_data(report, financial_data, financial_checks)
         report["financial_summary"] = financial_checks.get("summary", {})
         report["financial_overall_status"] = financial_checks.get("overall_status")
         report["financial_statement_count"] = financial_data.get("summary", {}).get("statement_count", 0)
@@ -3077,17 +3305,30 @@ def _ensure_quality_report(task, markdown):
             "financial_overall_status": report.get("financial_overall_status"),
             "financial_statement_count": report.get("financial_statement_count"),
             "financial_key_metric_count": report.get("financial_key_metric_count"),
+            "profile_rule_version": report.get("profile_rule_version"),
+            "accounting_standard": report.get("accounting_standard"),
+            "detected_currencies": report.get("detected_currencies"),
+            "currency": report.get("currency"),
+            "unit": report.get("unit"),
             "warnings": report.get("warnings"),
         }
         if refreshed_fields != original_fields:
             quality_service.write_quality_report_files(task, report, _result_dir, _write_json)
         return report
-    report = _write_quality_artifacts(
-        task,
+    report = _build_quality_report(
         markdown,
+        task,
         file_name=task.get("filename"),
         content_list=_load_json_artifact(task, "content_list.json"),
     )
+    report = _merge_quality_candidates_from_financial_data(report, financial_data)
+    report = _sync_quality_profile_from_financial_data(report, financial_data, financial_checks)
+    report["financial_summary"] = financial_checks.get("summary", {})
+    report["financial_overall_status"] = financial_checks.get("overall_status")
+    report["financial_statement_count"] = financial_data.get("summary", {}).get("statement_count", 0)
+    report["financial_key_metric_count"] = financial_data.get("summary", {}).get("key_metric_count", 0)
+    report["warnings"] = _quality_report_warnings(report, financial_data)
+    quality_service.write_quality_report_files(task, report, _result_dir, _write_json)
     return report
 
 

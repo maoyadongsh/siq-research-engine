@@ -247,6 +247,53 @@ def test_extract_semantic_for_task_runs_rule_llm_obsidian_and_naming_contract(mo
     assert calls[1]["env"]["SIQ_LLM_SEMANTIC_MAX_TOKENS"] == "2048"
     assert calls[1]["env"]["SIQ_LLM_SEMANTIC_TEMPERATURE"] == "0.2"
     assert calls[1]["env"]["SIQ_LLM_SEMANTIC_CHAT_TEMPLATE_KWARGS"] == '{"enable_thinking": false}'
+    assert calls[1]["env"]["FINSIGHT_LOCAL_LLM_BASE_URL"] == "http://llm.local/v1"
+    assert calls[1]["env"]["FINSIGHT_LOCAL_LLM_MODEL"] == "qwen-local"
+    assert calls[1]["env"]["FINSIGHT_LOCAL_LLM_API_KEY"] == "secret"
+    assert calls[1]["env"]["FINSIGHT_LLM_SEMANTIC_TIMEOUT"] == "44"
+    assert calls[1]["env"]["FINSIGHT_LLM_SEMANTIC_MAX_TOKENS"] == "2048"
+    assert calls[1]["env"]["FINSIGHT_LLM_SEMANTIC_TEMPERATURE"] == "0.2"
+    assert calls[1]["env"]["FINSIGHT_LLM_SEMANTIC_CHAT_TEMPLATE_KWARGS"] == '{"enable_thinking": false}'
+    assert calls[1]["env"]["SIQ_LLM_SEMANTIC_PROVIDER"] == "local"
+    assert calls[1]["env"]["FINSIGHT_LLM_SEMANTIC_PROVIDER"] == "local"
+
+
+def test_llm_semantic_env_uses_active_cloud_provider(monkeypatch):
+    monkeypatch.setattr(
+        workflow,
+        "load_llm_settings",
+        lambda include_secrets=True: {
+            "activeProvider": "cloud",
+            "providers": {
+                "local": {
+                    "baseUrl": "http://llm.local/v1",
+                    "model": "qwen-local",
+                },
+                "cloud": {
+                    "baseUrl": "https://llm.example/v1",
+                    "model": "cloud-model",
+                    "apiKey": "cloud-secret",
+                    "timeoutSeconds": 55,
+                    "maxTokens": 4096,
+                    "temperature": 0.1,
+                },
+            },
+        },
+    )
+
+    env = workflow._llm_semantic_env()
+
+    assert env["SIQ_LOCAL_LLM_BASE_URL"] == "https://llm.example/v1"
+    assert env["SIQ_LOCAL_LLM_MODEL"] == "cloud-model"
+    assert env["SIQ_LOCAL_LLM_API_KEY"] == "cloud-secret"
+    assert env["SIQ_LLM_SEMANTIC_TIMEOUT"] == "55"
+    assert env["SIQ_LLM_SEMANTIC_MAX_TOKENS"] == "4096"
+    assert env["SIQ_LLM_SEMANTIC_TEMPERATURE"] == "0.1"
+    assert env["SIQ_LLM_SEMANTIC_PROVIDER"] == "cloud"
+    assert env["FINSIGHT_LOCAL_LLM_BASE_URL"] == "https://llm.example/v1"
+    assert env["FINSIGHT_LOCAL_LLM_MODEL"] == "cloud-model"
+    assert env["FINSIGHT_LOCAL_LLM_API_KEY"] == "cloud-secret"
+    assert env["FINSIGHT_LLM_SEMANTIC_PROVIDER"] == "cloud"
 
 
 def test_extract_generic_semantic_rejects_non_generic_identity_without_command(monkeypatch, tmp_path):
@@ -442,4 +489,5 @@ def test_extract_generic_semantic_success_runs_rule_llm_obsidian_without_naming(
     ]
     assert calls[1]["timeout"] == 66
     assert calls[1]["env"]["SIQ_LOCAL_LLM_MODEL"] == "qwen-local"
+    assert calls[1]["env"]["FINSIGHT_LOCAL_LLM_MODEL"] == "qwen-local"
     assert result["semantic"] == {"companyDir": company_dir, "taskId": "task-generic-success", "status": "ready"}

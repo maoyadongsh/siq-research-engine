@@ -522,7 +522,7 @@ export function MarketParsingPage({
           title={workflowTitle}
           description={workflowDescription}
           loadWorkflowStatus={workflow.loadWorkflowStatus}
-          runRemainingWorkflow={workflow.runRemainingWorkflow}
+          runRemainingWorkflow={() => workflow.runRemainingWorkflow(workflowMode)}
           runWorkflowStep={workflow.runWorkflowStep}
         />
         </div>

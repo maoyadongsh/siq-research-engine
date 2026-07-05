@@ -14,8 +14,8 @@ from market_report_finder_service.models.schemas import CompanyEntity, FilingCan
 
 
 class EdinetClient:
-    DOCUMENTS_URL = "https://disclosure2.edinet-fsa.go.jp/api/v2/documents.json"
-    DOCUMENT_DOWNLOAD_URL = "https://disclosure2.edinet-fsa.go.jp/api/v2/documents/{doc_id}"
+    DOCUMENTS_URL = "https://api.edinet-fsa.go.jp/api/v2/documents.json"
+    DOCUMENT_DOWNLOAD_URL = "https://api.edinet-fsa.go.jp/api/v2/documents/{doc_id}"
 
     ANNUAL_FORM_CODES = {"030000"}
     SEMIANNUAL_FORM_CODES = {"050000"}
@@ -56,6 +56,7 @@ class EdinetClient:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._last_request_at = 0.0
+        self._document_rows_cache: dict[str, list[dict]] = {}
 
     def resolve_company(
         self,
@@ -85,7 +86,30 @@ class EdinetClient:
     ) -> list[FilingCandidate]:
         del include_earnings
         allowed = self._allowed_types(target=target, forms=forms or [])
-        rows = self._scan_year_window(report_year) if report_year else self._scan_recent_rows(days=2920)
+        if report_year and allowed == {ReportType.annual}:
+            seen_dates: set[date] = set()
+            for start, end in self._company_filing_windows(company, allowed=allowed, report_year=report_year):
+                candidates = self._candidates_from_rows(
+                    company,
+                    self._scan_date_range(start, end, seen_dates=seen_dates),
+                    allowed,
+                )
+                if candidates:
+                    return self._dedupe_candidates(candidates)
+            return []
+        rows = (
+            self._scan_company_year_window(company, allowed=allowed, report_year=report_year)
+            if report_year
+            else self._scan_recent_rows(days=460)
+        )
+        return self._candidates_from_rows(company, rows, allowed)
+
+    def _candidates_from_rows(
+        self,
+        company: CompanyEntity,
+        rows: list[dict],
+        allowed: set[ReportType],
+    ) -> list[FilingCandidate]:
         candidates: list[FilingCandidate] = []
         for row in rows:
             if not self._row_matches_company(row, company):
@@ -115,14 +139,14 @@ class EdinetClient:
         return FilingCandidate(
             source_id="edinet",
             source_name="EDINET",
-            source_domain="disclosure2.edinet-fsa.go.jp",
+            source_domain="api.edinet-fsa.go.jp",
             market=Market.jp,
             company_id=company.company_id,
             ticker=company.ticker,
             company_name=company.company_name,
             report_type=report_type,
             report_family=family,
-            form=report_type.value,
+            form="yuho" if report_type == ReportType.annual else report_type.value,
             title=title,
             accession_number=doc_id,
             primary_document=f"{doc_id}.pdf",
@@ -150,23 +174,74 @@ class EdinetClient:
             rows.extend(self._document_rows(target_date))
         return rows
 
-    def _scan_year_window(self, report_year: int) -> list[dict]:
-        start = date(report_year, 1, 1)
-        end = min(date.today(), date(report_year + 1, 12, 31))
+    def _scan_company_year_window(self, company: CompanyEntity, *, allowed: set[ReportType], report_year: int) -> list[dict]:
+        rows: list[dict] = []
+        seen_dates: set[date] = set()
+        for start, end in self._company_filing_windows(company, allowed=allowed, report_year=report_year):
+            for row in self._scan_date_range(start, end, seen_dates=seen_dates):
+                rows.append(row)
+        return rows
+
+    def _scan_date_range(self, start: date, end: date, *, seen_dates: set[date] | None = None) -> list[dict]:
+        end = min(end, date.today())
+        if end < start:
+            return []
         rows: list[dict] = []
         days = (end - start).days + 1
         for offset in range(days):
-            rows.extend(self._document_rows(start + timedelta(days=offset)))
+            target_date = start + timedelta(days=offset)
+            if seen_dates is not None:
+                if target_date in seen_dates:
+                    continue
+                seen_dates.add(target_date)
+            rows.extend(self._document_rows(target_date))
         return rows
 
+    def _company_filing_windows(
+        self,
+        company: CompanyEntity,
+        *,
+        allowed: set[ReportType],
+        report_year: int,
+    ) -> list[tuple[date, date]]:
+        catalog_report_end = self._parse_iso_date(company.metadata.get("catalog_report_end"))
+        if catalog_report_end and catalog_report_end.year == report_year:
+            if allowed == {ReportType.annual}:
+                windows: list[tuple[date, date]] = []
+                catalog_published_at = self._parse_iso_date(company.metadata.get("catalog_published_at"))
+                if catalog_published_at:
+                    days_after_period_end = (catalog_published_at - catalog_report_end).days
+                    if 45 <= days_after_period_end <= 160:
+                        windows.append((catalog_published_at - timedelta(days=14), catalog_published_at + timedelta(days=14)))
+                windows.append((catalog_report_end + timedelta(days=45), catalog_report_end + timedelta(days=130)))
+                return windows
+            return [(catalog_report_end + timedelta(days=1), catalog_report_end + timedelta(days=210))]
+
+        if allowed == {ReportType.annual}:
+            return [
+                (date(report_year, 4, 1), date(report_year, 8, 31)),
+                (date(report_year, 8, 1), date(report_year + 1, 1, 31)),
+                (date(report_year + 1, 2, 1), date(report_year + 1, 7, 31)),
+            ]
+
+        return [
+            (date(report_year, 1, 1), date(report_year, 12, 31)),
+            (date(report_year + 1, 1, 1), date(report_year + 1, 7, 31)),
+        ]
+
     def _document_rows(self, target_date: date) -> list[dict]:
+        cache_key = target_date.isoformat()
+        if cache_key in self._document_rows_cache:
+            return self._document_rows_cache[cache_key]
         if not settings.edinet_api_key:
             raise ValueError("EDINET_API_KEY is required for Japanese market report search")
         params = {"date": target_date.isoformat(), "type": "2"}
         params["Subscription-Key"] = settings.edinet_api_key
         payload = self._get_json(self.DOCUMENTS_URL, params=params)
         rows = payload.get("results") or []
-        return [row for row in rows if isinstance(row, dict)]
+        parsed_rows = [row for row in rows if isinstance(row, dict)]
+        self._document_rows_cache[cache_key] = parsed_rows
+        return parsed_rows
 
     def _offline_company(
         self,
@@ -176,7 +251,8 @@ class EdinetClient:
         company_id: str | None,
     ) -> CompanyEntity | None:
         normalized_ticker = self._normalize_ticker(ticker)
-        normalized_company_id = (company_id or "").strip().upper()
+        normalized_company_id = self._normalize_edinet_code(company_id)
+        normalized_company_id_ticker = self._normalize_ticker_from_identifier(company_id)
         normalized_name = self._normalize_name(company_name or "")
         for item in self.COMMON_COMPANIES:
             aliases = tuple(str(alias) for alias in item.get("aliases", ()))
@@ -187,6 +263,8 @@ class EdinetClient:
             if normalized_ticker and normalized_ticker != item_ticker:
                 continue
             if normalized_company_id and normalized_company_id != item_company_id:
+                continue
+            if normalized_company_id_ticker and normalized_company_id_ticker != item_ticker:
                 continue
             if normalized_name and normalized_name not in company_normalized and company_normalized not in normalized_name:
                 if not any(alias and (alias in normalized_name or normalized_name in alias) for alias in alias_names):
@@ -218,11 +296,13 @@ class EdinetClient:
     ) -> list[CompanyEntity]:
         normalized_query = self._normalize_name(company_name or "")
         normalized_ticker = self._normalize_ticker(ticker)
-        normalized_company_id = (company_id or "").strip().upper()
+        normalized_company_id = self._normalize_edinet_code(company_id)
+        normalized_company_id_ticker = self._normalize_ticker_from_identifier(company_id)
         best_by_key: dict[str, CompanyEntity] = {}
         for row in rows:
             edinet_code = str(row.get("edinetCode") or "").strip().upper()
-            sec_code = str(row.get("secCode") or "").strip()
+            raw_sec_code = str(row.get("secCode") or "").strip()
+            sec_code = self._normalize_ticker(raw_sec_code) or raw_sec_code
             filer_name = str(row.get("filerName") or "").strip()
             if not edinet_code or not filer_name:
                 continue
@@ -231,6 +311,7 @@ class EdinetClient:
                 sec_code=sec_code,
                 filer_name=filer_name,
                 normalized_company_id=normalized_company_id,
+                normalized_company_id_ticker=normalized_company_id_ticker,
                 normalized_ticker=normalized_ticker,
                 normalized_query=normalized_query,
             )
@@ -309,12 +390,15 @@ class EdinetClient:
         edinet_code: str,
         sec_code: str,
         filer_name: str,
-        normalized_company_id: str,
+        normalized_company_id: str | None,
+        normalized_company_id_ticker: str | None,
         normalized_ticker: str | None,
         normalized_query: str,
     ) -> tuple[float, str]:
         if normalized_company_id:
             return (0.99, "edinet_code_exact") if edinet_code == normalized_company_id else (-1.0, "company_id_mismatch")
+        if normalized_company_id_ticker:
+            return (0.99, "edinet_sec_code_from_company_id") if sec_code == normalized_company_id_ticker else (-1.0, "company_id_ticker_mismatch")
         if normalized_ticker:
             return (0.99, "edinet_sec_code_exact") if sec_code == normalized_ticker else (-1.0, "ticker_mismatch")
         if not normalized_query:
@@ -334,10 +418,21 @@ class EdinetClient:
     @classmethod
     def _row_matches_company(cls, row: dict, company: CompanyEntity) -> bool:
         edinet_code = str(row.get("edinetCode") or "").strip().upper()
-        sec_code = str(row.get("secCode") or "").strip()
-        if edinet_code and edinet_code == company.company_id.upper():
+        sec_code = cls._normalize_ticker(str(row.get("secCode") or "").strip())
+        company_ids = {
+            str(company.company_id or "").strip().upper(),
+            str(company.metadata.get("edinet_code") or "").strip().upper(),
+        }
+        company_ids.discard("")
+        if edinet_code and edinet_code in company_ids:
             return True
-        return bool(company.ticker and sec_code and sec_code == company.ticker)
+        normalized_tickers = {
+            cls._normalize_ticker(company.ticker),
+            cls._normalize_ticker(company.company_id),
+            cls._normalize_ticker(company.metadata.get("sec_code")),
+        }
+        normalized_tickers.discard(None)
+        return bool(sec_code and sec_code in normalized_tickers)
 
     @staticmethod
     def _parse_submit_date(raw: str) -> date:
@@ -362,7 +457,24 @@ class EdinetClient:
         return None
 
     @staticmethod
+    def _parse_iso_date(value: object) -> date | None:
+        raw = str(value or "").strip()
+        if not raw:
+            return None
+        try:
+            return date.fromisoformat(raw[:10])
+        except ValueError:
+            return None
+
+    @staticmethod
     def _infer_report_end(title: str, report_type: ReportType, published_at: date) -> date:
+        date_matches = re.findall(r"(20\d{2})[/-](\d{1,2})[/-](\d{1,2})", title)
+        if date_matches:
+            year, month, day = date_matches[-1]
+            try:
+                return date(int(year), int(month), int(day))
+            except ValueError:
+                pass
         year_match = re.search(r"20\d{2}", title)
         year = int(year_match.group(0)) if year_match else published_at.year
         if report_type == ReportType.annual:
@@ -391,15 +503,34 @@ class EdinetClient:
         return f"{url}?{'&'.join(params)}"
 
     def _get_json(self, url: str, *, params: dict[str, str]) -> dict:
-        self._wait_for_slot()
-        with self._client() as client:
-            response = client.get(url, params=params)
+        last_rate_limited = False
+        for attempt in range(4):
+            self._wait_for_slot()
+            with self._client() as client:
+                response = client.get(url, params=params)
+            if response.status_code == 429:
+                last_rate_limited = True
+                time.sleep(self._retry_delay_seconds(response, attempt))
+                continue
             response.raise_for_status()
             content_type = response.headers.get("content-type", "")
             if "json" not in content_type.lower():
                 preview = response.text.replace("\n", " ")[:160]
                 raise ValueError(f"EDINET API returned non-JSON response. Check EDINET_API_KEY/subscription. Preview: {preview}")
             return response.json()
+        if last_rate_limited:
+            raise ValueError("EDINET API rate limit reached (HTTP 429). Please retry after a longer interval.")
+        raise ValueError("EDINET API request failed")
+
+    @staticmethod
+    def _retry_delay_seconds(response: httpx.Response, attempt: int) -> float:
+        retry_after = response.headers.get("Retry-After")
+        if retry_after:
+            try:
+                return min(max(float(retry_after), 1.0), 120.0)
+            except ValueError:
+                pass
+        return min(60.0, 2.0 * (attempt + 1) ** 2)
 
     @staticmethod
     def _client() -> httpx.Client:
@@ -420,10 +551,35 @@ class EdinetClient:
     def _normalize_ticker(ticker: str | None) -> str | None:
         if not ticker:
             return None
-        code = re.sub(r"[^0-9A-Z]+", "", ticker.upper())
-        if len(code) >= 4:
-            return code[:4] + "0"
+        text = str(ticker).strip().upper()
+        if ":" in text:
+            _, text = text.split(":", 1)
+        code = re.sub(r"[^0-9A-Z]+", "", text)
+        if code.startswith("JP") and len(code) > 2:
+            code = code[2:]
+        if re.fullmatch(r"E\d{5}", code):
+            return None
+        if re.fullmatch(r"\d{4}0|\d{3}[A-Z]0", code):
+            return code
+        if re.fullmatch(r"\d{4}|\d{3}[A-Z]", code):
+            return f"{code}0"
+        if re.fullmatch(r"\d{4}[0-9A-Z]+|\d{3}[A-Z][0-9A-Z]+", code):
+            return f"{code[:4]}0"
         return code or None
+
+    @staticmethod
+    def _normalize_edinet_code(value: str | None) -> str | None:
+        text = str(value or "").strip().upper()
+        if ":" in text:
+            _, text = text.split(":", 1)
+        code = re.sub(r"[^0-9A-Z]+", "", text)
+        return code if re.fullmatch(r"E\d{5}", code) else None
+
+    @classmethod
+    def _normalize_ticker_from_identifier(cls, value: str | None) -> str | None:
+        if cls._normalize_edinet_code(value):
+            return None
+        return cls._normalize_ticker(value)
 
     @staticmethod
     def _normalize_name(text: str) -> str:

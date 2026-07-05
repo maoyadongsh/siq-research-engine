@@ -22,6 +22,16 @@ from ..common import build_result, extract_operating_metrics_from_tables, first_
 from .rules import find_eu_label_rule
 
 
+_EU_LIABILITY_CANONICAL_NAMES = {
+    "borrowings",
+    "contract_liabilities",
+    "current_liabilities",
+    "lease_liabilities",
+    "non_current_liabilities",
+    "total_liabilities",
+}
+
+
 def extract_artifact(artifact: ParsedArtifact) -> ExtractionResult:
     profile = get_profile(Market.EU)
     tables = list(artifact.tables) or tables_from_document_full(artifact.document_full)
@@ -35,7 +45,9 @@ def extract_artifact(artifact: ParsedArtifact) -> ExtractionResult:
 
     seen: set[tuple[str, str, int | None, int, int]] = set()
     for table in tables:
-        detected_statement_type = detect_table_statement_type(table)
+        detected_statement_type = _detect_eu_statement_type(table)
+        if _is_non_primary_eu_statement_table(table, detected_statement_type):
+            continue
         period_columns = _period_columns_for_table(table, artifact, detected_statement_type)
         table_unit = table.unit or artifact.unit
         table_currency = infer_currency(table.currency, table.unit, table.title, artifact.currency, default=artifact.currency)
@@ -44,7 +56,7 @@ def extract_artifact(artifact: ParsedArtifact) -> ExtractionResult:
             if len(row) < 2 or row_index in period_columns.header_rows:
                 continue
             label = _row_label(row, period_columns.label_columns)
-            rule = find_eu_label_rule(label)
+            rule = find_eu_label_rule(label) or _contextual_eu_label_rule(label, table, detected_statement_type)
             if not rule:
                 continue
             if (
@@ -55,6 +67,7 @@ def extract_artifact(artifact: ParsedArtifact) -> ExtractionResult:
             ):
                 continue
             for column_index, value in _numeric_cells_for_periods(row, period_columns.column_periods):
+                value = _normalize_eu_fact_value(rule.canonical_name, value)
                 row_period_key = period_columns.column_periods.get(column_index) or table_period_key(artifact, table)
                 key = (rule.canonical_name, row_period_key, table.table_index, row_index, column_index)
                 if key in seen:
@@ -265,16 +278,20 @@ def _period_columns_for_table(
     max_columns = max((len(row) for row in table.rows), default=1)
     for row_index, row in enumerate(table.rows[:5]):
         aligned_row = _aligned_header_row(row, max_columns, label_columns)
-        periods: dict[int, str] = {}
-        for column_index, cell in enumerate(aligned_row):
-            if column_index < label_columns or _is_note_column(cell):
-                continue
-            parsed = _period_from_header_cell(cell, artifact, statement_type)
-            if parsed:
-                periods[column_index] = parsed
-        if len(periods) > len(best_periods):
-            best_row_index = row_index
-            best_periods = periods
+        for shift in _header_column_shifts(row, max_columns, label_columns):
+            periods: dict[int, str] = {}
+            for header_index, cell in enumerate(aligned_row):
+                column_index = header_index + shift
+                if column_index < label_columns or column_index < 0 or column_index >= max_columns:
+                    continue
+                if _is_note_column(cell):
+                    continue
+                parsed = _period_from_header_cell(cell, artifact, statement_type)
+                if parsed:
+                    periods[column_index] = parsed
+            if len(periods) > len(best_periods):
+                best_row_index = row_index
+                best_periods = periods
 
     if best_periods:
         return _PeriodColumns(best_periods, {best_row_index} if best_row_index is not None else set(), label_columns)
@@ -287,6 +304,198 @@ def _period_columns_for_table(
         if not _is_note_column(_cell_at(header, column_index))
     }
     return _PeriodColumns(periods, set(), label_columns)
+
+
+def _detect_eu_statement_type(table: ParsedTable) -> StatementType | None:
+    detected = detect_table_statement_type(table)
+    if detected:
+        return detected
+    compact = _table_compact_context(table, include_rows=False)
+    if any(token in compact for token in ("equityliabilities", "liabilitiesandequity", "equityandliabilities")):
+        return StatementType.BALANCE_SHEET
+    return None
+
+
+def _contextual_eu_label_rule(label: str, table: ParsedTable, detected_statement_type: StatementType | None):
+    if detected_statement_type != StatementType.BALANCE_SHEET:
+        return None
+    normalized = compact_label(label)
+    if normalized not in {"equity", "total"}:
+        return None
+    context = _table_compact_context(table, include_rows=False)
+    if normalized == "total" and context.startswith("assets"):
+        return find_eu_label_rule("total assets")
+    if not any(token in context for token in ("equityliabilities", "liabilitiesandequity", "equityandliabilities")):
+        return None
+    if normalized == "equity":
+        return find_eu_label_rule("total equity")
+    return find_eu_label_rule("total liabilities and equity")
+
+
+def _is_non_primary_eu_statement_table(table: ParsedTable, statement_type: StatementType | None) -> bool:
+    context = _table_compact_context(table)
+    if not context:
+        return False
+    if _looks_like_parent_or_statutory_eu_statement(table, context):
+        return True
+    if any(
+        token in context
+        for token in (
+            "balancesheetofinsurancemanufacturingsubsidiaries",
+            "subsidiariesbytypeofcontract",
+            "attheacquisitiondate",
+            "totalassetsexcludinggoodwill",
+            "netconsolidatedincomenoncontrollinginterest",
+            "shareholdersequitygroupshare",
+            "carryingvalueofliabilitieseffectofderivativeinstruments",
+            "shareofassigneesandretrocedingcompaniesintechnicalreserves",
+            "assetsandliabilitiesinforeigncurrencies",
+            "shareholderassetsandliabilities",
+        )
+    ):
+        return True
+    if _looks_like_formal_eu_statement_table(context):
+        return False
+    if _looks_like_eu_segment_or_subsidiary_summary(table):
+        return True
+    if any(
+        token in context
+        for token in (
+            "statementofchangesinequity",
+            "changesinequity",
+            "gearingratio",
+            "financialratios",
+            "fairvaluemeasurements",
+            "fairvaluehierarchy",
+            "assetsatfairvalue",
+            "liabilitiesatfairvalue",
+            "deferredtax",
+            "maturityof",
+            "contractualcashflows",
+            "contractualobligations",
+            "offbalancesheet",
+            "commitments",
+            "sensitivity",
+            "reconciliation",
+            "companysfinancialresultsoverthepastfiveyears",
+            "subsidiariesandparticipatinginterests",
+            "participatinginterests",
+            "parentcompany",
+            "balancesheetsummary",
+            "longtermandshorttermcapital",
+            "associatesjointventures",
+        )
+    ):
+        return True
+    if statement_type == StatementType.BALANCE_SHEET and any(
+        token in context
+        for token in (
+            "financialhighlights",
+            "keyfinancialfigures",
+            "assetsbackingcontracts",
+            "unitlinkedcontracts",
+            "incurredclaims",
+        )
+    ):
+        return True
+    return False
+
+
+def _looks_like_formal_eu_statement_table(context: str) -> bool:
+    return any(
+        token in context
+        for token in (
+            "consolidatedstatementoffinancialposition",
+            "statementoffinancialposition",
+            "consolidatedbalancesheets",
+            "consolidatedbalancesheet",
+            "balancesheets",
+            "balancesheet",
+            "consolidatedstatementofprofitorloss",
+            "consolidatedincomestatements",
+            "consolidatedincomestatement",
+            "incomestatements",
+            "incomestatement",
+            "consolidatedstatementsofcashflows",
+            "consolidatedstatementofcashflows",
+            "statementsofcashflows",
+            "statementofcashflows",
+            "cashflowstatement",
+            "equityliabilities",
+            "liabilitiesandequity",
+            "equityandliabilities",
+        )
+    )
+
+
+def _looks_like_eu_segment_or_subsidiary_summary(table: ParsedTable) -> bool:
+    context = _table_compact_context(table)
+    if any(token in context for token in ("segmentinformation", "operatingsegments", "reportablesegments")):
+        return True
+    rows_text = compact_label(" ".join(" ".join(str(cell or "") for cell in row[:5]) for row in table.rows[:16]))
+    has_balance_rows = "totalassets" in rows_text and ("totalliabilities" in rows_text or "shareholdersequity" in rows_text)
+    has_performance_rows = any(token in rows_text for token in ("revenuesfromsales", "revenue", "netincome", "profitloss"))
+    has_activity_scope = any(token in rows_text for token in ("activities", "liquefactionentities", "renewablesandelectricity", "subsidiar"))
+    return has_balance_rows and has_performance_rows and has_activity_scope
+
+
+def _looks_like_parent_or_statutory_eu_statement(table: ParsedTable, context: str) -> bool:
+    title = str(table.title or "").strip()
+    title_compact = compact_label(title)
+    if title in {"ASSETS", "SHAREHOLDERS’ EQUITY AND LIABILITIES", "SHAREHOLDERS' EQUITY AND LIABILITIES"}:
+        return True
+    if re.fullmatch(r"\d+(?:\d+)?(?:assets|liabilities)", title_compact):
+        return True
+    if "netvalues" in context and title_compact == "assets":
+        return True
+    return False
+
+
+def _table_compact_context(table: ParsedTable, *, include_rows: bool = True) -> str:
+    raw = table.raw if isinstance(table.raw, dict) else {}
+    parts = [str(table.title or ""), str(raw.get("heading") or ""), str(raw.get("preview") or "")[:500]]
+    captions = raw.get("source_caption")
+    if isinstance(captions, list):
+        parts.extend(str(value) for value in captions)
+    elif captions:
+        parts.append(str(captions))
+    if include_rows:
+        for row in table.rows[:4]:
+            parts.append(" ".join(str(cell or "") for cell in row[:6]))
+    return compact_label(" ".join(parts))
+
+
+def _header_column_shifts(row: list[Any], max_columns: int, label_columns: int) -> list[int]:
+    shifts: list[int] = []
+    first = str(row[0] if row else "")
+    if _cell_has_year(first) and len(row) < max_columns:
+        shifts.append(label_columns)
+    if _has_leading_statement_section_cell(row):
+        shifts.append(-1)
+    shifts.append(0)
+    unique: list[int] = []
+    for shift in shifts:
+        if shift not in unique:
+            unique.append(shift)
+    return unique
+
+
+def _has_leading_statement_section_cell(row: list[Any]) -> bool:
+    if len(row) < 4:
+        return False
+    first = compact_label(row[0])
+    second = compact_label(row[1])
+    third = compact_label(row[2])
+    return (
+        first in {"assets", "liabilities", "equity", "liabilitiesandequity", "equityandliabilities"}
+        and ("million" in second or "asof" in second or "ason" in second or "usd" in second or "eur" in second or "chf" in second)
+        and (third in {"note", "notes"} or _cell_has_year(str(row[2])))
+        and any(_cell_has_year(str(cell)) for cell in row[3:])
+    )
+
+
+def _cell_has_year(value: str) -> bool:
+    return bool(re.search(r"(20\d{2}|19\d{2})", str(value or "")))
 
 
 def _table_source_type(table: ParsedTable, statement_type: StatementType | None) -> str:
@@ -474,6 +683,12 @@ def _derive_missing_facts(facts: list[ExtractedFact], artifact: ParsedArtifact) 
             optional_zero_names={"fx_effect_cash"},
         )
     return derived
+
+
+def _normalize_eu_fact_value(canonical_name: str, value: Decimal) -> Decimal:
+    if canonical_name in _EU_LIABILITY_CANONICAL_NAMES and value < 0:
+        return -value
+    return value
 
 
 def _derive_one(

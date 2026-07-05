@@ -134,14 +134,16 @@ def test_build_wiki_index_writes_company_and_root_indexes(tmp_path):
 
     assert summary["package_count"] == 1
     assert summary["company_count"] == 1
-    assert read_json(tmp_path / "AAPL" / "company.json")["ticker"] == "AAPL"
-    assert (tmp_path / "AAPL" / "company.md").is_file()
-    assert read_json(tmp_path / "AAPL" / "filings.json")["items"][0]["filing_id"].startswith("US:")
-    assert (tmp_path / "AAPL" / "metrics" / "latest" / "financial_data.json").is_file()
-    assert (tmp_path / "AAPL" / "metrics" / "reports" / "US_0000320193_0000320193-25-000079" / "normalized_metrics.json").is_file()
+    company_dir = tmp_path / "companies" / "AAPL-Apple-Inc"
+    assert read_json(company_dir / "company.json")["ticker"] == "AAPL"
+    assert (company_dir / "company.md").is_file()
+    assert read_json(company_dir / "filings.json")["items"][0]["filing_id"].startswith("US:")
+    assert (company_dir / "metrics" / "latest" / "financial_data.json").is_file()
+    assert (company_dir / "metrics" / "reports" / "US_0000320193_0000320193-25-000079" / "normalized_metrics.json").is_file()
     assert read_json(tmp_path / "_meta" / "package_index.json")["count"] == 1
+    assert read_json(tmp_path / "_meta" / "company_catalog.json")["companies"][0]["company_wiki_id"] == "AAPL-Apple-Inc"
     assert read_json(tmp_path / "_meta" / "quality_summary.json")["quality_counts"]["pass"] == 1
-    assert read_json(tmp_path / "case_set_50_us_10k.json")["items"][0]["ticker"] == "AAPL"
+    assert read_json(tmp_path / "_meta" / "case_set_50_us_10k.json")["items"][0]["ticker"] == "AAPL"
 
 
 def test_ingest_case_set_imports_without_milvus_dependency(monkeypatch):
@@ -193,7 +195,7 @@ def test_batch_build_invokes_discovery_package_and_index(monkeypatch, tmp_path):
     calls = []
     monkeypatch.setattr(batch.discovery, "scan_downloads", lambda *a, **k: [{"source_path": str(source), "metadata_path": None, "ticker": "AAPL", "form": "10-K"}])
     monkeypatch.setattr(batch.discovery, "write_downloads_index", lambda rows, output_root: output_root / "_meta" / "downloads_index.json")
-    monkeypatch.setattr(batch.sec_evidence_lib, "write_evidence_package", lambda *a, **k: calls.append("package") or (tmp_path / "wiki" / "AAPL" / "2025" / "10-K_x"))
+    monkeypatch.setattr(batch.sec_evidence_lib, "write_evidence_package", lambda *a, **k: calls.append("package") or (tmp_path / "wiki" / "companies" / "AAPL-Apple-Inc" / "reports" / "2025-10-K-x"))
     monkeypatch.setattr(batch.indexer, "build_wiki_index", lambda *a, **k: {"package_count": 1})
 
     report = batch.build_sec_wiki(tmp_path, tmp_path / "wiki", forms={"10-K"}, force=False)
@@ -251,6 +253,9 @@ def test_sec_manifest_uses_market_evidence_contract(monkeypatch, tmp_path):
     assert manifest["country"] == "US"
     assert manifest["source_tier"] == "official"
     assert manifest["document_format"] == "ixbrl_html"
+    assert manifest["report_id"].startswith("2025-10-K-")
+    assert manifest["company_wiki_id"] == "DEMO-Demo-Corp"
+    assert "/companies/DEMO-Demo-Corp/reports/" in manifest["wiki_report_path"]
     assert manifest["parse_run_id"]
     assert manifest["artifact_hashes"]
     assert manifest["artifacts"]["normalized_metrics"] == "metrics/normalized_metrics.json"

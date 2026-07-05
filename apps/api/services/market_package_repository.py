@@ -123,12 +123,11 @@ def iter_market_packages(market: str, market_wiki_roots: Mapping[str, Path]) -> 
     root = market_wiki_roots[market]
     if not root.exists():
         return []
-    if market == "EU":
-        patterns = ("*/*/*/*/manifest.json",)
-    elif market in {"HK", "KR"}:
-        patterns = ("companies/*/reports/*/manifest.json", "*/*/*/manifest.json")
-    else:
-        patterns = ("*/*/*/manifest.json",)
+    patterns = (
+        "companies/*/reports/*/manifest.json",
+        "*/*/*/*/manifest.json",
+        "*/*/*/manifest.json",
+    )
     package_dirs: list[Path] = []
     seen: set[Path] = set()
     for pattern in patterns:

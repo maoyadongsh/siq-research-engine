@@ -2,7 +2,7 @@ import jp_market_profile as jp
 
 
 def test_detect_market_prefers_explicit_task_market_and_filename():
-    assert jp.JP_PROFILE_RULE_VERSION == "jp-pdf-profile-v3"
+    assert jp.JP_PROFILE_RULE_VERSION == "jp-pdf-profile-v5"
     assert jp.is_jp_market({"submit_config": {"market": "JP"}}, "anything.pdf")
     assert jp.is_jp_market({"market": "jp"}, "anything.pdf")
     assert jp.is_jp_market({}, "Toyota-Motor-Corporation_JP_7203_2025.pdf")
@@ -14,6 +14,12 @@ def test_detect_jp_report_kind_distinguishes_annual_securities_and_integrated_re
     assert jp.detect_jp_report_kind("有価証券報告書\n第一部【企業情報】") == "jp_annual_securities_report"
     assert jp.detect_jp_report_kind("Integrated Report\nValue Creation\nMateriality") == "jp_integrated_report"
     assert jp.detect_jp_report_kind("FINANCIAL HIGHLIGHTS\nNet sales Operating profit") == "jp_financial_highlights_only"
+    assert jp.detect_jp_report_kind("2025 Integrated Report\nWebsite: Annual Securities Report") == "jp_integrated_report"
+
+
+def test_core_financial_table_names_are_report_kind_aware():
+    assert jp.core_financial_table_names_for_report("jp_annual_securities_report") == jp.JP_FORMAL_CORE_FINANCIAL_TABLE_NAMES
+    assert jp.core_financial_table_names_for_report("jp_integrated_report") == jp.JP_SUMMARY_CORE_FINANCIAL_TABLE_NAMES
 
 
 def test_jp_candidate_groups_find_financial_highlights_and_statements():
@@ -111,10 +117,11 @@ def test_jp_candidate_groups_find_integrated_report_financial_summary_tables():
 
     assert candidates["Financial Highlights"][0]["table_index"] == 3
     assert {row["table_index"] for row in candidates["Financial Highlights"]} >= {1, 3}
-    assert candidates["Consolidated Statement of Financial Position"][0]["table_index"] == 2
+    assert "Consolidated Statement of Financial Position" not in candidates
+    assert candidates["Total Assets"][0]["table_index"] == 2
 
 
-def test_jp_candidate_groups_treat_revenues_as_profit_or_loss_signal():
+def test_jp_candidate_groups_do_not_treat_multi_year_metrics_as_profit_or_loss_statement():
     table_index = [
         {
             "table_index": 1,
@@ -129,10 +136,11 @@ def test_jp_candidate_groups_treat_revenues_as_profit_or_loss_signal():
 
     candidates = jp.group_jp_key_table_candidates(table_index)
 
-    assert candidates["Consolidated Statement of Profit or Loss"][0]["table_index"] == 1
+    assert "Consolidated Statement of Profit or Loss" not in candidates
+    assert candidates["Revenue"][0]["table_index"] == 1
 
 
-def test_jp_candidate_groups_find_bank_summary_and_balance_sheet_data():
+def test_jp_candidate_groups_keep_bank_summary_data_out_of_core_statement_coverage():
     table_index = [
         {
             "table_index": 1,
@@ -165,8 +173,113 @@ def test_jp_candidate_groups_find_bank_summary_and_balance_sheet_data():
     candidates = jp.group_jp_key_table_candidates(table_index)
 
     assert candidates["Financial Highlights"][0]["table_index"] == 1
-    assert candidates["Consolidated Statement of Financial Position"][0]["table_index"] == 2
-    assert {row["table_index"] for row in candidates["Consolidated Statement of Financial Position"]} >= {2, 3}
+    assert "Consolidated Statement of Financial Position" not in candidates
+    assert {row["table_index"] for row in candidates["Total Assets"]} >= {2, 3}
+
+
+def test_jp_candidate_groups_do_not_promote_integrated_financial_highlights_to_core_statements():
+    table_index = [
+        {
+            "table_index": 55,
+            "heading": "IFRS",
+            "signal_preview": (
+                "2014 2015 2016 2017 2018 For the year: Revenue [Net sales] "
+                "Operating profit Profit before tax Profit attributable to owners of parent "
+                "Net cash provided by operating activities Net cash used in investing activities "
+                "Free cash flow At year-end: Total assets Total equity [Net assets] "
+                "Interest-bearing liabilities Ratios: Operating profit margin ROE"
+            ),
+        },
+    ]
+
+    candidates = jp.group_jp_key_table_candidates(table_index)
+
+    assert candidates["Financial Highlights"][0]["table_index"] == 55
+    assert candidates["Revenue"][0]["table_index"] == 55
+    assert "Consolidated Statement of Financial Position" not in candidates
+    assert "Consolidated Statement of Profit or Loss" not in candidates
+    assert "Consolidated Statement of Cash Flows" not in candidates
+
+
+def test_jp_candidate_groups_do_not_promote_multi_year_cash_flow_summary_to_cash_flow_statement():
+    table_index = [
+        {
+            "table_index": 17,
+            "heading": "",
+            "signal_preview": (
+                "Cash Flows Japanese GAAP IFRS Unit 2014 2015 2016 2017 2018 2019 2020 2021 2022 2023 2024 "
+                "Cash flows from operating activities Cash flows from investing activities Free cash flow"
+            ),
+        }
+    ]
+
+    candidates = jp.group_jp_key_table_candidates(table_index)
+
+    assert "Consolidated Statement of Cash Flows" not in candidates
+
+
+def test_jp_candidate_groups_find_consolidated_operating_results_as_financial_highlights():
+    table_index = [
+        {
+            "table_index": 14,
+            "heading": "Fiscal years ended December 31",
+            "signal_preview": (
+                "Consolidated Operating Results Japanese GAAP IFRS Unit 2014 2015 2016 2017 2018 2019 2020 2021 2022 2023 2024 "
+                "Revenue Billion JPY"
+            ),
+        }
+    ]
+
+    candidates = jp.group_jp_key_table_candidates(table_index)
+
+    assert candidates["Financial Highlights"][0]["table_index"] == 14
+    assert "Consolidated Statement of Profit or Loss" not in candidates
+
+
+def test_jp_candidate_groups_do_not_promote_strategy_capital_tables_to_core_statements():
+    table_index = [
+        {
+            "table_index": 13,
+            "heading": "The Six Capitals and Measures to Strengthen Them",
+            "signal_preview": (
+                "Human capital Financial capital Key monitoring indicators "
+                "Implementing balance sheet-driven management Improving cash flows from operating activities "
+                "ROE ROIC Cash generation Debt to equity ratio"
+            ),
+        },
+        {
+            "table_index": 24,
+            "heading": "Ideal Vision",
+            "signal_preview": (
+                "Target Actual Financial Targets Consolidated revenue Operating profit margin "
+                "ROE Bonds and borrowings to total assets"
+            ),
+        },
+    ]
+
+    candidates = jp.group_jp_key_table_candidates(table_index)
+
+    assert "Consolidated Statement of Financial Position" not in candidates
+    assert "Consolidated Statement of Profit or Loss" not in candidates
+    assert "Consolidated Statement of Cash Flows" not in candidates
+
+
+def test_jp_candidate_groups_do_not_promote_shareholder_return_footnotes_to_comprehensive_income():
+    table_index = [
+        {
+            "table_index": 34,
+            "heading": "</details>",
+            "signal_preview": (
+                "Past 10 years Past 5 years Past 3 years Past 1 year Total Shareholder Return "
+                "Mitsubishi Electric 217.7% TOPIX 217.4% "
+                "Adjusted dividend on equity ratio excludes accumulated other comprehensive income (loss)"
+            ),
+        }
+    ]
+
+    candidates = jp.group_jp_key_table_candidates(table_index)
+
+    assert "Consolidated Statement of Comprehensive Income" not in candidates
 
 
 def test_jp_quality_messages_do_not_use_a_share_core_table_warning_for_integrated_reports():

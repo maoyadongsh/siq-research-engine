@@ -1,7 +1,7 @@
 import { BarChart3, CheckCircle2, ExternalLink, XCircle } from 'lucide-react'
 import type { FinancialResult } from '../../lib/pdfTypes'
 import { PDF_API } from '../../features/pdf-parsing/api'
-import { formatFinancialNumber, scopeName } from '../../lib/pdfFormatting'
+import { formatFinancialNumber, scopeNameForMarket } from '../../lib/pdfFormatting'
 import { handleAuthenticatedSourceClick } from '../../lib/authenticatedSourceLinks'
 import { pdfFinancialPanelTitle } from './pdfMarketPanelLabels'
 
@@ -23,8 +23,19 @@ export function PdfFinancialPanel({ financial, taskId, market }: PdfFinancialPan
 
   const stmtCount = data?.summary?.statement_count ?? statements.length
   const keyMetricCount = data?.summary?.key_metric_count ?? metrics.length
-  const scopes = (data?.summary?.scopes || []).map(scopeName).join('、') || '--'
+  const scopes = (data?.summary?.scopes || []).map((scope) => scopeNameForMarket(scope, market)).join('、') || '--'
   const statusText = status === 'pass' ? '通过' : status === 'fail' ? '存在异常' : status === 'error' ? '生成失败' : '未生成'
+  const currencies =
+    data?.detected_currencies?.length ? data.detected_currencies.join('、') : checks?.detected_currencies?.length ? checks.detected_currencies.join('、') : data?.currency || checks?.currency
+  const profile = [
+    data?.market || checks?.market || data?.market_profile || checks?.market_profile,
+    data?.accounting_standard || checks?.accounting_standard,
+    data?.industry_profile,
+    currencies,
+    data?.unit || checks?.unit,
+  ]
+    .filter(Boolean)
+    .join(' / ')
 
   return (
     <div className="apple-card rounded-[24px] p-4 sm:p-6">
@@ -35,6 +46,7 @@ export function PdfFinancialPanel({ financial, taskId, market }: PdfFinancialPan
             {pdfFinancialPanelTitle(market)}
           </h3>
           {taskId ? <p className="text-xs text-text-muted">任务 {taskId}</p> : null}
+          {profile ? <p className="text-xs text-text-muted">{profile}</p> : null}
         </div>
         {checks?.overall_status ? (
           <span
@@ -90,7 +102,7 @@ export function PdfFinancialPanel({ financial, taskId, market }: PdfFinancialPan
           {failures.length ? (
             failures.map((f, i) => (
               <li key={i}>
-                <b>{String(f.rule_name || f.rule_id || '校验失败')}</b> · {scopeName(String(f.scope))} · {String(f.period || '--')}
+                <b>{String(f.rule_name || f.rule_id || '校验失败')}</b> · {scopeNameForMarket(String(f.scope), market)} · {String(f.period || '--')}
                 {f.diff !== undefined ? ` · 差异 ${formatFinancialNumber(Number(f.diff))}` : ''}
                 {f.tolerance !== undefined ? ` / 容差 ${formatFinancialNumber(Number(f.tolerance))}` : ''}
               </li>
@@ -131,18 +143,20 @@ export function PdfFinancialPanel({ financial, taskId, market }: PdfFinancialPan
 
       {metrics.length ? (
         <div className="mt-4 overflow-x-auto">
-          <table className="w-full min-w-[520px] text-left text-sm">
+          <table className="w-full min-w-[640px] text-left text-sm">
             <thead className="text-text-muted">
               <tr>
                 <th className="border-b border-border py-2 pr-3">指标</th>
                 <th className="border-b border-border py-2 pr-3">期间</th>
                 <th className="border-b border-border py-2 pr-3">值</th>
+                <th className="border-b border-border py-2 pr-3">单位/币种</th>
               </tr>
             </thead>
             <tbody>
               {metrics.slice(0, 12).map((item, index) => {
                 const row = item as Record<string, unknown>
                 const value = Number(row.value)
+                const unit = [row.currency, row.unit].filter(Boolean).join(' / ') || '--'
                 return (
                   <tr key={index}>
                     <td className="border-b border-border/70 py-2 pr-3 font-medium text-text">{String(row.name || row.metric || '--')}</td>
@@ -150,6 +164,7 @@ export function PdfFinancialPanel({ financial, taskId, market }: PdfFinancialPan
                     <td className="border-b border-border/70 py-2 pr-3 text-text">
                       {Number.isFinite(value) ? formatFinancialNumber(value) : String(row.value ?? '--')}
                     </td>
+                    <td className="border-b border-border/70 py-2 pr-3 text-text-muted">{unit}</td>
                   </tr>
                 )
               })}

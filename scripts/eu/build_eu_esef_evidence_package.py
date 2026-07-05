@@ -15,7 +15,7 @@ def main() -> None:
     parser.add_argument(
         "--output-root",
         type=Path,
-        default=Path(os.environ.get("SIQ_EU_WIKI_ROOT", REPO_ROOT / "data" / "wiki" / "eu_reports")),
+        default=Path(os.environ.get("SIQ_EU_WIKI_ROOT", REPO_ROOT / "data" / "wiki" / "eu")),
     )
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()

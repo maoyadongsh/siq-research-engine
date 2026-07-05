@@ -147,6 +147,7 @@ export function searchParamsForReportSearch({
 }
 
 export function annualFormsForMarket(targetMarket: MarketCode, targetFilter = '') {
+  if (targetMarket === 'JP') return ['yuho']
   if (targetMarket !== 'US') return []
   if (targetFilter && ['10-K', '20-F'].includes(targetFilter)) return [targetFilter]
   if (targetFilter) return []
@@ -181,9 +182,24 @@ export function identifierPayloadForSearch({
   targetCompanyId,
   targetFilter,
 }: ResolveSearchCompanyInput) {
+  if (targetMarket !== 'EU' && targetTicker && targetCompanyId) {
+    return { ticker: targetTicker, company_id: targetCompanyId }
+  }
+  if (targetMarket !== 'EU' && targetTicker) {
+    return { ticker: targetTicker }
+  }
+  if (targetMarket !== 'EU' && targetCompanyId) {
+    return { company_id: targetCompanyId }
+  }
   const base = identifierPayload(targetMarket, targetQuery, targetTicker)
   const countryPrefix = targetMarket === 'EU' && targetFilter ? `${targetFilter}:` : ''
-  if (targetCompanyId) return { ...base, company_id: `${countryPrefix}${targetCompanyId}` }
+  if (targetCompanyId) {
+    const prefixedCompanyId = targetMarket === 'EU' && targetFilter && !String(targetCompanyId).includes(':')
+      ? `${countryPrefix}${targetCompanyId}`
+      : targetCompanyId
+    if (targetTicker) return { ticker: targetTicker, company_id: prefixedCompanyId }
+    return { ...base, company_id: prefixedCompanyId }
+  }
   if (targetMarket === 'EU' && targetFilter) {
     if ('ticker' in base && typeof base.ticker === 'string') return { company_id: `${countryPrefix}${base.ticker}`, ticker: base.ticker }
     if ('company_id' in base && typeof base.company_id === 'string') return { company_id: `${countryPrefix}${base.company_id}` }

@@ -6,6 +6,7 @@ import {
   FileText,
   Files,
   HelpCircle,
+  Landmark,
   LayoutDashboard,
   MessageCircle,
   MonitorCog,
@@ -69,6 +70,11 @@ export const appRoutes: AppRoute[] = [
   defineRoute('/deals', () => import('../pages/Deals'), {
     sidebar: { group: 'nav', to: '/deals', icon: BriefcaseBusiness, label: '交易工作台' },
   }),
+  defineRoute('/primary-market', () => import('../pages/PrimaryMarketWorkbench'), {
+    sidebar: { group: 'nav', to: '/primary-market', icon: Landmark, label: '一级市场' },
+  }),
+  defineRoute('/primary-market/materials', () => import('../pages/PrimaryMarketMaterials')),
+  defineRoute('/primary-market/meeting', () => import('../pages/PrimaryMarketMeeting')),
   defineRoute('/deals/:dealId', () => import('../pages/DealWorkspace')),
   defineRoute('/deals/:dealId/data-room', () => import('../pages/DealDataRoom')),
   defineRoute('/deals/:dealId/evidence', () => import('../pages/DealEvidence')),

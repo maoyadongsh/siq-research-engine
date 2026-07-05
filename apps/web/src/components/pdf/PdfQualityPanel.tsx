@@ -1,6 +1,12 @@
 import type { QualityReport } from '../../lib/pdfTypes'
 import { candidateMeta, suspectReasons, suspectTableMeta } from '../../lib/pdfFormatting'
-import { pdfQualityPanelTitle } from './pdfMarketPanelLabels'
+import {
+  pdfCoreTablesLabel,
+  pdfIndicatorCandidatesLabel,
+  pdfKeyCandidatesLabel,
+  pdfNoIndicatorCandidatesLabel,
+  pdfQualityPanelTitle,
+} from './pdfMarketPanelLabels'
 
 export interface PdfQualityPanelProps {
   quality: QualityReport
@@ -14,7 +20,10 @@ export function PdfQualityPanel({ quality, market, onShowTableSource }: PdfQuali
   const ind = (quality.indicator_table_candidates || []).filter((i) => i.status === 'found')
   const cFound = core.filter((i) => i.status === 'found')
   const susp = quality.suspicious_tables || []
-  const profile = [quality.market, quality.accounting_standard, quality.industry_profile].filter(Boolean).join(' / ')
+  const currencies = quality.detected_currencies?.length ? quality.detected_currencies.join('、') : quality.currency
+  const profile = [quality.market || quality.market_profile, quality.accounting_standard, quality.industry_profile, currencies, quality.unit]
+    .filter(Boolean)
+    .join(' / ')
 
   return (
     <div className="apple-card rounded-[24px] p-4 sm:p-6">
@@ -50,7 +59,7 @@ export function PdfQualityPanel({ quality, market, onShowTableSource }: PdfQuali
         </b>
       </div>
       <div className="pdf-quality-row">
-        <span>财报核心表</span>
+        <span>{pdfCoreTablesLabel(market)}</span>
         <b>
           {core.length
             ? `${cFound.length}/${core.length} · ${cFound.map((i) => i.name).join('、') || '未识别'}`
@@ -58,7 +67,7 @@ export function PdfQualityPanel({ quality, market, onShowTableSource }: PdfQuali
         </b>
       </div>
       <div className="pdf-quality-section">
-        <div className="pdf-quality-section-title">关键表候选</div>
+        <div className="pdf-quality-section-title">{pdfKeyCandidatesLabel(market)}</div>
         <div className="pdf-chip-row">
           {core.length ? (
             core.map((c, i) =>
@@ -101,7 +110,7 @@ export function PdfQualityPanel({ quality, market, onShowTableSource }: PdfQuali
         </div>
       </div>
       <div className="pdf-quality-section">
-        <div className="pdf-quality-section-title">指标/经营分析候选</div>
+        <div className="pdf-quality-section-title">{pdfIndicatorCandidatesLabel(market)}</div>
         <div className="pdf-chip-row">
           {ind.length ? (
             ind.map((c, i) => (
@@ -114,7 +123,7 @@ export function PdfQualityPanel({ quality, market, onShowTableSource }: PdfQuali
               </button>
             ))
           ) : (
-            <span className="text-text-muted text-sm">未定位到指标/经营分析候选表</span>
+            <span className="text-text-muted text-sm">{pdfNoIndicatorCandidatesLabel(market)}</span>
           )}
         </div>
       </div>

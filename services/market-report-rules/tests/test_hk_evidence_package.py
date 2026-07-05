@@ -4,6 +4,29 @@ from pathlib import Path
 from market_report_rules_service.evidence_package import validate_evidence_package
 
 
+def test_hk_html_table_parser_expands_rowspan_and_colspan(monkeypatch):
+    repo_root = Path(__file__).resolve().parents[3]
+    scripts_hk = repo_root / "scripts" / "hk"
+    monkeypatch.syspath_prepend(str(scripts_hk))
+    from hk_evidence_lib import _html_table_rows
+
+    rows = _html_table_rows(
+        """
+        <table>
+          <tr><th rowspan="2">Item</th><th colspan="2">HK$ million</th></tr>
+          <tr><th>2025</th><th>2024</th></tr>
+          <tr><td>Total assets</td><td>1000</td><td>900</td></tr>
+        </table>
+        """
+    )
+
+    assert rows == [
+        ["Item", "HK$ million", "HK$ million"],
+        ["Item", "2025", "2024"],
+        ["Total assets", "1000", "900"],
+    ]
+
+
 def test_build_hk_evidence_package_from_parser_result(tmp_path, monkeypatch):
     repo_root = Path(__file__).resolve().parents[3]
     scripts_hk = repo_root / "scripts" / "hk"
@@ -98,6 +121,8 @@ def test_build_hk_evidence_package_from_parser_result(tmp_path, monkeypatch):
 
     assert result.ok, result.errors
     assert package_dir == tmp_path / "wiki" / "companies" / "00700-TENCENT" / "reports" / "2025-annual-12100024"
+    assert result.manifest["company_wiki_id"] == "00700-TENCENT"
+    assert result.manifest["company_wiki_path"] == "companies/00700-TENCENT"
     assert result.manifest["wiki_company_path"] == "companies/00700-TENCENT"
     assert result.manifest["wiki_report_path"] == "companies/00700-TENCENT/reports/2025-annual-12100024"
     assert result.manifest["report_id"] == "2025-annual-12100024"
@@ -236,6 +261,193 @@ def test_build_hk_evidence_package_preserves_parser_financial_files_and_normaliz
     }
 
 
+def test_build_hk_evidence_package_uses_parser_financial_data_when_table_rows_are_missing(tmp_path, monkeypatch):
+    repo_root = Path(__file__).resolve().parents[3]
+    scripts_hk = repo_root / "scripts" / "hk"
+    monkeypatch.syspath_prepend(str(scripts_hk))
+    from hk_evidence_lib import write_hk_evidence_package, write_json
+
+    pdf = tmp_path / "TENCENT_HK_00700_2025-12-31_annual_2026-04-09_hkex_test.pdf"
+    pdf.write_bytes(b"%PDF-1.4")
+    metadata = pdf.with_suffix(pdf.suffix + ".metadata.json")
+    write_json(
+        metadata,
+        {
+            "candidate": {
+                "source_id": "hkex",
+                "market": "HK",
+                "ticker": "00700",
+                "company_id": "00700",
+                "company_name": "TENCENT",
+                "report_type": "annual",
+                "form": "annual",
+                "accession_number": "12100024",
+                "report_end": "2025-12-31",
+                "published_at": "2026-04-09",
+                "document_url": "https://www1.hkexnews.hk/test.pdf",
+            }
+        },
+    )
+    parser_dir = tmp_path / "parser"
+    parser_dir.mkdir()
+    write_json(parser_dir / "document_full.json", {"markdown": {"content": "# TENCENT\n"}, "content_list": []})
+
+    period = "2025-12-31"
+
+    def item(name, canonical_name, value, statement_type):
+        return {
+            "name": name,
+            "canonical_name": canonical_name,
+            "statement_type": statement_type,
+            "values": {period: str(value)},
+            "raw_values": {period: str(value)},
+            "sources": {period: {"source_type": "pdf_statement_table", "source_id": f"hk_table_{canonical_name}", "page_number": 10}},
+            "periods": {period: {"period_end": period, "fiscal_year": 2025, "fiscal_period": "FY"}},
+            "unit": "HKD",
+            "currency": "HKD",
+            "scale": "1",
+            "confidence": "0.90",
+        }
+
+    write_json(
+        parser_dir / "financial_data.json",
+        {
+            "schema_version": 1,
+            "rule_version": "hkex_rules_v1",
+            "profile_id": "hk_pdf_table_hybrid_v1",
+            "statements": [
+                {
+                    "statement_id": "balance_sheet",
+                    "statement_type": "balance_sheet",
+                    "statement_name": "Balance Sheet",
+                    "items": [
+                        item("Total assets", "total_assets", 1000, "balance_sheet"),
+                        item("Total liabilities", "total_liabilities", 600, "balance_sheet"),
+                        item("Total equity", "total_equity", 400, "balance_sheet"),
+                        item("Total liabilities and equity", "total_liabilities_and_equity", 1000, "balance_sheet"),
+                    ],
+                },
+                {
+                    "statement_id": "income_statement",
+                    "statement_type": "income_statement",
+                    "statement_name": "Income Statement",
+                    "items": [
+                        item("Revenue", "operating_revenue", 500, "income_statement"),
+                        item("Cost of sales", "cost_of_sales", 300, "income_statement"),
+                        item("Gross profit", "gross_profit", 200, "income_statement"),
+                    ],
+                },
+                {
+                    "statement_id": "cash_flow_statement",
+                    "statement_type": "cash_flow_statement",
+                    "statement_name": "Cash Flow Statement",
+                    "items": [
+                        item("Operating cash flow", "operating_cash_flow_net", 50, "cash_flow_statement"),
+                        item("Investing cash flow", "investing_cash_flow_net", -20, "cash_flow_statement"),
+                        item("Financing cash flow", "financing_cash_flow_net", -10, "cash_flow_statement"),
+                        item("FX effect", "fx_effect_cash", 0, "cash_flow_statement"),
+                        item("Net cash change", "cash_equivalents_net_increase", 20, "cash_flow_statement"),
+                        item("Beginning cash", "cash_equivalents_beginning", 80, "cash_flow_statement"),
+                        item("Ending cash", "cash_equivalents_ending", 100, "cash_flow_statement"),
+                    ],
+                },
+            ],
+            "key_metrics": [],
+            "operating_metrics": [],
+            "warnings": [],
+        },
+    )
+
+    package_dir = write_hk_evidence_package(pdf, parser_dir, tmp_path / "wiki", metadata, force=True)
+    financial_data = json.loads((package_dir / "metrics" / "financial_data.json").read_text(encoding="utf-8"))
+    financial_checks = json.loads((package_dir / "metrics" / "financial_checks.json").read_text(encoding="utf-8"))
+    quality = json.loads((package_dir / "qa" / "quality_report.json").read_text(encoding="utf-8"))
+
+    assert [statement["statement_type"] for statement in financial_data["statements"]] == [
+        "balance_sheet",
+        "income_statement",
+        "cash_flow_statement",
+    ]
+    assert financial_checks["overall_status"] == "pass"
+    assert quality["required_statement_status"]["cash_flow_statement"] == "present"
+
+
+def test_build_hk_evidence_package_recovers_statement_tables_from_result_markdown(tmp_path, monkeypatch):
+    repo_root = Path(__file__).resolve().parents[3]
+    scripts_hk = repo_root / "scripts" / "hk"
+    monkeypatch.syspath_prepend(str(scripts_hk))
+    from hk_evidence_lib import write_hk_evidence_package, write_json
+
+    pdf = tmp_path / "POWER-ASSETS_HK_00006_2025-12-31_annual_2026-04-09_hkex_test.pdf"
+    pdf.write_bytes(b"%PDF-1.4")
+    metadata = pdf.with_suffix(pdf.suffix + ".metadata.json")
+    write_json(
+        metadata,
+        {
+            "candidate": {
+                "source_id": "hkex",
+                "market": "HK",
+                "ticker": "00006",
+                "company_id": "00006",
+                "company_name": "POWER ASSETS",
+                "report_type": "annual",
+                "form": "annual",
+                "accession_number": "12113656",
+                "report_end": "2025-12-31",
+                "published_at": "2026-04-09",
+                "document_url": "https://www1.hkexnews.hk/test.pdf",
+            }
+        },
+    )
+    parser_dir = tmp_path / "parser"
+    parser_dir.mkdir()
+    write_json(parser_dir / "document_full.json", {"markdown": {"content": "# POWER ASSETS\n"}, "content_list": []})
+    write_json(parser_dir / "financial_data.json", {"statements": [], "key_metrics": [], "operating_metrics": [], "warnings": []})
+    (parser_dir / "result_complete.md").write_text(
+        """
+# Consolidated Statement of Profit or Loss
+<table><tr><td></td><td>Note</td><td>2025HK$ million</td><td>2024HK$ million</td></tr>
+<tr><td>Revenue</td><td>4</td><td>500</td><td>450</td></tr>
+<tr><td>Cost of sales</td><td></td><td>(300)</td><td>(270)</td></tr>
+<tr><td>Gross profit</td><td></td><td>200</td><td>180</td></tr>
+<tr><td>Profit before taxation</td><td></td><td>150</td><td>140</td></tr>
+<tr><td>Taxation</td><td></td><td>(50)</td><td>(40)</td></tr>
+<tr><td>Profit for the year</td><td></td><td>100</td><td>100</td></tr></table>
+
+# Consolidated Statement of Financial Position
+<table><tr><td></td><td>Note</td><td>2025HK$ million</td><td>2024HK$ million</td></tr>
+<tr><td>Total assets</td><td></td><td>1000</td><td>900</td></tr>
+<tr><td>Total liabilities</td><td></td><td>600</td><td>540</td></tr>
+<tr><td>Total equity</td><td></td><td>400</td><td>360</td></tr>
+<tr><td>Total liabilities and equity</td><td></td><td>1000</td><td>900</td></tr></table>
+
+# Consolidated Cash Flow Statement
+<table><tr><td></td><td>2025HK$ million</td><td>2024HK$ million</td></tr>
+<tr><td>Net cash generated from operating activities</td><td>50</td><td>45</td></tr>
+<tr><td>Net cash used in investing activities</td><td>(20)</td><td>(15)</td></tr>
+<tr><td>Net cash used in financing activities</td><td>(10)</td><td>(10)</td></tr>
+<tr><td>Effect of exchange rate changes</td><td>0</td><td>0</td></tr>
+<tr><td>Net increase in cash and cash equivalents</td><td>20</td><td>20</td></tr>
+<tr><td>Cash and cash equivalents at beginning</td><td>80</td><td>60</td></tr>
+<tr><td>Cash and cash equivalents at end</td><td>100</td><td>80</td></tr></table>
+""",
+        encoding="utf-8",
+    )
+
+    package_dir = write_hk_evidence_package(pdf, parser_dir, tmp_path / "wiki", metadata, force=True)
+    financial_data = json.loads((package_dir / "metrics" / "financial_data.json").read_text(encoding="utf-8"))
+    financial_checks = json.loads((package_dir / "metrics" / "financial_checks.json").read_text(encoding="utf-8"))
+    table_index = json.loads((package_dir / "tables" / "table_index.json").read_text(encoding="utf-8"))
+
+    assert [statement["statement_type"] for statement in financial_data["statements"]] == [
+        "balance_sheet",
+        "income_statement",
+        "cash_flow_statement",
+    ]
+    assert financial_checks["overall_status"] == "pass"
+    assert {table["raw"]["source"] for table in table_index["tables"]} == {"result_markdown_statement_table"}
+
+
 def test_migrate_legacy_hk_reports_to_company_wiki_layout(tmp_path, monkeypatch):
     repo_root = Path(__file__).resolve().parents[3]
     scripts_hk = repo_root / "scripts" / "hk"
@@ -289,6 +501,8 @@ def test_migrate_legacy_hk_reports_to_company_wiki_layout(tmp_path, monkeypatch)
     assert target.is_dir()
     manifest = json.loads((target / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["report_id"] == "2025-annual-12100024"
+    assert manifest["company_wiki_id"] == "00700-TENCENT"
+    assert manifest["company_wiki_path"] == "companies/00700-TENCENT"
     assert manifest["wiki_company_path"] == "companies/00700-TENCENT"
     assert manifest["wiki_report_path"] == "companies/00700-TENCENT/reports/2025-annual-12100024"
     company_json = json.loads((tmp_path / "wiki" / "hk" / "companies" / "00700-TENCENT" / "company.json").read_text(encoding="utf-8"))

@@ -188,6 +188,38 @@ def test_eu_bmw_download_uses_base_user_agent(monkeypatch):
     assert "Accept-Language" not in captured["headers"]
 
 
+def test_edinet_download_retries_429(monkeypatch):
+    sleeps = []
+
+    class StubResponse:
+        def __init__(self, status_code: int, content: bytes = b"", content_type: str = "application/pdf"):
+            self.status_code = status_code
+            self.content = content
+            self.headers = {"content-type": content_type}
+
+        def raise_for_status(self) -> None:
+            if self.status_code >= 400:
+                raise AssertionError(f"unexpected status {self.status_code}")
+
+    class StubClient:
+        def __init__(self):
+            self.responses = [
+                StubResponse(429),
+                StubResponse(200, b"%PDF-1.7 ok"),
+            ]
+
+        def get(self, url: str):
+            return self.responses.pop(0)
+
+    monkeypatch.setattr("market_report_finder_service.services.downloader.time.sleep", lambda seconds: sleeps.append(seconds))
+
+    content, content_type = ReportDownloader._fetch_edinet_content(StubClient(), "https://api.edinet-fsa.go.jp/api/v2/documents/S100TEST?type=2")
+
+    assert content == b"%PDF-1.7 ok"
+    assert content_type == "application/pdf"
+    assert sleeps == [2.0]
+
+
 def test_issuer_direct_cache_lookup_does_not_alias_landing_url():
     candidate = _candidate().model_copy(
         update={

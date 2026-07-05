@@ -40,6 +40,10 @@ from market_report_rules_service.pipeline import process_artifact
 
 PARSER_VERSION = os.environ.get("SIQ_JP_PARSER_VERSION", "jp_edinet_evidence_parser_v1")
 RULES_VERSION = os.environ.get("SIQ_JP_RULES_VERSION", "jp_edinet_rules_v1")
+_JP_BANK_TICKERS = {"8306", "8316", "8411", "8308", "7182"}
+_JP_INSURANCE_TICKERS = {"8725", "8750", "8766", "8795"}
+_JP_TELECOM_TICKERS = {"9432", "9433", "9434", "9613", "9984"}
+_JP_SEMICONDUCTOR_TICKERS = {"8035", "6857", "6723", "6920", "6146", "7735"}
 
 
 @dataclass(frozen=True)
@@ -81,6 +85,7 @@ def _repo_or_wiki_relative(path: Path, output_root: Path) -> str:
 
 
 def company_wiki_report_paths(output_root: Path, metadata: dict[str, Any]) -> CompanyWikiReportPaths:
+    market_root = output_root / "jp" if output_root.name == "wiki" else output_root
     ticker = safe_wiki_slug(metadata.get("security_code") or metadata.get("ticker"), "UNKNOWN")
     company_name = safe_wiki_slug(metadata.get("company_name") or metadata.get("company_name_en") or metadata.get("company_name_ja"), "unknown")
     company_id = f"{ticker}-{company_name}"
@@ -88,7 +93,7 @@ def company_wiki_report_paths(output_root: Path, metadata: dict[str, Any]) -> Co
     report_type = safe_wiki_slug(metadata.get("report_type") or _report_type(metadata.get("form")), "report").replace("_", "-")
     doc_id = safe_wiki_slug(metadata.get("doc_id") or metadata.get("filing_id") or metadata.get("document_id"), "unknown")
     report_id = f"{fiscal_year}-{report_type}-{doc_id}"
-    company_dir = output_root / "jp" / "companies" / company_id
+    company_dir = market_root / "companies" / company_id
     report_dir = company_dir / "reports" / report_id
     return CompanyWikiReportPaths(
         company_id=company_id,
@@ -112,6 +117,7 @@ def infer_metadata(source_path: Path, metadata_path: Path | None = None) -> dict
     period_end = candidate.get("report_end") or candidate.get("period_end") or _filename_date(source_path.name)
     fiscal_year = _int_or_none(str(period_end or "")[:4]) or _int_or_none(candidate.get("year"))
     report_type = _report_type(candidate.get("report_type") or candidate.get("form") or source_path.parent.name)
+    company_name = candidate.get("company_name") or (stem_parts[0] if stem_parts else source_path.stem)
     return {
         "raw_metadata": metadata,
         "doc_id": doc_id,
@@ -119,7 +125,7 @@ def infer_metadata(source_path: Path, metadata_path: Path | None = None) -> dict
         "security_code": str(ticker),
         "company_id": f"JP:{edinet_code or ticker}",
         "ticker": str(ticker),
-        "company_name": candidate.get("company_name") or (stem_parts[0] if stem_parts else source_path.stem),
+        "company_name": company_name,
         "company_name_en": candidate.get("company_name_en"),
         "company_name_ja": candidate.get("company_name_ja"),
         "source_id": candidate.get("source_id") or "edinet",
@@ -131,7 +137,29 @@ def infer_metadata(source_path: Path, metadata_path: Path | None = None) -> dict
         "published_at": candidate.get("published_at") or candidate.get("filing_date"),
         "source_url": candidate.get("document_url") or candidate.get("source_url") or candidate.get("landing_url"),
         "accounting_standard": _accounting_standard(metadata),
+        "industry_profile": candidate.get("industry_profile") or _infer_industry_profile(str(ticker), company_name, candidate),
     }
+
+
+def _infer_industry_profile(ticker: str, company_name: Any, candidate: dict[str, Any]) -> str:
+    code = re.sub(r"\D", "", str(ticker or ""))[:4]
+    raw_name = " ".join(str(value or "") for value in (company_name, candidate.get("company_name_en"), candidate.get("company_name_ja")))
+    name = raw_name.upper()
+    if code in _JP_BANK_TICKERS or "BANK" in name or "銀行" in raw_name:
+        return "bank"
+    if code in _JP_INSURANCE_TICKERS or "INSURANCE" in name or "保険" in raw_name:
+        return "insurance"
+    if code in _JP_TELECOM_TICKERS or any(token in name for token in ("NTT", "KDDI", "SOFTBANK", "TELECOM")):
+        return "telecom"
+    if code in _JP_SEMICONDUCTOR_TICKERS or any(token in name for token in ("SEMICONDUCTOR", "ELECTRON", "ADVANTEST", "RENESAS")):
+        return "semiconductor"
+    if any(token in name for token in ("TOYOTA", "HONDA", "NISSAN", "SUBARU", "MOTOR", "ELECTRIC", "MITSUBISHI", "HITACHI", "PANASONIC", "CANON", "SONY")):
+        return "manufacturing"
+    if any(token in name for token in ("PHARMA", "TAKEDA", "ASTELLAS", "DAIICHI", "CHUGAI")):
+        return "pharma"
+    if any(token in name for token in ("RETAIL", "FAST RETAILING", "SEVEN", "AEON")):
+        return "retail"
+    return "general"
 
 
 def extract_edinet_facts(source_path: Path) -> tuple[list[ParsedFact], list[dict[str, Any]]]:
@@ -204,6 +232,7 @@ def build_jp_artifact(source_path: Path, metadata_path: Path | None = None, pars
         fiscal_period=metadata["fiscal_period"],
         period_end=parse_date(metadata["period_end"]),
         accounting_standard=AccountingStandard(metadata["accounting_standard"]),
+        industry_profile=metadata.get("industry_profile") or "general",
         currency="JPY",
         unit="JPY",
         source_url=metadata["source_url"],
@@ -269,6 +298,7 @@ def write_jp_evidence_package(
         "source_url": metadata["source_url"],
         "local_source_path": f"raw/{source_path.name}",
         "accounting_standard": artifact.accounting_standard.value,
+        "industry_profile": artifact.industry_profile or metadata.get("industry_profile") or "general",
         "parser_version": PARSER_VERSION,
         "rules_version": RULES_VERSION,
         "quality_status": financial_checks.get("overall_status") or "warning",

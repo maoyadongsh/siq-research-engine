@@ -48,6 +48,20 @@ def _hermes_health_url(runs_url: str) -> str:
     return f"{parsed.scheme}://{parsed.netloc}/health"
 
 
+def _health_url_is_open(url: str, timeout: float = 0.2) -> bool:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        return False
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        import socket
+
+        with socket.create_connection((parsed.hostname, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
 async def _probe_service(
     client: httpx.AsyncClient,
     *,
@@ -205,7 +219,7 @@ async def collect_system_status() -> dict[str, Any]:
             f"HERMES_{profile.upper()}_HEALTH_URL",
             _hermes_health_url(config["base"]),
         )
-        if _is_ic_profile(profile) and not ic_hermes_enabled:
+        if _is_ic_profile(profile) and not ic_hermes_enabled and not _health_url_is_open(health_url):
             disabled_services.append(
                 _disabled_service(
                     service_id=f"hermes_{profile}",

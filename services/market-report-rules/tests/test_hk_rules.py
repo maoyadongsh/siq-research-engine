@@ -9,11 +9,17 @@ def test_hk_rule_specificity_filters_broad_revenue_matches():
     assert find_hk_rule("除所得税前溢利 Profit before income tax").canonical_name == "total_profit"
     assert find_hk_rule("Net cash inflow from operating activities").canonical_name == "operating_cash_flow_net"
     assert find_hk_rule("Net cash flow (used in)/from operating activities").canonical_name == "operating_cash_flow_net"
+    assert find_hk_rule("Cash generated from operations").canonical_name == "operating_cash_flow_net"
+    assert find_hk_rule("Net cash generated from financing activities").canonical_name == "financing_cash_flow_net"
+    assert find_hk_rule("Cash and cash equivalents at the end of the year").canonical_name == "cash_equivalents_ending"
     assert find_hk_rule("其他收入及收益 Other income and gains") is None
     assert find_hk_rule("年內溢利 For profit for the year") is None
     assert find_hk_rule("Total comprehensive income for the year") is None
     assert find_hk_rule("Reserves") is None
     assert find_hk_rule("Net assets of Shandong Jingzhi Baijiu") is None
+    assert find_hk_rule("Average total assets") is None
+    assert find_hk_rule("Share-based payment recognized in shareholders' equity") is None
+    assert find_hk_rule("Total equity attributable to shareholders of the Company").canonical_name == "parent_equity"
 
 
 def test_hk_pdf_tables_detect_statement_type_and_period_columns():
@@ -89,6 +95,97 @@ def test_hk_pdf_tables_detect_statement_type_and_period_columns():
     assert total_assets["values"]["2025-12-31"] == "1000"
     assert total_assets["values"]["2024-12-31"] == "900"
     assert result.validation.summary["pass"] > 0
+
+
+def test_hk_cash_flow_note_references_do_not_become_label_columns():
+    artifact = ParsedArtifact(
+        artifact_id="hk-cf-note-ref",
+        market=Market.HK,
+        company_id="HK:00700",
+        ticker="00700",
+        report_type="annual",
+        fiscal_year=2025,
+        period_end="2025-12-31",
+        accounting_standard=AccountingStandard.HKFRS,
+        currency="CNY",
+        unit="RMB million",
+        tables=[
+            ParsedTable(
+                table_id="cf-note-ref",
+                title="Consolidated Statement of Cash Flows",
+                table_index=1,
+                page_number=128,
+                unit="RMB million",
+                rows=[
+                    ["", "", "Year ended 31 December"],
+                    ["", "Note", "2025RMB million", "2024RMB million"],
+                    ["Cash flows from operating activities"],
+                    ["Cash generated from operations", "43(a)", "347,751", "304,705"],
+                    ["Net cash flows generated from operating activities", "", "303,052", "258,521"],
+                    ["Net cash flows used in investing activities", "", "(205,732)", "(122,187)"],
+                    ["Net cash flows used in financing activities", "", "(87,155)", "(176,494)"],
+                    ["Net increase/(decrease) in cash and cash equivalents", "", "10,165", "(40,160)"],
+                    ["Cash and cash equivalents at the beginning of the year", "", "132,519", "172,320"],
+                    ["Cash and cash equivalents at the end of the year", "32(a)", "141,041", "132,519"],
+                ],
+            )
+        ],
+    )
+
+    result = process_artifact(artifact)
+    data = financial_data_contract(result.extraction)
+
+    cash_flow = next(statement for statement in data["statements"] if statement["statement_type"] == "cash_flow_statement")
+    operating_cash_flow = next(item for item in cash_flow["items"] if item["canonical_name"] == "operating_cash_flow_net")
+    ending_cash = next(item for item in cash_flow["items"] if item["canonical_name"] == "cash_equivalents_ending")
+    assert operating_cash_flow["values"]["2025-12-31"] == "303052"
+    assert ending_cash["values"]["2025-12-31"] == "141041"
+
+
+def test_hk_parent_equity_and_nci_derive_total_equity_for_balance_bridge():
+    artifact = ParsedArtifact(
+        artifact_id="hk-sinopec-equity",
+        market=Market.HK,
+        company_id="HK:00386",
+        ticker="00386",
+        report_type="annual",
+        fiscal_year=2025,
+        period_end="2025-12-31",
+        accounting_standard=AccountingStandard.HKFRS,
+        currency="RMB",
+        unit="RMB million",
+        tables=[
+            ParsedTable(
+                table_id="bs",
+                title="Consolidated Balance Sheet",
+                table_index=2,
+                page_number=50,
+                unit="RMB million",
+                rows=[
+                    ["", "Note", "2025", "2024"],
+                    ["Total assets", "", "2,155,617", "2,084,771"],
+                    ["Total liabilities", "", "1,165,845", "1,108,478"],
+                    ["Total equity attributable to shareholders of the Company", "", "830,324", "819,922"],
+                    ["Non-controlling interests", "", "159,448", "156,371"],
+                    ["Total liabilities and shareholders' equity", "", "2,155,617", "2,084,771"],
+                ],
+            )
+        ],
+    )
+
+    result = process_artifact(artifact)
+    bridge = next(
+        check
+        for check in result.validation.checks
+        if check.rule_id == "bs.assets_eq_liabilities_plus_temporary_equity_plus_equity"
+    )
+
+    assert bridge.status == "pass"
+    assert any(
+        item.canonical_name == "total_equity" and item.gaap_status == "derived_from_reported_components"
+        for statement in result.extraction.statements
+        for item in statement.items
+    )
 
 
 def test_hk_operating_metrics_are_separate_from_statement_tables():
@@ -268,8 +365,61 @@ def test_hk_mixed_summary_allows_exact_balance_totals():
     total_liabilities = next(item for item in balance["items"] if item["canonical_name"] == "total_liabilities")
     total_equity = next(item for item in balance["items"] if item["canonical_name"] == "total_equity")
     assert total_assets["values"]["2025-12-31"] == "76009821"
-    assert total_liabilities["values"]["2025-12-31"] == "-33923894"
+    assert total_liabilities["values"]["2025-12-31"] == "33923894"
     assert total_equity["values"]["2025-12-31"] == "42085927"
+    bridge = next(check for check in result.validation.checks if check.rule_id == "bs.assets_eq_liabilities_plus_temporary_equity_plus_equity")
+    assert bridge.status == "pass"
+
+
+def test_hk_skips_non_group_company_balance_sheet_tables():
+    artifact = ParsedArtifact(
+        artifact_id="hk-company-only-bs",
+        market=Market.HK,
+        company_id="HK:00175",
+        ticker="00175",
+        report_type="annual",
+        fiscal_year=2025,
+        period_end="2025-12-31",
+        accounting_standard=AccountingStandard.HKFRS,
+        currency="CNY",
+        unit="RMB'000",
+        tables=[
+            ParsedTable(
+                table_id="group-bs",
+                title="Consolidated Statement of Financial Position",
+                table_index=1,
+                page_number=100,
+                unit="RMB'000",
+                rows=[
+                    ["", "2025RMB'000"],
+                    ["Total assets", "1000"],
+                    ["Total liabilities", "600"],
+                    ["Total equity", "400"],
+                ],
+            ),
+            ParsedTable(
+                table_id="company-bs",
+                title="46. STATEMENT OF FINANCIAL POSITION OF THE COMPANY",
+                table_index=147,
+                page_number=293,
+                unit="RMB'000",
+                rows=[
+                    ["", "2025RMB'000"],
+                    ["Total assets", "5000"],
+                    ["Total liabilities", "2000"],
+                    ["Total equity", "3000"],
+                ],
+            ),
+        ],
+    )
+
+    result = process_artifact(artifact)
+    data = financial_data_contract(result.extraction)
+    balance = next(statement for statement in data["statements"] if statement["statement_type"] == "balance_sheet")
+    total_assets = next(item for item in balance["items"] if item["canonical_name"] == "total_assets")
+
+    assert total_assets["values"]["2025-12-31"] == "1000"
+    assert 147 not in balance["table_indexes"]
 
 
 

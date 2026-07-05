@@ -29,23 +29,30 @@ class JpReportFinder(MarketReportFinder):
     def source_descriptor(self) -> SourceDescriptor:
         return SourceDescriptor(
             source_id="edinet",
-            source_name="Issuer IR + EDINET + TDnet",
+            source_name="EDINET + Issuer IR + TDnet",
             markets=[Market.jp],
-            official_domain="issuer websites / disclosure2.edinet-fsa.go.jp",
+            official_domain="api.edinet-fsa.go.jp / issuer websites / jpx.co.jp",
             official_sources=[
-                {
-                    "source_id": "issuer_annual_report",
-                    "source_name": "Issuer annual report / IR",
-                    "official_domain": "issuer websites",
-                    "role": "current_year_major_company_annual_reports",
-                    "notes": "Curated official company IR PDFs for mainstream listed Japanese companies; available without EDINET subscription.",
-                },
                 {
                     "source_id": "edinet",
                     "source_name": "EDINET",
-                    "official_domain": "disclosure2.edinet-fsa.go.jp",
+                    "official_domain": "api.edinet-fsa.go.jp",
                     "role": "primary_statutory_reports",
                     "notes": "Japan FSA statutory disclosure system; primary source for securities reports and semiannual reports.",
+                },
+                {
+                    "source_id": "issuer_annual_report",
+                    "source_name": "Issuer Annual Securities Report / IR",
+                    "official_domain": "issuer websites",
+                    "role": "statutory_mirror_or_auxiliary_ir",
+                    "notes": "Issuer-hosted Annual Securities Report mirrors are primary-compatible; Integrated Reports are auxiliary only and require explicit selection.",
+                },
+                {
+                    "source_id": "jpx_listed_company_search",
+                    "source_name": "JPX Listed Company Search",
+                    "official_domain": "jpx.co.jp / www2.jpx.co.jp",
+                    "role": "listed_company_index_and_filing_pointer",
+                    "notes": "JPX provides company, timely disclosure, and filing-information search for listed companies; statutory annual-report downloads still resolve through EDINET or issuer statutory mirrors.",
                 },
                 {
                     "source_id": "tdnet",
@@ -64,8 +71,8 @@ class JpReportFinder(MarketReportFinder):
             ],
             supported_forms=["annual", "integrated-report", "yuho", "semiannual", "quarterly", "q1", "q2", "q3"],
             notes=(
-                "Current-year mainstream annual reports can be downloaded from official issuer IR PDFs without an API key. "
-                "Statutory search uses Japan FSA EDINET API v2 document metadata and PDF downloads when EDINET_API_KEY is configured. "
+                "Primary annual-report search uses Japan FSA EDINET API v2 Annual Securities Report/YUHO metadata and PDF downloads when EDINET_API_KEY is configured. "
+                "Issuer catalog entries are limited to statutory Annual Securities Report mirrors unless integrated-report is explicitly requested. "
                 "TDnet public listings are used as a free secondary official source for recent exchange timely disclosures and quarterly earnings summaries."
             ),
         )
@@ -104,20 +111,28 @@ class JpReportFinder(MarketReportFinder):
         del include_amendments
         candidates: list[FilingCandidate] = []
         edinet_error: Exception | None = None
+        edinet_forms = self._edinet_forms(forms)
+        if not forms or edinet_forms:
+            try:
+                candidates.extend(
+                    self.client.list_filings(
+                        company,
+                        target=target,
+                        forms=edinet_forms,
+                        include_earnings=include_earnings,
+                        report_year=report_year,
+                    )
+                )
+            except Exception as exc:
+                edinet_error = exc
         if self._allows_annual_reports(target=target, forms=forms):
-            candidates.extend(self.catalog.filings_for_company(company, report_year=report_year))
-        try:
             candidates.extend(
-                self.client.list_filings(
+                self.catalog.filings_for_company(
                     company,
-                    target=target,
-                    forms=forms,
-                    include_earnings=include_earnings,
                     report_year=report_year,
+                    include_auxiliary=self._allows_integrated_reports(forms),
                 )
             )
-        except Exception as exc:
-            edinet_error = exc
         candidates.extend(self.tdnet.list_filings(company, target=target, forms=forms, report_year=report_year))
         if not candidates and edinet_error and not self._is_missing_edinet_key(edinet_error):
             raise edinet_error
@@ -127,8 +142,10 @@ class JpReportFinder(MarketReportFinder):
         forms: list[str] = []
         for raw in report_types:
             text = raw.strip().lower().replace("_", "-")
-            if text in {"annual", "annual-report", "yuho", "securities-report", "integrated-report"}:
-                forms.append("annual")
+            if text in {"annual", "annual-report", "yuho", "securities-report"}:
+                forms.append("yuho")
+            elif text in {"integrated-report", "integrated", "ir-report"}:
+                forms.append("integrated-report")
             elif text in {"semiannual", "semi-annual", "interim", "half-year", "semiannual-report"}:
                 forms.append("semiannual")
             elif text in {"quarterly", "quarterly-report", "financial", "q1", "q2", "q3", "q4"}:
@@ -146,7 +163,7 @@ class JpReportFinder(MarketReportFinder):
         return FilingCandidate(
             source_id="edinet",
             source_name="EDINET",
-            source_domain="disclosure2.edinet-fsa.go.jp",
+            source_domain="api.edinet-fsa.go.jp",
             market=Market.jp,
             company_id=str(company_key),
             ticker=request.ticker,
@@ -180,7 +197,7 @@ class JpReportFinder(MarketReportFinder):
         return FilingCandidate(
             source_id="edinet",
             source_name="EDINET",
-            source_domain="disclosure2.edinet-fsa.go.jp",
+            source_domain="api.edinet-fsa.go.jp",
             market=Market.jp,
             company_id=item.company_id or item.ticker or "manual",
             ticker=item.ticker,
@@ -246,3 +263,12 @@ class JpReportFinder(MarketReportFinder):
         if not forms:
             return False
         return any(form.strip().lower().replace("_", "-") in {"annual", "annual-report", "yuho", "securities-report", "integrated-report"} for form in forms)
+
+    @staticmethod
+    def _allows_integrated_reports(forms: list[str]) -> bool:
+        return any(form.strip().lower().replace("_", "-") in {"integrated-report", "integrated", "ir-report"} for form in forms)
+
+    @staticmethod
+    def _edinet_forms(forms: list[str]) -> list[str]:
+        integrated_forms = {"integrated-report", "integrated", "ir-report"}
+        return [form for form in forms if form.strip().lower().replace("_", "-") not in integrated_forms]

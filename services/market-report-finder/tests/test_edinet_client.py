@@ -61,10 +61,71 @@ def test_edinet_builds_pdf_candidate():
     assert candidate is not None
     assert candidate.market == Market.jp
     assert candidate.source_id == "edinet"
+    assert candidate.source_domain == "api.edinet-fsa.go.jp"
     assert candidate.report_type == ReportType.annual
     assert candidate.report_end == date(2025, 3, 31)
-    assert candidate.document_url.endswith("/S100TEST?type=2")
+    assert candidate.document_url == "https://api.edinet-fsa.go.jp/api/v2/documents/S100TEST?type=2"
     assert "Subscription-Key" not in candidate.document_url
+    assert candidate.form == "yuho"
+
+
+def test_edinet_matches_catalog_company_id_to_five_digit_sec_code():
+    client = EdinetClient()
+    company = CompanyEntity(
+        market=Market.jp,
+        company_id="JP:7974",
+        ticker="7974",
+        company_name="Nintendo Co., Ltd.",
+        exchange="JPX",
+    )
+    row = {"edinetCode": "E02367", "secCode": "79740", "filerName": "任天堂株式会社", "formCode": "030000"}
+
+    assert client._row_matches_company(row, company) is True
+
+
+def test_edinet_score_accepts_listing_code_carried_in_company_id():
+    client = EdinetClient()
+    rows = [
+        {"edinetCode": "E02367", "secCode": "79740", "filerName": "任天堂株式会社", "formCode": "030000"},
+    ]
+
+    candidates = client._company_candidates(rows, company_name=None, ticker=None, company_id="JP:7974")
+
+    assert candidates[0].ticker == "79740"
+    assert candidates[0].match_reason == "edinet_sec_code_from_company_id"
+
+
+def test_edinet_uses_catalog_report_end_to_limit_year_scan():
+    client = EdinetClient()
+    company = CompanyEntity(
+        market=Market.jp,
+        company_id="JP:7751",
+        ticker="7751",
+        company_name="Canon Inc.",
+        exchange="JPX",
+        metadata={"catalog_report_end": "2025-12-31", "catalog_published_at": "2026-03-31"},
+    )
+    windows = client._company_filing_windows(company, allowed={ReportType.annual}, report_year=2025)
+
+    assert windows == [
+        (date(2026, 3, 17), date(2026, 4, 14)),
+        (date(2026, 2, 14), date(2026, 5, 10)),
+    ]
+
+
+def test_edinet_ignores_late_auxiliary_published_at_when_limiting_year_scan():
+    client = EdinetClient()
+    company = CompanyEntity(
+        market=Market.jp,
+        company_id="JP:7203",
+        ticker="7203",
+        company_name="Toyota Motor Corporation",
+        exchange="JPX",
+        metadata={"catalog_report_end": "2025-03-31", "catalog_published_at": "2026-04-03"},
+    )
+    windows = client._company_filing_windows(company, allowed={ReportType.annual}, report_year=2025)
+
+    assert windows == [(date(2025, 5, 15), date(2025, 8, 8))]
 
 
 def test_edinet_infers_report_types():
@@ -78,6 +139,18 @@ def test_edinet_infers_report_types():
         ReportType.quarterly,
         ReportFamily.quarterly,
     )
+
+
+def test_edinet_infers_report_end_from_last_title_date():
+    client = EdinetClient()
+
+    report_end = client._infer_report_end(
+        "有価証券報告書－第85期(2024/04/01－2025/03/31)",
+        ReportType.annual,
+        date(2025, 6, 26),
+    )
+
+    assert report_end == date(2025, 3, 31)
 
 
 def test_edinet_requires_api_key_for_remote_document_scan(monkeypatch):

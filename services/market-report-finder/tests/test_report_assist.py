@@ -41,6 +41,57 @@ def test_assist_maps_sumitomo_heavy_chinese_alias():
     assert result.intent.report_types == ["annual"]
 
 
+def test_assist_infers_japan_market_and_catalog_code_from_chinese_alias():
+    service = ReportAssistService()
+
+    result = service.assist(ReportAssistRequest(prompt="下载任天堂 2025 年有价证券报告书"))
+
+    assert result.intent.market == Market.jp
+    assert result.intent.ticker == "7974"
+    assert result.intent.company_id == "JP:7974"
+    assert result.intent.company_query == "任天堂"
+    assert result.intent.report_year == 2025
+    assert result.intent.report_types == ["annual"]
+    assert all("未明确报告类型" not in note for note in result.intent.notes)
+
+
+def test_assist_maps_japanese_retail_brand_to_listing_code():
+    service = ReportAssistService()
+
+    result = service.assist(ReportAssistRequest(prompt="帮我下载优衣库 2025 年年报"))
+
+    assert result.intent.market == Market.jp
+    assert result.intent.ticker == "9983"
+    assert result.intent.company_id == "JP:9983"
+    assert result.intent.company_query == "优衣库"
+    assert result.intent.report_types == ["annual"]
+
+
+def test_assist_maps_chinese_us_company_alias_to_identifier():
+    service = ReportAssistService()
+
+    result = service.assist(ReportAssistRequest(prompt="下载苹果 2025 年年报", market=Market.us))
+
+    assert result.intent.market == Market.us
+    assert result.intent.ticker == "AAPL"
+    assert result.intent.company_id == "0000320193"
+    assert result.intent.report_year == 2025
+    assert result.intent.report_types == ["annual"]
+
+
+def test_assist_maps_chinese_eu_company_alias_to_identifier():
+    service = ReportAssistService()
+
+    result = service.assist(ReportAssistRequest(prompt="下载阿斯麦 2025 年年报", market=Market.eu))
+
+    assert result.intent.market == Market.eu
+    assert result.intent.company_query == "ASML Holding N.V."
+    assert result.intent.ticker == "ASML"
+    assert result.intent.company_id == "NL:ASML"
+    assert result.intent.report_year == 2025
+    assert result.intent.report_types == ["annual"]
+
+
 def test_assist_respects_explicit_market_scope():
     service = ReportAssistService()
 

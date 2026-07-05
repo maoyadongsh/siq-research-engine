@@ -14,8 +14,8 @@ from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_CASE_SET = REPO_ROOT / "data" / "wiki" / "us_sec" / "case_set_50_us_10k.json"
-DEFAULT_REPORT = REPO_ROOT / "data" / "wiki" / "us_sec" / "case_set_50_us_10k_ingest_report.json"
+DEFAULT_CASE_SET = REPO_ROOT / "data" / "wiki" / "us" / "_meta" / "case_set_50_us_10k.json"
+DEFAULT_REPORT = REPO_ROOT / "data" / "wiki" / "us" / "_meta" / "case_set_50_us_10k_ingest_report.json"
 POSTGRES_IMPORT_PATH = REPO_ROOT / "db" / "imports" / "import_sec_filing_to_postgres.py"
 MILVUS_INGEST_PATH = REPO_ROOT / "scripts" / "vector-index" / "milvus-ingestion" / "ingest_sec_wiki_chunks.py"
 BUILD_PACKAGE_PATH = REPO_ROOT / "scripts" / "us-sec" / "build_sec_evidence_package.py"
@@ -264,7 +264,7 @@ def main() -> None:
     parser.add_argument("--ticker", default="", help="Single ticker alias for --tickers.")
     parser.add_argument("--form", default="", help="Comma-separated SEC form subset when scanning downloads, e.g. 10-K,20-F.")
     parser.add_argument("--downloads-root", type=Path, default=DEFAULT_DOWNLOADS_ROOT)
-    parser.add_argument("--output-root", type=Path, default=REPO_ROOT / "data" / "wiki" / "us_sec")
+    parser.add_argument("--output-root", type=Path, default=REPO_ROOT / "data" / "wiki" / "us")
     parser.add_argument("--scan-downloads", action="store_true", help="Scan downloads/US HTML files and build packages before ingesting.")
     parser.add_argument("--limit", type=int, default=0, help="Limit scanned downloads.")
     parser.add_argument("--force", action="store_true", help="Rebuild existing packages when scanning downloads.")

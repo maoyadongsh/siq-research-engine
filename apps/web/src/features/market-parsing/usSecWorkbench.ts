@@ -2,6 +2,7 @@ import type { DownloadedPdf } from '../../lib/pdfTypes'
 import type { UsSecCaseSetItem, UsSecCaseSetStatus, UsSecPackageDetail } from './api'
 
 export type UsSecParseStatus = 'unparsed' | 'building' | 'package_ready' | 'postgres_ready' | 'warning' | 'failed'
+export type UsSecWorkflowStatus = 'ready' | 'pending' | 'unknown' | 'warning'
 
 export interface UsSecDownloadedRow {
   id: string
@@ -59,7 +60,7 @@ export interface UsSecArtifactManifestView {
 
 export interface UsSecWorkflowStepView {
   label: string
-  status: 'ready' | 'pending' | 'unknown' | 'warning'
+  status: UsSecWorkflowStatus
   description: string
 }
 
@@ -121,9 +122,13 @@ function countText(value: unknown): string {
 }
 
 function formFromPackagePath(packagePath: unknown): string {
-  const leaf = normalized(packagePath).split('/').pop() || ''
-  const match = leaf.match(/^([A-Z0-9-]+)_/i)
-  return match?.[1] ? match[1].toUpperCase() : ''
+  const leaf = upper(normalized(packagePath).split('/').pop() || '')
+  const legacyMatch = leaf.match(/^([A-Z0-9-]+)_/)
+  if (legacyMatch?.[1]) return legacyMatch[1]
+  const companyWikiMatch = leaf.match(/^\d{4}-(.+?)-\d{10}-\d{2}-\d{6}$/)
+  if (companyWikiMatch?.[1]) return companyWikiMatch[1]
+  const knownForms = ['10-K', '10-Q', '20-F', '40-F', '8-K', '6-K', 'DEF-14A', 'S-1', 'F-1']
+  return knownForms.find((form) => leaf.includes(`-${form}-`) || leaf.endsWith(`-${form}`)) || ''
 }
 
 function formFromItem(item: UsSecCaseSetItem): string {
@@ -278,9 +283,14 @@ export function deriveUsSecArtifactManifest(detail?: UsSecPackageDetail | null):
         description: ready ? `${readyCount}/${chips.length} 个核心文件已生成` : '等待生成 SEC 证据包',
       },
       {
-        label: 'Wiki 身份识别',
-        status: ready ? 'unknown' : 'missing',
-        description: ready ? '可导入 Wiki' : '等待 SEC 证据包',
+        label: 'Wiki 证据包',
+        status: ready ? 'ready' : 'missing',
+        description: ready ? 'SEC 解析产物已写入公司级 Wiki' : '等待 SEC 证据包',
+      },
+      {
+        label: '语义层脚本',
+        status: 'ready',
+        description: 'market evidence chunks / 项目设置模型',
       },
       {
         label: 'PostgreSQL 入库脚本',
@@ -299,17 +309,24 @@ export function deriveUsSecWorkflowSummary(
   const packageStatus: UsSecWorkflowStepView['status'] = packageReady(detail) ? 'ready' : 'pending'
   const importedPackages = numberValue(status?.ingest_report?.package_count)
   const importedFacts = numberValue(status?.ingest_report?.summary?.xbrl_facts)
+  const retrievalChunks = numberValue(status?.ingest_report?.summary?.retrieval_chunks)
   const postgresReady = importedPackages > 0 && importedFacts > 0
+  const semanticReady = retrievalChunks > 0
   const steps: UsSecWorkflowStepView[] = [
     {
-      label: 'SEC 证据包',
+      label: '解析产物包',
       status: packageStatus,
       description: packageReady(detail) ? `${artifactManifest.readyCount}/${artifactManifest.total} 个核心文件已生成` : '等待解析生成 evidence package',
     },
     {
       label: 'Wiki 入库',
-      status: 'pending',
-      description: '可导入 Wiki',
+      status: packageStatus,
+      description: packageReady(detail) ? 'SEC 解析产物已写入公司级 Wiki' : '等待 SEC 证据包',
+    },
+    {
+      label: '语义层',
+      status: semanticReady ? 'ready' : 'pending',
+      description: semanticReady ? `检索 chunks ${retrievalChunks}` : '等待使用项目设置模型生成检索语义层',
     },
     {
       label: 'PostgreSQL',

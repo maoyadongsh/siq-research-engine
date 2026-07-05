@@ -27,3 +27,13 @@ test('deal routes are registered and resolve dynamic loaders', () => {
   assert.match(routesSource, /defineRoute\('\/deals\/:dealId\/decision', \(\) => import\('\.\.\/pages\/DealDecision'\)\)/)
   assert.match(routesSource, /defineRoute\('\/deals\/:dealId\/audit', \(\) => import\('\.\.\/pages\/DealAudit'\)\)/)
 })
+
+test('primary market routes are registered as additive navigation', () => {
+  const routesSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), 'routes.tsx'), 'utf-8')
+
+  assert.match(routesSource, /defineRoute\('\/primary-market', \(\) => import\('\.\.\/pages\/PrimaryMarketWorkbench'\)/)
+  assert.match(routesSource, /defineRoute\('\/primary-market\/materials', \(\) => import\('\.\.\/pages\/PrimaryMarketMaterials'\)\)/)
+  assert.match(routesSource, /defineRoute\('\/primary-market\/meeting', \(\) => import\('\.\.\/pages\/PrimaryMarketMeeting'\)\)/)
+  assert.match(routesSource, /label: '一级市场'/)
+  assert.match(routesSource, /label: '交易工作台'/)
+})

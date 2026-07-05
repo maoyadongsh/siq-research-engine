@@ -8,6 +8,7 @@ import re
 import shutil
 import sys
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
@@ -29,45 +30,72 @@ from market_report_rules_service.evidence_package import (
     validate_evidence_package,
     write_json,
 )
-from market_report_rules_service.models import AccountingStandard, Market, ParsedArtifact, ParsedTable
-from market_report_rules_service.normalization import infer_currency, parse_date
+from market_report_rules_service.load_plan import build_load_plan
+from market_report_rules_service.models import (
+    AccountingStandard,
+    EvidenceRef,
+    ExtractedFact,
+    ExtractionResult,
+    FinancialStatement,
+    Market,
+    ParsedArtifact,
+    ParsedTable,
+    StatementType,
+)
+from market_report_rules_service.normalization import compact_label, infer_currency, parse_date
 from market_report_rules_service.pipeline import process_artifact
+from market_report_rules_service.statement_detection import detect_statement_type_from_rows, detect_statement_type_from_title
+from market_report_rules_service.validation import validate_extraction
 
 
 PARSER_VERSION = os.environ.get("SIQ_HK_PARSER_VERSION", "hk_pdf_evidence_parser_v1")
 RULES_VERSION = os.environ.get("SIQ_HK_RULES_VERSION", "hkex_rules_v1")
+_BANK_CODES = {"00005", "00939", "01288", "01398", "02388", "03968", "03988"}
+_INSURANCE_CODES = {"01299", "02318", "02328", "02628"}
 
 
 class _TableHTMLParser(HTMLParser):
     def __init__(self) -> None:
-        super().__init__()
-        self.rows: list[list[str]] = []
-        self._row: list[str] | None = None
-        self._cell: list[str] | None = None
+        super().__init__(convert_charrefs=True)
+        self.rows: list[list[dict[str, Any]]] = []
+        self._row: list[dict[str, Any]] | None = None
+        self._cell: dict[str, Any] | None = None
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag.lower() == "tr":
+        tag = tag.lower()
+        if tag == "tr":
             self._row = []
-        elif tag.lower() in {"td", "th"} and self._row is not None:
-            self._cell = []
+        elif tag in {"td", "th"} and self._row is not None:
+            attr_map = {name.lower(): value for name, value in attrs}
+            self._cell = {
+                "parts": [],
+                "rowspan": _safe_int(attr_map.get("rowspan"), 1),
+                "colspan": _safe_int(attr_map.get("colspan"), 1),
+            }
 
     def handle_data(self, data: str) -> None:
         if self._cell is not None:
-            self._cell.append(data)
+            self._cell["parts"].append(data)
 
     def handle_endtag(self, tag: str) -> None:
         tag = tag.lower()
         if tag in {"td", "th"} and self._cell is not None and self._row is not None:
-            self._row.append(_clean_cell(" ".join(self._cell)))
+            self._row.append(
+                {
+                    "text": _clean_cell(" ".join(self._cell["parts"])),
+                    "rowspan": max(1, int(self._cell.get("rowspan") or 1)),
+                    "colspan": max(1, int(self._cell.get("colspan") or 1)),
+                }
+            )
             self._cell = None
         elif tag == "tr" and self._row is not None:
-            if any(cell for cell in self._row):
+            if any(cell.get("text") for cell in self._row):
                 self.rows.append(self._row)
             self._row = None
 
 
 def read_json(path: Path, default: Any = None) -> Any:
-    if not path or not path.exists():
+    if not path or not path.exists() or not path.is_file():
         return {} if default is None else default
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -82,7 +110,64 @@ def _clean_cell(value: Any) -> str:
 def _html_table_rows(table_body: str) -> list[list[str]]:
     parser = _TableHTMLParser()
     parser.feed(table_body or "")
-    return parser.rows
+    return _expand_spans(parser.rows)
+
+
+def _safe_int(value: Any, default: int) -> int:
+    try:
+        parsed = int(str(value or "").strip())
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
+
+
+def _expand_spans(raw_rows: list[list[dict[str, Any]]]) -> list[list[str]]:
+    rows: list[list[str]] = []
+    pending: dict[int, tuple[str, int]] = {}
+    max_width = 0
+
+    for raw_row in raw_rows:
+        row: list[str] = []
+        col = 0
+        next_pending: dict[int, tuple[str, int]] = {}
+
+        def fill_pending_cells() -> None:
+            nonlocal col
+            while col in pending:
+                text, remaining = pending[col]
+                row.append(text)
+                if remaining > 1:
+                    next_pending[col] = (text, remaining - 1)
+                col += 1
+
+        for cell in raw_row:
+            fill_pending_cells()
+            text = str(cell.get("text") or "")
+            colspan = max(1, int(cell.get("colspan") or 1))
+            rowspan = max(1, int(cell.get("rowspan") or 1))
+            for offset in range(colspan):
+                row.append(text)
+                if rowspan > 1:
+                    next_pending[col + offset] = (text, rowspan - 1)
+            col += colspan
+
+        while True:
+            later_cols = [idx for idx in pending if idx >= col]
+            if not later_cols:
+                break
+            target = min(later_cols)
+            while col < target:
+                row.append("")
+                col += 1
+            fill_pending_cells()
+
+        pending = next_pending
+        max_width = max(max_width, len(row))
+        rows.append(row)
+
+    if max_width:
+        rows = [row + [""] * (max_width - len(row)) for row in rows]
+    return rows
 
 
 def infer_metadata(pdf_path: Path, metadata_path: Path | None = None) -> dict[str, Any]:
@@ -113,12 +198,32 @@ def infer_metadata(pdf_path: Path, metadata_path: Path | None = None) -> dict[st
         "accession_number": candidate.get("accession_number") or pdf_path.stem.rsplit("_", 1)[-1],
         "accounting_standard": _accounting_standard(metadata),
         "language": candidate.get("language"),
+        "industry_profile": candidate.get("industry_profile") or _infer_industry_profile(str(ticker), company_name),
     }
 
 
-def parsed_tables_from_document_full(document_full: dict[str, Any]) -> list[ParsedTable]:
+def _infer_industry_profile(ticker: str, company_name: str) -> str:
+    code = str(ticker or "").zfill(5)
+    raw_name = str(company_name or "")
+    name = raw_name.upper()
+    if code in _BANK_CODES or "BANK" in name or "银行" in raw_name or "銀行" in raw_name:
+        return "bank"
+    if code in _INSURANCE_CODES or "INSURANCE" in name or "LIFE" in name or "AIA" in name or "保险" in raw_name or "保險" in raw_name:
+        return "insurance"
+    if any(token in name for token in ("TENCENT", "BABA", "MEITUAN", "JD-", "KUAISHOU", "NTES", "BIDU", "LI-AUTO")):
+        return "internet_platform"
+    if any(token in name for token in ("PETRO", "CNOOC", "SINOPEC", "SHENHUA", "COPPER", "ENERGY")):
+        return "energy"
+    if any(token in name for token in ("SEMICONDUCTOR", "SMIC", "HUA HONG")):
+        return "semiconductor"
+    if any(token in name for token in ("MOTOR", "AUTO", "ELECTRIC", "COPPER", "CRRC", "HAIER", "SUNNY", "BYD")):
+        return "manufacturing"
+    return "general"
+
+
+def parsed_tables_from_document_full(document_full: dict[str, Any], enhanced_payload: dict[str, Any] | None = None) -> list[ParsedTable]:
     content = document_full.get("content_list") or []
-    enhanced = document_full.get("content_list_enhanced") or {}
+    enhanced = enhanced_payload or document_full.get("content_list_enhanced") or {}
     enhanced_tables = enhanced.get("tables") if isinstance(enhanced, dict) else []
     enhanced_by_source: dict[int, dict[str, Any]] = {}
     enhanced_by_index: dict[int, dict[str, Any]] = {}
@@ -172,9 +277,9 @@ def parsed_tables_from_document_full(document_full: dict[str, Any]) -> list[Pars
         for item in enhanced_tables:
             if not isinstance(item, dict):
                 continue
-            preview = str(item.get("preview") or "")
-            rows = [[cell.strip() for cell in re.split(r"\s{2,}|\s+\|\s+", preview) if cell.strip()]]
-            if not rows or len(rows[0]) < 2:
+            raw = item.get("raw") if isinstance(item.get("raw"), dict) else {}
+            rows = _rows_from_enhanced_table(item, raw)
+            if not rows or max(len(row) for row in rows) < 2:
                 continue
             index = int(item.get("table_index") or len(parsed) + 1)
             title = _table_title({}, item)
@@ -183,17 +288,292 @@ def parsed_tables_from_document_full(document_full: dict[str, Any]) -> list[Pars
                     table_id=f"hk_table_{index:04d}",
                     title=title,
                     rows=rows,
-                    page_number=item.get("pdf_page_number"),
+                    page_number=item.get("pdf_page_number") or raw.get("pdf_page_number"),
                     table_index=index,
+                    unit=item.get("unit"),
+                    currency=item.get("currency"),
                     raw=item,
                 )
             )
     return parsed
 
 
-def build_hk_artifact(pdf_path: Path, parser_result_dir: Path, metadata_path: Path | None = None) -> tuple[ParsedArtifact, dict[str, Any], dict[str, Any]]:
+def _rows_from_enhanced_table(item: dict[str, Any], raw: dict[str, Any]) -> list[list[str]]:
+    structure = raw.get("structure") if isinstance(raw.get("structure"), dict) else {}
+    preview_rows = structure.get("header_preview") if isinstance(structure.get("header_preview"), list) else []
+    rows: list[list[str]] = []
+    for row in preview_rows:
+        cells = [_clean_cell(cell) for cell in str(row or "").split("|")]
+        if any(cells):
+            rows.append(cells)
+    if rows:
+        return rows
+    preview = str(raw.get("preview") or item.get("preview") or "")
+    cells = [_clean_cell(cell) for cell in re.split(r"\s{2,}|\s+\|\s+", preview) if _clean_cell(cell)]
+    return [cells] if len(cells) >= 2 else []
+
+
+def _document_full_with_sidecars(parser_result_dir: Path) -> dict[str, Any]:
     document_full = read_json(parser_result_dir / "document_full.json", {})
+    if not isinstance(document_full, dict):
+        document_full = {}
+    content = document_full.get("content_list")
+    if not isinstance(content, list) or not content:
+        sidecar_content = read_json(parser_result_dir / "content_list.json", [])
+        if isinstance(sidecar_content, dict):
+            sidecar_content = sidecar_content.get("content_list") or sidecar_content.get("items") or []
+        if isinstance(sidecar_content, list) and sidecar_content:
+            document_full["content_list"] = sidecar_content
+    enhanced = document_full.get("content_list_enhanced")
+    if not isinstance(enhanced, dict) or not enhanced:
+        sidecar_enhanced = read_json(parser_result_dir / "content_list_enhanced.json", {})
+        if isinstance(sidecar_enhanced, dict) and sidecar_enhanced:
+            document_full["content_list_enhanced"] = sidecar_enhanced
+    return document_full
+
+
+def _markdown_statement_tables(parser_result_dir: Path, *, start_index: int = 0) -> list[ParsedTable]:
+    markdown_path = _best_markdown_path(parser_result_dir)
+    if not markdown_path:
+        return []
+    text = markdown_path.read_text(encoding="utf-8", errors="ignore")
+    tables: list[ParsedTable] = []
+    seen: set[str] = set()
+    seen_starts: set[int] = set()
+    heading_pattern = re.compile(
+        r"(?im)^#{1,6}\s+([^\n]*(?:statement of financial position|statement of profit or loss|statement of cash flows|cash flow statement|consolidated cash flow statement|consolidated balance sheet|consolidated income statement|balance sheet|income statement|cash flow|cash flows)[^\n]*)"
+    )
+    for match in heading_pattern.finditer(text):
+        heading = _clean_cell(match.group(1))
+        statement_type = _markdown_statement_type_from_heading(heading)
+        if statement_type is None or not _is_primary_markdown_statement_heading(heading):
+            continue
+        table_start = text.find("<table", match.end())
+        if table_start < 0 or table_start - match.end() > 2500:
+            continue
+        table_end = text.find("</table>", table_start)
+        if table_end < 0:
+            continue
+        table_html = text[table_start : table_end + len("</table>")]
+        rows = _html_table_rows(table_html)
+        if not _usable_statement_rows(rows):
+            continue
+        signature = stable_id(statement_type.value, heading, rows[:6])
+        if signature in seen:
+            continue
+        seen.add(signature)
+        seen_starts.add(table_start)
+        table_index = start_index + len(tables) + 1
+        unit = _infer_unit(heading, rows)
+        line_number = text.count("\n", 0, table_start) + 1
+        tables.append(
+            ParsedTable(
+                table_id=f"hk_md_table_{table_index:04d}",
+                title=heading,
+                rows=rows,
+                page_number=None,
+                table_index=table_index,
+                unit=unit,
+                currency=infer_currency(unit, heading, default=None),
+                raw={
+                    "source": "result_markdown_statement_table",
+                    "markdown_path": str(markdown_path),
+                    "line": line_number,
+                    "heading": heading,
+                    "statement_type": statement_type.value,
+                    "preview": " ".join(" | ".join(row[:5]) for row in rows[:6])[:800],
+                },
+            )
+        )
+    formal_window = _formal_statement_window(text)
+    if formal_window:
+        window_start, window_end = formal_window
+        for match in re.finditer(r"<table\b.*?</table>", text, flags=re.I | re.S):
+            table_start = match.start()
+            if table_start in seen_starts or table_start < window_start or table_start > window_end:
+                continue
+            rows = _html_table_rows(match.group(0))
+            if not _usable_statement_rows(rows):
+                continue
+            heading = _nearest_markdown_heading(text, table_start)
+            statement_type = _markdown_statement_type_from_heading(heading) or detect_statement_type_from_rows(rows)
+            if statement_type is None:
+                continue
+            if not _is_primary_markdown_statement_body(statement_type, rows):
+                continue
+            title = heading if _markdown_statement_type_from_heading(heading) else _statement_type_title(statement_type)
+            signature = stable_id(statement_type.value, title, rows[:6])
+            if signature in seen:
+                continue
+            seen.add(signature)
+            seen_starts.add(table_start)
+            table_index = start_index + len(tables) + 1
+            unit = _infer_unit(title, rows)
+            line_number = text.count("\n", 0, table_start) + 1
+            tables.append(
+                ParsedTable(
+                    table_id=f"hk_md_table_{table_index:04d}",
+                    title=title,
+                    rows=rows,
+                    page_number=None,
+                    table_index=table_index,
+                    unit=unit,
+                    currency=infer_currency(unit, title, default=None),
+                    raw={
+                        "source": "result_markdown_formal_statement_window",
+                        "markdown_path": str(markdown_path),
+                        "line": line_number,
+                        "heading": title,
+                        "statement_type": statement_type.value,
+                        "preview": " ".join(" | ".join(row[:5]) for row in rows[:6])[:800],
+                    },
+                )
+            )
+    return tables
+
+
+def _formal_statement_window(text: str) -> tuple[int, int] | None:
+    lowered = text.lower()
+    start_candidates = []
+    comprise_match = re.search(r"the consolidated financial statements.{0,300}?comprise", lowered, flags=re.S)
+    if comprise_match:
+        start_candidates.append(comprise_match.start())
+    for marker in (
+        "independent auditor",
+        "independent auditor's report",
+        "independent auditor’s report",
+    ):
+        pos = lowered.find(marker)
+        if pos >= 0:
+            start_candidates.append(pos)
+    if not start_candidates:
+        return None
+    start = max(start_candidates)
+    end_candidates = []
+    for pattern in (
+        r"(?im)^#{1,6}\s+notes to the consolidated financial statements",
+        r"(?im)^#{1,6}\s+notes to consolidated financial statements",
+        r"(?im)^#{1,6}\s+notes to the financial statements",
+    ):
+        match = re.search(pattern, text[start:])
+        if match:
+            end_candidates.append(start + match.start())
+    end = min(end_candidates) if end_candidates else len(text)
+    return start, end if end > start else len(text)
+
+
+def _nearest_markdown_heading(text: str, table_start: int) -> str:
+    prefix = text[max(0, table_start - 2500) : table_start]
+    matches = list(re.finditer(r"(?im)^#{1,6}\s+([^\n]+)", prefix))
+    return _clean_cell(matches[-1].group(1)) if matches else ""
+
+
+def _statement_type_title(statement_type: StatementType) -> str:
+    if statement_type == StatementType.BALANCE_SHEET:
+        return "Consolidated Statement of Financial Position"
+    if statement_type == StatementType.INCOME_STATEMENT:
+        return "Consolidated Income Statement"
+    if statement_type == StatementType.CASH_FLOW_STATEMENT:
+        return "Consolidated Statement of Cash Flows"
+    return statement_type.value.replace("_", " ").title()
+
+
+def _is_primary_markdown_statement_body(statement_type: StatementType, rows: list[list[str]]) -> bool:
+    compact = compact_label(" ".join(" ".join(row[:4]) for row in rows[:80]))
+    if statement_type == StatementType.BALANCE_SHEET:
+        return (
+            "totalassets" in compact
+            or ("noncurrentassets" in compact and "currentassets" in compact)
+            or ("totalliabilities" in compact and "totalequity" in compact)
+        )
+    if statement_type == StatementType.INCOME_STATEMENT:
+        return (
+            any(term in compact for term in ("revenue", "revenues", "turnover", "收益", "收入"))
+            and any(term in compact for term in ("profitbeforetax", "profitbeforeincometax", "除稅前", "除税前"))
+            and any(term in compact for term in ("profitfortheyear", "profitfortheperiod", "年內溢利", "年内溢利", "netincome"))
+        )
+    if statement_type == StatementType.CASH_FLOW_STATEMENT:
+        return (
+            any(term in compact for term in ("cashflowsfromoperatingactivities", "netcashflowsgeneratedfromoperatingactivities", "cashgeneratedfromoperations", "經營活動", "经营活动"))
+            and any(term in compact for term in ("cashflowsfrominvestingactivities", "investingactivities", "投資活動", "投资活动"))
+            and any(term in compact for term in ("cashflowsfromfinancingactivities", "financingactivities", "融資活動", "融资活动"))
+        )
+    return False
+
+
+def _best_markdown_path(parser_result_dir: Path) -> Path | None:
+    for candidate in (
+        parser_result_dir / "result_complete.md",
+        parser_result_dir / "result.md",
+        parser_result_dir / "document.md",
+    ):
+        if candidate.exists() and candidate.stat().st_size > 0:
+            return candidate
+    return None
+
+
+def _is_primary_markdown_statement_heading(heading: str) -> bool:
+    normalized = compact_label(heading)
+    if re.match(r"^\d", normalized):
+        normalized = re.sub(r"^\d+", "", normalized)
+    normalized = normalized.lstrip(".-")
+    if any(
+        token in normalized
+        for token in (
+            "noteto",
+            "notes",
+            "analysis",
+            "summary",
+            "fiveyear",
+            "amountsrecognised",
+            "amountsrecognized",
+            "fairvaluemeasurements",
+            "ofthecompany",
+            "companylevel",
+        )
+    ):
+        return False
+    if "consolidatedbalancesheet" in normalized or "consolidatedincomestatement" in normalized:
+        return True
+    if normalized in {"cashflow", "cashflows"} or re.fullmatch(r"\d*cashflows?", normalized):
+        return True
+    return normalized.startswith(
+        (
+            "consolidatedstatementof",
+            "statementof",
+            "consolidatedcashflowstatement",
+            "cashflowstatement",
+        )
+    )
+
+
+def _markdown_statement_type_from_heading(heading: str) -> StatementType | None:
+    detected = detect_statement_type_from_title(heading)
+    if detected is not None:
+        return detected
+    normalized = compact_label(heading)
+    if normalized in {"cashflow", "cashflows"} or re.fullmatch(r"\d*cashflows?", normalized):
+        return StatementType.CASH_FLOW_STATEMENT
+    return None
+
+
+def _usable_statement_rows(rows: list[list[str]]) -> bool:
+    if len(rows) < 3:
+        return False
+    if max((len(row) for row in rows), default=0) < 2:
+        return False
+    numeric_rows = 0
+    for row in rows:
+        if any(re.search(r"\(?-?[\d,]+(?:\.\d+)?\)?", str(cell or "")) for cell in row[1:]):
+            numeric_rows += 1
+    return numeric_rows >= 2
+
+
+def build_hk_artifact(pdf_path: Path, parser_result_dir: Path, metadata_path: Path | None = None) -> tuple[ParsedArtifact, dict[str, Any], dict[str, Any]]:
+    document_full = _document_full_with_sidecars(parser_result_dir)
     metadata = infer_metadata(pdf_path, metadata_path)
+    tables = parsed_tables_from_document_full(document_full)
+    tables.extend(_markdown_statement_tables(parser_result_dir, start_index=len(tables)))
     artifact = ParsedArtifact(
         artifact_id=f"HK:{metadata['ticker']}:{metadata['accession_number']}",
         market=Market.HK,
@@ -207,15 +587,304 @@ def build_hk_artifact(pdf_path: Path, parser_result_dir: Path, metadata_path: Pa
         fiscal_period=metadata["fiscal_period"],
         period_end=parse_date(metadata["period_end"]),
         accounting_standard=AccountingStandard(metadata["accounting_standard"]),
+        industry_profile=metadata.get("industry_profile") or "general",
         currency=_default_currency(metadata),
         unit=_default_unit(document_full),
         source_url=metadata["source_url"],
         source_files={"pdf": str(pdf_path), "parser_result": str(parser_result_dir)},
-        tables=parsed_tables_from_document_full(document_full),
+        tables=tables,
         document_full=document_full,
         metadata=metadata,
     )
     return artifact, metadata, document_full
+
+
+_HK_LIABILITY_CANONICAL_NAMES = {
+    "borrowings",
+    "contract_liabilities",
+    "current_liabilities",
+    "lease_liabilities",
+    "non_current_liabilities",
+    "total_liabilities",
+}
+
+
+def _should_use_parser_financial_data(extraction: ExtractionResult, parser_financial_data: dict[str, Any]) -> bool:
+    if not isinstance(parser_financial_data, dict):
+        return False
+    statements = parser_financial_data.get("statements") if isinstance(parser_financial_data.get("statements"), list) else []
+    key_metrics = parser_financial_data.get("key_metrics") if isinstance(parser_financial_data.get("key_metrics"), list) else []
+    operating_metrics = parser_financial_data.get("operating_metrics") if isinstance(parser_financial_data.get("operating_metrics"), list) else []
+    if not any((statements, key_metrics, operating_metrics)):
+        return False
+    extracted_statement_types = {statement.statement_type for statement in extraction.statements if statement.items}
+    parser_statement_types = {
+        _statement_type(row.get("statement_type"))
+        for row in statements
+        if isinstance(row, dict) and isinstance(row.get("items"), list) and row.get("items")
+    }
+    required = {StatementType.BALANCE_SHEET, StatementType.INCOME_STATEMENT, StatementType.CASH_FLOW_STATEMENT}
+    return len(parser_statement_types & required) > len(extracted_statement_types & required)
+
+
+def _has_parser_financial_data(parser_financial_data: dict[str, Any]) -> bool:
+    if not isinstance(parser_financial_data, dict):
+        return False
+    for key in ("statements", "key_metrics", "operating_metrics"):
+        rows = parser_financial_data.get(key)
+        if isinstance(rows, list) and rows:
+            return True
+    return False
+
+
+def _merge_parser_and_markdown_extractions(parser_extraction: ExtractionResult, markdown_extraction: ExtractionResult) -> ExtractionResult:
+    parser_statements = {
+        statement.statement_type: statement
+        for statement in parser_extraction.statements
+        if statement.items
+    }
+    merged_statements: list[FinancialStatement] = []
+    for statement_type in (
+        StatementType.BALANCE_SHEET,
+        StatementType.INCOME_STATEMENT,
+        StatementType.CASH_FLOW_STATEMENT,
+    ):
+        parser_statement = parser_statements.get(statement_type)
+        if parser_statement is not None:
+            merged_statements.append(parser_statement)
+            continue
+        markdown_statement = next(
+            (statement for statement in markdown_extraction.statements if statement.statement_type == statement_type and statement.items),
+            None,
+        )
+        if markdown_statement is not None:
+            merged_statements.append(markdown_statement)
+    return parser_extraction.model_copy(
+        update={
+            "statements": merged_statements,
+            "key_metrics": parser_extraction.key_metrics or markdown_extraction.key_metrics,
+            "operating_metrics": parser_extraction.operating_metrics or markdown_extraction.operating_metrics,
+            "warnings": _unique_values(
+                [
+                    *parser_extraction.warnings,
+                    *markdown_extraction.warnings,
+                    "HK wiki metrics merged parser financial_data with markdown statement-table fallback.",
+                ]
+            ),
+        }
+    )
+
+
+def _extraction_from_financial_data_contract(financial_data: dict[str, Any], artifact: ParsedArtifact) -> ExtractionResult:
+    warnings = list(financial_data.get("warnings") or [])
+    warnings.append("HK wiki metrics were rebuilt from parser financial_data because parser table rows were unavailable.")
+    statements: list[FinancialStatement] = []
+    for row in financial_data.get("statements") or []:
+        if not isinstance(row, dict):
+            continue
+        statement_type = _statement_type(row.get("statement_type"))
+        items = _facts_from_contract_items(row.get("items") or [], statement_type, artifact, warnings)
+        statements.append(
+            FinancialStatement(
+                statement_id=str(row.get("statement_id") or statement_type.value),
+                statement_type=statement_type,
+                statement_name=str(row.get("statement_name") or statement_type.value.replace("_", " ").title()),
+                scope=str(row.get("scope") or "consolidated"),
+                scope_name=row.get("scope_name"),
+                title=row.get("title"),
+                unit=row.get("unit"),
+                scale=_decimal(row.get("scale"), Decimal("1")),
+                currency=row.get("currency") or artifact.currency,
+                table_indexes=[int(value) for value in row.get("table_indexes") or [] if _int_or_none(value) is not None],
+                columns=row.get("columns") if isinstance(row.get("columns"), list) else [],
+                items=items,
+            )
+        )
+    key_metrics = _facts_from_contract_items(financial_data.get("key_metrics") or [], StatementType.KEY_METRICS, artifact, warnings)
+    operating_metrics = _facts_from_contract_items(financial_data.get("operating_metrics") or [], StatementType.OPERATING_METRICS, artifact, warnings)
+    return ExtractionResult(
+        schema_version=1,
+        rule_version=str(financial_data.get("rule_version") or RULES_VERSION),
+        profile_id=str(financial_data.get("profile_id") or "hk_pdf_table_hybrid_v1"),
+        artifact_id=artifact.artifact_id,
+        market=Market.HK,
+        accounting_standard=artifact.accounting_standard,
+        industry_profile=artifact.industry_profile,
+        company_overrides=artifact.company_overrides,
+        company_id=artifact.company_id,
+        ticker=artifact.ticker,
+        company_name=artifact.company_name,
+        report_id=artifact.report_id,
+        report_type=artifact.report_type,
+        report_form=artifact.report_form,
+        fiscal_year=artifact.fiscal_year,
+        fiscal_period=artifact.fiscal_period,
+        period_end=artifact.period_end,
+        statements=statements,
+        key_metrics=key_metrics,
+        operating_metrics=operating_metrics,
+        warnings=warnings,
+    )
+
+
+def _facts_from_contract_items(
+    items: list[dict[str, Any]],
+    default_statement_type: StatementType,
+    artifact: ParsedArtifact,
+    warnings: list[str],
+) -> list[ExtractedFact]:
+    facts: list[ExtractedFact] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        statement_type = _statement_type(item.get("statement_type"), default_statement_type)
+        if "values" not in item and "value" in item:
+            fact = _fact_from_flat_contract_item(item, statement_type, artifact, warnings)
+            if fact is not None:
+                facts.append(fact)
+            continue
+        values = item.get("values") if isinstance(item.get("values"), dict) else {}
+        raw_values = item.get("raw_values") if isinstance(item.get("raw_values"), dict) else {}
+        sources = item.get("sources") if isinstance(item.get("sources"), dict) else {}
+        periods = item.get("periods") if isinstance(item.get("periods"), dict) else {}
+        canonical_name = str(item.get("canonical_name") or item.get("name") or "").strip()
+        if not canonical_name:
+            continue
+        for period_key, value in values.items():
+            value_decimal = _decimal(value)
+            if value_decimal is None:
+                warnings.append(f"Skipped HK parser financial fact with non-decimal value: {canonical_name} {period_key}")
+                continue
+            value_decimal = _normalize_hk_contract_value(canonical_name, value_decimal)
+            period_meta = periods.get(period_key) if isinstance(periods.get(period_key), dict) else {}
+            evidence_payload = sources.get(period_key) if isinstance(sources.get(period_key), dict) else {}
+            evidence = _evidence_from_contract(evidence_payload, canonical_name, period_key)
+            facts.append(
+                ExtractedFact(
+                    canonical_name=canonical_name,
+                    local_name=str(item.get("name") or canonical_name),
+                    label=item.get("name"),
+                    statement_type=statement_type,
+                    value=value_decimal,
+                    raw_value=str(raw_values.get(period_key) if raw_values.get(period_key) is not None else value),
+                    unit=item.get("unit") or artifact.unit,
+                    currency=item.get("currency") or artifact.currency,
+                    period_key=str(period_key),
+                    period_start=parse_date(period_meta.get("period_start")),
+                    period_end=parse_date(period_meta.get("period_end") or _period_end_from_key(period_key)),
+                    duration_days=_int_or_none(period_meta.get("duration_days")),
+                    frame=period_meta.get("frame"),
+                    qtd_ytd_type=period_meta.get("qtd_ytd_type"),
+                    fiscal_year=_int_or_none(period_meta.get("fiscal_year")) or artifact.fiscal_year,
+                    fiscal_period=period_meta.get("fiscal_period") or artifact.fiscal_period,
+                    scale=_decimal(item.get("scale"), Decimal("1")) or Decimal("1"),
+                    market=Market.HK,
+                    accounting_standard=artifact.accounting_standard,
+                    taxonomy=item.get("taxonomy"),
+                    is_extension=bool(item.get("is_extension")),
+                    gaap_status=str(item.get("gaap_status") or "reported_gaap"),
+                    source_accession=item.get("source_accession"),
+                    confidence=_decimal(item.get("confidence"), Decimal("0.80")) or Decimal("0.80"),
+                    evidence=evidence,
+                    raw={"parser_financial_data_item": item.get("raw") or [], "fallback_source": "parser_financial_data"},
+                )
+            )
+    return facts
+
+
+def _fact_from_flat_contract_item(
+    item: dict[str, Any],
+    statement_type: StatementType,
+    artifact: ParsedArtifact,
+    warnings: list[str],
+) -> ExtractedFact | None:
+    canonical_name = str(item.get("canonical_name") or item.get("local_name") or item.get("label") or "").strip()
+    if not canonical_name:
+        return None
+    value_decimal = _decimal(item.get("value"))
+    if value_decimal is None:
+        warnings.append(f"Skipped HK parser financial fact with non-decimal value: {canonical_name} {item.get('period_key')}")
+        return None
+    value_decimal = _normalize_hk_contract_value(canonical_name, value_decimal)
+    evidence_payload = item.get("evidence") if isinstance(item.get("evidence"), dict) else {}
+    period_key = str(item.get("period_key") or _period_key_from_dates(item.get("period_end"), item.get("fiscal_year")) or "")
+    if not period_key:
+        period_key = str(artifact.period_end or artifact.fiscal_year or "unknown")
+    return ExtractedFact(
+        canonical_name=canonical_name,
+        local_name=str(item.get("local_name") or item.get("label") or canonical_name),
+        label=item.get("label") or item.get("local_name"),
+        statement_type=statement_type,
+        value=value_decimal,
+        raw_value=str(item.get("raw_value") if item.get("raw_value") is not None else item.get("value")),
+        unit=item.get("unit") or artifact.unit,
+        currency=item.get("currency") or artifact.currency,
+        period_key=period_key,
+        period_start=parse_date(item.get("period_start")),
+        period_end=parse_date(item.get("period_end") or _period_end_from_key(period_key)),
+        duration_days=_int_or_none(item.get("duration_days")),
+        frame=item.get("frame"),
+        qtd_ytd_type=item.get("qtd_ytd_type"),
+        fiscal_year=_int_or_none(item.get("fiscal_year")) or artifact.fiscal_year,
+        fiscal_period=item.get("fiscal_period") or artifact.fiscal_period,
+        scale=_decimal(item.get("scale"), Decimal("1")) or Decimal("1"),
+        market=Market.HK,
+        accounting_standard=artifact.accounting_standard,
+        taxonomy=item.get("taxonomy"),
+        is_extension=bool(item.get("is_extension")),
+        gaap_status=str(item.get("gaap_status") or "reported_gaap"),
+        source_accession=item.get("source_accession"),
+        confidence=_decimal(item.get("confidence"), Decimal("0.80")) or Decimal("0.80"),
+        evidence=_evidence_from_contract(evidence_payload, canonical_name, period_key),
+        raw={"parser_financial_data_item": item.get("raw") or {}, "fallback_source": "parser_financial_data"},
+    )
+
+
+def _evidence_from_contract(payload: dict[str, Any], canonical_name: str, period_key: Any) -> EvidenceRef:
+    data = dict(payload) if isinstance(payload, dict) else {}
+    data.setdefault("source_type", "parser_financial_data")
+    data.setdefault("source_id", f"{canonical_name}:{period_key}")
+    return EvidenceRef(**data)
+
+
+def _statement_type(value: Any, default: StatementType = StatementType.BALANCE_SHEET) -> StatementType:
+    try:
+        return StatementType(str(value or default.value))
+    except ValueError:
+        return default
+
+
+def _normalize_hk_contract_value(canonical_name: str, value: Decimal) -> Decimal:
+    if canonical_name in _HK_LIABILITY_CANONICAL_NAMES and value < 0:
+        return -value
+    return value
+
+
+def _decimal(value: Any, default: Decimal | None = None) -> Decimal | None:
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return default
+
+
+def _period_end_from_key(value: Any) -> str | None:
+    text = str(value or "")
+    return text if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text) else None
+
+
+def _period_key_from_dates(period_end: Any, fiscal_year: Any) -> str | None:
+    parsed = parse_date(period_end)
+    if parsed:
+        return parsed.isoformat()
+    year = _int_or_none(fiscal_year)
+    return f"{year}-12-31" if year else None
+
+
+def _int_or_none(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def write_hk_evidence_package(
@@ -228,12 +897,23 @@ def write_hk_evidence_package(
 ) -> Path:
     artifact, metadata, document_full = build_hk_artifact(pdf_path, parser_result_dir, metadata_path)
     result = process_artifact(artifact, include_load_plan=True)
-    financial_data = financial_data_contract(result.extraction)
-    financial_checks = financial_checks_contract(result.validation)
+    parser_financial_data = read_json(parser_result_dir / "financial_data.json", {})
+    extraction = result.extraction
+    validation = result.validation
+    load_plan = result.load_plan
+    if _has_parser_financial_data(parser_financial_data):
+        parser_extraction = _extraction_from_financial_data_contract(parser_financial_data, artifact)
+        if _should_use_parser_financial_data(extraction, parser_financial_data):
+            extraction = _merge_parser_and_markdown_extractions(parser_extraction, extraction)
+            validation = validate_extraction(extraction)
+            load_plan = build_load_plan(extraction, validation)
+    financial_data = financial_data_contract(extraction)
+    financial_checks = financial_checks_contract(validation)
 
     filing_key = metadata["accession_number"] or stable_id(pdf_path.name)[:12]
     report_id = _report_id(artifact.fiscal_year, artifact.report_type, filing_key)
-    company_dir = output_root / "companies" / _company_dir_name(artifact.ticker, artifact.company_name)
+    company_wiki_id = _company_dir_name(artifact.ticker, artifact.company_name)
+    company_dir = output_root / "companies" / company_wiki_id
     package_dir = company_dir / "reports" / report_id
     if package_dir.exists() and force:
         shutil.rmtree(package_dir)
@@ -280,6 +960,8 @@ def write_hk_evidence_package(
         "artifact_hashes": {},
         "accession_number": metadata["accession_number"],
         "report_id": report_id,
+        "company_wiki_id": company_wiki_id,
+        "company_wiki_path": _rel_to(output_root, company_dir),
         "language": metadata.get("language"),
         "report_language": metadata.get("language") or "unknown",
         "parser_result_dir": str(parser_result_dir),
@@ -290,7 +972,7 @@ def write_hk_evidence_package(
         "wiki_company_path": _rel_to(output_root, company_dir),
         "wiki_report_path": _rel_to(output_root, package_dir),
     }
-    manifest["parse_run_id"] = result.load_plan.parse_run_id if result.load_plan else stable_parse_run_id(manifest, {})
+    manifest["parse_run_id"] = load_plan.parse_run_id if load_plan else stable_parse_run_id(manifest, {})
     source_map = source_map_from_financial_data(manifest=manifest, financial_data=financial_data, package_dir=package_dir)
     normalized_metrics = normalized_metrics_from_financial_data(manifest=manifest, financial_data=financial_data, source_map=source_map)
     quality = build_quality_report(
@@ -302,7 +984,7 @@ def write_hk_evidence_package(
         raw_fact_count=_raw_cell_count(artifact.tables),
         source_map=source_map,
         parser_warnings=_parser_warnings(document_full, artifact.tables),
-        rule_warnings=list(result.extraction.warnings) + list(result.validation.warnings),
+        rule_warnings=list(extraction.warnings) + list(validation.warnings),
     )
     quality.update(
         {
@@ -317,7 +999,7 @@ def write_hk_evidence_package(
 
     write_json(package_dir / "metrics" / "financial_data.json", financial_data)
     write_json(package_dir / "metrics" / "financial_checks.json", financial_checks)
-    write_json(package_dir / "metrics" / "load_plan.json", result.load_plan.model_dump(mode="json") if result.load_plan else {})
+    write_json(package_dir / "metrics" / "load_plan.json", load_plan.model_dump(mode="json") if load_plan else {})
     write_json(package_dir / "metrics" / "normalized_metrics.json", {"schema_version": "market_normalized_metrics_v1", "metrics": normalized_metrics})
     write_json(package_dir / "metrics" / "operating_metrics.json", {"schema_version": "market_operating_metrics_v1", "metrics": [row for row in normalized_metrics if row.get("statement_type") == "operating_metrics"]})
     write_json(package_dir / "qa" / "quality_report.json", quality)
@@ -713,11 +1395,11 @@ def _write_section_index(package_dir: Path, markdown: str, document_full: dict[s
 def _markdown_from_document_full(document_full: dict[str, Any], parser_result_dir: Path) -> str:
     markdown = document_full.get("markdown") if isinstance(document_full.get("markdown"), dict) else {}
     content = markdown.get("content") if isinstance(markdown, dict) else None
+    markdown_path = _best_markdown_path(parser_result_dir)
+    if markdown_path:
+        return markdown_path.read_text(encoding="utf-8")
     if content:
         return str(content)
-    for candidate in (parser_result_dir / "result.md", parser_result_dir / "document.md"):
-        if candidate.exists():
-            return candidate.read_text(encoding="utf-8")
     return f"# {document_full.get('task', {}).get('filename') or 'HK report'}\n"
 
 

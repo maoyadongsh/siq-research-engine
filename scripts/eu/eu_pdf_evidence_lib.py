@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import sys
+from datetime import datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
@@ -69,6 +70,38 @@ def read_json(path: Path, default: Any = None) -> Any:
     if not path or not path.exists():
         return {} if default is None else default
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def safe_wiki_slug(value: Any, fallback: str = "unknown") -> str:
+    text = str(value or "").strip()
+    text = re.sub(r"[\\/:*?\"<>|\r\n\t]+", "-", text)
+    text = re.sub(r"[,&]+", "", text)
+    text = re.sub(r"[()\[\]{}]+", "", text)
+    text = re.sub(r"\s+", "-", text)
+    text = re.sub(r"-+", "-", text)
+    return text.strip(" ._-") or fallback
+
+
+def company_wiki_dir_name(ticker: Any, company_name: Any) -> str:
+    return f"{safe_wiki_slug(ticker, 'UNKNOWN')}-{safe_wiki_slug(company_name, 'unknown')}"
+
+
+def eu_report_id(fiscal_year: Any, report_type: Any, filing_key: Any) -> str:
+    year = safe_wiki_slug(fiscal_year, "unknown")
+    report_type_slug = safe_wiki_slug(report_type, "report").replace("_", "-")
+    filing_slug = safe_wiki_slug(filing_key, "unknown").replace("_", "-")
+    return f"{year}-{report_type_slug}-{filing_slug}"
+
+
+def repo_relative(path: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(REPO_ROOT))
+    except ValueError:
+        return str(path)
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def sniff_document_format(path: Path) -> str:
@@ -254,7 +287,10 @@ def write_eu_pdf_evidence_package(
     financial_checks = financial_checks_contract(result.validation)
 
     filing_key = _filing_key(metadata, source_path)
-    package_dir = output_root / metadata["country"] / artifact.ticker / str(artifact.fiscal_year or "unknown") / f"{artifact.report_type}_{filing_key}"
+    report_id = eu_report_id(artifact.fiscal_year, artifact.report_type, filing_key)
+    company_wiki_id = company_wiki_dir_name(artifact.ticker, artifact.company_name)
+    company_dir = output_root / "companies" / company_wiki_id
+    package_dir = company_dir / "reports" / report_id
     if package_dir.exists() and force:
         shutil.rmtree(package_dir)
     package_dir.mkdir(parents=True, exist_ok=True)
@@ -282,7 +318,11 @@ def write_eu_pdf_evidence_package(
         "market": "EU",
         "country": metadata["country"],
         "filing_id": artifact.report_id,
+        "report_id": report_id,
         "company_id": artifact.company_id,
+        "company_wiki_id": company_wiki_id,
+        "company_wiki_path": repo_relative(company_dir),
+        "wiki_report_path": repo_relative(package_dir),
         "ticker": artifact.ticker,
         "company_name": artifact.company_name,
         "exchange": metadata["exchange"],
@@ -355,6 +395,7 @@ def write_eu_pdf_evidence_package(
     manifest["artifact_hashes"] = compute_artifact_hashes(package_dir)
     write_json(package_dir / "manifest.json", manifest)
     (package_dir / "README.md").write_text(_readme(manifest, quality), encoding="utf-8")
+    write_eu_company_wiki_indexes(output_root, company_dir, manifest, quality)
 
     validation = validate_evidence_package(package_dir)
     if not validation.ok:
@@ -362,11 +403,183 @@ def write_eu_pdf_evidence_package(
     return package_dir
 
 
+def _read_existing_json(path: Path) -> dict[str, Any]:
+    payload = read_json(path, {})
+    return payload if isinstance(payload, dict) else {}
+
+
+def write_eu_company_wiki_indexes(output_root: Path, company_dir: Path, manifest: dict[str, Any], quality: dict[str, Any]) -> None:
+    for dirname in ("reports", "metrics", "evidence", "semantic", "graph", "analysis", "factcheck", "tracking"):
+        (company_dir / dirname).mkdir(parents=True, exist_ok=True)
+
+    existing = _read_existing_json(company_dir / "company.json")
+    report_id = str(manifest.get("report_id") or manifest.get("filing_id") or "unknown")
+    report_rel = f"reports/{report_id}"
+    report_entry = {
+        "report_id": report_id,
+        "filing_id": manifest.get("filing_id"),
+        "market": "EU",
+        "country": manifest.get("country"),
+        "form": manifest.get("form"),
+        "report_type": manifest.get("report_type"),
+        "fiscal_year": manifest.get("fiscal_year"),
+        "fiscal_period": manifest.get("fiscal_period"),
+        "period_end": manifest.get("period_end"),
+        "published_at": manifest.get("published_at"),
+        "source_url": manifest.get("source_url"),
+        "document_format": manifest.get("document_format"),
+        "package_path": report_rel,
+        "manifest": f"{report_rel}/manifest.json",
+        "financial_data": f"{report_rel}/metrics/financial_data.json",
+        "financial_checks": f"{report_rel}/metrics/financial_checks.json",
+        "quality_report": f"{report_rel}/qa/quality_report.json",
+        "source_map": f"{report_rel}/qa/source_map.json",
+        "quality_status": quality.get("overall_status") or manifest.get("quality_status"),
+        "wiki_report_path": manifest.get("wiki_report_path"),
+    }
+    reports = [item for item in existing.get("reports") or [] if isinstance(item, dict) and item.get("report_id") != report_id]
+    reports.append(report_entry)
+    reports.sort(key=lambda item: str(item.get("period_end") or item.get("published_at") or ""), reverse=True)
+    primary_report_id = str(reports[0].get("report_id") or report_id)
+    latest_report = next((item for item in reports if item.get("report_id") == primary_report_id), report_entry)
+
+    company_json = {
+        **existing,
+        "schema_version": "eu_company_wiki_v1",
+        "market": "EU",
+        "country": manifest.get("country"),
+        "company_id": manifest.get("company_id"),
+        "company_wiki_id": manifest.get("company_wiki_id"),
+        "company_wiki_path": manifest.get("company_wiki_path"),
+        "ticker": manifest.get("ticker"),
+        "isin": manifest.get("isin"),
+        "lei": manifest.get("lei"),
+        "exchange": manifest.get("exchange"),
+        "company_name": manifest.get("company_name"),
+        "industry_profile": manifest.get("industry_profile"),
+        "accounting_standard": manifest.get("accounting_standard") or "IFRS",
+        "currency": manifest.get("currency"),
+        "primary_report_id": primary_report_id,
+        "latest_filing_id": latest_report.get("filing_id"),
+        "latest_fiscal_year": latest_report.get("fiscal_year"),
+        "latest_period_end": latest_report.get("period_end"),
+        "report_count": len(reports),
+        "reports": reports,
+        "metrics": {
+            "latest": {
+                "financial_data": latest_report.get("financial_data"),
+                "financial_checks": latest_report.get("financial_checks"),
+                "quality_report": latest_report.get("quality_report"),
+            },
+            "by_report": {
+                str(item.get("report_id")): {
+                    "financial_data": item.get("financial_data"),
+                    "financial_checks": item.get("financial_checks"),
+                    "quality_report": item.get("quality_report"),
+                }
+                for item in reports
+                if item.get("report_id")
+            },
+        },
+        "evidence": {
+            "latest_source_map": latest_report.get("source_map"),
+            "latest_manifest": latest_report.get("manifest"),
+        },
+        "updated_at": now_iso(),
+    }
+    write_json(company_dir / "company.json", company_json)
+    write_json(
+        company_dir / "_index.json",
+        {
+            "schema_version": "eu_company_index_v1",
+            "market": "EU",
+            "country": company_json.get("country"),
+            "company_id": company_json["company_id"],
+            "company_wiki_id": company_json.get("company_wiki_id"),
+            "company_wiki_path": company_json.get("company_wiki_path"),
+            "primary_report_id": primary_report_id,
+            "reports": reports,
+            "updated_at": company_json["updated_at"],
+        },
+    )
+    (company_dir / "company.md").write_text(_company_markdown(company_json, latest_report), encoding="utf-8")
+    write_eu_root_catalog(output_root)
+
+
+def write_eu_root_catalog(output_root: Path) -> None:
+    companies: list[dict[str, Any]] = []
+    for company_json_path in sorted((output_root / "companies").glob("*/company.json")):
+        company = _read_existing_json(company_json_path)
+        if not company:
+            continue
+        companies.append(
+            {
+                "company_id": company.get("company_id"),
+                "company_wiki_id": company.get("company_wiki_id") or company_json_path.parent.name,
+                "company_wiki_path": company.get("company_wiki_path") or repo_relative(company_json_path.parent),
+                "market": "EU",
+                "country": company.get("country"),
+                "ticker": company.get("ticker"),
+                "exchange": company.get("exchange"),
+                "company_name": company.get("company_name"),
+                "primary_report_id": company.get("primary_report_id"),
+                "report_count": company.get("report_count") or len(company.get("reports") or []),
+                "status": "ready",
+            }
+        )
+    companies.sort(key=lambda item: (str(item.get("country") or ""), str(item.get("ticker") or item.get("company_id") or "")))
+    write_json(
+        output_root / "_meta" / "company_catalog.json",
+        {
+            "schema_version": "eu_company_catalog_v1",
+            "market": "EU",
+            "company_count": len(companies),
+            "companies": companies,
+            "generated_at": now_iso(),
+        },
+    )
+    guide = output_root / "_meta" / "AGENT_GUIDE.md"
+    if not guide.exists():
+        guide.write_text(
+            "# EU Wiki Agent Guide\n\n"
+            "EU company Wiki uses `companies/<ticker>-<company>/company.json` as the company entry, "
+            "then `reports/<report_id>/` for each PDF/ESEF package. Prefer `company.json`, "
+            "`reports/<report_id>/manifest.json`, `metrics/financial_data.json`, "
+            "`metrics/financial_checks.json`, `qa/quality_report.json`, and `qa/source_map.json` "
+            "before PostgreSQL `eu_ifrs` fallback.\n",
+            encoding="utf-8",
+        )
+
+
+def _company_markdown(company: dict[str, Any], latest: dict[str, Any]) -> str:
+    return (
+        f"# {company.get('ticker')} {company.get('company_name') or ''}\n\n"
+        f"- Market: EU\n"
+        f"- Country: `{company.get('country') or ''}`\n"
+        f"- Latest report: `{latest.get('report_type')}` `{latest.get('report_id')}`\n"
+        f"- Latest period end: `{latest.get('period_end')}`\n"
+        f"- Quality: `{latest.get('quality_status')}`\n"
+    )
+
+
 def infer_industry_profile(ticker: str, company_name: str, title: str = "") -> str:
     haystack = f"{ticker} {company_name} {title}".upper()
-    if ticker.upper() in {"BARC"} or "BANK" in haystack or "BARCLAYS" in haystack:
+    if ticker.upper() in {"BARC", "BNP", "INGA", "HSBA"} or any(token in haystack for token in ("BANK", "BARCLAYS", "BNP PARIBAS", "ING GROEP", "HSBC")):
         return "bank"
-    if "INSURANCE" in haystack or "ASSURANCE" in haystack:
+    if ticker.upper() in {"CS", "ZURN", "SREN", "MUV2"} or any(
+        token in haystack
+        for token in (
+            "INSURANCE",
+            "ASSURANCE",
+            "REINSURANCE",
+            "REINSUR",
+            "SWISS RE",
+            "ZURICH INSURANCE",
+            "MUENCHENER RUECK",
+            "MUNICH RE",
+            "AXA",
+        )
+    ):
         return "insurance"
     if any(token in haystack for token in ("TOTALENERGIES", " BP", "ENERGY", "OIL", "GAS")):
         return "energy"

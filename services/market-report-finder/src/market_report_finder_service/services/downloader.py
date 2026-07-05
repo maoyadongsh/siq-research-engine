@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time
 from html import escape
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
@@ -106,9 +107,36 @@ class ReportDownloader:
             effective_url = self._effective_document_url(candidate)
             if candidate.source_id == "dart_public":
                 return self._fetch_dart_public_content(client, candidate, effective_url)
+            if candidate.source_id == "edinet":
+                return self._fetch_edinet_content(client, effective_url)
             response = client.get(effective_url)
             response.raise_for_status()
             return response.content, response.headers.get("content-type")
+
+    @staticmethod
+    def _fetch_edinet_content(client: httpx.Client, effective_url: str) -> tuple[bytes, str | None]:
+        last_rate_limited = False
+        for attempt in range(4):
+            response = client.get(effective_url)
+            if response.status_code == 429:
+                last_rate_limited = True
+                time.sleep(ReportDownloader._retry_delay_seconds(response, attempt))
+                continue
+            response.raise_for_status()
+            return response.content, response.headers.get("content-type")
+        if last_rate_limited:
+            raise ValueError("EDINET API rate limit reached while downloading a document. Please retry after a longer interval.")
+        raise ValueError("EDINET document download failed")
+
+    @staticmethod
+    def _retry_delay_seconds(response: httpx.Response, attempt: int) -> float:
+        retry_after = response.headers.get("Retry-After")
+        if retry_after:
+            try:
+                return min(max(float(retry_after), 1.0), 120.0)
+            except ValueError:
+                pass
+        return min(60.0, 2.0 * (attempt + 1) ** 2)
 
     def _fetch_dart_public_content(
         self,

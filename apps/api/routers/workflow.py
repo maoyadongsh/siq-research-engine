@@ -15,6 +15,8 @@ from fastapi import APIRouter, HTTPException
 
 from services.command_runner import run_command as run_subprocess_command
 from services.llm_settings import load_llm_settings
+from services.hermes_client import hermes_profile_config
+from services.hermes_model_control import infer_model_mode, set_all_profile_model_modes
 from services.path_config import (
     DB_CONFIG_PY,
     DB_IMPORT_SCRIPT,
@@ -660,7 +662,7 @@ def _llm_semantic_status(company_dir: str, report_id: str, rule_stale: bool = Fa
         "promptVersion": log.get("prompt_version") or "",
         "enrichmentVersion": log.get("enrichment_version") or "",
         "generatedAt": log.get("generated_at"),
-        "message": "LLM 语义增强需重新生成" if status == "stale" else ("LLM 语义增强未生成" if missing else "本地模型语义增强已生成"),
+        "message": "LLM 语义增强需重新生成" if status == "stale" else ("LLM 语义增强未生成" if missing else "项目设置模型语义增强已生成"),
     }
 
 
@@ -1911,40 +1913,82 @@ def _run_command(args: list[str], timeout: int = 180, env: dict[str, str] | None
         "stderr": completed.stderr[-6000:],
     }
 
+
+def _semantic_provider_from_settings(settings: dict) -> tuple[str, dict]:
+    providers = settings.get("providers") or {}
+    active_key = str(settings.get("activeProvider") or "local")
+    preferred = providers.get(active_key)
+    if isinstance(preferred, dict) and preferred.get("enabled", True):
+        return active_key, preferred
+    for key in ("local", "cloud"):
+        provider = providers.get(key)
+        if isinstance(provider, dict) and provider.get("enabled", True):
+            return key, provider
+    return active_key, {}
+
+
+def _set_semantic_provider_env(env: dict[str, str], provider_key: str, provider: dict) -> dict[str, str]:
+    base_url = str(provider.get("baseUrl") or "").strip().rstrip("/")
+    model = str(provider.get("model") or "").strip()
+    api_key = str(provider.get("apiKey") or "").strip()
+    chat_template_kwargs = provider.get("chatTemplateKwargs") if isinstance(provider.get("chatTemplateKwargs"), dict) else {}
+
+    if base_url.startswith("hermes://"):
+        mode = infer_model_mode(
+            provider_name=str(provider.get("providerName") or ""),
+            provider=str(provider.get("provider") or ""),
+            model=model,
+            base_url=base_url,
+        )
+        if mode:
+            try:
+                set_all_profile_model_modes(mode)
+            except Exception:
+                pass
+        try:
+            profile_config = hermes_profile_config("siq_analysis")
+        except Exception:
+            profile_config = {}
+        runs_url = str(profile_config.get("base") or "").rstrip("/")
+        if runs_url:
+            base_url = runs_url.removesuffix("/runs")
+        model = str(profile_config.get("model") or model or "siq_analysis")
+        api_key = ""
+
+    def set_many(suffix: str, value: object) -> None:
+        raw = str(value)
+        env[f"SIQ_{suffix}"] = raw
+        env[f"FINSIGHT_{suffix}"] = raw
+
+    if base_url:
+        set_many("LOCAL_LLM_BASE_URL", base_url)
+    if model:
+        set_many("LOCAL_LLM_MODEL", model)
+    if api_key:
+        set_many("LOCAL_LLM_API_KEY", api_key)
+    if provider.get("timeoutSeconds"):
+        set_many("LLM_SEMANTIC_TIMEOUT", provider["timeoutSeconds"])
+    if provider.get("maxTokens"):
+        set_many("LLM_SEMANTIC_MAX_TOKENS", provider["maxTokens"])
+    if provider.get("temperature") is not None:
+        set_many("LLM_SEMANTIC_TEMPERATURE", provider["temperature"])
+    if chat_template_kwargs:
+        set_many("LLM_SEMANTIC_CHAT_TEMPLATE_KWARGS", json.dumps(chat_template_kwargs, ensure_ascii=False))
+    env["SIQ_LLM_SEMANTIC_PROVIDER"] = provider_key
+    env["FINSIGHT_LLM_SEMANTIC_PROVIDER"] = provider_key
+    return env
+
+
 def _llm_semantic_env() -> dict[str, str]:
     env = os.environ.copy()
     try:
         settings = load_llm_settings(include_secrets=True)
     except Exception:
         return env
-
-    local_provider = (settings.get("providers") or {}).get("local") or {}
-    if not isinstance(local_provider, dict):
+    provider_key, provider = _semantic_provider_from_settings(settings)
+    if not isinstance(provider, dict):
         return env
-
-    def set_siq_env(siq_name: str, value: object) -> None:
-        raw = str(value)
-        env[siq_name] = raw
-
-    if local_provider.get("baseUrl"):
-        set_siq_env("SIQ_LOCAL_LLM_BASE_URL", local_provider["baseUrl"])
-    if local_provider.get("model"):
-        set_siq_env("SIQ_LOCAL_LLM_MODEL", local_provider["model"])
-    if local_provider.get("apiKey"):
-        set_siq_env("SIQ_LOCAL_LLM_API_KEY", local_provider["apiKey"])
-    if local_provider.get("timeoutSeconds"):
-        set_siq_env("SIQ_LLM_SEMANTIC_TIMEOUT", local_provider["timeoutSeconds"])
-    if local_provider.get("maxTokens"):
-        set_siq_env("SIQ_LLM_SEMANTIC_MAX_TOKENS", local_provider["maxTokens"])
-    if local_provider.get("temperature") is not None:
-        set_siq_env("SIQ_LLM_SEMANTIC_TEMPERATURE", local_provider["temperature"])
-    if isinstance(local_provider.get("chatTemplateKwargs"), dict):
-        value = json.dumps(
-            local_provider["chatTemplateKwargs"],
-            ensure_ascii=False,
-        )
-        set_siq_env("SIQ_LLM_SEMANTIC_CHAT_TEMPLATE_KWARGS", value)
-    return env
+    return _set_semantic_provider_env(env, provider_key, provider)
 
 
 def _workflow_preflight(task_id: str) -> dict:
@@ -2000,7 +2044,7 @@ def _workflow_preflight(task_id: str) -> dict:
     if LLM_SEMANTIC_ENABLED:
         checks.insert(4, {
             "id": "llm_semantic_script",
-            "label": "本地模型语义增强脚本",
+            "label": "项目设置模型语义增强脚本",
             "ok": LLM_SEMANTIC_SCRIPT.is_file(),
             "status": "ready" if LLM_SEMANTIC_SCRIPT.is_file() else "missing",
             "message": str(LLM_SEMANTIC_SCRIPT),

@@ -7,7 +7,7 @@
 
 ## 启动知识检索协议（强制）
 
-收到任何项目任务后，在输出主席裁决前，必须先调用 MCP 工具 `agent_startup_retrieval`。
+收到任何项目任务后，在输出主席裁决前，必须先生成 Deal OS startup-retrieval receipt。
 
 - `agent_id`: `siq_ic_chairman`
 - `company_name`: 当前项目公司名
@@ -15,6 +15,12 @@
 - `industry`: 已知则填写
 - `stage`: 已知则填写
 - `task_focus`: 当前争议点、条款问题或最终决策重点
+
+标准入口：
+
+```text
+POST /api/deals/{deal_id}/agents/siq_ic_chairman/startup-retrieval
+```
 
 阅读返回的 Top-20 证据后再工作，并优先完成：
 

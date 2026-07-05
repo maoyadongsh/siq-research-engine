@@ -59,24 +59,33 @@ def health():
                 ),
             },
             "JP": {
-                "official_source": "Issuer IR + EDINET + TDnet",
+                "official_source": "EDINET + Issuer IR + TDnet",
                 "official_sources": [
-                    {
-                        "source_id": "issuer_annual_report",
-                        "source_name": "Issuer annual report / IR",
-                        "official_domain": "issuer websites",
-                        "role": "current_year_major_company_annual_reports",
-                        "ready": True,
-                        "required_config": [],
-                        "status": "curated_mainstream_issuer_pdf_supported",
-                    },
                     {
                         "source_id": "edinet",
                         "source_name": "EDINET",
-                        "official_domain": "disclosure2.edinet-fsa.go.jp",
+                        "official_domain": "api.edinet-fsa.go.jp",
                         "role": "primary_statutory_reports",
                         "ready": edinet_ready,
                         "required_config": [] if edinet_ready else ["EDINET_API_KEY"],
+                    },
+                    {
+                        "source_id": "issuer_annual_report",
+                        "source_name": "Issuer Annual Securities Report / IR",
+                        "official_domain": "issuer websites",
+                        "role": "statutory_mirror_or_auxiliary_ir",
+                        "ready": True,
+                        "required_config": [],
+                        "status": "statutory_mirror_or_auxiliary_only",
+                    },
+                    {
+                        "source_id": "jpx_listed_company_search",
+                        "source_name": "JPX Listed Company Search",
+                        "official_domain": "jpx.co.jp / www2.jpx.co.jp",
+                        "role": "listed_company_index_and_filing_pointer",
+                        "ready": True,
+                        "required_config": [],
+                        "status": "official_index_not_primary_pdf_source",
                     },
                     {
                         "source_id": "tdnet",
@@ -91,9 +100,9 @@ def health():
                 "report_search_ready": True,
                 "required_config": [] if edinet_ready else ["EDINET_API_KEY"],
                 "message": (
-                    "Japanese issuer IR PDF catalog, EDINET statutory search, and TDnet recent exchange disclosures are available."
+                    "Japanese EDINET statutory search is available; issuer-hosted statutory mirrors and auxiliary IR PDFs remain supported."
                     if edinet_ready
-                    else "Japanese mainstream annual-report PDFs can be downloaded from issuer IR without EDINET_API_KEY. Configure EDINET_API_KEY for full EDINET statutory securities-report search."
+                    else "Japanese complete statutory annual-report download requires EDINET_API_KEY. Integrated Report/IR PDFs are auxiliary only and are not used as the primary annual-report fallback."
                 ),
             },
             "EU": {

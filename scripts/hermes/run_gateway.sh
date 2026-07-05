@@ -105,6 +105,30 @@ if [[ -d "$SOURCE_PROFILES_ROOT/shared" ]]; then
         "$SOURCE_PROFILES_ROOT/shared/" "$runtime_profiles_root/shared/"
 fi
 
+if [[ -d "$SOURCE_PROFILES_ROOT/siq_ic_shared" ]]; then
+    mkdir -p "$runtime_profiles_root/siq_ic_shared"
+    rsync -a --delete \
+        --exclude '__pycache__/' \
+        --exclude '.pytest_cache/' \
+        --exclude 'logs/' \
+        --exclude 'sessions/' \
+        --exclude 'state.db*' \
+        --exclude 'response_store.db*' \
+        "$SOURCE_PROFILES_ROOT/siq_ic_shared/" "$runtime_profiles_root/siq_ic_shared/"
+fi
+
+if [[ "$canonical" == siq_ic_* ]]; then
+    ic_shared_skills_dir="$SOURCE_PROFILES_ROOT/siq_ic_shared/skills"
+    if [[ -d "$ic_shared_skills_dir" ]]; then
+        mkdir -p "$profile_dir/skills"
+        rsync -a --delete \
+            --exclude '__pycache__/' \
+            --exclude '.pytest_cache/' \
+            --exclude '.clawhub/' \
+            "$ic_shared_skills_dir/" "$profile_dir/skills/"
+    fi
+fi
+
 cd "$profile_dir"
 
 export HERMES_HOME="$profile_dir"

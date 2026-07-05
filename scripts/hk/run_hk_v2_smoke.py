@@ -19,11 +19,11 @@ for candidate in (CONTRACT_SRC, RULES_SRC):
 
 
 SAMPLE_PACKAGES = (
-    Path("00700/2025/annual_12100024"),
-    Path("01299/2025/annual_12106543"),
-    Path("00981/2025/annual_12097338"),
-    Path("03988/2025/annual_12132549"),
-    Path("09988/2025/annual_11727038"),
+    Path("companies/00700-TENCENT/reports/2025-annual-12100024"),
+    Path("companies/01299-AIA/reports/2025-annual-12106543"),
+    Path("companies/00981-SMIC/reports/2025-annual-12097338"),
+    Path("companies/03988-BANK-OF-CHINA/reports/2025-annual-12132549"),
+    Path("companies/09988-BABA-W/reports/2025-annual-11727038"),
 )
 
 REQUIRED_BASE_FILES = {
@@ -430,7 +430,7 @@ def _write_outputs(payload: dict[str, Any], output: Path, json_output: Path) -> 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="运行 HK V2 5 样本 smoke 检查并输出中文报告。")
-    parser.add_argument("--root", type=Path, default=Path("data/wiki/hk_reports"))
+    parser.add_argument("--root", type=Path, default=Path("data/wiki/hk"))
     parser.add_argument("--output", type=Path, default=Path("docs/superpowers/reports/hk_v2_smoke_report.md"))
     parser.add_argument("--json-output", type=Path, default=Path("docs/superpowers/reports/hk_v2_smoke_report.json"))
     return parser.parse_args(argv)

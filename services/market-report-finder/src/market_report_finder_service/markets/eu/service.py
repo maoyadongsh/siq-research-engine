@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from urllib.parse import urlparse
 
+from market_report_finder_service.data.foreign_aliases import foreign_alias_entry
 from market_report_finder_service.markets.base import MarketReportFinder
 from market_report_finder_service.markets.eu.catalog import EuAnnualReportCatalog
 from market_report_finder_service.markets.eu.client import EsefIndexClient
@@ -146,6 +147,11 @@ class EuReportFinder(MarketReportFinder):
         cik: str | None = None,
     ) -> tuple[CompanyEntity, list[CompanyEntity]]:
         del cik
+        alias = foreign_alias_entry(Market.eu.value, company_name) if company_name and not (ticker or company_id) else None
+        if alias:
+            ticker = str(alias.get("ticker") or "") or ticker
+            company_id = str(alias.get("company_id") or "") or company_id
+            company_name = str(alias.get("canonical_name") or "") or company_name
         country, clean_company_id = self._split_country_identifier(company_id)
         catalog_error: Exception | None = None
         esef_error: Exception | None = None

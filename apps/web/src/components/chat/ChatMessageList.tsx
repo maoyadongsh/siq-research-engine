@@ -22,6 +22,7 @@ interface ChatMessageListProps {
   onCopyMessage: (content: string) => void
   notice?: ReactNode
   renderStreamingAvatar?: (message: AgentMessage) => ReactNode
+  renderMessageHeader?: (message: AgentMessage, index: number) => ReactNode
   renderProgress?: (message: AgentMessage) => ReactNode
   compact?: boolean
   emptyClassName?: string
@@ -43,6 +44,7 @@ export default function ChatMessageList({
   onCopyMessage,
   notice,
   renderStreamingAvatar,
+  renderMessageHeader,
   renderProgress,
   compact = false,
   emptyClassName,
@@ -116,6 +118,7 @@ export default function ChatMessageList({
             >
               {streamingAvatar}
               <div className={`flex flex-col max-w-[85%] ${isUser ? 'items-end' : 'items-start'}`}>
+                {renderMessageHeader?.(msg, i)}
                 <div className={`chat-message-row ${isUser ? 'chat-message-row-user' : ''}`}>
                   <div className={isUser ? userBubbleClass : assistantBubbleClass}>
                     {msg.content ? (

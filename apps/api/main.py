@@ -4,7 +4,7 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from database import create_db_and_tables
-from routers import agent, chat, achievements, analysis, factchecker, legal, tracking_agent, wiki, settings, system, downloads, workflow, source, eval_e2e, auth, workspace, market_reports, document_parser, deals
+from routers import agent, chat, achievements, analysis, factchecker, legal, tracking_agent, wiki, settings, system, downloads, workflow, source, eval_e2e, auth, workspace, market_reports, document_parser, deals, primary_market_meeting
 from services.auth_dependencies import get_current_user
 from services.auth_service import AuthService
 from services.path_config import FRONTEND_ROOT
@@ -57,6 +57,7 @@ app.include_router(system.router, prefix="/api", dependencies=[Depends(get_curre
 app.include_router(market_reports.router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(document_parser.router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(deals.router, prefix="/api", dependencies=[Depends(get_current_user)])
+app.include_router(primary_market_meeting.router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(downloads.router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(workflow.router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(eval_e2e.router, prefix="/api", dependencies=[Depends(get_current_user)])

@@ -25,6 +25,7 @@ from services import deal_reports
 from services import deal_status
 from services import deal_store
 from services import ic_agent_runtime
+from services import ic_intake
 from services import ic_policy
 from services import ic_startup_retrieval
 from services.ic_openclaw_importer import DEFAULT_OPENCLAW_PROJECTS_ROOT, import_openclaw_project
@@ -64,6 +65,11 @@ class StartupRetrievalRequest(BaseModel):
     round_name: str = "R1"
     query: str | None = None
     limit: int = Field(default=10, ge=1, le=50)
+    include_external: bool = False
+    external_providers: list[str] | None = None
+    include_vector: bool = False
+    include_rerank: bool = False
+    vector_collections: list[str] | None = None
 
 
 class AgentTaskDryRunRequest(BaseModel):
@@ -74,6 +80,15 @@ class WorkflowRunR1AgentRequest(BaseModel):
     profile_id: str = Field(..., min_length=1)
     round_name: str = "R1"
     dry_run: bool = True
+
+
+class WorkflowRunR0IntakeRequest(BaseModel):
+    search_key: str | None = None
+    task_description: dict[str, Any] = Field(default_factory=dict)
+    include_external: bool = False
+    external_providers: list[str] | None = None
+    max_results: int = Field(default=5, ge=1, le=20)
+    dry_run: bool = False
 
 
 class WorkflowRunR1SerialRequest(BaseModel):
@@ -926,6 +941,46 @@ def get_deal_phase_artifacts(
         raise _not_found(deal_id) from exc
 
 
+@router.post("/{deal_id}/workflow/run-r0-intake")
+def post_workflow_run_r0_intake(
+    deal_id: str,
+    payload: WorkflowRunR0IntakeRequest | None = None,
+    current_user: User = Depends(require_permission("report.create")),
+) -> dict[str, Any]:
+    request = payload or WorkflowRunR0IntakeRequest()
+    try:
+        return deal_store.redact_public_payload(
+            ic_intake.run_r0_intake(
+                deal_id,
+                search_key=request.search_key,
+                task_description=request.task_description,
+                include_external=request.include_external,
+                external_providers=request.external_providers,
+                max_results=request.max_results,
+                dry_run=request.dry_run,
+                created_by=_user_payload(current_user),
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+
+
+@router.get("/{deal_id}/workflow/r0-intake")
+def get_workflow_r0_intake(
+    deal_id: str,
+    current_user: User = Depends(require_permission("report.view")),
+) -> dict[str, Any]:
+    del current_user
+    try:
+        return deal_store.redact_public_payload(ic_intake.read_r0_intake(deal_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+
+
 @router.post("/{deal_id}/agents/{profile_id}/startup-retrieval")
 def generate_agent_startup_retrieval(
     deal_id: str,
@@ -941,6 +996,11 @@ def generate_agent_startup_retrieval(
             round_name=request.round_name,
             query=request.query,
             limit=request.limit,
+            include_external=request.include_external,
+            external_providers=request.external_providers,
+            include_vector=request.include_vector,
+            include_rerank=request.include_rerank,
+            vector_collections=request.vector_collections,
             created_by=_user_payload(current_user),
         )
         redacted = deal_store.redact_public_payload(receipt)

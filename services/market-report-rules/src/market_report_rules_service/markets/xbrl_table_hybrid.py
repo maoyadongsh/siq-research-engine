@@ -112,6 +112,7 @@ def extract_hybrid_artifact(artifact: ParsedArtifact, spec: HybridMarketSpec) ->
     tables = list(artifact.tables) or tables_from_document_full(artifact.document_full)
     table_facts = _extract_table_facts(artifact, tables, spec, seen)
     extracted.extend(table_facts)
+    extracted.extend(_derive_hybrid_facts(extracted, artifact, spec))
     operating.extend(extract_operating_metrics_from_tables(artifact, tables, confidence=Decimal("0.74")))
 
     if not xbrl_facts:
@@ -134,6 +135,8 @@ def _extract_table_facts(
     previous_header_page: int | None = None
     for table in tables:
         detected_statement_type = detect_table_statement_type(table)
+        if _is_non_primary_statement_table(table, detected_statement_type):
+            continue
         period_columns = _period_columns_for_table(table, artifact, detected_statement_type)
         if (
             spec.inherit_adjacent_header_periods
@@ -224,6 +227,78 @@ def _extract_table_facts(
     return extracted
 
 
+def _derive_hybrid_facts(facts: list[ExtractedFact], artifact: ParsedArtifact, spec: HybridMarketSpec) -> list[ExtractedFact]:
+    by_period_table: dict[tuple[str, int | None], dict[str, ExtractedFact]] = {}
+    for fact in facts:
+        if fact.statement_type == StatementType.OPERATING_METRICS:
+            continue
+        key = (fact.period_key, fact.evidence.table_index)
+        bucket = by_period_table.setdefault(key, {})
+        current = bucket.get(fact.canonical_name)
+        if current is None or fact.confidence > current.confidence:
+            bucket[fact.canonical_name] = fact
+
+    derived: list[ExtractedFact] = []
+    for (period_key, _table_index), bucket in by_period_table.items():
+        if "parent_equity" not in bucket or "nci_equity" not in bucket:
+            continue
+        if "total_assets" not in bucket and "total_liabilities" not in bucket:
+            continue
+        parent = bucket["parent_equity"]
+        nci = bucket["nci_equity"]
+        scale = max(_safe_scale(parent), _safe_scale(nci))
+        value = (parent.value * _safe_scale(parent) + nci.value * _safe_scale(nci)) / scale
+        confidence = min(parent.confidence, nci.confidence) + Decimal("0.04")
+        if confidence > Decimal("0.88"):
+            confidence = Decimal("0.88")
+        derived.append(
+            ExtractedFact(
+                canonical_name="total_equity",
+                local_name="derived_total_equity",
+                label="Derived total equity",
+                statement_type=StatementType.BALANCE_SHEET,
+                value=value,
+                raw_value=str(value),
+                unit=parent.unit,
+                currency=parent.currency,
+                period_key=period_key,
+                period_start=parent.period_start,
+                period_end=parent.period_end,
+                fiscal_year=parent.fiscal_year or artifact.fiscal_year,
+                fiscal_period=parent.fiscal_period or artifact.fiscal_period,
+                scale=scale,
+                market=spec.market,
+                accounting_standard=_accounting_standard(artifact, "", spec.default_accounting_standard),
+                taxonomy=f"{spec.market.value.lower()}_pdf_table_derived",
+                gaap_status="derived_from_reported_components",
+                confidence=confidence,
+                evidence=EvidenceRef(
+                    source_type="derived_reported_metric",
+                    source_id=f"derived:total_equity:{period_key}:{parent.evidence.table_index}",
+                    page_number=parent.evidence.page_number,
+                    table_index=parent.evidence.table_index,
+                    row_index=parent.evidence.row_index,
+                    column_index=parent.evidence.column_index,
+                    url=artifact.source_url,
+                    quote_text="Derived total_equity: parent_equity + nci_equity",
+                    raw={
+                        "formula": "parent_equity + nci_equity",
+                        "components": [
+                            {"canonical_name": "parent_equity", "value": str(parent.value), "scale": str(parent.scale), "evidence": parent.evidence.model_dump(mode="json")},
+                            {"canonical_name": "nci_equity", "value": str(nci.value), "scale": str(nci.scale), "evidence": nci.evidence.model_dump(mode="json")},
+                        ],
+                    },
+                ),
+                raw={"derived": True, "formula": "parent_equity + nci_equity"},
+            )
+        )
+    return derived
+
+
+def _safe_scale(fact: ExtractedFact) -> Decimal:
+    return fact.scale if fact.scale and fact.scale > 0 else Decimal("1")
+
+
 class _PeriodColumns:
     def __init__(self, column_periods: dict[int, str], header_rows: set[int], source: str):
         self.column_periods = column_periods
@@ -247,12 +322,14 @@ def _period_columns_for_table(
     best_periods: dict[int, str] = {}
     for row_index, row in enumerate(table.rows[:5]):
         periods: dict[int, str] = {}
+        first_cell_is_period = bool(row and _period_from_header_cell(row[0], artifact, statement_type))
         for column_index, cell in enumerate(row):
-            if column_index == 0 or _is_note_column(cell):
+            if (column_index == 0 and not first_cell_is_period) or _is_note_column(cell):
                 continue
             parsed = _period_from_header_cell(cell, artifact, statement_type)
             if parsed:
-                periods[column_index] = parsed
+                periods[column_index + 1 if first_cell_is_period else column_index] = parsed
+        periods = _dedupe_period_columns(periods)
         if len(periods) > len(best_periods):
             best_row_index = row_index
             best_periods = periods
@@ -279,7 +356,19 @@ def _period_columns_from_raw(raw: dict[str, Any]) -> dict[int, str]:
             periods[index] = parsed_date.isoformat()
         elif period:
             periods[index] = str(period)
-    return {index: period for index, period in periods.items() if index > 0}
+    return _dedupe_period_columns({index: period for index, period in periods.items() if index > 0})
+
+
+def _dedupe_period_columns(periods: dict[int, str]) -> dict[int, str]:
+    seen: set[str] = set()
+    deduped: dict[int, str] = {}
+    for index in sorted(periods):
+        period = periods[index]
+        if period in seen:
+            continue
+        seen.add(period)
+        deduped[index] = period
+    return deduped
 
 
 def _period_from_header_cell(cell: Any, artifact: ParsedArtifact, statement_type: StatementType | None) -> str | None:
@@ -379,6 +468,32 @@ def _is_mixed_statement_summary_table(table: ParsedTable, find_label_rule: Calla
     return len(statement_types) >= 2
 
 
+def _is_non_primary_statement_table(table: ParsedTable, statement_type: StatementType | None) -> bool:
+    raw = table.raw if isinstance(table.raw, dict) else {}
+    parts = [str(table.title or ""), str(raw.get("heading") or ""), str(raw.get("preview") or "")[:300]]
+    for value in raw.get("source_caption") or []:
+        parts.append(str(value))
+    text = re.sub(r"[^0-9a-z]+", "", " ".join(parts).lower())
+    compact_all = re.sub(r"\s+", "", " ".join(parts).lower())
+    if not text and not compact_all:
+        return False
+    if any(token in compact_all for token in ("자본관리", "부채비율", "순차입금비율")):
+        return True
+    if statement_type is None:
+        return False
+    return any(
+        token in text
+        for token in (
+            "impactof",
+            "assetmanagementsubsidiaries",
+            "subsidiariesonthecompany",
+            "parentcompany",
+            "statementoffinancialpositionofthecompany",
+            "balancesheetofthecompany",
+        )
+    )
+
+
 def _has_summary_keyword(table: ParsedTable) -> bool:
     raw = table.raw if isinstance(table.raw, dict) else {}
     parts = [str(table.title or ""), str(raw.get("heading") or ""), str(raw.get("preview") or "")]
@@ -420,11 +535,18 @@ def _row_unit(row: list[Any], fallback: str | None) -> str | None:
 
 
 def _unit_from_text(text: str) -> str | None:
-    match = re.search(r"(?i)(?:JPY|¥|yen|円)?[^,;\n]{0,20}(?:million|billion|thousand)[^,;\n]{0,20}(?:JPY|yen|円)?", text)
+    match = re.search(
+        r"(?i)(?:JPY|KRW|¥|₩|yen|won|円|원)?[^,;\n]{0,24}"
+        r"(?:100\s*million|hundred\s+million|million|billion|thousand|백만\s*원|백만원|천\s*원|천원|억\s*원|억원|百万円|千円|億円)"
+        r"[^,;\n]{0,24}(?:JPY|KRW|yen|won|円|원)?",
+        text,
+    )
     if match:
         return match.group(0).strip()
     if re.search(r"(?i)\b(JPY|yen)\b|¥|円", text):
         return "JPY"
+    if re.search(r"(?i)\b(KRW|won)\b|₩|원", text):
+        return "KRW"
     return None
 
 
@@ -445,6 +567,14 @@ def _is_ratio_or_per_share_label(label: str) -> bool:
         re.search(r"\b(?:margin|ratio|rate|roe|roa|roic|eps)\b", text)
         or re.search(r"\bper\s+share\b", text)
         or "dividend payout" in text
+        or "%" in text
+        or "비율" in text
+        or "구성비" in text
+        or "회전율" in text
+        or "증가율" in text
+        or "수익률" in text
+        or "1株当たり" in text
+        or "一株当たり" in text
     )
 
 

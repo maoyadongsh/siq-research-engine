@@ -22,9 +22,9 @@ STORAGE = MarketStorageProfile(
     market=Market.KR,
     postgres_database="siq",
     postgres_schema="dart_kr",
-    wiki_namespace="data/wiki/kr_reports",
+    wiki_namespace="data/wiki/kr",
     raw_download_root="data/market-report-finder/downloads/KR",
-    parsed_artifact_root="data/wiki/kr_reports",
+    parsed_artifact_root="data/wiki/kr",
     agent_policy="market_specific_agents_only",
     notes=(
         "KR report facts must stay in the project-managed siq/dart_kr namespace.",

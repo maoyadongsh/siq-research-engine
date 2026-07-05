@@ -49,7 +49,18 @@ KR_LABEL_RULES: tuple[MetricRule, ...] = (
     MetricRule("gross_profit", StatementType.INCOME_STATEMENT, ("매출총이익", "gross profit")),
     MetricRule("cost_of_sales", StatementType.INCOME_STATEMENT, ("매출원가", "cost of sales")),
     MetricRule("operating_profit", StatementType.INCOME_STATEMENT, ("영업이익", "영업손익", "operating profit", "operating income"), 10),
-    MetricRule("total_profit", StatementType.INCOME_STATEMENT, ("법인세비용차감전순이익", "세전이익", "profit before tax")),
+    MetricRule(
+        "total_profit",
+        StatementType.INCOME_STATEMENT,
+        (
+            "법인세비용차감전순이익",
+            "법인세비용차감전순손익",
+            "법인세비용차감전당기순손익",
+            "법인세비용차감전계속영업순이익",
+            "세전이익",
+            "profit before tax",
+        ),
+    ),
     MetricRule("income_tax_expense", StatementType.INCOME_STATEMENT, ("법인세비용", "income tax expense")),
     MetricRule("net_profit", StatementType.INCOME_STATEMENT, ("당기순이익", "분기순이익", "연결당기순이익", "profit for the period", "net income"), 10),
     MetricRule("parent_net_profit", StatementType.INCOME_STATEMENT, ("지배기업의 소유주에게 귀속되는 당기순이익", "지배기업소유주지분", "owners of parent")),
@@ -61,7 +72,7 @@ KR_LABEL_RULES: tuple[MetricRule, ...] = (
     MetricRule("current_liabilities", StatementType.BALANCE_SHEET, ("유동부채", "current liabilities")),
     MetricRule("non_current_liabilities", StatementType.BALANCE_SHEET, ("비유동부채", "non-current liabilities")),
     MetricRule("total_equity", StatementType.BALANCE_SHEET, ("자본총계", "자본 총계", "total equity"), 10),
-    MetricRule("parent_equity", StatementType.BALANCE_SHEET, ("지배기업 소유주지분", "지배기업의 소유주에게 귀속되는 자본", "equity attributable to owners")),
+    MetricRule("parent_equity", StatementType.BALANCE_SHEET, ("지배기업지분", "지배기업 소유주지분", "지배기업의 소유주에게 귀속되는 자본", "equity attributable to owners")),
     MetricRule("nci_equity", StatementType.BALANCE_SHEET, ("비지배지분", "non-controlling interests")),
     MetricRule("total_liabilities_and_equity", StatementType.BALANCE_SHEET, ("부채와자본총계", "부채및자본총계", "total liabilities and equity")),
     MetricRule("cash_and_cash_equivalents", StatementType.BALANCE_SHEET, ("현금및현금성자산", "현금 및 현금성자산", "cash and cash equivalents")),
@@ -70,12 +81,12 @@ KR_LABEL_RULES: tuple[MetricRule, ...] = (
     MetricRule("property_plant_equipment", StatementType.BALANCE_SHEET, ("유형자산", "property plant and equipment")),
     MetricRule("borrowings", StatementType.BALANCE_SHEET, ("차입금", "borrowings")),
     MetricRule("lease_liabilities", StatementType.BALANCE_SHEET, ("리스부채", "lease liabilities")),
-    MetricRule("operating_cash_flow_net", StatementType.CASH_FLOW_STATEMENT, ("영업활동현금흐름", "영업활동으로 인한 현금흐름", "net cash provided by operating activities"), 10),
-    MetricRule("investing_cash_flow_net", StatementType.CASH_FLOW_STATEMENT, ("투자활동현금흐름", "투자활동으로 인한 현금흐름", "net cash used in investing activities")),
-    MetricRule("financing_cash_flow_net", StatementType.CASH_FLOW_STATEMENT, ("재무활동현금흐름", "재무활동으로 인한 현금흐름", "net cash used in financing activities")),
-    MetricRule("cash_equivalents_net_increase", StatementType.CASH_FLOW_STATEMENT, ("현금및현금성자산의 증가", "현금및현금성자산의순증감", "net increase in cash and cash equivalents")),
-    MetricRule("cash_equivalents_beginning", StatementType.CASH_FLOW_STATEMENT, ("기초현금및현금성자산", "cash and cash equivalents at beginning")),
-    MetricRule("cash_equivalents_ending", StatementType.CASH_FLOW_STATEMENT, ("기말현금및현금성자산", "cash and cash equivalents at end")),
+    MetricRule("operating_cash_flow_net", StatementType.CASH_FLOW_STATEMENT, ("영업활동현금흐름", "영업활동으로 인한 현금흐름", "영업활동으로부터의 현금흐름", "net cash provided by operating activities"), 10),
+    MetricRule("investing_cash_flow_net", StatementType.CASH_FLOW_STATEMENT, ("투자활동현금흐름", "투자활동으로 인한 현금흐름", "투자활동으로부터의 현금흐름", "net cash used in investing activities")),
+    MetricRule("financing_cash_flow_net", StatementType.CASH_FLOW_STATEMENT, ("재무활동현금흐름", "재무활동으로 인한 현금흐름", "재무활동으로부터의 현금흐름", "net cash used in financing activities")),
+    MetricRule("cash_equivalents_net_increase", StatementType.CASH_FLOW_STATEMENT, ("현금및현금성자산의 증가", "현금및현금성자산의순증감", "현금및현금성자산의 순증가", "현금및현금성자산의 순증가감소", "net increase in cash and cash equivalents")),
+    MetricRule("cash_equivalents_beginning", StatementType.CASH_FLOW_STATEMENT, ("기초현금및현금성자산", "기초의 현금및현금성자산", "cash and cash equivalents at beginning")),
+    MetricRule("cash_equivalents_ending", StatementType.CASH_FLOW_STATEMENT, ("기말현금및현금성자산", "기말의 현금및현금성자산", "cash and cash equivalents at end")),
     MetricRule("basic_eps", StatementType.KEY_METRICS, ("기본주당이익", "basic earnings per share")),
     MetricRule("diluted_eps", StatementType.KEY_METRICS, ("희석주당이익", "diluted earnings per share")),
 )
@@ -92,8 +103,40 @@ def find_kr_concept_rule(concept: str) -> MetricRule | None:
 def find_kr_label_rule(label: str) -> MetricRule | None:
     normalized = compact_label(label)
     if normalized in KR_RULE_BY_LABEL:
-        return KR_RULE_BY_LABEL[normalized]
+        rule = KR_RULE_BY_LABEL[normalized]
+        return rule if _rule_allowed(rule, normalized) else None
+    matches: list[tuple[int, int, MetricRule]] = []
     for key, rule in KR_RULE_BY_LABEL.items():
-        if key and key in normalized:
-            return rule
-    return None
+        if key and key in normalized and _rule_allowed(rule, normalized):
+            matches.append((len(key), -rule.priority, rule))
+    if not matches:
+        return None
+    return max(matches, key=lambda item: (item[0], item[1]))[2]
+
+
+def _rule_allowed(rule: MetricRule, normalized: str) -> bool:
+    if rule.canonical_name == "operating_revenue":
+        if any(
+            token in normalized
+            for token in (
+                "법인세",
+                "비용",
+                "비율",
+                "수익률",
+                "미수수익",
+                "선수수익",
+                "이연수익",
+                "배당금수익",
+                "이자수익",
+                "금융수익",
+                "기타수익",
+                "외환차익",
+                "임대료수익",
+                "공정가치",
+            )
+        ):
+            return False
+    if rule.canonical_name == "income_tax_expense":
+        if any(token in normalized for token in ("차감전", "beforetax")):
+            return False
+    return True

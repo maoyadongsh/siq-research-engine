@@ -50,7 +50,7 @@ const status: UsSecCaseSetStatus = {
     period_end: '2025-01-31',
     filing_date: '2025-03-18',
     quality_status: 'pass',
-    package_path: 'data/wiki/us_sec/NVDA/2025/10-K_0001045810-25-000023',
+    package_path: 'data/wiki/us/companies/NVDA-NVIDIA-Corporation/reports/2025-10-K-0001045810-25-000023',
   }],
   ingest_report: {
     package_count: 1,
@@ -66,7 +66,7 @@ const status: UsSecCaseSetStatus = {
 }
 
 const packageDetail = {
-  package_path: 'data/wiki/us_sec/NVDA/2025/10-K_0001045810-25-000023',
+  package_path: 'data/wiki/us/companies/NVDA-NVIDIA-Corporation/reports/2025-10-K-0001045810-25-000023',
   manifest: {
     ticker: 'NVDA',
     company_name: 'NVIDIA Corporation',
@@ -131,13 +131,13 @@ test('deriveUsSecDownloadedRows exposes list row metadata', () => {
   assert.equal(rows[0].form, '10-K')
   assert.equal(rows[0].fileType, 'HTML')
   assert.equal(rows[0].parseStatus, 'postgres_ready')
-  assert.equal(rows[0].packagePath, 'data/wiki/us_sec/NVDA/2025/10-K_0001045810-25-000023')
+  assert.equal(rows[0].packagePath, 'data/wiki/us/companies/NVDA-NVIDIA-Corporation/reports/2025-10-K-0001045810-25-000023')
 })
 
-test('deriveUsSecRecentTasks exposes parsed SEC packages as A-share style tasks', () => {
+test('deriveUsSecRecentTasks exposes parsed SEC packages as shared PDF-surface tasks', () => {
   const rows = deriveUsSecRecentTasks(status)
   assert.equal(rows.length, 1)
-  assert.equal(rows[0].id, 'data/wiki/us_sec/NVDA/2025/10-K_0001045810-25-000023')
+  assert.equal(rows[0].id, 'data/wiki/us/companies/NVDA-NVIDIA-Corporation/reports/2025-10-K-0001045810-25-000023')
   assert.equal(rows[0].ticker, 'NVDA')
   assert.equal(rows[0].companyName, 'NVIDIA Corporation')
   assert.equal(rows[0].form, '10-K')
@@ -164,11 +164,13 @@ test('deriveUsSecArtifactManifest maps SEC package outputs to result chips', () 
   assert.equal(manifest.checks[0].status, 'ready')
 })
 
-test('deriveUsSecWorkflowSummary keeps Milvus out of the current US pipeline', () => {
+test('deriveUsSecWorkflowSummary exposes the four-stage US pipeline', () => {
   const workflow = deriveUsSecWorkflowSummary(status, packageDetail)
-  assert.deepEqual(workflow.steps.map((step) => step.label), ['SEC 证据包', 'Wiki 入库', 'PostgreSQL'])
+  assert.deepEqual(workflow.steps.map((step) => step.label), ['解析产物包', 'Wiki 入库', '语义层', 'PostgreSQL'])
   assert.equal(workflow.cards[0].status, 'ready')
-  assert.equal(workflow.cards[2].status, 'ready')
+  assert.equal(workflow.cards[1].status, 'ready')
+  assert.equal(workflow.cards[2].status, 'pending')
+  assert.equal(workflow.cards[3].status, 'ready')
 })
 
 test('deriveUsSecQualitySummary formats SEC quality metrics for the result panel', () => {

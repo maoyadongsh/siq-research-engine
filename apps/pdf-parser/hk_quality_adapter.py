@@ -78,11 +78,96 @@ def merge_hk_quality_candidates(report: dict[str, Any], financial_data: dict[str
 def _candidate_from_statement(label: str, statement: dict[str, Any] | None, table_lookup: dict[Any, dict[str, Any]], financial_data: dict[str, Any]) -> dict[str, Any] | None:
     if not statement:
         return None
+    evidence_candidate = _candidate_from_statement_evidence(label, statement, table_lookup, financial_data)
+    if evidence_candidate:
+        return evidence_candidate
     indexes = statement.get("table_indexes") or []
     table_index = indexes[0] if indexes else None
     table = table_lookup.get(table_index) or {}
     line_numbers = statement.get("line_numbers") or []
     return _candidate(label, table_index, line_numbers[0] if line_numbers else table.get("line"), table, financial_data, statement.get("unit"))
+
+
+def _candidate_from_statement_evidence(label: str, statement: dict[str, Any], table_lookup: dict[Any, dict[str, Any]], financial_data: dict[str, Any]) -> dict[str, Any] | None:
+    candidates: list[tuple[float, dict[str, Any]]] = []
+    for item in statement.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        evidences = []
+        if isinstance(item.get("evidence"), dict):
+            evidences.append(item["evidence"])
+        sources = item.get("sources") if isinstance(item.get("sources"), dict) else {}
+        evidences.extend(source for source in sources.values() if isinstance(source, dict))
+        for evidence in evidences:
+            raw = evidence.get("raw") if isinstance(evidence.get("raw"), dict) else {}
+            raw_table = raw.get("table") if isinstance(raw.get("table"), dict) else {}
+            table = _table_for_evidence(evidence, raw_table, table_lookup)
+            line = raw_table.get("line") or table.get("line")
+            table_index = table.get("table_index") or evidence.get("table_index")
+            candidate = _candidate(label, table_index, line, table, financial_data, statement.get("unit"))
+            if not candidate:
+                continue
+            score = _hk_statement_score(label, table)
+            source = str(raw_table.get("source") or "")
+            if "formal_statement_window" in source or "statement_table" in source:
+                score += 12.0
+            if raw_table.get("statement_type"):
+                score += 4.0
+            candidate["candidate_score"] = max(candidate.get("candidate_score") or 0, score or 0)
+            candidate["confidence"] = "high" if candidate["candidate_score"] >= 85 else "medium"
+            candidate["_source"] = "financial_data_evidence"
+            candidates.append((candidate["candidate_score"], candidate))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (-(item[0]), item[1].get("line") or 10**9))
+    return candidates[0][1]
+
+
+def _table_for_evidence(evidence: dict[str, Any], raw_table: dict[str, Any], table_lookup: dict[Any, dict[str, Any]]) -> dict[str, Any]:
+    raw_line = _safe_int(raw_table.get("line"))
+    if raw_line is not None:
+        nearest = _nearest_table_by_line(table_lookup.values(), raw_line)
+        if nearest:
+            merged = dict(nearest)
+            merged.setdefault("heading", raw_table.get("heading"))
+            merged.setdefault("preview", raw_table.get("preview"))
+            return merged
+    table = dict(table_lookup.get(evidence.get("table_index")) or {})
+    if table:
+        return table
+    return {
+        "table_index": evidence.get("table_index"),
+        "line": raw_line,
+        "pdf_page_number": evidence.get("page_number"),
+        "heading": raw_table.get("heading"),
+        "title": raw_table.get("heading"),
+        "unit": raw_table.get("unit"),
+        "preview": raw_table.get("preview"),
+        "source": raw_table.get("source"),
+    }
+
+
+def _nearest_table_by_line(tables: Any, line: int) -> dict[str, Any] | None:
+    best: tuple[int, dict[str, Any]] | None = None
+    for table in tables:
+        if not isinstance(table, dict):
+            continue
+        table_line = _safe_int(table.get("line"))
+        if table_line is None:
+            continue
+        distance = abs(table_line - line)
+        if distance > 4:
+            continue
+        if best is None or distance < best[0]:
+            best = (distance, table)
+    return best[1] if best else None
+
+
+def _safe_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _candidate_from_metric(label: str, metric: dict[str, Any], table_lookup: dict[Any, dict[str, Any]], financial_data: dict[str, Any]) -> dict[str, Any] | None:
@@ -249,6 +334,8 @@ def _hk_statement_score(label: str, table: dict[str, Any]) -> float:
     if label == "Statement of Changes in Equity":
         if _looks_like_financial_position_table(compact):
             return 0.0
+        if "asat31december" in compact and not any(term in compact for term in ("balanceat1january", "at1january", "changesinequityfor", "totalcomprehensiveincome", "transactionswithowners")):
+            return 0.0
         if any(
             term in compact
             for term in (
@@ -334,6 +421,8 @@ def _hk_statement_score(label: str, table: dict[str, Any]) -> float:
             return 88.0
         if column_hits >= 3 and any(term in compact for term in ("movementinthecompanysreserves", "movementsinthecompanysreserves", "unitholdersequity")):
             return 88.0
+        if column_hits >= 3 and any(term in compact for term in ("attributabletoequityholders", "attributabletoowners", "attributabletoshareholders")):
+            return 86.0
         if any(term in compact for term in ("權益變動", "权益变动", "股本", "儲備", "储备")) and movement_hits >= 1:
             return 86.0
     return 0.0

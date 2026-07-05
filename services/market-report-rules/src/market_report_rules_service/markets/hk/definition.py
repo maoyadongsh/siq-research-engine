@@ -22,9 +22,9 @@ STORAGE = MarketStorageProfile(
     market=Market.HK,
     postgres_database="siq",
     postgres_schema="pdf2md_hk",
-    wiki_namespace="data/wiki/hk_reports",
+    wiki_namespace="data/wiki/hk",
     raw_download_root="data/market-report-finder/downloads/HK",
-    parsed_artifact_root="data/wiki/hk_reports",
+    parsed_artifact_root="data/wiki/hk",
     agent_policy="market_specific_agents_only",
     notes=(
         "HK report facts must stay in the project-managed siq/pdf2md_hk namespace.",

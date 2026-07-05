@@ -9,6 +9,7 @@ from .models import (
     EvidenceRef,
     ExtractedFact,
     ExtractionResult,
+    Market,
     StatementType,
     ValidationCheck,
     ValidationResult,
@@ -104,74 +105,96 @@ def _required_statement_checks(extraction: ExtractionResult) -> list[ValidationC
 
 def _financial_bridge_checks(facts: list[ExtractedFact]) -> list[ValidationCheck]:
     by_period = _facts_by_period(facts)
+    period_rows = _facts_list_by_period(facts)
+    source_aware_bridge = _use_source_aware_bridge(facts)
     checks: list[ValidationCheck] = []
     for period, bucket in by_period.items():
-        checks.append(
-            _bridge_check(
-                "bs.assets_eq_liabilities_plus_temporary_equity_plus_equity",
-                "Assets = liabilities + temporary/redeemable equity + equity",
-                StatementType.BALANCE_SHEET,
-                period,
-                bucket,
-                "total_assets",
-                ("total_liabilities", "redeemable_noncontrolling_interest", "total_equity"),
-                missing_as_zero=("redeemable_noncontrolling_interest",),
-            )
+        bs_components_bridge = _bridge_check_for_period(
+            "bs.assets_eq_liabilities_plus_temporary_equity_plus_equity",
+            "Assets = liabilities + temporary/redeemable equity + equity",
+            StatementType.BALANCE_SHEET,
+            period,
+            bucket,
+            period_rows.get(period, []),
+            source_aware_bridge,
+            "total_assets",
+            ("total_liabilities", "redeemable_noncontrolling_interest", "total_equity"),
+            missing_as_zero=("redeemable_noncontrolling_interest",),
         )
-        checks.append(
-            _bridge_check(
-                "bs.assets_eq_liabilities_and_equity",
-                "Assets = liabilities and equity total",
-                StatementType.BALANCE_SHEET,
-                period,
-                bucket,
-                "total_assets",
-                ("total_liabilities_and_equity",),
-            )
+        bs_total_bridge = _bridge_check_for_period(
+            "bs.assets_eq_liabilities_and_equity",
+            "Assets = liabilities and equity total",
+            StatementType.BALANCE_SHEET,
+            period,
+            bucket,
+            period_rows.get(period, []),
+            source_aware_bridge,
+            "total_assets",
+            ("total_liabilities_and_equity",),
         )
+        if source_aware_bridge and bs_components_bridge.status == CheckStatus.FAIL and bs_total_bridge.status == CheckStatus.PASS:
+            raw = dict(bs_components_bridge.raw)
+            raw["downgraded_by"] = "bs.assets_eq_liabilities_and_equity"
+            bs_components_bridge = bs_components_bridge.model_copy(
+                update={
+                    "status": CheckStatus.WARNING,
+                    "reason": "alternative_total_liabilities_and_equity_bridge_passed",
+                    "raw": raw,
+                }
+            )
+        checks.append(bs_components_bridge)
+        checks.append(bs_total_bridge)
         checks.append(
-            _bridge_check(
+            _bridge_check_for_period(
                 "bs.current_plus_non_current_assets",
                 "Assets = current assets + non-current assets",
                 StatementType.BALANCE_SHEET,
                 period,
                 bucket,
+                period_rows.get(period, []),
+                source_aware_bridge,
                 "total_assets",
                 ("current_assets", "non_current_assets"),
                 optional=True,
             )
         )
         checks.append(
-            _bridge_check(
+            _bridge_check_for_period(
                 "bs.current_plus_non_current_liabilities",
                 "Liabilities = current liabilities + non-current liabilities",
                 StatementType.BALANCE_SHEET,
                 period,
                 bucket,
+                period_rows.get(period, []),
+                source_aware_bridge,
                 "total_liabilities",
                 ("current_liabilities", "non_current_liabilities"),
                 optional=True,
             )
         )
         checks.append(
-            _bridge_check(
+            _bridge_check_for_period(
                 "bs.parent_equity_plus_nci",
                 "Equity = parent equity + non-controlling interests",
                 StatementType.BALANCE_SHEET,
                 period,
                 bucket,
+                period_rows.get(period, []),
+                source_aware_bridge,
                 "total_equity",
                 ("parent_equity", "nci_equity"),
                 optional=True,
             )
         )
         checks.append(
-            _bridge_check(
+            _bridge_check_for_period(
                 "is.gross_profit_bridge",
                 "Gross profit = revenue - cost of sales",
                 StatementType.INCOME_STATEMENT,
                 period,
                 bucket,
+                period_rows.get(period, []),
+                source_aware_bridge,
                 "gross_profit",
                 ("operating_revenue", "cost_of_sales"),
                 signs=(Decimal("1"), Decimal("-1")),
@@ -179,12 +202,14 @@ def _financial_bridge_checks(facts: list[ExtractedFact]) -> list[ValidationCheck
             )
         )
         checks.append(
-            _bridge_check(
+            _bridge_check_for_period(
                 "is.net_profit_bridge",
                 "Net profit = profit before tax - income tax",
                 StatementType.INCOME_STATEMENT,
                 period,
                 bucket,
+                period_rows.get(period, []),
+                source_aware_bridge,
                 "net_profit",
                 ("total_profit", "income_tax_expense"),
                 signs=(Decimal("1"), Decimal("-1")),
@@ -192,24 +217,28 @@ def _financial_bridge_checks(facts: list[ExtractedFact]) -> list[ValidationCheck
             )
         )
         checks.append(
-            _bridge_check(
+            _bridge_check_for_period(
                 "is.net_profit_attribution",
                 "Net profit = parent net profit + non-controlling interests profit",
                 StatementType.INCOME_STATEMENT,
                 period,
                 bucket,
+                period_rows.get(period, []),
+                source_aware_bridge,
                 "net_profit",
                 ("parent_net_profit", "nci_profit"),
                 optional=True,
             )
         )
         checks.append(
-            _bridge_check(
+            _bridge_check_for_period(
                 "cf.net_cash_change_bridge",
                 "Net cash change = operating + investing + financing + FX",
                 StatementType.CASH_FLOW_STATEMENT,
                 period,
                 bucket,
+                period_rows.get(period, []),
+                source_aware_bridge,
                 "cash_equivalents_net_increase",
                 ("operating_cash_flow_net", "investing_cash_flow_net", "financing_cash_flow_net", "fx_effect_cash"),
                 optional=True,
@@ -217,12 +246,14 @@ def _financial_bridge_checks(facts: list[ExtractedFact]) -> list[ValidationCheck
             )
         )
         checks.append(
-            _bridge_check(
+            _bridge_check_for_period(
                 "cf.ending_cash_bridge",
                 "Ending cash = beginning cash + net cash change",
                 StatementType.CASH_FLOW_STATEMENT,
                 period,
                 bucket,
+                period_rows.get(period, []),
+                source_aware_bridge,
                 "cash_equivalents_ending",
                 ("cash_equivalents_beginning", "cash_equivalents_net_increase"),
                 optional=True,
@@ -244,6 +275,221 @@ def _facts_by_period(facts: list[ExtractedFact]) -> dict[str, dict[str, Extracte
         if current is None or fact.confidence > current.confidence:
             by_period[fact.period_key][fact.canonical_name] = fact
     return by_period
+
+
+def _facts_list_by_period(facts: list[ExtractedFact]) -> dict[str, list[ExtractedFact]]:
+    by_period: dict[str, list[ExtractedFact]] = {}
+    for fact in facts:
+        if fact.statement_type == StatementType.OPERATING_METRICS:
+            continue
+        if _fact_dimensions(fact):
+            continue
+        by_period.setdefault(fact.period_key, []).append(fact)
+    return by_period
+
+
+def _use_source_aware_bridge(facts: list[ExtractedFact]) -> bool:
+    markets = {fact.market for fact in facts}
+    return bool(markets) and markets != {Market.CN}
+
+
+def _bridge_check_for_period(
+    rule_id: str,
+    rule_name: str,
+    statement_type: StatementType,
+    period: str,
+    fallback_bucket: dict[str, ExtractedFact],
+    period_facts: list[ExtractedFact],
+    source_aware_bridge: bool,
+    left_name: str,
+    right_names: tuple[str, ...],
+    *,
+    signs: tuple[Decimal, ...] | None = None,
+    optional: bool = False,
+    missing_as_zero: tuple[str, ...] = (),
+) -> ValidationCheck:
+    selected_bucket = fallback_bucket
+    source_selection: dict[str, Any] | None = None
+    if source_aware_bridge:
+        candidate = _source_consistent_bridge_bucket(
+            period_facts,
+            statement_type,
+            fallback_bucket,
+            left_name,
+            right_names,
+            signs=signs,
+            missing_as_zero=missing_as_zero,
+        )
+        if candidate is not None:
+            selected_bucket, source_selection = candidate
+    check = _bridge_check(
+        rule_id,
+        rule_name,
+        statement_type,
+        period,
+        selected_bucket,
+        left_name,
+        right_names,
+        signs=signs,
+        optional=optional,
+        missing_as_zero=missing_as_zero,
+    )
+    if source_selection:
+        check.raw["source_selection"] = source_selection
+    if source_aware_bridge and optional and check.status == CheckStatus.FAIL:
+        raw = dict(check.raw)
+        raw["downgraded_by"] = "optional_source_aware_bridge"
+        return check.model_copy(
+            update={
+                "status": CheckStatus.WARNING,
+                "reason": "optional_bridge_mismatch_for_market_profile",
+                "raw": raw,
+            }
+        )
+    return check
+
+
+def _source_consistent_bridge_bucket(
+    period_facts: list[ExtractedFact],
+    statement_type: StatementType,
+    fallback_bucket: dict[str, ExtractedFact],
+    left_name: str,
+    right_names: tuple[str, ...],
+    *,
+    signs: tuple[Decimal, ...] | None,
+    missing_as_zero: tuple[str, ...],
+) -> tuple[dict[str, ExtractedFact], dict[str, Any]] | None:
+    required_names = {left_name, *(name for name in right_names if name not in missing_as_zero)}
+    relevant = [
+        fact
+        for fact in period_facts
+        if fact.statement_type == statement_type and fact.canonical_name in required_names
+    ]
+    if len(relevant) < 2:
+        return None
+
+    candidates: list[tuple[dict[str, ExtractedFact], dict[str, Any]]] = []
+    grouped: dict[tuple[Any, ...], list[ExtractedFact]] = {}
+    for fact in relevant:
+        grouped.setdefault(_fact_source_group(fact), []).append(fact)
+    for key, rows in grouped.items():
+        candidates.append((_best_facts_by_name(rows), {"mode": "single_source", "group": list(key)}))
+
+    table_rows = [fact for fact in relevant if fact.evidence and fact.evidence.table_index is not None]
+    by_table: dict[int, list[ExtractedFact]] = {}
+    for fact in table_rows:
+        if fact.evidence.table_index is not None:
+            by_table.setdefault(fact.evidence.table_index, []).append(fact)
+    table_indexes = sorted(by_table)
+    for table_index in table_indexes:
+        window_indexes = [index for index in table_indexes if abs(index - table_index) <= 1]
+        if len(window_indexes) < 2:
+            continue
+        rows: list[ExtractedFact] = []
+        for index in window_indexes:
+            rows.extend(by_table[index])
+        candidates.append(
+            (
+                _best_facts_by_name(rows),
+                {"mode": "adjacent_table_window", "table_indexes": window_indexes},
+            )
+        )
+
+    best: tuple[tuple[Any, ...], dict[str, ExtractedFact], dict[str, Any]] | None = None
+    for bucket, source_selection in candidates:
+        score = _bridge_candidate_score(bucket, left_name, right_names, signs=signs, missing_as_zero=missing_as_zero)
+        if score is None or not score[0]:
+            continue
+        if best is None or score > best[0]:
+            best = (score, bucket, source_selection)
+    if best is None:
+        return None
+    fallback_score = _bridge_candidate_score(fallback_bucket, left_name, right_names, signs=signs, missing_as_zero=missing_as_zero)
+    if fallback_score is not None and fallback_score[0]:
+        return None
+    score, bucket, source_selection = best
+    source_selection = {
+        **source_selection,
+        "reason": "source_consistent_bridge_candidate",
+        "coverage": score[2],
+    }
+    return bucket, source_selection
+
+
+def _best_facts_by_name(rows: list[ExtractedFact]) -> dict[str, ExtractedFact]:
+    bucket: dict[str, ExtractedFact] = {}
+    for fact in rows:
+        current = bucket.get(fact.canonical_name)
+        if current is None or _fact_selection_rank(fact) > _fact_selection_rank(current):
+            bucket[fact.canonical_name] = fact
+    return bucket
+
+
+def _fact_selection_rank(fact: ExtractedFact) -> tuple[Decimal, int]:
+    return (fact.confidence, _primary_source_rank(fact))
+
+
+def _fact_source_group(fact: ExtractedFact) -> tuple[Any, ...]:
+    evidence = fact.evidence
+    source_type = str(evidence.source_type or "") if evidence else ""
+    if "xbrl" in source_type.lower():
+        return ("xbrl", source_type, fact.source_accession or evidence.accession_number if evidence else None)
+    if evidence and evidence.table_index is not None:
+        return ("table", evidence.table_index)
+    return ("source", source_type, evidence.source_id if evidence else None)
+
+
+def _bridge_candidate_score(
+    bucket: dict[str, ExtractedFact],
+    left_name: str,
+    right_names: tuple[str, ...],
+    *,
+    signs: tuple[Decimal, ...] | None,
+    missing_as_zero: tuple[str, ...],
+) -> tuple[bool, int, int, Decimal, Decimal, int] | None:
+    signs = signs or tuple(Decimal("1") for _ in right_names)
+    left = bucket.get(left_name)
+    required_right_names = [name for name in right_names if name not in missing_as_zero]
+    coverage = sum(1 for name in (left_name, *required_right_names) if bucket.get(name) is not None)
+    if left is None or coverage < len(required_right_names) + 1:
+        return (False, 0, coverage, Decimal("-Infinity"), Decimal("0"), 0)
+    right_value = Decimal("0")
+    right_facts: list[ExtractedFact] = []
+    for name, sign in zip(right_names, signs):
+        fact = bucket.get(name)
+        if fact is None:
+            if name in missing_as_zero:
+                continue
+            return (False, 0, coverage, Decimal("-Infinity"), Decimal("0"), 0)
+        right_facts.append(fact)
+        right_value += _scaled_value(fact) * sign
+    left_value = _scaled_value(left)
+    tolerance = _tolerance([left_value, right_value], max(_scale_for_fact(left), *[_scale_for_fact(fact) for fact in right_facts]))
+    diff = abs(left_value - right_value)
+    denominator = max(abs(left_value), abs(right_value), Decimal("1"))
+    primary_score = sum(_primary_source_rank(fact) for fact in [left, *right_facts])
+    avg_confidence = sum((fact.confidence for fact in [left, *right_facts]), Decimal("0")) / Decimal(len(right_facts) + 1)
+    return (diff <= tolerance, primary_score, coverage, -(diff / denominator), avg_confidence, -_table_span([left, *right_facts]))
+
+
+def _primary_source_rank(fact: ExtractedFact) -> int:
+    source_type = str(fact.evidence.source_type if fact.evidence else "").lower()
+    if "xbrl" in source_type:
+        return 4
+    if "statement" in source_type:
+        return 3
+    if source_type in {"html_table", "parsed_financial_table"}:
+        return 2
+    if source_type == "derived_reported_metric":
+        return 1
+    return 0
+
+
+def _table_span(facts: list[ExtractedFact]) -> int:
+    indexes = [fact.evidence.table_index for fact in facts if fact.evidence and fact.evidence.table_index is not None]
+    if not indexes:
+        return 0
+    return max(indexes) - min(indexes)
 
 
 def _bridge_check(
@@ -273,7 +519,7 @@ def _bridge_check(
             right_terms.append((name, None, sign))
             continue
         right_terms.append((name, fact, sign))
-        right_value += fact.value * sign
+        right_value += _scaled_value(fact) * sign
 
     if left is None:
         missing.append(left_name)
@@ -285,15 +531,16 @@ def _bridge_check(
             period=period,
             status=CheckStatus.SKIPPED if optional else CheckStatus.WARNING,
             inputs=[left_name, *right_names],
-            left={"name": left_name, "value": _decimal_text(left.value) if left else None},
+            left=_check_side(left_name, left),
             right={"formula": " + ".join(right_names), "missing": missing},
             reason="missing_inputs",
             evidence=_evidence_list([left, *(term[1] for term in right_terms)]),
         )
 
     assert left is not None
-    diff = left.value - right_value
-    tolerance = _tolerance([left.value, right_value], max(_scale_for_fact(left), *[_scale_for_fact(term[1]) for term in right_terms if term[1]]))
+    left_value = _scaled_value(left)
+    diff = left_value - right_value
+    tolerance = _tolerance([left_value, right_value], max(_scale_for_fact(left), *[_scale_for_fact(term[1]) for term in right_terms if term[1]]))
     if abs(diff) <= tolerance:
         status = CheckStatus.PASS
     else:
@@ -307,7 +554,7 @@ def _bridge_check(
         diff=diff,
         tolerance=tolerance,
         inputs=[left_name, *right_names],
-        left={"name": left_name, "value": _decimal_text(left.value)},
+        left=_check_side(left_name, left),
         right={
             "formula": " + ".join(f"{sign}*{name}" for name, _, sign in right_terms),
             "value": _decimal_text(right_value),
@@ -328,13 +575,15 @@ def _cash_balance_soft_check(period: str, bucket: dict[str, ExtractedFact]) -> V
             period=period,
             status=CheckStatus.SKIPPED,
             inputs=["cash_and_cash_equivalents", "cash_equivalents_ending"],
-            left={"name": "cash_and_cash_equivalents", "value": _decimal_text(cash_bs.value) if cash_bs else None},
-            right={"name": "cash_equivalents_ending", "value": _decimal_text(cash_cf.value) if cash_cf else None},
+            left=_check_side("cash_and_cash_equivalents", cash_bs),
+            right=_check_side("cash_equivalents_ending", cash_cf),
             reason="missing_inputs",
             evidence=_evidence_list([cash_bs, cash_cf]),
         )
-    diff = cash_bs.value - cash_cf.value
-    tolerance = _tolerance([cash_bs.value, cash_cf.value], max(_scale_for_fact(cash_bs), _scale_for_fact(cash_cf)), soft=True)
+    cash_bs_value = _scaled_value(cash_bs)
+    cash_cf_value = _scaled_value(cash_cf)
+    diff = cash_bs_value - cash_cf_value
+    tolerance = _tolerance([cash_bs_value, cash_cf_value], max(_scale_for_fact(cash_bs), _scale_for_fact(cash_cf)), soft=True)
     return ValidationCheck(
         rule_id="cross.cash_balance_vs_cash_flow_ending",
         rule_name="Balance sheet cash ~= cash flow ending cash",
@@ -344,8 +593,8 @@ def _cash_balance_soft_check(period: str, bucket: dict[str, ExtractedFact]) -> V
         diff=diff,
         tolerance=tolerance,
         inputs=["cash_and_cash_equivalents", "cash_equivalents_ending"],
-        left={"name": "cash_and_cash_equivalents", "value": _decimal_text(cash_bs.value)},
-        right={"name": "cash_equivalents_ending", "value": _decimal_text(cash_cf.value)},
+        left=_check_side("cash_and_cash_equivalents", cash_bs),
+        right=_check_side("cash_equivalents_ending", cash_cf),
         reason=None if abs(diff) <= tolerance else "cash_definition_may_include_restricted_cash_or_time_deposits",
         evidence=_evidence_list([cash_bs, cash_cf]),
     )
@@ -432,18 +681,20 @@ def _comparison_check(
     *,
     left_lte_right: bool,
 ) -> ValidationCheck:
-    passed = left.value <= right.value if left_lte_right else left.value >= right.value
+    left_value = _scaled_value(left)
+    right_value = _scaled_value(right)
+    passed = left_value <= right_value if left_lte_right else left_value >= right_value
     return ValidationCheck(
         rule_id=rule_id,
         rule_name=rule_name,
         statement_type=StatementType.OPERATING_METRICS,
         period=period,
         status=CheckStatus.PASS if passed else CheckStatus.WARNING,
-        diff=left.value - right.value,
+        diff=left_value - right_value,
         tolerance=Decimal("0"),
         inputs=[left.canonical_name, right.canonical_name],
-        left={"name": left.canonical_name, "value": _decimal_text(left.value)},
-        right={"name": right.canonical_name, "value": _decimal_text(right.value)},
+        left=_check_side(left.canonical_name, left),
+        right=_check_side(right.canonical_name, right),
         reason=None if passed else "operating_metric_relationship_failed",
         evidence=[left.evidence, right.evidence],
     )
@@ -541,6 +792,21 @@ def _scale_for_fact(fact: ExtractedFact | None) -> Decimal:
     if fact is None:
         return Decimal("1")
     return max(fact.scale, Decimal("1"))
+
+
+def _scaled_value(fact: ExtractedFact) -> Decimal:
+    return fact.value * _scale_for_fact(fact)
+
+
+def _check_side(name: str, fact: ExtractedFact | None) -> dict[str, Any]:
+    if fact is None:
+        return {"name": name, "value": None}
+    scale = _scale_for_fact(fact)
+    side: dict[str, Any] = {"name": name, "value": _decimal_text(_scaled_value(fact))}
+    if scale != 1:
+        side["raw_value"] = _decimal_text(fact.value)
+        side["scale"] = _decimal_text(scale)
+    return side
 
 
 def _evidence_list(items: Iterable[ExtractedFact | None]) -> list[EvidenceRef]:

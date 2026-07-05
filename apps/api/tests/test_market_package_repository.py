@@ -12,9 +12,9 @@ def _load_repository():
     return module
 
 
-def _write_manifest(path: Path, filing_id: str) -> None:
+def _write_manifest(path: Path, filing_id: str, market: str = "HK") -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"market": "HK", "filing_id": filing_id}), encoding="utf-8")
+    path.write_text(json.dumps({"market": market, "filing_id": filing_id}), encoding="utf-8")
 
 
 def test_iter_market_packages_finds_hk_company_report_layout(tmp_path):
@@ -39,7 +39,7 @@ def test_iter_market_packages_finds_kr_company_report_layout(tmp_path):
     repo = _load_repository()
     kr_root = tmp_path / "data" / "wiki" / "kr"
     package_dir = kr_root / "companies" / "005930-SamsungElectronics" / "reports" / "2025-annual-task-kr"
-    _write_manifest(package_dir / "manifest.json", "KR:005930:task-kr")
+    _write_manifest(package_dir / "manifest.json", "KR:005930:task-kr", market="KR")
 
     packages = repo.iter_market_packages("KR", {"KR": kr_root})
     found_code, found_package = repo.find_market_package_by_filing_id(
@@ -57,7 +57,7 @@ def test_find_market_evidence_reads_kr_source_map_evidence_array(tmp_path):
     repo = _load_repository()
     kr_root = tmp_path / "data" / "wiki" / "kr"
     package_dir = kr_root / "companies" / "005930-SamsungElectronics" / "reports" / "2025-annual-task-kr"
-    _write_manifest(package_dir / "manifest.json", "KR:005930:task-kr")
+    _write_manifest(package_dir / "manifest.json", "KR:005930:task-kr", market="KR")
     source_map = package_dir / "qa" / "source_map.json"
     source_map.parent.mkdir(parents=True, exist_ok=True)
     source_map.write_text(
@@ -86,3 +86,21 @@ def test_find_market_evidence_reads_kr_source_map_evidence_array(tmp_path):
     assert found_package == package_dir
     assert evidence["pdf_page_number"] == 320
     assert evidence["table_index"] == 556
+
+
+def test_iter_market_packages_finds_jp_company_report_layout(tmp_path):
+    repo = _load_repository()
+    jp_root = tmp_path / "data" / "wiki" / "jp"
+    package_dir = jp_root / "companies" / "7203-Toyota-Motor-Corporation" / "reports" / "2025-annual-securities-report"
+    _write_manifest(package_dir / "manifest.json", "JP:S100TEST", market="JP")
+
+    packages = repo.iter_market_packages("JP", {"JP": jp_root})
+    found_code, found_package = repo.find_market_package_by_filing_id(
+        "JP:S100TEST",
+        market="JP",
+        market_wiki_roots={"JP": jp_root},
+    )
+
+    assert packages == [package_dir]
+    assert found_code == "JP"
+    assert found_package == package_dir

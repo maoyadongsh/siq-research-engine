@@ -394,9 +394,23 @@ JP_ANNUAL_REPORT_CATALOG: tuple[JpAnnualReportCatalogEntry, ...] = (
 
 
 class JpAnnualReportCatalog:
+    STATUTORY_ROLE = "statutory_annual_securities_report"
+    AUXILIARY_ROLE = "auxiliary_integrated_report"
+
     @classmethod
-    def sample_filings(cls, *, limit: int = 10, report_year: int | None = None) -> list[FilingCandidate]:
-        entries = [entry for entry in JP_ANNUAL_REPORT_CATALOG if report_year is None or entry.report_end.year == report_year]
+    def sample_filings(
+        cls,
+        *,
+        limit: int = 10,
+        report_year: int | None = None,
+        include_auxiliary: bool = False,
+    ) -> list[FilingCandidate]:
+        entries = [
+            entry
+            for entry in JP_ANNUAL_REPORT_CATALOG
+            if (report_year is None or entry.report_end.year == report_year)
+            and (include_auxiliary or cls.report_role(entry) == cls.STATUTORY_ROLE)
+        ]
         return [cls.filing_candidate(entry) for entry in entries[: max(1, limit)]]
 
     @classmethod
@@ -449,11 +463,21 @@ class JpAnnualReportCatalog:
                 "industry": entry.industry,
                 "source_id": entry.source_id,
                 "source_tier": entry.source_tier,
+                "catalog_report_end": entry.report_end.isoformat(),
+                "catalog_published_at": entry.published_at.isoformat(),
+                "catalog_report_role": cls.report_role(entry),
+                "catalog_title": entry.title,
             },
         )
 
     @classmethod
-    def filings_for_company(cls, company: CompanyEntity, report_year: int | None = None) -> list[FilingCandidate]:
+    def filings_for_company(
+        cls,
+        company: CompanyEntity,
+        report_year: int | None = None,
+        *,
+        include_auxiliary: bool = False,
+    ) -> list[FilingCandidate]:
         query_keys = {
             cls._normalize_identifier(company.company_id),
             cls._normalize_identifier(company.ticker),
@@ -471,6 +495,8 @@ class JpAnnualReportCatalog:
                 continue
             if report_year is not None and entry.report_end.year != report_year:
                 continue
+            if not include_auxiliary and cls.report_role(entry) != cls.STATUTORY_ROLE:
+                continue
             candidates.append(cls.filing_candidate(entry))
         return sorted(candidates, key=lambda item: (item.report_end, item.published_at), reverse=True)
 
@@ -478,6 +504,8 @@ class JpAnnualReportCatalog:
     def filing_candidate(cls, entry: JpAnnualReportCatalogEntry) -> FilingCandidate:
         host = urlparse(entry.document_url).netloc
         primary_document = urlparse(entry.document_url).path.rsplit("/", 1)[-1] or "annual-report.pdf"
+        role = cls.report_role(entry)
+        is_primary = role == cls.STATUTORY_ROLE
         return FilingCandidate(
             source_id=entry.source_id,
             source_name=entry.source_name,
@@ -488,7 +516,7 @@ class JpAnnualReportCatalog:
             company_name=entry.company_name,
             report_type=ReportType.annual,
             report_family=ReportFamily.annual,
-            form="annual",
+            form="yuho" if is_primary else "integrated-report",
             title=entry.title,
             accession_number=entry.company_id,
             primary_document=primary_document,
@@ -501,9 +529,30 @@ class JpAnnualReportCatalog:
             metadata={
                 "industry": entry.industry,
                 "source_tier": entry.source_tier,
-                "source_note": "Curated mainstream Japanese issuer IR annual-report download; EDINET/TDnet remain available for live statutory and exchange disclosures.",
+                "jp_report_role": role,
+                "is_primary_financial_report": is_primary,
+                "requires_edinet_for_full_statements": not is_primary,
+                "source_note": (
+                    "Issuer-hosted statutory Annual Securities Report mirror."
+                    if is_primary
+                    else "Auxiliary issuer IR or Integrated Report; use EDINET Annual Securities Report/YUHO for complete financial statements."
+                ),
             },
         )
+
+    @classmethod
+    def report_role(cls, entry: JpAnnualReportCatalogEntry) -> str:
+        text = " ".join([entry.title, entry.document_url, entry.landing_url, entry.source_id]).lower()
+        statutory_terms = (
+            "annual securities report",
+            "annual-sec-report",
+            "/asr/",
+            "有価証券報告書",
+            "yuho",
+        )
+        if any(term in text for term in statutory_terms):
+            return cls.STATUTORY_ROLE
+        return cls.AUXILIARY_ROLE
 
     @staticmethod
     def entry_for_url(document_url: str) -> JpAnnualReportCatalogEntry | None:

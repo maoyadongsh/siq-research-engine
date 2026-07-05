@@ -1,0 +1,1298 @@
+{
+  "profile_assets": [
+    {
+      "source": "/home/maoyd/.openclaw/workspace/ic_master_coordinator_workspace/BOOTSTRAP.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_master_coordinator/BOOTSTRAP.md",
+      "sha256": "a50c5e1cc92f03293f5edacc18d06c5e49c36e68275d5e20c52a17f0a601a9a8"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/ic_master_coordinator_workspace/HEARTBEAT.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_master_coordinator/HEARTBEAT.md",
+      "sha256": "9ded7d71207aa0e27972dcb4df1e2bd1eaffabba5135b25b574ab2ec2210ff5d"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/ic_master_coordinator_workspace/USER.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_master_coordinator/USER.md",
+      "sha256": "d84d9488851814de9b63da2c39ba1008eefacbace3ad0ff3f77f7b1baec1d867"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/ic_chairman_workspace/BOOTSTRAP.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_chairman/BOOTSTRAP.md",
+      "sha256": "ca9c10e1becef5e05619623641596103732d3464bf0c298d1d3c9fabac98448e"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/ic_chairman_workspace/HEARTBEAT.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_chairman/HEARTBEAT.md",
+      "sha256": "4cfe63ae360d6993fc4c109bc3ec124b38ecce538c059aae200f0cca026addbe"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/ic_chairman_workspace/USER.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_chairman/USER.md",
+      "sha256": "71cfb2be29cad26264dc72fd533d80110eb57b0a3d7eea41d83cbc8a58586b35"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/ic_chairman_workspace/KNOWLEDGE_BASE.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_chairman/KNOWLEDGE_BASE.md",
+      "sha256": "3ab6801c00d6f6cb825eb50e1c632032a062e39a7dc93f27673c727dad20b41a"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/ic_chairman_workspace/QUICK_REFERENCE.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_chairman/QUICK_REFERENCE.md",
+      "sha256": "79e63aed628492dce2bef299d5f264fa7763b43e17383ac3e2547b141425d09d"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/ic_strategist_workspace/BOOTSTRAP.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_strategist/BOOTSTRAP.md",
+      "sha256": "b98cc4b16b1b2f1639f8bd27c82e2645bf7a61efe0df8bc57cb666e066f88ef6"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/ic_strategist_workspace/HEARTBEAT.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_strategist/HEARTBEAT.md",
+      "sha256": "9ef95630648cce1de7ded70f6f95f16a8f84bdaaf5953961e9e2fc7750069bc8"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/ic_strategist_workspace/USER.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_strategist/USER.md",
+      "sha256": "fb2c514e5ec4eaf9415edb0069f11a64346972ca33f1aa77de71a0ea3ce284b5"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/ic_strategist_workspace/WORKFLOW.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_strategist/WORKFLOW.md",
+      "sha256": "86bd4f8cc87f02630b5abf12ca874bfca3d667c571be9a370a8c9d3fc3d7aee7"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/ic_sector_expert_workspace/BOOTSTRAP.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_sector_expert/BOOTSTRAP.md",
+      "sha256": "621d32959652ea0d1499a60ec66000f162f94fd9592cd49fca0216f1939bb445"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/ic_sector_expert_workspace/HEARTBEAT.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_sector_expert/HEARTBEAT.md",
+      "sha256": "a0525d51ec07935dd0e45d5cecb6a2c186767e266da1e5d27049ff6a42a93545"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/ic_sector_expert_workspace/USER.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_sector_expert/USER.md",
+      "sha256": "fb2c514e5ec4eaf9415edb0069f11a64346972ca33f1aa77de71a0ea3ce284b5"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/ic_finance_auditor_workspace/BOOTSTRAP.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_finance_auditor/BOOTSTRAP.md",
+      "sha256": "1764bc5c6410d57b3687e2f601342e1ca74b58a834d57b502d5f5395417ac319"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/ic_finance_auditor_workspace/HEARTBEAT.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_finance_auditor/HEARTBEAT.md",
+      "sha256": "d5c7fc5dc2d7fa6bd2873e55bf7a6f3cda86883a56be33535fbd3d75888c80a4"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/ic_finance_auditor_workspace/USER.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_finance_auditor/USER.md",
+      "sha256": "3107f4e9be8cd7f723bb18d7aee5dc2e58741ed3173518b235757e65ff346ecb"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/ic_finance_auditor_workspace/STARTUP_CHECKLIST.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_finance_auditor/STARTUP_CHECKLIST.md",
+      "sha256": "90b6af7fb264b45ab5111fbe4d96eee2e99fa79a3f656be8d0df235eab7015a6"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/ic_legal_scanner_workspace/BOOTSTRAP.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_legal_scanner/BOOTSTRAP.md",
+      "sha256": "6e586be356866b2935237b56b77b43fb4e13769a317166bbeb59db8d41368b1a"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/ic_legal_scanner_workspace/HEARTBEAT.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_legal_scanner/HEARTBEAT.md",
+      "sha256": "8e9ad7f9705492ac255ba69f785bda463ea7d4e3dd297e670f83eef94dda1437"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/ic_legal_scanner_workspace/USER.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_legal_scanner/USER.md",
+      "sha256": "d8670548938610b6dfb51a2b85ca312a5feea65c498ccaf0b11aa05cd7260c38"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/ic_risk_controller_workspace/BOOTSTRAP.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_risk_controller/BOOTSTRAP.md",
+      "sha256": "594020edc45fabe76b6f44013f44e3b315f0abba1a1ec3d02fda7d0c88419fe1"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/ic_risk_controller_workspace/HEARTBEAT.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_risk_controller/HEARTBEAT.md",
+      "sha256": "6aa492664d1d385015c2230fa5e91cb7c2258758738d430769a5bb9d5a2e2dff"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/ic_risk_controller_workspace/USER.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_risk_controller/USER.md",
+      "sha256": "9a057e9c7aa18e1e10a57ec547a4de850c673a257a9b649ae0c3379196838684"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/ic_risk_controller_workspace/STARTUP_PROTOCOL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_risk_controller/STARTUP_PROTOCOL.md",
+      "sha256": "6a6eabab52f5275907475be9d9f908c739dce670b395dc554757e0686013ae8f"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/ic_risk_controller_workspace/WORK_PROTOCOL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_risk_controller/WORK_PROTOCOL.md",
+      "sha256": "49a2b28d7346ee8fc6a8b8b3564c5f956e12ab91f58b3c6863f554dfea34d2f8"
+    }
+  ],
+  "profile_missing": [],
+  "shared_templates": [
+    {
+      "source": "/home/maoyd/.openclaw/workspace/ic_master_coordinator_workspace/shared/templates/RETRIEVAL_MANDATORY_RULE.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/templates/RETRIEVAL_MANDATORY_RULE.md",
+      "sha256": "0f7f86f29dcd81990cb878945736a6866bbc61ed5a24e657d0f5999e8c9f68c9"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/ic_master_coordinator_workspace/shared/templates/SIQ_DECISION_REPORT.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/templates/SIQ_DECISION_REPORT.md",
+      "sha256": "e10c7e0399305217e33a589521af231821ef6e1a32387fcc624c2f576bbe7798"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/ic_master_coordinator_workspace/templates/SIQ_IC_Decision_Report_Template_v1.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/templates/SIQ_IC_Decision_Report_Template_v1.md",
+      "sha256": "a9e31e151d166083146587c3c828ecbc1647d1c5962b4f8ae250cfaf5c7756ed"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/ic_master_coordinator_workspace/templates/IC投决报告模板_v1.0.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/templates/IC投决报告模板_v1.0.md",
+      "sha256": "3b3aa6ca53124f33403709e968a08eda53c1e501cfb53b2b81f0d1e299590244"
+    }
+  ],
+  "shared_templates_missing": [],
+  "skill_batches": {
+    "batch_1_core_ic": [
+      "ic-finance-auditor",
+      "ic-memo",
+      "venture-capital",
+      "due-diligence-analyst",
+      "due-diligence-dataroom",
+      "deal-screening",
+      "startup-tools",
+      "term-sheet-analyzer",
+      "tam-sam-som",
+      "cap-table-manager",
+      "unit-economics",
+      "dcf-model",
+      "3-statement-model"
+    ],
+    "batch_2_research_valuation_pipeline": [
+      "market-intelligence-claw",
+      "competitive-analysis",
+      "strategic-competitor-analysis",
+      "thesis-tracker",
+      "comps-analysis",
+      "equity-valuation-framework",
+      "financial-analyst",
+      "teaser",
+      "pitch-deck",
+      "deal-sourcing",
+      "deal-tracker",
+      "risk-metrics-calculation",
+      "portfolio-monitoring"
+    ],
+    "batch_3_diligence_research_materials": [
+      "company-investment-research",
+      "dd-checklist",
+      "dd-meeting-prep",
+      "sector-overview",
+      "mckinsey-research",
+      "initiating-coverage",
+      "cim-builder",
+      "buyer-list",
+      "value-creation-plan",
+      "ai-readiness",
+      "financial-analysis-agent",
+      "merger-model",
+      "returns-analysis",
+      "return-rate-impact-calculator"
+    ]
+  },
+  "skills": [
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/ic-finance-auditor/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/ic-finance-auditor/SKILL.md",
+      "sha256": "2338bac614065cd0ed89f1831db86a5e0b8a787d0f6dcc7a52d2fef1d99eb461",
+      "batch": "batch_1_core_ic",
+      "skill": "ic-finance-auditor"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/ic-memo/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/ic-memo/SKILL.md",
+      "sha256": "7d9ac87964a8c6ccf89336b65084c2c690af5b6694faf5177cddd3cae96e04dd",
+      "batch": "batch_1_core_ic",
+      "skill": "ic-memo"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/venture-capital/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/venture-capital/SKILL.md",
+      "sha256": "8092b03ca942230f3600ca94e3c4589787b9c6f192edcc602df91cc5f6355367",
+      "batch": "batch_1_core_ic",
+      "skill": "venture-capital"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/venture-capital/_meta.json",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/venture-capital/_meta.json",
+      "sha256": "aab0438a1f378cd6d155d8fce13daf96338c68b2659d059fd336aaa116f05b48",
+      "batch": "batch_1_core_ic",
+      "skill": "venture-capital"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/venture-capital/due-diligence.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/venture-capital/due-diligence.md",
+      "sha256": "df12e1ca280887aab0b6f8421072817ac275f4b15c76fc595515ca9ee38b8c0a",
+      "batch": "batch_1_core_ic",
+      "skill": "venture-capital"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/venture-capital/term-sheets.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/venture-capital/term-sheets.md",
+      "sha256": "cd76a95aea6a084ecd64aa6cb59e8550a9e5fdbbbdd8e464b7b9cfc7f77c634c",
+      "batch": "batch_1_core_ic",
+      "skill": "venture-capital"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/venture-capital/valuation.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/venture-capital/valuation.md",
+      "sha256": "7921d367cc48fee4a831ee3036ff94e071c9a4babc9bb3e80cc6be49683dbb8c",
+      "batch": "batch_1_core_ic",
+      "skill": "venture-capital"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/due-diligence-analyst/CHANGELOG.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/due-diligence-analyst/CHANGELOG.md",
+      "sha256": "f8109ca6e4695cfe34a51949f5fbfdf4ddc31a84ee310edf7b9a054c133af7c3",
+      "batch": "batch_1_core_ic",
+      "skill": "due-diligence-analyst"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/due-diligence-analyst/README.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/due-diligence-analyst/README.md",
+      "sha256": "9d4dc0eacde8d1ebe3e123b6358e81c96f62a111a6b11792afc5a745bb4d6bf7",
+      "batch": "batch_1_core_ic",
+      "skill": "due-diligence-analyst"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/due-diligence-analyst/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/due-diligence-analyst/SKILL.md",
+      "sha256": "48349de248707235a991b1fdba68963dda1ad542ba1caea2f013dbb8d26b4aeb",
+      "batch": "batch_1_core_ic",
+      "skill": "due-diligence-analyst"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/due-diligence-analyst/_meta.json",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/due-diligence-analyst/_meta.json",
+      "sha256": "7c9db1d0ac5b6de77bbd4fc79635dab27f3578e7140191caf07902de6887e691",
+      "batch": "batch_1_core_ic",
+      "skill": "due-diligence-analyst"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/due-diligence-analyst/dist/agents/company-agent.d.ts",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/due-diligence-analyst/dist/agents/company-agent.d.ts",
+      "sha256": "464aee1bbf2fdf008cccc57f3d1a571ed4cf296adfdc139f87a335aa48281376",
+      "batch": "batch_1_core_ic",
+      "skill": "due-diligence-analyst"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/due-diligence-analyst/dist/agents/company-agent.js",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/due-diligence-analyst/dist/agents/company-agent.js",
+      "sha256": "aa9870c05429cb71036372b02fd41b88e9486ec27c015e9d5332d94ed3b8395a",
+      "batch": "batch_1_core_ic",
+      "skill": "due-diligence-analyst"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/due-diligence-analyst/dist/agents/report-agent.d.ts",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/due-diligence-analyst/dist/agents/report-agent.d.ts",
+      "sha256": "2aa478dca9d4a18e03b5264eff32941ec00a4e026325c518ab9583e4b2500221",
+      "batch": "batch_1_core_ic",
+      "skill": "due-diligence-analyst"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/due-diligence-analyst/dist/agents/report-agent.js",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/due-diligence-analyst/dist/agents/report-agent.js",
+      "sha256": "51387dc34171b56e5099c9ae3355e83221ae0d12ca4e0aa99f395f4af898f189",
+      "batch": "batch_1_core_ic",
+      "skill": "due-diligence-analyst"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/due-diligence-analyst/dist/index.d.ts",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/due-diligence-analyst/dist/index.d.ts",
+      "sha256": "f6bf2ce513bcf8e65051ccf63c8240e878d26e2164eb88667c89c31e959641d6",
+      "batch": "batch_1_core_ic",
+      "skill": "due-diligence-analyst"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/due-diligence-analyst/dist/index.js",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/due-diligence-analyst/dist/index.js",
+      "sha256": "454bf5922357bc2e509b084c953eb224256300568a5f7ed30828acd02fd9836f",
+      "batch": "batch_1_core_ic",
+      "skill": "due-diligence-analyst"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/due-diligence-analyst/dist/types/company.d.ts",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/due-diligence-analyst/dist/types/company.d.ts",
+      "sha256": "d74aec072879d106111371c8d4df64aa79c0c7a27247735921913d7102779b58",
+      "batch": "batch_1_core_ic",
+      "skill": "due-diligence-analyst"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/due-diligence-analyst/dist/types/company.js",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/due-diligence-analyst/dist/types/company.js",
+      "sha256": "5be3559ad2ee50258c9f688cbfcfc789e650294377f3ce4ce29425918c19884d",
+      "batch": "batch_1_core_ic",
+      "skill": "due-diligence-analyst"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/due-diligence-analyst/dist/types/index.d.ts",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/due-diligence-analyst/dist/types/index.d.ts",
+      "sha256": "297e16bc536056354fb7d65ac78143e7b4a7d5cf94ac19baf571e285ac96d361",
+      "batch": "batch_1_core_ic",
+      "skill": "due-diligence-analyst"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/due-diligence-analyst/dist/types/index.js",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/due-diligence-analyst/dist/types/index.js",
+      "sha256": "8f9237a6c08d50093399141f066325b1f6b70bb81c7ed33fac8520131e7924fe",
+      "batch": "batch_1_core_ic",
+      "skill": "due-diligence-analyst"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/due-diligence-analyst/dist/types/report.d.ts",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/due-diligence-analyst/dist/types/report.d.ts",
+      "sha256": "656f7e2d6f14142ff07dfbdd7acf39cc3ad8d3309420c48b23d80fa8bc0aefcd",
+      "batch": "batch_1_core_ic",
+      "skill": "due-diligence-analyst"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/due-diligence-analyst/dist/types/report.js",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/due-diligence-analyst/dist/types/report.js",
+      "sha256": "ba50b359c93e82ee922fef4e0b9cc3d0e7ea3ad9ba6527b2113c7749cf071b25",
+      "batch": "batch_1_core_ic",
+      "skill": "due-diligence-analyst"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/due-diligence-analyst/dist/types/risk.d.ts",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/due-diligence-analyst/dist/types/risk.d.ts",
+      "sha256": "4c76827791a9b295c93ffed176011971b757574aa81e6c17bdf95c43067fe605",
+      "batch": "batch_1_core_ic",
+      "skill": "due-diligence-analyst"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/due-diligence-analyst/dist/types/risk.js",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/due-diligence-analyst/dist/types/risk.js",
+      "sha256": "3598f6f10f282263355e80c714a3120abc4ea8cbe56ccd426df865dd3809a097",
+      "batch": "batch_1_core_ic",
+      "skill": "due-diligence-analyst"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/due-diligence-analyst/dist/types/skill.d.ts",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/due-diligence-analyst/dist/types/skill.d.ts",
+      "sha256": "3ea4eb0170efccdf3134f9dbe92ab0d6ff8b7360ba3a9eb24bbb09acea5ef036",
+      "batch": "batch_1_core_ic",
+      "skill": "due-diligence-analyst"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/due-diligence-analyst/dist/types/skill.js",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/due-diligence-analyst/dist/types/skill.js",
+      "sha256": "8effa53c0a01f4128dec6a78423ccb282810c34413883cb9626330151dae3619",
+      "batch": "batch_1_core_ic",
+      "skill": "due-diligence-analyst"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/due-diligence-analyst/dist/utils/formatters.d.ts",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/due-diligence-analyst/dist/utils/formatters.d.ts",
+      "sha256": "8b096bbfeb0d0546f991bc9a8685d9eb9d64f2d0c1969fde0a981178084d1485",
+      "batch": "batch_1_core_ic",
+      "skill": "due-diligence-analyst"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/due-diligence-analyst/dist/utils/formatters.js",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/due-diligence-analyst/dist/utils/formatters.js",
+      "sha256": "52343df76e08993d0b6905a5ad1c095fda3ecfcdbe3f1083a4b83bfea393b942",
+      "batch": "batch_1_core_ic",
+      "skill": "due-diligence-analyst"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/due-diligence-dataroom/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/due-diligence-dataroom/SKILL.md",
+      "sha256": "87f2acb802f5803a372afb3165cdcb0b727e10d29fc23017dff1d436b0a8f136",
+      "batch": "batch_1_core_ic",
+      "skill": "due-diligence-dataroom"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/due-diligence-dataroom/_meta.json",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/due-diligence-dataroom/_meta.json",
+      "sha256": "dac370084167fab870b11cb885daea3b976fb7d2f978db13c3cfb5a1512663d0",
+      "batch": "batch_1_core_ic",
+      "skill": "due-diligence-dataroom"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/deal-screening/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/deal-screening/SKILL.md",
+      "sha256": "9ced2d63f27296a02ae7b71fc62d9def49acf8622f23ce2bc6e30429ee89adaf",
+      "batch": "batch_1_core_ic",
+      "skill": "deal-screening"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/startup-tools/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/startup-tools/SKILL.md",
+      "sha256": "0250613f4eee741bca0cde8d9918aa60b8405884ead02132f382e2f0e204094f",
+      "batch": "batch_1_core_ic",
+      "skill": "startup-tools"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/startup-tools/_meta.json",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/startup-tools/_meta.json",
+      "sha256": "70eefcb3b8124c7f5cd11b93f2c6efbd0ef1c13fd8d6cabae04e64eaabef8ffa",
+      "batch": "batch_1_core_ic",
+      "skill": "startup-tools"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/startup-tools/scripts/script.sh",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/startup-tools/scripts/script.sh",
+      "sha256": "ae426bd99c3797e1504e6ac92d24e01d79b3d0eeba10139957aaa7db0d645129",
+      "batch": "batch_1_core_ic",
+      "skill": "startup-tools"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/startup-tools/scripts/startup.sh",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/startup-tools/scripts/startup.sh",
+      "sha256": "b1b723b7f24a9534b3ea2ea7b7f9b84040c6c1e55318ae259a9585a3f2a0757d",
+      "batch": "batch_1_core_ic",
+      "skill": "startup-tools"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/startup-tools/tips.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/startup-tools/tips.md",
+      "sha256": "ac1a24ec61640776238c0ab643feed8eabfbf10f842aa85f079b40dbefcb1218",
+      "batch": "batch_1_core_ic",
+      "skill": "startup-tools"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/term-sheet-analyzer/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/term-sheet-analyzer/SKILL.md",
+      "sha256": "875684824e36fc5df7ee594261ef17cecbfddcdaf520094eee5f3c78713bcf42",
+      "batch": "batch_1_core_ic",
+      "skill": "term-sheet-analyzer"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/term-sheet-analyzer/_meta.json",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/term-sheet-analyzer/_meta.json",
+      "sha256": "9f9fbb77afd890da4b77a3d3738a0988dca9b3a483f48be6d75529e7624d27c7",
+      "batch": "batch_1_core_ic",
+      "skill": "term-sheet-analyzer"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/tam-sam-som/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/tam-sam-som/SKILL.md",
+      "sha256": "7b11ea46045ebecfa77b45fc598963549c9a944c74a85dd57639e021770d25d9",
+      "batch": "batch_1_core_ic",
+      "skill": "tam-sam-som"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/tam-sam-som/_meta.json",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/tam-sam-som/_meta.json",
+      "sha256": "72a5648d91f17ea49d31a95258fbb1271e87ca608c3bde126afb62ef7fade118",
+      "batch": "batch_1_core_ic",
+      "skill": "tam-sam-som"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/tam-sam-som/examples/b2b-physical.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/tam-sam-som/examples/b2b-physical.md",
+      "sha256": "7b69082d3ee288030759331f6a77701942e8b07f9e9d195a9537dfd684ea1234",
+      "batch": "batch_1_core_ic",
+      "skill": "tam-sam-som"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/tam-sam-som/examples/b2b-saas.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/tam-sam-som/examples/b2b-saas.md",
+      "sha256": "e5fad0700cef377168f23dff7aa0cfd6d7cbccf0c4a56f80a48eedd662bfdbf4",
+      "batch": "batch_1_core_ic",
+      "skill": "tam-sam-som"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/tam-sam-som/examples/b2c-consumer-brand.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/tam-sam-som/examples/b2c-consumer-brand.md",
+      "sha256": "e83c32abdfd02f2772cab52d58f3d0e880af1e253c3804541ce143bb4c850ede",
+      "batch": "batch_1_core_ic",
+      "skill": "tam-sam-som"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/cap-table-manager/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/cap-table-manager/SKILL.md",
+      "sha256": "6d0090e3517652d23e4a27754c5f67e131f9e2365e4ed9409901ad2cff92d773",
+      "batch": "batch_1_core_ic",
+      "skill": "cap-table-manager"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/cap-table-manager/_meta.json",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/cap-table-manager/_meta.json",
+      "sha256": "8491a511b7b8f94f6e5732c1eaaa853c933aea7468799e7bf2eb4a67eb15b6d7",
+      "batch": "batch_1_core_ic",
+      "skill": "cap-table-manager"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/unit-economics/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/unit-economics/SKILL.md",
+      "sha256": "5d2c8b87a6473a83355f123d6a66d99643380f160b2270bd5baa7230d98ff5b7",
+      "batch": "batch_1_core_ic",
+      "skill": "unit-economics"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/dcf-model/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/dcf-model/SKILL.md",
+      "sha256": "2bb3ed672ab2fa76f8820ee919b158a67dc6df10e7052eeb661599140a9a2494",
+      "batch": "batch_1_core_ic",
+      "skill": "dcf-model"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/dcf-model/TROUBLESHOOTING.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/dcf-model/TROUBLESHOOTING.md",
+      "sha256": "6e605b455032973465f685535251a7d2d889a2dad9b05ba8d6dfc01f801b28d0",
+      "batch": "batch_1_core_ic",
+      "skill": "dcf-model"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/dcf-model/requirements.txt",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/dcf-model/requirements.txt",
+      "sha256": "c007f21b5659d4a29dfde17ad586b31ace9e2c5cdb2aeaa39950a7f7c6a75a8f",
+      "batch": "batch_1_core_ic",
+      "skill": "dcf-model"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/dcf-model/scripts/validate_dcf.py",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/dcf-model/scripts/validate_dcf.py",
+      "sha256": "6892a153a0b834f0f31d8676602341a4d721bbb2c294dbed64a03262512e738a",
+      "batch": "batch_1_core_ic",
+      "skill": "dcf-model"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/3-statement-model/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/3-statement-model/SKILL.md",
+      "sha256": "bc2aeb423a3cc9e6ab973dcc4e3c6682427c751e20d8b3a0eec057eab67b1e83",
+      "batch": "batch_1_core_ic",
+      "skill": "3-statement-model"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/3-statement-model/references/formatting.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/3-statement-model/references/formatting.md",
+      "sha256": "7e1c5ca7dd566f6821a6094efcbe48913d984766d7278178111ec4c67aca8778",
+      "batch": "batch_1_core_ic",
+      "skill": "3-statement-model"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/3-statement-model/references/formulas.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/3-statement-model/references/formulas.md",
+      "sha256": "5761041366248bba14782f72082b9396c7e47291491999ea85be1c9c2875df5e",
+      "batch": "batch_1_core_ic",
+      "skill": "3-statement-model"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/3-statement-model/references/sec-filings.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/3-statement-model/references/sec-filings.md",
+      "sha256": "9765c2f789b8d87baeca89b7f3a5ddc68d6068c06b39b4445224197d6e444e93",
+      "batch": "batch_1_core_ic",
+      "skill": "3-statement-model"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/market-intelligence-claw/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/market-intelligence-claw/SKILL.md",
+      "sha256": "475721038fb9622ec4fc8a0fa10b82d3d3bd8d3860518ef135d3130e00621093",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "market-intelligence-claw"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/market-intelligence-claw/_meta.json",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/market-intelligence-claw/_meta.json",
+      "sha256": "35b18141aa38e6420e93a3737e3f4b563b12705d939e10a7817a682c6e81ab53",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "market-intelligence-claw"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/market-intelligence-claw/references/competitor.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/market-intelligence-claw/references/competitor.md",
+      "sha256": "9a9e57da038e4af26a448381b661f8d3496b6f11b47417f71cd4e762a6139442",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "market-intelligence-claw"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/market-intelligence-claw/references/keywords-seo.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/market-intelligence-claw/references/keywords-seo.md",
+      "sha256": "0506a10e6d2960e499a470df98c24e7daa197323df8c03f3912a359c30d12d06",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "market-intelligence-claw"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/market-intelligence-claw/references/modules-2.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/market-intelligence-claw/references/modules-2.md",
+      "sha256": "f111ebb06548271cafeb097dc397f7599e9a1d823a50c95ac0ebf4d2abb50653",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "market-intelligence-claw"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/market-intelligence-claw/references/setup.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/market-intelligence-claw/references/setup.md",
+      "sha256": "1b07f3a15d285c17114d1ea0bdbe8f23ca78385bfdba34936e2bf956568e5826",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "market-intelligence-claw"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/market-intelligence-claw/references/trends.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/market-intelligence-claw/references/trends.md",
+      "sha256": "1e76af56ceaefacc1958936b3276bff0d19dd0934ac8a856821ffe2cd0f59fc1",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "market-intelligence-claw"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/competitive-analysis/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/competitive-analysis/SKILL.md",
+      "sha256": "65c6e2a68ba67660076e1f5b7d3602f71b3e97d3cdc1f2a6b03c12c05c24f1f9",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "competitive-analysis"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/competitive-analysis/references/frameworks.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/competitive-analysis/references/frameworks.md",
+      "sha256": "93b3f437c8da7a48e8a77603bd4eb47aba5880e40afdc1d77b8e590bd02c61b7",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "competitive-analysis"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/competitive-analysis/references/schemas.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/competitive-analysis/references/schemas.md",
+      "sha256": "4bc65ebead267d789a0824342d7e59ac7ff133e873f3c32675bf351d472c9e6d",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "competitive-analysis"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/strategic-competitor-analysis/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/strategic-competitor-analysis/SKILL.md",
+      "sha256": "37031eb0447c9962d275570831220ea258d498b3b3321471ce5b2276e74c1530",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "strategic-competitor-analysis"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/strategic-competitor-analysis/_meta.json",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/strategic-competitor-analysis/_meta.json",
+      "sha256": "cfd2782d0d461001b98f2809136aeed241157e492c41da876f7d6290b527ea06",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "strategic-competitor-analysis"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/thesis-tracker/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/thesis-tracker/SKILL.md",
+      "sha256": "5d52d1a9bb9f61dcad23f4beaf13cb6c32584ec2aeb75f764861e5bcda8f3bcb",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "thesis-tracker"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/comps-analysis/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/comps-analysis/SKILL.md",
+      "sha256": "4d6425bb68fdd59544961b36956af643318adf1ee47ae42819cfa9db4bbbdd15",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "comps-analysis"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/equity-valuation-framework/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/equity-valuation-framework/SKILL.md",
+      "sha256": "446d9d5f17271b0d90b4f945d6e26f9083173ed3019640d4e116587a9e5037de",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "equity-valuation-framework"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/equity-valuation-framework/_meta.json",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/equity-valuation-framework/_meta.json",
+      "sha256": "eaf893e51c467a97480a4798a4a0567fb594f0289e84c78dd4129f45be3ee3c8",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "equity-valuation-framework"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/equity-valuation-framework/agents/openai.yaml",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/equity-valuation-framework/agents/openai.yaml",
+      "sha256": "6b9571e3af27550f3f033e97ebee9d9327c4b789f596345fb417d79b3c74efe4",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "equity-valuation-framework"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/financial-analyst/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/financial-analyst/SKILL.md",
+      "sha256": "6e6c00cae1e81cc3d39761b871c36983e24d64fb63e6910d62400795382da784",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "financial-analyst"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/financial-analyst/_meta.json",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/financial-analyst/_meta.json",
+      "sha256": "f61e8166c33a90a958d8731a597fcbde7228da6d76d4696203c88051cf8bb6c8",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "financial-analyst"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/financial-analyst/assets/templates/competitive-strategy-template.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/financial-analyst/assets/templates/competitive-strategy-template.md",
+      "sha256": "40a3da3ce1f5326406b6020c04980ad057f318020677954347ea838bdde5d30b",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "financial-analyst"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/financial-analyst/assets/templates/comps-template.csv",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/financial-analyst/assets/templates/comps-template.csv",
+      "sha256": "a4049a1f1471481fd8e47fc777dd85fef693a675bb0469982e76e65dba0778ef",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "financial-analyst"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/financial-analyst/assets/templates/dcf-model-template.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/financial-analyst/assets/templates/dcf-model-template.md",
+      "sha256": "11ce12c236ac129fef3aebcd961fa28a3e05840eea831892099bb7477ca3fa5b",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "financial-analyst"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/financial-analyst/assets/templates/er-memo-template.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/financial-analyst/assets/templates/er-memo-template.md",
+      "sha256": "62700d47713fd65764778a71f06c0f49d763431138dea9ccb7a6993b6f2dc503",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "financial-analyst"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/financial-analyst/assets/templates/market-research-template.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/financial-analyst/assets/templates/market-research-template.md",
+      "sha256": "1bd2affd8089ef1ce67f48389c20bdc7d1f8c020be60ba3767a1d22d8d02f2a4",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "financial-analyst"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/financial-analyst/assets/templates/ppt-outline.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/financial-analyst/assets/templates/ppt-outline.md",
+      "sha256": "06d2db2d3a2906f026425d7b4712a9892bbdd7568bca3be857e0ae708a4dcec1",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "financial-analyst"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/financial-analyst/assets/templates/precedents-template.csv",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/financial-analyst/assets/templates/precedents-template.csv",
+      "sha256": "8c46dd771178eb5ff11ee9c9c9be4ef865d4d7fb4e87e679d0b20f7c03ac87d1",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "financial-analyst"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/financial-analyst/references/competitive-strategy.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/financial-analyst/references/competitive-strategy.md",
+      "sha256": "60fcd4b42c28e2ae8ab8426dd7592d985fc20a151b23c88d3b7816f7d9892824",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "financial-analyst"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/financial-analyst/references/comps.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/financial-analyst/references/comps.md",
+      "sha256": "d7147221bb628f869744e878b9f2cf65605ceeb1b52606810945839a0acd1bb6",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "financial-analyst"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/financial-analyst/references/dcf.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/financial-analyst/references/dcf.md",
+      "sha256": "42540c8d69622157bee0bdf7f383d55c23f1b118f2bbfc394b22135a3226a18c",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "financial-analyst"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/financial-analyst/references/equity-research.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/financial-analyst/references/equity-research.md",
+      "sha256": "92247ef89d9b93be3f2c25ca782b39ea95bf242072eadf9e89c3cebe545c9cf8",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "financial-analyst"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/financial-analyst/references/market-research.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/financial-analyst/references/market-research.md",
+      "sha256": "1413b2df947bbd6cce3d9c18611048561a3d2dd7b1ba4651f704ec285d53560a",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "financial-analyst"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/financial-analyst/references/precedents.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/financial-analyst/references/precedents.md",
+      "sha256": "e84cf999d708d604b8b645b1483b4cecf1b58bf8294a1c6a66c9cc28a5bed598",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "financial-analyst"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/teaser/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/teaser/SKILL.md",
+      "sha256": "75d521f0b538476e185bd9cdc1a397b2a8d22b2760457e419ecc30ad1715985e",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "teaser"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/pitch-deck/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/pitch-deck/SKILL.md",
+      "sha256": "118318d96bb794a42604c5899f3bb7db2692c23112f434d28b94a6c77a0313a6",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "pitch-deck"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/pitch-deck/reference/calculation-standards.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/pitch-deck/reference/calculation-standards.md",
+      "sha256": "0100c51eecd0269ade54ad26f2459921d084cbdcee7ceb0965a8e1124091ac52",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "pitch-deck"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/pitch-deck/reference/formatting-standards.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/pitch-deck/reference/formatting-standards.md",
+      "sha256": "f732c4004315174dba77e4ab9851cc71940c9a0bbf6dc9ae7d542d7c95a15116",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "pitch-deck"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/pitch-deck/reference/slide-templates.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/pitch-deck/reference/slide-templates.md",
+      "sha256": "c0a0056745f2b576b7472ee8b6bad2ff88f4ceb1911ea23e25464c682c0577a4",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "pitch-deck"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/pitch-deck/reference/xml-reference.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/pitch-deck/reference/xml-reference.md",
+      "sha256": "7129951657df5795aa08a22d81cffc5cd1c35a21180aeb31273fcfbc99d487de",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "pitch-deck"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/deal-sourcing/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/deal-sourcing/SKILL.md",
+      "sha256": "acfccee526e59396fbe9a53d6e6c561d1971202d1ae07aaeede4a1ddf68bc1b7",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "deal-sourcing"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/deal-tracker/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/deal-tracker/SKILL.md",
+      "sha256": "bb18f9ba6ae1db8c047f33cbf1736d7e3ec3481d2be4f0b88e9a3fd2171b9863",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "deal-tracker"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/risk-metrics-calculation/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/risk-metrics-calculation/SKILL.md",
+      "sha256": "cb46aeecb27cbab2f73959c67ff2a32eb186c28cc6ac541e447a020ffb04a089",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "risk-metrics-calculation"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/risk-metrics-calculation/_meta.json",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/risk-metrics-calculation/_meta.json",
+      "sha256": "120af6a89f5095b96d7365c70cadf8bf5f7aa85929df3b0af49b56e7f9240276",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "risk-metrics-calculation"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/risk-metrics-calculation/skill.json",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/risk-metrics-calculation/skill.json",
+      "sha256": "a69d402952c09b3a2a429457dd12649be4ba89afbb4f205a0d4e1650b81488a8",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "risk-metrics-calculation"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/portfolio-monitoring/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/portfolio-monitoring/SKILL.md",
+      "sha256": "1873971ceaa1d8328112c1444157948d365938a72e82282d781aac1fdd63679f",
+      "batch": "batch_2_research_valuation_pipeline",
+      "skill": "portfolio-monitoring"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/company-investment-research/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/company-investment-research/SKILL.md",
+      "sha256": "c239764b1410df2acc46fbe530a72525be61cc484ced3dab4940e37adefb7db5",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "company-investment-research"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/company-investment-research/_meta.json",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/company-investment-research/_meta.json",
+      "sha256": "8330d0ebf7a34a7b478916035e23062ee96966df714e4e74612b87f37518dab9",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "company-investment-research"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/company-investment-research/references/analysis-framework.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/company-investment-research/references/analysis-framework.md",
+      "sha256": "53e79baa01943979671490b40c7c7957e9b3f4139f6f3124ec5f0e8820d450a6",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "company-investment-research"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/company-investment-research/references/report-template.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/company-investment-research/references/report-template.md",
+      "sha256": "9e24e18dd13197b65a8d2cbb16028b1f4a88467803236374baaddf2778aae6fb",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "company-investment-research"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/dd-checklist/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/dd-checklist/SKILL.md",
+      "sha256": "46cdd49262971c929027c656a01b016f943933019bdcdd423f230713018d06a1",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "dd-checklist"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/dd-meeting-prep/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/dd-meeting-prep/SKILL.md",
+      "sha256": "28a8826e83de21d8d747522ec6c509d658e54537ca193765863beb113330d49a",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "dd-meeting-prep"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/sector-overview/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/sector-overview/SKILL.md",
+      "sha256": "8d7f1b6487c68187ef7cb69af1d5c6a33c332fe44ec902ff1adf4410849086f8",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "sector-overview"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/mckinsey-research/README.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/mckinsey-research/README.md",
+      "sha256": "5a91284e84b0ecbca8bb18191832b7b4bafb1ee6c674f7b84ac6552ea0ecb0af",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "mckinsey-research"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/mckinsey-research/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/mckinsey-research/SKILL.md",
+      "sha256": "fd2c2215f6ed71a5489b6d2b7f2d395eafb9d8b510cf9d5ff1719b354df19371",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "mckinsey-research"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/mckinsey-research/_meta.json",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/mckinsey-research/_meta.json",
+      "sha256": "461680d642acc47a594053a459f46cc772d34681849e394ad2fdb8ca3d6e867d",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "mckinsey-research"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/mckinsey-research/data/feedback.json",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/mckinsey-research/data/feedback.json",
+      "sha256": "aba1f082b86d245653f07ea99db0bd1f55c34dc701f37c8de49f791ae6177d2b",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "mckinsey-research"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/mckinsey-research/references/benchmarks.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/mckinsey-research/references/benchmarks.md",
+      "sha256": "e45ca35355a0e638b45fe4d6dd3fc94f2a41f37bfc8b0c9168bcfd95815715c3",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "mckinsey-research"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/mckinsey-research/references/gotchas.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/mckinsey-research/references/gotchas.md",
+      "sha256": "cede61eeafad25e7a33f8f36796e8d743f1036a4f890109a51376da9b828ccf1",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "mckinsey-research"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/mckinsey-research/references/prompts/01-tam.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/mckinsey-research/references/prompts/01-tam.md",
+      "sha256": "afa0e52506d37d508a1963b69f5f81a3f211ec802600a124374e2f9d9a82315b",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "mckinsey-research"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/mckinsey-research/references/prompts/02-competitive.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/mckinsey-research/references/prompts/02-competitive.md",
+      "sha256": "b02b9caaaf92333deae23996b9bed600fc4c4614ef6b8f5caa53bdd32bee8c4a",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "mckinsey-research"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/mckinsey-research/references/prompts/03-personas.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/mckinsey-research/references/prompts/03-personas.md",
+      "sha256": "66e70f9a736519c1d31eb2a67bff1905d9d6c24ab728e2fd9c8ca9f76d2239a7",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "mckinsey-research"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/mckinsey-research/references/prompts/04-trends.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/mckinsey-research/references/prompts/04-trends.md",
+      "sha256": "ed4fc8d28070dd13d317a978d865cb852485eec55f712d51c0a17dfad913cb78",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "mckinsey-research"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/mckinsey-research/references/prompts/05-swot-porter.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/mckinsey-research/references/prompts/05-swot-porter.md",
+      "sha256": "77f74ecb66375606a276beac8cc9405309b308cbd92fb152b6f20d5540ab203c",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "mckinsey-research"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/mckinsey-research/references/prompts/06-pricing.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/mckinsey-research/references/prompts/06-pricing.md",
+      "sha256": "0deb09551da98cd891586de38b4691f6cf98f3c29eda730912b23d0d808fb229",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "mckinsey-research"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/mckinsey-research/references/prompts/07-gtm.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/mckinsey-research/references/prompts/07-gtm.md",
+      "sha256": "04b3917605717fa7b37e25a0ee64843cfc35ed5b0e09430b0f7d76ce882757b5",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "mckinsey-research"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/mckinsey-research/references/prompts/08-journey.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/mckinsey-research/references/prompts/08-journey.md",
+      "sha256": "685eaa76b91c77ee66122c315884601938e38349c9ad6ea4c211243e77460af1",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "mckinsey-research"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/mckinsey-research/references/prompts/09-financial.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/mckinsey-research/references/prompts/09-financial.md",
+      "sha256": "ed6d31cef0f67b0fd989786ec410126119a3d14756451e17385b00d2e75e3276",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "mckinsey-research"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/mckinsey-research/references/prompts/10-risk.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/mckinsey-research/references/prompts/10-risk.md",
+      "sha256": "3658a77baca271e25248480eff0893ae66f522f01431b8d93116e2e5873b8c3e",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "mckinsey-research"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/mckinsey-research/references/prompts/11-market-entry.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/mckinsey-research/references/prompts/11-market-entry.md",
+      "sha256": "c0da2d56fd0cdb83e6849d543fbd9ef67c92890094d0ba3ce9db1cd9d8473d6c",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "mckinsey-research"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/mckinsey-research/references/prompts/12-synthesis.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/mckinsey-research/references/prompts/12-synthesis.md",
+      "sha256": "b0af28a8193f6fe780e934cbf90bfe83076676aefdfb94114d08bff2466ed2e6",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "mckinsey-research"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/mckinsey-research/references/prompts.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/mckinsey-research/references/prompts.md",
+      "sha256": "25fecabb83c27c17f3171069c370f8bd2188cd7e33575e7f4ad6e3a36a661e29",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "mckinsey-research"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/mckinsey-research/references/saudi-market.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/mckinsey-research/references/saudi-market.md",
+      "sha256": "def3fa89b19ce9e2d44f72221bca76eacf9a7f3921646f3e64440efe18248d62",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "mckinsey-research"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/mckinsey-research/references/security.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/mckinsey-research/references/security.md",
+      "sha256": "26d7d40c644e5abcb1b17ba7e357d139dab69a847bdbf6552c42a2122809927d",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "mckinsey-research"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/mckinsey-research/references/variable-map.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/mckinsey-research/references/variable-map.md",
+      "sha256": "7994d9e23c6828f1a777b5389b085b4132c1b47446200460525064409a8b3f5f",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "mckinsey-research"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/mckinsey-research/templates/report.html",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/mckinsey-research/templates/report.html",
+      "sha256": "64e6151f9f13e47adf9a3eb755459a02cf021a41b3ae7e71750cff15ca4a870d",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "mckinsey-research"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/initiating-coverage/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/initiating-coverage/SKILL.md",
+      "sha256": "349c9afd92bfcc5fd45681f22de099e6e951b4c8a7866005fad81fcb05b90c00",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "initiating-coverage"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/initiating-coverage/assets/quality-checklist.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/initiating-coverage/assets/quality-checklist.md",
+      "sha256": "1bb73c5420e56b3e01109a883ee22ae5b3bacff40722697f4c3fbb070feff913",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "initiating-coverage"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/initiating-coverage/assets/report-template.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/initiating-coverage/assets/report-template.md",
+      "sha256": "7b9c98e9fde6622e111b6ec046d2933bf8bad4d17ba3b385a59a30f16e8cc9e4",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "initiating-coverage"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/initiating-coverage/references/task1-company-research.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/initiating-coverage/references/task1-company-research.md",
+      "sha256": "00ec47ca64c1cfdf6e1b74fa8c693633b5e12e98264667b40f2d7dea90b48227",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "initiating-coverage"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/initiating-coverage/references/task2-financial-modeling.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/initiating-coverage/references/task2-financial-modeling.md",
+      "sha256": "8e2d203984b37953fd0dc0e9b2dd23ed5aadafd68037e8ff29a0f86d3d3cecc0",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "initiating-coverage"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/initiating-coverage/references/task3-valuation.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/initiating-coverage/references/task3-valuation.md",
+      "sha256": "07e0f13d90f7ee7160b01717d7975516fdfe8811953c152dd4c8f2e7137219d8",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "initiating-coverage"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/initiating-coverage/references/task4-chart-generation.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/initiating-coverage/references/task4-chart-generation.md",
+      "sha256": "ab5be625db0687b3fa85ce9177f2f52b7ab7c5127e80c3e2c905a5821602554e",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "initiating-coverage"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/initiating-coverage/references/task5-report-assembly.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/initiating-coverage/references/task5-report-assembly.md",
+      "sha256": "0ebd52591bc6654a26fea94e7cc389531224fc7a79cbab04a4bc3c6842db8efe",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "initiating-coverage"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/initiating-coverage/references/valuation-methodologies.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/initiating-coverage/references/valuation-methodologies.md",
+      "sha256": "fed84dc2b45794cf2abd682db8f346820d61c316cbcd058ec386ea51351f1633",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "initiating-coverage"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/cim-builder/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/cim-builder/SKILL.md",
+      "sha256": "d7dfb27fc08f0bcca169fd2eddcfa9f2db5d68bc7dbb8b263802252007ea5fc2",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "cim-builder"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/buyer-list/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/buyer-list/SKILL.md",
+      "sha256": "3eb4e11b12cad45ef1957a9e77067dfcbd21f786f4950ee54f48d3d5592e2c99",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "buyer-list"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/value-creation-plan/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/value-creation-plan/SKILL.md",
+      "sha256": "2f430406b33f853c5540c5a93bedc89019f3a1ec9f299bbf3584904f36b65898",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "value-creation-plan"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/ai-readiness/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/ai-readiness/SKILL.md",
+      "sha256": "c440162f7eb8952c5d1ab9d3cc0aca4809744cec99b4fa2f1530cda5968450aa",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "ai-readiness"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/financial-analysis-agent/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/financial-analysis-agent/SKILL.md",
+      "sha256": "9122874d0c29938b1151aa8e65cb7792b90c5e8cb650d5e63c93fa35bcea4f10",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "financial-analysis-agent"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/financial-analysis-agent/_meta.json",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/financial-analysis-agent/_meta.json",
+      "sha256": "1851c6e3a682a9544c91b2cd7539404e13f3ace049aefb5270dfcc1cb5b98975",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "financial-analysis-agent"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/merger-model/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/merger-model/SKILL.md",
+      "sha256": "c92972e4ab4f8af6ecbd89e9dc8ef1d14a08b126916c63543bd544c20e898baf",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "merger-model"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/returns-analysis/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/returns-analysis/SKILL.md",
+      "sha256": "2c570932b588744adb819b7ec470f553b0faa9811a1ee273b4bf4509a5517315",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "returns-analysis"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/return-rate-impact-calculator/SKILL.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/return-rate-impact-calculator/SKILL.md",
+      "sha256": "e9874c351fcdbf6d2feb7cb8bb50adcd2e368eba7f5536d02d1e538100fb0542",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "return-rate-impact-calculator"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/return-rate-impact-calculator/_meta.json",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/return-rate-impact-calculator/_meta.json",
+      "sha256": "83bb3daf0904b61a1cded22538aaa00f954e7e149cb7ebbfcabf04d5d7fef2ee",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "return-rate-impact-calculator"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/return-rate-impact-calculator/references/output-template.md",
+      "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/return-rate-impact-calculator/references/output-template.md",
+      "sha256": "5af1f3c95e383eb199cd667ce0d11d20f05c22fc7ba24c873502a9ea8594441f",
+      "batch": "batch_3_diligence_research_materials",
+      "skill": "return-rate-impact-calculator"
+    }
+  ],
+  "skills_missing": [],
+  "skills_readme": {
+    "target": "/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills/README.md",
+    "sha256": "997ed6453fb0730ecc20c91fdb9a0988721e66517ca8531537ac9ab1f27f1439"
+  },
+  "skipped": [
+    {
+      "source": "/home/maoyd/.openclaw/workspace/ic_strategist_workspace/milvus_query.py",
+      "reason": "contains a hard-coded external API key; use SIQ startup-retrieval service instead"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/ic_risk_controller_workspace/scripts/startup_retrieval.py",
+      "reason": "OpenClaw-local wrapper writes runtime evidence files; migrated behavior lives in apps/api/services/ic_startup_retrieval.py"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/ic_master_coordinator_workspace/templates/IC投研决策报告模板_v2.0_正式版.md",
+      "reason": "project-specific Unitree example, not a reusable template"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/ic_master_coordinator_workspace/templates/IC投研决策报告模板_v2.0_正式版.html",
+      "reason": "project-specific Unitree example, not a reusable template"
+    }
+  ],
+  "skipped_skills": [
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/lbo-model",
+      "reason": "source skill references examples/LBO_Model.xlsx, but that template is absent in the OpenClaw skill directory"
+    },
+    {
+      "source": "/home/maoyd/.openclaw/workspace/skills/investment-proposal",
+      "reason": "wealth-management client proposal workflow; outside the SIQ IC deal committee execution path"
+    }
+  ],
+  "schema_version": "siq_ic_openclaw_asset_migration_inventory_v1",
+  "source_root": "/home/maoyd/.openclaw/workspace",
+  "target_root": "/home/maoyd/siq-research-engine/agents/hermes/profiles",
+  "normalization_rules": [
+    "legacy ic_* agent IDs are rewritten to canonical siq_ic_* profile IDs",
+    "ic_collaboration_shared is rewritten to siq_deal_shared",
+    "OpenClaw shared project paths are rewritten to data/wiki/deals",
+    "unified_hybrid_retriever.py references are rewritten to the SIQ startup-retrieval API"
+  ]
+}

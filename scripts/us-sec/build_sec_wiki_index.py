@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_OUTPUT_ROOT = REPO_ROOT / "data" / "wiki" / "us_sec"
+DEFAULT_OUTPUT_ROOT = REPO_ROOT / "data" / "wiki" / "us"
 METRIC_FILES = ("financial_data.json", "financial_checks.json", "normalized_metrics.json")
 
 
@@ -39,6 +39,20 @@ def parse_csv_set(value: str | None, *, upper: bool = True) -> set[str] | None:
     return items or None
 
 
+def safe_wiki_slug(value: Any, fallback: str = "unknown") -> str:
+    text = str(value or "").strip()
+    text = re.sub(r"[\\/:*?\"<>|\r\n\t]+", "-", text)
+    text = re.sub(r"[,&]+", "", text)
+    text = re.sub(r"[()\[\]{}]+", "", text)
+    text = re.sub(r"\s+", "-", text)
+    text = re.sub(r"-+", "-", text)
+    return text.strip(" ._-") or fallback
+
+
+def company_wiki_dir_name(ticker: Any, company_name: Any) -> str:
+    return f"{safe_wiki_slug(ticker, 'UNKNOWN')}-{safe_wiki_slug(company_name, 'unknown')}"
+
+
 def build_wiki_index(
     output_root: Path,
     *,
@@ -48,16 +62,18 @@ def build_wiki_index(
 ) -> dict[str, Any]:
     output_root = output_root.resolve()
     packages = discover_packages(output_root, forms=forms, tickers=tickers)
-    by_ticker: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    by_company: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for item in packages:
-        by_ticker[str(item.get("ticker") or "UNKNOWN")].append(item)
+        company_key = str(item.get("company_wiki_id") or company_wiki_dir_name(item.get("ticker"), item.get("company_name")) or "UNKNOWN")
+        by_company[company_key].append(item)
 
-    for ticker, items in sorted(by_ticker.items()):
-        _write_company_index(output_root, ticker, _sort_filings(items))
+    for company_key, items in sorted(by_company.items()):
+        _write_company_index(output_root, company_key, _sort_filings(items))
+    _write_company_catalog(output_root)
 
     package_index_path = output_root / "_meta" / "package_index.json"
     quality_summary_path = output_root / "_meta" / "quality_summary.json"
-    case_set_path = output_root / case_set_name
+    case_set_path = output_root / "_meta" / case_set_name
     write_json(package_index_path, {"schema_version": "sec_package_index_v1", "generated_at": now_iso(), "count": len(packages), "items": packages})
     quality_summary = _quality_summary(packages)
     write_json(quality_summary_path, quality_summary)
@@ -67,7 +83,7 @@ def build_wiki_index(
         "generated_at": now_iso(),
         "output_root": str(output_root),
         "package_count": len(packages),
-        "company_count": len(by_ticker),
+        "company_count": len(by_company),
         "paths": {
             "package_index": str(package_index_path),
             "quality_summary": str(quality_summary_path),
@@ -81,20 +97,23 @@ def discover_packages(output_root: Path, *, forms: set[str] | None = None, ticke
     form_filter = {item.upper() for item in forms} if forms else None
     ticker_filter = {item.upper() for item in tickers} if tickers else None
     items: list[dict[str, Any]] = []
-    for manifest_path in sorted(output_root.glob("*/*/*/manifest.json")):
-        if any(part.startswith("_") for part in manifest_path.parts):
-            continue
-        package_dir = manifest_path.parent
-        manifest = read_json(manifest_path, {})
-        if manifest.get("market") != "US":
-            continue
-        form = str(manifest.get("form") or "").upper()
-        ticker = str(manifest.get("ticker") or "UNKNOWN").upper()
-        if form_filter and form not in form_filter:
-            continue
-        if ticker_filter and ticker not in ticker_filter:
-            continue
-        items.append(_package_summary(output_root, package_dir, manifest))
+    for pattern in ("companies/*/reports/*/manifest.json", "*/*/*/manifest.json"):
+        for manifest_path in sorted(output_root.glob(pattern)):
+            if any(part.startswith("_") for part in manifest_path.parts):
+                continue
+            package_dir = manifest_path.parent
+            manifest = read_json(manifest_path, {})
+            if manifest.get("market") != "US":
+                continue
+            form = str(manifest.get("form") or "").upper()
+            ticker = str(manifest.get("ticker") or "UNKNOWN").upper()
+            if form_filter and form not in form_filter:
+                continue
+            if ticker_filter and ticker not in ticker_filter:
+                continue
+            summary = _package_summary(output_root, package_dir, manifest)
+            if not any(item.get("package_path") == summary.get("package_path") for item in items):
+                items.append(summary)
     return _sort_filings(items)
 
 
@@ -102,6 +121,8 @@ def _package_summary(output_root: Path, package_dir: Path, manifest: dict[str, A
     quality = read_json(package_dir / "qa" / "quality_report.json", {})
     metrics = read_json(package_dir / "metrics" / "normalized_metrics.json", {})
     source_map = read_json(package_dir / "qa" / "source_map.json", {})
+    company_wiki_id = manifest.get("company_wiki_id") or company_wiki_dir_name(manifest.get("ticker"), manifest.get("company_name"))
+    report_id = manifest.get("report_id") or filing_slug(str(manifest.get("filing_id") or manifest.get("accession_number") or package_dir.name))
     counts = {
         "sections": _count(quality, "section_count"),
         "tables": _count(quality, "table_count"),
@@ -115,8 +136,12 @@ def _package_summary(output_root: Path, package_dir: Path, manifest: dict[str, A
         "package_path": repo_relative(package_dir),
         "manifest_path": repo_relative(package_dir / "manifest.json"),
         "filing_id": manifest.get("filing_id"),
+        "report_id": report_id,
         "parse_run_id": manifest.get("parse_run_id"),
         "company_id": manifest.get("company_id"),
+        "company_wiki_id": company_wiki_id,
+        "company_wiki_path": manifest.get("company_wiki_path") or repo_relative(output_root / "companies" / company_wiki_id),
+        "wiki_report_path": manifest.get("wiki_report_path") or repo_relative(package_dir),
         "cik": manifest.get("cik"),
         "ticker": manifest.get("ticker"),
         "company_name": manifest.get("company_name"),
@@ -136,24 +161,43 @@ def _package_summary(output_root: Path, package_dir: Path, manifest: dict[str, A
     }
 
 
-def _write_company_index(output_root: Path, ticker: str, items: list[dict[str, Any]]) -> None:
-    company_dir = output_root / ticker
+def _write_company_index(output_root: Path, company_key: str, items: list[dict[str, Any]]) -> None:
+    company_dir = output_root / "companies" / company_key
     latest = _latest_filing(items)
     company = {
         "schema_version": "sec_company_wiki_v1",
         "market": "US",
-        "ticker": ticker,
+        "ticker": latest.get("ticker"),
         "company_id": latest.get("company_id"),
+        "company_wiki_id": company_key,
+        "company_wiki_path": repo_relative(company_dir),
         "cik": latest.get("cik"),
         "company_name": latest.get("company_name"),
         "latest_filing_id": latest.get("filing_id"),
+        "primary_report_id": latest.get("report_id"),
         "latest_fiscal_year": latest.get("fiscal_year"),
         "latest_period_end": latest.get("period_end"),
         "package_count": len(items),
+        "report_count": len(items),
+        "reports": [
+            {
+                "report_id": item.get("report_id"),
+                "filing_id": item.get("filing_id"),
+                "form": item.get("form"),
+                "report_type": item.get("report_type"),
+                "fiscal_year": item.get("fiscal_year"),
+                "period_end": item.get("period_end"),
+                "published_at": item.get("published_at"),
+                "package_path": item.get("package_path"),
+                "wiki_report_path": item.get("wiki_report_path"),
+                "quality_status": item.get("quality_status"),
+            }
+            for item in items
+        ],
         "updated_at": now_iso(),
     }
     write_json(company_dir / "company.json", company)
-    write_json(company_dir / "filings.json", {"schema_version": "sec_company_filings_v1", "ticker": ticker, "count": len(items), "items": items})
+    write_json(company_dir / "filings.json", {"schema_version": "sec_company_filings_v1", "ticker": latest.get("ticker"), "count": len(items), "items": items})
     write_json(
         company_dir / "_index.json",
         {
@@ -189,6 +233,39 @@ def _copy_latest_metrics(output_root: Path, company_dir: Path, latest: dict[str,
         if source.exists():
             target_dir.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target_dir / name)
+
+
+def _write_company_catalog(output_root: Path) -> None:
+    companies: list[dict[str, Any]] = []
+    for company_json_path in sorted((output_root / "companies").glob("*/company.json")):
+        company = read_json(company_json_path, {})
+        if not isinstance(company, dict) or not company:
+            continue
+        companies.append(
+            {
+                "company_id": company.get("company_id"),
+                "company_wiki_id": company.get("company_wiki_id") or company_json_path.parent.name,
+                "company_wiki_path": company.get("company_wiki_path") or repo_relative(company_json_path.parent),
+                "market": "US",
+                "ticker": company.get("ticker"),
+                "cik": company.get("cik"),
+                "company_name": company.get("company_name"),
+                "primary_report_id": company.get("primary_report_id"),
+                "report_count": company.get("report_count") or company.get("package_count") or len(company.get("reports") or []),
+                "status": "ready",
+            }
+        )
+    companies.sort(key=lambda item: str(item.get("ticker") or item.get("company_id") or ""))
+    write_json(
+        output_root / "_meta" / "company_catalog.json",
+        {
+            "schema_version": "us_company_catalog_v1",
+            "market": "US",
+            "company_count": len(companies),
+            "companies": companies,
+            "generated_at": now_iso(),
+        },
+    )
 
 
 def _resolve_package_path(output_root: Path, item: dict[str, Any]) -> Path:

@@ -15,8 +15,8 @@ def main() -> None:
     parser.add_argument(
         "--output-root",
         type=Path,
-        default=Path(os.environ.get("SIQ_US_SEC_WIKI_ROOT", REPO_ROOT / "data" / "wiki" / "us_sec")),
-        help="US SEC wiki root. Default: data/wiki/us_sec",
+        default=Path(os.environ.get("SIQ_US_WIKI_ROOT") or os.environ.get("SIQ_US_SEC_WIKI_ROOT", REPO_ROOT / "data" / "wiki" / "us")),
+        help="US company wiki root. Default: data/wiki/us",
     )
     parser.add_argument("--force", action="store_true", help="Replace an existing package directory")
     args = parser.parse_args()

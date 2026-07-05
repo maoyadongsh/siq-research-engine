@@ -25,6 +25,22 @@ def test_markets_register_cn_legacy_pages():
     }
 
 
+def test_storage_profiles_use_company_wiki_market_roots():
+    client = TestClient(app)
+    response = client.get("/healthz")
+
+    assert response.status_code == 200
+    profiles = {item["market"]: item for item in response.json()["storage_profiles"]}
+    assert profiles["HK"]["wiki_namespace"] == "data/wiki/hk"
+    assert profiles["HK"]["parsed_artifact_root"] == "data/wiki/hk"
+    assert profiles["JP"]["wiki_namespace"] == "data/wiki/jp"
+    assert profiles["JP"]["parsed_artifact_root"] == "data/wiki/jp"
+    assert profiles["KR"]["wiki_namespace"] == "data/wiki/kr"
+    assert profiles["KR"]["parsed_artifact_root"] == "data/wiki/kr"
+    assert profiles["EU"]["wiki_namespace"] == "data/wiki/eu"
+    assert profiles["EU"]["parsed_artifact_root"] == "data/wiki/eu"
+
+
 def test_cn_rules_exposes_migrated_entrypoints():
     client = TestClient(app)
     response = client.get("/markets/cn/rules")

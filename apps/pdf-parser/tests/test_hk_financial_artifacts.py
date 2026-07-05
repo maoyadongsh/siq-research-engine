@@ -105,3 +105,26 @@ def test_hk_financial_artifact_builder_extracts_link_reit_sample():
     assert checks["market"] == "HK"
     assert checks["overall_status"] != "skipped"
     assert checks["summary"]["total"] >= 1
+
+
+def test_hk_financial_artifact_builder_uses_markdown_formal_window_for_tencent():
+    from hk_financial_artifacts import build_hk_financial_artifacts
+
+    result_dir = Path("data/pdf-parser/results/9aecfb55-5069-47b1-8383-47cb118b0b16")
+    if not result_dir.exists():
+        pytest.skip("TENCENT HK parser sample is not available in this checkout")
+    document_full = json.loads((result_dir / "document_full.json").read_text(encoding="utf-8"))
+    task = document_full["task"]
+    markdown = (result_dir / "result.md").read_text(encoding="utf-8")
+
+    data, checks = build_hk_financial_artifacts(
+        task,
+        markdown,
+        result_dir_path=str(result_dir),
+        filename=task["filename"],
+    )
+
+    statement_types = {statement["statement_type"] for statement in data["statements"]}
+    assert {"balance_sheet", "income_statement", "cash_flow_statement"}.issubset(statement_types)
+    assert checks["overall_status"] == "pass"
+    assert checks["summary"]["fail"] == 0

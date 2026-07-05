@@ -23,6 +23,7 @@ KR_SPEC = HybridMarketSpec(
     find_label_rule=find_kr_label_rule,
     companyfacts_keys=("dart_facts", "xbrl_facts", "single_company_accounts", "facts", "companyfacts"),
     warnings_prefix="KR DART hybrid parser",
+    skip_ratio_rows=True,
 )
 
 

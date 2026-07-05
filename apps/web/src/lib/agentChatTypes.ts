@@ -15,6 +15,8 @@ export interface AgentMessage {
   streaming?: boolean
   progress?: AgentProgress
   attachments?: AgentAttachment[]
+  agentId?: string
+  agentName?: string
 }
 
 export type AgentProgressStatus = 'queued' | 'running' | 'completed' | 'error' | 'stopped'

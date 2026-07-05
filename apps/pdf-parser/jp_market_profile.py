@@ -16,7 +16,7 @@ JP_KEY_SECTIONS = [
     "Sustainability",
 ]
 
-JP_CORE_FINANCIAL_TABLE_NAMES = [
+JP_FORMAL_CORE_FINANCIAL_TABLE_NAMES = [
     "Financial Highlights",
     "Consolidated Statement of Financial Position",
     "Consolidated Statement of Profit or Loss",
@@ -24,6 +24,15 @@ JP_CORE_FINANCIAL_TABLE_NAMES = [
     "Consolidated Statement of Cash Flows",
     "Consolidated Statement of Changes in Equity",
 ]
+
+JP_SUMMARY_CORE_FINANCIAL_TABLE_NAMES = [
+    "Financial Highlights",
+    "Consolidated Statement of Financial Position",
+    "Consolidated Statement of Profit or Loss",
+    "Consolidated Statement of Cash Flows",
+]
+
+JP_CORE_FINANCIAL_TABLE_NAMES = JP_FORMAL_CORE_FINANCIAL_TABLE_NAMES
 
 JP_INDICATOR_TABLE_NAMES = [
     "Segment Information",
@@ -35,7 +44,7 @@ JP_INDICATOR_TABLE_NAMES = [
 ]
 
 JP_KEY_TABLE_DISPLAY_ORDER = JP_CORE_FINANCIAL_TABLE_NAMES + JP_INDICATOR_TABLE_NAMES
-JP_PROFILE_RULE_VERSION = "jp-pdf-profile-v3"
+JP_PROFILE_RULE_VERSION = "jp-pdf-profile-v5"
 
 _ANNUAL_SECURITIES_TERMS = (
     "annual securities report",
@@ -65,6 +74,8 @@ _CANDIDATE_RULES: dict[str, tuple[tuple[str, ...], str]] = {
             "financial highlights",
             "selected financial data",
             "five-year summary",
+            "consolidated operating results",
+            "operating results",
             "主要な経営指標等の推移",
         ),
         "core",
@@ -165,13 +176,28 @@ def is_jp_market(task: dict[str, Any] | None, filename: str | None = None) -> bo
 def detect_jp_report_kind(text: str, filename: str | None = None) -> str:
     source = _normalize_text(chr(10).join([str(filename or ""), str(text or "")[:120000]]))
     compact = _compact_text(source)
-    if any(term in source or _compact_text(term) in compact for term in _ANNUAL_SECURITIES_TERMS):
+    head_source = _normalize_text(chr(10).join([str(filename or ""), str(text or "")[:30000]]))
+    head_compact = _compact_text(head_source)
+    has_integrated_signal = any(term in source or _compact_text(term) in compact for term in _INTEGRATED_REPORT_TERMS)
+    has_integrated_title = "integrated report" in head_source or "integratedreport" in head_compact
+    strong_annual_terms = _ANNUAL_SECURITIES_TERMS[1:]
+    if any(term in source or _compact_text(term) in compact for term in strong_annual_terms):
         return "jp_annual_securities_report"
-    if any(term in source or _compact_text(term) in compact for term in _INTEGRATED_REPORT_TERMS):
+    if has_integrated_signal and has_integrated_title:
+        return "jp_integrated_report"
+    if "annual securities report" in source or "annualsecuritiesreport" in compact:
+        return "jp_annual_securities_report"
+    if has_integrated_signal:
         return "jp_integrated_report"
     if any(term in source or _compact_text(term) in compact for term in _FINANCIAL_HIGHLIGHTS_TERMS):
         return "jp_financial_highlights_only"
     return "jp_pdf_report"
+
+
+def core_financial_table_names_for_report(report_kind: str | None) -> list[str]:
+    if str(report_kind or "") in {"jp_integrated_report", "jp_financial_highlights_only"}:
+        return list(JP_SUMMARY_CORE_FINANCIAL_TABLE_NAMES)
+    return list(JP_FORMAL_CORE_FINANCIAL_TABLE_NAMES)
 
 
 def jp_candidate_group(name: str) -> str:
@@ -336,8 +362,159 @@ def _fallback_rule_score(name: str, signal: str) -> float:
     return 0.0
 
 
-def group_jp_key_table_candidates(table_index: list[dict[str, Any]] | None) -> dict[str, list[dict[str, Any]]]:
+def _year_hit_count(signal: str) -> int:
+    return len(set(re.findall(r"(?:20\d{2}|fy\d{2,4}|\d{4}\.3|\d{4}/3)", signal)))
+
+
+def _looks_like_metric_summary_table(signal: str) -> bool:
+    tokens = set(re.findall(r"[a-z]+", signal))
+    year_hits = _year_hit_count(signal)
+    has_revenue = (
+        "revenue" in tokens
+        or "revenues" in tokens
+        or {"net", "sales"}.issubset(tokens)
+        or {"operating", "revenue"}.issubset(tokens)
+    )
+    has_profit = (
+        {"operating", "profit"}.issubset(tokens)
+        or {"operating", "income"}.issubset(tokens)
+        or "profit attributable" in signal
+        or "income attributable" in signal
+    )
+    has_position = (
+        {"total", "assets"}.issubset(tokens)
+        or {"total", "equity"}.issubset(tokens)
+        or {"net", "assets"}.issubset(tokens)
+    )
+    has_cash_flow_metric = (
+        "cash flows from operating activities" in signal
+        or "net cash provided by operating activities" in signal
+        or "free cash flow" in signal
+    )
+    summary_label = any(
+        term in signal
+        for term in (
+            "financial highlights",
+            "selected financial data",
+            "financial data",
+            "financial summary",
+            "financial results",
+            "for the fiscal year",
+            "for the year:",
+            "at year-end",
+            "ten-year",
+            "eleven-year",
+            "10-year",
+            "11-year",
+            "past 10 years",
+            "target actual",
+            "financial targets",
+        )
+    )
+    period_summary_label = "for the fiscal year" in signal or "for the year" in signal
+    metric_cluster = has_revenue and has_profit and (has_position or has_cash_flow_metric or year_hits >= 4 or period_summary_label)
+    return metric_cluster and (summary_label or year_hits >= 4)
+
+
+def _looks_like_strategy_or_capital_table(signal: str) -> bool:
+    strategy_terms = (
+        "six capitals",
+        "financial capital",
+        "human capital",
+        "intellectual capital",
+        "social capital",
+        "natural capital",
+        "key monitoring indicators",
+        "goals and indicators",
+        "value creation",
+        "materiality",
+        "management strategy",
+        "financial strategy",
+        "capital input",
+        "financial targets",
+        "target actual",
+    )
+    return any(term in signal for term in strategy_terms)
+
+
+def _has_explicit_statement_title(name: str, signal: str) -> bool:
+    title_terms: dict[str, tuple[str, ...]] = {
+        "Consolidated Statement of Financial Position": (
+            "consolidated statement of financial position",
+            "consolidated balance sheet",
+            "statement of financial position",
+            "連結財政状態計算書",
+            "連結貸借対照表",
+        ),
+        "Consolidated Statement of Profit or Loss": (
+            "consolidated statement of profit or loss",
+            "consolidated statement of income",
+            "consolidated statements of income",
+            "statement of profit or loss",
+            "statement of income",
+            "income statement",
+            "連結損益計算書",
+        ),
+        "Consolidated Statement of Comprehensive Income": (
+            "consolidated statement of comprehensive income",
+            "consolidated statements of comprehensive income",
+            "statement of comprehensive income",
+            "連結包括利益計算書",
+        ),
+        "Consolidated Statement of Cash Flows": (
+            "consolidated statement of cash flows",
+            "consolidated statements of cash flows",
+            "statement of cash flows",
+            "連結キャッシュ・フロー計算書",
+        ),
+        "Consolidated Statement of Changes in Equity": (
+            "consolidated statement of changes in equity",
+            "consolidated statements of changes in equity",
+            "statement of changes in equity",
+            "changes in net assets",
+            "連結持分変動計算書",
+            "連結株主資本等変動計算書",
+        ),
+    }
+    return any(term in signal for term in title_terms.get(name, ()))
+
+
+def _suppress_core_statement_candidate(name: str, signal: str, *, allow_summary_core: bool = False) -> bool:
+    if name == "Financial Highlights" or name not in JP_CORE_FINANCIAL_TABLE_NAMES:
+        return False
+    if _has_explicit_statement_title(name, signal):
+        return False
+    if allow_summary_core and name in {
+        "Consolidated Statement of Financial Position",
+        "Consolidated Statement of Profit or Loss",
+        "Consolidated Statement of Cash Flows",
+    }:
+        return False
+    if name == "Consolidated Statement of Financial Position" and any(
+        term in signal for term in ("at year-end", "balance sheet data", "financial indicators")
+    ):
+        return True
+    if name == "Consolidated Statement of Profit or Loss" and _year_hit_count(signal) >= 4 and (
+        "revenue" in signal or "revenues" in signal or "net sales" in signal
+    ):
+        return True
+    if name == "Consolidated Statement of Comprehensive Income":
+        if "shareholder return" in signal or "dividend on equity" in signal or "treasury stock acquisition" in signal:
+            return True
+        if "accumulated other comprehensive income" in signal and "total comprehensive income" not in signal:
+            return True
+    if name == "Consolidated Statement of Cash Flows" and _year_hit_count(signal) >= 4:
+        return True
+    if _looks_like_metric_summary_table(signal):
+        return True
+    if _looks_like_strategy_or_capital_table(signal):
+        return True
+    return False
+
+
+def group_jp_key_table_candidates(table_index: list[dict[str, Any]] | None, *, report_kind: str | None = None) -> dict[str, list[dict[str, Any]]]:
     grouped: dict[str, list[dict[str, Any]]] = {}
+    allow_summary_core = str(report_kind or "") in {"jp_integrated_report", "jp_financial_highlights_only"}
     for item in table_index or []:
         if not isinstance(item, dict):
             continue
@@ -347,6 +524,8 @@ def group_jp_key_table_candidates(table_index: list[dict[str, Any]] | None) -> d
         for name, (terms, group) in _CANDIDATE_RULES.items():
             score = max(_score_candidate(signal, terms), _fallback_rule_score(name, signal))
             if score <= 0:
+                continue
+            if _suppress_core_statement_candidate(name, signal, allow_summary_core=allow_summary_core):
                 continue
             row = dict(item)
             row.update(

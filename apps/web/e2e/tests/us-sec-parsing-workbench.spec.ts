@@ -72,7 +72,7 @@ const usCaseSet = {
       period_end: '2025-01-26',
       filing_date: '2025-03-14',
       quality_status: 'pass',
-      package_path: 'data/wiki/us_sec/NVDA/2025/10-K_0001045810-25-000023',
+      package_path: 'data/wiki/us/companies/NVDA-NVIDIA-Corporation/reports/2025-10-K-0001045810-25-000023',
       quality_summary: {
         section_count: 42,
         table_count: 18,
@@ -84,7 +84,7 @@ const usCaseSet = {
 }
 
 const packageDetail = {
-  package_path: 'data/wiki/us_sec/NVDA/2025/10-K_0001045810-25-000023',
+  package_path: 'data/wiki/us/companies/NVDA-NVIDIA-Corporation/reports/2025-10-K-0001045810-25-000023',
   manifest: {
     ticker: 'NVDA',
     company_name: 'NVIDIA Corporation',

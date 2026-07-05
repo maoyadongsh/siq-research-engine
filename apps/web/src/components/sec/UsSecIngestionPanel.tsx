@@ -318,6 +318,76 @@ export function UsSecIngestionPanel() {
     }
   }, [includeFail, load])
 
+  const onBuildTaskSemantic = useCallback(async (task: UsSecRecentTaskRow) => {
+    setBusy(`semantic:${task.id}`)
+    setError('')
+    setLastOutput('')
+    try {
+      const response = await runUsSecCaseSetIngest({
+        dry_run: false,
+        postgres: false,
+        milvus: true,
+        ddl: false,
+        include_fail: includeFail,
+        tickers: task.ticker,
+        batch_tag: 'us-sec-case-set-50',
+      })
+      const result = response.job_id
+        ? await waitForMarketReportJob<UsSecIngestResponse>(response.job_id)
+        : response
+      setLastOutput(result.stdout || result.stderr || (response.job_id ? `后台任务 ${response.job_id} 已完成` : 'US SEC 语义层生成完成'))
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '语义层生成失败')
+    } finally {
+      setBusy('')
+    }
+  }, [includeFail, load])
+
+  const onContinueTaskPipeline = useCallback(async (task: UsSecRecentTaskRow) => {
+    setBusy(`remaining:${task.id}`)
+    setError('')
+    setLastOutput('')
+    try {
+      const semanticResponse = await runUsSecCaseSetIngest({
+        dry_run: false,
+        postgres: false,
+        milvus: true,
+        ddl: false,
+        include_fail: includeFail,
+        tickers: task.ticker,
+        batch_tag: 'us-sec-case-set-50',
+      })
+      const semantic = semanticResponse.job_id
+        ? await waitForMarketReportJob<UsSecIngestResponse>(semanticResponse.job_id)
+        : semanticResponse
+      const response = await runUsSecCaseSetIngest({
+        dry_run: false,
+        postgres: true,
+        milvus: false,
+        ddl: true,
+        include_fail: includeFail,
+        tickers: task.ticker,
+        batch_tag: 'us-sec-case-set-50',
+      })
+      const postgres = response.job_id
+        ? await waitForMarketReportJob<UsSecIngestResponse>(response.job_id)
+        : response
+      setLastOutput([
+        '语义层',
+        semantic.stdout || semantic.stderr || (semanticResponse.job_id ? `后台任务 ${semanticResponse.job_id} 已完成` : 'US SEC 语义层生成完成'),
+        '',
+        'PostgreSQL',
+        postgres.stdout || postgres.stderr || (response.job_id ? `后台任务 ${response.job_id} 已完成` : 'US SEC PostgreSQL 入库完成'),
+      ].join('\n'))
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '数据管线执行失败')
+    } finally {
+      setBusy('')
+    }
+  }, [includeFail, load])
+
   const changeMarkdownFile = useCallback(async (file: string) => {
     if (!packagePath || !file) return
     setMarkdownFile(file)
@@ -330,6 +400,18 @@ export function UsSecIngestionPanel() {
       setPackageLoading(false)
     }
   }, [packagePath])
+
+  const recentTasksPanel = (
+    <UsSecRecentTasksPanel
+      tasks={recentTasks}
+      selectedTaskId={selectedTaskId}
+      loading={loading}
+      busyAction={busy}
+      onViewResult={onViewTask}
+      onRebuild={onRebuildTask}
+      onRefresh={load}
+    />
+  )
 
   return (
     <div className="space-y-4">
@@ -398,30 +480,21 @@ export function UsSecIngestionPanel() {
         </div>
       </section>
 
-      <UsSecRecentTasksPanel
-        tasks={recentTasks}
-        selectedTaskId={selectedTaskId}
-        loading={loading}
-        busyAction={busy}
-        onViewResult={onViewTask}
-        onRebuild={onRebuildTask}
-        onImportPostgres={onImportTaskPostgres}
-        onRefresh={load}
-      />
+      {selectedTask ? null : recentTasksPanel}
 
       {selectedTask ? (
         <>
           <PageSection
             title="数据管线"
-            description="PostgreSQL 与 results 目录保存全量解析信息；Wiki 保留报告入口、公司级知识资产和轻量产物清单。"
+            description="SEC HTML/iXBRL 解析产物抽取为公司级 Wiki 报告包，PostgreSQL 与语义层继续读取同一套证据产物。"
             actions={(
               <div className="flex flex-wrap gap-2">
                 <button onClick={() => void load()} disabled={loading} className="pdf-small-action inline-flex items-center gap-1">
                   {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                   刷新状态
                 </button>
-                <button onClick={() => void onImportTaskPostgres(selectedTask)} disabled={!!busy} className="pdf-small-action primary inline-flex items-center gap-1">
-                  {busy === `postgres:${selectedTask.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Database className="h-4 w-4" />}
+                <button onClick={() => void onContinueTaskPipeline(selectedTask)} disabled={!!busy} className="pdf-small-action primary inline-flex items-center gap-1">
+                  {busy === `remaining:${selectedTask.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Database className="h-4 w-4" />}
                   继续入库
                 </button>
               </div>
@@ -430,7 +503,14 @@ export function UsSecIngestionPanel() {
             <div className="pdf-pipeline-note mb-4">
               <Database className="h-4 w-4" />
               <div>
-                Wiki 不复制全量 SEC 证据包；<code>artifact_manifest.json</code> 只记录核心文件路径和状态，原始 HTML、Markdown、结构化事实与入库脚本仍直接读取 package 与 results 目录。
+                Wiki 报告包由 SEC HTML/iXBRL 解析产物抽取生成，保留 <code>manifest.json</code>、sections、tables、xbrl、metrics、qa/source_map；PostgreSQL 和语义层从公司级 Wiki 包继续入库。
+              </div>
+            </div>
+
+            <div className="pdf-pipeline-note mb-4">
+              <Network className="h-4 w-4" />
+              <div>
+                语义层使用市场证据包检索管道生成 section、table、metric 和 QA chunks；Wiki 模型语义增强统一使用当前项目设置中的模型，可切换本地或云端大模型。
               </div>
             </div>
 
@@ -452,7 +532,7 @@ export function UsSecIngestionPanel() {
               })}
             </div>
 
-            <div className="hidden gap-3 md:grid md:grid-cols-3 xl:grid-cols-3">
+            <div className="hidden gap-3 md:grid md:grid-cols-2 xl:grid-cols-4">
               {workflowSummary.cards.map((card) => (
                 <div key={card.label} className="rounded-2xl border border-border bg-card p-4">
                   <div className="flex items-center justify-between gap-3">
@@ -468,7 +548,7 @@ export function UsSecIngestionPanel() {
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <div className="text-sm font-semibold text-text">核心解析产物清单</div>
-                  <div className="mt-1 text-xs leading-5 text-text-muted">这些文件共同支撑入库、质量校验和证据溯源；Wiki 仅引用清单，不重复保存全量包。</div>
+                  <div className="mt-1 text-xs leading-5 text-text-muted">这些文件共同落入公司级 Wiki 报告包，支撑入库、质量校验、勾稽校验和证据溯源。</div>
                 </div>
                 <span className="secondary-status secondary-status-info">{artifactManifest.readyCount}/{artifactManifest.total}</span>
               </div>
@@ -489,13 +569,13 @@ export function UsSecIngestionPanel() {
                 ))}
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
-                <button type="button" className="pdf-small-action primary inline-flex items-center gap-1" onClick={() => void onViewTask(selectedTask)} disabled={!!busy}>
-                  {busy === `view:${selectedTask.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageCheck className="h-4 w-4" />}
-                  导入 Wiki
+                <button type="button" className="pdf-small-action primary inline-flex items-center gap-1" onClick={() => void onRebuildTask(selectedTask)} disabled={!!busy}>
+                  {busy === `rebuild:${selectedTask.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageCheck className="h-4 w-4" />}
+                  刷新 Wiki 包
                 </button>
-                <button type="button" className="pdf-small-action inline-flex items-center gap-1" onClick={() => void onViewTask(selectedTask)} disabled={!!busy}>
-                  <Network className="h-4 w-4" />
-                  生成 Wiki 语义层
+                <button type="button" className="pdf-small-action primary inline-flex items-center gap-1" onClick={() => void onBuildTaskSemantic(selectedTask)} disabled={!!busy}>
+                  {busy === `semantic:${selectedTask.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Network className="h-4 w-4" />}
+                  生成语义层
                 </button>
                 <button type="button" className="pdf-small-action primary inline-flex items-center gap-1" onClick={() => void onImportTaskPostgres(selectedTask)} disabled={!!busy}>
                   {busy === `postgres:${selectedTask.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Database className="h-4 w-4" />}
@@ -588,7 +668,7 @@ export function UsSecIngestionPanel() {
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div>
                   <h3 className="text-base font-semibold text-text">溯源视图</h3>
-                  <p className="mt-1 text-sm text-text-muted">HTML 原文与 Wiki Markdown 对照，替代 A 股 PDF 原页溯源。</p>
+                  <p className="mt-1 text-sm text-text-muted">HTML 原文与 Wiki Markdown 对照，用于 SEC HTML/iXBRL 原文溯源。</p>
                 </div>
                 <select value={markdownFile} onChange={(event) => void changeMarkdownFile(event.target.value)} disabled={packageLoading || !sections.length} className="h-9 max-w-xs rounded-md border border-border bg-white px-2 text-xs disabled:cursor-not-allowed disabled:bg-surface-soft">
                   {sections.map((section) => (
@@ -724,6 +804,8 @@ export function UsSecIngestionPanel() {
 
       {error ? <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
       {lastOutput ? <pre className="mt-3 max-h-56 overflow-auto rounded-md border border-border bg-slate-950 p-3 text-xs text-slate-100">{lastOutput}</pre> : null}
+
+      {selectedTask ? recentTasksPanel : null}
     </div>
   )
 }

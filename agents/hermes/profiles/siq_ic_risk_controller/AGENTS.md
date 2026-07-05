@@ -51,13 +51,13 @@
 
 旧 OpenClaw 风控启动检索脚本仅作为迁移追溯来源，不在 SIQ profile 中直接执行。SIQ 中的可执行入口必须走 Deal OS 后端的 startup retrieval API，并使用 canonical profile ID `siq_ic_risk_controller`。
 
-SIQ 执行入口以 `agent_startup_retrieval` / Deal OS 后端的 `siq_ic_risk_controller` profile 为准。
+SIQ 执行入口以 Deal OS startup-retrieval API / 后端 `siq_ic_risk_controller` profile 为准。
 
 ---
 
 ## 启动知识检索协议（原始 - 保留参考）
 
-收到任何项目任务后，在输出风控观点前，必须先调用 MCP 工具 `agent_startup_retrieval`。
+收到任何项目任务后，在输出风控观点前，必须先生成 Deal OS startup-retrieval receipt。
 
 - `agent_id`: `siq_ic_risk_controller`
 - `company_name`: 当前项目公司名
@@ -65,6 +65,12 @@ SIQ 执行入口以 `agent_startup_retrieval` / Deal OS 后端的 `siq_ic_risk_c
 - `industry`: 已知则填写
 - `stage`: 已知则填写
 - `task_focus`: 当前风险、舆情、供应链或周期问题
+
+标准入口：
+
+```text
+POST /api/deals/{deal_id}/agents/siq_ic_risk_controller/startup-retrieval
+```
 
 阅读返回的 Top-20 证据后再工作，并优先完成：
 

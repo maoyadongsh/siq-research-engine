@@ -22,6 +22,10 @@ export interface PdfWorkflowPanelProps {
   runWorkflowStep: (step: WorkflowStep) => Promise<void>
 }
 
+function semanticActionLabel(mode: 'standard' | 'generic'): string {
+  return mode === 'generic' ? '使用项目设置模型生成语义层' : '使用项目设置模型增强 Wiki 语义层'
+}
+
 export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
   const {
     workflowStatus,
@@ -47,7 +51,7 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
 
   const llmSemanticCounts = workflowStatus?.semantic?.llm?.counts || {}
   const llmSemanticDesc = workflowStatus?.semantic?.llm?.status === 'ready'
-    ? `LLM 增强 ${llmSemanticCounts.claims || 0} 条判断 / ${llmSemanticCounts.risks || 0} 条风险`
+    ? `模型增强 ${llmSemanticCounts.claims || 0} 条判断 / ${llmSemanticCounts.risks || 0} 条风险`
     : ''
 
   const steps = useMemo(
@@ -132,7 +136,7 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
           { key: 'wiki-import-generic', label: '通用主体入库', loadingLabel: '导入中...', primary: true },
           {
             key: 'semantic-generic',
-            label: '生成通用语义层',
+            label: semanticActionLabel(mode),
             loadingLabel: '生成中...',
             primary: true,
             disabled: !['ready', 'stale'].includes(workflowStatus?.wiki?.status || ''),
@@ -144,14 +148,14 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
           { key: 'wiki-import-generic', label: '通用主体入库', loadingLabel: '导入中...', primary: false },
           {
             key: 'semantic',
-            label: '生成 Wiki 语义层',
+            label: semanticActionLabel(mode),
             loadingLabel: '生成中...',
             primary: true,
             disabled: !['ready', 'stale'].includes(workflowStatus?.wiki?.status || ''),
           },
           {
             key: 'semantic-generic',
-            label: '生成通用语义层',
+            label: '通用主体语义层',
             loadingLabel: '生成中...',
             primary: false,
             disabled: !['ready', 'stale'].includes(workflowStatus?.wiki?.status || ''),
@@ -181,17 +185,15 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
             {workflowLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             刷新状态
           </button>
-          {mode === 'standard' ? (
-            <button
-              type="button"
-              className="pdf-small-action primary inline-flex items-center gap-1"
-              onClick={() => void runRemainingWorkflow()}
-              disabled={!!workflowBusy || !bundleReady}
-            >
-              {workflowBusy === 'remaining' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-              继续入库
-            </button>
-          ) : null}
+          <button
+            type="button"
+            className="pdf-small-action primary inline-flex items-center gap-1"
+            onClick={() => void runRemainingWorkflow()}
+            disabled={!!workflowBusy || !bundleReady}
+          >
+            {workflowBusy === 'remaining' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+            继续入库
+          </button>
         </div>
       </div>
 
@@ -202,11 +204,11 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
         </div>
       </div>
 
-      {workflowStatus?.semantic?.llm ? (
+      {mode === 'generic' || workflowStatus?.semantic?.llm ? (
         <div className="pdf-pipeline-note mb-4">
           <Brain className="h-4 w-4" />
           <div>
-            模型语义增强默认调用本地 Qwen3.6，也可在设置页切换到本机 Gemma4；输出到 <code>semantic/llm/{workflowStatus.semantic.reportId || 'report'}/</code>，不覆盖规则层事实和证据。
+            语义增强使用当前项目设置中的模型，可选择本地或云端 OpenAI-compatible / Hermes 预设；输出到 <code>semantic/llm/{workflowStatus?.semantic?.reportId || 'report'}/</code>，不覆盖规则层事实和证据。
           </div>
         </div>
       ) : null}

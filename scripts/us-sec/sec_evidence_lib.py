@@ -123,6 +123,34 @@ def compact_accession(value: str | None, source_url: str | None = None) -> str:
     return fallback if fallback and fallback.lower() != "manual" else "unknown"
 
 
+def safe_wiki_slug(value: Any, fallback: str = "unknown") -> str:
+    text = str(value or "").strip()
+    text = re.sub(r"[\\/:*?\"<>|\r\n\t]+", "-", text)
+    text = re.sub(r"[,&]+", "", text)
+    text = re.sub(r"[()\[\]{}]+", "", text)
+    text = re.sub(r"\s+", "-", text)
+    text = re.sub(r"-+", "-", text)
+    return text.strip(" ._-") or fallback
+
+
+def company_wiki_dir_name(ticker: Any, company_name: Any) -> str:
+    return f"{safe_wiki_slug(ticker, 'UNKNOWN')}-{safe_wiki_slug(company_name, 'unknown')}"
+
+
+def us_report_id(fiscal_year: Any, form: Any, accession: Any) -> str:
+    year = safe_wiki_slug(fiscal_year, "unknown")
+    form_slug = safe_wiki_slug(form, "filing")
+    accession_slug = safe_wiki_slug(accession, "unknown")
+    return f"{year}-{form_slug}-{accession_slug}"
+
+
+def repo_relative(path: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(REPO_ROOT))
+    except ValueError:
+        return str(path)
+
+
 def infer_metadata(source_path: Path, metadata_path: Path | None = None) -> dict[str, Any]:
     metadata = read_json(metadata_path or source_path.with_suffix(source_path.suffix + ".metadata.json"))
     candidate = metadata.get("candidate") or {}
@@ -520,7 +548,18 @@ def write_evidence_package(source_path: Path, output_root: Path, metadata_path: 
             "extraction_warnings": "qa/extraction_warnings.json",
         },
     }
-    package_dir = output_root / manifest["ticker"] / str(manifest["fiscal_year"] or "unknown") / f"{manifest['form']}_{accession}"
+    report_id = us_report_id(manifest["fiscal_year"], manifest["form"], accession)
+    company_wiki_id = company_wiki_dir_name(manifest["ticker"], manifest["company_name"])
+    company_dir = output_root / "companies" / company_wiki_id
+    package_dir = company_dir / "reports" / report_id
+    manifest.update(
+        {
+            "report_id": report_id,
+            "company_wiki_id": company_wiki_id,
+            "company_wiki_path": repo_relative(company_dir),
+            "wiki_report_path": repo_relative(package_dir),
+        }
+    )
     if package_dir.exists() and force:
         shutil.rmtree(package_dir)
     package_dir.mkdir(parents=True, exist_ok=True)
@@ -586,7 +625,164 @@ def write_evidence_package(source_path: Path, output_root: Path, metadata_path: 
     manifest["parse_run_id"] = stable_parse_run_id(manifest, manifest["artifact_hashes"])
     write_json(package_dir / "manifest.json", manifest)
     (package_dir / "README.md").write_text(_readme(manifest, quality), encoding="utf-8")
+    _write_company_wiki_indexes(output_root, company_dir, manifest, quality)
     return package_dir
+
+
+def _read_existing_json(path: Path) -> dict[str, Any]:
+    payload = read_json(path)
+    return payload if isinstance(payload, dict) else {}
+
+
+def _now_iso() -> str:
+    return date.today().isoformat()
+
+
+def _write_company_wiki_indexes(output_root: Path, company_dir: Path, manifest: dict[str, Any], quality: dict[str, Any]) -> None:
+    for dirname in ("reports", "metrics", "evidence", "semantic", "graph", "analysis", "factcheck", "tracking"):
+        (company_dir / dirname).mkdir(parents=True, exist_ok=True)
+
+    existing = _read_existing_json(company_dir / "company.json")
+    report_id = str(manifest.get("report_id") or manifest.get("filing_id") or "unknown")
+    report_rel = f"reports/{report_id}"
+    report_entry = {
+        "report_id": report_id,
+        "filing_id": manifest.get("filing_id"),
+        "market": "US",
+        "form": manifest.get("form"),
+        "report_type": manifest.get("report_type"),
+        "fiscal_year": manifest.get("fiscal_year"),
+        "fiscal_period": manifest.get("fiscal_period"),
+        "period_end": manifest.get("period_end"),
+        "published_at": manifest.get("published_at") or manifest.get("filing_date"),
+        "accession_number": manifest.get("accession_number"),
+        "source_url": manifest.get("source_url"),
+        "package_path": report_rel,
+        "manifest": f"{report_rel}/manifest.json",
+        "financial_data": f"{report_rel}/metrics/financial_data.json",
+        "financial_checks": f"{report_rel}/metrics/financial_checks.json",
+        "quality_report": f"{report_rel}/qa/quality_report.json",
+        "source_map": f"{report_rel}/qa/source_map.json",
+        "quality_status": quality.get("overall_status") or manifest.get("quality_status"),
+        "wiki_report_path": manifest.get("wiki_report_path"),
+    }
+    reports = [item for item in existing.get("reports") or [] if isinstance(item, dict) and item.get("report_id") != report_id]
+    reports.append(report_entry)
+    reports.sort(key=lambda item: str(item.get("period_end") or item.get("published_at") or ""), reverse=True)
+    primary_report_id = str(reports[0].get("report_id") or report_id)
+    latest_report = next((item for item in reports if item.get("report_id") == primary_report_id), report_entry)
+
+    company_json = {
+        **existing,
+        "schema_version": "us_company_wiki_v1",
+        "market": "US",
+        "company_id": manifest.get("company_id"),
+        "company_wiki_id": manifest.get("company_wiki_id"),
+        "company_wiki_path": manifest.get("company_wiki_path"),
+        "ticker": manifest.get("ticker"),
+        "cik": manifest.get("cik"),
+        "exchange": manifest.get("exchange") or "SEC",
+        "company_name": manifest.get("company_name"),
+        "industry_profile": manifest.get("industry_profile"),
+        "accounting_standard": manifest.get("accounting_standard"),
+        "primary_report_id": primary_report_id,
+        "latest_filing_id": latest_report.get("filing_id"),
+        "latest_fiscal_year": latest_report.get("fiscal_year"),
+        "latest_period_end": latest_report.get("period_end"),
+        "report_count": len(reports),
+        "reports": reports,
+        "metrics": {
+            "latest": {
+                "financial_data": latest_report.get("financial_data"),
+                "financial_checks": latest_report.get("financial_checks"),
+                "quality_report": latest_report.get("quality_report"),
+            },
+            "by_report": {
+                str(item.get("report_id")): {
+                    "financial_data": item.get("financial_data"),
+                    "financial_checks": item.get("financial_checks"),
+                    "quality_report": item.get("quality_report"),
+                }
+                for item in reports
+                if item.get("report_id")
+            },
+        },
+        "evidence": {
+            "latest_source_map": latest_report.get("source_map"),
+            "latest_manifest": latest_report.get("manifest"),
+        },
+        "updated_at": _now_iso(),
+    }
+    write_json(company_dir / "company.json", company_json)
+    write_json(
+        company_dir / "_index.json",
+        {
+            "schema_version": "us_company_index_v1",
+            "market": "US",
+            "company_id": company_json["company_id"],
+            "company_wiki_id": company_json.get("company_wiki_id"),
+            "company_wiki_path": company_json.get("company_wiki_path"),
+            "primary_report_id": primary_report_id,
+            "reports": reports,
+            "updated_at": company_json["updated_at"],
+        },
+    )
+    (company_dir / "company.md").write_text(_company_markdown(company_json, latest_report), encoding="utf-8")
+    _write_root_catalog(output_root)
+
+
+def _write_root_catalog(output_root: Path) -> None:
+    companies: list[dict[str, Any]] = []
+    for company_json_path in sorted((output_root / "companies").glob("*/company.json")):
+        company = _read_existing_json(company_json_path)
+        if not company:
+            continue
+        companies.append(
+            {
+                "company_id": company.get("company_id"),
+                "company_wiki_id": company.get("company_wiki_id") or company_json_path.parent.name,
+                "company_wiki_path": company.get("company_wiki_path") or repo_relative(company_json_path.parent),
+                "market": "US",
+                "ticker": company.get("ticker"),
+                "cik": company.get("cik"),
+                "company_name": company.get("company_name"),
+                "primary_report_id": company.get("primary_report_id"),
+                "report_count": company.get("report_count") or len(company.get("reports") or []),
+                "status": "ready",
+            }
+        )
+    companies.sort(key=lambda item: str(item.get("ticker") or item.get("company_id") or ""))
+    write_json(
+        output_root / "_meta" / "company_catalog.json",
+        {
+            "schema_version": "us_company_catalog_v1",
+            "market": "US",
+            "company_count": len(companies),
+            "companies": companies,
+            "generated_at": _now_iso(),
+        },
+    )
+    guide = output_root / "_meta" / "AGENT_GUIDE.md"
+    if not guide.exists():
+        guide.write_text(
+            "# US Wiki Agent Guide\n\n"
+            "US company Wiki uses `companies/<ticker>-<company>/company.json` as the company entry, "
+            "then `reports/<report_id>/` for each SEC filing package. Prefer `company.json`, "
+            "`reports/<report_id>/manifest.json`, `metrics/financial_data.json`, "
+            "`metrics/financial_checks.json`, and `qa/source_map.json` before PostgreSQL fallback.\n",
+            encoding="utf-8",
+        )
+
+
+def _company_markdown(company: dict[str, Any], latest: dict[str, Any]) -> str:
+    return (
+        f"# {company.get('ticker')} {company.get('company_name') or ''}\n\n"
+        f"- Market: US\n"
+        f"- CIK: `{company.get('cik') or ''}`\n"
+        f"- Latest filing: `{latest.get('form') or ''}` `{latest.get('accession_number') or ''}`\n"
+        f"- Latest period end: `{latest.get('period_end') or ''}`\n"
+        f"- Quality: `{latest.get('quality_status') or ''}`\n"
+    )
 
 
 def _child_text(tag: Any, local_name: str) -> str | None:

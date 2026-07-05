@@ -14,16 +14,15 @@
 - 连接 `siq_ic_sector_expert` 私有知识库
 - 确认两库状态正常、记录数可读
 
-### Step 2：调用 SIQ startup_retrieval API 检索工具（必做）
-```bash
-# 启动检索命令示例
-python3 scripts/SIQ startup_retrieval API \
-  --agent siq_ic_sector_expert \
-  --query "{company_name}" \
-  --project-tag {project_tag} \
-  --company "{company_name}" \
-  --industry "{industry}" \
-  --startup
+### Step 2：调用 SIQ startup-retrieval API 检索工具（必做）
+```text
+POST /api/deals/{deal_id}/agents/siq_ic_sector_expert/startup-retrieval
+
+{
+  "round_name": "R1",
+  "query": "{company_name} {industry} 市场规模 竞争格局 技术路线",
+  "limit": 20
+}
 ```
 
 ### Step 3：共享项目底稿检索（必做）

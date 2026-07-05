@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from services import deal_retrieval
 from services import deal_store
 from services import ic_policy
 from services.path_config import PROJECT_ROOT
@@ -159,6 +160,11 @@ def generate_startup_retrieval_receipt(
     round_name: str | None = "R1",
     query: str | None = None,
     limit: int | str | None = DEFAULT_EVIDENCE_LIMIT,
+    include_external: bool = False,
+    external_providers: list[str] | tuple[str, ...] | None = None,
+    include_vector: bool = False,
+    include_rerank: bool = False,
+    vector_collections: list[str] | tuple[str, ...] | None = None,
     created_by: dict[str, Any] | None = None,
     wiki_root: Path | str | None = None,
 ) -> dict[str, Any]:
@@ -169,20 +175,23 @@ def generate_startup_retrieval_receipt(
     normalized_limit = _normalize_limit(limit)
     created_at = deal_store.utc_now_iso()
 
-    items, invalid_lines = _read_evidence_items(package_dir / "evidence" / "evidence_items.ndjson")
-    dimensions = PROFILE_DIMENSIONS.get(canonical_profile, ())
-    matched = [item for item in items if _matches_profile(item, canonical_profile, dimensions)]
-    if not matched and canonical_profile == "siq_ic_chairman":
-        matched = items
-    evidence_hits = [_evidence_hit(item) for item in matched[:normalized_limit]]
+    retrieval = deal_retrieval.retrieve_for_agent(
+        normalized_deal_id,
+        canonical_profile,
+        query=query,
+        limit=normalized_limit,
+        include_external=include_external,
+        external_providers=external_providers,
+        include_vector=include_vector,
+        include_rerank=include_rerank,
+        vector_collections=vector_collections,
+        wiki_root=wiki_root,
+    )
+    dimensions = tuple(retrieval.get("dimensions") or PROFILE_DIMENSIONS.get(canonical_profile, ()))
+    evidence_hits = retrieval.get("evidence_hits") if isinstance(retrieval.get("evidence_hits"), list) else []
+    hybrid_hits = retrieval.get("hybrid_hits") if isinstance(retrieval.get("hybrid_hits"), list) else []
 
-    gaps: list[str] = []
-    if invalid_lines:
-        gaps.append(f"evidence_items.ndjson has {invalid_lines} invalid lines")
-    if not items:
-        gaps.append("evidence_package_missing_or_empty")
-    if items and not matched:
-        gaps.append("no_role_matched_evidence")
+    gaps = [str(item) for item in retrieval.get("gaps", []) if str(item or "").strip()]
     missing_dimensions = _quality_missing_dimensions(package_dir)
     role_missing = sorted(set(dimensions).intersection(missing_dimensions))
     for dimension in role_missing:
@@ -196,15 +205,23 @@ def generate_startup_retrieval_receipt(
         "query": _project_query(package_dir, normalized_deal_id, query),
         "project_tag": normalized_deal_id,
         "retrieval_mode": STARTUP_RETRIEVAL_MODE,
-        "shared_hits": len(matched),
+        "retrieval_contract": retrieval,
+        "dynamic_queries": retrieval.get("dynamic_queries") or [],
+        "shared_hits": int(retrieval.get("matched_evidence_count") or 0),
         "private_hits": 0,
         "evidence_hits": evidence_hits,
         "evidence_hit_count": len(evidence_hits),
+        "hybrid_hits": hybrid_hits,
+        "hybrid_hit_count": len(hybrid_hits),
         "dimensions": list(dimensions),
         "workspace_rules_read": _workspace_rules_read(canonical_profile),
         "gaps": gaps,
-        "milvus_used": False,
+        "vector_retrieval": retrieval.get("vector_retrieval") or {},
+        "rerank": retrieval.get("rerank") or {},
+        "external_research": retrieval.get("external_research") or {},
+        "milvus_used": bool(retrieval.get("milvus_used")),
         "postgres_used": False,
+        "reranker_used": bool(retrieval.get("reranker_used")),
         "hermes_used": False,
         "created_at": created_at,
         "created_by": created_by,
@@ -224,6 +241,10 @@ def generate_startup_retrieval_receipt(
             "round_name": normalized_round,
             "shared_hits": receipt["shared_hits"],
             "private_hits": receipt["private_hits"],
+            "dynamic_query_count": len(receipt.get("dynamic_queries") or []),
+            "external_research_enabled": bool(include_external),
+            "vector_retrieval_enabled": bool(include_vector),
+            "rerank_enabled": bool(include_rerank),
             "gaps": gaps,
             "created_by": created_by,
         },

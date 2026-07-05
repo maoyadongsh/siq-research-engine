@@ -14,7 +14,9 @@
 | `ic_evidence_contract.md` | 证据分类、引用、验证和争议处理规则 |
 | `ic_prompt_contract.md` | prompt 组合、角色边界与协作限制 |
 | `openclaw_script_migration_matrix.json` | OpenClaw 到 SIQ 的迁移追踪矩阵 |
+| `openclaw_asset_migration_inventory.json` | OpenClaw profile / template / skill 资产迁移清单 |
 | `templates/` | 复用型模板目录 |
+| `skills/` | 迁入 Hermes runtime 的一级市场投委会技能包 |
 
 ## 对可执行 Profile 的约束
 
@@ -41,6 +43,19 @@
 - 会话、memory、响应缓存、vector store。
 - `.venv`、运行日志、上传文件和中间产物。
 - 某个具体项目的执行态报告或一次性草稿。
+- OpenClaw 本地脚本中携带的密钥、旧 workspace 状态或项目专属样例。
+
+## OpenClaw 资产迁移规则
+
+`scripts/hermes/migrate_openclaw_ic_assets.py` 是当前 OpenClaw -> Hermes profile 资产迁移入口。它只迁移 allowlist 中的可复用资产：
+
+- 各 `siq_ic_*` profile 的 `BOOTSTRAP.md`、`USER.md`、`HEARTBEAT.md` 和少量角色专属协议。
+- 可复用报告、检索和投决模板。
+- 一级市场投委会相关 Hermes skills。
+
+迁移时会自动将旧 `ic_*` agent ID、`ic_collaboration_shared` collection、OpenClaw workspace 路径和本地检索脚本入口改写为 SIQ/Hermes 语义。
+
+运行任一 `siq_ic_*` profile 时，`scripts/hermes/run_gateway.sh` 会把 `siq_ic_shared/skills` 同步到该 runtime profile 的 `skills/` 目录，确保投委会角色具备同一套一级市场技能包。
 
 ## 维护原则
 

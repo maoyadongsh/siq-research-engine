@@ -2,12 +2,50 @@
 
 Version: `market_evidence_package_v1`
 
-This contract is the shared minimum for US, HK, JP, KR, and EU report evidence packages. It deliberately does not change the legacy CN `pdf2md` flow.
+This contract is the shared minimum for US, HK, JP, KR, and EU report evidence packages. It deliberately does not change the A-share company Wiki root.
 
 ## Directory Layout
 
+All markets use a company-level Wiki entry first, then report packages.
+
 ```text
-data/wiki/<market_namespace>/<ticker>/<fiscal_year>/<form_or_type>_<filing_key>/
+A-share:
+data/wiki/companies/<code>-<company>/
+
+HK:
+data/wiki/hk/companies/<ticker>-<company>/
+
+JP:
+data/wiki/jp/companies/<ticker>-<company>/
+
+KR:
+data/wiki/kr/companies/<ticker>-<company>/
+
+EU:
+data/wiki/eu/companies/<ticker>-<company>/
+
+US:
+data/wiki/us/companies/<ticker>-<company>/
+```
+
+Each company directory must expose:
+
+```text
+company.json
+reports/
+metrics/
+evidence/
+semantic/
+graph/
+analysis/
+factcheck/
+tracking/
+```
+
+Each single-report package lives under the company:
+
+```text
+reports/<report_id>/
   manifest.json
   README.md
   raw/
@@ -15,8 +53,23 @@ data/wiki/<market_namespace>/<ticker>/<fiscal_year>/<form_or_type>_<filing_key>/
   tables/
   xbrl/
   metrics/
+  evidence/
+  parser/
   qa/
+  images/
 ```
+
+Legacy roots such as `data/wiki/hk_reports`, `data/wiki/jp_reports`, `data/wiki/kr_reports`, `data/wiki/eu_reports`, and `data/wiki/us_sec` are compatibility or migration sources only. They are not long-term Agent entry points.
+
+## Build And Ingestion Principle
+
+Company Wiki packages are built from parsed report artifacts, not by treating downloaded source files as the knowledge base directly. The frontend/API package build flow must pass the parser result directory for PDF-backed HK, JP, KR, and EU reports. Writers then extract and normalize the relevant content into the company Wiki report package:
+
+- parser outputs such as `document_full.json`, `content_list_enhanced.json`, `table_index.json`, `quality_report.json`, and parser markdown
+- market financial outputs such as `financial_data.json`, `financial_checks.json`, statement tables, XBRL/iXBRL facts, and source maps
+- evidence artifacts required by PostgreSQL, Milvus, and Agent retrieval
+
+US SEC packages are the same company-level Wiki contract, but their parsed source is SEC HTML/iXBRL rather than a PDF parser task. EU ESEF/iXBRL packages may also be built from structured ESEF artifacts without a PDF parser result. Each market may keep market-specific extraction and validation rules, but the package shape and downstream ingestion contract stay aligned with the A-share company Wiki model.
 
 ## Required Manifest Fields
 
@@ -27,7 +80,11 @@ data/wiki/<market_namespace>/<ticker>/<fiscal_year>/<form_or_type>_<filing_key>/
   "schema_version": "market_evidence_package_v1",
   "market": "US|HK|JP|KR|EU",
   "filing_id": "...",
+  "report_id": "...",
   "company_id": "...",
+  "company_wiki_id": "<ticker>-<company>",
+  "company_wiki_path": "data/wiki/<market>/companies/<ticker>-<company>",
+  "wiki_report_path": "data/wiki/<market>/companies/<ticker>-<company>/reports/<report_id>",
   "ticker": "...",
   "company_name": "...",
   "country": "Required for EU packages: UK|FR|DE|NL|CH",

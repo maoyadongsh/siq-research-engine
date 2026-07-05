@@ -11,7 +11,7 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DOWNLOADS_ROOT = REPO_ROOT / "data" / "market-report-finder" / "downloads" / "US"
-DEFAULT_OUTPUT_ROOT = REPO_ROOT / "data" / "wiki" / "us_sec"
+DEFAULT_OUTPUT_ROOT = REPO_ROOT / "data" / "wiki" / "us"
 
 
 def read_json(path: Path, default: Any = None) -> Any:

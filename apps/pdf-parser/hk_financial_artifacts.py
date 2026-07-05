@@ -8,6 +8,8 @@ from typing import Any
 
 from financial_extractor import FINANCIAL_CHECKS_SCHEMA_VERSION, FINANCIAL_DATA_SCHEMA_VERSION, FINANCIAL_RULE_VERSION
 
+HK_FINANCIAL_PROFILE_VERSION = "hk-pdf-financial-profile-v2"
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RULES_SRC = REPO_ROOT / "services" / "market-report-rules" / "src"
 HK_SCRIPTS = REPO_ROOT / "scripts" / "hk"
@@ -15,7 +17,15 @@ for path in (RULES_SRC, HK_SCRIPTS):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from hk_evidence_lib import infer_metadata, parsed_tables_from_document_full, read_json  # noqa: E402
+from hk_evidence_lib import (  # noqa: E402
+    _default_currency,
+    _default_unit,
+    _document_full_with_sidecars,
+    _markdown_statement_tables,
+    infer_metadata,
+    parsed_tables_from_document_full,
+    read_json,
+)
 from market_report_rules_service.models import AccountingStandard, Market, ParsedArtifact  # noqa: E402
 from market_report_rules_service.normalization import parse_date  # noqa: E402
 from market_report_rules_service.pipeline import process_artifact  # noqa: E402
@@ -29,11 +39,13 @@ def build_hk_financial_artifacts(
     filename: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     result_dir = Path(result_dir_path)
-    document_full = _read_json(result_dir / "document_full.json")
+    document_full = _document_full_with_sidecars(result_dir)
     if not document_full:
         document_full = {"task": task, "markdown": {"content": markdown}, "content_list": []}
     document_full.setdefault("task", task)
     document_full.setdefault("markdown", {"content": markdown})
+    if isinstance(document_full.get("markdown"), dict) and not document_full["markdown"].get("content"):
+        document_full["markdown"]["content"] = markdown
     enhanced = _read_json(result_dir / "content_list_enhanced.json")
     artifact = _build_artifact(task, filename or task.get("filename"), result_dir, document_full, enhanced)
     result = process_artifact(artifact, include_load_plan=False)
@@ -43,6 +55,7 @@ def build_hk_financial_artifacts(
         {
             "schema_version": FINANCIAL_DATA_SCHEMA_VERSION,
             "rule_version": FINANCIAL_RULE_VERSION,
+            "profile_rule_version": HK_FINANCIAL_PROFILE_VERSION,
             "task_id": task.get("task_id"),
             "filename": filename or task.get("filename"),
             "report_kind": _report_kind(artifact.report_type),
@@ -54,6 +67,7 @@ def build_hk_financial_artifacts(
         {
             "schema_version": FINANCIAL_CHECKS_SCHEMA_VERSION,
             "rule_version": FINANCIAL_RULE_VERSION,
+            "profile_rule_version": HK_FINANCIAL_PROFILE_VERSION,
             "task_id": task.get("task_id"),
             "filename": filename or task.get("filename"),
         }
@@ -81,6 +95,7 @@ def _build_artifact(
     metadata["industry_profile"] = _industry_from_identity(metadata.get("ticker"), metadata.get("company_name"), metadata.get("industry_profile"))
     metadata["accounting_standard"] = metadata.get("accounting_standard") or "HKFRS"
     tables = parsed_tables_from_document_full(document_full, enhanced)
+    tables.extend(_markdown_statement_tables(result_dir, start_index=len(tables)))
     return ParsedArtifact(
         artifact_id=f"HK:{metadata['ticker']}:{task.get('task_id') or result_dir.name}",
         market=Market.HK,
@@ -95,8 +110,8 @@ def _build_artifact(
         period_end=parse_date(metadata.get("period_end")),
         accounting_standard=AccountingStandard(metadata.get("accounting_standard") or "HKFRS"),
         industry_profile=metadata.get("industry_profile") or "general",
-        currency=None,
-        unit=None,
+        currency=_default_currency(metadata),
+        unit=_default_unit(document_full),
         source_url=task.get("source_url") or "",
         source_files={"parser_result": str(result_dir), "pdf": str(pdf_path)},
         tables=tables,

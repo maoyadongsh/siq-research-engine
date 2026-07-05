@@ -60,6 +60,15 @@ export function scopeName(s: string): string {
   return s || '--'
 }
 
+export function scopeNameForMarket(s: string, market?: string | null): string {
+  const normalized = String(market || '').trim().toUpperCase()
+  if (normalized && normalized !== 'CN') {
+    if (s === 'consolidated') return 'Consolidated'
+    if (s === 'parent_company') return 'Parent company'
+  }
+  return scopeName(s)
+}
+
 export function candidateMeta(item: Record<string, unknown> | null | undefined): string {
   if (!item || item.status === 'missing') return '需复核：未在表格中定位'
   if (!item.table_index) return item._source === 'financial_data' ? '已抽取，暂无表格定位' : '需复核：暂无表格定位'

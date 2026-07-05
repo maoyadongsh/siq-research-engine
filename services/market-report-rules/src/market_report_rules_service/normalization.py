@@ -102,11 +102,35 @@ def infer_scale(unit: str | None) -> Decimal:
     text = normalize_label(unit)
     if not text:
         return Decimal("1")
+    if (
+        "100 million" in text
+        or "hundred million" in text
+        or "억원" in text
+        or "억 원" in text
+        or "億円" in text
+    ):
+        return Decimal("100000000")
     if "billion" in text or "十亿" in text or "十億" in text:
         return Decimal("1000000000")
-    if "million" in text or "百万元" in text or "百萬" in text or "百万" in text:
+    if (
+        "million" in text
+        or "백만원" in text
+        or "백만 원" in text
+        or "百万円" in text
+        or "百万元" in text
+        or "百萬" in text
+        or "百万" in text
+    ):
         return Decimal("1000000")
-    if "thousand" in text or "千元" in text or "千港元" in text or "千美元" in text:
+    if (
+        "thousand" in text
+        or "천원" in text
+        or "천 원" in text
+        or "千円" in text
+        or "千元" in text
+        or "千港元" in text
+        or "千美元" in text
+    ):
         return Decimal("1000")
     return Decimal("1")
 

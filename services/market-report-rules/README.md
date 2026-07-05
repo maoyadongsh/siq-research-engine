@@ -75,9 +75,9 @@ finder / parser 产物
 | 市场 | 默认 schema / 命名空间 | 典型 Wiki 根路径 |
 | --- | --- | --- |
 | A 股 | `pdf2md` | `data/wiki/companies/...` |
-| 港股 | `pdf2md_hk` | `data/wiki/hk/...` 或 `data/wiki/hk_reports/...` |
-| 美股 | `sec_us` | `data/wiki/us_sec/...` |
-| 欧股 | `eu_ifrs` | `data/wiki/eu_reports/...` |
+| 港股 | `pdf2md_hk` | `data/wiki/hk/companies/...` |
+| 美股 | `sec_us` | `data/wiki/us/companies/...` |
+| 欧股 | `eu_ifrs` | `data/wiki/eu/companies/...` |
 | 日股 | `edinet_jp` | `data/wiki/jp/...` |
 | 韩股 | `dart_kr` | `data/wiki/kr/...` |
 

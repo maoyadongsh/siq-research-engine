@@ -44,20 +44,23 @@ MARKET_REPORT_PROXY_TIMEOUT = _env_float("SIQ_MARKET_REPORT_PROXY_TIMEOUT", defa
 MARKET_REPORT_ASSIST_TIMEOUT = _env_float("SIQ_MARKET_REPORT_ASSIST_TIMEOUT", default=45.0)
 
 US_SEC_CASE_SET_PATH = _env_path(
+    "SIQ_US_CASE_SET_PATH",
     "SIQ_US_SEC_CASE_SET_PATH",
-    default=REPO_ROOT / "data" / "wiki" / "us_sec" / "case_set_50_us_10k.json",
+    default=REPO_ROOT / "data" / "wiki" / "us" / "_meta" / "case_set_50_us_10k.json",
 )
 US_SEC_INGEST_REPORT_PATH = _env_path(
+    "SIQ_US_INGEST_REPORT_PATH",
     "SIQ_US_SEC_INGEST_REPORT_PATH",
-    default=REPO_ROOT / "data" / "wiki" / "us_sec" / "case_set_50_us_10k_ingest_report.json",
+    default=REPO_ROOT / "data" / "wiki" / "us" / "_meta" / "case_set_50_us_10k_ingest_report.json",
 )
 US_SEC_INGEST_SCRIPT = _env_path(
     "SIQ_US_SEC_INGEST_SCRIPT",
     default=REPO_ROOT / "scripts" / "us-sec" / "ingest_sec_case_set.py",
 )
 US_SEC_WIKI_ROOT = _env_path(
+    "SIQ_US_WIKI_ROOT",
     "SIQ_US_SEC_WIKI_ROOT",
-    default=REPO_ROOT / "data" / "wiki" / "us_sec",
+    default=REPO_ROOT / "data" / "wiki" / "us",
 )
 US_SEC_PACKAGE_BUILD_SCRIPT = _env_path(
     "SIQ_US_SEC_PACKAGE_BUILD_SCRIPT",
@@ -81,11 +84,11 @@ MARKET_INGESTION_EVAL_MARKDOWN_PATH = _env_path(
 )
 
 MARKET_WIKI_ROOTS = {
-    "US": _env_path("SIQ_US_SEC_WIKI_ROOT", default=REPO_ROOT / "data" / "wiki" / "us_sec"),
+    "US": _env_path("SIQ_US_WIKI_ROOT", "SIQ_US_SEC_WIKI_ROOT", default=REPO_ROOT / "data" / "wiki" / "us"),
     "HK": _env_path("SIQ_HK_WIKI_ROOT", default=REPO_ROOT / "data" / "wiki" / "hk"),
-    "JP": _env_path("SIQ_JP_WIKI_ROOT", default=REPO_ROOT / "data" / "wiki" / "jp_reports"),
+    "JP": _env_path("SIQ_JP_WIKI_ROOT", default=REPO_ROOT / "data" / "wiki" / "jp"),
     "KR": _env_path("SIQ_KR_WIKI_ROOT", default=REPO_ROOT / "data" / "wiki" / "kr"),
-    "EU": _env_path("SIQ_EU_WIKI_ROOT", default=REPO_ROOT / "data" / "wiki" / "eu_reports"),
+    "EU": _env_path("SIQ_EU_WIKI_ROOT", default=REPO_ROOT / "data" / "wiki" / "eu"),
 }
 
 MARKET_BUILD_SCRIPTS = {

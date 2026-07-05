@@ -163,7 +163,18 @@ EU_LABEL_RULES: tuple[MetricRule, ...] = (
     MetricRule(
         "total_liabilities_and_equity",
         StatementType.BALANCE_SHEET,
-        ("total equity and liabilities", "total liabilities and equity", "equity and liabilities", "ifrs-full:EquityAndLiabilities"),
+        (
+            "total equity and liabilities",
+            "total liabilities and equity",
+            "total shareholders' equity and liabilities",
+            "total shareholders’ equity and liabilities",
+            "total liabilities & shareholders' equity",
+            "total liabilities & shareholders’ equity",
+            "total shareholders' equity and liabilities",
+            "total shareholders’ equity and liabilities",
+            "equity and liabilities",
+            "ifrs-full:EquityAndLiabilities",
+        ),
     ),
     MetricRule(
         "cash_and_cash_equivalents",
@@ -193,11 +204,17 @@ EU_LABEL_RULES: tuple[MetricRule, ...] = (
             "net cash from operating activities",
             "net cash generated from operating activities",
             "net cash provided by operating activities",
+            "net cash provided by/(used in) operating activities",
+            "net cash provided by/(used in) continuing operating activities",
+            "net cash provided by/(used in) operating activities of the discontinued opella business",
+            "net cash provided/(used) by operating activities",
+            "net cash provided/used by operating activities",
             "net cash used in operating activities",
             "cash flows from operating activities",
             "net cash flows from operating activities",
             "net cash flows generated from operating activities",
             "cash flow from operating activities",
+            "cash inflow/outflow from operating activities",
             "ifrs-full:CashFlowsFromUsedInOperatingActivities",
         ),
         10,
@@ -209,6 +226,10 @@ EU_LABEL_RULES: tuple[MetricRule, ...] = (
             "net cash from investing activities",
             "net cash used in investing activities",
             "net cash generated from investing activities",
+            "net cash provided by/(used in) investing activities",
+            "net cash provided by/(used in) continuing investing activities",
+            "net cash provided/(used) by investing activities",
+            "net cash provided/used by investing activities",
             "cash flows from investing activities",
             "net cash flows from investing activities",
             "cash flow from investing activities",
@@ -222,9 +243,14 @@ EU_LABEL_RULES: tuple[MetricRule, ...] = (
             "net cash from financing activities",
             "net cash used in financing activities",
             "net cash generated from financing activities",
+            "net cash provided by/(used in) financing activities",
+            "net cash provided by/(used in) continuing financing activities",
+            "net cash provided/(used) by financing activities",
+            "net cash provided/used by financing activities",
             "cash flows from financing activities",
             "net cash flows from financing activities",
             "cash flow from financing activities",
+            "cash inflow/outflow from financing activities",
             "ifrs-full:CashFlowsFromUsedInFinancingActivities",
         ),
     ),
@@ -237,13 +263,41 @@ EU_LABEL_RULES: tuple[MetricRule, ...] = (
             "increase in cash and cash equivalents",
             "decrease in cash and cash equivalents",
             "net increase/(decrease) in cash and cash equivalents",
+            "change in cash and cash equivalents",
+            "net change in cash and cash equivalents",
             "ifrs-full:IncreaseDecreaseInCashAndCashEquivalents",
         ),
     ),
     MetricRule(
         "fx_effect_cash",
         StatementType.CASH_FLOW_STATEMENT,
-        ("effect of exchange rate changes", "effect of foreign exchange rate changes", "ifrs-full:EffectOfExchangeRateChangesOnCashAndCashEquivalents"),
+        (
+            "effect of exchange rate changes",
+            "effect of foreign exchange rate changes",
+            "effect of exchange rate on cash and cash equivalents",
+            "impact of exchange rates on cash and cash equivalents",
+            "ifrs-full:EffectOfExchangeRateChangesOnCashAndCashEquivalents",
+        ),
+    ),
+    MetricRule(
+        "cash_equivalents_beginning",
+        StatementType.CASH_FLOW_STATEMENT,
+        (
+            "cash and cash equivalents, beginning of period",
+            "cash and cash equivalents at beginning of period",
+            "cash and cash equivalents as at 1 january",
+            "cash and cash equivalents at start of year",
+        ),
+    ),
+    MetricRule(
+        "cash_equivalents_ending",
+        StatementType.CASH_FLOW_STATEMENT,
+        (
+            "cash and cash equivalents, end of period",
+            "cash and cash equivalents at end of period",
+            "cash and cash equivalents as at 31 december",
+            "cash and cash equivalents at end of year",
+        ),
     ),
     MetricRule(
         "capital_expenditure",
@@ -265,6 +319,14 @@ EU_RULE_BY_LABEL = {
 def find_eu_label_rule(label: str) -> MetricRule | None:
     normalized = compact_label(label)
     if not normalized:
+        return None
+    if any(
+        token in normalized
+        for token in (
+            "totalassetslesscurrentliabilities",
+            "netassetslesscurrentliabilities",
+        )
+    ):
         return None
     direct = EU_RULE_BY_LABEL.get(normalized)
     if direct and _rule_allowed(direct, normalized):
@@ -318,9 +380,69 @@ def _rule_allowed(rule: MetricRule, normalized: str) -> bool:
         if any(token in normalized for token in ("beforeincometax", "beforetax")):
             return False
     if rule.canonical_name == "total_assets":
-        return normalized in {"totalassets", "ifrsfullassets"} or "totalassets" in normalized
+        if any(
+            token in normalized
+            for token in (
+                "averagetotalassets",
+                "subtotalassets",
+                "totalassetsless",
+                "totalassetsexcluding",
+                "excludinggoodwill",
+                "lesscurrentliabilities",
+                "financialservices",
+                "segmentassets",
+                "assetsbacking",
+                "assetsatfairvalue",
+                "totalassetsatfairvalue",
+                "assetsforunitlinked",
+                "unitlinkedcontracts",
+            )
+        ):
+            return False
+        return normalized in {"totalassets", "ifrsfullassets"} or normalized.startswith("totalassets") or normalized.endswith("totalassets")
     if rule.canonical_name == "total_liabilities":
-        return normalized in {"totalliabilities", "ifrsfullliabilities"} or "totalliabilities" in normalized
+        if any(
+            token in normalized
+            for token in (
+                "averagetotalliabilities",
+                "subtotalliabilities",
+                "financialservices",
+                "segmentliabilities",
+                "liabilitiesexcluding",
+                "excludingshareholder",
+                "excludingequity",
+                "liabilitiesarisingfrom",
+                "liabilitiesatfairvalue",
+                "totalliabilitiesatfairvalue",
+                "incurredclaims",
+                "unitlinkedcontracts",
+                "bankingactivities",
+                "technicalreserves",
+            )
+        ):
+            return False
+        return normalized in {"totalliabilities", "ifrsfullliabilities"} or normalized.startswith("totalliabilities") or normalized.endswith("totalliabilities")
     if rule.canonical_name == "total_equity" and "netassets" in normalized:
         return normalized in {"netassets", "totalnetassets"}
+    if rule.canonical_name == "total_equity":
+        if any(
+            token in normalized
+            for token in (
+                "averageoftotalequity",
+                "totalequitynetdebt",
+                "netdebt",
+                "attheendoftheperiod",
+                "returnon",
+                "percentageof",
+                "excluding",
+                "liabilitiesexcluding",
+                "fairvalue",
+                "opening",
+                "closing",
+                "movementin",
+                "historicalexchangerate",
+                "exchangerateasof",
+            )
+        ):
+            return False
     return True

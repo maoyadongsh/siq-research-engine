@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 import httpx
 
 from market_report_finder_service.core.config import settings
+from market_report_finder_service.data.foreign_aliases import foreign_alias_entry
 from market_report_finder_service.models.schemas import CompanyEntity, FilingCandidate, Market, ReportFamily, ReportTarget, ReportType
 
 
@@ -190,6 +191,9 @@ class SecClient:
         company_name: str | None = None,
         ticker: str | None = None,
     ) -> list[CompanyEntity]:
+        alias = foreign_alias_entry(Market.us.value, company_name) if company_name and not ticker else None
+        if alias and not ticker:
+            ticker = str(alias.get("ticker") or "") or None
         normalized_query = self._normalize_company_name(company_name or "")
         normalized_ticker = self._normalize_ticker(ticker)
         candidates: list[CompanyEntity] = []

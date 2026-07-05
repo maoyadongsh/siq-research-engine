@@ -19,7 +19,15 @@ RULES_SRC = REPO_ROOT / "services" / "market-report-rules" / "src"
 if str(RULES_SRC) not in sys.path:
     sys.path.insert(0, str(RULES_SRC))
 
-from eu_pdf_evidence_lib import infer_industry_profile, infer_metadata, sniff_document_format
+from eu_pdf_evidence_lib import (
+    company_wiki_dir_name,
+    eu_report_id,
+    infer_industry_profile,
+    infer_metadata,
+    repo_relative,
+    sniff_document_format,
+    write_eu_company_wiki_indexes,
+)
 from market_report_rules_service.contracts import financial_checks_contract, financial_data_contract
 from market_report_rules_service.evidence_package import (
     SCHEMA_VERSION,
@@ -102,7 +110,10 @@ def write_eu_esef_evidence_package(
     financial_checks = financial_checks_contract(result.validation)
     normalized_metrics: list[dict[str, Any]]
 
-    package_dir = output_root / metadata["country"] / artifact.ticker / str(artifact.fiscal_year or "unknown") / _package_leaf(metadata)
+    report_id = eu_report_id(artifact.fiscal_year, artifact.report_type, _package_leaf(metadata))
+    company_wiki_id = company_wiki_dir_name(artifact.ticker, artifact.company_name)
+    company_dir = output_root / "companies" / company_wiki_id
+    package_dir = company_dir / "reports" / report_id
     if package_dir.exists() and force:
         shutil.rmtree(package_dir)
     for name in ("raw", "sections", "tables", "xbrl", "metrics", "qa"):
@@ -120,7 +131,11 @@ def write_eu_esef_evidence_package(
         "market": "EU",
         "country": metadata["country"],
         "filing_id": filing_id,
+        "report_id": report_id,
         "company_id": artifact.company_id,
+        "company_wiki_id": company_wiki_id,
+        "company_wiki_path": repo_relative(company_dir),
+        "wiki_report_path": repo_relative(package_dir),
         "ticker": artifact.ticker,
         "company_name": artifact.company_name,
         "exchange": metadata.get("exchange"),
@@ -191,6 +206,7 @@ def write_eu_esef_evidence_package(
     manifest["artifact_hashes"] = compute_artifact_hashes(package_dir)
     write_json(package_dir / "manifest.json", manifest)
     (package_dir / "README.md").write_text(_readme(manifest, quality), encoding="utf-8")
+    write_eu_company_wiki_indexes(output_root, company_dir, manifest, quality)
     validation = validate_evidence_package(package_dir)
     if not validation.ok:
         write_json(package_dir / "qa" / "contract_validation.json", validation.as_dict())

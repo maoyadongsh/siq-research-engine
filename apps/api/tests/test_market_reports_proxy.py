@@ -563,6 +563,102 @@ def test_assist_merge_prefers_llm_explanations():
     assert merged["assistant_mode"] == "llm:local:test"
 
 
+def test_merge_assist_preserves_foreign_market_identifier_enrichment():
+    base = {
+        "intent": {"market": "US", "company_query": "苹果", "report_types": ["annual"]},
+        "candidate_explanations": [],
+        "assistant_mode": "rules",
+    }
+    llm = {
+        "intent": {
+            "company_query": "Apple Inc.",
+            "ticker": "AAPL",
+            "company_id": "0000320193",
+        },
+        "assistant_mode": "llm:cloud:test",
+    }
+
+    merged = market_reports._merge_assist(base, llm)
+
+    assert merged["intent"]["market"] == "US"
+    assert merged["intent"]["company_query"] == "Apple Inc."
+    assert merged["intent"]["ticker"] == "AAPL"
+    assert merged["intent"]["company_id"] == "0000320193"
+
+
+def test_openai_assist_retries_after_transient_failure(monkeypatch):
+    calls = []
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "intent": {
+                                        "market": "US",
+                                        "company_query": "Apple Inc.",
+                                        "ticker": "AAPL",
+                                        "company_id": "0000320193",
+                                    },
+                                    "candidate_explanations": [],
+                                },
+                                ensure_ascii=False,
+                            )
+                        }
+                    }
+                ]
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            calls.append(("timeout", timeout))
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def post(self, url, *, headers, json):
+            calls.append(("post", url, json))
+            if len([item for item in calls if item[0] == "post"]) == 1:
+                raise market_reports.httpx.RequestError("temporary upstream reset")
+            return FakeResponse()
+
+    monkeypatch.setattr(market_reports.httpx, "AsyncClient", FakeAsyncClient)
+
+    result = asyncio.run(
+        market_reports._openai_compatible_enhance_assist(
+            active="cloud",
+            provider={
+                "baseUrl": "https://llm.example/v1",
+                "model": "demo-model",
+                "apiKey": "secret",
+                "temperature": 0.2,
+                "maxTokens": 1024,
+            },
+            request_payload={
+                "prompt": "下载苹果 2025 年年报",
+                "market": "US",
+                "report_year": 2025,
+                "report_types": ["annual"],
+            },
+            base_assist={"intent": {"market": "US", "company_query": "苹果"}, "candidate_explanations": []},
+        )
+    )
+
+    assert result
+    assert result["intent"]["ticker"] == "AAPL"
+    assert result["assistant_mode"] == "llm:cloud:demo-model"
+    assert len([item for item in calls if item[0] == "post"]) == 2
+
+
 def test_active_llm_provider_prefers_cloud_stepfun(monkeypatch):
     monkeypatch.setattr(
         market_reports,

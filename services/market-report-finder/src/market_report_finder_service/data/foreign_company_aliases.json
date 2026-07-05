@@ -1,0 +1,327 @@
+{
+  "companies": [
+    {
+      "market": "US",
+      "ticker": "AAPL",
+      "company_id": "0000320193",
+      "canonical_name": "Apple Inc.",
+      "aliases": ["苹果", "apple", "apple inc", "apple inc."]
+    },
+    {
+      "market": "US",
+      "ticker": "AMZN",
+      "company_id": "0001018724",
+      "canonical_name": "Amazon.com, Inc.",
+      "aliases": ["亚马逊", "amazon", "amazon.com", "amazon.com inc", "amazon.com, inc."]
+    },
+    {
+      "market": "US",
+      "ticker": "MSFT",
+      "company_id": "0000789019",
+      "canonical_name": "Microsoft Corporation",
+      "aliases": ["微软", "microsoft", "microsoft corporation"]
+    },
+    {
+      "market": "EU",
+      "ticker": "ASML",
+      "company_id": "NL:ASML",
+      "canonical_name": "ASML Holding N.V.",
+      "country": "NL",
+      "aliases": ["阿斯麦", "asml", "asml holding", "asml holding n.v."]
+    },
+    {
+      "market": "EU",
+      "ticker": "SIE",
+      "company_id": "DE:SIE",
+      "canonical_name": "Siemens AG",
+      "country": "DE",
+      "aliases": ["西门子", "siemens", "siemens ag"]
+    },
+    {
+      "market": "EU",
+      "ticker": "AIR",
+      "company_id": "FR:AIR",
+      "canonical_name": "Airbus SE",
+      "country": "FR",
+      "aliases": ["空客", "airbus", "airbus se"]
+    },
+    {
+      "market": "EU",
+      "ticker": "NESN",
+      "company_id": "CH:NESN",
+      "canonical_name": "Nestle S.A.",
+      "country": "CH",
+      "aliases": ["雀巢", "nestle", "nestle s.a."]
+    },
+    {
+      "market": "EU",
+      "ticker": "UBSG",
+      "company_id": "CH:UBSG",
+      "canonical_name": "UBS Group AG",
+      "country": "CH",
+      "aliases": ["瑞银", "ubs", "ubs group", "ubs group ag"]
+    },
+    {
+      "market": "JP",
+      "ticker": "7203",
+      "company_id": "JP:7203",
+      "canonical_name": "Toyota Motor",
+      "aliases": ["丰田", "丰田汽车", "toyota", "toyota motor"]
+    },
+    {
+      "market": "JP",
+      "ticker": "6758",
+      "company_id": "JP:6758",
+      "canonical_name": "Sony Group",
+      "aliases": ["索尼", "sony", "sony group"]
+    },
+    {
+      "market": "JP",
+      "ticker": "7974",
+      "company_id": "JP:7974",
+      "canonical_name": "Nintendo",
+      "aliases": ["任天堂", "nintendo"]
+    },
+    {
+      "market": "JP",
+      "ticker": "285A",
+      "company_id": "JP:285A",
+      "canonical_name": "Kioxia Holdings",
+      "aliases": ["铠侠", "鎧俠", "铠侠控股", "kioxia", "kioxia holdings"]
+    },
+    {
+      "market": "JP",
+      "ticker": "6302",
+      "company_id": "JP:6302",
+      "canonical_name": "Sumitomo Heavy Industries",
+      "aliases": ["住友重工", "住友重机械", "住友重機械", "sumitomo heavy", "sumitomo heavy industries"]
+    },
+    {
+      "market": "JP",
+      "ticker": "8306",
+      "company_id": "JP:8306",
+      "canonical_name": "Mitsubishi UFJ Financial Group",
+      "aliases": ["三菱日联", "三菱日聯", "三菱ufj", "三菱UFJ", "三菱联合金融", "三菱UFJ金融集团", "mufg", "mitsubishi ufj"]
+    },
+    {
+      "market": "JP",
+      "ticker": "9983",
+      "company_id": "JP:9983",
+      "canonical_name": "Fast Retailing",
+      "aliases": ["迅销", "迅銷", "优衣库", "優衣庫", "uniqlo", "fast retailing"]
+    },
+    {
+      "market": "JP",
+      "ticker": "6501",
+      "company_id": "JP:6501",
+      "canonical_name": "Hitachi",
+      "aliases": ["日立", "日立制作所", "日立製作所", "hitachi"]
+    },
+    {
+      "market": "JP",
+      "ticker": "9432",
+      "company_id": "JP:9432",
+      "canonical_name": "Nippon Telegraph and Telephone",
+      "aliases": ["ntt", "日本电信电话", "日本電信電話", "日本电报电话", "nippon telegraph"]
+    },
+    {
+      "market": "JP",
+      "ticker": "6367",
+      "company_id": "JP:6367",
+      "canonical_name": "Daikin Industries",
+      "aliases": ["大金", "大金工业", "大金工業", "daikin", "daikin industries"]
+    },
+    {
+      "market": "JP",
+      "ticker": "6702",
+      "company_id": "JP:6702",
+      "canonical_name": "Fujitsu",
+      "aliases": ["富士通", "fujitsu"]
+    },
+    {
+      "market": "JP",
+      "ticker": "8001",
+      "company_id": "JP:8001",
+      "canonical_name": "ITOCHU",
+      "aliases": ["伊藤忠", "伊藤忠商事", "itochu", "itochu corporation"]
+    },
+    {
+      "market": "JP",
+      "ticker": "4911",
+      "company_id": "JP:4911",
+      "canonical_name": "Shiseido",
+      "aliases": ["资生堂", "資生堂", "shiseido"]
+    },
+    {
+      "market": "JP",
+      "ticker": "6861",
+      "company_id": "JP:6861",
+      "canonical_name": "Keyence",
+      "aliases": ["基恩士", "keyence"]
+    },
+    {
+      "market": "JP",
+      "ticker": "8035",
+      "company_id": "JP:8035",
+      "canonical_name": "Tokyo Electron",
+      "aliases": ["东京电子", "東京エレクトロン", "tokyo electron", "tel"]
+    },
+    {
+      "market": "JP",
+      "ticker": "9984",
+      "company_id": "JP:9984",
+      "canonical_name": "SoftBank Group",
+      "aliases": ["软银", "软银集团", "軟銀", "softbank", "softbank group"]
+    },
+    {
+      "market": "JP",
+      "ticker": "9433",
+      "company_id": "JP:9433",
+      "canonical_name": "KDDI",
+      "aliases": ["kddi", "kddi corporation"]
+    },
+    {
+      "market": "JP",
+      "ticker": "7267",
+      "company_id": "JP:7267",
+      "canonical_name": "Honda Motor",
+      "aliases": ["本田", "本田技研", "本田技研工业", "本田技研工業", "honda", "honda motor"]
+    },
+    {
+      "market": "JP",
+      "ticker": "7751",
+      "company_id": "JP:7751",
+      "canonical_name": "Canon",
+      "aliases": ["佳能", "canon"]
+    },
+    {
+      "market": "JP",
+      "ticker": "4063",
+      "company_id": "JP:4063",
+      "canonical_name": "Shin-Etsu Chemical",
+      "aliases": ["信越化学", "信越化學", "信越化学工业", "shin-etsu", "shin etsu chemical"]
+    },
+    {
+      "market": "JP",
+      "ticker": "4568",
+      "company_id": "JP:4568",
+      "canonical_name": "Daiichi Sankyo",
+      "aliases": ["第一三共", "daiichi sankyo"]
+    },
+    {
+      "market": "JP",
+      "ticker": "4502",
+      "company_id": "JP:4502",
+      "canonical_name": "Takeda Pharmaceutical",
+      "aliases": ["武田", "武田制药", "武田製薬", "武田药品", "武田薬品", "takeda", "takeda pharmaceutical"]
+    },
+    {
+      "market": "JP",
+      "ticker": "8031",
+      "company_id": "JP:8031",
+      "canonical_name": "Mitsui & Co.",
+      "aliases": ["三井物产", "三井物産", "mitsui", "mitsui & co"]
+    },
+    {
+      "market": "JP",
+      "ticker": "8316",
+      "company_id": "JP:8316",
+      "canonical_name": "Sumitomo Mitsui Financial Group",
+      "aliases": ["三井住友", "三井住友金融", "三井住友金融集团", "smfg", "smbc group", "sumitomo mitsui"]
+    },
+    {
+      "market": "JP",
+      "ticker": "6301",
+      "company_id": "JP:6301",
+      "canonical_name": "Komatsu",
+      "aliases": ["小松", "小松制作所", "小松製作所", "komatsu"]
+    },
+    {
+      "market": "JP",
+      "ticker": "8802",
+      "company_id": "JP:8802",
+      "canonical_name": "Mitsubishi Estate",
+      "aliases": ["三菱地所", "mitsubishi estate"]
+    },
+    {
+      "market": "JP",
+      "ticker": "6098",
+      "company_id": "JP:6098",
+      "canonical_name": "Recruit Holdings",
+      "aliases": ["瑞可利", "recruit", "recruit holdings"]
+    },
+    {
+      "market": "JP",
+      "ticker": "6503",
+      "company_id": "JP:6503",
+      "canonical_name": "Mitsubishi Electric",
+      "aliases": ["三菱电机", "三菱電機", "mitsubishi electric"]
+    },
+    {
+      "market": "JP",
+      "ticker": "5108",
+      "company_id": "JP:5108",
+      "canonical_name": "Bridgestone",
+      "aliases": ["普利司通", "bridgestone"]
+    },
+    {
+      "market": "JP",
+      "ticker": "7270",
+      "company_id": "JP:7270",
+      "canonical_name": "Subaru",
+      "aliases": ["斯巴鲁", "速霸陆", "subaru"]
+    },
+    {
+      "market": "JP",
+      "ticker": "7272",
+      "company_id": "JP:7272",
+      "canonical_name": "Yamaha Motor",
+      "aliases": ["雅马哈发动机", "雅马哈", "yamaha motor"]
+    },
+    {
+      "market": "JP",
+      "ticker": "2502",
+      "company_id": "JP:2502",
+      "canonical_name": "Asahi Group",
+      "aliases": ["朝日集团", "朝日啤酒", "asahi", "asahi group"]
+    },
+    {
+      "market": "JP",
+      "ticker": "7733",
+      "company_id": "JP:7733",
+      "canonical_name": "Olympus",
+      "aliases": ["奥林巴斯", "olympus"]
+    },
+    {
+      "market": "KR",
+      "ticker": "005930",
+      "company_id": "00126380",
+      "canonical_name": "Samsung Electronics",
+      "aliases": ["三星", "三星电子", "samsung", "samsung electronics"]
+    },
+    {
+      "market": "KR",
+      "ticker": "005380",
+      "canonical_name": "Hyundai Motor",
+      "aliases": ["现代汽车", "hyundai", "hyundai motor"]
+    },
+    {
+      "market": "KR",
+      "ticker": "000660",
+      "canonical_name": "SK hynix",
+      "aliases": ["sk海力士", "sk hynix"]
+    },
+    {
+      "market": "HK",
+      "ticker": "03690",
+      "canonical_name": "Meituan",
+      "aliases": ["美团", "美团w", "美团点评", "meituan", "meituanw"]
+    },
+    {
+      "market": "HK",
+      "ticker": "09988",
+      "canonical_name": "Alibaba Group Holding Limited",
+      "aliases": ["阿里巴巴", "阿里", "alibaba", "alibaba group"]
+    }
+  ]
+}

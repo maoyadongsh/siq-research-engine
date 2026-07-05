@@ -54,6 +54,8 @@ def _normalized_manifest(manifest: dict[str, Any], *, output_root: Path, company
         "stock_code": manifest.get("stock_code") or manifest.get("ticker"),
         "hkex_stock_code": manifest.get("hkex_stock_code") or manifest.get("ticker"),
         "exchange": manifest.get("exchange") or "HKEX",
+        "company_wiki_id": company_dir.name,
+        "company_wiki_path": _rel_to(output_root, company_dir),
         "wiki_company_path": _rel_to(output_root, company_dir),
         "wiki_report_path": _rel_to(output_root, package_dir),
     }

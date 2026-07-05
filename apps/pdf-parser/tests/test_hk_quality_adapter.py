@@ -46,6 +46,66 @@ def test_merge_quality_candidates_uses_hk_statement_labels_for_hk_financial_data
     assert [item["name"] for item in merged["indicator_table_candidates"]] == ["Occupancy Rate"]
 
 
+def test_merge_quality_candidates_prefers_evidence_line_over_internal_table_index():
+    report = {
+        "report_kind": "annual_report",
+        "key_table_candidates": {},
+        "table_index": [
+            {
+                "table_index": 5,
+                "line": 320,
+                "pdf_page_number": 8,
+                "heading": "Management discussion and analysis",
+                "preview": "Revenues Cost of revenues Gross profit Selling and marketing expenses",
+            },
+            {
+                "table_index": 41,
+                "line": 1800,
+                "pdf_page_number": 55,
+                "heading": "Hong Kong, 18 March 2026",
+                "preview": "Note Year ended 31 December 2025 RMB Million 2024 RMB Million Revenues Cost of revenues Gross profit Profit before income tax Income tax expense Profit for the year",
+            },
+        ],
+    }
+    financial_data = {
+        "market": "HK",
+        "accounting_standard": "HKFRS",
+        "report_year": 2025,
+        "statements": [
+            {
+                "statement_type": "income_statement",
+                "table_indexes": [5],
+                "unit": "RMB million",
+                "items": [
+                    {
+                        "canonical_name": "operating_revenue",
+                        "evidence": {
+                            "table_index": 5,
+                            "raw": {
+                                "table": {
+                                    "source": "result_markdown_formal_statement_window",
+                                    "line": 1800,
+                                    "heading": "Consolidated Income Statement",
+                                    "statement_type": "income_statement",
+                                    "preview": "Revenues Cost of revenues Gross profit Profit before income tax Income tax expense Profit for the year",
+                                }
+                            },
+                        },
+                    }
+                ],
+            }
+        ],
+    }
+
+    merged = quality.merge_quality_candidates_from_financial_data(report, financial_data)
+    by_name = {item["name"]: item for item in merged["core_financial_table_candidates"]}
+
+    assert by_name["Statement of Profit or Loss"]["status"] == "found"
+    assert by_name["Statement of Profit or Loss"]["table_index"] == 41
+    assert by_name["Statement of Profit or Loss"]["line"] == 1800
+    assert by_name["Statement of Profit or Loss"]["_source"] == "financial_data_evidence"
+
+
 def test_merge_quality_candidates_falls_back_to_hk_table_locator_for_missing_core_tables():
     report = {
         "report_kind": "annual_report",

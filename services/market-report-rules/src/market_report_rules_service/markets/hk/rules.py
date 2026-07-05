@@ -206,12 +206,8 @@ HK_LABEL_RULES: tuple[MetricRule, ...] = (
             "total equity",
             "total shareholders' equity",
             "total shareholders’ equity",
-            "shareholders' equity",
-            "shareholders’ equity",
-            "stockholders' equity",
             "total jd.com, inc. shareholders' equity",
             "total li auto inc. shareholders’ equity",
-            "equity attributable",
             "net assets",
             "capital and reserves",
             "权益总额",
@@ -313,6 +309,9 @@ HK_LABEL_RULES: tuple[MetricRule, ...] = (
             "net cash used in operating activities",
             "net cash inflow from operating activities",
             "net cash outflow from operating activities",
+            "net cash from operating activities",
+            "net cash generated from operations",
+            "cash generated from operations",
             "net cash flow from operating activities",
             "net cash flow (used in)/from operating activities",
             "net cash flow used in/from operating activities",
@@ -339,6 +338,8 @@ HK_LABEL_RULES: tuple[MetricRule, ...] = (
             "net cash inflow from investing activities",
             "net cash outflow from investing activities",
             "net cash flows used in investing activities",
+            "net cash generated from investing activities",
+            "net cash from investing activities",
             "net cash from investing activities",
             "net cash flows from investing activities",
             "投资活动现金流量净额",
@@ -353,6 +354,8 @@ HK_LABEL_RULES: tuple[MetricRule, ...] = (
             "net cash inflow from financing activities",
             "net cash outflow from financing activities",
             "net cash flows used in financing activities",
+            "net cash generated from financing activities",
+            "net cash from financing activities",
             "net cash from financing activities",
             "net cash flows from financing activities",
             "融资活动现金流量净额",
@@ -366,6 +369,8 @@ HK_LABEL_RULES: tuple[MetricRule, ...] = (
             "net increase in cash and cash equivalents",
             "net increase/(decrease) in cash and cash equivalents",
             "net increase (decrease) in cash and cash equivalents",
+            "net increase/decrease in cash and cash equivalents",
+            "net decrease in cash and cash equivalents",
             "现金及现金等价物增加净额",
             "現金及現金等價物增加淨額",
         ),
@@ -378,12 +383,26 @@ HK_LABEL_RULES: tuple[MetricRule, ...] = (
     MetricRule(
         "cash_equivalents_beginning",
         StatementType.CASH_FLOW_STATEMENT,
-        ("cash and cash equivalents at beginning", "期初现金及现金等价物", "期初現金及現金等價物"),
+        (
+            "cash and cash equivalents at beginning",
+            "cash and cash equivalents at the beginning",
+            "cash and cash equivalents at beginning of the year",
+            "cash and cash equivalents at the beginning of the year",
+            "期初现金及现金等价物",
+            "期初現金及現金等價物",
+        ),
     ),
     MetricRule(
         "cash_equivalents_ending",
         StatementType.CASH_FLOW_STATEMENT,
-        ("cash and cash equivalents at end", "期末现金及现金等价物", "期末現金及現金等價物"),
+        (
+            "cash and cash equivalents at end",
+            "cash and cash equivalents at the end",
+            "cash and cash equivalents at end of the year",
+            "cash and cash equivalents at the end of the year",
+            "期末现金及现金等价物",
+            "期末現金及現金等價物",
+        ),
     ),
     MetricRule(
         "basic_eps",
@@ -490,6 +509,26 @@ def _rule_allowed(rule: MetricRule, normalized: str) -> bool:
     if rule.canonical_name == "income_tax_expense":
         if any(token in normalized for token in ("beforeincometax", "beforetax", "除所得税前", "除所得稅前")):
             return False
+    if rule.canonical_name in {"total_assets", "total_liabilities"}:
+        if any(token in normalized for token in ("average", "averagetotal", "ratio", "percentage", "turnover", "周轉", "周转", "比率")):
+            return False
     if rule.canonical_name == "total_equity" and any(token in normalized for token in ("netassets", "資產淨值", "资产净值")):
         return normalized in {"netassets", "totalnetassets", "資產淨值", "资产净值"}
+    if rule.canonical_name == "total_equity":
+        if any(
+            token in normalized
+            for token in (
+                "attributableto",
+                "recognizedin",
+                "recognisedin",
+                "sharebasedpayment",
+                "percentageof",
+                "asapercentage",
+                "statementofchanges",
+                "changesinequity",
+                "equitysettled",
+                "reserves",
+            )
+        ):
+            return False
     return True

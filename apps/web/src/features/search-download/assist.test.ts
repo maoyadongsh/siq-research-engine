@@ -80,6 +80,34 @@ test('buildAssistSearchPlan carries EU country filter only for EU searches', () 
   assert.equal(plan.targetCountry, 'NL')
 })
 
+test('buildAssistSearchPlan carries JP catalog identifier and YUHO intent', () => {
+  const result = {
+    intent: {
+      market: 'JP',
+      company_query: '任天堂',
+      ticker: '7974',
+      company_id: 'JP:7974',
+      report_year: 2025,
+      report_types: ['annual'],
+    },
+  } satisfies AssistResult
+
+  const plan = buildAssistSearchPlan(result, {
+    currentMarket: 'CN',
+    currentYear: '2024',
+    currentMarketFilter: '',
+    smartPrompt: '下载任天堂有价证券报告书',
+  })
+
+  assert.equal(plan.targetMarket, 'JP')
+  assert.equal(plan.targetYear, '2025')
+  assert.equal(plan.nextQuery, '7974')
+  assert.equal(plan.targetQuery, '任天堂')
+  assert.equal(plan.targetTicker, '7974')
+  assert.equal(plan.targetCompanyId, 'JP:7974')
+  assert.deepEqual(plan.reportTypes, ['annual'])
+})
+
 test('buildAssistIntentChips formats market, report types, and assistant mode', () => {
   const chips = buildAssistIntentChips(
     {

@@ -446,12 +446,15 @@ KOL态度：[支持/中立/反对]
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**自动化脚本：**
-```bash
-python3 scripts/startup_retrieval.py \
-  --project {project_tag} \
-  --company {company_name} \
-  --industry {industry}
+**自动化入口：**
+```text
+POST /api/deals/{deal_id}/agents/siq_ic_risk_controller/startup-retrieval
+
+{
+  "round_name": "R1",
+  "query": "{company_name} 风险 供应链 舆情 行业周期",
+  "limit": 20
+}
 ```
 
 **详细协议文件：** `STARTUP_PROTOCOL.md`

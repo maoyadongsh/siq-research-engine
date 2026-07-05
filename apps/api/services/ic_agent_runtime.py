@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import re
-from html import escape
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +12,7 @@ from services import deal_disputes
 from services import deal_reports
 from services import deal_store
 from services import hermes_client
+from services import ic_decision_report
 from services import ic_policy
 
 
@@ -35,7 +35,6 @@ R1_AGENT_REPORT_SCHEMA = "siq_ic_r1_agent_report_v1"
 R2_AGENT_REPORT_SCHEMA = "siq_ic_r2_agent_report_v1"
 R3_REVIEW_SCHEMA = "siq_ic_r3_review_v1"
 R3_AGENT_REVIEW_SCHEMA = "siq_ic_r3_agent_review_v1"
-R4_DECISION_SCHEMA = "siq_ic_r4_decision_v1"
 SUPPORTED_ROUNDS = {"R1"}
 REPORT_STEMS = {
     "siq_ic_strategist": "strategist",
@@ -1313,190 +1312,6 @@ def _r4_gate(
     }
 
 
-def _weighted_agent_score(plan: dict[str, Any]) -> tuple[float | None, list[dict[str, Any]], list[str]]:
-    policy = plan.get("policy") if isinstance(plan.get("policy"), dict) else {}
-    weights = policy.get("weights") if isinstance(policy.get("weights"), dict) else {}
-    role_agents = _role_agent_ids(policy)
-    scoring_inputs: list[dict[str, Any]] = []
-    warnings: list[str] = []
-    weighted_sum = 0.0
-    weight_sum = 0.0
-    for role, raw_weight in weights.items():
-        weight = _numeric(raw_weight)
-        if weight is None or weight <= 0:
-            continue
-        agent_id = role_agents.get(str(role), ROLE_AGENT_FALLBACK.get(str(role), str(role)))
-        report = plan["r2_reports"].get(agent_id) or plan["r1_reports"].get(agent_id) or {}
-        score = _numeric(report.get("r2_score", report.get("score")))
-        scoring_inputs.append({
-            "role": role,
-            "agent_id": agent_id,
-            "weight": weight,
-            "score": score,
-            "source_round": report.get("round_name"),
-        })
-        if score is None:
-            warnings.append(f"weighted_score_missing:{role}:{agent_id}")
-            continue
-        weighted_sum += score * weight
-        weight_sum += weight
-    if weight_sum <= 0:
-        return None, scoring_inputs, warnings
-    if weight_sum < sum(float(item["weight"]) for item in scoring_inputs if item.get("weight") is not None):
-        warnings.append(f"weighted_score_normalized_weight_sum:{weight_sum:.2f}")
-    return _round_score(weighted_sum / weight_sum), scoring_inputs, warnings
-
-
-def _threshold_result(score: float, policy: dict[str, Any]) -> str:
-    thresholds = policy.get("thresholds") if isinstance(policy.get("thresholds"), dict) else {}
-    pass_min = _numeric(thresholds.get("pass")) or 70.0
-    review_min = _numeric(thresholds.get("review_min")) or 68.0
-    review_max = _numeric(thresholds.get("review_max")) or pass_min - 1
-    if score >= pass_min:
-        return "pass"
-    if review_min <= score <= review_max:
-        return "review"
-    return "fail"
-
-
-def _qualitative_decision(threshold_result: str) -> str:
-    if threshold_result == "pass":
-        return "建议投资，但需设置估值、退出和关键客户验证保护条款"
-    if threshold_result == "review":
-        return "建议复核后再议，需补齐关键证据和条款保护"
-    return "暂缓投资，待核心风险和证据缺口关闭后重新提交"
-
-
-def _r4_conditions(plan: dict[str, Any]) -> list[str]:
-    conditions: list[Any] = []
-    disputes = _r1_5_summary(plan["deal_id"], wiki_root=plan.get("wiki_root"))
-    for dispute in disputes.get("disputes", []) if isinstance(disputes.get("disputes"), list) else []:
-        if not isinstance(dispute, dict):
-            continue
-        conditions.extend(_string_items(dispute.get("required_followups")))
-    r3 = _r3_payload(plan["package_dir"])
-    r3_reports = _canonical_keyed_payload(r3.get("reports") or {})
-    for report in r3_reports.values():
-        conditions.extend(_string_items(report.get("challenges")))
-    for report in plan["r2_reports"].values():
-        conditions.extend(_string_items(report.get("open_questions")))
-        conditions.extend(_string_items(report.get("risk_flags")))
-    values = _dedupe_strings(conditions)
-    return values[:12] or ["投委会人工确认后方可进入投资执行流程"]
-
-
-def _r4_monitoring_metrics(plan: dict[str, Any]) -> list[str]:
-    del plan
-    return [
-        "核心客户续约和收入确认质量",
-        "现金流、毛利率和估值敏感性",
-        "重大合同、知识产权、诉讼和资质状态",
-        "供应链、舆情和黑天鹅风险",
-    ]
-
-
-def _build_r4_decision_payload(plan: dict[str, Any], *, created_by: dict[str, Any] | None = None) -> dict[str, Any]:
-    weighted_score, scoring_inputs, scoring_warnings = _weighted_agent_score(plan)
-    chairman_score = _round_score(plan.get("chairman_score"))
-    if weighted_score is None:
-        raise ValueError("R4 finalize blocked: weighted_agent_score_unavailable")
-    if chairman_score is None:
-        raise ValueError("R4 finalize blocked: chairman_dimension_score_unavailable")
-    final_score = chairman_score
-    threshold = _threshold_result(final_score, plan["policy"])
-    now = deal_store.utc_now_iso()
-    return {
-        "schema_version": R4_DECISION_SCHEMA,
-        "deal_id": plan["deal_id"],
-        "decision": threshold,
-        "final_score": final_score,
-        "weighted_agent_score": weighted_score,
-        "chairman_dimension_score": chairman_score,
-        "chairman_qualitative_decision": _qualitative_decision(threshold),
-        "threshold_result": threshold,
-        "conditions": _r4_conditions(plan),
-        "monitoring_metrics": _r4_monitoring_metrics(plan),
-        "human_confirmation": {
-            "status": "pending",
-            "confirmed_by": None,
-            "confirmed_at": None,
-            "override_reason": None,
-        },
-        "artifact_paths": {
-            "markdown": "decision/IC_DECISION_REPORT.md",
-            "html": "decision/IC_DECISION_REPORT.html",
-        },
-        "scoring_inputs": {
-            "weighted_agent_score": scoring_inputs,
-            "chairman_dimension_source": "siq_ic_chairman.r1_report_score",
-            "warnings": scoring_warnings,
-        },
-        "generation_mode": "deterministic_siq_r4_finalize_v1",
-        "created_by": created_by,
-        "created_at": now,
-        "updated_at": now,
-    }
-
-
-def _write_r4_markdown(package_dir: Path, decision: dict[str, Any]) -> str:
-    lines = [
-        "# IC Decision Report",
-        "",
-        "## Conclusion",
-        "",
-        f"- Decision: `{decision.get('decision')}`",
-        f"- Final score: `{decision.get('final_score')}`",
-        f"- Chairman qualitative decision: {decision.get('chairman_qualitative_decision')}",
-        "",
-        "## Evidence sufficiency",
-        "",
-        f"- Weighted agent score: `{decision.get('weighted_agent_score')}`",
-        f"- Chairman dimension score: `{decision.get('chairman_dimension_score')}`",
-        f"- Threshold result: `{decision.get('threshold_result')}`",
-        "",
-        "## Key verified facts",
-        "",
-        "- See R1/R2 expert reports and deal evidence package for source-linked facts.",
-        "",
-        "## Key unverified assumptions",
-        "",
-        "- See R2 open questions and R3 challenge items.",
-        "",
-        "## Core disagreements and chairman ruling",
-        "",
-        "- See `phases/r1_5_disputes.json` and `discussion/02_R1.5_裁决记录.md`.",
-        "",
-        "## Investment conditions and post-investment monitoring metrics",
-        "",
-        "### Conditions",
-        "",
-        _markdown_list(decision.get("conditions") if isinstance(decision.get("conditions"), list) else []),
-        "",
-        "### Monitoring Metrics",
-        "",
-        _markdown_list(decision.get("monitoring_metrics") if isinstance(decision.get("monitoring_metrics"), list) else []),
-        "",
-        "## Human Confirmation",
-        "",
-        f"- Status: `{(decision.get('human_confirmation') or {}).get('status')}`",
-    ]
-    return _write_text_artifact(package_dir, "decision/IC_DECISION_REPORT.md", "\n".join(lines))
-
-
-def _write_r4_html(package_dir: Path, decision: dict[str, Any], markdown_path: str) -> str:
-    markdown = (package_dir / markdown_path).read_text(encoding="utf-8", errors="replace")
-    body = "\n".join(
-        f"<p>{escape(line)}</p>" if line.strip() else ""
-        for line in markdown.splitlines()
-    )
-    html = (
-        "<!doctype html><html><head><meta charset=\"utf-8\">"
-        "<title>IC Decision Report</title></head><body>"
-        f"{body}</body></html>"
-    )
-    return _write_text_artifact(package_dir, "decision/IC_DECISION_REPORT.html", html)
-
-
 def build_workflow_r4_finalize_dry_run(
     deal_id: str,
     *,
@@ -1508,7 +1323,7 @@ def build_workflow_r4_finalize_dry_run(
     allowed = not plan["blocking_reasons"]
     payload: dict[str, Any] = {}
     if allowed:
-        payload = _build_r4_decision_payload(plan)
+        payload = ic_decision_report.build_r4_decision_payload(plan)
     return deal_store.redact_public_payload({
         "schema_version": WORKFLOW_R4_FINALIZE_DRY_RUN_SCHEMA,
         "deal_id": plan["deal_id"],
@@ -1524,9 +1339,9 @@ def build_workflow_r4_finalize_dry_run(
         "counts": plan["counts"],
         "output_paths": {
             "json": "phases/r4_decision.json",
-            "markdown": "decision/IC_DECISION_REPORT.md",
-            "html": "decision/IC_DECISION_REPORT.html",
-            "decision_payload": "decision/decision_payload.json",
+            "markdown": ic_decision_report.R4_MARKDOWN_PATH,
+            "html": ic_decision_report.R4_HTML_PATH,
+            "decision_payload": ic_decision_report.R4_PAYLOAD_PATH,
         },
         "decision_preview": payload,
         "hermes_called": False,
@@ -1547,17 +1362,18 @@ def finalize_workflow_r4(
     if plan["blocking_reasons"]:
         raise ValueError(f"R4 finalize blocked: {', '.join(plan['blocking_reasons'])}")
     package_dir = plan["package_dir"]
-    decision = _build_r4_decision_payload(plan, created_by=created_by)
+    decision = ic_decision_report.build_r4_decision_payload(plan, created_by=created_by)
     json_path = "phases/r4_decision.json"
     deal_store.write_json(package_dir / json_path, decision)
-    markdown_path = _write_r4_markdown(package_dir, decision)
-    html_path = _write_r4_html(package_dir, decision, markdown_path)
-    deal_store.write_json(package_dir / "decision" / "decision_payload.json", decision)
+    artifact_paths = ic_decision_report.write_r4_decision_artifacts(package_dir, decision)
+    markdown_path = artifact_paths["markdown"]
+    html_path = artifact_paths["html"]
+    decision_payload_path = artifact_paths["decision_payload"]
     workflow = _advance_workflow_phase(
         package_dir,
         phase="R4",
         workflow_status="r4_completed",
-        artifacts=[json_path, markdown_path, html_path, "decision/decision_payload.json"],
+        artifacts=[json_path, markdown_path, html_path, decision_payload_path],
         extra={
             "decision": decision.get("decision"),
             "final_score": decision.get("final_score"),
@@ -1602,7 +1418,7 @@ def finalize_workflow_r4(
             "json": json_path,
             "markdown": markdown_path,
             "html": html_path,
-            "decision_payload": "decision/decision_payload.json",
+            "decision_payload": decision_payload_path,
         },
         "decision": decision,
         "hermes_called": False,

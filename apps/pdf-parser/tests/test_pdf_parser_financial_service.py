@@ -294,6 +294,36 @@ def test_ensure_financial_artifacts_rewrites_current_jp_files_without_market_pro
     assert calls == [("rewrite", task, "markdown", "Keyence-Corporation_JP_6861_2025.pdf")]
 
 
+def test_financial_artifacts_match_market_rejects_old_non_cn_market_payloads():
+    stale_data = {
+        "schema_version": financial.FINANCIAL_DATA_SCHEMA_VERSION,
+        "rule_version": financial.FINANCIAL_RULE_VERSION,
+        "summary": {"statement_count": 0},
+    }
+    stale_checks = {
+        "schema_version": financial.FINANCIAL_CHECKS_SCHEMA_VERSION,
+        "rule_version": financial.FINANCIAL_RULE_VERSION,
+        "summary": {"pass": 0},
+    }
+
+    for market in ("HK", "JP", "KR", "EU", "US"):
+        assert not financial.financial_artifacts_match_market(market, stale_data, stale_checks)
+
+    assert financial.financial_artifacts_match_market("CN", stale_data, stale_checks)
+
+
+def test_detect_market_recognizes_us_pdf_fallback_names():
+    assert financial.detect_market({"submit_config": {"market": "US"}}, "anything.pdf") == "US"
+    assert financial.detect_market({}, "NVIDIA_US_NVDA_2025-10-K_sec.pdf") == "US"
+
+
+def test_us_sec_schema_v1_artifacts_are_current_for_us_sec_chain():
+    data = {"schema_version": 1, "rule_version": "us_sec_rules_v1", "market": "US"}
+    checks = {"schema_version": 1, "rule_version": "us_sec_rules_v1", "market": "US"}
+
+    assert financial.financial_artifacts_are_current(data, checks)
+
+
 def test_write_financial_artifacts_dispatches_hk_market_to_hk_builder(tmp_path, monkeypatch):
     task = {"task_id": "hk-task", "filename": "LINK-REIT_HK_00823_2025-12-31_年报_2026-06-11_hkex.pdf"}
     result_dir = lambda value: str(tmp_path / value["task_id"])
@@ -359,27 +389,37 @@ def test_write_financial_artifacts_keeps_non_hk_on_legacy_builder(tmp_path, monk
     assert writes["financial_data.json"]["task_id"] == "cn-task"
 
 
-def test_write_financial_artifacts_dispatches_kr_market_to_kr_checks(tmp_path, monkeypatch):
+def test_write_financial_artifacts_dispatches_kr_market_to_kr_builder(tmp_path, monkeypatch):
     task = {"task_id": "kr-task", "filename": "Samsung-Electronics-Co.,-Ltd_KR_005930_2025.pdf"}
     result_dir = lambda value: str(tmp_path / value["task_id"])
     writes = {}
-    build_kwargs = {}
+    calls = []
 
     def write_json(path, payload):
         writes[Path(path).name] = payload
 
-    def fake_build_data(markdown, **kwargs):
-        build_kwargs.update(kwargs)
+    def fake_kr_builder(task, markdown, *, result_dir_path, filename=None):
+        calls.append({"task": task, "markdown": markdown, "result_dir_path": result_dir_path, "filename": filename})
         return {
             "schema_version": financial.FINANCIAL_DATA_SCHEMA_VERSION,
             "rule_version": financial.FINANCIAL_RULE_VERSION,
-            "market": kwargs["market"],
-            "task_id": kwargs["task_id"],
-            "filename": kwargs["filename"],
+            "profile_rule_version": financial.KR_FINANCIAL_PROFILE_VERSION,
+            "market": "KR",
+            "task_id": task["task_id"],
+            "filename": filename,
             "report_kind": "kr_business_report",
-            "statements": [],
+            "statements": [{"statement_type": "balance_sheet"}],
+            "warnings": [],
+        }, {
+            "schema_version": financial.FINANCIAL_CHECKS_SCHEMA_VERSION,
+            "rule_version": financial.FINANCIAL_RULE_VERSION,
+            "profile_rule_version": financial.KR_FINANCIAL_PROFILE_VERSION,
+            "market": "KR",
+            "overall_status": "pass",
             "warnings": [],
         }
+
+    monkeypatch.setattr(financial, "build_kr_financial_artifacts", fake_kr_builder)
 
     data, checks = financial.write_financial_artifacts(
         task,
@@ -387,16 +427,16 @@ def test_write_financial_artifacts_dispatches_kr_market_to_kr_checks(tmp_path, m
         result_dir=result_dir,
         write_json=write_json,
         financial_llm_cache_folder=str(tmp_path / "cache"),
-        build_data=fake_build_data,
+        build_data=lambda markdown, **kwargs: (_ for _ in ()).throw(AssertionError("legacy builder should not be called")),
     )
 
-    assert build_kwargs["market"] == "KR"
     assert data["market"] == "KR"
     assert checks["market"] == "KR"
-    assert checks["overall_status"] == "skipped"
+    assert checks["overall_status"] == "pass"
+    assert calls[0]["filename"] == task["filename"]
+    assert Path(calls[0]["result_dir_path"]).name == "kr-task"
     assert writes["financial_data.json"]["market"] == "KR"
     assert writes["financial_checks.json"]["market"] == "KR"
-    assert not any("合并资产负债表" in item for item in checks["warnings"])
 
 
 def test_hk_financial_artifact_builder_extracts_link_reit_sample():
@@ -426,24 +466,27 @@ def test_hk_financial_artifact_builder_extracts_link_reit_sample():
     assert checks["summary"]["total"] >= 1
 
 
-def test_write_financial_artifacts_dispatches_kr_market_to_kr_checks(tmp_path, monkeypatch):
-    task = {"task_id": "kr-task", "filename": "Samsung-Electronics-Co.,-Ltd_KR_005930_2025.pdf"}
+def test_write_financial_artifacts_dispatches_eu_market_to_eu_checks(tmp_path):
+    task = {
+        "task_id": "eu-task",
+        "filename": "London-Stock-Exchange-Group-plc_EU_LSEG_2025-12-31_annual.pdf",
+    }
     result_dir = lambda value: str(tmp_path / value["task_id"])
     writes = {}
+    build_kwargs = {}
 
     def write_json(path, payload):
         writes[Path(path).name] = payload
 
     def fake_build_data(markdown, **kwargs):
-        assert kwargs["market"] == "KR"
+        build_kwargs.update(kwargs)
         return {
             "schema_version": financial.FINANCIAL_DATA_SCHEMA_VERSION,
             "rule_version": financial.FINANCIAL_RULE_VERSION,
+            "market": kwargs["market"],
             "task_id": kwargs["task_id"],
             "filename": kwargs["filename"],
-            "market": kwargs["market"],
-            "report_kind": "kr_business_report",
-            "report_year": "2025",
+            "report_kind": "eu_annual_report",
             "statements": [],
             "warnings": [],
             "summary": {"statement_count": 0, "key_metric_count": 0, "scopes": []},
@@ -451,20 +494,65 @@ def test_write_financial_artifacts_dispatches_kr_market_to_kr_checks(tmp_path, m
 
     data, checks = financial.write_financial_artifacts(
         task,
-        "III. 재무에 관한 사항\n2-1. 연결 재무상태표",
+        "Annual Report and Accounts\nFinancial Statements",
         result_dir=result_dir,
         write_json=write_json,
         financial_llm_cache_folder=str(tmp_path / "cache"),
         build_data=fake_build_data,
     )
 
-    assert data["market"] == "KR"
-    assert checks["market"] == "KR"
-    assert checks["overall_status"] == "skipped"
-    assert writes["financial_data.json"]["market"] == "KR"
-    assert writes["financial_checks.json"]["market"] == "KR"
-    assert any("KR PDF" in item for item in checks["warnings"])
-    assert not any("合并资产负债表" in item for item in checks["warnings"])
+    assert financial.detect_market(task, task["filename"]) == "EU"
+    assert build_kwargs["market"] == "EU"
+    assert data["market"] == "EU"
+    assert checks["market"] == "EU"
+    assert checks["overall_status"] == "fail"
+    assert writes["financial_data.json"]["market"] == "EU"
+    assert writes["financial_checks.json"]["market"] == "EU"
+    assert not any("未提取到合并资产负债表" in item for item in checks["warnings"])
+
+
+def test_write_financial_artifacts_uses_us_fallback_checks_without_a_share_warnings(tmp_path):
+    task = {"task_id": "us-task", "filename": "NVIDIA-CORP_US_NVDA_2025-01-26_10-K_sec.pdf"}
+    result_dir = lambda value: str(tmp_path / value["task_id"])
+    writes = {}
+    build_kwargs = {}
+
+    def write_json(path, payload):
+        writes[Path(path).name] = payload
+
+    def fake_build_data(markdown, **kwargs):
+        build_kwargs.update(kwargs)
+        return {
+            "schema_version": financial.FINANCIAL_DATA_SCHEMA_VERSION,
+            "rule_version": financial.FINANCIAL_RULE_VERSION,
+            "market": kwargs["market"],
+            "task_id": kwargs["task_id"],
+            "filename": kwargs["filename"],
+            "report_kind": "us_10k",
+            "statements": [],
+            "warnings": [],
+            "summary": {"statement_count": 0, "key_metric_count": 0, "scopes": []},
+        }
+
+    data, checks = financial.write_financial_artifacts(
+        task,
+        "Form 10-K\nItem 8. Financial Statements",
+        result_dir=result_dir,
+        write_json=write_json,
+        financial_llm_cache_folder=str(tmp_path / "cache"),
+        build_data=fake_build_data,
+    )
+
+    assert build_kwargs["market"] == "US"
+    assert data["market"] == "US"
+    assert checks["market"] == "US"
+    assert checks["market_profile"] == "US"
+    joined_warnings = "\n".join(checks.get("warnings") or [])
+    assert "合并资产负债表" not in joined_warnings
+    assert "合并利润表" not in joined_warnings
+    assert "SEC HTML/iXBRL" in joined_warnings
+    assert writes["financial_data.json"]["market"] == "US"
+    assert writes["financial_checks.json"]["market"] == "US"
 
 
 def test_write_financial_artifacts_uses_jp_profile_without_a_share_missing_warnings(tmp_path):

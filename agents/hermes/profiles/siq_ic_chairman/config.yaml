@@ -26,6 +26,7 @@ toolsets:
 - file
 - code_execution
 - web
+- skills
 agent:
   max_turns: 80
   gateway_timeout: 1800
@@ -33,7 +34,6 @@ agent:
   tool_use_enforcement: true
   disabled_toolsets:
   - browser
-  - skills
   - memory
   - session_search
   - todo
@@ -60,6 +60,8 @@ compression:
   enabled: true
 memory:
   memory_enabled: false
+skills:
+  creation_nudge_interval: 0
 custom_providers:
 - name: Gemma4 Local
   base_url: http://127.0.0.1:8006/v1

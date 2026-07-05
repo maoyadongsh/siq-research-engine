@@ -22,9 +22,9 @@ STORAGE = MarketStorageProfile(
     market=Market.JP,
     postgres_database="siq",
     postgres_schema="edinet_jp",
-    wiki_namespace="data/wiki/jp_reports",
+    wiki_namespace="data/wiki/jp",
     raw_download_root="data/market-report-finder/downloads/JP",
-    parsed_artifact_root="data/wiki/jp_reports",
+    parsed_artifact_root="data/wiki/jp",
     agent_policy="market_specific_agents_only",
     notes=(
         "JP report facts must stay in the project-managed siq/edinet_jp namespace.",

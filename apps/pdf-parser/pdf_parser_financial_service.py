@@ -5,9 +5,12 @@ from __future__ import annotations
 import json
 import os
 import inspect
+import re
 from typing import Any, Callable
 
-from hk_financial_artifacts import build_hk_financial_artifacts
+from hk_financial_artifacts import HK_FINANCIAL_PROFILE_VERSION, build_hk_financial_artifacts
+from jp_financial_artifacts import JP_FINANCIAL_PROFILE_VERSION, build_jp_financial_artifacts
+from kr_financial_artifacts import KR_FINANCIAL_PROFILE_VERSION, build_kr_financial_artifacts
 
 from financial_extractor import (
     FINANCIAL_CHECKS_SCHEMA_VERSION,
@@ -45,6 +48,47 @@ def financial_artifacts_are_current(
     financial_data: Any,
     financial_checks: Any,
 ) -> bool:
+    if (
+        isinstance(financial_data, dict)
+        and isinstance(financial_checks, dict)
+        and str(financial_data.get("market") or "").upper() == "US"
+        and str(financial_checks.get("market") or "").upper() == "US"
+        and financial_data.get("schema_version") == 1
+        and financial_checks.get("schema_version") == 1
+        and financial_data.get("rule_version") == "us_sec_rules_v1"
+        and financial_checks.get("rule_version") == "us_sec_rules_v1"
+    ):
+        return True
+
+    def profile_is_current() -> bool:
+        market = str((financial_data or {}).get("market") or "").upper()
+        if market == "HK":
+            return (
+                financial_data.get("profile_rule_version") == HK_FINANCIAL_PROFILE_VERSION
+                and financial_checks.get("profile_rule_version") == HK_FINANCIAL_PROFILE_VERSION
+            )
+        if market == "JP":
+            return (
+                financial_data.get("profile_rule_version") == JP_FINANCIAL_PROFILE_VERSION
+                and financial_checks.get("profile_rule_version") == JP_FINANCIAL_PROFILE_VERSION
+            )
+        if market == "KR":
+            return (
+                financial_data.get("profile_rule_version") == KR_FINANCIAL_PROFILE_VERSION
+                and financial_checks.get("profile_rule_version") == KR_FINANCIAL_PROFILE_VERSION
+            )
+        if market != "EU":
+            return True
+        try:
+            import eu_market_profile as eu
+        except Exception:
+            return True
+        expected = eu.EU_PROFILE_RULE_VERSION
+        return (
+            financial_data.get("profile_rule_version") == expected
+            and financial_checks.get("profile_rule_version") == expected
+        )
+
     return (
         isinstance(financial_data, dict)
         and isinstance(financial_checks, dict)
@@ -52,6 +96,7 @@ def financial_artifacts_are_current(
         and financial_checks.get("schema_version") == FINANCIAL_CHECKS_SCHEMA_VERSION
         and financial_data.get("rule_version") == FINANCIAL_RULE_VERSION
         and financial_checks.get("rule_version") == FINANCIAL_RULE_VERSION
+        and profile_is_current()
     )
 
 
@@ -61,7 +106,7 @@ def financial_artifacts_match_market(
     financial_checks: Any,
 ) -> bool:
     market = str(market or "").upper()
-    if market not in {"HK", "JP", "KR"}:
+    if market not in {"HK", "JP", "KR", "EU", "US"}:
         return True
     return (
         isinstance(financial_data, dict)
@@ -99,6 +144,10 @@ def detect_market(task: dict[str, Any], filename: str | None = None) -> str:
         return "JP"
     if "_kr_" in lowered or "dart_public" in lowered:
         return "KR"
+    if re.search(r"(?:^|[_\-])eu(?:[_\-]|$)", lowered) or "issuer_annual_report" in lowered:
+        return "EU"
+    if "_us_" in lowered or "sec" in lowered or "10-k" in lowered or "10k" in lowered:
+        return "US"
     if "_cn_" in lowered or "sse" in lowered or "szse" in lowered or "bse" in lowered:
         return "CN"
     return "CN"
@@ -126,16 +175,30 @@ def write_financial_artifacts(
             result_dir_path=directory,
             filename=resolved_filename,
         )
+    elif market == "JP":
+        financial_data, financial_checks = build_jp_financial_artifacts(
+            task,
+            markdown,
+            result_dir_path=directory,
+            filename=resolved_filename,
+        )
+    elif market == "KR":
+        financial_data, financial_checks = build_kr_financial_artifacts(
+            task,
+            markdown,
+            result_dir_path=directory,
+            filename=resolved_filename,
+        )
     else:
         financial_data = _call_build_financial_data(
             build_data,
             markdown,
             task_id=task.get("task_id"),
             filename=resolved_filename,
-            market=market if market in {"JP", "KR"} else None,
+            market=market if market in {"JP", "KR", "EU", "US"} else None,
             llm_cache_dir=os.path.join(financial_llm_cache_folder, task.get("task_id") or "unknown"),
         )
-        if market in {"JP", "KR"} and isinstance(financial_data, dict):
+        if market in {"JP", "KR", "EU", "US"} and isinstance(financial_data, dict):
             financial_data["market"] = market
         financial_checks = build_checks(financial_data)
     write_json(financial_data_path(task, result_dir), financial_data)

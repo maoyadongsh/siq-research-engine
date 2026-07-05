@@ -1,3 +1,4 @@
+import asyncio
 import json
 import hashlib
 import os
@@ -796,6 +797,16 @@ def _assist_user_payload(request_payload: dict[str, Any], base_assist: dict[str,
     }
 
 
+def _assist_retry_user_payload(request_payload: dict[str, Any], base_assist: dict[str, Any]) -> dict[str, Any]:
+    payload = _assist_user_payload(request_payload, base_assist)
+    payload["retry_hint"] = (
+        "上一次增强没有得到可用 JSON。请优先补全 intent，"
+        "尤其是把中文境外公司名映射为当地上市主体官方名称与代码；"
+        "若没有候选列表，也只返回 intent。"
+    )
+    return payload
+
+
 def _hermes_mode_for_provider(provider: dict[str, Any]) -> str | None:
     return infer_model_mode(
         provider_name=str(provider.get("providerName") or ""),
@@ -820,34 +831,44 @@ async def _openai_compatible_enhance_assist(
         return None
 
     system = _assist_system_prompt()
-    user = _assist_user_payload(request_payload, base_assist)
     headers = {"Content-Type": "application/json"}
     if provider.get("apiKey"):
         headers["Authorization"] = f"Bearer {provider['apiKey']}"
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
-        ],
-        "temperature": min(float(provider.get("temperature", 0.2)), 0.3),
-        "max_tokens": min(int(provider.get("maxTokens", 4096)), 4096),
-        "stream": False,
-    }
-    if isinstance(provider.get("chatTemplateKwargs"), dict):
-        payload["chat_template_kwargs"] = provider["chatTemplateKwargs"]
-    try:
-        async with httpx.AsyncClient(timeout=MARKET_REPORT_ASSIST_TIMEOUT) as client:
-            resp = await client.post(f"{base_url}/chat/completions", headers=headers, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-    except Exception:
-        return None
-    choices = data.get("choices") or []
-    if not choices:
-        return None
-    message = choices[0].get("message") or {}
-    parsed = _extract_json_object(str(message.get("content") or choices[0].get("text") or ""))
+
+    async def _attempt(user_payload: dict[str, Any], retry_index: int) -> dict[str, Any] | None:
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
+            ],
+            "temperature": min(float(provider.get("temperature", 0.2)), 0.3),
+            "max_tokens": min(int(provider.get("maxTokens", 4096)), 4096),
+            "stream": False,
+        }
+        if isinstance(provider.get("chatTemplateKwargs"), dict):
+            payload["chat_template_kwargs"] = provider["chatTemplateKwargs"]
+        try:
+            async with httpx.AsyncClient(timeout=MARKET_REPORT_ASSIST_TIMEOUT) as client:
+                resp = await client.post(f"{base_url}/chat/completions", headers=headers, json=payload)
+                resp.raise_for_status()
+                data = resp.json()
+        except Exception:
+            if retry_index == 1:
+                return None
+            await asyncio.sleep(0.1)
+            return None
+        if not isinstance(data, dict):
+            return None
+        choices = data.get("choices") or []
+        if not choices:
+            return None
+        message = choices[0].get("message") or {}
+        return _extract_json_object(str(message.get("content") or choices[0].get("text") or ""))
+
+    parsed = await _attempt(_assist_user_payload(request_payload, base_assist), 0)
+    if not parsed:
+        parsed = await _attempt(_assist_retry_user_payload(request_payload, base_assist), 1)
     if not parsed:
         return None
     parsed["assistant_mode"] = f"llm:{active}:{model}"
@@ -872,29 +893,34 @@ async def _hermes_enhance_assist(
         except Exception:
             pass
 
-    prompt = "\n".join(
-        [
-            _assist_system_prompt(),
-            "只返回 JSON，不要输出 Markdown 代码块，不要调用工具，不要访问外部网页。",
-            "输入如下：",
-            json.dumps(_assist_user_payload(request_payload, base_assist), ensure_ascii=False),
-        ]
-    )
-    try:
-        run_id = await create_run(
-            prompt,
-            [],
-            profile="siq_assistant",
-            session_id=f"market-report-assist-{uuid.uuid4().hex[:12]}",
+    async def _attempt(user_payload: dict[str, Any]) -> dict[str, Any] | None:
+        prompt = "\n".join(
+            [
+                _assist_system_prompt(),
+                "只返回 JSON，不要输出 Markdown 代码块，不要调用工具，不要访问外部网页。",
+                "输入如下：",
+                json.dumps(user_payload, ensure_ascii=False),
+            ]
         )
-        text = await collect_run_result(
-            run_id,
-            profile="siq_assistant",
-            timeout=httpx.Timeout(MARKET_REPORT_ASSIST_TIMEOUT, connect=10.0),
-        )
-    except Exception:
-        return None
-    parsed = _extract_json_object(text)
+        try:
+            run_id = await create_run(
+                prompt,
+                [],
+                profile="siq_assistant",
+                session_id=f"market-report-assist-{uuid.uuid4().hex[:12]}",
+            )
+            text = await collect_run_result(
+                run_id,
+                profile="siq_assistant",
+                timeout=httpx.Timeout(MARKET_REPORT_ASSIST_TIMEOUT, connect=10.0),
+            )
+        except Exception:
+            return None
+        return _extract_json_object(text)
+
+    parsed = await _attempt(_assist_user_payload(request_payload, base_assist))
+    if not parsed:
+        parsed = await _attempt(_assist_retry_user_payload(request_payload, base_assist))
     if not parsed:
         return None
     parsed["assistant_mode"] = f"llm:{active}:hermes:{mode or model or base_url.removeprefix('hermes://')}"

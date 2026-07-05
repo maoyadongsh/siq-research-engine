@@ -174,7 +174,7 @@ def import_package(conn: Any, package_dir: Path, schema: str = "sec_us") -> str:
                 filing_id,
                 manifest.get("parser_version"),
                 manifest.get("rules_version"),
-                str(package_dir),
+                manifest.get("wiki_report_path") or manifest.get("package_path") or str(package_dir),
                 quality_status,
                 Jsonb(warnings),
                 Jsonb(artifact_hashes),

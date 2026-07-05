@@ -22,9 +22,9 @@ STORAGE = MarketStorageProfile(
     market=Market.US,
     postgres_database="siq",
     postgres_schema="sec_us",
-    wiki_namespace="data/wiki/us_sec",
+    wiki_namespace="data/wiki/us",
     raw_download_root="data/market-report-finder/downloads/US",
-    parsed_artifact_root="data/wiki/us_sec",
+    parsed_artifact_root="data/wiki/us",
     agent_policy="market_specific_agents_only",
     notes=(
         "US SEC facts must stay in the project-managed siq/sec_us namespace.",

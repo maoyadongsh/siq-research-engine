@@ -27,6 +27,9 @@ export function reportTableTitlesForMarket(market: MarketCode) {
 }
 
 export function smartSearchPlaceholderForMarket(market: MarketCode) {
+  if (market === 'HK') return '例如：腾讯控股 2025 年年报'
+  if (market === 'US') return '例如：英伟达 2025 年 10-K'
+  if (market === 'EU') return '例如：ASML 2025 年年度报告'
   if (market === 'KR') return '例如：三星电子 2025 年年报和三季度报告'
   if (market === 'JP') return '例如：铠侠 2025 年有价证券报告书'
   return '例如：比亚迪 2025 年年报'
@@ -53,9 +56,13 @@ export function marketSourceDisplay({
   const showReady = Boolean(source && source.report_search_ready !== false && missingConfig.length === 0)
   const label = MARKET_CONFIGS[market].label
   const message = searchBlocked
-    ? `${label}增强官方源需配置 ${missingConfig.join('、')}；当前仍可使用官方 fallback。`
+    ? market === 'JP'
+      ? `${label}完整法定年报需配置 ${missingConfig.join('、')}；Integrated Report/IR PDF 不作为主年报兜底。`
+      : `${label}增强官方源需配置 ${missingConfig.join('、')}；当前仍可使用官方 fallback。`
     : missingConfig.length
-      ? `${label}部分官方源缺少 ${missingConfig.join('、')}；将继续使用可用的免费官方源查询，法定报告全量可能不完整。`
+      ? market === 'JP'
+        ? `${label}缺少 ${missingConfig.join('、')} 时只能使用发行人法定镜像或辅助 IR 资料，EDINET 法定报告全量可能不完整。`
+        : `${label}部分官方源缺少 ${missingConfig.join('、')}；将继续使用可用的免费官方源查询，法定报告全量可能不完整。`
       : loading
         ? '正在检查官方披露源配置...'
         : showReady

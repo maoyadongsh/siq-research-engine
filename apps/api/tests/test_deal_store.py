@@ -2683,6 +2683,15 @@ def test_deal_evidence_ingest_dry_run_marks_write_targets_as_readiness_warnings(
 
 
 def test_startup_retrieval_generates_local_receipt_from_evidence(tmp_path, monkeypatch):
+    for name in (
+        "SIQ_VECTOR_RETRIEVAL_ENABLED",
+        "SIQ_EMBEDDING_BASE_URL",
+        "EMBEDDING_BASE_URL",
+        "SIQ_RERANK_ENABLED",
+        "SIQ_RERANK_BASE_URL",
+        "RERANK_BASE_URL",
+    ):
+        monkeypatch.delenv(name, raising=False)
     deal_store.create_deal_package(
         deal_id="DEAL-YUSHU-2026-001",
         company_name="宇树科技",
@@ -2728,8 +2737,13 @@ def test_startup_retrieval_generates_local_receipt_from_evidence(tmp_path, monke
     assert receipt["retrieval_mode"] == "local_evidence_package_v1"
     assert receipt["shared_hits"] == 1
     assert receipt["private_hits"] == 0
+    assert receipt["hybrid_hit_count"] == 1
+    assert receipt["hybrid_hits"][0]["evidence_id"] == "EVID-DEAL-YUSHU-2026-001-000001"
     assert receipt["milvus_used"] is False
     assert receipt["postgres_used"] is False
+    assert receipt["reranker_used"] is False
+    assert receipt["vector_retrieval"]["status"] == "skipped"
+    assert receipt["rerank"]["status"] == "skipped"
     assert receipt["hermes_used"] is False
     assert receipt["evidence_hits"][0]["evidence_id"] == "EVID-DEAL-YUSHU-2026-001-000001"
     assert "SOUL.md" in receipt["workspace_rules_read"]
@@ -2747,6 +2761,8 @@ def test_startup_retrieval_generates_local_receipt_from_evidence(tmp_path, monke
     assert loaded["receipt"]["receipt_id"] == "startup-siq_ic_finance_auditor-R1-001"
     audit = json.loads((package_dir / "audit" / "audit_log.json").read_text(encoding="utf-8"))
     assert audit["events"][-1]["event_type"] == "deal_startup_retrieval_receipt_generated"
+    assert audit["events"][-1]["vector_retrieval_enabled"] is False
+    assert audit["events"][-1]["rerank_enabled"] is False
 
 
 def test_startup_retrieval_rejects_invalid_profiles(tmp_path):

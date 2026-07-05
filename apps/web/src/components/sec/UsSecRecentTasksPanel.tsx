@@ -11,7 +11,6 @@ export interface UsSecRecentTasksPanelProps {
   busyAction: string
   onViewResult: (task: UsSecRecentTaskRow) => Promise<void>
   onRebuild: (task: UsSecRecentTaskRow) => Promise<void>
-  onImportPostgres: (task: UsSecRecentTaskRow) => Promise<void>
   onRefresh: () => Promise<void>
 }
 
@@ -22,6 +21,10 @@ function statusClass(status: string): string {
   return ''
 }
 
+function shouldShowStatus(status: string): boolean {
+  return status !== 'postgres_ready'
+}
+
 export function UsSecRecentTasksPanel({
   tasks,
   selectedTaskId,
@@ -29,7 +32,6 @@ export function UsSecRecentTasksPanel({
   busyAction,
   onViewResult,
   onRebuild,
-  onImportPostgres,
   onRefresh,
 }: UsSecRecentTasksPanelProps) {
   const deferredTasks = useDeferredValue(tasks)
@@ -40,7 +42,7 @@ export function UsSecRecentTasksPanel({
       <div className="flex flex-col gap-3 border-b border-border/70 px-4 py-4 sm:px-5 lg:flex-row lg:items-end lg:justify-between">
         <div className="min-w-0">
           <h2 className="text-lg font-bold text-text sm:text-xl">最近任务</h2>
-          <p className="mt-1 text-sm leading-6 text-text-muted">已解析 SEC 任务列表；点击查看结果后再展开数据管线、Markdown、质量报告和勾稽校验。</p>
+          <p className="mt-1 text-sm leading-6 text-text-muted">已解析 SEC 任务列表；点击任务或查看结果后再展开数据管线、Markdown、质量报告和勾稽校验。</p>
         </div>
         <div className="shrink-0">
           <button onClick={() => void onRefresh()} disabled={loading} className="pdf-small-action inline-flex items-center gap-1">
@@ -64,30 +66,54 @@ export function UsSecRecentTasksPanel({
               const active = task.id === selectedTaskId
               const busyView = busyAction === `view:${task.id}`
               const busyRebuild = busyAction === `rebuild:${task.id}`
-              const busyPostgres = busyAction === `postgres:${task.id}`
+              const showStatus = shouldShowStatus(task.status)
               return (
-                <div key={task.id} className={`pdf-task-item content-auto ${active ? 'ring-1 ring-primary/30' : ''}`}>
+                <div
+                  key={task.id}
+                  className={`pdf-task-item content-auto ${active ? 'ring-1 ring-primary/30' : ''}`}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => void onViewResult(task)}
+                  onKeyDown={(event) => {
+                    if (event.target !== event.currentTarget) return
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      void onViewResult(task)
+                    }
+                  }}
+                >
                   <div className="task-main">
                     <span className="task-name">{task.companyName} · {task.ticker} · {task.form} · {task.periodEnd}</span>
                     <div className="task-meta">
-                      <span className={`secondary-status ${statusClass(task.status)}`}>{task.statusText}</span>
+                      {showStatus ? <span className={`secondary-status ${statusClass(task.status)}`}>{task.statusText}</span> : null}
                       <span className="text-text-muted text-xs">{task.sectionCount} sections</span>
                       <span className="text-text-muted text-xs">{task.factCount} facts</span>
                       <span className="text-text-muted text-xs">{formatDateTime(task.filingDate)}</span>
                     </div>
                   </div>
-                  <div className="task-actions" style={{ '--task-action-count': 3 } as CSSProperties}>
-                    <button type="button" className="pdf-task-action primary" onClick={() => void onViewResult(task)}>
+                  <div className="task-actions" style={{ '--task-action-count': 2 } as CSSProperties}>
+                    <button
+                      type="button"
+                      className="pdf-task-action primary"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        void onViewResult(task)
+                      }}
+                    >
                       {busyView ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
                       查看结果
                     </button>
-                    <button type="button" className="pdf-task-action" onClick={() => void onRebuild(task)} disabled={busyRebuild}>
+                    <button
+                      type="button"
+                      className="pdf-task-action"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        void onRebuild(task)
+                      }}
+                      disabled={busyRebuild}
+                    >
                       {busyRebuild ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
                       重建
-                    </button>
-                    <button type="button" className="pdf-task-action" onClick={() => void onImportPostgres(task)} disabled={busyPostgres}>
-                      {busyPostgres ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                      PostgreSQL
                     </button>
                   </div>
                 </div>

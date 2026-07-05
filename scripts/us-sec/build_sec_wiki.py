@@ -13,7 +13,7 @@ import sec_evidence_lib
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DOWNLOADS_ROOT = REPO_ROOT / "data" / "market-report-finder" / "downloads" / "US"
-DEFAULT_OUTPUT_ROOT = REPO_ROOT / "data" / "wiki" / "us_sec"
+DEFAULT_OUTPUT_ROOT = REPO_ROOT / "data" / "wiki" / "us"
 
 
 def now_iso() -> str:
@@ -89,7 +89,9 @@ def _expected_package_dir(output_root: Path, row: dict[str, Any]) -> Path | None
     accession = row.get("accession_number")
     if not ticker or not form or not accession:
         return None
-    return output_root / str(ticker).upper() / str(fiscal_year) / f"{form}_{accession}"
+    company_dir = sec_evidence_lib.company_wiki_dir_name(ticker, row.get("company_name") or ticker)
+    report_id = sec_evidence_lib.us_report_id(fiscal_year, form, accession)
+    return output_root / "companies" / company_dir / "reports" / report_id
 
 
 def main() -> None:

@@ -23,4 +23,9 @@ def test_parse_decimal_handles_accounting_format():
 def test_unit_helpers():
     assert infer_scale("HK$ million") == Decimal("1000000")
     assert infer_scale("RMB thousand") == Decimal("1000")
+    assert infer_scale("KRW million") == Decimal("1000000")
+    assert infer_scale("백만원") == Decimal("1000000")
+    assert infer_scale("KRW 100 million") == Decimal("100000000")
+    assert infer_scale("억원") == Decimal("100000000")
+    assert infer_scale("百万円") == Decimal("1000000")
     assert infer_currency("HK$ million") == "HKD"

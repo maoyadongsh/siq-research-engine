@@ -18,6 +18,20 @@ def test_company_candidates_from_ticker_payload_exact_ticker():
     assert candidates[0].confidence == 0.99
 
 
+def test_company_candidates_from_ticker_payload_supports_chinese_us_alias():
+    client = SecClient()
+    payload = {
+        "0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."},
+        "1": {"cik_str": 1018724, "ticker": "AMZN", "title": "Amazon.com, Inc."},
+    }
+
+    candidates = client._company_candidates_from_ticker_payload(payload, company_name="苹果")
+
+    assert candidates[0].ticker == "AAPL"
+    assert candidates[0].company_name == "Apple Inc."
+    assert candidates[0].aliases == ["苹果"]
+
+
 def test_build_candidates_from_recent_payload_maps_sec_forms():
     client = SecClient()
     company = CompanyEntity(

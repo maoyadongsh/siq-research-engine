@@ -28,7 +28,7 @@ def test_market_report_settings_defaults(monkeypatch):
     assert settings.MARKET_RULES_BASE == "http://127.0.0.1:18020"
     assert settings.MARKET_REPORT_PROXY_TIMEOUT == 120.0
     assert settings.MARKET_REPORT_ASSIST_TIMEOUT == 45.0
-    assert settings.MARKET_WIKI_ROOTS["US"].name == "us_sec"
+    assert settings.MARKET_WIKI_ROOTS["US"].parts[-3:] == ("data", "wiki", "us")
     assert settings.MARKET_WIKI_ROOTS["HK"].parts[-3:] == ("data", "wiki", "hk")
     assert settings.MARKET_WIKI_ROOTS["KR"].parts[-3:] == ("data", "wiki", "kr")
     assert settings.MARKET_DATABASES["HK"] == "siq_hk"
