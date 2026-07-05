@@ -1,33 +1,84 @@
 # SIQ API 聚合后端
 
-`apps/api` 是 SIQ Research Engine 的 FastAPI 控制面。它把 Web 工作台、PDF 解析服务、通用文档解析服务、公告下载服务、多市场规则服务、Wiki 文件系统、PostgreSQL 入库脚本、Milvus 入库脚本、Hermes 智能体和本地用户系统连接在一起，向前端提供统一的 `/api/*` 鉴权入口。
+## 模块定位
 
-## 设计定位
+`apps/api` 是 SIQ Research Engine 的控制面后端。它不只是一个 CRUD API，而是整个系统的统一入口层：前面接 Web 工作台，后面连接 PDF 解析、通用文档解析、市场下载服务、多市场规则服务、Wiki 文件系统、PostgreSQL / Milvus 工作流和 Hermes 智能体。
 
-API 后端不只是 CRUD 服务，而是研究链路的编排层：
+它的职责不是“替代底层服务”，而是把这些能力包装成带鉴权、带归属、带状态、带审计的统一研究接口。
 
-- 对前端提供稳定的鉴权 API、工作流 API、报告 API 和 SSE Agent API。
-- 对下游解析/下载/规则服务封装健康检查、路径解析、任务归属和错误处理。
-- 对报告文件、PDF 页码、文档 artifact、市场 evidence package 和下载文件做访问控制。
-- 对 Hermes Runs API 提供会话、附件、流式输出、停止、恢复和成本记录。
-- 对 PDF/文档/市场 evidence package 的 Wiki、PostgreSQL、Milvus 工作流做预检、执行和状态汇总。
+## 在系统中的位置
+
+```text
+apps/web / external client
+  -> apps/api
+     -> apps/pdf-parser
+     -> apps/document-parser
+     -> services/market-report-finder
+     -> services/market-report-rules
+     -> data/wiki / PostgreSQL / Milvus / Hermes
+```
+
+在这条链路中，API 后端承担三层责任：
+
+- 统一入口：屏蔽下游服务的路径差异、端口差异和鉴权差异。
+- 统一治理：对任务、artifact、下载文件、报告和 source 链接做用户归属与访问控制。
+- 统一编排：把下载、解析、导入、Agent 会话、系统状态和设置管理串成同一套前端心智。
 
 ## 核心能力
 
-| 模块 | 能力 | 价值 |
-| --- | --- | --- |
-| 鉴权与用户 | 登录、注册、会话、权限、用户审批、审计日志 | 支撑多用户本地工作台 |
-| 用量与资产 | 文档解析额度、用户 artifact 归属、个人工作区 | 防止任务越权访问，支撑用户资产列表 |
-| Wiki/报告 API | 公司列表、报告搜索、HTML/JSON/Markdown 报告读取、报告删除 | 前端报告页的统一数据来源 |
-| Agent 代理 | 通用助手、分析、核查、跟踪、法务五类 Agent | 将专业智能体接入同一会话体验 |
-| SSE 流式输出 | run id、增量文本、工具状态、推理片段、错误和完成事件 | 长任务可视化和中断恢复 |
-| PDF 溯源 | 表格、页面、PDF 页图和短期签名访问 token | 报告引用能跳回原始披露页 |
-| 通用文档代理 | 上传/URL/MinerU 导入、artifact、source map、表格关系、Schema 抽取 | 通用解析服务纳入用户鉴权和额度 |
-| 市场报告代理 | CN/HK/US/EU/JP/KR 下载、SEC 上传、evidence package、后台 job、评测 | 多市场披露链路统一进入 Web |
-| 工作流导入 | Wiki 导入、语义 chunks、Milvus、PostgreSQL 入库、预检和续跑 | 把文件型产物沉淀为可复用证据层 |
-| 设置与状态 | LLM 设置、系统健康、模型配置测试 | 提供可运维的本地系统面板 |
+| 能力 | 说明 |
+| --- | --- |
+| 鉴权与用户治理 | 登录、注册、用户审批、权限判断、审计入口 |
+| 解析服务代理 | 对 PDF 解析和通用文档解析做统一鉴权代理与任务归属绑定 |
+| 多市场入口 | 统一承接市场下载、evidence package 构建、后台 job 和导入动作 |
+| Wiki / 报告访问 | 读取分析、核查、跟踪、法务及市场 package 产物 |
+| Agent 代理 | 对 Hermes 提供会话、附件、SSE 输出、停止与恢复能力 |
+| Source 访问控制 | 为 PDF 页图、source map、artifact、下载文件提供安全访问入口 |
+| 工作流编排 | 驱动 Wiki、PostgreSQL、Milvus 等下游导入链路 |
+| 系统设置与健康面板 | 汇总模型配置、下游健康和基础系统状态 |
 
-## 启动
+## 技术难点
+
+`apps/api` 的难点不在于定义几十个路由，而在于控制面如何在不破坏下游职责边界的前提下统一系统行为：
+
+- 多下游服务并存：Flask、FastAPI、Wiki 文件、Hermes gateway、PostgreSQL、Milvus 同时存在，接口风格并不统一。
+- 资产归属严格：artifact、聊天附件、报告产物、下载文件和 source 链接都必须和用户归属、权限和会话状态绑定。
+- 长任务可观测：解析、下载、导入、Agent 运行都不是即时 RPC，需要统一 job / status / stream 语义。
+- 证据访问受控：PDF 页图、source 表格、报告 HTML、结构化 JSON 都要可读，但不能裸露底层路径。
+- 智能体接入复杂：API 要把多 profile、多端口、多种输出产物抽象成一致的前端体验。
+
+## 关键接口或标准产物
+
+### 关键路由分组
+
+| 分组 | 前缀 | 用途 |
+| --- | --- | --- |
+| 健康检查 | `/health` | 服务存活与基础状态 |
+| 鉴权 | `/api/auth/*` | 登录、注册、当前用户、管理员用户流程 |
+| Wiki / 报告 | `/api/wiki/*` | 公司、报告、报告文件和管理动作 |
+| 通用聊天 | `/api/chat/*` | 助手会话、附件、SSE 输出、运行控制 |
+| 专业 Agent | `/api/analysis/*` `/api/factchecker/*` `/api/tracking/*` `/api/legal/*` | 专业 profile 代理 |
+| PDF / Source | `/api/source/*` `/api/pdf_page/*` `/api/source_access/*` | 页面、表格、短期签名访问 |
+| 通用文档 | `/api/documents/*` | 文档解析任务、artifact、抽取与来源访问 |
+| 工作流 | `/api/workflow/*` | Wiki、PostgreSQL、Milvus 导入调度 |
+| 市场报告 | `/api/market-reports/*` `/api/us-sec/*` `/api/jobs/*` | 多市场 package、后台 job、入库动作 |
+| 设置 / 状态 | `/api/settings/*` `/api/system/*` | 模型设置、系统状态、连通性测试 |
+
+### 核心对接对象
+
+| 对象 | 默认地址 / 目录 |
+| --- | --- |
+| PDF 解析服务 | `http://127.0.0.1:15000` |
+| 通用文档解析服务 | `http://127.0.0.1:15010` |
+| 市场公告下载服务 | `http://127.0.0.1:18000` |
+| 多市场规则服务 | `http://127.0.0.1:18020` |
+| Hermes home | `data/hermes/home` |
+| Wiki 根目录 | `data/wiki` |
+| 下载目录 | `data/market-report-finder/downloads` |
+
+## 启动方式
+
+### 开发启动
 
 ```bash
 cd /home/maoyd/siq-research-engine/apps/api
@@ -35,154 +86,54 @@ export SIQ_AUTH_SECRET_KEY="$(openssl rand -hex 32)"
 ./start.sh
 ```
 
-手动启动：
+### 手动启动
 
 ```bash
 cd /home/maoyd/siq-research-engine/apps/api
-uv sync
-SIQ_AUTH_SECRET_KEY="$(openssl rand -hex 32)" \
-uv run uvicorn main:app --reload --host 0.0.0.0 --port 18081
+uv sync --extra dev
+export SIQ_AUTH_SECRET_KEY="$(openssl rand -hex 32)"
+uv run python -m uvicorn main:app --host 0.0.0.0 --port 18081 --reload
 ```
 
-健康检查：
+### 常用健康检查
 
 ```bash
-curl -s http://localhost:18081/health
-curl -s http://localhost:18081/api/system/status
-curl -s http://localhost:18081/api/wiki/companies/list
-```
-
-## 路由分组
-
-| 分组 | 前缀 | 说明 |
-| --- | --- | --- |
-| 健康检查 | `/health` | 服务存活状态 |
-| 鉴权 | `/api/auth/*` | 登录、注册、当前用户、用户管理、审计 |
-| Wiki | `/api/wiki/*` | 公司、报告、核查、跟踪、法务产物读取 |
-| 通用聊天 | `/api/chat/*` | 通用助手、附件、历史会话、运行控制 |
-| 专业 Agent | `/api/analysis/*`, `/api/factchecker/*`, `/api/tracking/*`, `/api/legal/*` | 专业智能体聊天代理 |
-| PDF 溯源 | `/api/source/*`, `/api/pdf_page/*`, `/api/source_access/*` | 表格、页面、PDF 页图和签名访问 |
-| PDF/工作区 | `/api/pdf/*`, `/api/workspace/*`, `/api/downloads/*` | 用户工作区、已下载报告和 PDF 代理 |
-| 通用文档 | `/api/documents/*` | 文档解析服务鉴权代理、任务归属、额度、artifact、抽取 |
-| 工作流 | `/api/workflow/*` | PDF/文档 Wiki、语义层、数据库导入任务 |
-| 市场报告 | `/api/market-reports/*`, `/api/us-sec/*`, `/api/jobs/*`, `/api/markets*` | 多市场 evidence package、SEC 案例集、后台 job |
-| 设置状态 | `/api/settings/*`, `/api/system/*` | 模型设置和系统状态 |
-| 评测 | `/api/eval/*` | E2E 评测入口 |
-
-## 下游服务
-
-| 下游 | 默认地址 | 相关环境变量 |
-| --- | --- | --- |
-| PDF 解析服务 | `http://127.0.0.1:15000` | `SIQ_PDF2MD_API_BASE` |
-| 通用文档解析服务 | `http://127.0.0.1:15010` | `SIQ_DOCUMENT_PARSER_API_BASE`, `SIQ_DOCUMENT_PARSER_ACCESS_TOKEN` |
-| 统一公告下载服务 | `http://127.0.0.1:18000` | `SIQ_REPORT_FINDER_BASE` |
-| 多市场规则服务 | `http://127.0.0.1:18020` | `SIQ_MARKET_REPORT_RULES_BASE` |
-| Hermes profiles | `18642/18649/18650/18651/18652` | `SIQ_HERMES_*_PORT`, `SIQ_HERMES_HOME` |
-| Wiki | `data/wiki` | `SIQ_WIKI_ROOT` |
-| 下载目录 | `data/market-report-finder/downloads` | `SIQ_REPORT_DOWNLOADS_ROOT` |
-
-## Hermes Profiles
-
-| 前端功能 | Profile | 默认端口 | API 前缀 |
-| --- | --- | ---: | --- |
-| 问答助手 | `siq_assistant` | `18642` | `/api/chat/*` |
-| 智能分析 | `siq_analysis` | `18651` | `/api/analysis/*` |
-| 事实核查 | `siq_factchecker` | `18649` | `/api/factchecker/*` |
-| 持续跟踪 | `siq_tracking` | `18650` | `/api/tracking/*` |
-| 法务合规 | `siq_legal` | `18652` | `/api/legal/*` |
-
-后端通过 `services/hermes_client.py` 和 `services/agent_chat_runtime.py` 代理 Hermes Runs API，并处理附件上传、会话映射、流式事件、停止和运行恢复。
-
-## 市场报告控制面
-
-`routers/market_reports.py` 是多市场财报链路的主要入口，负责：
-
-- 透传官方报告搜索下载服务。
-- 上传 SEC/市场文件并生成下载元数据。
-- 构建 US/HK/EU/JP/KR evidence package。
-- 浏览 package 列表、详情、质量报告、文件和 evidence。
-- 调用市场专属入库脚本写入 PostgreSQL。
-- 调用 Milvus 入库脚本写入市场 evidence chunks。
-- 启动和查询后台 job，避免长任务阻塞 HTTP 请求。
-
-package 根目录默认位于：
-
-```text
-data/wiki/us_sec
-data/wiki/hk_reports
-data/wiki/eu_reports
-data/wiki/jp_reports
-data/wiki/kr_reports
-```
-
-## 通用文档控制面
-
-`routers/document_parser.py` 将 `apps/document-parser` 纳入统一鉴权和用户资产体系：
-
-- `/api/documents/tasks` 支持多文件上传或 URL 提交。
-- `/api/documents/import/mineru` 支持导入已有 MinerU 输出目录。
-- `/api/documents/artifact/*`、`source/*`、`figures/*`、`table-relations/*` 代理标准产物。
-- `/api/documents/extract/*` 支持模板或自定义 JSON Schema 抽取。
-- 创建任务时记录 `UserArtifact`，非管理员只能访问自己的文档任务。
-- `DOCUMENT_PARSE_EVENT` 接入每日额度控制。
-
-## 目录结构
-
-```text
-apps/api/
-  main.py                  FastAPI app、生命周期、CORS、router 注册
-  database.py              SQLModel engine/session
-  models.py                本地 SQLModel 表
-  schemas.py               Pydantic/API schema
-  routers/                 API 路由
-  services/                鉴权、Hermes、设置、路径、状态、引用链接等服务
-  agents/tracking/         跟踪业务模型与规则入口
-  scripts/                 初始化和维护脚本
-  tests/                   API 与服务测试
-  start.sh                 本地启动脚本
-  pyproject.toml           Python 依赖
+curl -s http://127.0.0.1:18081/health
+curl -s http://127.0.0.1:18081/api/system/status
 ```
 
 ## 关键环境变量
 
 | 变量 | 默认值 | 用途 |
 | --- | --- | --- |
-| `SIQ_PROJECT_ROOT` | 仓库根目录 | 项目根路径 |
-| `SIQ_BACKEND_ROOT` | `apps/api` | API 源码目录 |
-| `SIQ_DATA_ROOT` | `data` | 兼容期运行态数据根目录；后续可切到 `var` |
-| `SIQ_RUNTIME_ROOT` | `var` | 新增本地运行态建议根目录 |
-| `SIQ_ARTIFACTS_ROOT` | `artifacts` | 构建、测试、评测和批处理输出根目录 |
-| `SIQ_DATASETS_ROOT` | `datasets` | 可版本化小型 fixtures 和稳定样本根目录 |
-| `SIQ_BACKEND_DATA_ROOT` | `$SIQ_DATA_ROOT/backend` | API 本地数据库、附件、设置和日志 |
-| `SIQ_WIKI_ROOT` | `$SIQ_DATA_ROOT/wiki` | 公司 Wiki 与报告产物 |
-| `SIQ_REPORT_DOWNLOADS_ROOT` | `$SIQ_DATA_ROOT/market-report-finder/downloads` | 官方披露文件下载目录 |
-| `SIQ_PDF2MD_API_BASE` | `http://127.0.0.1:15000` | PDF 解析服务地址 |
-| `SIQ_DOCUMENT_PARSER_API_BASE` | `http://127.0.0.1:15010` | 通用文档解析服务地址 |
-| `SIQ_REPORT_FINDER_BASE` | `http://127.0.0.1:18000` | 公告搜索下载服务地址 |
-| `SIQ_MARKET_REPORT_RULES_BASE` | `http://127.0.0.1:18020` | 多市场规则服务地址 |
-| `SIQ_HERMES_HOME` | `$SIQ_DATA_ROOT/hermes/home` | Hermes 运行态根目录 |
-| `SIQ_DB_ROOT` | `db` | 数据库脚本根目录 |
-| `SIQ_CONFIG_DIR` | `data/backend/.siq` | LLM 设置存储目录 |
-| `SIQ_AUTH_SECRET_KEY` | 无 | JWT/session 密钥，至少 32 字符 |
-| `SIQ_SOURCE_TOKEN_SECRET` | fallback 到 `SIQ_AUTH_SECRET_KEY` | `/api/source*` 短期签名访问 token 密钥，建议独立设置，至少 32 字符 |
-| `SIQ_SOURCE_ACCEPT_LEGACY_AUTH_SECRET` | `0` | 设置独立 source secret 后是否继续验证旧 auth secret source token；短期迁移需要时显式设为 `1` |
-| `SIQ_SOURCE_ACCESS_TOKEN_TTL_SECONDS` | `900` | source access token 有效期秒数，签发时最小 TTL 为 60 秒 |
-| `SIQ_APP_DATABASE_URL` | fallback 到 `DATABASE_URL` 或本地 SQLite | API 应用状态库连接串，PostgreSQL 部署使用 `siq_app` |
+| `SIQ_BACKEND_PORT` | `18081` | API 监听端口 |
+| `SIQ_AUTH_SECRET_KEY` | 无 | 鉴权密钥，必须设置 |
+| `SIQ_SOURCE_TOKEN_SECRET` | fallback 到 `SIQ_AUTH_SECRET_KEY` | source access token 签名密钥 |
+| `SIQ_DATA_ROOT` | `$PROJECT_ROOT/data` | 历史兼容运行态根目录 |
+| `SIQ_RUNTIME_ROOT` | `$PROJECT_ROOT/var` | 新增运行态推荐根目录 |
+| `SIQ_WIKI_ROOT` | `$SIQ_DATA_ROOT/wiki` | 文件型事实层目录 |
+| `SIQ_REPORT_DOWNLOADS_ROOT` | `$SIQ_DATA_ROOT/market-report-finder/downloads` | 官方披露文件目录 |
+| `SIQ_PDF2MD_API_BASE` | `http://127.0.0.1:15000` | PDF 解析服务 |
+| `SIQ_DOCUMENT_PARSER_API_BASE` | `http://127.0.0.1:15010` | 通用文档解析服务 |
+| `SIQ_REPORT_FINDER_BASE` | `http://127.0.0.1:18000` | 市场下载服务 |
+| `SIQ_MARKET_REPORT_RULES_BASE` | `http://127.0.0.1:18020` | market rules 服务 |
+| `SIQ_HERMES_HOME` | `$SIQ_DATA_ROOT/hermes/home` | Hermes runtime 根目录 |
 
-## 开发验证
+## 验证方式
 
 ```bash
 cd /home/maoyd/siq-research-engine/apps/api
 uv run python -m pytest tests
-uv run python -c "import main; print(main.app.title)"
 bash -n start.sh
+uv run python -c "import main; print(main.app.title)"
 ```
+
+若修改了代理、任务或路由聚合逻辑，至少补跑对应测试并手动检查 `/health` 与 `/api/system/status`。
 
 ## 维护原则
 
-- 新增 API 时优先放入明确 router，并同步前端代理中的具体前缀。
-- 文件路径统一通过 `services/path_config.py` 或环境变量解析。
-- 不提交本地 `.db`、`.siq`、聊天附件、上传文件、缓存和虚拟环境。
-- 涉及 PDF、文档 artifact 或市场 package 的接口必须保留任务归属校验和路径白名单。
-- 涉及 Agent 的接口应保持可停止、可恢复、可审计的流式事件语义。
-- 后台 job 返回命令时必须隐藏数据库口令、API key 等敏感参数。
+- API 负责统一入口，不负责把下游服务的全部业务逻辑重写一遍。
+- 路径与运行态目录统一通过环境变量或 path config 解析，避免硬编码本机绝对路径。
+- 与 artifact、source、下载文件相关的接口必须保留路径白名单与用户归属校验。
+- 对 Hermes 的代理必须保持可停止、可恢复、可审计的流式语义。
+- 新增 API 时优先补充 README、测试和前端调用方，避免出现“后端有能力但系统不可发现”的黑箱路径。

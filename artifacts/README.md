@@ -1,19 +1,49 @@
 # SIQ 生成产物目录
 
-`artifacts/` 用于保存构建、测试、评测和批处理生成的临时产物。该目录默认被 Git 忽略，除本 README 和必要的 `.gitkeep` 外，不提交生成内容。
+## 目录定位
 
-## 推荐子目录
+`artifacts/` 用于保存构建、测试、评测、批处理和一次性分析任务生成的输出。它是“生成产物层”，不是长期事实层，也不是版本化样本目录。
 
-| 路径 | 内容 |
-| --- | --- |
-| `artifacts/test-results` | Playwright、pytest 或其他测试输出 |
-| `artifacts/playwright-report` | Playwright HTML 报告 |
-| `artifacts/eval-runs` | 单次评测运行输出，建议按 run id 或日期分目录 |
-| `artifacts/generated-reports` | 批量生成的临时 Markdown / HTML / JSON 报告 |
-| `artifacts/logs` | 一次性任务日志 |
+## 主要内容
 
-## 与 `datasets/` 的区别
+常见子目录包括：
 
-- `artifacts/` 放运行结果，默认不稳定、不可直接作为 golden case。
-- `datasets/` 放可复现、可审查、体积受控的评测集、fixtures 和样本。
-- 当某个产物需要长期成为基准，请人工裁剪、脱敏、加说明后再迁入 `datasets/`。
+- `artifacts/test-results`
+- `artifacts/playwright-report`
+- `artifacts/eval-runs`
+- `artifacts/generated-reports`
+- `artifacts/logs`
+
+## 与其他数据目录的边界
+
+- `artifacts/`：构建、测试、评测和批处理生成产物。
+- `datasets/`：可版本化稳定样本。
+- `eval_datasets/`：历史评测语料。
+- `data/` / `var/`：运行态数据。
+
+如果一份输出只服务一次执行、一次调试或一次验收，它通常就属于 `artifacts/`。
+
+## 可提交与不可提交内容
+
+可提交：
+
+- 本 README
+- 必要的 `.gitkeep`
+
+不可提交：
+
+- Playwright HTML 报告
+- 单次评测 JSON / HTML / Markdown 输出
+- 临时日志和批处理导出结果
+
+## 运行或使用建议
+
+- 对于需要长期保留的产物，先确认它究竟属于“事实层”“评测基线”还是“只是运行结果”。
+- 如果某个产物需要成为可复现样本，应裁剪和脱敏后迁入 `datasets/`。
+- 工程验证时可以把 `artifacts/` 看作一次运行的收纳目录，而不是系统事实存储。
+
+## 维护原则
+
+- 保持该目录默认可清理，不把临时输出误当长期资产。
+- 在 README 中始终明确它与 `datasets/`、`eval_datasets/` 和运行态目录的区别。
+- 大量输出应按 run id、日期或任务类型分目录，方便清理和回溯。

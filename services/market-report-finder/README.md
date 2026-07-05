@@ -1,198 +1,126 @@
 # 统一市场公告搜索下载服务
 
-这是 SIQ Research Engine 的官方披露入口服务，负责 CN/HK/US/EU/JP/KR 上市公司公告、定期报告和原始披露文件的解析、检索和下载。
+## 模块定位
 
-项目路径：
+`services/market-report-finder` 是 SIQ 的官方披露入口抽象层。它负责在不同市场的官方入口上解析公司主体、筛选披露文件、下载原始材料并输出统一的下载元数据，而不是把下载逻辑散落在前端或脚本里。
+
+它的职责可以概括为一句话：把“去哪里找官方文件”变成一个稳定服务，而不是变成一堆一次性爬虫脚本。
+
+## 在系统中的位置
 
 ```text
-/home/maoyd/siq-research-engine/services/market-report-finder
+apps/web / apps/api
+  -> services/market-report-finder
+     -> CNINFO / HKEXnews / SEC / ESEF / EDINET / DART
+     -> 本地下载目录与元数据索引
 ```
 
-本服务只负责“下载前链路”：
+它只负责下载前链路：
 
 1. 解析公司身份。
 2. 查询官方披露来源。
-3. 筛选年报、半年报、季报等目标文件。
+3. 选中目标报告。
 4. 下载原始文件。
-5. 按市场和报告年度保存。
-6. 生成下载元数据和缓存索引。
+5. 按市场和公司目录保存结果。
 
-它不负责 PDF/HTML/OCR 解析、财务抽取、勾稽校验、入库或 Agent 问答。这些职责由 `apps/pdf-parser`、`apps/document-parser`、`services/market-report-rules` 和 `apps/api` 承接。
+它不负责 PDF / HTML 解析、财务抽取、勾稽校验、数据库导入或 Agent 问答。
 
-## 当前支持范围
+## 核心能力
 
-### A 股
-
-- 市场标识：`CN`
-- 数据来源：巨潮资讯 CNINFO
-- 公司解析：股票代码、公司名、简称
-- 报告类型：年度、半年度、一季报、三季报
-- 特点：只保留正式定期报告，排除摘要和英文版公告
-
-### 港股
-
-- 市场标识：`HK`
-- 数据来源：HKEXnews
-- 公司解析：股票代码、公司名、HKEX stock id
-- 报告类型：年报、中报、季报、季度结果
-- 特点：多数披露为 PDF，表格结构和繁简体差异明显
-
-### 美股
-
-- 市场标识：`US`
-- 数据来源：SEC EDGAR、submissions、company ticker mapping
-- 公司解析：ticker、公司名、CIK
-- 报告类型：10-K、10-Q、20-F、6-K
-- 特点：HTML/iXBRL 常见，结构化程度高但期间语义复杂
-
-### 欧股
-
-- 市场标识：`EU`
-- 数据来源：ESEF / 各国披露入口聚合
-- 公司解析：ticker、国家和本地目录
-- 特点：与后续规则服务、ESEF 包和导入脚本联动
-
-### 日股
-
-- 市场标识：`JP`
-- 数据来源：EDINET API v2
-- 公司解析：证券代码、公司名、EDINET code
-- 报告类型：有価証券報告書、半期報告書、四半期報告书
-
-### 韩股
-
-- 市场标识：`KR`
-- 数据来源：DART / OpenDART
-- 公司解析：股票代码、公司名、corp code
-- 报告类型：사업보고서、반기보고서、분기보고서
-
-## 设计原则
-
-### 1. 服务边界独立，接入通过 API
-
-本服务负责下载前链路，不直接耦合 Web 页面、PDF 解析和入库流程。主项目接入时建议只通过 HTTP API 调用：
-
-```text
-SIQ Web/API -> services/market-report-finder -> 下载原始文件
-SIQ Web/API -> 解析服务 -> 解析 PDF/HTML/iXBRL/ESEF/EDINET/DART
-SIQ Web/API -> market-report-rules -> 抽取/校验/入库计划
-```
-
-### 2. 一个端口，市场模块隔离
-
-本服务只暴露一个 FastAPI 应用和一个端口，内部按市场拆分维护：
-
-| 模块 | 负责内容 |
+| 能力 | 说明 |
 | --- | --- |
-| `markets/cn` | 巨潮资讯公司解析、定期报告下载 |
-| `markets/us` | SEC EDGAR、company ticker、CIK、HTML/iXBRL 下载 |
-| `markets/hk` | HKEXnews、股票代码、PDF 公告下载 |
-| `markets/eu` | 欧股披露目录和证据包前置下载 |
-| `markets/jp` | EDINET、证券代码、PDF/XBRL 下载 |
-| `markets/kr` | DART、corp code、XML/zip 下载 |
-| `services/downloader.py` | 跨市场共享的文件下载、命名、缓存、去重和元数据 |
-| `services/orchestrator.py` | 统一 API 分发层，按 `market` 路由到对应市场模块 |
+| 公司主体解析 | 股票代码、ticker、CIK、EDINET code、corp code 等主体标识解析 |
+| 多市场官方检索 | 面向 CN / HK / US / EU / JP / KR 的官方入口统一提供搜索与最新披露发现 |
+| 原始文件下载 | 保存 PDF、HTML、XHTML、XML、ZIP 等官方材料 |
+| 下载目录治理 | 按市场、公司、年份和报告语义组织落盘结构 |
+| 元数据索引 | 为后续 package build、解析和批处理提供统一下载清单 |
+| 限速与来源策略 | 对 SEC、HKEX、EDINET、DART 等来源控制请求频率和请求头 |
 
-### 3. 下载目录和文件命名沿用 A 股逻辑
+## 技术难点
 
-为了后续接入时减少适配成本，各市场下载后的目录和文件名遵循一致的分层规则：
+这个服务看起来像“下载器”，实际上承担的是多市场披露入口抽象工作：
+
+- 市场入口差异大：CNINFO、HKEXnews、SEC EDGAR、EDINET、DART 和 ESEF 的主体标识、分页策略、文件类型和字段命名完全不同。
+- 官方源要求严格：部分来源需要合规 User-Agent、限速、分页回溯或多阶段请求。
+- 文件语义复杂：10-K、20-F、6-K、季报、中报、年报、摘要版和附件版需要区分，不能一股脑下载。
+- 目录治理要稳定：后续 parser、rules、importer 和前端都依赖下载目录与元数据结构，不能今天按公司名存、明天按 ticker 存。
+
+## 输入输出或关键合同
+
+### 输入
+
+- 公司关键词、股票代码、ticker、CIK、EDINET code、DART corp code。
+- 市场标识、目标报告类型、时间范围或直接下载 URL。
+
+### 输出
+
+- 原始官方披露文件。
+- 统一下载元数据。
+- 下游可消费的本地相对路径与目录结构。
+
+### 下载目录约定
 
 ```text
 data/market-report-finder/downloads/
   CN/
-    <company_name>/
-      <report_year>/
-  US/
-    <company_name>/
-      <report_year>/
   HK/
-    <company_name>/
-      <report_year>/
+  US/
   EU/
-    <company_name>/
-      <report_year>/
   JP/
-    <company_name>/
-      <report_year>/
   KR/
-    <company_name>/
-      <report_year>/
 ```
 
-归类规则：
+### 核心 API
 
-| 报告类型 | 保存目录 |
+| API | 用途 |
 | --- | --- |
-| 年报、10-K、20-F、有価証券報告书、사업보고서 | `年报/` 语义目录 |
-| 半年报、季报、10-Q、6-K、半期报告、Quarterly report | `财报/` 语义目录 |
+| `GET /health` | 健康检查 |
+| `GET /v1/sources` | 当前支持的数据源 |
+| `POST /v1/company/resolve` | 公司主体解析 |
+| `POST /v1/reports/recent` | 查询近期披露 |
+| `POST /v1/reports/latest` | 查询最新披露 |
+| `POST /v1/reports/select-download` | 按类型选择并下载报告 |
+| `POST /v1/reports/batch-download` | 批量下载指定文件 |
+| `POST /v1/reports/direct-download` | 直接下载单个文件 |
 
-### 4. 下载统一入口，解析和入库分市场标签页
-
-本服务只负责下载，因此 CN/HK/US/EU/JP/KR 可以共享 API 形状。后续解析后的指标抽取、校验、入库、智能体问答必须分市场：
-
-- 美股走 SEC / XBRL / iXBRL 规则。
-- 港股走 HKEX / PDF 表格 / HKFRS / IFRS 规则。
-- 日股走 EDINET / PDF / XBRL 规则。
-- 韩股走 DART / XML zip / K-IFRS 规则。
-- 欧股走 ESEF / PDF / IFRS 规则。
-
-### 5. 官方来源优先
-
-当前只接官方来源，不依赖第三方聚合站作为主来源。
-
-## 运行方式
+## 启动方式
 
 ```bash
 cd /home/maoyd/siq-research-engine/services/market-report-finder
-uv sync
+uv sync --extra dev
 MARKET_REPORT_DOWNLOAD_DIR=/home/maoyd/siq-research-engine/data/market-report-finder/downloads \
 uv run python -m uvicorn market_report_finder_service.app:app --host 127.0.0.1 --port 18000
 ```
 
-启用 SEC 请求时，建议设置：
+可选备用实例常见端口：`18010`。
 
-```bash
-export SEC_USER_AGENT="SIQ Research your_email@example.com"
-```
+## 关键环境变量
 
-在 SIQ 一键编排中，本服务默认运行在 `18000`；如需额外启动备用实例，可运行在 `18010`。
-
-## 环境变量
-
-| 环境变量 | 默认值 | 说明 |
+| 变量 | 默认值 | 用途 |
 | --- | --- | --- |
-| `MARKET_REPORT_DOWNLOAD_DIR` | `downloads` | 下载文件根目录；建议指向 `data/market-report-finder/downloads` |
-| `SEC_USER_AGENT` | 服务默认值 | SEC 请求 User-Agent，生产应填写真实联系邮箱 |
-| `SEC_MAX_REQUESTS_PER_SECOND` | `8.0` | SEC 请求限速 |
-| `HKEX_MAX_REQUESTS_PER_SECOND` | `4.0` | HKEX 请求限速 |
-| `DART_API_KEY` | 空 | 韩国 DART/OpenDART API key |
-| `DART_MAX_REQUESTS_PER_SECOND` | `3.0` | DART 请求限速 |
-| `EDINET_API_KEY` | 空 | 日本 EDINET API key |
-| `EDINET_MAX_REQUESTS_PER_SECOND` | `3.0` | EDINET 请求限速 |
+| `MARKET_REPORT_DOWNLOAD_DIR` | `downloads` | 原始披露文件根目录 |
+| `SEC_USER_AGENT` | 服务默认值 | SEC 请求 User-Agent |
+| `SEC_MAX_REQUESTS_PER_SECOND` | `8.0` | SEC 限速 |
+| `HKEX_MAX_REQUESTS_PER_SECOND` | `4.0` | HKEX 限速 |
+| `DART_API_KEY` | 空 | DART / OpenDART 凭证 |
+| `DART_MAX_REQUESTS_PER_SECOND` | `3.0` | DART 限速 |
+| `EDINET_API_KEY` | 空 | EDINET 凭证 |
+| `EDINET_MAX_REQUESTS_PER_SECOND` | `3.0` | EDINET 限速 |
 
-## 核心 API
-
-| API | 作用 |
-| --- | --- |
-| `GET /health` | 健康检查 |
-| `GET /v1/sources` | 查看当前支持的数据源 |
-| `POST /v1/company/resolve` | 解析公司主体 |
-| `POST /v1/reports/recent` | 查询近期报告 |
-| `POST /v1/reports/latest` | 查询最新报告 |
-| `POST /v1/reports/select-download` | 按类型下载报告 |
-| `POST /v1/reports/batch-download` | 批量下载指定 URL |
-| `POST /v1/reports/direct-download` | 直接下载单个报告 |
-
-## 开发检查
+## 验证方式
 
 ```bash
 cd /home/maoyd/siq-research-engine/services/market-report-finder
 uv run pytest
+curl -s http://127.0.0.1:18000/health
 ```
+
+如果调整了来源解析或下载目录逻辑，应至少补跑对应市场测试，并手动验证一个 `company/resolve` 与一个下载请求。
 
 ## 维护原则
 
-- 只接官方来源。
-- 下载目录必须按市场隔离。
-- 同名公司不能跨市场混放。
-- 新增市场时优先增加 `markets/<code>` 模块，再补 README 和测试。
+- 只把官方来源作为主来源，不让第三方聚合站成为事实入口。
+- 下载目录与相对路径约定一旦被下游消费，应尽量保持稳定。
+- 新增市场时优先增加独立 `markets/<code>` 模块，而不是把差异逻辑堆进共享层。
+- 限速、User-Agent 和 API key 只通过环境变量或配置注入，不写死在脚本或 README 中。
+- 这个服务负责“找到并保存官方文件”，不负责解释文件内容。

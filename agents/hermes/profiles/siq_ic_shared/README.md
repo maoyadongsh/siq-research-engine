@@ -1,24 +1,50 @@
 # SIQ IC Shared Profile Assets
 
-`siq_ic_shared` stores the shared contracts, workflow policy, role matrix, and templates for the SIQ primary-market investment committee profiles.
+## 目录定位
 
-This directory is not a runnable agent profile. Runtime profiles should reference these files when coordinating investment committee workflows, producing expert reports, or validating evidence.
+`siq_ic_shared` 是 SIQ 一级市场投委会体系的共享 contract 与政策目录。它不是一个可执行 agent profile，而是所有 `siq_ic_*` 角色共用的 workflow policy、report contract、evidence contract、prompt contract 和角色矩阵来源。
 
-## Files
+## 共享合同与政策文件
 
-| File | Purpose |
+| 文件 | 作用 |
 | --- | --- |
-| `ic_workflow_policy.json` | Investment committee phases, role weights, gates, and scoring policy migrated from OpenClaw. |
-| `ic_profile_matrix.json` | Hermes profile IDs, ports, role labels, and source workspace mapping. |
-| `ic_report_contract.md` | Required structure and quality gate for committee and expert reports. |
-| `ic_evidence_contract.md` | Evidence classification, citation, verification, and dispute handling rules. |
-| `ic_prompt_contract.md` | Prompt composition and role-boundary rules shared by all IC profiles. |
-| `openclaw_script_migration_matrix.json` | Machine-readable migration status for OpenClaw workspace scripts and their SIQ owners. |
-| `templates/` | Placeholder directory for future IC report and expert submission templates. |
+| `ic_workflow_policy.json` | 投委会阶段、角色权重、流程门禁和评分政策 |
+| `ic_profile_matrix.json` | profile ID、端口、角色名称与来源映射 |
+| `ic_report_contract.md` | 专家报告和主席报告的结构与质量要求 |
+| `ic_evidence_contract.md` | 证据分类、引用、验证和争议处理规则 |
+| `ic_prompt_contract.md` | prompt 组合、角色边界与协作限制 |
+| `openclaw_script_migration_matrix.json` | OpenClaw 到 SIQ 的迁移追踪矩阵 |
+| `templates/` | 复用型模板目录 |
 
-## Scope
+## 对可执行 Profile 的约束
 
-- Use `siq_ic_*` as the canonical Hermes profile IDs.
-- Use `data/wiki/deals` as the canonical SIQ project execution artifact root.
-- Do not store sessions, memory, vector stores, `.venv`, or OpenClaw runtime state here.
-- Keep project execution artifacts outside this directory unless they are stable templates or contracts.
+所有 `siq_ic_*` 可执行 profile 都应遵守这里的共享规则：
+
+- 使用 `siq_ic_*` 作为 canonical profile ID。
+- 共享报告结构与 evidence 等级定义。
+- 共享 workflow 阶段和门禁语义。
+- 不在各自目录重复定义一套相互冲突的评分或报告 contract。
+
+## 与 `data/wiki/deals` 的关系
+
+一级市场项目的执行型产物应落在 `data/wiki/deals` 或其后续稳定别名目录下。`siq_ic_shared` 不存放具体 deal 的运行态结果，而负责定义这些结果应该遵守的结构与规则。
+
+换句话说：
+
+- 这里定义 contract。
+- `data/wiki/deals` 承载实例化产物。
+
+## 不应放入本目录的内容
+
+以下内容不应写入 `siq_ic_shared`：
+
+- 会话、memory、响应缓存、vector store。
+- `.venv`、运行日志、上传文件和中间产物。
+- 某个具体项目的执行态报告或一次性草稿。
+
+## 维护原则
+
+- 共享 contract 变更优先小步、显式、可审阅，避免隐式漂移。
+- 新增角色、阶段或模板时，应先修改 shared policy，再落具体 profile 说明。
+- 若某个角色需要例外规则，应优先扩展 contract，而不是在本地 profile 私自分叉。
+- 这里的内容应保持机器可读和人可读兼顾，便于 API、前端和批处理脚本引用。

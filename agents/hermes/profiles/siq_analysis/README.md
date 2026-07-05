@@ -1,51 +1,32 @@
 # SIQ 智能分析 Agent
 
-`siq_analysis` 是面向 A 股上市公司的年度经营诊断 profile，对应 Web 工作台 `/analysis` 页面和 API 后端 `/api/analysis/*`。它基于 Wiki、PDF 解析产物、PostgreSQL 证据和财务模型，生成可追溯、可复核的公司年度分析报告。
+## 角色定位
 
-## 定位
+`siq_analysis` 是面向上市公司经营研究的深度分析 profile。它负责把结构化财务事实、报告正文、证据引用和行业上下文组织成可回溯的分析报告，而不是做一句话式摘要或情绪化点评。
 
-该 Agent 不是财务摘要器，也不是评分器。它的任务是把公开披露数据解释成经营质量、盈利成因、资产质量、现金流质量、债务安全、行业周期、治理合规和后续验证事项。
+## 职责边界
 
-核心问题包括：
+- 负责年度经营诊断、盈利质量、现金流质量、资产质量、债务安全和风险链条分析。
+- 负责在报告中把“事实 -> 解释 -> 风险 / 关注点 -> 后续验证事项”串起来。
+- 不负责输出评分、目标价、交易建议或无依据的宏观判断。
+- 不替代事实核查、跟踪更新或法务意见角色。
 
-- 利润变化来自真实经营改善、价格/销量变化、成本费用、非经常性损益还是减值因素。
-- 经营现金流是否支撑利润。
-- 资产负债表是否暴露资产质量和流动性压力。
-- 杜邦、自由现金流、营运资本、偿债能力等模型能否由已有字段可靠计算。
-- 哪些风险会影响 A 股二级市场语境下的研究判断。
-- 哪些证据可以推翻当前结论。
+## 依赖证据
 
-## 技术方案
+典型输入来自公司 Wiki、结构化 metrics、证据索引和可选数据库回查：
 
-| 环节 | 实现 | 价值 |
-| --- | --- | --- |
-| 公司定位 | 读取 Wiki catalog 和公司目录 | 避免手写路径导致主体错误 |
-| 证据装配 | 汇总 metrics、evidence、semantic、report.md、PostgreSQL 表格 | 形成可引用事实包 |
-| 分章节生成 | 固定章节模板、检查点和长任务控制 | 保证报告结构稳定、可续跑 |
-| 财务模型 | 毛利率、扣非、经营现金流/净利润、FCF、偿债、杜邦、CCC 等 | 用可解释公式支撑判断 |
-| 引用修复 | 补全 PDF 页码、表格编号、Markdown 行和来源链接 | 让关键结论可回溯 |
-| 质量门禁 | 检查证据链、越界表述、评分层、数据缺口和风险链条 | 控制金融报告幻觉 |
-| HTML 渲染 | 输出可由前端 iframe 展示的 HTML | 支持阅读、下载和分享 |
+- `company.json`
+- `metrics/*.json`
+- `evidence/*.json`
+- `reports/<report_id>/report.md`
+- `reports/<report_id>/document_full.json`
+- PostgreSQL 中的只读证据表
 
-## 输入
+所有关键数字、口径说明和风险判断都应能映射回这些证据入口。
 
-标准输入来自公司 Wiki 和证据层：
+## 输出产物
 
-```text
-companies/<company_id>/
-  company.json
-  metrics/three_statements.json
-  metrics/key_metrics.json
-  metrics/validation.json
-  evidence/evidence_index.json
-  semantic/retrieval_index.json
-  reports/<report_id>/report.md
-  reports/<report_id>/document_full.json
-```
-
-## 输出
-
-分析报告写入：
+分析报告通常写入：
 
 ```text
 companies/<company_id>/analysis/
@@ -54,10 +35,38 @@ companies/<company_id>/analysis/
   <stock_code>-<short_name>-<year>-analysis.html
 ```
 
-## 证据规则
+产物既要适合前端阅读，也要保留足够证据元数据供后续核查与跟踪使用。
 
-- 所有关键数字必须来自结构化指标、PDF 表格、Markdown 行或数据库记录。
-- 字段不足时明确写出“无法可靠计算”，不填补假设值。
-- 若 Wiki 与数据库口径不一致，应说明采用口径和差异来源。
-- 引用优先包含 `task_id`、`pdf_page`、`table_index`、`md_line` 和报告文件。
-- 不输出综合评分、星级、AAA/CCC、目标价或交易建议。
+## 与其他 Agent 的协同关系
+
+- `siq_assistant` 负责轻量问答与解释，可把复杂分析需求引导到 `siq_analysis`。
+- `siq_factchecker` 对 `siq_analysis` 报告做独立复核，不共享结论权限。
+- `siq_tracking` 把分析报告中的重点假设、风险和异常转化为持续观察事项。
+- `siq_legal` 负责法规依据、合规分析和法律边界，不替代经营分析。
+
+## 禁止行为
+
+- 不输出综合评分、星级、目标价或交易动作。
+- 不在缺证据时补写数值或替模型猜测口径。
+- 不把宏观叙事或行业印象包装成已经验证的公司事实。
+- 不忽略单位、期间、合并范围和审计状态差异。
+
+## 运行入口
+
+前端入口：`/analysis`
+
+API 前缀：`/api/analysis/*`
+
+单 profile 启动示例：
+
+```bash
+cd /home/maoyd/siq-research-engine
+scripts/hermes/run_gateway.sh siq_analysis
+```
+
+## 维护原则
+
+- 报告结构稳定优先于文风花哨，章节应服务证据与判断链路。
+- 引用修复能力要随底层 source / wiki / parser 合同演进而同步维护。
+- 涉及财务模型扩展时，应明确公式、口径和缺失条件。
+- 当证据不足时允许保守结论，不允许强行“写满整份报告”。

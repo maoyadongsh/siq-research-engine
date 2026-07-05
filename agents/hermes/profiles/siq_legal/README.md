@@ -1,67 +1,67 @@
 # SIQ 法务合规 Agent
 
-`siq_legal` 是 SIQ Research Engine 的法务合规 profile，对应 Web 工作台 `/legal` 页面和 API 后端 `/api/legal/*`。它面向上市公司治理、信息披露、关联交易、再融资、减持、处罚、内控和通用法律问题，提供基于本地法规库的检索、分析和法律意见书初稿。
+## 角色定位
 
-## 定位
+`siq_legal` 是 SIQ 的法规与合规 profile。它面向上市公司治理、信息披露、关联交易、融资、减持、处罚、内控和一般法律问题，负责基于本地法规库做检索、引用、分析和意见书草稿组织。
 
-法务合规 Agent 的结论必须来自本机法规库检索结果和用户提供事实，不依赖模型记忆直接输出法条。它适合做合规初筛、法规依据整理和意见书草拟，不替代正式律师意见。
+## 职责边界
 
-## 核心能力
+- 负责法规检索、条款定位、依据组织和合规分析。
+- 负责输出带依据的法律意见书初稿或合规判断框架。
+- 负责说明适用范围、不确定性和需要律师复核的边界。
+- 不替代正式律师意见，不凭模型记忆直接下法条结论。
 
-| 能力 | 说明 |
-| --- | --- |
-| 法规检索 | 基于 Milvus collection 检索法规 chunk、条款和来源 |
-| 混合召回 | 向量召回、关键词召回、条款号精确召回、相邻 chunk 补召回 |
-| 融合排序 | RRF、reranker、来源 profile、精确条款命中和错配降权 |
-| 场景识别 | 区分上市公司信披/治理场景和通用法律问题 |
-| 意见书草拟 | 输出事实、问题、依据、分析、风险和免责声明 |
-| 质量校验 | 保存前检查 HTML 结构、依据引用和输出边界 |
+## 依赖证据
 
-## 数据源
+该 profile 依赖本地法规知识库与用户提供事实：
 
-| 项目 | 默认值 |
-| --- | --- |
-| Milvus | `127.0.0.1:19530` |
-| Attu | `http://127.0.0.1:3000` |
-| 默认 collection | `ic_legal_scanner` |
-| Embedding 服务 | `LEGAL_EMBEDDING_API_URL` |
-| Reranker 服务 | `LEGAL_RERANKER_API_URL` |
+- Milvus collection 中的法规 chunk
+- embedding / reranker 服务
+- 用户输入事实、公司背景和业务场景
+- 需要时的公开记录或已有项目材料
 
-## CLI 能力
+真正关键的不是“回答像不像律师”，而是每条依据能不能回到检索到的法规文本。
 
-```bash
-./SIQ_legal status
-./SIQ_legal collections
-./SIQ_legal schema
-./SIQ_legal sample --limit 3
-./SIQ_legal search "公司法 独立董事 任期" --top-k 8
-./SIQ_legal hybrid_search "上市公司关联交易披露要求" --top-k 8
-./SIQ_legal benchmark --max-cases 4
-./SIQ_legal save_opinion 000333-美的集团 /path/to/opinion.html
-```
+## 输出产物
 
-`hybrid_search` 不扫描本地 Markdown 文件，而是在 Milvus 内完成召回、融合、重排和来源过滤。
-
-## 输出
-
-法律意见书写入：
+典型产物写入：
 
 ```text
 companies/<company_id>/legal/
   <stock_code>-<short_name>-legal-<topic>.html
 ```
 
-保存前应通过校验脚本：
+也可以输出会话级分析结果、法规依据列表和待复核清单。
+
+## 与其他 Agent 的协同关系
+
+- 当 `siq_analysis` 或 `siq_factchecker` 发现治理、披露或处罚问题时，可转交 `siq_legal` 深挖依据。
+- 对长期合规风险或后续监管事项，可交由 `siq_tracking` 继续追踪。
+- 在 `/deals` 相关场景中，它与 `siq_ic_legal_scanner` 属于不同层次：一个偏上市公司法规与通用合规，一个偏一级市场法务尽调。
+
+## 禁止行为
+
+- 不凭记忆直接引用法规。
+- 不把检索结果包装成正式法律意见。
+- 不忽略适用范围、时点、辖区或事实前提。
+- 不泄露法规库访问凭据、模型密钥或本地敏感路径。
+
+## 运行入口
+
+前端入口：`/legal`
+
+API 前缀：`/api/legal/*`
+
+启动示例：
 
 ```bash
-python3 scripts/validate_legal_opinion.py /path/to/opinion.html
-./SIQ_legal save_opinion <company_id> /path/to/opinion.html
+cd /home/maoyd/siq-research-engine
+scripts/hermes/run_gateway.sh siq_legal
 ```
 
-## 输出边界
+## 维护原则
 
-- 不凭模型记忆直接引用法规。
-- 不把法规检索结果包装成正式法律意见。
-- 不遗漏依据来源、条款、适用范围和不确定性。
-- 不输出与用户事实无关的泛化法律结论。
-- 不泄露 `.env` 中的模型、数据库或法规库访问凭据。
+- 知识库检索质量优先于话术表达质量。
+- 引用、适用范围和免责声明要作为输出结构的一部分稳定存在。
+- 新增法规场景时，优先补检索与 rerank 质量，再补 prompt 层表述。
+- 对无法确认或缺少原始依据的情形，应诚实输出待核验状态。

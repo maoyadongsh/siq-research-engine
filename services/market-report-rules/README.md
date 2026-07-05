@@ -1,277 +1,125 @@
 # 多市场财报规则服务
 
-这是 SIQ Research Engine 的多市场解析后规则服务，用于处理已经下载并解析后的财报产物，生成可入库、可校验、可供后续智能体问答溯源使用的结构化结果。
+## 模块定位
 
-项目路径：
+`services/market-report-rules` 是 SIQ 的多市场规则中枢。它处理的不是“原始披露文件”，而是已经过下载与解析后的结构化产物，并把这些产物进一步转换为 `financial_data`、`financial_checks`、`load_plan` 和可供 Agent / importer 消费的 evidence targets。
+
+它在系统中的角色不是“后处理脚本集合”，而是多市场 evidence package 与结构化入库契约之间的规则层。
+
+## 在系统中的位置
 
 ```text
-/home/maoyd/siq-research-engine/services/market-report-rules
+finder / parser 产物
+  -> services/market-report-rules
+     -> financial_data / financial_checks / load_plan / market profiles
+     -> Wiki / PostgreSQL importer / Agent recall / frontend package views
 ```
 
-本服务不负责下载财报，也不直接负责 PDF/HTML/OCR 解析。它处理的是“解析后的产物”，例如：
+它的职责边界非常明确：
 
-- SEC XBRL/iXBRL/companyfacts 结构化事实
-- SEC HTML/iXBRL filing 的定位信息
-- 港股 PDF 解析后的表格、页面、行列、文本块、表格标题
-- 欧股 PDF/ESEF 解析后的 evidence package
-- 日股 EDINET 和韩股 DART 解析后的结构化证据
+- 不负责下载。
+- 不负责原始 PDF / HTML 解析。
+- 不直接给出投资建议或评分。
+- 负责把“解析后的事实”组织成市场隔离、可验证、可导入的规则化结果。
 
-服务目标是把这些解析产物转换为：
+## 核心能力
 
-- `financial_data`：财务数据结构化结果
-- `financial_checks`：财务勾稽、质量校验、经营指标校验结果
-- `load_plan`：市场隔离数据库的入库计划
-- `evidence_targets`：问答智能体可回溯展示的证据定位
+| 能力 | 说明 |
+| --- | --- |
+| 多市场 profile 管理 | 管理 CN / HK / US / EU / JP / KR 的规则与存储 profile |
+| 结构化抽取 | 把 parser 或 package 产物转换为 `financial_data` |
+| 财务校验 | 生成 `financial_checks` 并暴露风险、缺口和告警 |
+| load plan 生成 | 为 PostgreSQL / 市场隔离 schema 提供导入计划 |
+| 规则注册表 | 对前端和 API 暴露 markets、profiles、storage profiles 和 rule counts |
+| 市场差异隔离 | 把市场逻辑沉到 `markets/<code>/`，避免共享层膨胀 |
 
-## 核心设计原则
+## 技术难点
 
-### 1. 市场数据物理隔离
+规则层的难点不在“写 if/else”，而在于把不同市场的结构化语义隔离且统一表达：
 
-不同市场的下载、解析、抽取、校验、入库和智能体消费边界必须隔离。当前默认设计：
+- 披露逻辑不同：美股更接近 XBRL / iXBRL，港股更依赖 PDF 表格与标题语义，日股与韩股还经常叠加 XML / ZIP 包结构。
+- 会计准则不同：US GAAP、IFRS、HKFRS、J-GAAP、K-IFRS 和本地口径的命名与映射差异大。
+- 证据载体不同：有的指标能直接回到 facts / context_ref，有的必须回到 PDF 表格、页码、row / column 或 Markdown 行。
+- 数据隔离要求高：不同市场必须保持明确 schema / namespace / package 路径隔离，避免错误混用。
+- 输出边界严格：规则服务可以产出结构化事实和质量判断，但不能把缺失字段包装成已确认事实。
 
-| 市场 | PostgreSQL 数据库 | Schema | Wiki 命名空间 |
-| --- | --- | --- | --- |
-| A 股 | `siq` | `pdf2md` | `data/wiki/cn_reports` |
-| 美股 | `siq` | `sec_us` | `data/wiki/us_sec` |
-| 港股 | `siq` | `pdf2md_hk` | `data/wiki/hk_reports` |
-| 日股 | `siq` | `edinet_jp` | `data/wiki/jp_reports` |
-| 韩股 | `siq` | `dart_kr` | `data/wiki/kr_reports` |
-| 欧股 | `siq` | `eu_ifrs` | `data/wiki/eu_reports` |
+## 输入输出或关键合同
 
-注意：市场隔离使用同一个 `siq` 数据库下的独立 schema。
+### 输入
 
-### 2. 规则按市场、行业、公司逐层叠加
+- parser 产物或 market evidence package。
+- 市场标识、解析后的结构化结果、质量产物和可选规则 profile。
 
-规则不是一张大表硬套所有公司，而是分层组合：
+### 输出
 
-1. 市场规则：CN / HK / US / EU / JP / KR
-2. 会计准则规则：US GAAP / IFRS / HKFRS / CASBE / K-IFRS / J-GAAP 相关映射
-3. 行业规则：SaaS、互联网平台、零售、制造、银行、保险、地产、能源等
-4. 公司级 override：特殊口径、特殊 KPI 名称、特殊披露模板
+- `financial_data`
+- `financial_checks`
+- `load_plan`
+- `markets` / `profiles` / `storage_profiles` 元数据
 
-### 3. 下载和解析可以统一，抽取和校验必须分市场
-
-原因很简单：
-
-- 美股以 SEC XBRL/iXBRL 为主，QTD/YTD 期间语义复杂。
-- 港股以 PDF 表格为主，表格标题、繁简体和跨页结构复杂。
-- 日股和韩股更依赖 XML/zip、表单和本地披露格式。
-- 欧股 ESEF 又引入 XBRL 与 PDF 并存的混合证据形态。
-
-## 当前支持范围
-
-### 美股
-
-规则 profile：`us_sec_xbrl_v1`
-
-支持表单：
-
-- `10-K`
-- `10-Q`
-- `20-F`
-- `6-K`
-
-优先解析来源：
-
-- SEC companyfacts
-- XBRL facts
-- iXBRL HTML
-- SEC filing HTML
-
-### 港股
-
-规则 profile：`hkex_pdf_tables_v1`
-
-支持报告类型：
-
-- 年报
-- 中报 / 半年报
-- 季报 / Q1 / Q3 / 自愿披露
-
-优先解析来源：
-
-- PDF 解析后的表格
-- 表格标题
-- 页面编号
-- 表格索引
-- Markdown / content list / source map
-
-### 日股
-
-规则 profile：`edinet_jp_pdf_xbrl_v1`
-
-支持报告类型：
-
-- 有価証券報告書
-- 半期報告書
-- 四半期報告書
-
-优先解析来源：
-
-- EDINET XML / PDF
-- XBRL facts
-- 文档列表和原始披露锚点
-
-### 韩股
-
-规则 profile：`dart_kr_pdf_xml_v1`
-
-支持报告类型：
-
-- 사업보고서
-- 반기보고서
-- 분기보고서
-
-优先解析来源：
-
-- DART XML / ZIP
-- PDF / HTML
-- 公告目录和原始锚点
-
-### 欧股
-
-规则 profile：`eu_ifrs_pdf_esef_v1`
-
-支持报告类型：
-
-- 年报
-- 中报
-- ESEF / PDF 混合披露
-
-优先解析来源：
-
-- PDF 解析后的表格
-- ESEF XBRL
-- 质量报告和 evidence map
-
-## 三大表识别逻辑
-
-### 美股
-
-美股优先通过 XBRL tag 归属三大表。
-
-### 港股
-
-港股优先通过表格标题和行项目上下文识别。
-
-### 日股 / 韩股 / 欧股
-
-这几个市场常见的是 PDF + XML zip + 原始披露并存，识别逻辑以 market module 内的 definition / extractor / rules 为准。
-
-## 财务指标抽取规则
-
-当前财务指标分为：
-
-- 资产负债表项目
-- 利润表项目
-- 现金流量表项目
-- 关键财务指标
-
-经营指标不混入三大表，单独进入 `operating_metrics`。指标都必须带证据，不允许无来源进入事实层。
-
-## 校验规则
-
-当前实现的基础校验包括：
-
-- 财务硬勾稽
-- 跨表软校验
-- 经营指标校验
-- 报告类型差异处理
-
-## 输出边界
-
-- 不输出评分、星级、目标价或交易建议。
-- 不把抽取结果伪装成正式数据库事实。
-- 不将缺项直接解释成业务恶化，必须先说明证据缺口。
-- 不把模型生成的字段当作事实库直接写入下游 schema。
-
-## API 接口
-
-启动服务：
-
-```bash
-cd /home/maoyd/siq-research-engine/services/market-report-rules
-uv sync
-uv run python -m uvicorn market_report_rules_service.app:app --host 0.0.0.0 --port 18020
-```
-
-在 SIQ 一键编排中，本服务作为可选服务运行在 `18020`。
-
-当前接口：
+### 核心接口
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/healthz` | 健康检查，返回服务版本、规则 profile、存储 profile |
-| GET | `/profiles` | 查看规则 profile、存储 profile、行业 profile |
-| GET | `/markets` | 查看市场模块列表 |
-| GET | `/rules` | 查看规则数量和经营指标规则 |
-| POST | `/extract` | 解析产物转 `financial_data` |
-| POST | `/validate` | `financial_data` 转 `financial_checks` |
-| POST | `/process` | 一次性生成 `financial_data`、`financial_checks`、`load_plan` |
-| POST | `/load-plan` | 为抽取结果生成入库计划 |
+| `GET` | `/healthz` | 健康状态、市场列表、profile 列表 |
+| `GET` | `/profiles` | rule profile、storage profile、industry profile |
+| `GET` | `/markets` | 当前注册市场模块 |
+| `GET` | `/rules` | 规则数量和各市场统计 |
+| `POST` | `/extract` | 产物转 `financial_data` |
+| `POST` | `/validate` | `financial_data` 转 `financial_checks` |
+| `POST` | `/process` | 一次性执行 extract + validate + load plan |
+| `POST` | `/load-plan` | 单独生成入库计划 |
 
-## 入库计划
+### 市场隔离约定
 
-本服务当前只生成 `load_plan`，不直接写数据库。
+| 市场 | 默认 schema / 命名空间 | 典型 Wiki 根路径 |
+| --- | --- | --- |
+| A 股 | `pdf2md` | `data/wiki/companies/...` |
+| 港股 | `pdf2md_hk` | `data/wiki/hk/...` 或 `data/wiki/hk_reports/...` |
+| 美股 | `sec_us` | `data/wiki/us_sec/...` |
+| 欧股 | `eu_ifrs` | `data/wiki/eu_reports/...` |
+| 日股 | `edinet_jp` | `data/wiki/jp/...` |
+| 韩股 | `dart_kr` | `data/wiki/kr/...` |
 
-这样做有几个好处：
-
-- 防止误写错误市场的库。
-- 便于人工审查规则结果。
-- 便于后续接入独立 writer。
-- 便于不同市场采用不同数据库连接配置。
-
-## 与 A 股逻辑的关系
-
-本服务参考 A 股当前成熟的产物形状，但不复用 A 股实现。A 股当前的同类能力主要分布在：
-
-| 路径 | 职责 |
-| --- | --- |
-| `apps/pdf-parser/financial_extractor.py` | A 股财务表识别、指标抽取、勾稽校验 |
-| `apps/pdf-parser/app.py` | 解析任务编排、质量报告、溯源、`document_full.json` 聚合 |
-| `db/imports/import_document_full_to_postgres.py` | 将 A 股 `document_full.json` 写入 PostgreSQL |
-
-## 测试
-
-运行测试：
+## 启动方式
 
 ```bash
 cd /home/maoyd/siq-research-engine/services/market-report-rules
-uv run --extra dev pytest -q
+uv sync --extra dev
+uv run python -m uvicorn market_report_rules_service.app:app --host 0.0.0.0 --port 18020
 ```
 
-## 目录结构
+默认端口：`18020`。
 
-```text
-services/market-report-rules/
-  README.md
-  pyproject.toml
-  sql/
-    001_market_rules_staging.sql
-  src/market_report_rules_service/
-    app.py
-    contracts.py
-    extraction.py
-    industry_profiles.py
-    load_plan.py
-    markets/
-    models.py
-    normalization.py
-    operating_metrics.py
-    pipeline.py
-    provenance.py
-    registry.py
-    rules.py
-    statement_detection.py
-    storage.py
-    validation.py
-  tests/
+## 关键环境变量
+
+该服务主要依赖外层 `SIQ_*` 路径配置和调用方传入产物。常见环境配置关注点包括：
+
+| 变量 | 用途 |
+| --- | --- |
+| `SIQ_PROJECT_ROOT` | 项目根路径 |
+| `SIQ_WIKI_ROOT` | Wiki / evidence package 根目录 |
+| `SIQ_DATA_ROOT` | 历史兼容运行态目录 |
+| `SIQ_RUNTIME_ROOT` | 新增运行态推荐目录 |
+| `DATABASE_URL` 或对应 importer 配置 | 下游导入侧数据库连接 |
+
+规则服务本身尽量保持轻状态，把路径和数据库写入动作交给调用方或 importer。
+
+## 验证方式
+
+```bash
+cd /home/maoyd/siq-research-engine/services/market-report-rules
+uv run pytest
+curl -s http://127.0.0.1:18020/healthz
+curl -s http://127.0.0.1:18020/markets
 ```
 
-## 后续建议
+如果改动了某个市场 profile，至少补跑该市场对应的 tests，并确认 `/profiles` 与 `/rules` 的结果仍和模块注册一致。
 
-1. 为每个市场补充真实 fixture 样本。
-2. 为公司级 override 建立更明确的规则文件。
-3. 建立 market-specific writer，把 `load_plan` 写入各市场独立数据库。
-4. 增加 HTML/iXBRL 原文锚点抽取和渲染页码增强。
-5. 扩展欧洲、日韩市场时继续保持“独立 market module、独立 profile、独立数据库、独立 Wiki”的模式。
+## 维护原则
+
+- 市场差异沉到市场模块，不把业务分支堆入共享层。
+- 规则输出优先表达事实、证据与缺口，不输出评分、目标价或交易建议。
+- `load_plan` 负责描述如何写入，不应在规则层里偷偷执行实际数据库写入。
+- 市场隔离优先于代码复用；错误复用会比少量重复更危险。
+- 所有高价值规则变更都应同步更新测试、README 和 contract 说明。

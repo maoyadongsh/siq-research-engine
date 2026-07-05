@@ -1,43 +1,30 @@
 # SIQ 事实核查 Agent
 
-`siq_factchecker` 是 SIQ Research Engine 的报告审校 profile，对应 Web 工作台 `/verify` 页面和 API 后端 `/api/factchecker/*`。它对 `siq_analysis` 生成的财务分析报告进行独立复核，关注事实、计算、证据链、逻辑支撑、风险遗漏和输出边界。
+## 角色定位
 
-## 定位
+`siq_factchecker` 是 SIQ 的独立审校 profile。它不负责生成分析报告，而负责拆解分析报告里的事实、计算、证据链和边界问题，输出可执行的核查结论与修改建议。
 
-事实核查 Agent 不给报告打分，也不替代研究员做投资判断。它输出可执行的审校结论：
+## 职责边界
 
-| Verdict | 含义 |
-| --- | --- |
-| `approve` | 未发现阻断性问题，可进入阅读或后续跟踪 |
-| `request_changes` | 存在需修改的问题，但不阻断整体使用 |
-| `block` | 存在事实、计算、证据或合规边界上的严重问题 |
+- 负责检查公司名、报告期、指标、单位、同比、比率、引用位置和推理链条是否正确。
+- 负责识别缺证据、错引用、算错数、跳结论和越权表述。
+- 负责给出 `approve`、`request_changes`、`block` 等结论语义。
+- 不替代研究员重写整份分析报告，也不替代法务或跟踪角色。
 
-## 核查维度
+## 依赖证据
 
-| 维度 | 检查内容 |
-| --- | --- |
-| 事实一致性 | 公司、年份、报告期、指标名称、单位和数值是否与证据一致 |
-| 计算正确性 | 同比、比率、勾稽关系、单位换算和容差是否合理 |
-| 证据完整性 | 是否包含可打开的 PDF 页码、表格、Markdown 行或数据库记录 |
-| 逻辑支撑 | 结论是否能由事实推出，风险链条是否完整 |
-| 模板合规 | 是否出现评分层、目标价、交易指令或越界表述 |
-| 风险遗漏 | 审计意见、问询函、处罚、质押、减持、商誉、政府补助、退市风险等是否被覆盖 |
+核查时通常需要读取：
 
-## 输入
+- `analysis/*.md` / `analysis/*.json`
+- 对应公司的 metrics、evidence、report、document_full
+- 可选 PostgreSQL 证据表
+- 需要时的 PDF 页码、表格编号和 markdown 行信息
 
-默认核查分析报告：
+它的工作方式本质上是“拿结论反查事实”，而不是再次自由生成一份分析。
 
-```text
-companies/<company_id>/analysis/
-  <stock_code>-<short_name>-<year>-analysis.md
-  <stock_code>-<short_name>-<year>-analysis.json
-```
+## 输出产物
 
-核查时会读取同一公司目录下的 metrics、evidence、report、document_full 和 PostgreSQL 证据表。
-
-## 输出
-
-核查产物写入：
+典型产物写入：
 
 ```text
 companies/<company_id>/factcheck/
@@ -45,10 +32,43 @@ companies/<company_id>/factcheck/
   <stock_code>-<short_name>-<year>-factcheck.html
 ```
 
-## 输出边界
+输出重点包括：
 
-- 不输出百分制、A/B/C/D、星级或综合评分。
-- 不因为语言流畅而放行缺证据报告。
-- 不自行补写分析报告，只指出问题和修改方向。
-- 不给投资建议、目标价或交易动作。
-- 对证据不足的问题要说明缺失字段、缺失来源和建议复核路径。
+- verdict
+- 问题清单
+- 严重级别
+- 证据缺口说明
+- 修改建议
+
+## 与其他 Agent 的协同关系
+
+- 主要审校 `siq_analysis` 的报告，也可辅助核查其他结构化研究产物。
+- 核查结果可被 `siq_tracking` 用于后续跟踪异常、重复问题或未补齐证据。
+- 当问题涉及法规边界时，可转交 `siq_legal` 深挖依据。
+
+## 禁止行为
+
+- 不因为语言流畅就默认放行。
+- 不输出综合评分、星级、交易动作或目标价。
+- 不在缺证据时替分析报告补写事实。
+- 不把“无法确认”伪装成“确认有问题”或“确认没问题”。
+
+## 运行入口
+
+前端入口：`/verify`
+
+API 前缀：`/api/factchecker/*`
+
+启动示例：
+
+```bash
+cd /home/maoyd/siq-research-engine
+scripts/hermes/run_gateway.sh siq_factchecker
+```
+
+## 维护原则
+
+- 核查标准要稳定，避免同一类问题在不同版本里判定标准漂移。
+- 严重级别与 verdict 语义应和前端展示、报告流转逻辑保持一致。
+- 任何新增核查维度都应明确它检查的是事实、计算、证据还是边界。
+- 允许指出证据不足，不允许为了给出“肯定答案”而过度推断。

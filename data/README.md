@@ -1,50 +1,56 @@
 # SIQ 运行态数据目录
 
-`data/` 保存 SIQ Research Engine 的历史兼容本地运行态数据。该目录默认被 Git 忽略，除 README 和 `.gitkeep` 外，不提交业务数据、缓存、数据库文件、下载披露文件、解析产物和模型产物。
+## 目录定位
 
-新增运行态建议优先落到仓库根目录的 `var/`，生成产物落到 `artifacts/`，可版本化小型样本和 fixtures 落到 `datasets/`。保留 `data/` 是为了兼容当前服务默认路径和既有本机数据。
+`data/` 是 SIQ 的历史兼容运行态目录。它保留了大量服务当前默认依赖的本地数据路径，因此短期内仍然是系统的重要落点，但新的运行态设计应优先迁移到 `var/`。
 
-## 子目录
+## 主要内容
 
-| 路径 | 归属 | 内容 |
-| --- | --- | --- |
-| `data/backend` | `apps/api` | API 本地数据库、聊天附件、LLM 成本日志、运行设置 |
-| `data/pdf-parser` | `apps/pdf-parser` | 财报 PDF 上传、解析输出、任务库、财务缓存、日志、工作流任务记录 |
-| `data/document-parser` | `apps/document-parser` | 通用文档上传、解析结果、任务库、缓存、日志、工作流任务记录 |
-| `data/market-report-finder` | `services/market-report-finder` | CN/HK/US/EU/JP/KR 原始披露文件、HTML/iXBRL/PDF 和下载索引 |
-| `data/wiki` | API / Hermes / 工作流 | 公司 Wiki、报告产物、metrics、evidence、semantic 等 |
-| `data/hermes` | Hermes profiles | 网关运行态、会话、日志、响应存储 |
-| `data/postgres` | PostgreSQL | 本地数据库数据或逻辑备份放置区 |
-| `data/milvus` | Milvus | 向量库数据或快照放置区 |
-| `data/sqlite` | 共享 SQLite | 小型本地数据库文件 |
+| 路径 | 内容 |
+| --- | --- |
+| `data/backend` | API 本地数据库、设置、附件、成本日志 |
+| `data/pdf-parser` | PDF 上传、结果、任务库、缓存和日志 |
+| `data/document-parser` | 文档上传、结果、任务库、缓存和日志 |
+| `data/market-report-finder` | 官方披露下载文件与索引 |
+| `data/wiki` | Wiki、报告、metrics、evidence、semantic |
+| `data/hermes` | Hermes runtime home、会话与响应 |
+| `data/postgres` | PostgreSQL 数据或备份放置区 |
+| `data/milvus` | Milvus 数据或快照放置区 |
+| `data/sqlite` | 小型 SQLite 数据库文件 |
 
-## 不提交内容
+## 与其他数据目录的边界
+
+- `data/`：历史兼容运行态目录。
+- `var/`：新增本地运行态推荐目录。
+- `artifacts/`：构建、测试、评测和批处理生成产物。
+- `datasets/`：可版本化稳定样本、fixtures 和小型示例。
+- `eval_datasets/`：历史评测语料和回归集。
+
+`data/` 不应该再被无限扩张成“所有东西都往里放”的总垃圾箱。
+
+## 可提交与不可提交内容
+
+可提交：
+
+- 本 README
+- 必要的 `.gitkeep`
+
+不可提交：
 
 - `*.db`
-- 上传 PDF、通用文档和下载披露文件
-- PDF / 文档解析结果、输出目录和任务库
-- 聊天附件、用户会话和审计明细
-- 模型缓存、embedding 缓存和 LLM 请求日志
-- PostgreSQL、Milvus、MinIO 等数据库或对象存储数据
-- 包含 API key、数据库口令或个人信息的配置文件
+- 上传文件、下载披露文件、解析结果、日志、缓存
+- 用户会话、聊天附件、成本日志
+- PostgreSQL、Milvus、对象存储或模型缓存数据
+- 含密钥、口令、个人信息或版权敏感内容的文件
 
-## 运行建议
+## 运行或使用建议
 
-- 大体量数据使用独立磁盘、挂载目录或 `var/`，并通过 `SIQ_DATA_ROOT`、`SIQ_RUNTIME_ROOT` 或领域专属 `SIQ_*_DATA_DIR` 指向。
-- 统一公告下载目录使用 `SIQ_REPORT_DOWNLOADS_ROOT` 或 `SIQ_MARKET_REPORT_DOWNLOADS_ROOT` 控制。
-- PDF 解析目录使用 `SIQ_PDF2MD_DATA_DIR` 控制。
-- 通用文档解析目录使用 `SIQ_DOCUMENT_PARSE_DATA_DIR` 控制。
-- Wiki 根目录使用 `SIQ_WIKI_ROOT` 控制。
-- Hermes 根目录使用 `SIQ_HERMES_HOME` 控制。
+- 若要逐步收口运行态，应优先引入 `SIQ_RUNTIME_ROOT` 和领域专属 `SIQ_*_DATA_DIR` 指向 `var/`。
+- 大体量数据应考虑放外部磁盘、挂载目录或对象存储，而不是长期堆在仓库附近。
+- 涉及原始披露、解析结果和 Agent 产物时，要区分事实资产、运行缓存和临时输出。
 
-## 数据治理
+## 维护原则
 
-财报研究数据通常包含原始披露文件、结构化指标、人工修正和生成报告。维护时应区分：
-
-| 类型 | 建议 |
-| --- | --- |
-| 原始 PDF / HTML / ZIP | 保留来源、下载时间、文件 hash 和公司目录 |
-| 解析产物 | 保留任务 ID、解析版本、质量报告和财务校验 |
-| Wiki 产物 | 保留公司、年度、报告类型和生成时间 |
-| Agent 报告 | 保留 JSON/HTML/Markdown、证据引用和人工复核状态 |
-| 日志缓存 | 按需轮转，避免长期保存敏感 token 或用户输入 |
+- 兼容历史路径，但不把新设计全部继续堆到 `data/`。
+- 当服务 README 提到运行态路径时，要明确说明这是“历史兼容默认值”还是“推荐新值”。
+- 任何需要长期共享或评测的数据，都应整理后迁入 `datasets/` 或其他明确目录，而不是直接留在 `data/`。
