@@ -658,6 +658,29 @@ def test_deals_router_phase_artifacts_summary(monkeypatch, tmp_path):
     assert "/tmp/hidden" not in json.dumps(payload, ensure_ascii=False)
 
 
+def test_deals_router_run_and_read_r0_intake(monkeypatch, tmp_path):
+    client = _client(monkeypatch, tmp_path)
+    assert client.post(
+        "/api/deals",
+        json={"deal_id": "DEAL-ROUTER-R0", "company_name": "Router Robotics"},
+    ).status_code == 200
+
+    response = client.post(
+        "/api/deals/DEAL-ROUTER-R0/workflow/run-r0-intake",
+        json={"dry_run": False},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["schema_version"] == "siq_ic_r0_intake_v1"
+    assert payload["deal_id"] == "DEAL-ROUTER-R0"
+    assert payload["scorecard"]["action"] == "PROCEED_WITH_CAUTION"
+    assert payload["created_by"] == {"id": 7, "username": "ic-admin"}
+    read_back = client.get("/api/deals/DEAL-ROUTER-R0/workflow/r0-intake")
+    assert read_back.status_code == 200
+    assert read_back.json()["intake"]["schema_version"] == "siq_ic_r0_intake_v1"
+
+
 def test_deals_router_manifest_includes_import_summary(monkeypatch, tmp_path):
     openclaw_root = tmp_path / "openclaw" / "projects"
     source = openclaw_root / "SIQ-ROUTER-MANIFEST"

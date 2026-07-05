@@ -103,6 +103,26 @@ def _run_external_section(
     include_external: bool,
     max_results: int,
 ) -> dict[str, Any]:
+    if not include_external:
+        return {
+            "schema_version": external_research_clients.EXTERNAL_RESEARCH_SCHEMA,
+            "enabled": False,
+            "query": query,
+            "providers": [
+                {
+                    "schema_version": external_research_clients.EXTERNAL_PROVIDER_RESULT_SCHEMA,
+                    "provider": provider,
+                    "status": "skipped",
+                    "reason": "external_research_disabled",
+                    "results": [],
+                    "result_count": 0,
+                    "error": None,
+                }
+                for provider in providers
+            ],
+            "results": [],
+            "result_count": 0,
+        }
     if not providers:
         return {
             "schema_version": external_research_clients.EXTERNAL_RESEARCH_SCHEMA,
