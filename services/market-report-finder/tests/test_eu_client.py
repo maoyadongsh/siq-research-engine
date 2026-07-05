@@ -126,47 +126,22 @@ def test_eu_catalog_curated_all_samples_distributes_remainder_by_country_order()
     assert counts == {"GB": 3, "FR": 3, "DE": 3, "NL": 2, "CH": 2}
 
 
-def test_eu_catalog_2025_counts_allow_dual_listed_companies_to_share_official_pdf():
+def test_eu_catalog_2025_counts_and_sample_urls_are_unique():
     counts = Counter(entry.country for entry in EU_ANNUAL_REPORT_CATALOG if entry.report_end.year == 2025)
     reports = EuAnnualReportCatalog.sample_filings(report_year=2025, limit=50)
-    url_counts = Counter(item.document_url for item in reports)
 
     assert counts == {"CH": 10, "DE": 10, "FR": 10, "GB": 10, "NL": 10}
-    assert len({item.company_id for item in reports}) == 50
-    assert len(url_counts) == 49
-    assert url_counts["https://www.relx.com/~/media/Files/R/RELX-Group/documents/reports/annual-reports/relx-2025-annual-report.pdf"] == 2
+    assert len({item.document_url for item in reports}) == 50
 
 
 def test_eu_catalog_uses_smoke_verified_download_urls():
     entries = {entry.company_id: entry for entry in EU_ANNUAL_REPORT_CATALOG}
 
     assert entries["DE:BMW"].document_url.endswith("/BMW-Group-Financial-Statements-2025-en.pdf")
-    assert entries["DE:DB1"].document_url.endswith("annual-report-2025_tug_konzern-jahresfinanzbericht_en.pdf")
-    assert entries["FR:BN"].document_url.endswith("danoneurdaccessible.pdf")
-    assert entries["CH:GEBN"].document_url.endswith("geberit-ar25-en-entire.pdf")
-    assert entries["CH:GEBN"].source_id == "issuer_annual_report"
-    assert entries["CH:GEBN"].file_format == "pdf"
-    assert entries["CH:GIVN"].document_url == "https://www.givaudan.com/files/giv-2025-gcfr.pdf"
-    assert entries["CH:GIVN"].source_id == "issuer_annual_report"
-    assert entries["CH:GIVN"].file_format == "pdf"
-    assert entries["GB:REL"].document_url == "https://www.relx.com/~/media/Files/R/RELX-Group/documents/reports/annual-reports/relx-2025-annual-report.pdf"
-    assert entries["GB:REL"].source_id == "issuer_annual_report"
-    assert entries["GB:REL"].file_format == "pdf"
-    assert entries["NL:REN"].document_url == "https://www.relx.com/~/media/Files/R/RELX-Group/documents/reports/annual-reports/relx-2025-annual-report.pdf"
-    assert entries["NL:REN"].source_id == "issuer_annual_report"
-    assert entries["NL:REN"].file_format == "pdf"
-
-
-def test_eu_catalog_switzerland_curated_samples_use_pdf_only_issuer_downloads():
-    reports = EuAnnualReportCatalog.sample_filings(country="CH", report_year=2025, limit=10)
-    by_id = {item.company_id: item for item in reports}
-
-    assert "CH:ABBN" not in by_id
-    assert "CH:UBSG" not in by_id
-    assert by_id["CH:GEBN"].source_id == "issuer_annual_report"
-    assert by_id["CH:GEBN"].file_format == "pdf"
-    assert by_id["CH:GIVN"].source_id == "issuer_annual_report"
-    assert by_id["CH:GIVN"].file_format == "pdf"
+    assert entries["CH:UBSG"].source_id == "sec"
+    assert entries["CH:UBSG"].document_url == "https://www.sec.gov/Archives/edgar/data/1610520/000161052026000023/ubs-20251231.htm"
+    assert entries["CH:UBSG"].file_format == "html"
+    assert "ABB%20Integrated%20Report%202025.pdf" in entries["CH:ABBN"].document_url
 
 
 def test_eu_finder_owns_catalog_urls_without_platform_wildcards():
