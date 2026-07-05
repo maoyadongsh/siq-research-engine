@@ -349,6 +349,41 @@ test('preview markdown blocks and adjacent page navigation handle empty and miss
   assert.equal(adjacentDocumentResultPage([1, 2, 4], 9, -1), 1)
 })
 
+test('markdown block derivation appends document markdown gaps such as table footnotes', () => {
+  const sourceBlocks: DocumentBlock[] = [
+    {
+      block_id: 'table-block',
+      type: 'table',
+      page_number: 80,
+      markdown: '| 氏名 | 役職 |\n| --- | --- |\n| 八馬史尚 | 独立社外取締役 |',
+    },
+    {
+      block_id: 'header-block',
+      type: 'header',
+      page_number: 80,
+      markdown: 'EDINET提出書類',
+    },
+  ]
+  const markdown = [
+    '[PDF_PAGE: 80]',
+    '<table><tr><td>氏名</td><td>役職</td></tr><tr><td>八馬史尚</td><td>独立社外取締役</td></tr></table>',
+    '',
+    '（注）1 和田眞治氏は、2024年12月29日に逝去され、同日をもって当社の取締役を退任いたしました。',
+    '2 ジョセフ・マイケル・デビント氏は2025年3月9日に当社の取締役を辞任いたしました。',
+    '',
+    'EDINET提出書類',
+  ].join('\n')
+
+  const blocks = buildDocumentResultMarkdownBlocks(sourceBlocks, markdown, new Map())
+
+  assert.deepEqual(blocks.map((block) => block.id), ['table-block', 'header-block', 'md-page-80-supplement'])
+  assert.equal(blocks[2]?.type, 'markdown_supplement')
+  assert.match(blocks[2]?.textPreview || '', /和田眞治氏/)
+  assert.match(blocks[2]?.html || '', /ジョセフ・マイケル/)
+  assert.doesNotMatch(blocks[2]?.textPreview || '', /八馬史尚/)
+  assert.doesNotMatch(blocks[2]?.textPreview || '', /EDINET/)
+})
+
 test('markdown renderer does not pass through raw html when sanitizer is unavailable', () => {
   const [block] = buildDocumentResultMarkdownBlocks(
     [],

@@ -20,8 +20,8 @@ const {
 
 const blocks = {
   blocks: [
-    { block_id: 'b1', type: 'text', page_number: 1, bbox: [10, 10, 100, 100] },
-    { block_id: 'b2', type: 'text', page_number: 2, bbox: [10, 10, 100, 100] },
+    { block_id: 'b1', type: 'text', page_number: 1, bbox: [10, 10, 100, 100], markdown: '# hello' },
+    { block_id: 'b2', type: 'text', page_number: 2, bbox: [10, 10, 100, 100], markdown: 'page two' },
   ],
 } satisfies DocumentBlocksPayload
 

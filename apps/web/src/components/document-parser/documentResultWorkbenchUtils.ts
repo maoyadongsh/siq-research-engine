@@ -33,6 +33,11 @@ export type MarkdownBlock = {
   focusKeys: string[]
 }
 
+type MarkdownPageChunk = {
+  pageNumber: number
+  markdownText: string
+}
+
 export function statusLabel(status?: string) {
   return ({
     queued: '排队',
@@ -358,24 +363,16 @@ function renderMarkdownToHtml(markdown: string) {
   return sanitizeMarkdownHtml(out.join('\n'))
 }
 
-function splitMarkdownByPage(markdown: string): MarkdownBlock[] {
+function splitMarkdownPageChunks(markdown: string): MarkdownPageChunk[] {
   const lines = String(markdown || '').replace(/\r\n?/g, '\n').split('\n')
-  const blocks: MarkdownBlock[] = []
+  const chunks: MarkdownPageChunk[] = []
   let currentPage = 1
   let chunk: string[] = []
 
   const flush = () => {
     const markdownText = chunk.join('\n').trim()
     if (!markdownText) return
-    blocks.push({
-      id: `md-page-${currentPage}`,
-      pageNumber: currentPage,
-      type: 'markdown_page',
-      title: `PDF p${currentPage}`,
-      html: renderMarkdownToHtml(markdownText),
-      textPreview: markdownText.replace(/\s+/g, ' ').slice(0, 160),
-      focusKeys: uniqueStrings([focusKey('page', `page-${currentPage}`)]),
-    })
+    chunks.push({ pageNumber: currentPage, markdownText })
   }
 
   for (const line of lines) {
@@ -389,12 +386,151 @@ function splitMarkdownByPage(markdown: string): MarkdownBlock[] {
     chunk.push(line)
   }
   flush()
-  return blocks
+  return chunks
+}
+
+function markdownBlockFromPageChunk(chunk: MarkdownPageChunk, options?: { id?: string; type?: string; title?: string }): MarkdownBlock {
+  return {
+    id: options?.id || `md-page-${chunk.pageNumber}`,
+    pageNumber: chunk.pageNumber,
+    type: options?.type || 'markdown_page',
+    title: options?.title || `PDF p${chunk.pageNumber}`,
+    html: renderMarkdownToHtml(chunk.markdownText),
+    textPreview: chunk.markdownText.replace(/\s+/g, ' ').slice(0, 160),
+    focusKeys: uniqueStrings([
+      focusKey('block', options?.id || ''),
+      focusKey('page', `page-${chunk.pageNumber}`),
+    ]),
+  }
+}
+
+function splitMarkdownByPage(markdown: string): MarkdownBlock[] {
+  return splitMarkdownPageChunks(markdown).map((chunk) => markdownBlockFromPageChunk(chunk))
+}
+
+function decodeBasicEntities(value: string) {
+  return value
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+}
+
+function comparableMarkdownText(value: unknown) {
+  const withoutHtml = decodeBasicEntities(String(value ?? ''))
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/!\[[^\]]*\]\([^)]+\)/g, ' ')
+    .replace(/^\s*\[PDF_PAGE:\s*\d+\]\s*$/gim, ' ')
+    .replace(/<br\s*\/?>/gi, ' ')
+    .replace(/<\/(?:p|div|section|article|h[1-6]|li|tr|td|th|table)>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .split('\n')
+    .filter((line) => !isMarkdownTableSeparator(line))
+    .join('\n')
+    .replace(/[`*_#>|]/g, ' ')
+  return withoutHtml
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[\s,.;:，。；：、·_()[\]{}（）【】「」『』"'“”‘’/\\-]+/g, '')
+}
+
+function comparableCoverage(needle: string, haystack: string) {
+  if (!needle) return 1
+  if (!haystack) return 0
+  if (haystack.includes(needle)) return 1
+  if (needle.length < 20) return 0
+  const windowSize = Math.min(64, Math.max(18, Math.floor(needle.length / 8)))
+  let total = 0
+  let hits = 0
+  for (let index = 0; index < needle.length; index += windowSize) {
+    const chunk = needle.slice(index, index + windowSize)
+    if (chunk.length < 12) continue
+    total += 1
+    if (haystack.includes(chunk)) hits += 1
+  }
+  return total ? hits / total : 0
+}
+
+function pushPlainMarkdownSegments(value: string, out: string[]) {
+  const lines = String(value || '').replace(/\r\n?/g, '\n').split('\n')
+  let chunk: string[] = []
+  const flush = () => {
+    const text = chunk.join('\n').trim()
+    if (text) out.push(text)
+    chunk = []
+  }
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]
+    if (!line.trim()) {
+      flush()
+      continue
+    }
+    if (isMarkdownTableLine(line)) {
+      flush()
+      const tableLines = [line]
+      while (index + 1 < lines.length && isMarkdownTableLine(lines[index + 1])) {
+        index += 1
+        tableLines.push(lines[index])
+      }
+      out.push(tableLines.join('\n').trim())
+      continue
+    }
+    chunk.push(line)
+  }
+  flush()
+}
+
+function splitMarkdownSegments(markdown: string) {
+  const segments: string[] = []
+  const tablePattern = /<table\b[\s\S]*?<\/table>/gi
+  let cursor = 0
+  for (const match of String(markdown || '').matchAll(tablePattern)) {
+    const index = match.index ?? cursor
+    pushPlainMarkdownSegments(markdown.slice(cursor, index), segments)
+    segments.push(match[0].trim())
+    cursor = index + match[0].length
+  }
+  pushPlainMarkdownSegments(markdown.slice(cursor), segments)
+  return segments.filter((segment) => comparableMarkdownText(segment).length >= 8)
+}
+
+function buildCoveredTextByPage(blocks: DocumentBlock[]) {
+  const covered = new Map<number, string[]>()
+  blocks.forEach((block) => {
+    const page = pageNumber(block.page_number)
+    const text = comparableMarkdownText([block.markdown, block.text].filter(Boolean).join('\n'))
+    if (!text) return
+    covered.set(page, [...(covered.get(page) || []), text])
+  })
+  return covered
+}
+
+function buildMarkdownSupplementBlocks(blocks: DocumentBlock[], markdown: string) {
+  const coveredByPage = buildCoveredTextByPage(blocks)
+  return splitMarkdownPageChunks(markdown).flatMap((chunk) => {
+    const pageCovered = (coveredByPage.get(chunk.pageNumber) || []).join('')
+    const fullComparable = comparableMarkdownText(chunk.markdownText)
+    if (!fullComparable) return []
+    const missingMarkdown = pageCovered
+      ? splitMarkdownSegments(chunk.markdownText)
+        .filter((segment) => comparableCoverage(comparableMarkdownText(segment), pageCovered) < 0.72)
+        .join('\n\n')
+      : chunk.markdownText
+    if (comparableMarkdownText(missingMarkdown).length < 8) return []
+    const id = `md-page-${chunk.pageNumber}-supplement`
+    return [markdownBlockFromPageChunk(
+      { pageNumber: chunk.pageNumber, markdownText: missingMarkdown },
+      { id, type: 'markdown_supplement', title: 'document.md 补充' },
+    )]
+  })
 }
 
 export function buildMarkdownBlocks(blocks: DocumentBlock[], markdown: string, tableByBlockId: Map<string, DocumentTable>): MarkdownBlock[] {
   if (!blocks.length) return splitMarkdownByPage(markdown)
-  return blocks.map((block, index) => {
+  const structuredBlocks = blocks.map((block, index) => {
     const blockId = block.block_id || `md-block-${index + 1}`
     const table = tableByBlockId.get(blockId)
     const tableId = table?.table_id || ''
@@ -412,6 +548,16 @@ export function buildMarkdownBlocks(blocks: DocumentBlock[], markdown: string, t
       ]),
     }
   })
+  const supplements = buildMarkdownSupplementBlocks(blocks, markdown)
+  if (!supplements.length) return structuredBlocks
+  const pages = Array.from(new Set([
+    ...structuredBlocks.map((block) => pageNumber(block.pageNumber)),
+    ...supplements.map((block) => pageNumber(block.pageNumber)),
+  ])).sort((a, b) => a - b)
+  return pages.flatMap((page) => [
+    ...structuredBlocks.filter((block) => pageNumber(block.pageNumber) === page),
+    ...supplements.filter((block) => pageNumber(block.pageNumber) === page),
+  ])
 }
 
 export function relationPages(relation: DocumentTableRelation, tableById: Map<string, DocumentTable>) {

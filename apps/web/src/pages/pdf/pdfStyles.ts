@@ -254,6 +254,9 @@ export const PDF_CSS = `
 .pdf-page-block-heading { font-weight: 700; color: var(--text); }
 .pdf-page-block-list { margin: 0; padding-left: 1.25rem; font-size: .86rem; line-height: 1.55; }
 .pdf-page-table-wrap { display: block; box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; min-height: 0 !important; height: auto !important; max-height: 420px !important; overflow: auto !important; border-radius: 8px; }
+.pdf-page-block-footnotes { display: grid; gap: .3rem; margin-top: .6rem; border-top: 1px solid #e2e8f0; padding-top: .55rem; color: #334155; font-size: .8rem; line-height: 1.55; }
+.pdf-page-block-footnote-label { width: fit-content; border-radius: 4px; background: #f1f5f9; padding: .08rem .38rem; color: #475569; font-size: .68rem; font-weight: 850; }
+.pdf-page-block-footnotes p { margin: 0; white-space: pre-wrap; word-break: break-word; }
 .pdf-task-item { display: flex; align-items: center; justify-content: space-between; gap: .75rem; border: 1px solid var(--border); border-radius: 10px; background: #f8fafc; padding: .65rem .75rem; margin-bottom: .5rem; font-size: .9rem; cursor: pointer; transition: background .15s, border-color .15s, box-shadow .15s; }
 .pdf-task-item:hover { border-color: #bfdbfe; background: #eff6ff; box-shadow: 0 8px 20px rgba(37, 99, 235, .04); }
 .pdf-task-item .task-main { display: flex; align-items: center; gap: .75rem; min-width: 0; flex: 1 1 auto; }

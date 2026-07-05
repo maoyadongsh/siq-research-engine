@@ -21,6 +21,19 @@ function bboxAttrValue(value: unknown) {
   return ''
 }
 
+function textList(value: unknown): string[] {
+  const values = Array.isArray(value) ? value : [value]
+  return values.map((item) => String(item ?? '').trim()).filter(Boolean)
+}
+
+function renderFootnotes(value: unknown, label = '注释') {
+  const notes = textList(value)
+  if (!notes.length) return ''
+  return `<div class="pdf-page-block-footnotes"><span class="pdf-page-block-footnote-label">${escHtml(label)}</span>${notes
+    .map((note) => `<p>${escHtml(note)}</p>`)
+    .join('')}</div>`
+}
+
 function blockAttrs(b: PageBlock, index: number, pageNumberValue: number) {
   const bbox = bboxAttrValue(b?.bbox)
   const blockId = b.block_id || `p${pageNumberValue}-b${index + 1}`
@@ -57,14 +70,14 @@ function renderBlock(b: PageBlock, index: number, pageNumberValue: number): stri
       .map((t) => `<span class="pdf-page-block-tag">${escHtml(String(t))}</span>`)
       .join('')
     const action = b.table_index ? `<button class="pdf-trace-btn" data-ptidx="${b.table_index}">打开该表</button>` : ''
-    return `<section class="pdf-page-block ${b.is_focus_table ? 'focus-table' : ''}" ${attrs}><div class="pdf-page-block-head"><div><span class="pdf-page-block-type">${escHtml(blockMeta)}</span><span class="pdf-page-block-meta">${escHtml(bboxText || label)}</span></div>${action}</div><div class="pdf-page-block-tag-row">${tags}</div><div class="pdf-table-wrap pdf-page-table-wrap">${b.table_html ? sanitizeTableHtml(b.table_html) : '<div style="color:#64748b">表格区域，无可用 HTML。</div>'}</div></section>`
+    return `<section class="pdf-page-block ${b.is_focus_table ? 'focus-table' : ''}" ${attrs}><div class="pdf-page-block-head"><div><span class="pdf-page-block-type">${escHtml(blockMeta)}</span><span class="pdf-page-block-meta">${escHtml(bboxText || label)}</span></div>${action}</div><div class="pdf-page-block-tag-row">${tags}</div><div class="pdf-table-wrap pdf-page-table-wrap">${b.table_html ? sanitizeTableHtml(b.table_html) : '<div style="color:#64748b">表格区域，无可用 HTML。</div>'}</div>${renderFootnotes(b.footnote)}</section>`
   }
   if (type === 'list') {
     const items = (b.list_items || []).map((item: unknown) => `<li>${escHtml(String(item || ''))}</li>`).join('')
     return `<section class="pdf-page-block" ${attrs}><div class="pdf-page-block-head"><div><span class="pdf-page-block-type">${escHtml(blockMeta)}</span><span class="pdf-page-block-meta">${escHtml(bboxText || '列表解析块')}</span></div></div><ul class="pdf-page-block-list">${items}</ul></section>`
   }
   if (type === 'image') {
-    return `<section class="pdf-page-block pdf-page-block-muted" ${attrs}><div class="pdf-page-block-head"><div><span class="pdf-page-block-type">${escHtml(blockMeta)}</span><span class="pdf-page-block-meta">${escHtml(bboxText || '图片解析块')}</span></div></div><div class="pdf-page-block-text" style="color:#64748b">来源图像：${escHtml(b.image_path || '未提供路径')}</div></section>`
+    return `<section class="pdf-page-block pdf-page-block-muted" ${attrs}><div class="pdf-page-block-head"><div><span class="pdf-page-block-type">${escHtml(blockMeta)}</span><span class="pdf-page-block-meta">${escHtml(bboxText || '图片解析块')}</span></div></div><div class="pdf-page-block-text" style="color:#64748b">来源图像：${escHtml(b.image_path || '未提供路径')}</div>${renderFootnotes(b.footnote, '图片注释')}</section>`
   }
   const headingLike = type === 'header' || Number(b.text_level || 0) > 0
   const label = type === 'header' ? '页眉' : type === 'page_number' ? '页码' : headingLike ? '标题' : '文本'

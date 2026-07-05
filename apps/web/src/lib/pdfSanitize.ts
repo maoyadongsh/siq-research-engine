@@ -3,12 +3,18 @@ import DOMPurify from 'dompurify'
 const TABLE_ALLOWED_TAGS = ['table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'caption', 'colgroup', 'col']
 const TABLE_ALLOWED_ATTR = ['rowspan', 'colspan', 'data-bbox', 'data-cell-bbox', 'bbox']
 
+function purifyHtml(html: string, options: Record<string, unknown>): string {
+  const sanitize = (DOMPurify as { sanitize?: (value: string, options: Record<string, unknown>) => string }).sanitize
+  return typeof sanitize === 'function' ? sanitize(html, options) : html
+}
+
 export function sanitizeTableHtml(html: string | null): string {
   if (!html) return ''
-  const purified = DOMPurify.sanitize(String(html), {
+  const purified = purifyHtml(String(html), {
     ALLOWED_TAGS: TABLE_ALLOWED_TAGS,
     ALLOWED_ATTR: TABLE_ALLOWED_ATTR,
   })
+  if (typeof DOMParser === 'undefined' || typeof document === 'undefined') return purified
   const doc = new DOMParser().parseFromString(purified, 'text/html')
   doc.querySelectorAll('script, style, iframe, object, embed, link, meta').forEach((n) => n.remove())
   const ok = new Set(['TABLE', 'THEAD', 'TBODY', 'TFOOT', 'TR', 'TH', 'TD', 'CAPTION', 'COLGROUP', 'COL'])
@@ -26,7 +32,7 @@ export function sanitizeTableHtml(html: string | null): string {
 
 export function sanitizeReadingHtml(html: string | null): string {
   if (!html) return ''
-  return DOMPurify.sanitize(String(html), {
+  return purifyHtml(String(html), {
     ALLOWED_TAGS: [
       'section',
       'div',
