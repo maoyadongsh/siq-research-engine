@@ -36,10 +36,11 @@ type SystemStatus = {
 }
 
 const DEFAULT_CONSOLE_URL = 'http://127.0.0.1:7862'
+const DEFAULT_COLLECTION = 'ic_collaboration_shared'
 const START_COMMAND = `cd /home/maoyd/siq-research-engine
-SIQ_START_VECTOR_INGEST=1 ./start_all.sh`
+SIQ_START_VECTOR_INGEST=1 SIQ_MILVUS_COLLECTION=${DEFAULT_COLLECTION} ./start_all.sh`
 const STANDALONE_COMMAND = `cd /home/maoyd/siq-research-engine/scripts/vector-index/milvus-ingestion
-SIQ_MILVUS_COLLECTION=ic_collaboration_shared python3 ingest_final.py`
+SIQ_MILVUS_COLLECTION=${DEFAULT_COLLECTION} python3 ingest_final.py`
 const STATUS_TIMEOUT_MS = 5000
 
 function readStoredConsoleUrl() {
@@ -201,7 +202,7 @@ export default function VectorIngest() {
         />
         <MetricTile
           label="默认 Collection"
-          value="ic_collaboration_shared"
+          value={DEFAULT_COLLECTION}
           trend="可在 UI 或 SIQ_MILVUS_COLLECTION 中覆盖"
         />
         <MetricTile
