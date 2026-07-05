@@ -49,10 +49,10 @@
     {
       "script": "ic_master_coordinator_workspace/scripts/coordinator_intake.py",
       "category": "r0_intake",
-      "status": "wrap_required",
+      "status": "migrated",
       "owner": "deal_intake",
-      "siq_target": "planned apps/api/services/ic_intake.py",
-      "reason": "R0 public/company checks depend on external data clients and must be wrapped with credentials, rate limits, and audit logging."
+      "siq_target": "apps/api/services/ic_intake.py; apps/api/routers/deals.py::post_workflow_run_r0_intake",
+      "reason": "R0 company intake now runs through a SIQ service and workflow endpoint with explicit external opt-in, provider wrappers, structured artifacts, markdown report generation, workflow state updates, and audit logging."
     },
     {
       "script": "ic_master_coordinator_workspace/scripts/coordinator_workflow.py",

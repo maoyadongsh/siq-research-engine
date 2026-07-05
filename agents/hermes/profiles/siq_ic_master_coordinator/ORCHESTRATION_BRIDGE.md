@@ -8,6 +8,7 @@ Use Deal OS workflow endpoints:
 
 | OpenClaw capability | SIQ Hermes / Deal OS entry |
 |---|---|
+| `coordinator_intake.py` | `POST /api/deals/{deal_id}/workflow/run-r0-intake` |
 | `coordinator_workflow.py`, `full_auto_workflow.py` | `POST /api/deals/{deal_id}/workflow/advance-next` |
 | `r1_serial_dispatcher.py` | `POST /api/deals/{deal_id}/workflow/run-r1-serial` |
 | single R1 expert task | `POST /api/deals/{deal_id}/workflow/run-r1-agent` |
@@ -24,6 +25,7 @@ Default to dry-run payloads unless the caller explicitly enables execution. R1 H
 ## Service Map
 
 - `apps/api/services/ic_agent_runtime.py`: R1 task contracts, R1 serial execution, R2/R3/R4 deterministic workflow actions, phase advancement.
+- `apps/api/services/ic_intake.py`: R0 company intake verification, optional external cross-checks, scorecard, artifacts, and audit trail.
 - `apps/api/services/ic_startup_retrieval.py`: startup retrieval receipts and evidence-linkage gate.
 - `apps/api/services/deal_retrieval.py`: dynamic query planning and role-aware local evidence ranking for IC agents.
 - `apps/api/services/vector_retrieval.py`: optional Milvus vector retrieval adapter with explicit configuration and audit-safe normalized hits.

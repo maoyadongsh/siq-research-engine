@@ -14,6 +14,7 @@
 - **本地调试模式**：直接调用 `apps/api/services/*` 的 SIQ-native 服务函数，不回退执行 OpenClaw workspace 脚本。
 
 ## 当前编排能力映射
+- R0 入口校验：`POST /api/deals/{deal_id}/workflow/run-r0-intake`
 - R1 agent 任务：`GET /api/deals/{deal_id}/agents/{profile_id}/task-payload?round_name=R1`
 - R1 单专家执行：`POST /api/deals/{deal_id}/workflow/run-r1-agent`
 - R1 串行执行：`POST /api/deals/{deal_id}/workflow/run-r1-serial`
@@ -26,6 +27,8 @@
 - 审计日志：由 `apps/api/services/deal_store.py::append_audit_event` 写入，所有执行入口必须保留 audit trail。
 
 ## 检索与知识
+- `apps/api/services/ic_intake.py`
+  R0 公司入口信息校验、可选 QCC / Exa / Tavily 交叉验证、评分卡、R0 artifact 与审计
 - `POST /api/deals/{deal_id}/agents/{profile_id}/startup-retrieval`
   Deal OS startup-retrieval 标准入口
 - `apps/api/services/ic_startup_retrieval.py`
