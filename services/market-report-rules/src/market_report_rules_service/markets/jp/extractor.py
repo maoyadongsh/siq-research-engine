@@ -23,6 +23,9 @@ JP_SPEC = HybridMarketSpec(
     find_label_rule=find_jp_label_rule,
     companyfacts_keys=("edinet_facts", "xbrl_facts", "facts", "companyfacts"),
     warnings_prefix="JP EDINET hybrid parser",
+    allow_mixed_statement_summary_tables=True,
+    inherit_adjacent_header_periods=True,
+    skip_ratio_rows=True,
 )
 
 
