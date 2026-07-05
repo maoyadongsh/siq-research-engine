@@ -1,62 +1,111 @@
-# Task 1 Report: HK V2 Package artifact contract
+# Task 1 Report: HK DDL Contract For Structured Ingestion
 
-## Status
-DONE
+Status: DONE_WITH_CONCERNS
 
-## Scope
-- `/home/maoyd/siq-research-engine/services/market-report-rules/tests/test_hk_evidence_package.py`
-- `/home/maoyd/siq-research-engine/scripts/hk/hk_evidence_lib.py`
+Commit: d5daf3ab6378ba3208476605e350fe33f067814b
 
-## Requirements handled
-- 扩展 HK package 测试，使用带 `content_list_enhanced.footnotes`、`toc`、`financial_note_links`、`quality_signals`、`tables`、`pages` 的 fake `document_full.json`。
-- 先验证新增断言会失败，失败点为缺少 `parser/document_full.json`。
-- 在 HK builder 中补齐 V2 package 产物：
-  - `parser/document_full.json`
-  - `parser/content_list_enhanced.json`
-  - `parser/table_relations.json`
-  - `sections/report_complete.md`
-  - `qa/footnotes.json`
-  - `qa/toc.json`
-  - `qa/financial_note_links.json`
-  - `qa/table_quality_signals.json`
-- 保持 `manifest.schema_version == market_evidence_package_v1`，并在计算 `artifact_hashes` 之前完成上述文件写入。
-- `validate_evidence_package(package_dir).ok` 继续为 `true`。
+Modified files:
+- db/ddl/020_create_pdf2md_hk_schema.sql
+- db/imports/tests/test_import_hk_evidence_package.py
 
-## TDD evidence
-1. 先修改测试并运行：
-   - 命令：`cd /home/maoyd/siq-research-engine/services/market-report-rules && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_hk_evidence_package.py`
-   - 结果：失败，断言缺少 `parser/document_full.json`。
-2. 再做最小实现并重跑同一命令。
-3. 结果：`1 passed in 0.06s`。
+Report file:
+- .superpowers/sdd/task-1-report.md
 
-## Implementation notes
-- 新增 `parser` 目录创建。
-- 新增 `_content_list_enhanced()`，统一读取增强结构。
-- 新增 `_write_parser_artifacts()`，写入 parser 侧 V2 产物，并在缺失 parser financial/quality 文件时回退到可用契约数据。
-- 新增 `_write_report_complete()`，在正文后追加“可恢复结构摘要”“目录候选”“脚注摘要”“附注关系摘要”“图片/表格摘要”。
-- 新增 `_write_enhancement_qa()`，从 `content_list_enhanced` 抽取脚注、目录、附注关系、质量信号 QA 文件。
+## RED
 
-## Verification
-- Focused test passed with the brief’s exact command.
-- `manifest.artifact_hashes` now includes the HK V2 artifact paths asserted by the test.
-- Existing `market_evidence_package_v1` validation remains green for the HK package fixture.
+Command run from the required implementation worktree, using the existing base repo virtualenv interpreter because the worktree has no apps/api/.venv:
 
-## Concerns
-- `parser/financial_data.json` 与 `parser/financial_checks.json` 在 parser 原始文件缺失时回退为规则产出的契约数据；当前 brief 未给出更具体的原始 parser financial 文件命名规范，后续若 contract reader 对这两份 parser 侧文件有更严格要求，需要在后续任务再对齐。
+```bash
+cd /home/maoyd/siq-research-engine-hk-pg-impl
+/home/maoyd/siq-research-engine/apps/api/.venv/bin/python -m pytest db/imports/tests/test_import_hk_evidence_package.py::test_hk_ddl_exposes_agent_recall_columns_and_views -q --tb=short
+```
 
-## Review fix follow-up
-- 修复 review finding 1：`parser/financial_data.json` 与 `parser/financial_checks.json` 仅在 parser 原始文件存在时原样保留；文件缺失时改写为空契约，不再把规则侧 `financial_data` / `financial_checks` 冒充为 parser 产物。
-- 修复 review finding 2：测试新增两类回归断言：
-  - parser financial 文件缺失时，parser 包内 financial artifacts 使用空契约；
-  - parser financial 文件存在时，原始 parser 文件按原样保留。
-- 修复 review finding 3：对 `content_list_enhanced` 中非预期字符串/非 dict/list 的 `footnotes`、`toc`、`financial_note_links`、`quality_signals`、`pages`、`tables[*].relations` 做归一化，QA/parser 产物统一落为空契约。
+Result: FAILED as expected.
 
-## Review fix TDD / verification
-1. 先仅同步测试到远端并运行：
-   - 命令：`cd /home/maoyd/siq-research-engine/services/market-report-rules && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_hk_evidence_package.py`
-   - 结果：`2 failed in 0.08s`
-   - 失败点：
-     - `parser/financial_data.json` 写入了规则侧抽取结果，而不是空 parser 契约；
-     - malformed enhanced payload 被原样写入 `qa/footnotes.json`。
-2. 再同步 `scripts/hk/hk_evidence_lib.py` 修复并重跑同一命令。
-3. 结果：`2 passed in 0.07s`。
+Key output:
+
+```text
+FAILED db/imports/tests/test_import_hk_evidence_package.py::test_hk_ddl_exposes_agent_recall_columns_and_views
+AssertionError: assert 'alter table pdf2md_hk.filings add column if not exists report_id text' in ddl
+1 failed in 0.06s
+```
+
+## GREEN
+
+Command:
+
+```bash
+cd /home/maoyd/siq-research-engine-hk-pg-impl
+/home/maoyd/siq-research-engine/apps/api/.venv/bin/python -m pytest db/imports/tests/test_import_hk_evidence_package.py::test_hk_ddl_exposes_agent_recall_columns_and_views -q --tb=short
+```
+
+Result: PASSED.
+
+Key output:
+
+```text
+.                                                                        [100%]
+1 passed in 0.05s
+```
+
+Post-commit verification command:
+
+```bash
+cd /home/maoyd/siq-research-engine-hk-pg-impl
+/home/maoyd/siq-research-engine/apps/api/.venv/bin/python -m pytest db/imports/tests/test_import_hk_evidence_package.py::test_hk_ddl_exposes_agent_recall_columns_and_views -q --tb=short
+```
+
+Result: PASSED.
+
+Key output:
+
+```text
+.                                                                        [100%]
+1 passed in 0.03s
+```
+
+Additional same-file regression check:
+
+```bash
+cd /home/maoyd/siq-research-engine-hk-pg-impl
+/home/maoyd/siq-research-engine/apps/api/.venv/bin/python -m pytest db/imports/tests/test_import_hk_evidence_package.py -q --tb=short
+```
+
+Result: PASSED.
+
+Key output:
+
+```text
+.....                                                                    [100%]
+5 passed in 0.04s
+```
+
+## Literal Brief Command Check
+
+The brief's literal command changes directory to /home/maoyd/siq-research-engine, which is the base repo on branch master, not the requested worktree /home/maoyd/siq-research-engine-hk-pg-impl. Running it literally after the worktree commit produced:
+
+```bash
+cd /home/maoyd/siq-research-engine
+apps/api/.venv/bin/python -m pytest db/imports/tests/test_import_hk_evidence_package.py::test_hk_ddl_exposes_agent_recall_columns_and_views -q --tb=short
+```
+
+Result: ERROR, test not found in base repo/master.
+
+Key output:
+
+```text
+ERROR: not found: /home/maoyd/siq-research-engine/db/imports/tests/test_import_hk_evidence_package.py::test_hk_ddl_exposes_agent_recall_columns_and_views
+no tests ran in 0.00s
+```
+
+Concern: I used the worktree-equivalent command for RED/GREEN so importer.DDL_PATH resolved to the changed worktree files. The literal brief command does not target the requested worktree on this host.
+
+## Self-Review
+
+- Confirmed worktree branch is codex/hk-postgres-ingestion.
+- Added only the requested DDL contract test to db/imports/tests/test_import_hk_evidence_package.py.
+- Added idempotent HK schema extensions to db/ddl/020_create_pdf2md_hk_schema.sql: report_id, bbox columns, retrieval chunk recall columns, company exchange, unique/lookup indexes, v_agent_financial_facts, and v_latest_company_reports.
+- Caught and fixed a shell-quoting regression in the unique index predicate so it now reads hkex_stock_code <> ''.
+- Ran git diff --check successfully.
+- Committed only the two requested task files with message: feat(hk): extend postgres schema for agent recall.
+- Left pre-existing untracked .superpowers/sdd/progress.md and .superpowers/sdd/task-1-brief.md uncommitted; task-1-report.md is written as requested and not included in the code commit.

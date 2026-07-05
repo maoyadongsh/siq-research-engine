@@ -1379,6 +1379,33 @@ def test_market_import_command_hk_default_env_sanitizes_inherited_database_url(m
     assert "postgresql://postgres:secret@db/siq" not in result["command"]
 
 
+def test_hk_market_package_import_uses_hk_database_env(monkeypatch, tmp_path):
+    wiki_root = tmp_path / "wiki" / "hk"
+    package_dir = _write_market_package(wiki_root, "companies", "00700-TENCENT", "reports", "2025-annual-12100024")
+    seen = {}
+
+    class Completed:
+        returncode = 0
+        stdout = "run-hk\n"
+        stderr = ""
+
+    def fake_run(args, **kwargs):
+        seen["args"] = args
+        seen["kwargs"] = kwargs
+        return Completed()
+
+    monkeypatch.setitem(market_reports.MARKET_WIKI_ROOTS, "HK", wiki_root)
+    monkeypatch.setitem(market_reports.MARKET_DATABASES, "HK", "siq_hk")
+    monkeypatch.setattr(market_reports, "run_command", fake_run)
+
+    result = market_reports._run_market_package_import({"market": "HK", "package_path": str(package_dir), "ddl": True})
+
+    assert result["ok"] is True
+    assert "import_hk_evidence_package_to_postgres.py" in " ".join(seen["args"])
+    assert "--ddl" in seen["args"]
+    assert seen["kwargs"]["env"]["SIQ_HK_PGDATABASE"] == "siq_hk"
+
+
 def test_market_vector_ingest_command_contract_and_summary(monkeypatch, tmp_path):
     wiki_root = tmp_path / "wiki" / "hk_reports"
     package_dir = _write_market_package(wiki_root, "00700", "2025", "annual_abc123")
