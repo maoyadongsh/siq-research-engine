@@ -9,6 +9,11 @@ from contextlib import nullcontext
 
 from task_store import CANCELLED, COMPLETED_MISSING_ARTIFACT, is_failed_status
 
+DEFAULT_OWNER_ID = "system"
+DEFAULT_TENANT_ID = "unknown"
+DEFAULT_MARKET_SCOPE = "unknown"
+DEFAULT_PARSE_CONFIG_HASH = "unknown"
+
 
 def _lock_context(lock):
     return lock if lock is not None else nullcontext()
@@ -40,6 +45,10 @@ def init_db(db_path, lock=None):
                     mineru_task_id TEXT,
                     filename TEXT NOT NULL,
                     file_sha256 TEXT,
+                    owner_id TEXT NOT NULL DEFAULT 'system',
+                    tenant_id TEXT NOT NULL DEFAULT 'unknown',
+                    market_scope TEXT NOT NULL DEFAULT 'unknown',
+                    parse_config_hash TEXT NOT NULL DEFAULT 'unknown',
                     file_size INTEGER,
                     pdf_page_count INTEGER,
                     status TEXT NOT NULL,
@@ -70,7 +79,24 @@ def init_db(db_path, lock=None):
                 conn.execute("ALTER TABLE tasks ADD COLUMN submit_config_json TEXT")
             if "file_sha256" not in columns:
                 conn.execute("ALTER TABLE tasks ADD COLUMN file_sha256 TEXT")
+            if "owner_id" not in columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN owner_id TEXT NOT NULL DEFAULT 'system'")
+            if "tenant_id" not in columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'unknown'")
+            if "market_scope" not in columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN market_scope TEXT NOT NULL DEFAULT 'unknown'")
+            if "parse_config_hash" not in columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN parse_config_hash TEXT NOT NULL DEFAULT 'unknown'")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_file_sha256 ON tasks(file_sha256)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_tasks_owner_created_at ON tasks(owner_id, tenant_id, created_at DESC)"
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_tasks_owner_dedupe
+                ON tasks(owner_id, tenant_id, market_scope, file_sha256, parse_config_hash)
+                """
+            )
             conn.commit()
         finally:
             conn.close()
@@ -93,6 +119,15 @@ def row_to_task(row, *, normalize_task=None):
         task["last_status_payload"] = json.loads(task["last_status_payload"]) if task.get("last_status_payload") else None
     except json.JSONDecodeError:
         task["last_status_payload"] = None
+    task["owner_id"] = task.get("owner_id") or DEFAULT_OWNER_ID
+    task["tenant_id"] = task.get("tenant_id") or DEFAULT_TENANT_ID
+    task["market_scope"] = task.get("market_scope") or DEFAULT_MARKET_SCOPE
+    task["parse_config_hash"] = task.get("parse_config_hash") or DEFAULT_PARSE_CONFIG_HASH
+    task["legacy_owner"] = (
+        task["owner_id"] == DEFAULT_OWNER_ID
+        and task["tenant_id"] == DEFAULT_TENANT_ID
+        and task["market_scope"] == DEFAULT_MARKET_SCOPE
+    )
     return normalize_task(task) if normalize_task else task
 
 
@@ -101,6 +136,10 @@ def save_task(db_path, task, *, allow_insert=False, lock=None):
     logs = payload.pop("logs", [])
     submit_config = payload.pop("submit_config", {})
     payload.setdefault("file_sha256", None)
+    payload.setdefault("owner_id", DEFAULT_OWNER_ID)
+    payload.setdefault("tenant_id", DEFAULT_TENANT_ID)
+    payload.setdefault("market_scope", DEFAULT_MARKET_SCOPE)
+    payload.setdefault("parse_config_hash", DEFAULT_PARSE_CONFIG_HASH)
     last_status_payload = payload.get("last_status_payload")
     payload["logs_json"] = json.dumps(logs, ensure_ascii=False)
     payload["submit_config_json"] = json.dumps(submit_config or {}, ensure_ascii=False)
@@ -115,13 +154,17 @@ def save_task(db_path, task, *, allow_insert=False, lock=None):
             conn.execute(
                 """
                 INSERT INTO tasks (
-                    task_id, mineru_task_id, filename, file_sha256, file_size, pdf_page_count,
+                    task_id, mineru_task_id, filename, file_sha256,
+                    owner_id, tenant_id, market_scope, parse_config_hash,
+                    file_size, pdf_page_count,
                     status, stage, created_at, uploaded_at, submitted_at, started_at,
                     completed_at, cancelled, error, markdown_path, upload_path,
                     last_progress_log_time, last_status_payload, last_polled_at,
                     consecutive_status_failures, submit_config_json, logs_json
                 ) VALUES (
-                    :task_id, :mineru_task_id, :filename, :file_sha256, :file_size, :pdf_page_count,
+                    :task_id, :mineru_task_id, :filename, :file_sha256,
+                    :owner_id, :tenant_id, :market_scope, :parse_config_hash,
+                    :file_size, :pdf_page_count,
                     :status, :stage, :created_at, :uploaded_at, :submitted_at, :started_at,
                     :completed_at, :cancelled, :error, :markdown_path, :upload_path,
                     :last_progress_log_time, :last_status_payload, :last_polled_at,
@@ -131,6 +174,10 @@ def save_task(db_path, task, *, allow_insert=False, lock=None):
                     mineru_task_id=excluded.mineru_task_id,
                     filename=excluded.filename,
                     file_sha256=excluded.file_sha256,
+                    owner_id=excluded.owner_id,
+                    tenant_id=excluded.tenant_id,
+                    market_scope=excluded.market_scope,
+                    parse_config_hash=excluded.parse_config_hash,
                     file_size=excluded.file_size,
                     pdf_page_count=excluded.pdf_page_count,
                     status=excluded.status,
@@ -222,12 +269,79 @@ def find_duplicate_file_hash_task(db_path, file_sha256, *, normalize_task=None):
     return None
 
 
-def list_recent_tasks(db_path, limit=100, *, normalize_task=None):
+def find_duplicate_scoped_file_hash_task(
+    db_path,
+    file_sha256,
+    *,
+    owner_id,
+    tenant_id,
+    market_scope,
+    parse_config_hash,
+    normalize_task=None,
+):
+    digest = str(file_sha256 or "").strip().lower()
+    if not digest:
+        return None
     conn = connect(db_path)
     try:
         rows = conn.execute(
-            "SELECT task_id, filename, file_sha256, status, stage, created_at, markdown_path, submit_config_json FROM tasks ORDER BY created_at DESC LIMIT ?",
-            (limit,),
+            """
+            SELECT * FROM tasks
+            WHERE file_sha256 = ?
+              AND owner_id = ?
+              AND tenant_id = ?
+              AND market_scope = ?
+              AND parse_config_hash = ?
+            ORDER BY created_at DESC
+            """,
+            (
+                digest,
+                owner_id or DEFAULT_OWNER_ID,
+                tenant_id or DEFAULT_TENANT_ID,
+                market_scope or DEFAULT_MARKET_SCOPE,
+                parse_config_hash or DEFAULT_PARSE_CONFIG_HASH,
+            ),
+        ).fetchall()
+    finally:
+        conn.close()
+    for row in rows:
+        task = row_to_task(row, normalize_task=normalize_task)
+        if task_blocks_duplicate_upload(task):
+            return task
+    return None
+
+
+def list_recent_tasks(db_path, limit=100, *, normalize_task=None, owner_scope=None):
+    conn = connect(db_path)
+    try:
+        where = ""
+        params = []
+        if owner_scope and not owner_scope.get("is_admin"):
+            if owner_scope.get("allow_legacy_task"):
+                where = (
+                    "WHERE ((owner_id = ? AND tenant_id = ?) "
+                    "OR (owner_id = 'system' AND tenant_id = 'unknown' AND market_scope = 'unknown'))"
+                )
+            else:
+                where = "WHERE owner_id = ? AND tenant_id = ?"
+            params.extend([
+                owner_scope.get("owner_id") or DEFAULT_OWNER_ID,
+                owner_scope.get("tenant_id") or DEFAULT_TENANT_ID,
+            ])
+            market_scope = owner_scope.get("market_scope")
+            if market_scope and market_scope != DEFAULT_MARKET_SCOPE:
+                where += " AND market_scope = ?"
+                params.append(market_scope)
+        rows = conn.execute(
+            f"""
+            SELECT task_id, filename, file_sha256, owner_id, tenant_id, market_scope,
+                   parse_config_hash, status, stage, created_at, markdown_path, submit_config_json
+            FROM tasks
+            {where}
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            tuple(params + [limit]),
         ).fetchall()
         tasks = [dict(row) for row in rows]
         queued_rows = conn.execute(

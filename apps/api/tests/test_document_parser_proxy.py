@@ -686,6 +686,8 @@ def test_import_document_from_mineru_records_usage_and_artifact(monkeypatch, tmp
 
 
 def test_proxy_preserves_upstream_content_type(monkeypatch):
+    seen: dict[str, object] = {}
+
     class QueryParams:
         def multi_items(self):
             return []
@@ -701,17 +703,28 @@ def test_proxy_preserves_upstream_content_type(monkeypatch):
             return False
 
         async def request(self, method, url, **kwargs):
+            seen["headers"] = kwargs.get("headers")
             return SimpleNamespace(status_code=200, content=b"PNG", headers={"content-type": "image/png"})
 
     monkeypatch.setattr(document_parser.httpx, "AsyncClient", FakeAsyncClient)
     request = DummyRequest()
     request.query_params = QueryParams()
 
-    response = asyncio.run(document_parser._proxy_document_parser(request, "/api/figures/task-a/img-1.png"))
+    response = asyncio.run(
+        document_parser._proxy_document_parser(
+            request,
+            "/api/figures/task-a/img-1.png",
+            current_user=SimpleNamespace(id=7, role=UserRole.ANALYST),
+            allow_legacy=True,
+        )
+    )
 
     assert response.status_code == 200
     assert response.media_type == "image/png"
     assert response.body == b"PNG"
+    assert seen["headers"]["X-SIQ-User-Id"] == "7"
+    assert seen["headers"]["X-SIQ-User-Role"] == "analyst"
+    assert seen["headers"]["X-SIQ-Allow-Legacy-Task"] == "1"
 
 
 def test_source_image_proxy_requires_access_and_preserves_payload(monkeypatch, tmp_path):

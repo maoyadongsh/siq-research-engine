@@ -64,7 +64,18 @@ def _write_hk_v2_package(root: Path, *parts: str) -> Path:
     (package_dir / "metrics" / "financial_checks.json").write_text(json.dumps({"overall_status": "warning"}, ensure_ascii=False), encoding="utf-8")
     (package_dir / "metrics" / "normalized_metrics.json").write_text(json.dumps({"metrics": [{"metric_id": "m1"}]}, ensure_ascii=False), encoding="utf-8")
     (package_dir / "qa" / "quality_report.json").write_text(json.dumps({"overall_status": "warning", "section_count": 2, "table_count": 3, "raw_fact_count": 4, "normalized_metric_count": 5}, ensure_ascii=False), encoding="utf-8")
-    (package_dir / "qa" / "source_map.json").write_text(json.dumps({"entries": [{"evidence_id": "e1"}, {"evidence_id": "e2"}]}, ensure_ascii=False), encoding="utf-8")
+    (package_dir / "qa" / "source_map.json").write_text(
+        json.dumps(
+            {
+                "entries": [
+                    {"evidence_id": "e1", "page_number": 1, "table_index": 1, "row_index": 1, "column_index": 1},
+                    {"evidence_id": "e2", "page_number": 1, "table_index": 1, "row_index": 2, "column_index": 1},
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
     (package_dir / "parser" / "document_full.json").write_text(json.dumps({"content_list_enhanced": {"footnotes": {"references": [{"id": "fn1"}]}, "toc": {"headings": [{"title": "Overview"}]}}}, ensure_ascii=False), encoding="utf-8")
     (package_dir / "parser" / "content_list_enhanced.json").write_text(json.dumps({"footnotes": {"references": [{"id": "fn1"}]}, "toc": {"headings": [{"title": "Overview"}]}, "financial_note_links": {"links": [{"note": "1"}]}, "tables": [{"table_index": 1, "relations": [{"type": "footnote", "target": "fn1"}]}], "quality_signals": {"tables": [{"table_index": 1, "score": 0.95}]}, "pages": [{"page_number": 1}]}, ensure_ascii=False), encoding="utf-8")
     (package_dir / "parser" / "table_relations.json").write_text(json.dumps({"schema_version": "hk_table_relations_v1", "relations": [{"type": "footnote", "target": "fn1"}]}, ensure_ascii=False), encoding="utf-8")
@@ -1012,7 +1023,14 @@ def test_market_package_quality_routes_keep_response_contract(monkeypatch, tmp_p
     (package_dir / "qa").mkdir()
     (package_dir / "qa" / "quality_report.json").write_text(json.dumps({"overall_status": "pass"}), encoding="utf-8")
     (package_dir / "qa" / "source_map.json").write_text(
-        json.dumps({"entries": [{"evidence_id": "e1"}, {"evidence_id": "e2"}]}),
+        json.dumps(
+            {
+                "entries": [
+                    {"evidence_id": "e1", "source_url": "https://www.sec.gov/Archives/demo.htm", "html_anchor": "fact-1"},
+                    {"evidence_id": "e2", "source_url": "https://www.sec.gov/Archives/demo.htm", "html_anchor": "fact-2"},
+                ]
+            }
+        ),
         encoding="utf-8",
     )
     (package_dir / "metrics").mkdir()

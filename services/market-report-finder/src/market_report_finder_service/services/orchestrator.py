@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urlparse
 
 from fastapi import HTTPException
 
@@ -15,6 +14,7 @@ from market_report_finder_service.markets.hk import HkReportFinder
 from market_report_finder_service.markets.jp import JpReportFinder
 from market_report_finder_service.markets.kr import KrReportFinder
 from market_report_finder_service.markets.us import UsReportFinder
+from market_report_finder_service.markets.url_ownership import market_owns_url, validate_http_url
 from market_report_finder_service.models.schemas import (
     BatchDownloadResponse,
     BatchDownloadResultItem,
@@ -262,7 +262,15 @@ class ReportFinderOrchestrator:
         )
 
     def download_direct(self, request: DirectReportDownloadRequest) -> DirectReportDownloadResponse:
-        candidate = self._market(request.market).direct_candidate(request)
+        finder = self._market(request.market)
+        try:
+            candidate = finder.mark_user_url_candidate(
+                finder.direct_candidate(request),
+                original_url=request.document_url,
+                input_kind="direct_download",
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         downloaded = self.downloader.download(candidate)
         return DirectReportDownloadResponse(
             market=request.market,
@@ -284,14 +292,19 @@ class ReportFinderOrchestrator:
     ) -> BatchDownloadResponse:
         results: list[BatchDownloadResultItem] = []
         for item in items:
-            effective_market = item.market or market or self._infer_market_from_url_or_identifier(
-                document_url=item.document_url,
-                ticker=item.ticker,
-                company_id=item.company_id,
-            )
-            candidate = self._market(effective_market).batch_candidate(item, default_company_name=default_company_name)
             company_name = item.company_name or default_company_name
             try:
+                effective_market = item.market or market or self._infer_market_from_url_or_identifier(
+                    document_url=item.document_url,
+                    ticker=item.ticker,
+                    company_id=item.company_id,
+                )
+                finder = self._market(effective_market)
+                candidate = finder.mark_user_url_candidate(
+                    finder.batch_candidate(item, default_company_name=default_company_name),
+                    original_url=item.document_url,
+                    input_kind="batch_download",
+                )
                 downloaded = self.downloader.download(candidate)
                 results.append(
                     BatchDownloadResultItem(
@@ -344,7 +357,12 @@ class ReportFinderOrchestrator:
             ticker=ticker,
             company_id=None,
         )
-        candidate = self._market(effective_market).batch_candidate(item, default_company_name=company_name)
+        finder = self._market(effective_market)
+        candidate = finder.mark_user_url_candidate(
+            finder.batch_candidate(item, default_company_name=company_name),
+            original_url=document_url,
+            input_kind="single_download",
+        )
         return self.downloader.download(candidate)
 
     def _resolve(
@@ -491,31 +509,13 @@ class ReportFinderOrchestrator:
         ticker: str | None,
         company_id: str | None,
     ) -> Market:
-        host = urlparse(document_url).netloc.lower()
-        if "cninfo.com.cn" in host:
-            return Market.cn
-        if "hkexnews.hk" in host or "hkex.com.hk" in host:
-            return Market.hk
-        if EuReportFinder.owns_url(document_url):
-            return Market.eu
-        if "dart.fss.or.kr" in host or "opendart.fss.or.kr" in host or "kind.krx.co.kr" in host:
-            return Market.kr
-        if (
-            "edinet-fsa.go.jp" in host
-            or "toyota" in host
-            or "mufg.jp" in host
-            or "nintendo.co.jp" in host
-            or "fastretailing.com" in host
-            or "hitachi.com" in host
-            or "group.ntt" in host
-            or "daikin.com" in host
-            or "fujitsu" in host
-            or "itochu.co.jp" in host
-            or "shiseido.com" in host
-        ):
-            return Market.jp
-        if "sec.gov" in host:
-            return Market.us
+        try:
+            validate_http_url(document_url)
+        except ValueError:
+            return ReportFinderOrchestrator._infer_market(market=None, ticker=ticker, company_id=company_id, cik=None)
+        for candidate_market in (Market.cn, Market.hk, Market.us, Market.eu, Market.kr, Market.jp):
+            if market_owns_url(candidate_market, document_url):
+                return candidate_market
         return ReportFinderOrchestrator._infer_market(market=None, ticker=ticker, company_id=company_id, cik=None)
 
     @staticmethod

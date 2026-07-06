@@ -6,6 +6,7 @@ from market_report_finder_service.markets.base import MarketReportFinder
 from market_report_finder_service.markets.kr.catalog import KrAnnualReportCatalog
 from market_report_finder_service.markets.kr.client import DartClient
 from market_report_finder_service.markets.kr.public_dart import DartPublicClient
+from market_report_finder_service.markets.url_ownership import market_owns_url
 from market_report_finder_service.models.schemas import (
     BatchDownloadItem,
     CompanyEntity,
@@ -144,13 +145,17 @@ class KrReportFinder(MarketReportFinder):
     def direct_candidate(self, request: DirectReportDownloadRequest) -> FilingCandidate:
         catalog_entry = self.catalog.entry_for_url(request.document_url)
         if catalog_entry:
-            return self.catalog.filing_candidate(catalog_entry)
+            return self.mark_user_url_candidate(
+                self.catalog.filing_candidate(catalog_entry),
+                original_url=request.document_url,
+                input_kind="direct_download",
+            )
         report_type = self._report_type_for_form(request.form)
         report_end = self.fallback_date(request.report_end)
         published_at = self.fallback_date(request.published_at or report_end)
         company_key = request.company_id or request.ticker or "manual"
         source_id, source_name, source_domain, file_format = self._source_for_url(request.document_url, fallback_format="zip")
-        return FilingCandidate(
+        candidate = FilingCandidate(
             source_id=source_id,
             source_name=source_name,
             source_domain=source_domain,
@@ -170,6 +175,7 @@ class KrReportFinder(MarketReportFinder):
             landing_url=request.landing_url or request.document_url,
             file_format=file_format if source_id in {"dart_public", "krx_kind"} else self.file_format_from_url(request.document_url, file_format),
         )
+        return self.mark_user_url_candidate(candidate, original_url=request.document_url, input_kind="direct_download")
 
     def batch_candidate(
         self,
@@ -179,13 +185,17 @@ class KrReportFinder(MarketReportFinder):
     ) -> FilingCandidate:
         catalog_entry = self.catalog.entry_for_url(item.document_url)
         if catalog_entry:
-            return self.catalog.filing_candidate(catalog_entry)
+            return self.mark_user_url_candidate(
+                self.catalog.filing_candidate(catalog_entry),
+                original_url=item.document_url,
+                input_kind="batch_download",
+            )
         company_name = item.company_name or default_company_name
         report_type = self._report_type_for_form(item.report_type or "annual")
         report_end = self.fallback_date(item.report_end)
         published_at = self.fallback_date(item.published_at or report_end)
         source_id, source_name, source_domain, file_format = self._source_for_url(item.document_url, fallback_format=item.file_format or "zip")
-        return FilingCandidate(
+        candidate = FilingCandidate(
             source_id=source_id,
             source_name=source_name,
             source_domain=source_domain,
@@ -205,11 +215,11 @@ class KrReportFinder(MarketReportFinder):
             landing_url=item.landing_url or item.document_url,
             file_format=file_format if source_id in {"dart_public", "krx_kind"} else item.file_format or self.file_format_from_url(item.document_url, file_format),
         )
+        return self.mark_user_url_candidate(candidate, original_url=item.document_url, input_kind="batch_download")
 
     @staticmethod
     def owns_url(document_url: str) -> bool:
-        host = urlparse(document_url).netloc.lower()
-        return "dart.fss.or.kr" in host or "opendart.fss.or.kr" in host or host in KrAnnualReportCatalog.source_hosts()
+        return market_owns_url(Market.kr, document_url)
 
     def curated_annual_reports(self, *, report_year: int | None = None, limit: int = 10) -> list[FilingCandidate]:
         candidates: list[FilingCandidate] = []

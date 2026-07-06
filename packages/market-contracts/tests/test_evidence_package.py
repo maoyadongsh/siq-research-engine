@@ -5,6 +5,7 @@ from siq_market_contracts import (
     SCHEMA_VERSION,
     build_quality_gates,
     compute_artifact_hashes,
+    is_resolvable_evidence_source,
     read_market_package_detail,
     read_market_package_summary,
     source_map_from_financial_data,
@@ -119,10 +120,19 @@ def test_validate_and_read_market_package(tmp_path):
     assert validation.ok, validation.errors
     assert summary["package_path"] == "hk/companies/00700-TENCENT/reports/2025-annual-12100024"
     assert summary["paths"]["manifest"] == "manifest.json"
-    assert summary["counts"] == {"sections": 1, "tables": 1, "raw_facts": 0, "metrics": 1, "evidence": 1}
+    assert summary["counts"] == {
+        "sections": 1,
+        "tables": 1,
+        "raw_facts": 0,
+        "metrics": 1,
+        "evidence": 1,
+        "resolvable_evidence": 1,
+        "unresolvable_evidence": 0,
+    }
     assert summary["quality_gates"]["overall_status"] == "warning"
     assert summary["quality_gates"]["import_blocked"] is True
     assert summary["quality_gates"]["evidence_coverage_ratio"] == 1
+    assert summary["quality_gates"]["unresolvable_evidence_count"] == 0
     assert "income_statement" in summary["quality_gates"]["missing_required_statements"]
     assert detail["manifest"]["schema_version"] == SCHEMA_VERSION
     assert detail["quality_gates"]["artifact_hash_status"] == "ok"
@@ -144,6 +154,33 @@ def test_validate_rejects_missing_evidence(tmp_path):
 
     assert not result.ok
     assert any("missing evidence" in error for error in result.errors)
+
+
+def test_evidence_resolvability_requires_a_reviewable_locator(tmp_path):
+    package_dir = _write_package(tmp_path)
+    data_path = package_dir / "metrics" / "financial_data.json"
+    payload = json.loads(data_path.read_text(encoding="utf-8"))
+    payload["statements"][0]["items"][0]["sources"]["2025-12-31"] = {
+        "source_type": "pdf_statement_table",
+        "source_id": "table_1",
+        "table_index": 1,
+    }
+    write_json(data_path, payload)
+    manifest = json.loads((package_dir / "manifest.json").read_text(encoding="utf-8"))
+    source_map = source_map_from_financial_data(manifest=manifest, financial_data=payload, package_dir=package_dir)
+    write_json(package_dir / "qa" / "source_map.json", source_map)
+    manifest["artifact_hashes"] = compute_artifact_hashes(package_dir)
+    write_json(package_dir / "manifest.json", manifest)
+
+    result = validate_evidence_package(package_dir)
+    gates = build_quality_gates(package_dir)
+
+    assert not is_resolvable_evidence_source(payload["statements"][0]["items"][0]["sources"]["2025-12-31"], manifest=manifest)
+    assert not result.ok
+    assert any("unresolvable evidence" in error for error in result.errors)
+    assert gates["evidence_coverage_ratio"] == 0
+    assert gates["unresolvable_evidence_count"] == 1
+    assert "unresolvable evidence present" in gates["block_reasons"]
 
 
 def test_quality_gates_fail_on_artifact_hash_mismatch(tmp_path):

@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from urllib.parse import urlparse
-
 from market_report_finder_service.markets.base import MarketReportFinder
 from market_report_finder_service.markets.jp.client import EdinetClient
 from market_report_finder_service.markets.jp.catalog import JpAnnualReportCatalog
 from market_report_finder_service.markets.jp.tdnet import TdnetClient
+from market_report_finder_service.markets.url_ownership import market_owns_url
 from market_report_finder_service.models.schemas import (
     BatchDownloadItem,
     CompanyEntity,
@@ -155,12 +154,16 @@ class JpReportFinder(MarketReportFinder):
     def direct_candidate(self, request: DirectReportDownloadRequest) -> FilingCandidate:
         entry = self.catalog.entry_for_url(request.document_url)
         if entry:
-            return self.catalog.filing_candidate(entry)
+            return self.mark_user_url_candidate(
+                self.catalog.filing_candidate(entry),
+                original_url=request.document_url,
+                input_kind="direct_download",
+            )
         report_type = self._report_type_for_form(request.form)
         report_end = self.fallback_date(request.report_end)
         published_at = self.fallback_date(request.published_at or report_end)
         company_key = request.company_id or request.ticker or "manual"
-        return FilingCandidate(
+        candidate = FilingCandidate(
             source_id="edinet",
             source_name="EDINET",
             source_domain="api.edinet-fsa.go.jp",
@@ -180,6 +183,7 @@ class JpReportFinder(MarketReportFinder):
             landing_url=request.landing_url or request.document_url,
             file_format=self.file_format_from_url(request.document_url, "pdf"),
         )
+        return self.mark_user_url_candidate(candidate, original_url=request.document_url, input_kind="direct_download")
 
     def batch_candidate(
         self,
@@ -189,12 +193,16 @@ class JpReportFinder(MarketReportFinder):
     ) -> FilingCandidate:
         entry = self.catalog.entry_for_url(item.document_url)
         if entry:
-            return self.catalog.filing_candidate(entry)
+            return self.mark_user_url_candidate(
+                self.catalog.filing_candidate(entry),
+                original_url=item.document_url,
+                input_kind="batch_download",
+            )
         company_name = item.company_name or default_company_name
         report_type = self._report_type_for_form(item.report_type or "annual")
         report_end = self.fallback_date(item.report_end)
         published_at = self.fallback_date(item.published_at or report_end)
-        return FilingCandidate(
+        candidate = FilingCandidate(
             source_id="edinet",
             source_name="EDINET",
             source_domain="api.edinet-fsa.go.jp",
@@ -214,15 +222,11 @@ class JpReportFinder(MarketReportFinder):
             landing_url=item.landing_url or item.document_url,
             file_format=item.file_format or self.file_format_from_url(item.document_url, "pdf"),
         )
+        return self.mark_user_url_candidate(candidate, original_url=item.document_url, input_kind="batch_download")
 
     @staticmethod
     def owns_url(document_url: str) -> bool:
-        host = urlparse(document_url).netloc.lower()
-        return (
-            "edinet-fsa.go.jp" in host
-            or "release.tdnet.info" in host
-            or host in JpAnnualReportCatalog.source_hosts()
-        )
+        return market_owns_url(Market.jp, document_url)
 
     def curated_annual_reports(self, *, report_year: int | None = None, limit: int = 10) -> list[FilingCandidate]:
         return self.catalog.sample_filings(limit=limit, report_year=report_year)

@@ -96,8 +96,24 @@ async def _enforce_quota_or_429_async(
         raise
 
 
-def _document_headers(extra: dict[str, str] | None = None) -> dict[str, str]:
+def _document_headers(
+    extra: dict[str, str] | None = None,
+    *,
+    current_user: User | None = None,
+    market_scope: str | None = None,
+    allow_legacy: bool = False,
+) -> dict[str, str]:
     headers = dict(extra or {})
+    if current_user is not None:
+        headers["X-SIQ-User-Id"] = str(getattr(current_user, "id", "") or "")
+        headers["X-SIQ-User-Role"] = _role_value(current_user)
+        tenant_id = str(getattr(current_user, "tenant_id", "") or getattr(current_user, "tenant", "") or "").strip()
+        if tenant_id:
+            headers["X-SIQ-Tenant-Id"] = tenant_id
+    if market_scope:
+        headers["X-SIQ-Market-Scope"] = str(market_scope)
+    if allow_legacy:
+        headers["X-SIQ-Allow-Legacy-Task"] = "1"
     if DOCUMENT_PARSER_ACCESS_TOKEN:
         headers.setdefault("X-Document-Parser-Token", DOCUMENT_PARSER_ACCESS_TOKEN)
     return headers
@@ -323,11 +339,18 @@ async def _proxy_document_parser(
     *,
     method: str | None = None,
     json_body: Any | None = None,
+    current_user: User | None = None,
+    market_scope: str | None = None,
+    allow_legacy: bool = False,
 ) -> Response:
     request_method = method or request.method
     url = f"{DOCUMENT_PARSER_API_BASE}{upstream_path}"
     kwargs: dict[str, Any] = {
-        "headers": _document_headers(),
+        "headers": _document_headers(
+            current_user=current_user,
+            market_scope=market_scope,
+            allow_legacy=allow_legacy,
+        ),
         "params": list(request.query_params.multi_items()),
     }
     if json_body is not None:
@@ -336,7 +359,12 @@ async def _proxy_document_parser(
         kwargs["content"] = await request.body()
         content_type = request.headers.get("content-type")
         if content_type:
-            kwargs["headers"] = _document_headers({"content-type": content_type})
+            kwargs["headers"] = _document_headers(
+                {"content-type": content_type},
+                current_user=current_user,
+                market_scope=market_scope,
+                allow_legacy=allow_legacy,
+            )
     try:
         async with httpx.AsyncClient(timeout=DOCUMENT_PARSER_PROXY_TIMEOUT) as client:
             upstream = await client.request(request_method, url, **kwargs)
@@ -416,7 +444,7 @@ async def create_document_tasks(
                     f"{DOCUMENT_PARSER_API_BASE}/api/tasks",
                     data=form,
                     files=multipart,
-                    headers=_document_headers(),
+                    headers=_document_headers(current_user=current_user, market_scope=requested_market),
                 )
         except httpx.RequestError as exc:
             raise HTTPException(status_code=502, detail=f"文档解析服务不可用: {exc}") from exc
@@ -429,7 +457,7 @@ async def create_document_tasks(
                 response = await client.post(
                     f"{DOCUMENT_PARSER_API_BASE}/api/tasks",
                     json=payload,
-                    headers=_document_headers(),
+                    headers=_document_headers(current_user=current_user, market_scope=requested_market),
                 )
         except httpx.RequestError as exc:
             raise HTTPException(status_code=502, detail=f"文档解析服务不可用: {exc}") from exc
@@ -494,7 +522,10 @@ async def import_document_from_mineru(
             response = await client.post(
                 f"{DOCUMENT_PARSER_API_BASE}/api/import/mineru",
                 json=payload,
-                headers=_document_headers(),
+                headers=_document_headers(
+                    current_user=current_user,
+                    market_scope=_normalize_market(payload.get("market")) if isinstance(payload, dict) else "",
+                ),
             )
     except httpx.RequestError as exc:
         raise HTTPException(status_code=502, detail=f"文档解析服务不可用: {exc}") from exc
@@ -545,7 +576,7 @@ async def list_mineru_import_candidates(
     request: Request,
     current_user: User = Depends(get_current_user),
 ):
-    return await _proxy_document_parser(request, "/api/import/mineru/candidates")
+    return await _proxy_document_parser(request, "/api/import/mineru/candidates", current_user=current_user)
 
 
 @router.get("/tasks")
@@ -555,7 +586,10 @@ async def list_document_tasks(
 ):
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.get(f"{DOCUMENT_PARSER_API_BASE}/api/tasks", headers=_document_headers())
+            response = await client.get(
+                f"{DOCUMENT_PARSER_API_BASE}/api/tasks",
+                headers=_document_headers(current_user=current_user, allow_legacy=True),
+            )
             response.raise_for_status()
             payload = response.json()
     except Exception as exc:
@@ -609,7 +643,7 @@ async def get_document_task(
     async_session: AsyncSession = Depends(get_async_session),
 ):
     await _ensure_document_task_access_async(async_session, current_user, task_id)
-    return await _proxy_document_parser(request, f"/api/tasks/{quote(task_id, safe='')}")
+    return await _proxy_document_parser(request, f"/api/tasks/{quote(task_id, safe='')}", current_user=current_user, allow_legacy=True)
 
 
 @router.get("/status/{task_id}")
@@ -620,7 +654,7 @@ async def get_document_status(
     async_session: AsyncSession = Depends(get_async_session),
 ):
     await _ensure_document_task_access_async(async_session, current_user, task_id)
-    return await _proxy_document_parser(request, f"/api/status/{quote(task_id, safe='')}")
+    return await _proxy_document_parser(request, f"/api/status/{quote(task_id, safe='')}", current_user=current_user, allow_legacy=True)
 
 
 @router.get("/result/{task_id}")
@@ -631,7 +665,7 @@ async def get_document_result(
     async_session: AsyncSession = Depends(get_async_session),
 ):
     await _ensure_document_task_access_async(async_session, current_user, task_id)
-    return await _proxy_document_parser(request, f"/api/result/{quote(task_id, safe='')}")
+    return await _proxy_document_parser(request, f"/api/result/{quote(task_id, safe='')}", current_user=current_user, allow_legacy=True)
 
 
 @router.post("/cancel/{task_id}")
@@ -642,7 +676,7 @@ async def cancel_document_task(
     async_session: AsyncSession = Depends(get_async_session),
 ):
     await _ensure_document_task_access_async(async_session, current_user, task_id)
-    return await _proxy_document_parser(request, f"/api/cancel/{quote(task_id, safe='')}", method="POST")
+    return await _proxy_document_parser(request, f"/api/cancel/{quote(task_id, safe='')}", method="POST", current_user=current_user, allow_legacy=True)
 
 
 @router.post("/retry/{task_id}")
@@ -654,7 +688,7 @@ async def retry_document_task(
 ):
     await _ensure_document_task_access_async(async_session, current_user, task_id)
     await _enforce_quota_or_429_async(async_session, current_user, increment=1)
-    response = await _proxy_document_parser(request, f"/api/retry/{quote(task_id, safe='')}", method="POST")
+    response = await _proxy_document_parser(request, f"/api/retry/{quote(task_id, safe='')}", method="POST", current_user=current_user, allow_legacy=True)
     if 200 <= response.status_code < 300:
         await record_usage_async(
             async_session,
@@ -691,7 +725,7 @@ async def delete_document_task(
     remaining_links = result.all()
     if remaining_links and not _is_admin(current_user):
         return {"success": True, "upstream_deleted": False, "scope": "workspace"}
-    return await _proxy_document_parser(request, f"/api/tasks/{quote(task_id, safe='')}", method="DELETE")
+    return await _proxy_document_parser(request, f"/api/tasks/{quote(task_id, safe='')}", method="DELETE", current_user=current_user, allow_legacy=True)
 
 
 @router.get("/artifact/{task_id}/{artifact:path}")
@@ -703,7 +737,7 @@ async def get_document_artifact(
     async_session: AsyncSession = Depends(get_async_session),
 ):
     await _ensure_document_task_access_async(async_session, current_user, task_id)
-    return await _proxy_document_parser(request, f"/api/artifact/{quote(task_id, safe='')}/{artifact}")
+    return await _proxy_document_parser(request, f"/api/artifact/{quote(task_id, safe='')}/{artifact}", current_user=current_user, allow_legacy=True)
 
 
 @router.get("/download/{task_id}")
@@ -714,7 +748,7 @@ async def download_document_package(
     async_session: AsyncSession = Depends(get_async_session),
 ):
     await _ensure_document_task_access_async(async_session, current_user, task_id)
-    return await _proxy_document_parser(request, f"/api/download/{quote(task_id, safe='')}")
+    return await _proxy_document_parser(request, f"/api/download/{quote(task_id, safe='')}", current_user=current_user, allow_legacy=True)
 
 
 @router.post("/download/batch")
@@ -741,6 +775,8 @@ async def download_document_batch(
         "/api/download/batch",
         method="POST",
         json_body={"task_ids": allowed_task_ids},
+        current_user=current_user,
+        allow_legacy=True,
     )
 
 
@@ -753,7 +789,7 @@ async def source_page(
     async_session: AsyncSession = Depends(get_async_session),
 ):
     await _ensure_document_task_access_async(async_session, current_user, task_id)
-    return await _proxy_document_parser(request, f"/api/source/{quote(task_id, safe='')}/page/{page_number}")
+    return await _proxy_document_parser(request, f"/api/source/{quote(task_id, safe='')}/page/{page_number}", current_user=current_user, allow_legacy=True)
 
 
 @router.get("/source/{task_id}/page-image/{page_number}")
@@ -765,7 +801,7 @@ async def source_page_image(
     async_session: AsyncSession = Depends(get_async_session),
 ):
     await _ensure_document_task_access_async(async_session, current_user, task_id)
-    return await _proxy_document_parser(request, f"/api/source/{quote(task_id, safe='')}/page-image/{page_number}")
+    return await _proxy_document_parser(request, f"/api/source/{quote(task_id, safe='')}/page-image/{page_number}", current_user=current_user, allow_legacy=True)
 
 
 @router.get("/source/{task_id}/block/{block_id}")
@@ -777,7 +813,7 @@ async def source_block(
     async_session: AsyncSession = Depends(get_async_session),
 ):
     await _ensure_document_task_access_async(async_session, current_user, task_id)
-    return await _proxy_document_parser(request, f"/api/source/{quote(task_id, safe='')}/block/{quote(block_id, safe='')}")
+    return await _proxy_document_parser(request, f"/api/source/{quote(task_id, safe='')}/block/{quote(block_id, safe='')}", current_user=current_user, allow_legacy=True)
 
 
 @router.get("/source/{task_id}/table/{table_id}")
@@ -789,7 +825,7 @@ async def source_table(
     async_session: AsyncSession = Depends(get_async_session),
 ):
     await _ensure_document_task_access_async(async_session, current_user, task_id)
-    return await _proxy_document_parser(request, f"/api/source/{quote(task_id, safe='')}/table/{quote(table_id, safe='')}")
+    return await _proxy_document_parser(request, f"/api/source/{quote(task_id, safe='')}/table/{quote(table_id, safe='')}", current_user=current_user, allow_legacy=True)
 
 
 @router.get("/source/{task_id}/image/{image_id}")
@@ -801,7 +837,7 @@ async def source_image(
     async_session: AsyncSession = Depends(get_async_session),
 ):
     await _ensure_document_task_access_async(async_session, current_user, task_id)
-    return await _proxy_document_parser(request, f"/api/source/{quote(task_id, safe='')}/image/{quote(image_id, safe='')}")
+    return await _proxy_document_parser(request, f"/api/source/{quote(task_id, safe='')}/image/{quote(image_id, safe='')}", current_user=current_user, allow_legacy=True)
 
 
 @router.get("/figures/{task_id}")
@@ -812,7 +848,7 @@ async def document_figures(
     async_session: AsyncSession = Depends(get_async_session),
 ):
     await _ensure_document_task_access_async(async_session, current_user, task_id)
-    return await _proxy_document_parser(request, f"/api/figures/{quote(task_id, safe='')}")
+    return await _proxy_document_parser(request, f"/api/figures/{quote(task_id, safe='')}", current_user=current_user, allow_legacy=True)
 
 
 @router.get("/figures/{task_id}/{image_id}")
@@ -824,7 +860,7 @@ async def document_figure(
     async_session: AsyncSession = Depends(get_async_session),
 ):
     await _ensure_document_task_access_async(async_session, current_user, task_id)
-    return await _proxy_document_parser(request, f"/api/figures/{quote(task_id, safe='')}/{quote(image_id, safe='')}")
+    return await _proxy_document_parser(request, f"/api/figures/{quote(task_id, safe='')}/{quote(image_id, safe='')}", current_user=current_user, allow_legacy=True)
 
 
 @router.get("/table-relations/{task_id}")
@@ -835,7 +871,7 @@ async def document_table_relations(
     async_session: AsyncSession = Depends(get_async_session),
 ):
     await _ensure_document_task_access_async(async_session, current_user, task_id)
-    return await _proxy_document_parser(request, f"/api/table-relations/{quote(task_id, safe='')}")
+    return await _proxy_document_parser(request, f"/api/table-relations/{quote(task_id, safe='')}", current_user=current_user, allow_legacy=True)
 
 
 @router.post("/table-relations/{task_id}/{relation_id}/review")
@@ -853,6 +889,8 @@ async def review_document_table_relation(
         f"/api/table-relations/{quote(task_id, safe='')}/{quote(relation_id, safe='')}/review",
         method="POST",
         json_body=body,
+        current_user=current_user,
+        allow_legacy=True,
     )
 
 
@@ -871,6 +909,8 @@ async def split_document_logical_table(
         f"/api/logical-tables/{quote(task_id, safe='')}/{quote(logical_table_id, safe='')}/split",
         method="POST",
         json_body=body,
+        current_user=current_user,
+        allow_legacy=True,
     )
 
 
@@ -888,6 +928,8 @@ async def merge_document_logical_tables(
         f"/api/logical-tables/{quote(task_id, safe='')}/merge",
         method="POST",
         json_body=body,
+        current_user=current_user,
+        allow_legacy=True,
     )
 
 
@@ -908,7 +950,7 @@ async def extract_document_schema(
 ):
     await _ensure_document_task_access_async(async_session, current_user, task_id)
     body = await request.json()
-    return await _proxy_document_parser(request, f"/api/extract/{quote(task_id, safe='')}", method="POST", json_body=body)
+    return await _proxy_document_parser(request, f"/api/extract/{quote(task_id, safe='')}", method="POST", json_body=body, current_user=current_user, allow_legacy=True)
 
 
 @router.get("/extract/{task_id}/{extract_id}")
@@ -920,4 +962,4 @@ async def get_document_extraction(
     async_session: AsyncSession = Depends(get_async_session),
 ):
     await _ensure_document_task_access_async(async_session, current_user, task_id)
-    return await _proxy_document_parser(request, f"/api/extract/{quote(task_id, safe='')}/{quote(extract_id, safe='')}")
+    return await _proxy_document_parser(request, f"/api/extract/{quote(task_id, safe='')}/{quote(extract_id, safe='')}", current_user=current_user, allow_legacy=True)

@@ -5,6 +5,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
+from market_report_finder_service.markets.url_ownership import (
+    MANUAL_UNVERIFIED_SOURCE_ID,
+    MANUAL_UNVERIFIED_SOURCE_NAME,
+    MANUAL_UNVERIFIED_STATUS,
+    OFFICIAL_VERIFIED_STATUS,
+    market_owns_url,
+    validate_http_url,
+)
 from market_report_finder_service.models.schemas import (
     BatchDownloadItem,
     CompanyEntity,
@@ -65,6 +73,35 @@ class MarketReportFinder(ABC):
         default_company_name: str,
     ) -> FilingCandidate:
         raise NotImplementedError
+
+    def mark_user_url_candidate(
+        self,
+        candidate: FilingCandidate,
+        *,
+        original_url: str,
+        input_kind: str,
+    ) -> FilingCandidate:
+        host = validate_http_url(original_url)
+        metadata = dict(candidate.metadata)
+        metadata.setdefault("original_url", original_url)
+        metadata["source_verification_input"] = input_kind
+        if market_owns_url(candidate.market, original_url):
+            metadata.setdefault("source_verification_status", OFFICIAL_VERIFIED_STATUS)
+            return candidate.model_copy(update={"metadata": metadata})
+
+        metadata["source_verification_status"] = MANUAL_UNVERIFIED_STATUS
+        metadata.setdefault("original_source_id", candidate.source_id)
+        metadata.setdefault("original_source_name", candidate.source_name)
+        metadata.setdefault("original_source_domain", candidate.source_domain)
+        metadata["source_tier"] = MANUAL_UNVERIFIED_STATUS
+        return candidate.model_copy(
+            update={
+                "source_id": MANUAL_UNVERIFIED_SOURCE_ID,
+                "source_name": MANUAL_UNVERIFIED_SOURCE_NAME,
+                "source_domain": host,
+                "metadata": metadata,
+            }
+        )
 
     @staticmethod
     def target_for_forms_or_types(forms: list[str], report_types: list[str]) -> ReportTarget:

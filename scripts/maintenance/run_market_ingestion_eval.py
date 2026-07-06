@@ -4,18 +4,68 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-CASE_ROOT = REPO_ROOT / "eval_datasets" / "market_ingestion_cases"
+CONTRACTS_SRC = REPO_ROOT / "packages" / "market-contracts" / "src"
+if CONTRACTS_SRC.is_dir() and str(CONTRACTS_SRC) not in sys.path:
+    sys.path.insert(0, str(CONTRACTS_SRC))
+
+from siq_market_contracts import build_quality_gates as _contract_quality_gates
+from siq_market_contracts import is_resolvable_evidence_source
+
+
+CASE_ROOT = REPO_ROOT / "datasets" / "market_ingestion"
+LEGACY_CASE_ROOT = REPO_ROOT / "eval_datasets" / "market_ingestion_cases"
+DEFAULT_OUTPUT = REPO_ROOT / "artifacts" / "eval-runs" / "market_ingestion" / "market_ingestion_eval_report.json"
+DEFAULT_MARKDOWN = REPO_ROOT / "artifacts" / "eval-runs" / "market_ingestion" / "market_ingestion_eval_report.md"
 WIKI_ROOTS = {
     "US": REPO_ROOT / "data" / "wiki" / "us",
     "HK": REPO_ROOT / "data" / "wiki" / "hk",
     "JP": REPO_ROOT / "data" / "wiki" / "jp",
     "KR": REPO_ROOT / "data" / "wiki" / "kr",
     "EU": REPO_ROOT / "data" / "wiki" / "eu",
+}
+DEFAULT_QUALITY_THRESHOLDS = {
+    "CN": {
+        "evidence_coverage_ratio": 0.8,
+        "evidence_resolvability_ratio": 1.0,
+        "statement_coverage": 1.0,
+        "bridge_check_pass_rate": 0.95,
+    },
+    "HK": {
+        "evidence_coverage_ratio": 0.8,
+        "evidence_resolvability_ratio": 1.0,
+        "statement_coverage": 1.0,
+        "bridge_check_pass_rate": 0.95,
+    },
+    "US": {
+        "evidence_coverage_ratio": 0.95,
+        "evidence_resolvability_ratio": 1.0,
+        "statement_coverage": 1.0,
+        "bridge_check_pass_rate": 0.95,
+    },
+    "EU": {
+        "evidence_coverage_ratio": 0.8,
+        "evidence_resolvability_ratio": 1.0,
+        "statement_coverage": 1.0,
+        "bridge_check_pass_rate": 0.95,
+    },
+    "JP": {
+        "evidence_coverage_ratio": 0.8,
+        "evidence_resolvability_ratio": 1.0,
+        "statement_coverage": 1.0,
+        "bridge_check_pass_rate": 0.95,
+    },
+    "KR": {
+        "evidence_coverage_ratio": 0.8,
+        "evidence_resolvability_ratio": 1.0,
+        "statement_coverage": 1.0,
+        "bridge_check_pass_rate": 0.95,
+    },
 }
 
 
@@ -32,10 +82,19 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def load_cases(case_root: Path = CASE_ROOT) -> list[dict[str, Any]]:
+def _case_files(case_root: Path) -> list[Path]:
+    if not case_root.exists():
+        return []
+    return sorted(case_root.glob("*_cases.json"))
+
+
+def load_cases(case_root: Path = CASE_ROOT, *, legacy_case_root: Path | None = LEGACY_CASE_ROOT) -> list[dict[str, Any]]:
     cases: list[dict[str, Any]] = []
     seen: set[tuple[Any, Any, Any, Any]] = set()
-    for path in sorted(case_root.glob("*_cases.json")):
+    case_files = _case_files(case_root)
+    if not case_files and legacy_case_root is not None and legacy_case_root != case_root:
+        case_files = _case_files(legacy_case_root)
+    for path in case_files:
         payload = read_json(path, [])
         if isinstance(payload, list):
             for item in payload:
@@ -144,6 +203,45 @@ def _metric_entries(payload: Any) -> list[Any]:
     return metrics if isinstance(metrics, list) else []
 
 
+def _financial_data_sources(financial_data: Any) -> list[dict[str, Any]]:
+    if not isinstance(financial_data, dict):
+        return []
+    sources: list[dict[str, Any]] = []
+    for statement in financial_data.get("statements") or []:
+        if not isinstance(statement, dict):
+            continue
+        for item in statement.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            item_sources = item.get("sources")
+            if isinstance(item_sources, dict):
+                sources.extend(source for source in item_sources.values() if isinstance(source, dict))
+    for bucket in ("key_metrics", "operating_metrics"):
+        for item in financial_data.get(bucket) or []:
+            if not isinstance(item, dict):
+                continue
+            item_sources = item.get("sources")
+            if isinstance(item_sources, dict):
+                sources.extend(source for source in item_sources.values() if isinstance(source, dict))
+    return sources
+
+
+def _package_quality_gates(package_dir: Path) -> dict[str, Any]:
+    try:
+        gates = _contract_quality_gates(package_dir)
+    except Exception as exc:
+        return {
+            "schema_version": "siq_quality_gates_v1",
+            "overall_status": "fail",
+            "artifact_hash_status": "unknown",
+            "resolvable_evidence_count": 0,
+            "unresolvable_evidence_count": 0,
+            "evidence_resolvability_ratio": None,
+            "gate_error": str(exc),
+        }
+    return gates if isinstance(gates, dict) else {}
+
+
 def evaluate_case(case: dict[str, Any]) -> dict[str, Any]:
     package_dir = find_package(case)
     if not package_dir:
@@ -153,9 +251,18 @@ def evaluate_case(case: dict[str, Any]) -> dict[str, Any]:
     metrics_payload = read_json(package_dir / "metrics" / "normalized_metrics.json", {})
     metrics = _metric_entries(metrics_payload)
     metric_names = {item.get("canonical_name") for item in metrics if isinstance(item, dict)}
+    financial_data = read_json(package_dir / "metrics" / "financial_data.json", {})
     source_map = read_json(package_dir / "qa" / "source_map.json", {})
     source_entries = _source_entries(source_map)
-    evidence_count = len(source_entries)
+    quality_gates = _package_quality_gates(package_dir)
+    resolvable_evidence_count = _number(quality_gates.get("resolvable_evidence_count"))
+    if not source_entries and resolvable_evidence_count == 0:
+        resolvable_evidence_count = sum(
+            1
+            for item in _financial_data_sources(financial_data)
+            if is_resolvable_evidence_source(item, manifest=manifest, package_dir=package_dir)
+        )
+    evidence_count = int(resolvable_evidence_count)
     bridge_checks = _read_first_json(
         package_dir,
         [
@@ -165,13 +272,32 @@ def evaluate_case(case: dict[str, Any]) -> dict[str, Any]:
             Path("financial_checks.json"),
         ],
     )
-    evidence_coverage_ratio = _evidence_coverage_ratio(quality, evidence_count, case)
+    gate_evidence_coverage = _number_or_none(quality_gates.get("evidence_coverage_ratio"))
+    evidence_coverage_ratio = (
+        gate_evidence_coverage
+        if gate_evidence_coverage is not None
+        else _evidence_coverage_ratio(quality, evidence_count, case)
+    )
     statement_coverage = _statement_coverage(quality, case)
     bridge_check_pass_rate = _bridge_check_pass_rate(bridge_checks)
+    bridge_check_status = _bridge_check_status(bridge_checks)
     expected = set(case.get("expected_metrics") or [])
     missing_metrics = sorted(expected - metric_names)
     missing_evidence = bool(case.get("expected_evidence")) and evidence_count == 0
-    gate_failures = _quality_gate_failures(case, manifest, quality, metrics, metric_names, source_map, package_dir)
+    gate_failures = _quality_gate_failures(
+        case,
+        manifest,
+        quality,
+        metrics,
+        metric_names,
+        source_map,
+        package_dir,
+        quality_gates=quality_gates,
+        evidence_coverage_ratio=evidence_coverage_ratio,
+        statement_coverage=statement_coverage,
+        bridge_check_pass_rate=bridge_check_pass_rate,
+        bridge_check_status=bridge_check_status,
+    )
     status = "pass" if not missing_metrics and not missing_evidence and not gate_failures else "fail"
     return {
         **case,
@@ -181,13 +307,19 @@ def evaluate_case(case: dict[str, Any]) -> dict[str, Any]:
         "document_format": manifest.get("document_format") or case.get("document_format"),
         "counts": {
             "metrics": len(metrics or []),
-            "evidence": evidence_count,
+            "evidence": len(source_entries),
+            "resolvable_evidence": evidence_count,
+            "unresolvable_evidence": int(_number(quality_gates.get("unresolvable_evidence_count"))),
             "tables": quality.get("table_count"),
             "raw_facts": quality.get("raw_fact_count"),
         },
         "evidence_coverage_ratio": evidence_coverage_ratio,
+        "evidence_resolvability_ratio": quality_gates.get("evidence_resolvability_ratio"),
         "statement_coverage": statement_coverage,
         "bridge_check_pass_rate": bridge_check_pass_rate,
+        "bridge_check_status": bridge_check_status,
+        "artifact_hash_status": quality_gates.get("artifact_hash_status"),
+        "quality_gates": quality_gates,
         "missing_metrics": missing_metrics,
         "missing_evidence": missing_evidence,
         "gate_failures": gate_failures,
@@ -246,6 +378,24 @@ def _bridge_check_pass_rate(payload: Any) -> float | None:
     return None
 
 
+def _bridge_check_status(payload: Any) -> str | None:
+    if not isinstance(payload, dict) or not payload:
+        return None
+    overall = str(payload.get("overall_status") or payload.get("status") or "").strip().lower()
+    if overall:
+        return overall
+    checks = payload.get("checks")
+    if isinstance(checks, list) and checks:
+        statuses = [str(item.get("status") or "").lower() for item in checks if isinstance(item, dict)]
+        if any(status in {"fail", "error"} for status in statuses):
+            return "fail"
+        if any(status in {"warning", "warn"} for status in statuses):
+            return "warning"
+        if statuses and all(status == "pass" for status in statuses):
+            return "pass"
+    return None
+
+
 def _is_present_status(value: Any) -> bool:
     return str(value).strip().lower() in {"present", "pass", "ok", "ready", "available", "true"}
 
@@ -258,14 +408,77 @@ def _quality_gate_failures(
     metric_names: set[Any],
     source_map: dict[str, Any],
     package_dir: Path,
+    *,
+    quality_gates: dict[str, Any],
+    evidence_coverage_ratio: float | None,
+    statement_coverage: float | None,
+    bridge_check_pass_rate: float | None,
+    bridge_check_status: str | None,
 ) -> list[str]:
     market = str(case.get("market") or manifest.get("market") or "").upper()
+    failures: list[str] = []
+    if not isinstance(manifest, dict) or not manifest:
+        failures.append("manifest_missing")
+    elif manifest.get("schema_version") != "market_evidence_package_v1":
+        failures.append("manifest_schema_invalid")
+
+    quality_status = str(quality.get("overall_status") or manifest.get("quality_status") or "").lower()
+    if quality_status in {"fail", "failed", "error", "critical"}:
+        failures.append("quality_status_fail")
+    if quality_gates.get("overall_status") == "fail":
+        failures.append("quality_gate_fail")
+
+    artifact_hash_status = str(quality_gates.get("artifact_hash_status") or "").lower()
+    if artifact_hash_status and artifact_hash_status != "ok":
+        failures.append(f"artifact_hash_{artifact_hash_status}")
+
+    thresholds = _case_quality_thresholds(case, market)
+    failures.extend(_threshold_failures(thresholds, "evidence_coverage_ratio", evidence_coverage_ratio))
+    failures.extend(_threshold_failures(thresholds, "statement_coverage", statement_coverage))
+    failures.extend(_threshold_failures(thresholds, "bridge_check_pass_rate", bridge_check_pass_rate))
+    failures.extend(
+        _threshold_failures(
+            thresholds,
+            "evidence_resolvability_ratio",
+            _number_or_none(quality_gates.get("evidence_resolvability_ratio")),
+        )
+    )
+    if _number(quality_gates.get("unresolvable_evidence_count")) > 0:
+        failures.append("unresolvable_evidence_present")
+    if bridge_check_status in {"fail", "failed", "error", "critical"}:
+        failures.append("bridge_check_status_fail")
+
     if market != "EU":
-        return []
+        return sorted(set(failures))
     document_format = str(manifest.get("document_format") or case.get("document_format") or "").lower()
     if document_format in {"esef_zip", "ixbrl_xhtml", "xhtml", "xml"}:
-        return _eu_esef_gate_failures(case, manifest, quality, metrics, metric_names, source_map, package_dir)
-    return _eu_pdf_gate_failures(case, manifest, quality, metrics, metric_names)
+        failures.extend(_eu_esef_gate_failures(case, manifest, quality, metrics, metric_names, source_map, package_dir))
+    else:
+        failures.extend(_eu_pdf_gate_failures(case, manifest, quality, metrics, metric_names))
+    return sorted(set(failures))
+
+
+def _case_quality_thresholds(case: dict[str, Any], market: str) -> dict[str, float]:
+    thresholds = dict(DEFAULT_QUALITY_THRESHOLDS.get(market, {}))
+    raw = case.get("quality_thresholds")
+    if isinstance(raw, dict):
+        for key, value in raw.items():
+            number = _number_or_none(value)
+            if number is not None:
+                thresholds[str(key)] = number
+    return thresholds
+
+
+def _threshold_failures(thresholds: dict[str, float], key: str, value: float | None) -> list[str]:
+    threshold = thresholds.get(key)
+    if threshold is None:
+        return []
+    if value is None:
+        return [f"{key}_missing"]
+    if value < threshold:
+        suffix = str(threshold).replace(".", "_")
+        return [f"{key}_lt_{suffix}"]
+    return []
 
 
 def _eu_pdf_gate_failures(
@@ -434,7 +647,7 @@ def _metric_values(items: list[dict[str, Any]], key: str) -> list[float]:
 
 def _is_official_source(item: dict[str, Any]) -> bool:
     source_tier = str(item.get("source_tier") or "").lower()
-    if source_tier in {"official", "regulator", "exchange", "issuer"}:
+    if source_tier in {"official", "regulator", "exchange", "issuer"} or source_tier.startswith("official_"):
         return True
     source_text = " ".join(
         str(item.get(key) or "").lower()
@@ -514,11 +727,13 @@ def markdown_report(report: dict[str, Any]) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate market evidence package coverage against static cases.")
     parser.add_argument("--case-root", type=Path, default=CASE_ROOT)
-    parser.add_argument("--output", type=Path, default=REPO_ROOT / "eval_datasets" / "market_ingestion_cases" / "market_ingestion_eval_report.json")
-    parser.add_argument("--markdown", type=Path, default=REPO_ROOT / "eval_datasets" / "market_ingestion_cases" / "market_ingestion_eval_report.md")
+    parser.add_argument("--legacy-case-root", type=Path, default=LEGACY_CASE_ROOT)
+    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--markdown", type=Path, default=DEFAULT_MARKDOWN)
     args = parser.parse_args()
     case_root = args.case_root if args.case_root.is_absolute() else REPO_ROOT / args.case_root
-    items = [evaluate_case(case) for case in load_cases(case_root)]
+    legacy_case_root = args.legacy_case_root if args.legacy_case_root.is_absolute() else REPO_ROOT / args.legacy_case_root
+    items = [evaluate_case(case) for case in load_cases(case_root, legacy_case_root=legacy_case_root)]
     summary = summarize_items(items)
     report = {"schema_version": "market_ingestion_eval_v1", "generated_at": now_iso(), "summary": summary, "items": items}
     write_json(args.output if args.output.is_absolute() else REPO_ROOT / args.output, report)

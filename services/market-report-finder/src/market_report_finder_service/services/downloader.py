@@ -1,20 +1,66 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import hashlib
 import json
 import re
+import threading
 import time
 from html import escape
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+from uuid import uuid4
 
 import httpx
 
 from market_report_finder_service.core.config import settings
-from market_report_finder_service.models.schemas import DownloadedReportFile, FilingCandidate, ReportFamily, ReportType
+from market_report_finder_service.markets.url_ownership import (
+    MANUAL_UNVERIFIED_SOURCE_ID,
+    MANUAL_UNVERIFIED_STATUS,
+    OFFICIAL_VERIFIED_STATUS,
+    market_owns_url,
+    validate_http_url,
+)
+from market_report_finder_service.models.schemas import DownloadedReportFile, FilingCandidate, Market, ReportFamily, ReportType
+
+
+@dataclass(frozen=True)
+class _FetchedReport:
+    content_sha256: str
+    content_type: str | None
+    effective_url: str
+    size_bytes: int
 
 
 class ReportDownloader:
+    _index_lock = threading.Lock()
+    MAX_DOWNLOAD_BYTES_BY_MARKET = {
+        Market.cn: 96 * 1024 * 1024,
+        Market.hk: 96 * 1024 * 1024,
+        Market.us: 128 * 1024 * 1024,
+        Market.eu: 512 * 1024 * 1024,
+        Market.kr: 256 * 1024 * 1024,
+        Market.jp: 256 * 1024 * 1024,
+    }
+    ALLOWED_CONTENT_TYPES = {
+        "application/download",
+        "application/force-download",
+        "application/json",
+        "application/octet-stream",
+        "application/pdf",
+        "application/x-download",
+        "application/x-pdf",
+        "application/x-zip",
+        "application/x-zip-compressed",
+        "application/xhtml+xml",
+        "application/xml",
+        "application/zip",
+        "binary/octet-stream",
+        "text/html",
+        "text/plain",
+        "text/xml",
+    }
     REPORT_TYPE_LABELS = {
         ReportType.form_10k: "10-K",
         ReportType.form_20f: "20-F",
@@ -29,53 +75,80 @@ class ReportDownloader:
     }
 
     def download(self, candidate: FilingCandidate) -> DownloadedReportFile:
+        candidate = self._candidate_with_original_url(candidate)
+        self._validate_original_url(candidate)
         download_dir = self._download_dir(candidate)
         download_dir.mkdir(parents=True, exist_ok=True)
         index_path = download_dir / settings.download_index_file
-        index = self._load_index(index_path)
-        cached = self._lookup_cached(index, candidate)
-        if cached is not None and not settings.download_overwrite:
-            return cached
+        with self._index_lock:
+            index = self._load_index(index_path)
+            cached = self._lookup_cached(index, candidate)
+            if cached is not None and not settings.download_overwrite:
+                return cached
 
-        content, content_type = self._fetch_content(candidate)
-        digest = hashlib.sha256(content).hexdigest()
-        effective_content_type = self._effective_content_type(content, content_type)
-        file_name = self._build_file_name(candidate, effective_content_type)
-        file_path = download_dir / file_name
+        temp_path = self._temp_download_path(download_dir)
+        try:
+            fetched = self._fetch_to_path(candidate, temp_path)
+            candidate = self._candidate_with_effective_url(candidate, fetched.effective_url)
+            digest = fetched.content_sha256
+            effective_content_type = fetched.content_type
+            file_name = self._build_file_name(candidate, effective_content_type)
+            file_path = download_dir / file_name
 
-        deduped = self._lookup_by_digest(index, digest)
-        if deduped is not None and not settings.download_overwrite:
-            self._register(index, candidate, deduped["saved_path"], deduped.get("content_type"), digest)
-            self._save_index(index_path, index)
-            existing_path = Path(deduped["saved_path"])
+            with self._index_lock:
+                index = self._load_index(index_path)
+                cached = self._lookup_cached(index, candidate)
+                if cached is not None and not settings.download_overwrite:
+                    return cached
+
+                deduped = self._lookup_by_digest(index, digest)
+                if deduped is not None and not settings.download_overwrite:
+                    self._register(index, candidate, deduped["saved_path"], deduped.get("content_type"), digest)
+                    self._save_index(index_path, index)
+                    existing_path = Path(deduped["saved_path"])
+                    return DownloadedReportFile(
+                        file_name=existing_path.name,
+                        saved_path=str(existing_path.resolve()),
+                        size_bytes=existing_path.stat().st_size,
+                        content_type=deduped.get("content_type") or self._content_type_from_suffix(existing_path.suffix),
+                        cache_hit=False,
+                        deduplicated=True,
+                        content_sha256=digest,
+                        metadata_path=self._metadata_path(existing_path).as_posix(),
+                    )
+
+                file_existed = file_path.exists()
+                temp_path.replace(file_path)
+                try:
+                    metadata_path = self._write_metadata(file_path, candidate, digest, effective_content_type)
+                    self._register(index, candidate, str(file_path.resolve()), effective_content_type, digest)
+                    self._save_index(index_path, index)
+                except Exception:
+                    if not file_existed:
+                        file_path.unlink(missing_ok=True)
+                    self._metadata_path(file_path).unlink(missing_ok=True)
+                    raise
+
             return DownloadedReportFile(
-                file_name=existing_path.name,
-                saved_path=str(existing_path.resolve()),
-                size_bytes=existing_path.stat().st_size,
-                content_type=deduped.get("content_type") or self._content_type_from_suffix(existing_path.suffix),
+                file_name=file_path.name,
+                saved_path=str(file_path.resolve()),
+                size_bytes=file_path.stat().st_size,
+                content_type=effective_content_type,
                 cache_hit=False,
-                deduplicated=True,
+                deduplicated=False,
                 content_sha256=digest,
-                metadata_path=self._metadata_path(existing_path).as_posix(),
+                metadata_path=str(metadata_path.resolve()),
             )
-
-        file_path.write_bytes(content)
-        metadata_path = self._write_metadata(file_path, candidate, digest, effective_content_type)
-        self._register(index, candidate, str(file_path.resolve()), effective_content_type, digest)
-        self._save_index(index_path, index)
-
-        return DownloadedReportFile(
-            file_name=file_path.name,
-            saved_path=str(file_path.resolve()),
-            size_bytes=file_path.stat().st_size,
-            content_type=effective_content_type,
-            cache_hit=False,
-            deduplicated=False,
-            content_sha256=digest,
-            metadata_path=str(metadata_path.resolve()),
-        )
+        finally:
+            temp_path.unlink(missing_ok=True)
 
     def _fetch_content(self, candidate: FilingCandidate) -> tuple[bytes, str | None]:
+        with TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir) / "report-download.tmp"
+            fetched = self._fetch_to_path(candidate, temp_path)
+            return temp_path.read_bytes(), fetched.content_type
+
+    def _fetch_to_path(self, candidate: FilingCandidate, temp_path: Path) -> _FetchedReport:
         headers = {
             "User-Agent": settings.sec_user_agent,
             "Accept-Encoding": "gzip, deflate",
@@ -106,12 +179,10 @@ class ReportDownloader:
         with httpx.Client(timeout=settings.http_timeout_seconds, headers=headers, follow_redirects=True) as client:
             effective_url = self._effective_document_url(candidate)
             if candidate.source_id == "dart_public":
-                return self._fetch_dart_public_content(client, candidate, effective_url)
+                return self._fetch_dart_public_to_path(client, candidate, effective_url, temp_path)
             if candidate.source_id == "edinet":
-                return self._fetch_edinet_content(client, effective_url)
-            response = client.get(effective_url)
-            response.raise_for_status()
-            return response.content, response.headers.get("content-type")
+                return self._fetch_edinet_to_path(client, effective_url, temp_path, candidate)
+            return self._stream_get_to_path(client, effective_url, temp_path, candidate)
 
     @staticmethod
     def _fetch_edinet_content(client: httpx.Client, effective_url: str) -> tuple[bytes, str | None]:
@@ -128,6 +199,32 @@ class ReportDownloader:
             raise ValueError("EDINET API rate limit reached while downloading a document. Please retry after a longer interval.")
         raise ValueError("EDINET document download failed")
 
+    def _fetch_edinet_to_path(
+        self,
+        client: httpx.Client,
+        effective_url: str,
+        temp_path: Path,
+        candidate: FilingCandidate,
+    ) -> _FetchedReport:
+        last_rate_limited = False
+        for attempt in range(4):
+            if hasattr(client, "stream"):
+                with client.stream("GET", effective_url) as response:
+                    if response.status_code == 429:
+                        last_rate_limited = True
+                        time.sleep(self._retry_delay_seconds(response, attempt))
+                        continue
+                    return self._stream_response_to_path(response, requested_url=effective_url, temp_path=temp_path, candidate=candidate)
+            response = client.get(effective_url)
+            if response.status_code == 429:
+                last_rate_limited = True
+                time.sleep(self._retry_delay_seconds(response, attempt))
+                continue
+            return self._response_body_to_path(response, requested_url=effective_url, temp_path=temp_path, candidate=candidate)
+        if last_rate_limited:
+            raise ValueError("EDINET API rate limit reached while downloading a document. Please retry after a longer interval.")
+        raise ValueError("EDINET document download failed")
+
     @staticmethod
     def _retry_delay_seconds(response: httpx.Response, attempt: int) -> float:
         retry_after = response.headers.get("Retry-After")
@@ -138,63 +235,71 @@ class ReportDownloader:
                 pass
         return min(60.0, 2.0 * (attempt + 1) ** 2)
 
-    def _fetch_dart_public_content(
+    def _fetch_dart_public_to_path(
         self,
         client: httpx.Client,
         candidate: FilingCandidate,
         effective_url: str,
-    ) -> tuple[bytes, str | None]:
+        temp_path: Path,
+    ) -> _FetchedReport:
         parsed = urlparse(effective_url)
         path = parsed.path.lower()
         if "/pdf/download/pdf.do" in path:
-            return self._fetch_dart_public_pdf(client, candidate, effective_url)
+            return self._fetch_dart_public_pdf_to_path(client, candidate, effective_url, temp_path)
         if "/report/combined.do" in path or "/dsaf001/" in path:
-            return self._fetch_dart_public_combined_html(client, candidate)
-        response = client.get(effective_url)
-        response.raise_for_status()
-        return response.content, response.headers.get("content-type")
+            return self._fetch_dart_public_combined_html_to_path(client, candidate, temp_path)
+        return self._stream_get_to_path(client, effective_url, temp_path, candidate)
 
-    def _fetch_dart_public_pdf(
+    def _fetch_dart_public_pdf_to_path(
         self,
         client: httpx.Client,
         candidate: FilingCandidate,
         pdf_url: str,
-    ) -> tuple[bytes, str | None]:
+        temp_path: Path,
+    ) -> _FetchedReport:
         viewer_url = str(candidate.metadata.get("dart_viewer_url") or candidate.landing_url or "").strip()
         if viewer_url:
+            self._validate_effective_url(candidate, viewer_url)
             client.get(viewer_url)
         landing_url = str(candidate.metadata.get("dart_pdf_landing_url") or "").strip() or self._dart_pdf_landing_url(pdf_url)
+        self._validate_effective_url(candidate, landing_url)
         landing_response = client.get(landing_url, headers={"Referer": viewer_url or "https://dart.fss.or.kr/"})
         landing_response.raise_for_status()
-        response = client.get(
+        fetched = self._stream_get_to_path(
+            client,
             pdf_url,
+            temp_path,
+            candidate,
             headers={
                 "Referer": landing_url,
                 "Accept": "application/pdf,application/octet-stream,*/*;q=0.8",
             },
         )
-        response.raise_for_status()
-        if not response.content.startswith(b"%PDF-"):
-            return self._fetch_dart_public_combined_html(client, candidate)
-        return response.content, response.headers.get("content-type") or "application/pdf"
+        if fetched.content_type != "application/pdf":
+            temp_path.unlink(missing_ok=True)
+            return self._fetch_dart_public_combined_html_to_path(client, candidate, temp_path)
+        return fetched
 
-    def _fetch_dart_public_combined_html(
+    def _fetch_dart_public_combined_html_to_path(
         self,
         client: httpx.Client,
         candidate: FilingCandidate,
-    ) -> tuple[bytes, str | None]:
+        temp_path: Path,
+    ) -> _FetchedReport:
         viewer_url = str(candidate.metadata.get("dart_viewer_url") or candidate.landing_url or candidate.document_url).strip()
         if "/report/combined.do" in viewer_url:
             receipt_no = self._query_value(viewer_url, "rcpNo") or self._query_value(viewer_url, "rcp_no")
             viewer_url = f"https://dart.fss.or.kr/dsaf001/main.do?{urlencode({'rcpNo': receipt_no or candidate.accession_number or ''})}"
+        self._validate_effective_url(candidate, viewer_url)
         viewer_response = client.get(viewer_url)
         viewer_response.raise_for_status()
         sections = self._dart_viewer_sections(viewer_response.text)
         if not sections:
-            return viewer_response.content, viewer_response.headers.get("content-type")
+            return self._response_body_to_path(viewer_response, requested_url=viewer_url, temp_path=temp_path, candidate=candidate)
 
         body_parts: list[str] = []
         for section in sections:
+            self._validate_effective_url(candidate, section["url"])
             section_response = client.get(section["url"], headers={"Referer": viewer_url})
             section_response.raise_for_status()
             body_html = self._dart_section_body(section_response.text)
@@ -214,7 +319,13 @@ class ReportDownloader:
             + "\n".join(body_parts)
             + "</body></html>"
         )
-        return html.encode("utf-8"), "text/html"
+        return self._bytes_to_path(
+            html.encode("utf-8"),
+            content_type="text/html",
+            effective_url=viewer_url,
+            temp_path=temp_path,
+            candidate=candidate,
+        )
 
     @staticmethod
     def _dart_pdf_landing_url(pdf_url: str) -> str:
@@ -267,6 +378,198 @@ class ReportDownloader:
     def _dart_section_body(html: str) -> str:
         body_match = re.search(r"<body[^>]*>(?P<body>.*?)</body>", html, re.I | re.S)
         return body_match.group("body") if body_match else html
+
+    def _stream_get_to_path(
+        self,
+        client: httpx.Client,
+        requested_url: str,
+        temp_path: Path,
+        candidate: FilingCandidate,
+        *,
+        headers: dict[str, str] | None = None,
+    ) -> _FetchedReport:
+        if hasattr(client, "stream"):
+            with client.stream("GET", requested_url, headers=headers) as response:
+                return self._stream_response_to_path(
+                    response,
+                    requested_url=requested_url,
+                    temp_path=temp_path,
+                    candidate=candidate,
+                )
+        response = client.get(requested_url, headers=headers) if headers else client.get(requested_url)
+        return self._response_body_to_path(response, requested_url=requested_url, temp_path=temp_path, candidate=candidate)
+
+    def _stream_response_to_path(
+        self,
+        response: httpx.Response,
+        *,
+        requested_url: str,
+        temp_path: Path,
+        candidate: FilingCandidate,
+    ) -> _FetchedReport:
+        response.raise_for_status()
+        effective_url = str(getattr(response, "url", None) or requested_url)
+        self._validate_effective_url(candidate, effective_url)
+        content_type = response.headers.get("content-type")
+        self._validate_declared_content_type(content_type)
+        self._validate_content_length(candidate, response.headers.get("content-length"))
+
+        digest = hashlib.sha256()
+        size_bytes = 0
+        head = bytearray()
+        max_bytes = self._max_download_bytes(candidate)
+        with temp_path.open("wb") as output:
+            for chunk in response.iter_bytes():
+                if not chunk:
+                    continue
+                size_bytes += len(chunk)
+                if size_bytes > max_bytes:
+                    raise ValueError(f"Downloaded report exceeds {max_bytes} byte limit for {candidate.market.value}")
+                if len(head) < 4096:
+                    head.extend(chunk[: 4096 - len(head)])
+                digest.update(chunk)
+                output.write(chunk)
+
+        effective_content_type = self._effective_content_type(bytes(head), content_type)
+        self._validate_effective_content_type(effective_content_type)
+        return _FetchedReport(
+            content_sha256=digest.hexdigest(),
+            content_type=effective_content_type,
+            effective_url=effective_url,
+            size_bytes=size_bytes,
+        )
+
+    def _response_body_to_path(
+        self,
+        response: httpx.Response,
+        *,
+        requested_url: str,
+        temp_path: Path,
+        candidate: FilingCandidate,
+    ) -> _FetchedReport:
+        response.raise_for_status()
+        content = self._response_body_bytes(response)
+        effective_url = str(getattr(response, "url", None) or requested_url)
+        return self._bytes_to_path(
+            content,
+            content_type=response.headers.get("content-type"),
+            effective_url=effective_url,
+            temp_path=temp_path,
+            candidate=candidate,
+        )
+
+    def _bytes_to_path(
+        self,
+        content: bytes,
+        *,
+        content_type: str | None,
+        effective_url: str,
+        temp_path: Path,
+        candidate: FilingCandidate,
+    ) -> _FetchedReport:
+        self._validate_effective_url(candidate, effective_url)
+        self._validate_declared_content_type(content_type)
+        max_bytes = self._max_download_bytes(candidate)
+        size_bytes = len(content)
+        if size_bytes > max_bytes:
+            raise ValueError(f"Downloaded report exceeds {max_bytes} byte limit for {candidate.market.value}")
+        effective_content_type = self._effective_content_type(content[:4096], content_type)
+        self._validate_effective_content_type(effective_content_type)
+        temp_path.write_bytes(content)
+        return _FetchedReport(
+            content_sha256=hashlib.sha256(content).hexdigest(),
+            content_type=effective_content_type,
+            effective_url=effective_url,
+            size_bytes=size_bytes,
+        )
+
+    @staticmethod
+    def _response_body_bytes(response: httpx.Response) -> bytes:
+        iter_bytes = getattr(response, "iter_bytes", None)
+        if callable(iter_bytes):
+            return b"".join(chunk for chunk in iter_bytes() if chunk)
+        return bytes(getattr(response, "content", b""))
+
+    def _validate_original_url(self, candidate: FilingCandidate) -> None:
+        validate_http_url(candidate.document_url)
+        if self._is_manual_unverified(candidate):
+            return
+        if not market_owns_url(candidate.market, candidate.document_url):
+            raise ValueError(
+                f"{candidate.source_id} URL is outside the {candidate.market.value} official source allowlist: "
+                f"{candidate.document_url}"
+            )
+
+    def _validate_effective_url(self, candidate: FilingCandidate, effective_url: str) -> None:
+        validate_http_url(effective_url)
+        if self._is_manual_unverified(candidate):
+            return
+        if not market_owns_url(candidate.market, effective_url):
+            raise ValueError(
+                f"{candidate.source_id} redirect escaped the {candidate.market.value} official source allowlist: "
+                f"{effective_url}"
+            )
+
+    @classmethod
+    def _is_manual_unverified(cls, candidate: FilingCandidate) -> bool:
+        return (
+            candidate.source_id == MANUAL_UNVERIFIED_SOURCE_ID
+            or candidate.metadata.get("source_verification_status") == MANUAL_UNVERIFIED_STATUS
+        )
+
+    @classmethod
+    def _candidate_with_original_url(cls, candidate: FilingCandidate) -> FilingCandidate:
+        metadata = dict(candidate.metadata)
+        metadata.setdefault("original_url", candidate.document_url)
+        if "source_verification_status" not in metadata:
+            metadata["source_verification_status"] = (
+                MANUAL_UNVERIFIED_STATUS if cls._is_manual_unverified(candidate) else OFFICIAL_VERIFIED_STATUS
+            )
+        return candidate.model_copy(update={"metadata": metadata})
+
+    @classmethod
+    def _candidate_with_effective_url(cls, candidate: FilingCandidate, effective_url: str) -> FilingCandidate:
+        metadata = dict(candidate.metadata)
+        metadata.setdefault("original_url", candidate.document_url)
+        metadata["effective_url"] = effective_url
+        metadata["source_verification_status"] = (
+            MANUAL_UNVERIFIED_STATUS if cls._is_manual_unverified(candidate) else OFFICIAL_VERIFIED_STATUS
+        )
+        return candidate.model_copy(update={"metadata": metadata})
+
+    @classmethod
+    def _max_download_bytes(cls, candidate: FilingCandidate) -> int:
+        return cls.MAX_DOWNLOAD_BYTES_BY_MARKET.get(candidate.market, 256 * 1024 * 1024)
+
+    def _validate_content_length(self, candidate: FilingCandidate, content_length: str | None) -> None:
+        if not content_length:
+            return
+        try:
+            length = int(content_length)
+        except ValueError:
+            return
+        max_bytes = self._max_download_bytes(candidate)
+        if length > max_bytes:
+            raise ValueError(f"Downloaded report exceeds {max_bytes} byte limit for {candidate.market.value}")
+
+    @classmethod
+    def _validate_declared_content_type(cls, content_type: str | None) -> None:
+        normalized = cls._normalize_content_type(content_type)
+        if not normalized:
+            return
+        if normalized in cls.ALLOWED_CONTENT_TYPES or normalized.endswith("+xml"):
+            return
+        raise ValueError(f"Unsupported report content type: {normalized}")
+
+    @classmethod
+    def _validate_effective_content_type(cls, content_type: str | None) -> None:
+        if not content_type:
+            return
+        cls._validate_declared_content_type(content_type)
+
+    @staticmethod
+    def _temp_download_path(download_dir: Path) -> Path:
+        return download_dir / f".report-download-{uuid4().hex}.tmp"
 
     @staticmethod
     def _effective_document_url(candidate: FilingCandidate) -> str:
@@ -359,6 +662,9 @@ class ReportDownloader:
             "accession_number": candidate.accession_number,
             "country": candidate.metadata.get("country"),
             "source_tier": candidate.metadata.get("source_tier"),
+            "source_verification_status": candidate.metadata.get("source_verification_status"),
+            "original_url": candidate.metadata.get("original_url") or candidate.document_url,
+            "effective_url": candidate.metadata.get("effective_url"),
         }
         index.setdefault("by_url", {})[candidate.document_url] = entry
         if self._should_cache_landing_url(candidate):
@@ -387,6 +693,11 @@ class ReportDownloader:
         content_type: str | None,
     ) -> Path:
         metadata_path = self._metadata_path(file_path)
+        source_verification = {
+            "original_url": candidate.metadata.get("original_url") or candidate.document_url,
+            "effective_url": candidate.metadata.get("effective_url") or candidate.document_url,
+            "source_verification_status": candidate.metadata.get("source_verification_status"),
+        }
         payload = {
             "candidate": candidate.model_dump(mode="json"),
             "downloaded_file": {
@@ -396,8 +707,9 @@ class ReportDownloader:
                 "content_type": content_type,
                 "content_sha256": digest,
             },
+            "source_verification": source_verification,
         }
-        metadata_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        self._atomic_write_json(metadata_path, payload)
         return metadata_path
 
     @staticmethod
@@ -415,7 +727,17 @@ class ReportDownloader:
 
     @staticmethod
     def _save_index(index_path: Path, index: dict) -> None:
-        index_path.write_text(json.dumps(index, ensure_ascii=False, indent=2), encoding="utf-8")
+        ReportDownloader._atomic_write_json(index_path, index)
+
+    @staticmethod
+    def _atomic_write_json(path: Path, payload: dict) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+        try:
+            temp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            temp_path.replace(path)
+        finally:
+            temp_path.unlink(missing_ok=True)
 
     @staticmethod
     def _safe_filename_part(value: object) -> str:
@@ -489,9 +811,7 @@ class ReportDownloader:
         sniffed = ReportDownloader._sniff_content_type(content)
         if sniffed:
             return sniffed
-        if not content_type:
-            return None
-        return content_type.split(";", 1)[0].strip().lower() or None
+        return ReportDownloader._normalize_content_type(content_type)
 
     @staticmethod
     def _sniff_content_type(content: bytes) -> str | None:
@@ -510,7 +830,7 @@ class ReportDownloader:
 
     @staticmethod
     def _suffix_from_content_type(content_type: str | None) -> str | None:
-        normalized = (content_type or "").split(";", 1)[0].strip().lower()
+        normalized = ReportDownloader._normalize_content_type(content_type)
         mapping = {
             "application/pdf": ".pdf",
             "text/html": ".html",
@@ -523,3 +843,8 @@ class ReportDownloader:
             "application/x-zip-compressed": ".zip",
         }
         return mapping.get(normalized)
+
+    @staticmethod
+    def _normalize_content_type(content_type: str | None) -> str | None:
+        normalized = (content_type or "").split(";", 1)[0].strip().lower()
+        return normalized or None

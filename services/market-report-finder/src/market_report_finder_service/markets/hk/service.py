@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from urllib.parse import urlparse
-
 from market_report_finder_service.markets.base import MarketReportFinder
 from market_report_finder_service.markets.hk.client import HkexClient
+from market_report_finder_service.markets.url_ownership import market_owns_url
 from market_report_finder_service.models.schemas import (
     BatchDownloadItem,
     CompanyEntity,
@@ -82,7 +81,7 @@ class HkReportFinder(MarketReportFinder):
         report_end = self.fallback_date(request.report_end)
         published_at = self.fallback_date(request.published_at or report_end)
         company_key = request.company_id or request.ticker or "manual"
-        return FilingCandidate(
+        candidate = FilingCandidate(
             source_id="hkex",
             source_name="HKEXnews",
             source_domain="www1.hkexnews.hk",
@@ -102,6 +101,7 @@ class HkReportFinder(MarketReportFinder):
             landing_url=request.landing_url or request.document_url,
             file_format=self.file_format_from_url(request.document_url, "pdf"),
         )
+        return self.mark_user_url_candidate(candidate, original_url=request.document_url, input_kind="direct_download")
 
     def batch_candidate(
         self,
@@ -113,7 +113,7 @@ class HkReportFinder(MarketReportFinder):
         report_type = self._report_type_for_form(item.report_type or "annual")
         report_end = self.fallback_date(item.report_end)
         published_at = self.fallback_date(item.published_at or report_end)
-        return FilingCandidate(
+        candidate = FilingCandidate(
             source_id="hkex",
             source_name="HKEXnews",
             source_domain="www1.hkexnews.hk",
@@ -133,11 +133,11 @@ class HkReportFinder(MarketReportFinder):
             landing_url=item.landing_url or item.document_url,
             file_format=item.file_format or self.file_format_from_url(item.document_url, "pdf"),
         )
+        return self.mark_user_url_candidate(candidate, original_url=item.document_url, input_kind="batch_download")
 
     @staticmethod
     def owns_url(document_url: str) -> bool:
-        host = urlparse(document_url).netloc.lower()
-        return "hkexnews.hk" in host or "hkex.com.hk" in host
+        return market_owns_url(Market.hk, document_url)
 
     @staticmethod
     def _report_type_for_form(form: str) -> ReportType:

@@ -8,6 +8,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+DEFAULT_OWNER_ID = "system"
+DEFAULT_TENANT_ID = "unknown"
+DEFAULT_MARKET_SCOPE = "unknown"
+DEFAULT_PARSE_CONFIG_HASH = "unknown"
+
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -31,6 +36,10 @@ class TaskStore:
                 CREATE TABLE IF NOT EXISTS tasks (
                     task_id TEXT PRIMARY KEY,
                     filename TEXT NOT NULL,
+                    owner_id TEXT NOT NULL DEFAULT 'system',
+                    tenant_id TEXT NOT NULL DEFAULT 'unknown',
+                    market_scope TEXT NOT NULL DEFAULT 'unknown',
+                    parse_config_hash TEXT NOT NULL DEFAULT 'unknown',
                     document_kind TEXT DEFAULT 'unknown',
                     source_type TEXT DEFAULT 'upload',
                     source_url TEXT DEFAULT '',
@@ -71,6 +80,10 @@ class TaskStore:
             )
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(tasks)").fetchall()}
             for name, ddl in {
+                "owner_id": "TEXT NOT NULL DEFAULT 'system'",
+                "tenant_id": "TEXT NOT NULL DEFAULT 'unknown'",
+                "market_scope": "TEXT NOT NULL DEFAULT 'unknown'",
+                "parse_config_hash": "TEXT NOT NULL DEFAULT 'unknown'",
                 "upstream_task_id": "TEXT DEFAULT ''",
                 "upstream_status": "TEXT DEFAULT ''",
                 "queue_position": "INTEGER",
@@ -81,6 +94,9 @@ class TaskStore:
             }.items():
                 if name not in columns:
                     conn.execute(f"ALTER TABLE tasks ADD COLUMN {name} {ddl}")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_document_tasks_owner_created ON tasks(owner_id, tenant_id, created_at DESC)"
+            )
 
     def create_task(self, task: dict[str, Any]) -> None:
         now = now_iso()
@@ -88,17 +104,22 @@ class TaskStore:
             conn.execute(
                 """
                 INSERT INTO tasks (
-                    task_id, filename, document_kind, source_type, source_url, status, stage,
+                    task_id, filename, owner_id, tenant_id, market_scope, parse_config_hash,
+                    document_kind, source_type, source_url, status, stage,
                     progress_percent, file_size, file_sha256, mime_type, parser_provider,
                     quality_status, artifact_count, upstream_task_id, upstream_status,
                     queue_position, local_queue_position, elapsed_seconds, total_pages,
                     processed_pages, error, config_json, created_at, updated_at, completed_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     task["task_id"],
                     task.get("filename") or task["task_id"],
+                    task.get("owner_id") or DEFAULT_OWNER_ID,
+                    task.get("tenant_id") or DEFAULT_TENANT_ID,
+                    task.get("market_scope") or DEFAULT_MARKET_SCOPE,
+                    task.get("parse_config_hash") or DEFAULT_PARSE_CONFIG_HASH,
                     task.get("document_kind", "unknown"),
                     task.get("source_type", "upload"),
                     task.get("source_url", ""),
@@ -169,16 +190,42 @@ class TaskStore:
                 (task_id, now_iso(), level, message),
             )
 
-    def get_task(self, task_id: str) -> dict[str, Any] | None:
+    @staticmethod
+    def _scope_where(owner_scope: dict[str, Any] | None) -> tuple[str, list[Any]]:
+        if not owner_scope or owner_scope.get("is_admin"):
+            return "", []
+        values: list[Any] = [
+            owner_scope.get("owner_id") or DEFAULT_OWNER_ID,
+            owner_scope.get("tenant_id") or DEFAULT_TENANT_ID,
+        ]
+        if owner_scope.get("allow_legacy_task"):
+            scope_sql = (
+                " AND ((owner_id = ? AND tenant_id = ?) "
+                "OR (owner_id = 'system' AND tenant_id = 'unknown' AND market_scope = 'unknown'))"
+            )
+        else:
+            scope_sql = " AND owner_id = ? AND tenant_id = ?"
+        market_scope = owner_scope.get("market_scope")
+        if market_scope and market_scope != DEFAULT_MARKET_SCOPE:
+            scope_sql += " AND market_scope = ?"
+            values.append(market_scope)
+        return scope_sql, values
+
+    def get_task(self, task_id: str, owner_scope: dict[str, Any] | None = None) -> dict[str, Any] | None:
+        scope_sql, scope_values = self._scope_where(owner_scope)
         with self.connect() as conn:
-            row = conn.execute("SELECT * FROM tasks WHERE task_id = ?", (task_id,)).fetchone()
+            row = conn.execute(
+                f"SELECT * FROM tasks WHERE task_id = ?{scope_sql}",
+                [task_id, *scope_values],
+            ).fetchone()
         return self._row_to_task(row) if row else None
 
-    def list_tasks(self, limit: int = 200) -> list[dict[str, Any]]:
+    def list_tasks(self, limit: int = 200, owner_scope: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        scope_sql, scope_values = self._scope_where(owner_scope)
         with self.connect() as conn:
             rows = conn.execute(
-                "SELECT * FROM tasks ORDER BY created_at DESC LIMIT ?",
-                (int(limit),),
+                f"SELECT * FROM tasks WHERE 1 = 1{scope_sql} ORDER BY created_at DESC LIMIT ?",
+                [*scope_values, int(limit)],
             ).fetchall()
         return [self._row_to_task(row) for row in rows]
 
@@ -252,4 +299,13 @@ class TaskStore:
             item["config"] = {}
         item["markdown_ready"] = item.get("status") in {"completed", "completed_with_warnings"}
         item["taskId"] = item.get("task_id")
+        item["owner_id"] = item.get("owner_id") or DEFAULT_OWNER_ID
+        item["tenant_id"] = item.get("tenant_id") or DEFAULT_TENANT_ID
+        item["market_scope"] = item.get("market_scope") or DEFAULT_MARKET_SCOPE
+        item["parse_config_hash"] = item.get("parse_config_hash") or DEFAULT_PARSE_CONFIG_HASH
+        item["legacy_owner"] = (
+            item["owner_id"] == DEFAULT_OWNER_ID
+            and item["tenant_id"] == DEFAULT_TENANT_ID
+            and item["market_scope"] == DEFAULT_MARKET_SCOPE
+        )
         return item

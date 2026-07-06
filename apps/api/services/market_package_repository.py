@@ -18,6 +18,7 @@ def _ensure_monorepo_contracts_on_path() -> None:
 try:
     from siq_market_contracts import (
         build_quality_gates as _build_contract_quality_gates,
+        evidence_source_resolvability as _contract_evidence_source_resolvability,
         market_package_paths,
         read_json as _read_contract_json,
         read_market_package_detail as _read_contract_market_package_detail,
@@ -27,6 +28,7 @@ except ModuleNotFoundError:
     _ensure_monorepo_contracts_on_path()
     from siq_market_contracts import (
         build_quality_gates as _build_contract_quality_gates,
+        evidence_source_resolvability as _contract_evidence_source_resolvability,
         market_package_paths,
         read_json as _read_contract_json,
         read_market_package_detail as _read_contract_market_package_detail,
@@ -195,11 +197,17 @@ def find_market_evidence(
     else:
         packages = [(code, path) for code in markets_to_search(market, market_wiki_roots) for path in iter_market_packages(code, market_wiki_roots)]
     for code, path in packages:
+        manifest = _read_json_file(path / "manifest.json", {}) or {}
         source_map = _read_json_file(path / "qa" / "source_map.json", {}) or {}
         if not isinstance(source_map, dict):
             source_map = {}
         entries = source_map.get("entries") or source_map.get("evidence") or []
         for entry in entries:
             if isinstance(entry, dict) and str(entry.get("evidence_id") or "") == target:
-                return code, path, entry
+                payload = dict(entry)
+                resolvability = _contract_evidence_source_resolvability(payload, manifest=manifest if isinstance(manifest, dict) else {}, package_dir=path)
+                payload.setdefault("resolvable", resolvability.get("resolvable"))
+                payload.setdefault("resolvability_kind", resolvability.get("kind"))
+                payload.setdefault("resolvability_reason", resolvability.get("reason"))
+                return code, path, payload
     raise HTTPException(status_code=404, detail="Evidence not found")

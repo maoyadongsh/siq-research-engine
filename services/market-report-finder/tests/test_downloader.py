@@ -1,7 +1,11 @@
+import json
 from datetime import date
 
+import pytest
+
 from market_report_finder_service.core.config import settings
-from market_report_finder_service.models.schemas import FilingCandidate, Market, ReportFamily, ReportType
+from market_report_finder_service.markets.us.service import UsReportFinder
+from market_report_finder_service.models.schemas import DirectReportDownloadRequest, FilingCandidate, Market, ReportFamily, ReportType
 from market_report_finder_service.services.downloader import ReportDownloader
 
 
@@ -262,3 +266,159 @@ def test_cn_quarter_file_name_uses_specific_report_label():
 
     assert file_name.startswith("贵州茅台_CN_600519_2025-03-31_一季报_2025-04-17_cninfo_")
     assert file_name.endswith(".pdf")
+
+
+def test_user_supplied_non_official_url_is_manual_unverified():
+    request = DirectReportDownloadRequest(
+        market=Market.us,
+        company_name="Apple Inc.",
+        ticker="AAPL",
+        document_url="https://sec.gov.evil.example/archive/aapl-2025.htm",
+        form="10-K",
+        report_end=date(2025, 9, 27),
+        published_at=date(2025, 10, 31),
+    )
+
+    candidate = UsReportFinder().direct_candidate(request)
+
+    assert candidate.source_id == "manual_unverified"
+    assert candidate.source_domain == "sec.gov.evil.example"
+    assert candidate.metadata["source_verification_status"] == "manual_unverified"
+    assert candidate.metadata["original_source_id"] == "sec"
+    assert not UsReportFinder.owns_url("https://www.sec.gov.evil.example/report.htm")
+
+
+def test_downloader_streams_and_writes_metadata_index_atomically(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "download_dir", tmp_path)
+    chunks = [b"<html>", b"ok</html>"]
+
+    class StubResponse:
+        url = _candidate().document_url
+        headers = {"content-type": "text/html", "content-length": str(sum(len(chunk) for chunk in chunks))}
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def iter_bytes(self):
+            yield from chunks
+
+    class StreamContext:
+        def __enter__(self):
+            return StubResponse()
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class StubClient:
+        def __init__(self, *, timeout, headers, follow_redirects):
+            self.headers = headers
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def stream(self, method: str, url: str, headers=None):
+            return StreamContext()
+
+    monkeypatch.setattr("market_report_finder_service.services.downloader.httpx.Client", StubClient)
+
+    downloaded = ReportDownloader().download(_candidate())
+
+    saved_path = tmp_path / "US" / "Apple-Inc" / "2025" / "年报" / downloaded.file_name
+    metadata_path = saved_path.with_suffix(saved_path.suffix + ".metadata.json")
+    index_path = saved_path.parent / settings.download_index_file
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    index = json.loads(index_path.read_text(encoding="utf-8"))
+
+    assert saved_path.read_bytes() == b"".join(chunks)
+    assert downloaded.content_sha256
+    assert metadata["source_verification"]["original_url"] == _candidate().document_url
+    assert metadata["source_verification"]["effective_url"] == _candidate().document_url
+    assert metadata["source_verification"]["source_verification_status"] == "official_verified"
+    assert index["by_url"][_candidate().document_url]["source_verification_status"] == "official_verified"
+    assert not list(tmp_path.rglob("*.tmp"))
+
+
+def test_downloader_rejects_official_redirect_outside_allowlist(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "download_dir", tmp_path)
+
+    class StubResponse:
+        url = "https://evil.example/report.htm"
+        headers = {"content-type": "text/html"}
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def iter_bytes(self):
+            yield b"<html>bad</html>"
+
+    class StreamContext:
+        def __enter__(self):
+            return StubResponse()
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class StubClient:
+        def __init__(self, *, timeout, headers, follow_redirects):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def stream(self, method: str, url: str, headers=None):
+            return StreamContext()
+
+    monkeypatch.setattr("market_report_finder_service.services.downloader.httpx.Client", StubClient)
+
+    with pytest.raises(ValueError, match="redirect escaped"):
+        ReportDownloader().download(_candidate())
+
+    assert not [path for path in tmp_path.rglob("*") if path.is_file()]
+
+
+def test_downloader_size_limit_removes_temp_file(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "download_dir", tmp_path)
+    monkeypatch.setitem(ReportDownloader.MAX_DOWNLOAD_BYTES_BY_MARKET, Market.us, 5)
+
+    class StubResponse:
+        url = _candidate().document_url
+        headers = {"content-type": "text/html", "content-length": "6"}
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def iter_bytes(self):
+            yield b"123456"
+
+    class StreamContext:
+        def __enter__(self):
+            return StubResponse()
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class StubClient:
+        def __init__(self, *, timeout, headers, follow_redirects):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def stream(self, method: str, url: str, headers=None):
+            return StreamContext()
+
+    monkeypatch.setattr("market_report_finder_service.services.downloader.httpx.Client", StubClient)
+
+    with pytest.raises(ValueError, match="exceeds"):
+        ReportDownloader().download(_candidate())
+
+    assert not [path for path in tmp_path.rglob("*") if path.is_file()]

@@ -314,7 +314,7 @@ except ModuleNotFoundError:
     sys.modules.setdefault("flask", flask_stub)
 
 
-def load_app(tmp_path):
+def load_app_module(tmp_path):
     base = Path(__file__).resolve().parents[1]
     os.environ["SIQ_DOCUMENT_PARSE_DATA_DIR"] = str(tmp_path / "data")
     sys.path.insert(0, str(base))
@@ -322,7 +322,11 @@ def load_app(tmp_path):
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
-    return module.app.test_client()
+    return module
+
+
+def load_app(tmp_path):
+    return load_app_module(tmp_path).app.test_client()
 
 
 def wait_for_terminal(client, task_id, timeout=5.0):
@@ -336,6 +340,75 @@ def wait_for_terminal(client, task_id, timeout=5.0):
             return last_payload
         time.sleep(0.05)
     raise AssertionError(f"task did not finish: {last_payload}")
+
+
+def test_owner_scope_filters_document_task_routes(tmp_path):
+    document_app = load_app_module(tmp_path)
+    client = document_app.app.test_client()
+    document_app.store.create_task(
+        {
+            "task_id": "owned-doc",
+            "filename": "owned.md",
+            "owner_id": "alice",
+            "tenant_id": "unknown",
+            "market_scope": "EU",
+            "parse_config_hash": "hash-eu",
+            "document_kind": "text",
+            "source_type": "upload",
+            "source_url": "",
+            "status": "completed",
+            "stage": "completed",
+            "progress_percent": 100,
+            "file_size": 1,
+            "file_sha256": "sha",
+            "mime_type": "text/markdown",
+            "config": {},
+        }
+    )
+
+    blocked = client.get("/api/tasks/owned-doc", headers={"X-SIQ-User-Id": "bob"})
+    allowed = client.get("/api/tasks/owned-doc", headers={"X-SIQ-User-Id": "alice"})
+    listing = client.get("/api/tasks", headers={"X-SIQ-User-Id": "alice"})
+
+    assert blocked.status_code == 404
+    assert allowed.status_code == 200
+    assert allowed.json["task_id"] == "owned-doc"
+    assert allowed.json["owner_id"] == "alice"
+    assert allowed.json["market_scope"] == "EU"
+    assert [task["task_id"] for task in listing.json["tasks"]] == ["owned-doc"]
+
+
+def test_legacy_document_task_requires_legacy_scope_marker_for_user_headers(tmp_path):
+    document_app = load_app_module(tmp_path)
+    client = document_app.app.test_client()
+    document_app.store.create_task(
+        {
+            "task_id": "legacy-doc",
+            "filename": "legacy.md",
+            "document_kind": "text",
+            "source_type": "upload",
+            "source_url": "",
+            "status": "completed",
+            "stage": "completed",
+            "progress_percent": 100,
+            "file_size": 1,
+            "file_sha256": "sha",
+            "mime_type": "text/markdown",
+            "config": {},
+        }
+    )
+
+    blocked = client.get("/api/tasks/legacy-doc", headers={"X-SIQ-User-Id": "alice"})
+    allowed = client.get(
+        "/api/tasks/legacy-doc",
+        headers={"X-SIQ-User-Id": "alice", "X-SIQ-Allow-Legacy-Task": "1"},
+    )
+
+    assert blocked.status_code == 404
+    assert allowed.status_code == 200
+    assert allowed.json["owner_id"] == "system"
+    assert allowed.json["tenant_id"] == "unknown"
+    assert allowed.json["legacy_owner"] is True
 
 
 def test_markdown_upload_generates_normalized_artifacts(tmp_path):
@@ -1001,6 +1074,22 @@ def test_table_relations_endpoint_refreshes_stale_ruleset(tmp_path):
     spec.loader.exec_module(document_app)
 
     task_id = "stale-relations-task"
+    document_app.store.create_task(
+        {
+            "task_id": task_id,
+            "filename": "stale-relations.md",
+            "document_kind": "text",
+            "source_type": "upload",
+            "source_url": "",
+            "status": "completed",
+            "stage": "completed",
+            "progress_percent": 100,
+            "file_size": 1,
+            "file_sha256": "sha",
+            "mime_type": "text/markdown",
+            "config": {},
+        }
+    )
     result_dir = document_app._task_result_dir(task_id)
     result_dir.mkdir(parents=True)
     (result_dir / "exports").mkdir(parents=True)

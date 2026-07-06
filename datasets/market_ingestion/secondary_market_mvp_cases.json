@@ -80,5 +80,121 @@
         "expects_abstention_when_missing": true
       }
     ]
+  },
+  {
+    "case_id": "eu-nesn-2025-annual-pdf-mvp",
+    "market": "EU",
+    "country": "CH",
+    "ticker": "NESN",
+    "company_name": "Nestle S.A.",
+    "report_type": "annual",
+    "fiscal_year": 2025,
+    "period_end": "2025-12-31",
+    "published_at": "2026-02-13",
+    "document_format": "pdf",
+    "source_tier": "official_direct",
+    "source_id": "six_direct",
+    "source_file": "data/market-report-finder/downloads/EU/CH/Nestle-S.A/2025/年报/Nestle-S.A_EU_NESN_2025-12-31_年报_2026-02-13_six_direct_e2557c2e.pdf",
+    "expected_metrics": [
+      "operating_revenue",
+      "net_profit",
+      "total_assets",
+      "total_liabilities",
+      "total_equity",
+      "operating_cash_flow_net"
+    ],
+    "expected_statements": [
+      "income_statement",
+      "balance_sheet",
+      "cash_flow_statement"
+    ],
+    "expected_evidence": true,
+    "quality_thresholds": {
+      "evidence_coverage_ratio": 0.8,
+      "evidence_resolvability_ratio": 1.0,
+      "statement_coverage": 1.0,
+      "bridge_check_pass_rate": 0.95
+    }
+  },
+  {
+    "case_id": "jp-7203-2025-annual-mvp",
+    "market": "JP",
+    "ticker": "7203",
+    "company_name": "Toyota Motor Corporation",
+    "report_type": "annual",
+    "fiscal_year": 2025,
+    "source_tier": "official",
+    "source_id": "edinet",
+    "expected_metrics": [
+      "operating_revenue",
+      "net_profit",
+      "total_assets"
+    ],
+    "expected_statements": [
+      "income_statement",
+      "balance_sheet",
+      "cash_flow_statement"
+    ],
+    "expected_evidence": true,
+    "quality_thresholds": {
+      "evidence_coverage_ratio": 0.8,
+      "evidence_resolvability_ratio": 1.0,
+      "statement_coverage": 1.0,
+      "bridge_check_pass_rate": 0.95
+    }
+  },
+  {
+    "case_id": "kr-005930-2025-annual-mvp",
+    "market": "KR",
+    "ticker": "005930",
+    "company_name": "Samsung Electronics",
+    "report_type": "annual",
+    "fiscal_year": 2025,
+    "source_tier": "official",
+    "source_id": "dart",
+    "expected_metrics": [
+      "operating_revenue",
+      "net_profit",
+      "total_assets"
+    ],
+    "expected_statements": [
+      "income_statement",
+      "balance_sheet",
+      "cash_flow_statement"
+    ],
+    "expected_evidence": true,
+    "quality_thresholds": {
+      "evidence_coverage_ratio": 0.8,
+      "evidence_resolvability_ratio": 1.0,
+      "statement_coverage": 1.0,
+      "bridge_check_pass_rate": 0.95
+    }
+  },
+  {
+    "case_id": "us-msft-2025-annual-mvp",
+    "market": "US",
+    "ticker": "MSFT",
+    "company_name": "MICROSOFT CORP",
+    "report_type": "annual",
+    "fiscal_year": 2025,
+    "source_tier": "official",
+    "source_id": "sec",
+    "expected_metrics": [
+      "operating_revenue",
+      "net_profit",
+      "total_assets"
+    ],
+    "expected_statements": [
+      "income_statement",
+      "balance_sheet",
+      "cash_flow_statement"
+    ],
+    "expected_evidence": true,
+    "quality_thresholds": {
+      "evidence_coverage_ratio": 0.95,
+      "evidence_resolvability_ratio": 1.0,
+      "statement_coverage": 1.0,
+      "bridge_check_pass_rate": 0.95
+    }
   }
 ]

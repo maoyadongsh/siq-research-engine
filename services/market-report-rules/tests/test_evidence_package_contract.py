@@ -4,11 +4,21 @@ from pathlib import Path
 from market_report_rules_service.evidence_package import (
     SCHEMA_VERSION,
     compute_artifact_hashes,
+    is_resolvable_evidence_source,
     source_map_from_financial_data,
     stable_parse_run_id,
     validate_evidence_package,
     write_json,
 )
+from market_report_rules_service import evidence_package as evidence_package_module
+
+
+def test_rules_service_evidence_package_uses_shared_contract_module():
+    source = evidence_package_module.CONTRACT_SOURCE_MODULE.replace("\\", "/")
+
+    assert "/packages/market-contracts/src/siq_market_contracts/evidence_package.py" in source
+    assert not source.endswith("_legacy_evidence_package.py")
+    assert validate_evidence_package.__module__ == "siq_market_contracts.evidence_package"
 
 
 def _minimal_financial_data() -> dict:
@@ -130,3 +140,26 @@ def test_market_evidence_package_validator_rejects_missing_evidence(tmp_path):
 
     assert not result.ok
     assert any("missing evidence" in error for error in result.errors)
+
+
+def test_market_evidence_package_validator_rejects_unresolvable_evidence(tmp_path):
+    package_dir = _write_package(tmp_path)
+    data_path = package_dir / "metrics" / "financial_data.json"
+    payload = json.loads(data_path.read_text(encoding="utf-8"))
+    payload["statements"][0]["items"][0]["sources"]["2025-12-31"] = {
+        "source_type": "pdf_statement_table",
+        "source_id": "table_1",
+        "table_index": 1,
+    }
+    write_json(data_path, payload)
+    manifest = json.loads((package_dir / "manifest.json").read_text(encoding="utf-8"))
+    source_map = source_map_from_financial_data(manifest=manifest, financial_data=payload, package_dir=package_dir)
+    write_json(package_dir / "qa" / "source_map.json", source_map)
+    manifest["artifact_hashes"] = compute_artifact_hashes(package_dir)
+    write_json(package_dir / "manifest.json", manifest)
+
+    result = validate_evidence_package(package_dir)
+
+    assert not is_resolvable_evidence_source(payload["statements"][0]["items"][0]["sources"]["2025-12-31"], manifest=manifest)
+    assert not result.ok
+    assert any("unresolvable evidence" in error for error in result.errors)

@@ -37,6 +37,7 @@ pdf_router = APIRouter(prefix="/pdf", tags=["pdf-proxy"])
 
 PDF2MD_API_BASE = (os.environ.get("SIQ_PDF2MD_API_BASE") or os.environ.get("PDF2MD_API_BASE", "http://127.0.0.1:15000")).rstrip("/")
 PDF2MD_ACCESS_TOKEN = os.environ.get("PDF2MD_ACCESS_TOKEN", "").strip()
+PDF_PARSE_CONFIG_VERSION = os.environ.get("SIQ_PDF_PARSE_CONFIG_VERSION", "pdf_parser_v1").strip() or "pdf_parser_v1"
 DOWNLOADS_ROOT = REPORT_DOWNLOADS_ROOT
 WIKI_ROOT = CONFIG_WIKI_ROOT
 TERMINAL_FAILED = {"failed", "error", "failure", "cancelled"}
@@ -86,8 +87,63 @@ def _quota_error_payload(event_type: str, limit: int, used: int) -> HTTPExceptio
     )
 
 
-def _pdf2md_headers() -> dict[str, str]:
-    return {"X-PDF2MD-Token": PDF2MD_ACCESS_TOKEN} if PDF2MD_ACCESS_TOKEN else {}
+def _pdf2md_headers(
+    extra: dict[str, str] | None = None,
+    *,
+    current_user: User | None = None,
+    market_scope: str | None = None,
+    allow_legacy: bool = False,
+) -> dict[str, str]:
+    headers = dict(extra or {})
+    headers.update(
+        source_proxy._owner_scope_headers(
+            current_user,
+            market_scope=market_scope,
+            allow_legacy=allow_legacy,
+        )
+    )
+    if PDF2MD_ACCESS_TOKEN:
+        headers.setdefault("X-PDF2MD-Token", PDF2MD_ACCESS_TOKEN)
+    return headers
+
+
+def _parse_bool_field(value: object, default: bool = False) -> bool:
+    if value is None:
+        return default
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _form_text(value: object, default: str) -> str:
+    return value if isinstance(value, str) else default
+
+
+def _pdf_parse_config_hash(form: dict[str, object]) -> str:
+    canonical = {
+        "parser_version": PDF_PARSE_CONFIG_VERSION,
+        "market": _normalize_parse_market(form.get("market")) or "CN",
+        "backend": str(form.get("backend") or "hybrid-http-client").strip(),
+        "parse_method": str(form.get("parse_method") or "auto").strip(),
+        "start_page_id": str(form.get("start_page_id") or ""),
+        "end_page_id": str(form.get("end_page_id") or ""),
+        "formula_enable": _parse_bool_field(form.get("formula_enable"), True),
+        "table_enable": _parse_bool_field(form.get("table_enable"), True),
+    }
+    encoded = json.dumps(canonical, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _pdf_dedupe_key(task: dict[str, object], default_market: str = "") -> tuple[str, str, str]:
+    market = (
+        _normalize_parse_market(task.get("market_scope"))
+        or _normalize_parse_market(task.get("market"))
+        or _normalize_parse_market(default_market)
+        or "CN"
+    )
+    return (
+        market,
+        str(task.get("file_sha256") or "").strip().lower(),
+        str(task.get("parse_config_hash") or "").strip(),
+    )
 
 
 def _normalize_parse_market(value: object) -> str:
@@ -175,7 +231,12 @@ async def _proxy_pdf_task(
         await _ensure_pdf_task_access_async(session, current_user, task_id)
     else:
         _ensure_pdf_task_access(session, current_user, task_id)
-    return await source_proxy._proxy_pdf2md(request, upstream_path, method=method)
+    return await source_proxy._proxy_pdf2md(
+        request,
+        upstream_path,
+        method=method,
+        extra_headers=source_proxy._owner_scope_headers(current_user, allow_legacy=True),
+    )
 
 
 async def _proxy_pdf2md_health(request: Request) -> Response:
@@ -706,10 +767,17 @@ def _sha256_bytes(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
-async def _pdf_tasks_by_filename() -> dict[str, dict]:
+async def _pdf_tasks_by_filename(
+    *,
+    current_user: User | None = None,
+    market_scope: str | None = None,
+) -> dict[str, dict]:
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.get(f"{PDF2MD_API_BASE}/api/tasks", headers=_pdf2md_headers())
+            response = await client.get(
+                f"{PDF2MD_API_BASE}/api/tasks",
+                headers=_pdf2md_headers(current_user=current_user, market_scope=market_scope, allow_legacy=True),
+            )
             response.raise_for_status()
             tasks = response.json().get("tasks") or []
     except Exception:
@@ -894,6 +962,13 @@ async def authenticated_pdf_upload(
     current_user: User = Depends(require_permission("report.create")),
     async_session: AsyncSession = Depends(get_async_session),
 ):
+    backend = _form_text(backend, "hybrid-http-client")
+    parse_method = _form_text(parse_method, "auto")
+    market = _form_text(market, "CN")
+    start_page_id = _form_text(start_page_id, "")
+    end_page_id = _form_text(end_page_id, "")
+    formula_enable = _form_text(formula_enable, "true")
+    table_enable = _form_text(table_enable, "true")
     requested_market = _normalize_parse_market(market)
     form = {
         "backend": backend,
@@ -904,6 +979,7 @@ async def authenticated_pdf_upload(
         "formula_enable": formula_enable,
         "table_enable": table_enable,
     }
+    parse_config_hash = _pdf_parse_config_hash(form)
     uploads: list[dict[str, object]] = []
     seen_hashes: set[str] = set()
     for item in files:
@@ -927,21 +1003,21 @@ async def authenticated_pdf_upload(
                 "content": content,
                 "content_type": item.content_type or "application/pdf",
                 "file_sha256": file_sha256,
+                "market": requested_market or _normalize_parse_market(market) or "CN",
+                "parse_config_hash": parse_config_hash,
             }
         )
 
-    existing_tasks = await _pdf_tasks_by_filename()
-    existing_hash_tasks = {
-        digest: task
+    existing_tasks = await _pdf_tasks_by_filename(current_user=current_user, market_scope=requested_market)
+    existing_dedupe_tasks = {
+        _pdf_dedupe_key(task, requested_market): task
         for task in existing_tasks.values()
-        for digest in [str(task.get("file_sha256") or "").strip().lower()]
-        if digest
+        if str(task.get("file_sha256") or "").strip() and str(task.get("parse_config_hash") or "").strip()
     }
     new_parse_count = sum(
         1
         for upload in uploads
-        if str(upload["filename"]) not in existing_tasks
-        and str(upload["file_sha256"]) not in existing_hash_tasks
+        if _pdf_dedupe_key(upload, requested_market) not in existing_dedupe_tasks
     )
     if new_parse_count:
         await enforce_quota_or_429_async(async_session, current_user, PARSE_EVENT, increment=new_parse_count)
@@ -951,7 +1027,12 @@ async def authenticated_pdf_upload(
         for upload in uploads
     ]
     async with httpx.AsyncClient(timeout=None) as client:
-        response = await client.post(f"{PDF2MD_API_BASE}/api/upload", data=form, files=multipart, headers=_pdf2md_headers())
+        response = await client.post(
+            f"{PDF2MD_API_BASE}/api/upload",
+            data=form,
+            files=multipart,
+            headers=_pdf2md_headers(current_user=current_user, market_scope=requested_market),
+        )
 
     content_type = response.headers.get("content-type", "application/json")
     try:
@@ -998,9 +1079,7 @@ async def authenticated_pdf_upload(
         new_tasks = []
         reused_tasks = []
         for task in created_tasks or []:
-            filename = str(task.get("filename") or "").strip()
-            task_file_sha256 = str(task.get("file_sha256") or "").strip().lower()
-            if (filename and filename in existing_tasks) or (task_file_sha256 and task_file_sha256 in existing_hash_tasks):
+            if _pdf_dedupe_key(task, requested_market) in existing_dedupe_tasks:
                 reused_tasks.append(task)
             else:
                 new_tasks.append(task)
@@ -1077,7 +1156,10 @@ async def list_my_pdf_tasks(
 ):
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.get(f"{PDF2MD_API_BASE}/api/tasks", headers=_pdf2md_headers())
+            response = await client.get(
+                f"{PDF2MD_API_BASE}/api/tasks",
+                headers=_pdf2md_headers(current_user=current_user, allow_legacy=True),
+            )
             response.raise_for_status()
             payload = response.json()
     except Exception as exc:
@@ -1411,6 +1493,7 @@ async def delete_my_pdf_task(
         request,
         f"/api/tasks/{quote(task_id, safe='')}",
         method="DELETE",
+        extra_headers=source_proxy._owner_scope_headers(current_user, allow_legacy=True),
     )
     response.headers["X-SIQ-Workspace-Unlinked"] = "1"
     return response

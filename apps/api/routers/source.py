@@ -45,6 +45,26 @@ def _pdf2md_headers(extra: dict[str, str] | None = None) -> dict[str, str]:
     return headers
 
 
+def _owner_scope_headers(
+    user: User | None,
+    *,
+    market_scope: str | None = None,
+    allow_legacy: bool = False,
+) -> dict[str, str]:
+    headers: dict[str, str] = {}
+    if user is not None:
+        headers["X-SIQ-User-Id"] = str(getattr(user, "id", "") or "")
+        headers["X-SIQ-User-Role"] = _role_value(user)
+        tenant_id = str(getattr(user, "tenant_id", "") or getattr(user, "tenant", "") or "").strip()
+        if tenant_id:
+            headers["X-SIQ-Tenant-Id"] = tenant_id
+    if market_scope:
+        headers["X-SIQ-Market-Scope"] = str(market_scope)
+    if allow_legacy:
+        headers["X-SIQ-Allow-Legacy-Task"] = "1"
+    return headers
+
+
 def _public_url(path: str) -> str:
     if not path:
         return path
@@ -300,6 +320,7 @@ async def _request_pdf2md(
     *,
     method: str | None = None,
     json_body: Any | None = None,
+    extra_headers: dict[str, str] | None = None,
 ) -> httpx.Response:
     request_method = method or request.method
     url = f"{PDF2MD_API_BASE}{upstream_path}"
@@ -308,7 +329,7 @@ async def _request_pdf2md(
         for key, value in request.query_params.multi_items()
         if key.lower() not in SOURCE_AUTH_QUERY_PARAM_NAMES
     ]
-    kwargs: dict[str, Any] = {"params": upstream_params, "headers": _pdf2md_headers()}
+    kwargs: dict[str, Any] = {"params": upstream_params, "headers": _pdf2md_headers(extra_headers)}
 
     if json_body is not None:
         kwargs["json"] = json_body
@@ -316,7 +337,7 @@ async def _request_pdf2md(
         kwargs["content"] = await request.body()
         content_type = request.headers.get("content-type")
         if content_type:
-            kwargs["headers"] = _pdf2md_headers({"content-type": content_type})
+            kwargs["headers"] = _pdf2md_headers({**(extra_headers or {}), "content-type": content_type})
 
     try:
         async with httpx.AsyncClient(timeout=PDF2MD_PROXY_TIMEOUT) as client:
@@ -354,8 +375,15 @@ async def _proxy_pdf2md(
     *,
     method: str | None = None,
     json_body: Any | None = None,
+    extra_headers: dict[str, str] | None = None,
 ) -> Response:
-    upstream = await _request_pdf2md(request, upstream_path, method=method, json_body=json_body)
+    upstream = await _request_pdf2md(
+        request,
+        upstream_path,
+        method=method,
+        json_body=json_body,
+        extra_headers=extra_headers,
+    )
     body = b"" if request.method == "HEAD" else upstream.content
     return Response(
         content=body,

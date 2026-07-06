@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import hmac
+import hashlib
 import ipaddress
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -70,7 +72,7 @@ from providers.simple import (
 )
 from extraction import list_extraction_templates, run_extraction
 from table_merge import TABLE_RELATION_RULESET_VERSION, build_logical_tables, build_table_relations
-from task_store import TaskStore, now_iso
+from task_store import DEFAULT_MARKET_SCOPE, DEFAULT_OWNER_ID, DEFAULT_TENANT_ID, TaskStore, now_iso
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -88,6 +90,9 @@ MAX_FILES_PER_UPLOAD = int(os.environ.get("SIQ_DOCUMENT_PARSE_MAX_FILES_PER_UPLO
 APP_ACCESS_TOKEN = os.environ.get("SIQ_DOCUMENT_PARSER_ACCESS_TOKEN", "").strip()
 WORKER_POLL_SECONDS = float(os.environ.get("SIQ_DOCUMENT_PARSE_WORKER_POLL_SECONDS", "0.5"))
 WORKER_AUTOSTART = os.environ.get("SIQ_DOCUMENT_PARSE_WORKER_AUTOSTART", "true").lower() not in {"0", "false", "no", "off"}
+SUPPORTED_MARKET_SCOPES = {"CN", "HK", "US", "EU", "KR", "JP", "DOC"}
+ADMIN_ROLES = {"admin", "super_admin", "system"}
+SCOPE_VALUE_RE = re.compile(r"[^A-Za-z0-9_.@:-]+")
 
 for folder in (UPLOAD_FOLDER, RESULTS_FOLDER, OUTPUT_FOLDER, LOG_DIR, CACHE_DIR, DB_PATH.parent):
     folder.mkdir(parents=True, exist_ok=True)
@@ -118,6 +123,90 @@ def _parse_bool(value, default: bool = False) -> bool:
     if value is None:
         return default
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _normalize_market_scope(value: object) -> str:
+    market = str(value or "").strip().upper()
+    return market if market in SUPPORTED_MARKET_SCOPES else ""
+
+
+def _clean_scope_value(value: object, default: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return default
+    text = SCOPE_VALUE_RE.sub("_", text)[:120].strip("._:-")
+    return text or default
+
+
+def _request_owner_scope(default_market: object = None) -> dict:
+    owner_header = request.headers.get("X-SIQ-User-Id")
+    role = _clean_scope_value(request.headers.get("X-SIQ-User-Role"), "")
+    market_scope = (
+        _normalize_market_scope(request.headers.get("X-SIQ-Market-Scope"))
+        or _normalize_market_scope(default_market)
+        or DEFAULT_MARKET_SCOPE
+    )
+    return {
+        "owner_id": _clean_scope_value(owner_header, DEFAULT_OWNER_ID),
+        "tenant_id": _clean_scope_value(
+            request.headers.get("X-SIQ-Tenant-Id") or request.headers.get("X-SIQ-Tenant-ID"),
+            DEFAULT_TENANT_ID,
+        ),
+        "market_scope": market_scope,
+        "user_role": role,
+        "is_admin": role.lower() in ADMIN_ROLES,
+        "is_legacy_request": not bool(str(owner_header or "").strip()),
+        "allow_legacy_task": str(request.headers.get("X-SIQ-Allow-Legacy-Task") or "").strip().lower()
+        in {"1", "true", "yes", "on"},
+    }
+
+
+def _task_has_legacy_owner(task: dict | None) -> bool:
+    if not task:
+        return False
+    return (
+        (task.get("owner_id") or DEFAULT_OWNER_ID) == DEFAULT_OWNER_ID
+        and (task.get("tenant_id") or DEFAULT_TENANT_ID) == DEFAULT_TENANT_ID
+        and (task.get("market_scope") or DEFAULT_MARKET_SCOPE) == DEFAULT_MARKET_SCOPE
+    )
+
+
+def _scope_can_access_task(task: dict | None, owner_scope: dict | None) -> bool:
+    if not task:
+        return False
+    if not owner_scope or owner_scope.get("is_admin"):
+        return True
+    if (
+        (task.get("owner_id") or DEFAULT_OWNER_ID) == owner_scope.get("owner_id")
+        and (task.get("tenant_id") or DEFAULT_TENANT_ID) == owner_scope.get("tenant_id")
+    ):
+        scope_market = owner_scope.get("market_scope")
+        task_market = task.get("market_scope") or DEFAULT_MARKET_SCOPE
+        return scope_market in {None, "", DEFAULT_MARKET_SCOPE, task_market} or task_market == DEFAULT_MARKET_SCOPE
+    return bool(owner_scope.get("allow_legacy_task") and _task_has_legacy_owner(task))
+
+
+def _get_visible_task(task_id: str, owner_scope: dict | None = None) -> dict | None:
+    scope = owner_scope or _request_owner_scope()
+    task = store.get_task(task_id)
+    return task if _scope_can_access_task(task, scope) else None
+
+
+def _market_from_request_payload(form: dict | None = None, payload: dict | None = None) -> str:
+    data = dict(form or {})
+    data.update(payload or {})
+    return _normalize_market_scope(data.get("market") or data.get("market_scope") or data.get("marketScope"))
+
+
+def _parse_config_hash(config: ParseConfig, market_scope: str) -> str:
+    payload = {
+        "parser_version": APP_VERSION,
+        "market_scope": market_scope or DEFAULT_MARKET_SCOPE,
+        "config": config.to_manifest(),
+        "data_id": config.data_id,
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 def _parse_config(form: dict | None = None, payload: dict | None = None) -> ParseConfig:
@@ -410,11 +499,25 @@ def _source_file_from_task(task: dict) -> SourceFile:
     )
 
 
-def _create_task_record(task_id: str, source: SourceFile, config: ParseConfig, document_kind: str) -> dict:
+def _create_task_record(
+    task_id: str,
+    source: SourceFile,
+    config: ParseConfig,
+    document_kind: str,
+    *,
+    owner_scope: dict | None = None,
+    market_scope: str | None = None,
+) -> dict:
+    scope = owner_scope or _request_owner_scope(default_market=market_scope)
+    task_market_scope = market_scope or scope.get("market_scope") or DEFAULT_MARKET_SCOPE
     store.create_task(
         {
             "task_id": task_id,
             "filename": source.filename,
+            "owner_id": scope.get("owner_id") or DEFAULT_OWNER_ID,
+            "tenant_id": scope.get("tenant_id") or DEFAULT_TENANT_ID,
+            "market_scope": task_market_scope,
+            "parse_config_hash": _parse_config_hash(config, task_market_scope),
             "document_kind": document_kind,
             "source_type": source.source_type,
             "source_url": source.source_url,
@@ -431,10 +534,24 @@ def _create_task_record(task_id: str, source: SourceFile, config: ParseConfig, d
     return store.get_task(task_id) or {"task_id": task_id, "status": QUEUED}
 
 
-def _enqueue_task(source: SourceFile, config: ParseConfig, task_id: str | None = None) -> dict:
+def _enqueue_task(
+    source: SourceFile,
+    config: ParseConfig,
+    task_id: str | None = None,
+    *,
+    owner_scope: dict | None = None,
+    market_scope: str | None = None,
+) -> dict:
     task_id = task_id or str(uuid.uuid4())
     document_kind = document_kind_for_extension(source.extension)
-    return _create_task_record(task_id, source, config, document_kind)
+    return _create_task_record(
+        task_id,
+        source,
+        config,
+        document_kind,
+        owner_scope=owner_scope,
+        market_scope=market_scope,
+    )
 
 
 def _progress_from_upstream_status(status: dict) -> int:
@@ -627,8 +744,17 @@ def _process_task(task_id: str, source: SourceFile, config: ParseConfig, documen
     return store.get_task(task_id) or {"task_id": task_id, "status": FAILED}
 
 
-def _import_mineru_result_dir(task_id: str, source_dir: Path, config: ParseConfig | None = None) -> dict:
+def _import_mineru_result_dir(
+    task_id: str,
+    source_dir: Path,
+    config: ParseConfig | None = None,
+    *,
+    owner_scope: dict | None = None,
+    market_scope: str | None = None,
+) -> dict:
     config = config or ParseConfig()
+    scope = owner_scope or _request_owner_scope(default_market=market_scope)
+    task_market_scope = market_scope or scope.get("market_scope") or DEFAULT_MARKET_SCOPE
     source, output = parse_mineru_output_dir(task_id, source_dir, config)
     result_dir = _task_result_dir(task_id)
     rewrite_image_paths_to_result(output)
@@ -638,6 +764,10 @@ def _import_mineru_result_dir(task_id: str, source_dir: Path, config: ParseConfi
         {
             "task_id": task_id,
             "filename": source.filename,
+            "owner_id": scope.get("owner_id") or DEFAULT_OWNER_ID,
+            "tenant_id": scope.get("tenant_id") or DEFAULT_TENANT_ID,
+            "market_scope": task_market_scope,
+            "parse_config_hash": _parse_config_hash(config, task_market_scope),
             "document_kind": "pdf",
             "source_type": "mineru_import",
             "source_url": str(source_dir),
@@ -817,6 +947,9 @@ def health():
 def create_tasks():
     tasks = []
     config = _parse_config(request.form)
+    market_scope = _market_from_request_payload(request.form)
+    owner_scope = _request_owner_scope(default_market=market_scope)
+    task_market_scope = owner_scope.get("market_scope") or market_scope or DEFAULT_MARKET_SCOPE
     files = request.files.getlist("files")
     if files:
         if len(files) > MAX_FILES_PER_UPLOAD:
@@ -824,15 +957,18 @@ def create_tasks():
         for file_storage in files:
             task_id = str(uuid.uuid4())
             source = _save_upload(task_id, file_storage)
-            tasks.append(_enqueue_task(source, config, task_id=task_id))
+            tasks.append(_enqueue_task(source, config, task_id=task_id, owner_scope=owner_scope, market_scope=task_market_scope))
         return jsonify({"tasks": tasks})
 
     payload = request.get_json(silent=True) or {}
     if str(payload.get("source_type") or payload.get("sourceType") or "").lower() == "url" or payload.get("url"):
         config = _parse_config(payload=payload)
+        market_scope = _market_from_request_payload(payload=payload)
+        owner_scope = _request_owner_scope(default_market=market_scope)
+        task_market_scope = owner_scope.get("market_scope") or market_scope or DEFAULT_MARKET_SCOPE
         task_id = str(uuid.uuid4())
         source = _download_url(task_id, str(payload.get("url") or "").strip())
-        tasks.append(_enqueue_task(source, config, task_id=task_id))
+        tasks.append(_enqueue_task(source, config, task_id=task_id, owner_scope=owner_scope, market_scope=task_market_scope))
         return jsonify({"tasks": tasks})
 
     return jsonify({"error": "no_source", "message": "请上传文件或提供 URL"}), 400
@@ -845,7 +981,15 @@ def import_mineru_result():
         source_dir = _resolve_mineru_import_dir(str(payload.get("source_dir") or payload.get("sourceDir") or ""))
         task_id = _safe_task_id(payload.get("task_id") or payload.get("taskId"))
         config = _parse_config(payload=payload)
-        task = _import_mineru_result_dir(task_id, source_dir, config=config)
+        market_scope = _market_from_request_payload(payload=payload)
+        owner_scope = _request_owner_scope(default_market=market_scope)
+        task = _import_mineru_result_dir(
+            task_id,
+            source_dir,
+            config=config,
+            owner_scope=owner_scope,
+            market_scope=owner_scope.get("market_scope") or market_scope or DEFAULT_MARKET_SCOPE,
+        )
         return jsonify({"task": task})
     except ValueError as exc:
         return jsonify({"error": "invalid_mineru_import", "message": str(exc)}), 400
@@ -864,7 +1008,7 @@ def mineru_import_candidates():
 def list_tasks():
     limit = parse_int_arg(request.args, "limit", 200)
     tasks = []
-    for task in store.list_tasks(limit=limit):
+    for task in store.list_tasks(limit=limit, owner_scope=_request_owner_scope()):
         if task.get("status") == FAILED:
             task = _recover_pdf_bridge_task(task)
         tasks.append(task)
@@ -873,7 +1017,7 @@ def list_tasks():
 
 @app.get("/api/tasks/<task_id>")
 def get_task(task_id: str):
-    task = store.get_task(task_id)
+    task = _get_visible_task(task_id)
     if not task:
         return jsonify({"error": "not_found"}), 404
     return jsonify(task)
@@ -881,7 +1025,7 @@ def get_task(task_id: str):
 
 @app.get("/api/status/<task_id>")
 def task_status(task_id: str):
-    task = store.get_task(task_id)
+    task = _get_visible_task(task_id)
     if not task:
         return jsonify({"error": "not_found"}), 404
     if task.get("status") == FAILED:
@@ -892,7 +1036,7 @@ def task_status(task_id: str):
 
 @app.post("/api/cancel/<task_id>")
 def cancel_task(task_id: str):
-    task = store.get_task(task_id)
+    task = _get_visible_task(task_id)
     if not task:
         return jsonify({"error": "not_found"}), 404
     if task.get("status") not in TERMINAL_STATUSES:
@@ -903,7 +1047,7 @@ def cancel_task(task_id: str):
 
 @app.post("/api/retry/<task_id>")
 def retry_task(task_id: str):
-    task = store.get_task(task_id)
+    task = _get_visible_task(task_id)
     if not task:
         return jsonify({"error": "not_found"}), 404
     upload_dir = _task_upload_dir(task_id)
@@ -924,13 +1068,17 @@ def retry_task(task_id: str):
         source_type=task.get("source_type") or "upload",
         source_url=task.get("source_url") or "",
     )
+    owner_scope = _request_owner_scope(default_market=task.get("market_scope"))
+    market_scope = owner_scope.get("market_scope") or task.get("market_scope") or DEFAULT_MARKET_SCOPE
     store.delete_task(task_id)
     shutil.rmtree(_task_result_dir(task_id), ignore_errors=True)
-    return jsonify(_enqueue_task(source, config, task_id=task_id))
+    return jsonify(_enqueue_task(source, config, task_id=task_id, owner_scope=owner_scope, market_scope=market_scope))
 
 
 @app.delete("/api/tasks/<task_id>")
 def delete_task(task_id: str):
+    if not _get_visible_task(task_id):
+        return jsonify({"error": "not_found"}), 404
     store.delete_task(task_id)
     shutil.rmtree(_task_upload_dir(task_id), ignore_errors=True)
     shutil.rmtree(_task_result_dir(task_id), ignore_errors=True)
@@ -939,7 +1087,7 @@ def delete_task(task_id: str):
 
 @app.get("/api/result/<task_id>")
 def result(task_id: str):
-    task = store.get_task(task_id)
+    task = _get_visible_task(task_id)
     if not task:
         return jsonify({"error": "not_found"}), 404
     if task.get("status") == FAILED:
@@ -961,6 +1109,8 @@ def result(task_id: str):
 
 @app.get("/api/artifact/<task_id>/<path:artifact>")
 def artifact(task_id: str, artifact: str):
+    if not _get_visible_task(task_id):
+        return jsonify({"error": "not_found"}), 404
     result_dir = _task_result_dir(task_id)
     normalized = artifact.strip().replace("\\", "/").rstrip("/")
     download_requested = query_flag_enabled(request.args, "download")
@@ -1018,7 +1168,7 @@ def download_batch():
     missing = []
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
         for task_id in normalized_ids:
-            task = store.get_task(task_id)
+            task = _get_visible_task(task_id)
             result_dir = _task_result_dir(task_id)
             full_zip = result_dir / "exports" / "full.zip"
             if not task or not full_zip.exists():
@@ -1052,6 +1202,8 @@ def download_batch():
 
 @app.get("/api/figures/<task_id>")
 def list_figures(task_id: str):
+    if not _get_visible_task(task_id):
+        return jsonify({"error": "not_found"}), 404
     path = _task_result_dir(task_id) / "figures.json"
     if not path.exists():
         return jsonify({"error": "not_found"}), 404
@@ -1060,6 +1212,8 @@ def list_figures(task_id: str):
 
 @app.get("/api/figures/<task_id>/<image_id>")
 def get_figure(task_id: str, image_id: str):
+    if not _get_visible_task(task_id):
+        return jsonify({"error": "not_found"}), 404
     figures_path = _task_result_dir(task_id) / "figures.json"
     if not figures_path.exists():
         return jsonify({"error": "not_found"}), 404
@@ -1072,6 +1226,8 @@ def get_figure(task_id: str, image_id: str):
 
 @app.get("/api/source/<task_id>/page/<int:page_number>")
 def source_page(task_id: str, page_number: int):
+    if not _get_visible_task(task_id):
+        return jsonify({"error": "not_found"}), 404
     result_dir = _task_result_dir(task_id)
     blocks_path = result_dir / "blocks.json"
     if not blocks_path.exists():
@@ -1083,7 +1239,7 @@ def source_page(task_id: str, page_number: int):
 
 @app.get("/api/source/<task_id>/page-image/<int:page_number>")
 def source_page_image(task_id: str, page_number: int):
-    task = store.get_task(task_id)
+    task = _get_visible_task(task_id)
     if not task:
         return jsonify({"error": "not_found"}), 404
     try:
@@ -1099,6 +1255,8 @@ def source_page_image(task_id: str, page_number: int):
 
 @app.get("/api/source/<task_id>/block/<block_id>")
 def source_block(task_id: str, block_id: str):
+    if not _get_visible_task(task_id):
+        return jsonify({"error": "not_found"}), 404
     blocks_path = _task_result_dir(task_id) / "blocks.json"
     if not blocks_path.exists():
         return jsonify({"error": "not_found"}), 404
@@ -1111,6 +1269,8 @@ def source_block(task_id: str, block_id: str):
 
 @app.get("/api/source/<task_id>/table/<table_id>")
 def source_table(task_id: str, table_id: str):
+    if not _get_visible_task(task_id):
+        return jsonify({"error": "not_found"}), 404
     tables_path = _task_result_dir(task_id) / "tables.json"
     if not tables_path.exists():
         return jsonify({"error": "not_found"}), 404
@@ -1123,6 +1283,8 @@ def source_table(task_id: str, table_id: str):
 
 @app.get("/api/source/<task_id>/image/<image_id>")
 def source_image(task_id: str, image_id: str):
+    if not _get_visible_task(task_id):
+        return jsonify({"error": "not_found"}), 404
     figures_path = _task_result_dir(task_id) / "figures.json"
     if not figures_path.exists():
         return jsonify({"error": "not_found"}), 404
@@ -1135,6 +1297,8 @@ def source_image(task_id: str, image_id: str):
 
 @app.get("/api/table-relations/<task_id>")
 def table_relations(task_id: str):
+    if not _get_visible_task(task_id):
+        return jsonify({"error": "not_found"}), 404
     result_dir = _task_result_dir(task_id)
     path = result_dir / "table_relations.json"
     if not path.exists():
@@ -1149,6 +1313,8 @@ def table_relations(task_id: str):
 
 @app.post("/api/table-relations/<task_id>/<relation_id>/review")
 def review_table_relation(task_id: str, relation_id: str):
+    if not _get_visible_task(task_id):
+        return jsonify({"error": "not_found"}), 404
     result_dir = _task_result_dir(task_id)
     corrections_path = result_dir / "table_merge_corrections.json"
     corrections = read_json(corrections_path) if corrections_path.exists() else {"schema_version": "document_table_merge_corrections_v1", "task_id": task_id, "relations": {}, "manual_logical_tables": []}
@@ -1167,11 +1333,15 @@ def review_table_relation(task_id: str, relation_id: str):
 
 @app.post("/api/logical-tables/<task_id>/<logical_table_id>/split")
 def split_logical_table(task_id: str, logical_table_id: str):
+    if not _get_visible_task(task_id):
+        return jsonify({"error": "not_found"}), 404
     return jsonify({"success": False, "message": "P0 provider has no merged logical tables to split", "logical_table_id": logical_table_id})
 
 
 @app.post("/api/logical-tables/<task_id>/merge")
 def merge_logical_tables(task_id: str):
+    if not _get_visible_task(task_id):
+        return jsonify({"error": "not_found"}), 404
     return jsonify({"success": False, "message": "P0 provider does not support manual logical table merge yet", "task_id": task_id})
 
 
@@ -1182,6 +1352,8 @@ def extraction_templates():
 
 @app.post("/api/extract/<task_id>")
 def extract(task_id: str):
+    if not _get_visible_task(task_id):
+        return jsonify({"error": "not_found"}), 404
     result_dir = _task_result_dir(task_id)
     markdown_path = result_dir / "document.md"
     if not markdown_path.exists():
@@ -1192,6 +1364,8 @@ def extract(task_id: str):
 
 @app.get("/api/extract/<task_id>/<extract_id>")
 def extract_result(task_id: str, extract_id: str):
+    if not _get_visible_task(task_id):
+        return jsonify({"error": "not_found"}), 404
     path = _task_result_dir(task_id) / "extraction" / "result.json"
     if not path.exists():
         return jsonify({"error": "not_found"}), 404

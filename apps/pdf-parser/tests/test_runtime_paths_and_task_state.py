@@ -1,5 +1,6 @@
 import io
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -370,6 +371,142 @@ class TaskArtifactStateTest(unittest.TestCase):
                 self.assertEqual(duplicate["task_id"], "completed-task")
         finally:
             app.DB_PATH = old_db_path
+
+    def test_duplicate_file_hash_is_scoped_by_owner_market_and_parse_config(self):
+        old_db_path = app.DB_PATH
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                app.DB_PATH = os.path.join(tmpdir, "tasks.db")
+                app._init_db()
+                base = {
+                    "task_id": "alice-cn-auto",
+                    "mineru_task_id": None,
+                    "filename": "same-content.pdf",
+                    "file_size": 1,
+                    "pdf_page_count": 1,
+                    "status": COMPLETED,
+                    "stage": COMPLETED,
+                    "created_at": "2026-05-01T00:00:00Z",
+                    "uploaded_at": "2026-05-01T00:00:00Z",
+                    "submitted_at": None,
+                    "started_at": None,
+                    "completed_at": "2026-05-01T00:01:00Z",
+                    "cancelled": False,
+                    "error": None,
+                    "markdown_path": None,
+                    "upload_path": None,
+                    "last_progress_log_time": None,
+                    "last_status_payload": None,
+                    "last_polled_at": None,
+                    "consecutive_status_failures": 0,
+                    "submit_config": {"market": "CN", "backend": "hybrid-http-client", "parse_method": "auto"},
+                    "logs": [],
+                    "file_sha256": "same-hash",
+                    "owner_id": "alice",
+                    "tenant_id": "unknown",
+                    "market_scope": "CN",
+                    "parse_config_hash": "hash-cn-auto",
+                }
+                app._save_task(base, allow_insert=True)
+                other_owner = dict(base)
+                other_owner.update(
+                    {
+                        "task_id": "bob-cn-auto",
+                        "owner_id": "bob",
+                        "created_at": "2026-05-01T00:02:00Z",
+                    }
+                )
+                app._save_task(other_owner, allow_insert=True)
+
+                alice_scope = {"owner_id": "alice", "tenant_id": "unknown", "market_scope": "CN"}
+                bob_scope = {"owner_id": "bob", "tenant_id": "unknown", "market_scope": "CN"}
+                eu_scope = {"owner_id": "alice", "tenant_id": "unknown", "market_scope": "EU"}
+
+                self.assertEqual(
+                    app._find_duplicate_file_hash_task(
+                        "same-hash",
+                        owner_scope=alice_scope,
+                        parse_config_hash="hash-cn-auto",
+                    )["task_id"],
+                    "alice-cn-auto",
+                )
+                self.assertEqual(
+                    app._find_duplicate_file_hash_task(
+                        "same-hash",
+                        owner_scope=bob_scope,
+                        parse_config_hash="hash-cn-auto",
+                    )["task_id"],
+                    "bob-cn-auto",
+                )
+                self.assertIsNone(
+                    app._find_duplicate_file_hash_task(
+                        "same-hash",
+                        owner_scope=eu_scope,
+                        parse_config_hash="hash-cn-auto",
+                    )
+                )
+                self.assertIsNone(
+                    app._find_duplicate_file_hash_task(
+                        "same-hash",
+                        owner_scope=alice_scope,
+                        parse_config_hash="hash-cn-ocr",
+                    )
+                )
+        finally:
+            app.DB_PATH = old_db_path
+
+    def test_task_status_route_rejects_non_owner(self):
+        old_db_path = app.DB_PATH
+        tmpdir = tempfile.mkdtemp()
+        try:
+            app.DB_PATH = os.path.join(tmpdir, "tasks.db")
+            app._init_db()
+            task = {
+                "task_id": "owned-task",
+                "mineru_task_id": None,
+                "filename": "private.pdf",
+                "file_size": 1,
+                "pdf_page_count": 1,
+                "status": COMPLETED,
+                "stage": COMPLETED,
+                "created_at": "2026-05-01T00:00:00Z",
+                "uploaded_at": "2026-05-01T00:00:00Z",
+                "submitted_at": None,
+                "started_at": None,
+                "completed_at": "2026-05-01T00:01:00Z",
+                "cancelled": False,
+                "error": None,
+                "markdown_path": None,
+                "upload_path": None,
+                "last_progress_log_time": None,
+                "last_status_payload": None,
+                "last_polled_at": None,
+                "consecutive_status_failures": 0,
+                "submit_config": {"market": "HK"},
+                "logs": [],
+                "owner_id": "alice",
+                "tenant_id": "unknown",
+                "market_scope": "HK",
+                "parse_config_hash": "hash-hk",
+            }
+            app._save_task(task, allow_insert=True)
+            client = app.app.test_client()
+
+            blocked = client.get(
+                "/api/status/owned-task",
+                headers={"X-SIQ-User-Id": "bob", "X-SIQ-Market-Scope": "HK"},
+            )
+            allowed = client.get(
+                "/api/status/owned-task",
+                headers={"X-SIQ-User-Id": "alice", "X-SIQ-Market-Scope": "HK"},
+            )
+
+            self.assertEqual(blocked.status_code, 404)
+            self.assertEqual(allowed.status_code, 200)
+            self.assertEqual(allowed.get_json()["task_id"], "owned-task")
+        finally:
+            app.DB_PATH = old_db_path
+            shutil.rmtree(tmpdir, ignore_errors=True)
 
     def test_get_task_requires_exact_task_id(self):
         old_db_path = app.DB_PATH

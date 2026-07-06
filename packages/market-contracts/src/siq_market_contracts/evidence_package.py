@@ -144,6 +144,179 @@ def _source_map_entries(source_map: dict[str, Any]) -> list[Any]:
     return entries if isinstance(entries, list) else []
 
 
+def _has_value(value: Any) -> bool:
+    return value is not None and str(value).strip() != ""
+
+
+def _first_value(*values: Any) -> Any:
+    for value in values:
+        if _has_value(value):
+            return value
+    return None
+
+
+def _raw_field(payload: dict[str, Any], key: str) -> Any:
+    raw = payload.get("raw") if isinstance(payload, dict) else {}
+    return raw.get(key) if isinstance(raw, dict) else None
+
+
+def _target_locator_kind(target: Any) -> str | None:
+    text = str(target or "").strip()
+    if not text:
+        return None
+    lower = text.lower()
+    if lower.startswith("page="):
+        fields = {}
+        for item in text.split(";"):
+            if "=" not in item:
+                continue
+            key, value = item.split("=", 1)
+            fields[key.strip().lower()] = value.strip()
+        if fields.get("page") and fields.get("table") and ((fields.get("row") and fields.get("column")) or fields.get("quote")):
+            return "pdf"
+    if lower.startswith(("http://", "https://")) and "#" in text and text.rsplit("#", 1)[-1].strip():
+        return "html"
+    if lower.startswith("xbrl:") and len([part for part in text.split(":") if part]) >= 3:
+        return "xbrl"
+    return None
+
+
+def evidence_source_resolvability(
+    evidence: dict[str, Any],
+    *,
+    manifest: dict[str, Any] | None = None,
+    package_dir: Path | None = None,
+) -> dict[str, Any]:
+    if not isinstance(evidence, dict) or not evidence:
+        return {"resolvable": False, "kind": None, "reason": "empty_evidence"}
+
+    page_number = _first_value(evidence.get("page_number"), evidence.get("pdf_page_number"))
+    table_index = evidence.get("table_index")
+    row_index = evidence.get("row_index")
+    column_index = evidence.get("column_index")
+    quote = _first_value(evidence.get("quote_text"), evidence.get("quote"), evidence.get("html_snippet"))
+    if _has_value(page_number) and _has_value(table_index) and ((_has_value(row_index) and _has_value(column_index)) or _has_value(quote)):
+        return {"resolvable": True, "kind": "pdf_table", "reason": None}
+
+    url = _first_value(evidence.get("url"), evidence.get("source_url"), (manifest or {}).get("source_url"))
+    anchor = _first_value(evidence.get("anchor"), evidence.get("html_anchor"), _raw_field(evidence, "fact_id"))
+    xpath = evidence.get("xpath")
+    tag = _first_value(evidence.get("tag"), evidence.get("xbrl_tag"))
+    if _has_value(url) and (_has_value(anchor) or _has_value(xpath) or _has_value(tag)):
+        return {"resolvable": True, "kind": "html_xbrl", "reason": None}
+
+    context_ref = _first_value(evidence.get("context_ref"), _raw_field(evidence, "context_ref"))
+    unit_ref = _first_value(evidence.get("unit_ref"), _raw_field(evidence, "unit_ref"))
+    fact_id = _first_value(evidence.get("fact_id"), evidence.get("raw_fact_id"), _raw_field(evidence, "fact_id"))
+    if _has_value(tag) and _has_value(context_ref) and (_has_value(unit_ref) or _has_value(fact_id) or _has_value(anchor) or _has_value(url)):
+        return {"resolvable": True, "kind": "xbrl_fact", "reason": None}
+
+    artifact_path = _first_value(
+        evidence.get("artifact_path"),
+        evidence.get("local_path"),
+        evidence.get("path"),
+        evidence.get("table_json_path"),
+    )
+    line = _first_value(evidence.get("line"), evidence.get("line_number"))
+    cell = evidence.get("cell")
+    if _has_value(artifact_path) and (
+        _has_value(line)
+        or _has_value(cell)
+        or (_has_value(table_index) and (_has_value(row_index) or _has_value(column_index)))
+        or _has_value(quote)
+        or _has_value(xpath)
+        or _has_value(tag)
+    ):
+        if package_dir is not None:
+            local = package_dir / str(artifact_path)
+            if not local.exists() and not (_has_value(page_number) or _has_value(url)):
+                return {"resolvable": False, "kind": "artifact", "reason": f"artifact_path_missing:{artifact_path}"}
+        return {"resolvable": True, "kind": "artifact", "reason": None}
+
+    target_kind = _target_locator_kind(evidence.get("target"))
+    if target_kind:
+        return {"resolvable": True, "kind": target_kind, "reason": None}
+    return {"resolvable": False, "kind": None, "reason": "missing_locator"}
+
+
+def is_resolvable_evidence_source(
+    evidence: dict[str, Any],
+    *,
+    manifest: dict[str, Any] | None = None,
+    package_dir: Path | None = None,
+) -> bool:
+    return bool(evidence_source_resolvability(evidence, manifest=manifest, package_dir=package_dir).get("resolvable"))
+
+
+def evidence_resolvability_summary(
+    *,
+    financial_data: dict[str, Any] | None = None,
+    source_map: dict[str, Any] | None = None,
+    manifest: dict[str, Any] | None = None,
+    package_dir: Path | None = None,
+) -> dict[str, Any]:
+    metric_value_count = 0
+    resolvable_metric_source_count = 0
+    missing_metric_source_count = 0
+    unresolvable_metric_source_count = 0
+    unresolvable_metric_sources: list[str] = []
+    for item in iter_financial_data_items(financial_data or {}):
+        values = item.get("values") if isinstance(item, dict) else {}
+        sources = item.get("sources") if isinstance(item, dict) else {}
+        if not isinstance(values, dict):
+            continue
+        for period_key in values:
+            metric_value_count += 1
+            evidence = sources.get(period_key) if isinstance(sources, dict) else None
+            metric_name = str(item.get("canonical_name") or item.get("name") or "unknown")
+            if not isinstance(evidence, dict) or not evidence:
+                missing_metric_source_count += 1
+                continue
+            if is_resolvable_evidence_source(evidence, manifest=manifest, package_dir=package_dir):
+                resolvable_metric_source_count += 1
+            else:
+                unresolvable_metric_source_count += 1
+                unresolvable_metric_sources.append(f"{metric_name}:{period_key}")
+
+    entries = _source_map_entries(source_map or {})
+    resolvable_source_map_entry_count = 0
+    unresolvable_source_map_entry_count = 0
+    unresolvable_source_map_entries: list[str] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            unresolvable_source_map_entry_count += 1
+            unresolvable_source_map_entries.append("<non_object>")
+            continue
+        if is_resolvable_evidence_source(entry, manifest=manifest, package_dir=package_dir):
+            resolvable_source_map_entry_count += 1
+        else:
+            unresolvable_source_map_entry_count += 1
+            unresolvable_source_map_entries.append(str(entry.get("evidence_id") or "<missing_evidence_id>"))
+
+    source_map_entry_count = len(entries)
+    if source_map_entry_count:
+        resolvable_evidence_count = resolvable_source_map_entry_count
+        unresolvable_evidence_count = unresolvable_source_map_entry_count
+    else:
+        resolvable_evidence_count = resolvable_metric_source_count
+        unresolvable_evidence_count = unresolvable_metric_source_count
+    denominator = resolvable_evidence_count + unresolvable_evidence_count
+    return {
+        "metric_value_count": metric_value_count,
+        "resolvable_metric_source_count": resolvable_metric_source_count,
+        "missing_metric_source_count": missing_metric_source_count,
+        "unresolvable_metric_source_count": unresolvable_metric_source_count,
+        "unresolvable_metric_sources": unresolvable_metric_sources,
+        "source_map_entry_count": source_map_entry_count,
+        "resolvable_source_map_entry_count": resolvable_source_map_entry_count,
+        "unresolvable_source_map_entry_count": unresolvable_source_map_entry_count,
+        "unresolvable_source_map_entries": unresolvable_source_map_entries,
+        "resolvable_evidence_count": resolvable_evidence_count,
+        "unresolvable_evidence_count": unresolvable_evidence_count,
+        "evidence_resolvability_ratio": round(resolvable_evidence_count / denominator, 6) if denominator else None,
+    }
+
+
 def _normalized_metrics(payload: dict[str, Any]) -> list[Any]:
     metrics = payload.get("metrics") if isinstance(payload, dict) else []
     return metrics if isinstance(metrics, list) else []
@@ -193,12 +366,15 @@ def _required_statement_status(quality: dict[str, Any], financial_data: dict[str
     }
 
 
-def _evidence_coverage_ratio(quality: dict[str, Any], financial_data: dict[str, Any]) -> float | None:
-    raw_ratio = quality.get("evidence_coverage_ratio") if isinstance(quality, dict) else None
-    if isinstance(raw_ratio, int | float):
-        return max(0.0, min(float(raw_ratio), 1.0))
-
-    total = 0
+def _evidence_coverage_ratio(
+    quality: dict[str, Any],
+    financial_data: dict[str, Any],
+    *,
+    manifest: dict[str, Any] | None = None,
+    source_map: dict[str, Any] | None = None,
+    package_dir: Path | None = None,
+) -> float | None:
+    metric_value_count = 0
     covered = 0
     for item in iter_financial_data_items(financial_data if isinstance(financial_data, dict) else {}):
         values = item.get("values") if isinstance(item, dict) else {}
@@ -206,11 +382,25 @@ def _evidence_coverage_ratio(quality: dict[str, Any], financial_data: dict[str, 
         if not isinstance(values, dict):
             continue
         for period_key in values:
-            total += 1
+            metric_value_count += 1
             evidence = sources.get(period_key) if isinstance(sources, dict) else None
-            if isinstance(evidence, dict) and evidence:
+            if isinstance(evidence, dict) and is_resolvable_evidence_source(evidence, manifest=manifest, package_dir=package_dir):
                 covered += 1
-    return round(covered / total, 4) if total else None
+    if metric_value_count:
+        return round(covered / metric_value_count, 4)
+
+    raw_ratio = quality.get("evidence_coverage_ratio") if isinstance(quality, dict) else None
+    if isinstance(raw_ratio, int | float):
+        return max(0.0, min(float(raw_ratio), 1.0))
+    summary = evidence_resolvability_summary(
+        financial_data=financial_data if isinstance(financial_data, dict) else {},
+        source_map=source_map,
+        manifest=manifest,
+        package_dir=package_dir,
+    )
+    if summary["source_map_entry_count"]:
+        return summary["evidence_resolvability_ratio"]
+    return None
 
 
 def _artifact_hash_check(package_dir: Path, manifest: dict[str, Any]) -> dict[str, Any]:
@@ -246,6 +436,7 @@ def build_quality_gates(
     quality = quality if isinstance(quality, dict) else read_json(package_dir / "qa" / "quality_report.json", {})
     financial_data = financial_data if isinstance(financial_data, dict) else read_json(package_dir / "metrics" / "financial_data.json", {})
     financial_checks = financial_checks if isinstance(financial_checks, dict) else read_json(package_dir / "metrics" / "financial_checks.json", {})
+    source_map = read_json(package_dir / "qa" / "source_map.json", {})
 
     required_status = _required_statement_status(quality, financial_data)
     missing_required = [
@@ -257,13 +448,26 @@ def build_quality_gates(
     parser_warnings = _list_field(quality, "parser_warnings")
     rule_warnings = _list_field(quality, "rule_warnings")
     critical_warnings = _list_field(quality, "critical_warnings")
+    resolvability = evidence_resolvability_summary(
+        financial_data=financial_data,
+        source_map=source_map if isinstance(source_map, dict) else {},
+        manifest=manifest,
+        package_dir=package_dir,
+    )
+    unresolvable_evidence_count = resolvability["unresolvable_evidence_count"]
+    evidence_resolvability_ratio = resolvability["evidence_resolvability_ratio"]
 
     base_status = _quality_status(
         quality.get("overall_status")
         or manifest.get("quality_status")
         or financial_checks.get("overall_status")
     )
-    if artifact_hash["status"] == "mismatch" or critical_warnings or base_status == "fail":
+    if (
+        artifact_hash["status"] == "mismatch"
+        or critical_warnings
+        or base_status == "fail"
+        or (evidence_resolvability_ratio is not None and evidence_resolvability_ratio < 0.8)
+    ):
         overall_status = "fail"
     elif (
         base_status == "warning"
@@ -271,6 +475,7 @@ def build_quality_gates(
         or artifact_hash["status"] == "missing"
         or parser_warnings
         or rule_warnings
+        or unresolvable_evidence_count
     ):
         overall_status = "warning"
     elif base_status == "pass":
@@ -289,6 +494,10 @@ def build_quality_gates(
         block_reasons.append("critical warnings present")
     if parser_warnings or rule_warnings:
         block_reasons.append("parser or rule warnings present")
+    if unresolvable_evidence_count:
+        block_reasons.append("unresolvable evidence present")
+    if evidence_resolvability_ratio is not None and evidence_resolvability_ratio < 0.8:
+        block_reasons.append("evidence resolvability below 80%")
     if overall_status not in {"pass", "unknown"} and not block_reasons:
         block_reasons.append(f"quality status is {overall_status}")
 
@@ -301,7 +510,17 @@ def build_quality_gates(
         "vector_ingest_blocked": action_blocked,
         "force_allowed": True,
         "block_reasons": block_reasons,
-        "evidence_coverage_ratio": _evidence_coverage_ratio(quality, financial_data),
+        "evidence_coverage_ratio": _evidence_coverage_ratio(
+            quality,
+            financial_data,
+            manifest=manifest,
+            source_map=source_map if isinstance(source_map, dict) else {},
+            package_dir=package_dir,
+        ),
+        "resolvable_evidence_count": resolvability["resolvable_evidence_count"],
+        "unresolvable_evidence_count": unresolvable_evidence_count,
+        "evidence_resolvability_ratio": evidence_resolvability_ratio,
+        "unresolvable_evidence": resolvability["unresolvable_source_map_entries"] or resolvability["unresolvable_metric_sources"],
         "required_statement_status": required_status,
         "missing_required_statements": missing_required,
         "artifact_hash_status": artifact_hash["status"],
@@ -328,7 +547,14 @@ def read_market_package_summary(package_dir: Path, *, display_path: str | None =
     financial_data = read_json(package_dir / "metrics" / "financial_data.json", {})
     financial_checks = read_json(package_dir / "metrics" / "financial_checks.json", {})
     metrics = _normalized_metrics(read_json(package_dir / "metrics" / "normalized_metrics.json", {}))
-    source_map = _source_map_entries(read_json(package_dir / "qa" / "source_map.json", {}))
+    source_map_payload = read_json(package_dir / "qa" / "source_map.json", {})
+    source_map = _source_map_entries(source_map_payload)
+    resolvability = evidence_resolvability_summary(
+        financial_data=financial_data,
+        source_map=source_map_payload if isinstance(source_map_payload, dict) else {},
+        manifest=manifest,
+        package_dir=package_dir,
+    )
     return {
         "package_path": display_path or str(package_dir),
         "paths": market_package_paths(package_dir),
@@ -352,6 +578,8 @@ def read_market_package_summary(package_dir: Path, *, display_path: str | None =
             "raw_facts": _quality_count(quality, "raw_fact_count", "xbrl_fact_count"),
             "metrics": _quality_count(quality, "normalized_metric_count") or len(metrics),
             "evidence": len(source_map),
+            "resolvable_evidence": resolvability["resolvable_evidence_count"],
+            "unresolvable_evidence": resolvability["unresolvable_evidence_count"],
         },
         "quality_gates": build_quality_gates(
             package_dir,
@@ -458,13 +686,17 @@ def validate_evidence_package(package_dir: Path, *, strict_hashes: bool = True) 
     missing_evidence = missing_financial_data_evidence(financial_data)
     if missing_evidence:
         errors.append(f"financial_data metrics missing evidence: {', '.join(missing_evidence[:20])}")
+    unresolvable_metric_evidence = unresolvable_financial_data_evidence(financial_data, manifest=manifest, package_dir=package_dir)
+    if unresolvable_metric_evidence:
+        errors.append(f"financial_data metrics have unresolvable evidence: {', '.join(unresolvable_metric_evidence[:20])}")
     for entry in source_entries:
         if not isinstance(entry, dict):
+            errors.append("source_map entry must be an object")
             continue
         if not entry.get("evidence_id"):
             errors.append("source_map entry missing evidence_id")
-        if not (entry.get("target") or entry.get("local_path") or entry.get("source_url")):
-            errors.append(f"source_map entry has no target/local/source URL: {entry.get('evidence_id')}")
+        if not is_resolvable_evidence_source(entry, manifest=manifest, package_dir=package_dir):
+            errors.append(f"source_map entry target is not resolvable: {entry.get('evidence_id')}")
     if source_entries and not evidence_ids:
         errors.append("source_map entries do not define evidence_id values")
 
@@ -505,6 +737,25 @@ def missing_financial_data_evidence(financial_data: dict[str, Any]) -> list[str]
             if not isinstance(evidence, dict) or not evidence:
                 missing.append(f"{row.get('canonical_name') or row.get('name')}:{period_key}")
     return missing
+
+
+def unresolvable_financial_data_evidence(
+    financial_data: dict[str, Any],
+    *,
+    manifest: dict[str, Any] | None = None,
+    package_dir: Path | None = None,
+) -> list[str]:
+    unresolvable: list[str] = []
+    for row in iter_financial_data_items(financial_data):
+        sources = row.get("sources") if isinstance(row, dict) else None
+        if not isinstance(sources, dict) or not sources:
+            continue
+        for period_key, evidence in sources.items():
+            if not isinstance(evidence, dict) or not evidence:
+                continue
+            if not is_resolvable_evidence_source(evidence, manifest=manifest, package_dir=package_dir):
+                unresolvable.append(f"{row.get('canonical_name') or row.get('name')}:{period_key}")
+    return unresolvable
 
 
 def iter_financial_data_items(financial_data: dict[str, Any]):
@@ -559,6 +810,8 @@ def source_map_from_financial_data(
                 "column_index": evidence.get("column_index"),
                 "xbrl_tag": evidence.get("xbrl_tag"),
                 "context_ref": evidence.get("raw", {}).get("context_ref") if isinstance(evidence.get("raw"), dict) else None,
+                "unit_ref": evidence.get("raw", {}).get("unit_ref") if isinstance(evidence.get("raw"), dict) else None,
+                "fact_id": evidence.get("raw", {}).get("fact_id") if isinstance(evidence.get("raw"), dict) else None,
                 "accession_number": evidence.get("accession_number"),
                 "html_anchor": evidence.get("anchor"),
                 "xpath": evidence.get("xpath"),
@@ -571,6 +824,10 @@ def source_map_from_financial_data(
                 "target": target,
                 "raw": evidence,
             }
+            resolvability = evidence_source_resolvability(entry, manifest=manifest, package_dir=package_dir)
+            entry["resolvable"] = resolvability["resolvable"]
+            entry["resolvability_kind"] = resolvability["kind"]
+            entry["resolvability_reason"] = resolvability["reason"]
             if package_dir is not None and entry["local_path"]:
                 local = package_dir / str(entry["local_path"])
                 if not local.exists():
@@ -794,6 +1051,7 @@ def build_quality_report(
 ) -> dict[str, Any]:
     metric_count = 0
     evidence_count = 0
+    unresolvable_evidence_count = 0
     statement_status: dict[str, str] = {
         "balance_sheet": "missing",
         "income_statement": "missing",
@@ -808,18 +1066,36 @@ def build_quality_report(
             values = item.get("values") if isinstance(item.get("values"), dict) else {}
             sources = item.get("sources") if isinstance(item.get("sources"), dict) else {}
             metric_count += len(values)
-            evidence_count += sum(1 for key in values if sources.get(key))
+            for key in values:
+                evidence = sources.get(key)
+                if evidence and is_resolvable_evidence_source(evidence, manifest=manifest):
+                    evidence_count += 1
+                elif evidence:
+                    unresolvable_evidence_count += 1
     for bucket in ("key_metrics", "operating_metrics"):
         for item in financial_data.get(bucket) or []:
             values = item.get("values") if isinstance(item.get("values"), dict) else {}
             sources = item.get("sources") if isinstance(item.get("sources"), dict) else {}
             metric_count += len(values)
-            evidence_count += sum(1 for key in values if sources.get(key))
+            for key in values:
+                evidence = sources.get(key)
+                if evidence and is_resolvable_evidence_source(evidence, manifest=manifest):
+                    evidence_count += 1
+                elif evidence:
+                    unresolvable_evidence_count += 1
 
     missing = missing_financial_data_evidence(financial_data)
     critical_warnings = []
     if missing:
         critical_warnings.append({"type": "missing_evidence", "metrics": missing})
+    if unresolvable_evidence_count:
+        critical_warnings.append(
+            {
+                "type": "unresolvable_evidence",
+                "count": unresolvable_evidence_count,
+                "metrics": unresolvable_financial_data_evidence(financial_data, manifest=manifest),
+            }
+        )
     if any(status == "missing" for status in statement_status.values()):
         critical_warnings.append({"type": "missing_statement", "required_statement_status": statement_status})
 
@@ -851,6 +1127,11 @@ def build_quality_report(
         )
 
     ratio = 1.0 if metric_count == 0 else round(evidence_count / metric_count, 6)
+    resolvability = evidence_resolvability_summary(
+        financial_data=financial_data,
+        source_map=source_map,
+        manifest=manifest,
+    )
     return {
         "schema_version": "market_quality_report_v1",
         "market": manifest.get("market"),
@@ -862,6 +1143,9 @@ def build_quality_report(
         "raw_fact_count": raw_fact_count,
         "normalized_metric_count": metric_count,
         "evidence_coverage_ratio": ratio,
+        "resolvable_evidence_count": evidence_count,
+        "unresolvable_evidence_count": resolvability["unresolvable_evidence_count"],
+        "evidence_resolvability_ratio": resolvability["evidence_resolvability_ratio"],
         "extraction_status": extraction_status,
         "extraction_blockers": extraction_blockers,
         "required_statement_status": statement_status,
@@ -869,4 +1153,6 @@ def build_quality_report(
         "parser_warnings": parser_warnings or [],
         "rule_warnings": rule_warnings or financial_data.get("warnings") or financial_checks.get("warnings") or [],
         "source_map_entry_count": len(source_map.get("entries") or []),
+        "resolvable_source_map_entry_count": resolvability["resolvable_source_map_entry_count"],
+        "unresolvable_source_map_entry_count": resolvability["unresolvable_source_map_entry_count"],
     }

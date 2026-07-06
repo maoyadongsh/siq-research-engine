@@ -36,6 +36,20 @@ async def _with_async_session(tmp_path, db_name, callback):
         await engine.dispose()
 
 
+def _pdf_config_hash(market: str = "CN") -> str:
+    return workspace._pdf_parse_config_hash(
+        {
+            "backend": "hybrid-http-client",
+            "parse_method": "auto",
+            "market": market,
+            "start_page_id": "",
+            "end_page_id": "",
+            "formula_enable": "true",
+            "table_enable": "true",
+        }
+    )
+
+
 def test_extract_report_artifact_from_text_prefers_final_wiki_path(monkeypatch, tmp_path):
     wiki_root = tmp_path / "wiki"
     company_dir = wiki_root / "companies" / "300017-网宿科技"
@@ -253,8 +267,8 @@ def test_proxy_pdf_task_rejects_non_owner_without_upstream_call(monkeypatch, tmp
 def test_proxy_pdf_task_for_owner_calls_expected_upstream(monkeypatch, tmp_path):
     calls = []
 
-    async def fake_proxy_pdf2md(request, upstream_path, *, method=None):
-        calls.append((request, upstream_path, method))
+    async def fake_proxy_pdf2md(request, upstream_path, *, method=None, extra_headers=None):
+        calls.append((request, upstream_path, method, extra_headers))
         return Response(content=b'{"ok": true}', status_code=202, media_type="application/json")
 
     monkeypatch.setattr(workspace.source_proxy, "_proxy_pdf2md", fake_proxy_pdf2md)
@@ -287,14 +301,21 @@ def test_proxy_pdf_task_for_owner_calls_expected_upstream(monkeypatch, tmp_path)
         session.commit()
         anyio.run(run_case, session)
 
-    assert calls == [(request, "/api/refetch/owned-task", "POST")]
+    assert calls == [
+        (
+            request,
+            "/api/refetch/owned-task",
+            "POST",
+            {"X-SIQ-User-Id": "1", "X-SIQ-User-Role": "user", "X-SIQ-Allow-Legacy-Task": "1"},
+        )
+    ]
 
 
 def test_proxy_pdf_task_accepts_async_session_for_owner(monkeypatch, tmp_path):
     calls = []
 
-    async def fake_proxy_pdf2md(request, upstream_path, *, method=None):
-        calls.append((request, upstream_path, method))
+    async def fake_proxy_pdf2md(request, upstream_path, *, method=None, extra_headers=None):
+        calls.append((request, upstream_path, method, extra_headers))
         return Response(content=b'{"ok": true}', status_code=200, media_type="application/json")
 
     monkeypatch.setattr(workspace.source_proxy, "_proxy_pdf2md", fake_proxy_pdf2md)
@@ -328,7 +349,14 @@ def test_proxy_pdf_task_accepts_async_session_for_owner(monkeypatch, tmp_path):
 
     anyio.run(run_case)
 
-    assert calls == [(request, "/api/result/async-owned-task", None)]
+    assert calls == [
+        (
+            request,
+            "/api/result/async-owned-task",
+            None,
+            {"X-SIQ-User-Id": "1", "X-SIQ-User-Role": "user", "X-SIQ-Allow-Legacy-Task": "1"},
+        )
+    ]
 
 
 def test_delete_shared_pdf_task_removes_workspace_link_without_upstream(monkeypatch, tmp_path):
@@ -380,8 +408,8 @@ def test_delete_shared_pdf_task_removes_workspace_link_without_upstream(monkeypa
 def test_delete_last_pdf_task_owner_proxies_upstream_delete(monkeypatch, tmp_path):
     calls = []
 
-    async def fake_proxy_pdf2md(request, upstream_path, *, method=None):
-        calls.append((request, upstream_path, method))
+    async def fake_proxy_pdf2md(request, upstream_path, *, method=None, extra_headers=None):
+        calls.append((request, upstream_path, method, extra_headers))
         return Response(content=b'{"success": true}', status_code=200, media_type="application/json")
 
     monkeypatch.setattr(workspace.source_proxy, "_proxy_pdf2md", fake_proxy_pdf2md)
@@ -415,15 +443,30 @@ def test_delete_last_pdf_task_owner_proxies_upstream_delete(monkeypatch, tmp_pat
 
     anyio.run(_with_async_session, tmp_path, "workspace-delete-last.db", run_case)
 
-    assert calls == [(request, "/api/tasks/last-pdf-task", "DELETE")]
+    assert calls == [
+        (
+            request,
+            "/api/tasks/last-pdf-task",
+            "DELETE",
+            {"X-SIQ-User-Id": "1", "X-SIQ-User-Role": "user", "X-SIQ-Allow-Legacy-Task": "1"},
+        )
+    ]
 
 
-def test_authenticated_pdf_upload_duplicate_filename_records_reused_parse(monkeypatch, tmp_path):
+def test_authenticated_pdf_upload_duplicate_content_records_reused_parse(monkeypatch, tmp_path):
     posted: dict[str, object] = {}
+    file_bytes = b"%PDF-1.4\nexisting"
+    file_sha256 = hashlib.sha256(file_bytes).hexdigest()
+    config_hash = _pdf_config_hash()
     duplicate_payload = {
-        "error": "duplicate_filename",
+        "error": "duplicate_file_content",
         "filename": "annual.pdf",
-        "existingTask": {"task_id": "existing-task", "filename": "annual.pdf"},
+        "existingTask": {
+            "task_id": "existing-task",
+            "filename": "annual.pdf",
+            "file_sha256": file_sha256,
+            "parse_config_hash": config_hash,
+        },
     }
 
     class FakeUpload:
@@ -431,7 +474,7 @@ def test_authenticated_pdf_upload_duplicate_filename_records_reused_parse(monkey
         content_type = "application/pdf"
 
         async def read(self):
-            return b"%PDF-1.4\nexisting"
+            return file_bytes
 
     class FakeAsyncClient:
         def __init__(self, timeout=None):
@@ -455,8 +498,16 @@ def test_authenticated_pdf_upload_duplicate_filename_records_reused_parse(monkey
                 json=lambda: duplicate_payload,
             )
 
-    async def fake_pdf_tasks_by_filename():
-        return {"annual.pdf": {"task_id": "existing-task", "filename": "annual.pdf"}}
+    async def fake_pdf_tasks_by_filename(**_kwargs):
+        return {
+            "annual.pdf": {
+                "task_id": "existing-task",
+                "filename": "annual.pdf",
+                "file_sha256": file_sha256,
+                "parse_config_hash": config_hash,
+                "market": "CN",
+            }
+        }
 
     monkeypatch.setattr(workspace, "PDF2MD_API_BASE", "http://pdf2md.test")
     monkeypatch.setattr(workspace, "_pdf_tasks_by_filename", fake_pdf_tasks_by_filename)
@@ -479,7 +530,7 @@ def test_authenticated_pdf_upload_duplicate_filename_records_reused_parse(monkey
         assert artifact.user_id == 1
         assert artifact.artifact_type == "parse"
         assert artifact.title == "annual.pdf"
-        assert artifact.path == "http://pdf2md.test/api/result/existing-task"
+        assert artifact.path == "http://pdf2md.test/api/result/existing-task?market=CN"
         assert artifact.source == "reused_parse"
         assert artifact.global_artifact_id == "existing-task"
         assert usage == []
@@ -489,14 +540,24 @@ def test_authenticated_pdf_upload_duplicate_filename_records_reused_parse(monkey
 
     assert posted["url"] == "http://pdf2md.test/api/upload"
     assert posted["files"][0][1][0] == "annual.pdf"
+    assert posted["headers"]["X-SIQ-User-Id"] == "1"
+    assert posted["headers"]["X-SIQ-User-Role"] == "user"
     assert response.status_code == 409
 
 
-def test_authenticated_pdf_upload_duplicate_filename_ignores_full_quota(monkeypatch, tmp_path):
+def test_authenticated_pdf_upload_duplicate_content_ignores_full_quota(monkeypatch, tmp_path):
+    file_bytes = b"%PDF-1.4\nexisting"
+    file_sha256 = hashlib.sha256(file_bytes).hexdigest()
+    config_hash = _pdf_config_hash()
     duplicate_payload = {
-        "error": "duplicate_filename",
+        "error": "duplicate_file_content",
         "filename": "annual.pdf",
-        "existingTask": {"task_id": "existing-task", "filename": "annual.pdf"},
+        "existingTask": {
+            "task_id": "existing-task",
+            "filename": "annual.pdf",
+            "file_sha256": file_sha256,
+            "parse_config_hash": config_hash,
+        },
     }
 
     class FakeUpload:
@@ -504,7 +565,7 @@ def test_authenticated_pdf_upload_duplicate_filename_ignores_full_quota(monkeypa
         content_type = "application/pdf"
 
         async def read(self):
-            return b"%PDF-1.4\nexisting"
+            return file_bytes
 
     class FakeAsyncClient:
         def __init__(self, timeout=None):
@@ -524,8 +585,16 @@ def test_authenticated_pdf_upload_duplicate_filename_ignores_full_quota(monkeypa
                 json=lambda: duplicate_payload,
             )
 
-    async def fake_pdf_tasks_by_filename():
-        return {"annual.pdf": {"task_id": "existing-task", "filename": "annual.pdf"}}
+    async def fake_pdf_tasks_by_filename(**_kwargs):
+        return {
+            "annual.pdf": {
+                "task_id": "existing-task",
+                "filename": "annual.pdf",
+                "file_sha256": file_sha256,
+                "parse_config_hash": config_hash,
+                "market": "CN",
+            }
+        }
 
     monkeypatch.setattr(workspace, "PDF2MD_API_BASE", "http://pdf2md.test")
     monkeypatch.setattr(workspace, "_pdf_tasks_by_filename", fake_pdf_tasks_by_filename)
@@ -573,6 +642,7 @@ def test_authenticated_pdf_upload_duplicate_file_content_records_reused_parse_wi
     posted: dict[str, object] = {}
     file_bytes = b"%PDF-1.4\nsame-content"
     file_sha256 = hashlib.sha256(file_bytes).hexdigest()
+    config_hash = _pdf_config_hash()
     duplicate_payload = {
         "error": "duplicate_file_content",
         "filename": "renamed.pdf",
@@ -580,6 +650,7 @@ def test_authenticated_pdf_upload_duplicate_file_content_records_reused_parse_wi
             "task_id": "existing-task",
             "filename": "original.pdf",
             "file_sha256": file_sha256,
+            "parse_config_hash": config_hash,
         },
     }
     quota_calls: list[dict[str, object]] = []
@@ -611,12 +682,14 @@ def test_authenticated_pdf_upload_duplicate_file_content_records_reused_parse_wi
                 json=lambda: duplicate_payload,
             )
 
-    async def fake_pdf_tasks_by_filename():
+    async def fake_pdf_tasks_by_filename(**_kwargs):
         return {
             "original.pdf": {
                 "task_id": "existing-task",
                 "filename": "original.pdf",
                 "file_sha256": file_sha256,
+                "parse_config_hash": config_hash,
+                "market": "CN",
             }
         }
 
@@ -659,9 +732,18 @@ def test_authenticated_pdf_upload_duplicate_file_content_records_reused_parse_wi
 
 def test_authenticated_pdf_upload_mixed_existing_and_new_uses_new_parse_quota(monkeypatch, tmp_path):
     quota_calls: list[dict[str, object]] = []
+    config_hash = _pdf_config_hash()
+    old_sha256 = hashlib.sha256(b"%PDF-1.4\nold.pdf").hexdigest()
     success_payload = {
         "tasks": [
-            {"task_id": "new-task", "filename": "new.pdf", "status": "queued"},
+            {
+                "task_id": "new-task",
+                "filename": "new.pdf",
+                "status": "queued",
+                "file_sha256": hashlib.sha256(b"%PDF-1.4\nnew.pdf").hexdigest(),
+                "parse_config_hash": config_hash,
+                "market": "CN",
+            },
         ]
     }
 
@@ -693,8 +775,16 @@ def test_authenticated_pdf_upload_mixed_existing_and_new_uses_new_parse_quota(mo
                 json=lambda: success_payload,
             )
 
-    async def fake_pdf_tasks_by_filename():
-        return {"old.pdf": {"task_id": "old-task", "filename": "old.pdf"}}
+    async def fake_pdf_tasks_by_filename(**_kwargs):
+        return {
+            "old.pdf": {
+                "task_id": "old-task",
+                "filename": "old.pdf",
+                "file_sha256": old_sha256,
+                "parse_config_hash": config_hash,
+                "market": "CN",
+            }
+        }
 
     async def fake_enforce_quota(async_session, current_user, event_type, increment=1):
         quota_calls.append({"event_type": event_type, "increment": increment})
@@ -734,9 +824,17 @@ def test_authenticated_pdf_upload_mixed_existing_hash_and_new_uses_new_parse_quo
     quota_calls: list[dict[str, object]] = []
     shared_bytes = b"%PDF-1.4\nshared-content"
     shared_sha256 = hashlib.sha256(shared_bytes).hexdigest()
+    config_hash = _pdf_config_hash()
     success_payload = {
         "tasks": [
-            {"task_id": "new-task", "filename": "new.pdf", "status": "queued"},
+            {
+                "task_id": "new-task",
+                "filename": "new.pdf",
+                "status": "queued",
+                "file_sha256": hashlib.sha256(b"%PDF-1.4\nnew-content").hexdigest(),
+                "parse_config_hash": config_hash,
+                "market": "CN",
+            },
         ]
     }
 
@@ -769,12 +867,14 @@ def test_authenticated_pdf_upload_mixed_existing_hash_and_new_uses_new_parse_quo
                 json=lambda: success_payload,
             )
 
-    async def fake_pdf_tasks_by_filename():
+    async def fake_pdf_tasks_by_filename(**_kwargs):
         return {
             "original.pdf": {
                 "task_id": "shared-task",
                 "filename": "original.pdf",
                 "file_sha256": shared_sha256,
+                "parse_config_hash": config_hash,
+                "market": "CN",
             }
         }
 
@@ -819,11 +919,33 @@ def test_authenticated_pdf_upload_mixed_reused_and_new_tasks_classifies_usage_an
     monkeypatch, tmp_path
 ):
     quota_calls: list[dict[str, object]] = []
+    config_hash = _pdf_config_hash()
     success_payload = {
         "tasks": [
-            {"task_id": "old-task", "filename": "old.pdf", "status": "completed"},
-            {"task_id": "shared-task", "filename": "shared.pdf", "status": "completed"},
-            {"task_id": "new-task", "filename": "new.pdf", "status": "queued"},
+            {
+                "task_id": "old-task",
+                "filename": "old.pdf",
+                "status": "completed",
+                "file_sha256": hashlib.sha256(b"%PDF-1.4\nold.pdf").hexdigest(),
+                "parse_config_hash": config_hash,
+                "market": "CN",
+            },
+            {
+                "task_id": "shared-task",
+                "filename": "shared.pdf",
+                "status": "completed",
+                "file_sha256": hashlib.sha256(b"%PDF-1.4\nshared.pdf").hexdigest(),
+                "parse_config_hash": config_hash,
+                "market": "CN",
+            },
+            {
+                "task_id": "new-task",
+                "filename": "new.pdf",
+                "status": "queued",
+                "file_sha256": hashlib.sha256(b"%PDF-1.4\nnew.pdf").hexdigest(),
+                "parse_config_hash": config_hash,
+                "market": "CN",
+            },
         ]
     }
 
@@ -855,10 +977,22 @@ def test_authenticated_pdf_upload_mixed_reused_and_new_tasks_classifies_usage_an
                 json=lambda: success_payload,
             )
 
-    async def fake_pdf_tasks_by_filename():
+    async def fake_pdf_tasks_by_filename(**_kwargs):
         return {
-            "old.pdf": {"task_id": "old-task", "filename": "old.pdf"},
-            "shared.pdf": {"task_id": "shared-task", "filename": "shared.pdf"},
+            "old.pdf": {
+                "task_id": "old-task",
+                "filename": "old.pdf",
+                "file_sha256": hashlib.sha256(b"%PDF-1.4\nold.pdf").hexdigest(),
+                "parse_config_hash": config_hash,
+                "market": "CN",
+            },
+            "shared.pdf": {
+                "task_id": "shared-task",
+                "filename": "shared.pdf",
+                "file_sha256": hashlib.sha256(b"%PDF-1.4\nshared.pdf").hexdigest(),
+                "parse_config_hash": config_hash,
+                "market": "CN",
+            },
         }
 
     async def fake_enforce_quota(async_session, current_user, event_type, increment=1):
@@ -911,7 +1045,16 @@ def test_authenticated_pdf_upload_mixed_reused_and_new_tasks_classifies_usage_an
     assert usage[0].count == 1
     assert usage[0].source == "pdf_upload"
     assert json.loads(usage[0].metadata_json or "{}") == {
-        "tasks": [{"task_id": "new-task", "filename": "new.pdf", "status": "queued"}]
+        "tasks": [
+            {
+                "task_id": "new-task",
+                "filename": "new.pdf",
+                "status": "queued",
+                "file_sha256": hashlib.sha256(b"%PDF-1.4\nnew.pdf").hexdigest(),
+                "parse_config_hash": config_hash,
+                "market": "CN",
+            }
+        ]
     }
 
 
@@ -948,7 +1091,7 @@ def test_authenticated_pdf_upload_records_market_on_tasks_and_artifacts(monkeypa
                 json=lambda: success_payload,
             )
 
-    async def fake_pdf_tasks_by_filename():
+    async def fake_pdf_tasks_by_filename(**_kwargs):
         return {}
 
     monkeypatch.setattr(workspace, "PDF2MD_API_BASE", "http://pdf2md.test")
@@ -1007,7 +1150,7 @@ def test_authenticated_pdf_upload_upstream_error_does_not_record_usage_or_artifa
                 json=lambda: error_payload,
             )
 
-    async def fake_pdf_tasks_by_filename():
+    async def fake_pdf_tasks_by_filename(**_kwargs):
         return {}
 
     monkeypatch.setattr(workspace, "PDF2MD_API_BASE", "http://pdf2md.test")

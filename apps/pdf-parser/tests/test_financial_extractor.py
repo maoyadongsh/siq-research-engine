@@ -1,4 +1,6 @@
 import os
+import json
+import tempfile
 import unittest
 
 import financial_extractor as fe
@@ -10,13 +12,15 @@ class FakeTableJudge:
         self.decision = decision
         self.calls = []
 
-    def judge(self, table, grid, missing_types, filename=None, report_year=None, rule_evidence=None):
+    def judge(self, table, grid, missing_types, filename=None, report_year=None, rule_evidence=None, task_id=None, market=None):
         self.calls.append(
             {
                 "table_index": table["table_index"],
                 "missing_types": list(missing_types),
                 "filename": filename,
                 "report_year": report_year,
+                "task_id": task_id,
+                "market": market,
                 "rule_evidence": list(rule_evidence or []),
             }
         )
@@ -621,6 +625,82 @@ class FinancialExtractorTests(unittest.TestCase):
         cache_path = judge._cache_path("abc123")
         self.assertEqual(judge._chat_completions_url(), "http://127.0.0.1:8000/v1/chat/completions")
         self.assertTrue(cache_path.endswith("abc123.prompt_v1.local_qwen3.6_test.json"))
+
+    def test_llm_judge_cache_key_includes_document_market_and_full_table_context(self):
+        judge = QwenTableJudge(api_base="http://127.0.0.1:8000/v1", model="model-a", prompt_version="prompt-v1")
+        table = {
+            "table_index": 7,
+            "line": 120,
+            "html": "<table><tr><td>Total assets</td><td>100</td></tr></table>",
+            "context": {"heading": "Balance Sheet", "unit": "USD", "near_text": "Annual report"},
+        }
+        grid = [["Metric", "2025"], ["Total assets", "100"]]
+
+        base = judge._request_payload(
+            table,
+            grid,
+            ["balance_sheet"],
+            "issuer-2025.pdf",
+            2025,
+            ["body.balance_sheet.full"],
+            task_id="task-a",
+            market="HK",
+        )
+        different_market = judge._request_payload(
+            table,
+            grid,
+            ["balance_sheet"],
+            "issuer-2025.pdf",
+            2025,
+            ["body.balance_sheet.full"],
+            task_id="task-a",
+            market="JP",
+        )
+        different_table = judge._request_payload(
+            table,
+            [["Metric", "2025"], ["Total assets", "200"]],
+            ["balance_sheet"],
+            "issuer-2025.pdf",
+            2025,
+            ["body.balance_sheet.full"],
+            task_id="task-a",
+            market="HK",
+        )
+
+        self.assertIn("table_text", base)
+        self.assertEqual(base["task_id"], "task-a")
+        self.assertEqual(base["market"], "HK")
+        self.assertNotEqual(judge._request_payload_hash(base), judge._request_payload_hash(different_market))
+        self.assertNotEqual(judge._request_payload_hash(base), judge._request_payload_hash(different_table))
+
+    def test_llm_judge_cache_value_records_raw_parsed_schema_and_expiry(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            judge = QwenTableJudge(api_base="http://127.0.0.1:8000/v1", model="model-a", cache_dir=tmpdir, prompt_version="prompt-v1")
+            request = {
+                "filename": "issuer-2025.pdf",
+                "task_id": "task-a",
+                "market": "HK",
+                "report_year": 2025,
+                "table_hash": "table-hash",
+                "missing_statement_types": ["balance_sheet"],
+                "rule_evidence": ["body.balance_sheet.full"],
+            }
+            response = {
+                "decision": "accept",
+                "statement_type": "balance_sheet",
+                "schema_validation": {"valid": True, "errors": []},
+            }
+            judge._write_cache("cache-key", request, response, raw_response={"choices": []})
+
+            path = judge._cache_path("cache-key")
+            payload = json.loads(open(path, "r", encoding="utf-8").read())
+
+        self.assertEqual(payload["cache_key"], "cache-key")
+        self.assertEqual(payload["request"], request)
+        self.assertEqual(payload["raw_response"], {"choices": []})
+        self.assertEqual(payload["parsed_decision"], response)
+        self.assertEqual(payload["schema_validation"], {"valid": True, "errors": []})
+        self.assertTrue(payload["expires_at"])
 
     def test_bank_key_metrics_with_bare_year_headers_and_section_unit(self):
         markdown = """

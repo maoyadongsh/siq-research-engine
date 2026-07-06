@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hmac
+import hashlib
+import json
 import os
 import re
 
@@ -13,6 +15,12 @@ ALLOWED_PARSE_METHODS = {"auto", "txt", "ocr"}
 SUPPORTED_MARKETS = {"CN", "HK", "US", "JP", "KR", "EU", "DOC"}
 MARKET_TOKEN_RE = re.compile(r"(?:^|[_\W])(CN|HK|US|JP|KR|EU|DOC)(?:[_\W]|$)", re.IGNORECASE)
 APP_ACCESS_TOKEN = os.environ.get("PDF2MD_ACCESS_TOKEN", "").strip()
+PARSER_CONFIG_VERSION = os.environ.get("SIQ_PDF_PARSE_CONFIG_VERSION", "pdf_parser_v1").strip() or "pdf_parser_v1"
+DEFAULT_OWNER_ID = "system"
+DEFAULT_TENANT_ID = "unknown"
+DEFAULT_MARKET_SCOPE = "unknown"
+ADMIN_ROLES = {"admin", "super_admin", "system"}
+SCOPE_VALUE_RE = re.compile(r"[^A-Za-z0-9_.@:-]+")
 
 
 def _safe_client_filename(filename):
@@ -72,9 +80,64 @@ def _parse_submit_config(form):
     }
 
 
+def _canonical_parse_config(config):
+    source = dict(config or {})
+    market = _normalize_market(source.get("market")) or "CN"
+    return {
+        "parser_version": PARSER_CONFIG_VERSION,
+        "market": market,
+        "backend": str(source.get("backend") or "hybrid-http-client").strip(),
+        "parse_method": str(source.get("parse_method") or "auto").strip(),
+        "start_page_id": str(source.get("start_page_id") or ""),
+        "end_page_id": str(source.get("end_page_id") or ""),
+        "formula_enable": bool(source.get("formula_enable", True)),
+        "table_enable": bool(source.get("table_enable", True)),
+    }
+
+
+def _parse_config_hash(config):
+    canonical = _canonical_parse_config(config)
+    payload = json.dumps(canonical, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def _normalize_market(value):
     market = str(value or "").strip().upper()
     return market if market in SUPPORTED_MARKETS else None
+
+
+def _clean_scope_value(value, default):
+    text = str(value or "").strip()
+    if not text:
+        return default
+    text = SCOPE_VALUE_RE.sub("_", text)[:120].strip("._:-")
+    return text or default
+
+
+def _request_owner_scope(default_market=None):
+    owner_header = request.headers.get("X-SIQ-User-Id")
+    role = _clean_scope_value(request.headers.get("X-SIQ-User-Role"), "")
+    tenant = _clean_scope_value(
+        request.headers.get("X-SIQ-Tenant-Id") or request.headers.get("X-SIQ-Tenant-ID"),
+        DEFAULT_TENANT_ID,
+    )
+    market = (
+        _normalize_market(request.headers.get("X-SIQ-Market-Scope"))
+        or _normalize_market(default_market)
+        or DEFAULT_MARKET_SCOPE
+    )
+    owner = _clean_scope_value(owner_header, DEFAULT_OWNER_ID)
+    role_lower = role.lower()
+    return {
+        "owner_id": owner,
+        "tenant_id": tenant,
+        "market_scope": market,
+        "user_role": role,
+        "is_admin": role_lower in ADMIN_ROLES,
+        "is_legacy_request": not bool(str(owner_header or "").strip()),
+        "allow_legacy_task": str(request.headers.get("X-SIQ-Allow-Legacy-Task") or "").strip().lower()
+        in {"1", "true", "yes", "on"},
+    }
 
 
 def _infer_market_from_text(value):

@@ -6,6 +6,7 @@ from market_report_finder_service.data.foreign_aliases import foreign_alias_entr
 from market_report_finder_service.markets.base import MarketReportFinder
 from market_report_finder_service.markets.eu.catalog import EuAnnualReportCatalog
 from market_report_finder_service.markets.eu.client import EsefIndexClient
+from market_report_finder_service.markets.url_ownership import EU_HOST_SUFFIXES, host_matches, market_owns_url
 from market_report_finder_service.models.schemas import (
     BatchDownloadItem,
     CompanyEntity,
@@ -21,76 +22,7 @@ from market_report_finder_service.models.schemas import (
 
 class EuReportFinder(MarketReportFinder):
     market = Market.eu
-    URL_HOST_SUFFIXES = (
-        "filings.xbrl.org",
-        "annualreports.ai",
-        "financialreports.eu",
-        "financialfilings.com",
-        "fca.org.uk",
-        "amf-france.org",
-        "info-financiere.fr",
-        "unternehmensregister.de",
-        "bundesanzeiger.de",
-        "afm.nl",
-        "six-group.com",
-        "ser-ag.com",
-        "astrazeneca.com",
-        "bp.com",
-        "barclays",
-        "totalenergies.com",
-        "sanofi.com",
-        "airliquide.com",
-        "siemens.com",
-        "sap.com",
-        "telekom.com",
-        "asml.com",
-        "philips.com",
-        "heinekencompany.com",
-        "theheinekencompany.com",
-        "nestle.com",
-        "novartis.com",
-        "roche.com",
-        "hsbc.com",
-        "shell.com",
-        "londonstockexchange.com",
-        "investegate.co.uk",
-        "unilever.com",
-        "diageo.com",
-        "cdn-rio.dataweavers.io",
-        "riotinto.com",
-        "glencore.com",
-        "lseg.com",
-        "lvmh-com.cdn.prismic.io",
-        "www-axa-com.cdn.prismic.io",
-        "lvmh.com",
-        "loreal-finance.com",
-        "schneider-electric.com",
-        "se.com",
-        "bnpparibas",
-        "airbus.com",
-        "vinci.com",
-        "allianz.com",
-        "eqs-news.com",
-        "bmwgroup.com",
-        "vw-mms.de",
-        "volkswagen-group.com",
-        "basf.com",
-        "infineon.com",
-        "munichre.com",
-        "ing.com",
-        "prosus.com",
-        "adyen.com",
-        "aholddelhaize.com",
-        "dsm-firmenich.com",
-        "ubs.com",
-        "zurich.com",
-        "edge.sitecorecloud.io",
-        "abb.com",
-        "richemont.com",
-        "swissre.com",
-        "sika.com",
-        "holcim.com",
-    )
+    URL_HOST_SUFFIXES = EU_HOST_SUFFIXES
 
     def __init__(self) -> None:
         self.client = EsefIndexClient()
@@ -234,13 +166,17 @@ class EuReportFinder(MarketReportFinder):
     def direct_candidate(self, request: DirectReportDownloadRequest) -> FilingCandidate:
         catalog_entry = EuAnnualReportCatalog.entry_for_url(request.document_url)
         if catalog_entry is not None:
-            return EuAnnualReportCatalog.filing_candidate(catalog_entry)
+            return self.mark_user_url_candidate(
+                EuAnnualReportCatalog.filing_candidate(catalog_entry),
+                original_url=request.document_url,
+                input_kind="direct_download",
+            )
         report_end = self.fallback_date(request.report_end)
         published_at = self.fallback_date(request.published_at or report_end)
         country = self.client.normalize_country(request.company_id) or self._country_from_url(request.document_url) or "GB"
         source_id = "six_direct" if country == "CH" else "eu_direct"
         company_key = request.cik or request.ticker or request.company_id or "manual"
-        return FilingCandidate(
+        candidate = FilingCandidate(
             source_id=source_id,
             source_name="Official European filing direct download",
             source_domain=urlparse(request.document_url).netloc or "manual",
@@ -265,6 +201,7 @@ class EuReportFinder(MarketReportFinder):
                 "source_tier": "official_direct",
             },
         )
+        return self.mark_user_url_candidate(candidate, original_url=request.document_url, input_kind="direct_download")
 
     def batch_candidate(
         self,
@@ -274,7 +211,11 @@ class EuReportFinder(MarketReportFinder):
     ) -> FilingCandidate:
         catalog_entry = EuAnnualReportCatalog.entry_for_url(item.document_url)
         if catalog_entry is not None:
-            return EuAnnualReportCatalog.filing_candidate(catalog_entry)
+            return self.mark_user_url_candidate(
+                EuAnnualReportCatalog.filing_candidate(catalog_entry),
+                original_url=item.document_url,
+                input_kind="batch_download",
+            )
         company_name = item.company_name or default_company_name
         report_end = self.fallback_date(item.report_end)
         published_at = self.fallback_date(item.published_at or report_end)
@@ -284,7 +225,7 @@ class EuReportFinder(MarketReportFinder):
         is_esef_index = "filings.xbrl.org" in host
         source_id = "xbrl_filings_esef" if is_esef_index else "six_direct" if country == "CH" else "eu_direct"
         source_tier = "official_mirror" if is_esef_index else "official_direct"
-        return FilingCandidate(
+        candidate = FilingCandidate(
             source_id=source_id,
             source_name="filings.xbrl.org ESEF index" if is_esef_index else "Official European filing direct download",
             source_domain=host or "manual",
@@ -309,17 +250,15 @@ class EuReportFinder(MarketReportFinder):
                 "source_tier": source_tier,
             },
         )
+        return self.mark_user_url_candidate(candidate, original_url=item.document_url, input_kind="batch_download")
 
     @staticmethod
     def owns_url(document_url: str) -> bool:
-        host = urlparse(document_url).hostname or ""
-        return any(EuReportFinder._host_matches(host, suffix) for suffix in EuReportFinder.URL_HOST_SUFFIXES)
+        return market_owns_url(Market.eu, document_url)
 
     @staticmethod
     def _host_matches(host: str, suffix: str) -> bool:
-        normalized_host = host.rstrip(".").lower()
-        normalized_suffix = suffix.rstrip(".").lower()
-        return normalized_host == normalized_suffix or normalized_host.endswith(f".{normalized_suffix}")
+        return host_matches(host, suffix)
 
     @staticmethod
     def _allows_annual_reports(*, target: ReportTarget, forms: list[str]) -> bool:

@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 from html import unescape
 from html.parser import HTMLParser
@@ -418,6 +418,36 @@ def _table_preview(grid, max_rows=35, max_cols=8, max_chars=6000):
         lines.append(" | ".join(str(cell or "") for cell in row[:max_cols]))
     preview = "\n".join(lines)
     return preview[:max_chars]
+
+
+def _table_text(grid):
+    return "\n".join(" | ".join(str(cell or "") for cell in row) for row in grid or [])
+
+
+def _stable_json_hash(payload):
+    return hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8", errors="ignore")
+    ).hexdigest()
+
+
+def _expires_at_iso(ttl_seconds):
+    try:
+        seconds = int(float(ttl_seconds))
+    except (TypeError, ValueError):
+        seconds = 0
+    if seconds <= 0:
+        return None
+    return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _iso_is_expired(value):
+    if not value:
+        return False
+    try:
+        expires_at = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return expires_at <= datetime.now(timezone.utc)
 
 
 def _cache_token(text):
@@ -2308,6 +2338,7 @@ class QwenTableJudge:
         self.cache_dir = cache_dir or os.environ.get("FINANCIAL_LLM_CACHE_DIR")
         self.timeout = float(timeout or os.environ.get("FINANCIAL_LLM_TIMEOUT", "45"))
         self.prompt_version = prompt_version or LLM_TABLE_JUDGE_PROMPT_VERSION
+        self.cache_ttl_seconds = os.environ.get("FINANCIAL_LLM_CACHE_TTL_SECONDS", str(30 * 24 * 60 * 60))
 
     @classmethod
     def from_env(cls, cache_dir=None):
@@ -2318,15 +2349,26 @@ class QwenTableJudge:
             return None
         return cls(cache_dir=cache_dir)
 
-    def judge(self, table, grid, missing_types, filename=None, report_year=None, rule_evidence=None):
-        table_hash = _table_hash(table)
-        cached = self._read_cache(table_hash)
+    def judge(self, table, grid, missing_types, filename=None, report_year=None, rule_evidence=None, task_id=None, market=None):
+        request_payload = self._request_payload(
+            table,
+            grid,
+            missing_types,
+            filename,
+            report_year,
+            rule_evidence,
+            task_id=task_id,
+            market=market,
+        )
+        cache_key = self._request_payload_hash(request_payload)
+        cached = self._read_cache(cache_key)
         if cached:
             return cached
-        request_payload = self._request_payload(table, grid, missing_types, filename, report_year, rule_evidence)
-        decision = self._call_model(request_payload)
-        normalized = self._normalize_decision(decision, table, table_hash)
-        self._write_cache(table_hash, request_payload, normalized)
+        model_result = self._call_model(request_payload)
+        decision = model_result.get("parsed_decision") if isinstance(model_result, dict) else {}
+        raw_response = model_result.get("raw_response") if isinstance(model_result, dict) else None
+        normalized = self._normalize_decision(decision, table, request_payload["table_hash"], cache_key=cache_key)
+        self._write_cache(cache_key, request_payload, normalized, raw_response=raw_response)
         return normalized
 
     def _cache_path(self, table_hash):
@@ -2341,8 +2383,8 @@ class QwenTableJudge:
             return f"{self.api_base}/chat/completions"
         return f"{self.api_base}/v1/chat/completions"
 
-    def _read_cache(self, table_hash):
-        path = self._cache_path(table_hash)
+    def _read_cache(self, cache_key):
+        path = self._cache_path(cache_key)
         if not path or not os.path.exists(path):
             return None
         try:
@@ -2350,38 +2392,73 @@ class QwenTableJudge:
                 cached = json.load(infile)
         except (OSError, json.JSONDecodeError):
             return None
-        response = cached.get("response") if isinstance(cached, dict) else None
+        if isinstance(cached, dict) and _iso_is_expired(cached.get("expires_at")):
+            return None
+        response = None
+        if isinstance(cached, dict):
+            response = cached.get("parsed_decision") or cached.get("response")
         if isinstance(response, dict):
             response = dict(response)
             response["cache_hit"] = True
             return response
         return None
 
-    def _write_cache(self, table_hash, request_payload, response):
-        path = self._cache_path(table_hash)
+    def _write_cache(self, cache_key, request_payload, response, *, raw_response=None):
+        path = self._cache_path(cache_key)
         if not path:
             return
         os.makedirs(os.path.dirname(path), exist_ok=True)
         payload = {
             "model": self.model,
             "prompt_version": self.prompt_version,
-            "table_hash": table_hash,
+            "cache_key": cache_key,
+            "request_payload_hash": cache_key,
+            "table_hash": request_payload.get("table_hash"),
             "request": request_payload,
+            "raw_response": raw_response,
+            "parsed_decision": response,
+            "schema_validation": response.get("schema_validation") if isinstance(response, dict) else None,
             "response": response,
             "created_at": _now_iso(),
+            "expires_at": _expires_at_iso(self.cache_ttl_seconds),
         }
         tmp_path = f"{path}.tmp"
         with open(tmp_path, "w", encoding="utf-8") as outfile:
             json.dump(payload, outfile, ensure_ascii=False, indent=2)
         os.replace(tmp_path, path)
 
-    def _request_payload(self, table, grid, missing_types, filename, report_year, rule_evidence):
+    def _request_payload(self, table, grid, missing_types, filename, report_year, rule_evidence, *, task_id=None, market=None):
         context = table.get("context") or {}
-        return {
+        table_text = _table_text(grid)
+        table_hash = _table_hash(table)
+        document_identity = {
             "filename": filename or "",
+            "task_id": task_id or "",
+            "stable_document_id": _stable_json_hash(
+                {
+                    "filename": filename or "",
+                    "report_year": report_year,
+                    "market": str(market or "").upper(),
+                }
+            ),
             "report_year": report_year,
+            "market": str(market or "").upper(),
+        }
+        return {
+            **document_identity,
+            "prompt_version": self.prompt_version,
+            "model_id": self.model,
+            "judge_config": {
+                "api_base": self.api_base,
+                "model_id": self.model,
+                "prompt_version": self.prompt_version,
+                "temperature": 0,
+            },
             "table_index": table.get("table_index"),
             "line": table.get("line"),
+            "table_hash": table_hash,
+            "table_html_hash": hashlib.sha256((table.get("html") or "").encode("utf-8", errors="ignore")).hexdigest(),
+            "table_text_hash": hashlib.sha256(table_text.encode("utf-8", errors="ignore")).hexdigest(),
             "missing_statement_types": list(missing_types or []),
             "rule_evidence": list(rule_evidence or []),
             "heading": context.get("heading") or "",
@@ -2389,7 +2466,11 @@ class QwenTableJudge:
             "near_text": context.get("near_text") or "",
             "candidate_types": _llm_candidate_types(table, grid),
             "table_preview": _table_preview(grid),
+            "table_text": table_text,
         }
+
+    def _request_payload_hash(self, request_payload):
+        return _stable_json_hash(request_payload)
 
     def _prompt(self, request_payload):
         schema = {
@@ -2416,7 +2497,10 @@ class QwenTableJudge:
 
     def _call_model(self, request_payload):
         if not self.api_base:
-            return {"decision": "needs_review", "reason": "llm_api_base_not_configured"}
+            return {
+                "parsed_decision": {"decision": "needs_review", "reason": "llm_api_base_not_configured"},
+                "raw_response": None,
+            }
         body = {
             "model": self.model,
             "messages": [
@@ -2436,43 +2520,59 @@ class QwenTableJudge:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 payload = json.loads(response.read().decode("utf-8"))
         except (OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
-            return {"decision": "needs_review", "reason": f"llm_error:{exc}"}
+            return {
+                "parsed_decision": {"decision": "needs_review", "reason": f"llm_error:{exc}"},
+                "raw_response": {"error": str(exc)},
+            }
         content = ""
         try:
             content = payload["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError):
-            return {"decision": "needs_review", "reason": "llm_invalid_response"}
-        return _parse_json_object(content)
+            return {
+                "parsed_decision": {"decision": "needs_review", "reason": "llm_invalid_response"},
+                "raw_response": payload,
+            }
+        return {"parsed_decision": _parse_json_object(content), "raw_response": payload}
 
-    def _normalize_decision(self, decision, table, table_hash):
+    def _normalize_decision(self, decision, table, table_hash, *, cache_key=None):
         if not isinstance(decision, dict):
             decision = {"decision": "needs_review", "reason": "llm_non_json_response"}
         normalized = dict(decision)
         normalized["table_index"] = table.get("table_index")
         normalized["line"] = table.get("line")
         normalized["table_hash"] = table_hash
+        if cache_key:
+            normalized["cache_key"] = cache_key
         normalized["model"] = self.model
         normalized["prompt_version"] = self.prompt_version
+        validation_errors = []
         decision_value = str(normalized.get("decision") or "needs_review").strip()
         if decision_value not in {"accept", "reject", "needs_review"}:
+            validation_errors.append("decision must be accept/reject/needs_review")
             decision_value = "needs_review"
         normalized["decision"] = decision_value
         statement_type = str(normalized.get("statement_type") or "unknown").strip()
         if statement_type not in _CORE_STATEMENT_TYPES:
+            if statement_type != "unknown":
+                validation_errors.append("statement_type must be a core statement type or unknown")
             statement_type = "unknown"
         normalized["statement_type"] = statement_type
         scope = str(normalized.get("scope") or "unknown").strip()
         if scope not in {"consolidated", "parent_company", "unknown"}:
+            validation_errors.append("scope must be consolidated/parent_company/unknown")
             scope = "unknown"
         normalized["scope"] = scope
         try:
             confidence = float(normalized.get("confidence") or 0)
         except (TypeError, ValueError):
+            validation_errors.append("confidence must be numeric")
             confidence = 0.0
         normalized["confidence"] = max(0.0, min(1.0, confidence))
         for key in ("evidence", "risk_flags"):
             if not isinstance(normalized.get(key), list):
+                validation_errors.append(f"{key} must be a list")
                 normalized[key] = []
+        normalized["schema_validation"] = {"valid": not validation_errors, "errors": validation_errors}
         return normalized
 
 
@@ -2517,7 +2617,7 @@ def _llm_decision_is_usable(decision, missing_types):
     return True
 
 
-def _apply_llm_judge(data, statements, candidates, missing_types, llm_judge, filename, report_year):
+def _apply_llm_judge(data, statements, candidates, missing_types, llm_judge, filename, report_year, *, task_id=None, market=None):
     if not llm_judge or not missing_types or not candidates:
         return
     for candidate in candidates:
@@ -2532,6 +2632,8 @@ def _apply_llm_judge(data, statements, candidates, missing_types, llm_judge, fil
             filename=filename,
             report_year=report_year,
             rule_evidence=candidate.get("evidence"),
+            task_id=task_id,
+            market=market,
         )
         if not isinstance(decision, dict):
             decision = {"decision": "needs_review", "reason": "llm_invalid_decision"}
@@ -2541,6 +2643,9 @@ def _apply_llm_judge(data, statements, candidates, missing_types, llm_judge, fil
                 "table_index": table["table_index"],
                 "line": table["line"],
                 "table_type": decision.get("statement_type") or "unknown",
+                "source_layer": "llm_table_judge",
+                "rule_evidence": list(candidate.get("evidence") or []),
+                "llm_evidence": list(decision.get("evidence") or []),
                 "evidence": ["llm.table_judge", f"decision={decision.get('decision')}", f"confidence={decision.get('confidence')}"]
                 + list(decision.get("evidence") or []),
             }
@@ -2702,7 +2807,17 @@ def build_financial_data(markdown, task_id=None, filename=None, llm_judge=None, 
     if report_kind not in {"annual_report_summary", "interim_report_summary"} and "balance_sheet" in missing_types:
         _extract_fragmented_balance_sheet(data, statements, markdown, report_year)
         missing_types = _missing_consolidated_statement_types(statements)
-    _apply_llm_judge(data, statements, llm_candidates, missing_types, llm_judge, filename, report_year)
+    _apply_llm_judge(
+        data,
+        statements,
+        llm_candidates,
+        missing_types,
+        llm_judge,
+        filename,
+        report_year,
+        task_id=task_id,
+        market=market,
+    )
     remaining_missing_types = _missing_consolidated_statement_types(statements)
     if market != "JP" and report_kind not in {"annual_report_summary", "interim_report_summary"} and remaining_missing_types:
         missing_names = "、".join(_statement_title(statement_type) for statement_type in remaining_missing_types)

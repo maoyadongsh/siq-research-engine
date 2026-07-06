@@ -104,9 +104,11 @@ from pdf_parser_request_utils import (
     _format_duration,
     _infer_market_from_text,
     _normalize_market,
+    _parse_config_hash,
     _parse_bool,
     _parse_page_id,
     _parse_submit_config,
+    _request_owner_scope,
     _request_has_valid_token,
     _safe_client_filename,
     _safe_download_name,
@@ -250,6 +252,37 @@ def _get_task(task_id):
     return task_repository.get_task(DB_PATH, task_id, normalize_task=_apply_task_market_fallback)
 
 
+def _current_owner_scope(default_market=None):
+    return _request_owner_scope(default_market=default_market)
+
+
+def _task_has_legacy_owner(task):
+    return (
+        (task.get("owner_id") or task_repository.DEFAULT_OWNER_ID) == task_repository.DEFAULT_OWNER_ID
+        and (task.get("tenant_id") or task_repository.DEFAULT_TENANT_ID) == task_repository.DEFAULT_TENANT_ID
+        and (task.get("market_scope") or task_repository.DEFAULT_MARKET_SCOPE) == task_repository.DEFAULT_MARKET_SCOPE
+    )
+
+
+def _scope_can_access_task(task, owner_scope):
+    if not task or not owner_scope:
+        return bool(task)
+    if owner_scope.get("is_admin"):
+        return True
+    task_owner = task.get("owner_id") or task_repository.DEFAULT_OWNER_ID
+    task_tenant = task.get("tenant_id") or task_repository.DEFAULT_TENANT_ID
+    if task_owner == owner_scope.get("owner_id") and task_tenant == owner_scope.get("tenant_id"):
+        scope_market = owner_scope.get("market_scope")
+        task_market = task.get("market_scope") or task_repository.DEFAULT_MARKET_SCOPE
+        return scope_market in {None, "", task_repository.DEFAULT_MARKET_SCOPE, task_market} or task_market == task_repository.DEFAULT_MARKET_SCOPE
+    return bool(owner_scope.get("allow_legacy_task") and _task_has_legacy_owner(task))
+
+
+def _get_visible_task(task_id, owner_scope=None):
+    task = _get_task(task_id)
+    return task if _scope_can_access_task(task, owner_scope or _current_owner_scope()) else None
+
+
 def _task_blocks_duplicate_upload(task):
     return task_repository.task_blocks_duplicate_upload(task)
 
@@ -263,7 +296,18 @@ def _find_duplicate_filename_task(filename):
     )
 
 
-def _find_duplicate_file_hash_task(file_sha256):
+def _find_duplicate_file_hash_task(file_sha256, *, owner_scope=None, parse_config_hash=None):
+    if owner_scope is not None or parse_config_hash:
+        scope = owner_scope or _current_owner_scope()
+        return task_repository.find_duplicate_scoped_file_hash_task(
+            DB_PATH,
+            file_sha256,
+            owner_id=scope.get("owner_id"),
+            tenant_id=scope.get("tenant_id"),
+            market_scope=scope.get("market_scope"),
+            parse_config_hash=parse_config_hash or task_repository.DEFAULT_PARSE_CONFIG_HASH,
+            normalize_task=_apply_task_market_fallback,
+        )
     return task_repository.find_duplicate_file_hash_task(
         DB_PATH,
         file_sha256,
@@ -293,9 +337,19 @@ def _duplicate_content_response(filename, existing_task=None, message=None):
     return _duplicate_task_response("duplicate_file_content", filename, existing_task, message)
 
 
-def _list_recent_tasks(limit=100):
-    tasks = task_repository.list_recent_tasks(DB_PATH, limit=limit, normalize_task=_apply_task_market_fallback)
+def _list_recent_tasks(limit=100, owner_scope=None):
+    tasks = task_repository.list_recent_tasks(
+        DB_PATH,
+        limit=limit,
+        normalize_task=_apply_task_market_fallback,
+        owner_scope=owner_scope,
+    )
     for task in tasks:
+        task.setdefault("owner_id", task_repository.DEFAULT_OWNER_ID)
+        task.setdefault("tenant_id", task_repository.DEFAULT_TENANT_ID)
+        task.setdefault("market_scope", task_repository.DEFAULT_MARKET_SCOPE)
+        task.setdefault("parse_config_hash", task_repository.DEFAULT_PARSE_CONFIG_HASH)
+        task["legacy_owner"] = _task_has_legacy_owner(task)
         if task.get("status") == COMPLETED and not _has_markdown_artifact(task):
             full_task = _get_task(task["task_id"])
             if full_task and not _has_markdown_artifact(full_task):
@@ -309,9 +363,9 @@ def _recent_task_list_limit():
     return response_service.clamp_recent_task_limit(os.environ.get("PDF_RECENT_TASK_LIMIT", "300"))
 
 
-def _recent_tasks_payload():
+def _recent_tasks_payload(owner_scope=None):
     return response_service.build_recent_tasks_payload(
-        _list_recent_tasks(limit=_recent_task_list_limit()),
+        _list_recent_tasks(limit=_recent_task_list_limit(), owner_scope=owner_scope),
         has_markdown_artifact=_has_markdown_artifact,
     )
 
@@ -3587,31 +3641,17 @@ def upload():
 
     try:
         submit_config = _parse_submit_config(request.form)
+        owner_scope = _current_owner_scope(default_market=submit_config.get("market"))
+        parse_config_hash = _parse_config_hash(submit_config)
         requested_task_id = _safe_task_id(request.form.get("task_id") or request.form.get("taskId"))
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
     display_filenames = []
-    seen_filenames = set()
     for file in files:
         display_filename = _safe_client_filename(file.filename)
         if not display_filename.lower().endswith(".pdf"):
             return jsonify({"error": f"仅支持 PDF 文件: {display_filename}"}), 400
-        if display_filename in seen_filenames:
-            return _duplicate_filename_response(
-                display_filename,
-                message=f"本次上传中包含重复文件名，请勿重复解析: {display_filename}",
-            )
-        seen_filenames.add(display_filename)
-        if not requested_task_id:
-            duplicate_task = _find_duplicate_filename_task(display_filename)
-            if duplicate_task:
-                duplicate_status = str(duplicate_task.get("status") or "").lower()
-                if duplicate_status in {"queued", "uploaded", "submitting", "submitted", "pending", "processing"}:
-                    message = f"该文件正在解析或排队中，请勿重复提交: {display_filename}"
-                else:
-                    message = f"该文件已存在解析任务，请查看已有结果: {display_filename}"
-                return _duplicate_filename_response(display_filename, duplicate_task, message=message)
         display_filenames.append(display_filename)
 
     created_tasks = []
@@ -3657,7 +3697,11 @@ def upload():
                 message=f"本次上传中包含重复文档内容，请勿重复解析: {display_filename}",
             )
         if not skip_duplicate_lookup:
-            duplicate_task = _find_duplicate_file_hash_task(file_sha256)
+            duplicate_task = _find_duplicate_file_hash_task(
+                file_sha256,
+                owner_scope=owner_scope,
+                parse_config_hash=parse_config_hash,
+            )
             if duplicate_task:
                 duplicate_status = str(duplicate_task.get("status") or "").lower()
                 _cleanup_pending_uploads(prepared_uploads, upload_path)
@@ -3676,6 +3720,10 @@ def upload():
                 "pdf_page_count": pdf_page_count,
                 "submit_config": dict(submit_config),
                 "file_sha256": file_sha256,
+                "owner_id": owner_scope["owner_id"],
+                "tenant_id": owner_scope["tenant_id"],
+                "market_scope": owner_scope["market_scope"],
+                "parse_config_hash": parse_config_hash,
             }
         )
 
@@ -3685,6 +3733,10 @@ def upload():
             "mineru_task_id": None,
             "filename": prepared["filename"],
             "file_sha256": prepared["file_sha256"],
+            "owner_id": prepared["owner_id"],
+            "tenant_id": prepared["tenant_id"],
+            "market_scope": prepared["market_scope"],
+            "parse_config_hash": prepared["parse_config_hash"],
             "file_size": prepared["file_size"],
             "pdf_page_count": prepared["pdf_page_count"],
             "status": "queued",
@@ -3713,7 +3765,11 @@ def upload():
             {
                 "task_id": prepared["task_id"],
                 "filename": prepared["filename"],
+                "file_sha256": prepared["file_sha256"],
                 "pdf_page_count": prepared["pdf_page_count"],
+                "market": prepared["submit_config"].get("market"),
+                "market_scope": prepared["market_scope"],
+                "parse_config_hash": prepared["parse_config_hash"],
             }
         )
 
@@ -3729,7 +3785,7 @@ def upload():
 
 @app.route("/api/cancel/<task_id>", methods=["POST"])
 def cancel_task(task_id):
-    task = _get_task(task_id)
+    task = _get_visible_task(task_id)
     if not task:
         return jsonify({"error": "Task not found"}), 404
     if is_terminal_status(task.get("status")):
@@ -3761,7 +3817,7 @@ def cancel_task(task_id):
 
 @app.route("/api/refetch/<task_id>", methods=["POST"])
 def refetch_result(task_id):
-    task = _get_task(task_id)
+    task = _get_visible_task(task_id)
     if not task:
         return jsonify({"error": "Task not found"}), 404
 
@@ -3796,7 +3852,7 @@ def refetch_result(task_id):
 
 @app.route("/api/reparse/<task_id>", methods=["POST"])
 def reparse_task(task_id):
-    source_task = _get_task(task_id)
+    source_task = _get_visible_task(task_id)
     if not source_task:
         return jsonify({"error": "Task not found"}), 404
 
@@ -3810,6 +3866,8 @@ def reparse_task(task_id):
     total_size = os.path.getsize(upload_path)
     display_filename = _safe_client_filename(source_task.get("filename") or f"{task_id}.pdf")
     submit_config = dict(source_task.get("submit_config") or {})
+    owner_scope = _current_owner_scope(default_market=submit_config.get("market") or source_task.get("market_scope"))
+    parse_config_hash = _parse_config_hash(submit_config)
     pdf_page_count = source_task.get("pdf_page_count") or _get_pdf_page_count(upload_path)
 
     task = {
@@ -3817,6 +3875,10 @@ def reparse_task(task_id):
         "mineru_task_id": None,
         "filename": display_filename,
         "file_sha256": source_task.get("file_sha256") or _sha256_file(upload_path),
+        "owner_id": owner_scope["owner_id"],
+        "tenant_id": owner_scope["tenant_id"],
+        "market_scope": owner_scope["market_scope"],
+        "parse_config_hash": parse_config_hash,
         "file_size": total_size,
         "pdf_page_count": pdf_page_count,
         "status": "queued",
@@ -3849,13 +3911,16 @@ def reparse_task(task_id):
             "task_id": local_task_id,
             "filename": display_filename,
             "pdf_page_count": pdf_page_count,
+            "market": submit_config.get("market"),
+            "market_scope": owner_scope["market_scope"],
+            "parse_config_hash": parse_config_hash,
         }
     )
 
 
 @app.route("/api/status/<task_id>", methods=["GET"])
 def status(task_id):
-    task = _get_task(task_id)
+    task = _get_visible_task(task_id)
     if not task:
         return jsonify({"error": "Task not found"}), 404
 
@@ -3882,7 +3947,7 @@ def status(task_id):
 
 @app.route("/api/result/<task_id>", methods=["GET"])
 def result(task_id):
-    task = _get_task(task_id)
+    task = _get_visible_task(task_id)
     if not task:
         return jsonify({"error": "Task not found"}), 404
 
@@ -3897,7 +3962,7 @@ def result(task_id):
 
 @app.route("/api/quality/<task_id>", methods=["GET"])
 def quality(task_id):
-    task = _get_task(task_id)
+    task = _get_visible_task(task_id)
     if not task:
         return jsonify({"error": "Task not found"}), 404
 
@@ -3913,7 +3978,7 @@ def quality(task_id):
 
 @app.route("/api/financial/<task_id>", methods=["GET"])
 def financial(task_id):
-    task = _get_task(task_id)
+    task = _get_visible_task(task_id)
     if not task:
         return jsonify({"error": "Task not found"}), 404
 
@@ -3930,7 +3995,7 @@ def financial(task_id):
 
 @app.route("/api/artifact/<task_id>/<path:artifact_name>", methods=["GET"])
 def open_artifact(task_id, artifact_name):
-    task = _get_task(task_id)
+    task = _get_visible_task(task_id)
     if not task:
         return jsonify({"error": "Task not found"}), 404
     result_dir = _result_dir(task)
@@ -3980,7 +4045,7 @@ def open_artifact(task_id, artifact_name):
 
 @app.route("/api/source/<task_id>/table/<int:table_index>", methods=["GET"])
 def table_source(task_id, table_index):
-    task = _get_task(task_id)
+    task = _get_visible_task(task_id)
     if not task:
         return jsonify({"error": "Task not found"}), 404
 
@@ -4021,7 +4086,7 @@ def table_source(task_id, table_index):
 
 @app.route("/api/source/<task_id>/page/<int:page_number>", methods=["GET"])
 def source_page(task_id, page_number):
-    task = _get_task(task_id)
+    task = _get_visible_task(task_id)
     if not task:
         return jsonify({"error": "Task not found"}), 404
 
@@ -4044,7 +4109,7 @@ def source_page(task_id, page_number):
 
 @app.route("/api/pdf_page/<task_id>/<int:page_number>", methods=["GET"])
 def pdf_page_image(task_id, page_number):
-    task = _get_task(task_id)
+    task = _get_visible_task(task_id)
     if not task:
         return jsonify({"error": "Task not found"}), 404
     try:
@@ -4058,7 +4123,7 @@ def pdf_page_image(task_id, page_number):
 
 @app.route("/api/source/<task_id>/table/<int:table_index>/correction", methods=["POST"])
 def save_table_correction(task_id, table_index):
-    task = _get_task(task_id)
+    task = _get_visible_task(task_id)
     if not task:
         return jsonify({"error": "Task not found"}), 404
 
@@ -4095,7 +4160,7 @@ def save_table_correction(task_id, table_index):
 
 @app.route("/api/download/<task_id>", methods=["GET"])
 def download(task_id):
-    task = _get_task(task_id)
+    task = _get_visible_task(task_id)
     if not task:
         return jsonify({"error": "Task not found"}), 404
 
@@ -4120,7 +4185,7 @@ def download(task_id):
 
 @app.route("/api/download_complete/<task_id>", methods=["GET"])
 def download_complete(task_id):
-    task = _get_task(task_id)
+    task = _get_visible_task(task_id)
     if not task:
         return jsonify({"error": "Task not found"}), 404
 
@@ -4162,7 +4227,7 @@ def download_complete(task_id):
 
 @app.route("/api/download_corrected/<task_id>", methods=["GET"])
 def download_corrected(task_id):
-    task = _get_task(task_id)
+    task = _get_visible_task(task_id)
     if not task:
         return jsonify({"error": "Task not found"}), 404
 
@@ -4198,12 +4263,12 @@ def download_corrected(task_id):
 @app.route("/api/tasks", methods=["GET"])
 def list_tasks():
     _cleanup_old_data()
-    return jsonify(_recent_tasks_payload())
+    return jsonify(_recent_tasks_payload(owner_scope=_current_owner_scope()))
 
 
 @app.route("/api/tasks/<task_id>", methods=["DELETE"])
 def delete_task(task_id):
-    task = _get_task(task_id)
+    task = _get_visible_task(task_id)
     if not task:
         return jsonify({"error": "Task not found"}), 404
 
