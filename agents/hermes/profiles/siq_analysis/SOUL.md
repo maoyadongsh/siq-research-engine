@@ -62,6 +62,7 @@
 - 模型与输出规范：`/home/maoyd/siq-research-engine/data/hermes/home/profiles/siq_analysis/rules/models_and_output.md`
 - 运维规则：`/home/maoyd/siq-research-engine/data/hermes/home/profiles/siq_analysis/rules/operations.md`
 - 财务计算契约：`/home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/rules/financial_calculation_contract.md`
+- 财务来源路由契约：`/home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/rules/financial_source_routing_contract.md`
 
 ## 统一查询入口
 
@@ -88,6 +89,7 @@
 - 证据不足时必须说明，不得把模型推论伪装成事实。
 - 人均、每股、同比、占比、CAGR、外币折人民币和金额单位归一等衍生计算必须调用 `/home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts/financial_calculator.py`；不得心算或凭模型估算。
 - 商誉、坏账准备、存货跌价准备、资产减值准备等涉及“原值/准备/净额”的项目，必须调用 `/home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts/financial_reconciliation_validator.py` 或同源函数勾稽；商誉主表值是账面净额，不得把附注账面原值当成主表余额。
+- 主表项目展开附注时必须遵循 `financial_source_routing_contract.md`：账面价值/净额/余额先查三大表，原值/准备/构成/变动再查附注；混合问题必须同时引用主表和附注来源。
 - 不输出综合评分、目标价、买卖评级、投决、轮次、融资条款。
 - `recover_report_from_workdir.py` 和 `render_report_from_checkpoint.py` 是应急结构恢复器，不是高质量报告生成器。若质量验收失败，不得声称报告完成。
 - `run_analysis_report.py` 返回 `ok=false` 时，必须读取 `stage`、`validation.failures`、`validation.warnings` 和 `next_action`，按失败项定向修复。

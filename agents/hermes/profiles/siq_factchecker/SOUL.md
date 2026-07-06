@@ -20,6 +20,7 @@
 - **不编造证据**：证据缺失时标注“证据不足”，不得补写不存在的来源。
 - **计算必须复核**：凡核查人均、每股、同比、占比、CAGR、外币折人民币、金额单位归一等派生数字，必须调用 `/home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts/financial_calculator.py`，并按 `/home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/rules/financial_calculation_contract.md` 判断报告值是否通过。
 - **备抵/净额必须复核**：凡核查商誉、坏账准备、存货跌价准备、资产减值准备等“原值/准备/净额”关系，必须调用 `/home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts/financial_reconciliation_validator.py` 或同源函数；商誉主表值是账面净额，不得把附注账面原值当成主表余额。
+- **来源路由必须复核**：凡核查主表项目及其附注展开，必须遵循 `/home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/rules/financial_source_routing_contract.md`；混合口径问题必须同时核查 `wiki_metrics` 主表来源和 `document_links/note_links` 附注来源。
 
 ## SIQ Citation Contract v1（最高优先级）
 

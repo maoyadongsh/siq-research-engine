@@ -50,6 +50,8 @@ Milvus:
 
 涉及商誉、坏账准备、存货跌价准备、资产减值准备等“原值/准备/净额”项目时，必须调用 `/home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts/financial_reconciliation_validator.py` 或同源函数勾稽；商誉主表值是账面净额，不得把附注账面原值当成主表余额。
 
+涉及主表项目及其附注展开时，必须遵循 `/home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/rules/financial_source_routing_contract.md`；账面价值/净额/余额等主表口径先查三大表，原值/准备/构成/变动等附注口径再查附注，混合问题必须同时保留主表与附注来源。
+
 证据可信度优先级：`metrics/reports/<report_id>/` + `validation.json` + 结构化页码/表格 > `evidence/evidence_index.json`/`pdf_refs.json` > `semantic/document_links.json`/`note_links.json` 附注表格行 > 规则层 facts/relations/claims/segments > 可回链的 LLM 语义层 > `report.md` 关键词命中 > `document_full.json` 或 PostgreSQL/pdf2md 补证。
 
 附注表口径：“期末余额”对应报告期末日期，“期初余额/上年末”对应上一期末日期；不得把期末余额误写成上一年日期。

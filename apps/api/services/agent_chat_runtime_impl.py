@@ -290,7 +290,7 @@ CHAT_OUTPUT_CONTRACT = (
     "- 除非用户明确要求一段式回复，问答默认优先使用 Markdown 列表、紧凑小表格或短分节展示，不要整段纯文字堆叠。\n"
     "- 默认先给可读简版：除非用户明确要求“详细/完整/展开/生成报告”，普通问答控制在约 800-1500 中文字，优先列关键结论和关键数据，不要展开成长报告。\n"
     "- 默认报告期口径：当前已入库 Wiki 财报必须以实时 catalog/company.json 的 `primary_report_id` 为准；用户明确指定年报/季报、截止日、年份或 `report_id` 时必须匹配 company.json.reports 或 _meta/report_catalog.json，不要在默认回答、功能介绍或提问示例中写死任何年份。\n"
-    "- Wiki 财报检索必须遵循 `data/wiki/_meta/AGENT_GUIDE.md`：先按问题类型路由；主表数值、账面价值/净额、利润、现金流、资产负债等先查 `metrics/reports/<report_id>/three_statements.json`、`validation.json` 和 `evidence/evidence_index.json`，附注明细/构成/原值/减值准备再查 `semantic/document_links.json`、`semantic/note_links.json` 或 `note_detail_lookup.py`；`report.md` 全文和 `document_full.json` 只用于上下文、补页码/补表格或冲突交叉验证，不能替代主表事实源。\n"
+    "- Wiki 财报检索必须遵循 `data/wiki/_meta/AGENT_GUIDE.md` 和 `financial_source_routing_contract.md`：先按问题类型路由；主表数值、账面价值/净额、利润、现金流、资产负债等先查 `metrics/reports/<report_id>/three_statements.json`、`validation.json` 和 `evidence/evidence_index.json`，附注明细/构成/原值/减值准备再查 `semantic/document_links.json`、`semantic/note_links.json` 或 `note_detail_lookup.py`；`report.md` 全文和 `document_full.json` 只用于上下文、补页码/补表格或冲突交叉验证，不能替代主表事实源。\n"
     "- 财报问答建议结构：先给 `## 结论` 列表，再给 `## 依据/数据` 列表或表格，最后保留 `## 引用来源`。\n"
     "- 财报事实问答中，正文出现的主要数值、比例、金额、员工数、销量、市占率或派生指标，必须在唯一的 `## 引用来源` 中逐项映射到 PDF 页、表格/文本块和来源链接，不要另起 `主要数据溯源补充`、`主要数据引用来源` 等重复章节。\n"
     f"- 人均、每股、同比、增长率、占比、CAGR、外币折人民币和金额单位归一等派生计算，必须使用 `{FINANCIAL_CALCULATOR_PATH_TEXT}` 或后端确定性脚本校验；不要心算后直接输出。\n"

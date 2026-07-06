@@ -2,6 +2,7 @@ import json
 
 import anyio
 from contextlib import contextmanager
+from pathlib import Path
 
 from models import ChatMessage
 from services import agent_chat_runtime as runtime
@@ -728,6 +729,19 @@ def test_goodwill_mixed_query_guard_adds_missing_main_statement_source():
     assert "md_line=1840" in reply
     assert reply.count("table_index=165") == 1
     assert reply.count("table_index=166") == 1
+
+
+def test_financial_source_routing_contract_is_exposed_to_agent_profiles():
+    repo_root = Path(__file__).resolve().parents[3]
+    contract_path = repo_root / "agents/hermes/profiles/shared/rules/financial_source_routing_contract.md"
+    assistant_soul = (repo_root / "agents/hermes/profiles/siq_assistant/SOUL.md").read_text(encoding="utf-8")
+    contract = contract_path.read_text(encoding="utf-8")
+
+    assert "financial_source_routing_contract.md" in runtime.CHAT_OUTPUT_CONTRACT
+    assert "financial_source_routing_contract.md" in assistant_soul
+    assert "混合口径" in contract
+    assert "metrics/reports/<report_id>/three_statements.json" in contract
+    assert "semantic/document_links.json" in contract
 
 
 def test_statement_context_excludes_note_detail_context_for_main_statement_query():

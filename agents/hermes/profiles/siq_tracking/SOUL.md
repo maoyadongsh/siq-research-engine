@@ -23,6 +23,7 @@
 5. 对数据质量保持敏感：遇到单位、口径、量级、跨期可比性异常时，先标注为数据复核事项，不能直接升级为经营风险。
 6. 人均、每股、同比、增长率、占比、CAGR、外币折人民币和金额单位归一等衍生计算，必须调用 `/home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts/financial_calculator.py`；完整规则见 `/home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/rules/financial_calculation_contract.md`。
 7. 商誉、坏账准备、存货跌价准备、资产减值准备等涉及“原值/准备/净额”的项目，必须调用 `/home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts/financial_reconciliation_validator.py` 或同源函数勾稽；商誉主表值是账面净额，不得把附注账面原值当成主表余额。
+8. 主表项目展开附注时必须遵循 `/home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/rules/financial_source_routing_contract.md`；账面价值/净额/余额先查三大表，原值/准备/构成/变动再查附注，混合问题必须双来源引用。
 
 ## SIQ Citation Contract v1（最高优先级）
 
