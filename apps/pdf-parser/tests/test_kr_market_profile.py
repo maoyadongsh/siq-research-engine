@@ -2,7 +2,7 @@ import kr_market_profile as kr
 
 
 def test_detect_market_prefers_explicit_task_market_and_filename():
-    assert kr.KR_PROFILE_RULE_VERSION == "kr-pdf-profile-v3"
+    assert kr.KR_PROFILE_RULE_VERSION == "kr-pdf-profile-v4"
     assert kr.is_kr_market({"submit_config": {"market": "KR"}}, "anything.pdf")
     assert kr.is_kr_market({"market": "kr"}, "anything.pdf")
     assert kr.is_kr_market({}, "Samsung-Electronics-Co.,-Ltd_KR_005930_2025.pdf")
@@ -212,6 +212,15 @@ def test_kr_candidate_groups_promote_connected_summary_caption_title():
     assert candidates["요약재무정보"][0]["confidence"] == "high"
 
 
+def test_kr_candidate_summary_marks_absent_summary_as_nonblocking():
+    summary = kr.candidate_summary_list({}, kr.KR_CORE_FINANCIAL_TABLE_NAMES)
+
+    by_name = {item["name"]: item for item in summary}
+    assert by_name["요약재무정보"]["status"] == "not_applicable"
+    assert by_name["요약재무정보"]["reason"] == "kr_summary_not_separately_presented"
+    assert by_name["Consolidated Statement of Financial Position"]["status"] == "missing"
+
+
 def test_kr_candidate_groups_suppress_major_shareholder_financial_status_tables():
     table_index = [
         {
@@ -249,6 +258,31 @@ def test_kr_candidate_groups_suppress_guaranteed_buyer_and_major_subsidiary_summ
     assert "요약재무정보" not in candidates
 
 
+def test_kr_candidate_groups_suppress_correction_merger_and_company_count_summary_tables():
+    table_index = [
+        {
+            "table_index": 1,
+            "heading": "3. 정정사항",
+            "preview": "항 목 정정요구 정정사유 정 정 전 정 정 후 III. 재무에 관한 사항 1. 요약재무정보",
+        },
+        {
+            "table_index": 836,
+            "heading": "(자료 : 당사 내부자료)",
+            "source_footnote": ["상기 요약재무정보는 합병등 종료보고서 제출일 현재 이용 가능한 최근 재무제표 기준입니다."],
+            "preview": "구 분 합병 전 합병 후 롯데쇼핑(주)(존속회사) 롯데수원역쇼핑타운(주)(소멸회사) 자산총계 부채총계",
+        },
+        {
+            "table_index": 191,
+            "source_caption": ["나. 요약재무정보"],
+            "preview": "연결에 포함된 회사수 169 167 166",
+        },
+    ]
+
+    candidates = kr.group_kr_key_table_candidates(table_index)
+
+    assert "요약재무정보" not in candidates
+
+
 def test_kr_candidate_groups_promote_strong_equity_statement_body_without_title():
     table_index = [
         {
@@ -267,6 +301,7 @@ def test_kr_candidate_groups_promote_strong_equity_statement_body_without_title(
 
     assert candidates["Consolidated Statement of Changes in Equity"][0]["table_index"] == 53
     assert candidates["Consolidated Statement of Changes in Equity"][0]["confidence"] == "high"
+    assert "Consolidated Statement of Comprehensive Income" not in candidates
 
 
 def test_kr_candidate_groups_promote_formal_comprehensive_income_body_without_title():
@@ -298,6 +333,23 @@ def test_kr_candidate_groups_promote_bank_comprehensive_income_body_without_titl
             "preview": (
                 "과 목 제 21기 총영업이익 영업이익 법인세비용차감전순이익 "
                 "당기순이익 1,745,571 당기총포괄이익 1,745,498 주당이익 기타포괄손익"
+            ),
+        }
+    ]
+
+    candidates = kr.group_kr_key_table_candidates(table_index)
+
+    assert candidates["Consolidated Statement of Comprehensive Income"][0]["confidence"] == "high"
+
+
+def test_kr_candidate_groups_promote_combined_profit_and_comprehensive_income_body():
+    table_index = [
+        {
+            "table_index": 76,
+            "heading": "(단위 : 백만원)",
+            "preview": (
+                "구 분 제 56 기 제 55 기 매출 8,188,061 영업이익 411,235 "
+                "법인세비용차감전이익 당기순이익 110,416 총포괄이익 95,174 기본주당이익"
             ),
         }
     ]
@@ -360,6 +412,26 @@ def test_kr_candidate_groups_do_not_promote_retained_earnings_appropriation_to_c
     assert "Consolidated Statement of Changes in Equity" not in candidates
 
 
+def test_kr_candidate_groups_do_not_promote_investee_income_summary_to_comprehensive_income():
+    table_index = [
+        {
+            "table_index": 639,
+            "preview": (
+                "회사명 당기 영업수익 당기순손익 기타포괄손익 총포괄손익 배당금 "
+                "KB-KDBC Pre-IPO 신기술사업투자조합 275 (406) - (406) 60"
+            ),
+        },
+        {
+            "table_index": 681,
+            "preview": "과 목 제 26 기 증감 증감률 매출액 영업이익 당기순이익 기타포괄이익",
+        },
+    ]
+
+    candidates = kr.group_kr_key_table_candidates(table_index)
+
+    assert "Consolidated Statement of Comprehensive Income" not in candidates
+
+
 def test_kr_candidate_groups_suppress_interest_average_balance_as_equity_statement():
     table_index = [
         {
@@ -371,6 +443,20 @@ def test_kr_candidate_groups_suppress_interest_average_balance_as_equity_stateme
                 "구 분 조달항목 2025년 연간 평균잔액 이자율 비중 자본 자본금 1,155 "
                 "자본잉여금 1,676 이익잉여금 255 소 계 3,086"
             ),
+        }
+    ]
+
+    candidates = kr.group_kr_key_table_candidates(table_index)
+
+    assert "Consolidated Statement of Changes in Equity" not in candidates
+
+
+def test_kr_candidate_groups_suppress_capital_composition_as_equity_statement():
+    table_index = [
+        {
+            "table_index": 200,
+            "heading": "(단위 : 백만원,%)",
+            "preview": "구분 2025년 기말잔액 구성비 자기자본 29,985 자본금 8,000 기타포괄손익누계액 -5,664 이익잉여금 27,523",
         }
     ]
 

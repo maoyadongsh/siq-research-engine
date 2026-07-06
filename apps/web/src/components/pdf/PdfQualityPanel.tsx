@@ -1,5 +1,5 @@
 import type { QualityReport } from '../../lib/pdfTypes'
-import { candidateMeta, suspectReasons, suspectTableMeta } from '../../lib/pdfFormatting'
+import { candidateMeta, isNonBlockingCandidateStatus, suspectReasons, suspectTableMeta } from '../../lib/pdfFormatting'
 import {
   pdfCoreTablesLabel,
   pdfIndicatorCandidatesLabel,
@@ -16,9 +16,10 @@ export interface PdfQualityPanelProps {
 
 export function PdfQualityPanel({ quality, market, onShowTableSource }: PdfQualityPanelProps) {
   const core = quality.core_financial_table_candidates || []
+  const applicableCore = core.filter((i) => !isNonBlockingCandidateStatus(i.status))
   const key = quality.key_table_candidates || {}
   const ind = (quality.indicator_table_candidates || []).filter((i) => i.status === 'found')
-  const cFound = core.filter((i) => i.status === 'found')
+  const cFound = applicableCore.filter((i) => i.status === 'found')
   const susp = quality.suspicious_tables || []
   const currencies = quality.detected_currencies?.length ? quality.detected_currencies.join('、') : quality.currency
   const profile = [quality.market || quality.market_profile, quality.accounting_standard, quality.industry_profile, currencies, quality.unit]
@@ -61,8 +62,8 @@ export function PdfQualityPanel({ quality, market, onShowTableSource }: PdfQuali
       <div className="pdf-quality-row">
         <span>{pdfCoreTablesLabel(market)}</span>
         <b>
-          {core.length
-            ? `${cFound.length}/${core.length} · ${cFound.map((i) => i.name).join('、') || '未识别'}`
+          {applicableCore.length
+            ? `${cFound.length}/${applicableCore.length} · ${cFound.map((i) => i.name).join('、') || '未识别'}`
             : (quality.found_financial_tables || []).join('、') || '未识别'}
         </b>
       </div>
@@ -79,6 +80,10 @@ export function PdfQualityPanel({ quality, market, onShowTableSource }: PdfQuali
                 >
                   {String(c.name || '候选表')} · {candidateMeta(c)}
                 </button>
+              ) : isNonBlockingCandidateStatus(c.status) ? (
+                <span key={i} className="pdf-chip pdf-chip-secondary">
+                  {String(c.name || '候选表')} · {candidateMeta(c)}
+                </span>
               ) : (
                 <span key={i} className="pdf-chip pdf-chip-missing">
                   {String(c.name || '候选表')} · {candidateMeta(c)}

@@ -53,6 +53,10 @@ def merge_kr_quality_candidates(report: dict[str, Any], financial_data: dict[str
             core_candidates.append(primary)
             found.append(name)
         else:
+            nonblocking = _nonblocking_existing_candidate(merged, name)
+            if nonblocking:
+                core_candidates.append(nonblocking)
+                continue
             core_candidates.append({"name": name, "status": "missing", "candidate_group": "core"})
 
     merged["key_table_candidates"] = key_table_candidates
@@ -73,6 +77,19 @@ def _core_names(report: dict[str, Any]) -> list[str]:
 
 def _has_located_candidate(rows: list[dict[str, Any]]) -> bool:
     return any(row.get("status") == "found" and (row.get("table_index") or row.get("line")) for row in rows)
+
+
+def _nonblocking_existing_candidate(report: dict[str, Any], name: str) -> dict[str, Any] | None:
+    nonblocking_statuses = {"not_applicable", "not_required", "not_separately_presented", "excluded"}
+    for item in report.get("core_financial_table_candidates") or []:
+        if not isinstance(item, dict) or item.get("name") != name:
+            continue
+        if item.get("status") not in nonblocking_statuses:
+            continue
+        candidate = dict(item)
+        candidate.setdefault("candidate_group", "core")
+        return candidate
+    return None
 
 
 def _should_use_financial_candidate(existing_rows: list[dict[str, Any]], candidate: dict[str, Any]) -> bool:

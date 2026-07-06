@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any, Iterable
 
-KR_PROFILE_RULE_VERSION = "kr-pdf-profile-v3"
+KR_PROFILE_RULE_VERSION = "kr-pdf-profile-v4"
 
 KR_KEY_SECTIONS = [
     "회사의 개요",
@@ -201,6 +201,8 @@ def _fallback_rule_score(name: str, signal: str) -> float:
         return 0.0
     if _looks_like_kr_interest_or_funding_table(signal) and name in _CORE_STATEMENT_NAMES:
         return 0.0
+    if _looks_like_kr_capital_composition_table(signal) and name in _CORE_STATEMENT_NAMES:
+        return 0.0
     summary_or_segment_context = any(
         marker in compact
         for marker in ("요약재무정보", "영업부문", "부문정보", "사업부문", "segmentinformation", "operatingsegment")
@@ -240,7 +242,11 @@ def _fallback_rule_score(name: str, signal: str) -> float:
         if "매출액" in compact and ("영업이익" in compact or "당기순이익" in compact):
             return 86.0
     if name == "Consolidated Statement of Comprehensive Income":
-        if _looks_like_kr_equity_statement_body(signal) or _looks_like_kr_retained_earnings_appropriation(signal):
+        if (
+            _looks_like_kr_equity_statement_body(signal)
+            or _looks_like_kr_retained_earnings_appropriation(signal)
+            or _looks_like_kr_compact_investee_income_summary(signal)
+        ):
             return 0.0
         if (
             "총포괄손익" in compact
@@ -259,6 +265,8 @@ def _fallback_rule_score(name: str, signal: str) -> float:
         if _looks_like_kr_retained_earnings_appropriation(signal):
             return 0.0
         if _looks_like_kr_interest_or_funding_table(signal):
+            return 0.0
+        if _looks_like_kr_capital_composition_table(signal):
             return 0.0
         if "자본금" in compact and ("이익잉여금" in compact or "자본총계" in compact):
             return 84.0
@@ -282,6 +290,14 @@ def _context_adjusted_score(name: str, signal: str, score: float) -> float:
     if name in {"요약재무정보", *_CORE_STATEMENT_NAMES} and _looks_like_kr_subsidiary_summary_table(signal):
         return 0.0
     if name in _CORE_STATEMENT_NAMES and _looks_like_kr_interest_or_funding_table(signal):
+        return 0.0
+    if name in _CORE_STATEMENT_NAMES and _looks_like_kr_capital_composition_table(signal):
+        return 0.0
+    if name == "Consolidated Statement of Comprehensive Income" and (
+        _looks_like_kr_equity_statement_body(signal)
+        or _looks_like_kr_retained_earnings_appropriation(signal)
+        or _looks_like_kr_compact_investee_income_summary(signal)
+    ):
         return 0.0
     if name not in _CORE_STATEMENT_NAMES:
         return score
@@ -345,17 +361,36 @@ def _looks_like_kr_subsidiary_summary_table(signal: str) -> bool:
             "요약포괄손익계산서",
             "최대주주",
             "법인또는단체의명칭",
+            "각종속기업",
             "보장매수자",
             "주요종속회사",
             "상호설립일주소주요사업",
+            "정정사항",
+            "정정전정정후",
+            "합병전합병후",
+            "존속회사",
+            "소멸회사",
+            "합병등종료보고서",
             "구분자산부채자본영업수익당기순손익총포괄손익",
             "구분자산부채자본매출액당기순손익총포괄손익",
+            "구분매출계속영업손익중단영업손익기타포괄손익총포괄손익",
+            "감가상각비무형자산상각비이자수익",
+            "회사명당기",
+            "회사명전기",
+            "회사명자산부채",
+            "구분자산부채자본당기순이익총포괄손익변경전",
         )
+    ):
+        return True
+    if "요약재무상태표" in compact and ("당기" in compact or "전기" in compact) and not re.search(r"(?:제\d+기|20\d{2})", compact):
+        return True
+    if "연결에포함된회사수" in compact and not any(
+        marker in compact for marker in ("[자산]", "유동자산", "자산총계", "매출액", "영업이익", "당기순이익")
     ):
         return True
     has_entity_axis = any(marker in compact for marker in ("회사명", "법인명", "기업명", "종속기업", "관계기업", "공동기업"))
     has_summary_columns = all(marker in compact for marker in ("자산", "부채", "자본")) and any(
-        marker in compact for marker in ("매출액", "영업수익", "당기순손익", "총포괄손익")
+        marker in compact for marker in ("매출액", "영업수익", "총수익", "당기순손익", "총포괄손익", "총포괄이익")
     )
     return has_entity_axis and has_summary_columns
 
@@ -365,6 +400,34 @@ def _looks_like_kr_interest_or_funding_table(signal: str) -> bool:
     return any(marker in compact for marker in ("평균잔액", "이자율", "조달항목", "이자수익", "이자비용")) and any(
         marker in compact for marker in ("비중", "소계", "자본잉여금", "이익잉여금")
     )
+
+
+def _looks_like_kr_capital_composition_table(signal: str) -> bool:
+    compact = _compact_text(signal)
+    return any(marker in compact for marker in ("기말잔액구성비", "기말잔액비중", "자기자본")) and any(
+        marker in compact for marker in ("자본금", "이익잉여금", "기타포괄손익누계액", "기타자본구성요소")
+    )
+
+
+def _looks_like_kr_compact_investee_income_summary(signal: str) -> bool:
+    compact = _compact_text(signal)
+    if any(
+        marker in compact
+        for marker in (
+            "구분2025년말2024년말2023년말영업수익",
+            "구분당기매출액당기순손익총포괄손익",
+            "구분매출계속영업손익중단영업손익기타포괄손익총포괄손익",
+            "회사명자산부채자본총수익당기순이익",
+            "회사명당기영업수익당기순손익",
+            "회사명전기영업수익당기순손익",
+            "회사명자산부채매출",
+            "구분자산부채자본당기순이익총포괄손익변경전",
+        )
+    ):
+        return True
+    if "증감률" in compact and ("매출액" in compact or "영업수익" in compact) and "영업이익" in compact:
+        return True
+    return False
 
 
 def _has_strong_summary_body(signal: str) -> bool:
@@ -385,9 +448,18 @@ def _has_strong_summary_body(signal: str) -> bool:
     )
     if not has_summary_title:
         return False
-    if any(marker in compact for marker in ("상기요약연결재무정보", "요약연결재무정보", "연결요약재무정보")) and any(
+    if any(
+        marker in compact
+        for marker in ("상기요약연결재무정보", "요약연결재무정보", "연결요약재무정보", "요약재무정보별도재무제표기준")
+    ) and any(
         marker in compact for marker in ("[자산]", "유동자산", "자산총계")
     ):
+        return True
+    if "요약재무정보" in compact and "별도재무제표기준" in compact and any(
+        marker in compact for marker in ("[자산]", "유동자산", "자산총계")
+    ):
+        return True
+    if "한국채택국제회계기준" in compact and any(marker in compact for marker in ("[유동자산]", "유동자산", "자산총계")):
         return True
     balance_blocks = (
         any(marker in compact for marker in ("[자산]", "자산총계", "유동자산"))
@@ -408,6 +480,7 @@ def _looks_like_kr_equity_statement_body(signal: str) -> bool:
             "주식발행초과금",
             "자본잉여금",
             "신종자본증권",
+            "기타자본",
             "기타자본구성요소",
             "기타포괄손익누계액",
             "이익잉여금",
@@ -439,6 +512,10 @@ def _looks_like_kr_equity_statement_body(signal: str) -> bool:
 
 def _looks_like_kr_retained_earnings_appropriation(signal: str) -> bool:
     compact = _compact_text(signal)
+    if "자본을구성하는각적립금" in compact:
+        return True
+    if "미처분이익잉여금" in compact and "전기이월미처분이익잉여금" in compact:
+        return True
     return any(marker in compact for marker in ("미처분이익잉여금", "이익잉여금처분액", "이익준비금")) and any(
         marker in compact for marker in ("배당금", "처분액", "전기이월이익잉여금")
     )
@@ -455,6 +532,12 @@ def _has_strong_statement_body(name: str, signal: str) -> bool:
     if name == "Consolidated Statement of Comprehensive Income":
         if _looks_like_kr_retained_earnings_appropriation(signal):
             return False
+        if "당기순이익" in compact and ("당기총포괄이익" in compact or "당기총포괄손익" in compact):
+            return True
+        if ("매출" in compact or "영업이익" in compact or "영업수익" in compact) and "당기순이익" in compact and (
+            "총포괄이익" in compact or "총포괄손익" in compact
+        ):
+            return True
         return "당기순이익" in compact and (
             ("기타포괄손익" in compact or "기타포괄이익" in compact)
             and ("총포괄손익" in compact or "총포괄이익" in compact or "당기총포괄이익" in compact or "당기총포괄손익" in compact or "재분류" in compact)
@@ -520,6 +603,7 @@ def _confidence_for_candidate(name: str, signal: str, score: float) -> str:
             for marker in (
                 "요약재무정보",
                 "요약연결재무정보",
+                "연결요약재무정보",
                 "주요재무정보",
                 "summaryfinancialinformation",
                 "selectedfinancialdata",
@@ -579,6 +663,18 @@ def candidate_summary_list(key_table_candidates: dict[str, list[dict[str, Any]]]
     for name in names:
         rows = key_table_candidates.get(name) or []
         if not rows:
+            if name == "요약재무정보":
+                summary.append(
+                    {
+                        "name": name,
+                        "status": "not_applicable",
+                        "candidate_group": kr_candidate_group(name),
+                        "confidence": "not_applicable",
+                        "reason": "kr_summary_not_separately_presented",
+                        "display_note": "未单独定位到公司层面 요약재무정보；已排除附注、股东、子公司摘要。",
+                    }
+                )
+                continue
             summary.append({"name": name, "status": "missing", "candidate_group": kr_candidate_group(name)})
             continue
         primary = dict(rows[0])

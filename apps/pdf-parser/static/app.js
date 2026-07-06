@@ -1103,6 +1103,9 @@
   }
 
   function candidateMeta(item) {
+    if (isNonBlockingCandidateStatus(item && item.status)) {
+      return String((item && (item.display_note || item.note)) || "未单独列示，不计入核心报表缺失");
+    }
     if (!item || item.status === "missing") return "需复核：未在表格中定位";
     if (!item.table_index) {
       return item._source === "financial_data" ? "已抽取，暂无表格定位" : "需复核：暂无表格定位";
@@ -1117,9 +1120,16 @@
     return "表 " + item.table_index + line + page + confidence;
   }
 
+  function isNonBlockingCandidateStatus(status) {
+    return ["not_applicable", "not_required", "not_separately_presented", "excluded"].includes(String(status || ""));
+  }
+
   function renderCandidateChip(name, item, extraClass) {
     const candidate = item || {};
     const label = name + " · " + candidateMeta(candidate);
+    if (isNonBlockingCandidateStatus(candidate.status)) {
+      return '<span class="quality-chip quality-chip-secondary">' + escapeHtml(label) + "</span>";
+    }
     if (!candidate.table_index || candidate.status === "missing") {
       return '<span class="quality-chip quality-chip-missing">' + escapeHtml(label) + "</span>";
     }
@@ -1171,7 +1181,8 @@
       : '<span class="quality-muted">未定位到候选表</span>';
     const coreCandidates = quality.core_financial_table_candidates || [];
     const indicatorCandidates = (quality.indicator_table_candidates || []).filter((item) => item.status === "found");
-    const coreFound = coreCandidates.filter((item) => item.status === "found");
+    const applicableCoreCandidates = coreCandidates.filter((item) => !isNonBlockingCandidateStatus(item.status));
+    const coreFound = applicableCoreCandidates.filter((item) => item.status === "found");
     const keyHtml = coreCandidates.length
       ? renderCandidateList(coreCandidates, "未定位到核心候选表")
       : fallbackKeyHtml;
@@ -1203,8 +1214,8 @@
       '</b></div>' +
       '<div class="quality-row"><span>财报核心表</span><b>' +
       escapeHtml(
-        coreCandidates.length
-          ? coreFound.length + "/" + coreCandidates.length + " · " + (coreFound.map((item) => item.name).join("、") || "未识别")
+        applicableCoreCandidates.length
+          ? coreFound.length + "/" + applicableCoreCandidates.length + " · " + (coreFound.map((item) => item.name).join("、") || "未识别")
           : (quality.found_financial_tables || []).join("、") || "未识别"
       ) +
       '</b></div>' +

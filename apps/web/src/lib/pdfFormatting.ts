@@ -70,6 +70,9 @@ export function scopeNameForMarket(s: string, market?: string | null): string {
 }
 
 export function candidateMeta(item: Record<string, unknown> | null | undefined): string {
+  if (isNonBlockingCandidateStatus(item?.status)) {
+    return String(item?.display_note || item?.note || '未单独列示，不计入核心报表缺失')
+  }
   if (!item || item.status === 'missing') return '需复核：未在表格中定位'
   if (!item.table_index) return item._source === 'financial_data' ? '已抽取，暂无表格定位' : '需复核：暂无表格定位'
   const page = item.pdf_page_number
@@ -79,6 +82,10 @@ export function candidateMeta(item: Record<string, unknown> | null | undefined):
   const conf = item.confidence ? ` / ${cMap[String(item.confidence)] || String(item.confidence)}` : ''
   const line = item.line ? ` / 行 ${String(item.line)}` : ''
   return `表 ${String(item.table_index)}${line}${page}${conf}`
+}
+
+export function isNonBlockingCandidateStatus(status: unknown): boolean {
+  return ['not_applicable', 'not_required', 'not_separately_presented', 'excluded'].includes(String(status || ''))
 }
 
 export function suspectTableMeta(item: Record<string, unknown> | null | undefined): string {
