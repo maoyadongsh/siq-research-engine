@@ -1,5 +1,8 @@
 """用户认证依赖函数。"""
-from fastapi import Cookie, Depends, HTTPException
+import hmac
+from urllib.parse import urlparse
+
+from fastapi import Cookie, Depends, HTTPException, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -8,6 +11,7 @@ from services.auth_service import AuthService, PermissionChecker, User
 
 
 security = HTTPBearer(auto_error=False)
+SAFE_CSRF_METHODS = {"GET", "HEAD", "OPTIONS", "TRACE"}
 
 
 def create_access_token(data: dict, expires_delta=None) -> str:
@@ -15,10 +19,65 @@ def create_access_token(data: dict, expires_delta=None) -> str:
     return AuthService.create_access_token(data, expires_delta)
 
 
+def _origin_from_referer(referer: str) -> str:
+    try:
+        parsed = urlparse(referer)
+    except Exception:
+        return ""
+    if not parsed.scheme or not parsed.netloc:
+        return ""
+    return f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+
+
+def _request_origin(request: Request) -> str:
+    origin = str(request.headers.get("origin") or "").strip().rstrip("/")
+    if origin:
+        return origin
+    return _origin_from_referer(str(request.headers.get("referer") or "").strip())
+
+
+def _allowed_csrf_origins(request: Request) -> set[str]:
+    allowed = set(AuthService.csrf_allowed_origins())
+    host = str(request.headers.get("host") or "").strip()
+    if host:
+        allowed.add(f"{request.url.scheme}://{host}".rstrip("/"))
+        forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").split(",", 1)[0].strip().lower()
+        if forwarded_proto in {"http", "https"}:
+            allowed.add(f"{forwarded_proto}://{host}".rstrip("/"))
+    return allowed
+
+
+def _header_csrf_token(request: Request) -> str:
+    return str(
+        request.headers.get("x-csrf-token")
+        or request.headers.get("x-siq-csrf-token")
+        or ""
+    ).strip()
+
+
+def _validate_cookie_csrf(request: Request) -> None:
+    if not AuthService.cookie_mode_enabled():
+        return
+    if request.method.upper() in SAFE_CSRF_METHODS:
+        return
+
+    csrf_cookie = str(request.cookies.get(AuthService.CSRF_COOKIE_NAME) or "").strip()
+    csrf_header = _header_csrf_token(request)
+    if not csrf_cookie or not csrf_header or not hmac.compare_digest(csrf_cookie, csrf_header):
+        raise HTTPException(403, "CSRF token missing or invalid")
+
+    origin = _request_origin(request)
+    if not origin:
+        raise HTTPException(403, "CSRF origin missing")
+    if origin not in _allowed_csrf_origins(request):
+        raise HTTPException(403, "CSRF origin not allowed")
+
+
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     session: AsyncSession = Depends(get_async_session),
     access_token_cookie: str | None = Cookie(default=None, alias=AuthService.ACCESS_COOKIE_NAME),
+    request: Request = None,
 ) -> User:
     """
     从JWT token获取当前用户
@@ -28,7 +87,8 @@ async def get_current_user(
     async def protected_route(current_user: User = Depends(get_current_user)):
         return {"user_id": current_user.id}
     """
-    token = credentials.credentials if credentials is not None else access_token_cookie
+    bearer_token = credentials.credentials if credentials is not None else None
+    token = bearer_token or access_token_cookie
     if not token:
         raise HTTPException(401, "Invalid or expired token")
 
@@ -58,6 +118,11 @@ async def get_current_user(
 
     if not user.is_active:
         raise HTTPException(403, "User account is disabled")
+
+    if request is not None:
+        request.state.siq_auth_source = "bearer" if bearer_token else "cookie"
+        if not bearer_token and access_token_cookie:
+            _validate_cookie_csrf(request)
 
     return user
 

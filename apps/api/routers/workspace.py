@@ -13,7 +13,7 @@ from sqlmodel import Session, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from database import get_async_session, get_session
-from services.auth_dependencies import get_current_user
+from services.auth_dependencies import get_current_user, require_permission
 from services.auth_service import User
 from services.path_config import REPORT_DOWNLOADS_ROOT, WIKI_ROOT as CONFIG_WIKI_ROOT
 from services.usage_service import (
@@ -64,6 +64,10 @@ def _role_value(user: User) -> str:
 
 def _is_admin(user: User) -> bool:
     return _role_value(user) in {"admin", "super_admin"}
+
+
+def _env_truthy(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _quota_error_payload(event_type: str, limit: int, used: int) -> HTTPException:
@@ -887,7 +891,7 @@ async def authenticated_pdf_upload(
     end_page_id: str = Form(""),
     formula_enable: str = Form("true"),
     table_enable: str = Form("true"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("report.create")),
     async_session: AsyncSession = Depends(get_async_session),
 ):
     requested_market = _normalize_parse_market(market)
@@ -1080,10 +1084,11 @@ async def list_my_pdf_tasks(
         raise HTTPException(status_code=502, detail=f"解析任务服务不可用: {exc}") from exc
 
     tasks = payload.get("tasks") if isinstance(payload, dict) else []
-    # The pdf-parser queue is a local system-level runtime shared by ops
-    # scripts and the UI. Return the queue to authenticated users; per-task
-    # result/source access remains protected by the existing task access checks.
-    if os.environ.get("SIQ_PDF_TASK_LIST_WORKSPACE_ONLY", "").strip().lower() not in {"1", "true", "yes"}:
+    system_tasks_visible = (
+        not _env_truthy("SIQ_PDF_TASK_LIST_WORKSPACE_ONLY")
+        and (_is_admin(current_user) or _env_truthy("SIQ_PDF_TASK_LIST_SYSTEM_VISIBLE"))
+    )
+    if system_tasks_visible:
         result = await async_session.exec(select(UserArtifact).where(UserArtifact.artifact_type == "parse"))
         parse_links = result.all()
         by_task_id = {
@@ -1104,7 +1109,12 @@ async def list_my_pdf_tasks(
         )
     )
     parse_links = result.all()
-    allowed_task_ids = {item.artifact_key for item in parse_links if item.artifact_key}
+    allowed_task_ids = {
+        value
+        for item in parse_links
+        for value in (item.artifact_key, item.global_artifact_id)
+        if value
+    }
     if not allowed_task_ids:
         return {"tasks": [], "scope": "workspace"}
 
@@ -1190,7 +1200,7 @@ async def pdf_task_financial(
 async def pdf_task_cancel(
     request: Request,
     task_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("report.edit")),
     async_session: AsyncSession = Depends(get_async_session),
 ):
     return await _proxy_pdf_task(
@@ -1207,7 +1217,7 @@ async def pdf_task_cancel(
 async def pdf_task_refetch(
     request: Request,
     task_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("report.create")),
     async_session: AsyncSession = Depends(get_async_session),
 ):
     return await _proxy_pdf_task(
@@ -1224,7 +1234,7 @@ async def pdf_task_refetch(
 async def pdf_task_reparse(
     request: Request,
     task_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("report.create")),
     async_session: AsyncSession = Depends(get_async_session),
 ):
     return await _proxy_pdf_task(
@@ -1341,7 +1351,7 @@ async def pdf_task_source_correction(
     request: Request,
     task_id: str,
     table_index: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("report.edit")),
     async_session: AsyncSession = Depends(get_async_session),
 ):
     return await _proxy_pdf_task(
@@ -1375,7 +1385,7 @@ async def pdf_task_page_image(
 async def delete_my_pdf_task(
     request: Request,
     task_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("report.edit")),
     async_session: AsyncSession = Depends(get_async_session),
 ):
     await _ensure_pdf_task_access_async(async_session, current_user, task_id)

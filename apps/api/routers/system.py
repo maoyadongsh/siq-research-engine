@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 
 from services.system_status import collect_system_status
-from routers.auth import require_permission
+from services.auth_dependencies import require_permission
 
 router = APIRouter(
     prefix="/system",

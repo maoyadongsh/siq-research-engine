@@ -9,15 +9,14 @@ import os
 import re
 from pathlib import Path
 from typing import Optional
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status, Request
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import APIRouter, Depends, HTTPException, Response, status, Request
 from sqlmodel import Session, select
-from sqlmodel.ext.asyncio.session import AsyncSession
 
 from database import get_async_session, get_session
+from services.auth_dependencies import get_current_user, require_permission
 from services.auth_service import (
     User, AuditLog, ReportReview,
-    AuthService, PermissionChecker, AuditLogger, ReportSignature,
+    AuthService, AuditLogger, ReportSignature,
     LoginRequest, LoginResponse, UserCreate, UserUpdate, UserBatchUpdate, ReportReviewCreate,
     UserRole,
 )
@@ -31,7 +30,6 @@ from services.usage_service import (
 )
 
 router = APIRouter(tags=["authentication"])
-security = HTTPBearer(auto_error=False)
 
 REPORT_GENERATOR_METADATA_KEYS = {"generated_by", "generatedby", "generator", "siq:generated_by", "siq:generator"}
 
@@ -167,11 +165,46 @@ def _login_response_for_user(user: User) -> LoginResponse:
     )
 
 
+def _cookie_security_options() -> tuple[str, bool]:
+    same_site = AuthService.access_cookie_samesite()
+    secure = AuthService.access_cookie_secure() or same_site == "none"
+    return same_site, secure
+
+
+def _set_csrf_cookie(response: Response, csrf_token: str | None = None) -> str | None:
+    if not AuthService.cookie_mode_enabled():
+        return None
+    same_site, secure = _cookie_security_options()
+    token = csrf_token or AuthService.create_csrf_token()
+    response.set_cookie(
+        key=AuthService.CSRF_COOKIE_NAME,
+        value=token,
+        max_age=AuthService.access_cookie_max_age_seconds(),
+        path=AuthService.ACCESS_COOKIE_PATH,
+        httponly=False,
+        secure=secure,
+        samesite=same_site,
+    )
+    return token
+
+
+def _clear_csrf_cookie(response: Response) -> None:
+    if not AuthService.cookie_mode_enabled():
+        return
+    same_site, secure = _cookie_security_options()
+    response.delete_cookie(
+        key=AuthService.CSRF_COOKIE_NAME,
+        path=AuthService.ACCESS_COOKIE_PATH,
+        httponly=False,
+        secure=secure,
+        samesite=same_site,
+    )
+
+
 def _set_access_cookie(response: Response, token: str) -> None:
     if not AuthService.cookie_mode_enabled():
         return
-    same_site = AuthService.access_cookie_samesite()
-    secure = AuthService.access_cookie_secure() or same_site == "none"
+    same_site, secure = _cookie_security_options()
     response.set_cookie(
         key=AuthService.ACCESS_COOKIE_NAME,
         value=token,
@@ -181,13 +214,13 @@ def _set_access_cookie(response: Response, token: str) -> None:
         secure=secure,
         samesite=same_site,
     )
+    _set_csrf_cookie(response)
 
 
 def _clear_access_cookie(response: Response) -> None:
     if not AuthService.cookie_mode_enabled():
         return
-    same_site = AuthService.access_cookie_samesite()
-    secure = AuthService.access_cookie_secure() or same_site == "none"
+    same_site, secure = _cookie_security_options()
     response.delete_cookie(
         key=AuthService.ACCESS_COOKIE_NAME,
         path=AuthService.ACCESS_COOKIE_PATH,
@@ -195,6 +228,7 @@ def _clear_access_cookie(response: Response) -> None:
         secure=secure,
         samesite=same_site,
     )
+    _clear_csrf_cookie(response)
 
 
 def _role_value(role) -> str:
@@ -243,78 +277,6 @@ def _apply_user_update_fields(target_user: User, user_data: UserUpdate, current_
         target_user.approval_note = user_data.approval_note
     if user_data.is_active is not None:
         target_user.is_active = user_data.is_active
-
-# ============ 依赖注入 ============
-
-async def get_current_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(security),
-    session: AsyncSession = Depends(get_async_session),
-    access_token_cookie: str | None = Cookie(default=None, alias=AuthService.ACCESS_COOKIE_NAME),
-) -> User:
-    """获取当前登录用户"""
-    token = credentials.credentials if credentials is not None else access_token_cookie
-    if not token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="无效的访问令牌",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    payload = AuthService.decode_token(token)
-
-    if payload is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="无效的访问令牌",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    username: str = payload.get("sub")
-    if username is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="令牌格式错误",
-        )
-
-    result = await session.exec(select(User).where(User.username == username))
-    user = result.first()
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="用户不存在",
-        )
-
-    approval_status = getattr(user, "approval_status", "approved")
-    if approval_status == "pending":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="账户待管理员审核，通过后即可登录",
-        )
-    if approval_status == "rejected":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=user.approval_note or "账户申请未通过，请联系管理员",
-        )
-
-    if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="用户已被禁用",
-        )
-
-    return user
-
-
-def require_permission(permission: str):
-    """权限依赖工厂"""
-    async def permission_checker(current_user: User = Depends(get_current_user)):
-        if not PermissionChecker.has_permission(current_user, permission):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"权限不足：需要 {permission} 权限",
-            )
-        return current_user
-    return permission_checker
-
 
 # ============ 认证接口 ============
 
@@ -432,8 +394,9 @@ def logout(
 
 
 @router.get("/me")
-def get_current_user_info(current_user: User = Depends(get_current_user)):
+def get_current_user_info(response: Response, current_user: User = Depends(get_current_user)):
     """获取当前用户信息"""
+    _set_csrf_cookie(response)
     return {
         "id": current_user.id,
         "username": current_user.username,

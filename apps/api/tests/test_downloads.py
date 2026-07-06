@@ -107,12 +107,33 @@ def test_admin_delete_downloaded_report_removes_file(monkeypatch, tmp_path):
     assert not report_path.exists()
 
 
-def test_non_admin_list_downloaded_reports_includes_system_downloads_when_workspace_only_disabled(monkeypatch, tmp_path):
+def test_non_admin_list_downloaded_reports_defaults_to_workspace_only(monkeypatch, tmp_path):
     root = tmp_path / "downloads"
     relative_path = "EU/FR/Demo/2025/annual/report.pdf"
     write_report(root, relative_path)
     monkeypatch.setattr(downloads, "DOWNLOADS_ROOT", root)
     monkeypatch.delenv("SIQ_DOWNLOAD_LIST_WORKSPACE_ONLY", raising=False)
+    monkeypatch.delenv("SIQ_DOWNLOAD_LIST_SYSTEM_VISIBLE", raising=False)
+
+    with make_session(tmp_path) as session:
+        result = downloads.list_downloaded_reports(
+            q="",
+            market="EU",
+            limit=20,
+            current_user=SimpleNamespace(id=2, role="analyst"),
+            session=session,
+        )
+
+    assert result["reports"] == []
+
+
+def test_non_admin_list_downloaded_reports_includes_system_downloads_when_system_visible_enabled(monkeypatch, tmp_path):
+    root = tmp_path / "downloads"
+    relative_path = "EU/FR/Demo/2025/annual/report.pdf"
+    write_report(root, relative_path)
+    monkeypatch.setattr(downloads, "DOWNLOADS_ROOT", root)
+    monkeypatch.delenv("SIQ_DOWNLOAD_LIST_WORKSPACE_ONLY", raising=False)
+    monkeypatch.setenv("SIQ_DOWNLOAD_LIST_SYSTEM_VISIBLE", "1")
 
     with make_session(tmp_path) as session:
         result = downloads.list_downloaded_reports(
@@ -133,6 +154,7 @@ def test_non_admin_list_downloaded_reports_honors_workspace_only_setting(monkeyp
     write_report(root, relative_path)
     monkeypatch.setattr(downloads, "DOWNLOADS_ROOT", root)
     monkeypatch.setenv("SIQ_DOWNLOAD_LIST_WORKSPACE_ONLY", "1")
+    monkeypatch.setenv("SIQ_DOWNLOAD_LIST_SYSTEM_VISIBLE", "1")
 
     with make_session(tmp_path) as session:
         hidden = downloads.list_downloaded_reports(

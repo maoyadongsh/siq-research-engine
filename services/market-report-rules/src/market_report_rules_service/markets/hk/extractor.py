@@ -28,6 +28,13 @@ from ..common import (
 from .rules import find_hk_rule
 
 
+_HK_DEDUCTION_CANONICAL_NAMES = {
+    "cost_of_sales",
+    "finance_costs",
+    "income_tax_expense",
+}
+
+
 def extract_artifact(artifact: ParsedArtifact) -> ExtractionResult:
     profile = get_profile(Market.HK)
     tables = list(artifact.tables) or tables_from_document_full(artifact.document_full)
@@ -275,7 +282,7 @@ def _normalize_statement_value(canonical_name: str, value: Decimal) -> Decimal:
         "borrowings",
         "lease_liabilities",
         "contract_liabilities",
-    } and value < 0:
+    } | _HK_DEDUCTION_CANONICAL_NAMES and value < 0:
         return abs(value)
     return value
 

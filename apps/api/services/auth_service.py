@@ -170,6 +170,7 @@ class AuthService:
     ALGORITHM = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES = _siq_int_env("SIQ_ACCESS_TOKEN_EXPIRE_MINUTES", 480)
     ACCESS_COOKIE_NAME = _siq_env("SIQ_AUTH_ACCESS_COOKIE_NAME", "siq_access_token")
+    CSRF_COOKIE_NAME = _siq_env("SIQ_AUTH_CSRF_COOKIE_NAME", "siq_csrf_token")
     ACCESS_COOKIE_PATH = _siq_env("SIQ_AUTH_COOKIE_PATH", "/")
     PASSWORD_HASH_ITERATIONS = _siq_int_env("SIQ_PASSWORD_HASH_ITERATIONS", 100000)
 
@@ -197,6 +198,21 @@ class AuthService:
     def access_cookie_samesite() -> str:
         value = _siq_env("SIQ_AUTH_COOKIE_SAMESITE", "lax").strip().lower()
         return value if value in {"lax", "strict", "none"} else "lax"
+
+    @staticmethod
+    def create_csrf_token() -> str:
+        return secrets.token_urlsafe(32)
+
+    @staticmethod
+    def csrf_allowed_origins() -> set[str]:
+        raw = _siq_env("SIQ_AUTH_CSRF_ALLOWED_ORIGINS", "")
+        configured = {item.strip().rstrip("/") for item in raw.split(",") if item.strip()}
+        return configured | {
+            "http://localhost:15173",
+            "http://127.0.0.1:15173",
+            "tauri://localhost",
+            "https://tauri.localhost",
+        }
 
     @staticmethod
     def hash_password(password: str) -> str:

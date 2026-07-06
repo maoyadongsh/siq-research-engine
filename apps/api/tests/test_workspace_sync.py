@@ -1039,7 +1039,7 @@ def test_authenticated_pdf_upload_upstream_error_does_not_record_usage_or_artifa
     assert artifacts == []
 
 
-def test_list_my_pdf_tasks_enriches_market_for_system_scope(monkeypatch, tmp_path):
+def test_list_my_pdf_tasks_defaults_to_workspace_scope_for_non_admin(monkeypatch, tmp_path):
     upstream_tasks = {
         "tasks": [
             {"task_id": "eu-task", "filename": "plain.pdf", "status": "queued"},
@@ -1067,6 +1067,64 @@ def test_list_my_pdf_tasks_enriches_market_for_system_scope(monkeypatch, tmp_pat
     monkeypatch.setattr(workspace, "PDF2MD_API_BASE", "http://pdf2md.test")
     monkeypatch.setattr(workspace.httpx, "AsyncClient", FakeAsyncClient)
     monkeypatch.delenv("SIQ_PDF_TASK_LIST_WORKSPACE_ONLY", raising=False)
+    monkeypatch.delenv("SIQ_PDF_TASK_LIST_SYSTEM_VISIBLE", raising=False)
+
+    async def run_case(async_session):
+        await workspace.record_user_artifact_async(
+            async_session,
+            user_id=2,
+            artifact_type="parse",
+            artifact_key="eu-task",
+            title="plain.pdf",
+            path="http://pdf2md.test/api/result/eu-task?market=EU",
+            source="new_parse",
+            global_artifact_id="eu-task",
+        )
+        return await workspace.list_my_pdf_tasks(
+            current_user=SimpleNamespace(id=1, role="user"),
+            async_session=async_session,
+        )
+
+    result = anyio.run(
+        _with_async_session,
+        tmp_path,
+        "workspace-list-market-default-workspace.db",
+        run_case,
+    )
+
+    assert result["scope"] == "workspace"
+    assert result["tasks"] == []
+
+
+def test_list_my_pdf_tasks_enriches_market_for_explicit_system_scope(monkeypatch, tmp_path):
+    upstream_tasks = {
+        "tasks": [
+            {"task_id": "eu-task", "filename": "plain.pdf", "status": "queued"},
+            {"task_id": "us-task", "filename": "NVIDIA_US_manual_upload.pdf", "status": "queued"},
+        ]
+    }
+
+    class FakeAsyncClient:
+        def __init__(self, timeout=None):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url, headers=None):
+            assert url == "http://pdf2md.test/api/tasks"
+            return SimpleNamespace(
+                raise_for_status=lambda: None,
+                json=lambda: upstream_tasks,
+            )
+
+    monkeypatch.setattr(workspace, "PDF2MD_API_BASE", "http://pdf2md.test")
+    monkeypatch.setattr(workspace.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.delenv("SIQ_PDF_TASK_LIST_WORKSPACE_ONLY", raising=False)
+    monkeypatch.setenv("SIQ_PDF_TASK_LIST_SYSTEM_VISIBLE", "1")
 
     async def run_case(async_session):
         await workspace.record_user_artifact_async(
@@ -1126,6 +1184,7 @@ def test_list_my_pdf_tasks_workspace_only_enriches_market_from_user_artifact(mon
     monkeypatch.setattr(workspace, "PDF2MD_API_BASE", "http://pdf2md.test")
     monkeypatch.setattr(workspace.httpx, "AsyncClient", FakeAsyncClient)
     monkeypatch.setenv("SIQ_PDF_TASK_LIST_WORKSPACE_ONLY", "true")
+    monkeypatch.setenv("SIQ_PDF_TASK_LIST_SYSTEM_VISIBLE", "1")
 
     async def run_case(async_session):
         await workspace.record_user_artifact_async(

@@ -1,29 +1,6 @@
-import { accessToken, authCookieModeEnabled } from './apiClient'
+import { accessToken, attachCsrfHeader, authCookieModeEnabled, shouldAttachAuth } from './apiClient'
 
 const nativeFetch = globalThis.fetch.bind(globalThis)
-
-function shouldAttachAuth(url: string) {
-  if (url.startsWith('/api/') || url === '/api' || url.startsWith('/pdfapi/')) return true
-  if (typeof window === 'undefined') return false
-  try {
-    const parsed = new URL(url)
-    const isSiqApiPath = parsed.pathname.startsWith('/api/') ||
-      parsed.pathname === '/api' ||
-      parsed.pathname.startsWith('/pdfapi/')
-    if (!isSiqApiPath) return false
-    if (parsed.origin === window.location.origin) return true
-
-    const apiBase = window.localStorage.getItem('api_base') || ''
-    if (!apiBase) return false
-    try {
-      return parsed.origin === new URL(apiBase).origin
-    } catch {
-      return false
-    }
-  } catch {
-    return false
-  }
-}
 
 export async function fetchWithAuth(input: RequestInfo | URL, init: RequestInit = {}) {
   const url = typeof input === 'string'
@@ -37,6 +14,8 @@ export async function fetchWithAuth(input: RequestInfo | URL, init: RequestInit 
   if (token && shouldAttachAuth(url) && !headers.has('Authorization')) {
     headers.set('Authorization', `Bearer ${token}`)
   }
+  const method = init.method || (typeof input !== 'string' && !(input instanceof URL) ? input.method : undefined) || 'GET'
+  attachCsrfHeader(headers, url, method)
 
   const requestInit: RequestInit = { ...init, headers }
   if (requestInit.credentials === undefined && authCookieModeEnabled() && shouldAttachAuth(url)) {

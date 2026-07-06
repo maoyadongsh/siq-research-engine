@@ -31,6 +31,12 @@ _EU_LIABILITY_CANONICAL_NAMES = {
     "total_liabilities",
 }
 
+_EU_DEDUCTION_CANONICAL_NAMES = {
+    "cost_of_sales",
+    "finance_costs",
+    "income_tax_expense",
+}
+
 
 def extract_artifact(artifact: ParsedArtifact) -> ExtractionResult:
     profile = get_profile(Market.EU)
@@ -686,7 +692,7 @@ def _derive_missing_facts(facts: list[ExtractedFact], artifact: ParsedArtifact) 
 
 
 def _normalize_eu_fact_value(canonical_name: str, value: Decimal) -> Decimal:
-    if canonical_name in _EU_LIABILITY_CANONICAL_NAMES and value < 0:
+    if canonical_name in _EU_LIABILITY_CANONICAL_NAMES | _EU_DEDUCTION_CANONICAL_NAMES and value < 0:
         return -value
     return value
 

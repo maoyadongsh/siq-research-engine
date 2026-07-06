@@ -10,7 +10,7 @@ from sqlmodel import Session, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from database import get_async_session
-from services.auth_dependencies import get_current_user
+from services.auth_dependencies import get_current_user, require_permission
 from services.auth_service import User
 from services.usage_service import (
     DOCUMENT_PARSE_EVENT,
@@ -382,7 +382,7 @@ async def create_document_tasks(
     extra_formats: str = Form(""),
     no_cache: str = Form("false"),
     data_id: str = Form(""),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("report.create")),
     async_session: AsyncSession = Depends(get_async_session),
 ):
     requested_market = ""
@@ -484,7 +484,7 @@ async def create_document_tasks(
 @router.post("/import/mineru")
 async def import_document_from_mineru(
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("report.create")),
     async_session: AsyncSession = Depends(get_async_session),
 ):
     payload = await request.json()
@@ -638,7 +638,7 @@ async def get_document_result(
 async def cancel_document_task(
     request: Request,
     task_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("report.edit")),
     async_session: AsyncSession = Depends(get_async_session),
 ):
     await _ensure_document_task_access_async(async_session, current_user, task_id)
@@ -649,7 +649,7 @@ async def cancel_document_task(
 async def retry_document_task(
     request: Request,
     task_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("report.create")),
     async_session: AsyncSession = Depends(get_async_session),
 ):
     await _ensure_document_task_access_async(async_session, current_user, task_id)
@@ -671,7 +671,7 @@ async def retry_document_task(
 async def delete_document_task(
     request: Request,
     task_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("report.edit")),
     async_session: AsyncSession = Depends(get_async_session),
 ):
     await _ensure_document_task_access_async(async_session, current_user, task_id)
@@ -843,7 +843,7 @@ async def review_document_table_relation(
     request: Request,
     task_id: str,
     relation_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("report.edit")),
     async_session: AsyncSession = Depends(get_async_session),
 ):
     await _ensure_document_task_access_async(async_session, current_user, task_id)
@@ -861,7 +861,7 @@ async def split_document_logical_table(
     request: Request,
     task_id: str,
     logical_table_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("report.edit")),
     async_session: AsyncSession = Depends(get_async_session),
 ):
     await _ensure_document_task_access_async(async_session, current_user, task_id)
@@ -878,7 +878,7 @@ async def split_document_logical_table(
 async def merge_document_logical_tables(
     request: Request,
     task_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("report.edit")),
     async_session: AsyncSession = Depends(get_async_session),
 ):
     await _ensure_document_task_access_async(async_session, current_user, task_id)
@@ -903,7 +903,7 @@ async def document_extraction_templates(
 async def extract_document_schema(
     request: Request,
     task_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("report.create")),
     async_session: AsyncSession = Depends(get_async_session),
 ):
     await _ensure_document_task_access_async(async_session, current_user, task_id)

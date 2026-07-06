@@ -103,8 +103,12 @@ def test_load_chat_run_preflight_context_uses_runtime_patch_points(monkeypatch):
             assert current_session_id == "preflight-context-session"
             return "<local-memory>older turns only</local-memory>"
 
+        async def forbidden_ensure_agent_memory_context(*_args, **_kwargs):
+            raise AssertionError("message-free preflight must not query agent memory")
+
         monkeypatch.setattr(runtime, "load_history", fake_load_history)
         monkeypatch.setattr(runtime, "ensure_local_memory_context", fake_ensure_local_memory_context)
+        monkeypatch.setattr(runtime, "ensure_agent_memory_context", forbidden_ensure_agent_memory_context)
 
         return await runtime._load_chat_run_preflight_context(
             object(),
@@ -122,6 +126,56 @@ def test_load_chat_run_preflight_context_uses_runtime_patch_points(monkeypatch):
     assert preflight_context.attachments is attachments
     assert preflight_context.allow_initialize is False
     assert runtime.ChatRunPreflightContext(history=[], local_memory_context=None, attachments=[]).allow_initialize is True
+
+
+def test_load_chat_run_preflight_context_uses_current_message_for_agent_memory(monkeypatch):
+    async def run_case():
+        calls: list[str] = []
+        attachments = [{"path": "/tmp/report.pdf", "kind": "document"}]
+        history = [{"role": "user", "content": "older question"}]
+
+        async def fake_load_history(_async_session, current_session_id, *, limit):
+            calls.append("load_history")
+            assert current_session_id == "preflight-context-message-session"
+            assert limit == 5
+            return history
+
+        async def fake_ensure_local_memory_context(_async_session, profile, current_session_id):
+            calls.append("ensure_local_memory_context")
+            assert profile == "siq_assistant"
+            assert current_session_id == "preflight-context-message-session"
+            return "<local-memory>older turns only</local-memory>"
+
+        async def fake_ensure_agent_memory_context(_async_session, profile, current_session_id, message):
+            calls.append("ensure_agent_memory_context")
+            assert profile == "siq_assistant"
+            assert current_session_id == "preflight-context-message-session"
+            assert message == "当前问题要检索 agent memory"
+            return "<agent-memory>matched current message</agent-memory>"
+
+        monkeypatch.setattr(runtime, "load_history", fake_load_history)
+        monkeypatch.setattr(runtime, "ensure_local_memory_context", fake_ensure_local_memory_context)
+        monkeypatch.setattr(runtime, "ensure_agent_memory_context", fake_ensure_agent_memory_context)
+
+        return await runtime._load_chat_run_preflight_context(
+            object(),
+            session_id="preflight-context-message-session",
+            profile="siq_assistant",
+            attachments=attachments,
+            history_limit=5,
+            message="当前问题要检索 agent memory",
+        ), calls, history, attachments
+
+    preflight_context, calls, history, attachments = anyio.run(run_case)
+
+    assert calls == ["load_history", "ensure_local_memory_context", "ensure_agent_memory_context"]
+    assert preflight_context.history is history
+    assert preflight_context.local_memory_context == (
+        "<local-memory>older turns only</local-memory>\n\n"
+        "<agent-memory>matched current message</agent-memory>"
+    )
+    assert preflight_context.attachments is attachments
+    assert preflight_context.allow_initialize is False
 
 
 def test_collect_chat_reply_preflight_loads_context_before_saving_current_user(monkeypatch):

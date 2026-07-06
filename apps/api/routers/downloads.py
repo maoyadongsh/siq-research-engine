@@ -56,6 +56,10 @@ def _is_admin(user: User) -> bool:
     return _role_value(user) in {"admin", "super_admin"}
 
 
+def _env_truthy(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _metadata_path(path: Path) -> Path:
     return path.with_suffix(path.suffix + ".metadata.json")
 
@@ -218,7 +222,10 @@ def list_downloaded_reports(
         raise HTTPException(400, "Unsupported market")
     reports = []
 
-    system_downloads_visible = os.environ.get("SIQ_DOWNLOAD_LIST_WORKSPACE_ONLY", "").strip().lower() not in {"1", "true", "yes"}
+    system_downloads_visible = (
+        not _env_truthy("SIQ_DOWNLOAD_LIST_WORKSPACE_ONLY")
+        and (_is_admin(current_user) or _env_truthy("SIQ_DOWNLOAD_LIST_SYSTEM_VISIBLE"))
+    )
     if _is_admin(current_user) or system_downloads_visible:
         candidate_paths = _all_download_candidate_paths()
     else:

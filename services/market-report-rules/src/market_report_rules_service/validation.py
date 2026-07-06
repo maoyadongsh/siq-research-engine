@@ -30,18 +30,10 @@ def validate_extraction(extraction: ExtractionResult) -> ValidationResult:
     summary = {status.value: 0 for status in CheckStatus}
     for check in checks:
         summary[check.status.value] = summary.get(check.status.value, 0) + 1
-    overall = (
-        CheckStatus.FAIL
-        if summary.get(CheckStatus.FAIL.value)
-        else (
-            CheckStatus.WARNING
-            if summary.get(CheckStatus.WARNING.value)
-            else (CheckStatus.PASS if summary.get(CheckStatus.PASS.value) else CheckStatus.SKIPPED)
-        )
-    )
     warnings = list(extraction.warnings)
     profile = get_industry_profile(extraction.industry_profile)
     warnings.extend(profile.validation_notes)
+    overall = _overall_status_from_checks(checks, warnings)
     return ValidationResult(
         rule_version=extraction.rule_version,
         profile_id=extraction.profile_id,
@@ -53,6 +45,47 @@ def validate_extraction(extraction: ExtractionResult) -> ValidationResult:
         checks=checks,
         warnings=warnings,
     )
+
+
+def _overall_status_from_checks(checks: list[ValidationCheck], warnings: list[str]) -> CheckStatus:
+    if any(check.status == CheckStatus.FAIL for check in checks):
+        return CheckStatus.FAIL
+
+    required_statements_complete = _required_statements_complete(checks)
+    if any(
+        check.status == CheckStatus.WARNING
+        and _is_blocking_validation_warning(check, required_statements_complete=required_statements_complete)
+        for check in checks
+    ):
+        return CheckStatus.WARNING
+    if _has_blocking_warning_text(warnings):
+        return CheckStatus.WARNING
+    if any(check.status == CheckStatus.PASS for check in checks):
+        return CheckStatus.PASS
+    if any(check.status == CheckStatus.WARNING for check in checks):
+        return CheckStatus.WARNING
+    return CheckStatus.SKIPPED
+
+
+def _required_statements_complete(checks: list[ValidationCheck]) -> bool:
+    required = [check for check in checks if check.rule_id.startswith("required.statement.")]
+    return len(required) == 3 and all(check.status == CheckStatus.PASS for check in required)
+
+
+def _is_blocking_validation_warning(check: ValidationCheck, *, required_statements_complete: bool) -> bool:
+    if check.reason == "dimension_specific_scope":
+        return False
+    if required_statements_complete and check.reason in {
+        "required_metric_missing_for_industry_profile",
+        "alternative_total_liabilities_and_equity_bridge_passed",
+    }:
+        return False
+    return True
+
+
+def _has_blocking_warning_text(warnings: list[str]) -> bool:
+    text = " ".join(str(item or "") for item in warnings).lower()
+    return any(token in text for token in ("critical warning", "critical_warnings", "hash mismatch", "hash_mismatch"))
 
 
 def _all_facts(extraction: ExtractionResult) -> Iterable[ExtractedFact]:
@@ -836,7 +869,7 @@ def _missing_statement_reason(extraction: ExtractionResult, status: CheckStatus,
         if statement_type is not None and any(statement.statement_type == statement_type for statement in extraction.statements):
             return "statement_only_summary_or_note_facts_found_for_jp_annual_report"
         return "statement_not_extracted_or_not_located_for_jp_report"
-    if extraction.market in {Market.EU, Market.KR} and status == CheckStatus.WARNING:
+    if extraction.market in {Market.EU, Market.KR} and status == CheckStatus.WARNING and _parser_coverage_incomplete_for_required_statements(extraction):
         return f"statement_not_extracted_or_parser_coverage_incomplete_for_{extraction.market.value.lower()}_report"
     return "statement_missing_for_report_type"
 

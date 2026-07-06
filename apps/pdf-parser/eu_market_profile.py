@@ -221,6 +221,8 @@ _CORE_STATEMENT_NAMES = {
     "Consolidated Statement of Cash Flows",
 }
 
+_EU_FULL_REPORT_KINDS = {"eu_annual_report", "eu_esef_annual_report"}
+
 _FINANCIAL_HIGHLIGHT_TITLE_TERMS = (
     "financial highlights",
     "group highlights",
@@ -1483,7 +1485,13 @@ def _numeric_check(
     }
 
 
-def _presence_check(statement_type: str, statement: dict[str, Any] | None, *, no_structured_statements: bool = False) -> dict[str, Any]:
+def _presence_check(
+    statement_type: str,
+    statement: dict[str, Any] | None,
+    *,
+    required: bool = False,
+    no_structured_statements: bool = False,
+) -> dict[str, Any]:
     names = {
         "balance_sheet": "Required EU/IFRS statement present: statement of financial position / balance sheet",
         "income_statement": "Required EU/IFRS statement present: income statement / profit or loss",
@@ -1492,6 +1500,12 @@ def _presence_check(statement_type: str, statement: dict[str, Any] | None, *, no
     if statement:
         status = "pass"
         reason = "statement_found"
+    elif required:
+        status = "fail"
+        if no_structured_statements:
+            reason = "required_statement_not_extracted_or_parser_coverage_incomplete_for_eu_annual_report"
+        else:
+            reason = "required_statement_not_extracted_for_eu_annual_report"
     elif no_structured_statements:
         status = "warning"
         reason = "statement_not_extracted_or_parser_coverage_incomplete_for_eu_report"
@@ -1525,12 +1539,20 @@ def build_eu_financial_checks(data: dict[str, Any]) -> dict[str, Any]:
     income = _statement_by(data, "income_statement")
     cash = _statement_by(data, "cash_flow_statement")
     no_structured_statements = not any(data.get("statements") or [])
+    requires_core_statements = str(data.get("report_kind") or "") in _EU_FULL_REPORT_KINDS
     for statement_type, statement in (
         ("balance_sheet", balance),
         ("income_statement", income),
         ("cash_flow_statement", cash),
     ):
-        checks.append(_presence_check(statement_type, statement, no_structured_statements=no_structured_statements))
+        checks.append(
+            _presence_check(
+                statement_type,
+                statement,
+                required=requires_core_statements,
+                no_structured_statements=no_structured_statements,
+            )
+        )
 
     for period in _periods_for_statement(balance):
         total_assets = _value(balance, "total_assets", period)
@@ -1641,7 +1663,11 @@ def build_eu_financial_checks(data: dict[str, Any]) -> dict[str, Any]:
     if not data.get("statements"):
         warnings.append("EU PDF 未确认完整结构化 IFRS 财务报表，已按候选识别模式处理；完整数值勾稽建议结合 ESEF/iXBRL 或原文表格复核。")
         warnings.append("EU 三大报表是年度报告应有项目；当前结果表示解析产物未抽到可校验正式报表，而不是判定公司不存在报表。")
-    missing = [item for item in checks if item.get("rule_id", "").startswith("eu.presence.") and item.get("status") == "warning"]
+    missing = [
+        item
+        for item in checks
+        if item.get("rule_id", "").startswith("eu.presence.") and item.get("status") in {"fail", "warning"}
+    ]
     if missing:
         warnings.append("EU 年报结构化报表覆盖不足；当前表示解析产物未抽取/未定位到正式 IFRS 报表，请优先复核 Financial Statements 附近表格。")
 

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 
-from routers.auth import require_permission
+from services.auth_dependencies import require_permission
 from services.llm_settings import LLMSettingsUpdate, LLMTestRequest, load_llm_settings, save_llm_settings, test_llm_provider
 
 router = APIRouter(

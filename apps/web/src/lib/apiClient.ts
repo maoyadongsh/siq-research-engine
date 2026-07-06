@@ -5,8 +5,12 @@ export {
   apiJson,
   apiText,
   accessToken,
+  attachCsrfHeader,
   authCookieModeEnabled,
+  csrfCookieName,
+  csrfToken,
   readJsonResponse,
+  shouldAttachAuth,
   type ApiErrorInit,
   type ApiRequestInit,
 } from '../shared/api/client'

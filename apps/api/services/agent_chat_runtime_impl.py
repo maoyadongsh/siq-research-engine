@@ -5481,11 +5481,11 @@ async def _prepare_chat_request_envelope(
 async def _load_chat_run_preflight_context(
     async_session: AsyncSession,
     *,
-    message: str,
     session_id: str,
     profile: HermesProfile,
     attachments: list[dict[str, Any]],
     history_limit: int,
+    message: str = "",
 ) -> ChatRunPreflightContext:
     preflight_context = await agent_runtime_preflight.load_chat_run_preflight_context(
         async_session,
@@ -5496,6 +5496,8 @@ async def _load_chat_run_preflight_context(
         load_history=load_history,
         ensure_local_memory_context=ensure_local_memory_context,
     )
+    if not str(message or "").strip():
+        return preflight_context
     agent_memory_context = await ensure_agent_memory_context(async_session, profile, session_id, message)
     if not agent_memory_context:
         return preflight_context

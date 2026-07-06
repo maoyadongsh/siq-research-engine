@@ -47,7 +47,7 @@ function toUrlString(input: RequestInfo | URL): string {
   return input.url
 }
 
-function shouldAttachAuth(url: string): boolean {
+export function shouldAttachAuth(url: string): boolean {
   if (url.startsWith('/api/') || url === '/api' || url.startsWith('/pdfapi/')) return true
   if (typeof window === 'undefined') return false
   try {
@@ -104,6 +104,45 @@ function runtimeFlag(name: string): string {
 
 export function authCookieModeEnabled() {
   return truthyFlag(runtimeFlag('SIQ_AUTH_COOKIE_MODE'))
+}
+
+export function csrfCookieName() {
+  return runtimeFlag('SIQ_AUTH_CSRF_COOKIE_NAME') || 'siq_csrf_token'
+}
+
+function readCookie(name: string): string {
+  if (typeof document === 'undefined') return ''
+  const prefix = `${encodeURIComponent(name)}=`
+  const item = document.cookie
+    .split(';')
+    .map((part) => part.trim())
+    .find((part) => part === prefix.slice(0, -1) || part.startsWith(prefix))
+  if (!item || !item.startsWith(prefix)) return ''
+  try {
+    return decodeURIComponent(item.slice(prefix.length))
+  } catch {
+    return item.slice(prefix.length)
+  }
+}
+
+export function csrfToken() {
+  return readCookie(csrfCookieName())
+}
+
+function requestMethod(input: RequestInfo | URL, init: ApiRequestInit | RequestInit): string {
+  const method = init.method || (typeof input !== 'string' && !(input instanceof URL) ? input.method : undefined)
+  return String(method || 'GET').toUpperCase()
+}
+
+function isUnsafeMethod(method: string): boolean {
+  return !['GET', 'HEAD', 'OPTIONS', 'TRACE'].includes(method.toUpperCase())
+}
+
+export function attachCsrfHeader(headers: Headers, url: string, method: string) {
+  if (!authCookieModeEnabled() || !shouldAttachAuth(url) || !isUnsafeMethod(method)) return
+  if (headers.has('Authorization') || headers.has('X-CSRF-Token') || headers.has('X-SIQ-CSRF-Token')) return
+  const token = csrfToken()
+  if (token) headers.set('X-CSRF-Token', token)
 }
 
 function attachAuthorization(headers: Headers, url: string) {
@@ -188,6 +227,7 @@ export async function apiFetch(input: RequestInfo | URL, init: ApiRequestInit = 
   attachAuthorization(headers, url)
 
   const body = prepareBodyAndHeaders(init, headers)
+  attachCsrfHeader(headers, url, requestMethod(input, init))
   const requestInit: RequestInit = { ...init, headers, body }
   if (requestInit.credentials === undefined && authCookieModeEnabled() && shouldAttachAuth(url)) {
     requestInit.credentials = 'include'

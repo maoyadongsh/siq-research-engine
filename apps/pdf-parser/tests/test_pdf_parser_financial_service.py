@@ -506,6 +506,12 @@ def test_write_financial_artifacts_dispatches_eu_market_to_eu_checks(tmp_path):
     assert data["market"] == "EU"
     assert checks["market"] == "EU"
     assert checks["overall_status"] == "fail"
+    assert checks["summary"]["fail"] == 3
+    assert {
+        item["statement_type"]
+        for item in checks["checks"]
+        if item.get("status") == "fail"
+    } == {"balance_sheet", "income_statement", "cash_flow_statement"}
     assert writes["financial_data.json"]["market"] == "EU"
     assert writes["financial_checks.json"]["market"] == "EU"
     assert not any("未提取到合并资产负债表" in item for item in checks["warnings"])
