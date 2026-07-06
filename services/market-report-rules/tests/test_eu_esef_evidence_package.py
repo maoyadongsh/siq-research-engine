@@ -69,7 +69,7 @@ def test_build_eu_esef_evidence_package_from_xhtml(tmp_path, monkeypatch):
         {
             "candidate": {
                 "source_id": "eu_direct",
-                "source_tier": "official_direct",
+                "source_tier": "local_uploaded",
                 "country": "NL",
                 "ticker": "ASML",
                 "company_name": "ASML Holding N.V.",
@@ -78,6 +78,7 @@ def test_build_eu_esef_evidence_package_from_xhtml(tmp_path, monkeypatch):
                 "report_end": "2025-12-31",
                 "published_at": "2026-02-11",
                 "document_url": "https://example.test/asml.xhtml",
+                "source_tier": "local_uploaded",
             }
         },
     )
@@ -120,6 +121,7 @@ def test_build_eu_html_evidence_package_from_plain_html(tmp_path, monkeypatch):
                 "report_end": "2025-12-31",
                 "published_at": "2026-02-11",
                 "document_url": "https://example.test/asml.html",
+                "source_tier": "local_uploaded",
             }
         },
     )
@@ -162,6 +164,7 @@ def test_build_eu_esef_evidence_package_from_zip(tmp_path, monkeypatch):
                 "report_end": "2025-12-31",
                 "published_at": "2026-02-11",
                 "document_url": "https://example.test/asml-esef.zip",
+                "source_tier": "local_uploaded",
             }
         },
     )

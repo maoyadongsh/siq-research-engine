@@ -1,3 +1,4 @@
+import hashlib
 import json
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from siq_market_contracts import (
     validate_evidence_package,
     write_json,
 )
+from siq_market_contracts.evidence_package import evidence_value_verification_summary
 
 
 def _financial_data() -> dict:
@@ -57,6 +59,7 @@ def _write_package(root: Path) -> Path:
         (package_dir / name).mkdir(parents=True, exist_ok=True)
     (package_dir / "README.md").write_text("# Test\n", encoding="utf-8")
     (package_dir / "raw" / "report.pdf").write_bytes(b"%PDF-1.4 test")
+    source_digest = hashlib.sha256((package_dir / "raw" / "report.pdf").read_bytes()).hexdigest()
     (package_dir / "sections" / "report.md").write_text("# Report\n", encoding="utf-8")
     write_json(package_dir / "tables" / "table_index.json", {"tables": [{"table_index": 1}]})
     write_json(package_dir / "xbrl" / "facts_raw.json", {"facts": []})
@@ -77,6 +80,20 @@ def _write_package(root: Path) -> Path:
         "period_end": "2025-12-31",
         "published_at": "2026-04-09",
         "source_url": "https://www1.hkexnews.hk/example.pdf",
+        "source_tier": "official_regulator",
+        "source_verification_status": "official_verified",
+        "source_manifest": {
+            "schema_version": "siq_source_manifest_v1",
+            "source_tier": "official_regulator",
+            "source_verification_status": "official_verified",
+            "initial_url": "https://www1.hkexnews.hk/example.pdf",
+            "final_url": "https://www1.hkexnews.hk/example.pdf",
+            "redirect_chain": [],
+            "content_sha256": source_digest,
+            "content_hash": f"sha256:{source_digest}",
+            "retrieved_at": "2026-07-06T00:00:00Z",
+            "regulator_host_verified": True,
+        },
         "local_source_path": "raw/report.pdf",
         "accounting_standard": "HKFRS",
         "parser_version": "test_parser_v1",
@@ -108,6 +125,39 @@ def _write_package(root: Path) -> Path:
     manifest["artifact_hashes"] = compute_artifact_hashes(package_dir)
     write_json(package_dir / "manifest.json", manifest)
     return package_dir
+
+
+def _mark_quality_pass(package_dir: Path) -> None:
+    quality_path = package_dir / "qa" / "quality_report.json"
+    quality = json.loads(quality_path.read_text(encoding="utf-8"))
+    quality["overall_status"] = "pass"
+    quality["required_statement_status"] = {
+        "income_statement": "present",
+        "balance_sheet": "present",
+        "cash_flow_statement": "present",
+    }
+    quality["parser_warnings"] = []
+    quality["rule_warnings"] = []
+    quality["critical_warnings"] = []
+    write_json(quality_path, quality)
+
+    checks_path = package_dir / "metrics" / "financial_checks.json"
+    checks = json.loads(checks_path.read_text(encoding="utf-8"))
+    checks["overall_status"] = "pass"
+    checks["warnings"] = []
+    write_json(checks_path, checks)
+
+    manifest = json.loads((package_dir / "manifest.json").read_text(encoding="utf-8"))
+    manifest["quality_status"] = "pass"
+    manifest["artifact_hashes"] = compute_artifact_hashes(package_dir)
+    write_json(package_dir / "manifest.json", manifest)
+
+
+def _update_manifest(package_dir: Path, **updates) -> dict:
+    manifest = json.loads((package_dir / "manifest.json").read_text(encoding="utf-8"))
+    manifest.update(updates)
+    write_json(package_dir / "manifest.json", manifest)
+    return manifest
 
 
 def test_validate_and_read_market_package(tmp_path):
@@ -146,11 +196,112 @@ def test_validate_and_read_market_package(tmp_path):
     assert {"rule_id", "severity", "reason", "target", "evidence_refs"} <= set(canonical_required_gate)
     assert summary["quality_gates"]["evidence_coverage_ratio"] == 1
     assert summary["quality_gates"]["unresolvable_evidence_count"] == 0
+    assert summary["quality_gates"]["evidence_value_verification_issue_count"] == 0
+    assert summary["quality_gates"]["evidence_value_verification"]["pdf_checked_count"] == 1
+    assert summary["quality_gates"]["evidence_value_verification"]["quote_checked_count"] == 1
+    assert summary["source_tier"] == "official_regulator"
+    assert summary["quality_gates"]["official_evidence_allowed"] is True
     assert "income_statement" in summary["quality_gates"]["missing_required_statements"]
     assert detail["manifest"]["schema_version"] == SCHEMA_VERSION
     assert detail["quality_gates"]["artifact_hash_status"] == "ok"
     assert detail["metrics"] == [{"metric_id": "m1"}]
     assert detail["tables"] == [{"table_index": 1}]
+
+    value_summary = evidence_value_verification_summary(financial_data=detail["financial_data"])
+    assert value_summary["issue_count"] == 0
+    assert value_summary["value_verification_ratio"] == 1
+
+
+def test_quality_gates_allow_official_regulator_source_manifest_for_canonical(tmp_path):
+    package_dir = _write_package(tmp_path)
+    _mark_quality_pass(package_dir)
+
+    gates = build_quality_gates(package_dir)
+
+    assert gates["overall_status"] == "pass"
+    assert gates["source_tier"] == "official_regulator"
+    assert gates["official_evidence_allowed"] is True
+    assert gates["decisions_by_target"]["canonical"]["decision"] == "allow"
+    assert gates["decisions_by_target"]["retrieval"]["decision"] == "allow"
+
+
+def test_quality_gates_review_unverified_web_source_for_canonical(tmp_path):
+    package_dir = _write_package(tmp_path)
+    _mark_quality_pass(package_dir)
+    source_digest = "b" * 64
+    _update_manifest(
+        package_dir,
+        source_url="https://search.example/result?q=tencent",
+        source_tier="unverified_web",
+        source_verification_status="manual_unverified",
+        source_manifest={
+            "schema_version": "siq_source_manifest_v1",
+            "source_tier": "unverified_web",
+            "source_verification_status": "manual_unverified",
+            "initial_url": "https://search.example/result?q=tencent",
+            "final_url": "https://cdn.example/report.pdf",
+            "redirect_chain": [
+                {
+                    "status_code": 302,
+                    "from_url": "https://search.example/result?q=tencent",
+                    "to_url": "https://cdn.example/report.pdf",
+                }
+            ],
+            "content_sha256": source_digest,
+            "content_hash": f"sha256:{source_digest}",
+            "retrieved_at": "2026-07-06T00:00:00Z",
+        },
+    )
+
+    result = validate_evidence_package(package_dir)
+    gates = build_quality_gates(package_dir)
+
+    assert result.ok, result.errors
+    assert gates["overall_status"] == "warning"
+    assert gates["source_tier"] == "unverified_web"
+    assert gates["official_evidence_allowed"] is False
+    assert gates["decisions_by_target"]["canonical"]["decision"] == "review"
+    assert gates["decisions_by_target"]["retrieval"]["decision"] == "review"
+    assert "package.source.unverified_for_official_evidence" in gates["soft_gate_rule_ids"]
+
+
+def test_quality_gates_block_official_regulator_claim_outside_allowlist(tmp_path):
+    package_dir = _write_package(tmp_path)
+    _mark_quality_pass(package_dir)
+    source_digest = "c" * 64
+    _update_manifest(
+        package_dir,
+        source_url="https://www1.hkexnews.hk/example.pdf",
+        source_tier="official_regulator",
+        source_verification_status="official_verified",
+        source_manifest={
+            "schema_version": "siq_source_manifest_v1",
+            "source_tier": "official_regulator",
+            "source_verification_status": "official_verified",
+            "initial_url": "https://www1.hkexnews.hk/example.pdf",
+            "final_url": "https://unknown-cdn.example/example.pdf",
+            "redirect_chain": [
+                {
+                    "status_code": 302,
+                    "from_url": "https://www1.hkexnews.hk/example.pdf",
+                    "to_url": "https://unknown-cdn.example/example.pdf",
+                }
+            ],
+            "content_sha256": source_digest,
+            "content_hash": f"sha256:{source_digest}",
+            "retrieved_at": "2026-07-06T00:00:00Z",
+        },
+    )
+
+    result = validate_evidence_package(package_dir)
+    gates = build_quality_gates(package_dir)
+
+    assert not result.ok
+    assert any("package.source.official_regulator_unverified" in error for error in result.errors)
+    assert gates["overall_status"] == "fail"
+    assert gates["decisions_by_target"]["canonical"]["decision"] == "block"
+    assert gates["decisions_by_target"]["retrieval"]["decision"] == "block"
+    assert "package.source.official_regulator_unverified" in gates["hard_gate_rule_ids"]
 
 
 def test_validate_rejects_missing_evidence(tmp_path):
@@ -164,9 +315,12 @@ def test_validate_rejects_missing_evidence(tmp_path):
     write_json(package_dir / "manifest.json", manifest)
 
     result = validate_evidence_package(package_dir)
+    gates = build_quality_gates(package_dir)
 
     assert not result.ok
     assert any("missing evidence" in error for error in result.errors)
+    assert gates["decisions_by_target"]["canonical"]["decision"] == "block"
+    assert "package.evidence.missing" in gates["hard_gate_rule_ids"]
 
 
 def test_evidence_resolvability_requires_a_reviewable_locator(tmp_path):
@@ -194,6 +348,91 @@ def test_evidence_resolvability_requires_a_reviewable_locator(tmp_path):
     assert gates["evidence_coverage_ratio"] == 0
     assert gates["unresolvable_evidence_count"] == 1
     assert "unresolvable evidence present" in gates["block_reasons"]
+
+
+def test_quality_gates_review_pdf_value_verification_failures(tmp_path):
+    package_dir = _write_package(tmp_path)
+    _mark_quality_pass(package_dir)
+    data_path = package_dir / "metrics" / "financial_data.json"
+    payload = json.loads(data_path.read_text(encoding="utf-8"))
+    payload["statements"][0]["items"][0]["raw_values"]["2025-12-31"] = "2,000"
+    write_json(data_path, payload)
+    manifest = json.loads((package_dir / "manifest.json").read_text(encoding="utf-8"))
+    source_map = source_map_from_financial_data(manifest=manifest, financial_data=payload, package_dir=package_dir)
+    write_json(package_dir / "qa" / "source_map.json", source_map)
+    manifest["artifact_hashes"] = compute_artifact_hashes(package_dir)
+    write_json(package_dir / "manifest.json", manifest)
+
+    gates = build_quality_gates(package_dir)
+
+    assert gates["overall_status"] == "warning"
+    assert gates["decisions_by_target"]["draft"]["decision"] == "allow"
+    assert gates["decisions_by_target"]["canonical"]["decision"] == "review"
+    assert gates["force_allowed"] is True
+    assert gates["evidence_value_verification_issue_count"] == 2
+    assert "package.evidence.value_verification_failed" in gates["soft_gate_rule_ids"]
+    value_gate = next(
+        gate
+        for gate in gates["gate_results"]
+        if gate["rule_id"] == "package.evidence.value_verification_failed" and gate["target"] == "canonical"
+    )
+    assert value_gate["severity"] == "soft"
+    assert value_gate["decision"] == "review"
+
+
+def test_quality_gates_review_quote_value_verification_failures(tmp_path):
+    package_dir = _write_package(tmp_path)
+    _mark_quality_pass(package_dir)
+    data_path = package_dir / "metrics" / "financial_data.json"
+    payload = json.loads(data_path.read_text(encoding="utf-8"))
+    payload["statements"][0]["items"][0]["sources"]["2025-12-31"]["quote_text"] = "Total assets | 2,000"
+    write_json(data_path, payload)
+    manifest = json.loads((package_dir / "manifest.json").read_text(encoding="utf-8"))
+    source_map = source_map_from_financial_data(manifest=manifest, financial_data=payload, package_dir=package_dir)
+    write_json(package_dir / "qa" / "source_map.json", source_map)
+    manifest["artifact_hashes"] = compute_artifact_hashes(package_dir)
+    write_json(package_dir / "manifest.json", manifest)
+
+    gates = build_quality_gates(package_dir)
+
+    assert gates["overall_status"] == "warning"
+    assert gates["decisions_by_target"]["canonical"]["decision"] == "review"
+    assert gates["evidence_value_verification_issue_count"] == 1
+    assert gates["evidence_value_verification"]["quote_failed_count"] == 1
+    assert gates["evidence_value_verification"]["issues"][0]["rule"] == "quote.value.explainable"
+
+
+def test_quality_gates_review_xbrl_value_verification_failures(tmp_path):
+    package_dir = _write_package(tmp_path)
+    _mark_quality_pass(package_dir)
+    data_path = package_dir / "metrics" / "financial_data.json"
+    payload = json.loads(data_path.read_text(encoding="utf-8"))
+    payload["statements"][0]["items"][0]["sources"]["2025-12-31"] = {
+        "source_type": "xbrl_fact",
+        "source_id": "us-gaap:Assets",
+        "xbrl_tag": "us-gaap:Assets",
+        "raw": {
+            "context_ref": "c-2025",
+            "unit_ref": "usd",
+            "period_end": "2025-12-31",
+            "decimals": "-6",
+        },
+    }
+    write_json(data_path, payload)
+    manifest = json.loads((package_dir / "manifest.json").read_text(encoding="utf-8"))
+    source_map = source_map_from_financial_data(manifest=manifest, financial_data=payload, package_dir=package_dir)
+    write_json(package_dir / "qa" / "source_map.json", source_map)
+    manifest["artifact_hashes"] = compute_artifact_hashes(package_dir)
+    write_json(package_dir / "manifest.json", manifest)
+
+    gates = build_quality_gates(package_dir)
+
+    assert gates["overall_status"] == "warning"
+    assert gates["decisions_by_target"]["canonical"]["decision"] == "review"
+    assert gates["evidence_value_verification"]["xbrl_checked_count"] == 1
+    assert gates["evidence_value_verification"]["xbrl_failed_count"] == 1
+    assert gates["evidence_value_verification"]["issues"][0]["rule"] == "xbrl.fields.present"
+    assert "scale" in gates["evidence_value_verification"]["issues"][0]["reason"]
 
 
 def test_quality_gates_fail_on_artifact_hash_mismatch(tmp_path):

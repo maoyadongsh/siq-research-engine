@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass, field
+from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 
 SCHEMA_VERSION = "market_evidence_package_v1"
@@ -48,6 +51,39 @@ _SEVERITY_RANK = {
     GateSeverity.OBSERVE.value: 0,
     GateSeverity.SOFT.value: 1,
     GateSeverity.HARD.value: 2,
+}
+_EMPTY_VALUE_TEXT = {"", "-", "--", "---", "n/a", "na", "null", "none"}
+_NUMBER_RE = re.compile(r"\(?[-+]?\d[\d,']*(?:\.\d+)?%?\)?")
+SOURCE_MANIFEST_VERSION = "siq_source_manifest_v1"
+OFFICIAL_REGULATOR_TIER = "official_regulator"
+OFFICIAL_ISSUER_TIER = "official_issuer"
+RECOGNIZED_VENDOR_TIER = "recognized_vendor"
+UNVERIFIED_WEB_TIER = "unverified_web"
+LOCAL_UPLOADED_TIER = "local_uploaded"
+OFFICIAL_EVIDENCE_TIERS = frozenset({OFFICIAL_REGULATOR_TIER, OFFICIAL_ISSUER_TIER})
+REVIEW_SOURCE_TIERS = frozenset({RECOGNIZED_VENDOR_TIER, UNVERIFIED_WEB_TIER, LOCAL_UPLOADED_TIER})
+
+OFFICIAL_REGULATOR_HOST_SUFFIXES_BY_MARKET = {
+    "CN": ("cninfo.com.cn",),
+    "HK": ("hkexnews.hk", "hkex.com.hk"),
+    "US": ("sec.gov",),
+    "EU": (
+        "filings.xbrl.org",
+        "sec.gov",
+        "fca.org.uk",
+        "amf-france.org",
+        "info-financiere.fr",
+        "unternehmensregister.de",
+        "bundesanzeiger.de",
+        "afm.nl",
+        "six-group.com",
+        "ser-ag.com",
+        "londonstockexchange.com",
+        "investegate.co.uk",
+        "lseg.com",
+    ),
+    "JP": ("edinet-fsa.go.jp", "release.tdnet.info", "jpx.co.jp", "www2.jpx.co.jp"),
+    "KR": ("dart.fss.or.kr", "opendart.fss.or.kr", "englishdart.fss.or.kr", "kind.krx.co.kr"),
 }
 
 REQUIRED_MANIFEST_FIELDS = (
@@ -201,6 +237,229 @@ def _raw_field(payload: dict[str, Any], key: str) -> Any:
     return raw.get(key) if isinstance(raw, dict) else None
 
 
+def _value_payload(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _decimal_from_value(value: Any) -> Decimal | None:
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, Decimal):
+        return value
+    if isinstance(value, int | float):
+        return Decimal(str(value))
+
+    text = str(value).strip()
+    if text.lower() in _EMPTY_VALUE_TEXT:
+        return None
+
+    negative = False
+    if re.fullmatch(r"\(.+\)", text):
+        negative = True
+        text = text[1:-1]
+    text = text.replace("\u2212", "-").replace("\u2013", "-").replace("\u2014", "-")
+    text = re.sub(r"(?i)(hk\$|us\$|rmb|cny|hkd|usd|eur|gbp|jpy|krw|\$)", "", text)
+    text = re.sub(r"(?i)(million|billion|thousand|mn|bn|m|k)", "", text)
+    if re.search(r"[A-Za-z]", text):
+        return None
+    text = text.replace(",", "").replace("'", "").replace("%", "").strip()
+    text = re.sub(r"[^0-9.\-+]", "", text)
+    if text.lower() in _EMPTY_VALUE_TEXT or text in {"-", "+", ".", "-.", "+."}:
+        return None
+    try:
+        number = Decimal(text)
+    except InvalidOperation:
+        return None
+    return -number if negative and number > 0 else number
+
+
+def _decimals_from_text(value: Any) -> list[Decimal]:
+    text = "" if value is None else str(value)
+    numbers: list[Decimal] = []
+    for match in _NUMBER_RE.findall(text.replace("\u2212", "-").replace("\u2013", "-").replace("\u2014", "-")):
+        number = _decimal_from_value(match)
+        if number is not None:
+            numbers.append(number)
+    return numbers
+
+
+def _scale_factor(value: Any) -> Decimal:
+    if value is None or value == "":
+        return Decimal("1")
+    try:
+        number = Decimal(str(value).replace(",", ""))
+    except InvalidOperation:
+        number = None
+    if number is None:
+        number = _decimal_from_value(value)
+    if number is not None and number > 0:
+        return number
+    text = str(value).lower()
+    if "billion" in text or "bn" in text:
+        return Decimal("1000000000")
+    if "million" in text or "mn" in text:
+        return Decimal("1000000")
+    if "thousand" in text:
+        return Decimal("1000")
+    return Decimal("1")
+
+
+def _decimal_close(left: Decimal, right: Decimal) -> bool:
+    if left == right:
+        return True
+    tolerance = max(abs(left), abs(right), Decimal("1")) * Decimal("0.000001")
+    return abs(left - right) <= tolerance
+
+
+def _period_token(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    match = re.search(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})", text)
+    if match:
+        year, month, day = match.groups()
+        return f"{int(year):04d}-{int(month):02d}-{int(day):02d}"
+    return text
+
+
+def _value_matches_expected(expected: Any, observed: Any, *, scale: Any = None) -> bool | None:
+    expected_number = _decimal_from_value(expected)
+    if expected_number is None:
+        return None
+    observed_numbers: list[Decimal] = []
+    observed_number = _decimal_from_value(observed)
+    if observed_number is not None:
+        observed_numbers.append(observed_number)
+    observed_numbers.extend(_decimals_from_text(observed))
+    if not observed_numbers:
+        return False
+
+    factor = _scale_factor(scale)
+    for number in observed_numbers:
+        candidates = [number]
+        if factor not in {Decimal("0"), Decimal("1")}:
+            candidates.extend([number * factor, number / factor])
+        if any(_decimal_close(expected_number, candidate) for candidate in candidates):
+            return True
+    return False
+
+
+def _fact_ref(item: dict[str, Any], period_key: Any) -> str:
+    return f"{item.get('canonical_name') or item.get('name') or 'unknown'}:{period_key}"
+
+
+def _fact_value_fields(item: dict[str, Any], period_key: Any, evidence: dict[str, Any]) -> dict[str, Any]:
+    values = item.get("values") if isinstance(item.get("values"), dict) else {}
+    raw_values = item.get("raw_values") if isinstance(item.get("raw_values"), dict) else {}
+    display_values = item.get("display_values") if isinstance(item.get("display_values"), dict) else {}
+    normalized_values = item.get("normalized_values") if isinstance(item.get("normalized_values"), dict) else {}
+    value_payload = _value_payload(values.get(period_key))
+    base_value = None if isinstance(values.get(period_key), dict) else values.get(period_key)
+    quote_text = _first_value(evidence.get("quote_text"), evidence.get("quote"), evidence.get("html_snippet"))
+    return {
+        "raw_value": _first_value(
+            value_payload.get("raw_value"),
+            raw_values.get(period_key),
+            evidence.get("raw_value"),
+            _raw_field(evidence, "raw_value"),
+            _raw_field(evidence, "value_text"),
+            _raw_field(evidence, "value"),
+            evidence.get("cell_text"),
+            evidence.get("cell"),
+            quote_text,
+        ),
+        "display_value": _first_value(
+            value_payload.get("display_value"),
+            display_values.get(period_key),
+            value_payload.get("value_text"),
+            value_payload.get("raw_value"),
+            raw_values.get(period_key),
+            base_value,
+        ),
+        "normalized_value": _first_value(
+            value_payload.get("normalized_value"),
+            normalized_values.get(period_key),
+            value_payload.get("value"),
+            base_value,
+        ),
+        "quote_text": quote_text,
+        "scale": _first_value(value_payload.get("scale"), item.get("scale"), evidence.get("scale"), _raw_field(evidence, "scale")),
+    }
+
+
+def _evidence_value_issue(
+    *,
+    fact_ref: str,
+    rule: str,
+    reason: str,
+    item: dict[str, Any],
+    period_key: Any,
+    evidence: dict[str, Any],
+) -> dict[str, Any]:
+    issue_id = stable_id("evidence_value_verification", fact_ref, rule, reason)
+    return {
+        "issue_id": issue_id,
+        "fact_ref": fact_ref,
+        "rule": rule,
+        "reason": reason,
+        "canonical_name": item.get("canonical_name") or item.get("name"),
+        "period_key": period_key,
+        "source_type": evidence.get("source_type"),
+        "source_id": evidence.get("source_id"),
+        "evidence_id": evidence.get("evidence_id"),
+        "evidence_refs": [f"fact:{fact_ref}", f"issue:{issue_id}"],
+    }
+
+
+def _is_pdf_evidence(evidence: dict[str, Any]) -> bool:
+    source_type = str(evidence.get("source_type") or "").lower()
+    return (
+        "pdf" in source_type
+        or _has_value(evidence.get("page_number"))
+        or _has_value(evidence.get("pdf_page_number"))
+        or (_has_value(evidence.get("table_index")) and _has_value(evidence.get("row_index")))
+    )
+
+
+def _is_xbrl_evidence(evidence: dict[str, Any]) -> bool:
+    source_type = str(evidence.get("source_type") or "").lower()
+    target = str(evidence.get("target") or "").lower()
+    return (
+        "xbrl" in source_type
+        or target.startswith("xbrl:")
+        or _has_value(evidence.get("xbrl_tag"))
+        or _has_value(evidence.get("tag"))
+        or _has_value(_raw_field(evidence, "concept"))
+        or _has_value(_raw_field(evidence, "xbrl_tag"))
+    )
+
+
+def _xbrl_field_values(item: dict[str, Any], period_key: Any, evidence: dict[str, Any]) -> dict[str, Any]:
+    periods = item.get("periods") if isinstance(item.get("periods"), dict) else {}
+    period = periods.get(period_key) if isinstance(periods.get(period_key), dict) else {}
+    evidence_period = _first_value(
+        evidence.get("period_key"),
+        evidence.get("period_end"),
+        evidence.get("instant"),
+        _raw_field(evidence, "period_key"),
+        _raw_field(evidence, "period_end"),
+        _raw_field(evidence, "end_date"),
+        _raw_field(evidence, "end"),
+        _raw_field(evidence, "instant"),
+    )
+    return {
+        "tag": _first_value(evidence.get("xbrl_tag"), evidence.get("tag"), _raw_field(evidence, "xbrl_tag"), _raw_field(evidence, "concept")),
+        "context": _first_value(evidence.get("context_ref"), _raw_field(evidence, "context_ref"), _raw_field(evidence, "contextRef"), _raw_field(evidence, "context_id")),
+        "unit": _first_value(evidence.get("unit_ref"), evidence.get("unit"), _raw_field(evidence, "unit_ref"), _raw_field(evidence, "unitRef"), _raw_field(evidence, "unit")),
+        "period": evidence_period,
+        "fact_period": _first_value(period.get("period_end"), period_key),
+        "decimals": _first_value(evidence.get("decimals"), _raw_field(evidence, "decimals")),
+        "scale": _first_value(evidence.get("scale"), _raw_field(evidence, "scale"), item.get("scale")),
+    }
+
+
 def _target_locator_kind(target: Any) -> str | None:
     text = str(target or "").strip()
     if not text:
@@ -299,6 +558,7 @@ def evidence_resolvability_summary(
     metric_value_count = 0
     resolvable_metric_source_count = 0
     missing_metric_source_count = 0
+    missing_metric_sources: list[str] = []
     unresolvable_metric_source_count = 0
     unresolvable_metric_sources: list[str] = []
     for item in iter_financial_data_items(financial_data or {}):
@@ -312,6 +572,7 @@ def evidence_resolvability_summary(
             metric_name = str(item.get("canonical_name") or item.get("name") or "unknown")
             if not isinstance(evidence, dict) or not evidence:
                 missing_metric_source_count += 1
+                missing_metric_sources.append(f"{metric_name}:{period_key}")
                 continue
             if is_resolvable_evidence_source(evidence, manifest=manifest, package_dir=package_dir):
                 resolvable_metric_source_count += 1
@@ -346,6 +607,7 @@ def evidence_resolvability_summary(
         "metric_value_count": metric_value_count,
         "resolvable_metric_source_count": resolvable_metric_source_count,
         "missing_metric_source_count": missing_metric_source_count,
+        "missing_metric_sources": missing_metric_sources,
         "unresolvable_metric_source_count": unresolvable_metric_source_count,
         "unresolvable_metric_sources": unresolvable_metric_sources,
         "source_map_entry_count": source_map_entry_count,
@@ -355,6 +617,154 @@ def evidence_resolvability_summary(
         "resolvable_evidence_count": resolvable_evidence_count,
         "unresolvable_evidence_count": unresolvable_evidence_count,
         "evidence_resolvability_ratio": round(resolvable_evidence_count / denominator, 6) if denominator else None,
+    }
+
+
+def evidence_value_verification_summary(
+    *,
+    financial_data: dict[str, Any] | None = None,
+    manifest: dict[str, Any] | None = None,
+    package_dir: Path | None = None,
+) -> dict[str, Any]:
+    del manifest, package_dir
+    fact_count = 0
+    checked_fact_count = 0
+    verified_fact_count = 0
+    pdf_checked_count = 0
+    xbrl_checked_count = 0
+    quote_checked_count = 0
+    pdf_failed_count = 0
+    xbrl_failed_count = 0
+    quote_failed_count = 0
+    issues: list[dict[str, Any]] = []
+
+    for item in iter_financial_data_items(financial_data or {}):
+        if not isinstance(item, dict):
+            continue
+        values = item.get("values") if isinstance(item.get("values"), dict) else {}
+        sources = item.get("sources") if isinstance(item.get("sources"), dict) else {}
+        for period_key in values:
+            fact_count += 1
+            evidence = sources.get(period_key) if isinstance(sources, dict) else None
+            if not isinstance(evidence, dict) or not evidence:
+                continue
+
+            fact_ref = _fact_ref(item, period_key)
+            value_fields = _fact_value_fields(item, period_key, evidence)
+            normalized_value = value_fields["normalized_value"]
+            scale = value_fields["scale"]
+            fact_issue_count = len(issues)
+            checked = False
+
+            if _is_pdf_evidence(evidence):
+                checked = True
+                pdf_checked_count += 1
+                raw_value = value_fields["raw_value"]
+                display_value = value_fields["display_value"]
+                raw_match = _value_matches_expected(normalized_value, raw_value, scale=scale)
+                display_match = _value_matches_expected(normalized_value, display_value, scale=scale)
+                if raw_match is not True:
+                    issues.append(
+                        _evidence_value_issue(
+                            fact_ref=fact_ref,
+                            rule="pdf.raw_value.explainable",
+                            reason="pdf evidence raw value does not explain normalized value",
+                            item=item,
+                            period_key=period_key,
+                            evidence=evidence,
+                        )
+                    )
+                if display_match is not True:
+                    issues.append(
+                        _evidence_value_issue(
+                            fact_ref=fact_ref,
+                            rule="pdf.display_value.explainable",
+                            reason="pdf evidence display value does not explain normalized value",
+                            item=item,
+                            period_key=period_key,
+                            evidence=evidence,
+                        )
+                    )
+
+            if _is_xbrl_evidence(evidence):
+                checked = True
+                xbrl_checked_count += 1
+                fields = _xbrl_field_values(item, period_key, evidence)
+                missing_fields = [
+                    key
+                    for key in ("tag", "context", "unit", "period", "decimals", "scale")
+                    if not _has_value(fields.get(key))
+                ]
+                if missing_fields:
+                    issues.append(
+                        _evidence_value_issue(
+                            fact_ref=fact_ref,
+                            rule="xbrl.fields.present",
+                            reason=f"xbrl evidence missing fields: {', '.join(missing_fields)}",
+                            item=item,
+                            period_key=period_key,
+                            evidence=evidence,
+                        )
+                    )
+                evidence_period = _period_token(fields.get("period"))
+                fact_period = _period_token(fields.get("fact_period"))
+                if evidence_period and fact_period and evidence_period != fact_period:
+                    issues.append(
+                        _evidence_value_issue(
+                            fact_ref=fact_ref,
+                            rule="xbrl.period.consistent",
+                            reason="xbrl evidence period does not match fact period",
+                            item=item,
+                            period_key=period_key,
+                            evidence=evidence,
+                        )
+                    )
+
+            quote_text = value_fields["quote_text"]
+            if _has_value(quote_text):
+                checked = True
+                quote_checked_count += 1
+                quote_match = _value_matches_expected(normalized_value, quote_text, scale=scale)
+                if quote_match is not True:
+                    issues.append(
+                        _evidence_value_issue(
+                            fact_ref=fact_ref,
+                            rule="quote.value.explainable",
+                            reason="quote evidence does not contain a value explainable from the fact",
+                            item=item,
+                            period_key=period_key,
+                            evidence=evidence,
+                        )
+                    )
+
+            if checked:
+                checked_fact_count += 1
+                if len(issues) == fact_issue_count:
+                    verified_fact_count += 1
+                else:
+                    if _is_pdf_evidence(evidence):
+                        pdf_failed_count += 1
+                    if _is_xbrl_evidence(evidence):
+                        xbrl_failed_count += 1
+                    if _has_value(quote_text):
+                        quote_failed_count += 1
+
+    failed_fact_count = checked_fact_count - verified_fact_count
+    return {
+        "schema_version": "siq_evidence_value_verification_v1",
+        "fact_count": fact_count,
+        "checked_fact_count": checked_fact_count,
+        "verified_fact_count": verified_fact_count,
+        "failed_fact_count": failed_fact_count,
+        "issue_count": len(issues),
+        "issues": issues,
+        "pdf_checked_count": pdf_checked_count,
+        "pdf_failed_count": pdf_failed_count,
+        "xbrl_checked_count": xbrl_checked_count,
+        "xbrl_failed_count": xbrl_failed_count,
+        "quote_checked_count": quote_checked_count,
+        "quote_failed_count": quote_failed_count,
+        "value_verification_ratio": round(verified_fact_count / checked_fact_count, 6) if checked_fact_count else None,
     }
 
 
@@ -384,6 +794,214 @@ def _quality_status(value: Any) -> str:
     if text in {"warning", "warn", "needs_review", "review"}:
         return "warning"
     return "unknown"
+
+
+def _host_matches(host: str, suffix: str) -> bool:
+    normalized_host = str(host or "").rstrip(".").lower()
+    normalized_suffix = str(suffix or "").rstrip(".").lower()
+    return normalized_host == normalized_suffix or normalized_host.endswith(f".{normalized_suffix}")
+
+
+def _url_host(value: Any) -> str | None:
+    parsed = urlparse(str(value or "").strip())
+    if parsed.scheme.lower() not in {"http", "https"}:
+        return None
+    host = (parsed.hostname or "").rstrip(".").lower()
+    return host or None
+
+
+def _url_matches_any(value: Any, suffixes: tuple[str, ...]) -> bool:
+    host = _url_host(value)
+    return bool(host and any(_host_matches(host, suffix) for suffix in suffixes))
+
+
+def _official_regulator_suffixes(market: Any) -> tuple[str, ...]:
+    return OFFICIAL_REGULATOR_HOST_SUFFIXES_BY_MARKET.get(str(market or "").strip().upper(), ())
+
+
+def _normalize_source_tier(value: Any) -> str | None:
+    text = str(value or "").strip().lower()
+    if not text:
+        return None
+    if text in {
+        OFFICIAL_REGULATOR_TIER,
+        "official_regulator_source",
+        "official_mirror",
+        "official_exchange",
+        "regulator",
+        "exchange",
+        "statutory_public_html",
+        "statutory_public_pdf",
+    }:
+        return OFFICIAL_REGULATOR_TIER
+    if text in {OFFICIAL_ISSUER_TIER, "official_direct", "issuer", "issuer_official_direct", "official_issuer_direct"}:
+        return OFFICIAL_ISSUER_TIER
+    if text in {RECOGNIZED_VENDOR_TIER, "vendor", "mainstream_repository"}:
+        return RECOGNIZED_VENDOR_TIER
+    if text in {UNVERIFIED_WEB_TIER, "manual_unverified", "manual", "unverified", "unknown"}:
+        return UNVERIFIED_WEB_TIER
+    if text in {LOCAL_UPLOADED_TIER, "local", "upload", "uploaded"}:
+        return LOCAL_UPLOADED_TIER
+    if text == "official":
+        return OFFICIAL_REGULATOR_TIER
+    return None
+
+
+def _boolish(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y", "verified", "official_verified"}
+
+
+def _source_manifest_payload(manifest: dict[str, Any]) -> dict[str, Any]:
+    payload = manifest.get("source_manifest") if isinstance(manifest.get("source_manifest"), dict) else {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _content_hash_digest(value: Any) -> str | None:
+    text = str(value or "").strip().lower()
+    if not text:
+        return None
+    if text.startswith("sha256:"):
+        text = text.split(":", 1)[1]
+    return text or None
+
+
+def source_manifest_summary(*, manifest: dict[str, Any] | None = None) -> dict[str, Any]:
+    manifest = manifest if isinstance(manifest, dict) else {}
+    source_manifest = _source_manifest_payload(manifest)
+    market = str(manifest.get("market") or "").strip().upper()
+    suffixes = _official_regulator_suffixes(market)
+    source_url = _first_value(
+        source_manifest.get("final_url"),
+        source_manifest.get("source_url"),
+        manifest.get("final_url"),
+        manifest.get("effective_url"),
+        manifest.get("source_url"),
+        source_manifest.get("initial_url"),
+        manifest.get("initial_url"),
+    )
+    initial_url = _first_value(source_manifest.get("initial_url"), manifest.get("initial_url"), manifest.get("source_url"))
+    final_url = _first_value(source_manifest.get("final_url"), manifest.get("final_url"), manifest.get("effective_url"), manifest.get("source_url"))
+    raw_tier = _first_value(manifest.get("source_tier"), source_manifest.get("source_tier"))
+    source_tier = _normalize_source_tier(raw_tier)
+    regulator_url_verified = _url_matches_any(final_url or source_url, suffixes)
+    if source_tier is None:
+        if regulator_url_verified:
+            source_tier = OFFICIAL_REGULATOR_TIER
+        elif manifest.get("local_source_path") and not _has_value(source_url):
+            source_tier = LOCAL_UPLOADED_TIER
+        else:
+            source_tier = UNVERIFIED_WEB_TIER
+
+    source_verification_status = _first_value(
+        manifest.get("source_verification_status"),
+        source_manifest.get("source_verification_status"),
+    )
+    issuer_domain_verified = _boolish(
+        _first_value(
+            manifest.get("issuer_domain_verified"),
+            source_manifest.get("issuer_domain_verified"),
+            source_manifest.get("issuer_domain_verification_status"),
+        )
+    ) or (source_tier == OFFICIAL_ISSUER_TIER and str(source_verification_status or "").lower() == "official_verified")
+    regulator_host_verified = _boolish(
+        _first_value(source_manifest.get("regulator_host_verified"), manifest.get("regulator_host_verified"))
+    ) or regulator_url_verified
+
+    redirect_chain = _first_value(source_manifest.get("redirect_chain"), manifest.get("redirect_chain"), [])
+    redirect_chain_valid = isinstance(redirect_chain, list)
+    content_sha256 = _content_hash_digest(_first_value(source_manifest.get("content_sha256"), manifest.get("content_sha256")))
+    content_hash = _content_hash_digest(_first_value(source_manifest.get("content_hash"), manifest.get("content_hash")))
+    hash_digest = content_sha256 or content_hash
+    hash_consistent = not (content_sha256 and content_hash) or content_sha256 == content_hash
+    retrieved_at = _first_value(source_manifest.get("retrieved_at"), manifest.get("retrieved_at"))
+    missing_fields: list[str] = []
+    if not _has_value(initial_url):
+        missing_fields.append("initial_url")
+    if not _has_value(final_url):
+        missing_fields.append("final_url")
+    if "redirect_chain" not in source_manifest and "redirect_chain" not in manifest:
+        missing_fields.append("redirect_chain")
+    elif not redirect_chain_valid:
+        missing_fields.append("redirect_chain:list")
+    if not hash_digest:
+        missing_fields.append("content_hash")
+    if not _has_value(retrieved_at):
+        missing_fields.append("retrieved_at")
+
+    issues: list[dict[str, Any]] = []
+    evidence_refs = ["manifest.json:source_manifest", "manifest.json:source_url"]
+    if source_tier == OFFICIAL_REGULATOR_TIER and not regulator_host_verified:
+        issues.append(
+            {
+                "rule_id": "package.source.official_regulator_unverified",
+                "severity": GateSeverity.HARD.value,
+                "reason": "official regulator source URL is outside the market allowlist",
+                "evidence_refs": evidence_refs,
+            }
+        )
+    if source_tier == OFFICIAL_ISSUER_TIER and not issuer_domain_verified:
+        issues.append(
+            {
+                "rule_id": "package.source.official_issuer_unverified",
+                "severity": GateSeverity.HARD.value,
+                "reason": "official issuer source lacks issuer domain verification",
+                "evidence_refs": evidence_refs,
+            }
+        )
+    if source_tier in REVIEW_SOURCE_TIERS:
+        issues.append(
+            {
+                "rule_id": "package.source.unverified_for_official_evidence",
+                "severity": GateSeverity.SOFT.value,
+                "reason": f"{source_tier} source cannot directly support official evidence",
+                "evidence_refs": evidence_refs,
+            }
+        )
+    if missing_fields:
+        issues.append(
+            {
+                "rule_id": "package.source_manifest.missing_fields",
+                "severity": GateSeverity.SOFT.value,
+                "reason": f"source manifest missing fields: {', '.join(missing_fields)}",
+                "evidence_refs": evidence_refs,
+            }
+        )
+    if not hash_consistent:
+        issues.append(
+            {
+                "rule_id": "package.source_manifest.hash_inconsistent",
+                "severity": GateSeverity.HARD.value,
+                "reason": "source manifest content_hash and content_sha256 disagree",
+                "evidence_refs": evidence_refs,
+            }
+        )
+
+    hard_issue_count = sum(1 for issue in issues if issue["severity"] == GateSeverity.HARD.value)
+    review_issue_count = sum(1 for issue in issues if issue["severity"] == GateSeverity.SOFT.value)
+    official_evidence_allowed = source_tier in OFFICIAL_EVIDENCE_TIERS and hard_issue_count == 0 and review_issue_count == 0
+    return {
+        "schema_version": "siq_source_summary_v1",
+        "source_manifest_schema_version": source_manifest.get("schema_version"),
+        "market": market,
+        "source_tier": source_tier,
+        "raw_source_tier": raw_tier,
+        "source_verification_status": source_verification_status,
+        "official_evidence_allowed": official_evidence_allowed,
+        "regulator_host_verified": regulator_host_verified,
+        "issuer_domain_verified": issuer_domain_verified,
+        "initial_url": initial_url,
+        "final_url": final_url,
+        "redirect_chain": redirect_chain if redirect_chain_valid else None,
+        "content_hash": f"sha256:{hash_digest}" if hash_digest else None,
+        "retrieved_at": retrieved_at,
+        "missing_fields": missing_fields,
+        "hash_consistent": hash_consistent,
+        "issues": issues,
+        "hard_issue_count": hard_issue_count,
+        "review_issue_count": review_issue_count,
+    }
 
 
 def _gate_mode_for_severity(severity: str) -> str:
@@ -601,8 +1219,18 @@ def build_quality_gates(
         manifest=manifest,
         package_dir=package_dir,
     )
+    value_verification = evidence_value_verification_summary(
+        financial_data=financial_data,
+        manifest=manifest,
+        package_dir=package_dir,
+    )
+    source_summary = source_manifest_summary(manifest=manifest)
+    missing_metric_source_count = resolvability["missing_metric_source_count"]
     unresolvable_evidence_count = resolvability["unresolvable_evidence_count"]
     evidence_resolvability_ratio = resolvability["evidence_resolvability_ratio"]
+    value_verification_issue_count = value_verification["issue_count"]
+    source_hard_issue_count = source_summary["hard_issue_count"]
+    source_review_issue_count = source_summary["review_issue_count"]
 
     base_status = _quality_status(
         quality.get("overall_status")
@@ -613,6 +1241,8 @@ def build_quality_gates(
         artifact_hash["status"] == "mismatch"
         or critical_warnings
         or base_status == "fail"
+        or missing_metric_source_count
+        or source_hard_issue_count
         or (evidence_resolvability_ratio is not None and evidence_resolvability_ratio < 0.8)
     ):
         overall_status = "fail"
@@ -623,6 +1253,8 @@ def build_quality_gates(
         or parser_warnings
         or rule_warnings
         or unresolvable_evidence_count
+        or value_verification_issue_count
+        or source_review_issue_count
     ):
         overall_status = "warning"
     elif base_status == "pass":
@@ -641,10 +1273,18 @@ def build_quality_gates(
         block_reasons.append("critical warnings present")
     if parser_warnings or rule_warnings:
         block_reasons.append("parser or rule warnings present")
+    if missing_metric_source_count:
+        block_reasons.append("missing evidence present")
     if unresolvable_evidence_count:
         block_reasons.append("unresolvable evidence present")
     if evidence_resolvability_ratio is not None and evidence_resolvability_ratio < 0.8:
         block_reasons.append("evidence resolvability below 80%")
+    if value_verification_issue_count:
+        block_reasons.append("evidence value verification failed")
+    if source_hard_issue_count:
+        block_reasons.append("official source verification failed")
+    if source_review_issue_count:
+        block_reasons.append("source manifest requires review")
     if overall_status not in {"pass", "unknown"} and not block_reasons:
         block_reasons.append(f"quality status is {overall_status}")
 
@@ -720,6 +1360,13 @@ def build_quality_gates(
                 *[f"qa/quality_report.json:rule_warnings:{index}" for index, _ in enumerate(rule_warnings)],
             ],
         )
+    if missing_metric_source_count:
+        add_gate_issue(
+            rule_id="package.evidence.missing",
+            severity=GateSeverity.HARD.value,
+            reason="financial facts missing evidence",
+            evidence_refs=[f"fact:{item}" for item in resolvability["missing_metric_sources"][:20]],
+        )
     if unresolvable_evidence_count:
         add_gate_issue(
             rule_id="package.evidence.unresolvable",
@@ -740,13 +1387,35 @@ def build_quality_gates(
             reason="evidence resolvability below 80%",
             evidence_refs=["qa/source_map.json", "metrics/financial_data.json"],
         )
+    if value_verification_issue_count:
+        add_gate_issue(
+            rule_id="package.evidence.value_verification_failed",
+            severity=GateSeverity.SOFT.value,
+            reason="evidence value verification failed",
+            evidence_refs=[
+                ref
+                for issue in value_verification["issues"][:20]
+                for ref in issue.get("evidence_refs", [])
+            ],
+        )
+    for issue in source_summary["issues"]:
+        add_gate_issue(
+            rule_id=str(issue["rule_id"]),
+            severity=str(issue["severity"]),
+            reason=str(issue["reason"]),
+            evidence_refs=[str(ref) for ref in issue.get("evidence_refs", [])],
+        )
     if base_status == "warning" and not (
         missing_required
         or critical_warnings
         or parser_warnings
         or rule_warnings
+        or missing_metric_source_count
         or unresolvable_evidence_count
         or (evidence_resolvability_ratio is not None and evidence_resolvability_ratio < 0.8)
+        or value_verification_issue_count
+        or source_hard_issue_count
+        or source_review_issue_count
     ):
         add_gate_issue(
             rule_id="package.quality_status.warning",
@@ -792,10 +1461,19 @@ def build_quality_gates(
             source_map=source_map if isinstance(source_map, dict) else {},
             package_dir=package_dir,
         ),
+        "missing_evidence_count": missing_metric_source_count,
+        "missing_evidence": resolvability["missing_metric_sources"],
         "resolvable_evidence_count": resolvability["resolvable_evidence_count"],
         "unresolvable_evidence_count": unresolvable_evidence_count,
         "evidence_resolvability_ratio": evidence_resolvability_ratio,
         "unresolvable_evidence": resolvability["unresolvable_source_map_entries"] or resolvability["unresolvable_metric_sources"],
+        "evidence_value_verification": value_verification,
+        "evidence_value_verification_issue_count": value_verification_issue_count,
+        "evidence_value_verification_ratio": value_verification["value_verification_ratio"],
+        "source_summary": source_summary,
+        "source_tier": source_summary["source_tier"],
+        "source_verification_status": source_summary["source_verification_status"],
+        "official_evidence_allowed": source_summary["official_evidence_allowed"],
         "required_statement_status": required_status,
         "missing_required_statements": missing_required,
         "artifact_hash_status": artifact_hash["status"],
@@ -824,6 +1502,7 @@ def read_market_package_summary(package_dir: Path, *, display_path: str | None =
     metrics = _normalized_metrics(read_json(package_dir / "metrics" / "normalized_metrics.json", {}))
     source_map_payload = read_json(package_dir / "qa" / "source_map.json", {})
     source_map = _source_map_entries(source_map_payload)
+    source_summary = source_manifest_summary(manifest=manifest)
     resolvability = evidence_resolvability_summary(
         financial_data=financial_data,
         source_map=source_map_payload if isinstance(source_map_payload, dict) else {},
@@ -840,6 +1519,10 @@ def read_market_package_summary(package_dir: Path, *, display_path: str | None =
         "parse_run_id": manifest.get("parse_run_id") if isinstance(manifest, dict) else None,
         "ticker": manifest.get("ticker") if isinstance(manifest, dict) else None,
         "company_name": manifest.get("company_name") if isinstance(manifest, dict) else None,
+        "source_tier": source_summary["source_tier"],
+        "source_verification_status": source_summary["source_verification_status"],
+        "official_evidence_allowed": source_summary["official_evidence_allowed"],
+        "source_summary": source_summary,
         "form": manifest.get("form") if isinstance(manifest, dict) else None,
         "report_type": manifest.get("report_type") if isinstance(manifest, dict) else None,
         "fiscal_year": manifest.get("fiscal_year") if isinstance(manifest, dict) else None,
@@ -930,8 +1613,8 @@ def validate_evidence_package(package_dir: Path, *, strict_hashes: bool = True) 
 
     if manifest.get("schema_version") != SCHEMA_VERSION:
         errors.append(f"manifest.schema_version must be {SCHEMA_VERSION}")
-    if manifest.get("market") not in {"US", "HK", "JP", "KR", "EU"}:
-        errors.append("manifest.market must be one of US/HK/JP/KR/EU")
+    if manifest.get("market") not in {"CN", "US", "HK", "JP", "KR", "EU"}:
+        errors.append("manifest.market must be one of CN/US/HK/JP/KR/EU")
 
     local_source_path = manifest.get("local_source_path")
     if local_source_path and not (package_dir / str(local_source_path)).is_file():
@@ -950,6 +1633,11 @@ def validate_evidence_package(package_dir: Path, *, strict_hashes: bool = True) 
             errors.append(f"artifact_hashes entry is missing on disk: {rel}")
         elif strict_hashes and actual_hash != expected_hash:
             errors.append(f"artifact hash mismatch: {rel}")
+
+    source_summary = source_manifest_summary(manifest=manifest)
+    for issue in source_summary["issues"]:
+        if issue["severity"] == GateSeverity.HARD.value:
+            errors.append(f"{issue['rule_id']}: {issue['reason']}")
 
     financial_data = read_json(package_dir / "metrics" / "financial_data.json", {})
     source_map = read_json(package_dir / "qa" / "source_map.json", {})

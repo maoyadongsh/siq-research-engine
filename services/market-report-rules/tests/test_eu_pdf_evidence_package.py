@@ -29,7 +29,7 @@ def test_build_eu_pdf_evidence_package_from_parser_result(tmp_path, monkeypatch)
                 "document_url": "https://example.test/asml.pdf",
                 "landing_url": "https://example.test/asml",
                 "file_format": "pdf",
-                "metadata": {"country": "NL", "source_tier": "official_direct"},
+                    "metadata": {"country": "NL", "source_tier": "local_uploaded"},
             }
         },
     )

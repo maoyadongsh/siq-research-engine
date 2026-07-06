@@ -337,9 +337,106 @@ def test_downloader_streams_and_writes_metadata_index_atomically(monkeypatch, tm
     assert downloaded.content_sha256
     assert metadata["source_verification"]["original_url"] == _candidate().document_url
     assert metadata["source_verification"]["effective_url"] == _candidate().document_url
+    assert metadata["source_verification"]["initial_url"] == _candidate().document_url
+    assert metadata["source_verification"]["final_url"] == _candidate().document_url
+    assert metadata["source_verification"]["redirect_chain"] == []
+    assert metadata["source_verification"]["source_tier"] == "official_regulator"
     assert metadata["source_verification"]["source_verification_status"] == "official_verified"
+    assert metadata["source_manifest"]["schema_version"] == "siq_source_manifest_v1"
+    assert metadata["source_manifest"]["source_tier"] == "official_regulator"
+    assert metadata["source_manifest"]["initial_url"] == _candidate().document_url
+    assert metadata["source_manifest"]["final_url"] == _candidate().document_url
+    assert metadata["source_manifest"]["content_hash"] == f"sha256:{downloaded.content_sha256}"
+    assert metadata["source_manifest"]["retrieved_at"]
+    assert metadata["source_manifest"]["regulator_host_verified"] is True
+    assert index["by_url"][_candidate().document_url]["source_tier"] == "official_regulator"
     assert index["by_url"][_candidate().document_url]["source_verification_status"] == "official_verified"
+    assert index["by_url"][_candidate().document_url]["initial_url"] == _candidate().document_url
+    assert index["by_url"][_candidate().document_url]["final_url"] == _candidate().document_url
+    assert index["by_url"][_candidate().document_url]["redirect_chain"] == []
+    assert index["by_url"][_candidate().document_url]["content_hash"] == f"sha256:{downloaded.content_sha256}"
+    assert index["by_url"][_candidate().document_url]["retrieved_at"]
     assert not list(tmp_path.rglob("*.tmp"))
+
+
+def test_downloader_records_official_redirect_chain(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "download_dir", tmp_path)
+    redirected_url = "https://www.sec.gov/Archives/edgar/data/320193/redirected-report.htm"
+
+    def fake_getaddrinfo(host, port, type=0):
+        assert host == "www.sec.gov"
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))]
+
+    class StubResponse:
+        def __init__(self, *, status_code: int, url: str, headers: dict[str, str], body: bytes = b""):
+            self.status_code = status_code
+            self.url = url
+            self.headers = headers
+            self._body = body
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def iter_bytes(self):
+            if self._body:
+                yield self._body
+
+    class StreamContext:
+        def __init__(self, response):
+            self.response = response
+
+        def __enter__(self):
+            return self.response
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class StubClient:
+        def __init__(self, *, timeout, headers, follow_redirects):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def stream(self, method: str, url: str, headers=None):
+            if url == _candidate().document_url:
+                return StreamContext(
+                    StubResponse(
+                        status_code=302,
+                        url=url,
+                        headers={"location": redirected_url},
+                    )
+                )
+            return StreamContext(
+                StubResponse(
+                    status_code=200,
+                    url=redirected_url,
+                    headers={"content-type": "text/html"},
+                    body=b"<html>redirect ok</html>",
+                )
+            )
+
+    monkeypatch.setattr("market_report_finder_service.services.downloader.httpx.Client", StubClient)
+    monkeypatch.setattr("market_report_finder_service.services.downloader.socket.getaddrinfo", fake_getaddrinfo)
+
+    downloaded = ReportDownloader().download(_candidate())
+    saved_path = tmp_path / "US" / "Apple-Inc" / "2025" / "年报" / downloaded.file_name
+    metadata = json.loads(saved_path.with_suffix(saved_path.suffix + ".metadata.json").read_text(encoding="utf-8"))
+    chain = metadata["source_manifest"]["redirect_chain"]
+
+    assert metadata["source_manifest"]["initial_url"] == _candidate().document_url
+    assert metadata["source_manifest"]["final_url"] == redirected_url
+    assert metadata["source_manifest"]["source_tier"] == "official_regulator"
+    assert chain == [
+        {
+            "status_code": 302,
+            "from_url": _candidate().document_url,
+            "to_url": redirected_url,
+        }
+    ]
 
 
 def test_downloader_rejects_official_redirect_outside_allowlist(monkeypatch, tmp_path):

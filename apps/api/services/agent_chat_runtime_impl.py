@@ -62,6 +62,7 @@ from services import agent_runtime_preflight
 from services import agent_runtime_context
 from services import agent_runtime_financial_guard
 from services import agent_runtime_financial_format
+from services import agent_runtime_financial_provenance
 from services import agent_runtime_fallback_contexts
 from services import agent_runtime_postgres_fallback
 from services import agent_runtime_statement_context
@@ -1407,7 +1408,13 @@ def _attachment_reference_context(attachments: Any | None) -> str:
 
 
 def _dedupe_hash_with_attachments(message: str, context: Any | None, attachments: Any | None) -> str:
-    return agent_runtime_dedupe._dedupe_hash_with_attachments(message, context, attachments)
+    base_hash = agent_runtime_dedupe._dedupe_hash_with_attachments(message, context, attachments)
+    return agent_runtime_financial_provenance.financial_llm_cache_key(
+        base_hash,
+        message=message,
+        context=context,
+        attachments=attachments,
+    )
 
 
 def _image_attachment_data_url(item: dict[str, Any]) -> str | None:
@@ -5097,6 +5104,41 @@ def _has_structured_evidence_trace(reply: str) -> bool:
     return agent_runtime_citations._has_structured_evidence_trace(reply)
 
 
+def _financial_llm_model_identity(profile: HermesProfile) -> tuple[str, str]:
+    return agent_runtime_financial_provenance.model_identity_for_profile(
+        _runtime_profile(profile),
+        profile_dirs=HERMES_PROFILE_DIRS,
+    )
+
+
+def _record_financial_llm_provenance_if_needed(
+    *,
+    message: str,
+    context: Any | None,
+    profile: HermesProfile,
+    model_input: Any,
+    raw_output: str,
+    stored_output: str,
+    attachments: Any | None = None,
+) -> dict[str, Any] | None:
+    if not raw_output or _is_runtime_status_reply(raw_output):
+        return None
+    snapshot = agent_runtime_financial_provenance.financial_evidence_snapshot(model_input, context, attachments)
+    if not (snapshot["has_evidence_material"] or _needs_financial_evidence_contract(message, context)):
+        return None
+    provider, model = _financial_llm_model_identity(profile)
+    record = agent_runtime_financial_provenance.build_financial_llm_provenance(
+        provider=provider,
+        model=model,
+        model_input=model_input,
+        output=raw_output,
+        stored_output=stored_output,
+        context=context,
+        attachments=attachments,
+    )
+    return agent_runtime_financial_provenance.record_financial_llm_provenance(record)
+
+
 def _is_runtime_status_reply(reply: str) -> bool:
     return agent_runtime_financial_guard._is_runtime_status_reply(reply, runtime_status_prefixes=RUNTIME_STATUS_PREFIXES)
 
@@ -5577,18 +5619,19 @@ async def _collect_chat_reply_impl(
         all_attachments,
     )
 
+    run_input = build_hermes_run_input(
+        completed_guard_input or message,
+        profile=profile,
+        session_id=session_id,
+        context=context,
+        allow_initialize=preflight_context.allow_initialize,
+        attachments=all_attachments,
+        local_memory_context=preflight_context.local_memory_context,
+        image_analysis_context=image_analysis_context,
+        use_hermes_image_fallback=not image_model_succeeded,
+    )
     run_id = await create_run(
-        build_hermes_run_input(
-            completed_guard_input or message,
-            profile=profile,
-            session_id=session_id,
-            context=context,
-            allow_initialize=preflight_context.allow_initialize,
-            attachments=all_attachments,
-            local_memory_context=preflight_context.local_memory_context,
-            image_analysis_context=image_analysis_context,
-            use_hermes_image_fallback=not image_model_succeeded,
-        ),
+        run_input,
         preflight_context.history,
         profile=profile,
         session_id=hermes_runs_session_id(profile, session_id),
@@ -5609,10 +5652,20 @@ async def _collect_chat_reply_impl(
     finally:
         ACTIVE_RUNS.pop(_active_key(profile, session_id), None)
 
+    raw_reply = reply
     reply = normalize_evidence_trace_for_display(reply)
     if enforce_evidence_contract:
         reply = enforce_financial_evidence_contract(message, context, reply)
     reply = normalize_evidence_trace_for_display(reply)
+    _record_financial_llm_provenance_if_needed(
+        message=message,
+        context=context,
+        profile=profile,
+        model_input=run_input,
+        raw_output=raw_reply,
+        stored_output=reply,
+        attachments=all_attachments,
+    )
     await save_message(async_session, "assistant", reply, session_id)
     await refresh_session_memory(async_session, profile, session_id)
     _remember_completed_run(profile, session_id, message_hash, reply)
@@ -5979,6 +6032,7 @@ async def _collect_stream_run(
                 await _append_state_event(state, "delta", {"content": STOPPED_MESSAGE})
 
             if full_reply:
+                raw_full_reply = full_reply
                 if failed or _is_loop_polluted_assistant_message(full_reply):
                     reply = _failed_run_reply_for_history(full_reply)
                 else:
@@ -5994,6 +6048,16 @@ async def _collect_stream_run(
                 if reply != full_reply and not failed:
                     full_reply = reply
                     await _append_state_event(state, "replace", {"content": reply})
+                if not failed and not _is_loop_polluted_assistant_message(raw_full_reply):
+                    _record_financial_llm_provenance_if_needed(
+                        message=state.original_message or "",
+                        context=state.context,
+                        profile=state.profile,
+                        model_input=getattr(state, "provenance_input", None),
+                        raw_output=raw_full_reply,
+                        stored_output=reply,
+                        attachments=getattr(state, "provenance_attachments", None),
+                    )
                 await save_message_in_background("assistant", reply, state.session_id, profile=state.profile)
                 _remember_completed_run(state.profile, state.session_id, state.message_hash, reply)
 
@@ -6020,12 +6084,16 @@ async def _start_streaming_chat_run(
     message: str,
     context: Any | None,
     done_payload_factory: Callable[[str], Awaitable[dict]] | None,
+    provenance_input: Any | None = None,
+    provenance_attachments: Any | None = None,
     enforce_evidence_contract: bool = True,
 ) -> ActiveRunState:
     state = ActiveRunState(profile=profile, session_id=session_id, run_id=run_id)
     state.message_hash = message_hash
     state.original_message = message
     state.context = context
+    state.provenance_input = provenance_input
+    state.provenance_attachments = provenance_attachments
     ACTIVE_RUNS[_active_key(profile, session_id)] = state
     await _append_state_event(state, "run", {"run_id": run_id, "session_id": session_id})
     state.task = asyncio.create_task(_collect_stream_run(state, done_payload_factory, enforce_evidence_contract))
@@ -6140,18 +6208,19 @@ async def _stream_chat_reply_impl(
         all_attachments,
     )
 
+    run_input = build_hermes_run_input(
+        completed_guard_input or message,
+        profile=profile,
+        session_id=session_id,
+        context=context,
+        allow_initialize=preflight_context.allow_initialize,
+        attachments=all_attachments,
+        local_memory_context=preflight_context.local_memory_context,
+        image_analysis_context=image_analysis_context,
+        use_hermes_image_fallback=not image_model_succeeded,
+    )
     run_id = await create_run(
-        build_hermes_run_input(
-            completed_guard_input or message,
-            profile=profile,
-            session_id=session_id,
-            context=context,
-            allow_initialize=preflight_context.allow_initialize,
-            attachments=all_attachments,
-            local_memory_context=preflight_context.local_memory_context,
-            image_analysis_context=image_analysis_context,
-            use_hermes_image_fallback=not image_model_succeeded,
-        ),
+        run_input,
         preflight_context.history,
         profile=profile,
         session_id=hermes_runs_session_id(profile, session_id),
@@ -6168,6 +6237,8 @@ async def _stream_chat_reply_impl(
         message_hash=message_hash,
         message=message,
         context=context,
+        provenance_input=run_input,
+        provenance_attachments=all_attachments,
         done_payload_factory=guarded_done_payload,
         enforce_evidence_contract=enforce_evidence_contract,
     )

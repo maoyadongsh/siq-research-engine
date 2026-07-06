@@ -3,7 +3,7 @@ from decimal import Decimal
 from market_report_rules_service.contracts import financial_data_contract
 from market_report_rules_service.markets.jp.rules import find_jp_label_rule
 from market_report_rules_service.markets.kr.rules import find_kr_label_rule
-from market_report_rules_service.models import Market, ParsedArtifact, ParsedTable
+from market_report_rules_service.models import AccountingStandard, Market, ParsedArtifact, ParsedTable
 from market_report_rules_service.pipeline import process_artifact
 from market_report_rules_service.statement_detection import detect_table_statement_type
 
@@ -157,6 +157,111 @@ def test_jp_edinet_xbrl_extracts_structured_facts_to_jp_schema():
     assert any(row.table == "evidence_citations" for row in result.load_plan.rows)
     first_fact = result.extraction.statements[0].items[0]
     assert first_fact.evidence.source_type == "edinet_xbrl_fact"
+
+
+def test_jp_accounting_standard_resolves_ifrs_and_jgaap_without_ifrs_default():
+    ifrs_artifact = ParsedArtifact(
+        artifact_id="jp-ifrs-standard",
+        market=Market.JP,
+        company_id="JP:7203",
+        ticker="7203",
+        company_name="IFRS Co.",
+        report_type="annual",
+        report_form="有価証券報告書",
+        fiscal_year=2025,
+        period_end="2025-03-31",
+        currency="JPY",
+        document_full={
+            "edinet_facts": {
+                "ifrs-full": {
+                    "Assets": {"label": "Assets", "units": {"JPY": [{"val": 1000, "end": "2025-03-31"}]}},
+                    "Revenue": {"label": "Revenue", "units": {"JPY": [{"val": 3000, "end": "2025-03-31"}]}},
+                }
+            }
+        },
+    )
+    jgaap_artifact = ParsedArtifact(
+        artifact_id="jp-jgaap-standard",
+        market=Market.JP,
+        company_id="JP:8802",
+        ticker="8802",
+        company_name="JGAAP Co.",
+        report_type="annual",
+        report_form="有価証券報告書",
+        fiscal_year=2025,
+        period_end="2025-03-31",
+        currency="JPY",
+        document_full={
+            "edinet_facts": {
+                "jpcrp_cor": {
+                    "Assets": {"label": "資産合計", "units": {"JPY": [{"val": 1000, "end": "2025-03-31"}]}},
+                    "NetSales": {"label": "売上高", "units": {"JPY": [{"val": 3000, "end": "2025-03-31"}]}},
+                }
+            }
+        },
+    )
+
+    ifrs_result = process_artifact(ifrs_artifact)
+    jgaap_result = process_artifact(jgaap_artifact)
+
+    assert ifrs_result.extraction.accounting_standard == AccountingStandard.IFRS
+    assert jgaap_result.extraction.accounting_standard == AccountingStandard.JGAAP
+    assert {
+        item.accounting_standard
+        for statement in ifrs_result.extraction.statements
+        for item in statement.items
+    } == {AccountingStandard.IFRS}
+    assert {
+        item.accounting_standard
+        for statement in jgaap_result.extraction.statements
+        for item in statement.items
+    } == {AccountingStandard.JGAAP}
+
+
+def test_jp_unknown_accounting_standard_is_draft_only_and_requires_canonical_review():
+    artifact = ParsedArtifact(
+        artifact_id="jp-unknown-standard",
+        market=Market.JP,
+        company_id="JP:0000",
+        ticker="0000",
+        company_name="Unknown Standard Co.",
+        report_type="integrated_report",
+        fiscal_year=2025,
+        period_end="2025-03-31",
+        currency="JPY",
+        tables=[
+            ParsedTable(
+                table_id="financial-summary",
+                title="Financial Summary",
+                table_index=1,
+                page_number=12,
+                rows=[
+                    ["", "2025"],
+                    ["Total assets", "1000"],
+                    ["Total liabilities", "600"],
+                    ["Total equity", "400"],
+                    ["Revenue", "3000"],
+                    ["Net income", "100"],
+                    ["Cash flows from operating activities", "150"],
+                ],
+            )
+        ],
+    )
+
+    result = process_artifact(artifact)
+    check = next(check for check in result.validation.checks if check.rule_id == "accounting.standard.known")
+
+    assert result.extraction.accounting_standard == AccountingStandard.UNKNOWN
+    assert {
+        item.accounting_standard
+        for statement in result.extraction.statements
+        for item in statement.items
+    } == {AccountingStandard.UNKNOWN}
+    assert result.validation.overall_status == "warning"
+    assert check.status == "warning"
+    assert check.raw["gate_decisions_by_target"]["draft"]["decision"] == "allow"
+    assert check.raw["gate_decisions_by_target"]["canonical"]["decision"] == "review"
+    assert check.raw["gate_decisions_by_target"]["retrieval"]["decision"] == "review"
 
 
 def test_jp_pdf_financial_summary_extracts_mixed_statement_rows():
@@ -397,8 +502,53 @@ def test_kr_dart_pdf_tables_are_fallback_for_local_language_rows():
 
     assert result.load_plan.target_schema == "dart_kr"
     assert data["market"] == "KR"
+    assert data["accounting_standard"] == "KIFRS"
     assert data["summary"]["statement_count"] == 3
+    assert {
+        item.accounting_standard
+        for statement in result.extraction.statements
+        for item in statement.items
+    } == {AccountingStandard.KIFRS}
+    assert not any(check.rule_id == "accounting.standard.known" for check in result.validation.checks)
     assert any(item.evidence.source_type == "dart_pdf_statement_table" for statement in result.extraction.statements for item in statement.items)
+
+
+def test_kr_explicit_unknown_accounting_standard_requires_review():
+    artifact = ParsedArtifact(
+        artifact_id="kr-unknown-standard",
+        market=Market.KR,
+        company_id="KR:00000000",
+        ticker="000000",
+        company_name="Unknown KR Co.",
+        report_type="annual",
+        fiscal_year=2025,
+        period_end="2025-12-31",
+        currency="KRW",
+        metadata={"accounting_standard": "UNKNOWN"},
+        tables=[
+            ParsedTable(
+                table_id="bs",
+                title="연결재무상태표",
+                table_index=1,
+                page_number=120,
+                unit="KRW million",
+                rows=[
+                    ["", "2025"],
+                    ["자산총계", "1000"],
+                    ["부채총계", "600"],
+                    ["자본총계", "400"],
+                ],
+            )
+        ],
+    )
+
+    result = process_artifact(artifact)
+    check = next(check for check in result.validation.checks if check.rule_id == "accounting.standard.known")
+
+    assert result.extraction.accounting_standard == AccountingStandard.UNKNOWN
+    assert check.status == "warning"
+    assert check.raw["gate_decisions_by_target"]["draft"]["decision"] == "allow"
+    assert check.raw["gate_decisions_by_target"]["canonical"]["decision"] == "review"
 
 
 def test_kr_bridge_checks_compare_scaled_table_values_with_xbrl_amounts():

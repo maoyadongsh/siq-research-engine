@@ -10,6 +10,12 @@ OFFICIAL_VERIFIED_STATUS = "official_verified"
 MANUAL_UNVERIFIED_STATUS = "manual_unverified"
 MANUAL_UNVERIFIED_SOURCE_ID = "manual_unverified"
 MANUAL_UNVERIFIED_SOURCE_NAME = "Manual unverified URL"
+OFFICIAL_REGULATOR_TIER = "official_regulator"
+OFFICIAL_ISSUER_TIER = "official_issuer"
+RECOGNIZED_VENDOR_TIER = "recognized_vendor"
+UNVERIFIED_WEB_TIER = "unverified_web"
+LOCAL_UPLOADED_TIER = "local_uploaded"
+OFFICIAL_EVIDENCE_TIERS = frozenset({OFFICIAL_REGULATOR_TIER, OFFICIAL_ISSUER_TIER})
 
 HTTP_SCHEMES = {"http", "https"}
 CLOUD_METADATA_HOSTS = {
@@ -50,12 +56,9 @@ US_HOST_SUFFIXES = (
     "sec.gov",
 )
 
-EU_HOST_SUFFIXES = (
+EU_REGULATOR_HOST_SUFFIXES = (
     "filings.xbrl.org",
     "sec.gov",
-    "annualreports.ai",
-    "financialreports.eu",
-    "financialfilings.com",
     "fca.org.uk",
     "amf-france.org",
     "info-financiere.fr",
@@ -64,6 +67,19 @@ EU_HOST_SUFFIXES = (
     "afm.nl",
     "six-group.com",
     "ser-ag.com",
+    "londonstockexchange.com",
+    "investegate.co.uk",
+    "lseg.com",
+)
+
+EU_RECOGNIZED_VENDOR_HOST_SUFFIXES = (
+    "annualreports.ai",
+    "financialreports.eu",
+    "financialfilings.com",
+    "eqs-news.com",
+)
+
+EU_VERIFIED_ISSUER_HOST_SUFFIXES = (
     "astrazeneca.com",
     "bp.com",
     "barclays",
@@ -82,14 +98,11 @@ EU_HOST_SUFFIXES = (
     "roche.com",
     "hsbc.com",
     "shell.com",
-    "londonstockexchange.com",
-    "investegate.co.uk",
     "unilever.com",
     "diageo.com",
     "cdn-rio.dataweavers.io",
     "riotinto.com",
     "glencore.com",
-    "lseg.com",
     "lvmh-com.cdn.prismic.io",
     "www-axa-com.cdn.prismic.io",
     "lvmh.com",
@@ -100,7 +113,6 @@ EU_HOST_SUFFIXES = (
     "airbus.com",
     "vinci.com",
     "allianz.com",
-    "eqs-news.com",
     "bmwgroup.com",
     "vw-mms.de",
     "volkswagen-group.com",
@@ -121,6 +133,8 @@ EU_HOST_SUFFIXES = (
     "sika.com",
     "holcim.com",
 )
+
+EU_HOST_SUFFIXES = EU_REGULATOR_HOST_SUFFIXES + EU_VERIFIED_ISSUER_HOST_SUFFIXES + EU_RECOGNIZED_VENDOR_HOST_SUFFIXES
 
 JP_HOST_SUFFIXES = (
     "edinet-fsa.go.jp",
@@ -192,6 +206,118 @@ def url_host_matches_any(document_url: str, suffixes: tuple[str, ...] | set[str]
     return host_matches_any(host, suffixes)
 
 
+def official_regulator_host_suffixes(market: Market) -> tuple[str, ...]:
+    if market == Market.cn:
+        return CN_HOST_SUFFIXES
+    if market == Market.hk:
+        return HK_HOST_SUFFIXES
+    if market == Market.us:
+        return US_HOST_SUFFIXES
+    if market == Market.eu:
+        return EU_REGULATOR_HOST_SUFFIXES
+    if market == Market.jp:
+        return JP_HOST_SUFFIXES
+    if market == Market.kr:
+        return KR_HOST_SUFFIXES
+    return ()
+
+
+def verified_issuer_host_suffixes(market: Market) -> tuple[str, ...]:
+    if market == Market.eu:
+        return EU_VERIFIED_ISSUER_HOST_SUFFIXES
+    if market == Market.jp:
+        from market_report_finder_service.markets.jp.catalog import JpAnnualReportCatalog
+
+        return tuple(JpAnnualReportCatalog.source_hosts())
+    if market == Market.kr:
+        from market_report_finder_service.markets.kr.catalog import KrAnnualReportCatalog
+
+        return tuple(KrAnnualReportCatalog.source_hosts())
+    return ()
+
+
+def recognized_vendor_host_suffixes(market: Market) -> tuple[str, ...]:
+    if market == Market.eu:
+        return EU_RECOGNIZED_VENDOR_HOST_SUFFIXES
+    return ()
+
+
+def official_source_host_suffixes(market: Market) -> tuple[str, ...]:
+    return (*official_regulator_host_suffixes(market), *verified_issuer_host_suffixes(market))
+
+
+def normalize_source_tier(value: object) -> str | None:
+    text = str(value or "").strip().lower()
+    if not text:
+        return None
+    if text in {OFFICIAL_REGULATOR_TIER, "official_regulator_source", "official_mirror", "official_exchange", "regulator", "exchange", "statutory_public_html", "statutory_public_pdf"}:
+        return OFFICIAL_REGULATOR_TIER
+    if text in {OFFICIAL_ISSUER_TIER, "official_direct", "issuer", "issuer_official_direct", "official_issuer_direct"}:
+        return OFFICIAL_ISSUER_TIER
+    if text in {RECOGNIZED_VENDOR_TIER, "vendor", "mainstream_repository"}:
+        return RECOGNIZED_VENDOR_TIER
+    if text in {UNVERIFIED_WEB_TIER, MANUAL_UNVERIFIED_STATUS, "manual", "unverified", "unknown"}:
+        return UNVERIFIED_WEB_TIER
+    if text in {LOCAL_UPLOADED_TIER, "local", "upload", "uploaded"}:
+        return LOCAL_UPLOADED_TIER
+    if text == "official":
+        return OFFICIAL_REGULATOR_TIER
+    return None
+
+
+def source_tier_for_host(
+    market: Market,
+    host: str,
+    *,
+    source_id: str | None = None,
+    metadata: dict | None = None,
+) -> str:
+    metadata = metadata if isinstance(metadata, dict) else {}
+    requested_tier = normalize_source_tier(metadata.get("source_tier"))
+    verification_status = str(metadata.get("source_verification_status") or "").strip().lower()
+    if (
+        source_id == MANUAL_UNVERIFIED_SOURCE_ID
+        or verification_status == MANUAL_UNVERIFIED_STATUS
+        or requested_tier == UNVERIFIED_WEB_TIER
+    ):
+        return UNVERIFIED_WEB_TIER
+    if requested_tier == LOCAL_UPLOADED_TIER:
+        return LOCAL_UPLOADED_TIER
+
+    if host_matches_any(host, official_regulator_host_suffixes(market)):
+        return OFFICIAL_REGULATOR_TIER
+    if host_matches_any(host, verified_issuer_host_suffixes(market)):
+        return OFFICIAL_ISSUER_TIER
+    if host_matches_any(host, recognized_vendor_host_suffixes(market)):
+        return RECOGNIZED_VENDOR_TIER
+    return UNVERIFIED_WEB_TIER
+
+
+def source_tier_for_url(
+    market: Market,
+    document_url: str,
+    *,
+    source_id: str | None = None,
+    metadata: dict | None = None,
+) -> str:
+    try:
+        host = validate_http_url(document_url)
+    except ValueError:
+        requested_tier = normalize_source_tier((metadata or {}).get("source_tier"))
+        return requested_tier or UNVERIFIED_WEB_TIER
+    return source_tier_for_host(market, host, source_id=source_id, metadata=metadata)
+
+
+def is_official_evidence_url(
+    market: Market,
+    document_url: str,
+    *,
+    source_id: str | None = None,
+    metadata: dict | None = None,
+) -> bool:
+    return source_tier_for_url(market, document_url, source_id=source_id, metadata=metadata) in OFFICIAL_EVIDENCE_TIERS
+
+
 def market_owns_url(market: Market, document_url: str) -> bool:
     try:
         host = validate_http_url(document_url)
@@ -201,23 +327,7 @@ def market_owns_url(market: Market, document_url: str) -> bool:
 
 
 def market_owns_host(market: Market, host: str) -> bool:
-    if market == Market.cn:
-        return host_matches_any(host, CN_HOST_SUFFIXES)
-    if market == Market.hk:
-        return host_matches_any(host, HK_HOST_SUFFIXES)
-    if market == Market.us:
-        return host_matches_any(host, US_HOST_SUFFIXES)
-    if market == Market.eu:
-        return host_matches_any(host, EU_HOST_SUFFIXES)
-    if market == Market.jp:
-        from market_report_finder_service.markets.jp.catalog import JpAnnualReportCatalog
-
-        return host_matches_any(host, JP_HOST_SUFFIXES) or host_matches_any(host, JpAnnualReportCatalog.source_hosts())
-    if market == Market.kr:
-        from market_report_finder_service.markets.kr.catalog import KrAnnualReportCatalog
-
-        return host_matches_any(host, KR_HOST_SUFFIXES) or host_matches_any(host, KrAnnualReportCatalog.source_hosts())
-    return False
+    return host_matches_any(host, (*official_source_host_suffixes(market), *recognized_vendor_host_suffixes(market)))
 
 
 def catalog_owns_url(market: Market, document_url: str) -> bool:

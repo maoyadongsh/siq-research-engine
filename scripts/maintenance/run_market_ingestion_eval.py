@@ -8,6 +8,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONTRACTS_SRC = REPO_ROOT / "packages" / "market-contracts" / "src"
@@ -66,6 +67,25 @@ DEFAULT_QUALITY_THRESHOLDS = {
         "statement_coverage": 1.0,
         "bridge_check_pass_rate": 0.95,
     },
+}
+OFFICIAL_SOURCE_DOMAINS = {
+    "HK": ("hkexnews.hk", "hkex.com.hk"),
+    "US": ("sec.gov",),
+    "JP": ("edinet-fsa.go.jp", "disclosure2.edinet-fsa.go.jp", "fsa.go.jp"),
+    "KR": ("dart.fss.or.kr", "opendart.fss.or.kr"),
+    "EU": ("esma.europa.eu", "filing.xbrl.org", "xbrl.org", "six-group.com", "six-exchange-regulation.com"),
+}
+REVIEW_GATE_FAILURES = {
+    "official_source_unverified",
+}
+CURRENCY_ALIASES = {
+    "RMB": "CNY",
+    "CNH": "CNY",
+    "US$": "USD",
+    "HK$": "HKD",
+    "EURO": "EUR",
+    "YEN": "JPY",
+    "WON": "KRW",
 }
 
 
@@ -244,8 +264,16 @@ def _package_quality_gates(package_dir: Path) -> dict[str, Any]:
 
 def evaluate_case(case: dict[str, Any]) -> dict[str, Any]:
     package_dir = find_package(case)
+    expected_gate_status = _normalize_gate_status(case.get("expected_gate_status"))
     if not package_dir:
-        return {**case, "status": "missing_package", "package_path": None}
+        return {
+            **case,
+            "status": "missing_package",
+            "eval_gate_status": "block",
+            "expected_gate_status": expected_gate_status,
+            "gate_status_matches_expected": None,
+            "package_path": None,
+        }
     manifest = read_json(package_dir / "manifest.json", {})
     quality = read_json(package_dir / "qa" / "quality_report.json", {})
     metrics_payload = read_json(package_dir / "metrics" / "normalized_metrics.json", {})
@@ -288,6 +316,7 @@ def evaluate_case(case: dict[str, Any]) -> dict[str, Any]:
         case,
         manifest,
         quality,
+        financial_data,
         metrics,
         metric_names,
         source_map,
@@ -298,10 +327,29 @@ def evaluate_case(case: dict[str, Any]) -> dict[str, Any]:
         bridge_check_pass_rate=bridge_check_pass_rate,
         bridge_check_status=bridge_check_status,
     )
-    status = "pass" if not missing_metrics and not missing_evidence and not gate_failures else "fail"
+    eval_gate_status = _eval_gate_status(
+        quality_gates,
+        gate_failures=gate_failures,
+        missing_metrics=missing_metrics,
+        missing_evidence=missing_evidence,
+    )
+    gate_status_matches_expected = None
+    if expected_gate_status:
+        gate_status_matches_expected = eval_gate_status == expected_gate_status
+        if not gate_status_matches_expected:
+            gate_failures = sorted(
+                {
+                    *gate_failures,
+                    f"expected_gate_status_{expected_gate_status}_got_{eval_gate_status}",
+                }
+            )
+    status = "pass" if not missing_metrics and not missing_evidence and not gate_failures and eval_gate_status == "pass" else "fail"
     return {
         **case,
         "status": status,
+        "eval_gate_status": eval_gate_status,
+        "expected_gate_status": expected_gate_status,
+        "gate_status_matches_expected": gate_status_matches_expected,
         "package_path": str(package_dir),
         "quality_status": quality.get("overall_status") or manifest.get("quality_status"),
         "document_format": manifest.get("document_format") or case.get("document_format"),
@@ -400,10 +448,51 @@ def _is_present_status(value: Any) -> bool:
     return str(value).strip().lower() in {"present", "pass", "ok", "ready", "available", "true"}
 
 
+def _normalize_gate_status(value: Any) -> str | None:
+    text = str(value or "").strip().lower()
+    if text in {"allow", "allowed", "ok", "pass", "passed", "ready", "success"}:
+        return "pass"
+    if text in {"warn", "warning", "needs_review", "review"}:
+        return "review"
+    if text in {"block", "blocked", "fail", "failed", "error", "critical", "missing_package"}:
+        return "block"
+    return None
+
+
+def _eval_gate_status(
+    quality_gates: dict[str, Any],
+    *,
+    gate_failures: list[str],
+    missing_metrics: list[str],
+    missing_evidence: bool,
+) -> str:
+    decision = _normalize_gate_status(
+        quality_gates.get("canonical_decision")
+        or quality_gates.get("decision")
+        or ((quality_gates.get("decisions_by_target") or {}).get("canonical") or {}).get("decision")
+    )
+    if decision == "block" or _has_blocking_eval_failure(gate_failures, missing_metrics, missing_evidence):
+        return "block"
+    if decision == "review" or _has_review_eval_failure(gate_failures):
+        return "review"
+    return "pass"
+
+
+def _has_blocking_eval_failure(gate_failures: list[str], missing_metrics: list[str], missing_evidence: bool) -> bool:
+    if missing_metrics or missing_evidence:
+        return True
+    return any(failure not in REVIEW_GATE_FAILURES for failure in gate_failures)
+
+
+def _has_review_eval_failure(gate_failures: list[str]) -> bool:
+    return any(failure in REVIEW_GATE_FAILURES for failure in gate_failures)
+
+
 def _quality_gate_failures(
     case: dict[str, Any],
     manifest: dict[str, Any],
     quality: dict[str, Any],
+    financial_data: dict[str, Any],
     metrics: list[Any],
     metric_names: set[Any],
     source_map: dict[str, Any],
@@ -447,6 +536,7 @@ def _quality_gate_failures(
         failures.append("unresolvable_evidence_present")
     if bridge_check_status in {"fail", "failed", "error", "critical"}:
         failures.append("bridge_check_status_fail")
+    failures.extend(_metadata_gate_failures(case, manifest, financial_data, metrics))
 
     if market != "EU":
         return sorted(set(failures))
@@ -479,6 +569,188 @@ def _threshold_failures(thresholds: dict[str, float], key: str, value: float | N
         suffix = str(threshold).replace(".", "_")
         return [f"{key}_lt_{suffix}"]
     return []
+
+
+def _metadata_gate_failures(
+    case: dict[str, Any],
+    manifest: dict[str, Any],
+    financial_data: dict[str, Any],
+    metrics: list[Any],
+) -> list[str]:
+    failures: list[str] = []
+    failures.extend(_currency_gate_failures(case, manifest, financial_data, metrics))
+    failures.extend(_period_gate_failures(case, manifest, financial_data, metrics))
+    failures.extend(_source_gate_failures(case, manifest))
+    return failures
+
+
+def _currency_gate_failures(
+    case: dict[str, Any],
+    manifest: dict[str, Any],
+    financial_data: dict[str, Any],
+    metrics: list[Any],
+) -> list[str]:
+    expected = _normalize_currency(
+        case.get("expected_currency")
+        or case.get("reporting_currency")
+        or case.get("currency")
+    )
+    if not expected:
+        return []
+    actual = _currency_candidates(manifest, financial_data, metrics)
+    if actual and expected not in actual:
+        return [f"currency_mismatch_expected_{expected.lower()}"]
+    return []
+
+
+def _currency_candidates(manifest: dict[str, Any], financial_data: dict[str, Any], metrics: list[Any]) -> set[str]:
+    candidates: set[str] = set()
+    for payload in (manifest, financial_data):
+        if not isinstance(payload, dict):
+            continue
+        for key in ("expected_currency", "reporting_currency", "presentation_currency", "currency", "unit_currency"):
+            currency = _normalize_currency(payload.get(key))
+            if currency:
+                candidates.add(currency)
+    for metric in metrics or []:
+        if not isinstance(metric, dict):
+            continue
+        for key in ("reporting_currency", "currency", "unit_currency", "unit", "unit_id"):
+            currency = _normalize_currency(metric.get(key))
+            if currency:
+                candidates.add(currency)
+    return candidates
+
+
+def _normalize_currency(value: Any) -> str:
+    text = str(value or "").strip().upper()
+    if not text:
+        return ""
+    if text in CURRENCY_ALIASES:
+        return CURRENCY_ALIASES[text]
+    compact = "".join(ch for ch in text if ch.isalnum() or ch == "$")
+    if compact in CURRENCY_ALIASES:
+        return CURRENCY_ALIASES[compact]
+    for code in ("USD", "HKD", "EUR", "JPY", "KRW", "CNY", "CHF", "GBP"):
+        if code in compact:
+            return code
+    if "RMB" in compact:
+        return "CNY"
+    return compact if len(compact) == 3 and compact.isalpha() else ""
+
+
+def _period_gate_failures(
+    case: dict[str, Any],
+    manifest: dict[str, Any],
+    financial_data: dict[str, Any],
+    metrics: list[Any],
+) -> list[str]:
+    expected = _normalize_period_end(case.get("expected_period_end") or case.get("period_end"))
+    if not expected:
+        return []
+    actual = _period_candidates(manifest, financial_data, metrics)
+    if actual and expected not in actual:
+        return [f"period_end_mismatch_expected_{expected}"]
+    return []
+
+
+def _period_candidates(manifest: dict[str, Any], financial_data: dict[str, Any], metrics: list[Any]) -> set[str]:
+    candidates: set[str] = set()
+    for payload in (manifest, financial_data):
+        if not isinstance(payload, dict):
+            continue
+        for key in ("period_end", "expected_period_end", "fiscal_period_end", "report_period_end", "end_date"):
+            period_end = _normalize_period_end(payload.get(key))
+            if period_end:
+                candidates.add(period_end)
+    for metric in metrics or []:
+        if not isinstance(metric, dict):
+            continue
+        for key in ("period_end", "fiscal_period_end", "report_period_end", "end_date", "instant"):
+            period_end = _normalize_period_end(metric.get(key))
+            if period_end:
+                candidates.add(period_end)
+    return candidates
+
+
+def _normalize_period_end(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if len(text) >= 10 and text[4] == "-" and text[7] == "-":
+        return text[:10]
+    return text
+
+
+def _source_gate_failures(case: dict[str, Any], manifest: dict[str, Any]) -> list[str]:
+    failures: list[str] = []
+    if _source_marked_unverified(case, manifest) and _expects_official_source(case, manifest):
+        failures.append("official_source_unverified")
+    if _official_source_url_untrusted(case, manifest):
+        failures.append("official_source_url_untrusted")
+    return failures
+
+
+def _source_marked_unverified(case: dict[str, Any], manifest: dict[str, Any]) -> bool:
+    for value in (
+        manifest.get("source_verification_status"),
+        manifest.get("official_source_verified"),
+        case.get("source_verification_status"),
+        case.get("official_source_verified"),
+    ):
+        if isinstance(value, bool):
+            return not value
+        text = str(value or "").strip().lower()
+        if text in {"unverified", "not_verified", "failed", "unknown", "false", "no"}:
+            return True
+        if text in {"verified", "pass", "true", "yes"}:
+            return False
+    return False
+
+
+def _expects_official_source(case: dict[str, Any], manifest: dict[str, Any]) -> bool:
+    explicit = case.get("expected_official_source")
+    if isinstance(explicit, bool):
+        return explicit
+    source_tier = str(manifest.get("source_tier") or case.get("source_tier") or "").lower()
+    if source_tier in {"official", "regulator", "exchange", "issuer"} or source_tier.startswith("official_"):
+        return True
+    source_id = str(manifest.get("source_id") or case.get("source_id") or "").lower()
+    return source_id in {"hkex", "sec", "edgar", "edinet", "dart", "esef", "six_direct", "eu_direct"}
+
+
+def _official_source_url_untrusted(case: dict[str, Any], manifest: dict[str, Any]) -> bool:
+    if not _expects_official_source(case, manifest):
+        return False
+    source_url = str(manifest.get("source_url") or manifest.get("filing_url") or case.get("source_url") or "").strip()
+    if not source_url:
+        return False
+    market = str(case.get("market") or manifest.get("market") or "").upper()
+    allowed_domains = _allowed_official_source_domains(case, manifest, market)
+    if not allowed_domains:
+        return False
+    hostname = urlparse(source_url).hostname or ""
+    hostname = hostname.lower().removeprefix("www.")
+    return not any(hostname == domain or hostname.endswith(f".{domain}") for domain in allowed_domains)
+
+
+def _allowed_official_source_domains(case: dict[str, Any], manifest: dict[str, Any], market: str) -> tuple[str, ...]:
+    explicit = case.get("official_source_domains") or manifest.get("official_source_domains")
+    if isinstance(explicit, list):
+        domains = tuple(str(domain).lower().removeprefix("www.") for domain in explicit if str(domain or "").strip())
+        if domains:
+            return domains
+    source_id = str(manifest.get("source_id") or case.get("source_id") or "").lower()
+    known_source_ids = {
+        "HK": {"hkex"},
+        "US": {"sec", "edgar"},
+        "JP": {"edinet"},
+        "KR": {"dart"},
+        "EU": {"esef", "six_direct"},
+    }
+    if source_id not in known_source_ids.get(market, set()):
+        return ()
+    return OFFICIAL_SOURCE_DOMAINS.get(market, ())
 
 
 def _eu_pdf_gate_failures(
@@ -601,16 +873,47 @@ def _number_or_none(value: Any) -> float | None:
 
 
 def summarize_items(items: list[dict[str, Any]]) -> dict[str, Any]:
-    summary: dict[str, Any] = {"cases": len(items), "pass": 0, "fail": 0, "missing_package": 0, "by_market": {}}
+    summary: dict[str, Any] = {
+        "cases": len(items),
+        "pass": 0,
+        "fail": 0,
+        "missing_package": 0,
+        "eval_gate_status": {"pass": 0, "review": 0, "block": 0},
+        "by_market": {},
+    }
     for item in items:
         status = item["status"]
         summary[status] = summary.get(status, 0) + 1
+        gate_status = _item_gate_status(item)
+        summary["eval_gate_status"][gate_status] = summary["eval_gate_status"].get(gate_status, 0) + 1
         market = item.get("market")
-        bucket = summary["by_market"].setdefault(market, {"cases": 0, "pass": 0, "fail": 0, "missing_package": 0})
+        bucket = summary["by_market"].setdefault(
+            market,
+            {
+                "cases": 0,
+                "pass": 0,
+                "fail": 0,
+                "missing_package": 0,
+                "eval_gate_status": {"pass": 0, "review": 0, "block": 0},
+            },
+        )
         bucket["cases"] += 1
         bucket[status] = bucket.get(status, 0) + 1
+        bucket["eval_gate_status"][gate_status] = bucket["eval_gate_status"].get(gate_status, 0) + 1
     summary["quality_metrics"] = _quality_metrics(items)
     return summary
+
+
+def _item_gate_status(item: dict[str, Any]) -> str:
+    gate_status = _normalize_gate_status(item.get("eval_gate_status"))
+    if gate_status:
+        return gate_status
+    status = str(item.get("status") or "").lower()
+    if status == "pass":
+        return "pass"
+    if status in {"fail", "missing_package"}:
+        return "block"
+    return "review"
 
 
 def _quality_metrics(items: list[dict[str, Any]]) -> dict[str, float | None]:
@@ -680,6 +983,7 @@ def _format_metric(value: Any) -> str:
 
 
 def markdown_report(report: dict[str, Any]) -> str:
+    gate_status = report["summary"].get("eval_gate_status") or {}
     lines = [
         "# Market Ingestion Evaluation",
         "",
@@ -688,6 +992,7 @@ def markdown_report(report: dict[str, Any]) -> str:
         f"- Passed: `{report['summary']['pass']}`",
         f"- Failed: `{report['summary']['fail']}`",
         f"- Missing packages: `{report['summary']['missing_package']}`",
+        f"- Gate pass/review/block: `{gate_status.get('pass', 0)}` / `{gate_status.get('review', 0)}` / `{gate_status.get('block', 0)}`",
         "",
         "## Quality Metrics",
         "",
@@ -709,8 +1014,8 @@ def markdown_report(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
-            "| Market | Country | Ticker | Year | Format | Status | Quality | Metrics | Evidence | Missing | Gates |",
-            "| --- | --- | --- | ---: | --- | --- | --- | ---: | ---: | --- | --- |",
+            "| Market | Country | Ticker | Year | Format | Status | Gate | Quality | Metrics | Evidence | Missing | Gates |",
+            "| --- | --- | --- | ---: | --- | --- | --- | --- | ---: | ---: | --- | --- |",
         ]
     )
     for item in report["items"]:
@@ -718,6 +1023,7 @@ def markdown_report(report: dict[str, Any]) -> str:
         lines.append(
             f"| {item.get('market')} | {item.get('country') or ''} | {item.get('ticker')} | {item.get('fiscal_year')} | "
             f"{item.get('document_format') or ''} | {item.get('status')} | "
+            f"{item.get('eval_gate_status') or ''} | "
             f"{item.get('quality_status') or ''} | {counts.get('metrics', '')} | {counts.get('evidence', '')} | "
             f"{', '.join(item.get('missing_metrics') or [])} | {', '.join(item.get('gate_failures') or [])} |"
         )

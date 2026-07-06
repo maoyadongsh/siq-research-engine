@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import hashlib
 from ipaddress import ip_address
 import json
@@ -18,11 +19,14 @@ import httpx
 
 from market_report_finder_service.core.config import settings
 from market_report_finder_service.markets.url_ownership import (
+    OFFICIAL_EVIDENCE_TIERS,
+    OFFICIAL_REGULATOR_TIER,
     MANUAL_UNVERIFIED_SOURCE_ID,
     MANUAL_UNVERIFIED_STATUS,
     OFFICIAL_VERIFIED_STATUS,
+    UNVERIFIED_WEB_TIER,
     is_forbidden_report_ip,
-    market_owns_url,
+    source_tier_for_url,
     validate_http_url,
 )
 from market_report_finder_service.models.schemas import DownloadedReportFile, FilingCandidate, Market, ReportFamily, ReportType
@@ -33,6 +37,9 @@ class _FetchedReport:
     content_sha256: str
     content_type: str | None
     effective_url: str
+    initial_url: str
+    redirect_chain: tuple[dict[str, object], ...]
+    retrieved_at: str
     size_bytes: int
 
 
@@ -104,7 +111,7 @@ class ReportDownloader:
         temp_path = self._temp_download_path(download_dir)
         try:
             fetched = self._fetch_to_path(candidate, temp_path)
-            candidate = self._candidate_with_effective_url(candidate, fetched.effective_url)
+            candidate = self._candidate_with_source_manifest(candidate, fetched)
             digest = fetched.content_sha256
             effective_content_type = fetched.content_type
             file_name = self._build_file_name(candidate, effective_content_type)
@@ -418,16 +425,22 @@ class ReportDownloader:
         *,
         headers: dict[str, str] | None = None,
     ) -> _FetchedReport:
+        initial_url = requested_url
+        redirect_chain: list[dict[str, object]] = []
         current_url = requested_url
         for _redirect_count in range(self.MAX_REDIRECTS + 1):
             self._validate_fetch_url(candidate, current_url)
             with client.stream("GET", current_url, headers=headers) as response:
                 if self._is_redirect_response(response):
-                    current_url = self._redirect_target_url(response, current_url, candidate)
+                    target_url = self._redirect_target_url(response, current_url, candidate)
+                    redirect_chain.append(self._redirect_record(response, current_url, target_url))
+                    current_url = target_url
                     continue
                 return self._stream_response_to_path(
                     response,
                     requested_url=current_url,
+                    initial_url=initial_url,
+                    redirect_chain=redirect_chain,
                     temp_path=temp_path,
                     candidate=candidate,
                 )
@@ -441,15 +454,20 @@ class ReportDownloader:
         *,
         headers: dict[str, str] | None = None,
     ) -> httpx.Response:
+        initial_url = requested_url
+        redirect_chain: list[dict[str, object]] = []
         current_url = requested_url
         for _redirect_count in range(self.MAX_REDIRECTS + 1):
             self._validate_fetch_url(candidate, current_url)
             response = client.get(current_url, headers=headers) if headers else client.get(current_url)
             if self._is_redirect_response(response):
-                current_url = self._redirect_target_url(response, current_url, candidate)
+                target_url = self._redirect_target_url(response, current_url, candidate)
+                redirect_chain.append(self._redirect_record(response, current_url, target_url))
+                current_url = target_url
                 continue
             effective_url = str(getattr(response, "url", None) or current_url)
             self._validate_fetch_url(candidate, effective_url)
+            self._attach_redirect_metadata(response, initial_url=initial_url, redirect_chain=redirect_chain)
             return response
         raise ValueError(f"Report download exceeded redirect limit: {self._redact_url_for_storage(current_url)}")
 
@@ -465,11 +483,33 @@ class ReportDownloader:
         self._validate_fetch_url(candidate, target_url)
         return target_url
 
+    @classmethod
+    def _redirect_record(cls, response: httpx.Response, from_url: str, to_url: str) -> dict[str, object]:
+        return {
+            "status_code": int(getattr(response, "status_code", 0) or 0),
+            "from_url": cls._redact_url_for_storage(from_url),
+            "to_url": cls._redact_url_for_storage(to_url),
+        }
+
+    @staticmethod
+    def _attach_redirect_metadata(
+        response: httpx.Response,
+        *,
+        initial_url: str,
+        redirect_chain: list[dict[str, object]],
+    ) -> None:
+        extensions = getattr(response, "extensions", None)
+        if isinstance(extensions, dict):
+            extensions["siq_initial_url"] = initial_url
+            extensions["siq_redirect_chain"] = tuple(redirect_chain)
+
     def _stream_response_to_path(
         self,
         response: httpx.Response,
         *,
         requested_url: str,
+        initial_url: str | None = None,
+        redirect_chain: list[dict[str, object]] | tuple[dict[str, object], ...] | None = None,
         temp_path: Path,
         candidate: FilingCandidate,
     ) -> _FetchedReport:
@@ -502,6 +542,9 @@ class ReportDownloader:
             content_sha256=digest.hexdigest(),
             content_type=effective_content_type,
             effective_url=effective_url,
+            initial_url=initial_url or requested_url,
+            redirect_chain=tuple(redirect_chain or ()),
+            retrieved_at=self._utc_now_iso(),
             size_bytes=size_bytes,
         )
 
@@ -516,10 +559,13 @@ class ReportDownloader:
         response.raise_for_status()
         content = self._response_body_bytes(response)
         effective_url = str(getattr(response, "url", None) or requested_url)
+        extensions = getattr(response, "extensions", {}) or {}
         return self._bytes_to_path(
             content,
             content_type=response.headers.get("content-type"),
             effective_url=effective_url,
+            initial_url=extensions.get("siq_initial_url") if isinstance(extensions, dict) else requested_url,
+            redirect_chain=extensions.get("siq_redirect_chain") if isinstance(extensions, dict) else None,
             temp_path=temp_path,
             candidate=candidate,
         )
@@ -530,6 +576,8 @@ class ReportDownloader:
         *,
         content_type: str | None,
         effective_url: str,
+        initial_url: str | None = None,
+        redirect_chain: list[dict[str, object]] | tuple[dict[str, object], ...] | None = None,
         temp_path: Path,
         candidate: FilingCandidate,
     ) -> _FetchedReport:
@@ -546,6 +594,9 @@ class ReportDownloader:
             content_sha256=hashlib.sha256(content).hexdigest(),
             content_type=effective_content_type,
             effective_url=effective_url,
+            initial_url=initial_url or effective_url,
+            redirect_chain=tuple(redirect_chain or ()),
+            retrieved_at=self._utc_now_iso(),
             size_bytes=size_bytes,
         )
 
@@ -558,7 +609,7 @@ class ReportDownloader:
 
     def _validate_original_url(self, candidate: FilingCandidate) -> None:
         host = validate_http_url(candidate.document_url)
-        if not self._is_manual_unverified(candidate) and not market_owns_url(candidate.market, candidate.document_url):
+        if not self._is_manual_unverified(candidate) and not self._is_official_evidence_url(candidate, candidate.document_url):
             raise ValueError(
                 f"{candidate.source_id} URL is outside the {candidate.market.value} official source allowlist: "
                 f"{self._redact_url_for_storage(candidate.document_url)}"
@@ -567,7 +618,7 @@ class ReportDownloader:
 
     def _validate_effective_url(self, candidate: FilingCandidate, effective_url: str) -> None:
         host = validate_http_url(effective_url)
-        if not self._is_manual_unverified(candidate) and not market_owns_url(candidate.market, effective_url):
+        if not self._is_manual_unverified(candidate) and not self._is_official_evidence_url(candidate, effective_url):
             raise ValueError(
                 f"{candidate.source_id} redirect escaped the {candidate.market.value} official source allowlist: "
                 f"{self._redact_url_for_storage(effective_url)}"
@@ -576,7 +627,7 @@ class ReportDownloader:
 
     def _validate_fetch_url(self, candidate: FilingCandidate, report_url: str) -> None:
         host = validate_http_url(report_url)
-        if not self._is_manual_unverified(candidate) and not market_owns_url(candidate.market, report_url):
+        if not self._is_manual_unverified(candidate) and not self._is_official_evidence_url(candidate, report_url):
             raise ValueError(
                 f"{candidate.source_id} URL is outside the {candidate.market.value} official source allowlist: "
                 f"{self._redact_url_for_storage(report_url)}"
@@ -633,9 +684,12 @@ class ReportDownloader:
             payload[key] = cls._redact_url_for_storage(payload.get(key))
         metadata = payload.get("metadata")
         if isinstance(metadata, dict):
-            for key in ("original_url", "effective_url", "dart_viewer_url", "dart_pdf_landing_url"):
+            for key in ("original_url", "effective_url", "initial_url", "final_url", "dart_viewer_url", "dart_pdf_landing_url"):
                 if key in metadata:
                     metadata[key] = cls._redact_url_for_storage(metadata.get(key))
+            source_manifest = metadata.get("source_manifest")
+            if isinstance(source_manifest, dict):
+                metadata["source_manifest"] = cls._redacted_source_manifest(source_manifest)
         return payload
 
     @classmethod
@@ -643,15 +697,19 @@ class ReportDownloader:
         return (
             candidate.source_id == MANUAL_UNVERIFIED_SOURCE_ID
             or candidate.metadata.get("source_verification_status") == MANUAL_UNVERIFIED_STATUS
+            or candidate.metadata.get("source_tier") == UNVERIFIED_WEB_TIER
         )
 
     @classmethod
     def _candidate_with_original_url(cls, candidate: FilingCandidate) -> FilingCandidate:
         metadata = dict(candidate.metadata)
         metadata.setdefault("original_url", cls._redact_url_for_storage(candidate.document_url))
-        if "source_verification_status" not in metadata:
+        metadata.setdefault("source_tier", cls._source_tier_for_candidate_url(candidate, candidate.document_url))
+        if metadata["source_tier"] not in OFFICIAL_EVIDENCE_TIERS:
+            metadata["source_verification_status"] = MANUAL_UNVERIFIED_STATUS
+        elif "source_verification_status" not in metadata:
             metadata["source_verification_status"] = (
-                MANUAL_UNVERIFIED_STATUS if cls._is_manual_unverified(candidate) else OFFICIAL_VERIFIED_STATUS
+                MANUAL_UNVERIFIED_STATUS if metadata["source_tier"] not in OFFICIAL_EVIDENCE_TIERS else OFFICIAL_VERIFIED_STATUS
             )
         return candidate.model_copy(update={"metadata": metadata})
 
@@ -660,10 +718,91 @@ class ReportDownloader:
         metadata = dict(candidate.metadata)
         metadata.setdefault("original_url", cls._redact_url_for_storage(candidate.document_url))
         metadata["effective_url"] = cls._redact_url_for_storage(effective_url)
+        metadata["source_tier"] = cls._source_tier_for_candidate_url(candidate, effective_url)
         metadata["source_verification_status"] = (
-            MANUAL_UNVERIFIED_STATUS if cls._is_manual_unverified(candidate) else OFFICIAL_VERIFIED_STATUS
+            MANUAL_UNVERIFIED_STATUS if metadata["source_tier"] not in OFFICIAL_EVIDENCE_TIERS else OFFICIAL_VERIFIED_STATUS
         )
         return candidate.model_copy(update={"metadata": metadata})
+
+    @classmethod
+    def _candidate_with_source_manifest(cls, candidate: FilingCandidate, fetched: _FetchedReport) -> FilingCandidate:
+        candidate = cls._candidate_with_effective_url(candidate, fetched.effective_url)
+        metadata = dict(candidate.metadata)
+        initial_url = cls._redact_url_for_storage(fetched.initial_url or candidate.document_url)
+        final_url = cls._redact_url_for_storage(fetched.effective_url)
+        redirect_chain = [cls._redacted_redirect_record(item) for item in fetched.redirect_chain]
+        source_tier = metadata.get("source_tier") or cls._source_tier_for_candidate_url(candidate, fetched.effective_url)
+        source_verification_status = (
+            OFFICIAL_VERIFIED_STATUS if source_tier in OFFICIAL_EVIDENCE_TIERS else MANUAL_UNVERIFIED_STATUS
+        )
+        source_manifest = {
+            "schema_version": "siq_source_manifest_v1",
+            "source_tier": source_tier,
+            "source_verification_status": source_verification_status,
+            "initial_url": initial_url,
+            "final_url": final_url,
+            "redirect_chain": redirect_chain,
+            "content_sha256": fetched.content_sha256,
+            "content_hash": f"sha256:{fetched.content_sha256}",
+            "retrieved_at": fetched.retrieved_at,
+        }
+        if source_tier == OFFICIAL_REGULATOR_TIER:
+            source_manifest["regulator_host_verified"] = True
+        elif source_tier in OFFICIAL_EVIDENCE_TIERS:
+            source_manifest["issuer_domain_verified"] = True
+        metadata.update(
+            {
+                "source_tier": source_tier,
+                "source_verification_status": source_verification_status,
+                "initial_url": initial_url,
+                "final_url": final_url,
+                "effective_url": final_url,
+                "redirect_chain": redirect_chain,
+                "content_sha256": fetched.content_sha256,
+                "content_hash": f"sha256:{fetched.content_sha256}",
+                "retrieved_at": fetched.retrieved_at,
+                "source_manifest": source_manifest,
+            }
+        )
+        return candidate.model_copy(update={"metadata": metadata})
+
+    @classmethod
+    def _source_tier_for_candidate_url(cls, candidate: FilingCandidate, report_url: str) -> str:
+        return source_tier_for_url(
+            candidate.market,
+            report_url,
+            source_id=candidate.source_id,
+            metadata=candidate.metadata,
+        )
+
+    @classmethod
+    def _is_official_evidence_url(cls, candidate: FilingCandidate, report_url: str) -> bool:
+        return cls._source_tier_for_candidate_url(candidate, report_url) in OFFICIAL_EVIDENCE_TIERS
+
+    @classmethod
+    def _redacted_redirect_record(cls, item: object) -> dict[str, object]:
+        if not isinstance(item, dict):
+            return {"url": cls._redact_url_for_storage(str(item))}
+        redacted = dict(item)
+        for key in ("url", "from_url", "to_url"):
+            if key in redacted:
+                redacted[key] = cls._redact_url_for_storage(str(redacted[key]))
+        return redacted
+
+    @classmethod
+    def _redacted_source_manifest(cls, source_manifest: dict) -> dict:
+        redacted = dict(source_manifest)
+        for key in ("initial_url", "final_url", "source_url"):
+            if key in redacted:
+                redacted[key] = cls._redact_url_for_storage(redacted.get(key))
+        chain = redacted.get("redirect_chain")
+        if isinstance(chain, list | tuple):
+            redacted["redirect_chain"] = [cls._redacted_redirect_record(item) for item in chain]
+        return redacted
+
+    @staticmethod
+    def _utc_now_iso() -> str:
+        return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
     @classmethod
     def _max_download_bytes(cls, candidate: FilingCandidate) -> int:
@@ -778,6 +917,7 @@ class ReportDownloader:
             "file_name": Path(saved_path).name,
             "content_type": content_type,
             "content_sha256": digest,
+            "content_hash": f"sha256:{digest}",
             "metadata_path": str(self._metadata_path(Path(saved_path)).resolve()),
             "market": candidate.market.value,
             "company_id": candidate.company_id,
@@ -793,6 +933,11 @@ class ReportDownloader:
             "source_verification_status": candidate.metadata.get("source_verification_status"),
             "original_url": self._redact_url_for_storage(candidate.metadata.get("original_url") or candidate.document_url),
             "effective_url": self._redact_url_for_storage(candidate.metadata.get("effective_url")),
+            "initial_url": self._redact_url_for_storage(candidate.metadata.get("initial_url") or candidate.metadata.get("original_url") or candidate.document_url),
+            "final_url": self._redact_url_for_storage(candidate.metadata.get("final_url") or candidate.metadata.get("effective_url") or candidate.document_url),
+            "redirect_chain": candidate.metadata.get("redirect_chain") or [],
+            "retrieved_at": candidate.metadata.get("retrieved_at"),
+            "source_manifest": self._redacted_source_manifest(candidate.metadata.get("source_manifest") or {}),
         }
         index.setdefault("by_url", {})[self._redact_url_for_storage(candidate.document_url)] = entry
         if self._should_cache_landing_url(candidate):
@@ -832,7 +977,14 @@ class ReportDownloader:
         source_verification = {
             "original_url": self._redact_url_for_storage(candidate.metadata.get("original_url") or candidate.document_url),
             "effective_url": self._redact_url_for_storage(candidate.metadata.get("effective_url") or candidate.document_url),
+            "initial_url": self._redact_url_for_storage(candidate.metadata.get("initial_url") or candidate.metadata.get("original_url") or candidate.document_url),
+            "final_url": self._redact_url_for_storage(candidate.metadata.get("final_url") or candidate.metadata.get("effective_url") or candidate.document_url),
+            "redirect_chain": candidate.metadata.get("redirect_chain") or [],
+            "source_tier": candidate.metadata.get("source_tier"),
             "source_verification_status": candidate.metadata.get("source_verification_status"),
+            "content_sha256": digest,
+            "content_hash": f"sha256:{digest}",
+            "retrieved_at": candidate.metadata.get("retrieved_at"),
         }
         payload = {
             "candidate": self._candidate_payload_for_storage(candidate),
@@ -844,6 +996,7 @@ class ReportDownloader:
                 "content_sha256": digest,
             },
             "source_verification": source_verification,
+            "source_manifest": self._redacted_source_manifest(candidate.metadata.get("source_manifest") or {}),
         }
         self._atomic_write_json(metadata_path, payload)
         return metadata_path

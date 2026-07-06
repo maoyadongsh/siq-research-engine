@@ -1,5 +1,7 @@
+import json
 from pathlib import Path
 
+from services import agent_runtime_financial_provenance as provenance
 from services import agent_runtime_financial_guard as guard
 
 
@@ -95,3 +97,88 @@ def test_runtime_wrapper_uses_impl_financial_tool_paths(monkeypatch, tmp_path):
 
     assert "## 工具状态纠正" in guarded
     assert str(calculator) in guarded
+
+
+def test_financial_llm_provenance_records_required_fields_and_jsonl(tmp_path):
+    provenance.RECENT_FINANCIAL_LLM_PROVENANCE.clear()
+    record = provenance.build_financial_llm_provenance(
+        provider="custom:test",
+        model="test-model",
+        model_input="Use evidence_id=EVID-1 to explain revenue.",
+        output="Revenue explanation.",
+        stored_output="Guarded revenue explanation.",
+        context={"evidence": {"evidence_id": "EVID-1", "evidence_hash": "hash-a"}},
+    )
+
+    assert {
+        "provider",
+        "model",
+        "prompt_version",
+        "input_evidence_ids",
+        "input_hash",
+        "output_hash",
+        "created_at",
+    }.issubset(record)
+    assert record["provider"] == "custom:test"
+    assert record["model"] == "test-model"
+    assert record["input_evidence_ids"] == ["EVID-1"]
+    assert len(record["input_hash"]) == 64
+    assert len(record["output_hash"]) == 64
+    assert record["fact_trust_level"] == "evidence_bound_explanation"
+    assert record["canonical_promotable"] is False
+    assert record["output_was_guarded"] is True
+
+    log_path = tmp_path / "financial_llm_provenance.jsonl"
+    stored = provenance.record_financial_llm_provenance(record, log_path=log_path)
+
+    assert provenance.RECENT_FINANCIAL_LLM_PROVENANCE[-1] == stored
+    assert json.loads(log_path.read_text(encoding="utf-8").strip()) == stored
+
+
+def test_financial_llm_provenance_without_evidence_is_candidate_only():
+    record = provenance.build_financial_llm_provenance(
+        provider="custom:test",
+        model="test-model",
+        model_input="Explain the company financials without citations.",
+        output="Revenue increased.",
+    )
+
+    assert record["input_evidence_ids"] == []
+    assert record["fact_trust_level"] == "candidate_explanation"
+    assert record["canonical_promotable"] is False
+    assert provenance.can_promote_financial_llm_output_to_canonical(record) is False
+
+
+def test_financial_llm_cache_key_changes_when_evidence_hash_changes():
+    base_key = "message-cache-key"
+    context_a = {"evidence": {"evidence_id": "EVID-1", "evidence_hash": "hash-a"}}
+    context_b = {"evidence": {"evidence_id": "EVID-1", "evidence_hash": "hash-b"}}
+
+    key_a1 = provenance.financial_llm_cache_key(base_key, message="Explain revenue", context=context_a)
+    key_a2 = provenance.financial_llm_cache_key(base_key, message="Explain revenue", context=context_a)
+    key_b = provenance.financial_llm_cache_key(base_key, message="Explain revenue", context=context_b)
+
+    assert key_a1 == key_a2
+    assert key_a1 != key_b
+    assert provenance.financial_llm_cache_key(base_key, message="Plain chat", context={}) == base_key
+
+
+def test_runtime_dedupe_hash_includes_financial_evidence_hash():
+    import pytest
+
+    pytest.importorskip("sqlmodel")
+    from services import agent_chat_runtime as runtime
+
+    context_a = {"evidence": {"evidence_id": "EVID-1", "evidence_hash": "hash-a"}}
+    context_b = {"evidence": {"evidence_id": "EVID-1", "evidence_hash": "hash-b"}}
+
+    assert runtime._dedupe_hash_with_attachments("解释营收", context_a, []) == runtime._dedupe_hash_with_attachments(
+        "解释营收",
+        context_a,
+        [],
+    )
+    assert runtime._dedupe_hash_with_attachments("解释营收", context_a, []) != runtime._dedupe_hash_with_attachments(
+        "解释营收",
+        context_b,
+        [],
+    )

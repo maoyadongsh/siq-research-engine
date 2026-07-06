@@ -5,6 +5,7 @@ from typing import Any, Iterable
 
 from .industry_profiles import get_industry_profile
 from .models import (
+    AccountingStandard,
     CheckStatus,
     EvidenceRef,
     ExtractedFact,
@@ -40,6 +41,7 @@ def validate_extraction(extraction: ExtractionResult) -> ValidationResult:
     checks.extend(_dimension_scope_checks(facts))
     checks.extend(_operating_metric_checks(extraction.operating_metrics))
     checks.extend(_evidence_checks(facts))
+    checks.extend(_accounting_standard_checks(extraction, facts))
     checks = _attach_gate_contracts(checks)
 
     summary = {status.value: 0 for status in CheckStatus}
@@ -919,6 +921,32 @@ def _evidence_checks(facts: list[ExtractedFact]) -> list[ValidationCheck]:
             )
         )
     return checks
+
+
+def _accounting_standard_checks(extraction: ExtractionResult, facts: list[ExtractedFact]) -> list[ValidationCheck]:
+    if extraction.market not in {Market.JP, Market.KR}:
+        return []
+    unknown_facts = [fact for fact in facts if fact.accounting_standard == AccountingStandard.UNKNOWN]
+    if extraction.accounting_standard != AccountingStandard.UNKNOWN and not unknown_facts:
+        return []
+    evidence = [fact.evidence for fact in unknown_facts[:5] if fact.evidence]
+    return [
+        ValidationCheck(
+            rule_id="accounting.standard.known",
+            rule_name="Accounting standard known before trusted promotion",
+            statement_type="document",
+            period=extraction.period_end.isoformat() if extraction.period_end else None,
+            status=CheckStatus.WARNING,
+            inputs=["accounting_standard"],
+            left={
+                "accounting_standard": extraction.accounting_standard.value,
+                "unknown_fact_count": len(unknown_facts),
+            },
+            right={"allowed_for_draft": True, "canonical_requires_review": True},
+            reason="accounting_standard_unknown",
+            evidence=evidence,
+        )
+    ]
 
 
 def _dimension_scope_checks(facts: list[ExtractedFact]) -> list[ValidationCheck]:
