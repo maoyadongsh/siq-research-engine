@@ -44,7 +44,7 @@ JP_INDICATOR_TABLE_NAMES = [
 ]
 
 JP_KEY_TABLE_DISPLAY_ORDER = JP_CORE_FINANCIAL_TABLE_NAMES + JP_INDICATOR_TABLE_NAMES
-JP_PROFILE_RULE_VERSION = "jp-pdf-profile-v5"
+JP_PROFILE_RULE_VERSION = "jp-pdf-profile-v6"
 
 _ANNUAL_SECURITIES_TERMS = (
     "annual securities report",
@@ -65,7 +65,11 @@ _FINANCIAL_HIGHLIGHTS_TERMS = (
     "financial highlights",
     "selected financial data",
     "five-year summary",
+    "主要な連結経営指標等の推移",
     "主要な経営指標等の推移",
+    "連結経営指標等",
+    "提出会社の経営指標等",
+    "経営指標等の推移",
 )
 
 _CANDIDATE_RULES: dict[str, tuple[tuple[str, ...], str]] = {
@@ -76,7 +80,11 @@ _CANDIDATE_RULES: dict[str, tuple[tuple[str, ...], str]] = {
             "five-year summary",
             "consolidated operating results",
             "operating results",
+            "主要な連結経営指標等の推移",
             "主要な経営指標等の推移",
+            "連結経営指標等",
+            "提出会社の経営指標等",
+            "経営指標等の推移",
         ),
         "core",
     ),
@@ -128,7 +136,9 @@ _CANDIDATE_RULES: dict[str, tuple[tuple[str, ...], str]] = {
             "changes in net assets",
             "share capital retained earnings",
             "連結持分変動計算書",
+            "連結資本変動計算書",
             "連結株主資本等変動計算書",
+            "株主資本等変動計算書",
         ),
         "core",
     ),
@@ -267,6 +277,36 @@ def _fallback_rule_score(name: str, signal: str) -> float:
     )
     if name == "Financial Highlights":
         has_bad_summary = any(term in signal for term in bad_summary_terms)
+        compact_signal = _compact_text(signal)
+        has_jp_highlights_title = any(
+            term in compact_signal
+            for term in (
+                "主要な連結経営指標等の推移",
+                "主要な経営指標等の推移",
+                "連結経営指標等",
+                "提出会社の経営指標等",
+                "経営指標等の推移",
+            )
+        )
+        has_jp_period_axis = any(term in compact_signal for term in ("回次", "決算年月", "決算期", "事業年度"))
+        jp_metric_hits = sum(
+            1
+            for term in (
+                "営業収益",
+                "売上高",
+                "売上収益",
+                "経常利益",
+                "営業利益",
+                "税引前利益",
+                "当期純利益",
+                "親会社株主に帰属する当期純利益",
+                "親会社の所有者に帰属する当期利益",
+                "総資産額",
+                "純資産額",
+                "1株当たり",
+            )
+            if term in compact_signal
+        )
         has_summary_title = any(
             term in signal
             for term in (
@@ -305,6 +345,10 @@ def _fallback_rule_score(name: str, signal: str) -> float:
         )
         has_period_summary_label = "for the year" in signal or "at year-end" in signal
         has_income_data_label = "statement of income data" in signal or "income data" in signal
+        if not has_bad_summary and has_jp_highlights_title and jp_metric_hits >= 2:
+            return 94.0
+        if not has_bad_summary and has_jp_period_axis and jp_metric_hits >= 4:
+            return 88.0
         if not has_bad_summary and has_income_data_label and has_bank_result_cluster:
             return 90.0
         if not has_bad_summary and has_bank_result_cluster and ("results change" in signal or year_hits >= 2):
@@ -353,6 +397,28 @@ def _fallback_rule_score(name: str, signal: str) -> float:
         ):
             return 84.0
     if name == "Consolidated Statement of Changes in Equity":
+        compact_signal = _compact_text(signal)
+        jp_equity_components = sum(
+            1
+            for term in (
+                "資本金",
+                "資本剰余金",
+                "資本剩余金",
+                "利益剰余金",
+                "利益剩余金",
+                "自己株式",
+                "その他の資本の構成要素",
+                "その他の包括利益累計額",
+                "非支配持分",
+                "資本合計",
+                "純資産合計",
+            )
+            if term in compact_signal
+        )
+        has_jp_equity_scope = any(term in compact_signal for term in ("親会社の所有者に帰属する持分", "株主資本", "資本合計"))
+        has_jp_movement_axis = any(term in compact_signal for term in ("当期首残高", "当期変動額", "当期包括利益", "包括利益合計"))
+        if has_jp_equity_scope and has_jp_movement_axis and jp_equity_components >= 4:
+            return 88.0
         if "equity" in tokens and ({"share", "capital"}.issubset(tokens) or "retained" in tokens):
             return 84.0
         if {"common", "stock", "retained", "earnings", "treasury", "stock"}.issubset(tokens):
@@ -576,7 +642,7 @@ def found_sections(markdown: str, table_index: list[dict[str, Any]] | None = Non
     section_terms = {
         "Annual Securities Report": ("annual securities report", "有価証券報告書"),
         "Integrated Report": ("integrated report",),
-        "Financial Highlights": ("financial highlights", "selected financial data", "主要な経営指標等の推移"),
+        "Financial Highlights": _FINANCIAL_HIGHLIGHTS_TERMS,
         "Management Strategy": ("management strategy", "medium-term management", "経営方針"),
         "Business Overview": ("business overview", "事業の状況", "business strategy"),
         "Financial Section": ("financial section", "financial statements", "経理の状況"),

@@ -2,7 +2,7 @@ import jp_market_profile as jp
 
 
 def test_detect_market_prefers_explicit_task_market_and_filename():
-    assert jp.JP_PROFILE_RULE_VERSION == "jp-pdf-profile-v5"
+    assert jp.JP_PROFILE_RULE_VERSION == "jp-pdf-profile-v6"
     assert jp.is_jp_market({"submit_config": {"market": "JP"}}, "anything.pdf")
     assert jp.is_jp_market({"market": "jp"}, "anything.pdf")
     assert jp.is_jp_market({}, "Toyota-Motor-Corporation_JP_7203_2025.pdf")
@@ -41,6 +41,35 @@ def test_jp_candidate_groups_find_financial_highlights_and_statements():
     assert candidates["Consolidated Statement of Changes in Equity"][0]["table_index"] == 5
     assert candidates["Segment Information"][0]["table_index"] == 6
     assert all(row["candidate_group"] in {"core", "indicator"} for rows in candidates.values() for row in rows)
+
+
+def test_jp_candidate_groups_find_annual_securities_report_local_highlights():
+    table_index = [
+        {
+            "table_index": 2,
+            "line": 15,
+            "pdf_page_number": 2,
+            "heading": "（1）連結経営指標等",
+            "signal_preview": (
+                "回次 第117期 第118期 第119期 第120期 第121期 決算期 2021年3月 2022年3月 "
+                "営業収益 (百万円) 27,214,594 31,379,507 "
+                "税引前利益 (百万円) 2,932,354 3,990,532 "
+                "親会社の所有者に帰属する当期利益 (百万円) 2,245,261 2,850,110 "
+                "総資産額 (百万円) 62,267,140 67,688,771 1株当たり当期利益"
+            ),
+        },
+        {
+            "table_index": 12,
+            "line": 479,
+            "heading": "＜経営指標／長期経営計画2030ベース（2020年1月公表）＞",
+            "signal_preview": "ROA ROE EPS 長計目標 2025年度業績予想",
+        },
+    ]
+
+    candidates = jp.group_jp_key_table_candidates(table_index, report_kind="jp_annual_securities_report")
+
+    assert candidates["Financial Highlights"][0]["table_index"] == 2
+    assert candidates["Financial Highlights"][0]["confidence"] == "high"
 
 
 def test_jp_candidate_groups_use_long_signal_for_truncated_statement_previews():
@@ -216,6 +245,32 @@ def test_jp_candidate_groups_do_not_promote_multi_year_cash_flow_summary_to_cash
     candidates = jp.group_jp_key_table_candidates(table_index)
 
     assert "Consolidated Statement of Cash Flows" not in candidates
+
+
+def test_jp_candidate_groups_find_local_changes_in_equity_table_without_english_title():
+    table_index = [
+        {
+            "table_index": 120,
+            "line": 2814,
+            "pdf_page_number": 149,
+            "heading": "（単位：百万円）",
+            "signal_preview": (
+                "親会社の所有者に帰属する持分 資本金 資本剩余金 自己株式 利益剩余金 "
+                "その他の資本の構成要素 非支配持分 資本合計 2024年4月1日残高 "
+                "当期利益 その他の包括利益 当期包括利益 その他の変動"
+            ),
+        },
+        {
+            "table_index": 91,
+            "line": 1923,
+            "heading": "（4）【取得自己株式の処理状況及び保有状況】",
+            "signal_preview": "区分 当事業年度 当期間 株式数 処分価額の総額 保有自己株式数",
+        },
+    ]
+
+    candidates = jp.group_jp_key_table_candidates(table_index, report_kind="jp_annual_securities_report")
+
+    assert candidates["Consolidated Statement of Changes in Equity"][0]["table_index"] == 120
 
 
 def test_jp_candidate_groups_find_consolidated_operating_results_as_financial_highlights():

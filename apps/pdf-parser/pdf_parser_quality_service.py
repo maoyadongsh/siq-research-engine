@@ -8,6 +8,7 @@ import re
 from quality_engine import candidate_group as quality_candidate_group
 from quality_report import CORE_FINANCIAL_TABLE_NAMES
 from hk_quality_adapter import merge_hk_quality_candidates
+from jp_quality_adapter import merge_jp_quality_candidates
 
 
 def compact_candidate_text(text):
@@ -176,7 +177,7 @@ def merge_quality_candidates_from_financial_data(report, financial_data):
     if str(financial_data.get("market") or "").upper() == "HK":
         return merge_hk_quality_candidates(report, financial_data)
     if str(financial_data.get("market") or "").upper() == "JP":
-        return report
+        return merge_jp_quality_candidates(report, financial_data)
     if str(financial_data.get("market") or "").upper() == "KR":
         return report
     if str(financial_data.get("market") or "").upper() == "EU":
