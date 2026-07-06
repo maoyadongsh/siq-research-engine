@@ -42,6 +42,13 @@ REPORT_MD_SOURCE_TYPES = {
     "okf_report",
     "okf_report_table",
 }
+TOOL_SOURCE_TYPES = {
+    "financial_calculator",
+    "financial_reconciliation_validator",
+    "calculator",
+    "reconciliation_validator",
+}
+TOOL_FILE_NAMES = ("financial_calculator.py", "financial_reconciliation_validator.py")
 
 METRIC_ALIASES = {
     "商誉": {"商誉", "商誉账面价值", "商誉账面原值", "商誉减值准备", "商誉构成", "商誉明细", "goodwill"},
@@ -320,6 +327,10 @@ def _main_statement_type_from_text(text: str | None) -> str | None:
     normalized = _normalize(text)
     if not normalized:
         return None
+    if "商誉" in normalized:
+        main_terms = ("账面价值", "账面净值", "净额", "主表", "资产负债表", "报表项目", "合并报表", "余额")
+        if any(_normalize(term) in normalized for term in main_terms):
+            return "balance_sheet"
     if any(_normalize(term) in normalized for term in MAIN_STATEMENT_TERMS["cash_flow_statement"]):
         return "cash_flow_statement"
     if any(_normalize(term) in normalized for term in MAIN_STATEMENT_TERMS["balance_sheet"]):
@@ -2154,6 +2165,104 @@ def _filter_refs_by_line_trace(line: str, refs: list[dict[str, Any]]) -> list[di
     ]
 
 
+def _is_tool_source(source_type: str, file_name: str) -> bool:
+    return source_type in TOOL_SOURCE_TYPES or any(name in file_name for name in TOOL_FILE_NAMES)
+
+
+def _citation_number_from_line(line: str) -> int | None:
+    match = re.match(r"\s*\[([0-9]+)\]", line)
+    return int(match.group(1)) if match else None
+
+
+def _context_citation_lines(context_text: str) -> dict[int, str]:
+    lines: dict[int, str] = {}
+    for context_line in context_text.splitlines():
+        number = _citation_number_from_line(context_line)
+        if number is not None:
+            lines[number] = context_line
+    return lines
+
+
+def _citation_field_text(line: str, names: tuple[str, ...]) -> str:
+    for name in names:
+        match = re.search(rf"\b{re.escape(name)}=([^,，。.;；\n]+(?:\s*[,，]\s*[0-9]+)*)", line)
+        if match:
+            return match.group(1).strip()
+    return ""
+
+
+def _single_or_index(values: list[int], index: int) -> int | None:
+    if not values:
+        return None
+    return values[index] if index < len(values) else values[-1]
+
+
+def _trace_refs_from_citation_line(line: str) -> list[dict[str, Any]]:
+    source_type = _citation_field_text(line, ("source_type",))
+    file_name = _citation_field_text(line, ("file",))
+    if _is_tool_source(source_type, file_name):
+        return []
+    task_match = re.search(r"\b(?:evidence_id/)?task_id=([0-9a-fA-F-]{32,36})", line)
+    if not task_match:
+        return []
+    pages = sorted(_numbers_from_citation_field(line, ("pdf_page", "pdf_page_number")))
+    tables = sorted(_numbers_from_citation_field(line, ("table_index",)))
+    md_lines = sorted(_numbers_from_citation_field(line, ("md_line",)))
+    if not pages:
+        return []
+    count = max(len(pages), len(tables), len(md_lines), 1)
+    refs = []
+    for index in range(count):
+        ref = {
+            "source_type": source_type,
+            "file": file_name,
+            "metric": _citation_field_text(line, ("metric",)),
+            "period": _citation_field_text(line, ("period",)),
+            "task_id": task_match.group(1),
+            "pdf_page": _single_or_index(pages, index),
+            "table_index": _single_or_index(tables, index),
+            "md_line": _single_or_index(md_lines, index),
+        }
+        refs.append(_with_urls(ref))
+    return refs
+
+
+def _tool_bound_citation_numbers(line: str) -> list[int]:
+    current = _citation_number_from_line(line)
+    numbers = []
+    for match in re.finditer(r"\[([0-9]+)\]", line):
+        number = int(match.group(1))
+        if number != current:
+            numbers.append(number)
+    return list(dict.fromkeys(numbers))
+
+
+def _borrow_tool_refs_from_context(line: str, context_text: str) -> list[dict[str, Any]]:
+    line_map = _context_citation_lines(context_text)
+    numbers = _tool_bound_citation_numbers(line)
+    if not numbers:
+        current = _citation_number_from_line(line)
+        numbers = [number for number in sorted(line_map) if current is None or number < current][-4:]
+    refs: list[dict[str, Any]] = []
+    for number in numbers:
+        refs.extend(_trace_refs_from_citation_line(line_map.get(number, "")))
+    return _dedupe_refs(refs, limit=12)
+
+
+def _apply_trace_refs_to_line(line: str, refs: list[dict[str, Any]]) -> str:
+    task_ids = _unique_values(refs, "task_id")
+    pages = _unique_values(refs, "pdf_page")
+    printed_pages = _unique_values(refs, "printed_page_number")
+    tables = _unique_values(refs, "table_index")
+    lines = _unique_values(refs, "md_line")
+    line = _replace_or_append_field(line, ("evidence_id/task_id", "task_id"), task_ids[0] if task_ids else "")
+    line = _replace_or_append_field(line, ("pdf_page", "pdf_page_number"), ",".join(pages))
+    line = _replace_or_append_field(line, ("printed_page", "printed_page_number"), ",".join(printed_pages))
+    line = _replace_or_append_field(line, ("table_index",), ",".join(tables))
+    line = _replace_or_append_field(line, ("md_line",), ",".join(lines))
+    return line
+
+
 def _should_resolve_citation_line(line: str) -> bool:
     file_match = re.search(r"file=([^,，]+)", line)
     source_match = re.search(r"source_type=([^,，]+)", line)
@@ -2228,6 +2337,11 @@ def enrich_citation_line(line: str, context_text: str, wiki_base: Path = WIKI_BA
     task_id = task_match.group(1).strip() if task_match else ""
     table_text = table_match.group(1).strip() if table_match else ""
 
+    if _is_tool_source(source_type, file_name):
+        borrowed_refs = _borrow_tool_refs_from_context(line, context_text)
+        if borrowed_refs:
+            return _apply_trace_refs_to_line(line, borrowed_refs)
+
     company_dir = _company_task_index(wiki_base).get(task_id) if task_id else None
     if not company_dir:
         company_dir = find_company_dir_from_text(line, wiki_base)
@@ -2248,7 +2362,10 @@ def enrich_citation_line(line: str, context_text: str, wiki_base: Path = WIKI_BA
         or source_type in REPORT_MD_SOURCE_TYPES
     )
 
-    if explicit_report_md:
+    if _is_tool_source(source_type, file_name):
+        refs = _borrow_tool_refs_from_context(line, context_text)
+
+    if not refs and explicit_report_md:
         refs = resolve_report_markdown_refs(
             company_dir,
             file_name,

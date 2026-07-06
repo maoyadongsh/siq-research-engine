@@ -670,6 +670,66 @@ def test_balance_sheet_statement_reply_uses_body_tables_before_notes():
     assert "source_type=wiki_document_links" not in reply
 
 
+def test_goodwill_book_value_routes_to_balance_sheet_main_statement():
+    reply = runtime.build_direct_statement_metric_reply("上汽集团2025年报商誉账面价值是多少？")
+
+    assert reply is not None
+    assert "| 商誉 |" in reply
+    assert "1,183,122,320.47" in reply
+    assert "source_type=wiki_metrics" in reply
+    assert "file=metrics/three_statements.json" in reply
+    assert "pdf_page=65" in reply
+    assert "table_index=84" in reply
+    assert "md_line=1840" in reply
+    assert "source_type=wiki_document_links" not in reply
+
+
+def test_goodwill_mixed_query_injects_main_statement_and_note_contexts():
+    prompt = runtime.build_session_contextual_input(
+        "针对上汽集团（600104）2025 年报商誉情况，给出三层结论（账面价值/原值/减值准备），并核对口径",
+        profile="siq_assistant",
+        session_id="goodwill-mixed-source-order-test",
+    )
+
+    assert "后端从本地 Wiki 三大表结构化数据确定性解析出的主表数据" in prompt
+    assert "后端从本地 Wiki 确定性解析出的附注表格行" in prompt
+    assert "file=metrics/three_statements.json" in prompt
+    assert "table_index=84" in prompt
+    assert "1,183,122,320.47" in prompt
+    assert "semantic/document_links.json" in prompt
+    assert "table_index=165" in prompt
+    assert "table_index=166" in prompt
+
+
+def test_goodwill_mixed_query_guard_adds_missing_main_statement_source():
+    cited = (
+        "## 结论\n"
+        "- 主表商誉账面价值需要与附注原值、减值准备勾稽。\n\n"
+        "## 引用来源\n"
+        "[1] source_type=wiki_document_links, file=semantic/document_links.json, metric=(1).商誉账面原值, "
+        "period=2025-annual, task_id=7dbc35a7-7626-4e81-810e-5dbb764434e0, "
+        "pdf_page=137, table_index=165, md_line=4186。\n"
+        "[2] source_type=wiki_document_links, file=semantic/document_links.json, metric=(2).商誉减值准备, "
+        "period=2025-annual, task_id=7dbc35a7-7626-4e81-810e-5dbb764434e0, "
+        "pdf_page=137, table_index=166, md_line=4196。"
+    )
+
+    reply = runtime.enforce_financial_evidence_contract(
+        "针对上汽集团（600104）2025 年报商誉情况，给出三层结论（账面价值/原值/减值准备），并核对口径",
+        None,
+        cited,
+    )
+
+    assert reply.count("## 引用来源") == 1
+    assert "source_type=wiki_metrics" in reply
+    assert "file=metrics/three_statements.json" in reply
+    assert "pdf_page=65" in reply
+    assert "table_index=84" in reply
+    assert "md_line=1840" in reply
+    assert reply.count("table_index=165") == 1
+    assert reply.count("table_index=166") == 1
+
+
 def test_statement_context_excludes_note_detail_context_for_main_statement_query():
     prompt = runtime.build_session_contextual_input(
         "请评估上汽集团现金流质量",

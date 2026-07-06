@@ -75,6 +75,66 @@ def test_postprocessor_normalizes_local_api_links_preserving_query_and_fragment(
     assert cleaned.count(f"/api/source/{PURE_HELPER_TASK_ID}/table/3?format=html") == 1
 
 
+def test_postprocessor_strips_bare_trace_links_before_appending_links(monkeypatch):
+    _disable_local_enricher(monkeypatch)
+    monkeypatch.setenv("SIQ_PUBLIC_ORIGIN", "https://public.example")
+    text = (
+        f"[1] source_type=wiki_document_links, task_id={PURE_HELPER_TASK_ID}, pdf_page=137, table_index=165, md_line=4186，"
+        f"打开PDF页(/api/pdf_page/{PURE_HELPER_TASK_ID}/137)，"
+        f"查看页来源(/api/source/{PURE_HELPER_TASK_ID}/page/137)，"
+        f"查看表格(/api/source/{PURE_HELPER_TASK_ID}/table/165)"
+    )
+
+    cleaned = append_missing_pdf_source_links(text)
+
+    assert "打开PDF页(/api/pdf_page" not in cleaned
+    assert "查看页来源(/api/source" not in cleaned
+    assert "查看表格(/api/source" not in cleaned
+    assert f"https://public.example/api/pdf_page/{PURE_HELPER_TASK_ID}/137?format=html" in cleaned
+    assert f"https://public.example/api/source/{PURE_HELPER_TASK_ID}/page/137?format=html" in cleaned
+    assert f"https://public.example/api/source/{PURE_HELPER_TASK_ID}/table/165?format=html" in cleaned
+
+
+def test_tool_citation_borrows_explicit_bound_source_refs(monkeypatch):
+    monkeypatch.setenv("SIQ_PUBLIC_ORIGIN", "https://public.example")
+    text = f"""## 引用来源
+
+[1] source_type=wiki_document_links, file=semantic/document_links.json, metric=(1).商誉账面原值, period=2025-annual, task_id={PURE_HELPER_TASK_ID}, pdf_page=137, table_index=165, md_line=4186。
+[2] source_type=wiki_document_links, file=semantic/document_links.json, metric=(2).商誉减值准备, period=2025-annual, task_id={PURE_HELPER_TASK_ID}, pdf_page=137, table_index=166, md_line=4196。
+[3] source_type=financial_calculator, file=agents/hermes/profiles/shared/scripts/financial_calculator.py, metric=原值变动/减值准备变动/集中度占比, period=2025-annual, task_id={PURE_HELPER_TASK_ID}, pdf_page=未返回, table_index=未返回, md_line=未返回, note=派生计算器校验，分子分母分别绑定引用 [1][2]
+"""
+
+    cleaned = append_missing_pdf_source_links(text)
+    tool_line = next(line for line in cleaned.splitlines() if line.startswith("[3]"))
+
+    assert "source_type=financial_calculator" in tool_line
+    assert "pdf_page=137" in tool_line
+    assert "table_index=165,166" in tool_line
+    assert "md_line=4186,4196" in tool_line
+    assert f"https://public.example/api/source/{PURE_HELPER_TASK_ID}/table/165?format=html" in tool_line
+    assert f"https://public.example/api/source/{PURE_HELPER_TASK_ID}/table/166?format=html" in tool_line
+
+
+def test_tool_citation_without_explicit_refs_borrows_recent_source_refs(monkeypatch):
+    monkeypatch.setenv("SIQ_PUBLIC_ORIGIN", "https://public.example")
+    text = f"""## 引用来源
+
+[1] source_type=wiki_document_links, file=semantic/document_links.json, metric=(1).商誉账面原值, period=2025-annual, task_id={PURE_HELPER_TASK_ID}, pdf_page=137, table_index=165, md_line=4186。
+[2] source_type=wiki_document_links, file=semantic/document_links.json, metric=(2).商誉减值准备, period=2025-annual, task_id={PURE_HELPER_TASK_ID}, pdf_page=137, table_index=166, md_line=4196。
+[3] source_type=financial_reconciliation_validator, file=agents/hermes/profiles/shared/scripts/financial_reconciliation_validator.py, metric=原值-减值准备=净额, period=2025-annual, task_id={PURE_HELPER_TASK_ID}, pdf_page=未返回, table_index=未返回, md_line=未返回, note=原值/减值/净额三项勾稽校验
+"""
+
+    cleaned = append_missing_pdf_source_links(text)
+    tool_line = next(line for line in cleaned.splitlines() if line.startswith("[3]"))
+
+    assert "source_type=financial_reconciliation_validator" in tool_line
+    assert "pdf_page=137" in tool_line
+    assert "table_index=165,166" in tool_line
+    assert "md_line=4186,4196" in tool_line
+    assert f"https://public.example/api/source/{PURE_HELPER_TASK_ID}/table/165?format=html" in tool_line
+    assert f"https://public.example/api/source/{PURE_HELPER_TASK_ID}/table/166?format=html" in tool_line
+
+
 def test_postprocessor_keeps_printed_page_labels_aligned_with_missing_slots(monkeypatch):
     _disable_local_enricher(monkeypatch)
     text = (
@@ -287,6 +347,24 @@ def test_document_link_generic_detail_requires_target_table_base():
     assert result["status"] == "ok"
     assert [ref["table_index"] for ref in result["refs"]] == [163]
     assert result["refs"][0]["metric"] == "(21) 商誉"
+
+
+def test_goodwill_book_value_resolves_to_balance_sheet_main_statement():
+    result = resolve_citation_refs(
+        "上汽集团",
+        "商誉账面价值",
+        "2025",
+        source_type="wiki_metrics",
+        file_name="metrics/three_statements.json",
+    )
+
+    assert result["status"] == "ok"
+    first_ref = result["refs"][0]
+    assert first_ref["source_type"] == "wiki_metrics"
+    assert first_ref["file"] == "metrics/three_statements.json"
+    assert first_ref["metric"] == "资产负债表核心数据"
+    assert first_ref["pdf_page"] == 65
+    assert first_ref["table_index"] == 84
 
 
 def test_cash_flow_document_link_citation_is_corrected_to_main_statement():

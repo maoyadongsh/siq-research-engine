@@ -281,23 +281,34 @@ export function citationActionKind(label: string, href: string): CitationAction[
   if (/\/api\/documents\/source\/[^/]+\/table\//.test(href) || /\/api\/documents\/artifact\/[^/]+\/tables/.test(href)) return 'table'
   if (/\/api\/documents\/source\//.test(href) || /\/api\/documents\/artifact\//.test(href)) return 'source'
   if (/\/api\/source\/[^/]+\/table\//.test(href) || /(?:表格|可读表格)/.test(label)) return 'table'
-  if (/\/api\/source\/[^/]+\/page\//.test(href) || /(?:页来源|定位页|来源)/.test(label)) return 'source'
   if (/\/api\/pdf_page\//.test(href) || /PDF/.test(label)) return 'pdf'
+  if (/\/api\/source\/[^/]+\/page\//.test(href) || /(?:页来源|定位页|来源)/.test(label)) return 'source'
   return 'other'
 }
 
 export function parseCitationActions(item: string) {
   const actions: CitationAction[] = []
+  const addAction = (label: string, href: string) => {
+    const kind = citationActionKind(label, href)
+    if (!actions.some((action) => action.href === href || action.kind === kind)) {
+      actions.push({ label, href, kind })
+    }
+  }
   const text = item.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+|\/[^)\s]*|#[^)\s]*)\)/g, (match, label, href) => {
     if (
       /\/api\/(?:pdf_page|source|documents\/source|documents\/artifact)\//.test(href) ||
       /(?:打开PDF|PDF页|页来源|定位页|查看表格|可读表格|查看页来源|打开来源|打开产物|文档来源)/.test(label)
     ) {
-      actions.push({ label, href, kind: citationActionKind(label, href) })
+      addAction(label, href)
       return ''
     }
     return match
   })
+    .replace(/(?:打开PDF页|打开PDF定位页[0-9]*|查看页来源|查看定位页[0-9]*来源|查看表格|查看可读表格[0-9]*)\((https?:\/\/[^)\s]+|\/api\/(?:pdf_page|source)\/[^)\s]+)\)/g, (match, href) => {
+      const label = match.slice(0, match.indexOf('('))
+      addAction(label, href)
+      return ''
+    })
     .replace(/[，,、\s]+$/g, '')
     .replace(/[，,、]\s*[，,、]+/g, '，')
     .trim()

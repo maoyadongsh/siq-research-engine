@@ -290,6 +290,7 @@ CHAT_OUTPUT_CONTRACT = (
     "- 除非用户明确要求一段式回复，问答默认优先使用 Markdown 列表、紧凑小表格或短分节展示，不要整段纯文字堆叠。\n"
     "- 默认先给可读简版：除非用户明确要求“详细/完整/展开/生成报告”，普通问答控制在约 800-1500 中文字，优先列关键结论和关键数据，不要展开成长报告。\n"
     "- 默认报告期口径：当前已入库 Wiki 财报必须以实时 catalog/company.json 的 `primary_report_id` 为准；用户明确指定年报/季报、截止日、年份或 `report_id` 时必须匹配 company.json.reports 或 _meta/report_catalog.json，不要在默认回答、功能介绍或提问示例中写死任何年份。\n"
+    "- Wiki 财报检索必须遵循 `data/wiki/_meta/AGENT_GUIDE.md`：先按问题类型路由；主表数值、账面价值/净额、利润、现金流、资产负债等先查 `metrics/reports/<report_id>/three_statements.json`、`validation.json` 和 `evidence/evidence_index.json`，附注明细/构成/原值/减值准备再查 `semantic/document_links.json`、`semantic/note_links.json` 或 `note_detail_lookup.py`；`report.md` 全文和 `document_full.json` 只用于上下文、补页码/补表格或冲突交叉验证，不能替代主表事实源。\n"
     "- 财报问答建议结构：先给 `## 结论` 列表，再给 `## 依据/数据` 列表或表格，最后保留 `## 引用来源`。\n"
     "- 财报事实问答中，正文出现的主要数值、比例、金额、员工数、销量、市占率或派生指标，必须在唯一的 `## 引用来源` 中逐项映射到 PDF 页、表格/文本块和来源链接，不要另起 `主要数据溯源补充`、`主要数据引用来源` 等重复章节。\n"
     f"- 人均、每股、同比、增长率、占比、CAGR、外币折人民币和金额单位归一等派生计算，必须使用 `{FINANCIAL_CALCULATOR_PATH_TEXT}` 或后端确定性脚本校验；不要心算后直接输出。\n"
@@ -456,6 +457,16 @@ FINANCIAL_EVIDENCE_ACTION_TERMS = (
     "占比",
     "数据",
     "情况",
+)
+GOODWILL_MAIN_STATEMENT_TERMS = (
+    "账面价值",
+    "账面净值",
+    "净额",
+    "主表",
+    "资产负债表",
+    "报表项目",
+    "合并报表",
+    "余额",
 )
 RUNTIME_STATUS_PREFIXES = ("[已停止]", "[失败]", "[已取消]", "[错误]")
 STATEMENT_DIRECT_TERMS = (
@@ -2473,6 +2484,8 @@ def _should_inject_note_detail_context(message: str) -> bool:
 
 
 def _is_statement_query(message: str) -> bool:
+    if _is_goodwill_main_statement_query(message):
+        return True
     return agent_runtime_context.statement_query_applies(
         message,
         statement_terms=STATEMENT_QUERY_TERMS,
@@ -2480,7 +2493,19 @@ def _is_statement_query(message: str) -> bool:
     )
 
 
+def _is_goodwill_main_statement_query(message: str | None) -> bool:
+    text = re.sub(r"\s+", "", message or "")
+    if not text or _is_general_assistant_request(text):
+        return False
+    return "商誉" in text and any(term in text for term in GOODWILL_MAIN_STATEMENT_TERMS)
+
+
 def _should_direct_answer_statement_query(message: str) -> bool:
+    if _is_goodwill_main_statement_query(message):
+        text = re.sub(r"\s+", "", message or "")
+        if any(term in text for term in NOTE_DETAIL_ANALYSIS_TERMS):
+            return False
+        return any(term in text for term in STATEMENT_DIRECT_TERMS)
     return agent_runtime_context.direct_statement_answer_applies(
         message,
         statement_terms=STATEMENT_QUERY_TERMS,
@@ -3291,7 +3316,11 @@ def _question_needs_three_statement_context(message: str, context: Any | None = 
         return False
     if _resolve_company_dir(message, context) is None:
         return False
-    if _should_inject_note_detail_context(message) or _is_human_capital_query(message):
+    if _is_human_capital_query(message):
+        return False
+    if _is_goodwill_main_statement_query(message):
+        return False
+    if _should_inject_note_detail_context(message):
         return False
     if _is_statement_query(message):
         return True
@@ -4641,6 +4670,38 @@ def _reply_has_requested_metric_evidence(message: str, reply: str) -> bool:
     )
 
 
+def _reply_has_wiki_metrics_source(reply: str) -> bool:
+    for line in _extract_reference_lines(reply):
+        source_type = _source_field_value(line, "source_type")
+        file_name = _source_field_value(line, "file")
+        if source_type.endswith("_metrics") and "three_statements.json" in file_name:
+            return True
+    return False
+
+
+def _reply_has_wiki_note_source(reply: str) -> bool:
+    for line in _extract_reference_lines(reply):
+        source_type = _source_field_value(line, "source_type")
+        file_name = _source_field_value(line, "file")
+        if source_type.endswith("_document_links") or source_type.endswith("_note_links"):
+            return True
+        if file_name in {"semantic/document_links.json", "semantic/note_links.json"}:
+            return True
+    return False
+
+
+def _reply_missing_required_wiki_source(message: str, reply: str) -> bool:
+    if _is_statement_query(message) and not _reply_has_wiki_metrics_source(reply):
+        return True
+    if (
+        _should_inject_note_detail_context(message)
+        and not _reply_has_wiki_note_source(reply)
+        and not _has_structured_evidence_trace(reply)
+    ):
+        return True
+    return False
+
+
 def _strip_auto_evidence_sections(markdown: str) -> tuple[str, list[str]]:
     return agent_runtime_citations._strip_auto_evidence_sections(
         markdown,
@@ -4661,11 +4722,12 @@ def _merge_primary_data_refs_into_citations(reply: str, supplement: str | None =
 
 
 def _render_three_statement_primary_data_supplement(result: dict[str, Any]) -> str | None:
-    return agent_runtime_citations._render_three_statement_primary_data_supplement(
+    markdown = agent_runtime_citations._render_three_statement_primary_data_supplement(
         result,
         primary_data_supplement_max_rows=PRIMARY_DATA_SUPPLEMENT_MAX_ROWS,
         table_source_links=_table_source_links,
     )
+    return _normalize_wiki_metric_file_refs(markdown) if markdown else None
 
 
 def _first_record_label(record: dict[str, Any]) -> str:
@@ -4677,11 +4739,12 @@ def _record_values_preview(record: dict[str, Any], *, max_values: int = 4) -> st
 
 
 def _render_statement_table_primary_data_supplement(result: dict[str, Any]) -> str | None:
-    return agent_runtime_citations._render_statement_table_primary_data_supplement(
+    markdown = agent_runtime_citations._render_statement_table_primary_data_supplement(
         result,
         primary_data_supplement_max_rows=PRIMARY_DATA_SUPPLEMENT_MAX_ROWS,
         table_source_links=_table_source_links,
     )
+    return _normalize_wiki_metric_file_refs(markdown) if markdown else None
 
 
 def _render_note_detail_primary_data_supplement(result: dict[str, Any]) -> str | None:
@@ -4733,15 +4796,20 @@ def build_primary_data_evidence_supplement(message: str, context: Any | None = N
     if human_capital:
         return _render_human_capital_primary_data_supplement(human_capital)
 
+    detailed_statement_result, _renderer = _statement_metric_result(message, context)
+    statement_table_supplement = _render_statement_table_primary_data_supplement(detailed_statement_result or {})
+    if statement_table_supplement:
+        if _should_inject_note_detail_context(message):
+            note_result, _note_renderer = _note_detail_result(message, context, limit=8)
+            note_supplement = _render_note_detail_primary_data_supplement(note_result or {})
+            if note_supplement:
+                return f"{statement_table_supplement}\n\n{note_supplement}"
+        return statement_table_supplement
+
     statement_result = _three_statement_core_result(message, context)
     statement_supplement = _render_three_statement_primary_data_supplement(statement_result or {})
     if statement_supplement:
         return statement_supplement
-
-    detailed_statement_result, _renderer = _statement_metric_result(message, context)
-    statement_table_supplement = _render_statement_table_primary_data_supplement(detailed_statement_result or {})
-    if statement_table_supplement:
-        return statement_table_supplement
 
     note_result, _note_renderer = _note_detail_result(message, context, limit=8)
     note_supplement = _render_note_detail_primary_data_supplement(note_result or {})
@@ -4768,6 +4836,10 @@ def append_primary_data_evidence_if_needed(
     if _is_runtime_status_reply(reply):
         return reply
     reply = _merge_primary_data_refs_into_citations(reply)
+    if _reply_missing_required_wiki_source(message, reply):
+        supplement = build_primary_data_evidence_supplement(message, context)
+        if supplement:
+            return _merge_primary_data_refs_into_citations(reply, supplement)
     if _reply_has_requested_metric_evidence(message, reply):
         return reply
     supplement = build_primary_data_evidence_supplement(message, context)

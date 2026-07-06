@@ -54,6 +54,10 @@ TABLE_INDEX_RE = re.compile(r"\btable_index=([0-9]+(?:\s*[,，]\s*[0-9]+)*)\b")
 CITATION_LINE_RE = re.compile(r"^\s*(\[[0-9]+\]).*$")
 LOCAL_API_LINK_RE = re.compile(r"\]\((?:https?://(?:localhost|127\.0\.0\.1)(?::[0-9]+)?)?(/api/(?:pdf_page|source)/[^)\s]+)\)")
 TRACE_LINK_RE = re.compile(r"[，,、\s]*\[[^\]]*(?:PDF|页来源|来源|表格|可读表格)[^\]]*\]\((?:https?://[^)\s]+|/api/(?:pdf_page|source)/[^)\s]+)\)")
+BARE_TRACE_LINK_RE = re.compile(
+    r"[，,、\s]*(?:打开PDF页|打开PDF定位页[0-9]*|查看页来源|查看定位页[0-9]*来源|查看表格|查看可读表格[0-9]*)"
+    r"\((?:https?://[^)\s]+|/api/(?:pdf_page|source)/[^)\s]+)\)"
+)
 CITATION_HEADING_RE = re.compile(r"^\s*(?:#{1,4}\s+)?引用来源[:：]?\s*$")
 OPEN_LINK_HEADING_RE = re.compile(r"^\s*(?:#{1,4}\s+)?可打开来源链接[:：]?\s*$")
 
@@ -84,6 +88,12 @@ def _normalize_api_links(text: str) -> str:
 
 def _strip_trace_links(line: str) -> str:
     cleaned = TRACE_LINK_RE.sub("", line)
+    cleaned = BARE_TRACE_LINK_RE.sub("", cleaned)
+    return re.sub(r"[，,、\s]+$", "", cleaned).rstrip()
+
+
+def _strip_bare_trace_links(line: str) -> str:
+    cleaned = BARE_TRACE_LINK_RE.sub("", line)
     return re.sub(r"[，,、\s]+$", "", cleaned).rstrip()
 
 
@@ -163,22 +173,25 @@ def append_missing_pdf_source_links(text: str) -> str:
     text = _drop_standalone_open_link_blocks(text)
 
     enrich_citation_line = _get_enrich_citation_line()
-    if enrich_citation_line:
-        enriched_lines: list[str] = []
-        changed = False
-        for line in text.splitlines():
-            if CITATION_LINE_RE.match(line):
-                stripped = _strip_trace_links(line)
+    enriched_lines: list[str] = []
+    changed = False
+    for line in text.splitlines():
+        if CITATION_LINE_RE.match(line):
+            stripped = _strip_bare_trace_links(line)
+            if enrich_citation_line:
+                stripped = _strip_trace_links(stripped)
                 try:
                     enriched = enrich_citation_line(stripped, text)
                 except Exception:  # pragma: no cover - citation enrichment must not break chat replies
                     enriched = stripped
-                changed = changed or enriched != line
-                enriched_lines.append(enriched)
             else:
-                enriched_lines.append(line)
-        if changed:
-            text = "\n".join(enriched_lines)
+                enriched = stripped
+            changed = changed or enriched != line
+            enriched_lines.append(enriched)
+        else:
+            enriched_lines.append(line)
+    if changed:
+        text = "\n".join(enriched_lines)
 
     text = _normalize_api_links(text)
 

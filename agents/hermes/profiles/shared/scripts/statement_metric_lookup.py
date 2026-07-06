@@ -61,6 +61,16 @@ STATEMENT_METRIC_LABELS = {
     "income_statement": "利润表核心数据",
     "cash_flow_statement": "现金流量表核心数据",
 }
+GOODWILL_MAIN_STATEMENT_TERMS = (
+    "账面价值",
+    "账面净值",
+    "净额",
+    "主表",
+    "资产负债表",
+    "报表项目",
+    "合并报表",
+    "余额",
+)
 
 
 def read_json(path: Path, default: Any = None) -> Any:
@@ -72,6 +82,8 @@ def read_json(path: Path, default: Any = None) -> Any:
 
 def statement_type_from_query(query: str | None) -> str | None:
     text = re.sub(r"\s+", "", str(query or ""))
+    if is_goodwill_main_statement_query(text):
+        return "balance_sheet"
     if any(term in text for term in ("现金流", "现金流量表", "经营活动现金", "投资活动现金", "筹资活动现金", "经营现金流")):
         return "cash_flow_statement"
     if any(term in text for term in ("资产负债表", "资产负债", "资产构成", "资产结构", "负债结构", "负债与权益", "负债权益", "偿债", "总资产", "总负债", "净资产")):
@@ -79,6 +91,17 @@ def statement_type_from_query(query: str | None) -> str | None:
     if any(term in text for term in ("利润表", "损益表", "营业收入", "营收", "营业成本", "营业利润", "利润总额", "净利润", "归母净利润", "扣非归母", "扣非净利润")):
         return "income_statement"
     return None
+
+
+def is_goodwill_main_statement_query(query: str | None) -> bool:
+    text = re.sub(r"\s+", "", str(query or ""))
+    return "商誉" in text and any(term in text for term in GOODWILL_MAIN_STATEMENT_TERMS)
+
+
+def requested_statement_label_terms(query: str | None) -> tuple[str, ...]:
+    if is_goodwill_main_statement_query(query):
+        return ("商誉",)
+    return ()
 
 
 def metric_payload_path(company_dir: Path, report_id: str) -> Path | None:
@@ -227,6 +250,20 @@ def filter_statement_records(parsed_records: list[dict[str, str]], statement_typ
     return output
 
 
+def filter_requested_statement_records(records: list[dict[str, str]], metric_text: str) -> list[dict[str, str]]:
+    requested_terms = requested_statement_label_terms(metric_text)
+    if not requested_terms:
+        return records
+    matches: list[dict[str, str]] = []
+    normalized_terms = [normalize_label(term) for term in requested_terms]
+    for record in records:
+        first_value = next(iter(record.values()), "")
+        label = normalize_label(first_value)
+        if any(term and term in label for term in normalized_terms):
+            matches.append(record)
+    return matches or records
+
+
 def display_records(records: list[dict[str, str]], statement_type: str, max_rows: int) -> list[dict[str, str]]:
     """Keep key balance-sheet totals visible even when the source table is long."""
     if max_rows <= 0 or len(records) <= max_rows:
@@ -291,6 +328,7 @@ def resolve_statement_metrics(
         headers = parsed.get("headers") or []
         records = clean_table_records(headers, parsed.get("records") or [])
         filtered_records = filter_statement_records(records, statement_type)
+        filtered_records = filter_requested_statement_records(filtered_records, metric_text)
         if not filtered_records:
             continue
         source_records = records_for_source(metric_records, source)
