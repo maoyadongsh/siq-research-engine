@@ -2,9 +2,9 @@ import type { DocumentParseConfig } from '@/lib/documentTypes'
 
 const modelOptions = [
   ['auto', '自动'],
-  ['pipeline', 'Pipeline'],
-  ['vlm', 'VLM'],
-  ['MinerU-HTML', 'HTML'],
+  ['pipeline', '快速模式'],
+  ['vlm', '增强模式'],
+  ['MinerU-HTML', 'HTML 模式'],
 ]
 
 export function DocumentParameterPanel({
@@ -30,7 +30,7 @@ export function DocumentParameterPanel({
       <summary className="doc-panel-head">
         <div>
           <h2>解析参数</h2>
-          <p>参数语义稳定，provider 负责映射到本地解析器或 MinerU。</p>
+          <p>参数语义稳定，服务端负责映射到可用解析能力。</p>
         </div>
       </summary>
       <div className="doc-panel-body grid gap-3">

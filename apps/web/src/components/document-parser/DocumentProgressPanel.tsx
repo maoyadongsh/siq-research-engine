@@ -92,7 +92,7 @@ export function DocumentProgressPanel({
           <div className="doc-progress-stage">{stageText(task)}</div>
           <div className="doc-progress-facts">
             {task.local_queue_position ? <span><ListChecks className="h-4 w-4" />本地队列: 第 {task.local_queue_position} 位</span> : null}
-            {task.queue_position != null ? <span><ListChecks className="h-4 w-4" />MinerU 队列前方: {task.queue_position} 任务</span> : null}
+            {task.queue_position != null ? <span><ListChecks className="h-4 w-4" />解析队列前方: {task.queue_position} 任务</span> : null}
             {elapsed ? <span><Clock3 className="h-4 w-4" />已耗时: {elapsed}</span> : null}
             {totalPages > 0 ? (
               <span className="strong"><FileText className="h-4 w-4" />已完成 {processedPages}/{totalPages} 页，还剩 {remainingPages} 页</span>

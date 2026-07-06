@@ -305,8 +305,8 @@ export const artifactRoles: Record<string, string> = {
   'table_index.json': '表格定位与溯源索引',
   'financial_data.json': '规则抽取的财务指标',
   'financial_checks.json': '财务抽取校验结果',
-  'middle.json': 'MinerU 中间结构',
-  'content_list.json': 'MinerU 原始内容块',
+  'middle.json': '解析中间结构',
+  'content_list.json': '原始内容块',
   'model_output.json': '模型输出原始结构',
   images: '页面图片与视觉溯源素材',
 }

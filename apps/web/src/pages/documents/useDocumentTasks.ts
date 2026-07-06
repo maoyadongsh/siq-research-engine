@@ -253,9 +253,9 @@ export function useDocumentTasks(showToast: (message: string) => void) {
       })
       await refreshTasks()
       if (data.task?.task_id) await selectTask(data.task.task_id)
-      showToast('已有 MinerU 解析产物已导入')
+      showToast('已有解析产物已导入')
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : 'MinerU 产物导入失败')
+      setError(exc instanceof Error ? exc.message : '解析产物导入失败')
     } finally {
       setUploading(false)
     }

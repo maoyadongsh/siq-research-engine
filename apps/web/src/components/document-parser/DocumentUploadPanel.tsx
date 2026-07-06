@@ -124,7 +124,7 @@ export function DocumentUploadPanel({
 
         <div className="doc-field">
           <div className="flex items-center justify-between gap-2">
-            <label className="doc-label" htmlFor="doc-mineru-dir">已解析 MinerU 目录</label>
+            <label className="doc-label" htmlFor="doc-mineru-dir">已解析产物目录</label>
             <Button type="button" variant="ghost" size="sm" onClick={() => void onRefreshMineruCandidates()} leftIcon={<RefreshCw className="h-4 w-4" />}>
               刷新候选
             </Button>

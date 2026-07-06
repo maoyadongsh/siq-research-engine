@@ -209,7 +209,7 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
         data.local_queue_position
           ? `本地队列位置: 第 ${data.local_queue_position} 位`
           : data.queue_position != null
-            ? `MinerU 队列前方: ${data.queue_position} 任务`
+            ? `解析队列前方: ${data.queue_position} 任务`
             : '',
       )
       setElapsedInfo(!isFail && data.elapsed_seconds != null ? `已耗时: ${formatDuration(Number(data.elapsed_seconds))}` : '')
@@ -224,8 +224,8 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
       const sMap: Record<string, string> = {
         queued: '已加入本地队列',
         uploaded: '文件已上传',
-        submitting: '正在提交到 MinerU',
-        submitted: '已提交到 MinerU',
+        submitting: '正在提交到解析服务',
+        submitted: '已提交到解析服务',
         pending: '排队等待中',
         processing: '正在解析 PDF',
         completed: '解析完成',
@@ -498,7 +498,7 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
   const cancelTask = useCallback(async () => {
     const tid = taskIdRef.current
     if (!tid) return
-    if (!confirm('确定停止查看当前任务吗？\n如果 MinerU 支持取消，也会尝试通知后端停止处理。')) return
+    if (!confirm('确定停止查看当前任务吗？\n如果解析服务支持取消，也会尝试通知后端停止处理。')) return
     try {
       const d = await cancelTaskApi(tid)
       if (d.success) {

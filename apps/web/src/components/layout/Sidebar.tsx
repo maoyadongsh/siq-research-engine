@@ -95,17 +95,17 @@ export default function Sidebar({ collapsed, mobileOpen = false, onToggle, onClo
       <nav className={`sidebar-scrollbarless flex-1 overflow-y-auto overflow-x-hidden pb-1 ${compact ? 'mt-2 space-y-0.5 px-1.5' : 'mt-3 space-y-0.5 px-2.5'}`}>
         {visibleNavItems.map((item) => renderLink(item, compact))}
       </nav>
-      <div className={`border-t border-border ${compact ? 'px-1.5 py-1.5' : 'px-2.5 py-2'}`}>{renderLink(assistantItem, compact, 'assistant')}</div>
-      <div className={`border-t border-border ${compact ? 'px-1.5 py-1.5' : 'px-2.5 py-2'}`}>
+      <div className={`border-t border-border ${compact ? 'px-1.5 py-1' : 'px-2.5 py-1'}`}>{renderLink(assistantItem, compact, 'assistant')}</div>
+      <div className={`border-t border-border ${compact ? 'px-1.5 py-1' : 'px-2.5 py-1'}`}>
         <div className={compact ? 'space-y-1' : 'grid grid-cols-3 gap-1.5'}>
           {visibleBottomItems.map((item) => renderLink(item, compact, 'utility'))}
         </div>
       </div>
       {showDesktopToggle && (
-        <div className="border-t border-border px-2.5 py-2">
+        <div className="border-t border-border px-2.5 py-0.5">
           <button
             onClick={onToggle}
-            className={`inline-flex h-11 w-full items-center justify-center rounded-[12px] text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-950 focus:outline-none focus:ring-4 focus:ring-primary/10 ${compact ? 'px-0' : 'px-3'}`}
+            className={`inline-flex h-10 w-full items-center justify-center rounded-[11px] text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-950 focus:outline-none focus:ring-4 focus:ring-primary/10 ${compact ? 'px-0' : 'px-3'}`}
             aria-label={compact ? '展开侧边栏' : '收起侧边栏'}
             title={compact ? '展开侧边栏' : '收起侧边栏'}
           >

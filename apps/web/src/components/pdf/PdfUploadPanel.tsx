@@ -333,9 +333,9 @@ export function PdfUploadPanel(props: PdfUploadPanelProps) {
             <div className="flex flex-col gap-1.5">
               <label className="text-sm font-semibold text-text-muted">后端模式</label>
               <select value={backend} onChange={(e) => setBackend(e.target.value)} className="form-control px-4 text-base">
-                <option value="hybrid-http-client">hybrid-http-client (推荐)</option>
-                <option value="pipeline">pipeline (快速)</option>
-                <option value="vlm-http-client">vlm-http-client (高精度)</option>
+                <option value="hybrid-http-client">智能模式 (推荐)</option>
+                <option value="pipeline">快速模式</option>
+                <option value="vlm-http-client">增强解析 (高精度)</option>
               </select>
             </div>
             <div className="flex flex-col gap-1.5">
