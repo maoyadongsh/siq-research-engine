@@ -45,14 +45,14 @@ def rerank_candidates(
     *,
     query: str,
     candidates: list[dict[str, Any]],
-    enabled: bool = False,
+    enabled: bool | None = None,
     top_n: int | None = None,
     timeout: float = 10.0,
 ) -> dict[str, Any]:
     normalized_candidates = [item for item in candidates[:MAX_RERANK_CANDIDATES] if isinstance(item, dict)]
     endpoint = _endpoint()
     configured = bool(endpoint)
-    should_run = bool(enabled or _env_bool("SIQ_RERANK_ENABLED"))
+    should_run = _env_bool("SIQ_RERANK_ENABLED") if enabled is None else bool(enabled)
     if not should_run:
         return {
             "schema_version": RERANK_RESULT_SCHEMA,
@@ -62,6 +62,16 @@ def rerank_candidates(
             "reason": "rerank_disabled",
             "results": normalized_candidates[: top_n or len(normalized_candidates)],
             "result_count": min(len(normalized_candidates), top_n or len(normalized_candidates)),
+        }
+    if not normalized_candidates:
+        return {
+            "schema_version": RERANK_RESULT_SCHEMA,
+            "enabled": True,
+            "configured": configured,
+            "status": "skipped",
+            "reason": "no_candidates",
+            "results": [],
+            "result_count": 0,
         }
     if not configured:
         return {

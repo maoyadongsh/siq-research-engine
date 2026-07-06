@@ -5,6 +5,8 @@
 > 状态：设计方案 / 可落地任务书
 > 目标：在 SIQ Research Engine 中引入一级市场投研决策能力，第一阶段保真复刻 `/home/maoyd/.openclaw/workspace` 中的 OpenClaw 多智能体投委会系统，并以 `siq_ic_*` Hermes profiles 独立维护。
 
+> 2026-07-06 说明：本文保留为 OpenClaw 迁移历史基线。当前可执行口径以 `agents/hermes/profiles/siq_ic_shared/openclaw_script_migration_matrix.json`、Hermes profile 文档和 `apps/api/services/*` Deal OS 服务为准；旧脚本名、旧会话发送命令、本地 Milvus 直连等描述不得作为新的运行合同。
+
 ## 0. 本轮深度检查结论
 
 本方案原始方向正确：一级市场应独立于二级市场 `companies` 研究链路，采用 `Deal Project -> Evidence Package -> R0-R4 IC Workflow -> Decision Archive` 的业务边界。
@@ -1249,9 +1251,9 @@ OpenClaw 工具语义到 SIQ 的映射：
 | `shared/projects` | `data/wiki/deals` |
 | `ic_collaboration_shared` | `siq_deal_shared` |
 | 私有 collection | `siq_ic_<role>` |
-| `agent_startup_retrieval` | `ic_agent_runtime.startup_retrieval()` |
-| `unified_hybrid_retriever.py` | SIQ Milvus 检索服务或现有 vector-index 工具 |
-| `sessions_send` | Hermes Runs API / SIQ 后台 job |
+| 旧启动检索脚本 | `ic_startup_retrieval.generate_startup_retrieval_receipt()` / Deal OS startup retrieval API |
+| `unified_hybrid_retriever.py` | `deal_retrieval.py` + `vector_retrieval.py` + `rerank_provider.py`，通过显式 opt-in 与后端配置接入 |
+| 旧会话发送脚本 | Hermes Runs API / Deal OS workflow job |
 | `siq_workflow_policy.json` | `agents/hermes/profiles/siq_ic_shared/ic_workflow_policy.json` |
 | `audit_log.json` | `ic_audit.py` 统一写入 |
 
@@ -1340,7 +1342,7 @@ append_audit_event(deal_id, event)
 | P0-C Deal Package 和 OpenClaw Import | 基本完成 | `deal_store.py`、`ic_openclaw_importer.py`、manifest/project_meta/workflow_state、legacy metadata、hash、audit summary 相关服务和测试已存在；已从 OpenClaw 导入 `DEAL-YUSHU-2026-001` demo，关键 `phases/*`、`decision/IC_DECISION_REPORT.md`、`audit/archive_manifest.json` 均存在；legacy R4 decision 已归一化为 SIQ contract，`summarize_r4_decision` 必需字段检查为 `pass`。 | 需要确认 demo 数据是否应纳入版本控制或作为本地 seed/导入脚本产物保留；还需用 Web 页面做一次端到端人工验收。 |
 | P0-D 最小 API 和 Web 工作台 | 基本完成 | `/api/deals`、详情、documents、evidence、agents、workflow、decision、audit、manifest 等路由已存在；Web 已有 `/deals`、`/deals/:id`、data-room、evidence、agents、workflow、reports、decision、audit 路由；DealWorkflow 已接入 R1 serial dry-run、R1.5 identify-disputes dry-run、deterministic 主席裁决草案 dry-run 和人工确认写入入口；前端 API client 已覆盖 R1.5 主席裁决记录和 deterministic 裁决草案生成合同；前端 unit tests 和 build 通过。 | 需要用真实导入 demo 做端到端人工验收；下载/预览鉴权路径需要结合实际文件代理再做一次安全检查。 |
 | P0-E R0-R4 最小运行闭环 | 部分完成 | 数据室文档管理、parser task 绑定、file-based evidence build、startup retrieval receipt、R1 agent payload dry-run、显式 `dry_run=false` 的真实 R1 单 agent Hermes 调用入口、`siq_ic_strategist` / `siq_ic_finance_auditor` 临时 R1 agent workflow real smoke、R1 严格串行调度入口、deterministic R1.5 分歧识别入口、deterministic 主席裁决草案生成入口、人工/显式 R1.5 主席裁决记录入口、前端 serial/dispute/ruling dry-run 展示、受控主席裁决草案写入 UI、报告写入、workflow 更新、审计事件、human confirmation/audit 等能力已存在。 | 尚未实现模型生成主席裁决、R2/R3/R4 自动产物写入和最终投决报告生成；真实 R1 串行多 agent 调用仍需扩大冒烟覆盖。 |
-| P1 证据层和检索增强 | 部分完成 | 本地 evidence package、quality report、coverage/gap 展示、PostgreSQL/Milvus ingest dry-run、startup retrieval receipt 已有实现。 | PostgreSQL/Milvus 仍是 dry-run，未实写；startup retrieval 仍是本地文件证据模式，未接真实向量检索/私有知识库；需强制 agent 报告附检索摘要并阻断缺 receipt 的提交。 |
+| P1 证据层和检索增强 | 基本完成 | 本地 evidence package、quality report、coverage/gap 展示、PostgreSQL/Milvus ingest dry-run、startup retrieval receipt、动态检索、外部研究客户端、可选 Milvus vector adapter、可选 rerank provider、R1 报告 receipt/evidence 强校验已接入 Deal OS 服务和测试。 | PostgreSQL/Milvus 生产实写与真实模型服务稳定性仍需按部署环境验收；外部凭证、限流与供应商可用性需由运行配置控制。 |
 | P2 工作流自动化增强 | 部分完成 | 已有 workflow/job service 基础、dry-run readiness、R1 严格串行调度入口、deterministic R1.5 分歧识别入口、deterministic 主席裁决草案生成入口、受控主席裁决草案写入 UI 和人工/显式主席裁决记录入口；R1 串行调度复用单 agent run 的 preflight、startup receipt、sequence 和重复提交阻断。 | 需要实现一键推进阶段、模型生成主席裁决、R2/R3/R4 自动化、失败恢复/重试、完整审计事件链；真实 Hermes gateway 仍需冒烟。 |
 | P3 一级市场产品化 | 未完成 | Web 工作台骨架已具备。 | 需要项目模板、投委会报告 HTML 生成/渲染、投后监控入口、复盘入口、角色优化和行业模板。 |
 
@@ -1535,7 +1537,7 @@ append_audit_event(deal_id, event)
 
 1. 路径：`/home/maoyd/.openclaw/workspace/.../shared/projects` 改为 `data/wiki/deals`。
 2. Collection：旧 `ic_collaboration_shared` / `ic_<role>` 改为 `siq_deal_shared` / `siq_ic_<role>`，并保留 `legacy_collection` 说明。
-3. 工具：旧 `unified_hybrid_retriever.py` / `sessions_send` 改为 SIQ API / Hermes Runs API 语义。
+3. 工具：旧 `unified_hybrid_retriever.py` / 会话发送脚本改为 Deal OS API / Hermes Runs API 语义。
 4. 产物：旧 `40_decision` / `90_audit` 改为 `decision` / `audit`，导入器负责兼容旧路径。
 5. 品牌：可保留“OpenClaw 兼容来源”说明，但可执行 profile ID 必须是 `siq_ic_*`。
 

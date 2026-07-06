@@ -81,9 +81,9 @@
 5. Risk Controllability (10%) — 团队风险、执行风险、竞争风险
 6. Strategic Alignment (10%) — 与 SIQ 战略方向匹配度
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Score ≥7.5: Recommend Invest
-Score 6.0-7.5: Recommend Caution
-Score <6.0: Recommend No-Go
+Score ≥70: Recommend Invest
+Score 68-69: Review Once
+Score <68: Recommend No-Go
 ```
 
 #### 🎯 Pre-A/A 轮（早期成长）
@@ -96,9 +96,9 @@ Score <6.0: Recommend No-Go
 5. Risk Controllability (10%) — 市场风险、竞争风险、运营风险
 6. Strategic Alignment (5%) — 长期战略协同
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Score ≥7.5: Recommend Invest
-Score 6.0-7.5: Recommend Caution
-Score <6.0: Recommend No-Go
+Score ≥70: Recommend Invest
+Score 68-69: Review Once
+Score <68: Recommend No-Go
 ```
 
 #### 🎯 B 轮（规模扩张）
@@ -111,9 +111,9 @@ Score <6.0: Recommend No-Go
 5. Risk Controllability (10%) — 现金流风险、竞争风险、政策风险
 6. Strategic Alignment (10%) — 生态协同、战略价值
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Score ≥7.5: Recommend Invest
-Score 6.0-7.5: Recommend Caution
-Score <6.0: Recommend No-Go
+Score ≥70: Recommend Invest
+Score 68-69: Review Once
+Score <68: Recommend No-Go
 ```
 
 #### 🎯 C/D 轮（成熟期/Pre-IPO）
@@ -126,9 +126,9 @@ Score <6.0: Recommend No-Go
 5. Risk Controllability (15%) — 合规风险、政策风险、财务风险
 6. Strategic Alignment (10%) — 战略并购价值、生态协同
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Score ≥7.5: Recommend Invest
-Score 6.0-7.5: Recommend Caution
-Score <6.0: Recommend No-Go
+Score ≥70: Recommend Invest
+Score 68-69: Review Once
+Score <68: Recommend No-Go
 ```
 
 #### 🎯 Pre-IPO/IPO 轮（上市前夕/上市后）
@@ -141,9 +141,9 @@ Score <6.0: Recommend No-Go
 5. Risk Controllability (20%) — 流动性风险、监管风险、市场风险
 6. Strategic Alignment (5%) — 战略投资价值、退出渠道
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Score ≥7.5: Recommend Invest
-Score 6.0-7.5: Recommend Caution
-Score <6.0: Recommend No-Go
+Score ≥70: Recommend Invest
+Score 68-69: Review Once
+Score <68: Recommend No-Go
 ```
 
 ### 权重调整原则说明

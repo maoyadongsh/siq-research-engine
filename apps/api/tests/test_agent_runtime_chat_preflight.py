@@ -550,9 +550,10 @@ def test_stream_chat_reply_preflight_refreshes_pdf_metadata_before_saving_user(t
                     assert session_id == "siq:siq_assistant:preflight-stream-session"
                     return "run-stream"
 
-                async def fake_collect_stream_run(state, done_payload_factory):
+                async def fake_collect_stream_run(state, done_payload_factory, enforce_evidence_contract=True):
                     calls.append("collect_stream_run")
                     assert state.session_id == session_id
+                    assert enforce_evidence_contract is True
                     done_payload = await done_payload_factory("stream reply")
                     await runtime._append_completed_active_run(state, {**done_payload, "content": "stream reply"})
 
@@ -644,7 +645,7 @@ def test_start_streaming_chat_run_uses_runtime_patch_points(monkeypatch):
             calls.append(("append", event_name, payload.copy()))
             await original_append_state_event(state, event_name, payload)
 
-        async def fake_collect_stream_run(state, done_payload_factory):
+        async def fake_collect_stream_run(state, done_payload_factory, enforce_evidence_contract=True):
             calls.append(
                 (
                     "collect",
@@ -652,6 +653,7 @@ def test_start_streaming_chat_run_uses_runtime_patch_points(monkeypatch):
                     state.message_hash,
                     state.original_message,
                     state.context,
+                    enforce_evidence_contract,
                 )
             )
             done_payload = await done_payload_factory("helper reply")
@@ -699,6 +701,7 @@ def test_start_streaming_chat_run_uses_runtime_patch_points(monkeypatch):
             "hash-start-stream",
             "启动流式运行",
             {"scope": "patch-points"},
+            True,
         ),
         ("done_payload", "helper reply"),
     ]

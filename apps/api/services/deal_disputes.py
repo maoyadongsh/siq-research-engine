@@ -16,6 +16,8 @@ DEAL_DISPUTES_IDENTIFICATION_SCHEMA = "siq_deal_r1_5_disputes_identification_v1"
 DEAL_DISPUTE_RULING_SCHEMA = "siq_deal_r1_5_dispute_ruling_v1"
 DEAL_DISPUTE_RULING_RESPONSE_SCHEMA = "siq_deal_r1_5_dispute_ruling_response_v1"
 DEAL_DISPUTE_RULING_GENERATION_SCHEMA = "siq_deal_r1_5_dispute_ruling_generation_v1"
+DEAL_DISPUTE_CHAIRMAN_TASK_SCHEMA = "siq_deal_r1_5_chairman_task_v1"
+DEAL_DISPUTE_RULING_SUBMISSION_SCHEMA = "siq_deal_r1_5_chairman_ruling_submission_v1"
 DEAL_DISPUTES_GENERATION_MODE = "deterministic_r1_report_scan_v1"
 DEAL_DISPUTE_RULING_GENERATION_MODE = "deterministic_r1_5_dispute_scan_v1"
 DISPUTES_JSON_PATH = "phases/r1_5_disputes.json"
@@ -433,6 +435,83 @@ def _load_disputes_payload(package_dir: Path) -> dict[str, Any]:
     return deepcopy(payload)
 
 
+def _chairman_task_dispute(dispute: dict[str, Any]) -> dict[str, Any]:
+    ruling = _as_dict(dispute.get("chairman_ruling"))
+    return {
+        "dispute_id": str(dispute.get("dispute_id") or "").strip(),
+        "topic": dispute.get("topic"),
+        "dimension": dispute.get("dimension"),
+        "severity": dispute.get("severity"),
+        "resolved": _coerce_bool(dispute.get("resolved")),
+        "agent_ids": _dispute_agent_ids(dispute),
+        "evidence_ids": _dispute_evidence_ids(dispute),
+        "positions": _as_list(dispute.get("positions")),
+        "required_followups": _required_followups(dispute, ruling),
+        "existing_chairman_ruling": ruling or None,
+    }
+
+
+def build_chairman_ruling_task(
+    deal_id: str,
+    *,
+    only_unresolved: bool = True,
+    wiki_root: Path | str | None = None,
+) -> dict[str, Any]:
+    package_dir = _require_package_dir(deal_id, wiki_root=wiki_root)
+    normalized_deal_id = deal_store.validate_deal_id(deal_id)
+    payload = _load_disputes_payload(package_dir)
+    raw_disputes = [item for item in _as_list(payload.get("disputes")) if isinstance(item, dict)]
+    task_disputes = [
+        _chairman_task_dispute(item)
+        for item in raw_disputes
+        if not only_unresolved or not _coerce_bool(item.get("resolved"))
+    ]
+    summary = summarize_deal_disputes(normalized_deal_id, wiki_root=wiki_root)
+    blocking_reasons: list[str] = []
+    if not task_disputes:
+        blocking_reasons.append("no_unresolved_disputes" if only_unresolved else "no_disputes")
+    return deal_store.redact_public_payload({
+        "schema_version": DEAL_DISPUTE_CHAIRMAN_TASK_SCHEMA,
+        "deal_id": normalized_deal_id,
+        "phase": "R1.5",
+        "round_name": "R1.5",
+        "agent_id": "siq_ic_chairman",
+        "only_unresolved": bool(only_unresolved),
+        "allowed": not blocking_reasons,
+        "blocking_reasons": blocking_reasons,
+        "dispute_count": len(task_disputes),
+        "summary": summary,
+        "input_artifacts": {
+            "disputes": DISPUTES_JSON_PATH,
+            "r1_reports": "phases/r1_reports.json",
+            "workflow_state": "phases/workflow_state.json",
+            "evidence_items": "evidence/evidence_items.ndjson",
+        },
+        "output_contract": {
+            "endpoint": f"/api/deals/{normalized_deal_id}/workflow/disputes/chairman-rulings",
+            "json_path": DISPUTES_JSON_PATH,
+            "markdown_path": DISPUTES_MARKDOWN_PATH,
+            "required_fields": ["dispute_id", "decision", "rationale", "resolved"],
+            "optional_fields": ["required_followups", "evidence_ids", "ruling_value", "is_approved"],
+            "compatibility_aliases": {
+                "decision": ["ruling_text"],
+                "resolved": ["is_approved"],
+            },
+        },
+        "hard_rules": [
+            "Chairman must rule only on listed dispute_id values.",
+            "Every ruling must include a decision and rationale.",
+            "Use evidence_ids from the dispute positions whenever possible.",
+            "If unresolved issues remain, set resolved=false and add required_followups.",
+            "API service writes JSON, Markdown, workflow state, and audit events.",
+        ],
+        "disputes": task_disputes,
+        "dry_run": True,
+        "hermes_called": False,
+        "workflow_advanced": False,
+    })
+
+
 def _apply_dispute_ruling(
     payload: dict[str, Any],
     *,
@@ -457,6 +536,147 @@ def _apply_dispute_ruling(
         payload["last_ruled_dispute_id"] = dispute_id
         return updated_dispute
     raise ValueError(f"Dispute not found: {dispute_id}")
+
+
+def _normalize_submitted_ruling(
+    *,
+    deal_id: str,
+    item: dict[str, Any],
+    created_by: dict[str, Any] | None,
+    now: str,
+) -> dict[str, Any]:
+    dispute_id = str(item.get("dispute_id") or "").strip()
+    if not dispute_id:
+        raise ValueError("ruling dispute_id is required")
+    decision = str(item.get("decision") or item.get("ruling_text") or "").strip()
+    if not decision:
+        raise ValueError(f"ruling decision is required for {dispute_id}")
+    rationale = str(item.get("rationale") or item.get("reason") or "").strip()
+    if not rationale:
+        raise ValueError(f"ruling rationale is required for {dispute_id}")
+    if "resolved" not in item and "is_approved" not in item:
+        raise ValueError(f"ruling resolved is required for {dispute_id}")
+    resolved_value = item.get("resolved")
+    if resolved_value is None:
+        resolved_value = item.get("is_approved")
+    resolved = _coerce_bool(resolved_value)
+    followups = _dedupe_strings(_string_values(item.get("required_followups") or item.get("required_followup") or []))
+    if not resolved and not followups:
+        raise ValueError(f"ruling required_followups is required when unresolved for {dispute_id}")
+    ruling = {
+        "schema_version": DEAL_DISPUTE_RULING_SCHEMA,
+        "deal_id": deal_id,
+        "dispute_id": dispute_id,
+        "agent_id": "siq_ic_chairman",
+        "chairman_agent_id": "siq_ic_chairman",
+        "decision": decision,
+        "rationale": rationale,
+        "required_followups": followups,
+        "evidence_ids": _dedupe_strings(_string_values(item.get("evidence_ids") or item.get("evidence_id") or [])),
+        "resolved": resolved,
+        "created_at": now,
+        "created_by": created_by,
+        "ruled_at": item.get("signed_at") or item.get("ruled_at") or now,
+        "ruled_by": created_by or {"agent_id": item.get("signed_by") or "siq_ic_chairman"},
+        "submission_mode": "structured_chairman_rulings_v1",
+    }
+    if item.get("ruling_value") is not None:
+        ruling["ruling_value"] = item.get("ruling_value")
+    return ruling
+
+
+def submit_chairman_rulings(
+    deal_id: str,
+    *,
+    rulings: list[dict[str, Any]],
+    overwrite: bool = False,
+    dry_run: bool = True,
+    created_by: dict[str, Any] | None = None,
+    wiki_root: Path | str | None = None,
+) -> dict[str, Any]:
+    package_dir = _require_package_dir(deal_id, wiki_root=wiki_root)
+    normalized_deal_id = deal_store.validate_deal_id(deal_id)
+    payload = _load_disputes_payload(package_dir)
+    if not isinstance(rulings, list) or not rulings:
+        raise ValueError("rulings must be a non-empty list")
+    now = deal_store.utc_now_iso()
+    applied: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw in rulings:
+        if not isinstance(raw, dict):
+            raise ValueError("each ruling must be an object")
+        ruling = _normalize_submitted_ruling(
+            deal_id=normalized_deal_id,
+            item=raw,
+            created_by=created_by,
+            now=now,
+        )
+        dispute_id = str(ruling["dispute_id"])
+        if dispute_id in seen:
+            raise ValueError(f"duplicate ruling dispute_id: {dispute_id}")
+        seen.add(dispute_id)
+        updated_dispute = _apply_dispute_ruling(
+            payload,
+            dispute_id=dispute_id,
+            ruling=ruling,
+            overwrite=overwrite,
+        )
+        applied.append({
+            "dispute_id": dispute_id,
+            "ruling": ruling,
+            "dispute": updated_dispute,
+        })
+
+    payload["schema_version"] = str(payload.get("schema_version") or DEAL_DISPUTES_SCHEMA)
+    payload["deal_id"] = str(payload.get("deal_id") or normalized_deal_id)
+    payload["last_submitted_rulings_at"] = now
+    payload["last_submitted_ruling_count"] = len(applied)
+    preview_summary = _summarize_deal_disputes_raw(package_dir, payload)
+    counts = preview_summary.get("counts") if isinstance(preview_summary.get("counts"), dict) else {}
+    can_proceed_to_r2 = int(counts.get("unresolved") or 0) == 0 and str(preview_summary.get("status") or "") == "pass"
+    result = {
+        "schema_version": DEAL_DISPUTE_RULING_SUBMISSION_SCHEMA,
+        "deal_id": normalized_deal_id,
+        "dry_run": bool(dry_run),
+        "would_write": not dry_run,
+        "overwrite": bool(overwrite),
+        "submitted_count": len(applied),
+        "json_path": DISPUTES_JSON_PATH,
+        "markdown_path": DISPUTES_MARKDOWN_PATH,
+        "can_proceed_to_r2": can_proceed_to_r2,
+        "rulings": applied,
+        "payload": payload,
+        "summary": preview_summary,
+    }
+    if dry_run:
+        return deal_store.redact_public_payload(result)
+
+    deal_store.write_json(package_dir / DISPUTES_JSON_PATH, payload)
+    markdown_path = package_dir / DISPUTES_MARKDOWN_PATH
+    markdown_path.parent.mkdir(parents=True, exist_ok=True)
+    markdown_path.write_text(_markdown_for_disputes(payload), encoding="utf-8")
+    summary = summarize_deal_disputes(normalized_deal_id, wiki_root=wiki_root)
+    workflow = _update_workflow_after_ruling(package_dir, summary=summary, now=now)
+    audit_event = deal_store.append_audit_event(
+        normalized_deal_id,
+        {
+            "event_type": "deal_r1_5_chairman_rulings_submitted",
+            "deal_id": normalized_deal_id,
+            "submitted_count": len(applied),
+            "dispute_ids": [item["dispute_id"] for item in applied],
+            "overwrite": bool(overwrite),
+            "can_proceed_to_r2": can_proceed_to_r2,
+            "json_path": DISPUTES_JSON_PATH,
+            "markdown_path": DISPUTES_MARKDOWN_PATH,
+            "created_by": created_by,
+        },
+        wiki_root=wiki_root,
+    )
+    result["written"] = True
+    result["summary"] = summary
+    result["workflow"] = workflow
+    result["audit_event"] = audit_event
+    return deal_store.redact_public_payload(result)
 
 
 def _preserve_existing_rulings(
@@ -737,7 +957,7 @@ def rule_deal_dispute(
     rationale: str | None = None,
     required_followups: list[Any] | None = None,
     evidence_ids: list[Any] | None = None,
-    resolved: bool = True,
+    resolved: bool | None = None,
     overwrite: bool = False,
     dry_run: bool = True,
     created_by: dict[str, Any] | None = None,
@@ -751,6 +971,14 @@ def rule_deal_dispute(
     normalized_decision = str(decision or "").strip()
     if not normalized_decision:
         raise ValueError("decision is required")
+    normalized_rationale = str(rationale or "").strip()
+    if not normalized_rationale:
+        raise ValueError("rationale is required")
+    if resolved is None:
+        raise ValueError("resolved is required")
+    normalized_followups = _dedupe_strings(_string_values(required_followups or []))
+    if not bool(resolved) and not normalized_followups:
+        raise ValueError("required_followups is required when unresolved")
 
     payload = _load_disputes_payload(package_dir)
     now = deal_store.utc_now_iso()
@@ -761,8 +989,8 @@ def rule_deal_dispute(
         "agent_id": "siq_ic_chairman",
         "chairman_agent_id": "siq_ic_chairman",
         "decision": normalized_decision,
-        "rationale": str(rationale or "").strip(),
-        "required_followups": _dedupe_strings(_string_values(required_followups or [])),
+        "rationale": normalized_rationale,
+        "required_followups": normalized_followups,
         "evidence_ids": _dedupe_strings(_string_values(evidence_ids or [])),
         "resolved": bool(resolved),
         "created_at": now,

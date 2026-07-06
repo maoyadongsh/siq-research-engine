@@ -11,8 +11,8 @@ from services import deal_store
 
 DECISION_HUMAN_CONFIRMATION_SCHEMA = "siq_deal_r4_human_confirmation_update_v1"
 R4_DECISION_PATH = "phases/r4_decision.json"
-ALLOWED_CONFIRMATION_STATUSES = {"confirmed", "rejected", "overridden"}
-REASON_REQUIRED_STATUSES = {"rejected", "overridden"}
+ALLOWED_CONFIRMATION_STATUSES = {"confirmed", "rejected", "needs_revision", "overridden"}
+REASON_REQUIRED_STATUSES = {"rejected", "needs_revision", "overridden"}
 
 
 def _require_package_dir(deal_id: str, *, wiki_root: Path | str | None = None) -> Path:
@@ -34,7 +34,7 @@ def _public_user_payload(user: dict[str, Any] | None) -> dict[str, Any]:
 def _confirmation_status(value: str) -> str:
     status = str(value or "").strip().lower()
     if status not in ALLOWED_CONFIRMATION_STATUSES:
-        raise ValueError("status must be confirmed, rejected, or overridden")
+        raise ValueError("status must be confirmed, rejected, needs_revision, or overridden")
     return status
 
 
@@ -54,7 +54,7 @@ def build_human_confirmation_payload(
     normalized_status = _confirmation_status(status)
     reason = _reason(override_reason)
     if normalized_status in REASON_REQUIRED_STATUSES and not reason:
-        raise ValueError("override_reason is required for rejected or overridden decisions")
+        raise ValueError("override_reason is required for rejected, needs_revision, or overridden decisions")
     payload: dict[str, Any] = {
         "status": normalized_status,
         "confirmed": normalized_status == "confirmed",

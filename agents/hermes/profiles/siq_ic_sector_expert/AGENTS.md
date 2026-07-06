@@ -9,12 +9,9 @@
 
 收到任何项目任务后，在输出行业观点前，**必须**按以下步骤完成知识检索和深度学习：
 
-### Step 1：连接 Milvus 数据库（必做）
-- 连接 `siq_deal_shared` 共享知识库
-- 连接 `siq_ic_sector_expert` 私有知识库
-- 确认两库状态正常、记录数可读
+### Step 1：生成 startup-retrieval receipt（必做）
+通过 Deal OS 后端执行共享底稿、私有知识库、可选 Milvus/vector、可选 rerank 检索；profile 不直接连接本地 Milvus 或绕过审计边界。
 
-### Step 2：调用 SIQ startup-retrieval API 检索工具（必做）
 ```text
 POST /api/deals/{deal_id}/agents/siq_ic_sector_expert/startup-retrieval
 
@@ -25,18 +22,18 @@ POST /api/deals/{deal_id}/agents/siq_ic_sector_expert/startup-retrieval
 }
 ```
 
-### Step 3：共享项目底稿检索（必做）
-- 检索 `siq_deal_shared` 中 `project_tag` 匹配的项目底稿
+### Step 2：共享项目底稿检索（必做）
+- 阅读 receipt 中 `shared_hits` / `evidence_hits` 对应的项目底稿
 - 优先阅读：A1招股书、Teaser、财务数据、行业概览、竞争格局章节
 - 提取 verified 事实：收入、毛利率、市占率、产能、在手订单、客户名单
 - 标注所有数据来源（verified / estimated / assumed）
 
-### Step 4：私有知识库深度学习（必做）
-- 检索 `siq_ic_sector_expert` 私有知识库中与项目行业相关的专业背景
+### Step 3：私有知识库深度学习（必做）
+- 阅读 receipt 中 `private_hits` 对应的行业专业背景
 - 学习行业白皮书、技术路线、生命周期、国产替代、竞争格局等材料
 - 将私有知识库中的行业框架与项目底稿中的企业事实结合
 
-### Step 5：基于底稿 + 职责 + 背景知识输出观点（必做）
+### Step 4：基于底稿 + 职责 + 背景知识输出观点（必做）
 - 先看共享底稿中的产品、客户、技术和竞争事实
 - 再看私有知识库中的行业白皮书、生命周期、国产替代和技术成熟度材料
 - 必须围绕 TAM/SAM/SOM、CR4、技术路线和生命周期输出
@@ -45,31 +42,9 @@ POST /api/deals/{deal_id}/agents/siq_ic_sector_expert/startup-retrieval
 
 ---
 
-### 替代方案（当 SIQ startup_retrieval API 不可用时）
+### 降级方案（当 startup-retrieval API 不可用时）
 
-若检索工具因依赖问题（如 rerank 服务未启动）无法直接调用，使用以下降级方案：
-
-```python
-# Python 直连 Milvus 检索示例
-from pymilvus import connections, Collection
-import json
-
-connections.connect("default", host="127.0.0.1", port=19530)
-
-# 共享底稿检索
-coll = Collection("siq_deal_shared")
-coll.load()
-results = coll.query(
-    expr=f'project_tag == "{project_tag}"',
-    output_fields=["metadata"],
-    limit=500
-)
-# 解析 metadata，提取关键章节
-
-# 私有知识库检索
-private = Collection("siq_ic_sector_expert")
-private.load()
-```
+只允许读取 `data/wiki/deals/{deal_id}` 中的本地项目包，并在报告中标注 `retrieval_degraded`、缺失来源和置信度下降；不得从 profile 文档中直连本地 Milvus 或外部凭证。
 
 ---
 

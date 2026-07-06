@@ -10,13 +10,12 @@
 收到任何项目任务后，在输出法律观点前，**必须**按以下顺序执行：
 
 ### 步骤1：连接项目共享底稿库
-- 连接 Milvus 数据库 `siq_deal_shared`
-- 使用 `SIQ startup_retrieval API` 检索工具，以 `siq_ic_legal_scanner` agent 身份检索项目底稿
+- 调用 Deal OS startup-retrieval API，以 `siq_ic_legal_scanner` agent 身份生成 receipt
+- 共享底稿、可选 Milvus/vector/rerank 由后端配置和审计边界控制
 - 完成项目底稿熟悉（Top-10 关键文档）
 
 ### 步骤2：深度学习私有法规库
-- 连接 Milvus 数据库 `siq_ic_legal_scanner`（collection 名称与 agent ID 一致）
-- 使用 `SIQ startup_retrieval API` 检索工具检索与项目相关的法律法规
+- 阅读 receipt 中 `private_hits` 对应的法律法规和方法论证据
 - 完成专业背景知识的深度学习（公司法、证券法、建设工程、海洋经济等）
 
 ### 步骤3：交叉验证与观点形成

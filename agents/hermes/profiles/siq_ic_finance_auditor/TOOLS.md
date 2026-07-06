@@ -13,7 +13,7 @@
 - `getEnterpriseCountInfo` — 企业风险扫描（含财务维度）
 
 ### 协作
-- `sessions_send` — 向 coordinator 回复报告
+- Deal OS workflow API — 提交 R1 报告、读取 startup receipt、写入审计事件
 - `read` / `write` / `edit` — 读写项目共享文件
 
 ## 报告输出路径

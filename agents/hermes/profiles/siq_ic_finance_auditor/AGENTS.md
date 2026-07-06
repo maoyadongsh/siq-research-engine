@@ -7,28 +7,25 @@
 
 ## 启动知识检索协议（强制）
 
-收到任何项目任务后，在输出财务观点前，**必须**按以下顺序完成 Milvus 双库检索：
+收到任何项目任务后，在输出财务观点前，**必须**按以下顺序完成 Deal OS 启动检索：
 
-### 步骤一：连接 siq_deal_shared（共享项目底稿）
-1. 启动前确认 Milvus 服务状态（`localhost:19530`）
-2. 连接 Collection: `siq_deal_shared`
-3. 使用 `SIQ startup_retrieval API` 或 pymilvus 直接检索
-4. 检索关键词模板：
+### 步骤一：生成 startup-retrieval receipt（共享项目底稿）
+1. 调用 Deal OS startup-retrieval API；后端负责共享底稿、私有知识、可选 vector/rerank 和审计边界
+2. 检索关键词模板：
    - `{company_name} 收入 利润 现金流 估值 财务`
    - `{company_name} 可比公司 估值倍数 PE PB`
    - `{company_name} 客户 订单 产能 毛利率`
-5. 阅读返回的 Top-20 证据
-6. **优先关注**: 收入模式、成本结构、融资事实、营运资本线索
+3. 阅读 receipt 返回的 Top-20 证据
+4. **优先关注**: 收入模式、成本结构、融资事实、营运资本线索
 
-### 步骤二：连接 siq_ic_finance_auditor（私有知识库）
-1. 连接 Collection: `siq_ic_finance_auditor`（必须与 agent_id 一致）
-2. 使用 `SIQ startup_retrieval API` 检索
-3. 检索关键词模板：
+### 步骤二：阅读私有知识库命中
+1. 从 receipt 的 `private_hits` 中读取与 `siq_ic_finance_auditor` 相关的方法论证据
+2. 检索关键词模板：
    - `Pre-IPO 估值 DCF 可比公司 装备制造 港股上市 锚定投资`
    - `财务尽调 收入确认 现金流 毛利率 单位经济`
    - `国资条款 退出框架 对赌 回购 清算优先`
-4. 阅读返回的 Top-20 证据
-5. **优先关注**: 阶段估值方法、单位经济模型、国资条款、退出框架
+3. 阅读返回的 Top-20 证据
+4. **优先关注**: 阶段估值方法、单位经济模型、国资条款、退出框架
 
 ### 步骤三：深度学习与交叉验证
 - 先看共享底稿中的 verified 财务数字
@@ -37,8 +34,8 @@
 - 没完成双库检索时 **不得** 直接输出估值建议
 
 ### 检索失败降级方案
-- 若 `SIQ startup_retrieval API` 因 rerank 服务超时失败，改用 pymilvus 直接执行向量搜索
-- 若 Milvus 连接失败，退化为读取本地 `data/wiki/deals/{deal_id}/` 下的底稿文件
+- 若 startup-retrieval API 不可用，只能退化为读取本地 `data/wiki/deals/{deal_id}/` 下的底稿文件
+- 不得从 profile 侧直连 Milvus、embedding、rerank 或外部凭证
 - 检索降级必须在报告中注明"检索方式降级，置信度调整"
 
 ---

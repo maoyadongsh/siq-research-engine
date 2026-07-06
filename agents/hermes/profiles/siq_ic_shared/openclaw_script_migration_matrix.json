@@ -57,34 +57,34 @@
     {
       "script": "ic_master_coordinator_workspace/scripts/coordinator_workflow.py",
       "category": "workflow",
-      "status": "planned",
+      "status": "migrated",
       "owner": "deal_workflow",
-      "siq_target": "planned apps/api/services/ic_workflow.py",
-      "reason": "Workflow orchestration is in scope, but SIQ currently exposes read-only state and dry-run readiness before enabling real execution."
+      "siq_target": "apps/api/services/ic_workflow.py; apps/api/services/ic_agent_runtime.py; apps/api/routers/deals.py::post_workflow_advance_next",
+      "reason": "Coordinator orchestration is represented by SIQ workflow state snapshots, explicit transition plans, dry-run gates, and one-step advance-next execution with audit boundaries."
     },
     {
       "script": "ic_master_coordinator_workspace/scripts/discussion_writer.py",
       "category": "report_writing",
-      "status": "planned",
+      "status": "migrated",
       "owner": "deal_reports",
-      "siq_target": "planned apps/api/services/deal_discussion.py",
-      "reason": "Discussion markdown generation should be implemented as deterministic SIQ report builders over deal package contracts."
+      "siq_target": "apps/api/services/deal_discussion.py::build_deal_discussion; apps/api/routers/deals.py::post_deal_discussion_build",
+      "reason": "Discussion markdown generation now runs as a deterministic Deal OS artifact builder over R0-R4 phase JSON, with dry-run, overwrite control, redacted previews, artifact metadata, and audit events."
     },
     {
       "script": "ic_master_coordinator_workspace/scripts/dispute_identifier.py",
       "category": "r1_5_disputes",
-      "status": "planned",
+      "status": "migrated",
       "owner": "deal_workflow",
-      "siq_target": "planned apps/api/services/ic_disputes.py",
-      "reason": "R1.5 dispute detection is in scope after R1 report contracts and receipts are stable."
+      "siq_target": "apps/api/services/deal_disputes.py::identify_deal_disputes; apps/api/routers/deals.py::post_workflow_identify_disputes",
+      "reason": "R1.5 dispute detection now scans R1 report contracts, preserves existing chairman rulings by default, writes disputes JSON/Markdown, updates workflow state, and records audit events through Deal OS."
     },
     {
       "script": "ic_master_coordinator_workspace/scripts/dynamic_r3_controller.py",
       "category": "r3_red_blue",
-      "status": "planned",
+      "status": "migrated",
       "owner": "deal_workflow",
-      "siq_target": "planned apps/api/services/ic_red_blue.py",
-      "reason": "R3 can be executed or explicitly skipped, but either path needs SIQ state, evidence gates, and audit events."
+      "siq_target": "apps/api/services/ic_agent_runtime.py::build_workflow_r3_run_dry_run; apps/api/services/ic_agent_runtime.py::run_workflow_r3; apps/api/routers/deals.py::post_workflow_run_r3",
+      "reason": "R3 red-blue review now runs through Deal OS dry-run gates, deterministic review/skip contracts, phase artifacts, workflow state, and audit events."
     },
     {
       "script": "ic_master_coordinator_workspace/scripts/dynamic_retrieval_engine.py",
@@ -99,8 +99,8 @@
       "category": "embedding",
       "status": "migrated",
       "owner": "vector_platform",
-      "siq_target": "scripts/vector-index/milvus-ingestion/scripts/embedding_client.py; planned embedding provider service",
-      "reason": "The low-level OpenClaw script is present with identical content under vector-index/milvus-ingestion. Deal OS usage still requires a service boundary for provider configuration, telemetry, and key handling."
+      "siq_target": "scripts/vector-index/milvus-ingestion/scripts/embedding_client.py; apps/api/services/vector_retrieval.py",
+      "reason": "The low-level OpenClaw script is present under vector-index/milvus-ingestion, while Deal OS access is mediated by vector retrieval service configuration rather than profile-local provider calls."
     },
     {
       "script": "ic_master_coordinator_workspace/scripts/exa_client.py",
@@ -121,10 +121,10 @@
     {
       "script": "ic_master_coordinator_workspace/scripts/full_auto_workflow.py",
       "category": "workflow",
-      "status": "planned",
+      "status": "migrated",
       "owner": "deal_workflow",
-      "siq_target": "planned apps/api/services/ic_workflow.py",
-      "reason": "Full automation is intentionally deferred until dry-run gates, human control, and audit contracts are stable."
+      "siq_target": "apps/api/services/ic_agent_runtime.py::build_workflow_advance_next_dry_run; apps/api/services/ic_agent_runtime.py::run_workflow_advance_next; apps/api/routers/deals.py::post_workflow_advance_next",
+      "reason": "Unbounded full-auto script execution is replaced by one-step advance-next with dry-run planning, explicit Hermes/R3/R4 gates, permissions, workflow state, and audit events."
     },
     {
       "script": "ic_master_coordinator_workspace/scripts/hybrid_retriever_with_rerank.py",
@@ -155,8 +155,8 @@
       "category": "vector_platform",
       "status": "migrated",
       "owner": "vector_platform",
-      "siq_target": "scripts/vector-index/milvus-ingestion/scripts/milvus_connection_manager.py; planned vector repository",
-      "reason": "The low-level OpenClaw script is present with identical content. Milvus access for Deal OS should still be centralized and environment-configured."
+      "siq_target": "scripts/vector-index/milvus-ingestion/scripts/milvus_connection_manager.py; apps/api/services/vector_retrieval.py",
+      "reason": "The low-level OpenClaw script is present for ingestion/platform reference. Deal OS Milvus usage is centralized through the environment-configured vector retrieval adapter."
     },
     {
       "script": "ic_master_coordinator_workspace/scripts/milvus_mcp_server.py",
@@ -169,10 +169,10 @@
     {
       "script": "ic_master_coordinator_workspace/scripts/project_discussion_manager.py",
       "category": "report_writing",
-      "status": "planned",
+      "status": "migrated",
       "owner": "deal_reports",
-      "siq_target": "planned apps/api/services/deal_discussion.py",
-      "reason": "Project discussion files map to SIQ discussion artifacts and should be generated from deal package state."
+      "siq_target": "apps/api/services/deal_discussion.py::build_deal_discussion; apps/api/routers/deals.py::post_deal_discussion_build",
+      "reason": "Project discussion files now map to a unified SIQ discussion artifact generated from Deal OS phase state, with dry-run previews and audit trail."
     },
     {
       "script": "ic_master_coordinator_workspace/scripts/project_ingestor.py",
@@ -180,7 +180,7 @@
       "status": "migrated",
       "owner": "deal_evidence",
       "siq_target": "scripts/vector-index/milvus-ingestion/scripts/project_ingestor.py; apps/api/services/ic_openclaw_importer.py; apps/api/services/deal_evidence.py",
-      "reason": "The low-level OpenClaw script is present with identical content. SIQ also has Deal OS import/evidence services; full project ingestion still needs API-level orchestration."
+      "reason": "The low-level OpenClaw script remains as vector-ingestion reference. Deal OS project import and evidence normalization are handled by ic_openclaw_importer and deal_evidence service boundaries."
     },
     {
       "script": "ic_master_coordinator_workspace/scripts/project_workflow_snapshot.py",
@@ -209,18 +209,18 @@
     {
       "script": "ic_master_coordinator_workspace/scripts/r1_serial_dispatcher.py",
       "category": "workflow",
-      "status": "planned",
+      "status": "migrated",
       "owner": "deal_workflow",
-      "siq_target": "apps/api/services/ic_agent_runtime.py; planned apps/api/services/ic_workflow.py",
-      "reason": "SIQ has R1 dry-run/readiness and fixed order; real serial dispatch remains gated until execution controls are added."
+      "siq_target": "apps/api/services/ic_agent_runtime.py::build_workflow_r1_serial_run_dry_run; apps/api/services/ic_agent_runtime.py::run_workflow_r1_serial; apps/api/services/ic_workflow.py",
+      "reason": "R1 serial dispatch now uses SIQ policy order, startup receipt checks, Hermes execution gates, dry-run planning, persisted workflow state, and audit events."
     },
     {
       "script": "ic_master_coordinator_workspace/scripts/round_state_machine.py",
       "category": "workflow",
-      "status": "planned",
+      "status": "migrated",
       "owner": "deal_workflow",
-      "siq_target": "planned apps/api/services/ic_workflow.py",
-      "reason": "Round transitions should update SIQ workflow_state.json with preflight gates and audit events."
+      "siq_target": "apps/api/services/ic_workflow.py; apps/api/services/ic_agent_runtime.py",
+      "reason": "Round state is exposed as SIQ workflow snapshots with R0-R4 phase summaries, R1 active-agent sequencing, transition plans, optional round_state.json persistence, preflight gates, and audit events."
     },
     {
       "script": "ic_master_coordinator_workspace/scripts/runtime_compat.py",
@@ -235,24 +235,24 @@
       "category": "workflow_cli",
       "status": "reference_only",
       "owner": "deal_workflow",
-      "siq_target": "planned scripts/deals/* CLI wrappers over SIQ API",
+      "siq_target": "optional future scripts/deals/* CLI wrappers over SIQ API",
       "reason": "Local CLI commands can be reintroduced as API clients after backend workflow services are stable."
     },
     {
       "script": "ic_master_coordinator_workspace/scripts/submit_chairman_ruling.py",
       "category": "r1_5_disputes",
-      "status": "planned",
+      "status": "migrated",
       "owner": "deal_workflow",
-      "siq_target": "planned apps/api/services/ic_disputes.py",
-      "reason": "Chairman rulings need structured payload validation, human confirmation, and audit events."
+      "siq_target": "apps/api/services/deal_disputes.py::build_chairman_ruling_task; apps/api/services/deal_disputes.py::submit_chairman_rulings; apps/api/routers/deals.py::get_workflow_dispute_chairman_task; apps/api/routers/deals.py::post_workflow_submit_chairman_rulings",
+      "reason": "Chairman ruling submission now uses a structured R1.5 task contract and batch API with required rationale/resolution fields, dry-run default, overwrite protection, JSON/Markdown/workflow writes, and audit events."
     },
     {
       "script": "ic_master_coordinator_workspace/scripts/submit_expert_report.py",
       "category": "report_contract",
-      "status": "planned",
+      "status": "migrated",
       "owner": "deal_reports",
-      "siq_target": "planned apps/api/services/ic_report_submission.py",
-      "reason": "Expert report submission should validate contracts and receipt linkage before writing phase artifacts."
+      "siq_target": "apps/api/services/ic_report_submission.py::submit_r1_expert_report; apps/api/routers/deals.py::post_workflow_submit_r1_report",
+      "reason": "R1 expert report submission now validates canonical profile IDs, required fields, startup receipt linkage, dry-run/overwrite behavior, JSON and Markdown writes, and audit events."
     },
     {
       "script": "ic_master_coordinator_workspace/scripts/tavily_client.py",

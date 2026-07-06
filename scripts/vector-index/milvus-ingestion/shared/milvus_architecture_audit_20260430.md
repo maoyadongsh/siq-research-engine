@@ -4,6 +4,8 @@
 **梳理人**: ic_master_coordinator  
 **用途**: R1 投研任务启动前检查清单
 
+> 2026-07-06 说明：本文仅保留为 OpenClaw/Milvus 历史审计快照。Hermes IC 智能体不得按本文直连本地 collection；运行时统一通过 Deal OS startup retrieval、vector adapter、rerank adapter 和审计合同接入。
+
 ---
 
 ## 一、Collection 总览
@@ -102,7 +104,7 @@
 
 | 检查项 | 状态 | 说明 |
 |--------|------|------|
-| Milvus 服务 | ✅ 正常 | localhost:19530 |
+| Milvus 服务 | ✅ 正常 | 历史本地端点（已废弃为 profile 运行入口） |
 | Embedding 服务 | ✅ 正常 | localhost:8000 (Qwen3-VL-Embedding-2B) |
 | Rerank 服务 | ⚠️ 待确认 | localhost:8001 |
 | 企查查 API | ✅ 可用 | 四端点已验证 |
@@ -139,7 +141,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  Agent 启动检索流程 (agent_startup_retrieval)            │
+│  Agent 启动检索流程 (legacy startup retrieval)           │
 ├─────────────────────────────────────────────────────────┤
 │  1. 共享项目底稿 → ic_collaboration_shared               │
 │     按 project_tag=dajin 过滤                            │
@@ -177,7 +179,7 @@
    - 轮次: (待确认)
    - 项目标签: `dajin`
 
-2. **执行 agent_startup_retrieval**
+2. **执行 legacy startup retrieval**
    - 为每位专家生成 Top-20 证据包
    - 包含: 共享底稿 + 私有知识 + Workspace 指引
 

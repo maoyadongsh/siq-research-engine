@@ -21,16 +21,16 @@
 ┌─────────────────────────────────────────────────────────────┐
 │                    🚀 Agent Startup Sequence                  │
 ├─────────────────────────────────────────────────────────────┤
-│ Step 1: 连接 Milvus 数据库                                   │
-│         └─> 确认 siq_deal_shared 可访问              │
-│         └─> 确认 siq_ic_risk_controller 可访问                 │
+│ Step 1: 生成 Deal OS startup-retrieval receipt                │
+│         └─> 确认 siq_ic_risk_controller receipt 可用           │
+│         └─> 确认 shared/private/vector/rerank 有明确状态        │
 ├─────────────────────────────────────────────────────────────┤
-│ Step 2: 项目底稿检索 (siq_deal_shared)               │
-│         └─> 按 project_tag 过滤当前项目                      │
+│ Step 2: 项目底稿检索                                          │
+│         └─> 阅读 receipt 中当前项目 evidence hits              │
 │         └─> 提取 Top-20 关键事实                             │
 │         └─> 分类：业务/财务/团队/市场/风险                   │
 ├─────────────────────────────────────────────────────────────┤
-│ Step 3: 私有知识库检索 (siq_ic_risk_controller)                  │
+│ Step 3: 私有知识库检索                                        │
 │         └─> 按6维度风险框架检索                              │
 │             • 市场风险                                       │
 │             • ESG风险                                        │
@@ -48,18 +48,14 @@
 
 ---
 
-## 三、Milvus 连接配置（固化）
+## 三、检索服务配置（由 Deal OS 后端控制）
 
-```python
-# 连接参数（不可更改）
-MILVUS_HOST = "127.0.0.1"
-MILVUS_PORT = 19530
-EMBED_URL = "http://127.0.0.1:8000/v1/embeddings"
+Hermes profile 不直接连接本地 Milvus、embedding 或 rerank 服务。共享底稿、私有知识库、向量检索和重排均由 Deal OS startup-retrieval API 根据后端配置、显式 opt-in、权限和审计规则执行。
 
-# Collection 映射
-SHARED_COLLECTION = "siq_deal_shared"    # 项目底稿共享库
-PRIVATE_COLLECTION = "siq_ic_risk_controller"         # 私有知识库（与agent_id一致）
-```
+逻辑来源：
+- 共享底稿：`siq_deal_shared` / deal evidence package
+- 私有知识：`siq_ic_risk_controller`
+- 可选增强：vector adapter / rerank adapter（响应中必须有状态与 reason）
 
 ---
 
@@ -164,9 +160,9 @@ POST /api/deals/{deal_id}/agents/siq_ic_risk_controller/startup-retrieval
 
 每次任务前必须确认：
 
-- [ ] Milvus 数据库连接正常 (`pymilvus` 可访问)
-- [ ] `siq_deal_shared` collection 可查询
-- [ ] `siq_ic_risk_controller` collection 可查询
+- [ ] Deal OS startup-retrieval receipt 已生成
+- [ ] receipt 归属 `siq_ic_risk_controller`
+- [ ] shared/private/vector/rerank 状态与 reason 已阅读
 - [ ] 当前项目 project_tag 已确认
 - [ ] 共享底稿 Top-20 证据已提取
 - [ ] 私有知识 Top-20 证据已提取

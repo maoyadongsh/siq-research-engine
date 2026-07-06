@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, cast
 from uuid import uuid4
 
+import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 from sse_starlette.sse import EventSourceResponse
@@ -24,9 +25,17 @@ from schemas import (
     ChatResponse,
 )
 from services import deal_evidence
+from services import deal_decision
 from services import deal_phase_artifacts
+from services import deal_reports
 from services import deal_status
 from services import deal_store
+from services import ic_agent_runtime
+from services import ic_agent_output_quality
+from services import ic_policy
+from services import ic_profile_contract
+from services import ic_startup_retrieval
+from services import primary_market_meeting_readiness
 from services.agent_chat_runtime import (
     HISTORY_LIMIT,
     chat_history_response,
@@ -63,6 +72,7 @@ _PROFILE_SET = set(IC_MEETING_PROFILES)
 _SESSION_SAFE = re.compile(r"[^A-Za-z0-9_.-]+")
 _LANE_SAFE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 MEETING_TRANSCRIPT_SCHEMA = "siq_primary_market_meeting_transcript_v1"
+MEETING_QUALITY_SCHEMA = "siq_primary_market_meeting_quality_v1"
 PRIMARY_MARKET_ATTACHMENT_DIR = BACKEND_DATA_ROOT / "chat_uploads" / "primary_market_projects"
 PRIMARY_MARKET_PDF_PARSE_DIR = BACKEND_DATA_ROOT / "chat_uploads" / "pdf_parses" / "primary_market_projects"
 
@@ -97,6 +107,7 @@ class PrimaryMarketMeetingChatRequest(BaseModel):
 
 class PrimaryMarketMeetingChatResponse(ChatResponse):
     session_id: str
+    quality: dict[str, Any] | None = None
 
 
 class PrimaryMarketMeetingTranscriptEventInput(BaseModel):
@@ -135,8 +146,64 @@ class PrimaryMarketMeetingSuggestionsResponse(BaseModel):
     error: str | None = None
 
 
+class PrimaryMarketMeetingPrepareRequest(BaseModel):
+    round_name: str = "R1"
+    query: str | None = None
+    limit: int = Field(default=10, ge=1, le=50)
+    include_external: bool = False
+    external_providers: list[str] | None = None
+    include_vector: bool = False
+    include_rerank: bool = False
+    vector_collections: list[str] | None = None
+
+
+class PrimaryMarketMeetingPrepareAllRequest(PrimaryMarketMeetingPrepareRequest):
+    profile_ids: list[str] | None = None
+
+
+class PrimaryMarketMeetingWorkflowAdvanceRequest(BaseModel):
+    dry_run: bool = True
+    allow_hermes: bool = False
+    max_agents: int = Field(default=1, ge=1, le=6)
+    r3_skip: bool = True
+    r3_skip_reason: str | None = "R2 已覆盖核心分歧，P0 留痕跳过。"
+    r4_overwrite: bool = False
+
+
+class PrimaryMarketMeetingR1AgentRunRequest(BaseModel):
+    dry_run: bool = True
+    allow_hermes: bool = False
+    round_name: str = "R1"
+    lane: str | None = None
+    timeout: float | None = Field(default=None, gt=0)
+
+
+class PrimaryMarketMeetingR1SerialRunRequest(BaseModel):
+    dry_run: bool = True
+    allow_hermes: bool = False
+    round_name: str = "R1"
+    max_agents: int = Field(default=6, ge=1, le=6)
+    lane: str | None = None
+    timeout: float | None = Field(default=None, gt=0)
+
+
+class PrimaryMarketMeetingDecisionHumanConfirmRequest(BaseModel):
+    status: str = Field(..., min_length=3)
+    override_reason: str | None = None
+    override_decision: str | None = None
+    override_score: float | str | None = None
+    dry_run: bool = True
+
+
 def _not_found(deal_id: str) -> HTTPException:
     return HTTPException(status_code=404, detail=f"Deal not found: {deal_id}")
+
+
+def _user_payload(user: User) -> dict[str, Any]:
+    return {
+        "id": getattr(user, "id", None),
+        "username": getattr(user, "username", None),
+    }
 
 
 def _role_value(user: User) -> str:
@@ -204,6 +271,10 @@ def _meeting_transcript_path(package_dir: Path) -> Path:
     return package_dir / "discussion" / "meeting_transcript.json"
 
 
+def _meeting_quality_path(package_dir: Path) -> Path:
+    return package_dir / "discussion" / "meeting_quality.json"
+
+
 def _safe_attachment_name(stored_name: str) -> str:
     value = str(stored_name or "").strip()
     if not value or "/" in value or "\\" in value:
@@ -248,6 +319,29 @@ def _write_transcript_payload(package_dir: Path, payload: dict[str, Any]) -> Non
         "events": payload["events"],
     }
     deal_store.write_json(_meeting_transcript_path(package_dir), stored)
+
+
+def _read_quality_payload(package_dir: Path, deal_id: str) -> dict[str, Any]:
+    raw = deal_store.read_json(_meeting_quality_path(package_dir), {"events": []}) or {"events": []}
+    events = raw if isinstance(raw, list) else raw.get("events") if isinstance(raw, dict) else []
+    return {
+        "schema_version": MEETING_QUALITY_SCHEMA,
+        "deal_id": deal_id,
+        "events": [event for event in events if isinstance(event, dict)],
+    }
+
+
+def _write_quality_payload(package_dir: Path, payload: dict[str, Any]) -> None:
+    now = deal_store.utc_now_iso()
+    deal_store.write_json(
+        _meeting_quality_path(package_dir),
+        {
+            "schema_version": MEETING_QUALITY_SCHEMA,
+            "deal_id": payload["deal_id"],
+            "updated_at": now,
+            "events": payload["events"],
+        },
+    )
 
 
 def _redact_meeting_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -384,6 +478,75 @@ def append_meeting_transcript_event(
     })
 
 
+@router.get("/primary-market/meeting/{deal_id}/quality")
+def get_meeting_quality(
+    deal_id: str,
+    lane: str | None = None,
+    profile_id: str | None = None,
+    limit: int | None = None,
+    current_user: User = Depends(require_permission("report.view")),
+) -> dict[str, Any]:
+    del current_user
+    normalized_deal_id, package_dir = _validated_deal_dir(deal_id)
+    normalized_lane = _normalize_lane(lane) if lane else None
+    normalized_profile = None
+    if profile_id:
+        normalized_profile = ic_policy.canonical_ic_profile_id(profile_id)
+        if normalized_profile not in _PROFILE_SET:
+            raise HTTPException(status_code=400, detail="profile_id must be a primary-market IC profile")
+    normalized_limit = _normalize_limit(limit)
+    payload = _read_quality_payload(package_dir, normalized_deal_id)
+    events = payload["events"]
+    if normalized_lane:
+        events = [event for event in events if str(event.get("lane") or "") == normalized_lane]
+    if normalized_profile:
+        events = [event for event in events if str(event.get("profile_id") or event.get("agent_id") or "") == normalized_profile]
+    return _redact_meeting_payload({
+        "schema_version": payload["schema_version"],
+        "deal_id": normalized_deal_id,
+        "lane": normalized_lane,
+        "profile_id": normalized_profile,
+        "limit": normalized_limit,
+        "total": len(events),
+        "events": events[-normalized_limit:],
+    })
+
+
+def _append_meeting_system_event(
+    deal_id: str,
+    *,
+    lane: str,
+    event_type: str,
+    speaker: str,
+    title: str,
+    body: str,
+    tone: str = "info",
+    phase: str | None = None,
+    agent_id: str | None = None,
+    meta: dict[str, Any] | str | None = None,
+) -> dict[str, Any]:
+    normalized_deal_id, package_dir = _validated_deal_dir(deal_id)
+    normalized_lane = _normalize_lane(lane)
+    event = {
+        "id": f"evt-{uuid4().hex}",
+        "event_type": event_type,
+        "speaker": speaker,
+        "title": title,
+        "body": body,
+        "tone": tone,
+        "meta": meta or {},
+        "phase": phase,
+        "agent_id": agent_id,
+        "attachments": [],
+        "lane": normalized_lane,
+        "created_at": deal_store.utc_now_iso(),
+    }
+    payload = _read_transcript_payload(package_dir, normalized_deal_id)
+    payload["events"].append(event)
+    _write_transcript_payload(package_dir, payload)
+    return _redact_meeting_payload(event)
+
+
 @router.post("/primary-market/projects/{deal_id}/meeting/attachments", response_model=ChatAttachmentUploadResponse)
 async def upload_meeting_attachments(
     deal_id: str,
@@ -497,50 +660,6 @@ _IC_PROFILE_LABELS = {
     "siq_ic_legal_scanner": "法务合规委员",
     "siq_ic_risk_controller": "风险管理委员",
 }
-_IC_PROFILE_ROLE_CONTRACTS: dict[str, dict[str, str]] = {
-    "siq_ic_master_coordinator": {
-        "role": "SIQ 投委会秘书/协调者",
-        "focus": "事实核验、R0-R4 流程推进、争议整理、专家调度、审计留痕和报告汇总。",
-        "outputs": "协调结论、下一步发言安排、证据缺口、争议点和可追溯审计链。",
-        "boundaries": "不得代替专家输出行业、财务、法律、风控或最终投资观点；不得跳过证据核验和双库检索。",
-    },
-    "siq_ic_chairman": {
-        "role": "SIQ 投委会主席",
-        "focus": "综合各专家意见、冲突裁决、战略对齐、Go/No-Go 判断和最终投决建议。",
-        "outputs": "投决建议书、置信度、表决前主席意见、裁决理由和可执行建议。",
-        "boundaries": "不得替代财务建模、法律审查、行业技术评估、风险清单或宏观政策深挖。",
-    },
-    "siq_ic_strategist": {
-        "role": "SIQ 投委会宏观战略专家",
-        "focus": "宏观政策、资本流向、经济周期、地缘政治、赛道配置和投资时机。",
-        "outputs": "赛道配置建议、政策/周期影响、资本市场偏好、战略层风险和投资窗口判断。",
-        "boundaries": "不得替代行业技术路线、财务估值、法律合规、操作层风控或最终投决。",
-    },
-    "siq_ic_sector_expert": {
-        "role": "SIQ 投委会行业专家",
-        "focus": "TAM/SAM/SOM、竞争格局、技术路线、国产替代、商业模式和行业生命周期。",
-        "outputs": "赛道深度研究、市场规模测算、竞争/技术壁垒、客户需求验证和行业推荐指数。",
-        "boundaries": "不得替代宏观政策分析、财务估值、法律合规、风险清单或最终投决。",
-    },
-    "siq_ic_finance_auditor": {
-        "role": "SIQ 投委会财务专家",
-        "focus": "财务分析、估值模型、现金流、盈利模式、收入质量、压力测试和敏感性分析。",
-        "outputs": "财务尽调 memo、估值区间、verified/assumed 区分、财务疑点、对价建议和置信度。",
-        "boundaries": "不得替代行业技术判断、法律合规审查、宏观政策分析、风险清单或最终投决。",
-    },
-    "siq_ic_legal_scanner": {
-        "role": "SIQ 投委会法务专家",
-        "focus": "法律合规、主体/股权、重大合同、知识产权、诉讼处罚、监管审批和 TS 条款。",
-        "outputs": "法律尽调报告、合规指数、红线问题、条款风险、交割条件和整改建议。",
-        "boundaries": "不得替代宏观政策判断、市场环境评估、财务计算、行业技术分析或最终投决。",
-    },
-    "siq_ic_risk_controller": {
-        "role": "SIQ 投委会风控委员",
-        "focus": "市场风险、ESG、舆情、供应链、行业周期、压力测试、红黄线和投后监控指标。",
-        "outputs": "风险扫描报告、风险等级、红旗项、监控指标、触发阈值和风控条款建议。",
-        "boundaries": "不得替代宏观政策判断、法律合同审查、公司内部运营分析、财务计算或最终投决。",
-    },
-}
 _SUGGESTIONS_TIMEOUT_SECONDS = 18
 
 
@@ -549,33 +668,265 @@ def _profile_label(profile: str) -> str:
 
 
 def _ic_profile_role_contract(profile: str) -> str:
-    contract = _IC_PROFILE_ROLE_CONTRACTS.get(profile)
-    if not contract:
+    try:
+        return ic_profile_contract.render_meeting_role_guard(profile)
+    except (FileNotFoundError, ValueError):
         return ""
-    source_dir = f"agents/hermes/profiles/{profile}"
-    return "\n".join(
-        [
-            "一级市场 IC profile 职责护栏:",
-            f"- profile_id: {profile}",
-            f"- 角色名称: {contract['role']}",
-            f"- 职责来源: {source_dir}/IDENTITY.md、{source_dir}/AGENTS.md、{source_dir}/SOUL.md、{source_dir}/USER.md",
-            f"- 本轮只按该 profile 的职责回答: {contract['focus']}",
-            f"- 应输出: {contract['outputs']}",
-            f"- 角色边界: {contract['boundaries']}",
-            "- 若主持人问题要求越权，先声明角色边界，再只回答本 profile 职责内的部分，并建议应由哪个 SIQ IC profile 接手。",
-            "- 涉及事实、评分、投决或风险判断时，必须优先使用 Deal OS evidence、startup-retrieval receipt、R0-R4 产物和用户附件；信息不足时标注 assumed/待核验，不得编造。",
-        ]
+
+
+def _receipt_context_for(profile: str, deal_id: str) -> dict[str, Any]:
+    if profile == "siq_ic_master_coordinator":
+        return {"required": False, "present": False, "skipped": True}
+    try:
+        payload = ic_startup_retrieval.read_startup_retrieval_receipt(deal_id, profile)
+    except (FileNotFoundError, ValueError):
+        return {"required": True, "present": False}
+    receipt = payload.get("receipt") if isinstance(payload.get("receipt"), dict) else None
+    return {
+        "required": True,
+        "present": receipt is not None,
+        "receipt_id": receipt.get("receipt_id") if isinstance(receipt, dict) else None,
+        "shared_hits": receipt.get("shared_hits") if isinstance(receipt, dict) else None,
+        "private_hits": receipt.get("private_hits") if isinstance(receipt, dict) else None,
+        "gaps": receipt.get("gaps") if isinstance(receipt, dict) else [],
+    }
+
+
+def _r1_report_context_for(profile: str, deal_id: str) -> dict[str, Any]:
+    if profile not in ic_policy.R1_AGENT_SEQUENCE:
+        return {"required": False, "present": False, "skipped": True}
+    try:
+        reports = deal_reports.list_r1_agent_reports(deal_id)
+    except (FileNotFoundError, ValueError):
+        return {"required": True, "present": False}
+    agents = reports.get("agents") if isinstance(reports.get("agents"), list) else []
+    report = next(
+        (item for item in agents if isinstance(item, dict) and item.get("agent_id") == profile),
+        {},
     )
+    return {
+        "required": True,
+        "present": bool(report.get("has_report")),
+        "status": report.get("status"),
+        "score": report.get("score"),
+        "recommendation": report.get("recommendation"),
+        "artifact_path": report.get("artifact_path"),
+    }
 
 
-def _profile_scoped_meeting_message(profile: str, message: str) -> str:
+def _meeting_evidence_context(profile: str, deal_id: str | None) -> str:
+    if not deal_id:
+        return ""
+    try:
+        normalized_deal_id = deal_store.validate_deal_id(deal_id)
+    except ValueError:
+        return ""
+    receipt = _receipt_context_for(profile, normalized_deal_id)
+    report = _r1_report_context_for(profile, normalized_deal_id)
+    lines = [
+        "一级市场项目证据上下文:",
+        f"- deal_id: {normalized_deal_id}",
+        (
+            "- startup_retrieval_receipt: not_required"
+            if not receipt.get("required")
+            else (
+                f"- startup_retrieval_receipt: present; receipt_id={receipt.get('receipt_id') or '-'}; "
+                f"shared_hits={receipt.get('shared_hits') if receipt.get('shared_hits') is not None else '-'}; "
+                f"private_hits={receipt.get('private_hits') if receipt.get('private_hits') is not None else '-'}; "
+                f"gaps={', '.join(str(item) for item in receipt.get('gaps', [])[:5]) if isinstance(receipt.get('gaps'), list) else '-'}"
+                if receipt.get("present")
+                else "- startup_retrieval_receipt: missing; 普通聊天可继续，但本轮只能作为临时咨询，正式任务请先运行准备智能体。"
+            )
+        ),
+        (
+            "- r1_report: not_required"
+            if not report.get("required")
+            else (
+                f"- r1_report: present; status={report.get('status') or '-'}; score={report.get('score') if report.get('score') is not None else '-'}; "
+                f"recommendation={report.get('recommendation') or '-'}; artifact_path={report.get('artifact_path') or '-'}"
+                if report.get("present")
+                else "- r1_report: missing; 当前聊天输出不会自动成为正式 R1 产物。"
+            )
+        ),
+        "- 回答要求: 使用现有证据时标注 receipt/evidence/report 来源；缺信息时写 assumed/待核验，不得把临时咨询表述成正式投研产物。",
+    ]
+    return "\n".join(lines)
+
+
+def _quality_event_body(quality: dict[str, Any]) -> str:
+    checks = quality.get("checks") if isinstance(quality.get("checks"), list) else []
+    compact = [
+        f"{item.get('id')}={item.get('status')}"
+        for item in checks
+        if isinstance(item, dict) and item.get("id") in {
+            "evidence.reference",
+            "verified_assumed",
+            "next_action",
+            "role.boundary",
+        }
+    ]
+    return f"status={quality.get('status')}; " + "; ".join(compact)
+
+
+def _append_meeting_quality_event(
+    deal_id: str,
+    *,
+    lane: str,
+    profile: str,
+    quality: dict[str, Any],
+    transcript_event_id: str | None = None,
+) -> dict[str, Any]:
+    normalized_deal_id, package_dir = _validated_deal_dir(deal_id)
+    event = {
+        "event_id": f"quality-{uuid4().hex}",
+        "transcript_event_id": transcript_event_id,
+        "profile_id": profile,
+        "lane": _normalize_lane(lane),
+        "quality": quality,
+        "created_at": deal_store.utc_now_iso(),
+    }
+    payload = _read_quality_payload(package_dir, normalized_deal_id)
+    payload["events"].append(event)
+    _write_quality_payload(package_dir, payload)
+    return _redact_meeting_payload(event)
+
+
+def _compact_event_paths(paths: list[Any]) -> str:
+    values = [str(item).strip() for item in paths if str(item or "").strip()]
+    if not values:
+        return "-"
+    return ", ".join(values[:6])
+
+
+def _r1_agent_task_event_payload(
+    *,
+    result: dict[str, Any],
+    profile_id: str,
+    dry_run: bool,
+) -> tuple[str, str, str, dict[str, Any]]:
+    report = result.get("report") if isinstance(result.get("report"), dict) else {}
+    artifact_path = (
+        result.get("markdown_path")
+        or report.get("artifact_path")
+        or report.get("markdown_path")
+        or result.get("report_path")
+    )
+    score = report.get("score")
+    recommendation = report.get("recommendation")
+    title = f"R1 {_profile_label(profile_id)}报告已生成"
+    body = (
+        f"artifact_path: {artifact_path or '-'}; "
+        f"score: {score if score is not None else '-'}; "
+        f"recommendation: {recommendation or '-'}"
+    )
+    meta = {
+        "source": "workflow.run_r1_agent",
+        "dry_run": dry_run,
+        "workflow_action": result.get("workflow_action"),
+        "schema_version": result.get("schema_version"),
+        "agent_id": profile_id,
+        "artifact_path": artifact_path,
+        "json_path": result.get("json_path"),
+        "score": score,
+        "recommendation": recommendation,
+        "hermes_run_id": result.get("hermes_run_id"),
+    }
+    return "artifact_written", title, body, meta
+
+
+def _r1_serial_task_event_payload(
+    *,
+    result: dict[str, Any],
+    dry_run: bool,
+) -> tuple[str, str, str, dict[str, Any]]:
+    agent_runs = result.get("agent_runs") if isinstance(result.get("agent_runs"), list) else []
+    paths = []
+    for run in agent_runs:
+        if not isinstance(run, dict):
+            continue
+        report = run.get("report") if isinstance(run.get("report"), dict) else {}
+        paths.append(run.get("markdown_path") or report.get("artifact_path") or report.get("markdown_path"))
+    executed_agent_ids = [str(item) for item in result.get("executed_agent_ids") or []]
+    report_written = bool(result.get("report_written"))
+    event_type = "artifact_written" if report_written else "audit_event"
+    title = "R1 串行执行完成" if report_written else "R1 串行执行未写入新报告"
+    body = (
+        f"executed_count: {result.get('executed_count', len(executed_agent_ids))}; "
+        f"executed_agent_ids: {', '.join(executed_agent_ids) or '-'}; "
+        f"artifact_paths: {_compact_event_paths(paths)}"
+    )
+    meta = {
+        "source": "workflow.run_r1_serial",
+        "dry_run": dry_run,
+        "workflow_action": result.get("workflow_action"),
+        "schema_version": result.get("schema_version"),
+        "planned_agent_ids": result.get("planned_agent_ids") or [],
+        "executed_agent_ids": executed_agent_ids,
+        "artifact_paths": [str(item) for item in paths if str(item or "").strip()],
+        "status": result.get("status"),
+    }
+    return event_type, title, body, meta
+
+
+def _evaluate_and_store_reply_quality(
+    *,
+    deal_id: str,
+    lane: str,
+    profile: str,
+    message: str,
+    reply: str,
+) -> dict[str, Any] | None:
+    try:
+        receipt = _receipt_context_for(profile, deal_id)
+        report = _r1_report_context_for(profile, deal_id)
+        quality = ic_agent_output_quality.evaluate_ic_agent_reply(
+            profile,
+            message,
+            reply,
+            context={
+                "deal_id": deal_id,
+                "lane": lane,
+                "startup_receipt": receipt,
+                "r1_report": report,
+            },
+        )
+    except Exception:
+        return None
+    try:
+        status = str(quality.get("status") or "warn")
+        transcript_event = _append_meeting_system_event(
+            deal_id,
+            lane=lane,
+            event_type="quality_check",
+            speaker=_profile_label(profile),
+            title="回答质量检查",
+            body=_quality_event_body(quality),
+            tone="success" if status == "pass" else "warning" if status == "warn" else "error",
+            agent_id=profile,
+            meta={"source": "ic_agent_output_quality", "quality": quality},
+        )
+        _append_meeting_quality_event(
+            deal_id,
+            lane=lane,
+            profile=profile,
+            quality=quality,
+            transcript_event_id=str(transcript_event.get("id") or ""),
+        )
+    except Exception:
+        pass
+    return quality
+
+
+def _profile_scoped_meeting_message(profile: str, message: str, deal_id: str | None = None) -> str:
     raw = str(message or "").strip()
     if "一级市场 IC profile 职责护栏:" in raw:
         return raw
     contract = _ic_profile_role_contract(profile)
-    if not contract:
+    evidence_context = _meeting_evidence_context(profile, deal_id)
+    parts = [part for part in (contract, evidence_context) if part]
+    if not parts:
         return raw
-    return "\n\n".join([contract, "主持人原始问题:", raw])
+    return "\n\n".join([*parts, "主持人原始问题:", raw])
 
 
 def _compact_json(value: Any, *, max_chars: int = 7200) -> str:
@@ -935,6 +1286,401 @@ async def meeting_suggestions(
     )
 
 
+@router.get("/primary-market/meeting/{deal_id}/agents/readiness")
+def meeting_agents_readiness(
+    deal_id: str,
+    current_user: User = Depends(require_permission("report.view")),
+) -> dict[str, Any]:
+    del current_user
+    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id)
+    try:
+        return deal_store.redact_public_payload(
+            primary_market_meeting_readiness.build_meeting_readiness(normalized_deal_id)
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(normalized_deal_id) from exc
+
+
+@router.post("/primary-market/meeting/{deal_id}/agents/{profile_id}/prepare")
+def prepare_meeting_agent(
+    deal_id: str,
+    profile_id: str,
+    req: PrimaryMarketMeetingPrepareRequest | None = None,
+    current_user: User = Depends(require_permission("report.create")),
+) -> dict[str, Any]:
+    request_payload = req or PrimaryMarketMeetingPrepareRequest()
+    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id)
+    canonical_profile = ic_policy.canonical_ic_profile_id(profile_id)
+    if canonical_profile == "siq_ic_master_coordinator":
+        result = {
+            "deal_id": normalized_deal_id,
+            "agent_id": canonical_profile,
+            "skipped": True,
+            "reason": "startup_retrieval_not_required_for_master_coordinator",
+        }
+        return deal_store.redact_public_payload(result)
+    try:
+        receipt = ic_startup_retrieval.generate_startup_retrieval_receipt(
+            normalized_deal_id,
+            canonical_profile,
+            round_name=request_payload.round_name,
+            query=request_payload.query,
+            limit=request_payload.limit,
+            include_external=request_payload.include_external,
+            external_providers=request_payload.external_providers,
+            include_vector=request_payload.include_vector,
+            include_rerank=request_payload.include_rerank,
+            vector_collections=request_payload.vector_collections,
+            created_by=_user_payload(current_user),
+        )
+        event = _append_meeting_system_event(
+            normalized_deal_id,
+            lane=f"agent-{canonical_profile}",
+            event_type="receipt_generated",
+            speaker=_profile_label(canonical_profile),
+            title="Startup Retrieval 已生成",
+            body=(
+                f"receipt_id: {receipt.get('receipt_id')}; "
+                f"shared_hits: {receipt.get('shared_hits')}; "
+                f"private_hits: {receipt.get('private_hits')}; "
+                f"gaps: {', '.join(str(item) for item in receipt.get('gaps', [])[:5]) if isinstance(receipt.get('gaps'), list) else '-'}"
+            ),
+            tone="success",
+            phase=str(request_payload.round_name or "R1").upper(),
+            agent_id=canonical_profile,
+            meta={"source": "startup_retrieval", "receipt_id": receipt.get("receipt_id")},
+        )
+        return deal_store.redact_public_payload({
+            "deal_id": normalized_deal_id,
+            "agent_id": canonical_profile,
+            "receipt": receipt,
+            "event": event,
+            "readiness": primary_market_meeting_readiness.build_meeting_readiness(normalized_deal_id),
+        })
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(normalized_deal_id) from exc
+
+
+@router.post("/primary-market/meeting/{deal_id}/agents/prepare-all")
+def prepare_all_meeting_agents(
+    deal_id: str,
+    req: PrimaryMarketMeetingPrepareAllRequest | None = None,
+    current_user: User = Depends(require_permission("report.create")),
+) -> dict[str, Any]:
+    request_payload = req or PrimaryMarketMeetingPrepareAllRequest()
+    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id)
+    raw_profile_ids = request_payload.profile_ids or list(ic_policy.R1_AGENT_SEQUENCE)
+    profile_ids = [
+        ic_policy.canonical_ic_profile_id(str(profile_id))
+        for profile_id in raw_profile_ids
+        if str(profile_id or "").strip()
+    ]
+    results: list[dict[str, Any]] = []
+    for profile_id in profile_ids:
+        if profile_id == "siq_ic_master_coordinator":
+            results.append({
+                "agent_id": profile_id,
+                "status": "skipped",
+                "reason": "startup_retrieval_not_required_for_master_coordinator",
+            })
+            continue
+        try:
+            receipt = ic_startup_retrieval.generate_startup_retrieval_receipt(
+                normalized_deal_id,
+                profile_id,
+                round_name=request_payload.round_name,
+                query=request_payload.query,
+                limit=request_payload.limit,
+                include_external=request_payload.include_external,
+                external_providers=request_payload.external_providers,
+                include_vector=request_payload.include_vector,
+                include_rerank=request_payload.include_rerank,
+                vector_collections=request_payload.vector_collections,
+                created_by=_user_payload(current_user),
+            )
+            results.append({
+                "agent_id": profile_id,
+                "status": "completed",
+                "receipt_id": receipt.get("receipt_id"),
+                "shared_hits": receipt.get("shared_hits"),
+                "private_hits": receipt.get("private_hits"),
+                "gaps": receipt.get("gaps") or [],
+            })
+        except Exception as exc:  # keep preparing the rest of the committee
+            results.append({
+                "agent_id": profile_id,
+                "status": "failed",
+                "error": str(exc) or exc.__class__.__name__,
+            })
+    completed = [item for item in results if item.get("status") == "completed"]
+    failed = [item for item in results if item.get("status") == "failed"]
+    event = _append_meeting_system_event(
+        normalized_deal_id,
+        lane="committee-main",
+        event_type="receipt_generated",
+        speaker=_profile_label("siq_ic_master_coordinator"),
+        title="全体委员 Startup Retrieval 准备完成",
+        body=f"completed={len(completed)}; failed={len(failed)}; agents={', '.join(item.get('agent_id', '-') for item in results)}",
+        tone="warning" if failed else "success",
+        phase=str(request_payload.round_name or "R1").upper(),
+        agent_id="siq_ic_master_coordinator",
+        meta={"source": "startup_retrieval_prepare_all", "results": results},
+    )
+    return deal_store.redact_public_payload({
+        "deal_id": normalized_deal_id,
+        "results": results,
+        "event": event,
+        "readiness": primary_market_meeting_readiness.build_meeting_readiness(normalized_deal_id),
+    })
+
+
+@router.post("/primary-market/meeting/{deal_id}/agents/{profile_id}/run-r1")
+async def run_meeting_r1_agent(
+    deal_id: str,
+    profile_id: str,
+    req: PrimaryMarketMeetingR1AgentRunRequest | None = None,
+    current_user: User = Depends(require_permission("report.create")),
+) -> dict[str, Any]:
+    request_payload = req or PrimaryMarketMeetingR1AgentRunRequest()
+    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id)
+    canonical_profile = ic_policy.canonical_ic_profile_id(profile_id)
+    if canonical_profile not in ic_policy.R1_AGENT_SEQUENCE:
+        raise HTTPException(status_code=400, detail="R1 agent run requires an R1 IC profile")
+    try:
+        if request_payload.dry_run:
+            result = ic_agent_runtime.build_workflow_r1_agent_run_dry_run(
+                normalized_deal_id,
+                canonical_profile,
+                round_name=request_payload.round_name,
+            )
+            return deal_store.redact_public_payload({
+                "deal_id": normalized_deal_id,
+                "agent_id": canonical_profile,
+                "dry_run": True,
+                "result": result,
+            })
+        if not request_payload.allow_hermes:
+            raise HTTPException(status_code=400, detail="allow_hermes must be true for non-dry-run R1 agent execution")
+        result = await ic_agent_runtime.run_workflow_r1_agent(
+            normalized_deal_id,
+            canonical_profile,
+            round_name=request_payload.round_name,
+            created_by=_user_payload(current_user),
+            timeout=request_payload.timeout,
+        )
+        event_type, title, body, meta = _r1_agent_task_event_payload(
+            result=result,
+            profile_id=canonical_profile,
+            dry_run=False,
+        )
+        event = _append_meeting_system_event(
+            normalized_deal_id,
+            lane=request_payload.lane or f"agent-{canonical_profile}",
+            event_type=event_type,
+            speaker=_profile_label(canonical_profile),
+            title=title,
+            body=body,
+            tone="success",
+            phase="R1",
+            agent_id=canonical_profile,
+            meta=meta,
+        )
+        return deal_store.redact_public_payload({
+            "deal_id": normalized_deal_id,
+            "agent_id": canonical_profile,
+            "dry_run": False,
+            "result": result,
+            "event": event,
+            "readiness": primary_market_meeting_readiness.build_meeting_readiness(normalized_deal_id),
+        })
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(normalized_deal_id) from exc
+    except (RuntimeError, httpx.HTTPError) as exc:
+        raise HTTPException(status_code=502, detail=f"Meeting R1 agent run failed: {exc}") from exc
+
+
+@router.post("/primary-market/meeting/{deal_id}/workflow/run-r1-serial")
+async def run_meeting_r1_serial(
+    deal_id: str,
+    req: PrimaryMarketMeetingR1SerialRunRequest | None = None,
+    current_user: User = Depends(require_permission("report.create")),
+) -> dict[str, Any]:
+    request_payload = req or PrimaryMarketMeetingR1SerialRunRequest()
+    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id)
+    try:
+        if request_payload.dry_run:
+            result = ic_agent_runtime.build_workflow_r1_serial_run_dry_run(
+                normalized_deal_id,
+                round_name=request_payload.round_name,
+                max_agents=request_payload.max_agents,
+            )
+            return deal_store.redact_public_payload({
+                "deal_id": normalized_deal_id,
+                "dry_run": True,
+                "result": result,
+            })
+        if not request_payload.allow_hermes:
+            raise HTTPException(status_code=400, detail="allow_hermes must be true for non-dry-run R1 serial execution")
+        result = await ic_agent_runtime.run_workflow_r1_serial(
+            normalized_deal_id,
+            round_name=request_payload.round_name,
+            max_agents=request_payload.max_agents,
+            created_by=_user_payload(current_user),
+            timeout=request_payload.timeout,
+        )
+        event_type, title, body, meta = _r1_serial_task_event_payload(
+            result=result,
+            dry_run=False,
+        )
+        event = _append_meeting_system_event(
+            normalized_deal_id,
+            lane=request_payload.lane or "workflow-main",
+            event_type=event_type,
+            speaker=_profile_label("siq_ic_master_coordinator"),
+            title=title,
+            body=body,
+            tone="success" if event_type == "artifact_written" else "info",
+            phase="R1",
+            agent_id="siq_ic_master_coordinator",
+            meta=meta,
+        )
+        return deal_store.redact_public_payload({
+            "deal_id": normalized_deal_id,
+            "dry_run": False,
+            "result": result,
+            "event": event,
+            "readiness": primary_market_meeting_readiness.build_meeting_readiness(normalized_deal_id),
+        })
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(normalized_deal_id) from exc
+    except (RuntimeError, httpx.HTTPError) as exc:
+        raise HTTPException(status_code=502, detail=f"Meeting R1 serial run failed: {exc}") from exc
+
+
+@router.post("/primary-market/meeting/{deal_id}/workflow/advance")
+async def advance_meeting_workflow(
+    deal_id: str,
+    req: PrimaryMarketMeetingWorkflowAdvanceRequest | None = None,
+    current_user: User = Depends(require_permission("report.create")),
+) -> dict[str, Any]:
+    request_payload = req or PrimaryMarketMeetingWorkflowAdvanceRequest()
+    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id)
+    try:
+        if request_payload.dry_run:
+            result = ic_agent_runtime.build_workflow_advance_next_dry_run(
+                normalized_deal_id,
+                allow_hermes=request_payload.allow_hermes,
+                max_agents=request_payload.max_agents,
+                r3_skip=request_payload.r3_skip,
+                r3_skip_reason=request_payload.r3_skip_reason,
+                r4_overwrite=request_payload.r4_overwrite,
+            )
+            event = _append_meeting_system_event(
+                normalized_deal_id,
+                lane="workflow-main",
+                event_type="audit_event",
+                speaker=_profile_label("siq_ic_master_coordinator"),
+                title="Workflow 下一步预演",
+                body=json.dumps(deal_store.redact_public_payload(result), ensure_ascii=False, default=str)[:1200],
+                tone="info",
+                phase=str(result.get("current_phase") or result.get("phase") or ""),
+                agent_id="siq_ic_master_coordinator",
+                meta={"source": "workflow.advance", "dry_run": True},
+            )
+            return deal_store.redact_public_payload({
+                "deal_id": normalized_deal_id,
+                "dry_run": True,
+                "result": result,
+                "event": event,
+            })
+        result = await ic_agent_runtime.run_workflow_advance_next(
+            normalized_deal_id,
+            allow_hermes=request_payload.allow_hermes,
+            max_agents=request_payload.max_agents,
+            r3_skip=request_payload.r3_skip,
+            r3_skip_reason=request_payload.r3_skip_reason,
+            r4_overwrite=request_payload.r4_overwrite,
+            created_by=_user_payload(current_user),
+        )
+        event = _append_meeting_system_event(
+            normalized_deal_id,
+            lane="workflow-main",
+            event_type="artifact_written",
+            speaker=_profile_label("siq_ic_master_coordinator"),
+            title="Workflow 已推进",
+            body=json.dumps(deal_store.redact_public_payload(result), ensure_ascii=False, default=str)[:1200],
+            tone="success",
+            phase=str((result.get("workflow") or {}).get("current_phase") or ""),
+            agent_id="siq_ic_master_coordinator",
+            meta={"source": "workflow.advance", "dry_run": False},
+        )
+        return deal_store.redact_public_payload({
+            "deal_id": normalized_deal_id,
+            "dry_run": False,
+            "result": result,
+            "event": event,
+            "readiness": primary_market_meeting_readiness.build_meeting_readiness(normalized_deal_id),
+        })
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(normalized_deal_id) from exc
+    except (RuntimeError, httpx.HTTPError) as exc:
+        raise HTTPException(status_code=502, detail=f"Meeting workflow advance failed: {exc}") from exc
+
+
+@router.post("/primary-market/meeting/{deal_id}/decision/human-confirm")
+def confirm_meeting_decision(
+    deal_id: str,
+    req: PrimaryMarketMeetingDecisionHumanConfirmRequest,
+    current_user: User = Depends(require_permission("report.create")),
+) -> dict[str, Any]:
+    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id)
+    try:
+        result = deal_decision.update_human_confirmation(
+            normalized_deal_id,
+            status=req.status,
+            confirmed_by=_user_payload(current_user),
+            override_reason=req.override_reason,
+            override_decision=req.override_decision,
+            override_score=req.override_score,
+            dry_run=req.dry_run,
+        )
+        event = None
+        if not req.dry_run:
+            event = _append_meeting_system_event(
+                normalized_deal_id,
+                lane="workflow-main",
+                event_type="decision_draft",
+                speaker=_profile_label("siq_ic_chairman"),
+                title="R4 人工确认已更新",
+                body=f"status={req.status}; override_decision={req.override_decision or '-'}; override_reason={req.override_reason or '-'}",
+                tone="success" if req.status == "confirmed" else "warning",
+                phase="R4",
+                agent_id="siq_ic_chairman",
+                meta={"source": "decision.human_confirm", "dry_run": False},
+            )
+        return deal_store.redact_public_payload({
+            "deal_id": normalized_deal_id,
+            "dry_run": req.dry_run,
+            "result": result,
+            "event": event,
+            "readiness": primary_market_meeting_readiness.build_meeting_readiness(normalized_deal_id),
+        })
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(normalized_deal_id) from exc
+
+
 @router.post("/primary-market/meeting/{profile}/chat/stream")
 async def chat_stream(
     profile: str,
@@ -975,8 +1721,15 @@ async def chat_stream(
         user_role=current_user_role,
     )
 
-    async def done_payload(_reply: str) -> dict:
-        return {"new_achievements": [], "session_id": session_id}
+    async def done_payload(reply: str) -> dict:
+        quality = _evaluate_and_store_reply_quality(
+            deal_id=deal_id,
+            lane=lane,
+            profile=normalized_profile,
+            message=req.message,
+            reply=reply,
+        )
+        return {"new_achievements": [], "session_id": session_id, "quality": quality}
 
     async def event_generator():
         control_reply = maybe_handle_model_control(req.message, normalized_profile)
@@ -1010,7 +1763,7 @@ async def chat_stream(
             profile=normalized_profile,
             deal_summary=deal_summary,
         )
-        scoped_message = _profile_scoped_meeting_message(normalized_profile, req.message)
+        scoped_message = _profile_scoped_meeting_message(normalized_profile, req.message, deal_id)
         async for event in stream_chat_reply(
             scoped_message,
             request,
@@ -1281,7 +2034,7 @@ async def chat(
         profile=normalized_profile,
         deal_summary=deal_summary,
     )
-    scoped_message = _profile_scoped_meeting_message(normalized_profile, req.message)
+    scoped_message = _profile_scoped_meeting_message(normalized_profile, req.message, deal_id)
     reply = await collect_chat_reply(
         scoped_message,
         async_session,
@@ -1292,5 +2045,12 @@ async def chat(
         attachments=req.attachments,
         enforce_evidence_contract=False,
     )
+    quality = _evaluate_and_store_reply_quality(
+        deal_id=deal_id,
+        lane=lane,
+        profile=normalized_profile,
+        message=req.message,
+        reply=reply,
+    )
     get_session_manager().increment_message_count(session_id)
-    return PrimaryMarketMeetingChatResponse(reply=reply, new_achievements=[], session_id=session_id)
+    return PrimaryMarketMeetingChatResponse(reply=reply, new_achievements=[], session_id=session_id, quality=quality)

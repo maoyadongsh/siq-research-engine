@@ -71,13 +71,18 @@ def test_openclaw_script_migration_matrix_tracks_key_scripts():
     assert sum(matrix["counts"]["by_status"].values()) == matrix["counts"]["entries"]
     assert matrix["counts"]["entries"] >= 37
     for status in ("migrated", "planned", "wrap_required", "reference_only", "do_not_migrate"):
-        assert matrix["counts"]["by_status"][status] >= 1
+        assert status in matrix["status_definitions"]
+    assert matrix["counts"]["by_status"]["migrated"] >= 1
+    assert matrix["counts"]["by_status"]["reference_only"] >= 1
+    assert matrix["counts"]["by_status"]["do_not_migrate"] >= 1
+    assert "planned" not in matrix["counts"]["by_status"]
+    assert "wrap_required" not in matrix["counts"]["by_status"]
     by_script = {item["script"].rsplit("/", 1)[-1]: item for item in matrix["entries"]}
     assert by_script["embedding_client.py"]["status"] == "migrated"
     assert by_script["knowledge_ingestor.py"]["siq_target"].startswith("scripts/vector-index/milvus-ingestion")
-    assert by_script["r1_serial_dispatcher.py"]["status"] == "planned"
-    assert by_script["weighted_scoring.py"]["status"] == "planned"
-    assert by_script["qcc_client.py"]["status"] == "wrap_required"
+    assert by_script["r1_serial_dispatcher.py"]["status"] == "migrated"
+    assert by_script["weighted_scoring.py"]["status"] == "migrated"
+    assert by_script["qcc_client.py"]["status"] == "migrated"
     assert "/home/maoyd" not in json.dumps(matrix, ensure_ascii=False)
 
 

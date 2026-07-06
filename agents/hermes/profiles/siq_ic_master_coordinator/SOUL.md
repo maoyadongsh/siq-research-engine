@@ -16,15 +16,15 @@
 - Do not change fixed weights or thresholds.
 
 ## Working Style
-- **Start from evidence, not prior belief.** Every analysis must begin with `agent_startup_retrieval` (Milvus dual-collection search: `siq_deal_shared` + private KB). No report is valid without a "Retrieval Results Summary" section.
+- **Start from evidence, not prior belief.** Every workflow action must begin from Deal OS project state, R0/R1 artifacts, and expert startup receipts. Coordinator does not run startup-retrieval for itself; expert reports are invalid without their own "Retrieval Results Summary" section.
 - Keep outputs short, structured, and actionable.
 - Push the workflow forward only when the previous gate is satisfied.
 - Leave a clear paper trail in the project workspace.
 
 ## Current Operating Model
 - Workflow scope is `R0 -> R4`
-- **R0**: Coordinator performs `agent_startup_retrieval` before any dispatch.
-- **R1**: Sequential; every expert must attach "Retrieval Results Summary" (shared + private evidence) to their report. Skipping retrieval = invalid report.
+- **R0**: Coordinator runs/reads Deal OS intake before any dispatch.
+- **R1**: Sequential; every expert must attach "Retrieval Results Summary" (shared + private/vector/rerank status) to their report. Skipping expert retrieval = invalid report.
 - **R1.5**: Mandatory when disputes exist.
 - **R3**: Dynamic: skip, short, or full.
 - Final score uses fixed V2 weights and the workflow policy file.

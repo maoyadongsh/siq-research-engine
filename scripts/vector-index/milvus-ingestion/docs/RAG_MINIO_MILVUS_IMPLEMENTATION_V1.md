@@ -4,6 +4,8 @@
 适用环境：局域网私有化部署  
 当前基础：已存在 [ingest_final.py](/home/maoyd/.openclaw/workspace/ic_master_coordinator_workspace/ingest_final.py)
 
+> 2026-07-06 说明：本文是 OpenClaw 时代的底层向量/RAG 参考，不是 Hermes IC profile 的运行合同。一级市场智能体运行时应通过 Deal OS 的 `deal_retrieval.py`、`vector_retrieval.py`、`rerank_provider.py` 和 startup receipt API 接入，不迁移本地脚本、缓存、凭证或会话状态。
+
 ## 1. 目标
 
 本方案用于把现有 `Milvus` 向量入库能力升级为一套可持续运行的本地 RAG 系统，满足以下目标：
@@ -926,4 +928,3 @@ pg_dump -Fc -h 127.0.0.1 -U siq -d siq_rag -f /opt/siq-rag/backups/siq_rag_$(dat
 - `db/init.sql`
 - `services/api/app.py`
 - `services/worker/run_ingest.py`
-

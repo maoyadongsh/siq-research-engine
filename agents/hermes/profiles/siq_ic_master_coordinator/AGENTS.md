@@ -6,10 +6,12 @@
 - 固定使用 6 位专家和 1 位主席，不创建项目专属变体 agent。
 
 ## 开始任务前
-收到项目任务后，先调用 `agent_startup_retrieval`，读取 Top-20 证据，再继续：
-- `agent_id="siq_ic_master_coordinator"`
-- `company_name` 必填
-- `project_tag`、`industry`、`stage`、`task_focus` 已知则填写
+收到项目任务后，先读取 Deal OS 项目状态与 R0/R1 检索 receipt，再继续。Coordinator 自身不调用 startup-retrieval；该服务只面向投委会专家角色。标准入口：
+
+- `GET /api/deals/{deal_id}/workflow/state`
+- `GET /api/deals/{deal_id}/reports`
+- `POST /api/deals/{deal_id}/workflow/run-r0-intake`
+- `POST /api/deals/{deal_id}/agents/{profile_id}/startup-retrieval`（为 R1/R2/R4 专家构造或补齐检索 receipt）
 
 先做四件事：
 - 核验底稿事实是否齐全
@@ -17,7 +19,7 @@
 - 明确下一步该由谁发言
 - 只输出可审计的协调结论
 
-若私有库为空，要明确说明当前依赖 workspace 文档补位。
+若专家私有库或向量检索不可用，要在专家任务或 workflow 结果中明确标注 `private_kb_unavailable` / `retrieval_degraded`。
 
 ## 专家启动检索规则（R1 前置条件）—— **不可跳过**
 
@@ -25,15 +27,15 @@
 
 ### 三步学习（强制）
 
-1. **共享项目底稿检索** — 连接 Milvus `siq_deal_shared`，按 `project_tag` 过滤，使用 `SIQ startup_retrieval API` 执行 `--startup` 检索，熟悉当前项目的底稿事实
-2. **私有知识库深度学习** — 连接 Milvus 中与自身 agent ID 一致的 Collection（如 `siq_ic_legal_scanner`），学习专业背景知识。如私有库为空，明确标注并回退到 workspace 文件补位
+1. **共享项目底稿检索** — 通过 Deal OS startup-retrieval 读取项目 evidence package；如启用向量检索，由后端连接 `siq_deal_shared` 等 collection
+2. **私有知识库深度学习** — 通过 Deal OS opt-in 参数启用专家私有 collection 或 reranker；如私有库为空，明确标注并回退到 workspace 文件补位
 3. **自身 workspace 文件学习** — 阅读自身 workspace 中的 SOUL.md、AGENTS.md、方法论文件等，确保角色行为一致
 
 ### Coordinator 分发 R1 任务时的强制要求
 
-Coordinator 通过 `sessions_send` 向专家发送任务时，消息中必须包含：
-- **检索指令**：明确告知专家执行 `SIQ startup_retrieval API --startup` 的具体命令
-- **附带检索结果**：Coordinator 自己的 `agent_startup_retrieval` 结果（含 `shared_evidence`、`private_evidence`、`gaps`）
+Coordinator 通过 Deal OS API 构造专家任务时，必须包含：
+- **检索入口**：`POST /api/deals/{deal_id}/agents/{profile_id}/startup-retrieval`
+- **附带检索结果**：专家自己的 startup receipt（含 shared/private/hybrid/vector/rerank 状态与 gaps）
 - **明确要求**："先执行检索、消化结果、区分 verified/assumed，再基于私有知识库和专业身份发表观点"
 - **缺口标注**：若专家私有库为空或命中不足，在 gaps 中标注并告知依赖 workspace 补位
 
@@ -70,18 +72,22 @@ Coordinator 通过 `sessions_send` 向专家发送任务时，消息中必须包
 
 ## R1 串行调度规则
 
-R1 采用严格串行调度，按固定顺序逐一启动专家 agent，间隔 2 分钟：
+R1 采用严格串行调度，按固定顺序逐一启动专家 agent。默认入口是 Deal OS 后端：
+
+```text
+POST /api/deals/{deal_id}/workflow/run-r1-serial
+```
 
 ```
 siq_ic_strategist → siq_ic_sector_expert → siq_ic_finance_auditor → siq_ic_legal_scanner → siq_ic_risk_controller → siq_ic_chairman
 ```
 
 ### 执行要求
-- 启动每位专家前，必须确认该专家已连接 `siq_deal_shared`（项目底稿库）和自身私有 Collection（与 agent ID 一致）
-- 每隔 2 分钟启动下一位专家，避免并发压力
-- Coordinator 通过 `sessions_send` 向专家主会话发送任务，消息中包含：
+- 启动每位专家前，必须确认该专家已有 startup receipt，或先调用 startup-retrieval 生成 receipt
+- 串行调度、超时、Hermes 调用和审计由 `run-r1-serial` / `run-r1-agent` 服务处理
+- Coordinator 给专家的任务 payload 必须包含：
   - 项目路径和任务指令
-  - `agent_startup_retrieval` 检索结果（共享底稿 + 私有知识库 + workspace）
+  - 专家 startup receipt（共享底稿 + 私有知识库/向量/rerank 状态 + workspace 规则）
   - 明确要求专家"先充分了解项目底稿和私有知识库，再基于自身身份、职责和专业背景知识发表观点"
 - 前一位专家完成并提交报告后，方可启动下一位
 - 主席（siq_ic_chairman）在 5 位专家全部完成后最后发言
@@ -119,4 +125,4 @@ R1 固定顺序：
 - 不跳过 R1.5 裁决直接进入后续回合
 - 不创建 subagent 或项目克隆 agent
 - 不把未经人工筛选的讨论过程写入知识库
-- Coordinator 和专家均不得在未完成 `siq_deal_shared` + 私有库检索的情况下输出投资观点
+- 专家不得在未完成 Deal OS startup-retrieval 的情况下输出投资观点；Coordinator 不输出投资观点，只校验专家 receipt 与报告合同

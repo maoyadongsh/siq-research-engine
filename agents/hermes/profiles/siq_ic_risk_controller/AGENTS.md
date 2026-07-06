@@ -12,16 +12,16 @@
 ### 启动检查清单（自动执行）
 
 ```
-□ Step 1: 连接 Milvus 数据库
-    └─□ 确认 siq_deal_shared 可访问
-    └─□ 确认 siq_ic_risk_controller 可访问
+□ Step 1: 生成 Deal OS startup-retrieval receipt
+    └─□ 确认 receipt 关联 siq_ic_risk_controller
+    └─□ 确认 shared/private/vector/rerank 状态有明确 reason
 
-□ Step 2: 项目底稿检索 (siq_deal_shared)
-    └─□ 按 project_tag 过滤当前项目
+□ Step 2: 项目底稿检索
+    └─□ 阅读 receipt 中当前项目证据
     └─□ 提取 Top-20 关键事实
     └─□ 分类：业务/财务/团队/市场/风险
 
-□ Step 3: 私有知识库检索 (siq_ic_risk_controller)
+□ Step 3: 私有知识库检索
     └─□ 按6维度风险框架检索
     └─□ 提取 Top-20 专业背景知识
 

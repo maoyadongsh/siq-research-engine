@@ -663,8 +663,8 @@ class MilvusConnectionManager:
         print(f"   Collection: {canonical_collection}")
         print(f"   新增实体: {len(new_entities)}")
         
-        # 这里实际应该通过sessions_send通知Agent
-        # 目前只是记录任务
+        # OpenClaw used to notify agents from here. Hermes IC runs should go
+        # through Deal OS workflow jobs and startup-retrieval receipts instead.
         self._execute_learning(task)
         
         return task
@@ -676,7 +676,7 @@ class MilvusConnectionManager:
             
             # 模拟学习过程
             # 实际应该：
-            # 1. 通过 sessions_send 通知对应Agent
+            # 1. 通过 Deal OS workflow job 通知对应 Agent
             # 2. Agent调用 retrieval 获取新数据
             # 3. Agent分析并更新知识
             

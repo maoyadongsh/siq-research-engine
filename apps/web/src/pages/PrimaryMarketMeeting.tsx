@@ -2,15 +2,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
   Bot,
+  CheckCircle2,
+  Eye,
   FileCheck2,
   GitBranch,
   History,
   Loader2,
   MessageSquareText,
+  Play,
   Plus,
   RefreshCw,
+  ShieldAlert,
   Trash2,
   UsersRound,
+  XCircle,
 } from 'lucide-react'
 
 import AgentProgressCard from '@/components/agent/AgentProgressCard'
@@ -31,11 +36,14 @@ import { displayLabelForPrompt } from '@/lib/quickQuestions'
 import { useAutosizeTextarea } from '@/lib/useAutosizeTextarea'
 import { useToast } from '@/hooks/useToast'
 import {
+  advancePrimaryMarketMeetingWorkflow,
   appendPrimaryMarketMeetingEvent,
+  confirmPrimaryMarketDecision,
   createPrimaryMarketMeetingChatSession,
   deletePrimaryMarketMeetingChatSession,
   fetchPrimaryMarketAgents,
   fetchPrimaryMarketAudit,
+  fetchPrimaryMarketMeetingAgentReadiness,
   fetchPrimaryMarketMeetingChatHistory,
   fetchPrimaryMarketMeetingChatSessions,
   fetchPrimaryMarketDecision,
@@ -48,11 +56,16 @@ import {
   fetchPrimaryMarketProjects,
   fetchPrimaryMarketStartupRetrieval,
   fetchPrimaryMarketWorkflow,
+  preparePrimaryMarketMeetingAgent,
+  preparePrimaryMarketMeetingCommittee,
+  runPrimaryMarketMeetingR1Agent,
+  runPrimaryMarketMeetingR1Serial,
   stopPrimaryMarketMeetingChat,
   streamPrimaryMarketMeetingChat,
   switchPrimaryMarketMeetingChatSession,
   uploadPrimaryMarketMeetingAttachments,
 } from '@/features/primary-market/primaryMarketApi'
+import type { PrimaryMarketMeetingAgentReadiness } from '@/features/primary-market/primaryMarketApi'
 import {
   IC_AGENT_OPTIONS,
   PRIMARY_MARKET_TABS,
@@ -60,12 +73,17 @@ import {
   agentLabel,
   buildMeetingEvents,
   coverageText,
+  deriveAgentReadinessChips,
+  deriveAgentReadinessLine,
   deriveCoordinatorNextActions,
+  deriveMeetingAgentReadinessRows,
   deriveMeetingAgenda,
+  deriveMeetingEventQualityChips,
   deriveMeetingReceiptRows,
   deriveMeetingScoreRows,
   deriveMeetingScoringSummary,
   dimensionLabel,
+  formatTime,
   phaseLabel,
   primaryMarketMeetingIntro,
   primaryMarketMeetingQuickQuestions,
@@ -118,6 +136,54 @@ function attachmentSummary(attachments: AgentAttachment[]) {
   return attachments
     .map((item, index) => `${index + 1}. ${item.filename} (${item.kind}; ${item.content_type}; ${item.size} bytes)`)
     .join('\n')
+}
+
+function stringArray(value: unknown) {
+  return Array.isArray(value) ? value.map((item) => String(item || '').trim()).filter(Boolean) : []
+}
+
+function workflowResultAction(result: Record<string, unknown> | undefined) {
+  const nested = result?.action_result && typeof result.action_result === 'object' && !Array.isArray(result.action_result)
+    ? result.action_result as Record<string, unknown>
+    : null
+  return String(result?.selected_action || nested?.workflow_action || result?.workflow_action || 'advance-next')
+}
+
+function resultRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function resultBlockingReasons(result: unknown) {
+  const record = resultRecord(result)
+  return stringArray(record.blocking_reasons || record.blockingReasons)
+}
+
+function resultWarnings(result: unknown) {
+  const record = resultRecord(result)
+  return stringArray(record.warnings)
+}
+
+function resultArtifactPath(result: unknown) {
+  const record = resultRecord(result)
+  const nestedReport = resultRecord(record.report || record.r1_report || record.r1Report)
+  const nestedArtifact = resultRecord(record.artifact || record.artifacts)
+  return String(
+    record.artifact_path
+      || record.artifactPath
+      || nestedReport.artifact_path
+      || nestedReport.artifactPath
+      || nestedArtifact.path
+      || '',
+  ).trim()
+}
+
+function serialAgentSummary(result: unknown) {
+  const record = resultRecord(result)
+  const executed = stringArray(record.executed_agent_ids || record.submitted_agent_ids)
+  const planned = stringArray(record.planned_agent_ids)
+  if (executed.length) return `executed=${executed.map(agentLabel).join(' / ')}`
+  if (planned.length) return `planned=${planned.map(agentLabel).join(' / ')}`
+  return `workflow_action=${String(record.workflow_action || 'run-r1-serial')}`
 }
 
 function agentIdFromDisplayPrefix(content: string) {
@@ -228,6 +294,7 @@ export default function PrimaryMarketMeeting() {
   const [attachments, setAttachments] = useState<AgentAttachment[]>([])
   const [uploadingAttachments, setUploadingAttachments] = useState(false)
   const [chatBusy, setChatBusy] = useState('')
+  const [taskBusy, setTaskBusy] = useState('')
   const [actionError, setActionError] = useState('')
   const [historyNotice, setHistoryNotice] = useState('')
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -288,11 +355,12 @@ export default function PrimaryMarketMeeting() {
         fetchPrimaryMarketDecision(selectedDealId, signal),
         fetchPrimaryMarketAudit(selectedDealId, signal),
         fetchPrimaryMarketEvidence(selectedDealId, { limit: 12 }, signal),
+        fetchPrimaryMarketMeetingAgentReadiness(selectedDealId, signal),
       ])
       const receiptsPromise = Promise.allSettled(
         R1_AGENT_SEQUENCE.map((agentId) => fetchPrimaryMarketStartupRetrieval(selectedDealId, agentId, signal)),
       )
-      const [[detail, workflow, preflight, disputes, phaseArtifacts, agents, decision, audit, evidence], receiptResults] = await Promise.all([
+      const [[detail, workflow, preflight, disputes, phaseArtifacts, agents, decision, audit, evidence, meetingReadiness], receiptResults] = await Promise.all([
         primaryPromise,
         receiptsPromise,
       ])
@@ -314,9 +382,10 @@ export default function PrimaryMarketMeeting() {
         decision: decision.status === 'fulfilled' ? decision.value : null,
         audit: audit.status === 'fulfilled' ? audit.value : null,
         evidence: evidence.status === 'fulfilled' ? evidence.value : null,
+        meetingReadiness: meetingReadiness.status === 'fulfilled' ? meetingReadiness.value : null,
         startupReceipts,
       }
-      const settled = { workflow, preflight, disputes, phaseArtifacts, agents, decision, audit, evidence }
+      const settled = { workflow, preflight, disputes, phaseArtifacts, agents, decision, audit, evidence, meetingReadiness }
       for (const [key, result] of Object.entries(settled)) {
         if (result.status === 'rejected') errors[key] = result.reason instanceof Error ? result.reason.message : `${key} 加载失败`
       }
@@ -462,12 +531,30 @@ export default function PrimaryMarketMeeting() {
   const evidenceReport = bundle.evidence?.quality_report || null
   const missingDimensions = sortedMissingDimensions(evidenceReport)
   const receiptRows = useMemo(() => deriveMeetingReceiptRows(bundle), [bundle])
+  const readinessRows = useMemo(() => deriveMeetingAgentReadinessRows(bundle), [bundle])
   const scoreRows = useMemo(() => deriveMeetingScoreRows(bundle), [bundle])
   const scoringSummary = useMemo(() => deriveMeetingScoringSummary(scoreRows), [scoreRows])
   const coordinatorActions = useMemo(() => deriveCoordinatorNextActions(bundle), [bundle])
+  const readinessChips = useMemo(() => deriveAgentReadinessChips(bundle, selectedAgent, speakerMode), [bundle, selectedAgent, speakerMode])
+  const readinessLine = useMemo(
+    () => selectedDealId ? deriveAgentReadinessLine(bundle, selectedAgent, speakerMode) : '',
+    [bundle, selectedAgent, selectedDealId, speakerMode],
+  )
   const currentPhase = bundle.workflow?.workflow.current_phase || selectedDeal?.current_phase || '-'
   const committeeAgentOptions = useMemo(() => IC_AGENT_OPTIONS.filter((agent) => agent.r1), [])
   const selectedSpeakerSet = useMemo(() => new Set(selectedSpeakerIds), [selectedSpeakerIds])
+  const selectedReadinessRow = readinessRows.find((row) => row.agentId === selectedAgent)
+  const selectedAgentCanRunR1 = R1_AGENT_SEQUENCE.includes(selectedAgent)
+  const selectedAgentReadyForR1 = selectedReadinessRow?.readyForFormalTask !== false
+  const r1CommitteeReady = readinessRows
+    .filter((row) => R1_AGENT_SEQUENCE.includes(row.agentId))
+    .every((row) => row.readyForFormalTask !== false)
+  const decisionContract = bundle.decision?.contract || null
+  const humanConfirmation = decisionContract?.human_confirmation
+  const humanStatus = String(humanConfirmation?.status || (humanConfirmation?.confirmed ? 'confirmed' : 'pending'))
+  const humanConfirmed = humanConfirmation?.confirmed === true || ['confirmed', 'approved'].includes(humanStatus.toLowerCase())
+  const decisionReadyForHuman = Boolean(bundle.decision?.report_path || decisionContract?.decision || decisionContract?.artifacts?.markdown?.available)
+  const recentTranscriptEvents = useMemo(() => laneEvents.slice(-4).reverse(), [laneEvents])
   const chatMessages = chatMessagesByLane[activeLane] || []
   const chatSessions = useMemo(
     () => (chatSessionsByLane[activeLane] || []).map((session) => ({
@@ -489,6 +576,11 @@ export default function PrimaryMarketMeeting() {
       loadChatSessions(activeSessionAgent, activeLane),
     ])
   }, [activeLane, activeSessionAgent, currentSessionId, loadChatHistory, loadChatSessions, loadMeetingContext, loadTranscript])
+
+  const applyMeetingReadiness = useCallback((readiness?: PrimaryMarketMeetingAgentReadiness | null) => {
+    if (!readiness) return
+    setBundle((current) => ({ ...current, meetingReadiness: readiness }))
+  }, [])
 
   const appendMeetingEvent = useCallback((
     event: Omit<MeetingEvent, 'id' | 'createdAt'> & { id?: string; createdAt?: string | null },
@@ -802,6 +894,7 @@ export default function PrimaryMarketMeeting() {
       activeAbortRef.current = null
       activeRunIdRef.current = null
       abortRequestedRef.current = false
+      void loadTranscript(lane)
       void loadChatSessions(activeSessionAgent, lane)
     }
   }
@@ -914,6 +1007,214 @@ export default function PrimaryMarketMeeting() {
     await loadChatSessions(activeSessionAgent, activeLane)
   }
 
+  const prepareSelectedAgent = async () => {
+    if (!selectedDealId || taskBusy) return
+    setTaskBusy('prepare-agent')
+    setActionError('')
+    try {
+      const response = await preparePrimaryMarketMeetingAgent(selectedDealId, selectedAgent, {
+        round_name: 'R1',
+        limit: 10,
+        include_vector: true,
+        include_rerank: false,
+      })
+      applyMeetingReadiness(response.readiness)
+      toast({
+        type: response.skipped ? 'info' : 'success',
+        title: response.skipped ? '当前智能体无需准备' : '智能体准备完成',
+        description: response.reason || response.receipt?.receipt_id || agentLabel(selectedAgent),
+      })
+      await refreshMeeting()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '准备智能体失败'
+      setActionError(message)
+      toast({ type: 'error', title: '准备智能体失败', description: message })
+    } finally {
+      setTaskBusy('')
+    }
+  }
+
+  const prepareCommittee = async () => {
+    if (!selectedDealId || taskBusy) return
+    setTaskBusy('prepare-committee')
+    setActionError('')
+    try {
+      const response = await preparePrimaryMarketMeetingCommittee(selectedDealId, {
+        round_name: 'R1',
+        limit: 10,
+        include_vector: true,
+        include_rerank: false,
+        profile_ids: R1_AGENT_SEQUENCE,
+      })
+      applyMeetingReadiness(response.readiness)
+      const failed = (response.results || []).filter((item) => item.status === 'failed')
+      toast({
+        type: failed.length ? 'warning' : 'success',
+        title: failed.length ? '全体委员部分准备失败' : '全体委员准备完成',
+        description: `${Math.max((response.results || []).length - failed.length, 0)}/${R1_AGENT_SEQUENCE.length} completed`,
+      })
+      await refreshMeeting()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '准备全体委员失败'
+      setActionError(message)
+      toast({ type: 'error', title: '准备全体委员失败', description: message })
+    } finally {
+      setTaskBusy('')
+    }
+  }
+
+  const advanceWorkflow = async (dryRun: boolean) => {
+    if (!selectedDealId || taskBusy) return
+    if (!dryRun && !window.confirm('确认执行下一步 Workflow？该操作可能写入正式投研产物。')) return
+    setSpeakerMode('workflow')
+    setTaskBusy(dryRun ? 'workflow-dry-run' : 'workflow-execute')
+    setActionError('')
+    try {
+      const response = await advancePrimaryMarketMeetingWorkflow(selectedDealId, {
+        dry_run: dryRun,
+        allow_hermes: !dryRun,
+        max_agents: 1,
+        r3_skip: true,
+        r4_overwrite: false,
+      })
+      applyMeetingReadiness(response.readiness)
+      const result = response.result
+      const reasons = stringArray(result?.blocking_reasons)
+      toast({
+        type: reasons.length ? 'warning' : 'success',
+        title: dryRun ? `预演 ${workflowResultAction(result)}` : `已执行 ${workflowResultAction(result)}`,
+        description: reasons.length ? reasons.slice(0, 2).join(' / ') : selectedDeal?.company_name || selectedDealId,
+      })
+      await refreshMeeting()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : dryRun ? '预演 Workflow 失败' : '执行 Workflow 失败'
+      setActionError(message)
+      toast({ type: 'error', title: dryRun ? '预演 Workflow 失败' : '执行 Workflow 失败', description: message })
+    } finally {
+      setTaskBusy('')
+    }
+  }
+
+  const runCurrentAgentR1 = async (dryRun: boolean) => {
+    if (!selectedDealId || taskBusy || !selectedAgentCanRunR1) return
+    if (!dryRun && !selectedAgentReadyForR1) {
+      const message = selectedReadinessRow?.blockingReasons?.join(' / ') || '当前智能体 readiness 未通过，先准备智能体或刷新状态。'
+      setActionError(message)
+      toast({ type: 'warning', title: '当前智能体尚未 ready', description: message })
+      return
+    }
+    if (!dryRun && !window.confirm(`确认执行 ${agentLabel(selectedAgent)} 的正式 R1 任务？该操作可能写入 R1 产物。`)) return
+    const lane = meetingLane('single', selectedAgent)
+    setSpeakerMode('single')
+    setTaskBusy(dryRun ? 'r1-agent-dry-run' : 'r1-agent-execute')
+    setActionError('')
+    try {
+      const response = await runPrimaryMarketMeetingR1Agent(selectedDealId, selectedAgent, {
+        round_name: 'R1',
+        dry_run: dryRun,
+        allow_hermes: !dryRun,
+        lane,
+      })
+      const reasons = resultBlockingReasons(response)
+      const warnings = resultWarnings(response)
+      const artifactPath = resultArtifactPath(response)
+      toast({
+        type: reasons.length ? 'warning' : 'success',
+        title: dryRun ? `预演 ${agentLabel(selectedAgent)} R1` : `${agentLabel(selectedAgent)} R1 已执行`,
+        description: reasons[0] || warnings[0] || artifactPath || selectedDeal?.company_name || selectedDealId,
+      })
+      await refreshMeeting()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : dryRun ? '预演当前智能体 R1 失败' : '执行当前智能体 R1 失败'
+      setActionError(message)
+      toast({ type: 'error', title: dryRun ? '预演当前 R1 失败' : '执行当前 R1 失败', description: message })
+    } finally {
+      setTaskBusy('')
+    }
+  }
+
+  const runR1Serial = async () => {
+    if (!selectedDealId || taskBusy) return
+    if (!r1CommitteeReady) {
+      const blocked = readinessRows
+        .filter((row) => R1_AGENT_SEQUENCE.includes(row.agentId) && row.readyForFormalTask === false)
+        .map((row) => row.label)
+        .join(' / ')
+      const message = blocked ? `${blocked} readiness 未通过，先准备全体委员或刷新状态。` : 'R1 串行 readiness 未通过。'
+      setActionError(message)
+      toast({ type: 'warning', title: 'R1 串行尚未 ready', description: message })
+      return
+    }
+    if (!window.confirm('确认执行 R1 串行正式任务？该操作可能为多位委员写入 R1 产物。')) return
+    setSpeakerMode('workflow')
+    setTaskBusy('r1-serial-execute')
+    setActionError('')
+    try {
+      const response = await runPrimaryMarketMeetingR1Serial(selectedDealId, {
+        round_name: 'R1',
+        dry_run: false,
+        allow_hermes: true,
+        max_agents: R1_AGENT_SEQUENCE.length,
+        lane: 'workflow-main',
+      })
+      const reasons = resultBlockingReasons(response)
+      const warnings = resultWarnings(response)
+      toast({
+        type: reasons.length ? 'warning' : 'success',
+        title: 'R1 串行任务已执行',
+        description: reasons[0] || warnings[0] || serialAgentSummary(response),
+      })
+      await refreshMeeting()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '执行 R1 串行失败'
+      setActionError(message)
+      toast({ type: 'error', title: '执行 R1 串行失败', description: message })
+    } finally {
+      setTaskBusy('')
+    }
+  }
+
+  const writeHumanConfirmation = async (kind: 'preview' | 'confirm' | 'revision' | 'reject') => {
+    if (!selectedDealId || taskBusy || !decisionReadyForHuman) return
+    const dryRun = kind === 'preview'
+    let status = kind === 'confirm' || kind === 'preview' ? 'confirmed' : kind === 'revision' ? 'needs_revision' : 'rejected'
+    let reason = ''
+    if (kind === 'revision' || kind === 'reject') {
+      reason = window.prompt(kind === 'revision' ? '请填写要求修订的原因或补充项' : '请填写人工否决原因')?.trim() || ''
+      if (!reason) {
+        toast({ type: 'warning', title: '需要填写原因', description: '人工修订或否决必须留下审计原因。' })
+        return
+      }
+    }
+    if (kind === 'confirm' && !window.confirm('确认人工通过 R4 投决？该操作会写入投决确认和审计记录。')) return
+    if (kind === 'preview') status = 'confirmed'
+    setSpeakerMode('workflow')
+    setTaskBusy(`human-${kind}`)
+    setActionError('')
+    try {
+      const response = await confirmPrimaryMarketDecision(selectedDealId, {
+        status,
+        dry_run: dryRun,
+        override_reason: reason || undefined,
+        override_decision: undefined,
+      })
+      applyMeetingReadiness(response.readiness)
+      const nextStatus = response.result?.human_confirmation?.status || status
+      toast({
+        type: dryRun ? 'info' : status === 'confirmed' ? 'success' : 'warning',
+        title: dryRun ? '人工确认预演完成' : status === 'confirmed' ? '人工确认已通过' : '人工确认已写入',
+        description: `${nextStatus}${response.result?.would_write ? ' · would_write' : ''}`,
+      })
+      await refreshMeeting()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '写入人工确认失败'
+      setActionError(message)
+      toast({ type: 'error', title: '人工确认失败', description: message })
+    } finally {
+      setTaskBusy('')
+    }
+  }
+
   const meetingQuickQuestionDefinitions = primaryMarketMeetingQuickQuestions(selectedAgent, speakerMode)
   const quickQuestions: ChatQuickQuestion[] = meetingQuickQuestionDefinitions.map((question) => ({
     key: `${activeLane}-${question.label}`,
@@ -930,6 +1231,7 @@ export default function PrimaryMarketMeeting() {
   const emptyDescription = (
     <div className="mb-6 flex max-w-xl flex-col items-center text-center">
       <p className="max-w-md text-base leading-7 text-text-muted">{emptyIntro}</p>
+      {readinessLine ? <p className="mt-2 max-w-md text-xs text-text-muted">{readinessLine}</p> : null}
     </div>
   )
 
@@ -950,7 +1252,7 @@ export default function PrimaryMarketMeeting() {
           </Link>
         ))}
         actions={
-          <Button type="button" variant="secondary" onClick={() => void refreshMeeting()} disabled={contextLoading || transcriptLoading || chatHistoryLoading || sessionsLoading || !selectedDealId}>
+          <Button type="button" variant="secondary" onClick={() => void refreshMeeting()} disabled={contextLoading || transcriptLoading || chatHistoryLoading || sessionsLoading || Boolean(taskBusy) || !selectedDealId}>
             {contextLoading || transcriptLoading || chatHistoryLoading || sessionsLoading ? <Loader2 className="animate-spin" /> : <RefreshCw />}
             刷新会议
           </Button>
@@ -1090,6 +1392,133 @@ export default function PrimaryMarketMeeting() {
                       </button>
                     )
                   })}
+                </div>
+              ) : null}
+
+              <div className="flex flex-col gap-3 border-y border-border/70 py-3 xl:flex-row xl:items-center xl:justify-between">
+                <div className="flex min-w-0 flex-wrap gap-2">
+                  {readinessChips.map((chip) => (
+                    <span key={chip.id} title={chip.detail}>
+                      <StatusBadge tone={chip.tone}>{chip.label}</StatusBadge>
+                    </span>
+                  ))}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" size="sm" variant="secondary" onClick={() => { prepareSelectedAgent().catch(() => {}) }} disabled={Boolean(chatBusy || taskBusy || !selectedDealId)}>
+                    {taskBusy === 'prepare-agent' ? <Loader2 className="animate-spin" /> : <FileCheck2 />}
+                    准备智能体
+                  </Button>
+                  <Button type="button" size="sm" variant="secondary" onClick={() => { prepareCommittee().catch(() => {}) }} disabled={Boolean(chatBusy || taskBusy || !selectedDealId)}>
+                    {taskBusy === 'prepare-committee' ? <Loader2 className="animate-spin" /> : <UsersRound />}
+                    准备全体委员
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => { runCurrentAgentR1(true).catch(() => {}) }}
+                    disabled={Boolean(chatBusy || taskBusy || !selectedDealId || !selectedAgentCanRunR1)}
+                    title={selectedAgentCanRunR1 ? '预演当前智能体 R1 正式任务' : '总协调员不执行 R1 agent 任务'}
+                  >
+                    {taskBusy === 'r1-agent-dry-run' ? <Loader2 className="animate-spin" /> : <Eye />}
+                    预演当前 R1
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => { runCurrentAgentR1(false).catch(() => {}) }}
+                    disabled={Boolean(chatBusy || taskBusy || !selectedDealId || !selectedAgentCanRunR1 || !selectedAgentReadyForR1)}
+                    title={selectedAgentReadyForR1 ? '执行当前智能体正式 R1 任务' : selectedReadinessRow?.blockingReasons.join(' / ') || '当前智能体 readiness 未通过'}
+                  >
+                    {taskBusy === 'r1-agent-execute' ? <Loader2 className="animate-spin" /> : <Play />}
+                    执行当前 R1
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => { runR1Serial().catch(() => {}) }}
+                    disabled={Boolean(chatBusy || taskBusy || !selectedDealId || !r1CommitteeReady)}
+                    title={r1CommitteeReady ? '执行 R1 串行正式任务' : 'R1 委员 readiness 未全部通过'}
+                  >
+                    {taskBusy === 'r1-serial-execute' ? <Loader2 className="animate-spin" /> : <UsersRound />}
+                    执行 R1 串行
+                  </Button>
+                  <Button type="button" size="sm" variant="secondary" onClick={() => { advanceWorkflow(true).catch(() => {}) }} disabled={Boolean(chatBusy || taskBusy || !selectedDealId)}>
+                    {taskBusy === 'workflow-dry-run' ? <Loader2 className="animate-spin" /> : <GitBranch />}
+                    预演下一步
+                  </Button>
+                  <Button type="button" size="sm" variant="secondary" onClick={() => { advanceWorkflow(false).catch(() => {}) }} disabled={Boolean(chatBusy || taskBusy || !selectedDealId)}>
+                    {taskBusy === 'workflow-execute' ? <Loader2 className="animate-spin" /> : <GitBranch />}
+                    执行下一步
+                  </Button>
+                  <Button type="button" size="sm" variant="secondary" onClick={() => void refreshMeeting()} disabled={contextLoading || transcriptLoading || chatHistoryLoading || sessionsLoading || Boolean(taskBusy) || !selectedDealId}>
+                    {contextLoading || transcriptLoading || chatHistoryLoading || sessionsLoading ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+                    刷新状态
+                  </Button>
+                </div>
+              </div>
+
+              {decisionReadyForHuman ? (
+                <div className="flex flex-col gap-3 rounded-md border border-border/70 bg-muted/20 p-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-semibold text-text">R4 人工确认</p>
+                      <StatusBadge tone={humanConfirmed ? 'success' : statusTone(humanStatus)}>{humanStatus}</StatusBadge>
+                    </div>
+                    <p className="mt-1 truncate text-xs text-text-muted">{bundle.decision?.report_path || decisionContract?.artifacts?.markdown?.path || 'R4 decision ready'}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="button" size="sm" variant="secondary" onClick={() => { writeHumanConfirmation('preview').catch(() => {}) }} disabled={Boolean(chatBusy || taskBusy || !selectedDealId)}>
+                      {taskBusy === 'human-preview' ? <Loader2 className="animate-spin" /> : <Eye />}
+                      预演
+                    </Button>
+                    <Button type="button" size="sm" variant="secondary" onClick={() => { writeHumanConfirmation('revision').catch(() => {}) }} disabled={Boolean(chatBusy || taskBusy || !selectedDealId || humanConfirmed)}>
+                      {taskBusy === 'human-revision' ? <Loader2 className="animate-spin" /> : <ShieldAlert />}
+                      要求修订
+                    </Button>
+                    <Button type="button" size="sm" variant="secondary" onClick={() => { writeHumanConfirmation('confirm').catch(() => {}) }} disabled={Boolean(chatBusy || taskBusy || !selectedDealId || humanConfirmed)}>
+                      {taskBusy === 'human-confirm' ? <Loader2 className="animate-spin" /> : <CheckCircle2 />}
+                      人工确认通过
+                    </Button>
+                    <Button type="button" size="sm" variant="secondary" onClick={() => { writeHumanConfirmation('reject').catch(() => {}) }} disabled={Boolean(chatBusy || taskBusy || !selectedDealId || humanConfirmed)}>
+                      {taskBusy === 'human-reject' ? <Loader2 className="animate-spin" /> : <XCircle />}
+                      人工否决
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+
+              {recentTranscriptEvents.length ? (
+                <div className="rounded-md border border-border/70 bg-white/55 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-sm font-semibold text-text">会议纪要</p>
+                    <StatusBadge tone={recentTranscriptEvents.some((event) => event.type === 'quality_check' && event.tone !== 'success') ? 'warning' : 'neutral'}>
+                      {laneEvents.length} events
+                    </StatusBadge>
+                  </div>
+                  <div className="mt-2 space-y-2">
+                    {recentTranscriptEvents.map((event) => {
+                      const qualityChips = deriveMeetingEventQualityChips(event)
+                      return (
+                        <div key={event.id} className="rounded-md border border-border/60 bg-surface/70 p-2">
+                          <div className="flex min-w-0 flex-wrap items-center gap-2">
+                            <StatusBadge tone={event.tone}>{phaseLabel(event.phase)}</StatusBadge>
+                            <span className="truncate text-xs font-semibold text-text">{event.speaker}</span>
+                            <span className="truncate text-xs text-text-muted">{event.title}</span>
+                            {qualityChips.map((chip) => (
+                              <span key={chip.id} title={chip.detail}>
+                                <StatusBadge tone={chip.tone}>{chip.label}</StatusBadge>
+                              </span>
+                            ))}
+                            <span className="ml-auto text-[11px] text-text-muted">{formatTime(event.createdAt)}</span>
+                          </div>
+                          {event.body ? <p className="mt-1 line-clamp-2 whitespace-pre-line text-xs leading-5 text-text-muted">{event.body}</p> : null}
+                        </div>
+                      )
+                    })}
+                  </div>
                 </div>
               ) : null}
 

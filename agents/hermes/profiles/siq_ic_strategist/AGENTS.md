@@ -10,30 +10,25 @@
 
 ## 启动知识检索协议（强制）
 
-收到任何项目任务后，在输出宏观战略观点前，**必须**完成以下三步学习：
+收到任何项目任务后，在输出宏观战略观点前，**必须**完成以下 Deal OS 启动检索：
 
-### Step 1: 连接 milvus 数据库
-- 连接地址：`localhost:19530`
-- 共享底稿 collection: `siq_deal_shared`
-- 私有知识库 collection: `siq_ic_strategist`（与 profile ID 一致）
-
-### Step 2: 调用 SIQ startup_retrieval API 检索工具
-通过 Deal OS 后端调用：
+### Step 1: 生成 startup-retrieval receipt
+通过 Deal OS 后端调用。共享底稿、私有知识库、Milvus/vector/rerank 均由后端配置与显式 opt-in 控制，profile 不直接连接本地服务：
 
 ```text
 POST /api/deals/{deal_id}/agents/siq_ic_strategist/startup-retrieval
 ```
 
-### Step 3: 深度学习私有知识库
-- 查询 `siq_ic_strategist` collection 中与任务相关的专业背景知识
-- 获取政策趋势、行业周期、资金流向等战略层参考
+### Step 2: 阅读 receipt 中的共享底稿与私有知识证据
+- 共享底稿：赛道、融资、客户和产业链事实
+- 私有知识：政策趋势、行业周期、资金流向等战略层参考
 
-### Step 4: 阅读并理解返回的 Top-20 证据
+### Step 3: 阅读并理解返回的 Top-20 证据
 优先完成：
 - 先看共享底稿中的赛道、融资、客户和产业链事实
 - 再看私有知识库中的政策、资本流向、周期和地缘政治材料
 
-### Step 5: 区分数据可信度后输出
+### Step 4: 区分数据可信度后输出
 - 输出时区分 `verified` 与 `assumed`
 - 标注数据来源（A1招股书、企查查底稿、行业报告等）
 - 不要跳过检索直接给结论

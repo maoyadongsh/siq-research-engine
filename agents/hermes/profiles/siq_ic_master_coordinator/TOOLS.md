@@ -15,16 +15,37 @@
 
 ## 当前编排能力映射
 - R0 入口校验：`POST /api/deals/{deal_id}/workflow/run-r0-intake`
+- R0-R4 状态快照：`GET /api/deals/{deal_id}/workflow/state`
+- 写入 round_state 快照：`POST /api/deals/{deal_id}/workflow/state/snapshot`
 - R1 agent 任务：`GET /api/deals/{deal_id}/agents/{profile_id}/task-payload?round_name=R1`
+- R1 专家报告提交：`POST /api/deals/{deal_id}/workflow/submit-r1-report`
 - R1 单专家执行：`POST /api/deals/{deal_id}/workflow/run-r1-agent`
 - R1 串行执行：`POST /api/deals/{deal_id}/workflow/run-r1-serial`
 - R1.5 争议识别：`POST /api/deals/{deal_id}/workflow/identify-disputes`
-- R1.5 主席裁决：`POST /api/deals/{deal_id}/workflow/disputes/{dispute_id}/ruling`
+- R1.5 主席任务包：`GET /api/deals/{deal_id}/workflow/disputes/chairman-task`
+- R1.5 批量主席裁决提交：`POST /api/deals/{deal_id}/workflow/disputes/chairman-rulings`
+- R1.5 单条主席裁决提交：`POST /api/deals/{deal_id}/workflow/disputes/{dispute_id}/ruling`
+- R1.5 deterministic 裁决草案：`POST /api/deals/{deal_id}/workflow/generate-dispute-rulings`
 - R2 修订：`POST /api/deals/{deal_id}/workflow/run-r2`
 - R3 红蓝复核：`POST /api/deals/{deal_id}/workflow/run-r3`
 - R4 投决生成：`POST /api/deals/{deal_id}/workflow/finalize-r4`
+- IC discussion 统一生成：`POST /api/deals/{deal_id}/reports/discussion/build`
 - 项目快照/报告读取：`GET /api/deals/{deal_id}/reports`、`GET /api/deals/{deal_id}/decision`
 - 审计日志：由 `apps/api/services/deal_store.py::append_audit_event` 写入，所有执行入口必须保留 audit trail。
+- `apps/api/services/ic_workflow.py`
+  OpenClaw round_state_machine 的 SIQ-native 对应层：只读 workflow state、R1 active agent、transition plan，可选写 `phases/round_state.json`
+- `apps/api/services/ic_report_submission.py`
+  OpenClaw submit_expert_report 的 SIQ-native 对应层：R1 报告合同校验、startup receipt linkage、JSON/Markdown 写入和审计
+- `apps/api/services/deal_discussion.py`
+  OpenClaw discussion_writer / project_discussion_manager 的 SIQ-native 对应层：从 R0-R4 phase JSON 生成 `discussion/IC_DISCUSSION.md`
+
+## R1.5 主席裁决合同
+- 标准顺序：先 `identify-disputes` dry-run/write，再取 `chairman-task`，主席输出结构化 `rulings[]`，最后用 `chairman-rulings` 写入。
+- `dry_run` 默认 `true`，真实写入必须显式 `dry_run=false`。
+- `overwrite` 默认 `false`；已有 `chairman_ruling` 默认不覆盖。
+- 批量 ruling 必填 `dispute_id`、`decision`、`rationale`，并显式给出 `resolved`（兼容输入可用 `is_approved`）。
+- 若 `resolved=false`，必须提供 `required_followups`。
+- API 负责写 `phases/r1_5_disputes.json`、R1.5 Markdown、workflow state 和 audit event；R1.5 裁决不会绕过门禁直接推进 R2。
 
 ## 检索与知识
 - `apps/api/services/ic_intake.py`
@@ -72,15 +93,15 @@
 ```
 
 ### 约定
-- Expert agent 通过 `sessions_send` 接收任务时，coordinator 附带共享文件绝对路径
-- Expert 写入报告时，统一写入 `data/wiki/deals/SIQ-{公司简称}-{日期}-{序号}/` 下
+- Expert agent 通过 Deal OS task payload / workflow runtime 接收任务时，coordinator 附带共享文件相对路径和 evidence receipt
+- Expert 报告通过 `workflow/submit-r1-report` 或 workflow runtime 写入 `data/wiki/deals/{deal_id}/` 下
 - 不在各 agent 自身 workspace 中创建项目目录
 - Coordinator 负责创建项目目录结构和 symlink
 
 ### 与 agentToAgent 配合
-- 启用 agentToAgent 后，coordinator 可直接向专家主会话发消息
-- 消息中包含项目路径和任务指令
-- Expert 完成后通过 sessions_send 回复 coordinator
+- 默认通过 Deal OS workflow endpoints 调度专家；agentToAgent 仅作为人工调试/观察通道
+- 任务中包含项目路径、startup receipt、输出合同和任务指令
+- Expert 完成后由 Deal OS API 写入报告、workflow state 和 audit event
 
 ## 规则源
 - `agents/hermes/profiles/siq_ic_shared/ic_workflow_policy.json`

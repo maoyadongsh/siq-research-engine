@@ -8,35 +8,27 @@
 
 ## 一、强制启动协议（任务触发后自动执行）
 
-收到任何项目任务后，在输出财务观点前，**必须**按以下顺序完成 Milvus 双库检索。
+收到任何项目任务后，在输出财务观点前，**必须**按以下顺序完成 Deal OS startup-retrieval receipt 检索。
 
 ### ☐ 步骤一：环境确认
 
 | 检查项 | 命令/方法 | 通过标准 |
 |--------|----------|---------|
-| Milvus 服务状态 | `python3 -c "from pymilvus import connections; connections.connect('default', host='localhost', port='19530'); print('OK')"` | 连接成功 |
-| Embedding 服务 | `curl -s http://127.0.0.1:8000/v1/embeddings` | HTTP 200 |
-| Rerank 服务 | `curl -s http://127.0.0.1:8001/v1/rerank` | HTTP 200 |
-| 检索脚本可用 | `test -f ~/.../scripts/SIQ startup-retrieval API` | 文件存在 |
+| Deal OS startup-retrieval API | `POST /api/deals/{deal_id}/agents/siq_ic_finance_auditor/startup-retrieval` | 返回 receipt |
+| 共享底稿命中 | receipt `shared_hits` / `evidence_hits` | 有相关证据或明确 gap |
+| 私有知识命中 | receipt `private_hits` | 有方法论证据或明确 gap |
+| 可选 vector/rerank | 后端配置与响应字段 | 成功、跳过或错误均有 reason |
 
 ### ☐ 步骤二：获取项目标签
 
 1. 读取 `data/wiki/deals/{deal_id}/project_brief.md`
 2. 提取 `项目标签` 字段（如 `dajin`）
-3. **重要**：Milvus 中实际存储的 `project_tag` 可能与项目标签不同（如 `ingest_0430_2033`），需通过采样查询确认
-
-```python
-# 确认实际 project_tag
-from pymilvus import Collection
-Collection("siq_deal_shared").query(
-    expr="", output_fields=["project_tag"], limit=5
-)
-```
+3. 如项目标签缺失或不匹配，由 Deal OS retrieval response 的 `gaps` / `dynamic_queries` 暴露，不在 profile 侧采样底层 collection。
 
 ### ☐ 步骤三：共享项目底稿检索（siq_deal_shared）
 
-**Collection**: `siq_deal_shared`
-**方法**: `SIQ startup-retrieval API` 优先，降级用 `pymilvus` 直接向量搜索
+**来源**: startup receipt 中的共享底稿和 evidence hits
+**方法**: Deal OS startup-retrieval API
 **检索关键词模板**（财务专家专用）：
 
 ```
@@ -51,7 +43,7 @@ Collection("siq_deal_shared").query(
 
 ### ☐ 步骤四：私有知识库检索（siq_ic_finance_auditor）
 
-**Collection**: `siq_ic_finance_auditor`（必须与 agent_id 一致）
+**来源**: startup receipt 中 profile-scoped private hits
 **方法**: 同上
 **检索关键词模板**（财务专家专用）：
 
@@ -67,7 +59,7 @@ Pre-IPO 估值 DCF 可比公司 装备制造 港股上市 锚定投资
 
 ### ☐ 步骤五：本地底稿 Fallback
 
-无论 Milvus 检索是否成功，**必须**读取本地底稿：
+当 API 不可用或 receipt 明确缺口时，读取本地底稿并标注 `retrieval_degraded`：
 
 ```
 data/wiki/deals/{deal_id}/
@@ -91,10 +83,9 @@ data/wiki/deals/{deal_id}/
 
 | 优先级 | 失败场景 | 降级动作 | 报告标注 |
 |--------|---------|---------|---------|
-| 1 | `SIQ startup-retrieval API` rerank 超时 | 改用 `pymilvus` 直接执行向量搜索 | "检索方式降级：rerank超时，改用纯向量搜索，置信度调整为 Medium" |
-| 2 | `SIQ startup-retrieval API` 嵌入服务失败 | 改用 `pymilvus` 直接搜索（若 embedding 缓存可用）或读取本地底稿 | "检索方式降级：嵌入服务不可用，退化为本地文件读取，置信度调整为 Low" |
-| 3 | Milvus 连接失败 | 退化为读取本地 `data/wiki/deals/{deal_id}/` 底稿文件 | "检索方式降级：Milvus连接失败，退化为本地文件读取，置信度调整为 Low" |
-| 4 | project_tag 不匹配 | 先采样确认实际 tag 值，再执行无过滤搜索 + 本地过滤 | "检索方式降级：project_tag不匹配，改用采样确认后搜索" |
+| 1 | startup-retrieval API 不可用 | 读取本地 `data/wiki/deals/{deal_id}/` 底稿文件 | "检索方式降级：startup receipt 不可用，置信度调整为 Low" |
+| 2 | receipt 返回 vector/rerank 错误 | 使用 receipt 中本地 evidence hits 和 gaps | "检索方式降级：后端增强检索不可用，置信度调整为 Medium/Low" |
+| 3 | 项目标签不匹配 | 依据 `dynamic_queries` / `gaps` 补充本地底稿核查 | "检索方式降级：project_tag 不匹配，改用本地底稿复核" |
 
 **强制要求**: 任何降级必须在最终报告中注明 `"检索方式降级，置信度调整"`
 

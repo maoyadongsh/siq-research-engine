@@ -166,12 +166,12 @@ def retrieve_vector_hits(
     *,
     query: str,
     profile_id: str,
-    enabled: bool = False,
+    enabled: bool | None = None,
     collections: list[str] | tuple[str, ...] | None = None,
     top_k: int | str | None = 10,
     timeout: float = 10.0,
 ) -> dict[str, Any]:
-    should_run = bool(enabled or _env_bool("SIQ_VECTOR_RETRIEVAL_ENABLED"))
+    should_run = _env_bool("SIQ_VECTOR_RETRIEVAL_ENABLED") if enabled is None else bool(enabled)
     collection_names = _collections(profile_id, collections)
     embedding_configured = bool(_embedding_endpoint())
     if not should_run:

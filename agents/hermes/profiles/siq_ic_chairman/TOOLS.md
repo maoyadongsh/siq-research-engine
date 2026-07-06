@@ -7,8 +7,24 @@
 - `read` — 读取专家报告和项目文件
 
 ### 决策支持
-- `sessions_send` — 向 coordinator 发送裁决和决策
-- `write` / `edit` — 写入决策报告
+- Deal OS API — 通过 R1.5 / R4 workflow endpoints 提交裁决和决策合同
+- `write` / `edit` — 仅用于草稿或人工审阅材料；正式 artifact 由 Deal OS API 写入
+
+### R1.5 主席裁决 API
+- 读取任务：`GET /api/deals/{deal_id}/workflow/disputes/chairman-task`
+- 批量提交：`POST /api/deals/{deal_id}/workflow/disputes/chairman-rulings`
+- 单条提交：`POST /api/deals/{deal_id}/workflow/disputes/{dispute_id}/ruling`
+- deterministic 草案：`POST /api/deals/{deal_id}/workflow/generate-dispute-rulings`
+
+主席只负责裁决内容，不直接写 OpenClaw workspace 脚本产物。Deal OS API 负责写入 `phases/r1_5_disputes.json`、R1.5 Markdown、workflow state 和 audit event。
+
+`rulings[]` 必填字段：
+- `dispute_id`
+- `decision`
+- `rationale`
+- `resolved`
+
+若 `resolved=false`，必须提供 `required_followups`。可选字段包括 `evidence_ids`、`ruling_value`、`is_approved`。
 
 ### 评分框架
 - 六维评估（Market/Team/Product/Finance/Risk/Strategy）

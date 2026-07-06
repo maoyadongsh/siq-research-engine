@@ -17,6 +17,10 @@ import type {
   DealWorkflowResponse,
 } from '@/lib/dealTypes'
 import type { AgentAttachment } from '@/lib/useAgentChat'
+import type {
+  PrimaryMarketMeetingAgentReadiness,
+  PrimaryMarketMeetingReadinessProfile,
+} from '@/features/primary-market/primaryMarketApi'
 
 export type BadgeTone = 'neutral' | 'info' | 'success' | 'warning' | 'error'
 
@@ -294,6 +298,19 @@ export type MeetingEventType =
   | 'system_blocking'
   | 'artifact_written'
   | 'audit_event'
+  | 'quality_check'
+
+export interface MeetingQualityCheck {
+  id: string
+  status: string
+  detail?: string
+}
+
+export interface MeetingQualityResult {
+  status: string
+  checks: MeetingQualityCheck[]
+  [key: string]: unknown
+}
 
 export interface MeetingEvent {
   id: string
@@ -306,6 +323,7 @@ export interface MeetingEvent {
   meta?: string
   agentId?: string | null
   attachments?: AgentAttachment[]
+  quality?: MeetingQualityResult | null
   createdAt?: string | null
 }
 
@@ -319,6 +337,7 @@ export interface MeetingBundle {
   decision?: DealDecisionResponse | null
   audit?: DealAuditResponse | null
   evidence?: DealEvidenceResponse | null
+  meetingReadiness?: PrimaryMarketMeetingAgentReadiness | null
   startupReceipts?: Record<string, DealStartupRetrievalResponse | null>
 }
 
@@ -361,6 +380,30 @@ export interface MeetingScoringSummary {
   supportCount: number
   opposeCount: number
   watchCount: number
+}
+
+export interface MeetingAgentReadinessRow {
+  agentId: string
+  label: string
+  runtimeHealth: string
+  runtimeTone: BadgeTone
+  receiptPresent: boolean | null
+  receiptId: string
+  r1ReportPresent: boolean | null
+  r1ReportScore: number | null
+  r1ReportRecommendation: string
+  contractSourceCount: number
+  contractSourceText: string
+  readyForFormalTask: boolean
+  blockingReasons: string[]
+  warnings: string[]
+}
+
+export interface MeetingReadinessChip {
+  id: string
+  label: string
+  tone: BadgeTone
+  detail: string
 }
 
 export type CoordinatorActionId =
@@ -431,11 +474,11 @@ export function statusTone(status?: string | null): BadgeTone {
   const value = String(status || '').toLowerCase()
   if (!value || value === 'draft' || value === 'unknown' || value === 'non_r1') return 'neutral'
   if (
-    ['pass', 'ready', 'available', 'completed', 'complete', 'success', 'succeeded', 'ok', 'confirmed', 'r4_completed', 'archived', 'closed'].includes(value)
+    ['pass', 'ready', 'available', 'completed', 'complete', 'success', 'succeeded', 'ok', 'confirmed', 'approved', 'r4_completed', 'archived', 'closed'].includes(value)
   ) return 'success'
   if (['fail', 'failed', 'error', 'blocked', 'rejected', 'unavailable'].includes(value)) return 'error'
   if (value.includes('fail') || value.includes('error') || value.includes('blocked')) return 'error'
-  if (['warn', 'warning', 'missing', 'pending', 'queued', 'processing', 'needs_human'].includes(value)) return 'warning'
+  if (['warn', 'warning', 'missing', 'pending', 'queued', 'processing', 'needs_human', 'needs_revision', 'overridden'].includes(value)) return 'warning'
   if (value.includes('missing') || value.includes('warn') || value.includes('pending')) return 'warning'
   return 'info'
 }
@@ -642,32 +685,220 @@ export function sourceLinks(item: { source_url?: string | null; artifact_url?: s
 export function deriveMeetingReceiptRows(bundle: MeetingBundle): MeetingReceiptRow[] {
   const readinessByAgent = new Map((bundle.workflow?.r1_agent_readiness?.agents || []).map((agent) => [agent.agent_id, agent]))
   const agentsById = new Map((bundle.agents?.agents || []).map((agent) => [agent.agent_id, agent]))
+  const meetingReadinessByAgent = new Map((bundle.meetingReadiness?.profiles || []).map((profile) => [profile.profileId, profile]))
 
   return R1_AGENT_SEQUENCE.map((agentId) => {
     const retrieval = bundle.startupReceipts?.[agentId]
     const receipt = retrieval?.receipt || null
     const readiness = readinessByAgent.get(agentId)
     const agent = agentsById.get(agentId)
-    const receiptId = receipt?.receipt_id || readiness?.startup_receipt_id || agent?.receipt?.receipt_id || ''
-    const present = Boolean(receipt || receiptId || readiness?.has_startup_receipt || agent?.receipt?.present)
+    const meetingReadiness = meetingReadinessByAgent.get(agentId)
+    const receiptId = receipt?.receipt_id || meetingReadiness?.startupReceipt.receiptId || readiness?.startup_receipt_id || agent?.receipt?.receipt_id || ''
+    const present = Boolean(receipt || meetingReadiness?.startupReceipt.present || receiptId || readiness?.has_startup_receipt || agent?.receipt?.present)
     const evidenceHits = numericValue(receipt?.evidence_hit_count) ?? (Array.isArray(receipt?.evidence_hits) ? receipt.evidence_hits.length : 0)
 
     return {
       agentId,
-      label: agent?.label || readiness?.label || agentLabel(agentId),
+      label: meetingReadiness?.label || agent?.label || readiness?.label || agentLabel(agentId),
       present,
-      allowed: typeof readiness?.allowed === 'boolean' ? readiness.allowed : null,
+      allowed: typeof readiness?.allowed === 'boolean'
+        ? readiness.allowed
+        : typeof meetingReadiness?.quality.readyForFormalTask === 'boolean'
+          ? meetingReadiness.quality.readyForFormalTask
+          : null,
       receiptId,
-      evidenceHits,
-      sharedHits: numericValue(receipt?.shared_hits) ?? 0,
-      privateHits: numericValue(receipt?.private_hits) ?? 0,
+      evidenceHits: evidenceHits || meetingReadiness?.startupReceipt.evidenceHits || 0,
+      sharedHits: numericValue(receipt?.shared_hits) ?? meetingReadiness?.startupReceipt.sharedHits ?? 0,
+      privateHits: numericValue(receipt?.private_hits) ?? meetingReadiness?.startupReceipt.privateHits ?? 0,
       collections: receiptUnknownArray(receipt, 'collections'),
       physicalCollections: receiptUnknownArray(receipt, 'physical_collections'),
-      gaps: asStringArray(receipt?.gaps),
-      warnings: asStringArray(readiness?.warnings),
+      gaps: asStringArray(receipt?.gaps).length ? asStringArray(receipt?.gaps) : meetingReadiness?.startupReceipt.gaps || [],
+      warnings: [...asStringArray(readiness?.warnings), ...(meetingReadiness?.quality.warnings || [])],
       createdAt: receipt?.created_at,
     }
   })
+}
+
+function runtimeHealthTone(health: string): BadgeTone {
+  const value = health.trim().toLowerCase()
+  if (!value || value === 'unknown') return 'neutral'
+  if (['running', 'ready', 'healthy', 'ok', 'enabled'].includes(value)) return 'success'
+  if (['disabled', 'stopped', 'unavailable', 'down', 'error', 'failed'].includes(value)) return 'error'
+  if (value.includes('warn') || value.includes('pending') || value.includes('starting')) return 'warning'
+  return 'info'
+}
+
+function runtimeHealthLabel(health: string) {
+  const value = health.trim().toLowerCase()
+  if (!value || value === 'unknown') return 'unknown'
+  if (['running', 'ready', 'healthy', 'ok', 'enabled'].includes(value)) return 'running'
+  if (['disabled', 'stopped', 'unavailable', 'down'].includes(value)) return value
+  return health
+}
+
+function profileReadinessByAgent(bundle: MeetingBundle) {
+  return new Map((bundle.meetingReadiness?.profiles || []).map((profile) => [profile.profileId, profile]))
+}
+
+function profileReadinessFor(bundle: MeetingBundle, agentId: string): PrimaryMarketMeetingReadinessProfile | undefined {
+  return profileReadinessByAgent(bundle).get(agentId)
+}
+
+export function deriveMeetingAgentReadinessRows(bundle: MeetingBundle): MeetingAgentReadinessRow[] {
+  const receiptByAgent = new Map(deriveMeetingReceiptRows(bundle).map((row) => [row.agentId, row]))
+  const scoreByAgent = new Map(deriveMeetingScoreRows(bundle).map((row) => [row.agentId, row]))
+  const agentsById = new Map((bundle.agents?.agents || []).map((agent) => [agent.agent_id, agent]))
+  const readinessByAgent = profileReadinessByAgent(bundle)
+
+  return IC_AGENT_OPTIONS.map((agentOption) => {
+    const agentId = agentOption.value
+    const readiness = readinessByAgent.get(agentId)
+    const receipt = receiptByAgent.get(agentId)
+    const score = scoreByAgent.get(agentId)
+    const agent = agentsById.get(agentId)
+    const runtimeHealth = readiness?.runtime.health
+      || (agent?.runtime?.enabled === false ? 'disabled' : agent?.runtime?.enabled === true ? 'running' : 'unknown')
+    const sourceFiles = readiness?.contract.sourceFiles || []
+    const contractSourceText = sourceFiles.length ? sourceFiles.join('/') : 'missing'
+    const receiptPresent = agentOption.r1 ? Boolean(readiness?.startupReceipt.present ?? receipt?.present) : null
+    const r1ReportPresent = agentOption.r1 ? Boolean(readiness?.r1Report.present ?? score?.hasReport) : null
+    const blockingReasons = readiness?.quality.blockingReasons || []
+    return {
+      agentId,
+      label: readiness?.label || agent?.label || agentOption.label,
+      runtimeHealth,
+      runtimeTone: runtimeHealthTone(runtimeHealth),
+      receiptPresent,
+      receiptId: readiness?.startupReceipt.receiptId || receipt?.receiptId || '',
+      r1ReportPresent,
+      r1ReportScore: readiness?.r1Report.score ?? score?.score ?? null,
+      r1ReportRecommendation: readiness?.r1Report.recommendation || score?.recommendation || '',
+      contractSourceCount: sourceFiles.length,
+      contractSourceText,
+      readyForFormalTask: readiness?.quality.readyForFormalTask ?? (receipt?.allowed !== false && receiptPresent !== false),
+      blockingReasons,
+      warnings: readiness?.quality.warnings || receipt?.warnings || [],
+    }
+  })
+}
+
+function readinessSummaryChips(bundle: MeetingBundle): MeetingReadinessChip[] {
+  const rows = deriveMeetingAgentReadinessRows(bundle)
+  const r1Rows = rows.filter((row) => R1_AGENT_SEQUENCE.includes(row.agentId))
+  const runtimeRunning = bundle.meetingReadiness?.summary.runtimeRunning ?? rows.filter((row) => runtimeHealthLabel(row.runtimeHealth) === 'running').length
+  const receiptsPresent = bundle.meetingReadiness?.summary.receiptPresent ?? r1Rows.filter((row) => row.receiptPresent).length
+  const reportsPresent = bundle.meetingReadiness?.summary.r1ReportsPresent ?? r1Rows.filter((row) => row.r1ReportPresent).length
+  const blockingProfiles = bundle.meetingReadiness?.summary.blockingProfiles || r1Rows.filter((row) => row.blockingReasons.length).map((row) => row.agentId)
+  return [
+    {
+      id: 'runtime',
+      label: `Hermes ${runtimeRunning}/${IC_AGENT_OPTIONS.length}`,
+      tone: runtimeRunning >= IC_AGENT_OPTIONS.length ? 'success' : runtimeRunning > 0 ? 'warning' : 'neutral',
+      detail: 'Hermes runtime running count',
+    },
+    {
+      id: 'receipt',
+      label: `Receipts ${receiptsPresent}/${R1_AGENT_SEQUENCE.length}`,
+      tone: receiptsPresent >= R1_AGENT_SEQUENCE.length ? 'success' : receiptsPresent > 0 ? 'warning' : 'error',
+      detail: 'R1 startup-retrieval receipt readiness',
+    },
+    {
+      id: 'report',
+      label: `R1 reports ${reportsPresent}/${R1_AGENT_SEQUENCE.length}`,
+      tone: reportsPresent >= R1_AGENT_SEQUENCE.length ? 'success' : reportsPresent > 0 ? 'warning' : 'neutral',
+      detail: 'Formal R1 report readiness',
+    },
+    {
+      id: 'blocking',
+      label: `Blocking ${blockingProfiles.length}`,
+      tone: blockingProfiles.length ? 'error' : 'success',
+      detail: blockingProfiles.length ? blockingProfiles.map((agentId) => agentLabel(agentId)).join(' / ') : 'No blocking profiles reported',
+    },
+  ]
+}
+
+export function deriveAgentReadinessChips(
+  bundle: MeetingBundle,
+  agentId: string,
+  mode: PrimaryMarketMeetingMode = 'single',
+): MeetingReadinessChip[] {
+  if (mode === 'committee' || mode === 'workflow') return readinessSummaryChips(bundle)
+  const row = deriveMeetingAgentReadinessRows(bundle).find((item) => item.agentId === agentId)
+  if (!row) return []
+  return [
+    {
+      id: 'runtime',
+      label: `Hermes ${runtimeHealthLabel(row.runtimeHealth)}`,
+      tone: row.runtimeTone,
+      detail: `${row.label} runtime: ${row.runtimeHealth}`,
+    },
+    {
+      id: 'receipt',
+      label: row.receiptPresent === null ? 'Receipt n/a' : `Receipt ${row.receiptPresent ? 'present' : 'missing'}`,
+      tone: row.receiptPresent === null ? 'neutral' : row.receiptPresent ? 'success' : 'warning',
+      detail: row.receiptId || (row.receiptPresent === null ? 'This profile does not require R1 startup retrieval' : 'Startup retrieval receipt status'),
+    },
+    {
+      id: 'report',
+      label: row.r1ReportPresent === null ? 'R1 report n/a' : `R1 report ${row.r1ReportPresent ? 'present' : 'missing'}`,
+      tone: row.r1ReportPresent === null ? 'neutral' : row.r1ReportPresent ? 'success' : 'warning',
+      detail: row.r1ReportRecommendation || (row.r1ReportScore === null ? 'Formal R1 report status' : `score ${row.r1ReportScore}`),
+    },
+    {
+      id: 'profile',
+      label: row.contractSourceCount ? 'Profile loaded' : 'Profile missing',
+      tone: row.contractSourceCount ? 'success' : 'warning',
+      detail: row.contractSourceText,
+    },
+  ]
+}
+
+export function deriveAgentReadinessLine(
+  bundle: MeetingBundle,
+  agentId: string,
+  mode: PrimaryMarketMeetingMode = 'single',
+) {
+  const readiness = profileReadinessFor(bundle, agentId)
+  const chips = deriveAgentReadinessChips(bundle, agentId, mode)
+  if (!chips.length && !readiness) return ''
+  return chips.map((chip) => chip.label).join(' · ')
+}
+
+function parseQualityChecksFromBody(body: string): MeetingQualityCheck[] {
+  return [...String(body || '').matchAll(/([a-z][a-z0-9_.-]+)=([a-z_]+)/gi)].map((match) => ({
+    id: match[1],
+    status: match[2],
+  }))
+}
+
+function qualityChipLabel(check: MeetingQualityCheck) {
+  const id = check.id.toLowerCase()
+  const status = check.status.toLowerCase()
+  if (id === 'role.boundary') return status === 'pass' ? 'role ok' : 'boundary warning'
+  if (id === 'evidence.reference') return status === 'pass' ? 'evidence ok' : 'needs evidence'
+  if (id === 'verified_assumed') return status === 'pass' ? 'verified/assumed ok' : 'needs verified/assumed'
+  if (id === 'next_action') return status === 'pass' ? 'next action ok' : 'needs next action'
+  return `${id} ${status}`
+}
+
+export function deriveMeetingEventQualityChips(event: MeetingEvent): MeetingReadinessChip[] {
+  if (event.type !== 'quality_check' && !event.quality) return []
+  const checks = event.quality?.checks?.length ? event.quality.checks : parseQualityChecksFromBody(event.body)
+  if (!checks.length) {
+    const status = event.quality?.status || event.tone || 'warn'
+    return [{
+      id: `${event.id}-quality`,
+      label: `quality ${status}`,
+      tone: statusTone(status),
+      detail: event.body || event.title,
+    }]
+  }
+  return checks.slice(0, 4).map((check) => ({
+    id: `${event.id}-${check.id}`,
+    label: qualityChipLabel(check),
+    tone: statusTone(check.status),
+    detail: check.detail || `${check.id}=${check.status}`,
+  }))
 }
 
 export function deriveMeetingScoreRows(bundle: MeetingBundle): MeetingScoreRow[] {
@@ -804,6 +1035,10 @@ function decisionAvailable(bundle: MeetingBundle) {
       || contract?.artifacts?.html?.available
       || bundle.decision?.report_path,
   )
+}
+
+function isHumanDecisionConfirmed(status?: string | null, confirmed?: boolean | null) {
+  return confirmed === true || ['confirmed', 'approved'].includes(String(status || '').trim().toLowerCase())
 }
 
 function coordinatorAction(action: CoordinatorNextAction) {
@@ -1045,7 +1280,7 @@ export function deriveCoordinatorNextActions(bundle: MeetingBundle): Coordinator
 
   const humanConfirmation = bundle.decision?.contract?.human_confirmation
   const humanStatus = humanConfirmation?.status || (humanConfirmation?.confirmed ? 'confirmed' : 'pending')
-  const humanConfirmed = humanConfirmation?.confirmed === true || humanStatus === 'confirmed'
+  const humanConfirmed = isHumanDecisionConfirmed(humanStatus, humanConfirmation?.confirmed)
   if (decisionAvailable(bundle) && !humanConfirmed) {
     return [
       coordinatorAction({
@@ -1110,6 +1345,7 @@ export function deriveMeetingAgenda(bundle: MeetingBundle): MeetingAgendaItem[] 
   const disputes = bundle.disputes?.disputes || bundle.workflow?.disputes || []
   const humanConfirmation = bundle.decision?.contract?.human_confirmation
   const humanStatus = humanConfirmation?.status || (humanConfirmation?.confirmed ? 'confirmed' : 'pending')
+  const humanConfirmed = isHumanDecisionConfirmed(humanStatus, humanConfirmation?.confirmed)
 
   const items: MeetingAgendaItem[] = [
     {
@@ -1155,7 +1391,7 @@ export function deriveMeetingAgenda(bundle: MeetingBundle): MeetingAgendaItem[] 
       label: phaseLabel('HUMAN'),
       status: humanStatus,
       tone: statusTone(humanStatus),
-      blocking: humanStatus !== 'confirmed',
+      blocking: !humanConfirmed,
       detail: humanConfirmation?.confirmed_at || undefined,
     },
   ]

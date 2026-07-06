@@ -2,10 +2,14 @@ import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 
 import {
+  deriveAgentReadinessChips,
+  deriveAgentReadinessLine,
   buildMeetingEvents,
   buildSelectedAgentDryRunSummary,
   deriveCoordinatorNextActions,
+  deriveMeetingAgentReadinessRows,
   deriveMeetingAgenda,
+  deriveMeetingEventQualityChips,
   deriveMeetingReceiptRows,
   deriveMeetingScoreRows,
   deriveMeetingScoringSummary,
@@ -166,6 +170,127 @@ test('meeting receipt rows combine fetched receipts with readiness fallback', ()
   assert.deepEqual(strategist?.warnings, ['need evidence'])
 })
 
+test('meeting readiness chips show present and missing formal task state', () => {
+  const bundle = {
+    meetingReadiness: {
+      schemaVersion: 'siq_primary_market_meeting_readiness_v1',
+      dealId: 'DEAL-001',
+      profiles: [
+        {
+          profileId: 'siq_ic_finance_auditor',
+          label: '财务审计委员',
+          role: 'finance',
+          runtime: { health: 'running', port: 18664 },
+          contract: {
+            responsibilities: ['核验收入质量'],
+            sourceFiles: ['IDENTITY.md', 'AGENTS.md'],
+            outputs: [],
+            boundaries: [],
+          },
+          startupReceipt: {
+            present: true,
+            receiptId: 'startup-finance-R1-001',
+            sharedHits: 6,
+            privateHits: 1,
+            evidenceHits: 7,
+            gaps: [],
+          },
+          r1Report: {
+            present: false,
+            score: null,
+            recommendation: '',
+            artifactPath: '',
+          },
+          quality: {
+            readyForFormalTask: true,
+            blockingReasons: [],
+            warnings: [],
+          },
+        },
+        {
+          profileId: 'siq_ic_legal_scanner',
+          label: '法务合规委员',
+          role: 'legal',
+          runtime: { health: 'disabled', port: 18665 },
+          contract: {
+            responsibilities: [],
+            sourceFiles: [],
+            outputs: [],
+            boundaries: [],
+          },
+          startupReceipt: {
+            present: false,
+            receiptId: '',
+            sharedHits: 0,
+            privateHits: 0,
+            evidenceHits: 0,
+            gaps: ['term sheet'],
+          },
+          r1Report: {
+            present: false,
+            score: null,
+            recommendation: '',
+            artifactPath: '',
+          },
+          quality: {
+            readyForFormalTask: false,
+            blockingReasons: ['startup_receipt_missing'],
+            warnings: ['profile source missing'],
+          },
+        },
+      ],
+      summary: {
+        runtimeRunning: 1,
+        receiptPresent: 1,
+        r1ReportsPresent: 0,
+        blockingProfiles: ['siq_ic_legal_scanner'],
+      },
+    },
+  }
+
+  const rows = deriveMeetingAgentReadinessRows(bundle)
+  const finance = rows.find((row) => row.agentId === 'siq_ic_finance_auditor')
+  const legal = rows.find((row) => row.agentId === 'siq_ic_legal_scanner')
+  const financeChips = deriveAgentReadinessChips(bundle, 'siq_ic_finance_auditor')
+  const legalChips = deriveAgentReadinessChips(bundle, 'siq_ic_legal_scanner')
+  const committeeChips = deriveAgentReadinessChips(bundle, 'siq_ic_finance_auditor', 'committee')
+
+  assert.equal(finance?.receiptPresent, true)
+  assert.equal(legal?.receiptPresent, false)
+  assert.deepEqual(financeChips.map((chip) => chip.label), ['Hermes running', 'Receipt present', 'R1 report missing', 'Profile loaded'])
+  assert.equal(legalChips.find((chip) => chip.id === 'runtime')?.tone, 'error')
+  assert.equal(legalChips.find((chip) => chip.id === 'receipt')?.label, 'Receipt missing')
+  assert.equal(legalChips.find((chip) => chip.id === 'profile')?.label, 'Profile missing')
+  assert.equal(committeeChips.find((chip) => chip.id === 'receipt')?.label, 'Receipts 1/6')
+  assert.match(deriveAgentReadinessLine(bundle, 'siq_ic_finance_auditor'), /Receipt present/)
+})
+
+test('meeting quality transcript events derive compact warning chips', () => {
+  const chips = deriveMeetingEventQualityChips({
+    id: 'quality-1',
+    phase: 'R1',
+    type: 'quality_check',
+    speaker: '财务审计委员',
+    title: '回答质量检查',
+    body: 'role.boundary=fail; evidence.reference=warn; next_action=pass',
+    tone: 'error',
+    agentId: 'siq_ic_finance_auditor',
+    quality: {
+      status: 'fail',
+      checks: [
+        { id: 'role.boundary', status: 'fail', detail: '越权' },
+        { id: 'evidence.reference', status: 'warn', detail: '缺证据' },
+        { id: 'next_action', status: 'pass', detail: '有建议' },
+      ],
+    },
+  })
+
+  assert.deepEqual(chips.map((chip) => chip.label), ['boundary warning', 'needs evidence', 'next action ok'])
+  assert.equal(chips[0]?.tone, 'error')
+  assert.equal(chips[1]?.tone, 'warning')
+  assert.equal(chips[2]?.tone, 'success')
+})
+
 test('meeting score summary derives average, range and recommendation counts', () => {
   const rows = deriveMeetingScoreRows({
     workflow: {
@@ -316,6 +441,25 @@ test('coordinator closes the loop with human confirmation after R4 decision', ()
 
   assert.equal(actions[0]?.id, 'human_dry')
   assert.equal(actions[1]?.id, 'human_write')
+})
+
+test('meeting agenda treats approved human confirmation as closed', () => {
+  const agenda = deriveMeetingAgenda({
+    decision: {
+      decision: {},
+      report_path: 'decision.md',
+      contract: {
+        deal_id: 'DEAL-001',
+        decision: { value: 'pass' },
+        human_confirmation: { status: 'approved', confirmed: false },
+      },
+    },
+  })
+
+  const human = agenda.find((item) => item.phase === 'HUMAN')
+
+  assert.equal(human?.tone, 'success')
+  assert.equal(human?.blocking, false)
 })
 
 test('meeting write validation guards R3 and final human actions', () => {

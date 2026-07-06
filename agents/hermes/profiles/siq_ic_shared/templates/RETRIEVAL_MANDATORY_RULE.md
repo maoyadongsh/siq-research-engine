@@ -1,6 +1,6 @@
-# SIQ 双库检索硬性规则（所有 Agent 适用）
+# SIQ 双库检索硬性规则（投委会专家适用）
 
-> 不可跳过规则：任何 `siq_ic_*` Agent 在发表投资观点前，必须完成 Deal OS startup-retrieval。未执行检索即发表观点 = 无效报告。
+> 不可跳过规则：R1/R2/R4 投委会专家在发表投资观点前，必须完成 Deal OS startup-retrieval。未执行检索即发表观点 = 无效报告。`siq_ic_master_coordinator` 不为自己执行 startup-retrieval，只负责校验和编排专家 receipt。
 
 ---
 
@@ -18,7 +18,12 @@ POST /api/deals/{deal_id}/agents/{agent_id}/startup-retrieval
 {
   "round_name": "R1",
   "query": "{company_name} {industry} {stage}",
-  "limit": 20
+  "limit": 20,
+  "include_external": false,
+  "external_providers": ["exa", "tavily", "qcc"],
+  "include_vector": false,
+  "include_rerank": false,
+  "vector_collections": ["siq_deal_shared", "{agent_id}"]
 }
 ```
 
@@ -26,7 +31,10 @@ POST /api/deals/{deal_id}/agents/{agent_id}/startup-retrieval
 
 - `deal_id`: `data/wiki/deals/{deal_id}` 下的项目包 ID。
 - `agent_id`: canonical Hermes profile ID，例如 `siq_ic_finance_auditor`。
-- `round_name`: `R0` / `R1` / `R1.5` / `R2` / `R3` / `R4`。
+- `round_name`: 后端 startup-retrieval 支持 `R1` / `R2` / `R4`。`R0` 使用 intake，`R1.5` 使用 chairman-task，`R3` 使用 red-blue review，不调用 startup-retrieval。
+- `include_external`: 默认 `false`；显式启用后可走 Exa / Tavily / QCC wrapper，并保留来源归因与脱敏输出。
+- `include_vector`: 默认 `false`；显式启用后由 Deal OS adapter 访问 Milvus collection。
+- `include_rerank`: 默认 `false`；显式启用后由平台 reranker adapter 处理排序。
 
 ---
 

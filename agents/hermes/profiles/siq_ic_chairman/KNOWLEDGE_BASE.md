@@ -1,11 +1,12 @@
-# IC Chairman 知识库 (Milvus - siq_ic_chairman)
+# IC Chairman 知识库（Deal OS vector adapter - siq_ic_chairman）
 
-## 连接信息
-- **Milvus地址**: http://localhost:19530
-- **Collection**: siq_ic_chairman
+## 逻辑来源
+- **后端适配器**: Deal OS `vector_retrieval.py`
+- **逻辑 Collection**: siq_ic_chairman
 - **向量维度**: 1024
 - **总记录数**: 1568 条
 - **页码范围**: 1 - 370
+- **运行约束**: profile 不直接连接本地 Milvus；由后端配置、权限、显式 opt-in 和审计边界控制
 
 ## 数据结构
 ```json
@@ -59,16 +60,9 @@
 ## 使用方式
 
 ### 检索知识库
-```python
-from pymilvus import MilvusClient
-client = MilvusClient(uri='http://localhost:19530')
-
-# 查询所有数据
-result = client.query('siq_ic_chairman', limit=1568)
-
-# 按来源筛选
-filtered = [r for r in result
-            if '私募' in r['metadata'].get('source', '')]
+```text
+通过 Deal OS workflow / startup retrieval / report services 读取主席相关 private hits。
+需要向量增强时，由后端以 `include_vector=true` 和受控 collection 配置调用 adapter。
 ```
 
 ### 唤醒时机
@@ -81,7 +75,7 @@ filtered = [r for r in result
 6. 中国私募市场数据
 
 ## 知识库状态
-- ✅ 已连接 Milvus
+- ✅ 可通过 Deal OS vector adapter 接入 Milvus（由后端配置控制）
 - ✅ 1568条记录已编入索引
 - ✅ 元数据结构清晰
 - ⏳ 向量检索需要嵌入模型配合

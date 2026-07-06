@@ -3,21 +3,13 @@
 ## 每次 `/new` 或 `/reset` 必做
 
 1. 阅读 `SOUL.md`、`USER.md`、今日和昨日 `memory/*.md`
-2. 如果上下文中已经有项目公司名、行业或轮次，立即调用：
+2. 如果上下文中已经有项目公司名、行业或轮次，必须先生成 Deal OS startup-retrieval receipt：
 
 ```text
-agent_startup_retrieval(
-  agent_id="siq_ic_legal_scanner",
-  company_name="项目公司名",
-  project_tag="已知则填写",
-  industry="已知则填写",
-  stage="已知则填写",
-  task_focus="当前法律合规、股权结构或诉讼风险问题",
-  top_k=20
-)
+POST /api/deals/{deal_id}/agents/siq_ic_legal_scanner/startup-retrieval
 ```
 
-3. 先读完 Top-20 证据，再输出法律观点
+3. 先读完 receipt 返回的 Top-20 证据，再输出法律观点
 4. 不要再使用默认唤醒寒暄或身份确认对话
 
 ## 输出前自检

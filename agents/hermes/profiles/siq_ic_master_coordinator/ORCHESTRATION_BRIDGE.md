@@ -9,29 +9,39 @@ Use Deal OS workflow endpoints:
 | OpenClaw capability | SIQ Hermes / Deal OS entry |
 |---|---|
 | `coordinator_intake.py` | `POST /api/deals/{deal_id}/workflow/run-r0-intake` |
+| `round_state_machine.py` | `GET /api/deals/{deal_id}/workflow/state` |
+| `round_state_machine.py` snapshot | `POST /api/deals/{deal_id}/workflow/state/snapshot` |
 | `coordinator_workflow.py`, `full_auto_workflow.py` | `POST /api/deals/{deal_id}/workflow/advance-next` |
 | `r1_serial_dispatcher.py` | `POST /api/deals/{deal_id}/workflow/run-r1-serial` |
 | single R1 expert task | `POST /api/deals/{deal_id}/workflow/run-r1-agent` |
+| `submit_expert_report.py` | `POST /api/deals/{deal_id}/workflow/submit-r1-report` |
 | agent task construction | `GET /api/deals/{deal_id}/agents/{profile_id}/task-payload?round_name=R1` |
 | startup retrieval | `POST /api/deals/{deal_id}/agents/{profile_id}/startup-retrieval` |
 | R1.5 dispute identification | `POST /api/deals/{deal_id}/workflow/identify-disputes` |
-| chairman ruling | `POST /api/deals/{deal_id}/workflow/disputes/{dispute_id}/ruling` |
+| chairman task construction | `GET /api/deals/{deal_id}/workflow/disputes/chairman-task` |
+| structured batch chairman rulings | `POST /api/deals/{deal_id}/workflow/disputes/chairman-rulings` |
+| single dispute ruling | `POST /api/deals/{deal_id}/workflow/disputes/{dispute_id}/ruling` |
+| deterministic ruling generation | `POST /api/deals/{deal_id}/workflow/generate-dispute-rulings` |
 | R2 revision | `POST /api/deals/{deal_id}/workflow/run-r2` |
 | R3 red-blue review | `POST /api/deals/{deal_id}/workflow/run-r3` |
 | R4 final decision | `POST /api/deals/{deal_id}/workflow/finalize-r4` |
+| `discussion_writer.py`, `project_discussion_manager.py` | `POST /api/deals/{deal_id}/reports/discussion/build` |
 
 Default to dry-run payloads unless the caller explicitly enables execution. R1 Hermes execution can call live Hermes only through the backend runtime with audit events.
 
 ## Service Map
 
 - `apps/api/services/ic_agent_runtime.py`: R1 task contracts, R1 serial execution, R2/R3/R4 deterministic workflow actions, phase advancement.
+- `apps/api/services/ic_workflow.py`: R0-R4 workflow state snapshots, R1 active-agent sequencing, transition plans, and round_state persistence.
+- `apps/api/services/ic_report_submission.py`: R1 expert report submission, contract validation, startup receipt linkage, JSON/Markdown writes, and audit events.
 - `apps/api/services/ic_intake.py`: R0 company intake verification, optional external cross-checks, scorecard, artifacts, and audit trail.
 - `apps/api/services/ic_startup_retrieval.py`: startup retrieval receipts and evidence-linkage gate.
 - `apps/api/services/deal_retrieval.py`: dynamic query planning and role-aware local evidence ranking for IC agents.
 - `apps/api/services/vector_retrieval.py`: optional Milvus vector retrieval adapter with explicit configuration and audit-safe normalized hits.
 - `apps/api/services/rerank_provider.py`: optional OpenAI-compatible rerank adapter for platform-hosted reranker endpoints.
 - `apps/api/services/external_research_clients.py`: opt-in Exa/Tavily/QCC wrappers with SIQ-managed credentials, timeouts, normalized source attribution, and redacted outputs.
-- `apps/api/services/deal_disputes.py`: R1.5 dispute detection, ruling payloads, and dispute summary.
+- `apps/api/services/deal_disputes.py`: R1.5 dispute detection, chairman task construction, structured ruling submission, ruling payloads, and dispute summary.
+- `apps/api/services/deal_discussion.py`: unified discussion Markdown builder over R0-R4 phase JSON artifacts.
 - `apps/api/services/deal_reports.py`: report indexes, R1/R2/R3/R4 contract summaries, artifact readers.
 - `apps/api/services/deal_decision.py`: human confirmation and decision override handling.
 - `apps/api/services/ic_policy.py`: canonical profile IDs, R1 order, thresholds, weights, and policy loading.

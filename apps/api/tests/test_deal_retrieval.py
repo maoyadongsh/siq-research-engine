@@ -98,6 +98,25 @@ def test_vector_retrieval_enabled_without_embedding_endpoint_skips_safely(monkey
     assert result["hits"] == []
 
 
+def test_vector_retrieval_explicit_false_overrides_enabled_environment(monkeypatch):
+    _clear_optional_retrieval_env(monkeypatch)
+    monkeypatch.setenv("SIQ_VECTOR_RETRIEVAL_ENABLED", "true")
+    monkeypatch.setenv("SIQ_EMBEDDING_BASE_URL", "https://embedding.example")
+
+    result = vector_retrieval.retrieve_vector_hits(
+        query="宇树科技 机器人",
+        profile_id="siq_ic_finance_auditor",
+        enabled=False,
+        collections=["siq_deal_shared"],
+    )
+
+    assert result["enabled"] is False
+    assert result["configured"] is True
+    assert result["status"] == "skipped"
+    assert result["reason"] == "vector_retrieval_disabled"
+    assert result["hits"] == []
+
+
 def test_rerank_provider_normalizes_openai_compatible_response(monkeypatch):
     _clear_optional_retrieval_env(monkeypatch)
     monkeypatch.setenv("SIQ_RERANK_BASE_URL", "https://rerank.example")
@@ -144,6 +163,72 @@ def test_rerank_provider_normalizes_openai_compatible_response(monkeypatch):
     assert result["results"][0]["rerank_score"] == 0.92
     assert calls[0]["url"] == "https://rerank.example/v1/rerank"
     assert "https://rerank.example" not in json.dumps(result, ensure_ascii=False)
+
+
+def test_rerank_provider_explicit_false_overrides_enabled_environment(monkeypatch):
+    _clear_optional_retrieval_env(monkeypatch)
+    monkeypatch.setenv("SIQ_RERANK_ENABLED", "true")
+    monkeypatch.setenv("SIQ_RERANK_BASE_URL", "https://rerank.example")
+    calls = []
+
+    class FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, url, **kwargs):
+            calls.append({"url": url, **kwargs})
+            raise AssertionError("rerank should not be called when explicitly disabled")
+
+    monkeypatch.setattr(rerank_provider.httpx, "Client", FakeClient)
+
+    result = rerank_provider.rerank_candidates(
+        query="收入 毛利",
+        candidates=[{"source_id": "A", "quote_preview": "估值偏高。"}],
+        enabled=False,
+        top_n=1,
+    )
+
+    assert result["enabled"] is False
+    assert result["configured"] is True
+    assert result["status"] == "skipped"
+    assert result["reason"] == "rerank_disabled"
+    assert result["results"] == [{"source_id": "A", "quote_preview": "估值偏高。"}]
+    assert calls == []
+
+
+def test_rerank_provider_skips_empty_candidates_without_http(monkeypatch):
+    _clear_optional_retrieval_env(monkeypatch)
+    monkeypatch.setenv("SIQ_RERANK_BASE_URL", "https://rerank.example")
+    calls = []
+
+    class FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, url, **kwargs):
+            calls.append({"url": url, **kwargs})
+            raise AssertionError("rerank should not be called without candidates")
+
+    monkeypatch.setattr(rerank_provider.httpx, "Client", FakeClient)
+
+    result = rerank_provider.rerank_candidates(
+        query="收入 毛利",
+        candidates=[],
+        enabled=True,
+    )
+
+    assert result["enabled"] is True
+    assert result["configured"] is True
+    assert result["status"] == "skipped"
+    assert result["reason"] == "no_candidates"
+    assert result["results"] == []
+    assert calls == []
 
 
 def test_external_exa_search_normalizes_results_without_leaking_key(monkeypatch):

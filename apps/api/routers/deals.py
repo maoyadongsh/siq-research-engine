@@ -17,6 +17,7 @@ from services import deal_contracts
 from services import deal_audit
 from services import deal_decision
 from services import deal_documents
+from services import deal_discussion
 from services import deal_disputes
 from services import deal_evidence
 from services import deal_manifest
@@ -27,7 +28,9 @@ from services import deal_store
 from services import ic_agent_runtime
 from services import ic_intake
 from services import ic_policy
+from services import ic_report_submission
 from services import ic_startup_retrieval
+from services import ic_workflow
 from services.ic_openclaw_importer import DEFAULT_OPENCLAW_PROJECTS_ROOT, import_openclaw_project
 from services.job_service import FileBackedJobService
 from services.path_config import BACKEND_DATA_ROOT
@@ -82,6 +85,14 @@ class WorkflowRunR1AgentRequest(BaseModel):
     dry_run: bool = True
 
 
+class WorkflowSubmitR1ReportRequest(BaseModel):
+    agent_id: str | None = None
+    profile_id: str | None = None
+    report: dict[str, Any] = Field(default_factory=dict)
+    overwrite: bool = False
+    dry_run: bool = True
+
+
 class WorkflowRunR0IntakeRequest(BaseModel):
     search_key: str | None = None
     task_description: dict[str, Any] = Field(default_factory=dict)
@@ -104,10 +115,16 @@ class WorkflowIdentifyDisputesRequest(BaseModel):
 
 class WorkflowDisputeRulingRequest(BaseModel):
     decision: str = Field(..., min_length=1)
-    rationale: str = ""
+    rationale: str = Field(..., min_length=1)
     required_followups: list[str] = Field(default_factory=list)
     evidence_ids: list[str] = Field(default_factory=list)
-    resolved: bool = True
+    resolved: bool
+    overwrite: bool = False
+    dry_run: bool = True
+
+
+class WorkflowSubmitChairmanRulingsRequest(BaseModel):
+    rulings: list[dict[str, Any]] = Field(default_factory=list)
     overwrite: bool = False
     dry_run: bool = True
 
@@ -139,6 +156,20 @@ class WorkflowAdvanceNextRequest(BaseModel):
     r3_skip: bool = True
     r3_skip_reason: str | None = "R2 已覆盖核心分歧，P0 留痕跳过。"
     r4_overwrite: bool = False
+
+
+class WorkflowStateSnapshotRequest(BaseModel):
+    allow_hermes: bool = False
+    max_agents: int = Field(default=1, ge=1, le=6)
+    r3_skip: bool = True
+    r3_skip_reason: str | None = "R2 已覆盖核心分歧，P0 留痕跳过。"
+    r4_overwrite: bool = False
+
+
+class DealDiscussionBuildRequest(BaseModel):
+    dry_run: bool = True
+    overwrite: bool = False
+    phases: list[str] | str | None = None
 
 
 class DealDecisionHumanConfirmationRequest(BaseModel):
@@ -815,6 +846,31 @@ def get_deal_r3_review(
         raise _not_found(deal_id) from exc
 
 
+@router.post("/{deal_id}/reports/discussion/build")
+def post_deal_discussion_build(
+    deal_id: str,
+    payload: DealDiscussionBuildRequest | None = None,
+    current_user: User = Depends(require_permission("report.create")),
+) -> dict[str, Any]:
+    request = payload or DealDiscussionBuildRequest()
+    try:
+        return deal_store.redact_public_payload(
+            deal_discussion.build_deal_discussion(
+                deal_id,
+                dry_run=request.dry_run,
+                overwrite=request.overwrite,
+                phases=request.phases,
+                created_by=_user_payload(current_user),
+            )
+        )
+    except FileExistsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+
+
 @router.get("/{deal_id}/reports/{report_path:path}")
 def get_deal_report(
     deal_id: str,
@@ -874,6 +930,47 @@ def post_workflow_identify_disputes(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+
+
+@router.get("/{deal_id}/workflow/disputes/chairman-task")
+def get_workflow_dispute_chairman_task(
+    deal_id: str,
+    only_unresolved: bool = Query(default=True),
+    current_user: User = Depends(require_permission("report.view")),
+) -> dict[str, Any]:
+    del current_user
+    try:
+        return deal_disputes.build_chairman_ruling_task(
+            deal_id,
+            only_unresolved=only_unresolved,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+
+
+@router.post("/{deal_id}/workflow/disputes/chairman-rulings")
+def post_workflow_submit_chairman_rulings(
+    deal_id: str,
+    payload: WorkflowSubmitChairmanRulingsRequest,
+    current_user: User = Depends(require_permission("report.create")),
+) -> dict[str, Any]:
+    try:
+        return deal_disputes.submit_chairman_rulings(
+            deal_id,
+            rulings=payload.rulings,
+            overwrite=payload.overwrite,
+            dry_run=payload.dry_run,
+            created_by=_user_payload(current_user),
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        if detail.startswith("Dispute not found:"):
+            raise HTTPException(status_code=404, detail=detail) from exc
+        raise HTTPException(status_code=400, detail=detail) from exc
     except FileNotFoundError as exc:
         raise _not_found(deal_id) from exc
 
@@ -981,6 +1078,70 @@ def get_workflow_r0_intake(
         raise _not_found(deal_id) from exc
 
 
+@router.get("/{deal_id}/workflow/state")
+def get_workflow_state(
+    deal_id: str,
+    allow_hermes: bool = Query(default=False),
+    max_agents: int = Query(default=1, ge=1, le=6),
+    r3_skip: bool = Query(default=True),
+    r3_skip_reason: str | None = Query(default="R2 已覆盖核心分歧，P0 留痕跳过。"),
+    r4_overwrite: bool = Query(default=False),
+    current_user: User = Depends(require_permission("report.view")),
+) -> dict[str, Any]:
+    del current_user
+    try:
+        return ic_workflow.summarize_workflow_state(
+            deal_id,
+            allow_hermes=allow_hermes,
+            max_agents=max_agents,
+            r3_skip=r3_skip,
+            r3_skip_reason=r3_skip_reason,
+            r4_overwrite=r4_overwrite,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+
+
+@router.post("/{deal_id}/workflow/state/snapshot")
+def write_workflow_state_snapshot(
+    deal_id: str,
+    payload: WorkflowStateSnapshotRequest | None = None,
+    current_user: User = Depends(require_permission("report.create")),
+) -> dict[str, Any]:
+    request = payload or WorkflowStateSnapshotRequest()
+    try:
+        return ic_workflow.summarize_workflow_state(
+            deal_id,
+            allow_hermes=request.allow_hermes,
+            max_agents=request.max_agents,
+            r3_skip=request.r3_skip,
+            r3_skip_reason=request.r3_skip_reason,
+            r4_overwrite=request.r4_overwrite,
+            write_snapshot=True,
+            created_by=_user_payload(current_user),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+
+
+@router.get("/{deal_id}/workflow/state/snapshot")
+def get_workflow_state_snapshot(
+    deal_id: str,
+    current_user: User = Depends(require_permission("report.view")),
+) -> dict[str, Any]:
+    del current_user
+    try:
+        return ic_workflow.read_workflow_state_snapshot(deal_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+
+
 @router.post("/{deal_id}/agents/{profile_id}/startup-retrieval")
 def generate_agent_startup_retrieval(
     deal_id: str,
@@ -1071,6 +1232,32 @@ def post_agent_task_dry_run(
                 round_name=request.round_name,
             )
         )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+
+
+@router.post("/{deal_id}/workflow/submit-r1-report")
+def post_workflow_submit_r1_report(
+    deal_id: str,
+    payload: WorkflowSubmitR1ReportRequest,
+    current_user: User = Depends(require_permission("report.create")),
+) -> dict[str, Any]:
+    try:
+        return deal_store.redact_public_payload(
+            ic_report_submission.submit_r1_expert_report(
+                deal_id,
+                agent_id=payload.agent_id,
+                profile_id=payload.profile_id,
+                report_payload=payload.report,
+                dry_run=payload.dry_run,
+                overwrite=payload.overwrite,
+                created_by=_user_payload(current_user),
+            )
+        )
+    except FileExistsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:

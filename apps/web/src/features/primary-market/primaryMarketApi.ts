@@ -26,9 +26,19 @@ import {
   runDealWorkflowR3,
   uploadDealDocument,
 } from '@/lib/dealApi'
-import type { DealDetailResponse, DealListResponse, DealQuery, DealStatusResponse } from '@/lib/dealTypes'
+import type {
+  DealDecisionHumanConfirmationPayload,
+  DealDecisionHumanConfirmationUpdateResponse,
+  DealDetailResponse,
+  DealListResponse,
+  DealQuery,
+  DealStartupReceipt,
+  DealStatusResponse,
+  DealWorkflowRunR1AgentDryRunResponse,
+  DealWorkflowRunR1SerialResponse,
+} from '@/lib/dealTypes'
 import type { AgentAttachment, ChatSessionSummary, HistoryRecord } from '@/lib/useAgentChat'
-import type { BadgeTone, MeetingEvent, MeetingEventType } from '@/features/primary-market/primaryMarketViewModel'
+import type { BadgeTone, MeetingEvent, MeetingEventType, MeetingQualityResult } from '@/features/primary-market/primaryMarketViewModel'
 
 export {
   bindDealDocumentParserTask as bindPrimaryMarketDocumentParserTask,
@@ -104,7 +114,8 @@ interface RawPrimaryMarketMeetingEvent {
   title?: string | null
   body?: string | null
   tone?: BadgeTone | string | null
-  meta?: string | null
+  meta?: string | Record<string, unknown> | null
+  quality?: unknown
   agent_id?: string | null
   agentId?: string | null
   attachments?: AgentAttachment[] | null
@@ -168,6 +179,232 @@ export interface PrimaryMarketMeetingSuggestions {
   error?: string | null
 }
 
+export interface PrimaryMarketMeetingAgentRuntimeReadiness {
+  health: string
+  port: number | null
+  enabled?: boolean | null
+  baseUrl?: string | null
+}
+
+export interface PrimaryMarketMeetingAgentContractReadiness {
+  responsibilities: string[]
+  sourceFiles: string[]
+  outputs: string[]
+  boundaries: string[]
+  focus?: string
+}
+
+export interface PrimaryMarketMeetingStartupReceiptReadiness {
+  present: boolean
+  receiptId: string
+  sharedHits: number
+  privateHits: number
+  evidenceHits: number
+  gaps: string[]
+}
+
+export interface PrimaryMarketMeetingR1ReportReadiness {
+  present: boolean
+  score: number | null
+  recommendation: string
+  artifactPath: string
+}
+
+export interface PrimaryMarketMeetingQualityReadiness {
+  readyForFormalTask: boolean
+  blockingReasons: string[]
+  warnings: string[]
+}
+
+export interface PrimaryMarketMeetingReadinessProfile {
+  profileId: string
+  label: string
+  role: string
+  runtime: PrimaryMarketMeetingAgentRuntimeReadiness
+  contract: PrimaryMarketMeetingAgentContractReadiness
+  startupReceipt: PrimaryMarketMeetingStartupReceiptReadiness
+  r1Report: PrimaryMarketMeetingR1ReportReadiness
+  quality: PrimaryMarketMeetingQualityReadiness
+}
+
+export interface PrimaryMarketMeetingReadinessSummary {
+  runtimeRunning: number
+  receiptPresent: number
+  r1ReportsPresent: number
+  blockingProfiles: string[]
+}
+
+export interface PrimaryMarketMeetingAgentReadiness {
+  schemaVersion: string
+  dealId: string
+  generatedAt?: string | null
+  profiles: PrimaryMarketMeetingReadinessProfile[]
+  summary: PrimaryMarketMeetingReadinessSummary
+}
+
+export interface PrimaryMarketMeetingPrepareOptions {
+  round_name?: string
+  query?: string | null
+  limit?: number
+  include_external?: boolean
+  external_providers?: string[] | null
+  include_vector?: boolean
+  include_rerank?: boolean
+  vector_collections?: string[] | null
+}
+
+export interface PrimaryMarketMeetingPrepareAllOptions extends PrimaryMarketMeetingPrepareOptions {
+  profile_ids?: string[] | null
+}
+
+export interface PrimaryMarketMeetingPrepareAgentResponse {
+  deal_id?: string
+  agent_id?: string
+  skipped?: boolean
+  reason?: string
+  receipt?: DealStartupReceipt | null
+  event?: Record<string, unknown> | null
+  readiness?: PrimaryMarketMeetingAgentReadiness | null
+  [key: string]: unknown
+}
+
+export interface PrimaryMarketMeetingPrepareCommitteeResult {
+  agent_id?: string
+  status?: string
+  receipt_id?: string | null
+  shared_hits?: number | null
+  private_hits?: number | null
+  gaps?: string[]
+  reason?: string
+  error?: string
+  [key: string]: unknown
+}
+
+export interface PrimaryMarketMeetingPrepareCommitteeResponse {
+  deal_id?: string
+  results?: PrimaryMarketMeetingPrepareCommitteeResult[]
+  event?: Record<string, unknown> | null
+  readiness?: PrimaryMarketMeetingAgentReadiness | null
+  [key: string]: unknown
+}
+
+export interface PrimaryMarketMeetingWorkflowAdvanceRequest {
+  dry_run?: boolean
+  allow_hermes?: boolean
+  max_agents?: number
+  r3_skip?: boolean
+  r3_skip_reason?: string | null
+  r4_overwrite?: boolean
+}
+
+export interface PrimaryMarketMeetingWorkflowAdvanceResult {
+  schema_version?: string
+  deal_id?: string
+  workflow_action?: string
+  dry_run?: boolean
+  allowed?: boolean
+  would_write?: boolean
+  selected_action?: string
+  requires_hermes?: boolean
+  allow_hermes?: boolean
+  blocking_reasons?: string[]
+  warnings?: string[]
+  action_dry_run?: Record<string, unknown>
+  action_result?: Record<string, unknown>
+  workflow_advanced?: boolean
+  [key: string]: unknown
+}
+
+export interface PrimaryMarketMeetingWorkflowAdvanceResponse {
+  deal_id?: string
+  dry_run?: boolean
+  result?: PrimaryMarketMeetingWorkflowAdvanceResult
+  event?: Record<string, unknown> | null
+  readiness?: PrimaryMarketMeetingAgentReadiness | null
+  [key: string]: unknown
+}
+
+export interface PrimaryMarketMeetingR1AgentRunRequest {
+  dry_run?: boolean
+  allow_hermes?: boolean
+  round_name?: string
+  lane?: string | null
+  timeout?: number | null
+}
+
+export interface PrimaryMarketMeetingR1AgentRunResponse extends DealWorkflowRunR1AgentDryRunResponse {
+  readiness?: PrimaryMarketMeetingAgentReadiness | null
+}
+
+export interface PrimaryMarketMeetingR1SerialRunRequest {
+  dry_run?: boolean
+  allow_hermes?: boolean
+  round_name?: string
+  max_agents?: number
+  lane?: string | null
+  timeout?: number | null
+}
+
+export interface PrimaryMarketMeetingR1SerialRunResponse extends DealWorkflowRunR1SerialResponse {
+  readiness?: PrimaryMarketMeetingAgentReadiness | null
+}
+
+export interface PrimaryMarketMeetingDecisionHumanConfirmResponse {
+  deal_id?: string
+  dry_run?: boolean
+  result?: DealDecisionHumanConfirmationUpdateResponse
+  event?: Record<string, unknown> | null
+  readiness?: PrimaryMarketMeetingAgentReadiness | null
+  [key: string]: unknown
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function asStringArray(value: unknown) {
+  return Array.isArray(value) ? value.map((item) => String(item || '').trim()).filter(Boolean) : []
+}
+
+function asPathArray(value: unknown) {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((item) => {
+      if (typeof item === 'string') return item.trim()
+      const record = asRecord(item)
+      return asString(record.path || record.name)
+    })
+    .filter(Boolean)
+}
+
+function asString(value: unknown, fallback = '') {
+  if (value === null || value === undefined) return fallback
+  const text = String(value).trim()
+  return text || fallback
+}
+
+function asNumber(value: unknown, fallback = 0) {
+  if (value === null || value === undefined || value === '') return fallback
+  const number = Number(value)
+  return Number.isFinite(number) ? number : fallback
+}
+
+function asNullableNumber(value: unknown) {
+  if (value === null || value === undefined || value === '') return null
+  const number = Number(value)
+  return Number.isFinite(number) ? number : null
+}
+
+function asBoolean(value: unknown, fallback = false) {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    if (['true', 'yes', '1'].includes(normalized)) return true
+    if (['false', 'no', '0'].includes(normalized)) return false
+  }
+  return fallback
+}
+
 function normalizeReply(payload: PrimaryMarketMeetingChatResponse) {
   const value = payload.reply || payload.message || payload.content
   return typeof value === 'string' && value.trim() ? value : '智能体未返回内容。'
@@ -200,6 +437,114 @@ function normalizeSuggestions(
     questions,
     source: String(data.source || 'model'),
     error: typeof data.error === 'string' ? data.error : null,
+  }
+}
+
+function normalizeReadinessProfile(item: unknown, index: number): PrimaryMarketMeetingReadinessProfile {
+  const data = asRecord(item)
+  const runtime = asRecord(data.runtime)
+  const contract = asRecord(data.contract)
+  const startupReceipt = asRecord(data.startup_receipt || data.startupReceipt)
+  const r1Report = asRecord(data.r1_report || data.r1Report || data.report)
+  const workflow = asRecord(data.workflow)
+  const quality = asRecord(data.quality)
+  const receiptId = asString(startupReceipt.receipt_id || startupReceipt.receiptId)
+  const reportPath = asString(r1Report.artifact_path || r1Report.artifactPath)
+  const profileId = asString(data.profile_id || data.profileId || data.agent_id || data.agentId, `profile-${index + 1}`)
+  const blockingReasons = asStringArray(
+    quality.blocking_reasons
+      || quality.blockingReasons
+      || data.blocking_reasons
+      || data.blockingReasons
+      || workflow.blocking_reasons
+      || workflow.blockingReasons,
+  )
+  const warnings = asStringArray(quality.warnings || data.warnings || workflow.warnings)
+  const evidenceHitCount = Array.isArray(startupReceipt.evidence_hits)
+    ? startupReceipt.evidence_hits.length
+    : asNumber(startupReceipt.evidence_hit_count ?? startupReceipt.evidenceHits)
+  const sourceFiles = asPathArray(contract.source_files || contract.sourceFiles)
+  return {
+    profileId,
+    label: asString(data.label, profileId),
+    role: asString(data.role),
+    runtime: {
+      health: asString(runtime.health || runtime.status, asBoolean(runtime.enabled, true) ? 'unknown' : 'disabled'),
+      port: asNullableNumber(runtime.port),
+      enabled: typeof runtime.enabled === 'boolean' ? runtime.enabled : null,
+      baseUrl: asString(runtime.base_url || runtime.baseUrl) || null,
+    },
+    contract: {
+      responsibilities: asStringArray(contract.responsibilities),
+      sourceFiles,
+      outputs: asStringArray(contract.outputs || contract.output_features || contract.outputFeatures),
+      boundaries: asStringArray(contract.boundaries),
+      focus: asString(contract.focus || contract.core_focus || contract.coreFocus) || undefined,
+    },
+    startupReceipt: {
+      present: asBoolean(startupReceipt.present, Boolean(receiptId)),
+      receiptId,
+      sharedHits: asNumber(startupReceipt.shared_hits ?? startupReceipt.sharedHits),
+      privateHits: asNumber(startupReceipt.private_hits ?? startupReceipt.privateHits),
+      evidenceHits: evidenceHitCount,
+      gaps: asStringArray(startupReceipt.gaps),
+    },
+    r1Report: {
+      present: asBoolean(r1Report.present, Boolean(reportPath || r1Report.score || r1Report.recommendation)),
+      score: asNullableNumber(r1Report.score),
+      recommendation: asString(r1Report.recommendation),
+      artifactPath: reportPath,
+    },
+    quality: {
+      readyForFormalTask: asBoolean(
+        quality.ready_for_formal_task
+          ?? quality.readyForFormalTask
+          ?? data.ready_for_formal_task
+          ?? data.readyForFormalTask,
+        blockingReasons.length === 0,
+      ),
+      blockingReasons,
+      warnings,
+    },
+  }
+}
+
+export function normalizePrimaryMarketMeetingAgentReadiness(
+  data: unknown,
+  fallbackDealId = '',
+): PrimaryMarketMeetingAgentReadiness {
+  const payload = asRecord(data)
+  const rawSummary = asRecord(payload.summary)
+  const rawProfiles = Array.isArray(payload.profiles)
+    ? payload.profiles
+    : Array.isArray(payload.agents)
+      ? payload.agents
+      : []
+  const profiles = rawProfiles.map(normalizeReadinessProfile)
+  const fallbackReceiptPresent = profiles.filter((profile) => profile.startupReceipt.present).length
+  const fallbackReportsPresent = profiles.filter((profile) => profile.r1Report.present).length
+  const fallbackRuntimeRunning = profiles.filter((profile) => profile.runtime.health === 'running').length
+  return {
+    schemaVersion: asString(payload.schema_version || payload.schemaVersion, 'siq_primary_market_meeting_readiness_v1'),
+    dealId: asString(payload.deal_id || payload.dealId, fallbackDealId),
+    generatedAt: asString(payload.generated_at || payload.generatedAt) || null,
+    profiles,
+    summary: {
+      runtimeRunning: asNumber(rawSummary.runtime_running ?? rawSummary.runtimeRunning, fallbackRuntimeRunning),
+      receiptPresent: asNumber(rawSummary.receipt_present ?? rawSummary.receiptPresent ?? rawSummary.startup_receipts ?? rawSummary.startupReceipts, fallbackReceiptPresent),
+      r1ReportsPresent: asNumber(rawSummary.r1_reports_present ?? rawSummary.r1ReportsPresent ?? rawSummary.r1_reports ?? rawSummary.r1Reports, fallbackReportsPresent),
+      blockingProfiles: asStringArray(rawSummary.blocking_profiles || rawSummary.blockingProfiles),
+    },
+  }
+}
+
+function normalizeReadinessResponse<T extends { deal_id?: string; dealId?: string; readiness?: unknown }>(
+  data: T,
+  fallbackDealId: string,
+) {
+  return {
+    ...data,
+    readiness: data.readiness ? normalizePrimaryMarketMeetingAgentReadiness(data.readiness, data.deal_id || data.dealId || fallbackDealId) : null,
   }
 }
 
@@ -240,6 +585,7 @@ function normalizeMeetingEventType(value: unknown): MeetingEventType {
     'system_blocking',
     'artifact_written',
     'audit_event',
+    'quality_check',
   ]
   return allowed.includes(value as MeetingEventType) ? value as MeetingEventType : 'phase_summary'
 }
@@ -249,8 +595,44 @@ function normalizeTone(value: unknown): BadgeTone {
   return allowed.includes(value as BadgeTone) ? value as BadgeTone : 'neutral'
 }
 
+function normalizeEventMeta(value: unknown) {
+  if (typeof value === 'string' && value.trim()) return value
+  const record = asRecord(value)
+  if (!Object.keys(record).length) return undefined
+  const source = asString(record.source)
+  if (source) return source
+  return JSON.stringify(record)
+}
+
+function normalizeQualityCheck(value: unknown) {
+  const record = asRecord(value)
+  const id = asString(record.id || record.check_id || record.name)
+  const status = asString(record.status)
+  if (!id || !status) return null
+  return {
+    id,
+    status,
+    detail: asString(record.detail || record.message) || undefined,
+  }
+}
+
+function normalizeEventQuality(value: unknown): MeetingQualityResult | null {
+  const record = asRecord(value)
+  if (!Object.keys(record).length) return null
+  const checks = Array.isArray(record.checks)
+    ? record.checks.map(normalizeQualityCheck).filter((item): item is NonNullable<ReturnType<typeof normalizeQualityCheck>> => Boolean(item))
+    : []
+  return {
+    ...record,
+    status: asString(record.status, 'warn'),
+    checks,
+  }
+}
+
 function normalizeMeetingEvent(event: RawPrimaryMarketMeetingEvent, index: number): MeetingEvent {
   const createdAt = event.createdAt || event.created_at || null
+  const metaRecord = asRecord(event.meta)
+  const quality = normalizeEventQuality(event.quality || metaRecord.quality)
   return {
     id: String(event.id || `meeting-transcript-${index}`),
     phase: String(event.phase || 'R0'),
@@ -259,9 +641,10 @@ function normalizeMeetingEvent(event: RawPrimaryMarketMeetingEvent, index: numbe
     title: String(event.title || '会议事件'),
     body: String(event.body || ''),
     tone: normalizeTone(event.tone),
-    meta: typeof event.meta === 'string' && event.meta.trim() ? event.meta : undefined,
+    meta: normalizeEventMeta(event.meta),
     agentId: event.agentId || event.agent_id || null,
     attachments: Array.isArray(event.attachments) ? event.attachments : undefined,
+    quality,
     createdAt,
   }
 }
@@ -396,6 +779,163 @@ export async function fetchPrimaryMarketMeetingSuggestions(
     { signal },
   )
   return normalizeSuggestions(data, value, options.lane || 'main', agentId)
+}
+
+export async function fetchPrimaryMarketMeetingAgentReadiness(
+  dealId: string,
+  signal?: AbortSignal,
+): Promise<PrimaryMarketMeetingAgentReadiness> {
+  const value = requireDealId(dealId, '缺少项目 ID，无法读取一级市场会议室 readiness。')
+  const data = await apiJson<Record<string, unknown>>(
+    `/api/primary-market/meeting/${encodeURIComponent(value)}/agents/readiness`,
+    { signal },
+  )
+  return normalizePrimaryMarketMeetingAgentReadiness(data, value)
+}
+
+function primaryMarketMeetingPreparePayload(options: PrimaryMarketMeetingPrepareOptions = {}) {
+  return {
+    round_name: options.round_name || 'R1',
+    query: options.query || undefined,
+    limit: options.limit ?? 10,
+    include_external: options.include_external ?? false,
+    external_providers: options.external_providers || undefined,
+    include_vector: options.include_vector ?? true,
+    include_rerank: options.include_rerank ?? false,
+    vector_collections: options.vector_collections || undefined,
+  }
+}
+
+export async function preparePrimaryMarketMeetingAgent(
+  dealId: string,
+  profileId: string,
+  options: PrimaryMarketMeetingPrepareOptions = {},
+  signal?: AbortSignal,
+): Promise<PrimaryMarketMeetingPrepareAgentResponse> {
+  const value = requireDealId(dealId, '缺少项目 ID，无法准备一级市场会议室智能体。')
+  const profile = profileId.trim()
+  if (!profile) throw new Error('缺少智能体 ID，无法准备一级市场会议室智能体。')
+  const data = await apiJson<PrimaryMarketMeetingPrepareAgentResponse>(
+    `/api/primary-market/meeting/${encodeURIComponent(value)}/agents/${encodeURIComponent(profile)}/prepare`,
+    {
+      method: 'POST',
+      signal,
+      body: primaryMarketMeetingPreparePayload(options),
+    },
+  )
+  return normalizeReadinessResponse(data, value)
+}
+
+export async function preparePrimaryMarketMeetingCommittee(
+  dealId: string,
+  options: PrimaryMarketMeetingPrepareAllOptions = {},
+  signal?: AbortSignal,
+): Promise<PrimaryMarketMeetingPrepareCommitteeResponse> {
+  const value = requireDealId(dealId, '缺少项目 ID，无法准备一级市场会议室全体委员。')
+  const data = await apiJson<PrimaryMarketMeetingPrepareCommitteeResponse>(
+    `/api/primary-market/meeting/${encodeURIComponent(value)}/agents/prepare-all`,
+    {
+      method: 'POST',
+      signal,
+      body: {
+        ...primaryMarketMeetingPreparePayload(options),
+        profile_ids: options.profile_ids || undefined,
+      },
+    },
+  )
+  return normalizeReadinessResponse(data, value)
+}
+
+export async function advancePrimaryMarketMeetingWorkflow(
+  dealId: string,
+  payload: PrimaryMarketMeetingWorkflowAdvanceRequest = {},
+  signal?: AbortSignal,
+): Promise<PrimaryMarketMeetingWorkflowAdvanceResponse> {
+  const value = requireDealId(dealId, '缺少项目 ID，无法推进一级市场会议室 workflow。')
+  const data = await apiJson<PrimaryMarketMeetingWorkflowAdvanceResponse>(
+    `/api/primary-market/meeting/${encodeURIComponent(value)}/workflow/advance`,
+    {
+      method: 'POST',
+      signal,
+      body: {
+        dry_run: payload.dry_run ?? true,
+        allow_hermes: payload.allow_hermes ?? false,
+        max_agents: payload.max_agents ?? 1,
+        r3_skip: payload.r3_skip ?? true,
+        r3_skip_reason: payload.r3_skip_reason ?? 'R2 已覆盖核心分歧，P0 留痕跳过。',
+        r4_overwrite: payload.r4_overwrite ?? false,
+      },
+    },
+  )
+  return normalizeReadinessResponse(data, value)
+}
+
+export async function runPrimaryMarketMeetingR1Agent(
+  dealId: string,
+  profileId: string,
+  payload: PrimaryMarketMeetingR1AgentRunRequest = {},
+  signal?: AbortSignal,
+): Promise<PrimaryMarketMeetingR1AgentRunResponse> {
+  const value = requireDealId(dealId, '缺少项目 ID，无法执行当前智能体 R1 正式任务。')
+  const profile = profileId.trim()
+  if (!profile) throw new Error('缺少智能体 ID，无法执行当前智能体 R1 正式任务。')
+  return apiJson<PrimaryMarketMeetingR1AgentRunResponse>(
+    `/api/primary-market/meeting/${encodeURIComponent(value)}/agents/${encodeURIComponent(profile)}/run-r1`,
+    {
+      method: 'POST',
+      signal,
+      body: {
+        round_name: payload.round_name || 'R1',
+        dry_run: payload.dry_run ?? true,
+        allow_hermes: payload.allow_hermes ?? false,
+        lane: payload.lane || undefined,
+        timeout: payload.timeout ?? undefined,
+      },
+    },
+  )
+}
+
+export async function runPrimaryMarketMeetingR1Serial(
+  dealId: string,
+  payload: PrimaryMarketMeetingR1SerialRunRequest = {},
+  signal?: AbortSignal,
+): Promise<PrimaryMarketMeetingR1SerialRunResponse> {
+  const value = requireDealId(dealId, '缺少项目 ID，无法执行 R1 串行任务。')
+  return apiJson<PrimaryMarketMeetingR1SerialRunResponse>(
+    `/api/primary-market/meeting/${encodeURIComponent(value)}/workflow/run-r1-serial`,
+    {
+      method: 'POST',
+      signal,
+      body: {
+        round_name: payload.round_name || 'R1',
+        dry_run: payload.dry_run ?? true,
+        allow_hermes: payload.allow_hermes ?? false,
+        max_agents: payload.max_agents ?? 6,
+        lane: payload.lane || undefined,
+        timeout: payload.timeout ?? undefined,
+      },
+    },
+  )
+}
+
+export async function confirmPrimaryMarketDecision(
+  dealId: string,
+  payload: DealDecisionHumanConfirmationPayload,
+  signal?: AbortSignal,
+): Promise<PrimaryMarketMeetingDecisionHumanConfirmResponse> {
+  const value = requireDealId(dealId, '缺少项目 ID，无法写入一级市场投决人工确认。')
+  const data = await apiJson<PrimaryMarketMeetingDecisionHumanConfirmResponse>(
+    `/api/primary-market/meeting/${encodeURIComponent(value)}/decision/human-confirm`,
+    {
+      method: 'POST',
+      signal,
+      body: {
+        dry_run: true,
+        ...payload,
+      },
+    },
+  )
+  return normalizeReadinessResponse(data, value)
 }
 
 export async function fetchPrimaryMarketMeetingChatHistory(

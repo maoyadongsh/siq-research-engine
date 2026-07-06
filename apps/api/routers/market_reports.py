@@ -105,6 +105,26 @@ def _market_code(value: str | None) -> str:
 
 
 def _safe_market_package_path(market: str, value: str | None) -> Path:
+    if market == "US" and value:
+        candidate = Path(value)
+        if not candidate.is_absolute():
+            candidate = REPO_ROOT / candidate
+        us_sec_roots = [US_SEC_WIKI_ROOT, REPO_ROOT / "data" / "wiki" / "us_sec"]
+        seen_roots: set[Path] = set()
+        for us_sec_root in us_sec_roots:
+            resolved_root = us_sec_root.resolve()
+            if resolved_root in seen_roots:
+                continue
+            seen_roots.add(resolved_root)
+            try:
+                market_packages.safe_under(us_sec_root, candidate)
+            except HTTPException:
+                continue
+            return market_packages.safe_us_sec_package_path(
+                value,
+                repo_root=REPO_ROOT,
+                us_sec_wiki_root=us_sec_root,
+            )
     return market_packages.safe_market_package_path(
         market,
         value,

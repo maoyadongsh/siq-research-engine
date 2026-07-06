@@ -6,6 +6,8 @@ from fastapi.testclient import TestClient
 
 from routers import primary_market_meeting
 from services import deal_store
+from services import ic_policy
+from services import ic_profile_contract
 from services.auth_dependencies import get_current_user
 from services.auth_service import User, UserRole
 
@@ -137,7 +139,8 @@ def test_primary_market_meeting_chat_uses_project_scoped_ic_session(monkeypatch)
         assert "profile_id: siq_ic_finance_auditor" in captured["message"]
         assert "SIQ 投委会财务专家" in captured["message"]
         assert "财务分析、估值模型、现金流、盈利模式" in captured["message"]
-        assert "不得替代行业技术判断、法律合规审查、宏观政策分析、风险清单或最终投决" in captured["message"]
+        assert "不做行业技术判断" in captured["message"]
+        assert "不做最终投资决策" in captured["message"]
         assert "主持人原始问题:\n\n请评估收入确认风险" in captured["message"]
         assert captured["display_message"] == "@财务审计委员 请评估收入确认风险"
         assert captured["enforce_evidence_contract"] is False
@@ -155,13 +158,402 @@ def test_primary_market_meeting_chat_uses_project_scoped_ic_session(monkeypatch)
 
 def test_primary_market_meeting_role_contracts_cover_all_ic_profiles():
     expected = set(primary_market_meeting.IC_MEETING_PROFILES)
-    assert set(primary_market_meeting._IC_PROFILE_ROLE_CONTRACTS) == expected
+    contracts = ic_profile_contract.list_ic_profile_contracts()
+    assert {contract["profile_id"] for contract in contracts} == expected
     for profile in primary_market_meeting.IC_MEETING_PROFILES:
         message = primary_market_meeting._profile_scoped_meeting_message(profile, "请介绍你的职责")
         assert f"profile_id: {profile}" in message
         assert f"agents/hermes/profiles/{profile}/IDENTITY.md" in message
         assert "若主持人问题要求越权" in message
+        assert "Deal OS evidence" in message
         assert "主持人原始问题:\n\n请介绍你的职责" in message
+
+
+def test_primary_market_meeting_profile_contract_reads_profile_files():
+    contract = ic_profile_contract.get_ic_profile_contract("siq_ic_finance_auditor")
+
+    assert contract["profile_id"] == "siq_ic_finance_auditor"
+    assert contract["role_name"].startswith("SIQ 投委会财务专家")
+    assert "财务分析、估值模型、现金流、盈利模式" in contract["core_focus"]
+    assert any("不做行业技术判断" in item for item in contract["boundaries"])
+    assert contract["retrieval_collections"] == ["siq_deal_shared", "siq_ic_finance_auditor"]
+
+
+def test_primary_market_meeting_message_includes_receipt_and_report_context(monkeypatch):
+    monkeypatch.setattr(
+        primary_market_meeting.ic_startup_retrieval,
+        "read_startup_retrieval_receipt",
+        lambda deal_id, profile_id: {
+            "deal_id": deal_id,
+            "agent_id": profile_id,
+            "receipt": {
+                "receipt_id": "startup-siq_ic_finance_auditor-R1-001",
+                "shared_hits": 6,
+                "private_hits": 1,
+                "gaps": ["missing_cashflow"],
+            },
+        },
+    )
+    monkeypatch.setattr(
+        primary_market_meeting.deal_reports,
+        "list_r1_agent_reports",
+        lambda deal_id: {
+            "deal_id": deal_id,
+            "agents": [
+                {
+                    "agent_id": "siq_ic_finance_auditor",
+                    "has_report": True,
+                    "status": "warn",
+                    "score": 78,
+                    "recommendation": "review",
+                    "artifact_path": "discussion/01_R1_finance_auditor_report.md",
+                }
+            ],
+        },
+    )
+
+    message = primary_market_meeting._profile_scoped_meeting_message(
+        "siq_ic_finance_auditor",
+        "请更新财务意见",
+        "DEAL-EVIDENCE-001",
+    )
+
+    assert "一级市场项目证据上下文:" in message
+    assert "startup_retrieval_receipt: present" in message
+    assert "receipt_id=startup-siq_ic_finance_auditor-R1-001" in message
+    assert "r1_report: present" in message
+    assert "artifact_path=discussion/01_R1_finance_auditor_report.md" in message
+    assert "主持人原始问题:\n\n请更新财务意见" in message
+
+
+def test_primary_market_meeting_quality_check_writes_transcript(monkeypatch, tmp_path):
+    monkeypatch.setattr(deal_store, "WIKI_ROOT", tmp_path / "wiki")
+    deal_store.create_deal_package(deal_id="DEAL-MEET-QUALITY", company_name="Quality Robotics")
+    client = _primary_market_client(monkeypatch, tmp_path)
+
+    quality = primary_market_meeting._evaluate_and_store_reply_quality(
+        deal_id="DEAL-MEET-QUALITY",
+        lane="agent-siq_ic_finance_auditor",
+        profile="siq_ic_finance_auditor",
+        message="你来拍板",
+        reply="我决定投资这个项目。",
+    )
+
+    assert quality is not None
+    assert quality["status"] == "fail"
+    stored = deal_store.read_json(
+        tmp_path / "wiki" / "deals" / "DEAL-MEET-QUALITY" / "discussion" / "meeting_transcript.json",
+        {},
+    )
+    event = stored["events"][0]
+    assert event["event_type"] == "quality_check"
+    assert event["tone"] == "error"
+    assert event["agent_id"] == "siq_ic_finance_auditor"
+    assert "role.boundary=fail" in event["body"]
+
+    stored_quality = deal_store.read_json(
+        tmp_path / "wiki" / "deals" / "DEAL-MEET-QUALITY" / "discussion" / "meeting_quality.json",
+        {},
+    )
+    quality_event = stored_quality["events"][0]
+    assert stored_quality["schema_version"] == "siq_primary_market_meeting_quality_v1"
+    assert quality_event["profile_id"] == "siq_ic_finance_auditor"
+    assert quality_event["lane"] == "agent-siq_ic_finance_auditor"
+    assert quality_event["transcript_event_id"] == event["id"]
+    assert quality_event["quality"]["status"] == "fail"
+
+    response = client.get(
+        "/api/primary-market/meeting/DEAL-MEET-QUALITY/quality",
+        params={"lane": "agent-siq_ic_finance_auditor", "profile_id": "siq_ic_finance_auditor"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["schema_version"] == "siq_primary_market_meeting_quality_v1"
+    assert payload["total"] == 1
+    assert payload["events"][0]["quality"]["status"] == "fail"
+
+
+def test_primary_market_meeting_readiness_endpoint(monkeypatch, tmp_path):
+    client = _primary_market_client(monkeypatch, tmp_path)
+    deal_store.create_deal_package(deal_id="DEAL-MEET-READY", company_name="Ready Robotics")
+
+    response = client.get("/api/primary-market/meeting/DEAL-MEET-READY/agents/readiness")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["schema_version"] == "siq_primary_market_meeting_readiness_v1"
+    assert payload["deal_id"] == "DEAL-MEET-READY"
+    assert payload["summary"]["agents"] == len(ic_policy.IC_PROFILE_IDS)
+    assert {item["agent_id"] for item in payload["agents"]} == set(ic_policy.IC_PROFILE_IDS)
+    finance = next(item for item in payload["agents"] if item["agent_id"] == "siq_ic_finance_auditor")
+    assert finance["contract"]["startup_retrieval_required"] is True
+    assert finance["startup_receipt"]["required"] is True
+
+
+def test_primary_market_meeting_prepare_agent_appends_receipt_event(monkeypatch, tmp_path):
+    client = _primary_market_client(monkeypatch, tmp_path)
+    deal_store.create_deal_package(deal_id="DEAL-MEET-PREP", company_name="Prep Robotics")
+
+    def fake_generate_startup_retrieval_receipt(*args, **kwargs):
+        assert args[:2] == ("DEAL-MEET-PREP", "siq_ic_finance_auditor")
+        return {
+            "receipt_id": "startup-siq_ic_finance_auditor-R1-001",
+            "shared_hits": 2,
+            "private_hits": 0,
+            "gaps": ["missing_finance_evidence"],
+        }
+
+    monkeypatch.setattr(
+        primary_market_meeting.ic_startup_retrieval,
+        "generate_startup_retrieval_receipt",
+        fake_generate_startup_retrieval_receipt,
+    )
+    monkeypatch.setattr(
+        primary_market_meeting.primary_market_meeting_readiness,
+        "build_meeting_readiness",
+        lambda deal_id: {"deal_id": deal_id, "summary": {"agents": 7}},
+    )
+
+    response = client.post(
+        "/api/primary-market/meeting/DEAL-MEET-PREP/agents/siq_ic_finance_auditor/prepare",
+        json={"round_name": "R1", "limit": 5},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["agent_id"] == "siq_ic_finance_auditor"
+    assert payload["receipt"]["receipt_id"] == "startup-siq_ic_finance_auditor-R1-001"
+    assert payload["event"]["event_type"] == "receipt_generated"
+    assert payload["event"]["agent_id"] == "siq_ic_finance_auditor"
+
+
+def test_primary_market_meeting_workflow_advance_dry_run(monkeypatch, tmp_path):
+    client = _primary_market_client(monkeypatch, tmp_path)
+    deal_store.create_deal_package(deal_id="DEAL-MEET-WORKFLOW", company_name="Workflow Robotics")
+
+    def fake_dry_run(deal_id, **kwargs):
+        return {"deal_id": deal_id, "next_action": "run-r1-agent", "kwargs": kwargs}
+
+    monkeypatch.setattr(
+        primary_market_meeting.ic_agent_runtime,
+        "build_workflow_advance_next_dry_run",
+        fake_dry_run,
+    )
+
+    response = client.post(
+        "/api/primary-market/meeting/DEAL-MEET-WORKFLOW/workflow/advance",
+        json={"dry_run": True, "max_agents": 2},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["dry_run"] is True
+    assert payload["result"]["next_action"] == "run-r1-agent"
+    assert payload["result"]["kwargs"]["max_agents"] == 2
+    assert payload["event"]["event_type"] == "audit_event"
+    assert payload["event"]["lane"] == "workflow-main"
+    assert payload["event"]["meta"]["dry_run"] is True
+    stored = deal_store.read_json(
+        tmp_path / "wiki" / "deals" / "DEAL-MEET-WORKFLOW" / "discussion" / "meeting_transcript.json",
+        {},
+    )
+    assert stored["events"][0]["title"] == "Workflow 下一步预演"
+
+
+def test_primary_market_meeting_r1_agent_facade_dry_run_and_execute(monkeypatch, tmp_path):
+    client = _primary_market_client(monkeypatch, tmp_path)
+    deal_store.create_deal_package(deal_id="DEAL-MEET-R1AGENT", company_name="R1 Agent Robotics")
+    captured = {}
+
+    def fake_dry_run(deal_id, profile_id, **kwargs):
+        captured["dry_run"] = (deal_id, profile_id, kwargs)
+        return {
+            "schema_version": "siq_ic_workflow_r1_agent_run_dry_run_v1",
+            "deal_id": deal_id,
+            "agent_id": profile_id,
+            "workflow_action": "run-r1-agent",
+            "dry_run": True,
+            "allowed": True,
+        }
+
+    async def fake_run(deal_id, profile_id, **kwargs):
+        captured["execute"] = (deal_id, profile_id, kwargs)
+        return {
+            "schema_version": "siq_ic_workflow_r1_agent_run_v1",
+            "deal_id": deal_id,
+            "agent_id": profile_id,
+            "workflow_action": "run-r1-agent",
+            "dry_run": False,
+            "markdown_path": "discussion/01_R1_finance_auditor_report.md",
+            "json_path": "phases/r1_reports.json",
+            "hermes_run_id": "run-finance-1",
+            "report_written": True,
+            "workflow_advanced": True,
+            "report": {"score": 82, "recommendation": "watch"},
+        }
+
+    monkeypatch.setattr(primary_market_meeting.ic_agent_runtime, "build_workflow_r1_agent_run_dry_run", fake_dry_run)
+    monkeypatch.setattr(primary_market_meeting.ic_agent_runtime, "run_workflow_r1_agent", fake_run)
+    monkeypatch.setattr(
+        primary_market_meeting.primary_market_meeting_readiness,
+        "build_meeting_readiness",
+        lambda deal_id: {"deal_id": deal_id, "summary": {"r1_reports_present": 1}},
+    )
+
+    dry_response = client.post(
+        "/api/primary-market/meeting/DEAL-MEET-R1AGENT/agents/siq_ic_finance_auditor/run-r1",
+        json={"dry_run": True, "round_name": "R1"},
+    )
+    execute_response = client.post(
+        "/api/primary-market/meeting/DEAL-MEET-R1AGENT/agents/siq_ic_finance_auditor/run-r1",
+        json={"dry_run": False, "round_name": "R1", "allow_hermes": True},
+    )
+
+    assert dry_response.status_code == 200
+    dry_payload = dry_response.json()
+    assert dry_payload["dry_run"] is True
+    assert dry_payload["result"]["workflow_action"] == "run-r1-agent"
+    assert captured["dry_run"] == ("DEAL-MEET-R1AGENT", "siq_ic_finance_auditor", {"round_name": "R1"})
+
+    assert execute_response.status_code == 200
+    execute_payload = execute_response.json()
+    assert execute_payload["dry_run"] is False
+    assert execute_payload["agent_id"] == "siq_ic_finance_auditor"
+    assert execute_payload["event"]["event_type"] == "artifact_written"
+    assert execute_payload["event"]["lane"] == "agent-siq_ic_finance_auditor"
+    assert execute_payload["event"]["agent_id"] == "siq_ic_finance_auditor"
+    assert "artifact_path: discussion/01_R1_finance_auditor_report.md" in execute_payload["event"]["body"]
+    assert execute_payload["event"]["meta"]["source"] == "workflow.run_r1_agent"
+    assert captured["execute"][0:2] == ("DEAL-MEET-R1AGENT", "siq_ic_finance_auditor")
+    assert captured["execute"][2]["round_name"] == "R1"
+    assert captured["execute"][2]["created_by"]["username"] == "ic-admin"
+
+    stored = deal_store.read_json(
+        tmp_path / "wiki" / "deals" / "DEAL-MEET-R1AGENT" / "discussion" / "meeting_transcript.json",
+        {},
+    )
+    assert stored["events"][0]["event_type"] == "artifact_written"
+    assert stored["events"][0]["meta"]["artifact_path"] == "discussion/01_R1_finance_auditor_report.md"
+
+
+def test_primary_market_meeting_r1_agent_execution_requires_hermes_consent(monkeypatch, tmp_path):
+    client = _primary_market_client(monkeypatch, tmp_path)
+    deal_store.create_deal_package(deal_id="DEAL-MEET-R1AGENT-CONSENT", company_name="R1 Agent Consent")
+    called = {"run": False}
+
+    async def fake_run(*args, **kwargs):
+        called["run"] = True
+        return {}
+
+    monkeypatch.setattr(primary_market_meeting.ic_agent_runtime, "run_workflow_r1_agent", fake_run)
+
+    response = client.post(
+        "/api/primary-market/meeting/DEAL-MEET-R1AGENT-CONSENT/agents/siq_ic_finance_auditor/run-r1",
+        json={"dry_run": False, "round_name": "R1"},
+    )
+
+    assert response.status_code == 400
+    assert "allow_hermes" in response.json()["detail"]
+    assert called["run"] is False
+
+
+def test_primary_market_meeting_r1_serial_facade_dry_run_and_execute(monkeypatch, tmp_path):
+    client = _primary_market_client(monkeypatch, tmp_path)
+    deal_store.create_deal_package(deal_id="DEAL-MEET-R1SERIAL", company_name="R1 Serial Robotics")
+    captured = {}
+
+    def fake_dry_run(deal_id, **kwargs):
+        captured["dry_run"] = (deal_id, kwargs)
+        return {
+            "schema_version": "siq_ic_workflow_r1_serial_run_dry_run_v1",
+            "deal_id": deal_id,
+            "workflow_action": "run-r1-serial",
+            "dry_run": True,
+            "planned_agent_ids": ["siq_ic_strategist", "siq_ic_sector_expert"],
+            "planned_count": 2,
+        }
+
+    async def fake_run(deal_id, **kwargs):
+        captured["execute"] = (deal_id, kwargs)
+        return {
+            "schema_version": "siq_ic_workflow_r1_serial_run_v1",
+            "deal_id": deal_id,
+            "workflow_action": "run-r1-serial",
+            "dry_run": False,
+            "planned_agent_ids": ["siq_ic_strategist", "siq_ic_sector_expert"],
+            "executed_agent_ids": ["siq_ic_strategist", "siq_ic_sector_expert"],
+            "executed_count": 2,
+            "report_written": True,
+            "workflow_advanced": True,
+            "agent_runs": [
+                {"agent_id": "siq_ic_strategist", "markdown_path": "discussion/01_R1_strategist_report.md"},
+                {"agent_id": "siq_ic_sector_expert", "markdown_path": "discussion/02_R1_sector_expert_report.md"},
+            ],
+        }
+
+    monkeypatch.setattr(primary_market_meeting.ic_agent_runtime, "build_workflow_r1_serial_run_dry_run", fake_dry_run)
+    monkeypatch.setattr(primary_market_meeting.ic_agent_runtime, "run_workflow_r1_serial", fake_run)
+    monkeypatch.setattr(
+        primary_market_meeting.primary_market_meeting_readiness,
+        "build_meeting_readiness",
+        lambda deal_id: {"deal_id": deal_id, "summary": {"r1_reports_present": 2}},
+    )
+
+    dry_response = client.post(
+        "/api/primary-market/meeting/DEAL-MEET-R1SERIAL/workflow/run-r1-serial",
+        json={"dry_run": True, "round_name": "R1", "max_agents": 2},
+    )
+    execute_response = client.post(
+        "/api/primary-market/meeting/DEAL-MEET-R1SERIAL/workflow/run-r1-serial",
+        json={"dry_run": False, "round_name": "R1", "max_agents": 2, "allow_hermes": True},
+    )
+
+    assert dry_response.status_code == 200
+    dry_payload = dry_response.json()
+    assert dry_payload["dry_run"] is True
+    assert dry_payload["result"]["planned_count"] == 2
+    assert captured["dry_run"] == ("DEAL-MEET-R1SERIAL", {"round_name": "R1", "max_agents": 2})
+
+    assert execute_response.status_code == 200
+    execute_payload = execute_response.json()
+    assert execute_payload["dry_run"] is False
+    assert execute_payload["event"]["event_type"] == "artifact_written"
+    assert execute_payload["event"]["lane"] == "workflow-main"
+    assert execute_payload["event"]["agent_id"] == "siq_ic_master_coordinator"
+    assert "executed_count: 2" in execute_payload["event"]["body"]
+    assert "discussion/01_R1_strategist_report.md" in execute_payload["event"]["body"]
+    assert execute_payload["event"]["meta"]["source"] == "workflow.run_r1_serial"
+    assert captured["execute"][0] == "DEAL-MEET-R1SERIAL"
+    assert captured["execute"][1]["max_agents"] == 2
+    assert captured["execute"][1]["created_by"]["username"] == "ic-admin"
+
+    stored = deal_store.read_json(
+        tmp_path / "wiki" / "deals" / "DEAL-MEET-R1SERIAL" / "discussion" / "meeting_transcript.json",
+        {},
+    )
+    assert stored["events"][0]["event_type"] == "artifact_written"
+    assert stored["events"][0]["meta"]["executed_agent_ids"] == ["siq_ic_strategist", "siq_ic_sector_expert"]
+
+
+def test_primary_market_meeting_r1_serial_execution_requires_hermes_consent(monkeypatch, tmp_path):
+    client = _primary_market_client(monkeypatch, tmp_path)
+    deal_store.create_deal_package(deal_id="DEAL-MEET-R1SERIAL-CONSENT", company_name="R1 Serial Consent")
+    called = {"run": False}
+
+    async def fake_run(*args, **kwargs):
+        called["run"] = True
+        return {}
+
+    monkeypatch.setattr(primary_market_meeting.ic_agent_runtime, "run_workflow_r1_serial", fake_run)
+
+    response = client.post(
+        "/api/primary-market/meeting/DEAL-MEET-R1SERIAL-CONSENT/workflow/run-r1-serial",
+        json={"dry_run": False, "round_name": "R1", "max_agents": 2},
+    )
+
+    assert response.status_code == 400
+    assert "allow_hermes" in response.json()["detail"]
+    assert called["run"] is False
 
 
 def test_primary_market_meeting_transcript_appends_event(monkeypatch, tmp_path):
