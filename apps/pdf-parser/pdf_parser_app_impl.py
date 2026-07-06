@@ -3088,6 +3088,7 @@ def _write_quality_artifacts(task, markdown, file_name=None, content_list=None, 
             "generated_at": _now_iso(),
         }
     )
+    _write_json(os.path.join(result_dir, "content_list_enhanced.json"), enhanced_content_list)
     report = _build_quality_report(
         markdown,
         task,
@@ -3114,7 +3115,6 @@ def _write_quality_artifacts(task, markdown, file_name=None, content_list=None, 
         report["financial_overall_status"] = "error"
         financial_data = None
         financial_checks = None
-    _write_json(os.path.join(result_dir, "content_list_enhanced.json"), enhanced_content_list)
     _write_complete_markdown_artifact(task, markdown, enhanced_content_list)
     quality_service.write_quality_report_files(task, report, _result_dir, _write_json)
     table_relations = _write_table_relations_artifact(
@@ -3271,8 +3271,16 @@ def _quality_report_matches_market_profile(report, expected_market):
 def _ensure_quality_report(task, markdown):
     financial_data, financial_checks = _ensure_financial_artifacts(task, markdown)
     report = _read_quality_report(task)
+    if not isinstance(report, dict):
+        content_list = _load_json_artifact(task, "content_list.json")
+        return _write_quality_artifacts(
+            task,
+            markdown,
+            file_name=task.get("filename"),
+            content_list=content_list,
+        )
     expected_market = financial_service.detect_market(task, task.get("filename"))
-    cached_market = str(report.get("market") or report.get("market_profile") or "").upper() if isinstance(report, dict) else ""
+    cached_market = str(report.get("market") or report.get("market_profile") or "").upper()
     market_profile_matches = expected_market not in {"HK", "JP", "KR", "EU", "US"} or cached_market == expected_market
     candidate_profile_matches = _quality_report_matches_market_profile(report, expected_market)
     if (

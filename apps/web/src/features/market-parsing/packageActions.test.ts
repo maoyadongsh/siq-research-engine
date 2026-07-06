@@ -91,33 +91,35 @@ test('runMarketPackageImportAction keeps parse_run fallback output', async () =>
 })
 
 test('runMarketPackageImportAction defaults HK imports to ddl enabled and preserves stdout', async () => {
-  const calls: Array<{ market: string; packagePath: string; ddl?: boolean }> = []
+  const calls: Array<{ market: string; packagePath: string; ddl?: boolean; force?: boolean }> = []
   const deps = makeDeps({
-    runImport: async (market, packagePath, ddl) => {
-      calls.push({ market, packagePath, ddl })
+    runImport: async (market, packagePath, ddl, force) => {
+      calls.push({ market, packagePath, ddl, force })
       return { ok: true, stdout: 'hk import ok\n' }
     },
   })
 
-  const result = await runMarketPackageImportAction({ market: 'HK', packagePath: 'HK/pkg' }, deps)
+  const result = await runMarketPackageImportAction({ market: 'HK', packagePath: 'HK/pkg', force: true }, deps)
 
   assert.equal(calls[0].market, 'HK')
   assert.equal(calls[0].packagePath, 'HK/pkg')
   assert.equal(calls[0].ddl, true)
+  assert.equal(calls[0].force, true)
   assert.equal(result.output, 'hk import ok\n')
 })
 
 test('runMarketPackageVectorDryRunAction serializes summary output', async () => {
   const deps = makeDeps({
-    runVectorIngest: async (market, packagePath, dryRun) => {
+    runVectorIngest: async (market, packagePath, dryRun, force) => {
       assert.equal(market, 'KR')
       assert.equal(packagePath, 'KR/pkg')
       assert.equal(dryRun, true)
+      assert.equal(force, true)
       return { ok: true, summary: { chunks: 12, dry_run: true } }
     },
   })
 
-  const result = await runMarketPackageVectorDryRunAction({ market: 'KR', packagePath: 'KR/pkg' }, deps)
+  const result = await runMarketPackageVectorDryRunAction({ market: 'KR', packagePath: 'KR/pkg', force: true }, deps)
 
   assert.equal(result.output, formatMarketPackageVectorOutput({ summary: { chunks: 12, dry_run: true } }))
   assert.match(result.output, /"chunks": 12/)

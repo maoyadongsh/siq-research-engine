@@ -17,6 +17,7 @@ def _ensure_monorepo_contracts_on_path() -> None:
 
 try:
     from siq_market_contracts import (
+        build_quality_gates as _build_contract_quality_gates,
         market_package_paths,
         read_json as _read_contract_json,
         read_market_package_detail as _read_contract_market_package_detail,
@@ -25,6 +26,7 @@ try:
 except ModuleNotFoundError:
     _ensure_monorepo_contracts_on_path()
     from siq_market_contracts import (
+        build_quality_gates as _build_contract_quality_gates,
         market_package_paths,
         read_json as _read_contract_json,
         read_market_package_detail as _read_contract_market_package_detail,
@@ -154,6 +156,10 @@ def read_market_package_summary(package_dir: Path) -> dict[str, Any]:
 def read_market_package_detail(package_dir: Path) -> dict[str, Any]:
     package_dir = package_dir.resolve()
     return _read_contract_market_package_detail(package_dir, display_path=_rel_or_abs(package_dir))
+
+
+def build_quality_gates(package_dir: Path) -> dict[str, Any]:
+    return _build_contract_quality_gates(package_dir.resolve())
 
 
 def find_market_package_by_filing_id(

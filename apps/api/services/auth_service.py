@@ -150,6 +150,11 @@ def _siq_int_env(name: str, default: int) -> int:
         return default
 
 
+def _siq_bool_env(name: str, default: bool = False) -> bool:
+    raw = _siq_env(name, "1" if default else "0").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
 def _auth_secret_from_env() -> str:
     secret = _siq_env("SIQ_AUTH_SECRET_KEY").strip()
     if len(secret) < 32:
@@ -164,6 +169,8 @@ class AuthService:
 
     ALGORITHM = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES = _siq_int_env("SIQ_ACCESS_TOKEN_EXPIRE_MINUTES", 480)
+    ACCESS_COOKIE_NAME = _siq_env("SIQ_AUTH_ACCESS_COOKIE_NAME", "siq_access_token")
+    ACCESS_COOKIE_PATH = _siq_env("SIQ_AUTH_COOKIE_PATH", "/")
     PASSWORD_HASH_ITERATIONS = _siq_int_env("SIQ_PASSWORD_HASH_ITERATIONS", 100000)
 
     @staticmethod
@@ -173,6 +180,23 @@ class AuthService:
     @staticmethod
     def validate_runtime_config() -> None:
         AuthService.secret_key()
+
+    @staticmethod
+    def cookie_mode_enabled() -> bool:
+        return _siq_bool_env("SIQ_AUTH_COOKIE_MODE")
+
+    @staticmethod
+    def access_cookie_max_age_seconds() -> int:
+        return max(60, AuthService.ACCESS_TOKEN_EXPIRE_MINUTES * 60)
+
+    @staticmethod
+    def access_cookie_secure() -> bool:
+        return _siq_bool_env("SIQ_AUTH_COOKIE_SECURE")
+
+    @staticmethod
+    def access_cookie_samesite() -> str:
+        value = _siq_env("SIQ_AUTH_COOKIE_SAMESITE", "lax").strip().lower()
+        return value if value in {"lax", "strict", "none"} else "lax"
 
     @staticmethod
     def hash_password(password: str) -> str:

@@ -165,6 +165,39 @@ def _read_market_package_detail(package_dir: Path) -> dict[str, Any]:
     return market_packages.read_market_package_detail(package_dir)
 
 
+def _quality_gates_for_package(package_dir: Path) -> dict[str, Any]:
+    return market_packages.build_quality_gates(package_dir)
+
+
+def _payload_force_enabled(payload: dict[str, Any]) -> bool:
+    value = payload.get("force")
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _enforce_market_package_quality_gate(
+    *,
+    package_dir: Path,
+    payload: dict[str, Any],
+    action: str,
+) -> None:
+    gates = _quality_gates_for_package(package_dir)
+    blocked_key = "vector_ingest_blocked" if action == "vector_ingest" else "import_blocked"
+    if not gates.get(blocked_key):
+        return
+    if _payload_force_enabled(payload):
+        return
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "message": "Quality gates block this action; retry with force=true to override.",
+            "action": action,
+            "quality_gates": gates,
+        },
+    )
+
+
 def _markets_to_search(market: str | None) -> list[str]:
     return market_packages.markets_to_search(market, MARKET_WIKI_ROOTS)
 
@@ -265,6 +298,11 @@ def _run_market_package_import(payload: dict[str, Any]) -> dict[str, Any]:
         )
     except market_report_commands.MarketPackagePlanError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    _enforce_market_package_quality_gate(
+        package_dir=plan.package_dir,
+        payload=payload,
+        action="import",
+    )
     args = market_report_commands.market_package_import_args(
         executable=sys.executable,
         script=plan.script,
@@ -299,6 +337,11 @@ def _run_market_vector_ingest(payload: dict[str, Any]) -> dict[str, Any]:
         )
     except market_report_commands.MarketPackagePlanError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    _enforce_market_package_quality_gate(
+        package_dir=plan.package_dir,
+        payload=payload,
+        action="vector_ingest",
+    )
     args, _dry_run = market_report_commands.market_vector_ingest_args(
         executable=sys.executable,
         script=plan.script,
@@ -371,6 +414,7 @@ def _package_from_selector(payload: dict[str, Any]) -> Path:
 def _read_package_detail(package_dir: Path) -> dict[str, Any]:
     manifest = _read_json_file(package_dir / "manifest.json", {})
     quality = _read_json_file(package_dir / "qa" / "quality_report.json", {})
+    financial_data = _read_json_file(package_dir / "metrics" / "financial_data.json", {})
     financial_checks = _read_json_file(package_dir / "metrics" / "financial_checks.json", {})
     sections = (_read_json_file(package_dir / "sections.json", {}) or {}).get("sections") or []
     tables = (_read_json_file(package_dir / "tables" / "table_index.json", {}) or {}).get("tables") or []
@@ -395,6 +439,8 @@ def _read_package_detail(package_dir: Path) -> dict[str, Any]:
         "package_path": str(package_dir.relative_to(REPO_ROOT)) if package_dir.is_relative_to(REPO_ROOT) else str(package_dir),
         "manifest": manifest,
         "quality": quality,
+        "quality_gates": _quality_gates_for_package(package_dir),
+        "financial_data": financial_data,
         "financial_checks": financial_checks,
         "bridge_checks": {
             "overall_status": financial_checks.get("overall_status") if isinstance(financial_checks, dict) else None,

@@ -80,6 +80,32 @@ export function accessToken() {
   return readStoredAccessToken()
 }
 
+function truthyFlag(value: unknown): boolean {
+  return ['1', 'true', 'yes', 'on'].includes(String(value ?? '').trim().toLowerCase())
+}
+
+function runtimeFlag(name: string): string {
+  const metaEnv = (import.meta as unknown as { env?: Record<string, string | undefined> }).env
+  const envValue = metaEnv?.[name] ?? metaEnv?.[`VITE_${name}`]
+  if (envValue !== undefined) return envValue
+
+  const runtimeConfig = (globalThis as typeof globalThis & {
+    __SIQ_CONFIG__?: Record<string, unknown>
+  }).__SIQ_CONFIG__
+  const configValue = runtimeConfig?.[name] ?? runtimeConfig?.[`VITE_${name}`]
+  if (configValue !== undefined) return String(configValue)
+
+  try {
+    return localStorage.getItem(name) ?? localStorage.getItem(`VITE_${name}`) ?? ''
+  } catch {
+    return ''
+  }
+}
+
+export function authCookieModeEnabled() {
+  return truthyFlag(runtimeFlag('SIQ_AUTH_COOKIE_MODE'))
+}
+
 function attachAuthorization(headers: Headers, url: string) {
   const token = accessToken()
   if (token && shouldAttachAuth(url) && !headers.has('Authorization')) {
@@ -162,7 +188,11 @@ export async function apiFetch(input: RequestInfo | URL, init: ApiRequestInit = 
   attachAuthorization(headers, url)
 
   const body = prepareBodyAndHeaders(init, headers)
-  return globalThis.fetch(input, { ...init, headers, body })
+  const requestInit: RequestInit = { ...init, headers, body }
+  if (requestInit.credentials === undefined && authCookieModeEnabled() && shouldAttachAuth(url)) {
+    requestInit.credentials = 'include'
+  }
+  return globalThis.fetch(input, requestInit)
 }
 
 export async function readJsonResponse<T = unknown>(response: Response): Promise<T> {

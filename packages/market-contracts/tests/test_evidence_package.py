@@ -3,6 +3,7 @@ from pathlib import Path
 
 from siq_market_contracts import (
     SCHEMA_VERSION,
+    build_quality_gates,
     compute_artifact_hashes,
     read_market_package_detail,
     read_market_package_summary,
@@ -119,7 +120,12 @@ def test_validate_and_read_market_package(tmp_path):
     assert summary["package_path"] == "hk/companies/00700-TENCENT/reports/2025-annual-12100024"
     assert summary["paths"]["manifest"] == "manifest.json"
     assert summary["counts"] == {"sections": 1, "tables": 1, "raw_facts": 0, "metrics": 1, "evidence": 1}
+    assert summary["quality_gates"]["overall_status"] == "warning"
+    assert summary["quality_gates"]["import_blocked"] is True
+    assert summary["quality_gates"]["evidence_coverage_ratio"] == 1
+    assert "income_statement" in summary["quality_gates"]["missing_required_statements"]
     assert detail["manifest"]["schema_version"] == SCHEMA_VERSION
+    assert detail["quality_gates"]["artifact_hash_status"] == "ok"
     assert detail["metrics"] == [{"metric_id": "m1"}]
     assert detail["tables"] == [{"table_index": 1}]
 
@@ -138,3 +144,15 @@ def test_validate_rejects_missing_evidence(tmp_path):
 
     assert not result.ok
     assert any("missing evidence" in error for error in result.errors)
+
+
+def test_quality_gates_fail_on_artifact_hash_mismatch(tmp_path):
+    package_dir = _write_package(tmp_path)
+    (package_dir / "sections" / "report.md").write_text("# Tampered\n", encoding="utf-8")
+
+    gates = build_quality_gates(package_dir)
+
+    assert gates["overall_status"] == "fail"
+    assert gates["artifact_hash_status"] == "mismatch"
+    assert gates["import_blocked"] is True
+    assert "sections/report.md" in gates["artifact_hash_mismatches"]

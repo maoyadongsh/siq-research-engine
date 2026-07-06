@@ -111,3 +111,72 @@ jobs:
       - name: Run frontend check
         working-directory: apps/web
         run: npm run check:frontend
+
+  python-services:
+    name: Python service tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install parser test dependencies
+        run: |
+          python -m pip install --upgrade pip uv pytest
+          python -m pip install -r apps/pdf-parser/requirements.txt -r apps/document-parser/requirements.txt
+
+      - name: Run PDF parser tests
+        working-directory: apps/pdf-parser
+        run: python -m pytest tests
+
+      - name: Run document parser tests
+        working-directory: apps/document-parser
+        run: python -m pytest tests
+
+      - name: Run market report finder tests
+        working-directory: services/market-report-finder
+        run: |
+          uv sync --frozen --extra dev
+          uv run python -m pytest tests
+
+      - name: Run market report rules tests
+        working-directory: services/market-report-rules
+        run: |
+          uv sync --frozen --extra dev
+          uv run pytest
+
+      - name: Run market contracts tests
+        working-directory: packages/market-contracts
+        run: |
+          uv sync --frozen --extra dev
+          uv run python -m pytest tests
+
+  web-e2e-smoke:
+    name: Web E2E smoke
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install web dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        working-directory: apps/web
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright smoke tests
+        working-directory: apps/web
+        run: npm run e2e

@@ -1,0 +1,84 @@
+[
+  {
+    "case_id": "hk-00700-2025-annual-mvp",
+    "market": "HK",
+    "ticker": "00700",
+    "company_name": "TENCENT",
+    "report_type": "annual",
+    "fiscal_year": 2025,
+    "source_tier": "official",
+    "source_id": "hkex",
+    "pdf_path": "data/market-report-finder/downloads/HK/TENCENT/2025/年报/TENCENT_HK_00700_2025-12-31_年报_2026-04-09_hkex_691d0e45.pdf",
+    "metadata_json": "data/market-report-finder/downloads/HK/TENCENT/2025/年报/TENCENT_HK_00700_2025-12-31_年报_2026-04-09_hkex_691d0e45.pdf.metadata.json",
+    "expected_metrics": [
+      "operating_revenue",
+      "net_profit",
+      "total_assets",
+      "operating_cash_flow"
+    ],
+    "expected_statements": [
+      "income_statement",
+      "balance_sheet",
+      "cash_flow_statement"
+    ],
+    "expected_evidence": true,
+    "quality_thresholds": {
+      "evidence_coverage_ratio": 0.8,
+      "statement_coverage": 1.0,
+      "bridge_check_pass_rate": 0.95
+    },
+    "qa_checks": [
+      {
+        "question": "2025 财年营业收入是多少？",
+        "answer_metric": "operating_revenue",
+        "requires_citation": true
+      },
+      {
+        "question": "经营现金流是否有原文证据？",
+        "answer_metric": "operating_cash_flow",
+        "requires_citation": true
+      }
+    ]
+  },
+  {
+    "case_id": "hk-01299-2025-annual-mvp",
+    "market": "HK",
+    "ticker": "01299",
+    "company_name": "AIA",
+    "report_type": "annual",
+    "fiscal_year": 2025,
+    "source_tier": "official",
+    "source_id": "hkex",
+    "pdf_path": "data/market-report-finder/downloads/HK/AIA/2025/年报/AIA_HK_01299_2025-12-31_年报_2026-04-15_hkex_678ba4ef.pdf",
+    "metadata_json": "data/market-report-finder/downloads/HK/AIA/2025/年报/AIA_HK_01299_2025-12-31_年报_2026-04-15_hkex_678ba4ef.pdf.metadata.json",
+    "expected_metrics": [
+      "net_profit",
+      "total_assets",
+      "total_equity"
+    ],
+    "expected_statements": [
+      "income_statement",
+      "balance_sheet",
+      "cash_flow_statement"
+    ],
+    "expected_evidence": true,
+    "quality_thresholds": {
+      "evidence_coverage_ratio": 0.8,
+      "statement_coverage": 1.0,
+      "bridge_check_pass_rate": 0.95
+    },
+    "qa_checks": [
+      {
+        "question": "2025 财年净利润是多少？",
+        "answer_metric": "net_profit",
+        "requires_citation": true
+      },
+      {
+        "question": "若缺少现金流量表证据，系统是否拒绝给出确定结论？",
+        "answer_metric": "cash_flow_statement",
+        "requires_citation": true,
+        "expects_abstention_when_missing": true
+      }
+    ]
+  }
+]

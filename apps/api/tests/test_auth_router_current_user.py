@@ -1,6 +1,6 @@
 import anyio
 import pytest
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Response
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel import SQLModel
@@ -69,6 +69,15 @@ def test_auth_router_get_current_user_uses_async_session(auth_router_client):
     assert response.json() == {"id": state["user_id"], "username": "router-user"}
 
 
+def test_auth_router_get_current_user_accepts_cookie_token(auth_router_client):
+    client, state = auth_router_client
+
+    response = client.get("/me", cookies={AuthService.ACCESS_COOKIE_NAME: state["token"]})
+
+    assert response.status_code == 200
+    assert response.json() == {"id": state["user_id"], "username": "router-user"}
+
+
 def test_auth_router_get_current_user_keeps_missing_user_error(auth_router_client):
     client, _state = auth_router_client
     token = AuthService.create_access_token({"sub": "missing-router-user"})
@@ -77,3 +86,23 @@ def test_auth_router_get_current_user_keeps_missing_user_error(auth_router_clien
 
     assert response.status_code == 401
     assert response.json()["detail"] == "用户不存在"
+
+
+def test_auth_router_cookie_mode_sets_and_clears_httponly_cookie(monkeypatch):
+    monkeypatch.setenv("SIQ_AUTH_COOKIE_MODE", "1")
+    monkeypatch.setenv("SIQ_AUTH_COOKIE_SECURE", "0")
+
+    response = Response()
+    auth._set_access_cookie(response, "jwt-token")
+
+    cookie_header = response.headers["set-cookie"]
+    assert f"{AuthService.ACCESS_COOKIE_NAME}=jwt-token" in cookie_header
+    assert "HttpOnly" in cookie_header
+    assert "SameSite=lax" in cookie_header
+
+    clear_response = Response()
+    auth._clear_access_cookie(clear_response)
+
+    clear_header = clear_response.headers["set-cookie"]
+    assert f"{AuthService.ACCESS_COOKIE_NAME}=" in clear_header
+    assert "Max-Age=0" in clear_header

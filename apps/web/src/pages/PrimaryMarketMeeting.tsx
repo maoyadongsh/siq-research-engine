@@ -520,9 +520,9 @@ export default function PrimaryMarketMeeting() {
 
   const agenda = useMemo(() => deriveMeetingAgenda(bundle), [bundle])
   const baseEvents = useMemo(() => buildMeetingEvents(bundle), [bundle])
-  const persistedEvents = persistedEventsByLane[activeLane] || []
+  const persistedEvents = useMemo(() => persistedEventsByLane[activeLane] || [], [activeLane, persistedEventsByLane])
   const persistedEventIds = useMemo(() => new Set(persistedEvents.map((event) => event.id)), [persistedEvents])
-  const localEvents = localEventsByLane[activeLane] || []
+  const localEvents = useMemo(() => localEventsByLane[activeLane] || [], [activeLane, localEventsByLane])
   const visibleLocalEvents = useMemo(
     () => localEvents.filter((event) => !persistedEventIds.has(event.id)),
     [localEvents, persistedEventIds],
@@ -555,7 +555,7 @@ export default function PrimaryMarketMeeting() {
   const humanConfirmed = humanConfirmation?.confirmed === true || ['confirmed', 'approved'].includes(humanStatus.toLowerCase())
   const decisionReadyForHuman = Boolean(bundle.decision?.report_path || decisionContract?.decision || decisionContract?.artifacts?.markdown?.available)
   const recentTranscriptEvents = useMemo(() => laneEvents.slice(-4).reverse(), [laneEvents])
-  const chatMessages = chatMessagesByLane[activeLane] || []
+  const chatMessages = useMemo(() => chatMessagesByLane[activeLane] || [], [activeLane, chatMessagesByLane])
   const chatSessions = useMemo(
     () => (chatSessionsByLane[activeLane] || []).map((session) => ({
       ...session,

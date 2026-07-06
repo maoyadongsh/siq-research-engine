@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -31,10 +32,10 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def load_cases() -> list[dict[str, Any]]:
+def load_cases(case_root: Path = CASE_ROOT) -> list[dict[str, Any]]:
     cases: list[dict[str, Any]] = []
     seen: set[tuple[Any, Any, Any, Any]] = set()
-    for path in sorted(CASE_ROOT.glob("*_cases.json")):
+    for path in sorted(case_root.glob("*_cases.json")):
         payload = read_json(path, [])
         if isinstance(payload, list):
             for item in payload:
@@ -155,6 +156,18 @@ def evaluate_case(case: dict[str, Any]) -> dict[str, Any]:
     source_map = read_json(package_dir / "qa" / "source_map.json", {})
     source_entries = _source_entries(source_map)
     evidence_count = len(source_entries)
+    bridge_checks = _read_first_json(
+        package_dir,
+        [
+            Path("qa/financial_checks.json"),
+            Path("checks/financial_checks.json"),
+            Path("metrics/financial_checks.json"),
+            Path("financial_checks.json"),
+        ],
+    )
+    evidence_coverage_ratio = _evidence_coverage_ratio(quality, evidence_count, case)
+    statement_coverage = _statement_coverage(quality, case)
+    bridge_check_pass_rate = _bridge_check_pass_rate(bridge_checks)
     expected = set(case.get("expected_metrics") or [])
     missing_metrics = sorted(expected - metric_names)
     missing_evidence = bool(case.get("expected_evidence")) and evidence_count == 0
@@ -172,10 +185,69 @@ def evaluate_case(case: dict[str, Any]) -> dict[str, Any]:
             "tables": quality.get("table_count"),
             "raw_facts": quality.get("raw_fact_count"),
         },
+        "evidence_coverage_ratio": evidence_coverage_ratio,
+        "statement_coverage": statement_coverage,
+        "bridge_check_pass_rate": bridge_check_pass_rate,
         "missing_metrics": missing_metrics,
         "missing_evidence": missing_evidence,
         "gate_failures": gate_failures,
     }
+
+
+def _read_first_json(package_dir: Path, relative_paths: list[Path]) -> Any:
+    for relative_path in relative_paths:
+        path = package_dir / relative_path
+        if path.exists():
+            return read_json(path, {})
+    return {}
+
+
+def _evidence_coverage_ratio(quality: dict[str, Any], evidence_count: int, case: dict[str, Any]) -> float | None:
+    for key in ("evidence_coverage_ratio", "evidence_coverage", "coverage_ratio"):
+        value = _number_or_none(quality.get(key))
+        if value is not None:
+            return value / 100 if 1 < value <= 100 else value
+    if case.get("expected_evidence"):
+        return 1.0 if evidence_count > 0 else 0.0
+    return None
+
+
+def _statement_coverage(quality: dict[str, Any], case: dict[str, Any]) -> float | None:
+    status = quality.get("required_statement_status")
+    if isinstance(status, dict) and status:
+        present = sum(1 for value in status.values() if _is_present_status(value))
+        return present / len(status)
+    expected = [str(item) for item in case.get("expected_statements") or []]
+    missing = quality.get("missing_required_statements")
+    if expected and isinstance(missing, list):
+        missing_set = {str(item) for item in missing}
+        return (len(expected) - len(missing_set.intersection(expected))) / len(expected)
+    return None
+
+
+def _bridge_check_pass_rate(payload: Any) -> float | None:
+    if not isinstance(payload, dict) or not payload:
+        return None
+    summary = payload.get("summary")
+    if isinstance(summary, dict):
+        passed = _number_or_none(summary.get("pass")) or 0.0
+        total = sum(_number_or_none(value) or 0.0 for value in summary.values())
+        return passed / total if total else None
+    checks = payload.get("checks")
+    if isinstance(checks, list) and checks:
+        statuses = [str(item.get("status") or "").lower() for item in checks if isinstance(item, dict)]
+        if statuses:
+            return statuses.count("pass") / len(statuses)
+    overall = str(payload.get("overall_status") or payload.get("status") or "").lower()
+    if overall == "pass":
+        return 1.0
+    if overall in {"warning", "fail", "error"}:
+        return 0.0
+    return None
+
+
+def _is_present_status(value: Any) -> bool:
+    return str(value).strip().lower() in {"present", "pass", "ok", "ready", "available", "true"}
 
 
 def _quality_gate_failures(
@@ -307,6 +379,93 @@ def _number(value: Any) -> float:
         return 0.0
 
 
+def _number_or_none(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def summarize_items(items: list[dict[str, Any]]) -> dict[str, Any]:
+    summary: dict[str, Any] = {"cases": len(items), "pass": 0, "fail": 0, "missing_package": 0, "by_market": {}}
+    for item in items:
+        status = item["status"]
+        summary[status] = summary.get(status, 0) + 1
+        market = item.get("market")
+        bucket = summary["by_market"].setdefault(market, {"cases": 0, "pass": 0, "fail": 0, "missing_package": 0})
+        bucket["cases"] += 1
+        bucket[status] = bucket.get(status, 0) + 1
+    summary["quality_metrics"] = _quality_metrics(items)
+    return summary
+
+
+def _quality_metrics(items: list[dict[str, Any]]) -> dict[str, float | None]:
+    return {
+        "official_source_hit_rate": _rate(items, _is_official_source),
+        "parser_success_rate": _rate(items, lambda item: item.get("status") != "missing_package"),
+        "evidence_coverage_ratio": _mean(_metric_values(items, "evidence_coverage_ratio")),
+        "statement_coverage": _mean(_metric_values(items, "statement_coverage")),
+        "bridge_check_pass_rate": _mean(_metric_values(items, "bridge_check_pass_rate")),
+        "answer_citation_rate": _answer_eval_rate(items, "has_valid_citation"),
+        "numeric_accuracy": _answer_eval_rate(items, "numeric_correct"),
+        "hallucination_block_rate": _answer_eval_rate(items, "hallucination_blocked"),
+    }
+
+
+def _rate(items: list[dict[str, Any]], predicate: Any) -> float | None:
+    if not items:
+        return None
+    return sum(1 for item in items if predicate(item)) / len(items)
+
+
+def _mean(values: list[float]) -> float | None:
+    return sum(values) / len(values) if values else None
+
+
+def _metric_values(items: list[dict[str, Any]], key: str) -> list[float]:
+    values = []
+    for item in items:
+        value = _number_or_none(item.get(key))
+        if value is not None:
+            values.append(value)
+    return values
+
+
+def _is_official_source(item: dict[str, Any]) -> bool:
+    source_tier = str(item.get("source_tier") or "").lower()
+    if source_tier in {"official", "regulator", "exchange", "issuer"}:
+        return True
+    source_text = " ".join(
+        str(item.get(key) or "").lower()
+        for key in ("source_id", "source_pdf", "source_file", "pdf_path", "metadata_json")
+    )
+    official_markers = ("hkex", "sec", "edgar", "edinet", "dart", "esef", "six_direct", "eu_direct")
+    return any(marker in source_text for marker in official_markers)
+
+
+def _answer_eval_rate(items: list[dict[str, Any]], key: str) -> float | None:
+    values = []
+    for item in items:
+        for entry in _answer_evaluations(item):
+            if key in entry:
+                values.append(bool(entry.get(key)))
+    return sum(1 for value in values if value) / len(values) if values else None
+
+
+def _answer_evaluations(item: dict[str, Any]) -> list[dict[str, Any]]:
+    for key in ("answer_evals", "answer_evaluations", "qa_evaluations"):
+        payload = item.get(key)
+        if isinstance(payload, list):
+            return [entry for entry in payload if isinstance(entry, dict)]
+    return []
+
+
+def _format_metric(value: Any) -> str:
+    number = _number_or_none(value)
+    return "-" if number is None else f"{number:.2%}"
+
+
 def markdown_report(report: dict[str, Any]) -> str:
     lines = [
         "# Market Ingestion Evaluation",
@@ -317,9 +476,30 @@ def markdown_report(report: dict[str, Any]) -> str:
         f"- Failed: `{report['summary']['fail']}`",
         f"- Missing packages: `{report['summary']['missing_package']}`",
         "",
-        "| Market | Country | Ticker | Year | Format | Status | Quality | Metrics | Evidence | Missing | Gates |",
-        "| --- | --- | --- | ---: | --- | --- | --- | ---: | ---: | --- | --- |",
+        "## Quality Metrics",
+        "",
+        "| Metric | Value |",
+        "| --- | ---: |",
     ]
+    metrics = report["summary"].get("quality_metrics") or {}
+    for key in (
+        "official_source_hit_rate",
+        "parser_success_rate",
+        "evidence_coverage_ratio",
+        "statement_coverage",
+        "bridge_check_pass_rate",
+        "answer_citation_rate",
+        "numeric_accuracy",
+        "hallucination_block_rate",
+    ):
+        lines.append(f"| {key} | {_format_metric(metrics.get(key))} |")
+    lines.extend(
+        [
+            "",
+            "| Market | Country | Ticker | Year | Format | Status | Quality | Metrics | Evidence | Missing | Gates |",
+            "| --- | --- | --- | ---: | --- | --- | --- | ---: | ---: | --- | --- |",
+        ]
+    )
     for item in report["items"]:
         counts = item.get("counts") or {}
         lines.append(
@@ -333,18 +513,13 @@ def markdown_report(report: dict[str, Any]) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate market evidence package coverage against static cases.")
+    parser.add_argument("--case-root", type=Path, default=CASE_ROOT)
     parser.add_argument("--output", type=Path, default=REPO_ROOT / "eval_datasets" / "market_ingestion_cases" / "market_ingestion_eval_report.json")
     parser.add_argument("--markdown", type=Path, default=REPO_ROOT / "eval_datasets" / "market_ingestion_cases" / "market_ingestion_eval_report.md")
     args = parser.parse_args()
-    items = [evaluate_case(case) for case in load_cases()]
-    summary = {"cases": len(items), "pass": 0, "fail": 0, "missing_package": 0, "by_market": {}}
-    for item in items:
-        status = item["status"]
-        summary[status] = summary.get(status, 0) + 1
-        market = item.get("market")
-        bucket = summary["by_market"].setdefault(market, {"cases": 0, "pass": 0, "fail": 0, "missing_package": 0})
-        bucket["cases"] += 1
-        bucket[status] = bucket.get(status, 0) + 1
+    case_root = args.case_root if args.case_root.is_absolute() else REPO_ROOT / args.case_root
+    items = [evaluate_case(case) for case in load_cases(case_root)]
+    summary = summarize_items(items)
     report = {"schema_version": "market_ingestion_eval_v1", "generated_at": now_iso(), "summary": summary, "items": items}
     write_json(args.output if args.output.is_absolute() else REPO_ROOT / args.output, report)
     md_path = args.markdown if args.markdown.is_absolute() else REPO_ROOT / args.markdown

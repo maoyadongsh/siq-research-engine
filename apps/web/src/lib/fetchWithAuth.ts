@@ -1,4 +1,4 @@
-import { accessToken } from './apiClient'
+import { accessToken, authCookieModeEnabled } from './apiClient'
 
 const nativeFetch = globalThis.fetch.bind(globalThis)
 
@@ -38,7 +38,12 @@ export async function fetchWithAuth(input: RequestInfo | URL, init: RequestInit 
     headers.set('Authorization', `Bearer ${token}`)
   }
 
-  return nativeFetch(input, { ...init, headers })
+  const requestInit: RequestInit = { ...init, headers }
+  if (requestInit.credentials === undefined && authCookieModeEnabled() && shouldAttachAuth(url)) {
+    requestInit.credentials = 'include'
+  }
+
+  return nativeFetch(input, requestInit)
 }
 
 export function installFetchAuth() {

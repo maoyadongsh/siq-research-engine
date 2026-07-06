@@ -154,6 +154,165 @@ def _tables(payload: dict[str, Any]) -> list[Any]:
     return tables if isinstance(tables, list) else []
 
 
+def _list_field(payload: dict[str, Any], key: str) -> list[str]:
+    value = payload.get(key) if isinstance(payload, dict) else []
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if str(item or "").strip()]
+
+
+def _quality_status(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if text in {"pass", "passed", "ok", "ready", "success"}:
+        return "pass"
+    if text in {"fail", "failed", "error", "critical"}:
+        return "fail"
+    if text in {"warning", "warn", "needs_review", "review"}:
+        return "warning"
+    return "unknown"
+
+
+def _required_statement_status(quality: dict[str, Any], financial_data: dict[str, Any]) -> dict[str, str]:
+    raw_status = quality.get("required_statement_status") if isinstance(quality, dict) else {}
+    if isinstance(raw_status, dict) and raw_status:
+        normalized = {str(key): str(value or "unknown") for key, value in raw_status.items()}
+        return {
+            statement: normalized.get(statement, "missing")
+            for statement in ("income_statement", "balance_sheet", "cash_flow_statement")
+        }
+
+    statements = (financial_data.get("statements") if isinstance(financial_data, dict) else []) or []
+    present = {
+        str(statement.get("statement_type") or "")
+        for statement in statements
+        if isinstance(statement, dict)
+    }
+    return {
+        statement: "present" if statement in present else "missing"
+        for statement in ("income_statement", "balance_sheet", "cash_flow_statement")
+    }
+
+
+def _evidence_coverage_ratio(quality: dict[str, Any], financial_data: dict[str, Any]) -> float | None:
+    raw_ratio = quality.get("evidence_coverage_ratio") if isinstance(quality, dict) else None
+    if isinstance(raw_ratio, int | float):
+        return max(0.0, min(float(raw_ratio), 1.0))
+
+    total = 0
+    covered = 0
+    for item in iter_financial_data_items(financial_data if isinstance(financial_data, dict) else {}):
+        values = item.get("values") if isinstance(item, dict) else {}
+        sources = item.get("sources") if isinstance(item, dict) else {}
+        if not isinstance(values, dict):
+            continue
+        for period_key in values:
+            total += 1
+            evidence = sources.get(period_key) if isinstance(sources, dict) else None
+            if isinstance(evidence, dict) and evidence:
+                covered += 1
+    return round(covered / total, 4) if total else None
+
+
+def _artifact_hash_check(package_dir: Path, manifest: dict[str, Any]) -> dict[str, Any]:
+    listed = manifest.get("artifact_hashes") if isinstance(manifest, dict) else {}
+    if not isinstance(listed, dict) or not listed:
+        return {"status": "missing", "mismatches": [], "missing": []}
+
+    computed = compute_artifact_hashes(package_dir)
+    mismatches: list[str] = []
+    missing: list[str] = []
+    for rel, expected_hash in listed.items():
+        if rel == "manifest.json":
+            continue
+        actual_hash = computed.get(str(rel))
+        if actual_hash is None:
+            missing.append(str(rel))
+        elif str(actual_hash) != str(expected_hash):
+            mismatches.append(str(rel))
+    status = "ok" if not mismatches and not missing else "mismatch"
+    return {"status": status, "mismatches": mismatches, "missing": missing}
+
+
+def build_quality_gates(
+    package_dir: Path,
+    *,
+    manifest: dict[str, Any] | None = None,
+    quality: dict[str, Any] | None = None,
+    financial_data: dict[str, Any] | None = None,
+    financial_checks: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    package_dir = package_dir.resolve()
+    manifest = manifest if isinstance(manifest, dict) else read_json(package_dir / "manifest.json", {})
+    quality = quality if isinstance(quality, dict) else read_json(package_dir / "qa" / "quality_report.json", {})
+    financial_data = financial_data if isinstance(financial_data, dict) else read_json(package_dir / "metrics" / "financial_data.json", {})
+    financial_checks = financial_checks if isinstance(financial_checks, dict) else read_json(package_dir / "metrics" / "financial_checks.json", {})
+
+    required_status = _required_statement_status(quality, financial_data)
+    missing_required = [
+        statement
+        for statement, status in required_status.items()
+        if str(status).lower() not in {"present", "pass", "ok"}
+    ]
+    artifact_hash = _artifact_hash_check(package_dir, manifest)
+    parser_warnings = _list_field(quality, "parser_warnings")
+    rule_warnings = _list_field(quality, "rule_warnings")
+    critical_warnings = _list_field(quality, "critical_warnings")
+
+    base_status = _quality_status(
+        quality.get("overall_status")
+        or manifest.get("quality_status")
+        or financial_checks.get("overall_status")
+    )
+    if artifact_hash["status"] == "mismatch" or critical_warnings or base_status == "fail":
+        overall_status = "fail"
+    elif (
+        base_status == "warning"
+        or missing_required
+        or artifact_hash["status"] == "missing"
+        or parser_warnings
+        or rule_warnings
+    ):
+        overall_status = "warning"
+    elif base_status == "pass":
+        overall_status = "pass"
+    else:
+        overall_status = "unknown"
+
+    block_reasons: list[str] = []
+    if missing_required:
+        block_reasons.append("required statements missing")
+    if artifact_hash["status"] == "missing":
+        block_reasons.append("artifact hashes missing")
+    if artifact_hash["status"] == "mismatch":
+        block_reasons.append("artifact hash mismatch")
+    if critical_warnings:
+        block_reasons.append("critical warnings present")
+    if parser_warnings or rule_warnings:
+        block_reasons.append("parser or rule warnings present")
+    if overall_status not in {"pass", "unknown"} and not block_reasons:
+        block_reasons.append(f"quality status is {overall_status}")
+
+    action_blocked = overall_status in {"warning", "fail"}
+    return {
+        "schema_version": "siq_quality_gates_v1",
+        "overall_status": overall_status,
+        "action_blocked": action_blocked,
+        "import_blocked": action_blocked,
+        "vector_ingest_blocked": action_blocked,
+        "force_allowed": True,
+        "block_reasons": block_reasons,
+        "evidence_coverage_ratio": _evidence_coverage_ratio(quality, financial_data),
+        "required_statement_status": required_status,
+        "missing_required_statements": missing_required,
+        "artifact_hash_status": artifact_hash["status"],
+        "artifact_hash_mismatches": artifact_hash["mismatches"],
+        "artifact_hash_missing": artifact_hash["missing"],
+        "parser_warnings": parser_warnings,
+        "rule_warnings": rule_warnings,
+        "critical_warnings": critical_warnings,
+    }
+
+
 def _artifact_payloads(package_dir: Path, artifacts: dict[str, str]) -> dict[str, Any]:
     return {
         key: read_json(package_dir / rel, {})
@@ -166,6 +325,8 @@ def read_market_package_summary(package_dir: Path, *, display_path: str | None =
     package_dir = package_dir.resolve()
     manifest = read_json(package_dir / "manifest.json", {})
     quality = read_json(package_dir / "qa" / "quality_report.json", {})
+    financial_data = read_json(package_dir / "metrics" / "financial_data.json", {})
+    financial_checks = read_json(package_dir / "metrics" / "financial_checks.json", {})
     metrics = _normalized_metrics(read_json(package_dir / "metrics" / "normalized_metrics.json", {}))
     source_map = _source_map_entries(read_json(package_dir / "qa" / "source_map.json", {}))
     return {
@@ -192,6 +353,13 @@ def read_market_package_summary(package_dir: Path, *, display_path: str | None =
             "metrics": _quality_count(quality, "normalized_metric_count") or len(metrics),
             "evidence": len(source_map),
         },
+        "quality_gates": build_quality_gates(
+            package_dir,
+            manifest=manifest,
+            quality=quality,
+            financial_data=financial_data,
+            financial_checks=financial_checks,
+        ),
     }
 
 

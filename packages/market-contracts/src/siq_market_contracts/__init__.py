@@ -1,6 +1,7 @@
 from .evidence_package import (
     SCHEMA_VERSION,
     EvidencePackageValidation,
+    build_quality_gates,
     compute_artifact_hashes,
     market_package_paths,
     read_json,
@@ -16,6 +17,7 @@ from .evidence_package import (
 __all__ = [
     "SCHEMA_VERSION",
     "EvidencePackageValidation",
+    "build_quality_gates",
     "compute_artifact_hashes",
     "market_package_paths",
     "read_json",

@@ -5,6 +5,9 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 
+ARG SIQ_AUTH_COOKIE_MODE=0
+ENV VITE_SIQ_AUTH_COOKIE_MODE=${SIQ_AUTH_COOKIE_MODE}
+
 COPY . .
 RUN npm run build
 

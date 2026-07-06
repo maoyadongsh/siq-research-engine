@@ -105,6 +105,25 @@ export interface UsSecJobStatus<T = Record<string, unknown>> {
 
 export type MarketCode = 'US' | 'HK' | 'JP' | 'KR' | 'EU'
 
+export interface MarketPackageQualityGates {
+  schema_version?: string
+  overall_status?: 'pass' | 'warning' | 'fail' | 'unknown' | string
+  action_blocked?: boolean
+  import_blocked?: boolean
+  vector_ingest_blocked?: boolean
+  force_allowed?: boolean
+  block_reasons?: string[]
+  evidence_coverage_ratio?: number | null
+  required_statement_status?: Record<string, string>
+  missing_required_statements?: string[]
+  artifact_hash_status?: 'ok' | 'missing' | 'mismatch' | string
+  artifact_hash_mismatches?: string[]
+  artifact_hash_missing?: string[]
+  parser_warnings?: string[]
+  rule_warnings?: string[]
+  critical_warnings?: string[]
+}
+
 export interface MarketPackageSummary {
   package_path?: string
   paths?: Record<string, string>
@@ -122,6 +141,7 @@ export interface MarketPackageSummary {
   period_end?: string
   published_at?: string
   quality_status?: string
+  quality_gates?: MarketPackageQualityGates
   counts?: {
     sections?: number
     tables?: number
@@ -298,10 +318,10 @@ export async function fetchMarketPackageDetail(market: MarketCode, packagePath: 
   return apiJson<MarketPackageDetail>(`/api/market-reports/package?${params.toString()}`)
 }
 
-export async function runMarketPackageImport(market: MarketCode, packagePath: string, ddl = false): Promise<MarketPackageActionResponse> {
+export async function runMarketPackageImport(market: MarketCode, packagePath: string, ddl = false, force = false): Promise<MarketPackageActionResponse> {
   const d = await apiJson<MarketPackageActionResponse>('/api/market-reports/packages/import', {
     method: 'POST',
-    body: { market, package_path: packagePath, ddl },
+    body: { market, package_path: packagePath, ddl, force },
   })
   if (d.ok === false) throw new Error(String(d.stderr || d.stdout || '证据包入库失败'))
   return d
@@ -316,10 +336,10 @@ export async function runMarketPackageBuild(market: MarketCode, body: MarketPack
   return d
 }
 
-export async function runMarketPackageVectorIngest(market: MarketCode, packagePath: string, dryRun = true): Promise<MarketPackageActionResponse> {
+export async function runMarketPackageVectorIngest(market: MarketCode, packagePath: string, dryRun = true, force = false): Promise<MarketPackageActionResponse> {
   const d = await apiJson<MarketPackageActionResponse>('/api/market-reports/packages/vector-ingest', {
     method: 'POST',
-    body: { market, package_path: packagePath, dry_run: dryRun, batch_tag: `market-${market.toLowerCase()}-evidence` },
+    body: { market, package_path: packagePath, dry_run: dryRun, batch_tag: `market-${market.toLowerCase()}-evidence`, force },
   })
   if (d.ok === false) throw new Error(String(d.stderr || d.stdout || 'Milvus chunk 生成失败'))
   return d

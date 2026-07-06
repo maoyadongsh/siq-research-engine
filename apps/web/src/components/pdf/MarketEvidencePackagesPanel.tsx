@@ -1,19 +1,50 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Database, ExternalLink, Loader2, RefreshCw, Search, UploadCloud } from 'lucide-react'
+import { AlertTriangle, Database, ExternalLink, Loader2, RefreshCw, Search, ShieldCheck, UploadCloud } from 'lucide-react'
 import {
   fetchMarketPackages,
   marketPackageFileUrl,
   type MarketCode,
+  type MarketPackageQualityGates,
   type MarketPackagesResponse,
 } from '../../features/market-parsing/api'
 import {
   runMarketPackageImportAction,
   runMarketPackageVectorDryRunAction,
 } from '../../features/market-parsing/packageActions'
-import { deriveMarketPackageRows, packagePrimaryFile } from '../../features/market-parsing/marketPackagesPanelModel'
+import { deriveMarketPackageRows, packagePrimaryFile, type MarketPackageRow } from '../../features/market-parsing/marketPackagesPanelModel'
 
 export interface MarketEvidencePackagesPanelProps {
   market: MarketCode
+}
+
+function qualityTone(status?: string) {
+  const normalized = String(status || '').toLowerCase()
+  if (normalized === 'pass') return 'secondary-status-success'
+  if (normalized === 'fail' || normalized === 'error') return 'secondary-status-error'
+  if (normalized === 'warning') return 'secondary-status-warning'
+  return 'secondary-status-info'
+}
+
+function percentText(value?: number | null) {
+  return typeof value === 'number' ? `${Math.round(value * 100)}%` : '-'
+}
+
+function countWarnings(gates?: MarketPackageQualityGates) {
+  return (gates?.critical_warnings?.length || 0) + (gates?.parser_warnings?.length || 0) + (gates?.rule_warnings?.length || 0)
+}
+
+function requiredStatementText(gates?: MarketPackageQualityGates) {
+  const status = gates?.required_statement_status || {}
+  const values = Object.values(status)
+  if (!values.length) return '-'
+  const present = values.filter((value) => ['present', 'pass', 'ok'].includes(String(value).toLowerCase())).length
+  return `${present}/${values.length}`
+}
+
+function forceConfirmed(gates: MarketPackageQualityGates | undefined, actionLabel: string) {
+  if (!gates?.action_blocked) return false
+  const reasons = gates.block_reasons?.length ? gates.block_reasons.join('; ') : gates.overall_status || 'unknown'
+  return window.confirm(`质量门禁未通过：${reasons}。仍要${actionLabel}吗？`)
 }
 
 export function MarketEvidencePackagesPanel({ market }: MarketEvidencePackagesPanelProps) {
@@ -49,12 +80,15 @@ export function MarketEvidencePackagesPanel({ market }: MarketEvidencePackagesPa
 
   const rows = useMemo(() => deriveMarketPackageRows(payload, busyPath), [payload, busyPath])
 
-  const runImport = async (packagePath: string) => {
+  const runImport = async (row: MarketPackageRow) => {
+    const packagePath = row.package_path || row.id
+    const force = forceConfirmed(row.quality_gates, '导入 PostgreSQL')
+    if (row.quality_gates?.import_blocked && !force) return
     setBusyPath(packagePath)
     setError('')
     setMessage('')
     try {
-      const { output } = await runMarketPackageImportAction({ market, packagePath, ddl: true })
+      const { output } = await runMarketPackageImportAction({ market, packagePath, ddl: true, force })
       setMessage(output || 'PostgreSQL 入库完成')
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -63,12 +97,15 @@ export function MarketEvidencePackagesPanel({ market }: MarketEvidencePackagesPa
     }
   }
 
-  const runVectorDryRun = async (packagePath: string) => {
+  const runVectorDryRun = async (row: MarketPackageRow) => {
+    const packagePath = row.package_path || row.id
+    const force = forceConfirmed(row.quality_gates, '生成检索 dry-run')
+    if (row.quality_gates?.vector_ingest_blocked && !force) return
     setBusyPath(packagePath)
     setError('')
     setMessage('')
     try {
-      const { output } = await runMarketPackageVectorDryRunAction({ market, packagePath, dryRun: true })
+      const { output } = await runMarketPackageVectorDryRunAction({ market, packagePath, dryRun: true, force })
       setMessage(output || '向量检索 dry-run 完成')
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -120,6 +157,8 @@ export function MarketEvidencePackagesPanel({ market }: MarketEvidencePackagesPa
         {rows.map((row) => {
           const packagePath = row.package_path || row.id
           const primaryFile = packagePrimaryFile(row)
+          const gates = row.quality_gates
+          const warningCount = countWarnings(gates)
           return (
             <div key={row.id} className="rounded-2xl border border-border bg-card p-4">
               <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
@@ -127,6 +166,20 @@ export function MarketEvidencePackagesPanel({ market }: MarketEvidencePackagesPa
                   <div className="truncate text-sm font-semibold text-text">{row.title}</div>
                   <div className="mt-1 text-xs text-text-muted">{row.summary || packagePath}</div>
                   <code className="mt-2 block break-all text-[11px] text-text-muted">{packagePath}</code>
+                  {gates ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <span className={`secondary-status ${qualityTone(gates.overall_status)}`}>
+                        {gates.overall_status === 'pass' ? <ShieldCheck className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
+                        质量 {gates.overall_status || 'unknown'}
+                      </span>
+                      <span className="secondary-status secondary-status-info">证据 {percentText(gates.evidence_coverage_ratio)}</span>
+                      <span className="secondary-status secondary-status-info">报表 {requiredStatementText(gates)}</span>
+                      <span className={`secondary-status ${gates.artifact_hash_status === 'ok' ? 'secondary-status-success' : 'secondary-status-warning'}`}>
+                        hash {gates.artifact_hash_status || 'unknown'}
+                      </span>
+                      {warningCount ? <span className="secondary-status secondary-status-warning">warnings {warningCount}</span> : null}
+                    </div>
+                  ) : null}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <a
@@ -142,22 +195,22 @@ export function MarketEvidencePackagesPanel({ market }: MarketEvidencePackagesPa
                   <button
                     type="button"
                     className="pdf-trace-btn inline-flex items-center gap-1"
-                    onClick={() => void runImport(packagePath)}
+                    onClick={() => void runImport(row)}
                     disabled={!!busyPath}
-                    title="导入 PostgreSQL"
+                    title={row.quality_gates?.import_blocked ? '质量门禁需确认后导入 PostgreSQL' : '导入 PostgreSQL'}
                   >
                     {row.busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UploadCloud className="h-3.5 w-3.5" />}
-                    入库
+                    {row.quality_gates?.import_blocked ? '强制入库' : '入库'}
                   </button>
                   <button
                     type="button"
                     className="pdf-trace-btn inline-flex items-center gap-1"
-                    onClick={() => void runVectorDryRun(packagePath)}
+                    onClick={() => void runVectorDryRun(row)}
                     disabled={!!busyPath}
-                    title="生成检索 dry-run"
+                    title={row.quality_gates?.vector_ingest_blocked ? '质量门禁需确认后生成检索 dry-run' : '生成检索 dry-run'}
                   >
                     {row.busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Database className="h-3.5 w-3.5" />}
-                    检索
+                    {row.quality_gates?.vector_ingest_blocked ? '强制检索' : '检索'}
                   </button>
                 </div>
               </div>

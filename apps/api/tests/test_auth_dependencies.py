@@ -83,6 +83,21 @@ def test_get_current_user_accepts_username_subject(monkeypatch, tmp_path):
     anyio.run(_with_auth_session, tmp_path, run_case)
 
 
+def test_get_current_user_accepts_cookie_token_without_authorization(monkeypatch, tmp_path):
+    monkeypatch.setenv("SIQ_AUTH_SECRET_KEY", "auth-deps-secret-with-enough-length")
+
+    async def run_case(session):
+        user = await _add_user(session, username="cookie-user")
+        token = AuthService.create_access_token({"sub": str(user.id)})
+
+        resolved = await get_current_user(None, session, token)
+
+        assert resolved.id == user.id
+        assert resolved.username == "cookie-user"
+
+    anyio.run(_with_auth_session, tmp_path, run_case)
+
+
 def test_get_current_user_fastapi_dependency_uses_async_session(monkeypatch, tmp_path):
     monkeypatch.setenv("SIQ_AUTH_SECRET_KEY", "auth-deps-secret-with-enough-length")
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'auth-route.db'}")
@@ -115,6 +130,42 @@ def test_get_current_user_fastapi_dependency_uses_async_session(monkeypatch, tmp
 
         assert response.status_code == 200
         assert response.json() == {"id": user_id, "username": "route-user"}
+    finally:
+        anyio.run(engine.dispose)
+
+
+def test_get_current_user_fastapi_dependency_accepts_cookie_token(monkeypatch, tmp_path):
+    monkeypatch.setenv("SIQ_AUTH_SECRET_KEY", "auth-deps-secret-with-enough-length")
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'auth-route-cookie.db'}")
+
+    async def setup_user() -> tuple[int, str]:
+        async with engine.begin() as connection:
+            await connection.run_sync(SQLModel.metadata.create_all)
+        async with AsyncSession(engine) as session:
+            user = await _add_user(session, username="route-cookie-user")
+            token = AuthService.create_access_token({"sub": str(user.id)})
+            return int(user.id), token
+
+    async def override_async_session():
+        async with AsyncSession(engine) as session:
+            yield session
+
+    app = FastAPI()
+
+    @app.get("/protected")
+    async def protected(current_user: User = Depends(get_current_user)):
+        return {"id": current_user.id, "username": current_user.username}
+
+    app.dependency_overrides[get_async_session] = override_async_session
+
+    try:
+        user_id, token = anyio.run(setup_user)
+
+        with TestClient(app) as client:
+            response = client.get("/protected", cookies={AuthService.ACCESS_COOKIE_NAME: token})
+
+        assert response.status_code == 200
+        assert response.json() == {"id": user_id, "username": "route-cookie-user"}
     finally:
         anyio.run(engine.dispose)
 

@@ -9,7 +9,7 @@ import os
 import re
 from pathlib import Path
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlmodel import Session, select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -31,7 +31,7 @@ from services.usage_service import (
 )
 
 router = APIRouter(tags=["authentication"])
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 REPORT_GENERATOR_METADATA_KEYS = {"generated_by", "generatedby", "generator", "siq:generated_by", "siq:generator"}
 
@@ -167,6 +167,36 @@ def _login_response_for_user(user: User) -> LoginResponse:
     )
 
 
+def _set_access_cookie(response: Response, token: str) -> None:
+    if not AuthService.cookie_mode_enabled():
+        return
+    same_site = AuthService.access_cookie_samesite()
+    secure = AuthService.access_cookie_secure() or same_site == "none"
+    response.set_cookie(
+        key=AuthService.ACCESS_COOKIE_NAME,
+        value=token,
+        max_age=AuthService.access_cookie_max_age_seconds(),
+        path=AuthService.ACCESS_COOKIE_PATH,
+        httponly=True,
+        secure=secure,
+        samesite=same_site,
+    )
+
+
+def _clear_access_cookie(response: Response) -> None:
+    if not AuthService.cookie_mode_enabled():
+        return
+    same_site = AuthService.access_cookie_samesite()
+    secure = AuthService.access_cookie_secure() or same_site == "none"
+    response.delete_cookie(
+        key=AuthService.ACCESS_COOKIE_NAME,
+        path=AuthService.ACCESS_COOKIE_PATH,
+        httponly=True,
+        secure=secure,
+        samesite=same_site,
+    )
+
+
 def _role_value(role) -> str:
     return role.value if hasattr(role, "value") else str(role)
 
@@ -217,11 +247,18 @@ def _apply_user_update_fields(target_user: User, user_data: UserUpdate, current_
 # ============ 依赖注入 ============
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
     session: AsyncSession = Depends(get_async_session),
+    access_token_cookie: str | None = Cookie(default=None, alias=AuthService.ACCESS_COOKIE_NAME),
 ) -> User:
     """获取当前登录用户"""
-    token = credentials.credentials
+    token = credentials.credentials if credentials is not None else access_token_cookie
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="无效的访问令牌",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     payload = AuthService.decode_token(token)
 
     if payload is None:
@@ -285,6 +322,7 @@ def require_permission(permission: str):
 def login(
     login_data: LoginRequest,
     request: Request,
+    response: Response,
     session: Session = Depends(get_session),
 ):
     """用户登录"""
@@ -331,12 +369,15 @@ def login(
         user_agent=request.headers.get("user-agent"),
     )
 
-    return _login_response_for_user(user)
+    login_response = _login_response_for_user(user)
+    _set_access_cookie(response, login_response.access_token)
+    return login_response
 
 
 @router.post("/demo-login", response_model=LoginResponse)
 def demo_login(
     request: Request,
+    response: Response,
     session: Session = Depends(get_session),
 ):
     """演示模式自动登录。生产环境可通过 SIQ_DEMO_MODE=0 关闭。"""
@@ -364,12 +405,15 @@ def demo_login(
         user_agent=request.headers.get("user-agent"),
     )
 
-    return _login_response_for_user(user)
+    login_response = _login_response_for_user(user)
+    _set_access_cookie(response, login_response.access_token)
+    return login_response
 
 
 @router.post("/logout")
 def logout(
     request: Request,
+    response: Response,
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
@@ -383,6 +427,7 @@ def logout(
         ip_address=request.client.host if request.client else None,
     )
 
+    _clear_access_cookie(response)
     return {"message": "登出成功"}
 
 

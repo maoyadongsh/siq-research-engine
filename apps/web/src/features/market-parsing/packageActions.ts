@@ -23,10 +23,12 @@ export interface MarketPackagePathActionInput {
 
 export interface MarketPackageImportActionInput extends MarketPackagePathActionInput {
   ddl?: boolean
+  force?: boolean
 }
 
 export interface MarketPackageVectorActionInput extends MarketPackagePathActionInput {
   dryRun?: boolean
+  force?: boolean
 }
 
 export type MarketPackageJobWaiter = (
@@ -87,7 +89,7 @@ export async function runMarketPackageImportAction(
   input: MarketPackageImportActionInput,
   deps: MarketPackageActionDeps = defaultDeps,
 ): Promise<{ output: string; result: MarketPackageActionResponse }> {
-  const response = await deps.runImport(input.market, input.packagePath, input.ddl ?? true)
+  const response = await deps.runImport(input.market, input.packagePath, input.ddl ?? true, input.force ?? false)
   const result = await resolveMarketPackageActionResponse(response, deps)
   return { output: formatMarketPackageImportOutput(result), result }
 }
@@ -96,7 +98,7 @@ export async function runMarketPackageVectorDryRunAction(
   input: MarketPackageVectorActionInput,
   deps: MarketPackageActionDeps = defaultDeps,
 ): Promise<{ output: string; result: MarketPackageActionResponse }> {
-  const response = await deps.runVectorIngest(input.market, input.packagePath, input.dryRun ?? true)
+  const response = await deps.runVectorIngest(input.market, input.packagePath, input.dryRun ?? true, input.force ?? false)
   const result = await resolveMarketPackageActionResponse(response, deps)
   return { output: formatMarketPackageVectorOutput(result), result }
 }

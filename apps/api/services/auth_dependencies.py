@@ -1,5 +1,5 @@
 """用户认证依赖函数。"""
-from fastapi import Depends, HTTPException, Header
+from fastapi import Cookie, Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -7,7 +7,7 @@ from database import get_async_session
 from services.auth_service import AuthService, PermissionChecker, User
 
 
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 
 def create_access_token(data: dict, expires_delta=None) -> str:
@@ -16,8 +16,9 @@ def create_access_token(data: dict, expires_delta=None) -> str:
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    session: AsyncSession = Depends(get_async_session)
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+    session: AsyncSession = Depends(get_async_session),
+    access_token_cookie: str | None = Cookie(default=None, alias=AuthService.ACCESS_COOKIE_NAME),
 ) -> User:
     """
     从JWT token获取当前用户
@@ -27,7 +28,9 @@ async def get_current_user(
     async def protected_route(current_user: User = Depends(get_current_user)):
         return {"user_id": current_user.id}
     """
-    token = credentials.credentials
+    token = credentials.credentials if credentials is not None else access_token_cookie
+    if not token:
+        raise HTTPException(401, "Invalid or expired token")
 
     payload = AuthService.decode_token(token)
     if payload is None:

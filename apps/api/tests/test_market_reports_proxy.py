@@ -6,6 +6,7 @@ import io
 import json
 from pathlib import Path
 
+import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
@@ -980,6 +981,8 @@ def test_market_packages_route_lists_hk_company_wiki_layout(monkeypatch, tmp_pat
         "wiki/hk/companies/00700-TENCENT/reports/2025-annual-12100024"
     )
     assert payload["packages"][0]["filing_id"] == "HK:00700:12100024"
+    assert payload["packages"][0]["quality_gates"]["overall_status"] == "warning"
+    assert payload["packages"][0]["quality_gates"]["import_blocked"] is True
 
 
 def test_market_package_detail_returns_hk_v2_paths(monkeypatch, tmp_path):
@@ -998,6 +1001,8 @@ def test_market_package_detail_returns_hk_v2_paths(monkeypatch, tmp_path):
         assert payload["paths"]["toc"] == "qa/toc.json"
         assert payload["paths"]["financial_note_links"] == "qa/financial_note_links.json"
         assert payload["paths"]["table_quality_signals"] == "qa/table_quality_signals.json"
+        assert payload["quality_gates"]["overall_status"] == "warning"
+        assert payload["quality_gates"]["vector_ingest_blocked"] is True
 
 
 def test_market_package_quality_routes_keep_response_contract(monkeypatch, tmp_path):
@@ -1352,6 +1357,7 @@ def test_market_import_command_uses_us_package_flag(monkeypatch):
         "market": "US",
         "package_path": "data/wiki/us_sec/AAPL/2025/10-K_0000320193-25-000079",
         "ddl": True,
+        "force": True,
     })
 
     assert result["ok"] is True
@@ -1382,12 +1388,31 @@ def test_hk_market_package_import_uses_hk_database_env(monkeypatch, tmp_path):
         "market": "HK",
         "package_path": str(package_dir),
         "ddl": True,
+        "force": True,
     })
 
     assert result["ok"] is True
     assert "import_hk_evidence_package_to_postgres.py" in " ".join(captured["args"])
     assert "--ddl" in captured["args"]
     assert captured["kwargs"]["env"]["SIQ_HK_PGDATABASE"] == "siq_hk"
+
+
+def test_market_package_import_blocks_warning_quality_without_force(monkeypatch, tmp_path):
+    wiki_root = tmp_path / "wiki" / "hk"
+    package_dir = _write_market_package(wiki_root, "companies", "00700-TENCENT", "reports", "2025-annual-12100024")
+
+    monkeypatch.setitem(market_reports.MARKET_WIKI_ROOTS, "HK", wiki_root)
+
+    with pytest.raises(HTTPException) as exc:
+        market_reports._run_market_package_import({
+            "market": "HK",
+            "package_path": str(package_dir),
+            "ddl": True,
+        })
+
+    assert exc.value.status_code == 409
+    assert exc.value.detail["quality_gates"]["import_blocked"] is True
+    assert "force=true" in exc.value.detail["message"]
 
 
 def test_market_import_command_uses_positional_package_for_non_us(monkeypatch, tmp_path):
@@ -1419,6 +1444,7 @@ def test_market_import_command_uses_positional_package_for_non_us(monkeypatch, t
             "package_path": str(package_dir),
             "database_url": "postgres://secret",
             "run_ddl": True,
+            "force": True,
         }
     )
 
@@ -1465,6 +1491,7 @@ def test_market_import_command_hk_default_env_sanitizes_inherited_database_url(m
         {
             "market": "HK",
             "package_path": str(package_dir),
+            "force": True,
         }
     )
 
@@ -1494,7 +1521,7 @@ def test_hk_market_package_import_uses_hk_database_env(monkeypatch, tmp_path):
     monkeypatch.setitem(market_reports.MARKET_DATABASES, "HK", "siq_hk")
     monkeypatch.setattr(market_reports, "run_command", fake_run)
 
-    result = market_reports._run_market_package_import({"market": "HK", "package_path": str(package_dir), "ddl": True})
+    result = market_reports._run_market_package_import({"market": "HK", "package_path": str(package_dir), "ddl": True, "force": True})
 
     assert result["ok"] is True
     assert "import_hk_evidence_package_to_postgres.py" in " ".join(seen["args"])
@@ -1532,6 +1559,7 @@ def test_market_vector_ingest_command_contract_and_summary(monkeypatch, tmp_path
             "embed_url": "http://embed.local",
             "embed_model": "text-embedding-3-small",
             "vector_dim": 1536,
+            "force": True,
         }
     )
 
@@ -1585,6 +1613,7 @@ def test_market_vector_ingest_can_disable_dry_run(monkeypatch, tmp_path):
             "package_path": str(package_dir),
             "batch_tag": "prod-load",
             "dry_run": False,
+            "force": True,
         }
     )
 

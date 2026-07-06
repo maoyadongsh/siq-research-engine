@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiJson } from './apiClient';
+import { apiJson, authCookieModeEnabled } from './apiClient';
 import { resetAgentChatStores } from './useAgentChat';
 import { AuthContext, useAuth, type User } from '../hooks/useAuth';
 
@@ -17,15 +17,15 @@ const rolePermissions: Record<string, string[]> = {
   viewer: ['report.view', 'company.view'],
 };
 
-function readStoredSession(): { token: string; user: User } | null {
+function readStoredSession(): { token: string | null; user: User } | null {
   try {
     const savedToken = localStorage.getItem('access_token');
     const savedUser = localStorage.getItem('user');
 
-    if (!savedToken || !savedUser) return null;
+    if (!savedUser || (!savedToken && !authCookieModeEnabled())) return null;
 
     return {
-      token: savedToken,
+      token: savedToken || null,
       user: JSON.parse(savedUser) as User,
     };
   } catch {
@@ -40,8 +40,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(() => readStoredSession()?.token ?? null);
 
   useEffect(() => {
+    const cookieMode = authCookieModeEnabled();
     const savedToken = localStorage.getItem('access_token');
-    if (!savedToken) return;
+    if (!savedToken && !cookieMode) return;
     let ignore = false;
     apiJson<User>('/api/auth/me')
       .then((freshUser) => {
@@ -61,10 +62,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const setSession = useCallback((accessToken: string, nextUser: User) => {
+    const cookieMode = authCookieModeEnabled();
     resetAgentChatStores();
-    setToken(accessToken);
+    setToken(cookieMode ? null : accessToken);
     setUser(nextUser);
-    localStorage.setItem('access_token', accessToken);
+    if (cookieMode) {
+      localStorage.removeItem('access_token');
+    } else {
+      localStorage.setItem('access_token', accessToken);
+    }
     localStorage.setItem('user', JSON.stringify(nextUser));
   }, []);
 
@@ -78,6 +84,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [setSession]);
 
   const logout = useCallback(() => {
+    void apiJson('/api/auth/logout', { method: 'POST' }).catch(() => undefined);
     resetAgentChatStores();
     setToken(null);
     setUser(null);
