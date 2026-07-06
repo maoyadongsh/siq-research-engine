@@ -25,6 +25,7 @@ from services import deal_phase_artifacts
 from services import deal_reports
 from services import deal_status
 from services import deal_store
+from services import agent_memory_service
 from services import ic_agent_runtime
 from services import ic_intake
 from services import ic_policy
@@ -189,6 +190,95 @@ def _user_payload(user: User) -> dict[str, Any]:
 
 def _not_found(deal_id: str) -> HTTPException:
     return HTTPException(status_code=404, detail=f"Deal not found: {deal_id}")
+
+
+def _report_memory_text(report: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for key, label in [
+        ("summary", "summary"),
+        ("recommendation", "recommendation"),
+        ("rationale", "rationale"),
+        ("risk_flags", "risk_flags"),
+        ("open_questions", "open_questions"),
+    ]:
+        value = report.get(key)
+        if value in (None, "", [], {}):
+            continue
+        if isinstance(value, (list, dict)):
+            rendered = json_dumps_safe(value)
+        else:
+            rendered = str(value)
+        parts.append(f"{label}: {rendered}")
+    return "\n".join(parts).strip()
+
+
+def json_dumps_safe(value: Any) -> str:
+    import json
+
+    return json.dumps(value, ensure_ascii=False, default=str)
+
+
+async def _remember_deal_r1_report(
+    async_session: AsyncSession,
+    *,
+    current_user: User,
+    deal_id: str,
+    profile_id: str | None,
+    report: dict[str, Any] | None,
+    source_id: str | None,
+) -> None:
+    if not report:
+        return
+    content = _report_memory_text(report)
+    if not content:
+        return
+    user_id = getattr(current_user, "id", None)
+    if user_id is None:
+        return
+    profile = agent_memory_service.normalize_profile(profile_id or str(report.get("agent_id") or "siq_ic_master_coordinator"))
+    context = agent_memory_service.MemoryRequestContext(
+        tenant_id=agent_memory_service.DEFAULT_TENANT_ID,
+        user_id=int(user_id),
+        profile=profile,
+        agent_group=agent_memory_service.infer_agent_group(profile),
+        session_id=f"deal-{deal_id}-{profile}-r1-memory",
+        deal_id=deal_id,
+        visibility="project_shared",
+    )
+    try:
+        await agent_memory_service.record_project_access_binding(
+            async_session,
+            tenant_id=context.tenant_id,
+            resource_type="deal",
+            resource_id=deal_id,
+            principal_type="user",
+            principal_id=int(user_id),
+            role="owner",
+            commit=False,
+        )
+        await agent_memory_service.promote_memory_item(
+            async_session,
+            context,
+            title=f"{deal_id} R1 {profile} report",
+            content=content,
+            memory_type="project_fact",
+            source_type="deal_r1_report",
+            source_id=source_id or f"{deal_id}:{profile}:r1",
+            confidence=float(report.get("confidence") or 0.75) if isinstance(report.get("confidence"), (int, float)) else 0.75,
+            importance=0.85,
+            metadata={
+                "deal_id": deal_id,
+                "profile_id": profile,
+                "score": report.get("score"),
+                "recommendation": report.get("recommendation"),
+            },
+            status="active",
+            commit=False,
+        )
+        await async_session.commit()
+    except Exception as exc:
+        await async_session.rollback()
+        print(f"[agent-memory] failed to remember R1 report for deal {deal_id}: {exc}")
 
 
 def _role_value(user: User) -> str:
@@ -475,9 +565,10 @@ def list_deals(
 
 
 @router.post("")
-def create_deal(
+async def create_deal(
     payload: DealCreateRequest,
     current_user: User = Depends(require_permission("report.create")),
+    async_session: AsyncSession = Depends(get_async_session),
 ) -> dict[str, Any]:
     try:
         deal = deal_store.create_deal_package(
@@ -500,6 +591,20 @@ def create_deal(
             "created_by": _user_payload(current_user),
         },
     )
+    try:
+        await agent_memory_service.record_project_access_binding(
+            async_session,
+            tenant_id=agent_memory_service.DEFAULT_TENANT_ID,
+            resource_type="deal",
+            resource_id=payload.deal_id,
+            principal_type="user",
+            principal_id=int(current_user.id),
+            role="owner",
+            commit=True,
+        )
+    except Exception as exc:
+        await async_session.rollback()
+        print(f"[agent-memory] failed to bind deal memory access for deal {payload.deal_id}: {exc}")
     return {"deal": deal}
 
 
@@ -1239,13 +1344,14 @@ def post_agent_task_dry_run(
 
 
 @router.post("/{deal_id}/workflow/submit-r1-report")
-def post_workflow_submit_r1_report(
+async def post_workflow_submit_r1_report(
     deal_id: str,
     payload: WorkflowSubmitR1ReportRequest,
     current_user: User = Depends(require_permission("report.create")),
+    async_session: AsyncSession = Depends(get_async_session),
 ) -> dict[str, Any]:
     try:
-        return deal_store.redact_public_payload(
+        result = deal_store.redact_public_payload(
             ic_report_submission.submit_r1_expert_report(
                 deal_id,
                 agent_id=payload.agent_id,
@@ -1256,6 +1362,17 @@ def post_workflow_submit_r1_report(
                 created_by=_user_payload(current_user),
             )
         )
+        if not payload.dry_run:
+            report = result.get("report") if isinstance(result, dict) else None
+            await _remember_deal_r1_report(
+                async_session,
+                current_user=current_user,
+                deal_id=deal_id,
+                profile_id=payload.profile_id or payload.agent_id,
+                report=report if isinstance(report, dict) else payload.report,
+                source_id=f"{deal_id}:{payload.profile_id or payload.agent_id or 'r1'}:manual",
+            )
+        return result
     except FileExistsError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
@@ -1269,10 +1386,11 @@ async def post_workflow_run_r1_agent(
     deal_id: str,
     payload: WorkflowRunR1AgentRequest,
     current_user: User = Depends(require_permission("report.create")),
+    async_session: AsyncSession = Depends(get_async_session),
 ) -> dict[str, Any]:
     try:
         if not payload.dry_run:
-            return deal_store.redact_public_payload(
+            result = deal_store.redact_public_payload(
                 await ic_agent_runtime.run_workflow_r1_agent(
                     deal_id,
                     payload.profile_id,
@@ -1280,6 +1398,16 @@ async def post_workflow_run_r1_agent(
                     created_by=_user_payload(current_user),
                 )
             )
+            report = result.get("report") if isinstance(result, dict) else None
+            await _remember_deal_r1_report(
+                async_session,
+                current_user=current_user,
+                deal_id=deal_id,
+                profile_id=payload.profile_id,
+                report=report if isinstance(report, dict) else None,
+                source_id=f"{deal_id}:{payload.profile_id}:run-r1-agent",
+            )
+            return result
         return deal_store.redact_public_payload(
             ic_agent_runtime.build_workflow_r1_agent_run_dry_run(
                 deal_id,

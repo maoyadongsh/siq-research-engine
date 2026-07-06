@@ -56,6 +56,7 @@ from services import agent_runtime_catalog
 from services import agent_runtime_parse_only
 from services import agent_runtime_display
 from services import agent_runtime_memory
+from services import agent_memory_service
 from services import agent_runtime_history
 from services import agent_runtime_preflight
 from services import agent_runtime_context
@@ -2140,6 +2141,13 @@ async def save_message(
     content: str,
     session_id: str,
     attachments: Any | None = None,
+    *,
+    user_id: int | None = None,
+    profile: str | None = None,
+    tenant_id: str | None = None,
+    deal_id: str | None = None,
+    project_id: str | None = None,
+    visibility: str | None = None,
 ) -> None:
     if role == "assistant":
         content = normalize_evidence_trace_for_display(content)
@@ -2154,6 +2162,41 @@ async def save_message(
     )
     async_session.add(msg)
     await async_session.commit()
+    context = agent_memory_service.context_from_session_id(
+        session_id,
+        profile=profile,
+        user_id=user_id,
+        tenant_id=tenant_id,
+        deal_id=deal_id,
+        project_id=project_id,
+        visibility=visibility,
+    )
+    if context is None:
+        return
+    try:
+        memory_message_id = await agent_memory_service.record_message(
+            async_session,
+            context,
+            role=role,
+            content=content,
+            attachments=attachment_items,
+            created_at=msg.created_at,
+            commit=False,
+        )
+        await agent_memory_service.maybe_promote_explicit_memory(
+            async_session,
+            context,
+            role=role,
+            content=content,
+            source_id=memory_message_id,
+            commit=False,
+        )
+        await async_session.commit()
+    except Exception as exc:
+        await async_session.rollback()
+        if os.getenv("SIQ_AGENT_MEMORY_STRICT", "0").strip() == "1":
+            raise
+        print(f"[agent-memory] failed to mirror chat message for session {session_id}: {exc}")
 
 
 async def chat_history_response(
@@ -2294,6 +2337,38 @@ async def ensure_local_memory_context(
         refresh_memory=refresh_session_memory,
         load_context=load_local_memory_context,
     )
+
+
+async def ensure_agent_memory_context(
+    async_session: AsyncSession,
+    profile: HermesProfile,
+    session_id: str,
+    message: str,
+) -> str | None:
+    if len(str(message or "").strip()) < int(os.getenv("SIQ_AGENT_MEMORY_MIN_QUERY_CHARS", "4")):
+        return None
+    context = agent_memory_service.context_from_session_id(session_id, profile=profile)
+    if context is None:
+        return None
+    budget_ms = max(100, int(os.getenv("SIQ_AGENT_MEMORY_RETRIEVAL_BUDGET_MS", "1200")))
+    try:
+        return await asyncio.wait_for(
+            agent_memory_service.build_memory_context(
+                async_session,
+                context,
+                query=message,
+            ),
+            timeout=budget_ms / 1000,
+        )
+    except asyncio.TimeoutError:
+        print(f"[agent-memory] memory retrieval skipped after {budget_ms}ms for session {session_id}")
+        return None
+    except Exception as exc:
+        await async_session.rollback()
+        if os.getenv("SIQ_AGENT_MEMORY_STRICT", "0").strip() == "1":
+            raise
+        print(f"[agent-memory] failed to build memory context for session {session_id}: {exc}")
+        return None
 
 
 async def save_message_in_background(
@@ -5334,12 +5409,13 @@ async def _prepare_chat_request_envelope(
 async def _load_chat_run_preflight_context(
     async_session: AsyncSession,
     *,
+    message: str,
     session_id: str,
     profile: HermesProfile,
     attachments: list[dict[str, Any]],
     history_limit: int,
 ) -> ChatRunPreflightContext:
-    return await agent_runtime_preflight.load_chat_run_preflight_context(
+    preflight_context = await agent_runtime_preflight.load_chat_run_preflight_context(
         async_session,
         session_id=session_id,
         profile=profile,
@@ -5347,6 +5423,19 @@ async def _load_chat_run_preflight_context(
         history_limit=history_limit,
         load_history=load_history,
         ensure_local_memory_context=ensure_local_memory_context,
+    )
+    agent_memory_context = await ensure_agent_memory_context(async_session, profile, session_id, message)
+    if not agent_memory_context:
+        return preflight_context
+    memory_blocks = [
+        block
+        for block in [preflight_context.local_memory_context, agent_memory_context]
+        if block
+    ]
+    return ChatRunPreflightContext(
+        history=preflight_context.history,
+        local_memory_context="\n\n".join(memory_blocks) if memory_blocks else None,
+        attachments=preflight_context.attachments,
     )
 
 
@@ -5400,6 +5489,7 @@ async def _collect_chat_reply_impl(
 
     preflight_context = await _load_chat_run_preflight_context(
         async_session,
+        message=completed_guard_input or message,
         session_id=session_id,
         profile=profile,
         attachments=all_attachments,
@@ -5948,6 +6038,7 @@ async def _stream_chat_reply_impl(
 
     preflight_context = await _load_chat_run_preflight_context(
         async_session,
+        message=completed_guard_input or message,
         session_id=session_id,
         profile=profile,
         attachments=all_attachments,

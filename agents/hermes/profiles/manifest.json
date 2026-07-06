@@ -19,6 +19,22 @@
     "shared"
   ],
   "groups": {
+    "secondary_market": [
+      "siq_assistant",
+      "siq_analysis",
+      "siq_factchecker",
+      "siq_tracking",
+      "siq_legal"
+    ],
+    "primary_market_ic": [
+      "siq_ic_master_coordinator",
+      "siq_ic_chairman",
+      "siq_ic_strategist",
+      "siq_ic_sector_expert",
+      "siq_ic_finance_auditor",
+      "siq_ic_legal_scanner",
+      "siq_ic_risk_controller"
+    ],
     "ic": [
       "siq_ic_master_coordinator",
       "siq_ic_chairman",
@@ -27,6 +43,10 @@
       "siq_ic_finance_auditor",
       "siq_ic_legal_scanner",
       "siq_ic_risk_controller"
+    ],
+    "shared": [
+      "siq_ic_shared",
+      "shared"
     ]
   },
   "notes": [

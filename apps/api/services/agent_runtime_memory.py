@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import os
 from collections.abc import Awaitable, Callable, Collection, Sequence
 from datetime import datetime
 from typing import Protocol
@@ -11,6 +12,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from models import ChatMessage, ChatSessionMemory
+from services import agent_memory_service
 
 
 class MemoryMessage(Protocol):
@@ -234,6 +236,23 @@ async def refresh_session_memory(
         record.updated_at = clock()
         async_session.add(record)
     await async_session.commit()
+    context = agent_memory_service.context_from_session_id(session_id, profile=profile)
+    if context is None:
+        return
+    try:
+        await agent_memory_service.record_session_summary(
+            async_session,
+            context,
+            summary=summary,
+            last_message_id=last_message_id,
+            message_count=len(messages),
+            commit=True,
+        )
+    except Exception as exc:
+        await async_session.rollback()
+        if os.getenv("SIQ_AGENT_MEMORY_STRICT", "0").strip() == "1":
+            raise
+        print(f"[agent-memory] failed to mirror session summary for session {session_id}: {exc}")
 
 
 async def load_local_memory_context(

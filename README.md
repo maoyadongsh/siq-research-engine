@@ -45,6 +45,120 @@ SIQ 通过 `document_full.json`、`quality_report.json`、`source_map.json`、`f
 
 Hermes profiles 不以“人格化助手”方式组织，而以研究职责组织。分析、核查、跟踪、法务和投委会角色围绕同一证据层协作，但各自承担不同任务和边界，避免幻觉式越权输出。
 
+## 智能体统一记忆系统
+
+SIQ 的智能体记忆系统不是简单的“聊天历史摘要”，而是一套围绕金融研究准确性、用户隔离、项目协作和证据可追溯设计的混合记忆架构。它把 PostgreSQL、Milvus、本机 embedding、本机 reranker、Hermes profile 知识和 Deal OS 项目输出组合成一个可治理的长期记忆底座。
+
+核心原则是：**PostgreSQL 负责记忆真实性和治理，Milvus 负责语义召回速度和泛化，reranker 负责最终相关性判断，时间曲线负责自然遗忘。**
+
+### 记忆系统架构
+
+```text
+用户问题 / 智能体任务
+  -> API 鉴权、session、profile、deal/project scope 解析
+  -> PostgreSQL siq_app.agent_memory
+       保存权威记忆、消息、摘要、权限、来源、反馈、时间和有效期
+  -> Milvus siq_agent_memory
+       保存 Hermes profile 知识和动态记忆的向量索引
+  -> Hybrid Retrieval
+       Milvus dense recall + PostgreSQL lexical recall + ACL / scope 过滤
+  -> 本机 reranker
+       对合并候选做精排
+  -> 时间遗忘曲线
+       动态记忆按 30 天半衰期衰减，硬指令全量检索时绕过
+  -> Hermes prompt context
+       注入可追溯、已过滤、可降级的 memory context
+```
+
+### PostgreSQL 与 Milvus 的职责分工
+
+| 层 | 角色 | 存什么 | 是否权威 | 是否使用 embedding | 是否参与 rerank |
+| --- | --- | --- | --- | --- | --- |
+| PostgreSQL `siq_app.agent_memory` | 权威记忆账本 | session、message、memory_items、summary、runs、tool_events、ACL、feedback、source、updated_at、valid_until | 是 | 初始 lexical recall 不依赖 embedding | 候选会进入 reranker |
+| Milvus `siq_agent_memory` | 语义召回索引 | profile 文件 chunk、动态 memory item 向量、过滤字段、`updated_at_ts` | 否 | 是，用本机 embedding 写入和查询 | 候选会进入 reranker |
+| 本机 embedding 服务 | 向量化 | 查询文本、profile chunk、动态 memory item | 否 | 提供向量 | 不直接排序 |
+| 本机 reranker | 精排 | PostgreSQL + Milvus 合并候选 | 否 | 可使用 rerank 模型 | 是，负责最终相关性重排 |
+
+因此，PostgreSQL 和 Milvus 不是重复存储同一份“事实”。PostgreSQL 是真相来源，Milvus 是可重建的高性能语义索引。Milvus 丢失或重建不会改变权威记忆，只影响语义召回性能。
+
+### 记忆类型与可见性
+
+| 类型 | 默认可见性 | 典型来源 | 用途 |
+| --- | --- | --- | --- |
+| `user_private` | 当前用户 | 用户明确说“请记住”、偏好、纠错、个人工作习惯 | 二级市场问答连续性、个人偏好、历史纠错 |
+| `project_shared` | deal/project 成员 | 一级市场 IC 报告、R1/R2/R3/R4 输出、风险结论、法务扫描、财务审计 | Deal OS 团队共享、IC 多角色协作、项目决策回放 |
+| `system_shared` | 系统可见 | Hermes profile 文件、共享政策、工具说明、流程规则 | 智能体角色能力、工具边界、工作流知识 |
+
+一级市场智能体的共享记忆围绕 `deal_id/project_id` 工作。二级市场智能体默认使用用户私有记忆，避免个人聊天、偏好和历史纠错泄漏给其他用户。
+
+### 混合检索与排序
+
+SIQ 采用多阶段召回，而不是单一路径 RAG：
+
+| 阶段 | 机制 | 目的 |
+| --- | --- | --- |
+| 1. Scope 解析 | `tenant_id`、`user_id`、`profile`、`agent_group`、`deal_id/project_id` | 确保只检索当前用户或当前项目可见的记忆 |
+| 2. Milvus dense recall | `siq_agent_memory` collection + embedding query | 找语义相近的 profile 知识和长期记忆 |
+| 3. PostgreSQL lexical recall | `memory_items` 文本、标题、类型、时间与状态过滤 | 找关键词精确命中的权威记忆 |
+| 4. ACL 与有效期过滤 | visibility、owner、deal/project、`valid_from/valid_until` | 防止越权、过期和已删除记忆进入候选 |
+| 5. reranker 精排 | 本机 reranker 对合并候选排序 | 提高最终相关性，减少向量误召回 |
+| 6. 时间遗忘曲线 | 动态记忆按 30 天半衰期衰减 | 让近期经验自然优先，降低旧偏好污染 |
+| 7. Prompt 注入 | `<memory-context>` 块 | 给 Hermes 注入可追溯、可降级的上下文 |
+
+时间曲线只作用于动态记忆。静态 profile 知识如 `SOUL.md`、`AGENTS.md`、`TOOLS.md` 不衰减，因为它们代表智能体身份、工具和职责边界，不应因为时间变旧而降低权重。
+
+当用户明确要求“全量检索”“所有记忆”“所有内容”“完整历史”“不要遗忘”时，系统进入 hard full recall 模式：不加半衰期，并提高召回上限，但仍保留权限过滤和上下文长度保护。
+
+### 记忆质量治理
+
+| 治理能力 | 说明 |
+| --- | --- |
+| 显式记忆提取 | 只有用户明确表达“请记住 / 我的偏好 / 以后默认”等内容时才自动晋升，避免隐式污染 |
+| 纠错分类 | “你之前说错了 / 更正 / 以后不要”等输入沉淀为 `correction`，优先用于修正历史错误 |
+| 精确去重 | 同一 scope 下相同 normalized content 不重复写入，只更新置信度、重要度和 metadata |
+| 有效期过滤 | PostgreSQL 查询过滤 `valid_from/valid_until`，过期记忆不进入召回 |
+| 反馈事件 | `feedback_events` 为“有用 / 错误 / 过期 / 删除”这类人工治理预留正式入口 |
+| 超时降级 | 默认记忆检索预算为 1200ms，超时自动跳过，不阻断智能体响应 |
+| 来源追踪 | 记忆保留 `source_type/source_id/source_path`，可追溯到聊天、报告、profile 文件或 Deal OS artifact |
+
+### Hermes profile 知识入库
+
+Hermes 智能体配置文件会被离线切块、embedding 并写入 Milvus 专用 collection：
+
+```bash
+cd /home/maoyd/siq-research-engine/apps/api
+uv run python ../../scripts/hermes/ingest_agent_memory_to_milvus.py --dry-run
+uv run python ../../scripts/hermes/ingest_agent_memory_to_milvus.py --batch-size 64
+```
+
+默认 collection：
+
+```text
+siq_agent_memory
+```
+
+该 collection 保存：
+
+- 二级市场 profile：`siq_assistant`、`siq_analysis`、`siq_factchecker`、`siq_tracking`、`siq_legal`
+- 一级市场 IC profile：主席、战略、行业、财务、法务、风控、协调员
+- 共享规则：`shared`、`siq_ic_shared`
+- 动态长期记忆：用户私有记忆和项目共享记忆的向量索引
+
+### 记忆系统优势与创新点
+
+| 维度 | 传统聊天记忆 | SIQ 智能体记忆 |
+| --- | --- | --- |
+| 存储方式 | 会话摘要或本地缓存 | PostgreSQL 权威记忆 + Milvus 可重建向量索引 |
+| 权限隔离 | 常依赖 session id 或应用约定 | 显式 `user_id/profile/deal_id/visibility` 与 ACL 过滤 |
+| 检索方式 | 单一路径向量召回 | Milvus dense + PostgreSQL lexical + reranker + 时间曲线 |
+| 事实安全 | 容易把记忆当事实 | 当前问题和可验证证据优先，记忆只是上下文 |
+| 时间感 | 旧记忆长期同权 | 动态记忆 30 天半衰期，硬指令全量检索可绕过 |
+| 项目协作 | 多人共享容易串扰 | 一级市场 `project_shared` 记忆按 deal/project 隔离 |
+| 可治理性 | 难以审核和删除 | feedback、source、status、valid_until、dedupe、correction |
+| 性能保护 | 检索慢会拖累回答 | 1200ms 预算、失败降级、主链路优先 |
+
+这使 SIQ 的记忆系统更接近研究组织里的真实协作方式：个人有偏好和历史，项目有共享底稿和阶段结论，系统有稳定角色知识，旧经验会自然淡出，但用户明确要求时又可以完整追溯。
+
 ## 能力矩阵
 
 | 能力层 | A 股 | 港股 | 美股 | 欧股 | 日股 | 韩股 | 通用文档 |
