@@ -44,7 +44,7 @@ JP_INDICATOR_TABLE_NAMES = [
 ]
 
 JP_KEY_TABLE_DISPLAY_ORDER = JP_CORE_FINANCIAL_TABLE_NAMES + JP_INDICATOR_TABLE_NAMES
-JP_PROFILE_RULE_VERSION = "jp-pdf-profile-v6"
+JP_PROFILE_RULE_VERSION = "jp-pdf-profile-v7"
 
 _ANNUAL_SECURITIES_TERMS = (
     "annual securities report",
@@ -542,7 +542,49 @@ def _has_explicit_statement_title(name: str, signal: str) -> bool:
             "連結株主資本等変動計算書",
         ),
     }
-    return any(term in signal for term in title_terms.get(name, ()))
+    compact_signal = _compact_text(signal)
+    return any(term in signal or _compact_text(term) in compact_signal for term in title_terms.get(name, ()))
+
+
+def _confidence_for_candidate(name: str, signal: str, score: float, *, allow_summary_core: bool = False) -> str:
+    if score >= 90:
+        return "high"
+    if name == "Financial Highlights":
+        compact = _compact_text(signal)
+        has_local_title = any(
+            term in compact
+            for term in (
+                "主要な連結経営指標等の推移",
+                "主要な経営指標等の推移",
+                "連結経営指標等",
+                "提出会社の経営指標等",
+                "経営指標等の推移",
+            )
+        )
+        metric_hits = sum(
+            1
+            for term in (
+                "営業収益",
+                "売上高",
+                "売上収益",
+                "経常利益",
+                "営業利益",
+                "税引前利益",
+                "当期純利益",
+                "総資産",
+                "総資産額",
+                "1株当たり",
+            )
+            if term in compact
+        )
+        if has_local_title and metric_hits >= 3:
+            return "high"
+        return "medium"
+    if name in JP_CORE_FINANCIAL_TABLE_NAMES and _has_explicit_statement_title(name, signal):
+        return "high"
+    if name == "Consolidated Statement of Changes in Equity" and score >= 88 and not allow_summary_core:
+        return "high"
+    return "medium"
 
 
 def _suppress_core_statement_candidate(name: str, signal: str, *, allow_summary_core: bool = False) -> bool:
@@ -600,7 +642,12 @@ def group_jp_key_table_candidates(table_index: list[dict[str, Any]] | None, *, r
                     "status": "found",
                     "candidate_group": group,
                     "candidate_score": score,
-                    "confidence": "high" if score >= 90 else "medium",
+                    "confidence": _confidence_for_candidate(
+                        name,
+                        signal,
+                        score,
+                        allow_summary_core=allow_summary_core,
+                    ),
                     "_source": "jp_market_profile",
                 }
             )

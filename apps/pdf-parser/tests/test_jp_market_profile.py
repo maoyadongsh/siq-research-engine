@@ -2,7 +2,7 @@ import jp_market_profile as jp
 
 
 def test_detect_market_prefers_explicit_task_market_and_filename():
-    assert jp.JP_PROFILE_RULE_VERSION == "jp-pdf-profile-v6"
+    assert jp.JP_PROFILE_RULE_VERSION == "jp-pdf-profile-v7"
     assert jp.is_jp_market({"submit_config": {"market": "JP"}}, "anything.pdf")
     assert jp.is_jp_market({"market": "jp"}, "anything.pdf")
     assert jp.is_jp_market({}, "Toyota-Motor-Corporation_JP_7203_2025.pdf")
@@ -70,6 +70,38 @@ def test_jp_candidate_groups_find_annual_securities_report_local_highlights():
 
     assert candidates["Financial Highlights"][0]["table_index"] == 2
     assert candidates["Financial Highlights"][0]["confidence"] == "high"
+
+
+def test_jp_formal_local_statement_titles_are_high_confidence():
+    table_index = [
+        {
+            "table_index": 10,
+            "heading": "連結財政状態計算書",
+            "signal_preview": "資産 流動資産 非流動資産 資産合計 負債 資本合計",
+        },
+        {
+            "table_index": 11,
+            "heading": "連結損益計算書",
+            "signal_preview": "売上収益 営業利益 税引前利益 当期利益",
+        },
+        {
+            "table_index": 12,
+            "heading": "連結包括利益計算書",
+            "signal_preview": "当期利益 その他の包括利益 当期包括利益",
+        },
+        {
+            "table_index": 13,
+            "heading": "連結キャッシュ・フロー計算書",
+            "signal_preview": "営業活動によるキャッシュ・フロー 投資活動によるキャッシュ・フロー 財務活動によるキャッシュ・フロー",
+        },
+    ]
+
+    candidates = jp.group_jp_key_table_candidates(table_index, report_kind="jp_annual_securities_report")
+
+    assert candidates["Consolidated Statement of Financial Position"][0]["confidence"] == "high"
+    assert candidates["Consolidated Statement of Profit or Loss"][0]["confidence"] == "high"
+    assert candidates["Consolidated Statement of Comprehensive Income"][0]["confidence"] == "high"
+    assert candidates["Consolidated Statement of Cash Flows"][0]["confidence"] == "high"
 
 
 def test_jp_candidate_groups_use_long_signal_for_truncated_statement_previews():
@@ -271,6 +303,7 @@ def test_jp_candidate_groups_find_local_changes_in_equity_table_without_english_
     candidates = jp.group_jp_key_table_candidates(table_index, report_kind="jp_annual_securities_report")
 
     assert candidates["Consolidated Statement of Changes in Equity"][0]["table_index"] == 120
+    assert candidates["Consolidated Statement of Changes in Equity"][0]["confidence"] == "high"
 
 
 def test_jp_candidate_groups_find_consolidated_operating_results_as_financial_highlights():

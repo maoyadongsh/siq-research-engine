@@ -2,7 +2,7 @@ import kr_market_profile as kr
 
 
 def test_detect_market_prefers_explicit_task_market_and_filename():
-    assert kr.KR_PROFILE_RULE_VERSION == "kr-pdf-profile-v2"
+    assert kr.KR_PROFILE_RULE_VERSION == "kr-pdf-profile-v3"
     assert kr.is_kr_market({"submit_config": {"market": "KR"}}, "anything.pdf")
     assert kr.is_kr_market({"market": "kr"}, "anything.pdf")
     assert kr.is_kr_market({}, "Samsung-Electronics-Co.,-Ltd_KR_005930_2025.pdf")
@@ -42,7 +42,28 @@ def test_kr_candidate_groups_find_dart_sections_and_core_statements():
     assert candidates["Consolidated Statement of Cash Flows"][0]["table_index"] == 5
     assert candidates["Consolidated Statement of Changes in Equity"][0]["table_index"] == 6
     assert candidates["Segment Information"][0]["table_index"] == 7
+    assert candidates["요약재무정보"][0]["confidence"] == "high"
+    assert candidates["Consolidated Statement of Financial Position"][0]["confidence"] == "high"
+    assert candidates["Consolidated Statement of Profit or Loss"][0]["confidence"] == "high"
+    assert candidates["Consolidated Statement of Comprehensive Income"][0]["confidence"] == "high"
+    assert candidates["Consolidated Statement of Cash Flows"][0]["confidence"] == "high"
+    assert candidates["Consolidated Statement of Changes in Equity"][0]["confidence"] == "high"
     assert all(row["_source"] == "kr_market_profile" for rows in candidates.values() for row in rows)
+
+
+def test_kr_short_local_statement_titles_are_high_confidence():
+    table_index = [
+        {"table_index": 10, "heading": "연결 재무상태표", "preview": "자산총계 부채총계 자본총계"},
+        {"table_index": 11, "heading": "연결 손익계산서", "preview": "매출액 영업이익 당기순이익"},
+        {"table_index": 12, "heading": "연결 포괄손익계산서", "preview": "당기순이익 기타포괄손익 총포괄손익"},
+        {"table_index": 13, "heading": "연결 현금흐름표", "preview": "영업활동 현금흐름 투자활동 현금흐름 기말현금"},
+        {"table_index": 14, "heading": "연결 자본변동표", "preview": "자본금 이익잉여금 자본총계"},
+    ]
+
+    candidates = kr.group_kr_key_table_candidates(table_index)
+
+    for name in kr.KR_CORE_FINANCIAL_TABLE_NAMES[1:]:
+        assert candidates[name][0]["confidence"] == "high"
 
 
 def test_kr_candidate_groups_prefer_financial_statement_zone_over_business_or_note_tables():
@@ -123,6 +144,239 @@ def test_kr_candidate_groups_ignore_contents_table_and_accept_cash_flow_ocr_vari
 
     assert "Consolidated Statement of Financial Position" not in candidates
     assert candidates["Consolidated Statement of Cash Flows"][0]["table_index"] == 44
+
+
+def test_kr_candidate_groups_suppress_subsidiary_summary_note_tables():
+    table_index = [
+        {
+            "table_index": 595,
+            "line": 7662,
+            "heading": "① 제 65(당) 기말",
+            "source_footnote": ["종속기업의 요약 재무정보는 다음과 같습니다."],
+            "preview": (
+                "종속기업명 자산총액 부채총액 매출액 당기순손익 "
+                "한국수력원자력(주) 76,378,365 49,741,461 15,346,722 1,579,701"
+            ),
+        },
+        {
+            "table_index": 56,
+            "line": 1447,
+            "heading": "(단위: 천원)",
+            "preview": (
+                "구 분 자산 부채 자본 영업수익 당기순손익 총포괄손익 "
+                "NAVER J.Hub Corporation 1,924,218,642 811,824,518 1,112,394,124"
+            ),
+        },
+    ]
+
+    candidates = kr.group_kr_key_table_candidates(table_index)
+
+    assert "요약재무정보" not in candidates
+    assert "Consolidated Statement of Comprehensive Income" not in candidates
+
+
+def test_kr_candidate_groups_promote_top_level_summary_with_title_in_footnote():
+    table_index = [
+        {
+            "table_index": 64,
+            "line": 1428,
+            "heading": "※ 연결에 포함된 회사수는 한국가스공사를 제외한 숫자입니다.",
+            "source_footnote": ["※ 상기요약연결재무정보는 한국채택국제회계기준(K-IFRS)에 따라서 작성하였습니다."],
+            "preview": (
+                "계정과목 제43기 제42기 제41기 [자산] 53,627,847 57,669,637 "
+                "I.유동자산 13,634,386 [부채] 37,000,000 [자본] 16,000,000 "
+                "매출액 45,000,000 영업이익 2,000,000 당기순이익 132,251"
+            ),
+        }
+    ]
+
+    candidates = kr.group_kr_key_table_candidates(table_index)
+
+    assert candidates["요약재무정보"][0]["table_index"] == 64
+    assert candidates["요약재무정보"][0]["confidence"] == "high"
+
+
+def test_kr_candidate_groups_promote_connected_summary_caption_title():
+    table_index = [
+        {
+            "table_index": 118,
+            "line": 3241,
+            "heading": "(단위 : 백만원)",
+            "source_caption": ["가. 연결요약재무정보", "(단위 : 백만원)"],
+            "preview": "구 분 제58기 제57기 [유동자산] 43,483,869 [부채] 30,000,000 [자본] 20,000,000 매출액 80,000,000 당기순이익 3,000,000",
+        }
+    ]
+
+    candidates = kr.group_kr_key_table_candidates(table_index)
+
+    assert candidates["요약재무정보"][0]["confidence"] == "high"
+
+
+def test_kr_candidate_groups_suppress_major_shareholder_financial_status_tables():
+    table_index = [
+        {
+            "table_index": 1270,
+            "line": 12149,
+            "heading": "나. 최대주주(법인 또는 단체)의 최근 결산기 재무현황",
+            "preview": "구분 법인 또는 단체의 명칭 국민연금공단 자산총계 228,993 부채총계 584,915 자본총계 -355,922 매출액 44,544,620 영업이익 3,288 당기순이익 -17,155",
+        }
+    ]
+
+    candidates = kr.group_kr_key_table_candidates(table_index)
+
+    assert "요약재무정보" not in candidates
+
+
+def test_kr_candidate_groups_suppress_guaranteed_buyer_and_major_subsidiary_summaries():
+    table_index = [
+        {
+            "table_index": 47,
+            "line": 983,
+            "heading": "(**) 보장매수자의 주요 재무정보는 다음과 같습니다.",
+            "preview": "보장매수자 자산 부채 자본 영업수익 당기순손익 엘이피제일차(주) 29,898,030 30,208,504",
+        },
+        {
+            "table_index": 1070,
+            "line": 11825,
+            "heading": "[PDF_PAGE: 424]",
+            "source_footnote": ["EWP America Inc.의 요약 재무정보는 외 3개 종속기업의 재무정보를 포함한 연결재무정보입니다."],
+            "preview": "상호 설립일 주소 주요사업 최근사업연도말자산총액 지배관계 근거 주요종속회사 여부",
+        },
+    ]
+
+    candidates = kr.group_kr_key_table_candidates(table_index)
+
+    assert "요약재무정보" not in candidates
+
+
+def test_kr_candidate_groups_promote_strong_equity_statement_body_without_title():
+    table_index = [
+        {
+            "table_index": 53,
+            "line": 1401,
+            "heading": "(단위 : 원)",
+            "preview": (
+                "자본 지배기업 소유주지분 비지배지분 자본 합계 자본금 자본잉여금 "
+                "기타자본구성요소 이익잉여금 2023.01.01 기초자본 당기순이익 "
+                "총포괄손익 배당 기말자본"
+            ),
+        }
+    ]
+
+    candidates = kr.group_kr_key_table_candidates(table_index)
+
+    assert candidates["Consolidated Statement of Changes in Equity"][0]["table_index"] == 53
+    assert candidates["Consolidated Statement of Changes in Equity"][0]["confidence"] == "high"
+
+
+def test_kr_candidate_groups_promote_formal_comprehensive_income_body_without_title():
+    table_index = [
+        {
+            "table_index": 412,
+            "line": 4463,
+            "heading": "(단위 : 백만원)",
+            "preview": (
+                "제 24 기 제 23 기 제 22 기 당기순이익 1,030,595 1,136,633 "
+                "법인세비용차감후기타포괄이익 후속적으로 당기손익으로 재분류되지 않는 항목 "
+                "후속적으로 당기손익으로 재분류되는 항목 총포괄이익"
+            ),
+        }
+    ]
+
+    candidates = kr.group_kr_key_table_candidates(table_index)
+
+    assert candidates["Consolidated Statement of Comprehensive Income"][0]["table_index"] == 412
+    assert candidates["Consolidated Statement of Comprehensive Income"][0]["confidence"] == "high"
+
+
+def test_kr_candidate_groups_promote_bank_comprehensive_income_body_without_title():
+    table_index = [
+        {
+            "table_index": 158,
+            "line": 2099,
+            "heading": "(단위 : 백만원)",
+            "preview": (
+                "과 목 제 21기 총영업이익 영업이익 법인세비용차감전순이익 "
+                "당기순이익 1,745,571 당기총포괄이익 1,745,498 주당이익 기타포괄손익"
+            ),
+        }
+    ]
+
+    candidates = kr.group_kr_key_table_candidates(table_index)
+
+    assert candidates["Consolidated Statement of Comprehensive Income"][0]["confidence"] == "high"
+
+
+def test_kr_candidate_groups_promote_cash_flow_operating_section_body_without_title():
+    table_index = [
+        {
+            "table_index": 54,
+            "line": 1416,
+            "heading": "(단위 : 원)",
+            "preview": (
+                "제 27 기 제 26 기 영업활동현금흐름 영업에서 창출된 현금흐름 "
+                "이자의 수입 이자의 지급 법인세의 납부"
+            ),
+        }
+    ]
+
+    candidates = kr.group_kr_key_table_candidates(table_index)
+
+    assert candidates["Consolidated Statement of Cash Flows"][0]["table_index"] == 54
+    assert candidates["Consolidated Statement of Cash Flows"][0]["confidence"] == "high"
+
+
+def test_kr_candidate_groups_do_not_promote_segment_table_to_profit_or_loss():
+    table_index = [
+        {
+            "table_index": 77,
+            "line": 1628,
+            "heading": "(단위 : 억원, %)",
+            "preview": "사업부문 구분 제 24 기 금액 비율 HS 매출액 외부고객 매출 내부고객 매출 영업이익",
+        }
+    ]
+
+    candidates = kr.group_kr_key_table_candidates(table_index)
+
+    assert "Consolidated Statement of Profit or Loss" not in candidates
+
+
+def test_kr_candidate_groups_do_not_promote_retained_earnings_appropriation_to_comprehensive_income():
+    table_index = [
+        {
+            "table_index": 524,
+            "line": 6620,
+            "heading": "(단위 : 천원)",
+            "preview": (
+                "공시금액 미처분이익잉여금 전기이월이익잉여금 당기순이익 "
+                "기타포괄손익 공정가치측정 지분상품 처분손익 이익잉여금 처분액 배당금"
+            ),
+        }
+    ]
+
+    candidates = kr.group_kr_key_table_candidates(table_index)
+
+    assert "Consolidated Statement of Comprehensive Income" not in candidates
+    assert "Consolidated Statement of Changes in Equity" not in candidates
+
+
+def test_kr_candidate_groups_suppress_interest_average_balance_as_equity_statement():
+    table_index = [
+        {
+            "table_index": 91,
+            "line": 1285,
+            "heading": "(단위 : 억원)",
+            "source_footnote": ["(주) 평균잔액은 월말잔액의 평균임."],
+            "preview": (
+                "구 분 조달항목 2025년 연간 평균잔액 이자율 비중 자본 자본금 1,155 "
+                "자본잉여금 1,676 이익잉여금 255 소 계 3,086"
+            ),
+        }
+    ]
+
+    candidates = kr.group_kr_key_table_candidates(table_index)
+
+    assert "Consolidated Statement of Changes in Equity" not in candidates
 
 
 def test_kr_quality_messages_and_checks_do_not_use_a_share_missing_table_warnings():

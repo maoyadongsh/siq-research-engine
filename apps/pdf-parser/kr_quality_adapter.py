@@ -34,11 +34,10 @@ def merge_kr_quality_candidates(report: dict[str, Any], financial_data: dict[str
     }
 
     for statement_type, label in KR_STATEMENT_LABELS.items():
-        if _has_located_candidate(key_table_candidates.get(label) or []):
-            continue
+        existing_rows = key_table_candidates.get(label) or []
         candidate = _candidate_from_statement(label, by_type.get(statement_type), table_lookup, financial_data)
-        if candidate:
-            key_table_candidates[label] = [candidate]
+        if candidate and _should_use_financial_candidate(existing_rows, candidate):
+            key_table_candidates[label] = _merge_candidate_rows(candidate, existing_rows)
 
     core_candidates = []
     found = []
@@ -74,6 +73,29 @@ def _core_names(report: dict[str, Any]) -> list[str]:
 
 def _has_located_candidate(rows: list[dict[str, Any]]) -> bool:
     return any(row.get("status") == "found" and (row.get("table_index") or row.get("line")) for row in rows)
+
+
+def _should_use_financial_candidate(existing_rows: list[dict[str, Any]], candidate: dict[str, Any]) -> bool:
+    if not _has_located_candidate(existing_rows):
+        return True
+    primary = existing_rows[0] if existing_rows else {}
+    if primary.get("confidence") != "high":
+        return True
+    if candidate.get("table_index") and candidate.get("table_index") == primary.get("table_index"):
+        return True
+    return False
+
+
+def _merge_candidate_rows(candidate: dict[str, Any], existing_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    candidate_index = candidate.get("table_index")
+    merged = [candidate]
+    for row in existing_rows:
+        if candidate_index is not None and row.get("table_index") == candidate_index:
+            continue
+        merged.append(row)
+    for index, row in enumerate(merged):
+        row["is_primary"] = index == 0
+    return merged[:5]
 
 
 def _candidate_from_statement(
