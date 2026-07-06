@@ -63,9 +63,9 @@ export function DocumentExtractPane({
   return (
     <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,.95fr)_minmax(0,1.05fr)]">
       <div className="grid gap-3">
-        <label className="doc-field">
+        <label className="doc-field" htmlFor="doc-extract-template">
           <span className="doc-label">抽取模板</span>
-          <select className="doc-select" value={templateId} onChange={(event) => applyTemplate(event.target.value)}>
+          <select id="doc-extract-template" className="doc-select" name="document-extract-template" value={templateId} onChange={(event) => applyTemplate(event.target.value)}>
             <option value="">自定义 JSON Schema</option>
             {extractionTemplates.map((template) => (
               <option key={template.template_id} value={template.template_id}>
@@ -80,13 +80,13 @@ export function DocumentExtractPane({
             <p>{selectedTemplate.description || '模板 schema 已载入，可直接运行抽取。'}</p>
           </div>
         ) : null}
-        <label className="doc-field">
+        <label className="doc-field" htmlFor="doc-extract-schema">
           <span className="doc-label">JSON Schema</span>
-          <textarea className="doc-textarea" value={schemaText} onChange={(event) => setSchemaText(event.target.value)} />
+          <textarea id="doc-extract-schema" className="doc-textarea" name="document-extract-schema" autoComplete="off" spellCheck={false} value={schemaText} onChange={(event) => setSchemaText(event.target.value)} />
         </label>
-        <label className="doc-field">
+        <label className="doc-field" htmlFor="doc-extract-instructions">
           <span className="doc-label">抽取指令</span>
-          <input className="doc-input" value={instructions} onChange={(event) => setInstructions(event.target.value)} />
+          <input id="doc-extract-instructions" className="doc-input" name="document-extract-instructions" autoComplete="off" value={instructions} onChange={(event) => setInstructions(event.target.value)} />
         </label>
         <Button type="button" onClick={() => void onRunExtraction(schemaText, instructions, templateId)}>运行抽取</Button>
         {validationReport ? (

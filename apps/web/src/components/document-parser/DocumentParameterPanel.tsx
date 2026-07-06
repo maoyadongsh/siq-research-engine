@@ -35,8 +35,8 @@ export function DocumentParameterPanel({
       </summary>
       <div className="doc-panel-body grid gap-3">
         <div className="doc-field">
-          <label className="doc-label">模型版本</label>
-          <div className="doc-segment" role="tablist" aria-label="模型版本">
+          <span className="doc-label" id="doc-model-version-label">模型版本</span>
+          <div className="doc-segment" role="tablist" aria-labelledby="doc-model-version-label">
             {modelOptions.map(([value, label]) => (
               <button
                 key={value}
@@ -51,17 +51,17 @@ export function DocumentParameterPanel({
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <label className="doc-field">
+          <label className="doc-field" htmlFor="doc-ocr">
             <span className="doc-label">OCR</span>
-            <select className="doc-select" value={config.ocr} onChange={(event) => set('ocr', event.target.value)}>
+            <select id="doc-ocr" className="doc-select" name="document-ocr" value={config.ocr} onChange={(event) => set('ocr', event.target.value)}>
               <option value="auto">自动 OCR</option>
               <option value="force">强制 OCR</option>
               <option value="off">关闭 OCR</option>
             </select>
           </label>
-          <label className="doc-field">
+          <label className="doc-field" htmlFor="doc-language">
             <span className="doc-label">语言</span>
-            <select className="doc-select" value={config.language} onChange={(event) => set('language', event.target.value)}>
+            <select id="doc-language" className="doc-select" name="document-language" value={config.language} onChange={(event) => set('language', event.target.value)}>
               <option value="auto">自动</option>
               <option value="ch">中文</option>
               <option value="en">英文</option>
@@ -72,10 +72,13 @@ export function DocumentParameterPanel({
           </label>
         </div>
 
-        <label className="doc-field">
+        <label className="doc-field" htmlFor="doc-page-ranges">
           <span className="doc-label">页码范围</span>
           <input
+            id="doc-page-ranges"
             className="doc-input"
+            name="document-page-ranges"
+            autoComplete="off"
             value={config.pageRanges}
             onChange={(event) => set('pageRanges', event.target.value)}
             placeholder="例如 1-20,24,30-32"
@@ -83,21 +86,21 @@ export function DocumentParameterPanel({
         </label>
 
         <div className="doc-toggle-grid">
-          <label className="doc-check">
-            <input type="checkbox" checked={config.enableTable} onChange={(event) => set('enableTable', event.target.checked)} />
+          <label className="doc-check" htmlFor="doc-enable-table">
+            <input id="doc-enable-table" type="checkbox" name="document-enable-table" checked={config.enableTable} onChange={(event) => set('enableTable', event.target.checked)} />
             表格识别
           </label>
-          <label className="doc-check">
-            <input type="checkbox" checked={config.enableFormula} onChange={(event) => set('enableFormula', event.target.checked)} />
+          <label className="doc-check" htmlFor="doc-enable-formula">
+            <input id="doc-enable-formula" type="checkbox" name="document-enable-formula" checked={config.enableFormula} onChange={(event) => set('enableFormula', event.target.checked)} />
             公式识别
           </label>
-          <label className="doc-check">
-            <input type="checkbox" checked={!config.noCache} onChange={(event) => set('noCache', !event.target.checked)} />
+          <label className="doc-check" htmlFor="doc-use-cache">
+            <input id="doc-use-cache" type="checkbox" name="document-use-cache" checked={!config.noCache} onChange={(event) => set('noCache', !event.target.checked)} />
             使用缓存
           </label>
           {['html', 'docx', 'latex', 'zip'].map((format) => (
-            <label className="doc-check" key={format}>
-              <input type="checkbox" checked={config.extraFormats.includes(format)} onChange={() => toggleFormat(format)} />
+            <label className="doc-check" htmlFor={`doc-export-${format}`} key={format}>
+              <input id={`doc-export-${format}`} type="checkbox" name={`document-export-${format}`} checked={config.extraFormats.includes(format)} onChange={() => toggleFormat(format)} />
               导出 {format.toUpperCase()}
             </label>
           ))}

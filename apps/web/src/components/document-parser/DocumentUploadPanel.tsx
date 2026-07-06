@@ -64,6 +64,7 @@ export function DocumentUploadPanel({
         <button
           type="button"
           className={`doc-drop ${dragover ? 'is-dragover' : ''}`}
+          aria-describedby="doc-upload-drop-help"
           onClick={() => inputRef.current?.click()}
           onDragOver={(event) => {
             event.preventDefault()
@@ -78,11 +79,12 @@ export function DocumentUploadPanel({
         >
           <FileUp className="h-8 w-8" />
           <strong>拖拽文件到这里，或点击选择</strong>
-          <span>一次可上传多份文件；当前后端默认单文件 200 MB。</span>
+          <span id="doc-upload-drop-help">一次可上传多份文件；当前后端默认单文件 200 MB。按 Enter 或空格选择文件。</span>
         </button>
         <input
           ref={inputRef}
           type="file"
+          name="document-files"
           multiple
           className="hidden"
           accept=".pdf,.png,.jpg,.jpeg,.jp2,.webp,.gif,.bmp,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.html,.htm,.txt,.md,.markdown"
@@ -111,6 +113,10 @@ export function DocumentUploadPanel({
           <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
             <input
               id="doc-url"
+              name="document-url"
+              type="url"
+              autoComplete="off"
+              inputMode="url"
               className="doc-input"
               value={url}
               onChange={(event) => setUrl(event.target.value)}
@@ -132,6 +138,8 @@ export function DocumentUploadPanel({
           <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
             <input
               id="doc-mineru-dir"
+              name="document-mineru-dir"
+              autoComplete="off"
               className="doc-input"
               value={mineruDir}
               onChange={(event) => setMineruDir(event.target.value)}

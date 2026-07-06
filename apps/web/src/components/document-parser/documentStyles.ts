@@ -9,6 +9,7 @@ export const DOCUMENT_CSS = `
 .doc-panel-body { padding: 1rem; }
 .doc-drop { display: grid; place-items: center; gap: .6rem; min-height: 150px; border: 1.5px dashed #cbd5e1; border-radius: 14px; background: #f8fafc; padding: 1rem; text-align: center; cursor: pointer; transition: border-color .16s ease, background .16s ease, box-shadow .16s ease; }
 .doc-drop:hover, .doc-drop.is-dragover { border-color: #2563eb; background: #eff6ff; box-shadow: 0 12px 24px rgba(37, 99, 235, .08); }
+.doc-drop:focus-visible { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37, 99, 235, .16); outline: none; }
 .doc-drop svg { color: #2563eb; }
 .doc-drop strong { color: var(--text); font-size: .95rem; }
 .doc-drop span { color: var(--text-muted); font-size: .8rem; line-height: 1.5; }
@@ -24,12 +25,14 @@ export const DOCUMENT_CSS = `
 .doc-input:focus, .doc-select:focus, .doc-textarea:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37, 99, 235, .1); }
 .doc-segment { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .35rem; border: 1px solid var(--border); border-radius: 12px; background: #f8fafc; padding: .3rem; }
 .doc-segment button { min-height: 36px; border: 1px solid transparent; border-radius: 9px; background: transparent; color: var(--text-muted); font-size: .78rem; font-weight: 800; cursor: pointer; }
+.doc-segment button:focus-visible { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37, 99, 235, .12); outline: none; }
 .doc-segment button.active { border-color: #bfdbfe; background: #fff; color: #1d4ed8; box-shadow: 0 4px 12px rgba(15, 23, 42, .06); }
 .doc-toggle-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .55rem; }
 .doc-check { display: flex; align-items: center; gap: .45rem; min-height: 40px; border: 1px solid var(--border); border-radius: 10px; background: #fff; padding: .45rem .6rem; font-size: .8rem; font-weight: 700; color: var(--text); }
 .doc-check.compact { min-height: 34px; padding: .35rem .55rem; white-space: nowrap; }
 .doc-task-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(120px, 150px); gap: .5rem; margin-bottom: .65rem; }
 .doc-search { display: flex; align-items: center; gap: .45rem; min-width: 0; min-height: 42px; border: 1px solid var(--border); border-radius: 10px; background: #fff; padding: 0 .65rem; color: var(--text-muted); }
+.doc-search:focus-within { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37, 99, 235, .1); }
 .doc-search input { min-width: 0; width: 100%; border: 0; outline: 0; background: transparent; color: var(--text); font: inherit; font-size: .84rem; }
 .doc-status-filter { min-height: 42px; }
 .doc-batch-bar { display: flex; align-items: center; justify-content: space-between; gap: .6rem; flex-wrap: wrap; margin-bottom: .65rem; border: 1px solid var(--border); border-radius: 12px; background: #f8fafc; padding: .55rem; }

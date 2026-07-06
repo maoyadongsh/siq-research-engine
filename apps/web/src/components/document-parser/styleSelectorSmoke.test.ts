@@ -72,6 +72,7 @@ const smokeCases: StylesheetSmokeCase[] = [
     keySelectors: [
       '.doc-workbench',
       '.doc-drop.is-dragover',
+      '.doc-drop:focus-visible',
       '.doc-task.active',
       '.doc-progress > span',
       '.doc-preview-grid',
@@ -273,6 +274,8 @@ test('DOCUMENT_CSS preserves overflow guards for narrow and wide document conten
   assert.equal(declarationsFor(DOCUMENT_CSS, '.doc-workbench').get('grid-template-columns'), 'minmax(300px, 370px) minmax(0, 1fr)')
   assert.equal(declarationsFor(DOCUMENT_CSS, '.doc-side').get('min-width'), '0')
   assert.equal(declarationsFor(DOCUMENT_CSS, '.doc-source-pane').get('min-width'), '0')
+  assert.equal(declarationsFor(DOCUMENT_CSS, '.doc-drop:focus-visible').get('outline'), 'none')
+  assert.equal(declarationsFor(DOCUMENT_CSS, '.doc-search:focus-within').get('border-color'), '#2563eb')
   assert.equal(declarationsFor(DOCUMENT_CSS, '.doc-md-html').get('overflow-x'), 'auto')
   assert.equal(declarationsFor(DOCUMENT_CSS, '.doc-md-html table').get('min-width'), '100%')
   assert.equal(declarationsFor(DOCUMENT_CSS, '.doc-md-html th').get('white-space'), 'nowrap')

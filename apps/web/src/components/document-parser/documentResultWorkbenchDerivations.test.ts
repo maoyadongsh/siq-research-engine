@@ -384,6 +384,25 @@ test('markdown block derivation appends document markdown gaps such as table foo
   assert.doesNotMatch(blocks[2]?.textPreview || '', /EDINET/)
 })
 
+test('markdown block derivation keeps supplement ordering by page without repeated page scans', () => {
+  const sourceBlocks: DocumentBlock[] = [
+    { block_id: 'p2-body', type: 'text', page_number: 2, markdown: 'page two body' },
+    { block_id: 'p1-body', type: 'text', page_number: 1, markdown: 'page one body' },
+  ]
+  const markdown = [
+    '[PDF_PAGE: 1]',
+    'page one body',
+    'page one footnote',
+    '[PDF_PAGE: 2]',
+    'page two body',
+    'page two footnote',
+  ].join('\n')
+
+  const blocks = buildDocumentResultMarkdownBlocks(sourceBlocks, markdown, new Map())
+
+  assert.deepEqual(blocks.map((block) => block.id), ['p1-body', 'md-page-1-supplement', 'p2-body', 'md-page-2-supplement'])
+})
+
 test('markdown renderer does not pass through raw html when sanitizer is unavailable', () => {
   const [block] = buildDocumentResultMarkdownBlocks(
     [],

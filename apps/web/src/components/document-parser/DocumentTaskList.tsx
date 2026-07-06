@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Download, FileText, Loader2, RotateCcw, Search, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/page'
+import { applyDocumentParserTaskSearchParam } from '@/features/document-parser/urlState'
 import type { DocumentTaskItem } from '@/lib/documentTypes'
 
 function statusTone(status?: string) {
@@ -64,6 +65,7 @@ export function DocumentTaskList({
 }) {
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
+  const hasSyncedTaskParam = useRef(false)
   const selectedSet = useMemo(() => new Set(selectedBulkTaskIds), [selectedBulkTaskIds])
   const filteredTasks = useMemo(() => {
     const needle = query.trim().toLowerCase()
@@ -81,6 +83,18 @@ export function DocumentTaskList({
     })
   }, [query, statusFilter, tasks])
   const allFilteredSelected = filteredTasks.length > 0 && filteredTasks.every((task) => selectedSet.has(task.task_id))
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (!selectedTaskId && !hasSyncedTaskParam.current) return
+    const currentUrl = new URL(window.location.href)
+    const { searchParams } = applyDocumentParserTaskSearchParam(currentUrl.searchParams, selectedTaskId)
+    const nextSearch = searchParams.toString()
+    if (selectedTaskId) hasSyncedTaskParam.current = true
+    if (nextSearch === currentUrl.searchParams.toString()) return
+    const nextUrl = `${currentUrl.pathname}${nextSearch ? `?${nextSearch}` : ''}${currentUrl.hash}`
+    window.history.replaceState(window.history.state, '', nextUrl)
+  }, [selectedTaskId])
 
   const toggleFiltered = (selected: boolean) => {
     filteredTasks.forEach((task) => onToggleBulkSelection(task.task_id, selected))
@@ -100,12 +114,20 @@ export function DocumentTaskList({
           <label className="doc-search">
             <Search className="h-4 w-4" />
             <input
+              name="document-task-query"
+              autoComplete="off"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="搜索文件、任务或 provider"
             />
           </label>
-          <select className="doc-select doc-status-filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+          <select
+            className="doc-select doc-status-filter"
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value)}
+            aria-label="任务状态筛选"
+            name="document-task-status"
+          >
             <option value="all">全部状态</option>
             <option value="queued">排队</option>
             <option value="running">解析中</option>

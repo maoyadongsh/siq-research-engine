@@ -89,6 +89,71 @@ class RuntimePathConfigTest(unittest.TestCase):
         self.assertEqual(paths["results"], "/tmp/project/apps/pdf-parser/results")
         self.assertEqual(paths["db"], "/tmp/project/apps/pdf-parser/tasks.db")
 
+    def test_runtime_and_artifacts_roots_are_opt_in(self):
+        with patch.dict(
+            os.environ,
+            {
+                "SIQ_DATA_ROOT": "/tmp/state/data",
+                "SIQ_RUNTIME_ROOT": "/tmp/state/runtime",
+                "SIQ_ARTIFACTS_ROOT": "/tmp/state/artifacts",
+            },
+            clear=True,
+        ):
+            paths = resolve_app_paths("/tmp/project/apps/pdf-parser")
+
+        self.assertEqual(paths["data_root"], "/tmp/state/data")
+        self.assertEqual(paths["runtime_root"], "/tmp/state/runtime")
+        self.assertEqual(paths["artifacts_root"], "/tmp/state/artifacts")
+        self.assertEqual(paths["data_dir"], "/tmp/state/runtime/pdf-parser")
+        self.assertEqual(paths["uploads"], "/tmp/state/runtime/pdf-parser/uploads")
+        self.assertEqual(paths["db"], "/tmp/state/runtime/pdf-parser/db/tasks.db")
+        self.assertEqual(paths["results"], "/tmp/state/artifacts/pdf-parser/results")
+        self.assertEqual(paths["output"], "/tmp/state/artifacts/pdf-parser/output")
+        self.assertIn("/tmp/project/data/pdf-parser/results", paths["results_candidates"])
+        self.assertIn("/tmp/project/data/pdf-parser/output", paths["output_candidates"])
+
+    def test_legacy_env_overrides_generic_runtime_roots(self):
+        with patch.dict(
+            os.environ,
+            {
+                "SIQ_RUNTIME_ROOT": "/tmp/state/runtime",
+                "SIQ_ARTIFACTS_ROOT": "/tmp/state/artifacts",
+                "PDF2MD_DATA_DIR": "/tmp/legacy/pdf-data",
+                "RESULTS_FOLDER": "/tmp/legacy/results",
+            },
+            clear=True,
+        ):
+            paths = resolve_app_paths("/tmp/project/apps/pdf-parser")
+
+        self.assertEqual(paths["data_dir"], "/tmp/legacy/pdf-data")
+        self.assertEqual(paths["uploads"], "/tmp/legacy/pdf-data/uploads")
+        self.assertEqual(paths["results"], "/tmp/legacy/results")
+
+    def test_resolver_does_not_create_or_migrate_legacy_data(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir) / "project"
+            base_dir = project_root / "apps" / "pdf-parser"
+            legacy_result = project_root / "data" / "pdf-parser" / "results" / "legacy-task" / "result.md"
+            base_dir.mkdir(parents=True)
+            legacy_result.parent.mkdir(parents=True)
+            legacy_result.write_text("# legacy\n", encoding="utf-8")
+
+            state_root = Path(tmpdir) / "state"
+            with patch.dict(
+                os.environ,
+                {
+                    "SIQ_RUNTIME_ROOT": str(state_root / "runtime"),
+                    "SIQ_ARTIFACTS_ROOT": str(state_root / "artifacts"),
+                },
+                clear=True,
+            ):
+                paths = resolve_app_paths(str(base_dir))
+
+            self.assertTrue(legacy_result.is_file())
+            self.assertFalse((state_root / "runtime").exists())
+            self.assertFalse((state_root / "artifacts").exists())
+            self.assertIn(str(project_root / "data" / "pdf-parser" / "results"), paths["results_candidates"])
+
 
 class TaskArtifactStateTest(unittest.TestCase):
     def test_task_state_helpers_cover_terminal_success_and_cancelled(self):

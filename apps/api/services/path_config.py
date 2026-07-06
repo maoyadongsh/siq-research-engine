@@ -1,8 +1,8 @@
 """Centralized filesystem paths for SIQ runtime services.
 
-New SIQ_* environment variables take precedence. Existing WIKI_ROOT,
-PDF2MD_ROOT, REPORT_DOWNLOADS_ROOT, and SIQ_* variables remain supported so
-current local deployments can opt into compatibility paths during migration.
+Leaf-level SIQ_* environment variables take precedence. Legacy aliases remain
+supported, while SIQ_RUNTIME_ROOT and SIQ_ARTIFACTS_ROOT can opt deployments
+into the newer split layout without moving existing data/.
 """
 
 from __future__ import annotations
@@ -17,6 +17,10 @@ def _env_path(*names: str, default: str | Path) -> Path:
         if value and value.strip():
             return Path(value).expanduser().resolve()
     return Path(default).expanduser().resolve()
+
+
+def _env_has_value(*names: str) -> bool:
+    return any(bool(os.environ.get(name, "").strip()) for name in names)
 
 
 def _first_existing_path(*paths: str | Path, marker: str | Path | None = None, default: str | Path) -> Path:
@@ -52,6 +56,30 @@ def _find_repo_root(start: Path) -> Path:
     return Path(__file__).resolve().parents[3]
 
 
+def _runtime_default(service: str, legacy_default: str | Path) -> Path:
+    if _env_has_value("SIQ_RUNTIME_ROOT"):
+        return RUNTIME_ROOT / service
+    return Path(legacy_default)
+
+
+def _artifact_default(service: str, leaf: str, legacy_default: str | Path) -> Path:
+    if _env_has_value("SIQ_ARTIFACTS_ROOT"):
+        return ARTIFACTS_ROOT / service / leaf
+    return Path(legacy_default)
+
+
+def _unique_paths(*paths: str | Path) -> tuple[Path, ...]:
+    ordered: list[Path] = []
+    seen: set[str] = set()
+    for path in paths:
+        candidate = Path(path).expanduser().resolve()
+        key = str(candidate)
+        if key not in seen:
+            ordered.append(candidate)
+            seen.add(key)
+    return tuple(ordered)
+
+
 REPO_ROOT = _find_repo_root(Path(__file__).resolve())
 
 PROJECT_ROOT = _env_path(
@@ -80,57 +108,74 @@ DATA_ROOT = _env_path(
     "SIQ_DATA_ROOT",
     default=PROJECT_ROOT / "data",
 )
+LEGACY_DATA_ROOT = (PROJECT_ROOT / "data").expanduser().resolve()
+RUNTIME_ROOT = _env_path(
+    "SIQ_RUNTIME_ROOT",
+    default=PROJECT_ROOT / "runtime",
+)
+ARTIFACTS_ROOT = _env_path(
+    "SIQ_ARTIFACTS_ROOT",
+    default=PROJECT_ROOT / "artifacts",
+)
 BACKEND_DATA_ROOT = _env_path(
     "SIQ_BACKEND_DATA_ROOT",
     "SIQ_BACKEND_DATA_ROOT",
-    default=DATA_ROOT / "backend",
+    default=_runtime_default("api", DATA_ROOT / "backend"),
 )
 PDF2MD_DATA_ROOT = _env_path(
     "SIQ_PDF2MD_DATA_DIR",
     "PDF2MD_DATA_DIR",
     "SIQ_PDF2MD_DATA_DIR",
-    default=DATA_ROOT / "pdf-parser",
+    default=_runtime_default("pdf-parser", DATA_ROOT / "pdf-parser"),
 )
 PDF_RESULTS_ROOT = _env_path(
     "SIQ_PDF_RESULTS_ROOT",
     "PDF_RESULTS_ROOT",
     "SIQ_PDF_RESULTS_ROOT",
-    default=PDF2MD_DATA_ROOT / "results",
+    default=_artifact_default("pdf-parser", "results", PDF2MD_DATA_ROOT / "results"),
 )
 PDF_OUTPUT_ROOT = _env_path(
     "SIQ_PDF_OUTPUT_ROOT",
     "PDF_OUTPUT_ROOT",
     "SIQ_PDF_OUTPUT_ROOT",
-    default=PDF2MD_DATA_ROOT / "output",
+    default=_artifact_default("pdf-parser", "output", PDF2MD_DATA_ROOT / "output"),
 )
 DOCUMENT_PARSER_DATA_ROOT = _env_path(
     "SIQ_DOCUMENT_PARSE_DATA_DIR",
     "SIQ_DOCUMENT_PARSER_DATA_DIR",
     "DOCUMENT_PARSER_DATA_DIR",
-    default=DATA_ROOT / "document-parser",
+    default=_runtime_default("document-parser", DATA_ROOT / "document-parser"),
 )
 DOCUMENT_PARSER_RESULTS_ROOT = _env_path(
     "SIQ_DOCUMENT_PARSE_RESULTS_ROOT",
     "SIQ_DOCUMENT_PARSER_RESULTS_ROOT",
     "DOCUMENT_PARSER_RESULTS_ROOT",
-    default=DOCUMENT_PARSER_DATA_ROOT / "results",
+    default=_artifact_default("document-parser", "results", DOCUMENT_PARSER_DATA_ROOT / "results"),
 )
 
-DEFAULT_WIKI_ROOT = _first_existing_path(
-    PROJECT_ROOT / "data" / "wiki",
-    marker="companies",
-    default=PROJECT_ROOT / "data" / "wiki",
-)
+if _env_has_value("SIQ_DATA_ROOT"):
+    DEFAULT_WIKI_ROOT = DATA_ROOT / "wiki"
+else:
+    DEFAULT_WIKI_ROOT = _first_existing_path(
+        LEGACY_DATA_ROOT / "wiki",
+        marker="companies",
+        default=LEGACY_DATA_ROOT / "wiki",
+    )
 DEFAULT_REPORT_FINDER_ROOT = _first_existing_path(
     PROJECT_ROOT / "services" / "market-report-finder",
     marker="pyproject.toml",
     default=PROJECT_ROOT / "services" / "market-report-finder",
 )
-DEFAULT_HERMES_HOME = _first_existing_path(
-    PROJECT_ROOT / "data" / "hermes" / "home",
-    marker=Path("profiles") / "siq_assistant" / "config.yaml",
-    default=PROJECT_ROOT / "data" / "hermes" / "home",
-)
+if _env_has_value("SIQ_RUNTIME_ROOT"):
+    DEFAULT_HERMES_HOME = RUNTIME_ROOT / "hermes" / "home"
+elif _env_has_value("SIQ_DATA_ROOT"):
+    DEFAULT_HERMES_HOME = DATA_ROOT / "hermes" / "home"
+else:
+    DEFAULT_HERMES_HOME = _first_existing_path(
+        LEGACY_DATA_ROOT / "hermes" / "home",
+        marker=Path("profiles") / "siq_assistant" / "config.yaml",
+        default=LEGACY_DATA_ROOT / "hermes" / "home",
+    )
 DEFAULT_DB_ROOT = PROJECT_ROOT / "db"
 
 
@@ -173,7 +218,7 @@ REPORT_DOWNLOADS_ROOT = _env_path(
     "SIQ_REPORT_DOWNLOADS_ROOT",
     "REPORT_DOWNLOADS_ROOT",
     "SIQ_REPORT_DOWNLOADS_ROOT",
-    default=DATA_ROOT / "market-report-finder" / "downloads",
+    default=_artifact_default("market-report-finder", "downloads", DATA_ROOT / "market-report-finder" / "downloads"),
 )
 
 HERMES_HOME = _env_path(
@@ -295,23 +340,33 @@ PDF_TASK_DB_PATH = _env_path(
     default=PDF2MD_DATA_ROOT / "db" / "tasks.db",
 )
 
-PDF_RESULT_ROOT_CANDIDATES = tuple(
-    Path(path)
-    for path in dict.fromkeys(
-        str(path)
-        for path in (
-            PDF_RESULTS_ROOT,
-            PDF2MD_ROOT / "results",
-        )
-    )
+PDF_RESULT_ROOT_CANDIDATES = _unique_paths(
+    PDF_RESULTS_ROOT,
+    PDF2MD_DATA_ROOT / "results",
+    DATA_ROOT / "pdf-parser" / "results",
+    LEGACY_DATA_ROOT / "pdf-parser" / "results",
+    PDF2MD_ROOT / "results",
 )
-PDF_OUTPUT_ROOT_CANDIDATES = tuple(
-    Path(path)
-    for path in dict.fromkeys(
-        str(path)
-        for path in (
-            PDF_OUTPUT_ROOT,
-            PDF2MD_ROOT / "output",
-        )
-    )
+PDF_OUTPUT_ROOT_CANDIDATES = _unique_paths(
+    PDF_OUTPUT_ROOT,
+    PDF2MD_DATA_ROOT / "output",
+    DATA_ROOT / "pdf-parser" / "output",
+    LEGACY_DATA_ROOT / "pdf-parser" / "output",
+    PDF2MD_ROOT / "output",
+)
+DOCUMENT_PARSER_RESULT_ROOT_CANDIDATES = _unique_paths(
+    DOCUMENT_PARSER_RESULTS_ROOT,
+    DOCUMENT_PARSER_DATA_ROOT / "results",
+    DATA_ROOT / "document-parser" / "results",
+    LEGACY_DATA_ROOT / "document-parser" / "results",
+)
+REPORT_DOWNLOAD_ROOT_CANDIDATES = _unique_paths(
+    REPORT_DOWNLOADS_ROOT,
+    DATA_ROOT / "market-report-finder" / "downloads",
+    LEGACY_DATA_ROOT / "market-report-finder" / "downloads",
+)
+WIKI_ROOT_CANDIDATES = _unique_paths(
+    WIKI_ROOT,
+    DATA_ROOT / "wiki",
+    LEGACY_DATA_ROOT / "wiki",
 )

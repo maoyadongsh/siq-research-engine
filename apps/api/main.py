@@ -1,4 +1,6 @@
 import os
+import logging
+import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -7,10 +9,12 @@ from database import create_db_and_tables
 from routers import agent, chat, achievements, analysis, factchecker, legal, tracking_agent, wiki, settings, system, downloads, workflow, source, eval_e2e, auth, workspace, market_reports, document_parser, deals, primary_market_meeting
 from services.auth_dependencies import get_current_user
 from services.auth_service import AuthService
+from services.observability import REQUEST_ID_HEADER, emit_json_log, monotonic_ms, normalize_request_id, reset_request_id, set_request_id
 from services.path_config import FRONTEND_ROOT
 from seed import seed_data
 
 FRONT_DIR = str(FRONTEND_ROOT)
+logger = logging.getLogger("siq.api")
 
 
 @asynccontextmanager
@@ -35,6 +39,40 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def request_observability_middleware(request, call_next):
+    request_id = normalize_request_id(request.headers.get(REQUEST_ID_HEADER))
+    request_id_token = set_request_id(request_id)
+    start = time.perf_counter()
+    status_code = 500
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        response.headers[REQUEST_ID_HEADER] = request_id
+        return response
+    except Exception:
+        emit_json_log(
+            logger,
+            "api_request_failed",
+            method=request.method,
+            path=request.url.path,
+            status_code=status_code,
+            duration_ms=monotonic_ms(start),
+        )
+        raise
+    finally:
+        if status_code < 500:
+            emit_json_log(
+                logger,
+                "api_request_completed",
+                method=request.method,
+                path=request.url.path,
+                status_code=status_code,
+                duration_ms=monotonic_ms(start),
+            )
+        reset_request_id(request_id_token)
 
 # 认证路由（无需认证）
 app.include_router(auth.router, prefix="/api/auth")

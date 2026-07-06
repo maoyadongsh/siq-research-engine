@@ -550,14 +550,28 @@ export function buildMarkdownBlocks(blocks: DocumentBlock[], markdown: string, t
   })
   const supplements = buildMarkdownSupplementBlocks(blocks, markdown)
   if (!supplements.length) return structuredBlocks
-  const pages = Array.from(new Set([
-    ...structuredBlocks.map((block) => pageNumber(block.pageNumber)),
-    ...supplements.map((block) => pageNumber(block.pageNumber)),
-  ])).sort((a, b) => a - b)
-  return pages.flatMap((page) => [
-    ...structuredBlocks.filter((block) => pageNumber(block.pageNumber) === page),
-    ...supplements.filter((block) => pageNumber(block.pageNumber) === page),
-  ])
+  const blocksByPage = new Map<number, MarkdownBlock[]>()
+  for (const block of structuredBlocks) {
+    const page = pageNumber(block.pageNumber)
+    let pageBlocks = blocksByPage.get(page)
+    if (!pageBlocks) {
+      pageBlocks = []
+      blocksByPage.set(page, pageBlocks)
+    }
+    pageBlocks.push(block)
+  }
+  for (const block of supplements) {
+    const page = pageNumber(block.pageNumber)
+    let pageBlocks = blocksByPage.get(page)
+    if (!pageBlocks) {
+      pageBlocks = []
+      blocksByPage.set(page, pageBlocks)
+    }
+    pageBlocks.push(block)
+  }
+  return Array.from(blocksByPage)
+    .sort(([leftPage], [rightPage]) => leftPage - rightPage)
+    .flatMap(([, pageBlocks]) => pageBlocks)
 }
 
 export function relationPages(relation: DocumentTableRelation, tableById: Map<string, DocumentTable>) {

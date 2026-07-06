@@ -3,6 +3,7 @@ import { type CSSProperties, type RefObject, type UIEvent, useCallback, useEffec
 import { copyText } from '../../lib/clipboard'
 import { getDownloadUrl } from '../../features/pdf-parsing/api'
 import { downloadAuthenticatedFile } from '../../lib/authenticatedFiles'
+import { shouldWindowPdfMarkdownLines } from './pdfMarkdownWindowing'
 
 export interface PdfMarkdownPreviewProps {
   markdown: string
@@ -24,7 +25,10 @@ function clampLine(value: number, total: number) {
 
 export function PdfMarkdownPreview({ markdown, mdLines, focusedLine, taskId, mdRef, showToast }: PdfMarkdownPreviewProps) {
   const [anchorLine, setAnchorLine] = useState(1)
-  const useWindowedLines = mdLines.length > VIRTUAL_LINE_THRESHOLD
+  const useWindowedLines = useMemo(
+    () => shouldWindowPdfMarkdownLines(mdLines, VIRTUAL_LINE_THRESHOLD),
+    [mdLines],
+  )
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => setAnchorLine(1))
@@ -131,7 +135,7 @@ export function PdfMarkdownPreview({ markdown, mdLines, focusedLine, taskId, mdR
           ) : null}
         </div>
       </div>
-      <div className="pdf-markdown-body" ref={mdRef} onScroll={handleScroll}>
+      <div className="pdf-markdown-body" ref={mdRef} onScroll={handleScroll} data-windowed={useWindowedLines ? 'true' : 'false'}>
         {mdLines.length ? (
           <>
             {useWindowedLines ? <div aria-hidden="true" style={topSpacerStyle} /> : null}
