@@ -28,6 +28,18 @@ market evidence package
 | hash 计算 | 为 package artifact 生成稳定 hash |
 | source map 辅助 | 从 `financial_data` 构造基础 source map |
 
+## 当前最新状态
+
+| 方向 | 状态 | 说明 |
+| --- | --- | --- |
+| `market_evidence_package_v1` | 作为多市场 package 的主合同 | API、Web、rules、importer、eval 都围绕该结构消费 |
+| 质量门禁 | summary/detail 暴露 quality gates、warning/fail、hash 和 coverage 信号 | 上层可据此阻断 PostgreSQL import 与 vector dry-run |
+| HK MVP | 港股 package 面板和 API gate 直接依赖本包的 summary/detail 语义 | contract 漂移会直接影响商业样板 |
+| 稳定标识 | `stable_id` / `stable_parse_run_id` 保证重跑可对齐 | 支撑评测、缓存、入库幂等和审计回放 |
+| 轻依赖共享层 | 不绑定具体服务进程或数据库连接 | 允许 apps/api、rules、db/imports、scripts 在不同环境中复用 |
+
+这个包的商业价值不在代码量，而在它把“文件夹约定”升级为正式合同。只有合同稳定，质量门禁、导入、检索和智能体引用才能被客户信任。
+
 ## 技术难点
 
 这个包虽然代码量不大，但它是系统协作稳定性的关键点：

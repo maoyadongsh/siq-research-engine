@@ -11,6 +11,17 @@
 - `datasets/eval`：稳定评测集与 golden cases
 - `datasets/fixtures`：单元测试与 contract tests 使用的小型 fixture
 - `datasets/samples`：最小样本、演示材料和人工构造示例
+- `datasets/market_ingestion`：二级市场 MVP 与 market evidence package 静态评测样本
+
+## 当前最新状态
+
+当前新增的商业 MVP 样本位于：
+
+```text
+datasets/market_ingestion/secondary_market_mvp_cases.json
+```
+
+它用于验证官方来源命中、package 可定位性、证据覆盖、三大表覆盖和 bridge check 等指标。这个目录代表“可复现评测样本”，不是下载文件或 parser 运行结果的落点。
 
 ## 与其他数据目录的边界
 

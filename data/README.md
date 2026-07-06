@@ -18,6 +18,12 @@
 | `data/milvus` | Milvus 数据或快照放置区 |
 | `data/sqlite` | 小型 SQLite 数据库文件 |
 
+## 当前最新状态
+
+`data/` 仍是很多服务的默认兼容路径，尤其是 `data/wiki`、`data/market-report-finder/downloads`、`data/pdf-parser/results` 和 `data/hermes/home`。港股二级市场 MVP、US SEC package、JP/KR/EU package 和智能体产物都会在短期内继续依赖这里的历史目录。
+
+治理要求是：事实资产可以从这里读取，但新增设计要逐步通过 `SIQ_RUNTIME_ROOT`、`SIQ_WIKI_ROOT`、`SIQ_REPORT_DOWNLOADS_ROOT` 等变量显式定位，避免让 `data/` 继续变成隐式全局状态。
+
 ## 与其他数据目录的边界
 
 - `data/`：历史兼容运行态目录。

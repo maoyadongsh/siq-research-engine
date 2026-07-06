@@ -2,6 +2,10 @@
 
 Turn any AI agent into a full McKinsey-level strategy consulting team for complete market research and analysis.
 
+## SIQ Context
+
+Within SIQ, this skill is part of the primary-market IC shared skill library. It should be used under `siq_ic_shared` evidence, report, and workflow contracts, not as an unconstrained strategy generator. Outputs must remain tied to project evidence, market data, assumptions, and explicit uncertainty.
+
 ## What It Does
 
 This skill runs a full suite of consulting-grade analyses on your business:

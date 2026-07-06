@@ -2,6 +2,12 @@
 
 These skills are migrated from the OpenClaw workspace for the SIQ IC profiles. They are shared by all executable `siq_ic_*` Hermes profiles and synchronized into each runtime profile by `scripts/hermes/run_gateway.sh`.
 
+## Current Role
+
+This directory is the reusable skill library for the SIQ primary-market Deal OS. The skills cover diligence, valuation, term sheets, market sizing, company research, portfolio monitoring, and IC memo production. They are not standalone products; they become valuable when constrained by `siq_ic_shared` contracts, project evidence, and API/Web workflow gates.
+
+The commercial purpose is repeatability: SIQ can run similar diligence work across deals without rewriting prompts or rebuilding analyst checklists for every transaction.
+
 ## Included Skills
 
 ### batch_1_core_ic

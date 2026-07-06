@@ -4,6 +4,10 @@
 
 The script is intentionally independent from local MinerU, vLLM, OCR, reranker, or other localhost model services.
 
+## SIQ Positioning
+
+This script is the cloud-model alternative to SIQ's local embedding / reranker path. Use it when a deployment is allowed to send project materials to Bailian/DashScope and needs visual caption or cloud embedding capability. For private or sensitive investment materials, prefer the local model services under `infra/model-services` and keep evidence inside the customer's environment.
+
 ## What It Does
 
 - Ingests PDF, DOCX, Markdown, TXT, and image files.

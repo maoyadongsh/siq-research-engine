@@ -12,6 +12,10 @@
 | Legacy agent id | `ic_master_coordinator` |
 | 角色语义 | 总协调 / 投委会秘书 |
 
+## 当前产品位置
+
+`siq_ic_master_coordinator` 是一级市场 IC 工作流的编排角色。它负责把材料准备、专家分工、报告收口、争议识别和 chairman 裁决串成可执行流程，是 Deal OS 从“文档管理”走向“投委会操作系统”的关键 profile。
+
 ## 职责边界
 
 - 负责定义阶段、安排专家任务、追踪交付状态和证据完整性。

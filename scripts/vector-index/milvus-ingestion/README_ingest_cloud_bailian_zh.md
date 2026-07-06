@@ -6,6 +6,10 @@
 
 脚本不依赖本地 MinerU、vLLM、OCR、reranker 或其他本地模型服务。
 
+## 在 SIQ 中的位置
+
+这是 SIQ 本地 embedding / reranker 路径的云端替代方案。只有在部署环境允许把项目材料发送到百炼 / DashScope 时才建议使用；如果材料涉及未公开投研、合同、数据房或客户敏感信息，应优先使用 `infra/model-services` 下的本地模型服务，保证证据留在客户内网或本机环境。
+
 ## 快速启动
 
 ```bash

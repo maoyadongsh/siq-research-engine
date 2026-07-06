@@ -23,6 +23,17 @@
 | Gemma4 | `gemma4-26b/` | Gemma4 文本模型启动脚本 |
 | systemd user | `systemd-user/` | 用户级服务定义 |
 
+## 当前最新状态
+
+| 能力 | 对接模块 | 价值 |
+| --- | --- | --- |
+| MinerU / PDF2MD 上游 | `apps/pdf-parser`、`apps/document-parser` | 支撑财报 PDF 和通用 PDF 的版面解析 |
+| vLLM 文本模型 | Hermes gateway、分析/核查/法务 profile | 支撑本地化生成和私有部署，不把研究材料外发 |
+| Embedding / reranker | Milvus ingest、智能体记忆、知识检索 | 支撑混合召回、精排和证据检索质量 |
+| systemd user units | 本地长期运行 | 让模型服务像基础设施一样可启动、可检查、可重启 |
+
+这部分的商业价值是私有化能力：投研材料通常无法随意发送到外部 SaaS，SIQ 通过本地模型服务把解析、检索、生成和 rerank 留在客户控制的机器或内网里。
+
 ## 典型用法
 
 ### 启动某个模型服务

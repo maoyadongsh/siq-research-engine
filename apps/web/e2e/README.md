@@ -16,8 +16,20 @@
 | 报告阅读 | `/analysis` `/verify` `/tracking` `/legal` 至少能加载报告壳或空状态 |
 | 聊天 | 助手与专业 Agent 面板可打开、发送、停止 |
 | 设置与管理 | `/settings`、用户审批、系统平台等管理入口可访问 |
+| 二级市场 MVP | `/parse-hk` package quality gate、force import、force vector dry-run |
 
 当前重点是 smoke coverage，而不是对每个页面做像素级或全流程回归。
+
+## 当前最新状态
+
+新增的商业 MVP 回归用例：
+
+```bash
+cd /home/maoyd/siq-research-engine/apps/web
+npm run e2e -- e2e/tests/secondary-market-mvp-flow.spec.ts
+```
+
+该用例使用 mock API 验证 `/parse-hk` 的 package 面板、quality gates、warning/fail 阻断、确认后 `force=true` 请求体等关键产品语义。它不依赖真实 HKEX、真实 PDF parser、真实 PostgreSQL 或真实 Milvus，因此适合进入 CI smoke。
 
 ## 运行方式
 
@@ -36,6 +48,8 @@ npm run e2e
 ```
 
 `npm run smoke` 当前与 `npm run e2e` 等价。
+
+GitHub Actions 的 `web-e2e-smoke` job 也执行同一组 Playwright smoke tests，并在 CI runner 上安装 Chromium 运行时；这些用例应继续保持 mock-based，不依赖真实后端、真实数据库或外部模型服务。
 
 ## 端口与环境变量
 

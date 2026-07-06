@@ -25,6 +25,17 @@
 | `tools/knowledge_ingest/` | 轻量知识库入库 UI |
 | `docs/` `shared/` | 设计、审计和实施说明 |
 
+## 当前最新状态
+
+| 方向 | 状态 | 说明 |
+| --- | --- | --- |
+| Market evidence chunks | 支持多市场 package 的语义入库 | metadata 必须保留 market、company、report、Wiki path、source evidence |
+| Document chunks | 支持通用文档 parser artifact 入库 | 面向合同、会议材料、网页和非财报资料 |
+| Agent memory / profile knowledge | 与 Hermes 记忆系统协同 | Milvus 是语义索引，PostgreSQL 仍是权威记忆账本 |
+| MVP vector dry-run | `/parse-hk` warning/fail package 默认阻断真实生成 | 只有确认 force 后才允许高风险动作进入后续链路 |
+
+Milvus 层的商业价值是召回效率和泛化能力，但它不是事实真相来源。SIQ 的设计要求每个 chunk 保留足够 metadata，能够回到 Wiki package、parser artifact 或原始披露坐标。
+
 ## 典型用法
 
 ### 直接启动主入库 UI

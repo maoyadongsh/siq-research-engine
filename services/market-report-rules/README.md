@@ -33,6 +33,18 @@ finder / parser 产物
 | 规则注册表 | 对前端和 API 暴露 markets、profiles、storage profiles 和 rule counts |
 | 市场差异隔离 | 把市场逻辑沉到 `markets/<code>/`，避免共享层膨胀 |
 
+## 当前最新状态
+
+| 方向 | 状态 | 说明 |
+| --- | --- | --- |
+| HK MVP | 支撑港股 evidence package 的财务抽取、校验和 load plan | 与 `/parse-hk` 的质量门禁、PostgreSQL import 和 vector dry-run 对齐 |
+| 多市场 profile | CN / HK / US / EU / JP / KR 均保留市场隔离规则 | 不同 schema、report path、evidence target 和财务口径分开治理 |
+| 质量信号 | `financial_checks`、statement coverage、bridge checks 与 parser warnings 共同进入 package gate | 上层 API 可据此阻断 warning/fail package |
+| 入库计划 | `load_plan` 描述写入目标，不直接执行数据库写入 | 保持规则层可测试、可审计、可 dry-run |
+| 架构治理 | 市场逻辑继续下沉到 `markets/<code>` | 避免把 JP/KR/EU/HK 差异堆进共享 extractor |
+
+规则服务的商业价值在于把“解析出来的东西看起来像数据”提升为“可以负责任地进入研究数据库的数据”。它明确记录缺口、风险和入库计划，让质控负责人可以管理而不是事后追查污染源。
+
 ## 技术难点
 
 规则层的难点不在“写 if/else”，而在于把不同市场的结构化语义隔离且统一表达：

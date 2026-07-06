@@ -8,6 +8,12 @@
 
 ---
 
+## SIQ Context
+
+Within SIQ, this skill supports the primary-market Deal OS and IC workflow. It should consume project evidence, dataroom materials, structured assumptions, and `siq_ic_shared` contracts. It must not replace specialist IC profiles; instead, it provides reusable diligence routines that those profiles can apply consistently.
+
+---
+
 ## Overview
 
 Due Diligence Analyst is an intelligent SIQ Hermes skill that automates and streamlines the due diligence process for investors, M&A advisors, and corporate development teams. It provides comprehensive analysis across financial, legal, business, and team dimensions.

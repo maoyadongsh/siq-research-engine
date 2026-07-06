@@ -37,6 +37,19 @@ apps/web / external client
 | 工作流编排 | 驱动 Wiki、PostgreSQL、Milvus 等下游导入链路 |
 | 系统设置与健康面板 | 汇总模型配置、下游健康和基础系统状态 |
 
+## 当前最新状态
+
+| 方向 | 状态 | 价值 |
+| --- | --- | --- |
+| Cookie 会话 | 支持 `SIQ_AUTH_COOKIE_MODE=1`，登录接口设置 HttpOnly cookie，前端请求自动 `credentials: include` | 兼容本地 bearer token，同时降低公网部署时 localStorage token 被窃取的风险 |
+| Market package 动作 | `/api/market-reports/packages/*` 统一处理 build、import、vector dry-run 与后台 job | 把多市场 evidence package 做成可审计、可恢复的产品动作 |
+| 质量门禁 | warning/fail package 未 force 时返回 409，并携带 `quality_gates` | 防止低质量解析静默污染 PostgreSQL 或语义索引 |
+| Source 安全 | 下载文件、artifact、PDF 页图、source map 通过受控 API 访问 | 保留证据回跳能力，同时避免裸露本机路径 |
+| Deal OS / IC 工作流 | `/api/deals/*`、会议室、agent runtime 与 readiness 接入 | 支撑一级市场 R1-R4 尽调、分歧和投委会决策链 |
+| 记忆系统 | PostgreSQL 权威记忆 + Milvus 语义索引 + profile / deal scope | 支撑用户私有记忆、项目共享记忆和系统共享知识的隔离召回 |
+
+API 后端的商业价值在于把底层复杂能力包装成“可卖给研究组织的治理面”：权限、审计、质量阻断、任务状态、文件访问和智能体调用都在同一个控制面闭环中完成。
+
 ## 技术难点
 
 `apps/api` 的难点不在于定义几十个路由，而在于控制面如何在不破坏下游职责边界的前提下统一系统行为：
@@ -118,6 +131,10 @@ curl -s http://127.0.0.1:18081/api/system/status
 | `SIQ_REPORT_FINDER_BASE` | `http://127.0.0.1:18000` | 市场下载服务 |
 | `SIQ_MARKET_REPORT_RULES_BASE` | `http://127.0.0.1:18020` | market rules 服务 |
 | `SIQ_HERMES_HOME` | `$SIQ_DATA_ROOT/hermes/home` | Hermes runtime 根目录 |
+| `SIQ_AUTH_COOKIE_MODE` | `0` | 启用 HttpOnly cookie 兼容模式 |
+| `SIQ_AUTH_ACCESS_COOKIE_NAME` | `siq_access_token` | access cookie 名称 |
+| `SIQ_AUTH_COOKIE_SAMESITE` | `lax` | cookie SameSite 策略 |
+| `SIQ_AUTH_COOKIE_SECURE` | `0` | HTTPS 公网部署应设为 `1` |
 
 ## 验证方式
 

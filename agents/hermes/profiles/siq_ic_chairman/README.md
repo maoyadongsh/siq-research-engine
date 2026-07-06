@@ -14,6 +14,10 @@
 
 运行时和新入口一律使用 `siq_ic_chairman` 作为可执行 ID。
 
+## 当前产品位置
+
+`siq_ic_chairman` 属于一级市场 Deal OS / IC workflow。它不参与二级市场 HK MVP 的解析闭环，而是在项目材料、R1-R4 委员报告、争议清单和 project_shared 记忆齐备后，形成可审计的投委会裁决。
+
 ## 职责边界
 
 - 负责综合战略、行业、财务、法务和风控委员意见。

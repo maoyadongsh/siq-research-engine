@@ -14,6 +14,16 @@
 - `artifacts/generated-reports`
 - `artifacts/logs`
 
+## 当前最新状态
+
+二级市场 MVP 的一次性评测输出使用：
+
+```text
+artifacts/eval-runs/2026-07-06-secondary-market-mvp/
+```
+
+该目录可保存某次运行的 JSON / Markdown 报告和说明，但只有当结果被裁剪、脱敏并成为长期基线时，才应迁入 `datasets/`。这一区分让项目既能保留验收记录，又不会把一次性产物误当稳定事实。
+
 ## 与其他数据目录的边界
 
 - `artifacts/`：构建、测试、评测和批处理生成产物。

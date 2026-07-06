@@ -31,6 +31,18 @@ PDF 披露文件
 | 人工修正 | 支持表格关系修正、逻辑表拆分 / 合并和纠错回放 |
 | Source API | 提供表格、页面、页图和 artifact 下载接口 |
 
+## 当前最新状态
+
+| 方向 | 状态 | 说明 |
+| --- | --- | --- |
+| 港股商业 MVP | 作为 HK 年报 package 的 parser 入口 | 解析结果进入 Wiki evidence package，并由 package quality gates 决定能否入库 |
+| 多市场 PDF profile | KR / JP / HK 等市场有专属 profile 与质量适配 | 同一 parser 保留市场差异，不把所有财报当成 A 股格式 |
+| 质量 artifact | `content_list_enhanced.json`、`quality_report.json`、`financial_data.json`、`financial_checks.json` 作为核心事实层 | 后续 rules、API、Web、importer 和 Agent 都依赖这些产物 |
+| Source 回跳 | 页图、表格、Markdown、bbox 和 source payload 联动 | 支撑研究员人工复核和 Agent 引用回放 |
+| 架构治理 | route payload owner 正在继续下沉 | 避免 `pdf_parser_app_impl.py` 继续膨胀，保持 response contract 稳定 |
+
+PDF parser 的商业价值在于把“PDF 年报”变成可复核的证据资产，而不是只产出一份 Markdown。质量状态、表格坐标和财务勾稽共同决定后续能否进入数据库和语义层。
+
 ## 技术难点
 
 `apps/pdf-parser` 的难度不在“把 PDF OCR 出来”，而在“把财报里的结构性事实提出来且可追溯”：

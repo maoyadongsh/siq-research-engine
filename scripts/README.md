@@ -28,6 +28,19 @@
 | `scripts/kr` | 韩股 package 构建与批处理 |
 | `scripts/eu` | 欧股 PDF / ESEF package 构建与批处理 |
 
+## 当前最新状态
+
+| 方向 | 入口 | 说明 |
+| --- | --- | --- |
+| 全量检查 | `scripts/check_all.sh` | 聚合关键 Python/前端/脚本语法检查，是本地质量门禁入口 |
+| 二级市场评测 | `scripts/maintenance/run_market_ingestion_eval.py` | 读取 `datasets/market_ingestion`，输出 market ingestion 指标与 Markdown 报告 |
+| SEC package | `scripts/us-sec/*` | 美股 SEC evidence package、XBRL facts、Wiki 迁移和指标规范化 |
+| 多市场批处理 | `scripts/hk`、`scripts/jp`、`scripts/kr`、`scripts/eu` | 官方样本下载、parser result ingestion、company Wiki 迁移和 package 构建 |
+| Hermes 冒烟 | `scripts/hermes/*` | profile gateway 健康、R1 agent workflow、记忆入库等智能体运维入口 |
+| 向量入库 | `scripts/vector-index/*` | Milvus collection 初始化、market evidence chunks、document chunks 和 Gradio KB |
+
+脚本层的商业价值是可重复性：客户演示、回归评测、批量导入和模型/向量运维都应该能从脚本重跑，而不是依赖某次人工操作。
+
 ## 多市场 Wiki 迁移
 
 日本市场旧版 `data/wiki/jp_reports/<ticker>/<year>/<report>_doc/` 只作历史兼容来源。需要把旧包迁入公司级 Wiki 主路径时运行：
@@ -62,6 +75,16 @@ scripts/hermes/smoke_r1_agent_workflow.py --all-r1-profiles
 cd /home/maoyd/siq-research-engine
 scripts/check_async_db_audit.sh
 python3 scripts/scan_todo_fixme.py --markdown docs/architecture/2026-07-02-debt-marker-governance-report.md
+```
+
+### 二级市场 MVP 静态评测
+
+```bash
+cd /home/maoyd/siq-research-engine
+python3 scripts/maintenance/run_market_ingestion_eval.py \
+  --case-root datasets/market_ingestion \
+  --output artifacts/eval-runs/2026-07-06-secondary-market-mvp/market_ingestion_eval_report.json \
+  --markdown artifacts/eval-runs/2026-07-06-secondary-market-mvp/market_ingestion_eval_report.md
 ```
 
 ## 关键边界或治理规则

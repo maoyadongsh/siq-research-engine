@@ -18,6 +18,12 @@
 | `templates/` | 复用型模板目录 |
 | `skills/` | 迁入 Hermes runtime 的一级市场投委会技能包 |
 
+## 当前最新状态
+
+`siq_ic_shared` 是一级市场 Deal OS 的治理中心。当前项目正在把 IC workflow 从 profile 级提示词升级为可审计流程：材料 readiness、R1-R4 报告、争议识别、主席裁决和 project_shared 记忆都应回到这里定义的 contract。
+
+商业价值在于可复制的投委会流程：不同交易、不同委员和不同模型运行结果可以遵守同一套证据等级、报告结构和流程门禁，减少“每个项目靠人肉管理”的不确定性。
+
 ## 对可执行 Profile 的约束
 
 所有 `siq_ic_*` 可执行 profile 都应遵守这里的共享规则：

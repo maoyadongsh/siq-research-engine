@@ -32,6 +32,18 @@ parser / market package 产物
 | `financial_query_api.py` | 只读财务查询 API |
 | `stock_name_to_code.py` | 名称与代码映射辅助 |
 
+## 当前最新状态
+
+| 方向 | 状态 | 说明 |
+| --- | --- | --- |
+| 多市场 schema | `sec_us`、`pdf2md_hk`、`edinet_jp`、`dart_kr`、`eu_ifrs` 等市场隔离 | 避免不同市场公司、报告和指标口径混写 |
+| Evidence package 导入 | HK / US / JP / KR / EU 均有专门 importer | 保留各市场 package path、company identity 和 evidence 坐标 |
+| 质量门禁配合 | importer 本身负责写入，是否允许执行由 API / package gate 控制 | warning/fail package 默认不应绕过控制面直接污染数据库 |
+| 只读查询 | `financial_query_api.py` 提供财务查询辅助 | 给 Agent 和调试场景提供结构化事实入口 |
+| MVP 支撑 | HK package import 是二级市场商业 MVP 的关键动作 | 成功入库必须建立在 package quality 可接受或显式 force override 之上 |
+
+PostgreSQL 层的商业价值是把文件型证据资产变成可查询、可聚合、可复盘的数据资产，同时不丢失原始 evidence package 的审计坐标。
+
 ## 典型用法
 
 ### 导入 `document_full.json`

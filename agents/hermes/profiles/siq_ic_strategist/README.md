@@ -12,6 +12,10 @@
 | Legacy agent id | `ic_strategist` |
 | 角色语义 | 战略委员 / 基金 thesis 与时点判断者 |
 
+## 当前产品位置
+
+`siq_ic_strategist` 是一级市场 Deal OS 的战略判断角色。它应使用项目材料、基金 thesis、市场窗口、竞争位置和 project_shared 记忆形成 R1/R2 战略意见，不替代财务、法务或风控委员的专门判断。
+
 ## 职责边界
 
 - 负责评估项目与基金策略、组合结构、赛道配置和退出路径的匹配度。

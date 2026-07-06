@@ -33,6 +33,18 @@
 | Schema 抽取 | 支持模板抽取与自定义 JSON Schema 抽取 |
 | 工作流衔接 | 可接 Wiki、PostgreSQL、Milvus 与 API 侧资产归属体系 |
 
+## 当前最新状态
+
+| 方向 | 状态 | 说明 |
+| --- | --- | --- |
+| 通用证据合同 | `document_full`、`source_map`、`tables`、`figures`、`quality_report` 稳定输出 | 让非财报材料也能进入 Wiki、PostgreSQL、Milvus 和 Agent 工作流 |
+| MinerU 导入 | 支持已有 MinerU 目录候选发现与导入 | 复用历史解析产物，减少重复计算和重跑成本 |
+| 表格关系 | continuation / logical table / merge 等结构持续增强 | 为合同、尽调材料、研报附件和非标准 PDF 提供可复核表格层 |
+| Schema extraction | 抽取模板与自定义 JSON Schema 并存 | 面向尽调、合同、会议材料和运营文档的结构化抽取入口 |
+| API/Web 归属 | 通过 `apps/api` 做用户归属、source 访问和 artifact 控制 | 保留文档解析能力的安全边界 |
+
+这个服务的商业价值是把“公司资料包里什么都有”的混乱现实变成统一证据合同。财报、网页、合同、图片和会议材料可以进入同一条治理链，而不是分别做一次性解析。
+
 ## 技术难点
 
 通用文档解析的核心难点在于：输入类型很多，但输出合同不能失控。

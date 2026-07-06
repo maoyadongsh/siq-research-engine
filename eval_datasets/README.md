@@ -13,6 +13,10 @@
 | `market_ingestion_cases/` | 多市场入库和 package 回归样本 |
 | `upload_split/` | 拆分后的评测输入材料 |
 
+## 当前最新状态
+
+新的二级市场 MVP 样本已经迁向 `datasets/market_ingestion/`，本目录主要保留历史评测语料和旧回归集。后续新增小型、稳定、可版本化 case 时，优先进入 `datasets/`；本目录只在需要兼容旧 harness 或保留历史基线时继续使用。
+
 ## 与其他数据目录的边界
 
 - `eval_datasets/`：历史评测语料和回归集。

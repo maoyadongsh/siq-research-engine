@@ -25,6 +25,12 @@
 | 检索测试 | 入库后即时检索验证 |
 | 实时监控 | 文件数、向量数、失败数和日志 |
 
+## 当前项目位置
+
+该工具适合快速构建法规库、行业资料库和内部知识库。对于多市场财报 evidence package，优先使用上层 market evidence ingestion 脚本，以便保留 market、company、report、Wiki path 和 source evidence 等 metadata。
+
+它的价值是低门槛入库和即时检索验证，但 Milvus 仍只是语义索引；权威事实应回到 Wiki package、PostgreSQL 或原始文档。
+
 ## 典型用法
 
 ```bash

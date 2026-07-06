@@ -36,6 +36,18 @@ apps/web / apps/api
 | 元数据索引 | 为后续 package build、解析和批处理提供统一下载清单 |
 | 限速与来源策略 | 对 SEC、HKEX、EDINET、DART 等来源控制请求频率和请求头 |
 
+## 当前最新状态
+
+| 能力 | 状态 | 说明 |
+| --- | --- | --- |
+| US 中文智能检索 | 已内置 100 家主流美股中文 alias | 例如 `英伟达` -> `NVDA / CIK 1045810`，再进入 SEC EDGAR 查询 |
+| 市场边界 | 按用户选择的市场检索 | 中文输入不会自动跨市场乱猜；选择 US 就只在 US alias / SEC catalog 内解析 |
+| 失败提示 | 所有市场统一可操作提示 | 前端日志会提醒用户输入准确股票代码、CIK、EDINET code、DART corp code 或本地市场代号 |
+| SEC catalog 对齐 | 支持 CIK 优先和 ticker 归一 | 兼容 `BRK.B` / `BRK-B` 等 SEC ticker 写法差异 |
+| 商业 MVP 支撑 | HK 下载目录与 package build 链路对齐 | 港股年报下载结果可继续进入 `/parse-hk` evidence package 流程 |
+
+这层能力的商业意义是把“研究员知道公司中文名”与“官方披露系统需要本地标识”之间的人工转换成本降下来，同时仍然把事实入口限定在官方披露源和当前市场边界内。
+
 ## 技术难点
 
 这个服务看起来像“下载器”，实际上承担的是多市场披露入口抽象工作：
@@ -116,6 +128,13 @@ curl -s http://127.0.0.1:18000/health
 ```
 
 如果调整了来源解析或下载目录逻辑，应至少补跑对应市场测试，并手动验证一个 `company/resolve` 与一个下载请求。
+
+常用 smoke：
+
+```bash
+cd /home/maoyd/siq-research-engine/services/market-report-finder
+uv run python -c "from market_report_finder_service.markets.us.client import SecClient; c,_=SecClient().resolve_company(company_name='英伟达'); print(c.ticker, c.cik)"
+```
 
 ## 维护原则
 

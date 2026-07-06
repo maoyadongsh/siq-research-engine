@@ -13,6 +13,10 @@
 - evidence package 摘要模板。
 - 分歧记录与主席裁决日志模板。
 
+## 当前产品位置
+
+这些模板服务一级市场 Deal OS，而不是二级市场 HK MVP。它们的目标是让战略、行业、财务、法务、风控和主席报告在不同项目间保持同一结构，便于 API 汇总、前端展示、争议追踪和最终投委会回放。
+
 ## 模板使用规则
 
 - 模板必须与 `ic_report_contract.md`、`ic_evidence_contract.md` 和 `ic_workflow_policy.json` 对齐。

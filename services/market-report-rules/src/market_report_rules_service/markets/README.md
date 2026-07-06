@@ -6,6 +6,19 @@
 
 这个目录存在的意义，是把“市场差异”留在市场模块里，而不是把所有特殊规则膨胀到共享层。
 
+## 当前市场矩阵
+
+| 市场 | 主要职责 | 典型输出 |
+| --- | --- | --- |
+| `cn` | A 股 PDF / 财报结构兼容 | `pdf2md` schema、三表与勾稽结果 |
+| `hk` | 港股年报 package 与 HK MVP 质量门禁 | `pdf2md_hk` schema、evidence coverage、statement coverage |
+| `us` | SEC package / XBRL facts 规则 profile | `sec_us` schema、filing anchors、normalized metrics |
+| `eu` | ESEF / IFRS package profile | `eu_ifrs` schema、IFRS metrics、ESEF evidence |
+| `jp` | EDINET / PDF summary 混合 profile | `edinet_jp` schema、company Wiki path、JP-specific labels |
+| `kr` | DART / KRX / PDF profile | `dart_kr` schema、K-IFRS metrics、DART evidence |
+
+市场模块的商业意义是让 SIQ 能逐市场交付，而不是承诺一条“万能解析规则”覆盖所有披露制度。每个市场都有自己的存储边界、证据坐标和质量风险。
+
 ## 新增市场必须提供的文件
 
 新增市场时，至少需要提供：

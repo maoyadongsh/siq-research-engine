@@ -33,6 +33,20 @@
 | 智能体协作 | 助手、分析、核查、跟踪、法务和 `/deals` 相关角色入口 |
 | 系统与运维面板 | 模型设置、健康状态、用户审批和向量入库控制台 |
 
+## 当前最新状态
+
+| 工作流 | 页面 | 当前能力 |
+| --- | --- | --- |
+| 官方披露搜索下载 | `/search` | 市场优先的智能检索；中文公司名在所选市场内映射本地代码，US 已覆盖 100 家主流美股 alias；解析失败时提示输入准确股票代码或代号 |
+| 港股商业 MVP | `/parse-hk` | 已下载年报 / 上传 PDF -> parser -> Wiki evidence package -> quality gates -> import/vector action |
+| 质量门禁 | `/parse-hk` package 面板 | 展示 evidence coverage、statement coverage、hash、parser/rule warnings；warning/fail 需要确认后才发送 `force=true` |
+| 美股 SEC 工作台 | `/parse-us` | 下载列表、SEC package build、PostgreSQL import 和核心 artifact 清单独立呈现 |
+| 通用文档解析 | `/documents` | 上传、URL、MinerU 目录导入、source map、table relation、schema extraction |
+| Cookie mode | 全站 API 调用 | `SIQ_AUTH_COOKIE_MODE=1` 时不再持久化 JWT 到 localStorage，SIQ API 自动带 cookie |
+| 一级市场 Deal OS | `/deals` 与会议室 | 项目材料、agent readiness、R1-R4 产物和会议协作逐步产品化 |
+
+Web 工作台的商业价值是把“研究生产线”做成研究员能真实操作的流程：从官方文件到质量复核、从证据包到入库动作、从报告阅读到多角色协作，都不是隐藏在脚本里的能力。
+
 ## 技术难点
 
 Web 工作台的难点不在“页面多”，而在“把复杂研究系统做成可操作产品”：
@@ -125,6 +139,8 @@ SIQ_FRONTEND_PORT=15173 npm run dev -- --host 0.0.0.0
 | `VITE_SIQ_DEMO_LOGIN_DEFAULTS` | `0` | 演示环境默认登录表单填充开关 |
 | `VITE_SIQ_LOGIN_DEFAULT_USERNAME` | 空 | 演示用户名覆盖 |
 | `VITE_SIQ_LOGIN_DEFAULT_PASSWORD` | 空 | 演示密码覆盖 |
+| `VITE_SIQ_AUTH_COOKIE_MODE` | 空 | 构建期 cookie mode 开关 |
+| `SIQ_AUTH_COOKIE_MODE` | 空 | 运行时 cookie mode 兼容开关 |
 
 ## 验证方式
 
@@ -140,6 +156,7 @@ npm run build
 ```bash
 cd /home/maoyd/siq-research-engine/apps/web
 npm run e2e
+npm run e2e -- e2e/tests/secondary-market-mvp-flow.spec.ts
 ```
 
 ## 维护原则

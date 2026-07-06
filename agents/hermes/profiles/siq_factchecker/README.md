@@ -4,6 +4,10 @@
 
 `siq_factchecker` 是 SIQ 的独立审校 profile。它不负责生成分析报告，而负责拆解分析报告里的事实、计算、证据链和边界问题，输出可执行的核查结论与修改建议。
 
+## 当前产品位置
+
+`siq_factchecker` 是 SIQ 质量体系中的反向压力测试角色。它应检查分析报告中的数字、引用、口径、期间和结论是否能回到 evidence package、source map、PostgreSQL facts 或原始披露；对 warning/fail package 生成的内容应主动标注风险。
+
 ## 职责边界
 
 - 负责检查公司名、报告期、指标、单位、同比、比率、引用位置和推理链条是否正确。
