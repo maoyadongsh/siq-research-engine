@@ -1,5 +1,7 @@
 # Safe Docker Compose template.
 
+SIQ_COMPOSE_BIND_HOST=127.0.0.1
+
 SIQ_AUTH_SECRET_KEY=replace-with-at-least-32-random-characters
 SIQ_AUTH_COOKIE_MODE=0
 SIQ_AUTH_COOKIE_SECURE=0
@@ -11,6 +13,9 @@ SIQ_DEMO_MODE=0
 
 POSTGRES_PASSWORD=replace-with-postgres-password
 SIQ_POSTGRES_IMAGE=postgres:16-alpine
+# Default compose storage uses the postgres_data named volume. To reuse an
+# existing bind mount without moving data automatically, set:
+# SIQ_POSTGRES_DATA_VOLUME=../../data/postgres
 # The compose Postgres init scripts create siq_app, siq_document_parser,
 # siq_us, siq_hk, siq_jp, siq_kr, and siq_eu on first volume initialization.
 SIQ_AGENT_MEMORY_ENABLED=true
@@ -43,6 +48,7 @@ SIQ_MILVUS_HOST=host.docker.internal
 SIQ_MILVUS_PORT=19530
 PDF2MD_ACCESS_TOKEN=replace-with-pdf-parser-token
 GRAFANA_PASSWORD=replace-with-grafana-password
+SIQ_GRAFANA_IMAGE=grafana/grafana:12.0.2
 
 MINERU_API_URL=http://host.docker.internal:8003
 VLM_API_URL=http://host.docker.internal:8002

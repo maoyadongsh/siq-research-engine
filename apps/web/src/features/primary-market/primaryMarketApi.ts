@@ -1,5 +1,4 @@
-import { apiJson } from '@/shared/api/client'
-import { fetchWithAuth } from '@/lib/fetchWithAuth'
+import { apiJson, apiStreamFetch } from '@/shared/api/client'
 import {
   bindDealDocumentParserTask,
   buildDealEvidence,
@@ -747,11 +746,11 @@ export async function postPrimaryMarketMeetingChat(request: PrimaryMarketMeeting
 
 export function streamPrimaryMarketMeetingChat(request: PrimaryMarketMeetingChatRequest) {
   const { payload } = primaryMarketMeetingChatPayload(request)
-  return fetchWithAuth(`/api/primary-market/meeting/${encodeURIComponent(request.agentId)}/chat/stream`, {
+  return apiStreamFetch(`/api/primary-market/meeting/${encodeURIComponent(request.agentId)}/chat/stream`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    headers: { Accept: 'text/event-stream' },
     signal: request.signal,
-    body: JSON.stringify(payload),
+    body: payload,
   })
 }
 

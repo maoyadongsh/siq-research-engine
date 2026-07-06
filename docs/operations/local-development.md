@@ -12,11 +12,14 @@
 cd /home/maoyd/siq-research-engine
 cp infra/env/local.example infra/env/local.env
 # edit infra/env/local.env and replace secrets before long-running local use
+# optional: set SIQ_LOCAL_STATE_ROOT to an external disk or user state dir
 export SIQ_AUTH_SECRET_KEY="${SIQ_AUTH_SECRET_KEY:-$(openssl rand -hex 32)}"
 ./start_all.sh
 ```
 
-`start_all.sh` 默认读取 `infra/env/local.env`。兼容期内，如果该文件不存在且未显式设置 `SIQ_ENV_FILE`，脚本仍会尝试读取旧路径 `env/backend.env`；前端旧配置 `env/frontend-dev.env` 也会被兼容读取。
+`start_all.sh` 默认读取 `infra/env/local.env`。兼容期内，如果该文件不存在且未显式设置 `SIQ_ENV_FILE`，脚本仍会尝试读取旧路径 `env/backend.env`；前端旧配置 `env/frontend-dev.env` 也会被兼容读取，并在启动日志中提示迁移到 `infra/env/local.env`。
+
+依赖安装默认使用可复现模式：Python 项目执行 `uv sync --frozen`，Web 执行 `npm ci`。只有显式设置 `SIQ_UPDATE_DEPS=1` 时，`start_all.sh` 才会允许 `uv sync` 或 `npm install` 更新依赖。
 
 该脚本会按 SIQ 默认路径启动：
 
@@ -39,7 +42,30 @@ http://localhost:15173
 
 Docker Compose 默认服务图包含 Web、API、report-finder、PDF parser、document-parser、PostgreSQL 和 Redis；`external-services` profile 额外启动备用 market-report-finder 与 market-report-rules，`monitoring` profile 启动 Grafana。Hermes gateway 当前依赖本机 Hermes editable venv，仍通过 `start_all.sh` 或 `scripts/hermes/run_gateway.sh` 启动。
 
-Compose 的 Postgres 容器会在首次初始化 `postgres_data` volume 时执行 `infra/docker/postgres-init/001_create_databases.sql`，创建 `siq_app`、`siq_document_parser`、`siq_us`、`siq_hk`、`siq_jp`、`siq_kr`、`siq_eu`。如果本机已经存在旧的 `postgres_data` volume，Docker 不会重放 init 脚本；需要保留数据时可用 `POSTGRES_ADMIN_DATABASE_URL=postgresql+psycopg://postgres:<password>@localhost:15432/postgres SIQ_APP_DATABASE_NAME=siq_app uv run python apps/api/scripts/create_database.py` 逐库补建，或在确认可清空数据后重建 volume。
+Compose 默认服务端口绑定 `127.0.0.1`，可通过 `SIQ_COMPOSE_BIND_HOST` 覆盖。Postgres 和 Redis 仍为本机开发发布 localhost 端口；生产部署应通过内网服务或反代访问，不直接公开 DB、Redis 或 parser 服务。
+
+Compose 的 Postgres 容器会在首次初始化 `postgres_data` volume 时执行 `infra/docker/postgres-init/001_create_databases.sql`，创建 `siq_app`、`siq_document_parser`、`siq_us`、`siq_hk`、`siq_jp`、`siq_kr`、`siq_eu`。如果需要继续复用旧的 `data/postgres` bind mount，不要移动或删除目录；在 env 文件中设置 `SIQ_POSTGRES_DATA_VOLUME=../../data/postgres` 后再启动 compose。Docker 不会对已有 volume 或 bind mount 重放 init 脚本；需要保留数据时可用 `POSTGRES_ADMIN_DATABASE_URL=postgresql+psycopg://postgres:<password>@localhost:15432/postgres SIQ_APP_DATABASE_NAME=siq_app uv run python apps/api/scripts/create_database.py` 逐库补建，或在确认可清空数据后重建 volume。
+
+## 路径治理
+
+推荐新增本地状态根：
+
+```bash
+SIQ_LOCAL_STATE_ROOT=/home/maoyd/.local/state/siq-research-engine
+SIQ_DATA_ROOT=${SIQ_LOCAL_STATE_ROOT}/data
+SIQ_RUNTIME_ROOT=${SIQ_LOCAL_STATE_ROOT}/var
+SIQ_ARTIFACTS_ROOT=${SIQ_LOCAL_STATE_ROOT}/artifacts
+```
+
+为了兼容现有本地数据，`infra/env/local.example` 仍默认让 `SIQ_LOCAL_STATE_ROOT` 指向仓库根，因此 `data/`、`var/`、`artifacts/` 的旧路径继续可用。切换到外部路径前，可先生成只读迁移计划：
+
+```bash
+python3 scripts/migration/plan_runtime_paths.py \
+  --source-data-root data \
+  --target-local-state-root /home/maoyd/.local/state/siq-research-engine
+```
+
+该脚本只输出计划，不创建、移动或删除任何文件。确认服务已经指向新路径前，请保留旧 `data/`。
 
 ## 手动启动
 
@@ -99,9 +125,10 @@ uv run uvicorn market_report_rules_service.app:app --host 127.0.0.1 --port 18020
 | `SIQ_AUTH_COOKIE_SAMESITE` | cookie SameSite 策略，默认 `lax` |
 | `SIQ_SOURCE_TOKEN_SECRET` | PDF/source 溯源短期访问 token 密钥；建议与 `SIQ_AUTH_SECRET_KEY` 不同，至少 32 字符 |
 | `SIQ_SOURCE_ACCEPT_LEGACY_AUTH_SECRET` | source token 迁移兼容开关；默认 `0` 不接受旧 auth secret source token，短期迁移需要时显式设 `1` |
-| `SIQ_DATA_ROOT` | 兼容期运行态根目录，默认 `data`，后续可切到 `var` |
-| `SIQ_RUNTIME_ROOT` | 新增本地运行态建议根目录，默认 `var` |
-| `SIQ_ARTIFACTS_ROOT` | 构建、测试、评测和批处理输出根目录，默认 `artifacts` |
+| `SIQ_LOCAL_STATE_ROOT` | 推荐本地状态根；兼容默认是仓库根，也可设为外部磁盘或用户 state 目录 |
+| `SIQ_DATA_ROOT` | 兼容期运行态根目录，默认 `$SIQ_LOCAL_STATE_ROOT/data` |
+| `SIQ_RUNTIME_ROOT` | 新增本地运行态建议根目录，默认 `$SIQ_LOCAL_STATE_ROOT/var` |
+| `SIQ_ARTIFACTS_ROOT` | 构建、测试、评测和批处理输出根目录，默认 `$SIQ_LOCAL_STATE_ROOT/artifacts` |
 | `SIQ_DATASETS_ROOT` | 可版本化小型 fixtures 和稳定样本根目录，默认 `datasets` |
 | `SIQ_WIKI_ROOT` | Wiki 根目录，默认 `$SIQ_DATA_ROOT/wiki` |
 | `SIQ_PDF2MD_DATA_DIR` | PDF 解析运行态目录，默认 `$SIQ_DATA_ROOT/pdf-parser` |
@@ -111,6 +138,8 @@ uv run uvicorn market_report_rules_service.app:app --host 127.0.0.1 --port 18020
 | `SIQ_MARKET_REPORT_RULES_ROOT` | 境外市场规则服务目录，默认 `services/market-report-rules` |
 | `SIQ_START_MARKET_REPORT_FINDER` | 是否额外启动备用市场下载服务，默认 `0` |
 | `SIQ_START_MARKET_REPORT_RULES` | 是否随一键脚本启动境外市场规则服务，默认 `0` |
+| `SIQ_UPDATE_DEPS` | 设为 `1` 时允许启动脚本更新 Python/Node 依赖；默认 frozen |
+| `SIQ_COMPOSE_BIND_HOST` | Docker Compose 发布端口绑定地址，默认 `127.0.0.1` |
 | `SIQ_HERMES_HOME` | Hermes 运行态目录，默认 `$SIQ_DATA_ROOT/hermes/home` |
 | `SIQ_HERMES_PROFILES_ROOT` | Hermes profiles 目录，默认 `$SIQ_HERMES_HOME/profiles` |
 | `SIQ_APP_DATABASE_URL` | API 应用状态库连接串，PostgreSQL 部署使用 `siq_app` |

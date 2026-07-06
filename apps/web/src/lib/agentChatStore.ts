@@ -1,4 +1,4 @@
-import { fetchWithAuth } from './fetchWithAuth'
+import { apiFetch, apiStreamFetch } from './apiClient'
 import { displayLabelForPrompt } from './quickQuestions'
 import type { AgentAttachment, AgentChatContext, AgentChatSnapshot, AgentMessage, AgentProgress, ChatSessionSummary, HistoryRecord, Listener } from './agentChatTypes'
 import { buildAttachmentUploadItems, MAX_ATTACHMENTS, stripRenderedAttachmentMarkdown, validateAndSelectAttachments } from './agentChatAttachments'
@@ -129,7 +129,7 @@ class AgentChatStore {
 
   private fetchSessions = async (signal?: AbortSignal) => {
     try {
-      const res = await fetchWithAuth(`${this.apiPrefix}/chat/sessions`, { signal })
+      const res = await apiFetch(`${this.apiPrefix}/chat/sessions`, { signal })
       if (!res.ok) return this.state.sessions
       const data = await res.json()
       const sessions: ChatSessionSummary[] = (Array.isArray(data) ? data : data.sessions || []).filter(hasVisibleSessionPayload)
@@ -156,7 +156,7 @@ class AgentChatStore {
   switchSession = async (sessionId: string) => {
     if (this.state.sending) return
     try {
-      const res = await fetchWithAuth(`${this.apiPrefix}/chat/session/${encodeURIComponent(sessionId)}`, { method: 'POST' })
+      const res = await apiFetch(`${this.apiPrefix}/chat/session/${encodeURIComponent(sessionId)}`, { method: 'POST' })
       if (!res.ok) return
       this.setCurrentSession(sessionId)
       this.historyPromise = null
@@ -170,7 +170,7 @@ class AgentChatStore {
   private fetchHistory = async ({ force = false, sessionId }: { force?: boolean; sessionId?: string | null } = {}) => {
     if (!force && (this.state.sending || this.state.messages.some((message) => message.streaming))) return
     try {
-      const res = await fetchWithAuth(this.historyUrl(sessionId))
+      const res = await apiFetch(this.historyUrl(sessionId))
       if (!res.ok) return
       const payload = await res.json()
       const data: HistoryRecord[] = Array.isArray(payload) ? payload : payload.messages || []
@@ -222,7 +222,7 @@ class AgentChatStore {
     }))
     try {
       const payloadFiles = await Promise.all(prepared.map((item) => item.payloadPromise))
-      const res = await fetchWithAuth('/api/chat/attachments', {
+      const res = await apiFetch('/api/chat/attachments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ files: payloadFiles }),
@@ -413,7 +413,7 @@ class AgentChatStore {
   private resumeActiveRun = async () => {
     if (this.state.sending || this.state.messages.some((message) => message.streaming)) return
     try {
-      const activeRes = await fetchWithAuth(this.activeUrl('/chat/active'))
+      const activeRes = await apiFetch(this.activeUrl('/chat/active'))
       if (!activeRes.ok) return
       const active = await activeRes.json()
       if (active.session_id) this.setCurrentSession(active.session_id)
@@ -454,7 +454,7 @@ class AgentChatStore {
       if (active.progress) this.updateAssistantProgress(active.progress)
 
       const offset = Math.max(0, active.event_count || 0)
-      const streamRes = await fetchWithAuth(this.activeUrl('/chat/active/stream', active.session_id || this.state.currentSessionId, `offset=${encodeURIComponent(String(offset))}`), {
+      const streamRes = await apiStreamFetch(this.activeUrl('/chat/active/stream', active.session_id || this.state.currentSessionId, `offset=${encodeURIComponent(String(offset))}`), {
         headers: { Accept: 'text/event-stream' },
         signal: abort.signal,
       })
@@ -476,7 +476,7 @@ class AgentChatStore {
   }
 
   private reconnectActiveRun = async () => {
-    const activeRes = await fetchWithAuth(this.activeUrl('/chat/active'))
+    const activeRes = await apiFetch(this.activeUrl('/chat/active'))
     if (!activeRes.ok) return false
     const active = await activeRes.json()
     if (active.session_id) this.setCurrentSession(active.session_id)
@@ -490,7 +490,7 @@ class AgentChatStore {
     this.activeRunId = active.run_id
     if (active.progress) this.updateAssistantProgress(active.progress)
     const offset = Math.max(0, active.event_count || 0)
-    const streamRes = await fetchWithAuth(this.activeUrl('/chat/active/stream', active.session_id || this.state.currentSessionId, `offset=${encodeURIComponent(String(offset))}`), {
+    const streamRes = await apiStreamFetch(this.activeUrl('/chat/active/stream', active.session_id || this.state.currentSessionId, `offset=${encodeURIComponent(String(offset))}`), {
       headers: { Accept: 'text/event-stream' },
       signal: this.abortController?.signal,
     })
@@ -540,7 +540,7 @@ class AgentChatStore {
     }
 
     try {
-      const res = await fetchWithAuth(`${this.apiPrefix}/chat/stream`, {
+      const res = await apiStreamFetch(`${this.apiPrefix}/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
         body: JSON.stringify(payload),
@@ -590,7 +590,7 @@ class AgentChatStore {
   clearChat = async () => {
     if (this.state.sending) return
     try {
-      const res = await fetchWithAuth(this.activeUrl('/chat/session'), { method: 'DELETE' })
+      const res = await apiFetch(this.activeUrl('/chat/session'), { method: 'DELETE' })
       if (res.ok) {
         const data = await res.json().catch(() => null)
         if (data?.session_id) this.setCurrentSession(data.session_id)
@@ -605,7 +605,7 @@ class AgentChatStore {
   newChat = async () => {
     if (this.state.sending) return
     try {
-      const res = await fetchWithAuth(`${this.apiPrefix}/chat/session`, { method: 'POST' })
+      const res = await apiFetch(`${this.apiPrefix}/chat/session`, { method: 'POST' })
       if (res.ok) {
         const data = await res.json().catch(() => null)
         if (data?.session_id) this.setCurrentSession(data.session_id)
@@ -621,7 +621,7 @@ class AgentChatStore {
   stop = async () => {
     if (this.activeRunId) {
       try {
-        await fetchWithAuth(this.activeUrl('/chat/stop'), { method: 'POST' })
+        await apiFetch(this.activeUrl('/chat/stop'), { method: 'POST' })
       } catch {
         /* ignore */
       }

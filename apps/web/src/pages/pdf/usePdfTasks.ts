@@ -11,6 +11,7 @@ import {
   fetchStatus,
   linkDownloadedReport,
   loadTasks as loadTasksApi,
+  parseDownloadedReportFromDownload,
   reparseTaskApi,
   refetchTaskApi,
   uploadPdfs,
@@ -50,6 +51,10 @@ function scheduleParseIdleWork(callback: () => void): () => void {
   }
 }
 
+function logEntryKey(entry: LogEntry): string {
+  return `${entry.time || ''}\x1f${entry.level || ''}\x1f${entry.message || ''}`
+}
+
 export interface UsePdfTasksOptions {
   backend: string
   parseMethod: string
@@ -71,7 +76,11 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
   const taskIdRef = useRef<string | null>(null)
   const logCountRef = useRef(0)
   const cancelledRef = useRef(false)
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pollStatusRef = useRef<((scheduleNext?: boolean) => Promise<void>) | null>(null)
+  const pollInFlightRef = useRef(false)
+  const pollAbortRef = useRef<AbortController | null>(null)
+  const logKeysRef = useRef<Set<string>>(new Set())
   const uploadRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const taskFilterRef = useRef<typeof taskFilter>(taskFilter)
 
@@ -125,24 +134,32 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
     setQuality(null)
   }, [])
 
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) {
+      clearTimeout(pollRef.current)
+      pollRef.current = null
+    }
+    pollAbortRef.current?.abort()
+    pollAbortRef.current = null
+    pollInFlightRef.current = false
+  }, [])
+
   const resetAll = useCallback(() => {
     selectedFilesSetterRef.current?.([])
     reportError(null)
     setUploadActive(false)
     setParseActive(false)
     setLogs([])
+    logKeysRef.current.clear()
     resetResult()
     setResultDeferred(false)
     setResultLoading(false)
-    if (pollRef.current) {
-      clearInterval(pollRef.current)
-      pollRef.current = null
-    }
+    stopPolling()
     if (uploadRef.current) {
       clearInterval(uploadRef.current)
       uploadRef.current = null
     }
-  }, [reportError, resetResult, selectedFilesSetterRef])
+  }, [reportError, resetResult, selectedFilesSetterRef, stopPolling])
 
   // Ref to latest callbacks that need to call each other (avoid circular stale closures).
   const callbacksRef = useRef<{
@@ -229,22 +246,30 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
       }
       setParsePct(pct)
       setParseStatusText(translateStatus(status))
-      if (Array.isArray(data.logs) && data.logs.length) {
-        setLogs((prev) => [...prev, ...(data.logs as LogEntry[])])
+      const incomingLogs = Array.isArray(data.logs) ? (data.logs as LogEntry[]) : []
+      if (incomingLogs.length) {
+        const uniqueLogs: LogEntry[] = []
+        incomingLogs.forEach((entry) => {
+          const key = logEntryKey(entry)
+          if (logKeysRef.current.has(key)) return
+          logKeysRef.current.add(key)
+          uniqueLogs.push(entry)
+        })
+        if (logKeysRef.current.size > 600) {
+          logKeysRef.current = new Set(Array.from(logKeysRef.current).slice(-300))
+        }
+        if (uniqueLogs.length) setLogs((prev) => [...prev, ...uniqueLogs])
       }
       logCountRef.current =
         typeof data.log_count === 'number'
-          ? data.log_count
-          : logCountRef.current + ((data.logs as LogEntry[])?.length || 0)
+          ? Math.max(logCountRef.current, data.log_count)
+          : logCountRef.current + incomingLogs.length
 
       if (isDone) {
         setParsePct(100)
         setParseStatusText('解析完成!')
         setParseBadge({ cls: 'completed', text: '已完成' })
-        if (pollRef.current) {
-          clearInterval(pollRef.current)
-          pollRef.current = null
-        }
+        stopPolling()
         if (isMobileParseViewport()) {
           setResultDeferred(true)
         } else {
@@ -258,43 +283,67 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
         setParseBadge({ cls: 'failed', text: translateStatus(status) })
         setElapsedInfo('')
         setPagesInfo('')
-        if (pollRef.current) {
-          clearInterval(pollRef.current)
-          pollRef.current = null
-        }
+        stopPolling()
         reportError(String(data.error || '转换失败'))
       } else if (status === 'cancelled') {
         setParsePct(0)
         setParseStatusText('已停止查看')
         setParseBadge({ cls: 'cancelled', text: '已停止' })
-        if (pollRef.current) {
-          clearInterval(pollRef.current)
-          pollRef.current = null
-        }
+        stopPolling()
       }
     },
-    [onWorkflowReload, reportError],
+    [onWorkflowReload, reportError, stopPolling],
   )
 
   const pollStatus = useCallback(
-    async () => {
+    async (scheduleNext = false) => {
       const tid = taskIdRef.current
       if (!tid || cancelledRef.current) return
+      if (pollRef.current) {
+        clearTimeout(pollRef.current)
+        pollRef.current = null
+      }
+      if (pollInFlightRef.current) return
+      pollInFlightRef.current = true
+      pollAbortRef.current?.abort()
+      const controller = new AbortController()
+      pollAbortRef.current = controller
+      let shouldScheduleNext = false
       try {
-        const d = await fetchStatus(tid, logCountRef.current)
+        const d = await fetchStatus(tid, logCountRef.current, { signal: controller.signal })
+        if (controller.signal.aborted || taskIdRef.current !== tid || cancelledRef.current) return
         updateStatus(d)
+        const latestStatus = String(d.status || d.stage || 'pending')
+        shouldScheduleNext = !isTerminal(latestStatus) && !['completed', 'success', 'done', 'finished'].includes(latestStatus)
       } catch {
-        setParseStatusText('状态查询失败，正在重试...')
+        if (!controller.signal.aborted && taskIdRef.current === tid && !cancelledRef.current) {
+          setParseStatusText('状态查询失败，正在重试...')
+          shouldScheduleNext = true
+        }
+      } finally {
+        if (pollAbortRef.current === controller) pollAbortRef.current = null
+        pollInFlightRef.current = false
+        if (scheduleNext && shouldScheduleNext && taskIdRef.current === tid && !cancelledRef.current) {
+          pollRef.current = setTimeout(() => {
+            void pollStatusRef.current?.(true)
+          }, 1000)
+        }
       }
     },
     [updateStatus],
   )
 
-  const startPolling = useCallback(() => {
-    if (pollRef.current) clearInterval(pollRef.current)
-    pollRef.current = setInterval(pollStatus, 1000)
-    void pollStatus()
+  useEffect(() => {
+    pollStatusRef.current = pollStatus
+    return () => {
+      if (pollStatusRef.current === pollStatus) pollStatusRef.current = null
+    }
   }, [pollStatus])
+
+  const startPolling = useCallback(() => {
+    stopPolling()
+    void pollStatus(true)
+  }, [pollStatus, stopPolling])
 
   const loadTasks = useCallback(
     async (opts: { autoResume?: boolean } = {}) => {
@@ -326,9 +375,11 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
   const resumeTask = useCallback(
     async (taskId: string, _filename: string, status: string) => {
       if (!taskId) return
+      stopPolling()
       taskIdRef.current = taskId
       cancelledRef.current = false
       logCountRef.current = 0
+      logKeysRef.current.clear()
       setLogs([])
       reportError(null)
       setUploadActive(false)
@@ -346,7 +397,6 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
           updateStatus(latestData)
           const latestStatus = String(latestData.status || latestData.stage || status)
           if (!isTerminal(latestStatus)) {
-            if (pollRef.current) clearInterval(pollRef.current)
             startPolling()
           }
           showToast('已恢复任务视图')
@@ -365,7 +415,6 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
         }
 
         await pollStatus()
-        if (pollRef.current) clearInterval(pollRef.current)
         const latest = await fetchStatus(taskId, 0).catch(() => null)
         const latestStatus = String(latest?.status || status)
         if (!isTerminal(latestStatus)) {
@@ -380,17 +429,19 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
         reportError('恢复任务状态失败')
       }
     },
-    [onWorkflowReload, pollStatus, reportError, resetResult, showToast, startPolling, updateStatus],
+    [onWorkflowReload, pollStatus, reportError, resetResult, showToast, startPolling, stopPolling, updateStatus],
   )
 
   const startConvertWithFiles = useCallback(
     async (filesToUpload: File[]) => {
       if (!filesToUpload.length) return
       await checkHealth().catch(() => null)
+      stopPolling()
       reportError(null)
       setUploading(true)
       cancelledRef.current = false
       logCountRef.current = 0
+      logKeysRef.current.clear()
       setLogs([])
       setUploadActive(true)
       setUploadPct(0)
@@ -470,7 +521,7 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
         setUploadBadge({ cls: 'failed', text: '失败' })
       }
     },
-    [backend, endPage, formula, loadTasks, market, parseMethod, reportError, resetResult, selectedFilesSetterRef, showToast, startPolling, startPage, table],
+    [backend, endPage, formula, loadTasks, market, parseMethod, reportError, resetResult, selectedFilesSetterRef, showToast, startPolling, startPage, stopPolling, table],
   )
 
   const startConvert = useCallback(
@@ -478,6 +529,82 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
       await startConvertWithFiles(selectedFiles)
     },
     [startConvertWithFiles],
+  )
+
+  const startConvertWithDownloadedReport = useCallback(
+    async (report: DownloadedPdf) => {
+      await checkHealth().catch(() => null)
+      stopPolling()
+      reportError(null)
+      setUploading(true)
+      cancelledRef.current = false
+      logCountRef.current = 0
+      logKeysRef.current.clear()
+      setLogs([])
+      setUploadActive(true)
+      setUploadPct(25)
+      setUploadStatusText('正在提交已下载财报到解析队列...')
+      setUploadBadge({ cls: 'uploaded', text: '入队中' })
+      setParseActive(false)
+      resetResult()
+      setResultDeferred(false)
+      setResultLoading(false)
+
+      try {
+        const parseMarket = market || (report.market && report.market !== 'DOC' ? report.market : undefined) || 'CN'
+        const d = await parseDownloadedReportFromDownload(report, {
+          backend,
+          parseMethod,
+          market: parseMarket,
+          startPage,
+          endPage,
+          formula,
+          table,
+        })
+        taskIdRef.current = String(d.task_id)
+        setUploadPct(100)
+        setUploadStatusText('服务端引用入队完成')
+        setUploadBadge({ cls: 'completed', text: '已完成' })
+        setParseActive(true)
+        setParsePct(0)
+        setParseStatusText('已加入本地队列，等待轮到当前任务...')
+        setParseBadge({ cls: 'queued', text: '已排队' })
+        setQueueInfo('')
+        setElapsedInfo('')
+        setPagesInfo('')
+        setStageInfo('')
+        showToast(`已加入队列: ${String(d.batch_count || 1)} 个 PDF`)
+        selectedFilesSetterRef.current?.([])
+        setUploading(false)
+        startPolling()
+        void loadTasks()
+      } catch (e) {
+        setUploading(false)
+        const err = e as Error & { response?: Record<string, unknown>; status?: number }
+        if (err.status === 409) {
+          const d = err.response || {}
+          const existingTask = (d.existingTask as TaskItem) || (d.existing_task as TaskItem)
+          setUploadPct(0)
+          setUploadStatusText(String(d.message || '该文件已存在解析任务，请勿重复解析'))
+          setUploadBadge({ cls: 'uploaded', text: '已存在' })
+          if (existingTask?.task_id) {
+            showToast(String(d.message || '该文件已存在解析任务'))
+            await callbacksRef.current.resumeTask?.(
+              String(existingTask.task_id),
+              String(existingTask.filename || d.filename || ''),
+              String(existingTask.status || 'pending'),
+            )
+            void loadTasks()
+            return
+          }
+        }
+        reportError(err.message)
+        setUploadPct(0)
+        setUploadStatusText('入队失败')
+        setUploadBadge({ cls: 'failed', text: '失败' })
+      }
+    },
+    [backend, endPage, formula, loadTasks, market, parseMethod, reportError, resetResult, selectedFilesSetterRef, showToast, startPage, startPolling, stopPolling, table],
   )
 
   const cancelTask = useCallback(async () => {
@@ -488,16 +615,13 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
       const d = await cancelTaskApi(tid)
       if (d.success) {
         cancelledRef.current = true
-        if (pollRef.current) {
-          clearInterval(pollRef.current)
-          pollRef.current = null
-        }
+        stopPolling()
         showToast(d.upstream_cancelled ? '任务已取消' : '已停止查看任务')
       }
     } catch {
       // ignore cancel errors
     }
-  }, [showToast])
+  }, [showToast, stopPolling])
 
   const deleteTask = useCallback(
     async (taskId: string, status: string) => {
@@ -586,15 +710,14 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
       reportError(null)
       try {
         await linkDownloadedReport(report)
-        const file = await downloadedReportToFile(report)
-        await startConvertWithFiles([file])
+        await startConvertWithDownloadedReport(report)
       } catch (e) {
         reportError((e as Error).message)
       } finally {
         onBusy('')
       }
     },
-    [reportError, startConvertWithFiles],
+    [reportError, startConvertWithDownloadedReport],
   )
 
   const idleLoad = useCallback(() => {
@@ -613,16 +736,13 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
 
   useEffect(() => {
     return () => {
-      if (pollRef.current) {
-        clearInterval(pollRef.current)
-        pollRef.current = null
-      }
+      stopPolling()
       if (uploadRef.current) {
         clearInterval(uploadRef.current)
         uploadRef.current = null
       }
     }
-  }, [])
+  }, [stopPolling])
 
   return {
     taskIdRef,

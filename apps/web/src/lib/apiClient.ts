@@ -2,6 +2,7 @@ export {
   ApiError,
   apiBlob,
   apiFetch,
+  apiStreamFetch,
   apiJson,
   apiText,
   accessToken,

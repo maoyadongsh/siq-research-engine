@@ -440,6 +440,99 @@ def _cleanup_pending_uploads(prepared_uploads, current_path=None):
         _safe_unlink(item.get("upload_path"))
 
 
+def _reference_root_candidates():
+    raw = os.environ.get("SIQ_PDF_REFERENCE_ROOTS") or os.environ.get("PDF2MD_REFERENCE_ROOTS") or ""
+    roots = [item for item in re.split(r"[:;,]", raw) if item.strip()]
+    roots.extend(
+        [
+            os.environ.get("SIQ_REPORT_DOWNLOADS_ROOT", ""),
+            os.environ.get("REPORT_DOWNLOADS_ROOT", ""),
+            os.path.join(os.path.dirname(DATA_DIR), "market-report-finder", "downloads"),
+        ]
+    )
+    return [os.path.abspath(os.path.expanduser(root)) for root in roots if str(root or "").strip()]
+
+
+def _path_is_under(path, root):
+    try:
+        return os.path.commonpath([path, root]) == root
+    except ValueError:
+        return False
+
+
+def _resolve_reference_pdf_path(raw_path):
+    source_path = os.path.abspath(os.path.expanduser(str(raw_path or "")))
+    roots = _reference_root_candidates()
+    if not source_path or not roots or not any(_path_is_under(source_path, root) for root in roots):
+        raise ValueError("引用文件路径不在允许目录内")
+    if not os.path.isfile(source_path) or not source_path.lower().endswith(".pdf"):
+        raise FileNotFoundError("引用 PDF 不存在")
+    return source_path
+
+
+def _copy_reference_to_upload(source_path, upload_path):
+    os.makedirs(os.path.dirname(upload_path), exist_ok=True)
+    try:
+        os.link(source_path, upload_path)
+    except OSError:
+        shutil.copy2(source_path, upload_path)
+
+
+def _persist_prepared_upload_tasks(prepared_uploads):
+    created_tasks = []
+    for prepared in prepared_uploads:
+        task = {
+            "task_id": prepared["task_id"],
+            "mineru_task_id": None,
+            "filename": prepared["filename"],
+            "file_sha256": prepared["file_sha256"],
+            "owner_id": prepared["owner_id"],
+            "tenant_id": prepared["tenant_id"],
+            "market_scope": prepared["market_scope"],
+            "parse_config_hash": prepared["parse_config_hash"],
+            "file_size": prepared["file_size"],
+            "pdf_page_count": prepared["pdf_page_count"],
+            "status": "queued",
+            "stage": "queued",
+            "created_at": _now_iso(),
+            "uploaded_at": _now_iso(),
+            "submitted_at": None,
+            "started_at": None,
+            "completed_at": None,
+            "cancelled": False,
+            "error": None,
+            "markdown_path": None,
+            "upload_path": prepared["upload_path"],
+            "last_progress_log_time": None,
+            "last_status_payload": None,
+            "last_polled_at": None,
+            "consecutive_status_failures": 0,
+            "queue_position": None,
+            "submit_config": prepared["submit_config"],
+            "logs": [],
+        }
+        _append_log(
+            task,
+            prepared.get("log_message")
+            or f"文件已加入解析队列: {prepared['filename']} ({prepared['file_size'] // 1024 // 1024}MB)",
+            "info",
+        )
+        _append_log(task, "已加入本地解析队列，等待轮到当前任务。", "info")
+        _persist_task(task, allow_insert=True)
+        created_tasks.append(
+            {
+                "task_id": prepared["task_id"],
+                "filename": prepared["filename"],
+                "file_sha256": prepared["file_sha256"],
+                "pdf_page_count": prepared["pdf_page_count"],
+                "market": prepared["submit_config"].get("market"),
+                "market_scope": prepared["market_scope"],
+                "parse_config_hash": prepared["parse_config_hash"],
+            }
+        )
+    return created_tasks
+
+
 def _submit_task_to_mineru(task):
     upload_path = task.get("upload_path")
     submit_config = task.get("submit_config") or {}
@@ -3724,55 +3817,96 @@ def upload():
                 "tenant_id": owner_scope["tenant_id"],
                 "market_scope": owner_scope["market_scope"],
                 "parse_config_hash": parse_config_hash,
+                "log_message": f"文件上传成功: {display_filename} ({total_size // 1024 // 1024}MB)",
             }
         )
 
-    for prepared in prepared_uploads:
-        task = {
-            "task_id": prepared["task_id"],
-            "mineru_task_id": None,
-            "filename": prepared["filename"],
-            "file_sha256": prepared["file_sha256"],
-            "owner_id": prepared["owner_id"],
-            "tenant_id": prepared["tenant_id"],
-            "market_scope": prepared["market_scope"],
-            "parse_config_hash": prepared["parse_config_hash"],
-            "file_size": prepared["file_size"],
-            "pdf_page_count": prepared["pdf_page_count"],
-            "status": "queued",
-            "stage": "queued",
-            "created_at": _now_iso(),
-            "uploaded_at": _now_iso(),
-            "submitted_at": None,
-            "started_at": None,
-            "completed_at": None,
-            "cancelled": False,
-            "error": None,
-            "markdown_path": None,
-            "upload_path": prepared["upload_path"],
-            "last_progress_log_time": None,
-            "last_status_payload": None,
-            "last_polled_at": None,
-            "consecutive_status_failures": 0,
-            "queue_position": None,
-            "submit_config": prepared["submit_config"],
-            "logs": [],
+    created_tasks = _persist_prepared_upload_tasks(prepared_uploads)
+    _wake_queue_worker()
+    return jsonify(
+        {
+            "tasks": created_tasks,
+            "task_id": created_tasks[0]["task_id"],
+            "batch_count": len(created_tasks),
         }
-        _append_log(task, f"文件上传成功: {prepared['filename']} ({prepared['file_size'] // 1024 // 1024}MB)", "info")
-        _append_log(task, "已加入本地解析队列，等待轮到当前任务。", "info")
-        _persist_task(task, allow_insert=True)
-        created_tasks.append(
-            {
-                "task_id": prepared["task_id"],
-                "filename": prepared["filename"],
-                "file_sha256": prepared["file_sha256"],
-                "pdf_page_count": prepared["pdf_page_count"],
-                "market": prepared["submit_config"].get("market"),
-                "market_scope": prepared["market_scope"],
-                "parse_config_hash": prepared["parse_config_hash"],
-            }
-        )
+    )
 
+
+@app.route("/api/tasks/from-download", methods=["POST"])
+def upload_from_download_reference():
+    _cleanup_old_data()
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Invalid JSON payload"}), 400
+
+    try:
+        source_path = _resolve_reference_pdf_path(payload.get("source_path"))
+        submit_config = _parse_submit_config(payload)
+        owner_scope = _current_owner_scope(default_market=submit_config.get("market"))
+        parse_config_hash = _parse_config_hash(submit_config)
+        requested_task_id = _safe_task_id(payload.get("task_id") or payload.get("taskId"))
+    except FileNotFoundError as exc:
+        return jsonify({"error": str(exc)}), 404
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    display_filename = _safe_client_filename(payload.get("filename") or os.path.basename(source_path))
+    if not display_filename.lower().endswith(".pdf"):
+        return jsonify({"error": f"仅支持 PDF 文件: {display_filename}"}), 400
+
+    total_size = os.path.getsize(source_path)
+    if total_size <= 0:
+        return jsonify({"error": f"空文件: {display_filename}"}), 400
+    if total_size > MAX_FILE_SIZE:
+        return jsonify({"error": f"文件超过 {MAX_FILE_SIZE // 1024 // 1024} MB 限制: {display_filename}"}), 400
+    if not _looks_like_pdf(source_path):
+        return jsonify({"error": f"文件内容不是有效 PDF: {display_filename}"}), 400
+
+    pdf_page_count = _get_pdf_page_count(source_path)
+    if pdf_page_count and submit_config.get("end_page_id") not in (None, ""):
+        if int(submit_config["end_page_id"]) >= int(pdf_page_count):
+            return jsonify({"error": f"结束页码超出 PDF 页数: {display_filename} 共 {pdf_page_count} 页"}), 400
+
+    file_sha256 = _sha256_file(source_path)
+    if not requested_task_id:
+        duplicate_task = _find_duplicate_file_hash_task(
+            file_sha256,
+            owner_scope=owner_scope,
+            parse_config_hash=parse_config_hash,
+        )
+        if duplicate_task:
+            duplicate_status = str(duplicate_task.get("status") or "").lower()
+            if duplicate_status in {"queued", "uploaded", "submitting", "submitted", "pending", "processing"}:
+                message = f"该文档内容正在解析或排队中，请勿重复提交: {display_filename}"
+            else:
+                message = f"该文档内容已存在解析任务，请查看已有结果: {display_filename}"
+            return _duplicate_content_response(display_filename, duplicate_task, message=message)
+
+    local_task_id = requested_task_id or str(uuid.uuid4())
+    upload_path = os.path.join(UPLOAD_FOLDER, f"{local_task_id}.pdf")
+    try:
+        _copy_reference_to_upload(source_path, upload_path)
+    except OSError as exc:
+        _safe_unlink(upload_path)
+        return jsonify({"error": f"引用 PDF 入队失败: {exc}"}), 500
+
+    prepared_uploads = [
+        {
+            "task_id": local_task_id,
+            "filename": display_filename,
+            "upload_path": upload_path,
+            "file_size": total_size,
+            "pdf_page_count": pdf_page_count,
+            "submit_config": dict(submit_config),
+            "file_sha256": file_sha256,
+            "owner_id": owner_scope["owner_id"],
+            "tenant_id": owner_scope["tenant_id"],
+            "market_scope": owner_scope["market_scope"],
+            "parse_config_hash": parse_config_hash,
+            "log_message": f"服务端引用入队: {display_filename} ({total_size // 1024 // 1024}MB)",
+        }
+    ]
+    created_tasks = _persist_prepared_upload_tasks(prepared_uploads)
     _wake_queue_worker()
     return jsonify(
         {

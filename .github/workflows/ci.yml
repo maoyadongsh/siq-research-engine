@@ -11,6 +11,64 @@ permissions:
   contents: read
 
 jobs:
+  security-and-config:
+    name: Security and config gates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run actionlint
+        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends shellcheck
+
+      - name: Run shellcheck
+        run: |
+          shellcheck -e SC1091 \
+            scripts/check_all.sh \
+            scripts/check_owner_migration.sh \
+            scripts/check_async_db_audit.sh \
+            start_all.sh \
+            apps/api/start.sh \
+            apps/pdf-parser/run.sh \
+            apps/document-parser/run.sh \
+            scripts/hermes/profile_dir.sh \
+            scripts/hermes/run_gateway.sh
+
+      - name: Secret scan
+        run: |
+          scan_root="$(mktemp -d)"
+          git archive --format=tar HEAD | tar -x -C "$scan_root"
+          docker run --rm -v "$scan_root:/repo:ro" ghcr.io/gitleaks/gitleaks:v8.24.2 \
+            detect --source=/repo --redact --verbose --no-git
+
+      - name: Docker Compose config
+        run: docker compose -f infra/docker/docker-compose.yml --env-file infra/env/local.example config
+
+      - name: Dockerfile lint
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo hadolint/hadolint:v2.12.0 \
+            hadolint \
+            apps/api/Dockerfile \
+            apps/web/Dockerfile \
+            apps/pdf-parser/Dockerfile \
+            apps/document-parser/Dockerfile
+
+      - name: Filesystem security scan
+        uses: aquasecurity/trivy-action@0.30.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          severity: CRITICAL
+          skip-dirs: data,var,artifacts,runtimes
+          ignore-unfixed: true
+          exit-code: '1'
+
   script-syntax:
     name: Script syntax
     runs-on: ubuntu-latest
@@ -29,7 +87,11 @@ jobs:
           bash -n apps/document-parser/run.sh
           bash -n scripts/hermes/profile_dir.sh
           bash -n scripts/hermes/run_gateway.sh
-          python3 -m py_compile scripts/scan_todo_fixme.py scripts/ops/health_check.py
+          python3 -m py_compile \
+            scripts/scan_todo_fixme.py \
+            scripts/ops/health_check.py \
+            scripts/migration/plan_runtime_paths.py \
+            scripts/maintenance/run_market_ingestion_eval.py
 
   api-focused:
     name: API focused tests
@@ -37,10 +99,10 @@ jobs:
     env:
       SIQ_AUTH_SECRET_KEY: ci-auth-secret-with-at-least-32-chars
       SIQ_SOURCE_TOKEN_SECRET: ci-source-secret-with-at-least-32-chars
-      DATABASE_URL: sqlite:///${{ runner.temp }}/siq-api-test.db
-      SIQ_DATA_ROOT: ${{ runner.temp }}/siq-data
-      SIQ_RUNTIME_ROOT: ${{ runner.temp }}/siq-runtime
-      SIQ_ARTIFACTS_ROOT: ${{ runner.temp }}/siq-artifacts
+      DATABASE_URL: sqlite:////tmp/siq-api-test.db
+      SIQ_DATA_ROOT: /tmp/siq-data
+      SIQ_RUNTIME_ROOT: /tmp/siq-runtime
+      SIQ_ARTIFACTS_ROOT: /tmp/siq-artifacts
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -127,7 +189,10 @@ jobs:
       - name: Install parser test dependencies
         run: |
           python -m pip install --upgrade pip uv pytest
-          python -m pip install -r apps/pdf-parser/requirements.txt -r apps/document-parser/requirements.txt
+          python -m pip install \
+            -c apps/pdf-parser/constraints.txt \
+            -r apps/pdf-parser/requirements.txt \
+            -r apps/document-parser/requirements.txt
 
       - name: Run PDF parser tests
         working-directory: apps/pdf-parser
@@ -154,6 +219,45 @@ jobs:
         run: |
           uv sync --frozen --extra dev
           uv run python -m pytest tests
+
+  market-eval:
+    name: Market ingestion eval
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Run static market ingestion eval
+        run: |
+          python scripts/maintenance/run_market_ingestion_eval.py \
+            --case-root datasets/market_ingestion \
+            --legacy-case-root datasets/market_ingestion \
+            --output artifacts/eval-runs/ci/market_ingestion_eval_report.json \
+            --markdown artifacts/eval-runs/ci/market_ingestion_eval_report.md
+
+      - name: Enforce eval completed
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("artifacts/eval-runs/ci/market_ingestion_eval_report.json").read_text())
+          cases = int(report.get("summary", {}).get("cases", 0))
+          if cases <= 0:
+              raise SystemExit("market ingestion eval loaded no cases")
+          print(f"market ingestion eval cases: {cases}")
+          PY
+
+      - name: Upload market eval report
+        uses: actions/upload-artifact@v4
+        with:
+          name: market-ingestion-eval
+          path: artifacts/eval-runs/ci/
 
   web-e2e-smoke:
     name: Web E2E smoke

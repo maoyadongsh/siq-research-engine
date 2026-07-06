@@ -750,6 +750,7 @@ export default function PrimaryMarketMeeting() {
       for (const agentId of targets) {
         if (abort.signal.aborted) break
         setChatBusy(agentId)
+        let cancelPendingDeltaFlush = () => {}
         try {
           const basePrompt = buildAgentPrompt(agentId, promptContent, priorReplies, messageAttachments)
           const prompt = speakerMode === 'workflow'
@@ -783,6 +784,26 @@ export default function PrimaryMarketMeeting() {
               },
             ],
           }))
+          let deltaBuffer = ''
+          let deltaFlushTimer: ReturnType<typeof setTimeout> | null = null
+          const cancelDeltaFlush = () => {
+            if (deltaFlushTimer) {
+              clearTimeout(deltaFlushTimer)
+              deltaFlushTimer = null
+            }
+          }
+          cancelPendingDeltaFlush = cancelDeltaFlush
+          const flushDeltaBuffer = () => {
+            if (!deltaBuffer) return
+            const chunk = deltaBuffer
+            deltaBuffer = ''
+            cancelDeltaFlush()
+            updateLastAssistantMessage(lane, (message) => ({ ...message, content: `${message.content || ''}${chunk}` }))
+          }
+          const scheduleDeltaFlush = () => {
+            if (deltaFlushTimer) return
+            deltaFlushTimer = setTimeout(flushDeltaBuffer, 80)
+          }
           const streamConsumer = createStreamConsumer({
             setCurrentSession: (sessionId) => {
               if (!sessionId) return
@@ -794,13 +815,18 @@ export default function PrimaryMarketMeeting() {
             clearFirstEventTimer,
             appendAssistantDelta: (delta) => {
               reply += delta
-              updateLastAssistantMessage(lane, (message) => ({ ...message, content: `${message.content || ''}${delta}` }))
+              deltaBuffer += delta
+              scheduleDeltaFlush()
             },
+            flushAssistantDelta: flushDeltaBuffer,
             replaceAssistantContent: (content) => {
+              deltaBuffer = ''
+              cancelDeltaFlush()
               reply = content
               updateLastAssistantMessage(lane, (message) => ({ ...message, content }))
             },
             updateAssistantProgress: (progress: AgentProgress) => {
+              flushDeltaBuffer()
               updateLastAssistantMessage(lane, (message) => ({ ...message, progress }))
             },
             responseErrorMessage: async (res, fallback) => {
@@ -825,6 +851,7 @@ export default function PrimaryMarketMeeting() {
             signal: abort.signal,
           })
           await streamConsumer.consumeEventStream(streamRes)
+          flushDeltaBuffer()
           clearFirstEventTimer()
           reply = reply.trim() || '智能体未返回内容。'
           updateLastAssistantMessage(lane, (message) => ({
@@ -852,6 +879,7 @@ export default function PrimaryMarketMeeting() {
             agentId,
           }, lane)
         } catch (err) {
+          cancelPendingDeltaFlush()
           const errorBody = abortRequestedRef.current
             ? '前端已停止等待本次智能体输出。若后台已完成，可稍后刷新会议纪要确认。'
             : err instanceof Error ? err.message : '智能体调用失败'

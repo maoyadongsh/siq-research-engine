@@ -1,4 +1,5 @@
 import { MarketParsingPage } from './MarketParsingPage'
+import { MarketEvidencePackagesPanel } from '../components/pdf/MarketEvidencePackagesPanel'
 
 export default function HkParsing() {
   return (
@@ -13,6 +14,7 @@ export default function HkParsing() {
       workflowDescription="PostgreSQL 与 results 目录保存全量解析信息；Wiki package 为主证据入口，PostgreSQL 用于结构化查询和证据坐标兜底。"
       emptyTitle="选择一份港股 PDF 后开始解析"
       emptyDescription="优先从 downloads/HK 中选择已下载 PDF；也支持上传本地 PDF。"
+      extraPanel={<MarketEvidencePackagesPanel market="HK" />}
     />
   )
 }

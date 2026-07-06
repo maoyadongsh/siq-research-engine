@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Database, ExternalLink, Loader2, RefreshCw, Search, ShieldCheck, UploadCloud } from 'lucide-react'
 import {
   fetchMarketPackages,
@@ -41,48 +41,67 @@ function requiredStatementText(gates?: MarketPackageQualityGates) {
   return `${present}/${values.length}`
 }
 
-function forceConfirmed(gates: MarketPackageQualityGates | undefined, actionLabel: string) {
-  if (!gates?.action_blocked) return false
+function forceConfirmed(gates: MarketPackageQualityGates | undefined, actionLabel: string, blockedKey: 'import_blocked' | 'vector_ingest_blocked') {
+  if (!gates?.[blockedKey]) return false
   const reasons = gates.block_reasons?.length ? gates.block_reasons.join('; ') : gates.overall_status || 'unknown'
   return window.confirm(`质量门禁未通过：${reasons}。仍要${actionLabel}吗？`)
 }
 
 export function MarketEvidencePackagesPanel({ market }: MarketEvidencePackagesPanelProps) {
   const [payload, setPayload] = useState<MarketPackagesResponse>({ market, packages: [] })
-  const [query, setQuery] = useState('')
+  const [draftQuery, setDraftQuery] = useState('')
+  const [submittedQuery, setSubmittedQuery] = useState('')
   const [busyPath, setBusyPath] = useState('')
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const requestAbortRef = useRef<AbortController | null>(null)
 
-  const loadPackages = useCallback(async () => {
+  const loadPackages = useCallback(async (query: string) => {
+    requestAbortRef.current?.abort()
+    const controller = new AbortController()
+    requestAbortRef.current = controller
     setLoading(true)
     setError('')
     try {
-      const next = await fetchMarketPackages(market, query)
+      const next = await fetchMarketPackages(market, query, controller.signal)
+      if (controller.signal.aborted) return
       setPayload(next)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      if (!controller.signal.aborted) setError(err instanceof Error ? err.message : String(err))
     } finally {
-      setLoading(false)
+      if (requestAbortRef.current === controller) {
+        requestAbortRef.current = null
+        setLoading(false)
+      }
     }
-  }, [market, query])
+  }, [market])
 
   useEffect(() => {
-    let cancelled = false
+    let active = true
     queueMicrotask(() => {
-      if (!cancelled) void loadPackages()
+      if (active) void loadPackages(submittedQuery)
     })
     return () => {
-      cancelled = true
+      active = false
+      requestAbortRef.current?.abort()
     }
-  }, [loadPackages])
+  }, [loadPackages, submittedQuery])
+
+  const submitQuery = useCallback(() => {
+    const nextQuery = draftQuery.trim()
+    if (nextQuery === submittedQuery) {
+      void loadPackages(nextQuery)
+      return
+    }
+    setSubmittedQuery(nextQuery)
+  }, [draftQuery, loadPackages, submittedQuery])
 
   const rows = useMemo(() => deriveMarketPackageRows(payload, busyPath), [payload, busyPath])
 
   const runImport = async (row: MarketPackageRow) => {
     const packagePath = row.package_path || row.id
-    const force = forceConfirmed(row.quality_gates, '导入 PostgreSQL')
+    const force = forceConfirmed(row.quality_gates, '导入 PostgreSQL', 'import_blocked')
     if (row.quality_gates?.import_blocked && !force) return
     setBusyPath(packagePath)
     setError('')
@@ -99,7 +118,7 @@ export function MarketEvidencePackagesPanel({ market }: MarketEvidencePackagesPa
 
   const runVectorDryRun = async (row: MarketPackageRow) => {
     const packagePath = row.package_path || row.id
-    const force = forceConfirmed(row.quality_gates, '生成检索 dry-run')
+    const force = forceConfirmed(row.quality_gates, '生成检索 dry-run', 'vector_ingest_blocked')
     if (row.quality_gates?.vector_ingest_blocked && !force) return
     setBusyPath(packagePath)
     setError('')
@@ -129,10 +148,10 @@ export function MarketEvidencePackagesPanel({ market }: MarketEvidencePackagesPa
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
             <input
               className="w-full rounded-xl border border-border bg-card px-9 py-2 text-sm text-text outline-none focus:border-primary"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              value={draftQuery}
+              onChange={(event) => setDraftQuery(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === 'Enter') void loadPackages()
+                if (event.key === 'Enter') submitQuery()
               }}
               placeholder="股票代码 / 公司 / 报告"
             />
@@ -140,7 +159,7 @@ export function MarketEvidencePackagesPanel({ market }: MarketEvidencePackagesPa
           <button
             type="button"
             className="pdf-small-action inline-flex items-center gap-1"
-            onClick={() => void loadPackages()}
+            onClick={submitQuery}
             disabled={loading}
             title="刷新证据包列表"
           >

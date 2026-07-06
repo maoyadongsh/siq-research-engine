@@ -125,3 +125,71 @@ def test_open_artifact_route_preserves_error_responses(tmp_path, monkeypatch):
     empty_download = client.get(f"/api/artifact/{task['task_id']}/images/download")
     assert empty_download.status_code == 404
     assert empty_download.get_json() == {"error": "No downloadable images found"}
+
+
+def test_from_download_reference_enqueues_allowed_pdf(tmp_path, monkeypatch):
+    downloads_root = tmp_path / "downloads"
+    source_path = downloads_root / "HK" / "00005" / "report.pdf"
+    source_path.parent.mkdir(parents=True)
+    source_path.write_bytes(b"%PDF-1.4\nreferenced")
+    uploads_dir = tmp_path / "uploads"
+    uploads_dir.mkdir()
+
+    monkeypatch.setenv("SIQ_PDF_REFERENCE_ROOTS", str(downloads_root))
+    monkeypatch.setattr(app, "UPLOAD_FOLDER", str(uploads_dir))
+    monkeypatch.setattr(app, "DB_PATH", str(tmp_path / "tasks-reference.db"))
+    monkeypatch.setattr(app, "initialize_app", lambda start_worker=True: None)
+    monkeypatch.setattr(app, "_cleanup_old_data", lambda: None)
+    monkeypatch.setattr(app, "_wake_queue_worker", lambda: None)
+    monkeypatch.setattr(app, "_looks_like_pdf", lambda _path: True)
+    monkeypatch.setattr(app, "_get_pdf_page_count", lambda _path: 7)
+    app._init_db()
+
+    response = app.app.test_client().post(
+        "/api/tasks/from-download",
+        json={
+            "source_path": str(source_path),
+            "filename": "report.pdf",
+            "market": "HK",
+            "backend": "hybrid-http-client",
+            "parse_method": "auto",
+            "formula_enable": "true",
+            "table_enable": "true",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    task_id = payload["task_id"]
+    task = app._get_task(task_id)
+    assert task["filename"] == "report.pdf"
+    assert task["status"] == "queued"
+    assert task["pdf_page_count"] == 7
+    assert task["submit_config"]["market"] == "HK"
+    assert os.path.exists(task["upload_path"])
+    assert os.path.commonpath([task["upload_path"], str(uploads_dir)]) == str(uploads_dir)
+    assert task["logs"][0]["message"].startswith("服务端引用入队")
+
+
+def test_from_download_reference_rejects_path_outside_allowed_root(tmp_path, monkeypatch):
+    downloads_root = tmp_path / "downloads"
+    downloads_root.mkdir()
+    outside_path = tmp_path / "outside.pdf"
+    outside_path.write_bytes(b"%PDF-1.4\noutside")
+    monkeypatch.setenv("SIQ_PDF_REFERENCE_ROOTS", str(downloads_root))
+    monkeypatch.setattr(app, "initialize_app", lambda start_worker=True: None)
+    monkeypatch.setattr(app, "_cleanup_old_data", lambda: None)
+
+    response = app.app.test_client().post(
+        "/api/tasks/from-download",
+        json={
+            "source_path": str(outside_path),
+            "filename": "outside.pdf",
+            "market": "HK",
+            "backend": "hybrid-http-client",
+            "parse_method": "auto",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["error"] == "引用文件路径不在允许目录内"

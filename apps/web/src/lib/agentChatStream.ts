@@ -7,6 +7,7 @@ export interface StreamApi {
   startFirstEventTimer(): void
   clearFirstEventTimer(): void
   appendAssistantDelta(content: string): void
+  flushAssistantDelta?(): void
   replaceAssistantContent(content: string): void
   updateAssistantProgress(progress: AgentProgress): void
   responseErrorMessage(res: Response, fallback: string): Promise<string>
@@ -63,6 +64,7 @@ export function createStreamConsumer(api: StreamApi) {
             }
             if (eventName === 'replace' && typeof payload.content === 'string') {
               api.clearFirstEventTimer()
+              api.flushAssistantDelta?.()
               api.replaceAssistantContent(payload.content)
               eventName = ''
               continue
@@ -94,6 +96,7 @@ export function createStreamConsumer(api: StreamApi) {
             }
             if (eventName === 'done') {
               api.clearFirstEventTimer()
+              api.flushAssistantDelta?.()
               if (typeof payload.content === 'string') {
                 api.replaceAssistantContent(payload.content)
               }
@@ -103,6 +106,7 @@ export function createStreamConsumer(api: StreamApi) {
             }
             if (eventName === 'error') {
               api.clearFirstEventTimer()
+              api.flushAssistantDelta?.()
               api.updateAssistantProgress({ status: 'error', title: '任务异常', detail: payload.message || payload.content, source: 'runtime' })
               eventName = ''
               continue
@@ -124,6 +128,7 @@ export function createStreamConsumer(api: StreamApi) {
         }
       }
     }
+    api.flushAssistantDelta?.()
   }
 
   return { consumeEventStream }

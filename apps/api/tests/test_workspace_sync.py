@@ -1,5 +1,6 @@
 import hashlib
 import json
+import json as json_module
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -543,6 +544,151 @@ def test_authenticated_pdf_upload_duplicate_content_records_reused_parse(monkeyp
     assert posted["headers"]["X-SIQ-User-Id"] == "1"
     assert posted["headers"]["X-SIQ-User-Role"] == "user"
     assert response.status_code == 409
+
+
+def test_authenticated_pdf_task_from_download_posts_reference_and_records_parse(monkeypatch, tmp_path):
+    posted: dict[str, object] = {}
+    downloads_root = tmp_path / "downloads"
+    relative_path = "HK/00005-HSBC/2025/report.pdf"
+    report_path = downloads_root / relative_path
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_bytes(b"%PDF-1.4\nfrom-download")
+    file_sha256 = hashlib.sha256(report_path.read_bytes()).hexdigest()
+    config_hash = _pdf_config_hash("HK")
+    success_payload = {
+        "tasks": [
+            {
+                "task_id": "download-task",
+                "filename": "report.pdf",
+                "status": "queued",
+                "file_sha256": file_sha256,
+                "parse_config_hash": config_hash,
+                "market": "HK",
+            },
+        ],
+        "task_id": "download-task",
+        "batch_count": 1,
+    }
+
+    class FakeAsyncClient:
+        def __init__(self, timeout=None):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, json=None, headers=None):
+            posted["url"] = url
+            posted["json"] = json
+            posted["headers"] = headers
+            return SimpleNamespace(
+                status_code=200,
+                headers={"content-type": "application/json"},
+                content=json_module.dumps(success_payload).encode("utf-8"),
+                json=lambda: success_payload,
+            )
+
+    async def fake_pdf_tasks_by_filename(**_kwargs):
+        return {}
+
+    monkeypatch.setattr(workspace, "DOWNLOADS_ROOT", downloads_root.resolve())
+    monkeypatch.setattr(workspace, "PDF2MD_API_BASE", "http://pdf2md.test")
+    monkeypatch.setattr(workspace, "_pdf_tasks_by_filename", fake_pdf_tasks_by_filename)
+    monkeypatch.setattr(workspace.httpx, "AsyncClient", FakeAsyncClient)
+
+    async def run_case(async_session):
+        async_session.add(
+            UserArtifact(
+                user_id=1,
+                artifact_type="download",
+                artifact_key=relative_path,
+                title="report.pdf",
+                path=relative_path,
+                source="manual_link",
+                global_artifact_id=relative_path,
+            )
+        )
+        await async_session.commit()
+        response = await workspace.authenticated_pdf_task_from_download(
+            {
+                "download_relative_path": relative_path,
+                "filename": "report.pdf",
+                "market": "HK",
+                "backend": "hybrid-http-client",
+                "parse_method": "auto",
+                "formula_enable": "true",
+                "table_enable": "true",
+            },
+            current_user=SimpleNamespace(id=1, role="user"),
+            async_session=async_session,
+        )
+        artifacts_result = await async_session.exec(
+            select(UserArtifact).where(UserArtifact.artifact_type == "parse")
+        )
+        usage_result = await async_session.exec(select(UsageEvent).where(UsageEvent.event_type == PARSE_EVENT))
+        return response, artifacts_result.all(), usage_result.all()
+
+    response, artifacts, usage = anyio.run(
+        _with_async_session,
+        tmp_path,
+        "workspace-download-reference.db",
+        run_case,
+    )
+
+    assert response == success_payload
+    assert posted["url"] == "http://pdf2md.test/api/tasks/from-download"
+    assert posted["json"]["source_path"] == str(report_path.resolve())
+    assert posted["json"]["download_relative_path"] == relative_path
+    assert posted["headers"]["X-SIQ-User-Id"] == "1"
+    assert [(item.artifact_key, item.source) for item in artifacts] == [("download-task", "new_parse")]
+    assert len(usage) == 1
+    assert usage[0].source == "pdf_download_reference"
+    assert usage[0].count == 1
+
+
+def test_authenticated_pdf_task_from_download_requires_workspace_link(monkeypatch, tmp_path):
+    called = {"post": False}
+    downloads_root = tmp_path / "downloads"
+    relative_path = "HK/00005-HSBC/2025/report.pdf"
+    report_path = downloads_root / relative_path
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_bytes(b"%PDF-1.4\nfrom-download")
+
+    class FakeAsyncClient:
+        def __init__(self, timeout=None):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, *_args, **_kwargs):
+            called["post"] = True
+            raise AssertionError("unlinked downloads must not call parser")
+
+    async def fake_pdf_tasks_by_filename(**_kwargs):
+        return {}
+
+    monkeypatch.setattr(workspace, "DOWNLOADS_ROOT", downloads_root.resolve())
+    monkeypatch.setattr(workspace, "_pdf_tasks_by_filename", fake_pdf_tasks_by_filename)
+    monkeypatch.setattr(workspace.httpx, "AsyncClient", FakeAsyncClient)
+
+    async def run_case(async_session):
+        with pytest.raises(HTTPException) as exc:
+            await workspace.authenticated_pdf_task_from_download(
+                {"download_relative_path": relative_path, "filename": "report.pdf", "market": "HK"},
+                current_user=SimpleNamespace(id=1, role="user"),
+                async_session=async_session,
+            )
+        assert exc.value.status_code == 403
+
+    anyio.run(_with_async_session, tmp_path, "workspace-download-reference-forbidden.db", run_case)
+    assert called == {"post": False}
 
 
 def test_authenticated_pdf_upload_duplicate_content_ignores_full_quota(monkeypatch, tmp_path):

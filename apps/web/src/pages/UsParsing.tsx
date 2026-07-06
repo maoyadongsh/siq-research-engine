@@ -1,5 +1,6 @@
 import { FileText, FileUp } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { MarketEvidencePackagesPanel } from '../components/pdf/MarketEvidencePackagesPanel'
 import { MarketParsingTabs } from '../components/pdf/MarketParsingTabs'
 import { UsSecIngestionPanel } from '../components/sec/UsSecIngestionPanel'
 import { PDF_CSS } from './pdf/pdfStyles'
@@ -30,6 +31,7 @@ export default function UsParsing() {
 
       <MarketParsingTabs active="US" />
       <UsSecIngestionPanel />
+      <MarketEvidencePackagesPanel market="US" />
       <section className="secondary-panel p-4 sm:p-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">

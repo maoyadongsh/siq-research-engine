@@ -767,6 +767,29 @@ def _sha256_bytes(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
+def _sha256_file_path(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as infile:
+        for chunk in iter(lambda: infile.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+async def _user_has_download_artifact_async(async_session: AsyncSession, user_id: int, relative_path: str) -> bool:
+    result = await async_session.exec(
+        select(UserArtifact).where(
+            UserArtifact.user_id == user_id,
+            UserArtifact.artifact_type == "download",
+            (
+                (UserArtifact.artifact_key == relative_path)
+                | (UserArtifact.global_artifact_id == relative_path)
+                | (UserArtifact.path == relative_path)
+            ),
+        )
+    )
+    return result.first() is not None
+
+
 async def _pdf_tasks_by_filename(
     *,
     current_user: User | None = None,
@@ -1126,6 +1149,169 @@ async def authenticated_pdf_upload(
 
     return Response(
         content=json.dumps(payload, ensure_ascii=False),
+        status_code=response.status_code,
+        media_type=content_type,
+    )
+
+
+@pdf_router.post("/tasks/from-download")
+async def authenticated_pdf_task_from_download(
+    payload: dict,
+    current_user: User = Depends(require_permission("report.create")),
+    async_session: AsyncSession = Depends(get_async_session),
+):
+    relative_path = str(
+        payload.get("download_relative_path")
+        or payload.get("relativePath")
+        or payload.get("relative_path")
+        or ""
+    ).strip()
+    safe = _download_path_from_payload({"relativePath": relative_path})
+    rel_text = safe.relative_to(DOWNLOADS_ROOT).as_posix()
+    if not _is_admin(current_user) and not await _user_has_download_artifact_async(async_session, int(current_user.id), rel_text):
+        raise HTTPException(status_code=403, detail="Downloaded PDF is not linked to current workspace")
+
+    backend = _form_text(payload.get("backend"), "hybrid-http-client")
+    parse_method = _form_text(payload.get("parse_method"), "auto")
+    market = _form_text(payload.get("market"), "CN")
+    start_page_id = _form_text(payload.get("start_page_id"), "")
+    end_page_id = _form_text(payload.get("end_page_id"), "")
+    formula_enable = _form_text(payload.get("formula_enable"), "true")
+    table_enable = _form_text(payload.get("table_enable"), "true")
+    requested_market = _normalize_parse_market(market)
+    form = {
+        "backend": backend,
+        "parse_method": parse_method,
+        "market": requested_market or market,
+        "start_page_id": start_page_id,
+        "end_page_id": end_page_id,
+        "formula_enable": formula_enable,
+        "table_enable": table_enable,
+    }
+    parse_config_hash = _pdf_parse_config_hash(form)
+    filename = str(payload.get("filename") or safe.name or "download.pdf").replace("\\", "/").rsplit("/", 1)[-1].strip() or safe.name
+    file_sha256 = _sha256_file_path(safe)
+
+    existing_tasks = await _pdf_tasks_by_filename(current_user=current_user, market_scope=requested_market)
+    existing_dedupe_tasks = {
+        _pdf_dedupe_key(task, requested_market): task
+        for task in existing_tasks.values()
+        if str(task.get("file_sha256") or "").strip() and str(task.get("parse_config_hash") or "").strip()
+    }
+    upload_meta = {
+        "filename": filename,
+        "file_sha256": file_sha256,
+        "market": requested_market or _normalize_parse_market(market) or "CN",
+        "parse_config_hash": parse_config_hash,
+    }
+    if _pdf_dedupe_key(upload_meta, requested_market) not in existing_dedupe_tasks:
+        await enforce_quota_or_429_async(async_session, current_user, PARSE_EVENT, increment=1)
+
+    upstream_body = {
+        **form,
+        "source_path": str(safe),
+        "filename": filename,
+        "download_relative_path": rel_text,
+    }
+    async with httpx.AsyncClient(timeout=None) as client:
+        response = await client.post(
+            f"{PDF2MD_API_BASE}/api/tasks/from-download",
+            json=upstream_body,
+            headers=_pdf2md_headers(current_user=current_user, market_scope=requested_market),
+        )
+
+    content_type = response.headers.get("content-type", "application/json")
+    try:
+        upstream_payload = response.json()
+    except ValueError:
+        return Response(content=response.content, status_code=response.status_code, media_type=content_type)
+
+    if response.status_code == 409 and isinstance(upstream_payload, dict) and upstream_payload.get("error") in {"duplicate_filename", "duplicate_file_content"}:
+        existing = upstream_payload.get("existingTask") or upstream_payload.get("existing_task") or {}
+        task_id = str(existing.get("task_id") or "")
+        existing_filename = str(upstream_payload.get("filename") or existing.get("filename") or filename or "已有解析任务")
+        if requested_market and isinstance(existing, dict) and not _normalize_parse_market(existing.get("market")):
+            existing["market"] = requested_market
+            if isinstance(upstream_payload.get("existingTask"), dict):
+                upstream_payload["existingTask"] = existing
+            if isinstance(upstream_payload.get("existing_task"), dict):
+                upstream_payload["existing_task"] = existing
+        if task_id:
+            await record_user_artifact_async(
+                async_session,
+                user_id=int(current_user.id),
+                artifact_type="parse",
+                artifact_key=task_id,
+                title=existing_filename,
+                path=_parse_result_artifact_path(task_id, existing.get("market")),
+                source="reused_parse",
+                global_artifact_id=task_id,
+            )
+        return JSONResponse(content=upstream_payload, status_code=409)
+
+    if 200 <= response.status_code < 300:
+        created_tasks = upstream_payload.get("tasks") if isinstance(upstream_payload, dict) else []
+        if isinstance(upstream_payload, dict):
+            upstream_payload["tasks"] = [
+                _enrich_parse_task_market(
+                    {
+                        **dict(task),
+                        **({"market": requested_market} if requested_market and not _normalize_parse_market(task.get("market")) else {}),
+                    }
+                )
+                for task in (created_tasks or [])
+            ]
+        created_tasks = upstream_payload.get("tasks") if isinstance(upstream_payload, dict) else created_tasks
+        new_tasks = []
+        reused_tasks = []
+        for task in created_tasks or []:
+            if _pdf_dedupe_key(task, requested_market) in existing_dedupe_tasks:
+                reused_tasks.append(task)
+            else:
+                new_tasks.append(task)
+
+        user_id = int(current_user.id)
+        if new_tasks:
+            await record_usage_async(
+                async_session,
+                user_id=user_id,
+                event_type=PARSE_EVENT,
+                count=len(new_tasks),
+                source="pdf_download_reference",
+                metadata_json=json.dumps({"tasks": new_tasks, "download_relative_path": rel_text}, ensure_ascii=False),
+            )
+        for task in new_tasks:
+            task_id = str(task.get("task_id") or "")
+            task_filename = str(task.get("filename") or task_id or "解析任务")
+            if task_id:
+                await record_user_artifact_async(
+                    async_session,
+                    user_id=user_id,
+                    artifact_type="parse",
+                    artifact_key=task_id,
+                    title=task_filename,
+                    path=_parse_result_artifact_path(task_id, task.get("market")),
+                    source="new_parse",
+                    global_artifact_id=task_id,
+                )
+        for task in reused_tasks:
+            task_id = str(task.get("task_id") or "")
+            task_filename = str(task.get("filename") or task_id or "已有解析任务")
+            if task_id and not await _user_has_parse_artifact_async(async_session, user_id, task_id):
+                await record_user_artifact_async(
+                    async_session,
+                    user_id=user_id,
+                    artifact_type="parse",
+                    artifact_key=task_id,
+                    title=task_filename,
+                    path=_parse_result_artifact_path(task_id, task.get("market")),
+                    source="reused_parse",
+                    global_artifact_id=task_id,
+                )
+        return upstream_payload
+
+    return Response(
+        content=json.dumps(upstream_payload, ensure_ascii=False),
         status_code=response.status_code,
         media_type=content_type,
     )

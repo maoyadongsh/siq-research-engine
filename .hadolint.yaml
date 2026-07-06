@@ -1,0 +1,4 @@
+ignored:
+  # Parser requirements are range-based for readability and constrained by
+  # apps/*-parser/constraints.txt during Docker and CI installs.
+  - DL3013

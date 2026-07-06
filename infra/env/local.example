@@ -3,12 +3,14 @@
 
 SIQ_PROJECT_ROOT=/home/maoyd/siq-research-engine
 
-# Runtime roots. Keep SIQ_DATA_ROOT on data/ during the compatibility period.
-# To migrate local runtime files later, point SIQ_DATA_ROOT to /home/maoyd/siq-research-engine/var.
-SIQ_DATA_ROOT=/home/maoyd/siq-research-engine/data
-SIQ_RUNTIME_ROOT=/home/maoyd/siq-research-engine/var
-SIQ_ARTIFACTS_ROOT=/home/maoyd/siq-research-engine/artifacts
-SIQ_DATASETS_ROOT=/home/maoyd/siq-research-engine/datasets
+# Runtime roots. Compatibility default keeps existing repo data/var/artifacts.
+# New local setups should prefer an external state root, for example:
+# SIQ_LOCAL_STATE_ROOT=/home/maoyd/.local/state/siq-research-engine
+SIQ_LOCAL_STATE_ROOT=/home/maoyd/siq-research-engine
+SIQ_DATA_ROOT=${SIQ_LOCAL_STATE_ROOT}/data
+SIQ_RUNTIME_ROOT=${SIQ_LOCAL_STATE_ROOT}/var
+SIQ_ARTIFACTS_ROOT=${SIQ_LOCAL_STATE_ROOT}/artifacts
+SIQ_DATASETS_ROOT=${SIQ_PROJECT_ROOT}/datasets
 
 SIQ_AUTH_SECRET_KEY=replace-with-at-least-32-random-characters
 SIQ_AUTH_COOKIE_MODE=0
@@ -53,33 +55,33 @@ SIQ_AGENT_MEMORY_TIME_DECAY_FLOOR=0.35
 SIQ_MILVUS_HOST=127.0.0.1
 SIQ_MILVUS_PORT=19530
 
-SIQ_WIKI_ROOT=/home/maoyd/siq-research-engine/data/wiki
-SIQ_ASSISTANT_WIKI_ROOT=/home/maoyd/siq-research-engine/data/wiki
+SIQ_WIKI_ROOT=${SIQ_DATA_ROOT}/wiki
+SIQ_ASSISTANT_WIKI_ROOT=${SIQ_DATA_ROOT}/wiki
 SIQ_DEFAULT_SOURCE_TYPE=wiki_metrics
 SIQ_ASSISTANT_DEFAULT_SOURCE_TYPE=wiki_metrics
 
-SIQ_BACKEND_ROOT=/home/maoyd/siq-research-engine/apps/api
-SIQ_FRONTEND_ROOT=/home/maoyd/siq-research-engine/apps/web
-SIQ_PDF2MD_ROOT=/home/maoyd/siq-research-engine/apps/pdf-parser
-SIQ_PDF2MD_DATA_DIR=/home/maoyd/siq-research-engine/data/pdf-parser
-SIQ_DOCUMENT_PARSER_ROOT=/home/maoyd/siq-research-engine/apps/document-parser
-SIQ_DOCUMENT_PARSE_DATA_DIR=/home/maoyd/siq-research-engine/data/document-parser
-SIQ_REPORT_FINDER_ROOT=/home/maoyd/siq-research-engine/services/market-report-finder
-SIQ_MARKET_REPORT_FINDER_ROOT=/home/maoyd/siq-research-engine/services/market-report-finder
-SIQ_MARKET_REPORT_RULES_ROOT=/home/maoyd/siq-research-engine/services/market-report-rules
-SIQ_REPORT_DOWNLOADS_ROOT=/home/maoyd/siq-research-engine/data/market-report-finder/downloads
-SIQ_MARKET_REPORT_DOWNLOADS_ROOT=/home/maoyd/siq-research-engine/data/market-report-finder/downloads
+SIQ_BACKEND_ROOT=${SIQ_PROJECT_ROOT}/apps/api
+SIQ_FRONTEND_ROOT=${SIQ_PROJECT_ROOT}/apps/web
+SIQ_PDF2MD_ROOT=${SIQ_PROJECT_ROOT}/apps/pdf-parser
+SIQ_PDF2MD_DATA_DIR=${SIQ_DATA_ROOT}/pdf-parser
+SIQ_DOCUMENT_PARSER_ROOT=${SIQ_PROJECT_ROOT}/apps/document-parser
+SIQ_DOCUMENT_PARSE_DATA_DIR=${SIQ_DATA_ROOT}/document-parser
+SIQ_REPORT_FINDER_ROOT=${SIQ_PROJECT_ROOT}/services/market-report-finder
+SIQ_MARKET_REPORT_FINDER_ROOT=${SIQ_PROJECT_ROOT}/services/market-report-finder
+SIQ_MARKET_REPORT_RULES_ROOT=${SIQ_PROJECT_ROOT}/services/market-report-rules
+SIQ_REPORT_DOWNLOADS_ROOT=${SIQ_DATA_ROOT}/market-report-finder/downloads
+SIQ_MARKET_REPORT_DOWNLOADS_ROOT=${SIQ_DATA_ROOT}/market-report-finder/downloads
 
-SIQ_DB_ROOT=/home/maoyd/siq-research-engine/db
+SIQ_DB_ROOT=${SIQ_PROJECT_ROOT}/db
 SIQ_DOCUMENT_PGDATABASE=siq_document_parser
 SIQ_US_PGDATABASE=siq_us
 SIQ_HK_PGDATABASE=siq_hk
 SIQ_JP_PGDATABASE=siq_jp
 SIQ_KR_PGDATABASE=siq_kr
 SIQ_EU_PGDATABASE=siq_eu
-SIQ_HERMES_HOME=/home/maoyd/siq-research-engine/data/hermes/home
-SIQ_HERMES_PROFILES_ROOT=/home/maoyd/siq-research-engine/data/hermes/home/profiles
-SIQ_MINERU_VENV=/home/maoyd/siq-research-engine/runtimes/mineru-native
+SIQ_HERMES_HOME=${SIQ_DATA_ROOT}/hermes/home
+SIQ_HERMES_PROFILES_ROOT=${SIQ_HERMES_HOME}/profiles
+SIQ_MINERU_VENV=${SIQ_PROJECT_ROOT}/runtimes/mineru-native
 
 SIQ_BACKEND_PORT=18081
 SIQ_FRONTEND_PORT=15173
@@ -91,6 +93,7 @@ SIQ_MARKET_REPORT_RULES_PORT=18020
 SIQ_POSTGRES_PORT=15432
 SIQ_REDIS_PORT=16379
 SIQ_GRAFANA_PORT=13001
+SIQ_COMPOSE_BIND_HOST=127.0.0.1
 SIQ_BACKEND_URL=http://127.0.0.1:18081
 SIQ_REPORT_FINDER_URL=http://127.0.0.1:18000
 SIQ_MARKET_REPORT_FINDER_URL=http://127.0.0.1:18010
@@ -130,3 +133,4 @@ VLM_API_URL=http://127.0.0.1:8002
 POSTGRES_PASSWORD=replace-with-local-postgres-password
 SIQ_POSTGRES_IMAGE=postgres:16-alpine
 GRAFANA_PASSWORD=replace-with-local-grafana-password
+SIQ_GRAFANA_IMAGE=grafana/grafana:12.0.2

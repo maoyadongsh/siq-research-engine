@@ -24,20 +24,43 @@ source_env_if_exists() {
 DEFAULT_ENV_FILE="$SIQ_PROJECT_ROOT/infra/env/local.env"
 LEGACY_ENV_FILE="$SIQ_PROJECT_ROOT/env/backend.env"
 ENV_FILE="${SIQ_ENV_FILE:-$DEFAULT_ENV_FILE}"
-if ! source_env_if_exists "$ENV_FILE" && [[ -z "${SIQ_ENV_FILE:-}" ]]; then
-    source_env_if_exists "$LEGACY_ENV_FILE" || true
+warn_legacy_env_path() {
+    local env_file=$1
+    echo "[WARN] Loaded legacy env file: $env_file"
+    echo "[WARN] Prefer infra/env/local.env; copy needed values there during migration."
+}
+
+if source_env_if_exists "$ENV_FILE"; then
+    case "$ENV_FILE" in
+        "$LEGACY_ENV_FILE"|"$SIQ_PROJECT_ROOT"/env/*|env/*)
+            warn_legacy_env_path "$ENV_FILE"
+            ;;
+    esac
+elif [[ -z "${SIQ_ENV_FILE:-}" ]]; then
+    if source_env_if_exists "$LEGACY_ENV_FILE"; then
+        warn_legacy_env_path "$LEGACY_ENV_FILE"
+    fi
 fi
 
 LEGACY_FRONTEND_ENV_FILE="$SIQ_PROJECT_ROOT/env/frontend-dev.env"
 if [[ -n "${SIQ_FRONTEND_ENV_FILE:-}" ]]; then
-    source_env_if_exists "$SIQ_FRONTEND_ENV_FILE" || true
+    if source_env_if_exists "$SIQ_FRONTEND_ENV_FILE"; then
+        case "$SIQ_FRONTEND_ENV_FILE" in
+            "$LEGACY_FRONTEND_ENV_FILE"|"$SIQ_PROJECT_ROOT"/env/*|env/*)
+                warn_legacy_env_path "$SIQ_FRONTEND_ENV_FILE"
+                ;;
+        esac
+    fi
 elif [[ -f "$LEGACY_FRONTEND_ENV_FILE" ]]; then
-    source_env_if_exists "$LEGACY_FRONTEND_ENV_FILE" || true
+    if source_env_if_exists "$LEGACY_FRONTEND_ENV_FILE"; then
+        warn_legacy_env_path "$LEGACY_FRONTEND_ENV_FILE"
+    fi
 fi
 
-export SIQ_DATA_ROOT="${SIQ_DATA_ROOT:-$SIQ_PROJECT_ROOT/data}"
-export SIQ_RUNTIME_ROOT="${SIQ_RUNTIME_ROOT:-$SIQ_PROJECT_ROOT/var}"
-export SIQ_ARTIFACTS_ROOT="${SIQ_ARTIFACTS_ROOT:-$SIQ_PROJECT_ROOT/artifacts}"
+export SIQ_LOCAL_STATE_ROOT="${SIQ_LOCAL_STATE_ROOT:-$SIQ_PROJECT_ROOT}"
+export SIQ_DATA_ROOT="${SIQ_DATA_ROOT:-$SIQ_LOCAL_STATE_ROOT/data}"
+export SIQ_RUNTIME_ROOT="${SIQ_RUNTIME_ROOT:-$SIQ_LOCAL_STATE_ROOT/var}"
+export SIQ_ARTIFACTS_ROOT="${SIQ_ARTIFACTS_ROOT:-$SIQ_LOCAL_STATE_ROOT/artifacts}"
 export SIQ_DATASETS_ROOT="${SIQ_DATASETS_ROOT:-$SIQ_PROJECT_ROOT/datasets}"
 
 WIKI_ROOT="${SIQ_WIKI_ROOT:-${WIKI_ROOT:-$SIQ_DATA_ROOT/wiki}}"
@@ -139,6 +162,26 @@ ok()   { echo -e "${GREEN}[OK]${NC} $*"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 die()  { echo -e "${RED}[FAIL]${NC} $*"; exit 1; }
 
+dependency_updates_enabled() {
+    [[ "${SIQ_UPDATE_DEPS:-0}" == "1" ]]
+}
+
+uv_sync_project() {
+    if dependency_updates_enabled; then
+        uv sync
+    else
+        uv sync --frozen
+    fi
+}
+
+install_node_dependencies() {
+    if dependency_updates_enabled; then
+        npm install
+    else
+        npm ci
+    fi
+}
+
 cleanup() {
     log "正在停止所有子进程 (PID: ${pids[*]})..."
     for pid in "${pids[@]}"; do
@@ -196,6 +239,11 @@ require_free_port() {
 for cmd in uv node npm; do
     command -v "$cmd" &>/dev/null || die "缺少命令: $cmd"
 done
+if dependency_updates_enabled; then
+    warn "SIQ_UPDATE_DEPS=1 已启用，启动时允许更新依赖锁。"
+else
+    log "依赖安装使用 frozen 模式；如需更新依赖，设置 SIQ_UPDATE_DEPS=1。"
+fi
 
 require_free_port "$REPORT_FINDER_PORT" "PDF 下载服务"
 if [[ "$START_MARKET_REPORT_FINDER" != "0" ]]; then
@@ -274,7 +322,7 @@ fi
 log "启动统一公告下载服务 (端口 $REPORT_FINDER_PORT)..."
 (
     cd "$MARKET_REPORT_FINDER_DIR"
-    uv sync
+    uv_sync_project
     MARKET_REPORT_DOWNLOAD_DIR="$SIQ_REPORT_DOWNLOADS_ROOT" uv run python -m uvicorn market_report_finder_service.app:app --host 127.0.0.1 --port "$REPORT_FINDER_PORT"
 ) &
 pids+=($!)
@@ -284,7 +332,7 @@ if [[ "$START_MARKET_REPORT_FINDER" != "0" ]]; then
     log "启动备用市场下载服务 (端口 $MARKET_REPORT_FINDER_PORT)..."
     (
         cd "$MARKET_REPORT_FINDER_DIR"
-        uv sync
+        uv_sync_project
         MARKET_REPORT_DOWNLOAD_DIR="$SIQ_MARKET_REPORT_DOWNLOADS_ROOT" uv run python -m uvicorn market_report_finder_service.app:app --host 127.0.0.1 --port "$MARKET_REPORT_FINDER_PORT"
     ) &
     pids+=($!)
@@ -295,7 +343,7 @@ if [[ "$START_MARKET_REPORT_RULES" != "0" ]]; then
     log "启动美股/港股规则服务 (端口 $MARKET_REPORT_RULES_PORT)..."
     (
         cd "$MARKET_REPORT_RULES_DIR"
-        uv sync
+        uv_sync_project
         uv run python -m uvicorn market_report_rules_service.app:app --host 127.0.0.1 --port "$MARKET_REPORT_RULES_PORT"
     ) &
     pids+=($!)
@@ -305,7 +353,7 @@ fi
 log "启动 FastAPI 后端 (端口 $BACKEND_PORT)..."
 (
     cd "$BACKEND_DIR"
-    uv sync
+    uv_sync_project
     uv run python -m uvicorn main:app --reload --host 0.0.0.0 --port "$BACKEND_PORT"
 ) &
 pids+=($!)
@@ -327,7 +375,7 @@ pids+=($!)
 log "启动 Vite 前端 (端口 $FRONTEND_PORT)..."
 (
     cd "$FRONT_DIR"
-    npm install
+    install_node_dependencies
     npm run dev -- --host 0.0.0.0 --port "$FRONTEND_PORT"
 ) &
 pids+=($!)

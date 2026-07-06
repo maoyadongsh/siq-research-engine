@@ -17,11 +17,16 @@ ENV SIQ_BACKEND_URL=http://api:18081 \
 
 FROM node:22-bookworm-slim
 
+ENV NODE_ENV=production
+
 WORKDIR /app
 
-RUN npm install -g serve@14
-COPY --from=build /app/dist ./dist
+RUN npm install -g serve@14 \
+    && npm cache clean --force
+COPY --from=build --chown=node:node /app/dist ./dist
 
 EXPOSE 15173
+
+USER node
 
 CMD ["serve", "-s", "dist", "-l", "15173"]

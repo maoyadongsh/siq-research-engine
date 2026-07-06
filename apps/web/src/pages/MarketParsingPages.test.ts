@@ -8,11 +8,19 @@ import { fileURLToPath } from 'node:url'
 
 const pageDir = dirname(fileURLToPath(import.meta.url))
 
-for (const page of ['JpParsing.tsx', 'HkParsing.tsx', 'EuParsing.tsx', 'KrParsing.tsx']) {
-  test(`${page} matches the A-share PDF surface without evidence package panel`, () => {
+const marketPages = {
+  JpParsing: 'JP',
+  HkParsing: 'HK',
+  EuParsing: 'EU',
+  KrParsing: 'KR',
+}
+
+for (const [name, market] of Object.entries(marketPages)) {
+  test(`${name}.tsx mounts the evidence package panel through the shared extension slot`, () => {
+    const page = `${name}.tsx`
     const source = readFileSync(resolve(pageDir, page), 'utf-8')
 
-    assert.doesNotMatch(source, /MarketEvidencePackagesPanel/)
-    assert.doesNotMatch(source, /extraPanel=/)
+    assert.match(source, /MarketEvidencePackagesPanel/)
+    assert.match(source, new RegExp(`extraPanel=\\{<MarketEvidencePackagesPanel market="${market}" />\\}`))
   })
 }

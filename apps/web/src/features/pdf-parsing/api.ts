@@ -100,8 +100,39 @@ export async function linkDownloadedReport(report: DownloadedPdf): Promise<void>
   }).catch(() => null)
 }
 
-export async function fetchStatus(taskId: string, since: number): Promise<Record<string, unknown>> {
-  return apiJson<Record<string, unknown>>(`${PDF_API}/status/${encodeURIComponent(taskId)}?since=${since}`)
+export interface DownloadedReportParseOptions {
+  backend: string
+  parseMethod: string
+  market?: 'CN' | 'HK' | 'US' | 'EU' | 'KR' | 'JP'
+  startPage: string
+  endPage: string
+  formula: boolean
+  table: boolean
+}
+
+export async function parseDownloadedReportFromDownload(
+  report: DownloadedPdf,
+  options: DownloadedReportParseOptions,
+): Promise<Record<string, unknown>> {
+  if (report.isPdf === false) throw new Error('该文件不是 PDF，当前 PDF 解析器暂不支持直接解析')
+  return apiJson<Record<string, unknown>>('/api/pdf/tasks/from-download', {
+    method: 'POST',
+    body: {
+      download_relative_path: report.relativePath,
+      filename: report.filename,
+      backend: options.backend,
+      parse_method: options.parseMethod,
+      market: options.market || report.market || 'CN',
+      start_page_id: options.startPage,
+      end_page_id: options.endPage,
+      formula_enable: options.formula ? 'true' : 'false',
+      table_enable: options.table ? 'true' : 'false',
+    },
+  })
+}
+
+export async function fetchStatus(taskId: string, since: number, init: ApiRequestInit = {}): Promise<Record<string, unknown>> {
+  return apiJson<Record<string, unknown>>(`${PDF_API}/status/${encodeURIComponent(taskId)}?since=${since}`, init)
 }
 
 export async function cancelTaskApi(taskId: string): Promise<{ success: boolean; upstream_cancelled?: boolean }> {

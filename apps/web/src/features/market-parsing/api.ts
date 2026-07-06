@@ -307,10 +307,10 @@ export async function rebuildUsSecPackage(ticker: string): Promise<{ ok?: boolea
   return d
 }
 
-export async function fetchMarketPackages(market: MarketCode, q = ''): Promise<MarketPackagesResponse> {
+export async function fetchMarketPackages(market: MarketCode, q = '', signal?: AbortSignal): Promise<MarketPackagesResponse> {
   const params = new URLSearchParams({ market, limit: '120' })
   if (q.trim()) params.set('q', q.trim())
-  return apiJson<MarketPackagesResponse>(`/api/market-reports/packages?${params.toString()}`)
+  return apiJson<MarketPackagesResponse>(`/api/market-reports/packages?${params.toString()}`, { signal })
 }
 
 export async function fetchMarketPackageDetail(market: MarketCode, packagePath: string): Promise<MarketPackageDetail> {

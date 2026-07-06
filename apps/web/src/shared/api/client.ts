@@ -235,6 +235,10 @@ export async function apiFetch(input: RequestInfo | URL, init: ApiRequestInit = 
   return globalThis.fetch(input, requestInit)
 }
 
+export async function apiStreamFetch(input: RequestInfo | URL, init: ApiRequestInit = {}) {
+  return apiFetch(input, init)
+}
+
 export async function readJsonResponse<T = unknown>(response: Response): Promise<T> {
   const text = await response.text()
   const trimmed = text.trim()

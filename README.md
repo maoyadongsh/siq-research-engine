@@ -464,9 +464,10 @@ curl -s http://127.0.0.1:18652/health
 | 变量 | 默认值 | 用途 |
 | --- | --- | --- |
 | `SIQ_PROJECT_ROOT` | 仓库根目录 | 项目路径锚点 |
-| `SIQ_DATA_ROOT` | `data` | 历史兼容运行态根目录 |
-| `SIQ_RUNTIME_ROOT` | `var` | 新增本地运行态建议根目录 |
-| `SIQ_ARTIFACTS_ROOT` | `artifacts` | 生成产物目录 |
+| `SIQ_LOCAL_STATE_ROOT` | 仓库根目录 | 本地状态根；推荐新环境设到外部盘或用户 state 目录 |
+| `SIQ_DATA_ROOT` | `$SIQ_LOCAL_STATE_ROOT/data` | 历史兼容运行态根目录 |
+| `SIQ_RUNTIME_ROOT` | `$SIQ_LOCAL_STATE_ROOT/var` | 新增本地运行态建议根目录 |
+| `SIQ_ARTIFACTS_ROOT` | `$SIQ_LOCAL_STATE_ROOT/artifacts` | 生成产物目录 |
 | `SIQ_DATASETS_ROOT` | `datasets` | 可版本化样本目录 |
 | `SIQ_WIKI_ROOT` | `$SIQ_DATA_ROOT/wiki` | 文件型事实层目录 |
 | `SIQ_REPORT_DOWNLOADS_ROOT` | `$SIQ_DATA_ROOT/market-report-finder/downloads` | 官方披露下载目录 |
@@ -479,6 +480,7 @@ curl -s http://127.0.0.1:18652/health
 | `SIQ_SOURCE_TOKEN_SECRET` | fallback 到 `SIQ_AUTH_SECRET_KEY` | source access token 签名密钥 |
 | `SIQ_AUTH_COOKIE_MODE` | `0` | 启用 HttpOnly cookie 登录兼容模式 |
 | `SIQ_AUTH_COOKIE_SECURE` | `0` | 公网 HTTPS 部署应设为 `1` |
+| `SIQ_UPDATE_DEPS` | `0` | 设为 `1` 时允许 `start_all.sh` 更新依赖；默认使用 frozen/lockfile 安装 |
 
 ## 延伸阅读
 
