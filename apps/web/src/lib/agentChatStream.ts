@@ -23,6 +23,118 @@ export function createStreamConsumer(api: StreamApi) {
     const decoder = new TextDecoder()
     let buffer = ''
     let eventName = ''
+    let eventDataLines: string[] = []
+
+    const resetEvent = () => {
+      eventName = ''
+      eventDataLines = []
+    }
+
+    const dispatchEvent = () => {
+      if (!eventDataLines.length) {
+        eventName = ''
+        return
+      }
+
+      const data = eventDataLines.join('\n')
+      const currentEventName = eventName
+      resetEvent()
+
+      if (data === '[DONE]') return
+      try {
+        const payload = JSON.parse(data)
+        if (currentEventName === 'run' && payload.run_id) {
+          api.setActiveRunId(payload.run_id)
+          if (payload.session_id) api.setCurrentSession(payload.session_id)
+          api.startFirstEventTimer()
+          return
+        }
+        if (currentEventName === 'progress') {
+          if (payload?.title === '任务已启动') {
+            api.startFirstEventTimer()
+          } else {
+            api.clearFirstEventTimer()
+          }
+          api.updateAssistantProgress(payload as AgentProgress)
+          return
+        }
+        if (currentEventName === 'replace' && typeof payload.content === 'string') {
+          api.clearFirstEventTimer()
+          api.flushAssistantDelta?.()
+          api.replaceAssistantContent(payload.content)
+          return
+        }
+        if (currentEventName === 'tool') {
+          api.clearFirstEventTimer()
+          const displayTool = toolDisplayName(payload.tool, payload.preview)
+          const toolProgress: AgentProgress = {
+            status: payload.error ? 'error' : 'running',
+            title: payload.status === 'completed' ? `${displayTool} 执行完成` : `正在执行 ${displayTool}`,
+            detail: payload.preview || (payload.duration ? `耗时 ${payload.duration}s` : undefined),
+            source: 'tool',
+            tool: displayTool,
+          }
+          api.updateAssistantProgress(toolProgress)
+          return
+        }
+        if (currentEventName === 'reasoning' && payload.text) {
+          api.clearFirstEventTimer()
+          api.updateAssistantProgress({
+            status: 'running',
+            title: '正在推理',
+            detail: String(payload.text).slice(0, 180),
+            source: 'reasoning',
+          })
+          return
+        }
+        if (currentEventName === 'done') {
+          api.clearFirstEventTimer()
+          api.flushAssistantDelta?.()
+          if (typeof payload.content === 'string') {
+            api.replaceAssistantContent(payload.content)
+          }
+          api.updateAssistantProgress({ status: 'completed', title: '任务完成', percent: 100, source: 'runtime' })
+          return
+        }
+        if (currentEventName === 'error') {
+          api.clearFirstEventTimer()
+          api.flushAssistantDelta?.()
+          api.updateAssistantProgress({ status: 'error', title: '任务异常', detail: payload.message || payload.content, source: 'runtime' })
+          return
+        }
+        if (payload.content) {
+          api.clearFirstEventTimer()
+          api.appendAssistantDelta(payload.content)
+          const inferred = inferProgressFromContent(payload.content)
+          if (inferred) api.updateAssistantProgress(inferred)
+        }
+      } catch {
+        if (data && data !== '[DONE]') {
+          api.clearFirstEventTimer()
+          api.appendAssistantDelta(data)
+        }
+      }
+    }
+
+    const consumeLine = (line: string) => {
+      const normalized = line.endsWith('\r') ? line.slice(0, -1) : line
+      if (normalized === '') {
+        dispatchEvent()
+        return
+      }
+      if (normalized.startsWith(':')) return
+
+      const separator = normalized.indexOf(':')
+      const field = separator === -1 ? normalized : normalized.slice(0, separator)
+      const rawValue = separator === -1 ? '' : normalized.slice(separator + 1)
+      const value = rawValue.startsWith(' ') ? rawValue.slice(1) : rawValue
+
+      if (field === 'event') {
+        eventName = value.trim()
+      } else if (field === 'data') {
+        eventDataLines.push(value)
+      }
+    }
 
     while (true) {
       const result = await reader.read()
@@ -32,102 +144,12 @@ export function createStreamConsumer(api: StreamApi) {
       buffer = lines.pop() || ''
 
       for (const line of lines) {
-        const trimmed = line.trim()
-        if (!trimmed || trimmed.startsWith(':')) continue
-
-        if (trimmed.startsWith('event:')) {
-          eventName = trimmed.slice(6).trim()
-          continue
-        }
-
-        if (trimmed.startsWith('data:')) {
-          const data = trimmed.slice(5).trim()
-          if (data === '[DONE]') continue
-          try {
-            const payload = JSON.parse(data)
-            if (eventName === 'run' && payload.run_id) {
-              api.setActiveRunId(payload.run_id)
-              if (payload.session_id) api.setCurrentSession(payload.session_id)
-              api.startFirstEventTimer()
-              eventName = ''
-              continue
-            }
-            if (eventName === 'progress') {
-              if (payload?.title === '任务已启动') {
-                api.startFirstEventTimer()
-              } else {
-                api.clearFirstEventTimer()
-              }
-              api.updateAssistantProgress(payload as AgentProgress)
-              eventName = ''
-              continue
-            }
-            if (eventName === 'replace' && typeof payload.content === 'string') {
-              api.clearFirstEventTimer()
-              api.flushAssistantDelta?.()
-              api.replaceAssistantContent(payload.content)
-              eventName = ''
-              continue
-            }
-            if (eventName === 'tool') {
-              api.clearFirstEventTimer()
-              const displayTool = toolDisplayName(payload.tool, payload.preview)
-              const toolProgress: AgentProgress = {
-                status: payload.error ? 'error' : 'running',
-                title: payload.status === 'completed' ? `${displayTool} 执行完成` : `正在执行 ${displayTool}`,
-                detail: payload.preview || (payload.duration ? `耗时 ${payload.duration}s` : undefined),
-                source: 'tool',
-                tool: displayTool,
-              }
-              api.updateAssistantProgress(toolProgress)
-              eventName = ''
-              continue
-            }
-            if (eventName === 'reasoning' && payload.text) {
-              api.clearFirstEventTimer()
-              api.updateAssistantProgress({
-                status: 'running',
-                title: '正在推理',
-                detail: String(payload.text).slice(0, 180),
-                source: 'reasoning',
-              })
-              eventName = ''
-              continue
-            }
-            if (eventName === 'done') {
-              api.clearFirstEventTimer()
-              api.flushAssistantDelta?.()
-              if (typeof payload.content === 'string') {
-                api.replaceAssistantContent(payload.content)
-              }
-              api.updateAssistantProgress({ status: 'completed', title: '任务完成', percent: 100, source: 'runtime' })
-              eventName = ''
-              continue
-            }
-            if (eventName === 'error') {
-              api.clearFirstEventTimer()
-              api.flushAssistantDelta?.()
-              api.updateAssistantProgress({ status: 'error', title: '任务异常', detail: payload.message || payload.content, source: 'runtime' })
-              eventName = ''
-              continue
-            }
-            if (payload.content) {
-              api.clearFirstEventTimer()
-              api.appendAssistantDelta(payload.content)
-              const inferred = inferProgressFromContent(payload.content)
-              if (inferred) api.updateAssistantProgress(inferred)
-            }
-            eventName = ''
-          } catch {
-            if (data && data !== '[DONE]') {
-              api.clearFirstEventTimer()
-              api.appendAssistantDelta(data)
-            }
-            eventName = ''
-          }
-        }
+        consumeLine(line)
       }
     }
+    buffer += decoder.decode()
+    if (buffer) consumeLine(buffer)
+    dispatchEvent()
     api.flushAssistantDelta?.()
   }
 

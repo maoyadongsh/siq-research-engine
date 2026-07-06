@@ -2,14 +2,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
+from ipaddress import ip_address
 import json
 import re
+import socket
 import threading
 import time
 from html import escape
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 from uuid import uuid4
 
 import httpx
@@ -19,6 +21,7 @@ from market_report_finder_service.markets.url_ownership import (
     MANUAL_UNVERIFIED_SOURCE_ID,
     MANUAL_UNVERIFIED_STATUS,
     OFFICIAL_VERIFIED_STATUS,
+    is_forbidden_report_ip,
     market_owns_url,
     validate_http_url,
 )
@@ -35,6 +38,18 @@ class _FetchedReport:
 
 class ReportDownloader:
     _index_lock = threading.Lock()
+    MAX_REDIRECTS = 10
+    REDIRECT_STATUS_CODES = {301, 302, 303, 307, 308}
+    SENSITIVE_QUERY_PARAM_NAMES = {
+        "access_token",
+        "api_key",
+        "apikey",
+        "crtfc_key",
+        "key",
+        "source_token",
+        "subscription-key",
+        "token",
+    }
     MAX_DOWNLOAD_BYTES_BY_MARKET = {
         Market.cn: 96 * 1024 * 1024,
         Market.hk: 96 * 1024 * 1024,
@@ -176,7 +191,7 @@ class ReportDownloader:
             headers["Accept-Language"] = "en-US,en;q=0.9"
             if candidate.source_id == "xbrl_filings_esef":
                 headers["Referer"] = "https://filings.xbrl.org/"
-        with httpx.Client(timeout=settings.http_timeout_seconds, headers=headers, follow_redirects=True) as client:
+        with httpx.Client(timeout=settings.http_timeout_seconds, headers=headers, follow_redirects=False) as client:
             effective_url = self._effective_document_url(candidate)
             if candidate.source_id == "dart_public":
                 return self._fetch_dart_public_to_path(client, candidate, effective_url, temp_path)
@@ -208,19 +223,15 @@ class ReportDownloader:
     ) -> _FetchedReport:
         last_rate_limited = False
         for attempt in range(4):
-            if hasattr(client, "stream"):
-                with client.stream("GET", effective_url) as response:
-                    if response.status_code == 429:
-                        last_rate_limited = True
-                        time.sleep(self._retry_delay_seconds(response, attempt))
-                        continue
-                    return self._stream_response_to_path(response, requested_url=effective_url, temp_path=temp_path, candidate=candidate)
-            response = client.get(effective_url)
-            if response.status_code == 429:
+            try:
+                return self._stream_get_to_path(client, effective_url, temp_path, candidate)
+            except httpx.HTTPStatusError as exc:
+                response = exc.response
+                if response.status_code != 429:
+                    raise
                 last_rate_limited = True
                 time.sleep(self._retry_delay_seconds(response, attempt))
                 continue
-            return self._response_body_to_path(response, requested_url=effective_url, temp_path=temp_path, candidate=candidate)
         if last_rate_limited:
             raise ValueError("EDINET API rate limit reached while downloading a document. Please retry after a longer interval.")
         raise ValueError("EDINET document download failed")
@@ -260,10 +271,15 @@ class ReportDownloader:
         viewer_url = str(candidate.metadata.get("dart_viewer_url") or candidate.landing_url or "").strip()
         if viewer_url:
             self._validate_effective_url(candidate, viewer_url)
-            client.get(viewer_url)
+            self._get_with_redirects(client, viewer_url, candidate)
         landing_url = str(candidate.metadata.get("dart_pdf_landing_url") or "").strip() or self._dart_pdf_landing_url(pdf_url)
         self._validate_effective_url(candidate, landing_url)
-        landing_response = client.get(landing_url, headers={"Referer": viewer_url or "https://dart.fss.or.kr/"})
+        landing_response = self._get_with_redirects(
+            client,
+            landing_url,
+            candidate,
+            headers={"Referer": viewer_url or "https://dart.fss.or.kr/"},
+        )
         landing_response.raise_for_status()
         fetched = self._stream_get_to_path(
             client,
@@ -291,7 +307,7 @@ class ReportDownloader:
             receipt_no = self._query_value(viewer_url, "rcpNo") or self._query_value(viewer_url, "rcp_no")
             viewer_url = f"https://dart.fss.or.kr/dsaf001/main.do?{urlencode({'rcpNo': receipt_no or candidate.accession_number or ''})}"
         self._validate_effective_url(candidate, viewer_url)
-        viewer_response = client.get(viewer_url)
+        viewer_response = self._get_with_redirects(client, viewer_url, candidate)
         viewer_response.raise_for_status()
         sections = self._dart_viewer_sections(viewer_response.text)
         if not sections:
@@ -300,7 +316,7 @@ class ReportDownloader:
         body_parts: list[str] = []
         for section in sections:
             self._validate_effective_url(candidate, section["url"])
-            section_response = client.get(section["url"], headers={"Referer": viewer_url})
+            section_response = self._get_with_redirects(client, section["url"], candidate, headers={"Referer": viewer_url})
             section_response.raise_for_status()
             body_html = self._dart_section_body(section_response.text)
             title = escape(section["title"])
@@ -389,15 +405,65 @@ class ReportDownloader:
         headers: dict[str, str] | None = None,
     ) -> _FetchedReport:
         if hasattr(client, "stream"):
-            with client.stream("GET", requested_url, headers=headers) as response:
+            return self._stream_get_with_redirects(client, requested_url, temp_path, candidate, headers=headers)
+        response = self._get_with_redirects(client, requested_url, candidate, headers=headers)
+        return self._response_body_to_path(response, requested_url=requested_url, temp_path=temp_path, candidate=candidate)
+
+    def _stream_get_with_redirects(
+        self,
+        client: httpx.Client,
+        requested_url: str,
+        temp_path: Path,
+        candidate: FilingCandidate,
+        *,
+        headers: dict[str, str] | None = None,
+    ) -> _FetchedReport:
+        current_url = requested_url
+        for _redirect_count in range(self.MAX_REDIRECTS + 1):
+            self._validate_fetch_url(candidate, current_url)
+            with client.stream("GET", current_url, headers=headers) as response:
+                if self._is_redirect_response(response):
+                    current_url = self._redirect_target_url(response, current_url, candidate)
+                    continue
                 return self._stream_response_to_path(
                     response,
-                    requested_url=requested_url,
+                    requested_url=current_url,
                     temp_path=temp_path,
                     candidate=candidate,
                 )
-        response = client.get(requested_url, headers=headers) if headers else client.get(requested_url)
-        return self._response_body_to_path(response, requested_url=requested_url, temp_path=temp_path, candidate=candidate)
+        raise ValueError(f"Report download exceeded redirect limit: {self._redact_url_for_storage(current_url)}")
+
+    def _get_with_redirects(
+        self,
+        client: httpx.Client,
+        requested_url: str,
+        candidate: FilingCandidate,
+        *,
+        headers: dict[str, str] | None = None,
+    ) -> httpx.Response:
+        current_url = requested_url
+        for _redirect_count in range(self.MAX_REDIRECTS + 1):
+            self._validate_fetch_url(candidate, current_url)
+            response = client.get(current_url, headers=headers) if headers else client.get(current_url)
+            if self._is_redirect_response(response):
+                current_url = self._redirect_target_url(response, current_url, candidate)
+                continue
+            effective_url = str(getattr(response, "url", None) or current_url)
+            self._validate_fetch_url(candidate, effective_url)
+            return response
+        raise ValueError(f"Report download exceeded redirect limit: {self._redact_url_for_storage(current_url)}")
+
+    @classmethod
+    def _is_redirect_response(cls, response: httpx.Response) -> bool:
+        return int(getattr(response, "status_code", 200) or 200) in cls.REDIRECT_STATUS_CODES
+
+    def _redirect_target_url(self, response: httpx.Response, current_url: str, candidate: FilingCandidate) -> str:
+        location = str((getattr(response, "headers", {}) or {}).get("location") or "").strip()
+        if not location:
+            raise ValueError(f"Report redirect missing Location header: {self._redact_url_for_storage(current_url)}")
+        target_url = urljoin(current_url, location)
+        self._validate_fetch_url(candidate, target_url)
+        return target_url
 
     def _stream_response_to_path(
         self,
@@ -491,24 +557,86 @@ class ReportDownloader:
         return bytes(getattr(response, "content", b""))
 
     def _validate_original_url(self, candidate: FilingCandidate) -> None:
-        validate_http_url(candidate.document_url)
-        if self._is_manual_unverified(candidate):
-            return
-        if not market_owns_url(candidate.market, candidate.document_url):
+        host = validate_http_url(candidate.document_url)
+        if not self._is_manual_unverified(candidate) and not market_owns_url(candidate.market, candidate.document_url):
             raise ValueError(
                 f"{candidate.source_id} URL is outside the {candidate.market.value} official source allowlist: "
-                f"{candidate.document_url}"
+                f"{self._redact_url_for_storage(candidate.document_url)}"
             )
+        self._validate_resolved_host(host, candidate.document_url)
 
     def _validate_effective_url(self, candidate: FilingCandidate, effective_url: str) -> None:
-        validate_http_url(effective_url)
-        if self._is_manual_unverified(candidate):
-            return
-        if not market_owns_url(candidate.market, effective_url):
+        host = validate_http_url(effective_url)
+        if not self._is_manual_unverified(candidate) and not market_owns_url(candidate.market, effective_url):
             raise ValueError(
                 f"{candidate.source_id} redirect escaped the {candidate.market.value} official source allowlist: "
-                f"{effective_url}"
+                f"{self._redact_url_for_storage(effective_url)}"
             )
+        self._validate_resolved_host(host, effective_url)
+
+    def _validate_fetch_url(self, candidate: FilingCandidate, report_url: str) -> None:
+        host = validate_http_url(report_url)
+        if not self._is_manual_unverified(candidate) and not market_owns_url(candidate.market, report_url):
+            raise ValueError(
+                f"{candidate.source_id} URL is outside the {candidate.market.value} official source allowlist: "
+                f"{self._redact_url_for_storage(report_url)}"
+            )
+        self._validate_resolved_host(host, report_url)
+
+    @classmethod
+    def _validate_resolved_host(cls, host: str, report_url: str) -> None:
+        try:
+            address = ip_address(host)
+        except ValueError:
+            address = None
+        if address is not None:
+            if is_forbidden_report_ip(address):
+                raise ValueError("Report URL resolves to a private, link-local, loopback, or cloud metadata IP address")
+            return
+
+        parsed = urlparse(report_url)
+        port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
+        try:
+            records = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+        except socket.gaierror as exc:
+            raise ValueError(f"Report URL host could not be resolved: {host}") from exc
+
+        addresses: set[str] = set()
+        for record in records:
+            sockaddr = record[4]
+            if sockaddr:
+                addresses.add(str(sockaddr[0]).split("%", 1)[0])
+        if not addresses:
+            raise ValueError(f"Report URL host could not be resolved: {host}")
+        for value in addresses:
+            if is_forbidden_report_ip(value):
+                raise ValueError(
+                    "Report URL resolves to a private, link-local, loopback, or cloud metadata IP address: "
+                    f"{host}"
+                )
+
+    @classmethod
+    def _redact_url_for_storage(cls, report_url: str | None) -> str | None:
+        if not report_url:
+            return report_url
+        parsed = urlparse(str(report_url))
+        query = [
+            (key, "[redacted]" if key.lower() in cls.SENSITIVE_QUERY_PARAM_NAMES else value)
+            for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+        ]
+        return urlunparse(parsed._replace(query=urlencode(query)))
+
+    @classmethod
+    def _candidate_payload_for_storage(cls, candidate: FilingCandidate) -> dict:
+        payload = candidate.model_dump(mode="json")
+        for key in ("document_url", "landing_url"):
+            payload[key] = cls._redact_url_for_storage(payload.get(key))
+        metadata = payload.get("metadata")
+        if isinstance(metadata, dict):
+            for key in ("original_url", "effective_url", "dart_viewer_url", "dart_pdf_landing_url"):
+                if key in metadata:
+                    metadata[key] = cls._redact_url_for_storage(metadata.get(key))
+        return payload
 
     @classmethod
     def _is_manual_unverified(cls, candidate: FilingCandidate) -> bool:
@@ -520,7 +648,7 @@ class ReportDownloader:
     @classmethod
     def _candidate_with_original_url(cls, candidate: FilingCandidate) -> FilingCandidate:
         metadata = dict(candidate.metadata)
-        metadata.setdefault("original_url", candidate.document_url)
+        metadata.setdefault("original_url", cls._redact_url_for_storage(candidate.document_url))
         if "source_verification_status" not in metadata:
             metadata["source_verification_status"] = (
                 MANUAL_UNVERIFIED_STATUS if cls._is_manual_unverified(candidate) else OFFICIAL_VERIFIED_STATUS
@@ -530,8 +658,8 @@ class ReportDownloader:
     @classmethod
     def _candidate_with_effective_url(cls, candidate: FilingCandidate, effective_url: str) -> FilingCandidate:
         metadata = dict(candidate.metadata)
-        metadata.setdefault("original_url", candidate.document_url)
-        metadata["effective_url"] = effective_url
+        metadata.setdefault("original_url", cls._redact_url_for_storage(candidate.document_url))
+        metadata["effective_url"] = cls._redact_url_for_storage(effective_url)
         metadata["source_verification_status"] = (
             MANUAL_UNVERIFIED_STATUS if cls._is_manual_unverified(candidate) else OFFICIAL_VERIFIED_STATUS
         )
@@ -663,19 +791,27 @@ class ReportDownloader:
             "country": candidate.metadata.get("country"),
             "source_tier": candidate.metadata.get("source_tier"),
             "source_verification_status": candidate.metadata.get("source_verification_status"),
-            "original_url": candidate.metadata.get("original_url") or candidate.document_url,
-            "effective_url": candidate.metadata.get("effective_url"),
+            "original_url": self._redact_url_for_storage(candidate.metadata.get("original_url") or candidate.document_url),
+            "effective_url": self._redact_url_for_storage(candidate.metadata.get("effective_url")),
         }
-        index.setdefault("by_url", {})[candidate.document_url] = entry
+        index.setdefault("by_url", {})[self._redact_url_for_storage(candidate.document_url)] = entry
         if self._should_cache_landing_url(candidate):
-            index.setdefault("by_url", {})[candidate.landing_url] = entry
+            index.setdefault("by_url", {})[self._redact_url_for_storage(candidate.landing_url)] = entry
         index.setdefault("by_content_sha256", {})[digest] = entry
 
     @classmethod
     def _cache_lookup_urls(cls, candidate: FilingCandidate) -> tuple[str, ...]:
+        urls = [candidate.document_url]
         if cls._should_cache_landing_url(candidate):
-            return (candidate.document_url, candidate.landing_url)
-        return (candidate.document_url,)
+            urls.append(candidate.landing_url)
+        keys: list[str] = []
+        for url in urls:
+            redacted = cls._redact_url_for_storage(url)
+            if redacted and redacted not in keys:
+                keys.append(redacted)
+            if url and url not in keys:
+                keys.append(url)
+        return tuple(keys)
 
     @staticmethod
     def _should_cache_landing_url(candidate: FilingCandidate) -> bool:
@@ -694,12 +830,12 @@ class ReportDownloader:
     ) -> Path:
         metadata_path = self._metadata_path(file_path)
         source_verification = {
-            "original_url": candidate.metadata.get("original_url") or candidate.document_url,
-            "effective_url": candidate.metadata.get("effective_url") or candidate.document_url,
+            "original_url": self._redact_url_for_storage(candidate.metadata.get("original_url") or candidate.document_url),
+            "effective_url": self._redact_url_for_storage(candidate.metadata.get("effective_url") or candidate.document_url),
             "source_verification_status": candidate.metadata.get("source_verification_status"),
         }
         payload = {
-            "candidate": candidate.model_dump(mode="json"),
+            "candidate": self._candidate_payload_for_storage(candidate),
             "downloaded_file": {
                 "file_name": file_path.name,
                 "saved_path": str(file_path.resolve()),

@@ -2,6 +2,7 @@
 # Copy to a secret-managed environment, replace every placeholder, and keep real values out of Git.
 
 SIQ_PROJECT_ROOT=/opt/siq-research-engine
+SIQ_DEPLOYMENT_PROFILE=production
 SIQ_LOCAL_STATE_ROOT=/var/lib/siq-research-engine
 SIQ_DATA_ROOT=/var/lib/siq-research-engine/data
 SIQ_RUNTIME_ROOT=/var/lib/siq-research-engine/var
@@ -86,6 +87,7 @@ SIQ_DOCUMENT_PARSER_PORT=15010
 SIQ_REPORT_FINDER_PORT=18000
 SIQ_MARKET_REPORT_FINDER_PORT=18010
 SIQ_MARKET_REPORT_RULES_PORT=18020
+SIQ_COMPOSE_BIND_HOST=127.0.0.1
 SIQ_BACKEND_URL=https://api.example.com
 SIQ_REPORT_FINDER_URL=https://report-finder.example.com
 SIQ_MARKET_REPORT_FINDER_URL=https://market-report-finder.example.com
@@ -113,5 +115,6 @@ SEC_USER_AGENT=SIQ Research Engine ops@example.com
 DART_API_KEY=replace-with-secret-manager-value
 EDINET_API_KEY=replace-with-secret-manager-value
 PDF2MD_ACCESS_TOKEN=replace-with-secret-manager-value
+SIQ_DOCUMENT_PARSER_ACCESS_TOKEN=replace-with-secret-manager-value
 MINERU_API_URL=http://mineru.example.internal:8003
 VLM_API_URL=http://vlm.example.internal:8002

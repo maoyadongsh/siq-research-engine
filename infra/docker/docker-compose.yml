@@ -10,6 +10,7 @@ services:
       - "${SIQ_COMPOSE_BIND_HOST:-127.0.0.1}:${SIQ_FRONTEND_PORT:-15173}:15173"
     environment:
       - NODE_ENV=production
+      - SIQ_DEPLOYMENT_PROFILE=${SIQ_DEPLOYMENT_PROFILE:-local}
       - SIQ_BACKEND_URL=http://api:18081
       - SIQ_REPORT_FINDER_URL=http://report-finder:8000
       - SIQ_PDFAPI_URL=http://pdf-parser:15000
@@ -29,6 +30,7 @@ services:
       - "${SIQ_COMPOSE_BIND_HOST:-127.0.0.1}:${SIQ_BACKEND_PORT:-18081}:18081"
     environment:
       - SIQ_LOCAL_STATE_ROOT=/state
+      - SIQ_DEPLOYMENT_PROFILE=${SIQ_DEPLOYMENT_PROFILE:-local}
       - SIQ_DATA_ROOT=/state/data
       - SIQ_RUNTIME_ROOT=/state/var
       - SIQ_ARTIFACTS_ROOT=/state/artifacts
@@ -86,6 +88,7 @@ services:
       - SIQ_PDF2MD_API_BASE=http://pdf-parser:15000
       - PDF2MD_API_BASE=http://pdf-parser:15000
       - SIQ_DOCUMENT_PARSER_API_BASE=http://document-parser:15010
+      - SIQ_DOCUMENT_PARSER_ACCESS_TOKEN=${SIQ_DOCUMENT_PARSER_ACCESS_TOKEN:?SIQ_DOCUMENT_PARSER_ACCESS_TOKEN is required}
       - SIQ_REPORT_FINDER_BASE=http://report-finder:8000
       - REPORT_FINDER_BASE=http://report-finder:8000
       - SIQ_MARKET_REPORT_RULES_BASE=http://market-report-rules:8000
@@ -161,6 +164,7 @@ services:
     environment:
       - MINERU_API_URL=${MINERU_API_URL:-http://host.docker.internal:8003}
       - VLM_API_URL=${VLM_API_URL:-http://host.docker.internal:8002}
+      - SIQ_DEPLOYMENT_PROFILE=${SIQ_DEPLOYMENT_PROFILE:-local}
       - PDF2MD_ACCESS_TOKEN=${PDF2MD_ACCESS_TOKEN:?PDF2MD_ACCESS_TOKEN is required}
       - SIQ_LOCAL_STATE_ROOT=/state
       - SIQ_DATA_ROOT=/state/data
@@ -188,12 +192,16 @@ services:
       - "${SIQ_COMPOSE_BIND_HOST:-127.0.0.1}:${SIQ_DOCUMENT_PARSER_PORT:-15010}:15010"
     environment:
       - SIQ_LOCAL_STATE_ROOT=/state
+      - SIQ_DEPLOYMENT_PROFILE=${SIQ_DEPLOYMENT_PROFILE:-local}
       - SIQ_DATA_ROOT=/state/data
       - SIQ_RUNTIME_ROOT=/state/var
       - SIQ_ARTIFACTS_ROOT=/state/artifacts
       - SIQ_DOCUMENT_PARSE_DATA_DIR=/state/data/document-parser
       - SIQ_PDF2MD_API_BASE=http://pdf-parser:15000
       - SIQ_PDF2MD_DATA_DIR=/state/data/pdf-parser
+      - PDF2MD_ACCESS_TOKEN=${PDF2MD_ACCESS_TOKEN:?PDF2MD_ACCESS_TOKEN is required}
+      - SIQ_PDF2MD_ACCESS_TOKEN=${PDF2MD_ACCESS_TOKEN:?PDF2MD_ACCESS_TOKEN is required}
+      - SIQ_DOCUMENT_PARSER_ACCESS_TOKEN=${SIQ_DOCUMENT_PARSER_ACCESS_TOKEN:?SIQ_DOCUMENT_PARSER_ACCESS_TOKEN is required}
       - PORT=15010
     volumes:
       - document_parser_data:/state/data/document-parser

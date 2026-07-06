@@ -15,6 +15,20 @@ from .models import (
     ValidationResult,
 )
 
+GATE_CONTRACT_VERSION = "risk_calibrated_gate_v1"
+GATE_SEVERITY_HARD = "hard"
+GATE_SEVERITY_SOFT = "soft"
+GATE_SEVERITY_OBSERVE = "observe"
+GATE_MODE_ENFORCE = "enforce"
+GATE_MODE_WARN = "warn"
+GATE_MODE_OBSERVE = "observe"
+GATE_DECISION_ALLOW = "allow"
+GATE_DECISION_REVIEW = "review"
+GATE_DECISION_BLOCK = "block"
+PROMOTION_TARGETS = ("draft", "review", "canonical", "retrieval", "production")
+_DECISION_RANK = {GATE_DECISION_ALLOW: 0, GATE_DECISION_REVIEW: 1, GATE_DECISION_BLOCK: 2}
+_SEVERITY_RANK = {GATE_SEVERITY_OBSERVE: 0, GATE_SEVERITY_SOFT: 1, GATE_SEVERITY_HARD: 2}
+
 
 def validate_extraction(extraction: ExtractionResult) -> ValidationResult:
     checks: list[ValidationCheck] = []
@@ -26,6 +40,7 @@ def validate_extraction(extraction: ExtractionResult) -> ValidationResult:
     checks.extend(_dimension_scope_checks(facts))
     checks.extend(_operating_metric_checks(extraction.operating_metrics))
     checks.extend(_evidence_checks(facts))
+    checks = _attach_gate_contracts(checks)
 
     summary = {status.value: 0 for status in CheckStatus}
     for check in checks:
@@ -45,6 +60,128 @@ def validate_extraction(extraction: ExtractionResult) -> ValidationResult:
         checks=checks,
         warnings=warnings,
     )
+
+
+def _attach_gate_contracts(checks: list[ValidationCheck]) -> list[ValidationCheck]:
+    return [_with_gate_contract(check) for check in checks]
+
+
+def _with_gate_contract(check: ValidationCheck) -> ValidationCheck:
+    gate_results = _gate_results_for_check(check)
+    if not gate_results:
+        return check
+    raw = dict(check.raw)
+    raw["gate_contract_version"] = GATE_CONTRACT_VERSION
+    raw["gate_results"] = gate_results
+    raw["gate_decisions_by_target"] = _aggregate_gate_decisions(gate_results)
+    raw["gate"] = next(gate for gate in gate_results if gate["target"] == "canonical")
+    return check.model_copy(update={"raw": raw})
+
+
+def _gate_results_for_check(check: ValidationCheck) -> list[dict[str, Any]]:
+    severity = _gate_severity_for_check(check)
+    if severity is None:
+        return []
+    decisions = _gate_decisions_for_severity(severity)
+    mode = _gate_mode_for_severity(severity)
+    reason = check.reason or check.status.value
+    evidence_refs = [item.model_dump(mode="json", exclude_none=True) for item in check.evidence]
+    return [
+        {
+            "rule_id": check.rule_id,
+            "severity": severity,
+            "mode": mode,
+            "decision": decisions[target],
+            "target": target,
+            "promotion_target": target,
+            "reason": reason,
+            "evidence_refs": evidence_refs,
+        }
+        for target in PROMOTION_TARGETS
+    ]
+
+
+def _gate_severity_for_check(check: ValidationCheck) -> str | None:
+    if check.status == CheckStatus.FAIL:
+        return GATE_SEVERITY_HARD
+    if check.status == CheckStatus.WARNING:
+        if check.reason in {"dimension_specific_scope", "alternative_total_liabilities_and_equity_bridge_passed"}:
+            return GATE_SEVERITY_OBSERVE
+        return GATE_SEVERITY_SOFT
+    if check.status == CheckStatus.SKIPPED:
+        return GATE_SEVERITY_OBSERVE
+    return None
+
+
+def _gate_mode_for_severity(severity: str) -> str:
+    if severity == GATE_SEVERITY_HARD:
+        return GATE_MODE_ENFORCE
+    if severity == GATE_SEVERITY_SOFT:
+        return GATE_MODE_WARN
+    return GATE_MODE_OBSERVE
+
+
+def _gate_decisions_for_severity(severity: str) -> dict[str, str]:
+    if severity == GATE_SEVERITY_HARD:
+        return {
+            "draft": GATE_DECISION_ALLOW,
+            "review": GATE_DECISION_REVIEW,
+            "canonical": GATE_DECISION_BLOCK,
+            "retrieval": GATE_DECISION_BLOCK,
+            "production": GATE_DECISION_BLOCK,
+        }
+    if severity == GATE_SEVERITY_SOFT:
+        return {
+            "draft": GATE_DECISION_ALLOW,
+            "review": GATE_DECISION_REVIEW,
+            "canonical": GATE_DECISION_REVIEW,
+            "retrieval": GATE_DECISION_REVIEW,
+            "production": GATE_DECISION_REVIEW,
+        }
+    return {target: GATE_DECISION_ALLOW for target in PROMOTION_TARGETS}
+
+
+def _aggregate_gate_decisions(gate_results: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    decisions: dict[str, dict[str, Any]] = {
+        target: {
+            "target": target,
+            "promotion_target": target,
+            "decision": GATE_DECISION_ALLOW,
+            "severity": GATE_SEVERITY_OBSERVE,
+            "rule_ids": [],
+            "review_rule_ids": [],
+            "blocking_rule_ids": [],
+            "reasons": [],
+        }
+        for target in PROMOTION_TARGETS
+    }
+    for gate in gate_results:
+        target = str(gate.get("target") or "")
+        if target not in decisions:
+            continue
+        current = decisions[target]
+        decision = str(gate.get("decision") or GATE_DECISION_ALLOW)
+        severity = str(gate.get("severity") or GATE_SEVERITY_OBSERVE)
+        if _DECISION_RANK.get(decision, 0) > _DECISION_RANK.get(str(current["decision"]), 0):
+            current["decision"] = decision
+        if _SEVERITY_RANK.get(severity, 0) > _SEVERITY_RANK.get(str(current["severity"]), 0):
+            current["severity"] = severity
+        rule_id = str(gate.get("rule_id") or "")
+        if rule_id:
+            current["rule_ids"].append(rule_id)
+            if decision == GATE_DECISION_BLOCK:
+                current["blocking_rule_ids"].append(rule_id)
+            elif decision == GATE_DECISION_REVIEW:
+                current["review_rule_ids"].append(rule_id)
+        reason = str(gate.get("reason") or "")
+        if reason:
+            current["reasons"].append(reason)
+
+    for payload in decisions.values():
+        for key in ("rule_ids", "review_rule_ids", "blocking_rule_ids", "reasons"):
+            seen: set[str] = set()
+            payload[key] = [item for item in payload[key] if not (item in seen or seen.add(item))]
+    return decisions
 
 
 def _overall_status_from_checks(checks: list[ValidationCheck], warnings: list[str]) -> CheckStatus:

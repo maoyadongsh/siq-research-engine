@@ -56,7 +56,7 @@ def _header_csrf_token(request: Request) -> str:
 
 
 def _validate_cookie_csrf(request: Request) -> None:
-    if not AuthService.cookie_mode_enabled():
+    if request is None or not AuthService.cookie_mode_enabled():
         return
     if request.method.upper() in SAFE_CSRF_METHODS:
         return

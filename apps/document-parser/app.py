@@ -94,6 +94,17 @@ SUPPORTED_MARKET_SCOPES = {"CN", "HK", "US", "EU", "KR", "JP", "DOC"}
 ADMIN_ROLES = {"admin", "super_admin", "system"}
 SCOPE_VALUE_RE = re.compile(r"[^A-Za-z0-9_.@:-]+")
 
+
+def _production_profile_enabled() -> bool:
+    for name in ("SIQ_DEPLOYMENT_PROFILE", "SIQ_ENV", "APP_ENV", "ENVIRONMENT", "FLASK_ENV"):
+        if os.environ.get(name, "").strip().lower() in {"prod", "production"}:
+            return True
+    return False
+
+
+if _production_profile_enabled() and not APP_ACCESS_TOKEN:
+    raise RuntimeError("SIQ_DOCUMENT_PARSER_ACCESS_TOKEN is required in production profile.")
+
 for folder in (UPLOAD_FOLDER, RESULTS_FOLDER, OUTPUT_FOLDER, LOG_DIR, CACHE_DIR, DB_PATH.parent):
     folder.mkdir(parents=True, exist_ok=True)
 

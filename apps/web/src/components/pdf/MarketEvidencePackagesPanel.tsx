@@ -43,8 +43,26 @@ function requiredStatementText(gates?: MarketPackageQualityGates) {
 
 function forceConfirmed(gates: MarketPackageQualityGates | undefined, actionLabel: string, blockedKey: 'import_blocked' | 'vector_ingest_blocked') {
   if (!gates?.[blockedKey]) return false
-  const reasons = gates.block_reasons?.length ? gates.block_reasons.join('; ') : gates.overall_status || 'unknown'
-  return window.confirm(`质量门禁未通过：${reasons}。仍要${actionLabel}吗？`)
+  const reasons = gates.block_reasons?.length ? gates.block_reasons.join('\n- ') : gates.overall_status || 'unknown'
+  const forceAllowed =
+    gates.force_allowed === false
+      ? '否'
+      : gates.force_allowed === true
+        ? '是'
+        : '未声明（按旧合同兼容处理）'
+  const message = [
+    '质量门禁未通过。',
+    `Gate reason:\n- ${reasons}`,
+    `force_allowed: ${forceAllowed}`,
+    '审计后果：确认后将以 force=true 提交，后端应记录可审计动作；force 不会改变原始 gate 结果，也不会消除上述风险原因。',
+  ].join('\n\n')
+
+  if (gates.force_allowed === false) {
+    window.alert(`${message}\n\n当前质量门禁不允许 force，操作已取消。`)
+    return false
+  }
+
+  return window.confirm(`${message}\n\n确认仍要${actionLabel}吗？`)
 }
 
 export function MarketEvidencePackagesPanel({ market }: MarketEvidencePackagesPanelProps) {

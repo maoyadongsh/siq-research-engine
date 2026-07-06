@@ -1,4 +1,5 @@
 import json
+import socket
 from datetime import date
 
 import pytest
@@ -422,3 +423,150 @@ def test_downloader_size_limit_removes_temp_file(monkeypatch, tmp_path):
         ReportDownloader().download(_candidate())
 
     assert not [path for path in tmp_path.rglob("*") if path.is_file()]
+
+
+
+def test_cache_lookup_uses_redacted_url_before_legacy_raw_token_url():
+    candidate = _candidate().model_copy(
+        update={
+            "document_url": "https://www.sec.gov/Archives/report.htm?source_token=secret&keep=1",
+            "landing_url": "https://www.sec.gov/Archives/index.htm?access_token=jwt&keep=1",
+        }
+    )
+
+    keys = ReportDownloader._cache_lookup_urls(candidate)
+
+    assert keys[0] == "https://www.sec.gov/Archives/report.htm?source_token=%5Bredacted%5D&keep=1"
+    assert keys[1] == candidate.document_url
+    assert keys[2] == "https://www.sec.gov/Archives/index.htm?access_token=%5Bredacted%5D&keep=1"
+    assert keys[3] == candidate.landing_url
+
+
+def test_downloader_rejects_redirect_to_private_ip_literal(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "download_dir", tmp_path)
+
+    class StubResponse:
+        def __init__(self, *, status_code: int, url: str, headers: dict[str, str], body: bytes = b""):
+            self.status_code = status_code
+            self.url = url
+            self.headers = headers
+            self._body = body
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def iter_bytes(self):
+            if self._body:
+                yield self._body
+
+    class StreamContext:
+        def __init__(self, response):
+            self.response = response
+
+        def __enter__(self):
+            return self.response
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class StubClient:
+        def __init__(self, *, timeout, headers, follow_redirects):
+            self.urls = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def stream(self, method: str, url: str, headers=None):
+            self.urls.append(url)
+            return StreamContext(
+                StubResponse(
+                    status_code=302,
+                    url=url,
+                    headers={"location": "http://169.254.169.254/latest/meta-data"},
+                )
+            )
+
+    monkeypatch.setattr("market_report_finder_service.services.downloader.httpx.Client", StubClient)
+
+    with pytest.raises(ValueError, match="private|metadata|non-public"):
+        ReportDownloader().download(_candidate())
+
+    assert not [path for path in tmp_path.rglob("*") if path.is_file()]
+
+
+def test_downloader_rejects_allowlisted_host_that_resolves_private_ip(monkeypatch):
+    def fake_getaddrinfo(host, port, type=0):
+        assert host == "www.sec.gov"
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port))]
+
+    monkeypatch.setattr("market_report_finder_service.services.downloader.socket.getaddrinfo", fake_getaddrinfo)
+
+    with pytest.raises(ValueError, match="private|loopback"):
+        ReportDownloader()._validate_effective_url(_candidate(), _candidate().document_url)
+
+
+def test_downloader_allows_official_url_with_public_dns(monkeypatch):
+    def fake_getaddrinfo(host, port, type=0):
+        assert host == "www.sec.gov"
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))]
+
+    monkeypatch.setattr("market_report_finder_service.services.downloader.socket.getaddrinfo", fake_getaddrinfo)
+
+    ReportDownloader()._validate_effective_url(_candidate(), _candidate().document_url)
+
+
+def test_downloader_metadata_and_index_redact_source_tokens(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "download_dir", tmp_path)
+    token_url = "https://www.sec.gov/Archives/report.htm?source_token=secret-source&crtfc_key=secret-key&keep=1"
+    candidate = _candidate().model_copy(update={"document_url": token_url, "landing_url": token_url})
+
+    class StubResponse:
+        status_code = 200
+        url = token_url
+        headers = {"content-type": "text/html"}
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def iter_bytes(self):
+            yield b"<html>ok</html>"
+
+    class StreamContext:
+        def __enter__(self):
+            return StubResponse()
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class StubClient:
+        def __init__(self, *, timeout, headers, follow_redirects):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def stream(self, method: str, url: str, headers=None):
+            return StreamContext()
+
+    monkeypatch.setattr("market_report_finder_service.services.downloader.httpx.Client", StubClient)
+    monkeypatch.setattr(
+        "market_report_finder_service.services.downloader.socket.getaddrinfo",
+        lambda host, port, type=0: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))],
+    )
+
+    downloaded = ReportDownloader().download(candidate)
+    saved_path = tmp_path / "US" / "Apple-Inc" / "2025" / "年报" / downloaded.file_name
+    metadata = json.loads(saved_path.with_suffix(saved_path.suffix + ".metadata.json").read_text(encoding="utf-8"))
+    index = json.loads((saved_path.parent / settings.download_index_file).read_text(encoding="utf-8"))
+    serialized = json.dumps({"metadata": metadata, "index": index}, ensure_ascii=False)
+
+    assert "secret-source" not in serialized
+    assert "secret-key" not in serialized
+    assert "%5Bredacted%5D" in serialized
+    assert token_url not in index["by_url"]

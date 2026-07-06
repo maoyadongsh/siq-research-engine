@@ -292,16 +292,45 @@ def test_wants_html_respects_explicit_format_over_accept_header():
     assert source._wants_html(DummyRequest({}, {"accept": "text/html"})) is True
 
 
-def test_clean_table_html_removes_script_and_inline_event_handlers():
+def test_clean_table_html_uses_allowlist_and_removes_active_content():
     cleaned = source._clean_table_html(
-        "<table onclick=\"steal()\"><tr><td onmouseover='bad()'>Revenue</td></tr></table>"
-        "<script>alert('x')</script>"
+        "<table style=\"color:red\" onclick=\"steal()\"><tr><td colspan='2' "
+        "onmouseover='bad()'><a href='javascript:alert(1)'>Revenue</a></td>"
+        "<td><img src=x onerror='bad()'>Cost</td></tr></table>"
+        "<style>td{background:url(javascript:bad)}</style><script>alert('x')</script>"
+    )
+    lowered = cleaned.lower()
+
+    assert cleaned == '<table><tr><td colspan="2">Revenue</td><td>Cost</td></tr></table>'
+    assert "<script" not in lowered
+    assert "<style" not in lowered
+    assert "onclick" not in lowered
+    assert "onmouseover" not in lowered
+    assert "javascript:" not in lowered
+    assert "style=" not in lowered
+    assert "<a" not in lowered
+    assert "<img" not in lowered
+
+
+def test_source_html_response_uses_csp_sandbox():
+    response = source._source_html_response("<main>ok</main>")
+
+    assert response.media_type.startswith("text/html")
+    assert "sandbox" in response.headers["content-security-policy"]
+    assert "allow-same-origin" not in response.headers["content-security-policy"]
+    assert "allow-scripts" not in response.headers["content-security-policy"]
+    assert response.headers["referrer-policy"] == "no-referrer"
+
+
+def test_source_request_error_redacts_auth_query_tokens():
+    detail = source._redact_source_auth_text(
+        "GET https://pdf2md.internal/api/source/task/page?source_token=signed-secret&keep=1&access_token=login-secret"
     )
 
-    assert "<script" not in cleaned.lower()
-    assert "onclick" not in cleaned.lower()
-    assert "onmouseover" not in cleaned.lower()
-    assert "Revenue" in cleaned
+    assert "signed-secret" not in detail
+    assert "login-secret" not in detail
+    assert "source_token=[redacted]" in detail
+    assert "access_token=[redacted]" in detail
 
 
 def test_source_page_helpers_infer_total_pages_and_printed_page_number():

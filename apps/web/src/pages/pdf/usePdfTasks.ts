@@ -55,6 +55,10 @@ function logEntryKey(entry: LogEntry): string {
   return `${entry.time || ''}\x1f${entry.level || ''}\x1f${entry.message || ''}`
 }
 
+function visibleErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback
+}
+
 export interface UsePdfTasksOptions {
   backend: string
   parseMethod: string
@@ -184,6 +188,7 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
     if (!tid) return
     setResultLoading(true)
     setResultDeferred(false)
+    reportError(null)
     try {
       const d = await fetchResultApi(tid)
       if (d.artifacts) setArtifacts(d.artifacts)
@@ -192,12 +197,13 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
         setMdLines(d.markdown.split(/\r?\n/))
         await fetchQuality()
       }
-    } catch {
-      // ignore result fetch errors
+    } catch (error) {
+      setResultDeferred(true)
+      reportError(`解析结果拉取失败：${visibleErrorMessage(error, '请稍后重试')}`)
     } finally {
       setResultLoading(false)
     }
-  }, [fetchQuality])
+  }, [fetchQuality, reportError])
 
   const updateStatus = useCallback(
     (data: Record<string, unknown>) => {

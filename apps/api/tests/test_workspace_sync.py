@@ -51,6 +51,16 @@ def _pdf_config_hash(market: str = "CN") -> str:
     )
 
 
+def test_pdf2md_headers_include_internal_parser_token(monkeypatch):
+    monkeypatch.setattr(workspace, "PDF2MD_ACCESS_TOKEN", "internal-pdf-token")
+
+    headers = workspace._pdf2md_headers(current_user=SimpleNamespace(id=7, role="analyst"))
+
+    assert headers["X-PDF2MD-Token"] == "internal-pdf-token"
+    assert headers["X-SIQ-User-Id"] == "7"
+    assert headers["X-SIQ-User-Role"] == "analyst"
+
+
 def test_extract_report_artifact_from_text_prefers_final_wiki_path(monkeypatch, tmp_path):
     wiki_root = tmp_path / "wiki"
     company_dir = wiki_root / "companies" / "300017-网宿科技"

@@ -915,7 +915,7 @@ def list_workspace_projects(
 @router.post("/projects")
 def create_workspace_project(
     payload: dict,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("report.create")),
     session: Session = Depends(get_session),
 ):
     name = str(payload.get("name") or "").strip()
@@ -944,7 +944,7 @@ def create_workspace_project(
 @router.post("/downloads/link")
 def link_download_to_workspace(
     payload: dict,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("report.create")),
     session: Session = Depends(get_session),
 ):
     safe = _download_path_from_payload(payload)

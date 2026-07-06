@@ -88,6 +88,15 @@ def test_non_cn_bridge_checks_prefer_source_consistent_statement_group():
     assert bridge.left["value"] == "1000"
     assert bridge.raw["source_selection"]["reason"] == "source_consistent_bridge_candidate"
 
+    skipped_optional = next(
+        check
+        for check in validation.checks
+        if check.rule_id == "bs.current_plus_non_current_assets"
+    )
+    assert skipped_optional.status == "skipped"
+    assert skipped_optional.raw["gate"]["severity"] == "observe"
+    assert skipped_optional.raw["gate_decisions_by_target"]["canonical"]["decision"] == "allow"
+
 
 def test_cn_bridge_checks_keep_existing_period_best_selection():
     validation = validate_extraction(_extraction(Market.CN))
@@ -99,6 +108,14 @@ def test_cn_bridge_checks_keep_existing_period_best_selection():
 
     assert bridge.status == "fail"
     assert bridge.left["value"] == "1200"
+    assert bridge.raw["gate_contract_version"] == "risk_calibrated_gate_v1"
+    assert bridge.raw["gate_decisions_by_target"]["draft"]["decision"] == "allow"
+    assert bridge.raw["gate_decisions_by_target"]["canonical"]["decision"] == "block"
+    assert bridge.raw["gate_decisions_by_target"]["retrieval"]["decision"] == "block"
+    canonical_gate = next(gate for gate in bridge.raw["gate_results"] if gate["target"] == "canonical")
+    assert canonical_gate["severity"] == "hard"
+    assert canonical_gate["decision"] == "block"
+    assert {"rule_id", "severity", "reason", "target", "evidence_refs"} <= set(canonical_gate)
 
 
 def test_non_cn_component_balance_bridge_downgrades_when_total_bridge_passes():
@@ -162,4 +179,7 @@ def test_eu_kr_required_statement_missing_is_warning_when_parser_coverage_incomp
 
         assert {check.status for check in required} == {"warning"}
         assert all("parser_coverage_incomplete" in (check.reason or "") for check in required)
+        assert {check.raw["gate"]["severity"] for check in required} == {"soft"}
+        assert {check.raw["gate_decisions_by_target"]["draft"]["decision"] for check in required} == {"allow"}
+        assert {check.raw["gate_decisions_by_target"]["canonical"]["decision"] for check in required} == {"review"}
         assert validation.overall_status == "warning"

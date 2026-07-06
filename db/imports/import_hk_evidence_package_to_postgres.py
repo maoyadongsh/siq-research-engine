@@ -16,11 +16,15 @@ except ImportError as exc:  # pragma: no cover
     raise SystemExit("psycopg is required: pip install psycopg[binary]") from exc
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+IMPORTS_DIR = Path(__file__).resolve().parent
+if str(IMPORTS_DIR) not in sys.path:
+    sys.path.insert(0, str(IMPORTS_DIR))
 RULES_SRC = REPO_ROOT / "services" / "market-report-rules" / "src"
 if str(RULES_SRC) not in sys.path:
     sys.path.insert(0, str(RULES_SRC))
 
 from market_report_rules_service.evidence_package import compute_artifact_hashes, stable_id, stable_parse_run_id, validate_evidence_package
+from quality_gate_guard import enforce_quality_gates, quality_with_gate_audit, should_write_target
 
 DDL_PATH = REPO_ROOT / "db" / "ddl" / "020_create_pdf2md_hk_schema.sql"
 
@@ -312,7 +316,17 @@ def run_ddl(conn: Any) -> None:
     conn.execute(DDL_PATH.read_text(encoding="utf-8"))
 
 
-def import_package(conn: Any, package_dir: Path, schema: str = "pdf2md_hk") -> str:
+def import_package(
+    conn: Any,
+    package_dir: Path,
+    schema: str = "pdf2md_hk",
+    *,
+    force_review: bool = False,
+    force_requested_by: str | None = None,
+    force_reason: str | None = None,
+    force_approved_by: str | None = None,
+    force_expires_at: str | None = None,
+) -> str:
     validate_schema(schema)
     validation = validate_evidence_package(package_dir)
     if not validation.ok:
@@ -320,9 +334,18 @@ def import_package(conn: Any, package_dir: Path, schema: str = "pdf2md_hk") -> s
     manifest = validation.manifest
     if manifest.get("market") != "HK":
         raise SystemExit("manifest market must be HK")
+    gate_enforcement = enforce_quality_gates(
+        package_dir,
+        target="canonical",
+        force_review=force_review,
+        requested_by=force_requested_by,
+        reason=force_reason,
+        approved_by=force_approved_by,
+        expires_at=force_expires_at,
+    )
     artifact_hashes = manifest.get("artifact_hashes") or compute_artifact_hashes(package_dir)
     parse_run_id = manifest.get("parse_run_id") or stable_parse_run_id(manifest, artifact_hashes)
-    quality = read_json(package_dir / "qa" / "quality_report.json")
+    quality = quality_with_gate_audit(read_json(package_dir / "qa" / "quality_report.json"), gate_enforcement)
     financial_data = read_json(package_dir / "metrics" / "financial_data.json")
     source_map = read_json(package_dir / "qa" / "source_map.json")
     warnings = (quality.get("critical_warnings") or []) + (quality.get("parser_warnings") or []) + (quality.get("rule_warnings") or [])
@@ -341,7 +364,8 @@ def import_package(conn: Any, package_dir: Path, schema: str = "pdf2md_hk") -> s
         _insert_statement_items(conn, schema, manifest, financial_data, source_map, parse_run_id)
         _insert_checks(conn, schema, package_dir, manifest["filing_id"], parse_run_id)
         _insert_quality_report(conn, schema, package_dir, manifest["filing_id"], parse_run_id)
-        _insert_retrieval_chunks(conn, schema, manifest, financial_data, quality, source_map, parse_run_id, package_dir)
+        if should_write_target(gate_enforcement, "retrieval"):
+            _insert_retrieval_chunks(conn, schema, manifest, financial_data, quality, source_map, parse_run_id, package_dir)
     return parse_run_id
 
 
@@ -858,6 +882,11 @@ def main() -> None:
     parser.add_argument("--schema", default=os.environ.get("SIQ_HK_SCHEMA", "pdf2md_hk"))
     parser.add_argument("--ddl", "--run-ddl", action="store_true", help="Run DDL before importing")
     parser.add_argument("--ddl-only", action="store_true")
+    parser.add_argument("--force-review", "--force", dest="force_review", action="store_true", help="Allow a soft-gate review package to write canonical facts with audit")
+    parser.add_argument("--force-requested-by", default=None, help="Operator requesting a soft-gate canonical override")
+    parser.add_argument("--force-approved-by", default=None, help="Approver for the soft-gate canonical override")
+    parser.add_argument("--force-reason", default=None, help="Reason for the soft-gate canonical override")
+    parser.add_argument("--force-expires-at", default=None, help="Optional expiry timestamp for the override record")
     args = parser.parse_args()
 
     package_dir = args.package_opt or args.package
@@ -871,7 +900,16 @@ def main() -> None:
             return
         if not package_dir:
             raise SystemExit("package path is required")
-        parse_run_id = import_package(conn, package_dir.resolve(), args.schema)
+        parse_run_id = import_package(
+            conn,
+            package_dir.resolve(),
+            args.schema,
+            force_review=args.force_review,
+            force_requested_by=args.force_requested_by,
+            force_reason=args.force_reason,
+            force_approved_by=args.force_approved_by,
+            force_expires_at=args.force_expires_at,
+        )
         conn.commit()
     print(parse_run_id)
 

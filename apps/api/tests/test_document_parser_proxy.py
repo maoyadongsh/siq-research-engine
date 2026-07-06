@@ -116,6 +116,16 @@ def patch_document_task_list(monkeypatch, tasks):
     monkeypatch.setattr(document_parser.httpx, "AsyncClient", FakeAsyncClient)
 
 
+def test_document_headers_include_internal_parser_token(monkeypatch):
+    monkeypatch.setattr(document_parser, "DOCUMENT_PARSER_ACCESS_TOKEN", "internal-document-token")
+
+    headers = document_parser._document_headers(current_user=SimpleNamespace(id=7, role=UserRole.ANALYST))
+
+    assert headers["X-Document-Parser-Token"] == "internal-document-token"
+    assert headers["X-SIQ-User-Id"] == "7"
+    assert headers["X-SIQ-User-Role"] == UserRole.ANALYST.value
+
+
 def test_record_document_artifact_is_idempotent(tmp_path):
     with make_session(tmp_path) as session:
         user = make_user(session, "alice")

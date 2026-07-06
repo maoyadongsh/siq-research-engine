@@ -131,6 +131,19 @@ def test_validate_and_read_market_package(tmp_path):
     }
     assert summary["quality_gates"]["overall_status"] == "warning"
     assert summary["quality_gates"]["import_blocked"] is True
+    assert summary["quality_gates"]["gate_contract_version"] == "risk_calibrated_gate_v1"
+    assert summary["quality_gates"]["decisions_by_target"]["draft"]["decision"] == "allow"
+    assert summary["quality_gates"]["decisions_by_target"]["canonical"]["decision"] == "review"
+    assert summary["quality_gates"]["decisions_by_target"]["retrieval"]["decision"] == "review"
+    assert summary["quality_gates"]["force_allowed"] is True
+    canonical_required_gate = next(
+        gate
+        for gate in summary["quality_gates"]["gate_results"]
+        if gate["rule_id"] == "package.required_statements.missing" and gate["target"] == "canonical"
+    )
+    assert canonical_required_gate["severity"] == "soft"
+    assert canonical_required_gate["decision"] == "review"
+    assert {"rule_id", "severity", "reason", "target", "evidence_refs"} <= set(canonical_required_gate)
     assert summary["quality_gates"]["evidence_coverage_ratio"] == 1
     assert summary["quality_gates"]["unresolvable_evidence_count"] == 0
     assert "income_statement" in summary["quality_gates"]["missing_required_statements"]
@@ -192,4 +205,49 @@ def test_quality_gates_fail_on_artifact_hash_mismatch(tmp_path):
     assert gates["overall_status"] == "fail"
     assert gates["artifact_hash_status"] == "mismatch"
     assert gates["import_blocked"] is True
+    assert gates["force_allowed"] is False
+    assert gates["decisions_by_target"]["draft"]["decision"] == "allow"
+    assert gates["decisions_by_target"]["canonical"]["decision"] == "block"
+    assert gates["decisions_by_target"]["retrieval"]["decision"] == "block"
+    canonical_hash_gate = next(
+        gate
+        for gate in gates["gate_results"]
+        if gate["rule_id"] == "package.artifact_hashes.mismatch" and gate["target"] == "canonical"
+    )
+    assert canonical_hash_gate["severity"] == "hard"
+    assert canonical_hash_gate["decision"] == "block"
     assert "sections/report.md" in gates["artifact_hash_mismatches"]
+
+
+def test_quality_gates_can_observe_without_blocking_promotions(tmp_path):
+    package_dir = _write_package(tmp_path)
+    quality_path = package_dir / "qa" / "quality_report.json"
+    quality = json.loads(quality_path.read_text(encoding="utf-8"))
+    quality["overall_status"] = "unknown"
+    quality["required_statement_status"] = {
+        "income_statement": "present",
+        "balance_sheet": "present",
+        "cash_flow_statement": "present",
+    }
+    write_json(quality_path, quality)
+    checks_path = package_dir / "metrics" / "financial_checks.json"
+    checks = json.loads(checks_path.read_text(encoding="utf-8"))
+    checks["overall_status"] = "unknown"
+    write_json(checks_path, checks)
+    manifest = json.loads((package_dir / "manifest.json").read_text(encoding="utf-8"))
+    manifest["quality_status"] = "unknown"
+    manifest["artifact_hashes"] = compute_artifact_hashes(package_dir)
+    write_json(package_dir / "manifest.json", manifest)
+
+    gates = build_quality_gates(package_dir)
+
+    assert gates["overall_status"] == "unknown"
+    assert gates["import_blocked"] is False
+    assert gates["decisions_by_target"]["canonical"]["decision"] == "allow"
+    observe_gate = next(
+        gate
+        for gate in gates["gate_results"]
+        if gate["rule_id"] == "package.quality_status.unknown" and gate["target"] == "canonical"
+    )
+    assert observe_gate["severity"] == "observe"
+    assert observe_gate["decision"] == "allow"

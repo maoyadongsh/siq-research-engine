@@ -619,16 +619,14 @@ class AgentChatStore {
   }
 
   stop = async () => {
-    if (this.activeRunId) {
-      try {
-        await apiFetch(this.activeUrl('/chat/stop'), { method: 'POST' })
-      } catch {
-        /* ignore */
-      }
-    }
+    const runId = this.activeRunId
+    this.clearFirstEventTimer()
+    this.abortController?.abort()
+    this.abortController = null
+    this.activeRunId = null
     this.setState((prev) => {
       const last = prev.messages[prev.messages.length - 1]
-      if (last?.role !== 'assistant') return prev
+      if (last?.role !== 'assistant') return { ...prev, sending: false }
       return {
         ...prev,
         messages: [
@@ -643,7 +641,13 @@ class AgentChatStore {
         sending: false,
       }
     })
-    this.abortController?.abort()
+    if (runId) {
+      try {
+        await apiFetch(this.activeUrl('/chat/stop'), { method: 'POST' })
+      } catch {
+        /* ignore */
+      }
+    }
   }
 }
 

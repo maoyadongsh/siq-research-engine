@@ -4,6 +4,7 @@ import hmac
 import os
 import re
 import time
+from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -32,6 +33,21 @@ SOURCE_TOKEN_SECRET_ENV = "SIQ_SOURCE_TOKEN_SECRET"
 SOURCE_ACCEPT_LEGACY_AUTH_SECRET_ENV = "SIQ_SOURCE_ACCEPT_LEGACY_AUTH_SECRET"
 MIN_SOURCE_TOKEN_SECRET_LENGTH = 32
 SOURCE_AUTH_QUERY_PARAM_NAMES = {"access_token", "source_token"}
+TABLE_ALLOWED_TAGS = {"table", "thead", "tbody", "tfoot", "tr", "th", "td", "caption", "colgroup", "col"}
+TABLE_ALLOWED_ATTRS = {"rowspan", "colspan", "data-bbox", "data-cell-bbox", "bbox"}
+TABLE_SKIP_CONTENT_TAGS = {"script", "style", "iframe", "object", "embed", "svg", "math", "template"}
+SOURCE_HTML_SECURITY_HEADERS = {
+    "Content-Security-Policy": (
+        "sandbox allow-popups allow-downloads; "
+        "default-src 'none'; "
+        "img-src 'self' data: blob: http: https:; "
+        "style-src 'unsafe-inline'; "
+        "base-uri 'none'; "
+        "form-action 'none'"
+    ),
+    "Referrer-Policy": "no-referrer",
+    "X-Content-Type-Options": "nosniff",
+}
 
 
 def _content_type(headers: httpx.Headers) -> str:
@@ -304,6 +320,22 @@ def _source_url(path: str, source_token: str | None) -> str:
     return _append_source_token(_public_url(path), source_token)
 
 
+def _redact_source_auth_text(value: object) -> str:
+    text = str(value)
+    for name in SOURCE_AUTH_QUERY_PARAM_NAMES:
+        pattern = re.compile(rf"(?i)([?&]{{1}}{re.escape(name)}=)[^&\s]+")
+        text = pattern.sub(lambda match: f"{match.group(1)}[redacted]", text)
+    return text
+
+
+def _source_html_response(content: str) -> Response:
+    return Response(
+        content=content,
+        media_type="text/html; charset=utf-8",
+        headers=SOURCE_HTML_SECURITY_HEADERS,
+    )
+
+
 def _resolve_source_open_path(kind: str, task_id: str, identifier: int) -> str:
     if kind == "pdf_page":
         return f"/api/pdf_page/{task_id}/{identifier}?format=html"
@@ -345,7 +377,7 @@ async def _request_pdf2md(
     except httpx.RequestError as exc:
         raise HTTPException(
             status_code=502,
-            detail=f"PDF parser source service unavailable: {exc}",
+            detail=f"PDF parser source service unavailable: {_redact_source_auth_text(exc)}",
         ) from exc
 
 
@@ -402,10 +434,70 @@ def _wants_html(request: Request) -> bool:
     return "text/html" in accept and "application/json" not in accept
 
 
+class _TableHtmlAllowlistParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._parts: list[str] = []
+        self._skip_depth = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        tag = tag.lower()
+        if self._skip_depth:
+            if tag in TABLE_SKIP_CONTENT_TAGS:
+                self._skip_depth += 1
+            return
+        if tag in TABLE_SKIP_CONTENT_TAGS:
+            self._skip_depth = 1
+            return
+        if tag not in TABLE_ALLOWED_TAGS:
+            return
+        attr_text = self._allowed_attr_text(attrs)
+        self._parts.append(f"<{tag}{attr_text}>")
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        tag = tag.lower()
+        if self._skip_depth or tag in TABLE_SKIP_CONTENT_TAGS or tag not in TABLE_ALLOWED_TAGS:
+            return
+        attr_text = self._allowed_attr_text(attrs)
+        self._parts.append(f"<{tag}{attr_text}>")
+
+    def handle_endtag(self, tag: str) -> None:
+        tag = tag.lower()
+        if self._skip_depth:
+            if tag in TABLE_SKIP_CONTENT_TAGS:
+                self._skip_depth -= 1
+            return
+        if tag in TABLE_ALLOWED_TAGS and tag != "col":
+            self._parts.append(f"</{tag}>")
+
+    def handle_data(self, data: str) -> None:
+        if not self._skip_depth:
+            self._parts.append(html.escape(data, quote=False))
+
+    def get_html(self) -> str:
+        return "".join(self._parts)
+
+    @staticmethod
+    def _allowed_attr_text(attrs: list[tuple[str, str | None]]) -> str:
+        cleaned: list[str] = []
+        for name, value in attrs:
+            attr = str(name or "").lower()
+            if attr not in TABLE_ALLOWED_ATTRS or value is None:
+                continue
+            raw_value = str(value).strip()
+            if attr in {"rowspan", "colspan"}:
+                if not raw_value.isdigit():
+                    continue
+                raw_value = str(max(1, min(int(raw_value), 1000)))
+            cleaned.append(f'{attr}="{html.escape(raw_value, quote=True)}"')
+        return " " + " ".join(cleaned) if cleaned else ""
+
+
 def _clean_table_html(value: str) -> str:
-    value = re.sub(r"<\s*script\b[^>]*>.*?<\s*/\s*script\s*>", "", value, flags=re.I | re.S)
-    value = re.sub(r"\son\w+\s*=\s*(['\"]).*?\1", "", value, flags=re.I | re.S)
-    return value
+    parser = _TableHtmlAllowlistParser()
+    parser.feed(str(value or ""))
+    parser.close()
+    return parser.get_html()
 
 
 def _html_shell(*, title: str, body: str) -> str:
@@ -767,9 +859,8 @@ async def get_source_table(
         data = upstream.json()
     except ValueError:
         return Response(content=upstream.content, status_code=upstream.status_code, media_type=_content_type(upstream.headers))
-    return Response(
-        content=_html_page(data, task_id=task_id, table_index=table_index, source_token=source_token),
-        media_type="text/html; charset=utf-8",
+    return _source_html_response(
+        _html_page(data, task_id=task_id, table_index=table_index, source_token=source_token)
     )
 
 
@@ -798,9 +889,8 @@ async def get_source_page(
         data = upstream.json()
     except ValueError:
         return Response(content=upstream.content, status_code=upstream.status_code, media_type=_content_type(upstream.headers))
-    return Response(
-        content=_source_page_html(data, task_id=task_id, page_number=page_number, source_token=source_token),
-        media_type="text/html; charset=utf-8",
+    return _source_html_response(
+        _source_page_html(data, task_id=task_id, page_number=page_number, source_token=source_token)
     )
 
 
@@ -828,15 +918,14 @@ async def get_pdf_page(
         source_data = await _source_page_data(task_id, page_number)
         total_pages = _infer_total_pages(source_data) if source_data else None
         printed_page = _printed_page_number(source_data)
-        return Response(
-            content=_pdf_page_view_html(
+        return _source_html_response(
+            _pdf_page_view_html(
                 task_id=task_id,
                 page_number=page_number,
                 total_pages=total_pages,
                 printed_page_number=printed_page,
                 source_token=source_token,
-            ),
-            media_type="text/html; charset=utf-8",
+            )
         )
     return await _proxy_pdf2md(request, f"/api/pdf_page/{task_id}/{page_number}")
 

@@ -71,6 +71,8 @@ type FocusedBlock = {
   bbox: number[]
 }
 
+const EMPTY_PAGE_CONTENT_CACHE: Record<number, PageContent> = {}
+
 export function PdfSourceWorkbench(props: PdfSourceWorkbenchProps) {
   const {
     sourceVisible,
@@ -103,7 +105,7 @@ export function PdfSourceWorkbench(props: PdfSourceWorkbenchProps) {
   const [enhancedArtifactResult, setEnhancedArtifactResult] = useState<{ url: string; data: EnhancedArtifact } | null>(null)
   const [enhancedArtifactError, setEnhancedArtifactError] = useState<{ url: string; message: string } | null>(null)
   const [relationsArtifactResult, setRelationsArtifactResult] = useState<{ url: string; data: TableRelationsArtifact } | null>(null)
-  const [pageContentCache, setPageContentCache] = useState<Record<number, PageContent>>({})
+  const [pageContentCacheByScope, setPageContentCacheByScope] = useState<Record<string, Record<number, PageContent>>>({})
   const [workbenchTrace, setWorkbenchTrace] = useState<{ scopeKey: string; trace: SelectedTrace } | null>(null)
   const [focusedBlock, setFocusedBlock] = useState<FocusedBlock | null>(null)
 
@@ -114,6 +116,22 @@ export function PdfSourceWorkbench(props: PdfSourceWorkbenchProps) {
   const enhancedArtifact = enhancedArtifactResult?.url === artifactUrlValue ? enhancedArtifactResult.data : null
   const relationsArtifact = relationsArtifactResult?.url === relationsArtifactUrlValue ? relationsArtifactResult.data : null
   const enhancedError = enhancedArtifactError?.url === artifactUrlValue ? enhancedArtifactError.message : ''
+
+  const ctx = pdfCtx.current
+  const pageCount = ctx?.pageCount || srcMeta?.pdfPageImage?.page_count || pdfCurPage
+  const sourcePage = pageNumber(srcMeta?.pdfPageImage?.page_number || srcTable?.pdf_page_number || pdfCurPage)
+  const sourceTableIndex = Number(srcTable?.table_index || 0)
+  const currentPage = pageNumber(pdfCurPage, sourcePage)
+  const pageUrl = sourceVisible && srcTable ? getPdfUrl(currentPage) : ''
+  const currentExtent = ctx?.bboxExtent?.width && ctx?.bboxExtent?.height ? ctx.bboxExtent : (pageImage?.bbox_extent || null)
+  const taskId = useMemo(() => {
+    return deriveTaskId([artifactUrlValue, pageImageUrl, pageUrl, getPdfUrl(currentPage)])
+  }, [artifactUrlValue, pageImageUrl, pageUrl, getPdfUrl, currentPage])
+  const pageContentScopeKey = `${taskId || ''}:${sourcePage}:${sourceTableIndex}:${srcTable?.line || ''}`
+  const pageContentCache = pageContentCacheByScope[pageContentScopeKey] || EMPTY_PAGE_CONTENT_CACHE
+  const enhancedLoading = Boolean(sourceVisible && taskId && artifactUrlValue && !enhancedArtifact && !enhancedError)
+  const traceScopeKey = `${taskId || ''}:${sourcePage}:${sourceTableIndex}:${srcTable?.line || ''}`
+  const focusedBlockKey = focusedBlock?.key || ''
 
   useEffect(() => {
     if (!sourceVisible || !srcTable) return
@@ -269,20 +287,6 @@ export function PdfSourceWorkbench(props: PdfSourceWorkbenchProps) {
     return () => cleanups.forEach((cleanup) => cleanup())
   }, [sourceVisible, srcTable, readingMode, readingHtml, pdfCurPage, pageContentCache, enhancedArtifact])
 
-  const ctx = pdfCtx.current
-  const pageCount = ctx?.pageCount || srcMeta?.pdfPageImage?.page_count || pdfCurPage
-  const sourcePage = pageNumber(srcMeta?.pdfPageImage?.page_number || srcTable?.pdf_page_number || pdfCurPage)
-  const sourceTableIndex = Number(srcTable?.table_index || 0)
-  const currentPage = pageNumber(pdfCurPage, sourcePage)
-  const pageUrl = sourceVisible && srcTable ? getPdfUrl(currentPage) : ''
-  const currentExtent = ctx?.bboxExtent?.width && ctx?.bboxExtent?.height ? ctx.bboxExtent : (pageImage?.bbox_extent || null)
-  const taskId = useMemo(() => {
-    return deriveTaskId([artifactUrlValue, pageImageUrl, pageUrl, getPdfUrl(currentPage)])
-  }, [artifactUrlValue, pageImageUrl, pageUrl, getPdfUrl, currentPage])
-  const enhancedLoading = Boolean(sourceVisible && taskId && artifactUrlValue && !enhancedArtifact && !enhancedError)
-  const traceScopeKey = `${taskId || ''}:${sourcePage}:${sourceTableIndex}:${srcTable?.line || ''}`
-  const focusedBlockKey = focusedBlock?.key || ''
-
   const currentTables = useMemo(
     () => mergePhysicalTables(enhancedArtifact?.tables || [], pageContentCache, srcTable, srcMeta),
     [enhancedArtifact, pageContentCache, srcMeta, srcTable],
@@ -422,7 +426,17 @@ export function PdfSourceWorkbench(props: PdfSourceWorkbenchProps) {
     const loadPage = async (entry: PagePlanEntry) => {
       const data = await fetchPdfPageContentApi(taskId, entry.pageNumber, entry.focusTableIndex || 0, { signal: controller.signal })
       if (!cancelled) {
-        setPageContentCache((prev) => (prev[entry.pageNumber] ? prev : { ...prev, [entry.pageNumber]: data }))
+        setPageContentCacheByScope((prev) => {
+          const scopedCache = prev[pageContentScopeKey] || EMPTY_PAGE_CONTENT_CACHE
+          if (scopedCache[entry.pageNumber]) return prev
+          return {
+            ...prev,
+            [pageContentScopeKey]: {
+              ...scopedCache,
+              [entry.pageNumber]: data,
+            },
+          }
+        })
       }
     }
 
@@ -434,7 +448,7 @@ export function PdfSourceWorkbench(props: PdfSourceWorkbenchProps) {
       cancelled = true
       controller.abort()
     }
-  }, [probePagePlan, sourceVisible, taskId])
+  }, [pageContentScopeKey, probePagePlan, sourceVisible, taskId])
 
   useEffect(() => {
     const key = focusedBlock?.key

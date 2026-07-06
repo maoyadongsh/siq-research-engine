@@ -362,21 +362,26 @@ def test_bearer_post_does_not_require_csrf_header(csrf_route_client):
     assert response.json() == {"id": state["user_id"], "username": "csrf-user"}
 
 
-def test_viewer_cannot_call_document_or_pdf_parse_write_routes():
+def test_viewer_cannot_call_document_pdf_or_workspace_write_routes():
     app = FastAPI()
     viewer = SimpleNamespace(id=1, role=UserRole.VIEWER, is_active=True)
 
+    app.include_router(workspace.router, prefix="/api")
     app.include_router(document_parser.router, prefix="/api")
     app.include_router(workspace.pdf_router, prefix="/api")
     app.dependency_overrides[get_current_user] = lambda: viewer
 
     with TestClient(app) as client:
+        project_response = client.post("/api/workspace/projects", json={"name": "Viewer project"})
+        link_response = client.post("/api/workspace/downloads/link", json={"relativePath": "blocked.pdf"})
         document_response = client.post("/api/documents/tasks", json={"source_type": "url"})
         upload_response = client.post(
             "/api/pdf/upload",
             files={"files": ("blocked.pdf", b"%PDF-1.4\nblocked", "application/pdf")},
         )
 
+    assert project_response.status_code == 403
+    assert link_response.status_code == 403
     assert document_response.status_code == 403
     assert upload_response.status_code == 403
 

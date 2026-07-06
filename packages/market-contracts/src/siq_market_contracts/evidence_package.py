@@ -3,11 +3,52 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 
 SCHEMA_VERSION = "market_evidence_package_v1"
+GATE_CONTRACT_VERSION = "risk_calibrated_gate_v1"
+
+
+class GateSeverity(StrEnum):
+    HARD = "hard"
+    SOFT = "soft"
+    OBSERVE = "observe"
+
+
+class GateMode(StrEnum):
+    OBSERVE = "observe"
+    WARN = "warn"
+    ENFORCE = "enforce"
+
+
+class GateDecision(StrEnum):
+    ALLOW = "allow"
+    REVIEW = "review"
+    BLOCK = "block"
+
+
+class PromotionTarget(StrEnum):
+    DRAFT = "draft"
+    REVIEW = "review"
+    CANONICAL = "canonical"
+    RETRIEVAL = "retrieval"
+    PRODUCTION = "production"
+
+
+PROMOTION_TARGETS = tuple(target.value for target in PromotionTarget)
+_DECISION_RANK = {
+    GateDecision.ALLOW.value: 0,
+    GateDecision.REVIEW.value: 1,
+    GateDecision.BLOCK.value: 2,
+}
+_SEVERITY_RANK = {
+    GateSeverity.OBSERVE.value: 0,
+    GateSeverity.SOFT.value: 1,
+    GateSeverity.HARD.value: 2,
+}
 
 REQUIRED_MANIFEST_FIELDS = (
     "schema_version",
@@ -345,6 +386,112 @@ def _quality_status(value: Any) -> str:
     return "unknown"
 
 
+def _gate_mode_for_severity(severity: str) -> str:
+    if severity == GateSeverity.HARD.value:
+        return GateMode.ENFORCE.value
+    if severity == GateSeverity.SOFT.value:
+        return GateMode.WARN.value
+    return GateMode.OBSERVE.value
+
+
+def _gate_decisions_for_severity(severity: str) -> dict[str, str]:
+    if severity == GateSeverity.HARD.value:
+        return {
+            PromotionTarget.DRAFT.value: GateDecision.ALLOW.value,
+            PromotionTarget.REVIEW.value: GateDecision.REVIEW.value,
+            PromotionTarget.CANONICAL.value: GateDecision.BLOCK.value,
+            PromotionTarget.RETRIEVAL.value: GateDecision.BLOCK.value,
+            PromotionTarget.PRODUCTION.value: GateDecision.BLOCK.value,
+        }
+    if severity == GateSeverity.SOFT.value:
+        return {
+            PromotionTarget.DRAFT.value: GateDecision.ALLOW.value,
+            PromotionTarget.REVIEW.value: GateDecision.REVIEW.value,
+            PromotionTarget.CANONICAL.value: GateDecision.REVIEW.value,
+            PromotionTarget.RETRIEVAL.value: GateDecision.REVIEW.value,
+            PromotionTarget.PRODUCTION.value: GateDecision.REVIEW.value,
+        }
+    return {target: GateDecision.ALLOW.value for target in PROMOTION_TARGETS}
+
+
+def _gate_results_for_issue(
+    *,
+    rule_id: str,
+    severity: str,
+    reason: str,
+    evidence_refs: list[str] | None = None,
+    mode: str | None = None,
+    decisions_by_target: dict[str, str] | None = None,
+) -> list[dict[str, Any]]:
+    decisions = {**_gate_decisions_for_severity(severity), **(decisions_by_target or {})}
+    gate_mode = mode or _gate_mode_for_severity(severity)
+    refs = [str(ref) for ref in (evidence_refs or []) if str(ref or "").strip()]
+    return [
+        {
+            "rule_id": rule_id,
+            "severity": severity,
+            "mode": gate_mode,
+            "decision": decisions.get(target, GateDecision.ALLOW.value),
+            "target": target,
+            "promotion_target": target,
+            "reason": reason,
+            "evidence_refs": refs,
+        }
+        for target in PROMOTION_TARGETS
+    ]
+
+
+def _aggregate_gate_decisions(gate_results: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    decisions: dict[str, dict[str, Any]] = {
+        target: {
+            "target": target,
+            "promotion_target": target,
+            "decision": GateDecision.ALLOW.value,
+            "severity": GateSeverity.OBSERVE.value,
+            "rule_ids": [],
+            "review_rule_ids": [],
+            "blocking_rule_ids": [],
+            "reasons": [],
+        }
+        for target in PROMOTION_TARGETS
+    }
+    for gate in gate_results:
+        target = str(gate.get("target") or "")
+        if target not in decisions:
+            continue
+        current = decisions[target]
+        decision = str(gate.get("decision") or GateDecision.ALLOW.value)
+        severity = str(gate.get("severity") or GateSeverity.OBSERVE.value)
+        if _DECISION_RANK.get(decision, 0) > _DECISION_RANK.get(str(current["decision"]), 0):
+            current["decision"] = decision
+        if _SEVERITY_RANK.get(severity, 0) > _SEVERITY_RANK.get(str(current["severity"]), 0):
+            current["severity"] = severity
+        rule_id = str(gate.get("rule_id") or "")
+        if rule_id:
+            current["rule_ids"].append(rule_id)
+            if decision == GateDecision.BLOCK.value:
+                current["blocking_rule_ids"].append(rule_id)
+            elif decision == GateDecision.REVIEW.value:
+                current["review_rule_ids"].append(rule_id)
+        reason = str(gate.get("reason") or "")
+        if reason:
+            current["reasons"].append(reason)
+
+    for payload in decisions.values():
+        for key in ("rule_ids", "review_rule_ids", "blocking_rule_ids", "reasons"):
+            seen: set[str] = set()
+            payload[key] = [item for item in payload[key] if not (item in seen or seen.add(item))]
+    return decisions
+
+
+def _gate_rule_ids(gate_results: list[dict[str, Any]], severity: str) -> set[str]:
+    return {
+        str(gate.get("rule_id"))
+        for gate in gate_results
+        if gate.get("severity") == severity and gate.get("rule_id")
+    }
+
+
 def _required_statement_status(quality: dict[str, Any], financial_data: dict[str, Any]) -> dict[str, str]:
     raw_status = quality.get("required_statement_status") if isinstance(quality, dict) else {}
     if isinstance(raw_status, dict) and raw_status:
@@ -501,14 +648,142 @@ def build_quality_gates(
     if overall_status not in {"pass", "unknown"} and not block_reasons:
         block_reasons.append(f"quality status is {overall_status}")
 
-    action_blocked = overall_status in {"warning", "fail"}
+    gate_results: list[dict[str, Any]] = []
+
+    def add_gate_issue(
+        *,
+        rule_id: str,
+        severity: str,
+        reason: str,
+        evidence_refs: list[str] | None = None,
+        mode: str | None = None,
+        decisions_by_target: dict[str, str] | None = None,
+    ) -> None:
+        gate_results.extend(
+            _gate_results_for_issue(
+                rule_id=rule_id,
+                severity=severity,
+                reason=reason,
+                evidence_refs=evidence_refs,
+                mode=mode,
+                decisions_by_target=decisions_by_target,
+            )
+        )
+
+    if base_status == "fail":
+        add_gate_issue(
+            rule_id="package.quality_status.fail",
+            severity=GateSeverity.HARD.value,
+            reason="quality status is fail",
+            evidence_refs=["qa/quality_report.json:overall_status", "metrics/financial_checks.json:overall_status"],
+        )
+    if missing_required:
+        marked_pass = base_status == "pass"
+        add_gate_issue(
+            rule_id="package.required_statements.missing_marked_pass" if marked_pass else "package.required_statements.missing",
+            severity=GateSeverity.HARD.value if marked_pass else GateSeverity.SOFT.value,
+            reason=(
+                "required statements missing while package is marked pass"
+                if marked_pass
+                else "required statements missing"
+            ),
+            evidence_refs=[f"statement:{statement}" for statement in missing_required],
+        )
+    if artifact_hash["status"] == "missing":
+        add_gate_issue(
+            rule_id="package.artifact_hashes.missing",
+            severity=GateSeverity.HARD.value,
+            reason="artifact hashes missing",
+            evidence_refs=["manifest.json:artifact_hashes"],
+        )
+    if artifact_hash["status"] == "mismatch":
+        add_gate_issue(
+            rule_id="package.artifact_hashes.mismatch",
+            severity=GateSeverity.HARD.value,
+            reason="artifact hash mismatch",
+            evidence_refs=[f"artifact:{rel}" for rel in [*artifact_hash["mismatches"], *artifact_hash["missing"]]],
+        )
+    if critical_warnings:
+        add_gate_issue(
+            rule_id="package.critical_warnings.present",
+            severity=GateSeverity.HARD.value,
+            reason="critical warnings present",
+            evidence_refs=[f"qa/quality_report.json:critical_warnings:{index}" for index, _ in enumerate(critical_warnings)],
+        )
+    if parser_warnings or rule_warnings:
+        add_gate_issue(
+            rule_id="package.parser_or_rule_warnings.present",
+            severity=GateSeverity.SOFT.value,
+            reason="parser or rule warnings present",
+            evidence_refs=[
+                *[f"qa/quality_report.json:parser_warnings:{index}" for index, _ in enumerate(parser_warnings)],
+                *[f"qa/quality_report.json:rule_warnings:{index}" for index, _ in enumerate(rule_warnings)],
+            ],
+        )
+    if unresolvable_evidence_count:
+        add_gate_issue(
+            rule_id="package.evidence.unresolvable",
+            severity=GateSeverity.HARD.value,
+            reason="unresolvable evidence present",
+            evidence_refs=[
+                f"evidence:{item}"
+                for item in (
+                    resolvability["unresolvable_source_map_entries"]
+                    or resolvability["unresolvable_metric_sources"]
+                )
+            ],
+        )
+    if evidence_resolvability_ratio is not None and evidence_resolvability_ratio < 0.8:
+        add_gate_issue(
+            rule_id="package.evidence.resolvability_below_threshold",
+            severity=GateSeverity.HARD.value,
+            reason="evidence resolvability below 80%",
+            evidence_refs=["qa/source_map.json", "metrics/financial_data.json"],
+        )
+    if base_status == "warning" and not (
+        missing_required
+        or critical_warnings
+        or parser_warnings
+        or rule_warnings
+        or unresolvable_evidence_count
+        or (evidence_resolvability_ratio is not None and evidence_resolvability_ratio < 0.8)
+    ):
+        add_gate_issue(
+            rule_id="package.quality_status.warning",
+            severity=GateSeverity.SOFT.value,
+            reason="quality status is warning",
+            evidence_refs=["qa/quality_report.json:overall_status", "metrics/financial_checks.json:overall_status"],
+        )
+    if base_status == "unknown" and not gate_results:
+        add_gate_issue(
+            rule_id="package.quality_status.unknown",
+            severity=GateSeverity.OBSERVE.value,
+            reason="quality status is unknown",
+            evidence_refs=["qa/quality_report.json:overall_status", "manifest.json:quality_status"],
+        )
+
+    decisions_by_target = _aggregate_gate_decisions(gate_results)
+    canonical_decision = decisions_by_target[PromotionTarget.CANONICAL.value]["decision"]
+    retrieval_decision = decisions_by_target[PromotionTarget.RETRIEVAL.value]["decision"]
+    action_blocked = canonical_decision != GateDecision.ALLOW.value
+    hard_gate_rule_ids = sorted(_gate_rule_ids(gate_results, GateSeverity.HARD.value))
+    soft_gate_rule_ids = sorted(_gate_rule_ids(gate_results, GateSeverity.SOFT.value))
     return {
         "schema_version": "siq_quality_gates_v1",
+        "gate_contract_version": GATE_CONTRACT_VERSION,
         "overall_status": overall_status,
+        "decision": canonical_decision,
+        "canonical_decision": canonical_decision,
+        "retrieval_decision": retrieval_decision,
+        "promotion_targets": list(PROMOTION_TARGETS),
+        "decisions_by_target": decisions_by_target,
+        "gate_results": gate_results,
+        "hard_gate_rule_ids": hard_gate_rule_ids,
+        "soft_gate_rule_ids": soft_gate_rule_ids,
         "action_blocked": action_blocked,
         "import_blocked": action_blocked,
-        "vector_ingest_blocked": action_blocked,
-        "force_allowed": True,
+        "vector_ingest_blocked": retrieval_decision != GateDecision.ALLOW.value,
+        "force_allowed": bool(soft_gate_rule_ids) and not hard_gate_rule_ids,
         "block_reasons": block_reasons,
         "evidence_coverage_ratio": _evidence_coverage_ratio(
             quality,

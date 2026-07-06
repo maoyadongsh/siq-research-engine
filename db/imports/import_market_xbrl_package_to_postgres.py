@@ -14,11 +14,15 @@ except ImportError as exc:  # pragma: no cover
     raise SystemExit("psycopg is required: pip install psycopg[binary]") from exc
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+IMPORTS_DIR = Path(__file__).resolve().parent
+if str(IMPORTS_DIR) not in sys.path:
+    sys.path.insert(0, str(IMPORTS_DIR))
 RULES_SRC = REPO_ROOT / "services" / "market-report-rules" / "src"
 if str(RULES_SRC) not in sys.path:
     sys.path.insert(0, str(RULES_SRC))
 
 from market_report_rules_service.evidence_package import compute_artifact_hashes, stable_id, stable_parse_run_id, validate_evidence_package
+from quality_gate_guard import enforce_quality_gates, quality_with_gate_audit
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -59,16 +63,36 @@ def run_ddl(conn: Any, ddl_path: Path) -> None:
     conn.execute(ddl_path.read_text(encoding="utf-8"))
 
 
-def import_package(conn: Any, package_dir: Path, *, schema: str, market: str) -> str:
+def import_package(
+    conn: Any,
+    package_dir: Path,
+    *,
+    schema: str,
+    market: str,
+    force_review: bool = False,
+    force_requested_by: str | None = None,
+    force_reason: str | None = None,
+    force_approved_by: str | None = None,
+    force_expires_at: str | None = None,
+) -> str:
     validation = validate_evidence_package(package_dir)
     if not validation.ok:
         raise SystemExit("Invalid evidence package: " + "; ".join(validation.errors))
     manifest = validation.manifest
     if manifest.get("market") != market:
         raise SystemExit(f"manifest market must be {market}")
+    gate_enforcement = enforce_quality_gates(
+        package_dir,
+        target="canonical",
+        force_review=force_review,
+        requested_by=force_requested_by,
+        reason=force_reason,
+        approved_by=force_approved_by,
+        expires_at=force_expires_at,
+    )
     artifact_hashes = manifest.get("artifact_hashes") or compute_artifact_hashes(package_dir)
     parse_run_id = manifest.get("parse_run_id") or stable_parse_run_id(manifest, artifact_hashes)
-    quality = read_json(package_dir / "qa" / "quality_report.json")
+    quality = quality_with_gate_audit(read_json(package_dir / "qa" / "quality_report.json"), gate_enforcement)
     warnings = (quality.get("critical_warnings") or []) + (quality.get("parser_warnings") or []) + (quality.get("rule_warnings") or [])
 
     with conn.transaction():

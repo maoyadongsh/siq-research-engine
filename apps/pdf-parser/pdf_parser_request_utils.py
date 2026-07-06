@@ -23,6 +23,17 @@ ADMIN_ROLES = {"admin", "super_admin", "system"}
 SCOPE_VALUE_RE = re.compile(r"[^A-Za-z0-9_.@:-]+")
 
 
+def _production_profile_enabled():
+    for name in ("SIQ_DEPLOYMENT_PROFILE", "SIQ_ENV", "APP_ENV", "ENVIRONMENT", "FLASK_ENV"):
+        if os.environ.get(name, "").strip().lower() in {"prod", "production"}:
+            return True
+    return False
+
+
+if _production_profile_enabled() and not APP_ACCESS_TOKEN:
+    raise RuntimeError("PDF2MD_ACCESS_TOKEN is required in production profile.")
+
+
 def _safe_client_filename(filename):
     name = str(filename or "").replace("\\", "/").rsplit("/", 1)[-1].strip()
     name = re.sub(r"[\r\n\x00]", "_", name)

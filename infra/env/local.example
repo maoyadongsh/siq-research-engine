@@ -2,6 +2,7 @@
 # Copy values into your own ignored env file if needed; do not put real secrets here.
 
 SIQ_PROJECT_ROOT=/home/maoyd/siq-research-engine
+SIQ_DEPLOYMENT_PROFILE=local
 
 # Runtime roots. Compatibility default keeps existing repo data/var/artifacts.
 # New local setups should prefer an external state root, for example:
@@ -127,6 +128,7 @@ SIQ_HERMES_ANALYSIS_PORT=18651
 SIQ_HERMES_LEGAL_PORT=18652
 
 PDF2MD_ACCESS_TOKEN=replace-with-pdf-parser-token
+SIQ_DOCUMENT_PARSER_ACCESS_TOKEN=replace-with-document-parser-token
 MINERU_API_URL=http://127.0.0.1:8003
 VLM_API_URL=http://127.0.0.1:8002
 
