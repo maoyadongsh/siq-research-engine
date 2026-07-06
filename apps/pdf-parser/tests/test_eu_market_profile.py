@@ -2,7 +2,7 @@ import eu_market_profile as eu
 
 
 def test_detect_market_prefers_explicit_task_market_and_filename():
-    assert eu.EU_PROFILE_RULE_VERSION == "eu-pdf-profile-v2"
+    assert eu.EU_PROFILE_RULE_VERSION == "eu-pdf-profile-v5"
     assert eu.is_eu_market({"submit_config": {"market": "EU"}}, "anything.pdf")
     assert eu.is_eu_market({"market": "eu"}, "anything.pdf")
     assert eu.is_eu_market({}, "London-Stock-Exchange-Group-plc_EU_LSEG_2025-12-31_annual.pdf")
@@ -82,6 +82,40 @@ def test_eu_candidate_groups_find_ifrs_sections_and_core_statements():
     assert candidates["Consolidated Statement of Changes in Equity"][0]["table_index"] == 5
     assert candidates["Consolidated Statement of Cash Flows"][0]["table_index"] == 6
     assert all(row["_source"] == "eu_market_profile" for rows in candidates.values() for row in rows)
+
+
+def test_eu_financial_highlights_key_figures_require_financial_context():
+    table_index = [
+        {
+            "table_index": 24,
+            "line": 2741,
+            "heading": "Key Figures",
+            "preview": "(In € million) 2025 2024 Revenue 73,420 69,230 EBIT Adjusted 7,128 5,354 EBIT (reported) 6,082 5,304 Net Income 5,221 4,232 Free Cash Flow 4,753 4,461",
+            "rows": 8,
+            "numeric_ratio": 0.7,
+        },
+        {
+            "table_index": 63,
+            "line": 4247,
+            "heading": "Climate metrics",
+            "preview": "Key figures Unit 2025 2024 Net revenue used to calculate GHG intensity million EUR 73,420 Total emissions tonnes 388,132",
+            "rows": 6,
+            "numeric_ratio": 0.6,
+        },
+        {
+            "table_index": 42,
+            "line": 6435,
+            "heading": "Board of Management remuneration",
+            "preview": "Key figures Net sales Net income CEO pay ratio performance shares",
+            "rows": 5,
+            "numeric_ratio": 0.5,
+        },
+    ]
+
+    candidates = eu.group_eu_key_table_candidates(table_index)
+
+    assert candidates["Financial Highlights"][0]["table_index"] == 24
+    assert all(row["table_index"] not in {42, 63} for row in candidates["Financial Highlights"])
 
 
 def test_eu_financial_data_and_checks_extract_lseg_style_ifrs_tables():
@@ -173,5 +207,37 @@ def test_eu_currency_detection_covers_non_uk_european_markets():
         ("2025 PLN million", "PLN"),
     ):
         unit, detected = eu._infer_unit_and_currency([[label]], {"heading": "Consolidated statement of financial position"})
-        assert detected == currency
-        assert unit == f"{currency} million"
+    assert detected == currency
+    assert unit == f"{currency} million"
+
+
+def test_eu_financial_data_extracts_operations_and_plural_statement_titles():
+    markdown = """
+    # Consolidated statements of operations
+    <table><tr><td>Year ended December 31</td><td>Notes</td><td>2024 €m</td><td>2025 €m</td></tr>
+    <tr><td>Net system sales</td><td></td><td>21,768.7</td><td>24,474.3</td></tr>
+    <tr><td>Total net sales</td><td></td><td>28,262.9</td><td>32,667.3</td></tr>
+    <tr><td>Income before income taxes</td><td></td><td>8,900.0</td><td>11,300.0</td></tr>
+    <tr><td>Income tax expense</td><td></td><td>(1,328.4)</td><td>(1,690.6)</td></tr>
+    <tr><td>Net income</td><td></td><td>7,571.6</td><td>9,609.4</td></tr></table>
+    # Consolidated balance sheets
+    <table><tr><td>As of December 31</td><td>Notes</td><td>2024 €m</td><td>2025 €m</td></tr>
+    <tr><td>Total assets</td><td></td><td>47,100.0</td><td>51,400.0</td></tr>
+    <tr><td>Total liabilities</td><td></td><td>27,900.0</td><td>30,300.0</td></tr>
+    <tr><td>Total equity</td><td></td><td>19,200.0</td><td>21,100.0</td></tr></table>
+    # Consolidated statements of cash flows
+    <table><tr><td>Year ended December 31</td><td>Notes</td><td>2024 €m</td><td>2025 €m</td></tr>
+    <tr><td>Net cash flows from operating activities</td><td></td><td>11,166.2</td><td>12,658.5</td></tr>
+    <tr><td>Net cash flows used in investing activities</td><td></td><td>(1,800.0)</td><td>(2,100.0)</td></tr>
+    <tr><td>Net cash flows used in financing activities</td><td></td><td>(4,000.0)</td><td>(5,000.0)</td></tr>
+    <tr><td>Increase in cash and cash equivalents</td><td></td><td>5,366.2</td><td>5,558.5</td></tr>
+    <tr><td>Cash and cash equivalents at beginning of period</td><td></td><td>7,369.7</td><td>12,735.9</td></tr>
+    <tr><td>Cash and cash equivalents at end of period</td><td></td><td>12,735.9</td><td>18,294.4</td></tr></table>
+    """
+
+    data = eu.build_eu_financial_data(markdown, task_id="eu-asml", filename="ASML-Holding-N.V_EU_ASML_2025-12-31_annual.pdf")
+    checks = eu.build_eu_financial_checks(data)
+
+    statement_types = {statement["statement_type"] for statement in data["statements"]}
+    assert {"balance_sheet", "income_statement", "cash_flow_statement"}.issubset(statement_types)
+    assert checks["summary"]["fail"] == 0

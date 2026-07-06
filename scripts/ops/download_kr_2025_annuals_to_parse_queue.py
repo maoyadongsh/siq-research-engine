@@ -27,7 +27,7 @@ os.environ.setdefault(
 
 from market_report_finder_service.markets.kr.catalog import KR_ANNUAL_REPORT_CATALOG, KrAnnualReportCatalog  # noqa: E402
 from market_report_finder_service.markets.kr.public_dart import DartPublicClient  # noqa: E402
-from market_report_finder_service.models.schemas import ReportTarget  # noqa: E402
+from market_report_finder_service.models.schemas import CompanyEntity, Market, ReportTarget  # noqa: E402
 from market_report_finder_service.services.downloader import ReportDownloader  # noqa: E402
 
 
@@ -57,7 +57,7 @@ def _requested_codes(args: argparse.Namespace) -> list[str]:
     return codes
 
 
-def _candidate_pool(include_codes: list[str]) -> list[dict[str, str]]:
+def _candidate_pool(include_codes: list[str], *, company_name: str | None = None) -> list[dict[str, str]]:
     known = {
         entry.ticker: {
             "market": "KR",
@@ -70,7 +70,15 @@ def _candidate_pool(include_codes: list[str]) -> list[dict[str, str]]:
     }
     if include_codes:
         return [
-            known.get(code, {"market": "KR", "ticker": code, "industry": "manual", "name": code})
+            known.get(
+                code,
+                {
+                    "market": "KR",
+                    "ticker": code,
+                    "industry": "manual",
+                    "name": company_name if len(include_codes) == 1 and company_name else code,
+                },
+            )
             for code in include_codes
         ]
     return list(known.values())
@@ -125,19 +133,24 @@ def _resolve_pdf_token(pdf_api_base: str) -> str:
     token = (os.environ.get("PDF2MD_ACCESS_TOKEN") or os.environ.get("SIQ_PDF2MD_ACCESS_TOKEN") or "").strip()
     if token:
         return token
+    saw_pdf_parser = False
     for child in Path("/proc").iterdir():
         if not child.name.isdigit():
             continue
         try:
             cmdline = (child / "cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", "ignore")
-            if "siq-research-engine/apps/pdf-parser/app.py" not in cmdline:
+            cwd = str((child / "cwd").resolve())
+            if "siq-research-engine/apps/pdf-parser" not in cmdline and not cwd.endswith("siq-research-engine/apps/pdf-parser"):
                 continue
+            saw_pdf_parser = True
             env = (child / "environ").read_bytes().split(b"\0")
         except OSError:
             continue
         for item in env:
             if item.startswith(b"PDF2MD_ACCESS_TOKEN="):
                 return item.split(b"=", 1)[1].decode("utf-8", "ignore").strip()
+    if saw_pdf_parser:
+        return ""
     raise RuntimeError(f"PDF2MD access token not found for {pdf_api_base}")
 
 
@@ -165,11 +178,32 @@ def _upload_pdf(pdf_api_base: str, token: str, pdf_path: Path) -> dict:
 
 
 def _company_for_seed(seed: dict[str, str]):
-    return KrAnnualReportCatalog.resolve_company(
-        ticker=seed.get("ticker"),
-        company_name=seed.get("name"),
-        company_id=seed.get("company_id") or None,
-    )[0]
+    try:
+        return KrAnnualReportCatalog.resolve_company(
+            ticker=seed.get("ticker"),
+            company_name=seed.get("name"),
+            company_id=seed.get("company_id") or None,
+        )[0]
+    except ValueError:
+        ticker = _normalize_kr_code(seed.get("ticker") or "")
+        company_name = str(seed.get("name") or ticker or "KR company").strip()
+        return CompanyEntity(
+            market=Market.kr,
+            company_id=seed.get("company_id") or "",
+            ticker=ticker,
+            company_name=company_name,
+            exchange="KRX",
+            aliases=[company_name, ticker],
+            confidence=0.8,
+            match_reason="manual_kr_ticker",
+            metadata={
+                "corp_code": seed.get("company_id") or "",
+                "stock_code": ticker,
+                "industry": seed.get("industry") or "manual",
+                "source_id": "dart_public",
+                "source_tier": "statutory_public_pdf",
+            },
+        )
 
 
 def _selected_annual(public: DartPublicClient, company, year: int):
@@ -253,12 +287,13 @@ def main() -> int:
     parser.add_argument("--download-only", action="store_true")
     parser.add_argument("--code", action="append", default=[])
     parser.add_argument("--codes", default="")
+    parser.add_argument("--company-name", default="")
     parser.add_argument("--skip-code", action="append", default=[])
     parser.add_argument("--manifest", default=str(DEFAULT_MANIFEST))
     args = parser.parse_args()
 
     include_codes = _requested_codes(args)
-    candidate_pool = _candidate_pool(include_codes)
+    candidate_pool = _candidate_pool(include_codes, company_name=args.company_name.strip() or None)
     skip_codes = {_normalize_kr_code(code) for code in args.skip_code}
     skip_codes.discard("")
     active_candidates, skipped_manifest_items = _partition_candidate_pool(candidate_pool, skip_codes)

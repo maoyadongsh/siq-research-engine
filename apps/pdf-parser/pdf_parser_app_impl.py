@@ -2928,7 +2928,7 @@ def _market_quality_profile(market, markdown, filename, table_index, report_year
         return {
             "market": "KR",
             "market_profile": "KR",
-            "profile_rule_version": "kr-pdf-profile-v1",
+            "profile_rule_version": kr.KR_PROFILE_RULE_VERSION,
             "report_kind": kr.detect_kr_report_kind(markdown, filename=filename),
             "report_year": report_year,
             "key_sections": kr.KR_KEY_SECTIONS,
@@ -3240,7 +3240,9 @@ def _market_profile_rule_version(market):
 
         return getattr(us, "US_PROFILE_RULE_VERSION", "")
     if market == "KR":
-        return "kr-pdf-profile-v1"
+        import kr_market_profile as kr
+
+        return getattr(kr, "KR_PROFILE_RULE_VERSION", "")
     return ""
 
 

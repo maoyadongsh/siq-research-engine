@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from typing import Any, Iterable
 
+KR_PROFILE_RULE_VERSION = "kr-pdf-profile-v2"
+
 KR_KEY_SECTIONS = [
     "회사의 개요",
     "사업의 내용",
@@ -49,8 +51,13 @@ _CANDIDATE_RULES: dict[str, tuple[tuple[str, ...], str]] = {
     "요약재무정보": (
         (
             "요약재무정보",
+            "요약 재무정보",
+            "요약 연결재무정보",
+            "주요재무정보",
+            "주요 재무정보",
             "summary financial information",
             "selected financial data",
+            "financial highlights",
             "매출액 영업이익 당기순이익 자산총계",
         ),
         "core",
@@ -88,9 +95,17 @@ _CANDIDATE_RULES: dict[str, tuple[tuple[str, ...], str]] = {
         (
             "연결 현금흐름표",
             "연결현금흐름표",
+            "연결 한금흐를표",
+            "연결한금흐를표",
+            "현금흐를표",
+            "현금초를",
+            "현금조율",
             "consolidated statement of cash flows",
             "statement of cash flows",
             "영업활동 현금흐름",
+            "영업활동 현금초를",
+            "재무활동으로 대한 현금초를",
+            "제부활동으로 대한 현금조율",
             "기말현금",
         ),
         "core",
@@ -180,6 +195,8 @@ def _score_candidate(signal: str, terms: Iterable[str]) -> float:
 def _fallback_rule_score(name: str, signal: str) -> float:
     compact = _compact_text(signal)
     tokens = set(re.findall(r"[a-z]+", signal))
+    if _looks_like_kr_contents_table(signal) and name in {"요약재무정보", *_CORE_STATEMENT_NAMES}:
+        return 0.0
     summary_or_segment_context = any(
         marker in compact
         for marker in ("요약재무정보", "영업부문", "부문정보", "segmentinformation", "operatingsegment")
@@ -192,9 +209,17 @@ def _fallback_rule_score(name: str, signal: str) -> float:
         "Consolidated Statement of Changes in Equity",
     }:
         return 0.0
+    if name == "요약재무정보":
+        metric_hits = sum(1 for term in ("매출액", "영업이익", "당기순이익", "자산총계", "부채총계", "자본총계") if term in compact)
+        if ("요약" in compact or "summaryfinancialinformation" in compact or "selectedfinancialdata" in compact) and metric_hits >= 3:
+            return 90.0
+        if metric_hits >= 5:
+            return 86.0
     if name == "Consolidated Statement of Financial Position":
         if all(term in compact for term in ("자산총계", "부채총계", "자본총계")):
             return 88.0
+        if all(term in compact for term in ("자산층계", "부채계")) and ("자본총계" in compact or "자본계" in compact):
+            return 84.0
         if "연결재무제표" in compact and "자산" in compact and ("유동자산" in compact or "비유동자산" in compact):
             return 86.0
         if {"assets", "liabilities"}.issubset(tokens) and ("equity" in tokens or "capital" in tokens):
@@ -212,6 +237,10 @@ def _fallback_rule_score(name: str, signal: str) -> float:
     if name == "Consolidated Statement of Cash Flows":
         if "영업활동" in compact and "현금흐름" in compact:
             return 86.0
+        if "현금" in compact and any(term in compact for term in ("흐를", "초를", "조율")):
+            return 84.0
+        if ("재무활동" in compact or "제부활동" in compact) and "현금" in compact:
+            return 82.0
     if name == "Consolidated Statement of Changes in Equity":
         if "자본금" in compact and ("이익잉여금" in compact or "자본총계" in compact):
             return 84.0
@@ -229,6 +258,8 @@ _CORE_STATEMENT_NAMES = {
 
 def _context_adjusted_score(name: str, signal: str, score: float) -> float:
     if score <= 0:
+        return 0.0
+    if name in {"요약재무정보", *_CORE_STATEMENT_NAMES} and _looks_like_kr_contents_table(signal):
         return 0.0
     if name not in _CORE_STATEMENT_NAMES:
         return score
@@ -248,6 +279,29 @@ def _context_adjusted_score(name: str, signal: str, score: float) -> float:
     if "연결재무제표" in compact or "연결재무제표입니다" in compact or "연결재무제표주석" in compact:
         score += 18.0
     return max(score, 0.0)
+
+
+def _looks_like_kr_contents_table(signal: str) -> bool:
+    compact = _compact_text(signal)
+    core_hits = sum(
+        1
+        for marker in (
+            "연결재무상태표",
+            "연결손익계산서",
+            "연결포괄손익계산서",
+            "연결자본변동표",
+            "연결현금흐름표",
+            "연결한금흐를표",
+            "현금흐를표",
+            "재무제표에대한주석",
+        )
+        if marker in compact
+    )
+    if core_hits < 4:
+        return False
+    if any(marker in compact for marker in ("유동자산", "비유동자산", "매출액", "영업이익", "영업활동", "투자활동", "재무활동", "자본금")):
+        return False
+    return True
 
 
 def group_kr_key_table_candidates(table_index: list[dict[str, Any]] | None) -> dict[str, list[dict[str, Any]]]:

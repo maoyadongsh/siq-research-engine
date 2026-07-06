@@ -7,7 +7,7 @@ from typing import Any
 from financial_extractor import FINANCIAL_CHECKS_SCHEMA_VERSION, FINANCIAL_DATA_SCHEMA_VERSION, FINANCIAL_RULE_VERSION
 
 
-KR_FINANCIAL_PROFILE_VERSION = "kr-pdf-financial-profile-v1"
+KR_FINANCIAL_PROFILE_VERSION = "kr-pdf-financial-profile-v2"
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RULES_SRC = REPO_ROOT / "services" / "market-report-rules" / "src"

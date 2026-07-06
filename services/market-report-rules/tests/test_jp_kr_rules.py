@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from market_report_rules_service.contracts import financial_data_contract
 from market_report_rules_service.markets.jp.rules import find_jp_label_rule
+from market_report_rules_service.markets.kr.rules import find_kr_label_rule
 from market_report_rules_service.models import Market, ParsedArtifact, ParsedTable
 from market_report_rules_service.pipeline import process_artifact
 from market_report_rules_service.statement_detection import detect_table_statement_type
@@ -38,6 +39,47 @@ def test_jp_statement_detection_distinguishes_summary_and_formal_cash_flow_table
 
     assert detect_table_statement_type(summary_table) is None
     assert detect_table_statement_type(formal_table) == "cash_flow_statement"
+
+
+def test_eu_statement_detection_recognizes_operations_title_alias():
+    table = ParsedTable(
+        table_id="eu-ops",
+        title="Consolidated statements of operations",
+        rows=[
+            ["Year ended December 31", "2024", "2025"],
+            ["Total net sales", "28,262.9", "32,667.3"],
+            ["Income before income taxes", "8,900.0", "11,300.0"],
+            ["Net income", "7,571.6", "9,609.4"],
+        ],
+    )
+
+    assert detect_table_statement_type(table) == "income_statement"
+
+
+def test_kr_statement_detection_ignores_contents_and_recognizes_cash_flow_ocr():
+    contents = ParsedTable(
+        table_id="kr-contents",
+        rows=[
+            ["1. 연결재무상태표", "20"],
+            ["2. 연결포괄손익계산서", "21"],
+            ["3. 연결자본변동표", "22"],
+            ["4. 연결한금흐를표", "24"],
+        ],
+        raw={"preview": "1. 연결재무상태표 20 2. 연결포괄손익계산서 21 3. 연결자본변동표 22 4. 연결한금흐를표 24"},
+    )
+    cash_flow = ParsedTable(
+        table_id="kr-cf",
+        rows=[
+            ["과목", "제 49 기", "제 48 기"],
+            ["III. 재무활동으로 대한 현금초를", "4,681,592", "1,065,666"],
+            ["기말현금및현금성자산", "1,000", "900"],
+        ],
+        raw={"preview": "III. 재무활동으로 대한 현금초를 4,681,592 기말현금및현금성자산 1,000"},
+    )
+
+    assert detect_table_statement_type(contents) is None
+    assert detect_table_statement_type(cash_flow) == "cash_flow_statement"
+    assert find_kr_label_rule("III. 재무활동으로 대한 현금초를").canonical_name == "financing_cash_flow_net"
 
 
 def test_jp_annual_required_statements_require_formal_statement_sources():

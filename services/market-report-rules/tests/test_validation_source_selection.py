@@ -136,3 +136,30 @@ def test_non_cn_component_balance_bridge_downgrades_when_total_bridge_passes():
     assert component_bridge.status == "warning"
     assert component_bridge.reason == "alternative_total_liabilities_and_equity_bridge_passed"
     assert total_bridge.status == "pass"
+
+
+def test_eu_kr_required_statement_missing_is_warning_when_parser_coverage_incomplete():
+    for market in (Market.EU, Market.KR):
+        extraction = ExtractionResult(
+            rule_version="test",
+            profile_id="test",
+            artifact_id=f"{market.value}-coverage-incomplete",
+            market=market,
+            accounting_standard=AccountingStandard.IFRS,
+            company_id=f"{market.value}:TEST",
+            ticker="TEST",
+            report_type="annual",
+            report_form="annual",
+            fiscal_year=2025,
+            fiscal_period="FY",
+            period_end="2025-12-31",
+            statements=[],
+            warnings=["parser table quality: no mapped financial facts were extracted"],
+        )
+
+        validation = validate_extraction(extraction)
+        required = [check for check in validation.checks if check.rule_id.startswith("required.statement.")]
+
+        assert {check.status for check in required} == {"warning"}
+        assert all("parser_coverage_incomplete" in (check.reason or "") for check in required)
+        assert validation.overall_status == "warning"

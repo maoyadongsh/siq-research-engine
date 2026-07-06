@@ -30,8 +30,14 @@ def validate_extraction(extraction: ExtractionResult) -> ValidationResult:
     summary = {status.value: 0 for status in CheckStatus}
     for check in checks:
         summary[check.status.value] = summary.get(check.status.value, 0) + 1
-    overall = CheckStatus.FAIL if summary.get(CheckStatus.FAIL.value) else (
-        CheckStatus.PASS if summary.get(CheckStatus.PASS.value) else CheckStatus.SKIPPED
+    overall = (
+        CheckStatus.FAIL
+        if summary.get(CheckStatus.FAIL.value)
+        else (
+            CheckStatus.WARNING
+            if summary.get(CheckStatus.WARNING.value)
+            else (CheckStatus.PASS if summary.get(CheckStatus.PASS.value) else CheckStatus.SKIPPED)
+        )
     )
     warnings = list(extraction.warnings)
     profile = get_industry_profile(extraction.industry_profile)
@@ -86,7 +92,7 @@ def _required_statement_checks(extraction: ExtractionResult) -> list[ValidationC
         if present:
             status = CheckStatus.PASS
         else:
-            status = _missing_statement_status(extraction.report_type, extraction.report_form, market=extraction.market)
+            status = _missing_statement_status_for_extraction(extraction, statement_type)
         checks.append(
             ValidationCheck(
                 rule_id=f"required.statement.{statement_type.value}",
@@ -799,6 +805,30 @@ def _missing_statement_status(report_type: str | None, report_form: str | None, 
     return CheckStatus.SKIPPED
 
 
+def _missing_statement_status_for_extraction(extraction: ExtractionResult, statement_type: StatementType | None = None) -> CheckStatus:
+    status = _missing_statement_status(extraction.report_type, extraction.report_form, market=extraction.market)
+    if status != CheckStatus.FAIL:
+        return status
+    if extraction.market in {Market.EU, Market.KR} and _parser_coverage_incomplete_for_required_statements(extraction):
+        return CheckStatus.WARNING
+    return status
+
+
+def _parser_coverage_incomplete_for_required_statements(extraction: ExtractionResult) -> bool:
+    if extraction.statements:
+        return False
+    warning_text = " ".join(str(item or "") for item in extraction.warnings).lower()
+    return any(
+        token in warning_text
+        for token in (
+            "no mapped financial facts were extracted",
+            "未确认完整结构化",
+            "parser table quality",
+            "parser coverage incomplete",
+        )
+    )
+
+
 def _missing_statement_reason(extraction: ExtractionResult, status: CheckStatus, statement_type: StatementType | None = None) -> str:
     if extraction.market == Market.JP:
         if status == CheckStatus.SKIPPED:
@@ -806,6 +836,8 @@ def _missing_statement_reason(extraction: ExtractionResult, status: CheckStatus,
         if statement_type is not None and any(statement.statement_type == statement_type for statement in extraction.statements):
             return "statement_only_summary_or_note_facts_found_for_jp_annual_report"
         return "statement_not_extracted_or_not_located_for_jp_report"
+    if extraction.market in {Market.EU, Market.KR} and status == CheckStatus.WARNING:
+        return f"statement_not_extracted_or_parser_coverage_incomplete_for_{extraction.market.value.lower()}_report"
     return "statement_missing_for_report_type"
 
 

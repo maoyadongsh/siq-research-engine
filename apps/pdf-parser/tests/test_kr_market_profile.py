@@ -2,6 +2,7 @@ import kr_market_profile as kr
 
 
 def test_detect_market_prefers_explicit_task_market_and_filename():
+    assert kr.KR_PROFILE_RULE_VERSION == "kr-pdf-profile-v2"
     assert kr.is_kr_market({"submit_config": {"market": "KR"}}, "anything.pdf")
     assert kr.is_kr_market({"market": "kr"}, "anything.pdf")
     assert kr.is_kr_market({}, "Samsung-Electronics-Co.,-Ltd_KR_005930_2025.pdf")
@@ -91,6 +92,37 @@ def test_kr_candidate_groups_prefer_financial_statement_zone_over_business_or_no
 
     assert candidates["Consolidated Statement of Financial Position"][0]["table_index"] == 62
     assert candidates["Consolidated Statement of Profit or Loss"][0]["table_index"] == 63
+
+
+def test_kr_candidate_groups_ignore_contents_table_and_accept_cash_flow_ocr_variants():
+    table_index = [
+        {
+            "table_index": 16,
+            "line": 271,
+            "preview": "1. 연결재무상태표 20 2. 연결포괄손익계산서 21 3. 연결자본변동표 22 4. 연결한금흐를표 24 5. 연결재무제표에 대한 주석 25 10. 현금흐를표 30",
+            "rows": 11,
+            "numeric_ratio": 1.0,
+        },
+        {
+            "table_index": 44,
+            "line": 482,
+            "preview": "과목 제 48(단)기 제 48(단)기 III. 재무활동으로 대한 현금초를 4,681,592,250,005 1,065,666,102,189 단가차입금의 증가",
+            "rows": 8,
+            "numeric_ratio": 0.7,
+        },
+        {
+            "table_index": 50,
+            "line": 519,
+            "preview": "과적 제 49 (단)가 제 48 (단)가 III. 제부활동으로 대한 현금조율 4,672,139,044,974 1,047,337,253,887",
+            "rows": 8,
+            "numeric_ratio": 0.7,
+        },
+    ]
+
+    candidates = kr.group_kr_key_table_candidates(table_index)
+
+    assert "Consolidated Statement of Financial Position" not in candidates
+    assert candidates["Consolidated Statement of Cash Flows"][0]["table_index"] == 44
 
 
 def test_kr_quality_messages_and_checks_do_not_use_a_share_missing_table_warnings():

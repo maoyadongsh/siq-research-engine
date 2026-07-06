@@ -47,6 +47,36 @@ def test_candidate_pool_keeps_manual_unknown_codes():
     assert pool[1] == {"market": "KR", "ticker": "123456", "industry": "manual", "name": "123456"}
 
 
+def test_candidate_pool_uses_manual_company_name_for_single_unknown_code():
+    pool = kr_download._candidate_pool(["028260"], company_name="Samsung C&T Corporation")
+
+    assert pool == [
+        {
+            "market": "KR",
+            "ticker": "028260",
+            "industry": "manual",
+            "name": "Samsung C&T Corporation",
+        }
+    ]
+
+
+def test_company_for_seed_accepts_manual_kr_ticker_outside_catalog():
+    company = kr_download._company_for_seed(
+        {
+            "market": "KR",
+            "ticker": "028260",
+            "industry": "construction / trading",
+            "name": "Samsung C&T Corporation",
+        }
+    )
+
+    assert company.market.value == "KR"
+    assert company.ticker == "028260"
+    assert company.company_name == "Samsung C&T Corporation"
+    assert company.match_reason == "manual_kr_ticker"
+    assert company.metadata["stock_code"] == "028260"
+
+
 def test_partition_candidate_pool_marks_requested_skips_for_manifest():
     pool = [
         {"market": "KR", "ticker": "005930", "name": "Samsung Electronics Co., Ltd."},
@@ -217,7 +247,7 @@ def test_main_counts_only_active_candidates_and_records_skips(tmp_path: Path, mo
     monkeypatch.setattr(
         kr_download,
         "_candidate_pool",
-        lambda include_codes: [
+        lambda include_codes, company_name=None: [
             {"market": "KR", "ticker": "005930", "name": "Samsung Electronics Co., Ltd."},
             {"market": "KR", "ticker": "000660", "name": "SK hynix Inc."},
             {"market": "KR", "ticker": "373220", "name": "LG Energy Solution, Ltd."},
@@ -287,7 +317,7 @@ def test_main_errors_when_explicit_target_exceeds_active_candidates_after_skips(
     monkeypatch.setattr(
         kr_download,
         "_candidate_pool",
-        lambda include_codes: [
+        lambda include_codes, company_name=None: [
             {"market": "KR", "ticker": "005930", "name": "Samsung Electronics Co., Ltd."},
             {"market": "KR", "ticker": "000660", "name": "SK hynix Inc."},
             {"market": "KR", "ticker": "373220", "name": "LG Energy Solution, Ltd."},

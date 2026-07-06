@@ -40,6 +40,11 @@ CORE_STATEMENT_KEYWORDS = (
     "연결 손익계산서",
     "연결 포괄손익계산서",
     "연결 현금흐름표",
+    "연결 한금흐를표",
+    "연결한금흐를표",
+    "현금흐를표",
+    "현금초를",
+    "현금조율",
     "연결 자본변동표",
     "요약재무정보",
 )
@@ -465,9 +470,11 @@ def _statement_title(title: str | None, meta: dict[str, Any]) -> str | None:
     for value in meta.get("source_caption") or []:
         parts.append(str(value))
     text = " ".join(parts)
+    if _looks_like_kr_statement_contents_table(text):
+        return None
     if any(token in text for token in ("재무상태표", "Statement of Financial Position", "Balance Sheet")):
         return "연결 재무상태표"
-    if any(token in text for token in ("현금흐름표", "Statement of Cash Flows", "Cash Flows")):
+    if any(token in text for token in ("현금흐름표", "현금흐를표", "현금초를", "현금조율", "한금흐를표", "Statement of Cash Flows", "Cash Flows")):
         return "연결 현금흐름표"
     if any(token in text for token in ("손익계산서", "포괄손익계산서", "Statement of Profit or Loss", "Comprehensive Income")):
         return "연결 포괄손익계산서"
@@ -477,13 +484,36 @@ def _statement_title(title: str | None, meta: dict[str, Any]) -> str | None:
 def _statement_type_hint(title: str | None, raw: dict[str, Any], rows: list[list[str]]) -> str | None:
     text = " ".join([str(title or ""), str(raw.get("heading") or ""), str(raw.get("preview") or "")])
     compact = re.sub(r"\s+", "", text)
+    if _looks_like_kr_statement_contents_table(text):
+        return None
     if "재무상태표" in compact or "BalanceSheet" in compact or "FinancialPosition" in compact:
         return "balance_sheet"
-    if "현금흐름표" in compact or "CashFlows" in compact:
+    if any(token in compact for token in ("현금흐름표", "현금흐를표", "한금흐를표", "현금초를", "현금조율")) or "CashFlows" in compact:
         return "cash_flow_statement"
     if "손익계산서" in compact or "포괄손익계산서" in compact or "ProfitorLoss" in compact or "ComprehensiveIncome" in compact:
         return "income_statement"
     return None
+
+
+def _looks_like_kr_statement_contents_table(text: str) -> bool:
+    compact = re.sub(r"\s+", "", str(text or ""))
+    core_hits = sum(
+        1
+        for marker in (
+            "연결재무상태표",
+            "연결손익계산서",
+            "연결포괄손익계산서",
+            "연결자본변동표",
+            "연결현금흐름표",
+            "연결한금흐를표",
+            "현금흐를표",
+            "재무제표에대한주석",
+        )
+        if marker in compact
+    )
+    if core_hits < 4:
+        return False
+    return not any(marker in compact for marker in ("유동자산", "비유동자산", "매출액", "영업이익", "영업활동", "투자활동", "재무활동", "자본금"))
 
 
 def _unit_from_table(title: str | None, raw: dict[str, Any], rows: list[list[str]]) -> str | None:
