@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from .models import ParsedTable, StatementType
@@ -59,7 +60,9 @@ STATEMENT_TITLE_ALIASES: dict[StatementType, tuple[str, ...]] = {
         "综合现金流量表",
         "綜合現金流量表",
         "連結キャッシュフロー計算書",
+        "連結キャッシュ・フロー計算書",
         "キャッシュフロー計算書",
+        "キャッシュ・フロー計算書",
         "현금흐름표",
         "연결현금흐름표",
     ),
@@ -144,8 +147,11 @@ STATEMENT_ROW_SIGNALS: dict[StatementType, tuple[str, ...]] = {
         "期末现金及现金等价物",
         "期末現金及現金等價物",
         "営業活動によるキャッシュフロー",
+        "営業活動によるキャッシュ・フロー",
         "投資活動によるキャッシュフロー",
+        "投資活動によるキャッシュ・フロー",
         "財務活動によるキャッシュフロー",
+        "財務活動によるキャッシュ・フロー",
         "영업활동현금흐름",
         "영업활동으로부터의 현금흐름",
         "투자활동현금흐름",
@@ -180,6 +186,7 @@ def detect_statement_type_from_rows(rows: list[list[Any]]) -> StatementType | No
 
 def detect_table_statement_type(table: ParsedTable) -> StatementType | None:
     raw_type = None
+    raw = table.raw if isinstance(table.raw, dict) else {}
     if isinstance(table.raw, dict):
         raw_type = table.raw.get("statement_type") or table.raw.get("financial_statement_type")
     if raw_type:
@@ -187,7 +194,52 @@ def detect_table_statement_type(table: ParsedTable) -> StatementType | None:
             return StatementType(str(raw_type))
         except ValueError:
             pass
-    return detect_statement_type_from_title(table.title) or detect_statement_type_from_rows(table.rows)
+    title_candidates = [table.title, raw.get("heading"), raw.get("title")]
+    captions = raw.get("source_caption")
+    if isinstance(captions, list):
+        title_candidates.append(" ".join(str(item or "") for item in captions))
+    elif captions:
+        title_candidates.append(str(captions))
+    title_detected = False
+    for title in title_candidates:
+        detected = detect_statement_type_from_title(title)
+        if detected:
+            title_detected = True
+            return detected
+    if any(_looks_like_summary_title(title) for title in title_candidates):
+        return None
+    detected_from_rows = detect_statement_type_from_rows(table.rows)
+    if detected_from_rows and not title_detected and _looks_like_multi_year_summary_table(table):
+        return None
+    return detected_from_rows
+
+
+def _looks_like_multi_year_summary_table(table: ParsedTable) -> bool:
+    max_width = max((len(row) for row in table.rows[:8]), default=0)
+    if max_width < 5:
+        return False
+    head = " ".join(" ".join(str(cell or "") for cell in row[:8]) for row in table.rows[:4])
+    compact = compact_label(head)
+    year_hits = len(set(re.findall(r"(?:20\d{2}|fy\d{2,4})", head, flags=re.I)))
+    fiscal_label = any(token in compact for token in ("事業年度", "年度", "fiscalyear", "yearsended"))
+    return fiscal_label and year_hits >= 4
+
+
+def _looks_like_summary_title(title: Any) -> bool:
+    normalized = normalize_label(title)
+    if not normalized:
+        return False
+    return any(
+        token in normalized
+        for token in (
+            "financial summary",
+            "financial highlights",
+            "selected financial data",
+            "key consolidated financial data",
+            "主要な経営指標",
+            "連結経営指標",
+        )
+    )
 
 
 def _best_score(scores: dict[StatementType, int], minimum: int = 1) -> StatementType | None:

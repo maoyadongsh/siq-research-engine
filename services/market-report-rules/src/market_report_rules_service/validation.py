@@ -79,14 +79,14 @@ def _required_metric_checks(extraction: ExtractionResult, facts: list[ExtractedF
 
 
 def _required_statement_checks(extraction: ExtractionResult) -> list[ValidationCheck]:
-    present = {statement.statement_type for statement in extraction.statements}
     checks: list[ValidationCheck] = []
     required = (StatementType.BALANCE_SHEET, StatementType.INCOME_STATEMENT, StatementType.CASH_FLOW_STATEMENT)
     for statement_type in required:
-        if statement_type in present:
+        present = _required_statement_present(extraction, statement_type)
+        if present:
             status = CheckStatus.PASS
         else:
-            status = _missing_statement_status(extraction.report_type, extraction.report_form)
+            status = _missing_statement_status(extraction.report_type, extraction.report_form, market=extraction.market)
         checks.append(
             ValidationCheck(
                 rule_id=f"required.statement.{statement_type.value}",
@@ -95,12 +95,36 @@ def _required_statement_checks(extraction: ExtractionResult) -> list[ValidationC
                 period=extraction.period_end.isoformat() if extraction.period_end else None,
                 status=status,
                 inputs=[statement_type.value],
-                left={"statement_type": statement_type.value, "present": statement_type in present},
+                left={"statement_type": statement_type.value, "present": present},
                 right={"report_type": extraction.report_type, "report_form": extraction.report_form},
-                reason=None if status == CheckStatus.PASS else "statement_missing_for_report_type",
+                reason=None if status == CheckStatus.PASS else _missing_statement_reason(extraction, status, statement_type),
             )
         )
     return checks
+
+
+def _required_statement_present(extraction: ExtractionResult, statement_type: StatementType) -> bool:
+    statements = [statement for statement in extraction.statements if statement.statement_type == statement_type]
+    if extraction.market != Market.JP:
+        return bool(statements)
+    report_text = f"{extraction.report_type or ''} {extraction.report_form or ''}".lower()
+    if any(token in report_text for token in ("integrated", "highlights", "summary")):
+        return bool(statements)
+    for statement in statements:
+        for fact in statement.items:
+            if _jp_fact_is_formal_statement_fact(fact, statement_type):
+                return True
+    return False
+
+
+def _jp_fact_is_formal_statement_fact(fact: ExtractedFact, statement_type: StatementType) -> bool:
+    if fact.evidence.source_type in {"edinet_xbrl_fact", "xbrl_fact", "api_fact"}:
+        return True
+    raw = fact.evidence.raw if isinstance(fact.evidence.raw, dict) else {}
+    detected = raw.get("detected_statement_type")
+    if detected == statement_type.value and not raw.get("mixed_statement_summary"):
+        return True
+    return False
 
 
 def _financial_bridge_checks(facts: list[ExtractedFact]) -> list[ValidationCheck]:
@@ -763,13 +787,26 @@ def _dimension_key(dimensions: dict[str, Any]) -> str:
     return "|".join(f"{key}={dimensions[key]}" for key in sorted(dimensions))
 
 
-def _missing_statement_status(report_type: str | None, report_form: str | None) -> CheckStatus:
+def _missing_statement_status(report_type: str | None, report_form: str | None, *, market: Market | None = None) -> CheckStatus:
     text = f"{report_type or ''} {report_form or ''}".lower()
+    if market == Market.JP:
+        if any(token in text for token in ("integrated", "highlights", "summary")):
+            return CheckStatus.SKIPPED
     if any(token in text for token in ("annual", "10-k", "20-f", "year", "年报", "年度")):
         return CheckStatus.FAIL
     if any(token in text for token in ("interim", "half", "semi", "h1", "中期", "半年")):
         return CheckStatus.WARNING
     return CheckStatus.SKIPPED
+
+
+def _missing_statement_reason(extraction: ExtractionResult, status: CheckStatus, statement_type: StatementType | None = None) -> str:
+    if extraction.market == Market.JP:
+        if status == CheckStatus.SKIPPED:
+            return "statement_not_required_for_jp_report_kind"
+        if statement_type is not None and any(statement.statement_type == statement_type for statement in extraction.statements):
+            return "statement_only_summary_or_note_facts_found_for_jp_annual_report"
+        return "statement_not_extracted_or_not_located_for_jp_report"
+    return "statement_missing_for_report_type"
 
 
 def _missing_required_metric_status(report_type: str | None, report_form: str | None) -> CheckStatus:

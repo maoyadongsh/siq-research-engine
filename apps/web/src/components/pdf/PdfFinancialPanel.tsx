@@ -4,6 +4,12 @@ import { PDF_API } from '../../features/pdf-parsing/api'
 import { formatFinancialNumber, scopeNameForMarket } from '../../lib/pdfFormatting'
 import { handleAuthenticatedSourceClick } from '../../lib/authenticatedSourceLinks'
 import { pdfFinancialPanelTitle } from './pdfMarketPanelLabels'
+import {
+  pdfFinancialCandidateText,
+  pdfFinancialCheckReasonText,
+  pdfFinancialCheckTitle,
+  pdfFinancialStatusText,
+} from './pdfFinancialDisplay'
 
 export interface PdfFinancialPanelProps {
   financial: FinancialResult
@@ -24,7 +30,7 @@ export function PdfFinancialPanel({ financial, taskId, market }: PdfFinancialPan
   const stmtCount = data?.summary?.statement_count ?? statements.length
   const keyMetricCount = data?.summary?.key_metric_count ?? metrics.length
   const scopes = (data?.summary?.scopes || []).map((scope) => scopeNameForMarket(scope, market)).join('、') || '--'
-  const statusText = status === 'pass' ? '通过' : status === 'fail' ? '存在异常' : status === 'error' ? '生成失败' : '未生成'
+  const statusText = pdfFinancialStatusText(status)
   const currencies =
     data?.detected_currencies?.length ? data.detected_currencies.join('、') : checks?.detected_currencies?.length ? checks.detected_currencies.join('、') : data?.currency || checks?.currency
   const profile = [
@@ -74,6 +80,10 @@ export function PdfFinancialPanel({ financial, taskId, market }: PdfFinancialPan
           <span>失败</span>
         </div>
         <div>
+          <strong>{summary.warning ?? 0}</strong>
+          <span>复核</span>
+        </div>
+        <div>
           <strong>{summary.skipped ?? 0}</strong>
           <span>跳过</span>
         </div>
@@ -102,9 +112,11 @@ export function PdfFinancialPanel({ financial, taskId, market }: PdfFinancialPan
           {failures.length ? (
             failures.map((f, i) => (
               <li key={i}>
-                <b>{String(f.rule_name || f.rule_id || '校验失败')}</b> · {scopeNameForMarket(String(f.scope), market)} · {String(f.period || '--')}
+                <b>{pdfFinancialCheckTitle(f, market)}</b> · {scopeNameForMarket(String(f.scope), market)} · {String(f.period || '--')}
                 {f.diff !== undefined ? ` · 差异 ${formatFinancialNumber(Number(f.diff))}` : ''}
                 {f.tolerance !== undefined ? ` / 容差 ${formatFinancialNumber(Number(f.tolerance))}` : ''}
+                {pdfFinancialCheckReasonText(f, market) ? ` · ${pdfFinancialCheckReasonText(f, market)}` : ''}
+                {pdfFinancialCandidateText(f) ? ` · ${pdfFinancialCandidateText(f)}` : ''}
               </li>
             ))
           ) : (

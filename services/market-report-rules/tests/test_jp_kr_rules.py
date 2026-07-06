@@ -1,8 +1,82 @@
 from decimal import Decimal
 
 from market_report_rules_service.contracts import financial_data_contract
+from market_report_rules_service.markets.jp.rules import find_jp_label_rule
 from market_report_rules_service.models import Market, ParsedArtifact, ParsedTable
 from market_report_rules_service.pipeline import process_artifact
+from market_report_rules_service.statement_detection import detect_table_statement_type
+
+
+def test_jp_label_rules_do_not_promote_detail_subtotals_to_statement_totals():
+    assert find_jp_label_rule("資産合計").canonical_name == "total_assets"
+    assert find_jp_label_rule("投資その他の資産合計") is None
+    assert find_jp_label_rule("営業収益").canonical_name == "operating_revenue"
+    assert find_jp_label_rule("営業外収益") is None
+
+
+def test_jp_statement_detection_distinguishes_summary_and_formal_cash_flow_tables():
+    summary_table = ParsedTable(
+        table_id="summary",
+        table_index=2,
+        rows=[
+            ["事業年度", "2020年度", "2021年度", "2022年度", "2023年度", "2024年度"],
+            ["営業活動によるキャッシュ・フロー", "207,414", "280,090", "269,914", "307,249", "324,116"],
+            ["投資活動によるキャッシュ・フロー", "△297,303", "△313,778", "△312,046", "△362,017", "△361,505"],
+            ["財務活動によるキャッシュ・フロー", "82,888", "3,449", "26,572", "100,433", "12,871"],
+        ],
+    )
+    formal_table = ParsedTable(
+        table_id="formal-cf",
+        table_index=93,
+        rows=[
+            ["", "前連結会計年度(自 2023年4月1日至 2024年3月31日)", "当連結会計年度(自 2024年4月1日至 2025年3月31日)"],
+            ["営業活動によるキャッシュ・フロー", "307,249", "324,116"],
+            ["投資活動によるキャッシュ・フロー", "△362,017", "△361,505"],
+            ["財務活動によるキャッシュ・フロー", "100,433", "12,871"],
+        ],
+    )
+
+    assert detect_table_statement_type(summary_table) is None
+    assert detect_table_statement_type(formal_table) == "cash_flow_statement"
+
+
+def test_jp_annual_required_statements_require_formal_statement_sources():
+    artifact = ParsedArtifact(
+        artifact_id="jp-summary-only-annual",
+        market=Market.JP,
+        company_id="JP:8802",
+        ticker="8802",
+        company_name="Summary Only Co.",
+        report_type="annual_securities_report",
+        report_form="有価証券報告書",
+        fiscal_year=2025,
+        period_end="2025-03-31",
+        currency="JPY",
+        tables=[
+            ParsedTable(
+                table_id="summary",
+                table_index=2,
+                page_number=2,
+                rows=[
+                    ["事業年度", "2023年度", "2024年度"],
+                    ["営業収益", "(百万円)", "1,504,687", "1,579,812"],
+                    ["親会社株主に帰属する当期純利益", "(百万円)", "168,432", "189,356"],
+                    ["総資産", "(百万円)", "7,583,748", "7,996,591"],
+                    ["営業活動によるキャッシュ・フロー", "(百万円)", "307,249", "324,116"],
+                ],
+            )
+        ],
+    )
+
+    result = process_artifact(artifact)
+    required = [
+        check
+        for check in result.validation.checks
+        if check.rule_id.startswith("required.statement.")
+    ]
+
+    assert {check.status for check in required} == {"fail"}
+    assert {check.reason for check in required} == {"statement_only_summary_or_note_facts_found_for_jp_annual_report"}
 
 
 def test_jp_edinet_xbrl_extracts_structured_facts_to_jp_schema():

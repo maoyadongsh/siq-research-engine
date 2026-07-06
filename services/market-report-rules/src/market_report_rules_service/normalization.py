@@ -50,13 +50,21 @@ def parse_decimal(value: Any) -> Decimal | None:
         return None
 
     negative = False
+    if re.match(r"^\s*[△▲]", text):
+        negative = True
+        text = re.sub(r"^\s*[△▲]\s*", "", text)
     if re.fullmatch(r"\(.+\)", text):
         negative = True
         text = text[1:-1]
 
     text = text.replace("\u2212", "-").replace("\u2013", "-").replace("\u2014", "-")
+    text = re.sub(r"^\s*(?:[*＊※]\s*\d+[A-Za-z]?|[†‡]+)\s*", "", text)
+    text = re.sub(r"(?i)^\s*(?:note|注)\s*\d+[:：.)）]?\s*", "", text)
     text = re.sub(r"(?i)(hk\$|us\$|rmb|cny|hkd|usd|eur|gbp|chf|jpy|krw|yen|\$|£|€|元|港元|美元)", "", text)
     text = re.sub(r"(?i)(million|billion|thousand|mn|bn|m|k)", "", text)
+    text = re.sub(r"(百万円|百万元|百萬|百万|千円|千元|億円|亿元|億元|円)", "", text)
+    if re.search(r"[A-Za-z\u3040-\u30ff\u4e00-\u9fff\uac00-\ud7af]", text):
+        return None
     text = text.replace(",", "").replace("'", "").replace("%", "").strip()
     text = re.sub(r"[^0-9.\-+]", "", text)
     if text in _EMPTY_VALUES or text in {"-", "+", ".", "-.", "+."}:
@@ -87,6 +95,13 @@ def parse_date(value: Any) -> date | None:
             return date(year, month, day)
         except ValueError:
             return None
+    jp_matches = re.findall(r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日", text)
+    for parts in reversed(jp_matches):
+        year, month, day = (int(part) for part in parts)
+        try:
+            return date(year, month, day)
+        except ValueError:
+            continue
     return None
 
 

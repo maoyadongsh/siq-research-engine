@@ -133,7 +133,8 @@ def _extract_table_facts(
     table_seen: set[tuple[str, str, int | None, int, int]] = set()
     previous_header_periods: _PeriodColumns | None = None
     previous_header_page: int | None = None
-    for table in tables:
+    table_units = [table.unit or _unit_from_table(table) for table in tables]
+    for table_position, table in enumerate(tables):
         detected_statement_type = detect_table_statement_type(table)
         if _is_non_primary_statement_table(table, detected_statement_type):
             continue
@@ -145,8 +146,17 @@ def _extract_table_facts(
             and previous_header_page == table.page_number
         ):
             period_columns = previous_header_periods.without_header_rows("inherited")
-        mixed_statement_summary = spec.allow_mixed_statement_summary_tables and _is_mixed_statement_summary_table(table, spec.find_label_rule)
-        table_unit = table.unit or _unit_from_table(table) or artifact.unit
+        mixed_statement_summary = (
+            detected_statement_type is None
+            and spec.allow_mixed_statement_summary_tables
+            and _is_mixed_statement_summary_table(table, spec.find_label_rule)
+        )
+        table_unit = table_units[table_position] or _adjacent_statement_table_unit(
+            tables,
+            table_units,
+            table_position,
+            detected_statement_type,
+        ) or artifact.unit
         table_currency = infer_currency(table.currency, table_unit, table.title, artifact.currency, default=artifact.currency or spec.default_currency)
         for row_index, row in enumerate(table.rows):
             if len(row) < 2 or row_index in period_columns.header_rows:
@@ -225,6 +235,31 @@ def _extract_table_facts(
             previous_header_periods = period_columns.without_header_rows("header")
             previous_header_page = table.page_number
     return extracted
+
+
+def _adjacent_statement_table_unit(
+    tables: list[ParsedTable],
+    table_units: list[str | None],
+    table_position: int,
+    detected_statement_type: StatementType | None,
+) -> str | None:
+    table = tables[table_position]
+    for offset in (-1, 1):
+        neighbor_position = table_position + offset
+        if neighbor_position < 0 or neighbor_position >= len(tables):
+            continue
+        unit = table_units[neighbor_position]
+        if not unit:
+            continue
+        neighbor = tables[neighbor_position]
+        if table.page_number and neighbor.page_number and abs(table.page_number - neighbor.page_number) > 1:
+            continue
+        neighbor_statement_type = detect_table_statement_type(neighbor)
+        if detected_statement_type and neighbor_statement_type in {None, detected_statement_type}:
+            return unit
+        if detected_statement_type is None and neighbor_statement_type:
+            return unit
+    return None
 
 
 def _derive_hybrid_facts(facts: list[ExtractedFact], artifact: ParsedArtifact, spec: HybridMarketSpec) -> list[ExtractedFact]:
@@ -380,6 +415,12 @@ def _period_from_header_cell(cell: Any, artifact: ParsedArtifact, statement_type
     if not year_match:
         return None
     year = int(year_match.group(1))
+    is_fiscal_year_label = bool(re.search(r"年度|\bfy\s*20\d{2}\b|\bfy\d{2,4}\b", text, flags=re.I))
+    if is_fiscal_year_label and artifact.period_end:
+        if artifact.period_end.month <= 6:
+            return artifact.period_end.replace(year=year + 1).isoformat()
+        if artifact.period_end.year == year:
+            return artifact.period_end.isoformat()
     if statement_type == StatementType.BALANCE_SHEET and artifact.period_end:
         return artifact.period_end.replace(year=year).isoformat()
     if artifact.period_end and artifact.period_end.year == year:
@@ -450,6 +491,8 @@ def _looks_like_value_cell(text: str) -> bool:
     stripped = str(text or "").strip()
     if not stripped:
         return False
+    if parse_decimal(stripped) is not None:
+        return True
     if re.fullmatch(r"[-+()]?[¥$€£]?\s*[0-9][0-9,]*(?:\.[0-9]+)?%?[)]?", stripped):
         return True
     return bool(re.fullmatch(r"[-+()]?[0-9][0-9,]*(?:\.[0-9]+)?\s*(?:million|billion|thousand|mn|bn)?[)]?", stripped, flags=re.I))

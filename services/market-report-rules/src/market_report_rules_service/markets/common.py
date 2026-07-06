@@ -115,14 +115,20 @@ def extract_operating_metrics_from_tables(
         table_unit = table.unit or artifact.unit
         table_currency = infer_currency(table.currency, table.unit, table.title, artifact.currency, default=artifact.currency)
         scale = infer_scale(table_unit)
+        context_rule = None
         for row_index, row in enumerate(table.rows):
             if len(row) < 2:
                 continue
             label = str(row[0] or "").strip()
             rule = find_operating_metric_rule(label, artifact.market, artifact.industry_profile)
+            value, column_index = first_numeric_cell(row[1:])
+            if rule and value is None:
+                context_rule = rule
+                continue
+            if not rule:
+                rule = context_rule
             if not rule:
                 continue
-            value, column_index = first_numeric_cell(row[1:])
             if value is None:
                 continue
             metric_period = table_period_key(artifact, table)

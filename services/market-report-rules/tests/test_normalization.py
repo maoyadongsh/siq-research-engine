@@ -7,6 +7,7 @@ def test_parse_date_accepts_common_formats():
     assert parse_date("2026-03-31").isoformat() == "2026-03-31"
     assert parse_date("2026/03/31").isoformat() == "2026-03-31"
     assert parse_date("20260331").isoformat() == "2026-03-31"
+    assert parse_date("当連結会計年度(自 2024年4月1日 至 2025年3月31日)").isoformat() == "2025-03-31"
 
 
 def test_parse_date_ignores_invalid_embedded_date_like_text():
@@ -17,6 +18,8 @@ def test_parse_date_ignores_invalid_embedded_date_like_text():
 def test_parse_decimal_handles_accounting_format():
     assert parse_decimal("(1,234.50)") == Decimal("-1234.50")
     assert parse_decimal("HK$ 2,000 million") == Decimal("2000")
+    assert parse_decimal("*5 273,951") == Decimal("273951")
+    assert parse_decimal("△204百万円") == Decimal("-204")
     assert parse_decimal("-") is None
 
 

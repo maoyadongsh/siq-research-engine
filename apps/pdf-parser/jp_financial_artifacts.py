@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from typing import Any
@@ -73,7 +74,13 @@ def build_jp_financial_artifacts(
         }
     )
     financial_checks["warnings"] = _normalize_jp_warnings(financial_checks.get("warnings") or [])
+    financial_checks = _annotate_jp_statement_presence(
+        financial_checks,
+        quality_report=_read_json(result_dir / "quality_report.json", {}),
+        report_kind=report_kind,
+    )
     financial_checks["summary"] = _checks_summary(financial_checks.get("checks") or [])
+    financial_checks["overall_status"] = _checks_overall_status(financial_checks["summary"])
     return financial_data, financial_checks
 
 
@@ -123,6 +130,16 @@ def _checks_summary(checks: list[dict[str, Any]]) -> dict[str, int]:
     return summary
 
 
+def _checks_overall_status(summary: dict[str, int]) -> str:
+    if summary.get("fail"):
+        return "fail"
+    if summary.get("pass"):
+        return "pass"
+    if summary.get("warning"):
+        return "warning"
+    return "skipped"
+
+
 def _normalize_jp_warnings(warnings: list[Any]) -> list[str]:
     normalized: list[str] = []
     replacements = {
@@ -136,3 +153,80 @@ def _normalize_jp_warnings(warnings: list[Any]) -> list[str]:
         if text not in normalized:
             normalized.append(text)
     return normalized
+
+
+_STATEMENT_CANDIDATE_NAMES = {
+    "balance_sheet": "Consolidated Statement of Financial Position",
+    "income_statement": "Consolidated Statement of Profit or Loss",
+    "cash_flow_statement": "Consolidated Statement of Cash Flows",
+}
+
+
+def _read_json(path: Path, default: Any) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else default
+    except (OSError, json.JSONDecodeError):
+        return default
+
+
+def _annotate_jp_statement_presence(
+    checks: dict[str, Any],
+    *,
+    quality_report: dict[str, Any],
+    report_kind: str,
+) -> dict[str, Any]:
+    rows = checks.get("checks") if isinstance(checks.get("checks"), list) else []
+    candidate_by_name = _jp_quality_candidates_by_name(quality_report)
+    is_summary_report = report_kind in {"jp_integrated_report", "jp_financial_highlights_only"}
+    for check in rows:
+        if not isinstance(check, dict) or not str(check.get("rule_id") or "").startswith("required.statement."):
+            continue
+        if check.get("status") == "pass":
+            continue
+        statement_type = str((check.get("left") or {}).get("statement_type") or check.get("inputs", [""])[0])
+        candidate_name = _STATEMENT_CANDIDATE_NAMES.get(statement_type)
+        candidate = candidate_by_name.get(candidate_name or "")
+        right = check.setdefault("right", {})
+        raw = check.setdefault("raw", {})
+        if is_summary_report:
+            check["status"] = "skipped"
+            check["reason"] = "statement_not_required_for_jp_report_kind"
+            right["jp_statement_presence"] = "not_required"
+            continue
+        if candidate:
+            check["reason"] = "statement_candidate_found_but_not_structured"
+            right["jp_statement_presence"] = "candidate_found"
+            raw["jp_candidate"] = _compact_candidate(candidate)
+        else:
+            check["reason"] = "statement_not_located_in_jp_quality_scan"
+            right["jp_statement_presence"] = "not_located"
+    return checks
+
+
+def _jp_quality_candidates_by_name(quality_report: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    candidates: dict[str, dict[str, Any]] = {}
+    key_table_candidates = quality_report.get("key_table_candidates") if isinstance(quality_report, dict) else {}
+    if isinstance(key_table_candidates, dict):
+        for name, rows in key_table_candidates.items():
+            if isinstance(rows, list) and rows:
+                candidates[str(name)] = rows[0]
+    for row in quality_report.get("core_financial_table_candidates") or []:
+        if not isinstance(row, dict) or row.get("status") != "found" or not row.get("name"):
+            continue
+        candidates.setdefault(str(row["name"]), row)
+    return candidates
+
+
+def _compact_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
+    keys = (
+        "name",
+        "table_index",
+        "line",
+        "pdf_page_number",
+        "confidence",
+        "candidate_score",
+        "heading",
+        "source_caption",
+        "preview",
+    )
+    return {key: candidate.get(key) for key in keys if candidate.get(key) is not None}
