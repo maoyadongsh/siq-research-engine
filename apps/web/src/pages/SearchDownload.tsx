@@ -29,7 +29,10 @@ import {
   smartSearchPlaceholderForMarket,
 } from '../features/search-download/display'
 import { DownloadedReportsPanel } from '../features/search-download/DownloadedReportsPanel'
-import { type SearchDownloadLogEntry } from '../features/search-download/logs'
+import {
+  buildQueryFailureLogMessage,
+  type SearchDownloadLogEntry,
+} from '../features/search-download/logs'
 import {
   buildAllDownloadsFinishedLog,
   buildBatchDownloadCompleteLog,
@@ -293,7 +296,7 @@ export default function SearchDownload() {
         })
       }
     } catch (e) {
-      addLog((e as Error).message, 'error')
+      addLog(`智能解析失败: ${buildQueryFailureLogMessage((e as Error).message, market)}`, 'error')
     } finally {
       setAssistLoading(false)
     }
@@ -457,7 +460,9 @@ export default function SearchDownload() {
       )
     } catch (e) {
       const rawMessage = (e as Error).message
-      const message = isRemoteConfigError(rawMessage) ? friendlyRemoteConfigError(rawMessage) : rawMessage
+      const message = isRemoteConfigError(rawMessage)
+        ? friendlyRemoteConfigError(rawMessage)
+        : buildQueryFailureLogMessage(rawMessage, targetMarket)
       if (isRemoteConfigError(rawMessage)) setMarketConfigWarning(message)
       addLog(`查询失败: ${message}`, isRemoteConfigError(rawMessage) ? 'warn' : 'error')
     } finally {

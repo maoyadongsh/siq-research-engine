@@ -79,6 +79,19 @@ def test_assist_maps_chinese_us_company_alias_to_identifier():
     assert result.intent.report_types == ["annual"]
 
 
+def test_assist_maps_nvidia_chinese_alias_to_identifier():
+    service = ReportAssistService()
+
+    result = service.assist(ReportAssistRequest(prompt="下载英伟达 2025 年年报", market=Market.us))
+
+    assert result.intent.market == Market.us
+    assert result.intent.company_query == "NVIDIA CORP"
+    assert result.intent.ticker == "NVDA"
+    assert result.intent.company_id == "0001045810"
+    assert result.intent.report_year == 2025
+    assert result.intent.report_types == ["annual"]
+
+
 def test_assist_maps_chinese_eu_company_alias_to_identifier():
     service = ReportAssistService()
 

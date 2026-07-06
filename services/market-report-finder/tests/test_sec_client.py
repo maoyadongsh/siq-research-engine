@@ -32,6 +32,33 @@ def test_company_candidates_from_ticker_payload_supports_chinese_us_alias():
     assert candidates[0].aliases == ["苹果"]
 
 
+def test_company_candidates_from_ticker_payload_supports_nvidia_chinese_alias():
+    client = SecClient()
+    payload = {
+        "0": {"cik_str": 1045810, "ticker": "NVDA", "title": "NVIDIA CORP"},
+        "1": {"cik_str": 1018724, "ticker": "AMZN", "title": "Amazon.com, Inc."},
+    }
+
+    candidates = client._company_candidates_from_ticker_payload(payload, company_name="英伟达")
+
+    assert candidates[0].ticker == "NVDA"
+    assert candidates[0].cik == "1045810"
+    assert candidates[0].confidence == 1.0
+    assert candidates[0].match_reason == "foreign_alias_cik"
+
+
+def test_company_candidates_from_ticker_payload_normalizes_sec_hyphen_ticker():
+    client = SecClient()
+    payload = {
+        "0": {"cik_str": 1067983, "ticker": "BRK-B", "title": "BERKSHIRE HATHAWAY INC"},
+    }
+
+    candidates = client._company_candidates_from_ticker_payload(payload, ticker="BRK.B")
+
+    assert candidates[0].ticker == "BRK-B"
+    assert candidates[0].confidence == 0.99
+
+
 def test_build_candidates_from_recent_payload_maps_sec_forms():
     client = SecClient()
     company = CompanyEntity(

@@ -47,7 +47,10 @@ class SecClient:
         )
         if not candidates:
             query = ticker or company_name or ""
-            raise ValueError(f"SEC company ticker catalog did not match: {query}")
+            raise ValueError(
+                f"SEC company ticker catalog did not match: {query}. "
+                "未能识别该美股公司，请直接输入准确的股票代码或 CIK，例如 NVDA 或 0001045810。"
+            )
         return candidates[0], candidates
 
     def company_tickers(self) -> dict:
@@ -192,6 +195,13 @@ class SecClient:
         ticker: str | None = None,
     ) -> list[CompanyEntity]:
         alias = foreign_alias_entry(Market.us.value, company_name) if company_name and not ticker else None
+        alias_cik: str | None = None
+        if alias:
+            alias_company_id = str(alias.get("company_id") or "")
+            try:
+                alias_cik = self._normalize_cik(alias_company_id)
+            except ValueError:
+                alias_cik = None
         if alias and not ticker:
             ticker = str(alias.get("ticker") or "") or None
         normalized_query = self._normalize_company_name(company_name or "")
@@ -206,8 +216,10 @@ class SecClient:
             if not row_ticker or not row_title or not row_cik:
                 continue
             score, reason = self._score_company_row(
-                row_ticker=row_ticker,
+                normalized_row_ticker=self._normalize_ticker(row_ticker),
                 row_title=row_title,
+                row_cik=row_cik,
+                alias_cik=alias_cik,
                 normalized_ticker=normalized_ticker,
                 normalized_query=normalized_query,
             )
@@ -233,13 +245,17 @@ class SecClient:
     def _score_company_row(
         self,
         *,
-        row_ticker: str,
+        normalized_row_ticker: str | None,
         row_title: str,
+        row_cik: str,
+        alias_cik: str | None,
         normalized_ticker: str | None,
         normalized_query: str,
     ) -> tuple[float, str]:
+        if alias_cik and row_cik == alias_cik:
+            return 1.0, "foreign_alias_cik"
         if normalized_ticker:
-            return (0.99, "sec_ticker_exact") if row_ticker == normalized_ticker else (-1.0, "ticker_mismatch")
+            return (0.99, "sec_ticker_exact") if normalized_row_ticker == normalized_ticker else (-1.0, "ticker_mismatch")
         if not normalized_query:
             return -1.0, "empty_query"
 

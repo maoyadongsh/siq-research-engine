@@ -5,21 +5,700 @@
       "ticker": "AAPL",
       "company_id": "0000320193",
       "canonical_name": "Apple Inc.",
-      "aliases": ["苹果", "apple", "apple inc", "apple inc."]
-    },
-    {
-      "market": "US",
-      "ticker": "AMZN",
-      "company_id": "0001018724",
-      "canonical_name": "Amazon.com, Inc.",
-      "aliases": ["亚马逊", "amazon", "amazon.com", "amazon.com inc", "amazon.com, inc."]
+      "aliases": ["苹果", "苹果公司", "apple", "apple inc", "apple inc."]
     },
     {
       "market": "US",
       "ticker": "MSFT",
       "company_id": "0000789019",
       "canonical_name": "Microsoft Corporation",
-      "aliases": ["微软", "microsoft", "microsoft corporation"]
+      "aliases": ["微软", "微软公司", "microsoft", "microsoft corporation"]
+    },
+    {
+      "market": "US",
+      "ticker": "NVDA",
+      "company_id": "0001045810",
+      "canonical_name": "NVIDIA CORP",
+      "aliases": ["英伟达", "英伟達", "辉达", "輝達", "nvidia", "nvidia corp", "nvidia corporation"]
+    },
+    {
+      "market": "US",
+      "ticker": "AMZN",
+      "company_id": "0001018724",
+      "canonical_name": "AMAZON COM INC",
+      "aliases": ["亚马逊", "亚马逊公司", "amazon", "amazon.com", "amazon.com inc", "amazon.com, inc."]
+    },
+    {
+      "market": "US",
+      "ticker": "GOOGL",
+      "company_id": "0001652044",
+      "canonical_name": "Alphabet Inc.",
+      "aliases": ["谷歌", "字母表", "alphabet", "alphabet inc", "google", "google class a", "googl", "goog"]
+    },
+    {
+      "market": "US",
+      "ticker": "META",
+      "company_id": "0001326801",
+      "canonical_name": "Meta Platforms, Inc.",
+      "aliases": ["meta", "脸书", "臉書", "facebook", "元宇宙平台", "meta platforms"]
+    },
+    {
+      "market": "US",
+      "ticker": "TSLA",
+      "company_id": "0001318605",
+      "canonical_name": "Tesla, Inc.",
+      "aliases": ["特斯拉", "tesla", "tesla inc"]
+    },
+    {
+      "market": "US",
+      "ticker": "AVGO",
+      "company_id": "0001730168",
+      "canonical_name": "Broadcom Inc.",
+      "aliases": ["博通", "broadcom", "broadcom inc"]
+    },
+    {
+      "market": "US",
+      "ticker": "BRK-B",
+      "company_id": "0001067983",
+      "canonical_name": "BERKSHIRE HATHAWAY INC",
+      "aliases": ["伯克希尔", "伯克希尔哈撒韦", "巴菲特公司", "berkshire", "berkshire hathaway", "brk.b", "brk-b"]
+    },
+    {
+      "market": "US",
+      "ticker": "LLY",
+      "company_id": "0000059478",
+      "canonical_name": "ELI LILLY & Co",
+      "aliases": ["礼来", "禮來", "eli lilly", "lilly"]
+    },
+    {
+      "market": "US",
+      "ticker": "JPM",
+      "company_id": "0000019617",
+      "canonical_name": "JPMORGAN CHASE & CO",
+      "aliases": ["摩根大通", "小摩", "jpmorgan", "jp morgan", "jpmorgan chase"]
+    },
+    {
+      "market": "US",
+      "ticker": "V",
+      "company_id": "0001403161",
+      "canonical_name": "VISA INC.",
+      "aliases": ["维萨", "維薩", "威士", "visa", "visa inc"]
+    },
+    {
+      "market": "US",
+      "ticker": "UNH",
+      "company_id": "0000731766",
+      "canonical_name": "UNITEDHEALTH GROUP INC",
+      "aliases": ["联合健康", "聯合健康", "联合健康集团", "unitedhealth", "unitedhealth group"]
+    },
+    {
+      "market": "US",
+      "ticker": "XOM",
+      "company_id": "0000034088",
+      "canonical_name": "EXXON MOBIL CORP",
+      "aliases": ["埃克森美孚", "艾克森美孚", "exxon", "exxon mobil", "exxonmobil"]
+    },
+    {
+      "market": "US",
+      "ticker": "MA",
+      "company_id": "0001141391",
+      "canonical_name": "Mastercard Inc",
+      "aliases": ["万事达", "萬事達", "万事达卡", "mastercard", "master card"]
+    },
+    {
+      "market": "US",
+      "ticker": "COST",
+      "company_id": "0000909832",
+      "canonical_name": "COSTCO WHOLESALE CORP /NEW",
+      "aliases": ["好市多", "开市客", "開市客", "costco", "costco wholesale"]
+    },
+    {
+      "market": "US",
+      "ticker": "NFLX",
+      "company_id": "0001065280",
+      "canonical_name": "NETFLIX INC",
+      "aliases": ["奈飞", "奈飛", "网飞", "網飛", "netflix"]
+    },
+    {
+      "market": "US",
+      "ticker": "WMT",
+      "company_id": "0000104169",
+      "canonical_name": "Walmart Inc.",
+      "aliases": ["沃尔玛", "沃爾瑪", "walmart", "wal mart"]
+    },
+    {
+      "market": "US",
+      "ticker": "PG",
+      "company_id": "0000080424",
+      "canonical_name": "PROCTER & GAMBLE Co",
+      "aliases": ["宝洁", "寶潔", "procter gamble", "procter & gamble", "p&g"]
+    },
+    {
+      "market": "US",
+      "ticker": "JNJ",
+      "company_id": "0000200406",
+      "canonical_name": "JOHNSON & JOHNSON",
+      "aliases": ["强生", "強生", "johnson johnson", "johnson & johnson"]
+    },
+    {
+      "market": "US",
+      "ticker": "HD",
+      "company_id": "0000354950",
+      "canonical_name": "HOME DEPOT, INC.",
+      "aliases": ["家得宝", "家得寶", "home depot"]
+    },
+    {
+      "market": "US",
+      "ticker": "BAC",
+      "company_id": "0000070858",
+      "canonical_name": "BANK OF AMERICA CORP /DE/",
+      "aliases": ["美国银行", "美國銀行", "美银", "美銀", "bank of america", "bofa"]
+    },
+    {
+      "market": "US",
+      "ticker": "ABBV",
+      "company_id": "0001551152",
+      "canonical_name": "AbbVie Inc.",
+      "aliases": ["艾伯维", "艾伯維", "abbvie"]
+    },
+    {
+      "market": "US",
+      "ticker": "KO",
+      "company_id": "0000021344",
+      "canonical_name": "COCA COLA CO",
+      "aliases": ["可口可乐", "可口可樂", "coca cola", "coca-cola"]
+    },
+    {
+      "market": "US",
+      "ticker": "PM",
+      "company_id": "0001413329",
+      "canonical_name": "Philip Morris International Inc.",
+      "aliases": ["菲利普莫里斯", "philip morris", "philip morris international"]
+    },
+    {
+      "market": "US",
+      "ticker": "CRM",
+      "company_id": "0001108524",
+      "canonical_name": "Salesforce, Inc.",
+      "aliases": ["赛富时", "賽富時", "salesforce", "salesforce inc"]
+    },
+    {
+      "market": "US",
+      "ticker": "CVX",
+      "company_id": "0000093410",
+      "canonical_name": "CHEVRON CORP",
+      "aliases": ["雪佛龙", "雪佛龍", "chevron"]
+    },
+    {
+      "market": "US",
+      "ticker": "ORCL",
+      "company_id": "0001341439",
+      "canonical_name": "ORACLE CORP",
+      "aliases": ["甲骨文", "oracle", "oracle corp"]
+    },
+    {
+      "market": "US",
+      "ticker": "CSCO",
+      "company_id": "0000858877",
+      "canonical_name": "CISCO SYSTEMS, INC.",
+      "aliases": ["思科", "cisco", "cisco systems"]
+    },
+    {
+      "market": "US",
+      "ticker": "IBM",
+      "company_id": "0000051143",
+      "canonical_name": "INTERNATIONAL BUSINESS MACHINES CORP",
+      "aliases": ["ibm", "国际商业机器", "國際商業機器", "international business machines"]
+    },
+    {
+      "market": "US",
+      "ticker": "GE",
+      "company_id": "0000040545",
+      "canonical_name": "GENERAL ELECTRIC CO",
+      "aliases": ["通用电气", "通用電氣", "ge", "general electric"]
+    },
+    {
+      "market": "US",
+      "ticker": "ABT",
+      "company_id": "0000001800",
+      "canonical_name": "ABBOTT LABORATORIES",
+      "aliases": ["雅培", "abbott", "abbott laboratories"]
+    },
+    {
+      "market": "US",
+      "ticker": "MCD",
+      "company_id": "0000063908",
+      "canonical_name": "MCDONALDS CORP",
+      "aliases": ["麦当劳", "麥當勞", "mcdonalds", "mcdonald's", "mcdonald"]
+    },
+    {
+      "market": "US",
+      "ticker": "WFC",
+      "company_id": "0000072971",
+      "canonical_name": "WELLS FARGO & COMPANY/MN",
+      "aliases": ["富国银行", "富國銀行", "wells fargo"]
+    },
+    {
+      "market": "US",
+      "ticker": "LIN",
+      "company_id": "0001707925",
+      "canonical_name": "LINDE PLC",
+      "aliases": ["林德", "linde", "linde plc"]
+    },
+    {
+      "market": "US",
+      "ticker": "AMD",
+      "company_id": "0000002488",
+      "canonical_name": "ADVANCED MICRO DEVICES INC",
+      "aliases": ["amd", "超威", "超微", "advanced micro devices"]
+    },
+    {
+      "market": "US",
+      "ticker": "DIS",
+      "company_id": "0001744489",
+      "canonical_name": "Walt Disney Co",
+      "aliases": ["迪士尼", "华特迪士尼", "華特迪士尼", "disney", "walt disney"]
+    },
+    {
+      "market": "US",
+      "ticker": "INTU",
+      "company_id": "0000896878",
+      "canonical_name": "INTUIT INC.",
+      "aliases": ["财捷", "財捷", "intuit"]
+    },
+    {
+      "market": "US",
+      "ticker": "MRK",
+      "company_id": "0000310158",
+      "canonical_name": "Merck & Co., Inc.",
+      "aliases": ["默沙东", "默沙東", "默克", "merck", "merck co"]
+    },
+    {
+      "market": "US",
+      "ticker": "NOW",
+      "company_id": "0001373715",
+      "canonical_name": "ServiceNow, Inc.",
+      "aliases": ["servicenow", "service now"]
+    },
+    {
+      "market": "US",
+      "ticker": "T",
+      "company_id": "0000732717",
+      "canonical_name": "AT&T INC.",
+      "aliases": ["at&t", "att", "美国电话电报", "美國電話電報"]
+    },
+    {
+      "market": "US",
+      "ticker": "ISRG",
+      "company_id": "0001035267",
+      "canonical_name": "INTUITIVE SURGICAL INC",
+      "aliases": ["直觉外科", "直覺外科", "intuitive surgical"]
+    },
+    {
+      "market": "US",
+      "ticker": "QCOM",
+      "company_id": "0000804328",
+      "canonical_name": "QUALCOMM INC/DE",
+      "aliases": ["高通", "qualcomm"]
+    },
+    {
+      "market": "US",
+      "ticker": "AMGN",
+      "company_id": "0000318154",
+      "canonical_name": "AMGEN INC",
+      "aliases": ["安进", "安進", "amgen"]
+    },
+    {
+      "market": "US",
+      "ticker": "CAT",
+      "company_id": "0000018230",
+      "canonical_name": "CATERPILLAR INC",
+      "aliases": ["卡特彼勒", "caterpillar"]
+    },
+    {
+      "market": "US",
+      "ticker": "TXN",
+      "company_id": "0000097476",
+      "canonical_name": "TEXAS INSTRUMENTS INC",
+      "aliases": ["德州仪器", "德州儀器", "texas instruments"]
+    },
+    {
+      "market": "US",
+      "ticker": "VZ",
+      "company_id": "0000732712",
+      "canonical_name": "VERIZON COMMUNICATIONS INC",
+      "aliases": ["威瑞森", "威讯", "威訊", "verizon"]
+    },
+    {
+      "market": "US",
+      "ticker": "GS",
+      "company_id": "0000886982",
+      "canonical_name": "GOLDMAN SACHS GROUP INC",
+      "aliases": ["高盛", "goldman", "goldman sachs"]
+    },
+    {
+      "market": "US",
+      "ticker": "SPGI",
+      "company_id": "0000064040",
+      "canonical_name": "S&P Global Inc.",
+      "aliases": ["标普全球", "標普全球", "s&p global", "sp global"]
+    },
+    {
+      "market": "US",
+      "ticker": "RTX",
+      "company_id": "0000101829",
+      "canonical_name": "RTX Corp",
+      "aliases": ["雷神", "雷神技术", "雷神技術", "rtx", "raytheon"]
+    },
+    {
+      "market": "US",
+      "ticker": "HON",
+      "company_id": "0000773840",
+      "canonical_name": "HONEYWELL INTERNATIONAL INC",
+      "aliases": ["霍尼韦尔", "霍尼韋爾", "honeywell"]
+    },
+    {
+      "market": "US",
+      "ticker": "PEP",
+      "company_id": "0000077476",
+      "canonical_name": "PEPSICO INC",
+      "aliases": ["百事", "百事可乐", "百事可樂", "pepsico", "pepsi"]
+    },
+    {
+      "market": "US",
+      "ticker": "BKNG",
+      "company_id": "0001075531",
+      "canonical_name": "Booking Holdings Inc.",
+      "aliases": ["缤客", "繽客", "booking", "booking holdings", "priceline"]
+    },
+    {
+      "market": "US",
+      "ticker": "UBER",
+      "company_id": "0001543151",
+      "canonical_name": "Uber Technologies, Inc",
+      "aliases": ["优步", "優步", "uber", "uber technologies"]
+    },
+    {
+      "market": "US",
+      "ticker": "NEE",
+      "company_id": "0000753308",
+      "canonical_name": "NEXTERA ENERGY INC",
+      "aliases": ["新纪元能源", "新紀元能源", "nextera", "nextera energy"]
+    },
+    {
+      "market": "US",
+      "ticker": "BA",
+      "company_id": "0000012927",
+      "canonical_name": "BOEING CO",
+      "aliases": ["波音", "boeing"]
+    },
+    {
+      "market": "US",
+      "ticker": "PFE",
+      "company_id": "0000078003",
+      "canonical_name": "PFIZER INC",
+      "aliases": ["辉瑞", "輝瑞", "pfizer"]
+    },
+    {
+      "market": "US",
+      "ticker": "LOW",
+      "company_id": "0000060667",
+      "canonical_name": "LOWES COMPANIES INC",
+      "aliases": ["劳氏", "勞氏", "lowe's", "lowes", "lowe"]
+    },
+    {
+      "market": "US",
+      "ticker": "MS",
+      "company_id": "0000895421",
+      "canonical_name": "MORGAN STANLEY",
+      "aliases": ["摩根士丹利", "大摩", "morgan stanley"]
+    },
+    {
+      "market": "US",
+      "ticker": "SCHW",
+      "company_id": "0000316709",
+      "canonical_name": "SCHWAB CHARLES CORP",
+      "aliases": ["嘉信", "嘉信理财", "嘉信理財", "查尔斯施瓦布", "charles schwab", "schwab"]
+    },
+    {
+      "market": "US",
+      "ticker": "UNP",
+      "company_id": "0000100885",
+      "canonical_name": "UNION PACIFIC CORP",
+      "aliases": ["联合太平洋", "聯合太平洋", "union pacific"]
+    },
+    {
+      "market": "US",
+      "ticker": "LMT",
+      "company_id": "0000936468",
+      "canonical_name": "LOCKHEED MARTIN CORP",
+      "aliases": ["洛克希德马丁", "洛克希德馬丁", "lockheed", "lockheed martin"]
+    },
+    {
+      "market": "US",
+      "ticker": "ADP",
+      "company_id": "0000008670",
+      "canonical_name": "AUTOMATIC DATA PROCESSING INC",
+      "aliases": ["自动数据处理", "自動數據處理", "adp", "automatic data processing"]
+    },
+    {
+      "market": "US",
+      "ticker": "TJX",
+      "company_id": "0000109198",
+      "canonical_name": "TJX COMPANIES INC /DE/",
+      "aliases": ["tjx", "tjx companies"]
+    },
+    {
+      "market": "US",
+      "ticker": "BLK",
+      "company_id": "0002012383",
+      "canonical_name": "BlackRock, Inc.",
+      "aliases": ["贝莱德", "貝萊德", "blackrock", "black rock"]
+    },
+    {
+      "market": "US",
+      "ticker": "GILD",
+      "company_id": "0000882095",
+      "canonical_name": "GILEAD SCIENCES, INC.",
+      "aliases": ["吉利德", "gilead", "gilead sciences"]
+    },
+    {
+      "market": "US",
+      "ticker": "SYK",
+      "company_id": "0000310764",
+      "canonical_name": "STRYKER CORP",
+      "aliases": ["史赛克", "史賽克", "stryker"]
+    },
+    {
+      "market": "US",
+      "ticker": "DE",
+      "company_id": "0000315189",
+      "canonical_name": "DEERE & CO",
+      "aliases": ["迪尔", "迪爾", "约翰迪尔", "約翰迪爾", "deere", "john deere"]
+    },
+    {
+      "market": "US",
+      "ticker": "PANW",
+      "company_id": "0001327567",
+      "canonical_name": "Palo Alto Networks Inc",
+      "aliases": ["帕洛阿尔托网络", "帕洛阿爾托網絡", "palo alto networks", "palo alto"]
+    },
+    {
+      "market": "US",
+      "ticker": "AMAT",
+      "company_id": "0000006951",
+      "canonical_name": "APPLIED MATERIALS INC /DE",
+      "aliases": ["应用材料", "應用材料", "applied materials"]
+    },
+    {
+      "market": "US",
+      "ticker": "MDT",
+      "company_id": "0001613103",
+      "canonical_name": "Medtronic plc",
+      "aliases": ["美敦力", "medtronic"]
+    },
+    {
+      "market": "US",
+      "ticker": "COP",
+      "company_id": "0001163165",
+      "canonical_name": "CONOCOPHILLIPS",
+      "aliases": ["康菲石油", "康菲", "conocophillips", "conoco phillips"]
+    },
+    {
+      "market": "US",
+      "ticker": "C",
+      "company_id": "0000831001",
+      "canonical_name": "CITIGROUP INC",
+      "aliases": ["花旗", "花旗集团", "花旗集團", "citigroup", "citi"]
+    },
+    {
+      "market": "US",
+      "ticker": "CB",
+      "company_id": "0000896159",
+      "canonical_name": "Chubb Ltd",
+      "aliases": ["安达保险", "安達保險", "丘博", "chubb"]
+    },
+    {
+      "market": "US",
+      "ticker": "ADI",
+      "company_id": "0000006281",
+      "canonical_name": "ANALOG DEVICES INC",
+      "aliases": ["亚德诺", "亞德諾", "模拟器件", "analog devices"]
+    },
+    {
+      "market": "US",
+      "ticker": "MRSH",
+      "company_id": "0000062709",
+      "canonical_name": "MARSH & MCLENNAN COMPANIES, INC.",
+      "aliases": ["达信", "達信", "威达信", "marsh mclennan", "marsh & mclennan", "marsh"]
+    },
+    {
+      "market": "US",
+      "ticker": "BMY",
+      "company_id": "0000014272",
+      "canonical_name": "BRISTOL MYERS SQUIBB CO",
+      "aliases": ["百时美施贵宝", "百時美施貴寶", "施贵宝", "bristol myers", "bristol-myers squibb", "bms"]
+    },
+    {
+      "market": "US",
+      "ticker": "MU",
+      "company_id": "0000723125",
+      "canonical_name": "MICRON TECHNOLOGY INC",
+      "aliases": ["美光", "美光科技", "micron", "micron technology"]
+    },
+    {
+      "market": "US",
+      "ticker": "LRCX",
+      "company_id": "0000707549",
+      "canonical_name": "LAM RESEARCH CORP",
+      "aliases": ["泛林", "泛林集团", "泛林集團", "拉姆研究", "lam research"]
+    },
+    {
+      "market": "US",
+      "ticker": "ELV",
+      "company_id": "0001156039",
+      "canonical_name": "Elevance Health, Inc.",
+      "aliases": ["elevance", "elevance health", "anthem", "安森"]
+    },
+    {
+      "market": "US",
+      "ticker": "UPS",
+      "company_id": "0001090727",
+      "canonical_name": "UNITED PARCEL SERVICE INC",
+      "aliases": ["ups", "联合包裹", "聯合包裹", "united parcel service"]
+    },
+    {
+      "market": "US",
+      "ticker": "REGN",
+      "company_id": "0000872589",
+      "canonical_name": "REGENERON PHARMACEUTICALS, INC.",
+      "aliases": ["再生元", "regeneron"]
+    },
+    {
+      "market": "US",
+      "ticker": "KLAC",
+      "company_id": "0000319201",
+      "canonical_name": "KLA CORP",
+      "aliases": ["科磊", "kla", "kla corp", "kla-tencor", "科天"]
+    },
+    {
+      "market": "US",
+      "ticker": "FISV",
+      "company_id": "0000798354",
+      "canonical_name": "FISERV INC",
+      "aliases": ["fiserv", "费哲", "費哲"]
+    },
+    {
+      "market": "US",
+      "ticker": "SO",
+      "company_id": "0000092122",
+      "canonical_name": "SOUTHERN CO",
+      "aliases": ["南方公司", "southern company", "southern co"]
+    },
+    {
+      "market": "US",
+      "ticker": "CME",
+      "company_id": "0001156375",
+      "canonical_name": "CME GROUP INC.",
+      "aliases": ["芝商所", "芝加哥商品交易所", "cme", "cme group"]
+    },
+    {
+      "market": "US",
+      "ticker": "DUK",
+      "company_id": "0001326160",
+      "canonical_name": "Duke Energy CORP",
+      "aliases": ["杜克能源", "duke energy"]
+    },
+    {
+      "market": "US",
+      "ticker": "CVS",
+      "company_id": "0000064803",
+      "canonical_name": "CVS HEALTH Corp",
+      "aliases": ["cvs", "cvs健康", "cvs health"]
+    },
+    {
+      "market": "US",
+      "ticker": "MO",
+      "company_id": "0000764180",
+      "canonical_name": "ALTRIA GROUP, INC.",
+      "aliases": ["奥驰亚", "奧馳亞", "altria", "altria group"]
+    },
+    {
+      "market": "US",
+      "ticker": "SHW",
+      "company_id": "0000089800",
+      "canonical_name": "SHERWIN WILLIAMS CO",
+      "aliases": ["宣伟", "宣偉", "sherwin williams", "sherwin-williams"]
+    },
+    {
+      "market": "US",
+      "ticker": "EQIX",
+      "company_id": "0001101239",
+      "canonical_name": "EQUINIX INC",
+      "aliases": ["易昆尼克斯", "equinix"]
+    },
+    {
+      "market": "US",
+      "ticker": "ZTS",
+      "company_id": "0001555280",
+      "canonical_name": "Zoetis Inc.",
+      "aliases": ["硕腾", "碩騰", "zoetis"]
+    },
+    {
+      "market": "US",
+      "ticker": "APD",
+      "company_id": "0000002969",
+      "canonical_name": "Air Products & Chemicals, Inc.",
+      "aliases": ["空气产品", "空氣產品", "air products", "air products chemicals"]
+    },
+    {
+      "market": "US",
+      "ticker": "PYPL",
+      "company_id": "0001633917",
+      "canonical_name": "PayPal Holdings, Inc.",
+      "aliases": ["paypal", "贝宝", "貝寶", "paypal holdings"]
+    },
+    {
+      "market": "US",
+      "ticker": "ADBE",
+      "company_id": "0000796343",
+      "canonical_name": "ADOBE INC.",
+      "aliases": ["adobe", "奥多比", "奧多比"]
+    },
+    {
+      "market": "US",
+      "ticker": "CMCSA",
+      "company_id": "0001166691",
+      "canonical_name": "COMCAST CORP",
+      "aliases": ["康卡斯特", "comcast"]
+    },
+    {
+      "market": "US",
+      "ticker": "NKE",
+      "company_id": "0000320187",
+      "canonical_name": "NIKE, Inc.",
+      "aliases": ["耐克", "nike"]
+    },
+    {
+      "market": "US",
+      "ticker": "SBUX",
+      "company_id": "0000829224",
+      "canonical_name": "STARBUCKS CORP",
+      "aliases": ["星巴克", "starbucks"]
+    },
+    {
+      "market": "US",
+      "ticker": "TMO",
+      "company_id": "0000097745",
+      "canonical_name": "THERMO FISHER SCIENTIFIC INC.",
+      "aliases": ["赛默飞", "賽默飛", "赛默飞世尔", "thermo fisher", "thermo fisher scientific"]
+    },
+    {
+      "market": "US",
+      "ticker": "DHR",
+      "company_id": "0000313616",
+      "canonical_name": "DANAHER CORP /DE/",
+      "aliases": ["丹纳赫", "丹納赫", "danaher"]
     },
     {
       "market": "EU",
