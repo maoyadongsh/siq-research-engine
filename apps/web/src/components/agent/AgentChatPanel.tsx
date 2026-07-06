@@ -296,29 +296,26 @@ export default function AgentChatPanel({
 
   if (collapsed) {
     return (
-      <div className="premium-shell flex h-full w-14 shrink-0 flex-col items-center rounded-[22px] py-4">
-        <Tooltip content={`展开${title}`}>
+      <div className="premium-shell flex h-full w-14 shrink-0 flex-col overflow-hidden rounded-[22px]">
+        <Tooltip content={`展开${title}`} className="h-full w-full">
           <button
+            type="button"
             onClick={onToggle}
-            className="icon-button"
+            className="flex h-full w-full flex-col items-center rounded-[22px] px-0 py-4 text-text-muted transition-colors hover:bg-primary/5 hover:text-text focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-primary/25"
             aria-label={`展开${title}`}
           >
-            <ChevronLeft className="h-5 w-5" />
-          </button>
-        </Tooltip>
-        <div
-          className="mt-3 flex-1 text-xs font-semibold text-text-muted"
-          style={{ writingMode: 'vertical-rl' }}
-        >
-          {title}
-        </div>
-        <Tooltip content={`展开${title}`}>
-          <button
-            onClick={onToggle}
-            className="mb-1 rounded-2xl transition-transform hover:scale-105 focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-primary/25"
-            aria-label={`展开${title}`}
-          >
-            <AgentAvatar kind={avatarKind} state={avatarState} size="sm" label={title} />
+            <span className="icon-button pointer-events-none">
+              <ChevronLeft className="h-5 w-5" />
+            </span>
+            <span
+              className="mt-3 flex-1 text-xs font-semibold"
+              style={{ writingMode: 'vertical-rl' }}
+            >
+              {title}
+            </span>
+            <span className="mb-1 rounded-2xl transition-transform">
+              <AgentAvatar kind={avatarKind} state={avatarState} size="sm" label={title} />
+            </span>
           </button>
         </Tooltip>
       </div>

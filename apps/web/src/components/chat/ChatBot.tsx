@@ -150,10 +150,11 @@ function OpenChatBot({ onClose }: { onClose: () => void }) {
       minimized={minimized}
       className="global-chat-window fixed z-50 rounded-[var(--radius-panel)] border border-border bg-white/96 shadow-[0_24px_80px_rgba(15,23,42,0.18)] backdrop-blur-2xl"
       style={{
+        position: 'fixed',
         bottom: 'max(1rem, env(safe-area-inset-bottom))',
         right: 'max(1rem, env(safe-area-inset-right))',
-        height: minimized ? 'auto' : 'min(620px, calc(100dvh - 2rem))',
-        width: 'min(400px, calc(100vw - 2rem))',
+        height: minimized ? 'auto' : 'min(720px, calc(100dvh - 2rem))',
+        width: 'min(480px, calc(100vw - 2rem))',
       }}
       header={
         <ChatHeader

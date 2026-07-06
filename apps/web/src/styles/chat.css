@@ -1158,11 +1158,12 @@ html.dark .chat-md-table td.is-total:first-child { background: rgba(59, 130, 246
     border-radius: 1.35rem;
   }
   .global-chat-window {
-    left: max(.5rem, env(safe-area-inset-left)) !important;
-    right: auto !important;
+    right: max(.5rem, env(safe-area-inset-right)) !important;
+    left: auto !important;
     bottom: max(.5rem, env(safe-area-inset-bottom)) !important;
-    width: min(400px, calc(100dvw - 1rem)) !important;
+    width: min(430px, calc(100dvw - 1rem)) !important;
     height: min(760px, calc(100dvh - 1rem)) !important;
+    max-height: calc(100dvh - 1rem) !important;
     border-radius: var(--radius-panel) var(--radius-panel) 0 0;
   }
   .agent-chat-panel .agent-panel-resize-handle {
