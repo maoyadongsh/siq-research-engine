@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { ArtifactsMap, DownloadedPdf, FinancialResult, LogEntry, QualityReport, TaskItem } from '../../lib/pdfTypes'
+import type { ArtifactsMap, DownloadedPdf, LogEntry, QualityReport, TaskItem } from '../../lib/pdfTypes'
 import type { PdfMarket } from '../../lib/pdfTaskMarkets'
 import {
   cancelTaskApi,
   checkHealth,
   deleteTaskApi,
   downloadedReportToFile,
-  fetchFinancialApi,
   fetchQualityApi,
   fetchResultApi,
   fetchStatus,
@@ -98,7 +97,6 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
   const [focusedLine, setFocusedLine] = useState<number | null>(null)
   const [artifacts, setArtifacts] = useState<ArtifactsMap | null>(null)
   const [quality, setQuality] = useState<QualityReport | null>(null)
-  const [financial, setFinancial] = useState<FinancialResult | null>(null)
   const [resultDeferred, setResultDeferred] = useState(false)
   const [resultLoading, setResultLoading] = useState(false)
 
@@ -125,7 +123,6 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
     setMdLines([])
     setArtifacts(null)
     setQuality(null)
-    setFinancial(null)
   }, [])
 
   const resetAll = useCallback(() => {
@@ -165,17 +162,6 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
     }
   }, [])
 
-  const fetchFinancial = useCallback(async () => {
-    const tid = taskIdRef.current
-    if (!tid) return
-    try {
-      const d = await fetchFinancialApi(tid)
-      if (d.financial_checks) setFinancial(d)
-    } catch {
-      // ignore financial fetch errors
-    }
-  }, [])
-
   const fetchResult = useCallback(async () => {
     const tid = taskIdRef.current
     if (!tid) return
@@ -188,14 +174,13 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
         setMarkdown(d.markdown)
         setMdLines(d.markdown.split(/\r?\n/))
         await fetchQuality()
-        await fetchFinancial()
       }
     } catch {
       // ignore result fetch errors
     } finally {
       setResultLoading(false)
     }
-  }, [fetchQuality, fetchFinancial])
+  }, [fetchQuality])
 
   const updateStatus = useCallback(
     (data: Record<string, unknown>) => {
@@ -663,7 +648,6 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
     setFocusedLine,
     artifacts,
     quality,
-    financial,
     resultDeferred,
     resultLoading,
     tasks,

@@ -10,7 +10,6 @@ import { usePdfSourceTrace } from './pdf/usePdfSourceTrace'
 import { usePdfTasks } from './pdf/usePdfTasks'
 import { usePdfWorkflow } from './pdf/usePdfWorkflow'
 import { PdfArtifactList } from '../components/pdf/PdfArtifactList'
-import { PdfFinancialPanel } from '../components/pdf/PdfFinancialPanel'
 import { PdfHealthStrip } from '../components/pdf/PdfHealthStrip'
 import { PdfMarkdownPreview } from '../components/pdf/PdfMarkdownPreview'
 import { PdfQualityPanel } from '../components/pdf/PdfQualityPanel'
@@ -531,7 +530,7 @@ export function MarketParsingPage({
       <PageSection
         id="pdf-result"
         title="解析结果"
-        description="Markdown 原文、产物清单、质量报告与财务校验结果。"
+        description="Markdown 原文、产物清单与质量报告。"
         className="border-0 bg-transparent shadow-none"
       >
         <div className="grid gap-4">
@@ -547,8 +546,6 @@ export function MarketParsingPage({
           <PdfArtifactList artifacts={tasks.artifacts || {}} />
 
           {tasks.quality && <PdfQualityPanel quality={tasks.quality} market={market} onShowTableSource={sourceTrace.showTableSource} />}
-
-          {tasks.financial && <PdfFinancialPanel financial={tasks.financial} taskId={tasks.taskIdRef.current} market={market} />}
         </div>
       </PageSection>
 
