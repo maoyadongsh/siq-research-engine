@@ -7,7 +7,7 @@ from html import unescape
 import re
 from typing import Any, Iterable
 
-EU_PROFILE_RULE_VERSION = "eu-pdf-profile-v5"
+EU_PROFILE_RULE_VERSION = "eu-pdf-profile-v6"
 EU_DEFAULT_ACCOUNTING_STANDARD = "IFRS / EU local GAAP"
 
 _CURRENCY_PATTERNS = [
@@ -94,15 +94,29 @@ _CANDIDATE_RULES: dict[str, tuple[tuple[str, ...], str]] = {
             "key data",
             "group results",
             "consolidated results",
-            "results",
+            "operating results",
+            "results of operations",
+            "review of results of operations",
+            "financial results",
             "key performance indicators",
             "key financial information",
             "key financial and non-financial information",
             "financial summary",
             "financial performance",
             "our financial performance",
+            "key elements of financial performance",
+            "strategic financial performance indicators",
             "performance highlights",
             "at a glance",
+            "group at a glance",
+            "five-year record",
+            "five year record",
+            "five-year summary",
+            "five year summary",
+            "five-year overview",
+            "five year overview",
+            "five-year financial summary",
+            "five year financial summary",
             "results, cash flow and other information",
             "selected financial data",
         ),
@@ -217,13 +231,27 @@ _FINANCIAL_HIGHLIGHT_TITLE_TERMS = (
     "key data",
     "group results",
     "consolidated results",
-    "results",
+    "operating results",
+    "results of operations",
+    "review of results of operations",
+    "financial results",
     "key performance indicators",
     "financial summary",
     "financial performance",
     "our financial performance",
+    "key elements of financial performance",
+    "strategic financial performance indicators",
     "performance highlights",
     "at a glance",
+    "group at a glance",
+    "five-year record",
+    "five year record",
+    "five-year summary",
+    "five year summary",
+    "five-year overview",
+    "five year overview",
+    "five-year financial summary",
+    "five year financial summary",
     "key financial and non-financial information",
     "results, cash flow and other information",
     "selected financial data",
@@ -235,20 +263,40 @@ _FINANCIAL_HIGHLIGHT_METRICS = (
     "net sales",
     "sales",
     "turnover",
+    "total revenue",
+    "total income",
+    "net interest income",
     "ebit",
     "ebitda",
+    "gross profit",
     "operating profit",
     "operating income",
+    "operating result",
+    "operating return on sales",
     "net income",
+    "net profit",
+    "net result",
+    "net revenue",
+    "net revenue less treasury result",
+    "net fee and commission income",
+    "commercial net interest income",
     "profit for the year",
+    "profit or loss",
+    "profit before tax",
     "profit attributable",
     "gross operating income",
     "earnings per share",
     "basic eps",
     "eps",
+    "return on equity",
+    "return on tangible equity",
+    "rote",
+    "cet1 ratio",
     "free cash flow",
     "cash flow",
     "net debt",
+    "net liquidity",
+    "cash conversion rate",
     "organic growth",
     "underlying trading operating profit",
     "recurring ebitda",
@@ -257,6 +305,31 @@ _FINANCIAL_HIGHLIGHT_METRICS = (
     "orders",
     "order intake",
     "bookings",
+    "insurance revenue",
+    "combined ratio",
+    "claims expenses",
+    "technical result",
+    "net financial result",
+    "sales revenue",
+    "vehicle sales",
+    "deliveries to customers",
+)
+
+_FINANCIAL_HIGHLIGHT_STRONG_TITLE_TERMS = (
+    "financial highlights",
+    "key figures",
+    "group key figures",
+    "key financial figures",
+    "consolidated results",
+    "group results",
+    "key elements of financial performance",
+    "financial summary",
+    "five-year record",
+    "five year record",
+    "five-year overview",
+    "five year overview",
+    "five-year financial summary",
+    "five year financial summary",
 )
 
 _NON_FINANCIAL_HIGHLIGHT_CONTEXTS = (
@@ -293,6 +366,50 @@ _NON_FINANCIAL_HIGHLIGHT_CONTEXTS = (
     "zone ",
     "acquisition of equity interests",
     "closing balance sheet summary",
+    "share key figures",
+    "share price",
+    "market indices",
+    "ordinary share price",
+    "preferred share price",
+)
+
+_FINANCIAL_HIGHLIGHT_HARD_BAD_CONTEXTS = (
+    "remuneration",
+    "compensation",
+    "annual bonus",
+    "variable compensation",
+    "lti ",
+    "lti 20",
+    "stock awards",
+    "performance factor",
+    "performance assessment process",
+    "directors' remuneration",
+    "directors’ remuneration",
+    "board of management remuneration",
+    "board of directors",
+    "board",
+    "governance",
+    "sustainability",
+    "esrs",
+    "taxonomy",
+    "climate",
+    "emissions",
+    "ghg",
+    "joint ventures",
+    "associates and joint ventures",
+    "country of incorporation",
+    "forecast",
+    "outlook",
+    "projection",
+    "segment results",
+    "segment information",
+    "reportable segments",
+    "by segment",
+    "by brand group",
+    "by market",
+    "share key figures",
+    "share price",
+    "market indices",
 )
 
 
@@ -479,13 +596,17 @@ def _looks_like_financial_highlights(signal: str) -> bool:
     has_title = any(term in signal for term in _FINANCIAL_HIGHLIGHT_TITLE_TERMS)
     if not has_title:
         return False
+    if any(term in signal for term in _FINANCIAL_HIGHLIGHT_HARD_BAD_CONTEXTS):
+        return False
     metric_hits = _financial_highlight_metric_hits(signal)
-    if metric_hits < 3:
+    has_money = _has_money_or_financial_unit(signal)
+    has_strong_title = any(term in signal for term in _FINANCIAL_HIGHLIGHT_STRONG_TITLE_TERMS)
+    if metric_hits < 3 and not ((has_strong_title and has_money and metric_hits >= 1) or (has_money and metric_hits >= 2)):
         return False
     bad_context = any(term in signal for term in _NON_FINANCIAL_HIGHLIGHT_CONTEXTS)
     if bad_context and metric_hits < 5:
         return False
-    return _has_money_or_financial_unit(signal) or metric_hits >= 4
+    return has_money or metric_hits >= 4
 
 
 def _financial_highlight_metric_hits(signal: str) -> int:

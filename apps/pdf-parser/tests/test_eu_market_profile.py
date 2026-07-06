@@ -2,7 +2,7 @@ import eu_market_profile as eu
 
 
 def test_detect_market_prefers_explicit_task_market_and_filename():
-    assert eu.EU_PROFILE_RULE_VERSION == "eu-pdf-profile-v5"
+    assert eu.EU_PROFILE_RULE_VERSION == "eu-pdf-profile-v6"
     assert eu.is_eu_market({"submit_config": {"market": "EU"}}, "anything.pdf")
     assert eu.is_eu_market({"market": "eu"}, "anything.pdf")
     assert eu.is_eu_market({}, "London-Stock-Exchange-Group-plc_EU_LSEG_2025-12-31_annual.pdf")
@@ -116,6 +116,66 @@ def test_eu_financial_highlights_key_figures_require_financial_context():
 
     assert candidates["Financial Highlights"][0]["table_index"] == 24
     assert all(row["table_index"] not in {42, 63} for row in candidates["Financial Highlights"])
+
+
+def test_eu_financial_highlights_accept_market_specific_summary_titles():
+    table_index = [
+        {
+            "table_index": 15,
+            "heading": "Deutsche Borse Group: five-year overview",
+            "preview": "2021 2022 2023 2024 2025 Consolidated income statement Net revenue less treasury result from banking and similar business EURm 3,367 3,805 4,115 4,779 5,189 EBITDA 2,600",
+            "rows": 12,
+            "numeric_ratio": 0.7,
+        },
+        {
+            "table_index": 2,
+            "heading": "Consolidated results",
+            "preview": "2025 2024 Change Profit or loss in EUR million Commercial net interest income 15,316 15,459 Other net interest income Net fee and commission income 4,602",
+            "rows": 18,
+            "numeric_ratio": 0.65,
+        },
+        {
+            "table_index": 35,
+            "heading": "Key elements of financial performance in 2025",
+            "preview": "Reported $m Actual growth Core $m Gross profit 48,106 Total revenue 59,000 Operating profit 14,000",
+            "rows": 10,
+            "numeric_ratio": 0.55,
+        },
+    ]
+
+    candidates = eu.group_eu_key_table_candidates(table_index)
+
+    assert {row["table_index"] for row in candidates["Financial Highlights"][:3]} == {2, 15, 35}
+
+
+def test_eu_financial_highlights_reject_note_segment_and_remuneration_tables():
+    table_index = [
+        {
+            "table_index": 96,
+            "heading": "3. Total income and contract liabilities continued",
+            "preview": "During 2025 some revenue items were reallocated between business lines. The impact on previously reported 2024 results is revenue of GBP 158 million. Segment information continued.",
+            "rows": 20,
+            "numeric_ratio": 0.6,
+        },
+        {
+            "table_index": 44,
+            "heading": "LTI 2020 - Tranche 2022 - Performance Factor",
+            "preview": "Financial performance factor Cloud revenue Total revenue Operating profit Final number of financial PSUs Stock Awards",
+            "rows": 8,
+            "numeric_ratio": 0.5,
+        },
+        {
+            "table_index": 59,
+            "heading": "Key figures for Volkswagen shares and market indices",
+            "preview": "High Low Closing Ordinary share Price Preferred share Price DAX Price Dividend",
+            "rows": 6,
+            "numeric_ratio": 0.5,
+        },
+    ]
+
+    candidates = eu.group_eu_key_table_candidates(table_index)
+
+    assert "Financial Highlights" not in candidates
 
 
 def test_eu_financial_data_and_checks_extract_lseg_style_ifrs_tables():
