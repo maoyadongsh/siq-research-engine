@@ -2,7 +2,7 @@ import kr_market_profile as kr
 
 
 def test_detect_market_prefers_explicit_task_market_and_filename():
-    assert kr.KR_PROFILE_RULE_VERSION == "kr-pdf-profile-v4"
+    assert kr.KR_PROFILE_RULE_VERSION == "kr-pdf-profile-v5"
     assert kr.is_kr_market({"submit_config": {"market": "KR"}}, "anything.pdf")
     assert kr.is_kr_market({"market": "kr"}, "anything.pdf")
     assert kr.is_kr_market({}, "Samsung-Electronics-Co.,-Ltd_KR_005930_2025.pdf")
@@ -64,6 +64,105 @@ def test_kr_short_local_statement_titles_are_high_confidence():
 
     for name in kr.KR_CORE_FINANCIAL_TABLE_NAMES[1:]:
         assert candidates[name][0]["confidence"] == "high"
+
+
+def test_kr_comprehensive_income_statement_can_cover_profit_or_loss_when_combined():
+    table_index = [
+        {
+            "table_index": 49,
+            "line": 972,
+            "heading": "(단위 : 원)",
+            "near_text": "2-2. 연결 포괄손익계산서 제 20 기 2025.01.01 부터 2025.12.31 까지",
+            "preview": "제 20 기 제 19 기 매출액 4,252,820 매출원가 1,176,749 매출총이익 3,076,071 판매비와관리비 2,740,244",
+        }
+    ]
+
+    candidates = kr.group_kr_key_table_candidates(table_index)
+
+    assert candidates["Consolidated Statement of Profit or Loss"][0]["table_index"] == 49
+    assert candidates["Consolidated Statement of Profit or Loss"][0]["confidence"] == "high"
+    assert candidates["Consolidated Statement of Comprehensive Income"][0]["table_index"] == 49
+    assert candidates["Consolidated Statement of Comprehensive Income"][0]["confidence"] == "high"
+
+
+def test_kr_statement_header_stub_does_not_beat_following_body_table():
+    table_index = [
+        {
+            "table_index": 47,
+            "line": 952,
+            "rows": 3,
+            "cells": 4,
+            "heading": "연결 재무상태표",
+            "preview": "제 20 기 2025.12.31 현재 제 19 기 2024.12.31 현재",
+        },
+        {
+            "table_index": 48,
+            "line": 957,
+            "rows": 42,
+            "cells": 126,
+            "heading": "(단위 : 원)",
+            "near_text": "2-1. 연결 재무상태표 연결 재무상태표 제 20 기 2025.12.31 현재 (단위 : 원)",
+            "preview": "자산 유동자산 현금및현금성자산 비유동자산 자산총계 부채 유동부채 비유동부채 부채총계 자본 자본총계",
+        },
+    ]
+
+    candidates = kr.group_kr_key_table_candidates(table_index)
+
+    assert candidates["Consolidated Statement of Financial Position"][0]["table_index"] == 48
+
+
+def test_kr_financial_group_summary_statement_slice_is_high_confidence():
+    table_index = [
+        {
+            "table_index": 157,
+            "line": 2091,
+            "heading": "(단위 : 백만원)",
+            "near_text": "# III. 재무에 관한 사항 # 1. 요약재무정보 # 나. 요약 재무정보",
+            "preview": (
+                "과 목 제 21(당)기 기말 제 20(전)기 기말 제 19(전전)기 기말 "
+                "요약 연결재무상태표 자산 현금및예치금 당기손익-공정가치측정 금융자산 대출채권"
+            ),
+        }
+    ]
+
+    candidates = kr.group_kr_key_table_candidates(table_index)
+
+    assert candidates["요약재무정보"][0]["confidence"] == "high"
+
+
+def test_kr_management_summary_financial_status_is_not_core_summary():
+    table_index = [
+        {
+            "table_index": 1189,
+            "heading": "(단위 : 십억원)",
+            "near_text": "# 나. 요약 재무현황 (주) 위 요약 재무상태표는 관리회계상의 계정분류입니다",
+            "preview": "구분 2025년 2024년 증감 금리성 자산 예치금 유가증권 대출채권",
+        }
+    ]
+
+    candidates = kr.group_kr_key_table_candidates(table_index)
+
+    assert "요약재무정보" not in candidates
+
+
+def test_kr_separate_profit_or_loss_title_stays_primary_over_comprehensive_title():
+    table_index = [
+        {
+            "table_index": 3,
+            "heading": "연결 손익계산서",
+            "preview": "매출액 영업이익 법인세비용차감전순이익 당기순이익",
+        },
+        {
+            "table_index": 4,
+            "heading": "연결 포괄손익계산서",
+            "preview": "매출액 당기순이익 기타포괄손익 총포괄손익",
+        },
+    ]
+
+    candidates = kr.group_kr_key_table_candidates(table_index)
+
+    assert candidates["Consolidated Statement of Profit or Loss"][0]["table_index"] == 3
+    assert candidates["Consolidated Statement of Comprehensive Income"][0]["table_index"] == 4
 
 
 def test_kr_candidate_groups_prefer_financial_statement_zone_over_business_or_note_tables():

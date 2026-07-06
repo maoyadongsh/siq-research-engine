@@ -95,3 +95,32 @@ def test_merge_kr_quality_candidates_preserves_nonblocking_summary_status():
     by_name = {item["name"]: item for item in merged["core_financial_table_candidates"]}
     assert by_name["요약재무정보"]["status"] == "not_applicable"
     assert by_name["Consolidated Statement of Cash Flows"]["status"] == "missing"
+
+
+def test_merge_kr_quality_candidates_marks_missing_core_as_source_incomplete_for_partial_text():
+    report = {
+        "market": "KR",
+        "report_kind": "kr_business_report",
+        "table_count": 52,
+        "found_sections": ["사업의 내용"],
+        "table_index": [],
+        "key_table_candidates": {},
+        "core_financial_table_candidates": [
+            {"name": "Consolidated Statement of Comprehensive Income", "status": "missing", "candidate_group": "core"},
+            {"name": "Consolidated Statement of Changes in Equity", "status": "missing", "candidate_group": "core"},
+        ],
+        "found_financial_tables": [],
+    }
+    financial_data = {
+        "market": "KR",
+        "report_kind": "kr_business_report",
+        "report_year": 2025,
+        "statements": [],
+    }
+
+    merged = merge_kr_quality_candidates(report, financial_data)
+
+    by_name = {item["name"]: item for item in merged["core_financial_table_candidates"]}
+    assert by_name["Consolidated Statement of Comprehensive Income"]["status"] == "source_incomplete"
+    assert by_name["Consolidated Statement of Changes in Equity"]["status"] == "source_incomplete"
+    assert "未覆盖完整 재무에 관한 사항 正文" in by_name["Consolidated Statement of Comprehensive Income"]["display_note"]

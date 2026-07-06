@@ -793,7 +793,8 @@ def _table_context(markdown, start, end):
     return {
         "heading": heading,
         "unit": unit_match.group(1) if unit_match else "",
-        "near_text": _strip_html((before[-260:] + " " + after[:100]))[:260],
+        "near_text": _strip_html(before[-360:])[:360],
+        "following_text": _strip_html(after[:160])[:160],
     }
 
 
@@ -2818,6 +2819,7 @@ def _build_table_index(markdown, tables, content_list=None, report_year=None):
                 "matched_financial_names": matched_names,
                 "heading": context["heading"],
                 "unit": context["unit"],
+                "near_text": context.get("near_text") or "",
                 "pdf_page_index": enhanced_source.get("pdf_page_index"),
                 "pdf_page_number": enhanced_source.get("pdf_page_number"),
                 "printed_page_number": enhanced_source.get("printed_page_number"),

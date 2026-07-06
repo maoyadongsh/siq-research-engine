@@ -85,7 +85,7 @@ export function candidateMeta(item: Record<string, unknown> | null | undefined):
 }
 
 export function isNonBlockingCandidateStatus(status: unknown): boolean {
-  return ['not_applicable', 'not_required', 'not_separately_presented', 'excluded'].includes(String(status || ''))
+  return ['not_applicable', 'not_required', 'not_separately_presented', 'excluded', 'source_incomplete'].includes(String(status || ''))
 }
 
 export function suspectTableMeta(item: Record<string, unknown> | null | undefined): string {

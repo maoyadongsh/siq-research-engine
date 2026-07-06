@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any, Iterable
 
-KR_PROFILE_RULE_VERSION = "kr-pdf-profile-v4"
+KR_PROFILE_RULE_VERSION = "kr-pdf-profile-v5"
 
 KR_KEY_SECTIONS = [
     "회사의 개요",
@@ -235,6 +235,8 @@ def _fallback_rule_score(name: str, signal: str) -> float:
     if name == "Consolidated Statement of Profit or Loss":
         if "사업부문" in compact or "영업부문" in compact or "부문정보" in compact:
             return 0.0
+        if "연결포괄손익계산서" in compact and ("매출액" in compact or "당기순이익" in compact):
+            return 87.0
         if "연결재무제표" in compact and "매출액" in compact and any(
             term in compact for term in ("매출원가", "매출총이익", "판매비와관리비")
         ):
@@ -461,6 +463,8 @@ def _has_strong_summary_body(signal: str) -> bool:
         return True
     if "한국채택국제회계기준" in compact and any(marker in compact for marker in ("[유동자산]", "유동자산", "자산총계")):
         return True
+    if _looks_like_kr_summary_statement_slice(signal):
+        return True
     balance_blocks = (
         any(marker in compact for marker in ("[자산]", "자산총계", "유동자산"))
         and any(marker in compact for marker in ("[부채]", "부채총계", "유동부채"))
@@ -468,6 +472,43 @@ def _has_strong_summary_body(signal: str) -> bool:
     )
     income_blocks = any(marker in compact for marker in ("매출액", "영업수익", "영업이익", "당기순이익"))
     return balance_blocks and income_blocks
+
+
+def _looks_like_kr_summary_statement_slice(signal: str) -> bool:
+    compact = _compact_text(signal)
+    if any(marker in compact for marker in ("요약재무현황", "관리회계상의", "관리회계상")):
+        return False
+    has_summary_section = any(marker in compact for marker in ("요약재무정보", "요약연결재무정보", "연결요약재무정보"))
+    has_summary_statement_title = any(
+        marker in compact
+        for marker in (
+            "요약연결재무상태표",
+            "요약연결손익계산서",
+            "요약연결포괄손익계산서",
+            "요약연결손익",
+        )
+    )
+    if not (has_summary_section or has_summary_statement_title):
+        return False
+    has_period_columns = bool(re.search(r"제\d+\(?[당전]?", compact) or re.search(r"20\d{2}", compact))
+    has_financial_body = any(
+        marker in compact
+        for marker in (
+            "유동자산",
+            "자산총계",
+            "현금및예치금",
+            "현금및현금성자산",
+            "금융자산",
+            "대출채권",
+            "보험계약",
+            "재고자산",
+            "매출액",
+            "영업수익",
+            "영업이익",
+            "당기순이익",
+        )
+    )
+    return has_period_columns and has_financial_body
 
 
 def _looks_like_kr_equity_statement_body(signal: str) -> bool:
@@ -521,6 +562,20 @@ def _looks_like_kr_retained_earnings_appropriation(signal: str) -> bool:
     )
 
 
+def _looks_like_kr_statement_header_stub(name: str, item: dict[str, Any], signal: str) -> bool:
+    if name not in _CORE_STATEMENT_NAMES:
+        return False
+    rows = int(item.get("rows") or 0)
+    cells = int(item.get("cells") or 0)
+    if rows <= 0 and cells <= 0:
+        return False
+    if rows > 3 and cells > 8:
+        return False
+    if not _has_explicit_statement_title(name, signal):
+        return False
+    return not _has_strong_statement_body(name, signal)
+
+
 def _has_strong_statement_body(name: str, signal: str) -> bool:
     compact = _compact_text(signal)
     if _looks_like_kr_subsidiary_summary_table(signal):
@@ -565,8 +620,11 @@ def _has_explicit_statement_title(name: str, signal: str) -> bool:
         "Consolidated Statement of Profit or Loss": (
             "연결 손익계산서",
             "연결손익계산서",
+            "연결 포괄손익계산서",
+            "연결포괄손익계산서",
             "consolidated statement of profit or loss",
             "consolidated income statement",
+            "consolidated statement of comprehensive income",
         ),
         "Consolidated Statement of Comprehensive Income": (
             "연결 포괄손익계산서",
@@ -632,6 +690,8 @@ def group_kr_key_table_candidates(table_index: list[dict[str, Any]] | None) -> d
             score = max(_score_candidate(signal, terms), _fallback_rule_score(name, signal))
             score = _context_adjusted_score(name, signal, score)
             if score <= 0:
+                continue
+            if _looks_like_kr_statement_header_stub(name, item, signal):
                 continue
             row = dict(item)
             row.update(

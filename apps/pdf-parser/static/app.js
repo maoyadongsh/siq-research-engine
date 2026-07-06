@@ -1121,7 +1121,7 @@
   }
 
   function isNonBlockingCandidateStatus(status) {
-    return ["not_applicable", "not_required", "not_separately_presented", "excluded"].includes(String(status || ""));
+    return ["not_applicable", "not_required", "not_separately_presented", "excluded", "source_incomplete"].includes(String(status || ""));
   }
 
   function renderCandidateChip(name, item, extraClass) {

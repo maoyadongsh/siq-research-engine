@@ -57,6 +57,10 @@ def merge_kr_quality_candidates(report: dict[str, Any], financial_data: dict[str
             if nonblocking:
                 core_candidates.append(nonblocking)
                 continue
+            incomplete = _source_incomplete_candidate(merged, name)
+            if incomplete:
+                core_candidates.append(incomplete)
+                continue
             core_candidates.append({"name": name, "status": "missing", "candidate_group": "core"})
 
     merged["key_table_candidates"] = key_table_candidates
@@ -80,7 +84,7 @@ def _has_located_candidate(rows: list[dict[str, Any]]) -> bool:
 
 
 def _nonblocking_existing_candidate(report: dict[str, Any], name: str) -> dict[str, Any] | None:
-    nonblocking_statuses = {"not_applicable", "not_required", "not_separately_presented", "excluded"}
+    nonblocking_statuses = {"not_applicable", "not_required", "not_separately_presented", "excluded", "source_incomplete"}
     for item in report.get("core_financial_table_candidates") or []:
         if not isinstance(item, dict) or item.get("name") != name:
             continue
@@ -90,6 +94,29 @@ def _nonblocking_existing_candidate(report: dict[str, Any], name: str) -> dict[s
         candidate.setdefault("candidate_group", "core")
         return candidate
     return None
+
+
+def _source_incomplete_candidate(report: dict[str, Any], name: str) -> dict[str, Any] | None:
+    if name == "요약재무정보" or not _looks_like_incomplete_kr_source(report):
+        return None
+    return {
+        "name": name,
+        "status": "source_incomplete",
+        "candidate_group": "core",
+        "confidence": "source_incomplete",
+        "reason": "kr_source_text_incomplete",
+        "display_note": "当前解析文本未覆盖完整 재무에 관한 사항 正文；未按表格定位失败计。",
+    }
+
+
+def _looks_like_incomplete_kr_source(report: dict[str, Any]) -> bool:
+    found_sections = {str(item) for item in report.get("found_sections") or []}
+    if "재무에 관한 사항" in found_sections:
+        return False
+    table_count = int(report.get("table_count") or len(report.get("table_index") or []) or 0)
+    if table_count > 120:
+        return False
+    return bool(found_sections or table_count)
 
 
 def _should_use_financial_candidate(existing_rows: list[dict[str, Any]], candidate: dict[str, Any]) -> bool:
