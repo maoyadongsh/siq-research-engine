@@ -882,7 +882,7 @@ def build_sections(
     cash_short_debt_cover = ratio(cash, short_debt_total)
     ocf_profit_cover = ratio(ocf, profit)
     fcf_calc = fcf
-    if fcf_calc is None and isinstance(ocf, (int, float)) and isinstance(capex, (int, float)):
+    if isinstance(ocf, (int, float)) and isinstance(capex, (int, float)):
         fcf_calc = ocf - abs(capex)
     nonrecurring_gap = None
     if isinstance(profit, (int, float)) and isinstance(deducted_profit, (int, float)):

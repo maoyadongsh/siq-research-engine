@@ -74,7 +74,7 @@ CORE_METRICS = {
     "financing_cash_flow_net": "筹资活动现金流净额",
     "asset_impairment_loss": "资产减值损失",
     "credit_impairment_loss": "信用减值损失",
-    "cash_for_purchases": "购建固定资产、无形资产和其他长期资产支付的现金",
+    "cash_for_purchases_investments": "购建固定资产、无形资产和其他长期资产支付的现金",
     "current_assets": "流动资产合计",
     "current_liabilities": "流动负债合计",
     "current_portion_noncurrent_liabilities": "一年内到期的非流动负债",
@@ -511,7 +511,7 @@ class FactCheckEngine:
         short_debt = mv("short_term_borrowings") or 0.0
         current_noncurrent_liability = mv("current_portion_noncurrent_liabilities") or mv("non_current_liabilities_due_within_one_year") or 0.0
         ocf = mv("operating_cash_flow_net")
-        capex = mv("cash_for_purchases")
+        capex = mv("cash_for_purchases_investments")
         parent_net_profit = mv("parent_net_profit") or mv("net_profit_parent")
         deducted_parent_net_profit = mv("deducted_parent_net_profit")
         equity_parent = mv("equity_attributable_parent")
@@ -539,7 +539,7 @@ class FactCheckEngine:
                 "经营现金流净额-购建固定资产、无形资产和其他长期资产支付的现金",
                 ocf - abs(capex),
                 "亿元",
-                ["operating_cash_flow_net", "cash_for_purchases"],
+                ["operating_cash_flow_net", "cash_for_purchases_investments"],
                 "自由现金流",
                 0.5,
             )

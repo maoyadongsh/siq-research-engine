@@ -60,7 +60,7 @@ ALIAS_MAP = {
     "total_assets": ["资产总计"],
     "total_liabilities": ["负债合计"],
     "short_term_borrowings": ["短期借款"],
-    "capital_expenditure": ["cash_for_purchases", "购建固定资产、无形资产和其他长期资产支付的现金"],
+    "capital_expenditure": ["cash_for_purchases_investments", "购建固定资产、无形资产和其他长期资产支付的现金"],
     "equity_attributable_parent": ["归母净资产", "归属于母公司股东的权益"],
     "deducted_parent_net_profit": ["扣非归母净利润", "扣除非经常性损益后的净利润"],
     "current_assets": ["流动资产", "流动资产合计"],
@@ -202,109 +202,287 @@ def build_revenue_profit_trend_data(snapshot: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_cashflow_data(snapshot: dict[str, Any]) -> dict[str, Any]:
-    """Build data for cash flow composition chart."""
-    ocf = safe_float(metric_value(snapshot, "net_operating_cash_flow"))
-    icf = safe_float(metric_value(snapshot, "investing_cash_flow_net"))
-    fcf = safe_float(metric_value(snapshot, "financing_cash_flow_net"))
-    capex = safe_float(metric_value(snapshot, "capital_expenditure"))
-    
-    fcf_calc = ocf - capex if ocf and capex else None
+def build_cashflow_data(
+    snapshot: dict[str, Any],
+    preflight: dict[str, Any] | None = None,
+    work_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Build cash flow data using exact consolidated cash-flow rows before snapshot aliases."""
+    preflight = preflight or {}
+    year = str(preflight.get("report_year") or snapshot.get("report_year") or "2025")
+    raw_rows = _raw_cashflow_statement_rows(work_dir, year)
+
+    sources: dict[str, dict[str, Any]] = {}
+    validations: list[dict[str, Any]] = []
+
+    ocf_value = _read_verified_metric(
+        snapshot,
+        year,
+        raw_rows,
+        "operating",
+        ["经营活动产生的现金流量净额"],
+        ["operating_cash_flow_net"],
+        sources,
+    )
+    icf_value = _read_verified_metric(
+        snapshot,
+        year,
+        raw_rows,
+        "investing",
+        ["投资活动产生的现金流量净额", "投资活动使用的现金流量净额"],
+        ["investing_cash_flow_net"],
+        sources,
+    )
+    financing_value = _read_verified_metric(
+        snapshot,
+        year,
+        raw_rows,
+        "financing",
+        ["筹资活动产生的现金流量净额", "筹资活动使用的现金流量净额"],
+        ["financing_cash_flow_net"],
+        sources,
+    )
+    capex_value = _read_verified_metric(
+        snapshot,
+        year,
+        raw_rows,
+        "capex",
+        ["购建固定资产、无形资产和其他长期资产支付的现金"],
+        ["cash_for_purchases_investments"],
+        sources,
+    )
+    purchase_cash_value = _raw_statement_value_any(raw_rows, ["购买商品、接受劳务支付的现金"])
+
+    ocf = safe_float(ocf_value)
+    icf = safe_float(icf_value)
+    financing = safe_float(financing_value)
+    capex = safe_float(capex_value)
+
+    fcf_calc = ocf - capex if ocf_value is not None and capex_value is not None else None
+    reported_fcf_value = metric_value(snapshot, "free_cash_flow", year)
+    if reported_fcf_value is not None and fcf_calc is not None:
+        reported_fcf = safe_float(reported_fcf_value)
+        diff = reported_fcf - fcf_calc
+        validations.append(
+            {
+                "rule": "free_cash_flow = operating_cash_flow_net - capital_expenditure",
+                "status": "ok" if abs(diff) <= 0.05 else "recomputed",
+                "computed": round(fcf_calc, 2),
+                "snapshot_consistent": abs(diff) <= 0.05,
+            }
+        )
+    elif fcf_calc is not None:
+        validations.append(
+            {
+                "rule": "free_cash_flow = operating_cash_flow_net - capital_expenditure",
+                "status": "computed",
+                "computed": round(fcf_calc, 2),
+            }
+        )
+
+    if purchase_cash_value is not None and capex_value is not None:
+        validations.append(
+            {
+                "rule": "capital_expenditure row disambiguation",
+                "status": "ok" if abs(safe_float(purchase_cash_value) - capex) > 0.05 else "check",
+                "capex_row": "购建固定资产、无形资产和其他长期资产支付的现金",
+                "excluded_row": "购买商品、接受劳务支付的现金",
+            }
+        )
     
     return {
-        "operating": round(ocf, 2) if ocf else 0,
-        "investing": round(icf, 2) if icf else 0,
-        "financing": round(fcf, 2) if fcf else 0,
-        "capex": round(capex, 2) if capex else 0,
-        "free_cash_flow": round(fcf_calc, 2) if fcf_calc else None,
+        "operating": round(ocf, 2) if ocf_value is not None else None,
+        "investing": round(icf, 2) if icf_value is not None else None,
+        "financing": round(financing, 2) if financing_value is not None else None,
+        "capex": round(capex, 2) if capex_value is not None else None,
+        "free_cash_flow": round(fcf_calc, 2) if fcf_calc is not None else None,
+        "sources": sources,
+        "validations": validations,
+        "notes": [
+            "资本开支按合并现金流量表“购建固定资产、无形资产和其他长期资产支付的现金”取数，图中按现金流出方向展示为负值。",
+            "自由现金流按经营活动现金流量净额减资本开支现场重算，快照派生值仅用于复核。",
+        ],
     }
 
 
-def build_dupont_data(snapshot: dict[str, Any]) -> dict[str, Any]:
-    """Build DuPont analysis data."""
-    revenue = safe_float(metric_value(snapshot, "operating_revenue"))
-    net_profit = safe_float(metric_value(snapshot, "net_profit_parent"))
-    total_assets = safe_float(metric_value(snapshot, "total_assets"))
-    total_liabilities = safe_float(metric_value(snapshot, "total_liabilities"))
-    equity = total_assets - total_liabilities if total_assets and total_liabilities else None
+def build_dupont_data(
+    snapshot: dict[str, Any],
+    preflight: dict[str, Any] | None = None,
+    work_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Build DuPont data from verified income statement and balance sheet rows."""
+    preflight = preflight or {}
+    year = str(preflight.get("report_year") or snapshot.get("report_year") or "2025")
+    income_rows = _raw_income_statement_rows(work_dir, year)
+    balance_rows = _raw_balance_sheet_rows(work_dir, year)
+    sources: dict[str, dict[str, Any]] = {}
+
+    revenue = _read_verified_metric(
+        snapshot,
+        year,
+        income_rows,
+        "revenue",
+        ["营业总收入", "营业收入"],
+        ["total_operating_revenue", "operating_revenue"],
+        sources,
+    )
+    net_profit = _read_verified_metric(
+        snapshot,
+        year,
+        income_rows,
+        "net_profit_parent",
+        ["归属于母公司股东的净利润", "归属于上市公司股东的净利润", "归属于母公司所有者的净利润"],
+        ["parent_net_profit"],
+        sources,
+    )
+    total_assets = _read_verified_metric(snapshot, year, balance_rows, "total_assets", ["资产总计"], ["total_assets"], sources)
+    total_liabilities = _read_verified_metric(snapshot, year, balance_rows, "total_liabilities", ["负债合计"], ["total_liabilities"], sources)
+    equity = _read_verified_metric(
+        snapshot,
+        year,
+        balance_rows,
+        "equity_attributable_parent",
+        ["归属于母公司所有者权益合计", "归属于母公司股东权益合计", "归属于母公司所有者权益（或股东权益）合计"],
+        ["equity_attributable_parent"],
+        sources,
+    )
+    validations: list[dict[str, Any]] = []
+    if equity is None and total_assets is not None and total_liabilities is not None:
+        equity = total_assets - total_liabilities
+        sources["equity_attributable_parent"] = {"source": "computed", "row": "资产总计-负债合计"}
+        validations.append({"rule": "equity = total_assets - total_liabilities", "status": "computed", "computed": round(equity, 2)})
+
+    if revenue is None or net_profit is None or total_assets is None or equity is None:
+        return None
     
     net_margin = (net_profit / revenue * 100) if revenue and revenue != 0 else None
     asset_turnover = (revenue / total_assets) if total_assets and total_assets != 0 else None
     equity_multiplier = (total_assets / equity) if equity and equity != 0 else None
-    roe = (net_margin * asset_turnover * equity_multiplier) if all([net_margin, asset_turnover, equity_multiplier]) else None
+    roe = (net_profit / equity * 100) if equity else None
     
     return {
         "net_margin": round(net_margin, 2) if net_margin else None,
         "asset_turnover": round(asset_turnover, 4) if asset_turnover else None,
         "equity_multiplier": round(equity_multiplier, 2) if equity_multiplier else None,
         "roe": round(roe, 2) if roe else None,
+        "sources": sources,
+        "validations": validations,
     }
 
 
-def build_asset_structure_data(snapshot: dict[str, Any]) -> dict[str, Any]:
-    """Build asset structure pie chart data."""
-    total = safe_float(metric_value(snapshot, "total_assets"))
-    if not total:
+def build_asset_structure_data(
+    snapshot: dict[str, Any],
+    preflight: dict[str, Any] | None = None,
+    work_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Build asset structure data from verified balance-sheet rows without estimates."""
+    preflight = preflight or {}
+    year = str(preflight.get("report_year") or snapshot.get("report_year") or "2025")
+    rows = _raw_balance_sheet_rows(work_dir, year)
+    sources: dict[str, dict[str, Any]] = {}
+    total = _read_verified_metric(snapshot, year, rows, "total_assets", ["资产总计"], ["total_assets"], sources)
+    if total is None or total <= 0:
         return None
-    
-    cash = safe_float(metric_value(snapshot, "monetary_funds"))
-    receivables = safe_float(metric_value(snapshot, "accounts_receivable"))
-    inventory = safe_float(metric_value(snapshot, "inventory"))
-    current = safe_float(metric_value(snapshot, "current_assets"))
-    
-    # Non-current assets = total - current
-    non_current = total - current if current else total * 0.6  # estimate
-    other_current = current - cash - receivables - inventory if current else total * 0.15
-    
+    cash = _read_verified_metric(snapshot, year, rows, "cash", ["货币资金"], ["monetary_capital", "monetary_funds"], sources)
+    receivables = _read_verified_metric(snapshot, year, rows, "receivables", ["应收账款"], ["accounts_receivable"], sources)
+    inventory = _read_verified_metric(snapshot, year, rows, "inventory", ["存货"], ["inventory"], sources)
+    current = _read_verified_metric(snapshot, year, rows, "current_assets", ["流动资产合计", "流动资产"], ["current_assets"], sources)
+    non_current = _read_verified_metric(snapshot, year, rows, "non_current_assets", ["非流动资产合计", "非流动资产"], ["non_current_assets"], sources)
+    if non_current is None and current is not None:
+        non_current = total - current
+        sources["non_current_assets"] = {"source": "computed", "row": "资产总计-流动资产合计"}
+    categories: list[dict[str, Any]] = []
+    for name, value in [("货币资金", cash), ("应收账款", receivables), ("存货", inventory)]:
+        if value is not None and value > 0:
+            categories.append({"name": name, "value": round(value, 2)})
+    if current is not None:
+        known_current = sum(safe_float(item.get("value")) for item in categories)
+        other_current = current - known_current
+        if other_current > max(total * 0.001, 0.1):
+            categories.append({"name": "其他流动资产", "value": round(other_current, 2)})
+    if non_current is not None and non_current > 0:
+        categories.append({"name": "非流动资产", "value": round(non_current, 2)})
+    residual = total - sum(safe_float(item.get("value")) for item in categories)
+    validations = [{"rule": "asset_categories_sum_to_total_assets", "status": "ok" if abs(residual) <= max(total * 0.002, 0.5) else "residual", "diff": round(residual, 2)}]
+    if residual > max(total * 0.002, 0.5):
+        categories.append({"name": "其他资产/口径差", "value": round(residual, 2)})
     return {
-        "categories": [
-            {"name": "货币资金", "value": round(cash, 2) if cash else 0},
-            {"name": "应收账款", "value": round(receivables, 2) if receivables else 0},
-            {"name": "存货", "value": round(inventory, 2) if inventory else 0},
-            {"name": "其他流动资产", "value": round(max(0, other_current), 2)},
-            {"name": "非流动资产", "value": round(max(0, non_current), 2)},
-        ]
+        "categories": categories,
+        "total": round(total, 2),
+        "sources": sources,
+        "validations": validations,
     }
 
 
-def build_debt_structure_data(snapshot: dict[str, Any]) -> dict[str, Any]:
-    """Build debt structure data."""
-    total = safe_float(metric_value(snapshot, "total_liabilities"))
-    if not total:
+def build_debt_structure_data(
+    snapshot: dict[str, Any],
+    preflight: dict[str, Any] | None = None,
+    work_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Build debt structure data from verified balance-sheet rows without estimates."""
+    preflight = preflight or {}
+    year = str(preflight.get("report_year") or snapshot.get("report_year") or "2025")
+    rows = _raw_balance_sheet_rows(work_dir, year)
+    sources: dict[str, dict[str, Any]] = {}
+    total = _read_verified_metric(snapshot, year, rows, "total_liabilities", ["负债合计"], ["total_liabilities"], sources)
+    if total is None or total <= 0:
         return None
-    
-    short_borrow = safe_float(metric_value(snapshot, "short_term_borrowings"))
-    current_noncurrent = safe_float(metric_value(snapshot, "current_portion_noncurrent_liabilities"))
-    long_borrow = safe_float(metric_value(snapshot, "long_term_borrowings"))
-    notes_payable = safe_float(metric_value(snapshot, "notes_payable"))
-    current = safe_float(metric_value(snapshot, "current_liabilities"))
-    
-    other_current = current - short_borrow - current_noncurrent - notes_payable if current else 0
-    non_current = total - current if total and current else total * 0.3
-    
+    short_borrow = _read_verified_metric(snapshot, year, rows, "short_borrow", ["短期借款"], ["short_term_borrowings"], sources)
+    current_noncurrent = _read_verified_metric(snapshot, year, rows, "current_portion_noncurrent", ["一年内到期的非流动负债"], ["current_portion_noncurrent_liabilities"], sources)
+    long_borrow = _read_verified_metric(snapshot, year, rows, "long_borrow", ["长期借款"], ["long_term_borrowings"], sources)
+    notes_payable = _read_verified_metric(snapshot, year, rows, "notes_payable", ["应付票据"], ["notes_payable"], sources)
+    current = _read_verified_metric(snapshot, year, rows, "current_liabilities", ["流动负债合计", "流动负债"], ["current_liabilities"], sources)
+    non_current = _read_verified_metric(snapshot, year, rows, "non_current_liabilities", ["非流动负债合计", "非流动负债"], ["non_current_liabilities"], sources)
+    if non_current is None and current is not None:
+        non_current = total - current
+        sources["non_current_liabilities"] = {"source": "computed", "row": "负债合计-流动负债合计"}
+    categories: list[dict[str, Any]] = []
+    for name, value in [("短期借款", short_borrow), ("一年内到期非流动负债", current_noncurrent), ("应付票据", notes_payable)]:
+        if value is not None and value > 0:
+            categories.append({"name": name, "value": round(value, 2)})
+    if current is not None:
+        known_current = sum(safe_float(item.get("value")) for item in categories)
+        other_current = current - known_current
+        if other_current > max(total * 0.001, 0.1):
+            categories.append({"name": "其他流动负债", "value": round(other_current, 2)})
+    if long_borrow is not None and long_borrow > 0:
+        categories.append({"name": "长期借款", "value": round(long_borrow, 2)})
+    if non_current is not None:
+        other_non_current = non_current - (long_borrow or 0)
+        if other_non_current > max(total * 0.001, 0.1):
+            categories.append({"name": "其他非流动负债", "value": round(other_non_current, 2)})
+    residual = total - sum(safe_float(item.get("value")) for item in categories)
+    validations = [{"rule": "debt_categories_sum_to_total_liabilities", "status": "ok" if abs(residual) <= max(total * 0.002, 0.5) else "residual", "diff": round(residual, 2)}]
+    if residual > max(total * 0.002, 0.5):
+        categories.append({"name": "其他负债/口径差", "value": round(residual, 2)})
     return {
-        "categories": [
-            {"name": "短期借款", "value": round(short_borrow, 2) if short_borrow else 0},
-            {"name": "一年内到期非流动负债", "value": round(current_noncurrent, 2) if current_noncurrent else 0},
-            {"name": "应付票据", "value": round(notes_payable, 2) if notes_payable else 0},
-            {"name": "其他流动负债", "value": round(max(0, other_current), 2)},
-            {"name": "长期借款", "value": round(long_borrow, 2) if long_borrow else 0},
-            {"name": "其他非流动负债", "value": round(max(0, non_current - (long_borrow or 0)), 2)},
-        ]
+        "categories": categories,
+        "total": round(total, 2),
+        "sources": sources,
+        "validations": validations,
     }
 
 
-def build_solvency_gauges(snapshot: dict[str, Any]) -> dict[str, Any]:
-    """Build solvency indicator gauges."""
-    total_assets = safe_float(metric_value(snapshot, "total_assets"))
-    total_liabilities = safe_float(metric_value(snapshot, "total_liabilities"))
-    current_assets = safe_float(metric_value(snapshot, "current_assets"))
-    current_liabilities = safe_float(metric_value(snapshot, "current_liabilities"))
-    cash = safe_float(metric_value(snapshot, "monetary_funds"))
+def build_solvency_gauges(
+    snapshot: dict[str, Any],
+    preflight: dict[str, Any] | None = None,
+    work_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Build solvency indicators from verified balance-sheet rows."""
+    preflight = preflight or {}
+    year = str(preflight.get("report_year") or snapshot.get("report_year") or "2025")
+    rows = _raw_balance_sheet_rows(work_dir, year)
+    sources: dict[str, dict[str, Any]] = {}
+    total_assets = _read_verified_metric(snapshot, year, rows, "total_assets", ["资产总计"], ["total_assets"], sources)
+    total_liabilities = _read_verified_metric(snapshot, year, rows, "total_liabilities", ["负债合计"], ["total_liabilities"], sources)
+    current_assets = _read_verified_metric(snapshot, year, rows, "current_assets", ["流动资产合计", "流动资产"], ["current_assets"], sources)
+    current_liabilities = _read_verified_metric(snapshot, year, rows, "current_liabilities", ["流动负债合计", "流动负债"], ["current_liabilities"], sources)
+    cash = _read_verified_metric(snapshot, year, rows, "cash", ["货币资金"], ["monetary_capital", "monetary_funds"], sources)
+    inventory = _read_verified_metric(snapshot, year, rows, "inventory", ["存货"], ["inventory"], sources)
     
     debt_ratio = (total_liabilities / total_assets * 100) if total_assets else None
     current_ratio = (current_assets / current_liabilities) if current_liabilities else None
-    quick_ratio = ((current_assets - safe_float(metric_value(snapshot, "inventory"))) / current_liabilities) if current_liabilities else None
+    quick_ratio = ((current_assets - inventory) / current_liabilities) if current_liabilities and current_assets is not None and inventory is not None else None
     cash_ratio = (cash / current_liabilities) if current_liabilities else None
     
     return {
@@ -312,6 +490,7 @@ def build_solvency_gauges(snapshot: dict[str, Any]) -> dict[str, Any]:
         "current_ratio": round(current_ratio, 2) if current_ratio else None,
         "quick_ratio": round(quick_ratio, 2) if quick_ratio else None,
         "cash_ratio": round(cash_ratio, 2) if cash_ratio else None,
+        "sources": sources,
     }
 
 
@@ -875,11 +1054,11 @@ body {
 .income-bridge-legend .profit { background: #ff3548; }
 .income-bridge-panel .chart-fallback {
   display: block;
-  min-height: 520px;
+  min-height: 620px;
 }
 .income-bridge-panel .chart-fallback svg {
   display: block;
-  min-width: 1040px;
+  min-width: 1280px;
 }
 .income-bridge-panel .chart-fallback svg text,
 .income-bridge-panel .chart-fallback svg rect,
@@ -895,8 +1074,8 @@ body {
   filter: drop-shadow(0 6px 12px rgba(15,23,42,0.18));
 }
 .ib-interactive:focus-visible .ib-hit {
-  stroke: #111827;
-  stroke-width: 2;
+  stroke: rgba(37,99,235,0.55);
+  stroke-width: 1.5;
 }
 .income-bridge-panel.ib-has-active .ib-interactive {
   opacity: 0.24;
@@ -2140,15 +2319,22 @@ function initCashFlowChart() {
   if (!el || !window.cashFlowData) return;
   const data = window.cashFlowData;
   const chart = echarts.init(el);
+  const sourceLabel = (key) => {
+    const item = data.sources && data.sources[key];
+    if (!item) return '';
+    if (item.source === 'three_statements') return `来源：合并现金流量表｜${item.row}`;
+    if (item.source === 'metric_snapshot') return `来源：指标快照｜${item.row || key}`;
+    return '来源：未匹配到原始科目';
+  };
   
   const items = [
-    { name: '经营现金流', value: data.operating, color: '#10b981' },
-    { name: '投资现金流', value: data.investing, color: '#ef4444' },
-    { name: '筹资现金流', value: data.financing, color: '#f59e0b' },
-    { name: '资本开支', value: -data.capex, color: '#8b5cf6' },
-  ];
-  if (data.free_cash_flow !== null) {
-    items.push({ name: '自由现金流', value: data.free_cash_flow, color: '#06b6d4' });
+    { key: 'operating', name: '经营现金流', value: data.operating, color: '#10b981', detail: sourceLabel('operating') },
+    { key: 'investing', name: '投资现金流', value: data.investing, color: '#ef4444', detail: sourceLabel('investing') },
+    { key: 'financing', name: '筹资现金流', value: data.financing, color: '#f59e0b', detail: sourceLabel('financing') },
+    { key: 'capex', name: '资本开支', value: data.capex === null || data.capex === undefined ? null : -data.capex, color: '#8b5cf6', detail: `${sourceLabel('capex')}｜按现金流出方向展示为负值` },
+  ].filter(item => item.value !== null && item.value !== undefined && !Number.isNaN(Number(item.value)));
+  if (data.free_cash_flow !== null && data.free_cash_flow !== undefined) {
+    items.push({ key: 'free_cash_flow', name: '自由现金流', value: data.free_cash_flow, color: '#06b6d4', detail: '公式：经营现金流净额 - 资本开支；优先按原始三表现场重算' });
   }
   
   const option = {
@@ -2157,7 +2343,9 @@ function initCashFlowChart() {
       ...reportTooltipBase('item'),
       trigger: 'item',
       formatter: function(p) {
-        return chartTooltipHtml(p.name, fmtYi(p.value), p.value >= 0 ? '现金流入或余额贡献' : '现金流出或资本投入');
+        const item = items[p.dataIndex] || {};
+        const direction = p.value >= 0 ? '现金流入或余额贡献' : '现金流出或资本投入';
+        return chartTooltipHtml(p.name, fmtYi(p.value), [direction, item.detail].filter(Boolean).join('<br/>'));
       }
     },
     xAxis: {
@@ -3062,22 +3250,24 @@ def render_income_bridge_panel(data: dict[str, Any] | None) -> str:
 
 
 def build_profitability_waterfall_data(snapshot: dict[str, Any]) -> dict[str, Any] | None:
-    """Build waterfall chart data for profitability decomposition."""
-    revenue = safe_float(metric_value(snapshot, "operating_revenue"))
-    cost = safe_float(metric_value(snapshot, "operating_cost"))
-    profit = safe_float(metric_value(snapshot, "net_profit_parent"))
-    
-    if not revenue:
+    """Build a basic profitability waterfall only when exact revenue, cost, and profit exist."""
+    revenue_value = metric_value(snapshot, "operating_revenue")
+    cost_value = metric_value(snapshot, "operating_cost")
+    profit_value = metric_value(snapshot, "net_profit_parent")
+    if revenue_value is None or cost_value is None or profit_value is None:
         return None
+    revenue = safe_float(revenue_value)
+    cost = safe_float(cost_value)
+    profit = safe_float(profit_value)
     
-    gross_profit = revenue - cost if cost else revenue * 0.2
+    gross_profit = revenue - cost
     
     steps = [
         {"name": "营业收入", "value": revenue, "base": 0},
-        {"name": "营业成本", "value": -(cost or revenue * 0.8), "base": revenue - (cost or revenue * 0.8)},
+        {"name": "营业成本", "value": -cost, "base": revenue - cost},
         {"name": "毛利", "value": gross_profit, "base": 0},
-        {"name": "期间费用", "value": -(gross_profit - profit) if profit else -(gross_profit * 0.7), "base": profit if profit else gross_profit * 0.3},
-        {"name": "归母净利润", "value": profit if profit else gross_profit * 0.3, "base": 0},
+        {"name": "期间费用/其他", "value": -(gross_profit - profit), "base": profit},
+        {"name": "归母净利润", "value": profit, "base": 0},
     ]
     
     # Recalculate bases for waterfall
@@ -3185,7 +3375,7 @@ def _report_metrics_path(work_dir: Path | None, year: str) -> Path | None:
     return None
 
 
-def _raw_income_statement_rows(work_dir: Path | None, year: str) -> list[dict[str, Any]]:
+def _raw_statement_rows(work_dir: Path | None, year: str, statement_type: str) -> list[dict[str, Any]]:
     metrics_path = _report_metrics_path(work_dir, year)
     if not metrics_path:
         return []
@@ -3198,21 +3388,125 @@ def _raw_income_statement_rows(work_dir: Path | None, year: str) -> list[dict[st
     for item in metrics if isinstance(metrics, list) else []:
         if not isinstance(item, dict):
             continue
-        if item.get("statement_type") != "income_statement" or item.get("scope") != "consolidated":
+        if item.get("statement_type") != statement_type or item.get("scope") != "consolidated":
             continue
-        if str(item.get("period") or "") != str(year):
+        period = str(item.get("period") or "")
+        if period != str(year) and not period.startswith(f"{year}-"):
             continue
         rows.append(item)
     return rows
 
 
-def _raw_income_value(rows: list[dict[str, Any]], metric_name: str) -> float | None:
+def _raw_income_statement_rows(work_dir: Path | None, year: str) -> list[dict[str, Any]]:
+    return _raw_statement_rows(work_dir, year, "income_statement")
+
+
+def _raw_cashflow_statement_rows(work_dir: Path | None, year: str) -> list[dict[str, Any]]:
+    return _raw_statement_rows(work_dir, year, "cash_flow_statement")
+
+
+def _raw_balance_sheet_rows(work_dir: Path | None, year: str) -> list[dict[str, Any]]:
+    return _raw_statement_rows(work_dir, year, "balance_sheet")
+
+
+def _raw_statement_value(rows: list[dict[str, Any]], metric_name: str) -> float | None:
     for item in rows:
         if item.get("metric_name") == metric_name:
             value = item.get("normalized_value")
             if value is not None:
                 return safe_float(value)
     return None
+
+
+def _raw_statement_value_any(rows: list[dict[str, Any]], metric_names: list[str]) -> float | None:
+    for name in metric_names:
+        value = _raw_statement_value(rows, name)
+        if value is not None:
+            return value
+    normalized_targets = {re.sub(r"[\s（）()①-⑳注:：*]", "", name) for name in metric_names}
+    for item in rows:
+        metric_name = str(item.get("metric_name") or "")
+        normalized_name = re.sub(r"[\s（）()①-⑳注:：*]", "", metric_name)
+        if normalized_name in normalized_targets:
+            value = item.get("normalized_value")
+            if value is not None:
+                return safe_float(value)
+    return None
+
+
+def _normalized_statement_name(name: str) -> str:
+    return re.sub(r"[\s（）()①-⑳注:：*·、，,]", "", str(name or ""))
+
+
+def _snapshot_metric_value_strict(
+    snapshot: dict[str, Any],
+    year: str,
+    canonical_keys: list[str],
+    allowed_display_names: list[str],
+) -> tuple[float | None, str | None]:
+    allowed_keys = set(canonical_keys)
+    allowed_names = {_normalized_statement_name(name) for name in allowed_display_names}
+    for source_name in ["metrics", "key_metrics"]:
+        source = snapshot.get(source_name, {})
+        if not isinstance(source, dict):
+            continue
+        for metric_key, item in source.items():
+            if not isinstance(item, dict):
+                continue
+            names = {
+                _normalized_statement_name(metric_key),
+                _normalized_statement_name(item.get("canonical_name")),
+                _normalized_statement_name(item.get("display_name")),
+            }
+            key_ok = metric_key in allowed_keys or str(item.get("canonical_name") or "") in allowed_keys
+            name_ok = bool(allowed_names.intersection(names))
+            if not key_ok and not name_ok:
+                continue
+            value = metric_value_from_item(item, year)
+            if value is not None:
+                label = str(item.get("display_name") or item.get("canonical_name") or metric_key)
+                return safe_float(value), f"{source_name}:{label}"
+    return None, None
+
+
+def _read_verified_metric(
+    snapshot: dict[str, Any],
+    year: str,
+    rows: list[dict[str, Any]],
+    field: str,
+    statement_names: list[str],
+    snapshot_keys: list[str],
+    sources: dict[str, dict[str, Any]] | None = None,
+) -> float | None:
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        if item.get("metric_key") in snapshot_keys and item.get("normalized_value") is not None:
+            if sources is not None:
+                sources[field] = {
+                    "source": "three_statements",
+                    "scope": "consolidated",
+                    "row": item.get("metric_name") or item.get("metric_key"),
+                    "metric_key": item.get("metric_key"),
+                }
+            return safe_float(item.get("normalized_value"))
+    raw_value = _raw_statement_value_any(rows, statement_names)
+    if raw_value is not None:
+        if sources is not None:
+            sources[field] = {"source": "three_statements", "scope": "consolidated", "row": statement_names[0]}
+        return raw_value
+    snapshot_value, label = _snapshot_metric_value_strict(snapshot, year, snapshot_keys, statement_names)
+    if snapshot_value is not None:
+        if sources is not None:
+            sources[field] = {"source": "metric_snapshot_strict", "row": label}
+        return snapshot_value
+    if sources is not None:
+        sources[field] = {"source": "missing", "row": statement_names[0]}
+    return None
+
+
+def _raw_income_value(rows: list[dict[str, Any]], metric_name: str) -> float | None:
+    return _raw_statement_value(rows, metric_name)
 
 
 def _coalesce(*values: float | None) -> float | None:
@@ -3242,6 +3536,23 @@ def _parse_pct(raw: str) -> float | None:
         return None
 
 
+def _looks_like_money_cell(raw: str) -> bool:
+    cleaned = raw.replace(",", "").replace("，", "").strip()
+    if not cleaned or "%" in raw or "％" in raw:
+        return False
+    try:
+        value = abs(float(cleaned))
+    except ValueError:
+        return False
+    return value >= 10_000 or "," in raw or "，" in raw
+
+
+def _growth_pct(current: float | None, previous: float | None) -> float | None:
+    if current is None or previous is None or abs(previous) < 1e-9:
+        return None
+    return (current - previous) / abs(previous) * 100
+
+
 def _extract_td_rows(table_html: str) -> list[list[str]]:
     rows: list[list[str]] = []
     for row_html in re.findall(r"<tr[^>]*>(.*?)</tr>", table_html, flags=re.I | re.S):
@@ -3250,6 +3561,29 @@ def _extract_td_rows(table_html: str) -> list[list[str]]:
         if cleaned:
             rows.append(cleaned)
     return rows
+
+
+def _revenue_segment_entry(
+    name: str,
+    revenue: float | None,
+    previous_revenue: float | None = None,
+    cost: float | None = None,
+    previous_cost: float | None = None,
+    share: float | None = None,
+    revenue_yoy: float | None = None,
+) -> dict[str, Any] | None:
+    if revenue is None or revenue <= 0:
+        return None
+    gross_margin = (revenue - cost) / revenue * 100 if cost is not None and revenue else None
+    return {
+        "name": name,
+        "revenue": revenue,
+        "cost": cost,
+        "gross_margin": gross_margin,
+        "revenue_yoy": revenue_yoy if revenue_yoy is not None else _growth_pct(revenue, previous_revenue),
+        "cost_yoy": _growth_pct(cost, previous_cost) if cost is not None and previous_cost is not None else None,
+        "share": share,
+    }
 
 
 def _extract_product_segments_from_report_markdown(work_dir: Path | None) -> list[dict[str, Any]]:
@@ -3264,12 +3598,52 @@ def _extract_product_segments_from_report_markdown(work_dir: Path | None) -> lis
     except OSError:
         return []
 
-    anchor = text.find("# （1）营业收入构成")
-    end = text.find("# （2）", anchor + 1) if anchor >= 0 else -1
-    window = text[anchor:end if end > anchor else anchor + 12000] if anchor >= 0 else text[:12000]
+    anchor_match = re.search(r"营业收入构成|主营业务分行业、分产品|分产品", text)
+    anchor = anchor_match.start() if anchor_match else -1
+    end_match = re.search(r"\n#{1,6}\s*（?2[）.)、]", text[anchor + 1 :]) if anchor >= 0 else None
+    end = anchor + 1 + end_match.start() if end_match else -1
+    window = text
     tables = re.findall(r"<table>.*?</table>", window, flags=re.I | re.S)
     if not tables:
         return []
+
+    segment_names = {"整车业务", "零部件业务", "劳务及其他"}
+    extracted: dict[str, dict[str, Any]] = {}
+    for table in tables:
+        rows = _extract_td_rows(table)
+        for row in rows:
+            if not row:
+                continue
+            name = re.sub(r"\s+", "", row[0])
+            has_money_series = len(row) >= 5 and all(_looks_like_money_cell(row[i]) for i in [1, 2, 3, 4])
+            if name in segment_names and has_money_series:
+                entry = _revenue_segment_entry(
+                    row[0],
+                    _parse_money_yi(row[1]),
+                    _parse_money_yi(row[3]),
+                    _parse_money_yi(row[2]),
+                    _parse_money_yi(row[4]),
+                )
+                if entry and safe_float(entry.get("revenue")) > safe_float(extracted.get(row[0], {}).get("revenue")):
+                    extracted[row[0]] = entry
+            elif name == "其他业务" and has_money_series:
+                entry = _revenue_segment_entry(
+                    "其他业务",
+                    _parse_money_yi(row[1]),
+                    _parse_money_yi(row[3]),
+                    _parse_money_yi(row[2]),
+                    _parse_money_yi(row[4]),
+                )
+                if entry and safe_float(entry.get("revenue")) > safe_float(extracted.get("其他业务", {}).get("revenue")):
+                    extracted["其他业务"] = entry
+
+    if len(extracted) >= 2:
+        total = sum(safe_float(item.get("revenue")) for item in extracted.values())
+        if total > 0:
+            for item in extracted.values():
+                item["share"] = safe_float(item.get("revenue")) / total * 100
+        return sorted(extracted.values(), key=lambda item: safe_float(item.get("revenue")), reverse=True)
+
     rows = _extract_td_rows(tables[0])
     in_product = False
     segments: list[dict[str, Any]] = []
@@ -3338,6 +3712,23 @@ def _income_bridge_segments(snapshot: dict[str, Any], total_revenue: float, work
 
     if not normalized:
         normalized = [{"name": "营业收入", "revenue": total_revenue, "share": 100.0}]
+    else:
+        segment_total = sum(safe_float(item.get("revenue")) for item in normalized)
+        residual = total_revenue - segment_total if total_revenue else 0.0
+        if residual > max(total_revenue * 0.005, 1.0):
+            normalized.append(
+                {
+                    "name": "利息/手续费等",
+                    "revenue": residual,
+                    "cost": None,
+                    "gross_margin": None,
+                    "revenue_yoy": None,
+                    "share": residual / total_revenue * 100 if total_revenue else None,
+                }
+            )
+        if total_revenue:
+            for item in normalized:
+                item["share"] = safe_float(item.get("revenue")) / total_revenue * 100
 
     normalized.sort(key=lambda item: safe_float(item.get("revenue")), reverse=True)
     if len(normalized) > 8:
@@ -3678,7 +4069,7 @@ def svg_title(title: str, value: Any, detail: str = "", value_text: str | None =
     return f"<title>{svg_text(' · '.join(part for part in parts if part))}</title>"
 
 
-def svg_income_bridge_chart(data: dict[str, Any] | None, *, width: int = 1120, height: int = 540) -> str:
+def svg_income_bridge_chart(data: dict[str, Any] | None, *, width: int = 1280, height: int = 620) -> str:
     if not data or not data.get("flow_nodes"):
         return '<div class="chart-fallback-empty">利润桥数据不足，待补充利润表收入、成本费用和净利润口径。</div>'
 
@@ -3716,7 +4107,7 @@ def svg_income_bridge_chart(data: dict[str, Any] | None, *, width: int = 1120, h
         + [1.0]
     )
 
-    def flow_width(value: Any, minimum: float = 3.0, maximum: float = 54.0) -> float:
+    def flow_width(value: Any, minimum: float = 3.5, maximum: float = 52.0) -> float:
         return max(minimum, min(maximum, abs(safe_float(value)) / max_value * maximum))
 
     def ib_attrs(ib_id: str, related: list[str], title: str, value: Any, detail: str = "") -> str:
@@ -3848,18 +4239,25 @@ def svg_income_bridge_chart(data: dict[str, Any] | None, *, width: int = 1120, h
     def segment_label(item: dict[str, Any], x: float, y: float, ib_id: str, related: list[str]) -> str:
         yoy = item.get("revenue_yoy")
         yoy_text = "—" if yoy is None else f"{safe_float(yoy):+.2f}%"
-        yoy_color = "#cc5b24" if safe_float(yoy) >= 0 else "#1fb59d"
+        yoy_color = "#8a8f98" if yoy is None else "#cc5b24" if safe_float(yoy) >= 0 else "#1fb59d"
         name = str(item.get("name") or "")
-        if len(name) > 12:
-            name = name[:11] + "..."
-        detail = "同比：" + yoy_text if yoy is not None else "同比：未返回"
+        if len(name) > 13:
+            name = name[:12] + "..."
+        detail_parts = []
+        if item.get("share") is not None:
+            detail_parts.append(f"收入占比 {safe_float(item.get('share')):.2f}%")
+        if yoy is not None:
+            detail_parts.append("同比 " + yoy_text)
+        if item.get("gross_margin") is not None:
+            detail_parts.append(f"毛利率 {safe_float(item.get('gross_margin')):.2f}%")
+        detail = "；".join(detail_parts) if detail_parts else "收入分项"
         return (
             f'<g {ib_attrs(ib_id, related, str(item.get("name") or ""), item.get("revenue"), detail)}>'
             f'{svg_title(str(item.get("name") or ""), item.get("revenue"), detail)}'
             f'<text x="{x:.1f}" y="{y - 11:.1f}" text-anchor="end" class="ib-yoy" fill="{yoy_color}">{svg_text(yoy_text)}</text>'
             f'<text x="{x + 8:.1f}" y="{y - 11:.1f}" text-anchor="start" class="ib-label">{svg_text(name)}</text>'
             f'<text x="{x + 8:.1f}" y="{y + 15:.1f}" text-anchor="start" class="ib-value" fill="#3498db">{svg_text(fmt_yi(item.get("revenue")))}</text>'
-            f'<rect class="ib-hit" x="{x - 92:.1f}" y="{y - 40:.1f}" width="305" height="70" rx="8" fill="transparent"/>'
+            f'<rect class="ib-hit" x="{x - 118:.1f}" y="{y - 42:.1f}" width="330" height="74" rx="8" fill="transparent"/>'
             f'</g>'
         )
 
@@ -3871,18 +4269,19 @@ def svg_income_bridge_chart(data: dict[str, Any] | None, *, width: int = 1120, h
     profit_soft = "#ffb6bb"
     text_css = """
   <style>
-    .ib-label { font: 700 18px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #111827; }
-    .ib-value { font: 700 22px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-variant-numeric: tabular-nums; }
-    .ib-yoy { font: 700 16px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-variant-numeric: tabular-nums; }
-    .ib-muted { font: 500 18px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #8a8f98; }
+    .ib-label { font: 720 17px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #111827; }
+    .ib-value { font: 760 22px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-variant-numeric: tabular-nums; }
+    .ib-yoy { font: 720 15px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-variant-numeric: tabular-nums; }
+    .ib-muted { font: 500 17px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #8a8f98; }
+    .ib-caption { font: 600 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #94a3b8; }
     .ib-ribbon { vector-effect: non-scaling-stroke; }
   </style>
 """
 
-    left_x, left_node_x = 300, 330
-    revenue_x, revenue_y = 455, 284
-    split_x = 608
-    revenue_h = 190.0
+    left_x, left_node_x = 270, 360
+    revenue_x, revenue_y = 540, 330
+    split_x = 720
+    revenue_h = 225.0
     revenue_top = revenue_y - revenue_h / 2
     revenue_bottom = revenue_y + revenue_h / 2
     cost_ratio = min(1.0, max(0.0, safe_float(operating_cost) / total_revenue)) if total_revenue else 0.0
@@ -3899,20 +4298,26 @@ def svg_income_bridge_chart(data: dict[str, Any] | None, *, width: int = 1120, h
     cost_bottom = cost_top + cost_h
     gross_y = (gross_top + gross_bottom) / 2 if gross_h > 0 else revenue_top + 10
     cost_y = (cost_top + cost_bottom) / 2 if cost_h > 0 else revenue_y
-    op_x, op_y = 745, 284
-    pretax_x, pretax_y = 850, 284
-    right_x = 1000
+    op_x, op_y = 880, 330
+    pretax_x, pretax_y = 1000, 330
+    right_x = 1160
 
     seg_count = max(1, len(segments))
-    top = 116 if seg_count >= 5 else 150
-    step_y = min(55, 310 / max(1, seg_count - 1)) if seg_count > 1 else 0
+    top = 110 if seg_count >= 5 else 164
+    step_y = min(72, 380 / max(1, seg_count - 1)) if seg_count > 1 else 0
     segment_parts: list[str] = []
     for i, item in enumerate(segments):
         y = top + i * step_y
         value = safe_float(item.get("revenue"))
         segment_id = f"seg-{i}"
         flow_id = f"flow-{segment_id}-revenue"
-        segment_parts.append(segment_label(item, 118, y, segment_id, [flow_id, "node-revenue"]))
+        detail_parts = ["收入分项汇入营业总收入"]
+        if item.get("share") is not None:
+            detail_parts.append(f"占营业总收入 {safe_float(item.get('share')):.2f}%")
+        if item.get("gross_margin") is not None:
+            detail_parts.append(f"分项毛利率 {safe_float(item.get('gross_margin')):.2f}%")
+        flow_detail = "；".join(detail_parts)
+        segment_parts.append(segment_label(item, left_x, y, segment_id, [flow_id, "node-revenue"]))
         segment_parts.append(
             f'<g {ib_attrs(f"node-{segment_id}", [segment_id, flow_id, "node-revenue"], str(item.get("name") or ""), value, "收入分项")}>'
             f'{svg_title(str(item.get("name") or ""), value, "收入分项")}'
@@ -3920,7 +4325,7 @@ def svg_income_bridge_chart(data: dict[str, Any] | None, *, width: int = 1120, h
             f'<rect class="ib-hit" x="{left_node_x - 12}" y="{y - 22:.1f}" width="38" height="44" rx="8" fill="transparent"/>'
             f'</g>'
         )
-        segment_parts.append(curve(flow_id, [segment_id, f"node-{segment_id}", "node-revenue"], f"{item.get('name')} → 营业收入", left_node_x + 12, y, revenue_x, revenue_y, income_blue_soft, value, 0.72, "收入分项汇入营业收入"))
+        segment_parts.append(curve(flow_id, [segment_id, f"node-{segment_id}", "node-revenue"], f"{item.get('name')} → 营业总收入", left_node_x + 12, y, revenue_x, revenue_y, income_blue_soft, value, 0.72, flow_detail))
 
     center_parts = [
         node("node-revenue", ["flow-revenue-gross", "flow-revenue-cost"], revenue_x, revenue_y, revenue_h, income_blue, nodes.get("revenue", {}).get("name") or "营业收入", total_revenue, "start", income_blue, "收入分项汇总"),
@@ -3928,26 +4333,30 @@ def svg_income_bridge_chart(data: dict[str, Any] | None, *, width: int = 1120, h
         ribbon_band("flow-revenue-cost", ["node-revenue", "node-cost"], "营业收入 → 营业成本", revenue_x + 12, cost_top, cost_bottom, split_x, cost_top, cost_bottom, expense_soft, operating_cost, 0.72, f"营业成本流出，占营业收入 {cost_ratio * 100:.2f}%", cost_ratio),
         node("node-cost", ["flow-revenue-cost", "flow-cost-op"], split_x, cost_y, cost_h, expense_yellow, "营业成本", operating_cost, "start", expense_yellow, "利润表营业成本"),
         node("node-gross", ["flow-revenue-gross", "flow-gross-op"], split_x, gross_y, gross_h, profit_red, "毛利", gross_profit, "start", profit_red, "营业收入减营业成本"),
-        curve("flow-gross-op", ["node-gross", "node-operating-profit"], "毛利 → 营业利润", split_x + 12, gross_y, op_x, op_y - 28, profit_soft, gross_profit, 0.64, "毛利经过期间费用和减值抵减后形成营业利润/亏损"),
-        curve("flow-cost-op", ["node-cost", "node-operating-profit"], f"{adjustment_label} → 营业利润", split_x + 12, cost_y, op_x, op_y + 24, expense_soft, operating_adjustments, 0.54, adjustment_detail),
+        curve("flow-gross-op", ["node-gross", "node-operating-profit"], "毛利 → 营业利润", split_x + 12, gross_y, op_x, op_y - 30, profit_soft, gross_profit, 0.64, "毛利经过期间费用和减值抵减后形成营业利润/亏损"),
+        curve("flow-cost-op", ["node-cost", "node-operating-profit"], f"{adjustment_label} → 营业利润", split_x + 12, cost_y, op_x, op_y + 28, expense_soft, operating_adjustments, 0.54, adjustment_detail),
         node("node-operating-profit", ["flow-gross-op", "flow-cost-op", "flow-op-pretax"], op_x, op_y, 82, profit_red, nodes.get("operating_profit", {}).get("name") or "营业利润", operating_profit, "start", profit_red, "合并利润表营业利润"),
         curve("flow-op-pretax", ["node-operating-profit", "node-pretax"], "营业利润 → 利润总额", op_x + 12, op_y, pretax_x, pretax_y, profit_soft, pretax_profit, 0.68, "营业外收支后形成利润总额"),
         node("node-pretax", ["flow-op-pretax", "flow-pretax-parent", "flow-pretax-tax", "flow-pretax-other"], pretax_x, pretax_y, 72, profit_red, nodes.get("pretax_profit", {}).get("name") or "利润总额", pretax_profit, "start", profit_red, "合并利润表利润总额"),
-        curve("flow-pretax-parent", ["node-pretax", "node-parent-profit"], "利润总额 → 归母净利润", pretax_x + 12, pretax_y - 6, right_x, 220, profit_soft, parent_net_profit, 0.72, "扣除所得税和归属调整后的归母口径"),
-        curve("flow-pretax-tax", ["node-pretax", "node-tax"], "利润总额 → 所得税", pretax_x + 12, pretax_y + 12, right_x, 298, expense_soft, income_tax, 0.70, "所得税费用"),
-        curve("flow-pretax-other", ["node-pretax", "node-other"], "利润总额 → 其他", pretax_x + 12, pretax_y + 24, right_x, 365, expense_soft, attribution, 0.42, "净利润与归母口径之间的归属调整"),
-        node("node-parent-profit", ["flow-pretax-parent"], right_x, 220, 62, profit_red, nodes.get("parent_net_profit", {}).get("name") or "归母净利润", parent_net_profit, "start", profit_red, "最终归母口径"),
-        node("node-tax", ["flow-pretax-tax"], right_x, 298, 18, expense_yellow, "所得税", income_tax, "start", expense_yellow, "所得税费用"),
-        node("node-other", ["flow-pretax-other"], right_x, 365, 16, expense_yellow, "其他", attribution, "start", expense_yellow, "少数股东损益或口径调整"),
+        curve("flow-pretax-parent", ["node-pretax", "node-parent-profit"], "利润总额 → 归母净利润", pretax_x + 12, pretax_y - 6, right_x, 246, profit_soft, parent_net_profit, 0.72, "扣除所得税和归属调整后的归母口径"),
+        curve("flow-pretax-tax", ["node-pretax", "node-tax"], "利润总额 → 所得税", pretax_x + 12, pretax_y + 12, right_x, 342, expense_soft, income_tax, 0.70, "所得税费用"),
+        curve("flow-pretax-other", ["node-pretax", "node-other"], "利润总额 → 其他", pretax_x + 12, pretax_y + 24, right_x, 422, expense_soft, attribution, 0.42, "净利润与归母口径之间的归属调整"),
+        node("node-parent-profit", ["flow-pretax-parent"], right_x, 246, 62, profit_red, nodes.get("parent_net_profit", {}).get("name") or "归母净利润", parent_net_profit, "start", profit_red, "最终归母口径"),
+        node("node-tax", ["flow-pretax-tax"], right_x, 342, 18, expense_yellow, "所得税", income_tax, "start", expense_yellow, "所得税费用"),
+        node("node-other", ["flow-pretax-other"], right_x, 422, 16, expense_yellow, "其他", attribution, "start", expense_yellow, "少数股东损益或口径调整"),
     ]
 
     return f"""
 <svg viewBox="0 0 {width} {height}" role="img" aria-label="收支拆解利润桥">
   {text_css}
   <rect x="0" y="0" width="{width}" height="{height}" fill="#ffffff"/>
+  <text x="{left_x - 8}" y="48" text-anchor="start" class="ib-caption">收入构成</text>
+  <text x="{revenue_x - 16}" y="48" text-anchor="start" class="ib-caption">收入汇总</text>
+  <text x="{split_x}" y="48" text-anchor="start" class="ib-caption">成本/毛利拆分</text>
+  <text x="{op_x}" y="48" text-anchor="start" class="ib-caption">利润形成</text>
   {''.join(segment_parts)}
   {''.join(center_parts)}
-  <text x="{revenue_x - 62}" y="{revenue_y - 98}" class="ib-muted">{svg_text(data.get("period_label") or "")}</text>
+  <text x="{revenue_x - 80}" y="{revenue_y - 125}" class="ib-muted">{svg_text(data.get("period_label") or "")}</text>
 </svg>
 """
 
@@ -4019,29 +4428,49 @@ def svg_bar_line_chart(data: dict[str, Any] | None, *, width: int = 760, height:
 def svg_cashflow_chart(data: dict[str, Any] | None, *, width: int = 760, height: int = 330) -> str:
     if not data:
         return '<div class="chart-fallback-empty">现金流数据不足，待补充三表口径。</div>'
-    items = [
-        ("经营现金流", safe_float(data.get("operating")), "#10b981"),
-        ("投资现金流", safe_float(data.get("investing")), "#ef4444"),
-        ("筹资现金流", safe_float(data.get("financing")), "#f59e0b"),
-        ("资本开支", -safe_float(data.get("capex")), "#8b5cf6"),
-    ]
+    sources = data.get("sources") if isinstance(data.get("sources"), dict) else {}
+
+    def source_detail(key: str, extra: str = "") -> str:
+        item = sources.get(key, {}) if isinstance(sources, dict) else {}
+        if item.get("source") == "three_statements":
+            detail = f"来源：合并现金流量表｜{item.get('row')}"
+        elif item.get("source") == "metric_snapshot":
+            detail = f"来源：指标快照｜{item.get('row') or key}"
+        else:
+            detail = "来源：未匹配到原始科目"
+        return "；".join(part for part in [detail, extra] if part)
+
+    items = []
+    for key, label, color, extra in [
+        ("operating", "经营现金流", "#10b981", ""),
+        ("investing", "投资现金流", "#ef4444", ""),
+        ("financing", "筹资现金流", "#f59e0b", ""),
+        ("capex", "资本开支", "#8b5cf6", "按现金流出方向展示为负值"),
+    ]:
+        raw_value = data.get(key)
+        if raw_value is None:
+            continue
+        value = -safe_float(raw_value) if key == "capex" else safe_float(raw_value)
+        items.append((label, value, color, source_detail(key, extra)))
     if data.get("free_cash_flow") is not None:
-        items.append(("自由现金流", safe_float(data.get("free_cash_flow")), "#06b6d4"))
+        items.append(("自由现金流", safe_float(data.get("free_cash_flow")), "#06b6d4", "公式：经营现金流净额 - 资本开支；优先按原始三表现场重算"))
+    if not items:
+        return '<div class="chart-fallback-empty">现金流数据不足，未匹配到经营、投资、筹资或资本开支科目。</div>'
     left, right, top, bottom = 70, 24, 34, 78
     plot_w = width - left - right
     plot_h = height - top - bottom
-    max_abs = max([abs(v) for _, v, _ in items] + [1])
+    max_abs = max([abs(v) for _, v, _, _ in items] + [1])
     zero_y = top + plot_h / 2
     gap = plot_w / max(1, len(items))
     bar_w = min(58, gap * 0.48)
     rows = []
-    for i, (label, value, color) in enumerate(items):
+    for i, (label, value, color, detail) in enumerate(items):
         cx = left + gap * i + gap / 2
         bar_h = abs(value) / max_abs * (plot_h / 2 - 12)
         y = zero_y - bar_h if value >= 0 else zero_y
         rows.append(
-            f'<g {chart_attrs(f"cashflow-{i}", label, value, "现金流结构项目")}>'
-            f'{svg_title(label, value, "现金流结构项目")}'
+            f'<g {chart_attrs(f"cashflow-{i}", label, value, detail)}>'
+            f'{svg_title(label, value, detail)}'
             f'<rect class="chart-mark" x="{cx - bar_w / 2:.1f}" y="{y:.1f}" width="{bar_w:.1f}" height="{max(2, bar_h):.1f}" rx="6" fill="{color}" opacity="0.9"/>'
             f'<rect class="chart-hit" x="{cx - bar_w / 2 - 8:.1f}" y="{top:.1f}" width="{bar_w + 16:.1f}" height="{plot_h:.1f}" fill="transparent"/>'
             f'</g>'
@@ -4283,11 +4712,11 @@ def render_html_report(
     
     # Build chart data
     revenue_profit_data = build_revenue_profit_trend_data(snapshot)
-    cashflow_data = build_cashflow_data(snapshot)
-    asset_data = build_asset_structure_data(snapshot)
-    debt_data = build_debt_structure_data(snapshot)
-    dupont_data = build_dupont_data(snapshot)
-    solvency_data = build_solvency_gauges(snapshot)
+    cashflow_data = build_cashflow_data(snapshot, preflight, work_dir)
+    asset_data = build_asset_structure_data(snapshot, preflight, work_dir)
+    debt_data = build_debt_structure_data(snapshot, preflight, work_dir)
+    dupont_data = build_dupont_data(snapshot, preflight, work_dir)
+    solvency_data = build_solvency_gauges(snapshot, preflight, work_dir)
     peer_data = build_peer_comparison_data(snapshot, work_dir)
     income_bridge_data = build_income_bridge_data(snapshot, preflight, work_dir)
     profitability_data = build_profitability_waterfall_from_bridge(income_bridge_data) or build_profitability_waterfall_data(snapshot)
