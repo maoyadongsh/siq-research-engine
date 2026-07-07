@@ -273,7 +273,7 @@ def render_income_bridge_svg(data: dict[str, Any] | None, *, width: int = 1280, 
         render_stage_label("收入汇流", collector_x + 7),
         render_stage_label("收入汇总", revenue_x + 6),
         render_stage_label("成本/毛利拆分", split_x + 6),
-        render_stage_label("利润形成", (op_x + right_x) / 2 + 6),
+        render_stage_label("利润形成", (op_x + right_x) / 2),
     ]
 
     segment_values = [safe_float(item.get("revenue")) for item in segments]
