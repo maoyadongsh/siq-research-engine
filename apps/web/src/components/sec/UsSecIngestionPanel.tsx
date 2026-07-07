@@ -485,7 +485,7 @@ export function UsSecIngestionPanel() {
         <>
           <PageSection
             title="数据管线"
-            description="SEC HTML/iXBRL 解析产物抽取为公司级 Wiki 报告包，PostgreSQL 与语义层继续读取同一套证据产物。"
+            description="SEC HTML/iXBRL 解析产物生成结构化结果包，PostgreSQL 与语义层继续读取同一套证据产物。"
             actions={(
               <div className="flex flex-wrap gap-2">
                 <button onClick={() => void load()} disabled={loading} className="pdf-small-action inline-flex items-center gap-1">
@@ -502,14 +502,14 @@ export function UsSecIngestionPanel() {
             <div className="pdf-pipeline-note mb-4">
               <Database className="h-4 w-4" />
               <div>
-                Wiki 报告包由 SEC HTML/iXBRL 解析产物抽取生成，保留 <code>manifest.json</code>、sections、tables、xbrl、metrics、qa/source_map；PostgreSQL 和语义层从公司级 Wiki 包继续入库。
+                结构化结果包由 SEC HTML/iXBRL 解析产物抽取生成，保留 <code>manifest.json</code>、sections、tables、xbrl、metrics、qa/source_map；PostgreSQL 和语义层从同一套解析产物继续入库。
               </div>
             </div>
 
             <div className="pdf-pipeline-note mb-4">
               <Network className="h-4 w-4" />
               <div>
-                语义层使用市场证据包检索管道生成 section、table、metric 和 QA chunks；Wiki 模型语义增强统一使用当前项目设置中的模型，可切换本地或云端大模型。
+                语义层使用市场证据检索管道生成 section、table、metric 和 QA chunks；语义增强统一使用当前项目设置中的模型，可切换本地或云端大模型。
               </div>
             </div>
 
@@ -547,7 +547,7 @@ export function UsSecIngestionPanel() {
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <div className="text-sm font-semibold text-text">核心解析产物清单</div>
-                  <div className="mt-1 text-xs leading-5 text-text-muted">这些文件共同落入公司级 Wiki 报告包，支撑入库、质量校验、勾稽校验和证据溯源。</div>
+                  <div className="mt-1 text-xs leading-5 text-text-muted">这些文件共同组成解析产物包，支撑入库、质量校验、勾稽校验和证据溯源。</div>
                 </div>
                 <span className="secondary-status secondary-status-info">{artifactManifest.readyCount}/{artifactManifest.total}</span>
               </div>
@@ -570,7 +570,7 @@ export function UsSecIngestionPanel() {
               <div className="mt-4 flex flex-wrap gap-2">
                 <button type="button" className="pdf-small-action primary inline-flex items-center gap-1" onClick={() => void onRebuildTask(selectedTask)} disabled={!!busy}>
                   {busy === `rebuild:${selectedTask.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageCheck className="h-4 w-4" />}
-                  刷新 Wiki 包
+                  刷新结果包
                 </button>
                 <button type="button" className="pdf-small-action primary inline-flex items-center gap-1" onClick={() => void onBuildTaskSemantic(selectedTask)} disabled={!!busy}>
                   {busy === `semantic:${selectedTask.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Network className="h-4 w-4" />}
@@ -667,7 +667,7 @@ export function UsSecIngestionPanel() {
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div>
                   <h3 className="text-base font-semibold text-text">溯源视图</h3>
-                  <p className="mt-1 text-sm text-text-muted">HTML 原文与 Wiki Markdown 对照，用于 SEC HTML/iXBRL 原文溯源。</p>
+                  <p className="mt-1 text-sm text-text-muted">HTML 原文与解析 Markdown 对照，用于 SEC HTML/iXBRL 原文溯源。</p>
                 </div>
                 <select value={markdownFile} onChange={(event) => void changeMarkdownFile(event.target.value)} disabled={packageLoading || !sections.length} className="h-9 max-w-xs rounded-md border border-border bg-white px-2 text-xs disabled:cursor-not-allowed disabled:bg-surface-soft">
                   {sections.map((section) => (

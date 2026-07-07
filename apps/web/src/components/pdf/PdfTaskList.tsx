@@ -43,31 +43,21 @@ export function PdfTaskList({
         const canReparse = isTerminal(String(task.status))
         const actionCount = Number(canView) + Number(canRefetch) + Number(canReparse) + 1
         const taskActionStyle = { '--task-action-count': Math.max(actionCount, 1) } as CSSProperties
+        const openTask = () => {
+          if (canView) {
+            onViewResult(task)
+            return
+          }
+          onResume(task)
+        }
         return (
-          <div
-            key={task.task_id}
-            className="pdf-task-item content-auto"
-            role="button"
-            tabIndex={0}
-            onClick={() => {
-              if (canView) {
-                onViewResult(task)
-                return
-              }
-              onResume(task)
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault()
-                if (canView) {
-                  onViewResult(task)
-                  return
-                }
-                onResume(task)
-              }
-            }}
-          >
-            <div className="task-main">
+          <div key={task.task_id} className="pdf-task-item content-auto">
+            <button
+              type="button"
+              className="task-main task-main-button"
+              aria-label={`${canView ? '查看解析结果' : '恢复解析任务'}：${task.filename}`}
+              onClick={openTask}
+            >
               <span className="task-name">{task.filename}</span>
               <div className="task-meta">
                 <span className={`pdf-status-badge ${statusBadgeClass(String(task.status))}`}>{translateStatus(String(task.status))}</span>
@@ -78,7 +68,7 @@ export function PdfTaskList({
                   {task.created_at ? new Date(task.created_at).toLocaleString('zh-CN') : ''}
                 </span>
               </div>
-            </div>
+            </button>
             <div className="task-actions" style={taskActionStyle}>
               {canView && (
                 <button

@@ -163,13 +163,13 @@ test('deriveUsSecArtifactManifest maps SEC package outputs to result chips', () 
     'quality_report.json',
     'bridge_checks.json',
   ])
-  assert.equal(manifest.checks[0].label, 'SEC 证据包')
+  assert.equal(manifest.checks[0].label, 'SEC 解析产物包')
   assert.equal(manifest.checks[0].status, 'ready')
 })
 
 test('deriveUsSecWorkflowSummary exposes the four-stage US pipeline', () => {
   const workflow = deriveUsSecWorkflowSummary(status, packageDetail)
-  assert.deepEqual(workflow.steps.map((step) => step.label), ['解析产物包', 'Wiki 派生', '语义层', 'PostgreSQL'])
+  assert.deepEqual(workflow.steps.map((step) => step.label), ['解析产物包', '派生知识资产', '语义层', 'PostgreSQL'])
   assert.equal(workflow.cards[0].status, 'ready')
   assert.equal(workflow.cards[1].status, 'ready')
   assert.equal(workflow.cards[2].status, 'pending')

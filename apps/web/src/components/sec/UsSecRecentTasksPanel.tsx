@@ -68,21 +68,13 @@ export function UsSecRecentTasksPanel({
               const busyRebuild = busyAction === `rebuild:${task.id}`
               const showStatus = shouldShowStatus(task.status)
               return (
-                <div
-                  key={task.id}
-                  className={`pdf-task-item content-auto ${active ? 'ring-1 ring-primary/30' : ''}`}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => void onViewResult(task)}
-                  onKeyDown={(event) => {
-                    if (event.target !== event.currentTarget) return
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault()
-                      void onViewResult(task)
-                    }
-                  }}
-                >
-                  <div className="task-main">
+                <div key={task.id} className={`pdf-task-item content-auto ${active ? 'ring-1 ring-primary/30' : ''}`}>
+                  <button
+                    type="button"
+                    className="task-main task-main-button"
+                    aria-label={`查看解析结果：${task.companyName} ${task.ticker} ${task.form} ${task.periodEnd}`}
+                    onClick={() => void onViewResult(task)}
+                  >
                     <span className="task-name">{task.companyName} · {task.ticker} · {task.form} · {task.periodEnd}</span>
                     <div className="task-meta">
                       {showStatus ? <span className={`secondary-status ${statusClass(task.status)}`}>{task.statusText}</span> : null}
@@ -90,7 +82,7 @@ export function UsSecRecentTasksPanel({
                       <span className="text-text-muted text-xs">{task.factCount} facts</span>
                       <span className="text-text-muted text-xs">{formatDateTime(task.filingDate)}</span>
                     </div>
-                  </div>
+                  </button>
                   <div className="task-actions" style={{ '--task-action-count': 2 } as CSSProperties}>
                     <button
                       type="button"

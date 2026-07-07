@@ -284,14 +284,14 @@ export function deriveUsSecArtifactManifest(detail?: UsSecPackageDetail | null):
     total: chips.length,
     checks: [
       {
-        label: 'SEC 证据包',
+        label: 'SEC 解析产物包',
         status: ready ? 'ready' : 'missing',
-        description: ready ? `${readyCount}/${chips.length} 个核心文件已生成` : '等待生成 SEC 证据包',
+        description: ready ? `${readyCount}/${chips.length} 个核心文件已生成` : '等待生成 SEC 解析产物包',
       },
       {
         label: '解析产物索引',
         status: ready ? 'ready' : 'missing',
-        description: ready ? 'SEC 解析产物可用于 PostgreSQL 入库与公司级 Wiki 派生' : '等待 SEC 解析产物',
+        description: ready ? 'SEC 解析产物可用于 PostgreSQL 入库与派生知识资产生成' : '等待 SEC 解析产物',
       },
       {
         label: '语义层脚本',
@@ -322,12 +322,12 @@ export function deriveUsSecWorkflowSummary(
     {
       label: '解析产物包',
       status: packageStatus,
-      description: packageReady(detail) ? `${artifactManifest.readyCount}/${artifactManifest.total} 个核心文件已生成` : '等待解析生成 evidence package',
+      description: packageReady(detail) ? `${artifactManifest.readyCount}/${artifactManifest.total} 个核心文件已生成` : '等待解析生成结构化结果包',
     },
     {
-      label: 'Wiki 派生',
+      label: '派生知识资产',
       status: packageStatus,
-      description: packageReady(detail) ? '公司级 Wiki 由 SEC 解析产物派生' : '等待 SEC 解析产物',
+      description: packageReady(detail) ? '派生知识资产由 SEC 解析产物生成' : '等待 SEC 解析产物',
     },
     {
       label: '语义层',
