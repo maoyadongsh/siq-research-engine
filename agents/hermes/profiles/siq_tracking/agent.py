@@ -14,7 +14,7 @@ SCRIPT_DIR = Path("/home/maoyd/siq-research-engine/data/wiki/tracking/scripts")
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from siq_tracking_rules import TrackingRulesEngine, resolve_report_path
+from finsight_tracking_rules import TrackingRulesEngine, resolve_report_path
 from run_all import run_all
 
 

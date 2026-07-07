@@ -6,11 +6,18 @@
 输出：预警报告 + 通知
 """
 
+import sys
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
-from agents.tracking.models import AlertLevel
-from agents.tracking.schemas import AlertReport
+try:
+    from agents.tracking.schemas import AlertReport
+except ModuleNotFoundError:
+    PROFILE_DIR = Path(__file__).resolve().parents[1]
+    if str(PROFILE_DIR) not in sys.path:
+        sys.path.insert(0, str(PROFILE_DIR))
+    from schemas import AlertReport  # type: ignore[no-redef]
 
 
 # 预警规则配置
@@ -232,9 +239,9 @@ class AlertTrigger:
         """生成应对建议"""
         recommendations = {
             "INFO": "建议关注后续发展，纳入常规跟踪。",
-            "WATCH": "建议加强监控频率，评估对投资逻辑的影响。",
-            "WARNING": "建议深入分析原因，考虑调整仓位或风险对冲。",
-            "CRITICAL": "建议立即评估持仓风险，考虑减仓或止损。",
+            "WATCH": "建议提高复查频率，评估对研究假设的影响。",
+            "WARNING": "建议深入分析原因，复核投资假设、风险暴露和组合影响。",
+            "CRITICAL": "建议立即提交人工审阅，复核风险暴露、公告进展和后续披露安排。",
         }
         base = recommendations.get(level, "请根据具体情况评估。")
 
