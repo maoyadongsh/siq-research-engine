@@ -35,7 +35,12 @@
   border-radius: 1.25rem;
   background: var(--color-card);
 }
-.hero-illustration-wrap > img {
+.hero-illustration-wrap > picture {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.hero-illustration-wrap img {
   object-fit: contain;
   object-position: center;
 }
@@ -74,8 +79,8 @@
     max-height: none;
     border-radius: 1rem;
   }
-  .hero-illustration-wrap > img {
-    object-fit: cover;
+  .hero-illustration-wrap img {
+    object-fit: contain;
     object-position: center;
   }
 }

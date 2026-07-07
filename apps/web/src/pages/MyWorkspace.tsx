@@ -389,11 +389,14 @@ export default function MyWorkspace() {
             </div>
 
             <div className="hero-illustration-wrap">
-              <img
-                src="/illustrations/siq-system-map-hero.svg?v=2"
-                alt="金融科技个人研究工作台插画"
-                className="block h-full w-full object-contain opacity-95"
-              />
+              <picture className="block h-full w-full">
+                <source media="(max-width: 639px)" srcSet="/illustrations/siq-system-map-hero-mobile.svg?v=4" />
+                <img
+                  src="/illustrations/siq-system-map-hero.svg?v=4"
+                  alt="SIQ 从披露文件到解析产物、数据入库、智能体协同和可审计报告的工作流图"
+                  className="block h-full w-full object-contain opacity-95"
+                />
+              </picture>
             </div>
 
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 2xl:grid-cols-6 2xl:gap-4">
@@ -435,7 +438,7 @@ export default function MyWorkspace() {
               aria-hidden="true"
             >
               <img
-                src="/illustrations/siq-system-map-hero.svg?v=2"
+                src="/illustrations/siq-system-map-hero.svg?v=4"
                 alt=""
                 className="h-full w-full object-contain"
               />

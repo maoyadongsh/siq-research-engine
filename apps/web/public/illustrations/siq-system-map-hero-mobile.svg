@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="430" viewBox="0 0 720 430" role="img" aria-labelledby="title desc">
+  <title id="title">SIQ 移动端智能投研工作流</title>
+  <desc id="desc">移动端简化版工作流，展示披露文件、解析抽取、解析产物入库和智能体报告。</desc>
+  <defs>
+    <linearGradient id="surface" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fbfdff"/>
+      <stop offset="0.55" stop-color="#eef7ff"/>
+      <stop offset="1" stop-color="#f8fbff"/>
+    </linearGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#38bdf8"/>
+      <stop offset="0.56" stop-color="#0071e3"/>
+      <stop offset="1" stop-color="#0f4fb8"/>
+    </linearGradient>
+    <linearGradient id="line" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#38bdf8"/>
+      <stop offset="0.65" stop-color="#0071e3"/>
+      <stop offset="1" stop-color="#14b8a6"/>
+    </linearGradient>
+    <pattern id="grid" width="30" height="30" patternUnits="userSpaceOnUse">
+      <path d="M30 0H0v30" fill="none" stroke="#0071e3" stroke-opacity=".06" stroke-width="1"/>
+    </pattern>
+    <filter id="shadow" x="-20%" y="-40%" width="140%" height="180%">
+      <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#0f172a" flood-opacity=".12"/>
+    </filter>
+  </defs>
+
+  <rect width="720" height="430" rx="30" fill="url(#surface)"/>
+  <rect width="720" height="430" rx="30" fill="url(#grid)"/>
+  <path d="M30 346c82-36 154-30 222-6 78 28 150 30 230 0 72-27 136-26 208 6" fill="none" stroke="#0071e3" stroke-opacity=".12" stroke-width="2"/>
+
+  <g font-family="Inter, 'Noto Sans CJK SC', 'Microsoft YaHei', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+    <g filter="url(#shadow)">
+      <rect x="40" y="38" width="56" height="56" rx="17" fill="url(#brand)"/>
+      <text x="68" y="73" text-anchor="middle" fill="#ffffff" font-size="22" font-weight="900">SIQ</text>
+    </g>
+    <text x="112" y="58" fill="#0f172a" font-size="23" font-weight="850">智能投研工作流</text>
+    <text x="112" y="86" fill="#475569" font-size="14" font-weight="650">披露文件到可核查结论</text>
+
+    <g transform="translate(42 124)" filter="url(#shadow)">
+      <rect width="136" height="116" rx="22" fill="#ffffff" stroke="#c8dcf2"/>
+      <rect x="22" y="22" width="38" height="38" rx="12" fill="#eaf5ff" stroke="#b8d6f3"/>
+      <path d="M34 30h14l6 6v15H34Z" fill="#ffffff" stroke="#0071e3" stroke-width="2"/>
+      <text x="22" y="80" fill="#0f172a" font-size="16" font-weight="850">披露文件</text>
+      <text x="22" y="100" fill="#64748b" font-size="12" font-weight="650">多市场公告</text>
+    </g>
+
+    <g transform="translate(210 124)" filter="url(#shadow)">
+      <rect width="136" height="116" rx="22" fill="#ffffff" stroke="#c8dcf2"/>
+      <rect x="22" y="22" width="92" height="36" rx="13" fill="#eff6ff" stroke="#bfdbfe"/>
+      <text x="68" y="45" text-anchor="middle" fill="#0071e3" font-size="14" font-weight="900">解析</text>
+      <text x="22" y="80" fill="#0f172a" font-size="16" font-weight="850">解析抽取</text>
+      <text x="22" y="100" fill="#64748b" font-size="12" font-weight="650">正文、表格、证据</text>
+    </g>
+
+    <g transform="translate(378 124)" filter="url(#shadow)">
+      <rect width="136" height="116" rx="22" fill="#ffffff" stroke="#c8dcf2"/>
+      <path d="M34 43c0 8 17 14 34 14s34-6 34-14M34 43c0-8 17-14 34-14s34 6 34 14M34 43v30c0 8 17 14 34 14s34-6 34-14V43" fill="none" stroke="#0071e3" stroke-width="3" stroke-linecap="round" opacity=".7"/>
+      <text x="22" y="80" fill="#0f172a" font-size="16" font-weight="850">数据底座</text>
+      <text x="22" y="100" fill="#64748b" font-size="12" font-weight="650">入库、索引、缓存</text>
+    </g>
+
+    <g transform="translate(546 124)" filter="url(#shadow)">
+      <rect width="136" height="116" rx="22" fill="#ffffff" stroke="#c8dcf2"/>
+      <g fill="#eff6ff" stroke="#bfdbfe">
+        <rect x="22" y="22" width="40" height="28" rx="10"/>
+        <rect x="74" y="22" width="40" height="28" rx="10"/>
+      </g>
+      <text x="42" y="41" text-anchor="middle" fill="#0f172a" font-size="11" font-weight="850">核查</text>
+      <text x="94" y="41" text-anchor="middle" fill="#0f172a" font-size="11" font-weight="850">合规</text>
+      <text x="22" y="80" fill="#0f172a" font-size="16" font-weight="850">智能体报告</text>
+      <text x="22" y="100" fill="#64748b" font-size="12" font-weight="650">分析与追踪</text>
+    </g>
+
+    <path d="M178 182h32M346 182h32M514 182h32" fill="none" stroke="url(#line)" stroke-width="5" stroke-linecap="round"/>
+    <g fill="#0071e3">
+      <path d="M205 174l14 8-14 8z"/>
+      <path d="M373 174l14 8-14 8z"/>
+      <path d="M541 174l14 8-14 8z"/>
+    </g>
+
+    <g transform="translate(48 276)" filter="url(#shadow)">
+      <rect width="624" height="92" rx="24" fill="#ffffff" fill-opacity=".9" stroke="#c9dbee"/>
+      <text x="26" y="34" fill="#0f172a" font-size="16" font-weight="850">核心原则</text>
+      <text x="26" y="62" fill="#334155" font-size="13" font-weight="760">解析产物直接入库，派生知识资产用于复用。</text>
+      <text x="26" y="82" fill="#334155" font-size="13" font-weight="760">结论必须回溯到来源证据，质量门禁不降级。</text>
+    </g>
+  </g>
+</svg>
