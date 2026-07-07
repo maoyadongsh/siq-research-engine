@@ -389,7 +389,7 @@ def test_task_db_import_uses_config_py_without_env(monkeypatch, tmp_path):
         "result": {"returnCode": 0, "stdout": "ok", "stderr": ""},
         "database": {"status": "ready", "task_id": "task-db-config"},
     }
-    assert seen["args"] == [sys.executable, str(script), str(document_full), "--config-py", str(config_py)]
+    assert seen["args"] == [sys.executable, str(script), str(document_full), "--ddl", "--config-py", str(config_py)]
     assert seen["timeout"] == 300
     assert seen["env"] is None
 
@@ -411,7 +411,7 @@ def test_task_db_import_uses_database_url_env_without_config_py(monkeypatch, tmp
     monkeypatch.setattr(workflow, "_find_task_document_full", lambda task_id: document_full)
     monkeypatch.setattr(workflow, "DB_IMPORT_SCRIPT", script)
     monkeypatch.setattr(workflow, "DB_CONFIG_PY", missing_config)
-    monkeypatch.setattr(workflow, "_db_connect_config", lambda: {"host": "h", "port": 5432, "dbname": "d", "user": "u", "password": "p"})
+    monkeypatch.setattr(workflow, "_pdf2md_db_connect_config", lambda: {"host": "h", "port": 5432, "dbname": "d", "user": "u", "password": "p"})
     monkeypatch.setattr(workflow, "_run_command", fake_run_command)
     monkeypatch.setattr(workflow, "_db_status", lambda task_id: {"status": "ready"})
 
@@ -421,6 +421,7 @@ def test_task_db_import_uses_database_url_env_without_config_py(monkeypatch, tmp
         sys.executable,
         str(script),
         str(document_full),
+        "--ddl",
         "--database-url",
         "postgresql://u:p@h:5432/d",
     ]

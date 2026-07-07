@@ -296,6 +296,47 @@ def test_llm_semantic_env_uses_active_cloud_provider(monkeypatch):
     assert env["FINSIGHT_LLM_SEMANTIC_PROVIDER"] == "cloud"
 
 
+def test_llm_semantic_env_maps_hermes_provider_contract(monkeypatch):
+    modes = []
+    monkeypatch.setattr(workflow, "infer_model_mode", lambda **_kwargs: "thinking")
+    monkeypatch.setattr(workflow, "set_all_profile_model_modes", lambda mode: modes.append(mode))
+    monkeypatch.setattr(
+        workflow,
+        "hermes_profile_config",
+        lambda profile: {"base": "http://hermes.local/runs", "model": f"{profile}-model"},
+    )
+    monkeypatch.setattr(
+        workflow,
+        "load_llm_settings",
+        lambda include_secrets=True: {
+            "providers": {
+                "local": {
+                    "baseUrl": "hermes://siq_analysis",
+                    "model": "ignored-model",
+                    "apiKey": "ignored-secret",
+                }
+            }
+        },
+    )
+
+    env = workflow._llm_semantic_env()
+
+    assert modes == ["thinking"]
+    assert env["SIQ_LLM_SEMANTIC_HERMES_PROFILE"] == "siq_analysis"
+    assert env["FINSIGHT_LLM_SEMANTIC_HERMES_PROFILE"] == "siq_analysis"
+    assert env["SIQ_LLM_SEMANTIC_HERMES_RUNS_URL"] == "http://hermes.local/runs"
+    assert env["FINSIGHT_LLM_SEMANTIC_HERMES_RUNS_URL"] == "http://hermes.local/runs"
+    assert env["SIQ_LLM_SEMANTIC_HERMES_MODE"] == "thinking"
+    assert env["FINSIGHT_LLM_SEMANTIC_HERMES_MODE"] == "thinking"
+    assert env["SIQ_LLM_SEMANTIC_PROVIDER_BASE_URL"] == "hermes://siq_analysis"
+    assert env["FINSIGHT_LLM_SEMANTIC_PROVIDER_BASE_URL"] == "hermes://siq_analysis"
+    assert env["SIQ_LOCAL_LLM_BASE_URL"] == "hermes://siq_analysis"
+    assert env["SIQ_LOCAL_LLM_MODEL"] == "siq_analysis-model"
+    assert env["SIQ_LOCAL_LLM_API_KEY"] == ""
+    assert env["FINSIGHT_LOCAL_LLM_MODEL"] == "siq_analysis-model"
+    assert env["FINSIGHT_LOCAL_LLM_API_KEY"] == ""
+
+
 def test_extract_generic_semantic_rejects_non_generic_identity_without_command(monkeypatch, tmp_path):
     wiki_root = tmp_path / "wiki"
     company_dir = "000001-测试公司"

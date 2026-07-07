@@ -108,7 +108,7 @@ DOCUMENT_CHUNK_SCRIPT = Path(os.environ.get(
     str(REPO_ROOT / "scripts" / "vector-index" / "milvus-ingestion" / "ingest_document_chunks.py"),
 )).resolve()
 LLM_SEMANTIC_ENABLED = os.environ.get("LLM_SEMANTIC_ENABLED", "true").lower() not in {"0", "false", "no", "off"}
-LLM_SEMANTIC_REQUIRED = os.environ.get("LLM_SEMANTIC_REQUIRED", "true").lower() not in {"0", "false", "no", "off"}
+LLM_SEMANTIC_REQUIRED = os.environ.get("LLM_SEMANTIC_REQUIRED", "false").lower() not in {"0", "false", "no", "off"}
 LLM_SEMANTIC_TIMEOUT = int(os.environ.get("LLM_SEMANTIC_TIMEOUT", "900"))
 
 _job_lock = threading.Lock()
@@ -966,6 +966,23 @@ def _db_connect_config() -> dict:
             os.environ.get("SIQ_DOCUMENT_PGDATABASE")
             or os.environ.get("SIQ_PGDATABASE")
             or os.environ.get("PGDATABASE", "siq_document_parser")
+        ),
+        "user": os.environ.get("SIQ_PGUSER") or os.environ.get("PGUSER", "postgres"),
+        "password": os.environ.get("SIQ_PGPASSWORD") or os.environ.get("PGPASSWORD", ""),
+    }
+
+
+def _pdf2md_db_connect_config() -> dict:
+    loaded = _load_pg_config()
+    if loaded:
+        return loaded
+    return {
+        "host": os.environ.get("SIQ_PGHOST") or os.environ.get("PGHOST", "127.0.0.1"),
+        "port": int(os.environ.get("SIQ_PGPORT") or os.environ.get("PGPORT", "15432")),
+        "dbname": (
+            os.environ.get("SIQ_PDF2MD_PGDATABASE")
+            or os.environ.get("SIQ_PGDATABASE")
+            or os.environ.get("PGDATABASE", "siq")
         ),
         "user": os.environ.get("SIQ_PGUSER") or os.environ.get("PGUSER", "postgres"),
         "password": os.environ.get("SIQ_PGPASSWORD") or os.environ.get("PGPASSWORD", ""),
@@ -1852,7 +1869,7 @@ def _db_status(task_id: str) -> dict:
     except Exception as exc:
         return {"status": "unknown", "message": f"psycopg unavailable: {exc}"}
 
-    config = _db_connect_config()
+    config = _pdf2md_db_connect_config()
     document_full = _find_task_document_full(task_id)
     current_sha = _sha256_file(document_full) if document_full else None
     try:
@@ -1950,8 +1967,16 @@ def _set_semantic_provider_env(env: dict[str, str], provider_key: str, provider:
         except Exception:
             profile_config = {}
         runs_url = str(profile_config.get("base") or "").rstrip("/")
+        env["SIQ_LLM_SEMANTIC_HERMES_PROFILE"] = "siq_analysis"
+        env["FINSIGHT_LLM_SEMANTIC_HERMES_PROFILE"] = "siq_analysis"
         if runs_url:
-            base_url = runs_url.removesuffix("/runs")
+            env["SIQ_LLM_SEMANTIC_HERMES_RUNS_URL"] = runs_url
+            env["FINSIGHT_LLM_SEMANTIC_HERMES_RUNS_URL"] = runs_url
+        if mode:
+            env["SIQ_LLM_SEMANTIC_HERMES_MODE"] = mode
+            env["FINSIGHT_LLM_SEMANTIC_HERMES_MODE"] = mode
+        env["SIQ_LLM_SEMANTIC_PROVIDER_BASE_URL"] = base_url
+        env["FINSIGHT_LLM_SEMANTIC_PROVIDER_BASE_URL"] = base_url
         model = str(profile_config.get("model") or model or "siq_analysis")
         api_key = ""
 
@@ -1960,12 +1985,14 @@ def _set_semantic_provider_env(env: dict[str, str], provider_key: str, provider:
         env[f"SIQ_{suffix}"] = raw
         env[f"FINSIGHT_{suffix}"] = raw
 
+    set_many("LLM_SEMANTIC_PROVIDER_BASE_URL", base_url)
+    set_many("LLM_SEMANTIC_MODEL", model)
+    set_many("LLM_SEMANTIC_API_KEY", api_key)
     if base_url:
         set_many("LOCAL_LLM_BASE_URL", base_url)
     if model:
         set_many("LOCAL_LLM_MODEL", model)
-    if api_key:
-        set_many("LOCAL_LLM_API_KEY", api_key)
+    set_many("LOCAL_LLM_API_KEY", api_key)
     if provider.get("timeoutSeconds"):
         set_many("LLM_SEMANTIC_TIMEOUT", provider["timeoutSeconds"])
     if provider.get("maxTokens"):
@@ -2458,12 +2485,12 @@ def import_task_to_database(task_id: str):
         raise HTTPException(404, "document_full.json not found for task")
     if not DB_IMPORT_SCRIPT.is_file():
         raise HTTPException(500, f"DB import script not found: {DB_IMPORT_SCRIPT}")
-    args = [sys.executable, str(DB_IMPORT_SCRIPT), str(document_full)]
+    args = [sys.executable, str(DB_IMPORT_SCRIPT), str(document_full), "--ddl"]
     if DB_CONFIG_PY.is_file():
         args += ["--config-py", str(DB_CONFIG_PY)]
         command_env = None
     else:
-        pg_config = _db_connect_config()
+        pg_config = _pdf2md_db_connect_config()
         args += ["--database-url", _postgres_database_url(pg_config)]
         command_env = os.environ.copy()
         command_env.update({
