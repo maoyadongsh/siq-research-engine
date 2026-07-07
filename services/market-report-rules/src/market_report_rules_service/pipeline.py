@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Any
+
 from .contracts import financial_checks_contract, financial_data_contract
 from .extraction import extract_artifact
 from .load_plan import build_load_plan
-from .models import ParsedArtifact, ProcessResult
+from .models import ExtractionResult, ParsedArtifact, ProcessResult, ValidationResult
 from .quality_gate_adapter import apply_package_quality_gates
 from .validation import validate_extraction
 
@@ -33,3 +36,13 @@ def process_contract(
         "financial_checks": financial_checks_contract(result.validation),
         "load_plan": result.load_plan.model_dump(mode="json") if result.load_plan else None,
     }
+
+
+def build_package_aware_load_plan(
+    extraction: ExtractionResult,
+    validation: ValidationResult,
+    *,
+    package_dir: str | Path,
+) -> tuple[ValidationResult, Any]:
+    updated_validation = apply_package_quality_gates(validation, package_dir=str(package_dir))
+    return updated_validation, build_load_plan(extraction, updated_validation)

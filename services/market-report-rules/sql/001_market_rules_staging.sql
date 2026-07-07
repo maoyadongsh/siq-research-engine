@@ -152,6 +152,22 @@ CREATE TABLE IF NOT EXISTS pdf2md.evidence_citations (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS pdf2md.evidence_resolvability_audits (
+    artifact_id TEXT NOT NULL,
+    market TEXT NOT NULL CHECK (market IN ('US', 'HK')),
+    audit_index INTEGER NOT NULL,
+    rule_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    evidence_resolvability_ratio NUMERIC,
+    resolvable_evidence_count INTEGER,
+    unresolvable_evidence_count INTEGER,
+    unresolvable_refs JSONB NOT NULL DEFAULT '[]'::jsonb,
+    quality_gates_raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (artifact_id, audit_index)
+);
+
 CREATE INDEX IF NOT EXISTS idx_financial_facts_lookup
     ON pdf2md.financial_facts (market, canonical_name, period_key);
 
@@ -163,3 +179,6 @@ CREATE INDEX IF NOT EXISTS idx_validation_checks_status
 
 CREATE INDEX IF NOT EXISTS idx_evidence_artifact
     ON pdf2md.evidence_citations (market, artifact_id, source_type);
+
+CREATE INDEX IF NOT EXISTS idx_evidence_resolvability_audits_status
+    ON pdf2md.evidence_resolvability_audits (market, status, rule_id);

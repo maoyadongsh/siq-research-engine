@@ -42,7 +42,7 @@ from market_report_rules_service.evidence_package import (
 )
 from market_report_rules_service.models import AccountingStandard, Market, ParsedArtifact, ParsedFact, ParsedTable
 from market_report_rules_service.normalization import infer_currency, parse_date, parse_decimal
-from market_report_rules_service.pipeline import process_artifact
+from market_report_rules_service.pipeline import build_package_aware_load_plan, process_artifact
 
 
 PARSER_VERSION = os.environ.get("SIQ_EU_ESEF_PARSER_VERSION", "eu_esef_evidence_parser_v1")
@@ -205,6 +205,12 @@ def write_eu_esef_evidence_package(
     write_json(package_dir / "qa" / "extraction_warnings.json", {"warnings": quality["parser_warnings"] + quality["rule_warnings"]})
     manifest["artifact_hashes"] = compute_artifact_hashes(package_dir)
     write_json(package_dir / "manifest.json", manifest)
+    _validation_with_package_gates, load_plan = build_package_aware_load_plan(
+        result.extraction,
+        result.validation,
+        package_dir=package_dir,
+    )
+    write_json(package_dir / "metrics" / "load_plan.json", load_plan.model_dump(mode="json"))
     (package_dir / "README.md").write_text(_readme(manifest, quality), encoding="utf-8")
     write_eu_company_wiki_indexes(output_root, company_dir, manifest, quality)
     validation = validate_evidence_package(package_dir)

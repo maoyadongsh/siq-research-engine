@@ -11,6 +11,7 @@ test('groupMarketPackagePaths groups HK V2 parser and QA files from dynamic path
     quality_report: 'qa/quality_report.json',
     source_map: 'qa/source_map.json',
     financial_data: 'metrics/financial_data.json',
+    load_plan: 'metrics/load_plan.json',
     document_full: '/parser/document_full.json',
     content_list_enhanced: 'parser/content_list_enhanced.json',
     report_complete: 'sections/report_complete.md',
@@ -22,13 +23,28 @@ test('groupMarketPackagePaths groups HK V2 parser and QA files from dynamic path
     groups.map((group) => [group.id, group.entries.map((entry) => `${entry.name}:${entry.file}`)]),
     [
       ['manifest', ['manifest:manifest.json']],
-      ['quality', ['quality_report:qa/quality_report.json']],
+      ['quality', ['quality_report:qa/quality_report.json', 'load_plan:metrics/load_plan.json']],
       ['source', ['source_map:qa/source_map.json']],
       ['financial', ['financial_data:metrics/financial_data.json']],
       ['parser', ['document_full:parser/document_full.json', 'content_list_enhanced:parser/content_list_enhanced.json']],
       ['qa', ['footnotes:qa/footnotes.json']],
       ['sections', ['report_complete:sections/report_complete.md']],
       ['tables', ['table_index:tables/table_index.json']],
+    ],
+  )
+})
+
+test('groupMarketPackagePaths treats unnamed load_plan paths as quality files', () => {
+  const groups = groupMarketPackagePaths({
+    rules_output: 'metrics/load_plan.json',
+    source_map: 'qa/source_map.json',
+  })
+
+  assert.deepEqual(
+    groups.map((group) => [group.id, group.entries.map((entry) => `${entry.name}:${entry.file}`)]),
+    [
+      ['quality', ['rules_output:metrics/load_plan.json']],
+      ['source', ['source_map:qa/source_map.json']],
     ],
   )
 })

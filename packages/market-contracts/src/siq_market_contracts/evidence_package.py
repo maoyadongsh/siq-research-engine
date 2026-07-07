@@ -118,6 +118,7 @@ REQUIRED_FILES = (
     "qa/quality_report.json",
     "qa/source_map.json",
 )
+DERIVED_PLAN_FILES = frozenset({"metrics/load_plan.json"})
 
 PACKAGE_FILE_PATHS = {
     "manifest": "manifest.json",
@@ -185,6 +186,8 @@ def compute_artifact_hashes(package_dir: Path, *, include_manifest: bool = False
             continue
         rel = str(path.relative_to(package_dir))
         if not include_manifest and rel == "manifest.json":
+            continue
+        if rel in DERIVED_PLAN_FILES:
             continue
         hashes[rel] = sha256_file(path)
     return hashes
@@ -1195,6 +1198,8 @@ def _artifact_hash_check(package_dir: Path, manifest: dict[str, Any]) -> dict[st
     for rel, expected_hash in listed.items():
         if rel == "manifest.json":
             continue
+        if rel in DERIVED_PLAN_FILES:
+            continue
         actual_hash = computed.get(str(rel))
         if actual_hash is None:
             missing.append(str(rel))
@@ -1646,6 +1651,8 @@ def validate_evidence_package(package_dir: Path, *, strict_hashes: bool = True) 
     computed_hashes = compute_artifact_hashes(package_dir)
     for rel, expected_hash in listed_hashes.items():
         if rel == "manifest.json":
+            continue
+        if rel in DERIVED_PLAN_FILES:
             continue
         actual_hash = computed_hashes.get(rel)
         if actual_hash is None:

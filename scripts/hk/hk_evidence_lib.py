@@ -43,7 +43,7 @@ from market_report_rules_service.models import (
     StatementType,
 )
 from market_report_rules_service.normalization import compact_label, infer_currency, parse_date
-from market_report_rules_service.pipeline import process_artifact
+from market_report_rules_service.pipeline import build_package_aware_load_plan, process_artifact
 from market_report_rules_service.statement_detection import detect_statement_type_from_rows, detect_statement_type_from_title
 from market_report_rules_service.validation import validate_extraction
 
@@ -1010,6 +1010,8 @@ def write_hk_evidence_package(
     _write_enhancement_qa(package_dir, document_full)
     manifest["artifact_hashes"] = compute_artifact_hashes(package_dir)
     write_json(package_dir / "manifest.json", manifest)
+    _validation_with_package_gates, load_plan = build_package_aware_load_plan(extraction, validation, package_dir=package_dir)
+    write_json(package_dir / "metrics" / "load_plan.json", load_plan.model_dump(mode="json"))
     (package_dir / "README.md").write_text(_readme(manifest, quality), encoding="utf-8")
 
     validation = validate_evidence_package(package_dir)

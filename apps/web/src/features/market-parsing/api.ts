@@ -47,6 +47,7 @@ export interface UsSecPackageDetail {
   package_path?: string
   manifest?: Record<string, unknown>
   quality?: Record<string, unknown>
+  quality_gates?: MarketPackageQualityGates
   financial_checks?: Record<string, unknown>
   bridge_checks?: {
     overall_status?: string
@@ -119,6 +120,9 @@ export interface MarketPackageQualityGates {
   artifact_hash_status?: 'ok' | 'missing' | 'mismatch' | string
   artifact_hash_mismatches?: string[]
   artifact_hash_missing?: string[]
+  resolvable_evidence_count?: number
+  unresolvable_evidence_count?: number
+  evidence_resolvability_ratio?: number | null
   parser_warnings?: string[]
   rule_warnings?: string[]
   critical_warnings?: string[]

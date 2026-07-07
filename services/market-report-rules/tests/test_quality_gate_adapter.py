@@ -108,7 +108,9 @@ def test_package_quality_gates_block_load_plan_candidates(monkeypatch, tmp_path)
                 }
             ],
             "evidence_resolvability_ratio": 0,
+            "resolvable_evidence_count": 0,
             "unresolvable_evidence_count": 1,
+            "unresolvable_evidence": ["evidence:missing-locator"],
         },
     )
 
@@ -123,3 +125,10 @@ def test_package_quality_gates_block_load_plan_candidates(monkeypatch, tmp_path)
     assert any("package.evidence.unresolvable" in reason for reason in plan.blocked_reasons)
     assert not any(row.table == "financial_facts" for row in plan.rows)
     assert any(row.table == "financial_facts" for row in plan.quarantine_rows)
+
+    audit_row = next(row for row in plan.rows if row.table == "evidence_resolvability_audits")
+    assert audit_row.row["evidence_resolvability_ratio"] == 0
+    assert audit_row.row["resolvable_evidence_count"] == 0
+    assert audit_row.row["unresolvable_evidence_count"] == 1
+    assert audit_row.row["unresolvable_refs"] == ["evidence:missing-locator"]
+    assert audit_row.row["quality_gates_raw"]["overall_status"] == "fail"

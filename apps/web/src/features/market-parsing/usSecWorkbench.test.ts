@@ -84,6 +84,9 @@ const packageDetail = {
   quality: {
     status: 'pass',
     missing_core_sections: ['risk_factors'],
+    evidence_coverage_ratio: 0.875,
+    evidence_resolvability_ratio: 0.75,
+    unresolvable_evidence_count: 2,
   },
   bridge_checks: {
     overall_status: 'pass',
@@ -175,9 +178,26 @@ test('deriveUsSecWorkflowSummary exposes the four-stage US pipeline', () => {
 
 test('deriveUsSecQualitySummary formats SEC quality metrics for the result panel', () => {
   const quality = deriveUsSecQualitySummary(packageDetail)
-  assert.deepEqual(quality.tiles.map((tile) => tile.label), ['Sections', 'Tables', 'Metrics', 'Evidence', 'Dimensions'])
+  assert.deepEqual(quality.tiles.map((tile) => tile.label), ['Sections', 'Tables', 'Metrics', 'Evidence', '证据字段覆盖', '证据可回链', 'Dimensions'])
   assert.equal(quality.tiles[0].value, '8')
+  assert.equal(quality.tiles[4].value, '87.5%')
+  assert.equal(quality.tiles[5].value, '75% · 不可回链 2')
   assert.equal(quality.bridgeStatus, 'pass')
   assert.equal(quality.bridgeCounts.pass, 10)
   assert.equal(quality.missingCoreSections[0], 'risk_factors')
+})
+
+test('deriveUsSecQualitySummary falls back to quality gates for resolvability metrics', () => {
+  const quality = deriveUsSecQualitySummary({
+    ...packageDetail,
+    quality: { status: 'warning' },
+    quality_gates: {
+      evidence_coverage_ratio: 0.5,
+      evidence_resolvability_ratio: 0,
+      unresolvable_evidence_count: 4,
+    },
+  })
+
+  assert.equal(quality.tiles.find((tile) => tile.label === '证据字段覆盖')?.value, '50%')
+  assert.equal(quality.tiles.find((tile) => tile.label === '证据可回链')?.value, '0% · 不可回链 4')
 })

@@ -121,6 +121,12 @@ function countText(value: unknown): string {
   return String(numberValue(value))
 }
 
+function ratioText(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '-'
+  const n = Number(value)
+  return Number.isFinite(n) ? `${Math.round(n * 1000) / 10}%` : '-'
+}
+
 function formFromPackagePath(packagePath: unknown): string {
   const leaf = upper(normalized(packagePath).split('/').pop() || '')
   const legacyMatch = leaf.match(/^([A-Z0-9-]+)_/)
@@ -340,16 +346,22 @@ export function deriveUsSecWorkflowSummary(
 export function deriveUsSecQualitySummary(detail?: UsSecPackageDetail | null): UsSecQualitySummary {
   const counts = detail?.counts || {}
   const quality = (detail?.quality || {}) as Record<string, unknown>
+  const qualityGates = detail?.quality_gates || {}
   const bridgeSummary = detail?.bridge_checks?.summary || {}
   const missingCoreSections = Array.isArray(quality.missing_core_sections)
     ? quality.missing_core_sections.map((value) => normalized(value)).filter(Boolean)
     : []
+  const evidenceCoverageRatio = quality.evidence_coverage_ratio ?? qualityGates.evidence_coverage_ratio
+  const evidenceResolvabilityRatio = quality.evidence_resolvability_ratio ?? qualityGates.evidence_resolvability_ratio
+  const unresolvableEvidenceCount = quality.unresolvable_evidence_count ?? qualityGates.unresolvable_evidence_count
   return {
     tiles: [
       { label: 'Sections', value: countText(counts.sections), description: '主体章节' },
       { label: 'Tables', value: countText(counts.tables), description: '表格' },
       { label: 'Metrics', value: countText(counts.metrics), description: '标准指标' },
       { label: 'Evidence', value: countText(counts.evidence), description: '证据项' },
+      { label: '证据字段覆盖', value: ratioText(evidenceCoverageRatio), description: '结构化字段绑定证据比例' },
+      { label: '证据可回链', value: `${ratioText(evidenceResolvabilityRatio)} · 不可回链 ${countText(unresolvableEvidenceCount)}`, description: '证据目标可打开、可定位、可复核比例' },
       { label: 'Dimensions', value: countText(counts.dimension_metrics), description: '维度事实' },
     ],
     bridgeStatus: normalized(detail?.bridge_checks?.overall_status || quality.status || 'unknown'),

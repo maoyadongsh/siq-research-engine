@@ -18,6 +18,7 @@ PDF2MD_COMPATIBLE_TABLES = [
     "financial_key_metrics",
     "financial_checks",
     "evidence_citations",
+    "evidence_resolvability_audits",
 ]
 PROMOTION_TARGETS = ("draft", "review", "canonical", "retrieval", "production")
 DECISION_RANK = {"allow": 0, "review": 1, "block": 2}
@@ -70,6 +71,7 @@ def build_load_plan(extraction: ExtractionResult, validation: ValidationResult) 
     ]
 
     audit_rows = _validation_rows(validation, extraction.artifact_id)
+    audit_rows.extend(_evidence_resolvability_audit_rows(validation, extraction.artifact_id))
     canonical_rows: list[LoadPlanRow] = []
     canonical_rows.extend(_fact_rows(extraction))
     canonical_rows.extend(_evidence_rows(extraction, parse_run_id))
@@ -284,6 +286,36 @@ def _validation_rows(validation: ValidationResult, artifact_id: str) -> list[Loa
         )
         for index, check in enumerate(validation.checks, start=1)
     ]
+
+
+def _evidence_resolvability_audit_rows(validation: ValidationResult, artifact_id: str) -> list[LoadPlanRow]:
+    rows: list[LoadPlanRow] = []
+    for index, check in enumerate(validation.checks, start=1):
+        if check.rule_id != "package.quality_gates" or not isinstance(check.raw, dict):
+            continue
+        quality_gates = check.raw.get("quality_gates") if isinstance(check.raw.get("quality_gates"), dict) else {}
+        raw_unresolvable = quality_gates.get("unresolvable_evidence") if isinstance(quality_gates, dict) else []
+        unresolvable_refs = raw_unresolvable if isinstance(raw_unresolvable, list) else []
+        rows.append(
+            LoadPlanRow(
+                table="evidence_resolvability_audits",
+                operation="delete_then_insert",
+                row={
+                    "artifact_id": artifact_id,
+                    "market": validation.market.value,
+                    "audit_index": index,
+                    "rule_id": check.rule_id,
+                    "status": check.status.value,
+                    "evidence_resolvability_ratio": check.raw.get("evidence_resolvability_ratio"),
+                    "resolvable_evidence_count": quality_gates.get("resolvable_evidence_count"),
+                    "unresolvable_evidence_count": check.raw.get("unresolvable_evidence_count"),
+                    "unresolvable_refs": unresolvable_refs,
+                    "quality_gates_raw": quality_gates,
+                    "raw": check.raw,
+                },
+            )
+        )
+    return rows
 
 
 def _evidence_rows(extraction: ExtractionResult, parse_run_id: str) -> list[LoadPlanRow]:

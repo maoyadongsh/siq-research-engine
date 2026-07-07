@@ -50,7 +50,9 @@ def apply_package_quality_gates(validation: ValidationResult, *, package_dir: st
             "gate": canonical_gate,
             "quality_gates": gates,
             "evidence_resolvability_ratio": gates.get("evidence_resolvability_ratio"),
+            "resolvable_evidence_count": gates.get("resolvable_evidence_count"),
             "unresolvable_evidence_count": gates.get("unresolvable_evidence_count"),
+            "unresolvable_evidence": gates.get("unresolvable_evidence"),
         },
     )
     checks = [*validation.checks, check]

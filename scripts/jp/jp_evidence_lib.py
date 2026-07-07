@@ -35,7 +35,7 @@ from market_report_rules_service.evidence_package import (
 )
 from market_report_rules_service.models import AccountingStandard, Market, ParsedArtifact, ParsedFact
 from market_report_rules_service.normalization import parse_date
-from market_report_rules_service.pipeline import process_artifact
+from market_report_rules_service.pipeline import build_package_aware_load_plan, process_artifact
 
 
 PARSER_VERSION = os.environ.get("SIQ_JP_PARSER_VERSION", "jp_edinet_evidence_parser_v1")
@@ -325,6 +325,12 @@ def write_jp_evidence_package(
     _write_metrics(package_dir, financial_data, financial_checks, result.load_plan.model_dump(mode="json") if result.load_plan else {}, normalized_metrics, quality, source_map)
     manifest["artifact_hashes"] = compute_artifact_hashes(package_dir)
     write_json(package_dir / "manifest.json", manifest)
+    _validation_with_package_gates, load_plan = build_package_aware_load_plan(
+        result.extraction,
+        result.validation,
+        package_dir=package_dir,
+    )
+    write_json(package_dir / "metrics" / "load_plan.json", load_plan.model_dump(mode="json"))
     (package_dir / "README.md").write_text(_readme(manifest, quality), encoding="utf-8")
     _write_company_index(paths, manifest)
     validation = validate_evidence_package(package_dir)

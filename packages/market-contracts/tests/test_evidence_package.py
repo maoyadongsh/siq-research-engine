@@ -188,6 +188,16 @@ def test_market_package_summary_exposes_load_plan_decisions(tmp_path):
     assert detail["load_plan"]["can_import"] is False
 
 
+def test_load_plan_is_derived_and_excluded_from_artifact_hashes(tmp_path):
+    package_dir = _write_package(tmp_path)
+    write_json(package_dir / "metrics" / "load_plan.json", {"can_import": True})
+
+    hashes = compute_artifact_hashes(package_dir)
+
+    assert "metrics/financial_data.json" in hashes
+    assert "metrics/load_plan.json" not in hashes
+
+
 def test_validate_and_read_market_package(tmp_path):
     package_dir = _write_package(tmp_path)
 
