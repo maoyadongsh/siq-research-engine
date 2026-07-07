@@ -32,7 +32,7 @@ const marketCopy: Record<PdfParsingMarket, { title: string; description: string;
   },
   EU: {
     title: '欧股 PDF 解析',
-    description: '解析欧股 PDF 年报；ESEF ZIP、XHTML、iXBRL 和 HTML 文件仍走欧股结构化证据包入口。',
+    description: '解析欧股 PDF 年报；ESEF ZIP、XHTML、iXBRL 和 HTML 文件仍走欧股结构化解析入口。',
     emptyTitle: '选择一份欧股 PDF 后开始解析',
     emptyDescription: '优先从 downloads/EU 中选择 PDF；非 PDF 年报请使用欧股解析页的结构化入口。',
   },

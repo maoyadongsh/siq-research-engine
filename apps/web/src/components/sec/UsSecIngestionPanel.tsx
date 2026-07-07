@@ -125,7 +125,7 @@ export function UsSecIngestionPanel() {
       const detail = await fetchUsSecPackage(ticker)
       await applyPackageDetail(detail)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '加载证据包失败')
+      setError(err instanceof Error ? err.message : '加载解析产物包失败')
       setPackageDetail(null)
       setMarkdownText('')
     } finally {
@@ -233,8 +233,8 @@ export function UsSecIngestionPanel() {
         const result = response.job_id
           ? await waitForMarketReportJob<UsSecPackageBuildResponse>(response.job_id, { timeoutMs: 15 * 60 * 1000 })
           : response
-        if (result.ok === false) throw new Error(String(result.stderr || result.stdout || 'US 证据包构建失败'))
-        setLastOutput(result.stdout || result.stderr || 'US 证据包已生成')
+        if (result.ok === false) throw new Error(String(result.stderr || result.stdout || 'US 解析产物包构建失败'))
+        setLastOutput(result.stdout || result.stderr || 'US 解析产物包已生成')
         setSelectedDownloadPath(report.relativePath)
         setSelectedTaskId('')
         setPackageDetail(null)
@@ -242,7 +242,7 @@ export function UsSecIngestionPanel() {
         await load()
         await loadDownloads(downloadQuery)
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'US 证据包构建失败')
+        setError(err instanceof Error ? err.message : 'US 解析产物包构建失败')
       } finally {
         setBusy('')
       }

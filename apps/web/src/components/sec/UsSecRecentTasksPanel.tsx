@@ -121,7 +121,7 @@ export function UsSecRecentTasksPanel({
         ) : (
           <EmptyState
             title="暂无已解析 SEC 任务"
-            description="先从上方已下载财报中生成 SEC 证据包，任务会出现在这里。"
+            description="先从上方已下载财报中生成 SEC 解析产物包，任务会出现在这里。"
             size="sm"
             className="rounded-[18px] border border-dashed border-border bg-bg/50"
           />

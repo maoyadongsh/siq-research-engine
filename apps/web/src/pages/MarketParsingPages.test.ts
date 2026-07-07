@@ -74,6 +74,21 @@ test('PdfTaskList row click opens results for completed tasks', () => {
 
   assert.match(pageSource, /最近任务（点击查看结果）/)
   assert.doesNotMatch(source, /最近任务（点击查看结果）/)
+  assert.match(source, /<button\s+type="button"\s+className="task-main task-main-button"/)
+  assert.doesNotMatch(source, /role="button"/)
   assert.match(source, /if \(canView\) \{\s+onViewResult\(task\)/)
   assert.match(source, /onResume\(task\)/)
+})
+
+test('US SEC parsing copy presents structured artifacts instead of evidence-package jargon', () => {
+  const downloadedPanel = readFileSync(resolve(pageDir, '../components/sec/UsSecDownloadedReportsPanel.tsx'), 'utf-8')
+  const ingestionPanel = readFileSync(resolve(pageDir, '../components/sec/UsSecIngestionPanel.tsx'), 'utf-8')
+  const recentPanel = readFileSync(resolve(pageDir, '../components/sec/UsSecRecentTasksPanel.tsx'), 'utf-8')
+  const uploadPanel = readFileSync(resolve(pageDir, '../components/pdf/PdfUploadPanel.tsx'), 'utf-8')
+  const apiSource = readFileSync(resolve(pageDir, '../features/market-parsing/api.ts'), 'utf-8')
+
+  for (const source of [downloadedPanel, ingestionPanel, recentPanel, uploadPanel, apiSource]) {
+    assert.match(source, /解析产物|结构化解析/)
+    assert.doesNotMatch(source, /证据包|evidence package/)
+  }
 })

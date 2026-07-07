@@ -20,7 +20,7 @@ export interface UsSecDownloadedReportsPanelProps {
 const statusText: Record<UsSecDownloadedRow['parseStatus'], string> = {
   unparsed: '未解析',
   building: '解析中',
-  package_ready: '证据包已生成',
+  package_ready: '解析产物已生成',
   postgres_ready: 'PostgreSQL 已入库',
   warning: '质量警告',
   failed: '质量失败',
@@ -72,7 +72,7 @@ export function UsSecDownloadedReportsPanel({
               <FolderOpen className="h-5 w-5 text-primary" />
               已下载财报
             </h3>
-            <p>优先从搜索下载阶段保存的 SEC 披露文件开始；HTML/iXBRL/XML/ZIP 走结构化证据包解析。</p>
+            <p>优先从搜索下载阶段保存的 SEC 披露文件开始；HTML/iXBRL/XML/ZIP 走结构化解析产物生成。</p>
           </div>
           <div className="pdf-download-search">
             <label>
@@ -137,7 +137,7 @@ export function UsSecDownloadedReportsPanel({
                         className="pdf-small-action primary"
                         onClick={() => void onParse(row)}
                         disabled={busy || !canParse}
-                        title={canParse ? '生成 SEC Markdown/JSON evidence package' : 'PDF 附件请使用美股 PDF 兼容入口'}
+                        title={canParse ? '生成 SEC Markdown/JSON 解析产物包' : 'PDF 附件请使用美股 PDF 兼容入口'}
                       >
                         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
                         解析

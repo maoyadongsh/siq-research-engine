@@ -90,7 +90,7 @@ const usSecArtifactNames = [
 const parseStatusText: Record<UsSecParseStatus, string> = {
   unparsed: '未解析',
   building: '解析中',
-  package_ready: '证据包已生成',
+  package_ready: '解析产物已生成',
   postgres_ready: 'PostgreSQL 已入库',
   warning: '质量警告',
   failed: '质量失败',

@@ -289,7 +289,7 @@ export async function buildUsSecPackage(body: UsSecPackageBuildRequest): Promise
     method: 'POST',
     body: { market: 'US', ...body },
   })
-  if (d.ok === false) throw new Error(String(d.stderr || d.stdout || 'US 证据包构建失败'))
+  if (d.ok === false) throw new Error(String(d.stderr || d.stdout || 'US 解析产物包构建失败'))
   return d
 }
 
@@ -327,7 +327,7 @@ export async function runMarketPackageImport(market: MarketCode, packagePath: st
     method: 'POST',
     body: { market, package_path: packagePath, ddl, force },
   })
-  if (d.ok === false) throw new Error(String(d.stderr || d.stdout || '证据包入库失败'))
+  if (d.ok === false) throw new Error(String(d.stderr || d.stdout || '解析产物包入库失败'))
   return d
 }
 
@@ -336,7 +336,7 @@ export async function runMarketPackageBuild(market: MarketCode, body: MarketPack
     method: 'POST',
     body: { market, ...body },
   })
-  if (d.ok === false) throw new Error(String(d.stderr || d.stdout || '证据包构建失败'))
+  if (d.ok === false) throw new Error(String(d.stderr || d.stdout || '解析产物包构建失败'))
   return d
 }
 

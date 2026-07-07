@@ -123,7 +123,7 @@ export function PdfUploadPanel(props: PdfUploadPanelProps) {
               <FolderOpen className="h-5 w-5 text-primary" />
               已下载财报
             </h3>
-            <p>优先从搜索下载阶段保存的文件开始；PDF 走表格解析，ESEF/iXBRL/HTML/XML 走结构化证据包解析。</p>
+            <p>优先从搜索下载阶段保存的文件开始；PDF 走表格解析，ESEF/iXBRL/HTML/XML 走结构化解析产物生成。</p>
           </div>
           <div className="pdf-download-search">
             <label>
@@ -186,7 +186,7 @@ export function PdfUploadPanel(props: PdfUploadPanelProps) {
                         className="pdf-small-action primary"
                         onClick={() => buildDownloadedPackage?.(report, setDownloadedBusyPath)}
                         disabled={busy || uploading}
-                        title="生成结构化 evidence package"
+                        title="生成结构化解析产物包"
                       >
                         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}结构化解析
                       </button>
