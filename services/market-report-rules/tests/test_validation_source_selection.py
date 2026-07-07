@@ -2,12 +2,15 @@ from decimal import Decimal
 
 from market_report_rules_service.models import (
     AccountingStandard,
+    CheckStatus,
     EvidenceRef,
     ExtractedFact,
     ExtractionResult,
     FinancialStatement,
     Market,
     StatementType,
+    ValidationCheck,
+    ValidationResult,
 )
 from market_report_rules_service.load_plan import build_load_plan
 from market_report_rules_service.validation import validate_extraction
@@ -132,9 +135,60 @@ def test_load_plan_quarantines_canonical_rows_when_validation_blocks():
     assert any(reason.startswith("canonical:block:") for reason in plan.blocked_reasons)
     assert any(row.table == "financial_data_artifacts" for row in plan.rows)
     assert any(row.table == "financial_checks_artifacts" for row in plan.rows)
+    assert any(row.table == "validation_checks" for row in plan.rows)
+    assert not any(row.table in {"financial_statements", "financial_facts", "operating_metric_facts", "evidence_citations"} for row in plan.rows)
     assert not any(row.table == "financial_facts" for row in plan.rows)
+    assert not any(row.table == "validation_checks" for row in plan.quarantine_rows)
     assert any(row.table == "financial_facts" for row in plan.quarantine_rows)
     assert any(row.table == "evidence_citations" for row in plan.quarantine_rows)
+
+
+def test_load_plan_overall_warning_upgrades_observe_only_gates_to_review():
+    extraction = _extraction(Market.EU)
+    allow_by_target = {
+        target: {
+            "target": target,
+            "promotion_target": target,
+            "decision": "allow",
+            "severity": "observe",
+            "rule_ids": ["observe.only"],
+            "review_rule_ids": [],
+            "blocking_rule_ids": [],
+            "reasons": ["observe only"],
+        }
+        for target in ("draft", "review", "canonical", "retrieval", "production")
+    }
+    validation = ValidationResult(
+        rule_version="test",
+        profile_id="test",
+        artifact_id=extraction.artifact_id,
+        market=extraction.market,
+        industry_profile=extraction.industry_profile,
+        overall_status=CheckStatus.WARNING,
+        summary={"pass": 0, "warning": 1, "fail": 0, "skipped": 1},
+        checks=[
+            ValidationCheck(
+                rule_id="observe.only",
+                rule_name="Observe-only check",
+                statement_type="document",
+                status=CheckStatus.SKIPPED,
+                reason="observe_only",
+                raw={"gate_decisions_by_target": allow_by_target},
+            )
+        ],
+        warnings=["critical warning: source hash mismatch"],
+    )
+
+    plan = build_load_plan(extraction, validation)
+
+    assert plan.can_import is False
+    assert plan.can_vector_ingest is False
+    assert plan.promotion_decisions["canonical"].decision == "review"
+    assert plan.promotion_decisions["retrieval"].decision == "review"
+    assert any(reason.startswith("canonical:review:") for reason in plan.blocked_reasons)
+    assert any("critical warning" in reason for reason in plan.promotion_decisions["canonical"].reasons)
+    assert not any(row.table == "financial_facts" for row in plan.rows)
+    assert any(row.table == "financial_facts" for row in plan.quarantine_rows)
 
 
 def test_non_cn_component_balance_bridge_downgrades_when_total_bridge_passes():

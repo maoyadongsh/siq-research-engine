@@ -106,18 +106,15 @@ def build_load_plan(extraction: ExtractionResult, validation: ValidationResult) 
 
 def _promotion_decisions(validation: ValidationResult) -> dict[str, PromotionDecision]:
     decisions = _empty_promotion_decisions()
-    consumed_gate_payload = False
     for check in validation.checks:
         raw_decisions = check.raw.get("gate_decisions_by_target") if isinstance(check.raw, dict) else None
         if not isinstance(raw_decisions, dict):
             continue
-        consumed_gate_payload = True
         for target, payload in raw_decisions.items():
             if target not in decisions or not isinstance(payload, dict):
                 continue
             _merge_promotion_decision(decisions[target], payload)
-    if not consumed_gate_payload:
-        _apply_overall_status_fallback(decisions, validation)
+    _apply_overall_status_fallback(decisions, validation)
     return decisions
 
 
@@ -151,16 +148,19 @@ def _apply_overall_status_fallback(decisions: dict[str, PromotionDecision], vali
     else:
         return
     reasons = validation.warnings or [f"validation.overall_status.{validation.overall_status.value}"]
+    rule_id = f"validation.overall_status.{validation.overall_status.value}"
+    payload: dict[str, Any] = {
+        "decision": fallback_decision,
+        "severity": fallback_severity,
+        "rule_ids": [rule_id],
+        "reasons": reasons,
+    }
+    if fallback_decision == "block":
+        payload["blocking_rule_ids"] = [rule_id]
+    else:
+        payload["review_rule_ids"] = [rule_id]
     for target in ("canonical", "retrieval", "production"):
-        decision = decisions[target]
-        decision.decision = fallback_decision  # type: ignore[assignment]
-        decision.severity = fallback_severity  # type: ignore[assignment]
-        decision.rule_ids = _append_unique(decision.rule_ids, [f"validation.overall_status.{validation.overall_status.value}"])
-        if fallback_decision == "block":
-            decision.blocking_rule_ids = _append_unique(decision.blocking_rule_ids, decision.rule_ids)
-        else:
-            decision.review_rule_ids = _append_unique(decision.review_rule_ids, decision.rule_ids)
-        decision.reasons = _append_unique(decision.reasons, reasons)
+        _merge_promotion_decision(decisions[target], payload)
 
 
 def _append_unique(current: list[str], values: Any) -> list[str]:

@@ -39,7 +39,16 @@ def test_us_companyfacts_extracts_three_statement_metrics_and_sec_evidence():
     first_evidence = data["statements"][0]["items"][0]["evidence_targets"]
     assert first_evidence
     assert result.validation.overall_status in {"pass", "warning"}
-    assert any(row.table == "evidence_citations" for row in result.load_plan.rows)
+    candidate_rows = result.load_plan.rows if result.load_plan.can_import else result.load_plan.quarantine_rows
+    assert any(row.table == "evidence_citations" for row in candidate_rows)
+    if result.load_plan.can_import:
+        assert result.load_plan.can_vector_ingest is True
+        assert result.load_plan.quarantine_rows == []
+        assert result.load_plan.promotion_decisions["canonical"].decision == "allow"
+        assert result.load_plan.promotion_decisions["retrieval"].decision == "allow"
+    else:
+        assert result.load_plan.promotion_decisions["canonical"].decision in {"review", "block"}
+        assert result.load_plan.blocked_reasons
 
 
 def test_us_10q_keeps_qtd_and_ytd_duration_types_separate():

@@ -154,7 +154,16 @@ def test_jp_edinet_xbrl_extracts_structured_facts_to_jp_schema():
     assert result.load_plan.target_schema == "edinet_jp"
     assert data["market"] == "JP"
     assert data["summary"]["statement_count"] == 3
-    assert any(row.table == "evidence_citations" for row in result.load_plan.rows)
+    candidate_rows = result.load_plan.rows if result.load_plan.can_import else result.load_plan.quarantine_rows
+    assert any(row.table == "evidence_citations" for row in candidate_rows)
+    if result.load_plan.can_import:
+        assert result.load_plan.can_vector_ingest is True
+        assert result.load_plan.quarantine_rows == []
+        assert result.load_plan.promotion_decisions["canonical"].decision == "allow"
+        assert result.load_plan.promotion_decisions["retrieval"].decision == "allow"
+    else:
+        assert result.load_plan.promotion_decisions["canonical"].decision in {"review", "block"}
+        assert result.load_plan.blocked_reasons
     first_fact = result.extraction.statements[0].items[0]
     assert first_fact.evidence.source_type == "edinet_xbrl_fact"
 
@@ -262,6 +271,13 @@ def test_jp_unknown_accounting_standard_is_draft_only_and_requires_canonical_rev
     assert check.raw["gate_decisions_by_target"]["draft"]["decision"] == "allow"
     assert check.raw["gate_decisions_by_target"]["canonical"]["decision"] == "review"
     assert check.raw["gate_decisions_by_target"]["retrieval"]["decision"] == "review"
+    assert result.load_plan.can_import is False
+    assert result.load_plan.can_vector_ingest is False
+    assert result.load_plan.promotion_decisions["canonical"].decision == "review"
+    assert result.load_plan.promotion_decisions["retrieval"].decision == "review"
+    assert any("accounting.standard.known" in reason for reason in result.load_plan.blocked_reasons)
+    assert not any(row.table in {"financial_statements", "financial_facts", "operating_metric_facts", "evidence_citations"} for row in result.load_plan.rows)
+    assert any(row.table == "financial_facts" for row in result.load_plan.quarantine_rows)
 
 
 def test_jp_pdf_financial_summary_extracts_mixed_statement_rows():
@@ -511,6 +527,14 @@ def test_kr_dart_pdf_tables_are_fallback_for_local_language_rows():
     } == {AccountingStandard.KIFRS}
     assert not any(check.rule_id == "accounting.standard.known" for check in result.validation.checks)
     assert any(item.evidence.source_type == "dart_pdf_statement_table" for statement in result.extraction.statements for item in statement.items)
+    if result.load_plan.can_import:
+        assert result.load_plan.can_vector_ingest is True
+        assert result.load_plan.quarantine_rows == []
+        assert result.load_plan.promotion_decisions["canonical"].decision == "allow"
+        assert result.load_plan.promotion_decisions["retrieval"].decision == "allow"
+    else:
+        assert result.load_plan.promotion_decisions["canonical"].decision in {"review", "block"}
+        assert result.load_plan.blocked_reasons
 
 
 def test_kr_explicit_unknown_accounting_standard_requires_review():
@@ -549,6 +573,13 @@ def test_kr_explicit_unknown_accounting_standard_requires_review():
     assert check.status == "warning"
     assert check.raw["gate_decisions_by_target"]["draft"]["decision"] == "allow"
     assert check.raw["gate_decisions_by_target"]["canonical"]["decision"] == "review"
+    assert result.load_plan.can_import is False
+    assert result.load_plan.can_vector_ingest is False
+    assert result.load_plan.promotion_decisions["canonical"].decision in {"review", "block"}
+    assert result.load_plan.promotion_decisions["retrieval"].decision in {"review", "block"}
+    assert "accounting.standard.known" in result.load_plan.promotion_decisions["canonical"].review_rule_ids
+    assert not any(row.table in {"financial_statements", "financial_facts", "operating_metric_facts", "evidence_citations"} for row in result.load_plan.rows)
+    assert any(row.table == "financial_facts" for row in result.load_plan.quarantine_rows)
 
 
 def test_kr_bridge_checks_compare_scaled_table_values_with_xbrl_amounts():
