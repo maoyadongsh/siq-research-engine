@@ -57,10 +57,11 @@ def ribbon_path(
     x2: float,
     y2_top: float,
     y2_bottom: float,
-    bend: float = 0.54,
+    bend: float = 0.42,
 ) -> str:
-    c1 = x1 + (x2 - x1) * bend
-    c2 = x2 - (x2 - x1) * bend
+    safe_bend = max(0.18, min(0.48, bend))
+    c1 = x1 + (x2 - x1) * safe_bend
+    c2 = x2 - (x2 - x1) * safe_bend
     return (
         f"M{x1:.1f},{y1_top:.1f} "
         f"C{c1:.1f},{y1_top:.1f} {c2:.1f},{y2_top:.1f} {x2:.1f},{y2_top:.1f} "
@@ -111,8 +112,8 @@ def render_curve(
     opacity: float = 0.28,
     detail: str = "",
 ) -> str:
-    c1 = x1 + (x2 - x1) * 0.52
-    c2 = x2 - (x2 - x1) * 0.52
+    c1 = x1 + (x2 - x1) * 0.42
+    c2 = x2 - (x2 - x1) * 0.42
     return (
         f'<g {ib_attrs(ib_id, related, title, value, detail)}>'
         f'{svg_title(title, value, detail)}'
@@ -245,30 +246,38 @@ def render_income_bridge_svg(data: dict[str, Any] | None, *, width: int = 1280, 
   </style>
 """
 
-    left_label_x = 300
-    segment_node_x = 430
-    segment_out_x = 470
-    revenue_x, revenue_y = 610, 315
-    split_x = 790
-    revenue_h = 228.0
+    left_label_x = 284
+    segment_node_x = 390
+    segment_out_x = 424
+    collector_x = 516
+    collector_out_x = 542
+    revenue_x, revenue_y = 646, 330
+    split_x = 824
+    revenue_h = 224.0
     revenue_top = revenue_y - revenue_h / 2
     revenue_bottom = revenue_y + revenue_h / 2
-    op_x, op_y = 900, 315
-    pretax_x, pretax_y = 1010, 315
-    right_x = 1145
+    op_x, op_y = 936, 330
+    pretax_x, pretax_y = 1048, 330
+    right_x = 1166
 
     segment_values = [safe_float(item.get("revenue")) for item in segments]
-    label_top = 128 if len(segments) >= 5 else 150
-    label_step = min(68, 280 / max(1, len(segments) - 1)) if len(segments) > 1 else 0
-    lane_top = revenue_top + 26
-    lane_bottom = revenue_bottom - 26
-    lane_step = (lane_bottom - lane_top) / max(1, len(segments) - 1) if len(segments) > 1 else 0
+    label_top = 150 if len(segments) >= 5 else 176
+    label_bottom = 468 if len(segments) >= 5 else 430
+    label_step = (label_bottom - label_top) / max(1, len(segments) - 1) if len(segments) > 1 else 0
+    collector_top = revenue_top + 20
+    collector_bottom = revenue_bottom - 20
+    collector_h = collector_bottom - collector_top
+    segment_bands = _stack_segments(segment_values, revenue_y, collector_h, min_height=10.0, gap=5.0)
+    if len(segment_bands) != len(segments):
+        lane_step = collector_h / max(1, len(segments) - 1) if len(segments) > 1 else 0
+        segment_bands = [(collector_top + i * lane_step - 5, collector_top + i * lane_step + 5) for i in range(len(segments))]
 
     segment_parts: list[str] = []
     for i, item in enumerate(segments):
         value = safe_float(item.get("revenue"))
         label_y = label_top + i * label_step
-        lane_y = lane_top + i * lane_step
+        band_top, band_bottom = segment_bands[i]
+        band_y = (band_top + band_bottom) / 2
         segment_id = f"seg-{i}"
         node_id = f"node-{segment_id}"
         flow_id = f"flow-{segment_id}-revenue"
@@ -282,8 +291,8 @@ def render_income_bridge_svg(data: dict[str, Any] | None, *, width: int = 1280, 
         # proportional width, while each segment enters the canvas as the same
         # closed-ribbon family instead of mixing giant lobes with thin strokes.
         share = value / total_revenue if total_revenue else 0.0
-        port_h = max(10.0, min(30.0, (share ** 0.5) * 36.0)) if share > 0 else 10.0
-        lane_h = max(9.0, min(28.0, port_h * 0.92))
+        port_h = max(10.0, min(24.0, (share ** 0.5) * 30.0)) if share > 0 else 10.0
+        lane_h = max(8.0, band_bottom - band_top)
         segment_parts.append(render_segment_label(item, left_label_x, label_y, segment_id, [flow_id, "node-revenue"]))
         segment_parts.append(
             f'<g {ib_attrs(node_id, [segment_id, flow_id, "node-revenue"], str(item.get("name") or ""), value, "收入分项")}>'
@@ -292,7 +301,6 @@ def render_income_bridge_svg(data: dict[str, Any] | None, *, width: int = 1280, 
             f'<rect class="ib-hit" x="{segment_node_x - 12}" y="{label_y - 22:.1f}" width="38" height="44" rx="8" fill="transparent"/>'
             f'</g>'
         )
-        # Uniform closed ribbons: every revenue segment uses the same geometry type.
         segment_parts.append(
             render_ribbon_band(
                 flow_id,
@@ -301,16 +309,40 @@ def render_income_bridge_svg(data: dict[str, Any] | None, *, width: int = 1280, 
                 segment_out_x,
                 label_y - port_h / 2,
                 label_y + port_h / 2,
-                revenue_x,
-                lane_y - lane_h / 2,
-                lane_y + lane_h / 2,
+                collector_x,
+                band_y - lane_h / 2,
+                band_y + lane_h / 2,
                 income_blue_soft,
                 value,
-                0.66,
+                0.54,
                 flow_detail,
                 share if total_revenue else None,
             )
         )
+
+    collector_node = (
+        f'<g {ib_attrs("node-income-collector", ["node-revenue"], "收入构成汇流槽", total_revenue, "各业务收入按比例汇总后进入营业总收入")}> '
+        f'{svg_title("收入构成汇流槽", total_revenue, "各业务收入按比例汇总后进入营业总收入")}'
+        f'<rect x="{collector_x:.1f}" y="{collector_top:.1f}" width="14" height="{collector_h:.1f}" rx="3" fill="{income_blue}" opacity="0.88"/>'
+        f'<rect class="ib-hit" x="{collector_x - 10:.1f}" y="{collector_top - 10:.1f}" width="40" height="{collector_h + 20:.1f}" rx="8" fill="transparent"/>'
+        f'</g>'
+    )
+    collector_flow = render_ribbon_band(
+        "flow-collector-revenue",
+        ["node-income-collector", "node-revenue"],
+        "收入构成汇总 -> 营业总收入",
+        collector_out_x,
+        collector_top,
+        collector_bottom,
+        revenue_x,
+        revenue_top,
+        revenue_bottom,
+        income_blue_soft,
+        total_revenue,
+        0.44,
+        "所有收入分项汇总至营业总收入，宽度按总收入展示",
+        1.0 if total_revenue else None,
+    )
 
     cost_ratio = min(1.0, max(0.0, safe_float(operating_cost) / total_revenue)) if total_revenue else 0.0
     gross_ratio = min(1.0, max(0.0, safe_float(gross_profit) / total_revenue)) if total_revenue else 0.0
@@ -337,7 +369,7 @@ def render_income_bridge_svg(data: dict[str, Any] | None, *, width: int = 1280, 
         return max(minimum, min(maximum, abs(safe_float(value)) / max_value * maximum))
 
     center_parts = [
-        render_node("node-revenue", ["flow-revenue-gross", "flow-revenue-cost"], revenue_x, revenue_y, revenue_h, income_blue, nodes.get("revenue", {}).get("name") or "营业收入", total_revenue, "start", income_blue, "收入分项汇总"),
+        render_node("node-revenue", ["flow-collector-revenue", "flow-revenue-gross", "flow-revenue-cost"], revenue_x, revenue_y, revenue_h, income_blue, nodes.get("revenue", {}).get("name") or "营业收入", total_revenue, "start", income_blue, "收入分项汇总"),
         render_ribbon_band("flow-revenue-gross", ["node-revenue", "node-gross"], "营业收入 -> 毛利", revenue_x + 12, gross_top, gross_bottom, split_x, gross_top, gross_bottom, profit_soft, gross_profit, 0.62, f"收入扣除营业成本后的毛利，占营业收入 {gross_ratio * 100:.2f}%", gross_ratio),
         render_ribbon_band("flow-revenue-cost", ["node-revenue", "node-cost"], "营业收入 -> 营业成本", revenue_x + 12, cost_top, cost_bottom, split_x, cost_top, cost_bottom, expense_soft, operating_cost, 0.72, f"营业成本流出，占营业收入 {cost_ratio * 100:.2f}%", cost_ratio),
         render_node("node-cost", ["flow-revenue-cost", "flow-cost-op"], split_x, cost_y, max(cost_h, 12), expense_yellow, "营业成本", operating_cost, "start", expense_yellow, "利润表营业成本"),
@@ -360,10 +392,13 @@ def render_income_bridge_svg(data: dict[str, Any] | None, *, width: int = 1280, 
   {text_css}
   <rect x="0" y="0" width="{width}" height="{height}" fill="#ffffff"/>
   <text x="{left_label_x - 8}" y="42" text-anchor="start" class="ib-caption">收入构成</text>
-  <text x="{revenue_x - 16}" y="42" text-anchor="start" class="ib-caption">收入汇总</text>
+  <text x="{collector_x - 6}" y="42" text-anchor="start" class="ib-caption">收入汇流</text>
+  <text x="{revenue_x - 18}" y="42" text-anchor="start" class="ib-caption">收入汇总</text>
   <text x="{split_x}" y="42" text-anchor="start" class="ib-caption">成本/毛利拆分</text>
   <text x="{op_x}" y="42" text-anchor="start" class="ib-caption">利润形成</text>
   {''.join(segment_parts)}
+  {collector_node}
+  {collector_flow}
   {''.join(center_parts)}
   <text x="{revenue_x - 80}" y="{revenue_y - 126}" class="ib-muted">{svg_text(data.get('period_label') or '')}</text>
 </svg>

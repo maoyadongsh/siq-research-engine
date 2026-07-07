@@ -202,14 +202,36 @@ def compact_section_text(section: dict[str, Any]) -> str:
     return re.sub(r"\s+", "", "".join(parts))
 
 
-def compact_qualitative_text(value: Any, limit: int = 260) -> str:
+def compact_qualitative_text(value: Any, limit: int = 900) -> str:
     text = re.sub(r"（证据：[^）]+）", "", str(value or ""))
     text = re.sub(r"\s+", " ", text).strip()
     text = re.sub(r"。+；", "；", text)
     text = re.sub(r"；+", "；", text)
+    text = remove_truncated_tail(text)
     if len(text) <= limit:
         return text
     return text[:limit].rstrip("，。；; ") + "..."
+
+
+def remove_truncated_tail(text: str) -> str:
+    """Drop sentence fragments left by upstream ellipsis truncation.
+
+    Historical research packs may already contain snippets such as
+    "研发费用 1...". Rendering that fragment is worse than omitting the tail,
+    because it looks like a malformed number. Keep complete earlier sentences
+    and remove only the trailing fragment that contains an ellipsis.
+    """
+    clean = str(text or "").strip()
+    if "..." not in clean and "…" not in clean:
+        return clean
+    match = re.search(r"(?:\.\.\.|…)", clean)
+    if not match:
+        return clean
+    prefix = clean[: match.start()].rstrip("，。；;、 ：:")
+    boundary = max(prefix.rfind("。"), prefix.rfind("；"), prefix.rfind("!"), prefix.rfind("！"), prefix.rfind("?"), prefix.rfind("？"))
+    if boundary >= 40:
+        return prefix[: boundary + 1].strip()
+    return prefix.strip()
 
 
 def is_noisy_qualitative_text(value: Any) -> bool:
@@ -221,7 +243,7 @@ def is_noisy_qualitative_text(value: Any) -> bool:
     )
 
 
-def clean_qualitative_texts(items: list[Any], limit: int, text_limit: int = 260) -> list[str]:
+def clean_qualitative_texts(items: list[Any], limit: int, text_limit: int = 900) -> list[str]:
     result: list[str] = []
     seen: set[str] = set()
     for item in items:
@@ -239,11 +261,11 @@ def clean_qualitative_texts(items: list[Any], limit: int, text_limit: int = 260)
 
 
 def clean_section_items(section_id: str, items: list[str]) -> list[str]:
-    text_limit = 280 if section_id in {"strategy_policy_external_risk", "governance_compliance_shareholders"} else 380
+    text_limit = 760 if section_id in {"strategy_policy_external_risk", "governance_compliance_shareholders"} else 900
     return clean_qualitative_texts(items, len(items), text_limit)
 
 
-def clean_visible_items(items: list[str], text_limit: int = 360) -> list[str]:
+def clean_visible_items(items: list[str], text_limit: int = 900) -> list[str]:
     return clean_qualitative_texts(items, len(items), text_limit)
 
 

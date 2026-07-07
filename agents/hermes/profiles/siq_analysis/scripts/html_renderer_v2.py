@@ -1038,13 +1038,13 @@ body {
   border-color: #e5e7eb;
   box-shadow: 0 18px 42px -32px rgba(15,23,42,0.38);
   color: #111827;
-  padding: 18px 22px 16px;
+  padding: 0 0 16px;
 }
 .income-bridge-summary {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 12px;
-  margin: 0 0 12px;
+  margin: 0 22px 12px;
 }
 .income-bridge-metric {
   background: #f8fafc;
@@ -1079,7 +1079,7 @@ body {
   gap: 20px;
   align-items: center;
   border-bottom: 1px solid #eef2f7;
-  padding: 4px 2px 12px;
+  padding: 18px 24px 14px;
   margin-bottom: 0;
 }
 .income-bridge-title-group {
@@ -1129,7 +1129,7 @@ body {
   display: block;
   min-height: 560px;
   overflow-x: hidden;
-  padding: 6px 0 0;
+  padding: 12px 18px 0;
 }
 .income-bridge-panel .chart-fallback svg {
   display: block;
@@ -1195,7 +1195,7 @@ body {
   color: #d1d5db;
 }
 .income-bridge-footnotes {
-  margin-top: 10px;
+  margin: 10px 22px 0;
   color: #64748b;
   font-size: 12px;
   line-height: 1.65;
@@ -1719,6 +1719,7 @@ body {
   color: var(--text-secondary);
   font-size: 15px;
   line-height: 1.78;
+  overflow-wrap: anywhere;
 }
 
 .narrative-item p:first-child {
@@ -1861,6 +1862,7 @@ body {
   color: #334155;
   font-size: 14px;
   line-height: 1.7;
+  overflow-wrap: anywhere;
 }
 
 .summary-point::before {
@@ -1939,6 +1941,22 @@ body {
 
 .income-bridge-panel {
   border-radius: 8px;
+}
+
+.dupont-panel .chart-area {
+  display: none !important;
+}
+
+.dupont-panel .chart-fallback,
+.charts-enhanced .dupont-panel .chart-fallback {
+  display: block;
+  min-height: 380px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.dupont-panel .chart-fallback svg {
+  min-width: 760px;
 }
 
 .svg-axis { stroke: #94a3b8; }
@@ -2575,6 +2593,11 @@ function initDebtStructureChart() {
 }
 
 function initDupontChart() {
+  // DuPont uses deterministic SVG-first rendering. This keeps long Chinese
+  // labels, original values, formulas, and normalized scores aligned in a
+  // fixed report layout; generic ECharts radar labels are too fragile in the
+  // compact two-column chart card.
+  return;
   const el = document.getElementById('dupont-chart');
   if (!el || !window.dupontData) return;
   const data = window.dupontData;
@@ -2953,7 +2976,7 @@ def render_report_summary(
             for item in items:
                 _, _, text = split_source_prefix(item, "synthesis")
                 for paragraph in sentence_paragraphs(text):
-                    summary_text = truncate_text(paragraph, 220)
+                    summary_text = re.sub(r"\s+", " ", paragraph).strip()
                     if summary_text and summary_text not in summary_points:
                         summary_points.append(summary_text)
                     if len(summary_points) >= 4:
@@ -4341,7 +4364,7 @@ def _radar_ring_points(cx: float, cy: float, radius: float, count: int) -> str:
     )
 
 
-def svg_radar_chart(data: dict[str, Any] | None, *, width: int = 520, height: int = 320) -> str:
+def svg_radar_chart(data: dict[str, Any] | None, *, width: int = 760, height: int = 380) -> str:
     if not data:
         return '<div class="chart-fallback-empty">雷达图数据不足，待补充完整比率口径。</div>'
     dimensions = data.get("dimensions") if isinstance(data.get("dimensions"), list) else []
@@ -4359,38 +4382,82 @@ def svg_radar_chart(data: dict[str, Any] | None, *, width: int = 520, height: in
     labels = [str(item.get("name") or "") for item in dimensions]
     raw_values = [str(item.get("raw_display") or "-") for item in dimensions]
     values = [max(0.0, min(100.0, safe_float(item.get("score")))) for item in dimensions]
-    cx, cy, radius = width / 2, height / 2 + 8, 96
+    cx, cy, radius = 532.0, 195.0, 92.0
     math = __import__("math")
-    axes = []
-    points = []
+    axes: list[str] = []
+    points: list[tuple[float, float]] = []
     for i, label in enumerate(labels):
         angle = -90 + i * 360 / len(labels)
         rad = angle * math.pi / 180
         ax = cx + radius * math.cos(rad)
         ay = cy + radius * math.sin(rad)
         axes.append(f'<line x1="{cx}" y1="{cy}" x2="{ax:.1f}" y2="{ay:.1f}" class="svg-grid"/>')
-        label_x = cx + (radius + 42) * math.cos(rad)
-        label_y = cy + (radius + 32) * math.sin(rad)
+        cos_v = math.cos(rad)
+        sin_v = math.sin(rad)
+        label_x = cx + (radius + 46) * cos_v
+        label_y = cy + (radius + 36) * sin_v
+        if cos_v < -0.25:
+            anchor = "end"
+        elif cos_v > 0.25:
+            anchor = "start"
+        else:
+            anchor = "middle"
         axes.append(
-            f'<text x="{label_x:.1f}" y="{label_y - 8:.1f}" text-anchor="middle" class="svg-label">{svg_text(label)}</text>'
-            f'<text x="{label_x:.1f}" y="{label_y + 12:.1f}" text-anchor="middle" class="svg-value" fill="#2563eb">{svg_text(raw_values[i])}</text>'
+            f'<text x="{label_x:.1f}" y="{label_y - 8:.1f}" text-anchor="{anchor}" class="svg-label">{svg_text(label)}</text>'
+            f'<text x="{label_x:.1f}" y="{label_y + 12:.1f}" text-anchor="{anchor}" class="svg-value" fill="#2563eb">{svg_text(raw_values[i])}</text>'
         )
         value_radius = radius * values[i] / 100
         points.append((cx + value_radius * math.cos(rad), cy + value_radius * math.sin(rad)))
     polygon = " ".join(f"{x:.1f},{y:.1f}" for x, y in points)
     rings = "".join(f'<polygon points="{_radar_ring_points(cx, cy, radius * scale / 4, len(labels))}" fill="none" class="svg-grid"/>' for scale in range(1, 5))
     detail = " / ".join(f"{label}: {raw}（展示 {value:.1f}/100）" for label, raw, value in zip(labels, raw_values, values))
+    card_colors = ["#2563eb", "#0891b2", "#7c3aed", "#dc2626"]
+    cards: list[str] = []
+    for i, item in enumerate(dimensions):
+        x = 28
+        y = 52 + i * 72
+        score = values[i]
+        color = card_colors[i % len(card_colors)]
+        raw = raw_values[i]
+        formula = str(item.get("formula") or "-")
+        name = str(item.get("name") or labels[i])
+        reference = item.get("reference_range") if isinstance(item.get("reference_range"), dict) else {}
+        ref_text = ""
+        if reference:
+            ref_text = f"展示区间 {reference.get('low')} - {reference.get('high')} {item.get('unit') or ''}".strip()
+        card_detail = "；".join(part for part in [formula, ref_text, f"标准化展示分 {score:.1f}/100"] if part)
+        cards.append(
+            f'<g {chart_attrs(f"dupont-dim-{i}", name, score, card_detail, raw)}>'
+            f'{svg_title(name, score, card_detail, raw)}'
+            f'<rect class="chart-mark" x="{x}" y="{y}" width="284" height="58" rx="8" fill="#ffffff" stroke="#dbe3ef"/>'
+            f'<rect x="{x}" y="{y}" width="4" height="58" rx="2" fill="{color}"/>'
+            f'<text x="{x + 16}" y="{y + 23}" class="svg-label" fill="#0f172a">{svg_text(name)}</text>'
+            f'<text x="{x + 16}" y="{y + 45}" class="svg-muted">{svg_text(formula)}</text>'
+            f'<text x="{x + 250}" y="{y + 24}" text-anchor="end" class="svg-value" fill="{color}">{svg_text(raw)}</text>'
+            f'<rect x="{x + 172}" y="{y + 38}" width="78" height="5" rx="2.5" fill="#e2e8f0"/>'
+            f'<rect x="{x + 172}" y="{y + 38}" width="{max(2, 78 * score / 100):.1f}" height="5" rx="2.5" fill="{color}" opacity="0.82"/>'
+            f'<rect class="chart-hit" x="{x}" y="{y}" width="284" height="58" rx="8" fill="transparent"/>'
+            f'</g>'
+        )
+    title_detail = "标准化展示分；原始值见标签与左侧卡片。"
     return f"""
 <svg viewBox="0 0 {width} {height}" role="img" aria-label="杜邦分析雷达图">
-  {rings}
-  {''.join(axes)}
-  <g {chart_attrs("dupont-radar", "杜邦分析", 0, detail, "综合比率")}>
-    {svg_title("杜邦分析", 0, detail, "综合比率")}
-    <polygon class="chart-mark" points="{polygon}" fill="rgba(37,99,235,0.20)" stroke="#2563eb" stroke-width="2.6"/>
-    <polygon class="chart-hit" points="{polygon}" fill="transparent" stroke="transparent" stroke-width="18"/>
+  <rect x="0" y="0" width="{width}" height="{height}" fill="#ffffff"/>
+  <text x="28" y="28" class="svg-label" fill="#0f172a">杜邦三因子分解</text>
+  <text x="408" y="28" class="svg-label" fill="#0f172a">标准化雷达</text>
+  <text x="28" y="350" class="svg-muted">雷达半径为 0-100 归一化展示分；展示分不等同于投资评级。</text>
+  {''.join(cards)}
+  <g transform="translate(0,0)">
+    <polygon points="{_radar_ring_points(cx, cy, radius, len(labels))}" fill="rgba(37,99,235,0.035)" stroke="none"/>
+    {rings}
+    {''.join(axes)}
+    <g {chart_attrs("dupont-radar", "杜邦分析", 0, detail, "综合比率")}>
+      {svg_title("杜邦分析", 0, detail, "综合比率")}
+      <polygon class="chart-mark" points="{polygon}" fill="rgba(37,99,235,0.20)" stroke="#2563eb" stroke-width="2.6" stroke-linejoin="round"/>
+      <polygon class="chart-hit" points="{polygon}" fill="transparent" stroke="transparent" stroke-width="20"/>
+    </g>
+    {''.join(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4.5" fill="#2563eb" stroke="#ffffff" stroke-width="1.4"/>' for x, y in points)}
   </g>
-  {''.join(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4.5" fill="#2563eb" stroke="#ffffff" stroke-width="1.4"/>' for x, y in points)}
-  <text x="{cx}" y="{height - 18}" text-anchor="middle" class="svg-muted">雷达半径为 0-100 归一化展示分，标签保留原始杜邦指标。</text>
 </svg>
 """
 
@@ -4605,7 +4672,7 @@ def render_html_report(
     
     # DuPont + Solvency - goes after section 6 (Debt)
     if dupont_data or solvency_data:
-        dupont_html = render_chart_section("dupont-chart", "杜邦分析雷达图", fallback_svg=svg_radar_chart(dupont_data), note="雷达维度为净利率、周转率、权益乘数和 ROE 的缩放展示。") if dupont_data else ""
+        dupont_html = render_chart_section("dupont-chart", "杜邦分析雷达图", extra_class="dupont-panel", fallback_svg=svg_radar_chart(dupont_data), note="左侧展示原始杜邦因子与公式，右侧为 0-100 标准化雷达展示分。") if dupont_data else ""
         solvency_html = ""
         if solvency_data:
             gauges = []

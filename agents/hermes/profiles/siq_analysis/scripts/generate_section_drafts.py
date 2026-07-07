@@ -262,7 +262,10 @@ def compact_qualitative_text(value: Any, limit: int = 260) -> str:
     text = re.sub(r"；+", "；", text)
     if len(text) <= limit:
         return text
-    return text[:limit].rstrip("，。；; ") + "..."
+    cut = max(text.rfind("。", 0, limit), text.rfind("；", 0, limit), text.rfind("，", 0, limit))
+    if cut >= max(30, limit // 3):
+        return text[: cut + 1].rstrip()
+    return text[:limit].rstrip("，。；; ")
 
 
 def is_noisy_qualitative_text(value: Any) -> bool:

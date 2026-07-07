@@ -81,7 +81,9 @@ def test_income_bridge_svg_uses_uniform_interactive_ribbons():
     assert 'data-ib-id="flow-seg-0-revenue"' in svg
     assert 'data-ib-id="flow-revenue-cost"' in svg
     assert 'data-ib-id="flow-revenue-gross"' in svg
-    assert 'x="430"' in svg
-    assert 'M470.0' in svg
+    assert 'data-ib-id="node-income-collector"' in svg
+    assert 'data-ib-id="flow-collector-revenue"' in svg
+    assert 'M424.0' in svg
     assert "<line" not in svg
     assert "收入构成" in svg
+    assert "收入汇流" in svg

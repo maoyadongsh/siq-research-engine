@@ -102,6 +102,11 @@ def test_dupont_and_solvency_use_verified_rows(tmp_path):
     svg = renderer.svg_radar_chart(dupont)
     assert "展示" in svg
     assert "雷达半径为 0-100" in svg
+    assert "杜邦三因子分解" in svg
+    assert "标准化雷达" in svg
+    assert "归母净利润 / 营业收入" in svg
+    assert 'data-chart-id="dupont-dim-0"' in svg
+    assert 'data-chart-id="dupont-radar"' in svg
 
 
 def test_asset_structure_does_not_estimate_missing_noncurrent_assets():

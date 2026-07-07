@@ -127,7 +127,10 @@ def clean_text(value: Any, limit: int | None = 220) -> str:
     text = " ".join(str(value or "").split())
     if limit is None or len(text) <= limit:
         return text
-    return text[: limit - 1].rstrip() + "..."
+    cut = max(text.rfind("。", 0, limit), text.rfind("；", 0, limit), text.rfind("，", 0, limit))
+    if cut >= max(30, limit // 3):
+        return text[: cut + 1].rstrip()
+    return text[:limit].rstrip("，。；;、 ")
 
 
 def visible_text(value: Any) -> str:

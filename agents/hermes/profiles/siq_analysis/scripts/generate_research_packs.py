@@ -792,16 +792,21 @@ def qualitative_items_filtered(qualitative: dict[str, Any], buckets: list[str], 
     return result
 
 
-def compact_text(value: Any, limit: int = 160) -> str:
+def compact_text(value: Any, limit: int = 160, *, ellipsis: bool = False) -> str:
     text = " ".join(str(value or "").split())
     if len(text) <= limit:
         return text
+    if not ellipsis:
+        cut = max(text.rfind("。", 0, limit), text.rfind("；", 0, limit), text.rfind("，", 0, limit))
+        if cut >= max(30, limit // 3):
+            return text[: cut + 1].rstrip()
+        return text[:limit].rstrip("，。；;、 ")
     return text[: limit - 1].rstrip() + "…"
 
 
 def strategy_evidence_fact_text(item: dict[str, Any]) -> str:
     text = re.sub(r"（证据：[^）]+）", "", str(item.get("text") or ""))
-    return compact_text(text, 220)
+    return compact_text(text, 900)
 
 
 def strategy_finding_from_item(item: dict[str, Any], snapshot: dict[str, Any], year: int) -> dict[str, Any]:
@@ -811,9 +816,9 @@ def strategy_finding_from_item(item: dict[str, Any], snapshot: dict[str, Any], y
     gross_margin = metric_value(snapshot, "gross_margin", year)
     ocf = metric_value(snapshot, "operating_cash_flow_net", year)
     rd_expenses = metric_value(snapshot, "research_expenses", year)
-    fact = compact_text(text, 120)
+    fact = compact_text(text, 180)
     claim = (
-        f"{theme}：本地年报证据显示「{fact}」。"
+        f"{theme}：本地年报证据已覆盖相关业务/战略表述，证据摘要为「{fact}」。"
         f"该判断需用 {'、'.join(variables[:4])} 验证；当前可见财务锚包括"
         f"收入 {fmt_number(revenue, '亿元')}、毛利率 {fmt_number(gross_margin, '%')}、"
         f"经营现金流 {fmt_number(ocf, '亿元')}、研发费用 {fmt_number(rd_expenses, '亿元')}。"
