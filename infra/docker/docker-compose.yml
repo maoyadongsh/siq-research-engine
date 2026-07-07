@@ -113,6 +113,8 @@ services:
       - SIQ_REPORT_FINDER_BASE=http://report-finder:8000
       - REPORT_FINDER_BASE=http://report-finder:8000
       - SIQ_MARKET_REPORT_RULES_BASE=http://market-report-rules:8000
+      - SIQ_MARKET_REPORT_FINDER_TOKEN=${SIQ_MARKET_REPORT_FINDER_TOKEN:-}
+      - SIQ_MARKET_REPORT_RULES_TOKEN=${SIQ_MARKET_REPORT_RULES_TOKEN:-}
       - SIQ_REPORT_FINDER_HEALTH_URL=http://report-finder:8000/health
       - SIQ_PDF2MD_HEALTH_URL=http://pdf-parser:15000/api/health
       - SIQ_DOCUMENT_PARSER_HEALTH_URL=http://document-parser:15010/api/health
@@ -158,6 +160,7 @@ services:
     environment:
       - PYTHONDONTWRITEBYTECODE=1
       - MARKET_REPORT_DOWNLOAD_DIR=/state/data/market-report-finder/downloads
+      - SIQ_MARKET_REPORT_FINDER_TOKEN=${SIQ_MARKET_REPORT_FINDER_TOKEN:-}
       - SEC_USER_AGENT=${SEC_USER_AGENT:-SIQ Research contact@example.com}
     volumes:
       - downloads_data:/state/data/market-report-finder/downloads
@@ -190,6 +193,7 @@ services:
     environment:
       - PYTHONDONTWRITEBYTECODE=1
       - MARKET_REPORT_DOWNLOAD_DIR=/state/data/market-report-finder/downloads
+      - SIQ_MARKET_REPORT_FINDER_TOKEN=${SIQ_MARKET_REPORT_FINDER_TOKEN:-}
       - SEC_USER_AGENT=${SEC_USER_AGENT:-SIQ Research contact@example.com}
     volumes:
       - downloads_data:/state/data/market-report-finder/downloads
@@ -224,6 +228,7 @@ services:
       - PYTHONDONTWRITEBYTECODE=1
       - SIQ_CN_REPORT_FINDER_BASE=http://report-finder:8000
       - SIQ_REPORT_FINDER_BASE=http://report-finder:8000
+      - SIQ_MARKET_REPORT_RULES_TOKEN=${SIQ_MARKET_REPORT_RULES_TOKEN:-}
     depends_on:
       - report-finder
     cap_drop:

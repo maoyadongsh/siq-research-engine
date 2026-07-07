@@ -66,7 +66,7 @@ def test_proxy_request_preserves_query_body_content_type_and_response(monkeypatc
     response = asyncio.run(
         market_report_proxy.proxy_request(
             base_url="http://finder",
-            upstream_path="/v1/reports/search",
+            upstream_path="/v1/reports/recent",
             request=Request(),
             timeout=1.25,
         )
@@ -75,7 +75,7 @@ def test_proxy_request_preserves_query_body_content_type_and_response(monkeypatc
     assert seen == {
         "timeout": 1.25,
         "method": "POST",
-        "url": "http://finder/v1/reports/search",
+        "url": "http://finder/v1/reports/recent",
         "params": [("ticker", "AAPL"), ("ticker", "MSFT"), ("limit", "2")],
         "content": b'{"q":"annual"}',
         "headers": {"content-type": "application/json; charset=utf-8"},
@@ -83,6 +83,71 @@ def test_proxy_request_preserves_query_body_content_type_and_response(monkeypatc
     assert response.status_code == 207
     assert response.media_type == "application/vnd.finder+json"
     assert response.body == b'{"ok":true}'
+
+
+def test_proxy_request_forwards_service_token_header(monkeypatch):
+    seen = {}
+
+    class QueryParams:
+        def multi_items(self):
+            return []
+
+    class Request:
+        method = "GET"
+        query_params = QueryParams()
+        headers = {}
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            seen["timeout"] = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def request(self, method, url, *, params, content, headers):
+            seen.update(
+                {
+                    "method": method,
+                    "url": url,
+                    "params": params,
+                    "content": content,
+                    "headers": headers,
+                }
+            )
+            return type(
+                "Upstream",
+                (),
+                {
+                    "content": b'{"ok":true}',
+                    "status_code": 200,
+                    "headers": {"content-type": "application/json"},
+                },
+            )()
+
+    monkeypatch.setattr(market_report_proxy.httpx, "AsyncClient", FakeAsyncClient)
+
+    response = asyncio.run(
+        market_report_proxy.proxy_request(
+            base_url="http://finder",
+            upstream_path="/v1/reports/recent",
+            request=Request(),
+            timeout=1.25,
+            service_token="finder-token",
+        )
+    )
+
+    assert seen == {
+        "timeout": 1.25,
+        "method": "GET",
+        "url": "http://finder/v1/reports/recent",
+        "params": [],
+        "content": None,
+        "headers": {"X-SIQ-Service-Token": "finder-token"},
+    }
+    assert response.status_code == 200
 
 
 def test_proxy_request_head_discards_upstream_body(monkeypatch):
@@ -426,6 +491,51 @@ def test_proxy_rules_get_preserves_response_contract(monkeypatch):
     assert response.body == b'{"rules":[1]}'
 
 
+def test_proxy_rules_get_forwards_service_token_header(monkeypatch):
+    seen = {}
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            seen["timeout"] = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def get(self, url, *, headers):
+            seen["url"] = url
+            seen["headers"] = headers
+            return type(
+                "Upstream",
+                (),
+                {
+                    "content": b'{"rules":[1]}',
+                    "status_code": 200,
+                    "headers": {"content-type": "application/json"},
+                },
+            )()
+
+    monkeypatch.setattr(market_report_proxy.httpx, "AsyncClient", FakeAsyncClient)
+
+    response = asyncio.run(
+        market_report_proxy.proxy_rules_get(
+            market_rules_base="http://rules",
+            upstream_path="/markets",
+            timeout=3.5,
+            service_token="rules-token",
+        )
+    )
+
+    assert seen == {
+        "timeout": 3.5,
+        "url": "http://rules/markets",
+        "headers": {"X-SIQ-Service-Token": "rules-token"},
+    }
+    assert response.status_code == 200
+
+
 def test_proxy_rules_get_maps_request_error_to_502(monkeypatch):
     class FakeAsyncClient:
         def __init__(self, timeout):
@@ -543,12 +653,19 @@ def test_market_report_health_keeps_single_side_request_errors_isolated(monkeypa
 def test_router_proxy_wrappers_use_configured_bases(monkeypatch):
     seen = {}
 
-    async def fake_finder_assist(*, report_finder_base, payload, timeout):
-        seen["assist"] = {"report_finder_base": report_finder_base, "payload": payload, "timeout": timeout}
+    async def fake_finder_assist(*, report_finder_base, payload, timeout, service_token):
+        seen["assist"] = {
+            "report_finder_base": report_finder_base,
+            "payload": payload,
+            "timeout": timeout,
+            "service_token": service_token,
+        }
         return {"ok": True}
 
-    async def fake_proxy_rules_get(*, market_rules_base, upstream_path):
-        seen.setdefault("rules", []).append({"market_rules_base": market_rules_base, "upstream_path": upstream_path})
+    async def fake_proxy_rules_get(*, market_rules_base, upstream_path, service_token):
+        seen.setdefault("rules", []).append(
+            {"market_rules_base": market_rules_base, "upstream_path": upstream_path, "service_token": service_token}
+        )
         return {"path": upstream_path}
 
     async def fake_market_report_health(*, report_finder_base, market_rules_base):
@@ -568,10 +685,15 @@ def test_router_proxy_wrappers_use_configured_bases(monkeypatch):
             "report_finder_base": market_reports.REPORT_FINDER_BASE,
             "payload": {"prompt": "demo"},
             "timeout": market_reports.MARKET_REPORT_PROXY_TIMEOUT,
+            "service_token": None,
         },
         "rules": [
-            {"market_rules_base": market_reports.MARKET_RULES_BASE, "upstream_path": "/markets"},
-            {"market_rules_base": market_reports.MARKET_RULES_BASE, "upstream_path": "/markets/cn/rules"},
+            {"market_rules_base": market_reports.MARKET_RULES_BASE, "upstream_path": "/markets", "service_token": None},
+            {
+                "market_rules_base": market_reports.MARKET_RULES_BASE,
+                "upstream_path": "/markets/cn/rules",
+                "service_token": None,
+            },
         ],
         "health": {
             "report_finder_base": market_reports.REPORT_FINDER_BASE,

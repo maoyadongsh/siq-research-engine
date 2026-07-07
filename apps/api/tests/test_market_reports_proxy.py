@@ -164,10 +164,25 @@ def test_market_report_route_order_keeps_static_routes_before_catchalls():
 def test_v1_proxy_preserves_finder_path(monkeypatch):
     seen = {}
 
-    async def fake_proxy_request(*, base_url, upstream_path, request, timeout=market_reports.MARKET_REPORT_PROXY_TIMEOUT):
-        seen.update({"base_url": base_url, "upstream_path": upstream_path, "timeout": timeout})
+    async def fake_proxy_request(
+        *,
+        base_url,
+        upstream_path,
+        request,
+        timeout=market_reports.MARKET_REPORT_PROXY_TIMEOUT,
+        service_token=None,
+    ):
+        seen.update(
+            {
+                "base_url": base_url,
+                "upstream_path": upstream_path,
+                "timeout": timeout,
+                "service_token": service_token,
+            }
+        )
         return "ok"
 
+    monkeypatch.delenv("SIQ_MARKET_REPORT_FINDER_TOKEN", raising=False)
     monkeypatch.setattr(market_reports, "_proxy_request", fake_proxy_request)
 
     result = asyncio.run(market_reports.proxy_market_report_finder("reports/recent", DummyRequest()))
@@ -175,6 +190,73 @@ def test_v1_proxy_preserves_finder_path(monkeypatch):
     assert result == "ok"
     assert seen["base_url"] == market_reports.REPORT_FINDER_BASE
     assert seen["upstream_path"] == "/v1/reports/recent"
+    assert seen["service_token"] is None
+
+
+def test_v1_proxy_rejects_disallowed_path_without_upstream(monkeypatch):
+    async def fake_proxy_request(**kwargs):
+        raise AssertionError("disallowed finder path should not call upstream")
+
+    monkeypatch.setattr(market_reports, "_proxy_request", fake_proxy_request)
+
+    try:
+        asyncio.run(market_reports.proxy_market_report_finder("reports/search", DummyRequest()))
+    except HTTPException as exc:
+        assert exc.status_code == 404
+    else:
+        raise AssertionError("expected HTTPException")
+
+
+def test_v1_proxy_rejects_disallowed_method_without_upstream(monkeypatch):
+    class GetRequest(DummyRequest):
+        method = "GET"
+
+    async def fake_proxy_request(**kwargs):
+        raise AssertionError("disallowed finder method should not call upstream")
+
+    monkeypatch.setattr(market_reports, "_proxy_request", fake_proxy_request)
+
+    try:
+        asyncio.run(market_reports.proxy_market_report_finder("reports/recent", GetRequest()))
+    except HTTPException as exc:
+        assert exc.status_code == 404
+    else:
+        raise AssertionError("expected HTTPException")
+
+
+def test_v1_proxy_uses_finder_service_token_env(monkeypatch):
+    seen = {}
+
+    async def fake_proxy_request(
+        *,
+        base_url,
+        upstream_path,
+        request,
+        timeout=market_reports.MARKET_REPORT_PROXY_TIMEOUT,
+        service_token=None,
+    ):
+        seen.update(
+            {
+                "base_url": base_url,
+                "upstream_path": upstream_path,
+                "timeout": timeout,
+                "service_token": service_token,
+            }
+        )
+        return "ok"
+
+    monkeypatch.setenv("SIQ_MARKET_REPORT_FINDER_TOKEN", "finder-token")
+    monkeypatch.setattr(market_reports, "_proxy_request", fake_proxy_request)
+
+    result = asyncio.run(market_reports.proxy_market_report_finder("reports/latest", DummyRequest()))
+
+    assert result == "ok"
+    assert seen == {
+        "base_url": market_reports.REPORT_FINDER_BASE,
+        "upstream_path": "/v1/reports/latest",
+        "timeout": market_reports.MARKET_REPORT_PROXY_TIMEOUT,
+        "service_token": "finder-token",
+    }
 
 
 def test_proxy_request_preserves_query_body_content_type_and_response(monkeypatch):
@@ -227,14 +309,14 @@ def test_proxy_request_preserves_query_body_content_type_and_response(monkeypatc
     response = asyncio.run(
         market_reports._proxy_request(
             base_url="http://finder",
-            upstream_path="/v1/reports/search",
+            upstream_path="/v1/reports/recent",
             request=Request(),
             timeout=1.25,
         )
     )
 
     assert seen["method"] == "POST"
-    assert seen["url"] == "http://finder/v1/reports/search"
+    assert seen["url"] == "http://finder/v1/reports/recent"
     assert seen["params"] == [("ticker", "AAPL"), ("ticker", "MSFT"), ("limit", "2")]
     assert seen["content"] == b'{"q":"annual"}'
     assert seen["headers"] == {"content-type": "application/json; charset=utf-8"}
@@ -510,10 +592,18 @@ def test_proxy_rules_get_maps_request_error_to_502(monkeypatch):
 def test_finder_assist_wrapper_uses_router_settings(monkeypatch):
     seen = {}
 
-    async def fake_finder_assist(*, report_finder_base, payload, timeout):
-        seen.update({"report_finder_base": report_finder_base, "payload": payload, "timeout": timeout})
+    async def fake_finder_assist(*, report_finder_base, payload, timeout, service_token):
+        seen.update(
+            {
+                "report_finder_base": report_finder_base,
+                "payload": payload,
+                "timeout": timeout,
+                "service_token": service_token,
+            }
+        )
         return {"ok": True}
 
+    monkeypatch.setenv("SIQ_MARKET_REPORT_FINDER_TOKEN", "finder-token")
     monkeypatch.setattr(market_report_proxy, "finder_assist", fake_finder_assist)
 
     result = asyncio.run(market_reports._finder_assist({"prompt": "demo"}))
@@ -523,16 +613,18 @@ def test_finder_assist_wrapper_uses_router_settings(monkeypatch):
         "report_finder_base": market_reports.REPORT_FINDER_BASE,
         "payload": {"prompt": "demo"},
         "timeout": market_reports.MARKET_REPORT_PROXY_TIMEOUT,
+        "service_token": "finder-token",
     }
 
 
 def test_market_rules_route_wrappers_use_rules_base(monkeypatch):
     calls = []
 
-    async def fake_proxy_rules_get(*, market_rules_base, upstream_path):
-        calls.append({"market_rules_base": market_rules_base, "upstream_path": upstream_path})
+    async def fake_proxy_rules_get(*, market_rules_base, upstream_path, service_token):
+        calls.append({"market_rules_base": market_rules_base, "upstream_path": upstream_path, "service_token": service_token})
         return {"path": upstream_path}
 
+    monkeypatch.setenv("SIQ_MARKET_REPORT_RULES_TOKEN", "rules-token")
     monkeypatch.setattr(market_report_proxy, "proxy_rules_get", fake_proxy_rules_get)
 
     modules = asyncio.run(market_reports.market_modules())
@@ -541,8 +633,12 @@ def test_market_rules_route_wrappers_use_rules_base(monkeypatch):
     assert modules == {"path": "/markets"}
     assert cn_rules == {"path": "/markets/cn/rules"}
     assert calls == [
-        {"market_rules_base": market_reports.MARKET_RULES_BASE, "upstream_path": "/markets"},
-        {"market_rules_base": market_reports.MARKET_RULES_BASE, "upstream_path": "/markets/cn/rules"},
+        {"market_rules_base": market_reports.MARKET_RULES_BASE, "upstream_path": "/markets", "service_token": "rules-token"},
+        {
+            "market_rules_base": market_reports.MARKET_RULES_BASE,
+            "upstream_path": "/markets/cn/rules",
+            "service_token": "rules-token",
+        },
     ]
 
 

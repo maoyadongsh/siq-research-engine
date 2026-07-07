@@ -9,6 +9,10 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     app_name: str = "Market Report Finder Service"
+    internal_service_token: str | None = Field(
+        default=None,
+        validation_alias="SIQ_MARKET_REPORT_FINDER_TOKEN",
+    )
     download_dir: Path = Field(default=Path("downloads"), validation_alias="MARKET_REPORT_DOWNLOAD_DIR")
     http_timeout_seconds: float = 30.0
     sec_user_agent: str = Field(

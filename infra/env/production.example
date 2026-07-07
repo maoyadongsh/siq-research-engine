@@ -70,6 +70,8 @@ SIQ_DOCUMENT_OUTPUT_ROOT=/var/lib/siq-research-engine/artifacts/document-parser/
 SIQ_REPORT_FINDER_ROOT=/opt/siq-research-engine/services/market-report-finder
 SIQ_MARKET_REPORT_FINDER_ROOT=/opt/siq-research-engine/services/market-report-finder
 SIQ_MARKET_REPORT_RULES_ROOT=/opt/siq-research-engine/services/market-report-rules
+SIQ_MARKET_REPORT_FINDER_TOKEN=replace-with-secret-manager-value
+SIQ_MARKET_REPORT_RULES_TOKEN=replace-with-secret-manager-value
 SIQ_REPORT_DOWNLOADS_ROOT=/var/lib/siq-research-engine/artifacts/market-report-finder/downloads
 SIQ_MARKET_REPORT_DOWNLOADS_ROOT=/var/lib/siq-research-engine/artifacts/market-report-finder/downloads
 

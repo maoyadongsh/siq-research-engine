@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from fastapi import FastAPI
+import hmac
+import os
+
+from fastapi import FastAPI, HTTPException, Request, Response, status
+from fastapi.responses import JSONResponse
 
 from . import __version__
 from .contracts import financial_checks_contract, financial_data_contract
@@ -18,12 +22,40 @@ from .storage import list_storage_profiles
 from .validation import validate_extraction
 
 
+SERVICE_TOKEN_ENV = "SIQ_MARKET_REPORT_RULES_TOKEN"
+SERVICE_TOKEN_HEADER = "X-SIQ-Service-Token"
+
+
+def _configured_service_token() -> str:
+    return os.environ.get(SERVICE_TOKEN_ENV, "").strip()
+
+
+def require_service_token(request: Request) -> None:
+    service_token = _configured_service_token()
+    if not service_token:
+        return
+    provided_token = request.headers.get(SERVICE_TOKEN_HEADER, "").strip()
+    if not hmac.compare_digest(provided_token, service_token):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="unauthorized")
+
+
 app = FastAPI(
     title="Market Report Rules Service",
     version=__version__,
     description="Market-isolated extraction, validation, provenance, and load-plan rules service.",
 )
 app.include_router(cn_market_router)
+
+
+@app.middleware("http")
+async def require_internal_service_token(request: Request, call_next) -> Response:
+    if request.url.path == "/healthz":
+        return await call_next(request)
+    try:
+        require_service_token(request)
+    except HTTPException as exc:
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+    return await call_next(request)
 
 
 @app.get("/healthz")

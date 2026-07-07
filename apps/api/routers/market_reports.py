@@ -60,10 +60,41 @@ from services import market_package_repository as market_packages
 router = APIRouter(tags=["market-reports"])
 logger = logging.getLogger(__name__)
 US_SEC_UPLOAD_SUFFIXES = {".pdf", ".html", ".htm", ".xhtml", ".xml", ".xbrl", ".zip"}
+FINDER_PROXY_ALLOWED_ROUTES = {
+    "/v1/company/resolve": frozenset({"POST"}),
+    "/v1/resolve": frozenset({"POST"}),
+    "/v1/sources": frozenset({"GET"}),
+    "/v1/reports/latest": frozenset({"POST"}),
+    "/v1/reports/recent": frozenset({"POST"}),
+    "/v1/reports/assist": frozenset({"POST"}),
+    "/v1/reports/curated-annuals": frozenset({"GET"}),
+    "/v1/reports/select-download": frozenset({"POST"}),
+    "/v1/reports/batch-download": frozenset({"POST"}),
+    "/v1/reports/download": frozenset({"POST"}),
+    "/v1/reports/direct-download": frozenset({"POST"}),
+}
 
 
 def _content_type(headers: httpx.Headers) -> str:
     return market_report_proxy.content_type(headers)
+
+
+def _service_token(env_name: str) -> str | None:
+    token = os.environ.get(env_name, "").strip()
+    return token or None
+
+
+def _finder_service_token() -> str | None:
+    return _service_token("SIQ_MARKET_REPORT_FINDER_TOKEN")
+
+
+def _market_rules_service_token() -> str | None:
+    return _service_token("SIQ_MARKET_REPORT_RULES_TOKEN")
+
+
+def _finder_proxy_path_allowed(path: str, method: str) -> bool:
+    allowed_methods = FINDER_PROXY_ALLOWED_ROUTES.get(path)
+    return bool(allowed_methods and method.upper() in allowed_methods)
 
 
 def _json_response(payload: dict[str, Any], status_code: int = 200) -> Response:
@@ -968,12 +999,14 @@ async def _proxy_request(
     upstream_path: str,
     request: Request,
     timeout: float = MARKET_REPORT_PROXY_TIMEOUT,
+    service_token: str | None = None,
 ) -> Response:
     return await market_report_proxy.proxy_request(
         base_url=base_url,
         upstream_path=upstream_path,
         request=request,
         timeout=timeout,
+        service_token=service_token,
     )
 
 
@@ -982,6 +1015,7 @@ async def _finder_assist(payload: dict[str, Any]) -> dict[str, Any]:
         report_finder_base=REPORT_FINDER_BASE,
         payload=payload,
         timeout=MARKET_REPORT_PROXY_TIMEOUT,
+        service_token=_finder_service_token(),
     )
 
 
@@ -1266,21 +1300,33 @@ async def assist_market_reports(request: Request) -> Response:
 
 @router.api_route("/v1/{upstream_path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"])
 async def proxy_market_report_finder(upstream_path: str, request: Request) -> Response:
+    finder_path = f"/v1/{upstream_path}"
+    if not _finder_proxy_path_allowed(finder_path, request.method):
+        raise HTTPException(status_code=404, detail="Market report finder path is not allowed")
     return await _proxy_request(
         base_url=REPORT_FINDER_BASE,
-        upstream_path=f"/v1/{upstream_path}",
+        upstream_path=finder_path,
         request=request,
+        service_token=_finder_service_token(),
     )
 
 
 @router.get("/markets")
 async def market_modules() -> Response:
-    return await market_report_proxy.proxy_rules_get(market_rules_base=MARKET_RULES_BASE, upstream_path="/markets")
+    return await market_report_proxy.proxy_rules_get(
+        market_rules_base=MARKET_RULES_BASE,
+        upstream_path="/markets",
+        service_token=_market_rules_service_token(),
+    )
 
 
 @router.get("/markets/cn/rules")
 async def cn_market_rules() -> Response:
-    return await market_report_proxy.proxy_rules_get(market_rules_base=MARKET_RULES_BASE, upstream_path="/markets/cn/rules")
+    return await market_report_proxy.proxy_rules_get(
+        market_rules_base=MARKET_RULES_BASE,
+        upstream_path="/markets/cn/rules",
+        service_token=_market_rules_service_token(),
+    )
 
 
 @router.get("/market-report-health")

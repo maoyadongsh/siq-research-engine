@@ -1,6 +1,12 @@
+import pytest
 from fastapi.testclient import TestClient
 
-from market_report_rules_service.app import app
+from market_report_rules_service.app import SERVICE_TOKEN_ENV, SERVICE_TOKEN_HEADER, app
+
+
+@pytest.fixture(autouse=True)
+def clear_rules_service_token(monkeypatch):
+    monkeypatch.delenv(SERVICE_TOKEN_ENV, raising=False)
 
 
 def test_healthz():
@@ -10,6 +16,76 @@ def test_healthz():
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert {market["market"] for market in response.json()["markets"]} == {"CN", "HK", "US", "JP", "KR", "EU"}
+
+
+def test_healthz_remains_public_when_service_token_configured(monkeypatch):
+    monkeypatch.setenv(SERVICE_TOKEN_ENV, "internal-token")
+    client = TestClient(app)
+
+    response = client.get("/healthz")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+
+
+@pytest.mark.parametrize("path", ["/profiles", "/markets", "/rules"])
+def test_metadata_routes_require_service_token_when_configured(monkeypatch, path):
+    monkeypatch.setenv(SERVICE_TOKEN_ENV, "internal-token")
+    client = TestClient(app)
+
+    missing = client.get(path)
+    wrong = client.get(path, headers={SERVICE_TOKEN_HEADER: "wrong-token"})
+    valid = client.get(path, headers={SERVICE_TOKEN_HEADER: "internal-token"})
+
+    assert missing.status_code == 401
+    assert wrong.status_code == 401
+    assert valid.status_code == 200
+
+
+def _minimal_artifact_payload() -> dict[str, object]:
+    return {
+        "artifact_id": "empty-us",
+        "market": "US",
+        "company_id": "US:EMPTY",
+        "ticker": "EMPTY",
+        "report_type": "quarterly",
+        "report_form": "10-Q",
+    }
+
+
+def _minimal_extraction_payload() -> dict[str, object]:
+    return {
+        "rule_version": "test_rules_v1",
+        "profile_id": "test_profile",
+        "artifact_id": "empty-us",
+        "market": "US",
+        "accounting_standard": "UNKNOWN",
+        "company_id": "US:EMPTY",
+        "ticker": "EMPTY",
+        "statements": [],
+    }
+
+
+@pytest.mark.parametrize(
+    ("path", "payload"),
+    [
+        ("/extract", _minimal_artifact_payload()),
+        ("/validate", _minimal_extraction_payload()),
+        ("/process", {"artifact": _minimal_artifact_payload(), "build_load_plan": True}),
+        ("/load-plan", _minimal_extraction_payload()),
+    ],
+)
+def test_high_risk_routes_require_service_token_when_configured(monkeypatch, path, payload):
+    monkeypatch.setenv(SERVICE_TOKEN_ENV, "internal-token")
+    client = TestClient(app)
+
+    missing = client.post(path, json=payload)
+    wrong = client.post(path, json=payload, headers={SERVICE_TOKEN_HEADER: "wrong-token"})
+    valid = client.post(path, json=payload, headers={SERVICE_TOKEN_HEADER: "internal-token"})
+
+    assert missing.status_code == 401
+    assert wrong.status_code == 401
+    assert valid.status_code == 200
 
 
 def test_markets_register_cn_legacy_pages():

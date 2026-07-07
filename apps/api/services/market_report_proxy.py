@@ -5,9 +5,16 @@ from typing import Any
 import httpx
 from fastapi import HTTPException, Request, Response
 
+SERVICE_TOKEN_HEADER = "X-SIQ-Service-Token"
+
 
 def content_type(headers: httpx.Headers) -> str:
     return headers.get("content-type") or "application/octet-stream"
+
+
+def service_token_headers(service_token: str | None) -> dict[str, str]:
+    token = str(service_token or "").strip()
+    return {SERVICE_TOKEN_HEADER: token} if token else {}
 
 
 async def proxy_request(
@@ -16,11 +23,12 @@ async def proxy_request(
     upstream_path: str,
     request: Request,
     timeout: float,
+    service_token: str | None = None,
 ) -> Response:
     method = request.method
     params = list(request.query_params.multi_items())
     body = await request.body() if method in {"POST", "PUT", "PATCH", "DELETE"} else None
-    headers: dict[str, str] = {}
+    headers = service_token_headers(service_token)
     request_content_type = request.headers.get("content-type")
     if request_content_type:
         headers["content-type"] = request_content_type
@@ -42,10 +50,20 @@ async def proxy_request(
     )
 
 
-async def finder_assist(*, report_finder_base: str, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
+async def finder_assist(
+    *,
+    report_finder_base: str,
+    payload: dict[str, Any],
+    timeout: float,
+    service_token: str | None = None,
+) -> dict[str, Any]:
+    headers = service_token_headers(service_token)
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
-            upstream = await client.post(f"{report_finder_base}/v1/reports/assist", json=payload)
+            if headers:
+                upstream = await client.post(f"{report_finder_base}/v1/reports/assist", json=payload, headers=headers)
+            else:
+                upstream = await client.post(f"{report_finder_base}/v1/reports/assist", json=payload)
     except httpx.RequestError as exc:
         raise HTTPException(status_code=502, detail=f"Market report assist upstream unavailable: {exc}") from exc
     if upstream.status_code >= 400:
@@ -59,10 +77,20 @@ async def finder_assist(*, report_finder_base: str, payload: dict[str, Any], tim
     return parsed if isinstance(parsed, dict) else {}
 
 
-async def proxy_rules_get(*, market_rules_base: str, upstream_path: str, timeout: float = 10.0) -> Response:
+async def proxy_rules_get(
+    *,
+    market_rules_base: str,
+    upstream_path: str,
+    timeout: float = 10.0,
+    service_token: str | None = None,
+) -> Response:
+    headers = service_token_headers(service_token)
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
-            upstream = await client.get(f"{market_rules_base}{upstream_path}")
+            if headers:
+                upstream = await client.get(f"{market_rules_base}{upstream_path}", headers=headers)
+            else:
+                upstream = await client.get(f"{market_rules_base}{upstream_path}")
     except httpx.RequestError as exc:
         raise HTTPException(status_code=502, detail=f"Market rules service unavailable: {exc}") from exc
     return Response(
