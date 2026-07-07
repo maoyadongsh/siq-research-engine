@@ -44,7 +44,16 @@
 - `hybrid`：优先使用 external pack，再用确定性 fallback 填补缺失必需 pack，适合渐进接入真实子智能体。
 - `prompt-only`：只生成 `research_subagent_prompts.json` 给 Hermes/LLM 子智能体消费，不进入最终报告渲染。
 
-额外标杆检索必须是提示词驱动：脚本只提供本地多市场 wiki 根目录、Hermes web 工具使用规则和可比性约束，不得在脚本层写死具体公司或查询词。海外标杆只能作为 `cross_market_reference`，不得混入 A 股严格同业分位、`peer_count`、估值均值或中位数。
+额外标杆检索必须是提示词驱动：脚本只提供本地多市场 wiki 根目录、Hermes Tavily/EXA web 工具使用规则和可比性约束，不得在脚本层写死具体公司或查询词。海外标杆只能作为 `cross_market_reference`，不得混入 A 股严格同业分位、`peer_count`、估值均值或中位数。
+
+报告事实底座必须以本地 wiki、年报、metrics、evidence 和 semantic 为主；外部搜索是补充，不是替代。外部补充可以充分展开，用于行业趋势、政策、技术路线、专利/知识产权、同业竞争和跨市场参考，但最终报告必须可见地区分：
+
+- `【本地事实证据】`：来自公司本地年报/wiki/metrics/evidence/semantic。
+- `【模型测算】`：由本地指标计算或明确降级说明得出。
+- `【外部搜索补证】` / `【外部补充事实】`：来自 Tavily/EXA 或外部网页，只作上下文、交叉验证或待核验线索。
+- `【风险链】` / `【跟踪信号】`：基于事实和模型形成的可证伪推演。
+
+外部来源与本地年报事实冲突时，不得覆盖本地事实，只能写入 `missing_inputs`、`review_required`、`risk_chains` 或第十四章复核清单。
 
 运行排障优先查看 `research_subagent_run_manifest.json`：其中必须保留开始/结束时间、耗时、pack 来源统计、fallback 次数、验证状态、失败/告警数量。命令审计字段不得明文记录 prompt、benchmark hint、token、password 等敏感参数值。
 
@@ -122,6 +131,7 @@ wiki/companies/<company_id>/analysis/.work/<report_slug>/
 - `coverage.section_ids` 明确覆盖章节。
 - `key_findings/evidence_facts/calculations/risk_chains/tracking_signals` 使用结构化数组。
 - `external_sources` 只放 provider/query/url/title 等来源元数据，不把长 snippet 直接写入可见正文。
+- `evidence_facts/key_findings` 若来自外部搜索，必须通过 scope、source_file 或正文标签标明外部来源属性；不得伪装成本地年报事实。
 - `missing_inputs` 必须说明原因、影响和对应章节。
 - `prohibited_content_hits` 必须为空。
 

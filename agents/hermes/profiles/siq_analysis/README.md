@@ -61,7 +61,14 @@ analysis/.work/<report_slug>/research_packs/*.json
 
 年度报告入口在启用 `--use-research-packs` 时应优先调用 `run_research_subagents.py`，并通过 `--research-subagent-mode`、`--research-subagent-pack-dir`、`--no-research-subagent-fallback` 控制执行方式。默认仍保持确定性可回放；只有明确接入 Hermes/LLM 子智能体时才使用 `external` 或 `hybrid`。
 
-子智能体的额外标杆或外部检索应由任务提示词驱动，而不是在脚本中硬编码公司或查询词。可通过 `--research-subagent-prompt`、`--research-subagent-prompt-file` 或可重复的 `--research-benchmark-hint` 把用户意图传入 prompt bundle；`industry_peer_researcher` 再基于这些提示检索本地多市场 wiki 或 Hermes web 工具。
+子智能体的额外标杆或外部检索应由任务提示词驱动，而不是在脚本中硬编码公司或查询词。可通过 `--research-subagent-prompt`、`--research-subagent-prompt-file` 或可重复的 `--research-benchmark-hint` 把用户意图传入 prompt bundle；`industry_peer_researcher` 再基于这些提示检索本地多市场 wiki 或 Hermes Tavily/EXA web 工具。
+
+报告事实底座以本地 wiki、年报、metrics、evidence 和 semantic 为主。Tavily/EXA 可以充分补充行业趋势、政策、技术路线、专利/知识产权、同业竞争和跨市场参考，但必须作为外部补证进入 `external_sources`、`evidence_facts` 或低/中置信度 `key_findings`，不得覆盖公司年报事实。最终报告可见正文应让用户区分：
+
+- `本地事实证据`：来自本地年报/wiki/metrics/evidence/semantic。
+- `模型测算`：由本地指标计算或明确降级说明得出。
+- `外部搜索补证`：来自 Tavily/EXA 或外部网页，用于上下文、技术/政策/竞争补充。
+- `风险链/跟踪信号`：由研究角色基于事实和模型推演形成，需可证伪。
 
 `research_subagent_run_manifest.json` 是研究子智能体运行的排障入口，会记录 `started_at`、`completed_at`、`elapsed_ms`、pack 来源统计、fallback 次数、验证状态和失败/告警数量。脚本命令审计字段会对 prompt、benchmark hint、token、password 等敏感参数值脱敏；完整任务提示只保留在供子智能体消费的 prompt bundle 中。
 

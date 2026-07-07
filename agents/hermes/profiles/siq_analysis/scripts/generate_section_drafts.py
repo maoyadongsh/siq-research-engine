@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -34,7 +35,7 @@ ALIASES = {
     "monetary_funds": ["monetary_capital", "货币资金"],
     "gross_margin": ["gross_profit_margin", "毛利率"],
     "debt_to_asset_ratio": ["asset_liability_ratio", "资产负债率"],
-    "capital_expenditure": ["cash_for_purchases", "购建固定资产、无形资产和其他长期资产支付的现金"],
+    "capital_expenditure": ["cash_for_purchases_investments", "购建固定资产、无形资产和其他长期资产支付的现金"],
     "accounts_receivable": ["应收账款"],
     "notes_receivable": ["应收票据"],
     "inventory": ["存货"],
@@ -75,6 +76,7 @@ MONETARY_METRIC_KEYS = {
     "current_liabilities",
     "contract_liabilities",
     "cash_for_purchases",
+    "cash_for_purchases_investments",
     "capital_expenditure",
     "operating_profit",
     "total_profit",
@@ -129,6 +131,58 @@ def load_section_meta() -> dict[str, dict[str, Any]]:
 
 
 SECTION_META = load_section_meta()
+
+NOISY_QUALITATIVE_TERMS = [
+    "现金分红",
+    "利润分配",
+    "退市风险警示",
+    "合并财务报表的编制方法",
+    "控制的判断标准",
+    "主要财务指标",
+    "报告期末公司前三年主要会计数据",
+    "基本每股收益",
+    "导致退市风险警示的原因",
+    "公司股票被实施退市风险警示",
+    "同类业务采用不同经营模式",
+    "前五名销售客户 □适用",
+    "前五名供应商 □适用",
+    "产品质量保证金",
+    "分部信息",
+    "单位：元 币种",
+    "公司报告期内业务、产品或服务发生重大变化或调整有关情况",
+]
+
+LOW_VALUE_REPORT_PHRASES = [
+    "执行摘要必须",
+    "本节重点是",
+    "正确写法是",
+    "当前生成器不联网",
+    "报告使用 metric_snapshot",
+    "避免只罗列",
+    "不构成投资建议",
+    "不得输出",
+    "不得把",
+    "只能写",
+]
+
+SOURCE_LABEL_PREFIX_RE = re.compile(r"^【[^】]+】")
+
+SECTION_SYNTHESIS_FOCUS = {
+    "executive_summary": ("经营安全与盈利质量", "收入、扣非利润、现金流和负债覆盖是否同向", "核心矛盾是否缓释"),
+    "key_changes": ("年度变化的质量", "增长、利润、现金流和资产负债表是否同向", "变化是否具有持续性"),
+    "operating_quality": ("经营质量", "收入增长是否转化为回款、周转和合同负债支撑", "经营拐点是否被财务变量验证"),
+    "profitability_and_cost": ("盈利能力", "毛利率、费用率、扣非利润和非经常项目的贡献", "利润修复是否依赖一次性因素"),
+    "asset_quality_working_capital": ("资产质量与营运资本", "存货、应收、合同负债和周转效率", "收入质量是否被资产端拖累"),
+    "debt_liquidity": ("偿债安全", "短债、现金、有息负债和经营现金流覆盖", "流动性压力是否扩大"),
+    "cash_flow_quality": ("现金流质量", "经营现金流、资本开支和自由现金流的匹配", "利润含金量是否改善"),
+    "industry_competition": ("行业竞争位置", "同业分位、产品结构、价格竞争和现金转化", "竞争优势是否进入报表"),
+    "strategy_policy_external_risk": ("战略兑现质量", "研发、资本开支、产品结构和现金流是否验证管理层战略", "战略叙事是否被财务变量支撑"),
+    "governance_compliance_shareholders": ("治理与合规风险", "审计、诉讼、股东承诺和资本动作", "治理变量是否影响财务可信度"),
+    "valuation_expectation_gap": ("估值预期差", "基本面锚、市场数据缺口和同业估值可比性", "估值讨论是否具备足够证据"),
+    "risk_chain_scenario": ("风险链条", "关键变量恶化如何传导到利润、现金流和资产质量", "哪些反证会推翻当前结论"),
+    "tracking_checklist": ("后续跟踪", "改善信号、恶化信号和数据源频率", "跟踪体系是否可执行"),
+    "data_quality_traceability": ("数据质量与溯源", "证据覆盖、缺失字段和可复核链接", "报告结论的可信边界"),
+}
 
 
 def values_for(snapshot: dict[str, Any], key: str) -> dict[str, Any]:
@@ -200,6 +254,52 @@ def yi(value: Any) -> str:
     return fmt(value, "亿元")
 
 
+def compact_qualitative_text(value: Any, limit: int = 260) -> str:
+    text = re.sub(r"（证据：[^）]+）", "", str(value or ""))
+    text = re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"。+；", "；", text)
+    text = re.sub(r"。+；", "；", text)
+    text = re.sub(r"；+", "；", text)
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip("，。；; ") + "..."
+
+
+def is_noisy_qualitative_text(value: Any) -> bool:
+    text = str(value or "")
+    return (
+        not text.strip()
+        or any(term in text for term in NOISY_QUALITATIVE_TERMS)
+        or any(term in text for term in LOW_VALUE_REPORT_PHRASES)
+    )
+
+
+def clean_qualitative_texts(items: list[Any], limit: int, text_limit: int = 260) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        if is_noisy_qualitative_text(item):
+            continue
+        text = compact_qualitative_text(item, text_limit)
+        key = re.sub(r"\s+", "", text)
+        if not key or key in seen:
+            continue
+        result.append(text)
+        seen.add(key)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def clean_section_items(section_id: str, items: list[str]) -> list[str]:
+    text_limit = 280 if section_id in {"strategy_policy_external_risk", "governance_compliance_shareholders"} else 380
+    return clean_qualitative_texts(items, len(items), text_limit)
+
+
+def clean_visible_items(items: list[str], text_limit: int = 360) -> list[str]:
+    return clean_qualitative_texts(items, len(items), text_limit)
+
+
 def ratio(numerator: Any, denominator: Any, multiplier: float = 1.0) -> Any:
     if isinstance(numerator, (int, float)) and isinstance(denominator, (int, float)) and denominator:
         return numerator / denominator * multiplier
@@ -252,17 +352,22 @@ def missing_fields(snapshot: dict[str, Any], keys: list[str], year: int) -> list
 
 
 def q_items(qualitative: dict[str, Any], bucket: str, limit: int = 3) -> list[str]:
+    candidates: list[Any] = []
     interpretation = qualitative.get("interpretation")
     if isinstance(interpretation, dict):
         items = interpretation.get(bucket)
         if isinstance(items, list) and items:
-            return [str(item) for item in items[:limit] if str(item).strip()]
+            candidates.extend(items[: limit * 4])
     buckets = qualitative.get("buckets")
     if isinstance(buckets, dict):
         entries = buckets.get(bucket)
         if isinstance(entries, list):
-            return [str(item.get("text")) for item in entries[:limit] if isinstance(item, dict) and str(item.get("text") or "").strip()]
-    return []
+            candidates.extend(
+                item.get("text")
+                for item in entries[: limit * 4]
+                if isinstance(item, dict) and str(item.get("text") or "").strip()
+            )
+    return clean_qualitative_texts(candidates, limit)
 
 
 def q_evidence(qualitative: dict[str, Any], buckets: list[str], limit: int = 8) -> list[str]:
@@ -483,6 +588,61 @@ def narrative_block(title: str, items: list[str], role: str = "analysis") -> dic
     }
 
 
+def strip_source_label(text: str) -> str:
+    return SOURCE_LABEL_PREFIX_RE.sub("", str(text or "")).strip()
+
+
+def select_anchor(items: list[str], keywords: list[str], fallback_index: int = 0) -> str:
+    clean = [strip_source_label(item) for item in items if strip_source_label(item)]
+    for keyword in keywords:
+        for item in clean:
+            if keyword in item:
+                return item
+    if clean:
+        return clean[min(fallback_index, len(clean) - 1)]
+    return ""
+
+
+def build_section_synthesis(
+    section_id: str,
+    facts: list[str],
+    calculations: list[str],
+    judgements: list[str],
+    risks: list[str],
+) -> dict[str, Any] | None:
+    focus = SECTION_SYNTHESIS_FOCUS.get(section_id)
+    if not focus:
+        return None
+    subject, verification_axis, boundary_axis = focus
+    evidence_anchor = select_anchor(facts, ["营业收入", "归母净利润", "经营现金流", "毛利率", "资产负债率", "研发", "同业", "公司"], 0).rstrip("。；; ")
+    model_anchor = select_anchor(calculations, ["同比", "比率", "分位", "自由现金流", "杜邦", "覆盖", "研发"], 0).rstrip("。；; ")
+    judgement_anchor = select_anchor(judgements, ["核心", "需要", "验证", "改善", "压力", "质量"], 0).rstrip("。；; ")
+    risk_anchor = select_anchor(risks, ["风险", "恶化", "改善", "推翻", "验证", "缺口"], 0).rstrip("。；; ")
+
+    items: list[str] = []
+    if evidence_anchor:
+        sentence = (
+            f"本节围绕{subject}展开。已确认的本地证据显示，{evidence_anchor} "
+            f"因此不能只看单一指标，需要沿着{verification_axis}进行交叉验证。"
+        )
+        items.append(sentence)
+    if model_anchor or judgement_anchor:
+        sentence_parts = [f"从模型和经营解释看，{model_anchor}" if model_anchor else ""]
+        if judgement_anchor:
+            sentence_parts.append(f"对应的分析判断是：{judgement_anchor}")
+        sentence = "；".join(part for part in sentence_parts if part).rstrip("。") + "。"
+        items.append(sentence)
+    if risk_anchor:
+        items.append(
+            f"结论边界在于{boundary_axis}：{risk_anchor} 报告会把这类信息作为后续跟踪或复核条件，而不是直接升级为确定性结论。"
+        )
+
+    clean_items = clean_visible_items(items, 520)
+    if len(clean_items) < 2:
+        return None
+    return narrative_block("本节综合解读", clean_items[:3], "synthesis")
+
+
 def build_narrative_blocks(
     section_id: str,
     facts: list[str],
@@ -500,6 +660,8 @@ def build_narrative_blocks(
             return
         block_items.setdefault(title, []).extend(clean)
         block_roles.setdefault(title, role)
+
+    synthesis = build_section_synthesis(section_id, facts, calculations, judgements, risks)
 
     if section_id == "executive_summary":
         put("经营状态定性", facts[:2], "diagnosis")
@@ -578,6 +740,8 @@ def build_narrative_blocks(
         put(preferred[3] if len(preferred) > 3 else "风险与验证", risks[:3], "tracking")
 
     blocks: list[dict[str, Any]] = []
+    if synthesis:
+        blocks.append(synthesis)
     ordered_titles = [title for title in preferred if title in block_items]
     ordered_titles.extend(title for title in block_items if title not in ordered_titles)
     for title in ordered_titles:
@@ -595,10 +759,10 @@ def make_section(
     review_required: bool,
     missing: list[str],
 ) -> dict[str, Any]:
-    facts_clean = [item for item in facts if item]
-    calculations_clean = [item for item in calculations if item]
-    judgements_clean = [item for item in judgements if item]
-    risks_clean = [item for item in risks if item]
+    facts_clean = clean_section_items(section_id, [item for item in facts if item])
+    calculations_clean = clean_visible_items([item for item in calculations if item], 420)
+    judgements_clean = clean_visible_items([item for item in judgements if item], 420)
+    risks_clean = clean_visible_items([item for item in risks if item], 420)
     return {
         "section_id": section_id,
         "title": SECTION_TITLES[section_id],

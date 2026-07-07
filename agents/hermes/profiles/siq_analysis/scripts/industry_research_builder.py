@@ -149,24 +149,125 @@ def search_exa(query: str, limit: int) -> dict[str, Any]:
     return {"ok": bool(results), "provider": "exa", "query": query, "results": results}
 
 
-def company_industry(company: dict[str, Any]) -> str:
+def company_industry(company: dict[str, Any], fallback_text: str = "") -> str:
     for key in ["industry_sw3", "industry_sw2", "industry_sw1", "industry", "sector"]:
         value = str(company.get(key) or "").strip()
         if value:
             return value
+    text = str(fallback_text or "")
+    if "汽车" in text:
+        if any(term in text for term in ["制造", "整车", "主机厂"]):
+            return "汽车制造业"
+        return "汽车行业"
+    prompt_industry_patterns = [
+        (r"([\u4e00-\u9fa5A-Za-z0-9]+(?:制造业|行业|产业|板块|赛道))", 1),
+        (r"所属行业[:：\s]*([\u4e00-\u9fa5A-Za-z0-9]+)", 1),
+    ]
+    for pattern, group in prompt_industry_patterns:
+        match = re.search(pattern, text)
+        if match:
+            candidate = str(match.group(group)).strip("，。、；; ")
+            if candidate and candidate not in {"行业", "产业", "板块", "赛道"}:
+                return candidate
     return "A股上市公司所属行业"
 
 
-def build_queries(company: dict[str, Any], year: int) -> list[str]:
+def unique_queries(values: list[str], limit: int = 10) -> list[str]:
+    queries: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        query = clean_text(value, 180)
+        if not query or query in seen:
+            continue
+        seen.add(query)
+        queries.append(query)
+        if len(queries) >= limit:
+            break
+    return queries
+
+
+def read_prompt_file(path: Path | None) -> str:
+    if not path:
+        return ""
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def is_technology_or_manufacturing(company: dict[str, Any]) -> bool:
+    text = " ".join(str(company.get(key) or "") for key in [
+        "industry_sw3",
+        "industry_sw2",
+        "industry_sw1",
+        "industry",
+        "sector",
+        "company_short_name",
+        "company_full_name",
+    ])
+    keywords = [
+        "制造",
+        "汽车",
+        "电子",
+        "半导体",
+        "软件",
+        "通信",
+        "计算机",
+        "设备",
+        "机械",
+        "新能源",
+        "科技",
+        "医药",
+        "材料",
+        "电池",
+        "智能",
+    ]
+    return any(keyword in text for keyword in keywords)
+
+
+def prompt_indicates_technology_or_manufacturing(text: str) -> bool:
+    keywords = ["制造", "汽车", "电子", "半导体", "软件", "通信", "计算机", "设备", "机械", "新能源", "科技", "医药", "材料", "电池", "智能"]
+    return any(keyword in text for keyword in keywords)
+
+
+def build_queries(
+    company: dict[str, Any],
+    year: int,
+    research_prompt: str = "",
+    benchmark_hints: list[str] | None = None,
+) -> tuple[list[str], dict[str, list[str]]]:
     short_name = str(company.get("company_short_name") or company.get("company_id") or "目标公司")
     stock_code = str(company.get("stock_code") or "").strip()
-    industry = company_industry(company)
+    prompt_context = " ".join([research_prompt, *(benchmark_hints or [])])
+    industry = company_industry(company, prompt_context)
     code_part = f" {stock_code}" if stock_code else ""
-    return [
+    base_queries = [
         f"{industry} 行业 {year} 竞争格局 价格战 需求 出口 政策",
         f"{short_name}{code_part} {industry} {year} 行业位置 同业竞争 毛利率 现金流",
         f"{industry} 行业 {year} 风险 供需 价格 成本 技术趋势",
     ]
+    technology_queries: list[str] = []
+    if is_technology_or_manufacturing(company) or prompt_indicates_technology_or_manufacturing(prompt_context):
+        technology_queries = [
+            f"{short_name}{code_part} {year} 研发投入 专利 核心技术 量产 产品结构 毛利率",
+            f"{industry} {year} 研发强度 技术路线 专利 量产 产业链 竞争格局",
+        ]
+    prompt_queries: list[str] = []
+    prompt_text = clean_text(research_prompt, 180)
+    if prompt_text:
+        prompt_queries.append(f"{short_name}{code_part} {year} {prompt_text}")
+    hint_queries: list[str] = []
+    for hint in benchmark_hints or []:
+        hint_text = clean_text(hint, 120)
+        if hint_text:
+            hint_queries.append(f"{hint_text} {industry} {year} 可比公司 研发 毛利率 现金流 技术路线")
+    query_sources = {
+        "base": base_queries,
+        "technology_or_manufacturing": technology_queries,
+        "research_prompt": prompt_queries,
+        "benchmark_hints": hint_queries,
+    }
+    return unique_queries(base_queries + technology_queries + prompt_queries + hint_queries), query_sources
 
 
 def flatten_results(searches: list[dict[str, Any]], limit: int = 12) -> list[dict[str, Any]]:
@@ -208,11 +309,18 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=4)
     parser.add_argument("--offline", action="store_true", help="Do not call external providers; emit planned queries only")
     parser.add_argument("--env-file", action="append", type=Path, default=[])
+    parser.add_argument("--research-prompt", default="", help="Task prompt used to derive additional Tavily/EXA queries.")
+    parser.add_argument("--research-prompt-file", type=Path, help="Read additional task prompt text from a file.")
+    parser.add_argument("--benchmark-hint", action="append", default=[], help="Prompt-derived benchmark hint; may be repeated.")
     args = parser.parse_args()
 
     load_env_files([*DEFAULT_ENV_FILES, *args.env_file])
     company = load_json_if_exists(args.company_dir / "company.json")
-    queries = build_queries(company, args.year)
+    prompt_parts = [args.research_prompt.strip(), read_prompt_file(args.research_prompt_file)]
+    research_prompt = "\n\n".join(part for part in prompt_parts if part)
+    prompt_context = " ".join([research_prompt, *args.benchmark_hint])
+    industry = company_industry(company, prompt_context)
+    queries, query_sources = build_queries(company, args.year, research_prompt, args.benchmark_hint)
 
     searches: list[dict[str, Any]] = []
     if not args.offline:
@@ -242,8 +350,9 @@ def main() -> int:
         "stock_code": company.get("stock_code"),
         "company_short_name": company.get("company_short_name"),
         "report_year": args.year,
-        "industry": company_industry(company),
+        "industry": industry,
         "queries": queries,
+        "query_sources": query_sources,
         "provider_status": provider_status,
         "strict_ok": bool(flattened) and all(status["ok"] for status in provider_status.values()),
         "external_result_count": len(flattened),

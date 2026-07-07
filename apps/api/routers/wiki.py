@@ -350,7 +350,7 @@ def list_reports(company_dir: str, current_user: User = Depends(get_current_user
         st = os.stat(fp)
         reports.append({
             "filename": f,
-            "url": f"/api/wiki/companies/{company_dir}/analysis/{f}",
+            "url": _wiki_result_url(company_dir, "analysis", f),
             "size": st.st_size,
             "mtime": datetime.fromtimestamp(st.st_mtime).isoformat(),
         })
@@ -374,7 +374,7 @@ def list_factchecks(company_dir: str, current_user: User = Depends(get_current_u
         st = os.stat(fp)
         factchecks.append({
             "filename": f,
-            "url": f"/api/wiki/companies/{company_dir}/factcheck/{f}",
+            "url": _wiki_result_url(company_dir, "factcheck", f),
             "size": st.st_size,
             "mtime": datetime.fromtimestamp(st.st_mtime).isoformat(),
         })
@@ -397,7 +397,7 @@ def list_trackings(company_dir: str, current_user: User = Depends(get_current_us
         st = os.stat(fp)
         trackings.append({
             "filename": f,
-            "url": f"/api/wiki/companies/{company_dir}/tracking/{f}",
+            "url": _wiki_result_url(company_dir, "tracking", f),
             "size": st.st_size,
             "mtime": datetime.fromtimestamp(st.st_mtime).isoformat(),
         })
@@ -420,7 +420,7 @@ def list_legals(company_dir: str, current_user: User = Depends(get_current_user)
         st = os.stat(fp)
         legals.append({
             "filename": f,
-            "url": f"/api/wiki/companies/{company_dir}/legal/{f}",
+            "url": _wiki_result_url(company_dir, "legal", f),
             "size": st.st_size,
             "mtime": datetime.fromtimestamp(st.st_mtime).isoformat(),
         })

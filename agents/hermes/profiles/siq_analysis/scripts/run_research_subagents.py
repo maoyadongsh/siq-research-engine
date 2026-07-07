@@ -188,6 +188,8 @@ def build_benchmark_research_context(research_prompt: str, benchmark_hints: list
         ],
         "query_policy": [
             "不得在脚本层硬编码公司、市场或检索词；由子智能体从 research_prompt/benchmark_hints 中提取查询对象。",
+            "分析事实底座以本地 wiki、年报、metrics、evidence 和 semantic 证据为主；Tavily/EXA 只能作为行业上下文、外部补证、技术路线和跨市场参考补充。",
+            "外部补充可以充分展开，但不得覆盖公司年报事实；若外部来源与本地证据冲突，只能写入 missing_inputs/review_required 或 risk_chains 触发复核。",
             "若提示词提到日本、韩国或全球汽车标杆，先检索本地多市场 wiki，再决定是否需要 Tavily/EXA 补充。",
             "A 股同业分位、peer_count、估值均值/中位数只能使用 A 股严格同业样本。",
             "海外市场公司仅作为 cross_market_reference，必须披露市场、币种、会计准则、期间和可比性限制。",
@@ -198,6 +200,7 @@ def build_benchmark_research_context(research_prompt: str, benchmark_hints: list
         ],
         "output_policy": [
             "把检索到的全球标杆写成 key_findings 或 evidence_facts 时，section_ids 优先绑定 industry_competition、strategy_policy_external_risk、risk_chain_scenario。",
+            "key_findings 应先连接本地证据事实和财务变量，再使用外部搜索补强行业解释、技术/专利/政策背景或跨市场参照。",
             "不得把海外标杆公司的数值直接混入目标公司事实或 A 股同业分位。",
         ],
     }

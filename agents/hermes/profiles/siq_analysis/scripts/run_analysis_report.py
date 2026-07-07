@@ -70,6 +70,7 @@ CORE_KEYS = [
     "current_liabilities",
     "contract_liabilities",
     "cash_for_purchases",
+    "cash_for_purchases_investments",
 ]
 
 MONETARY_METRIC_KEYS = {
@@ -95,6 +96,7 @@ MONETARY_METRIC_KEYS = {
     "current_liabilities",
     "contract_liabilities",
     "cash_for_purchases",
+    "cash_for_purchases_investments",
     "capital_expenditure",
     "operating_profit",
     "total_profit",
@@ -105,7 +107,7 @@ ALIASES = {
     "net_profit_parent": "parent_net_profit",
     "net_operating_cash_flow": "operating_cash_flow_net",
     "monetary_funds": "monetary_capital",
-    "capital_expenditure": "cash_for_purchases",
+    "capital_expenditure": "cash_for_purchases_investments",
 }
 
 
@@ -424,7 +426,7 @@ def build_metric_snapshot(company_dir: Path, resolved: dict[str, Any], year: int
             }
 
     ocf = metric_value(metrics, "operating_cash_flow_net", str(year))
-    capex = metric_value(metrics, "cash_for_purchases", str(year))
+    capex = metric_value(metrics, "cash_for_purchases_investments", str(year))
     if isinstance(ocf, (int, float)) and isinstance(capex, (int, float)):
         metrics["free_cash_flow"] = {
             "canonical_name": "free_cash_flow",
@@ -433,8 +435,8 @@ def build_metric_snapshot(company_dir: Path, resolved: dict[str, Any], year: int
             "values": {str(year): ocf - abs(capex)},
             "sources": {
                 str(year): {
-                    "derived_from": ["operating_cash_flow_net", "cash_for_purchases"],
-                    "formula": "经营现金流净额-购建固定资产无形资产和其他长期资产支付的现金",
+                    "derived_from": ["operating_cash_flow_net", "cash_for_purchases_investments"],
+                    "formula": "经营现金流净额-购建固定资产、无形资产和其他长期资产支付的现金",
                 }
             },
             "quality": "derived",
@@ -947,8 +949,13 @@ def main() -> int:
             str(market_snapshot_path),
         ])
         result["steps"]["market_snapshot"] = market
-    if not args.reuse_checkpoint or not industry_research_path.exists():
-        industry_research = run_json([
+    should_build_industry_research = (
+        not args.reuse_checkpoint
+        or not industry_research_path.exists()
+        or bool(args.research_subagent_prompt or args.research_subagent_prompt_file or args.research_benchmark_hint)
+    )
+    if should_build_industry_research:
+        industry_research_cmd = [
             sys.executable,
             str(INDUSTRY_RESEARCH_SCRIPT),
             "--company-dir",
@@ -957,7 +964,14 @@ def main() -> int:
             str(args.year),
             "--output",
             str(industry_research_path),
-        ])
+        ]
+        if args.research_subagent_prompt:
+            industry_research_cmd.extend(["--research-prompt", args.research_subagent_prompt])
+        if args.research_subagent_prompt_file:
+            industry_research_cmd.extend(["--research-prompt-file", str(args.research_subagent_prompt_file)])
+        for benchmark_hint in args.research_benchmark_hint:
+            industry_research_cmd.extend(["--benchmark-hint", benchmark_hint])
+        industry_research = run_json(industry_research_cmd)
         result["steps"]["industry_research"] = industry_research
 
     checkpoint_summary = {

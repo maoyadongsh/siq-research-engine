@@ -1006,6 +1006,41 @@ body {
   border-radius: 50%;
   animation: pulse 2s infinite;
 }
+
+.source-legend {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: center;
+  margin: 18px 0;
+  padding: 14px 16px;
+  background: #ffffff;
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.source-legend-title {
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 750;
+  margin-bottom: 4px;
+}
+
+.source-legend p {
+  margin: 0;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.source-legend-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 360px;
+}
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
@@ -1120,14 +1155,395 @@ body {
 """
 
 
+PROFESSIONAL_REPORT_CSS = """
+:root {
+  --bg-primary: #f5f7fb;
+  --bg-secondary: #0f172a;
+  --bg-card: #ffffff;
+  --bg-card-hover: #f8fafc;
+  --text-primary: #111827;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+  --border-color: #dbe3ef;
+  --accent-blue: #2563eb;
+  --accent-cyan: #0891b2;
+  --accent-green: #059669;
+  --accent-red: #dc2626;
+  --accent-orange: #d97706;
+  --accent-purple: #7c3aed;
+  --accent-pink: #be185d;
+  --paper: #ffffff;
+  --paper-soft: #f8fafc;
+  --ink-soft: #475569;
+  --shadow: 0 10px 30px -28px rgba(15, 23, 42, 0.45);
+  --shadow-lg: 0 24px 52px -42px rgba(15, 23, 42, 0.55);
+  --radius: 8px;
+  --radius-sm: 6px;
+}
+
+body {
+  background:
+    linear-gradient(180deg, #eef3f8 0, #f8fafc 280px, #f5f7fb 100%);
+  color: var(--text-primary);
+  font-size: 16px;
+}
+
+.container {
+  max-width: 1180px;
+  padding: 0 28px;
+}
+
+.report-header {
+  background:
+    linear-gradient(135deg, rgba(15, 23, 42, 0.98), rgba(30, 41, 59, 0.94)),
+    linear-gradient(90deg, rgba(8, 145, 178, 0.16), rgba(217, 119, 6, 0.12));
+  padding: 36px 0 30px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.stock-badge {
+  background: rgba(255,255,255,0.09);
+  border-color: rgba(255,255,255,0.22);
+  color: #e0f2fe;
+  border-radius: 999px;
+  letter-spacing: 0;
+}
+
+.report-title {
+  color: #f8fafc;
+  background: none;
+  -webkit-text-fill-color: currentColor;
+  font-size: 34px;
+  letter-spacing: 0;
+}
+
+.report-subtitle {
+  max-width: 760px;
+  color: #cbd5e1;
+}
+
+.report-meta {
+  gap: 12px;
+}
+
+.meta-item {
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 6px;
+  color: #dbeafe;
+  background: rgba(255,255,255,0.05);
+}
+
+.status-badge {
+  min-height: 30px;
+  border-radius: 999px;
+  background: var(--paper);
+  border: 1px solid var(--border-color);
+}
+
+.kpi-grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+  margin: 18px 0 22px;
+}
+
+.kpi-card {
+  min-height: 132px;
+  background: var(--paper);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 16px;
+}
+
+.kpi-card:hover {
+  transform: translateY(-1px);
+  border-color: #bfdbfe;
+}
+
+.kpi-label {
+  color: var(--text-muted);
+  letter-spacing: 0;
+  text-transform: none;
+  font-weight: 650;
+}
+
+.kpi-value {
+  color: var(--text-primary);
+  font-size: 25px;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+
+.kpi-change {
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.chart-container {
+  background: var(--paper);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 18px;
+}
+
+.chart-title {
+  color: var(--text-primary);
+  font-size: 15px;
+}
+
+.section {
+  background: var(--paper);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  margin: 22px 0;
+}
+
+.section-header {
+  padding: 18px 22px;
+  background: linear-gradient(180deg, #ffffff, #f8fafc);
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.section-number {
+  width: 34px;
+  height: 34px;
+  border-radius: 7px;
+  background: #0f172a;
+  color: #f8fafc;
+}
+
+.section-title {
+  font-size: 20px;
+  color: #0f172a;
+}
+
+.section-content {
+  padding: 22px;
+}
+
+.subsection {
+  padding: 18px 0;
+  border-bottom: 1px solid #edf2f7;
+}
+
+.subsection:last-child {
+  border-bottom: 0;
+}
+
+.subsection-title {
+  color: #0f172a;
+  font-size: 15px;
+  letter-spacing: 0;
+  text-transform: none;
+  margin-bottom: 12px;
+}
+
+.subsection-title::before {
+  width: 3px;
+  background: #2563eb;
+}
+
+.role-badge,
+.source-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.4;
+  letter-spacing: 0;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.role-badge {
+  margin-left: 8px;
+  color: #475569;
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+}
+
+.role-synthesis .role-badge,
+.role-badge.role-synthesis {
+  color: #075985;
+  background: #e0f2fe;
+  border-color: #bae6fd;
+}
+
+.narrative-items {
+  display: grid;
+  gap: 10px;
+}
+
+.narrative-item {
+  position: relative;
+  padding: 13px 14px 13px 16px;
+  border: 1px solid #e2e8f0;
+  border-left: 4px solid #94a3b8;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.narrative-item p {
+  margin: 7px 0 0;
+  color: var(--text-secondary);
+  font-size: 15px;
+  line-height: 1.78;
+}
+
+.narrative-item p:first-child {
+  margin-top: 0;
+}
+
+.narrative-item.synthesis {
+  background: #f8fbff;
+  border-color: #bfdbfe;
+  border-left-color: #2563eb;
+}
+
+.narrative-item.diagnosis,
+.narrative-item.bridge {
+  border-left-color: #0891b2;
+}
+
+.narrative-item.model,
+.narrative-item.table {
+  border-left-color: #7c3aed;
+}
+
+.narrative-item.risk_chain,
+.narrative-item.scenario {
+  border-left-color: #dc2626;
+  background: #fffafa;
+}
+
+.narrative-item.tracking {
+  border-left-color: #d97706;
+  background: #fffdf7;
+}
+
+.narrative-item.evidence,
+.narrative-item.audit {
+  border-left-color: #059669;
+}
+
+.source-badge {
+  margin-right: 6px;
+}
+
+.source-local,
+.source-fact {
+  color: #065f46;
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+}
+
+.source-model {
+  color: #5b21b6;
+  background: #f3e8ff;
+  border-color: #ddd6fe;
+}
+
+.source-external {
+  color: #92400e;
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+.source-risk {
+  color: #991b1b;
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+.source-tracking {
+  color: #9a3412;
+  background: #fff7ed;
+  border-color: #fed7aa;
+}
+
+.source-review {
+  color: #334155;
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+.content-list li {
+  color: var(--text-secondary);
+  font-size: 15px;
+}
+
+.evidence-tag {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #334155;
+  border-radius: 999px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.income-bridge-panel {
+  border-radius: 8px;
+}
+
+.svg-axis { stroke: #94a3b8; }
+.svg-grid { stroke: rgba(148, 163, 184, 0.34); }
+.svg-label { fill: #475569; }
+.svg-value { fill: #111827; }
+.svg-muted { fill: #64748b; }
+.svg-dot { fill: #ffffff; }
+
+.report-footer {
+  background: transparent;
+  border-top: 1px solid #dbe3ef;
+  color: var(--text-muted);
+}
+
+.progress-bar {
+  background: rgba(226, 232, 240, 0.92);
+}
+
+.progress-bar-fill {
+  background: linear-gradient(90deg, #2563eb, #0891b2, #d97706);
+}
+
+@media (max-width: 1180px) {
+  .kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 768px) {
+  .container { padding: 0 16px; }
+  .report-title { font-size: 25px; }
+  .report-header { padding: 28px 0 24px; }
+  .kpi-grid { grid-template-columns: 1fr; }
+  .section-header { align-items: flex-start; }
+  .section-content { padding: 16px; }
+  .narrative-item { padding: 12px; }
+  .narrative-item p { font-size: 14px; }
+  .income-bridge-head { display: block; }
+  .income-bridge-panel .chart-title { font-size: 22px; }
+  .source-legend { display: block; }
+  .source-legend-badges { min-width: 0; justify-content: flex-start; margin-top: 10px; }
+}
+"""
+
+CSS_STYLES += PROFESSIONAL_REPORT_CSS
+
+
 ECHARTS_SCRIPTS = """
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
 <script>
 // Chart theme colors
-const chartColors = ['#3b82f6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6'];
-const chartBg = '#0f172a';
-const chartText = '#94a3b8';
-const chartGrid = '#334155';
+const chartColors = ['#2563eb', '#0891b2', '#059669', '#d97706', '#dc2626', '#7c3aed', '#be185d', '#0f766e'];
+const chartBg = '#ffffff';
+const chartText = '#475569';
+const chartGrid = '#cbd5e1';
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -1160,7 +1576,7 @@ function reportTooltipBase(trigger = 'axis') {
     borderColor: 'rgba(255,255,255,0.14)',
     borderWidth: 1,
     padding: [10, 12],
-    textStyle: { color: '#f1f5f9', fontSize: 12, lineHeight: 18 },
+    textStyle: { color: '#f8fafc', fontSize: 12, lineHeight: 18 },
     extraCssText: 'border-radius:8px;box-shadow:0 16px 34px -24px rgba(15,23,42,0.9);'
   };
 }
@@ -1313,7 +1729,7 @@ function baseOption() {
     tooltip: {
       ...reportTooltipBase('axis'),
       trigger: 'axis',
-      axisPointer: { type: 'shadow', shadowStyle: { color: 'rgba(59,130,246,0.1)' } }
+      axisPointer: { type: 'shadow', shadowStyle: { color: 'rgba(37,99,235,0.1)' } }
     },
     legend: {
       textStyle: { color: chartText, fontSize: 12 },
@@ -1958,7 +2374,7 @@ def render_kpi_cards(snapshot: dict[str, Any]) -> str:
     <div class="kpi-card {revenue_class}">
       <div class="kpi-label">营业收入</div>
       <div class="kpi-value">{fmt_num(revenue, "亿元")}</div>
-      <div class="kpi-change up">↗ 同比 {fmt_num(yoy_change(snapshot, 'operating_revenue'), "%")}</div>
+      <div class="kpi-change up">同比 {fmt_num(yoy_change(snapshot, 'operating_revenue'), "%")}</div>
     </div>""")
     
     # Profit card
@@ -1967,7 +2383,7 @@ def render_kpi_cards(snapshot: dict[str, Any]) -> str:
     <div class="kpi-card {profit_class}">
       <div class="kpi-label">归母净利润</div>
       <div class="kpi-value">{fmt_num(profit, "亿元")}</div>
-      <div class="kpi-change {'up' if profit and profit > 0 else 'down' if profit and profit < 0 else 'neutral'}">{'↗' if profit and profit > 0 else '↘' if profit and profit < 0 else '—'} 同比 {fmt_num(yoy_change(snapshot, 'net_profit_parent'), "%")}</div>
+      <div class="kpi-change {'up' if profit and profit > 0 else 'down' if profit and profit < 0 else 'neutral'}">同比 {fmt_num(yoy_change(snapshot, 'net_profit_parent'), "%")}</div>
     </div>""")
     
     # OCF card
@@ -1976,7 +2392,7 @@ def render_kpi_cards(snapshot: dict[str, Any]) -> str:
     <div class="kpi-card {ocf_class}">
       <div class="kpi-label">经营现金流</div>
       <div class="kpi-value">{fmt_num(ocf, "亿元")}</div>
-      <div class="kpi-change up">↗ 同比 {fmt_num(yoy_change(snapshot, 'net_operating_cash_flow'), "%")}</div>
+      <div class="kpi-change up">同比 {fmt_num(yoy_change(snapshot, 'net_operating_cash_flow'), "%")}</div>
     </div>""")
     
     # Gross margin card
@@ -1994,7 +2410,7 @@ def render_kpi_cards(snapshot: dict[str, Any]) -> str:
     <div class="kpi-card {debt_class}">
       <div class="kpi-label">资产负债率</div>
       <div class="kpi-value">{fmt_num(debt_ratio, "%")}</div>
-      <div class="kpi-change {'down' if debt_ratio and debt_ratio > 70 else 'up'}">{'⚠ 偏高' if debt_ratio and debt_ratio > 70 else '✓ 健康'}</div>
+      <div class="kpi-change {'down' if debt_ratio and debt_ratio > 70 else 'up'}">{'偏高' if debt_ratio and debt_ratio > 70 else '健康区间'}</div>
     </div>""")
     
     # Total assets card
@@ -2006,6 +2422,24 @@ def render_kpi_cards(snapshot: dict[str, Any]) -> str:
     </div>""")
     
     return f'<div class="kpi-grid">{ "".join(cards) }</div>'
+
+
+def render_source_legend() -> str:
+    return """
+    <section class="source-legend" aria-label="证据来源图例">
+      <div>
+        <div class="source-legend-title">阅读口径</div>
+        <p>报告优先使用本地年报、Wiki 指标、source map 和研究包事实；Tavily/EXA 等外部搜索只作为行业、技术、政策和可比公司补证。</p>
+      </div>
+      <div class="source-legend-badges">
+        <span class="source-badge source-local">本地事实</span>
+        <span class="source-badge source-model">模型测算</span>
+        <span class="source-badge source-external">外部搜索补证</span>
+        <span class="source-badge source-risk">风险链</span>
+        <span class="source-badge source-tracking">跟踪信号</span>
+      </div>
+    </section>
+    """
 
 
 def yoy_change(snapshot: dict[str, Any], key: str) -> float | None:
@@ -2054,6 +2488,75 @@ def evidence_links_from_id(evidence_id: Any, preflight: dict[str, Any]) -> str:
     return "".join(links)
 
 
+SOURCE_PREFIXES: list[tuple[str, str, str]] = [
+    ("【本地事实证据】", "本地事实", "source-local"),
+    ("【本地同业模型判断】", "同业模型", "source-model"),
+    ("【基于本地证据的分析判断】", "本地分析", "source-local"),
+    ("【模型测算】", "模型测算", "source-model"),
+    ("【外部搜索补证形成的判断】", "外部补证判断", "source-external"),
+    ("【外部搜索补证】", "外部搜索", "source-external"),
+    ("【风险链】", "风险链", "source-risk"),
+    ("【跟踪信号】", "跟踪信号", "source-tracking"),
+    ("【证据状态判断】", "证据状态", "source-review"),
+]
+
+ROLE_LABELS = {
+    "synthesis": "综合解读",
+    "diagnosis": "诊断",
+    "analysis": "分析",
+    "bridge": "桥接",
+    "model": "模型",
+    "table": "指标",
+    "risk_chain": "风险链",
+    "scenario": "情景",
+    "tracking": "跟踪",
+    "evidence": "证据",
+    "audit": "审阅",
+}
+
+
+def split_source_prefix(text: Any, role: str) -> tuple[str, str, str]:
+    raw = str(text or "").strip()
+    for prefix, label, cls in SOURCE_PREFIXES:
+        if raw.startswith(prefix):
+            return label, cls, raw[len(prefix):].strip()
+    if role in {"model", "table"}:
+        return "模型/指标", "source-model", raw
+    if role in {"risk_chain", "scenario"}:
+        return "风险/情景", "source-risk", raw
+    if role == "tracking":
+        return "跟踪信号", "source-tracking", raw
+    if role in {"evidence", "audit"}:
+        return "证据/审阅", "source-fact", raw
+    if role == "synthesis":
+        return "综合解读", "source-review", raw
+    return "分析判断", "source-review", raw
+
+
+def sentence_paragraphs(text: str) -> list[str]:
+    clean = re.sub(r"\s+", " ", text).strip()
+    clean = re.sub(r"。+；", "；", clean)
+    clean = re.sub(r"；+", "；", clean)
+    if not clean:
+        return []
+    parts = re.split(r"(?<=[。！？])\s+", clean)
+    paragraphs = [part.strip() for part in parts if part.strip()]
+    return paragraphs or [clean]
+
+
+def render_narrative_item(item: Any, role: str) -> str:
+    label, source_cls, text = split_source_prefix(item, role)
+    paragraphs = sentence_paragraphs(text)
+    if not paragraphs:
+        return ""
+    body = "".join(f"<p>{html_module.escape(paragraph)}</p>" for paragraph in paragraphs)
+    return (
+        f'<article class="narrative-item {html_module.escape(role)}">'
+        f'<span class="source-badge {html_module.escape(source_cls)}">{html_module.escape(label)}</span>'
+        f"{body}</article>"
+    )
+
+
 def render_section_content(section: dict[str, Any], preflight: dict[str, Any] | None = None) -> str:
     """Render a single section's content with CFO-style narrative blocks."""
     parts = []
@@ -2069,12 +2572,19 @@ def render_section_content(section: dict[str, Any], preflight: dict[str, Any] | 
             if not title or not isinstance(items, list) or not items:
                 continue
             role = str(block.get("role") or "analysis").strip()
-            parts.append(f'<div class="subsection narrative-block {html_module.escape(role)}">')
-            parts.append(f'<div class="subsection-title">{html_module.escape(title)}</div>')
-            parts.append('<ul class="content-list">')
+            role_class = html_module.escape(f"role-{role}")
+            role_label = ROLE_LABELS.get(role, role)
+            parts.append(f'<div class="subsection narrative-block {html_module.escape(role)} {role_class}">')
+            parts.append(
+                f'<div class="subsection-title">{html_module.escape(title)}'
+                f'<span class="role-badge {role_class}">{html_module.escape(role_label)}</span></div>'
+            )
+            parts.append('<div class="narrative-items">')
             for item in items:
-                parts.append(f'<li>{html_module.escape(str(item))}</li>')
-            parts.append('</ul></div>')
+                rendered = render_narrative_item(item, role)
+                if rendered:
+                    parts.append(rendered)
+            parts.append('</div></div>')
 
         evidence = section.get("evidence_ids", [])
         if evidence:
@@ -3608,6 +4118,8 @@ def render_html_report(
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin:20px 0;">
         {''.join(quality_badges)}
       </div>
+
+      {render_source_legend()}
       
       <!-- KPI Cards -->
       {render_kpi_cards(snapshot)}
