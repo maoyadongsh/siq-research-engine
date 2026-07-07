@@ -38,7 +38,7 @@
 | 工作流 | 页面 | 当前能力 |
 | --- | --- | --- |
 | 官方披露搜索下载 | `/search` | 市场优先的智能检索；中文公司名在所选市场内映射本地代码，US 已覆盖 100 家主流美股 alias；解析失败时提示输入准确股票代码或代号 |
-| 港股商业 MVP | `/parse-hk` | 已下载年报 / 上传 PDF -> parser -> Wiki evidence package -> quality gates -> import/vector action |
+| 港股商业 MVP | `/parse-hk` | 已下载年报 / 上传 PDF -> parser -> 解析产物 -> PostgreSQL 入库；Wiki 由解析产物派生 |
 | 质量门禁 | `/parse-hk` package 面板 | 展示 evidence coverage、statement coverage、hash、parser/rule warnings；warning/fail 需要确认后才发送 `force=true` |
 | 美股 SEC 工作台 | `/parse-us` | 下载列表、SEC package build、PostgreSQL import 和核心 artifact 清单独立呈现 |
 | 通用文档解析 | `/documents` | 上传、URL、MinerU 目录导入、source map、table relation、schema extraction |

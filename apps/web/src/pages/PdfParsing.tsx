@@ -64,7 +64,7 @@ export default function PdfParsing() {
       emptyDescription={copy.emptyDescription}
       workflowMode="standard"
       workflowTitle="数据管线"
-      workflowDescription="PostgreSQL 与 results 目录保存全量解析信息；Wiki 保留报告入口、公司级知识资产和轻量产物清单。"
+      workflowDescription="解析产物与 results 目录保存全量解析信息；PostgreSQL 直接从解析产物入库，Wiki 作为解析产物派生的公司级知识资产。"
     />
   )
 }

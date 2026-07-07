@@ -232,7 +232,7 @@ async function mockUsSecWorkbenchApis(page: Page) {
 }
 
 test.describe('美股 SEC 解析工作台', () => {
-  test('先展示已下载财报并从下载文件生成 Wiki 证据包', async ({ page }) => {
+  test('先展示已下载财报并从下载文件生成解析产物包', async ({ page }) => {
     const { buildRequests, packageFileRequests } = await mockUsSecWorkbenchApis(page)
 
     await page.goto('/parse-us')
@@ -241,21 +241,19 @@ test.describe('美股 SEC 解析工作台', () => {
     const structuredRow = page.locator('.pdf-download-item').filter({ hasText: structuredReport.filename })
     await expect(structuredRow.getByText(structuredReport.filename, { exact: true })).toBeVisible()
     await expect(page.getByText('证据包已生成').first()).toBeVisible()
-    await expect(page.getByRole('heading', { name: '最近任务', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: '最近任务（点击查看结果）', exact: true })).toBeVisible()
     await expect(page.getByText('NVIDIA Corporation · NVDA · 10-K · 2025-01-26')).toBeVisible()
-    await expect(page.getByText('选择一条已解析 SEC 任务后查看证据包、勾稽校验和入库状态。')).toBeVisible()
+    await expect(page.getByText('选择一条已解析 SEC 任务后查看证据包、勾稽校验和入库状态。')).toHaveCount(0)
     await expect(page.getByRole('heading', { name: '数据管线', exact: true })).toHaveCount(0)
     await expect(page.getByRole('heading', { name: '上传附件', exact: true })).toBeVisible()
     await expect(page.getByRole('link', { name: '美股 PDF 兼容入口' })).toBeVisible()
-    await expect(page.getByRole('link', { name: '打开 PDF 解析' })).toBeVisible()
+    await expect(page.getByRole('link', { name: '打开 PDF 解析' })).toHaveCount(0)
 
     const downloadedHeadingTop = await page.getByRole('heading', { name: '已下载财报', exact: true }).evaluate((element) => element.getBoundingClientRect().top)
     const uploadHeadingTop = await page.getByRole('heading', { name: '上传附件', exact: true }).evaluate((element) => element.getBoundingClientRect().top)
-    const pdfEntryTop = await page.getByRole('link', { name: '打开 PDF 解析' }).evaluate((element) => element.getBoundingClientRect().top)
-    const recentTasksTop = await page.getByRole('heading', { name: '最近任务', exact: true }).evaluate((element) => element.getBoundingClientRect().top)
+    const recentTasksTop = await page.getByRole('heading', { name: '最近任务（点击查看结果）', exact: true }).evaluate((element) => element.getBoundingClientRect().top)
     expect(downloadedHeadingTop).toBeLessThan(uploadHeadingTop)
     expect(uploadHeadingTop).toBeLessThan(recentTasksTop)
-    expect(recentTasksTop).toBeLessThan(pdfEntryTop)
 
     const searchSurfaceStyle = await page.locator('.pdf-download-search').evaluate((element) => {
       const style = window.getComputedStyle(element)
@@ -284,7 +282,7 @@ test.describe('美股 SEC 解析工作台', () => {
 
     await structuredRow.getByRole('button', { name: /解析/ }).click()
     await expect(page.getByText('US 证据包已生成')).toBeVisible()
-    await expect(page.getByRole('heading', { name: '最近任务', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: '最近任务（点击查看结果）', exact: true })).toBeVisible()
     await expect(page.getByRole('heading', { name: '数据管线', exact: true })).toHaveCount(0)
 
     const recentTask = page.locator('.pdf-task-item').filter({ hasText: 'NVIDIA Corporation · NVDA · 10-K · 2025-01-26' })

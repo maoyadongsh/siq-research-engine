@@ -32,8 +32,7 @@ export function PdfTaskList({
   if (tasks.length === 0) return null
   return (
     <div className="apple-card rounded-[24px] p-4 sm:p-6">
-      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <h3 className="text-base font-semibold text-text">最近任务</h3>
+      <div className="mb-4 flex justify-end">
         <button onClick={() => onRefresh()} className="self-start text-sm font-semibold text-text-muted hover:text-text">
           刷新
         </button>
@@ -50,10 +49,20 @@ export function PdfTaskList({
             className="pdf-task-item content-auto"
             role="button"
             tabIndex={0}
-            onClick={() => onResume(task)}
+            onClick={() => {
+              if (canView) {
+                onViewResult(task)
+                return
+              }
+              onResume(task)
+            }}
             onKeyDown={(event) => {
               if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault()
+                if (canView) {
+                  onViewResult(task)
+                  return
+                }
                 onResume(task)
               }
             }}

@@ -41,7 +41,7 @@ export function UsSecRecentTasksPanel({
     <section className="surface-panel">
       <div className="flex flex-col gap-3 border-b border-border/70 px-4 py-4 sm:px-5 lg:flex-row lg:items-end lg:justify-between">
         <div className="min-w-0">
-          <h2 className="text-lg font-bold text-text sm:text-xl">最近任务</h2>
+          <h2 className="text-lg font-bold text-text sm:text-xl">最近任务（点击查看结果）</h2>
           <p className="mt-1 text-sm leading-6 text-text-muted">已解析 SEC 任务列表；点击任务或查看结果后再展开数据管线、Markdown、质量报告和勾稽校验。</p>
         </div>
         <div className="shrink-0">

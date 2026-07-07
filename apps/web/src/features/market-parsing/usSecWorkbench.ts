@@ -283,9 +283,9 @@ export function deriveUsSecArtifactManifest(detail?: UsSecPackageDetail | null):
         description: ready ? `${readyCount}/${chips.length} 个核心文件已生成` : '等待生成 SEC 证据包',
       },
       {
-        label: 'Wiki 证据包',
+        label: '解析产物索引',
         status: ready ? 'ready' : 'missing',
-        description: ready ? 'SEC 解析产物已写入公司级 Wiki' : '等待 SEC 证据包',
+        description: ready ? 'SEC 解析产物可用于 PostgreSQL 入库与公司级 Wiki 派生' : '等待 SEC 解析产物',
       },
       {
         label: '语义层脚本',
@@ -319,9 +319,9 @@ export function deriveUsSecWorkflowSummary(
       description: packageReady(detail) ? `${artifactManifest.readyCount}/${artifactManifest.total} 个核心文件已生成` : '等待解析生成 evidence package',
     },
     {
-      label: 'Wiki 入库',
+      label: 'Wiki 派生',
       status: packageStatus,
-      description: packageReady(detail) ? 'SEC 解析产物已写入公司级 Wiki' : '等待 SEC 证据包',
+      description: packageReady(detail) ? '公司级 Wiki 由 SEC 解析产物派生' : '等待 SEC 解析产物',
     },
     {
       label: '语义层',

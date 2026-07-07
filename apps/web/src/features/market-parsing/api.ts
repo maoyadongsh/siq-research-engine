@@ -303,7 +303,7 @@ export async function rebuildUsSecPackage(ticker: string): Promise<{ ok?: boolea
     method: 'POST',
     body: {},
   })
-  if (d.ok === false) throw new Error(String(d.stderr || d.stdout || '重建 Wiki 证据包失败'))
+  if (d.ok === false) throw new Error(String(d.stderr || d.stdout || '重建解析产物包失败'))
   return d
 }
 

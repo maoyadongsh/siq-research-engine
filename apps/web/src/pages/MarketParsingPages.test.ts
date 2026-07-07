@@ -15,12 +15,31 @@ const marketPages = {
   KrParsing: 'KR',
 }
 
-for (const [name, market] of Object.entries(marketPages)) {
-  test(`${name}.tsx mounts the evidence package panel through the shared extension slot`, () => {
+for (const name of Object.keys(marketPages)) {
+  test(`${name}.tsx keeps Wiki evidence package panels out of PDF parsing pages`, () => {
     const page = `${name}.tsx`
     const source = readFileSync(resolve(pageDir, page), 'utf-8')
 
-    assert.match(source, /MarketEvidencePackagesPanel/)
-    assert.match(source, new RegExp(`extraPanel=\\{<MarketEvidencePackagesPanel market="${market}" />\\}`))
+    assert.doesNotMatch(source, /MarketEvidencePackagesPanel/)
+    assert.doesNotMatch(source, /extraPanel=\{<MarketEvidencePackagesPanel/)
+    assert.match(source, /PostgreSQL 直接从解析产物入库/)
+    assert.match(source, /Wiki 作为解析产物派生/)
   })
 }
+
+test('UsParsing.tsx keeps only the upload-panel PDF compatibility entry', () => {
+  const source = readFileSync(resolve(pageDir, 'UsParsing.tsx'), 'utf-8')
+
+  assert.doesNotMatch(source, /MarketEvidencePackagesPanel/)
+  assert.doesNotMatch(source, /打开 PDF 解析/)
+})
+
+test('PdfTaskList row click opens results for completed tasks', () => {
+  const source = readFileSync(resolve(pageDir, '../components/pdf/PdfTaskList.tsx'), 'utf-8')
+  const pageSource = readFileSync(resolve(pageDir, 'MarketParsingPage.tsx'), 'utf-8')
+
+  assert.match(pageSource, /最近任务（点击查看结果）/)
+  assert.doesNotMatch(source, /最近任务（点击查看结果）/)
+  assert.match(source, /if \(canView\) \{\s+onViewResult\(task\)/)
+  assert.match(source, /onResume\(task\)/)
+})

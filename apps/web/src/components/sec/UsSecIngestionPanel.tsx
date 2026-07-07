@@ -5,14 +5,13 @@ import {
   FileDown,
   FileText,
   FileUp,
-  FolderOpen,
   Loader2,
   Network,
   PackageCheck,
   RefreshCw,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { EmptyState, PageSection } from '@/components/page'
+import { PageSection } from '@/components/page'
 import { copyText } from '../../lib/clipboard'
 import { openAuthenticatedSourceLink } from '../../lib/authenticatedSourceLinks'
 import { downloadAuthenticatedFile, useAuthenticatedBlobUrl } from '../../lib/authenticatedFiles'
@@ -790,17 +789,7 @@ export function UsSecIngestionPanel() {
             </div>
           </PageSection>
         </>
-      ) : (
-        <PageSection>
-          <EmptyState
-            icon={FolderOpen}
-            title="选择最近任务后查看结果"
-            description="选择一条已解析 SEC 任务后查看证据包、勾稽校验和入库状态。"
-            className="rounded-[18px] border border-dashed border-border bg-bg/50"
-            size="sm"
-          />
-        </PageSection>
-      )}
+      ) : null}
 
       {error ? <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
       {lastOutput ? <pre className="mt-3 max-h-56 overflow-auto rounded-md border border-border bg-slate-950 p-3 text-xs text-slate-100">{lastOutput}</pre> : null}

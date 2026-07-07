@@ -138,52 +138,20 @@ async function mockSecondaryMarketMvpApis(page: Page) {
 }
 
 test.describe('二级市场 MVP 闭环', () => {
-  test('港股证据包质量门禁可见，并在确认后强制触发入库与检索 dry-run', async ({ page }) => {
+  test('港股 PDF 解析页不展示 Wiki 证据包质量门禁面板', async ({ page }) => {
     const { importRequests, vectorRequests } = await mockSecondaryMarketMvpApis(page)
 
     await page.goto('/parse-hk')
 
     await expect(page.getByRole('heading', { name: '港股 PDF 解析' })).toBeVisible()
-    await expect(page.getByRole('heading', { name: 'Wiki 证据包' })).toBeVisible()
-    await expect(page.getByText('00700 Tencent Holdings Limited')).toBeVisible()
-    await expect(page.getByText('质量 warning')).toBeVisible()
-    await expect(page.getByText('证据 82%')).toBeVisible()
-    await expect(page.getByText('报表 2/3')).toBeVisible()
-    await expect(page.getByText('hash missing')).toBeVisible()
-    await expect(page.getByText('warnings 2')).toBeVisible()
+    await expect(page.getByText('PostgreSQL 直接从解析产物入库')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Wiki 证据包' })).toHaveCount(0)
+    await expect(page.getByText('00700 Tencent Holdings Limited')).toHaveCount(0)
+    await expect(page.getByText('质量 warning')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '强制入库' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '强制检索' })).toHaveCount(0)
 
-    page.once('dialog', async (dialog) => {
-      expect(dialog.message()).toContain('质量门禁未通过')
-      expect(dialog.message()).toContain('artifact_hash_status: missing')
-      await dialog.accept()
-    })
-    await page.getByRole('button', { name: '强制入库' }).click()
-    await expect(page.getByText('HK MVP PostgreSQL import dry-run accepted with force=true')).toBeVisible()
-
-    page.once('dialog', async (dialog) => {
-      expect(dialog.message()).toContain('质量门禁未通过')
-      expect(dialog.message()).toContain('missing_required_statement: cash_flow_statement')
-      await dialog.accept()
-    })
-    await page.getByRole('button', { name: '强制检索' }).click()
-    await expect(page.getByText('"chunks": 128')).toBeVisible()
-
-    expect(importRequests).toEqual([
-      {
-        market: 'HK',
-        package_path: hkMvpPackagePath,
-        ddl: true,
-        force: true,
-      },
-    ])
-    expect(vectorRequests).toEqual([
-      {
-        market: 'HK',
-        package_path: hkMvpPackagePath,
-        dry_run: true,
-        batch_tag: 'market-hk-evidence',
-        force: true,
-      },
-    ])
+    expect(importRequests).toEqual([])
+    expect(vectorRequests).toEqual([])
   })
 })

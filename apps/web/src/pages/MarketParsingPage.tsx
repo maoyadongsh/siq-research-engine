@@ -583,7 +583,7 @@ export function MarketParsingPage({
 
       <PageSection
         id="pdf-tasks"
-        title="最近任务"
+        title="最近任务（点击查看结果）"
         description="本地解析任务列表，可查看结果、补拉、重跑或删除。"
         className="border-0 bg-transparent shadow-none"
       >

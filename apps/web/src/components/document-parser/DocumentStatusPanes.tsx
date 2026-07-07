@@ -74,7 +74,7 @@ export function DocumentWorkflowPane({
             <Database className="h-4 w-4 text-primary" />
             数据管线
           </h3>
-          <p>PostgreSQL 与 results 目录保存全量解析信息；Wiki 保留文档入口和轻量产物清单。</p>
+          <p>解析产物与 results 目录保存全量解析信息；PostgreSQL 直接从解析产物入库，Wiki 作为解析产物派生的文档入口和轻量产物清单。</p>
         </div>
         <div className="doc-action-row">
           <Button type="button" variant="secondary" size="sm" onClick={() => onRefreshWorkflow()} leftIcon={<RefreshCw className="h-4 w-4" />}>

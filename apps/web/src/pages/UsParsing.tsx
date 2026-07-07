@@ -1,6 +1,4 @@
-import { FileText, FileUp } from 'lucide-react'
-import { Link } from 'react-router-dom'
-import { MarketEvidencePackagesPanel } from '../components/pdf/MarketEvidencePackagesPanel'
+import { FileText } from 'lucide-react'
 import { MarketParsingTabs } from '../components/pdf/MarketParsingTabs'
 import { UsSecIngestionPanel } from '../components/sec/UsSecIngestionPanel'
 import { PDF_CSS } from './pdf/pdfStyles'
@@ -31,27 +29,6 @@ export default function UsParsing() {
 
       <MarketParsingTabs active="US" />
       <UsSecIngestionPanel />
-      <MarketEvidencePackagesPanel market="US" />
-      <section className="secondary-panel p-4 sm:p-5">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 text-sm font-semibold text-primary">
-              <FileUp className="h-4 w-4" />
-              美股 PDF 兼容入口
-            </div>
-            <p className="mt-1 text-sm leading-6 text-text-muted">
-              SEC HTML/iXBRL 是美股主链路；若遇到 PDF 附件、IR 年报、presentation 或 proxy 等文件，可进入通用 PDF 解析并限定查看 US 下载目录。
-            </p>
-          </div>
-          <Link
-            to="/parse?market=US"
-            className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-[var(--radius-control)] border border-border bg-white px-4 text-sm font-semibold text-text hover:bg-bg"
-          >
-            <FileText className="h-4 w-4" />
-            打开 PDF 解析
-          </Link>
-        </div>
-      </section>
     </div>
   )
 }
