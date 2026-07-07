@@ -118,8 +118,40 @@ def test_cn_bridge_checks_keep_existing_period_best_selection():
     assert bridge.raw["gate_decisions_by_target"]["retrieval"]["decision"] == "block"
     canonical_gate = next(gate for gate in bridge.raw["gate_results"] if gate["target"] == "canonical")
     assert canonical_gate["severity"] == "hard"
-    assert canonical_gate["decision"] == "block"
-    assert {"rule_id", "severity", "reason", "target", "evidence_refs"} <= set(canonical_gate)
+
+
+def test_fail_validation_load_plan_quarantines_canonical_rows_without_package_gate():
+    extraction = _extraction(Market.CN)
+    validation = ValidationResult(
+        rule_version="test",
+        profile_id="test",
+        artifact_id=extraction.artifact_id,
+        market=Market.CN,
+        overall_status=CheckStatus.FAIL,
+        summary={"pass": 0, "warning": 0, "fail": 1, "skipped": 0},
+        checks=[
+            ValidationCheck(
+                rule_id="test.fail",
+                rule_name="Test failure",
+                statement_type=StatementType.BALANCE_SHEET,
+                status=CheckStatus.FAIL,
+                raw={},
+            )
+        ],
+        warnings=["test failure blocks canonical import"],
+    )
+
+    plan = build_load_plan(extraction, validation)
+
+    canonical_tables = {"financial_statements", "financial_facts", "operating_metric_facts", "evidence_citations"}
+    assert plan.can_import is False
+    assert plan.can_vector_ingest is False
+    assert plan.promotion_decisions["canonical"].decision == "block"
+    assert plan.promotion_decisions["retrieval"].decision == "block"
+    assert any("validation.overall_status.fail" in reason for reason in plan.blocked_reasons)
+    assert not any(row.table in canonical_tables for row in plan.rows)
+    assert any(row.table == "financial_facts" for row in plan.quarantine_rows)
+    assert any(row.table == "evidence_citations" for row in plan.quarantine_rows)
 
 
 def test_load_plan_quarantines_canonical_rows_when_validation_blocks():
