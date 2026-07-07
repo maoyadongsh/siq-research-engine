@@ -15,6 +15,8 @@ from siq_market_contracts import (
     write_json,
 )
 from siq_market_contracts.evidence_package import evidence_value_verification_summary
+from siq_market_contracts.evidence_gates import GateSeverity as ExtractedGateSeverity
+from siq_market_contracts.evidence_package import GateSeverity as FacadeGateSeverity
 
 
 def _financial_data() -> dict:
@@ -51,6 +53,11 @@ def _financial_data() -> dict:
         "operating_metrics": [],
         "warnings": [],
     }
+
+
+def test_evidence_package_preserves_gate_imports():
+    assert FacadeGateSeverity is ExtractedGateSeverity
+    assert FacadeGateSeverity.HARD.value == "hard"
 
 
 def _write_package(root: Path) -> Path:
