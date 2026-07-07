@@ -30,7 +30,25 @@ ALIASES = {
     "monetary_funds": "monetary_capital",
 }
 
-AUTO_PEER_KEYWORDS = ("汽车", "整车", "乘用车", "新能源")
+AUTO_PEER_KEYWORDS = ("汽车", "整车", "乘用车", "商用车", "新能源车", "新能源汽车")
+AUTO_COMPANY_NAME_KEYWORDS = (
+    "比亚迪",
+    "赛力斯",
+    "上汽集团",
+    "广汽集团",
+    "长安汽车",
+    "长城汽车",
+    "江淮汽车",
+    "东风汽车",
+    "北汽",
+    "一汽",
+    "吉利汽车",
+    "理想汽车",
+    "小鹏汽车",
+    "蔚来",
+    "零跑汽车",
+)
+INDUSTRY_KEYS = ("industry", "industry_sw1", "industry_sw2", "industry_sw3")
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -186,39 +204,102 @@ def company_row(company: dict[str, Any], company_dir: Path, year: int) -> dict[s
 def industry_text(company: dict[str, Any]) -> str:
     return " ".join(
         str(company.get(key) or "")
-        for key in ["industry", "industry_sw1", "industry_sw2", "industry_sw3", "company_short_name", "company_full_name"]
+        for key in INDUSTRY_KEYS
     )
 
 
-def select_peers(catalog: dict[str, Any], target: dict[str, Any], min_peers: int) -> tuple[list[dict[str, Any]], str]:
+def company_identity_text(company: dict[str, Any]) -> str:
+    return " ".join(
+        str(company.get(key) or "")
+        for key in ["company_short_name", "company_full_name"]
+    )
+
+
+def industry_path(company: dict[str, Any]) -> str:
+    sw_path = [str(company.get(key) or "").strip() for key in ["industry_sw1", "industry_sw2", "industry_sw3"]]
+    sw_path = [item for item in sw_path if item]
+    if sw_path:
+        return " > ".join(sw_path)
+    return str(company.get("industry") or "").strip() or "未返回"
+
+
+def is_automotive_industry(company: dict[str, Any]) -> bool:
+    text = industry_text(company)
+    if any(keyword in text for keyword in AUTO_PEER_KEYWORDS):
+        return True
+    identity = company_identity_text(company)
+    return any(keyword in identity for keyword in AUTO_PEER_KEYWORDS + AUTO_COMPANY_NAME_KEYWORDS)
+
+
+def select_peers(catalog: dict[str, Any], target: dict[str, Any], min_peers: int) -> tuple[list[dict[str, Any]], str, dict[str, Any]]:
     companies = [item for item in catalog.get("companies", []) if isinstance(item, dict) and item.get("status") == "ready"]
     target_id = target.get("company_id")
-    sw3 = target.get("industry_sw3")
-    sw2 = target.get("industry_sw2")
-    sw1 = target.get("industry_sw1")
-    if sw3:
-        peers = [item for item in companies if item.get("industry_sw3") == sw3 and item.get("company_id") != target_id]
+    warnings: list[str] = []
+    candidate_counts: dict[str, int] = {}
+    industry_candidates: list[tuple[int, str, list[dict[str, Any]]]] = []
+    for rank, (field, method) in enumerate(
+        [
+            ("industry_sw3", "same_industry_sw3"),
+            ("industry_sw2", "same_industry_sw2"),
+            ("industry_sw1", "same_industry_sw1"),
+        ]
+    ):
+        value = target.get(field)
+        if not value:
+            continue
+        peers = [item for item in companies if item.get(field) == value and item.get("company_id") != target_id]
+        candidate_counts[method] = len(peers)
         if len(peers) >= min_peers:
-            return peers, "same_industry_sw3"
-    if sw2:
-        peers = [item for item in companies if item.get("industry_sw2") == sw2 and item.get("company_id") != target_id]
-        if len(peers) >= min_peers:
-            return peers, "same_industry_sw2"
-    if sw1:
-        peers = [item for item in companies if item.get("industry_sw1") == sw1 and item.get("company_id") != target_id]
-        if len(peers) >= min_peers:
-            return peers, "same_industry_sw1"
-    target_text = industry_text(target)
-    keyword_match = any(keyword in target_text for keyword in AUTO_PEER_KEYWORDS)
-    if keyword_match or str(target.get("company_short_name") or "").endswith(("汽车", "集团")):
+            return peers, method, {
+                "target_industry_path": industry_path(target),
+                "peer_industry_match_status": f"{method}_ready",
+                "peer_selection_warnings": [],
+                "candidate_counts": candidate_counts,
+                "catalog_peer_count": len(peers),
+            }
+        industry_candidates.append((rank, method, peers))
+
+    if industry_candidates:
+        non_empty = [item for item in industry_candidates if item[2]]
+        if non_empty:
+            _, method, peers = max(non_empty, key=lambda item: (len(item[2]), -item[0]))
+        else:
+            _, method, peers = industry_candidates[0]
+        warnings.append(f"same_industry_sample_below_minimum:{method}:{len(peers)}<{min_peers}")
+        return peers, method, {
+            "target_industry_path": industry_path(target),
+            "peer_industry_match_status": f"{method}_insufficient_catalog",
+            "peer_selection_warnings": warnings,
+            "candidate_counts": candidate_counts,
+            "catalog_peer_count": len(peers),
+        }
+
+    if is_automotive_industry(target):
         peers = [
             item for item in companies
             if item.get("company_id") != target_id
-            and any(keyword in industry_text(item) for keyword in AUTO_PEER_KEYWORDS)
+            and is_automotive_industry(item)
         ]
-        if len(peers) >= min_peers:
-            return peers, "auto_keyword_automotive"
-    return [item for item in companies if item.get("company_id") != target_id], "all_ready_fallback"
+        warnings.append("automotive_keyword_fallback_requires_review")
+        if len(peers) < min_peers:
+            warnings.append(f"automotive_keyword_sample_below_minimum:{len(peers)}<{min_peers}")
+        return peers, "auto_keyword_automotive", {
+            "target_industry_path": industry_path(target),
+            "peer_industry_match_status": "auto_keyword_automotive_fallback",
+            "peer_selection_warnings": warnings,
+            "candidate_counts": candidate_counts,
+            "catalog_peer_count": len(peers),
+        }
+
+    peers = [item for item in companies if item.get("company_id") != target_id]
+    warnings.append("all_ready_fallback_requires_review")
+    return peers, "all_ready_fallback", {
+        "target_industry_path": industry_path(target),
+        "peer_industry_match_status": "all_ready_fallback",
+        "peer_selection_warnings": warnings,
+        "candidate_counts": candidate_counts,
+        "catalog_peer_count": len(peers),
+    }
 
 
 def percentile_rank(values: list[float], target: float, higher_is_better: bool = True) -> float | None:
@@ -305,7 +386,7 @@ def main() -> int:
         (item for item in catalog.get("companies", []) if isinstance(item, dict) and item.get("company_id") == target_id),
         target_company,
     )
-    peers, selection_method = select_peers(catalog, catalog_target, args.min_peers)
+    peers, selection_method, selection_meta = select_peers(catalog, catalog_target, args.min_peers)
     target_row = company_row(catalog_target, args.company_dir, args.year)
 
     peer_rows: list[dict[str, Any]] = []
@@ -318,7 +399,20 @@ def main() -> int:
             peer_rows.append(row)
 
     aggregates = aggregate(peer_rows, target_row)
-    strict_ok = len(peer_rows) >= args.min_peers
+    explicit_industry_match = selection_method.startswith("same_industry_")
+    strict_ok = explicit_industry_match and len(peer_rows) >= args.min_peers
+    peer_selection_warnings = [
+        str(item)
+        for item in selection_meta.get("peer_selection_warnings", [])
+        if str(item).strip()
+    ]
+    peer_industry_match_status = str(selection_meta.get("peer_industry_match_status") or selection_method)
+    if len(peer_rows) < args.min_peers:
+        peer_selection_warnings.append(f"peer_sample_below_minimum:{len(peer_rows)}<{args.min_peers}")
+        if explicit_industry_match and peer_industry_match_status.endswith("_ready"):
+            peer_industry_match_status = f"{selection_method}_insufficient_metrics"
+    if not explicit_industry_match:
+        peer_selection_warnings.append(f"peer_selection_not_strict:{selection_method}")
     result = {
         "schema_version": 1,
         "generated_by": "peer_metrics_builder.py",
@@ -326,6 +420,9 @@ def main() -> int:
         "company_id": target_id,
         "report_year": args.year,
         "selection_method": selection_method,
+        "target_industry_path": selection_meta.get("target_industry_path") or industry_path(catalog_target),
+        "peer_industry_match_status": peer_industry_match_status,
+        "peer_selection_warnings": sorted(set(peer_selection_warnings)),
         "min_peers": args.min_peers,
         "peer_count": len(peer_rows),
         "strict_ok": strict_ok,
@@ -333,12 +430,18 @@ def main() -> int:
         "peers": peer_rows,
         "aggregates": aggregates,
         "interpretation": build_interpretation(target_row, aggregates, peer_rows),
-        "warnings": [] if strict_ok else [f"peer_sample_below_minimum:{len(peer_rows)}<{args.min_peers}"],
+        "warnings": [] if strict_ok else sorted(set(peer_selection_warnings)),
     }
 
     output = args.output or args.company_dir / "analysis" / ".work" / f"{target_id}-peer_metrics.json"
     dump_json(output, result)
-    print(json.dumps({"ok": strict_ok, "output": str(output), "peer_count": len(peer_rows), "selection_method": selection_method}, ensure_ascii=False, indent=2))
+    print(json.dumps({
+        "ok": strict_ok,
+        "output": str(output),
+        "peer_count": len(peer_rows),
+        "selection_method": selection_method,
+        "peer_industry_match_status": peer_industry_match_status,
+    }, ensure_ascii=False, indent=2))
     return 0 if strict_ok else 2
 
 

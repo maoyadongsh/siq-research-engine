@@ -339,10 +339,10 @@ def research_items(industry_research: dict[str, Any], limit: int = 5) -> list[st
         for item in results[:limit]:
             if not isinstance(item, dict):
                 continue
-            provider = item.get("provider") or "external"
             title = item.get("title") or item.get("url") or "未命名来源"
             snippet = item.get("snippet") or "未返回摘要"
-            output.append(f"{provider}: {title} - {snippet}")
+            summary = " ".join(str(snippet).split())[:180]
+            output.append(f"外部行业来源《{title}》提示：{summary}。")
         return output
     return []
 
@@ -351,12 +351,11 @@ def research_evidence(industry_research: dict[str, Any]) -> list[str]:
     evidence = ["industry_research:industry_research.json"]
     results = industry_research.get("results")
     if isinstance(results, list):
-        for idx, item in enumerate(results[:8]):
+        for idx, item in enumerate(results[:3]):
             if not isinstance(item, dict):
                 continue
             provider = item.get("provider") or "external"
-            url = item.get("url") or "missing_url"
-            evidence.append(f"industry_research:{provider}:{idx}:{url}")
+            evidence.append(f"industry_research:{provider}:{idx}")
     return evidence
 
 
@@ -402,6 +401,63 @@ def outline_list(outline: dict[str, Any], key: str, fallback: list[str]) -> list
     if isinstance(value, list) and value:
         return [str(item) for item in value if str(item).strip()]
     return fallback
+
+
+def source_industry_path(preflight: dict[str, Any], snapshot: dict[str, Any], peer_metrics: dict[str, Any]) -> str:
+    peer_path = peer_metrics.get("target_industry_path")
+    if str(peer_path or "").strip():
+        return str(peer_path).strip()
+    for source in [preflight, snapshot]:
+        parts = [str(source.get(key) or "").strip() for key in ["industry_sw1", "industry_sw2", "industry_sw3"]]
+        parts = [item for item in parts if item]
+        if parts:
+            return " > ".join(parts)
+        industry = str(source.get("industry") or "").strip()
+        if industry:
+            return industry
+    return "所属行业"
+
+
+def industry_label(industry_path: str) -> str:
+    parts = [part.strip() for part in str(industry_path or "").split(">") if part.strip()]
+    return parts[-1] if parts else "所属行业"
+
+
+def business_dimensions(
+    strategy_items: list[str],
+    product_items: list[str],
+    operation_items: list[str],
+    industry_items: list[str],
+    external_risk_items: list[str],
+) -> str:
+    dimensions: list[str] = []
+    concepts: set[str] = set()
+
+    def add(label: str, concept: str) -> None:
+        if concept in concepts:
+            return
+        dimensions.append(label)
+        concepts.add(concept)
+
+    if product_items:
+        add("产品/服务结构", "product")
+    if operation_items:
+        add("渠道/区域与运营效率", "channel")
+    if industry_items:
+        add("价格与竞争格局", "price")
+    if strategy_items:
+        add("业务线贡献和战略项目", "business_line")
+    if external_risk_items:
+        add("政策、供应链和区域变量", "external")
+    for fallback, concept in [
+        ("产品/服务结构", "product"),
+        ("渠道/区域", "channel"),
+        ("价格体系", "price"),
+        ("业务线贡献", "business_line"),
+        ("费用投入", "expense"),
+    ]:
+        add(fallback, concept)
+    return "、".join(dimensions[:5])
 
 
 def compact_text(section: dict[str, Any]) -> str:
@@ -484,10 +540,10 @@ def build_narrative_blocks(
         put("行业周期判断", [*facts[:2], *judgements[:1]], "diagnosis")
         put("同业对比", [*facts[1:4], *calculations[:2]], "table")
         put("竞争位置", judgements[:3], "diagnosis")
-        put("价格战与产品结构传导", risks[:4], "risk_chain")
+        put("价格竞争与产品结构传导", risks[:4], "risk_chain")
     elif section_id == "strategy_policy_external_risk":
         put("管理层战略", facts[:3], "diagnosis")
-        put("政策/出口/供应链变量", [*facts[3:5], *risks[:1]], "analysis")
+        put("政策/区域/供应链变量", [*facts[3:5], *risks[:1]], "analysis")
         put("战略兑现的财务验证", [*calculations[:3], *judgements[:2]], "bridge")
         put("待验证事项", risks[:4], "tracking")
     elif section_id == "governance_compliance_shareholders":
@@ -701,12 +757,21 @@ def build_sections(
     ]
     peer_missing = [] if peer_strict_ok else [f"peer_metrics_min_3_actual_{peer_count}"]
     peer_selection = peer_metrics.get("selection_method") or "not_built"
+    peer_match_status = peer_metrics.get("peer_industry_match_status") or peer_selection
+    peer_warnings = [
+        str(item)
+        for item in peer_metrics.get("peer_selection_warnings", peer_metrics.get("warnings", [])) or []
+        if str(item).strip()
+    ]
     strategy_items = q_items(qualitative, "strategy", 3)
     product_items = q_items(qualitative, "product_brand", 3)
     operation_items = q_items(qualitative, "operation_driver", 3)
     rd_items = q_items(qualitative, "rd_technology", 2)
     industry_items = q_items(qualitative, "industry_competition", 3)
     external_risk_items = q_items(qualitative, "external_risk", 3)
+    target_industry_path = source_industry_path(preflight, snapshot, peer_metrics)
+    target_industry_label = industry_label(target_industry_path)
+    business_dimension_text = business_dimensions(strategy_items, product_items, operation_items, industry_items, external_risk_items)
     industry_research_items = research_items(industry_research, 5)
     industry_research_missing = research_missing(industry_research)
     governance_items = q_items(qualitative, "governance", 4)
@@ -736,7 +801,7 @@ def build_sections(
             [
                 f"核心矛盾：{contradiction}",
                 "执行摘要必须把核心矛盾、风险链条和改善条件放在一起，避免只罗列指标。",
-                "定性证据显示，报告解释需要同时覆盖战略变革、品牌结构和销量/价格竞争，而不能只停留在合并报表层面。",
+                f"定性证据显示，报告解释需要覆盖{business_dimension_text}，而不能只停留在合并报表层面。",
                 "当前结论是公开年报财务诊断，不输出目标价、买卖评级或确定性投资建议。",
             ],
             [
@@ -762,13 +827,13 @@ def build_sections(
             ],
             [
                 "收入增长不能直接等同于盈利质量改善，必须同时验证毛利率、扣非利润和现金流。",
-                "关键变化应拆成经营量价、品牌结构、合资/自主贡献和费用投入四条线，否则无法解释利润弹性。",
+                f"关键变化应拆成{business_dimension_text}等主线，否则无法解释利润弹性。",
                 "若利润端与现金流端方向背离，应把变化定义为待验证而非已确认修复。",
             ],
             [
                 "改善项优先看毛利率、扣非利润和经营现金流是否同向改善。",
                 "恶化项优先看亏损扩大、经营现金流转负、净资产侵蚀和债务覆盖弱化。",
-                "观察项包括产品价格、销量结构、费用率、存货应收和短债续接。",
+                "观察项包括产品/服务价格、业务量结构、渠道/区域、费用率、存货应收和短债续接。",
             ],
             evidence_ids(evidence_package, ["operating_revenue", "net_profit_parent", "deducted_parent_net_profit", "net_operating_cash_flow", "equity_attributable_parent"]) + q_evidence(qualitative, ["operation_driver"], 3),
             True,
@@ -788,13 +853,13 @@ def build_sections(
             ],
             [
                 "若收入增长伴随应收和存货同步上升，经营质量需要折价；若现金流同步改善，则修复可信度提高。",
-                "汽车类公司还需要把销量、产品 mix、价格战和渠道扩张放入经营质量解释。",
-                "若销量环比改善但全年收入、毛利和现金流未同步修复，应把它定义为经营拐点的早期信号，而不是财务拐点。",
+                f"{company} 的经营质量还需要把{business_dimension_text}放入解释。",
+                "若业务量、订单或项目交付信号改善但全年收入、毛利和现金流未同步修复，应把它定义为经营拐点的早期信号，而不是财务拐点。",
             ],
             [
                 "改善条件：收入增长能转化为收现率改善、存货周转改善和合同负债稳定。",
                 "风险链：收入增长 -> 应收/库存占用扩大 -> 现金回款弱化 -> 经营现金流承压。",
-                "待验证信号：销量结构、单车价格、渠道库存、应收账龄和存货跌价准备。",
+                "待验证信号：业务量结构、单位价格/客单价、渠道库存、应收账龄和存货跌价准备。",
             ],
             evidence_ids(evidence_package, ["operating_revenue", "accounts_receivable", "notes_receivable", "inventory", "contract_liabilities"]) + q_evidence(qualitative, ["operation_driver", "product_brand"], 4),
             True,
@@ -815,12 +880,12 @@ def build_sections(
             ],
             [
                 "盈利章节必须解释成本成因，而不是只写利润涨跌；重点看价格、产品结构、费用刚性、减值和投资收益。",
-                "广汽这类集团型车企需要把合资品牌盈利贡献、自主新能源投入和新品周期分开讨论，否则毛利率和净利率的解释会过粗。",
+                "对于多业务线或集团型公司，需要把各业务线盈利贡献、新产品/新项目投入和周期节奏分开讨论，否则毛利率和净利率的解释会过粗。",
                 "扣非利润弱于归母利润时，不能把利润改善直接写成主营修复。",
             ],
             [
                 "改善条件：毛利率改善、费用率下降、扣非利润收窄或转正，且非经常性损益占比下降。",
-                "风险链：价格战或产能利用率不足 -> 毛利率下滑 -> 扣非利润承压 -> 净资产和现金流进一步受损。",
+                "风险链：价格竞争或产能利用率不足 -> 毛利率下滑 -> 扣非利润承压 -> 净资产和现金流进一步受损。",
                 "待补证据：费用明细、资产减值、政府补助、投资收益和分业务毛利率。",
             ],
             evidence_ids(evidence_package, ["operating_revenue", "operating_cost", "gross_margin", "net_profit_parent", "deducted_parent_net_profit", "operating_profit"]) + q_evidence(qualitative, ["product_brand", "operation_driver"], 4),
@@ -907,25 +972,25 @@ def build_sections(
             "industry_competition",
             [
                 f"{company} 的行业竞争位置需要结合收入规模、毛利率、费用率、现金流和资产负债率判断。",
-                f"同业样本选择方法为 {peer_selection}，当前聚合样本数为 {peer_count}。",
+                f"目标行业路径：{target_industry_path}；同业样本选择方法为 {peer_selection}，匹配状态为 {peer_match_status}，当前聚合样本数为 {peer_count}。",
                 *(peer_interpretation[:4] or ["同业快照未形成有效样本，因此同业结论只能方向性表达。"]),
                 *(industry_items[:2] or []),
                 *(industry_research_items[:3] or ["Tavily/EXA 外部行业研究未形成有效快照，本节外部行业结论需降级为待核验。"]),
-                "汽车行业分析需特别关注价格战、新能源转型、出口、合资品牌或自主品牌结构变化。",
+                f"{target_industry_label} 分析需特别关注价格竞争、产品/服务迭代、渠道/区域变化、供应链与政策变量。",
             ],
             [
                 f"本公司可用于同业比较的核心指标：收入 {yi(revenue)}、毛利率 {pct(gross_margin)}、经营现金流 {yi(ocf)}、资产负债率 {pct(debt_ratio)}。",
-                f"同业门槛：样本数至少 3 家；当前 peer_count={peer_count}，strict_ok={peer_strict_ok}。",
+                f"同业门槛：样本数至少 3 家；当前 peer_count={peer_count}，strict_ok={peer_strict_ok}，peer_warnings={', '.join(peer_warnings[:3]) or '无'}。",
             ],
             [
                 "本节重点是解释公司相对行业的位置，而不是复述行业背景。",
-                "定性证据需要和同业分位合并阅读：如果新能源占比、品牌结构或新品节奏改善，但毛利率分位仍低，则竞争位置尚未转化为利润优势。",
+                "定性证据需要和同业分位合并阅读：如果高附加值业务占比、产品结构或交付节奏改善，但毛利率分位仍低，则竞争位置尚未转化为利润优势。",
                 "同业指标已形成时，收入、毛利率、净利率、现金流率和杠杆分位应共同决定竞争位置判断。",
                 "Tavily/EXA 外部结果只补充行业趋势和风险触发器，不能替代本地年报财务证据。",
             ],
             [
                 "改善条件：毛利率、现金流和收入增速相对同业改善，且不是由一次性因素驱动。",
-                "风险链：行业价格战延续 -> 单车盈利下降 -> 费用和研发投入刚性 -> 扣非利润承压。",
+                "风险链：行业价格竞争延续 -> 单位盈利或毛利空间下降 -> 费用和研发投入刚性 -> 扣非利润承压。",
                 "若同业样本仍不足或分类方法过宽，本节结论需要保留方向性降级。",
             ],
             evidence_ids(evidence_package, ["operating_revenue", "gross_margin", "net_operating_cash_flow", "debt_to_asset_ratio"]) + ["peer_metrics:peer_metrics.json"] + q_evidence(qualitative, ["industry_competition", "product_brand", "operation_driver"], 5) + research_evidence(industry_research),
@@ -936,25 +1001,25 @@ def build_sections(
             "strategy_policy_external_risk",
             [
                 *observations[:2],
-                *(strategy_items[:3] or ["新能源转型、出口环境、价格竞争、供应链成本和政策变化最终都要落到收入、毛利率、费用率和现金流。"]),
+                *(strategy_items[:3] or ["产品升级、区域拓展、价格竞争、供应链成本和政策变化最终都要落到收入、毛利率、费用率和现金流。"]),
                 *(rd_items[:2] or []),
                 *(external_risk_items[:2] or []),
                 *(industry_research_items[3:5] or []),
             ],
             [
-                "战略有效性需要用销量、产品结构、毛利率、费用率、资本开支和经营现金流验证。",
+                "战略有效性需要用业务量/订单、产品结构、毛利率、费用率、资本开支和经营现金流验证。",
                 f"当前可直接绑定的财务验证指标包括收入 {yi(revenue)}、毛利率 {pct(gross_margin)}、经营现金流 {yi(ocf)}。",
-                "战略定性证据应映射到财务变量：产品价值对应毛利率，组织效能对应费用率和周转，拓生态对应投资收益和资本开支。",
+                "战略定性证据应映射到财务变量：产品/服务价值对应毛利率，组织效能对应费用率和周转，合作生态对应投资收益和资本开支。",
             ],
             [
                 "战略表述可信度取决于是否落到财务结果，而不是表述是否积极。",
-                "政策利好或合作车型不能直接等同于基本面改善，必须验证订单、毛利和现金流。",
-                "若战略变革已带来销量或产品结构信号，但利润和现金流仍弱，应定义为战略兑现早期阶段，而非完整反转。",
+                "政策利好或合作项目不能直接等同于基本面改善，必须验证订单、毛利和现金流。",
+                "若战略变革已带来业务量、订单或产品结构信号，但利润和现金流仍弱，应定义为战略兑现早期阶段，而非完整反转。",
             ],
             [
-                "风险链：政策/价格/出口环境变化 -> 销量或单价承压 -> 毛利率下降 -> 利润和现金流弱化。",
+                "风险链：政策/价格/区域环境变化 -> 业务量或价格承压 -> 毛利率下降 -> 利润和现金流弱化。",
                 "改善条件：战略项目带来收入增长，同时毛利率和扣非利润同步改善。",
-                "复核重点：管理层承诺兑现、车型放量、渠道效率、出口关税和供应链成本。",
+                "复核重点：管理层承诺兑现、新产品/新项目放量、渠道效率、区域政策和供应链成本。",
             ],
             evidence_ids(evidence_package, ["operating_revenue", "gross_margin", "net_operating_cash_flow"]) + ["semantic:strategy_policy"] + q_evidence(qualitative, ["strategy", "rd_technology", "external_risk"], 6) + research_evidence(industry_research)[:4],
             True,
@@ -972,8 +1037,8 @@ def build_sections(
                 "若存在非标审计意见、资金占用或违规担保，应提升为红旗；若只是证据缺失，则进入 review_required。",
             ],
             [
-                "治理章节必须把事实披露和分析判断分开，不得越界定性违法或舞弊。",
-                "国资、民营、股权集中或分散等标签不能替代具体治理证据。",
+                f"{company} 当前治理判断以关联交易、承诺履行和监管问询等公开披露为核心证据，未补充外部公告前只能给出披露完整性诊断。",
+                f"{company} 的治理风险若出现非标审计、资金占用、违规担保或核心股东异常减持，应从观察项升级为估值折价风险。",
             ],
             [
                 "风险链：治理或合规异常 -> 信息披露可信度下降 -> 融资能力和估值折价受影响。",
@@ -997,9 +1062,9 @@ def build_sections(
                 f"P/E 状态为 {market_pe_status or 'missing'}；若净利润为负或扣非利润为负，P/E 应明确不适用或降级。",
             ],
             [
-                "估值章节的合格结论可以是“估值数据不足，无法判断市场是否充分反映风险”。",
-                "市场预期差必须区分基本面改善、会计利润改善、估值修复和主题交易。",
-                "在没有可审计股价/市值快照前，只能讨论基本面锚和估值方法适用性，不能判断便宜、昂贵或市场已充分定价。",
+                f"{company} 缺少本地股价和市值快照，市场预期差证据不足；当前估值诊断只能锚定收入 {yi(revenue)}、归母净资产 {yi(parent_equity)} 和归母净利润 {yi(profit)}。",
+                f"{company} 收入增长、毛利率 {pct(gross_margin)} 与经营现金流 {yi(ocf)} 的匹配程度，决定估值修复弹性是否具备基本面支撑。",
+                f"{company} 若补入市值后 P/B、P/S 或同业分位显著低于基本面锚，才可讨论估值修复弹性；否则应维持风险未充分覆盖的降级判断。",
             ],
             [
                 "风险链：主题预期升温但财务修复未兑现 -> 估值波动加大 -> 回撤时基本面支撑不足。",
@@ -1022,18 +1087,18 @@ def build_sections(
             ],
             [
                 "风险链条一：收入增长未改善毛利 -> 扣非利润承压 -> 经营现金流弱化 -> 债务续接压力上升 -> 估值折价扩大。",
-                "风险链条二：价格战/产品结构变化 -> 毛利率下降 -> 费用率刚性放大 -> 盈利修复推迟。",
+                "风险链条二：价格竞争/产品结构变化 -> 毛利率下降 -> 费用率刚性放大 -> 盈利修复推迟。",
                 "情景推演采用改善、中性、压力三类，不给缺乏依据的概率和精确利润弹性。",
             ],
             [
                 "风险章节必须写成触发因素、经营影响、财务报表影响、现金流/债务后果和二级市场含义。",
-                "风险链需要把定性触发器纳入：价格竞争、产品结构、出口和供应链风险，最终都要落到毛利率、库存、现金流和债务覆盖。",
+                "风险链需要把定性触发器纳入：价格竞争、产品结构、区域/海外市场和供应链风险，最终都要落到毛利率、库存、现金流和债务覆盖。",
                 "当前更适合做条件跟踪，不适合做单点预测。",
             ],
             [
                 "改善情景：毛利率改善、扣非利润收窄或转正、经营现金流覆盖资本开支。",
-                "中性情景：收入或销量改善但毛利率和扣非利润仍需验证。",
-                "压力情景：价格战延续、毛利率下行、经营现金流转弱、短债覆盖下降。",
+                "中性情景：收入、订单或业务量改善但毛利率和扣非利润仍需验证。",
+                "压力情景：价格竞争延续、毛利率下行、经营现金流转弱、短债覆盖下降。",
                 *falsifying[:3],
             ],
             evidence_ids(evidence_package, ["operating_revenue", "gross_margin", "net_profit_parent", "deducted_parent_net_profit", "net_operating_cash_flow", "total_liabilities"]) + q_evidence(qualitative, ["industry_competition", "external_risk", "strategy"], 6) + research_evidence(industry_research)[:4],
@@ -1054,13 +1119,13 @@ def build_sections(
             ],
             [
                 "跟踪清单要服务于推翻或确认当前结论，不能只列数据源。",
-                "频率应按月度销量/公告、季度财报、年度报告和监管事件分层。",
-                "定性跟踪还应覆盖新品上市节奏、合资品牌恢复、自主新能源占比、出口环境和组织变革兑现。",
+                "频率应按月度经营数据/公告、季度财报、年度报告和监管事件分层。",
+                "定性跟踪还应覆盖新产品/服务推出节奏、核心业务线恢复、高附加值业务占比、渠道/区域拓展和组织变革兑现。",
             ],
             [
                 *improvements[:2],
                 *falsifying[:2],
-                "数据源：定期报告、产销快报、交易所公告、监管问询、行业同业指标和市场估值快照。",
+                "数据源：定期报告、月度经营数据、交易所公告、监管问询、行业同业指标和市场估值快照。",
             ],
             evidence_ids(evidence_package, ["operating_revenue", "gross_margin", "deducted_parent_net_profit", "net_operating_cash_flow", "capital_expenditure", "total_liabilities"]) + q_evidence(qualitative, ["strategy", "product_brand", "operation_driver"], 5),
             True,

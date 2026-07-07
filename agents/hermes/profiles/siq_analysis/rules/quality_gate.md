@@ -22,6 +22,10 @@
 - 财务指标表混入 `task_id`、`pdf_page`、`table_index` 等证据元数据。
 - 核心指标在源文件有三年值却被报告写成 `未返回`。
 - JSON 章节内容过薄。
+- 任一非 `data_quality_traceability` 章节缺少可识别的具体核心诊断：`section_without_core_diagnosis:*`。
+- 非汽车公司出现汽车模板残留：`hardcoded_template_residue:*`。
+- 非汽车公司混入汽车同业池或汽车同业名称：`peer_selection_industry_mismatch:*`。
+- 可见正文直接堆叠 Tavily/EXA snippet、provider 明细或外部 URL：`search_snippet_dumping`。
 - 大量章节没有 `evidence_ids`。
 - 缺少图表可视化。
 - 缺少 PDF 链接。
@@ -37,6 +41,8 @@
 - PDF/source link 覆盖弱。
 - 部分章节偏薄。
 - `review_queue` 中仍有资本开支、短期有息负债、利息费用、市值、同业样本、治理证据等关键项。
+- 无法从输出路径反推 `company.json` 时，会出现 `company_industry_unavailable:*`；测试输出可接受，正式公司目录输出应尽量消除。
+- 同业样本不足、外部行业检索不完整或市场估值快照缺失时，应在结论中降级表达。
 
 ## 分析深度要求
 
@@ -55,3 +61,23 @@
 - 旧字段 `facts/calculations/judgements/risks_or_improvement_conditions` 仅用于兼容校验，不得作为最终报告的统一展示结构。
 - 定量模型必须有输入口径和证据来源；字段不足时说明无法可靠计算。
 - 定性模型必须清楚区分“年报/证据事实”和“模型推论/分析假设”，不能把推论写成已验证事实。
+
+## Research Pack 验收
+
+启用 `--use-research-packs` 时，最终报告质量验收前必须先通过：
+
+```bash
+/home/maoyd/siq-research-engine/agents/hermes/profiles/siq_analysis/scripts/validate_research_packs.py <work_dir>
+```
+
+成功条件：
+
+- 五个研究型 pack 齐全。
+- `research_pack.schema.json` 存在且 pack 顶层字段完整。
+- `industry_peer_researcher` 要么有完整 `external_sources`，要么在 `missing_inputs` 中明确外部来源缺口。
+- `prohibited_content_hits` 为空。
+
+## 推荐案例样本
+
+- `600104-上汽集团`：汽车行业主样本案例，必须验证汽车术语不会被误杀；若行业字段缺失，应通过明确车企身份或 `missing_inputs` 做降级说明。
+- 当前汽车样本池共 8 家：目标公司为上汽集团；同业候选包括长城汽车、赛力斯、广汽集团、长安汽车、北汽蓝谷、江淮汽车、比亚迪。上汽集团作为目标公司时，peer 样本应为其余 7 家。

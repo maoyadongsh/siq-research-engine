@@ -28,6 +28,39 @@
 
 所有关键数字、口径说明和风险判断都应能映射回这些证据入口。
 
+## 内部子智能体
+
+高质量年度分析默认采用 `research_packs` 中间契约，把 14 章报告拆给内部研究角色形成结构化底稿，再由 `siq_analysis` 统一整合。子智能体定义放在本 profile 内部，不单独暴露网关或 API：
+
+```text
+agents/hermes/profiles/siq_analysis/subagents/
+  evidence_curator.md
+  financial_modeler.md
+  business_strategy_researcher.md
+  industry_peer_researcher.md
+  governance_risk_researcher.md
+  editor_in_chief.md
+```
+
+五个研究型 pack 写入：
+
+```text
+analysis/.work/<report_slug>/research_packs/*.json
+```
+
+`editor_in_chief` 是整合角色，负责把各 pack 的发现、缺口和复核项合入 `section_drafts.json`，但最终仍必须通过 `validate_report_quality.py`。
+
+### 子智能体执行层
+
+`scripts/run_research_subagents.py` 是 research pack 的统一执行入口，负责把“真实子智能体产出”和“确定性本地生成”收敛为同一目录合同：
+
+- `--mode deterministic`：默认模式，调用现有 `generate_research_packs.py` 生成确定性 pack。
+- `--mode external`：从 `--external-pack-dir` 复制 Hermes/LLM 子智能体真实产出的 pack，不做确定性补写。
+- `--mode hybrid`：先采用 external pack，再用确定性 fallback 补齐缺失的必需 pack。
+- `--mode prompt-only`：只生成 `research_subagent_prompts.json`，供 Hermes/LLM 子智能体消费，不生成最终 pack。
+
+年度报告入口在启用 `--use-research-packs` 时应优先调用 `run_research_subagents.py`，并通过 `--research-subagent-mode`、`--research-subagent-pack-dir`、`--no-research-subagent-fallback` 控制执行方式。默认仍保持确定性可回放；只有明确接入 Hermes/LLM 子智能体时才使用 `external` 或 `hybrid`。
+
 ## 输出产物
 
 分析报告通常写入：
@@ -40,6 +73,14 @@ companies/<company_id>/analysis/
 ```
 
 产物既要适合前端阅读，也要保留足够证据元数据供后续核查与跟踪使用。
+
+高质量流程还会在 `.work/<report_slug>/` 下保留：
+
+- `research_packs/`
+- `research_subagent_prompts.json`
+- `research_pack_manifest.json`
+- `research_pack_validation.json`
+- `research_pack_merge_manifest.json`
 
 ## 与其他 Agent 的协同关系
 
@@ -66,6 +107,27 @@ API 前缀：`/api/analysis/*`
 ```bash
 cd /home/maoyd/siq-research-engine
 scripts/hermes/run_gateway.sh siq_analysis
+```
+
+年度报告推荐命令：
+
+```bash
+cd /home/maoyd/siq-research-engine
+agents/hermes/profiles/siq_analysis/scripts/run_analysis_report.py \
+  --company <股票代码或company_id> \
+  --year <年度> \
+  --use-research-packs
+```
+
+真实子智能体 pack 已在外部目录生成时：
+
+```bash
+agents/hermes/profiles/siq_analysis/scripts/run_analysis_report.py \
+  --company <股票代码或company_id> \
+  --year <年度> \
+  --use-research-packs \
+  --research-subagent-mode hybrid \
+  --research-subagent-pack-dir <外部pack目录>
 ```
 
 ## 维护原则

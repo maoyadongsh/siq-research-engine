@@ -73,6 +73,133 @@ CRITICAL_REVIEW_TERMS = (
     "同业样本未聚合",
     "治理合规章节需补充",
 )
+AUTOMOTIVE_TEMPLATE_RESIDUE_TERMS = (
+    "广汽这类",
+    "汽车类公司",
+    "单车盈利",
+    "车型放量",
+    "合资品牌",
+    "自主新能源",
+)
+AUTOMOTIVE_INDUSTRY_TERMS = (
+    "汽车",
+    "整车",
+    "乘用车",
+    "商用车",
+    "新能源汽车",
+    "新能源车",
+    "车企",
+    "主机厂",
+    "汽车零部件",
+    "汽车服务",
+    "汽车经销",
+    "automotive",
+)
+AUTOMOTIVE_COMPANY_NAME_TERMS = (
+    "比亚迪",
+    "赛力斯",
+    "长安汽车",
+    "长城汽车",
+    "上汽集团",
+    "广汽集团",
+    "江淮汽车",
+    "东风汽车",
+    "北汽",
+    "一汽",
+    "吉利汽车",
+    "理想汽车",
+    "小鹏汽车",
+    "蔚来",
+    "零跑汽车",
+)
+AUTOMOTIVE_PEER_TERMS = tuple(
+    sorted(set(AUTOMOTIVE_COMPANY_NAME_TERMS + ("上汽集团", "广汽集团", "长安汽车", "长城汽车", "江淮汽车")))
+)
+DIAGNOSIS_BLOCK_TITLE_TERMS = ("诊断", "判断", "结论", "评估", "解释", "核心", "观察")
+DIAGNOSIS_BLOCK_ROLES = {"diagnosis", "analysis", "bridge"}
+TEMPLATE_INSTRUCTION_TERMS = (
+    "必须",
+    "需要",
+    "不得",
+    "不能",
+    "避免",
+    "禁止",
+    "应当",
+    "应该",
+    "优先看",
+    "重点看",
+    "要把",
+    "要按",
+    "需补充",
+    "待补",
+)
+GENERIC_TEMPLATE_PHRASES = (
+    "本节",
+    "章节",
+    "报告必须",
+    "分析必须",
+    "执行摘要必须",
+    "盈利章节必须",
+    "偿债章节需要",
+    "资产质量的重点是",
+    "当前结论是公开年报财务诊断",
+)
+CORE_DIAGNOSIS_ANCHORS = (
+    "营业收入",
+    "收入",
+    "归母净利润",
+    "扣非",
+    "经营现金流",
+    "毛利率",
+    "净利率",
+    "费用率",
+    "资产负债率",
+    "ROE",
+    "自由现金流",
+    "短债",
+    "资本开支",
+    "应收",
+    "存货",
+    "市值",
+    "估值",
+    "现金",
+    "利润",
+)
+CORE_DIAGNOSIS_SIGNALS = (
+    "承压",
+    "改善",
+    "恶化",
+    "修复",
+    "背离",
+    "高于",
+    "低于",
+    "弱于",
+    "强于",
+    "不足",
+    "风险",
+    "压力",
+    "安全",
+    "质量",
+    "弹性",
+    "可持续",
+    "侵蚀",
+    "依赖",
+    "匹配",
+    "覆盖",
+    "转负",
+    "亏损",
+    "下降",
+    "上升",
+    "放缓",
+    "加快",
+    "收窄",
+    "扩大",
+    "拖累",
+)
+RAW_URL_RE = re.compile(r"https?://[^\s)\]\"'<>，。；、]+")
+SEARCH_PROVIDER_SNIPPET_RE = re.compile(r"^\s*(?:[-*]\s*)?(?:tavily|exa)\s*:.{40,}-.{40,}", re.I)
+SEARCH_JSONISH_LINE_RE = re.compile(r"\b(?:provider|snippet|published_date|score|results?)\b", re.I)
+INDUSTRY_RESEARCH_PROVIDER_DETAIL_RE = re.compile(r"industry_research:(?:tavily|exa):\d+:https?://", re.I)
 
 
 def load_text(path: Path) -> str:
@@ -134,6 +261,181 @@ def infer_company_dir(prefix: Path) -> Path | None:
     if idx + 1 >= len(parts):
         return None
     return Path(*parts[: idx + 2])
+
+
+def load_company_context(prefix: Path) -> tuple[dict[str, Any] | None, str | None]:
+    company_dir = infer_company_dir(prefix)
+    if not company_dir:
+        return None, "company_industry_unavailable:no_company_dir"
+    path = company_dir / "company.json"
+    if not path.exists():
+        return None, "company_industry_unavailable:company_json_missing"
+    try:
+        return load_json(path), None
+    except (OSError, json.JSONDecodeError):
+        return None, "company_industry_unavailable:company_json_unreadable"
+
+
+def company_text(company: dict[str, Any] | None) -> str:
+    if not isinstance(company, dict):
+        return ""
+    return "\n".join(iter_strings(company))
+
+
+def is_automotive_company(company: dict[str, Any] | None) -> bool | None:
+    if not isinstance(company, dict):
+        return None
+    text = company_text(company)
+    text_lower = text.lower()
+    return any(term in text for term in AUTOMOTIVE_INDUSTRY_TERMS if term != "automotive") or any(
+        term in text_lower for term in AUTOMOTIVE_INDUSTRY_TERMS if term == "automotive"
+    ) or any(term in text for term in AUTOMOTIVE_COMPANY_NAME_TERMS)
+
+
+def report_company_terms(data: dict[str, Any], company: dict[str, Any] | None) -> list[str]:
+    terms: list[str] = []
+    containers = [company, data.get("report_meta"), data.get("preflight")]
+    for container in containers:
+        if not isinstance(container, dict):
+            continue
+        for key in ["company_short_name", "company_full_name", "company_id", "stock_code"]:
+            value = container.get(key)
+            if value:
+                terms.append(str(value))
+        aliases = container.get("aliases")
+        if isinstance(aliases, list):
+            terms.extend(str(item) for item in aliases if str(item).strip())
+    expanded: list[str] = []
+    for term in terms:
+        expanded.append(term)
+        if "-" in term:
+            expanded.extend(part for part in term.split("-", 1) if part)
+    return sorted({term.strip() for term in expanded if len(term.strip()) >= 2})
+
+
+def is_template_instruction_sentence(text: str, company_terms: list[str]) -> bool:
+    compact = re.sub(r"\s+", "", text)
+    if not compact:
+        return True
+    has_company_or_number = any(term and term in text for term in company_terms) or bool(re.search(r"\d", text))
+    if any(phrase in text for phrase in GENERIC_TEMPLATE_PHRASES):
+        return True
+    if any(term in text for term in TEMPLATE_INSTRUCTION_TERMS) and not has_company_or_number:
+        return True
+    return False
+
+
+def is_specific_core_diagnosis(text: str, company_terms: list[str]) -> bool:
+    compact = re.sub(r"\s+", "", text)
+    if len(compact) < 28:
+        return False
+    if is_template_instruction_sentence(text, company_terms):
+        return False
+    has_anchor = (
+        any(term and term in text for term in company_terms)
+        or bool(re.search(r"\d", text))
+        or any(term in text for term in CORE_DIAGNOSIS_ANCHORS)
+    )
+    has_signal = any(term in text for term in CORE_DIAGNOSIS_SIGNALS)
+    return has_anchor and has_signal
+
+
+def core_diagnosis_candidates(section: dict[str, Any]) -> list[str]:
+    candidates: list[str] = []
+    judgements = section.get("judgements")
+    if isinstance(judgements, list):
+        candidates.extend(str(item) for item in judgements if str(item).strip())
+    blocks = section.get("narrative_blocks")
+    if isinstance(blocks, list):
+        for block in blocks:
+            if not isinstance(block, dict):
+                continue
+            role = str(block.get("role") or "").strip().lower()
+            title = str(block.get("title") or "")
+            if role not in DIAGNOSIS_BLOCK_ROLES and not any(term in title for term in DIAGNOSIS_BLOCK_TITLE_TERMS):
+                continue
+            items = block.get("items")
+            if isinstance(items, list):
+                candidates.extend(str(item) for item in items if str(item).strip())
+    return candidates
+
+
+def sections_without_core_diagnosis(sections: list[dict[str, Any]], company_terms: list[str]) -> list[str]:
+    offenders: list[str] = []
+    for section in sections:
+        section_id = str(section.get("section_id", "unknown"))
+        if section_id == "data_quality_traceability":
+            continue
+        candidates = core_diagnosis_candidates(section)
+        if not any(is_specific_core_diagnosis(candidate, company_terms) for candidate in candidates):
+            offenders.append(section_id)
+    return offenders
+
+
+def hardcoded_template_residue_hits(text: str) -> list[str]:
+    return [term for term in AUTOMOTIVE_TEMPLATE_RESIDUE_TERMS if term in text]
+
+
+def peer_selection_industry_mismatch_hits(text: str) -> list[str]:
+    hits: list[str] = []
+    if "auto_keyword_automotive" in text:
+        hits.append("auto_keyword_automotive")
+    if "peer_metrics" in text:
+        hits.extend(term for term in AUTOMOTIVE_PEER_TERMS if term in text)
+    peer_context_lines = [
+        line
+        for line in text.splitlines()
+        if "同业" in line or "可比" in line or "peer" in line.lower()
+    ]
+    peer_context = "\n".join(peer_context_lines)
+    hits.extend(term for term in AUTOMOTIVE_PEER_TERMS if term in peer_context)
+    return sorted(set(hits))
+
+
+def visible_search_dump_counts(md: str) -> dict[str, int]:
+    lines = md.splitlines()
+    industry_detail_lines = INDUSTRY_RESEARCH_PROVIDER_DETAIL_RE.findall(md)
+    provider_snippet_lines = [line for line in lines if SEARCH_PROVIDER_SNIPPET_RE.search(line)]
+    jsonish_provider_lines = [
+        line
+        for line in lines
+        if SEARCH_JSONISH_LINE_RE.search(line) and re.search(r"\b(?:tavily|exa)\b|https?://", line, re.I)
+    ]
+    external_url_lines = []
+    for line in lines:
+        urls = RAW_URL_RE.findall(line)
+        external_urls = [
+            url
+            for url in urls
+            if "/api/pdf_page/" not in url and "/api/source/" not in url
+        ]
+        if external_urls:
+            external_url_lines.append(line)
+    return {
+        "industry_detail_lines": len(industry_detail_lines),
+        "provider_snippet_lines": len(provider_snippet_lines),
+        "jsonish_provider_lines": len(jsonish_provider_lines),
+        "external_url_lines": len(external_url_lines),
+    }
+
+
+def classify_search_snippet_dumping(md: str) -> str | None:
+    counts = visible_search_dump_counts(md)
+    if (
+        counts["industry_detail_lines"] >= 6
+        or counts["provider_snippet_lines"] >= 4
+        or counts["jsonish_provider_lines"] >= 6
+        or counts["external_url_lines"] >= 12
+    ):
+        return "failure"
+    if (
+        counts["industry_detail_lines"] >= 3
+        or counts["provider_snippet_lines"] >= 2
+        or counts["jsonish_provider_lines"] >= 3
+        or counts["external_url_lines"] >= 6
+    ):
+        return "warning"
+    return None
 
 
 def key_metrics_with_three_year_values(prefix: Path) -> dict[str, bool]:
@@ -211,6 +513,12 @@ def validate(prefix: Path) -> dict[str, Any]:
     md = load_text(md_path)
     html = load_text(html_path)
     data = load_json(json_path)
+    company, company_warning = load_company_context(prefix)
+    if company_warning:
+        warnings.append(company_warning)
+    target_is_automotive = is_automotive_company(company)
+    company_terms = report_company_terms(data, company)
+    semantic_text = md + "\n" + json.dumps(data, ensure_ascii=False)
 
     tid = template_id(data)
     if tid != "siq_analysis_report_v1.1":
@@ -228,6 +536,30 @@ def validate(prefix: Path) -> dict[str, Any]:
         failures.append(f"json_section_count_invalid:{len(ids)}")
     if ids and ids != SECTION_IDS:
         failures.append("json_section_order_invalid")
+
+    residue_hits = hardcoded_template_residue_hits(semantic_text)
+    if residue_hits:
+        if target_is_automotive is False:
+            failures.append("hardcoded_template_residue:" + ",".join(residue_hits[:20]))
+        elif target_is_automotive is None:
+            warnings.append("hardcoded_template_residue_industry_unknown:" + ",".join(residue_hits[:20]))
+
+    peer_mismatch_hits = peer_selection_industry_mismatch_hits(semantic_text)
+    if peer_mismatch_hits:
+        if target_is_automotive is False:
+            failures.append("peer_selection_industry_mismatch:" + ",".join(peer_mismatch_hits[:20]))
+        elif target_is_automotive is None:
+            warnings.append("peer_selection_industry_unknown:" + ",".join(peer_mismatch_hits[:20]))
+
+    missing_core_diagnosis = sections_without_core_diagnosis(sections, company_terms)
+    if missing_core_diagnosis:
+        failures.append("section_without_core_diagnosis:" + ",".join(missing_core_diagnosis[:20]))
+
+    search_dumping = classify_search_snippet_dumping(md)
+    if search_dumping == "failure":
+        failures.append("search_snippet_dumping")
+    elif search_dumping == "warning":
+        warnings.append("search_snippet_dumping")
 
     md_h2 = len(re.findall(r"^##\s+", md, flags=re.M))
     if md_h2 != 14:

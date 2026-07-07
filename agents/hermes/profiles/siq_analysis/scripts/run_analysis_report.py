@@ -30,6 +30,9 @@ from provenance_utils import (
 SCRIPT_DIR = Path(__file__).resolve().parent
 RESOLVE_SCRIPT = SCRIPT_DIR / "resolve_company.py"
 GENERATE_DRAFTS_SCRIPT = SCRIPT_DIR / "generate_section_drafts.py"
+RUN_RESEARCH_SUBAGENTS_SCRIPT = SCRIPT_DIR / "run_research_subagents.py"
+VALIDATE_RESEARCH_PACKS_SCRIPT = SCRIPT_DIR / "validate_research_packs.py"
+MERGE_RESEARCH_PACKS_SCRIPT = SCRIPT_DIR / "merge_research_packs.py"
 PEER_METRICS_SCRIPT = SCRIPT_DIR / "peer_metrics_builder.py"
 QUALITATIVE_EVIDENCE_SCRIPT = SCRIPT_DIR / "qualitative_evidence_builder.py"
 MARKET_SNAPSHOT_SCRIPT = SCRIPT_DIR / "market_snapshot_builder.py"
@@ -711,6 +714,27 @@ def main() -> int:
     parser.add_argument("--prepare-only", action="store_true", help="只写入定位、预检、证据包、指标快照和分析主线，不渲染最终报告")
     parser.add_argument("--validate-only", action="store_true")
     parser.add_argument(
+        "--use-research-packs",
+        action="store_true",
+        help="启用 siq_analysis 内部子智能体 research_packs 生成、校验和 section_drafts 合并。",
+    )
+    parser.add_argument(
+        "--research-subagent-mode",
+        choices=["deterministic", "external", "hybrid", "prompt-only"],
+        default="deterministic",
+        help="research pack 执行模式；默认 deterministic 保持旧行为，external/hybrid 接收真实子智能体 pack。",
+    )
+    parser.add_argument(
+        "--research-subagent-pack-dir",
+        type=Path,
+        help="external/hybrid 模式下读取真实子智能体产出的 research_pack JSON 目录。",
+    )
+    parser.add_argument(
+        "--no-research-subagent-fallback",
+        action="store_true",
+        help="external/hybrid 模式下不使用确定性 fallback 填补缺失 pack。",
+    )
+    parser.add_argument(
         "--allow-overwrite",
         action="store_true",
         help="允许覆盖已有最终报告；覆盖前会自动备份。",
@@ -753,7 +777,12 @@ def main() -> int:
     }
 
     completed = completed_report_state(prefix, work_dir)
-    if completed and not args.force and not args.validate_only:
+    requested_subagent_execution = args.use_research_packs and (
+        args.research_subagent_mode != "deterministic"
+        or args.research_subagent_pack_dir is not None
+        or args.no_research_subagent_fallback
+    )
+    if completed and not args.force and not args.validate_only and not requested_subagent_execution:
         result["ok"] = True
         result["stage"] = "already_completed"
         result["files"] = completed["files"]
@@ -790,6 +819,12 @@ def main() -> int:
     qualitative_snapshot_path = work_dir / "qualitative_snapshot.json"
     market_snapshot_path = work_dir / "market_snapshot.json"
     industry_research_path = work_dir / "industry_research.json"
+    research_packs_dir = work_dir / "research_packs"
+    research_pack_manifest_path = work_dir / "research_pack_manifest.json"
+    research_pack_validation_path = work_dir / "research_pack_validation.json"
+    research_pack_merge_manifest_path = work_dir / "research_pack_merge_manifest.json"
+    research_subagent_run_manifest_path = work_dir / "research_subagent_run_manifest.json"
+    research_subagent_prompt_bundle_path = work_dir / "research_subagent_prompts.json"
 
     if not args.reuse_checkpoint or not preflight_path.exists():
         dump_json(preflight_path, build_preflight(resolved, args.year))
@@ -882,10 +917,106 @@ def main() -> int:
         "qualitative_snapshot": str(qualitative_snapshot_path),
         "market_snapshot": str(market_snapshot_path),
         "industry_research": str(industry_research_path),
+        "research_packs": str(research_packs_dir),
+        "research_pack_manifest": str(research_pack_manifest_path),
+        "research_pack_validation": str(research_pack_validation_path),
+        "research_pack_merge_manifest": str(research_pack_merge_manifest_path),
+        "research_subagent_run_manifest": str(research_subagent_run_manifest_path),
+        "research_subagent_prompt_bundle": str(research_subagent_prompt_bundle_path),
         "section_drafts": str(work_dir / "section_drafts.json"),
         "quality_report": str(work_dir / "quality_report.json"),
     }
     result["checkpoints"] = checkpoint_summary
+
+    if args.use_research_packs:
+        effective_research_subagent_mode = args.research_subagent_mode
+        if args.research_subagent_pack_dir and effective_research_subagent_mode == "deterministic":
+            effective_research_subagent_mode = "hybrid"
+        result["research_subagent_mode"] = effective_research_subagent_mode
+        should_build_packs = (
+            effective_research_subagent_mode != "deterministic"
+            or not args.reuse_checkpoint
+            or not research_pack_manifest_path.exists()
+            or args.research_subagent_pack_dir is not None
+            or args.no_research_subagent_fallback
+        )
+        if should_build_packs:
+            research_pack_cmd = [
+                sys.executable,
+                str(RUN_RESEARCH_SUBAGENTS_SCRIPT),
+                "--work-dir",
+                str(work_dir),
+                "--year",
+                str(args.year),
+                "--mode",
+                effective_research_subagent_mode,
+                "--output-dir",
+                str(research_packs_dir),
+                "--write-manifest",
+                str(research_pack_manifest_path),
+                "--write-run-manifest",
+                str(research_subagent_run_manifest_path),
+                "--prompt-bundle",
+                str(research_subagent_prompt_bundle_path),
+            ]
+            if args.research_subagent_pack_dir:
+                research_pack_cmd.extend(["--external-pack-dir", str(args.research_subagent_pack_dir)])
+            if args.no_research_subagent_fallback:
+                research_pack_cmd.append("--no-fallback")
+            research_packs = run_json(research_pack_cmd)
+            result["steps"]["run_research_subagents"] = research_packs
+            payload = research_packs.get("json") if isinstance(research_packs.get("json"), dict) else {}
+            if effective_research_subagent_mode == "prompt-only":
+                result["ok"] = bool(research_packs["ok"] and payload.get("ok"))
+                result["stage"] = str(payload.get("stage") or "prompt_bundle_ready")
+                result["research_subagent_run"] = payload
+                result["next_action"] = payload.get("next_action") or "将真实子智能体 pack 写入 research_packs 后用 external 或 hybrid 模式继续。"
+                if args.write_json:
+                    dump_json(args.write_json, result)
+                print(json.dumps(result, ensure_ascii=False, indent=2))
+                return 0 if result["ok"] else 2
+            if not research_packs["ok"] or not payload.get("ok"):
+                result["ok"] = False
+                result["stage"] = "research_subagents_failed"
+                result["research_subagent_run"] = payload
+                result["next_action"] = "检查 research_subagent_run_manifest.json，先保证五个核心子智能体 pack 都可写入并通过校验。"
+                if args.write_json:
+                    dump_json(args.write_json, result)
+                print(json.dumps(result, ensure_ascii=False, indent=2))
+                return 2
+        else:
+            result["steps"]["run_research_subagents"] = {
+                "ok": True,
+                "returncode": 0,
+                "stdout": "",
+                "stderr": "",
+                "json": {
+                    "ok": True,
+                    "stage": "reused_existing",
+                    "mode": effective_research_subagent_mode,
+                    "manifest": str(research_pack_manifest_path),
+                },
+                "cmd": ["reuse", str(research_pack_manifest_path)],
+            }
+
+        validate_packs = run_json([
+            sys.executable,
+            str(VALIDATE_RESEARCH_PACKS_SCRIPT),
+            str(work_dir),
+        ])
+        result["steps"]["validate_research_packs"] = validate_packs
+        payload = validate_packs.get("json") if isinstance(validate_packs.get("json"), dict) else {}
+        if payload:
+            dump_json(research_pack_validation_path, payload)
+        if not validate_packs["ok"] or not payload.get("ok"):
+            result["ok"] = False
+            result["stage"] = "research_pack_validation_failed"
+            result["research_pack_validation"] = payload
+            result["next_action"] = "检查 research_pack_validation.json；缺失 pack、外部来源缺口或 prohibited_content_hits 必须先处理。"
+            if args.write_json:
+                dump_json(args.write_json, result)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 2
 
     if args.prepare_only:
         result["ok"] = True
@@ -940,6 +1071,32 @@ def main() -> int:
             "json": {"ok": True, "stage": "reused_existing", "output": str(draft_path)},
             "cmd": ["reuse", str(draft_path)],
         }
+
+    if args.use_research_packs:
+        merge_packs = run_json([
+            sys.executable,
+            str(MERGE_RESEARCH_PACKS_SCRIPT),
+            "--work-dir",
+            str(work_dir),
+            "--year",
+            str(args.year),
+            "--section-drafts",
+            str(draft_path),
+            "--output",
+            str(draft_path),
+            "--write-manifest",
+            str(research_pack_merge_manifest_path),
+        ])
+        result["steps"]["merge_research_packs"] = merge_packs
+        payload = merge_packs.get("json") if isinstance(merge_packs.get("json"), dict) else {}
+        if not merge_packs["ok"] or not payload.get("ok"):
+            result["ok"] = False
+            result["stage"] = "research_pack_merge_failed"
+            result["next_action"] = "检查 research_packs 和 section_drafts.json 的 section_id 是否匹配。"
+            if args.write_json:
+                dump_json(args.write_json, result)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 2
 
     recovery_json = work_dir / "recovery_result.json"
     recover_cmd = [

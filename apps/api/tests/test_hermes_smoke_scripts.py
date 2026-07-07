@@ -1,10 +1,18 @@
+import json
 import importlib.util
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
+SIQ_ANALYSIS_SCRIPT_DIR = PROJECT_ROOT / "agents" / "hermes" / "profiles" / "siq_analysis" / "scripts"
+RUN_RESEARCH_SUBAGENTS_SCRIPT = SIQ_ANALYSIS_SCRIPT_DIR / "run_research_subagents.py"
+VALIDATE_RESEARCH_PACKS_SCRIPT = SIQ_ANALYSIS_SCRIPT_DIR / "validate_research_packs.py"
+MERGE_RESEARCH_PACKS_SCRIPT = SIQ_ANALYSIS_SCRIPT_DIR / "merge_research_packs.py"
+RUN_ANALYSIS_REPORT_SCRIPT = SIQ_ANALYSIS_SCRIPT_DIR / "run_analysis_report.py"
 SMOKE_SPEC = importlib.util.spec_from_file_location(
     "smoke_r1_agent_workflow",
     PROJECT_ROOT / "scripts" / "hermes" / "smoke_r1_agent_workflow.py",
@@ -12,6 +20,117 @@ SMOKE_SPEC = importlib.util.spec_from_file_location(
 assert SMOKE_SPEC and SMOKE_SPEC.loader
 smoke_r1_agent_workflow = importlib.util.module_from_spec(SMOKE_SPEC)
 SMOKE_SPEC.loader.exec_module(smoke_r1_agent_workflow)
+
+
+SECTION_IDS = [
+    "executive_summary",
+    "key_changes",
+    "operating_quality",
+    "profitability_and_cost",
+    "asset_quality_working_capital",
+    "debt_liquidity",
+    "cash_flow_quality",
+    "industry_competition",
+    "strategy_policy_external_risk",
+    "governance_compliance_shareholders",
+    "valuation_expectation_gap",
+    "risk_chain_scenario",
+    "tracking_checklist",
+    "data_quality_traceability",
+]
+
+
+def _write_json(path: Path, payload) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _run_json(args: list[str]) -> dict:
+    result = subprocess.run(args, cwd=PROJECT_ROOT, capture_output=True, text=True, check=True)
+    return json.loads(result.stdout)
+
+
+def _write_research_pack_workdir(work_dir: Path) -> None:
+    sections = [
+        {
+            "section_id": section_id,
+            "title": section_id,
+            "facts": ["baseline fact"],
+            "calculations": [],
+            "judgements": ["baseline judgement"],
+            "risks_or_improvement_conditions": ["baseline risk -> financial impact"],
+            "evidence_ids": ["metric:operating_revenue:2025"],
+            "narrative_blocks": [
+                {"title": "核心诊断", "role": "diagnosis", "items": ["营业收入改善但现金流仍需验证。"]}
+            ],
+        }
+        for section_id in SECTION_IDS
+    ]
+    _write_json(work_dir / "section_drafts.json", {"sections": sections, "quality_report": {"review_queue": []}})
+    _write_json(
+        work_dir / "preflight.json",
+        {"company_id": "test-co", "industry_sw1": "制造业", "industry_sw2": "通用设备", "industry_sw3": "设备制造"},
+    )
+    _write_json(work_dir / "wiki_inventory.json", {"company_id": "test-co", "file_count": 8, "missing_required_files": []})
+    _write_json(
+        work_dir / "metric_snapshot.json",
+        {
+            "company_id": "test-co",
+            "metrics": {
+                "operating_revenue": {
+                    "display_name": "营业收入",
+                    "unit": "亿元",
+                    "values": {"2025": 120.0, "2024": 100.0},
+                    "sources": {"2025": {"file": "metrics/key_metrics.json", "pdf_page": 10, "table_index": 1}},
+                },
+                "parent_net_profit": {"display_name": "归母净利润", "unit": "亿元", "values": {"2025": 8.0}},
+                "operating_cash_flow_net": {"display_name": "经营现金流", "unit": "亿元", "values": {"2025": 5.0}},
+                "total_assets": {"display_name": "总资产", "unit": "亿元", "values": {"2025": 300.0}},
+                "total_liabilities": {"display_name": "总负债", "unit": "亿元", "values": {"2025": 150.0}},
+                "equity_attributable_parent": {"display_name": "归母权益", "unit": "亿元", "values": {"2025": 130.0}},
+            },
+            "missing_core_metrics": [],
+        },
+    )
+    _write_json(work_dir / "evidence_package.json", {"company_id": "test-co"})
+    _write_json(
+        work_dir / "analysis_outline.json",
+        {
+            "company_id": "test-co",
+            "core_judgment": "营业收入改善但经营现金流覆盖仍需验证。",
+            "core_contradiction": "利润改善与现金流质量之间仍需交叉验证。",
+            "red_flags": ["现金流覆盖不足"],
+            "improvement_items": ["毛利率改善"],
+            "falsifying_evidence": ["应收继续扩大"],
+        },
+    )
+    _write_json(
+        work_dir / "peer_metrics.json",
+        {
+            "company_id": "test-co",
+            "strict_ok": False,
+            "peer_count": 0,
+            "selection_method": "same_industry_sw3",
+            "interpretation": [],
+            "warnings": ["same_industry_sample_below_minimum"],
+        },
+    )
+    _write_json(
+        work_dir / "qualitative_snapshot.json",
+        {
+            "company_id": "test-co",
+            "strict_ok": True,
+            "buckets": {
+                "strategy": [{"text": "公司推进产品升级并改善渠道效率。", "evidence_ids": ["q1"]}],
+                "governance": [{"text": "治理披露未发现明显异常。", "evidence_ids": ["q2"]}],
+            },
+        },
+    )
+    _write_json(work_dir / "market_snapshot.json", {"company_id": "test-co", "strict_ok": False})
+    _write_json(
+        work_dir / "industry_research.json",
+        {"company_id": "test-co", "strict_ok": False, "results": [], "warnings": ["external_sources_missing"]},
+    )
 
 
 def test_start_gateway_refuses_listening_port_without_health(monkeypatch):
@@ -117,3 +236,59 @@ def test_serial_dry_run_smoke_plans_full_r1_sequence(monkeypatch, tmp_path):
     assert [item["action"] for item in dry_run["agents"]] == ["would_run"] * len(
         smoke_r1_agent_workflow.ic_policy.R1_AGENT_SEQUENCE
     )
+
+
+def test_siq_analysis_research_pack_runner_validates_and_merges_minimal_workdir(tmp_path):
+    work_dir = tmp_path / "analysis" / ".work" / "test-report"
+    _write_research_pack_workdir(work_dir)
+
+    deterministic = _run_json([
+        sys.executable,
+        str(RUN_RESEARCH_SUBAGENTS_SCRIPT),
+        "--work-dir",
+        str(work_dir),
+        "--year",
+        "2025",
+        "--mode",
+        "deterministic",
+        "--compact",
+    ])
+    validation = _run_json([sys.executable, str(VALIDATE_RESEARCH_PACKS_SCRIPT), str(work_dir), "--compact"])
+    merged = _run_json([
+        sys.executable,
+        str(MERGE_RESEARCH_PACKS_SCRIPT),
+        "--work-dir",
+        str(work_dir),
+        "--section-drafts",
+        str(work_dir / "section_drafts.json"),
+    ])
+    prompt_only = _run_json([
+        sys.executable,
+        str(RUN_RESEARCH_SUBAGENTS_SCRIPT),
+        "--work-dir",
+        str(work_dir),
+        "--year",
+        "2025",
+        "--mode",
+        "prompt-only",
+        "--compact",
+    ])
+
+    assert deterministic["ok"] is True
+    assert deterministic["pack_sources"]["industry_peer_researcher"] == "deterministic"
+    assert validation["ok"] is True
+    assert validation["metrics"]["pack_count"] == 5
+    assert merged["ok"] is True
+    assert len(merged["manifest"]["changed_sections"]) == 14
+    assert prompt_only["ok"] is True
+    assert prompt_only["stage"] == "prompt_bundle_ready"
+
+
+def test_siq_analysis_report_runner_uses_research_subagent_runner_for_modes():
+    source = RUN_ANALYSIS_REPORT_SCRIPT.read_text(encoding="utf-8")
+
+    assert "str(RUN_RESEARCH_SUBAGENTS_SCRIPT)" in source
+    assert "args.research_subagent_mode" in source
+    assert '"--external-pack-dir"' in source
+    assert "args.no_research_subagent_fallback" in source
+    assert "GENERATE_RESEARCH_PACKS_SCRIPT" not in source
