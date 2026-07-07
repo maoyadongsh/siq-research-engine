@@ -735,6 +735,22 @@ def main() -> int:
         help="external/hybrid 模式下不使用确定性 fallback 填补缺失 pack。",
     )
     parser.add_argument(
+        "--research-subagent-prompt",
+        default="",
+        help="传给 research subagents 的任务提示词；子智能体可据此决定是否检索额外标杆或外部来源。",
+    )
+    parser.add_argument(
+        "--research-subagent-prompt-file",
+        type=Path,
+        help="从文件读取额外任务提示词并传给 research subagents。",
+    )
+    parser.add_argument(
+        "--research-benchmark-hint",
+        action="append",
+        default=[],
+        help="可重复的标杆提示；仅作为提示词上下文，不进入硬编码同业样本。",
+    )
+    parser.add_argument(
         "--allow-overwrite",
         action="store_true",
         help="允许覆盖已有最终报告；覆盖前会自动备份。",
@@ -963,6 +979,12 @@ def main() -> int:
                 research_pack_cmd.extend(["--external-pack-dir", str(args.research_subagent_pack_dir)])
             if args.no_research_subagent_fallback:
                 research_pack_cmd.append("--no-fallback")
+            if args.research_subagent_prompt:
+                research_pack_cmd.extend(["--research-prompt", args.research_subagent_prompt])
+            if args.research_subagent_prompt_file:
+                research_pack_cmd.extend(["--research-prompt-file", str(args.research_subagent_prompt_file)])
+            for benchmark_hint in args.research_benchmark_hint:
+                research_pack_cmd.extend(["--benchmark-hint", benchmark_hint])
             research_packs = run_json(research_pack_cmd)
             result["steps"]["run_research_subagents"] = research_packs
             payload = research_packs.get("json") if isinstance(research_packs.get("json"), dict) else {}

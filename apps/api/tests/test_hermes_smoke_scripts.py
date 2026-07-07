@@ -241,6 +241,8 @@ def test_serial_dry_run_smoke_plans_full_r1_sequence(monkeypatch, tmp_path):
 def test_siq_analysis_research_pack_runner_validates_and_merges_minimal_workdir(tmp_path):
     work_dir = tmp_path / "analysis" / ".work" / "test-report"
     _write_research_pack_workdir(work_dir)
+    prompt_file = tmp_path / "benchmark_prompt.md"
+    prompt_file.write_text("请补充韩国新能源汽车供应链标杆，但不要混入 A 股同业分位。", encoding="utf-8")
 
     deterministic = _run_json([
         sys.executable,
@@ -271,6 +273,14 @@ def test_siq_analysis_research_pack_runner_validates_and_merges_minimal_workdir(
         "2025",
         "--mode",
         "prompt-only",
+        "--research-prompt",
+        "请检索日本汽车标杆作为 cross_market_reference。",
+        "--research-prompt-file",
+        str(prompt_file),
+        "--benchmark-hint",
+        "日本汽车标杆",
+        "--benchmark-hint",
+        "韩国新能源汽车供应链",
         "--compact",
     ])
 
@@ -282,6 +292,46 @@ def test_siq_analysis_research_pack_runner_validates_and_merges_minimal_workdir(
     assert len(merged["manifest"]["changed_sections"]) == 14
     assert prompt_only["ok"] is True
     assert prompt_only["stage"] == "prompt_bundle_ready"
+    benchmark_context = prompt_only["benchmark_research_context"]
+    assert benchmark_context["mode"] == "prompt_driven_query"
+    assert "日本汽车标杆" in benchmark_context["research_prompt"]
+    assert "韩国新能源汽车供应链" in benchmark_context["research_prompt"]
+    assert benchmark_context["benchmark_hints"] == ["日本汽车标杆", "韩国新能源汽车供应链"]
+    assert {root["market"] for root in benchmark_context["search_roots"]} >= {"A", "JP", "KR", "downloads"}
+    assert any("不得在脚本层硬编码" in item for item in benchmark_context["query_policy"])
+    assert any("不得把海外标杆" in item for item in benchmark_context["output_policy"])
+    prompt_bundle = json.loads((work_dir / "research_subagent_prompts.json").read_text(encoding="utf-8"))
+    industry_agent = next(
+        agent for agent in prompt_bundle["agents"] if agent["agent_id"] == "industry_peer_researcher"
+    )
+    assert industry_agent["benchmark_research_context"] == benchmark_context
+
+
+def test_siq_analysis_research_pack_runner_rejects_missing_prompt_file(tmp_path):
+    work_dir = tmp_path / "analysis" / ".work" / "test-report"
+    _write_research_pack_workdir(work_dir)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(RUN_RESEARCH_SUBAGENTS_SCRIPT),
+            "--work-dir",
+            str(work_dir),
+            "--year",
+            "2025",
+            "--mode",
+            "prompt-only",
+            "--research-prompt-file",
+            str(tmp_path / "missing.md"),
+            "--compact",
+        ],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "research prompt file unreadable" in result.stderr
 
 
 def test_siq_analysis_report_runner_uses_research_subagent_runner_for_modes():
@@ -291,4 +341,10 @@ def test_siq_analysis_report_runner_uses_research_subagent_runner_for_modes():
     assert "args.research_subagent_mode" in source
     assert '"--external-pack-dir"' in source
     assert "args.no_research_subagent_fallback" in source
+    assert "args.research_subagent_prompt" in source
+    assert '"--research-prompt"' in source
+    assert "args.research_subagent_prompt_file" in source
+    assert '"--research-prompt-file"' in source
+    assert "args.research_benchmark_hint" in source
+    assert '"--benchmark-hint"' in source
     assert "GENERATE_RESEARCH_PACKS_SCRIPT" not in source

@@ -61,6 +61,8 @@ analysis/.work/<report_slug>/research_packs/*.json
 
 年度报告入口在启用 `--use-research-packs` 时应优先调用 `run_research_subagents.py`，并通过 `--research-subagent-mode`、`--research-subagent-pack-dir`、`--no-research-subagent-fallback` 控制执行方式。默认仍保持确定性可回放；只有明确接入 Hermes/LLM 子智能体时才使用 `external` 或 `hybrid`。
 
+子智能体的额外标杆或外部检索应由任务提示词驱动，而不是在脚本中硬编码公司或查询词。可通过 `--research-subagent-prompt`、`--research-subagent-prompt-file` 或可重复的 `--research-benchmark-hint` 把用户意图传入 prompt bundle；`industry_peer_researcher` 再基于这些提示检索本地多市场 wiki 或 Hermes web 工具。
+
 ## 输出产物
 
 分析报告通常写入：

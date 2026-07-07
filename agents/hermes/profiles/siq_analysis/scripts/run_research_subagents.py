@@ -51,20 +51,26 @@ CHECKPOINT_FILES = [
     "industry_research.json",
 ]
 
-GLOBAL_AUTO_BENCHMARK_CANDIDATES = [
+MARKET_BENCHMARK_SEARCH_ROOTS = [
     {
-        "benchmark_id": "toyota_jp_7203",
-        "role": "global_auto_benchmark",
-        "market": "JP",
-        "company_name": "Toyota Motor Corporation",
-        "company_dir": "data/wiki/jp/companies/7203-Toyota-Motor-Corporation",
+        "market": "A",
+        "root": "data/wiki/companies",
+        "purpose": "A 股目标公司与严格同业样本",
     },
     {
-        "benchmark_id": "hyundai_kr_005380",
-        "role": "global_auto_benchmark",
+        "market": "JP",
+        "root": "data/wiki/jp/companies",
+        "purpose": "日本市场公司 wiki，可按用户提示词检索全球标杆",
+    },
+    {
         "market": "KR",
-        "company_name": "Hyundai Motor Company",
-        "company_dir": "data/wiki/kr/companies/005380-HyundaiMotorCompany",
+        "root": "data/wiki/kr/companies",
+        "purpose": "韩国市场公司 wiki，可按用户提示词检索全球标杆",
+    },
+    {
+        "market": "downloads",
+        "root": "data/market-report-finder",
+        "purpose": "多市场下载 manifest 与原始 PDF 元数据补充",
     },
 ]
 
@@ -107,81 +113,56 @@ def run_json(cmd: list[str]) -> dict[str, Any]:
     }
 
 
-def rel_to_repo(path: Path) -> str:
-    try:
-        return path.resolve().relative_to(REPO_ROOT).as_posix()
-    except ValueError:
-        return str(path)
-
-
-def resolve_report_dir(company_dir: Path, company: dict[str, Any]) -> Path | None:
-    reports = company.get("reports")
-    if isinstance(reports, list) and reports:
-        for report in reports:
-            if not isinstance(report, dict):
-                continue
-            value = report.get("wiki_report_path")
-            if not value:
-                continue
-            path = Path(str(value))
-            if not path.is_absolute():
-                path = REPO_ROOT / path
-            if path.exists():
-                return path
-    reports_dir = company_dir / "reports"
-    if not reports_dir.exists():
-        return None
-    candidates = sorted(path for path in reports_dir.iterdir() if path.is_dir())
-    return candidates[-1] if candidates else None
-
-
-def file_status(path: Path, purpose: str) -> dict[str, str]:
+def path_availability(path_text: str) -> dict[str, str]:
+    path = REPO_ROOT / path_text
     return {
-        "path": rel_to_repo(path),
-        "status": "read" if path.exists() else "missing",
-        "purpose": purpose,
+        "path": path_text,
+        "status": "available" if path.exists() else "missing",
     }
 
 
-def discover_global_auto_benchmarks() -> list[dict[str, Any]]:
-    benchmarks: list[dict[str, Any]] = []
-    for candidate in GLOBAL_AUTO_BENCHMARK_CANDIDATES:
-        company_dir = REPO_ROOT / candidate["company_dir"]
-        company = load_json_if_exists(company_dir / "company.json")
-        report_dir = resolve_report_dir(company_dir, company)
-        manifest = load_json_if_exists(report_dir / "manifest.json") if report_dir else {}
-        files: list[dict[str, str]] = [file_status(company_dir / "company.json", "company metadata")]
-        if report_dir:
-            files.extend([
-                file_status(report_dir / "manifest.json", "report manifest"),
-                file_status(report_dir / "metrics" / "normalized_metrics.json", "cross-market normalized metrics"),
-                file_status(report_dir / "metrics" / "operating_metrics.json", "operating metrics if available"),
-                file_status(report_dir / "sections" / "report.md", "parsed report markdown"),
-                file_status(report_dir / "evidence" / "evidence_index.json", "evidence index if available"),
-                file_status(report_dir / "qa" / "quality_report.json", "parser quality report"),
-            ])
-        benchmarks.append({
-            **candidate,
-            "status": "available" if company_dir.exists() and report_dir else "missing",
-            "company_id": company.get("company_id") or manifest.get("company_id"),
-            "ticker": company.get("ticker") or manifest.get("ticker"),
-            "currency": company.get("currency") or manifest.get("currency"),
-            "accounting_standard": manifest.get("accounting_standard"),
-            "report_id": manifest.get("report_id"),
-            "report_type": manifest.get("report_type") or manifest.get("form"),
-            "fiscal_year": manifest.get("fiscal_year"),
-            "period_end": manifest.get("period_end"),
-            "quality_status": manifest.get("quality_status"),
-            "company_dir": rel_to_repo(company_dir),
-            "report_dir": rel_to_repo(report_dir) if report_dir else None,
-            "files": files,
-            "usage_policy": [
-                "仅作为全球汽车标杆与商业模式参照，不混入 A 股严格同业分位。",
-                "如引用财务数据，必须披露市场、币种、会计准则、期间和可比性限制。",
-                "优先用于产品结构、全球化、成本曲线、混动/新能源路线、现金流质量等结构性比较。",
-            ],
-        })
-    return benchmarks
+def load_research_prompt(prompt_text: str | None, prompt_file: Path | None) -> str:
+    parts: list[str] = []
+    if prompt_text and prompt_text.strip():
+        parts.append(prompt_text.strip())
+    if prompt_file:
+        try:
+            file_text = prompt_file.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise SystemExit(f"research prompt file unreadable: {prompt_file}: {exc}") from exc
+        if file_text.strip():
+            parts.append(file_text.strip())
+    return "\n\n".join(parts)
+
+
+def build_benchmark_research_context(research_prompt: str, benchmark_hints: list[str]) -> dict[str, Any]:
+    return {
+        "schema_version": "1.0",
+        "mode": "prompt_driven_query",
+        "research_prompt": research_prompt,
+        "benchmark_hints": [hint for hint in benchmark_hints if hint.strip()],
+        "search_roots": [
+            {
+                **root,
+                **path_availability(root["root"]),
+            }
+            for root in MARKET_BENCHMARK_SEARCH_ROOTS
+        ],
+        "query_policy": [
+            "不得在脚本层硬编码公司、市场或检索词；由子智能体从 research_prompt/benchmark_hints 中提取查询对象。",
+            "若提示词提到日本、韩国或全球汽车标杆，先检索本地多市场 wiki，再决定是否需要 Tavily/EXA 补充。",
+            "A 股同业分位、peer_count、估值均值/中位数只能使用 A 股严格同业样本。",
+            "海外市场公司仅作为 cross_market_reference，必须披露市场、币种、会计准则、期间和可比性限制。",
+        ],
+        "suggested_local_discovery": [
+            "从提示词抽取公司名、英文名、股票代码或市场词，再用 rg/文件索引在 search_roots 中查找 company.json、manifest.json、normalized_metrics.json 和 sections/report.md。",
+            "如果本地 wiki 找不到提示词对象，再使用 Hermes web search 工具补充来源，并在 external_sources 写 provider/query/url/title。",
+        ],
+        "output_policy": [
+            "把检索到的全球标杆写成 key_findings 或 evidence_facts 时，section_ids 优先绑定 industry_competition、strategy_policy_external_risk、risk_chain_scenario。",
+            "不得把海外标杆公司的数值直接混入目标公司事实或 A 股同业分位。",
+        ],
+    }
 
 
 def checkpoint_inputs(work_dir: Path) -> list[dict[str, str]]:
@@ -203,8 +184,15 @@ def load_prompt(agent_id: str) -> tuple[str, str | None]:
     return str(prompt_path), prompt_path.read_text(encoding="utf-8")
 
 
-def build_prompt_bundle(work_dir: Path, output_dir: Path, year: int, prompt_bundle_path: Path) -> dict[str, Any]:
-    global_auto_benchmarks = discover_global_auto_benchmarks()
+def build_prompt_bundle(
+    work_dir: Path,
+    output_dir: Path,
+    year: int,
+    prompt_bundle_path: Path,
+    research_prompt: str,
+    benchmark_hints: list[str],
+) -> dict[str, Any]:
+    benchmark_research_context = build_benchmark_research_context(research_prompt, benchmark_hints)
     agents: list[dict[str, Any]] = []
     for agent_id in ALLOWED_AGENT_IDS:
         prompt_file, instructions = load_prompt(agent_id)
@@ -219,13 +207,7 @@ def build_prompt_bundle(work_dir: Path, output_dir: Path, year: int, prompt_bund
             "checkpoint_inputs": checkpoint_inputs(work_dir),
         }
         if agent_id == "industry_peer_researcher":
-            agent_payload["global_auto_benchmarks"] = global_auto_benchmarks
-            agent_payload["global_benchmark_policy"] = [
-                "Toyota 与 Hyundai 可作为国际标杆参照。",
-                "上汽集团报告的 A 股严格同业样本仍限定为本地 A 股汽车公司样本。",
-                "不得把 JP/KR 标杆公司纳入 A 股 peer_count、分位数或估值中位数。",
-                "国际标杆结论必须标记为 cross_market_reference，并说明可比性限制。",
-            ]
+            agent_payload["benchmark_research_context"] = benchmark_research_context
         agents.append(agent_payload)
     bundle = {
         "schema_version": "1.0",
@@ -237,7 +219,8 @@ def build_prompt_bundle(work_dir: Path, output_dir: Path, year: int, prompt_bund
         "research_pack_schema": str(RESEARCH_PACK_SCHEMA),
         "required_research_agent_ids": REQUIRED_RESEARCH_AGENT_IDS,
         "optional_agent_ids": OPTIONAL_AGENT_IDS,
-        "global_auto_benchmarks": global_auto_benchmarks,
+        "research_prompt": research_prompt,
+        "benchmark_research_context": benchmark_research_context,
         "agents": agents,
     }
     dump_json(prompt_bundle_path, bundle)
@@ -384,7 +367,6 @@ def build_pack_manifest(
             for pack in packs
             if isinstance(pack.get("missing_inputs"), list)
         ),
-        "global_auto_benchmarks": discover_global_auto_benchmarks(),
     }
 
 
@@ -407,6 +389,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--write-manifest", type=Path, help="Default: <work-dir>/research_pack_manifest.json")
     parser.add_argument("--write-run-manifest", type=Path, help="Default: <work-dir>/research_subagent_run_manifest.json")
     parser.add_argument("--prompt-bundle", type=Path, help="Default: <work-dir>/research_subagent_prompts.json")
+    parser.add_argument("--research-prompt", default="", help="User/task prompt that subagents may use to derive extra queries.")
+    parser.add_argument("--research-prompt-file", type=Path, help="Read additional user/task prompt text from a file.")
+    parser.add_argument(
+        "--benchmark-hint",
+        action="append",
+        default=[],
+        help="Optional prompt-derived benchmark hint. May be repeated; runner does not hardcode benchmark queries.",
+    )
     parser.add_argument("--no-fallback", action="store_true", help="Do not fill missing external packs deterministically.")
     parser.add_argument("--compact", action="store_true")
     return parser.parse_args(argv)
@@ -422,7 +412,15 @@ def main(argv: list[str] | None = None) -> int:
 
     work_dir.mkdir(parents=True, exist_ok=True)
     output_dir.mkdir(parents=True, exist_ok=True)
-    prompt_bundle = build_prompt_bundle(work_dir, output_dir, args.year, prompt_bundle_path)
+    research_prompt = load_research_prompt(args.research_prompt, args.research_prompt_file)
+    prompt_bundle = build_prompt_bundle(
+        work_dir,
+        output_dir,
+        args.year,
+        prompt_bundle_path,
+        research_prompt,
+        args.benchmark_hint,
+    )
 
     failures: list[str] = []
     warnings: list[str] = []
@@ -440,7 +438,7 @@ def main(argv: list[str] | None = None) -> int:
             "prompt_bundle": str(prompt_bundle_path),
             "run_manifest": str(run_manifest_path),
             "required_research_agent_ids": REQUIRED_RESEARCH_AGENT_IDS,
-            "global_auto_benchmarks": prompt_bundle.get("global_auto_benchmarks", []),
+            "benchmark_research_context": prompt_bundle.get("benchmark_research_context", {}),
             "next_action": "让 Hermes/LLM 子智能体按 prompt bundle 写入 research_packs 后，使用 external 或 hybrid 模式继续。",
         }
         dump_json(run_manifest_path, result)
@@ -525,7 +523,7 @@ def main(argv: list[str] | None = None) -> int:
         "prompt_bundle": str(prompt_bundle_path),
         "pack_sources": pack_manifest.get("pack_sources", {}),
         "fallback_used_agent_ids": fallback_used_agent_ids,
-        "global_auto_benchmarks": prompt_bundle.get("global_auto_benchmarks", []),
+        "benchmark_research_context": prompt_bundle.get("benchmark_research_context", {}),
         "validation": validation_payload,
         "failures": failures,
         "warnings": warnings,

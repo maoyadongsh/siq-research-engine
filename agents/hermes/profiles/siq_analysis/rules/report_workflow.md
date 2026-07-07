@@ -34,6 +34,8 @@
 - `--research-subagent-mode deterministic|external|hybrid|prompt-only`：默认 `deterministic`。
 - `--research-subagent-pack-dir <目录>`：`external` 或 `hybrid` 模式下的真实子智能体 pack 来源目录。
 - `--no-research-subagent-fallback`：禁止 fallback；通常只在验收真实子智能体产出完整性时使用。
+- `--research-subagent-prompt` / `--research-subagent-prompt-file`：传入用户任务提示，让子智能体自行决定是否检索额外标杆或外部来源。
+- `--research-benchmark-hint <提示>`：可重复传入提示词派生的标杆对象；只作为检索提示，不进入硬编码同业样本。
 
 四种模式含义：
 
@@ -41,6 +43,8 @@
 - `external`：从 `--external-pack-dir` 或上层传入的 pack 目录复制 Hermes/LLM 子智能体产物；缺失 pack 不自动补齐。
 - `hybrid`：优先使用 external pack，再用确定性 fallback 填补缺失必需 pack，适合渐进接入真实子智能体。
 - `prompt-only`：只生成 `research_subagent_prompts.json` 给 Hermes/LLM 子智能体消费，不进入最终报告渲染。
+
+额外标杆检索必须是提示词驱动：脚本只提供本地多市场 wiki 根目录、Hermes web 工具使用规则和可比性约束，不得在脚本层写死具体公司或查询词。海外标杆只能作为 `cross_market_reference`，不得混入 A 股严格同业分位、`peer_count`、估值均值或中位数。
 
 ## 防覆盖规则
 

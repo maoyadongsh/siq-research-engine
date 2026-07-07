@@ -369,8 +369,12 @@ data/wiki/companies/<company_id>/analysis/.work/<report_slug>/
 - `--research-subagent-mode deterministic|external|hybrid|prompt-only`
 - `--research-subagent-pack-dir <目录>`
 - `--no-research-subagent-fallback`
+- `--research-subagent-prompt` / `--research-subagent-prompt-file`
+- `--research-benchmark-hint <提示>`，可重复
 
 默认值必须保持 `deterministic`，避免在没有 Hermes/LLM 子智能体时破坏现有报告流程。
+
+标杆检索必须保持提示词驱动：执行层只把用户任务提示、显式 benchmark hint、本地多市场 wiki 根目录和 Hermes web 工具约束写入 `research_subagent_prompts.json`，不在脚本层硬编码公司、市场或查询词。行业同业子智能体从提示词抽取对象后自行检索，并把海外公司标记为 `cross_market_reference`，不得纳入 A 股严格同业分位、`peer_count`、估值均值或中位数。
 
 ### 8.2 报告流水线
 
