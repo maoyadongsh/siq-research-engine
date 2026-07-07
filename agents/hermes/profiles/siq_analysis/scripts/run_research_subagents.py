@@ -206,6 +206,24 @@ def build_benchmark_research_context(research_prompt: str, benchmark_hints: list
     }
 
 
+ANALYST_WRITING_SUMMARY = [
+    "可见正文必须像 A 股二级市场研究员出品：先给结论，再解释事实、成因、三表传导和验证边界。",
+    "每个核心判断尽量覆盖事实锚定、经营解释、跨表影响、验证信号；字段不足时写明缺口、影响和降级结论。",
+    "证据页码、provider、query、URL、task_id/table_index/md_line 等元数据应进入 evidence_refs、external_sources、missing_inputs 或证据折叠区，不要堆进正文主句。",
+    "禁止输出综合评分、目标价、买卖评级、交易动作；禁止无证据套话和流程痕迹，例如 研究包补充判断、metric_snapshot、evidence_package、wiki_inventory。",
+    "A 股风险哨兵必须覆盖或标缺：ST/退市、审计意见、问询处罚、股权质押/减持/解禁、资金占用、违规担保、商誉/资产减值、政府补助依赖、主题概念与基本面脱节。",
+]
+
+
+def analyst_writing_contract_payload() -> dict[str, Any]:
+    path = PROFILE_DIR / "rules" / "analyst_writing_contract.md"
+    return {
+        "path": str(path),
+        "status": "read" if path.exists() else "missing",
+        "summary": ANALYST_WRITING_SUMMARY,
+    }
+
+
 def checkpoint_inputs(work_dir: Path) -> list[dict[str, str]]:
     inputs: list[dict[str, str]] = []
     for name in CHECKPOINT_FILES:
@@ -234,6 +252,7 @@ def build_prompt_bundle(
     benchmark_hints: list[str],
 ) -> dict[str, Any]:
     benchmark_research_context = build_benchmark_research_context(research_prompt, benchmark_hints)
+    writing_contract = analyst_writing_contract_payload()
     agents: list[dict[str, Any]] = []
     for agent_id in ALLOWED_AGENT_IDS:
         prompt_file, instructions = load_prompt(agent_id)
@@ -246,6 +265,7 @@ def build_prompt_bundle(
             "output_file": str(output_dir / f"{agent_id}.json"),
             "schema_path": str(RESEARCH_PACK_SCHEMA),
             "checkpoint_inputs": checkpoint_inputs(work_dir),
+            "analyst_writing_contract": writing_contract,
         }
         if agent_id == "industry_peer_researcher":
             agent_payload["benchmark_research_context"] = benchmark_research_context
@@ -272,6 +292,7 @@ def build_prompt_bundle(
         "optional_agent_ids": OPTIONAL_AGENT_IDS,
         "research_prompt": research_prompt,
         "benchmark_research_context": benchmark_research_context,
+        "analyst_writing_contract": writing_contract,
         "agents": agents,
     }
     dump_json(prompt_bundle_path, bundle)

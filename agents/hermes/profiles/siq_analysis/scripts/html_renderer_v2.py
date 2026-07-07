@@ -1702,21 +1702,50 @@ body {
 
 .narrative-items {
   display: grid;
-  gap: 10px;
+  gap: 12px;
 }
 
 .narrative-item {
   position: relative;
-  padding: 13px 14px 13px 16px;
+  padding: 14px 16px 15px;
   border: 1px solid #e2e8f0;
   border-left: 4px solid #94a3b8;
   border-radius: 8px;
-  background: #ffffff;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.8)),
+    #ffffff;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.04);
+}
+
+.narrative-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 8px;
+}
+
+.evidence-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: #475569;
+  background: #f8fafc;
+  border: 1px solid #dbe3ef;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.narrative-copy {
+  max-width: 82ch;
 }
 
 .narrative-item p {
-  margin: 7px 0 0;
-  color: var(--text-secondary);
+  margin: 8px 0 0;
+  color: #243044;
   font-size: 15px;
   line-height: 1.78;
   overflow-wrap: anywhere;
@@ -1730,6 +1759,11 @@ body {
   background: #f8fbff;
   border-color: #bfdbfe;
   border-left-color: #2563eb;
+}
+
+.narrative-item.synthesis p {
+  color: #172554;
+  font-weight: 500;
 }
 
 .narrative-item.diagnosis,
@@ -1759,7 +1793,7 @@ body {
 }
 
 .source-badge {
-  margin-right: 6px;
+  margin-right: 0;
 }
 
 .source-local,
@@ -1829,6 +1863,28 @@ body {
   box-shadow: var(--shadow);
 }
 
+.item-evidence {
+  margin-top: 12px;
+  border-top: 1px dashed #cbd5e1;
+  padding-top: 10px;
+}
+
+.item-evidence summary {
+  color: #475569;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.item-evidence ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
 .summary-panel {
   padding: 18px;
 }
@@ -1865,6 +1921,11 @@ body {
   overflow-wrap: anywhere;
 }
 
+.summary-point strong {
+  color: #0f172a;
+  font-weight: 800;
+}
+
 .summary-point::before {
   content: '';
   width: 7px;
@@ -1895,8 +1956,8 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 34px;
-  padding: 7px 9px;
+  min-height: 44px;
+  padding: 9px 11px;
   border-radius: 7px;
   color: #334155;
   background: #f8fafc;
@@ -1904,12 +1965,28 @@ body {
   text-decoration: none;
   font-size: 13px;
   line-height: 1.35;
+  cursor: pointer;
+  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
 }
 
-.section-toc a:hover {
+.section-toc a:hover,
+.section-toc a:focus-visible {
   color: #1d4ed8;
   border-color: #bfdbfe;
   background: #eff6ff;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.section-toc a.is-active {
+  color: #1d4ed8;
+  border-color: #93c5fd;
+  background: #dbeafe;
+}
+
+.section.section-target {
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.10), var(--shadow-lg);
 }
 
 .toc-index {
@@ -2197,6 +2274,35 @@ function initIncomeBridgeInteractions() {
   });
 }
 
+function initReportTocNavigation() {
+  const tocLinks = Array.from(document.querySelectorAll('.section-toc a[href^="#section-"]'));
+  if (!tocLinks.length) return;
+  const clearTargets = () => document.querySelectorAll('.section.section-target').forEach((el) => el.classList.remove('section-target'));
+  const setActive = (activeLink) => {
+    tocLinks.forEach((link) => link.classList.toggle('is-active', link === activeLink));
+  };
+  tocLinks.forEach((link) => {
+    link.addEventListener('click', (event) => {
+      const targetId = decodeURIComponent(String(link.getAttribute('href') || '').slice(1));
+      const target = document.getElementById(targetId);
+      if (!target) return;
+      event.preventDefault();
+      setActive(link);
+      clearTargets();
+      target.classList.add('section-target');
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      target.focus({ preventScroll: true });
+      history.pushState(null, '', `#${targetId}`);
+      window.setTimeout(() => target.classList.remove('section-target'), 2200);
+    });
+  });
+  const currentHash = decodeURIComponent(window.location.hash || '');
+  if (currentHash) {
+    const active = tocLinks.find((link) => link.getAttribute('href') === currentHash);
+    if (active) setActive(active);
+  }
+}
+
 // Common chart option base
 function baseOption() {
   return {
@@ -2234,6 +2340,7 @@ document.addEventListener('DOMContentLoaded', function() {
   }
   initIncomeBridgeInteractions();
   initReportChartInteractions();
+  initReportTocNavigation();
   
   // Progress bar
   window.addEventListener('scroll', function() {
@@ -2961,45 +3068,11 @@ def render_report_summary(
 ) -> str:
     company_name = preflight.get("company_short_name") or preflight.get("company_id") or snapshot.get("company_id") or "公司"
     report_year = preflight.get("report_year", snapshot.get("report_year", "2025"))
-
-    summary_points: list[str] = []
-    for section in sections:
-        blocks = section.get("narrative_blocks", [])
-        if not isinstance(blocks, list):
-            continue
-        for block in blocks:
-            if not isinstance(block, dict) or block.get("role") != "synthesis":
-                continue
-            items = block.get("items", [])
-            if not isinstance(items, list):
-                continue
-            for item in items:
-                _, _, text = split_source_prefix(item, "synthesis")
-                for paragraph in sentence_paragraphs(text):
-                    summary_text = re.sub(r"\s+", " ", paragraph).strip()
-                    if summary_text and summary_text not in summary_points:
-                        summary_points.append(summary_text)
-                    if len(summary_points) >= 4:
-                        break
-                if len(summary_points) >= 4:
-                    break
-            if len(summary_points) >= 4:
-                break
-        if len(summary_points) >= 4:
-            break
-
-    if not summary_points:
-        revenue = safe_float(metric_value(snapshot, "operating_revenue"))
-        profit = safe_float(metric_value(snapshot, "net_profit_parent"))
-        ocf = safe_float(metric_value(snapshot, "net_operating_cash_flow"))
-        debt_ratio = safe_float(metric_value(snapshot, "total_liabilities")) / safe_float(metric_value(snapshot, "total_assets")) * 100 if safe_float(metric_value(snapshot, "total_assets")) else None
-        summary_points = [
-            f"{report_year} 年营业收入 {fmt_num(revenue, '亿元')}，归母净利润 {fmt_num(profit, '亿元')}，需要结合利润率和现金流验证经营质量。",
-            f"经营现金流 {fmt_num(ocf, '亿元')}，是判断利润兑现和营运资金压力的核心跟踪项。",
-            f"资产负债率 {fmt_num(debt_ratio, '%')}，需与短债、现金和资本开支计划一起判断财务弹性。",
-        ]
-
-    points_html = "".join(f'<div class="summary-point">{html_module.escape(point)}</div>' for point in summary_points[:4])
+    summary_points = build_investor_summary_points(snapshot, report_year)
+    points_html = "".join(
+        f'<div class="summary-point"><span>{inline_summary_text(point)}</span></div>'
+        for point in summary_points[:4]
+    )
     return f"""
     <div class="report-summary">
       <section class="summary-panel" aria-label="核心结论">
@@ -3011,6 +3084,59 @@ def render_report_summary(
       {render_navigation(sections)}
     </div>
     """
+
+
+def inline_summary_text(text: str) -> str:
+    escaped = html_module.escape(str(text or ""))
+    return re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", escaped)
+
+
+def build_investor_summary_points(snapshot: dict[str, Any], report_year: Any) -> list[str]:
+    """Build reader-facing conclusions, not internal research process notes."""
+    revenue = metric_value(snapshot, "operating_revenue")
+    profit = metric_value(snapshot, "net_profit_parent")
+    deducted_profit = metric_value(snapshot, "deducted_parent_net_profit")
+    ocf = metric_value(snapshot, "net_operating_cash_flow")
+    gross_margin = metric_value(snapshot, "gross_margin")
+    total_assets = metric_value(snapshot, "total_assets")
+    total_liabilities = metric_value(snapshot, "total_liabilities")
+    capex = metric_value(snapshot, "capital_expenditure") or metric_value(snapshot, "cash_for_purchases_investments")
+
+    revenue_yoy = yoy_change(snapshot, "operating_revenue")
+    profit_yoy = yoy_change(snapshot, "net_profit_parent")
+    ocf_value = safe_float(ocf) if ocf is not None else None
+    profit_value = safe_float(profit) if profit is not None else None
+    deducted_value = safe_float(deducted_profit) if deducted_profit is not None else None
+    revenue_value = safe_float(revenue) if revenue is not None else None
+    gross_margin_value = safe_float(gross_margin) if gross_margin is not None else None
+    debt_ratio = None
+    if total_assets not in (None, 0) and total_liabilities is not None and safe_float(total_assets):
+        debt_ratio = safe_float(total_liabilities) / safe_float(total_assets) * 100
+
+    growth_phrase = f"同比 {fmt_num(revenue_yoy, '%')}" if revenue_yoy is not None else "同比待确认"
+    profit_phrase = f"归母净利润 {fmt_num(profit_value, '亿元')}"
+    if profit_yoy is not None:
+        profit_phrase += f"，同比 {fmt_num(profit_yoy, '%')}"
+    points = [
+        f"**经营安全与盈利质量**：{report_year} 年营业收入 {fmt_num(revenue_value, '亿元')}，{growth_phrase}；{profit_phrase}。结论应聚焦盈利修复是否能持续，而不是只看单一增长指标。",
+    ]
+    if gross_margin_value is not None or deducted_value is not None:
+        points.append(
+            f"**利润质量**：毛利率 {fmt_num(gross_margin_value, '%')}，扣非归母净利润 {fmt_num(deducted_value, '亿元')}。若扣非利润弱于归母利润，需要继续拆解一次性收益、费用和减值影响。"
+        )
+    if ocf_value is not None:
+        capex_part = f"，资本开支 {fmt_num(safe_float(capex), '亿元')}" if capex is not None else ""
+        points.append(
+            f"**现金流含金量**：经营现金流 {fmt_num(ocf_value, '亿元')}{capex_part}。经营现金流能否覆盖资本开支和营运资金波动，是判断利润兑现质量的关键。"
+        )
+    if debt_ratio is not None:
+        debt_view = "偏高，需要看短债、现金和融资续接" if debt_ratio >= 65 else "处于可跟踪区间，仍需结合现金和短债结构"
+        points.append(
+            f"**财务弹性**：资产负债率 {fmt_num(debt_ratio, '%')}，{debt_view}。后续重点观察债务覆盖、存货/应收周转和自由现金流。"
+        )
+    if len(points) < 4:
+        points.append("**后续跟踪**：优先观察收入结构、毛利率、扣非利润、经营现金流、资本开支和同业分位是否同向改善。")
+    return points[:4]
 
 
 def yoy_change(snapshot: dict[str, Any], key: str) -> float | None:
@@ -3238,7 +3364,7 @@ def render_navigation(sections: list[dict[str, Any]]) -> str:
     for i, section in enumerate(sections):
         sid = html_module.escape(str(section.get("section_id") or i + 1))
         title = html_module.escape(str(section.get("title") or f"第 {i + 1} 节"))
-        links.append(f'<a href="#section-{sid}"><span class="toc-index">{i + 1:02d}</span><span>{title}</span></a>')
+        links.append(f'<a href="#section-{sid}" aria-label="跳转到{title}"><span class="toc-index">{i + 1:02d}</span><span>{title}</span></a>')
     if not links:
         return ""
     return (
@@ -4637,7 +4763,7 @@ def render_html_report(
         title = section.get("title", "")
         
         section_html = f"""
-        <section class="section" id="section-{sid}">
+        <section class="section" id="section-{sid}" tabindex="-1">
           <div class="section-header">
             <div class="section-number">{i + 1}</div>
             <h2><span class="section-title">{html_module.escape(title)}</span></h2>

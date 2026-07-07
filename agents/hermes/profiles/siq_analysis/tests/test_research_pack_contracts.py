@@ -180,3 +180,24 @@ def test_merge_research_packs_does_not_truncate_visible_text(tmp_path):
     assert result["ok"] is True
     assert not any("..." in item or "…" in item for item in rendered_items)
     assert any("归母净利润" in item for item in rendered_items)
+
+
+def test_merge_research_packs_uses_reader_facing_synthesis_language(tmp_path):
+    work_dir = _write_work_dir(tmp_path, _pack())
+    section_drafts = work_dir / "section_drafts.json"
+    section_drafts.write_text(
+        json.dumps({"sections": [{"section_id": "executive_summary", "narrative_blocks": [], "judgements": []}]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    result = merge_research_packs(work_dir, section_drafts)
+    merged = json.loads(section_drafts.read_text(encoding="utf-8"))
+    rendered_items = [item for block in merged["sections"][0]["narrative_blocks"] for item in block.get("items", [])]
+    joined = "\n".join(rendered_items)
+
+    assert result["ok"] is True
+    assert "本节结论" in joined
+    assert "证据基础" in joined
+    assert "研究包补充判断" not in joined
+    assert "对应本地事实锚点" not in joined
+    assert "模型校验口径" not in joined

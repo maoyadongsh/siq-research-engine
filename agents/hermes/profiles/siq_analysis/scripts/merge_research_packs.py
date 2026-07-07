@@ -645,22 +645,22 @@ def build_research_synthesis_items(
     if local_claim or local_fact or model:
         pieces = []
         if local_claim:
-            pieces.append(f"研究包补充判断为：{local_claim}")
+            pieces.append(f"本节结论是：{local_claim}")
         if local_fact:
-            pieces.append(f"对应本地事实锚点是：{local_fact}")
+            pieces.append(f"证据基础来自本地年报和指标：{local_fact}")
         if model:
-            pieces.append(f"模型校验口径为：{model}")
+            pieces.append(f"模型层面的验证结果是：{model}")
         items.append("；".join(pieces).rstrip("。") + "。")
     if external:
         items.append(
-            f"外部搜索仅作为补证和可比性上下文：{external} 该信息应与本地年报、同业模型和财务变量合并阅读，不能单独覆盖公司事实。"
+            f"外部上下文提示：{external} 这类信息用于解释行业、政策、技术或竞争变量，最终仍需与本地年报、同业模型和财务变量交叉验证。"
         )
     if risk or tracking_signal:
         pieces = []
         if risk:
-            pieces.append(f"主要风险链是：{risk}")
+            pieces.append(f"主要风险链条是：{risk}")
         if tracking_signal:
-            pieces.append(f"后续验证信号是：{tracking_signal}")
+            pieces.append(f"后续验证信号包括：{tracking_signal}")
         items.append("；".join(pieces).rstrip("。") + "。")
 
     return dedupe([visible_text(item) for item in items], 3)
