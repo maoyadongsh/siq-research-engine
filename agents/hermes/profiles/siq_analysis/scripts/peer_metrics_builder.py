@@ -341,6 +341,64 @@ def aggregate(rows: list[dict[str, Any]], target_row: dict[str, Any]) -> dict[st
     return result
 
 
+def _finite_metric(row: dict[str, Any], key: str) -> float | None:
+    metrics = row.get("metrics") if isinstance(row.get("metrics"), dict) else {}
+    value = metrics.get(key)
+    if isinstance(value, (int, float)) and math.isfinite(value):
+        return float(value)
+    return None
+
+
+def peer_sanity_issues(row: dict[str, Any]) -> list[str]:
+    """Return conservative peer-level sanity issues for aggregate exclusion."""
+    issues: list[str] = []
+    for key in ("operating_revenue_yi", "total_assets_yi", "total_liabilities_yi"):
+        value = _finite_metric(row, key)
+        if value is not None and value < 0:
+            issues.append(f"negative_{key}:{value:.2f}")
+
+    for key in ("gross_margin_pct", "net_margin_pct", "operating_cash_flow_margin_pct"):
+        value = _finite_metric(row, key)
+        if value is not None and abs(value) > 300:
+            issues.append(f"extreme_margin:{key}:{value:.2f}")
+
+    roe = _finite_metric(row, "roe_pct")
+    if roe is not None and abs(roe) > 300:
+        issues.append(f"extreme_roe_pct:{roe:.2f}")
+
+    revenue_yoy = _finite_metric(row, "operating_revenue_yoy_pct")
+    if revenue_yoy is not None and abs(revenue_yoy) > 1000:
+        issues.append(f"extreme_operating_revenue_yoy_pct:{revenue_yoy:.2f}")
+
+    debt_ratio = _finite_metric(row, "debt_to_asset_ratio_pct")
+    if debt_ratio is not None and (debt_ratio < 0 or debt_ratio > 300):
+        issues.append(f"implausible_debt_to_asset_ratio_pct:{debt_ratio:.2f}")
+
+    profit = _finite_metric(row, "parent_net_profit_yi")
+    assets = _finite_metric(row, "total_assets_yi")
+    if profit is not None and assets is not None and assets > 0 and abs(profit) > assets * 2:
+        issues.append(f"profit_exceeds_asset_scale:{profit:.2f}>{assets:.2f}")
+    return issues
+
+
+def filter_peer_rows_for_sanity(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    accepted: list[dict[str, Any]] = []
+    quarantine: list[dict[str, Any]] = []
+    for row in rows:
+        issues = peer_sanity_issues(row)
+        if not issues:
+            accepted.append(row)
+            continue
+        quarantine.append({
+            "company_id": row.get("company_id"),
+            "stock_code": row.get("stock_code"),
+            "company_short_name": row.get("company_short_name"),
+            "available_metric_count": row.get("available_metric_count"),
+            "issues": issues,
+        })
+    return accepted, quarantine
+
+
 def fmt_num(value: Any, suffix: str = "") -> str:
     if not isinstance(value, (int, float)) or not math.isfinite(value):
         return "未返回"
@@ -389,14 +447,16 @@ def main() -> int:
     peers, selection_method, selection_meta = select_peers(catalog, catalog_target, args.min_peers)
     target_row = company_row(catalog_target, args.company_dir, args.year)
 
-    peer_rows: list[dict[str, Any]] = []
+    raw_peer_rows: list[dict[str, Any]] = []
     for peer in peers:
         peer_path = args.wiki_dir / str(peer.get("company_path", ""))
         if not peer_path.exists():
             continue
         row = company_row(peer, peer_path, args.year)
         if row["available_metric_count"] >= 4:
-            peer_rows.append(row)
+            raw_peer_rows.append(row)
+
+    peer_rows, quarantine_peers = filter_peer_rows_for_sanity(raw_peer_rows)
 
     aggregates = aggregate(peer_rows, target_row)
     explicit_industry_match = selection_method.startswith("same_industry_")
@@ -411,6 +471,8 @@ def main() -> int:
         peer_selection_warnings.append(f"peer_sample_below_minimum:{len(peer_rows)}<{args.min_peers}")
         if explicit_industry_match and peer_industry_match_status.endswith("_ready"):
             peer_industry_match_status = f"{selection_method}_insufficient_metrics"
+    if quarantine_peers:
+        peer_selection_warnings.append(f"peer_sanity_quarantine:{len(quarantine_peers)}")
     if not explicit_industry_match:
         peer_selection_warnings.append(f"peer_selection_not_strict:{selection_method}")
     result = {
@@ -424,7 +486,9 @@ def main() -> int:
         "peer_industry_match_status": peer_industry_match_status,
         "peer_selection_warnings": sorted(set(peer_selection_warnings)),
         "min_peers": args.min_peers,
+        "raw_peer_count": len(raw_peer_rows),
         "peer_count": len(peer_rows),
+        "quarantine_peers": quarantine_peers,
         "strict_ok": strict_ok,
         "target": target_row,
         "peers": peer_rows,
