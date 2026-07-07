@@ -35,6 +35,7 @@ def test_observe_large_files_skips_lockfiles_and_architecture_docs(tmp_path):
     module = _load_module()
     _write_lines(tmp_path / "apps" / "web" / "package-lock.json", 999)
     _write_lines(tmp_path / "docs" / "architecture" / "long-plan.md", 999)
+    _write_lines(tmp_path / "db" / "imports" / "reference-data.json", 999)
     _write_lines(tmp_path / "agents" / "hermes" / "profiles" / "siq_analysis" / "rules" / "long-rule.md", 20)
 
     records = module.observe_large_files(tmp_path, limit=10, warning_lines=10, report_lines=20)

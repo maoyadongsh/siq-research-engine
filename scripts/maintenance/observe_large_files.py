@@ -44,6 +44,7 @@ DEFAULT_EXCLUDE_NAMES = {
     "yarn.lock",
 }
 DEFAULT_EXCLUDE_PREFIXES = (
+    "db/imports/",
     "docs/architecture/",
 )
 

@@ -104,7 +104,22 @@ jobs:
             scripts/scan_todo_fixme.py \
             scripts/ops/health_check.py \
             scripts/migration/plan_runtime_paths.py \
+            scripts/maintenance/observe_large_files.py \
             scripts/maintenance/run_market_ingestion_eval.py
+
+      - name: Generate large-file observe report
+        run: |
+          mkdir -p artifacts/quality
+          python3 scripts/maintenance/observe_large_files.py --json > artifacts/quality/large-files.json
+          python3 scripts/maintenance/observe_large_files.py
+
+      - name: Upload large-file observe report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: siq-large-file-observe
+          path: artifacts/quality/large-files.json
+          if-no-files-found: warn
 
   api-focused:
     name: API focused tests
