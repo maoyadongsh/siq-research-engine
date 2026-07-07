@@ -164,6 +164,43 @@ def dump_json(path: Path, data: Any) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+SENSITIVE_CMD_VALUE_FLAGS = {
+    "--api-key",
+    "--auth-token",
+    "--bearer",
+    "--benchmark-hint",
+    "--password",
+    "--research-benchmark-hint",
+    "--research-prompt",
+    "--research-subagent-prompt",
+    "--secret",
+    "--token",
+}
+
+SENSITIVE_CMD_VALUE_PREFIXES = tuple(f"{flag}=" for flag in sorted(SENSITIVE_CMD_VALUE_FLAGS))
+
+
+def redact_cmd(cmd: list[str]) -> list[str]:
+    redacted: list[str] = []
+    redact_next = False
+    for raw_part in cmd:
+        part = str(raw_part)
+        if redact_next:
+            redacted.append("<redacted>")
+            redact_next = False
+            continue
+        if part in SENSITIVE_CMD_VALUE_FLAGS:
+            redacted.append(part)
+            redact_next = True
+            continue
+        matched_prefix = next((prefix for prefix in SENSITIVE_CMD_VALUE_PREFIXES if part.startswith(prefix)), None)
+        if matched_prefix:
+            redacted.append(f"{matched_prefix}<redacted>")
+        else:
+            redacted.append(part)
+    return redacted
+
+
 def run_json(cmd: list[str]) -> dict[str, Any]:
     result = subprocess.run(cmd, capture_output=True, text=True)
     payload: Any = None
@@ -174,7 +211,7 @@ def run_json(cmd: list[str]) -> dict[str, Any]:
         except json.JSONDecodeError:
             payload = None
     return {
-        "cmd": cmd,
+        "cmd": redact_cmd(cmd),
         "returncode": result.returncode,
         "stdout": stdout[-4000:],
         "stderr": result.stderr.strip()[-4000:],

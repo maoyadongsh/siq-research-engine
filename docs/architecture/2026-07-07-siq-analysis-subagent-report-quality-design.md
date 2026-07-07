@@ -376,6 +376,8 @@ data/wiki/companies/<company_id>/analysis/.work/<report_slug>/
 
 标杆检索必须保持提示词驱动：执行层只把用户任务提示、显式 benchmark hint、本地多市场 wiki 根目录和 Hermes web 工具约束写入 `research_subagent_prompts.json`，不在脚本层硬编码公司、市场或查询词。行业同业子智能体从提示词抽取对象后自行检索，并把海外公司标记为 `cross_market_reference`，不得纳入 A 股严格同业分位、`peer_count`、估值均值或中位数。
 
+运行审计必须以 `research_subagent_run_manifest.json` 为入口，记录 `started_at`、`completed_at`、`elapsed_ms`、pack 来源统计、fallback 次数、验证状态、失败/告警数量和 benchmark/prompt 的长度级指标。脚本命令字段只能保留脱敏后的参数值，不得明文写入 prompt、benchmark hint、token、password 或 secret。
+
 ### 8.2 报告流水线
 
 目标流水线：

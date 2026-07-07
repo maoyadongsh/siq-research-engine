@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -94,6 +95,43 @@ def dump_json(path: Path, data: Any) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+SENSITIVE_CMD_VALUE_FLAGS = {
+    "--api-key",
+    "--auth-token",
+    "--bearer",
+    "--benchmark-hint",
+    "--password",
+    "--research-benchmark-hint",
+    "--research-prompt",
+    "--research-subagent-prompt",
+    "--secret",
+    "--token",
+}
+
+SENSITIVE_CMD_VALUE_PREFIXES = tuple(f"{flag}=" for flag in sorted(SENSITIVE_CMD_VALUE_FLAGS))
+
+
+def redact_cmd(cmd: list[str]) -> list[str]:
+    redacted: list[str] = []
+    redact_next = False
+    for raw_part in cmd:
+        part = str(raw_part)
+        if redact_next:
+            redacted.append("<redacted>")
+            redact_next = False
+            continue
+        if part in SENSITIVE_CMD_VALUE_FLAGS:
+            redacted.append(part)
+            redact_next = True
+            continue
+        matched_prefix = next((prefix for prefix in SENSITIVE_CMD_VALUE_PREFIXES if part.startswith(prefix)), None)
+        if matched_prefix:
+            redacted.append(f"{matched_prefix}<redacted>")
+        else:
+            redacted.append(part)
+    return redacted
+
+
 def run_json(cmd: list[str]) -> dict[str, Any]:
     result = subprocess.run(cmd, capture_output=True, text=True)
     payload: Any = None
@@ -104,7 +142,7 @@ def run_json(cmd: list[str]) -> dict[str, Any]:
         except json.JSONDecodeError:
             payload = None
     return {
-        "cmd": cmd,
+        "cmd": redact_cmd(cmd),
         "returncode": result.returncode,
         "stdout": stdout[-4000:],
         "stderr": result.stderr.strip()[-4000:],
@@ -370,6 +408,68 @@ def build_pack_manifest(
     }
 
 
+def normalized_source_name(source: str) -> str:
+    if source.startswith("external:"):
+        return "external"
+    return source
+
+
+def count_values(values: list[str]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for value in values:
+        counts[value] = counts.get(value, 0) + 1
+    return counts
+
+
+def benchmark_context_metrics(prompt_bundle: dict[str, Any]) -> dict[str, int]:
+    context = prompt_bundle.get("benchmark_research_context")
+    if not isinstance(context, dict):
+        return {"benchmark_hint_count": 0, "search_root_count": 0, "research_prompt_chars": 0}
+    hints = context.get("benchmark_hints")
+    roots = context.get("search_roots")
+    prompt = context.get("research_prompt")
+    return {
+        "benchmark_hint_count": len(hints) if isinstance(hints, list) else 0,
+        "search_root_count": len(roots) if isinstance(roots, list) else 0,
+        "research_prompt_chars": len(prompt) if isinstance(prompt, str) else 0,
+    }
+
+
+def build_prompt_only_metrics(prompt_bundle: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "required_agent_count": len(REQUIRED_RESEARCH_AGENT_IDS),
+        "prompt_agent_count": len(prompt_bundle.get("agents", [])) if isinstance(prompt_bundle.get("agents"), list) else 0,
+        **benchmark_context_metrics(prompt_bundle),
+    }
+
+
+def build_run_metrics(
+    pack_manifest: dict[str, Any],
+    validation_payload: dict[str, Any],
+    failures: list[str],
+    warnings: list[str],
+    fallback_used_agent_ids: list[str],
+    prompt_bundle: dict[str, Any],
+) -> dict[str, Any]:
+    pack_sources = pack_manifest.get("pack_sources")
+    pack_sources = pack_sources if isinstance(pack_sources, dict) else {}
+    validation_metrics = validation_payload.get("metrics")
+    validation_metrics = validation_metrics if isinstance(validation_metrics, dict) else {}
+    return {
+        "required_agent_count": len(REQUIRED_RESEARCH_AGENT_IDS),
+        "present_required_agent_count": sum(1 for agent_id in REQUIRED_RESEARCH_AGENT_IDS if agent_id in pack_sources),
+        "pack_count": len(pack_sources),
+        "pack_source_counts": count_values([normalized_source_name(str(source)) for source in pack_sources.values()]),
+        "fallback_used_count": len(fallback_used_agent_ids),
+        "failure_count": len(failures),
+        "warning_count": len(warnings),
+        "missing_input_count": pack_manifest.get("missing_input_count", 0),
+        "validation_ok": bool(validation_payload.get("ok")) if validation_payload else False,
+        "validation_pack_count": validation_metrics.get("pack_count"),
+        **benchmark_context_metrics(prompt_bundle),
+    }
+
+
 def validate_packs(work_dir: Path) -> dict[str, Any]:
     return run_json([sys.executable, str(VALIDATE_RESEARCH_PACKS_SCRIPT), str(work_dir)])
 
@@ -403,6 +503,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    started_at = now_iso()
+    started_perf = time.perf_counter()
     args = parse_args(argv or sys.argv[1:])
     work_dir = args.work_dir
     output_dir = args.output_dir or work_dir / "research_packs"
@@ -429,15 +531,20 @@ def main(argv: list[str] | None = None) -> int:
     steps: dict[str, Any] = {}
 
     if args.mode == "prompt-only":
+        completed_at = now_iso()
         result = {
             "ok": True,
             "stage": "prompt_bundle_ready",
             "mode": args.mode,
+            "started_at": started_at,
+            "completed_at": completed_at,
+            "elapsed_ms": round((time.perf_counter() - started_perf) * 1000),
             "work_dir": str(work_dir),
             "research_packs_dir": str(output_dir),
             "prompt_bundle": str(prompt_bundle_path),
             "run_manifest": str(run_manifest_path),
             "required_research_agent_ids": REQUIRED_RESEARCH_AGENT_IDS,
+            "metrics": build_prompt_only_metrics(prompt_bundle),
             "benchmark_research_context": prompt_bundle.get("benchmark_research_context", {}),
             "next_action": "让 Hermes/LLM 子智能体按 prompt bundle 写入 research_packs 后，使用 external 或 hybrid 模式继续。",
         }
@@ -512,10 +619,14 @@ def main(argv: list[str] | None = None) -> int:
     if not validation_step["ok"] or not validation_payload.get("ok"):
         failures.append("research_pack_validation_failed")
 
+    completed_at = now_iso()
     result = {
         "ok": not failures,
         "stage": "completed" if not failures else "failed",
         "mode": args.mode,
+        "started_at": started_at,
+        "completed_at": completed_at,
+        "elapsed_ms": round((time.perf_counter() - started_perf) * 1000),
         "work_dir": str(work_dir),
         "research_packs_dir": str(output_dir),
         "manifest": str(manifest_path),
@@ -523,6 +634,14 @@ def main(argv: list[str] | None = None) -> int:
         "prompt_bundle": str(prompt_bundle_path),
         "pack_sources": pack_manifest.get("pack_sources", {}),
         "fallback_used_agent_ids": fallback_used_agent_ids,
+        "metrics": build_run_metrics(
+            pack_manifest,
+            validation_payload,
+            failures,
+            warnings,
+            fallback_used_agent_ids,
+            prompt_bundle,
+        ),
         "benchmark_research_context": prompt_bundle.get("benchmark_research_context", {}),
         "validation": validation_payload,
         "failures": failures,

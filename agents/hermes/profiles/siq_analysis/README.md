@@ -63,6 +63,8 @@ analysis/.work/<report_slug>/research_packs/*.json
 
 子智能体的额外标杆或外部检索应由任务提示词驱动，而不是在脚本中硬编码公司或查询词。可通过 `--research-subagent-prompt`、`--research-subagent-prompt-file` 或可重复的 `--research-benchmark-hint` 把用户意图传入 prompt bundle；`industry_peer_researcher` 再基于这些提示检索本地多市场 wiki 或 Hermes web 工具。
 
+`research_subagent_run_manifest.json` 是研究子智能体运行的排障入口，会记录 `started_at`、`completed_at`、`elapsed_ms`、pack 来源统计、fallback 次数、验证状态和失败/告警数量。脚本命令审计字段会对 prompt、benchmark hint、token、password 等敏感参数值脱敏；完整任务提示只保留在供子智能体消费的 prompt bundle 中。
+
 ## 输出产物
 
 分析报告通常写入：

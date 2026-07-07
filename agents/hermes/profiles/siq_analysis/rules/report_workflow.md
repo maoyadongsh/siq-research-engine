@@ -46,6 +46,8 @@
 
 额外标杆检索必须是提示词驱动：脚本只提供本地多市场 wiki 根目录、Hermes web 工具使用规则和可比性约束，不得在脚本层写死具体公司或查询词。海外标杆只能作为 `cross_market_reference`，不得混入 A 股严格同业分位、`peer_count`、估值均值或中位数。
 
+运行排障优先查看 `research_subagent_run_manifest.json`：其中必须保留开始/结束时间、耗时、pack 来源统计、fallback 次数、验证状态、失败/告警数量。命令审计字段不得明文记录 prompt、benchmark hint、token、password 等敏感参数值。
+
 ## 防覆盖规则
 
 默认情况下，最终渲染不会覆盖已有 `analysis/<stock>-<short>-<year>-analysis.md/.json/.html`。

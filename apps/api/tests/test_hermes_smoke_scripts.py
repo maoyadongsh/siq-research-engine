@@ -40,6 +40,19 @@ SECTION_IDS = [
 ]
 
 
+def _load_script_module(script_path: Path, module_name: str):
+    spec = importlib.util.spec_from_file_location(module_name, script_path)
+    assert spec and spec.loader
+    original_sys_path = sys.path.copy()
+    sys.path.insert(0, str(script_path.parent))
+    try:
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    finally:
+        sys.path[:] = original_sys_path
+    return module
+
+
 def _write_json(path: Path, payload) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -149,6 +162,38 @@ def test_write_smoke_env_file_aligns_client_and_gateway_tokens(tmp_path):
         "HERMES_TOKEN=token-123\n"
         "API_SERVER_KEY=token-123\n"
     )
+
+
+def test_siq_analysis_script_command_redaction_hides_prompt_values():
+    report_runner = _load_script_module(RUN_ANALYSIS_REPORT_SCRIPT, "siq_analysis_report_runner_for_redaction_test")
+    research_runner = _load_script_module(
+        RUN_RESEARCH_SUBAGENTS_SCRIPT,
+        "siq_analysis_research_runner_for_redaction_test",
+    )
+    cmd = [
+        sys.executable,
+        "runner.py",
+        "--research-subagent-prompt",
+        "private task prompt",
+        "--research-prompt=private downstream prompt",
+        "--research-benchmark-hint",
+        "private benchmark",
+        "--benchmark-hint=private downstream benchmark",
+        "--work-dir",
+        "/tmp/work",
+    ]
+
+    for runner in (report_runner, research_runner):
+        redacted = runner.redact_cmd(cmd)
+        assert "private task prompt" not in redacted
+        assert "--research-prompt=private downstream prompt" not in redacted
+        assert "private benchmark" not in redacted
+        assert "--benchmark-hint=private downstream benchmark" not in redacted
+        assert redacted[redacted.index("--research-subagent-prompt") + 1] == "<redacted>"
+        assert "--research-prompt=<redacted>" in redacted
+        assert redacted[redacted.index("--research-benchmark-hint") + 1] == "<redacted>"
+        assert "--benchmark-hint=<redacted>" in redacted
+        assert "/tmp/work" in redacted
 
 
 def test_prior_r1_agents_respects_fixed_sequence():
@@ -286,16 +331,25 @@ def test_siq_analysis_research_pack_runner_validates_and_merges_minimal_workdir(
 
     assert deterministic["ok"] is True
     assert deterministic["pack_sources"]["industry_peer_researcher"] == "deterministic"
+    assert deterministic["metrics"]["pack_count"] == 5
+    assert deterministic["metrics"]["pack_source_counts"]["deterministic"] == 5
+    assert deterministic["metrics"]["validation_ok"] is True
     assert validation["ok"] is True
     assert validation["metrics"]["pack_count"] == 5
     assert merged["ok"] is True
     assert len(merged["manifest"]["changed_sections"]) == 14
     assert prompt_only["ok"] is True
     assert prompt_only["stage"] == "prompt_bundle_ready"
+    assert prompt_only["started_at"]
+    assert prompt_only["completed_at"]
+    assert prompt_only["elapsed_ms"] >= 0
+    assert prompt_only["metrics"]["prompt_agent_count"] == 6
+    assert prompt_only["metrics"]["benchmark_hint_count"] == 2
     benchmark_context = prompt_only["benchmark_research_context"]
     assert benchmark_context["mode"] == "prompt_driven_query"
     assert "日本汽车标杆" in benchmark_context["research_prompt"]
     assert "韩国新能源汽车供应链" in benchmark_context["research_prompt"]
+    assert prompt_only["metrics"]["research_prompt_chars"] == len(benchmark_context["research_prompt"])
     assert benchmark_context["benchmark_hints"] == ["日本汽车标杆", "韩国新能源汽车供应链"]
     assert {root["market"] for root in benchmark_context["search_roots"]} >= {"A", "JP", "KR", "downloads"}
     assert any("不得在脚本层硬编码" in item for item in benchmark_context["query_policy"])
