@@ -48,6 +48,8 @@
 
 运行排障优先查看 `research_subagent_run_manifest.json`：其中必须保留开始/结束时间、耗时、pack 来源统计、fallback 次数、验证状态、失败/告警数量。命令审计字段不得明文记录 prompt、benchmark hint、token、password 等敏感参数值。
 
+`research_packs/*.json` 中 `key_findings[].confidence` 必须是 0 到 1 的数字。`confidence < 0.60` 的发现必须设置 `review_required=true`，只能作为待复核线索进入后续合成，不得直接晋升为确定性事实。
+
 ## 防覆盖规则
 
 默认情况下，最终渲染不会覆盖已有 `analysis/<stock>-<short>-<year>-analysis.md/.json/.html`。

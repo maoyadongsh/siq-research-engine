@@ -378,6 +378,8 @@ data/wiki/companies/<company_id>/analysis/.work/<report_slug>/
 
 运行审计必须以 `research_subagent_run_manifest.json` 为入口，记录 `started_at`、`completed_at`、`elapsed_ms`、pack 来源统计、fallback 次数、验证状态、失败/告警数量和 benchmark/prompt 的长度级指标。脚本命令字段只能保留脱敏后的参数值，不得明文写入 prompt、benchmark hint、token、password 或 secret。
 
+`research_packs` 的低置信发现必须被约束在复核链路中：`key_findings[].confidence` 只能是 0 到 1 的数字；`confidence < 0.60` 时必须设置 `review_required=true`，否则验证失败。中等置信但缺少 rationale/evidence 的发现只产生 warning，避免把探索性研究全部硬阻断。
+
 ### 8.2 报告流水线
 
 目标流水线：

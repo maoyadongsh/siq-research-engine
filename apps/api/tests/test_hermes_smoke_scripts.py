@@ -388,6 +388,55 @@ def test_siq_analysis_research_pack_runner_rejects_missing_prompt_file(tmp_path)
     assert "research prompt file unreadable" in result.stderr
 
 
+def test_siq_analysis_research_pack_validator_requires_review_for_low_confidence_findings(tmp_path):
+    work_dir = tmp_path / "analysis" / ".work" / "test-report"
+    pack_path = work_dir / "research_packs" / "financial_modeler.json"
+    pack = {
+        "schema_version": "1.0",
+        "agent_id": "financial_modeler",
+        "company_id": "test-co",
+        "report_year": 2025,
+        "generated_at": "2026-07-07T00:00:00+08:00",
+        "input_files": [],
+        "coverage": {},
+        "key_findings": [
+            {
+                "section_ids": ["profitability_and_cost"],
+                "claim": "低置信发现只能进入复核链路。",
+                "confidence": 0.52,
+                "rationale": "external source still pending",
+            }
+        ],
+        "evidence_facts": [],
+        "calculations": [],
+        "risk_chains": [],
+        "tracking_signals": [],
+        "external_sources": [],
+        "missing_inputs": [],
+        "review_required": False,
+        "prohibited_content_hits": [],
+    }
+    _write_json(pack_path, pack)
+
+    blocked_result = subprocess.run(
+        [sys.executable, str(VALIDATE_RESEARCH_PACKS_SCRIPT), str(work_dir), "--allow-partial", "--compact"],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    blocked = json.loads(blocked_result.stdout)
+
+    assert blocked_result.returncode == 2
+    assert blocked["ok"] is False
+    assert any("key_finding_low_confidence_requires_review" in item for item in blocked["failures"])
+
+    pack["review_required"] = True
+    _write_json(pack_path, pack)
+    allowed = _run_json([sys.executable, str(VALIDATE_RESEARCH_PACKS_SCRIPT), str(work_dir), "--allow-partial", "--compact"])
+
+    assert allowed["ok"] is True
+
+
 def test_siq_analysis_report_runner_uses_research_subagent_runner_for_modes():
     source = RUN_ANALYSIS_REPORT_SCRIPT.read_text(encoding="utf-8")
 

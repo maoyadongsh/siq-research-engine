@@ -146,7 +146,16 @@ def item_path(path: Path, field: str, index: int, subfield: str | None = None) -
     return f"{path.name}:{suffix}"
 
 
-def validate_key_findings(path: Path, data: dict[str, Any], failures: list[str]) -> None:
+def parse_confidence(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    confidence = float(value)
+    if not 0 <= confidence <= 1:
+        return None
+    return confidence
+
+
+def validate_key_findings(path: Path, data: dict[str, Any], failures: list[str], warnings: list[str]) -> None:
     findings = data.get("key_findings")
     if not isinstance(findings, list):
         return
@@ -161,6 +170,17 @@ def validate_key_findings(path: Path, data: dict[str, Any], failures: list[str])
             failures.append(f"key_finding_missing_claim:{item_path(path, 'key_findings', index)}")
         if "confidence" not in item or not is_present(item.get("confidence")):
             failures.append(f"key_finding_missing_confidence:{item_path(path, 'key_findings', index)}")
+            continue
+        confidence = parse_confidence(item.get("confidence"))
+        if confidence is None:
+            failures.append(f"key_finding_invalid_confidence:{item_path(path, 'key_findings', index)}")
+            continue
+        if confidence < 0.60 and data.get("review_required") is not True:
+            failures.append(f"key_finding_low_confidence_requires_review:{item_path(path, 'key_findings', index)}")
+        evidence_refs = item.get("evidence_refs")
+        has_evidence_refs = isinstance(evidence_refs, list) and bool(evidence_refs)
+        if confidence < 0.75 and not has_evidence_refs and not is_present(item.get("rationale")):
+            warnings.append(f"key_finding_medium_confidence_without_rationale_or_evidence:{item_path(path, 'key_findings', index)}")
 
 
 def validate_calculations(path: Path, data: dict[str, Any], failures: list[str]) -> None:
@@ -222,7 +242,7 @@ def validate_pack(path: Path) -> dict[str, Any]:
     if "review_required" in data and not isinstance(data.get("review_required"), bool):
         failures.append(f"review_required_not_boolean:{path.name}")
 
-    validate_key_findings(path, data, failures)
+    validate_key_findings(path, data, failures, warnings)
     validate_calculations(path, data, failures)
 
     prohibited_hits = data.get("prohibited_content_hits")
