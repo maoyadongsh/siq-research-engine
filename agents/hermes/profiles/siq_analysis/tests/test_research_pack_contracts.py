@@ -130,3 +130,53 @@ def test_merge_research_packs_preserves_fact_status_metadata(tmp_path):
     assert any(item.get("fact_status") == "verified_fact" for item in metadata)
     assert any(item.get("fact_status") == "modeled_estimate" and item.get("review_required") is True for item in metadata)
     assert merged["sections"][0]["review_required"] is True
+
+
+def test_merge_research_packs_does_not_truncate_visible_text(tmp_path):
+    long_claim = "收入规模目标值 6461.52亿元，同业中位 1640.00亿元，约处于 85.71% 分位；" * 8
+    peer_output = {
+        "operating_revenue_yi": {"target_value": 6461.52, "target_percentile": 85.71, "median": 1640.0, "sample_count": 7},
+        "operating_revenue_yoy_pct": {"target_value": 5.22, "target_percentile": 50.0, "median": -0.04, "sample_count": 6},
+        "gross_margin_pct": {"target_value": 10.09, "target_percentile": 28.57, "median": 15.54, "sample_count": 7},
+        "parent_net_profit_yi": {"target_value": 101.06, "target_percentile": 85.71, "median": 40.75, "sample_count": 7},
+    }
+    pack = _pack(
+        agent_id="industry_peer_researcher",
+        key_findings=[
+            {
+                "section_ids": ["industry_competition"],
+                "claim": long_claim,
+                "confidence": 0.88,
+                "fact_status": "modeled_estimate",
+                "review_required": True,
+                "evidence_refs": [{"source_file": "evidence.md", "md_line": 1}],
+            }
+        ],
+        calculations=[
+            {
+                "section_ids": ["industry_competition"],
+                "name": "peer_metrics_aggregates",
+                "formula": "peer metrics aggregate output",
+                "inputs": {"peer_count": 7},
+                "output": peer_output,
+                "confidence": 0.85,
+                "fact_status": "modeled_estimate",
+                "review_required": True,
+                "evidence_refs": [{"source_file": "evidence.md", "md_line": 1}],
+            }
+        ],
+    )
+    work_dir = _write_work_dir(tmp_path, pack)
+    section_drafts = work_dir / "section_drafts.json"
+    section_drafts.write_text(
+        json.dumps({"sections": [{"section_id": "industry_competition", "narrative_blocks": [], "judgements": []}]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    result = merge_research_packs(work_dir, section_drafts)
+    merged = json.loads(section_drafts.read_text(encoding="utf-8"))
+    rendered_items = [item for block in merged["sections"][0]["narrative_blocks"] for item in block.get("items", [])]
+
+    assert result["ok"] is True
+    assert not any("..." in item or "…" in item for item in rendered_items)
+    assert any("归母净利润" in item for item in rendered_items)

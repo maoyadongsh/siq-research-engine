@@ -123,11 +123,16 @@ def load_packs(research_packs_dir: Path) -> list[dict[str, Any]]:
     return packs
 
 
-def clean_text(value: Any, limit: int = 220) -> str:
+def clean_text(value: Any, limit: int | None = 220) -> str:
     text = " ".join(str(value or "").split())
-    if len(text) <= limit:
+    if limit is None or len(text) <= limit:
         return text
     return text[: limit - 1].rstrip() + "..."
+
+
+def visible_text(value: Any) -> str:
+    """Normalize visible report text without adding artificial ellipses."""
+    return clean_text(value, None)
 
 
 KNOWN_SECTION_IDS = set(SECTION_BLOCK_TITLES)
@@ -144,9 +149,7 @@ def compress_for_synthesis(text: str, limit: int = 180) -> str:
     clean = re.sub(r"；证据：[^（]+", "", clean)
     clean = re.sub(r"（来源：[^）]+）", "", clean)
     clean = " ".join(clean.split())
-    if len(clean) <= limit:
-        return clean
-    return clean[: limit - 1].rstrip("，。；; ") + "..."
+    return clean
 
 
 def as_list(value: Any) -> list[Any]:
@@ -275,7 +278,7 @@ def fact_source_label(item: dict[str, Any]) -> str:
 
 
 def format_fact(item: dict[str, Any], agent_id: str) -> str:
-    fact = clean_text(item.get("fact"), 260)
+    fact = visible_text(item.get("fact"))
     if not fact:
         return ""
     return f"{fact_source_label(item)}{fact}{evidence_refs_summary(item)}（来源：{agent_id}）"
@@ -369,10 +372,9 @@ def summarize_output(output: Any) -> str:
         if parts:
             return "；".join(parts[:5])
         compact = json.dumps(output, ensure_ascii=False, sort_keys=True)
-        return clean_text(compact, 320)
+        return visible_text(compact)
     if isinstance(output, list):
-        compact = "；".join(clean_text(item, 80) for item in output[:4])
-        return clean_text(compact, 260)
+        return "；".join(visible_text(item) for item in output[:4])
     return fmt_number(output)
 
 
@@ -388,23 +390,23 @@ def format_calculation(item: dict[str, Any], agent_id: str) -> str:
 
 
 def format_risk_chain(item: dict[str, Any], agent_id: str) -> str:
-    chain = [clean_text(value, 140) for value in as_list(item.get("chain")) if clean_text(value, 140)]
+    chain = [visible_text(value) for value in as_list(item.get("chain")) if visible_text(value)]
     if not chain:
         return ""
     severity = clean_text(item.get("severity"), 40) or "unknown"
     text = " -> ".join(chain[:5])
-    counters = [clean_text(value, 120) for value in as_list(item.get("counter_signals")) if clean_text(value, 120)]
+    counters = [visible_text(value) for value in as_list(item.get("counter_signals")) if visible_text(value)]
     counter_text = f"；反证/缓释：{'；'.join(counters[:2])}" if counters else ""
     return f"【风险链】{severity}：{text}{counter_text}{evidence_refs_summary(item)}（来源：{agent_id}）"
 
 
 def format_tracking_signal(item: dict[str, Any], agent_id: str) -> str:
-    signal = clean_text(item.get("signal"), 180)
+    signal = visible_text(item.get("signal"))
     if not signal:
         return ""
     direction = clean_text(item.get("direction"), 40)
-    why = clean_text(item.get("why_it_matters"), 120)
-    source_hint = clean_text(item.get("source_hint"), 90)
+    why = visible_text(item.get("why_it_matters"))
+    source_hint = visible_text(item.get("source_hint"))
     parts = [signal]
     if direction:
         parts.append(f"方向={direction}")
@@ -458,7 +460,7 @@ def collect_findings_by_section(packs: list[dict[str, Any]]) -> dict[str, list[d
         for finding in pack.get("key_findings", []) or []:
             if not isinstance(finding, dict):
                 continue
-            claim = clean_text(finding.get("claim"))
+            claim = visible_text(finding.get("claim"))
             if not claim:
                 continue
             section_ids = finding.get("section_ids")
@@ -503,7 +505,7 @@ def append_by_section(
     agent_id: str,
     metadata: dict[str, Any] | None = None,
 ) -> None:
-    text = clean_text(item, 420)
+    text = visible_text(item)
     if not text:
         return
     payload: dict[str, Any] = {"agent_id": agent_id, "text": text}
@@ -558,7 +560,7 @@ def dedupe(items: list[str], limit: int) -> list[str]:
     seen: set[str] = set()
     result: list[str] = []
     for item in items:
-        text = clean_text(item)
+        text = visible_text(item)
         if not text or text in seen:
             continue
         seen.add(text)
@@ -596,7 +598,7 @@ def dedupe_entries(items: list[dict[str, Any]], text_key: str, limit: int) -> li
     seen: set[str] = set()
     result: list[dict[str, Any]] = []
     for item in items:
-        text = clean_text(item.get(text_key), 420)
+        text = visible_text(item.get(text_key))
         if not text or text in seen:
             continue
         seen.add(text)
@@ -658,7 +660,7 @@ def build_research_synthesis_items(
             pieces.append(f"后续验证信号是：{tracking_signal}")
         items.append("；".join(pieces).rstrip("。") + "。")
 
-    return dedupe([clean_text(item, 520) for item in items], 3)
+    return dedupe([visible_text(item) for item in items], 3)
 
 
 def append_block(
