@@ -7,6 +7,7 @@ import hmac
 import hashlib
 import ipaddress
 import json
+import logging
 import os
 import re
 import shutil
@@ -93,17 +94,69 @@ WORKER_AUTOSTART = os.environ.get("SIQ_DOCUMENT_PARSE_WORKER_AUTOSTART", "true")
 SUPPORTED_MARKET_SCOPES = {"CN", "HK", "US", "EU", "KR", "JP", "DOC"}
 ADMIN_ROLES = {"admin", "super_admin", "system"}
 SCOPE_VALUE_RE = re.compile(r"[^A-Za-z0-9_.@:-]+")
+PROFILE_ENV_NAMES = ("SIQ_DEPLOYMENT_PROFILE", "SIQ_ENV", "APP_ENV", "ENVIRONMENT", "FLASK_ENV")
+TOKEN_REQUIRED_PROFILES = {"prod", "production", "docker"}
+LOCAL_DEV_PROFILES = {"local", "dev", "development"}
+LOGGER = logging.getLogger(__name__)
+_local_no_token_warning_logged = False
+
+
+def _profile_values() -> list[str]:
+    return [os.environ.get(name, "").strip().lower() for name in PROFILE_ENV_NAMES if os.environ.get(name, "").strip()]
+
+
+def _token_required_profile_enabled() -> bool:
+    return any(value in TOKEN_REQUIRED_PROFILES for value in _profile_values())
+
+
+def _explicit_local_dev_profile_enabled() -> bool:
+    values = _profile_values()
+    return bool(values) and any(value in LOCAL_DEV_PROFILES for value in values)
 
 
 def _production_profile_enabled() -> bool:
-    for name in ("SIQ_DEPLOYMENT_PROFILE", "SIQ_ENV", "APP_ENV", "ENVIRONMENT", "FLASK_ENV"):
-        if os.environ.get(name, "").strip().lower() in {"prod", "production"}:
-            return True
+    return _token_required_profile_enabled()
+
+
+def _log_local_no_token_warning_once() -> None:
+    global _local_no_token_warning_logged
+    if _local_no_token_warning_logged:
+        return
+    _local_no_token_warning_logged = True
+    LOGGER.warning(
+        "Document parser internal token is not configured because an explicit local/dev profile is active; "
+        "X-SIQ identity headers will be ignored unless a valid token is provided."
+    )
+
+
+def _configured_access_token(access_token: str | None = None) -> str:
+    return APP_ACCESS_TOKEN if access_token is None else str(access_token or "").strip()
+
+
+def _request_has_valid_token(access_token: str | None = None) -> bool:
+    access_token = _configured_access_token(access_token)
+    if not access_token:
+        return False
+    provided = request.headers.get("X-Document-Parser-Token", "")
+    return hmac.compare_digest(provided, access_token)
+
+
+def _request_is_authorized(access_token: str | None = None) -> bool:
+    access_token = _configured_access_token(access_token)
+    if _request_has_valid_token(access_token):
+        return True
+    if access_token or _token_required_profile_enabled():
+        return False
+    if _explicit_local_dev_profile_enabled():
+        _log_local_no_token_warning_once()
+        return True
     return False
 
 
 if _production_profile_enabled() and not APP_ACCESS_TOKEN:
-    raise RuntimeError("SIQ_DOCUMENT_PARSER_ACCESS_TOKEN is required in production profile.")
+    raise RuntimeError("SIQ_DOCUMENT_PARSER_ACCESS_TOKEN is required in production/docker profile.")
+if not APP_ACCESS_TOKEN and _explicit_local_dev_profile_enabled():
+    _log_local_no_token_warning_once()
 
 for folder in (UPLOAD_FOLDER, RESULTS_FOLDER, OUTPUT_FOLDER, LOG_DIR, CACHE_DIR, DB_PATH.parent):
     folder.mkdir(parents=True, exist_ok=True)
@@ -120,12 +173,9 @@ store.requeue_interrupted_tasks()
 @app.before_request
 def require_access_token():
     ensure_worker_started()
-    if not APP_ACCESS_TOKEN:
-        return None
     if request.path == "/api/health":
         return None
-    provided = request.headers.get("X-Document-Parser-Token", "")
-    if not hmac.compare_digest(provided, APP_ACCESS_TOKEN):
+    if not _request_is_authorized(APP_ACCESS_TOKEN):
         return jsonify({"error": "unauthorized"}), 401
     return None
 
@@ -150,25 +200,38 @@ def _clean_scope_value(value: object, default: str) -> str:
 
 
 def _request_owner_scope(default_market: object = None) -> dict:
-    owner_header = request.headers.get("X-SIQ-User-Id")
-    role = _clean_scope_value(request.headers.get("X-SIQ-User-Role"), "")
+    identity_headers_trusted = _request_has_valid_token(APP_ACCESS_TOKEN)
+    owner_header = request.headers.get("X-SIQ-User-Id") if identity_headers_trusted else None
+    role = _clean_scope_value(request.headers.get("X-SIQ-User-Role"), "") if identity_headers_trusted else ""
+    tenant_header = None
+    if identity_headers_trusted:
+        tenant_header = (
+            request.headers.get("X-SIQ-Tenant-Id")
+            or request.headers.get("X-SIQ-Tenant-ID")
+            or request.headers.get("X-SIQ-Workspace-Id")
+            or request.headers.get("X-SIQ-Workspace-ID")
+        )
     market_scope = (
-        _normalize_market_scope(request.headers.get("X-SIQ-Market-Scope"))
+        (_normalize_market_scope(request.headers.get("X-SIQ-Market-Scope")) if identity_headers_trusted else "")
         or _normalize_market_scope(default_market)
         or DEFAULT_MARKET_SCOPE
     )
+    allow_legacy_task = False
+    if identity_headers_trusted:
+        allow_legacy_task = str(request.headers.get("X-SIQ-Allow-Legacy-Task") or "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
     return {
         "owner_id": _clean_scope_value(owner_header, DEFAULT_OWNER_ID),
-        "tenant_id": _clean_scope_value(
-            request.headers.get("X-SIQ-Tenant-Id") or request.headers.get("X-SIQ-Tenant-ID"),
-            DEFAULT_TENANT_ID,
-        ),
+        "tenant_id": _clean_scope_value(tenant_header, DEFAULT_TENANT_ID),
         "market_scope": market_scope,
         "user_role": role,
         "is_admin": role.lower() in ADMIN_ROLES,
         "is_legacy_request": not bool(str(owner_header or "").strip()),
-        "allow_legacy_task": str(request.headers.get("X-SIQ-Allow-Legacy-Task") or "").strip().lower()
-        in {"1", "true", "yes", "on"},
+        "allow_legacy_task": allow_legacy_task,
     }
 
 

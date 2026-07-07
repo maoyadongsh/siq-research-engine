@@ -262,6 +262,9 @@ def test_quality_gates_review_unverified_web_source_for_canonical(tmp_path):
     assert gates["official_evidence_allowed"] is False
     assert gates["decisions_by_target"]["canonical"]["decision"] == "review"
     assert gates["decisions_by_target"]["retrieval"]["decision"] == "review"
+    assert gates["import_blocked"] is True
+    assert gates["vector_ingest_blocked"] is True
+    assert gates["force_allowed"] is True
     assert "package.source.unverified_for_official_evidence" in gates["soft_gate_rule_ids"]
 
 
@@ -301,6 +304,9 @@ def test_quality_gates_block_official_regulator_claim_outside_allowlist(tmp_path
     assert gates["overall_status"] == "fail"
     assert gates["decisions_by_target"]["canonical"]["decision"] == "block"
     assert gates["decisions_by_target"]["retrieval"]["decision"] == "block"
+    assert gates["import_blocked"] is True
+    assert gates["vector_ingest_blocked"] is True
+    assert gates["force_allowed"] is False
     assert "package.source.official_regulator_unverified" in gates["hard_gate_rule_ids"]
 
 
@@ -320,6 +326,9 @@ def test_validate_rejects_missing_evidence(tmp_path):
     assert not result.ok
     assert any("missing evidence" in error for error in result.errors)
     assert gates["decisions_by_target"]["canonical"]["decision"] == "block"
+    assert gates["import_blocked"] is True
+    assert gates["vector_ingest_blocked"] is True
+    assert gates["force_allowed"] is False
     assert "package.evidence.missing" in gates["hard_gate_rule_ids"]
 
 
@@ -444,6 +453,7 @@ def test_quality_gates_fail_on_artifact_hash_mismatch(tmp_path):
     assert gates["overall_status"] == "fail"
     assert gates["artifact_hash_status"] == "mismatch"
     assert gates["import_blocked"] is True
+    assert gates["vector_ingest_blocked"] is True
     assert gates["force_allowed"] is False
     assert gates["decisions_by_target"]["draft"]["decision"] == "allow"
     assert gates["decisions_by_target"]["canonical"]["decision"] == "block"

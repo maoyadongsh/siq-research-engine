@@ -5,6 +5,7 @@ from __future__ import annotations
 import hmac
 import hashlib
 import json
+import logging
 import os
 import re
 
@@ -21,17 +22,76 @@ DEFAULT_TENANT_ID = "unknown"
 DEFAULT_MARKET_SCOPE = "unknown"
 ADMIN_ROLES = {"admin", "super_admin", "system"}
 SCOPE_VALUE_RE = re.compile(r"[^A-Za-z0-9_.@:-]+")
+PROFILE_ENV_NAMES = ("SIQ_DEPLOYMENT_PROFILE", "SIQ_ENV", "APP_ENV", "ENVIRONMENT", "FLASK_ENV")
+TOKEN_REQUIRED_PROFILES = {"prod", "production", "docker"}
+LOCAL_DEV_PROFILES = {"local", "dev", "development"}
+LOGGER = logging.getLogger(__name__)
+_local_no_token_warning_logged = False
+
+
+def _profile_values():
+    return [os.environ.get(name, "").strip().lower() for name in PROFILE_ENV_NAMES if os.environ.get(name, "").strip()]
+
+
+def _token_required_profile_enabled():
+    return any(value in TOKEN_REQUIRED_PROFILES for value in _profile_values())
+
+
+def _explicit_local_dev_profile_enabled():
+    values = _profile_values()
+    return bool(values) and any(value in LOCAL_DEV_PROFILES for value in values)
 
 
 def _production_profile_enabled():
-    for name in ("SIQ_DEPLOYMENT_PROFILE", "SIQ_ENV", "APP_ENV", "ENVIRONMENT", "FLASK_ENV"):
-        if os.environ.get(name, "").strip().lower() in {"prod", "production"}:
-            return True
+    return _token_required_profile_enabled()
+
+
+def _log_local_no_token_warning_once():
+    global _local_no_token_warning_logged
+    if _local_no_token_warning_logged:
+        return
+    _local_no_token_warning_logged = True
+    LOGGER.warning(
+        "PDF parser internal token is not configured because an explicit local/dev profile is active; "
+        "X-SIQ identity headers will be ignored unless a valid token is provided."
+    )
+
+
+def _configured_access_token(access_token=None):
+    return APP_ACCESS_TOKEN if access_token is None else str(access_token or "").strip()
+
+
+def _request_token_value():
+    return (
+        request.headers.get("X-PDF2MD-Token")
+        or request.args.get("token")
+        or request.cookies.get("pdf2md_token")
+    )
+
+
+def _request_has_valid_token(access_token=None):
+    access_token = _configured_access_token(access_token)
+    if not access_token:
+        return False
+    return hmac.compare_digest(str(_request_token_value() or ""), access_token)
+
+
+def _request_is_authorized(access_token=None):
+    access_token = _configured_access_token(access_token)
+    if _request_has_valid_token(access_token):
+        return True
+    if access_token or _token_required_profile_enabled():
+        return False
+    if _explicit_local_dev_profile_enabled():
+        _log_local_no_token_warning_once()
+        return True
     return False
 
 
 if _production_profile_enabled() and not APP_ACCESS_TOKEN:
-    raise RuntimeError("PDF2MD_ACCESS_TOKEN is required in production profile.")
+    raise RuntimeError("PDF2MD_ACCESS_TOKEN is required in production/docker profile.")
+if not APP_ACCESS_TOKEN and _explicit_local_dev_profile_enabled():
+    _log_local_no_token_warning_once()
 
 
 def _safe_client_filename(filename):
@@ -126,19 +186,33 @@ def _clean_scope_value(value, default):
 
 
 def _request_owner_scope(default_market=None):
-    owner_header = request.headers.get("X-SIQ-User-Id")
-    role = _clean_scope_value(request.headers.get("X-SIQ-User-Role"), "")
-    tenant = _clean_scope_value(
-        request.headers.get("X-SIQ-Tenant-Id") or request.headers.get("X-SIQ-Tenant-ID"),
-        DEFAULT_TENANT_ID,
-    )
+    identity_headers_trusted = _request_has_valid_token(APP_ACCESS_TOKEN)
+    owner_header = request.headers.get("X-SIQ-User-Id") if identity_headers_trusted else None
+    role = _clean_scope_value(request.headers.get("X-SIQ-User-Role"), "") if identity_headers_trusted else ""
+    tenant_header = None
+    if identity_headers_trusted:
+        tenant_header = (
+            request.headers.get("X-SIQ-Tenant-Id")
+            or request.headers.get("X-SIQ-Tenant-ID")
+            or request.headers.get("X-SIQ-Workspace-Id")
+            or request.headers.get("X-SIQ-Workspace-ID")
+        )
+    tenant = _clean_scope_value(tenant_header, DEFAULT_TENANT_ID)
     market = (
-        _normalize_market(request.headers.get("X-SIQ-Market-Scope"))
+        (_normalize_market(request.headers.get("X-SIQ-Market-Scope")) if identity_headers_trusted else None)
         or _normalize_market(default_market)
         or DEFAULT_MARKET_SCOPE
     )
     owner = _clean_scope_value(owner_header, DEFAULT_OWNER_ID)
     role_lower = role.lower()
+    allow_legacy_task = False
+    if identity_headers_trusted:
+        allow_legacy_task = str(request.headers.get("X-SIQ-Allow-Legacy-Task") or "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
     return {
         "owner_id": owner,
         "tenant_id": tenant,
@@ -146,8 +220,7 @@ def _request_owner_scope(default_market=None):
         "user_role": role,
         "is_admin": role_lower in ADMIN_ROLES,
         "is_legacy_request": not bool(str(owner_header or "").strip()),
-        "allow_legacy_task": str(request.headers.get("X-SIQ-Allow-Legacy-Task") or "").strip().lower()
-        in {"1", "true", "yes", "on"},
+        "allow_legacy_task": allow_legacy_task,
     }
 
 
@@ -204,18 +277,6 @@ def _safe_task_id(value):
     if any(char in task_id for char in "/\\") or task_id in {".", ".."} or len(task_id) > 120:
         raise ValueError("invalid task_id")
     return task_id
-
-
-def _request_has_valid_token(access_token=None):
-    access_token = APP_ACCESS_TOKEN if access_token is None else str(access_token or "").strip()
-    if not access_token:
-        return True
-    token = (
-        request.headers.get("X-PDF2MD-Token")
-        or request.args.get("token")
-        or request.cookies.get("pdf2md_token")
-    )
-    return hmac.compare_digest(str(token or ""), access_token)
 
 
 def _format_duration(seconds):

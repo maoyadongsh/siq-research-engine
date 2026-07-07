@@ -1,6 +1,7 @@
 import asyncio
 import json
 import hashlib
+import logging
 import os
 import re
 import subprocess
@@ -57,6 +58,7 @@ from services import market_package_repository as market_packages
 
 
 router = APIRouter(tags=["market-reports"])
+logger = logging.getLogger(__name__)
 US_SEC_UPLOAD_SUFFIXES = {".pdf", ".html", ".htm", ".xhtml", ".xml", ".xbrl", ".zip"}
 
 
@@ -176,6 +178,175 @@ def _payload_force_enabled(payload: dict[str, Any]) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+_FORCE_REASON_KEYS = ("force_reason", "reason", "override_reason")
+_FORCE_OPERATOR_KEYS = (
+    "force_operator",
+    "force_operator_id",
+    "operator",
+    "operator_id",
+    "user",
+    "user_id",
+    "username",
+    "requested_by",
+)
+_FORCE_TICKET_KEYS = (
+    "force_ticket",
+    "ticket",
+    "change_id",
+    "change_request",
+    "approval_id",
+)
+_FORCE_EXPIRES_KEYS = ("force_expires_at", "expires_at", "expiry", "expires")
+_FORCE_ONE_SHOT_KEYS = (
+    "force_one_shot",
+    "one_shot",
+    "one_time",
+    "one_time_use",
+    "one_shot_id",
+)
+
+
+def _force_audit_sources(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    sources = [payload]
+    for key in ("force_audit", "audit", "override"):
+        value = payload.get(key)
+        if isinstance(value, dict):
+            sources.append(value)
+    return sources
+
+
+def _force_audit_text(payload: dict[str, Any], keys: tuple[str, ...]) -> str | None:
+    for source in _force_audit_sources(payload):
+        for key in keys:
+            value = source.get(key)
+            if value is None:
+                continue
+            text = str(value).strip()
+            if text:
+                return text
+    return None
+
+
+def _force_one_shot_marker(payload: dict[str, Any]) -> str | None:
+    false_values = {"0", "false", "no", "off", "none", "null"}
+    for source in _force_audit_sources(payload):
+        for key in _FORCE_ONE_SHOT_KEYS:
+            if key not in source:
+                continue
+            value = source.get(key)
+            if isinstance(value, bool):
+                if value:
+                    return "true"
+                continue
+            text = str(value or "").strip()
+            if text and text.lower() not in false_values:
+                return text
+    return None
+
+
+def _redact_audit_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = str(value)
+    text = re.sub(r"(?i)(password|passwd|secret|token|api[_-]?key)=\S+", r"\1=[redacted]", text)
+    text = re.sub(r"://([^/\s:@]+):([^/\s@]+)@", "://[redacted]@", text)
+    return text[:256]
+
+
+def _validate_force_audit(payload: dict[str, Any]) -> dict[str, str | None]:
+    reason = _force_audit_text(payload, _FORCE_REASON_KEYS)
+    operator = _force_audit_text(payload, _FORCE_OPERATOR_KEYS)
+    ticket = _force_audit_text(payload, _FORCE_TICKET_KEYS)
+    expires_at = _force_audit_text(payload, _FORCE_EXPIRES_KEYS)
+    one_shot = _force_one_shot_marker(payload)
+
+    missing: list[str] = []
+    invalid: list[str] = []
+    if not reason:
+        missing.append("reason")
+    if not operator:
+        missing.append("operator")
+    if not ticket:
+        missing.append("ticket_or_change_id")
+    if not expires_at and not one_shot:
+        missing.append("expires_at_or_one_shot")
+    if expires_at:
+        try:
+            expires = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+            if expires.tzinfo is None:
+                expires = expires.replace(tzinfo=timezone.utc)
+        except ValueError:
+            invalid.append("expires_at")
+        else:
+            if expires <= datetime.now(timezone.utc):
+                invalid.append("expires_at")
+
+    if missing or invalid:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": (
+                    "force=true requires audit fields: reason, operator/user id, "
+                    "ticket/change id, and expires_at or one_shot."
+                ),
+                "missing_fields": missing,
+                "invalid_fields": invalid,
+            },
+        )
+
+    return {
+        "reason": reason,
+        "operator": operator,
+        "ticket": ticket,
+        "expires_at": expires_at,
+        "one_shot": one_shot,
+    }
+
+
+def _payload_with_force_operator(payload: dict[str, Any], user: User | None) -> dict[str, Any]:
+    if not _payload_force_enabled(payload) or user is None:
+        return payload
+    if _force_audit_text(payload, _FORCE_OPERATOR_KEYS):
+        return payload
+
+    audit = dict(payload.get("force_audit")) if isinstance(payload.get("force_audit"), dict) else {}
+    user_id = getattr(user, "id", None)
+    username = getattr(user, "username", None) or getattr(user, "email", None)
+    if user_id is not None:
+        audit["operator_id"] = str(user_id)
+    if username:
+        audit["operator"] = str(username)
+    return {**payload, "force_audit": audit}
+
+
+def _log_force_audit(
+    *,
+    action: str,
+    package_dir: Path,
+    gates: dict[str, Any],
+    audit: dict[str, str | None],
+    blocked: bool,
+) -> None:
+    logger.info(
+        (
+            "market package force requested action=%s package=%s operator=%s ticket=%s "
+            "reason=%s expires_at=%s one_shot=%s blocked=%s force_allowed=%s "
+            "hard_gate_rule_ids=%s soft_gate_rule_ids=%s"
+        ),
+        action,
+        _redact_audit_text(_rel_or_abs(package_dir)),
+        _redact_audit_text(audit.get("operator")),
+        _redact_audit_text(audit.get("ticket")),
+        _redact_audit_text(audit.get("reason")),
+        _redact_audit_text(audit.get("expires_at")),
+        _redact_audit_text(audit.get("one_shot")),
+        blocked,
+        bool(gates.get("force_allowed")),
+        gates.get("hard_gate_rule_ids") or [],
+        gates.get("soft_gate_rule_ids") or [],
+    )
+
+
 def _enforce_market_package_quality_gate(
     *,
     package_dir: Path,
@@ -184,14 +355,47 @@ def _enforce_market_package_quality_gate(
 ) -> None:
     gates = _quality_gates_for_package(package_dir)
     blocked_key = "vector_ingest_blocked" if action == "vector_ingest" else "import_blocked"
-    if not gates.get(blocked_key):
+    blocked = bool(gates.get(blocked_key))
+    force_enabled = _payload_force_enabled(payload)
+    if force_enabled:
+        audit = _validate_force_audit(payload)
+        _log_force_audit(
+            action=action,
+            package_dir=package_dir,
+            gates=gates,
+            audit=audit,
+            blocked=blocked,
+        )
+    if not blocked:
         return
-    if _payload_force_enabled(payload):
+    if force_enabled and gates.get("force_allowed") is True:
         return
+    if force_enabled:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": (
+                    "Quality gates contain hard blocks; force=true cannot run formal "
+                    f"{action} and is limited to review/quarantine material."
+                ),
+                "action": action,
+                "quality_gates": gates,
+            },
+        )
+    if gates.get("force_allowed") is True:
+        message = (
+            "Quality gates block this action; force=true with required audit fields "
+            "can request a soft-gate exception."
+        )
+    else:
+        message = (
+            "Quality gates contain hard blocks; fix the package or keep it in "
+            "review/quarantine material before formal import or vector ingest."
+        )
     raise HTTPException(
         status_code=409,
         detail={
-            "message": "Quality gates block this action; retry with force=true to override.",
+            "message": message,
             "action": action,
             "quality_gates": gates,
         },
@@ -1203,6 +1407,7 @@ async def import_market_package(
         payload = {}
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="JSON object payload is required")
+    payload = _payload_with_force_operator(payload, _ops_user)
     if wait:
         return _run_market_package_import(payload)
     return _queue_market_report_job(
@@ -1224,6 +1429,7 @@ async def vector_ingest_market_package(
         payload = {}
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="JSON object payload is required")
+    payload = _payload_with_force_operator(payload, _ops_user)
     if wait:
         return _run_market_vector_ingest(payload)
     return _queue_market_report_job(

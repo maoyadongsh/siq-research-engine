@@ -63,6 +63,7 @@ except ModuleNotFoundError:
 import app
 import pdf_parser_document_full_service as document_full_service
 import pdf_parser_response_service as response_service
+import pdf_parser_request_utils as request_utils
 from artifact_manager import cleanup_old_output_dirs
 from path_config import resolve_app_paths
 from task_store import CANCELLED, COMPLETED, COMPLETED_MISSING_ARTIFACT, FAILED, is_failed_status, is_success_status, is_terminal_status
@@ -522,9 +523,13 @@ class TaskArtifactStateTest(unittest.TestCase):
 
     def test_task_status_route_rejects_non_owner(self):
         old_db_path = app.DB_PATH
+        old_token = app.APP_ACCESS_TOKEN
+        old_utils_token = request_utils.APP_ACCESS_TOKEN
         tmpdir = tempfile.mkdtemp()
         try:
             app.DB_PATH = os.path.join(tmpdir, "tasks.db")
+            app.APP_ACCESS_TOKEN = "owner-token"
+            request_utils.APP_ACCESS_TOKEN = "owner-token"
             app._init_db()
             task = {
                 "task_id": "owned-task",
@@ -559,11 +564,19 @@ class TaskArtifactStateTest(unittest.TestCase):
 
             blocked = client.get(
                 "/api/status/owned-task",
-                headers={"X-SIQ-User-Id": "bob", "X-SIQ-Market-Scope": "HK"},
+                headers={
+                    "X-PDF2MD-Token": "owner-token",
+                    "X-SIQ-User-Id": "bob",
+                    "X-SIQ-Market-Scope": "HK",
+                },
             )
             allowed = client.get(
                 "/api/status/owned-task",
-                headers={"X-SIQ-User-Id": "alice", "X-SIQ-Market-Scope": "HK"},
+                headers={
+                    "X-PDF2MD-Token": "owner-token",
+                    "X-SIQ-User-Id": "alice",
+                    "X-SIQ-Market-Scope": "HK",
+                },
             )
 
             self.assertEqual(blocked.status_code, 404)
@@ -571,6 +584,143 @@ class TaskArtifactStateTest(unittest.TestCase):
             self.assertEqual(allowed.get_json()["task_id"], "owned-task")
         finally:
             app.DB_PATH = old_db_path
+            app.APP_ACCESS_TOKEN = old_token
+            request_utils.APP_ACCESS_TOKEN = old_utils_token
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_write_route_requires_token_in_docker_profile(self):
+        if not hasattr(app.app, "test_client"):
+            self.skipTest("Flask test client is unavailable in the lightweight import stub")
+        old_token = app.APP_ACCESS_TOKEN
+        old_utils_token = request_utils.APP_ACCESS_TOKEN
+        try:
+            app.APP_ACCESS_TOKEN = ""
+            request_utils.APP_ACCESS_TOKEN = ""
+            with patch.dict(os.environ, {"SIQ_DEPLOYMENT_PROFILE": "docker"}, clear=False), patch.object(
+                app, "initialize_app"
+            ):
+                response = app.app.test_client().post(
+                    "/api/upload",
+                    headers={"X-SIQ-User-Role": "admin"},
+                    data={},
+                )
+
+            self.assertEqual(response.status_code, 401)
+        finally:
+            app.APP_ACCESS_TOKEN = old_token
+            request_utils.APP_ACCESS_TOKEN = old_utils_token
+
+    def test_unvalidated_admin_header_does_not_bypass_owner_scope(self):
+        if not hasattr(app.app, "test_client"):
+            self.skipTest("Flask test client is unavailable in the lightweight import stub")
+        old_db_path = app.DB_PATH
+        old_token = app.APP_ACCESS_TOKEN
+        old_utils_token = request_utils.APP_ACCESS_TOKEN
+        tmpdir = tempfile.mkdtemp()
+        try:
+            app.DB_PATH = os.path.join(tmpdir, "tasks.db")
+            app.APP_ACCESS_TOKEN = ""
+            request_utils.APP_ACCESS_TOKEN = ""
+            app._init_db()
+            task = {
+                "task_id": "admin-forged-task",
+                "mineru_task_id": None,
+                "filename": "private.pdf",
+                "file_size": 1,
+                "pdf_page_count": 1,
+                "status": COMPLETED,
+                "stage": COMPLETED,
+                "created_at": "2026-05-01T00:00:00Z",
+                "uploaded_at": "2026-05-01T00:00:00Z",
+                "submitted_at": None,
+                "started_at": None,
+                "completed_at": "2026-05-01T00:01:00Z",
+                "cancelled": False,
+                "error": None,
+                "markdown_path": None,
+                "upload_path": None,
+                "last_progress_log_time": None,
+                "last_status_payload": None,
+                "last_polled_at": None,
+                "consecutive_status_failures": 0,
+                "submit_config": {"market": "HK"},
+                "logs": [],
+                "owner_id": "alice",
+                "tenant_id": "unknown",
+                "market_scope": "HK",
+                "parse_config_hash": "hash-hk",
+            }
+            app._save_task(task, allow_insert=True)
+            with patch.dict(os.environ, {"SIQ_ENV": "local"}, clear=False), patch.object(app, "initialize_app"):
+                response = app.app.test_client().get(
+                    "/api/status/admin-forged-task",
+                    headers={"X-SIQ-User-Role": "admin", "X-SIQ-User-Id": "mallory"},
+                )
+
+            self.assertEqual(response.status_code, 404)
+        finally:
+            app.DB_PATH = old_db_path
+            app.APP_ACCESS_TOKEN = old_token
+            request_utils.APP_ACCESS_TOKEN = old_utils_token
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_valid_token_preserves_admin_scope(self):
+        if not hasattr(app.app, "test_client"):
+            self.skipTest("Flask test client is unavailable in the lightweight import stub")
+        old_db_path = app.DB_PATH
+        old_token = app.APP_ACCESS_TOKEN
+        old_utils_token = request_utils.APP_ACCESS_TOKEN
+        tmpdir = tempfile.mkdtemp()
+        try:
+            app.DB_PATH = os.path.join(tmpdir, "tasks.db")
+            app.APP_ACCESS_TOKEN = "internal-token"
+            request_utils.APP_ACCESS_TOKEN = "internal-token"
+            app._init_db()
+            task = {
+                "task_id": "admin-token-task",
+                "mineru_task_id": None,
+                "filename": "private.pdf",
+                "file_size": 1,
+                "pdf_page_count": 1,
+                "status": COMPLETED,
+                "stage": COMPLETED,
+                "created_at": "2026-05-01T00:00:00Z",
+                "uploaded_at": "2026-05-01T00:00:00Z",
+                "submitted_at": None,
+                "started_at": None,
+                "completed_at": "2026-05-01T00:01:00Z",
+                "cancelled": False,
+                "error": None,
+                "markdown_path": None,
+                "upload_path": None,
+                "last_progress_log_time": None,
+                "last_status_payload": None,
+                "last_polled_at": None,
+                "consecutive_status_failures": 0,
+                "submit_config": {"market": "HK"},
+                "logs": [],
+                "owner_id": "alice",
+                "tenant_id": "unknown",
+                "market_scope": "HK",
+                "parse_config_hash": "hash-hk",
+            }
+            app._save_task(task, allow_insert=True)
+            with patch.object(app, "initialize_app"):
+                response = app.app.test_client().get(
+                    "/api/status/admin-token-task",
+                    headers={
+                        "X-PDF2MD-Token": "internal-token",
+                        "X-SIQ-User-Role": "admin",
+                        "X-SIQ-User-Id": "mallory",
+                    },
+                )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.get_json()["task_id"], "admin-token-task")
+        finally:
+            app.DB_PATH = old_db_path
+            app.APP_ACCESS_TOKEN = old_token
+            request_utils.APP_ACCESS_TOKEN = old_utils_token
             shutil.rmtree(tmpdir, ignore_errors=True)
 
     def test_get_task_requires_exact_task_id(self):
@@ -1098,6 +1248,32 @@ class ApiLayerTest(unittest.TestCase):
         self.assertTrue(payload["submit_ready"])
         self.assertEqual(payload["mineru_stats"], {"status": "healthy"})
 
+    def test_health_endpoint_remains_available_when_internal_token_is_configured(self):
+        if not hasattr(app.app, "test_client"):
+            self.skipTest("Flask test client is unavailable in the lightweight import stub")
+        old_token = app.APP_ACCESS_TOKEN
+        old_utils_token = request_utils.APP_ACCESS_TOKEN
+        readiness = {
+            "mineru": True,
+            "mineru_detail": "",
+            "mineru_payload": {},
+            "vlm": True,
+            "vlm_detail": "",
+            "submit_ready": True,
+            "warning": "",
+        }
+        try:
+            app.APP_ACCESS_TOKEN = "health-token"
+            request_utils.APP_ACCESS_TOKEN = "health-token"
+            with patch.object(app, "initialize_app"), patch.object(app, "_mineru_submit_readiness", return_value=readiness):
+                response = app.app.test_client().get("/api/health")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(response.get_json()["flask"])
+        finally:
+            app.APP_ACCESS_TOKEN = old_token
+            request_utils.APP_ACCESS_TOKEN = old_utils_token
+
     def test_upload_endpoint_rejects_same_content_different_filenames(self):
         if not hasattr(app.app, "test_client"):
             self.skipTest("Flask test client is unavailable in the lightweight import stub")
@@ -1112,7 +1288,7 @@ class ApiLayerTest(unittest.TestCase):
                 pdf_bytes = b"%PDF-1.4\nsame document"
 
                 with patch.object(app, "initialize_app"), patch.object(
-                    app, "_request_has_valid_token", return_value=True
+                    app, "_request_is_authorized", return_value=True
                 ), patch.object(app, "_cleanup_old_data"), patch.object(
                     app, "_wake_queue_worker"
                 ), patch.object(

@@ -35,7 +35,7 @@ type GuideEntry = {
 }
 
 const workspaceEntries: GuideEntry[] = [
-  { to: '/', icon: LayoutDashboard, title: '工作平台', desc: '查看公司 Wiki、近期任务、研究资产缺口和已生成的分析/核查/跟踪/法务材料。' },
+  { to: '/', icon: LayoutDashboard, title: '工作平台', desc: '查看研究对象、近期任务、研究资产缺口和已生成的分析/核查/跟踪/法务材料。' },
   { to: '/search', icon: Search, title: '搜索下载', desc: '按市场检索官方披露：A 股、港股、SEC、美欧、韩国 DART、日本 EDINET/IR。' },
   { to: '/parse', icon: FileText, title: '通用财报解析', desc: '上传 PDF 或选择 downloads 中的文件，生成 Markdown、表格索引、质量报告、财务抽取和原文溯源。' },
   { to: '/documents', icon: Files, title: '文档解析', desc: '处理合同、研报、网页、Office、图片和通用 PDF，输出 blocks、tables、figures、source map 和抽取结果。' },
@@ -45,7 +45,7 @@ const workspaceEntries: GuideEntry[] = [
 
 const marketEntries: GuideEntry[] = [
   { to: '/parse?market=CN', icon: FileText, title: 'A 股 PDF', desc: 'A 股年报/半年报/季报走通用 PDF 解析，支持三大表、主要会计数据、财务指标和勾稽校验。' },
-  { to: '/parse-hk', icon: Database, title: '港股 PDF', desc: '解析 HKEX PDF，生成 parser 产物和 Wiki Evidence Package；页面可查看 package、quality 和导入动作。' },
+  { to: '/parse-hk', icon: Database, title: '港股 PDF', desc: '解析 HKEX PDF，生成解析产物、质量报告、表格证据和 PostgreSQL 入库材料。' },
   { to: '/parse-us', icon: DatabaseZap, title: '美股 SEC', desc: 'SEC HTML/iXBRL 是主链路，覆盖 facts、tables、evidence 和 case set；PDF 附件可回到通用解析。' },
   { to: '/parse-eu', icon: Landmark, title: '欧洲 ESEF/PDF', desc: '覆盖 UK、法国、德国、荷兰、瑞士等官方源，支持 XHTML/iXBRL、ZIP 或 PDF 产物链路。' },
   { to: '/parse-jp', icon: FileQuestion, title: '日本 EDINET', desc: '以有价证券报告书为主，质量报告识别 Financial Highlights、日本核心报表和 JP 专属一致性校验。' },
@@ -58,7 +58,7 @@ const operationEntries: GuideEntry[] = [
   { to: '/legal', icon: Scale, title: '法务合规', desc: '查看法务 Agent 生成的法律意见书，并追问法规依据、披露事项和合规风险。' },
   { to: '/deals', icon: BriefcaseBusiness, title: '交易工作台', desc: '管理交易项目、资料室、证据、工作流、决策和审计材料。' },
   { to: '/primary-market', icon: Landmark, title: '一级市场', desc: '维护一级市场项目、材料和会议记录，沉淀投研与沟通资产。' },
-  { to: '/vector-ingest', icon: DatabaseZap, title: '向量入库', desc: '系统管理员入口，用于将 evidence package、文档和 Wiki 资产送入检索集合。' },
+  { to: '/vector-ingest', icon: DatabaseZap, title: '向量入库', desc: '系统管理员入口，用于将通过质量复核的解析产物、文档和研究资产送入检索集合。' },
   { to: '/settings', icon: Settings, title: '设置', desc: '配置模型供应商、Base URL、API Key、演示登录默认值和服务状态。' },
   { to: '/account', icon: UserRound, title: '账户', desc: '查看当前账户、角色和可访问的系统能力；受限页面会根据权限显示。' },
 ]
@@ -67,23 +67,23 @@ const recommendedFlow = [
   { icon: Search, title: '检索并下载', desc: '在搜索下载页选择市场，输入公司名、股票代码、CIK、ISIN、LEI、EDINET Code 或 DART Corp Code，下载目标披露。' },
   { icon: UploadCloud, title: '选择正确解析入口', desc: 'A 股和普通 PDF 走通用财报解析；港股/日本/韩国/欧洲走各自市场页；美股 SEC HTML/iXBRL 优先走 /parse-us。' },
   { icon: ShieldCheck, title: '复核质量与财务校验', desc: '查看质量报告、核心表候选、可疑表样本、财务抽取和一致性检查；从表格、PDF 页码和 bbox 回跳原文。' },
-  { icon: Database, title: '构建并导入 Evidence Package', desc: '确认解析质量后构建市场 package，写入 Wiki/PostgreSQL；需要检索问答时再做向量入库。' },
+  { icon: Database, title: '入库并生成研究资产', desc: '确认解析质量后，从解析产物写入 PostgreSQL，并生成研究资产和派生知识资产；需要检索问答时再做向量入库。' },
   { icon: BarChart3, title: '生成研究与追踪结论', desc: '进入智能分析、事实核查、持续跟踪和法务合规页面生成或查看报告，再用问答助手做跨材料追问。' },
 ]
 
 const dataLocations = [
-  ['公司 Wiki 主库', 'data/wiki/companies', 'A 股和统一公司视图的分析、核查、跟踪、法务报告入口；可通过 SIQ_WIKI_ROOT 覆盖。'],
-  ['市场 Evidence Packages', 'data/wiki/{hk_reports,us_sec,eu_reports,jp_reports,kr_reports}', '多市场 package、quality、metrics、source map、manifest 和导入状态的主要来源。'],
   ['下载文件', 'data/market-report-finder/downloads', '搜索下载页保存的 PDF、HTML、XHTML、ZIP 等原始披露文件。'],
   ['PDF 解析结果', 'data/pdf-parser/results', 'Markdown、content_list、table_index、quality_report、financial_data、financial_checks 和页图。'],
   ['文档解析结果', 'data/document-parser/results', '通用文档的 Markdown、blocks、tables、figures、source map、quality 和抽取产物。'],
   ['后端会话与运行数据', 'data/backend/agent.db', '问答助手会话、智能体状态、历史消息和本地运行记录。'],
   ['运行日志', 'var/logs', '本地前端、PDF parser 等服务的守护日志；排查公网展示和服务重启时常用。'],
+  ['派生知识资产兼容目录', 'data/wiki/companies', '历史 Wiki 文件服务使用的公司级派生知识资产位置；不是解析或 PostgreSQL 的主数据源，可通过 SIQ_WIKI_ROOT 覆盖。'],
+  ['市场解析产物兼容目录', 'data/wiki/{hk_reports,us_sec,eu_reports,jp_reports,kr_reports}', '历史 Evidence Package 目录，保存多市场解析产物包、quality、metrics、source map、manifest 和导入状态。'],
 ]
 
 const serviceChecks = [
   ['公网入口', 'https://arthurmao.synology.me:9391', '当前对外访问的 Web 工作台入口，通常反代到本机 Vite 前端。'],
-  ['聚合后端', 'http://localhost:18081/health', '工作平台、报告页、聊天、设置、鉴权和 Wiki 文件服务依赖它。'],
+  ['聚合后端', 'http://localhost:18081/health', '工作平台、报告页、聊天、设置、鉴权和派生知识资产文件服务依赖它。'],
   ['PDF 下载服务', 'http://localhost:18000/health', '搜索下载页查询公告、批量下载和市场官方源状态依赖它。'],
   ['PDF 解析服务', 'http://localhost:15000/api/health', '财报解析、质量报告、表格溯源、财务抽取和 JP/KR/HK/EU PDF 解析依赖它。'],
   ['文档解析服务', 'http://localhost:15010/api/health', '通用文档上传、URL 解析、产物下载和抽取依赖它。'],
@@ -94,7 +94,7 @@ const faqs = [
   ['多市场入口怎么选？', '先用搜索下载拿到官方披露。A 股和普通 PDF 用财报解析；港股、日本、韩国、欧洲用对应市场页；美股 SEC HTML/iXBRL 用美股解析。'],
   ['为什么质量报告还有“需复核”？', '需复核不是必然失败，通常表示候选表、空单元格、数字密度或视觉溯源需要人工确认。日本市场已按 EDINET 有报特征识别 Financial Highlights 和核心报表。'],
   ['解析完成后为什么没有研究报告？', '解析只生成 Markdown、表格、质量报告、财务数据和 package 材料；智能分析、事实核查、跟踪和法务报告需要后续 Agent 或导入流程生成。'],
-  ['Evidence Package 有什么用？', '它把原文、表格、事实、指标、质量门禁和证据坐标放在同一目录，是 PostgreSQL 导入、向量入库和后续问答引用的稳定合同。'],
+  ['解析产物包有什么用？', '它把原文、表格、事实、指标、质量门禁和证据坐标放在同一目录，是 PostgreSQL 入库、向量入库和后续问答引用的稳定合同；历史接口中也称 Evidence Package。'],
   ['文档解析和财报解析怎么选？', '普通合同、研报、网页、Office 和图片走文档解析；上市公司财报、市场规则、财务抽取和勾稽校验走财报解析或市场解析页。'],
   ['JP/KR 下载需要配置什么？', '日本完整法定年报主链路依赖 EDINET_API_KEY；韩国 OpenDART ZIP 依赖 DART_API_KEY。未配置时仍可使用部分官方 PDF/IR 辅助链路。'],
   ['页面没更新怎么办？', '先看公网入口是否返回 Vite 页面，再检查本机 15173、18081、15000 是否健康；已打开的浏览器页面可刷新以重新加载最新模块。'],
@@ -129,7 +129,7 @@ export default function Help() {
         icon={FileQuestion}
         eyebrow="Help Center"
         title="SIQ 操作指南"
-        description="按当前真实功能整理页面入口、市场解析链路、Evidence Package、数据产物和常见排查方式。先从工作平台确认研究对象，再沿下载、解析、质量复核、入库、分析和追踪推进。"
+        description="按当前真实功能整理页面入口、市场解析链路、解析产物、数据位置和常见排查方式。先从工作平台确认研究对象，再沿下载、解析、质量复核、入库、分析和追踪推进。"
         meta={['CN', 'HK', 'US', 'EU', 'JP', 'KR'].map((label) => (
           <StatusBadge key={label} tone="info">{label}</StatusBadge>
         ))}

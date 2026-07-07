@@ -23,7 +23,20 @@ export interface PdfWorkflowPanelProps {
 }
 
 function semanticActionLabel(mode: 'standard' | 'generic'): string {
-  return mode === 'generic' ? '使用项目设置模型生成语义层' : '使用项目设置模型增强 Wiki 语义层'
+  return mode === 'generic' ? '使用项目设置模型生成语义层' : '使用项目设置模型增强研究语义层'
+}
+
+function normalizePipelineDescription(description: string): string {
+  if (!description.includes('Wiki')) return description
+  return '解析产物与 results 目录保存全量解析信息；PostgreSQL 入库直接读取解析产物，研究资产和派生知识资产由解析产物继续生成。'
+}
+
+function derivedKnowledgeAssetDescription(asset: WorkflowStatus['wiki']): string {
+  if (asset?.status === 'ready') return '已由解析产物生成，可供研究资产引用'
+  if (asset?.status === 'stale') return '解析产物已更新，建议重新生成'
+  if (asset?.message && !/wiki/i.test(asset.message)) return asset.message
+  if (asset?.status === 'failed' || asset?.status === 'error') return '生成失败，请查看流水线任务详情'
+  return '等待从解析产物生成'
 }
 
 export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
@@ -36,11 +49,12 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
     artifacts,
     mode = 'standard',
     title = '数据管线',
-    description = '解析产物与 results 目录保存全量解析信息；PostgreSQL 直接从解析产物入库，Wiki 作为解析产物派生的公司级知识资产。',
+    description = '解析产物与 results 目录保存全量解析信息；PostgreSQL 入库直接读取解析产物，研究资产和派生知识资产由解析产物继续生成。',
     loadWorkflowStatus,
     runRemainingWorkflow,
     runWorkflowStep,
   } = props
+  const displayDescription = normalizePipelineDescription(description)
 
   const localSummary = pipelineArtifactSummary(artifacts)
   const backendSummary = workflowStatus?.artifactBundle
@@ -53,24 +67,28 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
   const llmSemanticDesc = workflowStatus?.semantic?.llm?.status === 'ready'
     ? `模型增强 ${llmSemanticCounts.claims || 0} 条判断 / ${llmSemanticCounts.risks || 0} 条风险`
     : ''
+  const knowledgeAssetDesc = derivedKnowledgeAssetDescription(workflowStatus?.wiki)
+  const databaseDesc = workflowReady(workflowStatus as Record<string, unknown> | null, 'database')
+    ? `已从解析产物入库：指标 ${workflowStatus?.database?.statementItems || 0} / 表格 ${workflowStatus?.database?.tables || 0}`
+    : (workflowStatus?.database?.message || '等待从解析产物入库')
 
   const steps = useMemo(
     () => [
       {
         key: 'artifactBundle' as const,
-        label: '解析产物包',
+        label: '解析产物',
         status: workflowStatus?.artifactBundle?.status,
         desc: backendSummary?.message || (workflowStatus?.documentFull?.status === 'ready' ? `${artifactReadyCount}/${artifactTotal} 个核心文件已生成` : '等待 document_full.json'),
       },
       {
         key: 'wiki' as const,
-        label: 'Wiki 入库',
+        label: '派生知识资产',
         status: workflowStatus?.wiki?.status,
-        desc: workflowStatus?.wiki?.status === 'ready' ? workflowStatus?.wiki?.companyDir || '已导入' : (workflowStatus?.wiki?.message || '未导入 Wiki'),
+        desc: knowledgeAssetDesc,
       },
       {
         key: 'semantic' as const,
-        label: '语义层',
+        label: '研究语义层',
         status: workflowStatus?.semantic?.status,
         desc: workflowReady(workflowStatus as Record<string, unknown> | null, 'semantic')
           ? `规则事实 ${workflowStatus?.semantic?.counts?.facts || 0} / 证据 ${workflowStatus?.semantic?.counts?.evidence || 0}；${llmSemanticDesc}`
@@ -78,14 +96,12 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
       },
       {
         key: 'database' as const,
-        label: 'PostgreSQL',
+        label: 'PostgreSQL 入库',
         status: workflowStatus?.database?.status,
-        desc: workflowReady(workflowStatus as Record<string, unknown> | null, 'database')
-          ? `指标 ${workflowStatus?.database?.statementItems || 0} / 表格 ${workflowStatus?.database?.tables || 0}`
-          : (workflowStatus?.database?.message || '未入库'),
+        desc: databaseDesc,
       },
     ],
-    [workflowStatus, backendSummary, artifactReadyCount, artifactTotal, llmSemanticDesc],
+    [workflowStatus, backendSummary, artifactReadyCount, artifactTotal, knowledgeAssetDesc, llmSemanticDesc, databaseDesc],
   )
 
   const activeStep = useMemo(() => {
@@ -105,35 +121,33 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
 
   const cards: Array<{ label: string; status?: string; desc: string }> = [
     {
-      label: '解析产物包',
+      label: '解析产物',
       status: workflowStatus?.artifactBundle?.status,
       desc: backendSummary?.message || (workflowStatus?.documentFull?.status === 'ready' ? `${artifactReadyCount}/${artifactTotal} 个核心文件已生成` : '等待 document_full.json'),
     },
     {
-      label: 'Wiki 入库',
+      label: '派生知识资产',
       status: workflowStatus?.wiki?.status,
-      desc: workflowStatus?.wiki?.status === 'ready' ? workflowStatus?.wiki?.companyDir || '已导入' : (workflowStatus?.wiki?.message || '未导入 Wiki'),
+      desc: knowledgeAssetDesc,
     },
     {
-      label: '语义层',
+      label: '研究语义层',
       status: workflowStatus?.semantic?.status,
       desc: workflowReady(workflowStatus as Record<string, unknown> | null, 'semantic')
         ? `规则事实 ${workflowStatus?.semantic?.counts?.facts || 0} / 证据 ${workflowStatus?.semantic?.counts?.evidence || 0}；${llmSemanticDesc}`
         : (workflowStatus?.semantic?.message || llmSemanticDesc || '未生成或不完整'),
     },
     {
-      label: 'PostgreSQL',
+      label: 'PostgreSQL 入库',
       status: workflowStatus?.database?.status,
-      desc: workflowReady(workflowStatus as Record<string, unknown> | null, 'database')
-        ? `指标 ${workflowStatus?.database?.statementItems || 0} / 表格 ${workflowStatus?.database?.tables || 0}`
-        : (workflowStatus?.database?.message || '未入库'),
+      desc: databaseDesc,
     },
   ]
 
   const stepButtons: Array<{ key: WorkflowStep; label: string; loadingLabel: string; primary: boolean; disabled?: boolean }> =
     mode === 'generic'
       ? [
-          { key: 'wiki-import-generic', label: '通用主体入库', loadingLabel: '导入中...', primary: true },
+          { key: 'wiki-import-generic', label: '生成派生知识资产', loadingLabel: '生成中...', primary: true },
           {
             key: 'semantic-generic',
             label: semanticActionLabel(mode),
@@ -144,8 +158,8 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
           { key: 'db-import', label: '导入 PostgreSQL', loadingLabel: '导入中...', primary: false },
         ]
       : [
-          { key: 'wiki-import', label: '导入 Wiki', loadingLabel: '导入中...', primary: true },
-          { key: 'wiki-import-generic', label: '通用主体入库', loadingLabel: '导入中...', primary: false },
+          { key: 'wiki-import', label: '生成派生知识资产', loadingLabel: '生成中...', primary: true },
+          { key: 'wiki-import-generic', label: '生成通用主体资产', loadingLabel: '生成中...', primary: false },
           {
             key: 'semantic',
             label: semanticActionLabel(mode),
@@ -172,7 +186,7 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
             {title}
           </h3>
           <p className="mt-1 text-sm text-text-muted">
-            {description}
+            {displayDescription}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -192,7 +206,7 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
             disabled={!!workflowBusy || !bundleReady}
           >
             {workflowBusy === 'remaining' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-            继续入库
+            继续入库与资产生成
           </button>
         </div>
       </div>
@@ -200,7 +214,7 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
       <div className="pdf-pipeline-note mb-4">
         <Database className="h-4 w-4" />
         <div>
-          Wiki 不复制全量解析包；<code>artifact_manifest.json</code> 只记录核心文件路径、hash 和版本，用于判断是否过期。结构化事实、完整文档和证据页码默认直接从 Wiki 与 results 目录读取。
+          PostgreSQL 入库直接读取解析产物；派生知识资产不复制全量解析包。<code>artifact_manifest.json</code> 只记录核心文件路径、hash 和版本，用于判断是否过期。
         </div>
       </div>
 
@@ -298,7 +312,7 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div>
             <div className="text-sm font-semibold text-text">核心解析产物清单</div>
-            <div className="mt-1 text-xs leading-5 text-text-muted">这些文件共同支撑入库、质量校验和证据溯源；Wiki 仅引用清单，不重复保存全量包。</div>
+            <div className="mt-1 text-xs leading-5 text-text-muted">这些文件共同支撑 PostgreSQL 入库、质量校验、研究资产生成和证据溯源；派生知识资产只引用清单，不重复保存全量包。</div>
           </div>
           <span className="secondary-status secondary-status-info">{artifactReadyCount}/{artifactTotal}</span>
         </div>

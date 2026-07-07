@@ -108,8 +108,8 @@ from pdf_parser_request_utils import (
     _parse_bool,
     _parse_page_id,
     _parse_submit_config,
+    _request_is_authorized,
     _request_owner_scope,
-    _request_has_valid_token,
     _safe_client_filename,
     _safe_download_name,
     _safe_task_id,
@@ -3676,7 +3676,9 @@ def _refresh_task_from_upstream(task):
 @app.before_request
 def _prepare_request():
     initialize_app(start_worker=True)
-    if not _request_has_valid_token(APP_ACCESS_TOKEN):
+    if request.path == "/api/health":
+        return None
+    if not _request_is_authorized(APP_ACCESS_TOKEN):
         return jsonify({"error": "Unauthorized"}), 401
     return None
 

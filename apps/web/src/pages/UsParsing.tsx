@@ -16,13 +16,13 @@ export default function UsParsing() {
             </div>
             <h1 className="secondary-title">美股解析</h1>
             <p className="secondary-description">
-              解析 SEC 10-K、10-Q、20-F、6-K 披露文件；HTML/iXBRL 走主体、附注、表格、XBRL facts 和 evidence 关系链入库。
+              解析 SEC 10-K、10-Q、20-F、6-K 披露文件；HTML/iXBRL 生成主体、附注、表格、XBRL facts 和 evidence 解析产物，再进入关系入库与研究资产生成。
             </p>
           </div>
           <div className="secondary-step-row">
             <span className="secondary-step-chip is-active">美股</span>
             <span className="secondary-step-chip">SEC 解析</span>
-            <span className="secondary-step-chip">关系入库</span>
+            <span className="secondary-step-chip">解析产物入库</span>
           </div>
         </div>
       </section>

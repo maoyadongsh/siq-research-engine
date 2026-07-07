@@ -51,6 +51,31 @@ def _write_market_package(root: Path, *parts: str) -> Path:
     return package_dir
 
 
+def _force_audit_payload(**payload):
+    return {
+        **payload,
+        "force": True,
+        "force_reason": "reviewed soft quality gate",
+        "force_operator": "ops",
+        "force_ticket": "CHG-123",
+        "force_one_shot": True,
+    }
+
+
+def _allow_market_quality_gate(monkeypatch):
+    monkeypatch.setattr(
+        market_reports,
+        "_quality_gates_for_package",
+        lambda _package_dir: {
+            "import_blocked": False,
+            "vector_ingest_blocked": False,
+            "force_allowed": True,
+            "hard_gate_rule_ids": [],
+            "soft_gate_rule_ids": [],
+        },
+    )
+
+
 def _write_hk_v2_package(root: Path, *parts: str) -> Path:
     package_dir = root.joinpath(*parts)
     for name in ("raw", "sections", "tables", "xbrl", "metrics", "qa", "parser"):
@@ -1370,13 +1395,15 @@ def test_market_import_command_uses_us_package_flag(monkeypatch):
         return Completed()
 
     monkeypatch.setattr(market_reports, "run_command", fake_run)
+    _allow_market_quality_gate(monkeypatch)
 
-    result = market_reports._run_market_package_import({
-        "market": "US",
-        "package_path": "data/wiki/us_sec/AAPL/2025/10-K_0000320193-25-000079",
-        "ddl": True,
-        "force": True,
-    })
+    result = market_reports._run_market_package_import(
+        _force_audit_payload(
+            market="US",
+            package_path="data/wiki/us_sec/AAPL/2025/10-K_0000320193-25-000079",
+            ddl=True,
+        )
+    )
 
     assert result["ok"] is True
     package_index = seen["args"].index("--package")
@@ -1401,13 +1428,15 @@ def test_hk_market_package_import_uses_hk_database_env(monkeypatch, tmp_path):
 
     monkeypatch.setitem(market_reports.MARKET_WIKI_ROOTS, "HK", wiki_root)
     monkeypatch.setattr(market_reports, "run_command", fake_run)
+    _allow_market_quality_gate(monkeypatch)
 
-    result = market_reports._run_market_package_import({
-        "market": "HK",
-        "package_path": str(package_dir),
-        "ddl": True,
-        "force": True,
-    })
+    result = market_reports._run_market_package_import(
+        _force_audit_payload(
+            market="HK",
+            package_path=str(package_dir),
+            ddl=True,
+        )
+    )
 
     assert result["ok"] is True
     assert "import_hk_evidence_package_to_postgres.py" in " ".join(captured["args"])
@@ -1430,7 +1459,166 @@ def test_market_package_import_blocks_warning_quality_without_force(monkeypatch,
 
     assert exc.value.status_code == 409
     assert exc.value.detail["quality_gates"]["import_blocked"] is True
-    assert "force=true" in exc.value.detail["message"]
+    assert "hard blocks" in exc.value.detail["message"]
+    assert "force=true" not in exc.value.detail["message"]
+
+
+def test_market_package_import_rejects_force_without_audit_fields(monkeypatch, tmp_path):
+    wiki_root = tmp_path / "wiki" / "hk"
+    package_dir = _write_market_package(wiki_root, "companies", "00700-TENCENT", "reports", "2025-annual-12100024")
+    import_script = tmp_path / "scripts" / "import_hk.py"
+    import_script.parent.mkdir(parents=True)
+    import_script.write_text("# import", encoding="utf-8")
+
+    def fail_run(*_args, **_kwargs):
+        raise AssertionError("run_command should not be called")
+
+    monkeypatch.setitem(market_reports.MARKET_WIKI_ROOTS, "HK", wiki_root)
+    monkeypatch.setitem(market_reports.MARKET_IMPORT_SCRIPTS, "HK", import_script)
+    monkeypatch.setattr(
+        market_reports,
+        "_quality_gates_for_package",
+        lambda _package_dir: {
+            "import_blocked": True,
+            "vector_ingest_blocked": False,
+            "force_allowed": True,
+            "hard_gate_rule_ids": [],
+            "soft_gate_rule_ids": ["package.quality_status.warning"],
+        },
+    )
+    monkeypatch.setattr(market_reports, "run_command", fail_run)
+
+    with pytest.raises(HTTPException) as exc:
+        market_reports._run_market_package_import(
+            {"market": "HK", "package_path": str(package_dir), "force": True}
+        )
+
+    assert exc.value.status_code == 400
+    assert {"reason", "operator", "ticket_or_change_id", "expires_at_or_one_shot"} <= set(
+        exc.value.detail["missing_fields"]
+    )
+
+
+def test_market_package_import_blocks_hard_gate_even_with_force(monkeypatch, tmp_path):
+    wiki_root = tmp_path / "wiki" / "hk"
+    package_dir = _write_market_package(wiki_root, "companies", "00700-TENCENT", "reports", "2025-annual-12100024")
+    import_script = tmp_path / "scripts" / "import_hk.py"
+    import_script.parent.mkdir(parents=True)
+    import_script.write_text("# import", encoding="utf-8")
+
+    def fail_run(*_args, **_kwargs):
+        raise AssertionError("run_command should not be called")
+
+    monkeypatch.setitem(market_reports.MARKET_WIKI_ROOTS, "HK", wiki_root)
+    monkeypatch.setitem(market_reports.MARKET_IMPORT_SCRIPTS, "HK", import_script)
+    monkeypatch.setattr(
+        market_reports,
+        "_quality_gates_for_package",
+        lambda _package_dir: {
+            "import_blocked": True,
+            "vector_ingest_blocked": True,
+            "force_allowed": False,
+            "hard_gate_rule_ids": ["package.artifact_hashes.mismatch"],
+            "soft_gate_rule_ids": [],
+        },
+    )
+    monkeypatch.setattr(market_reports, "run_command", fail_run)
+
+    with pytest.raises(HTTPException) as exc:
+        market_reports._run_market_package_import(
+            _force_audit_payload(market="HK", package_path=str(package_dir), ddl=True)
+        )
+
+    assert exc.value.status_code == 409
+    assert exc.value.detail["quality_gates"]["force_allowed"] is False
+    assert exc.value.detail["quality_gates"]["import_blocked"] is True
+    assert "review/quarantine" in exc.value.detail["message"]
+
+
+def test_market_vector_ingest_blocks_hard_gate_even_with_force(monkeypatch, tmp_path):
+    wiki_root = tmp_path / "wiki" / "hk"
+    package_dir = _write_market_package(wiki_root, "companies", "00700-TENCENT", "reports", "2025-annual-12100024")
+    ingest_script = tmp_path / "scripts" / "ingest_market_package.py"
+    ingest_script.parent.mkdir(parents=True)
+    ingest_script.write_text("# ingest", encoding="utf-8")
+
+    def fail_run(*_args, **_kwargs):
+        raise AssertionError("run_command should not be called")
+
+    monkeypatch.setitem(market_reports.MARKET_WIKI_ROOTS, "HK", wiki_root)
+    monkeypatch.setattr(market_reports, "MARKET_VECTOR_INGEST_SCRIPT", ingest_script)
+    monkeypatch.setattr(
+        market_reports,
+        "_quality_gates_for_package",
+        lambda _package_dir: {
+            "import_blocked": True,
+            "vector_ingest_blocked": True,
+            "force_allowed": False,
+            "hard_gate_rule_ids": ["package.evidence.unresolvable"],
+            "soft_gate_rule_ids": [],
+        },
+    )
+    monkeypatch.setattr(market_reports, "run_command", fail_run)
+
+    with pytest.raises(HTTPException) as exc:
+        market_reports._run_market_vector_ingest(
+            _force_audit_payload(market="HK", package_path=str(package_dir), dry_run=False)
+        )
+
+    assert exc.value.status_code == 409
+    assert exc.value.detail["action"] == "vector_ingest"
+    assert exc.value.detail["quality_gates"]["vector_ingest_blocked"] is True
+    assert exc.value.detail["quality_gates"]["force_allowed"] is False
+
+
+def test_market_package_import_allows_audited_soft_gate_force_and_logs(monkeypatch, tmp_path, caplog):
+    wiki_root = tmp_path / "wiki" / "hk"
+    package_dir = _write_market_package(wiki_root, "companies", "00700-TENCENT", "reports", "2025-annual-12100024")
+    import_script = tmp_path / "scripts" / "import_hk.py"
+    import_script.parent.mkdir(parents=True)
+    import_script.write_text("# import", encoding="utf-8")
+    seen = {}
+
+    class Completed:
+        returncode = 0
+        stdout = "parse-run-hk\n"
+        stderr = ""
+
+    def fake_run(args, **kwargs):
+        seen["args"] = args
+        seen["kwargs"] = kwargs
+        return Completed()
+
+    monkeypatch.setitem(market_reports.MARKET_WIKI_ROOTS, "HK", wiki_root)
+    monkeypatch.setitem(market_reports.MARKET_IMPORT_SCRIPTS, "HK", import_script)
+    monkeypatch.setattr(
+        market_reports,
+        "_quality_gates_for_package",
+        lambda _package_dir: {
+            "import_blocked": True,
+            "vector_ingest_blocked": True,
+            "force_allowed": True,
+            "hard_gate_rule_ids": [],
+            "soft_gate_rule_ids": ["package.quality_status.warning"],
+        },
+    )
+    monkeypatch.setattr(market_reports, "run_command", fake_run)
+    caplog.set_level("INFO", logger=market_reports.__name__)
+
+    result = market_reports._run_market_package_import(
+        _force_audit_payload(
+            market="HK",
+            package_path=str(package_dir),
+            database_url="postgres://secret",
+        )
+    )
+
+    assert result["ok"] is True
+    assert seen["args"][:3] == [market_reports.sys.executable, str(import_script), str(package_dir)]
+    audit_logs = "\n".join(record.getMessage() for record in caplog.records)
+    assert "CHG-123" in audit_logs
+    assert "reviewed soft quality gate" in audit_logs
+    assert "postgres://secret" not in audit_logs
 
 
 def test_market_import_command_uses_positional_package_for_non_us(monkeypatch, tmp_path):
@@ -1455,15 +1643,15 @@ def test_market_import_command_uses_positional_package_for_non_us(monkeypatch, t
     monkeypatch.setitem(market_reports.MARKET_WIKI_ROOTS, "HK", wiki_root)
     monkeypatch.setitem(market_reports.MARKET_IMPORT_SCRIPTS, "HK", import_script)
     monkeypatch.setattr(market_reports, "run_command", fake_run)
+    _allow_market_quality_gate(monkeypatch)
 
     result = market_reports._run_market_package_import(
-        {
-            "market": "HK",
-            "package_path": str(package_dir),
-            "database_url": "postgres://secret",
-            "run_ddl": True,
-            "force": True,
-        }
+        _force_audit_payload(
+            market="HK",
+            package_path=str(package_dir),
+            database_url="postgres://secret",
+            run_ddl=True,
+        )
     )
 
     assert result["ok"] is True
@@ -1504,13 +1692,13 @@ def test_market_import_command_hk_default_env_sanitizes_inherited_database_url(m
     monkeypatch.setitem(market_reports.MARKET_IMPORT_SCRIPTS, "HK", import_script)
     monkeypatch.setitem(market_reports.MARKET_DATABASES, "HK", "siq_hk")
     monkeypatch.setattr(market_reports, "run_command", fake_run)
+    _allow_market_quality_gate(monkeypatch)
 
     result = market_reports._run_market_package_import(
-        {
-            "market": "HK",
-            "package_path": str(package_dir),
-            "force": True,
-        }
+        _force_audit_payload(
+            market="HK",
+            package_path=str(package_dir),
+        )
     )
 
     assert result["ok"] is True
@@ -1538,8 +1726,11 @@ def test_hk_market_package_import_uses_hk_database_env(monkeypatch, tmp_path):
     monkeypatch.setitem(market_reports.MARKET_WIKI_ROOTS, "HK", wiki_root)
     monkeypatch.setitem(market_reports.MARKET_DATABASES, "HK", "siq_hk")
     monkeypatch.setattr(market_reports, "run_command", fake_run)
+    _allow_market_quality_gate(monkeypatch)
 
-    result = market_reports._run_market_package_import({"market": "HK", "package_path": str(package_dir), "ddl": True, "force": True})
+    result = market_reports._run_market_package_import(
+        _force_audit_payload(market="HK", package_path=str(package_dir), ddl=True)
+    )
 
     assert result["ok"] is True
     assert "import_hk_evidence_package_to_postgres.py" in " ".join(seen["args"])
@@ -1568,17 +1759,17 @@ def test_market_vector_ingest_command_contract_and_summary(monkeypatch, tmp_path
     monkeypatch.setitem(market_reports.MARKET_WIKI_ROOTS, "HK", wiki_root)
     monkeypatch.setattr(market_reports, "MARKET_VECTOR_INGEST_SCRIPT", ingest_script)
     monkeypatch.setattr(market_reports, "run_command", fake_run)
+    _allow_market_quality_gate(monkeypatch)
 
     result = market_reports._run_market_vector_ingest(
-        {
-            "market": "HK",
-            "package_path": str(package_dir),
-            "collection": "siq_market",
-            "embed_url": "http://embed.local",
-            "embed_model": "text-embedding-3-small",
-            "vector_dim": 1536,
-            "force": True,
-        }
+        _force_audit_payload(
+            market="HK",
+            package_path=str(package_dir),
+            collection="siq_market",
+            embed_url="http://embed.local",
+            embed_model="text-embedding-3-small",
+            vector_dim=1536,
+        )
     )
 
     assert result["ok"] is True
@@ -1624,15 +1815,15 @@ def test_market_vector_ingest_can_disable_dry_run(monkeypatch, tmp_path):
     monkeypatch.setitem(market_reports.MARKET_WIKI_ROOTS, "US", wiki_root)
     monkeypatch.setattr(market_reports, "MARKET_VECTOR_INGEST_SCRIPT", ingest_script)
     monkeypatch.setattr(market_reports, "run_command", fake_run)
+    _allow_market_quality_gate(monkeypatch)
 
     result = market_reports._run_market_vector_ingest(
-        {
-            "market": "US",
-            "package_path": str(package_dir),
-            "batch_tag": "prod-load",
-            "dry_run": False,
-            "force": True,
-        }
+        _force_audit_payload(
+            market="US",
+            package_path=str(package_dir),
+            batch_tag="prod-load",
+            dry_run=False,
+        )
     )
 
     assert result["ok"] is True

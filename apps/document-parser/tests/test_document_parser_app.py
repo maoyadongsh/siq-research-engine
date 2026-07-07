@@ -344,6 +344,7 @@ def wait_for_terminal(client, task_id, timeout=5.0):
 
 def test_owner_scope_filters_document_task_routes(tmp_path):
     document_app = load_app_module(tmp_path)
+    document_app.APP_ACCESS_TOKEN = "owner-token"
     client = document_app.app.test_client()
     document_app.store.create_task(
         {
@@ -366,9 +367,18 @@ def test_owner_scope_filters_document_task_routes(tmp_path):
         }
     )
 
-    blocked = client.get("/api/tasks/owned-doc", headers={"X-SIQ-User-Id": "bob"})
-    allowed = client.get("/api/tasks/owned-doc", headers={"X-SIQ-User-Id": "alice"})
-    listing = client.get("/api/tasks", headers={"X-SIQ-User-Id": "alice"})
+    blocked = client.get(
+        "/api/tasks/owned-doc",
+        headers={"X-Document-Parser-Token": "owner-token", "X-SIQ-User-Id": "bob"},
+    )
+    allowed = client.get(
+        "/api/tasks/owned-doc",
+        headers={"X-Document-Parser-Token": "owner-token", "X-SIQ-User-Id": "alice"},
+    )
+    listing = client.get(
+        "/api/tasks",
+        headers={"X-Document-Parser-Token": "owner-token", "X-SIQ-User-Id": "alice"},
+    )
 
     assert blocked.status_code == 404
     assert allowed.status_code == 200
@@ -380,6 +390,7 @@ def test_owner_scope_filters_document_task_routes(tmp_path):
 
 def test_legacy_document_task_requires_legacy_scope_marker_for_user_headers(tmp_path):
     document_app = load_app_module(tmp_path)
+    document_app.APP_ACCESS_TOKEN = "legacy-token"
     client = document_app.app.test_client()
     document_app.store.create_task(
         {
@@ -398,10 +409,17 @@ def test_legacy_document_task_requires_legacy_scope_marker_for_user_headers(tmp_
         }
     )
 
-    blocked = client.get("/api/tasks/legacy-doc", headers={"X-SIQ-User-Id": "alice"})
+    blocked = client.get(
+        "/api/tasks/legacy-doc",
+        headers={"X-Document-Parser-Token": "legacy-token", "X-SIQ-User-Id": "alice"},
+    )
     allowed = client.get(
         "/api/tasks/legacy-doc",
-        headers={"X-SIQ-User-Id": "alice", "X-SIQ-Allow-Legacy-Task": "1"},
+        headers={
+            "X-Document-Parser-Token": "legacy-token",
+            "X-SIQ-User-Id": "alice",
+            "X-SIQ-Allow-Legacy-Task": "1",
+        },
     )
 
     assert blocked.status_code == 404
@@ -409,6 +427,88 @@ def test_legacy_document_task_requires_legacy_scope_marker_for_user_headers(tmp_
     assert allowed.json["owner_id"] == "system"
     assert allowed.json["tenant_id"] == "unknown"
     assert allowed.json["legacy_owner"] is True
+
+
+def test_create_task_requires_token_in_docker_profile(tmp_path, monkeypatch):
+    document_app = load_app_module(tmp_path)
+    document_app.APP_ACCESS_TOKEN = ""
+    monkeypatch.setenv("SIQ_DEPLOYMENT_PROFILE", "docker")
+
+    response = document_app.app.test_client().post("/api/tasks", data={})
+
+    assert response.status_code == 401
+
+
+def test_unvalidated_admin_header_does_not_bypass_document_owner_scope(tmp_path, monkeypatch):
+    document_app = load_app_module(tmp_path)
+    document_app.APP_ACCESS_TOKEN = ""
+    monkeypatch.setenv("SIQ_ENV", "local")
+    client = document_app.app.test_client()
+    document_app.store.create_task(
+        {
+            "task_id": "admin-forged-doc",
+            "filename": "owned.md",
+            "owner_id": "alice",
+            "tenant_id": "unknown",
+            "market_scope": "DOC",
+            "parse_config_hash": "hash-doc",
+            "document_kind": "text",
+            "source_type": "upload",
+            "source_url": "",
+            "status": "completed",
+            "stage": "completed",
+            "progress_percent": 100,
+            "file_size": 1,
+            "file_sha256": "sha",
+            "mime_type": "text/markdown",
+            "config": {},
+        }
+    )
+
+    response = client.get(
+        "/api/tasks/admin-forged-doc",
+        headers={"X-SIQ-User-Role": "admin", "X-SIQ-User-Id": "mallory"},
+    )
+
+    assert response.status_code == 404
+
+
+def test_valid_token_preserves_document_admin_scope(tmp_path):
+    document_app = load_app_module(tmp_path)
+    document_app.APP_ACCESS_TOKEN = "admin-token"
+    client = document_app.app.test_client()
+    document_app.store.create_task(
+        {
+            "task_id": "admin-token-doc",
+            "filename": "owned.md",
+            "owner_id": "alice",
+            "tenant_id": "unknown",
+            "market_scope": "DOC",
+            "parse_config_hash": "hash-doc",
+            "document_kind": "text",
+            "source_type": "upload",
+            "source_url": "",
+            "status": "completed",
+            "stage": "completed",
+            "progress_percent": 100,
+            "file_size": 1,
+            "file_sha256": "sha",
+            "mime_type": "text/markdown",
+            "config": {},
+        }
+    )
+
+    response = client.get(
+        "/api/tasks/admin-token-doc",
+        headers={
+            "X-Document-Parser-Token": "admin-token",
+            "X-SIQ-User-Role": "admin",
+            "X-SIQ-User-Id": "mallory",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json["task_id"] == "admin-token-doc"
 
 
 def test_markdown_upload_generates_normalized_artifacts(tmp_path):
