@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .contracts import financial_checks_contract, financial_data_contract
-from .models import DbLoadPlan, ExtractionResult, LoadPlanRow, StatementType, ValidationResult
+from .models import CheckStatus, DbLoadPlan, ExtractionResult, LoadPlanRow, PromotionDecision, StatementType, ValidationResult
 from .provenance import evidence_display_target
 from .storage import artifact_file_layout, get_storage_profile
 from .normalization import stable_slug
@@ -19,6 +19,9 @@ PDF2MD_COMPATIBLE_TABLES = [
     "financial_checks",
     "evidence_citations",
 ]
+PROMOTION_TARGETS = ("draft", "review", "canonical", "retrieval", "production")
+DECISION_RANK = {"allow": 0, "review": 1, "block": 2}
+SEVERITY_RANK = {"observe": 0, "soft": 1, "hard": 2}
 
 
 def build_load_plan(extraction: ExtractionResult, validation: ValidationResult) -> DbLoadPlan:
@@ -34,7 +37,7 @@ def build_load_plan(extraction: ExtractionResult, validation: ValidationResult) 
         artifact_id=extraction.artifact_id,
     )
 
-    rows: list[LoadPlanRow] = [
+    artifact_rows: list[LoadPlanRow] = [
         LoadPlanRow(
             table="financial_data_artifacts",
             operation="upsert",
@@ -66,9 +69,16 @@ def build_load_plan(extraction: ExtractionResult, validation: ValidationResult) 
         ),
     ]
 
-    rows.extend(_fact_rows(extraction))
-    rows.extend(_validation_rows(validation, extraction.artifact_id))
-    rows.extend(_evidence_rows(extraction, parse_run_id))
+    audit_rows = _validation_rows(validation, extraction.artifact_id)
+    canonical_rows: list[LoadPlanRow] = []
+    canonical_rows.extend(_fact_rows(extraction))
+    canonical_rows.extend(_evidence_rows(extraction, parse_run_id))
+    promotion_decisions = _promotion_decisions(validation)
+    can_import = promotion_decisions["canonical"].decision == "allow"
+    can_vector_ingest = promotion_decisions["retrieval"].decision == "allow"
+    blocked_reasons = _blocked_reasons(promotion_decisions)
+    rows = artifact_rows + audit_rows + (canonical_rows if can_import else [])
+    quarantine_rows = [] if can_import else canonical_rows
 
     return DbLoadPlan(
         target_database=storage.postgres_database,
@@ -84,9 +94,104 @@ def build_load_plan(extraction: ExtractionResult, validation: ValidationResult) 
         report_id=extraction.report_id,
         parse_run_id=parse_run_id,
         filing_id=filing_id,
+        can_import=can_import,
+        can_vector_ingest=can_vector_ingest,
+        promotion_decisions=promotion_decisions,
+        blocked_reasons=blocked_reasons,
         rows=rows,
+        quarantine_rows=quarantine_rows,
         warnings=list(extraction.warnings) + list(validation.warnings) + list(storage.notes),
     )
+
+
+def _promotion_decisions(validation: ValidationResult) -> dict[str, PromotionDecision]:
+    decisions = _empty_promotion_decisions()
+    consumed_gate_payload = False
+    for check in validation.checks:
+        raw_decisions = check.raw.get("gate_decisions_by_target") if isinstance(check.raw, dict) else None
+        if not isinstance(raw_decisions, dict):
+            continue
+        consumed_gate_payload = True
+        for target, payload in raw_decisions.items():
+            if target not in decisions or not isinstance(payload, dict):
+                continue
+            _merge_promotion_decision(decisions[target], payload)
+    if not consumed_gate_payload:
+        _apply_overall_status_fallback(decisions, validation)
+    return decisions
+
+
+def _empty_promotion_decisions() -> dict[str, PromotionDecision]:
+    return {
+        target: PromotionDecision(target=target, promotion_target=target)
+        for target in PROMOTION_TARGETS
+    }
+
+
+def _merge_promotion_decision(decision: PromotionDecision, payload: dict[str, Any]) -> None:
+    next_decision = str(payload.get("decision") or "allow")
+    next_severity = str(payload.get("severity") or "observe")
+    if DECISION_RANK.get(next_decision, 0) > DECISION_RANK.get(decision.decision, 0):
+        decision.decision = next_decision  # type: ignore[assignment]
+    if SEVERITY_RANK.get(next_severity, 0) > SEVERITY_RANK.get(decision.severity, 0):
+        decision.severity = next_severity  # type: ignore[assignment]
+    decision.rule_ids = _append_unique(decision.rule_ids, payload.get("rule_ids"))
+    decision.review_rule_ids = _append_unique(decision.review_rule_ids, payload.get("review_rule_ids"))
+    decision.blocking_rule_ids = _append_unique(decision.blocking_rule_ids, payload.get("blocking_rule_ids"))
+    decision.reasons = _append_unique(decision.reasons, payload.get("reasons"))
+
+
+def _apply_overall_status_fallback(decisions: dict[str, PromotionDecision], validation: ValidationResult) -> None:
+    if validation.overall_status == CheckStatus.FAIL:
+        fallback_decision = "block"
+        fallback_severity = "hard"
+    elif validation.overall_status == CheckStatus.WARNING:
+        fallback_decision = "review"
+        fallback_severity = "soft"
+    else:
+        return
+    reasons = validation.warnings or [f"validation.overall_status.{validation.overall_status.value}"]
+    for target in ("canonical", "retrieval", "production"):
+        decision = decisions[target]
+        decision.decision = fallback_decision  # type: ignore[assignment]
+        decision.severity = fallback_severity  # type: ignore[assignment]
+        decision.rule_ids = _append_unique(decision.rule_ids, [f"validation.overall_status.{validation.overall_status.value}"])
+        if fallback_decision == "block":
+            decision.blocking_rule_ids = _append_unique(decision.blocking_rule_ids, decision.rule_ids)
+        else:
+            decision.review_rule_ids = _append_unique(decision.review_rule_ids, decision.rule_ids)
+        decision.reasons = _append_unique(decision.reasons, reasons)
+
+
+def _append_unique(current: list[str], values: Any) -> list[str]:
+    result = list(current)
+    if isinstance(values, str):
+        candidates = [values]
+    elif isinstance(values, list):
+        candidates = values
+    else:
+        candidates = []
+    seen = set(result)
+    for value in candidates:
+        text = str(value or "").strip()
+        if text and text not in seen:
+            result.append(text)
+            seen.add(text)
+    return result
+
+
+def _blocked_reasons(decisions: dict[str, PromotionDecision]) -> list[str]:
+    reasons: list[str] = []
+    for target in ("canonical", "retrieval", "production"):
+        decision = decisions[target]
+        if decision.decision == "allow":
+            continue
+        parts = decision.blocking_rule_ids or decision.review_rule_ids or decision.rule_ids or decision.reasons
+        if not parts:
+            reasons.append(f"{target}:{decision.decision}")
+            continue
+        reasons.extend(f"{target}:{decision.decision}:{part}" for part in parts)
+    return _append_unique([], reasons)
 
 
 def _fact_rows(extraction: ExtractionResult) -> list[LoadPlanRow]:

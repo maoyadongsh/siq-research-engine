@@ -1,4 +1,5 @@
 import { REPORT_VIEWER_THEME } from './reportViewerTheme'
+import { REPORT_SOURCE_LINK_BRIDGE_SCRIPT } from './reportFrameSandbox'
 
 export function escapeHtmlAttribute(value: string) {
   return value
@@ -18,7 +19,7 @@ export function buildReportSrcDoc(html: string, reportUrl: string) {
     ? ''
     : '<meta name="viewport" content="width=device-width, initial-scale=1.0">'
   const headStartInjection = `<base href="${escapeHtmlAttribute(baseUrl)}"><meta name="color-scheme" content="light">${viewportInjection}`
-  const headEndInjection = `<style id="siq-report-light-theme">${REPORT_VIEWER_THEME}</style>`
+  const headEndInjection = `<style id="siq-report-light-theme">${REPORT_VIEWER_THEME}</style>${REPORT_SOURCE_LINK_BRIDGE_SCRIPT}`
 
   let nextHtml = html
   if (/<head(\s[^>]*)?>/i.test(nextHtml)) {

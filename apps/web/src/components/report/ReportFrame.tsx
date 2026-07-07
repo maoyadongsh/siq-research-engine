@@ -1,7 +1,8 @@
 import { Loader2, RefreshCw } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import type { ReportItem } from '@/lib/reportTypes'
-import { handleAuthenticatedSourceClick } from '@/lib/authenticatedSourceLinks'
+import { handleAuthenticatedSourceClick, isAuthenticatedSourceLink, openAuthenticatedSourceLink } from '@/lib/authenticatedSourceLinks'
+import { REPORT_IFRAME_SANDBOX, isReportSourceLinkMessage } from './reportFrameSandbox'
 
 interface ReportFrameProps {
   selectedReportUrl: string
@@ -30,6 +31,22 @@ export default function ReportFrame({
 
   useEffect(() => {
     if (contentLoading || !reportSrcDoc) return
+
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== iframeRef.current?.contentWindow) return
+      if (!isReportSourceLinkMessage(event.data)) return
+      if (!isAuthenticatedSourceLink(event.data.href)) return
+      openAuthenticatedSourceLink(event.data.href).catch((error) => {
+        console.warn('Failed to open authenticated source link from report frame', error)
+      })
+    }
+
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [contentLoading, reportSrcDoc])
+
+  useEffect(() => {
+    if (contentLoading || !reportSrcDoc) return
     const iframe = iframeRef.current
     if (!iframe) return
 
@@ -37,7 +54,12 @@ export default function ReportFrame({
 
     const bindDocument = () => {
       cleanupDocument?.()
-      const doc = iframe.contentDocument
+      let doc: Document | null = null
+      try {
+        doc = iframe.contentDocument
+      } catch {
+        return
+      }
       if (!doc) return
 
       const onClick = (event: MouseEvent) => {
@@ -114,7 +136,7 @@ export default function ReportFrame({
         <iframe
           ref={iframeRef}
           key={selectedReportUrl}
-          sandbox="allow-same-origin allow-popups allow-downloads"
+          sandbox={REPORT_IFRAME_SANDBOX}
           referrerPolicy="no-referrer"
           srcDoc={reportSrcDoc}
           className="block w-full max-w-full border-none bg-white h-[min(72dvh,560px)] min-h-[360px] md:h-[min(80dvh,1020px)] md:min-h-[640px]"

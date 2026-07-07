@@ -9,6 +9,7 @@ from market_report_rules_service.models import (
     Market,
     StatementType,
 )
+from market_report_rules_service.load_plan import build_load_plan
 from market_report_rules_service.validation import validate_extraction
 
 
@@ -116,6 +117,24 @@ def test_cn_bridge_checks_keep_existing_period_best_selection():
     assert canonical_gate["severity"] == "hard"
     assert canonical_gate["decision"] == "block"
     assert {"rule_id", "severity", "reason", "target", "evidence_refs"} <= set(canonical_gate)
+
+
+def test_load_plan_quarantines_canonical_rows_when_validation_blocks():
+    extraction = _extraction(Market.CN)
+    validation = validate_extraction(extraction)
+
+    plan = build_load_plan(extraction, validation)
+
+    assert plan.can_import is False
+    assert plan.can_vector_ingest is False
+    assert plan.promotion_decisions["canonical"].decision == "block"
+    assert plan.promotion_decisions["retrieval"].decision == "block"
+    assert any(reason.startswith("canonical:block:") for reason in plan.blocked_reasons)
+    assert any(row.table == "financial_data_artifacts" for row in plan.rows)
+    assert any(row.table == "financial_checks_artifacts" for row in plan.rows)
+    assert not any(row.table == "financial_facts" for row in plan.rows)
+    assert any(row.table == "financial_facts" for row in plan.quarantine_rows)
+    assert any(row.table == "evidence_citations" for row in plan.quarantine_rows)
 
 
 def test_non_cn_component_balance_bridge_downgrades_when_total_bridge_passes():

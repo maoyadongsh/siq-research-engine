@@ -241,6 +241,17 @@ class LoadPlanRow(BaseModel):
     row: dict[str, Any]
 
 
+class PromotionDecision(BaseModel):
+    target: str
+    promotion_target: str
+    decision: Literal["allow", "review", "block"] = "allow"
+    severity: Literal["observe", "soft", "hard"] = "observe"
+    rule_ids: list[str] = Field(default_factory=list)
+    review_rule_ids: list[str] = Field(default_factory=list)
+    blocking_rule_ids: list[str] = Field(default_factory=list)
+    reasons: list[str] = Field(default_factory=list)
+
+
 class DbLoadPlan(BaseModel):
     schema_version: int = 1
     target_database: str
@@ -256,7 +267,12 @@ class DbLoadPlan(BaseModel):
     report_id: str | None = None
     parse_run_id: str
     filing_id: str
+    can_import: bool = True
+    can_vector_ingest: bool = True
+    promotion_decisions: dict[str, PromotionDecision] = Field(default_factory=dict)
+    blocked_reasons: list[str] = Field(default_factory=list)
     rows: list[LoadPlanRow]
+    quarantine_rows: list[LoadPlanRow] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     generated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 

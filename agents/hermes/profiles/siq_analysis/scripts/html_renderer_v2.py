@@ -736,6 +736,14 @@ body {
   cursor: pointer;
   outline: none;
 }
+.chart-hit,
+.ib-hit {
+  pointer-events: all;
+}
+.chart-interactive:hover .chart-mark,
+.chart-interactive:focus-visible .chart-mark {
+  filter: drop-shadow(0 6px 12px rgba(15,23,42,0.20));
+}
 .chart-interactive:focus-visible .chart-hit {
   stroke: #f8fafc;
   stroke-width: 2;
@@ -777,6 +785,13 @@ body {
 .report-chart-tooltip span {
   display: block;
   color: #d1d5db;
+}
+.report-chart-tooltip .tooltip-value,
+.income-bridge-tooltip .tooltip-value {
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
 }
 .income-bridge-panel {
   background: #ffffff;
@@ -864,6 +879,7 @@ body {
 }
 .income-bridge-panel .chart-fallback svg {
   display: block;
+  min-width: 1040px;
 }
 .income-bridge-panel .chart-fallback svg text,
 .income-bridge-panel .chart-fallback svg rect,
@@ -873,6 +889,10 @@ body {
 .ib-interactive {
   cursor: pointer;
   outline: none;
+}
+.ib-interactive:hover .ib-flow,
+.ib-interactive:focus-visible .ib-flow {
+  filter: drop-shadow(0 6px 12px rgba(15,23,42,0.18));
 }
 .ib-interactive:focus-visible .ib-hit {
   stroke: #111827;
@@ -1286,12 +1306,60 @@ body {
   border: 1px solid var(--border-color);
   border-radius: 8px;
   box-shadow: var(--shadow);
-  padding: 18px;
+  padding: 0;
+  overflow: hidden;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.chart-container:hover {
+  border-color: #bfdbfe;
+  box-shadow: var(--shadow-lg);
+}
+
+.chart-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 16px 18px 10px;
+  border-bottom: 1px solid #eef2f7;
 }
 
 .chart-title {
   color: var(--text-primary);
   font-size: 15px;
+  line-height: 1.35;
+  margin-bottom: 0;
+}
+
+.chart-note {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: right;
+  max-width: 260px;
+}
+
+.chart-area {
+  padding: 4px 14px 12px;
+}
+
+.chart-fallback {
+  padding: 14px 16px 16px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.chart-fallback svg {
+  min-width: 660px;
+}
+
+.chart-fallback-empty {
+  min-width: 0;
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
 }
 
 .section {
@@ -1488,6 +1556,131 @@ body {
   overflow-wrap: anywhere;
 }
 
+.report-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(300px, 0.85fr);
+  gap: 14px;
+  margin: 18px 0 20px;
+}
+
+.summary-panel,
+.section-toc,
+.evidence-details {
+  background: #ffffff;
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.summary-panel {
+  padding: 18px;
+}
+
+.summary-eyebrow,
+.toc-eyebrow {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0;
+  margin-bottom: 8px;
+}
+
+.summary-title {
+  color: #0f172a;
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1.35;
+  margin-bottom: 10px;
+}
+
+.summary-body {
+  display: grid;
+  gap: 10px;
+}
+
+.summary-point {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 9px;
+  color: #334155;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.summary-point::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  margin-top: 9px;
+  border-radius: 50%;
+  background: #2563eb;
+}
+
+.quality-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 18px 0 0;
+}
+
+.section-toc {
+  padding: 16px;
+}
+
+.section-toc nav {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.section-toc a {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 7px 9px;
+  border-radius: 7px;
+  color: #334155;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  text-decoration: none;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.section-toc a:hover {
+  color: #1d4ed8;
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+.toc-index {
+  color: #64748b;
+  font-variant-numeric: tabular-nums;
+  font-weight: 750;
+}
+
+.evidence-details {
+  margin-top: 12px;
+  padding: 0;
+  box-shadow: none;
+}
+
+.evidence-details summary {
+  cursor: pointer;
+  padding: 10px 12px;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.evidence-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 12px 12px;
+}
+
 .income-bridge-panel {
   border-radius: 8px;
 }
@@ -1515,6 +1708,7 @@ body {
 
 @media (max-width: 1180px) {
   .kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .report-summary { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 768px) {
@@ -1530,6 +1724,12 @@ body {
   .income-bridge-panel .chart-title { font-size: 22px; }
   .source-legend { display: block; }
   .source-legend-badges { min-width: 0; justify-content: flex-start; margin-top: 10px; }
+  .section-toc nav { grid-template-columns: 1fr; }
+  .chart-head { display: block; }
+  .chart-note { text-align: left; max-width: none; margin-top: 6px; }
+  .chart-fallback svg { min-width: 620px; }
+  .income-bridge-panel .chart-fallback { min-height: 0; }
+  .income-bridge-panel .chart-fallback svg { min-width: 1040px; }
 }
 """
 
@@ -1563,7 +1763,7 @@ function placeReportTooltip(tooltip, event, fallbackEl) {
 }
 
 function chartTooltipHtml(title, value, detail) {
-  return `<strong>${escapeHtml(title)}</strong><span>${escapeHtml(value || '')}</span>${detail ? `<span>${escapeHtml(detail)}</span>` : ''}<span>点击可锁定，再次点击取消</span>`;
+  return `<strong>${escapeHtml(title)}</strong>${value ? `<span class="tooltip-value">${escapeHtml(value)}</span>` : ''}${detail ? `<span>${escapeHtml(detail)}</span>` : ''}`;
 }
 
 function reportTooltipBase(trigger = 'axis') {
@@ -1690,7 +1890,7 @@ function initIncomeBridgeInteractions() {
       const title = item.dataset.title || '收支拆解';
       const value = item.dataset.value || '';
       const detail = item.dataset.detail || '';
-      tooltip.innerHTML = `<strong>${escapeHtml(title)}</strong><span>${escapeHtml(value)}</span>${detail ? `<span>${escapeHtml(detail)}</span>` : ''}<span>点击可锁定，再次点击取消</span>`;
+      tooltip.innerHTML = `<strong>${escapeHtml(title)}</strong>${value ? `<span class="tooltip-value">${escapeHtml(value)}</span>` : ''}${detail ? `<span>${escapeHtml(detail)}</span>` : ''}`;
       placeTooltip(event);
       tooltip.classList.add('visible');
     };
@@ -1811,7 +2011,10 @@ function bindEChartInteractions(chart, el, defaultDataIndex = 0) {
     chart.dispatchAction({ type: 'hideTip' });
   };
 
-  chart.on('mouseover', (params) => { lastParams = params; });
+  chart.on('mouseover', (params) => {
+    lastParams = params;
+    if (!locked) show(params);
+  });
   chart.on('globalout', clear);
   chart.on('click', (params) => {
     const key = `${params.seriesIndex ?? 0}:${params.dataIndex ?? defaultDataIndex}`;
@@ -1862,7 +2065,7 @@ function initRevenueProfitChart() {
       formatter: function(params) {
         const year = params[0]?.axisValue || '';
         const rows = params.map(p => `${p.marker}${p.seriesName}: ${fmtYi(p.value)}`).join('<br/>');
-        return '<strong>' + escapeHtml(year) + '</strong><br/>' + rows + '<br/><span style="color:#d1d5db">点击可锁定，再次点击取消</span>';
+        return '<strong>' + escapeHtml(year) + '</strong><br/>' + rows;
       }
     },
     legend: { data: ['营业收入', '归母净利润'], textStyle: { color: chartText } },
@@ -2123,7 +2326,7 @@ function initDupontChart() {
       ...reportTooltipBase('item'),
       formatter: function(p) {
         const values = p.value || [];
-        return chartTooltipHtml('杜邦分析', values.map((v, i) => `${indicators[i].name}: ${Number(v).toFixed(2)}`).join(' / '), '点击可锁定，再次点击取消');
+        return chartTooltipHtml('杜邦分析', values.map((v, i) => `${indicators[i].name}: ${Number(v).toFixed(2)}`).join(' / '), '比率口径已按雷达展示区间缩放');
       }
     },
     radar: {
@@ -2365,36 +2568,51 @@ def render_kpi_cards(snapshot: dict[str, Any]) -> str:
     total_assets = safe_float(metric_value(snapshot, "total_assets"))
     debt_ratio = safe_float(metric_value(snapshot, "total_liabilities")) / total_assets * 100 if total_assets else None
     gross_margin = safe_float(metric_value(snapshot, "gross_margin"))
-    
+
+    def trend_class(value: float | None, favorable: str = "higher") -> str:
+        if value is None:
+            return "neutral"
+        if value == 0:
+            return "neutral"
+        if favorable == "lower":
+            return "up" if value < 0 else "down"
+        return "up" if value > 0 else "down"
+
+    def trend_text(value: float | None) -> str:
+        return f"同比 {fmt_num(value, '%')}" if value is not None else "同比未返回"
+
     cards = []
-    
+
     # Revenue card
     revenue_class = "positive" if revenue > 0 else "neutral"
+    revenue_yoy = yoy_change(snapshot, "operating_revenue")
     cards.append(f"""
     <div class="kpi-card {revenue_class}">
       <div class="kpi-label">营业收入</div>
       <div class="kpi-value">{fmt_num(revenue, "亿元")}</div>
-      <div class="kpi-change up">同比 {fmt_num(yoy_change(snapshot, 'operating_revenue'), "%")}</div>
+      <div class="kpi-change {trend_class(revenue_yoy)}">{trend_text(revenue_yoy)}</div>
     </div>""")
-    
+
     # Profit card
     profit_class = "positive" if profit and profit > 0 else "negative" if profit and profit < 0 else "neutral"
+    profit_yoy = yoy_change(snapshot, "net_profit_parent")
     cards.append(f"""
     <div class="kpi-card {profit_class}">
       <div class="kpi-label">归母净利润</div>
       <div class="kpi-value">{fmt_num(profit, "亿元")}</div>
-      <div class="kpi-change {'up' if profit and profit > 0 else 'down' if profit and profit < 0 else 'neutral'}">同比 {fmt_num(yoy_change(snapshot, 'net_profit_parent'), "%")}</div>
+      <div class="kpi-change {trend_class(profit_yoy)}">{trend_text(profit_yoy)}</div>
     </div>""")
-    
+
     # OCF card
     ocf_class = "positive" if ocf and ocf > 0 else "negative"
+    ocf_yoy = yoy_change(snapshot, "net_operating_cash_flow")
     cards.append(f"""
     <div class="kpi-card {ocf_class}">
       <div class="kpi-label">经营现金流</div>
       <div class="kpi-value">{fmt_num(ocf, "亿元")}</div>
-      <div class="kpi-change up">同比 {fmt_num(yoy_change(snapshot, 'net_operating_cash_flow'), "%")}</div>
+      <div class="kpi-change {trend_class(ocf_yoy)}">{trend_text(ocf_yoy)}</div>
     </div>""")
-    
+
     # Gross margin card
     gm_class = "positive" if gross_margin and gross_margin > 20 else "warning" if gross_margin and gross_margin > 10 else "neutral"
     cards.append(f"""
@@ -2410,7 +2628,7 @@ def render_kpi_cards(snapshot: dict[str, Any]) -> str:
     <div class="kpi-card {debt_class}">
       <div class="kpi-label">资产负债率</div>
       <div class="kpi-value">{fmt_num(debt_ratio, "%")}</div>
-      <div class="kpi-change {'down' if debt_ratio and debt_ratio > 70 else 'up'}">{'偏高' if debt_ratio and debt_ratio > 70 else '健康区间'}</div>
+      <div class="kpi-change {'down' if debt_ratio and debt_ratio > 70 else 'up' if debt_ratio is not None else 'neutral'}">{'偏高' if debt_ratio and debt_ratio > 70 else '健康区间' if debt_ratio is not None else '待补充'}</div>
     </div>""")
     
     # Total assets card
@@ -2439,6 +2657,66 @@ def render_source_legend() -> str:
         <span class="source-badge source-tracking">跟踪信号</span>
       </div>
     </section>
+    """
+
+
+def render_report_summary(
+    preflight: dict[str, Any],
+    snapshot: dict[str, Any],
+    sections: list[dict[str, Any]],
+    quality_badges: list[str],
+) -> str:
+    company_name = preflight.get("company_short_name") or preflight.get("company_id") or snapshot.get("company_id") or "公司"
+    report_year = preflight.get("report_year", snapshot.get("report_year", "2025"))
+
+    summary_points: list[str] = []
+    for section in sections:
+        blocks = section.get("narrative_blocks", [])
+        if not isinstance(blocks, list):
+            continue
+        for block in blocks:
+            if not isinstance(block, dict) or block.get("role") != "synthesis":
+                continue
+            items = block.get("items", [])
+            if not isinstance(items, list):
+                continue
+            for item in items:
+                _, _, text = split_source_prefix(item, "synthesis")
+                for paragraph in sentence_paragraphs(text):
+                    summary_text = truncate_text(paragraph, 220)
+                    if summary_text and summary_text not in summary_points:
+                        summary_points.append(summary_text)
+                    if len(summary_points) >= 4:
+                        break
+                if len(summary_points) >= 4:
+                    break
+            if len(summary_points) >= 4:
+                break
+        if len(summary_points) >= 4:
+            break
+
+    if not summary_points:
+        revenue = safe_float(metric_value(snapshot, "operating_revenue"))
+        profit = safe_float(metric_value(snapshot, "net_profit_parent"))
+        ocf = safe_float(metric_value(snapshot, "net_operating_cash_flow"))
+        debt_ratio = safe_float(metric_value(snapshot, "total_liabilities")) / safe_float(metric_value(snapshot, "total_assets")) * 100 if safe_float(metric_value(snapshot, "total_assets")) else None
+        summary_points = [
+            f"{report_year} 年营业收入 {fmt_num(revenue, '亿元')}，归母净利润 {fmt_num(profit, '亿元')}，需要结合利润率和现金流验证经营质量。",
+            f"经营现金流 {fmt_num(ocf, '亿元')}，是判断利润兑现和营运资金压力的核心跟踪项。",
+            f"资产负债率 {fmt_num(debt_ratio, '%')}，需与短债、现金和资本开支计划一起判断财务弹性。",
+        ]
+
+    points_html = "".join(f'<div class="summary-point">{html_module.escape(point)}</div>' for point in summary_points[:4])
+    return f"""
+    <div class="report-summary">
+      <section class="summary-panel" aria-label="核心结论">
+        <div class="summary-eyebrow">核心结论</div>
+        <div class="summary-title">{html_module.escape(str(company_name))} {html_module.escape(str(report_year))} 年财务诊断摘要</div>
+        <div class="summary-body">{points_html}</div>
+        <div class="quality-strip">{''.join(quality_badges)}</div>
+      </section>
+      {render_navigation(sections)}
+    </div>
     """
 
 
@@ -2544,6 +2822,13 @@ def sentence_paragraphs(text: str) -> list[str]:
     return paragraphs or [clean]
 
 
+def truncate_text(text: str, max_chars: int = 220) -> str:
+    clean = re.sub(r"\s+", " ", str(text or "")).strip()
+    if len(clean) <= max_chars:
+        return clean
+    return clean[: max_chars - 1].rstrip("，。；、 ") + "…"
+
+
 def render_narrative_item(item: Any, role: str) -> str:
     label, source_cls, text = split_source_prefix(item, role)
     paragraphs = sentence_paragraphs(text)
@@ -2588,15 +2873,15 @@ def render_section_content(section: dict[str, Any], preflight: dict[str, Any] | 
 
         evidence = section.get("evidence_ids", [])
         if evidence:
-            parts.append('<div class="subsection">')
-            parts.append('<div class="subsection-title">本节证据</div>')
-            parts.append('<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px;">')
+            parts.append('<details class="evidence-details">')
+            parts.append(f'<summary>本节证据 · {len(evidence)} 项</summary>')
+            parts.append('<div class="evidence-list">')
             for ev in evidence:
                 is_missing = str(ev).endswith(":missing") or str(ev).endswith("未返回")
                 cls = "missing" if is_missing else ""
                 links = evidence_links_from_id(ev, preflight)
                 parts.append(f'<span class="evidence-tag {cls}">{html_module.escape(str(ev))}{links}</span>')
-            parts.append('</div></div>')
+            parts.append('</div></details>')
 
         return "\n".join(parts)
     
@@ -2641,27 +2926,34 @@ def render_section_content(section: dict[str, Any], preflight: dict[str, Any] | 
     # Evidence
     evidence = section.get("evidence_ids", [])
     if evidence:
-        parts.append('<div class="subsection">')
-        parts.append('<div class="subsection-title">本节证据</div>')
-        parts.append('<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px;">')
+        parts.append('<details class="evidence-details">')
+        parts.append(f'<summary>本节证据 · {len(evidence)} 项</summary>')
+        parts.append('<div class="evidence-list">')
         for ev in evidence:
             is_missing = str(ev).endswith(":missing") or str(ev).endswith("未返回")
             cls = "missing" if is_missing else ""
             links = evidence_links_from_id(ev, preflight)
             parts.append(f'<span class="evidence-tag {cls}">{html_module.escape(str(ev))}{links}</span>')
-        parts.append('</div></div>')
+        parts.append('</div></details>')
     
     return "\n".join(parts)
 
 
 def render_navigation(sections: list[dict[str, Any]]) -> str:
-    """No sidebar navigation for report output.
-
-    Financial reports are read as dense documents; a fixed side directory
-    reduces space for charts and long Chinese paragraphs. Keep section anchors
-    in the DOM, but do not render a persistent navigation rail.
-    """
-    return ""
+    """Render a compact TOC for long 14-section financial reports."""
+    links = []
+    for i, section in enumerate(sections):
+        sid = html_module.escape(str(section.get("section_id") or i + 1))
+        title = html_module.escape(str(section.get("title") or f"第 {i + 1} 节"))
+        links.append(f'<a href="#section-{sid}"><span class="toc-index">{i + 1:02d}</span><span>{title}</span></a>')
+    if not links:
+        return ""
+    return (
+        '<aside class="section-toc" aria-label="报告目录">'
+        '<div class="toc-eyebrow">报告目录</div>'
+        f'<nav>{"".join(links)}</nav>'
+        '</aside>'
+    )
 
 
 def render_header(preflight: dict[str, Any], snapshot: dict[str, Any]) -> str:
@@ -2701,13 +2993,17 @@ def render_header(preflight: dict[str, Any], snapshot: dict[str, Any]) -> str:
 """
 
 
-def render_chart_section(chart_id: str, title: str, size: str = "", extra_class: str = "", fallback_svg: str = "") -> str:
+def render_chart_section(chart_id: str, title: str, size: str = "", extra_class: str = "", fallback_svg: str = "", note: str = "") -> str:
     """Render a chart container."""
     size_class = f"chart-area {size}" if size else "chart-area"
     fallback = f'<div class="chart-fallback">{fallback_svg}</div>' if fallback_svg else ""
+    note_html = f'<div class="chart-note">{html_module.escape(note)}</div>' if note else ""
     return f"""
     <div class="chart-container {extra_class}">
-      <div class="chart-title">{html_module.escape(title)}</div>
+      <div class="chart-head">
+        <div class="chart-title">{html_module.escape(title)}</div>
+        {note_html}
+      </div>
       <div id="{chart_id}" class="{size_class}"></div>
       {fallback}
     </div>
@@ -3365,11 +3661,21 @@ def svg_text(value: Any) -> str:
 
 def chart_attrs(chart_id: str, title: str, value: Any, detail: str = "", value_text: str | None = None) -> str:
     display_value = value_text if value_text is not None else fmt_yi(value)
+    aria = "，".join(part for part in [str(title), str(display_value), str(detail)] if part)
     return (
         f'class="chart-interactive" tabindex="0" role="button" '
         f'data-chart-id="{svg_text(chart_id)}" '
-        f'data-title="{svg_text(title)}" data-value="{svg_text(display_value)}" data-detail="{svg_text(detail)}"'
+        f'data-title="{svg_text(title)}" data-value="{svg_text(display_value)}" data-detail="{svg_text(detail)}" '
+        f'aria-label="{svg_text(aria)}"'
     )
+
+
+def svg_title(title: str, value: Any, detail: str = "", value_text: str | None = None) -> str:
+    display_value = value_text if value_text is not None else fmt_yi(value)
+    parts = [str(title), str(display_value)]
+    if detail:
+        parts.append(str(detail))
+    return f"<title>{svg_text(' · '.join(part for part in parts if part))}</title>"
 
 
 def svg_income_bridge_chart(data: dict[str, Any] | None, *, width: int = 1120, height: int = 540) -> str:
@@ -3414,10 +3720,12 @@ def svg_income_bridge_chart(data: dict[str, Any] | None, *, width: int = 1120, h
         return max(minimum, min(maximum, abs(safe_float(value)) / max_value * maximum))
 
     def ib_attrs(ib_id: str, related: list[str], title: str, value: Any, detail: str = "") -> str:
+        aria = "，".join(part for part in [str(title), fmt_yi(value), str(detail)] if part)
         return (
             f'class="ib-interactive" tabindex="0" role="button" '
             f'data-ib-id="{svg_text(ib_id)}" data-related="{svg_text(",".join(related))}" '
-            f'data-title="{svg_text(title)}" data-value="{svg_text(fmt_yi(value))}" data-detail="{svg_text(detail)}"'
+            f'data-title="{svg_text(title)}" data-value="{svg_text(fmt_yi(value))}" data-detail="{svg_text(detail)}" '
+            f'aria-label="{svg_text(aria)}"'
         )
 
     def curve(
@@ -3437,6 +3745,7 @@ def svg_income_bridge_chart(data: dict[str, Any] | None, *, width: int = 1120, h
         c2 = x2 - (x2 - x1) * 0.52
         return (
             f'<g {ib_attrs(ib_id, related, title, value, detail)}>'
+            f'{svg_title(title, value, detail)}'
             f'<path class="ib-hit" d="M{x1:.1f},{y1:.1f} C{c1:.1f},{y1:.1f} {c2:.1f},{y2:.1f} {x2:.1f},{y2:.1f}" '
             f'fill="none" stroke="transparent" stroke-width="{max(flow_width(value) + 18, 26):.1f}" stroke-linecap="round"/>'
             f'<path class="ib-flow" d="M{x1:.1f},{y1:.1f} C{c1:.1f},{y1:.1f} {c2:.1f},{y2:.1f} {x2:.1f},{y2:.1f}" '
@@ -3471,6 +3780,7 @@ def svg_income_bridge_chart(data: dict[str, Any] | None, *, width: int = 1120, h
         )
         return (
             f'<g {ib_attrs(ib_id, related, title, value, detail)}>'
+            f'{svg_title(title, value, detail)}'
             f'<path class="ib-hit" d="{path}" fill="transparent" stroke="transparent" stroke-width="14"/>'
             f'<path class="ib-flow ib-ribbon" d="{path}" fill="{color}" opacity="{opacity}" stroke="rgba(255,255,255,0.56)" stroke-width="0.8"/>'
             f'</g>'
@@ -3503,6 +3813,7 @@ def svg_income_bridge_chart(data: dict[str, Any] | None, *, width: int = 1120, h
         ratio_attr = "" if ratio is None else f' data-ratio="{ratio:.6f}"'
         return (
             f'<g {ib_attrs(ib_id, related, title, value, detail)}{ratio_attr}>'
+            f'{svg_title(title, value, detail)}'
             f'<path class="ib-hit" d="{path}" fill="transparent" stroke="transparent" stroke-width="14"/>'
             f'<path class="ib-flow ib-ribbon" d="{path}" fill="{color}" opacity="{opacity}" stroke="rgba(255,255,255,0.58)" stroke-width="0.8"/>'
             f'</g>'
@@ -3526,6 +3837,7 @@ def svg_income_bridge_chart(data: dict[str, Any] | None, *, width: int = 1120, h
         value_color = value_color or color
         return (
             f'<g {ib_attrs(ib_id, related, label, value, detail)}>'
+            f'{svg_title(label, value, detail)}'
             f'<rect x="{x:.1f}" y="{y - h / 2:.1f}" width="12" height="{h:.1f}" rx="2" fill="{color}"/>'
             f'<text x="{tx:.1f}" y="{y - 7:.1f}" text-anchor="{text_anchor}" class="ib-label">{svg_text(label)}</text>'
             f'<text x="{tx:.1f}" y="{y + 19:.1f}" text-anchor="{text_anchor}" class="ib-value" fill="{value_color}">{svg_text(fmt_yi(value))}</text>'
@@ -3543,6 +3855,7 @@ def svg_income_bridge_chart(data: dict[str, Any] | None, *, width: int = 1120, h
         detail = "同比：" + yoy_text if yoy is not None else "同比：未返回"
         return (
             f'<g {ib_attrs(ib_id, related, str(item.get("name") or ""), item.get("revenue"), detail)}>'
+            f'{svg_title(str(item.get("name") or ""), item.get("revenue"), detail)}'
             f'<text x="{x:.1f}" y="{y - 11:.1f}" text-anchor="end" class="ib-yoy" fill="{yoy_color}">{svg_text(yoy_text)}</text>'
             f'<text x="{x + 8:.1f}" y="{y - 11:.1f}" text-anchor="start" class="ib-label">{svg_text(name)}</text>'
             f'<text x="{x + 8:.1f}" y="{y + 15:.1f}" text-anchor="start" class="ib-value" fill="#3498db">{svg_text(fmt_yi(item.get("revenue")))}</text>'
@@ -3602,6 +3915,7 @@ def svg_income_bridge_chart(data: dict[str, Any] | None, *, width: int = 1120, h
         segment_parts.append(segment_label(item, 118, y, segment_id, [flow_id, "node-revenue"]))
         segment_parts.append(
             f'<g {ib_attrs(f"node-{segment_id}", [segment_id, flow_id, "node-revenue"], str(item.get("name") or ""), value, "收入分项")}>'
+            f'{svg_title(str(item.get("name") or ""), value, "收入分项")}'
             f'<rect x="{left_node_x}" y="{y - 12:.1f}" width="12" height="24" rx="2" fill="{income_blue}"/>'
             f'<rect class="ib-hit" x="{left_node_x - 12}" y="{y - 22:.1f}" width="38" height="44" rx="8" fill="transparent"/>'
             f'</g>'
@@ -3669,14 +3983,17 @@ def svg_bar_line_chart(data: dict[str, Any] | None, *, width: int = 760, height:
         line_points.append((cx, py, prof))
         bars.append(
             f'<g {chart_attrs(f"trend-revenue-{i}", f"{year} 营业收入", rev, "营业收入趋势")}>'
+            f'{svg_title(f"{year} 营业收入", rev, "营业收入趋势")}'
             f'<rect class="chart-mark" x="{x:.1f}" y="{y:.1f}" width="{bar_w:.1f}" height="{bar_h:.1f}" rx="6" fill="#3b82f6" opacity="0.88"/>'
             f'<rect class="chart-hit" x="{x - 8:.1f}" y="{top:.1f}" width="{bar_w + 16:.1f}" height="{plot_h:.1f}" fill="transparent"/>'
             f'</g>'
+            f'<text x="{cx:.1f}" y="{max(16, y - 8):.1f}" text-anchor="middle" class="svg-value">{fmt_num(rev)}</text>'
             f'<text x="{cx:.1f}" y="{height - 18}" text-anchor="middle" class="svg-muted">{svg_text(year)}</text>'
         )
     path = " ".join(f"{x:.1f},{y:.1f}" for x, y, _ in line_points)
     dots = "".join(
         f'<g {chart_attrs(f"trend-profit-{i}", f"{years[i]} 归母净利润", value, "归母净利润趋势")}>'
+        f'{svg_title(f"{years[i]} 归母净利润", value, "归母净利润趋势")}'
         f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4.5" class="svg-dot chart-mark" stroke="#10b981"/>'
         f'<circle class="chart-hit" cx="{x:.1f}" cy="{y:.1f}" r="16" fill="transparent"/>'
         f'</g>'
@@ -3724,6 +4041,7 @@ def svg_cashflow_chart(data: dict[str, Any] | None, *, width: int = 760, height:
         y = zero_y - bar_h if value >= 0 else zero_y
         rows.append(
             f'<g {chart_attrs(f"cashflow-{i}", label, value, "现金流结构项目")}>'
+            f'{svg_title(label, value, "现金流结构项目")}'
             f'<rect class="chart-mark" x="{cx - bar_w / 2:.1f}" y="{y:.1f}" width="{bar_w:.1f}" height="{max(2, bar_h):.1f}" rx="6" fill="{color}" opacity="0.9"/>'
             f'<rect class="chart-hit" x="{cx - bar_w / 2 - 8:.1f}" y="{top:.1f}" width="{bar_w + 16:.1f}" height="{plot_h:.1f}" fill="transparent"/>'
             f'</g>'
@@ -3766,6 +4084,7 @@ def svg_donut_chart(data: dict[str, Any] | None, *, width: int = 520, height: in
         color = colors[i % len(colors)]
         segments.append(
             f'<g {chart_attrs(f"donut-{i}", str(item.get("name") or ""), value, f"占比 {pct * 100:.1f}%")}>'
+            f'{svg_title(str(item.get("name") or ""), value, f"占比 {pct * 100:.1f}%")}'
             f'<path class="chart-mark" d="M {cx} {cy} L {x1:.1f} {y1:.1f} A {radius} {radius} 0 {large} 1 {x2:.1f} {y2:.1f} Z" fill="{color}" opacity="0.9"/>'
             f'<path class="chart-hit" d="M {cx} {cy} L {x1:.1f} {y1:.1f} A {radius} {radius} 0 {large} 1 {x2:.1f} {y2:.1f} Z" fill="transparent" stroke="transparent" stroke-width="10"/>'
             f'</g>'
@@ -3780,7 +4099,7 @@ def svg_donut_chart(data: dict[str, Any] | None, *, width: int = 520, height: in
     return f"""
 <svg viewBox="0 0 {width} {height}" role="img" aria-label="结构分布环图">
   {''.join(segments)}
-  <circle cx="{cx}" cy="{cy}" r="54" fill="#0f172a"/>
+  <circle cx="{cx}" cy="{cy}" r="54" fill="#ffffff" stroke="#dbe3ef"/>
   <text x="{cx}" y="{cy - 4}" text-anchor="middle" class="svg-label">合计</text>
   <text x="{cx}" y="{cy + 20}" text-anchor="middle" class="svg-value">{fmt_num(total, "亿元")}</text>
   {''.join(legend)}
@@ -3819,6 +4138,7 @@ def svg_radar_chart(data: dict[str, Any] | None, *, width: int = 520, height: in
   {rings}
   {''.join(axes)}
   <g {chart_attrs("dupont-radar", "杜邦分析", 0, detail, "综合比率")}>
+    {svg_title("杜邦分析", 0, detail, "综合比率")}
     <polygon class="chart-mark" points="{polygon}" fill="rgba(59,130,246,0.24)" stroke="#3b82f6" stroke-width="3"/>
     <polygon class="chart-hit" points="{polygon}" fill="transparent" stroke="transparent" stroke-width="18"/>
   </g>
@@ -3855,6 +4175,7 @@ def svg_waterfall_chart(data: dict[str, Any] | None, *, width: int = 760, height
         end_value = base + value
         bars.append(
             f'<g {chart_attrs(f"waterfall-{i}", str(step.get("name") or ""), value, f"base {base:.2f} 亿 / end {end_value:.2f} 亿")}>'
+            f'{svg_title(str(step.get("name") or ""), value, f"base {base:.2f} 亿 / end {end_value:.2f} 亿")}'
             f'<rect class="chart-mark" x="{cx - bar_w / 2:.1f}" y="{y:.1f}" width="{bar_w:.1f}" height="{h:.1f}" rx="6" fill="{color}" opacity="0.9"/>'
             f'<rect class="chart-hit" x="{cx - bar_w / 2 - 8:.1f}" y="{top:.1f}" width="{bar_w + 16:.1f}" height="{plot_h:.1f}" fill="transparent"/>'
             f'</g>'
@@ -3902,10 +4223,12 @@ def svg_peer_radar_chart(data: dict[str, Any] | None, *, width: int = 760, heigh
   {rings}
   {''.join(axes)}
   <g {chart_attrs("peer-company", "本公司", 0, company_detail, "评分雷达")}>
+    {svg_title("本公司", 0, company_detail, "评分雷达")}
     <polygon class="chart-mark" points="{points(company)}" fill="rgba(59,130,246,0.20)" stroke="#3b82f6" stroke-width="3"/>
     <polygon class="chart-hit" points="{points(company)}" fill="transparent" stroke="transparent" stroke-width="18"/>
   </g>
   <g {chart_attrs("peer-median", "行业中位数", 0, peer_detail, "评分雷达")}>
+    {svg_title("行业中位数", 0, peer_detail, "评分雷达")}
     <polygon class="chart-mark" points="{points(peer)}" fill="rgba(245,158,11,0.12)" stroke="#f59e0b" stroke-width="2" stroke-dasharray="6 4"/>
     <polygon class="chart-hit" points="{points(peer)}" fill="transparent" stroke="transparent" stroke-width="18"/>
   </g>
@@ -3934,8 +4257,9 @@ def svg_solvency_gauges(data: dict[str, Any] | None, *, width: int = 760, height
         color = "#10b981" if (label != "资产负债率" and value >= 1) or (label == "资产负债率" and value <= 60) else "#f59e0b"
         cards.append(
             f'<g {chart_attrs(f"solvency-{i}", label, value, "偿债能力指标", fmt_num(value, unit))}>'
-            f'<rect class="chart-mark" x="{x}" y="36" width="138" height="120" rx="10" fill="rgba(15,23,42,0.55)" stroke="#334155"/>'
-            f'<rect x="{x + 18}" y="112" width="102" height="10" rx="5" fill="#334155"/>'
+            f'{svg_title(label, value, "偿债能力指标", fmt_num(value, unit))}'
+            f'<rect class="chart-mark" x="{x}" y="36" width="138" height="120" rx="10" fill="#ffffff" stroke="#dbe3ef"/>'
+            f'<rect x="{x + 18}" y="112" width="102" height="10" rx="5" fill="#e2e8f0"/>'
             f'<rect class="chart-mark" x="{x + 18}" y="112" width="{102 * pct:.1f}" height="10" rx="5" fill="{color}"/>'
             f'<rect class="chart-hit" x="{x}" y="36" width="138" height="120" rx="10" fill="transparent"/>'
             f'</g>'
@@ -4017,8 +4341,8 @@ def render_html_report(
     if revenue_profit_data:
         chart_panels["after_executive_summary"] = f"""
         <div class="chart-grid">
-          {render_chart_section("revenue-profit-chart", "营业收入与净利润趋势", "large", fallback_svg=svg_bar_line_chart(revenue_profit_data))}
-          {render_chart_section("cashflow-chart", "现金流结构分析", "large", fallback_svg=svg_cashflow_chart(cashflow_data))}
+          {render_chart_section("revenue-profit-chart", "营业收入与净利润趋势", "large", fallback_svg=svg_bar_line_chart(revenue_profit_data), note="柱形为营业收入左轴，折线为归母净利润右轴，单位均为亿元。")}
+          {render_chart_section("cashflow-chart", "现金流结构分析", "large", fallback_svg=svg_cashflow_chart(cashflow_data), note="按经营、投资、筹资、资本开支与自由现金流拆分，正负方向代表现金流入/流出。")}
         </div>
         """
     
@@ -4026,14 +4350,14 @@ def render_html_report(
     if asset_data or debt_data:
         charts = []
         if asset_data:
-            charts.append(render_chart_section("asset-structure-chart", "资产结构分布", fallback_svg=svg_donut_chart(asset_data)))
+            charts.append(render_chart_section("asset-structure-chart", "资产结构分布", fallback_svg=svg_donut_chart(asset_data), note="按资产负债表项目金额占比展示，单位为亿元。"))
         if debt_data:
-            charts.append(render_chart_section("debt-structure-chart", "负债结构分布", fallback_svg=svg_donut_chart(debt_data)))
+            charts.append(render_chart_section("debt-structure-chart", "负债结构分布", fallback_svg=svg_donut_chart(debt_data), note="按负债项目金额占比展示，单位为亿元。"))
         chart_panels["after_asset_quality"] = f'<div class="chart-grid">{"".join(charts)}</div>'
     
     # DuPont + Solvency - goes after section 6 (Debt)
     if dupont_data or solvency_data:
-        dupont_html = render_chart_section("dupont-chart", "杜邦分析雷达图", fallback_svg=svg_radar_chart(dupont_data)) if dupont_data else ""
+        dupont_html = render_chart_section("dupont-chart", "杜邦分析雷达图", fallback_svg=svg_radar_chart(dupont_data), note="雷达维度为净利率、周转率、权益乘数和 ROE 的缩放展示。") if dupont_data else ""
         solvency_html = ""
         if solvency_data:
             gauges = []
@@ -4047,7 +4371,10 @@ def render_html_report(
                 gauges.append(f'<div id="{gid}" style="width:100%;height:180px;"></div>')
             solvency_html = f"""
             <div class="chart-container">
-              <div class="chart-title">偿债能力仪表盘</div>
+              <div class="chart-head">
+                <div class="chart-title">偿债能力仪表盘</div>
+                <div class="chart-note">资产负债率、流动比率、速动比率和现金比率，颜色用于提示压力区间。</div>
+              </div>
               <div class="chart-grid-3">{''.join(gauges)}</div>
               <div class="chart-fallback">{svg_solvency_gauges(solvency_data)}</div>
             </div>
@@ -4056,11 +4383,11 @@ def render_html_report(
     
     # Peer comparison - goes after section 8 (Industry)
     if peer_data:
-        chart_panels["after_industry"] = render_chart_section("peer-comparison-chart", "同业竞争对比", "large", fallback_svg=svg_peer_radar_chart(peer_data))
+        chart_panels["after_industry"] = render_chart_section("peer-comparison-chart", "同业竞争对比", "large", fallback_svg=svg_peer_radar_chart(peer_data), note=f"本公司与同业中位数对比，样本数 {peer_data.get('peer_count', 0)}。")
     
     # Profitability waterfall - goes after section 4 (Profitability)
     if profitability_data:
-        chart_panels["after_profitability"] = render_chart_section("profitability-waterfall", "盈利分解瀑布图", "large", fallback_svg=svg_waterfall_chart(profitability_data))
+        chart_panels["after_profitability"] = render_chart_section("profitability-waterfall", "盈利分解瀑布图", "large", fallback_svg=svg_waterfall_chart(profitability_data), note="从收入到利润口径拆分主要正负贡献，单位为亿元。")
     
     # Insert chart panels into sections
     final_sections_html = []
@@ -4115,9 +4442,7 @@ def render_html_report(
     
     <div class="container">
       <!-- Quality badges -->
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin:20px 0;">
-        {''.join(quality_badges)}
-      </div>
+      {render_report_summary(preflight, snapshot, sections, quality_badges)}
 
       {render_source_legend()}
       
