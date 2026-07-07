@@ -2,9 +2,6 @@ from .evidence_package import (
     SCHEMA_VERSION,
     EvidencePackageValidation,
     build_quality_gates,
-    evidence_resolvability_summary,
-    evidence_source_resolvability,
-    is_resolvable_evidence_source,
     read_market_package_detail,
     read_market_package_summary,
     source_map_from_financial_data,
@@ -17,6 +14,11 @@ from .evidence_hashing import (
     stable_id,
     stable_parse_run_id,
     write_json,
+)
+from .evidence_resolver import (
+    evidence_resolvability_summary,
+    evidence_source_resolvability,
+    is_resolvable_evidence_source,
 )
 
 __all__ = [
