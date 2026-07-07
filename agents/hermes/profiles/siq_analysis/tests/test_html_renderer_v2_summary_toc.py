@@ -65,3 +65,10 @@ def test_navigation_outputs_real_section_links():
     assert 'href="#section-operating_quality"' in html
     assert 'aria-label="跳转到三、经营质量分析"' in html
     assert html.count("<a ") == 2
+
+
+def test_renderer_static_assets_are_loaded_through_facade():
+    assert ".section-toc" in renderer.CSS_STYLES
+    assert ".income-bridge-panel" in renderer.CSS_STYLES
+    assert "document.addEventListener('DOMContentLoaded'" in renderer.ECHARTS_SCRIPTS
+    assert "echarts.init" in renderer.ECHARTS_SCRIPTS
