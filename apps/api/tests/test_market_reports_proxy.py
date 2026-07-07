@@ -76,6 +76,42 @@ def _allow_market_quality_gate(monkeypatch):
     )
 
 
+def _write_load_plan(
+    package_dir: Path,
+    *,
+    can_import: bool,
+    can_vector_ingest: bool,
+    canonical_decision: str = "allow",
+    retrieval_decision: str = "allow",
+) -> None:
+    (package_dir / "metrics").mkdir(exist_ok=True)
+    payload = {
+        "can_import": can_import,
+        "can_vector_ingest": can_vector_ingest,
+        "blocked_reasons": [
+            f"canonical:{canonical_decision}:load-plan-test",
+            f"retrieval:{retrieval_decision}:load-plan-test",
+        ],
+        "promotion_decisions": {
+            "canonical": {
+                "decision": canonical_decision,
+                "severity": "soft" if canonical_decision == "review" else "hard" if canonical_decision == "block" else "observe",
+                "review_rule_ids": ["load-plan-test"] if canonical_decision == "review" else [],
+                "blocking_rule_ids": ["load-plan-test"] if canonical_decision == "block" else [],
+            },
+            "retrieval": {
+                "decision": retrieval_decision,
+                "severity": "soft" if retrieval_decision == "review" else "hard" if retrieval_decision == "block" else "observe",
+                "review_rule_ids": ["load-plan-test"] if retrieval_decision == "review" else [],
+                "blocking_rule_ids": ["load-plan-test"] if retrieval_decision == "block" else [],
+            },
+        },
+        "rows": [{"table": "financial_data_artifacts"}],
+        "quarantine_rows": [{"table": "financial_facts"}],
+    }
+    (package_dir / "metrics" / "load_plan.json").write_text(json.dumps(payload), encoding="utf-8")
+
+
 def _write_hk_v2_package(root: Path, *parts: str) -> Path:
     package_dir = root.joinpath(*parts)
     for name in ("raw", "sections", "tables", "xbrl", "metrics", "qa", "parser"):
@@ -1156,6 +1192,13 @@ def test_market_package_quality_routes_keep_response_contract(monkeypatch, tmp_p
     )
     (package_dir / "metrics").mkdir()
     (package_dir / "metrics" / "financial_checks.json").write_text(json.dumps({"status": "warning"}), encoding="utf-8")
+    _write_load_plan(
+        package_dir,
+        can_import=False,
+        can_vector_ingest=False,
+        canonical_decision="review",
+        retrieval_decision="review",
+    )
     monkeypatch.setitem(market_reports.MARKET_WIKI_ROOTS, "US", wiki_root)
 
     by_path = asyncio.run(market_reports.market_package_quality_by_path("US", str(package_dir)))
@@ -1164,8 +1207,12 @@ def test_market_package_quality_routes_keep_response_contract(monkeypatch, tmp_p
     assert by_path["manifest"] == {"filing_id": "AAPL-10K"}
     assert by_path["quality"] == {"overall_status": "pass"}
     assert by_path["financial_checks"] == {"status": "warning"}
+    assert by_path["load_plan"]["can_import"] is False
+    assert by_path["load_plan"]["quarantine_row_count"] == 1
+    assert by_path["quality_gates"]["load_plan"]["can_vector_ingest"] is False
     assert by_path["source_map_summary"] == {"evidence": 2}
     assert by_filing_id["package_path"] == str(package_dir)
+    assert by_filing_id["load_plan"]["can_import"] is False
     assert "source_map_summary" not in by_filing_id
 
 
@@ -1631,6 +1678,69 @@ def test_market_package_import_blocks_hard_gate_even_with_force(monkeypatch, tmp
     assert "review/quarantine" in exc.value.detail["message"]
 
 
+def test_market_package_import_blocks_load_plan_can_import_false(monkeypatch, tmp_path):
+    wiki_root = tmp_path / "wiki" / "hk"
+    package_dir = _write_market_package(wiki_root, "companies", "00700-TENCENT", "reports", "2025-annual-12100024")
+    _write_load_plan(
+        package_dir,
+        can_import=False,
+        can_vector_ingest=True,
+        canonical_decision="block",
+        retrieval_decision="allow",
+    )
+    import_script = tmp_path / "scripts" / "import_hk.py"
+    import_script.parent.mkdir(parents=True)
+    import_script.write_text("# import", encoding="utf-8")
+
+    def fail_run(*_args, **_kwargs):
+        raise AssertionError("run_command should not be called")
+
+    monkeypatch.setitem(market_reports.MARKET_WIKI_ROOTS, "HK", wiki_root)
+    monkeypatch.setitem(market_reports.MARKET_IMPORT_SCRIPTS, "HK", import_script)
+    _allow_market_quality_gate(monkeypatch)
+    monkeypatch.setattr(market_reports, "run_command", fail_run)
+
+    with pytest.raises(HTTPException) as exc:
+        market_reports._run_market_package_import({"market": "HK", "package_path": str(package_dir)})
+
+    assert exc.value.status_code == 409
+    assert exc.value.detail["quality_gates"]["import_blocked"] is True
+    assert exc.value.detail["quality_gates"]["load_plan"]["can_import"] is False
+    assert "load_plan.canonical.block" in exc.value.detail["quality_gates"]["hard_gate_rule_ids"]
+
+
+def test_market_package_import_allows_audited_load_plan_review_force(monkeypatch, tmp_path):
+    wiki_root = tmp_path / "wiki" / "hk"
+    package_dir = _write_market_package(wiki_root, "companies", "00700-TENCENT", "reports", "2025-annual-12100024")
+    _write_load_plan(
+        package_dir,
+        can_import=False,
+        can_vector_ingest=False,
+        canonical_decision="review",
+        retrieval_decision="review",
+    )
+    import_script = tmp_path / "scripts" / "import_hk.py"
+    import_script.parent.mkdir(parents=True)
+    import_script.write_text("# import", encoding="utf-8")
+
+    class Completed:
+        returncode = 0
+        stdout = "parse-run-hk\n"
+        stderr = ""
+
+    monkeypatch.setitem(market_reports.MARKET_WIKI_ROOTS, "HK", wiki_root)
+    monkeypatch.setitem(market_reports.MARKET_IMPORT_SCRIPTS, "HK", import_script)
+    _allow_market_quality_gate(monkeypatch)
+    monkeypatch.setattr(market_reports, "run_command", lambda *_args, **_kwargs: Completed())
+
+    result = market_reports._run_market_package_import(
+        _force_audit_payload(market="HK", package_path=str(package_dir))
+    )
+
+    assert result["ok"] is True
+    assert result["parse_run_id"] == "parse-run-hk"
+
+
 def test_market_vector_ingest_blocks_hard_gate_even_with_force(monkeypatch, tmp_path):
     wiki_root = tmp_path / "wiki" / "hk"
     package_dir = _write_market_package(wiki_root, "companies", "00700-TENCENT", "reports", "2025-annual-12100024")
@@ -1665,6 +1775,37 @@ def test_market_vector_ingest_blocks_hard_gate_even_with_force(monkeypatch, tmp_
     assert exc.value.detail["action"] == "vector_ingest"
     assert exc.value.detail["quality_gates"]["vector_ingest_blocked"] is True
     assert exc.value.detail["quality_gates"]["force_allowed"] is False
+
+
+def test_market_vector_ingest_blocks_load_plan_can_vector_false(monkeypatch, tmp_path):
+    wiki_root = tmp_path / "wiki" / "hk"
+    package_dir = _write_market_package(wiki_root, "companies", "00700-TENCENT", "reports", "2025-annual-12100024")
+    _write_load_plan(
+        package_dir,
+        can_import=True,
+        can_vector_ingest=False,
+        canonical_decision="allow",
+        retrieval_decision="block",
+    )
+    ingest_script = tmp_path / "scripts" / "ingest_market_package.py"
+    ingest_script.parent.mkdir(parents=True)
+    ingest_script.write_text("# ingest", encoding="utf-8")
+
+    def fail_run(*_args, **_kwargs):
+        raise AssertionError("run_command should not be called")
+
+    monkeypatch.setitem(market_reports.MARKET_WIKI_ROOTS, "HK", wiki_root)
+    monkeypatch.setattr(market_reports, "MARKET_VECTOR_INGEST_SCRIPT", ingest_script)
+    _allow_market_quality_gate(monkeypatch)
+    monkeypatch.setattr(market_reports, "run_command", fail_run)
+
+    with pytest.raises(HTTPException) as exc:
+        market_reports._run_market_vector_ingest({"market": "HK", "package_path": str(package_dir), "dry_run": False})
+
+    assert exc.value.status_code == 409
+    assert exc.value.detail["quality_gates"]["vector_ingest_blocked"] is True
+    assert exc.value.detail["quality_gates"]["load_plan"]["can_vector_ingest"] is False
+    assert "load_plan.retrieval.block" in exc.value.detail["quality_gates"]["hard_gate_rule_ids"]
 
 
 def test_market_package_import_allows_audited_soft_gate_force_and_logs(monkeypatch, tmp_path, caplog):

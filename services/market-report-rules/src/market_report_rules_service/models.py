@@ -280,6 +280,7 @@ class DbLoadPlan(BaseModel):
 class ProcessRequest(BaseModel):
     artifact: ParsedArtifact
     build_load_plan: bool = True
+    package_dir: str | None = None
 
 
 class ProcessResult(BaseModel):

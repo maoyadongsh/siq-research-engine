@@ -160,6 +160,34 @@ def _update_manifest(package_dir: Path, **updates) -> dict:
     return manifest
 
 
+def test_market_package_summary_exposes_load_plan_decisions(tmp_path):
+    package_dir = _write_package(tmp_path)
+    write_json(
+        package_dir / "metrics" / "load_plan.json",
+        {
+            "can_import": False,
+            "can_vector_ingest": False,
+            "blocked_reasons": ["canonical:review:accounting.standard.known"],
+            "promotion_decisions": {
+                "canonical": {"decision": "review"},
+                "retrieval": {"decision": "review"},
+            },
+            "rows": [{"table": "financial_data_artifacts"}],
+            "quarantine_rows": [{"table": "financial_facts"}],
+        },
+    )
+    _update_manifest(package_dir, artifact_hashes=compute_artifact_hashes(package_dir))
+
+    summary = read_market_package_summary(package_dir)
+    detail = read_market_package_detail(package_dir)
+
+    assert summary["paths"]["load_plan"] == "metrics/load_plan.json"
+    assert summary["load_plan"]["can_import"] is False
+    assert summary["load_plan"]["can_vector_ingest"] is False
+    assert summary["load_plan"]["quarantine_row_count"] == 1
+    assert detail["load_plan"]["can_import"] is False
+
+
 def test_validate_and_read_market_package(tmp_path):
     package_dir = _write_package(tmp_path)
 

@@ -119,7 +119,11 @@ def validate(payload: ExtractionResult) -> dict[str, object]:
 
 @app.post("/process")
 def process(payload: ProcessRequest) -> dict[str, object]:
-    return process_contract(payload.artifact, include_load_plan=payload.build_load_plan)
+    return process_contract(
+        payload.artifact,
+        include_load_plan=payload.build_load_plan,
+        package_dir=payload.package_dir,
+    )
 
 
 @app.post("/load-plan")

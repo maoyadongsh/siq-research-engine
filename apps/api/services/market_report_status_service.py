@@ -34,6 +34,8 @@ def market_package_quality_payload(
     manifest: Any,
     quality: Any,
     financial_checks: Any,
+    load_plan: Any | None = None,
+    quality_gates: Any | None = None,
     source_map: Any | None = None,
     include_source_map_summary: bool = False,
 ) -> dict[str, Any]:
@@ -44,6 +46,19 @@ def market_package_quality_payload(
         "quality": quality,
         "financial_checks": financial_checks,
     }
+    if isinstance(load_plan, dict) and load_plan:
+        rows = load_plan.get("rows") if isinstance(load_plan.get("rows"), list) else []
+        quarantine_rows = load_plan.get("quarantine_rows") if isinstance(load_plan.get("quarantine_rows"), list) else []
+        payload["load_plan"] = {
+            "can_import": load_plan.get("can_import"),
+            "can_vector_ingest": load_plan.get("can_vector_ingest"),
+            "blocked_reasons": load_plan.get("blocked_reasons") if isinstance(load_plan.get("blocked_reasons"), list) else [],
+            "promotion_decisions": load_plan.get("promotion_decisions") if isinstance(load_plan.get("promotion_decisions"), dict) else {},
+            "row_count": len(rows),
+            "quarantine_row_count": len(quarantine_rows),
+        }
+    if isinstance(quality_gates, dict) and quality_gates:
+        payload["quality_gates"] = quality_gates
     if include_source_map_summary:
         source_entries = source_map.get("entries") if isinstance(source_map, dict) else []
         if not isinstance(source_entries, list):

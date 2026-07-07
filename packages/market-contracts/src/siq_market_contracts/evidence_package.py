@@ -125,6 +125,7 @@ PACKAGE_FILE_PATHS = {
     "source_map": "qa/source_map.json",
     "financial_data": "metrics/financial_data.json",
     "financial_checks": "metrics/financial_checks.json",
+    "load_plan": "metrics/load_plan.json",
     "normalized_metrics": "metrics/normalized_metrics.json",
     "table_index": "tables/table_index.json",
     "report_complete": "sections/report_complete.md",
@@ -214,6 +215,21 @@ def _quality_count(quality: dict[str, Any], key: str, summary_key: str | None = 
         return quality.get(key)
     summary = quality.get("summary") if isinstance(quality.get("summary"), dict) else {}
     return summary.get(summary_key or key)
+
+
+def _load_plan_summary(load_plan: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(load_plan, dict) or not load_plan:
+        return {}
+    rows = load_plan.get("rows") if isinstance(load_plan.get("rows"), list) else []
+    quarantine_rows = load_plan.get("quarantine_rows") if isinstance(load_plan.get("quarantine_rows"), list) else []
+    return {
+        "can_import": load_plan.get("can_import"),
+        "can_vector_ingest": load_plan.get("can_vector_ingest"),
+        "blocked_reasons": load_plan.get("blocked_reasons") if isinstance(load_plan.get("blocked_reasons"), list) else [],
+        "promotion_decisions": load_plan.get("promotion_decisions") if isinstance(load_plan.get("promotion_decisions"), dict) else {},
+        "row_count": len(rows),
+        "quarantine_row_count": len(quarantine_rows),
+    }
 
 
 def _source_map_entries(source_map: dict[str, Any]) -> list[Any]:
@@ -1499,6 +1515,7 @@ def read_market_package_summary(package_dir: Path, *, display_path: str | None =
     quality = read_json(package_dir / "qa" / "quality_report.json", {})
     financial_data = read_json(package_dir / "metrics" / "financial_data.json", {})
     financial_checks = read_json(package_dir / "metrics" / "financial_checks.json", {})
+    load_plan = read_json(package_dir / "metrics" / "load_plan.json", {})
     metrics = _normalized_metrics(read_json(package_dir / "metrics" / "normalized_metrics.json", {}))
     source_map_payload = read_json(package_dir / "qa" / "source_map.json", {})
     source_map = _source_map_entries(source_map_payload)
@@ -1539,6 +1556,7 @@ def read_market_package_summary(package_dir: Path, *, display_path: str | None =
             "resolvable_evidence": resolvability["resolvable_evidence_count"],
             "unresolvable_evidence": resolvability["unresolvable_evidence_count"],
         },
+        "load_plan": _load_plan_summary(load_plan),
         "quality_gates": build_quality_gates(
             package_dir,
             manifest=manifest,
@@ -1572,6 +1590,7 @@ def read_market_package_detail(package_dir: Path, *, display_path: str | None = 
         "quality": read_json(package_dir / "qa" / "quality_report.json", {}),
         "financial_data": read_json(package_dir / "metrics" / "financial_data.json", {}),
         "financial_checks": read_json(package_dir / "metrics" / "financial_checks.json", {}),
+        "load_plan": read_json(package_dir / "metrics" / "load_plan.json", {}),
         "metrics": _normalized_metrics(normalized_metrics),
         "source_map": _source_map_entries(source_map),
         "tables": _tables(table_index),

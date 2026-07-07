@@ -202,6 +202,65 @@ def _quality_gates_for_package(package_dir: Path) -> dict[str, Any]:
     return market_packages.build_quality_gates(package_dir)
 
 
+def _load_plan_for_package(package_dir: Path) -> dict[str, Any]:
+    payload = _read_json_file(package_dir / "metrics" / "load_plan.json", {})
+    return payload if isinstance(payload, dict) else {}
+
+
+def _load_plan_summary(load_plan: dict[str, Any]) -> dict[str, Any]:
+    if not load_plan:
+        return {}
+    rows = load_plan.get("rows") if isinstance(load_plan.get("rows"), list) else []
+    quarantine_rows = load_plan.get("quarantine_rows") if isinstance(load_plan.get("quarantine_rows"), list) else []
+    return {
+        "can_import": load_plan.get("can_import"),
+        "can_vector_ingest": load_plan.get("can_vector_ingest"),
+        "blocked_reasons": load_plan.get("blocked_reasons") if isinstance(load_plan.get("blocked_reasons"), list) else [],
+        "promotion_decisions": load_plan.get("promotion_decisions") if isinstance(load_plan.get("promotion_decisions"), dict) else {},
+        "row_count": len(rows),
+        "quarantine_row_count": len(quarantine_rows),
+    }
+
+
+def _merge_load_plan_decision_into_gates(gates: dict[str, Any], load_plan: dict[str, Any]) -> dict[str, Any]:
+    if not load_plan:
+        return gates
+    merged = dict(gates)
+    summary = _load_plan_summary(load_plan)
+    merged["load_plan"] = summary
+    merged["can_import"] = summary.get("can_import")
+    merged["can_vector_ingest"] = summary.get("can_vector_ingest")
+    decisions = summary.get("promotion_decisions") if isinstance(summary.get("promotion_decisions"), dict) else {}
+    hard_gate_rule_ids = list(merged.get("hard_gate_rule_ids") or [])
+    soft_gate_rule_ids = list(merged.get("soft_gate_rule_ids") or [])
+
+    def apply_target(*, target: str, blocked_key: str, can_key: str) -> None:
+        if load_plan.get(can_key) is not False:
+            return
+        decision = decisions.get(target) if isinstance(decisions.get(target), dict) else {}
+        decision_value = str(decision.get("decision") or "block")
+        rule_id = f"load_plan.{target}.{decision_value}"
+        merged[blocked_key] = True
+        if decision_value == "review":
+            if rule_id not in soft_gate_rule_ids:
+                soft_gate_rule_ids.append(rule_id)
+        else:
+            if rule_id not in hard_gate_rule_ids:
+                hard_gate_rule_ids.append(rule_id)
+
+    apply_target(target="canonical", blocked_key="import_blocked", can_key="can_import")
+    apply_target(target="retrieval", blocked_key="vector_ingest_blocked", can_key="can_vector_ingest")
+    merged["hard_gate_rule_ids"] = hard_gate_rule_ids
+    merged["soft_gate_rule_ids"] = soft_gate_rule_ids
+    merged["force_allowed"] = bool(soft_gate_rule_ids) and not hard_gate_rule_ids
+    return merged
+
+
+def _quality_gates_with_load_plan(package_dir: Path) -> dict[str, Any]:
+    gates = _quality_gates_for_package(package_dir)
+    return _merge_load_plan_decision_into_gates(gates, _load_plan_for_package(package_dir))
+
+
 def _payload_force_enabled(payload: dict[str, Any]) -> bool:
     value = payload.get("force")
     if isinstance(value, bool):
@@ -384,7 +443,7 @@ def _enforce_market_package_quality_gate(
     payload: dict[str, Any],
     action: str,
 ) -> None:
-    gates = _quality_gates_for_package(package_dir)
+    gates = _quality_gates_with_load_plan(package_dir)
     blocked_key = "vector_ingest_blocked" if action == "vector_ingest" else "import_blocked"
     blocked = bool(gates.get(blocked_key))
     force_enabled = _payload_force_enabled(payload)
@@ -1379,6 +1438,8 @@ async def market_package_quality_by_path(market: str, package_path: str) -> dict
         manifest=_read_json_file(package_dir / "manifest.json", {}),
         quality=_read_json_file(package_dir / "qa" / "quality_report.json", {}),
         financial_checks=_read_json_file(package_dir / "metrics" / "financial_checks.json", {}),
+        load_plan=_load_plan_for_package(package_dir),
+        quality_gates=_quality_gates_with_load_plan(package_dir),
         source_map=_read_json_file(package_dir / "qa" / "source_map.json", {}),
         include_source_map_summary=True,
     )
@@ -1534,6 +1595,8 @@ async def market_package_quality_by_filing_id(filing_id: str, market: str | None
         manifest=_read_json_file(package_dir / "manifest.json", {}),
         quality=_read_json_file(package_dir / "qa" / "quality_report.json", {}),
         financial_checks=_read_json_file(package_dir / "metrics" / "financial_checks.json", {}),
+        load_plan=_load_plan_for_package(package_dir),
+        quality_gates=_quality_gates_with_load_plan(package_dir),
     )
 
 
