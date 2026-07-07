@@ -5543,14 +5543,12 @@ async def _load_chat_run_preflight_context(
     agent_memory_context = await ensure_agent_memory_context(async_session, profile, session_id, message)
     if not agent_memory_context:
         return preflight_context
-    memory_blocks = [
-        block
-        for block in [preflight_context.local_memory_context, agent_memory_context]
-        if block
-    ]
     return ChatRunPreflightContext(
         history=preflight_context.history,
-        local_memory_context="\n\n".join(memory_blocks) if memory_blocks else None,
+        local_memory_context=agent_runtime_preflight.merge_preflight_memory_context(
+            preflight_context.local_memory_context,
+            agent_memory_context,
+        ),
         attachments=preflight_context.attachments,
     )
 

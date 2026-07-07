@@ -7,6 +7,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from models import ChatMessage
 
 from services import agent_chat_runtime as runtime
+from services import agent_runtime_preflight
 
 
 class _Request:
@@ -16,6 +17,15 @@ class _Request:
 
 def _event_payload(event: dict[str, str]) -> dict:
     return json.loads(event["data"])
+
+
+def test_merge_preflight_memory_context_preserves_runtime_contract():
+    assert agent_runtime_preflight.merge_preflight_memory_context(None, None) is None
+    assert agent_runtime_preflight.merge_preflight_memory_context("<local>", None) == "<local>"
+    assert agent_runtime_preflight.merge_preflight_memory_context(None, "<agent>") == "<agent>"
+    assert agent_runtime_preflight.merge_preflight_memory_context("<local>", "<agent>") == (
+        "<local>\n\n<agent>"
+    )
 
 
 def test_prepare_chat_request_envelope_uses_runtime_patch_points(monkeypatch):

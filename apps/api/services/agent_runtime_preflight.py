@@ -30,6 +30,18 @@ class ChatPreflightShortCircuitPlan:
     catalog_reply: str | None
 
 
+def merge_preflight_memory_context(
+    local_memory_context: str | None,
+    agent_memory_context: str | None,
+) -> str | None:
+    memory_blocks = [
+        block
+        for block in [local_memory_context, agent_memory_context]
+        if block
+    ]
+    return "\n\n".join(memory_blocks) if memory_blocks else None
+
+
 def plan_chat_preflight_short_circuit(
     *,
     catalog_reply: str | None,

@@ -404,6 +404,34 @@ def test_evidence_resolvability_requires_a_reviewable_locator(tmp_path):
     assert "unresolvable evidence present" in gates["block_reasons"]
 
 
+def test_unresolvable_evidence_hard_blocks_vector_ingest_even_when_quality_passes(tmp_path):
+    package_dir = _write_package(tmp_path)
+    _mark_quality_pass(package_dir)
+    data_path = package_dir / "metrics" / "financial_data.json"
+    payload = json.loads(data_path.read_text(encoding="utf-8"))
+    payload["statements"][0]["items"][0]["sources"]["2025-12-31"] = {
+        "source_type": "pdf_statement_table",
+        "source_id": "table_1",
+        "table_index": 1,
+    }
+    write_json(data_path, payload)
+    manifest = json.loads((package_dir / "manifest.json").read_text(encoding="utf-8"))
+    source_map = source_map_from_financial_data(manifest=manifest, financial_data=payload, package_dir=package_dir)
+    write_json(package_dir / "qa" / "source_map.json", source_map)
+    manifest["artifact_hashes"] = compute_artifact_hashes(package_dir)
+    write_json(package_dir / "manifest.json", manifest)
+
+    gates = build_quality_gates(package_dir)
+
+    assert gates["overall_status"] == "fail"
+    assert gates["decisions_by_target"]["canonical"]["decision"] == "block"
+    assert gates["decisions_by_target"]["retrieval"]["decision"] == "block"
+    assert gates["import_blocked"] is True
+    assert gates["vector_ingest_blocked"] is True
+    assert gates["force_allowed"] is False
+    assert "package.evidence.unresolvable" in gates["hard_gate_rule_ids"]
+
+
 def test_quality_gates_review_pdf_value_verification_failures(tmp_path):
     package_dir = _write_package(tmp_path)
     _mark_quality_pass(package_dir)
