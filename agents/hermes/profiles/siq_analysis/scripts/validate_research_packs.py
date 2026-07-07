@@ -9,6 +9,9 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
+
+from jsonschema import Draft202012Validator
 
 
 ALLOWED_AGENT_IDS = {
@@ -61,6 +64,8 @@ ARRAY_FIELDS = [
 
 COMPLETE_EXTERNAL_SOURCE_FIELDS = ["provider", "query", "url", "title"]
 SCHEMA_PATH = Path(__file__).resolve().parent.parent / "templates" / "research_pack.schema.json"
+NON_EVIDENCE_KEY_FINDING_STATUSES = {"assumption", "gap", "external_context"}
+REVIEW_REQUIRED_FACT_STATUSES = {"assumption", "gap", "modeled_estimate"}
 
 
 def is_present(value: Any) -> bool:
@@ -83,6 +88,25 @@ def load_json(path: Path) -> tuple[dict[str, Any] | None, str | None]:
     if not isinstance(data, dict):
         return None, f"json_root_not_object:{path}"
     return data, None
+
+
+def load_schema(path: Path = SCHEMA_PATH) -> tuple[dict[str, Any] | None, str | None]:
+    return load_json(path)
+
+
+def json_pointer(parts: Any) -> str:
+    tokens = [str(part).replace("~", "~0").replace("/", "~1") for part in parts]
+    return "/" + "/".join(tokens) if tokens else "/"
+
+
+def schema_failures(path: Path, data: dict[str, Any], schema: dict[str, Any] | None) -> list[str]:
+    if not schema:
+        return []
+    validator = Draft202012Validator(schema)
+    failures: list[str] = []
+    for error in sorted(validator.iter_errors(data), key=lambda item: list(item.path)):
+        failures.append(f"schema_validation:{path.name}:{json_pointer(error.path)}:{error.message}")
+    return failures
 
 
 def parse_datetime(value: Any) -> bool:
@@ -155,6 +179,92 @@ def parse_confidence(value: Any) -> float | None:
     return confidence
 
 
+def is_url(value: str) -> bool:
+    parsed = urlparse(value)
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+
+def evidence_candidate_paths(work_dir: Path, pack_path: Path, source_file: str) -> list[Path]:
+    source_path = Path(source_file)
+    if source_path.is_absolute():
+        return [source_path]
+    candidates = [
+        work_dir / source_path,
+        work_dir.parent / source_path,
+        pack_path.parent / source_path,
+        Path.cwd() / source_path,
+    ]
+    result: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved not in seen:
+            result.append(resolved)
+            seen.add(resolved)
+    return result
+
+
+def parse_positive_int(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def line_number_resolves(path: Path, line_value: Any) -> bool:
+    line = parse_positive_int(line_value)
+    if line is None:
+        return True
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            for index, _line in enumerate(handle, start=1):
+                if index >= line:
+                    return True
+    except UnicodeDecodeError:
+        return True
+    except OSError:
+        return False
+    return False
+
+
+def evidence_ref_resolution(work_dir: Path, pack_path: Path, ref: dict[str, Any]) -> tuple[bool, str | None]:
+    source_file = str(ref.get("source_file") or "").strip()
+    if not source_file:
+        return False, "missing_source_file"
+    if is_url(source_file):
+        return True, None
+    for candidate in evidence_candidate_paths(work_dir, pack_path, source_file):
+        if candidate.is_file():
+            if not line_number_resolves(candidate, ref.get("md_line")):
+                return False, f"md_line_out_of_range:{source_file}:{ref.get('md_line')}"
+            return True, None
+    return False, f"source_file_not_found:{source_file}"
+
+
+def validate_evidence_refs(path: Path, work_dir: Path, data: dict[str, Any], failures: list[str]) -> None:
+    for field in ("key_findings", "evidence_facts", "calculations", "risk_chains"):
+        items = data.get(field)
+        if not isinstance(items, list):
+            continue
+        for item_index, item in enumerate(items):
+            if not isinstance(item, dict):
+                continue
+            refs = item.get("evidence_refs")
+            if not isinstance(refs, list):
+                continue
+            for ref_index, ref in enumerate(refs):
+                if not isinstance(ref, dict):
+                    continue
+                ok, reason = evidence_ref_resolution(work_dir, path, ref)
+                if not ok:
+                    failures.append(
+                        f"evidence_ref_unresolvable:{item_path(path, field, item_index, f'evidence_refs[{ref_index}]')}:{reason}"
+                    )
+
+
 def validate_key_findings(path: Path, data: dict[str, Any], failures: list[str], warnings: list[str]) -> None:
     findings = data.get("key_findings")
     if not isinstance(findings, list):
@@ -175,10 +285,15 @@ def validate_key_findings(path: Path, data: dict[str, Any], failures: list[str],
         if confidence is None:
             failures.append(f"key_finding_invalid_confidence:{item_path(path, 'key_findings', index)}")
             continue
+        fact_status = str(item.get("fact_status") or "verified_fact").strip()
         if confidence < 0.60 and data.get("review_required") is not True:
             failures.append(f"key_finding_low_confidence_requires_review:{item_path(path, 'key_findings', index)}")
         evidence_refs = item.get("evidence_refs")
         has_evidence_refs = isinstance(evidence_refs, list) and bool(evidence_refs)
+        if not has_evidence_refs and fact_status not in NON_EVIDENCE_KEY_FINDING_STATUSES:
+            failures.append(f"key_finding_missing_evidence_or_fact_status:{item_path(path, 'key_findings', index)}")
+        if fact_status in REVIEW_REQUIRED_FACT_STATUSES and data.get("review_required") is not True and item.get("review_required") is not True:
+            failures.append(f"key_finding_fact_status_requires_review:{item_path(path, 'key_findings', index)}:{fact_status}")
         if confidence < 0.75 and not has_evidence_refs and not is_present(item.get("rationale")):
             warnings.append(f"key_finding_medium_confidence_without_rationale_or_evidence:{item_path(path, 'key_findings', index)}")
 
@@ -196,7 +311,7 @@ def validate_calculations(path: Path, data: dict[str, Any], failures: list[str])
                 failures.append(f"calculation_missing_{field}:{item_path(path, 'calculations', index, field)}")
 
 
-def validate_pack(path: Path) -> dict[str, Any]:
+def validate_pack(path: Path, *, work_dir: Path, schema: dict[str, Any] | None = None) -> dict[str, Any]:
     data, load_error = load_json(path)
     failures: list[str] = []
     warnings: list[str] = []
@@ -212,6 +327,8 @@ def validate_pack(path: Path) -> dict[str, Any]:
 
     assert data is not None
     agent_id = data.get("agent_id")
+
+    failures.extend(schema_failures(path, data, schema))
 
     missing_fields = [field for field in REQUIRED_TOP_LEVEL_FIELDS if field not in data]
     for field in missing_fields:
@@ -244,6 +361,7 @@ def validate_pack(path: Path) -> dict[str, Any]:
 
     validate_key_findings(path, data, failures, warnings)
     validate_calculations(path, data, failures)
+    validate_evidence_refs(path, work_dir, data, failures)
 
     prohibited_hits = data.get("prohibited_content_hits")
     if isinstance(prohibited_hits, list) and prohibited_hits:
@@ -273,8 +391,13 @@ def validate_work_dir(work_dir: Path, require_all_packs: bool = True) -> dict[st
     warnings: list[str] = []
     packs: list[dict[str, Any]] = []
 
+    schema: dict[str, Any] | None = None
     if not SCHEMA_PATH.exists():
         failures.append(f"schema_file_missing:{SCHEMA_PATH}")
+    else:
+        schema, schema_error = load_schema(SCHEMA_PATH)
+        if schema_error:
+            failures.append(schema_error)
 
     if not work_dir.exists():
         failures.append(f"work_dir_missing:{work_dir}")
@@ -298,7 +421,7 @@ def validate_work_dir(work_dir: Path, require_all_packs: bool = True) -> dict[st
 
     seen_agents: dict[str, list[str]] = {}
     for path in json_files:
-        pack_result = validate_pack(path)
+        pack_result = validate_pack(path, work_dir=work_dir, schema=schema)
         packs.append(pack_result)
         failures.extend(pack_result["failures"])
         warnings.extend(pack_result["warnings"])

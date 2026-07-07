@@ -48,3 +48,37 @@ def test_income_bridge_adds_residual_segment_to_reconcile_total_revenue():
     by_name = {item["name"]: item for item in segments}
     assert "利息/手续费等" in by_name
     assert round(sum(item["revenue"] for item in segments), 2) == 6562.44
+
+
+def test_income_bridge_svg_uses_uniform_interactive_ribbons():
+    data = {
+        "period_label": "2025年度",
+        "starting_value": 6562.44,
+        "ending_value": 101.06,
+        "segments": [
+            {"name": "整车业务", "revenue": 4101.96, "revenue_yoy": 7.59, "share": 62.51},
+            {"name": "零部件业务", "revenue": 2030.20, "revenue_yoy": 6.47, "share": 30.94},
+            {"name": "劳务及其他", "revenue": 187.91, "revenue_yoy": -29.34, "share": 2.86},
+            {"name": "其他业务", "revenue": 141.41, "revenue_yoy": -9.00, "share": 2.15},
+            {"name": "利息/手续费等", "revenue": 100.96, "share": 1.54},
+        ],
+        "flow_nodes": {
+            "revenue": {"name": "营业总收入", "value": 6562.44},
+            "cost": {"name": "营业成本", "value": 5809.44},
+            "gross_profit": {"name": "毛利", "value": 753.0},
+            "operating_adjustments": {"name": "期间费用/减值/其他", "value": 498.7},
+            "operating_profit": {"name": "营业利润", "value": 254.3},
+            "pretax_profit": {"name": "利润总额", "value": 249.1},
+            "income_tax": {"name": "所得税", "value": 74.65},
+            "attribution": {"name": "其他/归属调整", "value": 73.38},
+            "parent_net_profit": {"name": "归母净利润", "value": 101.06},
+        },
+    }
+
+    svg = renderer.svg_income_bridge_chart(data)
+
+    assert svg.count("ib-ribbon") >= 7
+    assert 'data-ib-id="flow-seg-0-revenue"' in svg
+    assert 'data-ib-id="flow-revenue-cost"' in svg
+    assert 'data-ib-id="flow-revenue-gross"' in svg
+    assert "收入构成" in svg

@@ -39,6 +39,7 @@ agents/hermes/profiles/siq_analysis/subagents/
   business_strategy_researcher.md
   industry_peer_researcher.md
   governance_risk_researcher.md
+  chart_visual_designer.md
   editor_in_chief.md
 ```
 
@@ -48,7 +49,7 @@ agents/hermes/profiles/siq_analysis/subagents/
 analysis/.work/<report_slug>/research_packs/*.json
 ```
 
-`editor_in_chief` 是整合角色，负责把各 pack 的发现、缺口和复核项合入 `section_drafts.json`，但最终仍必须通过 `validate_report_quality.py`。
+`chart_visual_designer` 是可选图表设计角色，负责把 `financial_modeler` 的公式、口径和缺口转化为可读、可交互、可复核的图表蓝图；`editor_in_chief` 是整合角色，负责把各 pack 的发现、缺口和复核项合入 `section_drafts.json`，但最终仍必须通过 `validate_report_quality.py`。
 
 ### 子智能体执行层
 

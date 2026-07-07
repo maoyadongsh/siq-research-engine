@@ -233,6 +233,22 @@ def evidence_refs_summary(item: dict[str, Any], limit: int = 2) -> str:
     return "；证据：" + "、".join(parts) if parts else ""
 
 
+def merge_item_metadata(item: dict[str, Any], agent_id: str) -> dict[str, Any]:
+    metadata: dict[str, Any] = {"agent_id": agent_id}
+    for key in ("confidence", "review_required", "fact_status"):
+        if key in item:
+            metadata[key] = item.get(key)
+    return metadata
+
+
+def block_item_metadata(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: item[key]
+        for key in ("agent_id", "confidence", "review_required", "fact_status")
+        if key in item
+    }
+
+
 def fact_source_label(item: dict[str, Any]) -> str:
     scope = str(item.get("scope") or "").lower()
     refs = item.get("evidence_refs")
@@ -452,7 +468,11 @@ def collect_findings_by_section(packs: list[dict[str, Any]]) -> dict[str, list[d
                 section_ids = ["executive_summary", "data_quality_traceability"]
             for section_id in section_ids:
                 sid = str(section_id)
-                by_section.setdefault(sid, []).append({"agent_id": agent_id, "claim": f"{finding_label(finding, agent_id)}{claim}"})
+                by_section.setdefault(sid, []).append({
+                    "agent_id": agent_id,
+                    "claim": f"{finding_label(finding, agent_id)}{claim}",
+                    **merge_item_metadata(finding, agent_id),
+                })
     return by_section
 
 
@@ -481,13 +501,17 @@ def append_by_section(
     section_ids: list[str],
     item: str,
     agent_id: str,
+    metadata: dict[str, Any] | None = None,
 ) -> None:
     text = clean_text(item, 420)
     if not text:
         return
+    payload: dict[str, Any] = {"agent_id": agent_id, "text": text}
+    if metadata:
+        payload.update(metadata)
     for section_id in section_ids:
         if section_id in KNOWN_SECTION_IDS:
-            by_section.setdefault(section_id, []).append({"agent_id": agent_id, "text": text})
+            by_section.setdefault(section_id, []).append(payload)
 
 
 def collect_pack_items_by_section(packs: list[dict[str, Any]]) -> dict[str, dict[str, list[dict[str, str]]]]:
@@ -504,23 +528,23 @@ def collect_pack_items_by_section(packs: list[dict[str, Any]]) -> dict[str, dict
             if not isinstance(fact, dict):
                 continue
             text = format_fact(fact, agent_id)
-            append_by_section(grouped["facts"], item_section_ids(pack, fact, text), text, agent_id)
+            append_by_section(grouped["facts"], item_section_ids(pack, fact, text), text, agent_id, merge_item_metadata(fact, agent_id))
         for calc in as_list(pack.get("calculations")):
             if not isinstance(calc, dict):
                 continue
             text = format_calculation(calc, agent_id)
             section_ids = item_section_ids(pack, calc, " ".join([text, str(calc.get("name") or "")]))
-            append_by_section(grouped["calculations"], section_ids, text, agent_id)
+            append_by_section(grouped["calculations"], section_ids, text, agent_id, merge_item_metadata(calc, agent_id))
         for risk in as_list(pack.get("risk_chains")):
             if not isinstance(risk, dict):
                 continue
             text = format_risk_chain(risk, agent_id)
-            append_by_section(grouped["risks"], item_section_ids(pack, risk, text), text, agent_id)
+            append_by_section(grouped["risks"], item_section_ids(pack, risk, text), text, agent_id, merge_item_metadata(risk, agent_id))
         for signal in as_list(pack.get("tracking_signals")):
             if not isinstance(signal, dict):
                 continue
             text = format_tracking_signal(signal, agent_id)
-            append_by_section(grouped["tracking"], item_section_ids(pack, signal, text), text, agent_id)
+            append_by_section(grouped["tracking"], item_section_ids(pack, signal, text), text, agent_id, merge_item_metadata(signal, agent_id))
         for source in as_list(pack.get("external_sources")):
             if not isinstance(source, dict):
                 continue
@@ -568,6 +592,34 @@ def dedupe_group_items(items: list[dict[str, str]], limit: int) -> list[str]:
     return dedupe([item.get("text", "") for item in items], limit)
 
 
+def dedupe_entries(items: list[dict[str, Any]], text_key: str, limit: int) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    result: list[dict[str, Any]] = []
+    for item in items:
+        text = clean_text(item.get(text_key), 420)
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(item)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def block_metadata_entries(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [block_item_metadata(item) for item in items]
+
+
+def metadata_requires_review(items: list[dict[str, Any]]) -> bool:
+    review_statuses = {"assumption", "gap", "modeled_estimate"}
+    for item in items:
+        if item.get("review_required") is True:
+            return True
+        if str(item.get("fact_status") or "") in review_statuses:
+            return True
+    return False
+
+
 def build_research_synthesis_items(
     section_id: str,
     claims: list[str],
@@ -609,7 +661,13 @@ def build_research_synthesis_items(
     return dedupe([clean_text(item, 520) for item in items], 3)
 
 
-def append_block(section: dict[str, Any], title: str, role: str, items: list[str]) -> bool:
+def append_block(
+    section: dict[str, Any],
+    title: str,
+    role: str,
+    items: list[str],
+    item_metadata: list[dict[str, Any]] | None = None,
+) -> bool:
     clean_items = dedupe(items, len(items))
     if not clean_items:
         return False
@@ -617,12 +675,15 @@ def append_block(section: dict[str, Any], title: str, role: str, items: list[str
     if not isinstance(blocks, list):
         blocks = []
         section["narrative_blocks"] = blocks
-    blocks.append({
+    block = {
         "title": title,
         "role": role,
         "source": "research_pack_merge",
         "items": clean_items,
-    })
+    }
+    if item_metadata:
+        block["item_metadata"] = item_metadata[: len(clean_items)]
+    blocks.append(block)
     return True
 
 
@@ -691,14 +752,28 @@ def merge_section(
     missing = missing_by_section.get(section_id, [])
     changed = remove_stale_pack_merge_content(section)
 
-    claims = dedupe([f"{item['claim']}（来源：{item['agent_id']}）" for item in findings], 4)
-    changed = append_block(section, SECTION_BLOCK_TITLES.get(section_id, "补充证据"), "evidence", claims) or changed
+    claim_entries = []
+    for item in dedupe_entries(findings, "claim", 4):
+        claim_entries.append({**item, "text": f"{item['claim']}（来源：{item['agent_id']}）"})
+    claims = [entry["text"] for entry in claim_entries]
+    changed = append_block(
+        section,
+        SECTION_BLOCK_TITLES.get(section_id, "补充证据"),
+        "evidence",
+        claims,
+        block_metadata_entries(claim_entries),
+    ) or changed
 
-    fact_items = dedupe_group_items(facts, 4)
-    calculation_items = dedupe_group_items(calculations, 4)
-    risk_items = dedupe_group_items(risks, 4)
-    tracking_items = dedupe_group_items(tracking, 4)
-    external_source_items = dedupe_group_items(external_sources, 3)
+    fact_entries = dedupe_entries(facts, "text", 4)
+    calculation_entries = dedupe_entries(calculations, "text", 4)
+    risk_entries = dedupe_entries(risks, "text", 4)
+    tracking_entries = dedupe_entries(tracking, "text", 4)
+    external_source_entries = dedupe_entries(external_sources, "text", 3)
+    fact_items = [entry["text"] for entry in fact_entries]
+    calculation_items = [entry["text"] for entry in calculation_entries]
+    risk_items = [entry["text"] for entry in risk_entries]
+    tracking_items = [entry["text"] for entry in tracking_entries]
+    external_source_items = [entry["text"] for entry in external_source_entries]
 
     synthesis_items = build_research_synthesis_items(
         section_id,
@@ -710,11 +785,16 @@ def merge_section(
         external_source_items,
     )
     changed = append_block(section, "研究包融合解读", "synthesis", synthesis_items) or changed
-    changed = append_block(section, FACT_BLOCK_TITLES.get(section_id, "证据事实"), "evidence", fact_items) or changed
-    changed = append_block(section, CALCULATION_BLOCK_TITLES.get(section_id, "模型与计算"), "model", calculation_items) or changed
-    changed = append_block(section, RISK_BLOCK_TITLES.get(section_id, "风险链条"), "risk_chain", risk_items) or changed
-    changed = append_block(section, TRACKING_BLOCK_TITLES.get(section_id, "跟踪信号"), "tracking", tracking_items) or changed
-    changed = append_block(section, "外部搜索补证与可比性", "evidence", external_source_items) or changed
+    changed = append_block(section, FACT_BLOCK_TITLES.get(section_id, "证据事实"), "evidence", fact_items, block_metadata_entries(fact_entries)) or changed
+    changed = append_block(section, CALCULATION_BLOCK_TITLES.get(section_id, "模型与计算"), "model", calculation_items, block_metadata_entries(calculation_entries)) or changed
+    changed = append_block(section, RISK_BLOCK_TITLES.get(section_id, "风险链条"), "risk_chain", risk_items, block_metadata_entries(risk_entries)) or changed
+    changed = append_block(section, TRACKING_BLOCK_TITLES.get(section_id, "跟踪信号"), "tracking", tracking_items, block_metadata_entries(tracking_entries)) or changed
+    changed = append_block(section, "外部搜索补证与可比性", "evidence", external_source_items, block_metadata_entries(external_source_entries)) or changed
+
+    if metadata_requires_review([*claim_entries, *fact_entries, *calculation_entries, *risk_entries, *tracking_entries]):
+        if section.get("review_required") is not True:
+            section["review_required"] = True
+            changed = True
 
     if claims:
         judgements = section.get("judgements")

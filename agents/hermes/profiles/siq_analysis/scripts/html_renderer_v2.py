@@ -15,6 +15,7 @@ Features:
 from __future__ import annotations
 
 import html as html_module
+import importlib.util
 import json
 import os
 import re
@@ -23,6 +24,14 @@ from pathlib import Path
 from typing import Any, Callable
 
 PUBLIC_ORIGIN = os.environ.get("SIQ_PUBLIC_ORIGIN", "https://arthurmao.synology.me:8276").rstrip("/")
+
+_FINANCIAL_CHART_MODULE_PATH = Path(__file__).resolve().parent / "financial_chart_design.py"
+_financial_chart_spec = importlib.util.spec_from_file_location("siq_financial_chart_design", _FINANCIAL_CHART_MODULE_PATH)
+if not _financial_chart_spec or not _financial_chart_spec.loader:
+    raise RuntimeError(f"missing financial chart design module: {_FINANCIAL_CHART_MODULE_PATH}")
+_financial_chart_module = importlib.util.module_from_spec(_financial_chart_spec)
+_financial_chart_spec.loader.exec_module(_financial_chart_module)
+render_income_bridge_svg = _financial_chart_module.render_income_bridge_svg
 
 
 def public_api_url(path: str) -> str:
@@ -354,17 +363,69 @@ def build_dupont_data(
 
     if revenue is None or net_profit is None or total_assets is None or equity is None:
         return None
+
+    def pct_ratio(value: float | None, denominator: float | None) -> float | None:
+        if value is None or denominator in (None, 0):
+            return None
+        return value / denominator * 100
+
+    def plain_ratio(value: float | None, denominator: float | None) -> float | None:
+        if value is None or denominator in (None, 0):
+            return None
+        return value / denominator
+
+    def clamp_score(value: float | None, low: float, high: float) -> float | None:
+        if value is None or high <= low:
+            return None
+        return round(max(0.0, min(100.0, (value - low) / (high - low) * 100)), 2)
+
+    def dupont_dimension(
+        key: str,
+        name: str,
+        value: float | None,
+        unit: str,
+        low: float,
+        high: float,
+        formula: str,
+    ) -> dict[str, Any]:
+        display = "-" if value is None else (f"{value:.2f}%" if unit == "%" else f"{value:.2f}x")
+        return {
+            "key": key,
+            "name": name,
+            "raw_value": round(value, 4) if value is not None else None,
+            "raw_display": display,
+            "score": clamp_score(value, low, high),
+            "max": 100,
+            "unit": unit,
+            "reference_range": {"low": low, "high": high},
+            "formula": formula,
+        }
     
-    net_margin = (net_profit / revenue * 100) if revenue and revenue != 0 else None
-    asset_turnover = (revenue / total_assets) if total_assets and total_assets != 0 else None
-    equity_multiplier = (total_assets / equity) if equity and equity != 0 else None
-    roe = (net_profit / equity * 100) if equity else None
+    net_margin = pct_ratio(net_profit, revenue)
+    asset_turnover = plain_ratio(revenue, total_assets)
+    equity_multiplier = plain_ratio(total_assets, equity)
+    roe = pct_ratio(net_profit, equity)
+    dimensions = [
+        dupont_dimension("net_margin", "销售净利率", net_margin, "%", -10, 12, "归母净利润 / 营业收入"),
+        dupont_dimension("asset_turnover", "资产周转率", asset_turnover, "x", 0, 1.5, "营业收入 / 资产总计"),
+        dupont_dimension("equity_multiplier", "权益乘数", equity_multiplier, "x", 1, 6, "资产总计 / 归母权益"),
+        dupont_dimension("roe", "ROE", roe, "%", -20, 25, "归母净利润 / 归母权益"),
+    ]
+    validations.append({
+        "rule": "ROE = 销售净利率 × 资产周转率 × 权益乘数",
+        "status": "ok",
+        "computed_roe": round((net_margin or 0) * (asset_turnover or 0) * (equity_multiplier or 0), 2),
+        "reported_roe": round(roe, 2) if roe is not None else None,
+    })
     
     return {
-        "net_margin": round(net_margin, 2) if net_margin else None,
-        "asset_turnover": round(asset_turnover, 4) if asset_turnover else None,
-        "equity_multiplier": round(equity_multiplier, 2) if equity_multiplier else None,
-        "roe": round(roe, 2) if roe else None,
+        "net_margin": round(net_margin, 2) if net_margin is not None else None,
+        "asset_turnover": round(asset_turnover, 4) if asset_turnover is not None else None,
+        "equity_multiplier": round(equity_multiplier, 2) if equity_multiplier is not None else None,
+        "roe": round(roe, 2) if roe is not None else None,
+        "dimensions": dimensions,
+        "visual_scale": "reference_range_score_0_100",
+        "scale_note": "雷达半径使用行业通用展示区间归一化，tooltip 和标签展示原始杜邦指标。",
         "sources": sources,
         "validations": validations,
     }
@@ -1003,9 +1064,10 @@ body {
 }
 .income-bridge-panel .chart-title {
   color: #111827;
-  font-size: 28px;
+  font-size: 26px;
+  line-height: 1.15;
   font-weight: 800;
-  margin-bottom: 4px;
+  margin-bottom: 2px;
 }
 .income-bridge-panel .chart-title::before {
   display: none;
@@ -1013,30 +1075,40 @@ body {
 .income-bridge-head {
   display: flex;
   justify-content: space-between;
-  gap: 16px;
-  align-items: flex-start;
+  gap: 20px;
+  align-items: center;
   border-bottom: 1px solid #eef2f7;
-  padding-bottom: 12px;
-  margin-bottom: 18px;
+  padding: 8px 0 10px;
+  margin-bottom: 0;
+}
+.income-bridge-title-group {
+  min-width: 0;
 }
 .income-bridge-subtitle {
   color: #7c8794;
-  font-size: 14px;
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
+}
+.income-bridge-meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 18px;
+  flex-wrap: wrap;
 }
 .income-bridge-unit {
   color: #7c8794;
-  font-size: 14px;
+  font-size: 13px;
   white-space: nowrap;
-  padding-top: 10px;
+  padding-top: 0;
 }
 .income-bridge-legend {
   display: flex;
-  gap: 18px;
+  gap: 14px;
   align-items: center;
   color: #111827;
-  font-size: 15px;
-  margin: 0 0 8px;
+  font-size: 14px;
+  margin: 0;
 }
 .income-bridge-legend span {
   display: inline-flex;
@@ -1054,11 +1126,15 @@ body {
 .income-bridge-legend .profit { background: #ff3548; }
 .income-bridge-panel .chart-fallback {
   display: block;
-  min-height: 620px;
+  min-height: 600px;
+  overflow-x: hidden;
+  padding-top: 6px;
 }
 .income-bridge-panel .chart-fallback svg {
   display: block;
-  min-width: 1280px;
+  width: 100%;
+  min-width: 0;
+  max-height: 600px;
 }
 .income-bridge-panel .chart-fallback svg text,
 .income-bridge-panel .chart-fallback svg rect,
@@ -1899,7 +1975,9 @@ body {
   .section-content { padding: 16px; }
   .narrative-item { padding: 12px; }
   .narrative-item p { font-size: 14px; }
-  .income-bridge-head { display: block; }
+  .income-bridge-head { display: block; padding: 8px 0 10px; }
+  .income-bridge-meta { justify-content: flex-start; gap: 10px; margin-top: 8px; }
+  .income-bridge-legend { flex-wrap: wrap; }
   .income-bridge-panel .chart-title { font-size: 22px; }
   .source-legend { display: block; }
   .source-legend-badges { min-width: 0; justify-content: flex-start; margin-top: 10px; }
@@ -1907,8 +1985,8 @@ body {
   .chart-head { display: block; }
   .chart-note { text-align: left; max-width: none; margin-top: 6px; }
   .chart-fallback svg { min-width: 620px; }
-  .income-bridge-panel .chart-fallback { min-height: 0; }
-  .income-bridge-panel .chart-fallback svg { min-width: 1040px; }
+  .income-bridge-panel .chart-fallback { min-height: 0; overflow-x: auto; }
+  .income-bridge-panel .chart-fallback svg { width: 1120px; min-width: 1120px; max-height: none; }
 }
 """
 
@@ -2501,45 +2579,48 @@ function initDupontChart() {
   const data = window.dupontData;
   const chart = echarts.init(el);
   
-  const indicators = [
-    { name: '销售净利率', max: 50, value: data.net_margin || 0 },
-    { name: '资产周转率', max: 2, value: (data.asset_turnover || 0) * 25 },
-    { name: '权益乘数', max: 10, value: (data.equity_multiplier || 0) * 5 },
-    { name: 'ROE', max: 50, value: data.roe || 0 },
+  const fallbackDimensions = [
+    { key: 'net_margin', name: '销售净利率', raw_display: `${Number(data.net_margin || 0).toFixed(2)}%`, score: Math.max(0, Math.min(100, ((data.net_margin || 0) + 10) / 22 * 100)), formula: '归母净利润 / 营业收入' },
+    { key: 'asset_turnover', name: '资产周转率', raw_display: `${Number(data.asset_turnover || 0).toFixed(2)}x`, score: Math.max(0, Math.min(100, (data.asset_turnover || 0) / 1.5 * 100)), formula: '营业收入 / 资产总计' },
+    { key: 'equity_multiplier', name: '权益乘数', raw_display: `${Number(data.equity_multiplier || 0).toFixed(2)}x`, score: Math.max(0, Math.min(100, ((data.equity_multiplier || 0) - 1) / 5 * 100)), formula: '资产总计 / 归母权益' },
+    { key: 'roe', name: 'ROE', raw_display: `${Number(data.roe || 0).toFixed(2)}%`, score: Math.max(0, Math.min(100, ((data.roe || 0) + 20) / 45 * 100)), formula: '归母净利润 / 归母权益' },
   ];
+  const dimensions = Array.isArray(data.dimensions) && data.dimensions.length ? data.dimensions : fallbackDimensions;
+  const scores = dimensions.map((item) => Number(item.score || 0));
   
   const option = {
     ...baseOption(),
     tooltip: {
       ...reportTooltipBase('item'),
       formatter: function(p) {
-        const values = p.value || [];
-        return chartTooltipHtml('杜邦分析', values.map((v, i) => `${indicators[i].name}: ${Number(v).toFixed(2)}`).join(' / '), '比率口径已按雷达展示区间缩放');
+        const lines = dimensions.map((item, i) => `${item.name}: ${item.raw_display || '-'}（展示 ${Number(scores[i] || 0).toFixed(1)}/100）`);
+        const formulas = dimensions.map((item) => `${item.name}=${item.formula || '-'}`).join('<br/>');
+        return chartTooltipHtml('杜邦分析', lines.join('<br/>'), `${data.scale_note || '雷达使用归一化展示分。'}<br/>${formulas}`);
       }
     },
     radar: {
-      indicator: indicators.map(i => ({ name: i.name, max: i.max })),
+      indicator: dimensions.map(i => ({ name: `${i.name}\n${i.raw_display || '-'}`, max: 100 })),
       center: ['50%', '55%'],
-      radius: '65%',
-      axisName: { color: chartText, fontSize: 12 },
+      radius: '58%',
+      axisName: { color: chartText, fontSize: 12, lineHeight: 16, fontWeight: 600 },
       splitArea: {
         areaStyle: {
-          color: ['rgba(59,130,246,0.05)', 'rgba(59,130,246,0.02)']
+          color: ['rgba(37,99,235,0.055)', 'rgba(14,165,233,0.025)']
         }
       },
-      axisLine: { lineStyle: { color: chartGrid } },
-      splitLine: { lineStyle: { color: chartGrid } }
+      axisLine: { lineStyle: { color: 'rgba(148,163,184,0.52)' } },
+      splitLine: { lineStyle: { color: 'rgba(148,163,184,0.42)' } }
     },
     series: [{
       type: 'radar',
       data: [{
-        value: indicators.map(i => i.value),
+        value: scores,
         name: '杜邦分析',
-        areaStyle: { color: 'rgba(59,130,246,0.2)' },
-        lineStyle: { color: '#3b82f6', width: 2 },
-        itemStyle: { color: '#3b82f6' },
+        areaStyle: { color: 'rgba(37,99,235,0.20)' },
+        lineStyle: { color: '#2563eb', width: 2.2 },
+        itemStyle: { color: '#2563eb', borderColor: '#ffffff', borderWidth: 1.5 },
         symbol: 'circle',
-        symbolSize: 6
+        symbolSize: 7
       }]
     }]
   };
@@ -3213,16 +3294,18 @@ def render_income_bridge_panel(data: dict[str, Any] | None) -> str:
     return f"""
     <div class="chart-container {container_class}" id="income-bridge-panel">
       <div class="income-bridge-head">
-        <div>
+        <div class="income-bridge-title-group">
           <div class="chart-title">收支拆解</div>
           <div class="income-bridge-subtitle">{html_module.escape(str(period_label or "当前报告期"))} · 营业收入 {fmt_yi(starting_value)} · {profit_label} {fmt_yi(ending_value)}</div>
         </div>
-        <div class="income-bridge-unit">单位：亿元</div>
-      </div>
-      <div class="income-bridge-legend">
-        <span><i class="income"></i>收入</span>
-        <span><i class="expense"></i>支出</span>
-        <span><i class="profit"></i>利润</span>
+        <div class="income-bridge-meta">
+          <div class="income-bridge-unit">单位：亿元</div>
+          <div class="income-bridge-legend">
+            <span><i class="income"></i>收入</span>
+            <span><i class="expense"></i>支出</span>
+            <span><i class="profit"></i>利润</span>
+          </div>
+        </div>
       </div>
       <div class="chart-fallback">{svg_income_bridge_chart(data)}</div>
       <div class="income-bridge-tooltip" role="status" aria-live="polite"></div>
@@ -4069,296 +4152,9 @@ def svg_title(title: str, value: Any, detail: str = "", value_text: str | None =
     return f"<title>{svg_text(' · '.join(part for part in parts if part))}</title>"
 
 
-def svg_income_bridge_chart(data: dict[str, Any] | None, *, width: int = 1280, height: int = 620) -> str:
-    if not data or not data.get("flow_nodes"):
-        return '<div class="chart-fallback-empty">利润桥数据不足，待补充利润表收入、成本费用和净利润口径。</div>'
-
-    segments = data.get("segments") or []
-    nodes = data.get("flow_nodes") or {}
-    total_revenue = safe_float(nodes.get("revenue", {}).get("value") or data.get("starting_value"))
-    operating_cost = safe_float(nodes.get("cost", {}).get("value"))
-    gross_profit = nodes.get("gross_profit", {}).get("value")
-    operating_adjustments = nodes.get("operating_adjustments", {}).get("value")
-    operating_profit = nodes.get("operating_profit", {}).get("value")
-    pretax_profit = nodes.get("pretax_profit", {}).get("value")
-    income_tax = nodes.get("income_tax", {}).get("value")
-    attribution = nodes.get("attribution", {}).get("value")
-    parent_net_profit = nodes.get("parent_net_profit", {}).get("value")
-    adjustment_items = data.get("operating_adjustment_items") or []
-    largest_adjustment = None
-    if isinstance(adjustment_items, list) and adjustment_items:
-        largest_adjustment = max(
-            [item for item in adjustment_items if isinstance(item, dict)],
-            key=lambda item: abs(safe_float(item.get("impact"))),
-            default=None,
-        )
-    adjustment_detail = "期间费用、减值及其他经营项目影响"
-    adjustment_label = "费用/减值/其他"
-    if largest_adjustment:
-        adjustment_detail = (
-            f"最大影响项：{largest_adjustment.get('name')} "
-            f"{fmt_yi(largest_adjustment.get('value'))}，"
-            f"对利润影响 {fmt_yi(-safe_float(largest_adjustment.get('impact')))}"
-        )
-        adjustment_label = str(largest_adjustment.get("name") or adjustment_label)
-    max_value = max(
-        [abs(safe_float(v)) for v in [total_revenue, operating_cost, gross_profit, operating_adjustments, operating_profit, pretax_profit, income_tax, attribution, parent_net_profit]]
-        + [abs(safe_float(item.get("revenue"))) for item in segments]
-        + [1.0]
-    )
-
-    def flow_width(value: Any, minimum: float = 3.5, maximum: float = 52.0) -> float:
-        return max(minimum, min(maximum, abs(safe_float(value)) / max_value * maximum))
-
-    def ib_attrs(ib_id: str, related: list[str], title: str, value: Any, detail: str = "") -> str:
-        aria = "，".join(part for part in [str(title), fmt_yi(value), str(detail)] if part)
-        return (
-            f'class="ib-interactive" tabindex="0" role="button" '
-            f'data-ib-id="{svg_text(ib_id)}" data-related="{svg_text(",".join(related))}" '
-            f'data-title="{svg_text(title)}" data-value="{svg_text(fmt_yi(value))}" data-detail="{svg_text(detail)}" '
-            f'aria-label="{svg_text(aria)}"'
-        )
-
-    def curve(
-        ib_id: str,
-        related: list[str],
-        title: str,
-        x1: float,
-        y1: float,
-        x2: float,
-        y2: float,
-        color: str,
-        value: Any,
-        opacity: float = 0.28,
-        detail: str = "",
-    ) -> str:
-        c1 = x1 + (x2 - x1) * 0.52
-        c2 = x2 - (x2 - x1) * 0.52
-        return (
-            f'<g {ib_attrs(ib_id, related, title, value, detail)}>'
-            f'{svg_title(title, value, detail)}'
-            f'<path class="ib-hit" d="M{x1:.1f},{y1:.1f} C{c1:.1f},{y1:.1f} {c2:.1f},{y2:.1f} {x2:.1f},{y2:.1f}" '
-            f'fill="none" stroke="transparent" stroke-width="{max(flow_width(value) + 18, 26):.1f}" stroke-linecap="round"/>'
-            f'<path class="ib-flow" d="M{x1:.1f},{y1:.1f} C{c1:.1f},{y1:.1f} {c2:.1f},{y2:.1f} {x2:.1f},{y2:.1f}" '
-            f'fill="none" stroke="{color}" stroke-width="{flow_width(value):.1f}" stroke-linecap="round" opacity="{opacity}"/>'
-            f'</g>'
-        )
-
-    def ribbon(
-        ib_id: str,
-        related: list[str],
-        title: str,
-        x1: float,
-        y1: float,
-        x2: float,
-        y2: float,
-        color: str,
-        value: Any,
-        opacity: float = 0.58,
-        detail: str = "",
-        minimum: float = 8.0,
-        maximum: float = 58.0,
-    ) -> str:
-        width_px = flow_width(value, minimum, maximum)
-        half = width_px / 2
-        c1 = x1 + (x2 - x1) * 0.54
-        c2 = x2 - (x2 - x1) * 0.54
-        path = (
-            f"M{x1:.1f},{y1 - half:.1f} "
-            f"C{c1:.1f},{y1 - half:.1f} {c2:.1f},{y2 - half:.1f} {x2:.1f},{y2 - half:.1f} "
-            f"L{x2:.1f},{y2 + half:.1f} "
-            f"C{c2:.1f},{y2 + half:.1f} {c1:.1f},{y1 + half:.1f} {x1:.1f},{y1 + half:.1f} Z"
-        )
-        return (
-            f'<g {ib_attrs(ib_id, related, title, value, detail)}>'
-            f'{svg_title(title, value, detail)}'
-            f'<path class="ib-hit" d="{path}" fill="transparent" stroke="transparent" stroke-width="14"/>'
-            f'<path class="ib-flow ib-ribbon" d="{path}" fill="{color}" opacity="{opacity}" stroke="rgba(255,255,255,0.56)" stroke-width="0.8"/>'
-            f'</g>'
-        )
-
-    def ribbon_band(
-        ib_id: str,
-        related: list[str],
-        title: str,
-        x1: float,
-        y1_top: float,
-        y1_bottom: float,
-        x2: float,
-        y2_top: float,
-        y2_bottom: float,
-        color: str,
-        value: Any,
-        opacity: float = 0.62,
-        detail: str = "",
-        ratio: float | None = None,
-    ) -> str:
-        c1 = x1 + (x2 - x1) * 0.54
-        c2 = x2 - (x2 - x1) * 0.54
-        path = (
-            f"M{x1:.1f},{y1_top:.1f} "
-            f"C{c1:.1f},{y1_top:.1f} {c2:.1f},{y2_top:.1f} {x2:.1f},{y2_top:.1f} "
-            f"L{x2:.1f},{y2_bottom:.1f} "
-            f"C{c2:.1f},{y2_bottom:.1f} {c1:.1f},{y1_bottom:.1f} {x1:.1f},{y1_bottom:.1f} Z"
-        )
-        ratio_attr = "" if ratio is None else f' data-ratio="{ratio:.6f}"'
-        return (
-            f'<g {ib_attrs(ib_id, related, title, value, detail)}{ratio_attr}>'
-            f'{svg_title(title, value, detail)}'
-            f'<path class="ib-hit" d="{path}" fill="transparent" stroke="transparent" stroke-width="14"/>'
-            f'<path class="ib-flow ib-ribbon" d="{path}" fill="{color}" opacity="{opacity}" stroke="rgba(255,255,255,0.58)" stroke-width="0.8"/>'
-            f'</g>'
-        )
-
-    def node(
-        ib_id: str,
-        related: list[str],
-        x: float,
-        y: float,
-        h: float,
-        color: str,
-        label: str,
-        value: Any,
-        anchor: str = "start",
-        value_color: str | None = None,
-        detail: str = "",
-    ) -> str:
-        tx = x + 18 if anchor == "start" else x - 12
-        text_anchor = "start" if anchor == "start" else "end"
-        value_color = value_color or color
-        return (
-            f'<g {ib_attrs(ib_id, related, label, value, detail)}>'
-            f'{svg_title(label, value, detail)}'
-            f'<rect x="{x:.1f}" y="{y - h / 2:.1f}" width="12" height="{h:.1f}" rx="2" fill="{color}"/>'
-            f'<text x="{tx:.1f}" y="{y - 7:.1f}" text-anchor="{text_anchor}" class="ib-label">{svg_text(label)}</text>'
-            f'<text x="{tx:.1f}" y="{y + 19:.1f}" text-anchor="{text_anchor}" class="ib-value" fill="{value_color}">{svg_text(fmt_yi(value))}</text>'
-            f'<rect class="ib-hit" x="{min(x, tx) - 10:.1f}" y="{y - h / 2 - 10:.1f}" width="{abs(tx - x) + 190:.1f}" height="{max(h + 20, 62):.1f}" rx="8" fill="transparent"/>'
-            f'</g>'
-        )
-
-    def segment_label(item: dict[str, Any], x: float, y: float, ib_id: str, related: list[str]) -> str:
-        yoy = item.get("revenue_yoy")
-        yoy_text = "—" if yoy is None else f"{safe_float(yoy):+.2f}%"
-        yoy_color = "#8a8f98" if yoy is None else "#cc5b24" if safe_float(yoy) >= 0 else "#1fb59d"
-        name = str(item.get("name") or "")
-        if len(name) > 13:
-            name = name[:12] + "..."
-        detail_parts = []
-        if item.get("share") is not None:
-            detail_parts.append(f"收入占比 {safe_float(item.get('share')):.2f}%")
-        if yoy is not None:
-            detail_parts.append("同比 " + yoy_text)
-        if item.get("gross_margin") is not None:
-            detail_parts.append(f"毛利率 {safe_float(item.get('gross_margin')):.2f}%")
-        detail = "；".join(detail_parts) if detail_parts else "收入分项"
-        return (
-            f'<g {ib_attrs(ib_id, related, str(item.get("name") or ""), item.get("revenue"), detail)}>'
-            f'{svg_title(str(item.get("name") or ""), item.get("revenue"), detail)}'
-            f'<text x="{x:.1f}" y="{y - 11:.1f}" text-anchor="end" class="ib-yoy" fill="{yoy_color}">{svg_text(yoy_text)}</text>'
-            f'<text x="{x + 8:.1f}" y="{y - 11:.1f}" text-anchor="start" class="ib-label">{svg_text(name)}</text>'
-            f'<text x="{x + 8:.1f}" y="{y + 15:.1f}" text-anchor="start" class="ib-value" fill="#3498db">{svg_text(fmt_yi(item.get("revenue")))}</text>'
-            f'<rect class="ib-hit" x="{x - 118:.1f}" y="{y - 42:.1f}" width="330" height="74" rx="8" fill="transparent"/>'
-            f'</g>'
-        )
-
-    income_blue = "#35a9f4"
-    income_blue_soft = "#bfe4fb"
-    expense_yellow = "#f2c400"
-    expense_soft = "#ffeaa3"
-    profit_red = "#ff3548"
-    profit_soft = "#ffb6bb"
-    text_css = """
-  <style>
-    .ib-label { font: 720 17px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #111827; }
-    .ib-value { font: 760 22px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-variant-numeric: tabular-nums; }
-    .ib-yoy { font: 720 15px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-variant-numeric: tabular-nums; }
-    .ib-muted { font: 500 17px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #8a8f98; }
-    .ib-caption { font: 600 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #94a3b8; }
-    .ib-ribbon { vector-effect: non-scaling-stroke; }
-  </style>
-"""
-
-    left_x, left_node_x = 270, 360
-    revenue_x, revenue_y = 540, 330
-    split_x = 720
-    revenue_h = 225.0
-    revenue_top = revenue_y - revenue_h / 2
-    revenue_bottom = revenue_y + revenue_h / 2
-    cost_ratio = min(1.0, max(0.0, safe_float(operating_cost) / total_revenue)) if total_revenue else 0.0
-    gross_ratio = min(1.0, max(0.0, safe_float(gross_profit) / total_revenue)) if total_revenue else 0.0
-    ratio_total = cost_ratio + gross_ratio
-    if ratio_total > 1.000001:
-        cost_ratio /= ratio_total
-        gross_ratio /= ratio_total
-    gross_h = revenue_h * gross_ratio
-    cost_h = revenue_h * cost_ratio
-    gross_top = revenue_top
-    gross_bottom = gross_top + gross_h
-    cost_top = gross_bottom
-    cost_bottom = cost_top + cost_h
-    gross_y = (gross_top + gross_bottom) / 2 if gross_h > 0 else revenue_top + 10
-    cost_y = (cost_top + cost_bottom) / 2 if cost_h > 0 else revenue_y
-    op_x, op_y = 880, 330
-    pretax_x, pretax_y = 1000, 330
-    right_x = 1160
-
-    seg_count = max(1, len(segments))
-    top = 110 if seg_count >= 5 else 164
-    step_y = min(72, 380 / max(1, seg_count - 1)) if seg_count > 1 else 0
-    segment_parts: list[str] = []
-    for i, item in enumerate(segments):
-        y = top + i * step_y
-        value = safe_float(item.get("revenue"))
-        segment_id = f"seg-{i}"
-        flow_id = f"flow-{segment_id}-revenue"
-        detail_parts = ["收入分项汇入营业总收入"]
-        if item.get("share") is not None:
-            detail_parts.append(f"占营业总收入 {safe_float(item.get('share')):.2f}%")
-        if item.get("gross_margin") is not None:
-            detail_parts.append(f"分项毛利率 {safe_float(item.get('gross_margin')):.2f}%")
-        flow_detail = "；".join(detail_parts)
-        segment_parts.append(segment_label(item, left_x, y, segment_id, [flow_id, "node-revenue"]))
-        segment_parts.append(
-            f'<g {ib_attrs(f"node-{segment_id}", [segment_id, flow_id, "node-revenue"], str(item.get("name") or ""), value, "收入分项")}>'
-            f'{svg_title(str(item.get("name") or ""), value, "收入分项")}'
-            f'<rect x="{left_node_x}" y="{y - 12:.1f}" width="12" height="24" rx="2" fill="{income_blue}"/>'
-            f'<rect class="ib-hit" x="{left_node_x - 12}" y="{y - 22:.1f}" width="38" height="44" rx="8" fill="transparent"/>'
-            f'</g>'
-        )
-        segment_parts.append(curve(flow_id, [segment_id, f"node-{segment_id}", "node-revenue"], f"{item.get('name')} → 营业总收入", left_node_x + 12, y, revenue_x, revenue_y, income_blue_soft, value, 0.72, flow_detail))
-
-    center_parts = [
-        node("node-revenue", ["flow-revenue-gross", "flow-revenue-cost"], revenue_x, revenue_y, revenue_h, income_blue, nodes.get("revenue", {}).get("name") or "营业收入", total_revenue, "start", income_blue, "收入分项汇总"),
-        ribbon_band("flow-revenue-gross", ["node-revenue", "node-gross"], "营业收入 → 毛利", revenue_x + 12, gross_top, gross_bottom, split_x, gross_top, gross_bottom, profit_soft, gross_profit, 0.62, f"收入扣除营业成本后的毛利，占营业收入 {gross_ratio * 100:.2f}%", gross_ratio),
-        ribbon_band("flow-revenue-cost", ["node-revenue", "node-cost"], "营业收入 → 营业成本", revenue_x + 12, cost_top, cost_bottom, split_x, cost_top, cost_bottom, expense_soft, operating_cost, 0.72, f"营业成本流出，占营业收入 {cost_ratio * 100:.2f}%", cost_ratio),
-        node("node-cost", ["flow-revenue-cost", "flow-cost-op"], split_x, cost_y, cost_h, expense_yellow, "营业成本", operating_cost, "start", expense_yellow, "利润表营业成本"),
-        node("node-gross", ["flow-revenue-gross", "flow-gross-op"], split_x, gross_y, gross_h, profit_red, "毛利", gross_profit, "start", profit_red, "营业收入减营业成本"),
-        curve("flow-gross-op", ["node-gross", "node-operating-profit"], "毛利 → 营业利润", split_x + 12, gross_y, op_x, op_y - 30, profit_soft, gross_profit, 0.64, "毛利经过期间费用和减值抵减后形成营业利润/亏损"),
-        curve("flow-cost-op", ["node-cost", "node-operating-profit"], f"{adjustment_label} → 营业利润", split_x + 12, cost_y, op_x, op_y + 28, expense_soft, operating_adjustments, 0.54, adjustment_detail),
-        node("node-operating-profit", ["flow-gross-op", "flow-cost-op", "flow-op-pretax"], op_x, op_y, 82, profit_red, nodes.get("operating_profit", {}).get("name") or "营业利润", operating_profit, "start", profit_red, "合并利润表营业利润"),
-        curve("flow-op-pretax", ["node-operating-profit", "node-pretax"], "营业利润 → 利润总额", op_x + 12, op_y, pretax_x, pretax_y, profit_soft, pretax_profit, 0.68, "营业外收支后形成利润总额"),
-        node("node-pretax", ["flow-op-pretax", "flow-pretax-parent", "flow-pretax-tax", "flow-pretax-other"], pretax_x, pretax_y, 72, profit_red, nodes.get("pretax_profit", {}).get("name") or "利润总额", pretax_profit, "start", profit_red, "合并利润表利润总额"),
-        curve("flow-pretax-parent", ["node-pretax", "node-parent-profit"], "利润总额 → 归母净利润", pretax_x + 12, pretax_y - 6, right_x, 246, profit_soft, parent_net_profit, 0.72, "扣除所得税和归属调整后的归母口径"),
-        curve("flow-pretax-tax", ["node-pretax", "node-tax"], "利润总额 → 所得税", pretax_x + 12, pretax_y + 12, right_x, 342, expense_soft, income_tax, 0.70, "所得税费用"),
-        curve("flow-pretax-other", ["node-pretax", "node-other"], "利润总额 → 其他", pretax_x + 12, pretax_y + 24, right_x, 422, expense_soft, attribution, 0.42, "净利润与归母口径之间的归属调整"),
-        node("node-parent-profit", ["flow-pretax-parent"], right_x, 246, 62, profit_red, nodes.get("parent_net_profit", {}).get("name") or "归母净利润", parent_net_profit, "start", profit_red, "最终归母口径"),
-        node("node-tax", ["flow-pretax-tax"], right_x, 342, 18, expense_yellow, "所得税", income_tax, "start", expense_yellow, "所得税费用"),
-        node("node-other", ["flow-pretax-other"], right_x, 422, 16, expense_yellow, "其他", attribution, "start", expense_yellow, "少数股东损益或口径调整"),
-    ]
-
-    return f"""
-<svg viewBox="0 0 {width} {height}" role="img" aria-label="收支拆解利润桥">
-  {text_css}
-  <rect x="0" y="0" width="{width}" height="{height}" fill="#ffffff"/>
-  <text x="{left_x - 8}" y="48" text-anchor="start" class="ib-caption">收入构成</text>
-  <text x="{revenue_x - 16}" y="48" text-anchor="start" class="ib-caption">收入汇总</text>
-  <text x="{split_x}" y="48" text-anchor="start" class="ib-caption">成本/毛利拆分</text>
-  <text x="{op_x}" y="48" text-anchor="start" class="ib-caption">利润形成</text>
-  {''.join(segment_parts)}
-  {''.join(center_parts)}
-  <text x="{revenue_x - 80}" y="{revenue_y - 125}" class="ib-muted">{svg_text(data.get("period_label") or "")}</text>
-</svg>
-"""
+def svg_income_bridge_chart(data: dict[str, Any] | None, *, width: int = 1280, height: int = 600) -> str:
+    """Render income bridge via the reusable financial chart design module."""
+    return render_income_bridge_svg(data, width=width, height=height)
 
 
 def svg_bar_line_chart(data: dict[str, Any] | None, *, width: int = 760, height: int = 330) -> str:
@@ -4536,17 +4332,33 @@ def svg_donut_chart(data: dict[str, Any] | None, *, width: int = 520, height: in
 """
 
 
+def _radar_ring_points(cx: float, cy: float, radius: float, count: int) -> str:
+    math = __import__("math")
+    return " ".join(
+        f"{cx + radius * math.cos((-90 + i * 360 / count) * math.pi / 180):.1f},{cy + radius * math.sin((-90 + i * 360 / count) * math.pi / 180):.1f}"
+        for i in range(count)
+    )
+
+
 def svg_radar_chart(data: dict[str, Any] | None, *, width: int = 520, height: int = 320) -> str:
     if not data:
         return '<div class="chart-fallback-empty">雷达图数据不足，待补充完整比率口径。</div>'
-    labels = ["销售净利率", "资产周转率", "权益乘数", "ROE"]
-    values = [
-        min(100, abs(safe_float(data.get("net_margin"))) * 2),
-        min(100, abs(safe_float(data.get("asset_turnover"))) * 50),
-        min(100, abs(safe_float(data.get("equity_multiplier"))) * 12),
-        min(100, abs(safe_float(data.get("roe"))) * 2),
-    ]
-    cx, cy, radius = width / 2, height / 2 + 10, 104
+    dimensions = data.get("dimensions") if isinstance(data.get("dimensions"), list) else []
+    if not dimensions:
+        net_margin = safe_float(data.get("net_margin"))
+        asset_turnover = safe_float(data.get("asset_turnover"))
+        equity_multiplier = safe_float(data.get("equity_multiplier"))
+        roe = safe_float(data.get("roe"))
+        dimensions = [
+            {"name": "销售净利率", "raw_display": f"{net_margin:.2f}%", "score": max(0, min(100, (net_margin + 10) / 22 * 100)), "formula": "归母净利润 / 营业收入"},
+            {"name": "资产周转率", "raw_display": f"{asset_turnover:.2f}x", "score": max(0, min(100, asset_turnover / 1.5 * 100)), "formula": "营业收入 / 资产总计"},
+            {"name": "权益乘数", "raw_display": f"{equity_multiplier:.2f}x", "score": max(0, min(100, (equity_multiplier - 1) / 5 * 100)), "formula": "资产总计 / 归母权益"},
+            {"name": "ROE", "raw_display": f"{roe:.2f}%", "score": max(0, min(100, (roe + 20) / 45 * 100)), "formula": "归母净利润 / 归母权益"},
+        ]
+    labels = [str(item.get("name") or "") for item in dimensions]
+    raw_values = [str(item.get("raw_display") or "-") for item in dimensions]
+    values = [max(0.0, min(100.0, safe_float(item.get("score")))) for item in dimensions]
+    cx, cy, radius = width / 2, height / 2 + 8, 96
     math = __import__("math")
     axes = []
     points = []
@@ -4556,22 +4368,28 @@ def svg_radar_chart(data: dict[str, Any] | None, *, width: int = 520, height: in
         ax = cx + radius * math.cos(rad)
         ay = cy + radius * math.sin(rad)
         axes.append(f'<line x1="{cx}" y1="{cy}" x2="{ax:.1f}" y2="{ay:.1f}" class="svg-grid"/>')
-        axes.append(f'<text x="{cx + (radius + 28) * math.cos(rad):.1f}" y="{cy + (radius + 22) * math.sin(rad):.1f}" text-anchor="middle" class="svg-label">{svg_text(label)}</text>')
+        label_x = cx + (radius + 42) * math.cos(rad)
+        label_y = cy + (radius + 32) * math.sin(rad)
+        axes.append(
+            f'<text x="{label_x:.1f}" y="{label_y - 8:.1f}" text-anchor="middle" class="svg-label">{svg_text(label)}</text>'
+            f'<text x="{label_x:.1f}" y="{label_y + 12:.1f}" text-anchor="middle" class="svg-value" fill="#2563eb">{svg_text(raw_values[i])}</text>'
+        )
         value_radius = radius * values[i] / 100
         points.append((cx + value_radius * math.cos(rad), cy + value_radius * math.sin(rad)))
     polygon = " ".join(f"{x:.1f},{y:.1f}" for x, y in points)
-    rings = "".join(f'<circle cx="{cx}" cy="{cy}" r="{radius * scale / 4:.1f}" fill="none" class="svg-grid"/>' for scale in range(1, 5))
-    detail = " / ".join(f"{label}: {value:.2f}" for label, value in zip(labels, values))
+    rings = "".join(f'<polygon points="{_radar_ring_points(cx, cy, radius * scale / 4, len(labels))}" fill="none" class="svg-grid"/>' for scale in range(1, 5))
+    detail = " / ".join(f"{label}: {raw}（展示 {value:.1f}/100）" for label, raw, value in zip(labels, raw_values, values))
     return f"""
 <svg viewBox="0 0 {width} {height}" role="img" aria-label="杜邦分析雷达图">
   {rings}
   {''.join(axes)}
   <g {chart_attrs("dupont-radar", "杜邦分析", 0, detail, "综合比率")}>
     {svg_title("杜邦分析", 0, detail, "综合比率")}
-    <polygon class="chart-mark" points="{polygon}" fill="rgba(59,130,246,0.24)" stroke="#3b82f6" stroke-width="3"/>
+    <polygon class="chart-mark" points="{polygon}" fill="rgba(37,99,235,0.20)" stroke="#2563eb" stroke-width="2.6"/>
     <polygon class="chart-hit" points="{polygon}" fill="transparent" stroke="transparent" stroke-width="18"/>
   </g>
-  {''.join(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4" fill="#3b82f6"/>' for x, y in points)}
+  {''.join(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4.5" fill="#2563eb" stroke="#ffffff" stroke-width="1.4"/>' for x, y in points)}
+  <text x="{cx}" y="{height - 18}" text-anchor="middle" class="svg-muted">雷达半径为 0-100 归一化展示分，标签保留原始杜邦指标。</text>
 </svg>
 """
 

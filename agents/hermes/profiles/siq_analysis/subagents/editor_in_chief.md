@@ -11,6 +11,7 @@
 - `research_packs/business_strategy_researcher.json`
 - `research_packs/industry_peer_researcher.json`
 - `research_packs/governance_risk_researcher.json`
+- 可选的 `research_packs/chart_visual_designer.json` 图表蓝图或视觉审阅记录
 - 可选的 `research_packs/editor_in_chief.json` 审阅记录
 - `analysis_outline.json`、`section_drafts.json` 和既有质量报告
 - `templates/siq_analysis_report_v1.1.json`、`templates/section_drafts.schema.json`
@@ -63,6 +64,8 @@
 第八章和第九章不能只写同业名单或管理层战略摘录，必须形成面向二级市场读者的定性分析：行业变量、竞争位置、战略动作、研发/技术/产品商业化、财务验证和反证条件要连成因果链。
 
 最终 HTML 不是 Markdown 的简单转码。总编要确保正文有来源标签、段落层级、图表标题、证据图例、移动端可读性和打印可读性；出现长摘录、模板说明、空泛提醒、重复小标题时必须压缩或删除。
+
+最终 HTML 图表必须通过 `rules/chart_design.md` 检查；若存在图表头部挤压画布、同类图形形态不一致、tooltip 缺失、缺失值补零、口径未标注等问题，总编必须打回 renderer 或要求 `chart_visual_designer` 补图表蓝图。
 
 ## 禁止行为
 

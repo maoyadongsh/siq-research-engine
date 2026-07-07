@@ -92,8 +92,16 @@ def test_dupont_and_solvency_use_verified_rows(tmp_path):
 
     assert dupont["sources"]["total_assets"]["source"] == "three_statements"
     assert dupont["net_margin"] == round(101.06 / 6562.44 * 100, 2)
+    assert dupont["visual_scale"] == "reference_range_score_0_100"
+    assert [item["key"] for item in dupont["dimensions"]] == ["net_margin", "asset_turnover", "equity_multiplier", "roe"]
+    assert all(0 <= item["score"] <= 100 for item in dupont["dimensions"])
+    assert dupont["dimensions"][2]["raw_display"].endswith("x")
     assert solvency["debt_ratio"] == round(6724.31 / 9602.07 * 100, 2)
     assert solvency["quick_ratio"] == round((6229.54 - 796.40) / 5842.36, 2)
+
+    svg = renderer.svg_radar_chart(dupont)
+    assert "展示" in svg
+    assert "雷达半径为 0-100" in svg
 
 
 def test_asset_structure_does_not_estimate_missing_noncurrent_assets():

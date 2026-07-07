@@ -37,7 +37,7 @@ REQUIRED_RESEARCH_AGENT_IDS = [
     "governance_risk_researcher",
 ]
 
-OPTIONAL_AGENT_IDS = ["editor_in_chief"]
+OPTIONAL_AGENT_IDS = ["editor_in_chief", "chart_visual_designer"]
 ALLOWED_AGENT_IDS = [*REQUIRED_RESEARCH_AGENT_IDS, *OPTIONAL_AGENT_IDS]
 
 CHECKPOINT_FILES = [
@@ -249,6 +249,16 @@ def build_prompt_bundle(
         }
         if agent_id == "industry_peer_researcher":
             agent_payload["benchmark_research_context"] = benchmark_research_context
+        if agent_id == "chart_visual_designer":
+            agent_payload["chart_design_rule"] = str(PROFILE_DIR / "rules" / "chart_design.md")
+            agent_payload["visualization_scope"] = [
+                "income_bridge",
+                "profitability_waterfall",
+                "cashflow_structure",
+                "asset_debt_structure",
+                "dupont_solvency",
+                "peer_comparison",
+            ]
         agents.append(agent_payload)
     bundle = {
         "schema_version": "1.0",

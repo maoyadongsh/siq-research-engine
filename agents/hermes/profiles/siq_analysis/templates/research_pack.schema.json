@@ -162,6 +162,17 @@
     }
   },
   "$defs": {
+    "fact_status": {
+      "type": "string",
+      "enum": [
+        "verified_fact",
+        "modeled_estimate",
+        "external_context",
+        "assumption",
+        "gap"
+      ],
+      "description": "Truth status for claims and derived items. verified_fact requires resolvable evidence; assumption/gap/external_context must stay out of factual assertions."
+    },
     "input_file": {
       "type": "object",
       "additionalProperties": false,
@@ -256,6 +267,12 @@
           "minimum": 0,
           "maximum": 1
         },
+        "fact_status": {
+          "$ref": "#/$defs/fact_status"
+        },
+        "review_required": {
+          "type": "boolean"
+        },
         "rationale": {
           "type": "string"
         },
@@ -287,6 +304,17 @@
         },
         "scope": {
           "type": "string"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "fact_status": {
+          "$ref": "#/$defs/fact_status"
+        },
+        "review_required": {
+          "type": "boolean"
         },
         "evidence_refs": {
           "type": "array",
@@ -338,6 +366,17 @@
             "$ref": "#/$defs/evidence_ref"
           }
         },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "fact_status": {
+          "$ref": "#/$defs/fact_status"
+        },
+        "review_required": {
+          "type": "boolean"
+        },
         "assumptions": {
           "type": "array",
           "items": {
@@ -379,6 +418,17 @@
             "unknown"
           ]
         },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "fact_status": {
+          "$ref": "#/$defs/fact_status"
+        },
+        "review_required": {
+          "type": "boolean"
+        },
         "evidence_refs": {
           "type": "array",
           "items": {
@@ -416,6 +466,17 @@
             "falsify",
             "unknown"
           ]
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "fact_status": {
+          "$ref": "#/$defs/fact_status"
+        },
+        "review_required": {
+          "type": "boolean"
         },
         "source_hint": {
           "type": "string"

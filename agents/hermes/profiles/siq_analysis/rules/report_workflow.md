@@ -59,6 +59,16 @@
 
 `research_packs/*.json` 中 `key_findings[].confidence` 必须是 0 到 1 的数字。`confidence < 0.60` 的发现必须设置 `review_required=true`，只能作为待复核线索进入后续合成，不得直接晋升为确定性事实。
 
+每条关键判断和可见事实必须带有事实状态或可解析证据：
+
+- `verified_fact`：已由本地文件、URL、页码/行号或 source map 证据解析器验证，可进入事实叙述。
+- `modeled_estimate`：模型或公式推导值，必须保留输入、公式、confidence，并进入复核轨道。
+- `external_context`：外部来源上下文，只能作为行业/政策/同业背景，不得覆盖本地年报事实。
+- `assumption`：显式假设，必须 `review_required=true`，不得写成事实。
+- `gap`：证据缺口或无法验证项，必须进入 `missing_inputs`、复核清单或跟踪项。
+
+`validate_research_packs.py` 必须加载 `templates/research_pack.schema.json`，并解析 `evidence_refs` 的 `source_file/md_line/url`。`verified_fact` 或未声明 `fact_status` 的 `key_findings` 必须有可解析 `evidence_refs`；只有 `assumption/gap/external_context` 可以无证据 refs，但必须留在复核或上下文层。
+
 ## 防覆盖规则
 
 默认情况下，最终渲染不会覆盖已有 `analysis/<stock>-<short>-<year>-analysis.md/.json/.html`。
@@ -135,6 +145,12 @@ wiki/companies/<company_id>/analysis/.work/<report_slug>/
 - `missing_inputs` 必须说明原因、影响和对应章节。
 - `prohibited_content_hits` 必须为空。
 
+发布状态规则：
+
+- `publishable`：所有必需 pack 存在，schema 通过，所有 `verified_fact` 证据可解析，无 prohibited hits，无未处理 hard failure。
+- `review_required`：存在 `modeled_estimate/assumption/gap`、低 confidence、外部来源缺口、resolver warning 或人工复核项；可生成草稿，不得标为最终高质量报告。
+- `blocked`：schema 失败、证据不可回链、prohibited hits、必需 pack 缺失或本地事实被外部来源覆盖；禁止最终渲染发布。
+
 失败处理：
 
 - `research_packs_dir_missing`：先跑 `run_analysis_report.py --prepare-only --use-research-packs`，默认会经由 `run_research_subagents.py --mode deterministic` 生成 pack。
@@ -143,6 +159,8 @@ wiki/companies/<company_id>/analysis/.work/<report_slug>/
 - `prompt_only_without_packs`：这是预期中间状态，应把 `research_subagent_prompts.json` 交给 Hermes/LLM 子智能体执行后，再用 `external` 或 `hybrid` 模式续跑。
 - `industry_peer_external_sources_missing`：优先检查 Hermes Tavily/EXA 配置或在 `missing_inputs` 中明确外部来源缺口。
 - `prohibited_content_hits_present`：禁止进入最终渲染，必须修复 pack。
+- `key_finding_missing_evidence_or_fact_status`：关键判断缺少可解析证据，也没有声明 `assumption/gap/external_context`。
+- `evidence_ref_unresolvable`：证据文件、URL 或行号无法解析；必须修正 `source_file/md_line` 或改入 `missing_inputs`。
 
 ## 样本案例
 
