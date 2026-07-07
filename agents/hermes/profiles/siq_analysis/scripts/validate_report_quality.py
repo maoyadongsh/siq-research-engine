@@ -64,6 +64,15 @@ REQUIRED_QUALITY_TRUE_FLAGS = {
     "all_key_numbers_have_evidence": "quality_report_key_numbers_without_evidence",
     "wiki_inventory_complete": "quality_report_wiki_inventory_missing",
 }
+FACTCHECK_PATH_KEYS = (
+    "factcheck_json",
+    "factcheck_path",
+    "factcheck_report_path",
+    "factcheck_report_json",
+)
+FACTCHECK_APPROVE_VERDICTS = {"approve", "approved", "pass", "passed"}
+FACTCHECK_REVIEW_VERDICTS = {"request_changes", "needs_changes", "review_required"}
+FACTCHECK_BLOCK_VERDICTS = {"block", "blocked", "fail", "failed"}
 CRITICAL_REVIEW_TERMS = (
     "毛利率",
     "资本开支",
@@ -274,6 +283,111 @@ def load_company_context(prefix: Path) -> tuple[dict[str, Any] | None, str | Non
         return load_json(path), None
     except (OSError, json.JSONDecodeError):
         return None, "company_industry_unavailable:company_json_unreadable"
+
+
+def report_year(data: dict[str, Any], prefix: Path) -> str | None:
+    containers = [data, data.get("report_meta"), data.get("preflight"), data.get("quality_report")]
+    for container in containers:
+        if not isinstance(container, dict):
+            continue
+        for key in ("report_year", "year", "fiscal_year"):
+            value = container.get(key)
+            if isinstance(value, int) and 1900 <= value <= 2100:
+                return str(value)
+            if isinstance(value, str) and re.fullmatch(r"20\d{2}|19\d{2}", value.strip()):
+                return value.strip()
+    match = re.search(r"(?:^|[-_])(20\d{2}|19\d{2})(?:[-_]|$)", prefix.name)
+    return match.group(1) if match else None
+
+
+def normalize_factcheck_verdict(value: Any) -> str:
+    verdict = str(value or "").strip().lower()
+    if not verdict:
+        return "missing"
+    if verdict in FACTCHECK_APPROVE_VERDICTS:
+        return "approve"
+    if verdict in FACTCHECK_REVIEW_VERDICTS:
+        return "request_changes"
+    if verdict in FACTCHECK_BLOCK_VERDICTS:
+        return "block"
+    return "unknown"
+
+
+def factcheck_path_candidates(prefix: Path, data: dict[str, Any]) -> list[Path]:
+    candidates: list[Path] = []
+    containers = [data, data.get("quality_report"), data.get("factcheck")]
+    for container in containers:
+        if not isinstance(container, dict):
+            continue
+        for key in FACTCHECK_PATH_KEYS:
+            value = container.get(key)
+            if not isinstance(value, str) or not value.strip():
+                continue
+            path = Path(value.strip())
+            candidates.append(path if path.is_absolute() else (prefix.parent / path))
+
+    company_dir = infer_company_dir(prefix)
+    if company_dir:
+        factcheck_dir = company_dir / "factcheck"
+        if factcheck_dir.exists():
+            year = report_year(data, prefix)
+            pattern = f"*-{year}-factcheck.json" if year else "*-factcheck.json"
+            candidates.extend(sorted(factcheck_dir.glob(pattern), key=lambda item: (item.stat().st_mtime, item.name), reverse=True))
+
+    unique: list[Path] = []
+    seen: set[Path] = set()
+    for path in candidates:
+        resolved = path.resolve()
+        if resolved not in seen:
+            unique.append(resolved)
+            seen.add(resolved)
+    return unique
+
+
+def factcheck_gate(prefix: Path, data: dict[str, Any]) -> dict[str, Any]:
+    embedded = data.get("factcheck")
+    quality = data.get("quality_report")
+    if not isinstance(embedded, dict) and isinstance(quality, dict):
+        embedded = quality.get("factcheck")
+    if isinstance(embedded, dict) and "verdict" in embedded:
+        normalized = normalize_factcheck_verdict(embedded.get("verdict"))
+        return {"verdict": normalized, "raw_verdict": embedded.get("verdict"), "source": "embedded"}
+
+    for path in factcheck_path_candidates(prefix, data):
+        if not path.exists():
+            continue
+        try:
+            payload = load_json(path)
+        except (OSError, json.JSONDecodeError) as exc:
+            return {
+                "verdict": "unavailable",
+                "raw_verdict": None,
+                "source": str(path),
+                "warning": f"factcheck_verdict_unreadable:{path.name}:{exc.__class__.__name__}",
+            }
+        normalized = normalize_factcheck_verdict(payload.get("verdict"))
+        return {"verdict": normalized, "raw_verdict": payload.get("verdict"), "source": str(path)}
+
+    return {"verdict": "missing", "raw_verdict": None, "source": None, "warning": "factcheck_verdict_missing"}
+
+
+def publication_gate(failures: list[str], warnings: list[str], factcheck: dict[str, Any]) -> dict[str, Any]:
+    contract_pass = not failures
+    factcheck_verdict = str(factcheck.get("verdict") or "missing")
+    publish_ready = contract_pass and not warnings and factcheck_verdict == "approve"
+    pass_with_review = contract_pass and not publish_ready
+    if not contract_pass:
+        status = "blocked"
+    elif publish_ready:
+        status = "publish_ready"
+    else:
+        status = "pass_with_review"
+    return {
+        "contract_pass": contract_pass,
+        "publish_ready": publish_ready,
+        "pass_with_review": pass_with_review,
+        "publication_status": status,
+    }
 
 
 def company_text(company: dict[str, Any] | None) -> str:
@@ -842,10 +956,24 @@ def validate(prefix: Path) -> dict[str, Any]:
         if not any(term in md for term in terms):
             failures.append(f"required_analysis_model_missing:{key}")
 
+    factcheck = factcheck_gate(prefix, data)
+    factcheck_verdict = str(factcheck.get("verdict") or "missing")
+    if factcheck_verdict == "block":
+        failures.append("factcheck_verdict_block")
+    elif factcheck_verdict == "request_changes":
+        warnings.append("factcheck_verdict_request_changes")
+    elif factcheck_verdict != "approve":
+        warning = factcheck.get("warning")
+        warnings.append(str(warning or f"factcheck_verdict_{factcheck_verdict}"))
+
+    publication = publication_gate(failures, warnings, factcheck)
+
     return {
         "ok": not failures,
+        **publication,
         "failures": failures,
         "warnings": warnings,
+        "factcheck": factcheck,
         "metrics": {
             "template_id": tid,
             "json_sections": len(ids),
