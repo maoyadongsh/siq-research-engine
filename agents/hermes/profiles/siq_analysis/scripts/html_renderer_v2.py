@@ -1038,6 +1038,7 @@ body {
   border-color: #e5e7eb;
   box-shadow: 0 18px 42px -32px rgba(15,23,42,0.38);
   color: #111827;
+  padding: 18px 22px 16px;
 }
 .income-bridge-summary {
   display: grid;
@@ -1078,7 +1079,7 @@ body {
   gap: 20px;
   align-items: center;
   border-bottom: 1px solid #eef2f7;
-  padding: 8px 0 10px;
+  padding: 4px 2px 12px;
   margin-bottom: 0;
 }
 .income-bridge-title-group {
@@ -1126,15 +1127,15 @@ body {
 .income-bridge-legend .profit { background: #ff3548; }
 .income-bridge-panel .chart-fallback {
   display: block;
-  min-height: 600px;
+  min-height: 560px;
   overflow-x: hidden;
-  padding-top: 6px;
+  padding: 6px 0 0;
 }
 .income-bridge-panel .chart-fallback svg {
   display: block;
   width: 100%;
   min-width: 0;
-  max-height: 600px;
+  max-height: 560px;
 }
 .income-bridge-panel .chart-fallback svg text,
 .income-bridge-panel .chart-fallback svg rect,

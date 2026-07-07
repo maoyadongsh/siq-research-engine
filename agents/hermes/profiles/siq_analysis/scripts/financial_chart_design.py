@@ -245,29 +245,30 @@ def render_income_bridge_svg(data: dict[str, Any] | None, *, width: int = 1280, 
   </style>
 """
 
-    left_label_x = 270
-    segment_node_x = 360
-    segment_out_x = 420
-    revenue_x, revenue_y = 540, 315
-    split_x = 720
+    left_label_x = 300
+    segment_node_x = 430
+    segment_out_x = 470
+    revenue_x, revenue_y = 610, 315
+    split_x = 790
     revenue_h = 228.0
     revenue_top = revenue_y - revenue_h / 2
     revenue_bottom = revenue_y + revenue_h / 2
-    op_x, op_y = 880, 315
-    pretax_x, pretax_y = 1000, 315
-    right_x = 1160
+    op_x, op_y = 900, 315
+    pretax_x, pretax_y = 1010, 315
+    right_x = 1145
 
     segment_values = [safe_float(item.get("revenue")) for item in segments]
-    segment_bands = _stack_segments(segment_values, revenue_y, revenue_h, min_height=8.0, gap=3.0)
-    label_top = 88 if len(segments) >= 5 else 130
-    label_step = min(70, 350 / max(1, len(segments) - 1)) if len(segments) > 1 else 0
+    label_top = 128 if len(segments) >= 5 else 150
+    label_step = min(68, 280 / max(1, len(segments) - 1)) if len(segments) > 1 else 0
+    lane_top = revenue_top + 26
+    lane_bottom = revenue_bottom - 26
+    lane_step = (lane_bottom - lane_top) / max(1, len(segments) - 1) if len(segments) > 1 else 0
 
     segment_parts: list[str] = []
     for i, item in enumerate(segments):
         value = safe_float(item.get("revenue"))
         label_y = label_top + i * label_step
-        band_top, band_bottom = segment_bands[i]
-        band_center = (band_top + band_bottom) / 2
+        lane_y = lane_top + i * lane_step
         segment_id = f"seg-{i}"
         node_id = f"node-{segment_id}"
         flow_id = f"flow-{segment_id}-revenue"
@@ -281,7 +282,8 @@ def render_income_bridge_svg(data: dict[str, Any] | None, *, width: int = 1280, 
         # proportional width, while each segment enters the canvas as the same
         # closed-ribbon family instead of mixing giant lobes with thin strokes.
         share = value / total_revenue if total_revenue else 0.0
-        port_h = max(10.0, min(34.0, (share ** 0.5) * 42.0)) if share > 0 else 10.0
+        port_h = max(10.0, min(30.0, (share ** 0.5) * 36.0)) if share > 0 else 10.0
+        lane_h = max(9.0, min(28.0, port_h * 0.92))
         segment_parts.append(render_segment_label(item, left_label_x, label_y, segment_id, [flow_id, "node-revenue"]))
         segment_parts.append(
             f'<g {ib_attrs(node_id, [segment_id, flow_id, "node-revenue"], str(item.get("name") or ""), value, "收入分项")}>'
@@ -300,8 +302,8 @@ def render_income_bridge_svg(data: dict[str, Any] | None, *, width: int = 1280, 
                 label_y - port_h / 2,
                 label_y + port_h / 2,
                 revenue_x,
-                band_top,
-                band_bottom,
+                lane_y - lane_h / 2,
+                lane_y + lane_h / 2,
                 income_blue_soft,
                 value,
                 0.66,
@@ -309,15 +311,6 @@ def render_income_bridge_svg(data: dict[str, Any] | None, *, width: int = 1280, 
                 share if total_revenue else None,
             )
         )
-        segment_parts.append(
-            f'<line x1="{segment_node_x + 12}" y1="{label_y:.1f}" x2="{segment_out_x:.1f}" y2="{label_y:.1f}" '
-            f'stroke="{income_blue}" stroke-width="2" opacity="0.42"/>'
-        )
-        if abs(label_y - band_center) > 2:
-            segment_parts.append(
-                f'<path d="M{segment_out_x:.1f},{label_y:.1f} C{segment_out_x + 28:.1f},{label_y:.1f} {segment_out_x + 28:.1f},{band_center:.1f} {segment_out_x:.1f},{band_center:.1f}" '
-                f'fill="none" stroke="{income_blue}" stroke-width="1.2" opacity="0.28"/>'
-            )
 
     cost_ratio = min(1.0, max(0.0, safe_float(operating_cost) / total_revenue)) if total_revenue else 0.0
     gross_ratio = min(1.0, max(0.0, safe_float(gross_profit) / total_revenue)) if total_revenue else 0.0
