@@ -1,4 +1,5 @@
 import importlib.util
+import re
 from pathlib import Path
 
 
@@ -83,7 +84,48 @@ def test_income_bridge_svg_uses_uniform_interactive_ribbons():
     assert 'data-ib-id="flow-revenue-gross"' in svg
     assert 'data-ib-id="node-income-collector"' in svg
     assert 'data-ib-id="flow-collector-revenue"' in svg
-    assert 'M424.0' in svg
+    assert 'M314.0' in svg
     assert "<line" not in svg
     assert "收入构成" in svg
     assert "收入汇流" in svg
+
+
+def test_income_bridge_stage_labels_align_with_chart_anchors():
+    data = {
+        "period_label": "2025年度",
+        "starting_value": 6562.44,
+        "ending_value": 101.06,
+        "segments": [
+            {"name": "整车业务", "revenue": 4101.96, "share": 62.51},
+            {"name": "零部件业务", "revenue": 2030.20, "share": 30.94},
+            {"name": "其他业务", "revenue": 141.41, "share": 2.15},
+        ],
+        "flow_nodes": {
+            "revenue": {"name": "营业总收入", "value": 6562.44},
+            "cost": {"name": "营业成本", "value": 5809.44},
+            "gross_profit": {"name": "毛利", "value": 753.0},
+            "operating_adjustments": {"name": "期间费用/减值/其他", "value": 498.7},
+            "operating_profit": {"name": "营业利润", "value": 254.3},
+            "pretax_profit": {"name": "利润总额", "value": 249.1},
+            "income_tax": {"name": "所得税", "value": 74.65},
+            "attribution": {"name": "其他/归属调整", "value": 73.38},
+            "parent_net_profit": {"name": "归母净利润", "value": 101.06},
+        },
+    }
+
+    svg = renderer.svg_income_bridge_chart(data)
+
+    labels = {
+        name: float(x)
+        for name, x in re.findall(r'data-stage-label="([^"]+)" x="([0-9.]+)"', svg)
+    }
+
+    assert labels == {
+        "收入构成": 227.0,
+        "收入汇流": 413.0,
+        "收入汇总": 542.0,
+        "成本/毛利拆分": 720.0,
+        "利润形成": 941.0,
+    }
+    assert 'text-anchor="middle" class="ib-caption"' in svg
+    assert labels["收入构成"] < labels["收入汇流"] < labels["收入汇总"] < labels["成本/毛利拆分"] < labels["利润形成"]

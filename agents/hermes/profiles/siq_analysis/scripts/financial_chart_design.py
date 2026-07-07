@@ -182,6 +182,13 @@ def render_segment_label(item: dict[str, Any], x: float, y: float, ib_id: str, r
     )
 
 
+def render_stage_label(label: str, x: float, y: float = 42.0) -> str:
+    return (
+        f'<text data-stage-label="{svg_text(label)}" x="{x:.1f}" y="{y:.1f}" '
+        f'text-anchor="middle" class="ib-caption">{svg_text(label)}</text>'
+    )
+
+
 def _stack_segments(values: list[float], center: float, total_height: float, min_height: float = 9.0, gap: float = 3.0) -> list[tuple[float, float]]:
     total = sum(max(0.0, value) for value in values)
     if total <= 0:
@@ -246,19 +253,28 @@ def render_income_bridge_svg(data: dict[str, Any] | None, *, width: int = 1280, 
   </style>
 """
 
-    left_label_x = 284
-    segment_node_x = 390
-    segment_out_x = 424
-    collector_x = 516
-    collector_out_x = 542
-    revenue_x, revenue_y = 646, 330
-    split_x = 824
+    chart_shift_x = 110.0
+    left_label_x = 284 - chart_shift_x
+    segment_node_x = 390 - chart_shift_x
+    segment_out_x = 424 - chart_shift_x
+    collector_x = 516 - chart_shift_x
+    collector_out_x = 542 - chart_shift_x
+    revenue_x, revenue_y = 646 - chart_shift_x, 330
+    split_x = 824 - chart_shift_x
     revenue_h = 224.0
     revenue_top = revenue_y - revenue_h / 2
     revenue_bottom = revenue_y + revenue_h / 2
-    op_x, op_y = 936, 330
-    pretax_x, pretax_y = 1048, 330
-    right_x = 1166
+    op_x, op_y = 936 - chart_shift_x, 330
+    pretax_x, pretax_y = 1048 - chart_shift_x, 330
+    right_x = 1166 - chart_shift_x
+
+    stage_labels = [
+        render_stage_label("收入构成", (left_label_x + segment_node_x) / 2),
+        render_stage_label("收入汇流", collector_x + 7),
+        render_stage_label("收入汇总", revenue_x + 6),
+        render_stage_label("成本/毛利拆分", split_x + 6),
+        render_stage_label("利润形成", (op_x + right_x) / 2 + 6),
+    ]
 
     segment_values = [safe_float(item.get("revenue")) for item in segments]
     label_top = 150 if len(segments) >= 5 else 176
@@ -391,11 +407,7 @@ def render_income_bridge_svg(data: dict[str, Any] | None, *, width: int = 1280, 
 <svg viewBox="0 0 {width} {height}" role="img" aria-label="收支拆解利润桥">
   {text_css}
   <rect x="0" y="0" width="{width}" height="{height}" fill="#ffffff"/>
-  <text x="{left_label_x - 8}" y="42" text-anchor="start" class="ib-caption">收入构成</text>
-  <text x="{collector_x - 6}" y="42" text-anchor="start" class="ib-caption">收入汇流</text>
-  <text x="{revenue_x - 18}" y="42" text-anchor="start" class="ib-caption">收入汇总</text>
-  <text x="{split_x}" y="42" text-anchor="start" class="ib-caption">成本/毛利拆分</text>
-  <text x="{op_x}" y="42" text-anchor="start" class="ib-caption">利润形成</text>
+  {''.join(stage_labels)}
   {''.join(segment_parts)}
   {collector_node}
   {collector_flow}
