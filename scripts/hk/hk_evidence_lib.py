@@ -460,6 +460,9 @@ def _selected_operations_fallback_tables(
         table_start = match.start()
         if table_start in seen_starts:
             continue
+        context = text[max(0, table_start - 1500) : table_start]
+        if re.search(r"parent company only|company-only|condensed financial information", context, flags=re.I):
+            continue
         rows = _html_table_rows(match.group(0))
         if not _selected_operations_fallback_rows(rows):
             continue
@@ -512,6 +515,8 @@ def _selected_operations_fallback_rows(rows: list[list[str]]) -> bool:
             "newbusinesses",
             "relatedparty",
             "relatedparties",
+            "incomefromsubsidiaries",
+            "incomefromsubsidiariesandvies",
         )
     ):
         return False
