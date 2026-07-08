@@ -239,7 +239,12 @@ def _drop_hk_convenience_translation_columns(table: ParsedTable, column_periods:
     for columns in by_period.values():
         if len(columns) < 2:
             continue
-        primary_columns = [column for column in columns if not _looks_like_usd_convenience_column(table, column)]
+        primary_columns = [
+            column
+            for column in columns
+            if not _looks_like_usd_convenience_column(table, column)
+            and not _looks_like_percentage_convenience_column(table, column)
+        ]
         if primary_columns:
             drop.update(column for column in columns if column not in primary_columns)
     if not drop:
@@ -252,6 +257,13 @@ def _looks_like_usd_convenience_column(table: ParsedTable, column_index: int) ->
     raw_text = " ".join(str(cell or "") for cell in cells).lower()
     text = compact_label(raw_text)
     return "us$" in raw_text or "usd" in text or "usnote" in text or bool(re.search(r"20\d{2}us", text))
+
+
+def _looks_like_percentage_convenience_column(table: ParsedTable, column_index: int) -> bool:
+    cells = [_cell_at(row, column_index) for row in table.rows[:5]]
+    raw_text = " ".join(str(cell or "") for cell in cells).lower()
+    text = compact_label(raw_text)
+    return "%" in raw_text or "percentage" in text or "percent" in text
 
 
 def _looks_like_total_period_column(table: ParsedTable, column_index: int) -> bool:
