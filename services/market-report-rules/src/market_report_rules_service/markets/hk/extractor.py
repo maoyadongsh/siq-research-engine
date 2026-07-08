@@ -260,10 +260,12 @@ def _looks_like_usd_convenience_column(table: ParsedTable, column_index: int) ->
 
 
 def _looks_like_percentage_convenience_column(table: ParsedTable, column_index: int) -> bool:
-    cells = [_cell_at(row, column_index) for row in table.rows[:5]]
-    raw_text = " ".join(str(cell or "") for cell in cells).lower()
-    text = compact_label(raw_text)
-    return "%" in raw_text or "percentage" in text or "percent" in text
+    for cell in (_cell_at(row, column_index) for row in table.rows[:4]):
+        raw = str(cell or "").strip().lower()
+        text = compact_label(raw)
+        if raw == "%" or text in {"percent", "percentage", "pct"}:
+            return True
+    return False
 
 
 def _looks_like_total_period_column(table: ParsedTable, column_index: int) -> bool:
