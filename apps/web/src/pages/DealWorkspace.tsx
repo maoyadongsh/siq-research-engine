@@ -117,7 +117,7 @@ export default function DealWorkspace() {
               <p className="text-sm text-text-muted">项目 ID</p>
               <p className="mt-1 break-all text-lg font-semibold text-text">{summary.deal_id}</p>
               {summary.legacy_project_id ? (
-                <p className="mt-2 text-xs text-text-muted">OpenClaw: {summary.legacy_project_id}</p>
+                <p className="mt-2 text-xs text-text-muted">历史来源: {summary.legacy_project_id}</p>
               ) : null}
             </Surface>
             <Surface kind="card">

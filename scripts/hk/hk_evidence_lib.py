@@ -42,7 +42,7 @@ from market_report_rules_service.models import (
     ParsedTable,
     StatementType,
 )
-from market_report_rules_service.normalization import compact_label, infer_currency, parse_date
+from market_report_rules_service.normalization import compact_label, infer_currency, infer_scale, parse_date
 from market_report_rules_service.pipeline import build_package_aware_load_plan, process_artifact
 from market_report_rules_service.statement_detection import detect_statement_type_from_rows, detect_statement_type_from_title
 from market_report_rules_service.validation import validate_extraction
@@ -341,23 +341,18 @@ def _markdown_statement_tables(parser_result_dir: Path, *, start_index: int = 0)
     seen: set[str] = set()
     seen_starts: set[int] = set()
     heading_pattern = re.compile(
-        r"(?im)^#{1,6}\s+([^\n]*(?:statement of financial position|statement of profit or loss|statement of cash flows|cash flow statement|consolidated cash flow statement|consolidated balance sheet|consolidated income statement|balance sheet|income statement|cash flow|cash flows)[^\n]*)"
+        r"(?im)^#{1,6}\s+([^\n]*(?:statement of financial position|statements of financial position|statement of profit or loss|statements of profit or loss|statement of operations|statements of operations|statement of income|statements of income|statement of cash flows|statements of cash flows|cash flow statement|cash flow statements|consolidated cash flow statement|consolidated cash flow statements|consolidated balance sheet|consolidated balance sheets|consolidated income statement|consolidated income statements|balance sheet|balance sheets|income statement|income statements|cash flow|cash flows)[^\n]*)"
     )
     for match in heading_pattern.finditer(text):
         heading = _clean_cell(match.group(1))
         statement_type = _markdown_statement_type_from_heading(heading)
         if statement_type is None or not _is_primary_markdown_statement_heading(heading):
             continue
-        table_start = text.find("<table", match.end())
-        if table_start < 0 or table_start - match.end() > 2500:
+        table_match = _first_usable_table_after_heading(text, match.end(), statement_type, max_distance=4500)
+        if table_match is None:
             continue
-        table_end = text.find("</table>", table_start)
-        if table_end < 0:
-            continue
-        table_html = text[table_start : table_end + len("</table>")]
+        table_start, table_html = table_match
         rows = _html_table_rows(table_html)
-        if not _usable_statement_rows(rows):
-            continue
         signature = stable_id(statement_type.value, heading, rows[:6])
         if signature in seen:
             continue
@@ -385,6 +380,7 @@ def _markdown_statement_tables(parser_result_dir: Path, *, start_index: int = 0)
                 },
             )
         )
+    _propagate_markdown_statement_units(tables)
     formal_window = _formal_statement_window(text)
     if formal_window:
         window_start, window_end = formal_window
@@ -398,8 +394,14 @@ def _markdown_statement_tables(parser_result_dir: Path, *, start_index: int = 0)
             heading = _nearest_markdown_heading(text, table_start)
             statement_type = _markdown_statement_type_from_heading(heading) or detect_statement_type_from_rows(rows)
             if statement_type is None:
+                statement_type = _statement_type_from_primary_body(rows)
+            if statement_type is None:
                 continue
-            if not _is_primary_markdown_statement_body(statement_type, rows):
+            primary_body = _is_primary_markdown_statement_body(statement_type, rows)
+            continuation_fragment = False
+            if not primary_body:
+                continuation_fragment = _is_markdown_statement_continuation_body(statement_type, rows)
+            if not continuation_fragment and not primary_body:
                 continue
             title = heading if _markdown_statement_type_from_heading(heading) else _statement_type_title(statement_type)
             signature = stable_id(statement_type.value, title, rows[:6])
@@ -425,11 +427,232 @@ def _markdown_statement_tables(parser_result_dir: Path, *, start_index: int = 0)
                         "line": line_number,
                         "heading": title,
                         "statement_type": statement_type.value,
+                        "continuation_fragment": continuation_fragment,
                         "preview": " ".join(" | ".join(row[:5]) for row in rows[:6])[:800],
                     },
                 )
             )
+    _propagate_markdown_statement_units(tables)
+    tables.extend(
+        _selected_operations_fallback_tables(
+            text,
+            markdown_path,
+            start_index=start_index + len(tables),
+            seen=seen,
+            seen_starts=seen_starts,
+        )
+    )
+    _propagate_markdown_statement_units(tables)
     return tables
+
+
+def _selected_operations_fallback_tables(
+    text: str,
+    markdown_path: Path,
+    *,
+    start_index: int,
+    seen: set[str],
+    seen_starts: set[int],
+) -> list[ParsedTable]:
+    tables: list[ParsedTable] = []
+    statement_type = StatementType.INCOME_STATEMENT
+    for match in re.finditer(r"<table\b.*?</table>", text, flags=re.I | re.S):
+        table_start = match.start()
+        if table_start in seen_starts:
+            continue
+        rows = _html_table_rows(match.group(0))
+        if not _selected_operations_fallback_rows(rows):
+            continue
+        title = "Selected Consolidated Statements of Operations Data"
+        signature = stable_id(statement_type.value, title, rows[:6])
+        if signature in seen:
+            continue
+        seen.add(signature)
+        seen_starts.add(table_start)
+        table_index = start_index + len(tables) + 1
+        unit = _infer_unit(title, rows)
+        line_number = text.count("\n", 0, table_start) + 1
+        tables.append(
+            ParsedTable(
+                table_id=f"hk_md_table_{table_index:04d}",
+                title=title,
+                rows=rows,
+                page_number=None,
+                table_index=table_index,
+                unit=unit,
+                currency=infer_currency(unit, title, default=None),
+                raw={
+                    "source": "result_markdown_selected_operations_fallback",
+                    "markdown_path": str(markdown_path),
+                    "line": line_number,
+                    "heading": title,
+                    "statement_type": statement_type.value,
+                    "fallback_reason": "formal_income_statement_front_table_missing_or_empty",
+                    "preview": " ".join(" | ".join(row[:5]) for row in rows[:6])[:800],
+                },
+            )
+        )
+    return tables
+
+
+def _selected_operations_fallback_rows(rows: list[list[str]]) -> bool:
+    if not _usable_statement_rows(rows):
+        return False
+    compact = compact_label(" ".join(" ".join(row[:8]) for row in rows[:80]))
+    if any(
+        token in compact
+        for token in (
+            "consolidatedvariableinterestentities",
+            "variableinterestentities",
+            "eliminations",
+            "intersegment",
+            "intersegment",
+            "jdretail",
+            "jdlogistics",
+            "newbusinesses",
+            "relatedparty",
+            "relatedparties",
+        )
+    ):
+        return False
+    has_revenue = any(token in compact for token in ("totalnetrevenues", "netrevenues", "totalrevenues", "revenue"))
+    has_profit_before_tax = any(token in compact for token in ("incomebeforetax", "incomebeforeincometax", "profitbeforetax"))
+    has_net_profit = any(token in compact for token in ("netincome", "netprofit", "profitfortheyear"))
+    has_operating_profit = any(token in compact for token in ("incomefromoperations", "profitfromoperations", "operatingprofit"))
+    return has_revenue and has_net_profit and (has_profit_before_tax or has_operating_profit)
+
+
+def _statement_type_from_primary_body(rows: list[list[str]]) -> StatementType | None:
+    for statement_type in (
+        StatementType.CASH_FLOW_STATEMENT,
+        StatementType.BALANCE_SHEET,
+        StatementType.INCOME_STATEMENT,
+    ):
+        if _is_primary_markdown_statement_body(statement_type, rows):
+            return statement_type
+    return None
+
+
+def _is_markdown_statement_continuation_body(statement_type: StatementType, rows: list[list[str]]) -> bool:
+    if not _usable_statement_rows(rows):
+        return False
+    compact = compact_label(" ".join(" ".join(row[:4]) for row in rows[:80]))
+    if statement_type == StatementType.BALANCE_SHEET:
+        if any(
+            term in compact
+            for term in (
+                "segmentrevenue",
+                "segmentresults",
+                "reportablesegment",
+                "operatingsegment",
+                "geographicalinformation",
+                "investmentinsubsidiaries",
+                "investmentsinsubsidiaries",
+                "percentageofequityinterest",
+            )
+        ):
+            return False
+        return any(
+            term in compact
+            for term in (
+                "totalliabilities",
+                "currentliabilities",
+                "noncurrentliabilities",
+                "shareholdersequity",
+                "shareholdersequity",
+                "totalshareholdersequity",
+                "totaljdcomincshareholdersequity",
+                "totalliabilitiesandshareholdersequity",
+                "totalliabilitiesandshareholdersequity",
+                "totalliabilitiesmezzanineequityandshareholdersequity",
+                "mezzanineequity",
+                "noncontrollinginterests",
+                "負債",
+                "負債總額",
+                "權益",
+                "股東權益",
+            )
+        )
+    if statement_type == StatementType.INCOME_STATEMENT:
+        return any(
+            term in compact
+            for term in (
+                "netrevenues",
+                "revenue",
+                "revenues",
+                "profitbeforetax",
+                "incomebeforetax",
+                "incomebeforeincometax",
+                "netincome",
+                "netprofit",
+                "lossfromoperations",
+                "收益",
+                "收入",
+                "淨利潤",
+            )
+        )
+    if statement_type == StatementType.CASH_FLOW_STATEMENT:
+        return any(
+            term in compact
+            for term in (
+                "cashflowsfromoperatingactivities",
+                "netcashprovidedbyoperatingactivities",
+                "netcashusedininvestingactivities",
+                "netcashusedinfinancingactivities",
+                "cashandcashequivalents",
+                "經營活動",
+                "投資活動",
+                "融資活動",
+            )
+        )
+    return False
+
+
+def _propagate_markdown_statement_units(tables: list[ParsedTable]) -> None:
+    last_unit_by_statement: dict[str, tuple[str | None, str | None]] = {}
+    for table in tables:
+        raw = table.raw if isinstance(table.raw, dict) else {}
+        statement_type = str(raw.get("statement_type") or "")
+        if not statement_type:
+            continue
+        previous_unit, previous_currency = last_unit_by_statement.get(statement_type, (None, None))
+        if table.unit and not _weak_unit(table.unit):
+            last_unit_by_statement[statement_type] = (table.unit, table.currency)
+            continue
+        if previous_unit and (not table.unit or _weak_unit(table.unit)):
+            table.unit = previous_unit
+            table.currency = table.currency or previous_currency or infer_currency(previous_unit, table.title, default=None)
+            continue
+        if table.unit:
+            last_unit_by_statement[statement_type] = (table.unit, table.currency)
+
+
+def _weak_unit(unit: str | None) -> bool:
+    if not unit:
+        return True
+    return infer_scale(unit) == 1
+
+
+def _first_usable_table_after_heading(
+    text: str,
+    start: int,
+    statement_type: StatementType,
+    *,
+    max_distance: int,
+) -> tuple[int, str] | None:
+    search_pos = start
+    while True:
+        table_start = text.find("<table", search_pos)
+        if table_start < 0 or table_start - start > max_distance:
+            return None
+        table_end = text.find("</table>", table_start)
+        if table_end < 0:
+            return None
+        table_html = text[table_start : table_end + len("</table>")]
+        rows = _html_table_rows(table_html)
+        if _usable_statement_rows(rows) and _is_primary_markdown_statement_body(statement_type, rows):
+            return table_start, table_html
+        search_pos = table_end + len("</table>")
 
 
 def _formal_statement_window(text: str) -> tuple[int, int] | None:
@@ -449,23 +672,85 @@ def _formal_statement_window(text: str) -> tuple[int, int] | None:
     if not start_candidates:
         return None
     start = max(start_candidates)
+    earliest_statement_anchor = _first_primary_statement_heading_pos(text, 0)
+    statement_anchor = earliest_statement_anchor or _first_primary_statement_heading_pos(text, start) or start
+    window_start = min(start, statement_anchor)
     end_candidates = []
     for pattern in (
         r"(?im)^#{1,6}\s+notes to the consolidated financial statements",
         r"(?im)^#{1,6}\s+notes to consolidated financial statements",
         r"(?im)^#{1,6}\s+notes to the financial statements",
     ):
-        match = re.search(pattern, text[start:])
+        match = re.search(pattern, text[statement_anchor + 1 :])
         if match:
-            end_candidates.append(start + match.start())
+            end_candidates.append(statement_anchor + 1 + match.start())
     end = min(end_candidates) if end_candidates else len(text)
-    return start, end if end > start else len(text)
+    return window_start, end if end > window_start else len(text)
+
+
+def _first_primary_statement_heading_pos(text: str, start: int) -> int | None:
+    pattern = re.compile(
+        r"(?im)^(?:#{1,6}\s+)?(?:"
+        r"consolidated statement of profit or loss|"
+        r"consolidated statements of profit or loss|"
+        r"consolidated statement of operations|"
+        r"consolidated statements of operations|"
+        r"consolidated statement of income|"
+        r"consolidated statements of income|"
+        r"consolidated income statement|"
+        r"consolidated income statements|"
+        r"consolidated statement of comprehensive income|"
+        r"consolidated statements of comprehensive income|"
+        r"consolidated statement of financial position|"
+        r"consolidated statements of financial position|"
+        r"consolidated balance sheet|"
+        r"consolidated balance sheets|"
+        r"consolidated statement of cash flows|"
+        r"consolidated statements of cash flows|"
+        r"consolidated cash flow statement|"
+        r"consolidated cash flow statements|"
+        r"statement of profit or loss|"
+        r"statements of profit or loss|"
+        r"statement of operations|"
+        r"statements of operations|"
+        r"statement of income|"
+        r"statements of income|"
+        r"statement of financial position|"
+        r"statements of financial position|"
+        r"statement of cash flows|"
+        r"statements of cash flows"
+        r")\b"
+    )
+    for match in pattern.finditer(text[start:]):
+        absolute_start = start + match.start()
+        line_end = text.find("\n", absolute_start)
+        line = text[absolute_start : line_end if line_end >= 0 else absolute_start + 200]
+        if not _is_primary_markdown_statement_heading(line):
+            continue
+        if "...." in line:
+            continue
+        if re.search(r"\b\d{1,4}\s*$", line.strip()):
+            continue
+        next_table = text.find("<table", absolute_start)
+        if next_table >= 0 and next_table - absolute_start <= 4000:
+            return absolute_start
+    return None
 
 
 def _nearest_markdown_heading(text: str, table_start: int) -> str:
     prefix = text[max(0, table_start - 2500) : table_start]
-    matches = list(re.finditer(r"(?im)^#{1,6}\s+([^\n]+)", prefix))
-    return _clean_cell(matches[-1].group(1)) if matches else ""
+    candidates: list[tuple[int, str]] = []
+    for match in re.finditer(r"(?im)^#{1,6}\s+([^\n]+)", prefix):
+        candidates.append((match.start(), match.group(1)))
+    for match in re.finditer(
+        r"(?im)^((?:consolidated\s+)?(?:statement of profit or loss|statements of profit or loss|statement of operations|statements of operations|statement of income|statements of income|income statement|income statements|statement of comprehensive income|statements of comprehensive income|statement of financial position|statements of financial position|balance sheet|balance sheets|statement of cash flows|statements of cash flows|cash flow statement|cash flow statements|cash flows))\b[^\n]*",
+        prefix,
+    ):
+        candidates.append((match.start(), match.group(0)))
+    if not candidates:
+        return ""
+    return _clean_cell(max(candidates, key=lambda item: item[0])[1])
+
 
 
 def _statement_type_title(statement_type: StatementType) -> str:
@@ -481,22 +766,105 @@ def _statement_type_title(statement_type: StatementType) -> str:
 def _is_primary_markdown_statement_body(statement_type: StatementType, rows: list[list[str]]) -> bool:
     compact = compact_label(" ".join(" ".join(row[:4]) for row in rows[:80]))
     if statement_type == StatementType.BALANCE_SHEET:
+        if any(
+            term in compact
+            for term in (
+                "segmentrevenue",
+                "segmentresults",
+                "reportablesegment",
+                "operatingsegment",
+                "geographicalinformation",
+                "additionstononcurrentassets",
+                "additions tononcurrentassets",
+                "externalrevenue",
+                "intersegment",
+                "interestsinjointventures",
+                "investmentsinsubsidiaries",
+                "investmentinsubsidiaries",
+                "percentageofequityinterest",
+                "accumulatedbalancesofnoncontrolling",
+            )
+        ):
+            return False
         return (
             "totalassets" in compact
             or ("noncurrentassets" in compact and "currentassets" in compact)
             or ("totalliabilities" in compact and "totalequity" in compact)
         )
     if statement_type == StatementType.INCOME_STATEMENT:
-        return (
-            any(term in compact for term in ("revenue", "revenues", "turnover", "收益", "收入"))
-            and any(term in compact for term in ("profitbeforetax", "profitbeforeincometax", "除稅前", "除税前"))
-            and any(term in compact for term in ("profitfortheyear", "profitfortheperiod", "年內溢利", "年内溢利", "netincome"))
+        has_revenue = (
+            any(term in compact for term in ("revenue", "revenues", "turnover", "收益", "收入", "營業收入", "营业收入"))
+            or any(
+                term in compact
+                for term in (
+                    "interestincome",
+                    "operatingincome",
+                    "netinterestincome",
+                    "netfeeandcommissionincome",
+                    "insurancerevenue",
+                    "insuranceserviceresult",
+                )
+            )
         )
+        has_profit_before_tax = any(
+            term in compact
+            for term in (
+                "profitbeforetax",
+                "profitbeforeincometax",
+                "profitlossbeforetax",
+                "profitlossbeforeincometax",
+                "incomebeforeincometax",
+                "incomebeforeincometaxes",
+                "incomebeforetax",
+                "lossbeforeincometax",
+                "lossbeforeincometaxes",
+                "totalprofit",
+                "profitfortheyearbeforetax",
+                "除稅前",
+                "除税前",
+                "利潤總額",
+                "利润总额",
+            )
+        )
+        has_net_profit = any(
+            term in compact
+            for term in (
+                "profitfortheyear",
+                "profitfortheperiod",
+                "profitlossfortheyear",
+                "profitlossfortheperiod",
+                "netincome",
+                "netprofit",
+                "netloss",
+                "年內溢利",
+                "年内溢利",
+                "淨利潤",
+                "净利润",
+            )
+        )
+        has_attribution = any(term in compact for term in ("attributableto", "noncontrollinginterests", "母公司", "非控股"))
+        return (has_revenue and has_profit_before_tax) or (has_revenue and has_net_profit) or (has_net_profit and has_attribution)
     if statement_type == StatementType.CASH_FLOW_STATEMENT:
-        return (
-            any(term in compact for term in ("cashflowsfromoperatingactivities", "netcashflowsgeneratedfromoperatingactivities", "cashgeneratedfromoperations", "經營活動", "经营活动"))
-            and any(term in compact for term in ("cashflowsfrominvestingactivities", "investingactivities", "投資活動", "投资活动"))
-            and any(term in compact for term in ("cashflowsfromfinancingactivities", "financingactivities", "融資活動", "融资活动"))
+        section_hits = sum(
+            1
+            for terms in (
+                ("cashflowsfromoperatingactivities", "netcashflowsgeneratedfromoperatingactivities", "cashgeneratedfromoperations", "經營活動", "经营活动"),
+                ("cashflowsfrominvestingactivities", "investingactivities", "投資活動", "投资活动"),
+                ("cashflowsfromfinancingactivities", "financingactivities", "融資活動", "融资活动"),
+            )
+            if any(term in compact for term in terms)
+        )
+        return section_hits >= 1 and any(
+            term in compact
+            for term in (
+                "netcash",
+                "cashandcashequivalents",
+                "cashflows",
+                "現金及現金等價物",
+                "现金及现金等价物",
+                "現金流量",
+                "现金流量",
+            )
         )
     return False
 
@@ -540,9 +908,13 @@ def _is_primary_markdown_statement_heading(heading: str) -> bool:
     return normalized.startswith(
         (
             "consolidatedstatementof",
+            "consolidatedstatementsof",
             "statementof",
+            "statementsof",
             "consolidatedcashflowstatement",
+            "consolidatedcashflowstatements",
             "cashflowstatement",
+            "cashflowstatements",
         )
     )
 

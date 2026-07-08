@@ -79,8 +79,9 @@ def _table_relation_table_id(page_number, bbox, fallback):
 def _normalize_enhanced_table_for_relations(table, fallback_index=0):
     if not isinstance(table, dict):
         return None
-    bbox = _coerce_bbox(table.get("bbox"))
-    if not bbox:
+    raw_bbox = table.get("bbox")
+    bbox = _coerce_bbox(raw_bbox)
+    if raw_bbox and not bbox:
         return None
     page_number = table.get("pdf_page_number") or table.get("page_number")
     try:
@@ -105,10 +106,11 @@ def _normalize_enhanced_table_for_relations(table, fallback_index=0):
         "pdf_page_number": page_number,
         "printed_page_number": table.get("printed_page_number"),
         "bbox": bbox,
+        "line": table.get("line"),
         "title": title,
         "caption": title,
         "html": table.get("table_html") or table.get("html") or "",
-        "markdown": table.get("markdown") or "",
+        "markdown": table.get("markdown") or table.get("table_markdown") or "",
         "text": table.get("preview") or "",
         "quality": {
             "row_count": row_count,
@@ -282,6 +284,23 @@ def build_table_relations_artifact_payload(
     blocks = relation_blocks_from_content_list(content_list)
     payload = build_table_relations(task_id, relation_tables, blocks=blocks, markdown=markdown or "")
     payload = augment_table_relations(payload, relation_tables)
+    physical_table_count = sum(1 for table in relation_tables if _coerce_bbox(table.get("bbox")))
+    markdown_table_count = sum(1 for table in relation_tables if not _coerce_bbox(table.get("bbox")))
+    table_candidates = [
+        {
+            "table_id": table.get("table_id"),
+            "table_index": table.get("table_index"),
+            "page_number": table.get("page_number"),
+            "line": table.get("line"),
+            "source": table.get("source"),
+            "has_bbox": bool(_coerce_bbox(table.get("bbox"))),
+            "row_count": (table.get("quality") or {}).get("row_count"),
+            "column_count": (table.get("quality") or {}).get("column_count"),
+            "title": table.get("title") or "",
+            "text_preview": str(table.get("text") or "")[:220],
+        }
+        for table in relation_tables[:1000]
+    ]
     payload.update(
         {
             "schema_version": "document_table_relations_v1",
@@ -289,7 +308,10 @@ def build_table_relations_artifact_payload(
             "task_id": task_id,
             "filename": task.get("filename"),
             "generated_at": now_iso(),
-            "physical_table_count": len(relation_tables),
+            "candidate_table_count": len(relation_tables),
+            "physical_table_count": physical_table_count,
+            "markdown_table_count": markdown_table_count,
+            "table_candidates": table_candidates,
         }
     )
     return payload

@@ -13,6 +13,7 @@ def test_jp_label_rules_do_not_promote_detail_subtotals_to_statement_totals():
     assert find_jp_label_rule("投資その他の資産合計") is None
     assert find_jp_label_rule("営業収益").canonical_name == "operating_revenue"
     assert find_jp_label_rule("営業外収益") is None
+    assert find_jp_label_rule("営業活動に関するキャッシュ・フロー").canonical_name == "operating_cash_flow_net"
 
 
 def test_jp_statement_detection_distinguishes_summary_and_formal_cash_flow_tables():
@@ -80,6 +81,10 @@ def test_kr_statement_detection_ignores_contents_and_recognizes_cash_flow_ocr():
     assert detect_table_statement_type(contents) is None
     assert detect_table_statement_type(cash_flow) == "cash_flow_statement"
     assert find_kr_label_rule("III. 재무활동으로 대한 현금초를").canonical_name == "financing_cash_flow_net"
+    assert find_kr_label_rule("영업활동순현금흐름").canonical_name == "operating_cash_flow_net"
+    assert find_kr_label_rule("[당기순손익]").canonical_name == "net_profit"
+    assert find_kr_label_rule("자산층계").canonical_name == "total_assets"
+    assert find_kr_label_rule("부채와자본층계").canonical_name == "total_liabilities_and_equity"
 
 
 def test_jp_annual_required_statements_require_formal_statement_sources():
@@ -535,6 +540,96 @@ def test_kr_dart_pdf_tables_are_fallback_for_local_language_rows():
     else:
         assert result.load_plan.promotion_decisions["canonical"].decision in {"review", "block"}
         assert result.load_plan.blocked_reasons
+
+
+def test_kr_restricts_unclassified_note_tables_but_keeps_cash_flow_fragments():
+    artifact = ParsedArtifact(
+        artifact_id="kr-note-sprawl",
+        market=Market.KR,
+        company_id="KR:055550",
+        ticker="055550",
+        company_name="Shinhan Financial Group",
+        report_type="annual",
+        fiscal_year=2025,
+        period_end="2025-12-31",
+        currency="KRW",
+        tables=[
+            ParsedTable(
+                table_id="borrowings-note",
+                table_index=75,
+                page_number=180,
+                unit="KRW million",
+                rows=[
+                    ["구분", "평균잔액", "평균금리", "합계"],
+                    ["차입금", "14,332.7", "2.87", "305.6"],
+                    ["외화차입금", "9,222.8", "1.85", "322.2"],
+                ],
+            ),
+            ParsedTable(
+                table_id="cash-flow-fragment",
+                table_index=147,
+                page_number=137,
+                unit="KRW million",
+                rows=[
+                    ["", "제 25 기", "제 24 기", "제 23 기"],
+                    ["1.영업활동으로 인한 현금흐름", "", "", ""],
+                    ["영업활동순현금흐름", "9,730,881", "4,626,299", "529,846"],
+                    ["가.영업에서 창출된 현금흐름", "(1,684,132)", "(7,858,342)", "(11,078,338)"],
+                ],
+            ),
+        ],
+    )
+
+    result = process_artifact(artifact)
+    facts = [
+        item
+        for statement in result.extraction.statements
+        for item in statement.items
+    ]
+
+    assert any(item.canonical_name == "operating_cash_flow_net" for item in facts)
+    assert not any(item.canonical_name == "borrowings" for item in facts)
+    assert {item.evidence.table_index for item in facts} == {147}
+
+
+def test_kr_recovers_ocr_summary_balance_sheet_totals_without_note_sprawl():
+    artifact = ParsedArtifact(
+        artifact_id="kr-ocr-summary-bs",
+        market=Market.KR,
+        company_id="KR:012450",
+        ticker="012450",
+        company_name="Hanwha Aerospace",
+        report_type="annual",
+        fiscal_year=2025,
+        period_end="2025-12-31",
+        currency="KRW",
+        tables=[
+            ParsedTable(
+                table_id="summary-bs",
+                title="연결재무상태표",
+                table_index=39,
+                rows=[
+                    ["과목", "제 49 기", "제 48 기"],
+                    ["유동자산", "30,705,420", "22,981,710"],
+                    ["비유동자산", "23,248,250", "20,580,224"],
+                    ["자산층계", "53,953,670", "43,561,934"],
+                    ["유동부채", "29,976,397", "25,516,144"],
+                    ["부채계", "37,165,485", "32,069,927"],
+                    ["자본계", "16,788,185", "11,492,007"],
+                    ["부채와자본층계", "53,953,670", "43,561,934"],
+                ],
+            )
+        ],
+    )
+
+    result = process_artifact(artifact)
+    facts = {
+        item.canonical_name
+        for statement in result.extraction.statements
+        for item in statement.items
+    }
+
+    assert {"total_assets", "total_liabilities", "total_equity", "total_liabilities_and_equity"}.issubset(facts)
 
 
 def test_kr_explicit_unknown_accounting_standard_requires_review():

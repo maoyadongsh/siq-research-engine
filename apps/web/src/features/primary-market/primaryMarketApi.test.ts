@@ -76,7 +76,7 @@ test('primary-market meeting chat uses isolated route and project context', asyn
           deal_id: 'DEAL/Alpha 001',
           company_name: 'Alpha Robotics',
           lane: 'main',
-          page: { title: '一级市场多智能体投研会议室' },
+          page: { title: '一级市场多智能体投研决策' },
           agent: {
             id: 'siq_ic_finance_auditor',
             label: '财务审计委员',

@@ -45,6 +45,7 @@ class HybridMarketSpec:
     allow_mixed_statement_summary_tables: bool = False
     inherit_adjacent_header_periods: bool = False
     skip_ratio_rows: bool = False
+    restrict_unclassified_statement_tables: bool = False
 
 
 def extract_hybrid_artifact(artifact: ParsedArtifact, spec: HybridMarketSpec) -> ExtractionResult:
@@ -165,6 +166,14 @@ def _extract_table_facts(
             if not rule:
                 continue
             if spec.skip_ratio_rows and _is_ratio_or_per_share_label(label) and rule.statement_type != StatementType.KEY_METRICS:
+                continue
+            if (
+                spec.restrict_unclassified_statement_tables
+                and detected_statement_type is None
+                and not mixed_statement_summary
+                and rule.statement_type != StatementType.KEY_METRICS
+                and not _is_strong_unclassified_statement_row(table, rule.statement_type, label)
+            ):
                 continue
             if (
                 detected_statement_type
@@ -509,6 +518,27 @@ def _is_mixed_statement_summary_table(table: ParsedTable, find_label_rule: Calla
         if rule and rule.statement_type not in {StatementType.KEY_METRICS, StatementType.OPERATING_METRICS} and not _is_ratio_or_per_share_label(label):
             statement_types.add(rule.statement_type)
     return len(statement_types) >= 2
+
+
+def _is_strong_unclassified_statement_row(table: ParsedTable, statement_type: StatementType, label: str) -> bool:
+    if statement_type == StatementType.KEY_METRICS:
+        return True
+    row_type = detect_table_statement_type(ParsedTable(table_id=table.table_id, rows=table.rows, raw={}))
+    if row_type == statement_type:
+        return True
+    if statement_type != StatementType.CASH_FLOW_STATEMENT:
+        return False
+    compact = re.sub(r"[^0-9a-z\u3040-\u30ff\u4e00-\u9fff\uac00-\ud7af]+", "", str(label or "").lower())
+    return any(
+        token in compact
+        for token in (
+            "영업활동순현금흐름",
+            "영업에서창출된현금흐름",
+            "영업활동으로인한현금흐름",
+            "투자활동으로인한현금흐름",
+            "재무활동으로인한현금흐름",
+        )
+    )
 
 
 def _is_non_primary_statement_table(table: ParsedTable, statement_type: StatementType | None) -> bool:

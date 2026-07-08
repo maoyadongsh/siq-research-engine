@@ -701,6 +701,32 @@ def test_authenticated_pdf_task_from_download_requires_workspace_link(monkeypatc
     assert called == {"post": False}
 
 
+def test_authenticated_pdf_task_from_download_rejects_market_path_mismatch(monkeypatch, tmp_path):
+    downloads_root = tmp_path / "downloads"
+    relative_path = "HK/00005-HSBC/2025/report.pdf"
+    report_path = downloads_root / relative_path
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_bytes(b"%PDF-1.4\nfrom-download")
+
+    async def fail_pdf_tasks_by_filename(**_kwargs):
+        raise AssertionError("mismatched market must fail before parser lookup")
+
+    monkeypatch.setattr(workspace, "DOWNLOADS_ROOT", downloads_root.resolve())
+    monkeypatch.setattr(workspace, "_pdf_tasks_by_filename", fail_pdf_tasks_by_filename)
+
+    async def run_case(async_session):
+        with pytest.raises(HTTPException) as exc:
+            await workspace.authenticated_pdf_task_from_download(
+                {"download_relative_path": relative_path, "filename": "report.pdf", "market": "CN"},
+                current_user=SimpleNamespace(id=99, role="super_admin"),
+                async_session=async_session,
+            )
+        assert exc.value.status_code == 400
+        assert exc.value.detail == "Downloaded PDF belongs to HK, not CN"
+
+    anyio.run(_with_async_session, tmp_path, "workspace-download-reference-market.db", run_case)
+
+
 def test_authenticated_pdf_upload_duplicate_content_ignores_full_quota(monkeypatch, tmp_path):
     file_bytes = b"%PDF-1.4\nexisting"
     file_sha256 = hashlib.sha256(file_bytes).hexdigest()

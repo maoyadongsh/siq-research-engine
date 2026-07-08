@@ -13,6 +13,7 @@ import {
   MessageSquareText,
   RefreshCw,
   Search,
+  TrendingUp,
 } from 'lucide-react'
 
 import { EmptyState, PageHeader, PageSection, PageShell, StatusBadge, Surface } from '@/components/page'
@@ -21,13 +22,11 @@ import { Input } from '@/components/ui/input'
 import type { DealListResponse, DealStatusResponse, DealSummary } from '@/lib/dealTypes'
 import { fetchPrimaryMarketProjects, fetchPrimaryMarketProjectStatus } from '@/features/primary-market/primaryMarketApi'
 import {
-  PRIMARY_MARKET_TABS,
   componentPath,
   deriveProjectMetrics,
   deriveProjectRow,
   formatTime,
   phaseLabel,
-  primaryMarketTabHref,
   statusTone,
   text,
   type PrimaryMarketProjectRow,
@@ -75,26 +74,32 @@ function phaseDistribution(rows: PrimaryMarketProjectRow[]) {
   return [...counts.entries()].sort((a, b) => b[1] - a[1])
 }
 
-function ProjectActions({ deal }: { deal: DealSummary }) {
+function ProjectActions({ deal, className = '' }: { deal: DealSummary; className?: string }) {
   const dealId = deal.deal_id
   return (
-    <div className="flex flex-wrap gap-2">
-      <Button asChild variant="secondary" size="sm">
+    <div className={`grid grid-cols-2 gap-2 sm:flex sm:flex-wrap xl:grid xl:grid-cols-2 ${className}`}>
+      <Button asChild variant="secondary" size="sm" className="justify-start">
         <Link to={projectHref('/primary-market/materials', dealId)}>
           <FolderOpen />
           材料
         </Link>
       </Button>
-      <Button asChild variant="secondary" size="sm">
+      <Button asChild variant="secondary" size="sm" className="justify-start">
         <Link to={projectHref('/primary-market/meeting', dealId)}>
           <MessageSquareText />
-          会议
+          投决
         </Link>
       </Button>
-      <Button asChild variant="outline" size="sm">
+      <Button asChild variant="secondary" size="sm" className="justify-start">
+        <Link to={projectHref('/primary-market/post-investment', dealId)}>
+          <TrendingUp />
+          投后
+        </Link>
+      </Button>
+      <Button asChild variant="outline" size="sm" className="justify-start">
         <Link to={`/deals/${encodeURIComponent(dealId)}`}>
           <ArrowRight />
-          项目包
+          项目详情
         </Link>
       </Button>
     </div>
@@ -176,15 +181,6 @@ export default function PrimaryMarketWorkbench() {
         eyebrow="Primary Market"
         title="一级市场工作平台"
         description="查看一级市场项目池、阻断原因、下一步动作与投委会状态。"
-        meta={PRIMARY_MARKET_TABS.map((tab) => (
-          <Link
-            key={tab.id}
-            to={primaryMarketTabHref(tab)}
-            className={`secondary-status ${tab.id === 'workbench' ? 'secondary-status-info' : ''}`}
-          >
-            {tab.label}
-          </Link>
-        ))}
         actions={
           <Button type="button" variant="secondary" onClick={refresh} disabled={loading || refreshing}>
             {loading || refreshing ? <Loader2 className="animate-spin" /> : <RefreshCw />}
@@ -250,64 +246,61 @@ export default function PrimaryMarketWorkbench() {
               ) : rows.length === 0 ? (
                 <EmptyState icon={BriefcaseBusiness} title="暂无一级市场项目" description="当前 Deal OS 中没有可展示的 deal package。" />
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[980px] border-separate border-spacing-0 text-left text-sm">
-                    <thead>
-                      <tr className="text-xs uppercase tracking-wide text-text-muted">
-                        <th className="border-b border-border/70 px-3 py-3 font-semibold">项目</th>
-                        <th className="border-b border-border/70 px-3 py-3 font-semibold">阶段</th>
-                        <th className="border-b border-border/70 px-3 py-3 font-semibold">状态</th>
-                        <th className="border-b border-border/70 px-3 py-3 font-semibold">下一步</th>
-                        <th className="border-b border-border/70 px-3 py-3 font-semibold">阻断</th>
-                        <th className="border-b border-border/70 px-3 py-3 font-semibold">更新</th>
-                        <th className="border-b border-border/70 px-3 py-3 font-semibold">操作</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map((row) => (
-                        <tr key={row.deal.deal_id} className="align-top transition-colors hover:bg-muted/20">
-                          <td className="border-b border-border/50 px-3 py-3">
-                            <p className="font-semibold text-text">{row.deal.company_name || row.deal.deal_id}</p>
-                            <p className="mt-1 break-all font-mono text-xs text-text-muted">{row.deal.deal_id}</p>
-                            <p className="mt-1 text-xs text-text-muted">
-                              {[row.deal.industry, row.deal.stage].filter(Boolean).join(' · ') || '未设置'}
-                            </p>
-                          </td>
-                          <td className="border-b border-border/50 px-3 py-3">
-                            <StatusBadge tone={row.phase === 'R4' ? 'success' : 'info'}>{phaseLabel(row.phase)}</StatusBadge>
-                            {row.deal.final_decision ? (
-                              <p className="mt-2 text-xs text-text-muted">
-                                {row.deal.final_decision}{typeof row.deal.final_score === 'number' ? ` · ${row.deal.final_score}` : ''}
+                <div className="grid gap-3">
+                  {rows.map((row) => (
+                    <Surface key={row.deal.deal_id} kind="row" padding="md" className="overflow-hidden">
+                      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                        <div className="min-w-0 flex-1 space-y-4">
+                          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                            <div className="min-w-0">
+                              <p className="text-base font-semibold leading-6 text-text">{row.deal.company_name || row.deal.deal_id}</p>
+                              <p className="mt-1 break-all font-mono text-xs leading-5 text-text-muted">{row.deal.deal_id}</p>
+                              <p className="mt-1 text-sm text-text-muted">
+                                {[row.deal.industry, row.deal.stage].filter(Boolean).join(' · ') || '未设置'}
                               </p>
-                            ) : null}
-                          </td>
-                          <td className="border-b border-border/50 px-3 py-3">
-                            <div className="flex flex-wrap gap-2">
+                            </div>
+                            <div className="flex shrink-0 flex-wrap gap-2 lg:justify-end">
+                              <StatusBadge tone={row.phase === 'R4' ? 'success' : 'info'}>{phaseLabel(row.phase)}</StatusBadge>
                               <StatusBadge tone={row.statusTone}>{row.statusLabel}</StatusBadge>
                               <StatusBadge tone={row.ready ? 'success' : 'warning'}>{row.ready ? 'ready' : 'waiting'}</StatusBadge>
                             </div>
-                            {statusErrors[row.deal.deal_id] ? (
-                              <p className="mt-2 text-xs text-warning">{statusErrors[row.deal.deal_id]}</p>
-                            ) : null}
-                          </td>
-                          <td className="border-b border-border/50 px-3 py-3">
-                            <p className="max-w-64 break-words text-sm text-text">{row.nextAction}</p>
-                          </td>
-                          <td className="border-b border-border/50 px-3 py-3">
-                            <p className="font-semibold text-text">{row.blockingCount}</p>
-                            <p className="mt-1 text-xs text-text-muted">warn {row.warningCount} · missing {row.missingCount}</p>
-                            {row.blockingMessages[0] ? (
-                              <p className="mt-2 max-w-56 break-words text-xs text-warning">{row.blockingMessages[0]}</p>
-                            ) : null}
-                          </td>
-                          <td className="border-b border-border/50 px-3 py-3 text-text-muted">{formatTime(row.deal.updated_at)}</td>
-                          <td className="border-b border-border/50 px-3 py-3">
-                            <ProjectActions deal={row.deal} />
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                          </div>
+
+                          <div className="grid gap-3 md:grid-cols-[minmax(0,1.1fr)_minmax(220px,0.9fr)_minmax(150px,0.55fr)]">
+                            <div className="rounded-lg bg-muted/35 px-3 py-2.5">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">下一步</p>
+                              <p className="mt-1 break-words text-sm leading-6 text-text">{row.nextAction}</p>
+                            </div>
+                            <div className="rounded-lg bg-muted/35 px-3 py-2.5">
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">门禁</p>
+                                  <p className="mt-1 text-sm font-semibold text-text">阻断 {row.blockingCount}</p>
+                                </div>
+                                <p className="shrink-0 text-xs leading-5 text-text-muted">warn {row.warningCount} · missing {row.missingCount}</p>
+                              </div>
+                              {row.blockingMessages[0] ? (
+                                <p className="mt-2 break-words text-xs leading-5 text-warning">{row.blockingMessages[0]}</p>
+                              ) : null}
+                            </div>
+                            <div className="rounded-lg bg-muted/35 px-3 py-2.5">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">更新</p>
+                              <p className="mt-1 text-sm leading-6 text-text-muted">{formatTime(row.deal.updated_at)}</p>
+                              {row.deal.final_decision ? (
+                                <p className="mt-1 text-xs leading-5 text-text-muted">
+                                  {row.deal.final_decision}{typeof row.deal.final_score === 'number' ? ` · ${row.deal.final_score}` : ''}
+                                </p>
+                              ) : null}
+                            </div>
+                          </div>
+                          {statusErrors[row.deal.deal_id] ? (
+                            <p className="rounded-lg bg-warning/10 px-3 py-2 text-xs leading-5 text-warning">{statusErrors[row.deal.deal_id]}</p>
+                          ) : null}
+                        </div>
+                        <ProjectActions deal={row.deal} className="xl:w-[240px]" />
+                      </div>
+                    </Surface>
+                  ))}
                 </div>
               )}
             </PageSection>
@@ -385,7 +378,13 @@ export default function PrimaryMarketWorkbench() {
                   <Button asChild variant="secondary" className="justify-start">
                     <Link to="/primary-market/meeting">
                       <MessageSquareText />
-                      打开投研会议室
+                      打开投研决策
+                    </Link>
+                  </Button>
+                  <Button asChild variant="secondary" className="justify-start">
+                    <Link to="/primary-market/post-investment">
+                      <TrendingUp />
+                      打开投后管理
                     </Link>
                   </Button>
                 </div>

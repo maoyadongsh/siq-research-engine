@@ -7,7 +7,7 @@ import re
 from typing import Any
 
 
-TABLE_RELATION_RULESET_VERSION = "table_merge_ruleset_2026_06_29_01"
+TABLE_RELATION_RULESET_VERSION = "table_merge_ruleset_2026_07_08_01"
 
 
 def single_fragment_logical_table(task_id: str, table: dict[str, Any], index: int) -> dict[str, Any]:

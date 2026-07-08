@@ -560,7 +560,7 @@ function primaryMarketMeetingChatPayload(request: PrimaryMarketMeetingChatReques
       deal_id: dealId,
       company_name: request.companyName || dealId,
       lane,
-      page: { title: '一级市场多智能体投研会议室' },
+      page: { title: '一级市场多智能体投研决策' },
       agent: {
         id: request.agentId,
         label: request.agentLabel,

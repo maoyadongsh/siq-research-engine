@@ -50,15 +50,24 @@ HK_LABEL_RULES: tuple[MetricRule, ...] = (
             "profit before taxation",
             "profit before income tax",
             "profit before income taxes",
+            "profit/(loss) before tax",
+            "profit/(loss) before income tax",
+            "profit (loss) before tax",
+            "profit (loss) before income tax",
+            "total profit",
             "income before income tax",
             "income before income taxes",
             "loss before tax",
+            "loss before income tax",
+            "loss before income taxes",
             "除税前利润",
             "除稅前利潤",
             "除所得税前溢利",
             "除所得稅前溢利",
             "税前利润",
             "稅前利潤",
+            "利润总额",
+            "利潤總額",
         ),
         5,
     ),
@@ -200,6 +209,20 @@ HK_LABEL_RULES: tuple[MetricRule, ...] = (
         5,
     ),
     MetricRule(
+        "redeemable_noncontrolling_interest",
+        StatementType.BALANCE_SHEET,
+        (
+            "redeemable non-controlling interests",
+            "redeemable noncontrolling interests",
+            "redeemable non-controlling interest",
+            "redeemable noncontrolling interest",
+            "mezzanine equity",
+            "可赎回非控股权益",
+            "可贖回非控股權益",
+        ),
+        1,
+    ),
+    MetricRule(
         "total_equity",
         StatementType.BALANCE_SHEET,
         (
@@ -229,11 +252,19 @@ HK_LABEL_RULES: tuple[MetricRule, ...] = (
             "total liabilities and equity",
             "total liabilities and shareholders' equity",
             "total liabilities and shareholders’ equity",
+            "total liabilities, redeemable noncontrolling interests and equity",
+            "total liabilities, redeemable noncontrolling interests and shareholders' equity",
+            "total liabilities, redeemable noncontrolling interests and shareholders’ equity",
+            "total liabilities, redeemable non-controlling interests and equity",
+            "total liabilities, redeemable non-controlling interests and shareholders' equity",
+            "total liabilities, redeemable non-controlling interests and shareholders’ equity",
+            "total liabilities, mezzanine equity and equity",
             "total liabilities, mezzanine equity and shareholders' equity",
             "total liabilities, mezzanine equity and shareholders’ equity",
             "负债及权益总额",
             "負債及權益總額",
         ),
+        1,
     ),
     MetricRule(
         "cash_and_cash_equivalents",
@@ -339,6 +370,9 @@ HK_LABEL_RULES: tuple[MetricRule, ...] = (
             "net cash outflow from investing activities",
             "net cash flows used in investing activities",
             "net cash generated from investing activities",
+            "net cash flows generated from/(used in) investing activities",
+            "net cash flows generated from/used in investing activities",
+            "net cash flows used in/generated from investing activities",
             "net cash from investing activities",
             "net cash from investing activities",
             "net cash flows from investing activities",
@@ -355,6 +389,9 @@ HK_LABEL_RULES: tuple[MetricRule, ...] = (
             "net cash outflow from financing activities",
             "net cash flows used in financing activities",
             "net cash generated from financing activities",
+            "net cash flows generated from/(used in) financing activities",
+            "net cash flows generated from/used in financing activities",
+            "net cash flows used in/generated from financing activities",
             "net cash from financing activities",
             "net cash from financing activities",
             "net cash flows from financing activities",
@@ -378,7 +415,20 @@ HK_LABEL_RULES: tuple[MetricRule, ...] = (
     MetricRule(
         "fx_effect_cash",
         StatementType.CASH_FLOW_STATEMENT,
-        ("effect of foreign exchange rate changes", "effect of exchange rate changes", "汇率变动影响", "匯率變動影響"),
+        (
+            "effect of foreign exchange rate changes",
+            "effect of exchange rate changes",
+            "effect of exchange rate changes on cash and cash equivalents",
+            "exchange losses/gains on cash and cash equivalents",
+            "exchange (losses)/gains on cash and cash equivalents",
+            "exchange gains/losses on cash and cash equivalents",
+            "exchange (gains)/losses on cash and cash equivalents",
+            "foreign exchange effect on cash and cash equivalents",
+            "汇率变动影响",
+            "匯率變動影響",
+            "匯率變動對現金及現金等價物的影響",
+            "汇率变动对现金及现金等价物的影响",
+        ),
     ),
     MetricRule(
         "cash_equivalents_beginning",
@@ -512,6 +562,14 @@ def _rule_allowed(rule: MetricRule, normalized: str) -> bool:
     if rule.canonical_name in {"total_assets", "total_liabilities"}:
         if any(token in normalized for token in ("average", "averagetotal", "ratio", "percentage", "turnover", "周轉", "周转", "比率")):
             return False
+        if any(token in normalized for token in ("heldforsale", "classifiedasheldforsale", "directlyassociatedwithassets")):
+            return False
+        if "totalassetslesscurrentliabilities" in normalized:
+            return False
+    if rule.canonical_name == "current_liabilities" and "totalassetslesscurrentliabilities" in normalized:
+        return False
+    if rule.canonical_name == "nci_equity" and any(token in normalized for token in ("redeemable", "mezzanine", "可赎回", "可贖回")):
+        return False
     if rule.canonical_name == "total_equity" and any(token in normalized for token in ("netassets", "資產淨值", "资产净值")):
         return normalized in {"netassets", "totalnetassets", "資產淨值", "资产净值"}
     if rule.canonical_name == "total_equity":

@@ -37,6 +37,7 @@ def test_relation_tables_from_artifacts_merges_enhanced_and_content_list_tables(
             "pdf_page_number": 2,
             "printed_page_number": "1",
             "bbox": [1.0, 2.0, 3.0, 4.0],
+            "line": None,
             "title": "营业收入",
             "caption": "营业收入",
             "html": "<table><tr><td>营业收入</td></tr></table>",
@@ -89,6 +90,33 @@ def test_relation_tables_from_artifacts_backfills_missing_enhanced_table_body_fr
     assert relation_table["source"] == "markdown_marker_inferred"
 
 
+def test_relation_tables_from_artifacts_keeps_markdown_tables_without_bbox():
+    enhanced = {
+        "tables": [
+            {
+                "table_index": 3,
+                "line": 88,
+                "pdf_page_number": 12,
+                "preview": "Revenue Profit",
+                "rows": 4,
+                "cells": 12,
+                "source": "markdown_marker_inferred",
+                "structure": {"expanded_rows": 4, "expanded_columns": 3},
+            }
+        ]
+    }
+
+    relation_tables = document_full.relation_tables_from_artifacts(enhanced, [])
+
+    assert len(relation_tables) == 1
+    assert relation_tables[0]["table_id"] == "pt-000003"
+    assert relation_tables[0]["page_number"] == 12
+    assert relation_tables[0]["line"] == 88
+    assert relation_tables[0]["bbox"] == []
+    assert relation_tables[0]["source"] == "markdown_marker_inferred"
+    assert relation_tables[0]["quality"] == {"row_count": 4, "column_count": 3}
+
+
 def test_relation_blocks_and_payload_helpers_normalize_table_relations():
     content_list = [
         {"type": "text", "page_idx": 0, "text": "标题"},
@@ -125,7 +153,10 @@ def test_relation_blocks_and_payload_helpers_normalize_table_relations():
     assert payload["ruleset_version"] == "v1"
     assert payload["task_id"] == "doc-full"
     assert payload["generated_at"] == "2026-06-30T00:00:00+00:00"
+    assert payload["candidate_table_count"] == 1
     assert payload["physical_table_count"] == 1
+    assert payload["markdown_table_count"] == 0
+    assert payload["table_candidates"][0]["has_bbox"] is True
     assert payload["relations"][0]["from_table_index"] is None
 
 

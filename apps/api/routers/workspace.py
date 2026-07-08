@@ -151,6 +151,11 @@ def _normalize_parse_market(value: object) -> str:
     return market if market in SUPPORTED_PARSE_MARKETS else ""
 
 
+def _market_from_download_relative_path(relative_path: str) -> str:
+    first = str(relative_path or "").replace("\\", "/").split("/", 1)[0].strip().upper()
+    return first if first in SUPPORTED_PARSE_MARKETS else ""
+
+
 def _market_from_parse_filename(filename: str) -> str:
     text = str(filename or "").upper()
     for market in ("CN", "HK", "US", "EU", "KR", "JP"):
@@ -1171,18 +1176,24 @@ async def authenticated_pdf_task_from_download(
     if not _is_admin(current_user) and not await _user_has_download_artifact_async(async_session, int(current_user.id), rel_text):
         raise HTTPException(status_code=403, detail="Downloaded PDF is not linked to current workspace")
 
+    path_market = _market_from_download_relative_path(rel_text)
     backend = _form_text(payload.get("backend"), "hybrid-http-client")
     parse_method = _form_text(payload.get("parse_method"), "auto")
-    market = _form_text(payload.get("market"), "CN")
+    market = _form_text(payload.get("market"), "")
     start_page_id = _form_text(payload.get("start_page_id"), "")
     end_page_id = _form_text(payload.get("end_page_id"), "")
     formula_enable = _form_text(payload.get("formula_enable"), "true")
     table_enable = _form_text(payload.get("table_enable"), "true")
-    requested_market = _normalize_parse_market(market)
+    explicit_market = _normalize_parse_market(market)
+    if market and not explicit_market:
+        raise HTTPException(status_code=400, detail="Unsupported market")
+    if path_market and explicit_market and path_market != explicit_market:
+        raise HTTPException(status_code=400, detail=f"Downloaded PDF belongs to {path_market}, not {explicit_market}")
+    requested_market = explicit_market or path_market or "CN"
     form = {
         "backend": backend,
         "parse_method": parse_method,
-        "market": requested_market or market,
+        "market": requested_market,
         "start_page_id": start_page_id,
         "end_page_id": end_page_id,
         "formula_enable": formula_enable,

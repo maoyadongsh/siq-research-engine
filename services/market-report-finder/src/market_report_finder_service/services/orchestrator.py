@@ -242,6 +242,7 @@ class ReportFinderOrchestrator:
         succeeded = 0
         for candidate in selected:
             try:
+                self._validate_selected_candidate_market(resolved.market, candidate)
                 downloaded = self.downloader.download(candidate)
                 succeeded += 1
                 files.append(self._download_result(candidate, downloaded))
@@ -262,7 +263,17 @@ class ReportFinderOrchestrator:
         )
 
     def download_direct(self, request: DirectReportDownloadRequest) -> DirectReportDownloadResponse:
-        finder = self._market(request.market)
+        if request.market is not None:
+            try:
+                self._validate_requested_url_market(request.market, request.document_url)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+        effective_market = request.market or self._infer_market_from_url_or_identifier(
+            document_url=request.document_url,
+            ticker=request.ticker,
+            company_id=request.company_id,
+        )
+        finder = self._market(effective_market)
         try:
             candidate = finder.mark_user_url_candidate(
                 finder.direct_candidate(request),
@@ -273,7 +284,7 @@ class ReportFinderOrchestrator:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         downloaded = self.downloader.download(candidate)
         return DirectReportDownloadResponse(
-            market=request.market,
+            market=effective_market,
             company_name=request.company_name,
             ticker=request.ticker,
             company_id=candidate.company_id,
@@ -294,6 +305,9 @@ class ReportFinderOrchestrator:
         for item in items:
             company_name = item.company_name or default_company_name
             try:
+                requested_market = item.market or market
+                if requested_market is not None:
+                    self._validate_requested_url_market(requested_market, item.document_url)
                 effective_market = item.market or market or self._infer_market_from_url_or_identifier(
                     document_url=item.document_url,
                     ticker=item.ticker,
@@ -352,6 +366,11 @@ class ReportFinderOrchestrator:
             title=title,
             ticker=ticker,
         )
+        if market is not None:
+            try:
+                self._validate_requested_url_market(market, document_url)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
         effective_market = market or self._infer_market_from_url_or_identifier(
             document_url=document_url,
             ticker=ticker,
@@ -517,6 +536,31 @@ class ReportFinderOrchestrator:
             if market_owns_url(candidate_market, document_url):
                 return candidate_market
         return ReportFinderOrchestrator._infer_market(market=None, ticker=ticker, company_id=company_id, cik=None)
+
+    @staticmethod
+    def _markets_for_owned_url(document_url: str) -> set[Market]:
+        try:
+            validate_http_url(document_url)
+        except ValueError:
+            return set()
+        return {
+            candidate_market
+            for candidate_market in (Market.cn, Market.hk, Market.us, Market.eu, Market.kr, Market.jp)
+            if market_owns_url(candidate_market, document_url)
+        }
+
+    @classmethod
+    def _validate_requested_url_market(cls, requested_market: Market, document_url: str) -> None:
+        owned_markets = cls._markets_for_owned_url(document_url)
+        if owned_markets and requested_market not in owned_markets:
+            owners = "/".join(sorted(market.value for market in owned_markets))
+            raise ValueError(f"URL belongs to {owners}, not {requested_market.value}")
+
+    @classmethod
+    def _validate_selected_candidate_market(cls, requested_market: Market, candidate: FilingCandidate) -> None:
+        if candidate.market != requested_market:
+            raise ValueError(f"Selected report belongs to {candidate.market.value}, not {requested_market.value}")
+        cls._validate_requested_url_market(candidate.market, candidate.document_url)
 
     @staticmethod
     def _download_result(candidate: FilingCandidate, downloaded: DownloadedReportFile) -> SelectiveDownloadResultItem:

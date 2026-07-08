@@ -99,7 +99,7 @@ export default function DealAudit() {
   const summary = auditData?.summary
   const manifestSummary = manifestData?.summary
   const manifestCounts = manifestSummary?.counts
-  const openClaw = manifestSummary?.openclaw_import
+  const legacyImport = manifestSummary?.openclaw_import
   const archiveManifest = manifestSummary?.archive_manifest
   const manifestFiles = Array.isArray(manifestSummary?.files) ? manifestSummary.files : []
   const shownManifestFiles = manifestFiles.slice(0, 8)
@@ -126,9 +126,9 @@ export default function DealAudit() {
       ) : (
         <>
           <PageSection
-            title="Import / Manifest Summary"
+            title="归档摘要"
             description={
-              manifestSummary ? `Generated: ${text(manifestSummary.generated_at)}` : '导入 manifest 摘要用于核对 OpenClaw 导入和文件哈希。'
+              manifestSummary ? `Generated: ${text(manifestSummary.generated_at)}` : '归档摘要用于核对历史来源、文件清单和文件哈希。'
             }
             actions={
               manifestSummary ? <StatusBadge tone={statusTone(manifestSummary.status)}>{text(manifestSummary.status)}</StatusBadge> : null
@@ -140,15 +140,15 @@ export default function DealAudit() {
               <div className="space-y-3">
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                   <Surface kind="muted" padding="sm">
-                    <p className="text-xs text-text-muted">OpenClaw Present</p>
-                    <p className="mt-1 text-2xl font-semibold text-text">{booleanText(openClaw?.present)}</p>
+                    <p className="text-xs text-text-muted">历史来源</p>
+                    <p className="mt-1 text-2xl font-semibold text-text">{booleanText(legacyImport?.present)}</p>
                     <p className="mt-1 break-all text-xs text-text-muted">
-                      legacy {text(openClaw?.legacy_project_id)} · metadata {booleanText(openClaw?.metadata_present)}
+                      legacy {text(legacyImport?.legacy_project_id)} · metadata {booleanText(legacyImport?.metadata_present)}
                     </p>
                   </Surface>
                   <Surface kind="muted" padding="sm">
-                    <p className="text-xs text-text-muted">Imported Files</p>
-                    <p className="mt-1 text-2xl font-semibold text-text">{manifestCounts?.imported_files ?? openClaw?.file_count ?? 0}</p>
+                    <p className="text-xs text-text-muted">归档文件</p>
+                    <p className="mt-1 text-2xl font-semibold text-text">{manifestCounts?.imported_files ?? legacyImport?.file_count ?? 0}</p>
                     <p className="mt-1 text-xs text-text-muted">
                       missing {manifestCounts?.missing_files ?? 0} · rejected {manifestCounts?.rejected_files ?? 0}
                     </p>
@@ -223,7 +223,7 @@ export default function DealAudit() {
                 </Surface>
               </div>
             ) : (
-              <EmptyState title="暂无 manifest summary" description="后端尚未返回导入 manifest 摘要。" size="sm" />
+              <EmptyState title="暂无 manifest summary" description="后端尚未返回归档摘要。" size="sm" />
             )}
           </PageSection>
 

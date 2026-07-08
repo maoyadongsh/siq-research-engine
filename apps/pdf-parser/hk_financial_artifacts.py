@@ -92,6 +92,10 @@ def _build_artifact(
     metadata["fiscal_year"] = _year(metadata.get("period_end")) or metadata.get("fiscal_year")
     metadata["report_type"] = metadata.get("report_type") or "annual"
     metadata["form"] = metadata.get("form") or metadata["report_type"]
+    content_report_type = _hk_report_type_from_content(document_full, markdown=_read_markdown(result_dir))
+    if content_report_type:
+        metadata["report_type"] = content_report_type
+        metadata["form"] = content_report_type
     metadata["industry_profile"] = _industry_from_identity(metadata.get("ticker"), metadata.get("company_name"), metadata.get("industry_profile"))
     metadata["accounting_standard"] = metadata.get("accounting_standard") or "HKFRS"
     tables = parsed_tables_from_document_full(document_full, enhanced)
@@ -169,11 +173,52 @@ def _industry_from_identity(ticker: Any, company_name: Any, fallback: Any) -> st
 
 
 def _report_kind(report_type: str | None) -> str:
+    if report_type in {"supplemental_announcement", "corporate_communication_notice", "overseas_regulatory_announcement"}:
+        return report_type
     if report_type == "semiannual":
         return "interim_report"
     if report_type == "quarterly":
         return "quarterly_report"
     return "annual_report"
+
+
+def _hk_report_type_from_content(document_full: dict[str, Any], markdown: str | None = None) -> str | None:
+    markdown_payload = document_full.get("markdown") if isinstance(document_full.get("markdown"), dict) else {}
+    text = str(markdown or markdown_payload.get("content") or "")[:12000]
+    normalized = re.sub(r"\s+", " ", text).lower()
+    compact = re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "", normalized)
+    if not normalized:
+        return None
+    if "supplemental announcement to the annual report" in normalized or "supplemental announcement" in normalized:
+        return "supplemental_announcement"
+    if "overseas regulatory announcement" in normalized:
+        return "overseas_regulatory_announcement"
+    if (
+        "notice of publication of annual report" in normalized
+        or "notice of publication of annual report" in compact
+        or "current corporate communication" in normalized
+        or "current corporate communications" in normalized
+        or "corporate communications" in normalized and "annual report" in normalized and "available on" in normalized
+        or "electronic dissemination of corporate communications" in normalized
+    ):
+        return "corporate_communication_notice"
+    if (
+        "dear non-registered shareholder" in normalized
+        and "annual report" in normalized
+        and ("available on" in normalized or "published in english and chinese" in normalized)
+    ):
+        return "corporate_communication_notice"
+    if "致非登記股東" in text and ("年報" in text or "年度報告" in text) and ("網站" in text or "登載" in text):
+        return "corporate_communication_notice"
+    return None
+
+
+def _read_markdown(result_dir: Path) -> str:
+    for name in ("result.md", "result_complete.md"):
+        path = result_dir / name
+        if path.exists():
+            return path.read_text(encoding="utf-8", errors="ignore")
+    return ""
 
 
 def _financial_summary(data: dict[str, Any]) -> dict[str, Any]:

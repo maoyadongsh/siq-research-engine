@@ -8,6 +8,7 @@ from collections import Counter
 import hashlib
 import io
 import os
+from pathlib import Path
 import re
 import shutil
 import socket
@@ -65,6 +66,7 @@ import pdf_parser_document_full_service as document_full_service
 import pdf_parser_financial_service as financial_service
 import pdf_parser_mineru_result_service as mineru_result_service
 import pdf_parser_quality_service as quality_service
+import pdf_parser_result_manifest_service as result_manifest_service
 import pdf_parser_response_service as response_service
 import pdf_parser_source_service as source_service
 import pdf_parser_task_lifecycle_service as task_lifecycle_service
@@ -470,6 +472,33 @@ def _resolve_reference_pdf_path(raw_path):
     return source_path
 
 
+def _market_from_reference_relative_path(value):
+    first = str(value or "").replace("\\", "/").split("/", 1)[0].strip().upper()
+    return first if first in {"CN", "HK", "US", "EU", "KR", "JP"} else ""
+
+
+def _reference_relative_path(source_path):
+    source = os.path.abspath(os.path.expanduser(str(source_path or "")))
+    for root in _reference_root_candidates():
+        if _path_is_under(source, root):
+            return os.path.relpath(source, root).replace(os.sep, "/")
+    return ""
+
+
+def _reference_market(source_path, payload):
+    actual_market = _market_from_reference_relative_path(_reference_relative_path(source_path))
+    if actual_market:
+        return actual_market
+    return _market_from_reference_relative_path(payload.get("download_relative_path"))
+
+
+def _validate_reference_market(source_path, payload, submit_config):
+    path_market = _reference_market(source_path, payload)
+    requested_market = str(submit_config.get("market") or "").strip().upper()
+    if path_market and requested_market and path_market != requested_market:
+        raise ValueError(f"引用文件属于 {path_market}，不能按 {requested_market} 解析")
+
+
 def _copy_reference_to_upload(source_path, upload_path):
     os.makedirs(os.path.dirname(upload_path), exist_ok=True)
     try:
@@ -856,6 +885,14 @@ def _read_and_refresh_markdown(task):
         markdown,
         markdown_path,
         content_list=_load_json_artifact(task, "content_list.json"),
+    )
+
+
+def _write_result_contract_artifacts(task):
+    return result_manifest_service.write_result_contract(
+        task,
+        Path(_result_dir(task)),
+        repo_root=Path(BASE_DIR).resolve().parents[1],
     )
 
 
@@ -1527,10 +1564,17 @@ def _write_table_relations_artifact(task, markdown, enhanced=None, content_list=
 def _ensure_table_relations_artifact(task, markdown, enhanced=None, content_list=None):
     path = _table_relations_path(task)
     existing = _load_json_artifact(task, "table_relations.json") if os.path.exists(path) else None
+    enhanced_table_count = 0
+    if isinstance(enhanced, dict):
+        enhanced_table_count = int(enhanced.get("table_count") or len(enhanced.get("tables") or []) or 0)
+    existing_candidate_count = 0
+    if isinstance(existing, dict):
+        existing_candidate_count = int(existing.get("candidate_table_count") or existing.get("physical_table_count") or 0)
     if (
         isinstance(existing, dict)
         and existing.get("schema_version") == "document_table_relations_v1"
         and existing.get("ruleset_version") == TABLE_RELATION_RULESET_VERSION
+        and (enhanced_table_count <= 0 or existing_candidate_count > 0)
     ):
         return existing
     return _write_table_relations_artifact(task, markdown, enhanced=enhanced, content_list=content_list)
@@ -1638,8 +1682,12 @@ def _block_page_number(block):
     return int(page_idx) + 1 if isinstance(page_idx, int) else None
 
 
-def _build_enhanced_page_blocks(content_list):
-    return content_list_enhanced_service.build_enhanced_page_blocks(content_list)
+def _build_enhanced_page_blocks(content_list, *, markdown=None, tables=None):
+    return content_list_enhanced_service.build_enhanced_page_blocks(
+        content_list,
+        markdown=markdown,
+        tables=tables,
+    )
 
 
 def _markdown_image_details(markdown):
@@ -2793,13 +2841,13 @@ def _ensure_content_list_enhanced_artifact(task, markdown):
     result_dir = _result_dir(task)
     path = os.path.join(result_dir, "content_list_enhanced.json")
     enhanced = _load_json_artifact(task, "content_list_enhanced.json")
-    if isinstance(enhanced, dict) and int(enhanced.get("schema_version") or 0) >= CONTENT_LIST_ENHANCED_SCHEMA_VERSION:
+    if _content_list_enhanced_artifact_current(enhanced, markdown):
         return enhanced
 
     previous_version = int(enhanced.get("schema_version") or 0) if isinstance(enhanced, dict) else 0
     document_full = _load_json_artifact(task, "document_full.json")
     document_enhanced = (document_full or {}).get("content_list_enhanced") if isinstance(document_full, dict) else None
-    if isinstance(document_enhanced, dict) and int(document_enhanced.get("schema_version") or 0) >= CONTENT_LIST_ENHANCED_SCHEMA_VERSION:
+    if _content_list_enhanced_artifact_current(document_enhanced, markdown):
         enhanced = document_enhanced
     else:
         content_list = _load_json_artifact(task, "content_list.json")
@@ -2853,6 +2901,19 @@ def _ensure_content_list_enhanced_artifact(task, markdown):
             financial_checks=financial_checks,
         )
     return enhanced
+
+
+def _content_list_enhanced_artifact_current(enhanced, markdown=None):
+    if not isinstance(enhanced, dict):
+        return False
+    if int(enhanced.get("schema_version") or 0) < CONTENT_LIST_ENHANCED_SCHEMA_VERSION:
+        return False
+    table_count = int(enhanced.get("table_count") or len(enhanced.get("tables") or []) or 0)
+    page_count = len(enhanced.get("pages") or [])
+    if page_count > 0:
+        return True
+    markdown_has_pages = bool(_pdf_page_markers_by_line(markdown or "")) if markdown else False
+    return table_count <= 0 and not markdown_has_pages
 
 
 def _ensure_document_full_artifact(task, markdown, report=None):
@@ -3279,6 +3340,7 @@ def _write_quality_artifacts(task, markdown, file_name=None, content_list=None, 
         financial_checks=financial_checks,
         table_relations=table_relations,
     )
+    _write_result_contract_artifacts(task)
     return report
 
 
@@ -3844,6 +3906,7 @@ def upload_from_download_reference():
     try:
         source_path = _resolve_reference_pdf_path(payload.get("source_path"))
         submit_config = _parse_submit_config(payload)
+        _validate_reference_market(source_path, payload, submit_config)
         owner_scope = _current_owner_scope(default_market=submit_config.get("market"))
         parse_config_hash = _parse_config_hash(submit_config)
         requested_task_id = _safe_task_id(payload.get("task_id") or payload.get("taskId"))

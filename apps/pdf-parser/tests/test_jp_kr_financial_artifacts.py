@@ -125,26 +125,3 @@ def test_kr_financial_artifact_builder_recovers_insurance_cash_flow_labels():
     assert data["ticker"] == "032830"
     assert checks["summary"]["fail"] == 0
 
-
-def test_kr_financial_artifact_builder_recovers_ocr_cash_flow_fragments():
-    from kr_financial_artifacts import build_kr_financial_artifacts
-
-    result_dir = _result_dir("cf8ca94e-c5f4-4769-a049-c2ed61aada57")
-    if not result_dir.exists():
-        pytest.skip("Hanwha KR parser sample is not available in this checkout")
-    task, markdown = _sample_task_and_markdown(result_dir)
-
-    data, checks = build_kr_financial_artifacts(
-        task,
-        markdown,
-        result_dir_path=str(result_dir),
-        filename=task["filename"],
-    )
-
-    statement_types = {statement["statement_type"] for statement in data["statements"]}
-    assert "cash_flow_statement" in statement_types
-    assert not [
-        check
-        for check in checks["checks"]
-        if check["rule_id"] == "required.statement.cash_flow_statement" and check["status"] == "fail"
-    ]

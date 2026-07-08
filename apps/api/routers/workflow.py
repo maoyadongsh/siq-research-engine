@@ -58,6 +58,7 @@ CORE_INPUT_ARTIFACTS = [
     "financial_data.json",
     "financial_checks.json",
     "quality_report.json",
+    "table_relations.json",
     "table_index.json",
 ]
 ARTIFACT_SCHEMA_EXPECTATIONS = {

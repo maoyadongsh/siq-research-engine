@@ -68,7 +68,6 @@ import {
 import type { PrimaryMarketMeetingAgentReadiness } from '@/features/primary-market/primaryMarketApi'
 import {
   IC_AGENT_OPTIONS,
-  PRIMARY_MARKET_TABS,
   R1_AGENT_SEQUENCE,
   agentLabel,
   buildMeetingEvents,
@@ -87,7 +86,6 @@ import {
   phaseLabel,
   primaryMarketMeetingIntro,
   primaryMarketMeetingQuickQuestions,
-  primaryMarketTabHref,
   sortedMissingDimensions,
   statusTone,
   text,
@@ -674,7 +672,7 @@ export default function PrimaryMarketMeeting() {
     const recentTranscript = recentTranscriptText([...baseEvents, ...laneEvents])
 
     return [
-      `你是 ${agentLabel(agentId)} (${agentId})，正在 SIQ 一级市场投委会会议室发言。`,
+      `你是 ${agentLabel(agentId)} (${agentId})，正在 SIQ 一级市场投研决策流程中发言。`,
       '请严格以该智能体身份回答，不要冒充其他委员；如果信息不足，明确指出所需材料、证据缺口或附件读取限制。',
       '输出要求：先给结论，再列 3-5 条关键理由；涉及事实时尽量引用 evidence id、文档名、附件名或当前已知产物；最后给下一步建议。',
       '',
@@ -1267,18 +1265,9 @@ export default function PrimaryMarketMeeting() {
     <PageShell variant="secondary" className="space-y-5">
       <PageHeader
         icon={MessageSquareText}
-        eyebrow="Primary Market IC Room"
-        title="多智能体投研会议室"
-        description="像主持投委会一样选择智能体窗口、上传材料、顺序发言，并把对话归档到项目会议纪要。"
-        meta={PRIMARY_MARKET_TABS.map((tab) => (
-          <Link
-            key={tab.id}
-            to={primaryMarketTabHref(tab, selectedDealId)}
-            className={`secondary-status ${tab.id === 'meeting' ? 'secondary-status-info' : ''}`}
-          >
-            {tab.label}
-          </Link>
-        ))}
+        eyebrow="Primary Market IC Decision"
+        title="投研决策"
+        description="像主持投委会一样选择智能体窗口、上传材料、顺序发言，并把对话归档到投研决策记录。"
         actions={
           <Button type="button" variant="secondary" onClick={() => void refreshMeeting()} disabled={contextLoading || transcriptLoading || chatHistoryLoading || sessionsLoading || Boolean(taskBusy) || !selectedDealId}>
             {contextLoading || transcriptLoading || chatHistoryLoading || sessionsLoading ? <Loader2 className="animate-spin" /> : <RefreshCw />}
@@ -1309,7 +1298,7 @@ export default function PrimaryMarketMeeting() {
             <p className="mt-2 text-xs text-text-muted">{selectedDeal?.company_name || selectedDealId || '-'}</p>
           </Surface>
           <Surface kind="muted" padding="sm">
-            <p className="text-xs text-text-muted">会议窗口</p>
+            <p className="text-xs text-text-muted">决策窗口</p>
             <div className="mt-2 flex flex-wrap gap-2">
               <StatusBadge tone={chatBusy ? 'warning' : 'success'}>{chatBusy ? `${agentLabel(chatBusy)} 发言中` : activeWindowTitle}</StatusBadge>
               <StatusBadge tone="info">{activeLane}</StatusBadge>
@@ -1320,7 +1309,7 @@ export default function PrimaryMarketMeeting() {
 
       {!selectedDealId ? (
         <PageSection>
-          <EmptyState icon={MessageSquareText} title="请选择项目" description="选择项目后即可打开一级市场智能体会议窗口。" />
+          <EmptyState icon={MessageSquareText} title="请选择项目" description="选择项目后即可打开一级市场投研决策窗口。" />
         </PageSection>
       ) : error ? (
         <PageSection>

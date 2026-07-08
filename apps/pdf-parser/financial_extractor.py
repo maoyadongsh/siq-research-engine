@@ -48,9 +48,20 @@ _NON_FINANCIAL_REPORT_KINDS = {
 _FINANCIAL_INDUSTRY_PROFILES = {"bank", "securities", "insurance"}
 
 _STATEMENT_TITLE_ALIASES = {
-    "balance_sheet": ("资产负债表", "财务状况表"),
-    "income_statement": ("利润表", "损益表", "综合收益表", "利润及其他综合收益表", "损益及其他综合收益表"),
-    "cash_flow_statement": ("现金流量表",),
+    "balance_sheet": ("资产负债表", "财务状况表", "財務狀況表"),
+    "income_statement": (
+        "利润表",
+        "損益表",
+        "损益表",
+        "综合收益表",
+        "綜合收益表",
+        "全面收益表",
+        "利润及其他综合收益表",
+        "損益及其他全面收益表",
+        "损益及其他综合收益表",
+        "損益及其他綜合收益表",
+    ),
+    "cash_flow_statement": ("现金流量表", "現金流量表"),
 }
 
 _CORE_STATEMENT_TITLE_TERMS = tuple(
@@ -470,7 +481,85 @@ def _compact_key(text):
     text = _normalize_label(text)
     text = re.sub(r"\s+", "", text)
     text = text.replace("或", "")
-    return re.sub(r"[，,、:：；;（）()\[\]【】“”\"'·]", "", text)
+    text = re.sub(r"[，,、:：；;（）()\[\]【】“”\"'·]", "", text)
+    return _normalize_financial_zh_variants(text)
+
+
+_FINANCIAL_ZH_VARIANT_MAP = str.maketrans(
+    {
+        "國": "国",
+        "際": "际",
+        "併": "并",
+        "佔": "占",
+        "財": "财",
+        "務": "务",
+        "狀": "状",
+        "況": "况",
+        "報": "报",
+        "準": "准",
+        "則": "则",
+        "綜": "综",
+        "損": "损",
+        "營": "营",
+        "業": "业",
+        "稅": "税",
+        "潤": "润",
+        "淨": "净",
+        "現": "现",
+        "資": "资",
+        "額": "额",
+        "總": "总",
+        "產": "产",
+        "負": "负",
+        "債": "债",
+        "權": "权",
+        "益": "益",
+        "歸": "归",
+        "屬": "属",
+        "於": "于",
+        "擁": "拥",
+        "內": "内",
+        "經": "经",
+        "營": "营",
+        "發": "发",
+        "開": "开",
+        "銷": "销",
+        "售": "售",
+        "費": "费",
+        "用": "用",
+        "應": "应",
+        "收": "收",
+        "貿": "贸",
+        "項": "项",
+        "動": "动",
+        "長": "长",
+        "匯": "汇",
+        "兌": "兑",
+        "轉": "转",
+        "儲": "储",
+        "備": "备",
+        "餘": "余",
+        "幣": "币",
+        "價": "价",
+        "讓": "让",
+        "為": "为",
+        "與": "与",
+        "對": "对",
+        "號": "号",
+        "註": "注",
+        "會": "会",
+        "後": "后",
+        "還": "还",
+        "償": "偿",
+        "響": "响",
+        "廠": "厂",
+        "設": "设",
+    }
+)
+
+
+def _normalize_financial_zh_variants(text):
+    return str(text or "").translate(_FINANCIAL_ZH_VARIANT_MAP)
 
 
 _CANONICAL_ALIASES = [
@@ -482,6 +571,7 @@ _CANONICAL_ALIASES = [
             "负债和所有者权益合计",
             "负债及所有者权益总计",
             "负债及股东权益总计",
+            "权益及负债合计",
         ),
     ),
     (
@@ -505,22 +595,23 @@ _CANONICAL_ALIASES = [
             "归属于本公司股东权益合计",
             "归属于本公司股东权益",
             "归属于本公司股东的权益",
+            "本公司拥有人应占权益",
         ),
     ),
     ("total_assets", ("资产总计", "资产合计", "资产总额", "总资产")),
-    ("current_assets", ("流动资产合计",)),
-    ("non_current_assets", ("非流动资产合计",)),
+    ("current_assets", ("流动资产合计", "流动资产总额")),
+    ("non_current_assets", ("非流动资产合计", "非流动资产总额")),
     ("total_liabilities", ("负债合计", "负债总额", "总负债")),
-    ("current_liabilities", ("流动负债合计",)),
-    ("non_current_liabilities", ("非流动负债合计",)),
-    ("minority_interests", ("少数股东权益",)),
+    ("current_liabilities", ("流动负债合计", "流动负债总额")),
+    ("non_current_liabilities", ("非流动负债合计", "非流动负债总额")),
+    ("minority_interests", ("少数股东权益", "非控制性权益")),
     ("total_equity", ("所有者权益合计", "股东权益合计", "所有者权益总额", "股东权益总额")),
     ("total_operating_revenue", ("营业总收入",)),
-    ("operating_revenue", ("营业收入",)),
-    ("operating_profit", ("营业利润",)),
+    ("operating_revenue", ("营业收入", "收入")),
+    ("operating_profit", ("营业利润", "经营利润")),
     ("non_operating_income", ("营业外收入",)),
     ("non_operating_expenses", ("营业外支出",)),
-    ("total_profit", ("利润总额",)),
+    ("total_profit", ("利润总额", "除税前利润", "税前利润")),
     ("income_tax_expense", ("所得税费用",)),
     (
         "parent_net_profit",
@@ -536,6 +627,8 @@ _CANONICAL_ALIASES = [
             "本银行股东的净利润",
             "归属于本集团股东的净利润",
             "本集团股东的净利润",
+            "本公司拥有人应占利润",
+            "本公司拥有人应占年内利润",
         ),
     ),
     (
@@ -553,23 +646,32 @@ _CANONICAL_ALIASES = [
             "扣除非经常性损益后归属于公司普通股股东的净利润",
         ),
     ),
-    ("minority_profit_loss", ("少数股东损益", "少数股东收益", "少数股东的净利润")),
-    ("net_profit", ("净利润",)),
+    (
+        "minority_profit_loss",
+        (
+            "少数股东损益",
+            "少数股东收益",
+            "少数股东的净利润",
+            "非控制性权益应占利润",
+            "非控制性权益应占年内利润",
+        ),
+    ),
+    ("net_profit", ("净利润", "年内利润")),
     ("other_comprehensive_income", ("其他综合收益的税后净额", "其他综合收益税后净额", "其他综合收益合计", "其他综合收益")),
-    ("total_comprehensive_income", ("综合收益总额",)),
-    ("parent_total_comprehensive_income", ("归属于母公司所有者的综合收益总额", "归属于母公司股东的综合收益总额")),
-    ("minority_total_comprehensive_income", ("归属于少数股东的综合收益总额",)),
+    ("total_comprehensive_income", ("综合收益总额", "年内综合收益总额")),
+    ("parent_total_comprehensive_income", ("归属于母公司所有者的综合收益总额", "归属于母公司股东的综合收益总额", "本公司拥有人应占综合收益总额")),
+    ("minority_total_comprehensive_income", ("归属于少数股东的综合收益总额", "非控制性权益应占综合收益总额")),
     ("operating_cash_inflow_total", ("经营活动现金流入小计",)),
     ("operating_cash_outflow_total", ("经营活动现金流出小计",)),
-    ("operating_cash_flow_net", ("经营活动产生的现金流量净额", "经营活动使用的现金流量净额", "经营活动产生使用的现金流量净额", "经营活动产生/的现金流量净额", "经营活动现金流量净额")),
+    ("operating_cash_flow_net", ("经营活动产生的现金流量净额", "经营活动使用的现金流量净额", "经营活动产生使用的现金流量净额", "经营活动产生/的现金流量净额", "经营活动现金流量净额", "经营活动所得现金净额", "经营活动所用现金净额", "经营活动所得现金流量净额")),
     ("investing_cash_inflow_total", ("投资活动现金流入小计",)),
     ("investing_cash_outflow_total", ("投资活动现金流出小计",)),
-    ("investing_cash_flow_net", ("投资活动产生的现金流量净额", "投资活动使用的现金流量净额", "投资活动产生使用的现金流量净额", "投资活动产生/的现金流量净额", "投资活动现金流量净额")),
+    ("investing_cash_flow_net", ("投资活动产生的现金流量净额", "投资活动使用的现金流量净额", "投资活动产生使用的现金流量净额", "投资活动产生/的现金流量净额", "投资活动现金流量净额", "投资活动所用现金净额", "投资活动所得现金净额")),
     ("financing_cash_inflow_total", ("筹资活动现金流入小计",)),
     ("financing_cash_outflow_total", ("筹资活动现金流出小计",)),
-    ("financing_cash_flow_net", ("筹资活动产生的现金流量净额", "筹资活动使用的现金流量净额", "筹资活动产生使用的现金流量净额", "筹资活动产生/的现金流量净额", "筹资活动现金流量净额")),
-    ("fx_effect_cash", ("汇率变动对现金及现金等价物的影响", "汇率变动对现金的影响")),
-    ("cash_equivalents_net_increase", ("现金及现金等价物净增加额", "现金及现金等价物净减少额", "现金及现金等价物净变动额", "现金及现金等价物增加额", "现金及现金等价物减少额")),
+    ("financing_cash_flow_net", ("筹资活动产生的现金流量净额", "筹资活动使用的现金流量净额", "筹资活动产生使用的现金流量净额", "筹资活动产生/的现金流量净额", "筹资活动现金流量净额", "融资活动所得现金净额", "融资活动所用现金净额")),
+    ("fx_effect_cash", ("汇率变动对现金及现金等价物的影响", "汇率变动对现金的影响", "汇率变动的影响")),
+    ("cash_equivalents_net_increase", ("现金及现金等价物净增加额", "现金及现金等价物净减少额", "现金及现金等价物净变动额", "现金及现金等价物增加额", "现金及现金等价物减少额", "现金及现金等价物增加净额", "现金及现金等价物减少净额")),
     ("cash_equivalents_beginning", ("期初现金及现金等价物余额", "现金的期初余额", "年初现金及现金等价物余额")),
     ("cash_equivalents_ending", ("期末现金及现金等价物余额", "现金的期末余额", "年末现金及现金等价物余额")),
     ("basic_eps", ("基本每股收益",)),
@@ -623,9 +725,15 @@ def _canonical_name(label):
         return "equity_attributable_parent"
     if "经营活动" in compact and "现金流量净额" in compact:
         return "operating_cash_flow_net"
+    if "经营活动" in compact and "现金净额" in compact:
+        return "operating_cash_flow_net"
     if "投资活动" in compact and "现金流量净额" in compact:
         return "investing_cash_flow_net"
+    if "投资活动" in compact and "现金净额" in compact:
+        return "investing_cash_flow_net"
     if "筹资活动" in compact and "现金流量净额" in compact:
+        return "financing_cash_flow_net"
+    if ("筹资活动" in compact or "融资活动" in compact) and "现金净额" in compact:
         return "financing_cash_flow_net"
     if "其他综合收益" in compact and "综合收益总额" not in compact:
         return _other_comprehensive_income_canonical(compact)
@@ -1133,7 +1241,7 @@ def _infer_statement_type_from_body(grid, compact_title):
     if _looks_like_risk_maturity_table(compact_title, compact_head, compact_body):
         return None, ["exclude.risk_table"]
 
-    liability_section_terms = ("负债", "负债和所有者权益", "负债和股东权益", "负债及所有者权益", "负债及股东权益")
+    liability_section_terms = ("负债", "权益及负债", "负债和所有者权益", "负债和股东权益", "负债及所有者权益", "负债及股东权益")
     starts_with_assets = bool(_leading_statement_section_label(grid, ("资产",)))
     starts_with_liabilities = bool(
         _leading_statement_section_label(grid, liability_section_terms)
@@ -1145,6 +1253,7 @@ def _infer_statement_type_from_body(grid, compact_title):
         "负债和股东权益总计",
         "负债及所有者权益总计",
         "负债及股东权益总计",
+        "权益及负债合计",
     )
     if (
         starts_with_assets
@@ -1172,12 +1281,16 @@ def _infer_statement_type_from_body(grid, compact_title):
         compact_body,
         (
             "营业收入",
+            "收入",
             "营业总收入",
             "利息净收入",
             "营业利润",
+            "经营利润",
             "利润总额",
             "税前利润",
+            "除税前利润",
             "净利润",
+            "年内利润",
             "归属于母公司股东的净利润",
             "归属于上市公司股东的净利润",
             "基本每股收益",
@@ -1187,8 +1300,8 @@ def _infer_statement_type_from_body(grid, compact_title):
     if (
         rows >= 20
         and len(income_hits) >= 5
-        and _contains_any(compact_body, ("营业收入", "营业总收入", "利息净收入"))
-        and _contains_any(compact_body, ("净利润", "本年净利润"))
+        and _contains_any(compact_body, ("营业收入", "营业总收入", "利息净收入", "收入"))
+        and _contains_any(compact_body, ("净利润", "本年净利润", "年内利润"))
         and "经营活动现金流量" not in compact_body
     ):
         return "income_statement", ["body.income", f"hits={len(income_hits)}"]
@@ -1219,7 +1332,7 @@ def _infer_statement_type_from_body(grid, compact_title):
         and rows >= 12
         and _contains_any(compact_body, liability_equity_total_terms)
         and "负债合计" in compact_body
-        and _contains_any(compact_body, ("所有者权益合计", "股东权益合计"))
+        and _contains_any(compact_body, ("所有者权益合计", "股东权益合计", "总权益"))
     ):
         return "balance_sheet", ["body.balance_sheet.liability_part"]
 
@@ -1232,10 +1345,16 @@ def _looks_like_cash_flow_part_table(compact_title, compact_body):
     section_terms = (
         "经营活动产生的现金流量",
         "经营活动使用的现金流量",
+        "经营活动所得现金",
+        "经营活动所用现金",
         "投资活动产生的现金流量",
         "投资活动使用的现金流量",
+        "投资活动所得现金",
+        "投资活动所用现金",
         "筹资活动产生的现金流量",
         "筹资活动使用的现金流量",
+        "融资活动所得现金",
+        "融资活动所用现金",
     )
     title_or_head = compact_title + compact_body[:260]
     if not _contains_any(title_or_head, section_terms):
@@ -1253,12 +1372,20 @@ def _looks_like_cash_flow_part_table(compact_title, compact_body):
     body_terms = subtotal_terms + (
         "经营活动产生的现金流量净额",
         "经营活动使用的现金流量净额",
+        "经营活动所得现金净额",
+        "经营活动所用现金净额",
         "投资活动产生的现金流量净额",
         "投资活动使用的现金流量净额",
+        "投资活动所得现金净额",
+        "投资活动所用现金净额",
         "筹资活动产生的现金流量净额",
         "筹资活动使用的现金流量净额",
+        "融资活动所得现金净额",
+        "融资活动所用现金净额",
         "现金及现金等价物净增加额",
         "现金及现金等价物净减少额",
+        "现金及现金等价物增加净额",
+        "现金及现金等价物减少净额",
         "期末现金及现金等价物余额",
         "年末现金及现金等价物余额",
     )
@@ -1271,14 +1398,20 @@ def _cash_flow_net_terms_hit_count(compact):
         "经营活动使用的现金流量净额",
         "经营活动产生使用的现金流量净额",
         "经营活动产生/的现金流量净额",
+        "经营活动所得现金净额",
+        "经营活动所用现金净额",
         "投资活动产生的现金流量净额",
         "投资活动使用的现金流量净额",
         "投资活动产生使用的现金流量净额",
         "投资活动产生/的现金流量净额",
+        "投资活动所得现金净额",
+        "投资活动所用现金净额",
         "筹资活动产生的现金流量净额",
         "筹资活动使用的现金流量净额",
         "筹资活动产生使用的现金流量净额",
         "筹资活动产生/的现金流量净额",
+        "融资活动所得现金净额",
+        "融资活动所用现金净额",
     )
     return len(_hits(compact, nets))
 
@@ -1290,7 +1423,7 @@ def _looks_like_cash_flow_net_part_table(compact_title, compact_body):
         return False
     if _contains_any(compact_body[:160], ("同比增减", "变动比例", "增减%")):
         return False
-    return _cash_flow_net_terms_hit_count(compact_body) >= 3 and _contains_any(compact_body, ("汇率变动对现金及现金等价物的影响", "现金及现金等价物净增加额", "现金及现金等价物净减少额"))
+    return _cash_flow_net_terms_hit_count(compact_body) >= 3 and _contains_any(compact_body, ("汇率变动对现金及现金等价物的影响", "现金及现金等价物净增加额", "现金及现金等价物净减少额", "现金及现金等价物增加净额", "现金及现金等价物减少净额"))
 
 
 def _cash_flow_body_hits(compact_body):
@@ -1302,32 +1435,46 @@ def _cash_flow_body_hits(compact_body):
             "经营活动产生使用的现金流量",
             "经营活动产生/的现金流量",
             "经营活动产生/的现金流量",
+            "经营活动所得现金",
+            "经营活动所用现金",
             "经营活动现金流入小计",
             "经营活动现金流出小计",
             "经营活动产生的现金流量净额",
             "经营活动使用的现金流量净额",
             "经营活动产生使用的现金流量净额",
             "经营活动产生/的现金流量净额",
+            "经营活动所得现金净额",
+            "经营活动所用现金净额",
             "投资活动产生的现金流量",
             "投资活动使用的现金流量",
             "投资活动产生/的现金流量",
             "投资活动产生/的现金流量",
+            "投资活动所得现金",
+            "投资活动所用现金",
             "投资活动现金流入小计",
             "投资活动现金流出小计",
             "投资活动产生的现金流量净额",
             "投资活动使用的现金流量净额",
             "投资活动产生/的现金流量净额",
+            "投资活动所得现金净额",
+            "投资活动所用现金净额",
             "筹资活动产生的现金流量",
             "筹资活动使用的现金流量",
             "筹资活动产生/的现金流量",
             "筹资活动产生/的现金流量",
+            "融资活动所得现金",
+            "融资活动所用现金",
             "筹资活动现金流入小计",
             "筹资活动现金流出小计",
             "筹资活动产生的现金流量净额",
             "筹资活动使用的现金流量净额",
             "筹资活动产生/的现金流量净额",
+            "融资活动所得现金净额",
+            "融资活动所用现金净额",
             "现金及现金等价物净增加额",
             "现金及现金等价物净减少额",
+            "现金及现金等价物增加净额",
+            "现金及现金等价物减少净额",
             "期初现金及现金等价物余额",
             "年初现金及现金等价物余额",
             "期末现金及现金等价物余额",
@@ -1345,6 +1492,8 @@ def _looks_like_formal_cash_flow_body(compact_body, rows):
             "经营活动产生的现金流量",
             "经营活动使用的现金流量",
             "经营活动产生使用的现金流量",
+            "经营活动所得现金",
+            "经营活动所用现金",
             "经营活动现金流入小计",
             "经营活动现金流出小计",
         ),
@@ -1354,6 +1503,8 @@ def _looks_like_formal_cash_flow_body(compact_body, rows):
         (
             "投资活动产生的现金流量",
             "投资活动使用的现金流量",
+            "投资活动所得现金",
+            "投资活动所用现金",
             "投资活动现金流入小计",
             "投资活动现金流出小计",
         ),
@@ -1363,6 +1514,8 @@ def _looks_like_formal_cash_flow_body(compact_body, rows):
         (
             "筹资活动产生的现金流量",
             "筹资活动使用的现金流量",
+            "融资活动所得现金",
+            "融资活动所用现金",
             "筹资活动现金流入小计",
             "筹资活动现金流出小计",
         ),
@@ -1372,6 +1525,8 @@ def _looks_like_formal_cash_flow_body(compact_body, rows):
         (
             "现金及现金等价物净增加额",
             "现金及现金等价物净减少额",
+            "现金及现金等价物增加净额",
+            "现金及现金等价物减少净额",
             "期初现金及现金等价物余额",
             "年初现金及现金等价物余额",
             "期末现金及现金等价物余额",
@@ -1404,9 +1559,9 @@ def _looks_like_minimal_formal_cash_flow_table(compact_title, compact_body):
         return False
     if _looks_like_change_analysis_table(compact_title, compact_body):
         return False
-    operating_net = _contains_any(compact_body, ("经营活动产生的现金流量净额", "经营活动使用的现金流量净额", "经营活动产生使用的现金流量净额", "经营活动产生/的现金流量净额"))
-    investing_net = _contains_any(compact_body, ("投资活动产生的现金流量净额", "投资活动使用的现金流量净额", "投资活动产生/的现金流量净额"))
-    financing_net = _contains_any(compact_body, ("筹资活动产生的现金流量净额", "筹资活动使用的现金流量净额", "筹资活动产生/的现金流量净额"))
+    operating_net = _contains_any(compact_body, ("经营活动产生的现金流量净额", "经营活动使用的现金流量净额", "经营活动产生使用的现金流量净额", "经营活动产生/的现金流量净额", "经营活动所得现金净额", "经营活动所用现金净额"))
+    investing_net = _contains_any(compact_body, ("投资活动产生的现金流量净额", "投资活动使用的现金流量净额", "投资活动产生/的现金流量净额", "投资活动所得现金净额", "投资活动所用现金净额"))
+    financing_net = _contains_any(compact_body, ("筹资活动产生的现金流量净额", "筹资活动使用的现金流量净额", "筹资活动产生/的现金流量净额", "融资活动所得现金净额", "融资活动所用现金净额"))
     required_nets = operating_net and investing_net and financing_net
     bridge_terms = _contains_any(
         compact_body,
@@ -1414,6 +1569,8 @@ def _looks_like_minimal_formal_cash_flow_table(compact_title, compact_body):
             "汇率变动对现金及现金等价物的影响",
             "现金及现金等价物净增加额",
             "现金及现金等价物净减少额",
+            "现金及现金等价物增加净额",
+            "现金及现金等价物减少净额",
             "期初现金及现金等价物余额",
             "年初现金及现金等价物余额",
             "期末现金及现金等价物余额",
@@ -1452,12 +1609,16 @@ def _formal_statement_body_is_plausible(statement_type, grid, compact_body):
     if statement_type == "income_statement":
         income_terms = (
             "营业收入",
+            "收入",
             "营业总收入",
             "利息净收入",
             "营业利润",
+            "经营利润",
             "利润总额",
             "税前利润",
+            "除税前利润",
             "净利润",
+            "年内利润",
             "归属于母公司股东的净利润",
             "归属于母公司所有者的净利润",
             "归属于上市公司股东的净利润",
@@ -1569,15 +1730,15 @@ def _body_candidate_types(grid):
     candidates = []
     if _contains_any(compact_body, ("资产总计", "资产合计", "资产总额")) or _contains_any(
         compact_body,
-        ("负债和所有者权益总计", "负债和股东权益总计", "负债及所有者权益总计", "负债及股东权益总计"),
+        ("负债和所有者权益总计", "负债和股东权益总计", "负债及所有者权益总计", "负债及股东权益总计", "权益及负债合计"),
     ):
         candidates.append("balance_sheet")
-    if _contains_any(compact_body, ("营业收入", "营业总收入", "利息净收入")) and _contains_any(
-        compact_body, ("净利润", "利润总额", "税前利润")
+    if _contains_any(compact_body, ("营业收入", "营业总收入", "利息净收入", "收入")) and _contains_any(
+        compact_body, ("净利润", "利润总额", "税前利润", "除税前利润", "年内利润")
     ):
         candidates.append("income_statement")
     if "经营活动产生的现金流量" in compact_body or _contains_any(
-        compact_body, ("经营活动现金流入小计", "现金及现金等价物余额")
+        compact_body, ("经营活动现金流入小计", "经营活动所得现金净额", "经营活动所用现金净额", "现金及现金等价物余额", "年末现金及现金等价物")
     ):
         candidates.append("cash_flow_statement")
     return candidates

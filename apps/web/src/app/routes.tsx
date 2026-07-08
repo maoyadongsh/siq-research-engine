@@ -1,7 +1,6 @@
 import { lazy, type ComponentType, type LazyExoticComponent } from 'react'
 import {
   BarChart3,
-  BriefcaseBusiness,
   DatabaseZap,
   FileText,
   Files,
@@ -28,6 +27,14 @@ export type SidebarItem = {
   to: string
   icon: LucideIcon
   label: string
+  end?: boolean
+  children?: SidebarChildItem[]
+}
+
+export type SidebarChildItem = {
+  to: string
+  label: string
+  end?: boolean
 }
 
 type RouteSidebarItem = SidebarItem & { group: SidebarGroup }
@@ -67,14 +74,25 @@ export const appRoutes: AppRoute[] = [
   defineRoute('/documents', () => import('../pages/DocumentParsing'), {
     sidebar: { group: 'nav', to: '/documents', icon: Files, label: '文档解析' },
   }),
-  defineRoute('/deals', () => import('../pages/Deals'), {
-    sidebar: { group: 'nav', to: '/deals', icon: BriefcaseBusiness, label: '交易工作台' },
-  }),
+  defineRoute('/deals', () => import('../pages/Deals')),
   defineRoute('/primary-market', () => import('../pages/PrimaryMarketWorkbench'), {
-    sidebar: { group: 'nav', to: '/primary-market', icon: Landmark, label: '一级市场' },
+    sidebar: {
+      group: 'nav',
+      to: '/primary-market',
+      icon: Landmark,
+      label: '一级市场',
+      children: [
+        { to: '/primary-market', label: '工作平台', end: true },
+        { to: '/deals', label: '项目管理' },
+        { to: '/primary-market/materials', label: '材料中心' },
+        { to: '/primary-market/meeting', label: '投研决策' },
+        { to: '/primary-market/post-investment', label: '投后管理' },
+      ],
+    },
   }),
   defineRoute('/primary-market/materials', () => import('../pages/PrimaryMarketMaterials')),
   defineRoute('/primary-market/meeting', () => import('../pages/PrimaryMarketMeeting')),
+  defineRoute('/primary-market/post-investment', () => import('../pages/PrimaryMarketPostInvestment')),
   defineRoute('/deals/:dealId', () => import('../pages/DealWorkspace')),
   defineRoute('/deals/:dealId/data-room', () => import('../pages/DealDataRoom')),
   defineRoute('/deals/:dealId/evidence', () => import('../pages/DealEvidence')),
@@ -160,6 +178,8 @@ function getSidebarItems(group: SidebarGroup): SidebarItem[] {
       to: route.sidebar.to,
       icon: route.sidebar.icon,
       label: route.sidebar.label,
+      end: route.sidebar.end,
+      children: route.sidebar.children,
     }))
 }
 

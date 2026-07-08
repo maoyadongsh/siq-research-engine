@@ -1,5 +1,6 @@
 from market_report_finder_service.markets.jp.service import JpReportFinder
-from market_report_finder_service.models.schemas import CompanyEntity, Market, ReportTarget
+from market_report_finder_service.markets.jp.tdnet import TdnetClient
+from market_report_finder_service.models.schemas import CompanyEntity, Market, ReportTarget, ReportType
 
 
 def test_jp_finder_resolves_but_does_not_use_integrated_report_as_annual_fallback(monkeypatch):
@@ -125,3 +126,40 @@ def test_jp_finder_resolves_chinese_alias_to_catalog_company():
     assert company.ticker == "9983"
     assert company.company_id == "JP:9983"
     assert candidates[0].company_name == "Fast Retailing Co., Ltd."
+
+
+def test_jp_tdnet_annual_target_excludes_earnings_summaries(monkeypatch):
+    client = TdnetClient()
+    company = CompanyEntity(
+        market=Market.jp,
+        company_id="JP:7203",
+        ticker="7203",
+        company_name="Toyota Motor Corporation",
+        exchange="JPX",
+    )
+    rows = [
+        {
+            "time": "15:00",
+            "code": "7203",
+            "company_name": "Toyota Motor Corporation",
+            "title": "2025年3月期 決算短信",
+            "pdf_href": "summary.pdf",
+            "published_at": "2026-05-10",
+            "list_page": "I_list_001_20260510.html",
+        },
+        {
+            "time": "15:00",
+            "code": "7203",
+            "company_name": "Toyota Motor Corporation",
+            "title": "Annual Report 2025",
+            "pdf_href": "annual.pdf",
+            "published_at": "2026-06-20",
+            "list_page": "I_list_001_20260620.html",
+        },
+    ]
+    monkeypatch.setattr(client, "_scan_window", lambda report_year=None: rows)
+
+    reports = client.list_filings(company, target=ReportTarget.annual_report, forms=[], report_year=2025)
+
+    assert [report.report_type for report in reports] == [ReportType.annual]
+    assert reports[0].document_url.endswith("annual.pdf")

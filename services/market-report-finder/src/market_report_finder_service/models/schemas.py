@@ -352,7 +352,7 @@ class BatchDownloadResponse(BaseModel):
 
 
 class DirectReportDownloadRequest(BaseModel):
-    market: Market = Market.cn
+    market: Market | None = None
     company_name: str = Field(min_length=1, max_length=200)
     ticker: str | None = Field(default=None, max_length=32)
     company_id: str | None = Field(default=None, max_length=32)

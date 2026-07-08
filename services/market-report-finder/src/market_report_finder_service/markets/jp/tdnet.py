@@ -197,11 +197,11 @@ class TdnetClient:
         if explicit:
             return explicit
         if target == ReportTarget.annual_report:
-            return {ReportType.annual, ReportType.earnings}
+            return {ReportType.annual}
         if target == ReportTarget.semiannual_report:
-            return {ReportType.semiannual, ReportType.earnings}
+            return {ReportType.semiannual}
         if target == ReportTarget.quarterly_report:
-            return {ReportType.quarterly, ReportType.earnings}
+            return {ReportType.quarterly}
         return {ReportType.annual, ReportType.semiannual, ReportType.quarterly, ReportType.earnings}
 
     @staticmethod

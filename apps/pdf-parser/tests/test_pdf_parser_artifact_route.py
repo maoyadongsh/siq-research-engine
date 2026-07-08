@@ -171,6 +171,32 @@ def test_from_download_reference_enqueues_allowed_pdf(tmp_path, monkeypatch):
     assert task["logs"][0]["message"].startswith("服务端引用入队")
 
 
+def test_from_download_reference_rejects_market_path_mismatch(tmp_path, monkeypatch):
+    downloads_root = tmp_path / "downloads"
+    source_path = downloads_root / "HK" / "00005" / "report.pdf"
+    source_path.parent.mkdir(parents=True)
+    source_path.write_bytes(b"%PDF-1.4\nreferenced")
+
+    monkeypatch.setenv("SIQ_PDF_REFERENCE_ROOTS", str(downloads_root))
+    monkeypatch.setattr(app, "initialize_app", lambda start_worker=True: None)
+    monkeypatch.setattr(app, "_cleanup_old_data", lambda: None)
+
+    response = app.app.test_client().post(
+        "/api/tasks/from-download",
+        json={
+            "source_path": str(source_path),
+            "download_relative_path": "HK/00005/report.pdf",
+            "filename": "report.pdf",
+            "market": "CN",
+            "backend": "hybrid-http-client",
+            "parse_method": "auto",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.get_json() == {"error": "引用文件属于 HK，不能按 CN 解析"}
+
+
 def test_from_download_reference_rejects_path_outside_allowed_root(tmp_path, monkeypatch):
     downloads_root = tmp_path / "downloads"
     downloads_root.mkdir()

@@ -62,24 +62,34 @@ def _json_artifact(path: Path):
         return None
 
 
-def _is_current(result_dir: Path) -> bool:
+def _detect_result_market(result_dir: Path, task: dict | None = None, filename: str | None = None) -> str:
+    metadata = _json_artifact(result_dir / "metadata.json")
+    if isinstance(metadata, dict) and metadata.get("market"):
+        return str(metadata.get("market") or "").upper()
+    return app.financial_service.detect_market(task or {"task_id": result_dir.name, "filename": filename}, filename)
+
+
+def _is_current(result_dir: Path, task: dict | None = None) -> bool:
     financial_data = _json_artifact(result_dir / "financial_data.json")
     financial_checks = _json_artifact(result_dir / "financial_checks.json")
     quality = _json_artifact(result_dir / "quality_report.json")
+    task = task or {"task_id": result_dir.name}
+    market = _detect_result_market(result_dir, task, task.get("filename"))
     return (
         app._financial_artifacts_are_current(financial_data, financial_checks)
+        and app.financial_service.financial_artifacts_match_market(market, financial_data, financial_checks)
         and isinstance(quality, dict)
         and quality.get("schema_version") == app.QUALITY_SCHEMA_VERSION
     )
 
 
 def rebuild_one(task_id: str, md_path: Path, result_dir: Path, filename: str, dry_run: bool = False):
-    stale = not _is_current(result_dir)
+    task = {"task_id": task_id, "filename": filename}
+    stale = not _is_current(result_dir, task)
     if dry_run:
         return {"task_id": task_id, "status": "stale" if stale else "current", "path": str(md_path)}
 
     markdown = md_path.read_text(encoding="utf-8", errors="ignore")
-    task = {"task_id": task_id, "filename": filename}
     report = app._write_quality_artifacts(
         task,
         markdown,
@@ -101,6 +111,7 @@ def main(argv=None) -> int:
     parser.add_argument("--results-dir", default=app.RESULTS_FOLDER, help="Parsed results directory.")
     parser.add_argument("--db", default=app.DB_PATH, help="Task database path for resolving filenames.")
     parser.add_argument("--task-id", action="append", default=[], help="Only rebuild this task id. Can be repeated.")
+    parser.add_argument("--market", action="append", default=[], help="Only rebuild results for this market, e.g. EU. Can be repeated.")
     parser.add_argument("--force", action="store_true", help="Rebuild even when artifacts are already current.")
     parser.add_argument("--dry-run", action="store_true", help="Only report which tasks are stale/current.")
     parser.add_argument("--limit", type=int, default=0, help="Maximum number of markdown results to process.")
@@ -111,6 +122,7 @@ def main(argv=None) -> int:
     app.RESULTS_FOLDER = str(results_dir)
     task_rows = _task_rows(Path(args.db))
     task_ids = set(args.task_id) if args.task_id else None
+    markets = {str(item).upper() for item in args.market if str(item).strip()}
 
     processed = 0
     rebuilt = 0
@@ -130,7 +142,11 @@ def main(argv=None) -> int:
             break
         processed += 1
         try:
-            if not args.force and not args.dry_run and _is_current(result_dir):
+            filename = task_rows.get(task_id, {}).get("filename", md_path.name)
+            market = _detect_result_market(result_dir, {"task_id": task_id, "filename": filename}, filename)
+            if markets and market not in markets:
+                continue
+            if not args.force and not args.dry_run and _is_current(result_dir, {"task_id": task_id, "filename": filename}):
                 skipped += 1
                 print(json.dumps({"task_id": task_id, "status": "current", "path": str(md_path)}, ensure_ascii=False))
                 continue
@@ -138,7 +154,7 @@ def main(argv=None) -> int:
                 task_id,
                 md_path,
                 result_dir,
-                filename=task_rows.get(task_id, {}).get("filename", md_path.name),
+                filename=filename,
                 dry_run=args.dry_run,
             )
             if info["status"] == "rebuilt":

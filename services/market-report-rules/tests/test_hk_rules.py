@@ -20,6 +20,13 @@ def test_hk_rule_specificity_filters_broad_revenue_matches():
     assert find_hk_rule("Average total assets") is None
     assert find_hk_rule("Share-based payment recognized in shareholders' equity") is None
     assert find_hk_rule("Total equity attributable to shareholders of the Company").canonical_name == "parent_equity"
+    assert find_hk_rule("Redeemable noncontrolling interests").canonical_name == "redeemable_noncontrolling_interest"
+    assert (
+        find_hk_rule("Total liabilities, redeemable noncontrolling interests and shareholders’ equity").canonical_name
+        == "total_liabilities_and_equity"
+    )
+    assert find_hk_rule("Total assets classified as held for sale") is None
+    assert find_hk_rule("Total Assets Less Current Liabilities") is None
 
 
 def test_hk_pdf_tables_detect_statement_type_and_period_columns():
@@ -464,3 +471,115 @@ def test_hk_period_columns_use_month_day_header_for_non_december_fiscal_year():
     assert total_assets["values"]["2025-03-31"] == "250000"
     assert total_assets["values"]["2024-03-31"] == "230000"
     assert "2025-12-31" not in total_assets["values"]
+
+
+def test_hk_redeemable_equity_participates_in_balance_bridge():
+    artifact = ParsedArtifact(
+        artifact_id="hk-redeemable-equity",
+        market=Market.HK,
+        company_id="HK:09888",
+        ticker="09888",
+        company_name="BIDU-SW",
+        report_type="annual",
+        fiscal_year=2025,
+        period_end="2025-12-31",
+        accounting_standard=AccountingStandard.US_GAAP,
+        currency="CNY",
+        unit="RMB million",
+        tables=[
+            ParsedTable(
+                table_id="bs",
+                title="CONSOLIDATED BALANCE SHEETS",
+                table_index=3,
+                unit="RMB million",
+                rows=[
+                    ["", "Notes", "As of December 31,", "As of December 31,", "As of December 31,"],
+                    ["", "Notes", "2024RMB", "2025RMB", "2025US$"],
+                    ["Total assets", "", "427,780", "449,157", "64,229"],
+                    ["Total liabilities", "", "144,168", "159,431", "22,798"],
+                    ["Redeemable noncontrolling interests", "20", "9,870", "13,166", "1,883"],
+                    ["Total equity", "", "273,742", "276,560", "39,548"],
+                    ["Total liabilities, redeemable noncontrolling interests and equity", "", "427,780", "449,157", "64,229"],
+                ],
+            )
+        ],
+    )
+
+    result = process_artifact(artifact)
+    bridge = next(
+        check
+        for check in result.validation.checks
+        if check.rule_id == "bs.assets_eq_liabilities_plus_temporary_equity_plus_equity"
+        and check.period == "2025-12-31"
+    )
+    total_bridge = next(
+        check
+        for check in result.validation.checks
+        if check.rule_id == "bs.assets_eq_liabilities_and_equity" and check.period == "2025-12-31"
+    )
+
+    assert bridge.status == "pass"
+    assert total_bridge.status == "pass"
+    assert any(
+        item.canonical_name == "redeemable_noncontrolling_interest"
+        for statement in result.extraction.statements
+        for item in statement.items
+    )
+
+
+def test_hk_duplicate_period_columns_keep_total_and_drop_usd_convenience_column():
+    artifact = ParsedArtifact(
+        artifact_id="hk-current-non-current-total-columns",
+        market=Market.HK,
+        company_id="HK:00388",
+        ticker="00388",
+        company_name="HKEX",
+        report_type="annual",
+        fiscal_year=2025,
+        period_end="2025-12-31",
+        accounting_standard=AccountingStandard.HKFRS,
+        currency="HKD",
+        unit="HK$ million",
+        tables=[
+            ParsedTable(
+                table_id="bs",
+                title="Consolidated Statement of Financial Position",
+                table_index=1,
+                unit="HK$ million",
+                rows=[
+                    ["", "Note", "At 31 Dec 2025", "At 31 Dec 2025", "At 31 Dec 2025", "At 31 Dec 2024", "At 31 Dec 2024", "At 31 Dec 2024"],
+                    ["", "Note", "Current$m", "Non-current$m", "Total$m", "Current$m", "Non-current$m", "Total$m"],
+                    ["Total assets", "", "547,221", "33,554", "580,775", "353,576", "28,053", "381,629"],
+                    ["Total liabilities", "", "518,875", "3,171", "522,046", "324,525", "2,697", "327,222"],
+                    ["Total equity", "", "", "", "58,729", "", "", "54,407"],
+                    ["Total liabilities and equity", "", "", "", "580,775", "", "", "381,629"],
+                ],
+            ),
+            ParsedTable(
+                table_id="bs-usd",
+                title="CONSOLIDATED BALANCE SHEETS",
+                table_index=2,
+                unit="RMB million",
+                rows=[
+                    ["", "Notes", "As of December 31,", "As of December 31,", "As of December 31,"],
+                    ["", "Notes", "2024RMB", "2025RMB", "2025US$"],
+                    ["Total assets", "", "100", "120", "17"],
+                    ["Total liabilities", "", "60", "70", "10"],
+                    ["Total equity", "", "40", "50", "7"],
+                ],
+            ),
+        ],
+    )
+
+    result = process_artifact(artifact)
+    items = [item for statement in result.extraction.statements for item in statement.items]
+
+    table1_asset_columns = {
+        item.evidence.column_index
+        for item in items
+        if item.evidence.table_index == 1 and item.canonical_name == "total_assets"
+    }
+    table2_columns = {item.evidence.column_index for item in items if item.evidence.table_index == 2}
+
+    assert table1_asset_columns == {4, 7}
+    assert 4 not in table2_columns

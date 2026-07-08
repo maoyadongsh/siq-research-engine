@@ -44,7 +44,7 @@ test('UsParsing.tsx keeps only the upload-panel PDF compatibility entry', () => 
   assert.match(source, /研究资产生成/)
 })
 
-test('PdfWorkflowPanel keeps Wiki out of primary pipeline labels and actions', () => {
+test('PdfWorkflowPanel keeps PostgreSQL source as parser artifacts while allowing Wiki-derived asset actions', () => {
   const source = readFileSync(resolve(pageDir, '../components/pdf/PdfWorkflowPanel.tsx'), 'utf-8')
 
   assert.match(source, /解析产物/)
@@ -52,9 +52,11 @@ test('PdfWorkflowPanel keeps Wiki out of primary pipeline labels and actions', (
   assert.match(source, /研究资产/)
   assert.match(source, /派生知识资产/)
   assert.match(source, /PostgreSQL 入库直接读取解析产物/)
-  assert.doesNotMatch(source, /Wiki 入库/)
+  assert.match(source, /LLM-Wiki入库/)
+  assert.match(source, /LLM-Wiki语义增强入库/)
+  assert.doesNotMatch(source, /PostgreSQL.*Wiki|Wiki.*PostgreSQL 入库源|Wiki 主数据源/)
   assert.doesNotMatch(source, /导入 Wiki/)
-  assert.doesNotMatch(source, /增强 Wiki 语义层/)
+  assert.doesNotMatch(source, /Wiki Evidence Package|Wiki 证据包/)
 })
 
 test('Help page presents Wiki only as compatibility wording, not the main data source', () => {

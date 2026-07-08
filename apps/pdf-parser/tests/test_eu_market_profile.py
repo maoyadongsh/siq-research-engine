@@ -271,6 +271,46 @@ def test_eu_currency_detection_covers_non_uk_european_markets():
     assert unit == f"{currency} million"
 
 
+def test_eu_report_kind_detects_board_report_pdf_extract_with_split_financial_word():
+    markdown = """
+    Airbus SE
+    Report of the Board of Directors 2025
+
+    This document is an unaudited PDF format version of the Board Report and is not
+    the original report included in the audited fi nancial report pursuant to Article 361.
+    ESEF-compliant Annual Financial Report is available in XHTML format.
+
+    Consolidated Statement of Financial Position
+    """
+
+    data = eu.build_eu_financial_data(markdown, task_id="eu-air", filename="Airbus-SE_EU_AIR_2025-12-31_annual.pdf")
+    checks = eu.build_eu_financial_checks(data)
+
+    assert data["report_kind"] == "eu_board_report"
+    assert checks["summary"]["fail"] == 0
+    assert any(item["status"] == "warning" for item in checks["checks"] if item["rule_id"].startswith("eu.presence."))
+
+
+def test_eu_report_kind_detects_annual_review_without_finance_report_body():
+    markdown = """
+    Roche Annual Report 2025
+    Annual Review 07
+
+    The Finance Report contains the annual financial statements and the consolidated
+    financial statements.
+    """ + "\n".join(["Business review narrative"] * 12000) + """
+    Our reporting consists of the actual Annual Report and of the Finance Report and
+    contains the annual financial statements and the consolidated financial statements.
+    """
+
+    data = eu.build_eu_financial_data(markdown, task_id="eu-roche", filename="Roche-Holding-AG_EU_ROG_2025-12-31_annual.pdf")
+    checks = eu.build_eu_financial_checks(data)
+
+    assert data["report_kind"] == "eu_annual_review"
+    assert checks["summary"]["fail"] == 0
+    assert all(item["status"] != "fail" for item in checks["checks"] if item["rule_id"].startswith("eu.presence."))
+
+
 def test_eu_financial_data_extracts_operations_and_plural_statement_titles():
     markdown = """
     # Consolidated statements of operations
@@ -301,3 +341,49 @@ def test_eu_financial_data_extracts_operations_and_plural_statement_titles():
     statement_types = {statement["statement_type"] for statement in data["statements"]}
     assert {"balance_sheet", "income_statement", "cash_flow_statement"}.issubset(statement_types)
     assert checks["summary"]["fail"] == 0
+
+
+def test_eu_financial_data_extracts_statement_of_income_caption_and_positive_tax_charge():
+    markdown = """
+    306 Note 36 Post-balance sheet events
+
+    Consolidated Statement of Income for the year ended December 31, 2025
+    <table><tr><td></td><td>Notes</td><td>2025</td><td>2024</td><td>$ million 2023</td></tr>
+    <tr><td>Revenue</td><td>8</td><td>266,886</td><td>284,312</td><td>316,620</td></tr>
+    <tr><td>Income before taxation</td><td></td><td>29,756</td><td>29,922</td><td>32,627</td></tr>
+    <tr><td>Taxation charge</td><td>23</td><td>11,637</td><td>13,401</td><td>12,991</td></tr>
+    <tr><td>Income for the period</td><td>7</td><td>18,119</td><td>16,521</td><td>19,636</td></tr>
+    <tr><td>Income attributable to non-controlling interest</td><td></td><td>282</td><td>427</td><td>277</td></tr>
+    <tr><td>Income attributable to Shell plc shareholders</td><td></td><td>17,837</td><td>16,094</td><td>19,359</td></tr></table>
+
+    Consolidated Balance Sheet as at December 31, 2025
+    <table><tr><td></td><td>Notes</td><td>Dec 31, 2025</td><td>$ million Dec 31, 2024</td></tr>
+    <tr><td>Total assets</td><td></td><td>370,350</td><td>387,609</td></tr>
+    <tr><td>Total liabilities</td><td></td><td>195,031</td><td>207,441</td></tr>
+    <tr><td>Total equity</td><td></td><td>175,319</td><td>180,168</td></tr></table>
+
+    Consolidated Statement of Cash Flows for the year ended December 31, 2025
+    <table><tr><td></td><td>Notes</td><td>2025</td><td>2024</td><td>$ million 2023</td></tr>
+    <tr><td>Cash flow from operating activities</td><td></td><td>42,863</td><td>54,687</td><td>54,191</td></tr>
+    <tr><td>Cash flow from investing activities</td><td></td><td>(16,811)</td><td>(15,155)</td><td>(17,734)</td></tr>
+    <tr><td>Cash flow from financing activities</td><td></td><td>(35,812)</td><td>(38,435)</td><td>(38,235)</td></tr>
+    <tr><td>Effects of exchange rate changes on cash and cash equivalents</td><td></td><td>866</td><td>(761)</td><td>306</td></tr>
+    <tr><td>(Decrease)/increase in cash and cash equivalents</td><td></td><td>(8,894)</td><td>336</td><td>(1,472)</td></tr>
+    <tr><td>Cash and cash equivalents at January 1</td><td></td><td>39,110</td><td>38,774</td><td>40,246</td></tr>
+    <tr><td>Cash and cash equivalents at December 31</td><td></td><td>30,216</td><td>39,110</td><td>38,774</td></tr></table>
+    """
+
+    data = eu.build_eu_financial_data(markdown, task_id="eu-shell", filename="Shell-plc_EU_SHELL_2025-12-31_annual.pdf")
+    checks = eu.build_eu_financial_checks(data)
+
+    income = next(statement for statement in data["statements"] if statement["statement_type"] == "income_statement")
+    cash = next(statement for statement in data["statements"] if statement["statement_type"] == "cash_flow_statement")
+    income_items = {item["canonical_name"] for item in income["items"]}
+    cash_items = {item["canonical_name"] for item in cash["items"]}
+
+    assert income["title"] == "Consolidated Statement of Income for the year ended December 31, 2025"
+    assert {"profit_before_tax", "income_tax_expense", "net_profit", "parent_net_profit", "minority_profit_loss"}.issubset(income_items)
+    assert {"operating_cash_flow_net", "investing_cash_flow_net", "financing_cash_flow_net", "fx_effect_cash"}.issubset(cash_items)
+    assert checks["summary"]["fail"] == 0
+    assert all(item["status"] != "warning" for item in checks["checks"] if item["rule_id"] == "eu.is.profit_before_tax_less_tax_eq_profit_for_year")
+    assert all(item["status"] != "warning" for item in checks["checks"] if item["rule_id"].startswith("eu.cf."))

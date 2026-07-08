@@ -59,6 +59,22 @@ def test_content_table_source_helpers_track_exact_normalized_and_printed_pages()
     assert duplicate_match == {}
 
 
+def test_build_enhanced_page_blocks_falls_back_to_markdown_markers_when_content_list_empty():
+    markdown = "[PDF_PAGE: 1]\n第一页正文\n<table><tr><td>A</td></tr></table>\n[PDF_PAGE: 2]\n第二页正文"
+    tables = [
+        {"table_index": 1, "pdf_page_number": 1},
+        {"table_index": 2, "pdf_page_number": 2},
+        {"table_index": 3, "pdf_page_number": 2},
+    ]
+
+    pages = content_service.build_enhanced_page_blocks([], markdown=markdown, tables=tables)
+
+    assert [page["page_number"] for page in pages] == [1, 2]
+    assert [page["source"] for page in pages] == ["markdown_page_marker", "markdown_page_marker"]
+    assert [page["table_count"] for page in pages] == [1, 2]
+    assert pages[0]["text_chars"] > 0
+
+
 def test_inferred_pdf_page_for_line_and_source_confidence():
     markers = [
         {"line": 10, "page_number": 1},
@@ -332,6 +348,47 @@ def test_build_financial_note_links_avoids_numeric_ref_title_mismatch():
     assert result["links"] == []
     assert result["summary"]["linked_item_count"] == 0
     assert result["summary"]["high_confidence_link_count"] == 0
+
+
+def test_build_financial_note_links_supports_hk_english_traditional_notes():
+    markdown = (
+        "[PDF_PAGE: 313]\n"
+        "# CONSOLIDATED STATEMENT OF FINANCIAL POSITION\n"
+        "# 綜合財務狀況表\n"
+        "<table><tr><td colspan=\"2\"></td><td>Notes附註</td><td>2025 US$'000</td></tr>"
+        "<tr><td>Property, plant and equipment</td><td>物業、廠房及設備</td><td>13</td><td>6,676,442</td></tr>"
+        "<tr><td>Trade and notes receivables</td><td>貿易應收款項及應收票據</td><td>21</td><td>282,053</td></tr></table>\n"
+        "[PDF_PAGE: 318]\n"
+        "# NOTES TO FINANCIAL STATEMENTS\n"
+        "# 財務報表附註\n"
+        "[PDF_PAGE: 376]\n"
+        "# 13. PROPERTY, PLANT AND EQUIPMENT\n"
+        "<table><tr><td>Total</td><td>6,676,442</td></tr></table>\n"
+        "[PDF_PAGE: 389]\n"
+        "# 21. TRADE AND NOTES RECEIVABLES\n"
+        "<table><tr><td>Total</td><td>282,053</td></tr></table>\n"
+    )
+
+    result = content_service.build_financial_note_links(
+        markdown,
+        tables=[{"table_index": 1, "pdf_page_number": 313, "source": "markdown_marker_inferred"}],
+        page_markers=[
+            {"line": 1, "page_number": 313},
+            {"line": 5, "page_number": 318},
+            {"line": 8, "page_number": 376},
+            {"line": 11, "page_number": 389},
+        ],
+    )
+    links_by_item = {item["statement_item"]: item for item in result["links"]}
+
+    assert links_by_item["固定资产"]["statement_note_ref"] == "13"
+    assert links_by_item["固定资产"]["note_ref"] == "13"
+    assert links_by_item["固定资产"]["note_page_number"] == 376
+    assert links_by_item["固定资产"]["amount_check"]["status"] == "verified"
+    assert links_by_item["应收账款"]["statement_note_ref"] == "21"
+    assert links_by_item["应收账款"]["note_page_number"] == 389
+    assert result["summary"]["high_confidence_link_count"] == 2
+    assert result["summary"]["amount_verified_table_count"] == 2
 
 
 def test_build_content_list_enhanced_payload_uses_injected_table_sources_and_aggregates():

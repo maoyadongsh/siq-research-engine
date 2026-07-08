@@ -119,6 +119,109 @@ def test_ensure_content_list_enhanced_current_artifact_is_reused_without_side_ef
     assert returned == existing
 
 
+def test_ensure_content_list_enhanced_rebuilds_current_version_when_pages_empty(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(app, "RESULTS_FOLDER", str(tmp_path))
+    monkeypatch.setattr(app, "_now_iso", lambda: "2026-07-02T00:00:00Z")
+    task = {"task_id": "empty-pages-enhanced", "filename": "report.pdf"}
+    result_dir = tmp_path / task["task_id"]
+    _write_json(
+        result_dir / "content_list_enhanced.json",
+        {
+            "schema_version": app.CONTENT_LIST_ENHANCED_SCHEMA_VERSION,
+            "table_count": 2,
+            "tables": [{}, {}],
+            "pages": [],
+        },
+    )
+    _write_json(result_dir / "content_list.json", [])
+    events = []
+
+    def fake_build_content_list_enhanced(markdown, content_list=None, report_year=None):
+        events.append(("build", markdown, content_list, report_year))
+        return {
+            "schema_version": app.CONTENT_LIST_ENHANCED_SCHEMA_VERSION,
+            "table_count": 2,
+            "tables": [{}, {}],
+            "pages": [{"page_number": 1}],
+        }
+
+    monkeypatch.setattr(app, "_build_content_list_enhanced", fake_build_content_list_enhanced)
+    monkeypatch.setattr(app, "_detect_report_year", lambda *_args, **_kwargs: 2026)
+    monkeypatch.setattr(app, "_load_corrections", lambda _task: {})
+    monkeypatch.setattr(
+        app,
+        "_write_complete_markdown_artifact",
+        lambda task_arg, markdown, enhanced, corrections=None: events.append(("complete_markdown", enhanced["pages"])),
+    )
+    monkeypatch.setattr(
+        app,
+        "_ensure_table_relations_artifact",
+        lambda task_arg, markdown, enhanced=None, content_list=None: events.append(
+            ("table_relations", len(enhanced.get("pages") or []), content_list)
+        )
+        or {"schema_version": "document_table_relations_v1", "candidate_table_count": 2},
+    )
+    monkeypatch.setattr(app, "_ensure_financial_artifacts", lambda *_args, **_kwargs: ({}, {}))
+    monkeypatch.setattr(app, "_read_quality_report", lambda _task: {"warnings": []})
+    monkeypatch.setattr(app, "_build_quality_report", lambda *_args, **_kwargs: {"warnings": []})
+
+    enhanced = app._ensure_content_list_enhanced_artifact(task, "[PDF_PAGE: 1]\nmarkdown")
+
+    assert enhanced["pages"] == [{"page_number": 1}]
+    assert events[0] == ("build", "[PDF_PAGE: 1]\nmarkdown", [], 2026)
+    assert events[-1] == ("table_relations", 1, [])
+
+
+def test_ensure_table_relations_rebuilds_current_version_when_candidates_empty(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(app, "RESULTS_FOLDER", str(tmp_path))
+    task = {"task_id": "empty-relation-candidates", "filename": "report.pdf"}
+    result_dir = tmp_path / task["task_id"]
+    _write_json(
+        result_dir / "table_relations.json",
+        {
+            "schema_version": "document_table_relations_v1",
+            "ruleset_version": app.TABLE_RELATION_RULESET_VERSION,
+            "candidate_table_count": 0,
+            "relations": [],
+        },
+    )
+    calls = []
+
+    monkeypatch.setattr(
+        app,
+        "_write_table_relations_artifact",
+        lambda task_arg, markdown, enhanced=None, content_list=None: calls.append(
+            (task_arg["task_id"], markdown, enhanced, content_list)
+        )
+        or {
+            "schema_version": "document_table_relations_v1",
+            "ruleset_version": app.TABLE_RELATION_RULESET_VERSION,
+            "candidate_table_count": 2,
+        },
+    )
+
+    payload = app._ensure_table_relations_artifact(
+        task,
+        "markdown",
+        enhanced={"table_count": 2, "tables": [{}, {}]},
+        content_list=[],
+    )
+
+    assert payload["candidate_table_count"] == 2
+    assert calls == [
+        (
+            "empty-relation-candidates",
+            "markdown",
+            {"table_count": 2, "tables": [{}, {}]},
+            [],
+        )
+    ]
+
+
 def test_ensure_content_list_enhanced_reuses_embedded_document_full_payload(
     tmp_path, monkeypatch
 ):

@@ -20,10 +20,10 @@ def _block_page_number(block):
     return int(page_idx) + 1 if isinstance(page_idx, int) else None
 
 
-def build_enhanced_page_blocks(content_list):
+def build_enhanced_page_blocks(content_list, *, markdown=None, tables=None):
     content_list = _coerce_json_artifact(content_list)
     if not isinstance(content_list, list):
-        return []
+        return build_markdown_page_blocks(markdown, tables=tables)
     printed_pages = printed_page_numbers_by_pdf_page(content_list)
     pages = {}
     for block in content_list:
@@ -55,13 +55,69 @@ def build_enhanced_page_blocks(content_list):
                     payload["footnote_texts"].append(str(footnote).strip())
         text = " ".join(_collect_text_fragments(block))
         payload["text_chars"] += len(text)
-    return [
+    result = [
         {
             **{key: value for key, value in page.items() if key != "block_types"},
             "block_types": dict(page["block_types"]),
         }
         for _page_number, page in sorted(pages.items())
     ]
+    if not result:
+        return build_markdown_page_blocks(markdown, tables=tables)
+    return result
+
+
+def build_markdown_page_blocks(markdown, *, tables=None):
+    """Build page-level coverage from Markdown page markers when raw blocks are absent."""
+    text = str(markdown or "")
+    markers = pdf_page_markers_by_line(text)
+    if not markers:
+        return []
+    lines = text.splitlines()
+    pages = {}
+    sorted_markers = sorted(markers, key=lambda item: item.get("line") or 0)
+    for index, marker in enumerate(sorted_markers):
+        page_number = marker.get("page_number")
+        line = marker.get("line")
+        if not isinstance(page_number, int) or not isinstance(line, int):
+            continue
+        next_line = sorted_markers[index + 1].get("line") if index + 1 < len(sorted_markers) else len(lines) + 1
+        if not isinstance(next_line, int) or next_line <= line:
+            next_line = len(lines) + 1
+        segment = lines[line - 1 : next_line - 1]
+        pages[page_number] = {
+            "page_number": page_number,
+            "pdf_page_number": page_number,
+            "printed_page_number": None,
+            "block_count": 1,
+            "block_types": {"markdown_page_marker": 1},
+            "table_count": 0,
+            "text_chars": sum(len(item) for item in segment),
+            "footnote_texts": [],
+            "source": "markdown_page_marker",
+        }
+    for table in tables or []:
+        if not isinstance(table, dict):
+            continue
+        page_number = table.get("pdf_page_number")
+        if not isinstance(page_number, int):
+            continue
+        payload = pages.setdefault(
+            page_number,
+            {
+                "page_number": page_number,
+                "pdf_page_number": page_number,
+                "printed_page_number": table.get("printed_page_number"),
+                "block_count": 0,
+                "block_types": {},
+                "table_count": 0,
+                "text_chars": 0,
+                "footnote_texts": [],
+                "source": "table_page_inference",
+            },
+        )
+        payload["table_count"] += 1
+    return [pages[page_number] for page_number in sorted(pages)]
 
 
 def printed_page_numbers_by_pdf_page_map(content_list):
@@ -576,7 +632,12 @@ def build_content_list_enhanced_payload(
         )
 
     source_counts = Counter(item["source"] for item in tables)
-    pages = build_enhanced_page_blocks(content_list)
+    try:
+        pages = build_enhanced_page_blocks(content_list, markdown=markdown, tables=tables)
+    except TypeError:
+        pages = build_enhanced_page_blocks(content_list)
+        if not pages:
+            pages = build_markdown_page_blocks(markdown, tables=tables)
     footnotes = build_enhanced_footnotes(markdown, content_list=content_list)
     toc = build_enhanced_toc(markdown, content_list=content_list)
     financial_note_links = build_financial_note_links(markdown, tables, page_markers)
@@ -1124,22 +1185,44 @@ def amount_close(left, right):
 
 
 FINANCIAL_NOTE_ITEM_ALIASES = {
-    "货币资金": ("货币资金", "现金及存放中央银行款项"),
-    "交易性金融资产": ("交易性金融资产",),
+    "货币资金": (
+        "货币资金",
+        "现金及存放中央银行款项",
+        "現金及現金等價物",
+        "現金及銀行結餘",
+        "定期及已抵押存款",
+        "Cash and cash equivalents",
+        "Cash and bank balances",
+        "Time and pledged deposits",
+        "Restricted and time deposits",
+    ),
+    "交易性金融资产": ("交易性金融资产", "Financial assets at fair value through profit or loss"),
     "应收票据": ("应收票据",),
-    "应收账款": ("应收账款", "应收款项"),
-    "预付款项": ("预付款项",),
+    "应收账款": (
+        "应收账款",
+        "应收款项",
+        "貿易應收款項及應收票據",
+        "貿易應收款項",
+        "Trade and notes receivables",
+        "Trade and note receivables",
+        "Trade receivables",
+    ),
+    "预付款项": (
+        "预付款项",
+        "預付款項、其他應收款項及其他資產",
+        "Prepayments, other receivables and other assets",
+    ),
     "其他应收款": ("其他应收款",),
-    "存货": ("存货",),
-    "长期股权投资": ("长期股权投资",),
-    "固定资产": ("固定资产",),
+    "存货": ("存货", "存貨", "Inventories"),
+    "长期股权投资": ("长期股权投资", "於聯營公司的投資", "Investments in associates"),
+    "固定资产": ("固定资产", "物業、廠房及設備", "Property, plant and equipment"),
     "在建工程": ("在建工程",),
-    "无形资产": ("无形资产",),
-    "商誉": ("商誉",),
-    "短期借款": ("短期借款",),
-    "应付账款": ("应付账款", "应付款项"),
-    "合同负债": ("合同负债",),
-    "长期借款": ("长期借款",),
+    "无形资产": ("无形资产", "無形資產", "Intangible assets"),
+    "商誉": ("商誉", "商譽", "Goodwill"),
+    "短期借款": ("短期借款", "計息銀行借款", "Interest-bearing bank borrowings", "Bank borrowings"),
+    "应付账款": ("应付账款", "应付款项", "貿易應付款項", "Trade payables", "Trade and other payables"),
+    "合同负债": ("合同负债", "合約負債", "Contract liabilities"),
+    "长期借款": ("长期借款", "計息銀行借款", "Interest-bearing bank borrowings", "Bank borrowings"),
     "吸收存款": ("吸收存款", "客户存款"),
     "发放贷款和垫款": ("发放贷款和垫款", "客户贷款及垫款", "贷款和垫款"),
     "拆出资金": ("拆出资金",),
@@ -1150,20 +1233,56 @@ FINANCIAL_NOTE_ITEM_ALIASES = {
     "代理买卖证券款": ("代理买卖证券款",),
     "应付债券": ("应付债券",),
     "保险合同负债": ("保险合同负债",),
-    "投资资产": ("投资资产",),
-    "营业收入": ("营业收入", "营业总收入"),
-    "营业成本": ("营业成本", "营业总成本"),
+    "投资资产": (
+        "投资资产",
+        "投資物業",
+        "指定按公平值計入其他全面收益的權益投資",
+        "Investment properties",
+        "Equity investments designated at fair value through other comprehensive income",
+    ),
+    "营业收入": ("营业收入", "营业总收入", "收入", "銷售收入", "Revenue"),
+    "营业成本": ("营业成本", "营业总成本", "銷售成本", "Cost of sales"),
     "利息净收入": ("利息净收入",),
     "手续费及佣金净收入": ("手续费及佣金净收入",),
     "保费收入": ("保险业务收入", "已赚保费", "保费收入"),
     "投资收益": ("投资收益",),
-    "所得税费用": ("所得税费用",),
-    "销售费用": ("销售费用",),
-    "管理费用": ("管理费用",),
+    "所得税费用": ("所得税费用", "所得税開支", "Income tax expense", "Income tax"),
+    "销售费用": ("销售费用", "銷售及分銷費用", "Selling and distribution expenses"),
+    "管理费用": ("管理费用", "管理費用", "Administrative expenses"),
     "研发费用": ("研发费用",),
-    "财务费用": ("财务费用",),
-    "经营活动现金流量净额": ("经营活动产生的现金流量净额", "经营活动现金流量净额"),
+    "财务费用": ("财务费用", "財務費用", "Finance costs"),
+    "经营活动现金流量净额": (
+        "经营活动产生的现金流量净额",
+        "经营活动现金流量净额",
+        "經營活動所產生現金流量淨額",
+        "經營活動所用現金流量淨額",
+        "Net cash flows generated from operating activities",
+        "Net cash flows used in operating activities",
+    ),
 }
+
+NOTE_HEADER_CELL_ALIASES = {
+    "附注",
+    "附註",
+    "注释",
+    "注釋",
+    "附注号",
+    "附註號",
+    "注释号",
+    "注釋號",
+    "注",
+    "Note",
+    "Notes",
+    "Notes附註",
+    "Note附註",
+}
+
+FINANCIAL_STATEMENT_HEADING_RE = re.compile(
+    r"(合并资产负债表|资产负债表|合并利润表|利润表|合并现金流量表|现金流量表|"
+    r"綜合財務狀況表|綜合損益表|綜合現金流量表|"
+    r"CONSOLIDATED\s+STATEMENT|STATEMENT\s+OF\s+FINANCIAL\s+POSITION)",
+    flags=re.IGNORECASE,
+)
 
 
 CHINESE_NOTE_SECTION_NUMBERS = {
@@ -1196,7 +1315,10 @@ def canonical_financial_note_ref(value, current_section=None):
         return None
     text = re.sub(r"\s+", "", text)
     text = text.replace("（", "(").replace("）", ")")
-    text = re.sub(r"^(?:附注|注释|附注号|注释号|注|Note|note)", "", text)
+    text = re.sub(r"^(?:附注|附註|注释|注釋|附注号|附註號|注释号|注釋號|注|Notes?|notes?)", "", text)
+    match = re.match(r"^(\d{1,3})\(([A-Za-z])\)$", text)
+    if match:
+        return f"{int(match.group(1))}({match.group(2).lower()})"
     text = text.strip("：:、,.，。;；()[]【】")
     if not text:
         return None
@@ -1213,20 +1335,44 @@ def canonical_financial_note_ref(value, current_section=None):
     if match:
         suffix = f".{int(match.group(2))}" if match.group(2) else ""
         return f"{current_section}、{int(match.group(1))}{suffix}" if current_section else f"{int(match.group(1))}{suffix}"
+    match = re.match(r"^(\d{1,3})([A-Za-z])$", text)
+    if match:
+        return f"{int(match.group(1))}({match.group(2).lower()})"
     return None
 
 
 def note_ref_numeric_key(note_ref):
     match = re.search(r"(\d{1,3})(?:\.\d+)?$", str(note_ref or ""))
+    if not match:
+        match = re.search(r"(\d{1,3})(?:\([a-z]\))?$", str(note_ref or ""), flags=re.IGNORECASE)
     return match.group(1) if match else ""
 
 
 def canonical_item_name_from_alias(text):
     compact = _strip_html(str(text or "")).strip()
     for canonical, aliases in FINANCIAL_NOTE_ITEM_ALIASES.items():
-        if any(alias and alias in compact for alias in aliases):
+        if any(alias and re.search(re.escape(alias), compact, flags=re.IGNORECASE) for alias in aliases):
             return canonical
     return None
+
+
+def is_note_header_cell(value):
+    compact = re.sub(r"\s+", "", _strip_html(str(value or ""))).strip()
+    if compact in NOTE_HEADER_CELL_ALIASES:
+        return True
+    return bool(re.fullmatch(r"(?:Notes?|附注|附註|注释|注釋)[一二三四五六七八九十]+", compact, flags=re.IGNORECASE))
+
+
+def is_latin_alias(value):
+    text = str(value or "")
+    latin = len(re.findall(r"[A-Za-z]", text))
+    cjk = len(re.findall(r"[\u4e00-\u9fff]", text))
+    return latin > 0 and latin >= cjk
+
+
+def has_financial_statement_context(markdown_part, table_start, lookback=900):
+    before = _strip_html(str(markdown_part or "")[max(0, int(table_start or 0) - lookback) : int(table_start or 0)])
+    return bool(FINANCIAL_STATEMENT_HEADING_RE.search(before))
 
 
 def clean_financial_note_title(text):
@@ -1322,13 +1468,19 @@ def financial_note_zone_start(markdown):
         r"(?:^|\n)\s*(?:#{1,6}\s*)?(?:[一二三四五六七八九十]+(?:[、.．]|\s+))?"
         r"(?:合并|母公司|公司|本集团|集团)?财务报表(?:主要项目|项目)?(?:附注|注释)(?:\s*[（(]续[）)])?|"
         r"(?:^|\n)\s*(?:#{1,6}\s*)?(?:[一二三四五六七八九十]+(?:[、.．]|\s+))?"
-        r"(?:合并|母公司|公司|本集团|集团)?财务报表项目注释",
+        r"(?:合并|母公司|公司|本集团|集团)?财务报表项目注释|"
+        r"(?:^|\n)\s*(?:#{1,6}\s*)?(?:綜合|合併|公司|本集團|集團)?財務報表(?:主要項目|項目)?(?:附註|注釋)(?:\s*[（(]續[）)])?|"
+        r"(?:^|\n)\s*(?:#{1,6}\s*)?NOTES?\s+TO\s+(?:THE\s+)?(?:CONSOLIDATED\s+)?FINANCIAL\s+STATEMENTS?",
+        flags=re.IGNORECASE,
     )
     explicit_matches = list(explicit_pattern.finditer(text))
     min_explicit_offset = int(len(text) * 0.2)
     for match in explicit_matches:
+        if _looks_like_toc_financial_note_line(text, match.start()):
+            continue
         if match.start() >= min_explicit_offset:
             return match.start()
+    explicit_matches = [match for match in explicit_matches if not _looks_like_toc_financial_note_line(text, match.start())]
     if explicit_matches:
         later = explicit_matches[-1]
         if len(explicit_matches) > 1 and later.start() > explicit_matches[0].start():
@@ -1342,6 +1494,17 @@ def financial_note_zone_start(markdown):
             return offset
         offset += len(line)
     return max(0, int(len(text) * 0.45))
+
+
+def _looks_like_toc_financial_note_line(text, position):
+    start = str(text or "").rfind("\n", 0, position) + 1
+    end = str(text or "").find("\n", position)
+    if end < 0:
+        end = len(str(text or ""))
+    raw_line = _strip_html(str(text or "")[start:end]).strip()
+    if raw_line.startswith("#"):
+        return False
+    return bool(re.search(r"(?:\.{2,}|…+|\s)\d{1,4}\s*$", raw_line))
 
 
 def financial_statement_note_ref_hits(markdown, note_start):
@@ -1361,7 +1524,7 @@ def financial_statement_note_ref_hits(markdown, note_start):
         for row in grid[:header_rows]:
             for col_idx, cell in enumerate(row):
                 cell_text = _strip_html(str(cell or "")).strip()
-                if cell_text in {"附注", "注释", "附注号", "注释号", "注"} or re.fullmatch(r"附注[一二三四五六七八九十]+", cell_text):
+                if is_note_header_cell(cell_text):
                     note_columns.append((col_idx, canonical_financial_note_ref(cell_text)))
         if not note_columns:
             continue
@@ -1407,17 +1570,11 @@ def financial_statement_note_ref_hits(markdown, note_start):
 def financial_statement_table_alias_hits(markdown, note_start):
     statement_part = str(markdown or "")[:note_start]
     hits = {}
-    statement_heading_re = re.compile(
-        r"(合并资产负债表|资产负债表|合并利润表|利润表|合并现金流量表|现金流量表|"
-        r"CONSOLIDATED\s+STATEMENT|STATEMENT\s+OF\s+FINANCIAL\s+POSITION)",
-        flags=re.IGNORECASE,
-    )
     table_iter = list(re.finditer(r"<table\b.*?</table>", statement_part, flags=re.IGNORECASE | re.DOTALL))
     for table_index, match in enumerate(table_iter, start=1):
-        before = _strip_html(statement_part[max(0, match.start() - 900) : match.start()])
         after = _strip_html(statement_part[match.end() : min(len(statement_part), match.end() + 160)])
         table_text = _strip_html(match.group(0))
-        has_statement_context = bool(statement_heading_re.search(before))
+        has_statement_context = has_financial_statement_context(statement_part, match.start())
         has_period = bool(re.search(r"20\d{2}年|20\d{2}|12月31日|本年|上年|本期|上期", table_text[:1200]))
         if not has_statement_context or not has_period:
             continue
@@ -1468,14 +1625,18 @@ def financial_statement_item_hits(markdown):
         table_index = None
         statement_values = []
         row_index = None
+        has_statement_context = False
         for idx, match in enumerate(re.finditer(r"<table\b.*?</table>", statement_part, flags=re.IGNORECASE | re.DOTALL), start=1):
             if match.start() <= best_pos <= match.end():
                 table_index = idx
+                has_statement_context = has_financial_statement_context(statement_part, match.start())
                 row_hit = statement_table_row_hit_for_canonical(match.group(0), canonical)
                 if row_hit:
                     statement_values = row_hit.get("statement_values") or []
                     row_index = row_hit.get("row_index")
                 break
+        if table_index is None or row_index is None or not has_statement_context:
+            continue
         hits[canonical] = {
             "canonical_name": canonical,
             "matched_alias": best_alias,

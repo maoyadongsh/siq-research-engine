@@ -17,7 +17,6 @@ import type {
   DealListResponse,
   DealPhaseArtifactsResponse,
   DealQuery,
-  DealJobStatus,
   DealPreflightResponse,
   DealR1AgentReportsResponse,
   DealR2AgentReportsResponse,
@@ -42,9 +41,6 @@ import type {
   DealWorkflowRunR1AgentDryRunResponse,
   DealWorkflowRunR1SerialResponse,
   DeleteDealDocumentResponse,
-  OpenClawImportOptions,
-  OpenClawImportPayload,
-  OpenClawImportResponse,
 } from './dealTypes'
 
 export interface UploadDealDocumentPayload {
@@ -475,23 +471,4 @@ export function bindDealDocumentParserTask(
     `/api/deals/${encodeURIComponent(dealId)}/documents/${encodeURIComponent(documentId)}/bind-parser-task`,
     { method: 'POST', body, signal },
   )
-}
-
-export function importOpenClawDeal(
-  payload: OpenClawImportPayload,
-  options: OpenClawImportOptions = {},
-  signal?: AbortSignal,
-) {
-  const params = new URLSearchParams()
-  if (options.wait) params.set('wait', 'true')
-  const suffix = params.toString() ? `?${params.toString()}` : ''
-  return apiJson<OpenClawImportResponse>(`/api/deals/import/openclaw${suffix}`, {
-    method: 'POST',
-    body: payload,
-    signal,
-  })
-}
-
-export function fetchDealJob(jobId: string, signal?: AbortSignal) {
-  return apiJson<DealJobStatus>(`/api/deals/jobs/${encodeURIComponent(jobId)}`, { signal })
 }

@@ -196,6 +196,7 @@ def write_financial_artifacts(
             task_id=task.get("task_id"),
             filename=resolved_filename,
             market=market if market in {"JP", "KR", "EU", "US"} else None,
+            result_dir_path=directory,
             llm_cache_dir=os.path.join(financial_llm_cache_folder, task.get("task_id") or "unknown"),
         )
         if market in {"JP", "KR", "EU", "US"} and isinstance(financial_data, dict):

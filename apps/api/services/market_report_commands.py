@@ -9,6 +9,7 @@ from typing import Any
 
 ESEF_SOURCE_SUFFIXES = {".zip", ".xhtml", ".html", ".htm", ".xml", ".xbrl"}
 PARSER_RESULT_MARKETS = {"HK", "JP", "KR", "EU"}
+DOWNLOAD_PATH_MARKETS = {"CN", "HK", "US", "EU", "JP", "KR"}
 
 
 class MarketPackageBuildPlanError(Exception):
@@ -80,6 +81,11 @@ def select_market_build_script(
     return market_build_scripts[market]
 
 
+def download_relative_path_market(value: object) -> str:
+    first = str(value or "").replace("\\", "/").split("/", 1)[0].strip().upper()
+    return first if first in DOWNLOAD_PATH_MARKETS else ""
+
+
 def market_build_requires_parser_result(
     *,
     market: str,
@@ -129,6 +135,9 @@ def build_market_package_build_plan(
     download_relative_path = payload.get("download_relative_path")
     source = payload.get("source_path") or payload.get("pdf_path")
     if download_relative_path:
+        download_market = download_relative_path_market(download_relative_path)
+        if download_market and download_market != market:
+            raise MarketPackageBuildPlanError(400, f"download_relative_path belongs to {download_market}, not {market}")
         source_path = safe_download_path(str(download_relative_path))
     else:
         source_path = _resolve_repo_path(source, repo_root=repo_root) if source else Path()

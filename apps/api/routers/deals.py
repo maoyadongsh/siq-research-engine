@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -32,7 +31,6 @@ from services import ic_policy
 from services import ic_report_submission
 from services import ic_startup_retrieval
 from services import ic_workflow
-from services.ic_openclaw_importer import DEFAULT_OPENCLAW_PROJECTS_ROOT, import_openclaw_project
 from services.job_service import FileBackedJobService
 from services.path_config import BACKEND_DATA_ROOT
 from services.usage_service import UserArtifact
@@ -49,14 +47,6 @@ class DealCreateRequest(BaseModel):
     stage: str = ""
     deal_type: str = ""
     source: str = "manual"
-
-
-class OpenClawImportRequest(BaseModel):
-    source_root: str | None = None
-    project_id: str | None = None
-    deal_id: str = Field(..., min_length=3)
-    overwrite: bool = False
-    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class DealDocumentBindParserTaskRequest(BaseModel):
@@ -319,89 +309,6 @@ async def _user_has_document_task_access(
     return result.first() is not None
 
 
-def _resolve_openclaw_source(payload: OpenClawImportRequest) -> str:
-    if payload.source_root:
-        return payload.source_root
-    project_id = str(payload.project_id or "").strip()
-    if not project_id:
-        raise ValueError("source_root or project_id is required")
-    project_path = Path(project_id)
-    if project_path.is_absolute() or project_path.name != project_id or project_id in {".", ".."}:
-        raise ValueError("project_id must be a single OpenClaw project directory name")
-    return str(DEFAULT_OPENCLAW_PROJECTS_ROOT / project_id)
-
-
-def _compact_import_result(result: dict[str, Any], deal_id: str) -> dict[str, Any]:
-    deal = result.get("deal") if isinstance(result, dict) else {}
-    archive_manifest = result.get("archive_manifest") if isinstance(result, dict) else {}
-    summary = deal.get("summary") if isinstance(deal, dict) else None
-    if not isinstance(summary, dict):
-        summary = result.get("summary") if isinstance(result, dict) and isinstance(result.get("summary"), dict) else {}
-    manifest = deal.get("manifest") if isinstance(deal, dict) else {}
-    openclaw_import = manifest.get("openclaw_import") if isinstance(manifest, dict) else {}
-    return deal_store.redact_public_payload({
-        "ok": True,
-        "deal_id": deal_id,
-        "summary": summary,
-        "legacy_project_id": (
-            archive_manifest.get("legacy_project_id")
-            if isinstance(archive_manifest, dict)
-            else openclaw_import.get("legacy_project_id")
-            if isinstance(openclaw_import, dict)
-            else None
-        ),
-        "archive_manifest": {
-            "schema_version": archive_manifest.get("schema_version") if isinstance(archive_manifest, dict) else None,
-            "file_count": archive_manifest.get("file_count") if isinstance(archive_manifest, dict) else None,
-        },
-    })
-
-
-def _safe_import_error(exc: Exception) -> str:
-    if isinstance(exc, FileExistsError):
-        return str(exc)
-    if isinstance(exc, FileNotFoundError):
-        return "OpenClaw project source not found"
-    if isinstance(exc, ValueError):
-        message = str(exc)
-        if "source" in message.lower() and "under" in message.lower():
-            return "OpenClaw source must be under the configured projects root"
-        return message
-    return "OpenClaw import failed"
-
-
-def _raise_import_error(exc: Exception) -> None:
-    if isinstance(exc, ValueError):
-        raise HTTPException(status_code=400, detail=_safe_import_error(exc)) from exc
-    if isinstance(exc, FileExistsError):
-        raise HTTPException(status_code=409, detail=_safe_import_error(exc)) from exc
-    if isinstance(exc, FileNotFoundError):
-        raise HTTPException(status_code=404, detail=_safe_import_error(exc)) from exc
-    raise HTTPException(status_code=500, detail=_safe_import_error(exc)) from exc
-
-
-def _run_openclaw_import(payload: OpenClawImportRequest, created_by: dict[str, Any]) -> dict[str, Any]:
-    return import_openclaw_project(
-        source_root=_resolve_openclaw_source(payload),
-        deal_id=payload.deal_id,
-        created_by=created_by,
-        metadata=payload.metadata,
-        overwrite=payload.overwrite,
-    )
-
-
-def _run_openclaw_import_job(payload: OpenClawImportRequest, created_by: dict[str, Any]) -> dict[str, Any]:
-    try:
-        result = _run_openclaw_import(payload, created_by)
-        return _compact_import_result(result, payload.deal_id)
-    except Exception as exc:
-        return {
-            "ok": False,
-            "deal_id": payload.deal_id,
-            "error": _safe_import_error(exc),
-        }
-
-
 def _coerce_dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
@@ -606,26 +513,6 @@ async def create_deal(
         await async_session.rollback()
         print(f"[agent-memory] failed to bind deal memory access for deal {payload.deal_id}: {exc}")
     return {"deal": deal}
-
-
-@router.post("/import/openclaw")
-def import_openclaw_deal(
-    payload: OpenClawImportRequest,
-    wait: bool = Query(default=False),
-    current_user: User = Depends(require_permission("report.create")),
-) -> dict[str, Any]:
-    created_by = _user_payload(current_user)
-    if not wait:
-        job = deal_job_service.start(
-            "deal-openclaw-import",
-            lambda: _run_openclaw_import_job(payload, created_by),
-            created_by=created_by,
-        )
-        return {"ok": True, "queued": True, **job}
-    try:
-        return _run_openclaw_import(payload, created_by)
-    except Exception as exc:
-        _raise_import_error(exc)
 
 
 @router.get("/jobs/{job_id}")

@@ -27,6 +27,7 @@ KR_SPEC = HybridMarketSpec(
     companyfacts_keys=("dart_facts", "xbrl_facts", "single_company_accounts", "facts", "companyfacts"),
     warnings_prefix="KR DART hybrid parser",
     skip_ratio_rows=True,
+    restrict_unclassified_statement_tables=True,
 )
 
 

@@ -128,3 +128,85 @@ def test_hk_financial_artifact_builder_uses_markdown_formal_window_for_tencent()
     assert {"balance_sheet", "income_statement", "cash_flow_statement"}.issubset(statement_types)
     assert checks["overall_status"] == "pass"
     assert checks["summary"]["fail"] == 0
+
+
+def test_hk_report_type_detects_non_annual_hkex_documents():
+    from hk_financial_artifacts import _hk_report_type_from_content, _report_kind
+
+    supplemental = {
+        "markdown": {
+            "content": "# SUPPLEMENTAL ANNOUNCEMENT TO THE ANNUAL REPORT FOR THE YEAR ENDED 31 DECEMBER 2025"
+        }
+    }
+    notice = {
+        "markdown": {
+            "content": "Dear non-registered shareholder, Notice of Publication of Annual Report 2025 and Current Corporate Communications are available on the website."
+        }
+    }
+    regulatory = {"markdown": {"content": "# OVERSEAS REGULATORY ANNOUNCEMENT\nThis announcement is issued pursuant to Rule 13.10B."}}
+
+    assert _hk_report_type_from_content(supplemental) == "supplemental_announcement"
+    assert _hk_report_type_from_content(notice) == "corporate_communication_notice"
+    assert _hk_report_type_from_content(regulatory) == "overseas_regulatory_announcement"
+    assert _report_kind("supplemental_announcement") == "supplemental_announcement"
+
+
+def test_hk_markdown_tables_support_plain_bank_statement_headings():
+    from hk_evidence_lib import _markdown_statement_tables
+
+    result_dir = Path("data/pdf-parser/results/4c4f0281-34a2-4e0e-9ee2-e4b6bb6b2163")
+    if not result_dir.exists():
+        pytest.skip("BANK OF CHINA HK parser sample is not available in this checkout")
+
+    tables = _markdown_statement_tables(result_dir)
+    statement_types = {(table.raw or {}).get("statement_type") for table in tables}
+
+    assert {"balance_sheet", "income_statement", "cash_flow_statement"}.issubset(statement_types)
+
+
+def test_hk_markdown_tables_support_20f_operations_headings():
+    from hk_evidence_lib import _markdown_statement_tables
+
+    result_dir = Path("data/pdf-parser/results/0b8d4d2e-32f0-4ce7-909b-4c74456a1cbb")
+    if not result_dir.exists():
+        pytest.skip("NETEASE HK parser sample is not available in this checkout")
+
+    tables = _markdown_statement_tables(result_dir)
+    income_titles = [
+        table.title
+        for table in tables
+        if (table.raw or {}).get("statement_type") == "income_statement"
+    ]
+
+    assert any("Operations" in title for title in income_titles)
+
+
+def test_hk_markdown_tables_support_split_comprehensive_income_pages():
+    from hk_evidence_lib import _markdown_statement_tables
+
+    result_dir = Path("data/pdf-parser/results/362176b2-5a57-441d-9191-e060618a3a70")
+    if not result_dir.exists():
+        pytest.skip("LI AUTO HK parser sample is not available in this checkout")
+
+    tables = _markdown_statement_tables(result_dir)
+    income_tables = [
+        table
+        for table in tables
+        if (table.raw or {}).get("statement_type") == "income_statement"
+        and "COMPREHENSIVE INCOME" in str(table.title or "")
+    ]
+
+    assert income_tables
+
+
+def test_hk_markdown_formal_window_can_start_before_auditor_report():
+    from hk_evidence_lib import _markdown_statement_tables
+
+    result_dir = Path("data/pdf-parser/results/aaba3271-6f9b-44b5-be92-ed926a6cb43d")
+    if not result_dir.exists():
+        pytest.skip("CRRC HK parser sample is not available in this checkout")
+
+    tables = _markdown_statement_tables(result_dir)
+    statement_types = {(table.raw or {}).get("statement_type") for table in tables}
+
+    assert {"balance_sheet", "income_statement", "cash_flow_statement"}.issubset(statement_types)

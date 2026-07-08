@@ -1,5 +1,5 @@
-import { useMemo } from 'react'
-import { NavLink } from 'react-router-dom'
+import { useMemo, useState } from 'react'
+import { NavLink, useLocation } from 'react-router-dom'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { Tooltip } from '../ui'
 import { useAuth } from '../../hooks/useAuth'
@@ -15,6 +15,8 @@ interface SidebarProps {
 
 export default function Sidebar({ collapsed, mobileOpen = false, onToggle, onCloseMobile }: SidebarProps) {
   const { hasPermission } = useAuth()
+  const location = useLocation()
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({ '/primary-market': true })
   const canManageUsers = hasPermission('user.manage')
   const canConfigureSystem = hasPermission('system.config')
   const visibleNavItems = useMemo(
@@ -29,6 +31,14 @@ export default function Sidebar({ collapsed, mobileOpen = false, onToggle, onClo
     () => bottomItems.filter((item) => item.to !== '/settings' || canConfigureSystem),
     [canConfigureSystem],
   )
+  const isChildActive = (child: NonNullable<SidebarItem['children']>[number]) => (
+    child.end ? location.pathname === child.to : location.pathname === child.to || location.pathname.startsWith(`${child.to}/`)
+  )
+  const isGroupActive = (item: SidebarItem) => (
+    location.pathname === item.to || location.pathname.startsWith(`${item.to}/`) || Boolean(item.children?.some(isChildActive))
+  )
+  const isGroupExpanded = (item: SidebarItem) => expandedGroups[item.to] ?? false
+
   const renderLink = (item: SidebarItem, compact: boolean, variant: SidebarLinkVariant = 'nav') => {
     const sizeClass = compact
       ? variant === 'nav'
@@ -44,6 +54,7 @@ export default function Sidebar({ collapsed, mobileOpen = false, onToggle, onClo
       <NavLink
         key={item.to}
         to={item.to}
+        end={item.end}
         onClick={onCloseMobile}
         className={({ isActive }) =>
           `group relative flex items-center gap-2.5 font-semibold transition-[background,color,box-shadow] duration-200 ${sizeClass} ${
@@ -65,6 +76,58 @@ export default function Sidebar({ collapsed, mobileOpen = false, onToggle, onClo
       </Tooltip>
     ) : (
       link
+    )
+  }
+
+  const renderChildLink = (item: NonNullable<SidebarItem['children']>[number]) => (
+    <NavLink
+      key={item.to}
+      to={item.to}
+      end={item.end}
+      onClick={onCloseMobile}
+      className={({ isActive }) =>
+        `block rounded-[11px] px-3.5 py-2.5 text-[0.92rem] font-semibold leading-5 transition-colors ${
+          isActive
+            ? 'bg-primary/10 text-primary shadow-[0_6px_14px_rgba(0,113,227,0.06)]'
+            : 'text-slate-500 hover:bg-slate-100/80 hover:text-slate-900'
+        }`
+      }
+      onPointerEnter={() => preloadRoute(item.to)}
+      onFocus={() => preloadRoute(item.to)}
+    >
+      <span className="block truncate whitespace-nowrap">{item.label}</span>
+    </NavLink>
+  )
+
+  const renderNavItem = (item: SidebarItem, compact: boolean) => {
+    if (compact || !item.children?.length) return renderLink(item, compact)
+    const expanded = isGroupExpanded(item)
+    const active = isGroupActive(item)
+    return (
+      <div key={item.to} className="space-y-1">
+        <button
+          type="button"
+          onClick={() => setExpandedGroups((current) => ({ ...current, [item.to]: !expanded }))}
+          className={`group relative flex min-h-11 w-full items-center gap-2.5 rounded-[12px] px-3 py-2 text-left text-[0.94rem] font-semibold transition-[background,color,box-shadow] duration-200 ${
+            active
+              ? 'bg-primary/10 text-primary shadow-[0_8px_18px_rgba(0,113,227,0.08)] before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-primary'
+              : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-950'
+          }`}
+          aria-expanded={expanded}
+          aria-controls={`sidebar-group-${item.to.replace(/[^a-zA-Z0-9_-]/g, '-')}`}
+          onPointerEnter={() => preloadRoute(item.to)}
+          onFocus={() => preloadRoute(item.to)}
+        >
+          <item.icon className="h-[18px] w-[18px] shrink-0" />
+          <span className="min-w-0 flex-1 truncate whitespace-nowrap">{item.label}</span>
+          <ChevronRight className={`h-4 w-4 shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+        </button>
+        {expanded ? (
+          <div id={`sidebar-group-${item.to.replace(/[^a-zA-Z0-9_-]/g, '-')}`} className="ml-6 space-y-1.5 border-l border-slate-200/80 pl-3">
+            {item.children.map(renderChildLink)}
+          </div>
+        ) : null}
+      </div>
     )
   }
 
@@ -93,7 +156,7 @@ export default function Sidebar({ collapsed, mobileOpen = false, onToggle, onClo
         )}
       </div>
       <nav className={`sidebar-scrollbarless flex-1 overflow-y-auto overflow-x-hidden pb-1 ${compact ? 'mt-2 space-y-0.5 px-1.5' : 'mt-3 space-y-0.5 px-2.5'}`}>
-        {visibleNavItems.map((item) => renderLink(item, compact))}
+        {visibleNavItems.map((item) => renderNavItem(item, compact))}
       </nav>
       <div className={`border-t border-border ${compact ? 'px-1.5 py-1' : 'px-2.5 py-1'}`}>{renderLink(assistantItem, compact, 'assistant')}</div>
       <div className={`border-t border-border ${compact ? 'px-1.5 py-1' : 'px-2.5 py-1'}`}>

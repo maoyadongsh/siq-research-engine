@@ -116,19 +116,39 @@ def rebuild_one(task: dict, results_dir: Path, write_complete_markdown: bool = F
         content_list=content_list,
         report_year=app._detect_report_year(markdown, file_name=task.get("filename")),
     )
+    enhanced.update(
+        {
+            "task_id": task_id,
+            "filename": task.get("filename"),
+            "generated_at": enhanced.get("generated_at")
+            or datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        }
+    )
     _write_json(result_dir / "content_list_enhanced.json", enhanced)
     complete_path = None
     if write_complete_markdown:
         complete_path = _write_complete_markdown(md_path, enhanced)
+    table_relations = app._build_table_relations_artifact(
+        task,
+        markdown,
+        enhanced=enhanced,
+        content_list=content_list,
+    )
+    table_relations_path = result_dir / "table_relations.json"
+    _write_json(table_relations_path, table_relations)
     document_full_path = None
     document_full = _json_artifact(result_dir / "document_full.json")
     if isinstance(document_full, dict):
-        document_full["content_list_enhanced"] = enhanced
-        document_full.setdefault("artifacts", {})["content_list_enhanced.json"] = {
-            "exists": True,
-            "path": str(result_dir / "content_list_enhanced.json"),
-            "url": f"/api/artifact/{task_id}/content_list_enhanced.json",
-        }
+        document_full = app.document_full_service.apply_content_list_enhanced_update_to_document_full(
+            document_full,
+            task_id=task_id,
+            enhanced=enhanced,
+            table_relations=table_relations,
+            content_list_enhanced_path=str(result_dir / "content_list_enhanced.json"),
+            table_relations_path=str(table_relations_path),
+            complete_markdown_path=str(complete_path or result_dir / "result_complete.md"),
+            complete_markdown_exists=bool((complete_path or result_dir / "result_complete.md").exists()),
+        )
         if complete_path:
             document_full.setdefault("source_files", {}).setdefault("complete_markdown", {})["path"] = str(complete_path)
         _write_json(result_dir / "document_full.json", document_full)
@@ -148,6 +168,8 @@ def rebuild_one(task: dict, results_dir: Path, write_complete_markdown: bool = F
         "image_semantic_recognized_count": signals.get("image_semantic_recognized_count"),
         "image_semantic_show_count": signals.get("image_semantic_show_count"),
         "image_semantic_ocr_candidate_count": signals.get("image_semantic_ocr_candidate_count"),
+        "table_relations_path": str(table_relations_path),
+        "table_relation_count": len(table_relations.get("relations") or []) if isinstance(table_relations, dict) else 0,
     }
     if complete_path:
         payload["complete_markdown_path"] = str(complete_path)
@@ -186,6 +208,7 @@ def main(argv=None) -> int:
         "image_semantic_recognized": 0,
         "image_semantic_show": 0,
         "image_semantic_ocr_candidates": 0,
+        "table_relations": 0,
     }
     for task in rows:
         info = rebuild_one(task, results_dir, write_complete_markdown=args.write_complete_md)
@@ -205,6 +228,9 @@ def main(argv=None) -> int:
             summary["image_semantic_recognized"] += int((info.get("image_semantic_recognized_count") or 0))
             summary["image_semantic_show"] += int((info.get("image_semantic_show_count") or 0))
             summary["image_semantic_ocr_candidates"] += int((info.get("image_semantic_ocr_candidate_count") or 0))
+            if info.get("table_relations_path"):
+                summary["table_relations"] = summary.get("table_relations", 0) + 1
+                summary["table_relation_count"] = summary.get("table_relation_count", 0) + int(info.get("table_relation_count") or 0)
             if info.get("complete_markdown_path"):
                 summary["complete_markdown"] = summary.get("complete_markdown", 0) + 1
             if info.get("document_full_path"):

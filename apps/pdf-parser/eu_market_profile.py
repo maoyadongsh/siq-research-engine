@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from html import unescape
+import json
+from pathlib import Path
 import re
 from typing import Any, Iterable
 
@@ -414,6 +416,54 @@ _FINANCIAL_HIGHLIGHT_HARD_BAD_CONTEXTS = (
     "market indices",
 )
 
+_STATEMENT_CONTEXT_TERMS = (
+    "consolidated income statement",
+    "consolidated income statements",
+    "consolidated statement of income",
+    "consolidated statements of income",
+    "consolidated statement of profit or loss",
+    "consolidated statements of profit or loss",
+    "consolidated profit and loss account",
+    "consolidated profit and loss statement",
+    "income statement",
+    "statement of income",
+    "statements of operations",
+    "statement of operations",
+    "statements of income",
+    "statement of profit or loss",
+    "statements of profit or loss",
+    "consolidated statement of operations",
+    "consolidated statements of operations",
+    "consolidated statement of comprehensive income",
+    "consolidated statements of comprehensive income",
+    "statement of comprehensive income",
+    "statements of comprehensive income",
+    "consolidated statement of financial position",
+    "consolidated statements of financial position",
+    "consolidated balance sheet",
+    "consolidated balance sheets",
+    "statement of financial position",
+    "statements of financial position",
+    "balance sheet",
+    "balance sheets",
+    "consolidated statement of changes in equity",
+    "consolidated statements of changes in equity",
+    "statement of changes in equity",
+    "statements of changes in equity",
+    "shareholders' equity",
+    "shareholders’ equity",
+    "stockholders' equity",
+    "consolidated cash flow statement",
+    "consolidated cash flow statements",
+    "consolidated statement of cash flows",
+    "consolidated statements of cash flows",
+    "cash flow statement",
+    "statement of cash flows",
+    "statements of cash flows",
+    "financial highlights",
+    "key figures",
+)
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -452,8 +502,51 @@ def is_eu_market(task: dict[str, Any] | None, filename: str | None = None) -> bo
 
 
 def detect_eu_report_kind(text: str, filename: str | None = None) -> str:
-    source = _normalize_text("\n".join([str(filename or ""), str(text or "")[:160000]]))
+    filename_text = str(filename or "")
+    body = str(text or "")
+    source = _normalize_text("\n".join([filename_text, body[:160000]]))
+    long_source = _normalize_text("\n".join([filename_text, body[:900000]]))
     compact = _compact_text(source)
+    long_compact = _compact_text(long_source)
+    early_source = source[:40000]
+    early_compact = _compact_text(early_source)
+    formal_statement_terms = (
+        "consolidated income statement",
+        "consolidated statement of income",
+        "consolidated statement of operations",
+        "consolidated statement of profit or loss",
+        "consolidated balance sheet",
+        "consolidated statement of financial position",
+        "consolidated statement of cash flows",
+        "consolidated cash flow statement",
+    )
+    formal_statement_hits = sum(
+        1 for term in formal_statement_terms if term in long_source or _compact_text(term) in long_compact
+    )
+    if ("report of the board of directors" in early_source or "reportoftheboardofdirectors" in early_compact) and (
+        "nottheoriginalreportincludedintheauditedfinancialreport" in early_compact
+        or ("esefcompliantannualfinancialreport" in early_compact and "xhtmlformat" in early_compact)
+    ):
+        return "eu_board_report"
+    if "annual review" in early_source and (
+        "accompanying reports" in early_source
+        or "finance report" in source
+        or "financial statements 2025" in early_source
+        or "for full results" in source
+    ):
+        return "eu_annual_review"
+    if "annualreview" in early_compact and (
+        "financereport" in long_compact
+        or "actualannualreportandofthefinancereport" in long_compact
+        or "financialstatements2025" in early_compact
+        or "forfullresults" in long_compact
+    ) and formal_statement_hits < 2:
+        return "eu_annual_review"
+    if (
+        "actualannualreportandofthefinancereport" in long_compact
+        or "ourreportingconsistsoftheactualannualreportandofthefinancereport" in long_compact
+    ) and formal_statement_hits < 2:
+        return "eu_annual_review"
     if any(term in source or _compact_text(term) in compact for term in _ESEF_TERMS):
         return "eu_esef_annual_report"
     if "integrated report" in source and "financial statements" not in source[:80000]:
@@ -732,13 +825,99 @@ def eu_quality_report_messages(
     return warnings, info_messages
 
 
-def _iter_markdown_tables(markdown: str):
+def _load_table_index_by_number(result_dir_path: str | None) -> dict[int, dict[str, Any]]:
+    if not result_dir_path:
+        return {}
+    path = Path(result_dir_path) / "table_index.json"
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    if not isinstance(payload, list):
+        return {}
+    return {
+        int(item.get("table_index")): item
+        for item in payload
+        if isinstance(item, dict) and item.get("table_index") is not None
+    }
+
+
+def _flatten_table_index_text(value: Any) -> str:
+    if isinstance(value, list):
+        return " ".join(_clean_text(item) for item in value if item is not None)
+    return _clean_text(value)
+
+
+def _looks_like_statement_context(value: Any) -> bool:
+    normalized = _normalize_text(value)
+    compact = _compact_text(value)
+    return any(term in normalized or _compact_text(term) in compact for term in _STATEMENT_CONTEXT_TERMS)
+
+
+def _table_index_context(item: dict[str, Any] | None) -> dict[str, str]:
+    if not isinstance(item, dict):
+        return {}
+    heading_candidates = [
+        _flatten_table_index_text(item.get("source_caption")),
+        _flatten_table_index_text(item.get("caption")),
+        _flatten_table_index_text(item.get("heading")),
+    ]
+    heading = ""
+    for candidate in heading_candidates:
+        if candidate and len(candidate) <= 120 and _looks_like_statement_context(candidate):
+            heading = candidate
+            break
+    if not heading:
+        for candidate in heading_candidates:
+            if candidate and len(candidate) <= 120:
+                heading = candidate
+                break
+    signal = " ".join(
+        _flatten_table_index_text(item.get(key))
+        for key in (
+            "source_caption",
+            "heading",
+            "caption",
+            "unit",
+            "preview",
+            "signal_preview",
+            "source_footnote",
+        )
+    )
+    return {
+        "heading": heading,
+        "near_text": _clean_text(signal)[:900],
+        "near_before": "",
+        "near_after": "",
+    }
+
+
+def _merge_table_context(markdown_context: dict[str, str], index_context: dict[str, str]) -> dict[str, str]:
+    if not index_context:
+        return markdown_context
+    merged = dict(markdown_context)
+    current_heading = merged.get("heading") or ""
+    index_heading = index_context.get("heading") or ""
+    if index_heading and (not current_heading or not _looks_like_statement_context(current_heading) or _looks_like_statement_context(index_heading)):
+        merged["heading"] = index_heading
+    for key in ("near_text", "near_before", "near_after"):
+        parts = [merged.get(key) or "", index_context.get(key) or ""]
+        merged[key] = _clean_text(" ".join(part for part in parts if part))[:1200]
+    return merged
+
+
+def _iter_markdown_tables(markdown: str, table_index_by_number: dict[int, dict[str, Any]] | None = None):
     for index, match in enumerate(re.finditer(r"<table\b.*?</table>", markdown or "", flags=re.IGNORECASE | re.DOTALL), start=1):
+        context = _table_context(markdown or "", match.start(), match.end())
+        if table_index_by_number:
+            context = _merge_table_context(context, _table_index_context(table_index_by_number.get(index)))
         yield {
             "table_index": index,
             "line": (markdown or "").count("\n", 0, match.start()) + 1,
             "html": match.group(0),
-            "context": _table_context(markdown or "", match.start(), match.end()),
+            "context": context,
         }
 
 
@@ -746,35 +925,13 @@ def _table_context(markdown: str, start: int, end: int) -> dict[str, str]:
     before = markdown[max(0, start - 2200):start]
     after = markdown[end:min(len(markdown), end + 420)]
     lines = [line.strip() for line in before.splitlines() if line.strip()]
-    statement_terms = (
-        "income statement",
-        "statements of operations",
-        "statement of operations",
-        "statements of income",
-        "statement of comprehensive income",
-        "statements of comprehensive income",
-        "statement of financial position",
-        "statements of financial position",
-        "balance sheet",
-        "balance sheets",
-        "statement of changes in equity",
-        "statements of changes in equity",
-        "shareholders' equity",
-        "shareholders’ equity",
-        "stockholders' equity",
-        "cash flow statement",
-        "statement of cash flows",
-        "statements of cash flows",
-        "financial highlights",
-        "key figures",
-    )
     heading = ""
     for line in reversed(lines[-28:]):
         cleaned = re.sub(r"^#+\s*", "", _strip_html(line)).strip()
         if not cleaned or "<table" in cleaned.lower() or len(cleaned) > 90:
             continue
         lowered = _normalize_text(cleaned)
-        if any(term in lowered for term in statement_terms):
+        if _looks_like_statement_context(lowered):
             heading = cleaned
             break
     if not heading:
@@ -797,12 +954,46 @@ def _table_context(markdown: str, start: int, end: int) -> dict[str, str]:
 
 def _eu_statement_body_is_plausible(statement_type: str, compact: str, rows: int) -> bool:
     if statement_type == "income_statement":
-        has_revenue = any(token in compact for token in ("revenue", "revenues", "netsales", "totalnetsales", "turnover"))
+        has_revenue = any(
+            token in compact
+            for token in (
+                "revenue",
+                "revenues",
+                "sales",
+                "salesrevenue",
+                "netsales",
+                "totalnetsales",
+                "turnover",
+                "totalincome",
+                "netinterestincome",
+                "interestandsimilarincome",
+                "insurancerevenue",
+            )
+        )
         has_profit = any(
             token in compact
             for token in (
                 "profitbeforetax",
+                "profitbeforetaxation",
+                "profitlossbeforetax",
+                "profitbeforeincometaxes",
+                "profitlossfromcontinuingoperationsbeforeincometaxes",
+                "incomelossbeforeincometaxes",
+                "incomelossbeforetax",
                 "profitfortheyear",
+                "profitfortheperiod",
+                "profitlossfortheperiod",
+                "incomelossfortheyear",
+                "incomelossfortheperiod",
+                "profitaftertax",
+                "profitaftertaxes",
+                "incomebeforetax",
+                "incomebeforetaxation",
+                "incomebeforetaxes",
+                "incomefortheyear",
+                "incomefortheperiod",
+                "incomeaftertax",
+                "incomeaftertaxes",
                 "netincome",
                 "incomebeforeincometaxes",
                 "incomebeforeincometax",
@@ -838,9 +1029,12 @@ def _eu_statement_fragment_is_plausible(statement_type: str, compact: str, rows:
         return rows >= 3 and any(
             token in compact
             for token in (
+                "cashflowfromoperatingactivities",
                 "cashflowsfromoperatingactivities",
                 "netcashflowsfromoperatingactivities",
+                "cashflowfrominvestingactivities",
                 "cashflowsfrominvestingactivities",
+                "cashflowfromfinancingactivities",
                 "cashflowsfromfinancingactivities",
                 "netcashflowsfromfinancingactivities",
                 "cashandcashequivalentsatend",
@@ -885,15 +1079,17 @@ def _classify_eu_statement(table: dict[str, Any], grid: list[list[str]]) -> str 
         and _eu_statement_body_is_plausible("equity_statement", compact, rows)
     ):
         return "equity_statement"
-    if (
-        (
-            "consolidated cash flow statement" in formal_signal
-            or "consolidated cash flow statements" in formal_signal
-            or "consolidated statement of cash flows" in formal_signal
-            or "consolidated statements of cash flows" in formal_signal
-        )
-        and _eu_statement_fragment_is_plausible("cash_flow_statement", compact, rows)
-    ):
+    formal_cash_flow = (
+        "consolidated cash flow statement" in formal_signal
+        or "consolidated cash flow statements" in formal_signal
+        or "consolidated statement of cash flows" in formal_signal
+        or "consolidated statements of cash flows" in formal_signal
+        or "cash flow statement" in formal_signal
+        or "cash flow statements" in formal_signal
+        or "statement of cash flows" in formal_signal
+        or "statements of cash flows" in formal_signal
+    )
+    if formal_cash_flow and (_eu_statement_fragment_is_plausible("cash_flow_statement", compact, rows) or rows >= 8):
         return "cash_flow_statement"
     if (
         (
@@ -901,6 +1097,10 @@ def _classify_eu_statement(table: dict[str, Any], grid: list[list[str]]) -> str 
             or "consolidated balance sheets" in formal_signal
             or "consolidated statement of financial position" in formal_signal
             or "consolidated statements of financial position" in formal_signal
+            or "balance sheet" in formal_signal
+            or "balance sheets" in formal_signal
+            or "statement of financial position" in formal_signal
+            or "statements of financial position" in formal_signal
         )
         and _eu_statement_fragment_is_plausible("balance_sheet", compact, rows)
     ):
@@ -915,6 +1115,16 @@ def _classify_eu_statement(table: dict[str, Any], grid: list[list[str]]) -> str 
             or "consolidated statements of operations" in formal_signal
             or "consolidated statement of income" in formal_signal
             or "consolidated statements of income" in formal_signal
+            or "condensed consolidated statement of income" in formal_signal
+            or "condensed consolidated income statement" in formal_signal
+            or "income statement" in formal_signal
+            or "income statements" in formal_signal
+            or "statement of income" in formal_signal
+            or "statements of income" in formal_signal
+            or "statement of profit or loss" in formal_signal
+            or "statements of profit or loss" in formal_signal
+            or "statement of operations" in formal_signal
+            or "statements of operations" in formal_signal
         )
         and _eu_statement_body_is_plausible("income_statement", compact, rows)
     ):
@@ -1066,23 +1276,60 @@ def _canonical_name(label: Any, statement_type: str) -> str | None:
         if compact == "cashandcashequivalents":
             return "cash_and_cash_equivalents"
     if statement_type == "income_statement":
-        if compact in {"revenue", "revenues", "netsales", "totalnetsales", "salesrevenue", "turnover"}:
+        if compact in {"revenue", "revenues", "sales", "netsales", "totalnetsales", "salesrevenue", "turnover", "insurancerevenue"}:
             return "operating_revenue"
-        if compact == "totalincome":
+        if compact in {"totalincome", "operatingincome"}:
             return "total_income"
-        if compact == "grossprofit":
+        if compact in {"grossprofit", "grossmargin"}:
             return "gross_profit"
-        if compact == "operatingprofit":
+        if compact in {"operatingprofit", "incomefromoperations"}:
             return "operating_profit"
-        if compact in {"profitbeforetax", "profitbeforetaxation", "incomebeforeincometaxes", "incomebeforeincometax"}:
+        if compact in {
+            "profitbeforetax",
+            "profitbeforetaxation",
+            "profitlossbeforetax",
+            "profitbeforeincometaxes",
+            "profitlossfromcontinuingoperationsbeforeincometaxes",
+            "incomelossbeforeincometaxes",
+            "incomelossbeforetax",
+            "incomebeforetax",
+            "incomebeforetaxation",
+            "incomebeforetaxes",
+            "incomebeforeincometaxes",
+            "incomebeforeincometax",
+        }:
             return "profit_before_tax"
-        if compact in {"incometaxexpense", "taxation"}:
+        if compact in {"incometaxexpense", "taxation", "taxationcharge"}:
             return "income_tax_expense"
-        if compact in {"profitfortheyear", "profitfortheperiod", "netincome", "netprofit"}:
+        if compact in {
+            "profitfortheyear",
+            "profitfortheperiod",
+            "profitlossfortheperiod",
+            "incomelossfortheyear",
+            "incomelossfortheperiod",
+            "incomefortheyear",
+            "incomefortheperiod",
+            "profitaftertax",
+            "profitaftertaxes",
+            "incomeaftertax",
+            "incomeaftertaxes",
+            "netincome",
+            "netprofit",
+        }:
             return "net_profit"
-        if compact == "equityholders":
+        if (
+            compact == "equityholders"
+            or ("incomeattributableto" in compact and "shareholders" in compact)
+            or ("profitattributableto" in compact and "shareholders" in compact)
+            or ("incomeattributableto" in compact and "owners" in compact)
+            or ("profitattributableto" in compact and "owners" in compact)
+        ):
             return "parent_net_profit"
-        if compact == "noncontrollinginterests":
+        if (
+            compact == "noncontrollinginterests"
+            or "incomeattributabletononcontrollinginterest" in compact
+            or "profitattributabletononcontrollinginterest" in compact
+        ):
             return "minority_profit_loss"
         if compact == "basicearningspershare":
             return "basic_eps"
@@ -1093,11 +1340,21 @@ def _canonical_name(label: Any, statement_type: str) -> str | None:
             return "net_profit"
         if compact == "cashgeneratedfromoperations":
             return "cash_generated_from_operations"
-        if compact == "netcashflowsfromoperatingactivities":
+        if compact in {"netcashflowsfromoperatingactivities", "cashflowfromoperatingactivities", "cashflowsfromoperatingactivities"}:
             return "operating_cash_flow_net"
-        if compact == "netcashflowsusedininvestingactivities" or compact == "netcashflowsfrominvestingactivities":
+        if compact in {
+            "netcashflowsusedininvestingactivities",
+            "netcashflowsfrominvestingactivities",
+            "cashflowfrominvestingactivities",
+            "cashflowsfrominvestingactivities",
+        }:
             return "investing_cash_flow_net"
-        if compact == "netcashflowsusedinfinancingactivities" or compact == "netcashflowsfromfinancingactivities":
+        if compact in {
+            "netcashflowsusedinfinancingactivities",
+            "netcashflowsfromfinancingactivities",
+            "cashflowfromfinancingactivities",
+            "cashflowsfromfinancingactivities",
+        }:
             return "financing_cash_flow_net"
         if (
             compact == "increasedecreaseincashandcashequivalents"
@@ -1106,11 +1363,25 @@ def _canonical_name(label: Any, statement_type: str) -> str | None:
             or "decreaseincashandcashequivalents" in compact
         ):
             return "cash_equivalents_net_increase"
-        if compact in {"foreignexchangetranslation", "effectofexchangeratechanges"}:
+        if (
+            compact in {"foreignexchangetranslation", "effectofexchangeratechanges"}
+            or "effectsofexchangeratechanges" in compact
+            or "foreignexchangerates" in compact
+        ):
             return "fx_effect_cash"
-        if compact == "cashandcashequivalentsat1january" or "cashandcashequivalentsatbeginning" in compact:
+        if "casheffectivechangesincashandcashequivalents" in compact:
+            return "cash_equivalents_net_increase"
+        if (
+            compact == "cashandcashequivalentsat1january"
+            or compact == "cashandcashequivalentsatjanuary1"
+            or "cashandcashequivalentsatbeginning" in compact
+        ):
             return "cash_equivalents_beginning"
-        if "cashandcashequivalentsat31december" in compact or "cashandcashequivalentsatend" in compact:
+        if (
+            "cashandcashequivalentsat31december" in compact
+            or "cashandcashequivalentsatdecember31" in compact
+            or "cashandcashequivalentsatend" in compact
+        ):
             return "cash_equivalents_ending"
     return None
 
@@ -1291,6 +1562,7 @@ def build_eu_financial_data(
     llm_judge: Any = None,
     llm_cache_dir: str | None = None,
     market: str | None = "EU",
+    result_dir_path: str | None = None,
 ) -> dict[str, Any]:
     from financial_extractor import FINANCIAL_DATA_SCHEMA_VERSION, FINANCIAL_RULE_VERSION, parse_html_table
 
@@ -1325,7 +1597,8 @@ def build_eu_financial_data(
     extra_statement_candidates = []
     previous_statement_type: str | None = None
     previous_statement_table_index: int | None = None
-    for table in _iter_markdown_tables(markdown):
+    table_index_by_number = _load_table_index_by_number(result_dir_path)
+    for table in _iter_markdown_tables(markdown, table_index_by_number):
         grid = parse_html_table(table["html"])
         if not grid:
             continue
@@ -1485,6 +1758,18 @@ def _numeric_check(
     }
 
 
+def _closest_formula(
+    target: float | None,
+    candidates: list[tuple[str, float | None]],
+) -> tuple[str, float | None]:
+    available = [(formula, value) for formula, value in candidates if value is not None]
+    if not available:
+        return candidates[0] if candidates else ("", None)
+    if target is None:
+        return available[0]
+    return min(available, key=lambda item: abs(float(target) - float(item[1])))
+
+
 def _presence_check(
     statement_type: str,
     statement: dict[str, Any] | None,
@@ -1591,6 +1876,7 @@ def build_eu_financial_checks(data: dict[str, Any]) -> dict[str, Any]:
     for period in _periods_for_statement(income):
         profit_before_tax = _value(income, "profit_before_tax", period)
         income_tax = _value(income, "income_tax_expense", period)
+        income_tax_expense = -abs(income_tax) if income_tax is not None else None
         net_profit = _value(income, "net_profit", period)
         parent_net_profit = _value(income, "parent_net_profit", period)
         minority_profit = _value(income, "minority_profit_loss", period)
@@ -1602,8 +1888,8 @@ def build_eu_financial_checks(data: dict[str, Any]) -> dict[str, Any]:
                 period,
                 "Profit for the year",
                 net_profit,
-                "Profit before tax + Income tax expense",
-                _sum_optional(profit_before_tax, income_tax),
+                "Profit before tax - Income tax expense",
+                _sum_optional(profit_before_tax, income_tax_expense),
                 ["net_profit", "profit_before_tax", "income_tax_expense"],
                 failure_status="warning",
             )
@@ -1631,6 +1917,13 @@ def build_eu_financial_checks(data: dict[str, Any]) -> dict[str, Any]:
         fx_effect = _value(cash, "fx_effect_cash", period)
         beginning = _value(cash, "cash_equivalents_beginning", period)
         ending = _value(cash, "cash_equivalents_ending", period)
+        cash_change_formula, cash_change_value = _closest_formula(
+            net_change,
+            [
+                ("Operating cash flow + Investing cash flow + Financing cash flow + FX effect", _sum_optional(operating, investing, financing, fx_effect)),
+                ("Operating cash flow + Investing cash flow + Financing cash flow", _sum_optional(operating, investing, financing)),
+            ],
+        )
         checks.append(
             _numeric_check(
                 "eu.cf.operating_investing_financing_eq_net_change",
@@ -1639,11 +1932,18 @@ def build_eu_financial_checks(data: dict[str, Any]) -> dict[str, Any]:
                 period,
                 "Increase/(decrease) in cash and cash equivalents",
                 net_change,
-                "Operating cash flow + Investing cash flow + Financing cash flow",
-                _sum_optional(operating, investing, financing),
+                cash_change_formula,
+                cash_change_value,
                 ["operating_cash_flow_net", "investing_cash_flow_net", "financing_cash_flow_net", "cash_equivalents_net_increase"],
                 failure_status="warning",
             )
+        )
+        ending_formula, ending_value = _closest_formula(
+            ending,
+            [
+                ("Cash at beginning + net change in cash and cash equivalents", _sum_optional(beginning, net_change)),
+                ("Cash at beginning + net change + foreign exchange translation", _sum_optional(beginning, net_change, fx_effect)),
+            ],
         )
         checks.append(
             _numeric_check(
@@ -1653,8 +1953,8 @@ def build_eu_financial_checks(data: dict[str, Any]) -> dict[str, Any]:
                 period,
                 "Cash and cash equivalents at year end",
                 ending,
-                "Cash at beginning + net change + foreign exchange translation",
-                _sum_optional(beginning, net_change, fx_effect),
+                ending_formula,
+                ending_value,
                 ["cash_equivalents_beginning", "cash_equivalents_net_increase", "fx_effect_cash", "cash_equivalents_ending"],
                 failure_status="warning",
             )

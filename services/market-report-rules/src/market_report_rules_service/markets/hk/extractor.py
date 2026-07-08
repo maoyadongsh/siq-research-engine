@@ -21,7 +21,6 @@ from ...statement_detection import detect_table_statement_type
 from ..common import (
     build_result,
     extract_operating_metrics_from_tables,
-    first_numeric_cell,
     table_period_key,
     tables_from_document_full,
 )
@@ -51,6 +50,8 @@ def extract_artifact(artifact: ParsedArtifact) -> ExtractionResult:
         table_unit = table.unit or artifact.unit
         table_currency = infer_currency(table.currency, table.unit, table.title, artifact.currency, default=artifact.currency)
         scale = infer_scale(table_unit)
+        pending_section_rule: Any | None = None
+        pending_section_label: str | None = None
         for row_index, row in enumerate(table.rows):
             if len(row) < 2:
                 continue
@@ -58,6 +59,34 @@ def extract_artifact(artifact: ParsedArtifact) -> ExtractionResult:
                 continue
             label = _row_label(row, period_columns.label_columns)
             rule = find_hk_rule(label)
+            numeric_cells = _numeric_cells_for_periods(row, period_columns.column_periods)
+            if not numeric_cells and rule:
+                pending_section_rule = rule
+                pending_section_label = label
+                continue
+            if (
+                numeric_cells
+                and pending_section_rule is not None
+                and (
+                    not label
+                    or (
+                        detected_statement_type == StatementType.CASH_FLOW_STATEMENT
+                        and _is_cash_flow_section_subtotal_label(label)
+                    )
+                )
+            ):
+                rule = pending_section_rule
+                label = pending_section_label or pending_section_rule.canonical_name
+                pending_section_rule = None
+                pending_section_label = None
+            elif rule and numeric_cells:
+                if not (
+                    detected_statement_type == StatementType.CASH_FLOW_STATEMENT
+                    and pending_section_rule is not None
+                    and pending_section_rule.statement_type == StatementType.CASH_FLOW_STATEMENT
+                ):
+                    pending_section_rule = None
+                    pending_section_label = None
             if not rule:
                 continue
             if (
@@ -67,7 +96,7 @@ def extract_artifact(artifact: ParsedArtifact) -> ExtractionResult:
                 and not _allow_cross_statement_fact(rule, label, detected_statement_type)
             ):
                 continue
-            for column_index, value in _numeric_cells_for_periods(row, period_columns.column_periods):
+            for column_index, value in numeric_cells:
                 value = _normalize_statement_value(rule.canonical_name, value)
                 row_period_key = period_columns.column_periods.get(column_index) or table_period_key(artifact, table)
                 key = (rule.canonical_name, row_period_key, table.table_index, row_index, column_index)
@@ -148,6 +177,7 @@ def _period_columns_for_table(
     label_columns = _label_column_count(table.rows)
     from_raw = _period_columns_from_raw(table.raw)
     if from_raw:
+        from_raw = _drop_hk_duplicate_period_columns(table, from_raw)
         return _PeriodColumns(from_raw, set(), label_columns)
 
     month_day_hint = _month_day_hint_for_table(table)
@@ -168,6 +198,7 @@ def _period_columns_for_table(
             best_periods = periods
 
     if best_periods:
+        best_periods = _drop_hk_duplicate_period_columns(table, best_periods)
         return _PeriodColumns(best_periods, {best_row_index} if best_row_index is not None else set(), label_columns)
 
     fallback = table_period_key(artifact, table)
@@ -177,7 +208,60 @@ def _period_columns_for_table(
         for column_index in range(label_columns, max_columns)
         if not _is_note_column(_cell_at(header, column_index))
     }
+    periods = _drop_hk_duplicate_period_columns(table, periods)
     return _PeriodColumns(periods, set(), label_columns)
+
+
+def _drop_hk_duplicate_period_columns(table: ParsedTable, column_periods: dict[int, str]) -> dict[int, str]:
+    column_periods = _drop_hk_convenience_translation_columns(table, column_periods)
+    if not column_periods:
+        return column_periods
+    by_period: dict[str, list[int]] = {}
+    for column_index, period in column_periods.items():
+        by_period.setdefault(period, []).append(column_index)
+    keep = set(column_periods)
+    for columns in by_period.values():
+        if len(columns) < 2:
+            continue
+        total_columns = [column for column in columns if _looks_like_total_period_column(table, column)]
+        if len(total_columns) == 1:
+            keep.difference_update(column for column in columns if column != total_columns[0])
+    return {column_index: period for column_index, period in column_periods.items() if column_index in keep}
+
+
+def _drop_hk_convenience_translation_columns(table: ParsedTable, column_periods: dict[int, str]) -> dict[int, str]:
+    if not column_periods:
+        return column_periods
+    by_period: dict[str, list[int]] = {}
+    for column_index, period in column_periods.items():
+        by_period.setdefault(period, []).append(column_index)
+    drop: set[int] = set()
+    for columns in by_period.values():
+        if len(columns) < 2:
+            continue
+        primary_columns = [column for column in columns if not _looks_like_usd_convenience_column(table, column)]
+        if primary_columns:
+            drop.update(column for column in columns if column not in primary_columns)
+    if not drop:
+        return column_periods
+    return {column_index: period for column_index, period in column_periods.items() if column_index not in drop}
+
+
+def _looks_like_usd_convenience_column(table: ParsedTable, column_index: int) -> bool:
+    cells = [_cell_at(row, column_index) for row in table.rows[:5]]
+    raw_text = " ".join(str(cell or "") for cell in cells).lower()
+    text = compact_label(raw_text)
+    return "us$" in raw_text or "usd" in text or "usnote" in text or bool(re.search(r"20\d{2}us", text))
+
+
+def _looks_like_total_period_column(table: ParsedTable, column_index: int) -> bool:
+    cells = [_cell_at(row, column_index) for row in table.rows[:6]]
+    text = compact_label(" ".join(str(cell or "") for cell in cells))
+    if not text:
+        return False
+    if "total" not in text and "總計" not in text and "总计" not in text and "合計" not in text and "合计" not in text:
+        return False
+    return not any(token in text for token in ("subtotal", "currenttotal", "noncurrenttotal"))
 
 
 def _label_column_count(rows: list[list[Any]]) -> int:
@@ -329,9 +413,16 @@ def _is_primary_operating_cash_flow_label(value: Any) -> bool:
     )
 
 
+def _is_cash_flow_section_subtotal_label(value: Any) -> bool:
+    normalized = compact_label(value)
+    return normalized in {"subtotal", "小計", "小计", "小計", "小计"} or normalized.startswith(("subtotal", "小計", "小计"))
+
+
 def _is_pre_bridge_cash_generated_label(value: Any) -> bool:
     normalized = compact_label(value)
-    return normalized in {"cashgeneratedfromoperations", "netcashgeneratedfromoperations"}
+    return normalized in {"cashgeneratedfromoperations", "netcashgeneratedfromoperations"} or normalized.startswith(
+        ("cashgeneratedfromoperations", "netcashgeneratedfromoperations")
+    )
 
 
 def _period_columns_from_raw(raw: dict[str, Any]) -> dict[int, str]:
@@ -466,12 +557,7 @@ def _numeric_cells_for_periods(row: list[Any], column_periods: dict[int, str]) -
         value = parse_decimal(row[column_index])
         if value is not None:
             values.append((column_index, value))
-    if values:
-        return values
-    value, offset = first_numeric_cell(row[1:])
-    if value is None or offset is None:
-        return []
-    return [(offset + 1, value)]
+    return values
 
 
 def _is_note_column(cell: Any) -> bool:

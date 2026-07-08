@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import {
   DatabaseZap,
   ExternalLink,
@@ -31,7 +31,6 @@ import {
 import {
   DOCUMENT_TYPE_OPTIONS,
   EVIDENCE_DIMENSIONS,
-  PRIMARY_MARKET_TABS,
   coverageText,
   createdByText,
   dimensionLabel,
@@ -42,7 +41,6 @@ import {
   formatTime,
   parserDraftFromDocument,
   parserLinks,
-  primaryMarketTabHref,
   sortDocuments,
   sortedDimensions,
   sortedMissingDimensions,
@@ -312,15 +310,6 @@ export default function PrimaryMarketMaterials() {
         eyebrow="Primary Market Materials"
         title="一级市场材料中心"
         description="按项目上传材料、绑定解析任务、构建 evidence，并检查投委会证据覆盖。"
-        meta={PRIMARY_MARKET_TABS.map((tab) => (
-          <Link
-            key={tab.id}
-            to={primaryMarketTabHref(tab, selectedDealId)}
-            className={`secondary-status ${tab.id === 'materials' ? 'secondary-status-info' : ''}`}
-          >
-            {tab.label}
-          </Link>
-        ))}
         actions={
           <Button type="button" variant="secondary" onClick={() => void loadMaterials()} disabled={loading || !selectedDealId}>
             {loading ? <Loader2 className="animate-spin" /> : <RefreshCw />}

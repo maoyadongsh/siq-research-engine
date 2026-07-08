@@ -25,7 +25,7 @@ import type {
 export type BadgeTone = 'neutral' | 'info' | 'success' | 'warning' | 'error'
 
 export interface PrimaryMarketTab {
-  id: 'workbench' | 'materials' | 'meeting'
+  id: 'workbench' | 'materials' | 'meeting' | 'postInvestment'
   label: string
   to: string
 }
@@ -33,7 +33,8 @@ export interface PrimaryMarketTab {
 export const PRIMARY_MARKET_TABS: PrimaryMarketTab[] = [
   { id: 'workbench', label: '工作平台', to: '/primary-market' },
   { id: 'materials', label: '材料中心', to: '/primary-market/materials' },
-  { id: 'meeting', label: '投研会议室', to: '/primary-market/meeting' },
+  { id: 'meeting', label: '投研决策', to: '/primary-market/meeting' },
+  { id: 'postInvestment', label: '投后管理', to: '/primary-market/post-investment' },
 ]
 
 export const DOCUMENT_TYPE_OPTIONS = [
@@ -159,7 +160,7 @@ const IC_MEETING_QUESTION_PROFILES: Record<string, MeetingQuestionProfile> = {
 }
 
 const COMMITTEE_MEETING_PROFILE: MeetingQuestionProfile = {
-  intro: '当前是全体委员会议窗口，系统会按顺序召集委员发言，并保留前序观点供后续委员回应。',
+  intro: '当前是全体委员投研决策窗口，系统会按顺序召集委员发言，并保留前序观点供后续委员回应。',
   questions: [
     { label: '召集发言', prompt: '请按投委会顺序召集各委员围绕当前项目发表首轮意见。' },
     { label: '汇总共识', prompt: '请汇总当前委员观点中的共识、保留意见和需要主席裁决的问题。' },
@@ -197,7 +198,7 @@ export function primaryMarketMeetingQuickQuestions(agentId: string, mode: Primar
     {
       label: MEETING_INTRO_LABEL,
       featured: true,
-      prompt: `请介绍你作为${label}在 SIQ 一级市场投委会会议室中的职责边界、需要我提供的材料、输出产物，以及我应该如何向你提问。`,
+      prompt: `请介绍你作为${label}在 SIQ 一级市场投研决策中的职责边界、需要我提供的材料、输出产物，以及我应该如何向你提问。`,
     },
     ...profile.questions,
   ]

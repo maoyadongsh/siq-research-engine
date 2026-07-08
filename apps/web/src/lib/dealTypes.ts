@@ -1099,18 +1099,6 @@ export interface DealQuery {
   status?: string
 }
 
-export interface OpenClawImportPayload {
-  deal_id: string
-  project_id?: string
-  source_root?: string
-  overwrite?: boolean
-  metadata?: Record<string, unknown>
-}
-
-export interface OpenClawImportOptions {
-  wait?: boolean
-}
-
 export interface DealJobStatus {
   ok?: boolean
   queued?: boolean
@@ -1125,5 +1113,3 @@ export interface DealJobStatus {
   detail?: string
   [key: string]: unknown
 }
-
-export type OpenClawImportResponse = DealJobStatus

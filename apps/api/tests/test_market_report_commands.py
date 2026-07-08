@@ -602,6 +602,31 @@ def test_market_package_build_plan_reports_missing_metadata_and_parser_result(tm
             raise AssertionError("expected plan error")
 
 
+def test_market_package_build_plan_rejects_cross_market_download_relative_path(tmp_path):
+    repo_root = tmp_path / "repo"
+    wiki_roots = {"HK": tmp_path / "wiki" / "hk"}
+    build_script = repo_root / "scripts" / "build_hk.py"
+    build_script.parent.mkdir(parents=True, exist_ok=True)
+    build_script.write_text("x", encoding="utf-8")
+
+    try:
+        commands.build_market_package_build_plan(
+            payload={"download_relative_path": "EU/NL/ASML/2025/annual/report.pdf"},
+            market="HK",
+            repo_root=repo_root,
+            market_wiki_roots=wiki_roots,
+            market_build_scripts={"HK": build_script},
+            eu_esef_package_build_script=repo_root / "scripts" / "build_eu_esef.py",
+            safe_download_path=lambda value: (_ for _ in ()).throw(AssertionError("download path should not be resolved")),
+            adjacent_metadata_path=lambda path: None,
+        )
+    except commands.MarketPackageBuildPlanError as exc:
+        assert exc.status_code == 400
+        assert exc.detail == "download_relative_path belongs to EU, not HK"
+    else:
+        raise AssertionError("expected cross-market download path error")
+
+
 def test_market_package_import_args_uses_us_package_flag_without_database_url():
     args = commands.market_package_import_args(
         executable="/usr/bin/python",

@@ -96,7 +96,7 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
       },
       {
         key: 'database' as const,
-        label: 'PostgreSQL 入库',
+        label: '生成与入库',
         status: workflowStatus?.database?.status,
         desc: databaseDesc,
       },
@@ -138,7 +138,7 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
         : (workflowStatus?.semantic?.message || llmSemanticDesc || '未生成或不完整'),
     },
     {
-      label: 'PostgreSQL 入库',
+      label: '生成与入库',
       status: workflowStatus?.database?.status,
       desc: databaseDesc,
     },
@@ -147,7 +147,7 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
   const stepButtons: Array<{ key: WorkflowStep; label: string; loadingLabel: string; primary: boolean; disabled?: boolean }> =
     mode === 'generic'
       ? [
-          { key: 'wiki-import-generic', label: '生成派生知识资产', loadingLabel: '生成中...', primary: true },
+          { key: 'wiki-import-generic', label: 'LLM-Wiki入库', loadingLabel: '入库中...', primary: true },
           {
             key: 'semantic-generic',
             label: semanticActionLabel(mode),
@@ -158,11 +158,11 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
           { key: 'db-import', label: '导入 PostgreSQL', loadingLabel: '导入中...', primary: false },
         ]
       : [
-          { key: 'wiki-import', label: '生成派生知识资产', loadingLabel: '生成中...', primary: true },
+          { key: 'wiki-import', label: 'LLM-Wiki入库', loadingLabel: '入库中...', primary: true },
           { key: 'wiki-import-generic', label: '生成通用主体资产', loadingLabel: '生成中...', primary: false },
           {
             key: 'semantic',
-            label: semanticActionLabel(mode),
+            label: 'LLM-Wiki语义增强入库',
             loadingLabel: '生成中...',
             primary: true,
             disabled: !['ready', 'stale'].includes(workflowStatus?.wiki?.status || ''),
@@ -206,7 +206,7 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
             disabled={!!workflowBusy || !bundleReady}
           >
             {workflowBusy === 'remaining' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-            继续入库与资产生成
+            一键生成与入库
           </button>
         </div>
       </div>
@@ -245,10 +245,10 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
               )}
               <div
                 className={`relative z-10 flex h-7 w-7 items-center justify-center rounded-full border-2 text-xs font-bold ${
-                  active
-                    ? 'border-primary bg-primary text-white shadow-md shadow-primary/25'
-                    : completed
-                      ? 'border-green-600 bg-green-600 text-white'
+                  completed
+                    ? 'border-green-600 bg-green-600 text-white'
+                    : active
+                      ? 'border-primary bg-primary text-white shadow-md shadow-primary/25'
                       : 'border-border bg-card text-text-muted'
                 }`}
               >

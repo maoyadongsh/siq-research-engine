@@ -17,7 +17,6 @@ from services import deal_phase_artifacts
 from services import deal_reports
 from services import deal_store
 from services import ic_agent_runtime
-from services import ic_openclaw_importer
 from services.auth_dependencies import get_current_user
 from services.auth_service import User, UserRole
 
@@ -989,109 +988,6 @@ def test_deals_router_workflow_state_snapshot(monkeypatch, tmp_path):
     read_back = client.get("/api/deals/DEAL-ROUTER-STATE/workflow/state/snapshot")
     assert read_back.status_code == 200
     assert read_back.json()["state"]["schema_version"] == "siq_ic_workflow_state_v1"
-
-
-def test_deals_router_manifest_includes_import_summary(monkeypatch, tmp_path):
-    openclaw_root = tmp_path / "openclaw" / "projects"
-    source = openclaw_root / "SIQ-ROUTER-MANIFEST"
-    _write_json(source / "project_meta.json", {"company_name": "Router Robotics"})
-    _write_json(source / "phases" / "workflow_state.json", {"company_name": "Router Robotics"})
-    monkeypatch.setattr(deals, "DEFAULT_OPENCLAW_PROJECTS_ROOT", openclaw_root)
-    monkeypatch.setattr(ic_openclaw_importer, "DEFAULT_OPENCLAW_PROJECTS_ROOT", openclaw_root)
-    client = _client(monkeypatch, tmp_path)
-    assert client.post(
-        "/api/deals/import/openclaw",
-        params={"wait": "true"},
-        json={"project_id": "SIQ-ROUTER-MANIFEST", "deal_id": "DEAL-ROUTER-MANIFEST"},
-    ).status_code == 200
-
-    response = client.get("/api/deals/DEAL-ROUTER-MANIFEST/manifest")
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["manifest"]["openclaw_import"]["legacy_project_id"] == "SIQ-ROUTER-MANIFEST"
-    assert payload["summary"]["schema_version"] == "siq_deal_manifest_summary_v1"
-    assert payload["summary"]["openclaw_import"]["present"] is True
-    assert payload["summary"]["archive_manifest"]["consistency"] == "match"
-    assert payload["summary"]["counts"]["files_missing_hash"] == 0
-    assert "source_root" not in json.dumps(payload, ensure_ascii=False)
-    assert "/home/maoyd" not in json.dumps(payload, ensure_ascii=False)
-
-
-def test_deals_router_wait_import_accepts_project_id(monkeypatch, tmp_path):
-    openclaw_root = tmp_path / "openclaw" / "projects"
-    source = openclaw_root / "SIQ-ROUTER-2026-001"
-    _write_json(
-        source / "project_meta.json",
-        {"company_name": "Router Robotics", "industry": "Robotics"},
-    )
-    _write_json(
-        source / "phases" / "workflow_state.json",
-        {"company_name": "Router Robotics", "final_decision": "pass"},
-    )
-    monkeypatch.setattr(deals, "DEFAULT_OPENCLAW_PROJECTS_ROOT", openclaw_root)
-    monkeypatch.setattr(ic_openclaw_importer, "DEFAULT_OPENCLAW_PROJECTS_ROOT", openclaw_root)
-    client = _client(monkeypatch, tmp_path)
-
-    response = client.post(
-        "/api/deals/import/openclaw",
-        params={"wait": "true"},
-        json={"project_id": "SIQ-ROUTER-2026-001", "deal_id": "DEAL-ROUTER-002"},
-    )
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["deal"]["project_meta"]["legacy_project_id"] == "SIQ-ROUTER-2026-001"
-    assert "source_root" not in payload["deal"]["manifest"]["openclaw_import"]
-    assert payload["archive_manifest"]["source_root"] == "SIQ-ROUTER-2026-001"
-    assert payload["deal"]["summary"]["package_path"] == "deals/DEAL-ROUTER-002"
-
-
-def test_deals_router_async_import_queues_compact_job(monkeypatch, tmp_path):
-    seen = {}
-
-    class FakeJobService:
-        def start(self, kind, target, *, created_by=None):
-            seen["kind"] = kind
-            seen["created_by"] = created_by
-            seen["target"] = target
-            return {
-                "job_id": "deal-openclaw-import-test",
-                "kind": kind,
-                "status": "queued",
-            }
-
-        def get(self, job_id):
-            if job_id == "deal-openclaw-import-test":
-                return {
-                    "job_id": job_id,
-                    "status": "succeeded",
-                    "created_by": {"id": 7, "username": "ic-admin"},
-                    "result": {"ok": True, "deal_id": "DEAL-ROUTER-003"},
-                }
-            return None
-
-    monkeypatch.setattr(deals, "deal_job_service", FakeJobService())
-    monkeypatch.setattr(deals, "_run_openclaw_import_job", lambda payload, created_by: {"ok": True})
-    client = _client(monkeypatch, tmp_path)
-
-    queued = client.post(
-        "/api/deals/import/openclaw",
-        json={
-            "source_root": str(tmp_path / "openclaw" / "projects" / "SIQ-ROUTER-2026-003"),
-            "deal_id": "DEAL-ROUTER-003",
-        },
-    )
-
-    assert queued.status_code == 200
-    assert queued.json()["queued"] is True
-    assert queued.json()["job_id"] == "deal-openclaw-import-test"
-    assert seen["kind"] == "deal-openclaw-import"
-    assert seen["created_by"] == {"id": 7, "username": "ic-admin"}
-
-    status = client.get("/api/deals/jobs/deal-openclaw-import-test")
-    assert status.status_code == 200
-    assert status.json()["created_by"] == {"id": 7, "username": "ic-admin"}
 
 
 def test_deals_router_data_room_document_lifecycle(monkeypatch, tmp_path):

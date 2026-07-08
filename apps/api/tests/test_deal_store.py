@@ -7,8 +7,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from fastapi import HTTPException
-
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
@@ -2015,101 +2013,6 @@ def test_import_openclaw_project_overwrite_removes_stale_files(tmp_path):
     )
 
     assert not (package_dir / "decision" / "IC_DECISION_REPORT.md").exists()
-
-
-def test_import_openclaw_deal_queues_background_job(monkeypatch):
-    seen = {}
-
-    def fake_import_openclaw_project(**kwargs):
-        seen["import_kwargs"] = kwargs
-        return {
-            "deal": {
-                "summary": {
-                    "deal_id": kwargs["deal_id"],
-                    "company_name": "宇树科技",
-                    "package_path": "deals/DEAL-YUSHU-2026-001",
-                },
-                "manifest": {
-                    "openclaw_import": {
-                        "legacy_project_id": "SIQ-YUSHU-2026-002",
-                        "file_count": 3,
-                    },
-                },
-            },
-            "archive_manifest": {
-                "schema_version": "siq_openclaw_import_v1",
-                "legacy_project_id": "SIQ-YUSHU-2026-002",
-                "source_root": "SIQ-YUSHU-2026-002",
-                "file_count": 3,
-                "files": [{"target": "project_meta.json"}],
-            },
-        }
-
-    def fake_start(kind, target, *, created_by=None):
-        seen["kind"] = kind
-        seen["created_by"] = created_by
-        seen["target_result"] = target()
-        return {"job_id": "deal-openclaw-import-abc123", "kind": kind, "status": "queued", "result": None}
-
-    monkeypatch.setattr(deals, "import_openclaw_project", fake_import_openclaw_project)
-    monkeypatch.setattr(deals.deal_job_service, "start", fake_start)
-
-    result = deals.import_openclaw_deal(
-        deals.OpenClawImportRequest(
-            source_root="/tmp/openclaw/projects/SIQ-YUSHU-2026-002",
-            deal_id="DEAL-YUSHU-2026-001",
-            overwrite=True,
-        ),
-        wait=False,
-        current_user=SimpleNamespace(id=7, username="analyst"),
-    )
-
-    assert result["ok"] is True
-    assert result["queued"] is True
-    assert result["job_id"] == "deal-openclaw-import-abc123"
-    assert seen["kind"] == "deal-openclaw-import"
-    assert seen["created_by"] == {"id": 7, "username": "analyst"}
-    assert seen["import_kwargs"]["overwrite"] is True
-    assert seen["target_result"]["ok"] is True
-    assert seen["target_result"]["legacy_project_id"] == "SIQ-YUSHU-2026-002"
-    assert seen["target_result"]["archive_manifest"] == {
-        "schema_version": "siq_openclaw_import_v1",
-        "file_count": 3,
-    }
-    assert "files" not in seen["target_result"]["archive_manifest"]
-    assert "source_root" not in json.dumps(seen["target_result"], ensure_ascii=False)
-
-
-def test_import_openclaw_deal_wait_true_runs_synchronously(monkeypatch):
-    seen = {}
-
-    def fake_import_openclaw_project(**kwargs):
-        seen.update(kwargs)
-        return {"deal": {"summary": {"deal_id": kwargs["deal_id"]}}, "archive_manifest": {"file_count": 1}}
-
-    monkeypatch.setattr(deals, "import_openclaw_project", fake_import_openclaw_project)
-
-    result = deals.import_openclaw_deal(
-        deals.OpenClawImportRequest(project_id="SIQ-YUSHU-2026-002", deal_id="DEAL-YUSHU-2026-001"),
-        wait=True,
-        current_user=SimpleNamespace(id=8, username="pm"),
-    )
-
-    assert result["archive_manifest"]["file_count"] == 1
-    assert str(seen["source_root"]).endswith("SIQ-YUSHU-2026-002")
-    assert seen["created_by"] == {"id": 8, "username": "pm"}
-
-
-def test_import_openclaw_deal_rejects_invalid_project_id():
-    with pytest.raises(HTTPException) as exc:
-        deals.import_openclaw_deal(
-            deals.OpenClawImportRequest(project_id="../SIQ-YUSHU-2026-002", deal_id="DEAL-YUSHU-2026-001"),
-            wait=True,
-            current_user=SimpleNamespace(id=8, username="pm"),
-        )
-
-    assert exc.value.status_code == 400
-    assert "project_id" in str(exc.value.detail)
 
 
 def test_deal_job_status_uses_deal_job_service(monkeypatch):

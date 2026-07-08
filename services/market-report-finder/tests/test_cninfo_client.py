@@ -1,8 +1,17 @@
 from datetime import date
 
+import pytest
+
 from market_report_finder_service.markets.cn.client import CninfoClient
 from market_report_finder_service.markets.cn.service import CnReportFinder
-from market_report_finder_service.models.schemas import CompanyEntity, Market, ReportFamily, ReportTarget, ReportType
+from market_report_finder_service.models.schemas import (
+    CompanyEntity,
+    DirectReportDownloadRequest,
+    Market,
+    ReportFamily,
+    ReportTarget,
+    ReportType,
+)
 from market_report_finder_service.services.orchestrator import ReportFinderOrchestrator
 
 
@@ -114,4 +123,41 @@ def test_orchestrator_infers_eu_from_new_curated_report_domain():
             company_id=None,
         )
         == Market.eu
+    )
+
+
+def test_orchestrator_rejects_requested_market_when_official_url_belongs_elsewhere():
+    with pytest.raises(ValueError, match="URL belongs to HK, not CN"):
+        ReportFinderOrchestrator._validate_requested_url_market(
+            Market.cn,
+            "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0408/2026040800000.pdf",
+        )
+
+
+def test_orchestrator_allows_unknown_user_url_to_stay_manual_unverified():
+    ReportFinderOrchestrator._validate_requested_url_market(
+        Market.us,
+        "https://sec.gov.evil.example/archive/aapl-2025.htm",
+    )
+
+
+def test_orchestrator_allows_shared_official_urls_for_us_and_eu_cross_listings():
+    sec_url = "https://www.sec.gov/Archives/edgar/data/1610520/000161052026000023/ubs-20251231.htm"
+
+    ReportFinderOrchestrator._validate_requested_url_market(Market.us, sec_url)
+    ReportFinderOrchestrator._validate_requested_url_market(Market.eu, sec_url)
+
+
+def test_direct_download_request_without_market_can_infer_hk_from_url():
+    hk_url = "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0408/2026040800000.pdf"
+    request = DirectReportDownloadRequest(company_name="SMIC", document_url=hk_url, form="annual")
+
+    assert request.market is None
+    assert (
+        ReportFinderOrchestrator._infer_market_from_url_or_identifier(
+            document_url=request.document_url,
+            ticker=request.ticker,
+            company_id=request.company_id,
+        )
+        == Market.hk
     )

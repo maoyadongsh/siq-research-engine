@@ -71,6 +71,21 @@ def _first_fragment_html():
 
 
 class PdfTableRelationsTests(unittest.TestCase):
+    def test_app_content_list_enhanced_uses_markdown_page_fallback(self):
+        markdown = (
+            "[PDF_PAGE: 1]\n"
+            "第一页\n"
+            "<table><tr><td>收入</td><td>100</td></tr></table>\n"
+            "[PDF_PAGE: 2]\n"
+            "第二页\n"
+        )
+
+        enhanced = app._build_content_list_enhanced(markdown, content_list=[], report_year=2025)
+
+        self.assertEqual([page["page_number"] for page in enhanced["pages"]], [1, 2])
+        self.assertEqual(enhanced["pages"][0]["source"], "markdown_page_marker")
+        self.assertEqual(enhanced["pages"][0]["table_count"], 1)
+
     def test_missing_body_target_table_generates_formal_relation_artifact(self):
         old_results_folder = app.RESULTS_FOLDER
         try:

@@ -450,15 +450,16 @@ def _financial_bridge_checks(facts: list[ExtractedFact]) -> list[ValidationCheck
         checks.append(
             _bridge_check_for_period(
                 "cf.ending_cash_bridge",
-                "Ending cash = beginning cash + net cash change",
+                "Ending cash = beginning cash + net cash change + FX",
                 StatementType.CASH_FLOW_STATEMENT,
                 period,
                 bucket,
                 period_rows.get(period, []),
                 source_aware_bridge,
                 "cash_equivalents_ending",
-                ("cash_equivalents_beginning", "cash_equivalents_net_increase"),
+                ("cash_equivalents_beginning", "cash_equivalents_net_increase", "fx_effect_cash"),
                 optional=True,
+                missing_as_zero=("fx_effect_cash",),
             )
         )
         checks.append(_cash_balance_soft_check(period, bucket))
@@ -624,7 +625,58 @@ def _best_facts_by_name(rows: list[ExtractedFact]) -> dict[str, ExtractedFact]:
         current = bucket.get(fact.canonical_name)
         if current is None or _fact_selection_rank(fact) > _fact_selection_rank(current):
             bucket[fact.canonical_name] = fact
+    _derive_source_bridge_candidate_total(bucket, "total_assets", ("current_assets", "non_current_assets"))
+    _derive_source_bridge_candidate_total(bucket, "total_liabilities", ("current_liabilities", "non_current_liabilities"))
+    _derive_source_bridge_candidate_total(bucket, "total_equity", ("parent_equity", "nci_equity"))
     return bucket
+
+
+def _derive_source_bridge_candidate_total(
+    bucket: dict[str, ExtractedFact],
+    canonical_name: str,
+    component_names: tuple[str, str],
+) -> None:
+    if bucket.get(canonical_name):
+        return
+    components = [bucket.get(name) for name in component_names]
+    if any(fact is None for fact in components):
+        return
+    first, second = components
+    assert first is not None and second is not None
+    if first.period_key != second.period_key or first.statement_type != second.statement_type:
+        return
+    value = first.value + second.value
+    confidence = min(first.confidence, second.confidence) - Decimal("0.04")
+    if confidence < Decimal("0.60"):
+        confidence = Decimal("0.60")
+    bucket[canonical_name] = first.model_copy(
+        update={
+            "canonical_name": canonical_name,
+            "local_name": f"source_bridge_derived_{canonical_name}",
+            "label": f"Source bridge derived {canonical_name}",
+            "value": value,
+            "raw_value": str(value),
+            "confidence": confidence,
+            "taxonomy": "source_bridge_candidate",
+            "gaap_status": "derived_from_reported_components",
+            "evidence": EvidenceRef(
+                source_type="derived_bridge_candidate",
+                source_id=f"derived:{canonical_name}",
+                page_number=first.evidence.page_number if first.evidence else None,
+                table_index=first.evidence.table_index if first.evidence else None,
+                row_index=first.evidence.row_index if first.evidence else None,
+                column_index=first.evidence.column_index if first.evidence else None,
+                quote_text=f"Derived {canonical_name}: {component_names[0]} + {component_names[1]}",
+                raw={
+                    "components": [
+                        fact.evidence.model_dump(mode="json") if fact.evidence else {}
+                        for fact in (first, second)
+                    ]
+                },
+            ),
+            "raw": {"derived_bridge_candidate": True, "components": list(component_names)},
+        }
+    )
 
 
 def _fact_selection_rank(fact: ExtractedFact) -> tuple[Decimal, int]:
