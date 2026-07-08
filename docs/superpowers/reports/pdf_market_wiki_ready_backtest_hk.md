@@ -1,22 +1,22 @@
 # PDF Parser Wiki-Ready Backtest
 
-- Generated at: `2026-07-08T02:15:19Z`
+- Generated at: `2026-07-08T02:19:33Z`
 - Markets: `HK`
 - Total: `50`
-- Wiki ready: `49`
-- Not ready: `1`
+- Wiki ready: `50`
+- Not ready: `0`
 
 ## By Market
 
 | Market | Total | Wiki ready | Not ready | Warnings |
 | --- | ---: | ---: | ---: | ---: |
-| HK | 50 | 49 | 1 | 41 |
+| HK | 50 | 50 | 0 | 41 |
 
 ## Blockers
 
 | Code | Count |
 | --- | ---: |
-| `core_statement_canonical_missing` | 1 |
+| _none_ | 0 |
 
 ## Warnings
 
@@ -36,13 +36,7 @@
 | --- | --- | ---: | ---: | ---: |
 | HK | `balance_sheet` | 31/153/619 | 2/16/49 | 0.0/0.0/0.0 |
 | HK | `cash_flow_statement` | 14/20/48 | 2/4/7 | 0.0/0.0/0.0 |
-| HK | `income_statement` | 26/97/350 | 4/16/29 | 0.0/0.0/0.0 |
-
-## Not Ready Items
-
-| Market | Task | Company | Blockers |
-| --- | --- | --- | --- |
-| HK | `f877c0f9-f2a7-4b13-99fa-8b2d507b1d70` | JD SW | `core_statement_canonical_missing` |
+| HK | `income_statement` | 27/97/350 | 4/16/29 | 0.0/0.0/0.0 |
 
 ## Warning Samples
 
@@ -86,6 +80,6 @@
 | HK | `dab19462-22ce-45eb-99bf-cbfb0a879210` | BIDU SW | `financial_check_warning`: {"total": 122, "pass": 96, "fail": 0, "warning": 6, "skipped": 20} |
 | HK | `dd73d6f3-1a2d-4ce5-aebd-117111e50fd5` | GEELY AUTO | `financial_check_warning`: {"total": 119, "pass": 75, "fail": 0, "warning": 7, "skipped": 37} |
 | HK | `e89555a9-359e-4d96-9737-198694c5a402` | BOC HONG KONG | `financial_check_warning`: {"total": 81, "pass": 62, "fail": 0, "warning": 3, "skipped": 16} |
-| HK | `f877c0f9-f2a7-4b13-99fa-8b2d507b1d70` | JD SW | `financial_check_warning`: {"total": 87, "pass": 57, "fail": 0, "warning": 5, "skipped": 25} |
+| HK | `f877c0f9-f2a7-4b13-99fa-8b2d507b1d70` | JD SW | `financial_check_warning`: {"total": 156, "pass": 127, "fail": 0, "warning": 4, "skipped": 25} |
 | HK | `faead375-c944-4e2d-9ab9-c3dd61573410` | PING AN | `financial_check_warning`: {"total": 97, "pass": 81, "fail": 0, "warning": 2, "skipped": 14} |
 | HK | `ff6651f7-18be-4cea-aaf5-6d3318c4798a` | CM BANK | `financial_check_warning`: {"total": 74, "pass": 52, "fail": 0, "warning": 6, "skipped": 16} |
