@@ -285,6 +285,8 @@ def _label_column_count(rows: list[list[Any]]) -> int:
         second = str(row[1] or "").strip()
         if not first or not second or _is_note_column(second):
             continue
+        if compact_label(first) == compact_label(second):
+            continue
         if _is_note_reference_cell(second):
             continue
         if parse_decimal(second) is not None or _looks_like_period_header(second):
