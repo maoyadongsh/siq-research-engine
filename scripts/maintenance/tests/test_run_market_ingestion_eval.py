@@ -158,6 +158,36 @@ def test_find_package_uses_jp_company_wiki_layout(tmp_path, monkeypatch):
     assert found == package_dir
 
 
+def test_find_package_accepts_current_market_annual_report_aliases(tmp_path, monkeypatch):
+    module = _load_eval_module()
+    fixtures = [
+        ("HK", "hk", "00700", "年报", "annual_report"),
+        ("EU", "eu", "SAP", "年报", "eu_esef_annual_report"),
+        ("JP", "jp", "7203", "年报", "jp_annual_securities_report"),
+        ("KR", "kr", "005930", "年报", "kr_business_report"),
+    ]
+
+    for market, root_key, ticker, report_type, form in fixtures:
+        root = tmp_path / "data" / "wiki" / root_key
+        package_dir = root / "companies" / f"{ticker}-Company" / "reports" / "2025-annual"
+        _write_manifest(
+            package_dir,
+            {
+                "schema_version": "market_evidence_package_v1",
+                "market": market,
+                "ticker": ticker,
+                "fiscal_year": 2025,
+                "report_type": report_type,
+                "form": form,
+            },
+        )
+        monkeypatch.setitem(module.WIKI_ROOTS, market, root)
+
+        found = module.find_package({"market": market, "ticker": ticker, "fiscal_year": 2025, "report_type": "annual"})
+
+        assert found == package_dir
+
+
 def test_find_package_accepts_kr_pdf_wiki_report_year(tmp_path, monkeypatch):
     module = _load_eval_module()
     root = tmp_path / "data" / "wiki" / "kr"
@@ -398,6 +428,13 @@ def test_eval_gate_blocks_artifact_hash_mismatch(tmp_path, monkeypatch):
     assert result["eval_gate_status"] == "block"
     assert result["artifact_hash_status"] == "mismatch"
     assert "artifact_hash_mismatch" in result["gate_failures"]
+
+
+def test_bridge_check_pass_rate_ignores_skipped_and_warning_checks():
+    module = _load_eval_module()
+
+    assert module._bridge_check_pass_rate({"summary": {"pass": 8, "warning": 2, "skipped": 10, "fail": 0}}) == 1.0
+    assert module._bridge_check_pass_rate({"summary": {"pass": 8, "warning": 2, "skipped": 10, "fail": 2}}) == 0.8
 
 
 def test_eval_gate_reviews_unverified_official_source(tmp_path, monkeypatch):

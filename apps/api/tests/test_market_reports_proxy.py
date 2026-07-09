@@ -51,6 +51,59 @@ def _write_market_package(root: Path, *parts: str) -> Path:
     return package_dir
 
 
+def _write_us_company_wiki_package(root: Path) -> Path:
+    package_dir = root / "companies" / "AAPL-Apple-Inc" / "reports" / "2025-10-K-0000320193-25-000079"
+    (package_dir / "metrics").mkdir(parents=True)
+    (package_dir / "qa").mkdir()
+    (package_dir / "sections").mkdir()
+    (package_dir / "tables").mkdir()
+    (package_dir / "xbrl").mkdir()
+    (package_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "market_evidence_package_v1",
+                "market": "US",
+                "filing_id": "US:AAPL:2025:10-K",
+                "company_id": "US:AAPL",
+                "ticker": "AAPL",
+                "company_name": "Apple Inc.",
+                "form": "10-K",
+                "report_type": "annual",
+                "fiscal_year": 2025,
+                "fiscal_period": "FY",
+                "period_end": "2025-09-27",
+                "published_at": "2025-10-31",
+                "quality_status": "pass",
+                "source_url": "https://www.sec.gov/Archives/edgar/data/320193/demo.htm",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (package_dir / "metrics" / "normalized_metrics.json").write_text(
+        json.dumps({"metrics": [{"metric_id": "m1", "canonical_name": "revenue"}]}),
+        encoding="utf-8",
+    )
+    (package_dir / "qa" / "source_map.json").write_text(
+        json.dumps(
+            {
+                "entries": [
+                    {
+                        "evidence_id": "e1",
+                        "source_type": "xbrl_fact",
+                        "local_path": "sections/financials.md",
+                        "line": 1,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (package_dir / "sections" / "financials.md").write_text("# Financials\n", encoding="utf-8")
+    (package_dir / "tables" / "table_index.json").write_text(json.dumps({"tables": []}), encoding="utf-8")
+    (package_dir / "xbrl" / "facts_raw.json").write_text(json.dumps({"facts": []}), encoding="utf-8")
+    return package_dir
+
+
 def _force_audit_payload(**payload):
     return {
         **payload,
@@ -1167,17 +1220,8 @@ def test_us_sec_upload_persist_rejects_unsupported_suffix_and_empty_file(monkeyp
         raise AssertionError("expected HTTPException")
 
 
-def test_market_package_summary_reads_us_package():
-    package_dir = (
-        market_reports.REPO_ROOT
-        / "data"
-        / "wiki"
-        / "us"
-        / "companies"
-        / "AAPL-Apple-Inc"
-        / "reports"
-        / "2025-10-K-0000320193-25-000079"
-    )
+def test_market_package_summary_reads_us_package(tmp_path):
+    package_dir = _write_us_company_wiki_package(tmp_path / "wiki" / "us")
     summary = market_reports._read_market_package_summary(package_dir)
 
     assert summary["market"] == "US"
@@ -1389,17 +1433,8 @@ def test_us_sec_package_file_returns_404_for_missing_file(monkeypatch, tmp_path)
         raise AssertionError("expected HTTPException")
 
 
-def test_find_market_evidence_returns_package_and_entry():
-    package_dir = (
-        market_reports.REPO_ROOT
-        / "data"
-        / "wiki"
-        / "us"
-        / "companies"
-        / "AAPL-Apple-Inc"
-        / "reports"
-        / "2025-10-K-0000320193-25-000079"
-    )
+def test_find_market_evidence_returns_package_and_entry(tmp_path):
+    package_dir = _write_us_company_wiki_package(tmp_path / "wiki" / "us")
     source_map = market_reports._read_json_file(package_dir / "qa" / "source_map.json", {})
     evidence_id = source_map["entries"][0]["evidence_id"]
 
@@ -1597,7 +1632,9 @@ def test_eu_parse_endpoint_wraps_market_package_build(monkeypatch, tmp_path):
     assert seen["download_relative_path"] == "EU/NL/ASML/2025/年报/report.html"
 
 
-def test_market_import_command_uses_us_package_flag(monkeypatch):
+def test_market_import_command_uses_us_package_flag(monkeypatch, tmp_path):
+    wiki_root = tmp_path / "wiki" / "us"
+    package_dir = _write_us_company_wiki_package(wiki_root)
     seen = {}
 
     class Completed:
@@ -1611,19 +1648,20 @@ def test_market_import_command_uses_us_package_flag(monkeypatch):
         return Completed()
 
     monkeypatch.setattr(market_reports, "run_command", fake_run)
+    monkeypatch.setitem(market_reports.MARKET_WIKI_ROOTS, "US", wiki_root)
     _allow_market_quality_gate(monkeypatch)
 
     result = market_reports._run_market_package_import(
         _force_audit_payload(
             market="US",
-            package_path="data/wiki/us/companies/AAPL-Apple-Inc/reports/2025-10-K-0000320193-25-000079",
+            package_path=str(package_dir),
             ddl=True,
         )
     )
 
     assert result["ok"] is True
     package_index = seen["args"].index("--package")
-    assert "data/wiki/us/companies/AAPL-Apple-Inc/reports/2025-10-K-0000320193-25-000079" in seen["args"][package_index + 1]
+    assert seen["args"][package_index + 1] == str(package_dir)
     assert seen["args"][-1] == "--ddl"
 
 

@@ -202,7 +202,26 @@ def _report_type_matches(manifest: dict[str, Any], case: dict[str, Any]) -> bool
         _normalize_report_type(manifest.get("form")),
     }
     if expected == "annual":
-        return bool(candidates.intersection({"annual", "annualsecuritiesreport", "integratedreport", "esef", "10k", "20f"}))
+        return bool(
+            candidates.intersection(
+                {
+                    "annual",
+                    "annualreport",
+                    "annualsecuritiesreport",
+                    "businessreport",
+                    "integratedreport",
+                    "esef",
+                    "euannualreport",
+                    "euesefannualreport",
+                    "jpannualsecuritiesreport",
+                    "krbusinessreport",
+                    "10k",
+                    "20f",
+                }
+            )
+        )
+    if expected == "quarterly":
+        return bool(candidates.intersection({"quarterly", "quarterlyreport", "10q"}))
     return expected in candidates
 
 
@@ -213,7 +232,22 @@ def _normalize_code(value: Any) -> str:
 
 
 def _normalize_report_type(value: Any) -> str:
-    return "".join(ch for ch in str(value or "").lower() if ch.isalnum())
+    text = str(value or "").strip().lower()
+    aliases = {
+        "年报": "annual",
+        "年度报告": "annual",
+        "annual report": "annualreport",
+        "annual_report": "annualreport",
+        "annual securities report": "annualsecuritiesreport",
+        "annual_securities_report": "annualsecuritiesreport",
+        "business report": "businessreport",
+        "business_report": "businessreport",
+        "quarterly report": "quarterlyreport",
+        "quarterly_report": "quarterlyreport",
+    }
+    if text in aliases:
+        return aliases[text]
+    return "".join(ch for ch in text if ch.isalnum())
 
 
 def _metric_entries(payload: Any) -> list[Any]:
@@ -411,13 +445,15 @@ def _bridge_check_pass_rate(payload: Any) -> float | None:
     summary = payload.get("summary")
     if isinstance(summary, dict):
         passed = _number_or_none(summary.get("pass")) or 0.0
-        total = sum(_number_or_none(value) or 0.0 for value in summary.values())
+        failed = (_number_or_none(summary.get("fail")) or 0.0) + (_number_or_none(summary.get("error")) or 0.0)
+        total = passed + failed
         return passed / total if total else None
     checks = payload.get("checks")
     if isinstance(checks, list) and checks:
         statuses = [str(item.get("status") or "").lower() for item in checks if isinstance(item, dict)]
-        if statuses:
-            return statuses.count("pass") / len(statuses)
+        hard_statuses = [status for status in statuses if status in {"pass", "fail", "failed", "error", "critical"}]
+        if hard_statuses:
+            return hard_statuses.count("pass") / len(hard_statuses)
     overall = str(payload.get("overall_status") or payload.get("status") or "").lower()
     if overall == "pass":
         return 1.0

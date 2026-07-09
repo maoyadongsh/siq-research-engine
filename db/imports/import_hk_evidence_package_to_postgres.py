@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -50,6 +51,10 @@ def _stock_code(value: Any) -> str:
     return text
 
 
+def _manifest_stock_code(manifest: dict[str, Any]) -> str:
+    return _stock_code(manifest.get("hkex_stock_code") or manifest.get("stock_code") or manifest.get("ticker"))
+
+
 def _company_id(manifest: dict[str, Any]) -> str:
     company_id = str(manifest.get("company_id") or "").strip()
     if company_id.startswith("HK:"):
@@ -86,16 +91,19 @@ def _unique_strings(values: list[Any]) -> list[str]:
 
 
 def build_company_record(manifest: dict[str, Any]) -> dict[str, Any]:
-    stock_code = _stock_code(manifest.get("hkex_stock_code") or manifest.get("stock_code") or manifest.get("ticker"))
-    company_name = manifest.get("company_name") or manifest.get("company_full_name") or manifest.get("company_name_en")
+    stock_code = _manifest_stock_code(manifest)
+    company_short_name = manifest.get("company_short_name") or manifest.get("short_name")
+    company_name = manifest.get("company_name") or manifest.get("company_full_name") or manifest.get("company_name_en") or company_short_name or stock_code
     aliases = _unique_strings(
         [
             stock_code,
             manifest.get("ticker"),
             company_name,
-            manifest.get("company_short_name"),
+            company_short_name,
+            manifest.get("short_name"),
             manifest.get("company_name_en"),
             manifest.get("company_name_zh"),
+            _company_id({**manifest, "hkex_stock_code": stock_code}).replace("HK:", ""),
             manifest.get("aliases") or [],
         ]
     )
@@ -106,7 +114,8 @@ def build_company_record(manifest: dict[str, Any]) -> dict[str, Any]:
         "hkex_stock_code": stock_code,
         "exchange": manifest.get("exchange") or "HKEX",
         "company_name": company_name,
-        "company_short_name": manifest.get("company_short_name"),
+        "short_name": manifest.get("short_name") or company_short_name or company_name,
+        "company_short_name": company_short_name or manifest.get("short_name") or company_name,
         "company_name_en": manifest.get("company_name_en") or company_name,
         "company_name_zh": manifest.get("company_name_zh"),
         "aliases": aliases,
@@ -116,7 +125,7 @@ def build_company_record(manifest: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_filing_record(manifest: dict[str, Any], package_dir: Path, quality: dict[str, Any]) -> dict[str, Any]:
-    stock_code = _stock_code(manifest.get("hkex_stock_code") or manifest.get("stock_code") or manifest.get("ticker"))
+    stock_code = _manifest_stock_code(manifest)
     return {
         "filing_id": manifest.get("filing_id") or stable_id("HK", stock_code, manifest.get("accession_number") or _report_id(manifest)),
         "company_id": _company_id({**manifest, "hkex_stock_code": stock_code}),
@@ -174,11 +183,94 @@ def _value_payload(value: Any) -> dict[str, Any]:
 
 
 def _source_from_item(item: dict[str, Any], value_payload: dict[str, Any], sources: dict[str, dict[str, Any]]) -> dict[str, Any]:
-    explicit = value_payload.get("source") or value_payload.get("evidence") or item.get("source")
-    if isinstance(explicit, dict):
-        return explicit
+    explicit = value_payload.get("source") or value_payload.get("evidence") or item.get("source") or item.get("evidence")
     evidence_id = value_payload.get("evidence_id") or item.get("evidence_id")
-    return sources.get(str(evidence_id), {}) if evidence_id else {}
+    if isinstance(explicit, dict):
+        evidence_id = evidence_id or explicit.get("evidence_id")
+    evidence = sources.get(str(evidence_id), {}) if evidence_id else {}
+    if isinstance(explicit, dict):
+        return {**evidence, **explicit}
+    return evidence
+
+
+def _iter_item_period_values(item: dict[str, Any], manifest: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    values = item.get("values") if isinstance(item.get("values"), dict) else {}
+    if values:
+        raw_values = item.get("raw_values") if isinstance(item.get("raw_values"), dict) else {}
+        sources = item.get("sources") if isinstance(item.get("sources"), dict) else {}
+        periods = item.get("periods") if isinstance(item.get("periods"), dict) else {}
+        period_rows: list[tuple[str, dict[str, Any]]] = []
+        for period_key, raw_value_payload in values.items():
+            period_text = str(period_key)
+            payload = dict(_value_payload(raw_value_payload))
+            period_source = sources.get(period_key) or sources.get(period_text) or {}
+            period_meta = periods.get(period_key) or periods.get(period_text) or {}
+            if period_text in raw_values or period_key in raw_values:
+                payload["raw_value"] = raw_values.get(period_key, raw_values.get(period_text))
+            else:
+                payload.setdefault("raw_value", raw_value_payload)
+            payload.setdefault("unit", item.get("unit"))
+            payload.setdefault("currency", item.get("currency"))
+            payload.setdefault("scale", item.get("scale"))
+            payload.setdefault("confidence", item.get("confidence"))
+            payload.setdefault("source", period_source)
+            payload.setdefault("evidence", period_source)
+            if isinstance(period_source, dict):
+                payload.setdefault("evidence_id", period_source.get("evidence_id") or item.get("evidence_id"))
+                payload.setdefault("page_number", period_source.get("page_number") or period_source.get("pdf_page_number"))
+                payload.setdefault("table_index", period_source.get("table_index"))
+                payload.setdefault("row_index", period_source.get("row_index"))
+                payload.setdefault("column_index", period_source.get("column_index"))
+                payload.setdefault("bbox", period_source.get("bbox"))
+            payload.setdefault("period_start", period_meta.get("period_start") if isinstance(period_meta, dict) else item.get("period_start"))
+            payload.setdefault("period_end", period_meta.get("period_end") if isinstance(period_meta, dict) else item.get("period_end"))
+            payload.setdefault("fiscal_year", period_meta.get("fiscal_year") if isinstance(period_meta, dict) else item.get("fiscal_year"))
+            payload.setdefault("fiscal_period", period_meta.get("fiscal_period") if isinstance(period_meta, dict) else item.get("fiscal_period"))
+            period_rows.append((period_text, payload))
+        return period_rows
+
+    period_key = item.get("period_key") or item.get("period") or item.get("period_end") or manifest.get("period_end") or "unknown"
+    payload = _value_payload(item.get("value"))
+    evidence = item.get("evidence") if isinstance(item.get("evidence"), dict) else {}
+    source = item.get("source") if isinstance(item.get("source"), dict) else evidence
+    payload.update(
+        {
+            "value": item.get("value"),
+            "raw_value": item.get("raw_value"),
+            "unit": item.get("unit"),
+            "currency": item.get("currency"),
+            "scale": item.get("scale"),
+            "period_start": item.get("period_start"),
+            "period_end": item.get("period_end"),
+            "fiscal_year": item.get("fiscal_year"),
+            "fiscal_period": item.get("fiscal_period"),
+            "confidence": item.get("confidence"),
+            "source": source,
+            "evidence": evidence,
+            "evidence_id": item.get("evidence_id") or evidence.get("evidence_id"),
+            "page_number": item.get("page_number") or evidence.get("page_number") or evidence.get("pdf_page_number"),
+            "table_index": item.get("table_index") or evidence.get("table_index"),
+            "row_index": item.get("row_index") or evidence.get("row_index"),
+            "column_index": item.get("column_index") or evidence.get("column_index"),
+            "bbox": item.get("bbox") or item.get("source_bbox") or evidence.get("bbox"),
+        }
+    )
+    return [(str(period_key), payload)]
+
+
+def _financial_sections(financial_data: dict[str, Any]) -> list[dict[str, Any]]:
+    sections = [statement for statement in financial_data.get("statements") or [] if isinstance(statement, dict)]
+    key_metrics = financial_data.get("key_metrics") or []
+    if key_metrics:
+        sections.append(
+            {
+                "statement_id": "key_metrics",
+                "statement_type": "key_metrics",
+                "statement_name": "Key metrics",
+                "items": [item for item in key_metrics if isinstance(item, dict)],
+            }
+        )
+    return sections
 
 
 def build_statement_item_rows(
@@ -191,20 +283,19 @@ def build_statement_item_rows(
     company = build_company_record(manifest)
     filing = build_filing_record(manifest, Path("."), {})
     rows: list[dict[str, Any]] = []
-    for statement in financial_data.get("statements") or []:
+    for statement_index, statement in enumerate(financial_data.get("statements") or [], start=1):
         if not isinstance(statement, dict):
             continue
+        statement_id = statement.get("statement_id") or f"statement-{statement_index}"
         for item_index, item in enumerate(statement.get("items") or [], start=1):
             if not isinstance(item, dict):
                 continue
-            values = item.get("values") if isinstance(item.get("values"), dict) else {}
-            for period_key, raw_value_payload in values.items():
-                value_payload = _value_payload(raw_value_payload)
+            canonical_name = item.get("canonical_name") or item.get("item_name") or item.get("local_name") or "unknown"
+            for period_key, value_payload in _iter_item_period_values(item, manifest):
                 source = _source_from_item(item, value_payload, sources)
                 evidence_id = value_payload.get("evidence_id") or item.get("evidence_id") or source.get("evidence_id")
-                canonical_name = item.get("canonical_name") or item.get("item_name") or "unknown"
                 row = {
-                    "item_uid": stable_id(parse_run_id, statement.get("statement_id"), canonical_name, period_key, item_index),
+                    "item_uid": item.get("item_uid") or stable_id(parse_run_id, statement_id, canonical_name, period_key, item_index),
                     "filing_id": filing["filing_id"],
                     "parse_run_id": parse_run_id,
                     "company_id": company["company_id"],
@@ -212,9 +303,9 @@ def build_statement_item_rows(
                     "stock_code": company["stock_code"],
                     "company_name": company["company_name"],
                     "exchange": company["exchange"],
-                    "statement_id": statement.get("statement_id"),
+                    "statement_id": statement_id,
                     "statement_type": statement.get("statement_type"),
-                    "statement_name": statement.get("statement_name"),
+                    "statement_name": statement.get("statement_name") or statement.get("title"),
                     "scope": statement.get("scope"),
                     "scope_name": statement.get("scope_name"),
                     "item_index": item_index,
@@ -228,12 +319,12 @@ def build_statement_item_rows(
                     "scale": value_payload.get("scale") or item.get("scale"),
                     "period_start": parse_date(value_payload.get("period_start") or item.get("period_start")),
                     "period_end": parse_date(value_payload.get("period_end") or item.get("period_end") or manifest.get("period_end")),
-                    "fiscal_year": manifest.get("fiscal_year"),
-                    "fiscal_period": manifest.get("fiscal_period"),
+                    "fiscal_year": value_payload.get("fiscal_year") or item.get("fiscal_year") or manifest.get("fiscal_year"),
+                    "fiscal_period": value_payload.get("fiscal_period") or item.get("fiscal_period") or manifest.get("fiscal_period"),
                     "accounting_standard": manifest.get("accounting_standard"),
-                    "industry_profile": manifest.get("industry_profile") or "general",
+                    "industry_profile": item.get("industry_profile") or manifest.get("industry_profile") or "general",
                     "confidence": value_payload.get("confidence") or item.get("confidence"),
-                    "source_page_number": source.get("page_number") or value_payload.get("page_number"),
+                    "source_page_number": source.get("page_number") or source.get("pdf_page_number") or value_payload.get("page_number"),
                     "source_table_index": source.get("table_index") or value_payload.get("table_index"),
                     "source_row_index": source.get("row_index") or value_payload.get("row_index"),
                     "source_column_index": source.get("column_index") or value_payload.get("column_index"),
@@ -500,6 +591,11 @@ def _delete_run_rows(conn: Any, schema: str, parse_run_id: str) -> None:
         "retrieval_chunks",
         "quality_reports",
         "financial_checks",
+        "financial_all_metrics_wide",
+        "financial_key_metrics",
+        "financial_cash_flow_statement_items",
+        "financial_income_statement_items",
+        "financial_balance_sheet_items",
         "operating_metric_facts",
         "financial_statement_items",
         "financial_facts",
@@ -611,6 +707,90 @@ def _insert_evidence(conn: Any, schema: str, package_dir: Path, filing_id: str, 
         )
 
 
+STATEMENT_TYPE_TABLES = {
+    "balance_sheet": "financial_balance_sheet_items",
+    "statement_of_financial_position": "financial_balance_sheet_items",
+    "income_statement": "financial_income_statement_items",
+    "profit_or_loss": "financial_income_statement_items",
+    "cash_flow_statement": "financial_cash_flow_statement_items",
+    "cash_flows": "financial_cash_flow_statement_items",
+    "key_metrics": "financial_key_metrics",
+}
+
+
+def _insert_statement_item_row(conn: Any, schema: str, table: str, row: dict[str, Any], evidence_id: str | None) -> None:
+    conn.execute(
+        f"""
+        insert into {schema}.{table} (
+          item_uid, filing_id, parse_run_id, company_id, ticker, stock_code, company_name,
+          exchange, statement_id, statement_type, statement_name, scope, scope_name, item_index,
+          period_key, item_name, canonical_name, value, raw_value, unit, currency, scale,
+          period_start, period_end, fiscal_year, fiscal_period, accounting_standard,
+          industry_profile, confidence, source_page_number, source_table_index, source_row_index,
+          source_column_index, source_bbox, evidence_id, raw
+        ) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        on conflict (item_uid) do update set
+          value = excluded.value,
+          raw_value = excluded.raw_value,
+          source_page_number = excluded.source_page_number,
+          source_table_index = excluded.source_table_index,
+          source_row_index = excluded.source_row_index,
+          source_column_index = excluded.source_column_index,
+          source_bbox = excluded.source_bbox,
+          evidence_id = excluded.evidence_id,
+          raw = excluded.raw
+        """,
+        (
+            row["item_uid"],
+            row["filing_id"],
+            row["parse_run_id"],
+            row["company_id"],
+            row["ticker"],
+            row["stock_code"],
+            row["company_name"],
+            row["exchange"],
+            row["statement_id"],
+            row["statement_type"],
+            row["statement_name"],
+            row["scope"],
+            row["scope_name"],
+            row["item_index"],
+            row["period_key"],
+            row["item_name"],
+            row["canonical_name"],
+            parse_numeric(row["value"]),
+            row["raw_value"],
+            row["unit"],
+            row["currency"],
+            parse_numeric(row["scale"]),
+            row["period_start"],
+            row["period_end"],
+            row["fiscal_year"],
+            row["fiscal_period"],
+            row["accounting_standard"],
+            row["industry_profile"],
+            parse_numeric(row["confidence"]),
+            row["source_page_number"],
+            row["source_table_index"],
+            row["source_row_index"],
+            row["source_column_index"],
+            Jsonb(row["source_bbox"] or []),
+            evidence_id,
+            Jsonb(row["raw"]),
+        ),
+    )
+
+
+def _metric_payload(row: dict[str, Any], evidence_id: str | None) -> dict[str, Any]:
+    return {
+        "value": parse_numeric(row.get("value")),
+        "raw_value": row.get("raw_value"),
+        "unit": row.get("unit"),
+        "currency": row.get("currency"),
+        "evidence_id": evidence_id,
+    }
+
+
 def _insert_statement_items(
     conn: Any,
     schema: str,
@@ -620,66 +800,67 @@ def _insert_statement_items(
     parse_run_id: str,
 ) -> None:
     known_evidence_ids = set(_source_map_by_evidence_id(source_map))
-    for row in build_statement_item_rows(manifest, financial_data, source_map, parse_run_id):
+    wide: dict[str, dict[str, Any]] = {}
+    rows = build_statement_item_rows(manifest, financial_data, source_map, parse_run_id)
+    for row in rows:
         evidence_id = row["evidence_id"] if row.get("evidence_id") in known_evidence_ids else None
+        _insert_statement_item_row(conn, schema, "financial_statement_items", row, evidence_id)
+
+        statement_type = str(row.get("statement_type") or "")
+        specific_table = STATEMENT_TYPE_TABLES.get(statement_type)
+        if specific_table:
+            _insert_statement_item_row(conn, schema, specific_table, row, evidence_id)
+
+        period_key = str(row.get("period_key") or "unknown")
+        bucket = wide.setdefault(
+            period_key,
+            {"balance_sheet": {}, "income_statement": {}, "cash_flow_statement": {}, "key_metrics": {}, "all_metrics": {}},
+        )
+        payload = _metric_payload(row, evidence_id)
+        if specific_table == "financial_balance_sheet_items":
+            bucket["balance_sheet"][row["canonical_name"]] = payload
+        elif specific_table == "financial_income_statement_items":
+            bucket["income_statement"][row["canonical_name"]] = payload
+        elif specific_table == "financial_cash_flow_statement_items":
+            bucket["cash_flow_statement"][row["canonical_name"]] = payload
+        elif specific_table == "financial_key_metrics":
+            bucket["key_metrics"][row["canonical_name"]] = payload
+        bucket["all_metrics"][row["canonical_name"]] = {**payload, "statement_type": statement_type}
+
+    company = build_company_record(manifest)
+    for period_key, bucket in wide.items():
         conn.execute(
             f"""
-            insert into {schema}.financial_statement_items (
-              item_uid, filing_id, parse_run_id, company_id, ticker, stock_code, company_name,
-              exchange, statement_id, statement_type, statement_name, scope, scope_name, item_index,
-              period_key, item_name, canonical_name, value, raw_value, unit, currency, scale,
-              period_start, period_end, fiscal_year, fiscal_period, accounting_standard,
-              industry_profile, confidence, source_page_number, source_table_index, source_row_index,
-              source_column_index, source_bbox, evidence_id, raw
-            ) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            on conflict (item_uid) do update set
-              value = excluded.value,
-              raw_value = excluded.raw_value,
-              source_page_number = excluded.source_page_number,
-              source_table_index = excluded.source_table_index,
-              source_row_index = excluded.source_row_index,
-              source_column_index = excluded.source_column_index,
-              source_bbox = excluded.source_bbox,
-              evidence_id = excluded.evidence_id,
+            insert into {schema}.financial_all_metrics_wide (
+              parse_run_id, filing_id, company_id, ticker, stock_code, company_name, exchange,
+              period_key, fiscal_year, fiscal_period, balance_sheet, income_statement,
+              cash_flow_statement, key_metrics, all_metrics, raw
+            ) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            on conflict (parse_run_id, period_key) do update set
+              balance_sheet = excluded.balance_sheet,
+              income_statement = excluded.income_statement,
+              cash_flow_statement = excluded.cash_flow_statement,
+              key_metrics = excluded.key_metrics,
+              all_metrics = excluded.all_metrics,
               raw = excluded.raw
             """,
             (
-                row["item_uid"],
-                row["filing_id"],
-                row["parse_run_id"],
-                row["company_id"],
-                row["ticker"],
-                row["stock_code"],
-                row["company_name"],
-                row["exchange"],
-                row["statement_id"],
-                row["statement_type"],
-                row["statement_name"],
-                row["scope"],
-                row["scope_name"],
-                row["item_index"],
-                row["period_key"],
-                row["item_name"],
-                row["canonical_name"],
-                parse_numeric(row["value"]),
-                row["raw_value"],
-                row["unit"],
-                row["currency"],
-                row["scale"],
-                row["period_start"],
-                row["period_end"],
-                row["fiscal_year"],
-                row["fiscal_period"],
-                row["accounting_standard"],
-                row["industry_profile"],
-                parse_numeric(row["confidence"]),
-                row["source_page_number"],
-                row["source_table_index"],
-                row["source_row_index"],
-                row["source_column_index"],
-                Jsonb(row["source_bbox"] or []),
-                evidence_id,
-                Jsonb(row["raw"]),
+                parse_run_id,
+                manifest.get("filing_id") or build_filing_record(manifest, Path("."), {})["filing_id"],
+                company["company_id"],
+                company["ticker"],
+                company["stock_code"],
+                company["company_name"],
+                company["exchange"],
+                period_key,
+                manifest.get("fiscal_year"),
+                manifest.get("fiscal_period"),
+                Jsonb(bucket["balance_sheet"]),
+                Jsonb(bucket["income_statement"]),
+                Jsonb(bucket["cash_flow_statement"]),
+                Jsonb(bucket["key_metrics"]),
+                Jsonb(bucket["all_metrics"]),
+                Jsonb({"period_key": period_key}),
             ),
         )
 
