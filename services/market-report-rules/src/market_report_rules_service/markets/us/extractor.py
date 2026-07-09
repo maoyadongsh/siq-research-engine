@@ -15,7 +15,7 @@ from ...models import (
 )
 from ...normalization import parse_date, parse_decimal, period_key
 from ...registry import get_profile
-from ..common import build_result, extract_operating_metrics_from_tables
+from ..common import build_result
 from .rules import find_us_rule
 
 
@@ -77,7 +77,10 @@ def extract_artifact(artifact: ParsedArtifact) -> ExtractionResult:
     if not extracted:
         warnings.append("No mapped SEC/XBRL facts were extracted. Check whether the parser supplied facts or companyfacts data.")
 
-    operating.extend(extract_operating_metrics_from_tables(artifact, artifact.tables, confidence=Decimal("0.78")))
+    derived = _derive_missing_facts(extracted, artifact)
+    if derived:
+        extracted.extend(derived)
+        warnings.append(f"Derived {len(derived)} US metrics from reported SEC/XBRL facts.")
 
     return build_result(artifact, profile.profile_id, profile.rule_version, extracted, operating, warnings)
 
@@ -262,3 +265,157 @@ def _source_type_for_fact(fact: ParsedFact, artifact: ParsedArtifact) -> str:
     if artifact.facts:
         return "sec_xbrl_fact"
     return "sec_companyfacts_fact"
+
+
+def _derive_missing_facts(facts: list[ExtractedFact], artifact: ParsedArtifact) -> list[ExtractedFact]:
+    by_period: dict[str, dict[str, ExtractedFact]] = {}
+    for fact in facts:
+        if fact.statement_type == StatementType.OPERATING_METRICS:
+            continue
+        if _fact_dimensions(fact):
+            continue
+        bucket = by_period.setdefault(fact.period_key, {})
+        current = bucket.get(fact.canonical_name)
+        if current is None or _fact_rank(fact) > _fact_rank(current):
+            bucket[fact.canonical_name] = fact
+
+    derived: list[ExtractedFact] = []
+    for pkey, bucket in by_period.items():
+        _derive_one(
+            derived,
+            bucket,
+            artifact,
+            pkey,
+            "total_liabilities",
+            StatementType.BALANCE_SHEET,
+            (("total_liabilities_and_equity", Decimal("1")), ("total_equity", Decimal("-1"))),
+        )
+        _derive_one(
+            derived,
+            bucket,
+            artifact,
+            pkey,
+            "total_equity",
+            StatementType.BALANCE_SHEET,
+            (("total_liabilities_and_equity", Decimal("1")), ("total_liabilities", Decimal("-1"))),
+        )
+        _derive_one(
+            derived,
+            bucket,
+            artifact,
+            pkey,
+            "total_liabilities",
+            StatementType.BALANCE_SHEET,
+            (("total_assets", Decimal("1")), ("total_equity", Decimal("-1"))),
+        )
+        _derive_one(
+            derived,
+            bucket,
+            artifact,
+            pkey,
+            "operating_cash_flow_net",
+            StatementType.CASH_FLOW_STATEMENT,
+            (
+                ("cash_equivalents_net_increase", Decimal("1")),
+                ("investing_cash_flow_net", Decimal("-1")),
+                ("financing_cash_flow_net", Decimal("-1")),
+                ("fx_effect_cash", Decimal("-1")),
+            ),
+            optional_zero_names={"fx_effect_cash"},
+        )
+    return derived
+
+
+def _derive_one(
+    out: list[ExtractedFact],
+    bucket: dict[str, ExtractedFact],
+    artifact: ParsedArtifact,
+    period_key_value: str,
+    canonical_name: str,
+    statement_type: StatementType,
+    terms: tuple[tuple[str, Decimal], ...],
+    *,
+    optional_zero_names: set[str] | None = None,
+) -> None:
+    if canonical_name in bucket:
+        return
+    optional_zero_names = optional_zero_names or set()
+    components: list[tuple[str, ExtractedFact, Decimal]] = []
+    value = Decimal("0")
+    for name, sign in terms:
+        fact = bucket.get(name)
+        if fact is None:
+            if name in optional_zero_names:
+                continue
+            return
+        value += fact.value * sign
+        components.append((name, fact, sign))
+    if not components:
+        return
+    first = components[0][1]
+    confidence = min((fact.confidence for _, fact, _ in components), default=Decimal("0.70")) - Decimal("0.08")
+    if confidence < Decimal("0.60"):
+        confidence = Decimal("0.60")
+    formula = " + ".join(f"{sign}*{name}" for name, _, sign in components)
+    derived = ExtractedFact(
+        canonical_name=canonical_name,
+        local_name=f"derived_{canonical_name}",
+        label=f"Derived {canonical_name}",
+        statement_type=statement_type,
+        value=value,
+        raw_value=str(value),
+        unit=first.unit,
+        currency=first.currency,
+        period_key=period_key_value,
+        period_start=first.period_start,
+        period_end=first.period_end,
+        fiscal_year=first.fiscal_year or artifact.fiscal_year,
+        fiscal_period=first.fiscal_period or artifact.fiscal_period,
+        scale=first.scale,
+        market=Market.US,
+        accounting_standard=artifact.accounting_standard if artifact.accounting_standard != AccountingStandard.UNKNOWN else AccountingStandard.US_GAAP,
+        taxonomy="us_sec_xbrl_derived",
+        gaap_status="derived_from_reported_components",
+        source_accession=first.source_accession,
+        confidence=confidence,
+        evidence=EvidenceRef(
+            source_type="derived_reported_metric",
+            source_id=f"derived:{canonical_name}",
+            accession_number=first.source_accession or first.evidence.accession_number,
+            url=artifact.source_url,
+            section=first.evidence.section,
+            anchor=first.evidence.anchor,
+            quote_text=f"Derived {canonical_name}: {formula}",
+            raw={
+                "formula": formula,
+                "components": [
+                    {
+                        "canonical_name": name,
+                        "value": str(fact.value),
+                        "period_key": fact.period_key,
+                        "evidence": fact.evidence.model_dump(mode="json"),
+                    }
+                    for name, fact, _ in components
+                ],
+            },
+        ),
+        raw={"derived": True, "formula": formula, "components": [name for name, _, _ in components]},
+    )
+    out.append(derived)
+    bucket[canonical_name] = derived
+
+
+def _fact_dimensions(fact: ExtractedFact) -> dict[str, Any]:
+    raw = fact.raw if isinstance(fact.raw, dict) else {}
+    dimensions = raw.get("dimensions")
+    if isinstance(dimensions, dict):
+        return dimensions
+    evidence_raw = fact.evidence.raw if fact.evidence and isinstance(fact.evidence.raw, dict) else {}
+    nested = evidence_raw.get("dimensions")
+    return nested if isinstance(nested, dict) else {}
+
+
+def _fact_rank(fact: ExtractedFact) -> tuple[int, Decimal]:
+    source_type = str(fact.evidence.source_type if fact.evidence else "").lower()
+    source_rank = 3 if "xbrl" in source_type else 2 if source_type == "derived_reported_metric" else 1
+    return (source_rank, fact.confidence)

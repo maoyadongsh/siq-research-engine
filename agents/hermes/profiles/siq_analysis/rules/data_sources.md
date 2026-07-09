@@ -32,6 +32,9 @@
    - 大文件可以索引化/摘要化读取，但必须记录读取状态、缺失文件、解析失败和采用口径。
 2. `semantic/`
    - 先读 `semantic/retrieval_index.json`，再按问题读取 `facts.json`、`relations.json`、`claims.json`。
+   - 多市场 LLM-Wiki 语义增强读取 `semantic/llm/<report_id>/business_profile.json`、`risks.json`、`events.json`、`claims.json`；它只用于业务、风险、战略、分部、地区、重大事项等召回候选，必须使用 `needs_review=false` 且带合法 `source_segment_ids`/`evidence_ids` 的条目，并回链到 `semantic/evidence_semantic.json`、`segments.json` 或 `report.md` 后才能回答。
+   - 这层 LLM 语义不是只看薄指标摘要生成的；其请求输入包含从全量 `report.md` / `document_full.json` / SEC `sections/*.md` / 表格和附注关系中筛出的证据窗口。查询时可先用它加速召回，但最终引用仍回到原始证据窗口和源文件。
+   - LLM 层不得作为财务数值、页码、表格编号、日期或计算口径来源；所有金额和指标仍以 `metrics/reports/<report_id>/`、`metrics/latest/`、US SEC `normalized_metrics.json` 和 evidence/source_map 为准。
    - 财报项目、科目明细和附注解释优先读 `semantic/document_links.json`，再读 `semantic/note_links.json`。
    - 涉及“明细/构成/分布/组成/附注/减值准备/账龄/前五名/资产组/可收回金额/变动”等问题时，优先调用 `/home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts/note_detail_lookup.py --company <公司或代码> --metric <事项> --format markdown` 或等价逻辑，从 `document_links.json` 的 `note_table` 读取 `report.md` 表格行。
    - 若 `evidence/evidence_index.json` 未命中附注事项，只能说明“指标级证据索引无独立条目”，不得据此判断年报未披露；应继续检查 `semantic/document_links.json`、`semantic/note_links.json` 和 `report.md`。

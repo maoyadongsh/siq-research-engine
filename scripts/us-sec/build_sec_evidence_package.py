@@ -5,7 +5,7 @@ import argparse
 import os
 from pathlib import Path
 
-from sec_evidence_lib import REPO_ROOT, write_evidence_package
+from sec_evidence_lib import DEFAULT_PARSER_RESULTS_ROOT, REPO_ROOT, write_evidence_package
 
 
 def main() -> None:
@@ -18,10 +18,22 @@ def main() -> None:
         default=Path(os.environ.get("SIQ_US_WIKI_ROOT") or os.environ.get("SIQ_US_SEC_WIKI_ROOT", REPO_ROOT / "data" / "wiki" / "us")),
         help="US company wiki root. Default: data/wiki/us",
     )
+    parser.add_argument(
+        "--parser-results-root",
+        type=Path,
+        default=DEFAULT_PARSER_RESULTS_ROOT,
+        help="US SEC canonical parser results root. Default: data/parser-results/us-sec",
+    )
     parser.add_argument("--force", action="store_true", help="Replace an existing package directory")
     args = parser.parse_args()
 
-    package_dir = write_evidence_package(args.source.resolve(), args.output_root.resolve(), args.metadata, force=args.force)
+    package_dir = write_evidence_package(
+        args.source.resolve(),
+        args.output_root.resolve(),
+        args.metadata,
+        force=args.force,
+        parser_results_root=args.parser_results_root.resolve(),
+    )
     print(package_dir)
 
 

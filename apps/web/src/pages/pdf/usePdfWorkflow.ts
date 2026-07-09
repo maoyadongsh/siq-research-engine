@@ -43,7 +43,7 @@ export function usePdfWorkflow(
         await loadWorkflowStatus()
         return
       }
-      for (let i = 0; i < 30; i += 1) {
+      for (let i = 0; i < 900; i += 1) {
         const job = await fetchWorkflowJobApi(jobId)
         setWorkflowJob(job)
         if (['completed', 'succeeded', 'failed', 'error'].includes(String(job.status))) break

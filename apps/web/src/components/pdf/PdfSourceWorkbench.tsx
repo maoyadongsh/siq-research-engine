@@ -5,7 +5,6 @@ import type { PdfCtx, PageContent, SelectedTrace, SourceMeta, SourceTable } from
 import { artifactUrl, fetchPdfArtifactJson, fetchPdfPageContentApi } from '../../features/pdf-parsing/api'
 import { PageMergeBridge, PdfPagePreviewCard } from './PdfSourcePagePreview'
 import {
-  PdfArtifactPane,
   PdfMarkdownContextPane,
   PdfMobileReviewTabs,
   PdfReviewComparePane,
@@ -470,7 +469,6 @@ export function PdfSourceWorkbench(props: PdfSourceWorkbenchProps) {
 
   const corr = srcMeta?.correction || {}
   const excerpt = srcMeta?.excerpt || []
-  const sArt = srcMeta?.artifacts || {}
   const currentTrace = workbenchTrace?.scopeKey === traceScopeKey ? workbenchTrace.trace : ctx?.selectedTrace || null
 
   const statusOpts = [
@@ -716,7 +714,6 @@ export function PdfSourceWorkbench(props: PdfSourceWorkbenchProps) {
         saveCorrection={saveCorrection}
       />
       <PdfMarkdownContextPane excerpt={excerpt} />
-      <PdfArtifactPane artifacts={sArt} />
     </div>
   )
 }

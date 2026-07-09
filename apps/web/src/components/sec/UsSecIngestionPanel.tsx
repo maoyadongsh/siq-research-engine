@@ -35,6 +35,7 @@ import type { DownloadedPdf } from '../../lib/pdfTypes'
 import { loadDownloadedReports as loadDownloadedReportsApi } from '../../features/pdf-parsing/api'
 import { UsSecDownloadedReportsPanel } from './UsSecDownloadedReportsPanel'
 import { UsSecRecentTasksPanel } from './UsSecRecentTasksPanel'
+import { UsSecSourceWorkbench } from './UsSecSourceWorkbench'
 import {
   deriveUsSecArtifactManifest,
   deriveUsSecDownloadedRows,
@@ -173,6 +174,7 @@ export function UsSecIngestionPanel() {
   const rawHtmlUrl = packagePath ? usSecPackageFileUrl(packagePath, rawHtmlFile) : ''
   const rawHtmlBlobUrl = useAuthenticatedBlobUrl(rawHtmlUrl)
   const sections = packageDetail?.sections || []
+  const tables = packageDetail?.tables || []
   const metrics = packageDetail?.metrics || []
   const dimensionMetrics = packageDetail?.dimension_metrics || []
   const bridgeChecks = packageDetail?.bridge_checks?.checks || []
@@ -299,7 +301,6 @@ export function UsSecIngestionPanel() {
       const response = await runUsSecCaseSetIngest({
         dry_run: false,
         postgres: true,
-        milvus: false,
         ddl: true,
         include_fail: includeFail,
         tickers: task.ticker,
@@ -325,7 +326,7 @@ export function UsSecIngestionPanel() {
       const response = await runUsSecCaseSetIngest({
         dry_run: false,
         postgres: false,
-        milvus: true,
+        semantic: true,
         ddl: false,
         include_fail: includeFail,
         tickers: task.ticker,
@@ -334,10 +335,10 @@ export function UsSecIngestionPanel() {
       const result = response.job_id
         ? await waitForMarketReportJob<UsSecIngestResponse>(response.job_id)
         : response
-      setLastOutput(result.stdout || result.stderr || (response.job_id ? `后台任务 ${response.job_id} 已完成` : 'US SEC 语义层生成完成'))
+      setLastOutput(result.stdout || result.stderr || (response.job_id ? `后台任务 ${response.job_id} 已完成` : 'US SEC Wiki 语义增强完成'))
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : '语义层生成失败')
+      setError(err instanceof Error ? err.message : 'Wiki 语义增强失败')
     } finally {
       setBusy('')
     }
@@ -351,7 +352,7 @@ export function UsSecIngestionPanel() {
       const semanticResponse = await runUsSecCaseSetIngest({
         dry_run: false,
         postgres: false,
-        milvus: true,
+        semantic: true,
         ddl: false,
         include_fail: includeFail,
         tickers: task.ticker,
@@ -363,7 +364,6 @@ export function UsSecIngestionPanel() {
       const response = await runUsSecCaseSetIngest({
         dry_run: false,
         postgres: true,
-        milvus: false,
         ddl: true,
         include_fail: includeFail,
         tickers: task.ticker,
@@ -373,8 +373,8 @@ export function UsSecIngestionPanel() {
         ? await waitForMarketReportJob<UsSecIngestResponse>(response.job_id)
         : response
       setLastOutput([
-        '语义层',
-        semantic.stdout || semantic.stderr || (semanticResponse.job_id ? `后台任务 ${semanticResponse.job_id} 已完成` : 'US SEC 语义层生成完成'),
+        'Wiki 语义增强',
+        semantic.stdout || semantic.stderr || (semanticResponse.job_id ? `后台任务 ${semanticResponse.job_id} 已完成` : 'US SEC Wiki 语义增强完成'),
         '',
         'PostgreSQL',
         postgres.stdout || postgres.stderr || (response.job_id ? `后台任务 ${response.job_id} 已完成` : 'US SEC PostgreSQL 入库完成'),
@@ -485,7 +485,7 @@ export function UsSecIngestionPanel() {
         <>
           <PageSection
             title="数据管线"
-            description="SEC HTML/iXBRL 解析产物生成结构化结果包，PostgreSQL 与语义层继续读取同一套证据产物。"
+            description="SEC HTML/iXBRL 解析产物生成结构化结果包，PostgreSQL 与 Wiki 语义增强继续读取同一套证据产物。"
             actions={(
               <div className="flex flex-wrap gap-2">
                 <button onClick={() => void load()} disabled={loading} className="pdf-small-action inline-flex items-center gap-1">
@@ -502,14 +502,14 @@ export function UsSecIngestionPanel() {
             <div className="pdf-pipeline-note mb-4">
               <Database className="h-4 w-4" />
               <div>
-                结构化结果包由 SEC HTML/iXBRL 解析产物抽取生成，保留 <code>manifest.json</code>、sections、tables、xbrl、metrics、qa/source_map；PostgreSQL 和语义层从同一套解析产物继续入库。
+                当前链路为解析产物生成、Wiki 入库、Wiki 语义增强、PostgreSQL 入库；PostgreSQL 和 Wiki 语义增强都读取同一套 SEC HTML/iXBRL 解析产物。
               </div>
             </div>
 
             <div className="pdf-pipeline-note mb-4">
               <Network className="h-4 w-4" />
               <div>
-                语义层使用市场证据检索管道生成 section、table、metric 和 QA chunks；语义增强统一使用当前项目设置中的模型，可切换本地或云端大模型。
+                Wiki 语义增强使用当前项目设置中的模型，可切换本地或云端大模型；只更新 Wiki 语义资产，不触发向量入库。
               </div>
             </div>
 
@@ -574,7 +574,7 @@ export function UsSecIngestionPanel() {
                 </button>
                 <button type="button" className="pdf-small-action primary inline-flex items-center gap-1" onClick={() => void onBuildTaskSemantic(selectedTask)} disabled={!!busy}>
                   {busy === `semantic:${selectedTask.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Network className="h-4 w-4" />}
-                  生成语义层
+                  Wiki 语义增强
                 </button>
                 <button type="button" className="pdf-small-action primary inline-flex items-center gap-1" onClick={() => void onImportTaskPostgres(selectedTask)} disabled={!!busy}>
                   {busy === `postgres:${selectedTask.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Database className="h-4 w-4" />}
@@ -663,39 +663,16 @@ export function UsSecIngestionPanel() {
           </PageSection>
 
           <PageSection title="HTML/iXBRL 可视化溯源" description="左侧查看 SEC 原始 HTML，右侧查看渲染后的 Markdown section 与表格上下文。">
-            <div className="apple-card rounded-[24px] p-4 sm:p-6">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <div>
-                  <h3 className="text-base font-semibold text-text">溯源视图</h3>
-                  <p className="mt-1 text-sm text-text-muted">HTML 原文与解析 Markdown 对照，用于 SEC HTML/iXBRL 原文溯源。</p>
-                </div>
-                <select value={markdownFile} onChange={(event) => void changeMarkdownFile(event.target.value)} disabled={packageLoading || !sections.length} className="h-9 max-w-xs rounded-md border border-border bg-white px-2 text-xs disabled:cursor-not-allowed disabled:bg-surface-soft">
-                  {sections.map((section) => (
-                    <option key={String(section.file)} value={`sections/${section.file}`}>
-                      {String(section.section_id)} · {String(section.file)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="grid gap-3 xl:grid-cols-2">
-                {rawHtmlBlobUrl ? (
-                  <iframe title="SEC 原始 HTML" src={rawHtmlBlobUrl} className="h-[520px] w-full rounded-md border border-border bg-white" />
-                ) : (
-                  <div className="flex h-[520px] items-center justify-center gap-2 rounded-md border border-border bg-white text-sm text-text-muted">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    正在加载 SEC 原始 HTML
-                  </div>
-                )}
-                <div className="h-[520px] overflow-auto rounded-md border border-border bg-white p-4 text-sm leading-6 text-text">
-                  {markdownText.split('\n').slice(0, 260).map((line, index) => {
-                    if (line.startsWith('# ')) return <h3 key={index} className="mb-2 mt-3 text-base font-semibold">{line.replace(/^#\s+/, '')}</h3>
-                    if (line.startsWith('## ')) return <h4 key={index} className="mb-1 mt-3 text-sm font-semibold">{line.replace(/^##\s+/, '')}</h4>
-                    if (line.trim() === '---') return <hr key={index} className="my-3 border-border" />
-                    return <p key={index} className={line.trim() ? 'mb-1 whitespace-pre-wrap' : 'h-3'}>{line}</p>
-                  })}
-                </div>
-              </div>
-            </div>
+            <UsSecSourceWorkbench
+              packagePath={packagePath}
+              rawHtmlBlobUrl={rawHtmlBlobUrl}
+              sections={sections}
+              tables={tables}
+              markdownFile={markdownFile}
+              markdownText={markdownText}
+              packageLoading={packageLoading}
+              onMarkdownFileChange={changeMarkdownFile}
+            />
           </PageSection>
 
           <PageSection title="财务勾稽校验" description="三大表按 consolidated 口径校验；dimensions 相关附注单独标注。">

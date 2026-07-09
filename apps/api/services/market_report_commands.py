@@ -505,13 +505,18 @@ def market_package_build_result_payload(
             "stderr": missing_path_message,
             "command": command,
         }
-    return {
+    result = {
         "ok": True,
         "package": package,
         "stdout": _tail(stdout, 4000),
         "stderr": _tail(stderr, 4000),
         "command": command,
     }
+    if package.get("parser_result_dir"):
+        result["parser_result_dir"] = package.get("parser_result_dir")
+    if package.get("parser_result_task_id"):
+        result["parser_result_task_id"] = package.get("parser_result_task_id")
+    return result
 
 
 def market_package_import_result_payload(*, completed: Any, command: str) -> dict[str, Any]:
@@ -621,10 +626,15 @@ def us_sec_rebuild_package_result_payload(
 ) -> dict[str, Any]:
     stdout = getattr(completed, "stdout", "")
     stderr = getattr(completed, "stderr", "")
-    return {
+    result = {
         "ok": True,
         "ticker": ticker.upper(),
         "stdout": _tail(stdout, 4000),
         "stderr": _tail(stderr, 4000),
         "package": package,
     }
+    if package.get("parser_result_dir"):
+        result["parser_result_dir"] = package.get("parser_result_dir")
+    if package.get("parser_result_task_id"):
+        result["parser_result_task_id"] = package.get("parser_result_task_id")
+    return result

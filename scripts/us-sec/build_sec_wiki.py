@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,6 +15,7 @@ import sec_evidence_lib
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DOWNLOADS_ROOT = REPO_ROOT / "data" / "market-report-finder" / "downloads" / "US"
 DEFAULT_OUTPUT_ROOT = REPO_ROOT / "data" / "wiki" / "us"
+DEFAULT_PARSER_RESULTS_ROOT = sec_evidence_lib.DEFAULT_PARSER_RESULTS_ROOT
 
 
 def now_iso() -> str:
@@ -44,8 +46,11 @@ def build_sec_wiki(
     force: bool = False,
     incremental: bool = False,
     continue_on_error: bool = False,
+    parser_results_root: Path | None = None,
 ) -> dict[str, Any]:
+    parser_results_root = (parser_results_root or DEFAULT_PARSER_RESULTS_ROOT).resolve()
     rows = discovery.scan_downloads(downloads_root, forms=forms, tickers=tickers, limit=limit)
+    rows, duplicates = _dedupe_rows(rows)
     downloads_index = discovery.write_downloads_index(rows, output_root)
     built: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
@@ -57,7 +62,13 @@ def build_sec_wiki(
             continue
         try:
             metadata_path = Path(row["metadata_path"]) if row.get("metadata_path") else None
-            package_dir = sec_evidence_lib.write_evidence_package(Path(row["source_path"]), output_root, metadata_path, force=force)
+            package_dir = sec_evidence_lib.write_evidence_package(
+                Path(row["source_path"]),
+                output_root,
+                metadata_path,
+                force=force,
+                parser_results_root=parser_results_root,
+            )
             built.append({**row, "package_path": str(package_dir)})
         except Exception as exc:
             failure = {**row, "error": str(exc)}
@@ -70,16 +81,45 @@ def build_sec_wiki(
         "generated_at": now_iso(),
         "downloads_root": str(downloads_root),
         "output_root": str(output_root),
+        "parser_results_root": str(parser_results_root),
         "downloads_index": str(downloads_index),
         "discovered_count": len(rows),
         "built_count": len(built),
         "skipped_count": len(skipped),
+        "duplicate_count": len(duplicates),
         "failed_count": len(failed),
         "built": built,
         "skipped": skipped,
+        "duplicates": duplicates,
         "failed": failed,
         "index": index_summary,
     }
+
+
+def _dedupe_rows(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    unique: list[dict[str, Any]] = []
+    duplicates: list[dict[str, Any]] = []
+    seen: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        key = _dedupe_key(row)
+        if key in seen:
+            duplicates.append({**row, "duplicate_of": seen[key].get("source_path"), "dedupe_key": key})
+            continue
+        seen[key] = row
+        unique.append(row)
+    return unique, duplicates
+
+
+def _dedupe_key(row: dict[str, Any]) -> str:
+    accession = str(row.get("accession_number") or "").strip()
+    ticker = str(row.get("ticker") or "").strip().upper()
+    if accession:
+        return f"accession:{ticker}:{accession}"
+    source_sha256 = str(row.get("source_sha256") or "").strip()
+    if source_sha256:
+        return f"sha256:{source_sha256}"
+    raw = "|".join(str(row.get(key) or "") for key in ("ticker", "form", "period_end", "source_path"))
+    return f"row:{hashlib.sha256(raw.encode('utf-8')).hexdigest()}"
 
 
 def _expected_package_dir(output_root: Path, row: dict[str, Any]) -> Path | None:
@@ -98,6 +138,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Build US SEC wiki packages and company indexes from downloaded filings.")
     parser.add_argument("--downloads-root", type=Path, default=DEFAULT_DOWNLOADS_ROOT)
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
+    parser.add_argument("--parser-results-root", type=Path, default=DEFAULT_PARSER_RESULTS_ROOT)
     parser.add_argument("--forms", default="10-K")
     parser.add_argument("--tickers", default="")
     parser.add_argument("--limit", type=int, default=0)
@@ -115,6 +156,7 @@ def main() -> None:
         force=args.force,
         incremental=args.incremental,
         continue_on_error=args.continue_on_error,
+        parser_results_root=args.parser_results_root,
     )
     if args.report:
         write_json(args.report, report)

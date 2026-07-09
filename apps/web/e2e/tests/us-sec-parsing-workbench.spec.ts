@@ -103,8 +103,20 @@ const packageDetail = {
     dimension_metrics: 9,
   },
   sections: [
-    { section_id: 'business', file: 'business.md' },
-    { section_id: 'mda', file: 'mda.md' },
+    { section_id: 'business', file: 'business.md', html_anchor: 'business', char_start: 0, char_end: 800, text_length: 800 },
+    { section_id: 'mda', file: 'mda.md', html_anchor: 'mda', char_start: 800, char_end: 1800, text_length: 1000 },
+  ],
+  tables: [
+    {
+      table_id: 'mda-table-1',
+      table_index: 1,
+      title: 'Revenue table',
+      section_id: 'mda',
+      row_count: 3,
+      column_count: 3,
+      html_anchor: 'mda-table',
+      is_financial_statement_candidate: true,
+    },
   ],
   metrics: [
     {
@@ -190,6 +202,31 @@ async function mockUsSecWorkbenchApis(page: Page) {
       const file = url.searchParams.get('file')
       const authorization = route.request().headers().authorization || ''
       packageFileRequests.push({ file, authorization })
+      if (file === 'qa/source_map.json') {
+        await route.fulfill(json({
+          schema_version: 'market_source_map_v1',
+          market: 'US',
+          entries: [
+            {
+              evidence_id: 'business-source',
+              source_type: 'sec_html_section',
+              section_id: 'business',
+              html_anchor: 'business',
+              local_path: 'sections/business.md',
+              raw: packageDetail.sections[0],
+            },
+            {
+              evidence_id: 'mda-source',
+              source_type: 'sec_html_section',
+              section_id: 'mda',
+              html_anchor: 'mda',
+              local_path: 'sections/mda.md',
+              raw: packageDetail.sections[1],
+            },
+          ],
+        }))
+        return
+      }
       if (file === 'raw/filing.htm' && authorization !== 'Bearer playwright-token') {
         await route.fulfill(json({ detail: 'Not authenticated' }, 401))
         return
@@ -198,7 +235,39 @@ async function mockUsSecWorkbenchApis(page: Page) {
         await route.fulfill({
           status: 200,
           contentType: 'text/html',
-          body: '<!doctype html><html><body><h1>SEC raw HTML preview</h1></body></html>',
+          body: '<!doctype html><html><body style="margin:0;font-family:Arial,sans-serif;line-height:1.6">' +
+            '<section id="business" style="min-height:900px;padding:24px"><h1>SEC raw HTML preview</h1><p>Business section raw HTML.</p></section>' +
+            '<section id="mda" style="min-height:900px;padding:24px"><h1>Management Discussion raw HTML</h1><p>MD&A section raw HTML.</p></section>' +
+            '</body></html>',
+        })
+        return
+      }
+      if (file === 'sections/mda.md') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'text/markdown',
+          body: '# MD&A\n\nManagement discussion for the mocked US SEC package.\n\n| Metric | 2025 | 2024 |\n| --- | ---: | ---: |\n| Revenue | 130497 | 60922 |',
+        })
+        return
+      }
+      if (file === 'tables/table_0001.json') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            table_id: 'mda-table-1',
+            table_index: 1,
+            title: 'Revenue table',
+            section_id: 'mda',
+            row_count: 3,
+            column_count: 3,
+            is_financial_statement_candidate: true,
+            rows: [
+              ['Metric', '2025', '2024'],
+              ['Revenue', '130497', '60922'],
+              ['Gross margin', '97824', '44301'],
+            ],
+          }),
         })
         return
       }
@@ -240,7 +309,7 @@ test.describe('美股 SEC 解析工作台', () => {
     await expect(page.getByRole('heading', { name: '已下载财报', exact: true })).toBeVisible()
     const structuredRow = page.locator('.pdf-download-item').filter({ hasText: structuredReport.filename })
     await expect(structuredRow.getByText(structuredReport.filename, { exact: true })).toBeVisible()
-    await expect(page.getByText('证据包已生成').first()).toBeVisible()
+    await expect(page.getByText('解析产物已生成').first()).toBeVisible()
     await expect(page.getByRole('heading', { name: '最近任务（点击查看结果）', exact: true })).toBeVisible()
     await expect(page.getByText('NVIDIA Corporation · NVDA · 10-K · 2025-01-26')).toBeVisible()
     await expect(page.getByText('选择一条已解析 SEC 任务后查看证据包、勾稽校验和入库状态。')).toHaveCount(0)
@@ -296,6 +365,29 @@ test.describe('美股 SEC 解析工作台', () => {
     await expect(page.getByRole('heading', { name: 'HTML/iXBRL 可视化溯源', exact: true })).toBeVisible()
     await expect.poll(() => packageFileRequests.find((request) => request.file === 'raw/filing.htm')?.authorization).toBe('Bearer playwright-token')
     await expect(page.frameLocator('iframe[title="SEC 原始 HTML"]').getByText('SEC raw HTML preview')).toBeVisible()
+    await expect(page.getByTestId('us-sec-source-active-section')).toContainText('business')
+
+    const sectionSelect = page.getByLabel('选择 SEC Markdown section')
+    await sectionSelect.selectOption('sections/mda.md')
+    await expect(page.getByTestId('us-sec-source-markdown-pane')).toContainText('Management discussion')
+    await expect(page.getByTestId('us-sec-source-markdown-pane').locator('table').filter({ hasText: 'Revenue' }).first()).toBeVisible()
+    await expect(page.getByRole('heading', { name: '表格上下文' })).toBeVisible()
+    await expect(page.getByText('Gross margin')).toBeVisible()
+    const frameHandle = await page.locator('iframe[title="SEC 原始 HTML"]').elementHandle()
+    const frame = await frameHandle?.contentFrame()
+    expect(frame).toBeTruthy()
+    await expect.poll(async () => frame?.evaluate(() => window.scrollY) ?? 0).toBeGreaterThan(400)
+    await expect(page.getByTestId('us-sec-source-active-section')).toContainText('mda')
+
+    await page.waitForTimeout(800)
+    await frame?.evaluate(() => window.scrollTo(0, 0))
+    await expect.poll(async () => sectionSelect.inputValue()).toBe('sections/business.md')
+    await expect(page.getByTestId('us-sec-source-active-section')).toContainText('business')
+
+    await page.getByLabel('切换左右联动').uncheck()
+    await frame?.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
+    await page.waitForTimeout(500)
+    await expect(sectionSelect).toHaveValue('sections/business.md')
     await expect(page.getByRole('heading', { name: '财务勾稽校验', exact: true })).toBeVisible()
 
     expect(buildRequests).toEqual([

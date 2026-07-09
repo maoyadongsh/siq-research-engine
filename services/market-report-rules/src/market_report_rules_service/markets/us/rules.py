@@ -11,6 +11,8 @@ US_CONCEPT_RULES: tuple[MetricRule, ...] = (
         StatementType.INCOME_STATEMENT,
         (
             "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+            "us-gaap:RegulatedAndUnregulatedOperatingRevenue",
+            "us-gaap:RevenueFromContractWithCustomerIncludingAssessedTax",
             "us-gaap:Revenues",
             "us-gaap:SalesRevenueNet",
             "ifrs-full:Revenue",
@@ -248,6 +250,7 @@ US_CONCEPT_RULES: tuple[MetricRule, ...] = (
         StatementType.CASH_FLOW_STATEMENT,
         (
             "us-gaap:NetCashProvidedByUsedInOperatingActivities",
+            "us-gaap:NetCashProvidedByUsedInOperatingActivitiesContinuingOperations",
             "ifrs-full:CashFlowsFromUsedInOperatingActivities",
         ),
         10,
@@ -345,10 +348,10 @@ US_CONCEPT_RULES: tuple[MetricRule, ...] = (
 
 
 US_RULE_BY_CONCEPT = {
-    normalize_concept(label): rule
-    for rule in US_CONCEPT_RULES
-    for label in rule.labels
 }
+for rule in US_CONCEPT_RULES:
+    for label in rule.labels:
+        US_RULE_BY_CONCEPT.setdefault(normalize_concept(label), rule)
 
 
 def find_us_rule(concept: str) -> MetricRule | None:

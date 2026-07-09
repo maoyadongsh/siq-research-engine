@@ -123,6 +123,9 @@ def us_sec_case_set_status_payload(
             "period_end": item.get("period_end"),
             "filing_date": item.get("filing_date"),
             "quality_status": status,
+            "retrieval_status": item.get("retrieval_status"),
+            "wiki_ready": item.get("wiki_ready"),
+            "retrieval_issues": item.get("retrieval_issues") or [],
             "quality_summary": summary,
             "package_path": item.get("package_path"),
         })

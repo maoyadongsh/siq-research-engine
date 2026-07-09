@@ -1,0 +1,1123 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-08T15:09:00Z",
+  "markets": [
+    {
+      "market": "US",
+      "wiki_root": "/home/maoyd/siq-research-engine/data/wiki/us",
+      "totals": {
+        "companies": 50,
+        "ready": 50,
+        "needs_review": 0,
+        "segments": 391,
+        "evidence": 3032,
+        "facts": 2593,
+        "claims": 0,
+        "retrieval_topics": 456,
+        "llm_invalid_ids": 0
+      },
+      "results": [
+        {
+          "company_dir": "AAPL-Apple-Inc",
+          "report_id": "2025-10-K-0000320193-25-000079",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 9,
+            "evidence": 61,
+            "facts": 51,
+            "claims": 0,
+            "retrieval_topics": 10,
+            "llm": {
+              "business_profile": 6,
+              "claims": 6,
+              "risks": 4,
+              "events": 3,
+              "review_queue": 8
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "ALB-ALBEMARLE-CORP",
+          "report_id": "2025-10-K-0000915913-26-000018",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 9,
+            "evidence": 73,
+            "facts": 63,
+            "claims": 0,
+            "retrieval_topics": 10,
+            "llm": {
+              "business_profile": 5,
+              "claims": 5,
+              "risks": 8,
+              "events": 4,
+              "review_queue": 5
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "AMT-AMERICAN-TOWER-CORP-MA",
+          "report_id": "2025-10-K-0001053507-26-000035",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 8,
+            "evidence": 64,
+            "facts": 55,
+            "claims": 0,
+            "retrieval_topics": 10,
+            "llm": {
+              "business_profile": 8,
+              "claims": 7,
+              "risks": 5,
+              "events": 4,
+              "review_queue": 4
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "AMZN-AMAZON-COM-INC",
+          "report_id": "2025-10-K-0001018724-26-000004",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 9,
+            "evidence": 63,
+            "facts": 53,
+            "claims": 0,
+            "retrieval_topics": 10,
+            "llm": {
+              "business_profile": 5,
+              "claims": 5,
+              "risks": 5,
+              "events": 5,
+              "review_queue": 7
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "ARHS-Arhaus-Inc",
+          "report_id": "2025-10-K-0001875444-26-000010",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 9,
+            "evidence": 57,
+            "facts": 47,
+            "claims": 0,
+            "retrieval_topics": 10,
+            "llm": {
+              "business_profile": 7,
+              "claims": 6,
+              "risks": 7,
+              "events": 3,
+              "review_queue": 5
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "AXP-AMERICAN-EXPRESS-CO",
+          "report_id": "2025-10-K-0000004962-26-000080",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 8,
+            "evidence": 58,
+            "facts": 49,
+            "claims": 0,
+            "retrieval_topics": 9,
+            "llm": {
+              "business_profile": 7,
+              "claims": 6,
+              "risks": 3,
+              "events": 3,
+              "review_queue": 5
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "BA-BOEING-CO",
+          "report_id": "2025-10-K-0001628280-26-004357",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 8,
+            "evidence": 62,
+            "facts": 53,
+            "claims": 0,
+            "retrieval_topics": 10,
+            "llm": {
+              "business_profile": 8,
+              "claims": 5,
+              "risks": 3,
+              "events": 4,
+              "review_queue": 5
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "BAC-BANK-OF-AMERICA-CORP-DE",
+          "report_id": "2025-10-K-0000070858-26-000157",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 8,
+            "evidence": 55,
+            "facts": 46,
+            "claims": 0,
+            "retrieval_topics": 9,
+            "llm": {
+              "business_profile": 3,
+              "claims": 4,
+              "risks": 3,
+              "events": 3,
+              "review_queue": 10
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "BLBD-Blue-Bird-Corp",
+          "report_id": "2025-10-K-0001589526-25-000100",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 9,
+            "evidence": 63,
+            "facts": 53,
+            "claims": 0,
+            "retrieval_topics": 10,
+            "llm": {
+              "business_profile": 7,
+              "claims": 4,
+              "risks": 5,
+              "events": 2,
+              "review_queue": 6
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "CAT-CATERPILLAR-INC",
+          "report_id": "2025-10-K-0000018230-26-000008",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 9,
+            "evidence": 63,
+            "facts": 53,
+            "claims": 0,
+            "retrieval_topics": 10,
+            "llm": {
+              "business_profile": 7,
+              "claims": 4,
+              "risks": 3,
+              "events": 2,
+              "review_queue": 4
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "CHDN-Churchill-Downs-Inc",
+          "report_id": "2025-10-K-0000020212-26-000025",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 9,
+            "evidence": 57,
+            "facts": 47,
+            "claims": 0,
+            "retrieval_topics": 10,
+            "llm": {
+              "business_profile": 5,
+              "claims": 6,
+              "risks": 5,
+              "events": 3,
+              "review_queue": 5
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "COST-COSTCO-WHOLESALE-CORP-NEW",
+          "report_id": "2024-10-K-0000909832-24-000049",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 3,
+            "evidence": 54,
+            "facts": 50,
+            "claims": 0,
+            "retrieval_topics": 5,
+            "llm": {
+              "business_profile": 2,
+              "claims": 1,
+              "risks": 1,
+              "events": 1,
+              "review_queue": 4
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "CROX-Crocs-Inc",
+          "report_id": "2025-10-K-0001334036-26-000006",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 9,
+            "evidence": 63,
+            "facts": 53,
+            "claims": 0,
+            "retrieval_topics": 10,
+            "llm": {
+              "business_profile": 10,
+              "claims": 5,
+              "risks": 5,
+              "events": 3,
+              "review_queue": 7
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "CRSR-Corsair-Gaming-Inc",
+          "report_id": "2025-10-K-0001193125-26-067833",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 7,
+            "evidence": 61,
+            "facts": 53,
+            "claims": 0,
+            "retrieval_topics": 8,
+            "llm": {
+              "business_profile": 5,
+              "claims": 5,
+              "risks": 4,
+              "events": 3,
+              "review_queue": 8
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "CVX-CHEVRON-CORP",
+          "report_id": "2025-10-K-0000093410-26-000078",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 8,
+            "evidence": 61,
+            "facts": 52,
+            "claims": 0,
+            "retrieval_topics": 10,
+            "llm": {
+              "business_profile": 8,
+              "claims": 5,
+              "risks": 4,
+              "events": 3,
+              "review_queue": 7
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "DE-DEERE-CO",
+          "report_id": "2025-10-K-0001104659-25-122321",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 8,
+            "evidence": 55,
+            "facts": 46,
+            "claims": 0,
+            "retrieval_topics": 9,
+            "llm": {
+              "business_profile": 7,
+              "claims": 4,
+              "risks": 4,
+              "events": 3,
+              "review_queue": 6
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "DUK-Duke-Energy-CORP",
+          "report_id": "2025-10-K-0001326160-26-000014",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 9,
+            "evidence": 66,
+            "facts": 56,
+            "claims": 0,
+            "retrieval_topics": 10,
+            "llm": {
+              "business_profile": 7,
+              "claims": 4,
+              "risks": 4,
+              "events": 3,
+              "review_queue": 6
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "ENPH-Enphase-Energy-Inc",
+          "report_id": "2025-10-K-0001463101-26-000013",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 9,
+            "evidence": 59,
+            "facts": 49,
+            "claims": 0,
+            "retrieval_topics": 10,
+            "llm": {
+              "business_profile": 7,
+              "claims": 6,
+              "risks": 3,
+              "events": 4,
+              "review_queue": 5
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "FIVE-FIVE-BELOW-INC",
+          "report_id": "2026-10-K-0001177609-26-000010",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 8,
+            "evidence": 56,
+            "facts": 47,
+            "claims": 0,
+            "retrieval_topics": 10,
+            "llm": {
+              "business_profile": 7,
+              "claims": 5,
+              "risks": 4,
+              "events": 4,
+              "review_queue": 6
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "GE-GENERAL-ELECTRIC-CO",
+          "report_id": "2025-10-K-0000040545-26-000008",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 3,
+            "evidence": 57,
+            "facts": 53,
+            "claims": 0,
+            "retrieval_topics": 5,
+            "llm": {
+              "business_profile": 4,
+              "claims": 3,
+              "risks": 0,
+              "events": 1,
+              "review_queue": 5
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "GOOGL-Alphabet-Inc",
+          "report_id": "2025-10-K-0001652044-26-000018",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 9,
+            "evidence": 65,
+            "facts": 55,
+            "claims": 0,
+            "retrieval_topics": 10,
+            "llm": {
+              "business_profile": 9,
+              "claims": 5,
+              "risks": 3,
+              "events": 3,
+              "review_queue": 6
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "HIMS-Hims-Hers-Health-Inc",
+          "report_id": "2025-10-K-0001773751-26-000022",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 9,
+            "evidence": 57,
+            "facts": 47,
+            "claims": 0,
+            "retrieval_topics": 10,
+            "llm": {
+              "business_profile": 5,
+              "claims": 4,
+              "risks": 4,
+              "events": 2,
+              "review_queue": 6
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "JNJ-JOHNSON-JOHNSON",
+          "report_id": "2025-10-K-0000200406-26-000016",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 9,
+            "evidence": 56,
+            "facts": 46,
+            "claims": 0,
+            "retrieval_topics": 10,
+            "llm": {
+              "business_profile": 12,
+              "claims": 8,
+              "risks": 4,
+              "events": 3,
+              "review_queue": 10
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "JPM-JPMORGAN-CHASE-CO",
+          "report_id": "2025-10-K-0001628280-26-008131",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 9,
+            "evidence": 59,
+            "facts": 49,
+            "claims": 0,
+            "retrieval_topics": 10,
+            "llm": {
+              "business_profile": 10,
+              "claims": 6,
+              "risks": 6,
+              "events": 5,
+              "review_queue": 5
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "KO-COCA-COLA-CO",
+          "report_id": "2025-10-K-0001628280-26-010047",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 9,
+            "evidence": 63,
+            "facts": 53,
+            "claims": 0,
+            "retrieval_topics": 10,
+            "llm": {
+              "business_profile": 6,
+              "claims": 4,
+              "risks": 3,
+              "events": 3,
+              "review_queue": 4
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "LEA-LEAR-CORP",
+          "report_id": "2025-10-K-0000842162-26-000011",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 4,
+            "evidence": 56,
+            "facts": 51,
+            "claims": 0,
+            "retrieval_topics": 6,
+            "llm": {
+              "business_profile": 0,
+              "claims": 0,
+              "risks": 0,
+              "events": 0,
+              "review_queue": 10
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "LLY-ELI-LILLY-Co",
+          "report_id": "2024-10-K-0000059478-25-000067",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 9,
+            "evidence": 58,
+            "facts": 48,
+            "claims": 0,
+            "retrieval_topics": 10,
+            "llm": {
+              "business_profile": 5,
+              "claims": 4,
+              "risks": 4,
+              "events": 3,
+              "review_queue": 6
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "LOVE-Lovesac-Co",
+          "report_id": "2026-10-K-0001628280-26-022929",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 7,
+            "evidence": 55,
+            "facts": 47,
+            "claims": 0,
+            "retrieval_topics": 9,
+            "llm": {
+              "business_profile": 6,
+              "claims": 4,
+              "risks": 3,
+              "events": 3,
+              "review_queue": 6
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "LQDT-LIQUIDITY-SERVICES-INC",
+          "report_id": "2025-10-K-0001193125-25-289159",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 5,
+            "evidence": 59,
+            "facts": 53,
+            "claims": 0,
+            "retrieval_topics": 7,
+            "llm": {
+              "business_profile": 4,
+              "claims": 4,
+              "risks": 2,
+              "events": 3,
+              "review_queue": 4
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "MA-Mastercard-Inc",
+          "report_id": "2025-10-K-0001141391-26-000013",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 9,
+            "evidence": 57,
+            "facts": 47,
+            "claims": 0,
+            "retrieval_topics": 10,
+            "llm": {
+              "business_profile": 11,
+              "claims": 7,
+              "risks": 15,
+              "events": 6,
+              "review_queue": 5
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "MCD-MCDONALDS-CORP",
+          "report_id": "2025-10-K-0000063908-26-000035",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 3,
+            "evidence": 51,
+            "facts": 47,
+            "claims": 0,
+            "retrieval_topics": 5,
+            "llm": {
+              "business_profile": 4,
+              "claims": 3,
+              "risks": 1,
+              "events": 4,
+              "review_queue": 5
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "META-Meta-Platforms-Inc",
+          "report_id": "2025-10-K-0001628280-26-003942",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 9,
+            "evidence": 59,
+            "facts": 49,
+            "claims": 0,
+            "retrieval_topics": 10,
+            "llm": {
+              "business_profile": 7,
+              "claims": 5,
+              "risks": 6,
+              "events": 3,
+              "review_queue": 5
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "MSFT-MICROSOFT-CORP",
+          "report_id": "2025-10-K-0000950170-25-100235",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 4,
+            "evidence": 55,
+            "facts": 50,
+            "claims": 0,
+            "retrieval_topics": 6,
+            "llm": {
+              "business_profile": 4,
+              "claims": 2,
+              "risks": 2,
+              "events": 2,
+              "review_queue": 7
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "MU-MICRON-TECHNOLOGY-INC",
+          "report_id": "2025-10-K-0000723125-25-000028",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 9,
+            "evidence": 59,
+            "facts": 49,
+            "claims": 0,
+            "retrieval_topics": 10,
+            "llm": {
+              "business_profile": 6,
+              "claims": 4,
+              "risks": 5,
+              "events": 2,
+              "review_queue": 5
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "NEE-NEXTERA-ENERGY-INC",
+          "report_id": "2025-10-K-0000753308-26-000015",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 8,
+            "evidence": 63,
+            "facts": 54,
+            "claims": 0,
+            "retrieval_topics": 9,
+            "llm": {
+              "business_profile": 11,
+              "claims": 7,
+              "risks": 4,
+              "events": 4,
+              "review_queue": 5
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "NKE-NIKE-Inc",
+          "report_id": "2025-10-K-0000320187-25-000047",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 9,
+            "evidence": 56,
+            "facts": 46,
+            "claims": 0,
+            "retrieval_topics": 10,
+            "llm": {
+              "business_profile": 10,
+              "claims": 7,
+              "risks": 7,
+              "events": 5,
+              "review_queue": 8
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "NVDA-NVIDIA-CORP",
+          "report_id": "2026-10-K-0001045810-26-000021",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 8,
+            "evidence": 58,
+            "facts": 49,
+            "claims": 0,
+            "retrieval_topics": 10,
+            "llm": {
+              "business_profile": 7,
+              "claims": 6,
+              "risks": 5,
+              "events": 4,
+              "review_queue": 6
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "ORCL-ORACLE-CORP",
+          "report_id": "2026-10-K-0001193125-26-277521",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 4,
+            "evidence": 60,
+            "facts": 55,
+            "claims": 0,
+            "retrieval_topics": 6,
+            "llm": {
+              "business_profile": 7,
+              "claims": 4,
+              "risks": 3,
+              "events": 1,
+              "review_queue": 4
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "OSW-ONESPAWORLD-HOLDINGS-Ltd",
+          "report_id": "2025-10-K-0001193125-26-062456",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 3,
+            "evidence": 50,
+            "facts": 47,
+            "claims": 0,
+            "retrieval_topics": 5,
+            "llm": {
+              "business_profile": 1,
+              "claims": 1,
+              "risks": 1,
+              "events": 2,
+              "review_queue": 6
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "PEN-Penumbra-Inc",
+          "report_id": "2025-10-K-0001321732-26-000007",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 9,
+            "evidence": 57,
+            "facts": 47,
+            "claims": 0,
+            "retrieval_topics": 10,
+            "llm": {
+              "business_profile": 6,
+              "claims": 6,
+              "risks": 3,
+              "events": 3,
+              "review_queue": 6
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "PG-PROCTER-GAMBLE-Co",
+          "report_id": "2025-10-K-0000080424-25-000076",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 9,
+            "evidence": 63,
+            "facts": 53,
+            "claims": 0,
+            "retrieval_topics": 10,
+            "llm": {
+              "business_profile": 6,
+              "claims": 5,
+              "risks": 3,
+              "events": 2,
+              "review_queue": 6
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "PLD-Prologis-Inc",
+          "report_id": "2025-10-K-0001193125-26-051453",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 7,
+            "evidence": 104,
+            "facts": 97,
+            "claims": 0,
+            "retrieval_topics": 8,
+            "llm": {
+              "business_profile": 7,
+              "claims": 6,
+              "risks": 6,
+              "events": 5,
+              "review_queue": 6
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "PRCH-Porch-Group-Inc",
+          "report_id": "2023-10-K-0001784535-24-000019",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 9,
+            "evidence": 63,
+            "facts": 53,
+            "claims": 0,
+            "retrieval_topics": 10,
+            "llm": {
+              "business_profile": 9,
+              "claims": 6,
+              "risks": 5,
+              "events": 4,
+              "review_queue": 5
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "SHOO-STEVEN-MADDEN-LTD",
+          "report_id": "2025-10-K-0001628280-26-012995",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 9,
+            "evidence": 57,
+            "facts": 47,
+            "claims": 0,
+            "retrieval_topics": 10,
+            "llm": {
+              "business_profile": 6,
+              "claims": 5,
+              "risks": 5,
+              "events": 6,
+              "review_queue": 5
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "TOL-Toll-Brothers-Inc",
+          "report_id": "2025-10-K-0000794170-25-000112",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 9,
+            "evidence": 82,
+            "facts": 72,
+            "claims": 0,
+            "retrieval_topics": 10,
+            "llm": {
+              "business_profile": 6,
+              "claims": 6,
+              "risks": 5,
+              "events": 4,
+              "review_queue": 6
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "TSLA-Tesla-Inc",
+          "report_id": "2025-10-K-0001628280-26-003952",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 9,
+            "evidence": 65,
+            "facts": 55,
+            "claims": 0,
+            "retrieval_topics": 10,
+            "llm": {
+              "business_profile": 5,
+              "claims": 5,
+              "risks": 4,
+              "events": 4,
+              "review_queue": 6
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "UNH-UNITEDHEALTH-GROUP-INC",
+          "report_id": "2024-10-K-0000731766-25-000063",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 8,
+            "evidence": 59,
+            "facts": 50,
+            "claims": 0,
+            "retrieval_topics": 10,
+            "llm": {
+              "business_profile": 7,
+              "claims": 4,
+              "risks": 3,
+              "events": 2,
+              "review_queue": 6
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "V-VISA-INC",
+          "report_id": "2025-10-K-0001403161-25-000089",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 9,
+            "evidence": 57,
+            "facts": 47,
+            "claims": 0,
+            "retrieval_topics": 10,
+            "llm": {
+              "business_profile": 7,
+              "claims": 5,
+              "risks": 4,
+              "events": 4,
+              "review_queue": 5
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "WING-Wingstop-Inc",
+          "report_id": "2025-10-K-0001636222-26-000008",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 9,
+            "evidence": 57,
+            "facts": 47,
+            "claims": 0,
+            "retrieval_topics": 10,
+            "llm": {
+              "business_profile": 6,
+              "claims": 6,
+              "risks": 5,
+              "events": 3,
+              "review_queue": 6
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        },
+        {
+          "company_dir": "XOM-EXXON-MOBIL-CORP",
+          "report_id": "2025-10-K-0000034088-26-000045",
+          "status": "ready",
+          "issues": [],
+          "counts": {
+            "segments": 9,
+            "evidence": 64,
+            "facts": 54,
+            "claims": 0,
+            "retrieval_topics": 10,
+            "llm": {
+              "business_profile": 7,
+              "claims": 7,
+              "risks": 5,
+              "events": 5,
+              "review_queue": 6
+            },
+            "llm_invalid_ids": 0
+          },
+          "invalid_llm_ids": []
+        }
+      ]
+    }
+  ]
+}

@@ -76,8 +76,13 @@ export interface UsSecQualitySummary {
   missingCoreSections: string[]
 }
 
-const usSecArtifactNames = [
+const usSecFallbackArtifactNames = [
   'manifest.json',
+  'parser/document_full.json',
+  'parser/report_complete.md',
+  'parser/content_list_enhanced.json',
+  'parser/table_relations.json',
+  'sections/report_complete.md',
   'sections/*.md',
   'tables.json',
   'xbrl_facts.json',
@@ -113,8 +118,61 @@ function qualityStatus(value: unknown): string {
   return normalized(value).toLowerCase() || 'unknown'
 }
 
+function retrievalReady(item: UsSecCaseSetItem | null | undefined): boolean {
+  return item?.wiki_ready === true || qualityStatus(item?.retrieval_status) === 'ready'
+}
+
 function packageReady(detail: UsSecPackageDetail | null | undefined): boolean {
   return Boolean(detail?.package_path)
+}
+
+function plainRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function usSecArtifactNames(detail: UsSecPackageDetail | null | undefined): string[] {
+  const manifest = plainRecord(detail?.manifest)
+  const artifacts = plainRecord(manifest.artifacts)
+  if (!Object.keys(artifacts).length) return usSecFallbackArtifactNames
+  const preferredKeys = [
+    'document_full',
+    'report_complete',
+    'content_list_enhanced',
+    'table_relations',
+    'wiki_report_complete',
+    'sections',
+    'table_index',
+    'xbrl_facts_raw',
+    'xbrl_contexts',
+    'xbrl_units',
+    'xbrl_labels',
+    'xbrl_taxonomy_summary',
+    'financial_data',
+    'financial_checks',
+    'normalized_metrics',
+    'operating_metrics',
+    'quality_report',
+    'source_map',
+    'extraction_warnings',
+  ]
+  const names = ['manifest.json']
+  const seen = new Set(names)
+  const addArtifact = (value: unknown) => {
+    const name = normalized(value)
+    if (!name || seen.has(name)) return
+    seen.add(name)
+    names.push(name)
+  }
+  preferredKeys.forEach((key) => addArtifact(artifacts[key]))
+  Object.keys(artifacts).sort().forEach((key) => addArtifact(artifacts[key]))
+  return names
+}
+
+function usSecArtifactReady(detail: UsSecPackageDetail | null | undefined, name: string): boolean {
+  if (!packageReady(detail)) return false
+  if (name === 'manifest.json') return true
+  const hashes = plainRecord(plainRecord(detail?.manifest).artifact_hashes)
+  return !Object.keys(hashes).length || Boolean(hashes[name])
 }
 
 function countText(value: unknown): string {
@@ -194,9 +252,10 @@ export function deriveUsSecParseStatus({
 }): UsSecParseStatus {
   if (busyPath && busyPath === report.relativePath) return 'building'
   if (!item?.package_path) return 'unparsed'
+  const readyForRetrieval = retrievalReady(item)
   const quality = normalized(item.quality_status).toLowerCase()
   if (quality === 'fail' || quality === 'failed') return 'failed'
-  if (quality === 'warning' || quality === 'warn') return 'warning'
+  if ((quality === 'warning' || quality === 'warn') && !readyForRetrieval) return 'warning'
   const importedPackages = Number(status?.ingest_report?.package_count || 0)
   const importedFacts = Number(status?.ingest_report?.summary?.xbrl_facts || 0)
   if (importedPackages > 0 && importedFacts > 0) return 'postgres_ready'
@@ -275,8 +334,9 @@ export function deriveUsSecRecentTasks(status?: UsSecCaseSetStatus | null): UsSe
 }
 
 export function deriveUsSecArtifactManifest(detail?: UsSecPackageDetail | null): UsSecArtifactManifestView {
+  const artifactNames = usSecArtifactNames(detail)
   const ready = packageReady(detail)
-  const chips = usSecArtifactNames.map((name) => ({ name, ready }))
+  const chips = artifactNames.map((name) => ({ name, ready: usSecArtifactReady(detail, name) }))
   const readyCount = chips.filter((chip) => chip.ready).length
   return {
     chips,
@@ -294,9 +354,9 @@ export function deriveUsSecArtifactManifest(detail?: UsSecPackageDetail | null):
         description: ready ? 'SEC 解析产物可用于 PostgreSQL 入库与派生知识资产生成' : '等待 SEC 解析产物',
       },
       {
-        label: '语义层脚本',
+        label: 'Wiki 语义增强脚本',
         status: 'ready',
-        description: 'market evidence chunks / 项目设置模型',
+        description: 'Wiki 证据语义 / 项目设置模型',
       },
       {
         label: 'PostgreSQL 入库脚本',
@@ -315,9 +375,9 @@ export function deriveUsSecWorkflowSummary(
   const packageStatus: UsSecWorkflowStepView['status'] = packageReady(detail) ? 'ready' : 'pending'
   const importedPackages = numberValue(status?.ingest_report?.package_count)
   const importedFacts = numberValue(status?.ingest_report?.summary?.xbrl_facts)
-  const retrievalChunks = numberValue(status?.ingest_report?.summary?.retrieval_chunks)
+  const semanticEvidence = numberValue(status?.ingest_report?.summary?.retrieval_chunks)
   const postgresReady = importedPackages > 0 && importedFacts > 0
-  const semanticReady = retrievalChunks > 0
+  const semanticReady = semanticEvidence > 0
   const steps: UsSecWorkflowStepView[] = [
     {
       label: '解析产物包',
@@ -330,9 +390,9 @@ export function deriveUsSecWorkflowSummary(
       description: packageReady(detail) ? '派生知识资产由 SEC 解析产物生成' : '等待 SEC 解析产物',
     },
     {
-      label: '语义层',
+      label: 'Wiki 语义增强',
       status: semanticReady ? 'ready' : 'pending',
-      description: semanticReady ? `检索 chunks ${retrievalChunks}` : '等待使用项目设置模型生成检索语义层',
+      description: semanticReady ? `Wiki 语义证据 ${semanticEvidence}` : '等待使用项目设置模型生成 Wiki 语义增强',
     },
     {
       label: 'PostgreSQL',

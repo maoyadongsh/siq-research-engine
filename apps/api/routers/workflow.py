@@ -49,6 +49,14 @@ OBSIDIAN_SCRIPT = Path(os.environ.get("OBSIDIAN_SCRIPT", str(WIKISET_ROOT / "gen
 LLM_SEMANTIC_SCRIPT = Path(os.environ.get("LLM_SEMANTIC_SCRIPT", str(WIKISET_ROOT / "llm_semantic_enrichment.py"))).resolve()
 WIKI_NAMING_REPAIR_SCRIPT = Path(os.environ.get("WIKI_NAMING_REPAIR_SCRIPT", str(WIKISET_ROOT / "repair_wiki_naming.py"))).resolve()
 WIKI_NAMING_VALIDATE_SCRIPT = Path(os.environ.get("WIKI_NAMING_VALIDATE_SCRIPT", str(WIKISET_ROOT / "validate_wiki_naming.py"))).resolve()
+MARKET_WIKISET_ROOT = REPO_ROOT / "scripts" / "wiki" / "market_wikiset"
+PDF_MARKET_CODES = {"HK", "KR", "JP", "EU"}
+PDF_MARKET_WIKI_INGEST_SCRIPTS = {
+    "HK": MARKET_WIKISET_ROOT / "ingest_hk_pdf_wiki.py",
+    "KR": MARKET_WIKISET_ROOT / "ingest_kr_pdf_wiki.py",
+    "JP": MARKET_WIKISET_ROOT / "ingest_jp_pdf_wiki.py",
+    "EU": MARKET_WIKISET_ROOT / "ingest_eu_pdf_wiki.py",
+}
 
 CORE_INPUT_ARTIFACTS = [
     "result.md",
@@ -60,6 +68,14 @@ CORE_INPUT_ARTIFACTS = [
     "quality_report.json",
     "table_relations.json",
     "table_index.json",
+    "artifact_manifest.json",
+    "hash_manifest.json",
+    "metadata.json",
+]
+STABLE_BUNDLE_ARTIFACTS = [
+    name
+    for name in CORE_INPUT_ARTIFACTS
+    if name not in {"artifact_manifest.json", "hash_manifest.json"}
 ]
 ARTIFACT_SCHEMA_EXPECTATIONS = {
     "document_full.json": 3,
@@ -218,6 +234,47 @@ def _read_json(path: Path, default=None):
         return default
 
 
+def _infer_task_market(task_id: str) -> str:
+    task_id = _safe_task_id(task_id)
+    result_dir = _find_task_result_dir(task_id)
+    if not result_dir:
+        return ""
+    payloads = [
+        _read_json(result_dir / "metadata.json", {}) or {},
+        (_read_json(result_dir / ARTIFACT_MANIFEST_NAME, {}) or {}).get("metadata") or {},
+        _read_json(result_dir / "financial_data.json", {}) or {},
+        _read_json(result_dir / "quality_report.json", {}) or {},
+    ]
+    for payload in payloads:
+        if not isinstance(payload, dict):
+            continue
+        for key in ("market", "market_profile"):
+            value = str(payload.get(key) or "").strip().upper()
+            if value:
+                return value
+        nested = payload.get("market_metadata")
+        if isinstance(nested, dict):
+            value = str(nested.get("market") or nested.get("market_profile") or "").strip().upper()
+            if value:
+                return value
+    filename = " ".join(
+        str(payload.get("filename") or payload.get("source_file") or "")
+        for payload in payloads
+        if isinstance(payload, dict)
+    )
+    for market in ("HK", "KR", "JP", "EU", "US", "CN"):
+        if f"_{market}_" in filename:
+            return market
+    return ""
+
+
+def _wiki_root_for_market(market: str) -> Path:
+    market_code = str(market or "").upper()
+    if market_code in PDF_MARKET_CODES:
+        return WIKI_ROOT / market_code.lower()
+    return WIKI_ROOT
+
+
 def _write_json(path: Path, payload) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -355,6 +412,7 @@ def _artifact_bundle_status(task_id: str, *, write_manifest: bool = False) -> di
             "ruleVersion": info.get("ruleVersion"),
         }
         for name, info in artifacts.items()
+        if name in STABLE_BUNDLE_ARTIFACTS
     }
     bundle_sha = _sha256_text(json.dumps(digest_payload, ensure_ascii=False, sort_keys=True))
     warnings = []
@@ -431,9 +489,9 @@ def _resolve_manifest_artifact_path(manifest: dict, artifact_name: str) -> Path 
     return resolved if resolved.is_file() else None
 
 
-def _find_report_for_task(task_id: str) -> dict:
+def _find_report_for_task_at_root(task_id: str, wiki_root: Path) -> dict:
     task_id = _safe_task_id(task_id)
-    companies_root = WIKI_ROOT / "companies"
+    companies_root = wiki_root / "companies"
     if not companies_root.is_dir():
         return {}
     for company_dir in sorted(path for path in companies_root.iterdir() if path.is_dir()):
@@ -460,6 +518,10 @@ def _find_report_for_task(task_id: str) -> dict:
                 "company": company,
             }
     return {}
+
+
+def _find_report_for_task(task_id: str) -> dict:
+    return _find_report_for_task_at_root(task_id, WIKI_ROOT)
 
 
 def _wiki_builder_fingerprint() -> tuple[tuple[str, int | None], ...]:
@@ -518,8 +580,8 @@ def _canonicalize_row_identity(builder, row: dict) -> dict:
     return row
 
 
-def _find_company_for_task(task_id: str) -> str:
-    companies_root = WIKI_ROOT / "companies"
+def _find_company_for_task_at_root(task_id: str, wiki_root: Path) -> str:
+    companies_root = wiki_root / "companies"
     if not companies_root.is_dir():
         return ""
     for company_dir in sorted(path for path in companies_root.iterdir() if path.is_dir()):
@@ -542,8 +604,12 @@ def _find_company_for_task(task_id: str) -> str:
     return ""
 
 
-def _wiki_import_status(task_id: str) -> dict:
-    report = _find_report_for_task(task_id)
+def _find_company_for_task(task_id: str) -> str:
+    return _find_company_for_task_at_root(task_id, WIKI_ROOT)
+
+
+def _wiki_import_status_at_root(task_id: str, wiki_root: Path, market: str = "") -> dict:
+    report = _find_report_for_task_at_root(task_id, wiki_root)
     company_dir = report.get("companyDir") or ""
     result_dir = _find_task_result_dir(task_id)
     artifact_bundle = _artifact_bundle_status(task_id)
@@ -552,10 +618,30 @@ def _wiki_import_status(task_id: str) -> dict:
     wiki_manifest_payload = _read_json(wiki_manifest, {}) if wiki_manifest else {}
     source_bundle_sha = artifact_bundle.get("bundleSha256")
     wiki_bundle_sha = (((wiki_manifest_payload or {}).get("core") or {}).get("bundle_sha256"))
-    stale = bool(company_dir and source_bundle_sha and wiki_bundle_sha and source_bundle_sha != wiki_bundle_sha)
+    source_artifacts = artifact_bundle.get("artifacts") or {}
+    wiki_artifacts = (wiki_manifest_payload or {}).get("artifacts") or {}
+    comparable_names = [
+        name
+        for name in STABLE_BUNDLE_ARTIFACTS
+        if isinstance(source_artifacts, dict)
+        and isinstance(wiki_artifacts, dict)
+        and name in source_artifacts
+        and name in wiki_artifacts
+    ]
+    artifact_mismatches = [
+        name
+        for name in comparable_names
+        if ((source_artifacts.get(name) or {}).get("sha256") != (wiki_artifacts.get(name) or {}).get("sha256"))
+    ]
+    stale = bool(company_dir and (
+        artifact_mismatches
+        or (not comparable_names and source_bundle_sha and wiki_bundle_sha and source_bundle_sha != wiki_bundle_sha)
+    ))
     status = "stale" if stale else ("ready" if company_dir else "missing")
     return {
         "status": status,
+        "market": market or _infer_task_market(task_id),
+        "wikiRoot": str(wiki_root),
         "companyDir": company_dir,
         "reportId": report.get("reportId") or "",
         "reportDir": str(report_dir) if report_dir else "",
@@ -564,18 +650,24 @@ def _wiki_import_status(task_id: str) -> dict:
         "sourceBundleSha256": source_bundle_sha or "",
         "manifestPath": str(wiki_manifest) if wiki_manifest else "",
         "stale": stale,
+        "artifactMismatches": artifact_mismatches,
         "storagePolicy": "lightweight_manifest_only",
         "message": "Wiki 需刷新" if stale else ("已导入 Wiki" if company_dir else ("可导入 Wiki" if result_dir else "未找到解析产物目录")),
     }
 
 
-def _semantic_status(company_dir: str, task_id: str | None = None) -> dict:
+def _wiki_import_status(task_id: str) -> dict:
+    market = _infer_task_market(task_id)
+    return _wiki_import_status_at_root(task_id, _wiki_root_for_market(market), market)
+
+
+def _semantic_status_at_root(company_dir: str, task_id: str | None, wiki_root: Path) -> dict:
     if not company_dir:
         return {"status": "unknown", "companyDir": "", "message": "未在 Wiki 中找到对应公司"}
-    semantic_dir = WIKI_ROOT / "companies" / company_dir / "semantic"
-    company_json = _read_json(WIKI_ROOT / "companies" / company_dir / "company.json", {}) or {}
+    semantic_dir = wiki_root / "companies" / company_dir / "semantic"
+    company_json = _read_json(wiki_root / "companies" / company_dir / "company.json", {}) or {}
     report_id = company_json.get("primary_report_id") or "2025-annual"
-    report_dir = WIKI_ROOT / "companies" / company_dir / "reports" / report_id
+    report_dir = wiki_root / "companies" / company_dir / "reports" / report_id
     required = [
         "subject_profile.json",
         "segments.json",
@@ -597,7 +689,7 @@ def _semantic_status(company_dir: str, task_id: str | None = None) -> dict:
     stale = False
     if not missing and log.get("inputs"):
         current_inputs = {
-            "company_json_sha256": _sha256_file(WIKI_ROOT / "companies" / company_dir / "company.json"),
+            "company_json_sha256": _sha256_file(wiki_root / "companies" / company_dir / "company.json"),
             "report_md_sha256": _sha256_file(report_dir / "report.md"),
             "report_json_sha256": _sha256_file(report_dir / "report.json"),
             "document_full_sha256": _sha256_file(report_dir / "document_full.json"),
@@ -606,9 +698,9 @@ def _semantic_status(company_dir: str, task_id: str | None = None) -> dict:
             current_inputs["artifact_manifest_sha256"] = _sha256_file(report_dir / ARTIFACT_MANIFEST_NAME)
         stale = any((log.get("inputs") or {}).get(key) != value for key, value in current_inputs.items())
         if not stale and task_id:
-            wiki_status = _wiki_import_status(task_id)
+            wiki_status = _wiki_import_status_at_root(task_id, wiki_root)
             stale = bool(wiki_status.get("stale"))
-    llm = _llm_semantic_status(company_dir, report_id, stale)
+    llm = _llm_semantic_status_at_root(company_dir, report_id, stale, wiki_root)
     llm_ready = not LLM_SEMANTIC_ENABLED or not LLM_SEMANTIC_REQUIRED or llm.get("status") == "ready"
     status = "stale" if stale or llm.get("status") == "stale" else ("ready" if not missing and llm_ready else "missing")
     return {
@@ -624,10 +716,15 @@ def _semantic_status(company_dir: str, task_id: str | None = None) -> dict:
     }
 
 
-def _llm_semantic_status(company_dir: str, report_id: str, rule_stale: bool = False) -> dict:
+def _semantic_status(company_dir: str, task_id: str | None = None) -> dict:
+    wiki_root = _wiki_root_for_market(_infer_task_market(task_id)) if task_id else WIKI_ROOT
+    return _semantic_status_at_root(company_dir, task_id, wiki_root)
+
+
+def _llm_semantic_status_at_root(company_dir: str, report_id: str, rule_stale: bool, wiki_root: Path) -> dict:
     if not LLM_SEMANTIC_ENABLED:
         return {"status": "disabled", "enabled": False, "message": "LLM 语义增强已关闭"}
-    out_dir = WIKI_ROOT / "companies" / company_dir / "semantic" / "llm" / report_id
+    out_dir = wiki_root / "companies" / company_dir / "semantic" / "llm" / report_id
     required = [
         "enrichment.json",
         "business_profile.json",
@@ -640,12 +737,12 @@ def _llm_semantic_status(company_dir: str, report_id: str, rule_stale: bool = Fa
     missing = [name for name in required if not (out_dir / name).is_file()]
     log = _read_json(out_dir / "extraction_log.json", {}) if not missing or (out_dir / "extraction_log.json").is_file() else {}
     current_inputs = {
-        "company_json_sha256": _sha256_file(WIKI_ROOT / "companies" / company_dir / "company.json"),
-        "segments_sha256": _sha256_file(WIKI_ROOT / "companies" / company_dir / "semantic" / "segments.json"),
-        "evidence_semantic_sha256": _sha256_file(WIKI_ROOT / "companies" / company_dir / "semantic" / "evidence_semantic.json"),
-        "facts_sha256": _sha256_file(WIKI_ROOT / "companies" / company_dir / "semantic" / "facts.json"),
-        "claims_sha256": _sha256_file(WIKI_ROOT / "companies" / company_dir / "semantic" / "claims.json"),
-        "artifact_manifest_sha256": _sha256_file(WIKI_ROOT / "companies" / company_dir / "reports" / report_id / ARTIFACT_MANIFEST_NAME),
+        "company_json_sha256": _sha256_file(wiki_root / "companies" / company_dir / "company.json"),
+        "segments_sha256": _sha256_file(wiki_root / "companies" / company_dir / "semantic" / "segments.json"),
+        "evidence_semantic_sha256": _sha256_file(wiki_root / "companies" / company_dir / "semantic" / "evidence_semantic.json"),
+        "facts_sha256": _sha256_file(wiki_root / "companies" / company_dir / "semantic" / "facts.json"),
+        "claims_sha256": _sha256_file(wiki_root / "companies" / company_dir / "semantic" / "claims.json"),
+        "artifact_manifest_sha256": _sha256_file(wiki_root / "companies" / company_dir / "reports" / report_id / ARTIFACT_MANIFEST_NAME),
     }
     llm_stale = False
     if not missing and log.get("inputs"):
@@ -667,10 +764,14 @@ def _llm_semantic_status(company_dir: str, report_id: str, rule_stale: bool = Fa
     }
 
 
-def _obsidian_status(company_dir: str, semantic_status: dict | None = None) -> dict:
+def _llm_semantic_status(company_dir: str, report_id: str, rule_stale: bool = False) -> dict:
+    return _llm_semantic_status_at_root(company_dir, report_id, rule_stale, WIKI_ROOT)
+
+
+def _obsidian_status_at_root(company_dir: str, semantic_status: dict | None, wiki_root: Path) -> dict:
     if not company_dir:
         return {"status": "unknown", "companyDir": "", "message": "未在 Wiki 中找到对应公司"}
-    company_root = WIKI_ROOT / "companies" / company_dir
+    company_root = wiki_root / "companies" / company_dir
     graph_index = company_root / "graph" / "graph_index.json"
     obsidian_index = company_root / "obsidian" / "index.md"
     readme = company_root / "obsidian" / "README.md"
@@ -695,7 +796,11 @@ def _obsidian_status(company_dir: str, semantic_status: dict | None = None) -> d
     }
 
 
-def _generate_obsidian_for_company(company_dir: str) -> dict:
+def _obsidian_status(company_dir: str, semantic_status: dict | None = None) -> dict:
+    return _obsidian_status_at_root(company_dir, semantic_status, WIKI_ROOT)
+
+
+def _generate_obsidian_for_company_at_root(company_dir: str, wiki_root: Path) -> dict:
     if not company_dir:
         raise HTTPException(404, "Task is not linked to a Wiki company")
     if not OBSIDIAN_SCRIPT.is_file():
@@ -704,13 +809,17 @@ def _generate_obsidian_for_company(company_dir: str) -> dict:
         sys.executable,
         str(OBSIDIAN_SCRIPT),
         "--wiki-root",
-        str(WIKI_ROOT),
+        str(wiki_root),
         "--company",
         company_dir,
     ])
     if result["returnCode"] != 0:
         raise HTTPException(500, {"stage": "obsidian", **result})
     return result
+
+
+def _generate_obsidian_for_company(company_dir: str) -> dict:
+    return _generate_obsidian_for_company_at_root(company_dir, WIKI_ROOT)
 
 
 def _merge_by_report_id(items: list[dict], new_item: dict) -> list[dict]:
@@ -1437,10 +1546,13 @@ def _build_generic_analysis_readme(identity: dict) -> str:
 
 def _import_task_to_generic_wiki(task_id: str) -> dict:
     task_id = _safe_task_id(task_id)
+    market = _infer_task_market(task_id)
+    if market in PDF_MARKET_WIKI_INGEST_SCRIPTS:
+        return _import_task_to_market_wiki(task_id, market)
     result_dir = _find_task_result_dir(task_id)
     if not result_dir:
         raise HTTPException(404, f"解析产物目录不存在，默认读取 {PDF_RESULTS_ROOT}/<task_id>")
-    artifact_bundle = _artifact_bundle_status(task_id, write_manifest=True)
+    artifact_bundle = _artifact_bundle_status(task_id, write_manifest=False)
     if not artifact_bundle["ready"]:
         raise HTTPException(422, {
             "message": "解析产物包不完整，不能安全导入通用 Wiki",
@@ -1654,8 +1766,68 @@ def _import_task_to_generic_wiki(task_id: str) -> dict:
     }
 
 
+def _import_task_to_market_wiki(task_id: str, market: str | None = None) -> dict:
+    task_id = _safe_task_id(task_id)
+    market = str(market or _infer_task_market(task_id) or "").upper()
+    if market not in PDF_MARKET_WIKI_INGEST_SCRIPTS:
+        raise HTTPException(422, f"未配置 {market or 'UNKNOWN'} 市场 PDF Wiki 入库脚本")
+    result_dir = _find_task_result_dir(task_id)
+    if not result_dir:
+        raise HTTPException(404, f"解析产物目录不存在，默认读取 {PDF_RESULTS_ROOT}/<task_id>")
+    artifact_bundle = _artifact_bundle_status(task_id, write_manifest=False)
+    if not artifact_bundle["ready"]:
+        raise HTTPException(422, {
+            "message": f"{market} 解析产物包不完整，不能安全导入 Wiki",
+            "missing": artifact_bundle["missing"],
+            "invalid_json": artifact_bundle.get("invalidJson") or [],
+            "warnings": artifact_bundle.get("warnings") or [],
+        })
+    script = PDF_MARKET_WIKI_INGEST_SCRIPTS[market]
+    if not script.is_file():
+        raise HTTPException(500, f"{market} Wiki import script not found: {script}")
+    wiki_root = _wiki_root_for_market(market)
+    result = _run_command([
+        sys.executable,
+        str(script),
+        "--results-dir",
+        str(result_dir.parent),
+        "--output-root",
+        str(wiki_root),
+        "--apply",
+    ], timeout=900)
+    if result["returnCode"] != 0:
+        raise HTTPException(500, {"stage": f"{market.lower()}_wiki_import", **result})
+    wiki_status = _wiki_import_status_at_root(task_id, wiki_root, market)
+    if wiki_status.get("status") == "missing":
+        raise HTTPException(500, {
+            "stage": f"{market.lower()}_wiki_import",
+            "message": "市场 Wiki 入库脚本已执行，但未能在目标市场 Wiki 中找到该 task",
+            "result": result,
+            "wiki": wiki_status,
+        })
+    return {
+        "ok": True,
+        "taskId": task_id,
+        "market": market,
+        "resultDir": str(result_dir),
+        "wikiRoot": str(wiki_root),
+        "companyDir": wiki_status.get("companyDir") or "",
+        "reportId": wiki_status.get("reportId") or "",
+        "reportDir": wiki_status.get("reportDir") or "",
+        "artifactManifest": wiki_status.get("manifestPath") or "",
+        "artifactBundleSha256": artifact_bundle["bundleSha256"],
+        "storagePolicy": "market_wiki_root",
+        "importRoute": f"{market.lower()}_pdf_market_wiki_import",
+        "result": result,
+        "wiki": wiki_status,
+    }
+
+
 def _import_task_to_wiki(task_id: str) -> dict:
     task_id = _safe_task_id(task_id)
+    market = _infer_task_market(task_id)
+    if market in PDF_MARKET_WIKI_INGEST_SCRIPTS:
+        return _import_task_to_market_wiki(task_id, market)
     result_dir = _find_task_result_dir(task_id)
     if not result_dir:
         raise HTTPException(404, f"解析产物目录不存在，默认读取 {PDF_RESULTS_ROOT}/<task_id>")
@@ -2021,11 +2193,13 @@ def _llm_semantic_env() -> dict[str, str]:
 
 def _workflow_preflight(task_id: str) -> dict:
     task_id = _safe_task_id(task_id)
+    market = _infer_task_market(task_id)
+    wiki_root = _wiki_root_for_market(market)
     artifacts = _artifact_bundle_status(task_id)
-    wiki = _wiki_import_status(task_id)
-    company_dir = wiki.get("companyDir") or _find_company_for_task(task_id)
-    semantic = _semantic_status(company_dir, task_id)
-    obsidian = _obsidian_status(company_dir, semantic)
+    wiki = _wiki_import_status_at_root(task_id, wiki_root, market)
+    company_dir = wiki.get("companyDir") or _find_company_for_task_at_root(task_id, wiki_root)
+    semantic = _semantic_status_at_root(company_dir, task_id, wiki_root)
+    obsidian = _obsidian_status_at_root(company_dir, semantic, wiki_root)
     database = _db_status(task_id)
     checks = [
         {
@@ -2102,15 +2276,19 @@ def _workflow_preflight(task_id: str) -> dict:
 
 def _workflow_status_payload(task_id: str) -> dict:
     task_id = _safe_task_id(task_id)
+    market = _infer_task_market(task_id)
+    wiki_root = _wiki_root_for_market(market)
     artifact_bundle = _artifact_bundle_status(task_id)
     document_full = _find_task_document_full(task_id)
-    wiki = _wiki_import_status(task_id)
-    company_dir = wiki.get("companyDir") or _find_company_for_task(task_id)
-    semantic = _semantic_status(company_dir, task_id)
-    obsidian = _obsidian_status(company_dir, semantic)
+    wiki = _wiki_import_status_at_root(task_id, wiki_root, market)
+    company_dir = wiki.get("companyDir") or _find_company_for_task_at_root(task_id, wiki_root)
+    semantic = _semantic_status_at_root(company_dir, task_id, wiki_root)
+    obsidian = _obsidian_status_at_root(company_dir, semantic, wiki_root)
     database = _db_status(task_id)
     return {
         "taskId": task_id,
+        "market": market,
+        "wikiRoot": str(wiki_root),
         "artifactBundle": artifact_bundle,
         "documentFull": {
             "status": "ready" if document_full else "missing",
@@ -2377,7 +2555,6 @@ def import_task_to_generic_wiki(task_id: str):
     return _import_task_to_generic_wiki(task_id)
 
 
-@router.post("/task/{task_id}/semantic")
 def extract_semantic_for_task(task_id: str):
     task_id = _safe_task_id(task_id)
     company_dir = _find_company_for_task(task_id)
@@ -2428,14 +2605,16 @@ def extract_semantic_for_task(task_id: str):
     }
 
 
-@router.post("/task/{task_id}/semantic-generic")
 def extract_generic_semantic_for_task(task_id: str):
     task_id = _safe_task_id(task_id)
-    company_dir = _find_company_for_task(task_id)
+    market = _infer_task_market(task_id)
+    is_pdf_market = market in PDF_MARKET_CODES
+    wiki_root = _wiki_root_for_market(market)
+    company_dir = _find_company_for_task_at_root(task_id, wiki_root) if is_pdf_market else _find_company_for_task(task_id)
     if not company_dir:
         raise HTTPException(404, "Task is not linked to a Wiki company")
-    company_json = _read_json(WIKI_ROOT / "companies" / company_dir / "company.json", {}) or {}
-    if company_json.get("identity_route") != "generic_non_a_share_wiki_import":
+    company_json = _read_json(wiki_root / "companies" / company_dir / "company.json", {}) or {}
+    if not is_pdf_market and company_json.get("identity_route") != "generic_non_a_share_wiki_import":
         raise HTTPException(422, "该任务不是通用主体入库路线，请使用标准语义层接口")
     if not SEMANTIC_SCRIPT.is_file():
         raise HTTPException(500, f"Semantic script not found: {SEMANTIC_SCRIPT}")
@@ -2443,7 +2622,7 @@ def extract_generic_semantic_for_task(task_id: str):
         sys.executable,
         str(SEMANTIC_SCRIPT),
         "--wiki-root",
-        str(WIKI_ROOT),
+        str(wiki_root),
         "--company",
         company_dir,
     ])
@@ -2462,20 +2641,35 @@ def extract_generic_semantic_for_task(task_id: str):
                 sys.executable,
                 str(LLM_SEMANTIC_SCRIPT),
                 "--wiki-root",
-                str(WIKI_ROOT),
+                str(wiki_root),
                 "--company",
                 company_dir,
             ], timeout=LLM_SEMANTIC_TIMEOUT, env=_llm_semantic_env())
             if llm_result["returnCode"] != 0 and LLM_SEMANTIC_REQUIRED:
                 raise HTTPException(500, {"stage": "llm_semantic", **llm_result})
 
-    obsidian_result = _generate_obsidian_for_company(company_dir)
+    obsidian_result = _generate_obsidian_for_company_at_root(company_dir, wiki_root) if is_pdf_market else _generate_obsidian_for_company(company_dir)
+    semantic_status = _semantic_status_at_root(company_dir, task_id, wiki_root) if is_pdf_market else _semantic_status(company_dir, task_id)
     return {
         "ok": True,
+        "market": market,
+        "wikiRoot": str(wiki_root),
         "companyDir": company_dir,
         "result": {"rule": rule_result, "obsidian": obsidian_result, "llm": llm_result},
-        "semantic": _semantic_status(company_dir, task_id),
+        "semantic": semantic_status,
     }
+
+
+@router.post("/task/{task_id}/semantic")
+def start_semantic_for_task(task_id: str):
+    task_id = _safe_task_id(task_id)
+    return _start_workflow_step_job(task_id, "semantic", lambda: extract_semantic_for_task(task_id))
+
+
+@router.post("/task/{task_id}/semantic-generic")
+def start_generic_semantic_for_task(task_id: str):
+    task_id = _safe_task_id(task_id)
+    return _start_workflow_step_job(task_id, "semantic-generic", lambda: extract_generic_semantic_for_task(task_id))
 
 
 @router.post("/task/{task_id}/db-import")
@@ -2520,9 +2714,46 @@ def _job_step(job_id: str, step: str, status: str, **updates) -> None:
             _persist_workflow_jobs_locked()
 
 
+def _http_exception_payload(exc: HTTPException) -> dict:
+    return {
+        "statusCode": exc.status_code,
+        "detail": exc.detail,
+    }
+
+
+def _run_workflow_step_job(job_id: str, step: str, runner) -> None:
+    try:
+        _job_update(job_id, status="running")
+        _job_step(job_id, step, "running")
+        result = runner()
+        _job_step(job_id, step, "succeeded", result=result)
+        _job_update(job_id, status="succeeded", result=result)
+    except HTTPException as exc:
+        payload = _http_exception_payload(exc)
+        _job_step(job_id, step, "failed", error=str(exc.detail), result=payload)
+        _job_update(job_id, status="failed", error=str(exc.detail), result=payload)
+    except Exception as exc:
+        _job_step(job_id, step, "failed", error=str(exc))
+        _job_update(job_id, status="failed", error=str(exc))
+
+
+def _start_workflow_step_job(task_id: str, step: str, runner, *, metadata: dict | None = None) -> dict:
+    job_id = uuid.uuid4().hex
+    with _job_lock:
+        job = create_workflow_job(_workflow_jobs, job_id=job_id, task_id=task_id, now=_now_iso)
+        if metadata:
+            job["metadata"] = metadata
+        _persist_workflow_jobs_locked()
+    thread = threading.Thread(target=_run_workflow_step_job, args=(job_id, step, runner), daemon=True)
+    thread.start()
+    return _workflow_jobs[job_id]
+
+
 def _run_remaining_pipeline(job_id: str, task_id: str) -> None:
     try:
         _job_update(job_id, status="running")
+        market = _infer_task_market(task_id)
+        wiki_root = _wiki_root_for_market(market)
         status = _workflow_status_payload(task_id)
         if not status["artifactBundle"]["ready"]:
             _job_update(job_id, status="failed", error="解析产物包不完整")
@@ -2530,7 +2761,7 @@ def _run_remaining_pipeline(job_id: str, task_id: str) -> None:
 
         if status["wiki"]["status"] != "ready":
             _job_step(job_id, "wiki-import", "running")
-            result = _import_task_to_wiki(task_id)
+            result = _import_task_to_market_wiki(task_id, market) if market in PDF_MARKET_WIKI_INGEST_SCRIPTS else _import_task_to_wiki(task_id)
             _job_step(job_id, "wiki-import", "succeeded", result=result)
         else:
             _job_step(job_id, "wiki-import", "skipped", message="Wiki 已是最新")
@@ -2538,7 +2769,7 @@ def _run_remaining_pipeline(job_id: str, task_id: str) -> None:
         status = _workflow_status_payload(task_id)
         if status["semantic"]["status"] != "ready":
             _job_step(job_id, "semantic", "running")
-            result = extract_semantic_for_task(task_id)
+            result = extract_generic_semantic_for_task(task_id) if market in PDF_MARKET_WIKI_INGEST_SCRIPTS else extract_semantic_for_task(task_id)
             _job_step(job_id, "semantic", "succeeded", result=result)
         else:
             _job_step(job_id, "semantic", "skipped", message="语义层已是最新")
@@ -2546,8 +2777,8 @@ def _run_remaining_pipeline(job_id: str, task_id: str) -> None:
         status = _workflow_status_payload(task_id)
         if status["obsidian"]["status"] != "ready":
             _job_step(job_id, "obsidian", "running")
-            company_dir = status["wiki"].get("companyDir") or status["semantic"].get("companyDir") or _find_company_for_task(task_id)
-            result = _generate_obsidian_for_company(company_dir)
+            company_dir = status["wiki"].get("companyDir") or status["semantic"].get("companyDir") or _find_company_for_task_at_root(task_id, wiki_root)
+            result = _generate_obsidian_for_company_at_root(company_dir, wiki_root) if market in PDF_MARKET_WIKI_INGEST_SCRIPTS else _generate_obsidian_for_company(company_dir)
             _job_step(job_id, "obsidian", "succeeded", result=result)
         else:
             _job_step(job_id, "obsidian", "skipped", message="Obsidian 图谱已是最新")

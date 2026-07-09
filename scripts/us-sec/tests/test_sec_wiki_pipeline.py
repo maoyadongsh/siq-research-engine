@@ -218,7 +218,7 @@ def _ixbrl_fixture(tmp_path: Path) -> Path:
             Item 1. Business """ + ("business text " * 80) + """
             Item 7. Management's Discussion and Analysis """ + ("mda text " * 80) + """
             Item 8. Financial Statements """ + ("financial text " * 80) + """
-            <ix:nonFraction id="f1" name="us-gaap:Assets" contextRef="c1" unitRef="usd">1000</ix:nonFraction>
+            <table id="assets-table"><tr><th>Total assets</th><td><ix:nonFraction id="f1" name="us-gaap:Assets" contextRef="c1" unitRef="usd">1000</ix:nonFraction></td></tr></table>
           </body>
         </html>
         """,
@@ -245,6 +245,7 @@ def test_sec_manifest_uses_market_evidence_contract(monkeypatch, tmp_path):
     metadata = source.with_suffix(".htm.metadata.json")
     write_json(metadata, _metadata_payload(ticker="DEMO", company_name="Demo Corp", company_id="1"))
     monkeypatch.setattr(sec_evidence_lib, "normalize_metrics", _fake_metrics)
+    monkeypatch.setattr(sec_evidence_lib, "DEFAULT_PARSER_RESULTS_ROOT", tmp_path / "parser-results")
 
     package = sec_evidence_lib.write_evidence_package(source, tmp_path / "wiki", metadata, force=True)
     manifest = read_json(package / "manifest.json")
@@ -259,3 +260,276 @@ def test_sec_manifest_uses_market_evidence_contract(monkeypatch, tmp_path):
     assert manifest["parse_run_id"]
     assert manifest["artifact_hashes"]
     assert manifest["artifacts"]["normalized_metrics"] == "metrics/normalized_metrics.json"
+    assert manifest["artifacts"]["report_complete"] == "parser/report_complete.md"
+    assert manifest["artifacts"]["wiki_report_complete"] == "sections/report_complete.md"
+    assert manifest["artifacts"]["document_full"] == "parser/document_full.json"
+    assert manifest["artifacts"]["content_list_enhanced"] == "parser/content_list_enhanced.json"
+    assert manifest["artifacts"]["table_relations"] == "parser/table_relations.json"
+    assert manifest["artifacts"]["wiki_ingestion_plan"] == "qa/wiki_ingestion_plan.json"
+    assert manifest["parser_result_dir"]
+    for rel in (
+        "parser/report_complete.md",
+        "sections/report_complete.md",
+        "parser/document_full.json",
+        "parser/content_list_enhanced.json",
+        "parser/table_relations.json",
+        "qa/wiki_ingestion_plan.json",
+    ):
+        assert (package / rel).is_file()
+    parser_result_dir = Path(manifest["parser_result_dir"])
+    if not parser_result_dir.is_absolute():
+        parser_result_dir = sec_evidence_lib.REPO_ROOT / parser_result_dir
+    for rel in (
+        "raw/filing.htm",
+        "document_full.json",
+        "report_complete.md",
+        "content_list_enhanced.json",
+        "table_relations.json",
+        "quality_report.json",
+        "manifest.json",
+    ):
+        assert (parser_result_dir / rel).is_file()
+    document_full = read_json(package / "parser" / "document_full.json")
+    assert document_full["schema_version"] == "sec_html_document_full_v1"
+    assert document_full["markdown"]["path"] == "report_complete.md"
+    assert document_full["markdown"]["wiki_path"] == "sections/report_complete.md"
+    assert document_full["dom_nodes"]
+    assert document_full["blocks"]
+    assert document_full["tables"]
+    assert document_full["facts"]
+    assert document_full["relations"]
+    report_complete = (package / "parser" / "report_complete.md").read_text(encoding="utf-8")
+    assert "<!-- siq:block_id=" in report_complete
+    assert "SIQ Enhanced Relation Summary" in report_complete
+    assert "business text" in report_complete
+    assert "Total assets" in report_complete
+    assert (package / "sections" / "report_complete.md").read_text(encoding="utf-8") == report_complete
+    source_map = read_json(package / "qa" / "source_map.json")
+    assert any(entry.get("source_type") == "sec_html_block" for entry in source_map["entries"])
+    assert any(entry.get("local_path") == "parser/report_complete.md" for entry in source_map["entries"])
+    quality = read_json(package / "qa" / "quality_report.json")
+    assert quality["full_document_status"] == "ready"
+    ingestion_plan = read_json(package / "qa" / "wiki_ingestion_plan.json")
+    assert ingestion_plan["schema_version"] == "sec_wiki_ingestion_plan_v1"
+    assert ingestion_plan["rules"]["source_of_truth"] == "canonical_parser_result"
+    assert ingestion_plan["status"] == "ready"
+    assert ingestion_plan["raw_html_check"]["status"] == "ok"
+    assert all(item["status"] == "ok" for item in ingestion_plan["mirror_checks"])
+
+
+def test_backfill_sec_full_document_updates_legacy_package(tmp_path, monkeypatch):
+    backfill = importlib.import_module("backfill_sec_full_document")
+    package = make_package(tmp_path / "companies" / "AAPL-Apple-Inc" / "reports" / "2025-10-K-x")
+    package.joinpath("raw", "filing.htm").write_text(_ixbrl_fixture(tmp_path).read_text(encoding="utf-8"), encoding="utf-8")
+    write_json(package / "sections.json", {"schema_version": "sec_sections_v1", "sections": [{"section_id": "item_1", "char_start": 0, "char_end": 5000}]})
+    write_json(package / "tables" / "table_index.json", {"schema_version": "sec_table_index_v1", "tables": [{"table_id": "t1", "table_index": 1, "section_id": "item_8"}]})
+    write_json(package / "xbrl" / "facts_raw.json", {"schema_version": "sec_xbrl_facts_raw_v1", "facts": [{"fact_id": "fact1", "concept": "us-gaap:Assets", "value_text": "1000", "context_ref": "c1", "unit_ref": "usd", "html_anchor": "f1"}]})
+    write_json(package / "xbrl" / "contexts.json", {"contexts": {"c1": {"period_end": "2025-12-31"}}})
+    write_json(package / "xbrl" / "units.json", {"units": {"usd": {"unit": "USD"}}})
+    before_manifest = read_json(package / "manifest.json")
+
+    parser_results_root = tmp_path / "parser-results"
+    dry_run = backfill.backfill_full_documents(tmp_path, dry_run=True, no_index=True, parser_results_root=parser_results_root)
+
+    assert dry_run["status_counts"]["would_update"] == 1
+    assert not (package / "parser" / "document_full.json").exists()
+
+    monkeypatch.setattr(backfill.build_sec_wiki_index, "build_wiki_index", lambda *a, **k: {"package_count": 1})
+    report = backfill.backfill_full_documents(tmp_path, no_index=False, parser_results_root=parser_results_root)
+
+    assert report["status_counts"]["updated"] == 1
+    assert report["index"]["package_count"] == 1
+    assert (package / "parser" / "document_full.json").is_file()
+    assert (package / "parser" / "report_complete.md").is_file()
+    assert (package / "sections" / "report_complete.md").is_file()
+    assert (package / "parser" / "content_list_enhanced.json").is_file()
+    assert (package / "parser" / "table_relations.json").is_file()
+    assert (package / "qa" / "wiki_ingestion_plan.json").is_file()
+    source_map = read_json(package / "qa" / "source_map.json")
+    assert any(entry.get("source_type") == "sec_html_block" for entry in source_map["entries"])
+    quality = read_json(package / "qa" / "quality_report.json")
+    assert quality["full_document"]["block_count"] > 0
+    after_manifest = read_json(package / "manifest.json")
+    assert after_manifest["parse_run_id"] != before_manifest.get("parse_run_id")
+    assert after_manifest["artifacts"]["report_complete"] == "parser/report_complete.md"
+    assert after_manifest["artifacts"]["wiki_report_complete"] == "sections/report_complete.md"
+    assert after_manifest["artifacts"]["wiki_ingestion_plan"] == "qa/wiki_ingestion_plan.json"
+    assert (parser_results_root / after_manifest["parser_result_task_id"] / "document_full.json").is_file()
+    assert "parser/document_full.json" in after_manifest["artifact_hashes"]
+    assert "parser/report_complete.md" in after_manifest["artifact_hashes"]
+
+
+def test_sec_index_exposes_full_document_status(tmp_path):
+    indexer = importlib.import_module("build_sec_wiki_index")
+    package = make_package(tmp_path / "companies" / "AAPL-Apple-Inc" / "reports" / "2025-10-K-x")
+    write_json(package / "qa" / "quality_report.json", {"overall_status": "pass", "full_document": {"block_count": 2, "markdown_chars": 100}})
+    for rel in (
+        "sections/report_complete.md",
+        "parser/report_complete.md",
+        "parser/document_full.json",
+        "parser/content_list_enhanced.json",
+        "parser/table_relations.json",
+        "qa/wiki_ingestion_plan.json",
+    ):
+        path = package / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if rel == "qa/wiki_ingestion_plan.json":
+            write_json(
+                path,
+                {
+                    "schema_version": "sec_wiki_ingestion_plan_v1",
+                    "status": "ready",
+                    "ready": True,
+                    "summary": {
+                        "status": "ready",
+                        "ready": True,
+                        "missing_parser_artifact_count": 0,
+                        "missing_wiki_artifact_count": 0,
+                        "mirror_mismatch_count": 0,
+                        "raw_html_status": "ok",
+                    },
+                },
+            )
+        else:
+            path.write_text("{}" if rel.endswith(".json") else "# Report\n", encoding="utf-8")
+
+    summary = indexer.build_wiki_index(tmp_path)
+
+    assert summary["full_document_status_counts"]["ready"] == 1
+    item = read_json(tmp_path / "_meta" / "package_index.json")["items"][0]
+    assert item["full_document_status"] == "ready"
+    assert item["wiki_ingestion_status"] == "ready"
+    assert read_json(tmp_path / "_meta" / "quality_summary.json")["wiki_ingestion_status_counts"]["ready"] == 1
+    company = read_json(tmp_path / "companies" / "AAPL-Apple-Inc" / "company.json")
+    assert company["reports"][0]["full_document_ready"] is True
+    assert company["reports"][0]["wiki_ingestion_ready"] is True
+
+
+def test_us_financial_recognition_audit_finds_candidate_facts_and_tables(tmp_path):
+    audit = importlib.import_module("audit_sec_financial_recognition")
+    package = make_package(tmp_path / "companies" / "AAPL-Apple-Inc" / "reports" / "2025-10-K-x", quality="warning")
+    core_metrics = [
+        {"canonical_name": "operating_revenue", "value": "10", "period_key": "2025-09-27", "evidence_id": "e1"},
+        {"canonical_name": "net_profit", "value": "2", "period_key": "2025-09-27", "evidence_id": "e1"},
+        {"canonical_name": "total_assets", "value": "100", "period_key": "2025-09-27", "evidence_id": "e1"},
+        {"canonical_name": "total_liabilities", "value": "70", "period_key": "2025-09-27", "evidence_id": "e1"},
+        {"canonical_name": "total_equity", "value": "30", "period_key": "2025-09-27", "evidence_id": "e1"},
+        {"canonical_name": "operating_cash_flow_net", "value": "3", "period_key": "2025-09-27", "evidence_id": "e1"},
+    ]
+    write_json(
+        package / "metrics" / "financial_data.json",
+        {
+            "statements": [
+                {
+                    "statement_type": "balance_sheet",
+                    "items": [
+                        {"canonical_name": item["canonical_name"], "values": {"2025-09-27": item["value"]}, "sources": {"2025-09-27": {"evidence_id": item["evidence_id"]}}}
+                        for item in core_metrics
+                    ],
+                }
+            ],
+            "key_metrics": [],
+            "operating_metrics": [],
+        },
+    )
+    write_json(package / "metrics" / "normalized_metrics.json", {"metrics": core_metrics})
+    write_json(
+        package / "metrics" / "financial_checks.json",
+        {
+            "overall_status": "warning",
+            "warnings": ["Use standard three-statement bridge checks."],
+            "checks": [
+                {
+                    "rule_id": "bs.assets_eq_liabilities_and_equity",
+                    "rule_name": "Assets = liabilities and equity total",
+                    "statement_type": "balance_sheet",
+                    "period": "2025-09-27",
+                    "status": "warning",
+                    "reason": "missing_inputs",
+                    "right": {"missing": ["total_liabilities_and_equity"]},
+                }
+            ],
+        },
+    )
+    write_json(
+        package / "xbrl" / "facts_raw.json",
+        {
+            "facts": [
+                {
+                    "fact_id": "fact-liab-equity",
+                    "concept": "us-gaap:LiabilitiesAndStockholdersEquity",
+                    "label": "Total liabilities and stockholders equity",
+                    "value_text": "100",
+                    "period_end": "2025-09-27",
+                }
+            ]
+        },
+    )
+    write_json(
+        package / "parser" / "document_full.json",
+        {
+            "tables": [
+                {
+                    "table_id": "table-1",
+                    "table_index": 1,
+                    "heading": "Consolidated Balance Sheets",
+                    "rows": [{"cells": [{"text": "Total liabilities and stockholders equity"}, {"text": "100"}]}],
+                }
+            ]
+        },
+    )
+
+    report = audit.audit_packages(tmp_path)
+
+    assert report["package_count"] == 1
+    assert report["status_counts"]["needs_review"] == 1
+    assert report["concept_affected_package_counts"]["total_liabilities_and_equity"] == 1
+    assert report["concept_candidate_counts"]["total_liabilities_and_equity"] == 1
+    assert report["table_candidate_counts"]["total_liabilities_and_equity"] == 1
+    assert report["optimization_queue"][0]["type"] == "concept_mapping_or_context_selection"
+
+
+def test_us_financial_review_policy_skips_incomplete_historical_balance_sheet_period():
+    sec_evidence_lib = importlib.import_module("sec_evidence_lib")
+
+    financial_checks = {
+        "overall_status": "warning",
+        "summary": {"pass": 1, "fail": 0, "warning": 1, "skipped": 0},
+        "checks": [
+            {
+                "rule_id": "bs.assets_eq_liabilities_and_equity",
+                "rule_name": "Assets = liabilities and equity total",
+                "statement_type": "balance_sheet",
+                "period": "2023-09-30",
+                "status": "warning",
+                "reason": "missing_inputs",
+                "right": {"missing": ["total_liabilities_and_equity", "total_assets"]},
+                "raw": {},
+            },
+            {
+                "rule_id": "bs.current_plus_non_current_assets",
+                "rule_name": "Assets = current assets + non-current assets",
+                "statement_type": "balance_sheet",
+                "period": "2025-09-27",
+                "status": "warning",
+                "reason": "outside_tolerance",
+                "right": {},
+                "raw": {},
+            },
+        ],
+    }
+    total_assets_fact = types.SimpleNamespace(canonical_name="total_assets", period_key="2025-09-27")
+    liabilities_equity_fact = types.SimpleNamespace(canonical_name="total_liabilities_and_equity", period_key="2025-09-27")
+    statement = types.SimpleNamespace(statement_type=types.SimpleNamespace(value="balance_sheet"), items=[total_assets_fact, liabilities_equity_fact])
+    extraction = types.SimpleNamespace(statements=[statement])
+
+    updated = sec_evidence_lib._apply_us_financial_review_policy(financial_checks, extraction)
+
+    skipped = updated["checks"][0]
+    current_period_warning = updated["checks"][1]
+    assert skipped["status"] == "skipped"
+    assert skipped["reason"] == "incomplete_balance_sheet_period"
+    assert skipped["raw"]["previous_status"] == "warning"
+    assert current_period_warning["status"] == "warning"
+    assert updated["overall_status"] == "warning"
+    assert updated["review_policy"]["downgraded_check_count"] == 1

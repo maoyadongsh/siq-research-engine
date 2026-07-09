@@ -8,12 +8,20 @@ export interface UsSecCaseSetItem {
   period_end?: string
   filing_date?: string
   quality_status?: string
+  retrieval_status?: string
+  wiki_ready?: boolean
+  retrieval_issues?: Array<Record<string, unknown>>
   quality_summary?: {
     section_count?: number
     table_count?: number
     xbrl_fact_count?: number
     normalized_metric_count?: number
   }
+  full_document_status?: string
+  full_document_ready?: boolean
+  full_document_paths?: Record<string, unknown>
+  parser_result_dir?: string
+  parser_result_task_id?: string
   package_path?: string
 }
 
@@ -45,6 +53,8 @@ export interface UsSecCaseSetStatus {
 
 export interface UsSecPackageDetail {
   package_path?: string
+  parser_result_dir?: string
+  parser_result_task_id?: string
   manifest?: Record<string, unknown>
   quality?: Record<string, unknown>
   quality_gates?: MarketPackageQualityGates
@@ -71,10 +81,31 @@ export interface UsSecPackageDetail {
   }
 }
 
+export interface UsSecSourceMapEntry {
+  evidence_id?: string
+  source_type?: string
+  section_id?: string
+  xbrl_tag?: string
+  context_ref?: string
+  html_anchor?: string
+  local_path?: string
+  source_url?: string
+  target?: string
+  quote_text?: string
+  raw?: Record<string, unknown>
+}
+
+export interface UsSecSourceMapPayload {
+  schema_version?: string
+  market?: string
+  filing_id?: string
+  entries?: UsSecSourceMapEntry[]
+}
+
 export interface UsSecIngestRequest {
   dry_run?: boolean
   postgres?: boolean
-  milvus?: boolean
+  semantic?: boolean
   ddl?: boolean
   include_fail?: boolean
   tickers?: string
@@ -233,6 +264,8 @@ export interface UsSecPackageBuildResponse {
   command?: string
   stdout?: string
   stderr?: string
+  parser_result_dir?: string
+  parser_result_task_id?: string
   package?: UsSecPackageDetail
 }
 
@@ -300,6 +333,10 @@ export function usSecPackageFileUrl(packagePath: string, file: string): string {
 
 export async function fetchUsSecPackageText(packagePath: string, file: string): Promise<string> {
   return apiText(usSecPackageFileUrl(packagePath, file))
+}
+
+export async function fetchUsSecPackageJson<T = unknown>(packagePath: string, file: string): Promise<T> {
+  return apiJson<T>(usSecPackageFileUrl(packagePath, file))
 }
 
 export async function rebuildUsSecPackage(ticker: string): Promise<{ ok?: boolean; queued?: boolean; job_id?: string; package?: UsSecPackageDetail; stdout?: string; stderr?: string }> {

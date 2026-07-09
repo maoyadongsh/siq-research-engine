@@ -358,6 +358,69 @@ def test_extract_generic_semantic_rejects_non_generic_identity_without_command(m
     assert exc_info.value.detail == "该任务不是通用主体入库路线，请使用标准语义层接口"
 
 
+def test_import_generic_wiki_routes_pdf_market_to_market_script(monkeypatch, tmp_path):
+    result_dir = tmp_path / "results" / "task-hk-market"
+    result_dir.mkdir(parents=True)
+    wiki_root = tmp_path / "wiki"
+    script_path = tmp_path / "ingest_hk_pdf_wiki.py"
+    script_path.write_text("# hk market ingest\n", encoding="utf-8")
+    calls = []
+
+    def fake_run_command(args, timeout=180, env=None):
+        calls.append({"args": args, "timeout": timeout, "env": env})
+        return {"returnCode": 0, "stdout": "hk ok", "stderr": ""}
+
+    monkeypatch.setattr(workflow, "WIKI_ROOT", wiki_root)
+    monkeypatch.setattr(workflow, "PDF_MARKET_WIKI_INGEST_SCRIPTS", {"HK": script_path})
+    monkeypatch.setattr(workflow, "_infer_task_market", lambda task_id: "HK")
+    monkeypatch.setattr(workflow, "_find_task_result_dir", lambda task_id: result_dir)
+    monkeypatch.setattr(
+        workflow,
+        "_artifact_bundle_status",
+        lambda task_id, write_manifest=False: {
+            "ready": True,
+            "missing": [],
+            "invalidJson": [],
+            "warnings": [],
+            "bundleSha256": "sha-market",
+        },
+    )
+    monkeypatch.setattr(
+        workflow,
+        "_wiki_import_status_at_root",
+        lambda task_id, seen_wiki_root, market: {
+            "status": "ready",
+            "companyDir": "09999-NTES-S",
+            "reportId": "2025-annual",
+            "reportDir": str(seen_wiki_root / "companies" / "09999-NTES-S" / "reports" / "2025-annual"),
+            "manifestPath": str(seen_wiki_root / "companies" / "09999-NTES-S" / "reports" / "2025-annual" / "artifact_manifest.json"),
+        },
+    )
+    monkeypatch.setattr(workflow, "_run_command", fake_run_command)
+
+    result = workflow._import_task_to_generic_wiki("task-hk-market")
+
+    assert result["ok"] is True
+    assert result["market"] == "HK"
+    assert result["wikiRoot"] == str(wiki_root / "hk")
+    assert result["importRoute"] == "hk_pdf_market_wiki_import"
+    assert calls == [
+        {
+            "args": [
+                sys.executable,
+                str(script_path),
+                "--results-dir",
+                str(result_dir.parent),
+                "--output-root",
+                str(wiki_root / "hk"),
+                "--apply",
+            ],
+            "timeout": 900,
+            "env": None,
+        }
+    ]
+
+
 def test_extract_semantic_for_task_maps_rule_failure(monkeypatch, tmp_path):
     semantic_script = tmp_path / "extract_company_semantics.py"
     semantic_script.write_text("# rule\n", encoding="utf-8")
@@ -532,3 +595,33 @@ def test_extract_generic_semantic_success_runs_rule_llm_obsidian_without_naming(
     assert calls[1]["env"]["SIQ_LOCAL_LLM_MODEL"] == "qwen-local"
     assert calls[1]["env"]["FINSIGHT_LOCAL_LLM_MODEL"] == "qwen-local"
     assert result["semantic"] == {"companyDir": company_dir, "taskId": "task-generic-success", "status": "ready"}
+
+
+def test_semantic_route_returns_background_job_without_running_llm_inline(monkeypatch):
+    calls = []
+
+    def fake_start(task_id, step, runner, *, metadata=None):
+        calls.append({"task_id": task_id, "step": step, "metadata": metadata})
+        return {"jobId": "job-semantic", "taskId": task_id, "status": "queued", "steps": []}
+
+    monkeypatch.setattr(workflow, "_start_workflow_step_job", fake_start)
+
+    result = workflow.start_semantic_for_task("task-semantic-route")
+
+    assert result == {"jobId": "job-semantic", "taskId": "task-semantic-route", "status": "queued", "steps": []}
+    assert calls == [{"task_id": "task-semantic-route", "step": "semantic", "metadata": None}]
+
+
+def test_generic_semantic_route_returns_background_job_without_running_llm_inline(monkeypatch):
+    calls = []
+
+    def fake_start(task_id, step, runner, *, metadata=None):
+        calls.append({"task_id": task_id, "step": step, "metadata": metadata})
+        return {"jobId": "job-generic-semantic", "taskId": task_id, "status": "queued", "steps": []}
+
+    monkeypatch.setattr(workflow, "_start_workflow_step_job", fake_start)
+
+    result = workflow.start_generic_semantic_for_task("task-generic-route")
+
+    assert result == {"jobId": "job-generic-semantic", "taskId": "task-generic-route", "status": "queued", "steps": []}
+    assert calls == [{"task_id": "task-generic-route", "step": "semantic-generic", "metadata": None}]

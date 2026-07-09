@@ -131,6 +131,8 @@ def extract_operating_metrics_from_tables(
                 continue
             if value is None:
                 continue
+            if "non_negative" in rule.validation and value < 0:
+                continue
             metric_period = table_period_key(artifact, table)
             key = (rule.canonical_name, metric_period, table.table_index, row_index)
             if key in seen:

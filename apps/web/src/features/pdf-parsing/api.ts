@@ -1,5 +1,5 @@
 import { apiBlob, apiJson, readJsonResponse, type ApiRequestInit } from '../../shared/api/client'
-import type { ArtifactInfo, ArtifactsMap, DownloadedPdf, FinancialResult, PageContent, WorkflowJob, WorkflowStatus } from '../../lib/pdfTypes'
+import { WIKI_INPUT_ARTIFACTS, type ArtifactInfo, type ArtifactsMap, type DownloadedPdf, type FinancialResult, type PageContent, type WorkflowJob, type WorkflowStatus } from '../../lib/pdfTypes'
 
 export const PDF_API = '/api/pdf'
 
@@ -28,17 +28,6 @@ export function pipelineArtifactSummary(artifacts: ArtifactsMap | null): {
   total: number
   missing: string[]
 } {
-  const WIKI_INPUT_ARTIFACTS = [
-    'result.md',
-    'result_complete.md',
-    'document_full.json',
-    'content_list_enhanced.json',
-    'financial_data.json',
-    'financial_checks.json',
-    'quality_report.json',
-    'table_relations.json',
-    'table_index.json',
-  ]
   const ready = WIKI_INPUT_ARTIFACTS.filter((name) => artifacts?.[name]?.exists)
   return {
     ready,

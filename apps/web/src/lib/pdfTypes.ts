@@ -293,6 +293,9 @@ export const WIKI_INPUT_ARTIFACTS = [
   'quality_report.json',
   'table_relations.json',
   'table_index.json',
+  'artifact_manifest.json',
+  'hash_manifest.json',
+  'metadata.json',
 ]
 
 export const artifactRoles: Record<string, string> = {
@@ -305,6 +308,9 @@ export const artifactRoles: Record<string, string> = {
   'table_index.json': '表格定位与溯源索引',
   'financial_data.json': '规则抽取的财务指标',
   'financial_checks.json': '财务抽取校验结果',
+  'artifact_manifest.json': '核心产物路径、hash 与版本清单',
+  'hash_manifest.json': '解析产物 hash 总清单',
+  'metadata.json': '市场、公司、报告与解析任务元数据',
   'middle.json': '解析中间结构',
   'content_list.json': '原始内容块',
   'model_output.json': '模型输出原始结构',

@@ -50,6 +50,8 @@ const status: UsSecCaseSetStatus = {
     period_end: '2025-01-31',
     filing_date: '2025-03-18',
     quality_status: 'pass',
+    retrieval_status: 'ready',
+    wiki_ready: true,
     package_path: 'data/wiki/us/companies/NVDA-NVIDIA-Corporation/reports/2025-10-K-0001045810-25-000023',
   }],
   ingest_report: {
@@ -73,6 +75,48 @@ const packageDetail = {
     form: '10-K',
     period_end: '2025-01-31',
     filing_date: '2025-03-18',
+    artifacts: {
+      document_full: 'parser/document_full.json',
+      report_complete: 'parser/report_complete.md',
+      content_list_enhanced: 'parser/content_list_enhanced.json',
+      table_relations: 'parser/table_relations.json',
+      wiki_report_complete: 'sections/report_complete.md',
+      sections: 'sections.json',
+      table_index: 'tables/table_index.json',
+      xbrl_facts_raw: 'xbrl/facts_raw.json',
+      xbrl_contexts: 'xbrl/contexts.json',
+      xbrl_units: 'xbrl/units.json',
+      xbrl_labels: 'xbrl/labels.json',
+      xbrl_taxonomy_summary: 'xbrl/taxonomy_summary.json',
+      financial_data: 'metrics/financial_data.json',
+      financial_checks: 'metrics/financial_checks.json',
+      normalized_metrics: 'metrics/normalized_metrics.json',
+      operating_metrics: 'metrics/operating_metrics.json',
+      quality_report: 'qa/quality_report.json',
+      source_map: 'qa/source_map.json',
+      extraction_warnings: 'qa/extraction_warnings.json',
+    },
+    artifact_hashes: {
+      'parser/document_full.json': 'sha-document-full',
+      'parser/report_complete.md': 'sha-report-complete',
+      'parser/content_list_enhanced.json': 'sha-content-list-enhanced',
+      'parser/table_relations.json': 'sha-table-relations',
+      'sections/report_complete.md': 'sha-wiki-report-complete',
+      'sections.json': 'sha-sections',
+      'tables/table_index.json': 'sha-table-index',
+      'xbrl/facts_raw.json': 'sha-facts',
+      'xbrl/contexts.json': 'sha-contexts',
+      'xbrl/units.json': 'sha-units',
+      'xbrl/labels.json': 'sha-labels',
+      'xbrl/taxonomy_summary.json': 'sha-taxonomy',
+      'metrics/financial_data.json': 'sha-financial-data',
+      'metrics/financial_checks.json': 'sha-financial-checks',
+      'metrics/normalized_metrics.json': 'sha-normalized',
+      'metrics/operating_metrics.json': 'sha-operating',
+      'qa/quality_report.json': 'sha-quality',
+      'qa/source_map.json': 'sha-source-map',
+      'qa/extraction_warnings.json': 'sha-warnings',
+    },
   },
   counts: {
     sections: 8,
@@ -122,7 +166,8 @@ test('deriveUsSecParseStatus maps package and import states', () => {
   assert.equal(deriveUsSecParseStatus({ report: report(), item: null, status }), 'unparsed')
   assert.equal(deriveUsSecParseStatus({ report: report(), item: matched, status: null }), 'package_ready')
   assert.equal(deriveUsSecParseStatus({ report: report(), item: matched, status }), 'postgres_ready')
-  assert.equal(deriveUsSecParseStatus({ report: report(), item: { ...matched, quality_status: 'warning' }, status }), 'warning')
+  assert.equal(deriveUsSecParseStatus({ report: report(), item: { ...matched, quality_status: 'warning', retrieval_status: 'needs_review', wiki_ready: false }, status }), 'warning')
+  assert.equal(deriveUsSecParseStatus({ report: report(), item: { ...matched, quality_status: 'warning', retrieval_status: 'ready', wiki_ready: true }, status }), 'postgres_ready')
   assert.equal(deriveUsSecParseStatus({ report: report(), item: { ...matched, quality_status: 'fail' }, status }), 'failed')
   assert.equal(deriveUsSecParseStatus({ report: report(), item: matched, status, busyPath: report().relativePath }), 'building')
 })
@@ -151,17 +196,29 @@ test('deriveUsSecRecentTasks exposes parsed SEC packages as shared PDF-surface t
 
 test('deriveUsSecArtifactManifest maps SEC package outputs to result chips', () => {
   const manifest = deriveUsSecArtifactManifest(packageDetail)
-  assert.equal(manifest.readyCount, 8)
-  assert.equal(manifest.total, 8)
+  assert.equal(manifest.readyCount, 20)
+  assert.equal(manifest.total, 20)
   assert.deepEqual(manifest.chips.map((chip) => chip.name), [
     'manifest.json',
-    'sections/*.md',
-    'tables.json',
-    'xbrl_facts.json',
-    'normalized_metrics.json',
-    'evidence_map.json',
-    'quality_report.json',
-    'bridge_checks.json',
+    'parser/document_full.json',
+    'parser/report_complete.md',
+    'parser/content_list_enhanced.json',
+    'parser/table_relations.json',
+    'sections/report_complete.md',
+    'sections.json',
+    'tables/table_index.json',
+    'xbrl/facts_raw.json',
+    'xbrl/contexts.json',
+    'xbrl/units.json',
+    'xbrl/labels.json',
+    'xbrl/taxonomy_summary.json',
+    'metrics/financial_data.json',
+    'metrics/financial_checks.json',
+    'metrics/normalized_metrics.json',
+    'metrics/operating_metrics.json',
+    'qa/quality_report.json',
+    'qa/source_map.json',
+    'qa/extraction_warnings.json',
   ])
   assert.equal(manifest.checks[0].label, 'SEC 解析产物包')
   assert.equal(manifest.checks[0].status, 'ready')
@@ -169,7 +226,7 @@ test('deriveUsSecArtifactManifest maps SEC package outputs to result chips', () 
 
 test('deriveUsSecWorkflowSummary exposes the four-stage US pipeline', () => {
   const workflow = deriveUsSecWorkflowSummary(status, packageDetail)
-  assert.deepEqual(workflow.steps.map((step) => step.label), ['解析产物包', '派生知识资产', '语义层', 'PostgreSQL'])
+  assert.deepEqual(workflow.steps.map((step) => step.label), ['解析产物包', '派生知识资产', 'Wiki 语义增强', 'PostgreSQL'])
   assert.equal(workflow.cards[0].status, 'ready')
   assert.equal(workflow.cards[1].status, 'ready')
   assert.equal(workflow.cards[2].status, 'pending')

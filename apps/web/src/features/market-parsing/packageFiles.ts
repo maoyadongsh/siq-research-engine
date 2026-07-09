@@ -46,13 +46,16 @@ const PACKAGE_FILE_GROUP_BY_KEY: Record<string, MarketPackagePathGroupId> = {
   financial_note_links: 'qa',
   table_quality_signals: 'qa',
   report_complete: 'sections',
+  wiki_report_complete: 'sections',
   table_index: 'tables',
 }
 
 function groupForPath(name: string, file: string): MarketPackagePathGroupId {
+  const [topLevel] = file.split('/')
+  if (name === 'report_complete' && (topLevel === 'parser' || topLevel === 'sections')) return topLevel
+  if (name === 'wiki_report_complete') return 'sections'
   const byKey = PACKAGE_FILE_GROUP_BY_KEY[name]
   if (byKey) return byKey
-  const [topLevel] = file.split('/')
   if (file.endsWith('/load_plan.json') || file === 'load_plan.json') return 'quality'
   if (topLevel === 'metrics') return 'financial'
   if (topLevel === 'parser' || topLevel === 'qa' || topLevel === 'sections' || topLevel === 'tables') {

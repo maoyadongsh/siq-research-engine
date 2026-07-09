@@ -40,6 +40,9 @@
 3. 主表、核心指标和所有财务数字，先读 `metrics/reports/<report_id>/three_statements.json`、`key_metrics.json`、`validation.json`；未指定时读 `metrics/latest/`，旧 `metrics/*.json` 只作兼容入口
    - HK 公司级 Wiki 中，核心财务数字优先读 `reports/<report_id>/metrics/financial_data.json`、`financial_checks.json`、`qa/source_map.json`；路径和 A 股同样挂在 `companies/<company>/reports/<report_id>/` 下。
 4. `semantic/retrieval_index.json`、`document_links.json`、`note_links.json`、`facts.json`、`claims.json` 只用于管理层讨论、风险因素、业务结构和主表项目的附注展开
+   - 多市场 LLM-Wiki 语义增强读取 `semantic/llm/<report_id>/business_profile.json`、`risks.json`、`events.json`、`claims.json`；它只用于业务、风险、战略、分部、地区、重大事项等召回候选，必须使用 `needs_review=false` 且带合法 `source_segment_ids`/`evidence_ids` 的条目，并回链到 `semantic/evidence_semantic.json`、`segments.json` 或 `report.md` 后才能回答。
+   - 这层 LLM 语义不是只看薄指标摘要生成的；其请求输入包含从全量 `report.md` / `document_full.json` / SEC `sections/*.md` / 表格和附注关系中筛出的证据窗口。查询时可先用它加速召回，但最终引用仍回到原始证据窗口和源文件。
+   - LLM 层不得作为财务数值、页码、表格编号、日期或计算口径来源；所有金额和指标仍以 `metrics/reports/<report_id>/`、`metrics/latest/`、US SEC `normalized_metrics.json` 和 evidence/source_map 为准。
 5. `evidence/evidence_index.json`
 6. `reports/<report_id>/report.md`
 7. `reports/<report_id>/document_full.json` 仅用于深度审计、重放或证据补全失败

@@ -14,7 +14,8 @@ test('groupMarketPackagePaths groups HK V2 parser and QA files from dynamic path
     load_plan: 'metrics/load_plan.json',
     document_full: '/parser/document_full.json',
     content_list_enhanced: 'parser/content_list_enhanced.json',
-    report_complete: 'sections/report_complete.md',
+    report_complete: 'parser/report_complete.md',
+    wiki_report_complete: 'sections/report_complete.md',
     footnotes: 'qa/footnotes.json',
     table_index: 'tables/table_index.json',
   })
@@ -26,9 +27,9 @@ test('groupMarketPackagePaths groups HK V2 parser and QA files from dynamic path
       ['quality', ['quality_report:qa/quality_report.json', 'load_plan:metrics/load_plan.json']],
       ['source', ['source_map:qa/source_map.json']],
       ['financial', ['financial_data:metrics/financial_data.json']],
-      ['parser', ['document_full:parser/document_full.json', 'content_list_enhanced:parser/content_list_enhanced.json']],
+      ['parser', ['document_full:parser/document_full.json', 'content_list_enhanced:parser/content_list_enhanced.json', 'report_complete:parser/report_complete.md']],
       ['qa', ['footnotes:qa/footnotes.json']],
-      ['sections', ['report_complete:sections/report_complete.md']],
+      ['sections', ['wiki_report_complete:sections/report_complete.md']],
       ['tables', ['table_index:tables/table_index.json']],
     ],
   )
@@ -45,6 +46,19 @@ test('groupMarketPackagePaths treats unnamed load_plan paths as quality files', 
     [
       ['quality', ['rules_output:metrics/load_plan.json']],
       ['source', ['source_map:qa/source_map.json']],
+    ],
+  )
+})
+
+test('groupMarketPackagePaths leaves non-US report_complete markdown in sections', () => {
+  const groups = groupMarketPackagePaths({
+    report_complete: 'sections/report_complete.md',
+  })
+
+  assert.deepEqual(
+    groups.map((group) => [group.id, group.entries.map((entry) => `${entry.name}:${entry.file}`)]),
+    [
+      ['sections', ['report_complete:sections/report_complete.md']],
     ],
   )
 })

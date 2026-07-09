@@ -25,6 +25,9 @@ ARTIFACT_OPEN_ALLOWLIST = {
     "content_list.json": ("application/json; charset=utf-8", False),
     "content_list_enhanced.json": ("application/json; charset=utf-8", False),
     "model_output.json": ("application/json; charset=utf-8", False),
+    "artifact_manifest.json": ("application/json; charset=utf-8", False),
+    "hash_manifest.json": ("application/json; charset=utf-8", False),
+    "metadata.json": ("application/json; charset=utf-8", False),
 }
 
 

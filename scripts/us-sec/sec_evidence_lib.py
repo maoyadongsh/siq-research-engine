@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import sys
+import tempfile
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -14,7 +15,17 @@ from typing import Any
 
 from bs4 import BeautifulSoup
 
+from sec_html_document import build_full_document_artifacts
+from sec_wiki_ingestion_rules import (
+    MANIFEST_ARTIFACT_PATHS as WIKI_INGESTION_ARTIFACT_PATHS,
+    WIKI_INGESTION_PLAN_PATH,
+    build_wiki_ingestion_plan,
+)
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_PARSER_RESULTS_ROOT = Path(
+    os.environ.get("SIQ_US_SEC_PARSER_RESULTS_ROOT", REPO_ROOT / "data" / "parser-results" / "us-sec")
+)
 RULES_SRC = REPO_ROOT / "services" / "market-report-rules" / "src"
 if str(RULES_SRC) not in sys.path:
     sys.path.insert(0, str(RULES_SRC))
@@ -431,6 +442,7 @@ def normalize_metrics(manifest: dict[str, Any], facts_raw: list[dict[str, Any]],
     result = process_artifact(artifact, include_load_plan=True)
     financial_data = financial_data_contract(result.extraction)
     financial_checks = financial_checks_contract(result.validation)
+    financial_checks = _apply_us_financial_review_policy(financial_checks, result.extraction)
     normalized = []
     raw_fact_by_key = {(item.get("concept"), item.get("context_ref"), str(parse_decimal(item.get("value_numeric")))): item for item in facts_raw}
     for statement in result.extraction.statements:
@@ -449,7 +461,126 @@ def normalize_metrics(manifest: dict[str, Any], facts_raw: list[dict[str, Any]],
     }
 
 
-def build_source_map(manifest: dict[str, Any], sections: list[dict[str, Any]], facts_raw: list[dict[str, Any]], tables: list[dict[str, Any]]) -> dict[str, Any]:
+def _apply_us_financial_review_policy(financial_checks: dict[str, Any], extraction: Any) -> dict[str, Any]:
+    """Downgrade US-only bridge noise that comes from incomplete historical statement periods."""
+    return apply_us_financial_review_policy_for_periods(financial_checks, _us_balance_sheet_total_periods(extraction))
+
+
+def apply_us_financial_review_policy_for_periods(
+    financial_checks: dict[str, Any],
+    balance_sheet_total_periods: set[str],
+) -> dict[str, Any]:
+    checks = [dict(check) for check in financial_checks.get("checks") or [] if isinstance(check, dict)]
+    if not checks:
+        return financial_checks
+
+    downgraded: list[dict[str, Any]] = []
+    for check in checks:
+        if not _is_incomplete_us_balance_sheet_bridge(check, balance_sheet_total_periods):
+            continue
+        raw = dict(check.get("raw") or {})
+        raw["downgraded_by"] = "sec_us_financial_review_policy_v1"
+        raw["previous_status"] = check.get("status")
+        raw["previous_reason"] = check.get("reason")
+        check["raw"] = raw
+        check["status"] = "skipped"
+        check["reason"] = "incomplete_balance_sheet_period"
+        downgraded.append(
+            {
+                "rule_id": check.get("rule_id"),
+                "period": check.get("period"),
+                "previous_status": raw["previous_status"],
+                "previous_reason": raw["previous_reason"],
+            }
+        )
+
+    if not downgraded:
+        return financial_checks
+
+    updated = dict(financial_checks)
+    updated["checks"] = checks
+    updated["summary"] = _financial_check_summary(checks)
+    updated["overall_status"] = _us_financial_check_overall_status(checks)
+    updated["review_policy"] = {
+        "schema_version": "sec_us_financial_review_policy_v1",
+        "scope": "US-only post-validation calibration",
+        "downgraded_check_count": len(downgraded),
+        "downgraded_checks": downgraded,
+        "notes": [
+            "Balance sheet bridge checks are skipped for historical periods that only appear in equity statements.",
+            "Core current-period metrics and real bridge mismatches remain reviewable.",
+        ],
+    }
+    return updated
+
+
+def _us_balance_sheet_total_periods(extraction: Any) -> set[str]:
+    periods: set[str] = set()
+    for statement in getattr(extraction, "statements", []) or []:
+        statement_type = getattr(getattr(statement, "statement_type", None), "value", getattr(statement, "statement_type", None))
+        if statement_type != "balance_sheet":
+            continue
+        for fact in getattr(statement, "items", []) or []:
+            if getattr(fact, "canonical_name", None) in {"total_assets", "total_liabilities_and_equity"} and getattr(fact, "period_key", None):
+                periods.add(str(fact.period_key))
+    return periods
+
+
+def _is_incomplete_us_balance_sheet_bridge(check: dict[str, Any], balance_sheet_total_periods: set[str]) -> bool:
+    if str(check.get("statement_type") or "") != "balance_sheet":
+        return False
+    if not str(check.get("rule_id") or "").startswith("bs."):
+        return False
+    if check.get("reason") != "missing_inputs":
+        return False
+    if str(check.get("status") or "").lower() not in {"warning", "fail"}:
+        return False
+    period = str(check.get("period") or "")
+    if period in balance_sheet_total_periods:
+        return False
+    right = check.get("right") if isinstance(check.get("right"), dict) else {}
+    missing = {str(item) for item in right.get("missing") or []}
+    balance_sheet_totals = {"total_assets", "total_liabilities", "total_liabilities_and_equity"}
+    return bool(missing & balance_sheet_totals)
+
+
+def _financial_check_summary(checks: list[dict[str, Any]]) -> dict[str, int]:
+    summary = {"pass": 0, "fail": 0, "warning": 0, "skipped": 0}
+    for check in checks:
+        status = str(check.get("status") or "skipped").lower()
+        summary[status] = summary.get(status, 0) + 1
+    return summary
+
+
+def _us_financial_check_overall_status(checks: list[dict[str, Any]]) -> str:
+    if any(str(check.get("status") or "").lower() == "fail" for check in checks):
+        return "fail"
+    if any(_is_blocking_us_financial_warning(check) for check in checks):
+        return "warning"
+    if any(str(check.get("status") or "").lower() == "pass" for check in checks):
+        return "pass"
+    if any(str(check.get("status") or "").lower() == "warning" for check in checks):
+        return "warning"
+    return "skipped"
+
+
+def _is_blocking_us_financial_warning(check: dict[str, Any]) -> bool:
+    if str(check.get("status") or "").lower() != "warning":
+        return False
+    return check.get("reason") not in {
+        "dimension_specific_scope",
+        "alternative_total_liabilities_and_equity_bridge_passed",
+        "incomplete_balance_sheet_period",
+    }
+
+
+def build_source_map(
+    manifest: dict[str, Any],
+    sections: list[dict[str, Any]],
+    facts_raw: list[dict[str, Any]],
+    tables: list[dict[str, Any]],
+    financial_data: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     entries = []
     for section in sections:
         evidence_id = stable_id(manifest["filing_id"], "section", section["section_id"])
@@ -490,10 +621,280 @@ def build_source_map(manifest: dict[str, Any], sections: list[dict[str, Any]], f
             "target": f"{manifest.get('source_url') or ''}#{table.get('html_anchor') or ''}",
             "raw": table,
         })
+    entries.extend(_derived_metric_source_map_entries(manifest, financial_data or {}))
     return {"schema_version": "market_source_map_v1", "market": "US", "filing_id": manifest["filing_id"], "entries": entries}
 
 
-def write_evidence_package(source_path: Path, output_root: Path, metadata_path: Path | None = None, force: bool = False) -> Path:
+def write_full_document_layer(
+    package_dir: Path,
+    manifest: dict[str, Any],
+    source_map: dict[str, Any],
+    quality: dict[str, Any],
+    *,
+    parser_results_root: Path | None = None,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    raw_rel = manifest.get("local_source_path") or "raw/filing.htm"
+    raw_path = Path(str(raw_rel))
+    if not raw_path.is_absolute():
+        raw_path = package_dir / raw_path
+    raw_html = raw_path.read_text(encoding="utf-8", errors="ignore")
+    artifacts = build_full_document_artifacts(
+        package_dir=package_dir,
+        manifest=manifest,
+        raw_html=raw_html,
+        sections_payload=read_json(package_dir / "sections.json"),
+        table_index_payload=read_json(package_dir / "tables" / "table_index.json"),
+        facts_payload=read_json(package_dir / "xbrl" / "facts_raw.json"),
+        contexts_payload=read_json(package_dir / "xbrl" / "contexts.json"),
+        units_payload=read_json(package_dir / "xbrl" / "units.json"),
+        normalized_metrics_payload=read_json(package_dir / "metrics" / "normalized_metrics.json"),
+    )
+
+    parser_result_dir = write_parser_result_artifacts(
+        package_dir=package_dir,
+        manifest=manifest,
+        raw_path=raw_path,
+        artifacts=artifacts,
+        parser_results_root=parser_results_root or DEFAULT_PARSER_RESULTS_ROOT,
+    )
+    _mirror_parser_result_to_package(parser_result_dir, package_dir)
+    (package_dir / "sections" / "report_complete.md").write_text(artifacts.report_complete_md, encoding="utf-8")
+
+    existing_entries = source_map.get("entries") if isinstance(source_map.get("entries"), list) else []
+    retained_entries = [
+        entry
+        for entry in existing_entries
+        if not (isinstance(entry, dict) and entry.get("source_type") == "sec_html_block")
+    ]
+    source_map = {
+        **source_map,
+        "schema_version": source_map.get("schema_version") or "market_source_map_v1",
+        "market": source_map.get("market") or "US",
+        "filing_id": source_map.get("filing_id") or manifest.get("filing_id"),
+        "entries": retained_entries + artifacts.source_map_entries,
+    }
+
+    quality = _merge_full_document_quality(quality, artifacts.quality, artifacts.warnings)
+    manifest["parser_result_dir"] = repo_relative(parser_result_dir)
+    manifest["parser_result_task_id"] = parser_result_dir.name
+    manifest.setdefault("artifacts", {}).update(WIKI_INGESTION_ARTIFACT_PATHS)
+    manifest.setdefault("paths", {}).update(WIKI_INGESTION_ARTIFACT_PATHS)
+    ingestion_plan = build_wiki_ingestion_plan(
+        package_dir=package_dir,
+        manifest=manifest,
+        quality=quality,
+        parser_result_dir=parser_result_dir,
+        repo_root=REPO_ROOT,
+    )
+    quality["wiki_ingestion"] = ingestion_plan.get("summary") or {}
+    write_json(package_dir / WIKI_INGESTION_PLAN_PATH, ingestion_plan)
+    return source_map, quality, manifest
+
+
+def write_parser_result_artifacts(
+    *,
+    package_dir: Path,
+    manifest: dict[str, Any],
+    raw_path: Path,
+    artifacts: Any,
+    parser_results_root: Path,
+) -> Path:
+    task_id = us_sec_parser_task_id(manifest, raw_path)
+    parser_result_dir = parser_results_root / task_id
+    parser_result_dir.mkdir(parents=True, exist_ok=True)
+    raw_dir = parser_result_dir / "raw"
+    raw_dir.mkdir(exist_ok=True)
+    shutil.copy2(raw_path, raw_dir / "filing.htm")
+    write_json(parser_result_dir / "document_full.json", artifacts.document_full)
+    write_json(parser_result_dir / "content_list_enhanced.json", artifacts.content_list_enhanced)
+    write_json(parser_result_dir / "table_relations.json", artifacts.table_relations)
+    write_json(parser_result_dir / "quality_report.json", artifacts.quality)
+    (parser_result_dir / "report_complete.md").write_text(artifacts.report_complete_md, encoding="utf-8")
+    parser_manifest = {
+        "schema_version": "sec_html_parser_result_manifest_v1",
+        "market": "US",
+        "task_id": task_id,
+        "filing_id": manifest.get("filing_id"),
+        "report_id": manifest.get("report_id"),
+        "ticker": manifest.get("ticker"),
+        "company_name": manifest.get("company_name"),
+        "form": manifest.get("form"),
+        "accession_number": manifest.get("accession_number"),
+        "fiscal_year": manifest.get("fiscal_year"),
+        "period_end": manifest.get("period_end"),
+        "source_url": manifest.get("source_url"),
+        "raw_sha256": artifacts.quality.get("raw_sha256"),
+        "source_package_dir": repo_relative(package_dir),
+        "parser_version": "sec_html_document_v1",
+        "artifacts": {
+            "raw_html": "raw/filing.htm",
+            "document_full": "document_full.json",
+            "report_complete": "report_complete.md",
+            "content_list_enhanced": "content_list_enhanced.json",
+            "table_relations": "table_relations.json",
+            "quality_report": "quality_report.json",
+        },
+    }
+    parser_manifest["artifact_hashes"] = _artifact_hashes(parser_result_dir)
+    write_json(parser_result_dir / "manifest.json", parser_manifest)
+    return parser_result_dir
+
+
+def us_sec_parser_task_id(manifest: dict[str, Any], raw_path: Path | None = None) -> str:
+    ticker = safe_wiki_slug(manifest.get("ticker"), "UNKNOWN")
+    form = safe_wiki_slug(manifest.get("form"), "filing")
+    accession = safe_wiki_slug(manifest.get("accession_number"), "")
+    if accession and accession.lower() != "unknown":
+        return f"{ticker}-{form}-{accession}"
+    if raw_path and raw_path.exists():
+        return f"us-sec-{sha256_bytes(raw_path.read_bytes())[:16]}"
+    return f"us-sec-{stable_id(manifest.get('filing_id'), ticker, form)[:16]}"
+
+
+def _mirror_parser_result_to_package(parser_result_dir: Path, package_dir: Path) -> None:
+    parser_dir = package_dir / "parser"
+    parser_dir.mkdir(exist_ok=True)
+    for name in ("document_full.json", "report_complete.md", "content_list_enhanced.json", "table_relations.json"):
+        source = parser_result_dir / name
+        if source.exists():
+            shutil.copy2(source, parser_dir / name)
+
+
+def _merge_full_document_quality(
+    quality: dict[str, Any],
+    full_document_quality: dict[str, Any],
+    full_document_warnings: list[str],
+) -> dict[str, Any]:
+    quality = dict(quality)
+    quality["full_document_status"] = "ready" if full_document_quality.get("block_count") else "needs_review"
+    quality["full_document"] = full_document_quality
+    quality["full_document_warnings"] = full_document_warnings
+    summary = quality.get("summary") if isinstance(quality.get("summary"), dict) else {}
+    summary = dict(summary)
+    summary["full_document"] = {
+        "status": quality["full_document_status"],
+        "dom_node_count": full_document_quality.get("dom_node_count"),
+        "block_count": full_document_quality.get("block_count"),
+        "markdown_chars": full_document_quality.get("markdown_chars"),
+        "table_relation_count": full_document_quality.get("table_relation_count"),
+        "block_source_map_count": full_document_quality.get("block_source_map_count"),
+        "fact_linkage_ratio": full_document_quality.get("fact_linkage_ratio"),
+        "table_linkage_ratio": full_document_quality.get("table_linkage_ratio"),
+    }
+    quality["summary"] = summary
+
+    parser_warnings = [
+        warning
+        for warning in quality.get("parser_warnings", [])
+        if isinstance(warning, str) and not warning.startswith("full_document: ")
+    ]
+    parser_warnings.extend(f"full_document: {warning}" for warning in full_document_warnings)
+    quality["parser_warnings"] = _dedupe_strings(parser_warnings)
+
+    rule_warnings = quality.get("rule_warnings") if isinstance(quality.get("rule_warnings"), list) else []
+    quality["warnings"] = _dedupe_strings([*quality["parser_warnings"], *rule_warnings])
+    return quality
+
+
+def _dedupe_strings(items: list[Any]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in items:
+        text = str(item)
+        if text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+    return result
+
+
+def _derived_metric_source_map_entries(manifest: dict[str, Any], financial_data: dict[str, Any]) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in _iter_financial_data_metric_items(financial_data):
+        canonical_name = str(item.get("canonical_name") or item.get("name") or "unknown")
+        sources = item.get("sources") if isinstance(item.get("sources"), dict) else {}
+        for period_key, evidence in sources.items():
+            if not isinstance(evidence, dict):
+                continue
+            if evidence.get("source_type") != "derived_reported_metric":
+                continue
+            evidence_id = stable_id(manifest["filing_id"], "derived_metric", canonical_name, period_key, evidence.get("source_id"))
+            if evidence_id in seen:
+                continue
+            seen.add(evidence_id)
+            components = ((evidence.get("raw") or {}).get("components") if isinstance(evidence.get("raw"), dict) else []) or []
+            first_component = components[0].get("evidence") if components and isinstance(components[0], dict) else {}
+            entries.append(
+                {
+                    "evidence_id": evidence_id,
+                    "source_type": "derived_reported_metric",
+                    "section_id": "item_8",
+                    "metric": canonical_name,
+                    "period_key": period_key,
+                    "local_path": "metrics/financial_data.json",
+                    "source_url": manifest.get("source_url"),
+                    "target": f"{manifest.get('source_url') or ''}#{evidence.get('anchor') or first_component.get('anchor') or ''}",
+                    "quote_text": evidence.get("quote_text"),
+                    "raw": {
+                        "derived": True,
+                        "evidence": evidence,
+                        "components": components,
+                    },
+                }
+            )
+    return entries
+
+
+def _iter_financial_data_metric_items(financial_data: dict[str, Any]):
+    for statement in financial_data.get("statements") or []:
+        if not isinstance(statement, dict):
+            continue
+        for item in statement.get("items") or []:
+            if isinstance(item, dict):
+                yield item
+    for key in ("key_metrics", "operating_metrics"):
+        for item in financial_data.get(key) or []:
+            if isinstance(item, dict):
+                yield item
+
+
+def build_parser_result_from_source(
+    source_path: Path,
+    parser_results_root: Path | None = None,
+    metadata_path: Path | None = None,
+    force: bool = False,
+) -> Path:
+    """Build the canonical parser result layer without keeping a Wiki package."""
+    with tempfile.TemporaryDirectory(prefix="siq-sec-parser-") as tmp_dir:
+        package_dir = write_evidence_package(
+            source_path=source_path,
+            output_root=Path(tmp_dir) / "wiki",
+            metadata_path=metadata_path,
+            force=True,
+            parser_results_root=parser_results_root or DEFAULT_PARSER_RESULTS_ROOT,
+        )
+        manifest = read_json(package_dir / "manifest.json")
+    parser_result_dir = Path(str(manifest.get("parser_result_dir") or ""))
+    if not parser_result_dir.is_absolute():
+        parser_result_dir = REPO_ROOT / parser_result_dir
+    parser_manifest_path = parser_result_dir / "manifest.json"
+    parser_manifest = read_json(parser_manifest_path)
+    if parser_manifest:
+        parser_manifest["source_path"] = repo_relative(source_path)
+        parser_manifest["metadata_path"] = repo_relative(metadata_path) if metadata_path else None
+        parser_manifest["source_package_dir"] = ""
+        write_json(parser_manifest_path, parser_manifest)
+    return parser_result_dir
+
+
+def write_evidence_package(
+    source_path: Path,
+    output_root: Path,
+    metadata_path: Path | None = None,
+    force: bool = False,
+    parser_results_root: Path | None = None,
+) -> Path:
     meta = infer_metadata(source_path, metadata_path)
     soup = soup_from_html(source_path)
     contexts = extract_contexts(soup)
@@ -597,7 +998,7 @@ def write_evidence_package(source_path: Path, output_root: Path, metadata_path: 
     write_json(metrics_dir / "financial_checks.json", metrics["financial_checks"])
     write_json(metrics_dir / "operating_metrics.json", {"schema_version": "sec_operating_metrics_v1", "metrics": []})
 
-    source_map = build_source_map(manifest, sections, facts_raw, table_index)
+    source_map = build_source_map(manifest, sections, facts_raw, table_index, metrics["financial_data"])
     quality = build_quality_report(
         manifest=manifest,
         financial_data=metrics["financial_data"],
@@ -616,6 +1017,13 @@ def write_evidence_package(source_path: Path, output_root: Path, metadata_path: 
         "normalized_metric_count": len(metrics["normalized_metrics"]),
     }
     quality["warnings"] = quality["parser_warnings"] + quality["rule_warnings"]
+    source_map, quality, manifest = write_full_document_layer(
+        package_dir,
+        manifest,
+        source_map,
+        quality,
+        parser_results_root=parser_results_root,
+    )
     qa_dir = package_dir / "qa"
     write_json(qa_dir / "quality_report.json", quality)
     write_json(qa_dir / "extraction_warnings.json", {"warnings": quality["warnings"]})
@@ -936,7 +1344,14 @@ def _int_or_none(value: Any) -> int | None:
 
 
 def _normalized_row(manifest: dict[str, Any], parse_run_id: str | None, fact: Any, raw_fact: dict[str, Any] | None) -> dict[str, Any]:
-    metric_id = stable_id(parse_run_id or manifest["filing_id"], fact.canonical_name, fact.period_key, fact.local_name, raw_fact.get("fact_id") if raw_fact else None)
+    derived_evidence_id = _derived_evidence_id(manifest, fact)
+    metric_id = stable_id(
+        parse_run_id or manifest["filing_id"],
+        fact.canonical_name,
+        fact.period_key,
+        fact.local_name,
+        raw_fact.get("fact_id") if raw_fact else derived_evidence_id,
+    )
     return {
         "metric_id": metric_id,
         "filing_id": manifest["filing_id"],
@@ -959,10 +1374,25 @@ def _normalized_row(manifest: dict[str, Any], parse_run_id: str | None, fact: An
         "segment_key": stable_id(raw_fact.get("dimensions")) if raw_fact and raw_fact.get("dimensions") else "consolidated",
         "dimensions": raw_fact.get("dimensions") if raw_fact else {},
         "confidence": str(fact.confidence),
-        "evidence_id": stable_id(manifest["filing_id"], "fact", raw_fact.get("fact_id")) if raw_fact else None,
+        "evidence_id": stable_id(manifest["filing_id"], "fact", raw_fact.get("fact_id")) if raw_fact else derived_evidence_id,
         "raw_fact_id": raw_fact.get("fact_id") if raw_fact else None,
         "raw": fact.raw,
     }
+
+
+def _derived_evidence_id(manifest: dict[str, Any], fact: Any) -> str | None:
+    evidence = getattr(fact, "evidence", None)
+    source_type = str(getattr(evidence, "source_type", "") or "")
+    raw = getattr(fact, "raw", None)
+    if source_type != "derived_reported_metric" and not (isinstance(raw, dict) and raw.get("derived")):
+        return None
+    return stable_id(
+        manifest["filing_id"],
+        "derived_metric",
+        getattr(fact, "canonical_name", None),
+        getattr(fact, "period_key", None),
+        getattr(evidence, "source_id", None) or getattr(fact, "local_name", None),
+    )
 
 
 def _fact_context_ref(fact: Any) -> str | None:

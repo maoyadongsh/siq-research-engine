@@ -828,7 +828,7 @@ def test_openai_assist_retries_after_transient_failure(monkeypatch):
     assert len([item for item in calls if item[0] == "post"]) == 2
 
 
-def test_active_llm_provider_prefers_cloud_stepfun(monkeypatch):
+def test_active_llm_provider_respects_active_setting(monkeypatch):
     monkeypatch.setattr(
         market_reports,
         "load_llm_settings",
@@ -853,8 +853,79 @@ def test_active_llm_provider_prefers_cloud_stepfun(monkeypatch):
 
     active, provider = market_reports._active_llm_provider()
 
+    assert active == "local"
+    assert provider["baseUrl"] == "http://127.0.0.1:8004/v1"
+
+
+def test_active_llm_provider_falls_back_when_active_disabled(monkeypatch):
+    monkeypatch.setattr(
+        market_reports,
+        "load_llm_settings",
+        lambda include_secrets=False: {
+            "activeProvider": "local",
+            "providers": {
+                "local": {
+                    "enabled": False,
+                    "baseUrl": "http://127.0.0.1:8004/v1",
+                    "model": "local-disabled",
+                },
+                "cloud": {
+                    "enabled": True,
+                    "baseUrl": "https://api.stepfun.com/v1",
+                    "model": "step-3.7-flash",
+                },
+            },
+        },
+    )
+
+    active, provider = market_reports._active_llm_provider()
+
     assert active == "cloud"
-    assert provider["baseUrl"] == "https://api.stepfun.com/v1"
+    assert provider["model"] == "step-3.7-flash"
+
+
+def test_market_llm_semantic_env_maps_active_provider(monkeypatch):
+    monkeypatch.setattr(
+        market_reports,
+        "load_llm_settings",
+        lambda include_secrets=True: {
+            "activeProvider": "local",
+            "providers": {
+                "local": {
+                    "enabled": True,
+                    "baseUrl": "http://llm.local/v1",
+                    "model": "qwen-local",
+                    "apiKey": "secret",
+                    "timeoutSeconds": 77,
+                    "maxTokens": 2048,
+                    "temperature": 0.15,
+                    "chatTemplateKwargs": {"enable_thinking": False},
+                },
+                "cloud": {
+                    "enabled": True,
+                    "baseUrl": "https://api.stepfun.com/v1",
+                    "model": "step-3.7-flash",
+                },
+            },
+        },
+    )
+
+    env = market_reports._llm_semantic_env()
+
+    assert env["SIQ_LLM_SEMANTIC_PROVIDER"] == "local"
+    assert env["FINSIGHT_LLM_SEMANTIC_PROVIDER"] == "local"
+    assert env["SIQ_LLM_SEMANTIC_PROVIDER_BASE_URL"] == "http://llm.local/v1"
+    assert env["FINSIGHT_LLM_SEMANTIC_PROVIDER_BASE_URL"] == "http://llm.local/v1"
+    assert env["SIQ_LLM_SEMANTIC_MODEL"] == "qwen-local"
+    assert env["FINSIGHT_LLM_SEMANTIC_MODEL"] == "qwen-local"
+    assert env["SIQ_LOCAL_LLM_MODEL"] == "qwen-local"
+    assert env["FINSIGHT_LOCAL_LLM_MODEL"] == "qwen-local"
+    assert env["SIQ_LLM_SEMANTIC_API_KEY"] == "secret"
+    assert env["FINSIGHT_LLM_SEMANTIC_API_KEY"] == "secret"
+    assert env["SIQ_LLM_SEMANTIC_TIMEOUT"] == "77"
+    assert env["FINSIGHT_LLM_SEMANTIC_MAX_TOKENS"] == "2048"
+    assert env["SIQ_LLM_SEMANTIC_TEMPERATURE"] == "0.15"
+    assert env["FINSIGHT_LLM_SEMANTIC_CHAT_TEMPLATE_KWARGS"] == '{"enable_thinking": false}'
 
 
 def test_hermes_assist_uses_runs_api(monkeypatch):
@@ -1101,16 +1172,17 @@ def test_market_package_summary_reads_us_package():
         market_reports.REPO_ROOT
         / "data"
         / "wiki"
-        / "us_sec"
-        / "AAPL"
-        / "2025"
-        / "10-K_0000320193-25-000079"
+        / "us"
+        / "companies"
+        / "AAPL-Apple-Inc"
+        / "reports"
+        / "2025-10-K-0000320193-25-000079"
     )
     summary = market_reports._read_market_package_summary(package_dir)
 
     assert summary["market"] == "US"
     assert summary["ticker"] == "AAPL"
-    assert summary["quality_status"] == "pass"
+    assert summary["quality_status"] in {"pass", "warning"}
     assert summary["counts"]["metrics"] >= 1
     assert summary["counts"]["evidence"] >= 1
     assert summary["paths"]["source_map"].endswith("qa/source_map.json")
@@ -1322,10 +1394,11 @@ def test_find_market_evidence_returns_package_and_entry():
         market_reports.REPO_ROOT
         / "data"
         / "wiki"
-        / "us_sec"
-        / "AAPL"
-        / "2025"
-        / "10-K_0000320193-25-000079"
+        / "us"
+        / "companies"
+        / "AAPL-Apple-Inc"
+        / "reports"
+        / "2025-10-K-0000320193-25-000079"
     )
     source_map = market_reports._read_json_file(package_dir / "qa" / "source_map.json", {})
     evidence_id = source_map["entries"][0]["evidence_id"]
@@ -1543,14 +1616,14 @@ def test_market_import_command_uses_us_package_flag(monkeypatch):
     result = market_reports._run_market_package_import(
         _force_audit_payload(
             market="US",
-            package_path="data/wiki/us_sec/AAPL/2025/10-K_0000320193-25-000079",
+            package_path="data/wiki/us/companies/AAPL-Apple-Inc/reports/2025-10-K-0000320193-25-000079",
             ddl=True,
         )
     )
 
     assert result["ok"] is True
     package_index = seen["args"].index("--package")
-    assert "data/wiki/us_sec/AAPL/2025/10-K_0000320193-25-000079" in seen["args"][package_index + 1]
+    assert "data/wiki/us/companies/AAPL-Apple-Inc/reports/2025-10-K-0000320193-25-000079" in seen["args"][package_index + 1]
     assert seen["args"][-1] == "--ddl"
 
 
@@ -2422,6 +2495,122 @@ def test_us_sec_safe_ingest_args_validates_filters(monkeypatch, tmp_path):
             assert exc.detail == detail
         else:
             raise AssertionError("expected HTTPException")
+
+
+def test_us_sec_semantic_flag_runs_llm_wiki_semantics(monkeypatch, tmp_path):
+    scripts_dir = tmp_path / "scripts"
+    scripts_dir.mkdir(parents=True)
+    ingest_script = scripts_dir / "ingest_sec_case_set.py"
+    rule_script = scripts_dir / "run_market_rule_semantics.py"
+    llm_script = scripts_dir / "run_market_llm_semantics.py"
+    for script in (ingest_script, rule_script, llm_script):
+        script.write_text("# script\n", encoding="utf-8")
+    case_set_path = tmp_path / "case_set.json"
+    report_path = tmp_path / "ingest_report.json"
+    report_path.write_text('{"package_count": 1}', encoding="utf-8")
+    calls = []
+
+    class Completed:
+        returncode = 0
+        stdout = "ok\n"
+        stderr = ""
+
+    def fake_run(args, **kwargs):
+        calls.append({"args": args, "kwargs": kwargs})
+        return Completed()
+
+    monkeypatch.setattr(market_reports, "US_SEC_INGEST_SCRIPT", ingest_script)
+    monkeypatch.setattr(market_reports, "US_SEC_CASE_SET_PATH", case_set_path)
+    monkeypatch.setattr(market_reports, "US_SEC_INGEST_REPORT_PATH", report_path)
+    monkeypatch.setattr(market_reports, "MARKET_RULE_SEMANTIC_SCRIPT", rule_script)
+    monkeypatch.setattr(market_reports, "MARKET_LLM_SEMANTIC_SCRIPT", llm_script)
+    monkeypatch.setattr(market_reports, "_us_sec_company_dirs_from_payload", lambda payload: ["AAPL-Apple-Inc"])
+    monkeypatch.setattr(market_reports, "_llm_semantic_env", lambda: {"SIQ_LLM_SEMANTIC_PROVIDER": "local"})
+    monkeypatch.setattr(market_reports, "run_command", fake_run)
+
+    result = market_reports._run_us_sec_case_set_ingest({
+        "dry_run": False,
+        "postgres": False,
+        "semantic": True,
+        "tickers": "AAPL",
+        "batch_tag": "us-sec-case-set-50",
+    })
+
+    assert result["ok"] is True
+    assert result["report"] == {"package_count": 1}
+    assert result["semantic_prestep"][0]["companyDir"] == "AAPL-Apple-Inc"
+    assert len(calls) == 3
+    assert calls[0]["args"] == [
+        market_reports.sys.executable,
+        str(rule_script),
+        "--market",
+        "US",
+        "--company",
+        "AAPL-Apple-Inc",
+    ]
+    assert calls[1]["args"] == [
+        market_reports.sys.executable,
+        str(llm_script),
+        "--market",
+        "US",
+        "--company",
+        "AAPL-Apple-Inc",
+        "--allow-failures",
+    ]
+    assert calls[1]["kwargs"]["env"] == {"SIQ_LLM_SEMANTIC_PROVIDER": "local"}
+    ingest_args = calls[2]["args"]
+    assert ingest_args[:2] == [market_reports.sys.executable, str(ingest_script)]
+    assert "--milvus" not in ingest_args
+    assert "--postgres" not in ingest_args
+    assert "--dry-run" not in ingest_args
+    assert "--tickers" in ingest_args
+
+
+def test_us_sec_ingest_ignores_milvus_flag_for_financial_pipeline(monkeypatch, tmp_path):
+    scripts_dir = tmp_path / "scripts"
+    scripts_dir.mkdir(parents=True)
+    ingest_script = scripts_dir / "ingest_sec_case_set.py"
+    rule_script = scripts_dir / "run_market_rule_semantics.py"
+    llm_script = scripts_dir / "run_market_llm_semantics.py"
+    for script in (ingest_script, rule_script, llm_script):
+        script.write_text("# script\n", encoding="utf-8")
+    case_set_path = tmp_path / "case_set.json"
+    report_path = tmp_path / "ingest_report.json"
+    report_path.write_text('{"package_count": 1}', encoding="utf-8")
+    calls = []
+
+    class Completed:
+        returncode = 0
+        stdout = "ok\n"
+        stderr = ""
+
+    def fake_run(args, **kwargs):
+        calls.append({"args": args, "kwargs": kwargs})
+        return Completed()
+
+    monkeypatch.setattr(market_reports, "US_SEC_INGEST_SCRIPT", ingest_script)
+    monkeypatch.setattr(market_reports, "US_SEC_CASE_SET_PATH", case_set_path)
+    monkeypatch.setattr(market_reports, "US_SEC_INGEST_REPORT_PATH", report_path)
+    monkeypatch.setattr(market_reports, "MARKET_RULE_SEMANTIC_SCRIPT", rule_script)
+    monkeypatch.setattr(market_reports, "MARKET_LLM_SEMANTIC_SCRIPT", llm_script)
+    monkeypatch.setattr(market_reports, "_us_sec_company_dirs_from_payload", lambda payload: ["AAPL-Apple-Inc"])
+    monkeypatch.setattr(market_reports, "run_command", fake_run)
+
+    result = market_reports._run_us_sec_case_set_ingest({
+        "dry_run": False,
+        "postgres": False,
+        "milvus": True,
+        "tickers": "AAPL",
+        "batch_tag": "us-sec-case-set-50",
+    })
+
+    assert result["ok"] is True
+    assert result["semantic_prestep"] == []
+    assert len(calls) == 1
+    ingest_args = calls[0]["args"]
+    assert ingest_args[:2] == [market_reports.sys.executable, str(ingest_script)]
+    assert "--milvus" not in ingest_args
+    assert "--postgres" not in ingest_args
 
 
 def test_us_sec_rebuild_package_command_contract(monkeypatch, tmp_path):

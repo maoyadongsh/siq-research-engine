@@ -23,7 +23,7 @@ from routers.workspace import record_user_artifact_async
 from services.auth_dependencies import get_current_user
 from services.auth_service import User
 from services.auth_dependencies import require_permission
-from services.hermes_client import collect_run_result, create_run
+from services.hermes_client import collect_run_result, create_run, hermes_profile_config
 from services.command_runner import format_command, run_command
 from services.job_service import market_report_job_service
 from services.llm_settings import load_llm_settings
@@ -60,6 +60,9 @@ from services import market_package_repository as market_packages
 router = APIRouter(tags=["market-reports"])
 logger = logging.getLogger(__name__)
 US_SEC_UPLOAD_SUFFIXES = {".pdf", ".html", ".htm", ".xhtml", ".xml", ".xbrl", ".zip"}
+MARKET_WIKISET_ROOT = REPO_ROOT / "scripts" / "wiki" / "market_wikiset"
+MARKET_RULE_SEMANTIC_SCRIPT = MARKET_WIKISET_ROOT / "run_market_rule_semantics.py"
+MARKET_LLM_SEMANTIC_SCRIPT = MARKET_WIKISET_ROOT / "run_market_llm_semantics.py"
 FINDER_PROXY_ALLOWED_ROUTES = {
     "/v1/company/resolve": frozenset({"POST"}),
     "/v1/resolve": frozenset({"POST"}),
@@ -729,8 +732,17 @@ def _read_package_detail(package_dir: Path) -> dict[str, Any]:
     for check in bridge_checks:
         status = str(check.get("status") or "unknown")
         bridge_summary[status] = bridge_summary.get(status, 0) + 1
+    default_markdown = ""
+    if (package_dir / "parser" / "report_complete.md").is_file():
+        default_markdown = "parser/report_complete.md"
+    elif (package_dir / "sections" / "report_complete.md").is_file():
+        default_markdown = "sections/report_complete.md"
+    elif sections:
+        default_markdown = f"sections/{sections[0].get('file')}"
     return {
         "package_path": str(package_dir.relative_to(REPO_ROOT)) if package_dir.is_relative_to(REPO_ROOT) else str(package_dir),
+        "parser_result_dir": manifest.get("parser_result_dir") or "",
+        "parser_result_task_id": manifest.get("parser_result_task_id") or "",
         "manifest": manifest,
         "quality": quality,
         "quality_gates": _quality_gates_for_package(package_dir),
@@ -754,7 +766,7 @@ def _read_package_detail(package_dir: Path) -> dict[str, Any]:
         "dimension_metrics": dimension_metrics[:80],
         "preview": {
             "raw_html": "raw/filing.htm" if (package_dir / "raw" / "filing.htm").is_file() else "",
-            "default_markdown": f"sections/{sections[0].get('file')}" if sections else "",
+            "default_markdown": default_markdown,
         },
     }
 
@@ -987,7 +999,7 @@ def _safe_ingest_args(payload: dict[str, Any]) -> list[str]:
         script=US_SEC_INGEST_SCRIPT,
         case_set_path=US_SEC_CASE_SET_PATH,
         report_path=US_SEC_INGEST_REPORT_PATH,
-        payload=payload,
+        payload={**payload, "milvus": False},
         tickers=tickers,
         batch_tag=batch_tag,
     )
@@ -996,17 +1008,20 @@ def _safe_ingest_args(payload: dict[str, Any]) -> list[str]:
 def _run_us_sec_case_set_ingest(payload: dict[str, Any]) -> dict[str, Any]:
     if not US_SEC_INGEST_SCRIPT.is_file():
         raise HTTPException(status_code=404, detail=f"Missing ingest script: {US_SEC_INGEST_SCRIPT}")
+    semantic_prestep = _run_us_sec_semantic_prestep(payload)
     args = _safe_ingest_args(payload)
     try:
         completed = run_command(args, cwd=REPO_ROOT, timeout=1800)
     except subprocess.TimeoutExpired as exc:
         raise HTTPException(status_code=504, detail=f"US SEC ingest timed out: {exc}") from exc
     report = _read_json_file(US_SEC_INGEST_REPORT_PATH, {})
-    return market_report_commands.us_sec_case_set_ingest_result_payload(
+    result = market_report_commands.us_sec_case_set_ingest_result_payload(
         completed=completed,
         report=report,
         command=" ".join(args),
     )
+    result["semantic_prestep"] = semantic_prestep
+    return result
 
 
 def _run_us_sec_rebuild_package(ticker: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -1081,26 +1096,151 @@ async def _finder_assist(payload: dict[str, Any]) -> dict[str, Any]:
 def _active_llm_provider() -> tuple[str, dict[str, Any] | None]:
     settings = load_llm_settings(include_secrets=True)
     providers = settings.get("providers") or {}
-    cloud_provider = providers.get("cloud")
-    if (
-        isinstance(cloud_provider, dict)
-        and cloud_provider.get("enabled", True)
-        and (
-            _hermes_mode_for_provider(cloud_provider) in {"minimax", "stepfun"}
-            or (
-                str(cloud_provider.get("baseUrl") or "").strip()
-                and not str(cloud_provider.get("baseUrl") or "").strip().startswith("hermes://")
-                and str(cloud_provider.get("model") or "").strip()
-            )
-        )
-    ):
-        return "cloud", cloud_provider
-
-    active = settings.get("activeProvider") or "local"
+    active = str(settings.get("activeProvider") or "local")
     provider = providers.get(active)
-    if not isinstance(provider, dict) or not provider.get("enabled", True):
-        return active, None
-    return str(active), provider
+    if isinstance(provider, dict) and provider.get("enabled", True):
+        return active, provider
+    for fallback_key in ("local", "cloud"):
+        fallback = providers.get(fallback_key)
+        if isinstance(fallback, dict) and fallback.get("enabled", True):
+            return fallback_key, fallback
+    return str(active), None
+
+
+def _llm_semantic_env() -> dict[str, str]:
+    env = dict(os.environ)
+    provider_key, provider = _active_llm_provider()
+    if not isinstance(provider, dict):
+        return env
+    base_url = str(provider.get("baseUrl") or "").strip()
+    model = str(provider.get("model") or "").strip()
+    api_key = str(provider.get("apiKey") or "").strip()
+    env["SIQ_LLM_SEMANTIC_PROVIDER"] = provider_key
+    env["FINSIGHT_LLM_SEMANTIC_PROVIDER"] = provider_key
+    if base_url:
+        env["SIQ_LLM_SEMANTIC_PROVIDER_BASE_URL"] = base_url
+        env["FINSIGHT_LLM_SEMANTIC_PROVIDER_BASE_URL"] = base_url
+        env["SIQ_LOCAL_LLM_BASE_URL"] = base_url
+        env["FINSIGHT_LOCAL_LLM_BASE_URL"] = base_url
+    if model:
+        env["SIQ_LLM_SEMANTIC_MODEL"] = model
+        env["FINSIGHT_LLM_SEMANTIC_MODEL"] = model
+        env["SIQ_LOCAL_LLM_MODEL"] = model
+        env["FINSIGHT_LOCAL_LLM_MODEL"] = model
+    if api_key:
+        env["SIQ_LLM_SEMANTIC_API_KEY"] = api_key
+        env["FINSIGHT_LLM_SEMANTIC_API_KEY"] = api_key
+        env["SIQ_LOCAL_LLM_API_KEY"] = api_key
+        env["FINSIGHT_LOCAL_LLM_API_KEY"] = api_key
+    if provider.get("timeoutSeconds"):
+        env["SIQ_LLM_SEMANTIC_TIMEOUT"] = str(provider.get("timeoutSeconds"))
+        env["FINSIGHT_LLM_SEMANTIC_TIMEOUT"] = str(provider.get("timeoutSeconds"))
+    if provider.get("maxTokens"):
+        env["SIQ_LLM_SEMANTIC_MAX_TOKENS"] = str(provider.get("maxTokens"))
+        env["FINSIGHT_LLM_SEMANTIC_MAX_TOKENS"] = str(provider.get("maxTokens"))
+    if provider.get("temperature") is not None:
+        env["SIQ_LLM_SEMANTIC_TEMPERATURE"] = str(provider.get("temperature"))
+        env["FINSIGHT_LLM_SEMANTIC_TEMPERATURE"] = str(provider.get("temperature"))
+    if isinstance(provider.get("chatTemplateKwargs"), dict):
+        chat_template_kwargs = json.dumps(provider["chatTemplateKwargs"], ensure_ascii=False)
+        env["SIQ_LLM_SEMANTIC_CHAT_TEMPLATE_KWARGS"] = chat_template_kwargs
+        env["FINSIGHT_LLM_SEMANTIC_CHAT_TEMPLATE_KWARGS"] = chat_template_kwargs
+    hermes_mode = _hermes_mode_for_provider(provider)
+    if base_url.startswith("hermes://") or hermes_mode:
+        profile = "siq_analysis"
+        try:
+            profile_config = hermes_profile_config(profile)
+        except Exception:
+            profile_config = {}
+        runs_url = str(profile_config.get("base") or "").rstrip("/")
+        model = str(profile_config.get("model") or "").strip()
+        env["SIQ_LLM_SEMANTIC_HERMES_PROFILE"] = profile
+        env["FINSIGHT_LLM_SEMANTIC_HERMES_PROFILE"] = profile
+        if runs_url:
+            env["SIQ_LLM_SEMANTIC_HERMES_RUNS_URL"] = runs_url
+            env["FINSIGHT_LLM_SEMANTIC_HERMES_RUNS_URL"] = runs_url
+        if model:
+            env["SIQ_LLM_SEMANTIC_MODEL"] = model
+            env["FINSIGHT_LLM_SEMANTIC_MODEL"] = model
+        env["SIQ_LLM_SEMANTIC_HERMES_MODE"] = str(hermes_mode or provider.get("hermesMode") or "")
+        env["FINSIGHT_LLM_SEMANTIC_HERMES_MODE"] = str(hermes_mode or provider.get("hermesMode") or "")
+    return env
+
+
+def _us_sec_company_dirs_from_payload(payload: dict[str, Any]) -> list[str]:
+    tickers = str(payload.get("tickers") or "").strip().upper()
+    values = [item for item in re.split(r"[,\\s]+", tickers) if item] if tickers else []
+    if not values and payload.get("ticker"):
+        values = [str(payload.get("ticker") or "").strip().upper()]
+    company_dirs: list[str] = []
+    for ticker in values:
+        item = _latest_case_item_for_ticker(ticker)
+        package_path = str((item or {}).get("package_path") or "")
+        if not package_path:
+            continue
+        try:
+            package_dir = _safe_package_path(package_path)
+        except HTTPException:
+            continue
+        if package_dir.parent.name == "reports":
+            company_dirs.append(package_dir.parent.parent.name)
+    return sorted(set(company_dirs))
+
+
+def _run_us_sec_semantic_prestep(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    semantic_requested = bool(payload.get("semantic") or payload.get("llm_semantic") or payload.get("wiki_semantic"))
+    if not semantic_requested or payload.get("dry_run", True):
+        return []
+    if not MARKET_RULE_SEMANTIC_SCRIPT.is_file() or not MARKET_LLM_SEMANTIC_SCRIPT.is_file():
+        return [{
+            "stage": "us_sec_semantic",
+            "status": "skipped",
+            "reason": "market semantic scripts missing",
+        }]
+    company_dirs = _us_sec_company_dirs_from_payload(payload)
+    if not company_dirs:
+        return [{
+            "stage": "us_sec_semantic",
+            "status": "skipped",
+            "reason": "no company dirs resolved from payload",
+        }]
+    results = []
+    for company_dir in company_dirs:
+        rule_args = [
+            sys.executable,
+            str(MARKET_RULE_SEMANTIC_SCRIPT),
+            "--market",
+            "US",
+            "--company",
+            company_dir,
+        ]
+        llm_args = [
+            sys.executable,
+            str(MARKET_LLM_SEMANTIC_SCRIPT),
+            "--market",
+            "US",
+            "--company",
+            company_dir,
+            "--allow-failures",
+        ]
+        rule_completed = run_command(rule_args, cwd=REPO_ROOT, timeout=900)
+        llm_completed = run_command(llm_args, cwd=REPO_ROOT, timeout=1800, env=_llm_semantic_env())
+        results.append({
+            "companyDir": company_dir,
+            "rule": {
+                "returncode": rule_completed.returncode,
+                "stdout": rule_completed.stdout[-4000:],
+                "stderr": rule_completed.stderr[-4000:],
+                "command": _command_for_display(rule_args),
+            },
+            "llm": {
+                "returncode": llm_completed.returncode,
+                "stdout": llm_completed.stdout[-4000:],
+                "stderr": llm_completed.stderr[-4000:],
+                "command": _command_for_display(llm_args),
+            },
+        })
+    return results
 
 
 def _extract_json_object(text: str) -> dict[str, Any] | None:
