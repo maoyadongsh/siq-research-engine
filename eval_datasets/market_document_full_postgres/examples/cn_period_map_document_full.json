@@ -1,0 +1,68 @@
+{
+  "schema_version": 3,
+  "task": {
+    "task_id": "fixture-cn-600519",
+    "filename": "Kweichow-Moutai_CN_600519_2025-12-31_annual.pdf"
+  },
+  "content_list_enhanced": {
+    "tables": [
+      {
+        "table_index": 71,
+        "page_number": 54,
+        "bbox": [10, 120, 580, 720],
+        "title": "Consolidated balance sheet"
+      }
+    ]
+  },
+  "financial_data": {
+    "schema_version": 13,
+    "rule_version": "fixture_v1",
+    "market": "CN",
+    "company_id": "CN:600519",
+    "ticker": "600519",
+    "report_id": "CN:600519:2025-annual",
+    "report_type": "annual",
+    "fiscal_year": 2025,
+    "period_end": "2025-12-31",
+    "statements": [
+      {
+        "statement_id": "balance_sheet:consolidated",
+        "statement_type": "balance_sheet",
+        "statement_name": "资产负债表",
+        "scope": "consolidated",
+        "unit": "CNY million",
+        "scale": 1000000,
+        "currency": "CNY",
+        "columns": [
+          {"key": "2024-12-31", "period": "2024-12-31", "label": "2024"},
+          {"key": "2025-12-31", "period": "2025-12-31", "label": "2025"}
+        ],
+        "items": [
+          {
+            "name": "货币资金",
+            "canonical_name": "cash_and_cash_equivalents",
+            "values": {
+              "2024-12-31": 59295.8,
+              "2025-12-31": 51690.6
+            },
+            "raw_values": {
+              "2024-12-31": "59,295.8",
+              "2025-12-31": "51,690.6"
+            },
+            "sources": {
+              "2024-12-31": {"table_index": 71, "line": 1721},
+              "2025-12-31": {"table_index": 71, "line": 1721}
+            }
+          }
+        ],
+        "table_indexes": [71]
+      }
+    ],
+    "key_metrics": []
+  },
+  "financial_checks": {
+    "schema_version": 1,
+    "checks": []
+  }
+}
+

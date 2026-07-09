@@ -1,0 +1,69 @@
+{
+  "schema_version": 3,
+  "task": {
+    "task_id": "fixture-eu-asml",
+    "filename": "ASML-Holding-NV_EU_ASML_2025-12-31_annual.pdf"
+  },
+  "content_list_enhanced": {
+    "tables": [
+      {
+        "table_index": 88,
+        "page_number": 278,
+        "bbox": [22, 150, 560, 700],
+        "title": "Consolidated balance sheets"
+      }
+    ]
+  },
+  "financial_data": {
+    "schema_version": 13,
+    "rule_version": "fixture_v1",
+    "market": "EU",
+    "market_profile": "EU",
+    "country": "NL",
+    "exchange": "Euronext Amsterdam",
+    "isin": "NL0010273215",
+    "accounting_standard": "IFRS",
+    "company_id": "EU:NL:ASML:NL0010273215",
+    "ticker": "ASML",
+    "report_id": "EU:NL:ASML:2025-annual",
+    "report_type": "annual",
+    "fiscal_year": 2025,
+    "period_end": "2025-12-31",
+    "statements": [
+      {
+        "statement_id": "balance_sheet:consolidated",
+        "statement_type": "balance_sheet",
+        "statement_name": "Consolidated Statement of Financial Position",
+        "scope": "consolidated",
+        "unit": "EUR million",
+        "scale": 1000000,
+        "currency": "EUR",
+        "columns": [
+          {"key": "2024-12-31", "period": "2024-12-31", "label": "2024"},
+          {"key": "2025-12-31", "period": "2025-12-31", "label": "2025"}
+        ],
+        "items": [
+          {
+            "name": "Total assets",
+            "canonical_name": "total_assets",
+            "values": {
+              "2024-12-31": 48589.6,
+              "2025-12-31": 50566.6
+            },
+            "raw_values": {
+              "2024-12-31": "48,589.6",
+              "2025-12-31": "50,566.6"
+            },
+            "sources": {
+              "2024-12-31": {"table_index": 88, "line": 14361},
+              "2025-12-31": {"table_index": 88, "line": 14361}
+            }
+          }
+        ],
+        "table_indexes": [88]
+      }
+    ],
+    "key_metrics": []
+  }
+}
+

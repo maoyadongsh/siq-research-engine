@@ -1,5 +1,9 @@
 create schema if not exists eu_ifrs;
 
+drop view if exists eu_ifrs.v_latest_company_reports cascade;
+drop view if exists eu_ifrs.v_agent_financial_facts cascade;
+drop view if exists eu_ifrs.v_latest_parse_runs cascade;
+
 create table if not exists eu_ifrs.companies (
     company_id text primary key,
     country text not null,
@@ -74,6 +78,22 @@ create table if not exists eu_ifrs.artifacts (
     created_at timestamptz not null default now(),
     primary key (parse_run_id, artifact_type)
 );
+
+create table if not exists eu_ifrs.raw_payload_refs (
+    payload_ref_id text primary key,
+    filing_id text not null references eu_ifrs.filings(filing_id) on delete cascade,
+    parse_run_id text not null references eu_ifrs.parse_runs(parse_run_id) on delete cascade,
+    payload_name text not null,
+    local_path text,
+    sha256 text,
+    size_bytes bigint,
+    summary jsonb not null default '{}'::jsonb,
+    raw jsonb not null default '{}'::jsonb,
+    created_at timestamptz not null default now()
+);
+
+create index if not exists idx_eu_ifrs_raw_payload_refs_parse_run on eu_ifrs.raw_payload_refs (parse_run_id);
+create index if not exists idx_eu_ifrs_raw_payload_refs_sha256 on eu_ifrs.raw_payload_refs (sha256);
 
 create table if not exists eu_ifrs.filing_sections (
     parse_run_id text not null references eu_ifrs.parse_runs(parse_run_id) on delete cascade,
@@ -355,3 +375,414 @@ select distinct on (f.filing_id)
 from eu_ifrs.filings f
 join eu_ifrs.parse_runs pr on pr.filing_id = f.filing_id
 order by f.filing_id, pr.completed_at desc nulls last, pr.parse_run_id desc;
+
+alter table eu_ifrs.companies add column if not exists company_name_en text;
+alter table eu_ifrs.companies add column if not exists short_name text;
+alter table eu_ifrs.companies add column if not exists aliases jsonb not null default '[]'::jsonb;
+
+alter table eu_ifrs.pdf_tables add column if not exists bbox jsonb;
+alter table eu_ifrs.pdf_tables add column if not exists source_format text;
+alter table eu_ifrs.pdf_tables add column if not exists document_format text;
+alter table eu_ifrs.html_tables add column if not exists section_id text;
+alter table eu_ifrs.html_tables add column if not exists is_financial_statement_candidate boolean default false;
+alter table eu_ifrs.html_tables add column if not exists source_format text;
+alter table eu_ifrs.html_tables add column if not exists document_format text;
+alter table eu_ifrs.evidence_citations add column if not exists bbox jsonb;
+
+alter table eu_ifrs.xbrl_facts_raw add column if not exists taxonomy text;
+alter table eu_ifrs.xbrl_facts_raw add column if not exists fiscal_year integer;
+alter table eu_ifrs.xbrl_facts_raw add column if not exists fiscal_period text;
+alter table eu_ifrs.xbrl_facts_raw add column if not exists frame text;
+
+alter table eu_ifrs.financial_facts add column if not exists duration_days integer;
+alter table eu_ifrs.financial_facts add column if not exists qtd_ytd_type text;
+alter table eu_ifrs.financial_facts add column if not exists segment_key text;
+alter table eu_ifrs.financial_facts add column if not exists dimensions jsonb not null default '{}'::jsonb;
+
+alter table eu_ifrs.operating_metric_facts add column if not exists currency text;
+alter table eu_ifrs.operating_metric_facts add column if not exists segment_key text;
+alter table eu_ifrs.operating_metric_facts add column if not exists dimensions jsonb not null default '{}'::jsonb;
+
+alter table eu_ifrs.retrieval_chunks add column if not exists company_id text;
+alter table eu_ifrs.retrieval_chunks add column if not exists batch_tag text;
+alter table eu_ifrs.retrieval_chunks add column if not exists evidence_level text;
+alter table eu_ifrs.retrieval_chunks add column if not exists section_id text;
+alter table eu_ifrs.retrieval_chunks add column if not exists section_title text;
+alter table eu_ifrs.retrieval_chunks add column if not exists table_id text;
+alter table eu_ifrs.retrieval_chunks add column if not exists statement_type text;
+alter table eu_ifrs.retrieval_chunks add column if not exists page_number integer;
+alter table eu_ifrs.retrieval_chunks add column if not exists table_index integer;
+alter table eu_ifrs.retrieval_chunks add column if not exists concept text;
+alter table eu_ifrs.retrieval_chunks add column if not exists segment_key text;
+alter table eu_ifrs.retrieval_chunks add column if not exists dimensions jsonb not null default '{}'::jsonb;
+alter table eu_ifrs.retrieval_chunks add column if not exists raw_fact_id text;
+alter table eu_ifrs.retrieval_chunks add column if not exists text text;
+
+create index if not exists idx_eu_ifrs_companies_aliases_gin on eu_ifrs.companies using gin (aliases);
+create index if not exists idx_eu_ifrs_xbrl_facts_dimensions on eu_ifrs.xbrl_facts_raw using gin (dimensions);
+create index if not exists idx_eu_ifrs_financial_facts_dimensions on eu_ifrs.financial_facts using gin (dimensions);
+create index if not exists idx_eu_ifrs_retrieval_chunks_dimensions on eu_ifrs.retrieval_chunks using gin (dimensions);
+
+create table if not exists eu_ifrs.financial_statements (
+    parse_run_id text not null references eu_ifrs.parse_runs(parse_run_id) on delete cascade,
+    filing_id text not null references eu_ifrs.filings(filing_id) on delete cascade,
+    country text not null,
+    statement_id text not null,
+    statement_type text,
+    statement_name text,
+    scope text,
+    scope_name text,
+    title text,
+    unit text,
+    scale numeric,
+    currency text,
+    table_indexes jsonb not null default '[]'::jsonb,
+    columns jsonb not null default '[]'::jsonb,
+    raw jsonb not null default '{}'::jsonb,
+    created_at timestamptz not null default now(),
+    primary key (parse_run_id, statement_id)
+);
+
+create index if not exists idx_eu_ifrs_financial_statements_filing on eu_ifrs.financial_statements (filing_id, statement_type);
+
+create table if not exists eu_ifrs.financial_statement_items (
+    item_uid text primary key,
+    filing_id text not null references eu_ifrs.filings(filing_id) on delete cascade,
+    parse_run_id text not null references eu_ifrs.parse_runs(parse_run_id) on delete cascade,
+    company_id text,
+    country text not null,
+    ticker text not null,
+    isin text,
+    lei text,
+    company_name text,
+    exchange text,
+    statement_id text,
+    statement_type text,
+    statement_name text,
+    scope text,
+    scope_name text,
+    item_index integer,
+    period_key text not null,
+    item_name text,
+    canonical_name text,
+    local_name text,
+    xbrl_tag text,
+    context_ref text,
+    value numeric,
+    raw_value text,
+    unit text,
+    currency text,
+    scale numeric,
+    period_start date,
+    period_end date,
+    duration_days integer,
+    fiscal_year integer,
+    fiscal_period text,
+    accounting_standard text,
+    industry_profile text,
+    segment_key text,
+    dimensions jsonb not null default '{}'::jsonb,
+    confidence numeric,
+    source_page_number integer,
+    source_table_index integer,
+    source_row_index integer,
+    source_column_index integer,
+    source_bbox jsonb,
+    source_type text,
+    evidence_id text references eu_ifrs.evidence_citations(evidence_id),
+    raw_fact_id text references eu_ifrs.xbrl_facts_raw(raw_fact_id),
+    raw jsonb not null default '{}'::jsonb,
+    created_at timestamptz not null default now()
+);
+
+create index if not exists idx_eu_ifrs_statement_items_lookup on eu_ifrs.financial_statement_items (country, ticker, statement_type, canonical_name, period_key);
+create index if not exists idx_eu_ifrs_statement_items_source on eu_ifrs.financial_statement_items (filing_id, source_page_number, source_table_index);
+create index if not exists idx_eu_ifrs_statement_items_dimensions on eu_ifrs.financial_statement_items using gin (dimensions);
+
+create table if not exists eu_ifrs.financial_key_metrics (
+    like eu_ifrs.financial_statement_items including defaults including constraints including indexes
+);
+
+create table if not exists eu_ifrs.financial_balance_sheet_items (
+    like eu_ifrs.financial_statement_items including defaults including constraints including indexes
+);
+
+create table if not exists eu_ifrs.financial_income_statement_items (
+    like eu_ifrs.financial_statement_items including defaults including constraints including indexes
+);
+
+create table if not exists eu_ifrs.financial_cash_flow_statement_items (
+    like eu_ifrs.financial_statement_items including defaults including constraints including indexes
+);
+
+create table if not exists eu_ifrs.financial_all_metrics_wide (
+    parse_run_id text not null references eu_ifrs.parse_runs(parse_run_id) on delete cascade,
+    filing_id text not null references eu_ifrs.filings(filing_id) on delete cascade,
+    company_id text,
+    country text not null,
+    ticker text not null,
+    isin text,
+    lei text,
+    company_name text,
+    exchange text,
+    period_key text not null,
+    fiscal_year integer,
+    fiscal_period text,
+    balance_sheet jsonb not null default '{}'::jsonb,
+    income_statement jsonb not null default '{}'::jsonb,
+    cash_flow_statement jsonb not null default '{}'::jsonb,
+    key_metrics jsonb not null default '{}'::jsonb,
+    all_metrics jsonb not null default '{}'::jsonb,
+    raw jsonb not null default '{}'::jsonb,
+    created_at timestamptz not null default now(),
+    primary key (parse_run_id, period_key)
+);
+
+create index if not exists idx_eu_ifrs_all_metrics_wide_lookup on eu_ifrs.financial_all_metrics_wide (country, ticker, fiscal_year, fiscal_period, period_key);
+create index if not exists idx_eu_ifrs_all_metrics_wide_gin on eu_ifrs.financial_all_metrics_wide using gin (all_metrics);
+
+create table if not exists eu_ifrs.financial_normalization_rules (
+    rule_id text primary key,
+    rule_type text not null,
+    rule_version text not null default 'weak-v1-20260709',
+    description text not null,
+    preserves_raw_value boolean not null default true,
+    confidence_default text,
+    notes text,
+    created_at timestamptz not null default now()
+);
+
+insert into eu_ifrs.financial_normalization_rules (
+    rule_id, rule_type, rule_version, description, preserves_raw_value, confidence_default, notes
+) values
+    ('canonical_source_xbrl', 'canonical', 'weak-v1-20260709', 'canonical label sourced from IFRS taxonomy/XBRL or parser mapping.', true, 'high', 'Keeps local item name and XBRL tag unchanged.'),
+    ('canonical_import_fallback', 'canonical', 'weak-v1-20260709', 'canonical label sourced from import fallback mapping.', true, 'medium', 'Weak semantic label only.'),
+    ('canonical_unmapped', 'canonical', 'weak-v1-20260709', 'canonical label is missing.', true, 'none', 'Use local_name/item_name for citation display.'),
+    ('period_context_identity', 'period', 'weak-v1-20260709', 'period dates copied from filing context or parsed source period.', true, 'high', 'Original period_key is preserved.'),
+    ('period_unparsed', 'period', 'weak-v1-20260709', 'period could not be normalized by current rules.', true, 'low', 'Review source context.'),
+    ('unit_identity', 'unit', 'weak-v1-20260709', 'unit is retained without conversion.', true, 'medium', 'No currency scaling is implied.'),
+    ('unit_scaled_numeric', 'unit', 'weak-v1-20260709', 'value_standardized applies the explicit numeric scale.', true, 'medium', 'Scale must be sourced from parser/XBRL metadata.'),
+    ('unit_unmapped', 'unit', 'weak-v1-20260709', 'unit could not be normalized by current rules.', true, 'low', 'Avoid cross-company arithmetic until reviewed.')
+on conflict (rule_id) do update set
+    rule_type = excluded.rule_type,
+    rule_version = excluded.rule_version,
+    description = excluded.description,
+    preserves_raw_value = excluded.preserves_raw_value,
+    confidence_default = excluded.confidence_default,
+    notes = excluded.notes;
+
+create table if not exists eu_ifrs.financial_items_enriched (
+    enriched_id text primary key,
+    source_table text not null,
+    source_uid text not null,
+    filing_id text not null references eu_ifrs.filings(filing_id) on delete cascade,
+    parse_run_id text not null references eu_ifrs.parse_runs(parse_run_id) on delete cascade,
+    company_id text,
+    country text not null,
+    ticker text not null,
+    market text not null default 'EU',
+    isin text,
+    lei text,
+    exchange text,
+    industry_profile text,
+    statement_id text,
+    statement_type text not null,
+    statement_name text,
+    scope text,
+    scope_name text,
+    item_index integer,
+    period_key_raw text not null,
+    item_name_raw text,
+    canonical_label text,
+    canonical_source text not null default 'unmapped',
+    canonical_rule_id text references eu_ifrs.financial_normalization_rules(rule_id),
+    metric_family text,
+    metric_family_rule_id text,
+    value_extracted numeric,
+    raw_value text,
+    unit_raw text,
+    currency text,
+    unit_standardized text,
+    unit_scale numeric,
+    unit_rule_id text references eu_ifrs.financial_normalization_rules(rule_id),
+    value_standardized numeric,
+    period_type text,
+    period_start_date date,
+    period_end_date date,
+    period_rule_id text references eu_ifrs.financial_normalization_rules(rule_id),
+    source_page_number integer,
+    source_table_index integer,
+    source_row_index integer,
+    source_column_index integer,
+    source_bbox jsonb,
+    evidence_id text references eu_ifrs.evidence_citations(evidence_id),
+    xbrl_tag text,
+    context_ref text,
+    raw_fact_id text references eu_ifrs.xbrl_facts_raw(raw_fact_id),
+    raw_item jsonb not null default '{}'::jsonb,
+    normalization_confidence text not null default 'low',
+    quality_flags jsonb not null default '[]'::jsonb,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    unique (source_table, source_uid)
+);
+
+create index if not exists idx_eu_ifrs_items_enriched_lookup
+    on eu_ifrs.financial_items_enriched (country, ticker, statement_type, canonical_label, period_end_date);
+create index if not exists idx_eu_ifrs_items_enriched_raw_name
+    on eu_ifrs.financial_items_enriched (country, ticker, statement_type, item_name_raw);
+create index if not exists idx_eu_ifrs_items_enriched_source
+    on eu_ifrs.financial_items_enriched (filing_id, source_page_number, source_table_index);
+create index if not exists idx_eu_ifrs_items_enriched_flags_gin
+    on eu_ifrs.financial_items_enriched using gin (quality_flags);
+
+alter table eu_ifrs.financial_facts add column if not exists fact_currency text;
+alter table eu_ifrs.financial_facts add column if not exists reporting_currency text;
+alter table eu_ifrs.financial_facts add column if not exists presentation_currency text;
+alter table eu_ifrs.financial_facts add column if not exists converted_currency text;
+alter table eu_ifrs.financial_facts add column if not exists converted_value numeric;
+alter table eu_ifrs.financial_facts add column if not exists fx_rate_date date;
+alter table eu_ifrs.financial_facts add column if not exists fx_rate_source text;
+alter table eu_ifrs.financial_statement_items add column if not exists fact_currency text;
+alter table eu_ifrs.financial_statement_items add column if not exists reporting_currency text;
+alter table eu_ifrs.financial_statement_items add column if not exists presentation_currency text;
+alter table eu_ifrs.financial_statement_items add column if not exists converted_currency text;
+alter table eu_ifrs.financial_statement_items add column if not exists converted_value numeric;
+alter table eu_ifrs.financial_statement_items add column if not exists fx_rate_date date;
+alter table eu_ifrs.financial_statement_items add column if not exists fx_rate_source text;
+alter table eu_ifrs.financial_key_metrics add column if not exists fact_currency text;
+alter table eu_ifrs.financial_key_metrics add column if not exists reporting_currency text;
+alter table eu_ifrs.financial_key_metrics add column if not exists presentation_currency text;
+alter table eu_ifrs.financial_key_metrics add column if not exists converted_currency text;
+alter table eu_ifrs.financial_key_metrics add column if not exists converted_value numeric;
+alter table eu_ifrs.financial_key_metrics add column if not exists fx_rate_date date;
+alter table eu_ifrs.financial_key_metrics add column if not exists fx_rate_source text;
+alter table eu_ifrs.financial_balance_sheet_items add column if not exists fact_currency text;
+alter table eu_ifrs.financial_balance_sheet_items add column if not exists reporting_currency text;
+alter table eu_ifrs.financial_balance_sheet_items add column if not exists presentation_currency text;
+alter table eu_ifrs.financial_balance_sheet_items add column if not exists converted_currency text;
+alter table eu_ifrs.financial_balance_sheet_items add column if not exists converted_value numeric;
+alter table eu_ifrs.financial_balance_sheet_items add column if not exists fx_rate_date date;
+alter table eu_ifrs.financial_balance_sheet_items add column if not exists fx_rate_source text;
+alter table eu_ifrs.financial_income_statement_items add column if not exists fact_currency text;
+alter table eu_ifrs.financial_income_statement_items add column if not exists reporting_currency text;
+alter table eu_ifrs.financial_income_statement_items add column if not exists presentation_currency text;
+alter table eu_ifrs.financial_income_statement_items add column if not exists converted_currency text;
+alter table eu_ifrs.financial_income_statement_items add column if not exists converted_value numeric;
+alter table eu_ifrs.financial_income_statement_items add column if not exists fx_rate_date date;
+alter table eu_ifrs.financial_income_statement_items add column if not exists fx_rate_source text;
+alter table eu_ifrs.financial_cash_flow_statement_items add column if not exists fact_currency text;
+alter table eu_ifrs.financial_cash_flow_statement_items add column if not exists reporting_currency text;
+alter table eu_ifrs.financial_cash_flow_statement_items add column if not exists presentation_currency text;
+alter table eu_ifrs.financial_cash_flow_statement_items add column if not exists converted_currency text;
+alter table eu_ifrs.financial_cash_flow_statement_items add column if not exists converted_value numeric;
+alter table eu_ifrs.financial_cash_flow_statement_items add column if not exists fx_rate_date date;
+alter table eu_ifrs.financial_cash_flow_statement_items add column if not exists fx_rate_source text;
+alter table eu_ifrs.financial_items_enriched add column if not exists fact_currency text;
+alter table eu_ifrs.financial_items_enriched add column if not exists reporting_currency text;
+alter table eu_ifrs.financial_items_enriched add column if not exists presentation_currency text;
+alter table eu_ifrs.financial_items_enriched add column if not exists converted_currency text;
+alter table eu_ifrs.financial_items_enriched add column if not exists converted_value numeric;
+alter table eu_ifrs.financial_items_enriched add column if not exists fx_rate_date date;
+alter table eu_ifrs.financial_items_enriched add column if not exists fx_rate_source text;
+
+create or replace view eu_ifrs.v_latest_parse_runs as
+select distinct on (f.filing_id)
+    f.*,
+    pr.parse_run_id,
+    pr.completed_at,
+    pr.status as parse_status,
+    pr.wiki_package_path,
+    pr.parser_version,
+    pr.rules_version
+from eu_ifrs.filings f
+join eu_ifrs.parse_runs pr on pr.filing_id = f.filing_id
+where pr.status in ('pass', 'warning', 'completed', 'success')
+order by f.filing_id, pr.completed_at desc nulls last, pr.parse_run_id desc;
+
+create or replace view eu_ifrs.v_agent_financial_facts as
+select
+    c.company_id,
+    c.country,
+    c.ticker as company_ticker,
+    c.isin,
+    c.lei,
+    c.company_name,
+    f.filing_id,
+    f.report_type,
+    f.fiscal_year,
+    f.fiscal_period,
+    f.period_end as filing_period_end,
+    f.published_at,
+    pr.parse_run_id,
+    pr.completed_at as parse_completed_at,
+    pr.wiki_package_path,
+    fsi.item_uid,
+    fsi.statement_id,
+    fsi.statement_type,
+    fsi.statement_name,
+    fsi.item_index,
+    fsi.canonical_name,
+    fsi.item_name,
+    fsi.local_name,
+    fsi.xbrl_tag,
+    fsi.context_ref,
+    fsi.period_key,
+    fsi.period_start,
+    fsi.period_end,
+    fsi.value,
+    fsi.raw_value,
+    fsi.unit,
+    fsi.currency,
+    fsi.scale,
+    fsi.confidence,
+    coalesce(ec.evidence_id, fsi.evidence_id) as evidence_id,
+    coalesce(ec.page_number, fsi.source_page_number) as evidence_page_number,
+    coalesce(ec.table_index, fsi.source_table_index) as evidence_table_index,
+    coalesce(ec.row_index, fsi.source_row_index) as evidence_row_index,
+    coalesce(ec.column_index, fsi.source_column_index) as evidence_column_index,
+    coalesce(ec.bbox, fsi.source_bbox) as evidence_bbox,
+    ec.quote_text,
+    coalesce(ec.source_url, f.source_url) as source_url,
+    fsi.raw
+from eu_ifrs.financial_statement_items fsi
+join eu_ifrs.filings f on f.filing_id = fsi.filing_id
+join eu_ifrs.companies c on c.company_id = f.company_id
+join eu_ifrs.parse_runs pr on pr.parse_run_id = fsi.parse_run_id
+left join eu_ifrs.evidence_citations ec on ec.evidence_id = fsi.evidence_id;
+
+create or replace view eu_ifrs.v_latest_company_reports as
+select distinct on (f.company_id, f.report_type)
+    c.company_id,
+    c.country,
+    c.ticker as company_ticker,
+    c.isin,
+    c.lei,
+    c.company_name,
+    f.filing_id,
+    f.source_id,
+    f.report_type,
+    f.fiscal_year,
+    f.fiscal_period,
+    f.period_end,
+    f.published_at,
+    f.source_url,
+    f.landing_url,
+    f.local_path,
+    f.quality_status,
+    pr.parse_run_id,
+    pr.parser_version,
+    pr.rules_version,
+    pr.completed_at as parse_completed_at,
+    pr.status as parse_status,
+    pr.wiki_package_path
+from eu_ifrs.filings f
+join eu_ifrs.companies c on c.company_id = f.company_id
+left join eu_ifrs.parse_runs pr on pr.parse_run_id = (
+    select pr2.parse_run_id
+    from eu_ifrs.parse_runs pr2
+    where pr2.filing_id = f.filing_id
+    order by pr2.completed_at desc nulls last, pr2.parse_run_id desc
+    limit 1
+)
+order by f.company_id, f.report_type, f.period_end desc nulls last, f.published_at desc nulls last, f.filing_id desc;

@@ -3,7 +3,7 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import type { DownloadedPdf } from '../../lib/pdfTypes.ts'
-import type { UsSecCaseSetStatus } from './api.ts'
+import type { MarketDocumentFullPostgresStatus, UsSecCaseSetStatus } from './api.ts'
 
 const {
   deriveUsSecArtifactManifest,
@@ -53,6 +53,8 @@ const status: UsSecCaseSetStatus = {
     retrieval_status: 'ready',
     wiki_ready: true,
     package_path: 'data/wiki/us/companies/NVDA-NVIDIA-Corporation/reports/2025-10-K-0001045810-25-000023',
+    parser_result_dir: 'data/parser-results/us-sec/NVDA-10-K-0001045810-25-000023',
+    parser_result_task_id: 'NVDA-10-K-0001045810-25-000023',
   }],
   ingest_report: {
     package_count: 1,
@@ -163,17 +165,22 @@ test('findUsSecCaseItem prefers accession, ticker, and period', () => {
 
 test('deriveUsSecParseStatus maps package and import states', () => {
   const matched = status.items?.[0]
+  const documentFullStatus: MarketDocumentFullPostgresStatus = { status: 'postgres_ready', facts: 8, chunks: 2, evidence: 1 }
+  const noLegacyIngest = { ...status, ingest_report: { package_count: 0, summary: { xbrl_facts: 0 } } }
   assert.equal(deriveUsSecParseStatus({ report: report(), item: null, status }), 'unparsed')
   assert.equal(deriveUsSecParseStatus({ report: report(), item: matched, status: null }), 'package_ready')
-  assert.equal(deriveUsSecParseStatus({ report: report(), item: matched, status }), 'postgres_ready')
+  assert.equal(deriveUsSecParseStatus({ report: report(), item: matched, status }), 'package_ready')
+  assert.equal(deriveUsSecParseStatus({ report: report(), item: matched, status: noLegacyIngest, postgresStatus: documentFullStatus }), 'postgres_ready')
   assert.equal(deriveUsSecParseStatus({ report: report(), item: { ...matched, quality_status: 'warning', retrieval_status: 'needs_review', wiki_ready: false }, status }), 'warning')
-  assert.equal(deriveUsSecParseStatus({ report: report(), item: { ...matched, quality_status: 'warning', retrieval_status: 'ready', wiki_ready: true }, status }), 'postgres_ready')
+  assert.equal(deriveUsSecParseStatus({ report: report(), item: { ...matched, quality_status: 'warning', retrieval_status: 'ready', wiki_ready: true }, status }), 'package_ready')
   assert.equal(deriveUsSecParseStatus({ report: report(), item: { ...matched, quality_status: 'fail' }, status }), 'failed')
   assert.equal(deriveUsSecParseStatus({ report: report(), item: matched, status, busyPath: report().relativePath }), 'building')
 })
 
 test('deriveUsSecDownloadedRows exposes list row metadata', () => {
-  const rows = deriveUsSecDownloadedRows([report()], status, '')
+  const rows = deriveUsSecDownloadedRows([report()], status, '', {
+    'data/parser-results/us-sec/NVDA-10-K-0001045810-25-000023/document_full.json': { status: 'postgres_ready', facts: 8 },
+  })
   assert.equal(rows.length, 1)
   assert.equal(rows[0].ticker, 'NVDA')
   assert.equal(rows[0].form, '10-K')
@@ -183,9 +190,12 @@ test('deriveUsSecDownloadedRows exposes list row metadata', () => {
 })
 
 test('deriveUsSecRecentTasks exposes parsed SEC packages as shared PDF-surface tasks', () => {
-  const rows = deriveUsSecRecentTasks(status)
+  const rows = deriveUsSecRecentTasks(status, {
+    'data/parser-results/us-sec/NVDA-10-K-0001045810-25-000023/document_full.json': { status: 'postgres_ready', facts: 8 },
+  })
   assert.equal(rows.length, 1)
   assert.equal(rows[0].id, 'data/wiki/us/companies/NVDA-NVIDIA-Corporation/reports/2025-10-K-0001045810-25-000023')
+  assert.equal(rows[0].documentFullPath, 'data/parser-results/us-sec/NVDA-10-K-0001045810-25-000023/document_full.json')
   assert.equal(rows[0].ticker, 'NVDA')
   assert.equal(rows[0].companyName, 'NVIDIA Corporation')
   assert.equal(rows[0].form, '10-K')
@@ -222,6 +232,7 @@ test('deriveUsSecArtifactManifest maps SEC package outputs to result chips', () 
   ])
   assert.equal(manifest.checks[0].label, 'SEC 解析产物包')
   assert.equal(manifest.checks[0].status, 'ready')
+  assert.equal(manifest.checks.find((check) => check.label === 'PostgreSQL 入库脚本')?.description, 'db/imports/import_us_sec_document_full_to_postgres.py')
 })
 
 test('deriveUsSecWorkflowSummary exposes the four-stage US pipeline', () => {
@@ -230,7 +241,30 @@ test('deriveUsSecWorkflowSummary exposes the four-stage US pipeline', () => {
   assert.equal(workflow.cards[0].status, 'ready')
   assert.equal(workflow.cards[1].status, 'ready')
   assert.equal(workflow.cards[2].status, 'pending')
+  assert.equal(workflow.cards[3].status, 'pending')
+})
+
+test('deriveUsSecWorkflowSummary reports unknown when document_full status cannot be confirmed', () => {
+  const workflow = deriveUsSecWorkflowSummary(status, packageDetail, {
+    status: 'unknown',
+    message: 'document_full status 查询失败，PostgreSQL 状态不可确认',
+  })
+
+  assert.equal(workflow.cards[3].status, 'unknown')
+  assert.equal(workflow.cards[3].description, 'document_full status 查询失败，PostgreSQL 状态不可确认')
+})
+
+test('deriveUsSecWorkflowSummary accepts document_full postgres status without legacy ingest report', () => {
+  const statusWithoutLegacyIngest = { ...status, ingest_report: { package_count: 0, summary: { xbrl_facts: 0 } } }
+  const workflow = deriveUsSecWorkflowSummary(statusWithoutLegacyIngest, packageDetail, {
+    status: 'postgres_ready',
+    facts: 9,
+    chunks: 4,
+    evidence: 3,
+  })
+
   assert.equal(workflow.cards[3].status, 'ready')
+  assert.equal(workflow.cards[3].description, 'document_full facts 9')
 })
 
 test('deriveUsSecQualitySummary formats SEC quality metrics for the result panel', () => {

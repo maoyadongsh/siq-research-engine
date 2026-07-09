@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -432,6 +433,223 @@ def test_task_db_import_uses_database_url_env_without_config_py(monkeypatch, tmp
     assert seen["env"]["PGUSER"] == "u"
     assert seen["env"]["PGPASSWORD"] == "p"
     assert seen["env"]["DATABASE_URL"] == "postgresql://u:p@h:5432/d"
+
+
+def test_task_db_import_routes_pdf_market_to_document_full_importer(monkeypatch, tmp_path):
+    document_full = tmp_path / "hk-task" / "document_full.json"
+    document_full.parent.mkdir(parents=True)
+    document_full.write_text('{"metadata":{"market":"HK"}}', encoding="utf-8")
+    market_script = tmp_path / "imports" / "import_hk_document_full_to_postgres.py"
+    market_script.parent.mkdir(parents=True)
+    market_script.write_text("print('ok')\n", encoding="utf-8")
+    a_share_script = tmp_path / "imports" / "import_document_full_to_postgres.py"
+    a_share_script.write_text("print('a share')\n", encoding="utf-8")
+    seen = {}
+
+    def fake_run_command(args, timeout=300, env=None):
+        seen["args"] = args
+        seen["timeout"] = timeout
+        seen["env"] = env
+        return {"returnCode": 0, "stdout": "market ok", "stderr": ""}
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql://postgres:secret@db/siq")
+    monkeypatch.setattr(workflow, "_find_task_document_full", lambda task_id: document_full)
+    monkeypatch.setattr(workflow, "_infer_task_market", lambda task_id: "HK")
+    monkeypatch.setitem(workflow.MARKET_DOCUMENT_FULL_IMPORT_SCRIPTS, "HK", market_script)
+    monkeypatch.setitem(workflow.MARKET_DATABASES, "HK", "siq_hk")
+    monkeypatch.setattr(workflow, "DB_IMPORT_SCRIPT", a_share_script)
+    monkeypatch.setattr(workflow, "_run_command", fake_run_command)
+    monkeypatch.setattr(
+        workflow,
+        "_market_document_full_db_status",
+        lambda task_id, market, document_full: {"status": "ready", "market": market, "schema": "pdf2md_hk", "parseRunId": "parse-hk"},
+    )
+
+    result = workflow.import_task_to_database("task-hk-db")
+
+    assert result["ok"] is True
+    assert result["market"] == "HK"
+    assert result["database"] == {"status": "ready", "market": "HK", "schema": "pdf2md_hk", "parseRunId": "parse-hk"}
+    assert seen["args"] == [sys.executable, str(market_script), str(document_full), "--market", "HK", "--ddl"]
+    assert str(a_share_script) not in seen["args"]
+    assert seen["timeout"] == 900
+    assert seen["env"]["SIQ_HK_PGDATABASE"] == "siq_hk"
+    assert "DATABASE_URL" not in seen["env"]
+
+
+def test_pdf_market_workflow_status_uses_document_full_postgres_schema(monkeypatch, tmp_path):
+    task_id = "task-hk-status"
+    document_full = tmp_path / "results" / task_id / "document_full.json"
+    document_full.parent.mkdir(parents=True)
+    document_full.write_text('{"metadata":{"market":"HK"}}', encoding="utf-8")
+
+    class FakeCursor:
+        def __init__(self):
+            self.row = None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def execute(self, sql, params=None):
+            text = " ".join(str(sql).split())
+            if "information_schema.tables" in text:
+                self.row = (1,)
+            elif text.startswith("select parse_run_id, filing_id"):
+                self.row = ("parse-hk-1", "filing-hk-1")
+            elif text.startswith("select count(*)"):
+                table = text.split(" from ", 1)[1].split(" where ", 1)[0]
+                counts = {
+                    "pdf2md_hk.parse_runs": 1,
+                    "pdf2md_hk.financial_statement_items": 2,
+                    "pdf2md_hk.financial_facts": 0,
+                    "pdf2md_hk.xbrl_facts_raw": 0,
+                    "pdf2md_hk.document_tables": 1,
+                    "pdf2md_hk.html_tables": 0,
+                    "pdf2md_hk.pdf_tables": 0,
+                    "pdf2md_hk.document_chunks": 3,
+                    "pdf2md_hk.retrieval_chunks": 0,
+                    "pdf2md_hk.evidence_citations": 2,
+                }
+                self.row = (counts.get(table, 0),)
+            else:
+                raise AssertionError(f"unexpected SQL: {sql!r} params={params!r}")
+
+        def fetchone(self):
+            return self.row
+
+    class FakeConn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def cursor(self):
+            return FakeCursor()
+
+    monkeypatch.setitem(sys.modules, "psycopg", types.SimpleNamespace(connect=lambda _url: FakeConn()))
+    monkeypatch.setattr(workflow, "_find_task_document_full", lambda task: document_full)
+    monkeypatch.setattr(workflow, "_find_task_result_dir", lambda task: document_full.parent)
+    monkeypatch.setattr(workflow, "_infer_task_market", lambda task: "HK")
+    monkeypatch.setattr(workflow, "_artifact_bundle_status", lambda task: {"status": "ready", "ready": True, "message": "ok"})
+    monkeypatch.setattr(workflow, "_wiki_import_status_at_root", lambda task, root, market: {"status": "ready", "companyDir": "00700-Tencent", "message": "ok"})
+    monkeypatch.setattr(workflow, "_semantic_status_at_root", lambda company, task, root: {"status": "ready", "counts": {"facts": 1, "evidence": 1}})
+    monkeypatch.setattr(workflow, "_obsidian_status_at_root", lambda company, semantic, root: {"status": "ready"})
+    monkeypatch.setitem(workflow.MARKET_DATABASES, "HK", "siq_hk")
+
+    status = workflow._workflow_status_payload(task_id)
+
+    assert status["database"]["status"] == "ready"
+    assert status["database"]["marketStatus"] == "postgres_ready"
+    assert status["database"]["schema"] == "pdf2md_hk"
+    assert status["database"]["facts"] == 2
+    assert status["database"]["chunks"] == 3
+
+
+def test_pdf_market_workflow_status_ready_does_not_require_evidence(monkeypatch, tmp_path):
+    task_id = "task-eu-status"
+    document_full = tmp_path / "results" / task_id / "document_full.json"
+    document_full.parent.mkdir(parents=True)
+    document_full.write_text('{"metadata":{"market":"EU"}}', encoding="utf-8")
+
+    class FakeCursor:
+        def __init__(self):
+            self.row = None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def execute(self, sql, params=None):
+            text = " ".join(str(sql).split())
+            if "information_schema.tables" in text:
+                self.row = (1,)
+            elif text.startswith("select parse_run_id, filing_id"):
+                self.row = ("parse-eu-1", "filing-eu-1")
+            elif text.startswith("select count(*)"):
+                table = text.split(" from ", 1)[1].split(" where ", 1)[0]
+                counts = {
+                    "eu_ifrs.parse_runs": 1,
+                    "eu_ifrs.financial_statement_items": 2,
+                    "eu_ifrs.document_tables": 1,
+                    "eu_ifrs.document_chunks": 3,
+                    "eu_ifrs.evidence_citations": 0,
+                }
+                self.row = (counts.get(table, 0),)
+            else:
+                raise AssertionError(f"unexpected SQL: {sql!r} params={params!r}")
+
+        def fetchone(self):
+            return self.row
+
+    class FakeConn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def cursor(self):
+            return FakeCursor()
+
+    monkeypatch.setitem(sys.modules, "psycopg", types.SimpleNamespace(connect=lambda _url: FakeConn()))
+    monkeypatch.setattr(workflow, "_find_task_document_full", lambda task: document_full)
+    monkeypatch.setattr(workflow, "_find_task_result_dir", lambda task: document_full.parent)
+    monkeypatch.setattr(workflow, "_infer_task_market", lambda task: "EU")
+    monkeypatch.setattr(workflow, "_artifact_bundle_status", lambda task: {"status": "ready", "ready": True, "message": "ok"})
+    monkeypatch.setattr(workflow, "_wiki_import_status_at_root", lambda task, root, market: {"status": "ready", "companyDir": "SAP", "message": "ok"})
+    monkeypatch.setattr(workflow, "_semantic_status_at_root", lambda company, task, root: {"status": "ready"})
+    monkeypatch.setattr(workflow, "_obsidian_status_at_root", lambda company, semantic, root: {"status": "ready"})
+    monkeypatch.setitem(workflow.MARKET_DATABASES, "EU", "siq_eu")
+
+    status = workflow._workflow_status_payload(task_id)
+
+    assert status["database"]["status"] == "ready"
+    assert status["database"]["marketStatus"] == "postgres_ready"
+    assert status["database"]["evidence"] == 0
+
+
+def test_task_db_import_routes_us_sec_alias_to_document_full_importer(monkeypatch, tmp_path):
+    document_full = tmp_path / "us-sec-task" / "document_full.json"
+    document_full.parent.mkdir(parents=True)
+    document_full.write_text('{"metadata":{"market":"US_SEC"}}', encoding="utf-8")
+    market_script = tmp_path / "imports" / "import_us_sec_document_full_to_postgres.py"
+    market_script.parent.mkdir(parents=True)
+    market_script.write_text("print('ok')\n", encoding="utf-8")
+    seen = {}
+
+    def fake_run_command(args, timeout=300, env=None):
+        seen["args"] = args
+        seen["timeout"] = timeout
+        seen["env"] = env
+        return {"returnCode": 0, "stdout": "us ok", "stderr": ""}
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql://postgres:secret@db/siq")
+    monkeypatch.setattr(workflow, "_find_task_document_full", lambda task_id: document_full)
+    monkeypatch.setattr(workflow, "_infer_task_market", lambda task_id: "US_SEC")
+    monkeypatch.setitem(workflow.MARKET_DOCUMENT_FULL_IMPORT_SCRIPTS, "US", market_script)
+    monkeypatch.setitem(workflow.MARKET_DATABASES, "US", "siq_us")
+    monkeypatch.setattr(workflow, "_run_command", fake_run_command)
+    monkeypatch.setattr(
+        workflow,
+        "_market_document_full_db_status",
+        lambda task_id, market, document_full: {"status": "ready", "market": market, "schema": "sec_us", "parseRunId": "parse-us"},
+    )
+
+    result = workflow.import_task_to_database("task-us-db")
+
+    assert result["ok"] is True
+    assert result["market"] == "US"
+    assert result["database"] == {"status": "ready", "market": "US", "schema": "sec_us", "parseRunId": "parse-us"}
+    assert seen["args"] == [sys.executable, str(market_script), str(document_full), "--market", "US", "--ddl"]
+    assert seen["timeout"] == 900
+    assert seen["env"]["SIQ_US_PGDATABASE"] == "siq_us"
+    assert "DATABASE_URL" not in seen["env"]
 
 
 def test_task_db_import_rejects_missing_script_without_running_command(monkeypatch, tmp_path):

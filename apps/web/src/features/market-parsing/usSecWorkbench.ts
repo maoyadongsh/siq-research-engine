@@ -1,5 +1,10 @@
 import type { DownloadedPdf } from '../../lib/pdfTypes'
-import type { UsSecCaseSetItem, UsSecCaseSetStatus, UsSecPackageDetail } from './api'
+import type {
+  MarketDocumentFullPostgresStatus,
+  UsSecCaseSetItem,
+  UsSecCaseSetStatus,
+  UsSecPackageDetail,
+} from './api'
 
 export type UsSecParseStatus = 'unparsed' | 'building' | 'package_ready' | 'postgres_ready' | 'warning' | 'failed'
 export type UsSecWorkflowStatus = 'ready' | 'pending' | 'unknown' | 'warning'
@@ -24,6 +29,7 @@ export interface UsSecDownloadedRow {
 export interface UsSecRecentTaskRow {
   id: string
   packagePath: string
+  documentFullPath: string
   ticker: string
   companyName: string
   form: string
@@ -76,6 +82,8 @@ export interface UsSecQualitySummary {
   missingCoreSections: string[]
 }
 
+const US_SEC_DOCUMENT_FULL_FILE = 'document_full.json'
+
 const usSecFallbackArtifactNames = [
   'manifest.json',
   'parser/document_full.json',
@@ -124,6 +132,14 @@ function retrievalReady(item: UsSecCaseSetItem | null | undefined): boolean {
 
 function packageReady(detail: UsSecPackageDetail | null | undefined): boolean {
   return Boolean(detail?.package_path)
+}
+
+function usSecDocumentFullPath(item: UsSecCaseSetItem): string {
+  const parserResultDir = normalized(item.parser_result_dir)
+  if (parserResultDir) return documentFullPathFromParserResultDir(parserResultDir)
+  const parserResultTaskId = normalized(item.parser_result_task_id)
+  if (parserResultTaskId) return documentFullPathFromParserResultDir(`data/parser-results/us-sec/${parserResultTaskId}`)
+  return ''
 }
 
 function plainRecord(value: unknown): Record<string, unknown> {
@@ -204,6 +220,29 @@ function pathIncludesAccession(packagePath: string | undefined, accession: strin
   return packagePath.toLowerCase().includes(accession.toLowerCase())
 }
 
+function documentFullPathFromParserResultDir(value: unknown): string {
+  const path = normalized(value).replace(/\/+$/, '')
+  if (!path) return ''
+  return path.endsWith(`/${US_SEC_DOCUMENT_FULL_FILE}`) || path === US_SEC_DOCUMENT_FULL_FILE
+    ? path
+    : `${path}/${US_SEC_DOCUMENT_FULL_FILE}`
+}
+
+export function deriveUsSecDocumentFullImportPath(
+  task?: UsSecRecentTaskRow | null,
+  detail?: UsSecPackageDetail | null,
+): string {
+  const manifest = plainRecord(detail?.manifest)
+  const parserResultDir = detail?.parser_result_dir || manifest.parser_result_dir || task?.item.parser_result_dir
+  const fromDir = documentFullPathFromParserResultDir(parserResultDir)
+  if (fromDir) return fromDir
+
+  const parserResultTaskId = detail?.parser_result_task_id || manifest.parser_result_task_id || task?.item.parser_result_task_id
+  return parserResultTaskId
+    ? documentFullPathFromParserResultDir(`data/parser-results/us-sec/${parserResultTaskId}`)
+    : ''
+}
+
 export function usSecDocumentKind(report: DownloadedPdf): string {
   const filename = normalized(report.filename).toLowerCase()
   const suffix = filename.split('.').pop() || ''
@@ -243,22 +282,23 @@ export function deriveUsSecParseStatus({
   report,
   item,
   status,
+  postgresStatus,
   busyPath = '',
 }: {
   report: DownloadedPdf
   item?: UsSecCaseSetItem | null
   status?: UsSecCaseSetStatus | null
+  postgresStatus?: MarketDocumentFullPostgresStatus | null
   busyPath?: string
 }): UsSecParseStatus {
+  void status
   if (busyPath && busyPath === report.relativePath) return 'building'
   if (!item?.package_path) return 'unparsed'
   const readyForRetrieval = retrievalReady(item)
   const quality = normalized(item.quality_status).toLowerCase()
   if (quality === 'fail' || quality === 'failed') return 'failed'
   if ((quality === 'warning' || quality === 'warn') && !readyForRetrieval) return 'warning'
-  const importedPackages = Number(status?.ingest_report?.package_count || 0)
-  const importedFacts = Number(status?.ingest_report?.summary?.xbrl_facts || 0)
-  if (importedPackages > 0 && importedFacts > 0) return 'postgres_ready'
+  if (documentFullPostgresReady(postgresStatus)) return 'postgres_ready'
   return 'package_ready'
 }
 
@@ -266,9 +306,11 @@ export function deriveUsSecDownloadedRows(
   reports: DownloadedPdf[],
   status?: UsSecCaseSetStatus | null,
   busyPath = '',
+  postgresByDocumentFullPath: Record<string, MarketDocumentFullPostgresStatus | undefined> = {},
 ): UsSecDownloadedRow[] {
   return reports.map((report) => {
     const item = findUsSecCaseItem(report, status)
+    const documentFullPath = item ? usSecDocumentFullPath(item) : ''
     return {
       id: report.id,
       relativePath: report.relativePath,
@@ -281,14 +323,23 @@ export function deriveUsSecDownloadedRows(
       fileType: usSecDocumentKind(report),
       sizeBytes: Number(report.size || report.downloadedFile?.size_bytes || 0),
       downloadedAt: normalized(report.mtime),
-      parseStatus: deriveUsSecParseStatus({ report, item, status, busyPath }),
+      parseStatus: deriveUsSecParseStatus({
+        report,
+        item,
+        status,
+        busyPath,
+        postgresStatus: postgresByDocumentFullPath[documentFullPath],
+      }),
       packagePath: normalized(item?.package_path),
       report,
     }
   })
 }
 
-export function deriveUsSecRecentTasks(status?: UsSecCaseSetStatus | null): UsSecRecentTaskRow[] {
+export function deriveUsSecRecentTasks(
+  status?: UsSecCaseSetStatus | null,
+  postgresByDocumentFullPath: Record<string, MarketDocumentFullPostgresStatus | undefined> = {},
+): UsSecRecentTaskRow[] {
   const items = status?.items || []
   return items
     .filter((item) => normalized(item.package_path))
@@ -309,11 +360,18 @@ export function deriveUsSecRecentTasks(status?: UsSecCaseSetStatus | null): UsSe
         reportEnd: normalized(item.period_end),
         publishedAt: normalized(item.filing_date),
       } as DownloadedPdf
-      const derivedStatus = deriveUsSecParseStatus({ report: syntheticReport, item, status })
+      const documentFullPath = usSecDocumentFullPath(item)
+      const derivedStatus = deriveUsSecParseStatus({
+        report: syntheticReport,
+        item,
+        status,
+        postgresStatus: postgresByDocumentFullPath[documentFullPath],
+      })
       const summary = item.quality_summary || {}
       return {
         id: normalized(item.package_path),
         packagePath: normalized(item.package_path),
+        documentFullPath,
         ticker: upper(item.ticker),
         companyName: normalized(item.company_name) || '未知公司',
         form: formFromItem(item),
@@ -361,7 +419,7 @@ export function deriveUsSecArtifactManifest(detail?: UsSecPackageDetail | null):
       {
         label: 'PostgreSQL 入库脚本',
         status: 'ready',
-        description: 'scripts/us-sec/ingest_sec_case_set.py',
+        description: 'db/imports/import_us_sec_document_full_to_postgres.py',
       },
     ],
   }
@@ -370,13 +428,13 @@ export function deriveUsSecArtifactManifest(detail?: UsSecPackageDetail | null):
 export function deriveUsSecWorkflowSummary(
   status?: UsSecCaseSetStatus | null,
   detail?: UsSecPackageDetail | null,
+  postgresStatus?: MarketDocumentFullPostgresStatus | null,
 ): UsSecWorkflowSummary {
   const artifactManifest = deriveUsSecArtifactManifest(detail)
   const packageStatus: UsSecWorkflowStepView['status'] = packageReady(detail) ? 'ready' : 'pending'
-  const importedPackages = numberValue(status?.ingest_report?.package_count)
-  const importedFacts = numberValue(status?.ingest_report?.summary?.xbrl_facts)
   const semanticEvidence = numberValue(status?.ingest_report?.summary?.retrieval_chunks)
-  const postgresReady = importedPackages > 0 && importedFacts > 0
+  const postgresReady = documentFullPostgresReady(postgresStatus)
+  const postgresUnknown = normalized(postgresStatus?.status).toLowerCase() === 'unknown'
   const semanticReady = semanticEvidence > 0
   const steps: UsSecWorkflowStepView[] = [
     {
@@ -396,11 +454,20 @@ export function deriveUsSecWorkflowSummary(
     },
     {
       label: 'PostgreSQL',
-      status: postgresReady ? 'ready' : 'pending',
-      description: postgresReady ? `XBRL facts ${importedFacts}` : '等待 PostgreSQL 入库',
+      status: postgresReady ? 'ready' : postgresUnknown ? 'unknown' : 'pending',
+      description: postgresReady
+        ? `document_full facts ${numberValue(postgresStatus?.facts)}`
+        : postgresUnknown
+          ? (postgresStatus?.message || 'document_full status 查询失败，PostgreSQL 状态不可确认')
+          : '等待 PostgreSQL 入库',
     },
   ]
   return { steps, cards: steps }
+}
+
+export function documentFullPostgresReady(status?: MarketDocumentFullPostgresStatus | null): boolean {
+  const value = normalized(status?.status).toLowerCase()
+  return value === 'postgres_ready' || value === 'ready'
 }
 
 export function deriveUsSecQualitySummary(detail?: UsSecPackageDetail | null): UsSecQualitySummary {

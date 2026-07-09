@@ -71,12 +71,23 @@ MARKET_TARGETS: dict[str, MarketPostgresTarget] = {
     ),
 }
 
+MARKET_ALIASES = {
+    "US_SEC": "US",
+    "US-SEC": "US",
+    "US SEC": "US",
+}
+
 
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
+def normalize_market(market: Any) -> str:
+    key = str(market or "").strip().upper()
+    return MARKET_ALIASES.get(key, key)
+
+
 def target_for_market(market: str) -> MarketPostgresTarget:
-    key = str(market or "").upper()
+    key = normalize_market(market)
     if key not in MARKET_TARGETS:
         raise SystemExit(f"Unsupported market for PostgreSQL import: {market}")
     return MARKET_TARGETS[key]
@@ -319,6 +330,8 @@ create table {schema}.document_tables (
     filing_id text not null references {schema}.filings(filing_id) on delete cascade,
     table_id text not null,
     source_type text not null default 'pdf_table',
+    source_format text,
+    document_format text,
     section_id text,
     page_number integer,
     table_index integer,

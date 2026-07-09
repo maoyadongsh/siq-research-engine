@@ -1,0 +1,41 @@
+{
+  "schema_version": "market_document_full_production_sample_manifest_v1",
+  "description": "Local real document_full.json candidates for production PostgreSQL roundtrip validation. These are not tiny fixtures; run them only in an environment with the market databases available.",
+  "sample_goal_per_market": 3,
+  "markets": {
+    "HK": [
+      "data/pdf-parser/results/aac62079-66a0-402d-a827-7e4a4d02f404/document_full.json",
+      "data/pdf-parser/results/a397cb1f-be46-4921-a750-795cadc99fa3/document_full.json",
+      "data/pdf-parser/results/dd73d6f3-1a2d-4ce5-aebd-117111e50fd5/document_full.json"
+    ],
+    "JP": [
+      "data/pdf-parser/results/473ef3a3-b7d7-423d-b8c2-027dfb6f6be3/document_full.json",
+      "data/pdf-parser/results/f8dca908-a182-4320-865e-7aea8a6f1d8b/document_full.json",
+      "data/pdf-parser/results/3cd47e45-a485-429e-96bf-e828e4458359/document_full.json"
+    ],
+    "KR": [
+      "data/pdf-parser/results/13c9353d-1f65-4946-b362-3aca3d3ca319/document_full.json",
+      "data/pdf-parser/results/f4ccf296-376c-4477-8b20-2d133a00779a/document_full.json",
+      "data/pdf-parser/results/a1e3ca2b-625a-45c7-934c-dcf863e1c595/document_full.json"
+    ],
+    "EU": [
+      "data/pdf-parser/results/e4ac2393-1efa-4599-a32e-cfc44a76ed96/document_full.json",
+      "data/pdf-parser/results/7a3cebd5-ef87-46ea-bb12-abe2105a913d/document_full.json",
+      "data/pdf-parser/results/9d052a75-941a-4a77-be83-addb46dae2ea/document_full.json"
+    ],
+    "US": [
+      "data/parser-results/us-sec/HIMS-10-K-0001773751-26-000022/document_full.json",
+      "data/parser-results/us-sec/META-10-K-0001628280-26-003942/document_full.json",
+      "data/parser-results/us-sec/UNH-10-K-0000731766-25-000063/document_full.json"
+    ]
+  },
+  "run_examples": [
+    "python3 db/imports/import_market_document_full_to_postgres.py --market HK --document-full data/pdf-parser/results/aac62079-66a0-402d-a827-7e4a4d02f404/document_full.json --ddl",
+    "python3 db/imports/import_market_document_full_to_postgres.py --market US --document-full data/parser-results/us-sec/HIMS-10-K-0001773751-26-000022/document_full.json --ddl"
+  ],
+  "remaining_gates": [
+    "Run all listed samples against PostgreSQL market databases.",
+    "Repeat each import and compare row counts for idempotency.",
+    "Run fixed Agent queries against inserted facts and evidence citations."
+  ]
+}

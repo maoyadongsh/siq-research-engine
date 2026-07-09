@@ -4,6 +4,7 @@ import importlib.util
 import hashlib
 import io
 import json
+import types
 from pathlib import Path
 
 import pytest
@@ -248,6 +249,9 @@ def test_market_report_route_order_keeps_static_routes_before_catchalls():
     assert paths.index("/market-reports/packages/build") < paths.index("/market-reports/packages/{filing_id}")
     assert paths.index("/market-reports/packages/import") < paths.index("/market-reports/packages/{filing_id}")
     assert paths.index("/market-reports/packages/vector-ingest") < paths.index("/market-reports/packages/{filing_id}")
+    assert paths.index("/market-reports/document-full/status") < paths.index("/market-reports/packages/{filing_id}")
+    assert paths.index("/market-reports/document-full/import/status") < paths.index("/market-reports/packages/{filing_id}")
+    assert paths.index("/market-reports/document-full/import") < paths.index("/market-reports/packages/{filing_id}")
 
 
 def test_v1_proxy_preserves_finder_path(monkeypatch):
@@ -2056,6 +2060,412 @@ def test_market_import_command_hk_default_env_sanitizes_inherited_database_url(m
     assert "postgresql://postgres:secret@db/siq" not in result["command"]
 
 
+def test_market_document_full_import_command_uses_market_script_path_and_env(monkeypatch, tmp_path):
+    document_root = tmp_path / "parser-results" / "hk"
+    document_full = document_root / "task-1" / "document_full.json"
+    import_script = tmp_path / "imports" / "import_hk_document_full_to_postgres.py"
+    for path in (document_full, import_script):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}", encoding="utf-8")
+    seen = {}
+
+    class Completed:
+        returncode = 0
+        stdout = "log\nparse-run-doc-full\n"
+        stderr = ""
+
+    def fake_run(args, **kwargs):
+        seen["args"] = args
+        seen["kwargs"] = kwargs
+        return Completed()
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql://postgres:secret@db/siq")
+    monkeypatch.setitem(market_reports.MARKET_DOCUMENT_FULL_ROOTS, "HK", document_root)
+    monkeypatch.setitem(market_reports.MARKET_DOCUMENT_FULL_IMPORT_SCRIPTS, "HK", import_script)
+    monkeypatch.setitem(market_reports.MARKET_DATABASES, "HK", "siq_hk")
+    monkeypatch.setattr(market_reports, "run_command", fake_run)
+
+    result = market_reports._run_market_document_full_import(
+        {
+            "market": "HK",
+            "document_full_path": "task-1/document_full.json",
+            "ddl": True,
+        }
+    )
+
+    assert result["ok"] is True
+    assert result["parse_run_id"] == "parse-run-doc-full"
+    assert seen["args"] == [
+        market_reports.sys.executable,
+        str(import_script),
+        str(document_full),
+        "--market",
+        "HK",
+        "--ddl",
+    ]
+    assert seen["kwargs"]["cwd"] == market_reports.REPO_ROOT
+    assert seen["kwargs"]["timeout"] == 900
+    assert seen["kwargs"]["env"]["SIQ_HK_PGDATABASE"] == "siq_hk"
+    assert "DATABASE_URL" not in seen["kwargs"]["env"]
+    assert "postgresql://postgres:secret@db/siq" not in result["command"]
+
+
+def test_market_document_full_import_uses_explicit_database_url_without_command_leak(monkeypatch, tmp_path):
+    document_root = tmp_path / "parser-results" / "eu"
+    document_full = document_root / "task-2" / "document_full.json"
+    import_script = tmp_path / "imports" / "import_eu_document_full_to_postgres.py"
+    for path in (document_full, import_script):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}", encoding="utf-8")
+    seen = {}
+
+    class Completed:
+        returncode = 0
+        stdout = "parse-run-eu\n"
+        stderr = ""
+
+    def fake_run(args, **kwargs):
+        seen["args"] = args
+        seen["kwargs"] = kwargs
+        return Completed()
+
+    monkeypatch.setitem(market_reports.MARKET_DOCUMENT_FULL_ROOTS, "EU", document_root)
+    monkeypatch.setitem(market_reports.MARKET_DOCUMENT_FULL_IMPORT_SCRIPTS, "EU", import_script)
+    monkeypatch.setitem(market_reports.MARKET_DATABASES, "EU", "siq_eu")
+    monkeypatch.setattr(market_reports, "run_command", fake_run)
+
+    result = market_reports._run_market_document_full_import(
+        {
+            "market": "EU",
+            "document_full_path": str(document_full),
+            "database_url": "postgresql://postgres:explicit@db/siq_eu_private",
+        }
+    )
+
+    assert result["ok"] is True
+    assert "--database-url" not in seen["args"]
+    assert "postgresql://postgres:explicit@db/siq_eu_private" not in seen["args"]
+    assert seen["kwargs"]["env"]["DATABASE_URL"] == "postgresql://postgres:explicit@db/siq_eu_private"
+    assert seen["kwargs"]["env"]["SIQ_EU_PGDATABASE"] == "siq_eu"
+    assert "postgresql://postgres:explicit@db/siq_eu_private" not in result["command"]
+
+
+def test_market_document_full_import_accepts_us_sec_market_alias(monkeypatch, tmp_path):
+    document_root = tmp_path / "parser-results" / "us-sec"
+    document_full = document_root / "filing-1" / "document_full.json"
+    import_script = tmp_path / "imports" / "import_us_sec_document_full_to_postgres.py"
+    for path in (document_full, import_script):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}", encoding="utf-8")
+    seen = {}
+
+    class Completed:
+        returncode = 0
+        stdout = "parse-us\n"
+        stderr = ""
+
+    def fake_run(args, **kwargs):
+        seen["args"] = args
+        seen["kwargs"] = kwargs
+        return Completed()
+
+    monkeypatch.setitem(market_reports.MARKET_DOCUMENT_FULL_ROOTS, "US", document_root)
+    monkeypatch.setitem(market_reports.MARKET_DOCUMENT_FULL_IMPORT_SCRIPTS, "US", import_script)
+    monkeypatch.setitem(market_reports.MARKET_DATABASES, "US", "siq_us")
+    monkeypatch.setattr(market_reports, "run_command", fake_run)
+
+    result = market_reports._run_market_document_full_import(
+        {"market": "US_SEC", "document_full_path": "filing-1/document_full.json"}
+    )
+
+    assert result["ok"] is True
+    assert seen["args"] == [
+        market_reports.sys.executable,
+        str(import_script),
+        str(document_full),
+        "--market",
+        "US",
+    ]
+    assert seen["kwargs"]["env"]["SIQ_US_PGDATABASE"] == "siq_us"
+
+
+def test_market_document_full_import_rejects_outside_root_before_command(monkeypatch, tmp_path):
+    document_root = tmp_path / "parser-results" / "jp"
+    outside = tmp_path / "outside" / "document_full.json"
+    import_script = tmp_path / "imports" / "import_jp_document_full_to_postgres.py"
+    for path in (outside, import_script):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}", encoding="utf-8")
+
+    def fail_run(*_args, **_kwargs):
+        raise AssertionError("run_command should not be called")
+
+    monkeypatch.setitem(market_reports.MARKET_DOCUMENT_FULL_ROOTS, "JP", document_root)
+    monkeypatch.setitem(market_reports.MARKET_DOCUMENT_FULL_IMPORT_SCRIPTS, "JP", import_script)
+    monkeypatch.setattr(market_reports, "run_command", fail_run)
+
+    with pytest.raises(HTTPException) as exc:
+        market_reports._run_market_document_full_import(
+            {"market": "JP", "document_full_path": str(outside)}
+        )
+
+    assert exc.value.status_code == 400
+    assert exc.value.detail == "document_full_path is outside the allowed market root"
+
+
+def test_market_document_full_import_status_reports_configured_paths(monkeypatch, tmp_path):
+    document_root = tmp_path / "parser-results" / "kr"
+    script = tmp_path / "imports" / "import_kr_document_full_to_postgres.py"
+    for path in (document_root, script):
+        path.parent.mkdir(parents=True, exist_ok=True)
+    document_root.mkdir(parents=True, exist_ok=True)
+    script.write_text("# import", encoding="utf-8")
+
+    monkeypatch.setitem(market_reports.MARKET_DOCUMENT_FULL_ROOTS, "KR", document_root)
+    monkeypatch.setitem(market_reports.MARKET_DOCUMENT_FULL_IMPORT_SCRIPTS, "KR", script)
+    monkeypatch.setitem(market_reports.MARKET_DATABASES, "KR", "siq_kr")
+
+    result = asyncio.run(market_reports.market_document_full_import_status(market="KR"))
+
+    assert result["ok"] is True
+    assert result["markets"]["KR"]["document_full_root"] == str(document_root)
+    assert result["markets"]["KR"]["document_full_root_exists"] is True
+    assert result["markets"]["KR"]["script"] == str(script)
+    assert result["markets"]["KR"]["script_exists"] is True
+    assert result["markets"]["KR"]["database"] == "siq_kr"
+    assert result["markets"]["KR"]["schema"] == "dart_kr"
+
+
+def test_market_document_full_import_status_queries_postgres_counts(monkeypatch, tmp_path):
+    document_root = tmp_path / "parser-results" / "hk"
+    script = tmp_path / "imports" / "import_kr_document_full_to_postgres.py"
+    for path in (document_root, script):
+        path.parent.mkdir(parents=True, exist_ok=True)
+    document_root.mkdir(parents=True, exist_ok=True)
+    script.write_text("# import", encoding="utf-8")
+
+    class FakeCursor:
+        def __init__(self, row):
+            self.row = row
+
+        def fetchone(self):
+            return self.row
+
+    class FakeConn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def execute(self, sql, params=None):
+            text = " ".join(str(sql).split())
+            if "information_schema.tables" in text:
+                return FakeCursor((1,))
+            if text.startswith("select count(*)"):
+                table = text.split(" from ", 1)[1].split(" where ", 1)[0]
+                counts = {
+                    "pdf2md_hk.parse_runs": 1,
+                    "pdf2md_hk.financial_statement_items": 2,
+                    "pdf2md_hk.financial_facts": 0,
+                    "pdf2md_hk.xbrl_facts_raw": 0,
+                    "pdf2md_hk.document_tables": 1,
+                    "pdf2md_hk.html_tables": 0,
+                    "pdf2md_hk.pdf_tables": 0,
+                    "pdf2md_hk.document_chunks": 3,
+                    "pdf2md_hk.retrieval_chunks": 0,
+                    "pdf2md_hk.evidence_citations": 2,
+                }
+                return FakeCursor((counts.get(table, 0),))
+            raise AssertionError(f"unexpected SQL: {sql!r} params={params!r}")
+
+    fake_psycopg = types.SimpleNamespace(connect=lambda _url: FakeConn())
+    monkeypatch.setitem(sys.modules, "psycopg", fake_psycopg)
+    monkeypatch.setitem(market_reports.MARKET_DOCUMENT_FULL_ROOTS, "HK", document_root)
+    monkeypatch.setitem(market_reports.MARKET_DOCUMENT_FULL_IMPORT_SCRIPTS, "HK", script)
+    monkeypatch.setitem(market_reports.MARKET_DATABASES, "HK", "siq_hk")
+
+    result = asyncio.run(market_reports.market_document_full_import_status(market="HK", parse_run_id="parse-1"))
+
+    postgres = result["markets"]["HK"]["postgres"]
+    assert postgres["status"] == "postgres_ready"
+    assert postgres["parse_runs"] == 1
+    assert postgres["facts"] == 2
+    assert postgres["tables"] == 1
+    assert postgres["chunks"] == 3
+    assert postgres["evidence"] == 2
+
+
+def test_market_document_full_status_ready_does_not_require_evidence(monkeypatch, tmp_path):
+    document_root = tmp_path / "parser-results" / "eu"
+    script = tmp_path / "imports" / "import_eu_document_full_to_postgres.py"
+    for path in (document_root, script):
+        path.parent.mkdir(parents=True, exist_ok=True)
+    document_root.mkdir(parents=True, exist_ok=True)
+    script.write_text("# import", encoding="utf-8")
+
+    class FakeCursor:
+        def __init__(self, row):
+            self.row = row
+
+        def fetchone(self):
+            return self.row
+
+    class FakeConn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def execute(self, sql, params=None):
+            text = " ".join(str(sql).split())
+            if "information_schema.tables" in text:
+                return FakeCursor((1,))
+            if text.startswith("select count(*)"):
+                table = text.split(" from ", 1)[1].split(" where ", 1)[0]
+                counts = {
+                    "eu_ifrs.parse_runs": 1,
+                    "eu_ifrs.financial_statement_items": 4,
+                    "eu_ifrs.document_tables": 2,
+                    "eu_ifrs.document_chunks": 5,
+                    "eu_ifrs.evidence_citations": 0,
+                }
+                return FakeCursor((counts.get(table, 0),))
+            raise AssertionError(f"unexpected SQL: {sql!r} params={params!r}")
+
+    monkeypatch.setitem(sys.modules, "psycopg", types.SimpleNamespace(connect=lambda _url: FakeConn()))
+    monkeypatch.setitem(market_reports.MARKET_DOCUMENT_FULL_ROOTS, "EU", document_root)
+    monkeypatch.setitem(market_reports.MARKET_DOCUMENT_FULL_IMPORT_SCRIPTS, "EU", script)
+    monkeypatch.setitem(market_reports.MARKET_DATABASES, "EU", "siq_eu")
+
+    result = asyncio.run(market_reports.market_document_full_import_status(market="EU", parse_run_id="parse-eu"))
+
+    postgres = result["markets"]["EU"]["postgres"]
+    assert postgres["status"] == "postgres_ready"
+    assert postgres["facts"] == 4
+    assert postgres["tables"] == 2
+    assert postgres["chunks"] == 5
+    assert postgres["evidence"] == 0
+
+
+def test_market_document_full_status_requires_tables_for_us(monkeypatch, tmp_path):
+    document_root = tmp_path / "parser-results" / "us-sec"
+    script = tmp_path / "imports" / "import_us_sec_document_full_to_postgres.py"
+    for path in (document_root, script):
+        path.parent.mkdir(parents=True, exist_ok=True)
+    document_root.mkdir(parents=True, exist_ok=True)
+    script.write_text("# import", encoding="utf-8")
+
+    class FakeCursor:
+        def __init__(self, row):
+            self.row = row
+
+        def fetchone(self):
+            return self.row
+
+    class FakeConn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def execute(self, sql, params=None):
+            text = " ".join(str(sql).split())
+            if "information_schema.tables" in text:
+                return FakeCursor((1,))
+            if text.startswith("select count(*)"):
+                table = text.split(" from ", 1)[1].split(" where ", 1)[0]
+                counts = {
+                    "sec_us.parse_runs": 1,
+                    "sec_us.financial_statement_items": 4,
+                    "sec_us.document_tables": 0,
+                    "sec_us.document_chunks": 5,
+                    "sec_us.evidence_citations": 8,
+                }
+                return FakeCursor((counts.get(table, 0),))
+            raise AssertionError(f"unexpected SQL: {sql!r} params={params!r}")
+
+    monkeypatch.setitem(sys.modules, "psycopg", types.SimpleNamespace(connect=lambda _url: FakeConn()))
+    monkeypatch.setitem(market_reports.MARKET_DOCUMENT_FULL_ROOTS, "US", document_root)
+    monkeypatch.setitem(market_reports.MARKET_DOCUMENT_FULL_IMPORT_SCRIPTS, "US", script)
+    monkeypatch.setitem(market_reports.MARKET_DATABASES, "US", "siq_us")
+
+    result = asyncio.run(market_reports.market_document_full_import_status(market="US_SEC", parse_run_id="parse-us"))
+
+    postgres = result["markets"]["US"]["postgres"]
+    assert postgres["status"] == "warning"
+    assert postgres["facts"] == 4
+    assert postgres["tables"] == 0
+    assert postgres["chunks"] == 5
+    assert postgres["evidence"] == 8
+
+
+def test_market_document_full_import_status_path_lookup_uses_parse_run_timestamps(monkeypatch, tmp_path):
+    document_root = tmp_path / "parser-results" / "hk"
+    script = tmp_path / "imports" / "import_hk_document_full_to_postgres.py"
+    for path in (document_root, script):
+        path.parent.mkdir(parents=True, exist_ok=True)
+    document_root.mkdir(parents=True, exist_ok=True)
+    script.write_text("# import", encoding="utf-8")
+    document_full = document_root / "task-1" / "document_full.json"
+    document_full.parent.mkdir(parents=True)
+    document_full.write_text("{}", encoding="utf-8")
+
+    seen_sql = []
+
+    class FakeCursor:
+        def __init__(self, row):
+            self.row = row
+
+        def fetchone(self):
+            return self.row
+
+    class FakeConn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def execute(self, sql, params=None):
+            text = " ".join(str(sql).split())
+            seen_sql.append(text)
+            if "information_schema.tables" in text:
+                return FakeCursor((1,))
+            if "select parse_run_id, filing_id from pdf2md_hk.parse_runs" in text:
+                return FakeCursor(("parse-1", "filing-1"))
+            if text.startswith("select count(*)"):
+                table = text.split(" from ", 1)[1].split(" where ", 1)[0]
+                counts = {
+                    "pdf2md_hk.parse_runs": 1,
+                    "pdf2md_hk.financial_statement_items": 2,
+                    "pdf2md_hk.document_tables": 1,
+                    "pdf2md_hk.retrieval_chunks": 3,
+                    "pdf2md_hk.evidence_citations": 2,
+                }
+                return FakeCursor((counts.get(table, 0),))
+            raise AssertionError(f"unexpected SQL: {sql!r} params={params!r}")
+
+    fake_psycopg = types.SimpleNamespace(connect=lambda _url: FakeConn())
+    monkeypatch.setitem(sys.modules, "psycopg", fake_psycopg)
+    monkeypatch.setitem(market_reports.MARKET_DOCUMENT_FULL_ROOTS, "HK", document_root)
+    monkeypatch.setitem(market_reports.MARKET_DOCUMENT_FULL_IMPORT_SCRIPTS, "HK", script)
+    monkeypatch.setitem(market_reports.MARKET_DATABASES, "HK", "siq_hk")
+
+    result = asyncio.run(
+        market_reports.market_document_full_import_status(market="HK", document_full_path=str(document_full))
+    )
+
+    postgres = result["markets"]["HK"]["postgres"]
+    assert postgres["status"] == "postgres_ready"
+    assert postgres["parse_run_id"] == "parse-1"
+    lookup_sql = next(sql for sql in seen_sql if "select parse_run_id, filing_id from pdf2md_hk.parse_runs" in sql)
+    assert "created_at" not in lookup_sql
+    assert "completed_at desc nulls last, started_at desc nulls last, parse_run_id desc" in lookup_sql
+
+
 def test_hk_market_package_import_uses_hk_database_env(monkeypatch, tmp_path):
     wiki_root = tmp_path / "wiki" / "hk"
     package_dir = _write_market_package(wiki_root, "companies", "00700-TENCENT", "reports", "2025-annual-12100024")
@@ -2403,6 +2813,27 @@ def test_market_package_import_queues_background_job(monkeypatch):
     assert result["queued"] is True
     assert result["job_id"] == "market-package-import-job-1"
     assert seen["kind"] == "market-package-import"
+    assert seen["target_result"]["payload"]["ddl"] is True
+
+
+def test_market_document_full_import_queues_background_job(monkeypatch):
+    seen = capture_background_job(monkeypatch)
+    monkeypatch.setattr(market_reports, "_run_market_document_full_import", lambda payload: {"ok": True, "payload": payload})
+
+    result = asyncio.run(
+        market_reports.import_market_document_full(
+            JsonRequest({"market": "HK", "document_full_path": "task-1/document_full.json", "ddl": True}),
+            wait=False,
+            _ops_user=DummyUser(),
+        )
+    )
+
+    assert result["ok"] is True
+    assert result["queued"] is True
+    assert result["job_id"] == "market-document-full-import-job-1"
+    assert seen["kind"] == "market-document-full-import"
+    assert seen["created_by"]["email"] == "ops@example.test"
+    assert seen["target_result"]["payload"]["document_full_path"] == "task-1/document_full.json"
     assert seen["target_result"]["payload"]["ddl"] is True
 
 

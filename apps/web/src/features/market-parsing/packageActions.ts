@@ -1,8 +1,10 @@
 import {
+  runMarketDocumentFullImport,
   runMarketPackageBuild,
   runMarketPackageImport,
   runMarketPackageVectorIngest,
   waitForMarketReportJob,
+  type MarketDocumentFullImportResponse,
   type MarketCode,
   type MarketPackageActionResponse,
   type MarketPackageBuildRequest,
@@ -22,6 +24,14 @@ export interface MarketPackagePathActionInput {
 }
 
 export interface MarketPackageImportActionInput extends MarketPackagePathActionInput {
+  documentFullPath?: string
+  ddl?: boolean
+  force?: boolean
+}
+
+export interface MarketDocumentFullImportActionInput {
+  market: MarketCode
+  documentFullPath: string
   ddl?: boolean
   force?: boolean
 }
@@ -38,6 +48,7 @@ export type MarketPackageJobWaiter = (
 
 export interface MarketPackageActionDeps {
   runBuild: typeof runMarketPackageBuild
+  runDocumentFullImport: typeof runMarketDocumentFullImport
   runImport: typeof runMarketPackageImport
   runVectorIngest: typeof runMarketPackageVectorIngest
   waitForJob: MarketPackageJobWaiter
@@ -45,6 +56,7 @@ export interface MarketPackageActionDeps {
 
 const defaultDeps: MarketPackageActionDeps = {
   runBuild: runMarketPackageBuild,
+  runDocumentFullImport: runMarketDocumentFullImport,
   runImport: runMarketPackageImport,
   runVectorIngest: runMarketPackageVectorIngest,
   waitForJob: (jobId, options) => waitForMarketReportJob<MarketPackageActionResponse>(jobId, options),
@@ -77,6 +89,10 @@ export function formatMarketPackageImportOutput(result: MarketPackageActionRespo
   return result.stdout || result.stderr || `parse_run_id=${result.parse_run_id || ''}`
 }
 
+export function formatMarketDocumentFullImportOutput(result: MarketDocumentFullImportResponse): string {
+  return result.stdout || result.stderr || `parse_run_id=${result.parse_run_id || ''}`
+}
+
 export function formatMarketPackageVectorOutput(result: MarketPackageActionResponse): string {
   return JSON.stringify(result.summary || { stdout: result.stdout, stderr: result.stderr }, null, 2)
 }
@@ -89,9 +105,28 @@ export async function runMarketPackageImportAction(
   input: MarketPackageImportActionInput,
   deps: MarketPackageActionDeps = defaultDeps,
 ): Promise<{ output: string; result: MarketPackageActionResponse }> {
+  const documentFullPath = input.documentFullPath?.trim()
+  if (documentFullPath) {
+    const documentFull = await runMarketDocumentFullImportAction({
+      market: input.market,
+      documentFullPath,
+      ddl: input.ddl,
+      force: input.force,
+    }, deps)
+    return documentFull
+  }
   const response = await deps.runImport(input.market, input.packagePath, input.ddl ?? true, input.force ?? false)
   const result = await resolveMarketPackageActionResponse(response, deps)
   return { output: formatMarketPackageImportOutput(result), result }
+}
+
+export async function runMarketDocumentFullImportAction(
+  input: MarketDocumentFullImportActionInput,
+  deps: MarketPackageActionDeps = defaultDeps,
+): Promise<{ output: string; result: MarketDocumentFullImportResponse }> {
+  const response = await deps.runDocumentFullImport(input.market, input.documentFullPath.trim(), input.ddl ?? true, input.force ?? false)
+  const result = await resolveMarketPackageActionResponse(response, deps) as MarketDocumentFullImportResponse
+  return { output: formatMarketDocumentFullImportOutput(result), result }
 }
 
 export async function runMarketPackageVectorDryRunAction(

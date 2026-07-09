@@ -56,6 +56,7 @@ def _market_code(value: str | None, market_wiki_roots: Mapping[str, Path]) -> st
 
 def market_code(value: str | None, market_wiki_roots: Mapping[str, Path]) -> str:
     market = str(value or "").upper()
+    market = {"US_SEC": "US", "US-SEC": "US", "US SEC": "US"}.get(market, market)
     if market not in market_wiki_roots:
         raise HTTPException(status_code=400, detail="market must be one of US/HK/JP/KR/EU")
     return market

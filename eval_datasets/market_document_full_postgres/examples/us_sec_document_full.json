@@ -1,0 +1,72 @@
+{
+  "schema_version": "sec_html_document_full_v1",
+  "source": {
+    "raw_path": "raw/filing.htm",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/aapl-20250927.htm",
+    "parser": "sec_html_document_v1"
+  },
+  "filing": {
+    "market": "US",
+    "filing_id": "US:0000320193:0000320193-25-000079",
+    "report_id": "2025-10-K-0000320193-25-000079",
+    "ticker": "AAPL",
+    "company_name": "Apple Inc.",
+    "form": "10-K",
+    "fiscal_year": 2025,
+    "period_end": "2025-09-27",
+    "accession_number": "0000320193-25-000079"
+  },
+  "tables": [
+    {
+      "table_id": "fixture-us-table-3",
+      "table_index": 3,
+      "source_order": 42,
+      "html_anchor": "table_0003",
+      "section_id": "financial_statements",
+      "heading": "CONSOLIDATED STATEMENTS OF OPERATIONS",
+      "row_count": 2,
+      "column_count": 3,
+      "fact_ids": ["fixture-us-revenue"]
+    }
+  ],
+  "facts": [
+    {
+      "fact_id": "fixture-us-revenue",
+      "source_order": 1,
+      "concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+      "label": "Net sales",
+      "value_text": "416,161",
+      "value_numeric": "416161000000",
+      "context_ref": "c-2025-fy",
+      "unit_ref": "usd",
+      "unit": "iso4217:USD",
+      "period_start": "2024-09-29",
+      "period_end": "2025-09-27",
+      "dimensions": {},
+      "html_anchor": "f-revenue-2025",
+      "table_index": 3,
+      "raw": {
+        "taxonomy": "us-gaap",
+        "decimals": "-6",
+        "scale": "6"
+      }
+    },
+    {
+      "fact_id": "fixture-us-amendment-flag",
+      "source_order": 2,
+      "concept": "dei:AmendmentFlag",
+      "label": "Amendment Flag",
+      "value_text": "false",
+      "value_numeric": null,
+      "context_ref": "c-2025-fy",
+      "unit_ref": null,
+      "unit": null,
+      "period_start": "2024-09-29",
+      "period_end": "2025-09-27",
+      "dimensions": {},
+      "html_anchor": "f-amendment-flag",
+      "table_index": null
+    }
+  ]
+}
+

@@ -1,0 +1,222 @@
+{
+  "schema_version": "market_document_full_postgres_backtest_cases_v1",
+  "cases": [
+    {
+      "case_id": "cn_period_map_balance_sheet",
+      "market": "CN",
+      "company_id": "CN:600519",
+      "report_year": 2025,
+      "period_key": "2025-12-31",
+      "document_full_path": "examples/cn_period_map_document_full.json",
+      "expected_identity": {
+        "filing_id": "CN:600519:2025-annual",
+        "period_end": "2025-12-31"
+      },
+      "expected_content_hash": "a43fafe7e5fd29595f8350a7b1263b0e470d68ac08e26e9a41e73c6e8a1d2300",
+      "assertions": [
+        {
+          "statement_type": "balance_sheet",
+          "canonical_name": "cash_and_cash_equivalents",
+          "expected_value": 51690.6,
+          "tolerance_ratio": 0,
+          "required_evidence": true,
+          "raw_value": "51,690.6",
+          "unit": "CNY million",
+          "currency": "CNY",
+          "scale": 1000000,
+          "evidence": {
+            "table_index": 71,
+            "page_number": 54
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "hk_row_period_currency_evidence",
+      "market": "HK",
+      "company_id": "HK:00700",
+      "report_year": 2025,
+      "period_key": "2025-12-31",
+      "document_full_path": "examples/hk_row_period_document_full.json",
+      "expected_identity": {
+        "filing_id": "HK:00700:2025-annual",
+        "period_end": "2025-12-31"
+      },
+      "expected_row_counts": {"parse_runs": 1, "facts": 1, "tables": 1, "chunks": 1, "evidence": 1},
+      "expected_content_hash": "d9e09394a87191931f076041a949acc571779cd6e9385617b279dabb718d800c",
+      "assertions": [
+        {
+          "statement_type": "income_statement",
+          "canonical_name": "revenue",
+          "expected_value": "751766",
+          "tolerance_ratio": 0,
+          "required_evidence": true,
+          "raw_value": "751,766",
+          "unit": "RMB million",
+          "currency": "RMB",
+          "scale": "1000000",
+          "evidence": {
+            "table_index": 4,
+            "quote_text": "Revenues | 751,766 | 660,257"
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "jp_row_period_local_language",
+      "market": "JP",
+      "company_id": "JP:7203",
+      "report_year": 2025,
+      "period_key": "2025-03-31",
+      "document_full_path": "examples/jp_row_period_document_full.json",
+      "expected_identity": {
+        "filing_id": "JP:7203:2025-annual-securities-report",
+        "period_end": "2025-03-31"
+      },
+      "expected_row_counts": {"parse_runs": 1, "facts": 1, "tables": 1, "chunks": 1, "evidence": 1},
+      "expected_content_hash": "f34d61e7bdc10e8ab3ff5c31f94d0a92d771f0ebb2df866d1d01f0bd3906453c",
+      "assertions": [
+        {
+          "statement_type": "income_statement",
+          "canonical_name": "revenue",
+          "expected_value": "48036704",
+          "tolerance_ratio": 0,
+          "required_evidence": true,
+          "raw_value": "48,036,704",
+          "unit": "JPY million",
+          "currency": "JPY",
+          "scale": "1000000",
+          "evidence": {
+            "table_index": 12,
+            "page_number": 2
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "kr_row_period_kifrs",
+      "market": "KR",
+      "company_id": "KR:005930",
+      "report_year": 2025,
+      "period_key": "2025-12-31",
+      "document_full_path": "examples/kr_row_period_document_full.json",
+      "expected_identity": {
+        "filing_id": "KR:005930:2025-annual",
+        "period_end": "2025-12-31"
+      },
+      "expected_row_counts": {"parse_runs": 1, "facts": 1, "tables": 1, "chunks": 1, "evidence": 1},
+      "expected_content_hash": "d19cc1cd1655b16b5b96cda925d148bff370dd9bd08ca60ea5158001d675c441",
+      "assertions": [
+        {
+          "statement_type": "balance_sheet",
+          "canonical_name": "current_assets",
+          "expected_value": "247684612",
+          "tolerance_ratio": 0,
+          "required_evidence": true,
+          "raw_value": "247,684,612",
+          "unit": "KRW million",
+          "currency": "KRW",
+          "scale": "1000000",
+          "evidence": {
+            "table_index": 67,
+            "page_number": 80
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "eu_period_map_country_currency",
+      "market": "EU",
+      "company_id": "EU:NL:ASML:NL0010273215",
+      "report_year": 2025,
+      "period_key": "2025-12-31",
+      "document_full_path": "examples/eu_period_map_document_full.json",
+      "expected_identity": {
+        "filing_id": "EU:NL:ASML:2025-annual",
+        "period_end": "2025-12-31"
+      },
+      "expected_row_counts": {"parse_runs": 1, "facts": 1, "tables": 1, "chunks": 1, "evidence": 1},
+      "expected_content_hash": "34a7f836b70544df57b6c2ab88e418eb358a6666cf7bdc02e153c77a7e6538d8",
+      "assertions": [
+        {
+          "statement_type": "balance_sheet",
+          "canonical_name": "total_assets",
+          "expected_value": 50566.6,
+          "tolerance_ratio": 0,
+          "required_evidence": true,
+          "raw_value": "50,566.6",
+          "unit": "EUR million",
+          "currency": "EUR",
+          "scale": 1000000,
+          "evidence": {
+            "table_index": 88,
+            "page_number": 278
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "eu_multi_currency_original_fact_currency",
+      "market": "EU",
+      "company_id": "EU:GB:VOD:GB00BH4HKS39",
+      "report_year": 2025,
+      "period_key": "2025-03-31",
+      "document_full_path": "examples/eu_multi_currency_document_full.json",
+      "expected_identity": {
+        "filing_id": "EU:GB:VOD:2025-annual",
+        "period_end": "2025-03-31"
+      },
+      "expected_row_counts": {"parse_runs": 1, "facts": 1, "tables": 1, "chunks": 1, "evidence": 1},
+      "expected_content_hash": "9c7a0bdcd59ec865bb1f758806d147dda2ff2ccbbb724864e8ad8124c0cddf71",
+      "assertions": [
+        {
+          "statement_type": "income_statement",
+          "name": "UK service revenue",
+          "expected_value": "6200",
+          "tolerance_ratio": 0,
+          "required_evidence": true,
+          "raw_value": "6,200",
+          "unit": "GBP million",
+          "currency": "GBP",
+          "fact_currency": "GBP",
+          "reporting_currency": "EUR",
+          "scale": 1000000,
+          "evidence": {
+            "table_index": 29,
+            "page_number": 166
+          }
+        }
+      ],
+      "expected_flags": ["eu_multi_currency_document"]
+    },
+    {
+      "case_id": "us_sec_ixbrl_fact_anchor",
+      "market": "US",
+      "company_id": "US:CIK0000320193",
+      "report_year": 2025,
+      "period_key": "2025-09-27",
+      "document_full_path": "examples/us_sec_document_full.json",
+      "expected_identity": {
+        "filing_id": "US:0000320193:0000320193-25-000079",
+        "period_end": "2025-09-27"
+      },
+      "expected_row_counts": {"parse_runs": 1, "facts": 1, "tables": 1, "chunks": 1, "evidence": 1},
+      "expected_content_hash": "20a74283a05ce327b0d10547fa6b1c73824c2f2f2cfce596ac8b0d0fedf02983",
+      "assertions": [
+        {
+          "statement_type": "xbrl_fact",
+          "concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+          "expected_value": "416161000000",
+          "tolerance_ratio": 0,
+          "required_evidence": true,
+          "raw_value": "416,161",
+          "unit": "iso4217:USD",
+          "evidence": {
+            "html_anchor": "f-revenue-2025",
+            "table_index": 3
+          }
+        }
+      ]
+    }
+  ]
+}

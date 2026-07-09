@@ -1,0 +1,66 @@
+{
+  "schema_version": 3,
+  "task": {
+    "task_id": "fixture-jp-7203",
+    "filename": "Toyota-Motor-Corporation_JP_7203_2025-03-31_annual.pdf"
+  },
+  "content_list_enhanced": {
+    "tables": [
+      {
+        "table_index": 12,
+        "page_number": 2,
+        "bbox": [20, 130, 565, 710],
+        "title": "Consolidated operating results"
+      }
+    ]
+  },
+  "financial_data": {
+    "schema_version": 13,
+    "rule_version": "fixture_v1",
+    "profile_id": "jp_edinet_xbrl_tables_v1",
+    "market": "JP",
+    "accounting_standard": "IFRS",
+    "company_id": "JP:7203",
+    "ticker": "7203",
+    "report_id": "JP:7203:2025-annual-securities-report",
+    "report_type": "annual_securities_report",
+    "fiscal_year": 2025,
+    "period_end": "2025-03-31",
+    "statements": [
+      {
+        "statement_id": "income_statement",
+        "statement_type": "income_statement",
+        "statement_name": "Income Statement",
+        "scope": "consolidated",
+        "unit": "JPY million",
+        "scale": "1000000",
+        "currency": "JPY",
+        "items": [
+          {
+            "canonical_name": "revenue",
+            "local_name": "営業収益",
+            "label": "営業収益",
+            "statement_type": "income_statement",
+            "value": "48036704",
+            "raw_value": "48,036,704",
+            "unit": "JPY million",
+            "currency": "JPY",
+            "period_key": "2025-03-31",
+            "period_end": "2025-03-31",
+            "scale": "1000000",
+            "taxonomy": "jp_pdf_table",
+            "evidence": {
+              "source_type": "pdf_statement_table",
+              "table_index": 12,
+              "row_index": 1,
+              "column_index": 5,
+              "quote_text": "営業収益 | 48,036,704"
+            }
+          }
+        ]
+      }
+    ],
+    "key_metrics": []
+  }
+}
+

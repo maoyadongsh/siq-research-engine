@@ -64,6 +64,12 @@ def test_hk_ddl_exposes_agent_recall_columns_and_views():
     assert "create or replace view pdf2md_hk.v_agent_financial_facts" in ddl
     assert "create or replace view pdf2md_hk.v_latest_company_reports" in ddl
     assert "unique" in ddl and "hkex_stock_code" in ddl
+    assert "create table if not exists pdf2md_hk.financial_normalization_rules" in ddl
+    assert "create table if not exists pdf2md_hk.financial_items_enriched" in ddl
+    assert "source_uid text not null" in ddl
+    assert "unique (source_table, source_uid)" in ddl
+    assert "canonical_rule_id text references pdf2md_hk.financial_normalization_rules(rule_id)" in ddl
+    assert "idx_pdf2md_hk_items_enriched_lookup" in ddl
 
 
 def _sample_manifest():

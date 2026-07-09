@@ -1,0 +1,72 @@
+{
+  "schema_version": 3,
+  "task": {
+    "task_id": "fixture-hk-00700",
+    "filename": "TENCENT_HK_00700_2025-12-31_annual.pdf"
+  },
+  "content_list_enhanced": {
+    "tables": [
+      {
+        "table_index": 4,
+        "page_number": 8,
+        "bbox": [18, 160, 560, 650],
+        "title": "Consolidated income statement"
+      }
+    ]
+  },
+  "financial_data": {
+    "schema_version": 13,
+    "rule_version": "fixture_v1",
+    "profile_id": "hkex_pdf_tables_v1",
+    "market": "HK",
+    "accounting_standard": "HKFRS",
+    "company_id": "HK:00700",
+    "ticker": "00700",
+    "report_id": "HK:00700:2025-annual",
+    "report_type": "annual",
+    "fiscal_year": 2025,
+    "period_end": "2025-12-31",
+    "statements": [
+      {
+        "statement_id": "income_statement",
+        "statement_type": "income_statement",
+        "statement_name": "Income Statement",
+        "scope": "consolidated",
+        "unit": "RMB million",
+        "scale": "1000000",
+        "currency": "RMB",
+        "columns": [
+          {"period_key": "2025-12-31", "label": "2025"},
+          {"period_key": "2024-12-31", "label": "2024"}
+        ],
+        "items": [
+          {
+            "canonical_name": "revenue",
+            "local_name": "Revenues",
+            "label": "Revenues",
+            "statement_type": "income_statement",
+            "value": "751766",
+            "raw_value": "751,766",
+            "unit": "RMB million",
+            "currency": "RMB",
+            "period_key": "2025-12-31",
+            "period_end": "2025-12-31",
+            "scale": "1000000",
+            "market": "HK",
+            "accounting_standard": "HKFRS",
+            "taxonomy": "hkex_pdf_table",
+            "evidence": {
+              "source_type": "pdf_statement_table",
+              "table_index": 4,
+              "row_index": 3,
+              "column_index": 2,
+              "quote_text": "Revenues | 751,766 | 660,257"
+            }
+          }
+        ]
+      }
+    ],
+    "key_metrics": []
+  }
+}
+

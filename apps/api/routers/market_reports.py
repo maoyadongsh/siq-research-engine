@@ -36,6 +36,8 @@ from services.market_report_settings import (
     EU_ESEF_PACKAGE_BUILD_SCRIPT,
     MARKET_BUILD_SCRIPTS,
     MARKET_DATABASES,
+    MARKET_DOCUMENT_FULL_IMPORT_SCRIPTS,
+    MARKET_DOCUMENT_FULL_ROOTS,
     MARKET_INGESTION_EVAL_MARKDOWN_PATH,
     MARKET_INGESTION_EVAL_REPORT_PATH,
     MARKET_INGESTION_EVAL_SCRIPT,
@@ -63,6 +65,20 @@ US_SEC_UPLOAD_SUFFIXES = {".pdf", ".html", ".htm", ".xhtml", ".xml", ".xbrl", ".
 MARKET_WIKISET_ROOT = REPO_ROOT / "scripts" / "wiki" / "market_wikiset"
 MARKET_RULE_SEMANTIC_SCRIPT = MARKET_WIKISET_ROOT / "run_market_rule_semantics.py"
 MARKET_LLM_SEMANTIC_SCRIPT = MARKET_WIKISET_ROOT / "run_market_llm_semantics.py"
+MARKET_DOCUMENT_FULL_SCHEMAS = {
+    "US": "sec_us",
+    "HK": "pdf2md_hk",
+    "JP": "edinet_jp",
+    "KR": "dart_kr",
+    "EU": "eu_ifrs",
+}
+MARKET_DOCUMENT_FULL_COUNT_TABLES = {
+    "facts": ("financial_statement_items", "financial_facts", "xbrl_facts_raw"),
+    "tables": ("document_tables", "html_tables", "pdf_tables"),
+    "chunks": ("document_chunks", "retrieval_chunks"),
+    "evidence": ("evidence_citations",),
+}
+MARKET_ALIASES = {"US_SEC": "US", "US-SEC": "US", "US SEC": "US"}
 FINDER_PROXY_ALLOWED_ROUTES = {
     "/v1/company/resolve": frozenset({"POST"}),
     "/v1/resolve": frozenset({"POST"}),
@@ -140,6 +156,11 @@ def _market_code(value: str | None) -> str:
     return market_packages.market_code(value, MARKET_WIKI_ROOTS)
 
 
+def _normalize_market_code(value: str | None) -> str:
+    code = str(value or "").strip().upper()
+    return MARKET_ALIASES.get(code, code)
+
+
 def _safe_market_package_path(market: str, value: str | None) -> Path:
     if market == "US" and value:
         candidate = Path(value)
@@ -171,6 +192,169 @@ def _safe_market_package_path(market: str, value: str | None) -> Path:
 
 def _safe_download_path(value: str | None) -> Path:
     return market_packages.safe_download_path(value, downloads_root=REPORT_DOWNLOADS_ROOT)
+
+
+def _safe_market_document_full_path(market: str, value: str | None) -> Path:
+    market = _normalize_market_code(market)
+    if not value:
+        raise HTTPException(status_code=400, detail="document_full_path is required")
+    root = MARKET_DOCUMENT_FULL_ROOTS[market]
+    path = Path(value)
+    candidates = [path] if path.is_absolute() else [REPO_ROOT / path, root / path]
+    last_error: HTTPException | None = None
+    for candidate in candidates:
+        try:
+            return _safe_under(root, candidate)
+        except HTTPException as exc:
+            last_error = exc
+            continue
+    try:
+        raise last_error or HTTPException(status_code=400, detail="Invalid document_full_path")
+    except HTTPException as exc:
+        raise HTTPException(status_code=400, detail="document_full_path is outside the allowed market root") from exc
+
+
+def _safe_sql_ident(value: str) -> str:
+    if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", value):
+        raise ValueError(f"Unsafe SQL identifier: {value!r}")
+    return value
+
+
+def _market_document_full_status_database_url(market: str) -> str:
+    market = _normalize_market_code(market)
+    database = MARKET_DATABASES[market]
+    host = os.environ.get("SIQ_PGHOST") or os.environ.get("PGHOST") or "127.0.0.1"
+    port = os.environ.get("SIQ_PGPORT") or os.environ.get("PGPORT") or "15432"
+    user = os.environ.get("SIQ_PGUSER") or os.environ.get("PGUSER") or "postgres"
+    password = os.environ.get("SIQ_PGPASSWORD") or os.environ.get("PGPASSWORD") or ""
+    auth = f"{user}:{password}" if password else user
+    return f"postgresql://{auth}@{host}:{port}/{database}"
+
+
+def _market_document_full_table_exists(conn: Any, schema: str, table: str) -> bool:
+    row = conn.execute(
+        """
+        select 1
+        from information_schema.tables
+        where table_schema = %s
+          and table_name = %s
+          and table_type = 'BASE TABLE'
+        """,
+        (schema, table),
+    ).fetchone()
+    return bool(row)
+
+
+def _market_document_full_count(conn: Any, schema: str, table: str, where_sql: str, params: tuple[Any, ...]) -> int:
+    if not _market_document_full_table_exists(conn, schema, table):
+        return 0
+    schema_sql = _safe_sql_ident(schema)
+    table_sql = _safe_sql_ident(table)
+    row = conn.execute(f"select count(*) from {schema_sql}.{table_sql} where {where_sql}", params).fetchone()
+    return int(row[0] if row else 0)
+
+
+def _market_document_full_db_status(
+    market: str,
+    *,
+    parse_run_id: str | None = None,
+    filing_id: str | None = None,
+    document_full_path: str | None = None,
+    task_id: str | None = None,
+) -> dict[str, Any]:
+    market = _normalize_market_code(market)
+    selectors = {
+        key: value
+        for key, value in {
+            "parse_run_id": parse_run_id,
+            "filing_id": filing_id,
+            "document_full_path": document_full_path,
+            "task_id": task_id,
+        }.items()
+        if value
+    }
+    if not selectors:
+        return {}
+    try:
+        import psycopg
+    except Exception as exc:
+        return {"status": "unknown", "selectors": selectors, "message": f"psycopg unavailable: {exc}"}
+
+    schema = MARKET_DOCUMENT_FULL_SCHEMAS[market]
+    try:
+        with psycopg.connect(_market_document_full_status_database_url(market)) as conn:
+            where_sql = ""
+            params: tuple[Any, ...] = ()
+            if parse_run_id:
+                where_sql = "parse_run_id = %s"
+                params = (parse_run_id,)
+            elif filing_id:
+                where_sql = "filing_id = %s"
+                params = (filing_id,)
+            elif document_full_path:
+                if _market_document_full_table_exists(conn, schema, "parse_runs"):
+                    schema_sql = _safe_sql_ident(schema)
+                    row = conn.execute(
+                        f"""
+                        select parse_run_id, filing_id
+                        from {schema_sql}.parse_runs
+                        where wiki_package_path = %s
+                           or raw->>'document_full_path' = %s
+                        order by completed_at desc nulls last, started_at desc nulls last, parse_run_id desc
+                        limit 1
+                        """,
+                        (document_full_path, document_full_path),
+                    ).fetchone()
+                    if row:
+                        parse_run_id = str(row[0])
+                        filing_id = str(row[1]) if row[1] is not None else filing_id
+                        where_sql = "parse_run_id = %s"
+                        params = (parse_run_id,)
+                if not where_sql:
+                    where_sql = "parse_run_id = %s"
+                    params = ("__missing_parse_run__",)
+            elif task_id:
+                if _market_document_full_table_exists(conn, schema, "parse_runs"):
+                    schema_sql = _safe_sql_ident(schema)
+                    row = conn.execute(
+                        f"""
+                        select parse_run_id, filing_id
+                        from {schema_sql}.parse_runs
+                        where raw->'task'->>'task_id' = %s
+                           or wiki_package_path like %s
+                        order by completed_at desc nulls last, started_at desc nulls last, parse_run_id desc
+                        limit 1
+                        """,
+                        (task_id, f"%/{task_id}/document_full.json"),
+                    ).fetchone()
+                    if row:
+                        parse_run_id = str(row[0])
+                        filing_id = str(row[1]) if row[1] is not None else filing_id
+                        where_sql = "parse_run_id = %s"
+                        params = (parse_run_id,)
+                if not where_sql:
+                    where_sql = "parse_run_id = %s"
+                    params = ("__missing_parse_run__",)
+
+            counts = {
+                name: sum(_market_document_full_count(conn, schema, table, where_sql, params) for table in tables)
+                for name, tables in MARKET_DOCUMENT_FULL_COUNT_TABLES.items()
+            }
+            parse_runs = _market_document_full_count(conn, schema, "parse_runs", where_sql, params)
+            ready = parse_runs > 0 and counts["facts"] > 0 and counts["tables"] > 0 and counts["chunks"] > 0
+            warning = parse_runs > 0 and counts["facts"] > 0 and not ready
+            return {
+                "status": "postgres_ready" if ready else ("warning" if warning else "missing"),
+                "selectors": selectors,
+                "database": MARKET_DATABASES[market],
+                "schema": schema,
+                "parse_run_id": parse_run_id,
+                "filing_id": filing_id,
+                "parse_runs": parse_runs,
+                **counts,
+            }
+    except Exception as exc:
+        return {"status": "unknown", "selectors": selectors, "database": MARKET_DATABASES[market], "schema": schema, "message": str(exc)}
 
 
 def _adjacent_metadata_path(path: Path) -> Path | None:
@@ -618,6 +802,41 @@ def _run_market_package_import(payload: dict[str, Any]) -> dict[str, Any]:
         run_kwargs["env"] = import_env
     completed = run_command(args, **run_kwargs)
     return market_report_commands.market_package_import_result_payload(
+        completed=completed,
+        command=_command_for_display(args),
+    )
+
+
+def _run_market_document_full_import(payload: dict[str, Any]) -> dict[str, Any]:
+    market = _market_code(payload.get("market"))
+    try:
+        plan = market_report_commands.build_market_document_full_import_plan(
+            payload=payload,
+            market=market,
+            market_document_full_import_scripts=MARKET_DOCUMENT_FULL_IMPORT_SCRIPTS,
+            safe_market_document_full_path=_safe_market_document_full_path,
+        )
+    except market_report_commands.MarketPackagePlanError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+    args = market_report_commands.market_document_full_import_args(
+        executable=sys.executable,
+        script=plan.script,
+        market=plan.market,
+        document_full_path=plan.document_full_path,
+        payload=payload,
+    )
+    import_env = market_report_commands.market_document_full_import_env(
+        market,
+        MARKET_DATABASES,
+        base_env=os.environ,
+        database_url=str(payload.get("database_url") or "").strip() or None,
+    )
+    run_kwargs: dict[str, Any] = {"cwd": REPO_ROOT, "timeout": 900}
+    if import_env:
+        run_kwargs["env"] = import_env
+    completed = run_command(args, **run_kwargs)
+    return market_report_commands.market_document_full_import_result_payload(
         completed=completed,
         command=_command_for_display(args),
     )
@@ -1682,6 +1901,61 @@ async def vector_ingest_market_package(
     return _queue_market_report_job(
         "market-vector-ingest",
         lambda: _run_market_vector_ingest(payload),
+        created_by=_ops_user,
+    )
+
+
+@router.get("/market-reports/document-full/status")
+@router.get("/market-reports/document-full/import/status")
+async def market_document_full_import_status(
+    market: str | None = None,
+    parse_run_id: str | None = None,
+    filing_id: str | None = None,
+    document_full_path: str | None = None,
+    task_id: str | None = None,
+) -> dict[str, Any]:
+    codes = _markets_to_search(market)
+    markets = {}
+    for code in codes:
+        root = MARKET_DOCUMENT_FULL_ROOTS[code]
+        script = MARKET_DOCUMENT_FULL_IMPORT_SCRIPTS[code]
+        markets[code] = {
+            "document_full_root": _rel_or_abs(root),
+            "document_full_root_exists": root.exists(),
+            "script": _rel_or_abs(script),
+            "script_exists": script.is_file(),
+            "database": MARKET_DATABASES.get(code),
+            "schema": MARKET_DOCUMENT_FULL_SCHEMAS.get(code),
+        }
+        db_status = _market_document_full_db_status(
+            code,
+            parse_run_id=parse_run_id,
+            filing_id=filing_id,
+            document_full_path=document_full_path,
+            task_id=task_id,
+        )
+        if db_status:
+            markets[code]["postgres"] = db_status
+    return {"ok": True, "markets": markets}
+
+
+@router.post("/market-reports/document-full/import")
+async def import_market_document_full(
+    request: Request,
+    wait: bool = False,
+    _ops_user=Depends(require_permission("system.config")),
+) -> dict[str, Any]:
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="JSON object payload is required")
+    if wait:
+        return _run_market_document_full_import(payload)
+    return _queue_market_report_job(
+        "market-document-full-import",
+        lambda: _run_market_document_full_import(payload),
         created_by=_ops_user,
     )
 

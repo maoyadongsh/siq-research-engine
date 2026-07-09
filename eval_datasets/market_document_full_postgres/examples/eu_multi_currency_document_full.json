@@ -1,0 +1,95 @@
+{
+  "schema_version": 3,
+  "task": {
+    "task_id": "fixture-eu-vodafone-multi-currency",
+    "filename": "Vodafone-Group_EU_VOD_2025-03-31_annual.pdf"
+  },
+  "metadata": {
+    "market": "EU",
+    "country": "GB",
+    "ticker": "VOD",
+    "company_name": "Vodafone Group Plc",
+    "isin": "GB00BH4HKS39",
+    "exchange": "LSE",
+    "reporting_currency": "EUR"
+  },
+  "content_list_enhanced": {
+    "tables": [
+      {
+        "table_index": 18,
+        "page_number": 142,
+        "bbox": [24, 138, 560, 690],
+        "title": "Consolidated income statement"
+      },
+      {
+        "table_index": 29,
+        "page_number": 166,
+        "bbox": [24, 146, 560, 710],
+        "title": "Operating metrics"
+      }
+    ]
+  },
+  "financial_data": {
+    "schema_version": 13,
+    "rule_version": "fixture_v1",
+    "market": "EU",
+    "country": "GB",
+    "exchange": "LSE",
+    "isin": "GB00BH4HKS39",
+    "accounting_standard": "IFRS",
+    "company_id": "EU:GB:VOD:GB00BH4HKS39",
+    "ticker": "VOD",
+    "company_name": "Vodafone Group Plc",
+    "report_id": "EU:GB:VOD:2025-annual",
+    "report_type": "annual",
+    "fiscal_year": 2025,
+    "period_end": "2025-03-31",
+    "reporting_currency": "EUR",
+    "statements": [
+      {
+        "statement_id": "income_statement",
+        "statement_type": "income_statement",
+        "statement_name": "Consolidated income statement",
+        "scope": "consolidated",
+        "unit": "EUR million",
+        "scale": 1000000,
+        "currency": "EUR",
+        "items": [
+          {
+            "canonical_name": "revenue",
+            "name": "Revenue",
+            "value": "37000",
+            "raw_value": "37,000",
+            "period_key": "2025-03-31",
+            "period_end": "2025-03-31",
+            "unit": "EUR million",
+            "currency": "EUR",
+            "evidence": {
+              "source_type": "pdf_statement_table",
+              "table_index": 18,
+              "page_number": 142,
+              "quote_text": "Revenue | 37,000"
+            }
+          },
+          {
+            "canonical_name": "revenue",
+            "name": "UK service revenue",
+            "value": "6200",
+            "raw_value": "6,200",
+            "period_key": "2025-03-31",
+            "period_end": "2025-03-31",
+            "unit": "GBP million",
+            "currency": "GBP",
+            "evidence": {
+              "source_type": "pdf_operating_metric_table",
+              "table_index": 29,
+              "page_number": 166,
+              "quote_text": "UK service revenue | 6,200"
+            }
+          }
+        ]
+      }
+    ],
+    "key_metrics": []
+  }
+}

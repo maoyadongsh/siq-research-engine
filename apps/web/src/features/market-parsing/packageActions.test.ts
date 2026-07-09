@@ -4,12 +4,14 @@ import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 
 import type { MarketPackageActionDeps } from './packageActions.ts'
-import type { MarketPackageActionResponse, MarketPackageBuildRequest, MarketCode } from './api.ts'
+import type { MarketDocumentFullImportResponse, MarketPackageActionResponse, MarketPackageBuildRequest, MarketCode } from './api.ts'
 
 const {
   buildMarketPackageRequest,
+  formatMarketDocumentFullImportOutput,
   formatMarketPackageImportOutput,
   formatMarketPackageVectorOutput,
+  runMarketDocumentFullImportAction,
   runMarketPackageBuildAction,
   runMarketPackageImportAction,
   runMarketPackageVectorDryRunAction,
@@ -18,6 +20,7 @@ const {
 function makeDeps(overrides: Partial<MarketPackageActionDeps> = {}): MarketPackageActionDeps {
   return {
     runBuild: async () => ({ ok: true }),
+    runDocumentFullImport: async () => ({ ok: true }),
     runImport: async () => ({ ok: true }),
     runVectorIngest: async () => ({ ok: true }),
     waitForJob: async () => ({ ok: true }),
@@ -106,6 +109,50 @@ test('runMarketPackageImportAction defaults HK imports to ddl enabled and preser
   assert.equal(calls[0].ddl, true)
   assert.equal(calls[0].force, true)
   assert.equal(result.output, 'hk import ok\n')
+})
+
+test('runMarketPackageImportAction prefers document_full import when path is provided', async () => {
+  const calls: Array<{ kind: string; market: string; path: string; ddl?: boolean; force?: boolean }> = []
+  const deps = makeDeps({
+    runDocumentFullImport: async (market, documentFullPath, ddl, force) => {
+      calls.push({ kind: 'document_full', market, path: documentFullPath, ddl, force })
+      return { ok: true, stdout: 'document_full ok\n' } satisfies MarketDocumentFullImportResponse
+    },
+    runImport: async (market, packagePath, ddl, force) => {
+      calls.push({ kind: 'package', market, path: packagePath, ddl, force })
+      return { ok: true, stdout: 'package ok\n' }
+    },
+  })
+
+  const result = await runMarketPackageImportAction({
+    market: 'HK',
+    packagePath: 'HK/pkg',
+    documentFullPath: ' task-1/document_full.json ',
+    force: true,
+  }, deps)
+
+  assert.deepEqual(calls, [{ kind: 'document_full', market: 'HK', path: 'task-1/document_full.json', ddl: true, force: true }])
+  assert.equal(result.output, 'document_full ok\n')
+})
+
+test('runMarketDocumentFullImportAction calls market document_full importer', async () => {
+  const calls: Array<{ market: string; path: string; ddl?: boolean; force?: boolean }> = []
+  const deps = makeDeps({
+    runDocumentFullImport: async (market, documentFullPath, ddl, force) => {
+      calls.push({ market, path: documentFullPath, ddl, force })
+      return { ok: true, parse_run_id: 'parse-doc-full', stdout: 'document_full imported\n' } satisfies MarketDocumentFullImportResponse
+    },
+  })
+
+  const result = await runMarketDocumentFullImportAction({
+    market: 'EU',
+    documentFullPath: ' task-1/document_full.json ',
+    force: true,
+  }, deps)
+
+  assert.deepEqual(calls, [{ market: 'EU', path: 'task-1/document_full.json', ddl: true, force: true }])
+  assert.equal(formatMarketDocumentFullImportOutput(result.result), 'document_full imported\n')
+  assert.equal(result.output, 'document_full imported\n')
 })
 
 test('runMarketPackageVectorDryRunAction serializes summary output', async () => {

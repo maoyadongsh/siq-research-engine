@@ -33,6 +33,7 @@ from services.path_config import (
 )
 from services.security_utils import validate_table_name
 from services import document_workflow_service
+from services.market_report_settings import MARKET_DATABASES, MARKET_DOCUMENT_FULL_IMPORT_SCRIPTS
 from services.workflow_job_service import (
     create_workflow_job,
     load_workflow_jobs,
@@ -50,13 +51,53 @@ LLM_SEMANTIC_SCRIPT = Path(os.environ.get("LLM_SEMANTIC_SCRIPT", str(WIKISET_ROO
 WIKI_NAMING_REPAIR_SCRIPT = Path(os.environ.get("WIKI_NAMING_REPAIR_SCRIPT", str(WIKISET_ROOT / "repair_wiki_naming.py"))).resolve()
 WIKI_NAMING_VALIDATE_SCRIPT = Path(os.environ.get("WIKI_NAMING_VALIDATE_SCRIPT", str(WIKISET_ROOT / "validate_wiki_naming.py"))).resolve()
 MARKET_WIKISET_ROOT = REPO_ROOT / "scripts" / "wiki" / "market_wikiset"
-PDF_MARKET_CODES = {"HK", "KR", "JP", "EU"}
+PDF_MARKET_CODES = {"HK", "KR", "JP", "EU", "US"}
 PDF_MARKET_WIKI_INGEST_SCRIPTS = {
     "HK": MARKET_WIKISET_ROOT / "ingest_hk_pdf_wiki.py",
     "KR": MARKET_WIKISET_ROOT / "ingest_kr_pdf_wiki.py",
     "JP": MARKET_WIKISET_ROOT / "ingest_jp_pdf_wiki.py",
     "EU": MARKET_WIKISET_ROOT / "ingest_eu_pdf_wiki.py",
 }
+PDF_MARKET_DB_SCHEMAS = {
+    "US": "sec_us",
+    "HK": "pdf2md_hk",
+    "JP": "edinet_jp",
+    "KR": "dart_kr",
+    "EU": "eu_ifrs",
+}
+MARKET_DOCUMENT_FULL_COUNT_TABLES = {
+    "facts": ("financial_statement_items", "financial_facts", "xbrl_facts_raw"),
+    "tables": ("document_tables", "html_tables", "pdf_tables"),
+    "chunks": ("document_chunks", "retrieval_chunks"),
+    "evidence": ("evidence_citations",),
+}
+MARKET_ALIASES = {"US_SEC": "US", "US-SEC": "US", "US SEC": "US"}
+
+
+def _normalize_market_code(market: str | None) -> str:
+    value = str(market or "").strip().upper()
+    return MARKET_ALIASES.get(value, value)
+
+
+def _market_document_full_import_env(market: str) -> dict:
+    market_code = _normalize_market_code(market)
+    env = os.environ.copy()
+    env.pop("DATABASE_URL", None)
+    database = str(MARKET_DATABASES.get(market_code) or "").strip()
+    if database:
+        env_name = f"SIQ_{market_code}_PGDATABASE"
+        if not str(env.get(env_name) or "").strip():
+            env[env_name] = database
+    return env
+
+
+def _postgres_import_script_for_market(market: str) -> Path:
+    market_code = _normalize_market_code(market)
+    if market_code in PDF_MARKET_CODES:
+        script = MARKET_DOCUMENT_FULL_IMPORT_SCRIPTS.get(market_code)
+        if script:
+            return script
+    return DB_IMPORT_SCRIPT
 
 CORE_INPUT_ARTIFACTS = [
     "result.md",
@@ -251,12 +292,12 @@ def _infer_task_market(task_id: str) -> str:
         for key in ("market", "market_profile"):
             value = str(payload.get(key) or "").strip().upper()
             if value:
-                return value
+                return _normalize_market_code(value)
         nested = payload.get("market_metadata")
         if isinstance(nested, dict):
             value = str(nested.get("market") or nested.get("market_profile") or "").strip().upper()
             if value:
-                return value
+                return _normalize_market_code(value)
     filename = " ".join(
         str(payload.get("filename") or payload.get("source_file") or "")
         for payload in payloads
@@ -269,7 +310,7 @@ def _infer_task_market(task_id: str) -> str:
 
 
 def _wiki_root_for_market(market: str) -> Path:
-    market_code = str(market or "").upper()
+    market_code = _normalize_market_code(market)
     if market_code in PDF_MARKET_CODES:
         return WIKI_ROOT / market_code.lower()
     return WIKI_ROOT
@@ -2095,6 +2136,117 @@ def _db_status(task_id: str) -> dict:
         return {"status": "unknown", "message": str(exc)}
 
 
+def _safe_sql_ident(value: str) -> str:
+    if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", value):
+        raise ValueError(f"Unsafe SQL identifier: {value!r}")
+    return value
+
+
+def _market_document_full_database_url(market: str) -> str:
+    market = _normalize_market_code(market)
+    database = MARKET_DATABASES[market]
+    host = os.environ.get("SIQ_PGHOST") or os.environ.get("PGHOST") or "127.0.0.1"
+    port = os.environ.get("SIQ_PGPORT") or os.environ.get("PGPORT") or "15432"
+    user = os.environ.get("SIQ_PGUSER") or os.environ.get("PGUSER") or "postgres"
+    password = os.environ.get("SIQ_PGPASSWORD") or os.environ.get("PGPASSWORD") or ""
+    auth = f"{user}:{password}" if password else user
+    return f"postgresql://{auth}@{host}:{port}/{database}"
+
+
+def _market_document_full_table_exists(conn, schema: str, table: str) -> bool:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            select 1
+            from information_schema.tables
+            where table_schema = %s
+              and table_name = %s
+              and table_type = 'BASE TABLE'
+            """,
+            (schema, table),
+        )
+        return bool(cur.fetchone())
+
+
+def _market_document_full_count(conn, schema: str, table: str, where_sql: str, params: tuple) -> int:
+    if not _market_document_full_table_exists(conn, schema, table):
+        return 0
+    schema_sql = _safe_sql_ident(schema)
+    table_sql = _safe_sql_ident(table)
+    with conn.cursor() as cur:
+        cur.execute(f"select count(*) from {schema_sql}.{table_sql} where {where_sql}", params)
+        row = cur.fetchone()
+    return int(row[0] if row else 0)
+
+
+def _market_document_full_db_status(task_id: str, market: str, document_full: Path | None = None) -> dict:
+    market_code = _normalize_market_code(market)
+    schema = PDF_MARKET_DB_SCHEMAS.get(market_code)
+    if not schema:
+        return _db_status(task_id)
+    document_full_path = str(document_full) if document_full else ""
+    selectors = {"task_id": task_id}
+    if document_full_path:
+        selectors["document_full_path"] = document_full_path
+    try:
+        import psycopg
+    except Exception as exc:
+        return {"status": "unknown", "market": market_code, "message": f"psycopg unavailable: {exc}"}
+
+    try:
+        with psycopg.connect(_market_document_full_database_url(market_code)) as conn:
+            parse_run_id = ""
+            filing_id = ""
+            if _market_document_full_table_exists(conn, schema, "parse_runs"):
+                schema_sql = _safe_sql_ident(schema)
+                with conn.cursor() as cur:
+                    cur.execute(
+                        f"""
+                        select parse_run_id, filing_id
+                        from {schema_sql}.parse_runs
+                        where raw->'task'->>'task_id' = %s
+                           or wiki_package_path like %s
+                           or wiki_package_path = %s
+                           or raw->>'document_full_path' = %s
+                        order by completed_at desc nulls last, started_at desc nulls last, parse_run_id desc
+                        limit 1
+                        """,
+                        (task_id, f"%/{task_id}/document_full.json", document_full_path, document_full_path),
+                    )
+                    row = cur.fetchone()
+                if row:
+                    parse_run_id = str(row[0])
+                    filing_id = str(row[1]) if row[1] is not None else ""
+            where_sql = "parse_run_id = %s"
+            params = (parse_run_id or "__missing_parse_run__",)
+            counts = {
+                name: sum(_market_document_full_count(conn, schema, table, where_sql, params) for table in tables)
+                for name, tables in MARKET_DOCUMENT_FULL_COUNT_TABLES.items()
+            }
+            parse_runs = _market_document_full_count(conn, schema, "parse_runs", where_sql, params)
+        ready = parse_runs > 0 and counts["facts"] > 0 and counts["tables"] > 0 and counts["chunks"] > 0
+        partial = parse_runs > 0 and counts["facts"] > 0 and not ready
+        status = "ready" if ready else ("partial" if partial else "missing")
+        return {
+            "status": status,
+            "marketStatus": "postgres_ready" if ready else ("warning" if partial else "missing"),
+            "market": market_code,
+            "schema": schema,
+            "database": MARKET_DATABASES.get(market_code),
+            "parseRunId": parse_run_id,
+            "filingId": filing_id,
+            "parseRuns": parse_runs,
+            "facts": counts["facts"],
+            "tables": counts["tables"],
+            "chunks": counts["chunks"],
+            "evidence": counts["evidence"],
+            "selectors": selectors,
+            "message": "" if ready else ("PostgreSQL 入库不完整" if partial else "PostgreSQL 未入库"),
+        }
+    except Exception as exc:
+        return {"status": "unknown", "market": market_code, "schema": schema, "message": str(exc), "selectors": selectors}
+
+
 def _run_command(args: list[str], timeout: int = 180, env: dict[str, str] | None = None) -> dict:
     completed = run_subprocess_command(args, timeout=timeout, env=env)
     return {
@@ -2193,14 +2345,15 @@ def _llm_semantic_env() -> dict[str, str]:
 
 def _workflow_preflight(task_id: str) -> dict:
     task_id = _safe_task_id(task_id)
-    market = _infer_task_market(task_id)
+    market = _normalize_market_code(_infer_task_market(task_id))
     wiki_root = _wiki_root_for_market(market)
     artifacts = _artifact_bundle_status(task_id)
     wiki = _wiki_import_status_at_root(task_id, wiki_root, market)
     company_dir = wiki.get("companyDir") or _find_company_for_task_at_root(task_id, wiki_root)
     semantic = _semantic_status_at_root(company_dir, task_id, wiki_root)
     obsidian = _obsidian_status_at_root(company_dir, semantic, wiki_root)
-    database = _db_status(task_id)
+    db_script = _postgres_import_script_for_market(market)
+    database = _market_document_full_db_status(task_id, market, _find_task_document_full(task_id)) if market in PDF_MARKET_CODES else _db_status(task_id)
     checks = [
         {
             "id": "artifact_bundle",
@@ -2237,10 +2390,10 @@ def _workflow_preflight(task_id: str) -> dict:
         {
             "id": "db_import_script",
             "label": "PostgreSQL 入库脚本",
-            "ok": DB_IMPORT_SCRIPT.is_file(),
-            "status": "ready" if DB_IMPORT_SCRIPT.is_file() else "missing",
-            "message": str(DB_IMPORT_SCRIPT),
-            "blocking": not DB_IMPORT_SCRIPT.is_file(),
+            "ok": db_script.is_file(),
+            "status": "ready" if db_script.is_file() else "missing",
+            "message": str(db_script),
+            "blocking": not db_script.is_file(),
         },
     ]
     if LLM_SEMANTIC_ENABLED:
@@ -2276,7 +2429,7 @@ def _workflow_preflight(task_id: str) -> dict:
 
 def _workflow_status_payload(task_id: str) -> dict:
     task_id = _safe_task_id(task_id)
-    market = _infer_task_market(task_id)
+    market = _normalize_market_code(_infer_task_market(task_id))
     wiki_root = _wiki_root_for_market(market)
     artifact_bundle = _artifact_bundle_status(task_id)
     document_full = _find_task_document_full(task_id)
@@ -2284,7 +2437,7 @@ def _workflow_status_payload(task_id: str) -> dict:
     company_dir = wiki.get("companyDir") or _find_company_for_task_at_root(task_id, wiki_root)
     semantic = _semantic_status_at_root(company_dir, task_id, wiki_root)
     obsidian = _obsidian_status_at_root(company_dir, semantic, wiki_root)
-    database = _db_status(task_id)
+    database = _market_document_full_db_status(task_id, market, document_full) if market in PDF_MARKET_CODES else _db_status(task_id)
     return {
         "taskId": task_id,
         "market": market,
@@ -2607,7 +2760,7 @@ def extract_semantic_for_task(task_id: str):
 
 def extract_generic_semantic_for_task(task_id: str):
     task_id = _safe_task_id(task_id)
-    market = _infer_task_market(task_id)
+    market = _normalize_market_code(_infer_task_market(task_id))
     is_pdf_market = market in PDF_MARKET_CODES
     wiki_root = _wiki_root_for_market(market)
     company_dir = _find_company_for_task_at_root(task_id, wiki_root) if is_pdf_market else _find_company_for_task(task_id)
@@ -2678,6 +2831,24 @@ def import_task_to_database(task_id: str):
     document_full = _find_task_document_full(task_id)
     if not document_full:
         raise HTTPException(404, "document_full.json not found for task")
+    market = _normalize_market_code(_infer_task_market(task_id))
+    if market in PDF_MARKET_CODES:
+        script = MARKET_DOCUMENT_FULL_IMPORT_SCRIPTS.get(market)
+        if not script or not script.is_file():
+            raise HTTPException(500, f"{market} document_full DB import script not found: {script}")
+        args = [sys.executable, str(script), str(document_full), "--market", market, "--ddl"]
+        command_env = _market_document_full_import_env(market)
+        result = _run_command(args, timeout=900, env=command_env)
+        if result["returnCode"] != 0:
+            raise HTTPException(500, result)
+        return {
+            "ok": True,
+            "taskId": task_id,
+            "market": market,
+            "documentFull": str(document_full),
+            "result": result,
+            "database": _market_document_full_db_status(task_id, market, document_full),
+        }
     if not DB_IMPORT_SCRIPT.is_file():
         raise HTTPException(500, f"DB import script not found: {DB_IMPORT_SCRIPT}")
     args = [sys.executable, str(DB_IMPORT_SCRIPT), str(document_full), "--ddl"]

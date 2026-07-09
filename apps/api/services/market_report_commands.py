@@ -10,6 +10,12 @@ from typing import Any
 ESEF_SOURCE_SUFFIXES = {".zip", ".xhtml", ".html", ".htm", ".xml", ".xbrl"}
 PARSER_RESULT_MARKETS = {"HK", "JP", "KR", "EU"}
 DOWNLOAD_PATH_MARKETS = {"CN", "HK", "US", "EU", "JP", "KR"}
+MARKET_ALIASES = {"US_SEC": "US", "US-SEC": "US", "US SEC": "US"}
+
+
+def normalize_market_code(market: str | None) -> str:
+    value = str(market or "").strip().upper()
+    return MARKET_ALIASES.get(value, value)
 
 
 class MarketPackageBuildPlanError(Exception):
@@ -41,6 +47,13 @@ class MarketPackageBuildPlan:
 class MarketPackageImportPlan:
     market: str
     package_dir: Path
+    script: Path
+
+
+@dataclass(frozen=True)
+class MarketDocumentFullImportPlan:
+    market: str
+    document_full_path: Path
     script: Path
 
 
@@ -222,7 +235,7 @@ def market_package_import_env(
     base_env: Mapping[str, str] | None = None,
     database_url: str | None = None,
 ) -> dict[str, str]:
-    market_code = market.upper()
+    market_code = normalize_market_code(market)
     database = market_databases.get(market_code)
     default_database = str(database).strip() if database else ""
     explicit_database_url = str(database_url).strip() if database_url else ""
@@ -274,6 +287,66 @@ def build_market_package_import_plan(
     return MarketPackageImportPlan(
         market=market,
         package_dir=package_dir,
+        script=script,
+    )
+
+
+def market_document_full_import_env(
+    market: str,
+    market_databases: Mapping[str, str],
+    base_env: Mapping[str, str] | None = None,
+    database_url: str | None = None,
+) -> dict[str, str]:
+    env = market_package_import_env(
+        market,
+        market_databases,
+        base_env=base_env,
+        database_url=database_url,
+    )
+    if database_url:
+        env["SIQ_ALLOW_GENERIC_MARKET_DATABASE_URL"] = "1"
+    return env
+
+
+def market_document_full_import_args(
+    *,
+    executable: str,
+    script: Path,
+    market: str,
+    document_full_path: Path,
+    payload: Mapping[str, Any],
+) -> list[str]:
+    args = [executable, str(script), str(document_full_path), "--market", normalize_market_code(market)]
+    if payload.get("ddl") or payload.get("run_ddl"):
+        args.append("--ddl")
+    if payload.get("force"):
+        args.append("--force")
+    return args
+
+
+def build_market_document_full_import_plan(
+    *,
+    payload: Mapping[str, Any],
+    market: str,
+    market_document_full_import_scripts: Mapping[str, Path],
+    safe_market_document_full_path: Callable[[str, str], Path],
+) -> MarketDocumentFullImportPlan:
+    market = normalize_market_code(market)
+    raw_path = payload.get("document_full_path") or payload.get("path") or payload.get("source_path") or payload.get("task_id")
+    if raw_path in (None, ""):
+        raise MarketPackagePlanError(400, "document_full_path or task_id is required")
+    document_full_path = safe_market_document_full_path(market, str(raw_path))
+    if document_full_path.is_dir():
+        document_full_path = document_full_path / "document_full.json"
+    if not document_full_path.is_file():
+        raise MarketPackagePlanError(404, "document_full_path not found")
+
+    script = market_document_full_import_scripts[market]
+    if not script.is_file():
+        raise MarketPackagePlanError(404, f"Missing document_full import script: {script}")
+    return MarketDocumentFullImportPlan(
+        market=market,
+        document_full_path=document_full_path,
         script=script,
     )
 
@@ -531,6 +604,10 @@ def market_package_import_result_payload(*, completed: Any, command: str) -> dic
         "stderr": _tail(stderr, 4000),
         "command": command,
     }
+
+
+def market_document_full_import_result_payload(*, completed: Any, command: str) -> dict[str, Any]:
+    return market_package_import_result_payload(completed=completed, command=command)
 
 
 def _json_object_from_stdout(stdout: str | None) -> dict[str, Any] | None:

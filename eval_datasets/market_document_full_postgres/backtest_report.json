@@ -1,0 +1,210 @@
+{
+  "schema_version": "market_document_full_postgres_backtest_results_v1",
+  "cases_path": "/home/maoyd/siq-research-engine/eval_datasets/market_document_full_postgres/cases.json",
+  "mode": "document_full_fixture_contract+postgres_import_idempotency",
+  "note": "This runner validates document_full row-shape, identity, value, unit/currency, and evidence contracts. With --db it checks PostgreSQL rows; --import-before-db-check first imports document_full fixtures; --idempotency repeats the import and compares row counts. Agent query gates remain explicit follow-up gates.",
+  "passed": false,
+  "passed_count": 7,
+  "case_count": 7,
+  "market_counts": {
+    "CN": 1,
+    "HK": 1,
+    "JP": 1,
+    "KR": 1,
+    "EU": 2,
+    "US": 1
+  },
+  "summary": {
+    "assertion_count": 7,
+    "common_core_assertion_count": 5,
+    "required_evidence_assertion_count": 7,
+    "evidence_coverage_ratio": 1,
+    "unit_checked_assertion_count": 7,
+    "currency_checked_assertion_count": 6,
+    "fact_currency_checked_assertion_count": 1,
+    "unit_currency_explainability_ratio": 1,
+    "postgres_existing_row_check_verified": false,
+    "postgres_roundtrip_verified": false,
+    "postgres_import_executed": true,
+    "postgres_idempotency_verified": false,
+    "postgres_roundtrip_passed_count": 0,
+    "postgres_roundtrip_case_count": 6,
+    "agent_query_verified": false
+  },
+  "results": [
+    {
+      "case_id": "cn_period_map_balance_sheet",
+      "market": "CN",
+      "passed": true,
+      "errors": [],
+      "fact_count": 2,
+      "content_hash": "a43fafe7e5fd29595f8350a7b1263b0e470d68ac08e26e9a41e73c6e8a1d2300",
+      "document_full_path": "/home/maoyd/siq-research-engine/eval_datasets/market_document_full_postgres/examples/cn_period_map_document_full.json"
+    },
+    {
+      "case_id": "hk_row_period_currency_evidence",
+      "market": "HK",
+      "passed": true,
+      "errors": [],
+      "fact_count": 1,
+      "content_hash": "d9e09394a87191931f076041a949acc571779cd6e9385617b279dabb718d800c",
+      "document_full_path": "/home/maoyd/siq-research-engine/eval_datasets/market_document_full_postgres/examples/hk_row_period_document_full.json"
+    },
+    {
+      "case_id": "jp_row_period_local_language",
+      "market": "JP",
+      "passed": true,
+      "errors": [],
+      "fact_count": 1,
+      "content_hash": "f34d61e7bdc10e8ab3ff5c31f94d0a92d771f0ebb2df866d1d01f0bd3906453c",
+      "document_full_path": "/home/maoyd/siq-research-engine/eval_datasets/market_document_full_postgres/examples/jp_row_period_document_full.json"
+    },
+    {
+      "case_id": "kr_row_period_kifrs",
+      "market": "KR",
+      "passed": true,
+      "errors": [],
+      "fact_count": 1,
+      "content_hash": "d19cc1cd1655b16b5b96cda925d148bff370dd9bd08ca60ea5158001d675c441",
+      "document_full_path": "/home/maoyd/siq-research-engine/eval_datasets/market_document_full_postgres/examples/kr_row_period_document_full.json"
+    },
+    {
+      "case_id": "eu_period_map_country_currency",
+      "market": "EU",
+      "passed": true,
+      "errors": [],
+      "fact_count": 2,
+      "content_hash": "34a7f836b70544df57b6c2ab88e418eb358a6666cf7bdc02e153c77a7e6538d8",
+      "document_full_path": "/home/maoyd/siq-research-engine/eval_datasets/market_document_full_postgres/examples/eu_period_map_document_full.json"
+    },
+    {
+      "case_id": "eu_multi_currency_original_fact_currency",
+      "market": "EU",
+      "passed": true,
+      "errors": [],
+      "fact_count": 2,
+      "content_hash": "9c7a0bdcd59ec865bb1f758806d147dda2ff2ccbbb724864e8ad8124c0cddf71",
+      "document_full_path": "/home/maoyd/siq-research-engine/eval_datasets/market_document_full_postgres/examples/eu_multi_currency_document_full.json"
+    },
+    {
+      "case_id": "us_sec_ixbrl_fact_anchor",
+      "market": "US",
+      "passed": true,
+      "errors": [],
+      "fact_count": 2,
+      "content_hash": "20a74283a05ce327b0d10547fa6b1c73824c2f2f2cfce596ac8b0d0fedf02983",
+      "document_full_path": "/home/maoyd/siq-research-engine/eval_datasets/market_document_full_postgres/examples/us_sec_document_full.json"
+    }
+  ],
+  "db_results": [
+    {
+      "case_id": "cn_period_map_balance_sheet",
+      "market": "CN",
+      "passed": true,
+      "skipped": true,
+      "reason": "legacy_or_unsupported_market"
+    },
+    {
+      "case_id": "hk_row_period_currency_evidence",
+      "market": "HK",
+      "passed": false,
+      "errors": [
+        "connection failed: connection to server at \"127.0.0.1\", port 15432 failed: fe_sendauth: no password supplied"
+      ],
+      "counts": {},
+      "second_counts": {},
+      "content_hashes": {},
+      "second_content_hashes": {},
+      "schema": "pdf2md_hk",
+      "parse_run_id": "",
+      "imported_before_check": true,
+      "idempotency_checked": true,
+      "check_type": "import_idempotency"
+    },
+    {
+      "case_id": "jp_row_period_local_language",
+      "market": "JP",
+      "passed": false,
+      "errors": [
+        "connection failed: connection to server at \"127.0.0.1\", port 15432 failed: fe_sendauth: no password supplied"
+      ],
+      "counts": {},
+      "second_counts": {},
+      "content_hashes": {},
+      "second_content_hashes": {},
+      "schema": "edinet_jp",
+      "parse_run_id": "",
+      "imported_before_check": true,
+      "idempotency_checked": true,
+      "check_type": "import_idempotency"
+    },
+    {
+      "case_id": "kr_row_period_kifrs",
+      "market": "KR",
+      "passed": false,
+      "errors": [
+        "connection failed: connection to server at \"127.0.0.1\", port 15432 failed: fe_sendauth: no password supplied"
+      ],
+      "counts": {},
+      "second_counts": {},
+      "content_hashes": {},
+      "second_content_hashes": {},
+      "schema": "dart_kr",
+      "parse_run_id": "",
+      "imported_before_check": true,
+      "idempotency_checked": true,
+      "check_type": "import_idempotency"
+    },
+    {
+      "case_id": "eu_period_map_country_currency",
+      "market": "EU",
+      "passed": false,
+      "errors": [
+        "connection failed: connection to server at \"127.0.0.1\", port 15432 failed: fe_sendauth: no password supplied"
+      ],
+      "counts": {},
+      "second_counts": {},
+      "content_hashes": {},
+      "second_content_hashes": {},
+      "schema": "eu_ifrs",
+      "parse_run_id": "",
+      "imported_before_check": true,
+      "idempotency_checked": true,
+      "check_type": "import_idempotency"
+    },
+    {
+      "case_id": "eu_multi_currency_original_fact_currency",
+      "market": "EU",
+      "passed": false,
+      "errors": [
+        "connection failed: connection to server at \"127.0.0.1\", port 15432 failed: fe_sendauth: no password supplied"
+      ],
+      "counts": {},
+      "second_counts": {},
+      "content_hashes": {},
+      "second_content_hashes": {},
+      "schema": "eu_ifrs",
+      "parse_run_id": "",
+      "imported_before_check": true,
+      "idempotency_checked": true,
+      "check_type": "import_idempotency"
+    },
+    {
+      "case_id": "us_sec_ixbrl_fact_anchor",
+      "market": "US",
+      "passed": false,
+      "errors": [
+        "connection failed: connection to server at \"127.0.0.1\", port 15432 failed: fe_sendauth: no password supplied"
+      ],
+      "counts": {},
+      "second_counts": {},
+      "content_hashes": {},
+      "second_content_hashes": {},
+      "schema": "sec_us",
+      "parse_run_id": "",
+      "imported_before_check": true,
+      "idempotency_checked": true,
+      "check_type": "import_idempotency"
+    }
+  ]
+}

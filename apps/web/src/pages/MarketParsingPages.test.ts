@@ -59,6 +59,19 @@ test('PdfWorkflowPanel keeps PostgreSQL source as parser artifacts while allowin
   assert.doesNotMatch(source, /Wiki Evidence Package|Wiki 证据包/)
 })
 
+test('MarketParsingPage wires PDF-market PostgreSQL imports through document_full API', () => {
+  const pageSource = readFileSync(resolve(pageDir, 'MarketParsingPage.tsx'), 'utf-8')
+  const workflowSource = readFileSync(resolve(pageDir, 'pdf/usePdfWorkflow.ts'), 'utf-8')
+  const apiSource = readFileSync(resolve(pageDir, '../features/pdf-parsing/api.ts'), 'utf-8')
+
+  assert.match(pageSource, /usePdfWorkflow\(tasks\.taskIdRef, showToast,[\s\S]*market\)/)
+  assert.match(workflowSource, /isPdfDocumentFullMarket/)
+  assert.match(workflowSource, /runMarketDocumentFullWorkflowImportApi\(marketCode, tid\)/)
+  assert.match(workflowSource, /waitForMarketReportJob/)
+  assert.match(apiSource, /\/api\/market-reports\/document-full\/import/)
+  assert.match(apiSource, /body: \{ market, task_id: taskId, ddl: true \}/)
+})
+
 test('Help page presents Wiki only as compatibility wording, not the main data source', () => {
   const source = readFileSync(resolve(pageDir, 'Help.tsx'), 'utf-8')
 
@@ -93,4 +106,12 @@ test('US SEC parsing copy presents structured artifacts instead of evidence-pack
     assert.match(source, /解析产物|结构化解析/)
     assert.doesNotMatch(source, /证据包|evidence package/)
   }
+})
+
+test('US SEC PostgreSQL button imports canonical parser document_full', () => {
+  const source = readFileSync(resolve(pageDir, '../components/sec/UsSecIngestionPanel.tsx'), 'utf-8')
+
+  assert.match(source, /runMarketDocumentFullImport\('US', task\.documentFullPath, true, false\)/)
+  assert.match(source, /缺少 SEC parser result document_full\.json 路径/)
+  assert.doesNotMatch(source, /postgres:\s*true/)
 })

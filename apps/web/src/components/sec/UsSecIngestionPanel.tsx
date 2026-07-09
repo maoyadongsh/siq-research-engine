@@ -17,14 +17,18 @@ import { openAuthenticatedSourceLink } from '../../lib/authenticatedSourceLinks'
 import { downloadAuthenticatedFile, useAuthenticatedBlobUrl } from '../../lib/authenticatedFiles'
 import {
   buildUsSecPackage,
+  fetchMarketDocumentFullStatus,
   fetchUsSecCaseSet,
   fetchUsSecPackage,
   fetchUsSecPackageText,
   rebuildUsSecPackage,
+  runMarketDocumentFullImport,
   runUsSecCaseSetIngest,
   usSecPackageFileUrl,
   uploadUsSecFiles,
   waitForMarketReportJob,
+  type MarketDocumentFullPostgresStatus,
+  type MarketDocumentFullImportResponse,
   type UsSecCaseSetStatus,
   type UsSecIngestResponse,
   type UsSecPackageBuildResponse,
@@ -64,6 +68,7 @@ function CheckStatusPill({ status }: { status?: string }) {
 
 export function UsSecIngestionPanel() {
   const [status, setStatus] = useState<UsSecCaseSetStatus | null>(null)
+  const [documentFullPostgres, setDocumentFullPostgres] = useState<Record<string, MarketDocumentFullPostgresStatus | undefined>>({})
   const [selectedTaskId, setSelectedTaskId] = useState('')
   const [packageDetail, setPackageDetail] = useState<UsSecPackageDetail | null>(null)
   const [markdownFile, setMarkdownFile] = useState('')
@@ -88,6 +93,27 @@ export function UsSecIngestionPanel() {
   const [uploadFilingDate, setUploadFilingDate] = useState('')
   const fileInput = useRef<HTMLInputElement>(null)
 
+  const loadDocumentFullPostgresStatuses = useCallback(async (next: UsSecCaseSetStatus) => {
+    const tasks = deriveUsSecRecentTasks(next)
+    const paths = Array.from(new Set(tasks.map((task) => task.documentFullPath).filter(Boolean)))
+    if (!paths.length) {
+      setDocumentFullPostgres({})
+      return
+    }
+    const entries = await Promise.all(paths.map(async (path) => {
+      try {
+        const statusPayload = await fetchMarketDocumentFullStatus('US', { documentFullPath: path })
+        return [path, statusPayload.markets?.US?.postgres] as const
+      } catch {
+        return [path, {
+          status: 'unknown',
+          message: 'document_full status 查询失败，PostgreSQL 状态不可确认',
+        } satisfies MarketDocumentFullPostgresStatus] as const
+      }
+    }))
+    setDocumentFullPostgres(Object.fromEntries(entries))
+  }, [])
+
   const load = useCallback(async () => {
     setLoading(true)
     setError('')
@@ -95,12 +121,13 @@ export function UsSecIngestionPanel() {
       const next = await fetchUsSecCaseSet()
       setStatus(next)
       setSelectedTaskId((current) => (current && next.items?.some((item) => String(item.package_path || '') === current) ? current : ''))
+      await loadDocumentFullPostgresStatuses(next)
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载失败')
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [loadDocumentFullPostgresStatuses])
 
   const applyPackageDetail = useCallback(async (detail: UsSecPackageDetail) => {
     setPackageDetail(detail)
@@ -160,10 +187,10 @@ export function UsSecIngestionPanel() {
   }, [load, loadDownloads])
 
   const downloadedRows = useMemo(
-    () => deriveUsSecDownloadedRows(downloadedReports, status, busy),
-    [busy, downloadedReports, status],
+    () => deriveUsSecDownloadedRows(downloadedReports, status, busy, documentFullPostgres),
+    [busy, documentFullPostgres, downloadedReports, status],
   )
-  const recentTasks = useMemo(() => deriveUsSecRecentTasks(status), [status])
+  const recentTasks = useMemo(() => deriveUsSecRecentTasks(status, documentFullPostgres), [documentFullPostgres, status])
   const selectedTask = useMemo(
     () => recentTasks.find((task) => task.id === selectedTaskId) || null,
     [recentTasks, selectedTaskId],
@@ -181,7 +208,11 @@ export function UsSecIngestionPanel() {
   const bridgeSummary = packageDetail?.bridge_checks?.summary || {}
   const displayTicker = String(packageDetail?.manifest?.ticker || selectedTask?.ticker || '')
   const artifactManifest = useMemo(() => deriveUsSecArtifactManifest(packageDetail), [packageDetail])
-  const workflowSummary = useMemo(() => deriveUsSecWorkflowSummary(status, packageDetail), [packageDetail, status])
+  const selectedPostgresStatus = selectedTask?.documentFullPath ? documentFullPostgres[selectedTask.documentFullPath] : undefined
+  const workflowSummary = useMemo(
+    () => deriveUsSecWorkflowSummary(status, packageDetail, selectedPostgresStatus),
+    [packageDetail, selectedPostgresStatus, status],
+  )
   const qualitySummary = useMemo(() => deriveUsSecQualitySummary(packageDetail), [packageDetail])
 
   const openFilePicker = useCallback(() => {
@@ -298,16 +329,12 @@ export function UsSecIngestionPanel() {
     setError('')
     setLastOutput('')
     try {
-      const response = await runUsSecCaseSetIngest({
-        dry_run: false,
-        postgres: true,
-        ddl: true,
-        include_fail: includeFail,
-        tickers: task.ticker,
-        batch_tag: 'us-sec-case-set-50',
-      })
+      if (!task.documentFullPath) {
+        throw new Error('缺少 SEC parser result document_full.json 路径，请先刷新结果包')
+      }
+      const response = await runMarketDocumentFullImport('US', task.documentFullPath, true, false)
       const result = response.job_id
-        ? await waitForMarketReportJob<UsSecIngestResponse>(response.job_id)
+        ? await waitForMarketReportJob<MarketDocumentFullImportResponse>(response.job_id)
         : response
       setLastOutput(result.stdout || result.stderr || (response.job_id ? `后台任务 ${response.job_id} 已完成` : ''))
       await load()
@@ -316,7 +343,7 @@ export function UsSecIngestionPanel() {
     } finally {
       setBusy('')
     }
-  }, [includeFail, load])
+  }, [load])
 
   const onBuildTaskSemantic = useCallback(async (task: UsSecRecentTaskRow) => {
     setBusy(`semantic:${task.id}`)
@@ -361,16 +388,12 @@ export function UsSecIngestionPanel() {
       const semantic = semanticResponse.job_id
         ? await waitForMarketReportJob<UsSecIngestResponse>(semanticResponse.job_id)
         : semanticResponse
-      const response = await runUsSecCaseSetIngest({
-        dry_run: false,
-        postgres: true,
-        ddl: true,
-        include_fail: includeFail,
-        tickers: task.ticker,
-        batch_tag: 'us-sec-case-set-50',
-      })
+      if (!task.documentFullPath) {
+        throw new Error('缺少 SEC parser result document_full.json 路径，请先刷新结果包')
+      }
+      const response = await runMarketDocumentFullImport('US', task.documentFullPath, true, false)
       const postgres = response.job_id
-        ? await waitForMarketReportJob<UsSecIngestResponse>(response.job_id)
+        ? await waitForMarketReportJob<MarketDocumentFullImportResponse>(response.job_id)
         : response
       setLastOutput([
         'Wiki 语义增强',

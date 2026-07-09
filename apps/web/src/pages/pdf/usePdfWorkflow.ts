@@ -4,17 +4,25 @@ import type { WorkflowJob, WorkflowStatus } from '../../lib/pdfTypes'
 import {
   fetchWorkflowJobApi,
   loadWorkflowStatusApi,
+  runMarketDocumentFullWorkflowImportApi,
   runRemainingWorkflowApi,
   runWorkflowStepApi,
 } from '../../features/pdf-parsing/api'
+import { waitForMarketReportJob, type MarketCode } from '../../features/market-parsing/api'
 
 type WorkflowStep = 'wiki-import' | 'wiki-import-generic' | 'semantic' | 'semantic-generic' | 'db-import'
 type WorkflowMode = 'standard' | 'generic'
+type PdfDocumentFullMarket = Exclude<MarketCode, 'US'>
+
+function isPdfDocumentFullMarket(market?: string | null): market is PdfDocumentFullMarket {
+  return market === 'HK' || market === 'JP' || market === 'KR' || market === 'EU'
+}
 
 export function usePdfWorkflow(
   taskIdRef: MutableRefObject<string | null>,
   showToast: (msg: string) => void,
   reportError: (msg: string | null) => void,
+  market?: string | null,
 ) {
   const [workflowStatus, setWorkflowStatus] = useState<WorkflowStatus | null>(null)
   const [workflowLoading, setWorkflowLoading] = useState(false)
@@ -54,6 +62,24 @@ export function usePdfWorkflow(
     [loadWorkflowStatus],
   )
 
+  const runMarketDocumentFullImport = useCallback(
+    async (tid: string, marketCode: PdfDocumentFullMarket) => {
+      const response = await runMarketDocumentFullWorkflowImportApi(marketCode, tid)
+      const result = response.job_id
+        ? await waitForMarketReportJob(response.job_id, { timeoutMs: 15 * 60 * 1000 })
+        : response
+      setWorkflowJob({
+        status: result.ok === false ? 'failed' : 'succeeded',
+        steps: [{ step: 'db-import', status: result.ok === false ? 'failed' : 'succeeded' }],
+        error: result.ok === false ? String(result.stderr || result.stdout || 'document_full 入库失败') : undefined,
+      })
+      if (result.ok === false) {
+        throw new Error(String(result.stderr || result.stdout || 'document_full 入库失败'))
+      }
+    },
+    [],
+  )
+
   const runWorkflowStep = useCallback(
     async (step: WorkflowStep) => {
       const tid = taskIdRef.current
@@ -62,10 +88,16 @@ export function usePdfWorkflow(
       setWorkflowError('')
       reportError(null)
       try {
-        const job = await runWorkflowStepApi(tid, step)
-        setWorkflowJob(job)
-        showToast('工作流步骤已启动')
-        await watchJob(job.jobId)
+        if (step === 'db-import' && isPdfDocumentFullMarket(market)) {
+          await runMarketDocumentFullImport(tid, market)
+          showToast('document_full PostgreSQL 入库完成')
+          await loadWorkflowStatus()
+        } else {
+          const job = await runWorkflowStepApi(tid, step)
+          setWorkflowJob(job)
+          showToast('工作流步骤已启动')
+          await watchJob(job.jobId)
+        }
       } catch (e) {
         const message = e instanceof Error ? e.message : '工作流步骤执行失败'
         setWorkflowError(message)
@@ -74,7 +106,7 @@ export function usePdfWorkflow(
         setWorkflowBusy('')
       }
     },
-    [reportError, showToast, taskIdRef, watchJob],
+    [loadWorkflowStatus, market, reportError, runMarketDocumentFullImport, showToast, taskIdRef, watchJob],
   )
 
   const runRemainingWorkflow = useCallback(async (mode: WorkflowMode = 'standard') => {
@@ -89,11 +121,18 @@ export function usePdfWorkflow(
         const completedSteps: NonNullable<WorkflowJob['steps']> = []
         for (const step of steps) {
           setWorkflowBusy(step)
-          const result = await runWorkflowStepApi(tid, step)
-          completedSteps.push({ step, status: 'succeeded' })
-          setWorkflowJob({ status: 'running', steps: completedSteps })
-          if (result.jobId) await watchJob(result.jobId)
-          else await loadWorkflowStatus()
+          if (step === 'db-import' && isPdfDocumentFullMarket(market)) {
+            await runMarketDocumentFullImport(tid, market)
+            completedSteps.push({ step, status: 'succeeded' })
+            setWorkflowJob({ status: 'running', steps: completedSteps })
+            await loadWorkflowStatus()
+          } else {
+            const result = await runWorkflowStepApi(tid, step)
+            completedSteps.push({ step, status: 'succeeded' })
+            setWorkflowJob({ status: 'running', steps: completedSteps })
+            if (result.jobId) await watchJob(result.jobId)
+            else await loadWorkflowStatus()
+          }
         }
         setWorkflowJob({ status: 'succeeded', steps: completedSteps })
         showToast('境外市场数据管线已完成')
@@ -110,7 +149,7 @@ export function usePdfWorkflow(
     } finally {
       setWorkflowBusy('')
     }
-  }, [loadWorkflowStatus, reportError, showToast, taskIdRef, watchJob])
+  }, [loadWorkflowStatus, market, reportError, runMarketDocumentFullImport, showToast, taskIdRef, watchJob])
 
   return {
     workflowStatus,

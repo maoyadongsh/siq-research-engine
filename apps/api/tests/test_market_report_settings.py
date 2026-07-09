@@ -34,6 +34,13 @@ def test_market_report_settings_defaults(monkeypatch):
     assert settings.MARKET_DATABASES["HK"] == "siq_hk"
     assert settings.MARKET_VECTOR_COLLECTIONS["HK"] == "siq_hk_reports"
     assert settings.MARKET_BUILD_SCRIPTS["EU"].name == "build_eu_pdf_evidence_package.py"
+    assert settings.MARKET_DOCUMENT_FULL_ROOTS["US"].parts[-3:] == ("data", "parser-results", "us-sec")
+    assert settings.MARKET_DOCUMENT_FULL_ROOTS["US_SEC"] == settings.MARKET_DOCUMENT_FULL_ROOTS["US"]
+    assert settings.MARKET_DOCUMENT_FULL_ROOTS["HK"].parts[-3:] == ("data", "pdf-parser", "results")
+    assert settings.MARKET_DOCUMENT_FULL_IMPORT_SCRIPTS["HK"].name == "import_hk_document_full_to_postgres.py"
+    assert settings.MARKET_DOCUMENT_FULL_IMPORT_SCRIPTS["US"].name == "import_us_sec_document_full_to_postgres.py"
+    assert settings.MARKET_DOCUMENT_FULL_IMPORT_SCRIPTS["US_SEC"] == settings.MARKET_DOCUMENT_FULL_IMPORT_SCRIPTS["US"]
+    assert settings.MARKET_DATABASES["US_SEC"] == settings.MARKET_DATABASES["US"]
 
 
 def test_market_report_settings_env_overrides(monkeypatch, tmp_path):
@@ -78,12 +85,18 @@ def test_market_report_settings_market_specific_paths_resolve_env_overrides(monk
     hk_root = tmp_path / "relative-root"
     jp_script = tmp_path / "scripts" / "jp_build.py"
     eu_import = tmp_path / "imports" / "eu_import.py"
+    kr_document_root = tmp_path / "parser-results" / "kr"
+    hk_document_import = tmp_path / "imports" / "hk_document_full.py"
     monkeypatch.setenv("SIQ_HK_WIKI_ROOT", str(hk_root))
     monkeypatch.setenv("SIQ_JP_PACKAGE_BUILD_SCRIPT", str(jp_script))
     monkeypatch.setenv("SIQ_EU_IMPORT_SCRIPT", str(eu_import))
+    monkeypatch.setenv("SIQ_KR_DOCUMENT_FULL_ROOT", str(kr_document_root))
+    monkeypatch.setenv("SIQ_HK_DOCUMENT_FULL_IMPORT_SCRIPT", str(hk_document_import))
 
     settings = _load_settings_module("temp_market_report_settings_market_paths")
 
     assert settings.MARKET_WIKI_ROOTS["HK"] == hk_root.resolve()
     assert settings.MARKET_BUILD_SCRIPTS["JP"] == jp_script.resolve()
     assert settings.MARKET_IMPORT_SCRIPTS["EU"] == eu_import.resolve()
+    assert settings.MARKET_DOCUMENT_FULL_ROOTS["KR"] == kr_document_root.resolve()
+    assert settings.MARKET_DOCUMENT_FULL_IMPORT_SCRIPTS["HK"] == hk_document_import.resolve()

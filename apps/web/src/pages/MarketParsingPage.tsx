@@ -162,7 +162,7 @@ export function MarketParsingPage({
     setSelectedFilesRef,
   })
 
-  const workflow = usePdfWorkflow(tasks.taskIdRef, showToast, (msg: string | null) => tasks.setError(msg))
+  const workflow = usePdfWorkflow(tasks.taskIdRef, showToast, (msg: string | null) => tasks.setError(msg), market)
 
   const viewModel = useMemo(() => buildMarketParsingPageViewModel({
     market,

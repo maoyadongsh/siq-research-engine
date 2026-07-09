@@ -112,6 +112,24 @@ MARKET_IMPORT_SCRIPTS = {
     "EU": _env_path("SIQ_EU_IMPORT_SCRIPT", default=REPO_ROOT / "db" / "imports" / "import_eu_evidence_package_to_postgres.py"),
 }
 
+MARKET_DOCUMENT_FULL_ROOTS = {
+    "US": _env_path("SIQ_US_DOCUMENT_FULL_ROOT", default=REPO_ROOT / "data" / "parser-results" / "us-sec"),
+    "HK": _env_path("SIQ_HK_DOCUMENT_FULL_ROOT", default=REPO_ROOT / "data" / "pdf-parser" / "results"),
+    "JP": _env_path("SIQ_JP_DOCUMENT_FULL_ROOT", default=REPO_ROOT / "data" / "pdf-parser" / "results"),
+    "KR": _env_path("SIQ_KR_DOCUMENT_FULL_ROOT", default=REPO_ROOT / "data" / "pdf-parser" / "results"),
+    "EU": _env_path("SIQ_EU_DOCUMENT_FULL_ROOT", default=REPO_ROOT / "data" / "pdf-parser" / "results"),
+}
+MARKET_DOCUMENT_FULL_ROOTS["US_SEC"] = MARKET_DOCUMENT_FULL_ROOTS["US"]
+
+MARKET_DOCUMENT_FULL_IMPORT_SCRIPTS = {
+    "US": _env_path("SIQ_US_DOCUMENT_FULL_IMPORT_SCRIPT", default=REPO_ROOT / "db" / "imports" / "import_us_sec_document_full_to_postgres.py"),
+    "HK": _env_path("SIQ_HK_DOCUMENT_FULL_IMPORT_SCRIPT", default=REPO_ROOT / "db" / "imports" / "import_hk_document_full_to_postgres.py"),
+    "JP": _env_path("SIQ_JP_DOCUMENT_FULL_IMPORT_SCRIPT", default=REPO_ROOT / "db" / "imports" / "import_jp_document_full_to_postgres.py"),
+    "KR": _env_path("SIQ_KR_DOCUMENT_FULL_IMPORT_SCRIPT", default=REPO_ROOT / "db" / "imports" / "import_kr_document_full_to_postgres.py"),
+    "EU": _env_path("SIQ_EU_DOCUMENT_FULL_IMPORT_SCRIPT", default=REPO_ROOT / "db" / "imports" / "import_eu_document_full_to_postgres.py"),
+}
+MARKET_DOCUMENT_FULL_IMPORT_SCRIPTS["US_SEC"] = MARKET_DOCUMENT_FULL_IMPORT_SCRIPTS["US"]
+
 MARKET_DATABASES = {
     "US": _env_str("SIQ_US_PGDATABASE", default="siq_us"),
     "HK": _env_str("SIQ_HK_PGDATABASE", default="siq_hk"),
@@ -119,6 +137,7 @@ MARKET_DATABASES = {
     "KR": _env_str("SIQ_KR_PGDATABASE", default="siq_kr"),
     "EU": _env_str("SIQ_EU_PGDATABASE", default="siq_eu"),
 }
+MARKET_DATABASES["US_SEC"] = MARKET_DATABASES["US"]
 
 MARKET_VECTOR_COLLECTIONS = {
     "US": _env_str("SIQ_US_VECTOR_COLLECTION", default="siq_us_sec_reports"),
@@ -127,3 +146,4 @@ MARKET_VECTOR_COLLECTIONS = {
     "KR": _env_str("SIQ_KR_VECTOR_COLLECTION", default="siq_kr_reports"),
     "EU": _env_str("SIQ_EU_VECTOR_COLLECTION", default="siq_eu_reports"),
 }
+MARKET_VECTOR_COLLECTIONS["US_SEC"] = MARKET_VECTOR_COLLECTIONS["US"]

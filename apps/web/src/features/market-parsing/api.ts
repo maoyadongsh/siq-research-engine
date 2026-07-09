@@ -222,6 +222,38 @@ export interface MarketPackageActionResponse {
   summary?: Record<string, unknown> | null
 }
 
+export interface MarketDocumentFullImportResponse extends MarketPackageActionResponse {
+  document_full_path?: string
+}
+
+export interface MarketDocumentFullPostgresStatus {
+  status?: 'postgres_ready' | 'ready' | 'warning' | 'missing' | 'unknown' | string
+  selectors?: Record<string, unknown>
+  database?: string
+  schema?: string
+  parse_run_id?: string | null
+  filing_id?: string | null
+  parse_runs?: number
+  facts?: number
+  tables?: number
+  chunks?: number
+  evidence?: number
+  message?: string
+}
+
+export interface MarketDocumentFullStatusResponse {
+  ok?: boolean
+  markets?: Record<string, {
+    document_full_root?: string
+    document_full_root_exists?: boolean
+    script?: string
+    script_exists?: boolean
+    database?: string
+    schema?: string
+    postgres?: MarketDocumentFullPostgresStatus
+  }>
+}
+
 export interface MarketPackageBuildRequest {
   source_path?: string
   download_relative_path?: string
@@ -366,6 +398,37 @@ export async function runMarketPackageImport(market: MarketCode, packagePath: st
   })
   if (d.ok === false) throw new Error(String(d.stderr || d.stdout || '解析产物包入库失败'))
   return d
+}
+
+export async function runMarketDocumentFullImport(
+  market: MarketCode,
+  documentFullPath: string,
+  ddl = false,
+  force = false,
+): Promise<MarketDocumentFullImportResponse> {
+  const d = await apiJson<MarketDocumentFullImportResponse>('/api/market-reports/document-full/import', {
+    method: 'POST',
+    body: { market, document_full_path: documentFullPath, ddl, force },
+  })
+  if (d.ok === false) throw new Error(String(d.stderr || d.stdout || 'document_full 入库失败'))
+  return d
+}
+
+export async function fetchMarketDocumentFullStatus(
+  market: MarketCode,
+  selectors: {
+    parseRunId?: string
+    filingId?: string
+    documentFullPath?: string
+    taskId?: string
+  } = {},
+): Promise<MarketDocumentFullStatusResponse> {
+  const params = new URLSearchParams({ market })
+  if (selectors.parseRunId) params.set('parse_run_id', selectors.parseRunId)
+  if (selectors.filingId) params.set('filing_id', selectors.filingId)
+  if (selectors.documentFullPath) params.set('document_full_path', selectors.documentFullPath)
+  if (selectors.taskId) params.set('task_id', selectors.taskId)
+  return apiJson<MarketDocumentFullStatusResponse>(`/api/market-reports/document-full/status?${params.toString()}`)
 }
 
 export async function runMarketPackageBuild(market: MarketCode, body: MarketPackageBuildRequest): Promise<MarketPackageActionResponse> {

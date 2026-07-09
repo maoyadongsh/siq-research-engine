@@ -1,5 +1,9 @@
 create schema if not exists pdf2md_hk;
 
+drop view if exists pdf2md_hk.v_latest_company_reports cascade;
+drop view if exists pdf2md_hk.v_agent_financial_facts cascade;
+drop view if exists pdf2md_hk.v_latest_parse_runs cascade;
+
 create table if not exists pdf2md_hk.companies (
     company_id text primary key,
     ticker text not null,
@@ -71,6 +75,22 @@ create table if not exists pdf2md_hk.artifacts (
     created_at timestamptz not null default now(),
     primary key (parse_run_id, artifact_type)
 );
+
+create table if not exists pdf2md_hk.raw_payload_refs (
+    payload_ref_id text primary key,
+    filing_id text not null references pdf2md_hk.filings(filing_id) on delete cascade,
+    parse_run_id text not null references pdf2md_hk.parse_runs(parse_run_id) on delete cascade,
+    payload_name text not null,
+    local_path text,
+    sha256 text,
+    size_bytes bigint,
+    summary jsonb not null default '{}'::jsonb,
+    raw jsonb not null default '{}'::jsonb,
+    created_at timestamptz not null default now()
+);
+
+create index if not exists idx_pdf2md_hk_raw_payload_refs_parse_run on pdf2md_hk.raw_payload_refs (parse_run_id);
+create index if not exists idx_pdf2md_hk_raw_payload_refs_sha256 on pdf2md_hk.raw_payload_refs (sha256);
 
 create table if not exists pdf2md_hk.filing_sections (
     parse_run_id text not null references pdf2md_hk.parse_runs(parse_run_id) on delete cascade,
@@ -310,6 +330,98 @@ create table if not exists pdf2md_hk.quality_reports (
 
 create index if not exists idx_pdf2md_hk_quality_reports_filing on pdf2md_hk.quality_reports (filing_id, overall_status);
 
+create table if not exists pdf2md_hk.financial_normalization_rules (
+    rule_id text primary key,
+    rule_type text not null,
+    rule_version text not null default 'weak-v1-20260709',
+    description text not null,
+    preserves_raw_value boolean not null default true,
+    confidence_default text,
+    notes text,
+    created_at timestamptz not null default now()
+);
+
+insert into pdf2md_hk.financial_normalization_rules (
+    rule_id, rule_type, rule_version, description, preserves_raw_value, confidence_default, notes
+) values
+    ('canonical_source_xbrl', 'canonical', 'weak-v1-20260709', 'canonical label sourced from XBRL or parser mapping.', true, 'high', 'Keeps local item name and XBRL tag unchanged.'),
+    ('canonical_import_fallback', 'canonical', 'weak-v1-20260709', 'canonical label sourced from import fallback mapping.', true, 'medium', 'Weak semantic label only.'),
+    ('canonical_unmapped', 'canonical', 'weak-v1-20260709', 'canonical label is missing.', true, 'none', 'Use local_name/item_name for citation display.'),
+    ('period_context_identity', 'period', 'weak-v1-20260709', 'period dates copied from filing context or parsed source period.', true, 'high', 'Original period_key is preserved.'),
+    ('period_unparsed', 'period', 'weak-v1-20260709', 'period could not be normalized by current rules.', true, 'low', 'Review source context.'),
+    ('unit_identity', 'unit', 'weak-v1-20260709', 'unit is retained without conversion.', true, 'medium', 'No currency scaling is implied.'),
+    ('unit_scaled_numeric', 'unit', 'weak-v1-20260709', 'value_standardized applies the explicit numeric scale.', true, 'medium', 'Scale must be sourced from parser/XBRL metadata.'),
+    ('unit_unmapped', 'unit', 'weak-v1-20260709', 'unit could not be normalized by current rules.', true, 'low', 'Avoid cross-company arithmetic until reviewed.')
+on conflict (rule_id) do update set
+    rule_type = excluded.rule_type,
+    rule_version = excluded.rule_version,
+    description = excluded.description,
+    preserves_raw_value = excluded.preserves_raw_value,
+    confidence_default = excluded.confidence_default,
+    notes = excluded.notes;
+
+create table if not exists pdf2md_hk.financial_items_enriched (
+    enriched_id text primary key,
+    source_table text not null,
+    source_uid text not null,
+    filing_id text not null references pdf2md_hk.filings(filing_id) on delete cascade,
+    parse_run_id text not null references pdf2md_hk.parse_runs(parse_run_id) on delete cascade,
+    company_id text,
+    ticker text not null,
+    market text not null default 'HK',
+    stock_code text,
+    hkex_stock_code text,
+    company_name text,
+    exchange text,
+    industry_profile text,
+    statement_id text,
+    statement_type text not null,
+    statement_name text,
+    scope text,
+    scope_name text,
+    item_index integer,
+    period_key_raw text not null,
+    item_name_raw text,
+    canonical_label text,
+    canonical_source text not null default 'unmapped',
+    canonical_rule_id text references pdf2md_hk.financial_normalization_rules(rule_id),
+    metric_family text,
+    metric_family_rule_id text,
+    value_extracted numeric,
+    raw_value text,
+    unit_raw text,
+    currency text,
+    unit_standardized text,
+    unit_scale numeric,
+    unit_rule_id text references pdf2md_hk.financial_normalization_rules(rule_id),
+    value_standardized numeric,
+    period_type text,
+    period_start_date date,
+    period_end_date date,
+    period_rule_id text references pdf2md_hk.financial_normalization_rules(rule_id),
+    source_page_number integer,
+    source_table_index integer,
+    source_row_index integer,
+    source_column_index integer,
+    source_bbox jsonb,
+    evidence_id text references pdf2md_hk.evidence_citations(evidence_id),
+    raw_item jsonb not null default '{}'::jsonb,
+    normalization_confidence text not null default 'low',
+    quality_flags jsonb not null default '[]'::jsonb,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    unique (source_table, source_uid)
+);
+
+create index if not exists idx_pdf2md_hk_items_enriched_lookup
+    on pdf2md_hk.financial_items_enriched (ticker, statement_type, canonical_label, period_end_date);
+create index if not exists idx_pdf2md_hk_items_enriched_raw_name
+    on pdf2md_hk.financial_items_enriched (ticker, statement_type, item_name_raw);
+create index if not exists idx_pdf2md_hk_items_enriched_source
+    on pdf2md_hk.financial_items_enriched (filing_id, source_page_number, source_table_index);
+create index if not exists idx_pdf2md_hk_items_enriched_flags_gin
+    on pdf2md_hk.financial_items_enriched using gin (quality_flags);
+
 create table if not exists pdf2md_hk.retrieval_chunks (
     chunk_uid text primary key,
     filing_id text not null references pdf2md_hk.filings(filing_id) on delete cascade,
@@ -469,6 +581,8 @@ alter table pdf2md_hk.filings add column if not exists stock_code text;
 alter table pdf2md_hk.filings add column if not exists report_id text;
 alter table pdf2md_hk.filings add column if not exists accession_number text;
 alter table pdf2md_hk.pdf_tables add column if not exists bbox jsonb;
+alter table pdf2md_hk.pdf_tables add column if not exists source_format text;
+alter table pdf2md_hk.pdf_tables add column if not exists document_format text;
 alter table pdf2md_hk.evidence_citations add column if not exists bbox jsonb;
 alter table pdf2md_hk.retrieval_chunks add column if not exists company_id text;
 alter table pdf2md_hk.retrieval_chunks add column if not exists section_title text;
@@ -482,6 +596,56 @@ create index if not exists idx_pdf2md_hk_companies_aliases_gin on pdf2md_hk.comp
 create index if not exists idx_pdf2md_hk_filings_company_year on pdf2md_hk.filings (company_id, fiscal_year desc, report_type);
 create index if not exists idx_pdf2md_hk_retrieval_chunks_agent on pdf2md_hk.retrieval_chunks (company_id, doc_type, canonical_name, period_key);
 create index if not exists idx_pdf2md_hk_stmt_items_company_year on pdf2md_hk.financial_statement_items (company_id, fiscal_year, canonical_name, period_key);
+
+alter table pdf2md_hk.financial_facts add column if not exists fact_currency text;
+alter table pdf2md_hk.financial_facts add column if not exists reporting_currency text;
+alter table pdf2md_hk.financial_facts add column if not exists presentation_currency text;
+alter table pdf2md_hk.financial_facts add column if not exists converted_currency text;
+alter table pdf2md_hk.financial_facts add column if not exists converted_value numeric;
+alter table pdf2md_hk.financial_facts add column if not exists fx_rate_date date;
+alter table pdf2md_hk.financial_facts add column if not exists fx_rate_source text;
+alter table pdf2md_hk.financial_statement_items add column if not exists fact_currency text;
+alter table pdf2md_hk.financial_statement_items add column if not exists reporting_currency text;
+alter table pdf2md_hk.financial_statement_items add column if not exists presentation_currency text;
+alter table pdf2md_hk.financial_statement_items add column if not exists converted_currency text;
+alter table pdf2md_hk.financial_statement_items add column if not exists converted_value numeric;
+alter table pdf2md_hk.financial_statement_items add column if not exists fx_rate_date date;
+alter table pdf2md_hk.financial_statement_items add column if not exists fx_rate_source text;
+alter table pdf2md_hk.financial_key_metrics add column if not exists fact_currency text;
+alter table pdf2md_hk.financial_key_metrics add column if not exists reporting_currency text;
+alter table pdf2md_hk.financial_key_metrics add column if not exists presentation_currency text;
+alter table pdf2md_hk.financial_key_metrics add column if not exists converted_currency text;
+alter table pdf2md_hk.financial_key_metrics add column if not exists converted_value numeric;
+alter table pdf2md_hk.financial_key_metrics add column if not exists fx_rate_date date;
+alter table pdf2md_hk.financial_key_metrics add column if not exists fx_rate_source text;
+alter table pdf2md_hk.financial_balance_sheet_items add column if not exists fact_currency text;
+alter table pdf2md_hk.financial_balance_sheet_items add column if not exists reporting_currency text;
+alter table pdf2md_hk.financial_balance_sheet_items add column if not exists presentation_currency text;
+alter table pdf2md_hk.financial_balance_sheet_items add column if not exists converted_currency text;
+alter table pdf2md_hk.financial_balance_sheet_items add column if not exists converted_value numeric;
+alter table pdf2md_hk.financial_balance_sheet_items add column if not exists fx_rate_date date;
+alter table pdf2md_hk.financial_balance_sheet_items add column if not exists fx_rate_source text;
+alter table pdf2md_hk.financial_income_statement_items add column if not exists fact_currency text;
+alter table pdf2md_hk.financial_income_statement_items add column if not exists reporting_currency text;
+alter table pdf2md_hk.financial_income_statement_items add column if not exists presentation_currency text;
+alter table pdf2md_hk.financial_income_statement_items add column if not exists converted_currency text;
+alter table pdf2md_hk.financial_income_statement_items add column if not exists converted_value numeric;
+alter table pdf2md_hk.financial_income_statement_items add column if not exists fx_rate_date date;
+alter table pdf2md_hk.financial_income_statement_items add column if not exists fx_rate_source text;
+alter table pdf2md_hk.financial_cash_flow_statement_items add column if not exists fact_currency text;
+alter table pdf2md_hk.financial_cash_flow_statement_items add column if not exists reporting_currency text;
+alter table pdf2md_hk.financial_cash_flow_statement_items add column if not exists presentation_currency text;
+alter table pdf2md_hk.financial_cash_flow_statement_items add column if not exists converted_currency text;
+alter table pdf2md_hk.financial_cash_flow_statement_items add column if not exists converted_value numeric;
+alter table pdf2md_hk.financial_cash_flow_statement_items add column if not exists fx_rate_date date;
+alter table pdf2md_hk.financial_cash_flow_statement_items add column if not exists fx_rate_source text;
+alter table pdf2md_hk.financial_items_enriched add column if not exists fact_currency text;
+alter table pdf2md_hk.financial_items_enriched add column if not exists reporting_currency text;
+alter table pdf2md_hk.financial_items_enriched add column if not exists presentation_currency text;
+alter table pdf2md_hk.financial_items_enriched add column if not exists converted_currency text;
+alter table pdf2md_hk.financial_items_enriched add column if not exists converted_value numeric;
+alter table pdf2md_hk.financial_items_enriched add column if not exists fx_rate_date date;
+alter table pdf2md_hk.financial_items_enriched add column if not exists fx_rate_source text;
 
 create or replace view pdf2md_hk.v_agent_financial_facts as
 select

@@ -633,7 +633,7 @@ def test_market_package_import_args_uses_us_package_flag_without_database_url():
         script=Path("/repo/scripts/import_us.py"),
         market="US",
         package_dir=Path("/repo/data/wiki/us_sec/AAPL/package"),
-        payload={"database_url": "postgres://secret", "ddl": True},
+        payload={"database_url": "postgres://secret", "ddl": True, "force": True},
     )
 
     assert args == [
@@ -754,6 +754,193 @@ def test_market_package_import_plan_reports_missing_script(tmp_path):
         assert exc.detail == f"Missing package import script: {missing_script}"
     else:
         raise AssertionError("expected missing import script error")
+
+
+def test_market_document_full_import_args_uses_positional_path_without_database_url():
+    args = commands.market_document_full_import_args(
+        executable="/usr/bin/python",
+        script=Path("/repo/db/imports/import_hk_document_full_to_postgres.py"),
+        market="HK",
+        document_full_path=Path("/repo/data/pdf-parser/results/task-1/document_full.json"),
+        payload={"database_url": "postgres://secret", "ddl": True, "force": True},
+    )
+
+    assert args == [
+        "/usr/bin/python",
+        "/repo/db/imports/import_hk_document_full_to_postgres.py",
+        "/repo/data/pdf-parser/results/task-1/document_full.json",
+        "--market",
+        "HK",
+        "--ddl",
+        "--force",
+    ]
+    assert "postgres://secret" not in args
+    assert "--database-url" not in args
+
+
+def test_market_document_full_import_env_reuses_package_import_database_selection():
+    env = commands.market_document_full_import_env(
+        "JP",
+        {"JP": "siq_jp"},
+        base_env={"DATABASE_URL": "postgresql://postgres:secret@db/siq", "PATH": "/usr/bin"},
+    )
+    explicit = commands.market_document_full_import_env(
+        "EU",
+        {"EU": "siq_eu"},
+        base_env={"PATH": "/usr/bin"},
+        database_url="postgresql://postgres:explicit@db/siq_eu_private",
+    )
+
+    assert env == {"PATH": "/usr/bin", "SIQ_JP_PGDATABASE": "siq_jp"}
+    assert explicit["DATABASE_URL"] == "postgresql://postgres:explicit@db/siq_eu_private"
+    assert explicit["SIQ_ALLOW_GENERIC_MARKET_DATABASE_URL"] == "1"
+    assert explicit["SIQ_EU_PGDATABASE"] == "siq_eu"
+
+
+def test_market_document_full_import_normalizes_us_sec_alias():
+    args = commands.market_document_full_import_args(
+        executable="/usr/bin/python",
+        script=Path("/repo/db/imports/import_us_sec_document_full_to_postgres.py"),
+        market="US_SEC",
+        document_full_path=Path("/repo/data/parser-results/us-sec/filing-1/document_full.json"),
+        payload={"ddl": True},
+    )
+    env = commands.market_document_full_import_env(
+        "US_SEC",
+        {"US": "siq_us"},
+        base_env={"DATABASE_URL": "postgresql://postgres:secret@db/siq", "PATH": "/usr/bin"},
+    )
+
+    assert args == [
+        "/usr/bin/python",
+        "/repo/db/imports/import_us_sec_document_full_to_postgres.py",
+        "/repo/data/parser-results/us-sec/filing-1/document_full.json",
+        "--market",
+        "US",
+        "--ddl",
+    ]
+    assert env == {"PATH": "/usr/bin", "SIQ_US_PGDATABASE": "siq_us"}
+
+
+def test_market_document_full_import_plan_selects_script_and_document_path(tmp_path):
+    document_full = tmp_path / "parser-results" / "hk-task" / "document_full.json"
+    script = tmp_path / "imports" / "import_hk_document_full_to_postgres.py"
+    for path in (document_full, script):
+        path.parent.mkdir(parents=True)
+        path.write_text("{}", encoding="utf-8")
+    seen = {}
+
+    def safe_document_full(market: str, value: str) -> Path:
+        seen["market"] = market
+        seen["value"] = value
+        return document_full
+
+    plan = commands.build_market_document_full_import_plan(
+        payload={"document_full_path": "hk-task/document_full.json"},
+        market="HK",
+        market_document_full_import_scripts={"HK": script},
+        safe_market_document_full_path=safe_document_full,
+    )
+
+    assert plan.market == "HK"
+    assert plan.document_full_path == document_full
+    assert plan.script == script
+    assert seen == {"market": "HK", "value": "hk-task/document_full.json"}
+
+
+def test_market_document_full_import_plan_accepts_directory_alias_and_reports_errors(tmp_path):
+    document_dir = tmp_path / "parser-results" / "jp-task"
+    document_full = document_dir / "document_full.json"
+    script = tmp_path / "imports" / "import_jp_document_full_to_postgres.py"
+    for path in (document_full, script):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}", encoding="utf-8")
+
+    plan = commands.build_market_document_full_import_plan(
+        payload={"path": "jp-task"},
+        market="JP",
+        market_document_full_import_scripts={"JP": script},
+        safe_market_document_full_path=lambda _market, _value: document_dir,
+    )
+
+    assert plan.document_full_path == document_full
+
+    try:
+        commands.build_market_document_full_import_plan(
+            payload={},
+            market="JP",
+            market_document_full_import_scripts={"JP": script},
+            safe_market_document_full_path=lambda _market, _value: document_full,
+        )
+    except commands.MarketPackagePlanError as exc:
+        assert exc.status_code == 400
+        assert exc.detail == "document_full_path or task_id is required"
+    else:
+        raise AssertionError("expected missing document_full_path error")
+
+    missing_script = tmp_path / "imports" / "missing_import_jp_document_full_to_postgres.py"
+    try:
+        commands.build_market_document_full_import_plan(
+            payload={"document_full_path": str(document_full)},
+            market="JP",
+            market_document_full_import_scripts={"JP": missing_script},
+            safe_market_document_full_path=lambda _market, _value: document_full,
+        )
+    except commands.MarketPackagePlanError as exc:
+        assert exc.status_code == 404
+        assert exc.detail == f"Missing document_full import script: {missing_script}"
+    else:
+        raise AssertionError("expected missing document_full import script error")
+
+
+def test_market_document_full_import_plan_accepts_task_id_alias(tmp_path):
+    document_full = tmp_path / "parser-results" / "hk-task-42" / "document_full.json"
+    script = tmp_path / "imports" / "import_hk_document_full_to_postgres.py"
+    for path in (document_full, script):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}", encoding="utf-8")
+    seen = {}
+
+    def safe_document_full(market: str, value: str) -> Path:
+        seen["market"] = market
+        seen["value"] = value
+        return document_full.parent
+
+    plan = commands.build_market_document_full_import_plan(
+        payload={"task_id": "hk-task-42"},
+        market="HK",
+        market_document_full_import_scripts={"HK": script},
+        safe_market_document_full_path=safe_document_full,
+    )
+
+    assert plan.document_full_path == document_full
+    assert seen == {"market": "HK", "value": "hk-task-42"}
+
+
+def test_market_document_full_import_plan_normalizes_us_sec_alias(tmp_path):
+    document_full = tmp_path / "parser-results" / "us-sec" / "filing-42" / "document_full.json"
+    script = tmp_path / "imports" / "import_us_sec_document_full_to_postgres.py"
+    for path in (document_full, script):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}", encoding="utf-8")
+    seen = {}
+
+    def safe_document_full(market: str, value: str) -> Path:
+        seen["market"] = market
+        seen["value"] = value
+        return document_full
+
+    plan = commands.build_market_document_full_import_plan(
+        payload={"task_id": "filing-42"},
+        market="US_SEC",
+        market_document_full_import_scripts={"US": script},
+        safe_market_document_full_path=safe_document_full,
+    )
+
+    assert plan.market == "US"
+    assert plan.document_full_path == document_full
+    assert plan.script == script
+    assert seen == {"market": "US", "value": "filing-42"}
 
 
 def test_market_vector_ingest_args_defaults_to_dry_run_and_optional_flags():
@@ -1219,6 +1406,18 @@ def test_market_package_import_result_payload_extracts_parse_run_id_only_on_succ
     assert ok["command"] == "python import.py --database-url ***"
     assert failed["ok"] is False
     assert failed["parse_run_id"] is None
+
+
+def test_market_document_full_import_result_payload_matches_package_import_shape():
+    payload = commands.market_document_full_import_result_payload(
+        completed=Completed(returncode=0, stdout="log\nparse-run-doc-full\n", stderr="warn"),
+        command="python import_hk_document_full.py /tmp/document_full.json",
+    )
+
+    assert payload["ok"] is True
+    assert payload["parse_run_id"] == "parse-run-doc-full"
+    assert payload["stderr"] == "warn"
+    assert payload["command"] == "python import_hk_document_full.py /tmp/document_full.json"
 
 
 def test_market_vector_ingest_result_payload_parses_summary_and_tolerates_bad_stdout():

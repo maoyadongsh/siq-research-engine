@@ -1,5 +1,6 @@
 import { apiBlob, apiJson, readJsonResponse, type ApiRequestInit } from '../../shared/api/client'
 import { WIKI_INPUT_ARTIFACTS, type ArtifactInfo, type ArtifactsMap, type DownloadedPdf, type FinancialResult, type PageContent, type WorkflowJob, type WorkflowStatus } from '../../lib/pdfTypes'
+import type { MarketCode, MarketDocumentFullImportResponse } from '../market-parsing/api'
 
 export const PDF_API = '/api/pdf'
 
@@ -39,6 +40,37 @@ export function pipelineArtifactSummary(artifacts: ArtifactsMap | null): {
 export function workflowReady(status: Record<string, unknown> | null | undefined, key: string): boolean {
   const bucket = status?.[key] as Record<string, unknown> | undefined
   return ['ready', 'missing_optional', 'stale_optional'].includes(String(bucket?.status || ''))
+}
+
+function numberValue(value: unknown): number {
+  const n = Number(value || 0)
+  return Number.isFinite(n) ? n : 0
+}
+
+export function normalizeWorkflowStatus(data: WorkflowStatus): WorkflowStatus {
+  const database = data.database
+  if (!database) return data
+  const databaseRecord = database as Record<string, unknown>
+  const facts = numberValue(databaseRecord.facts ?? databaseRecord.statementItems)
+  const tables = numberValue(databaseRecord.tables)
+  const chunks = numberValue(databaseRecord.chunks)
+  const evidence = numberValue(databaseRecord.evidence)
+  const message = database.message || (workflowReady(data as Record<string, unknown>, 'database')
+    ? [`指标 ${facts}`, `表格 ${tables}`, chunks ? `chunks ${chunks}` : '', evidence ? `evidence ${evidence}` : ''].filter(Boolean).join(' / ')
+    : undefined)
+  const normalizedDatabase = {
+    ...database,
+    statementItems: numberValue(database.statementItems || facts),
+    facts,
+    tables,
+    chunks,
+    evidence,
+    message,
+  } as WorkflowStatus['database'] & { facts: number; chunks: number; evidence: number }
+  return {
+    ...data,
+    database: normalizedDatabase,
+  }
 }
 
 export async function loadDownloadedReports(text: string, market?: 'CN' | 'HK' | 'US' | 'EU' | 'KR' | 'JP'): Promise<{ reports: DownloadedPdf[] }> {
@@ -157,7 +189,7 @@ export async function fetchFinancialApi(taskId: string): Promise<FinancialResult
 }
 
 export async function loadWorkflowStatusApi(taskId: string): Promise<WorkflowStatus> {
-  return apiJson<WorkflowStatus>(`/api/workflow/task/${encodeURIComponent(taskId)}/status`)
+  return normalizeWorkflowStatus(await apiJson<WorkflowStatus>(`/api/workflow/task/${encodeURIComponent(taskId)}/status`))
 }
 
 export async function runWorkflowStepApi(
@@ -165,6 +197,16 @@ export async function runWorkflowStepApi(
   step: 'wiki-import' | 'wiki-import-generic' | 'semantic' | 'semantic-generic' | 'db-import',
 ): Promise<WorkflowJob> {
   return apiJson<WorkflowJob>(`/api/workflow/task/${encodeURIComponent(taskId)}/${step}`, { method: 'POST' })
+}
+
+export async function runMarketDocumentFullWorkflowImportApi(
+  market: Exclude<MarketCode, 'US'>,
+  taskId: string,
+): Promise<MarketDocumentFullImportResponse> {
+  return apiJson<MarketDocumentFullImportResponse>('/api/market-reports/document-full/import', {
+    method: 'POST',
+    body: { market, task_id: taskId, ddl: true },
+  })
 }
 
 export async function runRemainingWorkflowApi(taskId: string): Promise<WorkflowJob> {
