@@ -17,6 +17,7 @@ export interface AgentMessage {
   attachments?: AgentAttachment[]
   agentId?: string
   agentName?: string
+  auditTraceId?: string
 }
 
 export type AgentProgressStatus = 'queued' | 'running' | 'completed' | 'error' | 'stopped'
@@ -57,6 +58,8 @@ export interface HistoryRecord {
   created_at?: string | null
   timestamp?: string | null
   attachments?: AgentAttachment[] | null
+  audit_trace_id?: string | null
+  auditTraceId?: string | null
 }
 
 export interface ChatSessionSummary {
@@ -93,6 +96,7 @@ export interface ActiveRunSnapshot {
   event_count?: number
   started_at?: string
   updated_at?: string
+  audit_trace_id?: string
   diagnostic?: {
     scope?: 'session' | 'profile'
     profile?: string

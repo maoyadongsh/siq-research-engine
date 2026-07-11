@@ -33,6 +33,7 @@ jobs:
             scripts/check_owner_migration.sh \
             scripts/check_async_db_audit.sh \
             scripts/ci/observe_security_artifacts.sh \
+            scripts/ops/run_market_postgres_release_gate.sh \
             start_all.sh \
             apps/api/start.sh \
             apps/pdf-parser/run.sh \
@@ -50,6 +51,9 @@ jobs:
       - name: Docker Compose config
         run: docker compose -f infra/docker/docker-compose.yml --env-file infra/env/local.example config
 
+      - name: Local security hygiene config gate
+        run: python3 scripts/maintenance/check_local_security_hygiene.py --scope workflow
+
       - name: Dockerfile lint
         run: |
           docker run --rm -v "$PWD:/repo" -w /repo hadolint/hadolint:v2.12.0 \
@@ -57,7 +61,9 @@ jobs:
             apps/api/Dockerfile \
             apps/web/Dockerfile \
             apps/pdf-parser/Dockerfile \
-            apps/document-parser/Dockerfile
+            apps/document-parser/Dockerfile \
+            services/market-report-finder/Dockerfile \
+            services/market-report-rules/Dockerfile
 
       - name: Generate observe security artifacts
         run: bash scripts/ci/observe_security_artifacts.sh
@@ -94,6 +100,7 @@ jobs:
           bash -n scripts/check_owner_migration.sh
           bash -n scripts/check_async_db_audit.sh
           bash -n scripts/ci/observe_security_artifacts.sh
+          bash -n scripts/ops/run_market_postgres_release_gate.sh
           bash -n start_all.sh
           bash -n apps/api/start.sh
           bash -n apps/pdf-parser/run.sh
@@ -104,8 +111,26 @@ jobs:
             scripts/scan_todo_fixme.py \
             scripts/ops/health_check.py \
             scripts/migration/plan_runtime_paths.py \
+            scripts/maintenance/check_local_security_hygiene.py \
+            scripts/maintenance/check_large_file_changes.py \
+            scripts/maintenance/check_python_quality_touched.py \
+            scripts/maintenance/tests/test_container_security_config.py \
             scripts/maintenance/observe_large_files.py \
-            scripts/maintenance/run_market_ingestion_eval.py
+            scripts/maintenance/run_market_ingestion_eval.py \
+            scripts/maintenance/run_financial_qa_benchmark.py \
+            scripts/maintenance/run_market_document_full_postgres_gate.py \
+            db/imports/analyze_market_document_full_duplicates.py \
+            apps/api/services/runtime_security.py
+
+      - name: Touched Python quality advisory
+        run: |
+          mkdir -p artifacts/quality
+          python3 scripts/maintenance/check_python_quality_touched.py --json > artifacts/quality/python-quality-touched.json
+          cat artifacts/quality/python-quality-touched.json
+
+      - name: Changed large-file gate
+        if: github.event_name == 'pull_request'
+        run: python3 scripts/maintenance/check_large_file_changes.py --base-ref "origin/${{ github.base_ref }}"
 
       - name: Generate large-file observe report
         run: |
@@ -113,12 +138,12 @@ jobs:
           python3 scripts/maintenance/observe_large_files.py --json > artifacts/quality/large-files.json
           python3 scripts/maintenance/observe_large_files.py
 
-      - name: Upload large-file observe report
+      - name: Upload quality observe reports
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: siq-large-file-observe
-          path: artifacts/quality/large-files.json
+          name: siq-quality-observe
+          path: artifacts/quality/*.json
           if-no-files-found: warn
 
   api-focused:
@@ -153,6 +178,8 @@ jobs:
           uv run python -m pytest \
             tests/test_async_sync_session_audit.py \
             tests/test_agent_runtime_active_runs.py \
+            tests/test_agent_runtime_answer_audit.py \
+            tests/test_agent_runtime_diagnostics.py \
             tests/test_agent_chat_runtime_loops.py \
             tests/test_agent_runtime_chat_preflight.py \
             tests/test_auth_dependencies_smoke.py \
@@ -166,6 +193,8 @@ jobs:
             tests/test_eval_e2e_config.py \
             tests/test_hermes_ic_profiles.py \
             tests/test_ic_policy.py \
+            tests/test_market_document_full_postgres_status.py \
+            tests/test_runtime_security.py \
             tests/test_source_access.py \
             tests/test_tracking_agent_permissions.py \
             tests/test_tracking_runtime.py \
@@ -260,6 +289,26 @@ jobs:
         with:
           python-version: '3.13'
 
+      - name: Run market gate helper tests
+        run: |
+          python -m pytest \
+            scripts/maintenance/tests/test_run_market_document_full_postgres_gate.py \
+            scripts/maintenance/tests/test_run_financial_qa_benchmark.py \
+            scripts/maintenance/tests/test_check_python_quality_touched.py \
+            scripts/maintenance/tests/test_check_large_file_changes.py \
+            db/imports/tests/test_document_fact_normalizer.py \
+            db/imports/tests/test_contract_cases.py \
+            db/imports/tests/test_agent_view_parity_helpers.py \
+            db/imports/tests/test_agent_query_gate.py \
+            db/imports/tests/test_postgres_roundtrip_helpers.py \
+            db/imports/tests/test_postgres_roundtrip_gate.py \
+            db/imports/tests/test_production_sample_gate.py \
+            db/imports/tests/test_report_writer.py \
+            db/imports/tests/test_wiki_postgres_parity_gate.py \
+            db/imports/tests/test_analyze_market_document_full_duplicates.py \
+            db/imports/tests/test_cleanup_market_document_full_parse_runs.py \
+            -q
+
       - name: Run static market ingestion eval
         run: |
           python scripts/maintenance/run_market_ingestion_eval.py \
@@ -268,24 +317,50 @@ jobs:
             --output artifacts/eval-runs/ci/market_ingestion_eval_report.json \
             --markdown artifacts/eval-runs/ci/market_ingestion_eval_report.md
 
+      - name: Run market document_full PostgreSQL contract gate
+        run: |
+          python scripts/maintenance/run_market_document_full_postgres_gate.py \
+            --mode contract \
+            --output-dir artifacts/eval-runs/ci
+
+      - name: Run financial QA benchmark
+        run: |
+          python scripts/maintenance/run_financial_qa_benchmark.py \
+            --mode trace-offline \
+            --case-root datasets/eval/financial_qa_benchmark/v1 \
+            --trace-log datasets/eval/financial_qa_benchmark/v1/traces/p0_golden_traces.jsonl \
+            --output artifacts/eval-runs/ci/financial_qa_benchmark.json \
+            --markdown artifacts/eval-runs/ci/financial_qa_benchmark.md
+
       - name: Enforce eval completed
         run: |
           python - <<'PY'
           import json
           from pathlib import Path
 
-          report = json.loads(Path("artifacts/eval-runs/ci/market_ingestion_eval_report.json").read_text())
-          cases = int(report.get("summary", {}).get("cases", 0))
-          if cases <= 0:
+          market_report = json.loads(Path("artifacts/eval-runs/ci/market_ingestion_eval_report.json").read_text())
+          market_cases = int(market_report.get("summary", {}).get("cases", 0))
+          if market_cases <= 0:
               raise SystemExit("market ingestion eval loaded no cases")
-          print(f"market ingestion eval cases: {cases}")
+          print(f"market ingestion eval cases: {market_cases}")
+
+          qa_report = json.loads(Path("artifacts/eval-runs/ci/financial_qa_benchmark.json").read_text())
+          qa_summary = qa_report.get("summary", {})
+          qa_cases = int(qa_summary.get("cases", 0))
+          if qa_cases <= 0:
+              raise SystemExit("financial QA benchmark loaded no cases")
+          if not qa_report.get("passed"):
+              raise SystemExit("financial QA benchmark did not pass")
+          print(f"financial QA benchmark cases: {qa_cases}")
           PY
 
       - name: Upload market eval report
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: market-ingestion-eval
           path: artifacts/eval-runs/ci/
+          if-no-files-found: warn
 
   web-e2e-smoke:
     name: Web E2E smoke

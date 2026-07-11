@@ -10,6 +10,13 @@
 4. `report.md` 全文命中只用于补上下文、补页码、补表格或交叉验证；`document_full.json` 和 PostgreSQL/pdf2md 只在深度审计、证据补全失败、口径冲突或用户明确要求数据库时兜底。全文/RAG 切片不得替代主表数值来源。
 5. 同一问题同时包含主表口径和附注口径时，必须双链路召回并双来源引用；不得因为附注已命中就跳过主表，也不得用附注表替代主表项目。
 
+## 机器契约
+
+- 结构化财务事实必须遵循 `docs/architecture/agent-financial-query-contract.md` 中的 `AgentFinancialFact` 契约。
+- Wiki-first / PostgreSQL fallback 的实时回答策略不做 Wiki/PostgreSQL 对照；对照只进入离线 release gate。
+- PostgreSQL 兜底命中多市场 `{schema}.v_agent_financial_facts` 时，引用行和审计链必须保留 `source_type=postgresql_agent_view`，并尽量保留 `market/schema/company_id/filing_id/parse_run_id/metric_name/canonical_name/period/value/raw_value/unit/currency/source_page/table_index/bbox/evidence_id/quote/source_url/wiki_report_path`。
+- 旧 A 股 `pdf2md` 查询仍可作为兼容兜底，但不得把 `postgresql_agent_view` 写成 Wiki 来源。
+
 ## 混合口径强制规则
 
 以下问题属于“主表项目 -> 附注展开”的混合检索，不是单纯附注问题：

@@ -129,6 +129,9 @@ SIQ_MARKET_REPORT_RULES_HEALTH_URL=https://market-report-rules.example.com/healt
 SIQ_PDF2MD_HEALTH_URL=https://pdf-parser.example.com/api/health
 SIQ_DOCUMENT_PARSER_HEALTH_URL=https://document-parser.example.com/api/health
 SIQ_PUBLIC_ORIGIN=https://app.example.com
+SIQ_CORS_ALLOW_ORIGINS=https://app.example.com
+SIQ_BACKEND_HOST=127.0.0.1
+SIQ_UVICORN_RELOAD=0
 
 SIQ_START_HERMES_GATEWAYS=1
 SIQ_START_MARKET_REPORT_FINDER=0

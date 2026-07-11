@@ -4,6 +4,7 @@ export interface MessageRendererProps {
   content: string
   streaming?: boolean
   variant?: 'assistant' | 'user'
+  auditTraceApiPrefix?: string
 }
 
 export type TextBlock =
@@ -263,6 +264,34 @@ export function parseMarkdownTable(lines: string[], startIndex: number): Markdow
 
 export function isCitationHeading(trimmed: string) {
   return /^(?:#{1,4}\s+)?引用来源[:：]?$/.test(trimmed)
+}
+
+export function isAuditHeading(trimmed: string) {
+  return /^(?:#{1,4}\s+)?审计详情[:：]?$/.test(trimmed)
+}
+
+export function extractAnswerAuditTraceId(lines: string[]) {
+  for (const line of lines) {
+    const match = line.match(/\baat_[a-f0-9]{32}\b/i)
+    if (match) return match[0]
+  }
+  return ''
+}
+
+export function collectHeadingSectionLines(
+  lines: string[],
+  startIndex: number,
+  isSameSectionHeading: (trimmed: string) => boolean,
+) {
+  const sectionLines: string[] = []
+  let nextIndex = startIndex + 1
+  while (nextIndex < lines.length) {
+    const nextTrimmed = lines[nextIndex].trim()
+    if (/^(#{1,6})\s+/.test(nextTrimmed) && !isSameSectionHeading(nextTrimmed)) break
+    sectionLines.push(lines[nextIndex])
+    nextIndex += 1
+  }
+  return { lines: sectionLines, nextIndex }
 }
 
 export function headingTone(text: string) {

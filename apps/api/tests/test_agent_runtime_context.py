@@ -380,6 +380,39 @@ def test_financial_intent_helpers_are_parameterized_and_exclude_general_requests
         is_general_assistant_request=is_general,
     )
 
+    assert agent_runtime_context.goodwill_main_statement_query_applies(
+        "商誉账面价值是多少？",
+        goodwill_main_statement_terms=("账面价值", "资产负债表"),
+        is_general_assistant_request=is_general,
+    )
+    assert not agent_runtime_context.goodwill_main_statement_query_applies(
+        "你能做什么？可以回答商誉账面价值吗？",
+        goodwill_main_statement_terms=("账面价值", "资产负债表"),
+        is_general_assistant_request=is_general,
+    )
+    assert agent_runtime_context.statement_query_with_goodwill_applies(
+        "商誉在资产负债表中的余额",
+        statement_terms=statement_terms,
+        goodwill_main_statement_terms=("账面价值", "资产负债表", "余额"),
+        is_general_assistant_request=is_general,
+    )
+    assert agent_runtime_context.direct_statement_answer_with_goodwill_applies(
+        "商誉账面价值是多少？",
+        statement_terms=statement_terms,
+        statement_direct_terms=("多少", "核心数据"),
+        note_detail_analysis_terms=("分析",),
+        goodwill_main_statement_terms=("账面价值", "资产负债表"),
+        is_general_assistant_request=is_general,
+    )
+    assert not agent_runtime_context.direct_statement_answer_with_goodwill_applies(
+        "分析商誉账面价值趋势",
+        statement_terms=statement_terms,
+        statement_direct_terms=("多少", "趋势"),
+        note_detail_analysis_terms=("分析", "趋势"),
+        goodwill_main_statement_terms=("账面价值", "资产负债表"),
+        is_general_assistant_request=is_general,
+    )
+
 
 def test_note_detail_direct_and_context_intent_combinations():
     is_general = lambda message: agent_runtime_context.is_general_assistant_request(
@@ -577,6 +610,47 @@ def test_hermes_run_input_text_helpers():
             "role": "user",
             "content": [
                 {"type": "text", "text": text},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,aaa"}},
+            ],
+        }
+    ]
+
+
+def test_hermes_run_input_payload_returns_contextual_text_without_attachments():
+    assert agent_runtime_context.build_hermes_run_input_payload(
+        "CTX",
+        has_attachments=False,
+        document_context="ignored",
+        image_data_urls=["data:image/png;base64,aaa"],
+    ) == "CTX"
+
+
+def test_hermes_run_input_payload_uses_text_when_image_fallback_disabled():
+    payload = agent_runtime_context.build_hermes_run_input_payload(
+        "CTX",
+        has_attachments=True,
+        document_context="DOC",
+        image_analysis_context="IMG ANALYSIS",
+        image_path_hints="[Image attached at: /tmp/a.png]",
+        image_data_urls=["data:image/png;base64,aaa"],
+        use_hermes_image_fallback=False,
+    )
+
+    assert payload == "CTX\n\nDOC\n\nIMG ANALYSIS\n\n[Image attached at: /tmp/a.png]"
+
+
+def test_hermes_run_input_payload_builds_multimodal_parts_and_skips_empty_urls():
+    payload = agent_runtime_context.build_hermes_run_input_payload(
+        "CTX",
+        has_attachments=True,
+        image_data_urls=["", "data:image/png;base64,aaa"],
+    )
+
+    assert payload == [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "CTX"},
                 {"type": "image_url", "image_url": {"url": "data:image/png;base64,aaa"}},
             ],
         }

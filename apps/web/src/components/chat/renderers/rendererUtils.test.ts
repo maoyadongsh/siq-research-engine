@@ -3,7 +3,12 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 
-import { parseCitationActions } from './rendererUtils.ts'
+import {
+  collectHeadingSectionLines,
+  extractAnswerAuditTraceId,
+  isAuditHeading,
+  parseCitationActions,
+} from './rendererUtils.ts'
 
 test('parseCitationActions keeps source task page and table text while extracting source links', () => {
   const parsed = parseCitationActions(
@@ -42,4 +47,51 @@ test('parseCitationActions removes bare source link helpers and dedupes generate
     { label: '查看定位页137来源', href: 'https://public.example/api/source/task_a/page/137?format=html', kind: 'source' },
     { label: '查看可读表格165', href: 'https://public.example/api/source/task_a/table/165?format=html', kind: 'table' },
   ])
+})
+
+test('isAuditHeading recognizes compact audit detail headings only', () => {
+  assert.equal(isAuditHeading('审计详情'), true)
+  assert.equal(isAuditHeading('审计详情:'), true)
+  assert.equal(isAuditHeading('## 审计详情'), true)
+  assert.equal(isAuditHeading('审计详情：'), true)
+  assert.equal(isAuditHeading('# 审计详情'), true)
+  assert.equal(isAuditHeading('#### 审计详情：'), true)
+  assert.equal(isAuditHeading('### 审计详情:'), true)
+  assert.equal(isAuditHeading('##### 审计详情'), false)
+  assert.equal(isAuditHeading('审计明细'), false)
+  assert.equal(isAuditHeading('审计详情 extra'), false)
+  assert.equal(isAuditHeading('## 审计详情 123'), false)
+  assert.equal(isAuditHeading('## 审计详情与引用来源'), false)
+})
+
+test('collectHeadingSectionLines stops audit details before the next normal heading', () => {
+  const lines = [
+    '回答正文',
+    '## 审计详情',
+    '- trace_schema: `siq_answer_audit_trace_v1`',
+    '- fallback_reason: `market_view_hit`',
+    '',
+    '### 下一步',
+    '继续分析',
+  ]
+
+  const section = collectHeadingSectionLines(lines, 1, isAuditHeading)
+
+  assert.deepEqual(section.lines, [
+    '- trace_schema: `siq_answer_audit_trace_v1`',
+    '- fallback_reason: `market_view_hit`',
+    '',
+  ])
+  assert.equal(section.nextIndex, 5)
+})
+
+test('extractAnswerAuditTraceId reads stable answer audit ids from summary lines', () => {
+  assert.equal(
+    extractAnswerAuditTraceId([
+      '- trace_schema: `siq_answer_audit_trace_v1`',
+      '- trace_id: `aat_0123456789abcdef0123456789abcdef`',
+    ]),
+    'aat_0123456789abcdef0123456789abcdef',
+  )
+  assert.equal(extractAnswerAuditTraceId(['- trace_id: `bad`']), '')
 })

@@ -150,6 +150,7 @@ uv run uvicorn market_report_rules_service.app:app --host 127.0.0.1 --port 18020
 ```bash
 curl -s http://localhost:15173
 curl -s http://localhost:18081/health
+curl -s http://localhost:18081/metrics | head
 curl -s http://localhost:15000/api/health
 curl -s http://localhost:15010/api/health
 curl -s http://localhost:18000/health

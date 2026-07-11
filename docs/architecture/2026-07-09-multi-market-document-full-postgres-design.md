@@ -322,6 +322,28 @@ document_full.relations[]
 | `operating_metric_facts` / `differentiated_metrics` 等价层 | 承载行业/公司差异化指标，不污染 common_core 指标。 |
 | `retrieval_chunks/document_chunks` | 支撑 Agent 检索和回答引用。 |
 
+## 智能体查询指引
+
+生产 Agent 查询必须和 PostgreSQL 入库合同绑定，避免继续依赖旧 package 分散事实。多市场查询层按以下规则实现和验收：
+
+| 规则 | 要求 |
+| --- | --- |
+| 首选数据源 | HK/JP/KR/EU/US 优先读取 `{schema}.v_agent_financial_facts`；A 股继续使用现有 `siq.pdf2md` 链路；Wiki/package 只用于证据展示和兜底检索。 |
+| 市场识别 | 从用户问题、当前报告上下文、路径和公司代码识别 market；必须区分 HK/JP/KR/EU/US，US 支持 SEC/CIK/ticker 和 `/data/wiki/us`、`/data/parser-results/us-sec` 路径。 |
+| 公司识别 | 优先使用强身份字段：HK stock_code、JP EDINET/security_code、KR corp_code/stock_code、EU country+ticker/ISIN/LEI、US CIK/ticker；公司名仅作为辅助匹配。 |
+| 指标识别 | 先匹配 `canonical_name/canonical_label` 和 common_core alias，再匹配 `item_name/item_name_raw/local_name/metric_name/metric_name_raw/concept/xbrl_tag/taxonomy_tag`。不能把无法映射的差异化指标编造成通用指标。 |
+| 期间识别 | 用户未指定期间时按 `filing_period_end/fiscal_year/parse_completed_at/parse_run_id` 取最新；用户指定期间时必须过滤 `period_key/period_end/fiscal_year`。 |
+| 重复入库处理 | 生产查询默认按最新 parse_run 排序；回测和真实样本门禁必须按本次导入的 `parse_run_id` 精确 scope，防止旧数据污染结果。 |
+| 证据返回 | 回答必须返回可审计证据字段之一：page/table/bbox、quote_text、html_anchor/xpath、source_url 或 wiki_package_path；无证据时只能给出低置信度或失败说明。 |
+| 原币优先 | 默认返回报告原币和原始单位；只有用户明确要求跨币种比较时，才使用带 `converted_currency/fx_rate_date/fx_rate_source` 的派生折算字段。 |
+| 失败条件 | 找不到公司、找不到指标、期间不唯一、值存在但无证据、或只命中旧 package 事实时，不应伪造答案；应返回需要用户确认的缺口。 |
+
+对应代码门禁：
+
+- `--production-agent-query` 对 fixture 固定问题执行结构化值、单位/币种和证据断言。
+- 与 `--production-sample-db` 联用时，会对 manifest 内真实样本的本次 `parse_run_id` 执行 Agent 视图探针，要求视图中至少存在事实行、数值行和可追溯证据。
+- runtime fallback 应优先尝试多市场 `v_agent_financial_facts`；未命中时才回落旧 A 股/pdf2md 查询或检索型证据兜底。
+
 ## 各市场规则设计
 
 ### HK
@@ -409,6 +431,8 @@ document_full.relations[]
 | 质量检查 | `financial_checks`、`quality_reports` / `quality_warnings` |
 | 证据检索 | `evidence_citations`、`document_chunks` / `retrieval_chunks` |
 | 原始引用 | `raw_payload_refs` 或 `artifacts` |
+
+表名不要求所有市场完全同名；当前实现的等价层映射见 `docs/architecture/market-postgres-schema-equivalence.md`。API/backtest 也按 `document_chunks` / `retrieval_chunks`、`document_tables` / `pdf_tables` / `html_tables` 等表族统计。
 
 ## API 和前端按钮联动
 
@@ -515,7 +539,7 @@ db/imports/backtests/cases/us_sec_core_metrics.json
 
 ```text
 eval_datasets/market_document_full_postgres/backtest_report.json
-eval_datasets/market_document_full_postgres/backtest_report.md
+docs/reports/market-document-full-postgres-backtest.md
 ```
 
 ### 成功门槛
@@ -539,7 +563,7 @@ eval_datasets/market_document_full_postgres/backtest_report.md
 | 文件 | 动作 |
 | --- | --- |
 | `db/imports/tests/test_a_share_document_full_contract.py` | 新增测试，只读验证 A 股 importer 的输入字段、核心行模型、主键策略，不改 A 股代码。 |
-| `docs/architecture/a-share-postgres-reference-contract.md` | 可选，抽出 A 股表结构和行模型参考。 |
+| `docs/architecture/a-share-postgres-reference-contract.md` | 抽出 A 股表结构和行模型参考。 |
 
 验收：
 
@@ -639,7 +663,12 @@ eval_datasets/market_document_full_postgres/backtest_report.md
 验收：
 
 - 每个市场 PostgreSQL 入库后自动生成回测报告。
-- Agent 固定问题集能读到正确结构化指标并带证据。
+- `production_sample_manifest.json` 每个非 A 股市场至少列出 3 个真实 `document_full.json`，默认回测会做路径和数量 preflight。
+- 严格生产门禁使用：
+  `python3 db/imports/backtests/market_document_full_postgres_backtest.py --db --import-before-db-check --idempotency --production-sample-db --production-agent-query`
+- `--production-sample-db` 会按市场连续导入 manifest 内真实样本并重复导入，比对表族计数、表计数、关键内容 hash，并检查同市场多样本 `parse_run_id` 共存，避免每个样本重建 schema 后只剩最后一份。
+- `--production-agent-query` 通过各市场 `{schema}.v_agent_financial_facts` 做无 LLM 固定问题查询，验证结构化指标值和可回溯证据；与 `--production-sample-db` 联用时，还会按真实样本本次 `parse_run_id` 探测 Agent 视图是否有事实、数值和证据，避免只验证 fixture。
+- DB 导入模式会额外执行 Wiki/package 与 PostgreSQL 对照回测：同一指标先从 `document_full`/Wiki package 归一化事实取值，再从 `{schema}.v_agent_financial_facts` 取值，比较 value、raw_value、unit、currency、scale 和证据字段；真实样本没有人工 assertion 时抽样最多 5 个可识别核心事实，要求至少 2 个重叠事实通过，并把未覆盖源事实记录为 parity warnings。
 - 回测报告分别统计 common_core 指标准确率、差异化指标保留率、单位/币种归一化可解释率。
 
 ## 风险与约束
@@ -663,7 +692,7 @@ eval_datasets/market_document_full_postgres/backtest_report.md
 | 五个非 A 股市场有独立脚本 | HK/JP/KR/EU/US 均有 `import_<market>_document_full_to_postgres.py`。 |
 | 五个市场有独立规则 | HK/JP/KR/EU/US 均有 `market_document_full_rules/<market>.py`。 |
 | 主输入唯一 | 新 importer 的测试证明核心事实来自 `document_full.json`。 |
-| 表结构颗粒度达标 | 各市场具备 company/filing/parse_run/table/statement/item/wide/check/chunk/citation 等表族。 |
+| 表结构颗粒度达标 | 各市场具备 company/filing/parse_run/document/artifact/table/statement/item/wide/check/quality/normalization/chunk/citation 等表族。 |
 | 归一化分层达标 | 各市场具备 raw facts、common_core canonical、market/country canonical、differentiated metrics、normalization rules。 |
 | 单位和币种不丢失 | 原始单位/币种、标准单位/scale、原币事实和可选折算派生字段可同时查询。 |
 | 前端按钮联动 | 各市场页面“导入 PostgreSQL”触发新 API。 |

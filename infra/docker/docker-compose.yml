@@ -152,6 +152,7 @@ services:
     build:
       context: ../../services/market-report-finder
       dockerfile: Dockerfile
+    user: "10001:10001"
     read_only: true
     tmpfs:
       - /tmp
@@ -185,6 +186,7 @@ services:
     build:
       context: ../../services/market-report-finder
       dockerfile: Dockerfile
+    user: "10001:10001"
     read_only: true
     tmpfs:
       - /tmp

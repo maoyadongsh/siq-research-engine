@@ -20,6 +20,7 @@ from database import async_engine, get_async_session
 from models import Achievement, AgentState, ChatMessage, InteractionLog
 from services.auth_service import User
 from schemas import (
+    AnswerAuditTraceResponse,
     ChatAttachment,
     ChatAttachmentUploadRequest,
     ChatAttachmentUploadResponse,
@@ -39,6 +40,7 @@ from services.agent_chat_runtime import (
     stream_active_run_events,
     stream_chat_reply,
 )
+from services.agent_runtime_answer_audit import get_answer_audit_trace, is_answer_audit_trace_id
 from services.hermes_model_control import maybe_handle_model_control
 from services.session_manager import get_session_manager, keeps_sessions_forever
 from services.auth_dependencies import get_current_user
@@ -1108,6 +1110,20 @@ async def get_chat_attachment(
     return FileResponse(path)
 
 
+@router.get("/chat/audit-traces/{trace_id}", response_model=AnswerAuditTraceResponse)
+async def get_chat_answer_audit_trace(
+    trace_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    if not is_answer_audit_trace_id(trace_id):
+        raise HTTPException(status_code=404, detail="Audit trace not found")
+    trace = get_answer_audit_trace(trace_id)
+    session_id = str((trace or {}).get("session_id") or "")
+    if not trace or not session_id.startswith(_user_session_prefix(str(current_user.id), "assistant")):
+        raise HTTPException(status_code=404, detail="Audit trace not found")
+    return {"trace_id": trace_id, "trace": trace}
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat(
     req: ChatRequest,
@@ -1146,6 +1162,14 @@ async def chat(
         get_session_manager().increment_message_count(session_id)
         return ChatResponse(reply=control_reply, new_achievements=[])
 
+    audit_trace_id: str | None = None
+
+    def capture_answer_audit(record: dict) -> None:
+        nonlocal audit_trace_id
+        candidate = str(record.get("trace_id") or "").strip()
+        if is_answer_audit_trace_id(candidate):
+            audit_trace_id = candidate
+
     reply = await collect_chat_reply(
         req.message,
         async_session,
@@ -1154,12 +1178,17 @@ async def chat(
         context=req.context,
         display_message=req.display_message,
         attachments=req.attachments,
+        answer_audit_callback=capture_answer_audit,
     )
     get_session_manager().increment_message_count(session_id)
 
     new_achs = await update_agent_and_achievements(async_session)
 
-    return ChatResponse(reply=reply, new_achievements=[a.model_dump(mode="json") for a in new_achs])
+    return ChatResponse(
+        reply=reply,
+        new_achievements=[a.model_dump(mode="json") for a in new_achs],
+        audit_trace_id=audit_trace_id,
+    )
 
 
 @router.post("/chat/stream")
@@ -1223,6 +1252,7 @@ async def chat_stream(
             display_message=req.display_message,
             attachments=req.attachments,
             done_payload_factory=done_payload,
+            emit_audit_trace_id=True,
         ):
             yield event
         get_session_manager().increment_message_count(session_id)

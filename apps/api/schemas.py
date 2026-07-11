@@ -81,6 +81,12 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     new_achievements: list["AchievementResponse"]
+    audit_trace_id: Optional[str] = None
+
+
+class AnswerAuditTraceResponse(BaseModel):
+    trace_id: str
+    trace: dict[str, Any]
 
 
 class AchievementResponse(BaseModel):

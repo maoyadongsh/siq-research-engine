@@ -1,6 +1,7 @@
 import { apiBlob, apiJson, readJsonResponse, type ApiRequestInit } from '../../shared/api/client'
 import { WIKI_INPUT_ARTIFACTS, type ArtifactInfo, type ArtifactsMap, type DownloadedPdf, type FinancialResult, type PageContent, type WorkflowJob, type WorkflowStatus } from '../../lib/pdfTypes'
 import type { MarketCode, MarketDocumentFullImportResponse } from '../market-parsing/api'
+import { deriveMarketDocumentFullPostgresSummary } from '../market-parsing/marketIngestionPipelineState'
 
 export const PDF_API = '/api/pdf'
 
@@ -47,25 +48,57 @@ function numberValue(value: unknown): number {
   return Number.isFinite(n) ? n : 0
 }
 
+function hasOwn(record: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key)
+}
+
+function isMarketDocumentFullDatabaseStatus(record: Record<string, unknown>): boolean {
+  return [
+    'facts',
+    'chunks',
+    'evidence',
+    'schema',
+    'marketStatus',
+    'parse_runs',
+    'parseRuns',
+    'parse_run_id',
+    'parseRunId',
+    'missing_counts',
+    'missingCounts',
+  ].some((key) => hasOwn(record, key))
+}
+
 export function normalizeWorkflowStatus(data: WorkflowStatus): WorkflowStatus {
   const database = data.database
   if (!database) return data
   const databaseRecord = database as Record<string, unknown>
-  const facts = numberValue(databaseRecord.facts ?? databaseRecord.statementItems)
-  const tables = numberValue(databaseRecord.tables)
-  const chunks = numberValue(databaseRecord.chunks)
-  const evidence = numberValue(databaseRecord.evidence)
-  const message = database.message || (workflowReady(data as Record<string, unknown>, 'database')
-    ? [`指标 ${facts}`, `表格 ${tables}`, chunks ? `chunks ${chunks}` : '', evidence ? `evidence ${evidence}` : ''].filter(Boolean).join(' / ')
-    : undefined)
+  if (!isMarketDocumentFullDatabaseStatus(databaseRecord)) {
+    const facts = numberValue(database.statementItems)
+    const tables = numberValue(database.tables)
+    const message = database.message || (workflowReady(data as Record<string, unknown>, 'database')
+      ? [`指标 ${facts}`, `表格 ${tables}`].filter(Boolean).join(' / ')
+      : undefined)
+    return {
+      ...data,
+      database: {
+        ...database,
+        statementItems: facts,
+        tables,
+        message,
+      },
+    }
+  }
+
+  const summary = deriveMarketDocumentFullPostgresSummary(databaseRecord)
   const normalizedDatabase = {
     ...database,
-    statementItems: numberValue(database.statementItems || facts),
-    facts,
-    tables,
-    chunks,
-    evidence,
-    message,
+    status: database.status,
+    statementItems: numberValue(database.statementItems || summary.facts),
+    facts: summary.facts,
+    tables: summary.tables,
+    chunks: summary.chunks,
+    evidence: summary.evidence,
+    message: database.message || summary.description,
   } as WorkflowStatus['database'] & { facts: number; chunks: number; evidence: number }
   return {
     ...data,

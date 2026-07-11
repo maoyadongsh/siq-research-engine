@@ -49,6 +49,35 @@ export SIQ_DOCUMENT_PARSER_HEALTH_URL="${SIQ_DOCUMENT_PARSER_HEALTH_URL:-http://
 export REDIS_URL="${REDIS_URL:-redis://localhost:16379/0}"
 export SIQ_ALLOW_REGISTRATION="${SIQ_ALLOW_REGISTRATION:-0}"
 export SIQ_DEMO_MODE="${SIQ_DEMO_MODE:-0}"
+DEPLOYMENT_PROFILE="$(printf '%s' "${SIQ_DEPLOYMENT_PROFILE:-development}" | tr '[:upper:]' '[:lower:]')"
+IS_PRODUCTION=0
+if [[ "$DEPLOYMENT_PROFILE" == "production" || "$DEPLOYMENT_PROFILE" == "prod" ]]; then
+    IS_PRODUCTION=1
+fi
+UVICORN_HOST="${SIQ_BACKEND_HOST:-}"
+UVICORN_RELOAD="${SIQ_UVICORN_RELOAD:-}"
+if [[ -z "$UVICORN_HOST" ]]; then
+    if [[ "$IS_PRODUCTION" == "1" ]]; then
+        UVICORN_HOST="127.0.0.1"
+    else
+        UVICORN_HOST="0.0.0.0"
+    fi
+fi
+if [[ -z "$UVICORN_RELOAD" ]]; then
+    if [[ "$IS_PRODUCTION" == "1" ]]; then
+        UVICORN_RELOAD="0"
+    else
+        UVICORN_RELOAD="1"
+    fi
+fi
+if [[ "$IS_PRODUCTION" == "1" && "$UVICORN_RELOAD" =~ ^(1|true|yes|on)$ ]]; then
+    echo "❌ SIQ_UVICORN_RELOAD must not be enabled when SIQ_DEPLOYMENT_PROFILE=production."
+    exit 1
+fi
+if [[ "$IS_PRODUCTION" == "1" && "${FLASK_DEBUG:-}" =~ ^(1|true|yes|on)$ ]]; then
+    echo "❌ FLASK_DEBUG must not be enabled when SIQ_DEPLOYMENT_PROFILE=production."
+    exit 1
+fi
 
 if [ -z "${SIQ_AUTH_SECRET_KEY:-}" ]; then
     echo "❌ 缺少 SIQ_AUTH_SECRET_KEY。请先执行："
@@ -57,11 +86,17 @@ if [ -z "${SIQ_AUTH_SECRET_KEY:-}" ]; then
 fi
 
 echo "🚀 启动 SIQ Research Engine 后端服务..."
-echo "   监听地址: 0.0.0.0:$SIQ_BACKEND_PORT"
+echo "   部署模式: $DEPLOYMENT_PROFILE"
+echo "   监听地址: $UVICORN_HOST:$SIQ_BACKEND_PORT"
 echo "   允许注册: $SIQ_ALLOW_REGISTRATION"
 echo "   演示登录: $SIQ_DEMO_MODE"
 echo "   WIKI_ROOT: $WIKI_ROOT"
 echo "   SIQ_APP_DATABASE_URL: ${SIQ_APP_DATABASE_URL:-${DATABASE_URL:-sqlite fallback}}"
 echo ""
 
-uv run python -m uvicorn main:app --host 0.0.0.0 --port "$SIQ_BACKEND_PORT" --reload
+uvicorn_args=(main:app --host "$UVICORN_HOST" --port "$SIQ_BACKEND_PORT")
+if [[ "$UVICORN_RELOAD" =~ ^(1|true|yes|on)$ ]]; then
+    uvicorn_args+=(--reload)
+fi
+
+uv run python -m uvicorn "${uvicorn_args[@]}"

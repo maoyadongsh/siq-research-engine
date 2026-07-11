@@ -422,6 +422,76 @@
   background: rgba(15, 23, 42, .04);
   color: #475569;
 }
+.chat-audit-block {
+  margin: .55rem 0 .28rem;
+  border: 1px solid rgba(148, 163, 184, .22);
+  border-radius: .75rem;
+  background: rgba(255, 255, 255, .62);
+  color: #64748b;
+  font-size: .74rem;
+  line-height: 1.55;
+}
+.chat-audit-summary {
+  cursor: pointer;
+  padding: .52rem .66rem;
+  color: #334155;
+  font-size: .72rem;
+  font-weight: 850;
+}
+.chat-audit-list {
+  display: grid;
+  gap: .32rem;
+  border-top: 1px solid rgba(148, 163, 184, .18);
+  padding: .56rem .66rem .66rem;
+}
+.chat-audit-item {
+  overflow-wrap: anywhere;
+}
+.chat-audit-block .chat-inline-code {
+  background: rgba(15, 23, 42, .04);
+  color: #475569;
+}
+.chat-audit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .42rem;
+  padding-top: .18rem;
+}
+.chat-audit-action {
+  display: inline-flex;
+  align-items: center;
+  gap: .32rem;
+  min-height: 1.75rem;
+  border: 1px solid rgba(59, 130, 246, .24);
+  border-radius: .48rem;
+  background: rgba(59, 130, 246, .08);
+  padding: .24rem .48rem;
+  color: #1d4ed8;
+  font-size: .72rem;
+  font-weight: 800;
+}
+.chat-audit-action:disabled {
+  cursor: wait;
+  opacity: .72;
+}
+.chat-audit-error {
+  border-radius: .5rem;
+  background: rgba(239, 68, 68, .08);
+  padding: .42rem .5rem;
+  color: #b91c1c;
+  font-weight: 750;
+}
+.chat-audit-json {
+  max-height: 22rem;
+  overflow: auto;
+  border-radius: .55rem;
+  background: rgba(15, 23, 42, .045);
+  padding: .6rem;
+  color: #334155;
+  font-size: .68rem;
+  line-height: 1.5;
+  white-space: pre;
+}
 .chat-table-wrap {
   max-width: 100%;
   margin: .85rem 0;
@@ -727,6 +797,34 @@ html.dark .chat-citation-action-pdf {
 }
 html.dark .chat-citation-block .chat-inline-code {
   background: rgba(248, 250, 252, .08);
+  color: #cbd5e1;
+}
+html.dark .chat-audit-block {
+  border-color: rgba(71, 85, 105, .42);
+  background: rgba(15, 23, 42, .62);
+  color: #94a3b8;
+}
+html.dark .chat-audit-summary {
+  color: #cbd5e1;
+}
+html.dark .chat-audit-list {
+  border-top-color: rgba(71, 85, 105, .44);
+}
+html.dark .chat-audit-block .chat-inline-code {
+  background: rgba(248, 250, 252, .08);
+  color: #cbd5e1;
+}
+html.dark .chat-audit-action {
+  border-color: rgba(96, 165, 250, .34);
+  background: rgba(30, 64, 175, .28);
+  color: #bfdbfe;
+}
+html.dark .chat-audit-error {
+  background: rgba(127, 29, 29, .28);
+  color: #fecaca;
+}
+html.dark .chat-audit-json {
+  background: rgba(2, 6, 23, .58);
   color: #cbd5e1;
 }
 html.dark .chat-table-wrap {

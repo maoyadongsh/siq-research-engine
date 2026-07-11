@@ -32,6 +32,7 @@ function createApi() {
     appendAssistantDelta: (content) => calls.push(['append', content]),
     flushAssistantDelta: () => calls.push(['flush', null]),
     replaceAssistantContent: (content) => calls.push(['replace', content]),
+    setAssistantAuditTraceId: (traceId) => calls.push(['audit', traceId]),
     updateAssistantProgress: (progress: AgentProgress) => calls.push(['progress', progress]),
     responseErrorMessage: async (_res, fallback) => fallback,
   }
@@ -79,4 +80,17 @@ test('consumeEventStream joins multi-line data fields before parsing', async () 
 
   assert.ok(calls.some(([name, value]) => name === 'append' && value === 'hello from two lines'))
   assert.ok(calls.some(([name, value]) => name === 'append' && value === 'plain\nfallback'))
+})
+
+test('consumeEventStream forwards answer audit trace id from done payload', async () => {
+  const { api, calls } = createApi()
+  const consumer = createStreamConsumer(api)
+
+  await consumer.consumeEventStream(responseFromChunks([
+    'event: done\n',
+    'data: {"content":"final","audit_trace_id":"aat_1234567890abcdef1234567890abcdef"}\n\n',
+  ]))
+
+  assert.ok(calls.some(([name, value]) => name === 'replace' && value === 'final'))
+  assert.ok(calls.some(([name, value]) => name === 'audit' && value === 'aat_1234567890abcdef1234567890abcdef'))
 })

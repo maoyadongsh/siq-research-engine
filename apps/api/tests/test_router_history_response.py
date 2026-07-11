@@ -4,6 +4,7 @@ import anyio
 
 from routers import agent_chat_router, agent_user_router, chat
 from routers.agent_user_router import SpecialistAgentConfig, create_specialist_agent_router
+from services import agent_runtime_answer_audit as audit
 from services.auth_service import User, UserRole
 
 
@@ -126,6 +127,36 @@ def test_specialist_chat_history_wraps_runtime_payload_and_resolved_session(monk
             "session_id": "resolved-analysis-session",
             "limit": 11,
         }
+
+    anyio.run(run_case)
+
+
+def test_specialist_answer_audit_trace_route_uses_profile_session_ownership():
+    router = create_specialist_agent_router(
+        SpecialistAgentConfig(prefix="/analysis", tag="analysis", profile="siq_analysis")
+    )
+    endpoint = next(route.endpoint for route in router.routes if route.path.endswith("/chat/audit-traces/{trace_id}"))
+    trace = audit.record_answer_audit_trace(
+        audit.build_answer_audit_trace(
+            message="question_id=q-analysis-audit 营收是多少？",
+            final_reply="[D1] source_type=wiki_metrics, metric=营收",
+            profile="siq_analysis",
+            session_id="user-7-analysis-session",
+        ),
+        log_path="/tmp/siq-test-specialist-answer-audit-trace.jsonl",
+    )
+
+    async def run_case():
+        payload = await endpoint(trace["trace_id"], current_user=_user(7))
+        assert payload["trace_id"] == trace["trace_id"]
+        assert payload["trace"]["session_id"] == "user-7-analysis-session"
+
+        try:
+            await endpoint(trace["trace_id"], current_user=_user(8))
+        except agent_user_router.HTTPException as exc:
+            assert exc.status_code == 404
+        else:
+            raise AssertionError("other user unexpectedly read specialist audit trace")
 
     anyio.run(run_case)
 

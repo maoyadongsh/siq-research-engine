@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from pathlib import Path
 
 from services import market_report_commands as commands
@@ -845,6 +846,9 @@ def test_market_document_full_import_plan_selects_script_and_document_path(tmp_p
     assert plan.market == "HK"
     assert plan.document_full_path == document_full
     assert plan.script == script
+    assert plan.identity.market == "HK"
+    assert plan.identity.document_full_path == document_full
+    assert plan.selector == {"market": "HK", "document_full_path": str(document_full)}
     assert seen == {"market": "HK", "value": "hk-task/document_full.json"}
 
 
@@ -864,6 +868,22 @@ def test_market_document_full_import_plan_accepts_directory_alias_and_reports_er
     )
 
     assert plan.document_full_path == document_full
+    assert plan.selector == {"market": "JP", "document_full_path": str(document_full)}
+
+    other_json = document_dir / "financial_data.json"
+    other_json.write_text("{}", encoding="utf-8")
+    try:
+        commands.build_market_document_full_import_plan(
+            payload={"document_full_path": str(other_json)},
+            market="JP",
+            market_document_full_import_scripts={"JP": script},
+            safe_market_document_full_path=lambda _market, _value: other_json,
+        )
+    except commands.MarketPackagePlanError as exc:
+        assert exc.status_code == 400
+        assert exc.detail == "document_full_path must resolve to document_full.json"
+    else:
+        raise AssertionError("expected document_full filename contract error")
 
     try:
         commands.build_market_document_full_import_plan(
@@ -914,6 +934,12 @@ def test_market_document_full_import_plan_accepts_task_id_alias(tmp_path):
     )
 
     assert plan.document_full_path == document_full
+    assert plan.identity.task_id == "hk-task-42"
+    assert plan.selector == {
+        "market": "HK",
+        "document_full_path": str(document_full),
+        "task_id": "hk-task-42",
+    }
     assert seen == {"market": "HK", "value": "hk-task-42"}
 
 
@@ -940,7 +966,69 @@ def test_market_document_full_import_plan_normalizes_us_sec_alias(tmp_path):
     assert plan.market == "US"
     assert plan.document_full_path == document_full
     assert plan.script == script
+    assert plan.identity.market == "US"
+    assert plan.identity.task_id == "filing-42"
+    assert plan.selector == {
+        "market": "US",
+        "document_full_path": str(document_full),
+        "task_id": "filing-42",
+    }
     assert seen == {"market": "US", "value": "filing-42"}
+
+
+def test_market_document_full_import_plan_uses_identity_for_task_absolute_and_repo_relative_paths(tmp_path):
+    repo_root = tmp_path / "repo"
+    root = repo_root / "data" / "pdf-parser" / "results"
+    document_full = root / "hk-task-99" / "document_full.json"
+    script = repo_root / "db" / "imports" / "import_hk_document_full_to_postgres.py"
+    for path in (document_full, script):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}", encoding="utf-8")
+
+    def safe_document_full(market: str, value: str) -> Path:
+        assert market == "HK"
+        path = Path(value)
+        if value == "hk-task-99":
+            return document_full.parent
+        if path.is_absolute():
+            return path
+        return repo_root / path
+
+    common_kwargs = {
+        "market": "HK",
+        "market_document_full_import_scripts": {"HK": script},
+        "safe_market_document_full_path": safe_document_full,
+        "repo_root": repo_root,
+        "market_document_full_roots": {"HK": root},
+    }
+    task_plan = commands.build_market_document_full_import_plan(
+        payload={"task_id": "hk-task-99"},
+        **common_kwargs,
+    )
+    absolute_plan = commands.build_market_document_full_import_plan(
+        payload={"document_full_path": str(document_full)},
+        **common_kwargs,
+    )
+    repo_relative_plan = commands.build_market_document_full_import_plan(
+        payload={"document_full_path": "data/pdf-parser/results/hk-task-99/document_full.json"},
+        **common_kwargs,
+    )
+
+    assert task_plan.document_full_path == document_full
+    assert absolute_plan.document_full_path == document_full
+    assert repo_relative_plan.document_full_path == document_full
+    assert task_plan.selector == {
+        "market": "HK",
+        "document_full_path": str(document_full),
+        "task_id": "hk-task-99",
+    }
+    assert task_plan.identity.path_keys[0] == "hk-task-99"
+    assert absolute_plan.identity.path_keys[0] == str(document_full)
+    assert repo_relative_plan.identity.path_keys[0] == "data/pdf-parser/results/hk-task-99/document_full.json"
+    for plan in (task_plan, absolute_plan, repo_relative_plan):
+        assert str(document_full.resolve()) in plan.identity.path_keys
+        assert "data/pdf-parser/results/hk-task-99/document_full.json" in plan.identity.path_keys
+        assert "hk-task-99/document_full.json" in plan.identity.path_keys
 
 
 def test_market_vector_ingest_args_defaults_to_dry_run_and_optional_flags():
@@ -1225,6 +1313,172 @@ def test_us_sec_ingest_args_includes_optional_flags_and_filters():
         "--batch-tag",
         "market-evidence:2026",
     ]
+
+
+def test_normalize_us_sec_ingest_filters_normalizes_and_rejects_invalid_values():
+    assert commands.normalize_us_sec_ingest_filters(
+        {"tickers": " aapl,msft ", "batch_tag": " market-evidence:2026 "}
+    ) == ("AAPL,MSFT", "market-evidence:2026")
+    assert commands.normalize_us_sec_ingest_filters({}) == ("", "")
+
+    for payload, detail in (
+        ({"tickers": "../AAPL"}, "Invalid tickers"),
+        ({"batch_tag": "bad tag"}, "Invalid batch_tag"),
+    ):
+        try:
+            commands.normalize_us_sec_ingest_filters(payload)
+        except commands.MarketPackagePlanError as exc:
+            assert exc.status_code == 400
+            assert exc.detail == detail
+        else:
+            raise AssertionError("expected MarketPackagePlanError")
+
+
+def test_us_sec_upload_filename_and_content_type_helpers_normalize_inputs():
+    assert commands.safe_filename_part(" Apple Inc. / 10-K:FY2025 ") == "Apple-Inc.-10-K-FY2025"
+    assert commands.safe_filename_part("...---") == "unknown"
+    assert commands.safe_filename_part(None) == "unknown"
+
+    assert commands.file_suffix_from_content_type("text/html; charset=utf-8") == ".html"
+    assert commands.file_suffix_from_content_type("APPLICATION/PDF") == ".pdf"
+    assert commands.file_suffix_from_content_type("application/x-zip-compressed") == ".zip"
+    assert commands.file_suffix_from_content_type("application/octet-stream") == ""
+    assert commands.file_suffix_from_content_type(None) == ""
+
+
+def test_us_sec_upload_metadata_payload_builds_candidate_and_downloaded_file(tmp_path):
+    file_path = tmp_path / "downloads" / "US" / "Apple-Inc" / "2025" / "年报" / "apple_10k.html"
+    file_path.parent.mkdir(parents=True)
+    file_path.write_text("<html>10-K</html>", encoding="utf-8")
+
+    payload = commands.us_sec_upload_metadata_payload(
+        file_path=file_path,
+        original_name="apple-10k.htm",
+        content_type="text/html",
+        digest="abc123",
+        size_bytes=16,
+        ticker="AAPL",
+        company_name="Apple Inc.",
+        report_type="10-K",
+        report_family="annual",
+        period_end="2025-09-27",
+        filing_date=None,
+        fallback_published_at="2026-07-11",
+    )
+
+    assert payload["candidate"]["market"] == "US"
+    assert payload["candidate"]["ticker"] == "AAPL"
+    assert payload["candidate"]["company_name"] == "Apple Inc."
+    assert payload["candidate"]["report_type"] == "annual"
+    assert payload["candidate"]["report_family"] == "annual"
+    assert payload["candidate"]["form"] == "10-K"
+    assert payload["candidate"]["report_end"] == "2025-09-27"
+    assert payload["candidate"]["published_at"] == "2026-07-11"
+    assert payload["candidate"]["metadata"] == {"uploaded_filename": "apple-10k.htm", "content_type": "text/html"}
+    assert payload["candidate"]["document_url"] == f"file://{file_path.resolve()}"
+    assert payload["downloaded_file"] == {
+        "file_name": "apple_10k.html",
+        "saved_path": str(file_path.resolve()),
+        "size_bytes": 16,
+        "content_type": "text/html",
+        "content_sha256": "abc123",
+    }
+
+
+def test_force_audit_validation_operator_fill_and_redaction():
+    payload = {
+        "force": True,
+        "force_reason": "reviewed soft quality gate password=secret",
+        "ticket": "CHG-123",
+        "one_shot": True,
+    }
+    with_operator = commands.payload_with_force_operator(payload, user_id=42, username="ops@example.com")
+    audit = commands.validate_force_audit(with_operator)
+
+    assert audit["operator"] == "ops@example.com"
+    assert audit["ticket"] == "CHG-123"
+    assert audit["one_shot"] == "true"
+    assert commands.redact_audit_text(audit["reason"]) == "reviewed soft quality gate password=[redacted]"
+    assert commands.redact_audit_text("postgres://user:secret@db/siq") == "postgres://[redacted]@db/siq"
+
+
+def test_force_audit_validation_reports_missing_and_expired_fields():
+    try:
+        commands.validate_force_audit({"force": True})
+    except commands.MarketPackagePlanError as exc:
+        assert exc.status_code == 400
+        assert {"reason", "operator", "ticket_or_change_id", "expires_at_or_one_shot"} <= set(
+            exc.detail["missing_fields"]
+        )
+    else:
+        raise AssertionError("expected missing force audit fields")
+
+    try:
+        commands.validate_force_audit(
+            {
+                "force": True,
+                "reason": "reviewed",
+                "operator": "ops",
+                "ticket": "CHG-123",
+                "expires_at": "2026-07-10T00:00:00Z",
+            },
+            now=datetime(2026, 7, 11, tzinfo=timezone.utc),
+        )
+    except commands.MarketPackagePlanError as exc:
+        assert exc.status_code == 400
+        assert exc.detail["invalid_fields"] == ["expires_at"]
+    else:
+        raise AssertionError("expected expired force audit field")
+
+
+def test_market_package_quality_gate_decision_preserves_soft_and_hard_gate_contracts():
+    soft_gates = {
+        "import_blocked": True,
+        "vector_ingest_blocked": False,
+        "force_allowed": True,
+        "hard_gate_rule_ids": [],
+        "soft_gate_rule_ids": ["package.quality_status.warning"],
+    }
+    force_payload = {
+        "force": True,
+        "reason": "reviewed",
+        "operator": "ops",
+        "ticket": "CHG-123",
+        "one_shot": True,
+    }
+    soft_decision = commands.market_package_quality_gate_decision(
+        gates=soft_gates,
+        payload=force_payload,
+        action="import",
+    )
+
+    assert soft_decision.blocked is True
+    assert soft_decision.error_status_code is None
+    assert soft_decision.audit["reason"] == "reviewed"
+
+    hard_gates = {
+        "import_blocked": True,
+        "vector_ingest_blocked": True,
+        "force_allowed": False,
+        "hard_gate_rule_ids": ["package.artifact_hashes.mismatch"],
+        "soft_gate_rule_ids": [],
+    }
+    hard_decision = commands.market_package_quality_gate_decision(
+        gates=hard_gates,
+        payload=force_payload,
+        action="vector_ingest",
+    )
+    no_force_decision = commands.market_package_quality_gate_decision(
+        gates=soft_gates,
+        payload={},
+        action="import",
+    )
+
+    assert hard_decision.error_status_code == 409
+    assert hard_decision.error_detail["action"] == "vector_ingest"
+    assert "review/quarantine" in hard_decision.error_detail["message"]
+    assert no_force_decision.error_status_code == 409
+    assert "force=true with required audit fields" in no_force_decision.error_detail["message"]
 
 
 def test_us_sec_rebuild_package_args_includes_force_metadata_and_output_root():

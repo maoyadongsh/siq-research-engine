@@ -89,7 +89,31 @@ def _stock_code(value: Any, *, width: int | None = None) -> str:
     return text
 
 
-def _company_identity(market: str, document_full: dict[str, Any]) -> dict[str, Any]:
+def _us_cik(document_full: dict[str, Any], context: MarketDocumentFullContext | None = None) -> str:
+    filing = _filing(document_full)
+    source = _source(document_full)
+    meta = _metadata(document_full)
+    for value in (filing.get("cik"), source.get("cik"), meta.get("cik")):
+        digits = re.sub(r"\D+", "", str(value or ""))
+        if digits:
+            return digits.zfill(10)
+    filing_id = str(filing.get("filing_id") or "")
+    match = re.match(r"US:(\d+):", filing_id, flags=re.IGNORECASE)
+    if match:
+        return match.group(1).zfill(10)
+    source_url = str(source.get("source_url") or filing.get("source_url") or meta.get("source_url") or "")
+    match = re.search(r"/data/(\d+)/", source_url, flags=re.IGNORECASE)
+    if match:
+        return match.group(1).zfill(10)
+    if context is not None:
+        path_text = str(context.document_full_path)
+        match = re.search(r"/([A-Z]{1,8})-10-[KQ]-([0-9]{10})-[0-9]{2}-[0-9]{6}/", path_text, flags=re.IGNORECASE)
+        if match:
+            return match.group(2).zfill(10)
+    return ""
+
+
+def _company_identity(market: str, document_full: dict[str, Any], context: MarketDocumentFullContext | None = None) -> dict[str, Any]:
     meta = _metadata(document_full)
     financial = _financial_data(document_full)
     filing = _filing(document_full)
@@ -99,7 +123,7 @@ def _company_identity(market: str, document_full: dict[str, Any]) -> dict[str, A
     stem = Path(filename).stem
 
     if market == "US":
-        cik = str(filing.get("cik") or source.get("cik") or meta.get("cik") or "").strip()
+        cik = _us_cik(document_full, context)
         ticker = str(filing.get("ticker") or meta.get("ticker") or source.get("ticker") or "").strip().upper()
         company_id = filing.get("company_id") or (f"US:CIK{cik.zfill(10)}" if cik else f"US:{ticker or stable_id(stem)}")
         return {
@@ -604,7 +628,7 @@ def _enhanced_structure_rows(enhanced: dict[str, Any], parse_run_id: str) -> dic
 
 
 def build_generic_rows(market: str, document_full: dict[str, Any], context: MarketDocumentFullContext) -> MarketDocumentFullRows:
-    company = _company_identity(market, document_full)
+    company = _company_identity(market, document_full, context)
     filing = _filing_identity(market, document_full, company, context)
     parse_run = _parse_run(market, document_full, filing, context)
     financial = _financial_data(document_full)

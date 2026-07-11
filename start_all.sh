@@ -101,6 +101,27 @@ START_VECTOR_INGEST="${SIQ_START_VECTOR_INGEST:-0}"
 VECTOR_INGEST_PORT="${SIQ_VECTOR_INGEST_PORT:-${VECTOR_INGEST_PORT:-7862}}"
 VECTOR_INGEST_DIR="${SIQ_VECTOR_INGEST_ROOT:-${VECTOR_INGEST_ROOT:-$SIQ_PROJECT_ROOT/scripts/vector-index/milvus-ingestion}}"
 VECTOR_INGEST_COLLECTION="${SIQ_MILVUS_COLLECTION:-${MILVUS_COLLECTION:-ic_collaboration_shared}}"
+DEPLOYMENT_PROFILE="$(printf '%s' "${SIQ_DEPLOYMENT_PROFILE:-development}" | tr '[:upper:]' '[:lower:]')"
+IS_PRODUCTION=0
+if [[ "$DEPLOYMENT_PROFILE" == "production" || "$DEPLOYMENT_PROFILE" == "prod" ]]; then
+    IS_PRODUCTION=1
+fi
+BACKEND_HOST="${SIQ_BACKEND_HOST:-}"
+BACKEND_RELOAD="${SIQ_UVICORN_RELOAD:-}"
+if [[ -z "$BACKEND_HOST" ]]; then
+    if [[ "$IS_PRODUCTION" == "1" ]]; then
+        BACKEND_HOST="127.0.0.1"
+    else
+        BACKEND_HOST="0.0.0.0"
+    fi
+fi
+if [[ -z "$BACKEND_RELOAD" ]]; then
+    if [[ "$IS_PRODUCTION" == "1" ]]; then
+        BACKEND_RELOAD="0"
+    else
+        BACKEND_RELOAD="1"
+    fi
+fi
 export SIQ_BACKEND_ROOT="$BACKEND_DIR"
 export SIQ_FRONTEND_ROOT="$FRONT_DIR"
 export SIQ_PDF2MD_ROOT="$PDF2MD_DIR"
@@ -149,6 +170,8 @@ export SIQ_VECTOR_INGEST_ROOT="$VECTOR_INGEST_DIR"
 export SIQ_VECTOR_INGEST_PORT="$VECTOR_INGEST_PORT"
 export SIQ_VECTOR_INGEST_URL="${SIQ_VECTOR_INGEST_URL:-http://127.0.0.1:$VECTOR_INGEST_PORT}"
 export SIQ_VECTOR_INGEST_HEALTH_URL="${SIQ_VECTOR_INGEST_HEALTH_URL:-http://127.0.0.1:$VECTOR_INGEST_PORT/}"
+export SIQ_DEPLOYMENT_PROFILE="$DEPLOYMENT_PROFILE"
+export SIQ_BACKEND_HOST="$BACKEND_HOST"
 
 # ---------- 工具函数 ----------
 RED='\033[0;31m'
@@ -161,6 +184,13 @@ log()  { echo -e "${CYAN}[$(date +%H:%M:%S)]${NC} $*"; }
 ok()   { echo -e "${GREEN}[OK]${NC} $*"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 die()  { echo -e "${RED}[FAIL]${NC} $*"; exit 1; }
+
+if [[ "$IS_PRODUCTION" == "1" && "$BACKEND_RELOAD" =~ ^(1|true|yes|on)$ ]]; then
+    die "SIQ_UVICORN_RELOAD must not be enabled when SIQ_DEPLOYMENT_PROFILE=production."
+fi
+if [[ "$IS_PRODUCTION" == "1" && "${FLASK_DEBUG:-}" =~ ^(1|true|yes|on)$ ]]; then
+    die "FLASK_DEBUG must not be enabled when SIQ_DEPLOYMENT_PROFILE=production."
+fi
 
 dependency_updates_enabled() {
     [[ "${SIQ_UPDATE_DEPS:-0}" == "1" ]]
@@ -350,11 +380,15 @@ if [[ "$START_MARKET_REPORT_RULES" != "0" ]]; then
 fi
 
 # ---------- 启动后端 ----------
-log "启动 FastAPI 后端 (端口 $BACKEND_PORT)..."
+log "启动 FastAPI 后端 (端口 $BACKEND_PORT, host $BACKEND_HOST, profile $DEPLOYMENT_PROFILE)..."
 (
     cd "$BACKEND_DIR"
     uv_sync_project
-    uv run python -m uvicorn main:app --reload --host 0.0.0.0 --port "$BACKEND_PORT"
+    uvicorn_args=(main:app --host "$BACKEND_HOST" --port "$BACKEND_PORT")
+    if [[ "$BACKEND_RELOAD" =~ ^(1|true|yes|on)$ ]]; then
+        uvicorn_args+=(--reload)
+    fi
+    uv run python -m uvicorn "${uvicorn_args[@]}"
 ) &
 pids+=($!)
 

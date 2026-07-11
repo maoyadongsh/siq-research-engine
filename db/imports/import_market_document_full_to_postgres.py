@@ -84,6 +84,14 @@ def import_document_full(
     allow_empty: bool = False,
 ) -> str:
     document_full_path = document_full_path.expanduser().resolve()
+    if document_full_path.is_dir():
+        candidate = document_full_path / "document_full.json"
+        if candidate.is_file():
+            document_full_path = candidate
+        else:
+            raise SystemExit(
+                f"{document_full_path} is a directory; pass a document_full.json file or use --results-root/--recursive"
+            )
     document_full = read_json(document_full_path)
     market_code = selected_market(document_full, document_full_path, market)
     digest = sha256_file(document_full_path)
@@ -111,6 +119,11 @@ def import_document_full(
             )
         if not rows.chunks:
             raise SystemExit(f"{market_code} document_full import produced zero retrieval chunks")
+        if not rows.citations:
+            raise SystemExit(
+                f"{market_code} document_full import produced zero evidence citations; "
+                "core financial facts must remain traceable to document_full evidence."
+            )
     with connect(database_url(database_url_value, market=market_code)) as conn:
         if run_ddl_flag:
             run_market_ddl(conn, market_code)

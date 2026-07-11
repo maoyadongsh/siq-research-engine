@@ -691,6 +691,7 @@ select distinct on (f.filing_id)
     f.*,
     pr.parse_run_id,
     pr.completed_at,
+    pr.status,
     pr.status as parse_status,
     pr.wiki_package_path,
     pr.parser_version,
@@ -700,6 +701,8 @@ join eu_ifrs.parse_runs pr on pr.filing_id = f.filing_id
 where pr.status in ('pass', 'warning', 'completed', 'success')
 order by f.filing_id, pr.completed_at desc nulls last, pr.parse_run_id desc;
 
+drop view if exists eu_ifrs.v_agent_financial_facts cascade;
+drop view if exists eu_ifrs.v_agent_financial_facts cascade;
 create or replace view eu_ifrs.v_agent_financial_facts as
 select
     c.company_id,
@@ -748,7 +751,7 @@ select
 from eu_ifrs.financial_statement_items fsi
 join eu_ifrs.filings f on f.filing_id = fsi.filing_id
 join eu_ifrs.companies c on c.company_id = f.company_id
-join eu_ifrs.parse_runs pr on pr.parse_run_id = fsi.parse_run_id
+join eu_ifrs.v_latest_parse_runs pr on pr.parse_run_id = fsi.parse_run_id
 left join eu_ifrs.evidence_citations ec on ec.evidence_id = fsi.evidence_id;
 
 create or replace view eu_ifrs.v_latest_company_reports as
@@ -786,3 +789,103 @@ left join eu_ifrs.parse_runs pr on pr.parse_run_id = (
     limit 1
 )
 order by f.company_id, f.report_type, f.period_end desc nulls last, f.published_at desc nulls last, f.filing_id desc;
+
+create index if not exists idx_eu_ifrs_evidence_citations_parse_run on eu_ifrs.evidence_citations (parse_run_id);
+create index if not exists idx_eu_ifrs_financial_facts_parse_run on eu_ifrs.financial_facts (parse_run_id);
+create index if not exists idx_eu_ifrs_xbrl_facts_raw_parse_run on eu_ifrs.xbrl_facts_raw (parse_run_id);
+create index if not exists idx_eu_ifrs_operating_metric_facts_parse_run on eu_ifrs.operating_metric_facts (parse_run_id);
+create index if not exists idx_eu_ifrs_retrieval_chunks_parse_run on eu_ifrs.retrieval_chunks (parse_run_id);
+create index if not exists idx_eu_ifrs_financial_statement_items_parse_run on eu_ifrs.financial_statement_items (parse_run_id);
+create index if not exists idx_eu_ifrs_financial_key_metrics_parse_run on eu_ifrs.financial_key_metrics (parse_run_id);
+create index if not exists idx_eu_ifrs_financial_balance_sheet_items_parse_run on eu_ifrs.financial_balance_sheet_items (parse_run_id);
+create index if not exists idx_eu_ifrs_financial_income_statement_items_parse_run on eu_ifrs.financial_income_statement_items (parse_run_id);
+create index if not exists idx_eu_ifrs_financial_cash_flow_statement_items_parse_run on eu_ifrs.financial_cash_flow_statement_items (parse_run_id);
+create index if not exists idx_eu_ifrs_quality_checks_parse_run on eu_ifrs.quality_checks (parse_run_id);
+create index if not exists idx_eu_ifrs_financial_items_enriched_parse_run on eu_ifrs.financial_items_enriched (parse_run_id);
+
+drop view if exists eu_ifrs.v_agent_financial_facts cascade;
+create or replace view eu_ifrs.v_agent_financial_facts as
+with agent_items as (
+    select
+        item_uid, filing_id, parse_run_id, statement_id, statement_type, statement_name,
+        item_index, period_key, item_name, canonical_name, local_name, xbrl_tag,
+        context_ref, value, raw_value, unit, currency, fact_currency, reporting_currency,
+        presentation_currency, converted_currency, converted_value, fx_rate_date,
+        fx_rate_source, scale, period_start, period_end, confidence, source_page_number,
+        source_table_index, source_row_index, source_column_index, source_bbox,
+        evidence_id, raw
+    from eu_ifrs.financial_statement_items
+    union all
+    select
+        item_uid, filing_id, parse_run_id, statement_id, statement_type, statement_name,
+        item_index, period_key, item_name, canonical_name, local_name, xbrl_tag,
+        context_ref, value, raw_value, unit, currency, fact_currency, reporting_currency,
+        presentation_currency, converted_currency, converted_value, fx_rate_date,
+        fx_rate_source, scale, period_start, period_end, confidence, source_page_number,
+        source_table_index, source_row_index, source_column_index, source_bbox,
+        evidence_id, raw
+    from eu_ifrs.financial_key_metrics
+)
+select
+    c.company_id,
+    c.country,
+    c.ticker as company_ticker,
+    c.isin,
+    c.lei,
+    c.company_name,
+    f.filing_id,
+    f.report_type,
+    f.fiscal_year,
+    f.fiscal_period,
+    f.period_end as filing_period_end,
+    f.published_at,
+    pr.parse_run_id,
+    pr.completed_at as parse_completed_at,
+    pr.wiki_package_path,
+    fsi.item_uid,
+    fsi.statement_id,
+    fsi.statement_type,
+    fsi.statement_name,
+    fsi.item_index,
+    fsi.canonical_name,
+    fsi.canonical_name as canonical_label,
+    fsi.item_name,
+    fsi.item_name as item_name_raw,
+    fsi.local_name,
+    null::text as metric_name,
+    null::text as metric_name_raw,
+    null::text as label,
+    null::text as concept,
+    fsi.xbrl_tag,
+    fsi.xbrl_tag as taxonomy_tag,
+    fsi.context_ref,
+    fsi.period_key,
+    fsi.period_start,
+    fsi.period_end,
+    fsi.value,
+    fsi.raw_value,
+    fsi.unit,
+    fsi.currency,
+    fsi.fact_currency,
+    fsi.reporting_currency,
+    fsi.presentation_currency,
+    fsi.converted_currency,
+    fsi.converted_value,
+    fsi.fx_rate_date,
+    fsi.fx_rate_source,
+    fsi.scale,
+    fsi.confidence,
+    coalesce(ec.evidence_id, fsi.evidence_id) as evidence_id,
+    coalesce(ec.page_number, fsi.source_page_number) as evidence_page_number,
+    coalesce(ec.table_index, fsi.source_table_index) as evidence_table_index,
+    coalesce(ec.row_index, fsi.source_row_index) as evidence_row_index,
+    coalesce(ec.column_index, fsi.source_column_index) as evidence_column_index,
+    coalesce(ec.bbox, fsi.source_bbox) as evidence_bbox,
+    ec.quote_text,
+    coalesce(ec.source_url, f.source_url) as source_url,
+    fsi.raw
+from agent_items fsi
+join eu_ifrs.filings f on f.filing_id = fsi.filing_id
+join eu_ifrs.companies c on c.company_id = f.company_id
+join eu_ifrs.v_latest_parse_runs pr on pr.parse_run_id = fsi.parse_run_id
+left join eu_ifrs.evidence_citations ec on ec.evidence_id = fsi.evidence_id;

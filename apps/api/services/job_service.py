@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 import uuid
 from enum import Enum
 from datetime import datetime, timezone
@@ -9,6 +10,11 @@ from threading import RLock, Thread
 from typing import Any, Callable
 
 from services.path_config import BACKEND_DATA_ROOT
+
+try:
+    from services import observability
+except Exception:  # pragma: no cover - job execution must not depend on metrics importability.
+    observability = None  # type: ignore[assignment]
 
 
 def _now_iso() -> str:
@@ -33,6 +39,19 @@ def _sort_jobs(jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
         jobs,
         key=lambda item: (str(item.get("created_at") or ""), str(item.get("job_id") or "")),
     )
+
+
+def _record_background_job_final_state(*, kind: str, status: str, started_monotonic: float) -> None:
+    if observability is None:
+        return
+    try:
+        observability.record_background_job_final_state(
+            kind=kind,
+            status=status,
+            duration_seconds=time.perf_counter() - started_monotonic,
+        )
+    except Exception:
+        return
 
 
 class FileBackedJobService:
@@ -112,6 +131,7 @@ class FileBackedJobService:
             self._persist_locked()
 
         def runner() -> None:
+            started_monotonic = time.perf_counter()
             with self._job_lock:
                 self._update_job_locked(job_id, status="running", started_at=_now_iso())
             try:
@@ -126,6 +146,11 @@ class FileBackedJobService:
                         result=result,
                         finished_at=_now_iso(),
                     )
+                _record_background_job_final_state(
+                    kind=kind,
+                    status=status,
+                    started_monotonic=started_monotonic,
+                )
             except Exception as exc:
                 with self._job_lock:
                     self._update_job_locked(
@@ -134,6 +159,11 @@ class FileBackedJobService:
                         error=str(exc),
                         finished_at=_now_iso(),
                     )
+                _record_background_job_final_state(
+                    kind=kind,
+                    status="failed",
+                    started_monotonic=started_monotonic,
+                )
 
         thread = Thread(target=runner, name=f"siq-{job_id}", daemon=True)
         thread.start()

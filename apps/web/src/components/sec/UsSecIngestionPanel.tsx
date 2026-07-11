@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  Brain,
   Copy,
   Database,
   FileDown,
@@ -42,6 +43,7 @@ import { UsSecRecentTasksPanel } from './UsSecRecentTasksPanel'
 import { UsSecSourceWorkbench } from './UsSecSourceWorkbench'
 import {
   deriveUsSecArtifactManifest,
+  deriveUsSecDocumentFullImportPath,
   deriveUsSecDownloadedRows,
   deriveUsSecQualitySummary,
   deriveUsSecRecentTasks,
@@ -208,12 +210,25 @@ export function UsSecIngestionPanel() {
   const bridgeSummary = packageDetail?.bridge_checks?.summary || {}
   const displayTicker = String(packageDetail?.manifest?.ticker || selectedTask?.ticker || '')
   const artifactManifest = useMemo(() => deriveUsSecArtifactManifest(packageDetail), [packageDetail])
-  const selectedPostgresStatus = selectedTask?.documentFullPath ? documentFullPostgres[selectedTask.documentFullPath] : undefined
+  const selectedDocumentFullPath = useMemo(
+    () => selectedTask ? deriveUsSecDocumentFullImportPath(selectedTask, packageDetail) || selectedTask.documentFullPath : '',
+    [packageDetail, selectedTask],
+  )
+  const selectedPostgresStatus = selectedDocumentFullPath ? documentFullPostgres[selectedDocumentFullPath] : undefined
   const workflowSummary = useMemo(
-    () => deriveUsSecWorkflowSummary(status, packageDetail, selectedPostgresStatus),
-    [packageDetail, selectedPostgresStatus, status],
+    () => deriveUsSecWorkflowSummary(status, packageDetail, selectedPostgresStatus, {
+      documentFullPath: selectedDocumentFullPath,
+      busyAction: busy,
+      taskId: selectedTask?.id,
+    }),
+    [busy, packageDetail, selectedDocumentFullPath, selectedPostgresStatus, selectedTask?.id, status],
   )
   const qualitySummary = useMemo(() => deriveUsSecQualitySummary(packageDetail), [packageDetail])
+  const wikiIngestAction = workflowSummary.actions.find((action) => action.key === 'wiki')
+  const semanticIngestAction = workflowSummary.actions.find((action) => action.key === 'semantic')
+  const postgresIngestAction = workflowSummary.actions.find((action) => action.key === 'postgres')
+  const runAllDisabledReasonId = 'us-sec-run-all-disabled-reason'
+  const postgresDisabledReasonId = 'us-sec-postgres-disabled-reason'
 
   const openFilePicker = useCallback(() => {
     fileInput.current?.click()
@@ -329,10 +344,11 @@ export function UsSecIngestionPanel() {
     setError('')
     setLastOutput('')
     try {
-      if (!task.documentFullPath) {
+      const documentFullPath = deriveUsSecDocumentFullImportPath(task, packageDetail)
+      if (!documentFullPath) {
         throw new Error('缺少 SEC parser result document_full.json 路径，请先刷新结果包')
       }
-      const response = await runMarketDocumentFullImport('US', task.documentFullPath, true, false)
+      const response = await runMarketDocumentFullImport('US', documentFullPath, true, false)
       const result = response.job_id
         ? await waitForMarketReportJob<MarketDocumentFullImportResponse>(response.job_id)
         : response
@@ -343,7 +359,33 @@ export function UsSecIngestionPanel() {
     } finally {
       setBusy('')
     }
-  }, [load])
+  }, [load, packageDetail])
+
+  const onBuildTaskWiki = useCallback(async (task: UsSecRecentTaskRow) => {
+    setBusy(`wiki:${task.id}`)
+    setError('')
+    setLastOutput('')
+    try {
+      const response = await runUsSecCaseSetIngest({
+        dry_run: false,
+        postgres: false,
+        semantic: false,
+        ddl: false,
+        include_fail: includeFail,
+        tickers: task.ticker,
+        batch_tag: 'us-sec-case-set-50',
+      })
+      const result = response.job_id
+        ? await waitForMarketReportJob<UsSecIngestResponse>(response.job_id)
+        : response
+      setLastOutput(result.stdout || result.stderr || (response.job_id ? `后台任务 ${response.job_id} 已完成` : 'US SEC LLM-Wiki入库完成'))
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'LLM-Wiki入库失败')
+    } finally {
+      setBusy('')
+    }
+  }, [includeFail, load])
 
   const onBuildTaskSemantic = useCallback(async (task: UsSecRecentTaskRow) => {
     setBusy(`semantic:${task.id}`)
@@ -362,10 +404,10 @@ export function UsSecIngestionPanel() {
       const result = response.job_id
         ? await waitForMarketReportJob<UsSecIngestResponse>(response.job_id)
         : response
-      setLastOutput(result.stdout || result.stderr || (response.job_id ? `后台任务 ${response.job_id} 已完成` : 'US SEC Wiki 语义增强完成'))
+      setLastOutput(result.stdout || result.stderr || (response.job_id ? `后台任务 ${response.job_id} 已完成` : 'US SEC Wiki语义增强入库完成'))
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Wiki 语义增强失败')
+      setError(err instanceof Error ? err.message : 'Wiki语义增强入库失败')
     } finally {
       setBusy('')
     }
@@ -376,6 +418,18 @@ export function UsSecIngestionPanel() {
     setError('')
     setLastOutput('')
     try {
+      const wikiResponse = await runUsSecCaseSetIngest({
+        dry_run: false,
+        postgres: false,
+        semantic: false,
+        ddl: false,
+        include_fail: includeFail,
+        tickers: task.ticker,
+        batch_tag: 'us-sec-case-set-50',
+      })
+      const wiki = wikiResponse.job_id
+        ? await waitForMarketReportJob<UsSecIngestResponse>(wikiResponse.job_id)
+        : wikiResponse
       const semanticResponse = await runUsSecCaseSetIngest({
         dry_run: false,
         postgres: false,
@@ -388,19 +442,23 @@ export function UsSecIngestionPanel() {
       const semantic = semanticResponse.job_id
         ? await waitForMarketReportJob<UsSecIngestResponse>(semanticResponse.job_id)
         : semanticResponse
-      if (!task.documentFullPath) {
+      const documentFullPath = deriveUsSecDocumentFullImportPath(task, packageDetail)
+      if (!documentFullPath) {
         throw new Error('缺少 SEC parser result document_full.json 路径，请先刷新结果包')
       }
-      const response = await runMarketDocumentFullImport('US', task.documentFullPath, true, false)
+      const response = await runMarketDocumentFullImport('US', documentFullPath, true, false)
       const postgres = response.job_id
         ? await waitForMarketReportJob<MarketDocumentFullImportResponse>(response.job_id)
         : response
       setLastOutput([
-        'Wiki 语义增强',
-        semantic.stdout || semantic.stderr || (semanticResponse.job_id ? `后台任务 ${semanticResponse.job_id} 已完成` : 'US SEC Wiki 语义增强完成'),
+        'LLM-Wiki入库',
+        wiki.stdout || wiki.stderr || (wikiResponse.job_id ? `后台任务 ${wikiResponse.job_id} 已完成` : 'US SEC LLM-Wiki入库完成'),
         '',
-        'PostgreSQL',
-        postgres.stdout || postgres.stderr || (response.job_id ? `后台任务 ${response.job_id} 已完成` : 'US SEC PostgreSQL 入库完成'),
+        'Wiki语义增强入库',
+        semantic.stdout || semantic.stderr || (semanticResponse.job_id ? `后台任务 ${semanticResponse.job_id} 已完成` : 'US SEC Wiki语义增强入库完成'),
+        '',
+        'PostgreSQL入库',
+        postgres.stdout || postgres.stderr || (response.job_id ? `后台任务 ${response.job_id} 已完成` : 'US SEC PostgreSQL入库完成'),
       ].join('\n'))
       await load()
     } catch (err) {
@@ -408,7 +466,7 @@ export function UsSecIngestionPanel() {
     } finally {
       setBusy('')
     }
-  }, [includeFail, load])
+  }, [includeFail, load, packageDetail])
 
   const changeMarkdownFile = useCallback(async (file: string) => {
     if (!packagePath || !file) return
@@ -508,16 +566,22 @@ export function UsSecIngestionPanel() {
         <>
           <PageSection
             title="数据管线"
-            description="SEC HTML/iXBRL 解析产物生成结构化结果包，PostgreSQL 与 Wiki 语义增强继续读取同一套证据产物。"
+            description="SEC HTML/iXBRL 解析产物生成结构化结果包，LLM-Wiki、Wiki语义增强和 PostgreSQL 入库继续读取同一套证据产物。"
             actions={(
               <div className="flex flex-wrap gap-2">
                 <button onClick={() => void load()} disabled={loading} className="pdf-small-action inline-flex items-center gap-1">
                   {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                   刷新状态
                 </button>
-                <button onClick={() => void onContinueTaskPipeline(selectedTask)} disabled={!!busy} className="pdf-small-action primary inline-flex items-center gap-1">
-                  {busy === `remaining:${selectedTask.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Database className="h-4 w-4" />}
-                  继续入库
+                <button
+                  onClick={() => void onContinueTaskPipeline(selectedTask)}
+                  disabled={workflowSummary.runAll.disabled}
+                  title={workflowSummary.runAll.disabledReason}
+                  aria-describedby={workflowSummary.runAll.disabledReason ? runAllDisabledReasonId : undefined}
+                  className="pdf-small-action primary inline-flex items-center gap-1"
+                >
+                  {workflowSummary.runAll.busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Database className="h-4 w-4" />}
+                  {workflowSummary.runAll.busy ? workflowSummary.runAll.loadingLabel : workflowSummary.runAll.label}
                 </button>
               </div>
             )}
@@ -525,21 +589,26 @@ export function UsSecIngestionPanel() {
             <div className="pdf-pipeline-note mb-4">
               <Database className="h-4 w-4" />
               <div>
-                当前链路为解析产物生成、Wiki 入库、Wiki 语义增强、PostgreSQL 入库；PostgreSQL 和 Wiki 语义增强都读取同一套 SEC HTML/iXBRL 解析产物。
+                当前链路为解析产物、LLM-Wiki、Wiki语义增强、PostgreSQL；PostgreSQL 和 Wiki语义增强都读取同一套 SEC HTML/iXBRL 解析产物。
               </div>
             </div>
+            {workflowSummary.runAll.disabledReason ? (
+              <div id={runAllDisabledReasonId} className="mb-4 text-xs leading-5 text-text-muted">
+                {workflowSummary.runAll.disabledReason}
+              </div>
+            ) : null}
 
             <div className="pdf-pipeline-note mb-4">
               <Network className="h-4 w-4" />
               <div>
-                Wiki 语义增强使用当前项目设置中的模型，可切换本地或云端大模型；只更新 Wiki 语义资产，不触发向量入库。
+                Wiki语义增强使用当前项目设置中的模型，可切换本地或云端大模型；只更新 Wiki 语义资产，不触发向量入库。
               </div>
             </div>
 
             <div className="mb-5 flex items-start gap-1 overflow-x-auto pb-2">
               {workflowSummary.steps.map((step, index) => {
                 const completed = step.status === 'ready'
-                const active = index === workflowSummary.steps.findIndex((item) => item.status !== 'ready') || (workflowSummary.steps.every((item) => item.status === 'ready') && index === workflowSummary.steps.length - 1)
+                const active = index === workflowSummary.activeStepIndex
                 const isLast = index === workflowSummary.steps.length - 1
                 return (
                   <div key={step.label} className="relative flex min-w-[5.5rem] flex-1 flex-col items-center px-1">
@@ -595,15 +664,31 @@ export function UsSecIngestionPanel() {
                   {busy === `rebuild:${selectedTask.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageCheck className="h-4 w-4" />}
                   刷新结果包
                 </button>
-                <button type="button" className="pdf-small-action primary inline-flex items-center gap-1" onClick={() => void onBuildTaskSemantic(selectedTask)} disabled={!!busy}>
-                  {busy === `semantic:${selectedTask.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Network className="h-4 w-4" />}
-                  Wiki 语义增强
+                <button type="button" className="pdf-small-action primary inline-flex items-center gap-1" onClick={() => void onBuildTaskWiki(selectedTask)} disabled={wikiIngestAction?.disabled ?? !!busy}>
+                  {wikiIngestAction?.busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Brain className="h-4 w-4" />}
+                  {wikiIngestAction?.busy ? wikiIngestAction.loadingLabel : (wikiIngestAction?.label || 'LLM-Wiki入库')}
                 </button>
-                <button type="button" className="pdf-small-action primary inline-flex items-center gap-1" onClick={() => void onImportTaskPostgres(selectedTask)} disabled={!!busy}>
-                  {busy === `postgres:${selectedTask.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Database className="h-4 w-4" />}
-                  导入 PostgreSQL
+                <button type="button" className="pdf-small-action primary inline-flex items-center gap-1" onClick={() => void onBuildTaskSemantic(selectedTask)} disabled={semanticIngestAction?.disabled ?? !!busy}>
+                  {semanticIngestAction?.busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Network className="h-4 w-4" />}
+                  {semanticIngestAction?.busy ? semanticIngestAction.loadingLabel : (semanticIngestAction?.label || 'Wiki语义增强入库')}
+                </button>
+                <button
+                  type="button"
+                  className="pdf-small-action primary inline-flex items-center gap-1"
+                  onClick={() => void onImportTaskPostgres(selectedTask)}
+                  disabled={postgresIngestAction?.disabled ?? !!busy}
+                  title={postgresIngestAction?.disabledReason}
+                  aria-describedby={postgresIngestAction?.disabledReason ? postgresDisabledReasonId : undefined}
+                >
+                  {postgresIngestAction?.busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Database className="h-4 w-4" />}
+                  {postgresIngestAction?.busy ? postgresIngestAction.loadingLabel : (postgresIngestAction?.label || 'PostgreSQL入库')}
                 </button>
               </div>
+              {postgresIngestAction?.disabledReason ? (
+                <div id={postgresDisabledReasonId} className="mt-3 text-xs leading-5 text-text-muted">
+                  {postgresIngestAction.disabledReason}
+                </div>
+              ) : null}
             </div>
           </PageSection>
 

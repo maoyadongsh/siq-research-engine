@@ -113,6 +113,16 @@ export interface WorkflowStatus {
     statementItems?: number
     tables?: number
     message?: string
+    facts?: number
+    chunks?: number
+    evidence?: number
+    schema?: string
+    parse_run_id?: string | null
+    parseRunId?: string | null
+    parse_runs?: number
+    parseRuns?: number
+    missing_counts?: string[]
+    missingCounts?: string[]
   }
   preflight?: { checks?: Array<{ id: string; label: string; status: string; ok?: boolean; blocking?: boolean; message?: string }> }
   error?: string

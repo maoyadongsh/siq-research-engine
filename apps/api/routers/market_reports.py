@@ -8,6 +8,7 @@ import subprocess
 import uuid
 import sys
 import tempfile
+import time
 from urllib.parse import urlencode
 from datetime import datetime, timezone
 from typing import Any
@@ -27,11 +28,15 @@ from services.hermes_client import collect_run_result, create_run, hermes_profil
 from services.command_runner import format_command, run_command
 from services.job_service import market_report_job_service
 from services.llm_settings import load_llm_settings
-from services.hermes_model_control import infer_model_mode, set_all_profile_model_modes
+from services.hermes_model_control import set_all_profile_model_modes
+from services import market_report_assist_service
 from services import market_report_commands
+from services import market_document_identity
 from services import market_report_proxy
 from services import market_report_queueing
 from services import market_report_status_service
+from services import market_document_full_postgres_status
+from services import observability
 from services.market_report_settings import (
     EU_ESEF_PACKAGE_BUILD_SCRIPT,
     MARKET_BUILD_SCRIPTS,
@@ -66,19 +71,9 @@ MARKET_WIKISET_ROOT = REPO_ROOT / "scripts" / "wiki" / "market_wikiset"
 MARKET_RULE_SEMANTIC_SCRIPT = MARKET_WIKISET_ROOT / "run_market_rule_semantics.py"
 MARKET_LLM_SEMANTIC_SCRIPT = MARKET_WIKISET_ROOT / "run_market_llm_semantics.py"
 MARKET_DOCUMENT_FULL_SCHEMAS = {
-    "US": "sec_us",
-    "HK": "pdf2md_hk",
-    "JP": "edinet_jp",
-    "KR": "dart_kr",
-    "EU": "eu_ifrs",
+    **market_document_full_postgres_status.MARKET_DOCUMENT_FULL_SCHEMAS,
 }
-MARKET_DOCUMENT_FULL_COUNT_TABLES = {
-    "facts": ("financial_statement_items", "financial_facts", "xbrl_facts_raw"),
-    "tables": ("document_tables", "html_tables", "pdf_tables"),
-    "chunks": ("document_chunks", "retrieval_chunks"),
-    "evidence": ("evidence_citations",),
-}
-MARKET_ALIASES = {"US_SEC": "US", "US-SEC": "US", "US SEC": "US"}
+MARKET_ALIASES = market_document_identity.MARKET_ALIASES
 FINDER_PROXY_ALLOWED_ROUTES = {
     "/v1/company/resolve": frozenset({"POST"}),
     "/v1/resolve": frozenset({"POST"}),
@@ -157,8 +152,7 @@ def _market_code(value: str | None) -> str:
 
 
 def _normalize_market_code(value: str | None) -> str:
-    code = str(value or "").strip().upper()
-    return MARKET_ALIASES.get(code, code)
+    return market_document_identity.normalize_market_code(value)
 
 
 def _safe_market_package_path(market: str, value: str | None) -> Path:
@@ -214,44 +208,38 @@ def _safe_market_document_full_path(market: str, value: str | None) -> Path:
         raise HTTPException(status_code=400, detail="document_full_path is outside the allowed market root") from exc
 
 
-def _safe_sql_ident(value: str) -> str:
-    if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", value):
-        raise ValueError(f"Unsafe SQL identifier: {value!r}")
-    return value
+def _market_document_full_path_keys(market: str, value: str | None) -> list[str]:
+    return market_document_full_postgres_status.market_document_full_path_keys(
+        market,
+        value,
+        repo_root=REPO_ROOT,
+        market_document_full_roots=MARKET_DOCUMENT_FULL_ROOTS,
+        safe_market_document_full_path=_safe_market_document_full_path,
+    )
 
 
-def _market_document_full_status_database_url(market: str) -> str:
-    market = _normalize_market_code(market)
-    database = MARKET_DATABASES[market]
-    host = os.environ.get("SIQ_PGHOST") or os.environ.get("PGHOST") or "127.0.0.1"
-    port = os.environ.get("SIQ_PGPORT") or os.environ.get("PGPORT") or "15432"
-    user = os.environ.get("SIQ_PGUSER") or os.environ.get("PGUSER") or "postgres"
-    password = os.environ.get("SIQ_PGPASSWORD") or os.environ.get("PGPASSWORD") or ""
-    auth = f"{user}:{password}" if password else user
-    return f"postgresql://{auth}@{host}:{port}/{database}"
+def _truthy_payload_flag(payload: dict[str, Any], *keys: str) -> bool:
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, bool):
+            if value:
+                return True
+            continue
+        if str(value or "").strip().lower() in {"1", "true", "yes", "on"}:
+            return True
+    return False
 
 
-def _market_document_full_table_exists(conn: Any, schema: str, table: str) -> bool:
-    row = conn.execute(
-        """
-        select 1
-        from information_schema.tables
-        where table_schema = %s
-          and table_name = %s
-          and table_type = 'BASE TABLE'
-        """,
-        (schema, table),
-    ).fetchone()
-    return bool(row)
-
-
-def _market_document_full_count(conn: Any, schema: str, table: str, where_sql: str, params: tuple[Any, ...]) -> int:
-    if not _market_document_full_table_exists(conn, schema, table):
-        return 0
-    schema_sql = _safe_sql_ident(schema)
-    table_sql = _safe_sql_ident(table)
-    row = conn.execute(f"select count(*) from {schema_sql}.{table_sql} where {where_sql}", params).fetchone()
-    return int(row[0] if row else 0)
+def _enforce_legacy_market_package_import(payload: dict[str, Any]) -> None:
+    if _truthy_payload_flag(payload, "legacy_package_import", "legacyPackageImport"):
+        return
+    raise HTTPException(
+        status_code=422,
+        detail=(
+            "Package PostgreSQL import is legacy-only. "
+            "Use /market-reports/document-full/import, or pass legacy_package_import=true for an explicit compatibility import."
+        ),
+    )
 
 
 def _market_document_full_db_status(
@@ -262,99 +250,18 @@ def _market_document_full_db_status(
     document_full_path: str | None = None,
     task_id: str | None = None,
 ) -> dict[str, Any]:
-    market = _normalize_market_code(market)
-    selectors = {
-        key: value
-        for key, value in {
-            "parse_run_id": parse_run_id,
-            "filing_id": filing_id,
-            "document_full_path": document_full_path,
-            "task_id": task_id,
-        }.items()
-        if value
-    }
-    if not selectors:
-        return {}
-    try:
-        import psycopg
-    except Exception as exc:
-        return {"status": "unknown", "selectors": selectors, "message": f"psycopg unavailable: {exc}"}
-
-    schema = MARKET_DOCUMENT_FULL_SCHEMAS[market]
-    try:
-        with psycopg.connect(_market_document_full_status_database_url(market)) as conn:
-            where_sql = ""
-            params: tuple[Any, ...] = ()
-            if parse_run_id:
-                where_sql = "parse_run_id = %s"
-                params = (parse_run_id,)
-            elif filing_id:
-                where_sql = "filing_id = %s"
-                params = (filing_id,)
-            elif document_full_path:
-                if _market_document_full_table_exists(conn, schema, "parse_runs"):
-                    schema_sql = _safe_sql_ident(schema)
-                    row = conn.execute(
-                        f"""
-                        select parse_run_id, filing_id
-                        from {schema_sql}.parse_runs
-                        where wiki_package_path = %s
-                           or raw->>'document_full_path' = %s
-                        order by completed_at desc nulls last, started_at desc nulls last, parse_run_id desc
-                        limit 1
-                        """,
-                        (document_full_path, document_full_path),
-                    ).fetchone()
-                    if row:
-                        parse_run_id = str(row[0])
-                        filing_id = str(row[1]) if row[1] is not None else filing_id
-                        where_sql = "parse_run_id = %s"
-                        params = (parse_run_id,)
-                if not where_sql:
-                    where_sql = "parse_run_id = %s"
-                    params = ("__missing_parse_run__",)
-            elif task_id:
-                if _market_document_full_table_exists(conn, schema, "parse_runs"):
-                    schema_sql = _safe_sql_ident(schema)
-                    row = conn.execute(
-                        f"""
-                        select parse_run_id, filing_id
-                        from {schema_sql}.parse_runs
-                        where raw->'task'->>'task_id' = %s
-                           or wiki_package_path like %s
-                        order by completed_at desc nulls last, started_at desc nulls last, parse_run_id desc
-                        limit 1
-                        """,
-                        (task_id, f"%/{task_id}/document_full.json"),
-                    ).fetchone()
-                    if row:
-                        parse_run_id = str(row[0])
-                        filing_id = str(row[1]) if row[1] is not None else filing_id
-                        where_sql = "parse_run_id = %s"
-                        params = (parse_run_id,)
-                if not where_sql:
-                    where_sql = "parse_run_id = %s"
-                    params = ("__missing_parse_run__",)
-
-            counts = {
-                name: sum(_market_document_full_count(conn, schema, table, where_sql, params) for table in tables)
-                for name, tables in MARKET_DOCUMENT_FULL_COUNT_TABLES.items()
-            }
-            parse_runs = _market_document_full_count(conn, schema, "parse_runs", where_sql, params)
-            ready = parse_runs > 0 and counts["facts"] > 0 and counts["tables"] > 0 and counts["chunks"] > 0
-            warning = parse_runs > 0 and counts["facts"] > 0 and not ready
-            return {
-                "status": "postgres_ready" if ready else ("warning" if warning else "missing"),
-                "selectors": selectors,
-                "database": MARKET_DATABASES[market],
-                "schema": schema,
-                "parse_run_id": parse_run_id,
-                "filing_id": filing_id,
-                "parse_runs": parse_runs,
-                **counts,
-            }
-    except Exception as exc:
-        return {"status": "unknown", "selectors": selectors, "database": MARKET_DATABASES[market], "schema": schema, "message": str(exc)}
+    return market_document_full_postgres_status.market_document_full_db_status(
+        market,
+        repo_root=REPO_ROOT,
+        market_document_full_roots=MARKET_DOCUMENT_FULL_ROOTS,
+        safe_market_document_full_path=_safe_market_document_full_path,
+        market_databases=MARKET_DATABASES,
+        schemas=MARKET_DOCUMENT_FULL_SCHEMAS,
+        parse_run_id=parse_run_id,
+        filing_id=filing_id,
+        document_full_path=document_full_path,
+        task_id=task_id,
+    )
 
 
 def _adjacent_metadata_path(path: Path) -> Path | None:
@@ -395,52 +302,11 @@ def _load_plan_for_package(package_dir: Path) -> dict[str, Any]:
 
 
 def _load_plan_summary(load_plan: dict[str, Any]) -> dict[str, Any]:
-    if not load_plan:
-        return {}
-    rows = load_plan.get("rows") if isinstance(load_plan.get("rows"), list) else []
-    quarantine_rows = load_plan.get("quarantine_rows") if isinstance(load_plan.get("quarantine_rows"), list) else []
-    return {
-        "can_import": load_plan.get("can_import"),
-        "can_vector_ingest": load_plan.get("can_vector_ingest"),
-        "blocked_reasons": load_plan.get("blocked_reasons") if isinstance(load_plan.get("blocked_reasons"), list) else [],
-        "promotion_decisions": load_plan.get("promotion_decisions") if isinstance(load_plan.get("promotion_decisions"), dict) else {},
-        "row_count": len(rows),
-        "quarantine_row_count": len(quarantine_rows),
-    }
+    return market_report_status_service.load_plan_summary(load_plan)
 
 
 def _merge_load_plan_decision_into_gates(gates: dict[str, Any], load_plan: dict[str, Any]) -> dict[str, Any]:
-    if not load_plan:
-        return gates
-    merged = dict(gates)
-    summary = _load_plan_summary(load_plan)
-    merged["load_plan"] = summary
-    merged["can_import"] = summary.get("can_import")
-    merged["can_vector_ingest"] = summary.get("can_vector_ingest")
-    decisions = summary.get("promotion_decisions") if isinstance(summary.get("promotion_decisions"), dict) else {}
-    hard_gate_rule_ids = list(merged.get("hard_gate_rule_ids") or [])
-    soft_gate_rule_ids = list(merged.get("soft_gate_rule_ids") or [])
-
-    def apply_target(*, target: str, blocked_key: str, can_key: str) -> None:
-        if load_plan.get(can_key) is not False:
-            return
-        decision = decisions.get(target) if isinstance(decisions.get(target), dict) else {}
-        decision_value = str(decision.get("decision") or "block")
-        rule_id = f"load_plan.{target}.{decision_value}"
-        merged[blocked_key] = True
-        if decision_value == "review":
-            if rule_id not in soft_gate_rule_ids:
-                soft_gate_rule_ids.append(rule_id)
-        else:
-            if rule_id not in hard_gate_rule_ids:
-                hard_gate_rule_ids.append(rule_id)
-
-    apply_target(target="canonical", blocked_key="import_blocked", can_key="can_import")
-    apply_target(target="retrieval", blocked_key="vector_ingest_blocked", can_key="can_vector_ingest")
-    merged["hard_gate_rule_ids"] = hard_gate_rule_ids
-    merged["soft_gate_rule_ids"] = soft_gate_rule_ids
-    merged["force_allowed"] = bool(soft_gate_rule_ids) and not hard_gate_rule_ids
-    return merged
+    return market_report_status_service.merge_load_plan_decision_into_gates(gates, load_plan)
 
 
 def _quality_gates_with_load_plan(package_dir: Path) -> dict[str, Any]:
@@ -449,151 +315,38 @@ def _quality_gates_with_load_plan(package_dir: Path) -> dict[str, Any]:
 
 
 def _payload_force_enabled(payload: dict[str, Any]) -> bool:
-    value = payload.get("force")
-    if isinstance(value, bool):
-        return value
-    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
-
-
-_FORCE_REASON_KEYS = ("force_reason", "reason", "override_reason")
-_FORCE_OPERATOR_KEYS = (
-    "force_operator",
-    "force_operator_id",
-    "operator",
-    "operator_id",
-    "user",
-    "user_id",
-    "username",
-    "requested_by",
-)
-_FORCE_TICKET_KEYS = (
-    "force_ticket",
-    "ticket",
-    "change_id",
-    "change_request",
-    "approval_id",
-)
-_FORCE_EXPIRES_KEYS = ("force_expires_at", "expires_at", "expiry", "expires")
-_FORCE_ONE_SHOT_KEYS = (
-    "force_one_shot",
-    "one_shot",
-    "one_time",
-    "one_time_use",
-    "one_shot_id",
-)
+    return market_report_commands.payload_force_enabled(payload)
 
 
 def _force_audit_sources(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    sources = [payload]
-    for key in ("force_audit", "audit", "override"):
-        value = payload.get(key)
-        if isinstance(value, dict):
-            sources.append(value)
-    return sources
+    return [dict(source) for source in market_report_commands.force_audit_sources(payload)]
 
 
 def _force_audit_text(payload: dict[str, Any], keys: tuple[str, ...]) -> str | None:
-    for source in _force_audit_sources(payload):
-        for key in keys:
-            value = source.get(key)
-            if value is None:
-                continue
-            text = str(value).strip()
-            if text:
-                return text
-    return None
+    return market_report_commands.force_audit_text(payload, keys)
 
 
 def _force_one_shot_marker(payload: dict[str, Any]) -> str | None:
-    false_values = {"0", "false", "no", "off", "none", "null"}
-    for source in _force_audit_sources(payload):
-        for key in _FORCE_ONE_SHOT_KEYS:
-            if key not in source:
-                continue
-            value = source.get(key)
-            if isinstance(value, bool):
-                if value:
-                    return "true"
-                continue
-            text = str(value or "").strip()
-            if text and text.lower() not in false_values:
-                return text
-    return None
+    return market_report_commands.force_one_shot_marker(payload)
 
 
 def _redact_audit_text(value: str | None) -> str | None:
-    if value is None:
-        return None
-    text = str(value)
-    text = re.sub(r"(?i)(password|passwd|secret|token|api[_-]?key)=\S+", r"\1=[redacted]", text)
-    text = re.sub(r"://([^/\s:@]+):([^/\s@]+)@", "://[redacted]@", text)
-    return text[:256]
+    return market_report_commands.redact_audit_text(value)
 
 
 def _validate_force_audit(payload: dict[str, Any]) -> dict[str, str | None]:
-    reason = _force_audit_text(payload, _FORCE_REASON_KEYS)
-    operator = _force_audit_text(payload, _FORCE_OPERATOR_KEYS)
-    ticket = _force_audit_text(payload, _FORCE_TICKET_KEYS)
-    expires_at = _force_audit_text(payload, _FORCE_EXPIRES_KEYS)
-    one_shot = _force_one_shot_marker(payload)
-
-    missing: list[str] = []
-    invalid: list[str] = []
-    if not reason:
-        missing.append("reason")
-    if not operator:
-        missing.append("operator")
-    if not ticket:
-        missing.append("ticket_or_change_id")
-    if not expires_at and not one_shot:
-        missing.append("expires_at_or_one_shot")
-    if expires_at:
-        try:
-            expires = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
-            if expires.tzinfo is None:
-                expires = expires.replace(tzinfo=timezone.utc)
-        except ValueError:
-            invalid.append("expires_at")
-        else:
-            if expires <= datetime.now(timezone.utc):
-                invalid.append("expires_at")
-
-    if missing or invalid:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "message": (
-                    "force=true requires audit fields: reason, operator/user id, "
-                    "ticket/change id, and expires_at or one_shot."
-                ),
-                "missing_fields": missing,
-                "invalid_fields": invalid,
-            },
-        )
-
-    return {
-        "reason": reason,
-        "operator": operator,
-        "ticket": ticket,
-        "expires_at": expires_at,
-        "one_shot": one_shot,
-    }
+    try:
+        return market_report_commands.validate_force_audit(payload)
+    except market_report_commands.MarketPackagePlanError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
 
 def _payload_with_force_operator(payload: dict[str, Any], user: User | None) -> dict[str, Any]:
-    if not _payload_force_enabled(payload) or user is None:
+    if user is None:
         return payload
-    if _force_audit_text(payload, _FORCE_OPERATOR_KEYS):
-        return payload
-
-    audit = dict(payload.get("force_audit")) if isinstance(payload.get("force_audit"), dict) else {}
     user_id = getattr(user, "id", None)
     username = getattr(user, "username", None) or getattr(user, "email", None)
-    if user_id is not None:
-        audit["operator_id"] = str(user_id)
-    if username:
-        audit["operator"] = str(username)
-    return {**payload, "force_audit": audit}
+    return market_report_commands.payload_with_force_operator(payload, user_id=user_id, username=username)
 
 
 def _log_force_audit(
@@ -631,52 +384,26 @@ def _enforce_market_package_quality_gate(
     action: str,
 ) -> None:
     gates = _quality_gates_with_load_plan(package_dir)
-    blocked_key = "vector_ingest_blocked" if action == "vector_ingest" else "import_blocked"
-    blocked = bool(gates.get(blocked_key))
-    force_enabled = _payload_force_enabled(payload)
-    if force_enabled:
-        audit = _validate_force_audit(payload)
+    try:
+        decision = market_report_commands.market_package_quality_gate_decision(
+            gates=gates,
+            payload=payload,
+            action=action,
+        )
+    except market_report_commands.MarketPackagePlanError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    if decision.audit is not None:
         _log_force_audit(
             action=action,
             package_dir=package_dir,
             gates=gates,
-            audit=audit,
-            blocked=blocked,
+            audit=decision.audit,
+            blocked=decision.blocked,
         )
-    if not blocked:
+    if decision.error_status_code is not None:
+        raise HTTPException(status_code=decision.error_status_code, detail=decision.error_detail)
+    if not decision.blocked:
         return
-    if force_enabled and gates.get("force_allowed") is True:
-        return
-    if force_enabled:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "message": (
-                    "Quality gates contain hard blocks; force=true cannot run formal "
-                    f"{action} and is limited to review/quarantine material."
-                ),
-                "action": action,
-                "quality_gates": gates,
-            },
-        )
-    if gates.get("force_allowed") is True:
-        message = (
-            "Quality gates block this action; force=true with required audit fields "
-            "can request a soft-gate exception."
-        )
-    else:
-        message = (
-            "Quality gates contain hard blocks; fix the package or keep it in "
-            "review/quarantine material before formal import or vector ingest."
-        )
-    raise HTTPException(
-        status_code=409,
-        detail={
-            "message": message,
-            "action": action,
-            "quality_gates": gates,
-        },
-    )
 
 
 def _markets_to_search(market: str | None) -> list[str]:
@@ -769,6 +496,7 @@ def _market_build_accepts_parser_result(market: str, script: Path) -> bool:
 
 
 def _run_market_package_import(payload: dict[str, Any]) -> dict[str, Any]:
+    _enforce_legacy_market_package_import(payload)
     market = _market_code(payload.get("market"))
     try:
         plan = market_report_commands.build_market_package_import_plan(
@@ -809,37 +537,81 @@ def _run_market_package_import(payload: dict[str, Any]) -> dict[str, Any]:
 
 def _run_market_document_full_import(payload: dict[str, Any]) -> dict[str, Any]:
     market = _market_code(payload.get("market"))
+    started = time.perf_counter()
+    metric_status = "failure"
     try:
         plan = market_report_commands.build_market_document_full_import_plan(
             payload=payload,
             market=market,
             market_document_full_import_scripts=MARKET_DOCUMENT_FULL_IMPORT_SCRIPTS,
             safe_market_document_full_path=_safe_market_document_full_path,
+            repo_root=REPO_ROOT,
+            market_document_full_roots=MARKET_DOCUMENT_FULL_ROOTS,
         )
     except market_report_commands.MarketPackagePlanError as exc:
+        observability.record_frontend_pipeline_job_failure(
+            market=market,
+            action="postgres",
+            reason=f"plan_error_{exc.status_code}",
+        )
+        observability.record_ingestion_duration(
+            market=market,
+            stage="postgres_import",
+            status=metric_status,
+            duration_seconds=time.perf_counter() - started,
+        )
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
-    args = market_report_commands.market_document_full_import_args(
-        executable=sys.executable,
-        script=plan.script,
-        market=plan.market,
-        document_full_path=plan.document_full_path,
-        payload=payload,
-    )
-    import_env = market_report_commands.market_document_full_import_env(
-        market,
-        MARKET_DATABASES,
-        base_env=os.environ,
-        database_url=str(payload.get("database_url") or "").strip() or None,
-    )
-    run_kwargs: dict[str, Any] = {"cwd": REPO_ROOT, "timeout": 900}
-    if import_env:
-        run_kwargs["env"] = import_env
-    completed = run_command(args, **run_kwargs)
-    return market_report_commands.market_document_full_import_result_payload(
-        completed=completed,
-        command=_command_for_display(args),
-    )
+    try:
+        args = market_report_commands.market_document_full_import_args(
+            executable=sys.executable,
+            script=plan.script,
+            market=plan.market,
+            document_full_path=plan.document_full_path,
+            payload=payload,
+        )
+        import_env = market_report_commands.market_document_full_import_env(
+            market,
+            MARKET_DATABASES,
+            base_env=os.environ,
+            database_url=str(payload.get("database_url") or "").strip() or None,
+        )
+        run_kwargs: dict[str, Any] = {"cwd": REPO_ROOT, "timeout": 900}
+        if import_env:
+            run_kwargs["env"] = import_env
+        completed = run_command(args, **run_kwargs)
+        result = market_report_commands.market_document_full_import_result_payload(
+            completed=completed,
+            command=_command_for_display(args),
+        )
+        result["selector"] = dict(plan.selector)
+        result["identity"] = {
+            "market": plan.identity.market,
+            **plan.identity.selector_payload(),
+            "path_keys": list(plan.identity.path_keys),
+        }
+        metric_status = "success" if result.get("ok") else "failure"
+        if not result.get("ok"):
+            observability.record_frontend_pipeline_job_failure(
+                market=plan.market,
+                action="postgres",
+                reason=f"returncode_{result.get('returncode')}",
+            )
+        return result
+    except Exception:
+        observability.record_frontend_pipeline_job_failure(
+            market=market,
+            action="postgres",
+            reason="exception",
+        )
+        raise
+    finally:
+        observability.record_ingestion_duration(
+            market=market,
+            stage="postgres_import",
+            status=metric_status,
+            duration_seconds=time.perf_counter() - started,
+        )
 
 
 def _run_market_vector_ingest(payload: dict[str, Any]) -> dict[str, Any]:
@@ -928,66 +700,25 @@ def _package_from_selector(payload: dict[str, Any]) -> Path:
 
 
 def _read_package_detail(package_dir: Path) -> dict[str, Any]:
-    manifest = _read_json_file(package_dir / "manifest.json", {})
-    quality = _read_json_file(package_dir / "qa" / "quality_report.json", {})
-    financial_data = _read_json_file(package_dir / "metrics" / "financial_data.json", {})
-    financial_checks = _read_json_file(package_dir / "metrics" / "financial_checks.json", {})
-    sections = (_read_json_file(package_dir / "sections.json", {}) or {}).get("sections") or []
-    tables = (_read_json_file(package_dir / "tables" / "table_index.json", {}) or {}).get("tables") or []
-    metrics = (_read_json_file(package_dir / "metrics" / "normalized_metrics.json", {}) or {}).get("metrics") or []
-    source_map = (_read_json_file(package_dir / "qa" / "source_map.json", {}) or {}).get("entries") or []
-    dimension_metrics = [item for item in metrics if isinstance(item, dict) and item.get("dimensions")]
-    checks = financial_checks.get("checks") if isinstance(financial_checks, dict) else []
-    if not isinstance(checks, list):
-        checks = []
-    bridge_checks = [
-        check for check in checks
-        if isinstance(check, dict) and (
-            str(check.get("rule_id") or "").startswith(("bs.", "is.", "cf.", "cross."))
-            or str(check.get("rule_name") or "").lower().find("cash") >= 0
+    return market_report_status_service.us_sec_package_detail_response(
+        package_dir,
+        rel_or_abs=_rel_or_abs,
+        read_json_file=_read_json_file,
+        quality_gates_for_package=_quality_gates_for_package,
+    )
+
+
+def _us_sec_semantic_status_for_case_item(item: dict[str, Any]) -> dict[str, Any]:
+    try:
+        package_path = str(item.get("package_path") or "")
+        if not package_path:
+            return {}
+        return market_report_status_service.us_sec_semantic_status_for_package(
+            _safe_package_path(package_path),
+            read_json_file=_read_json_file,
         )
-    ]
-    bridge_summary: dict[str, int] = {}
-    for check in bridge_checks:
-        status = str(check.get("status") or "unknown")
-        bridge_summary[status] = bridge_summary.get(status, 0) + 1
-    default_markdown = ""
-    if (package_dir / "parser" / "report_complete.md").is_file():
-        default_markdown = "parser/report_complete.md"
-    elif (package_dir / "sections" / "report_complete.md").is_file():
-        default_markdown = "sections/report_complete.md"
-    elif sections:
-        default_markdown = f"sections/{sections[0].get('file')}"
-    return {
-        "package_path": str(package_dir.relative_to(REPO_ROOT)) if package_dir.is_relative_to(REPO_ROOT) else str(package_dir),
-        "parser_result_dir": manifest.get("parser_result_dir") or "",
-        "parser_result_task_id": manifest.get("parser_result_task_id") or "",
-        "manifest": manifest,
-        "quality": quality,
-        "quality_gates": _quality_gates_for_package(package_dir),
-        "financial_data": financial_data,
-        "financial_checks": financial_checks,
-        "bridge_checks": {
-            "overall_status": financial_checks.get("overall_status") if isinstance(financial_checks, dict) else None,
-            "summary": bridge_summary,
-            "checks": bridge_checks[:120],
-        },
-        "counts": {
-            "sections": len(sections),
-            "tables": len(tables),
-            "metrics": len(metrics),
-            "evidence": len(source_map),
-            "dimension_metrics": len(dimension_metrics),
-        },
-        "sections": sections,
-        "tables": tables[:200],
-        "metrics": metrics[:300],
-        "dimension_metrics": dimension_metrics[:80],
-        "preview": {
-            "raw_html": "raw/filing.htm" if (package_dir / "raw" / "filing.htm").is_file() else "",
-            "default_markdown": default_markdown,
-        },
-    }
+    except Exception:
+        return {}
 
 
 def _media_type_for_file(path: Path) -> str:
@@ -1005,25 +736,11 @@ def _media_type_for_file(path: Path) -> str:
 
 
 def _safe_filename_part(value: object) -> str:
-    text = str(value or "").strip()
-    text = re.sub(r'[\\/:*?"<>|\s]+', "-", text)
-    text = re.sub(r"-{2,}", "-", text).strip(".-_")
-    return text or "unknown"
+    return market_report_commands.safe_filename_part(value)
 
 
 def _file_suffix_from_content_type(content_type: str | None) -> str:
-    normalized = (content_type or "").split(";", 1)[0].strip().lower()
-    mapping = {
-        "application/pdf": ".pdf",
-        "text/html": ".html",
-        "application/xhtml+xml": ".html",
-        "application/xml": ".xml",
-        "text/xml": ".xml",
-        "text/plain": ".txt",
-        "application/zip": ".zip",
-        "application/x-zip-compressed": ".zip",
-    }
-    return mapping.get(normalized, "")
+    return market_report_commands.file_suffix_from_content_type(content_type)
 
 
 def _us_sec_upload_dir() -> Path:
@@ -1048,45 +765,20 @@ def _us_sec_upload_metadata(
     filing_date: str | None,
 ) -> Path:
     metadata_path = file_path.with_suffix(file_path.suffix + ".metadata.json")
-    effective_report_type = (report_type or file_path.suffix.lower().lstrip(".") or "file").strip()
-    effective_form = effective_report_type.upper() if effective_report_type not in {"file", ""} else "FILE"
-    candidate = {
-        "source_id": "manual_upload",
-        "source_name": "US SEC Manual Upload",
-        "source_domain": "local",
-        "market": "US",
-        "company_id": "manual",
-        "ticker": ticker,
-        "company_name": company_name or file_path.parent.parent.parent.name or "Manual Upload",
-        "report_type": report_family or effective_report_type,
-        "report_family": report_family or "current",
-        "form": effective_form,
-        "title": original_name,
-        "accession_number": "manual-upload",
-        "primary_document": original_name,
-        "report_end": period_end,
-        "published_at": filing_date or datetime.now(timezone.utc).date().isoformat(),
-        "accepted_at": None,
-        "document_url": f"file://{file_path.resolve()}",
-        "landing_url": f"file://{file_path.resolve()}",
-        "file_format": file_path.suffix.lower().lstrip(".") or "bin",
-        "language": None,
-        "inline_xbrl": None,
-        "metadata": {
-            "uploaded_filename": original_name,
-            "content_type": content_type,
-        },
-    }
-    payload = {
-        "candidate": candidate,
-        "downloaded_file": {
-            "file_name": file_path.name,
-            "saved_path": str(file_path.resolve()),
-            "size_bytes": size_bytes,
-            "content_type": content_type,
-            "content_sha256": digest,
-        },
-    }
+    payload = market_report_commands.us_sec_upload_metadata_payload(
+        file_path=file_path,
+        original_name=original_name,
+        content_type=content_type,
+        digest=digest,
+        size_bytes=size_bytes,
+        ticker=ticker,
+        company_name=company_name,
+        report_type=report_type,
+        report_family=report_family,
+        period_end=period_end,
+        filing_date=filing_date,
+        fallback_published_at=datetime.now(timezone.utc).date().isoformat(),
+    )
     metadata_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return metadata_path
 
@@ -1205,14 +897,10 @@ async def us_sec_upload_files(
 
 
 def _safe_ingest_args(payload: dict[str, Any]) -> list[str]:
-    tickers = str(payload.get("tickers") or "").strip().upper()
-    if tickers:
-        if not re.fullmatch(r"[A-Z0-9.,_-]{1,240}", tickers):
-            raise HTTPException(status_code=400, detail="Invalid tickers")
-    batch_tag = str(payload.get("batch_tag") or "").strip()
-    if batch_tag:
-        if not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", batch_tag):
-            raise HTTPException(status_code=400, detail="Invalid batch_tag")
+    try:
+        tickers, batch_tag = market_report_commands.normalize_us_sec_ingest_filters(payload)
+    except market_report_commands.MarketPackagePlanError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     return market_report_commands.us_sec_ingest_args(
         executable=sys.executable,
         script=US_SEC_INGEST_SCRIPT,
@@ -1463,79 +1151,27 @@ def _run_us_sec_semantic_prestep(payload: dict[str, Any]) -> list[dict[str, Any]
 
 
 def _extract_json_object(text: str) -> dict[str, Any] | None:
-    cleaned = text.strip()
-    if cleaned.startswith("```"):
-        cleaned = re.sub(r"^```(?:json)?", "", cleaned, flags=re.IGNORECASE).strip()
-        cleaned = re.sub(r"```$", "", cleaned).strip()
-    try:
-        parsed = json.loads(cleaned)
-        return parsed if isinstance(parsed, dict) else None
-    except json.JSONDecodeError:
-        pass
-    match = re.search(r"\{.*\}", cleaned, flags=re.DOTALL)
-    if not match:
-        return None
-    try:
-        parsed = json.loads(match.group(0))
-        return parsed if isinstance(parsed, dict) else None
-    except json.JSONDecodeError:
-        return None
+    return market_report_assist_service.extract_json_object(text)
 
 
 def _compact_assist_candidates(request_payload: dict[str, Any]) -> list[dict[str, Any]]:
-    candidates = request_payload.get("candidates") or []
-    return [
-        {
-            "document_url": item.get("document_url"),
-            "title": item.get("title"),
-            "report_type": item.get("report_type"),
-            "report_end": item.get("report_end"),
-            "published_at": item.get("published_at"),
-        }
-        for item in candidates[:30]
-        if isinstance(item, dict)
-    ]
+    return market_report_assist_service.compact_assist_candidates(request_payload)
 
 
 def _assist_system_prompt() -> str:
-    return (
-        "你是财报下载助手。只能解释用户给定的官方候选列表，不要生成或修改下载 URL。"
-        "请输出严格 JSON：{\"intent\":{...},\"candidate_explanations\":[...] }。"
-        "candidate_explanations 每项必须包含 document_url、title_zh、report_type_zh、period_zh、recommendation、recommended、warnings。"
-        "韩语和日语标题要翻译成中文；推荐项必须与年份、报告类型和官方候选匹配。"
-        "如果候选像修订版、摘要、非完整报告或标题/报告期不匹配，请写入 warnings。"
-    )
+    return market_report_assist_service.assist_system_prompt()
 
 
 def _assist_user_payload(request_payload: dict[str, Any], base_assist: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "prompt": request_payload.get("prompt"),
-        "request": {
-            key: request_payload.get(key)
-            for key in ("market", "company_name", "ticker", "company_id", "report_year", "report_types")
-        },
-        "base_assist": base_assist,
-        "official_candidates": _compact_assist_candidates(request_payload),
-    }
+    return market_report_assist_service.assist_user_payload(request_payload, base_assist)
 
 
 def _assist_retry_user_payload(request_payload: dict[str, Any], base_assist: dict[str, Any]) -> dict[str, Any]:
-    payload = _assist_user_payload(request_payload, base_assist)
-    payload["retry_hint"] = (
-        "上一次增强没有得到可用 JSON。请优先补全 intent，"
-        "尤其是把中文境外公司名映射为当地上市主体官方名称与代码；"
-        "若没有候选列表，也只返回 intent。"
-    )
-    return payload
+    return market_report_assist_service.assist_retry_user_payload(request_payload, base_assist)
 
 
 def _hermes_mode_for_provider(provider: dict[str, Any]) -> str | None:
-    return infer_model_mode(
-        provider_name=str(provider.get("providerName") or ""),
-        provider=str(provider.get("provider") or ""),
-        model=str(provider.get("model") or ""),
-        base_url=str(provider.get("baseUrl") or ""),
-    )
+    return market_report_assist_service.hermes_mode_for_provider(provider)
 
 
 async def _openai_compatible_enhance_assist(
@@ -1672,35 +1308,7 @@ async def _llm_enhance_assist(request_payload: dict[str, Any], base_assist: dict
 
 
 def _merge_assist(base_assist: dict[str, Any], llm_assist: dict[str, Any] | None) -> dict[str, Any]:
-    if not llm_assist:
-        base_assist.setdefault("assistant_mode", "rules")
-        return base_assist
-    merged = dict(base_assist)
-    if isinstance(llm_assist.get("intent"), dict):
-        base_intent = dict(merged.get("intent") or {})
-        base_intent.update({k: v for k, v in llm_assist["intent"].items() if v not in (None, "", [])})
-        merged["intent"] = base_intent
-    by_url = {
-        item.get("document_url"): item
-        for item in merged.get("candidate_explanations", [])
-        if isinstance(item, dict) and item.get("document_url")
-    }
-    for item in llm_assist.get("candidate_explanations") or []:
-        if not isinstance(item, dict) or not item.get("document_url"):
-            continue
-        original = by_url.get(item["document_url"], {})
-        original.update({k: v for k, v in item.items() if k != "document_url" and v not in (None, "", [])})
-        original["document_url"] = item["document_url"]
-        by_url[item["document_url"]] = original
-    if by_url:
-        ordered_urls = [
-            item.get("document_url")
-            for item in merged.get("candidate_explanations", [])
-            if isinstance(item, dict)
-        ]
-        merged["candidate_explanations"] = [by_url[url] for url in ordered_urls if url in by_url]
-    merged["assistant_mode"] = llm_assist.get("assistant_mode") or "llm"
-    return merged
+    return market_report_assist_service.merge_assist(base_assist, llm_assist)
 
 
 @router.post("/v1/reports/assist")
@@ -1758,28 +1366,17 @@ async def market_report_health() -> dict[str, Any]:
 @router.get("/market-reports/packages")
 async def list_market_packages(market: str | None = None, q: str = "", limit: int = 80) -> dict[str, Any]:
     codes = _markets_to_search(market)
-    limit = max(1, min(int(limit or 80), 500))
-    query = str(q or "").strip().lower()
-    packages: list[dict[str, Any]] = []
+    package_summaries: list[dict[str, Any]] = []
     for code in codes:
         for package_dir in _iter_market_packages(code):
-            summary = _read_market_package_summary(package_dir)
-            haystack = " ".join(
-                str(summary.get(key) or "")
-                for key in ("package_path", "market", "filing_id", "ticker", "company_name", "form", "report_type", "fiscal_year")
-            ).lower()
-            if query and query not in haystack:
-                continue
-            packages.append(summary)
-    packages.sort(key=lambda item: str(item.get("published_at") or item.get("period_end") or ""), reverse=True)
-    return {
-        "ok": True,
-        "market": codes[0] if len(codes) == 1 else None,
-        "markets": codes,
-        "roots": {code: _rel_or_abs(MARKET_WIKI_ROOTS[code]) for code in codes},
-        "count": len(packages[:limit]),
-        "packages": packages[:limit],
-    }
+            package_summaries.append(_read_market_package_summary(package_dir))
+    return market_report_status_service.market_package_list_payload(
+        market_codes=codes,
+        package_summaries=package_summaries,
+        roots={code: _rel_or_abs(MARKET_WIKI_ROOTS[code]) for code in codes},
+        query=q,
+        limit=limit,
+    )
 
 
 @router.get("/market-reports/package")
@@ -1792,14 +1389,12 @@ async def market_package_detail_by_path(market: str, package_path: str) -> dict[
 async def market_package_quality_by_path(market: str, package_path: str) -> dict[str, Any]:
     code = _market_code(market)
     package_dir = _safe_market_package_path(code, package_path)
-    return market_report_status_service.market_package_quality_payload(
-        package_path=_rel_or_abs(package_dir),
-        manifest=_read_json_file(package_dir / "manifest.json", {}),
-        quality=_read_json_file(package_dir / "qa" / "quality_report.json", {}),
-        financial_checks=_read_json_file(package_dir / "metrics" / "financial_checks.json", {}),
-        load_plan=_load_plan_for_package(package_dir),
-        quality_gates=_quality_gates_with_load_plan(package_dir),
-        source_map=_read_json_file(package_dir / "qa" / "source_map.json", {}),
+    return market_report_status_service.market_package_quality_response(
+        package_dir,
+        rel_or_abs=_rel_or_abs,
+        read_json_file=_read_json_file,
+        load_plan_for_package=_load_plan_for_package,
+        quality_gates_with_load_plan=_quality_gates_with_load_plan,
         include_source_map_summary=True,
     )
 
@@ -1874,6 +1469,7 @@ async def import_market_package(
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="JSON object payload is required")
     payload = _payload_with_force_operator(payload, _ops_user)
+    _enforce_legacy_market_package_import(payload)
     if wait:
         return _run_market_package_import(payload)
     return _queue_market_report_job(
@@ -1914,29 +1510,31 @@ async def market_document_full_import_status(
     document_full_path: str | None = None,
     task_id: str | None = None,
 ) -> dict[str, Any]:
+    if document_full_path and not market:
+        raise HTTPException(status_code=400, detail="market is required when document_full_path is provided")
     codes = _markets_to_search(market)
-    markets = {}
-    for code in codes:
-        root = MARKET_DOCUMENT_FULL_ROOTS[code]
-        script = MARKET_DOCUMENT_FULL_IMPORT_SCRIPTS[code]
-        markets[code] = {
-            "document_full_root": _rel_or_abs(root),
-            "document_full_root_exists": root.exists(),
-            "script": _rel_or_abs(script),
-            "script_exists": script.is_file(),
-            "database": MARKET_DATABASES.get(code),
-            "schema": MARKET_DOCUMENT_FULL_SCHEMAS.get(code),
-        }
-        db_status = _market_document_full_db_status(
+    if document_full_path and market:
+        for code in codes:
+            _market_document_full_path_keys(code, document_full_path)
+    return market_report_status_service.market_document_full_status_payload(
+        market_codes=codes,
+        document_full_roots=MARKET_DOCUMENT_FULL_ROOTS,
+        import_scripts=MARKET_DOCUMENT_FULL_IMPORT_SCRIPTS,
+        market_databases=MARKET_DATABASES,
+        schemas=MARKET_DOCUMENT_FULL_SCHEMAS,
+        rel_or_abs=_rel_or_abs,
+        db_status_for_market=lambda code: _market_document_full_db_status(
             code,
             parse_run_id=parse_run_id,
             filing_id=filing_id,
             document_full_path=document_full_path,
             task_id=task_id,
-        )
-        if db_status:
-            markets[code]["postgres"] = db_status
-    return {"ok": True, "markets": markets}
+        ),
+        record_fact_counts=lambda code, db_status: observability.record_ingestion_fact_counts(
+            market=code,
+            counts=db_status,
+        ),
+    )
 
 
 @router.post("/market-reports/document-full/import")
@@ -1963,6 +1561,7 @@ async def import_market_document_full(
 @router.get("/market-reports/eval")
 async def market_ingestion_eval_report(include_markdown: bool = False) -> dict[str, Any]:
     report = _read_json_file(MARKET_INGESTION_EVAL_REPORT_PATH, {})
+    observability.record_wiki_postgres_parity_summary(report if isinstance(report, dict) else None)
     markdown = None
     if include_markdown and MARKET_INGESTION_EVAL_MARKDOWN_PATH.is_file():
         markdown = MARKET_INGESTION_EVAL_MARKDOWN_PATH.read_text(encoding="utf-8")
@@ -2004,13 +1603,12 @@ async def market_package_detail_by_filing_id(filing_id: str, market: str | None 
 @router.get("/market-reports/packages/{filing_id}/quality")
 async def market_package_quality_by_filing_id(filing_id: str, market: str | None = None) -> dict[str, Any]:
     _code, package_dir = _find_market_package_by_filing_id(filing_id, market)
-    return market_report_status_service.market_package_quality_payload(
-        package_path=_rel_or_abs(package_dir),
-        manifest=_read_json_file(package_dir / "manifest.json", {}),
-        quality=_read_json_file(package_dir / "qa" / "quality_report.json", {}),
-        financial_checks=_read_json_file(package_dir / "metrics" / "financial_checks.json", {}),
-        load_plan=_load_plan_for_package(package_dir),
-        quality_gates=_quality_gates_with_load_plan(package_dir),
+    return market_report_status_service.market_package_quality_response(
+        package_dir,
+        rel_or_abs=_rel_or_abs,
+        read_json_file=_read_json_file,
+        load_plan_for_package=_load_plan_for_package,
+        quality_gates_with_load_plan=_quality_gates_with_load_plan,
     )
 
 
@@ -2044,6 +1642,7 @@ async def us_sec_case_set_status() -> dict[str, Any]:
         ingest_report=ingest_report,
         case_set_path=str(US_SEC_CASE_SET_PATH),
         ingest_report_path=str(US_SEC_INGEST_REPORT_PATH),
+        semantic_status_for_item=_us_sec_semantic_status_for_case_item,
     )
 
 

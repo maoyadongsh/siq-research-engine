@@ -3,9 +3,12 @@ import { renderInline, renderTextWithBreaks } from './InlineRenderer'
 import { renderSafeHtmlFragment } from './HtmlTableRenderer'
 import { MarkdownTableRenderer } from './MarkdownTableRenderer'
 import { CitationBlock } from './CitationBlock'
+import { AuditTraceBlock } from './AuditTraceBlock'
 import {
+  collectHeadingSectionLines,
   hasHtmlTable,
   isCitationHeading,
+  isAuditHeading,
   headingTone,
   isLikelyTableStart,
   matchCjkHeading,
@@ -14,7 +17,15 @@ import {
   parseMarkdownTable,
 } from './rendererUtils'
 
-export function MarkdownBlocks({ lines, streaming }: { lines: string[]; streaming?: boolean }) {
+export function MarkdownBlocks({
+  lines,
+  streaming,
+  auditTraceApiPrefix = '/api',
+}: {
+  lines: string[]
+  streaming?: boolean
+  auditTraceApiPrefix?: string
+}) {
   const elements: ReactNode[] = []
   let i = 0
 
@@ -44,15 +55,25 @@ export function MarkdownBlocks({ lines, streaming }: { lines: string[]; streamin
     }
 
     if (isCitationHeading(trimmed)) {
-      const citationLines: string[] = []
-      i += 1
-      while (i < lines.length) {
-        const nextTrimmed = lines[i].trim()
-        if (/^(#{1,6})\s+/.test(nextTrimmed) && !isCitationHeading(nextTrimmed)) break
-        citationLines.push(lines[i])
-        i += 1
-      }
+      const section = collectHeadingSectionLines(lines, i, isCitationHeading)
+      const citationLines = section.lines
+      i = section.nextIndex
       elements.push(<CitationBlock key={`citation-${i}`} blockKey={`citation-${i}`} lines={citationLines} />)
+      continue
+    }
+
+    if (isAuditHeading(trimmed)) {
+      const section = collectHeadingSectionLines(lines, i, isAuditHeading)
+      const auditLines = section.lines
+      i = section.nextIndex
+      elements.push(
+        <AuditTraceBlock
+          key={`audit-${i}`}
+          blockKey={`audit-${i}`}
+          lines={auditLines}
+          apiPrefix={auditTraceApiPrefix}
+        />,
+      )
       continue
     }
 

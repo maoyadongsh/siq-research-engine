@@ -277,6 +277,63 @@ def direct_statement_answer_applies(
     return any(term in text for term in statement_direct_terms)
 
 
+def goodwill_main_statement_query_applies(
+    message: str | None,
+    *,
+    goodwill_main_statement_terms: Sequence[str],
+    is_general_assistant_request: Callable[[str], bool],
+) -> bool:
+    text = compact_intent_text(message)
+    if not text or is_general_assistant_request(text):
+        return False
+    return "商誉" in text and any(term in text for term in goodwill_main_statement_terms)
+
+
+def statement_query_with_goodwill_applies(
+    message: str | None,
+    *,
+    statement_terms: Sequence[str],
+    goodwill_main_statement_terms: Sequence[str],
+    is_general_assistant_request: Callable[[str], bool],
+) -> bool:
+    return goodwill_main_statement_query_applies(
+        message,
+        goodwill_main_statement_terms=goodwill_main_statement_terms,
+        is_general_assistant_request=is_general_assistant_request,
+    ) or statement_query_applies(
+        message,
+        statement_terms=statement_terms,
+        is_general_assistant_request=is_general_assistant_request,
+    )
+
+
+def direct_statement_answer_with_goodwill_applies(
+    message: str | None,
+    *,
+    statement_terms: Sequence[str],
+    statement_direct_terms: Sequence[str],
+    note_detail_analysis_terms: Sequence[str],
+    goodwill_main_statement_terms: Sequence[str],
+    is_general_assistant_request: Callable[[str], bool],
+) -> bool:
+    if goodwill_main_statement_query_applies(
+        message,
+        goodwill_main_statement_terms=goodwill_main_statement_terms,
+        is_general_assistant_request=is_general_assistant_request,
+    ):
+        text = compact_intent_text(message)
+        if any(term in text for term in note_detail_analysis_terms):
+            return False
+        return any(term in text for term in statement_direct_terms)
+    return direct_statement_answer_applies(
+        message,
+        statement_terms=statement_terms,
+        statement_direct_terms=statement_direct_terms,
+        note_detail_analysis_terms=note_detail_analysis_terms,
+        is_general_assistant_request=is_general_assistant_request,
+    )
+
+
 def forced_context_company_dir(context: Any | None, *, wiki_root: Path) -> Path | None:
     raw = context_dict(context)
     if not raw or not raw.get("force_company"):
@@ -517,6 +574,30 @@ def build_hermes_multimodal_run_input(
         if data_url:
             parts.append({"type": "image_url", "image_url": {"url": data_url}})
     return [{"role": "user", "content": parts}]
+
+
+def build_hermes_run_input_payload(
+    contextual_text: str,
+    *,
+    has_attachments: bool,
+    document_context: str | None = None,
+    image_analysis_context: str | None = None,
+    image_path_hints: str | None = None,
+    image_data_urls: Sequence[str] | None = None,
+    use_hermes_image_fallback: bool = True,
+) -> str | list[dict[str, Any]]:
+    if not has_attachments:
+        return contextual_text
+    text = build_hermes_run_text(
+        contextual_text,
+        document_context=document_context,
+        image_analysis_context=image_analysis_context,
+        image_path_hints=image_path_hints,
+    )
+    urls = list(image_data_urls or [])
+    if not use_hermes_image_fallback or not any(urls):
+        return text
+    return build_hermes_multimodal_run_input(text, urls)
 
 
 def attachment_dicts(attachments: Any | None) -> list[dict[str, Any]]:

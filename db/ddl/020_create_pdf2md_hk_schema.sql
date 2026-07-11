@@ -562,10 +562,12 @@ select distinct on (f.filing_id)
     f.*,
     pr.parse_run_id,
     pr.completed_at,
+    pr.status,
     pr.status as parse_status,
     pr.wiki_package_path
 from pdf2md_hk.filings f
 join pdf2md_hk.parse_runs pr on pr.filing_id = f.filing_id
+where pr.status in ('pass', 'warning', 'completed', 'success')
 order by f.filing_id, pr.completed_at desc nulls last, pr.parse_run_id desc;
 
 alter table pdf2md_hk.companies add column if not exists stock_code text;
@@ -647,6 +649,8 @@ alter table pdf2md_hk.financial_items_enriched add column if not exists converte
 alter table pdf2md_hk.financial_items_enriched add column if not exists fx_rate_date date;
 alter table pdf2md_hk.financial_items_enriched add column if not exists fx_rate_source text;
 
+drop view if exists pdf2md_hk.v_agent_financial_facts cascade;
+drop view if exists pdf2md_hk.v_agent_financial_facts cascade;
 create or replace view pdf2md_hk.v_agent_financial_facts as
 select
     c.company_id,
@@ -696,7 +700,7 @@ select
 from pdf2md_hk.financial_statement_items fsi
 join pdf2md_hk.filings f on f.filing_id = fsi.filing_id
 join pdf2md_hk.companies c on c.company_id = f.company_id
-join pdf2md_hk.parse_runs pr on pr.parse_run_id = fsi.parse_run_id
+join pdf2md_hk.v_latest_parse_runs pr on pr.parse_run_id = fsi.parse_run_id
 left join pdf2md_hk.evidence_citations ec on ec.evidence_id = fsi.evidence_id;
 
 create or replace view pdf2md_hk.v_latest_company_reports as
@@ -730,3 +734,104 @@ from pdf2md_hk.filings f
 join pdf2md_hk.companies c on c.company_id = f.company_id
 join pdf2md_hk.parse_runs pr on pr.filing_id = f.filing_id
 order by f.company_id, f.report_type, f.period_end desc nulls last, f.fiscal_year desc nulls last, pr.completed_at desc nulls last, pr.parse_run_id desc;
+
+create index if not exists idx_pdf2md_hk_evidence_citations_parse_run on pdf2md_hk.evidence_citations (parse_run_id);
+create index if not exists idx_pdf2md_hk_financial_facts_parse_run on pdf2md_hk.financial_facts (parse_run_id);
+create index if not exists idx_pdf2md_hk_operating_metric_facts_parse_run on pdf2md_hk.operating_metric_facts (parse_run_id);
+create index if not exists idx_pdf2md_hk_retrieval_chunks_parse_run on pdf2md_hk.retrieval_chunks (parse_run_id);
+create index if not exists idx_pdf2md_hk_financial_statement_items_parse_run on pdf2md_hk.financial_statement_items (parse_run_id);
+create index if not exists idx_pdf2md_hk_financial_key_metrics_parse_run on pdf2md_hk.financial_key_metrics (parse_run_id);
+create index if not exists idx_pdf2md_hk_financial_balance_sheet_items_parse_run on pdf2md_hk.financial_balance_sheet_items (parse_run_id);
+create index if not exists idx_pdf2md_hk_financial_income_statement_items_parse_run on pdf2md_hk.financial_income_statement_items (parse_run_id);
+create index if not exists idx_pdf2md_hk_financial_cash_flow_statement_items_parse_run on pdf2md_hk.financial_cash_flow_statement_items (parse_run_id);
+create index if not exists idx_pdf2md_hk_financial_checks_parse_run on pdf2md_hk.financial_checks (parse_run_id);
+create index if not exists idx_pdf2md_hk_financial_items_enriched_parse_run on pdf2md_hk.financial_items_enriched (parse_run_id);
+
+drop view if exists pdf2md_hk.v_agent_financial_facts cascade;
+create or replace view pdf2md_hk.v_agent_financial_facts as
+with agent_items as (
+    select
+        item_uid, filing_id, parse_run_id, statement_id, statement_type, statement_name,
+        item_index, period_key, item_name, canonical_name, value, raw_value, unit, currency,
+        fact_currency, reporting_currency, presentation_currency, converted_currency,
+        converted_value, fx_rate_date, fx_rate_source, scale, period_start, period_end,
+        confidence, source_page_number, source_table_index, source_row_index,
+        source_column_index, source_bbox, evidence_id, raw
+    from pdf2md_hk.financial_statement_items
+    union all
+    select
+        item_uid, filing_id, parse_run_id, statement_id, statement_type, statement_name,
+        item_index, period_key, item_name, canonical_name, value, raw_value, unit, currency,
+        fact_currency, reporting_currency, presentation_currency, converted_currency,
+        converted_value, fx_rate_date, fx_rate_source, scale, period_start, period_end,
+        confidence, source_page_number, source_table_index, source_row_index,
+        source_column_index, source_bbox, evidence_id, raw
+    from pdf2md_hk.financial_key_metrics
+)
+select
+    c.company_id,
+    c.ticker as company_ticker,
+    c.stock_code,
+    c.hkex_stock_code,
+    c.company_name,
+    c.company_short_name,
+    c.company_name_en,
+    c.company_name_zh,
+    f.filing_id,
+    f.report_id,
+    f.accession_number,
+    f.report_type,
+    f.fiscal_year,
+    f.fiscal_period,
+    f.period_end as filing_period_end,
+    f.published_at,
+    pr.parse_run_id,
+    pr.completed_at as parse_completed_at,
+    pr.wiki_package_path,
+    fsi.item_uid,
+    fsi.statement_id,
+    fsi.statement_type,
+    fsi.statement_name,
+    fsi.item_index,
+    fsi.canonical_name,
+    fsi.canonical_name as canonical_label,
+    fsi.item_name,
+    fsi.item_name as item_name_raw,
+    null::text as local_name,
+    null::text as metric_name,
+    null::text as metric_name_raw,
+    null::text as label,
+    null::text as concept,
+    null::text as xbrl_tag,
+    null::text as taxonomy_tag,
+    null::text as context_ref,
+    fsi.period_key,
+    fsi.period_start,
+    fsi.period_end,
+    fsi.value,
+    fsi.raw_value,
+    fsi.unit,
+    fsi.currency,
+    fsi.fact_currency,
+    fsi.reporting_currency,
+    fsi.presentation_currency,
+    fsi.converted_currency,
+    fsi.converted_value,
+    fsi.fx_rate_date,
+    fsi.fx_rate_source,
+    fsi.scale,
+    fsi.confidence,
+    coalesce(ec.evidence_id, fsi.evidence_id) as evidence_id,
+    coalesce(ec.page_number, fsi.source_page_number) as evidence_page_number,
+    coalesce(ec.table_index, fsi.source_table_index) as evidence_table_index,
+    coalesce(ec.row_index, fsi.source_row_index) as evidence_row_index,
+    coalesce(ec.column_index, fsi.source_column_index) as evidence_column_index,
+    coalesce(ec.bbox, fsi.source_bbox) as evidence_bbox,
+    ec.quote_text,
+    coalesce(ec.source_url, f.source_url) as source_url,
+    fsi.raw
+from agent_items fsi
+join pdf2md_hk.filings f on f.filing_id = fsi.filing_id
+join pdf2md_hk.companies c on c.company_id = f.company_id
+join pdf2md_hk.v_latest_parse_runs pr on pr.parse_run_id = fsi.parse_run_id
+left join pdf2md_hk.evidence_citations ec on ec.evidence_id = fsi.evidence_id;

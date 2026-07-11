@@ -9,6 +9,7 @@ export interface StreamApi {
   appendAssistantDelta(content: string): void
   flushAssistantDelta?(): void
   replaceAssistantContent(content: string): void
+  setAssistantAuditTraceId?(traceId?: string | null): void
   updateAssistantProgress(progress: AgentProgress): void
   responseErrorMessage(res: Response, fallback: string): Promise<string>
 }
@@ -92,6 +93,9 @@ export function createStreamConsumer(api: StreamApi) {
           api.flushAssistantDelta?.()
           if (typeof payload.content === 'string') {
             api.replaceAssistantContent(payload.content)
+          }
+          if (typeof payload.audit_trace_id === 'string') {
+            api.setAssistantAuditTraceId?.(payload.audit_trace_id)
           }
           api.updateAssistantProgress({ status: 'completed', title: '任务完成', percent: 100, source: 'runtime' })
           return

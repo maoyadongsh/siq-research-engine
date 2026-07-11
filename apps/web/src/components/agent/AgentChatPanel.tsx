@@ -404,6 +404,7 @@ export default function AgentChatPanel({
         <ChatMessageList
           messages={messages}
           endRef={messagesEnd}
+          auditTraceApiPrefix={apiPrefix}
           compact
           emptyAvatar={<AgentAvatar kind={avatarKind} state={avatarState} size="xl" className="mb-3" label={title} />}
           emptyDescription={description}

@@ -154,9 +154,33 @@ function json(body: unknown, status = 200) {
   }
 }
 
-async function mockUsSecWorkbenchApis(page: Page) {
+interface MockUsSecWorkbenchOptions {
+  documentFullPath?: string
+}
+
+async function mockUsSecWorkbenchApis(page: Page, options: MockUsSecWorkbenchOptions = {}) {
   const buildRequests: unknown[] = []
+  const documentFullImportRequests: unknown[] = []
   const packageFileRequests: Array<{ file: string | null; authorization: string }> = []
+  const caseSet = options.documentFullPath
+    ? {
+        ...usCaseSet,
+        items: usCaseSet.items.map((item) => ({
+          ...item,
+          document_full_path: options.documentFullPath,
+        })),
+      }
+    : usCaseSet
+  const detail = options.documentFullPath
+    ? {
+        ...packageDetail,
+        document_full_path: options.documentFullPath,
+        manifest: {
+          ...packageDetail.manifest,
+          document_full_path: options.documentFullPath,
+        },
+      }
+    : packageDetail
 
   await page.addInitScript((user) => {
     window.localStorage.setItem('access_token', 'playwright-token')
@@ -184,17 +208,17 @@ async function mockUsSecWorkbenchApis(page: Page) {
     }
 
     if (pathname === '/api/us-sec/case-set') {
-      await route.fulfill(json(usCaseSet))
+      await route.fulfill(json(caseSet))
       return
     }
 
     if (pathname === '/api/us-sec/packages/AAPL') {
-      await route.fulfill(json(packageDetail))
+      await route.fulfill(json(detail))
       return
     }
 
     if (pathname === '/api/us-sec/packages/NVDA') {
-      await route.fulfill(json(packageDetail))
+      await route.fulfill(json(detail))
       return
     }
 
@@ -213,7 +237,7 @@ async function mockUsSecWorkbenchApis(page: Page) {
               section_id: 'business',
               html_anchor: 'business',
               local_path: 'sections/business.md',
-              raw: packageDetail.sections[0],
+              raw: detail.sections[0],
             },
             {
               evidence_id: 'mda-source',
@@ -221,7 +245,7 @@ async function mockUsSecWorkbenchApis(page: Page) {
               section_id: 'mda',
               html_anchor: 'mda',
               local_path: 'sections/mda.md',
-              raw: packageDetail.sections[1],
+              raw: detail.sections[1],
             },
           ],
         }))
@@ -283,8 +307,17 @@ async function mockUsSecWorkbenchApis(page: Page) {
       buildRequests.push(route.request().postDataJSON())
       await route.fulfill(json({
         ok: true,
-        package: packageDetail,
+        package: detail,
         stdout: 'US 证据包已生成',
+      }))
+      return
+    }
+
+    if (pathname === '/api/market-reports/document-full/import') {
+      documentFullImportRequests.push(route.request().postDataJSON())
+      await route.fulfill(json({
+        ok: true,
+        stdout: 'US SEC PostgreSQL入库完成',
       }))
       return
     }
@@ -297,7 +330,14 @@ async function mockUsSecWorkbenchApis(page: Page) {
     await route.fulfill(json({ items: [], data: [], results: [], artifacts: [] }))
   })
 
-  return { buildRequests, packageFileRequests }
+  return { buildRequests, documentFullImportRequests, packageFileRequests }
+}
+
+async function openRecentNvdaTask(page: Page) {
+  await page.goto('/parse-us')
+  const recentTask = page.locator('.pdf-task-item').filter({ hasText: 'NVIDIA Corporation · NVDA · 10-K · 2025-01-26' })
+  await recentTask.getByRole('button', { name: '查看结果' }).click()
+  await expect(page.getByRole('heading', { name: '数据管线', exact: true })).toBeVisible()
 }
 
 test.describe('美股 SEC 解析工作台', () => {
@@ -357,9 +397,9 @@ test.describe('美股 SEC 解析工作台', () => {
     const recentTask = page.locator('.pdf-task-item').filter({ hasText: 'NVIDIA Corporation · NVDA · 10-K · 2025-01-26' })
     await recentTask.getByRole('button', { name: '查看结果' }).click()
     await expect(page.getByRole('heading', { name: '数据管线', exact: true })).toBeVisible()
-    await expect(page.locator('code').filter({ hasText: 'manifest.json' })).toBeVisible()
+    await expect(page.getByText('manifest.json')).toBeVisible()
     await expect(page.getByText('核心解析产物清单')).toBeVisible()
-    await expect(page.getByText('8/8', { exact: true })).toBeVisible()
+    await expect(page.getByText('13/13', { exact: true })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Markdown 结果', exact: true })).toBeVisible()
     await expect(page.getByRole('heading', { name: '解析质量报告', exact: true })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'HTML/iXBRL 可视化溯源', exact: true })).toBeVisible()
@@ -367,7 +407,7 @@ test.describe('美股 SEC 解析工作台', () => {
     await expect(page.frameLocator('iframe[title="SEC 原始 HTML"]').getByText('SEC raw HTML preview')).toBeVisible()
     await expect(page.getByTestId('us-sec-source-active-section')).toContainText('business')
 
-    const sectionSelect = page.getByLabel('选择 SEC Markdown section')
+    const sectionSelect = page.getByLabel('选择 SEC Markdown 文件')
     await sectionSelect.selectOption('sections/mda.md')
     await expect(page.getByTestId('us-sec-source-markdown-pane')).toContainText('Management discussion')
     await expect(page.getByTestId('us-sec-source-markdown-pane').locator('table').filter({ hasText: 'Revenue' }).first()).toBeVisible()
@@ -395,6 +435,34 @@ test.describe('美股 SEC 解析工作台', () => {
         market: 'US',
         download_relative_path: structuredReport.relativePath,
         force: true,
+      },
+    ])
+  })
+
+  test('缺少 document_full.json 路径时前置禁用 PostgreSQL 和一键入库', async ({ page }) => {
+    await mockUsSecWorkbenchApis(page)
+
+    await openRecentNvdaTask(page)
+
+    await expect(page.getByRole('button', { name: '一键入库' })).toBeDisabled()
+    await expect(page.getByRole('button', { name: 'PostgreSQL入库' })).toBeDisabled()
+    await expect(page.getByText('缺少 SEC parser result document_full.json 路径，请先刷新结果包')).toHaveCount(2)
+  })
+
+  test('PostgreSQL 入库使用 US SEC document_full_path 请求体', async ({ page }) => {
+    const documentFullPath = 'data/parser-results/us-sec/NVDA-10-K-0001045810-25-000023/document_full.json'
+    const { documentFullImportRequests } = await mockUsSecWorkbenchApis(page, { documentFullPath })
+
+    await openRecentNvdaTask(page)
+    await page.getByRole('button', { name: 'PostgreSQL入库' }).click()
+
+    await expect(page.getByText('US SEC PostgreSQL入库完成')).toBeVisible()
+    expect(documentFullImportRequests).toEqual([
+      {
+        market: 'US',
+        document_full_path: documentFullPath,
+        ddl: true,
+        force: false,
       },
     ])
   })

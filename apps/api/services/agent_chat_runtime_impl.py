@@ -3,6 +3,7 @@ import base64
 import importlib
 import importlib.util
 import json
+import logging
 import os
 import re
 import subprocess
@@ -13,7 +14,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
-from collections.abc import AsyncGenerator, Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping
 from types import SimpleNamespace
 from typing import Any
 from xml.etree import ElementTree
@@ -63,6 +64,9 @@ from services import agent_runtime_context
 from services import agent_runtime_financial_guard
 from services import agent_runtime_financial_format
 from services import agent_runtime_financial_provenance
+from services import agent_runtime_financial_sources
+from services import agent_runtime_answer_audit
+from services import agent_runtime_diagnostics
 from services import agent_runtime_fallback_contexts
 from services import agent_runtime_postgres_fallback
 from services import agent_runtime_statement_context
@@ -110,8 +114,13 @@ from services.path_config import (
     PDF_RESULT_ROOT_CANDIDATES,
     PROJECT_ROOT,
     BACKEND_DATA_ROOT,
+    WIKI_ROOT_CANDIDATES,
     WIKI_ROOT as CONFIG_WIKI_ROOT,
 )
+
+
+AnswerAuditCallback = Callable[[dict[str, Any]], None]
+logger = logging.getLogger(__name__)
 
 
 FINANCIAL_CALCULATOR_PATH = FINANCIAL_CALCULATOR_SCRIPT
@@ -699,6 +708,16 @@ HERMES_PROFILE_DIRS: dict[HermesProfile, Path] = {
 DEFAULT_WIKI_ROOT = str(CONFIG_WIKI_ROOT)
 PROJECT_WIKI_ROOT = CONFIG_WIKI_ROOT
 ASSISTANT_WIKI_ROOT = CONFIG_ASSISTANT_WIKI_ROOT
+WIKI_FALLBACK_ROOTS: tuple[Path, ...] = tuple(
+    dict.fromkeys(
+        path
+        for path in (
+            *WIKI_ROOT_CANDIDATES,
+            Path.home() / "wiki",
+        )
+        if (path / "companies").exists()
+    )
+)
 os.environ.setdefault("SIQ_WIKI_ROOT", str(PROJECT_WIKI_ROOT))
 os.environ.setdefault("SIQ_WIKI_ROOT", str(PROJECT_WIKI_ROOT))
 os.environ.setdefault(
@@ -1292,39 +1311,40 @@ def build_wiki_catalog_reply(message: str) -> str | None:
 
 
 def _latest_hermes_session(profile: HermesProfile) -> Path | None:
-    recent = _recent_hermes_sessions(profile, limit=1)
-    return recent[0] if recent else None
+    return agent_runtime_diagnostics.latest_hermes_session(
+        profile,
+        profile_dirs=HERMES_PROFILE_DIRS,
+        runtime_profile=_runtime_profile,
+    )
 
 
 def _profile_diagnostic_context(profile: HermesProfile, session_file: Path | None = None) -> dict[str, Any]:
-    profile = _runtime_profile(profile)
-    return {
-        "scope": "profile",
-        "profile": profile,
-        "profile_label": PROFILE_LABELS.get(profile, profile),
-        "session_file": str(session_file) if session_file else None,
-    }
+    return agent_runtime_diagnostics.profile_diagnostic_context(
+        profile,
+        session_file,
+        runtime_profile=_runtime_profile,
+        profile_labels=PROFILE_LABELS,
+    )
 
 
 def _session_age_seconds(path: Path) -> float:
-    return max(0.0, (datetime.utcnow() - datetime.utcfromtimestamp(path.stat().st_mtime)).total_seconds())
+    return agent_runtime_diagnostics.session_age_seconds(path)
 
 
 def _is_recent_diagnostic_session(path: Path) -> bool:
-    return _session_age_seconds(path) <= DIAGNOSTIC_MAX_AGE_SECONDS
+    return agent_runtime_diagnostics.is_recent_diagnostic_session(
+        path,
+        max_age_seconds=DIAGNOSTIC_MAX_AGE_SECONDS,
+    )
 
 
 def _recent_hermes_sessions(profile: HermesProfile, *, limit: int = 20) -> list[Path]:
-    profile = _runtime_profile(profile)
-    profile_dir = HERMES_PROFILE_DIRS.get(profile)
-    sessions_dir = profile_dir / "sessions" if profile_dir else None
-    if not sessions_dir or not sessions_dir.exists():
-        return []
-
-    candidates = [path for path in sessions_dir.glob("*.json") if path.is_file()]
-    if not candidates:
-        return []
-    return sorted(candidates, key=lambda path: path.stat().st_mtime, reverse=True)[:limit]
+    return agent_runtime_diagnostics.recent_hermes_sessions(
+        profile,
+        profile_dirs=HERMES_PROFILE_DIRS,
+        runtime_profile=_runtime_profile,
+        limit=limit,
+    )
 
 
 def _hash_text(text: str) -> str:
@@ -1892,151 +1912,25 @@ def _remember_completed_run(profile: HermesProfile, session_id: str, message_has
 def normalize_evidence_trace_for_display(content: str | None) -> str:
     return agent_runtime_citations.normalize_evidence_trace_for_display(content)
 
-
 def _diagnose_latest_hermes_session(profile: HermesProfile) -> dict[str, Any] | None:
-    profile_dir = HERMES_PROFILE_DIRS.get(profile)
-    if not profile_dir:
-        return None
-
-    profile_label = PROFILE_LABELS.get(profile, profile)
-    gateway_state = _read_json_file(profile_dir / "gateway_state.json") or {}
-    active_agents = int(gateway_state.get("active_agents") or 0)
-    recent_sessions = _recent_hermes_sessions(profile)
-    latest_session = recent_sessions[0] if recent_sessions else None
-    if active_agents > 0:
-        return {
-            **_profile_diagnostic_context(profile, latest_session),
-            "severity": "info",
-            "issue": "external_run_active",
-            "title": "后台仍在运行",
-            "detail": f"{profile_label} 的 Hermes profile 显示仍有 {active_agents} 个活跃 agent，网页连接可能已断开，可稍后刷新或重新接入。",
-            "recovery_action": "等待后台 run 完成，或通过停止按钮结束后重新发起任务。",
-            "active_agents": active_agents,
-        }
-
-    if profile == "siq_analysis":
-        recovery = _latest_successful_analysis_recovery()
-        if recovery:
-            return recovery
-    if not recent_sessions:
-        return None
-
-    for latest_session in recent_sessions:
-        if not _is_recent_diagnostic_session(latest_session):
-            continue
-        session_data = _read_json_file(latest_session)
-        if not isinstance(session_data, dict):
-            continue
-
-        messages = session_data.get("messages")
-        if not isinstance(messages, list):
-            continue
-
-        for message in reversed(messages):
-            if not isinstance(message, dict) or message.get("role") != "assistant":
-                continue
-            text_loop = _detect_output_loop(str(message.get("content") or ""))
-            if text_loop:
-                return {
-                    **_profile_diagnostic_context(profile, latest_session),
-                    "severity": "warning",
-                    "issue": "text_output_loop_no_progress",
-                    "title": "检测到输出循环",
-                    "detail": (
-                        f"最近一次 {profile_label} 回复在“{text_loop['sample']}”附近反复输出或逐页扫描，"
-                        f"命中行 {text_loop['repeated_lines']} 行、不同形态 "
-                        f"{text_loop['unique_lines']} 个；说明模型停留在检索过程，没有继续产生可验证结论。"
-                    ),
-                    "recovery_action": "从 .work 检查点或已生成文件续跑；必要时使用确定性渲染/验收脚本，而不是继续让模型重复叙述。",
-                    "active_agents": active_agents,
-                    "last_updated": session_data.get("last_updated"),
-                }
-            break
-
-        tool_events: list[tuple[str, str | None, str]] = []
-        max_tool_iteration_notice = False
-        for message in messages[-40:]:
-            if not isinstance(message, dict):
-                continue
-            if message.get("role") == "tool":
-                status, output = _normalize_tool_output(message.get("content"))
-                tool_events.append((str(message.get("name") or "unknown"), status, output))
-            elif message.get("role") == "user" and "maximum number of tool-calling iterations" in str(message.get("content") or ""):
-                max_tool_iteration_notice = True
-
-        repeated_count = 0
-        repeated_tool = ""
-        repeated_output = ""
-        if tool_events:
-            repeated_tool, last_status, repeated_output = tool_events[-1]
-            for tool_name, status, output in reversed(tool_events):
-                if tool_name == repeated_tool and status == last_status and output == repeated_output:
-                    repeated_count += 1
-                else:
-                    break
-
-        if repeated_count >= 3 or max_tool_iteration_notice:
-            output_hash = _hash_text(repeated_output) if repeated_output else None
-            return {
-                **_profile_diagnostic_context(profile, latest_session),
-                "severity": "warning",
-                "issue": "tool_loop_no_progress",
-                "title": "工具循环已中断",
-                "detail": (
-                    f"最近一次 {profile_label} run 没有活跃进程，且 {repeated_tool or '工具'} 连续 "
-                    f"{repeated_count or '多'} 次返回相同结果，系统随后触发工具调用上限。"
-                ),
-                "recovery_action": "从 .work 检查点续跑，或直接进入渲染、溯源修复和质量验收阶段。",
-                "active_agents": active_agents,
-                "last_repeated_tool": repeated_tool or None,
-                "last_repeated_output_hash": output_hash,
-                "last_updated": session_data.get("last_updated"),
-            }
-
-        # The diagnostic endpoint is meant to describe the latest run state.
-        # Once the newest valid Hermes session has no loop/failure signal, do
-        # not surface stale warnings from older session snapshots.
-        return None
-
-    return None
+    return agent_runtime_diagnostics.diagnose_latest_hermes_session(
+        profile,
+        profile_dirs=HERMES_PROFILE_DIRS,
+        profile_labels=PROFILE_LABELS,
+        wiki_root=WIKI_ROOT,
+        runtime_profile=_runtime_profile,
+        normalize_tool_output=_normalize_tool_output,
+        detect_output_loop=_detect_output_loop,
+        hash_text=_hash_text,
+        max_age_seconds=DIAGNOSTIC_MAX_AGE_SECONDS,
+    )
 
 
 def _latest_successful_analysis_recovery() -> dict[str, Any] | None:
-    analysis_root = WIKI_ROOT / "companies"
-    if not analysis_root.exists():
-        return None
-    candidates = [
-        path
-        for path in analysis_root.glob("*/analysis/.work/*/recovery_result.json")
-        if path.is_file()
-    ]
-    if not candidates:
-        return None
-    latest = max(candidates, key=lambda path: path.stat().st_mtime)
-    payload = _read_json_file(latest)
-    if not isinstance(payload, dict) or not payload.get("ok"):
-        return None
-    files = payload.get("files") if isinstance(payload.get("files"), dict) else {}
-    validation = payload.get("validation") if isinstance(payload.get("validation"), dict) else {}
-    metrics = validation.get("metrics") if isinstance(validation.get("metrics"), dict) else {}
-    return {
-        "scope": "profile",
-        "profile": "siq_analysis",
-        "profile_label": PROFILE_LABELS["siq_analysis"],
-        "severity": "info",
-        "issue": "last_recovery_completed",
-        "title": "最近一次恢复已完成",
-        "detail": (
-            f"确定性恢复流程已通过验收：json_sections={metrics.get('json_sections', '未返回')}，"
-            f"markdown_h2={metrics.get('markdown_h2', '未返回')}，"
-            f"html_h2={metrics.get('html_h2', '未返回')}，"
-            f"api_pdf_links={metrics.get('api_pdf_links', '未返回')}。"
-        ),
-        "recovery_action": "可以打开恢复生成的 HTML/MD/JSON；后续分析任务若遇到检查点不完整，应继续使用 recover_report_from_workdir.py。",
-        "recovery_result": str(latest),
-        "html": files.get("html"),
-        "last_updated": datetime.fromtimestamp(latest.stat().st_mtime).isoformat(),
-    }
+    return agent_runtime_diagnostics.latest_successful_analysis_recovery(
+        wiki_root=WIKI_ROOT,
+        profile_labels=PROFILE_LABELS,
+    )
 
 
 def _trim_tool_preview(value: Any, limit: int = 280) -> str:
@@ -2491,33 +2385,29 @@ def _should_inject_note_detail_context(message: str) -> bool:
 
 
 def _is_statement_query(message: str) -> bool:
-    if _is_goodwill_main_statement_query(message):
-        return True
-    return agent_runtime_context.statement_query_applies(
+    return agent_runtime_context.statement_query_with_goodwill_applies(
         message,
         statement_terms=STATEMENT_QUERY_TERMS,
+        goodwill_main_statement_terms=GOODWILL_MAIN_STATEMENT_TERMS,
         is_general_assistant_request=_is_general_assistant_request,
     )
 
 
 def _is_goodwill_main_statement_query(message: str | None) -> bool:
-    text = re.sub(r"\s+", "", message or "")
-    if not text or _is_general_assistant_request(text):
-        return False
-    return "商誉" in text and any(term in text for term in GOODWILL_MAIN_STATEMENT_TERMS)
+    return agent_runtime_context.goodwill_main_statement_query_applies(
+        message,
+        goodwill_main_statement_terms=GOODWILL_MAIN_STATEMENT_TERMS,
+        is_general_assistant_request=_is_general_assistant_request,
+    )
 
 
 def _should_direct_answer_statement_query(message: str) -> bool:
-    if _is_goodwill_main_statement_query(message):
-        text = re.sub(r"\s+", "", message or "")
-        if any(term in text for term in NOTE_DETAIL_ANALYSIS_TERMS):
-            return False
-        return any(term in text for term in STATEMENT_DIRECT_TERMS)
-    return agent_runtime_context.direct_statement_answer_applies(
+    return agent_runtime_context.direct_statement_answer_with_goodwill_applies(
         message,
         statement_terms=STATEMENT_QUERY_TERMS,
         statement_direct_terms=STATEMENT_DIRECT_TERMS,
         note_detail_analysis_terms=NOTE_DETAIL_ANALYSIS_TERMS,
+        goodwill_main_statement_terms=GOODWILL_MAIN_STATEMENT_TERMS,
         is_general_assistant_request=_is_general_assistant_request,
     )
 
@@ -2527,11 +2417,60 @@ def _context_company_hint(context: Any | None) -> str:
 
 
 def _forced_context_company_dir(context: Any | None) -> Path | None:
+    raw = _context_dict(context)
+    company = raw.get("company") if isinstance(raw.get("company"), dict) else {}
+    candidate = company.get("dir") if raw.get("force_company") else None
+    if candidate:
+        try:
+            path = Path(str(candidate)).resolve()
+        except OSError:
+            return None
+        for root in _candidate_wiki_roots():
+            try:
+                resolved_root = root.resolve()
+            except OSError:
+                continue
+            if path != resolved_root and resolved_root in path.parents and path.exists():
+                return path
+        return None
     return agent_runtime_context.forced_context_company_dir(context, wiki_root=WIKI_ROOT)
 
 
 def _normalize_financial_text(value: Any) -> str:
     return re.sub(r"[\s（）()_\-：:、,，;；/]+", "", str(value or "").lower())
+
+
+def _wiki_root_path() -> Path:
+    if hasattr(WIKI_ROOT, "_path"):
+        try:
+            return WIKI_ROOT._path()
+        except Exception:
+            pass
+    return Path(WIKI_ROOT)
+
+
+def _candidate_wiki_roots() -> list[Path]:
+    roots: list[Path] = []
+    seen: set[Path] = set()
+    for root in (_wiki_root_path(), PROJECT_WIKI_ROOT, ASSISTANT_WIKI_ROOT, *WIKI_FALLBACK_ROOTS):
+        candidate = Path(root).expanduser()
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        if (candidate / "companies").exists():
+            roots.append(candidate)
+    return roots
+
+
+def _resolve_company_path_across_wiki_roots(rel_path: Any) -> Path | None:
+    rel = str(rel_path or "").strip().lstrip("/")
+    if not rel:
+        return None
+    for root in _candidate_wiki_roots():
+        company_dir = root / rel
+        if company_dir.exists():
+            return company_dir
+    return None
 
 
 def _load_local_citation_module() -> Any | None:
@@ -2598,8 +2537,8 @@ def _resolve_company_dir_from_catalog(message: str, context: Any | None = None) 
         if not any(alias and alias in haystack for alias in normalized_aliases):
             continue
         rel_path = company.get("company_path") or company.get("path") or f"companies/{company.get('company_id') or ''}"
-        company_dir = WIKI_ROOT / str(rel_path)
-        if company_dir.exists():
+        company_dir = _resolve_company_path_across_wiki_roots(rel_path)
+        if company_dir:
             return company_dir
     return None
 
@@ -2636,8 +2575,8 @@ def _resolve_company_dirs_from_catalog(message: str, context: Any | None = None,
         if not matched_aliases:
             continue
         rel_path = company.get("company_path") or company.get("path") or f"companies/{company.get('company_id') or ''}"
-        company_dir = WIKI_ROOT / str(rel_path)
-        if not company_dir.exists() or company_dir in seen:
+        company_dir = _resolve_company_path_across_wiki_roots(rel_path)
+        if not company_dir or company_dir in seen:
             continue
         seen.add(company_dir)
         best_alias = max(matched_aliases, key=len)
@@ -3218,20 +3157,16 @@ def _record_source_value(record: dict[str, Any], key: str) -> Any:
 
 
 def _normalize_wiki_metric_file_name(file_name: str) -> str:
-    if not _current_default_source_type().startswith("wiki_"):
-        return file_name
-    if re.fullmatch(r"(?:metrics/reports/[^/]+|reports/[^/]+/metrics)/three_statements\.json", file_name):
-        return "metrics/three_statements.json"
-    return file_name
+    return agent_runtime_financial_sources.normalize_wiki_metric_file_name(
+        file_name,
+        default_source_type=_current_default_source_type(),
+    )
 
 
 def _normalize_wiki_metric_file_refs(markdown: str) -> str:
-    if not _current_default_source_type().startswith("wiki_"):
-        return markdown
-    return re.sub(
-        r"file=(?:metrics/reports/[^,\s]+|reports/[^,\s]+/metrics)/three_statements\.json",
-        "file=metrics/three_statements.json",
+    return agent_runtime_financial_sources.normalize_wiki_metric_file_refs(
         markdown,
+        default_source_type=_current_default_source_type(),
     )
 
 
@@ -4678,35 +4613,25 @@ def _reply_has_requested_metric_evidence(message: str, reply: str) -> bool:
 
 
 def _reply_has_wiki_metrics_source(reply: str) -> bool:
-    for line in _extract_reference_lines(reply):
-        source_type = _source_field_value(line, "source_type")
-        file_name = _source_field_value(line, "file")
-        if source_type.endswith("_metrics") and "three_statements.json" in file_name:
-            return True
-    return False
+    return agent_runtime_financial_sources.reply_has_wiki_metrics_source(
+        reply,
+        deps=_primary_data_evidence_dependencies(),
+    )
 
 
 def _reply_has_wiki_note_source(reply: str) -> bool:
-    for line in _extract_reference_lines(reply):
-        source_type = _source_field_value(line, "source_type")
-        file_name = _source_field_value(line, "file")
-        if source_type.endswith("_document_links") or source_type.endswith("_note_links"):
-            return True
-        if file_name in {"semantic/document_links.json", "semantic/note_links.json"}:
-            return True
-    return False
+    return agent_runtime_financial_sources.reply_has_wiki_note_source(
+        reply,
+        deps=_primary_data_evidence_dependencies(),
+    )
 
 
 def _reply_missing_required_wiki_source(message: str, reply: str) -> bool:
-    if _is_statement_query(message) and not _reply_has_wiki_metrics_source(reply):
-        return True
-    if (
-        _should_inject_note_detail_context(message)
-        and not _reply_has_wiki_note_source(reply)
-        and not _has_structured_evidence_trace(reply)
-    ):
-        return True
-    return False
+    return agent_runtime_financial_sources.reply_missing_required_wiki_source(
+        message,
+        reply,
+        deps=_primary_data_evidence_dependencies(),
+    )
 
 
 def _strip_auto_evidence_sections(markdown: str) -> tuple[str, list[str]]:
@@ -4794,45 +4719,41 @@ def _render_postgres_primary_data_supplement(result: dict[str, Any]) -> str | No
     )
 
 
+def _primary_data_evidence_dependencies() -> agent_runtime_financial_sources.PrimaryDataEvidenceDependencies:
+    return agent_runtime_financial_sources.PrimaryDataEvidenceDependencies(
+        extract_reference_lines=_extract_reference_lines,
+        source_field_value=_source_field_value,
+        is_statement_query=_is_statement_query,
+        should_inject_note_detail_context=_should_inject_note_detail_context,
+        has_structured_evidence_trace=_has_structured_evidence_trace,
+        is_runtime_status_reply=_is_runtime_status_reply,
+        reply_has_requested_metric_evidence=_reply_has_requested_metric_evidence,
+        merge_primary_data_refs_into_citations=_merge_primary_data_refs_into_citations,
+        human_efficiency_result=_human_efficiency_result,
+        render_human_efficiency_evidence_markdown=render_human_efficiency_evidence_markdown,
+        human_capital_result=_human_capital_result,
+        render_human_capital_primary_data_supplement=_render_human_capital_primary_data_supplement,
+        statement_metric_result=_statement_metric_result,
+        render_statement_table_primary_data_supplement=_render_statement_table_primary_data_supplement,
+        three_statement_core_result=_three_statement_core_result,
+        render_three_statement_primary_data_supplement=_render_three_statement_primary_data_supplement,
+        note_detail_result=_note_detail_result,
+        render_note_detail_primary_data_supplement=_render_note_detail_primary_data_supplement,
+        wiki_fulltext_fallback_result=_wiki_fulltext_fallback_result,
+        render_wiki_fulltext_primary_data_supplement=_render_wiki_fulltext_primary_data_supplement,
+        record_postgres_fallback_event=agent_runtime_postgres_fallback.record_postgres_fallback_event,
+        audit_context_with_fallback_event=agent_runtime_postgres_fallback.audit_context_with_fallback_event,
+        postgres_fallback_result=_postgres_fallback_result,
+        render_postgres_primary_data_supplement=_render_postgres_primary_data_supplement,
+    )
+
+
 def build_primary_data_evidence_supplement(message: str, context: Any | None = None) -> str | None:
-    human_efficiency = _human_efficiency_result(message, context)
-    if human_efficiency:
-        return render_human_efficiency_evidence_markdown(human_efficiency)
-
-    human_capital = _human_capital_result(message, context)
-    if human_capital:
-        return _render_human_capital_primary_data_supplement(human_capital)
-
-    detailed_statement_result, _renderer = _statement_metric_result(message, context)
-    statement_table_supplement = _render_statement_table_primary_data_supplement(detailed_statement_result or {})
-    if statement_table_supplement:
-        if _should_inject_note_detail_context(message):
-            note_result, _note_renderer = _note_detail_result(message, context, limit=8)
-            note_supplement = _render_note_detail_primary_data_supplement(note_result or {})
-            if note_supplement:
-                return f"{statement_table_supplement}\n\n{note_supplement}"
-        return statement_table_supplement
-
-    statement_result = _three_statement_core_result(message, context)
-    statement_supplement = _render_three_statement_primary_data_supplement(statement_result or {})
-    if statement_supplement:
-        return statement_supplement
-
-    note_result, _note_renderer = _note_detail_result(message, context, limit=8)
-    note_supplement = _render_note_detail_primary_data_supplement(note_result or {})
-    if note_supplement:
-        return note_supplement
-
-    fulltext = _wiki_fulltext_fallback_result(message, context)
-    fulltext_supplement = _render_wiki_fulltext_primary_data_supplement(fulltext or {})
-    if fulltext_supplement:
-        return fulltext_supplement
-
-    postgres = _postgres_fallback_result(message, context)
-    postgres_supplement = _render_postgres_primary_data_supplement(postgres or {})
-    if postgres_supplement:
-        return postgres_supplement
-    return None
+    return agent_runtime_financial_sources.build_primary_data_evidence_supplement(
+        message,
+        context,
+        deps=_primary_data_evidence_dependencies(),
+    )
 
 
 def append_primary_data_evidence_if_needed(
@@ -4840,54 +4761,33 @@ def append_primary_data_evidence_if_needed(
     context: Any | None,
     reply: str,
 ) -> str:
-    if _is_runtime_status_reply(reply):
-        return reply
-    reply = _merge_primary_data_refs_into_citations(reply)
-    if _reply_missing_required_wiki_source(message, reply):
-        supplement = build_primary_data_evidence_supplement(message, context)
-        if supplement:
-            return _merge_primary_data_refs_into_citations(reply, supplement)
-    if _reply_has_requested_metric_evidence(message, reply):
-        return reply
-    supplement = build_primary_data_evidence_supplement(message, context)
-    if not supplement:
-        return reply
-    return _merge_primary_data_refs_into_citations(reply, supplement)
+    return agent_runtime_financial_sources.append_primary_data_evidence_if_needed(
+        message,
+        context,
+        reply,
+        deps=_primary_data_evidence_dependencies(),
+    )
 
 
 def _load_financial_query_api() -> Any | None:
-    script_path = str(FINANCIAL_QUERY_API_DIR)
-    if script_path not in sys.path:
-        sys.path.insert(0, script_path)
-    try:
-        return importlib.import_module("financial_query_api")
-    except Exception:
-        return None
+    return agent_runtime_postgres_fallback.load_financial_query_api(FINANCIAL_QUERY_API_DIR)
 
 
 def _financial_query_connection_factory(module: Any) -> Callable[[], Any] | None:
-    get_connection = getattr(module, "get_connection", None)
-    if callable(get_connection):
-        return get_connection
-    pg = getattr(module, "pg", None)
-    get_connection = getattr(pg, "get_connection", None)
-    if callable(get_connection):
-        return get_connection
-    return None
+    return agent_runtime_postgres_fallback.financial_query_connection_factory(module)
 
 
 def _should_consider_postgres_fallback(message: str, context: Any | None = None) -> bool:
-    text = re.sub(r"\s+", "", message or "")
-    if not text or _is_general_assistant_request(text):
-        return False
-    if _is_human_capital_query(message):
-        return False
-    if _is_statement_query(message) or _should_inject_note_detail_context(message):
-        return True
-    if any(term.lower() in text.lower() for term in POSTGRES_FALLBACK_TERMS):
-        return True
-    company = _context_company(context)
-    return bool(company and any(term in text for term in ("多少", "数据", "情况", "如何", "怎么样")))
+    return agent_runtime_postgres_fallback.should_consider_postgres_fallback(
+        message,
+        context,
+        is_general_assistant_request=_is_general_assistant_request,
+        is_human_capital_query=_is_human_capital_query,
+        is_statement_query=_is_statement_query,
+        should_inject_note_detail_context=_should_inject_note_detail_context,
+        postgres_fallback_terms=POSTGRES_FALLBACK_TERMS,
+        context_company=_context_company,
+    )
 
 
 def _postgres_query_text(message: str, context: Any | None = None) -> str:
@@ -4896,6 +4796,13 @@ def _postgres_query_text(message: str, context: Any | None = None) -> str:
         context,
         context_company_hint=_context_company_hint,
     )
+
+
+def _answer_audit_trace_id(record: Mapping[str, Any] | None) -> str | None:
+    if not record:
+        return None
+    trace_id = str(record.get("trace_id") or "").strip()
+    return trace_id if agent_runtime_answer_audit.is_answer_audit_trace_id(trace_id) else None
 
 
 def _postgres_prepare_parsed(parsed: dict[str, Any], message: str) -> dict[str, Any]:
@@ -4928,68 +4835,70 @@ def _postgres_query_metric_rows(
     query_text: str,
     limit: int,
 ) -> tuple[list[str], list[dict[str, Any]]]:
-    module.infer_metric_from_database(cur, parsed, company, query_text)
-    if parsed.get("query_type") == "table":
-        return module.query_statement_table(cur, parsed, company, limit)
-    source_tables, rows = module.query_metric_from_split_tables(cur, parsed, company, limit)
-    if not rows:
-        wide_tables, wide_rows = module.query_metric_from_wide(cur, parsed, company, limit)
-        source_tables = list(dict.fromkeys([*source_tables, *wide_tables]))
-        rows.extend(wide_rows)
-    return source_tables, module.dedupe_response_rows(rows, limit)
+    return agent_runtime_postgres_fallback.postgres_query_metric_rows(
+        module,
+        cur,
+        parsed,
+        company,
+        query_text,
+        limit,
+    )
+
+
+def _postgres_market_agent_view_result(
+    module: Any,
+    message: str,
+    context: Any | None,
+    parsed: dict[str, Any],
+    query_text: str,
+    limit: int,
+) -> dict[str, Any] | None:
+    def log_exception(exc: BaseException) -> None:
+        logger.info("market agent view fallback failed", exc_info=exc)
+
+    return agent_runtime_postgres_fallback.postgres_market_agent_view_result(
+        module,
+        message,
+        context,
+        parsed,
+        query_text,
+        limit,
+        context_company=_context_company,
+        log_exception=log_exception,
+    )
 
 
 def _postgres_enrich_rows_with_table_pages(cur: Any, rows: list[dict[str, Any]]) -> None:
-    pairs: list[tuple[str, int]] = []
-    for row in rows:
-        if _postgres_row_pdf_page(row):
-            continue
-        task_id = str(row.get("task_id") or "").strip()
-        table_index = _postgres_row_table_index(row)
-        if not task_id or table_index in (None, ""):
-            continue
-        try:
-            pair = (task_id, int(table_index))
-        except (TypeError, ValueError):
-            continue
-        if pair not in pairs:
-            pairs.append(pair)
-    if not pairs:
-        return
-    placeholders = ", ".join(["(%s, %s)"] * len(pairs))
-    params: list[Any] = []
-    for task_id, table_index in pairs:
-        params.extend([task_id, table_index])
-    try:
-        cur.execute(
-            f"""
-            SELECT task_id, table_index, pdf_page_number, markdown_line
-            FROM pdf2md.document_tables
-            WHERE (task_id, table_index) IN ({placeholders})
-            """,
-            params,
-        )
-    except Exception:
-        return
-    table_pages = {
-        (str(row.get("task_id")), int(row.get("table_index"))): dict(row)
-        for row in cur.fetchall()
-        if row.get("task_id") and row.get("table_index") is not None
-    }
-    for row in rows:
-        task_id = str(row.get("task_id") or "").strip()
-        table_index = _postgres_row_table_index(row)
-        try:
-            key = (task_id, int(table_index))
-        except (TypeError, ValueError):
-            continue
-        table = table_pages.get(key)
-        if not table:
-            continue
-        if not _postgres_row_pdf_page(row) and table.get("pdf_page_number"):
-            row["source_page_number"] = table.get("pdf_page_number")
-        if not row.get("source_markdown_line") and table.get("markdown_line"):
-            row["source_markdown_line"] = table.get("markdown_line")
+    agent_runtime_postgres_fallback.postgres_enrich_rows_with_table_pages(
+        cur,
+        rows,
+        postgres_row_pdf_page=_postgres_row_pdf_page,
+        postgres_row_table_index=_postgres_row_table_index,
+    )
+
+
+def _postgres_fallback_dependencies() -> agent_runtime_postgres_fallback.PostgresFallbackDependencies:
+    def normalize_json(module: Any, value: Any) -> Any:
+        return module.normalize_json(value)
+
+    def log_exception(exc: BaseException) -> None:
+        logger.info("legacy PostgreSQL fallback failed", exc_info=exc)
+
+    return agent_runtime_postgres_fallback.PostgresFallbackDependencies(
+        should_consider_postgres_fallback=_should_consider_postgres_fallback,
+        record_postgres_fallback_event=agent_runtime_postgres_fallback.record_postgres_fallback_event,
+        load_financial_query_api=_load_financial_query_api,
+        postgres_query_text=_postgres_query_text,
+        postgres_prepare_parsed=_postgres_prepare_parsed,
+        postgres_market_agent_view_result=_postgres_market_agent_view_result,
+        financial_query_connection_factory=_financial_query_connection_factory,
+        postgres_requested_metric_terms=_postgres_requested_metric_terms,
+        postgres_query_metric_rows=_postgres_query_metric_rows,
+        postgres_row_matches_requested_terms=_postgres_row_matches_requested_terms,
+        postgres_enrich_rows_with_table_pages=_postgres_enrich_rows_with_table_pages,
+        normalize_json=normalize_json,
+        log_exception=log_exception,
+    )
 
 
 def _postgres_fallback_result(
@@ -4998,72 +4907,12 @@ def _postgres_fallback_result(
     *,
     limit: int = POSTGRES_FALLBACK_ROW_LIMIT,
 ) -> dict[str, Any] | None:
-    if not _should_consider_postgres_fallback(message, context):
-        return None
-    module = _load_financial_query_api()
-    if module is None:
-        return None
-    get_connection = _financial_query_connection_factory(module)
-    if get_connection is None:
-        return None
-    query_text = _postgres_query_text(message, context)
-    try:
-        parsed = module.merge_parse(query_text, False)
-        parsed = _postgres_prepare_parsed(parsed, message)
-        with get_connection() as conn:
-            with conn.cursor() as cur:
-                try:
-                    cur.execute("SET TRANSACTION READ ONLY")
-                except Exception:
-                    try:
-                        cur.execute("SET default_transaction_read_only = on")
-                    except Exception:
-                        pass
-                company = module.resolve_company(cur, parsed, query_text)
-                if not company:
-                    return None
-                parsed.update({f"resolved_{key}": value for key, value in company.items()})
-                requested_terms = _postgres_requested_metric_terms(message)
-                source_tables: list[str] = []
-                rows: list[dict[str, Any]] = []
-                if requested_terms:
-                    metric_parsed = dict(parsed)
-                    source_tables, rows = _postgres_query_metric_rows(
-                        module,
-                        cur,
-                        metric_parsed,
-                        company,
-                        query_text,
-                        limit,
-                    )
-                    if rows:
-                        parsed = metric_parsed
-
-                if not rows and parsed.get("query_type") == "company_all":
-                    source_tables, rows = module.query_company_all_metrics(cur, parsed, company, limit)
-                elif not rows:
-                    source_tables, rows = _postgres_query_metric_rows(
-                        module,
-                        cur,
-                        parsed,
-                        company,
-                        query_text,
-                        limit,
-                    )
-                if requested_terms and rows and not any(_postgres_row_matches_requested_terms(row, requested_terms) for row in rows):
-                    return None
-                _postgres_enrich_rows_with_table_pages(cur, rows)
-    except Exception:
-        return None
-    if not rows:
-        return None
-    return {
-        "question": message,
-        "query_text": query_text,
-        "parsed": module.normalize_json(parsed),
-        "source_tables": source_tables,
-        "rows": [module.normalize_json(row) for row in rows[:limit]],
-    }
+    return agent_runtime_postgres_fallback.postgres_fallback_result(
+        message,
+        context,
+        limit=limit,
+        deps=_postgres_fallback_dependencies(),
+    )
 
 
 def _render_postgres_fallback_context(result: dict[str, Any]) -> str:
@@ -5081,11 +4930,21 @@ def _render_postgres_fallback_context(result: dict[str, Any]) -> str:
     )
 
 
+def _postgres_fallback_context_dependencies() -> agent_runtime_postgres_fallback.PostgresFallbackContextDependencies:
+    return agent_runtime_postgres_fallback.PostgresFallbackContextDependencies(
+        record_postgres_fallback_event=agent_runtime_postgres_fallback.record_postgres_fallback_event,
+        audit_context_with_fallback_event=agent_runtime_postgres_fallback.audit_context_with_fallback_event,
+        postgres_fallback_result=_postgres_fallback_result,
+        render_postgres_fallback_context=_render_postgres_fallback_context,
+    )
+
+
 def build_postgres_fallback_context(message: str, context: Any | None = None) -> str | None:
-    result = _postgres_fallback_result(message, context)
-    if not result:
-        return None
-    return _render_postgres_fallback_context(result)
+    return agent_runtime_postgres_fallback.build_postgres_fallback_context(
+        message,
+        context,
+        deps=_postgres_fallback_context_dependencies(),
+    )
 
 
 def _needs_financial_evidence_contract(message: str, context: Any | None = None) -> bool:
@@ -5179,89 +5038,35 @@ def append_calculation_trace_warning_if_needed(message: str, reply: str) -> str:
     )
 
 
+def _financial_evidence_contract_dependencies() -> agent_runtime_financial_guard.FinancialEvidenceContractDependencies:
+    return agent_runtime_financial_guard.FinancialEvidenceContractDependencies(
+        build_primary_data_evidence_supplement=build_primary_data_evidence_supplement,
+        merge_primary_data_refs_into_citations=_merge_primary_data_refs_into_citations,
+        build_human_efficiency_evidence_context=build_human_efficiency_evidence_context,
+        build_three_statement_core_context=build_three_statement_core_context,
+        is_statement_query=_is_statement_query,
+        statement_metric_result=_statement_metric_result,
+        should_inject_note_detail_context=_should_inject_note_detail_context,
+        note_detail_result=_note_detail_result,
+        build_wiki_fulltext_fallback_context=build_wiki_fulltext_fallback_context,
+        build_postgres_fallback_context=build_postgres_fallback_context,
+        build_pdf2md_parse_only_context=build_pdf2md_parse_only_context,
+        is_runtime_status_reply=_is_runtime_status_reply,
+        invalid_task_ids_in_reply=_invalid_task_ids_in_reply,
+        needs_financial_evidence_contract=_needs_financial_evidence_contract,
+        append_primary_data_evidence_if_needed=append_primary_data_evidence_if_needed,
+        append_calculation_trace_warning_if_needed=append_calculation_trace_warning_if_needed,
+        has_primary_data_evidence_trace=_has_primary_data_evidence_trace,
+        has_structured_evidence_trace=_has_structured_evidence_trace,
+    )
+
+
 def build_financial_evidence_fallback_reply(message: str, context: Any | None = None) -> str | None:
-    """Return deterministic evidence when a model skips required citations."""
-    primary_data_supplement = build_primary_data_evidence_supplement(message, context)
-    if primary_data_supplement:
-        return _merge_primary_data_refs_into_citations(
-            "## 证据校验\n"
-            "- 模型本轮输出缺少主要数据级溯源，后端已补充主要指标、PDF 页、表格/文本块和来源链接。\n"
-            "- 需要解释或评价时，应基于 `## 引用来源` 继续组织语言。",
-            primary_data_supplement,
-        )
-
-    human_efficiency_context = build_human_efficiency_evidence_context(message, context)
-    if human_efficiency_context:
-        return (
-            "## 证据校验\n"
-            "- 模型本轮输出缺少指标级财务溯源，后端已补充人效/人均指标底稿。\n"
-            "- 以下返回后端确定性解析出的指标、公式、PDF 页和表格入口；需要解释或评价时，应基于这些来源继续分析。\n\n"
-            f"{human_efficiency_context}"
-        )
-
-    three_statement_context = build_three_statement_core_context(message, context)
-    if three_statement_context:
-        return (
-            "## 证据校验\n"
-            "- 模型本轮输出缺少可解析的本地 Wiki 三大表证据引用，后端已阻断该事实答案。\n"
-            "- 以下返回后端确定性解析出的三大表核心底稿；需要润色或解释时，应基于这些来源继续组织语言。\n\n"
-            f"{three_statement_context}"
-        )
-
-    if _is_statement_query(message):
-        result, renderer = _statement_metric_result(message, context)
-        if result and renderer:
-            try:
-                body = renderer(result, max_rows=40)
-            except Exception:
-                body = None
-            if body:
-                return (
-                    "## 证据校验\n"
-                    "- 模型本轮输出缺少可解析的本地 Wiki 证据引用，后端已阻断该事实答案。\n"
-                    "- 以下返回后端确定性解析出的主表证据；需要解释或评价时，应基于这些来源继续分析。\n\n"
-                    f"{body}"
-                )
-
-    if _should_inject_note_detail_context(message):
-        result, renderer = _note_detail_result(message, context, limit=8)
-        if result and renderer:
-            try:
-                body = renderer(result, max_rows=80)
-            except Exception:
-                body = None
-            if body:
-                return (
-                    "## 证据校验\n"
-                    "- 模型本轮输出缺少可解析的本地 Wiki 证据引用，后端已阻断该事实答案。\n"
-                    "- 以下返回后端确定性解析出的附注证据；需要解释或评价时，应基于这些来源继续分析。\n\n"
-                    f"{body}"
-                )
-    wiki_fulltext_context = build_wiki_fulltext_fallback_context(message, context)
-    if wiki_fulltext_context:
-        return (
-            "## 证据校验\n"
-            "- 模型本轮输出缺少可解析的结构化 Wiki 证据引用；后端已改用完整年报 Markdown 和完整 document_full.json 兜底检索。\n"
-            "- 以下返回后端确定性检索出的原文证据；需要解释或评价时，应基于这些来源继续分析。\n\n"
-            f"{wiki_fulltext_context}"
-        )
-    postgres_context = build_postgres_fallback_context(message, context)
-    if postgres_context:
-        return (
-            "## 证据校验\n"
-            "- 模型本轮输出缺少可解析的本地 Wiki 证据引用，且 Wiki 确定性解析未返回足够证据。\n"
-            "- 以下返回后端只读查询 PostgreSQL `pdf2md` 得到的补充证据；需要解释或评价时，应基于这些来源继续分析。\n\n"
-            f"{postgres_context}"
-        )
-    parse_only_context = build_pdf2md_parse_only_context(message, context)
-    if parse_only_context:
-        return (
-            "## 证据校验\n"
-            "- 模型本轮输出缺少可解析的本地 Wiki 证据引用；后端发现该报告尚未进入 Wiki，只返回真实 pdf2md 解析产物目录。\n"
-            "- 原回答已被阻断；需要事实答案时，请基于下列 `result.md` / `document_full.json` / `financial_data.json` 重新定位证据。\n\n"
-            f"{parse_only_context}"
-        )
-    return None
+    return agent_runtime_financial_guard.build_financial_evidence_fallback_reply(
+        message,
+        context,
+        deps=_financial_evidence_contract_dependencies(),
+    )
 
 
 def build_invalid_task_id_evidence_reply(
@@ -5269,19 +5074,11 @@ def build_invalid_task_id_evidence_reply(
     context: Any | None,
     invalid_task_ids: list[str],
 ) -> str:
-    fallback = build_financial_evidence_fallback_reply(message, context)
-    if fallback:
-        return (
-            "## 证据链无效\n"
-            "- 模型本轮输出引用了本地不存在的 `task_id`，后端已阻断原回答并改用确定性证据返回。\n"
-            f"- 无效 task_id: {', '.join(invalid_task_ids)}\n\n"
-            f"{fallback}"
-        )
-    return (
-        "## 证据链无效\n"
-        "- 模型本轮输出引用了本地不存在的 `task_id`，后端已阻断原回答，避免伪造引用进入历史。\n"
-        f"- 无效 task_id: {', '.join(invalid_task_ids)}\n"
-        "- 当前后端未检索到可替换的本地 Wiki / pdf2md 确定性证据。请先完成对应 PDF 解析入库，或明确指定一个已存在的解析任务。"
+    return agent_runtime_financial_guard.build_invalid_task_id_evidence_reply(
+        message,
+        context,
+        invalid_task_ids,
+        deps=_financial_evidence_contract_dependencies(),
     )
 
 
@@ -5290,23 +5087,12 @@ def enforce_financial_evidence_contract(
     context: Any | None,
     reply: str,
 ) -> str:
-    """Do not let financial fact answers enter history without structured evidence."""
-    if _is_runtime_status_reply(reply):
-        return reply
-    invalid_task_ids = _invalid_task_ids_in_reply(message, context, reply)
-    if invalid_task_ids:
-        return build_invalid_task_id_evidence_reply(message, context, invalid_task_ids)
-    if not _needs_financial_evidence_contract(message, context):
-        return reply
-    reply = append_primary_data_evidence_if_needed(message, context, reply)
-    reply = append_calculation_trace_warning_if_needed(message, reply)
-    if _has_primary_data_evidence_trace(reply) or _has_structured_evidence_trace(reply):
-        invalid_task_ids = _invalid_task_ids_in_reply(message, context, reply)
-        if invalid_task_ids:
-            return build_invalid_task_id_evidence_reply(message, context, invalid_task_ids)
-        return reply
-    fallback = build_financial_evidence_fallback_reply(message, context)
-    return fallback or reply
+    return agent_runtime_financial_guard.enforce_financial_evidence_contract(
+        message,
+        context,
+        reply,
+        deps=_financial_evidence_contract_dependencies(),
+    )
 
 
 def format_chat_context(context: Any | None) -> str | None:
@@ -5460,26 +5246,22 @@ def build_hermes_run_input(
     all_attachments = _attachment_dicts(attachments)
     image_attachments = _image_attachment_dicts(all_attachments)
     document_context = _document_attachment_context(all_attachments)
-    if not all_attachments:
-        return contextual_text
-
     image_path_hints = agent_runtime_context.image_attachment_path_hints(image_attachments)
-    text = agent_runtime_context.build_hermes_run_text(
+    image_data_urls: list[str] = []
+    if use_hermes_image_fallback:
+        for item in image_attachments:
+            data_url = _image_attachment_data_url(item)
+            if data_url:
+                image_data_urls.append(data_url)
+    return agent_runtime_context.build_hermes_run_input_payload(
         contextual_text,
+        has_attachments=bool(all_attachments),
         document_context=document_context,
         image_analysis_context=image_analysis_context,
         image_path_hints=image_path_hints,
+        image_data_urls=image_data_urls,
+        use_hermes_image_fallback=use_hermes_image_fallback,
     )
-    if not image_attachments or not use_hermes_image_fallback:
-        return text
-
-    image_data_urls: list[str] = []
-    for item in image_attachments:
-        data_url = _image_attachment_data_url(item)
-        if data_url:
-            image_data_urls.append(data_url)
-
-    return agent_runtime_context.build_hermes_multimodal_run_input(text, image_data_urls)
 
 
 def hermes_timeout() -> httpx.Timeout:
@@ -5564,6 +5346,7 @@ async def _collect_chat_reply_impl(
     attachments: Any | None = None,
     history_limit: int = HISTORY_LIMIT,
     enforce_evidence_contract: bool = True,
+    answer_audit_callback: AnswerAuditCallback | None = None,
 ) -> str:
     envelope = await _prepare_chat_request_envelope(
         message,
@@ -5617,11 +5400,12 @@ async def _collect_chat_reply_impl(
         all_attachments,
     )
 
+    audit_context = dict(context) if isinstance(context, dict) else context
     run_input = build_hermes_run_input(
         completed_guard_input or message,
         profile=profile,
         session_id=session_id,
-        context=context,
+        context=audit_context,
         allow_initialize=preflight_context.allow_initialize,
         attachments=all_attachments,
         local_memory_context=preflight_context.local_memory_context,
@@ -5637,7 +5421,7 @@ async def _collect_chat_reply_impl(
     state = ActiveRunState(profile=profile, session_id=session_id, run_id=run_id)
     state.message_hash = message_hash
     state.original_message = message
-    state.context = context
+    state.context = audit_context
     ACTIVE_RUNS[_active_key(profile, session_id)] = state
     try:
         reply = await asyncio.wait_for(
@@ -5653,11 +5437,23 @@ async def _collect_chat_reply_impl(
     raw_reply = reply
     reply = normalize_evidence_trace_for_display(reply)
     if enforce_evidence_contract:
-        reply = enforce_financial_evidence_contract(message, context, reply)
+        reply = enforce_financial_evidence_contract(message, audit_context, reply)
     reply = normalize_evidence_trace_for_display(reply)
+    audit_context = agent_runtime_postgres_fallback.audit_context_for_final_reply(audit_context, reply)
+    answer_audit_record = agent_runtime_answer_audit.record_answer_audit_trace_for_reply(
+        message=message,
+        context=audit_context,
+        profile=profile,
+        session_id=session_id,
+        raw_reply=raw_reply,
+        final_reply=reply,
+        enforce_evidence_contract=enforce_evidence_contract,
+    )
+    if answer_audit_callback and isinstance(answer_audit_record, dict):
+        answer_audit_callback(answer_audit_record)
     _record_financial_llm_provenance_if_needed(
         message=message,
-        context=context,
+        context=audit_context,
         profile=profile,
         model_input=run_input,
         raw_output=raw_reply,
@@ -5681,6 +5477,7 @@ async def collect_chat_reply(
     attachments: Any | None = None,
     history_limit: int = HISTORY_LIMIT,
     enforce_evidence_contract: bool = True,
+    answer_audit_callback: AnswerAuditCallback | None = None,
 ) -> str:
     with _profile_wiki_context(profile):
         return await _collect_chat_reply_impl(
@@ -5693,6 +5490,7 @@ async def collect_chat_reply(
             attachments=attachments,
             history_limit=history_limit,
             enforce_evidence_contract=enforce_evidence_contract,
+            answer_audit_callback=answer_audit_callback,
         )
 
 
@@ -5700,8 +5498,10 @@ async def _collect_stream_run(
     state: ActiveRunState,
     done_payload_factory: Callable[[str], Awaitable[dict]] | None,
     enforce_evidence_contract: bool = True,
+    emit_audit_trace_id: bool = False,
 ) -> None:
     full_reply = ""
+    audit_trace_id: str | None = None
     failed = False
     loop_detected = False
     idle_timed_out = False
@@ -6046,10 +5846,23 @@ async def _collect_stream_run(
                 if reply != full_reply and not failed:
                     full_reply = reply
                     await _append_state_event(state, "replace", {"content": reply})
+                audit_context = agent_runtime_postgres_fallback.audit_context_for_final_reply(state.context, reply)
+                answer_audit_record = agent_runtime_answer_audit.record_answer_audit_trace_for_reply(
+                    message=state.original_message or "",
+                    context=audit_context,
+                    profile=state.profile,
+                    session_id=state.session_id,
+                    raw_reply=raw_full_reply,
+                    final_reply=reply,
+                    enforce_evidence_contract=enforce_evidence_contract,
+                )
+                audit_trace_id = _answer_audit_trace_id(answer_audit_record)
+                if not failed:
+                    full_reply = reply
                 if not failed and not _is_loop_polluted_assistant_message(raw_full_reply):
                     _record_financial_llm_provenance_if_needed(
                         message=state.original_message or "",
-                        context=state.context,
+                        context=audit_context,
                         profile=state.profile,
                         model_input=getattr(state, "provenance_input", None),
                         raw_output=raw_full_reply,
@@ -6064,6 +5877,8 @@ async def _collect_stream_run(
                     done_payload = await done_payload_factory(full_reply) if done_payload_factory else {"new_achievements": []}
                 except Exception as exc:
                     done_payload = {"new_achievements": [], "warning": str(exc)}
+                if emit_audit_trace_id and audit_trace_id:
+                    done_payload = {**done_payload, "audit_trace_id": audit_trace_id}
                 if full_reply:
                     done_payload = {**done_payload, "content": full_reply}
                 await _append_completed_active_run(state, done_payload)
@@ -6085,6 +5900,7 @@ async def _start_streaming_chat_run(
     provenance_input: Any | None = None,
     provenance_attachments: Any | None = None,
     enforce_evidence_contract: bool = True,
+    emit_audit_trace_id: bool = False,
 ) -> ActiveRunState:
     state = ActiveRunState(profile=profile, session_id=session_id, run_id=run_id)
     state.message_hash = message_hash
@@ -6094,7 +5910,17 @@ async def _start_streaming_chat_run(
     state.provenance_attachments = provenance_attachments
     ACTIVE_RUNS[_active_key(profile, session_id)] = state
     await _append_state_event(state, "run", {"run_id": run_id, "session_id": session_id})
-    state.task = asyncio.create_task(_collect_stream_run(state, done_payload_factory, enforce_evidence_contract))
+    if emit_audit_trace_id:
+        state.task = asyncio.create_task(
+            _collect_stream_run(
+                state,
+                done_payload_factory,
+                enforce_evidence_contract,
+                emit_audit_trace_id=True,
+            )
+        )
+    else:
+        state.task = asyncio.create_task(_collect_stream_run(state, done_payload_factory, enforce_evidence_contract))
     return state
 
 
@@ -6111,6 +5937,7 @@ async def _stream_chat_reply_impl(
     history_limit: int = HISTORY_LIMIT,
     done_payload_factory: Callable[[str], Awaitable[dict]] | None = None,
     enforce_evidence_contract: bool = True,
+    emit_audit_trace_id: bool = False,
 ) -> AsyncGenerator[dict, None]:
     envelope = await _prepare_chat_request_envelope(
         message,
@@ -6206,11 +6033,12 @@ async def _stream_chat_reply_impl(
         all_attachments,
     )
 
+    audit_context = dict(context) if isinstance(context, dict) else context
     run_input = build_hermes_run_input(
         completed_guard_input or message,
         profile=profile,
         session_id=session_id,
-        context=context,
+        context=audit_context,
         allow_initialize=preflight_context.allow_initialize,
         attachments=all_attachments,
         local_memory_context=preflight_context.local_memory_context,
@@ -6234,11 +6062,12 @@ async def _stream_chat_reply_impl(
         run_id=run_id,
         message_hash=message_hash,
         message=message,
-        context=context,
+        context=audit_context,
         provenance_input=run_input,
         provenance_attachments=all_attachments,
         done_payload_factory=guarded_done_payload,
         enforce_evidence_contract=enforce_evidence_contract,
+        emit_audit_trace_id=emit_audit_trace_id,
     )
 
     async for event in stream_active_run_events(
@@ -6262,6 +6091,7 @@ async def stream_chat_reply(
     history_limit: int = HISTORY_LIMIT,
     done_payload_factory: Callable[[str], Awaitable[dict]] | None = None,
     enforce_evidence_contract: bool = True,
+    emit_audit_trace_id: bool = False,
 ) -> AsyncGenerator[dict, None]:
     with _profile_wiki_context(profile):
         async for event in _stream_chat_reply_impl(
@@ -6276,6 +6106,7 @@ async def stream_chat_reply(
             history_limit=history_limit,
             done_payload_factory=done_payload_factory,
             enforce_evidence_contract=enforce_evidence_contract,
+            emit_audit_trace_id=emit_audit_trace_id,
         ):
             yield event
 

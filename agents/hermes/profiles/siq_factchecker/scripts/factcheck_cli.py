@@ -257,12 +257,12 @@ class FactCheckEngine:
         self.accessor = accessor
         self.pg = PostgresEvidenceAccessor()
 
-    def verify(self, company_id: str, report_year: int) -> FactCheckReport:
+    def verify(self, company_id: str, report_year: int, report_path: Optional[Path] = None) -> FactCheckReport:
         company = self.accessor.get_company_by_id(company_id) or self.accessor.get_company_by_stock_code(company_id)
         if not company:
             return self._blocked(company_id, "", "公司不存在或无法定位")
 
-        report_pair = self._select_analysis_report(company, report_year)
+        report_pair = self._select_analysis_report(company, report_year, report_path=report_path)
         if not report_pair:
             expected = self.accessor.get_analysis_dir(company.company_id) / f"{company.stock_code}-{company.company_short_name}-{report_year}-analysis.md"
             return self._blocked(company.company_id, str(expected), f"分析报告不存在或无法匹配: {expected}")
@@ -317,11 +317,33 @@ class FactCheckEngine:
             verified_at=datetime.now(CN_TZ).isoformat(),
         )
 
-    def _select_analysis_report(self, company: Any, report_year: int) -> Optional[ReportPair]:
+    def _normalize_requested_report_path(self, company: Any, report_path: Optional[Path]) -> Optional[ReportPair]:
+        if not report_path:
+            return None
+        analysis_dir = self.accessor.get_analysis_dir(company.company_id).resolve()
+        path = report_path.expanduser()
+        if not path.is_absolute():
+            candidates = [(analysis_dir / path).resolve(), (Path.cwd() / path).resolve()]
+        else:
+            candidates = [path.resolve()]
+        for candidate in candidates:
+            if candidate.suffix.lower() in {".html", ".json"}:
+                candidate = candidate.with_suffix(".md")
+            try:
+                candidate.relative_to(analysis_dir)
+            except ValueError:
+                continue
+            if candidate.exists() and candidate.suffix.lower() == ".md":
+                return ReportPair(candidate, candidate.with_suffix(".json"), f"explicit:{candidate.name}")
+        return None
+
+    def _select_analysis_report(self, company: Any, report_year: int, report_path: Optional[Path] = None) -> Optional[ReportPair]:
+        explicit = self._normalize_requested_report_path(company, report_path)
+        if explicit:
+            return explicit
+
         analysis_dir = self.accessor.get_analysis_dir(company.company_id)
         canonical = analysis_dir / f"{company.stock_code}-{company.company_short_name}-{report_year}-analysis.md"
-        if canonical.exists():
-            return ReportPair(canonical, canonical.with_suffix(".json"), "canonical")
 
         candidates = []
         for md_path in analysis_dir.glob("*.md"):
@@ -334,6 +356,10 @@ class FactCheckEngine:
                 continue
             lowered = name.lower()
             penalty = 0
+            if "research-pack" in lowered:
+                penalty -= 30
+            if "siq-depth" in lowered:
+                penalty -= 15
             if "recovered" in lowered:
                 penalty += 20
             if "templatecheck" in lowered:
@@ -342,8 +368,12 @@ class FactCheckEngine:
                 penalty += 10
             if "deep_analysis" in lowered:
                 penalty += 50
+            if "test" in lowered:
+                penalty += 15
             canonical_like = 0 if name.endswith(f"{report_year}-analysis.md") else 5
             candidates.append((penalty + canonical_like, md_path.stat().st_mtime, md_path))
+        if canonical.exists() and not any(item[2] == canonical for item in candidates):
+            candidates.append((0, canonical.stat().st_mtime, canonical))
         if not candidates:
             return None
         candidates.sort(key=lambda item: (item[0], -item[1]))
@@ -880,6 +910,8 @@ class FactCheckEngine:
             summary={"critical": 1, "warning": 0, "suggestion": 0, "database_status": "not_checked", "database_connection": "not_checked", "company_evidence_status": "not_checked", "evidence_rows": 0},
             checks=checks,
             evidence_summary=[{"status": "insufficient_evidence", "source_type": "none", "metric_or_claim": "global", "message": message}],
+            metric_evidence_map={},
+            calculation_audit=[],
             recommendations=[message],
             verified_at=datetime.now(CN_TZ).isoformat(),
         )
@@ -1041,7 +1073,7 @@ def cmd_check(args):
         print(f"错误: 未找到公司 '{args.company_id}'")
         sys.exit(1)
 
-    report_pair = engine._select_analysis_report(company, args.year)
+    report_pair = engine._select_analysis_report(company, args.year, report_path=args.report_path)
     report_md = report_pair.md_path if report_pair else accessor.get_analysis_dir(company.company_id) / f"{company.stock_code}-{company.company_short_name}-{args.year}-analysis.md"
     report_json = report_pair.json_path if report_pair else report_md.with_suffix(".json")
     data = accessor.load_company_full(company.company_id)
@@ -1066,6 +1098,14 @@ def cmd_check(args):
     return ready
 
 
+def default_factcheck_output_path(accessor: WikiDataAccessor, company: Any, report_year: int, report_pair: Optional[ReportPair]) -> Path:
+    factcheck_dir = accessor.ensure_factcheck_dir(company.company_id)
+    canonical_analysis_name = f"{company.stock_code}-{company.company_short_name}-{report_year}-analysis.md"
+    if report_pair and report_pair.md_path.name != canonical_analysis_name:
+        return factcheck_dir / f"{report_pair.md_path.stem}-factcheck.json"
+    return factcheck_dir / f"{company.stock_code}-{company.company_short_name}-{report_year}-factcheck.json"
+
+
 def cmd_verify(args):
     accessor = WikiDataAccessor()
     engine = FactCheckEngine(accessor)
@@ -1081,7 +1121,11 @@ def cmd_verify(args):
     print(f"  报告年份: {args.year}")
     print(f"{'='*80}\n")
 
-    report = engine.verify(company.company_id, args.year)
+    report_pair = engine._select_analysis_report(company, args.year, report_path=args.report_path)
+    if report_pair:
+        print(f"  分析报告: {report_pair.md_path}")
+        print(f"  选择策略: {report_pair.selection_reason}")
+    report = engine.verify(company.company_id, args.year, report_path=args.report_path)
     print("[核查结果]")
     for name, result in report.checks.items():
         issue_count = len(result.issues)
@@ -1098,8 +1142,8 @@ def cmd_verify(args):
         for rec in report.recommendations:
             print(f"  - {rec}")
 
-    factcheck_dir = accessor.ensure_factcheck_dir(company.company_id)
-    output_path = factcheck_dir / f"{company.stock_code}-{company.company_short_name}-{args.year}-factcheck.json"
+    output_path = args.output or default_factcheck_output_path(accessor, company, args.year, report_pair)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(report_to_dict(report), f, ensure_ascii=False, indent=2)
     html_path = output_path.with_suffix(".html")
@@ -1184,9 +1228,12 @@ def main():
     check_parser = subparsers.add_parser("check", help="检查前置条件")
     check_parser.add_argument("company_id", help="公司ID或股票代码")
     check_parser.add_argument("--year", type=int, default=2025, help="报告年份")
+    check_parser.add_argument("--report-path", type=Path, help="指定要核查的 analysis Markdown/HTML/JSON 文件")
     verify_parser = subparsers.add_parser("verify", help="执行事实核实")
     verify_parser.add_argument("company_id", help="公司ID或股票代码")
     verify_parser.add_argument("--year", type=int, default=2025, help="报告年份")
+    verify_parser.add_argument("--report-path", type=Path, help="指定要核查的 analysis Markdown/HTML/JSON 文件")
+    verify_parser.add_argument("--output", type=Path, help="指定 factcheck JSON 输出路径")
     subparsers.add_parser("status", help="查看核实状态")
     args = parser.parse_args()
     if not args.command:

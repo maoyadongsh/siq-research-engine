@@ -727,8 +727,23 @@ def _semantic_status_at_root(company_dir: str, task_id: str | None, wiki_root: P
             log = json.loads((semantic_dir / "extraction_log.json").read_text(encoding="utf-8"))
         except Exception:
             log = {}
+    if not isinstance(log, dict):
+        log = {}
+    counts = log.get("counts") if isinstance(log.get("counts"), dict) else {}
+    inputs = log.get("inputs") if isinstance(log.get("inputs"), dict) else {}
+    semantic_pending_message = ""
+    rule_ready = False
+    if not missing:
+        rule_ready = bool(inputs) and _semantic_positive_count(counts.get("segments")) > 0 and _semantic_positive_count(counts.get("evidence")) > 0
+        if not rule_ready:
+            if not counts and not inputs:
+                semantic_pending_message = "规则语义层未生成，仅有 Wiki 占位文件"
+            elif not inputs:
+                semantic_pending_message = "规则语义层缺少输入指纹，需重新生成"
+            else:
+                semantic_pending_message = "规则语义层缺少有效 segments/evidence，需重新生成"
     stale = False
-    if not missing and log.get("inputs"):
+    if rule_ready:
         current_inputs = {
             "company_json_sha256": _sha256_file(wiki_root / "companies" / company_dir / "company.json"),
             "report_md_sha256": _sha256_file(report_dir / "report.md"),
@@ -737,24 +752,38 @@ def _semantic_status_at_root(company_dir: str, task_id: str | None, wiki_root: P
         }
         if (report_dir / ARTIFACT_MANIFEST_NAME).is_file():
             current_inputs["artifact_manifest_sha256"] = _sha256_file(report_dir / ARTIFACT_MANIFEST_NAME)
-        stale = any((log.get("inputs") or {}).get(key) != value for key, value in current_inputs.items())
+        stale = any(inputs.get(key) != value for key, value in current_inputs.items())
         if not stale and task_id:
             wiki_status = _wiki_import_status_at_root(task_id, wiki_root)
             stale = bool(wiki_status.get("stale"))
-    llm = _llm_semantic_status_at_root(company_dir, report_id, stale, wiki_root)
+    llm = _llm_semantic_status_at_root(company_dir, report_id, stale or (not missing and not rule_ready), wiki_root)
     llm_ready = not LLM_SEMANTIC_ENABLED or not LLM_SEMANTIC_REQUIRED or llm.get("status") == "ready"
-    status = "stale" if stale or llm.get("status") == "stale" else ("ready" if not missing and llm_ready else "missing")
+    status = "stale" if rule_ready and (stale or llm.get("status") == "stale") else ("ready" if rule_ready and llm_ready else "missing")
     return {
         "status": status,
         "companyDir": company_dir,
         "reportId": report_id,
         "missing": missing,
-        "counts": log.get("counts") or {},
+        "counts": counts,
         "quality": log.get("quality") or {},
         "warnings": log.get("warnings") or [],
         "llm": llm,
-        "message": "语义层需重新生成" if status == "stale" else ("LLM 语义增强未生成" if LLM_SEMANTIC_ENABLED and llm.get("status") == "missing" else ""),
+        "message": (
+            "语义层需重新生成"
+            if status == "stale"
+            else (
+                semantic_pending_message
+                or ("LLM 语义增强未生成" if LLM_SEMANTIC_ENABLED and llm.get("status") == "missing" else "")
+            )
+        ),
     }
+
+
+def _semantic_positive_count(value) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _semantic_status(company_dir: str, task_id: str | None = None) -> dict:
@@ -2224,8 +2253,19 @@ def _market_document_full_db_status(task_id: str, market: str, document_full: Pa
                 for name, tables in MARKET_DOCUMENT_FULL_COUNT_TABLES.items()
             }
             parse_runs = _market_document_full_count(conn, schema, "parse_runs", where_sql, params)
-        ready = parse_runs > 0 and counts["facts"] > 0 and counts["tables"] > 0 and counts["chunks"] > 0
+        ready = (
+            parse_runs > 0
+            and counts["facts"] > 0
+            and counts["tables"] > 0
+            and counts["chunks"] > 0
+            and counts["evidence"] > 0
+        )
         partial = parse_runs > 0 and counts["facts"] > 0 and not ready
+        missing_counts = [
+            name
+            for name in ("tables", "chunks", "evidence")
+            if counts[name] <= 0
+        ]
         status = "ready" if ready else ("partial" if partial else "missing")
         return {
             "status": status,
@@ -2240,6 +2280,7 @@ def _market_document_full_db_status(task_id: str, market: str, document_full: Pa
             "tables": counts["tables"],
             "chunks": counts["chunks"],
             "evidence": counts["evidence"],
+            "missingCounts": missing_counts,
             "selectors": selectors,
             "message": "" if ready else ("PostgreSQL 入库不完整" if partial else "PostgreSQL 未入库"),
         }

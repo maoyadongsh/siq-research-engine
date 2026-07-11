@@ -3,9 +3,11 @@ import { Brain, Check, Database, Loader2, Play, RefreshCw } from 'lucide-react'
 import type { ArtifactsMap, WorkflowJob, WorkflowStatus } from '../../lib/pdfTypes'
 import { WIKI_INPUT_ARTIFACTS } from '../../lib/pdfTypes'
 import { pipelineArtifactSummary, workflowReady } from '../../features/pdf-parsing/api'
+import { derivePdfGenericMarketIngestionPipelineState } from '../../features/market-parsing/marketIngestionPipelineState'
 import { workflowStateClass, workflowStateLabel } from '../../lib/pdfFormatting'
 
 type WorkflowStep = 'wiki-import' | 'wiki-import-generic' | 'semantic' | 'semantic-generic' | 'db-import'
+type PipelineActionKey = WorkflowStep | 'wiki' | 'postgres'
 
 export interface PdfWorkflowPanelProps {
   workflowStatus: WorkflowStatus | null
@@ -22,12 +24,11 @@ export interface PdfWorkflowPanelProps {
   runWorkflowStep: (step: WorkflowStep) => Promise<void>
 }
 
-function semanticActionLabel(mode: 'standard' | 'generic'): string {
-  return mode === 'generic' ? '使用项目设置模型生成语义层' : '使用项目设置模型增强研究语义层'
-}
-
-function normalizePipelineDescription(description: string): string {
+function normalizePipelineDescription(description: string, mode: 'standard' | 'generic'): string {
   if (!description.includes('Wiki')) return description
+  if (mode === 'generic') {
+    return '解析产物与 results 目录保存全量解析信息；LLM-Wiki、Wiki语义增强和 PostgreSQL 入库都读取同一套解析产物。'
+  }
   return '解析产物与 results 目录保存全量解析信息；PostgreSQL 入库直接读取解析产物，研究资产和派生知识资产由解析产物继续生成。'
 }
 
@@ -37,6 +38,13 @@ function derivedKnowledgeAssetDescription(asset: WorkflowStatus['wiki']): string
   if (asset?.message && !/wiki/i.test(asset.message)) return asset.message
   if (asset?.status === 'failed' || asset?.status === 'error') return '生成失败，请查看流水线任务详情'
   return '等待从解析产物生成'
+}
+
+function marketWorkflowStep(actionKey: PipelineActionKey): WorkflowStep {
+  if (actionKey === 'wiki') return 'wiki-import-generic'
+  if (actionKey === 'semantic') return 'semantic-generic'
+  if (actionKey === 'postgres') return 'db-import'
+  return actionKey
 }
 
 export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
@@ -54,7 +62,11 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
     runRemainingWorkflow,
     runWorkflowStep,
   } = props
-  const displayDescription = normalizePipelineDescription(description)
+  const displayDescription = normalizePipelineDescription(description, mode)
+  const genericPipelineState = useMemo(
+    () => derivePdfGenericMarketIngestionPipelineState({ workflowStatus, artifacts, workflowBusy }),
+    [artifacts, workflowBusy, workflowStatus],
+  )
 
   const localSummary = pipelineArtifactSummary(artifacts)
   const backendSummary = workflowStatus?.artifactBundle
@@ -67,12 +79,16 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
   const llmSemanticDesc = workflowStatus?.semantic?.llm?.status === 'ready'
     ? `模型增强 ${llmSemanticCounts.claims || 0} 条判断 / ${llmSemanticCounts.risks || 0} 条风险`
     : ''
+  const isMarketWorkflow = mode === 'generic'
   const knowledgeAssetDesc = derivedKnowledgeAssetDescription(workflowStatus?.wiki)
+  const standardSemanticDesc = workflowReady(workflowStatus as Record<string, unknown> | null, 'semantic')
+    ? `规则事实 ${workflowStatus?.semantic?.counts?.facts || 0} / 证据 ${workflowStatus?.semantic?.counts?.evidence || 0}；${llmSemanticDesc}`
+    : (workflowStatus?.semantic?.message || llmSemanticDesc || '未生成或不完整')
   const databaseDesc = workflowReady(workflowStatus as Record<string, unknown> | null, 'database')
     ? `已从解析产物入库：指标 ${workflowStatus?.database?.statementItems || 0} / 表格 ${workflowStatus?.database?.tables || 0}`
     : (workflowStatus?.database?.message || '等待从解析产物入库')
 
-  const steps = useMemo(
+  const standardSteps = useMemo(
     () => [
       {
         key: 'artifactBundle' as const,
@@ -90,9 +106,7 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
         key: 'semantic' as const,
         label: '研究语义层',
         status: workflowStatus?.semantic?.status,
-        desc: workflowReady(workflowStatus as Record<string, unknown> | null, 'semantic')
-          ? `规则事实 ${workflowStatus?.semantic?.counts?.facts || 0} / 证据 ${workflowStatus?.semantic?.counts?.evidence || 0}；${llmSemanticDesc}`
-          : (workflowStatus?.semantic?.message || llmSemanticDesc || '未生成或不完整'),
+        desc: standardSemanticDesc,
       },
       {
         key: 'database' as const,
@@ -101,10 +115,19 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
         desc: databaseDesc,
       },
     ],
-    [workflowStatus, backendSummary, artifactReadyCount, artifactTotal, knowledgeAssetDesc, llmSemanticDesc, databaseDesc],
+    [workflowStatus, backendSummary, artifactReadyCount, artifactTotal, knowledgeAssetDesc, standardSemanticDesc, databaseDesc],
   )
 
-  const activeStep = useMemo(() => {
+  const steps = isMarketWorkflow
+    ? genericPipelineState.steps.map((step) => ({
+        key: step.key,
+        label: step.label,
+        status: step.status,
+        desc: step.description,
+      }))
+    : standardSteps
+
+  const standardActiveStep = useMemo(() => {
     if (workflowBusy) {
       const busyMap: Record<string, number> = {
         'wiki-import': 1,
@@ -115,48 +138,20 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
       }
       if (busyMap[workflowBusy] !== undefined) return busyMap[workflowBusy]
     }
-    const firstPending = steps.findIndex((s) => s.status !== 'ready')
-    return firstPending >= 0 ? firstPending : steps.length - 1
-  }, [workflowBusy, steps])
+    const firstPending = standardSteps.findIndex((s) => s.status !== 'ready')
+    return firstPending >= 0 ? firstPending : standardSteps.length - 1
+  }, [workflowBusy, standardSteps])
+  const activeStep = isMarketWorkflow ? genericPipelineState.activeStepIndex : standardActiveStep
 
-  const cards: Array<{ label: string; status?: string; desc: string }> = [
-    {
-      label: '解析产物',
-      status: workflowStatus?.artifactBundle?.status,
-      desc: backendSummary?.message || (workflowStatus?.documentFull?.status === 'ready' ? `${artifactReadyCount}/${artifactTotal} 个核心文件已生成` : '等待 document_full.json'),
-    },
-    {
-      label: '派生知识资产',
-      status: workflowStatus?.wiki?.status,
-      desc: knowledgeAssetDesc,
-    },
-    {
-      label: '研究语义层',
-      status: workflowStatus?.semantic?.status,
-      desc: workflowReady(workflowStatus as Record<string, unknown> | null, 'semantic')
-        ? `规则事实 ${workflowStatus?.semantic?.counts?.facts || 0} / 证据 ${workflowStatus?.semantic?.counts?.evidence || 0}；${llmSemanticDesc}`
-        : (workflowStatus?.semantic?.message || llmSemanticDesc || '未生成或不完整'),
-    },
-    {
-      label: '生成与入库',
-      status: workflowStatus?.database?.status,
-      desc: databaseDesc,
-    },
-  ]
+  const cards: Array<{ label: string; status?: string; desc: string }> = steps.map((step) => ({
+    label: step.label,
+    status: step.status,
+    desc: step.desc,
+  }))
 
-  const stepButtons: Array<{ key: WorkflowStep; label: string; loadingLabel: string; primary: boolean; disabled?: boolean }> =
+  const stepButtons: Array<{ key: PipelineActionKey; label: string; loadingLabel: string; primary: boolean; disabled?: boolean; busy?: boolean; disabledReason?: string }> =
     mode === 'generic'
-      ? [
-          { key: 'wiki-import-generic', label: 'LLM-Wiki入库', loadingLabel: '入库中...', primary: true },
-          {
-            key: 'semantic-generic',
-            label: semanticActionLabel(mode),
-            loadingLabel: '生成中...',
-            primary: true,
-            disabled: !['ready', 'stale'].includes(workflowStatus?.wiki?.status || ''),
-          },
-          { key: 'db-import', label: '导入 PostgreSQL', loadingLabel: '导入中...', primary: false },
-        ]
+      ? genericPipelineState.actions
       : [
           { key: 'wiki-import', label: 'LLM-Wiki入库', loadingLabel: '入库中...', primary: true },
           { key: 'wiki-import-generic', label: '生成通用主体资产', loadingLabel: '生成中...', primary: false },
@@ -176,6 +171,15 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
           },
           { key: 'db-import', label: '导入 PostgreSQL', loadingLabel: '导入中...', primary: true },
         ]
+  const runAllLabel = isMarketWorkflow ? '一键入库' : '一键生成与入库'
+  const runAllDisabled = isMarketWorkflow ? genericPipelineState.runAll.disabled : (!!workflowBusy || !bundleReady)
+  const runAllBusy = isMarketWorkflow ? genericPipelineState.runAll.busy : workflowBusy === 'remaining'
+  const pipelineNote = isMarketWorkflow
+    ? <>PostgreSQL 入库直接读取解析产物；LLM-Wiki 和 Wiki语义增强都引用同一套解析证据，不作为 PostgreSQL 主数据源。<code>artifact_manifest.json</code> 记录核心文件路径、hash 和版本，用于判断是否过期。</>
+    : <>PostgreSQL 入库直接读取解析产物；派生知识资产不复制全量解析包。<code>artifact_manifest.json</code> 只记录核心文件路径、hash 和版本，用于判断是否过期。</>
+  const artifactListDescription = isMarketWorkflow
+    ? '这些文件共同支撑 PostgreSQL 入库、质量校验、LLM-Wiki、Wiki语义增强和证据溯源；派生资产只引用清单，不重复保存全量包。'
+    : '这些文件共同支撑 PostgreSQL 入库、质量校验、研究资产生成和证据溯源；派生知识资产只引用清单，不重复保存全量包。'
 
   return (
     <div className="apple-card rounded-[24px] p-4 sm:p-6">
@@ -203,10 +207,11 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
             type="button"
             className="pdf-small-action primary inline-flex items-center gap-1"
             onClick={() => void runRemainingWorkflow()}
-            disabled={!!workflowBusy || !bundleReady}
+            disabled={runAllDisabled}
+            title={isMarketWorkflow ? genericPipelineState.runAll.disabledReason : undefined}
           >
-            {workflowBusy === 'remaining' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-            一键生成与入库
+            {runAllBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+            {runAllLabel}
           </button>
         </div>
       </div>
@@ -214,7 +219,7 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
       <div className="pdf-pipeline-note mb-4">
         <Database className="h-4 w-4" />
         <div>
-          PostgreSQL 入库直接读取解析产物；派生知识资产不复制全量解析包。<code>artifact_manifest.json</code> 只记录核心文件路径、hash 和版本，用于判断是否过期。
+          {pipelineNote}
         </div>
       </div>
 
@@ -222,7 +227,7 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
         <div className="pdf-pipeline-note mb-4">
           <Brain className="h-4 w-4" />
           <div>
-            语义增强使用当前项目设置中的模型，可选择本地或云端 OpenAI-compatible / Hermes 预设；输出到 <code>semantic/llm/{workflowStatus?.semantic?.reportId || 'report'}/</code>，不覆盖规则层事实和证据。
+            Wiki语义增强使用当前项目设置中的模型，可选择本地或云端 OpenAI-compatible / Hermes 预设；输出到 <code>semantic/llm/{workflowStatus?.semantic?.reportId || 'report'}/</code>，不覆盖规则层事实和证据。
           </div>
         </div>
       ) : null}
@@ -312,7 +317,7 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div>
             <div className="text-sm font-semibold text-text">核心解析产物清单</div>
-            <div className="mt-1 text-xs leading-5 text-text-muted">这些文件共同支撑 PostgreSQL 入库、质量校验、研究资产生成和证据溯源；派生知识资产只引用清单，不重复保存全量包。</div>
+            <div className="mt-1 text-xs leading-5 text-text-muted">{artifactListDescription}</div>
           </div>
           <span className="secondary-status secondary-status-info">{artifactReadyCount}/{artifactTotal}</span>
         </div>
@@ -347,18 +352,24 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
-        {stepButtons.map((btn) => (
-          <button
-            key={btn.key}
-            type="button"
-            className={btn.primary ? 'pdf-small-action primary inline-flex items-center gap-1' : 'pdf-small-action inline-flex items-center gap-1'}
-            onClick={() => void runWorkflowStep(btn.key)}
-            disabled={!!workflowBusy || !bundleReady || btn.disabled}
-          >
-            {workflowBusy === btn.key ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-            {workflowBusy === btn.key ? btn.loadingLabel : btn.label}
-          </button>
-        ))}
+        {stepButtons.map((btn) => {
+          const buttonBusy = btn.busy ?? workflowBusy === btn.key
+          const buttonDisabled = isMarketWorkflow ? Boolean(btn.disabled) : (!!workflowBusy || !bundleReady || btn.disabled)
+          const workflowStep = isMarketWorkflow ? marketWorkflowStep(btn.key) : btn.key as WorkflowStep
+          return (
+            <button
+              key={btn.key}
+              type="button"
+              className={btn.primary ? 'pdf-small-action primary inline-flex items-center gap-1' : 'pdf-small-action inline-flex items-center gap-1'}
+              onClick={() => void runWorkflowStep(workflowStep)}
+              disabled={buttonDisabled}
+              title={btn.disabledReason}
+            >
+              {buttonBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+              {buttonBusy ? btn.loadingLabel : btn.label}
+            </button>
+          )
+        })}
       </div>
     </div>
   )

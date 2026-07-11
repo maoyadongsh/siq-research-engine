@@ -1,5 +1,8 @@
 import importlib.util
+import re
 import sys
+from datetime import date
+from decimal import Decimal
 from pathlib import Path
 
 
@@ -15,6 +18,31 @@ def _load_module(name: str, rel: str):
     return module
 
 
+def _ddl_parse_run_tables(ddl_path: Path, schema: str) -> set[str]:
+    ddl = ddl_path.read_text(encoding="utf-8")
+    table_bodies = {
+        match.group("table").split(".")[-1]: match.group("body")
+        for match in re.finditer(
+            rf"create\s+table\s+if\s+not\s+exists\s+{re.escape(schema)}\.(?P<table>\w+)\s*\((?P<body>.*?)\);",
+            ddl,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+    }
+
+    parse_run_tables = set()
+    changed = True
+    while changed:
+        changed = False
+        for table, body in table_bodies.items():
+            like_sources = {source.split(".")[-1] for source in re.findall(r"\blike\s+([\w.]+)", body, flags=re.IGNORECASE)}
+            has_parse_run_id = bool(re.search(r"\bparse_run_id\b", body, flags=re.IGNORECASE))
+            inherits_parse_run_id = any(source in parse_run_tables for source in like_sources)
+            if table not in parse_run_tables and (has_parse_run_id or inherits_parse_run_id):
+                parse_run_tables.add(table)
+                changed = True
+    return parse_run_tables
+
+
 class FakeCursor:
     def __init__(self, rows=None):
         self._rows = rows or []
@@ -27,9 +55,10 @@ class FakeCursor:
 
 
 class FakeConn:
-    def __init__(self, columns, database="siq_hk"):
+    def __init__(self, columns, database="siq_hk", existing_company_by_cik=None):
         self.columns = columns
         self.database = database
+        self.existing_company_by_cik = existing_company_by_cik or {}
         self.executed = []
 
     def cursor(self):
@@ -55,8 +84,18 @@ class FakeConn:
             table = params[1]
             return FakeCursor([(1,)] if table in self.columns else [])
         if "information_schema.columns" in sql:
+            if "column_name = 'parse_run_id'" in sql:
+                return FakeCursor(
+                    [(table,) for table, columns in sorted(self.columns.items()) if "parse_run_id" in columns]
+                )
             table = params[1]
             return FakeCursor([(column,) for column in self.columns.get(table, set())])
+        if "from sec_us.companies" in sql and "where cik in" in sql:
+            for cik in params or ():
+                company_id = self.existing_company_by_cik.get(cik)
+                if company_id:
+                    return FakeCursor([(company_id,)])
+            return FakeCursor()
         return FakeCursor()
 
 
@@ -186,6 +225,185 @@ def test_writer_persists_sections_and_xbrl_raw_contract():
     assert any("insert into sec_us.xbrl_units" in sql for sql in sqls)
     assert any("insert into sec_us.xbrl_facts_raw" in sql for sql in sqls)
     assert any("delete from sec_us.financial_statements where parse_run_id" in sql for sql in sqls)
+
+
+def test_writer_reuses_existing_us_company_id_for_cik_unique_key():
+    writer_module = _load_module("market_document_full_writer_reuse_us_cik", "market_document_full_writer.py")
+    base = _load_module("market_document_full_base_reuse_us_cik", "market_document_full_rules/base.py")
+    columns = {
+        "companies": {"company_id", "ticker", "cik"},
+        "filings": {"filing_id", "company_id", "ticker", "accession_number"},
+        "parse_runs": {"parse_run_id", "filing_id", "parser_version", "rules_version", "wiki_package_path", "status"},
+        "financial_statements": {"parse_run_id"},
+    }
+    conn = FakeConn(columns, database="siq_us", existing_company_by_cik={"0001341439": "US:0001341439"})
+    writer = writer_module.MarketDocumentFullWriter(conn, market="US")
+    rows = base.MarketDocumentFullRows(
+        company={"company_id": "US:CIK0001341439", "ticker": "ORCL", "cik": "0001341439"},
+        filing={"filing_id": "US:f1", "company_id": "US:CIK0001341439", "ticker": "ORCL", "accession_number": "0001193125-26-277521"},
+        parse_run={
+            "parse_run_id": "parse-us-orcl",
+            "filing_id": "US:f1",
+            "parser_version": "sec",
+            "rules_version": "document_full_v1",
+            "wiki_package_path": "/tmp/document_full.json",
+            "status": "pass",
+        },
+    )
+
+    writer.import_rows(rows)
+
+    assert rows.company["company_id"] == "US:0001341439"
+    assert rows.filing["company_id"] == "US:0001341439"
+    company_insert = next((item for item in conn.executed if "insert into sec_us.companies" in item[0]), None)
+    filing_insert = next((item for item in conn.executed if "insert into sec_us.filings" in item[0]), None)
+    assert company_insert is not None
+    assert filing_insert is not None
+    assert "on conflict (company_id) do update" in company_insert[0]
+    assert "US:0001341439" in company_insert[1]
+    assert "US:0001341439" in filing_insert[1]
+
+
+def test_writer_compacts_statement_item_raw_payloads():
+    writer_module = _load_module("market_document_full_writer_compact_statement_raw", "market_document_full_writer.py")
+    base = _load_module("market_document_full_base_compact_statement_raw", "market_document_full_rules/base.py")
+    columns = {
+        "companies": {"company_id", "ticker"},
+        "filings": {"filing_id", "company_id", "ticker"},
+        "parse_runs": {"parse_run_id", "filing_id"},
+        "financial_statement_items": {
+            "item_uid",
+            "filing_id",
+            "parse_run_id",
+            "ticker",
+            "statement_type",
+            "item_name",
+            "canonical_name",
+            "period_key",
+            "value",
+            "raw",
+        },
+    }
+    conn = FakeConn(columns, database="siq_us")
+    writer = writer_module.MarketDocumentFullWriter(conn, market="US")
+    huge_text = "x" * 100_000
+    rows = base.MarketDocumentFullRows(
+        company={"company_id": "US:CIK0000320193", "ticker": "AAPL"},
+        filing={"filing_id": "US:f1", "company_id": "US:CIK0000320193", "ticker": "AAPL"},
+        parse_run={"parse_run_id": "parse-us-compact", "filing_id": "US:f1"},
+        statement_items=[
+            {
+                "item_uid": "item-revenue",
+                "ticker": "AAPL",
+                "statement_type": "income_statement",
+                "item_name": "Net sales",
+                "canonical_name": "revenue",
+                "period_key": "2025-09-27",
+                "value": "416161000000",
+                "raw": {
+                    "source": "xbrl",
+                    "huge_text": huge_text,
+                    "item": {
+                        "concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+                        "context_ref": "c-2025",
+                        "full_payload": huge_text,
+                    },
+                },
+            }
+        ],
+    )
+
+    writer.import_rows(rows)
+
+    statement_insert = next(
+        (sql, params)
+        for sql, params in conn.executed
+        if "insert into sec_us.financial_statement_items" in sql
+    )
+    sql, params = statement_insert
+    payload = dict(zip(sql.split("(", 1)[1].split(")", 1)[0].split(", "), params))
+    raw = payload["raw"].obj
+    assert raw["raw"]["source"] == "xbrl"
+    assert raw["raw"]["item"]["concept"] == "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax"
+    assert "huge_text" not in raw["raw"]
+    assert "full_payload" not in raw["raw"]["item"]
+
+
+def test_writer_json_value_sanitizes_decimal_and_dates():
+    writer_module = _load_module("market_document_full_writer_json_safe", "market_document_full_writer.py")
+
+    wrapped = writer_module.json_value({"value": Decimal("1.23"), "date": date(2025, 12, 31), "items": (Decimal("4"),)})
+
+    assert wrapped.obj == {"value": "1.23", "date": "2025-12-31", "items": ["4"]}
+
+
+def test_writer_dynamically_deletes_future_parse_run_child_tables():
+    writer_module = _load_module("market_document_full_writer_dynamic_delete", "market_document_full_writer.py")
+    columns = {
+        "financial_statements": {"parse_run_id", "statement_id"},
+        "future_metric_snapshots": {"parse_run_id", "snapshot_id", "raw"},
+        "parse_runs": {"parse_run_id"},
+    }
+    conn = FakeConn(columns, database="siq_hk")
+    writer = writer_module.MarketDocumentFullWriter(conn, market="HK")
+
+    writer._delete_run_rows("parse-future")
+
+    sqls = [sql for sql, _params in conn.executed]
+    assert any("delete from pdf2md_hk.financial_statements where parse_run_id" in sql for sql in sqls)
+    assert any("delete from pdf2md_hk.future_metric_snapshots where parse_run_id" in sql for sql in sqls)
+    assert not any("delete from pdf2md_hk.parse_runs where parse_run_id" in sql for sql in sqls)
+
+
+def test_delete_run_rows_covers_every_parse_run_child_table_in_market_ddls():
+    writer_module = _load_module("market_document_full_writer_ddl_delete_coverage", "market_document_full_writer.py")
+
+    for market, config in writer_module.MARKET_CONFIG.items():
+        schema = config["schema"]
+        parse_run_tables = _ddl_parse_run_tables(Path(config["ddl"]), schema)
+        child_tables = parse_run_tables - {"parse_runs"}
+        columns = {table: {"parse_run_id"} for table in parse_run_tables}
+        conn = FakeConn(columns, database=config["database"])
+        writer = writer_module.MarketDocumentFullWriter(conn, market=market)
+
+        writer._delete_run_rows(f"parse-ddl-{market.lower()}")
+
+        delete_pattern = re.compile(rf"delete from {re.escape(schema)}\.(?P<table>\w+) where parse_run_id")
+        deleted_tables = {
+            match.group("table")
+            for sql, params in conn.executed
+            if (match := delete_pattern.search(sql)) and params == (f"parse-ddl-{market.lower()}",)
+        }
+        assert "parse_runs" in parse_run_tables, f"{market} DDL should define parse_runs"
+        assert "parse_runs" not in deleted_tables, f"{market} must retain parse_runs during idempotent child cleanup"
+        assert deleted_tables == child_tables, f"{market} delete coverage mismatch"
+
+
+def test_market_agent_fact_views_are_scoped_to_latest_successful_parse_runs():
+    writer_module = _load_module("market_document_full_writer_ddl_latest_agent", "market_document_full_writer.py")
+    contract_module = _load_module("market_ingestion_contract_latest_agent", "market_ingestion_contract.py")
+    successful_status_filter = "status in ('pass', 'warning', 'completed', 'success')"
+
+    template_sql = contract_module.build_market_schema_sql("HK").lower()
+    assert successful_status_filter in template_sql
+    assert "join pdf2md_hk.v_latest_parse_runs pr on pr.parse_run_id = e.parse_run_id" in template_sql
+    assert "join pdf2md_hk.parse_runs pr on pr.parse_run_id = e.parse_run_id" not in template_sql
+
+    for market, config in writer_module.MARKET_CONFIG.items():
+        schema = config["schema"]
+        ddl = Path(config["ddl"]).read_text(encoding="utf-8").lower()
+
+        assert f"create or replace view {schema}.v_latest_parse_runs" in ddl, f"{market} latest view missing"
+        assert successful_status_filter in ddl, f"{market} latest view should ignore failed parse runs"
+        assert (
+            f"join {schema}.v_latest_parse_runs pr on pr.parse_run_id = fsi.parse_run_id" in ddl
+        ), f"{market} agent view should use latest parse runs for normalized facts"
+        assert (
+            f"join {schema}.parse_runs pr on pr.parse_run_id = fsi.parse_run_id" not in ddl
+        ), f"{market} agent view must not expose obsolete normalized parse runs"
+        if market == "US":
+            assert "join sec_us.v_latest_parse_runs pr on pr.parse_run_id = x.parse_run_id" in ddl
+            assert "join sec_us.parse_runs pr on pr.parse_run_id = x.parse_run_id" not in ddl
 
 
 def test_writer_maps_stable_xbrl_fact_id_to_eu_raw_fact_primary_key():

@@ -36,6 +36,7 @@ type MarkdownBlock =
 
 const FULL_DOCUMENT_MARKDOWN_FILE = 'parser/report_complete.md'
 const WIKI_FULL_DOCUMENT_MARKDOWN_FILE = 'sections/report_complete.md'
+const EMPTY_SOURCE_MAP_ENTRIES: UsSecSourceMapEntry[] = []
 
 function frameDocument(frame: HTMLIFrameElement | null): Document | null {
   try {
@@ -294,29 +295,46 @@ export function UsSecSourceWorkbench({
   const scrollTargetsRef = useRef<UsSecSectionScrollTarget[]>([])
   const syncRef = useRef<{ origin: UsSecSyncOrigin | null; suppressUntil: number }>({ origin: null, suppressUntil: 0 })
   const lastRequestedFileRef = useRef('')
-  const [sourceMapEntries, setSourceMapEntries] = useState<UsSecSourceMapEntry[]>([])
+  const [sourceMapState, setSourceMapState] = useState<{ packagePath: string; entries: UsSecSourceMapEntry[] }>({
+    packagePath: '',
+    entries: [],
+  })
   const [frameReady, setFrameReady] = useState(0)
   const [syncEnabled, setSyncEnabled] = useState(true)
   const [activeSectionId, setActiveSectionId] = useState('')
-  const [tableDetails, setTableDetails] = useState<Array<Record<string, unknown>>>([])
-  const [tableLoading, setTableLoading] = useState(false)
+  const [tableDetailsState, setTableDetailsState] = useState<{
+    key: string
+    details: Array<Record<string, unknown>>
+  }>({
+    key: '',
+    details: [],
+  })
 
   useEffect(() => {
-    setSourceMapEntries([])
     if (!packagePath) return
     let cancelled = false
     fetchUsSecPackageJson<UsSecSourceMapPayload>(packagePath, 'qa/source_map.json')
       .then((payload) => {
         if (cancelled) return
-        setSourceMapEntries(Array.isArray(payload.entries) ? payload.entries : [])
+        setSourceMapState({
+          packagePath,
+          entries: Array.isArray(payload.entries) ? payload.entries : [],
+        })
       })
       .catch(() => {
-        if (!cancelled) setSourceMapEntries([])
+        if (!cancelled) {
+          setSourceMapState({ packagePath, entries: [] })
+        }
       })
     return () => {
       cancelled = true
     }
   }, [packagePath])
+
+  const sourceMapEntries = useMemo(
+    () => (sourceMapState.packagePath === packagePath ? sourceMapState.entries : EMPTY_SOURCE_MAP_ENTRIES),
+    [packagePath, sourceMapState.entries, sourceMapState.packagePath],
+  )
 
   const traceSections = useMemo(
     () => normalizeUsSecTraceSections(sections, sourceMapEntries),
@@ -485,26 +503,29 @@ export function UsSecSourceWorkbench({
     () => sectionTables(tables, selectedSection?.sectionId || '').slice(0, 6),
     [selectedSection?.sectionId, tables],
   )
+  const visibleSectionTableKey = useMemo(() => {
+    if (!packagePath || !visibleSectionTables.length) return ''
+    const tableKeys = visibleSectionTables
+      .map((table) => String(table.table_id || table.id || table.table_index || tableFile(table) || ''))
+      .join('|')
+    return `${packagePath}::${selectedSection?.sectionId || ''}::${tableKeys}`
+  }, [packagePath, selectedSection?.sectionId, visibleSectionTables])
+  const tableDetails = tableDetailsState.key === visibleSectionTableKey ? tableDetailsState.details : []
+  const tableLoading = Boolean(visibleSectionTableKey) && tableDetailsState.key !== visibleSectionTableKey
 
   useEffect(() => {
-    setTableDetails([])
-    if (!packagePath || !visibleSectionTables.length) {
-      setTableLoading(false)
-      return
-    }
+    if (!packagePath || !visibleSectionTables.length || !visibleSectionTableKey) return
     let cancelled = false
-    setTableLoading(true)
     Promise.all(visibleSectionTables.map((table) => fetchTableDetail(packagePath, table)))
       .then((details) => {
-        if (!cancelled) setTableDetails(details)
-      })
-      .finally(() => {
-        if (!cancelled) setTableLoading(false)
+        if (!cancelled) {
+          setTableDetailsState({ key: visibleSectionTableKey, details })
+        }
       })
     return () => {
       cancelled = true
     }
-  }, [packagePath, visibleSectionTables])
+  }, [packagePath, visibleSectionTables, visibleSectionTableKey])
 
   return (
     <div className="apple-card rounded-[24px] p-4 sm:p-6" data-testid="us-sec-source-workbench">

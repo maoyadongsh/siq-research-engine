@@ -5,11 +5,108 @@ from services import agent_runtime_financial_provenance as provenance
 from services import agent_runtime_financial_guard as guard
 
 
+def _deps(**overrides):
+    defaults = {
+        "build_primary_data_evidence_supplement": lambda _message, _context: None,
+        "merge_primary_data_refs_into_citations": lambda reply, supplement: f"{reply}\n\n{supplement}",
+        "build_human_efficiency_evidence_context": lambda _message, _context: None,
+        "build_three_statement_core_context": lambda _message, _context: None,
+        "is_statement_query": lambda _message: False,
+        "statement_metric_result": lambda _message, _context: (None, None),
+        "should_inject_note_detail_context": lambda _message: False,
+        "note_detail_result": lambda _message, _context, **_kwargs: (None, None),
+        "build_wiki_fulltext_fallback_context": lambda _message, _context: None,
+        "build_postgres_fallback_context": lambda _message, _context: None,
+        "build_pdf2md_parse_only_context": lambda _message, _context: None,
+        "is_runtime_status_reply": lambda reply: reply.lstrip().startswith("[失败]"),
+        "invalid_task_ids_in_reply": lambda _message, _context, _reply: [],
+        "needs_financial_evidence_contract": lambda _message, _context: True,
+        "append_primary_data_evidence_if_needed": lambda _message, _context, reply: reply,
+        "append_calculation_trace_warning_if_needed": lambda _message, reply: reply,
+        "has_primary_data_evidence_trace": lambda reply: "source_type=wiki_metrics" in reply,
+        "has_structured_evidence_trace": lambda reply: "source_type=" in reply,
+    }
+    defaults.update(overrides)
+    return guard.FinancialEvidenceContractDependencies(**defaults)
+
+
 def test_runtime_status_reply_is_not_warned():
     reply = "  [失败] run failed"
 
     assert guard._is_runtime_status_reply(reply)
     assert guard.append_calculation_trace_warning_if_needed("请计算人均营收", reply) == reply
+
+
+def test_financial_evidence_fallback_prefers_primary_data_supplement():
+    reply = guard.build_financial_evidence_fallback_reply(
+        "收入是多少？",
+        {"company": "AAPL"},
+        deps=_deps(build_primary_data_evidence_supplement=lambda _message, _context: "source_type=wiki_metrics"),
+    )
+
+    assert reply is not None
+    assert "模型本轮输出缺少主要数据级溯源" in reply
+    assert "source_type=wiki_metrics" in reply
+
+
+def test_financial_evidence_fallback_uses_statement_renderer_and_tolerates_exceptions():
+    def renderer(_result, *, max_rows):
+        return f"statement rows max={max_rows}"
+
+    reply = guard.build_financial_evidence_fallback_reply(
+        "资产负债表",
+        None,
+        deps=_deps(
+            is_statement_query=lambda _message: True,
+            statement_metric_result=lambda _message, _context: ({"rows": [1]}, renderer),
+        ),
+    )
+    skipped = guard.build_financial_evidence_fallback_reply(
+        "资产负债表",
+        None,
+        deps=_deps(
+            is_statement_query=lambda _message: True,
+            statement_metric_result=lambda _message, _context: (
+                {"rows": [1]},
+                lambda _result, **_kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
+            ),
+            build_postgres_fallback_context=lambda _message, _context: "postgres rows",
+        ),
+    )
+
+    assert "statement rows max=40" in reply
+    assert "postgres rows" in skipped
+
+
+def test_enforce_financial_evidence_contract_returns_guarded_reply_when_auto_evidence_is_added():
+    reply = guard.enforce_financial_evidence_contract(
+        "收入是多少？",
+        None,
+        "收入增长。",
+        deps=_deps(
+            append_primary_data_evidence_if_needed=lambda _message, _context, _reply: (
+                _reply + "\n[P1] source_type=wiki_metrics"
+            ),
+        ),
+    )
+
+    assert reply.endswith("[P1] source_type=wiki_metrics")
+
+
+def test_enforce_financial_evidence_contract_blocks_invalid_task_id_with_fallback():
+    reply = guard.enforce_financial_evidence_contract(
+        "收入是多少？",
+        None,
+        "[P1] source_type=wiki_metrics, task_id=missing",
+        deps=_deps(
+            invalid_task_ids_in_reply=lambda _message, _context, _reply: ["missing"],
+            build_postgres_fallback_context=lambda _message, _context: "postgres rows",
+        ),
+    )
+
+    assert "## 证据链无效" in reply
+    assert "missing" in reply
+    assert "postgres rows" in reply
 
 
 def test_detects_derived_financial_metric_case_insensitively():

@@ -4,13 +4,24 @@ import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 from database import create_db_and_tables
 from routers import agent, chat, achievements, analysis, factchecker, legal, tracking_agent, wiki, settings, system, downloads, workflow, source, eval_e2e, auth, workspace, market_reports, document_parser, deals, primary_market_meeting
 from services.auth_dependencies import get_current_user
 from services.auth_service import AuthService
-from services.observability import REQUEST_ID_HEADER, emit_json_log, monotonic_ms, normalize_request_id, reset_request_id, set_request_id
+from services.observability import (
+    REQUEST_ID_HEADER,
+    emit_json_log,
+    metrics_snapshot,
+    monotonic_ms,
+    normalize_request_id,
+    record_http_request,
+    render_prometheus_metrics,
+    reset_request_id,
+    set_request_id,
+)
 from services.path_config import FRONTEND_ROOT
+from services.runtime_security import cors_origins_from_env, validate_runtime_security_config
 from seed import seed_data
 
 FRONT_DIR = str(FRONTEND_ROOT)
@@ -20,6 +31,7 @@ logger = logging.getLogger("siq.api")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     AuthService.validate_runtime_config()
+    validate_runtime_security_config()
     create_db_and_tables()
     seed_data()
     yield
@@ -29,12 +41,7 @@ app = FastAPI(title="SIQ API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:15173",
-        "http://127.0.0.1:15173",
-        "tauri://localhost",
-        "https://tauri.localhost",
-    ],
+    allow_origins=cors_origins_from_env(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -47,22 +54,29 @@ async def request_observability_middleware(request, call_next):
     request_id_token = set_request_id(request_id)
     start = time.perf_counter()
     status_code = 500
+    recorded = False
     try:
         response = await call_next(request)
         status_code = response.status_code
         response.headers[REQUEST_ID_HEADER] = request_id
         return response
     except Exception:
+        duration_ms = monotonic_ms(start)
+        record_http_request(request.method, request.url.path, status_code, duration_ms)
+        recorded = True
         emit_json_log(
             logger,
             "api_request_failed",
             method=request.method,
             path=request.url.path,
             status_code=status_code,
-            duration_ms=monotonic_ms(start),
+            duration_ms=duration_ms,
         )
         raise
     finally:
+        duration_ms = monotonic_ms(start)
+        if not recorded:
+            record_http_request(request.method, request.url.path, status_code, duration_ms)
         if status_code < 500:
             emit_json_log(
                 logger,
@@ -70,7 +84,7 @@ async def request_observability_middleware(request, call_next):
                 method=request.method,
                 path=request.url.path,
                 status_code=status_code,
-                duration_ms=monotonic_ms(start),
+                duration_ms=duration_ms,
             )
         reset_request_id(request_id_token)
 
@@ -105,7 +119,19 @@ app.include_router(workspace.pdf_router, prefix="/api", dependencies=[Depends(ge
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    snapshot = metrics_snapshot()
+    return {
+        "status": "ok",
+        "uptime_seconds": snapshot["uptime_seconds"],
+        "requests_total": snapshot["request_count"],
+        "request_errors_total": snapshot["request_error_count"],
+        "answer_traces_total": snapshot["answer_trace_count"],
+    }
+
+
+@app.get("/metrics", response_class=PlainTextResponse)
+def metrics():
+    return PlainTextResponse(render_prometheus_metrics(), media_type="text/plain; version=0.0.4; charset=utf-8")
 
 
 @app.get("/", include_in_schema=False)

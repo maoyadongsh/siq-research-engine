@@ -32,8 +32,11 @@
 
 | 方向 | 入口 | 说明 |
 | --- | --- | --- |
-| 全量检查 | `scripts/check_all.sh` | 聚合关键 Python/前端/脚本语法检查，是本地质量门禁入口 |
+| 全量检查 | `scripts/check_all.sh` | 聚合关键 Python/前端/脚本语法检查，并包含 workflow hygiene、大文件变更、touched Python advisory 和 market contract gate |
 | 大文件观察 | `scripts/maintenance/observe_large_files.py` | 输出源码大文件 top list，默认跳过 data/var/artifacts/runtimes，仅作 observe 报告 |
+| 变更大文件防护 | `scripts/maintenance/check_large_file_changes.py` | 只检查新增/变更文件，阻止媒体、压缩包、数据库和 `.superpowers` 本地审查产物继续进入源码历史 |
+| 非 A 市场重复入库分析 | `db/imports/analyze_market_document_full_duplicates.py` | 只读列出 HK/JP/KR/EU/US 同一 filing 下多 parse_run 的历史重复候选，并输出 cleanup dry-run 命令 |
+| 非 A 市场重复入库清理 | `db/imports/cleanup_market_document_full_parse_runs.py` | dry-run 优先，按 parse_run/company/filing/older-than 清理 HK/JP/KR/EU/US 历史重复入库；默认拒绝 A 股/CN |
 | 二级市场评测 | `scripts/maintenance/run_market_ingestion_eval.py` | 读取 `datasets/market_ingestion`，输出 market ingestion 指标与 Markdown 报告 |
 | SEC package | `scripts/us-sec/*` | 美股 SEC evidence package、XBRL facts、Wiki 迁移和指标规范化 |
 | 多市场批处理 | `scripts/hk`、`scripts/jp`、`scripts/kr`、`scripts/eu` | 官方样本下载、parser result ingestion、company Wiki 迁移和 package 构建 |
@@ -77,6 +80,16 @@ cd /home/maoyd/siq-research-engine
 scripts/check_async_db_audit.sh
 python3 scripts/scan_todo_fixme.py --markdown docs/architecture/2026-07-02-debt-marker-governance-report.md
 python3 scripts/maintenance/observe_large_files.py --limit 20
+python3 scripts/maintenance/check_large_file_changes.py
+```
+
+### 非 A 市场重复入库清理
+
+```bash
+cd /home/maoyd/siq-research-engine
+python3 db/imports/analyze_market_document_full_duplicates.py --market HK --json
+python3 db/imports/cleanup_market_document_full_parse_runs.py --market HK --filing-id <filing_id>
+python3 db/imports/cleanup_market_document_full_parse_runs.py --market HK --filing-id <filing_id> --older-than 2026-07-01T00:00:00+00:00 --apply
 ```
 
 ### 二级市场 MVP 静态评测

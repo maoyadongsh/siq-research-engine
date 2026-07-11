@@ -6,6 +6,12 @@ import { createInitialAgentChatSnapshot, hasVisibleMessagePayload, hasVisibleSes
 import { createStreamConsumer, type StreamApi } from './agentChatStream'
 
 const STOPPED_MESSAGE = '[已停止] 本次对话已停止，后台 Hermes run 已收到停止请求。'
+const ANSWER_AUDIT_TRACE_ID_RE = /^aat_[a-f0-9]{32}$/i
+
+function normalizeAnswerAuditTraceId(value?: string | null) {
+  const traceId = String(value || '').trim()
+  return ANSWER_AUDIT_TRACE_ID_RE.test(traceId) ? traceId : undefined
+}
 
 class AgentChatStore {
   private readonly apiPrefix: string
@@ -176,24 +182,39 @@ class AgentChatStore {
       const data: HistoryRecord[] = Array.isArray(payload) ? payload : payload.messages || []
       const responseSessionId = Array.isArray(payload) ? sessionId : payload.session_id
       if (!force && (this.state.sending || this.state.messages.some((message) => message.streaming))) return
-      this.setState((prev) => ({
-        ...prev,
-        loaded: true,
-        currentSessionId: responseSessionId || prev.currentSessionId,
-        sessions: responseSessionId
-          ? prev.sessions.map((session) => ({ ...session, current: session.session_id === responseSessionId }))
-          : prev.sessions,
-        messages: data.map((m) => {
-          const attachments = m.attachments || undefined
-          const content = stripRenderedAttachmentMarkdown(m.content, attachments)
-          return {
-            role: m.role as 'user' | 'assistant',
-            content: m.role === 'user' ? displayLabelForPrompt(content) : content,
-            createdAt: m.created_at || m.timestamp || undefined,
-            attachments,
-          }
-        }).filter(hasVisibleMessagePayload),
-      }))
+      this.setState((prev) => {
+        const assistantAuditTraceIds = new Map<string, string[]>()
+        for (const message of prev.messages) {
+          if (message.role !== 'assistant' || !message.content || !message.auditTraceId) continue
+          const values = assistantAuditTraceIds.get(message.content) || []
+          values.push(message.auditTraceId)
+          assistantAuditTraceIds.set(message.content, values)
+        }
+        return {
+          ...prev,
+          loaded: true,
+          currentSessionId: responseSessionId || prev.currentSessionId,
+          sessions: responseSessionId
+            ? prev.sessions.map((session) => ({ ...session, current: session.session_id === responseSessionId }))
+            : prev.sessions,
+          messages: data.map((m) => {
+            const attachments = m.attachments || undefined
+            const content = stripRenderedAttachmentMarkdown(m.content, attachments)
+            const role = m.role as 'user' | 'assistant'
+            const serverAuditTraceId = normalizeAnswerAuditTraceId(m.audit_trace_id || m.auditTraceId)
+            const carriedAuditTraceId = role === 'assistant' && content
+              ? assistantAuditTraceIds.get(content)?.shift()
+              : undefined
+            return {
+              role,
+              content: role === 'user' ? displayLabelForPrompt(content) : content,
+              createdAt: m.created_at || m.timestamp || undefined,
+              attachments,
+              auditTraceId: serverAuditTraceId || carriedAuditTraceId,
+            }
+          }).filter(hasVisibleMessagePayload),
+        }
+      })
     } catch {
       /* ignore */
     }
@@ -318,6 +339,19 @@ class AgentChatStore {
     })
   }
 
+  private setAssistantAuditTraceId(traceId?: string | null) {
+    const auditTraceId = normalizeAnswerAuditTraceId(traceId)
+    if (!auditTraceId) return
+    this.setState((prev) => {
+      const last = prev.messages[prev.messages.length - 1]
+      if (last?.role !== 'assistant') return prev
+      return {
+        ...prev,
+        messages: [...prev.messages.slice(0, -1), { ...last, auditTraceId }],
+      }
+    })
+  }
+
   private clearFirstEventTimer() {
     if (this.firstEventTimer) {
       clearTimeout(this.firstEventTimer)
@@ -405,6 +439,7 @@ class AgentChatStore {
       clearFirstEventTimer: () => this.clearFirstEventTimer(),
       appendAssistantDelta: (content) => this.appendAssistantDelta(content),
       replaceAssistantContent: (content) => this.replaceAssistantContent(content),
+      setAssistantAuditTraceId: (traceId) => this.setAssistantAuditTraceId(traceId),
       updateAssistantProgress: (progress) => this.updateAssistantProgress(progress),
       responseErrorMessage: (res, fallback) => this.responseErrorMessage(res, fallback),
     }

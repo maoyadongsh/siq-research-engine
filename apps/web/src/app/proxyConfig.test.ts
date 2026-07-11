@@ -94,3 +94,20 @@ test('vite proxy exposes market report wiki APIs without inheriting the finder r
   assert.equal(proxy['/api/market-reports'].target, 'http://backend.local')
   assert.equal(proxy['/api/market-reports'].rewrite, undefined)
 })
+
+test('vite proxy exposes market report job APIs without inheriting the finder rewrite', () => {
+  const rules = createProxyRules({
+    backendUrl: 'http://backend.local',
+    reportFinderUrl: 'http://finder.local',
+  })
+  const prefixes = rules.map((rule) => rule.prefix)
+  const proxy = createViteProxy({
+    backendUrl: 'http://backend.local',
+    reportFinderUrl: 'http://finder.local',
+  })
+
+  assert.ok(prefixes.includes('/api/jobs'))
+  assert.ok(prefixes.indexOf('/api/jobs') < prefixes.indexOf('/api'))
+  assert.equal(proxy['/api/jobs'].target, 'http://backend.local')
+  assert.equal(proxy['/api/jobs'].rewrite, undefined)
+})

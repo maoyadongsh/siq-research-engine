@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import os
+from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 try:
     import psycopg
@@ -43,9 +44,23 @@ STATEMENT_SPLIT_TABLES = {
     "cash_flows": "financial_cash_flow_statement_items",
 }
 
+EXECUTE_MANY_BATCH_SIZE = 250
+
+
+def json_safe_value(value: Any) -> Any:
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, (date, datetime, Path)):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(key): json_safe_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_safe_value(item) for item in value]
+    return value
+
 
 def json_value(value: Any) -> Jsonb:
-    return Jsonb(value if value is not None else {})
+    return Jsonb(json_safe_value(value if value is not None else {}))
 
 
 def database_url(explicit: str | None, *, market: str) -> str:
@@ -72,6 +87,7 @@ class MarketDocumentFullWriter:
         self.schema_sql = quote_ident(self.schema)
         self._column_cache: dict[str, set[str]] = {}
         self._table_cache: dict[str, bool] = {}
+        self._parse_run_child_table_cache: list[str] | None = None
         validate_connection_database(conn, self.market)
 
     def table_exists(self, table: str) -> bool:
@@ -106,6 +122,7 @@ class MarketDocumentFullWriter:
         return self._column_cache[table]
 
     def import_rows(self, rows: MarketDocumentFullRows) -> str:
+        self._reuse_existing_company_identity(rows)
         parse_run_id = str(rows.parse_run["parse_run_id"])
         with self.conn.transaction():
             self._upsert_company(rows.company)
@@ -121,19 +138,28 @@ class MarketDocumentFullWriter:
             self._insert_tables(rows)
             self._insert_structure_enhancements(rows)
             self._insert_xbrl_rows(rows)
-            for citation in rows.citations:
-                self._insert_dynamic("evidence_citations", {"filing_id": rows.filing["filing_id"], "parse_run_id": parse_run_id, **citation}, conflict=("evidence_id",))
-            for statement in rows.statements:
-                self._insert_dynamic(
-                    "financial_statements",
+            self._insert_dynamic_many(
+                "evidence_citations",
+                (
+                    {"filing_id": rows.filing["filing_id"], "parse_run_id": parse_run_id, **citation}
+                    for citation in rows.citations
+                ),
+                conflict=("evidence_id",),
+            )
+            identity = self.identity_payload(rows)
+            self._insert_dynamic_many(
+                "financial_statements",
+                (
                     {
                         "filing_id": rows.filing["filing_id"],
                         "parse_run_id": parse_run_id,
-                        **self.identity_payload(rows),
+                        **identity,
                         **statement,
-                    },
-                    conflict=("parse_run_id", "statement_id"),
-                )
+                    }
+                    for statement in rows.statements
+                ),
+                conflict=("parse_run_id", "statement_id"),
+            )
             self._insert_statement_items(rows)
             self._insert_checks(rows)
             self._insert_quality_reports(rows)
@@ -143,6 +169,7 @@ class MarketDocumentFullWriter:
         return parse_run_id
 
     def _delete_run_rows(self, parse_run_id: str) -> None:
+        deleted: set[str] = set()
         for table in (
             "retrieval_chunks",
             "document_chunks",
@@ -182,6 +209,33 @@ class MarketDocumentFullWriter:
         ):
             if self.table_exists(table) and "parse_run_id" in self.columns(table):
                 self.conn.execute(f"delete from {self.schema_sql}.{quote_ident(table)} where parse_run_id = %s", (parse_run_id,))
+                deleted.add(table)
+        for table in self._parse_run_child_tables():
+            if table in deleted or table == "parse_runs":
+                continue
+            self.conn.execute(f"delete from {self.schema_sql}.{quote_ident(table)} where parse_run_id = %s", (parse_run_id,))
+
+    def _parse_run_child_tables(self) -> list[str]:
+        if self._parse_run_child_table_cache is not None:
+            return list(self._parse_run_child_table_cache)
+        rows = self.conn.execute(
+            """
+            select table_name
+            from information_schema.columns
+            where table_schema = %s
+              and column_name = 'parse_run_id'
+              and table_name <> 'parse_runs'
+            order by table_name
+            """,
+            (self.schema,),
+        ).fetchall()
+        tables: list[str] = []
+        for row in rows:
+            table = str(row[0])
+            if table and table not in tables and self.table_exists(table):
+                tables.append(table)
+        self._parse_run_child_table_cache = tables
+        return tables
 
     def identity_payload(self, rows: MarketDocumentFullRows) -> dict[str, Any]:
         company = rows.company
@@ -209,6 +263,32 @@ class MarketDocumentFullWriter:
     def _upsert_company(self, company: dict[str, Any]) -> None:
         self._insert_dynamic("companies", company, conflict=("company_id",), update=True)
 
+    def _reuse_existing_company_identity(self, rows: MarketDocumentFullRows) -> None:
+        if self.market != "US" or not self.table_exists("companies"):
+            return
+        company_columns = self.columns("companies")
+        if "company_id" not in company_columns or "cik" not in company_columns:
+            return
+        cik = str(rows.company.get("cik") or rows.filing.get("cik") or "").strip()
+        if not cik:
+            return
+        candidates = [cik]
+        if cik.isdigit():
+            candidates.append(cik.zfill(10))
+        candidates = list(dict.fromkeys(candidate for candidate in candidates if candidate))
+        placeholders = ", ".join(["%s"] * len(candidates))
+        row = self.conn.execute(
+            f"select company_id from {self.schema_sql}.companies where cik in ({placeholders}) limit 1",
+            tuple(candidates),
+        ).fetchone()
+        if not row or not row[0]:
+            return
+        existing_company_id = str(row[0])
+        if existing_company_id == rows.company.get("company_id"):
+            return
+        rows.company["company_id"] = existing_company_id
+        rows.filing["company_id"] = existing_company_id
+
     def _upsert_filing(self, filing: dict[str, Any]) -> None:
         self._insert_dynamic("filings", filing, conflict=("filing_id",), update=True)
 
@@ -220,12 +300,11 @@ class MarketDocumentFullWriter:
             return
         parse_run_id = rows.parse_run["parse_run_id"]
         filing_id = rows.filing["filing_id"]
-        for section in rows.sections:
-            self._insert_dynamic(
-                "filing_sections",
-                {"filing_id": filing_id, "parse_run_id": parse_run_id, **section},
-                conflict=("parse_run_id", "section_id"),
-            )
+        self._insert_dynamic_many(
+            "filing_sections",
+            ({"filing_id": filing_id, "parse_run_id": parse_run_id, **section} for section in rows.sections),
+            conflict=("parse_run_id", "section_id"),
+        )
 
     def _insert_pages(self, rows: MarketDocumentFullRows) -> None:
         parse_run_id = rows.parse_run["parse_run_id"]
@@ -233,31 +312,38 @@ class MarketDocumentFullWriter:
         table = "document_pages" if self.table_exists("document_pages") else "pdf_pages"
         if not self.table_exists(table):
             return
-        for page in rows.pages:
-            payload = {"filing_id": filing_id, "parse_run_id": parse_run_id, **page}
-            conflict = ("parse_run_id", "page_number") if "parse_run_id" in self.columns(table) else None
-            self._insert_dynamic(table, payload, conflict=conflict)
+        conflict = ("parse_run_id", "page_number") if "parse_run_id" in self.columns(table) else None
+        self._insert_dynamic_many(
+            table,
+            ({"filing_id": filing_id, "parse_run_id": parse_run_id, **page} for page in rows.pages),
+            conflict=conflict,
+        )
 
     def _insert_blocks(self, rows: MarketDocumentFullRows) -> None:
         if not self.table_exists("content_blocks"):
             return
         parse_run_id = rows.parse_run["parse_run_id"]
         filing_id = rows.filing["filing_id"]
-        for block in rows.blocks:
-            self._insert_dynamic("content_blocks", {"filing_id": filing_id, "parse_run_id": parse_run_id, **block}, conflict=("parse_run_id", "block_id") if "block_id" in self.columns("content_blocks") else None)
+        self._insert_dynamic_many(
+            "content_blocks",
+            ({"filing_id": filing_id, "parse_run_id": parse_run_id, **block} for block in rows.blocks),
+            conflict=("block_id",) if "block_id" in self.columns("content_blocks") else None,
+        )
 
     def _insert_tables(self, rows: MarketDocumentFullRows) -> None:
         parse_run_id = rows.parse_run["parse_run_id"]
         filing_id = rows.filing["filing_id"]
+        payloads_by_table: dict[str, list[dict[str, Any]]] = {}
         for table_row in rows.tables:
             table = "html_tables" if self._should_use_html_tables(table_row) else ""
             if not table:
                 table = "document_tables" if self.table_exists("document_tables") else "pdf_tables"
             if not self.table_exists(table):
                 continue
-            payload = {"filing_id": filing_id, "parse_run_id": parse_run_id, **table_row}
+            payloads_by_table.setdefault(table, []).append({"filing_id": filing_id, "parse_run_id": parse_run_id, **table_row})
+        for table, payloads in payloads_by_table.items():
             conflict = ("parse_run_id", "table_id") if "table_id" in self.columns(table) else None
-            self._insert_dynamic(table, payload, conflict=conflict)
+            self._insert_dynamic_many(table, payloads, conflict=conflict)
 
     def _should_use_html_tables(self, table_row: dict[str, Any]) -> bool:
         if not self.table_exists("html_tables"):
@@ -319,41 +405,47 @@ class MarketDocumentFullWriter:
         ):
             if not self.table_exists(table):
                 continue
-            for item in items:
-                self._insert_dynamic(table, {"filing_id": filing_id, "parse_run_id": parse_run_id, **item}, conflict=conflict)
+            self._insert_dynamic_many(
+                table,
+                ({"filing_id": filing_id, "parse_run_id": parse_run_id, **item} for item in items),
+                conflict=conflict,
+            )
 
     def _insert_xbrl_rows(self, rows: MarketDocumentFullRows) -> None:
         parse_run_id = rows.parse_run["parse_run_id"]
         filing_id = rows.filing["filing_id"]
         if self.table_exists("xbrl_contexts"):
-            for context in rows.xbrl_contexts:
-                context_ref = str(context.get("context_ref") or "")
-                self._insert_dynamic(
-                    "xbrl_contexts",
+            self._insert_dynamic_many(
+                "xbrl_contexts",
+                (
                     {
-                        "context_uid": context.get("context_uid") or stable_id(parse_run_id, context_ref, prefix="ctx"),
+                        "context_uid": context.get("context_uid") or stable_id(parse_run_id, str(context.get("context_ref") or ""), prefix="ctx"),
                         "filing_id": filing_id,
                         "parse_run_id": parse_run_id,
                         **context,
-                    },
-                    conflict=("parse_run_id", "context_ref"),
-                )
+                    }
+                    for context in rows.xbrl_contexts
+                ),
+                conflict=("parse_run_id", "context_ref"),
+            )
         if self.table_exists("xbrl_units"):
-            for unit in rows.xbrl_units:
-                unit_ref = str(unit.get("unit_ref") or "")
-                self._insert_dynamic(
-                    "xbrl_units",
+            self._insert_dynamic_many(
+                "xbrl_units",
+                (
                     {
-                        "unit_uid": unit.get("unit_uid") or stable_id(parse_run_id, unit_ref, prefix="unit"),
+                        "unit_uid": unit.get("unit_uid") or stable_id(parse_run_id, str(unit.get("unit_ref") or ""), prefix="unit"),
                         "filing_id": filing_id,
                         "parse_run_id": parse_run_id,
                         **unit,
-                    },
-                    conflict=("parse_run_id", "unit_ref"),
-                )
+                    }
+                    for unit in rows.xbrl_units
+                ),
+                conflict=("parse_run_id", "unit_ref"),
+            )
         if self.table_exists("xbrl_facts_raw"):
             fact_columns = self.columns("xbrl_facts_raw")
             conflict = ("raw_fact_id",) if "raw_fact_id" in fact_columns else ("fact_id",)
+            fact_payloads = []
             for fact in rows.xbrl_facts_raw:
                 fact_payload = {"filing_id": filing_id, "parse_run_id": parse_run_id, **fact}
                 if "raw_fact_id" in fact_columns:
@@ -361,44 +453,60 @@ class MarketDocumentFullWriter:
                     source_fact_id = fact.get("raw_fact_id") or stable_fact_id
                     fact_payload["raw_fact_id"] = stable_fact_id
                     fact_payload["fact_id"] = source_fact_id
-                self._insert_dynamic(
-                    "xbrl_facts_raw",
-                    fact_payload,
-                    conflict=conflict,
-                )
+                fact_payloads.append(fact_payload)
+            self._insert_dynamic_many("xbrl_facts_raw", fact_payloads, conflict=conflict)
 
     def _insert_statement_items(self, rows: MarketDocumentFullRows) -> None:
         parse_run_id = rows.parse_run["parse_run_id"]
         filing = rows.filing
-        company = rows.company
+        identity = self.identity_payload(rows)
         all_items = [(item, False) for item in rows.statement_items] + [(item, True) for item in rows.key_metrics]
+        financial_key_metrics: list[dict[str, Any]] = []
+        financial_statement_items: list[dict[str, Any]] = []
+        financial_facts: list[dict[str, Any]] = []
+        operating_metrics: list[dict[str, Any]] = []
+        split_payloads: dict[str, list[dict[str, Any]]] = {}
+        has_key_metrics_table = self.table_exists("financial_key_metrics")
+        has_statement_items_table = self.table_exists("financial_statement_items")
+        has_operating_metrics_table = self.table_exists("operating_metric_facts")
         for item, is_key_metric in all_items:
             payload = {
                 "filing_id": filing["filing_id"],
                 "parse_run_id": parse_run_id,
-                **self.identity_payload(rows),
+                **identity,
                 **item,
+                "raw": self._compact_statement_item_raw(item),
             }
-            if is_key_metric and self.table_exists("financial_key_metrics"):
-                self._insert_dynamic("financial_key_metrics", payload, conflict=("item_uid",))
-            elif self.table_exists("financial_statement_items"):
-                self._insert_dynamic("financial_statement_items", payload, conflict=("item_uid",))
+            if is_key_metric and has_key_metrics_table:
+                financial_key_metrics.append(payload)
+            elif has_statement_items_table:
+                financial_statement_items.append(payload)
             else:
-                self._insert_financial_fact_from_item(payload)
+                financial_facts.append(self._financial_fact_payload(payload))
 
             split_table = STATEMENT_SPLIT_TABLES.get(str(item.get("statement_type") or ""))
             if split_table and self.table_exists(split_table):
-                self._insert_dynamic(split_table, payload, conflict=("item_uid",))
-            if is_key_metric and not self.table_exists("financial_key_metrics"):
-                self._insert_financial_fact_from_item(payload)
+                split_payloads.setdefault(split_table, []).append(payload)
+            if is_key_metric and not has_key_metrics_table:
+                financial_facts.append(self._financial_fact_payload(payload))
 
-            if item.get("canonical_scope") in {"industry", "company"} and self.table_exists("operating_metric_facts"):
-                self._insert_dynamic("operating_metric_facts", self._operating_metric_payload(payload), conflict=("metric_id",))
+            if item.get("canonical_scope") in {"industry", "company"} and has_operating_metrics_table:
+                operating_metrics.append(self._operating_metric_payload(payload))
+
+        self._insert_dynamic_many("financial_key_metrics", financial_key_metrics, conflict=("item_uid",))
+        self._insert_dynamic_many("financial_statement_items", financial_statement_items, conflict=("item_uid",))
+        self._insert_dynamic_many("financial_facts", financial_facts, conflict=("metric_id",))
+        self._insert_dynamic_many("operating_metric_facts", operating_metrics, conflict=("metric_id",))
+        for split_table, payloads in split_payloads.items():
+            self._insert_dynamic_many(split_table, payloads, conflict=("item_uid",))
 
     def _insert_financial_fact_from_item(self, item: dict[str, Any]) -> None:
         if not self.table_exists("financial_facts"):
             return
-        payload = {
+        self._insert_dynamic("financial_facts", self._financial_fact_payload(item), conflict=("metric_id",))
+
+    def _financial_fact_payload(self, item: dict[str, Any]) -> dict[str, Any]:
+        return {
             "metric_id": item.get("item_uid"),
             "filing_id": item.get("filing_id"),
             "parse_run_id": item.get("parse_run_id"),
@@ -420,11 +528,10 @@ class MarketDocumentFullWriter:
             "fiscal_period": item.get("fiscal_period"),
             "confidence": item.get("confidence"),
             "evidence_id": item.get("evidence_id"),
-            "xbrl_tag": item.get("raw", {}).get("item", {}).get("concept"),
-            "context_ref": item.get("raw", {}).get("item", {}).get("context_ref"),
-            "raw": item.get("raw") or item,
+            "xbrl_tag": item.get("xbrl_tag") or item.get("concept") or item.get("raw", {}).get("item", {}).get("concept"),
+            "context_ref": item.get("context_ref") or item.get("raw", {}).get("item", {}).get("context_ref"),
+            "raw": self._compact_statement_item_raw(item),
         }
-        self._insert_dynamic("financial_facts", payload, conflict=("metric_id",))
 
     def _operating_metric_payload(self, item: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -443,15 +550,21 @@ class MarketDocumentFullWriter:
             "source_type": "document_full",
             "evidence_id": item.get("evidence_id"),
             "confidence": item.get("confidence"),
-            "raw": item.get("raw") or item,
+            "raw": self._compact_statement_item_raw(item),
         }
 
     def _insert_checks(self, rows: MarketDocumentFullRows) -> None:
         table = "financial_checks" if self.table_exists("financial_checks") else "quality_checks"
         if not self.table_exists(table):
             return
-        for check in rows.checks:
-            self._insert_dynamic(table, {"filing_id": rows.filing["filing_id"], "parse_run_id": rows.parse_run["parse_run_id"], **check}, conflict=("check_id",))
+        self._insert_dynamic_many(
+            table,
+            (
+                {"filing_id": rows.filing["filing_id"], "parse_run_id": rows.parse_run["parse_run_id"], **check}
+                for check in rows.checks
+            ),
+            conflict=("check_id",),
+        )
 
     def _insert_quality_reports(self, rows: MarketDocumentFullRows) -> None:
         if not self.table_exists("quality_reports"):
@@ -467,17 +580,19 @@ class MarketDocumentFullWriter:
                 "raw": rows.parse_run.get("raw") or {},
             }
         ]
-        for report in reports:
-            self._insert_dynamic(
-                "quality_reports",
+        self._insert_dynamic_many(
+            "quality_reports",
+            (
                 {
                     "filing_id": filing_id,
                     "parse_run_id": parse_run_id,
                     **report,
-                },
-                conflict=("parse_run_id",),
-                update=True,
-            )
+                }
+                for report in reports
+            ),
+            conflict=("parse_run_id",),
+            update=True,
+        )
 
     def _wide_table(self) -> str:
         if self.table_exists("financial_all_metrics_wide_detail"):
@@ -488,50 +603,224 @@ class MarketDocumentFullWriter:
         table = self._wide_table()
         if not self.table_exists(table):
             return
-        for row in rows.wide_rows:
-            payload = {
-                "filing_id": rows.filing["filing_id"],
-                "parse_run_id": rows.parse_run["parse_run_id"],
-                **self.identity_payload(rows),
-                **row,
-            }
-            self._insert_dynamic(table, payload, conflict=("parse_run_id", "period_key"))
+        identity = self.identity_payload(rows)
+        self._insert_dynamic_many(
+            table,
+            (
+                {
+                    "filing_id": rows.filing["filing_id"],
+                    "parse_run_id": rows.parse_run["parse_run_id"],
+                    **identity,
+                    **row,
+                }
+                for row in rows.wide_rows
+            ),
+            conflict=("parse_run_id", "period_key"),
+        )
 
     def _insert_chunks(self, rows: MarketDocumentFullRows) -> None:
         table = "document_chunks" if self.table_exists("document_chunks") else "retrieval_chunks"
         if not self.table_exists(table):
             return
         collection_name = target_for_market(self.market).default_collection or f"siq_{self.market.lower()}_reports"
-        for chunk in rows.chunks:
-            payload = {"filing_id": rows.filing["filing_id"], "parse_run_id": rows.parse_run["parse_run_id"], **self.identity_payload(rows), "collection_name": collection_name, **chunk}
-            self._insert_dynamic(table, payload, conflict=("chunk_uid",))
+        identity = self.identity_payload(rows)
+        self._insert_dynamic_many(
+            table,
+            (
+                {
+                    "filing_id": rows.filing["filing_id"],
+                    "parse_run_id": rows.parse_run["parse_run_id"],
+                    **identity,
+                    "collection_name": collection_name,
+                    **chunk,
+                }
+                for chunk in rows.chunks
+            ),
+            conflict=("chunk_uid",),
+        )
 
     def _insert_normalization(self, rows: MarketDocumentFullRows) -> None:
         if self.table_exists("financial_normalization_rules"):
-            for rule in rows.normalization_rules:
-                self._insert_dynamic("financial_normalization_rules", rule, conflict=("rule_id",), update=True)
+            self._insert_dynamic_many(
+                "financial_normalization_rules",
+                rows.normalization_rules,
+                conflict=("rule_id",),
+                update=True,
+            )
         if self.table_exists("financial_items_enriched"):
-            for item in rows.enriched_items:
-                payload = {
-                    "source_table": item.get("source_table") or (
-                        "financial_key_metrics" if item.get("statement_type") == "key_metrics" else "financial_statement_items"
-                    ),
-                    "source_uid": item.get("source_uid") or item.get("item_uid") or item.get("enriched_id"),
-                    "filing_id": rows.filing["filing_id"],
-                    "parse_run_id": rows.parse_run["parse_run_id"],
-                    **self.identity_payload(rows),
-                    "market": self.market,
-                    "item_name_raw": item.get("item_name_raw") or item.get("item_name"),
-                    "period_key_raw": item.get("period_key_raw") or item.get("period_key"),
-                    "canonical_source": item.get("canonical_source") or item.get("canonical_scope") or "unmapped",
-                    "canonical_rule_id": item.get("canonical_rule_id") or "canonical_common_core_v1",
-                    "unit_rule_id": item.get("unit_rule_id") or "unit_scale_from_report_unit_v1",
-                    "period_end_date": item.get("period_end_date") or item.get("period_end"),
-                    "period_start_date": item.get("period_start_date") or item.get("period_start"),
-                    "raw_item": item.get("raw_item") or item.get("raw") or item,
-                    **item,
+            identity = self.identity_payload(rows)
+            self._insert_dynamic_many(
+                "financial_items_enriched",
+                (
+                    {
+                        "source_table": item.get("source_table") or (
+                            "financial_key_metrics" if item.get("statement_type") == "key_metrics" else "financial_statement_items"
+                        ),
+                        "source_uid": item.get("source_uid") or item.get("item_uid") or item.get("enriched_id"),
+                        "filing_id": rows.filing["filing_id"],
+                        "parse_run_id": rows.parse_run["parse_run_id"],
+                        **identity,
+                        "market": self.market,
+                        "item_name_raw": item.get("item_name_raw") or item.get("item_name"),
+                        "period_key_raw": item.get("period_key_raw") or item.get("period_key"),
+                        "canonical_source": item.get("canonical_source") or item.get("canonical_scope") or "unmapped",
+                        "canonical_rule_id": item.get("canonical_rule_id") or "canonical_common_core_v1",
+                        "unit_rule_id": item.get("unit_rule_id") or "unit_scale_from_report_unit_v1",
+                        "period_end_date": item.get("period_end_date") or item.get("period_end"),
+                        "period_start_date": item.get("period_start_date") or item.get("period_start"),
+                        **item,
+                        "raw_item": self._compact_enriched_raw_item(item),
+                    }
+                    for item in rows.enriched_items
+                ),
+                conflict=("enriched_id",),
+            )
+
+    def _compact_enriched_raw_item(self, item: dict[str, Any]) -> dict[str, Any]:
+        fields = (
+            "enriched_id",
+            "item_uid",
+            "source_uid",
+            "source_table",
+            "statement_id",
+            "statement_type",
+            "statement_name",
+            "item_name",
+            "item_name_raw",
+            "local_name",
+            "canonical_name",
+            "canonical_label",
+            "canonical_scope",
+            "canonical_source",
+            "period_key",
+            "period_key_raw",
+            "period_start",
+            "period_end",
+            "value",
+            "raw_value",
+            "value_extracted",
+            "unit",
+            "unit_raw",
+            "currency",
+            "fact_currency",
+            "reporting_currency",
+            "presentation_currency",
+            "scale",
+            "evidence_id",
+            "source_page_number",
+            "source_table_index",
+            "source_row_index",
+            "source_column_index",
+            "source_bbox",
+            "concept",
+            "xbrl_tag",
+            "taxonomy_tag",
+            "context_ref",
+            "confidence",
+        )
+        compact = {field: item.get(field) for field in fields if item.get(field) not in (None, "", {}, [])}
+        raw = item.get("raw")
+        if isinstance(raw, dict):
+            compact_raw = {
+                field: raw.get(field)
+                for field in (
+                    "source",
+                    "concept",
+                    "xbrl_tag",
+                    "taxonomy_tag",
+                    "context_ref",
+                    "html_anchor",
+                    "xpath",
+                    "table_index",
+                    "page_number",
+                    "row_index",
+                    "column_index",
+                )
+                if raw.get(field) not in (None, "", {}, [])
+            }
+            if compact_raw:
+                compact["raw"] = compact_raw
+        return compact or {"raw_compacted": True}
+
+    def _compact_statement_item_raw(self, item: dict[str, Any]) -> dict[str, Any]:
+        fields = (
+            "item_uid",
+            "statement_id",
+            "statement_type",
+            "statement_name",
+            "item_name",
+            "local_name",
+            "canonical_name",
+            "canonical_scope",
+            "period_key",
+            "period_start",
+            "period_end",
+            "value",
+            "raw_value",
+            "unit",
+            "currency",
+            "fact_currency",
+            "reporting_currency",
+            "presentation_currency",
+            "scale",
+            "evidence_id",
+            "source_page_number",
+            "source_table_index",
+            "source_row_index",
+            "source_column_index",
+            "source_bbox",
+            "concept",
+            "xbrl_tag",
+            "taxonomy_tag",
+            "context_ref",
+        )
+        compact = {field: item.get(field) for field in fields if item.get(field) not in (None, "", {}, [])}
+        raw = item.get("raw")
+        if isinstance(raw, dict):
+            compact_raw = {
+                field: raw.get(field)
+                for field in (
+                    "source",
+                    "source_type",
+                    "source_format",
+                    "document_format",
+                    "concept",
+                    "xbrl_tag",
+                    "taxonomy_tag",
+                    "context_ref",
+                    "html_anchor",
+                    "xpath",
+                    "table_id",
+                    "table_index",
+                    "page_number",
+                    "row_index",
+                    "column_index",
+                )
+                if raw.get(field) not in (None, "", {}, [])
+            }
+            raw_item = raw.get("item")
+            if isinstance(raw_item, dict):
+                item_raw = {
+                    field: raw_item.get(field)
+                    for field in (
+                        "concept",
+                        "xbrl_tag",
+                        "taxonomy",
+                        "taxonomy_tag",
+                        "context_ref",
+                        "unit_ref",
+                        "decimals",
+                        "scale",
+                        "html_anchor",
+                        "xpath",
+                    )
+                    if raw_item.get(field) not in (None, "", {}, [])
                 }
-                self._insert_dynamic("financial_items_enriched", payload, conflict=("enriched_id",))
+                if item_raw:
+                    compact_raw["item"] = item_raw
+            if compact_raw:
+                compact["raw"] = compact_raw
+        return compact or {"raw_compacted": True}
 
     def _insert_dynamic(
         self,
@@ -547,24 +836,80 @@ class MarketDocumentFullWriter:
         filtered = {key: self._adapt_value(value) for key, value in payload.items() if key in columns}
         if not filtered:
             return
-        column_names = list(filtered)
+        column_names = tuple(filtered)
+        sql = self._insert_sql(table, column_names, columns, conflict=conflict, update=update)
+        self.conn.execute(sql, tuple(filtered[col] for col in column_names))
+
+    def _insert_dynamic_many(
+        self,
+        table: str,
+        payloads: Iterable[dict[str, Any]],
+        *,
+        conflict: tuple[str, ...] | None = None,
+        update: bool = False,
+    ) -> None:
+        if not self.table_exists(table):
+            return
+        columns = self.columns(table)
+        grouped: dict[tuple[str, ...], list[tuple[Any, ...]]] = {}
+        sql_by_columns: dict[tuple[str, ...], str] = {}
+        for payload in payloads:
+            filtered = {key: self._adapt_value(value) for key, value in payload.items() if key in columns}
+            if not filtered:
+                continue
+            column_names = tuple(filtered)
+            grouped.setdefault(column_names, []).append(tuple(filtered[col] for col in column_names))
+            if column_names not in sql_by_columns:
+                sql_by_columns[column_names] = self._insert_sql(table, column_names, columns, conflict=conflict, update=update)
+
+        for column_names, params_list in grouped.items():
+            sql = sql_by_columns[column_names]
+            self._execute_many(sql, params_list)
+
+    def _execute_many(self, sql: str, params_list: list[tuple[Any, ...]]) -> None:
+        if not params_list:
+            return
+        cursor_factory = getattr(self.conn, "cursor", None)
+        if callable(cursor_factory):
+            try:
+                with self.conn.cursor() as cur:
+                    executemany = getattr(cur, "executemany", None)
+                    if callable(executemany):
+                        for start in range(0, len(params_list), EXECUTE_MANY_BATCH_SIZE):
+                            executemany(sql, params_list[start : start + EXECUTE_MANY_BATCH_SIZE])
+                        return
+            except (AttributeError, TypeError):
+                pass
+        for params in params_list:
+            self.conn.execute(sql, params)
+
+    def _insert_sql(
+        self,
+        table: str,
+        column_names: tuple[str, ...],
+        table_columns: set[str],
+        *,
+        conflict: tuple[str, ...] | None = None,
+        update: bool = False,
+    ) -> str:
         placeholders = ", ".join(["%s"] * len(column_names))
         safe_table = quote_ident(table)
         safe_columns = [quote_ident(col) for col in column_names]
         sql = f"insert into {self.schema_sql}.{safe_table} ({', '.join(safe_columns)}) values ({placeholders})"
         if conflict:
-            conflict_cols = [col for col in conflict if col in columns]
+            conflict_cols = [col for col in conflict if col in table_columns]
             if conflict_cols:
+                safe_conflict = ", ".join(quote_ident(col) for col in conflict_cols)
                 if update:
                     update_cols = [col for col in column_names if col not in conflict_cols and col not in {"created_at"}]
                     if update_cols:
                         assignments = ", ".join(f"{quote_ident(col)} = excluded.{quote_ident(col)}" for col in update_cols)
-                        sql += f" on conflict ({', '.join(quote_ident(col) for col in conflict_cols)}) do update set {assignments}"
+                        sql += f" on conflict ({safe_conflict}) do update set {assignments}"
                     else:
-                        sql += f" on conflict ({', '.join(quote_ident(col) for col in conflict_cols)}) do nothing"
+                        sql += f" on conflict ({safe_conflict}) do nothing"
                 else:
-                    sql += f" on conflict ({', '.join(quote_ident(col) for col in conflict_cols)}) do nothing"
-        self.conn.execute(sql, tuple(filtered[col] for col in column_names))
+                    sql += f" on conflict ({safe_conflict}) do nothing"
+        return sql
 
     def _adapt_value(self, value: Any) -> Any:
         if isinstance(value, (dict, list)):

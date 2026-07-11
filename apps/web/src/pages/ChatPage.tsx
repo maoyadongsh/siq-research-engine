@@ -194,6 +194,7 @@ export default function ChatPage() {
         <ChatMessageList
           messages={messages}
           endRef={messagesEnd}
+          auditTraceApiPrefix="/api"
           emptyAvatar={<AgentFairy state={fairyState} size="xl" className="mb-4" />}
           emptyDescription="你好！我是财报分析助手，可以回答关于已入库财报的问题。支持数据查询、趋势分析、对比研究等。"
           quickQuestions={quickQuestions}

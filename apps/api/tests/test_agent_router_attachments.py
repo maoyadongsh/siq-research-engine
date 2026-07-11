@@ -1,4 +1,5 @@
 import inspect
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -95,6 +96,128 @@ def test_specialized_agent_chat_routes_forward_attachments(monkeypatch):
 
     for router_bundle, expected_profile in ROUTERS:
         anyio.run(run_case, router_bundle, expected_profile)
+
+
+def test_specialized_agent_chat_returns_answer_audit_trace_id(monkeypatch):
+    async def run_case():
+        session_mgr = _SpecialistSessionManager()
+
+        async def fake_collect_chat_reply(message, async_session, **kwargs):
+            kwargs["answer_audit_callback"]({"trace_id": "aat_specialist1234567890abcdef123456"})
+            return "带审计 trace 的 specialist 回答"
+
+        async def fake_enforce_quota_or_429_async(*args, **kwargs):
+            return (0, None)
+
+        async def fake_record_usage_async(*args, **kwargs):
+            return None
+
+        async def fake_record_agent_workspace_artifact_background(**kwargs):
+            return {"workspace_synced": True}
+
+        async def fake_resolve_or_create_session(*args, **kwargs):
+            return "user-7-analysis-created"
+
+        monkeypatch.setattr(agent_user_router, "get_session_manager", lambda: session_mgr)
+        monkeypatch.setattr(agent_user_router, "maybe_handle_model_control", lambda *args, **kwargs: None)
+        monkeypatch.setattr(agent_user_router, "collect_chat_reply", fake_collect_chat_reply)
+        monkeypatch.setattr(agent_user_router, "resolve_or_create_session", fake_resolve_or_create_session)
+        monkeypatch.setattr(agent_user_router, "enforce_quota_or_429_async", fake_enforce_quota_or_429_async)
+        monkeypatch.setattr(agent_user_router, "record_usage_async", fake_record_usage_async)
+        monkeypatch.setattr(
+            agent_user_router,
+            "_record_agent_workspace_artifact_background",
+            fake_record_agent_workspace_artifact_background,
+        )
+
+        router = create_specialist_agent_router(
+            SpecialistAgentConfig(prefix="/analysis", tag="analysis", profile="siq_analysis")
+        )
+        endpoint = next(route.endpoint for route in router.routes if route.path == "/analysis/chat")
+        response = await endpoint(
+            ChatRequest(message="请分析腾讯收入"),
+            current_user=User(
+                id=7,
+                username="analyst",
+                email="analyst@example.test",
+                hashed_password="x",
+                full_name="Analyst",
+                role=UserRole.ANALYST,
+            ),
+            async_session=SimpleNamespace(),
+        )
+
+        assert response.reply == "带审计 trace 的 specialist 回答"
+        assert response.audit_trace_id == "aat_specialist1234567890abcdef123456"
+        assert session_mgr.incremented == ["user-7-analysis-created"]
+
+    anyio.run(run_case)
+
+
+def test_specialized_agent_stream_enables_answer_audit_trace_id(monkeypatch):
+    async def run_case():
+        session_mgr = _SpecialistSessionManager()
+        captured = {}
+
+        async def fake_enforce_quota_or_429_async(*args, **kwargs):
+            return (0, None)
+
+        async def fake_record_usage_async(*args, **kwargs):
+            return None
+
+        async def fake_stream_chat_reply(*args, **kwargs):
+            captured.update(kwargs)
+            yield {
+                "event": "done",
+                "data": json.dumps(
+                    {
+                        "new_achievements": [],
+                        "content": "stream reply",
+                        "audit_trace_id": "aat_streamspecialist1234567890abcdef",
+                    },
+                    ensure_ascii=False,
+                ),
+            }
+
+        async def fake_resolve_or_create_session(*args, **kwargs):
+            return "user-7-analysis-created"
+
+        monkeypatch.setattr(agent_user_router, "get_session_manager", lambda: session_mgr)
+        monkeypatch.setattr(agent_user_router, "maybe_handle_model_control", lambda *args, **kwargs: None)
+        monkeypatch.setattr(agent_user_router, "stream_chat_reply", fake_stream_chat_reply)
+        monkeypatch.setattr(agent_user_router, "resolve_or_create_session", fake_resolve_or_create_session)
+        monkeypatch.setattr(agent_user_router, "enforce_quota_or_429_async", fake_enforce_quota_or_429_async)
+        monkeypatch.setattr(agent_user_router, "record_usage_async", fake_record_usage_async)
+
+        router = create_specialist_agent_router(
+            SpecialistAgentConfig(prefix="/analysis", tag="analysis", profile="siq_analysis")
+        )
+        endpoint = next(route.endpoint for route in router.routes if route.path == "/analysis/chat/stream")
+        response = await endpoint(
+            ChatRequest(message="请流式分析腾讯收入"),
+            request=SimpleNamespace(),
+            current_user=User(
+                id=7,
+                username="analyst",
+                email="analyst@example.test",
+                hashed_password="x",
+                full_name="Analyst",
+                role=UserRole.ANALYST,
+            ),
+            async_session=SimpleNamespace(),
+        )
+
+        chunks = []
+        async for chunk in response.body_iterator:
+            chunks.append(chunk)
+
+        assert chunks
+        assert captured["profile"] == "siq_analysis"
+        assert captured["session_id"] == "user-7-analysis-created"
+        assert captured["emit_audit_trace_id"] is True
+        assert session_mgr.incremented == ["user-7-analysis-created"]
+
+    anyio.run(run_case)
 
 
 def test_specialized_agent_stream_routes_forward_attachments_in_source():

@@ -549,7 +549,7 @@ def test_pdf_market_workflow_status_uses_document_full_postgres_schema(monkeypat
     assert status["database"]["chunks"] == 3
 
 
-def test_pdf_market_workflow_status_ready_does_not_require_evidence(monkeypatch, tmp_path):
+def test_pdf_market_workflow_status_requires_evidence_for_ready(monkeypatch, tmp_path):
     task_id = "task-eu-status"
     document_full = tmp_path / "results" / task_id / "document_full.json"
     document_full.parent.mkdir(parents=True)
@@ -609,9 +609,91 @@ def test_pdf_market_workflow_status_ready_does_not_require_evidence(monkeypatch,
 
     status = workflow._workflow_status_payload(task_id)
 
-    assert status["database"]["status"] == "ready"
-    assert status["database"]["marketStatus"] == "postgres_ready"
+    assert status["database"]["status"] == "partial"
+    assert status["database"]["marketStatus"] == "warning"
     assert status["database"]["evidence"] == 0
+    assert status["database"]["missingCounts"] == ["evidence"]
+
+
+def test_semantic_status_rejects_pdf_market_placeholder_files(monkeypatch, tmp_path):
+    wiki_root = tmp_path / "wiki" / "jp"
+    company_dir = "7267-Honda-Motor"
+    company_root = wiki_root / "companies" / company_dir
+    report_dir = company_root / "reports" / "2025-annual"
+    semantic_dir = company_root / "semantic"
+    report_dir.mkdir(parents=True)
+    semantic_dir.mkdir(parents=True)
+    write_json(company_root / "company.json", {"market": "JP", "primary_report_id": "2025-annual"})
+    (report_dir / "report.md").write_text("# 事業の内容\n", encoding="utf-8")
+    write_json(report_dir / "report.json", {"report_id": "2025-annual"})
+    write_json(report_dir / "document_full.json", {"schema_version": "pdf_document_full_v1"})
+    for name in (
+        "subject_profile.json",
+        "segments.json",
+        "facts.json",
+        "relations.json",
+        "claims.json",
+        "retrieval_index.json",
+        "note_links.json",
+        "evidence_semantic.json",
+    ):
+        write_json(semantic_dir / name, {"schema_version": "placeholder"})
+    write_json(semantic_dir / "extraction_log.json", {"schema_version": "jp_semantic_extraction_log_v1", "steps": []})
+    monkeypatch.setattr(workflow, "LLM_SEMANTIC_ENABLED", True)
+    monkeypatch.setattr(workflow, "LLM_SEMANTIC_REQUIRED", False)
+
+    status = workflow._semantic_status_at_root(company_dir, None, wiki_root)
+
+    assert status["status"] == "missing"
+    assert status["missing"] == []
+    assert "占位" in status["message"]
+
+
+def test_semantic_status_accepts_market_rule_log_with_inputs(monkeypatch, tmp_path):
+    wiki_root = tmp_path / "wiki" / "eu"
+    company_dir = "AI-Air-Liquide"
+    company_root = wiki_root / "companies" / company_dir
+    report_dir = company_root / "reports" / "2025-annual"
+    semantic_dir = company_root / "semantic"
+    report_dir.mkdir(parents=True)
+    semantic_dir.mkdir(parents=True)
+    write_json(company_root / "company.json", {"market": "EU", "primary_report_id": "2025-annual"})
+    (report_dir / "report.md").write_text("# Strategic report\n", encoding="utf-8")
+    write_json(report_dir / "report.json", {"report_id": "2025-annual"})
+    write_json(report_dir / "document_full.json", {"schema_version": "pdf_document_full_v1"})
+    for name in (
+        "subject_profile.json",
+        "segments.json",
+        "facts.json",
+        "relations.json",
+        "claims.json",
+        "retrieval_index.json",
+        "note_links.json",
+        "evidence_semantic.json",
+    ):
+        write_json(semantic_dir / name, {"schema_version": "real"})
+    inputs = {
+        "company_json_sha256": workflow._sha256_file(company_root / "company.json"),
+        "report_md_sha256": workflow._sha256_file(report_dir / "report.md"),
+        "report_json_sha256": workflow._sha256_file(report_dir / "report.json"),
+        "document_full_sha256": workflow._sha256_file(report_dir / "document_full.json"),
+    }
+    write_json(
+        semantic_dir / "extraction_log.json",
+        {
+            "inputs": inputs,
+            "counts": {"segments": 4, "facts": 0, "relations": 0, "claims": 1, "evidence": 6},
+            "quality": {"facts_with_evidence_ratio": 1.0},
+        },
+    )
+    monkeypatch.setattr(workflow, "LLM_SEMANTIC_ENABLED", True)
+    monkeypatch.setattr(workflow, "LLM_SEMANTIC_REQUIRED", False)
+
+    status = workflow._semantic_status_at_root(company_dir, None, wiki_root)
+
+    assert status["status"] == "ready"
+    assert status["counts"]["segments"] == 4
+    assert status["counts"]["evidence"] == 6
 
 
 def test_task_db_import_routes_us_sec_alias_to_document_full_importer(monkeypatch, tmp_path):

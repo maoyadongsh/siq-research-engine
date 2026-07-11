@@ -4,6 +4,7 @@ import type { AgentMessage } from '../../lib/useAgentChat'
 import ChatAttachmentList from './ChatAttachmentList'
 import MessageRenderer from './MessageRenderer'
 import MessageTimestamp from './MessageTimestamp'
+import { AuditTraceBlock } from './renderers/AuditTraceBlock'
 
 export interface ChatQuickQuestion {
   key: string
@@ -24,6 +25,7 @@ interface ChatMessageListProps {
   renderStreamingAvatar?: (message: AgentMessage) => ReactNode
   renderMessageHeader?: (message: AgentMessage, index: number) => ReactNode
   renderProgress?: (message: AgentMessage) => ReactNode
+  auditTraceApiPrefix?: string
   compact?: boolean
   emptyClassName?: string
   emptyDescriptionClassName?: string
@@ -46,6 +48,7 @@ export default function ChatMessageList({
   renderStreamingAvatar,
   renderMessageHeader,
   renderProgress,
+  auditTraceApiPrefix = '/api',
   compact = false,
   emptyClassName,
   emptyDescriptionClassName,
@@ -107,6 +110,9 @@ export default function ChatMessageList({
       <div className={`${messageGapClassName} ${listClassName}`.trim()}>
         {messages.map((msg, i) => {
           const isUser = msg.role === 'user'
+          const structuredAuditTraceId = !isUser && msg.auditTraceId && !msg.content.includes(msg.auditTraceId)
+            ? msg.auditTraceId
+            : ''
           const streamingAvatar = msg.role === 'assistant' && msg.streaming && i === messages.length - 1
             ? renderStreamingAvatar?.(msg)
             : null
@@ -126,12 +132,20 @@ export default function ChatMessageList({
                         content={msg.content}
                         streaming={msg.streaming}
                         variant={isUser ? 'user' : 'assistant'}
+                        auditTraceApiPrefix={auditTraceApiPrefix}
                       />
                     ) : (
                       msg.streaming ? '正在思考…' : ''
                     )}
                     <ChatAttachmentList attachments={msg.attachments} />
                     {msg.role === 'assistant' ? renderProgress?.(msg) : null}
+                    {structuredAuditTraceId ? (
+                      <AuditTraceBlock
+                        blockKey={`audit-trace-${msg.createdAt ?? i}`}
+                        lines={[`- trace_id: \`${structuredAuditTraceId}\``]}
+                        apiPrefix={auditTraceApiPrefix}
+                      />
+                    ) : null}
                     {msg.streaming && msg.content && <span className={streamingCursorClass} />}
                   </div>
                   {msg.content && !msg.streaming && (

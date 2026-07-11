@@ -5,6 +5,11 @@ import type {
   UsSecCaseSetStatus,
   UsSecPackageDetail,
 } from './api'
+import {
+  deriveUsSecMarketIngestionPipelineState,
+  type MarketIngestionPipelineActionState,
+  type UsSecIngestionActionKey,
+} from './marketIngestionPipelineState'
 
 export type UsSecParseStatus = 'unparsed' | 'building' | 'package_ready' | 'postgres_ready' | 'warning' | 'failed'
 export type UsSecWorkflowStatus = 'ready' | 'pending' | 'unknown' | 'warning'
@@ -73,6 +78,9 @@ export interface UsSecWorkflowStepView {
 export interface UsSecWorkflowSummary {
   steps: UsSecWorkflowStepView[]
   cards: UsSecWorkflowStepView[]
+  activeStepIndex: number
+  actions: Array<MarketIngestionPipelineActionState<UsSecIngestionActionKey>>
+  runAll: MarketIngestionPipelineActionState<'runAll'>
 }
 
 export interface UsSecQualitySummary {
@@ -134,7 +142,32 @@ function packageReady(detail: UsSecPackageDetail | null | undefined): boolean {
   return Boolean(detail?.package_path)
 }
 
+function caseItemForPackage(status: UsSecCaseSetStatus | null | undefined, detail: UsSecPackageDetail | null | undefined): UsSecCaseSetItem | null {
+  const items = status?.items || []
+  if (!items.length) return null
+  const manifest = plainRecord(detail?.manifest)
+  const packagePath = normalized(detail?.package_path || manifest.package_path)
+  const parserResultDir = normalized(detail?.parser_result_dir || manifest.parser_result_dir)
+  const parserResultTaskId = normalized(detail?.parser_result_task_id || manifest.parser_result_task_id)
+  return items.find((item) => normalized(item.package_path) === packagePath)
+    || items.find((item) => normalized(item.parser_result_dir) === parserResultDir)
+    || items.find((item) => normalized(item.parser_result_task_id) === parserResultTaskId)
+    || null
+}
+
 function usSecDocumentFullPath(item: UsSecCaseSetItem): string {
+  const explicitPaths = plainRecord(item.full_document_paths)
+  const explicitPath = firstPathValue(
+    item.document_full_path
+      || explicitPaths.document_full_path,
+    explicitPaths.document_full,
+    explicitPaths.document_full_json,
+    explicitPaths.parser_document_full,
+  )
+  if (explicitPath) {
+    const fromExplicitPath = documentFullPathFromParserResultDir(explicitPath)
+    if (fromExplicitPath) return fromExplicitPath
+  }
   const parserResultDir = normalized(item.parser_result_dir)
   if (parserResultDir) return documentFullPathFromParserResultDir(parserResultDir)
   const parserResultTaskId = normalized(item.parser_result_task_id)
@@ -144,6 +177,20 @@ function usSecDocumentFullPath(item: UsSecCaseSetItem): string {
 
 function plainRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function pathValue(value: unknown): string {
+  if (typeof value === 'string' || typeof value === 'number') return normalized(value)
+  const record = plainRecord(value)
+  return normalized(record.path || record.document_full_path || record.document_full_json || record.parser_document_full)
+}
+
+function firstPathValue(...values: unknown[]): string {
+  for (const value of values) {
+    const path = pathValue(value)
+    if (path) return path
+  }
+  return ''
 }
 
 function usSecArtifactNames(detail: UsSecPackageDetail | null | undefined): string[] {
@@ -221,11 +268,18 @@ function pathIncludesAccession(packagePath: string | undefined, accession: strin
 }
 
 function documentFullPathFromParserResultDir(value: unknown): string {
-  const path = normalized(value).replace(/\/+$/, '')
+  const path = pathValue(value).replace(/\/+$/, '')
   if (!path) return ''
+  if (isUsSecPackageLocalDocumentFullPath(path)) return ''
   return path.endsWith(`/${US_SEC_DOCUMENT_FULL_FILE}`) || path === US_SEC_DOCUMENT_FULL_FILE
     ? path
     : `${path}/${US_SEC_DOCUMENT_FULL_FILE}`
+}
+
+function isUsSecPackageLocalDocumentFullPath(value: string): boolean {
+  const path = value.replace(/^\.?\//, '')
+  if (path === `parser/${US_SEC_DOCUMENT_FULL_FILE}` || path === 'parser') return true
+  return path.endsWith(`/parser/${US_SEC_DOCUMENT_FULL_FILE}`) && !path.includes('/data/parser-results/us-sec/')
 }
 
 export function deriveUsSecDocumentFullImportPath(
@@ -233,6 +287,23 @@ export function deriveUsSecDocumentFullImportPath(
   detail?: UsSecPackageDetail | null,
 ): string {
   const manifest = plainRecord(detail?.manifest)
+  const detailPaths = plainRecord(detail?.full_document_paths || manifest.full_document_paths)
+  const itemPaths = plainRecord(task?.item.full_document_paths)
+  const explicitPath = firstPathValue(
+    detail?.document_full_path,
+    manifest.document_full_path,
+    detailPaths.document_full_path,
+    detailPaths.document_full,
+    detailPaths.document_full_json,
+    task?.item.document_full_path,
+    itemPaths.document_full_path,
+    itemPaths.document_full,
+    itemPaths.document_full_json,
+    itemPaths.parser_document_full,
+  )
+  const fromExplicitPath = documentFullPathFromParserResultDir(explicitPath)
+  if (fromExplicitPath) return fromExplicitPath
+
   const parserResultDir = detail?.parser_result_dir || manifest.parser_result_dir || task?.item.parser_result_dir
   const fromDir = documentFullPathFromParserResultDir(parserResultDir)
   if (fromDir) return fromDir
@@ -402,22 +473,22 @@ export function deriveUsSecArtifactManifest(detail?: UsSecPackageDetail | null):
     total: chips.length,
     checks: [
       {
-        label: 'SEC 解析产物包',
+        label: 'SEC 解析产物',
         status: ready ? 'ready' : 'missing',
-        description: ready ? `${readyCount}/${chips.length} 个核心文件已生成` : '等待生成 SEC 解析产物包',
+        description: ready ? `${readyCount}/${chips.length} 个核心文件已生成` : '等待生成 SEC 解析产物',
       },
       {
         label: '解析产物索引',
         status: ready ? 'ready' : 'missing',
-        description: ready ? 'SEC 解析产物可用于 PostgreSQL 入库与派生知识资产生成' : '等待 SEC 解析产物',
+        description: ready ? 'SEC 解析产物可用于 LLM-Wiki、Wiki语义增强与 PostgreSQL 入库' : '等待 SEC 解析产物',
       },
       {
-        label: 'Wiki 语义增强脚本',
+        label: 'Wiki语义增强入库脚本',
         status: 'ready',
         description: 'Wiki 证据语义 / 项目设置模型',
       },
       {
-        label: 'PostgreSQL 入库脚本',
+        label: 'PostgreSQL入库脚本',
         status: 'ready',
         description: 'db/imports/import_us_sec_document_full_to_postgres.py',
       },
@@ -429,40 +500,57 @@ export function deriveUsSecWorkflowSummary(
   status?: UsSecCaseSetStatus | null,
   detail?: UsSecPackageDetail | null,
   postgresStatus?: MarketDocumentFullPostgresStatus | null,
+  options: { documentFullPath?: string; busyAction?: string; taskId?: string } = {},
 ): UsSecWorkflowSummary {
   const artifactManifest = deriveUsSecArtifactManifest(detail)
-  const packageStatus: UsSecWorkflowStepView['status'] = packageReady(detail) ? 'ready' : 'pending'
-  const semanticEvidence = numberValue(status?.ingest_report?.summary?.retrieval_chunks)
-  const postgresReady = documentFullPostgresReady(postgresStatus)
-  const postgresUnknown = normalized(postgresStatus?.status).toLowerCase() === 'unknown'
-  const semanticReady = semanticEvidence > 0
-  const steps: UsSecWorkflowStepView[] = [
-    {
-      label: '解析产物包',
-      status: packageStatus,
-      description: packageReady(detail) ? `${artifactManifest.readyCount}/${artifactManifest.total} 个核心文件已生成` : '等待解析生成结构化结果包',
-    },
-    {
-      label: '派生知识资产',
-      status: packageStatus,
-      description: packageReady(detail) ? '派生知识资产由 SEC 解析产物生成' : '等待 SEC 解析产物',
-    },
-    {
-      label: 'Wiki 语义增强',
-      status: semanticReady ? 'ready' : 'pending',
-      description: semanticReady ? `Wiki 语义证据 ${semanticEvidence}` : '等待使用项目设置模型生成 Wiki 语义增强',
-    },
-    {
-      label: 'PostgreSQL',
-      status: postgresReady ? 'ready' : postgresUnknown ? 'unknown' : 'pending',
-      description: postgresReady
-        ? `document_full facts ${numberValue(postgresStatus?.facts)}`
-        : postgresUnknown
-          ? (postgresStatus?.message || 'document_full status 查询失败，PostgreSQL 状态不可确认')
-          : '等待 PostgreSQL 入库',
-    },
-  ]
-  return { steps, cards: steps }
+  const selectedItem = caseItemForPackage(status, detail)
+  const wikiReady = selectedItem ? retrievalReady(selectedItem) : packageReady(detail)
+  const semanticStatus = plainRecord(detail?.semantic_status || selectedItem?.semantic_status)
+  const semanticCounts = plainRecord(semanticStatus.counts)
+  const semanticLlm = plainRecord(semanticStatus.llm)
+  const semanticLlmCounts = plainRecord(semanticLlm.counts)
+  const semanticEvidence = numberValue(
+    semanticCounts.evidence
+      || semanticCounts.segments
+      || status?.ingest_report?.summary?.retrieval_chunks,
+  )
+  const semanticStatusText = normalized(semanticStatus.status).toLowerCase()
+  const semanticReady = semanticStatusText
+    ? semanticStatusText === 'ready'
+    : semanticEvidence > 0
+  const semanticDescription = semanticReady
+    ? [
+        `规则语义 segments ${numberValue(semanticCounts.segments)} / facts ${numberValue(semanticCounts.facts)} / evidence ${numberValue(semanticCounts.evidence) || semanticEvidence}`,
+        normalized(semanticLlm.status).toLowerCase() === 'ready'
+          ? `模型增强 claims ${numberValue(semanticLlmCounts.claims)} / risks ${numberValue(semanticLlmCounts.risks)}`
+          : '',
+      ].filter(Boolean).join('；')
+    : normalized(semanticStatus.message)
+  const pipelineState = deriveUsSecMarketIngestionPipelineState({
+    artifactsReady: packageReady(detail),
+    artifactReadyCount: artifactManifest.readyCount,
+    artifactTotal: artifactManifest.total,
+    wikiReady,
+    semanticEvidence,
+    semanticReady,
+    semanticDescription,
+    postgresStatus,
+    documentFullPath: options.documentFullPath,
+    busyAction: options.busyAction,
+    taskId: options.taskId,
+  })
+  const steps: UsSecWorkflowStepView[] = pipelineState.steps.map((step) => ({
+    label: step.label,
+    status: (step.status || 'pending') as UsSecWorkflowStatus,
+    description: step.description,
+  }))
+  return {
+    steps,
+    cards: steps,
+    activeStepIndex: pipelineState.activeStepIndex,
+    actions: pipelineState.actions,
+    runAll: pipelineState.runAll,
+  }
 }
 
 export function documentFullPostgresReady(status?: MarketDocumentFullPostgresStatus | null): boolean {

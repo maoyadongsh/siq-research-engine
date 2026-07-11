@@ -108,6 +108,49 @@ class _FakeFinancialQueryModule:
         return value
 
 
+class _FakeMultiMarketFinancialQueryModule(_FakeFinancialQueryModule):
+    @staticmethod
+    def query_market_agent_view_result(query_text, parsed, company_hint=None, *, limit=20, market=None):
+        if "收入" not in query_text:
+            return None
+        assert company_hint["dir"].endswith("/data/wiki/hk/companies/00700-TENCENT")
+        return {
+            "question": query_text,
+            "query_text": query_text,
+            "parsed": {
+                **parsed,
+                "market": "HK",
+                "query_type": "metric",
+                "query_mode": "multi_market_agent_view",
+                "resolved_company_id": "HK:00700",
+                "resolved_stock_code": "00700",
+                "resolved_stock_name": "Tencent",
+                "metric_name": "收入",
+            },
+            "source_tables": ["pdf2md_hk.v_agent_financial_facts"],
+            "rows": [
+                {
+                    "source_table": "pdf2md_hk.v_agent_financial_facts",
+                    "task_id": "parse-hk-00700",
+                    "filing_id": "HK:00700:2025-annual",
+                    "company_id": "HK:00700",
+                    "stock_code": "00700",
+                    "stock_name": "Tencent",
+                    "statement_id": "income_statement",
+                    "period_key": "2025-12-31",
+                    "item_name": "Revenues",
+                    "metric_name": "收入",
+                    "canonical_name": "revenue",
+                    "raw_value": "751,766",
+                    "unit": "RMB million",
+                    "source_page_number": 42,
+                    "source_table_index": 4,
+                    "evidence_id": "ev-revenue",
+                }
+            ][:limit],
+        }
+
+
 def test_hermes_run_payload_includes_session_id_and_history():
     payload = hermes_client._build_run_payload(
         "siq_assistant",
@@ -734,14 +777,45 @@ def test_goodwill_mixed_query_guard_adds_missing_main_statement_source():
 def test_financial_source_routing_contract_is_exposed_to_agent_profiles():
     repo_root = Path(__file__).resolve().parents[3]
     contract_path = repo_root / "agents/hermes/profiles/shared/rules/financial_source_routing_contract.md"
+    agent_fact_contract_path = repo_root / "docs/architecture/agent-financial-query-contract.md"
     assistant_soul = (repo_root / "agents/hermes/profiles/siq_assistant/SOUL.md").read_text(encoding="utf-8")
     contract = contract_path.read_text(encoding="utf-8")
+    agent_fact_contract = agent_fact_contract_path.read_text(encoding="utf-8")
 
     assert "financial_source_routing_contract.md" in runtime.CHAT_OUTPUT_CONTRACT
     assert "financial_source_routing_contract.md" in assistant_soul
     assert "混合口径" in contract
     assert "metrics/reports/<report_id>/three_statements.json" in contract
     assert "semantic/document_links.json" in contract
+    assert "AgentFinancialFact" in contract
+    assert "agent-financial-query-contract.md" in contract
+    assert "{schema}.v_agent_financial_facts" in contract
+    assert "source_type=postgresql_agent_view" in contract
+    assert "financial_source_routing_contract.md" in agent_fact_contract
+    for field in (
+        "market",
+        "schema",
+        "company_id",
+        "filing_id",
+        "parse_run_id",
+        "metric_name",
+        "canonical_name",
+        "period",
+        "value",
+        "raw_value",
+        "unit",
+        "currency",
+        "source_page",
+        "table_index",
+        "bbox",
+        "evidence_id",
+        "quote",
+        "source_url",
+        "wiki_report_path",
+        "source_type",
+    ):
+        assert f"`{field}`" in agent_fact_contract
+        assert field in contract
 
 
 def test_statement_context_excludes_note_detail_context_for_main_statement_query():
@@ -809,7 +883,36 @@ def test_postgres_fallback_prefers_explicit_metric_over_company_all(monkeypatch)
     assert "metric=长期股权投资" not in context
 
 
+def test_postgres_fallback_prefers_multi_market_agent_view(monkeypatch):
+    monkeypatch.setattr(runtime, "_load_financial_query_api", lambda: _FakeMultiMarketFinancialQueryModule)
+
+    context = runtime.build_postgres_fallback_context(
+        "这家公司2025收入是多少？",
+        {
+            "company": {
+                "name": "Tencent",
+                "code": "00700",
+                "dir": "/home/maoyd/siq-research-engine/data/wiki/hk/companies/00700-TENCENT",
+            }
+        },
+    )
+
+    assert context is not None
+    assert "PostgreSQL `pdf2md_hk` schema 只读查询" in context
+    assert "查询类型: metric" in context
+    assert "metric=收入" in context
+    assert "pdf2md_hk.v_agent_financial_facts" in context
+    assert "task_id=parse-hk-00700" in context
+    assert "pdf_page=42" in context
+    assert "table_index=4" in context
+
+
 def test_session_context_injects_postgres_fallback_when_wiki_evidence_missing(monkeypatch):
+    monkeypatch.setattr(runtime, "build_human_efficiency_evidence_context", lambda message, context=None: None)
+    monkeypatch.setattr(runtime, "build_human_capital_context", lambda message, context=None: None)
+    monkeypatch.setattr(runtime, "build_three_statement_core_context", lambda message, context=None: None)
+    monkeypatch.setattr(runtime, "build_statement_metric_context", lambda message, context=None: None)
+    monkeypatch.setattr(runtime, "build_note_detail_context", lambda message, context=None: None)
     monkeypatch.setattr(runtime, "build_postgres_fallback_context", lambda message, context=None: "PG_FALLBACK_CONTEXT")
     monkeypatch.setattr(runtime, "build_wiki_fulltext_fallback_context", lambda message, context=None: None)
 
@@ -1000,6 +1103,45 @@ def test_wiki_catalog_reply_reads_current_catalog_for_count_and_list(tmp_path, m
     assert "1. 600104 上汽集团" in list_reply
     assert "2. GENBASF BASF" in list_reply
     assert "三大表指标=无" in list_reply
+
+
+def test_company_catalog_resolution_falls_back_to_existing_wiki_root(tmp_path, monkeypatch):
+    primary_wiki = tmp_path / "primary_wiki"
+    fallback_wiki = tmp_path / "fallback_wiki"
+    meta_dir = primary_wiki / "_meta"
+    meta_dir.mkdir(parents=True)
+    (meta_dir / "company_catalog.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "companies": [
+                    {
+                        "company_id": "GENBASF-BASF",
+                        "stock_code": "GENBASF",
+                        "company_short_name": "BASF",
+                        "aliases": ["巴斯夫"],
+                        "company_path": "companies/GENBASF-BASF",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    company_dir = fallback_wiki / "companies" / "GENBASF-BASF"
+    company_dir.mkdir(parents=True)
+    (company_dir / "company.json").write_text(
+        json.dumps({"company_short_name": "BASF", "stock_code": "GENBASF"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(runtime, "WIKI_ROOT", primary_wiki)
+    monkeypatch.setattr(runtime, "PROJECT_WIKI_ROOT", primary_wiki)
+    monkeypatch.setattr(runtime, "ASSISTANT_WIKI_ROOT", primary_wiki)
+    monkeypatch.setattr(runtime, "WIKI_FALLBACK_ROOTS", (fallback_wiki,))
+
+    assert runtime._resolve_company_dir("分析一下巴斯夫的人效") == company_dir
+    assert runtime._resolve_company_dirs("对比万华化学和巴斯夫的人效") == [company_dir]
 
 
 def test_hk_company_wiki_financial_data_is_core_metrics_candidate(tmp_path, monkeypatch):

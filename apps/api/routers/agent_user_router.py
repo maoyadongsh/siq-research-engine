@@ -13,7 +13,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from database import engine, get_async_session
 from models import ChatMessage
-from schemas import ChatRequest, ChatResponse
+from schemas import AnswerAuditTraceResponse, ChatRequest, ChatResponse
 from services.agent_chat_runtime import (
     HISTORY_LIMIT,
     chat_message_has_visible_payload,
@@ -28,6 +28,17 @@ from services.agent_chat_runtime import (
 )
 from services.auth_dependencies import get_current_user
 from services.auth_service import User
+from services.agent_runtime_answer_audit import get_answer_audit_trace, is_answer_audit_trace_id
+from services.analysis_report_workflow import (
+    AnalysisReportWorkflowRequest,
+    build_analysis_report_workflow_request,
+    run_analysis_report_workflow,
+)
+from services.factcheck_workflow import (
+    FactcheckWorkflowRequest,
+    build_factcheck_workflow_request,
+    run_factcheck_workflow,
+)
 from services.hermes_client import HermesProfile
 from services.hermes_model_control import maybe_handle_model_control
 from services.session_manager import get_session_manager, keeps_sessions_forever
@@ -65,6 +76,9 @@ NON_COMPLETED_REPLY_MARKERS = (
     "[已取消]",
     "[错误]",
 )
+
+ANALYSIS_REPORT_WORKFLOW_ERROR_PREFIX = "[错误] research-pack 报告生成工作流执行失败"
+FACTCHECK_WORKFLOW_ERROR_PREFIX = "[错误] 事实核查工作流执行失败"
 
 
 def _context_dump(context: object | None) -> dict:
@@ -172,6 +186,44 @@ async def _record_agent_workspace_artifact_background(
 
     await loop.run_in_executor(None, _write)
     return {"workspace_synced": True}
+
+
+def _analysis_report_workflow_request(
+    config: SpecialistAgentConfig,
+    req: ChatRequest,
+) -> AnalysisReportWorkflowRequest | None:
+    if config.tag != "analysis" and config.profile != "siq_analysis":
+        return None
+    return build_analysis_report_workflow_request(req.message, req.context)
+
+
+async def _run_analysis_report_workflow_reply(
+    workflow_request: AnalysisReportWorkflowRequest,
+) -> str:
+    try:
+        response = await asyncio.to_thread(run_analysis_report_workflow, workflow_request)
+    except Exception as exc:
+        return f"{ANALYSIS_REPORT_WORKFLOW_ERROR_PREFIX}: {exc}"
+    return response.reply
+
+
+def _factcheck_workflow_request(
+    config: SpecialistAgentConfig,
+    req: ChatRequest,
+) -> FactcheckWorkflowRequest | None:
+    if config.tag != "factchecker" and config.profile != "siq_factchecker":
+        return None
+    return build_factcheck_workflow_request(req.message, req.context)
+
+
+async def _run_factcheck_workflow_reply(
+    workflow_request: FactcheckWorkflowRequest,
+) -> str:
+    try:
+        response = await asyncio.to_thread(run_factcheck_workflow, workflow_request)
+    except Exception as exc:
+        return f"{FACTCHECK_WORKFLOW_ERROR_PREFIX}: {exc}"
+    return response.reply
 
 
 async def resolve_or_create_session(
@@ -493,6 +545,56 @@ def create_specialist_agent_router(config: SpecialistAgentConfig) -> APIRouter:
             await save_message(async_session, "assistant", control_reply, session_id)
             return ChatResponse(reply=control_reply, new_achievements=[])
 
+        workflow_request = _analysis_report_workflow_request(config, req)
+        if workflow_request:
+            await save_message(
+                async_session,
+                "user",
+                req.display_message or req.message,
+                session_id,
+                attachments=req.attachments,
+            )
+            reply = await _run_analysis_report_workflow_reply(workflow_request)
+            await save_message(async_session, "assistant", reply, session_id)
+            await _record_agent_workspace_artifact_background(
+                current_user_id=current_user_id,
+                config=config,
+                session_id=session_id,
+                req=req,
+                reply=reply,
+            )
+            get_session_manager().increment_message_count(session_id)
+            return ChatResponse(reply=reply, new_achievements=[])
+
+        factcheck_request = _factcheck_workflow_request(config, req)
+        if factcheck_request:
+            await save_message(
+                async_session,
+                "user",
+                req.display_message or req.message,
+                session_id,
+                attachments=req.attachments,
+            )
+            reply = await _run_factcheck_workflow_reply(factcheck_request)
+            await save_message(async_session, "assistant", reply, session_id)
+            await _record_agent_workspace_artifact_background(
+                current_user_id=current_user_id,
+                config=config,
+                session_id=session_id,
+                req=req,
+                reply=reply,
+            )
+            get_session_manager().increment_message_count(session_id)
+            return ChatResponse(reply=reply, new_achievements=[])
+
+        audit_trace_id: str | None = None
+
+        def _capture_answer_audit(record: dict) -> None:
+            nonlocal audit_trace_id
+            value = str((record or {}).get("trace_id") or "").strip()
+            if value:
+                audit_trace_id = value
+
         reply = await collect_chat_reply(
             req.message,
             async_session,
@@ -501,6 +603,7 @@ def create_specialist_agent_router(config: SpecialistAgentConfig) -> APIRouter:
             context=req.context,
             display_message=req.display_message,
             attachments=req.attachments,
+            answer_audit_callback=_capture_answer_audit,
         )
         await _record_agent_workspace_artifact_background(
             current_user_id=current_user_id,
@@ -510,7 +613,7 @@ def create_specialist_agent_router(config: SpecialistAgentConfig) -> APIRouter:
             reply=reply,
         )
         get_session_manager().increment_message_count(session_id)
-        return ChatResponse(reply=reply, new_achievements=[])
+        return ChatResponse(reply=reply, new_achievements=[], audit_trace_id=audit_trace_id)
 
     async def chat_stream(
         req: ChatRequest,
@@ -556,6 +659,88 @@ def create_specialist_agent_router(config: SpecialistAgentConfig) -> APIRouter:
                 }
                 return
 
+            workflow_request = _analysis_report_workflow_request(config, req)
+            if workflow_request:
+                await save_message(
+                    async_session,
+                    "user",
+                    req.display_message or req.message,
+                    session_id,
+                    attachments=req.attachments,
+                )
+                yield {
+                    "event": "progress",
+                    "data": json.dumps(
+                        {
+                            "status": "running",
+                            "title": "正在生成正式分析报告",
+                            "detail": "已切换到 research-pack 报告流水线，正在准备证据包、子智能体 pack 和 14 章报告。",
+                            "percent": 8,
+                            "source": "workflow",
+                        },
+                        ensure_ascii=False,
+                    ),
+                }
+                reply = await _run_analysis_report_workflow_reply(workflow_request)
+                await save_message(async_session, "assistant", reply, session_id)
+                done_payload = await _record_agent_workspace_artifact_background(
+                    current_user_id=current_user_id,
+                    config=config,
+                    session_id=session_id,
+                    req=req,
+                    reply=reply,
+                )
+                yield {
+                    "event": "done",
+                    "data": json.dumps(
+                        {"new_achievements": [], "content": reply, **done_payload},
+                        ensure_ascii=False,
+                    ),
+                }
+                get_session_manager().increment_message_count(session_id)
+                return
+
+            factcheck_request = _factcheck_workflow_request(config, req)
+            if factcheck_request:
+                await save_message(
+                    async_session,
+                    "user",
+                    req.display_message or req.message,
+                    session_id,
+                    attachments=req.attachments,
+                )
+                yield {
+                    "event": "progress",
+                    "data": json.dumps(
+                        {
+                            "status": "running",
+                            "title": "正在生成事实核查报告",
+                            "detail": "已切换到确定性 factcheck 工作流，正在核对数据、公式、证据链和 A 股风险项。",
+                            "percent": 10,
+                            "source": "workflow",
+                        },
+                        ensure_ascii=False,
+                    ),
+                }
+                reply = await _run_factcheck_workflow_reply(factcheck_request)
+                await save_message(async_session, "assistant", reply, session_id)
+                done_payload = await _record_agent_workspace_artifact_background(
+                    current_user_id=current_user_id,
+                    config=config,
+                    session_id=session_id,
+                    req=req,
+                    reply=reply,
+                )
+                yield {
+                    "event": "done",
+                    "data": json.dumps(
+                        {"new_achievements": [], "content": reply, **done_payload},
+                        ensure_ascii=False,
+                    ),
+                }
+                get_session_manager().increment_message_count(session_id)
+                return
+
             async for event in stream_chat_reply(
                 req.message,
                 request,
@@ -572,6 +757,7 @@ def create_specialist_agent_router(config: SpecialistAgentConfig) -> APIRouter:
                     req=req,
                     reply=reply,
                 ),
+                emit_audit_trace_id=True,
             ):
                 yield event
             get_session_manager().increment_message_count(session_id)
@@ -622,6 +808,18 @@ def create_specialist_agent_router(config: SpecialistAgentConfig) -> APIRouter:
         resolved_session_id = await resolve_or_create_session(async_session, current_user, config.tag, session_id)
         messages = await chat_history_response(async_session, resolved_session_id, limit=limit)
         return {"messages": messages, "session_id": resolved_session_id}
+
+    async def get_chat_answer_audit_trace(
+        trace_id: str,
+        current_user: User = Depends(get_current_user),
+    ):
+        if not is_answer_audit_trace_id(trace_id):
+            raise HTTPException(status_code=404, detail="Audit trace not found")
+        trace = get_answer_audit_trace(trace_id)
+        session_id = str((trace or {}).get("session_id") or "")
+        if not trace or not session_id.startswith(_user_session_prefix(str(current_user.id), config.tag)):
+            raise HTTPException(status_code=404, detail="Audit trace not found")
+        return {"trace_id": trace_id, "trace": trace}
 
     async def chat_sessions(
         limit: int = 100,
@@ -727,6 +925,12 @@ def create_specialist_agent_router(config: SpecialistAgentConfig) -> APIRouter:
     router.add_api_route("/chat/active", _set_endpoint_name(active_chat, f"{endpoint_prefix}_active_chat"), methods=["GET"])
     router.add_api_route("/chat/active/stream", _set_endpoint_name(active_chat_stream, f"{endpoint_prefix}_active_chat_stream"), methods=["GET"])
     router.add_api_route("/chat/history", _set_endpoint_name(chat_history, f"{endpoint_prefix}_chat_history"), methods=["GET"])
+    router.add_api_route(
+        "/chat/audit-traces/{trace_id}",
+        _set_endpoint_name(get_chat_answer_audit_trace, f"{endpoint_prefix}_chat_answer_audit_trace"),
+        methods=["GET"],
+        response_model=AnswerAuditTraceResponse,
+    )
     router.add_api_route("/chat/sessions", _set_endpoint_name(chat_sessions, f"{endpoint_prefix}_chat_sessions"), methods=["GET"])
     router.add_api_route("/chat/session", _set_endpoint_name(create_session, f"{endpoint_prefix}_create_session"), methods=["POST"])
     router.add_api_route("/chat/session/{session_id}", _set_endpoint_name(switch_session, f"{endpoint_prefix}_switch_session"), methods=["POST"])

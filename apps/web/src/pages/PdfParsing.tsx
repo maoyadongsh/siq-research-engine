@@ -20,7 +20,7 @@ const marketCopy: Record<PdfParsingMarket, { title: string; description: string;
   },
   HK: {
     title: '港股 PDF 解析',
-    description: '解析港股 PDF 披露文件，生成 Markdown、表格证据和通用入库材料。',
+    description: '解析港股 PDF 披露文件，生成 Markdown、表格证据和 PostgreSQL 入库材料。',
     emptyTitle: '选择一份港股 PDF 后开始解析',
     emptyDescription: '优先从 downloads/HK 中选择已下载 PDF；也支持上传本地 PDF。',
   },
@@ -38,13 +38,13 @@ const marketCopy: Record<PdfParsingMarket, { title: string; description: string;
   },
   JP: {
     title: '日股 PDF 解析',
-    description: '解析日股 PDF 披露文件，生成 Markdown、表格证据和通用入库材料。',
+    description: '解析日股 PDF 披露文件，生成 Markdown、表格证据和 PostgreSQL 入库材料。',
     emptyTitle: '选择一份日股 PDF 后开始解析',
     emptyDescription: '优先从 downloads/JP 中选择已下载 PDF；也支持上传本地 PDF。',
   },
   KR: {
     title: '韩股 PDF 解析',
-    description: '解析韩股 PDF 披露文件，生成 Markdown、表格证据和通用入库材料。',
+    description: '解析韩股 PDF 披露文件，生成 Markdown、表格证据和 PostgreSQL 入库材料。',
     emptyTitle: '选择一份韩股 PDF 后开始解析',
     emptyDescription: '优先从 downloads/KR 中选择已下载 PDF；DART HTML/XML 请使用韩股解析页的结构化入口。',
   },
@@ -54,6 +54,7 @@ export default function PdfParsing() {
   const [searchParams] = useSearchParams()
   const market = parseMarketParam(searchParams.get('market'))
   const copy = marketCopy[market]
+  const workflowMode = market === 'HK' || market === 'JP' || market === 'KR' || market === 'EU' ? 'generic' : 'standard'
 
   return (
     <PdfParsingWorkbench
@@ -62,7 +63,7 @@ export default function PdfParsing() {
       description={copy.description}
       emptyTitle={copy.emptyTitle}
       emptyDescription={copy.emptyDescription}
-      workflowMode="standard"
+      workflowMode={workflowMode}
       workflowTitle="数据管线"
       workflowDescription="解析产物与 results 目录保存全量解析信息；PostgreSQL 直接从解析产物入库，研究资产和派生知识资产由解析产物继续生成。"
     />

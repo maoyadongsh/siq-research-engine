@@ -2,6 +2,29 @@ import { expect, test, type Page, type Route } from '@playwright/test'
 import { e2eUser } from '../support/mockApi'
 
 const hkMvpPackagePath = 'data/wiki/hk/companies/00700-Tencent-Holdings/reports/2025-annual'
+type GenericPdfMarket = 'HK' | 'JP' | 'KR' | 'EU'
+
+const genericMarketRoutes: Record<GenericPdfMarket, string> = {
+  HK: '/parse-hk',
+  JP: '/parse-jp',
+  KR: '/parse-kr',
+  EU: '/parse-eu',
+}
+
+const genericPdfArtifacts = [
+  'result.md',
+  'result_complete.md',
+  'document_full.json',
+  'content_list_enhanced.json',
+  'financial_data.json',
+  'financial_checks.json',
+  'quality_report.json',
+  'table_relations.json',
+  'table_index.json',
+  'artifact_manifest.json',
+  'hash_manifest.json',
+  'metadata.json',
+]
 
 const hkMvpPackage = {
   package_path: hkMvpPackagePath,
@@ -137,6 +160,126 @@ async function mockSecondaryMarketMvpApis(page: Page) {
   return { importRequests, vectorRequests }
 }
 
+async function mockGenericMarketPostgresApis(page: Page, market: GenericPdfMarket) {
+  const taskId = `document-full-${market.toLowerCase()}-task`
+  const documentFullImportRequests: unknown[] = []
+  const artifacts = Object.fromEntries(
+    genericPdfArtifacts.map((name) => [name, { exists: true, size: 128, url: `/api/pdf/artifact/${taskId}/${name}` }]),
+  )
+  const task = {
+    task_id: taskId,
+    filename: `generic-${market}-annual-report.pdf`,
+    market,
+    status: 'completed',
+    stage: 'completed',
+    progress_percent: 100,
+    total_pages: 3,
+    processed_pages: 3,
+    markdown_ready: true,
+    created_at: '2026-07-01T08:00:00.000Z',
+    completed_at: '2026-07-01T08:01:00.000Z',
+  }
+
+  await page.addInitScript((user) => {
+    window.localStorage.setItem('access_token', 'playwright-token')
+    window.localStorage.setItem('user', JSON.stringify(user))
+    window.localStorage.setItem('theme', 'light')
+  }, e2eUser)
+
+  await page.route('**/*', async (route: Route) => {
+    const url = new URL(route.request().url())
+    const pathname = url.pathname
+
+    if (!pathname.startsWith('/api/')) {
+      await route.continue()
+      return
+    }
+
+    if (pathname === '/api/auth/me') {
+      await route.fulfill(json(e2eUser))
+      return
+    }
+
+    if (pathname === '/api/pdf/health') {
+      await route.fulfill(json({ mineru: true, vlm: true, submit_ready: true }))
+      return
+    }
+
+    if (pathname === '/api/pdf/tasks') {
+      await route.fulfill(json({ tasks: [task] }))
+      return
+    }
+
+    if (pathname === '/api/downloads/reports') {
+      await route.fulfill(json({ reports: [] }))
+      return
+    }
+
+    if (pathname === `/api/pdf/status/${taskId}`) {
+      await route.fulfill(json({ ...task, logs: [], log_count: 0 }))
+      return
+    }
+
+    if (pathname === `/api/pdf/result/${taskId}`) {
+      await route.fulfill(json({
+        artifacts,
+        markdown: `# ${market} document_full fixture\n\nPostgreSQL 入库按钮使用通用市场解析产物。`,
+      }))
+      return
+    }
+
+    if (pathname === `/api/pdf/quality/${taskId}`) {
+      await route.fulfill(json({
+        quality: {
+          overall_status: 'ok',
+          market,
+          page_count: 3,
+          table_count: 2,
+          core_tables: [],
+          key_candidates: [],
+        },
+      }))
+      return
+    }
+
+    if (pathname === `/api/workflow/task/${taskId}/status`) {
+      await route.fulfill(json({
+        documentFull: { status: 'ready' },
+        artifactBundle: {
+          status: 'ready',
+          ready: true,
+          readyCount: genericPdfArtifacts.length,
+          total: genericPdfArtifacts.length,
+          missing: [],
+          message: `${genericPdfArtifacts.length}/${genericPdfArtifacts.length} 个核心文件已生成`,
+        },
+        wiki: { status: 'ready', message: 'LLM-Wiki 已由解析产物生成' },
+        semantic: {
+          status: 'ready',
+          counts: { facts: 5, evidence: 8 },
+          llm: { status: 'ready', counts: { claims: 2, risks: 1 } },
+        },
+        database: { status: 'pending', message: '等待 PostgreSQL 入库' },
+      }))
+      return
+    }
+
+    if (pathname === '/api/market-reports/document-full/import') {
+      documentFullImportRequests.push(route.request().postDataJSON())
+      await route.fulfill(json({
+        ok: true,
+        stdout: `${market} document_full PostgreSQL import accepted`,
+        parse_run_id: `parse-${market.toLowerCase()}-document-full`,
+      }))
+      return
+    }
+
+    await route.fulfill(json({ items: [], data: [], results: [], artifacts: [] }))
+  })
+
+  return { taskId, documentFullImportRequests }
+}
+
 test.describe('二级市场 MVP 闭环', () => {
   test('港股 PDF 解析页不展示 Wiki 证据包质量门禁面板', async ({ page }) => {
     const { importRequests, vectorRequests } = await mockSecondaryMarketMvpApis(page)
@@ -144,7 +287,7 @@ test.describe('二级市场 MVP 闭环', () => {
     await page.goto('/parse-hk')
 
     await expect(page.getByRole('heading', { name: '港股 PDF 解析' })).toBeVisible()
-    await expect(page.getByText('PostgreSQL 直接从解析产物入库')).toBeVisible()
+    await expect(page.getByText('PostgreSQL 入库材料')).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Wiki 证据包' })).toHaveCount(0)
     await expect(page.getByText('00700 Tencent Holdings Limited')).toHaveCount(0)
     await expect(page.getByText('质量 warning')).toHaveCount(0)
@@ -154,4 +297,23 @@ test.describe('二级市场 MVP 闭环', () => {
     expect(importRequests).toEqual([])
     expect(vectorRequests).toEqual([])
   })
+
+  for (const market of Object.keys(genericMarketRoutes) as GenericPdfMarket[]) {
+    test(`${market} PostgreSQL 入库按钮调用 document_full 通用入库接口`, async ({ page }) => {
+      const { taskId, documentFullImportRequests } = await mockGenericMarketPostgresApis(page, market)
+
+      await page.goto(`${genericMarketRoutes[market]}?task=${encodeURIComponent(taskId)}`)
+
+      await expect(page.getByRole('heading', { name: /PDF 解析/ })).toBeVisible()
+      await expect(page.getByRole('heading', { name: '数据管线' })).toBeVisible()
+      const postgresButton = page.getByRole('button', { name: 'PostgreSQL入库' })
+      await expect(postgresButton).toBeEnabled()
+
+      await postgresButton.click()
+
+      await expect.poll(() => documentFullImportRequests).toEqual([
+        { market, task_id: taskId, ddl: true },
+      ])
+    })
+  }
 })

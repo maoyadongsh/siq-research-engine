@@ -74,6 +74,109 @@ def test_market_document_full_importer_rejects_single_file_market_mismatch(tmp_p
         raise AssertionError("expected market mismatch")
 
 
+def test_market_document_full_importer_rejects_package_directory_without_recursive_scan(tmp_path, monkeypatch):
+    importer = _load_module("market_document_full_importer_package_guard", "import_market_document_full_to_postgres.py")
+    package_dir = tmp_path / "wiki" / "hk" / "companies" / "00700-Tencent" / "reports" / "2025-annual"
+    (package_dir / "metrics").mkdir(parents=True)
+    (package_dir / "qa").mkdir()
+    (package_dir / "metrics" / "financial_data.json").write_text('{"statements":[{"items":[{"value":1}]}]}', encoding="utf-8")
+    (package_dir / "qa" / "source_map.json").write_text('{"entries":[{"evidence_id":"e1"}]}', encoding="utf-8")
+
+    def fail_connect(*_args, **_kwargs):
+        raise AssertionError("package directory should fail before connecting")
+
+    monkeypatch.setattr(importer, "connect", fail_connect)
+
+    try:
+        importer.import_document_full(package_dir, market="HK")
+    except SystemExit as exc:
+        assert "pass a document_full.json file" in str(exc)
+    else:
+        raise AssertionError("expected directory input to be rejected unless it contains/points to document_full.json")
+
+
+def test_market_document_full_importer_reads_only_document_full_from_package_dir(tmp_path, monkeypatch):
+    importer = _load_module("market_document_full_importer_document_full_only", "import_market_document_full_to_postgres.py")
+    base = _load_module("market_document_full_base_document_full_only", "market_document_full_rules/base.py")
+    package_dir = tmp_path / "wiki" / "hk" / "companies" / "00700-Tencent" / "reports" / "2025-annual"
+    document_full = package_dir / "document_full.json"
+    document_full.parent.mkdir(parents=True)
+    document_full.write_text('{"metadata":{"market":"HK"}}', encoding="utf-8")
+    for rel_path in (
+        "metrics/financial_data.json",
+        "metrics/financial_checks.json",
+        "qa/source_map.json",
+        "qa/quality_report.json",
+        "tables/table_index.json",
+        "xbrl/facts_raw.json",
+    ):
+        path = package_dir / rel_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{not valid json", encoding="utf-8")
+
+    original_read_json = importer.read_json
+    read_paths = []
+
+    def read_json_guard(path):
+        resolved = Path(path).resolve()
+        read_paths.append(resolved)
+        assert resolved == document_full.resolve()
+        return original_read_json(path)
+
+    class FakeRule:
+        def build_rows(self, _document_full, context):
+            assert context.document_full_path == document_full.resolve()
+            assert context.source_root == package_dir.resolve()
+            return base.MarketDocumentFullRows(
+                company={"company_id": "HK:00700", "ticker": "00700"},
+                filing={"filing_id": "HK:f1", "company_id": "HK:00700"},
+                parse_run={"parse_run_id": "parse-document-full-only"},
+                statement_items=[
+                    {
+                        "item_uid": "item-1",
+                        "statement_type": "income_statement",
+                        "canonical_name": "revenue",
+                        "value": "100",
+                    }
+                ],
+                chunks=[{"chunk_uid": "chunk-1", "text": "Revenue 100"}],
+                citations=[
+                    {
+                        "evidence_id": "ev-1",
+                        "source_type": "table_cell",
+                        "table_index": 1,
+                        "quote_text": "Revenue 100",
+                    }
+                ],
+            )
+
+    class FakeWriter:
+        def __init__(self, _conn, *, market, schema):
+            assert market == "HK"
+            assert schema == "pdf2md_hk"
+
+        def import_rows(self, rows):
+            return rows.parse_run["parse_run_id"]
+
+    class FakeConn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def commit(self):
+            pass
+
+    monkeypatch.setattr(importer, "read_json", read_json_guard)
+    monkeypatch.setattr(importer, "rule_for_market", lambda _market: FakeRule())
+    monkeypatch.setattr(importer, "connect", lambda _url: FakeConn())
+    monkeypatch.setattr(importer, "MarketDocumentFullWriter", FakeWriter)
+
+    assert importer.import_document_full(package_dir, market="HK") == "parse-document-full-only"
+    assert read_paths == [document_full.resolve()]
+
+
 def test_market_document_full_importer_allows_explicit_market_when_json_has_no_market(tmp_path, monkeypatch):
     importer = _load_module("market_document_full_importer_explicit", "import_market_document_full_to_postgres.py")
     document_full = tmp_path / "task-1" / "document_full.json"
@@ -152,7 +255,40 @@ def test_market_document_full_importer_rejects_metadata_only_xbrl_facts_by_defau
         raise AssertionError("expected metadata-only import guard")
 
 
-def test_market_document_full_importer_allows_zero_citations_when_facts_and_chunks_exist(tmp_path, monkeypatch):
+def test_us_sec_rule_backfills_cik_from_filing_id(tmp_path):
+    rows = _build_rows(
+        "US",
+        {
+            "filing": {
+                "market": "US",
+                "ticker": "META",
+                "company_name": "Meta Platforms, Inc.",
+                "filing_id": "US:0001326801:0001628280-26-003942",
+                "accession_number": "0001628280-26-003942",
+                "form": "10-K",
+                "fiscal_year": 2025,
+            },
+            "facts": [
+                {
+                    "concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+                    "label": "Revenue",
+                    "value_numeric": "100",
+                    "value_text": "100",
+                    "unit": "iso4217:USD",
+                    "period_end": "2025-12-31",
+                    "html_anchor": "f-revenue-2025",
+                }
+            ],
+        },
+        tmp_path,
+    )
+
+    assert rows.company["cik"] == "0001326801"
+    assert rows.company["company_id"] == "US:CIK0001326801"
+    assert rows.filing["company_id"] == "US:CIK0001326801"
+
+
+def test_market_document_full_importer_rejects_zero_citations_when_facts_and_chunks_exist(tmp_path, monkeypatch):
     importer = _load_module("market_document_full_importer_zero_citations", "import_market_document_full_to_postgres.py")
     document_full = tmp_path / "document_full.json"
     document_full.write_text('{"metadata":{"market":"HK"}}', encoding="utf-8")
@@ -177,30 +313,19 @@ def test_market_document_full_importer_allows_zero_citations_when_facts_and_chun
                 citations=[],
             )
 
-    class FakeWriter:
-        def __init__(self, _conn, *, market, schema):
-            assert market == "HK"
-            assert schema == "pdf2md_hk"
-
-        def import_rows(self, rows):
-            assert rows.citations == []
-            return rows.parse_run["parse_run_id"]
-
-    class FakeConn:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_exc):
-            return False
-
-        def commit(self):
-            pass
-
     monkeypatch.setattr(importer, "rule_for_market", lambda _market: FakeRule())
-    monkeypatch.setattr(importer, "connect", lambda _url: FakeConn())
-    monkeypatch.setattr(importer, "MarketDocumentFullWriter", FakeWriter)
+    monkeypatch.setattr(
+        importer,
+        "connect",
+        lambda _url: (_ for _ in ()).throw(AssertionError("zero-citation import should fail before connecting")),
+    )
 
-    assert importer.import_document_full(document_full, market="HK") == "parse-hk-zero-citations"
+    try:
+        importer.import_document_full(document_full, market="HK")
+    except SystemExit as exc:
+        assert "produced zero evidence citations" in str(exc)
+    else:
+        raise AssertionError("expected zero-citation import guard")
 
 
 def test_market_document_full_importer_accepts_us_sec_market_alias(tmp_path, monkeypatch):
@@ -319,6 +444,25 @@ def test_jp_kr_rules_map_market_specific_names(tmp_path):
 
     assert jp_rows.statement_items[0]["canonical_name"] == "operating_profit"
     assert kr_rows.statement_items[0]["canonical_name"] == "operating_profit"
+
+
+def test_kr_rules_map_current_assets_to_common_core(tmp_path):
+    document_full = {
+        "metadata": {"market": "KR", "ticker": "005930", "company_name": "Samsung", "corp_code": "00126380"},
+        "financial_data": {
+            "statements": [
+                {
+                    "statement_type": "balance_sheet",
+                    "items": [{"local_name": "유동자산", "period_key": "2025-12-31", "value": "247684612"}],
+                }
+            ]
+        },
+    }
+
+    rows = _build_rows("KR", document_full, tmp_path)
+
+    assert rows.statement_items[0]["canonical_name"] == "current_assets"
+    assert rows.statement_items[0]["canonical_scope"] == "common_core"
 
 
 def test_eu_rules_preserve_country_currency_and_ifrs_tags(tmp_path):

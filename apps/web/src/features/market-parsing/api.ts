@@ -20,9 +20,17 @@ export interface UsSecCaseSetItem {
   full_document_status?: string
   full_document_ready?: boolean
   full_document_paths?: Record<string, unknown>
+  document_full_path?: string
   parser_result_dir?: string
   parser_result_task_id?: string
   package_path?: string
+  semantic_status?: {
+    status?: string
+    counts?: { segments?: number; facts?: number; evidence?: number }
+    llm?: { status?: string; counts?: { claims?: number; risks?: number }; message?: string }
+    message?: string
+    reportId?: string
+  }
 }
 
 export interface UsSecCaseSetStatus {
@@ -53,8 +61,11 @@ export interface UsSecCaseSetStatus {
 
 export interface UsSecPackageDetail {
   package_path?: string
+  document_full_path?: string
+  full_document_paths?: Record<string, unknown>
   parser_result_dir?: string
   parser_result_task_id?: string
+  semantic_status?: UsSecCaseSetItem['semantic_status']
   manifest?: Record<string, unknown>
   quality?: Record<string, unknown>
   quality_gates?: MarketPackageQualityGates
@@ -394,7 +405,7 @@ export async function fetchMarketPackageDetail(market: MarketCode, packagePath: 
 export async function runMarketPackageImport(market: MarketCode, packagePath: string, ddl = false, force = false): Promise<MarketPackageActionResponse> {
   const d = await apiJson<MarketPackageActionResponse>('/api/market-reports/packages/import', {
     method: 'POST',
-    body: { market, package_path: packagePath, ddl, force },
+    body: { market, package_path: packagePath, ddl, force, legacy_package_import: true },
   })
   if (d.ok === false) throw new Error(String(d.stderr || d.stdout || '解析产物包入库失败'))
   return d

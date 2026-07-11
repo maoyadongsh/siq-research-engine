@@ -29,6 +29,8 @@ parser / market package 产物
 | `import_eu_evidence_package_to_postgres.py` | 导入欧股 package |
 | `import_market_xbrl_package_to_postgres.py` | 导入多市场 XBRL package |
 | `import_sec_filing_to_postgres.py` | 导入美股 SEC package |
+| `analyze_market_document_full_duplicates.py` | 只读分析非 A 市场同一 filing 下的历史重复 parse runs |
+| `cleanup_market_document_full_parse_runs.py` | 显式清理非 A 市场 obsolete parse runs，默认 dry-run，拒绝 CN/A 股 |
 | `financial_query_api.py` | 只读财务查询 API |
 | `stock_name_to_code.py` | 名称与代码映射辅助 |
 
@@ -69,6 +71,19 @@ cd /home/maoyd/siq-research-engine
 uvicorn db.imports.financial_query_api:app --host 0.0.0.0 --port 18188
 ```
 
+### 非 A 市场重复入库治理
+
+先只读分析，再 dry-run，最后才 `--apply`。这些工具只允许 HK/JP/KR/EU/US；A 股/CN 使用旧 `siq.pdf2md` 维护工具，不走这里。
+
+```bash
+cd /home/maoyd/siq-research-engine
+python3 db/imports/analyze_market_document_full_duplicates.py --market HK --json
+python3 db/imports/cleanup_market_document_full_parse_runs.py --market HK --parse-run-id <obsolete_parse_run_id>
+python3 db/imports/cleanup_market_document_full_parse_runs.py --market HK --parse-run-id <obsolete_parse_run_id> --apply
+```
+
+如果要按时间清理，必须优先加 `--company-id`、`--filing-id` 或具体 `--parse-run-id`。整市场 `--older-than` 需要额外传 `--allow-market-wide-older-than`，只应在审完 dry-run 计数后使用。
+
 ## 关键边界或治理规则
 
 - importer 负责“结构化写入”，不负责重新解释业务事实。
@@ -76,6 +91,7 @@ uvicorn db.imports.financial_query_api:app --host 0.0.0.0 --port 18188
 - 市场隔离必须清晰，schema、company identity、package path 和 report id 不可混用。
 - 数据库口令和连接串只通过环境变量提供，不写入脚本或 README。
 - 幂等、limit、递归处理和只读辅助能力应优先于一次性脚本式导入。
+- 非 A 市场历史重复入库清理必须先 analyze，再 cleanup dry-run；不要用清理工具触碰 A 股/CN 数据。
 
 ## 维护建议
 

@@ -168,6 +168,7 @@ COMMON_CORE_ALIASES = {
         "us-gaap:netincomeloss",
     },
     "total_assets": {"total_assets", "资产总计", "資產總額", "資産合計", "자산총계", "ifrs-full:assets", "us-gaap:assets"},
+    "current_assets": {"current_assets", "current assets", "流动资产", "流動資產", "流動資産", "유동자산"},
     "total_liabilities": {"total_liabilities", "负债合计", "負債總額", "負債合計", "부채총계", "ifrs-full:liabilities"},
     "total_equity": {"total_equity", "equity", "权益合计", "權益總額", "資本合計", "자본총계", "ifrs-full:equity"},
     "operating_cash_flow": {

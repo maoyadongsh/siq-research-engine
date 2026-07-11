@@ -87,7 +87,14 @@ def test_market_package_import_queues_background_job(monkeypatch):
 
     result = asyncio.run(
         market_reports.import_market_package(
-            JsonRequest({"market": "US", "package_path": "data/wiki/us_sec/AAPL/package", "ddl": True}),
+            JsonRequest(
+                {
+                    "market": "US",
+                    "package_path": "data/wiki/us_sec/AAPL/package",
+                    "ddl": True,
+                    "legacy_package_import": True,
+                }
+            ),
             wait=False,
             _ops_user=DummyUser(),
         )

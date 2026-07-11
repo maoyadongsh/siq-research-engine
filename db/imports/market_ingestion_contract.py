@@ -653,10 +653,12 @@ select distinct on (f.filing_id)
     f.*,
     pr.parse_run_id,
     pr.completed_at,
+    pr.status,
     pr.status as parse_status,
     pr.wiki_package_path
 from {schema}.filings f
 join {schema}.parse_runs pr on pr.filing_id = f.filing_id
+where pr.status in ('pass', 'warning', 'completed', 'success')
 order by f.filing_id, pr.completed_at desc nulls last, pr.parse_run_id desc;
 
 create or replace view {schema}.financial_items_enriched as
@@ -822,5 +824,5 @@ select
     pr.wiki_package_path
 from {schema}.financial_items_enriched e
 join {schema}.filings f on f.filing_id = e.filing_id
-join {schema}.parse_runs pr on pr.parse_run_id = e.parse_run_id;
+join {schema}.v_latest_parse_runs pr on pr.parse_run_id = e.parse_run_id;
 """

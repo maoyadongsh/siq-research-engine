@@ -226,6 +226,7 @@ function OpenChatBot({ onClose }: { onClose: () => void }) {
         <ChatMessageList
           messages={messages}
           endRef={messagesEnd}
+          auditTraceApiPrefix="/api"
           compact
           emptyAvatar={<AgentFairy state={fairyState} size="float" className="mb-3" />}
           emptyDescription="你好！我是财报分析助手，可以回答关于已入库财报的问题。"

@@ -707,6 +707,8 @@ from sec_us.financial_statement_items f
 join sec_us.v_latest_parse_runs r using (parse_run_id)
 where f.statement_type = 'cash_flow_statement';
 
+drop view if exists sec_us.v_agent_financial_facts cascade;
+drop view if exists sec_us.v_agent_financial_facts cascade;
 create or replace view sec_us.v_agent_financial_facts as
 select
     c.company_id,
@@ -756,7 +758,7 @@ select
 from sec_us.financial_statement_items fsi
 join sec_us.filings f on f.filing_id = fsi.filing_id
 join sec_us.companies c on c.company_id = f.company_id
-join sec_us.parse_runs pr on pr.parse_run_id = fsi.parse_run_id
+join sec_us.v_latest_parse_runs pr on pr.parse_run_id = fsi.parse_run_id
 left join sec_us.evidence_citations ec on ec.evidence_id = fsi.evidence_id;
 
 create or replace view sec_us.v_latest_company_reports as
@@ -793,3 +795,168 @@ left join sec_us.parse_runs pr on pr.parse_run_id = (
     limit 1
 )
 order by f.company_id, coalesce(f.report_type, f.form), f.period_end desc nulls last, f.filing_date desc nulls last, f.filing_id desc;
+
+create index if not exists idx_sec_us_xbrl_facts_raw_parse_run on sec_us.xbrl_facts_raw (parse_run_id);
+create index if not exists idx_sec_us_evidence_citations_parse_run on sec_us.evidence_citations (parse_run_id);
+create index if not exists idx_sec_us_financial_facts_parse_run on sec_us.financial_facts (parse_run_id);
+create index if not exists idx_sec_us_operating_metric_facts_parse_run on sec_us.operating_metric_facts (parse_run_id);
+create index if not exists idx_sec_us_retrieval_chunks_parse_run on sec_us.retrieval_chunks (parse_run_id);
+create index if not exists idx_sec_us_financial_statement_items_parse_run on sec_us.financial_statement_items (parse_run_id);
+create index if not exists idx_sec_us_financial_key_metrics_parse_run on sec_us.financial_key_metrics (parse_run_id);
+create index if not exists idx_sec_us_financial_balance_sheet_items_parse_run on sec_us.financial_balance_sheet_items (parse_run_id);
+create index if not exists idx_sec_us_financial_income_statement_items_parse_run on sec_us.financial_income_statement_items (parse_run_id);
+create index if not exists idx_sec_us_financial_cash_flow_statement_items_parse_run on sec_us.financial_cash_flow_statement_items (parse_run_id);
+create index if not exists idx_sec_us_quality_checks_parse_run on sec_us.quality_checks (parse_run_id);
+create index if not exists idx_sec_us_financial_items_enriched_parse_run on sec_us.financial_items_enriched (parse_run_id);
+
+drop view if exists sec_us.v_agent_financial_facts cascade;
+create or replace view sec_us.v_agent_financial_facts as
+with agent_items as (
+    select
+        item_uid, filing_id, parse_run_id, statement_id, statement_type, statement_name,
+        item_index, period_key, item_name, canonical_name, local_name, concept, taxonomy,
+        label, context_ref, value, raw_value, unit, currency, fact_currency,
+        reporting_currency, presentation_currency, converted_currency, converted_value,
+        fx_rate_date, fx_rate_source, scale, period_start, period_end, confidence,
+        source_page_number, source_table_index, source_row_index, source_column_index,
+        source_bbox, evidence_id, raw
+    from sec_us.financial_statement_items
+    union all
+    select
+        item_uid, filing_id, parse_run_id, statement_id, statement_type, statement_name,
+        item_index, period_key, item_name, canonical_name, local_name, concept, taxonomy,
+        label, context_ref, value, raw_value, unit, currency, fact_currency,
+        reporting_currency, presentation_currency, converted_currency, converted_value,
+        fx_rate_date, fx_rate_source, scale, period_start, period_end, confidence,
+        source_page_number, source_table_index, source_row_index, source_column_index,
+        source_bbox, evidence_id, raw
+    from sec_us.financial_key_metrics
+)
+select
+    c.company_id,
+    c.ticker as company_ticker,
+    c.cik,
+    c.company_name,
+    f.filing_id,
+    f.accession_number,
+    coalesce(f.report_type, f.form) as report_type,
+    f.form,
+    f.fiscal_year,
+    f.fiscal_period,
+    f.period_end as filing_period_end,
+    f.filing_date,
+    f.accepted_at,
+    pr.parse_run_id,
+    pr.completed_at as parse_completed_at,
+    pr.wiki_package_path,
+    fsi.item_uid,
+    fsi.statement_id,
+    fsi.statement_type,
+    fsi.statement_name,
+    fsi.item_index,
+    fsi.canonical_name,
+    fsi.canonical_name as canonical_label,
+    fsi.item_name,
+    fsi.item_name as item_name_raw,
+    fsi.local_name,
+    null::text as metric_name,
+    null::text as metric_name_raw,
+    fsi.label,
+    fsi.concept,
+    fsi.concept as xbrl_tag,
+    fsi.taxonomy as taxonomy_tag,
+    fsi.context_ref,
+    fsi.period_key,
+    fsi.period_start,
+    fsi.period_end,
+    fsi.value,
+    fsi.raw_value,
+    fsi.unit,
+    fsi.currency,
+    fsi.fact_currency,
+    fsi.reporting_currency,
+    fsi.presentation_currency,
+    fsi.converted_currency,
+    fsi.converted_value,
+    fsi.fx_rate_date,
+    fsi.fx_rate_source,
+    fsi.scale,
+    fsi.confidence,
+    coalesce(ec.evidence_id, fsi.evidence_id) as evidence_id,
+    coalesce(ec.page_number, fsi.source_page_number) as evidence_page_number,
+    coalesce(ec.table_index, fsi.source_table_index) as evidence_table_index,
+    coalesce(ec.row_index, fsi.source_row_index) as evidence_row_index,
+    coalesce(ec.column_index, fsi.source_column_index) as evidence_column_index,
+    coalesce(ec.bbox, fsi.source_bbox) as evidence_bbox,
+    ec.quote_text,
+    coalesce(ec.source_url, f.source_url) as source_url,
+    fsi.raw
+from agent_items fsi
+join sec_us.filings f on f.filing_id = fsi.filing_id
+join sec_us.companies c on c.company_id = f.company_id
+join sec_us.v_latest_parse_runs pr on pr.parse_run_id = fsi.parse_run_id
+left join sec_us.evidence_citations ec on ec.evidence_id = fsi.evidence_id
+union all
+select
+    c.company_id,
+    c.ticker as company_ticker,
+    c.cik,
+    c.company_name,
+    f.filing_id,
+    f.accession_number,
+    coalesce(f.report_type, f.form) as report_type,
+    f.form,
+    coalesce(x.fiscal_year, f.fiscal_year) as fiscal_year,
+    coalesce(x.fiscal_period, f.fiscal_period) as fiscal_period,
+    f.period_end as filing_period_end,
+    f.filing_date,
+    f.accepted_at,
+    pr.parse_run_id,
+    pr.completed_at as parse_completed_at,
+    pr.wiki_package_path,
+    x.fact_id as item_uid,
+    null::text as statement_id,
+    'xbrl_fact'::text as statement_type,
+    'XBRL facts'::text as statement_name,
+    null::integer as item_index,
+    null::text as canonical_name,
+    null::text as canonical_label,
+    x.label as item_name,
+    x.label as item_name_raw,
+    x.label as local_name,
+    null::text as metric_name,
+    null::text as metric_name_raw,
+    x.label,
+    x.concept,
+    x.concept as xbrl_tag,
+    x.taxonomy as taxonomy_tag,
+    x.context_ref,
+    coalesce(x.period_end::text, x.context_ref) as period_key,
+    x.period_start,
+    x.period_end,
+    x.value_numeric as value,
+    x.value_text as raw_value,
+    coalesce(x.unit, x.unit_ref) as unit,
+    null::text as currency,
+    null::text as fact_currency,
+    null::text as reporting_currency,
+    null::text as presentation_currency,
+    null::text as converted_currency,
+    null::numeric as converted_value,
+    null::date as fx_rate_date,
+    null::text as fx_rate_source,
+    null::numeric as scale,
+    null::numeric as confidence,
+    null::text as evidence_id,
+    null::integer as evidence_page_number,
+    null::integer as evidence_table_index,
+    null::integer as evidence_row_index,
+    null::integer as evidence_column_index,
+    null::jsonb as evidence_bbox,
+    null::text as quote_text,
+    f.source_url,
+    x.raw
+from sec_us.xbrl_facts_raw x
+join sec_us.filings f on f.filing_id = x.filing_id
+join sec_us.companies c on c.company_id = f.company_id
+join sec_us.v_latest_parse_runs pr on pr.parse_run_id = x.parse_run_id;

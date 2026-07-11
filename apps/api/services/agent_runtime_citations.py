@@ -668,9 +668,12 @@ def _render_postgres_fallback_context(
     stock_code = parsed.get("resolved_stock_code") or parsed.get("stock_code") or "未返回"
     company_id = parsed.get("resolved_company_id") or "未返回"
     source_tables = [str(item) for item in (result.get("source_tables") or [])]
+    schema_label = "pdf2md"
+    if source_tables and "." in source_tables[0]:
+        schema_label = source_tables[0].split(".", 1)[0]
 
     lines = [
-        "以下是后端在本地 Wiki 确定性证据未命中或命中不足时，从 PostgreSQL `pdf2md` schema 只读查询得到的补充证据。模型可以基于这些数据回答，但必须说明这是数据库 fallback；若后续定位到 Wiki 结构化证据，默认以 Wiki 为主。",
+        f"以下是后端在本地 Wiki 确定性证据未命中或命中不足时，从 PostgreSQL `{schema_label}` schema 只读查询得到的补充证据。模型可以基于这些数据回答，但必须说明这是数据库 fallback；若后续定位到 Wiki 结构化证据，默认以 Wiki 为主。",
         "输出要求：",
         "- 不得把 PostgreSQL fallback 伪装成 Wiki 证据。",
         "- 只使用下方返回行里的数值、期间、公司、task_id、pdf_page、table_index 和来源表；字段为空时写 `未返回`。",

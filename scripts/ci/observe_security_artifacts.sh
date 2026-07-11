@@ -60,6 +60,8 @@ run_local_sbom() {
 
 run_docker_trivy_high() {
     docker run --rm \
+        --user "$(id -u):$(id -g)" \
+        --env TRIVY_CACHE_DIR=/tmp/trivy-cache \
         -v "$ROOT_DIR:/repo:ro" \
         -v "$OUT_DIR:/out" \
         "$TRIVY_IMAGE" fs \
@@ -78,6 +80,8 @@ run_docker_trivy_high() {
 
 run_docker_sbom() {
     docker run --rm \
+        --user "$(id -u):$(id -g)" \
+        --env TRIVY_CACHE_DIR=/tmp/trivy-cache \
         -v "$ROOT_DIR:/repo:ro" \
         -v "$OUT_DIR:/out" \
         "$TRIVY_IMAGE" fs \

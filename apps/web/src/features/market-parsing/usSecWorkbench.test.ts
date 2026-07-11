@@ -12,6 +12,7 @@ const {
   deriveUsSecQualitySummary,
   deriveUsSecRecentTasks,
   deriveUsSecWorkflowSummary,
+  deriveUsSecDocumentFullImportPath,
   findUsSecCaseItem,
   usSecDocumentKind,
 } = await import('./usSecWorkbench.ts')
@@ -204,6 +205,69 @@ test('deriveUsSecRecentTasks exposes parsed SEC packages as shared PDF-surface t
   assert.equal(rows[0].statusText, 'PostgreSQL 已入库')
 })
 
+test('deriveUsSecRecentTasks derives document_full path from full_document_paths', () => {
+  const statusWithExplicitPath: UsSecCaseSetStatus = {
+    ...status,
+    items: [{
+      ...(status.items?.[0] || {}),
+      parser_result_dir: undefined,
+      parser_result_task_id: undefined,
+      full_document_paths: {
+        document_full_path: 'data/parser-results/us-sec/NVDA-explicit/document_full.json',
+      },
+    }],
+  }
+  const rows = deriveUsSecRecentTasks(statusWithExplicitPath)
+
+  assert.equal(rows[0].documentFullPath, 'data/parser-results/us-sec/NVDA-explicit/document_full.json')
+  assert.equal(deriveUsSecDocumentFullImportPath(rows[0]), 'data/parser-results/us-sec/NVDA-explicit/document_full.json')
+})
+
+test('deriveUsSecRecentTasks ignores package-local document_full path objects and falls back to parser results', () => {
+  const statusWithPackageLocalPath: UsSecCaseSetStatus = {
+    ...status,
+    items: [{
+      ...(status.items?.[0] || {}),
+      parser_result_dir: 'data/parser-results/us-sec/NVDA-canonical',
+      parser_result_task_id: 'NVDA-canonical',
+      full_document_paths: {
+        document_full: { path: 'parser/document_full.json', exists: true },
+      },
+    }],
+  }
+  const rows = deriveUsSecRecentTasks(statusWithPackageLocalPath)
+
+  assert.equal(rows[0].documentFullPath, 'data/parser-results/us-sec/NVDA-canonical/document_full.json')
+  assert.equal(deriveUsSecDocumentFullImportPath(rows[0]), 'data/parser-results/us-sec/NVDA-canonical/document_full.json')
+})
+
+test('deriveUsSecWorkflowSummary enables PostgreSQL actions for package-local document_full fallback paths', () => {
+  const statusWithPackageLocalPath: UsSecCaseSetStatus = {
+    ...status,
+    items: [{
+      ...(status.items?.[0] || {}),
+      parser_result_dir: 'data/parser-results/us-sec/NVDA-canonical',
+      parser_result_task_id: 'NVDA-canonical',
+      full_document_paths: {
+        document_full: { path: 'parser/document_full.json', exists: true },
+      },
+    }],
+  }
+  const [task] = deriveUsSecRecentTasks(statusWithPackageLocalPath)
+  const documentFullPath = deriveUsSecDocumentFullImportPath(task)
+  const workflow = deriveUsSecWorkflowSummary(statusWithPackageLocalPath, packageDetail, null, {
+    documentFullPath,
+    taskId: task.id,
+  })
+  const postgresAction = workflow.actions.find((action) => action.key === 'postgres')
+
+  assert.equal(documentFullPath, 'data/parser-results/us-sec/NVDA-canonical/document_full.json')
+  assert.equal(workflow.runAll.disabled, false)
+  assert.equal(workflow.runAll.disabledReason, undefined)
+  assert.equal(postgresAction?.disabled, false)
+  assert.equal(postgresAction?.disabledReason, undefined)
+})
+
 test('deriveUsSecArtifactManifest maps SEC package outputs to result chips', () => {
   const manifest = deriveUsSecArtifactManifest(packageDetail)
   assert.equal(manifest.readyCount, 20)
@@ -230,18 +294,39 @@ test('deriveUsSecArtifactManifest maps SEC package outputs to result chips', () 
     'qa/source_map.json',
     'qa/extraction_warnings.json',
   ])
-  assert.equal(manifest.checks[0].label, 'SEC 解析产物包')
+  assert.equal(manifest.checks[0].label, 'SEC 解析产物')
   assert.equal(manifest.checks[0].status, 'ready')
-  assert.equal(manifest.checks.find((check) => check.label === 'PostgreSQL 入库脚本')?.description, 'db/imports/import_us_sec_document_full_to_postgres.py')
+  assert.equal(manifest.checks.find((check) => check.label === 'PostgreSQL入库脚本')?.description, 'db/imports/import_us_sec_document_full_to_postgres.py')
 })
 
 test('deriveUsSecWorkflowSummary exposes the four-stage US pipeline', () => {
   const workflow = deriveUsSecWorkflowSummary(status, packageDetail)
-  assert.deepEqual(workflow.steps.map((step) => step.label), ['解析产物包', '派生知识资产', 'Wiki 语义增强', 'PostgreSQL'])
+  assert.deepEqual(workflow.steps.map((step) => step.label), ['解析产物', 'LLM-Wiki', 'Wiki语义增强', 'PostgreSQL'])
   assert.equal(workflow.cards[0].status, 'ready')
   assert.equal(workflow.cards[1].status, 'ready')
+  assert.equal(workflow.cards[1].description, 'LLM-Wiki 已由 SEC 解析产物生成')
   assert.equal(workflow.cards[2].status, 'pending')
   assert.equal(workflow.cards[3].status, 'pending')
+})
+
+test('deriveUsSecWorkflowSummary uses persisted SEC semantic_status after refresh', () => {
+  const statusWithSemantic: UsSecCaseSetStatus = {
+    ...status,
+    ingest_report: { package_count: 1, summary: { retrieval_chunks: 0 } },
+    items: [{
+      ...(status.items?.[0] || {}),
+      semantic_status: {
+        status: 'ready',
+        counts: { segments: 12, facts: 7, evidence: 18 },
+        llm: { status: 'ready', counts: { claims: 3, risks: 2 } },
+      },
+    }],
+  }
+
+  const workflow = deriveUsSecWorkflowSummary(statusWithSemantic, packageDetail)
+
+  assert.equal(workflow.cards[2].status, 'ready')
+  assert.equal(workflow.cards[2].description, '规则语义 segments 12 / facts 7 / evidence 18；模型增强 claims 3 / risks 2')
 })
 
 test('deriveUsSecWorkflowSummary reports unknown when document_full status cannot be confirmed', () => {
@@ -258,13 +343,34 @@ test('deriveUsSecWorkflowSummary accepts document_full postgres status without l
   const statusWithoutLegacyIngest = { ...status, ingest_report: { package_count: 0, summary: { xbrl_facts: 0 } } }
   const workflow = deriveUsSecWorkflowSummary(statusWithoutLegacyIngest, packageDetail, {
     status: 'postgres_ready',
+    schema: 'sec_us',
+    parse_run_id: 'parse-us-1',
+    parse_runs: 1,
     facts: 9,
+    tables: 2,
     chunks: 4,
     evidence: 3,
   })
 
   assert.equal(workflow.cards[3].status, 'ready')
-  assert.equal(workflow.cards[3].description, 'document_full facts 9')
+  assert.equal(workflow.cards[3].description, 'schema sec_us / parse_run_id parse-us-1；parse_runs 1 / facts 9 / tables 2 / chunks 4 / evidence 3')
+})
+
+test('deriveUsSecWorkflowSummary marks incomplete document_full postgres counts as warning', () => {
+  const statusWithoutLegacyIngest = { ...status, ingest_report: { package_count: 0, summary: { xbrl_facts: 0 } } }
+  const workflow = deriveUsSecWorkflowSummary(statusWithoutLegacyIngest, packageDetail, {
+    status: 'postgres_ready',
+    schema: 'sec_us',
+    parse_run_id: 'parse-us-1',
+    parse_runs: 1,
+    facts: 9,
+    tables: 0,
+    chunks: 4,
+    evidence: 3,
+  })
+
+  assert.equal(workflow.cards[3].status, 'warning')
+  assert.match(workflow.cards[3].description, /缺少 tables/)
 })
 
 test('deriveUsSecQualitySummary formats SEC quality metrics for the result panel', () => {

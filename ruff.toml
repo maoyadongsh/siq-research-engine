@@ -1,0 +1,30 @@
+target-version = "py311"
+line-length = 120
+extend-exclude = [
+  ".git",
+  ".mypy_cache",
+  ".pytest_cache",
+  ".ruff_cache",
+  ".venv",
+  "artifacts",
+  "data",
+  "node_modules",
+  "runtimes",
+  "var",
+  "venv",
+]
+
+[lint]
+select = [
+  "B",
+  "E",
+  "F",
+  "I",
+  "W",
+]
+ignore = [
+  "E501",
+]
+
+[lint.isort]
+combine-as-imports = true

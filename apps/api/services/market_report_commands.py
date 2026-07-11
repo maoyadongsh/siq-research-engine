@@ -1,21 +1,60 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from services import market_document_identity
 
 
 ESEF_SOURCE_SUFFIXES = {".zip", ".xhtml", ".html", ".htm", ".xml", ".xbrl"}
 PARSER_RESULT_MARKETS = {"HK", "JP", "KR", "EU"}
 DOWNLOAD_PATH_MARKETS = {"CN", "HK", "US", "EU", "JP", "KR"}
-MARKET_ALIASES = {"US_SEC": "US", "US-SEC": "US", "US SEC": "US"}
+MARKET_ALIASES = market_document_identity.MARKET_ALIASES
+US_SEC_UPLOAD_CONTENT_TYPE_SUFFIXES = {
+    "application/pdf": ".pdf",
+    "text/html": ".html",
+    "application/xhtml+xml": ".html",
+    "application/xml": ".xml",
+    "text/xml": ".xml",
+    "text/plain": ".txt",
+    "application/zip": ".zip",
+    "application/x-zip-compressed": ".zip",
+}
+FORCE_REASON_KEYS = ("force_reason", "reason", "override_reason")
+FORCE_OPERATOR_KEYS = (
+    "force_operator",
+    "force_operator_id",
+    "operator",
+    "operator_id",
+    "user",
+    "user_id",
+    "username",
+    "requested_by",
+)
+FORCE_TICKET_KEYS = (
+    "force_ticket",
+    "ticket",
+    "change_id",
+    "change_request",
+    "approval_id",
+)
+FORCE_EXPIRES_KEYS = ("force_expires_at", "expires_at", "expiry", "expires")
+FORCE_ONE_SHOT_KEYS = (
+    "force_one_shot",
+    "one_shot",
+    "one_time",
+    "one_time_use",
+    "one_shot_id",
+)
 
 
 def normalize_market_code(market: str | None) -> str:
-    value = str(market or "").strip().upper()
-    return MARKET_ALIASES.get(value, value)
+    return market_document_identity.normalize_market_code(market)
 
 
 class MarketPackageBuildPlanError(Exception):
@@ -26,7 +65,7 @@ class MarketPackageBuildPlanError(Exception):
 
 
 class MarketPackagePlanError(Exception):
-    def __init__(self, status_code: int, detail: str):
+    def __init__(self, status_code: int, detail: Any):
         super().__init__(detail)
         self.status_code = status_code
         self.detail = detail
@@ -55,6 +94,8 @@ class MarketDocumentFullImportPlan:
     market: str
     document_full_path: Path
     script: Path
+    identity: market_document_identity.MarketDocumentFullIdentity
+    selector: dict[str, str]
 
 
 @dataclass(frozen=True)
@@ -80,6 +121,15 @@ class UsSecRebuildPackagePlan:
     metadata_path: Path | None
     script: Path
     output_root: Path
+
+
+@dataclass(frozen=True)
+class MarketPackageQualityGateDecision:
+    force_enabled: bool
+    blocked: bool
+    audit: dict[str, str | None] | None
+    error_status_code: int | None = None
+    error_detail: Any = None
 
 
 def select_market_build_script(
@@ -330,14 +380,40 @@ def build_market_document_full_import_plan(
     market: str,
     market_document_full_import_scripts: Mapping[str, Path],
     safe_market_document_full_path: Callable[[str, str], Path],
+    repo_root: Path | None = None,
+    market_document_full_roots: Mapping[str, Path] | None = None,
 ) -> MarketDocumentFullImportPlan:
     market = normalize_market_code(market)
-    raw_path = payload.get("document_full_path") or payload.get("path") or payload.get("source_path") or payload.get("task_id")
+    raw_path = market_document_identity.document_full_payload_value(payload)
     if raw_path in (None, ""):
         raise MarketPackagePlanError(400, "document_full_path or task_id is required")
-    document_full_path = safe_market_document_full_path(market, str(raw_path))
-    if document_full_path.is_dir():
-        document_full_path = document_full_path / "document_full.json"
+    try:
+        task_id = str(payload.get("task_id") or "").strip() or None
+        if repo_root is not None and market_document_full_roots is not None:
+            identity = market_document_identity.resolve_document_full_identity(
+                market=market,
+                repo_root=repo_root,
+                market_document_full_roots=market_document_full_roots,
+                safe_market_document_full_path=safe_market_document_full_path,
+                payload=payload,
+                task_id=task_id,
+            )
+            document_full_path = identity.document_full_path
+            if document_full_path is None:
+                raise ValueError("document_full_path must resolve to document_full.json")
+        else:
+            document_full_path = market_document_identity.resolve_document_full_path(
+                market=market,
+                value=str(raw_path),
+                safe_market_document_full_path=safe_market_document_full_path,
+            )
+            identity = market_document_identity.MarketDocumentFullIdentity(
+                market=market,
+                document_full_path=document_full_path,
+                task_id=task_id,
+            )
+    except ValueError:
+        raise MarketPackagePlanError(400, "document_full_path must resolve to document_full.json")
     if not document_full_path.is_file():
         raise MarketPackagePlanError(404, "document_full_path not found")
 
@@ -348,6 +424,8 @@ def build_market_document_full_import_plan(
         market=market,
         document_full_path=document_full_path,
         script=script,
+        identity=identity,
+        selector=market_document_identity.build_import_selector(identity),
     )
 
 
@@ -490,6 +568,264 @@ def us_sec_ingest_args(
     if batch_tag:
         args.extend(["--batch-tag", batch_tag])
     return args
+
+
+def normalize_us_sec_ingest_filters(payload: Mapping[str, Any]) -> tuple[str, str]:
+    tickers = str(payload.get("tickers") or "").strip().upper()
+    if tickers and not re.fullmatch(r"[A-Z0-9.,_-]{1,240}", tickers):
+        raise MarketPackagePlanError(400, "Invalid tickers")
+    batch_tag = str(payload.get("batch_tag") or "").strip()
+    if batch_tag and not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", batch_tag):
+        raise MarketPackagePlanError(400, "Invalid batch_tag")
+    return tickers, batch_tag
+
+
+def payload_force_enabled(payload: Mapping[str, Any]) -> bool:
+    value = payload.get("force")
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def force_audit_sources(payload: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    sources: list[Mapping[str, Any]] = [payload]
+    for key in ("force_audit", "audit", "override"):
+        value = payload.get(key)
+        if isinstance(value, Mapping):
+            sources.append(value)
+    return sources
+
+
+def force_audit_text(payload: Mapping[str, Any], keys: tuple[str, ...]) -> str | None:
+    for source in force_audit_sources(payload):
+        for key in keys:
+            value = source.get(key)
+            if value is None:
+                continue
+            text = str(value).strip()
+            if text:
+                return text
+    return None
+
+
+def force_one_shot_marker(payload: Mapping[str, Any]) -> str | None:
+    false_values = {"0", "false", "no", "off", "none", "null"}
+    for source in force_audit_sources(payload):
+        for key in FORCE_ONE_SHOT_KEYS:
+            if key not in source:
+                continue
+            value = source.get(key)
+            if isinstance(value, bool):
+                if value:
+                    return "true"
+                continue
+            text = str(value or "").strip()
+            if text and text.lower() not in false_values:
+                return text
+    return None
+
+
+def redact_audit_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = str(value)
+    text = re.sub(r"(?i)(password|passwd|secret|token|api[_-]?key)=\S+", r"\1=[redacted]", text)
+    text = re.sub(r"://([^/\s:@]+):([^/\s@]+)@", "://[redacted]@", text)
+    return text[:256]
+
+
+def validate_force_audit(
+    payload: Mapping[str, Any],
+    *,
+    now: datetime | None = None,
+) -> dict[str, str | None]:
+    reason = force_audit_text(payload, FORCE_REASON_KEYS)
+    operator = force_audit_text(payload, FORCE_OPERATOR_KEYS)
+    ticket = force_audit_text(payload, FORCE_TICKET_KEYS)
+    expires_at = force_audit_text(payload, FORCE_EXPIRES_KEYS)
+    one_shot = force_one_shot_marker(payload)
+
+    missing: list[str] = []
+    invalid: list[str] = []
+    if not reason:
+        missing.append("reason")
+    if not operator:
+        missing.append("operator")
+    if not ticket:
+        missing.append("ticket_or_change_id")
+    if not expires_at and not one_shot:
+        missing.append("expires_at_or_one_shot")
+    if expires_at:
+        try:
+            expires = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+            if expires.tzinfo is None:
+                expires = expires.replace(tzinfo=timezone.utc)
+        except ValueError:
+            invalid.append("expires_at")
+        else:
+            if expires <= (now or datetime.now(timezone.utc)):
+                invalid.append("expires_at")
+
+    if missing or invalid:
+        raise MarketPackagePlanError(
+            400,
+            {
+                "message": (
+                    "force=true requires audit fields: reason, operator/user id, "
+                    "ticket/change id, and expires_at or one_shot."
+                ),
+                "missing_fields": missing,
+                "invalid_fields": invalid,
+            },
+        )
+
+    return {
+        "reason": reason,
+        "operator": operator,
+        "ticket": ticket,
+        "expires_at": expires_at,
+        "one_shot": one_shot,
+    }
+
+
+def payload_with_force_operator(
+    payload: Mapping[str, Any],
+    *,
+    user_id: object | None = None,
+    username: object | None = None,
+) -> dict[str, Any]:
+    if not payload_force_enabled(payload):
+        return dict(payload)
+    if force_audit_text(payload, FORCE_OPERATOR_KEYS):
+        return dict(payload)
+
+    audit = dict(payload.get("force_audit")) if isinstance(payload.get("force_audit"), Mapping) else {}
+    if user_id is not None:
+        audit["operator_id"] = str(user_id)
+    if username:
+        audit["operator"] = str(username)
+    return {**dict(payload), "force_audit": audit}
+
+
+def market_package_quality_gate_decision(
+    *,
+    gates: Mapping[str, Any],
+    payload: Mapping[str, Any],
+    action: str,
+    now: datetime | None = None,
+) -> MarketPackageQualityGateDecision:
+    blocked_key = "vector_ingest_blocked" if action == "vector_ingest" else "import_blocked"
+    blocked = bool(gates.get(blocked_key))
+    force_enabled = payload_force_enabled(payload)
+    audit = validate_force_audit(payload, now=now) if force_enabled else None
+    if not blocked:
+        return MarketPackageQualityGateDecision(force_enabled=force_enabled, blocked=False, audit=audit)
+    if force_enabled and gates.get("force_allowed") is True:
+        return MarketPackageQualityGateDecision(force_enabled=True, blocked=True, audit=audit)
+    if force_enabled:
+        return MarketPackageQualityGateDecision(
+            force_enabled=True,
+            blocked=True,
+            audit=audit,
+            error_status_code=409,
+            error_detail={
+                "message": (
+                    "Quality gates contain hard blocks; force=true cannot run formal "
+                    f"{action} and is limited to review/quarantine material."
+                ),
+                "action": action,
+                "quality_gates": dict(gates),
+            },
+        )
+    if gates.get("force_allowed") is True:
+        message = (
+            "Quality gates block this action; force=true with required audit fields "
+            "can request a soft-gate exception."
+        )
+    else:
+        message = (
+            "Quality gates contain hard blocks; fix the package or keep it in "
+            "review/quarantine material before formal import or vector ingest."
+        )
+    return MarketPackageQualityGateDecision(
+        force_enabled=False,
+        blocked=True,
+        audit=None,
+        error_status_code=409,
+        error_detail={
+            "message": message,
+            "action": action,
+            "quality_gates": dict(gates),
+        },
+    )
+
+
+def safe_filename_part(value: object) -> str:
+    text = str(value or "").strip()
+    text = re.sub(r'[\\/:*?"<>|\s]+', "-", text)
+    text = re.sub(r"-{2,}", "-", text).strip(".-_")
+    return text or "unknown"
+
+
+def file_suffix_from_content_type(content_type: str | None) -> str:
+    normalized = (content_type or "").split(";", 1)[0].strip().lower()
+    return US_SEC_UPLOAD_CONTENT_TYPE_SUFFIXES.get(normalized, "")
+
+
+def us_sec_upload_metadata_payload(
+    *,
+    file_path: Path,
+    original_name: str,
+    content_type: str | None,
+    digest: str,
+    size_bytes: int,
+    ticker: str | None,
+    company_name: str | None,
+    report_type: str | None,
+    report_family: str | None,
+    period_end: str | None,
+    filing_date: str | None,
+    fallback_published_at: str,
+) -> dict[str, Any]:
+    effective_report_type = (report_type or file_path.suffix.lower().lstrip(".") or "file").strip()
+    effective_form = effective_report_type.upper() if effective_report_type not in {"file", ""} else "FILE"
+    resolved_path = file_path.resolve()
+    return {
+        "candidate": {
+            "source_id": "manual_upload",
+            "source_name": "US SEC Manual Upload",
+            "source_domain": "local",
+            "market": "US",
+            "company_id": "manual",
+            "ticker": ticker,
+            "company_name": company_name or file_path.parent.parent.parent.name or "Manual Upload",
+            "report_type": report_family or effective_report_type,
+            "report_family": report_family or "current",
+            "form": effective_form,
+            "title": original_name,
+            "accession_number": "manual-upload",
+            "primary_document": original_name,
+            "report_end": period_end,
+            "published_at": filing_date or fallback_published_at,
+            "accepted_at": None,
+            "document_url": f"file://{resolved_path}",
+            "landing_url": f"file://{resolved_path}",
+            "file_format": file_path.suffix.lower().lstrip(".") or "bin",
+            "language": None,
+            "inline_xbrl": None,
+            "metadata": {
+                "uploaded_filename": original_name,
+                "content_type": content_type,
+            },
+        },
+        "downloaded_file": {
+            "file_name": file_path.name,
+            "saved_path": str(resolved_path),
+            "size_bytes": size_bytes,
+            "content_type": content_type,
+            "content_sha256": digest,
+        },
+    }
 
 
 def us_sec_rebuild_package_args(

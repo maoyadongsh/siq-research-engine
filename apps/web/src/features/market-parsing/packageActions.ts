@@ -27,6 +27,7 @@ export interface MarketPackageImportActionInput extends MarketPackagePathActionI
   documentFullPath?: string
   ddl?: boolean
   force?: boolean
+  legacyPackageImport?: boolean
 }
 
 export interface MarketDocumentFullImportActionInput {
@@ -114,6 +115,9 @@ export async function runMarketPackageImportAction(
       force: input.force,
     }, deps)
     return documentFull
+  }
+  if (!input.legacyPackageImport) {
+    throw new Error('缺少 document_full.json 路径，PostgreSQL 入库默认读取 document_full.json')
   }
   const response = await deps.runImport(input.market, input.packagePath, input.ddl ?? true, input.force ?? false)
   const result = await resolveMarketPackageActionResponse(response, deps)

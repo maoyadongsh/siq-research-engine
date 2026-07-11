@@ -91,9 +91,12 @@ export interface MarketParsingPageProps {
   extraPanel?: React.ReactNode
 }
 
-function normalizeWorkflowDescription(description?: string): string | undefined {
+function normalizeWorkflowDescription(description: string | undefined, mode: 'standard' | 'generic'): string | undefined {
   if (!description) return description
   if (!description.includes('Wiki')) return description
+  if (mode === 'generic') {
+    return '解析产物与 results 目录保存全量解析信息；LLM-Wiki、Wiki语义增强和 PostgreSQL 入库都读取同一套解析产物。'
+  }
   return '解析产物与 results 目录保存全量解析信息；PostgreSQL 入库直接读取解析产物，研究资产和派生知识资产由解析产物继续生成。'
 }
 
@@ -184,7 +187,7 @@ export function MarketParsingPage({
     logsExpanded,
   ])
   const activeSection = useActiveSection(viewModel.sectionIds)
-  const normalizedWorkflowDescription = useMemo(() => normalizeWorkflowDescription(workflowDescription), [workflowDescription])
+  const normalizedWorkflowDescription = useMemo(() => normalizeWorkflowDescription(workflowDescription, workflowMode), [workflowDescription, workflowMode])
 
   useEffect(() => {
     workflowRef.current.loadWorkflowStatus = workflow.loadWorkflowStatus

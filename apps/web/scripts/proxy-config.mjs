@@ -15,6 +15,7 @@ const BACKEND_PREFIXES = [
   '/api/market-report-health',
   '/api/market-reports',
   '/api/us-sec',
+  '/api/jobs',
   '/api/downloads',
   '/api/workflow',
   '/api/workspace',

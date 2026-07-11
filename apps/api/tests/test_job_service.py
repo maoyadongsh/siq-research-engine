@@ -5,6 +5,10 @@ from enum import Enum
 from itertools import count
 from pathlib import Path
 
+import pytest
+
+from services import observability
+
 
 def _load_module(name: str, relative: str):
     source = Path(__file__).resolve().parents[1] / "services" / relative
@@ -22,6 +26,13 @@ class DemoRole(Enum):
     ADMIN = "admin"
 
 
+@pytest.fixture(autouse=True)
+def reset_observability_metrics():
+    observability.reset_observability_metrics_for_tests()
+    yield
+    observability.reset_observability_metrics_for_tests()
+
+
 def wait_for_terminal(service, job_id: str, timeout: float = 2.0):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -30,6 +41,17 @@ def wait_for_terminal(service, job_id: str, timeout: float = 2.0):
             return snapshot
         time.sleep(0.01)
     raise AssertionError(f"job did not finish: {job_id}")
+
+
+def wait_for_metric(path: tuple[str, str], timeout: float = 2.0):
+    section, key = path
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        value = observability.metrics_snapshot().get(section, {}).get(key)
+        if value:
+            return value
+        time.sleep(0.01)
+    raise AssertionError(f"metric did not appear: {section}.{key}")
 
 
 def test_file_backed_job_service_tracks_success_and_failure(tmp_path):
@@ -124,6 +146,49 @@ def test_file_backed_job_service_records_exception_failure(tmp_path):
     assert failed["status"] == "failed"
     assert failed["error"] == "boom"
     assert latest["status"] == "succeeded"
+
+
+def test_file_backed_job_service_records_terminal_observability_metrics(tmp_path):
+    store_path = tmp_path / "jobs.json"
+    service = job_service.FileBackedJobService(store_path=store_path, max_jobs=3)
+
+    def boom():
+        raise RuntimeError("boom")
+
+    succeeded = service.start("market-document-full-import", lambda: {"ok": True})
+    business_failed = service.start("market-document-full-import", lambda: {"ok": False})
+    exception_failed = service.start("market-vector-ingest", boom)
+
+    wait_for_terminal(service, succeeded["job_id"])
+    wait_for_terminal(service, business_failed["job_id"])
+    wait_for_terminal(service, exception_failed["job_id"])
+
+    assert wait_for_metric(
+        ("background_job_final_state_counts", "market-document-full-import|succeeded")
+    ) == 1
+    assert wait_for_metric(("background_job_final_state_counts", "market-document-full-import|failed")) == 1
+    assert wait_for_metric(("background_job_final_state_counts", "market-vector-ingest|failed")) == 1
+
+    metrics = observability.metrics_snapshot()
+    assert metrics["background_job_duration_seconds"]["market-document-full-import|succeeded"]["count"] == 1
+    assert metrics["background_job_duration_seconds"]["market-document-full-import|failed"]["count"] == 1
+    assert metrics["background_job_duration_seconds"]["market-vector-ingest|failed"]["count"] == 1
+
+
+def test_file_backed_job_service_ignores_observability_recorder_failure(tmp_path, monkeypatch):
+    store_path = tmp_path / "jobs.json"
+    service = job_service.FileBackedJobService(store_path=store_path, max_jobs=2)
+
+    def fail_recorder(**_kwargs):
+        raise RuntimeError("metrics unavailable")
+
+    monkeypatch.setattr(job_service.observability, "record_background_job_final_state", fail_recorder)
+
+    started = service.start("market-document-full-import", lambda: {"ok": True})
+    terminal = wait_for_terminal(service, started["job_id"])
+
+    assert terminal["status"] == "succeeded"
+    assert terminal["result"] == {"ok": True}
 
 
 def test_file_backed_job_service_trims_oldest_jobs_by_created_at(tmp_path, monkeypatch):

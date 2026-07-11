@@ -13,8 +13,9 @@ Example:
 
 from __future__ import annotations
 
-import json
 import importlib.util
+import json
+import logging
 import os
 import re
 import subprocess
@@ -27,6 +28,17 @@ from psycopg.rows import dict_row
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
+
+
+logger = logging.getLogger(__name__)
+
+try:  # Support both top-level and package imports.
+    from market_ingestion_contract import database_url as _market_database_url
+except Exception:  # pragma: no cover - exercised when imported as db.imports.*
+    try:
+        from .market_ingestion_contract import database_url as _market_database_url
+    except Exception:  # pragma: no cover
+        _market_database_url = None
 
 
 def _load_pg_config_from_file(path: Path | None) -> dict[str, Any] | None:
@@ -95,6 +107,610 @@ SOURCE_TABLES = {
     "wide": "pdf2md.financial_all_metrics_wide",
 }
 
+MARKET_AGENT_SCHEMAS = {
+    "HK": "pdf2md_hk",
+    "JP": "edinet_jp",
+    "KR": "dart_kr",
+    "EU": "eu_ifrs",
+    "US": "sec_us",
+}
+
+MARKET_AGENT_DATABASES = {
+    "HK": "siq_hk",
+    "JP": "siq_jp",
+    "KR": "siq_kr",
+    "EU": "siq_eu",
+    "US": "siq_us",
+}
+
+MARKET_AGENT_CODE_COLUMNS = (
+    "company_ticker",
+    "stock_code",
+    "hkex_stock_code",
+    "security_code",
+    "edinet_code",
+    "corp_code",
+    "cik",
+    "company_id",
+)
+
+MARKET_AGENT_SELECT_COLUMNS = (
+    "company_id",
+    "company_ticker",
+    "stock_code",
+    "hkex_stock_code",
+    "security_code",
+    "edinet_code",
+    "corp_code",
+    "cik",
+    "country",
+    "company_name",
+    "filing_id",
+    "accession_number",
+    "report_type",
+    "form",
+    "fiscal_year",
+    "fiscal_period",
+    "filing_period_end",
+    "parse_run_id",
+    "wiki_package_path",
+    "statement_id",
+    "statement_type",
+    "statement_name",
+    "item_index",
+    "canonical_name",
+    "canonical_label",
+    "item_name",
+    "item_name_raw",
+    "metric_name",
+    "metric_name_raw",
+    "local_name",
+    "label",
+    "concept",
+    "xbrl_tag",
+    "taxonomy_tag",
+    "source_ref",
+    "context_ref",
+    "period_key",
+    "period_start",
+    "period_end",
+    "value",
+    "raw_value",
+    "unit",
+    "currency",
+    "fact_currency",
+    "reporting_currency",
+    "presentation_currency",
+    "converted_currency",
+    "converted_value",
+    "fx_rate_date",
+    "fx_rate_source",
+    "scale",
+    "evidence_id",
+    "evidence_page_number",
+    "evidence_table_index",
+    "evidence_row_index",
+    "evidence_column_index",
+    "quote_text",
+    "source_url",
+)
+
+AGENT_FINANCIAL_FACT_FIELDS = (
+    "market",
+    "schema",
+    "company_id",
+    "filing_id",
+    "parse_run_id",
+    "metric_name",
+    "canonical_name",
+    "period",
+    "value",
+    "raw_value",
+    "unit",
+    "currency",
+    "source_page",
+    "table_index",
+    "bbox",
+    "evidence_id",
+    "quote",
+    "source_url",
+    "wiki_report_path",
+    "source_type",
+)
+
+MARKET_AGENT_METRIC_ALIASES = {
+    "revenue": (
+        "revenue",
+        "revenues",
+        "sales",
+        "operating_revenue",
+        "营业收入",
+        "营业总收入",
+        "营收",
+        "收入",
+        "売上",
+        "売上高",
+        "売上収益",
+        "매출",
+        "매출액",
+        "RevenueFromContractWithCustomerExcludingAssessedTax",
+    ),
+    "gross_profit": ("gross_profit", "gross profit", "毛利", "売上総利益", "매출총이익"),
+    "operating_profit": ("operating_profit", "operating income", "营业利润", "営業利益", "영업이익"),
+    "profit_before_tax": ("profit_before_tax", "profit before tax", "税前利润", "税引前利益", "법인세비용차감전순이익"),
+    "net_profit": ("net_profit", "net income", "net_profit_loss", "净利润", "純利益", "당기순이익"),
+    "total_assets": ("total_assets", "assets", "总资产", "资产总计", "総資産", "자산총계"),
+    "total_liabilities": ("total_liabilities", "liabilities", "总负债", "负债合计", "負債合計", "부채총계"),
+    "total_equity": ("total_equity", "equity", "股东权益", "所有者权益", "資本合計", "자본총계"),
+    "current_assets": ("current_assets", "流动资产", "流動資産", "유동자산"),
+    "cash_and_cash_equivalents": (
+        "cash_and_cash_equivalents",
+        "cash_and_equivalents",
+        "cash",
+        "货币资金",
+        "现金及现金等价物",
+        "現金及び現金同等物",
+        "현금및현금성자산",
+    ),
+    "operating_cash_flow": (
+        "operating_cash_flow",
+        "operating_cash_flow_net",
+        "经营现金流",
+        "经营活动现金流量净额",
+        "営業活動によるキャッシュ・フロー",
+        "영업활동현금흐름",
+    ),
+    "basic_eps": ("basic_eps", "eps", "基本每股收益", "每股收益", "1株当たり当期利益", "기본주당이익"),
+}
+
+
+def quote_ident(identifier: str) -> str:
+    if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", identifier):
+        raise ValueError(f"Unsafe SQL identifier: {identifier!r}")
+    return identifier
+
+
+def get_market_connection(market: str):
+    market_key = str(market or "").upper()
+    explicit = os.environ.get(f"SIQ_{market_key}_DATABASE_URL")
+    if _market_database_url is not None:
+        return psycopg.connect(_market_database_url(explicit, market_key), row_factory=dict_row)
+
+    host = os.environ.get("SIQ_PGHOST") or os.environ.get("PGHOST") or "127.0.0.1"
+    port = os.environ.get("SIQ_PGPORT") or os.environ.get("PGPORT") or "15432"
+    user = os.environ.get("SIQ_PGUSER") or os.environ.get("PGUSER") or "postgres"
+    password = os.environ.get("SIQ_PGPASSWORD") or os.environ.get("PGPASSWORD") or ""
+    auth = f"{user}:{password}" if password else user
+    database = MARKET_AGENT_DATABASES[market_key]
+    return psycopg.connect(f"postgresql://{auth}@{host}:{port}/{database}", row_factory=dict_row)
+
+
+def infer_market_from_query_text(query_text: str, company_hint: dict[str, Any] | None = None) -> str | None:
+    hint_text = " ".join(str(value) for value in (company_hint or {}).values() if value)
+    text = f"{query_text}\n{hint_text}".lower()
+    path_match = re.search(r"/data/wiki/(hk|jp|kr|eu|us|us_sec)(?:/|$)", text)
+    if path_match:
+        market = path_match.group(1).upper()
+        return "US" if market == "US_SEC" else market
+    if "/data/parser-results/us-sec/" in text or "/us-sec/" in text:
+        return "US"
+    market_terms = {
+        "HK": ("港股", "香港", "hkex", "hk:"),
+        "JP": ("日股", "日本", "edinet", "jp:"),
+        "KR": ("韩股", "韩国", "dart", "kr:"),
+        "EU": ("欧股", "欧洲", "ifrs", "esef", "eu:"),
+        "US": ("美股", "10-k", "10-q", "nasdaq", "nyse", "us:"),
+    }
+    for market, terms in market_terms.items():
+        if any(term.lower() in text for term in terms):
+            return market
+    if re.search(r"(?<![a-z0-9])sec(?![a-z0-9])", text):
+        return "US"
+    return None
+
+
+def _company_hint_terms(
+    query_text: str,
+    company_hint: dict[str, Any] | None = None,
+    parsed: dict[str, Any] | None = None,
+) -> tuple[list[str], list[str]]:
+    values = []
+    if isinstance(company_hint, dict):
+        values.extend(
+            company_hint.get(key)
+            for key in ("code", "stock_code", "ticker", "company_id", "name", "company_name", "dir")
+        )
+    if isinstance(parsed, dict):
+        values.extend(
+            parsed.get(key)
+            for key in (
+                "code",
+                "stock_code",
+                "ticker",
+                "company_id",
+                "company_name",
+                "name",
+                "resolved_stock_code",
+                "resolved_company_id",
+                "resolved_stock_name",
+            )
+        )
+    values.append(query_text)
+    codes: list[str] = []
+    names: list[str] = []
+    for index, value in enumerate(values):
+        text = str(value or "").strip()
+        if not text:
+            continue
+        company_path = re.search(r"/companies/([^/]+)", text)
+        if company_path:
+            slug = company_path.group(1)
+            if "-" in slug:
+                code, name = slug.split("-", 1)
+                codes.append(code)
+                names.append(name.replace("-", " "))
+            else:
+                names.append(slug.replace("-", " "))
+        for company_id in re.findall(r"\b(?:HK|JP|KR|EU|US):[A-Za-z0-9:._-]+", text, flags=re.IGNORECASE):
+            codes.append(company_id.upper())
+            tail = company_id.rsplit(":", 1)[-1]
+            tail_digits = re.sub(r"\D+", "", tail)
+            if tail_digits:
+                codes.append(tail_digits.zfill(10) if len(tail_digits) > 6 else tail_digits)
+        for code in re.findall(r"(?<!\d)(\d{4,10})(?!\d)", text):
+            if re.fullmatch(r"(?:19|20)\d{2}", code):
+                continue
+            codes.append(code)
+        if index == len(values) - 1:
+            for ticker in re.findall(r"\b[A-Z]{1,8}\b", text):
+                if ticker not in {"HK", "JP", "KR", "EU", "US", "SEC"}:
+                    codes.append(ticker)
+        if re.fullmatch(r"[A-Za-z]{1,8}|[0-9]{4,10}", text):
+            codes.append(text)
+        elif index == len(values) - 1:
+            names.extend(_query_company_name_candidates(text))
+        elif len(text) <= 80:
+            names.append(text)
+        elif index < len(values) - 1:
+            for ticker in re.findall(r"\b[A-Z]{1,8}\b", text):
+                codes.append(ticker)
+    return list(dict.fromkeys(codes)), list(dict.fromkeys(names))
+
+
+def _query_company_name_candidates(query_text: str) -> list[str]:
+    text = str(query_text or "").strip()
+    if not text or "/" in text:
+        return []
+    cleaned = text
+    removable_terms = {
+        "港股",
+        "香港",
+        "日股",
+        "日本",
+        "韩股",
+        "韩国",
+        "欧股",
+        "欧洲",
+        "美股",
+        "收入",
+        "营收",
+        "营业收入",
+        "利润",
+        "净利润",
+        "资产",
+        "负债",
+        "现金流",
+        "年报",
+        "季报",
+        "年度",
+        "多少",
+        "是多少",
+        "查询",
+        "请问",
+        "show",
+        "me",
+        "what",
+        "is",
+        "the",
+        "for",
+        "of",
+    }
+    for aliases in MARKET_AGENT_METRIC_ALIASES.values():
+        removable_terms.update(str(alias) for alias in aliases if alias)
+    for term in sorted(removable_terms, key=len, reverse=True):
+        cleaned = re.sub(re.escape(term), " ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\b(?:HK|JP|KR|EU|US|SEC)\b", " ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\b(?:19|20)\d{2}\b", " ", cleaned)
+    cleaned = re.sub(r"(?<!\d)\d{4,10}(?!\d)", " ", cleaned)
+    cleaned = re.sub(r"[：:，,。.?？!！()（）\\[\\]{}]", " ", cleaned)
+    parts = [part.strip() for part in re.split(r"\s+", cleaned) if part.strip()]
+    candidates: list[str] = []
+    for part in parts:
+        if len(part) < 2 or len(part) > 40:
+            continue
+        if re.fullmatch(r"[A-Za-z]{1,2}", part):
+            continue
+        candidates.append(part)
+    return candidates[:3]
+
+
+def _market_metric_terms(parsed: dict[str, Any], query_text: str) -> tuple[list[str], str | None]:
+    raw_terms = [
+        parsed.get("metric_name"),
+        parsed.get("canonical_name"),
+        *(parsed.get("metric_terms") or []),
+    ]
+    text = re.sub(r"\s+", "", query_text or "").lower()
+    matched_alias: str | None = None
+    canonical_terms: list[str] = []
+    aliases: list[str] = []
+    for canonical, candidates in MARKET_AGENT_METRIC_ALIASES.items():
+        for candidate in candidates:
+            candidate_text = re.sub(r"\s+", "", str(candidate)).lower()
+            if candidate_text and candidate_text in text:
+                canonical_terms.append(canonical)
+                aliases.extend(str(item) for item in candidates)
+                matched_alias = str(candidate)
+                break
+    for raw in raw_terms:
+        if raw in (None, ""):
+            continue
+        raw_text = str(raw)
+        aliases.append(raw_text)
+        for canonical, candidates in MARKET_AGENT_METRIC_ALIASES.items():
+            if raw_text == canonical or any(raw_text.lower() == str(candidate).lower() for candidate in candidates):
+                canonical_terms.append(canonical)
+    terms = list(dict.fromkeys([*canonical_terms, *aliases]))
+    return terms, matched_alias
+
+
+def _market_period_filters(parsed: dict[str, Any], query_text: str) -> list[tuple[str, Any]]:
+    filters: list[tuple[str, Any]] = []
+    if parsed.get("period_key"):
+        filters.append(("period_key", parsed["period_key"]))
+    elif parsed.get("year"):
+        filters.append(("fiscal_year", parsed["year"]))
+    else:
+        year_match = re.search(r"(20[0-9]{2})", query_text or "")
+        if year_match:
+            filters.append(("fiscal_year", year_match.group(1)))
+    return filters
+
+
+def _first_market_scope_value(*values: Any) -> str | None:
+    for value in values:
+        if value in (None, ""):
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return None
+
+
+def _nested_mapping(value: Any, key: str) -> dict[str, Any]:
+    nested = value.get(key) if isinstance(value, dict) else None
+    return nested if isinstance(nested, dict) else {}
+
+
+def _market_agent_scope_filters(
+    parsed: dict[str, Any],
+    company_hint: dict[str, Any] | None,
+) -> list[tuple[str, str]]:
+    hint = company_hint if isinstance(company_hint, dict) else {}
+    report = _nested_mapping(hint, "report")
+    filing = _nested_mapping(hint, "filing")
+    resolved_period = _nested_mapping(hint, "resolved_period")
+    postgres = _nested_mapping(hint, "postgres")
+    parse_run_id = _first_market_scope_value(
+        parsed.get("parse_run_id"),
+        hint.get("parse_run_id"),
+        postgres.get("parse_run_id"),
+        report.get("parse_run_id"),
+        filing.get("parse_run_id"),
+        resolved_period.get("parse_run_id"),
+    )
+    filing_id = _first_market_scope_value(
+        parsed.get("filing_id"),
+        hint.get("filing_id"),
+        postgres.get("filing_id"),
+        report.get("filing_id"),
+        filing.get("filing_id"),
+        resolved_period.get("filing_id"),
+    )
+    filters: list[tuple[str, str]] = []
+    if parse_run_id:
+        filters.append(("parse_run_id", parse_run_id))
+    if filing_id:
+        filters.append(("filing_id", filing_id))
+    return filters
+
+
+def _market_view_columns(cur: Any, schema: str) -> set[str]:
+    cur.execute(
+        """
+        select column_name
+        from information_schema.columns
+        where table_schema = %s and table_name = 'v_agent_financial_facts'
+        """,
+        (schema,),
+    )
+    return {str(row["column_name"] if isinstance(row, dict) else row[0]) for row in cur.fetchall()}
+
+
+def _market_agent_row(row: dict[str, Any], schema: str, matched_alias: str | None) -> dict[str, Any]:
+    output = dict(row)
+    output["source_table"] = f"{schema}.v_agent_financial_facts"
+    output["task_id"] = output.get("parse_run_id") or output.get("filing_id")
+    output["metric_name"] = (
+        matched_alias
+        or output.get("item_name")
+        or output.get("item_name_raw")
+        or output.get("metric_name")
+        or output.get("metric_name_raw")
+        or output.get("local_name")
+        or output.get("canonical_name")
+        or output.get("canonical_label")
+    )
+    output["stock_code"] = (
+        output.get("company_ticker")
+        or output.get("stock_code")
+        or output.get("hkex_stock_code")
+        or output.get("security_code")
+        or output.get("cik")
+    )
+    output["stock_name"] = output.get("company_name")
+    output["source_page_number"] = output.get("evidence_page_number")
+    output["source_table_index"] = output.get("evidence_table_index")
+    return normalize_json(output)
+
+
+def query_market_agent_view_result(
+    query_text: str,
+    parsed: dict[str, Any] | None = None,
+    company_hint: dict[str, Any] | None = None,
+    *,
+    limit: int = 20,
+    market: str | None = None,
+) -> dict[str, Any] | None:
+    parsed = dict(parsed or {})
+    market_key = str(market or parsed.get("market") or infer_market_from_query_text(query_text, company_hint) or "").upper()
+    if market_key not in MARKET_AGENT_SCHEMAS:
+        return None
+    schema = MARKET_AGENT_SCHEMAS[market_key]
+    metric_terms, matched_alias = _market_metric_terms(parsed, query_text)
+    codes, names = _company_hint_terms(query_text, company_hint, parsed)
+    period_filters = _market_period_filters(parsed, query_text)
+    statement_type = parsed.get("statement_type")
+
+    with get_market_connection(market_key) as conn:
+        with conn.cursor() as cur:
+            try:
+                cur.execute("SET TRANSACTION READ ONLY")
+            except Exception:
+                pass
+            columns = _market_view_columns(cur, schema)
+            if not columns:
+                return None
+            selected = [column for column in MARKET_AGENT_SELECT_COLUMNS if column in columns]
+            if not selected:
+                return None
+            where_parts: list[str] = []
+            params: list[Any] = []
+            for column, value in _market_agent_scope_filters(parsed, company_hint):
+                if column in columns:
+                    where_parts.append(f"{quote_ident(column)} = %s")
+                    params.append(value)
+            code_columns = [column for column in MARKET_AGENT_CODE_COLUMNS if column in columns]
+            company_name_columns = [column for column in ("company_name",) if column in columns]
+            company_parts: list[str] = []
+            for code in codes[:4]:
+                for column in code_columns:
+                    company_parts.append(f"{quote_ident(column)} = %s")
+                    params.append(code)
+            for name in names[:3]:
+                compact = str(name).strip()
+                if len(compact) < 2 or "/" in compact:
+                    continue
+                for column in company_name_columns:
+                    company_parts.append(f"{quote_ident(column)} ilike %s")
+                    params.append(f"%{compact}%")
+            if company_parts:
+                where_parts.append("(" + " or ".join(company_parts) + ")")
+
+            if statement_type and "statement_type" in columns:
+                where_parts.append("statement_type = %s")
+                params.append(statement_type)
+
+            for column, value in period_filters:
+                if column in columns:
+                    where_parts.append(f"{quote_ident(column)} = %s")
+                    params.append(value)
+
+            metric_parts: list[str] = []
+            for term in metric_terms[:16]:
+                if not term:
+                    continue
+                for column in ("canonical_name", "canonical_label", "metric_name"):
+                    if column in columns:
+                        metric_parts.append(f"{quote_ident(column)} = %s")
+                        params.append(str(term))
+                for column in (
+                    "item_name",
+                    "item_name_raw",
+                    "metric_name_raw",
+                    "local_name",
+                    "label",
+                    "concept",
+                    "xbrl_tag",
+                    "taxonomy_tag",
+                    "source_ref",
+                ):
+                    if column in columns:
+                        metric_parts.append(f"{quote_ident(column)} ilike %s")
+                        params.append(f"%{term}%")
+            if metric_parts:
+                where_parts.append("(" + " or ".join(metric_parts) + ")")
+            elif parsed.get("query_type") != "company_all":
+                return None
+
+            where_sql = " and ".join(where_parts) if where_parts else "1=1"
+            order_columns = [
+                column
+                for column in (
+                    "filing_period_end",
+                    "fiscal_year",
+                    "parse_completed_at",
+                    "parse_run_id",
+                    "period_key",
+                    "statement_type",
+                    "item_index",
+                    "canonical_name",
+                    "item_name",
+                )
+                if column in columns
+            ]
+            desc_order_columns = {"filing_period_end", "fiscal_year", "parse_completed_at", "parse_run_id"}
+            order_sql = ", ".join(
+                f"{quote_ident(column)} desc nulls last" if column in desc_order_columns else quote_ident(column)
+                for column in order_columns
+            )
+            if not order_sql:
+                order_sql = "1"
+            select_sql = ", ".join(quote_ident(column) for column in selected)
+            schema_sql = quote_ident(schema)
+            cur.execute(
+                f"""
+                select {select_sql}
+                from {schema_sql}.v_agent_financial_facts
+                where {where_sql}
+                order by {order_sql}
+                limit %s
+                """,
+                (*params, limit),
+            )
+            rows = [_market_agent_row(dict(row), schema, matched_alias) for row in cur.fetchall()]
+    if not rows:
+        return None
+    resolved = {
+        "market": market_key,
+        "query_type": parsed.get("query_type") or ("metric" if metric_terms else "company_all"),
+        "metric_name": matched_alias or parsed.get("metric_name"),
+        "canonical_name": parsed.get("canonical_name"),
+        "resolved_company_id": rows[0].get("company_id"),
+        "resolved_stock_code": rows[0].get("stock_code"),
+        "resolved_stock_name": rows[0].get("company_name") or rows[0].get("stock_name"),
+        "query_mode": "multi_market_agent_view",
+    }
+    normalized_parsed = normalize_json({**parsed, **{key: value for key, value in resolved.items() if value not in (None, "")}})
+    return {
+        "question": query_text,
+        "query_text": query_text,
+        "parsed": normalized_parsed,
+        "source_tables": [f"{schema}.v_agent_financial_facts"],
+        "rows": rows[:limit],
+        "agent_facts": agent_facts_from_rows(rows[:limit], source_type="postgresql_agent_view"),
+    }
+
 STATEMENT_ALIASES = {
     "balance_sheet": ("资产负债表", "资产表", "负债表", "balance sheet", "balance_sheet"),
     "income_statement": ("利润表", "损益表", "income statement", "income_statement", "profit"),
@@ -158,6 +774,10 @@ class QueryResponse(BaseModel):
     parsed: dict[str, Any]
     source_tables: list[str]
     rows: list[dict[str, Any]]
+    agent_facts: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="AgentFinancialFact contract rows with stable keys; missing values are null.",
+    )
     row_count: int
 
 
@@ -505,6 +1125,73 @@ def normalize_json(value: Any) -> Any:
     if isinstance(value, list):
         return [normalize_json(item) for item in value]
     return value
+
+
+def _first_present(row: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        value = row.get(key)
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def agent_fact_from_row(row: dict[str, Any], *, source_type: str | None = None) -> dict[str, Any]:
+    source_table = str(row.get("source_table") or "")
+    schema = source_table.split(".", 1)[0] if "." in source_table else row.get("schema")
+    period = _first_present(row, "period_key", "period_end", "filing_period_end", "report_period", "report_year", "fiscal_year")
+    metric_payload = row.get("metric_payload") if isinstance(row.get("metric_payload"), dict) else {}
+    source_payload = metric_payload.get("source") if isinstance(metric_payload.get("source"), dict) else {}
+    fact = {
+        "market": row.get("market") or _market_from_schema(schema),
+        "schema": schema,
+        "company_id": row.get("company_id"),
+        "filing_id": row.get("filing_id"),
+        "parse_run_id": row.get("parse_run_id"),
+        "metric_name": _first_present(row, "metric_name", "item_name", "item_name_raw", "metric_key", "label", "local_name")
+        or metric_payload.get("metric_name")
+        or metric_payload.get("item_name"),
+        "canonical_name": _first_present(row, "canonical_name", "canonical_label") or metric_payload.get("canonical_name"),
+        "period": period,
+        "value": _first_present(row, "value", "converted_value") if _first_present(row, "value", "converted_value") is not None else metric_payload.get("value"),
+        "raw_value": row.get("raw_value") if row.get("raw_value") is not None else metric_payload.get("raw_value"),
+        "unit": _first_present(row, "unit", "raw_unit", "unit_standardized") or metric_payload.get("unit"),
+        "currency": _first_present(
+            row,
+            "currency",
+            "fact_currency",
+            "reporting_currency",
+            "presentation_currency",
+            "converted_currency",
+        )
+        or metric_payload.get("currency"),
+        "source_page": _first_present(row, "source_page_number", "evidence_page_number") or source_payload.get("page_number"),
+        "table_index": _first_present(row, "source_table_index", "evidence_table_index") or source_payload.get("table_index"),
+        "bbox": _first_present(row, "bbox", "evidence_bbox", "source_bbox") or source_payload.get("bbox"),
+        "evidence_id": row.get("evidence_id") or metric_payload.get("evidence_id"),
+        "quote": _first_present(row, "quote_text", "quote") or metric_payload.get("quote_text"),
+        "source_url": row.get("source_url") or metric_payload.get("source_url"),
+        "wiki_report_path": _first_present(row, "wiki_report_path", "wiki_package_path"),
+        "source_type": source_type or ("postgresql_agent_view" if source_table.endswith(".v_agent_financial_facts") else "postgresql"),
+    }
+    stable_fact = {
+        field: fact.get(field) if fact.get(field) != "" else None
+        for field in AGENT_FINANCIAL_FACT_FIELDS
+    }
+    return normalize_json(stable_fact)
+
+
+def agent_facts_from_rows(rows: list[dict[str, Any]], *, source_type: str | None = None) -> list[dict[str, Any]]:
+    return [agent_fact_from_row(row, source_type=source_type) for row in rows]
+
+
+def _market_from_schema(schema: Any) -> str | None:
+    schema_text = str(schema or "")
+    for market, candidate in MARKET_AGENT_SCHEMAS.items():
+        if schema_text == candidate:
+            return market
+    if schema_text == "pdf2md":
+        return "CN"
+    return None
 
 
 def hermes_parse(question: str) -> dict[str, Any]:
@@ -1131,6 +1818,22 @@ def new_ui() -> str:
 def query_financial_data(request: QueryRequest) -> QueryResponse:
     parsed = merge_parse(request.question, request.use_hermes)
     try:
+        market_result = query_market_agent_view_result(request.question, parsed, None, limit=request.limit)
+    except Exception as exc:
+        logger.info("market agent view query failed; falling back to legacy pdf2md query", exc_info=exc)
+        market_result = None
+    if market_result:
+        rows = market_result.get("rows") or []
+        agent_facts = market_result.get("agent_facts") or agent_facts_from_rows(rows, source_type="postgresql_agent_view")
+        return QueryResponse(
+            question=request.question,
+            parsed=normalize_json(market_result.get("parsed") or parsed),
+            source_tables=list(market_result.get("source_tables") or []),
+            rows=normalize_json(rows),
+            agent_facts=normalize_json(agent_facts),
+            row_count=len(rows),
+        )
+    try:
         with get_connection() as conn:
             with conn.cursor() as cur:
                 company = resolve_company(cur, parsed, request.question)
@@ -1154,13 +1857,15 @@ def query_financial_data(request: QueryRequest) -> QueryResponse:
                             rows.extend(wide_rows)
                         rows = dedupe_response_rows(rows, request.limit)
     except psycopg.OperationalError as exc:
-        raise HTTPException(status_code=503, detail=f"PostgreSQL unavailable: {exc}") from exc
+        logger.info("legacy pdf2md PostgreSQL query failed", exc_info=exc)
+        raise HTTPException(status_code=503, detail="PostgreSQL unavailable") from exc
 
     return QueryResponse(
         question=request.question,
         parsed=normalize_json(parsed),
         source_tables=source_tables,
         rows=rows,
+        agent_facts=agent_facts_from_rows(rows),
         row_count=len(rows),
     )
 

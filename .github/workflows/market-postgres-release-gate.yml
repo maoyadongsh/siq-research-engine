@@ -1,0 +1,124 @@
+name: Market PostgreSQL release gate
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '30 18 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  offline-postgres-gate:
+    name: Offline PostgreSQL gate
+    runs-on: self-hosted
+    timeout-minutes: 90
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: siq-market-postgres-gate
+        ports:
+          - 127.0.0.1:15432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      SIQ_PGHOST: 127.0.0.1
+      SIQ_PGPORT: '15432'
+      SIQ_PGUSER: postgres
+      SIQ_PGPASSWORD: siq-market-postgres-gate
+      PGPASSWORD: siq-market-postgres-gate
+      SIQ_MARKET_POSTGRES_GATE_OUTPUT_DIR: artifacts/eval-runs/market-postgres-release-gate
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install gate dependencies
+        run: python -m pip install --upgrade 'psycopg[binary]>=3.2'
+
+      - name: Create market databases
+        run: |
+          for db in siq_hk siq_jp siq_kr siq_eu siq_us; do
+            psql -h "$SIQ_PGHOST" -p "$SIQ_PGPORT" -U "$SIQ_PGUSER" -d postgres \
+              -tc "select 1 from pg_database where datname='${db}'" | grep -q 1 \
+              || createdb -h "$SIQ_PGHOST" -p "$SIQ_PGPORT" -U "$SIQ_PGUSER" "$db"
+          done
+
+      - name: Run strict market PostgreSQL gate
+        run: bash scripts/ops/run_market_postgres_release_gate.sh --mode offline-postgres
+
+      - name: Summarize release gate report
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          output_dir = Path(os.environ["SIQ_MARKET_POSTGRES_GATE_OUTPUT_DIR"])
+          json_path = output_dir / "market_document_full_postgres_offline_postgres_gate.json"
+          markdown_path = output_dir / "market_document_full_postgres_offline_postgres_gate.md"
+          summary_path = Path(os.environ["GITHUB_STEP_SUMMARY"])
+          lines = ["# Market PostgreSQL + Financial QA Release Gate", ""]
+          if json_path.exists():
+              payload = json.loads(json_path.read_text(encoding="utf-8"))
+              lines.extend(
+                  [
+                      f"- Gate passed: `{payload.get('gate_passed')}`",
+                      f"- Acceptance passed: `{payload.get('acceptance_passed')}`",
+                      f"- Fixture contract passed: `{payload.get('passed')}`",
+                  ]
+              )
+              failed = [
+                  key
+                  for key, value in (payload.get("acceptance_requirements") or {}).items()
+                  if value is False
+              ]
+              if failed:
+                  lines.append(f"- Failed requirements: `{', '.join(failed)}`")
+          else:
+              lines.append(f"- JSON report missing: `{json_path}`")
+
+          qa_reports = [
+              ("Financial QA trace-offline", output_dir / "financial_qa_benchmark_trace_offline.json"),
+              ("Financial QA wiki-static", output_dir / "financial_qa_benchmark_wiki_static.json"),
+          ]
+          lines.extend(["", "## Financial QA", ""])
+          for label, report_path in qa_reports:
+              if not report_path.exists():
+                  lines.append(f"- {label}: missing `{report_path}`")
+                  continue
+              report = json.loads(report_path.read_text(encoding="utf-8"))
+              summary = report.get("summary") or {}
+              lines.extend(
+                  [
+                      f"- {label}: passed=`{report.get('passed')}`",
+                      f"  cases=`{summary.get('passed_cases', 0)}/{summary.get('cases', 0)}` "
+                      f"key_fact_accuracy=`{summary.get('key_fact_accuracy', 0):.3f}` "
+                      f"evidence_coverage=`{summary.get('evidence_coverage_rate', 0):.3f}`",
+                  ]
+              )
+
+          if markdown_path.exists():
+              lines.extend(["", "## Report Preview", ""])
+              lines.extend(markdown_path.read_text(encoding="utf-8").splitlines()[:80])
+          summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+          PY
+
+      - name: Upload release gate report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: market-postgres-release-gate
+          path: artifacts/eval-runs/market-postgres-release-gate/
+          if-no-files-found: warn

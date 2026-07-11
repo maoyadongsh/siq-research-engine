@@ -77,7 +77,7 @@ test('runMarketPackageBuildAction waits for queued job and returns built package
   assert.equal(result.builtPath, 'EU/example/package')
 })
 
-test('runMarketPackageImportAction keeps parse_run fallback output', async () => {
+test('runMarketPackageImportAction keeps parse_run fallback output only for explicit legacy import', async () => {
   const deps = makeDeps({
     runImport: async (market, packagePath, ddl) => {
       assert.equal(market, 'JP')
@@ -87,13 +87,13 @@ test('runMarketPackageImportAction keeps parse_run fallback output', async () =>
     },
   })
 
-  const result = await runMarketPackageImportAction({ market: 'JP', packagePath: 'JP/pkg' }, deps)
+  const result = await runMarketPackageImportAction({ market: 'JP', packagePath: 'JP/pkg', legacyPackageImport: true }, deps)
 
   assert.equal(formatMarketPackageImportOutput(result.result), 'parse_run_id=parse-42')
   assert.equal(result.output, 'parse_run_id=parse-42')
 })
 
-test('runMarketPackageImportAction defaults HK imports to ddl enabled and preserves stdout', async () => {
+test('runMarketPackageImportAction defaults explicit legacy HK imports to ddl enabled and preserves stdout', async () => {
   const calls: Array<{ market: string; packagePath: string; ddl?: boolean; force?: boolean }> = []
   const deps = makeDeps({
     runImport: async (market, packagePath, ddl, force) => {
@@ -102,13 +102,29 @@ test('runMarketPackageImportAction defaults HK imports to ddl enabled and preser
     },
   })
 
-  const result = await runMarketPackageImportAction({ market: 'HK', packagePath: 'HK/pkg', force: true }, deps)
+  const result = await runMarketPackageImportAction({ market: 'HK', packagePath: 'HK/pkg', force: true, legacyPackageImport: true }, deps)
 
   assert.equal(calls[0].market, 'HK')
   assert.equal(calls[0].packagePath, 'HK/pkg')
   assert.equal(calls[0].ddl, true)
   assert.equal(calls[0].force, true)
   assert.equal(result.output, 'hk import ok\n')
+})
+
+test('runMarketPackageImportAction rejects implicit package import without document_full path', async () => {
+  let packageImportCalled = false
+  const deps = makeDeps({
+    runImport: async () => {
+      packageImportCalled = true
+      return { ok: true }
+    },
+  })
+
+  await assert.rejects(
+    runMarketPackageImportAction({ market: 'HK', packagePath: 'HK/pkg' }, deps),
+    /缺少 document_full\.json 路径/,
+  )
+  assert.equal(packageImportCalled, false)
 })
 
 test('runMarketPackageImportAction prefers document_full import when path is provided', async () => {
