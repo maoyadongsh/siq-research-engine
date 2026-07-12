@@ -40,7 +40,9 @@ def create_db_and_tables():
     SQLModel.metadata.create_all(engine)
     _ensure_auth_columns()
     _ensure_chat_message_columns()
+    _ensure_quota_reservation_columns()
     _ensure_app_indexes()
+    _validate_app_schema()
     _ensure_agent_memory_schema()
 
 
@@ -90,6 +92,44 @@ def _ensure_chat_message_columns():
             connection.execute(text(f"ALTER TABLE chatmessage ADD COLUMN {name} {definition}"))
 
 
+def _ensure_quota_reservation_columns():
+    """Bring legacy quota reservation tables up to the current lease schema."""
+    inspector = inspect(engine)
+    if not inspector.has_table("quota_reservations"):
+        return
+
+    columns = {column["name"] for column in inspector.get_columns("quota_reservations")}
+    with engine.begin() as connection:
+        if engine.dialect.name == "postgresql":
+            if "expires_at" not in columns:
+                connection.execute(text(
+                    "ALTER TABLE quota_reservations "
+                    "ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP"
+                ))
+            connection.execute(text(
+                "UPDATE quota_reservations "
+                "SET expires_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP) "
+                "+ INTERVAL '15 minutes' "
+                "WHERE expires_at IS NULL"
+            ))
+            connection.execute(text(
+                "ALTER TABLE quota_reservations "
+                "ALTER COLUMN expires_at SET NOT NULL"
+            ))
+        else:
+            if "expires_at" not in columns:
+                connection.execute(text(
+                    "ALTER TABLE quota_reservations ADD COLUMN expires_at DATETIME"
+                ))
+            connection.execute(text(
+                "UPDATE quota_reservations "
+                "SET expires_at = datetime("
+                "COALESCE(updated_at, created_at, CURRENT_TIMESTAMP), '+15 minutes'"
+                ") "
+                "WHERE expires_at IS NULL"
+            ))
+
+
 def _ensure_app_indexes():
     inspector = inspect(engine)
     index_statements = []
@@ -103,6 +143,11 @@ def _ensure_app_indexes():
             "CREATE INDEX IF NOT EXISTS idx_usage_events_user_type_date "
             "ON usage_events (user_id, event_type, event_date)"
         )
+    if inspector.has_table("quota_reservations"):
+        index_statements.append(
+            "CREATE INDEX IF NOT EXISTS ix_quota_reservations_expires_at "
+            "ON quota_reservations (expires_at)"
+        )
 
     if not index_statements:
         return
@@ -110,6 +155,34 @@ def _ensure_app_indexes():
     with engine.begin() as connection:
         for statement in index_statements:
             connection.execute(text(statement))
+
+
+def _validate_app_schema():
+    """Fail at startup when an existing app table lags behind its SQLModel."""
+    inspector = inspect(engine)
+    missing: list[str] = []
+    for table in SQLModel.metadata.sorted_tables:
+        if table.schema:
+            continue
+        if not inspector.has_table(table.name):
+            missing.append(f"{table.name}.<table>")
+            continue
+        actual_columns = {
+            column["name"]
+            for column in inspector.get_columns(table.name)
+        }
+        missing.extend(
+            f"{table.name}.{column.name}"
+            for column in table.columns
+            if column.name not in actual_columns
+        )
+
+    if missing:
+        missing_text = ", ".join(sorted(missing))
+        raise RuntimeError(
+            "Application database schema is behind the SQLModel definitions; "
+            f"add and run an idempotent startup migration for: {missing_text}"
+        )
 
 
 def _agent_memory_schema_name() -> str:
