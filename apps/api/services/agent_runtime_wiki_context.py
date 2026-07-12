@@ -731,9 +731,31 @@ def wiki_fulltext_fallback_result(
     if report.get("selection_status") == "identity_mismatch":
         return None
     report_id = str(report.get("report_id") or "2025-annual")
-    report_md = Path(report.get("report_md") or company_dir / "reports" / report_id / "report.md")
-    document_full_path = Path(
-        report.get("document_full") or company_dir / "reports" / report_id / "document_full.json"
+    report_root = company_dir / "reports" / report_id
+    report_md = next(
+        (
+            path
+            for candidate in (
+                report.get("report_md"),
+                report_root / "report.md",
+                report_root / "sections" / "report_complete.md",
+                report_root / "parser" / "report_complete.md",
+            )
+            if (path := _existing_scoped_report_path(company_dir, candidate)) is not None
+        ),
+        report_root / "report.md",
+    )
+    document_full_path = next(
+        (
+            path
+            for candidate in (
+                report.get("document_full"),
+                report_root / "document_full.json",
+                report_root / "parser" / "document_full.json",
+            )
+            if (path := _existing_scoped_report_path(company_dir, candidate)) is not None
+        ),
+        report_root / "document_full.json",
     )
     try:
         report_md_file = report_md.relative_to(company_dir).as_posix()

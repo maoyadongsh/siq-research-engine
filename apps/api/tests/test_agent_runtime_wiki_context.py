@@ -421,6 +421,61 @@ def test_wiki_fulltext_fallback_result_searches_report_md(tmp_path):
     assert "市场占有率 13.1%" in result["rows"][0]["snippet"]
 
 
+def test_wiki_fulltext_fallback_result_supports_parser_report_layout(tmp_path):
+    company_dir = tmp_path / "AAPL-Apple-Inc"
+    report_dir = company_dir / "reports" / "2025-10-K"
+    parser_dir = report_dir / "parser"
+    parser_dir.mkdir(parents=True)
+    (company_dir / "company.json").write_text(
+        json.dumps(
+            {
+                "company_id": "US:0000320193",
+                "market": "US",
+                "company_short_name": "Apple Inc",
+                "aliases": ["Apple", "AAPL"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (parser_dir / "report_complete.md").write_text(
+        "\n".join(["[PDF_PAGE: 42]", "Revenue was 100."]),
+        encoding="utf-8",
+    )
+    (parser_dir / "document_full.json").write_text(
+        json.dumps(
+            {
+                "content_list": [
+                    {"type": "text", "text": "Revenue was 100.", "page_idx": 41}
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = wiki_context.wiki_fulltext_fallback_result(
+        "Apple revenue",
+        None,
+        fallback_terms=("revenue",),
+        generic_terms=(),
+        max_snippets=3,
+        snippet_chars=200,
+        is_general_assistant_request=lambda _message: False,
+        resolve_company_dir=lambda _message, _context: company_dir,
+        context_company=lambda _context: {"name": "Apple Inc"},
+        read_json_file=_read_json_file,
+        primary_report_for_company=lambda _company_dir, _message, _context: {
+            "report_id": "2025-10-K",
+            "task_id": "task-us-2025",
+        },
+    )
+
+    assert result is not None
+    assert result["report_md"] == parser_dir / "report_complete.md"
+    assert result["document_full"] == parser_dir / "document_full.json"
+    assert result["rows"]
+    assert any(row["source_type"] == "wiki_report_fulltext" for row in result["rows"])
+
+
 def test_render_wiki_fulltext_fallback_context_uses_evidence_links():
     rendered = wiki_context.render_wiki_fulltext_fallback_context(
         {

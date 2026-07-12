@@ -41,6 +41,7 @@ DEFAULT_CASES = {
     },
 }
 EXPECTED_STATEMENTS = {"income_statement", "cash_flow_statement", "balance_sheet"}
+IDENTITY_FIELDS = ("company_id", "report_id", "filing_id", "parse_run_id")
 
 
 def parse_args() -> argparse.Namespace:
@@ -137,26 +138,74 @@ def _package_errors(result: dict[str, Any] | None, market: str) -> list[str]:
 def _scope_errors(
     metric_result: dict[str, Any] | None,
     package_result: dict[str, Any] | None,
-    *,
-    compare_company_id: bool,
 ) -> list[str]:
     if not metric_result or not package_result:
         return []
     errors: list[str] = []
-    metric_report_id = str(metric_result.get("report_id") or "").strip()
-    package_report_id = str(package_result.get("report_id") or "").strip()
-    if metric_report_id and package_report_id and metric_report_id != package_report_id:
-        errors.append("metric_package_report_mismatch")
     metric_company_dir = str(metric_result.get("company_dir") or "").strip()
     package_company_dir = str(package_result.get("company_dir") or "").strip()
     if metric_company_dir and package_company_dir and metric_company_dir != package_company_dir:
         errors.append("metric_package_company_mismatch")
-    elif compare_company_id:
-        metric_company_id = str(metric_result.get("company_id") or "").strip()
-        package_company_id = str(package_result.get("company_id") or "").strip()
-        if metric_company_id and package_company_id and metric_company_id != package_company_id:
-            errors.append("metric_package_company_mismatch")
     return errors
+
+
+def _identity_evidence(
+    metric_result: dict[str, Any] | None,
+    package_result: dict[str, Any] | None,
+    *,
+    metric_source: str,
+    market: str,
+) -> dict[str, Any]:
+    metric_identity = {field: (metric_result or {}).get(field) for field in IDENTITY_FIELDS}
+    package_identity = {field: (package_result or {}).get(field) for field in IDENTITY_FIELDS}
+    compared_fields: list[str] = []
+    unavailable_fields: list[str] = []
+    errors: list[str] = []
+    required_package_fields = ("company_id", "report_id") if market == "CN" else IDENTITY_FIELDS
+    for field in required_package_fields:
+        if not str(package_identity.get(field) or "").strip():
+            errors.append(f"package_identity_{field}_missing")
+    if metric_source == "structured":
+        for field in IDENTITY_FIELDS:
+            metric_value = str(metric_identity.get(field) or "").strip()
+            package_value = str(package_identity.get(field) or "").strip()
+            if not metric_value and not package_value:
+                unavailable_fields.append(field)
+                continue
+            compared_fields.append(field)
+            if metric_value != package_value:
+                errors.append(f"metric_package_{field}_mismatch")
+    else:
+        metric_report_id = str(metric_identity.get("report_id") or "").strip()
+        package_report_id = str(package_identity.get("report_id") or "").strip()
+        compared_fields.append("report_id")
+        if not metric_report_id or metric_report_id != package_report_id:
+            errors.append("metric_package_report_id_mismatch")
+        unavailable_fields.extend(
+            field for field in ("company_id", "filing_id", "parse_run_id") if not metric_identity.get(field)
+        )
+    return {
+        "passed": not errors,
+        "metric_identity": metric_identity,
+        "package_identity": package_identity,
+        "compared_fields": compared_fields,
+        "unavailable_metric_fields": unavailable_fields,
+        "errors": errors,
+    }
+
+
+def _task_ids(rows: list[dict[str, Any]]) -> list[str]:
+    return sorted({str(row.get("task_id")) for row in rows if row.get("task_id") not in (None, "")})
+
+
+def _artifact_path(value: Any) -> str:
+    if value in (None, ""):
+        return ""
+    path = Path(str(value))
+    try:
+        return path.resolve().relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        return str(path)
 
 
 def evaluate_case(runtime: Any, market: str, case: dict[str, str]) -> dict[str, Any]:
@@ -179,19 +228,20 @@ def evaluate_case(runtime: Any, market: str, case: dict[str, str]) -> dict[str, 
     package_context = _research_context(structured_metric)
     package = runtime._three_statement_core_result(package_question, package_context)
     package_errors = _package_errors(package, market)
-    package_errors.extend(
-        _scope_errors(
-            structured_metric if metric_source == "structured" else fulltext_metric,
-            package,
-            compare_company_id=metric_source == "structured",
-        )
+    metric_result = structured_metric if metric_source == "structured" else fulltext_metric
+    identity_evidence = _identity_evidence(
+        metric_result,
+        package,
+        metric_source=metric_source,
+        market=market,
     )
+    package_errors.extend(identity_evidence["errors"])
+    package_errors.extend(_scope_errors(metric_result, package))
     three_statement_package_pass = not package_errors
     errors = [
         *([] if metric_evidence_pass else structured_metric_errors + fulltext_metric_errors),
         *package_errors,
     ]
-    metric_result = structured_metric if metric_source == "structured" else fulltext_metric
     metric_rows = _rows(metric_result)
     package_rows = _rows(package)
     package_statement_types = {str(row.get("statement_type") or "") for row in package_rows}
@@ -206,6 +256,11 @@ def evaluate_case(runtime: Any, market: str, case: dict[str, str]) -> dict[str, 
         "structured_metric_errors": structured_metric_errors,
         "fulltext_metric_errors": fulltext_metric_errors,
         "three_statement_package_pass": three_statement_package_pass,
+        "package_identity_pass": identity_evidence["passed"],
+        "metric_identity": identity_evidence["metric_identity"],
+        "package_identity": identity_evidence["package_identity"],
+        "identity_compared_fields": identity_evidence["compared_fields"],
+        "identity_unavailable_metric_fields": identity_evidence["unavailable_metric_fields"],
         "passed": not errors,
         "company_id": (package or structured_metric or {}).get("company_id"),
         "report_id": (package or structured_metric or {}).get("report_id"),
@@ -219,6 +274,10 @@ def evaluate_case(runtime: Any, market: str, case: dict[str, str]) -> dict[str, 
         "package_row_count": len(package_rows),
         "package_statement_types": sorted(package_statement_types),
         "package_evidence_coverage": _coverage(package_rows),
+        "package_path": _artifact_path((package or {}).get("metrics_file")),
+        "metrics_file": _artifact_path((package or {}).get("metrics_file")),
+        "metric_task_ids": _task_ids(metric_rows),
+        "package_task_ids": _task_ids(package_rows),
         "validation_status": validation_status,
         "evidence_coverage": _coverage(metric_rows),
         "errors": errors,
