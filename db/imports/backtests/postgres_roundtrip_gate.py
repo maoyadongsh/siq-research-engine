@@ -12,6 +12,7 @@ from postgres_roundtrip_helpers import (
     db_content_hashes,
     db_family_counts,
     db_required_evidence_check,
+    db_scope_issues,
     db_table_counts,
 )
 
@@ -92,6 +93,7 @@ def check_db_case(
     content_hashes: dict[str, str] = {}
     second_content_hashes: dict[str, str] = {}
     required_evidence_checks: list[dict[str, Any]] = []
+    scope_issues: list[dict[str, Any]] = []
     try:
         if idempotency and not import_before_check:
             errors.append("--idempotency requires --import-before-db-check")
@@ -111,6 +113,8 @@ def check_db_case(
             expected_table_counts = case.get("expected_table_counts") if isinstance(case.get("expected_table_counts"), dict) else {}
             counts = db_family_counts(conn, schema, case, where_sql, params)
             table_counts = db_table_counts(conn, schema, case, where_sql, params, expected_table_counts)
+            scope_issues = db_scope_issues(conn, schema, case, where_sql, params, expected_table_counts)
+            errors.extend(str(issue.get("message")) for issue in scope_issues if issue.get("message"))
             content_hashes = db_content_hashes(conn, schema, where_sql, params)
             for assertion in case.get("assertions") or case.get("expected_facts") or []:
                 if isinstance(assertion, dict) and assertion.get("required_evidence") is True:
@@ -158,6 +162,7 @@ def check_db_case(
         "content_hashes": content_hashes,
         "second_content_hashes": second_content_hashes,
         "required_evidence_checks": required_evidence_checks,
+        "scope_issues": scope_issues,
         "schema": schema,
         "parse_run_id": imported_parse_run_id,
         "imported_before_check": import_before_check,

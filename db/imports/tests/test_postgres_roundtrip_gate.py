@@ -241,6 +241,33 @@ def test_check_db_case_sequence_runs_ddl_once_per_market(monkeypatch, tmp_path):
     assert [result["check_type"] for result in results] == ["import_roundtrip", "import_roundtrip", "import_roundtrip"]
 
 
+def test_check_db_case_fails_when_count_table_cannot_be_scoped(monkeypatch, tmp_path):
+    module = _load_module()
+    conn = FakeDb(counts={**_counts(), "financial_statement_items": 99})
+    conn.columns["financial_statement_items"] = ["source_system", "canonical_name", "value"]
+    _install_fake_psycopg(monkeypatch, conn)
+
+    result = module.check_db_case(
+        {
+            "case_id": "hk-scope-drift",
+            "market": "HK",
+            "parse_run_id": "parse-hk-1",
+            "expected_table_counts": {"financial_statement_items": {"min": 1}},
+        },
+        cases_path=tmp_path / "cases.json",
+        market_schemas={"HK": "pdf2md_hk"},
+        database_url_for_market=lambda market, url: f"{url}/{market.lower()}",
+        database_url="postgresql://example",
+        import_case_document_full=lambda **_kwargs: "",
+    )
+
+    assert result["passed"] is False
+    assert result["table_counts"]["financial_statement_items"] == 0
+    assert result["scope_issues"][0]["table"] == "financial_statement_items"
+    assert "refusing full-table count" in result["scope_issues"][0]["message"]
+    assert any("financial_statement_items" in error for error in result["errors"])
+
+
 def test_check_db_case_skips_unsupported_market_and_validates_document_path(tmp_path):
     module = _load_module()
     case = {"case_id": "cn-case", "market": "CN", "document_full_path": "nested/doc.json"}

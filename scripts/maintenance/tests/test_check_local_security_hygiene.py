@@ -29,19 +29,25 @@ def _write_startup_guards(repo_root: Path) -> None:
     for relative in ("start_all.sh", "apps/api/start.sh"):
         path = repo_root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            "\n".join(
+        lines = [
+            "SIQ_DEPLOYMENT_PROFILE",
+            "SIQ_UVICORN_RELOAD must not be enabled",
+            "FLASK_DEBUG must not be enabled",
+            "uvicorn_args+=(--reload)",
+            'uv run python -m uvicorn "${uvicorn_args[@]}"',
+        ]
+        if relative == "apps/api/start.sh":
+            lines.extend(
                 [
-                    "SIQ_DEPLOYMENT_PROFILE",
-                    "SIQ_UVICORN_RELOAD must not be enabled",
-                    "FLASK_DEBUG must not be enabled",
-                    "uvicorn_args+=(--reload)",
-                    'uv run python -m uvicorn "${uvicorn_args[@]}"',
-                    "",
+                    "database_url_log_status() {",
+                    '  printf \'%s\\n\' "configured"',
+                    '  printf \'%s\\n\' "not configured"',
+                    "}",
+                    'database_url_for_log="${SIQ_APP_DATABASE_URL:-${DATABASE_URL:-}}"',
+                    'echo "SIQ_APP_DATABASE_URL: $(database_url_log_status "$database_url_for_log")"',
                 ]
-            ),
-            encoding="utf-8",
-        )
+            )
+        path.write_text("\n".join([*lines, ""]), encoding="utf-8")
 
 
 def _write_container_security_config(repo_root: Path, module) -> None:
@@ -89,6 +95,12 @@ def _write_supervisor_config(repo_root: Path) -> None:
         ),
         encoding="utf-8",
     )
+
+
+def _write_milvus_compose(repo_root: Path, content: str) -> None:
+    path = repo_root / "infra" / "vector-index" / "milvus" / "docker-compose.yml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
 
 
 def _write_required_gitignore(repo_root: Path, module) -> None:
@@ -187,6 +199,82 @@ services:
     assert module.check_local_security_hygiene(tmp_path, scope="local-dirs") == []
 
 
+def test_workflow_scope_reports_each_milvus_default_credential_and_public_port(tmp_path):
+    module = _load_module()
+    _write_workflow(
+        tmp_path,
+        """
+services:
+  postgres:
+    env:
+      POSTGRES_PASSWORD: secret
+    ports:
+      - 127.0.0.1:15432:5432
+""",
+    )
+    _write_startup_guards(tmp_path)
+    _write_container_security_config(tmp_path, module)
+    _write_supervisor_config(tmp_path)
+    _write_required_gitignore(tmp_path, module)
+    _write_milvus_compose(
+        tmp_path,
+        """
+services:
+  minio:
+    environment:
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    ports:
+      - "9000:9000"
+  standalone:
+    ports:
+      - "0.0.0.0:19530:19530"
+""",
+    )
+
+    findings = module.check_local_security_hygiene(tmp_path, scope="workflow")
+    codes = [finding.code for finding in findings]
+
+    assert codes.count("milvus_minio_default_credentials") == 2
+    assert codes.count("milvus_public_port_binding") == 2
+
+
+def test_workflow_scope_accepts_milvus_env_credentials_and_loopback_ports(tmp_path):
+    module = _load_module()
+    _write_workflow(
+        tmp_path,
+        """
+services:
+  postgres:
+    env:
+      POSTGRES_PASSWORD: secret
+    ports:
+      - 127.0.0.1:15432:5432
+""",
+    )
+    _write_startup_guards(tmp_path)
+    _write_container_security_config(tmp_path, module)
+    _write_supervisor_config(tmp_path)
+    _write_required_gitignore(tmp_path, module)
+    _write_milvus_compose(
+        tmp_path,
+        """
+services:
+  minio:
+    environment:
+      MINIO_ROOT_USER: "${SIQ_MILVUS_MINIO_ROOT_USER:?Set SIQ_MILVUS_MINIO_ROOT_USER}"
+      MINIO_ROOT_PASSWORD: "${SIQ_MILVUS_MINIO_ROOT_PASSWORD:?Set SIQ_MILVUS_MINIO_ROOT_PASSWORD}"
+    ports:
+      - "127.0.0.1:${SIQ_MILVUS_MINIO_API_PORT:-9000}:9000"
+  standalone:
+    ports:
+      - "127.0.0.1:${SIQ_MILVUS_PORT:-19530}:19530"
+""",
+    )
+
+    assert module.check_local_security_hygiene(tmp_path, scope="workflow") == []
+
+
 def test_workflow_scope_fails_when_production_startup_guard_missing(tmp_path):
     module = _load_module()
     _write_workflow(
@@ -212,6 +300,44 @@ services:
         "production_startup_hardcoded_dev_uvicorn",
     ]
     assert findings[0].path == "start_all.sh"
+
+
+def test_production_startup_guard_rejects_raw_database_url_logging(tmp_path):
+    module = _load_module()
+    _write_startup_guards(tmp_path)
+    api_start = tmp_path / module.API_START_SCRIPT
+    api_start.write_text(
+        api_start.read_text(encoding="utf-8").replace(
+            '$(database_url_log_status "$database_url_for_log")',
+            '${SIQ_APP_DATABASE_URL:-${DATABASE_URL:-}}',
+        ),
+        encoding="utf-8",
+    )
+
+    findings = module.check_production_startup_guards(tmp_path)
+    codes = {finding.code for finding in findings}
+
+    assert "production_startup_guard_missing" in codes
+    assert "production_startup_database_url_log_unsafe" in codes
+
+
+def test_production_startup_guard_rejects_partial_database_url_redaction(tmp_path):
+    module = _load_module()
+    _write_startup_guards(tmp_path)
+    api_start = tmp_path / module.API_START_SCRIPT
+    api_start.write_text(
+        api_start.read_text(encoding="utf-8").replace(
+            "database_url_log_status",
+            "redact_database_url_for_log",
+        ),
+        encoding="utf-8",
+    )
+
+    findings = module.check_production_startup_guards(tmp_path)
+    codes = {finding.code for finding in findings}
+
+    assert "production_startup_guard_missing" in codes
+    assert "production_startup_database_url_log_unsafe" in codes
 
 
 def test_hygiene_fails_for_world_accessible_dirs_and_postgres_workflow_risks(tmp_path, capsys):
@@ -391,3 +517,57 @@ services:
     assert "data/wiki/" in missing
     assert "data/postgres/" in missing
     assert "infra/env/*.env" in missing
+
+
+def test_workflow_scope_fails_for_milvus_default_credentials_and_public_ports(tmp_path):
+    module = _load_module()
+    _write_workflow(
+        tmp_path,
+        """
+services:
+  postgres:
+    env:
+      POSTGRES_PASSWORD: secret
+    ports:
+      - 127.0.0.1:15432:5432
+""",
+    )
+    _write_startup_guards(tmp_path)
+    _write_container_security_config(tmp_path, module)
+    _write_supervisor_config(tmp_path)
+    _write_required_gitignore(tmp_path, module)
+    milvus_compose = tmp_path / module.MILVUS_COMPOSE_FILE
+    milvus_compose.parent.mkdir(parents=True, exist_ok=True)
+    milvus_compose.write_text(
+        """
+services:
+  minio:
+    environment:
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    ports:
+      - "9001:9001"
+      - "9000:9000"
+  standalone:
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+  attu:
+    ports:
+      - "8001:8000"
+""",
+        encoding="utf-8",
+    )
+
+    findings = module.check_local_security_hygiene(tmp_path, scope="workflow")
+
+    milvus_findings = [finding for finding in findings if finding.path == module.MILVUS_COMPOSE_FILE.as_posix()]
+    assert [finding.code for finding in milvus_findings] == [
+        "milvus_minio_default_credentials",
+        "milvus_minio_default_credentials",
+        "milvus_public_port_binding",
+        "milvus_public_port_binding",
+        "milvus_public_port_binding",
+        "milvus_public_port_binding",
+        "milvus_public_port_binding",
+    ]

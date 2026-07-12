@@ -1,6 +1,7 @@
 import { type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import {
   isSafeLinkHref,
+  INLINE_URL_RE,
   normalizeLinkHref,
   isLikelyInlineMathExpression,
   normalizeInlineMathExpression,
@@ -27,7 +28,7 @@ export function renderInline(text: string, keyPrefix: string): ReactNode[] {
     { type: 'math', regex: /\$(?!\$)([^$\n]{1,160})\$(?!\$)/ },
     { type: 'bold', regex: /\*\*([^*]+)\*\*/ },
     { type: 'italic', regex: /(^|[^*])\*([^*\n]+)\*/ },
-    { type: 'url', regex: /https?:\/\/[^\s)]+/ },
+    { type: 'url', regex: INLINE_URL_RE },
     { type: 'api-url', regex: /\/api\/[^\s)，）]+/ },
   ]
 

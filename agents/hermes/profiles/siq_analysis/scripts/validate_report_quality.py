@@ -32,6 +32,10 @@ FINANCIAL_TABLE_CONTAMINATION_RE = re.compile(
     r"\s*\|[^\n]*(metrics/|task_id|pdf_page|table_index|[0-9a-fA-F]{8}\.\.\.)",
     re.M,
 )
+VISIBLE_NEGATIVE_ORDINARY_EXPENSE_RE = re.compile(
+    r"(营业总成本|营业成本|税金及附加|销售费用|管理费用|研发费用|营业外支出|所得税费用)"
+    r"\s*(?:为|是|：|:)\s*[-−－]\s*\d"
+)
 GENERIC_MISSING_CITATION_RE = re.compile(r"pdf_page(?:_number)?=未返回.*?table_index=未返回")
 MISMATCHED_H3_RE = re.compile(r"^###\s+(\d+)\.(\d+)\s+", re.M)
 API_LINK_RE = re.compile(r"\]\((/api/(?:pdf_page|source)/[^()\s]+?)\)")
@@ -552,6 +556,10 @@ def classify_search_snippet_dumping(md: str) -> str | None:
     return None
 
 
+def visible_negative_ordinary_expense_mentions(md: str) -> list[str]:
+    return sorted(set(match.group(1) for match in VISIBLE_NEGATIVE_ORDINARY_EXPENSE_RE.finditer(md)))
+
+
 def key_metrics_with_three_year_values(prefix: Path) -> dict[str, bool]:
     company_dir = infer_company_dir(prefix)
     if not company_dir:
@@ -710,6 +718,10 @@ def validate(prefix: Path) -> dict[str, Any]:
     contaminated_rows = [match.group(1) for match in FINANCIAL_TABLE_CONTAMINATION_RE.finditer(md)]
     if contaminated_rows:
         failures.append("financial_table_contaminated_by_evidence_metadata:" + ",".join(sorted(set(contaminated_rows))[:20]))
+
+    negative_expense_mentions = visible_negative_ordinary_expense_mentions(md)
+    if negative_expense_mentions:
+        failures.append("ordinary_expense_visible_negative:" + ",".join(negative_expense_mentions[:20]))
 
     generic_missing_citations = GENERIC_MISSING_CITATION_RE.findall(md)
     if len(generic_missing_citations) > 2:

@@ -3,21 +3,40 @@
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-
 PRODUCTION_SAMPLE_MANIFEST_SCHEMA_VERSION = "market_document_full_production_sample_manifest_v1"
+PRODUCTION_SAMPLE_ROOT_ENV = "SIQ_MARKET_POSTGRES_SAMPLE_ROOT"
 
 
 def read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def resolve_manifest_path(path: str | Path, *, repo_root: Path) -> Path:
+def configured_production_sample_root(sample_root: Path | None = None) -> Path | None:
+    configured = sample_root or os.environ.get(PRODUCTION_SAMPLE_ROOT_ENV)
+    return Path(configured).expanduser().resolve() if configured else None
+
+
+def resolve_manifest_path(
+    path: str | Path,
+    *,
+    repo_root: Path,
+    production_sample_root: Path | None = None,
+) -> Path:
     candidate = Path(path)
-    return candidate if candidate.is_absolute() else repo_root / candidate
+    if candidate.is_absolute():
+        return candidate
+    sample_root = configured_production_sample_root(production_sample_root)
+    if sample_root is not None and candidate.parts and candidate.parts[0] == "data":
+        mapped = (sample_root / Path(*candidate.parts[1:])).resolve()
+        if mapped != sample_root and sample_root not in mapped.parents:
+            raise ValueError(f"production sample path escapes configured root: {path}")
+        return mapped
+    return repo_root / candidate
 
 
 def validate_production_sample_manifest(
@@ -26,7 +45,9 @@ def validate_production_sample_manifest(
     repo_root: Path,
     market_databases: dict[str, str],
     require_existing: bool = True,
+    production_sample_root: Path | None = None,
 ) -> dict[str, Any]:
+    sample_root = configured_production_sample_root(production_sample_root)
     if path is None:
         return {
             "path": None,
@@ -119,7 +140,11 @@ def validate_production_sample_manifest(
         market_counts[market] = len(unique_paths)
         existing_counts[market] = 0
         for item in unique_paths:
-            resolved = resolve_manifest_path(item, repo_root=repo_root)
+            resolved = resolve_manifest_path(
+                item,
+                repo_root=repo_root,
+                production_sample_root=sample_root,
+            )
             exists = resolved.exists() if require_existing else None
             if exists:
                 existing_counts[market] += 1
@@ -144,6 +169,7 @@ def validate_production_sample_manifest(
             if require_existing
             else "each market needs at least sample_goal_per_market manifest entries"
         ),
+        "production_sample_root": str(sample_root) if sample_root is not None else None,
         "require_existing": require_existing,
         "sample_goal_per_market": sample_goal,
         "market_counts": market_counts,

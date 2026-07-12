@@ -131,7 +131,8 @@ def test_from_download_reference_enqueues_allowed_pdf(tmp_path, monkeypatch):
     downloads_root = tmp_path / "downloads"
     source_path = downloads_root / "HK" / "00005" / "report.pdf"
     source_path.parent.mkdir(parents=True)
-    source_path.write_bytes(b"%PDF-1.4\nreferenced")
+    source_bytes = b"%PDF-1.4\nreferenced"
+    source_path.write_bytes(source_bytes)
     uploads_dir = tmp_path / "uploads"
     uploads_dir.mkdir()
 
@@ -165,10 +166,67 @@ def test_from_download_reference_enqueues_allowed_pdf(tmp_path, monkeypatch):
     assert task["filename"] == "report.pdf"
     assert task["status"] == "queued"
     assert task["pdf_page_count"] == 7
+    assert task["file_size"] == len(source_bytes)
+    assert task["file_sha256"] == app._sha256_file(task["upload_path"])
     assert task["submit_config"]["market"] == "HK"
     assert os.path.exists(task["upload_path"])
     assert os.path.commonpath([task["upload_path"], str(uploads_dir)]) == str(uploads_dir)
     assert task["logs"][0]["message"].startswith("服务端引用入队")
+    source_path.write_bytes(b"%PDF-1.4\nsource-mutated-after-admission")
+    assert Path(task["upload_path"]).read_bytes() == source_bytes
+
+
+def test_from_download_task_id_conflict_preserves_existing_task_and_files(tmp_path, monkeypatch):
+    downloads_root = tmp_path / "downloads"
+    source_path = downloads_root / "HK" / "00005" / "report.pdf"
+    source_path.parent.mkdir(parents=True)
+    source_bytes = b"%PDF-1.4\nreferenced-replacement"
+    source_path.write_bytes(source_bytes)
+    uploads_dir = tmp_path / "uploads"
+    uploads_dir.mkdir()
+    original_path = uploads_dir / "original.pdf"
+    original_bytes = b"%PDF-1.4\noriginal-owner-content"
+    original_path.write_bytes(original_bytes)
+
+    monkeypatch.setenv("SIQ_PDF_REFERENCE_ROOTS", str(downloads_root))
+    monkeypatch.setattr(app, "UPLOAD_FOLDER", str(uploads_dir))
+    monkeypatch.setattr(app, "DB_PATH", str(tmp_path / "tasks-conflict.db"))
+    monkeypatch.setattr(app, "initialize_app", lambda start_worker=True: None)
+    monkeypatch.setattr(app, "_cleanup_old_data", lambda: None)
+    monkeypatch.setattr(app, "_wake_queue_worker", lambda: None)
+    monkeypatch.setattr(app, "_looks_like_pdf", lambda _path: True)
+    monkeypatch.setattr(app, "_get_pdf_page_count", lambda _path: 1)
+    app._init_db()
+    existing = _task("client-reference-id")
+    existing.update(
+        {
+            "owner_id": "owner-a",
+            "tenant_id": "tenant-a",
+            "market_scope": "HK",
+            "upload_path": str(original_path),
+            "file_size": len(original_bytes),
+            "file_sha256": "a" * 64,
+        }
+    )
+    app._save_task(existing, allow_insert=True)
+    before = app._get_task("client-reference-id")
+
+    response = app.app.test_client().post(
+        "/api/tasks/from-download",
+        json={
+            "source_path": str(source_path),
+            "filename": "replacement.pdf",
+            "market": "HK",
+            "task_id": "client-reference-id",
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.get_json()["error"] == "parser_task_id_conflict"
+    assert app._get_task("client-reference-id") == before
+    assert original_path.read_bytes() == original_bytes
+    assert source_path.read_bytes() == source_bytes
+    assert list(uploads_dir.iterdir()) == [original_path]
 
 
 def test_from_download_reference_rejects_market_path_mismatch(tmp_path, monkeypatch):

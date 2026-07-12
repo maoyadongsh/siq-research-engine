@@ -59,7 +59,13 @@ def _has_structured_evidence_trace(reply: str) -> bool:
     if "source_type=" not in text:
         return False
     for line in text.splitlines():
-        if "source_type=" not in line or "task_id=" not in line:
+        if "source_type=" not in line:
+            continue
+        has_sec_url = re.search(r"\bsource_url=https://(?:www\.)?sec\.gov/\S+", line, re.IGNORECASE)
+        has_sec_anchor = re.search(r"\b(?:source_anchor|xbrl_tag)=[^,\s]+", line)
+        if has_sec_url and has_sec_anchor:
+            return True
+        if "task_id=" not in line:
             continue
         if not re.search(r"\btask_id=[0-9a-fA-F-]{32,36}\b", line):
             continue
@@ -306,7 +312,7 @@ def _render_three_statement_primary_data_supplement(
         return None
     lines = [
         "## 主要数据溯源补充",
-        "- 后端已从结构化三大表补充本轮主要财务数据的指标级来源；正文如使用这些数值，应以本表的 PDF 页和表格为准。",
+        "- 后端已从结构化三大表补充本轮主要财务数据的指标级来源；正文如使用这些数值，应以本表的 PDF 页/表格或监管披露 anchor 为准。",
         "",
         "| 指标 | 期间 | 原始披露值 | 来源 |",
         "| --- | --- | ---: | --- |",
@@ -323,23 +329,42 @@ def _render_three_statement_primary_data_supplement(
             md_line=row.get("md_line"),
             table_source_links=table_source_links,
         )
+        source_url = str(row.get("source_url") or "").strip()
+        source_anchor = str(row.get("source_anchor") or "").strip()
+        if source_url:
+            target = source_url if not source_anchor or "#" in source_url else f"{source_url}#{source_anchor}"
+            locator = f"source_url={source_url}, source_anchor={source_anchor or '未返回'}，[打开披露原文]({target})"
         lines.append(
             f"| {row.get('statement_label') or row.get('statement_type') or '三大表'} / {metric} | "
             f"{row.get('period') or result.get('report_id') or '未返回'} | {value or '未返回'} | {locator} |"
         )
-        _append_unique_source_ref(
-            refs,
-            seen_refs,
-            source_type=row.get("source_type") or "wiki_metrics",
-            file=row.get("file") or "metrics/three_statements.json",
-            metric=row.get("statement_label") or metric,
-            period=row.get("report_id") or result.get("report_id"),
-            task_id=row.get("task_id"),
-            pdf_page=row.get("pdf_page"),
-            table_index=row.get("table_index"),
-            md_line=row.get("md_line"),
-            table_source_links=table_source_links,
-        )
+        if source_url:
+            key = (source_url, source_anchor, row.get("xbrl_tag"), str(row.get("file") or ""), str(metric))
+            if key not in seen_refs:
+                seen_refs.add(key)
+                refs.append(
+                    f"[D{len(refs) + 1}] source_type={row.get('source_type') or 'wiki_metrics'}, "
+                    f"file={row.get('file') or 'metrics/financial_data.json'}, metric={row.get('statement_label') or metric}, "
+                    f"period={row.get('report_id') or result.get('report_id') or '未返回'}, task_id={row.get('task_id') or '未返回'}, "
+                    f"pdf_page=未返回, table_index=未返回, md_line={row.get('md_line') or '未返回'}, "
+                    f"evidence_source_type={row.get('evidence_source_type') or '未返回'}, source_url={source_url}, "
+                    f"source_anchor={source_anchor or '未返回'}, xbrl_tag={row.get('xbrl_tag') or '未返回'}, "
+                    f"[打开披露原文]({target})"
+                )
+        else:
+            _append_unique_source_ref(
+                refs,
+                seen_refs,
+                source_type=row.get("source_type") or "wiki_metrics",
+                file=row.get("file") or "metrics/three_statements.json",
+                metric=row.get("statement_label") or metric,
+                period=row.get("report_id") or result.get("report_id"),
+                task_id=row.get("task_id"),
+                pdf_page=row.get("pdf_page"),
+                table_index=row.get("table_index"),
+                md_line=row.get("md_line"),
+                table_source_links=table_source_links,
+            )
     if refs:
         lines.extend(["", "## 主要数据引用来源", *refs])
     return "\n".join(lines)
@@ -361,7 +386,7 @@ def _record_values_preview(record: dict[str, Any], *, max_values: int = 4) -> st
 
 def _format_statement_value(row: dict[str, Any]) -> str:
     value = row.get("raw_value")
-    unit = row.get("unit") or ""
+    unit = row.get("unit") or row.get("currency") or ""
     if value in (None, ""):
         value = row.get("normalized_value")
     return f"{value} {unit}".strip()
@@ -605,8 +630,6 @@ def _render_postgres_primary_data_supplement(
         "| 指标 | 期间 | 原始值/值 | 来源 |",
         "| --- | --- | ---: | --- |",
     ]
-    refs: list[str] = []
-    seen_refs: set[tuple[Any, Any, Any, str, str]] = set()
     for row in rows[:primary_data_supplement_max_rows]:
         pdf_page = postgres_row_pdf_page(row)
         table_index = postgres_row_table_index(row)

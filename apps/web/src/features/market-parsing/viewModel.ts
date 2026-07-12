@@ -39,11 +39,37 @@ export interface MarketParsingPageViewModel {
   canBuildDownloadedPackage: boolean
 }
 
+export interface MarketParsingStateScopeInput {
+  market?: MarketParsingCode | string | null
+  taskId?: string | null
+  packagePath?: string | null
+  documentFullPath?: string | null
+}
+
+function normalizedScopePart(value: unknown): string {
+  return String(value || '').trim()
+}
+
+export function buildMarketParsingStateScopeKey({
+  market,
+  taskId,
+  packagePath,
+  documentFullPath,
+}: MarketParsingStateScopeInput): string {
+  const identity = normalizedScopePart(documentFullPath)
+    || normalizedScopePart(packagePath)
+    || normalizedScopePart(taskId)
+  if (!identity) return ''
+  const marketKey = normalizedScopePart(market).toUpperCase() || 'ALL'
+  return `${marketKey}::${identity}`
+}
+
 export function hasMarketParsingLogIssues(logs: LogEntry[]) {
   return logs.some((entry) => entry.level === 'error' || entry.level === 'warn')
 }
 
 export function buildMarketParsingPageViewModel({
+  market,
   parseBadgeClass,
   resultDeferred,
   markdown,
@@ -67,6 +93,6 @@ export function buildMarketParsingPageViewModel({
     shouldShowResultGate: isCompleted && resultDeferred && !markdown,
     shouldShowWorkflow: isCompleted,
     shouldShowEmptyState: !markdown && !parseActive && taskCount === 0,
-    canBuildDownloadedPackage: false,
+    canBuildDownloadedPackage: market === 'EU',
   }
 }

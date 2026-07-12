@@ -175,9 +175,12 @@ def test_tracking_history_route_wraps_messages_and_session_id(monkeypatch):
     messages = [
         {
             "id": 1,
+            "session_id": "resolved-tracking-session",
             "role": "assistant",
             "content": "历史回复",
             "created_at": datetime(2026, 1, 2, 3, 4, 5),
+            "attachments": [],
+            "audit_trace_id": "aat_1234567890abcdef1234567890abcdef",
         }
     ]
     calls = {}
@@ -213,9 +216,12 @@ def test_tracking_history_route_wraps_messages_and_session_id(monkeypatch):
         "messages": [
             {
                 "id": 1,
+                "session_id": "resolved-tracking-session",
                 "role": "assistant",
                 "content": "历史回复",
                 "created_at": "2026-01-02T03:04:05",
+                "attachments": [],
+                "audit_trace_id": "aat_1234567890abcdef1234567890abcdef",
             }
         ],
         "session_id": "resolved-tracking-session",

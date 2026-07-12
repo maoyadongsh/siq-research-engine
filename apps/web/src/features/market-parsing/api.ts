@@ -120,6 +120,7 @@ export interface UsSecIngestRequest {
   ddl?: boolean
   include_fail?: boolean
   tickers?: string
+  package_path?: string
   batch_tag?: string
 }
 
@@ -174,6 +175,7 @@ export interface MarketPackageSummary {
   package_path?: string
   paths?: Record<string, string>
   market?: MarketCode | string
+  company_id?: string
   country?: string
   document_format?: string
   filing_id?: string
@@ -352,6 +354,11 @@ export async function waitForMarketReportJob<T extends { ok?: boolean; stdout?: 
 
 export async function fetchUsSecPackage(ticker: string): Promise<UsSecPackageDetail> {
   return apiJson<UsSecPackageDetail>(`/api/us-sec/packages/${encodeURIComponent(ticker)}`)
+}
+
+export async function fetchUsSecPackageByPath(packagePath: string): Promise<UsSecPackageDetail> {
+  const params = new URLSearchParams({ market: 'US', package_path: packagePath })
+  return apiJson<UsSecPackageDetail>(`/api/market-reports/package?${params.toString()}`)
 }
 
 export async function uploadUsSecFiles(form: FormData): Promise<UsSecUploadResponse> {

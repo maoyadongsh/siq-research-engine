@@ -1,0 +1,17 @@
+[
+  {
+    "query": "通用问答助手如何做证据定位",
+    "profile": "siq_assistant",
+    "expected_path_contains": "siq_assistant"
+  },
+  {
+    "query": "一级市场 IC 法务扫描 风险结论",
+    "profile": "siq_ic_legal_scanner",
+    "expected_path_contains": "siq_ic_legal_scanner"
+  },
+  {
+    "query": "投委会主席如何做最终裁决",
+    "profile": "siq_ic_chairman",
+    "expected_path_contains": "siq_ic_chairman"
+  }
+]

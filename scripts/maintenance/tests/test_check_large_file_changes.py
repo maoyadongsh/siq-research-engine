@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -19,18 +20,49 @@ def _write_bytes(path: Path, size: int) -> None:
     path.write_bytes(b"x" * size)
 
 
-def test_changed_file_gate_skips_runtime_artifact_dirs(tmp_path):
+def test_changed_file_gate_blocks_runtime_artifacts_and_allows_source_markers(tmp_path):
     module = _load_module()
     _write_bytes(tmp_path / "data" / "raw.mp4", 10)
     _write_bytes(tmp_path / "artifacts" / "report.zip", 10)
+    _write_bytes(tmp_path / "var" / "jobs.json", 10)
+    _write_bytes(tmp_path / "data" / "README.md", 10)
+    _write_bytes(tmp_path / "artifacts" / "nested" / ".gitkeep", 0)
 
     findings = module.check_large_file_changes(
         tmp_path,
-        paths=["data/raw.mp4", "artifacts/report.zip"],
+        paths=[
+            "data/raw.mp4",
+            "artifacts/report.zip",
+            "var/jobs.json",
+            "data/README.md",
+            "artifacts/nested/.gitkeep",
+        ],
         max_bytes=1,
     )
 
-    assert findings == []
+    assert [(finding.code, finding.path) for finding in findings] == [
+        ("tracked_runtime_artifact_changed", "data/raw.mp4"),
+        ("tracked_runtime_artifact_changed", "artifacts/report.zip"),
+        ("tracked_runtime_artifact_changed", "var/jobs.json"),
+    ]
+
+
+def test_changed_file_gate_detects_force_tracked_ignored_runtime_artifact(tmp_path):
+    module = _load_module()
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "ci@example.invalid"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "CI"], cwd=tmp_path, check=True)
+    (tmp_path / ".gitignore").write_text("data/**\nartifacts/**\nvar/**\n", encoding="utf-8")
+    subprocess.run(["git", "add", ".gitignore"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-qm", "baseline"], cwd=tmp_path, check=True)
+    _write_bytes(tmp_path / "data" / "wiki" / "package.json", 10)
+    subprocess.run(["git", "add", "-f", "data/wiki/package.json"], cwd=tmp_path, check=True)
+
+    findings = module.check_large_file_changes(tmp_path)
+
+    assert [(finding.code, finding.path) for finding in findings] == [
+        ("tracked_runtime_artifact_changed", "data/wiki/package.json"),
+    ]
 
 
 def test_changed_file_gate_blocks_media_archives_and_local_review_artifacts(tmp_path):
@@ -46,6 +78,19 @@ def test_changed_file_gate_blocks_media_archives_and_local_review_artifacts(tmp_
     assert [(finding.code, finding.path) for finding in findings] == [
         ("blocked_binary_artifact_changed", "apps/web/public/demo.mp4"),
         ("local_review_artifact_changed", ".superpowers/sdd/review.diff"),
+    ]
+
+
+def test_changed_file_gate_blocks_database_dump_and_backup_suffixes(tmp_path):
+    module = _load_module()
+    paths = ["db/snapshots/market.dump", "db/snapshots/market.backup", "db/snapshots/market.bak"]
+    for path in paths:
+        _write_bytes(tmp_path / path, 10)
+
+    findings = module.check_large_file_changes(tmp_path, paths=paths)
+
+    assert [(finding.code, finding.path) for finding in findings] == [
+        ("blocked_binary_artifact_changed", path) for path in paths
     ]
 
 

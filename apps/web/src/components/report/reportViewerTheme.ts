@@ -195,4 +195,42 @@ export const REPORT_VIEWER_THEME = `
   }
   .report-chart-tooltip strong,.income-bridge-tooltip strong{color:#ffffff!important}
   .report-chart-tooltip span,.income-bridge-tooltip span{color:#d1d5db!important}
+  .status-panel.status-alert{border-left-color:#b42318!important}
+  .status-panel.status-watch{border-left-color:#b45309!important}
+  .status-panel.status-steady{border-left-color:#157347!important}
+  .status-alert .status-label,.badge.alert,.priority-chip{
+    background:#fde4df!important;
+    color:#b42318!important;
+    border-color:#f1aaa1!important;
+  }
+  .hero:not(.chart-area) .status-alert .status-label,
+  .header:not(.report-header) .status-alert .status-label,
+  .hero:not(.chart-area) .priority-chip,
+  .header:not(.report-header) .priority-chip{
+    color:#b42318!important;
+  }
+  .status-watch .status-label,.badge.warning{
+    background:#fff1d6!important;
+    color:#b45309!important;
+    border-color:#f7c66d!important;
+  }
+  .hero:not(.chart-area) .status-watch .status-label,
+  .header:not(.report-header) .status-watch .status-label{
+    color:#b45309!important;
+  }
+  .status-steady .status-label{
+    background:#def7e8!important;
+    color:#157347!important;
+    border-color:#a8dfbd!important;
+  }
+  .hero:not(.chart-area) .status-steady .status-label,
+  .header:not(.report-header) .status-steady .status-label{
+    color:#157347!important;
+  }
+  .attention-item{border-left-color:#b42318!important}
+  .stat-card.blue b,.stat-card.blue .number{color:#26547c!important}
+  .stat-card.red b,.stat-card.red .number{color:#b42318!important}
+  .stat-card.yellow b,.stat-card.yellow .number{color:#9a6700!important}
+  .stat-card.green b,.stat-card.green .number{color:#157347!important}
+  .stat-card.purple b,.stat-card.purple .number{color:#6f4aa8!important}
 `

@@ -122,12 +122,12 @@
 持续跟踪 Agent 需要补充财务指标、证据页码、表格编号或跨期对比时，应优先直连 PostgreSQL，只读使用：
 
 - Host: `127.0.0.1`
-- Port: `5432`
-- Database: `ai_platform`
+- Port: `15432`
+- Database: `siq`
 - Schema: `pdf2md`
-- User: `dgx`
+- User: `postgres`
 - 重点表：`companies`、`documents`、`company_filings`、`financial_balance_sheet_items`、`financial_income_statement_items`、`financial_cash_flow_statement_items`、`financial_all_metrics_wide`、`financial_key_metrics`、`document_tables`、`evidence_citations`。
-- 推荐查询入口：`/home/maoyd/.hermes/hermes-agent/venv/bin/python /home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts/pg_query.py --profile-env /home/maoyd/siq-research-engine/data/hermes/home/profiles/siq_tracking/.env --sql "<只读 SQL>"`。该脚本会读取 profile `.env` 中的 PostgreSQL 凭据，仅允许 SELECT/WITH/SHOW。
+- 推荐查询入口：`/home/maoyd/.hermes/hermes-agent/venv/bin/python /home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts/pg_query.py --profile-env /home/maoyd/siq-research-engine/data/hermes/home/profiles/siq_tracking/.env --schema pdf2md --limit 50 --timeout-ms 5000 --sql "<只读 SQL>"`。该脚本从项目环境读取凭据，只允许单条 SELECT/WITH/SHOW，并对 schema、行数、超时和只读关键字做硬门禁；失败时必须记录 `error_code` 和模块状态，不得改用其他连接绕过。
 
 证据链优先拼接：
 
@@ -186,6 +186,10 @@ python3 /home/maoyd/siq-research-engine/data/wiki/tracking/scripts/run_all.py --
 python3 /home/maoyd/siq-research-engine/data/wiki/tracking/scripts/run_all.py --validate-all --wiki-base /home/maoyd/siq-research-engine/data/wiki
 ```
 
+前端持续跟踪助手的正式生成/刷新请求由 API 层
+`apps/api/services/tracking_workflow.py` 拦截并确定性调用上述 `run_all.py`。
+自由对话只用于解释、查询和补充分析，不得替代正式报告流水线。
+
 ## 模块职责
 
 1. 模块1 `module1_item_extractor.py`：从分析报告和 `metrics/key_metrics.json` 提取跟踪事项。
@@ -227,7 +231,8 @@ python3 /home/maoyd/siq-research-engine/data/wiki/tracking/scripts/run_all.py --
 4. 更新记录中的链接必须相对 `tracking/updates/` 正确可跳转，例如 `../tracking-items.md`、`../metrics/<file>`。
 5. 综合 HTML 遵守单报告原则：同一天同一家公司只保留一个综合 HTML，不生成各模块独立 HTML。
 6. 综合 HTML 必须使用浅色背景（白色或极浅灰/浅蓝）和深色文字；首屏标题页、header、统计卡片、可折叠区块和表格不得使用深色背景深色字，禁止暗黑主题、深蓝/黑色大面积背景、低对比渐变和白字依赖。
-7. 如果数据缺失，应明确写出缺失项和降级处理方式，不得伪造数据。
+7. 综合 HTML 的设计基准参考 `siq_factchecker` 当前浅色审阅模板：首屏必须包含状态结论、关键统计、元信息和优先跟进事项；正文必须包含目录锚点、完整展开的五大章节、可点击证据链接、横向可读表格和移动端响应式布局。折叠功能可以保留，但不得把正文默认塞进小高度滚动框。
+8. 如果数据缺失，应明确写出缺失项和降级处理方式，不得伪造数据。
 
 ## 和 Hermes profile 代码的关系
 

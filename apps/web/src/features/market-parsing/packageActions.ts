@@ -12,7 +12,8 @@ import {
 
 export interface MarketPackageBuildActionInput {
   market: MarketCode
-  sourcePath: string
+  sourcePath?: string
+  downloadRelativePath?: string
   parserResult?: string
   metadataPath?: string
   force?: boolean
@@ -74,12 +75,20 @@ async function resolveMarketPackageActionResponse(
 
 export function buildMarketPackageRequest({
   sourcePath,
+  downloadRelativePath,
   parserResult,
   metadataPath,
   force = true,
 }: Omit<MarketPackageBuildActionInput, 'market'>): MarketPackageBuildRequest {
+  const normalizedDownloadPath = downloadRelativePath?.trim() || undefined
+  const normalizedSourcePath = sourcePath?.trim() || undefined
+  if (!normalizedDownloadPath && !normalizedSourcePath) {
+    throw new Error('缺少待构建文件路径')
+  }
   return {
-    source_path: sourcePath.trim(),
+    ...(normalizedDownloadPath
+      ? { download_relative_path: normalizedDownloadPath }
+      : { source_path: normalizedSourcePath }),
     parser_result: parserResult?.trim() || undefined,
     metadata_path: metadataPath?.trim() || undefined,
     force,
@@ -148,6 +157,9 @@ export async function runMarketPackageBuildAction(
 ): Promise<{ output: string; builtPath: string; result: MarketPackageActionResponse }> {
   const response = await deps.runBuild(input.market, buildMarketPackageRequest(input))
   const result = await resolveMarketPackageActionResponse(response, deps)
+  if (result.ok === false) {
+    throw new Error(String(result.stderr || result.stdout || '解析产物包构建失败'))
+  }
   return {
     output: formatMarketPackageBuildOutput(result),
     builtPath: String(result.package?.package_path || ''),

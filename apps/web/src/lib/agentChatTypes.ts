@@ -34,11 +34,23 @@ export interface AgentProgress {
   updated_at?: string
 }
 
+/** Stable document identity supplied by the selected market/report record. */
+export interface ResearchIdentity {
+  market?: string
+  company_id?: string
+  filing_id?: string
+  parse_run_id?: string
+}
+
 export interface AgentChatContext {
   company?: {
     code?: string
     name?: string
     dir?: string
+    market?: string
+    company_id?: string
+    filing_id?: string
+    parse_run_id?: string
   }
   report?: {
     type?: string
@@ -46,10 +58,15 @@ export interface AgentChatContext {
     filename?: string
     url?: string
     mtime?: string
+    market?: string
+    company_id?: string
+    filing_id?: string
+    parse_run_id?: string
   }
   page?: {
     title?: string
   }
+  research_identity?: ResearchIdentity
 }
 
 export interface HistoryRecord {

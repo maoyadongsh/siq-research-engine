@@ -34,6 +34,35 @@ def test_extracts_product_segments_and_other_business_from_report_md(tmp_path):
     assert by_name["其他业务"]["revenue_yoy"] < 0
 
 
+def test_extracts_nested_product_segments_without_parent_double_counting(tmp_path):
+    company_dir = tmp_path / "companies" / "000333-美的集团"
+    work_dir = company_dir / "analysis" / ".work" / "case"
+    report_dir = company_dir / "reports" / "2025-annual"
+    work_dir.mkdir(parents=True)
+    report_dir.mkdir(parents=True)
+    report_md = """
+# （1） 营业收入构成
+单位：千元
+<table><tr><td rowspan="2"></td><td colspan="2">2025年</td><td colspan="2">2024年</td><td rowspan="2">同比增减</td></tr><tr><td>金额</td><td>占营业收入比重</td><td>金额</td><td>占营业收入比重</td></tr><tr><td>营业收入合计</td><td>456,451,731</td><td>100.00%</td><td>407,149,600</td><td>100.00%</td><td>12.11%</td></tr><tr><td colspan="6">分产品</td></tr><tr><td>智能家居业务</td><td>299,927,239</td><td>65.71%</td><td>269,532,353</td><td>66.20%</td><td>11.28%</td></tr><tr><td>商业及工业解决方案</td><td>122,752,958</td><td>26.89%</td><td>104,496,253</td><td>25.67%</td><td>17.47%</td></tr><tr><td>其中:楼宇科技</td><td>35,790,825</td><td>7.84%</td><td>28,469,710</td><td>6.99%</td><td>25.72%</td></tr><tr><td>机器人与自动化</td><td>31,010,933</td><td>6.79%</td><td>28,700,565</td><td>7.05%</td><td>8.05%</td></tr><tr><td>工业技术</td><td>27,232,432</td><td>5.97%</td><td>24,702,076</td><td>6.07%</td><td>10.24%</td></tr><tr><td>其他业务</td><td>28,718,768</td><td>6.29%</td><td>22,623,902</td><td>5.56%</td><td>26.94%</td></tr><tr><td>其他</td><td>33,771,534</td><td>7.40%</td><td>33,120,994</td><td>8.13%</td><td>1.96%</td></tr><tr><td colspan="6">分地区</td></tr><tr><td>国内</td><td>260,504,038</td><td>57.07%</td><td>238,115,217</td><td>58.48%</td><td>9.40%</td></tr></table>
+# （2） 占公司营业收入或营业利润 10%以上的行业、产品、地区、销售模式的情况
+单位：千元
+<table><tr><td></td><td>营业收入</td><td>营业成本</td><td>毛利率</td><td>营业收入比上年同期增减</td><td>营业成本比上年同期增减</td><td>毛利率比上年同期增减</td></tr><tr><td colspan="7">分产品</td></tr><tr><td>智能家居业务</td><td>299,927,239</td><td>210,259,540</td><td>29.90%</td><td>11.28%</td><td>11.40%</td><td>-0.08%</td></tr><tr><td>商业及工业解决方案</td><td>122,752,958</td><td>97,204,037</td><td>20.81%</td><td>17.47%</td><td>18.33%</td><td>-0.58%</td></tr><tr><td>其中:楼宇科技</td><td>35,790,825</td><td>24,846,935</td><td>30.58%</td><td>25.72%</td><td>24.99%</td><td>0.41%</td></tr><tr><td>机器人与自动化</td><td>31,010,933</td><td>24,403,714</td><td>21.31%</td><td>8.05%</td><td>9.01%</td><td>-0.69%</td></tr><tr><td>工业技术</td><td>27,232,432</td><td>22,468,055</td><td>17.50%</td><td>10.24%</td><td>9.74%</td><td>0.38%</td></tr><tr><td>其他业务</td><td>28,718,768</td><td>25,485,333</td><td>11.26%</td><td>26.94%</td><td>31.34%</td><td>-2.97%</td></tr><tr><td>其他</td><td>33,771,534</td><td>28,525,951</td><td>15.53%</td><td>1.96%</td><td>-0.60%</td><td>2.18%</td></tr><tr><td colspan="7">分地区</td></tr></table>
+# （3） 公司实物销售收入是否大于劳务收入
+"""
+    (report_dir / "report.md").write_text(report_md, encoding="utf-8")
+
+    segments = renderer._extract_product_segments_from_report_markdown(work_dir)
+
+    names = [item["name"] for item in segments]
+    assert "商业及工业解决方案" not in names
+    assert set(names) == {"智能家居业务", "楼宇科技", "机器人与自动化", "工业技术", "其他业务", "其他"}
+    by_name = {item["name"]: item for item in segments}
+    assert round(sum(item["share"] for item in segments), 2) == 100.0
+    assert round(sum(item["revenue"] for item in segments), 2) == 4564.52
+    assert round(by_name["楼宇科技"]["cost"], 2) == 248.47
+    assert by_name["智能家居业务"]["gross_margin"] == 29.90
+
+
 def test_income_bridge_adds_residual_segment_to_reconcile_total_revenue():
     snapshot = {
         "business_segments": [
@@ -49,6 +78,62 @@ def test_income_bridge_adds_residual_segment_to_reconcile_total_revenue():
     by_name = {item["name"]: item for item in segments}
     assert "利息/手续费等" in by_name
     assert round(sum(item["revenue"] for item in segments), 2) == 6562.44
+
+
+def test_income_bridge_normalizes_reversed_ordinary_expense_signs():
+    snapshot = {
+        "report_year": "2025",
+        "metrics": {
+            "total_operating_revenue": {"display_name": "营业总收入", "values": {"2025": 4585.02407}, "unit": "亿元"},
+            "operating_cost": {"display_name": "营业成本", "values": {"2025": -3359.89528}, "unit": "亿元"},
+            "taxes_and_surcharges": {"display_name": "税金及附加", "values": {"2025": -22.17289}, "unit": "亿元"},
+            "sales_expenses": {"display_name": "销售费用", "values": {"2025": -428.9149}, "unit": "亿元"},
+            "administrative_expenses": {"display_name": "管理费用", "values": {"2025": -160.92311}, "unit": "亿元"},
+            "research_expenses": {"display_name": "研发费用", "values": {"2025": -177.87624}, "unit": "亿元"},
+            "other_income": {"display_name": "其他收益", "values": {"2025": 26.64313}, "unit": "亿元"},
+            "investment_income": {"display_name": "投资收益", "values": {"2025": 16.94661}, "unit": "亿元"},
+            "credit_impairment_loss": {"display_name": "信用减值损失", "values": {"2025": 7.82358}, "unit": "亿元"},
+            "asset_impairment_loss": {"display_name": "资产减值损失", "values": {"2025": -3.5586}, "unit": "亿元"},
+            "asset_disposal_income": {"display_name": "资产处置收益", "values": {"2025": -11.56469}, "unit": "亿元"},
+            "total_profit": {"display_name": "利润总额", "values": {"2025": 530.85343}, "unit": "亿元"},
+            "income_tax_expense": {"display_name": "所得税费用", "values": {"2025": -85.65147}, "unit": "亿元"},
+            "net_profit": {"display_name": "净利润", "values": {"2025": 445.20196}, "unit": "亿元"},
+        },
+    }
+
+    bridge = renderer.build_income_bridge_data(snapshot, {"report_year": "2025"}, None)
+
+    assert bridge is not None
+    assert bridge["flow_nodes"]["cost"]["value"] == 3359.89528
+    assert round(bridge["flow_nodes"]["gross_profit"]["value"], 2) == 1225.13
+
+    steps = {step["name"]: step for step in bridge["steps"]}
+    assert steps["营业成本"]["value"] == -3359.89528
+    assert steps["销售费用"]["value"] == -428.9149
+    assert steps["所得税费用"]["value"] == -85.65147
+    assert steps["信用减值损失"]["value"] == 7.82358
+    assert steps["资产减值损失"]["value"] == -3.5586
+
+
+def test_income_bridge_uses_total_operating_cost_without_double_counting():
+    snapshot = {
+        "report_year": "2025",
+        "metrics": {
+            "total_operating_revenue": {"display_name": "营业总收入", "values": {"2025": 100.0}, "unit": "亿元"},
+            "operating_cost": {"display_name": "营业总成本", "values": {"2025": -80.0}, "unit": "亿元"},
+            "total_profit": {"display_name": "利润总额", "values": {"2025": 20.0}, "unit": "亿元"},
+            "net_profit_parent": {"display_name": "归母净利润", "values": {"2025": 20.0}, "unit": "亿元"},
+        },
+    }
+
+    bridge = renderer.build_income_bridge_data(snapshot, {"report_year": "2025"}, None)
+
+    assert bridge is not None
+    assert bridge["flow_nodes"]["cost"] == {"name": "营业总成本", "value": 80.0}
+    step_names = [step["name"] for step in bridge["steps"]]
+    assert "营业总成本" in step_names
+    assert "营业成本" not in step_names
+    assert {step["name"]: step for step in bridge["steps"]}["营业总成本"]["value"] == -80.0
 
 
 def test_income_bridge_svg_uses_uniform_interactive_ribbons():

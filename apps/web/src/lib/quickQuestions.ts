@@ -67,7 +67,16 @@ export const trackingQuickQuestions: AgentQuickQuestionInput[] = [
 
 export const legalQuickQuestions: AgentQuickQuestionInput[] = [
   introQuickQuestion(),
-  '生成法律意见书',
-  '检索法规依据',
-  '列出合规风险',
+  {
+    label: '起草意见要点',
+    prompt: '请基于当前公司、报告和我提供的事实，按公司法务/律师工作底稿口径在对话中起草法律意见要点，不要生成 HTML 或保存文件。请先说明事实前提和检索边界，再给出审慎结论、法规依据、风险提示、建议动作、待核实事项和引用来源。',
+  },
+  {
+    label: '检索法规依据',
+    prompt: '请围绕当前事项检索适用法规、交易所规则或监管文件。请不要只列法规名称，而要说明每条依据与本事项的关联、适用条件、可能例外和仍需核实的事实。',
+  },
+  {
+    label: '列出合规风险',
+    prompt: '请以公司法务向管理层汇报的口径，梳理当前事项的合规风险。请按风险等级说明触发条件、可能后果、缓释措施、责任部门和后续跟踪建议。',
+  },
 ]

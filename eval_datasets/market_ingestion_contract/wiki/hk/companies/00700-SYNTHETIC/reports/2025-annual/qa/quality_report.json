@@ -1,0 +1,13 @@
+{
+  "overall_status": "pass",
+  "table_count": 1,
+  "raw_fact_count": 1,
+  "normalized_metric_count": 1,
+  "evidence_coverage_ratio": 1.0,
+  "missing_required_statements": [],
+  "required_statement_status": {
+    "income_statement": "present",
+    "balance_sheet": "present",
+    "cash_flow_statement": "present"
+  }
+}

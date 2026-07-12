@@ -1,22 +1,26 @@
-import json
 import importlib.util
+import json
 import os
 import re
+import shutil
 import sqlite3
 import subprocess
 import sys
-import shutil
 import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
-from fastapi import APIRouter, HTTPException
-
-from services.command_runner import run_command as run_subprocess_command
-from services.llm_settings import load_llm_settings
+from database import get_session
+from fastapi import APIRouter, Depends, HTTPException
+from services.auth_dependencies import require_permission
+from services.auth_service import PermissionChecker, User
+from services.command_runner import format_command, run_command as run_subprocess_command
 from services.hermes_client import hermes_profile_config
 from services.hermes_model_control import infer_model_mode, set_all_profile_model_modes
+from services.llm_settings import load_llm_settings
+from services.market_report_settings import MARKET_DATABASES, MARKET_DOCUMENT_FULL_IMPORT_SCRIPTS
 from services.path_config import (
     DB_CONFIG_PY,
     DB_IMPORT_SCRIPT,
@@ -24,25 +28,37 @@ from services.path_config import (
     DOCUMENT_PARSER_RESULTS_ROOT,
     DOCUMENT_WIKI_ROOT,
     PDF_RESULT_ROOT_CANDIDATES,
-    PDF_TASK_DB_PATH,
     PDF_RESULTS_ROOT,
-    WIKI_ROOT,
+    PDF_TASK_DB_PATH,
     REPO_ROOT,
+    WIKI_ROOT,
     WIKISET_ROOT,
     WORKFLOW_JOB_STORE,
 )
 from services.security_utils import validate_table_name
-from services import document_workflow_service
-from services.market_report_settings import MARKET_DATABASES, MARKET_DOCUMENT_FULL_IMPORT_SCRIPTS
+from services.usage_service import UserArtifact
 from services.workflow_job_service import (
+    ACTIVE_JOB_STATUSES,
+    claim_workflow_job,
     create_workflow_job,
-    load_workflow_jobs,
     persist_workflow_jobs,
     record_workflow_job_step,
+    recover_workflow_job_store,
     update_workflow_job,
+    workflow_job_idempotency_key,
+    workflow_job_lease_updates,
+    workflow_job_now_iso,
 )
+from sqlalchemy import or_
+from sqlmodel import Session, select
+
+from services import document_workflow_service
 
 router = APIRouter(prefix="/workflow", tags=["workflow"])
+WORKFLOW_REPORT_VIEW_USER = Depends(require_permission("report.view"))
+WORKFLOW_REPORT_CREATE_USER = Depends(require_permission("report.create"))
+WORKFLOW_SYSTEM_CONFIG_USER = Depends(require_permission("system.config"))
+WORKFLOW_SESSION = Depends(get_session)
 
 WIKI_REBUILD_SCRIPT = Path(os.environ.get("WIKI_REBUILD_SCRIPT", str(WIKISET_ROOT / "rebuild_wiki_v2.py"))).resolve()
 SEMANTIC_SCRIPT = Path(os.environ.get("SEMANTIC_SCRIPT", str(WIKISET_ROOT / "extract_company_semantics.py"))).resolve()
@@ -170,14 +186,40 @@ LLM_SEMANTIC_REQUIRED = os.environ.get("LLM_SEMANTIC_REQUIRED", "false").lower()
 LLM_SEMANTIC_TIMEOUT = int(os.environ.get("LLM_SEMANTIC_TIMEOUT", "900"))
 
 _job_lock = threading.Lock()
+WORKFLOW_JOB_LEASE_SECONDS = max(30, int(os.environ.get("SIQ_WORKFLOW_JOB_LEASE_SECONDS", "120")))
+WORKFLOW_JOB_HEARTBEAT_SECONDS = max(
+    5,
+    min(int(os.environ.get("SIQ_WORKFLOW_JOB_HEARTBEAT_SECONDS", "30")), WORKFLOW_JOB_LEASE_SECONDS // 2),
+)
+WORKFLOW_JOB_LEGACY_STALE_SECONDS = max(
+    WORKFLOW_JOB_LEASE_SECONDS,
+    int(os.environ.get("SIQ_WORKFLOW_JOB_LEGACY_STALE_SECONDS", "900")),
+)
+WORKFLOW_JOB_OWNER_ID = f"api-{uuid.uuid4().hex}"
 
 
 def _load_workflow_jobs() -> dict[str, dict]:
-    return load_workflow_jobs(WORKFLOW_JOB_STORE)
+    jobs, _ = recover_workflow_job_store(
+        WORKFLOW_JOB_STORE,
+        now=workflow_job_now_iso(),
+        legacy_stale_seconds=WORKFLOW_JOB_LEGACY_STALE_SECONDS,
+    )
+    return jobs
 
 
 def _persist_workflow_jobs_locked() -> None:
     persist_workflow_jobs(WORKFLOW_JOB_STORE, _workflow_jobs)
+
+
+def _recover_stale_workflow_jobs_locked() -> list[str]:
+    jobs, recovered = recover_workflow_job_store(
+        WORKFLOW_JOB_STORE,
+        now=workflow_job_now_iso(),
+        legacy_stale_seconds=WORKFLOW_JOB_LEGACY_STALE_SECONDS,
+    )
+    _workflow_jobs.clear()
+    _workflow_jobs.update(jobs)
+    return recovered
 
 
 _workflow_jobs: dict[str, dict] = _load_workflow_jobs()
@@ -191,6 +233,130 @@ def _safe_task_id(task_id: str) -> str:
     if not value or any(ch in value for ch in "/\\.."):
         raise HTTPException(400, "Invalid task_id")
     return value
+
+
+PDF_WORKFLOW_ARTIFACT_TYPES = ("parse",)
+DOCUMENT_WORKFLOW_ARTIFACT_TYPES = ("document_parse",)
+ANY_WORKFLOW_ARTIFACT_TYPES = PDF_WORKFLOW_ARTIFACT_TYPES + DOCUMENT_WORKFLOW_ARTIFACT_TYPES
+
+
+def _role_value(user: User) -> str:
+    return str(user.role.value if hasattr(user.role, "value") else user.role)
+
+
+def _is_admin(user: User) -> bool:
+    return _role_value(user) in {"admin", "super_admin"}
+
+
+def _is_fastapi_dependency_value(value: Any) -> bool:
+    value_type = type(value)
+    return value_type.__name__ == "Depends" and value_type.__module__.startswith("fastapi.")
+
+
+def _is_runtime_user(value: Any) -> bool:
+    return isinstance(value, User) or (
+        hasattr(value, "id")
+        and hasattr(value, "role")
+        and not _is_fastapi_dependency_value(value)
+    )
+
+
+def _is_runtime_session(value: Any) -> bool:
+    return hasattr(value, "exec") and not _is_fastapi_dependency_value(value)
+
+
+def _workflow_actor_metadata(current_user: Any) -> dict[str, Any] | None:
+    if not _is_runtime_user(current_user):
+        return None
+    return {
+        "created_by": {
+            "id": getattr(current_user, "id", None),
+            "username": getattr(current_user, "username", None),
+            "role": _role_value(current_user),
+        }
+    }
+
+
+def _user_has_workflow_task_access(
+    session: Session,
+    current_user: User,
+    task_id: str,
+    *,
+    artifact_types: tuple[str, ...],
+) -> bool:
+    if _is_admin(current_user):
+        return True
+    result = session.exec(
+        select(UserArtifact).where(
+            UserArtifact.user_id == int(current_user.id),
+            UserArtifact.artifact_type.in_(artifact_types),
+            or_(
+                UserArtifact.artifact_key == task_id,
+                UserArtifact.global_artifact_id == task_id,
+            ),
+        )
+    )
+    return result.first() is not None
+
+
+def _require_workflow_permission(current_user: Any, permission: str) -> None:
+    if not _is_runtime_user(current_user):
+        return
+    if not PermissionChecker.has_permission(current_user, permission):
+        raise HTTPException(403, f"Permission denied: {permission} required")
+
+
+def _require_workflow_task_access(
+    task_id: str,
+    current_user: Any,
+    session: Any,
+    *,
+    artifact_types: tuple[str, ...],
+) -> None:
+    if not _is_runtime_user(current_user):
+        return
+    task_id = _safe_task_id(task_id)
+    if not _is_runtime_session(session):
+        raise HTTPException(500, "Workflow task access session unavailable")
+    if not _user_has_workflow_task_access(
+        session,
+        current_user,
+        task_id,
+        artifact_types=artifact_types,
+    ):
+        raise HTTPException(403, "Workflow task does not belong to current user")
+
+
+def _require_workflow_task_scope(
+    task_id: str,
+    current_user: Any,
+    session: Any,
+    *,
+    permission: str,
+    artifact_types: tuple[str, ...],
+) -> None:
+    _require_workflow_permission(current_user, permission)
+    _require_workflow_task_access(task_id, current_user, session, artifact_types=artifact_types)
+
+
+def _require_workflow_job_access(job: dict[str, Any], current_user: Any, session: Any) -> None:
+    if not _is_runtime_user(current_user):
+        return
+    if _is_admin(current_user):
+        return
+    task_id = str(job.get("taskId") or "").strip()
+    metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
+    created_by = metadata.get("created_by") if isinstance(metadata.get("created_by"), dict) else {}
+    if str(created_by.get("id") or "") == str(getattr(current_user, "id", "")):
+        return
+    if not task_id:
+        raise HTTPException(403, "Workflow job does not belong to current user")
+    _require_workflow_task_access(
+        task_id,
+        current_user,
+        session,
+        artifact_types=ANY_WORKFLOW_ARTIFACT_TYPES,
+    )
 
 
 def _safe_document_collection(value: str | None = None) -> str:
@@ -886,6 +1052,38 @@ def _generate_obsidian_for_company_at_root(company_dir: str, wiki_root: Path) ->
     if result["returnCode"] != 0:
         raise HTTPException(500, {"stage": "obsidian", **result})
     return result
+
+
+def _subprocess_result_skipped_existing(result: dict | None) -> bool:
+    if result is None:
+        return True
+    if result.get("returnCode") != 0:
+        return False
+    stdout = str(result.get("stdout") or "").lower()
+    return "skipped" in stdout or "skip-existing" in stdout
+
+
+def _maybe_generate_obsidian_for_company_at_root(
+    company_dir: str,
+    wiki_root: Path,
+    semantic_status: dict,
+    rule_result: dict,
+    llm_result: dict | None,
+) -> dict:
+    obsidian = _obsidian_status_at_root(company_dir, semantic_status, wiki_root)
+    if (
+        obsidian.get("status") == "ready"
+        and _subprocess_result_skipped_existing(rule_result)
+        and _subprocess_result_skipped_existing(llm_result)
+    ):
+        return {
+            "returnCode": 0,
+            "stdout": "Obsidian graph skipped; semantic layer unchanged",
+            "stderr": "",
+            "skipped_existing": True,
+            "status": "ready",
+        }
+    return _generate_obsidian_for_company_at_root(company_dir, wiki_root)
 
 
 def _generate_obsidian_for_company(company_dir: str) -> dict:
@@ -2289,11 +2487,27 @@ def _market_document_full_db_status(task_id: str, market: str, document_full: Pa
 
 
 def _run_command(args: list[str], timeout: int = 180, env: dict[str, str] | None = None) -> dict:
-    completed = run_subprocess_command(args, timeout=timeout, env=env)
+    command = format_command(args)
+    try:
+        completed = run_subprocess_command(args, timeout=timeout, env=env)
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout.decode("utf-8", errors="replace") if isinstance(exc.stdout, bytes) else str(exc.stdout or "")
+        stderr = exc.stderr.decode("utf-8", errors="replace") if isinstance(exc.stderr, bytes) else str(exc.stderr or "")
+        return {
+            "returnCode": 124,
+            "stdout": stdout[-6000:],
+            "stderr": stderr[-6000:] or f"command timed out after {timeout} seconds",
+            "command": command,
+            "timeoutSeconds": timeout,
+            "timedOut": True,
+        }
     return {
         "returnCode": completed.returncode,
         "stdout": completed.stdout[-6000:],
         "stderr": completed.stderr[-6000:],
+        "command": command,
+        "timeoutSeconds": timeout,
+        "timedOut": False,
     }
 
 
@@ -2654,22 +2868,69 @@ def _document_package_target(artifact_name: str) -> str:
 
 
 @router.get("/task/{task_id}/status")
-def task_workflow_status(task_id: str):
+def task_workflow_status(
+    task_id: str,
+    current_user: User = WORKFLOW_REPORT_VIEW_USER,
+    session: Session = WORKFLOW_SESSION,
+):
+    _require_workflow_task_scope(
+        task_id,
+        current_user,
+        session,
+        permission="report.view",
+        artifact_types=PDF_WORKFLOW_ARTIFACT_TYPES,
+    )
     return _workflow_status_payload(task_id)
 
 
 @router.get("/document/{task_id}/status")
-def document_workflow_status(task_id: str, collection: str = "default"):
+def document_workflow_status(
+    task_id: str,
+    collection: str = "default",
+    current_user: User = WORKFLOW_REPORT_VIEW_USER,
+    session: Session = WORKFLOW_SESSION,
+):
+    _require_workflow_task_scope(
+        task_id,
+        current_user,
+        session,
+        permission="report.view",
+        artifact_types=DOCUMENT_WORKFLOW_ARTIFACT_TYPES,
+    )
     return _document_workflow_status_payload(task_id, collection)
 
 
 @router.post("/document/{task_id}/wiki-import")
-def import_document_task_to_wiki(task_id: str, collection: str = "default"):
+def import_document_task_to_wiki(
+    task_id: str,
+    collection: str = "default",
+    current_user: User = WORKFLOW_REPORT_CREATE_USER,
+    session: Session = WORKFLOW_SESSION,
+):
+    _require_workflow_task_scope(
+        task_id,
+        current_user,
+        session,
+        permission="report.create",
+        artifact_types=DOCUMENT_WORKFLOW_ARTIFACT_TYPES,
+    )
     return _import_document_task_to_wiki(task_id, collection)
 
 
 @router.post("/document/{task_id}/db-import")
-def import_document_task_to_database(task_id: str, collection: str = "default"):
+def import_document_task_to_database(
+    task_id: str,
+    collection: str = "default",
+    current_user: User = WORKFLOW_SYSTEM_CONFIG_USER,
+    session: Session = WORKFLOW_SESSION,
+):
+    _require_workflow_task_scope(
+        task_id,
+        current_user,
+        session,
+        permission="system.config",
+        artifact_types=DOCUMENT_WORKFLOW_ARTIFACT_TYPES,
+    )
     task_id = _safe_task_id(task_id)
     wiki = _document_wiki_status(task_id, collection)
     if wiki.get("status") not in {"ready", "stale"}:
@@ -2711,7 +2972,16 @@ def build_document_semantic_chunks(
     task_id: str,
     collection: str = "default",
     milvus: bool = False,
+    current_user: User = WORKFLOW_REPORT_CREATE_USER,
+    session: Session = WORKFLOW_SESSION,
 ):
+    _require_workflow_task_scope(
+        task_id,
+        current_user,
+        session,
+        permission="report.create",
+        artifact_types=DOCUMENT_WORKFLOW_ARTIFACT_TYPES,
+    )
     task_id = _safe_task_id(task_id)
     wiki = _document_wiki_status(task_id, collection)
     if wiki.get("status") not in {"ready", "stale"}:
@@ -2740,12 +3010,34 @@ def build_document_semantic_chunks(
 
 
 @router.post("/task/{task_id}/wiki-import")
-def import_task_to_wiki(task_id: str):
+def import_task_to_wiki(
+    task_id: str,
+    current_user: User = WORKFLOW_REPORT_CREATE_USER,
+    session: Session = WORKFLOW_SESSION,
+):
+    _require_workflow_task_scope(
+        task_id,
+        current_user,
+        session,
+        permission="report.create",
+        artifact_types=PDF_WORKFLOW_ARTIFACT_TYPES,
+    )
     return _import_task_to_wiki(task_id)
 
 
 @router.post("/task/{task_id}/wiki-import-generic")
-def import_task_to_generic_wiki(task_id: str):
+def import_task_to_generic_wiki(
+    task_id: str,
+    current_user: User = WORKFLOW_REPORT_CREATE_USER,
+    session: Session = WORKFLOW_SESSION,
+):
+    _require_workflow_task_scope(
+        task_id,
+        current_user,
+        session,
+        permission="report.create",
+        artifact_types=PDF_WORKFLOW_ARTIFACT_TYPES,
+    )
     return _import_task_to_generic_wiki(task_id)
 
 
@@ -2765,6 +3057,7 @@ def extract_semantic_for_task(task_id: str):
         str(WIKI_ROOT),
         "--company",
         company_dir,
+        "--skip-existing",
     ])
     if rule_result["returnCode"] != 0:
         raise HTTPException(500, {"stage": "rule_semantic", **rule_result})
@@ -2784,18 +3077,20 @@ def extract_semantic_for_task(task_id: str):
                 str(WIKI_ROOT),
                 "--company",
                 company_dir,
+                "--skip-existing",
             ], timeout=LLM_SEMANTIC_TIMEOUT, env=_llm_semantic_env())
             if llm_result["returnCode"] != 0 and LLM_SEMANTIC_REQUIRED:
                 raise HTTPException(500, {"stage": "llm_semantic", **llm_result})
 
-    obsidian_result = _generate_obsidian_for_company(company_dir)
+    semantic_status = _semantic_status(company_dir, task_id)
+    obsidian_result = _maybe_generate_obsidian_for_company_at_root(company_dir, WIKI_ROOT, semantic_status, rule_result, llm_result)
     post_naming_check = _repair_and_validate_wiki_naming()
     return {
         "ok": True,
         "companyDir": company_dir,
         "result": {"rule": rule_result, "obsidian": obsidian_result, "llm": llm_result},
         "naming": {"before": pre_naming_check, "after": post_naming_check},
-        "semantic": _semantic_status(company_dir, task_id),
+        "semantic": semantic_status,
     }
 
 
@@ -2819,6 +3114,7 @@ def extract_generic_semantic_for_task(task_id: str):
         str(wiki_root),
         "--company",
         company_dir,
+        "--skip-existing",
     ])
     if rule_result["returnCode"] != 0:
         raise HTTPException(500, {"stage": "rule_semantic", **rule_result})
@@ -2838,12 +3134,19 @@ def extract_generic_semantic_for_task(task_id: str):
                 str(wiki_root),
                 "--company",
                 company_dir,
+                "--skip-existing",
             ], timeout=LLM_SEMANTIC_TIMEOUT, env=_llm_semantic_env())
             if llm_result["returnCode"] != 0 and LLM_SEMANTIC_REQUIRED:
                 raise HTTPException(500, {"stage": "llm_semantic", **llm_result})
 
-    obsidian_result = _generate_obsidian_for_company_at_root(company_dir, wiki_root) if is_pdf_market else _generate_obsidian_for_company(company_dir)
     semantic_status = _semantic_status_at_root(company_dir, task_id, wiki_root) if is_pdf_market else _semantic_status(company_dir, task_id)
+    obsidian_result = _maybe_generate_obsidian_for_company_at_root(
+        company_dir,
+        wiki_root if is_pdf_market else WIKI_ROOT,
+        semantic_status,
+        rule_result,
+        llm_result,
+    )
     return {
         "ok": True,
         "market": market,
@@ -2855,19 +3158,62 @@ def extract_generic_semantic_for_task(task_id: str):
 
 
 @router.post("/task/{task_id}/semantic")
-def start_semantic_for_task(task_id: str):
+def start_semantic_for_task(
+    task_id: str,
+    current_user: User = WORKFLOW_REPORT_CREATE_USER,
+    session: Session = WORKFLOW_SESSION,
+):
     task_id = _safe_task_id(task_id)
-    return _start_workflow_step_job(task_id, "semantic", lambda: extract_semantic_for_task(task_id))
+    _require_workflow_task_scope(
+        task_id,
+        current_user,
+        session,
+        permission="report.create",
+        artifact_types=PDF_WORKFLOW_ARTIFACT_TYPES,
+    )
+    return _start_workflow_step_job(
+        task_id,
+        "semantic",
+        lambda: extract_semantic_for_task(task_id),
+        metadata=_workflow_actor_metadata(current_user),
+    )
 
 
 @router.post("/task/{task_id}/semantic-generic")
-def start_generic_semantic_for_task(task_id: str):
+def start_generic_semantic_for_task(
+    task_id: str,
+    current_user: User = WORKFLOW_REPORT_CREATE_USER,
+    session: Session = WORKFLOW_SESSION,
+):
     task_id = _safe_task_id(task_id)
-    return _start_workflow_step_job(task_id, "semantic-generic", lambda: extract_generic_semantic_for_task(task_id))
+    _require_workflow_task_scope(
+        task_id,
+        current_user,
+        session,
+        permission="report.create",
+        artifact_types=PDF_WORKFLOW_ARTIFACT_TYPES,
+    )
+    return _start_workflow_step_job(
+        task_id,
+        "semantic-generic",
+        lambda: extract_generic_semantic_for_task(task_id),
+        metadata=_workflow_actor_metadata(current_user),
+    )
 
 
 @router.post("/task/{task_id}/db-import")
-def import_task_to_database(task_id: str):
+def import_task_to_database(
+    task_id: str,
+    current_user: User = WORKFLOW_SYSTEM_CONFIG_USER,
+    session: Session = WORKFLOW_SESSION,
+):
+    _require_workflow_task_scope(
+        task_id,
+        current_user,
+        session,
+        permission="system.config",
+        artifact_types=PDF_WORKFLOW_ARTIFACT_TYPES,
+    )
     task_id = _safe_task_id(task_id)
     document_full = _find_task_document_full(task_id)
     if not document_full:
@@ -2926,6 +3272,51 @@ def _job_step(job_id: str, step: str, status: str, **updates) -> None:
             _persist_workflow_jobs_locked()
 
 
+def _job_heartbeat(job_id: str) -> bool:
+    now = _now_iso()
+    with _job_lock:
+        job = _workflow_jobs.get(job_id)
+        if not job or str(job.get("status") or "") not in ACTIVE_JOB_STATUSES:
+            return False
+        updates = workflow_job_lease_updates(
+            owner_id=WORKFLOW_JOB_OWNER_ID,
+            now=now,
+            lease_seconds=WORKFLOW_JOB_LEASE_SECONDS,
+        )
+        if update_workflow_job(_workflow_jobs, job_id, now=lambda: now, **updates):
+            _persist_workflow_jobs_locked()
+            return True
+    return False
+
+
+def _run_job_with_heartbeat(job_id: str, runner) -> None:
+    stopped = threading.Event()
+
+    def heartbeat_loop() -> None:
+        while not stopped.wait(WORKFLOW_JOB_HEARTBEAT_SECONDS):
+            if not _job_heartbeat(job_id):
+                return
+
+    _job_heartbeat(job_id)
+    heartbeat = threading.Thread(target=heartbeat_loop, daemon=True)
+    heartbeat.start()
+    try:
+        runner()
+    finally:
+        stopped.set()
+        heartbeat.join(timeout=1)
+
+
+def _finish_job(job_id: str, *, status: str, **updates) -> None:
+    _job_update(
+        job_id,
+        status=status,
+        finishedAt=_now_iso(),
+        leaseExpiresAt=None,
+        **updates,
+    )
+
+
 def _http_exception_payload(exc: HTTPException) -> dict:
     return {
         "statusCode": exc.status_code,
@@ -2939,99 +3330,195 @@ def _run_workflow_step_job(job_id: str, step: str, runner) -> None:
         _job_step(job_id, step, "running")
         result = runner()
         _job_step(job_id, step, "succeeded", result=result)
-        _job_update(job_id, status="succeeded", result=result)
+        _finish_job(job_id, status="succeeded", result=result)
     except HTTPException as exc:
         payload = _http_exception_payload(exc)
         _job_step(job_id, step, "failed", error=str(exc.detail), result=payload)
-        _job_update(job_id, status="failed", error=str(exc.detail), result=payload)
+        _finish_job(job_id, status="failed", error=str(exc.detail), result=payload)
     except Exception as exc:
         _job_step(job_id, step, "failed", error=str(exc))
-        _job_update(job_id, status="failed", error=str(exc))
+        _finish_job(job_id, status="failed", error=str(exc))
 
 
 def _start_workflow_step_job(task_id: str, step: str, runner, *, metadata: dict | None = None) -> dict:
     job_id = uuid.uuid4().hex
+    now = _now_iso()
+    idempotency_key = workflow_job_idempotency_key(task_id=task_id, retry_scope=step, metadata=metadata)
     with _job_lock:
-        job = create_workflow_job(_workflow_jobs, job_id=job_id, task_id=task_id, now=_now_iso)
+        _recover_stale_workflow_jobs_locked()
+        candidate_jobs: dict[str, dict] = {}
+        job = create_workflow_job(
+            candidate_jobs,
+            job_id=job_id,
+            task_id=task_id,
+            now=lambda: now,
+            retry_scope=step,
+            idempotency_key=idempotency_key,
+            owner_id=WORKFLOW_JOB_OWNER_ID,
+            lease_seconds=WORKFLOW_JOB_LEASE_SECONDS,
+        )
         if metadata:
             job["metadata"] = metadata
-        _persist_workflow_jobs_locked()
-    thread = threading.Thread(target=_run_workflow_step_job, args=(job_id, step, runner), daemon=True)
+        job, reused = claim_workflow_job(
+            WORKFLOW_JOB_STORE,
+            _workflow_jobs,
+            job,
+            now=now,
+            legacy_stale_seconds=WORKFLOW_JOB_LEGACY_STALE_SECONDS,
+        )
+    if reused:
+        return job
+    thread = threading.Thread(
+        target=_run_job_with_heartbeat,
+        args=(job_id, lambda: _run_workflow_step_job(job_id, step, runner)),
+        daemon=True,
+    )
     thread.start()
     return _workflow_jobs[job_id]
 
 
 def _run_remaining_pipeline(job_id: str, task_id: str) -> None:
+    current_step = ""
     try:
         _job_update(job_id, status="running")
         market = _infer_task_market(task_id)
         wiki_root = _wiki_root_for_market(market)
         status = _workflow_status_payload(task_id)
         if not status["artifactBundle"]["ready"]:
-            _job_update(job_id, status="failed", error="解析产物包不完整")
+            _finish_job(job_id, status="failed", error="解析产物包不完整")
             return
 
         if status["wiki"]["status"] != "ready":
+            current_step = "wiki-import"
             _job_step(job_id, "wiki-import", "running")
             result = _import_task_to_market_wiki(task_id, market) if market in PDF_MARKET_WIKI_INGEST_SCRIPTS else _import_task_to_wiki(task_id)
             _job_step(job_id, "wiki-import", "succeeded", result=result)
         else:
+            current_step = "wiki-import"
             _job_step(job_id, "wiki-import", "skipped", message="Wiki 已是最新")
 
         status = _workflow_status_payload(task_id)
         if status["semantic"]["status"] != "ready":
+            current_step = "semantic"
             _job_step(job_id, "semantic", "running")
             result = extract_generic_semantic_for_task(task_id) if market in PDF_MARKET_WIKI_INGEST_SCRIPTS else extract_semantic_for_task(task_id)
             _job_step(job_id, "semantic", "succeeded", result=result)
         else:
+            current_step = "semantic"
             _job_step(job_id, "semantic", "skipped", message="语义层已是最新")
 
         status = _workflow_status_payload(task_id)
         if status["obsidian"]["status"] != "ready":
+            current_step = "obsidian"
             _job_step(job_id, "obsidian", "running")
             company_dir = status["wiki"].get("companyDir") or status["semantic"].get("companyDir") or _find_company_for_task_at_root(task_id, wiki_root)
             result = _generate_obsidian_for_company_at_root(company_dir, wiki_root) if market in PDF_MARKET_WIKI_INGEST_SCRIPTS else _generate_obsidian_for_company(company_dir)
             _job_step(job_id, "obsidian", "succeeded", result=result)
         else:
+            current_step = "obsidian"
             _job_step(job_id, "obsidian", "skipped", message="Obsidian 图谱已是最新")
 
         status = _workflow_status_payload(task_id)
         if status["database"]["status"] != "ready":
+            current_step = "db-import"
             _job_step(job_id, "db-import", "running")
             result = import_task_to_database(task_id)
             _job_step(job_id, "db-import", "succeeded", result=result)
         else:
+            current_step = "db-import"
             _job_step(job_id, "db-import", "skipped", message="PostgreSQL 已是最新")
 
-        _job_update(job_id, status="succeeded", result=_workflow_status_payload(task_id))
+        _finish_job(job_id, status="succeeded", result=_workflow_status_payload(task_id))
     except Exception as exc:
-        _job_update(job_id, status="failed", error=str(exc))
+        if current_step:
+            _job_step(job_id, current_step, "failed", error=str(exc))
+        _finish_job(job_id, status="failed", error=str(exc))
 
 
 @router.get("/task/{task_id}/preflight")
-def workflow_preflight(task_id: str):
+def workflow_preflight(
+    task_id: str,
+    current_user: User = WORKFLOW_REPORT_VIEW_USER,
+    session: Session = WORKFLOW_SESSION,
+):
+    _require_workflow_task_scope(
+        task_id,
+        current_user,
+        session,
+        permission="report.view",
+        artifact_types=PDF_WORKFLOW_ARTIFACT_TYPES,
+    )
     return _workflow_preflight(task_id)
 
 
 @router.post("/task/{task_id}/run-remaining")
-def run_remaining_workflow(task_id: str):
+def run_remaining_workflow(
+    task_id: str,
+    current_user: User = WORKFLOW_SYSTEM_CONFIG_USER,
+    session: Session = WORKFLOW_SESSION,
+):
     task_id = _safe_task_id(task_id)
+    _require_workflow_task_scope(
+        task_id,
+        current_user,
+        session,
+        permission="system.config",
+        artifact_types=PDF_WORKFLOW_ARTIFACT_TYPES,
+    )
     preflight = _workflow_preflight(task_id)
     if not preflight["ok"]:
         raise HTTPException(422, {"message": "预检未通过", "blocking": preflight["blocking"], "checks": preflight["checks"]})
     job_id = uuid.uuid4().hex
+    now = _now_iso()
+    metadata = _workflow_actor_metadata(current_user)
+    idempotency_key = workflow_job_idempotency_key(
+        task_id=task_id,
+        retry_scope="remaining",
+        metadata=metadata,
+    )
     with _job_lock:
-        create_workflow_job(_workflow_jobs, job_id=job_id, task_id=task_id, now=_now_iso)
-        _persist_workflow_jobs_locked()
-    thread = threading.Thread(target=_run_remaining_pipeline, args=(job_id, task_id), daemon=True)
+        _recover_stale_workflow_jobs_locked()
+        candidate_jobs: dict[str, dict] = {}
+        job = create_workflow_job(
+            candidate_jobs,
+            job_id=job_id,
+            task_id=task_id,
+            now=lambda: now,
+            retry_scope="remaining",
+            idempotency_key=idempotency_key,
+            owner_id=WORKFLOW_JOB_OWNER_ID,
+            lease_seconds=WORKFLOW_JOB_LEASE_SECONDS,
+        )
+        if metadata:
+            job["metadata"] = metadata
+        job, reused = claim_workflow_job(
+            WORKFLOW_JOB_STORE,
+            _workflow_jobs,
+            job,
+            now=now,
+            legacy_stale_seconds=WORKFLOW_JOB_LEGACY_STALE_SECONDS,
+        )
+    if reused:
+        return job
+    thread = threading.Thread(
+        target=_run_job_with_heartbeat,
+        args=(job_id, lambda: _run_remaining_pipeline(job_id, task_id)),
+        daemon=True,
+    )
     thread.start()
     return _workflow_jobs[job_id]
 
 
 @router.get("/job/{job_id}")
-def workflow_job_status(job_id: str):
+def workflow_job_status(
+    job_id: str,
+    current_user: User = WORKFLOW_REPORT_VIEW_USER,
+    session: Session = WORKFLOW_SESSION,
+):
     with _job_lock:
+        _recover_stale_workflow_jobs_locked()
         job = _workflow_jobs.get(job_id)
         if not job:
             raise HTTPException(404, "Workflow job not found")
+        _require_workflow_job_access(job, current_user, session)
         return job

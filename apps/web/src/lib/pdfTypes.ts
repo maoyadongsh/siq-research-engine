@@ -128,10 +128,38 @@ export interface WorkflowStatus {
   error?: string
 }
 
+export interface WorkflowJobCommandResult {
+  stage?: string
+  returnCode?: number | null
+  command?: string
+  timeoutSeconds?: number | null
+  stdoutTail?: string
+  stderrTail?: string
+}
+
+export interface WorkflowJobStep {
+  step: string
+  status: string
+  message?: string
+  error?: string
+  startedAt?: string
+  finishedAt?: string
+  timeoutSeconds?: number | null
+  stdoutTail?: string
+  stderrTail?: string
+  commandResults?: WorkflowJobCommandResult[]
+  result?: Record<string, unknown>
+}
+
 export interface WorkflowJob {
   jobId?: string
+  taskId?: string
   status?: string
-  steps?: Array<{ step: string; status: string; message?: string; error?: string }>
+  currentStep?: string | null
+  failedStep?: string
+  retryScope?: string
+  steps?: WorkflowJobStep[]
+  result?: Record<string, unknown>
   error?: string
 }
 

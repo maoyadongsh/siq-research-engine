@@ -171,3 +171,67 @@ def test_get_market_report_job_projects_legacy_market_eval_snapshot():
         "status": "running",
         "created_at": "2026-07-04T12:00:00Z",
     }
+
+
+def test_run_or_queue_market_report_job_runs_inline_when_waiting():
+    calls = []
+
+    class JobService:
+        def start(self, *_args, **_kwargs):
+            raise AssertionError("job should not be queued when wait=True")
+
+    result = service.run_or_queue_market_report_job(
+        wait=True,
+        job_service=JobService(),
+        kind="market-package-build",
+        target=lambda: calls.append("target") or {"ok": True, "mode": "inline"},
+        created_by=DummyUser(),
+    )
+
+    assert result == {"ok": True, "mode": "inline"}
+    assert calls == ["target"]
+
+
+def test_run_or_queue_market_report_job_queues_when_not_waiting():
+    seen = {}
+
+    class JobService:
+        def start(self, kind, target, *, created_by=None):
+            seen["kind"] = kind
+            seen["created_by"] = created_by
+            seen["target_result"] = target()
+            return {"job_id": "queued-job", "status": "queued"}
+
+    result = service.run_or_queue_market_report_job(
+        wait=False,
+        job_service=JobService(),
+        kind="market-vector-ingest",
+        target=lambda: {"ok": True, "mode": "queued"},
+        created_by=DummyUser(),
+    )
+
+    assert result == {"ok": True, "queued": True, "job_id": "queued-job", "status": "queued"}
+    assert seen["kind"] == "market-vector-ingest"
+    assert seen["created_by"]["email"] == "ops@example.test"
+    assert seen["target_result"] == {"ok": True, "mode": "queued"}
+
+
+def test_market_report_job_status_returns_job_or_stable_404():
+    class JobService:
+        def get(self, job_id):
+            if job_id == "job-1":
+                return {"job_id": "job-1", "status": "succeeded"}
+            return None
+
+    assert service.market_report_job_status(job_service=JobService(), job_id="job-1") == {
+        "job_id": "job-1",
+        "status": "succeeded",
+    }
+
+    try:
+        service.market_report_job_status(job_service=JobService(), job_id="missing")
+    except service.MarketReportJobError as exc:
+        assert exc.status_code == 404
+        assert exc.detail == "Job not found"
+    else:
+        raise AssertionError("expected MarketReportJobError")

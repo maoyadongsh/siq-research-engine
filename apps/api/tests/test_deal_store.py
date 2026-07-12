@@ -1,33 +1,121 @@
 import asyncio
-import json
 import hashlib
-from io import BytesIO
+import json
 import sys
+from concurrent.futures import ThreadPoolExecutor
+from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from routers import deals
-from services import deal_agents
-from services import deal_audit
-from services import deal_contracts
-from services import deal_decision
-from services import deal_documents
-from services import deal_disputes
-from services import deal_evidence
-from services import deal_manifest
-from services import deal_phase_artifacts
-from services import deal_reports
-from services import deal_status
-from services import deal_store
-from services import ic_agent_runtime
-from services import ic_startup_retrieval
-from services import ic_workflow
 from services.ic_openclaw_importer import import_openclaw_project
+
+from services import (  # noqa: E402
+    deal_agents,
+    deal_audit,
+    deal_contracts,
+    deal_decision,
+    deal_disputes,
+    deal_documents,
+    deal_evidence,
+    deal_manifest,
+    deal_phase_artifacts,
+    deal_reports,
+    deal_status,
+    deal_store,
+    ic_agent_runtime,
+    ic_policy,
+    ic_startup_retrieval,
+    ic_workflow,
+)
+
+
+def test_append_audit_event_serializes_concurrent_read_modify_write(tmp_path):
+    deal_id = "DEAL-CONCURRENT-AUDIT"
+    deal_store.create_deal_package(deal_id=deal_id, company_name="Concurrent", wiki_root=tmp_path)
+
+    def append(index: int) -> None:
+        deal_store.append_audit_event(
+            deal_id,
+            {"event_id": f"event-{index}"},
+            wiki_root=tmp_path,
+        )
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        list(executor.map(append, range(40)))
+
+    package_dir = deal_store.safe_deal_dir(deal_id, wiki_root=tmp_path)
+    for relative in ("phases/audit_log.json", "audit/audit_log.json"):
+        payload = json.loads((package_dir / relative).read_text(encoding="utf-8"))
+        assert {item["event_id"] for item in payload["events"]} == {f"event-{index}" for index in range(40)}
+
+
+def test_update_json_serializes_concurrent_counter_updates(tmp_path):
+    path = tmp_path / "counter.json"
+    deal_store.write_json(path, {"count": 0})
+
+    def increment(_: int) -> None:
+        deal_store.update_json(path, lambda payload: {"count": payload["count"] + 1})
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        list(executor.map(increment, range(40)))
+    assert deal_store.read_json(path) == {"count": 40}
+
+
+def test_ic_r1_concurrent_agent_updates_preserve_reports_and_submissions(tmp_path):
+    deal_id = "DEAL-CONCURRENT-R1"
+    deal_store.create_deal_package(deal_id=deal_id, company_name="Concurrent R1", wiki_root=tmp_path)
+    package_dir = deal_store.safe_deal_dir(deal_id, wiki_root=tmp_path)
+
+    def submit(profile_id: str) -> None:
+        ic_agent_runtime._merge_r1_report(package_dir, profile_id, {"agent_id": profile_id})
+        ic_agent_runtime._advance_workflow_for_r1_report(package_dir, profile_id)
+
+    with ThreadPoolExecutor(max_workers=len(ic_policy.R1_AGENT_SEQUENCE)) as executor:
+        list(executor.map(submit, ic_policy.R1_AGENT_SEQUENCE))
+
+    reports = deal_store.read_json(package_dir / "phases" / "r1_reports.json")
+    workflow = deal_store.read_json(package_dir / "phases" / "workflow_state.json")
+    assert set(reports) == set(ic_policy.R1_AGENT_SEQUENCE)
+    assert set(workflow["phases"]["R1"]["submitted_agents"]) == set(ic_policy.R1_AGENT_SEQUENCE)
+    assert workflow["phases"]["R1"]["status"] == "completed"
+
+
+def test_update_json_uses_optimistic_updated_at_and_preserves_stale_state(tmp_path):
+    path = tmp_path / "state.json"
+    deal_store.write_json(path, {"updated_at": "v1", "items": []})
+
+    deal_store.update_json(
+        path,
+        lambda payload: {**payload, "updated_at": "v2", "items": ["fresh"]},
+        expected_updated_at="v1",
+    )
+    with pytest.raises(deal_store.JsonRevisionConflictError, match="expected updated_at='v1'"):
+        deal_store.update_json(
+            path,
+            lambda payload: {**payload, "updated_at": "v3", "items": ["stale"]},
+            expected_updated_at="v1",
+        )
+    assert deal_store.read_json(path) == {"updated_at": "v2", "items": ["fresh"]}
+
+
+def test_write_json_failure_does_not_corrupt_existing_document(tmp_path, monkeypatch):
+    path = tmp_path / "state.json"
+    deal_store.write_json(path, {"status": "old"})
+
+    def fail_replace(source, target):
+        raise OSError("simulated replace failure")
+
+    monkeypatch.setattr(deal_store.os, "replace", fail_replace)
+    with pytest.raises(OSError, match="simulated replace failure"):
+        deal_store.write_json(path, {"status": "new"})
+    assert deal_store.read_json(path) == {"status": "old"}
 
 
 def _write_json(path: Path, payload: dict) -> None:

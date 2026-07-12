@@ -2554,6 +2554,77 @@ def test_market_document_full_import_status_requires_market_for_document_full_pa
     assert exc.value.detail == "market is required when document_full_path is provided"
 
 
+@pytest.mark.parametrize(
+    ("params", "selector_names"),
+    [
+        (
+            {"market": "HK", "parse_run_id": "parse-hk-1", "filing_id": "HK:00700:2025-annual"},
+            "parse_run_id, filing_id",
+        ),
+        (
+            {
+                "market": "US",
+                "parse_run_id": "parse-us-1",
+                "document_full_path": "filing-1/document_full.json",
+            },
+            "parse_run_id, document_full_path",
+        ),
+    ],
+)
+def test_market_document_full_status_http_rejects_ambiguous_identity_selectors(params, selector_names):
+    with market_reports_client() as client:
+        response = client.get("/api/market-reports/document-full/status", params=params)
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == f"document_full status selectors are mutually exclusive: {selector_names}"
+
+
+def test_market_document_full_status_http_rejects_filing_market_conflict():
+    with market_reports_client() as client:
+        response = client.get(
+            "/api/market-reports/document-full/status",
+            params={"market": "US", "filing_id": "HK:00700:2025-annual"},
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "market US conflicts with filing_id market HK"
+
+
+def test_market_document_full_status_http_rejects_path_outside_selected_market(monkeypatch, tmp_path):
+    hk_root = tmp_path / "parser-results" / "hk"
+    us_root = tmp_path / "parser-results" / "us-sec"
+    hk_document_full = hk_root / "task-hk" / "document_full.json"
+    hk_document_full.parent.mkdir(parents=True)
+    hk_document_full.write_text("{}", encoding="utf-8")
+    us_root.mkdir(parents=True)
+    monkeypatch.setattr(market_reports, "REPO_ROOT", tmp_path)
+    monkeypatch.setitem(market_reports.MARKET_DOCUMENT_FULL_ROOTS, "HK", hk_root)
+    monkeypatch.setitem(market_reports.MARKET_DOCUMENT_FULL_ROOTS, "US", us_root)
+
+    with market_reports_client() as client:
+        response = client.get(
+            "/api/market-reports/document-full/status",
+            params={"market": "US", "document_full_path": str(hk_document_full)},
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "document_full_path is outside the allowed market root"
+
+
+@pytest.mark.parametrize("market", ("HK", "JP", "KR", "EU", "US"))
+def test_market_document_full_status_http_keeps_non_cn_market_unscoped_without_identity(market):
+    with market_reports_client() as client:
+        response = client.get(
+            "/api/market-reports/document-full/status",
+            params={"market": market},
+        )
+
+    assert response.status_code == 200
+    market_payload = response.json()["markets"][market]
+    assert market_payload["schema"] == market_reports.MARKET_DOCUMENT_FULL_SCHEMAS[market]
+    assert "postgres" not in market_payload
+
+
 def test_market_document_full_status_requires_tables_for_us(monkeypatch, tmp_path):
     document_root = tmp_path / "parser-results" / "us-sec"
     script = tmp_path / "imports" / "import_us_sec_document_full_to_postgres.py"
@@ -3284,9 +3355,9 @@ def test_us_sec_semantic_flag_runs_llm_wiki_semantics(monkeypatch, tmp_path):
     })
 
     assert result["ok"] is True
-    assert result["report"] == {"package_count": 1}
+    assert result["semantic_only"] is True
     assert result["semantic_prestep"][0]["companyDir"] == "AAPL-Apple-Inc"
-    assert len(calls) == 3
+    assert len(calls) == 2
     assert calls[0]["args"] == [
         market_reports.sys.executable,
         str(rule_script),
@@ -3294,6 +3365,7 @@ def test_us_sec_semantic_flag_runs_llm_wiki_semantics(monkeypatch, tmp_path):
         "US",
         "--company",
         "AAPL-Apple-Inc",
+        "--skip-existing",
     ]
     assert calls[1]["args"] == [
         market_reports.sys.executable,
@@ -3302,15 +3374,10 @@ def test_us_sec_semantic_flag_runs_llm_wiki_semantics(monkeypatch, tmp_path):
         "US",
         "--company",
         "AAPL-Apple-Inc",
+        "--skip-existing",
         "--allow-failures",
     ]
     assert calls[1]["kwargs"]["env"] == {"SIQ_LLM_SEMANTIC_PROVIDER": "local"}
-    ingest_args = calls[2]["args"]
-    assert ingest_args[:2] == [market_reports.sys.executable, str(ingest_script)]
-    assert "--milvus" not in ingest_args
-    assert "--postgres" not in ingest_args
-    assert "--dry-run" not in ingest_args
-    assert "--tickers" in ingest_args
 
 
 def test_us_sec_ingest_ignores_milvus_flag_for_financial_pipeline(monkeypatch, tmp_path):

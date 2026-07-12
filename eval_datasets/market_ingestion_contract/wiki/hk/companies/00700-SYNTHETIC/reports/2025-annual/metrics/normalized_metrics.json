@@ -1,0 +1,10 @@
+{
+  "metrics": [
+    {
+      "canonical_name": "operating_revenue",
+      "value": 100,
+      "currency": "HKD",
+      "period_end": "2025-12-31"
+    }
+  ]
+}

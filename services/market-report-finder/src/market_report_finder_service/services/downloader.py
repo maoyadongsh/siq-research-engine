@@ -1,15 +1,17 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime, timezone
 import hashlib
-from ipaddress import ip_address
+import http.client
 import json
 import re
 import socket
+import ssl
 import threading
 import time
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from html import escape
+from ipaddress import ip_address
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
@@ -19,17 +21,23 @@ import httpx
 
 from market_report_finder_service.core.config import settings
 from market_report_finder_service.markets.url_ownership import (
-    OFFICIAL_EVIDENCE_TIERS,
-    OFFICIAL_REGULATOR_TIER,
     MANUAL_UNVERIFIED_SOURCE_ID,
     MANUAL_UNVERIFIED_STATUS,
+    OFFICIAL_EVIDENCE_TIERS,
+    OFFICIAL_REGULATOR_TIER,
     OFFICIAL_VERIFIED_STATUS,
     UNVERIFIED_WEB_TIER,
     is_forbidden_report_ip,
     source_tier_for_url,
     validate_http_url,
 )
-from market_report_finder_service.models.schemas import DownloadedReportFile, FilingCandidate, Market, ReportFamily, ReportType
+from market_report_finder_service.models.schemas import (
+    DownloadedReportFile,
+    FilingCandidate,
+    Market,
+    ReportFamily,
+    ReportType,
+)
 
 
 @dataclass(frozen=True)
@@ -41,6 +49,129 @@ class _FetchedReport:
     redirect_chain: tuple[dict[str, object], ...]
     retrieved_at: str
     size_bytes: int
+
+
+class _PinnedHTTPConnection(http.client.HTTPConnection):
+    pass
+
+
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    def __init__(self, host: str, port: int, *, server_hostname: str, timeout: float | None) -> None:
+        super().__init__(
+            host,
+            port=port,
+            timeout=timeout,
+            context=ssl.create_default_context(),
+        )
+        self._siq_server_hostname = server_hostname
+
+    def connect(self) -> None:
+        http.client.HTTPConnection.connect(self)
+        server_hostname = self._tunnel_host or self._siq_server_hostname
+        self.sock = self._context.wrap_socket(self.sock, server_hostname=server_hostname)
+
+
+class _PinnedHTTPResponseStream(httpx.SyncByteStream):
+    def __init__(self, connection: http.client.HTTPConnection, response: http.client.HTTPResponse) -> None:
+        self._connection = connection
+        self._response = response
+        self._closed = False
+
+    def __iter__(self):
+        try:
+            while True:
+                chunk = self._response.read(64 * 1024)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            self.close()
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        self._response.close()
+        self._connection.close()
+
+
+class _PinnedReportHTTPTransport(httpx.BaseTransport):
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        scheme = request.url.scheme.lower()
+        if scheme not in {"http", "https"}:
+            raise ValueError("Only http and https report URLs are supported")
+        host = (request.url.host or "").rstrip(".").lower()
+        if not host:
+            raise ValueError("Report URL must include a host")
+        port = request.url.port or (443 if scheme == "https" else 80)
+        request_url = str(request.url)
+        addresses = ReportDownloader._public_resolved_addresses(host, port, request_url)
+        connect_host = addresses[0]
+        headers = self._request_headers(request, host, port, scheme)
+        body = b"".join(request.stream)
+        timeout = self._timeout_seconds(request, "connect")
+        connection = self._connection(scheme, connect_host, port, host, timeout)
+        try:
+            connection.request(request.method, self._target(request), body=body, headers=headers)
+            response = connection.getresponse()
+            read_timeout = self._timeout_seconds(request, "read")
+            if read_timeout is not None and getattr(connection, "sock", None) is not None:
+                connection.sock.settimeout(read_timeout)
+        except Exception:
+            connection.close()
+            raise
+        return httpx.Response(
+            status_code=response.status,
+            headers=response.getheaders(),
+            stream=_PinnedHTTPResponseStream(connection, response),
+            request=request,
+        )
+
+    @staticmethod
+    def _target(request: httpx.Request) -> str:
+        raw_path = request.url.raw_path
+        if isinstance(raw_path, bytes):
+            target = raw_path.decode("ascii")
+        else:
+            target = str(raw_path)
+        return target or "/"
+
+    @classmethod
+    def _request_headers(cls, request: httpx.Request, host: str, port: int, scheme: str) -> dict[str, str]:
+        headers = {key: value for key, value in request.headers.multi_items() if key.lower() != "host"}
+        headers["Host"] = cls._host_header(host, port, scheme)
+        return headers
+
+    @staticmethod
+    def _host_header(host: str, port: int, scheme: str) -> str:
+        default_port = 443 if scheme == "https" else 80
+        display_host = f"[{host}]" if ":" in host and not host.startswith("[") else host
+        return display_host if port == default_port else f"{display_host}:{port}"
+
+    @staticmethod
+    def _connection(
+        scheme: str,
+        connect_host: str,
+        port: int,
+        server_hostname: str,
+        timeout: float | None,
+    ) -> http.client.HTTPConnection:
+        if scheme == "https":
+            return _PinnedHTTPSConnection(
+                connect_host,
+                port,
+                server_hostname=server_hostname,
+                timeout=timeout,
+            )
+        return _PinnedHTTPConnection(connect_host, port=port, timeout=timeout)
+
+    @staticmethod
+    def _timeout_seconds(request: httpx.Request, phase: str) -> float | None:
+        timeout = request.extensions.get("timeout")
+        if not isinstance(timeout, dict):
+            return None
+        value = timeout.get(phase)
+        return float(value) if value is not None else None
 
 
 class ReportDownloader:
@@ -198,7 +329,12 @@ class ReportDownloader:
             headers["Accept-Language"] = "en-US,en;q=0.9"
             if candidate.source_id == "xbrl_filings_esef":
                 headers["Referer"] = "https://filings.xbrl.org/"
-        with httpx.Client(timeout=settings.http_timeout_seconds, headers=headers, follow_redirects=False) as client:
+        with httpx.Client(
+            timeout=settings.http_timeout_seconds,
+            headers=headers,
+            follow_redirects=False,
+            transport=_PinnedReportHTTPTransport(),
+        ) as client:
             effective_url = self._effective_document_url(candidate)
             if candidate.source_id == "dart_public":
                 return self._fetch_dart_public_to_path(client, candidate, effective_url, temp_path)
@@ -609,6 +745,7 @@ class ReportDownloader:
 
     def _validate_original_url(self, candidate: FilingCandidate) -> None:
         host = validate_http_url(candidate.document_url)
+        self._validate_manual_unverified_download(candidate)
         if not self._is_manual_unverified(candidate) and not self._is_official_evidence_url(candidate, candidate.document_url):
             raise ValueError(
                 f"{candidate.source_id} URL is outside the {candidate.market.value} official source allowlist: "
@@ -618,6 +755,7 @@ class ReportDownloader:
 
     def _validate_effective_url(self, candidate: FilingCandidate, effective_url: str) -> None:
         host = validate_http_url(effective_url)
+        self._validate_manual_unverified_download(candidate)
         if not self._is_manual_unverified(candidate) and not self._is_official_evidence_url(candidate, effective_url):
             raise ValueError(
                 f"{candidate.source_id} redirect escaped the {candidate.market.value} official source allowlist: "
@@ -627,6 +765,7 @@ class ReportDownloader:
 
     def _validate_fetch_url(self, candidate: FilingCandidate, report_url: str) -> None:
         host = validate_http_url(report_url)
+        self._validate_manual_unverified_download(candidate)
         if not self._is_manual_unverified(candidate) and not self._is_official_evidence_url(candidate, report_url):
             raise ValueError(
                 f"{candidate.source_id} URL is outside the {candidate.market.value} official source allowlist: "
@@ -635,7 +774,24 @@ class ReportDownloader:
         self._validate_resolved_host(host, report_url)
 
     @classmethod
+    def _validate_manual_unverified_download(cls, candidate: FilingCandidate) -> None:
+        if not cls._is_manual_unverified(candidate):
+            return
+        if settings.allow_manual_unverified_downloads:
+            return
+        raise ValueError(
+            "Manual unverified report URL downloads are disabled by default; "
+            "set MARKET_REPORT_ALLOW_MANUAL_UNVERIFIED_DOWNLOADS=true only in a network-isolated environment"
+        )
+
+    @classmethod
     def _validate_resolved_host(cls, host: str, report_url: str) -> None:
+        parsed = urlparse(report_url)
+        port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
+        cls._public_resolved_addresses(host, port, report_url)
+
+    @classmethod
+    def _public_resolved_addresses(cls, host: str, port: int, report_url: str) -> tuple[str, ...]:
         try:
             address = ip_address(host)
         except ValueError:
@@ -643,20 +799,22 @@ class ReportDownloader:
         if address is not None:
             if is_forbidden_report_ip(address):
                 raise ValueError("Report URL resolves to a private, link-local, loopback, or cloud metadata IP address")
-            return
+            return (str(address),)
 
-        parsed = urlparse(report_url)
-        port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
         try:
             records = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
         except socket.gaierror as exc:
             raise ValueError(f"Report URL host could not be resolved: {host}") from exc
 
-        addresses: set[str] = set()
+        addresses: list[str] = []
+        seen_addresses: set[str] = set()
         for record in records:
             sockaddr = record[4]
             if sockaddr:
-                addresses.add(str(sockaddr[0]).split("%", 1)[0])
+                value = str(sockaddr[0]).split("%", 1)[0]
+                if value not in seen_addresses:
+                    seen_addresses.add(value)
+                    addresses.append(value)
         if not addresses:
             raise ValueError(f"Report URL host could not be resolved: {host}")
         for value in addresses:
@@ -665,6 +823,7 @@ class ReportDownloader:
                     "Report URL resolves to a private, link-local, loopback, or cloud metadata IP address: "
                     f"{host}"
                 )
+        return tuple(addresses)
 
     @classmethod
     def _redact_url_for_storage(cls, report_url: str | None) -> str | None:

@@ -11,11 +11,13 @@ import json
 import os
 import re
 import sys
-from generate_factcheck_html import generate_html
 from dataclasses import dataclass, field
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
+from urllib.parse import unquote, urlsplit
+
+from generate_factcheck_html import generate_html
 
 scripts_dir = Path(__file__).parent
 sys.path.insert(0, str(scripts_dir))
@@ -56,6 +58,52 @@ def public_api_url(path: str) -> str:
     if path.startswith("/"):
         return f"{PUBLIC_ORIGIN}{path}"
     return path
+
+
+def _database_from_url(url: str, *, database: str = "siq") -> Dict[str, Any]:
+    parsed = urlsplit(url.replace("postgresql+psycopg://", "postgresql://"))
+    if parsed.scheme not in {"postgresql", "postgres"}:
+        return {}
+    return {
+        "host": parsed.hostname or "127.0.0.1",
+        "port": int(parsed.port or 15432),
+        "dbname": database,
+        "user": unquote(parsed.username or "postgres"),
+        "password": unquote(parsed.password or ""),
+    }
+
+
+def _project_pdf2md_pg_config() -> Dict[str, Any]:
+    database = (
+        os.environ.get("SIQ_PDF2MD_PGDATABASE")
+        or os.environ.get("SIQ_PGDATABASE")
+        or os.environ.get("PGDATABASE")
+        or "siq"
+    )
+    explicit_url = os.environ.get("SIQ_PDF2MD_DATABASE_URL") or os.environ.get("SIQ_CN_DATABASE_URL")
+    if explicit_url:
+        parsed = _database_from_url(explicit_url, database=database)
+        if parsed:
+            return parsed
+
+    app_url = os.environ.get("SIQ_APP_DATABASE_URL")
+    app_config = _database_from_url(app_url, database=database) if app_url else {}
+    return {
+        "host": os.environ.get("SIQ_PGHOST") or os.environ.get("PGHOST") or app_config.get("host") or os.environ.get("DB_HOST") or "127.0.0.1",
+        "port": int(os.environ.get("SIQ_PGPORT") or os.environ.get("PGPORT") or app_config.get("port") or os.environ.get("DB_PORT") or 15432),
+        "dbname": database,
+        "user": os.environ.get("SIQ_PGUSER") or os.environ.get("PGUSER") or app_config.get("user") or os.environ.get("DB_USER") or "postgres",
+        "password": (
+            os.environ.get("SIQ_PGPASSWORD")
+            or os.environ.get("PGPASSWORD")
+            or os.environ.get("POSTGRES_PASSWORD")
+            or app_config.get("password")
+            or os.environ.get("DB_PASSWORD")
+            or ""
+        ),
+    }
+
+
 CORE_METRICS = {
     "operating_revenue": "营业收入",
     "operating_cost": "营业成本",
@@ -138,14 +186,7 @@ class PostgresEvidenceAccessor:
     def _connect(self):
         if not self._psycopg:
             raise RuntimeError(self.error or "psycopg unavailable")
-        return self._psycopg.connect(
-            host=os.environ.get("DB_HOST") or os.environ.get("PGHOST", "127.0.0.1"),
-            port=int(os.environ.get("DB_PORT") or os.environ.get("PGPORT", "15432")),
-            dbname=os.environ.get("DB_NAME") or os.environ.get("PGDATABASE", "siq"),
-            user=os.environ.get("DB_USER") or os.environ.get("PGUSER", "postgres"),
-            password=os.environ.get("DB_PASSWORD") or os.environ.get("PGPASSWORD", ""),
-            connect_timeout=3,
-        )
+        return self._psycopg.connect(**_project_pdf2md_pg_config(), connect_timeout=3)
 
     def fetch_company_evidence(self, stock_code: str, report_year: int, limit: int = 24, stock_name: str = '') -> List[Dict[str, Any]]:
         if not self._psycopg:

@@ -1,12 +1,11 @@
 import json
-
-import anyio
 from contextlib import contextmanager
 from pathlib import Path
 
+import anyio
 from models import ChatMessage
-from services import agent_chat_runtime as runtime
-from services import hermes_client
+
+from services import agent_chat_runtime as runtime, hermes_client
 
 SH_BANK_TASK_ID = "fb07089b-9570-4902-bf20-eb38578f2b76"
 
@@ -535,6 +534,9 @@ def test_note_detail_context_injects_metric_analysis_evidence():
     )
 
     assert "后端从本地 Wiki 确定性解析出的附注表格行" in prompt
+    assert "后端从本地 Wiki 三大表" in prompt
+    assert "1,183,122,320.47" in prompt
+    assert prompt.index("file=metrics/three_statements.json") < prompt.index("table_index=165")
     assert "华域视觉科技(上海)有限公司" in prompt
     assert "source_type=wiki_document_links" in prompt
     assert "table_index=165" in prompt
@@ -626,7 +628,7 @@ def test_task_id_exists_accepts_pdf2md_result_dir():
     assert runtime._task_id_exists(SH_BANK_TASK_ID)
 
 
-def test_financial_evidence_guard_does_not_append_fulltext_when_reply_has_structured_sources():
+def test_financial_evidence_guard_adds_goodwill_source_chain_to_structured_fulltext():
     cited = (
         "## 结论\n"
         "- 光环新网 2025 年商誉减值准备计提 863,685,624.45 元。\n\n"
@@ -639,9 +641,10 @@ def test_financial_evidence_guard_does_not_append_fulltext_when_reply_has_struct
     reply = runtime.enforce_financial_evidence_contract("分析光环新网2025年年度报告中的商誉情况", None, cited)
 
     assert reply.count("## 引用来源") == 1
-    assert "## 主要数据溯源补充" not in reply
-    assert "## 主要数据引用来源" not in reply
-    assert "[D1]" not in reply
+    # Goodwill queries now deliberately add the main-statement source before
+    # the note/full-text source, even when the model already cited report text.
+    assert "[D1]" in reply
+    assert "source_type=wiki_metrics" in reply
     assert "table_index=26" in reply
     assert "table_index=21" not in reply
     assert "table_index=22" not in reply
@@ -651,6 +654,8 @@ def test_financial_evidence_guard_dedupes_existing_complete_citations():
     cited = (
         "## 结论\n"
         "- 商誉账面原值和减值准备如下。\n\n"
+        "## 勾稽校验\n"
+        "- financial_reconciliation_validator.py operation=goodwill_reconciliation status=passed\n\n"
         "## 引用来源\n"
         "[1] source_type=wiki_document_links, file=semantic/document_links.json, metric=(1).商誉账面原值, "
         "task_id=7dbc35a7-7626-4e81-810e-5dbb764434e0, pdf_page=137, table_index=165, md_line=4186。\n"
@@ -745,10 +750,13 @@ def test_goodwill_mixed_query_injects_main_statement_and_note_contexts():
     assert "table_index=166" in prompt
 
 
-def test_goodwill_mixed_query_guard_adds_missing_main_statement_source():
+def test_goodwill_mixed_query_guard_adds_missing_main_statement_source(monkeypatch):
+    monkeypatch.setenv("SIQ_FINANCIAL_GUARDRAIL_MODE", "warn")
     cited = (
         "## 结论\n"
         "- 主表商誉账面价值需要与附注原值、减值准备勾稽。\n\n"
+        "## 勾稽校验\n"
+        "- financial_reconciliation_validator.py operation=goodwill_reconciliation status=passed\n\n"
         "## 引用来源\n"
         "[1] source_type=wiki_document_links, file=semantic/document_links.json, metric=(1).商誉账面原值, "
         "period=2025-annual, task_id=7dbc35a7-7626-4e81-810e-5dbb764434e0, "
@@ -1094,12 +1102,15 @@ def test_wiki_catalog_reply_reads_current_catalog_for_count_and_list(tmp_path, m
 
     count_reply = runtime.build_wiki_catalog_reply("现在入库了多少家公司")
     list_reply = runtime.build_wiki_catalog_reply("请列表展示已入库的公司")
+    natural_list_reply = runtime.build_wiki_catalog_reply("现在入库了哪些公司")
 
     assert count_reply is not None
     assert "一共 **2 家**" in count_reply
     assert "company_catalog.json" in count_reply
     assert "一共 **121 家**" not in count_reply
     assert list_reply is not None
+    assert natural_list_reply is not None
+    assert "一共 **2 家**" in natural_list_reply
     assert "1. 600104 上汽集团" in list_reply
     assert "2. GENBASF BASF" in list_reply
     assert "三大表指标=无" in list_reply
@@ -1142,6 +1153,89 @@ def test_company_catalog_resolution_falls_back_to_existing_wiki_root(tmp_path, m
 
     assert runtime._resolve_company_dir("分析一下巴斯夫的人效") == company_dir
     assert runtime._resolve_company_dirs("对比万华化学和巴斯夫的人效") == [company_dir]
+
+
+def test_company_catalog_resolution_uses_market_specific_catalog(tmp_path, monkeypatch):
+    wiki_root = tmp_path / "wiki"
+    us_root = wiki_root / "us"
+    meta_dir = us_root / "_meta"
+    meta_dir.mkdir(parents=True)
+    company_dir = us_root / "companies" / "AAPL-Apple-Inc"
+    company_dir.mkdir(parents=True)
+    (meta_dir / "company_catalog.json").write_text(
+        json.dumps(
+            {
+                "market": "US",
+                "companies": [
+                    {
+                        "market": "US",
+                        "company_id": "US:0000320193",
+                        "company_wiki_id": "AAPL-Apple-Inc",
+                        "ticker": "AAPL",
+                        "company_name": "Apple Inc.",
+                        "aliases": ["苹果公司"],
+                        "company_wiki_path": "data/wiki/us/companies/AAPL-Apple-Inc",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (company_dir / "company.json").write_text(
+        json.dumps({"market": "US", "company_name": "Apple Inc.", "ticker": "AAPL"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(runtime, "WIKI_ROOT", wiki_root)
+    monkeypatch.setattr(runtime, "PROJECT_WIKI_ROOT", wiki_root)
+    monkeypatch.setattr(runtime, "ASSISTANT_WIKI_ROOT", wiki_root)
+    monkeypatch.setattr(runtime, "WIKI_FALLBACK_ROOTS", ())
+
+    assert runtime._resolve_company_dir_from_catalog("分析美股苹果公司的营收") == company_dir.resolve()
+    assert runtime._resolve_company_dirs("US AAPL revenue") == [company_dir.resolve()]
+    assert runtime._resolve_company_dirs("US Apple Inc revenue") == [company_dir.resolve()]
+    assert runtime._resolve_company_dirs("请解释 aapple") == []
+
+
+def test_runtime_catalog_resolution_uses_authoritative_company_id_without_name(tmp_path, monkeypatch):
+    wiki_root = tmp_path / "wiki"
+    us_root = wiki_root / "us"
+    company_dir = us_root / "companies" / "AAPL-Apple-Inc"
+    company_dir.mkdir(parents=True)
+    meta_dir = us_root / "_meta"
+    meta_dir.mkdir(parents=True)
+    (meta_dir / "company_catalog.json").write_text(
+        json.dumps(
+            {
+                "market": "US",
+                "companies": [
+                    {
+                        "market": "US",
+                        "company_id": "US:0000320193",
+                        "company_wiki_id": "AAPL-Apple-Inc",
+                        "company_name": "Apple Inc.",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(runtime, "WIKI_ROOT", wiki_root)
+    monkeypatch.setattr(runtime, "PROJECT_WIKI_ROOT", wiki_root)
+    monkeypatch.setattr(runtime, "ASSISTANT_WIKI_ROOT", wiki_root)
+    monkeypatch.setattr(runtime, "WIKI_FALLBACK_ROOTS", ())
+    identity = {
+        "research_identity": {
+            "market": "US",
+            "company_id": "US:0000320193",
+            "filing_id": "US:AAPL:2025-10-K",
+            "parse_run_id": "parse-us-aapl",
+        }
+    }
+
+    assert runtime._resolve_company_dirs_from_catalog("2025 revenue", identity) == [company_dir.resolve()]
+    identity["research_identity"]["company_id"] = "US:0000789019"
+    assert runtime._resolve_company_dirs_from_catalog("Apple 2025 revenue", identity) == []
 
 
 def test_hk_company_wiki_financial_data_is_core_metrics_candidate(tmp_path, monkeypatch):
@@ -1245,14 +1339,19 @@ def test_direct_human_capital_reply_keeps_midea_structured_table_trace():
     assert "table_index=28" not in normalized
 
 
-def test_human_efficiency_query_appends_metric_level_sources_for_basf():
+def test_human_efficiency_query_appends_metric_level_sources_for_basf(monkeypatch):
     assert runtime._resolve_company_dir("分析一下巴斯夫的人效").name == "GENBASF-BASF"
     assert runtime._needs_financial_evidence_contract("分析一下巴斯夫的人效")
 
+    monkeypatch.setenv("SIQ_FINANCIAL_GUARDRAIL_MODE", "warn")
     reply = runtime.enforce_financial_evidence_contract(
         "分析一下巴斯夫的人效",
         None,
-        "## 结论\n- BASF 人均营收约 €55.1 万/人。",
+        (
+            "## 结论\n- BASF 人均营收约 €55.1 万/人。\n\n"
+            "## 计算器校验\n"
+            "- financial_calculator.py operation=per_capita result=551000"
+        ),
     )
     normalized = runtime.normalize_evidence_trace_for_display(reply)
 
@@ -1390,3 +1489,42 @@ def test_wiki_fulltext_fallback_requires_specific_terms_for_halo_goodwill():
     assert any(row.get("table_index") == 26 for row in rows)
     assert {row.get("pdf_page") for row in rows}.isdisjoint({24, 34, 45})
     assert {row.get("table_index") for row in rows}.isdisjoint({11, 21, 22})
+
+
+def test_jp_goodwill_query_uses_multilingual_fulltext_fallback():
+    result = runtime._wiki_fulltext_fallback_result("分析丰田汽车的商誉", None)
+
+    assert result is not None
+    rows = result.get("rows") or []
+    assert len(rows) == 1
+    assert "のれん" in str(rows[0].get("snippet") or "")
+    assert rows[0].get("pdf_page") == 137
+    assert runtime._resolve_company_dir("分析丰田汽车的商誉", None).name == "7203-Toyota-Motor-Corporation"
+
+
+def test_pdf_evidence_url_carries_task_bound_source_token(monkeypatch):
+    from routers import source
+
+    monkeypatch.setattr(source, "create_source_access_token", lambda task_id: f"signed-{task_id}")
+    monkeypatch.setattr(
+        runtime,
+        "_load_note_detail_module",
+        lambda: runtime.SimpleNamespace(public_api_url=lambda path: f"https://example.test{path}"),
+    )
+
+    url = runtime._evidence_url("task-kr", 180, 145, "pdf")
+
+    assert url == "https://example.test/api/pdf_page/task-kr/180?format=html&source_token=signed-task-kr"
+
+
+def test_source_access_token_replaces_existing_auth_query(monkeypatch):
+    from routers import source
+
+    monkeypatch.setattr(source, "create_source_access_token", lambda _task_id: "fresh-token")
+
+    url = runtime._append_source_access_token(
+        "https://example.test/api/source/task/table/1?format=html&access_token=jwt&source_token=old",
+        "task",
+    )
+
+    assert url == "https://example.test/api/source/task/table/1?format=html&source_token=fresh-token"

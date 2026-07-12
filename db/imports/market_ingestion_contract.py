@@ -163,12 +163,32 @@ def validate_connection_database(conn: Any, market: str) -> None:
     validate_database_name(str(current), target.market)
 
 
-def run_market_ddl(conn: Any, market: str) -> None:
+def run_market_ddl(conn: Any, market: str, *, allow_unsafe_reset: bool = False) -> None:
+    """Execute the generated reset DDL only when explicitly requested.
+
+    Runtime imports use the checked-in db/ddl/*.sql files through
+    market_document_full_writer.run_market_ddl. The SQL generated in this
+    module deliberately resets a schema with DROP SCHEMA CASCADE, so it is only
+    appropriate for contract/dry-run reset workflows that opt in here.
+    """
+
+    if not allow_unsafe_reset:
+        raise SystemExit(
+            "Refusing to execute generated market reset DDL. Runtime DDL authority is "
+            "checked-in db/ddl/*.sql; pass allow_unsafe_reset=True only for an explicit "
+            "test/contract reset that may run DROP SCHEMA CASCADE."
+        )
     validate_connection_database(conn, market)
     conn.execute(build_market_schema_sql(market))
 
 
 def build_market_schema_sql(market: str) -> str:
+    """Build generated reset DDL for contract/dry-run inspection.
+
+    This output includes DROP SCHEMA CASCADE. Do not use it as runtime DDL;
+    checked-in db/ddl/*.sql files are the runtime authority.
+    """
+
     target = target_for_market(market)
     schema = quote_ident(target.schema)
     market_literal = target.market.replace("'", "''")

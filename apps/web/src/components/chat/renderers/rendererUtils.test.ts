@@ -6,9 +6,17 @@ import { test } from 'node:test'
 import {
   collectHeadingSectionLines,
   extractAnswerAuditTraceId,
+  INLINE_URL_RE,
   isAuditHeading,
   parseCitationActions,
 } from './rendererUtils.ts'
+
+test('bare citation URL excludes trailing field punctuation', () => {
+  const line = 'source_url=https://www.sec.gov/Archives/report.htm, source_anchor=f-152'
+  const match = INLINE_URL_RE.exec(line)
+
+  assert.equal(match?.[0], 'https://www.sec.gov/Archives/report.htm')
+})
 
 test('parseCitationActions keeps source task page and table text while extracting source links', () => {
   const parsed = parseCitationActions(

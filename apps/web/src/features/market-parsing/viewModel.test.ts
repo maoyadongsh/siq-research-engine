@@ -6,11 +6,28 @@ import { test } from 'node:test'
 const {
   MARKET_PARSING_SECTION_IDS,
   buildMarketParsingPageViewModel,
+  buildMarketParsingStateScopeKey,
   hasMarketParsingLogIssues,
 } = await import('./viewModel.ts')
 
 test('market parsing section ids preserve mobile tab order', () => {
   assert.deepEqual(MARKET_PARSING_SECTION_IDS, ['pdf-upload', 'pdf-status', 'pdf-result', 'pdf-source', 'pdf-tasks'])
+})
+
+test('market parsing state scope prefers document and package identity over task cache keys', () => {
+  assert.equal(buildMarketParsingStateScopeKey({ market: 'HK', taskId: 'task-1' }), 'HK::task-1')
+  assert.equal(buildMarketParsingStateScopeKey({
+    market: 'US',
+    taskId: 'task-older',
+    packagePath: 'data/wiki/us/companies/NVDA/reports/2025-10-K-0001045810-25-000023',
+  }), 'US::data/wiki/us/companies/NVDA/reports/2025-10-K-0001045810-25-000023')
+  assert.equal(buildMarketParsingStateScopeKey({
+    market: 'US',
+    taskId: 'task-older',
+    packagePath: 'data/wiki/us/companies/NVDA/reports/2025-10-K-0001045810-25-000023',
+    documentFullPath: 'data/parser-results/us-sec/NVDA-10-K-0001045810-25-000023/document_full.json',
+  }), 'US::data/parser-results/us-sec/NVDA-10-K-0001045810-25-000023/document_full.json')
+  assert.equal(buildMarketParsingStateScopeKey({ market: 'EU' }), '')
 })
 
 test('view model derives completed workflow, result gate, and empty state flags', () => {
@@ -46,7 +63,21 @@ test('view model derives completed workflow, result gate, and empty state flags'
   assert.equal(running.shouldShowWorkflow, false)
   assert.equal(running.shouldShowResultGate, false)
   assert.equal(running.shouldShowEmptyState, false)
-  assert.equal(running.canBuildDownloadedPackage, false)
+  assert.equal(running.canBuildDownloadedPackage, true)
+
+  for (const market of ['HK', 'JP', 'KR'] as const) {
+    const pdfOnly = buildMarketParsingPageViewModel({
+      market,
+      parseBadgeClass: 'queued',
+      resultDeferred: false,
+      markdown: '',
+      parseActive: false,
+      taskCount: 0,
+      logs: [],
+      logsExpanded: false,
+    })
+    assert.equal(pdfOnly.canBuildDownloadedPackage, false, `${market} must stay PDF-only`)
+  }
 })
 
 test('view model keeps log risk and expanded display derived together', () => {

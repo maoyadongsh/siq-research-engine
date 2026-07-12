@@ -14,7 +14,7 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 WIKI_ROOT = REPO_ROOT / "data" / "wiki"
-RULE_SCRIPT = REPO_ROOT / "data" / "wiki" / "wikiset" / "extract_company_semantics.py"
+RULE_SCRIPT = REPO_ROOT / "scripts" / "wiki" / "wikiset" / "extract_company_semantics.py"
 MARKET_ROOTS = {
     "CN": WIKI_ROOT,
     "HK": WIKI_ROOT / "hk",
@@ -70,10 +70,12 @@ def summarize_company(company_dir: Path) -> dict[str, Any]:
     }
 
 
-def run_market(market: str, root: Path, company: str = "") -> dict[str, Any]:
+def run_market(market: str, root: Path, company: str = "", skip_existing: bool = False) -> dict[str, Any]:
     cmd = [sys.executable, str(RULE_SCRIPT), "--wiki-root", str(root)]
     if company:
         cmd.extend(["--company", company])
+    if skip_existing:
+        cmd.append("--skip-existing")
     completed = subprocess.run(cmd, cwd=REPO_ROOT, text=True, capture_output=True, check=False)
     companies = company_dirs(root, company)
     results = [summarize_company(path) for path in companies if path.is_dir()]
@@ -93,6 +95,7 @@ def run_market(market: str, root: Path, company: str = "") -> dict[str, Any]:
         "engine": "RuleSemanticEngine",
         "profile": market,
         "wiki_root": str(root),
+        "skip_existing": skip_existing,
         "company_count": len(results),
         "ready_count": len(results) - len(needs_review),
         "needs_review_count": len(needs_review),
@@ -109,6 +112,7 @@ def main() -> int:
     parser.add_argument("--market", default="ALL", help="HK,KR,JP,EU,US,CN or ALL")
     parser.add_argument("--wiki-root", default="", help="Override root for a single market")
     parser.add_argument("--company", default="")
+    parser.add_argument("--skip-existing", action="store_true")
     args = parser.parse_args()
 
     manifests = []
@@ -120,7 +124,7 @@ def main() -> int:
             print(f"skip unknown market {market}", file=sys.stderr)
             exit_code = 1
             continue
-        manifest = run_market(market, root, args.company)
+        manifest = run_market(market, root, args.company, args.skip_existing)
         manifests.append({
             "market": market,
             "company_count": manifest["company_count"],

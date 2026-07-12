@@ -210,6 +210,51 @@ def _role_value(user: User) -> str:
     return str(user.role.value if hasattr(user.role, "value") else user.role)
 
 
+def _record_deal_access_decision(
+    deal_id: str,
+    *,
+    action: str,
+    decision: str,
+    current_user: User,
+    reason: str | None = None,
+) -> None:
+    try:
+        deal_store.append_access_decision(
+            deal_id,
+            action=f"primary_market.{action}",
+            decision=decision,
+            actor=_user_payload(current_user),
+            reason=reason,
+        )
+    except Exception:
+        return
+
+
+def _require_deal_access(deal_id: str, action: str, current_user: User) -> None:
+    try:
+        allowed = deal_store.user_can_access_deal(deal_id, current_user, action=action)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+    if not allowed:
+        _record_deal_access_decision(
+            deal_id,
+            action=action,
+            decision="denied",
+            current_user=current_user,
+            reason="deal_object_access_denied",
+        )
+        raise _not_found(deal_id)
+    if action not in {"view", "read", "list"}:
+        _record_deal_access_decision(
+            deal_id,
+            action=action,
+            decision="allowed",
+            current_user=current_user,
+        )
+
+
 def _detach_current_user(async_session: AsyncSession, current_user: User) -> None:
     try:
         async_session.expunge(current_user)
@@ -234,14 +279,21 @@ def deal_id_from_request(req: PrimaryMarketMeetingChatRequest) -> str:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-def _load_deal_summary(deal_id: str) -> dict:
+def _load_deal_summary(deal_id: str, *, current_user: User | None = None) -> dict:
+    if current_user is not None:
+        _require_deal_access(deal_id, "view", current_user)
     try:
         return deal_store.read_deal_detail(deal_id).get("summary", {})
     except FileNotFoundError as exc:
         raise _not_found(deal_id) from exc
 
 
-def _validated_deal_dir(deal_id: str) -> tuple[str, Path]:
+def _validated_deal_dir(
+    deal_id: str,
+    *,
+    current_user: User | None = None,
+    action: str = "view",
+) -> tuple[str, Path]:
     try:
         normalized = deal_store.validate_deal_id(deal_id)
         package_dir = deal_store.safe_deal_dir(normalized)
@@ -249,6 +301,8 @@ def _validated_deal_dir(deal_id: str) -> tuple[str, Path]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not (package_dir / "manifest.json").is_file():
         raise _not_found(normalized)
+    if current_user is not None:
+        _require_deal_access(normalized, action, current_user)
     return normalized, package_dir
 
 
@@ -390,9 +444,8 @@ def list_projects(
     status: str | None = None,
     current_user: User = Depends(require_permission("report.view")),
 ) -> dict:
-    del current_user
     needle = (q or "").strip().lower()
-    deals = deal_store.list_deals()
+    deals = deal_store.filter_deals_for_user(deal_store.list_deals(), current_user)
     if needle:
         deals = [
             item
@@ -411,7 +464,7 @@ def get_project(
     deal_id: str,
     current_user: User = Depends(require_permission("report.view")),
 ) -> dict:
-    del current_user
+    _require_deal_access(deal_id, "view", current_user)
     try:
         return deal_store.read_deal_detail(deal_id)
     except FileNotFoundError as exc:
@@ -423,11 +476,11 @@ def get_project_status(
     deal_id: str,
     current_user: User = Depends(require_permission("report.view")),
 ) -> dict:
-    del current_user
     from services import deal_status
 
     try:
-        return deal_status.summarize_deal_status(deal_id)
+        normalized_deal_id, _package_dir = _validated_deal_dir(deal_id, current_user=current_user, action="view")
+        return deal_status.summarize_deal_status(normalized_deal_id)
     except FileNotFoundError as exc:
         raise _not_found(deal_id) from exc
 
@@ -439,8 +492,7 @@ def get_meeting_transcript(
     limit: int | None = None,
     current_user: User = Depends(require_permission("report.view")),
 ) -> dict:
-    del current_user
-    normalized_deal_id, package_dir = _validated_deal_dir(deal_id)
+    normalized_deal_id, package_dir = _validated_deal_dir(deal_id, current_user=current_user, action="view")
     normalized_lane = _normalize_lane(lane)
     normalized_limit = _normalize_limit(limit)
     payload = _read_transcript_payload(package_dir, normalized_deal_id)
@@ -461,8 +513,7 @@ def append_meeting_transcript_event(
     req: PrimaryMarketMeetingTranscriptAppendRequest,
     current_user: User = Depends(require_permission("report.create")),
 ) -> dict:
-    del current_user
-    normalized_deal_id, package_dir = _validated_deal_dir(deal_id)
+    normalized_deal_id, package_dir = _validated_deal_dir(deal_id, current_user=current_user, action="write")
     event = _build_transcript_event(req.event, default_lane=_normalize_lane(req.lane))
     payload = _read_transcript_payload(package_dir, normalized_deal_id)
     payload["events"].append(event)
@@ -486,8 +537,7 @@ def get_meeting_quality(
     limit: int | None = None,
     current_user: User = Depends(require_permission("report.view")),
 ) -> dict[str, Any]:
-    del current_user
-    normalized_deal_id, package_dir = _validated_deal_dir(deal_id)
+    normalized_deal_id, package_dir = _validated_deal_dir(deal_id, current_user=current_user, action="view")
     normalized_lane = _normalize_lane(lane) if lane else None
     normalized_profile = None
     if profile_id:
@@ -561,7 +611,7 @@ async def upload_meeting_attachments(
     if len(files) > chat_router.MAX_CHAT_ATTACHMENT_COUNT:
         raise HTTPException(status_code=400, detail=f"Upload up to {chat_router.MAX_CHAT_ATTACHMENT_COUNT} files per message")
 
-    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id)
+    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id, current_user=current_user, action="write")
     current_user_id = int(current_user.id)
     current_user_role = _role_value(current_user)
     _detach_current_user(async_session, current_user)
@@ -611,8 +661,7 @@ def get_meeting_attachment(
     stored_name: str,
     current_user: User = Depends(require_permission("report.view")),
 ) -> FileResponse:
-    del current_user
-    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id)
+    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id, current_user=current_user, action="view")
     safe_name = _safe_attachment_name(stored_name)
     path = _project_attachment_dir(normalized_deal_id) / safe_name
     if not path.exists() or not path.is_file():
@@ -1188,7 +1237,7 @@ async def chat_history(
     async_session: AsyncSession = Depends(get_async_session),
 ) -> dict:
     normalized_profile = canonical_meeting_profile(profile)
-    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id)
+    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id, current_user=current_user, action="view")
     normalized_lane = _normalize_lane(lane)
     _assert_profile_allowed_for_lane(normalized_profile, normalized_lane)
     resolved_session_id = await resolve_or_create_meeting_session(
@@ -1218,7 +1267,7 @@ async def chat_sessions(
     async_session: AsyncSession = Depends(get_async_session),
 ) -> dict:
     normalized_profile = canonical_meeting_profile(profile)
-    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id)
+    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id, current_user=current_user, action="view")
     normalized_lane = _normalize_lane(lane)
     _assert_profile_allowed_for_lane(normalized_profile, normalized_lane)
     user_id = str(current_user.id)
@@ -1252,9 +1301,8 @@ async def meeting_suggestions(
     mode: str = "single",
     current_user: User = Depends(require_permission("report.view")),
 ) -> PrimaryMarketMeetingSuggestionsResponse:
-    del current_user
     normalized_profile = canonical_meeting_profile(profile)
-    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id)
+    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id, current_user=current_user, action="view")
     normalized_lane = _normalize_lane(lane)
     _assert_profile_allowed_for_lane(normalized_profile, normalized_lane)
     normalized_mode = str(mode or "single").strip() or "single"
@@ -1291,8 +1339,7 @@ def meeting_agents_readiness(
     deal_id: str,
     current_user: User = Depends(require_permission("report.view")),
 ) -> dict[str, Any]:
-    del current_user
-    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id)
+    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id, current_user=current_user, action="view")
     try:
         return deal_store.redact_public_payload(
             primary_market_meeting_readiness.build_meeting_readiness(normalized_deal_id)
@@ -1311,7 +1358,7 @@ def prepare_meeting_agent(
     current_user: User = Depends(require_permission("report.create")),
 ) -> dict[str, Any]:
     request_payload = req or PrimaryMarketMeetingPrepareRequest()
-    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id)
+    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id, current_user=current_user, action="write")
     canonical_profile = ic_policy.canonical_ic_profile_id(profile_id)
     if canonical_profile == "siq_ic_master_coordinator":
         result = {
@@ -1372,7 +1419,7 @@ def prepare_all_meeting_agents(
     current_user: User = Depends(require_permission("report.create")),
 ) -> dict[str, Any]:
     request_payload = req or PrimaryMarketMeetingPrepareAllRequest()
-    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id)
+    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id, current_user=current_user, action="write")
     raw_profile_ids = request_payload.profile_ids or list(ic_policy.R1_AGENT_SEQUENCE)
     profile_ids = [
         ic_policy.canonical_ic_profile_id(str(profile_id))
@@ -1446,7 +1493,7 @@ async def run_meeting_r1_agent(
     current_user: User = Depends(require_permission("report.create")),
 ) -> dict[str, Any]:
     request_payload = req or PrimaryMarketMeetingR1AgentRunRequest()
-    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id)
+    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id, current_user=current_user, action="write")
     canonical_profile = ic_policy.canonical_ic_profile_id(profile_id)
     if canonical_profile not in ic_policy.R1_AGENT_SEQUENCE:
         raise HTTPException(status_code=400, detail="R1 agent run requires an R1 IC profile")
@@ -1512,7 +1559,7 @@ async def run_meeting_r1_serial(
     current_user: User = Depends(require_permission("report.create")),
 ) -> dict[str, Any]:
     request_payload = req or PrimaryMarketMeetingR1SerialRunRequest()
-    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id)
+    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id, current_user=current_user, action="write")
     try:
         if request_payload.dry_run:
             result = ic_agent_runtime.build_workflow_r1_serial_run_dry_run(
@@ -1572,7 +1619,7 @@ async def advance_meeting_workflow(
     current_user: User = Depends(require_permission("report.create")),
 ) -> dict[str, Any]:
     request_payload = req or PrimaryMarketMeetingWorkflowAdvanceRequest()
-    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id)
+    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id, current_user=current_user, action="write")
     try:
         if request_payload.dry_run:
             result = ic_agent_runtime.build_workflow_advance_next_dry_run(
@@ -1643,7 +1690,7 @@ def confirm_meeting_decision(
     req: PrimaryMarketMeetingDecisionHumanConfirmRequest,
     current_user: User = Depends(require_permission("report.create")),
 ) -> dict[str, Any]:
-    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id)
+    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id, current_user=current_user, action="write")
     try:
         result = deal_decision.update_human_confirmation(
             normalized_deal_id,
@@ -1691,7 +1738,7 @@ async def chat_stream(
 ) -> EventSourceResponse:
     normalized_profile = canonical_meeting_profile(profile)
     deal_id = deal_id_from_request(req)
-    deal_summary = _load_deal_summary(deal_id)
+    deal_summary = _load_deal_summary(deal_id, current_user=current_user)
     lane = _normalize_lane(req.lane or (req.context.lane if req.context else None) or "main")
     _assert_profile_allowed_for_lane(normalized_profile, lane)
     current_user_id = int(current_user.id)
@@ -1792,7 +1839,7 @@ async def stop_chat(
     async_session: AsyncSession = Depends(get_async_session),
 ) -> dict:
     normalized_profile = canonical_meeting_profile(profile)
-    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id)
+    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id, current_user=current_user, action="write")
     normalized_lane = _normalize_lane(lane)
     resolved_session_id = await resolve_or_create_meeting_session(
         async_session,
@@ -1815,7 +1862,7 @@ async def active_chat(
     async_session: AsyncSession = Depends(get_async_session),
 ) -> dict:
     normalized_profile = canonical_meeting_profile(profile)
-    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id)
+    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id, current_user=current_user, action="view")
     normalized_lane = _normalize_lane(lane)
     resolved_session_id = await resolve_or_create_meeting_session(
         async_session,
@@ -1840,7 +1887,7 @@ async def active_chat_stream(
     async_session: AsyncSession = Depends(get_async_session),
 ) -> EventSourceResponse:
     normalized_profile = canonical_meeting_profile(profile)
-    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id)
+    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id, current_user=current_user, action="view")
     normalized_lane = _normalize_lane(lane)
     resolved_session_id = await resolve_or_create_meeting_session(
         async_session,
@@ -1871,7 +1918,7 @@ async def create_session(
     async_session: AsyncSession = Depends(get_async_session),
 ) -> dict:
     normalized_profile = canonical_meeting_profile(profile)
-    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id)
+    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id, current_user=current_user, action="view")
     normalized_lane = _normalize_lane(lane)
     _assert_profile_allowed_for_lane(normalized_profile, normalized_lane)
     user_id = str(current_user.id)
@@ -1904,7 +1951,7 @@ async def switch_session(
     async_session: AsyncSession = Depends(get_async_session),
 ) -> dict:
     normalized_profile = canonical_meeting_profile(profile)
-    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id)
+    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id, current_user=current_user, action="view")
     normalized_lane = _normalize_lane(lane)
     session_profile = _meeting_session_scope(normalized_profile, normalized_deal_id, normalized_lane)
     user_id = str(current_user.id)
@@ -1941,7 +1988,7 @@ async def reset_session(
     async_session: AsyncSession = Depends(get_async_session),
 ) -> dict:
     normalized_profile = canonical_meeting_profile(profile)
-    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id)
+    normalized_deal_id, _package_dir = _validated_deal_dir(deal_id, current_user=current_user, action="view")
     normalized_lane = _normalize_lane(lane)
     session_profile = _meeting_session_scope(normalized_profile, normalized_deal_id, normalized_lane)
     user_id = str(current_user.id)
@@ -1984,7 +2031,7 @@ async def chat(
 ) -> ChatResponse:
     normalized_profile = canonical_meeting_profile(profile)
     deal_id = deal_id_from_request(req)
-    deal_summary = _load_deal_summary(deal_id)
+    deal_summary = _load_deal_summary(deal_id, current_user=current_user)
     lane = _normalize_lane(req.lane or (req.context.lane if req.context else None) or "main")
     _assert_profile_allowed_for_lane(normalized_profile, lane)
     current_user_id = int(current_user.id)

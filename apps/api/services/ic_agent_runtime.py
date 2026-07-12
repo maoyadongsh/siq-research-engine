@@ -7,14 +7,15 @@ import re
 from pathlib import Path
 from typing import Any
 
-from services import deal_contracts
-from services import deal_disputes
-from services import deal_reports
-from services import deal_store
-from services import hermes_client
-from services import ic_decision_report
-from services import ic_policy
-
+from services import (
+    deal_contracts,
+    deal_disputes,
+    deal_reports,
+    deal_store,
+    hermes_client,
+    ic_decision_report,
+    ic_policy,
+)
 
 AGENT_TASK_SCHEMA = "siq_ic_agent_task_v1"
 AGENT_TASK_DRY_RUN_SCHEMA = "siq_ic_agent_task_dry_run_v1"
@@ -510,64 +511,78 @@ def _write_markdown_report(
 def _merge_r1_report(package_dir: Path, profile_id: str, report_entry: dict[str, Any]) -> str:
     relative = "phases/r1_reports.json"
     path = package_dir / relative
-    reports = deal_store.read_json(path, {}) or {}
-    if not isinstance(reports, dict) or isinstance(reports.get("reports"), dict):
-        reports = dict(reports.get("reports") or reports) if isinstance(reports, dict) else {}
-    reports[profile_id] = report_entry
-    deal_store.write_json(path, reports)
+
+    def merge_report(current: Any) -> dict[str, Any]:
+        reports = current or {}
+        if not isinstance(reports, dict) or isinstance(reports.get("reports"), dict):
+            reports = dict(reports.get("reports") or reports) if isinstance(reports, dict) else {}
+        reports[profile_id] = report_entry
+        return reports
+
+    deal_store.update_json(path, merge_report, default={})
     return relative
 
 
 def _advance_workflow_for_r1_report(package_dir: Path, profile_id: str) -> dict[str, Any]:
     workflow_path = package_dir / "phases" / "workflow_state.json"
-    workflow = deal_store.read_json(workflow_path, {}) or {}
     now = deal_store.utc_now_iso()
-    phases = workflow.setdefault("phases", {})
-    if not isinstance(phases, dict):
-        phases = {}
-        workflow["phases"] = phases
-    r1 = phases.setdefault("R1", {})
-    if not isinstance(r1, dict):
-        r1 = {}
-        phases["R1"] = r1
 
-    submitted = r1.get("submitted_agents")
-    if not isinstance(submitted, list):
-        submitted = []
-    submitted = [ic_policy.canonical_ic_profile_id(str(item)) for item in submitted if str(item or "").strip()]
-    if profile_id not in submitted:
-        submitted.append(profile_id)
+    def advance(current: Any) -> dict[str, Any]:
+        workflow = current if isinstance(current, dict) else {}
+        phases = workflow.setdefault("phases", {})
+        if not isinstance(phases, dict):
+            phases = {}
+            workflow["phases"] = phases
+        r1 = phases.setdefault("R1", {})
+        if not isinstance(r1, dict):
+            r1 = {}
+            phases["R1"] = r1
 
-    complete = all(agent_id in set(submitted) for agent_id in ic_policy.R1_AGENT_SEQUENCE)
-    r1.update({
-        "status": "completed" if complete else "in_progress",
-        "submitted_agents": submitted,
-        "latest_agent_id": profile_id,
-        "updated_at": now,
-    })
-    r1.setdefault("started_at", now)
-    workflow["current_phase"] = "R1"
-    if complete:
-        r1["completed_at"] = now
-        workflow["status"] = "r1_completed"
-    else:
-        workflow["status"] = "r1_in_progress"
-    workflow["updated_at"] = now
-    deal_store.write_json(workflow_path, workflow)
-    return workflow
+        submitted = r1.get("submitted_agents")
+        if not isinstance(submitted, list):
+            submitted = []
+        submitted = [
+            ic_policy.canonical_ic_profile_id(str(item))
+            for item in submitted
+            if str(item or "").strip()
+        ]
+        if profile_id not in submitted:
+            submitted.append(profile_id)
+
+        complete = all(agent_id in set(submitted) for agent_id in ic_policy.R1_AGENT_SEQUENCE)
+        r1.update({
+            "status": "completed" if complete else "in_progress",
+            "submitted_agents": submitted,
+            "latest_agent_id": profile_id,
+            "updated_at": now,
+        })
+        r1.setdefault("started_at", now)
+        workflow["current_phase"] = "R1"
+        if complete:
+            r1["completed_at"] = now
+            workflow["status"] = "r1_completed"
+        else:
+            workflow["status"] = "r1_in_progress"
+        workflow["updated_at"] = now
+        return workflow
+
+    return deal_store.update_json(workflow_path, advance, default={})
 
 
 def _touch_package_status(package_dir: Path, status: str) -> None:
     now = deal_store.utc_now_iso()
     for relative in ("manifest.json", "project_meta.json"):
         path = package_dir / relative
-        payload = deal_store.read_json(path, {}) or {}
-        if not isinstance(payload, dict):
-            continue
-        payload["updated_at"] = now
-        if relative == "project_meta.json":
-            payload["status"] = status
-        deal_store.write_json(path, payload)
+
+        def touch(current: Any, *, document: str = relative) -> Any:
+            if not isinstance(current, dict):
+                return current
+            current["updated_at"] = now
+            if document == "project_meta.json":
+                current["status"] = status
+            return current
+
+        deal_store.update_json(path, touch, default={})
 
 
 def _update_project_decision(
@@ -578,16 +593,20 @@ def _update_project_decision(
     final_score: float | None = None,
 ) -> None:
     path = package_dir / "project_meta.json"
-    payload = deal_store.read_json(path, {}) or {}
-    if not isinstance(payload, dict):
-        return
-    payload["updated_at"] = deal_store.utc_now_iso()
-    payload["status"] = status
-    if final_decision is not None:
-        payload["final_decision"] = final_decision
-    if final_score is not None:
-        payload["final_score"] = final_score
-    deal_store.write_json(path, payload)
+    now = deal_store.utc_now_iso()
+
+    def update_decision(current: Any) -> Any:
+        if not isinstance(current, dict):
+            return current
+        current["updated_at"] = now
+        current["status"] = status
+        if final_decision is not None:
+            current["final_decision"] = final_decision
+        if final_score is not None:
+            current["final_score"] = final_score
+        return current
+
+    deal_store.update_json(path, update_decision, default={})
 
 
 def _numeric(value: Any) -> float | None:
@@ -658,27 +677,28 @@ def _advance_workflow_phase(
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     workflow_path = package_dir / "phases" / "workflow_state.json"
-    workflow = deal_store.read_json(workflow_path, {}) or {}
-    if not isinstance(workflow, dict):
-        workflow = {}
     now = deal_store.utc_now_iso()
-    phase_payload = _phase_state(workflow, phase)
-    phase_payload.setdefault("started_at", now)
-    phase_payload.update({
-        "status": phase_status,
-        "updated_at": now,
-    })
-    if phase_status in {"completed", "skipped"}:
-        phase_payload["completed_at"] = now
-    if artifacts:
-        phase_payload["artifacts"] = artifacts
-    if extra:
-        phase_payload.update(extra)
-    workflow["current_phase"] = phase
-    workflow["status"] = workflow_status
-    workflow["updated_at"] = now
-    deal_store.write_json(workflow_path, workflow)
-    return workflow
+
+    def advance(current: Any) -> dict[str, Any]:
+        workflow = current if isinstance(current, dict) else {}
+        phase_payload = _phase_state(workflow, phase)
+        phase_payload.setdefault("started_at", now)
+        phase_payload.update({
+            "status": phase_status,
+            "updated_at": now,
+        })
+        if phase_status in {"completed", "skipped"}:
+            phase_payload["completed_at"] = now
+        if artifacts:
+            phase_payload["artifacts"] = artifacts
+        if extra:
+            phase_payload.update(extra)
+        workflow["current_phase"] = phase
+        workflow["status"] = workflow_status
+        workflow["updated_at"] = now
+        return workflow
+
+    return deal_store.update_json(workflow_path, advance, default={})
 
 
 def _policy() -> dict[str, Any]:

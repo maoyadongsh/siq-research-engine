@@ -7,6 +7,13 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+GOODWILL_TERMS = ("商誉", "商譽", "goodwill", "のれん", "영업권")
+
+
+def _is_goodwill_query(message: str) -> bool:
+    normalized = str(message or "").casefold()
+    return any(term.casefold() in normalized for term in GOODWILL_TERMS)
+
 
 @dataclass(frozen=True)
 class PrimaryDataEvidenceDependencies:
@@ -80,10 +87,11 @@ def reply_missing_required_wiki_source(
     *,
     deps: PrimaryDataEvidenceDependencies,
 ) -> bool:
+    has_note_detail_intent = deps.should_inject_note_detail_context(message)
     if deps.is_statement_query(message) and not reply_has_wiki_metrics_source(reply, deps=deps):
         return True
     if (
-        deps.should_inject_note_detail_context(message)
+        has_note_detail_intent
         and not reply_has_wiki_note_source(reply, deps=deps)
         and not deps.has_structured_evidence_trace(reply)
     ):
@@ -104,6 +112,35 @@ def build_primary_data_evidence_supplement(
     human_capital = deps.human_capital_result(message, context)
     if human_capital:
         return deps.render_human_capital_primary_data_supplement(human_capital)
+
+    if _is_goodwill_query(message) or deps.is_statement_query(message):
+        supplements: list[str] = []
+        # Keep evidence order stable for every statement-oriented question:
+        # three-statement snapshot, metric-specific body table, then notes.
+        statement_result = deps.three_statement_core_result(message, context)
+        statement_supplement = deps.render_three_statement_primary_data_supplement(statement_result or {})
+        if statement_supplement:
+            supplements.append(statement_supplement)
+
+        detailed_statement_result, _renderer = deps.statement_metric_result(message, context)
+        statement_table_supplement = deps.render_statement_table_primary_data_supplement(
+            detailed_statement_result or {}
+        )
+        if statement_table_supplement:
+            supplements.append(statement_table_supplement)
+
+        note_result, _note_renderer = deps.note_detail_result(message, context, limit=8)
+        note_supplement = deps.render_note_detail_primary_data_supplement(note_result or {})
+        if note_supplement:
+            supplements.append(note_supplement)
+        if supplements:
+            return "\n\n".join(supplements)
+
+        fulltext = deps.wiki_fulltext_fallback_result(message, context)
+        fulltext_supplement = deps.render_wiki_fulltext_primary_data_supplement(fulltext or {})
+        if fulltext_supplement:
+            return fulltext_supplement
+        return None
 
     detailed_statement_result, _renderer = deps.statement_metric_result(message, context)
     statement_table_supplement = deps.render_statement_table_primary_data_supplement(detailed_statement_result or {})
@@ -162,6 +199,13 @@ def append_primary_data_evidence_if_needed(
     if deps.is_runtime_status_reply(reply):
         return reply
     reply = deps.merge_primary_data_refs_into_citations(reply, None)
+    # Goodwill is a reconciliation query: note citations alone are not enough.
+    # Always materialize the main-statement -> body-table -> note chain before
+    # accepting an otherwise matching metric citation.
+    if _is_goodwill_query(message):
+        supplement = build_primary_data_evidence_supplement(message, context, deps=deps)
+        if supplement:
+            return deps.merge_primary_data_refs_into_citations(reply, supplement)
     if reply_missing_required_wiki_source(message, reply, deps=deps):
         supplement = build_primary_data_evidence_supplement(message, context, deps=deps)
         if supplement:

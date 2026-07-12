@@ -1,6 +1,8 @@
-from sqlmodel import SQLModel, Field
-from typing import Optional
 from datetime import datetime
+from typing import Optional
+
+from sqlalchemy import Index
+from sqlmodel import Field, SQLModel
 
 
 class AgentState(SQLModel, table=True):
@@ -18,11 +20,17 @@ class AgentState(SQLModel, table=True):
 
 
 class ChatMessage(SQLModel, table=True):
+    __table_args__ = (
+        Index("idx_chatmessage_session_created_at", "session_id", "created_at"),
+    )
+
     id: Optional[int] = Field(default=None, primary_key=True)
     session_id: str = Field(default="default", index=True)
     role: str  # "user" or "assistant"
     content: str
     attachments_json: Optional[str] = Field(default=None)
+    audit_trace_id: Optional[str] = Field(default=None)
+    research_identity_json: Optional[str] = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 

@@ -139,6 +139,96 @@ def test_load_chat_run_preflight_context_uses_injected_dependencies_and_allow_in
     assert preflight.ChatRunPreflightContext(history=[], local_memory_context=None, attachments=[]).allow_initialize is True
 
 
+def test_load_chat_run_preflight_context_with_agent_memory_merges_memory_blocks():
+    async def run_case():
+        calls: list[str] = []
+        history = [{"role": "user", "content": "older question"}]
+        attachments = [{"path": "/tmp/report.pdf", "kind": "document"}]
+        request_context = {
+            "research_identity": {
+                "market": "HK",
+                "company_id": "HK:00700",
+                "filing_id": "HK:00700:2025-annual",
+                "parse_run_id": "parse-hk-00700",
+            }
+        }
+
+        async def load_history(_async_session, session_id, *, limit):
+            calls.append("load_history")
+            assert session_id == "session-1"
+            assert limit == 7
+            return history
+
+        async def ensure_local_memory_context(_async_session, profile, session_id):
+            calls.append("ensure_local_memory_context")
+            assert profile == "siq_analysis"
+            assert session_id == "session-1"
+            return "<local-memory>older turns</local-memory>"
+
+        async def ensure_agent_memory_context(_async_session, profile, session_id, message, *, research_context):
+            calls.append("ensure_agent_memory_context")
+            assert profile == "siq_analysis"
+            assert session_id == "session-1"
+            assert message == "继续分析公司的营收效率"
+            assert research_context is request_context
+            return "<agent-memory>vector recall</agent-memory>"
+
+        context = await preflight.load_chat_run_preflight_context_with_agent_memory(
+            object(),
+            session_id="session-1",
+            profile="siq_analysis",
+            attachments=attachments,
+            history_limit=7,
+            message="继续分析公司的营收效率",
+            request_context=request_context,
+            load_history=load_history,
+            ensure_local_memory_context=ensure_local_memory_context,
+            ensure_agent_memory_context=ensure_agent_memory_context,
+        )
+        return context, calls, history, attachments
+
+    context, calls, history, attachments = anyio.run(run_case)
+
+    assert calls == ["load_history", "ensure_local_memory_context", "ensure_agent_memory_context"]
+    assert context.history is history
+    assert context.attachments is attachments
+    assert context.local_memory_context == "<local-memory>older turns</local-memory>\n\n<agent-memory>vector recall</agent-memory>"
+
+
+def test_load_chat_run_preflight_context_with_agent_memory_skips_blank_message():
+    async def run_case():
+        calls: list[str] = []
+
+        async def load_history(_async_session, _session_id, *, limit):
+            calls.append(f"load_history:{limit}")
+            return []
+
+        async def ensure_local_memory_context(_async_session, _profile, _session_id):
+            calls.append("ensure_local_memory_context")
+            return None
+
+        async def forbidden_agent_memory(*_args, **_kwargs):
+            raise AssertionError("agent memory lookup should not run for blank messages")
+
+        context = await preflight.load_chat_run_preflight_context_with_agent_memory(
+            object(),
+            session_id="session-blank",
+            profile="siq_assistant",
+            attachments=[],
+            history_limit=3,
+            message="  ",
+            load_history=load_history,
+            ensure_local_memory_context=ensure_local_memory_context,
+            ensure_agent_memory_context=forbidden_agent_memory,
+        )
+        return context, calls
+
+    context, calls = anyio.run(run_case)
+
+    assert calls == ["load_history:3", "ensure_local_memory_context"]
+    assert context == preflight.ChatRunPreflightContext(history=[], local_memory_context=None, attachments=[])
+
+
 def test_plan_chat_preflight_short_circuit_skips_duplicate_for_catalog_reply():
     plan = preflight.plan_chat_preflight_short_circuit(
         catalog_reply="catalog reply",

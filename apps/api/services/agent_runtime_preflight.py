@@ -101,3 +101,49 @@ async def load_chat_run_preflight_context(
         local_memory_context=local_memory_context,
         attachments=attachments,
     )
+
+
+async def load_chat_run_preflight_context_with_agent_memory(
+    async_session: Any,
+    *,
+    session_id: str,
+    profile: str,
+    attachments: list[dict[str, Any]],
+    history_limit: int,
+    message: str = "",
+    request_context: Any | None = None,
+    load_history: Callable[..., Awaitable[list[dict[str, Any]]]],
+    ensure_local_memory_context: Callable[..., Awaitable[str | None]],
+    ensure_agent_memory_context: Callable[..., Awaitable[str | None]],
+) -> ChatRunPreflightContext:
+    preflight_context = await load_chat_run_preflight_context(
+        async_session,
+        session_id=session_id,
+        profile=profile,
+        attachments=attachments,
+        history_limit=history_limit,
+        load_history=load_history,
+        ensure_local_memory_context=ensure_local_memory_context,
+    )
+    if not str(message or "").strip():
+        return preflight_context
+    if request_context is None:
+        agent_memory_context = await ensure_agent_memory_context(async_session, profile, session_id, message)
+    else:
+        agent_memory_context = await ensure_agent_memory_context(
+            async_session,
+            profile,
+            session_id,
+            message,
+            research_context=request_context,
+        )
+    if not agent_memory_context:
+        return preflight_context
+    return ChatRunPreflightContext(
+        history=preflight_context.history,
+        local_memory_context=merge_preflight_memory_context(
+            preflight_context.local_memory_context,
+            agent_memory_context,
+        ),
+        attachments=preflight_context.attachments,
+    )

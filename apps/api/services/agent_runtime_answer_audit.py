@@ -11,9 +11,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from services import observability
+from services import agent_runtime_context, observability
+from services.agent_runtime_financial_claim_verifier import (
+    claim_verification_payload,
+    extract_structured_calculation_runs,
+    validate_calculation_traces,
+    verify_financial_claims,
+)
 from services.path_config import BACKEND_DATA_ROOT
-
 
 ANSWER_AUDIT_TRACE_SCHEMA = "siq_answer_audit_trace_v1"
 ANSWER_AUDIT_TRACE_ID_PREFIX = "aat_"
@@ -63,16 +68,20 @@ _SOURCE_FIELD_NAMES = frozenset(
     {
         "bbox",
         "canonical_name",
+        "chunk_index",
         "company_id",
         "concept",
         "currency",
         "evidence_count",
         "evidence_id",
+        "effective_date",
         "fact_currency",
         "file",
         "filing_id",
         "html_anchor",
+        "jurisdiction",
         "label",
+        "law_article",
         "market",
         "md_line",
         "metric",
@@ -92,7 +101,9 @@ _SOURCE_FIELD_NAMES = frozenset(
         "reporting_currency",
         "scale",
         "schema",
+        "source",
         "source_page",
+        "source_path",
         "source_type",
         "source_url",
         "statement_id",
@@ -103,10 +114,13 @@ _SOURCE_FIELD_NAMES = frozenset(
         "unit",
         "value",
         "wiki_report_path",
+        "relevance",
     }
 )
 _QUESTION_ID_RE = re.compile(r"(?i)\b(?:question_id|questionId|qid)\s*[:=]\s*([A-Za-z0-9_.:/#-]+)")
 _OPERATION_RE = re.compile(r"(?i)\boperation\s*[:=]\s*([A-Za-z0-9_.:/#-]+)")
+_GUARDRAIL_STATUS_RE = re.compile(r"(?i)\bguardrail_status\s*[:=]\s*([A-Za-z0-9_.:/#-]+)")
+_GUARDRAIL_REASON_RE = re.compile(r"(?i)\bguardrail_reason\s*[:=]\s*([A-Za-z0-9_.:/#-]+)")
 _AUDIT_SUMMARY_HEADING_RE = re.compile(r"(?m)^(?:#{1,4}\s+)?审计详情[:：]?\s*$")
 _TRACE_ID_RE = re.compile(r"^aat_[a-f0-9]{32}$")
 
@@ -276,6 +290,8 @@ def _extract_source_fields(raw_line: str) -> dict[str, str]:
         start = match.end()
         end = matches[index + 1].start() if index + 1 < len(matches) else len(raw_line)
         value = raw_line[start:end].strip().strip(" \t,，;；|。")
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1].strip()
         if value:
             fields[key] = value
     return fields
@@ -285,10 +301,15 @@ def _extract_source_references(reply: str) -> list[dict[str, Any]]:
     references: list[dict[str, Any]] = []
     seen: set[str] = set()
     for line_number, raw_line in enumerate((reply or "").splitlines(), start=1):
-        if "source_type=" not in raw_line:
+        has_runtime_source = "source_type=" in raw_line
+        has_legal_source = all(marker in raw_line for marker in ("source=", "source_path=", "chunk_index="))
+        if not has_runtime_source and not has_legal_source:
             continue
         fields = _extract_source_fields(raw_line)
         source_type = str(fields.get("source_type") or "").strip()
+        if not source_type and all(fields.get(key) for key in ("source", "source_path", "chunk_index")):
+            source_type = "legal_corpus"
+            fields["source_type"] = source_type
         if not source_type:
             continue
         label_match = re.match(r"\s*\|?\s*(\[[^\]]+\])", raw_line)
@@ -306,6 +327,12 @@ def _extract_source_references(reply: str) -> list[dict[str, Any]]:
                 for key in (
                     "label",
                     "source_type",
+                    "source",
+                    "source_path",
+                    "chunk_index",
+                    "law_article",
+                    "jurisdiction",
+                    "effective_date",
                     "file",
                     "market",
                     "schema",
@@ -336,6 +363,7 @@ def _extract_source_references(reply: str) -> list[dict[str, Any]]:
                     "html_anchor",
                     "evidence_id",
                     "md_line",
+                    "relevance",
                 )
             },
             ensure_ascii=False,
@@ -354,6 +382,12 @@ def _fact_from_reference(reference: Mapping[str, Any]) -> dict[str, Any]:
     preferred_keys = (
         "label",
         "source_type",
+        "source",
+        "source_path",
+        "chunk_index",
+        "law_article",
+        "jurisdiction",
+        "effective_date",
         "market",
         "schema",
         "file",
@@ -392,6 +426,7 @@ def _fact_from_reference(reference: Mapping[str, Any]) -> dict[str, Any]:
         "quote_text",
         "source_url",
         "wiki_report_path",
+        "relevance",
         "line_number",
     )
     fact = {key: reference[key] for key in preferred_keys if key in reference and reference[key] not in (None, "")}
@@ -411,6 +446,13 @@ def _fact_from_reference(reference: Mapping[str, Any]) -> dict[str, Any]:
 def _source_types(references: Sequence[Mapping[str, Any]]) -> list[str]:
     values = sorted({str(item.get("source_type") or "") for item in references if item.get("source_type")})
     return values
+
+
+def _is_legal_reference(reference: Mapping[str, Any]) -> bool:
+    source_type = str(reference.get("source_type") or "")
+    if source_type.startswith("legal"):
+        return True
+    return bool(reference.get("source_path") and reference.get("chunk_index") and reference.get("source"))
 
 
 def _extract_resolved_company(context: Any | None, references: Sequence[Mapping[str, Any]]) -> dict[str, Any] | None:
@@ -466,6 +508,7 @@ def _extract_resolved_period(context: Any | None, references: Sequence[Mapping[s
             "period_end": _first_text(period.get("period_end"), period.get("filing_period_end"), period.get("date")),
             "report_id": _first_text(period.get("report_id"), period.get("reportId")),
             "filing_id": _first_text(period.get("filing_id"), period.get("filingId")),
+            "parse_run_id": _first_text(period.get("parse_run_id"), period.get("parseRunId")),
         }
     elif period not in (None, "", [], {}):
         output["period"] = str(period)
@@ -475,6 +518,7 @@ def _extract_resolved_period(context: Any | None, references: Sequence[Mapping[s
         "period_end": {"periodend", "filingperiodend"},
         "report_id": {"reportid"},
         "filing_id": {"filingid"},
+        "parse_run_id": {"parserunid", "parse_run_id"},
     }
     for target_key, lookup_keys in context_fallbacks.items():
         if output.get(target_key):
@@ -492,6 +536,8 @@ def _extract_resolved_period(context: Any | None, references: Sequence[Mapping[s
             output["report_id"] = str(reference.get("report_id"))
         if not output.get("filing_id") and reference.get("filing_id"):
             output["filing_id"] = str(reference.get("filing_id"))
+        if not output.get("parse_run_id") and reference.get("parse_run_id"):
+            output["parse_run_id"] = str(reference.get("parse_run_id"))
 
     output = {key: value for key, value in output.items() if value not in (None, "")}
     return redact_audit_value(output, max_string_length=500) if output else None
@@ -517,7 +563,15 @@ def _extract_fallback_reason(context: Any | None, references: Sequence[Mapping[s
             for item in events
             if isinstance(item, Mapping) and (item.get("reason") or item.get("stage"))
         ]
-        for preferred in ("market_view_hit", "postgres_hit", "postgres_unavailable", "wiki_fulltext_miss", "wiki_structured_miss"):
+        for preferred in (
+            "research_identity_incomplete",
+            "market_view_hit",
+            "postgres_hit",
+            "postgres_unavailable",
+            "research_identity_report_mismatch",
+            "wiki_fulltext_miss",
+            "wiki_structured_miss",
+        ):
             if preferred in reasons:
                 return preferred
         if reasons:
@@ -545,9 +599,35 @@ def _extract_calculator_runs(context: Any | None, reply: str) -> list[dict[str, 
     context_runs = _find_context_value(context, {"calculatorruns", "calculationruns", "calculatortrace"})
     if isinstance(context_runs, Sequence) and not isinstance(context_runs, (str, bytes, bytearray)):
         for item in context_runs:
-            runs.append({"source": "context", "payload": redact_audit_value(item, max_string_length=1200)})
+            runs.append(
+                {
+                    "source": "context_unvalidated",
+                    "validated": False,
+                    "payload": redact_audit_value(item, max_string_length=1200),
+                }
+            )
     elif context_runs not in (None, "", [], {}):
-        runs.append({"source": "context", "payload": redact_audit_value(context_runs, max_string_length=1200)})
+        runs.append(
+            {
+                "source": "context_unvalidated",
+                "validated": False,
+                "payload": redact_audit_value(context_runs, max_string_length=1200),
+            }
+        )
+
+    for payload in extract_structured_calculation_runs(reply):
+        runs.append(
+            {
+                "source": "reply_structured",
+                "schema_version": str(payload.get("schema_version") or ""),
+                "tool": str(payload.get("tool") or ""),
+                "operation": str(payload.get("operation") or ""),
+                "metric": str(payload.get("metric") or ""),
+                "period": str(payload.get("period") or ""),
+                "validated": True,
+                "payload": redact_audit_value(payload, max_string_length=1200),
+            }
+        )
 
     active_section = ""
     for line_number, raw_line in enumerate((reply or "").splitlines(), start=1):
@@ -557,7 +637,14 @@ def _extract_calculator_runs(context: Any | None, reply: str) -> list[dict[str, 
         if stripped.startswith("#"):
             if "计算器校验" in stripped or "勾稽校验" in stripped:
                 active_section = stripped.lstrip("#").strip()
-                runs.append({"source": "reply", "line_number": line_number, "section": active_section})
+                runs.append(
+                    {
+                        "source": "reply_marker",
+                        "validated": False,
+                        "line_number": line_number,
+                        "section": active_section,
+                    }
+                )
             else:
                 active_section = ""
             continue
@@ -566,7 +653,8 @@ def _extract_calculator_runs(context: Any | None, reply: str) -> list[dict[str, 
         if not (active_section or has_tool or operation_match):
             continue
         item: dict[str, Any] = {
-            "source": "reply",
+            "source": "reply_marker",
+            "validated": False,
             "line_number": line_number,
             "line": stripped,
         }
@@ -582,6 +670,25 @@ def _extract_calculator_runs(context: Any | None, reply: str) -> list[dict[str, 
         if len(runs) >= 50:
             break
     return runs
+
+
+def _extract_guardrail_marker_result(reply: str) -> dict[str, Any]:
+    text = reply or ""
+    status_match = _GUARDRAIL_STATUS_RE.search(text)
+    reason_match = _GUARDRAIL_REASON_RE.search(text)
+    status = str(status_match.group(1) if status_match else "").strip().lower()
+    reason = str(reason_match.group(1) if reason_match else "").strip()
+    if status not in {"blocked", "denied", "rejected"} and not reason:
+        return {}
+    payload: dict[str, Any] = {}
+    if status:
+        payload["status"] = status
+    if status in {"blocked", "denied", "rejected"} or reason:
+        payload["blocked"] = True
+        payload["allowed"] = False
+    if reason:
+        payload["reason"] = reason
+    return payload
 
 
 def _build_guardrail_result(
@@ -604,10 +711,14 @@ def _build_guardrail_result(
             str(item.get("source_type") or "").startswith("postgres") or item.get("source_type") == "postgresql"
             for item in references
         ),
-        "has_calculator_runs": bool(calculator_runs),
+        "has_legal_facts": any(_is_legal_reference(item) for item in references),
+        "has_calculator_runs": any(item.get("validated") is True for item in calculator_runs),
         "calculation_warning_appended": "## 计算校验提示" in (final_reply or ""),
         "tool_availability_correction_appended": "## 工具状态纠正" in (final_reply or ""),
     }
+    marker_result = _extract_guardrail_marker_result(final_reply or "")
+    if marker_result:
+        computed.update(marker_result)
     if raw_reply is not None:
         computed["raw_reply_hash"] = stable_hash(redact_audit_value(raw_reply, max_string_length=20000))
     if guardrail_result:
@@ -640,7 +751,43 @@ def build_answer_audit_trace(
         for reference in references
         if str(reference.get("source_type") or "").startswith("postgres") or reference.get("source_type") == "postgresql"
     ]
+    legal_facts = [
+        _fact_from_reference(reference)
+        for reference in references
+        if _is_legal_reference(reference)
+    ]
     calculator_runs = _extract_calculator_runs(context, final_reply or "")
+    calculation_trace_reply = raw_reply if raw_reply is not None else final_reply or ""
+    structured_calculation_runs = extract_structured_calculation_runs(calculation_trace_reply)
+    has_legacy_calculation_marker = any(
+        marker in calculation_trace_reply
+        for marker in ("financial_calculator.py", "financial_reconciliation_validator.py", "## 计算器校验", "## 勾稽校验")
+    )
+    calculation_trace_validation = validate_calculation_traces(
+        calculation_trace_reply,
+        expected_identity=agent_runtime_context.research_identity(context),
+        require_calculator=has_legacy_calculation_marker
+        and not any(
+            str(run.get("schema_version") or "") == "siq_financial_reconciliation_trace_v1"
+            for run in structured_calculation_runs
+        ),
+        require_reconciliation=any(
+            str(run.get("schema_version") or "") == "siq_financial_reconciliation_trace_v1"
+            for run in structured_calculation_runs
+        ),
+    )
+    if calculation_trace_validation.checked and not calculation_trace_validation.allowed:
+        for run in calculator_runs:
+            if run.get("source") == "reply_structured":
+                run["validated"] = False
+                run["validation_reason"] = calculation_trace_validation.reason
+    claim_verifier_reply = raw_reply if raw_reply is not None else final_reply
+    claim_verifier_result = claim_verification_payload(
+        verify_financial_claims(
+            claim_verifier_reply or "",
+            expected_identity=agent_runtime_context.research_identity(context),
+        )
+    )
     created_at_text = created_at.isoformat() if isinstance(created_at, datetime) else str(created_at or _utc_now_iso())
     payload: dict[str, Any] = {
         "schema_version": ANSWER_AUDIT_TRACE_SCHEMA,
@@ -657,8 +804,16 @@ def build_answer_audit_trace(
         "query_plan": _extract_query_plan(context, references),
         "wiki_facts": wiki_facts,
         "postgres_facts": postgres_facts,
+        "legal_facts": legal_facts,
         "fallback_reason": _extract_fallback_reason(context, references, final_reply or ""),
         "calculator_runs": calculator_runs,
+        "calculation_trace_validation": {
+            "checked": calculation_trace_validation.checked,
+            "allowed": calculation_trace_validation.allowed,
+            "reason": calculation_trace_validation.reason or None,
+            "structured_run_count": len(calculation_trace_validation.runs),
+        },
+        "claim_verifier_result": claim_verifier_result,
         "citations": references,
     }
     fallback_events = _find_context_value(context, {"auditfallbackevents", "fallbackevents", "postgresfallbackevents"})

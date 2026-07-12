@@ -1,11 +1,9 @@
-import { Database, FileText, Globe2, MonitorCog, Server, Sparkles } from 'lucide-react'
+import { Database, Globe2, MonitorCog, Server, Sparkles } from 'lucide-react'
 import type { ProviderFormData } from './types'
 
 interface ConnectionSectionProps {
   apiBase: string
   setApiBase: (value: string) => void
-  pdfApiBase: string
-  setPdfApiBase: (value: string) => void
   wikiRoot: string
   setWikiRoot: (value: string) => void
   recentLimit: string
@@ -17,8 +15,6 @@ interface ConnectionSectionProps {
 export function ConnectionSection({
   apiBase,
   setApiBase,
-  pdfApiBase,
-  setPdfApiBase,
   wikiRoot,
   setWikiRoot,
   recentLimit,
@@ -54,21 +50,6 @@ export function ConnectionSection({
             />
             <p className="text-sm text-text-muted">
               例如 http://localhost:18081。留空会走 Vite 代理。
-            </p>
-          </label>
-          <label className="space-y-2">
-            <span className="flex items-center gap-2 text-base font-semibold text-text">
-              <FileText className="h-5 w-5 text-primary" />
-              PDF 解析 API
-            </span>
-            <input
-              value={pdfApiBase}
-              onChange={(e) => setPdfApiBase(e.target.value)}
-              placeholder="/pdfapi"
-              className="form-control w-full px-4 text-base"
-            />
-            <p className="text-sm text-text-muted">
-              默认 /pdfapi，对应本地 PDF 解析服务。
             </p>
           </label>
           <label className="space-y-2 lg:col-span-2">

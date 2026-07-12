@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
-import re
+import asyncio
 import os
+import re
 from collections.abc import Awaitable, Callable, Collection, Sequence
 from datetime import datetime
-from typing import Protocol
+from typing import Any, Protocol
 
+from models import ChatMessage, ChatSessionMemory
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from models import ChatMessage, ChatSessionMemory
-from services import agent_memory_service
+from services import agent_memory_service, agent_runtime_context
 
 
 class MemoryMessage(Protocol):
@@ -293,11 +294,56 @@ async def ensure_local_memory_context(
     return await load_context(async_session, profile, session_id)
 
 
+async def ensure_agent_memory_context(
+    async_session: AsyncSession,
+    profile: str,
+    session_id: str,
+    message: str,
+    *,
+    research_context: Any | None = None,
+    min_query_chars: int = 4,
+    retrieval_budget_ms: int = 1200,
+    strict: bool = False,
+    context_from_session_id: Callable[..., Any | None] = agent_memory_service.context_from_session_id,
+    build_memory_context: Callable[..., Awaitable[str | None]] = agent_memory_service.build_memory_context,
+    log: Callable[[str], None] = print,
+) -> str | None:
+    if len(str(message or "").strip()) < max(0, min_query_chars):
+        return None
+    identity = agent_runtime_context.research_identity(research_context)
+    context_kwargs: dict[str, Any] = {"profile": profile}
+    if identity:
+        context_kwargs["research_identity"] = identity
+    context = context_from_session_id(session_id, **context_kwargs)
+    if context is None:
+        return None
+    budget_ms = max(100, retrieval_budget_ms)
+    try:
+        return await asyncio.wait_for(
+            build_memory_context(
+                async_session,
+                context,
+                query=message,
+            ),
+            timeout=budget_ms / 1000,
+        )
+    except asyncio.TimeoutError:
+        log(f"[agent-memory] memory retrieval skipped after {budget_ms}ms for session {session_id}")
+        return None
+    except Exception as exc:
+        await async_session.rollback()
+        if strict:
+            raise
+        log(f"[agent-memory] failed to build memory context for session {session_id}: {exc}")
+        return None
+
+
 __all__ = [
     "MemoryMessage",
     "_compact_memory_content",
     "_local_memory_turn_line",
     "_strip_local_memory_blocks",
+    "ensure_agent_memory_context",
     "build_local_memory_context",
     "build_local_memory_summary",
     "ensure_local_memory_context",

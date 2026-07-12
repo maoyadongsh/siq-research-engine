@@ -2,20 +2,24 @@ import hashlib
 import json
 import os
 import re
-from pathlib import Path
 from datetime import UTC, datetime
+from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
 
 import httpx
+from database import get_async_session, get_session
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, Response
-from sqlmodel import Session, select
-from sqlmodel.ext.asyncio.session import AsyncSession
-
-from database import get_async_session, get_session
 from services.auth_dependencies import get_current_user, require_permission
 from services.auth_service import User
 from services.path_config import REPORT_DOWNLOADS_ROOT, WIKI_ROOT as CONFIG_WIKI_ROOT
+from services.upload_proxy_limits import (
+    UPLOAD_PROXY_LIMITER,
+    buffer_upload_files,
+    close_buffered_uploads,
+    env_int,
+    upload_proxy_timeout,
+)
 from services.usage_service import (
     AGENT_QUESTION_EVENT,
     DOCUMENT_PARSE_EVENT,
@@ -25,12 +29,13 @@ from services.usage_service import (
     ensure_within_quota,
     ensure_within_quota_async,
     next_midnight_shanghai,
-    record_usage,
     record_usage_async,
     usage_response_payload,
 )
-from routers import source as source_proxy
+from sqlmodel import Session, select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
+from routers import source as source_proxy
 
 router = APIRouter(prefix="/workspace", tags=["workspace"])
 pdf_router = APIRouter(prefix="/pdf", tags=["pdf-proxy"])
@@ -38,6 +43,15 @@ pdf_router = APIRouter(prefix="/pdf", tags=["pdf-proxy"])
 PDF2MD_API_BASE = (os.environ.get("SIQ_PDF2MD_API_BASE") or os.environ.get("PDF2MD_API_BASE", "http://127.0.0.1:15000")).rstrip("/")
 PDF2MD_ACCESS_TOKEN = os.environ.get("PDF2MD_ACCESS_TOKEN", "").strip()
 PDF_PARSE_CONFIG_VERSION = os.environ.get("SIQ_PDF_PARSE_CONFIG_VERSION", "pdf_parser_v1").strip() or "pdf_parser_v1"
+PDF_UPLOAD_MAX_FILE_BYTES = env_int("SIQ_PDF_UPLOAD_MAX_FILE_BYTES", 100 * 1024 * 1024)
+PDF_UPLOAD_MAX_BATCH_BYTES = env_int("SIQ_PDF_UPLOAD_MAX_BATCH_BYTES", 200 * 1024 * 1024)
+PDF_UPLOAD_TIMEOUT = upload_proxy_timeout(
+    connect_env="SIQ_PDF_UPLOAD_CONNECT_TIMEOUT",
+    write_env="SIQ_PDF_UPLOAD_WRITE_TIMEOUT",
+    read_env="SIQ_PDF_UPLOAD_READ_TIMEOUT",
+    pool_env="SIQ_PDF_UPLOAD_POOL_TIMEOUT",
+    read_default=180.0,
+)
 DOWNLOADS_ROOT = REPORT_DOWNLOADS_ROOT
 WIKI_ROOT = CONFIG_WIKI_ROOT
 TERMINAL_FAILED = {"failed", "error", "failure", "cancelled"}
@@ -473,16 +487,12 @@ def _upsert_workspace_project(
     now = datetime.now(UTC).replace(tzinfo=None)
     project_name = name or fallback_name or code
     if existing:
-        changed = False
         if code and existing.company_code != code:
             existing.company_code = code
-            changed = True
         if name and existing.company_name != name:
             existing.company_name = name
-            changed = True
         if project_name and existing.name != project_name:
             existing.name = project_name
-            changed = True
         existing.updated_at = now
         session.add(existing)
         session.commit()
@@ -533,16 +543,12 @@ async def _upsert_workspace_project_async(
     now = datetime.now(UTC).replace(tzinfo=None)
     project_name = name or fallback_name or code
     if existing:
-        changed = False
         if code and existing.company_code != code:
             existing.company_code = code
-            changed = True
         if name and existing.company_name != name:
             existing.company_name = name
-            changed = True
         if project_name and existing.name != project_name:
             existing.name = project_name
-            changed = True
         existing.updated_at = now
         async_session.add(existing)
         await async_session.commit()
@@ -1008,59 +1014,69 @@ async def authenticated_pdf_upload(
         "table_enable": table_enable,
     }
     parse_config_hash = _pdf_parse_config_hash(form)
-    uploads: list[dict[str, object]] = []
-    seen_hashes: set[str] = set()
-    for item in files:
-        content = await item.read()
-        filename = item.filename or "upload.pdf"
-        file_sha256 = _sha256_bytes(content)
-        if file_sha256 in seen_hashes:
-            return JSONResponse(
-                content={
-                    "error": "duplicate_file_content",
-                    "message": f"本次上传中包含重复文档内容，请勿重复解析: {filename}",
-                    "filename": filename,
-                    "existingTask": None,
-                },
-                status_code=409,
-            )
-        seen_hashes.add(file_sha256)
-        uploads.append(
-            {
-                "filename": filename,
-                "content": content,
-                "content_type": item.content_type or "application/pdf",
-                "file_sha256": file_sha256,
-                "market": requested_market or _normalize_parse_market(market) or "CN",
-                "parse_config_hash": parse_config_hash,
+    async with UPLOAD_PROXY_LIMITER.slot():
+        buffered_uploads = await buffer_upload_files(
+            files,
+            max_file_bytes=PDF_UPLOAD_MAX_FILE_BYTES,
+            max_batch_bytes=PDF_UPLOAD_MAX_BATCH_BYTES,
+            default_filename="upload.pdf",
+            default_content_type="application/pdf",
+        )
+        try:
+            uploads: list[dict[str, object]] = []
+            seen_hashes: set[str] = set()
+            for item in buffered_uploads:
+                filename = item.filename or "upload.pdf"
+                file_sha256 = item.sha256
+                if file_sha256 in seen_hashes:
+                    return JSONResponse(
+                        content={
+                            "error": "duplicate_file_content",
+                            "message": f"本次上传中包含重复文档内容，请勿重复解析: {filename}",
+                            "filename": filename,
+                            "existingTask": None,
+                        },
+                        status_code=409,
+                    )
+                seen_hashes.add(file_sha256)
+                uploads.append(
+                    {
+                        "filename": filename,
+                        "content": item.file,
+                        "content_type": item.content_type or "application/pdf",
+                        "file_sha256": file_sha256,
+                        "market": requested_market or _normalize_parse_market(market) or "CN",
+                        "parse_config_hash": parse_config_hash,
+                    }
+                )
+
+            existing_tasks = await _pdf_tasks_by_filename(current_user=current_user, market_scope=requested_market)
+            existing_dedupe_tasks = {
+                _pdf_dedupe_key(task, requested_market): task
+                for task in existing_tasks.values()
+                if str(task.get("file_sha256") or "").strip() and str(task.get("parse_config_hash") or "").strip()
             }
-        )
+            new_parse_count = sum(
+                1
+                for upload in uploads
+                if _pdf_dedupe_key(upload, requested_market) not in existing_dedupe_tasks
+            )
+            if new_parse_count:
+                await enforce_quota_or_429_async(async_session, current_user, PARSE_EVENT, increment=new_parse_count)
 
-    existing_tasks = await _pdf_tasks_by_filename(current_user=current_user, market_scope=requested_market)
-    existing_dedupe_tasks = {
-        _pdf_dedupe_key(task, requested_market): task
-        for task in existing_tasks.values()
-        if str(task.get("file_sha256") or "").strip() and str(task.get("parse_config_hash") or "").strip()
-    }
-    new_parse_count = sum(
-        1
-        for upload in uploads
-        if _pdf_dedupe_key(upload, requested_market) not in existing_dedupe_tasks
-    )
-    if new_parse_count:
-        await enforce_quota_or_429_async(async_session, current_user, PARSE_EVENT, increment=new_parse_count)
-
-    multipart = [
-        ("files", (str(upload["filename"]), upload["content"], str(upload["content_type"])))
-        for upload in uploads
-    ]
-    async with httpx.AsyncClient(timeout=None) as client:
-        response = await client.post(
-            f"{PDF2MD_API_BASE}/api/upload",
-            data=form,
-            files=multipart,
-            headers=_pdf2md_headers(current_user=current_user, market_scope=requested_market),
-        )
+            multipart = [
+                ("files", (str(upload["filename"]), upload["content"], str(upload["content_type"])))
+                for upload in uploads
+            ]
+            async with httpx.AsyncClient(timeout=PDF_UPLOAD_TIMEOUT) as client:
+                response = await client.post(
+                    f"{PDF2MD_API_BASE}/api/upload",
+                    data=form,
+                    files=multipart,
+                    headers=_pdf2md_headers(current_user=current_user, market_scope=requested_market),
+                )
+        finally:
+            close_buffered_uploads(buffered_uploads)
 
     content_type = response.headers.get("content-type", "application/json")
     try:
@@ -1203,7 +1219,8 @@ async def authenticated_pdf_task_from_download(
     filename = str(payload.get("filename") or safe.name or "download.pdf").replace("\\", "/").rsplit("/", 1)[-1].strip() or safe.name
     file_sha256 = _sha256_file_path(safe)
 
-    existing_tasks = await _pdf_tasks_by_filename(current_user=current_user, market_scope=requested_market)
+    async with UPLOAD_PROXY_LIMITER.slot():
+        existing_tasks = await _pdf_tasks_by_filename(current_user=current_user, market_scope=requested_market)
     existing_dedupe_tasks = {
         _pdf_dedupe_key(task, requested_market): task
         for task in existing_tasks.values()
@@ -1224,12 +1241,13 @@ async def authenticated_pdf_task_from_download(
         "filename": filename,
         "download_relative_path": rel_text,
     }
-    async with httpx.AsyncClient(timeout=None) as client:
-        response = await client.post(
-            f"{PDF2MD_API_BASE}/api/tasks/from-download",
-            json=upstream_body,
-            headers=_pdf2md_headers(current_user=current_user, market_scope=requested_market),
-        )
+    async with UPLOAD_PROXY_LIMITER.slot():
+        async with httpx.AsyncClient(timeout=PDF_UPLOAD_TIMEOUT) as client:
+            response = await client.post(
+                f"{PDF2MD_API_BASE}/api/tasks/from-download",
+                json=upstream_body,
+                headers=_pdf2md_headers(current_user=current_user, market_scope=requested_market),
+            )
 
     content_type = response.headers.get("content-type", "application/json")
     try:

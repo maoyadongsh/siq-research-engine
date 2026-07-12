@@ -135,9 +135,18 @@ def load_cases(case_root: Path = CASE_ROOT, *, legacy_case_root: Path | None = L
     return cases
 
 
-def find_package(case: dict[str, Any]) -> Path | None:
+def wiki_roots_from_base(root: Path) -> dict[str, Path]:
+    """Build market roots for a portable fixture or alternate Wiki tree."""
+    return {market: root / market.lower() for market in WIKI_ROOTS}
+
+
+def find_package(
+    case: dict[str, Any],
+    *,
+    wiki_roots: dict[str, Path] | None = None,
+) -> Path | None:
     market = str(case.get("market") or "").upper()
-    root = WIKI_ROOTS.get(market)
+    root = (wiki_roots or WIKI_ROOTS).get(market)
     if not root:
         return None
     if not root.exists():
@@ -296,8 +305,12 @@ def _package_quality_gates(package_dir: Path) -> dict[str, Any]:
     return gates if isinstance(gates, dict) else {}
 
 
-def evaluate_case(case: dict[str, Any]) -> dict[str, Any]:
-    package_dir = find_package(case)
+def evaluate_case(
+    case: dict[str, Any],
+    *,
+    wiki_roots: dict[str, Path] | None = None,
+) -> dict[str, Any]:
+    package_dir = find_package(case, wiki_roots=wiki_roots)
     expected_gate_status = _normalize_gate_status(case.get("expected_gate_status"))
     if not package_dir:
         return {
@@ -1066,24 +1079,73 @@ def markdown_report(report: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def main() -> None:
+def strict_failure_reasons(summary: dict[str, Any]) -> list[str]:
+    gate_status = summary.get("eval_gate_status") or {}
+    fail_count = int(_number(summary.get("fail")))
+    missing_package_count = int(_number(summary.get("missing_package")))
+    block_count = int(_number(gate_status.get("block") if isinstance(gate_status, dict) else None))
+    reasons: list[str] = []
+    if int(_number(summary.get("cases"))) <= 0:
+        reasons.append("summary.cases=0")
+    if fail_count > 0:
+        reasons.append(f"summary.fail={fail_count}")
+    if missing_package_count > 0:
+        reasons.append(f"summary.missing_package={missing_package_count}")
+    if block_count > 0:
+        reasons.append(f"summary.eval_gate_status.block={block_count}")
+    return reasons
+
+
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Evaluate market evidence package coverage against static cases.")
     parser.add_argument("--case-root", type=Path, default=CASE_ROOT)
     parser.add_argument("--legacy-case-root", type=Path, default=LEGACY_CASE_ROOT)
+    parser.add_argument(
+        "--wiki-root",
+        type=Path,
+        help="Portable Wiki root containing per-market directories such as hk/, us/, jp/, kr/, and eu/.",
+    )
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--markdown", type=Path, default=DEFAULT_MARKDOWN)
-    args = parser.parse_args()
+    parser.add_argument(
+        "--strict",
+        "--hard-fail",
+        dest="strict",
+        action="store_true",
+        help="Return non-zero when the summary contains failed cases, missing packages, or block gate decisions.",
+    )
+    args = parser.parse_args(argv)
     case_root = args.case_root if args.case_root.is_absolute() else REPO_ROOT / args.case_root
     legacy_case_root = args.legacy_case_root if args.legacy_case_root.is_absolute() else REPO_ROOT / args.legacy_case_root
-    items = [evaluate_case(case) for case in load_cases(case_root, legacy_case_root=legacy_case_root)]
+    wiki_root = None
+    if args.wiki_root is not None:
+        wiki_root = args.wiki_root if args.wiki_root.is_absolute() else REPO_ROOT / args.wiki_root
+    wiki_roots = wiki_roots_from_base(wiki_root) if wiki_root is not None else WIKI_ROOTS
+    items = [
+        evaluate_case(case, wiki_roots=wiki_roots)
+        for case in load_cases(case_root, legacy_case_root=legacy_case_root)
+    ]
     summary = summarize_items(items)
-    report = {"schema_version": "market_ingestion_eval_v1", "generated_at": now_iso(), "summary": summary, "items": items}
+    report = {
+        "schema_version": "market_ingestion_eval_v1",
+        "generated_at": now_iso(),
+        "case_root": str(case_root),
+        "wiki_root": str(wiki_root) if wiki_root is not None else None,
+        "summary": summary,
+        "items": items,
+    }
     write_json(args.output if args.output.is_absolute() else REPO_ROOT / args.output, report)
     md_path = args.markdown if args.markdown.is_absolute() else REPO_ROOT / args.markdown
     md_path.parent.mkdir(parents=True, exist_ok=True)
     md_path.write_text(markdown_report(report), encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False, indent=2))
+    if args.strict:
+        reasons = strict_failure_reasons(summary)
+        if reasons:
+            print("FAIL market ingestion eval strict gate: " + ", ".join(reasons), file=sys.stderr)
+            return 1
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

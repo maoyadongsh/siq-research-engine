@@ -46,3 +46,28 @@ test('MarkdownBlocks routes audit detail sections before normal headings', () =>
   assert.ok(auditBranch > citationBranch)
   assert.ok(genericHeadingBranch > auditBranch)
 })
+
+test('ChatMessageList exposes structured audit trace ids without audit detail body text', () => {
+  const chatList = readFileSync(resolve(rendererDir, '../ChatMessageList.tsx'), 'utf-8')
+  const structuredTraceBranch = chatList.indexOf('const structuredAuditTraceId')
+  const rendererCall = chatList.indexOf('<MessageRenderer', structuredTraceBranch)
+  const structuredBlock = chatList.indexOf('<AuditTraceBlock', rendererCall)
+
+  assert.ok(structuredTraceBranch >= 0)
+  assert.ok(rendererCall > structuredTraceBranch)
+  assert.ok(structuredBlock > rendererCall)
+  assert.match(chatList, /msg\.auditTraceId/)
+  assert.match(chatList, /!msg\.content\.includes\(msg\.auditTraceId\)/)
+  assert.ok(chatList.includes('lines={[`- trace_id: \\`${structuredAuditTraceId}\\``]}'))
+})
+
+test('ChatMessageList renders structured auditTraceId even when answer text omits it', () => {
+  const list = readFileSync(resolve(rendererDir, '..', 'ChatMessageList.tsx'), 'utf-8')
+
+  assert.match(list, /msg\.auditTraceId && !msg\.content\.includes\(msg\.auditTraceId\)/)
+  assert.match(list, /structuredAuditTraceId \? \(/)
+  assert.match(list, /lines=\{\[/)
+  assert.match(list, /trace_id/)
+  assert.match(list, /\$\{structuredAuditTraceId\}/)
+  assert.match(list, /apiPrefix=\{auditTraceApiPrefix\}/)
+})

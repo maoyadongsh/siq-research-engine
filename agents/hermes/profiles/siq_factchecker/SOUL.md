@@ -136,11 +136,12 @@
 若数据库可用，必须作为增强证据源使用：
 
 - Host: `127.0.0.1`
-- Port: `5432`
-- Database: `ai_platform`
+- Port: `15432`
+- Database: `siq`
 - Schema: `pdf2md`
+- User: `postgres`
 - 重点表：`financial_balance_sheet_items`、`financial_income_statement_items`、`financial_cash_flow_statement_items`、`financial_all_metrics_wide`、`financial_key_metrics`、`companies`、`documents`、`company_filings`、`document_tables`、`evidence_citations`。
-- 推荐查询入口：`/home/maoyd/.hermes/hermes-agent/venv/bin/python /home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts/pg_query.py --profile-env /home/maoyd/siq-research-engine/data/hermes/home/profiles/siq_factchecker/.env --sql "<只读 SQL>"`。该脚本会读取 profile `.env` 中的 PostgreSQL 凭据，仅允许 SELECT/WITH/SHOW。
+- 推荐查询入口：`/home/maoyd/.hermes/hermes-agent/venv/bin/python /home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts/pg_query.py --profile-env /home/maoyd/siq-research-engine/data/hermes/home/profiles/siq_factchecker/.env --schema pdf2md --limit 50 --timeout-ms 5000 --sql "<只读 SQL>"`。该脚本从项目环境读取凭据，只允许单条 SELECT/WITH/SHOW，并对 schema、行数、超时和只读关键字做硬门禁；失败时按 `error_code` 处理，不得改用其他连接绕过。
 
 证据链优先拼接：
 
@@ -150,7 +151,7 @@ financial_*_items.task_id + source_table_index
   -> pdf_page_number / markdown_line / caption
 ```
 
-如外部 IP 无法连接，应优先尝试 `127.0.0.1:5432`。
+如外部 IP 无法连接，应优先尝试项目本机端口 `127.0.0.1:15432`。
 
 ### 第三优先级：年报原文和完整解析产物
 

@@ -1,16 +1,21 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
 import os
 import time
+from dataclasses import dataclass
 from typing import Any
 
-
-COLLECTION_SCHEMA_VERSION = "siq_agent_memory_milvus_v1"
+COLLECTION_SCHEMA_VERSION = "siq_agent_memory_milvus_v2"
 DEFAULT_COLLECTION = "siq_agent_memory"
 DEFAULT_VECTOR_DIM = 1024
 VECTOR_FIELD = "vector"
+RESEARCH_IDENTITY_FIELDS = (
+    "research_market",
+    "research_company_id",
+    "research_filing_id",
+    "research_parse_run_id",
+)
 OUTPUT_FIELDS = [
     "id",
     "tenant_id",
@@ -27,6 +32,7 @@ OUTPUT_FIELDS = [
     "title",
     "content",
     "metadata_json",
+    *RESEARCH_IDENTITY_FIELDS,
     "updated_at_ts",
 ]
 REQUIRED_FIELDS = set(OUTPUT_FIELDS + [VECTOR_FIELD, "content_hash"])
@@ -51,6 +57,10 @@ class AgentMemoryVectorRecord:
     title: str = ""
     content: str = ""
     metadata_json: str = "{}"
+    research_market: str = ""
+    research_company_id: str = ""
+    research_filing_id: str = ""
+    research_parse_run_id: str = ""
     updated_at_ts: int = 0
 
 
@@ -102,28 +112,53 @@ def _schema_field_names(client: Any, name: str) -> set[str]:
 
 
 def _recreate_on_schema_mismatch() -> bool:
-    raw = os.getenv("SIQ_AGENT_MEMORY_MILVUS_RECREATE_ON_SCHEMA_MISMATCH", "true").strip().lower()
-    return raw in {"1", "true", "yes", "on"}
+    recreate = os.getenv("SIQ_AGENT_MEMORY_MILVUS_RECREATE_ON_SCHEMA_MISMATCH", "false").strip().lower()
+    allow_destructive = os.getenv("SIQ_AGENT_MEMORY_MILVUS_ALLOW_DESTRUCTIVE_SCHEMA_RECREATE", "false").strip().lower()
+    return recreate in {"1", "true", "yes", "on"} and allow_destructive in {"1", "true", "yes", "on"}
 
 
-def ensure_collection() -> Any:
+def collection_schema_preflight(*, client: Any | None = None, name: str | None = None) -> dict[str, Any]:
+    resolved_client = client or _client()
+    resolved_name = name or collection_name()
+    exists = bool(resolved_client.has_collection(resolved_name))
+    fields = _schema_field_names(resolved_client, resolved_name) if exists else set()
+    missing = sorted(REQUIRED_FIELDS - fields) if exists else []
+    return {
+        "schema_version": COLLECTION_SCHEMA_VERSION,
+        "collection_name": resolved_name,
+        "exists": exists,
+        "compatible": exists and not missing,
+        "missing_fields": missing,
+        "migration_required": bool(missing),
+        "migration_action": (
+            "create_versioned_collection_and_reindex"
+            if missing
+            else ("none" if exists else "create_collection")
+        ),
+        "destructive_recreate_enabled": _recreate_on_schema_mismatch(),
+    }
+
+
+def create_versioned_collection(
+    *,
+    client: Any,
+    name: str,
+    dimension: int | None = None,
+    index_type: str | None = None,
+    metric_type: str | None = None,
+    require_absent: bool = True,
+) -> None:
     from pymilvus import DataType, MilvusClient  # type: ignore[import-not-found]
 
-    client = _client()
-    name = collection_name()
-    if client.has_collection(name):
-        missing = REQUIRED_FIELDS - _schema_field_names(client, name)
-        if missing:
-            if not _recreate_on_schema_mismatch():
-                raise RuntimeError(f"Milvus collection {name} schema is missing fields: {sorted(missing)}")
-            client.drop_collection(name)
-        else:
-            client.load_collection(name)
-            return client
+    if require_absent and client.has_collection(name):
+        raise RuntimeError(f"refusing to create versioned collection because it already exists: {name}")
+    resolved_dimension = dimension if dimension is not None else vector_dim()
+    if not 1 <= int(resolved_dimension) <= 16384:
+        raise ValueError("Milvus vector dimension must be between 1 and 16384")
 
     schema = MilvusClient.create_schema(auto_id=False, enable_dynamic_field=False)
     schema.add_field(field_name="id", datatype=DataType.VARCHAR, max_length=128, is_primary=True)
-    schema.add_field(field_name=VECTOR_FIELD, datatype=DataType.FLOAT_VECTOR, dim=vector_dim())
+    schema.add_field(field_name=VECTOR_FIELD, datatype=DataType.FLOAT_VECTOR, dim=int(resolved_dimension))
     schema.add_field(field_name="tenant_id", datatype=DataType.VARCHAR, max_length=128)
     schema.add_field(field_name="visibility", datatype=DataType.VARCHAR, max_length=32)
     schema.add_field(field_name="owner_user_id", datatype=DataType.VARCHAR, max_length=64)
@@ -139,12 +174,16 @@ def ensure_collection() -> Any:
     schema.add_field(field_name="title", datatype=DataType.VARCHAR, max_length=512)
     schema.add_field(field_name="content", datatype=DataType.VARCHAR, max_length=8192)
     schema.add_field(field_name="metadata_json", datatype=DataType.VARCHAR, max_length=4096)
+    schema.add_field(field_name="research_market", datatype=DataType.VARCHAR, max_length=16)
+    schema.add_field(field_name="research_company_id", datatype=DataType.VARCHAR, max_length=256)
+    schema.add_field(field_name="research_filing_id", datatype=DataType.VARCHAR, max_length=512)
+    schema.add_field(field_name="research_parse_run_id", datatype=DataType.VARCHAR, max_length=256)
     schema.add_field(field_name="updated_at_ts", datatype=DataType.INT64)
     index_params = MilvusClient.prepare_index_params()
     index_params.add_index(
         field_name=VECTOR_FIELD,
-        index_type=os.getenv("SIQ_AGENT_MEMORY_MILVUS_INDEX_TYPE", "HNSW"),
-        metric_type=os.getenv("SIQ_AGENT_MEMORY_MILVUS_METRIC_TYPE", "COSINE"),
+        index_type=index_type or os.getenv("SIQ_AGENT_MEMORY_MILVUS_INDEX_TYPE", "HNSW"),
+        metric_type=metric_type or os.getenv("SIQ_AGENT_MEMORY_MILVUS_METRIC_TYPE", "COSINE"),
         params={"M": 16, "efConstruction": 128},
     )
     client.create_collection(
@@ -154,6 +193,30 @@ def ensure_collection() -> Any:
         timeout=float(os.getenv("SIQ_AGENT_MEMORY_MILVUS_TIMEOUT", "30")),
     )
     client.load_collection(name)
+
+
+def ensure_collection() -> Any:
+    client = _client()
+    name = collection_name()
+    preflight = collection_schema_preflight(client=client, name=name)
+    recreated_after_drop = False
+    if preflight["exists"]:
+        missing = set(preflight["missing_fields"])
+        if missing:
+            if not _recreate_on_schema_mismatch():
+                raise RuntimeError(
+                    f"Milvus collection {name} schema is missing fields: {sorted(missing)}; "
+                    "refusing to drop an existing collection. Create a versioned replacement collection and switch aliases, "
+                    "or set both SIQ_AGENT_MEMORY_MILVUS_RECREATE_ON_SCHEMA_MISMATCH=true and "
+                    "SIQ_AGENT_MEMORY_MILVUS_ALLOW_DESTRUCTIVE_SCHEMA_RECREATE=true only in a disposable environment."
+                )
+            client.drop_collection(name)
+            recreated_after_drop = True
+        else:
+            client.load_collection(name)
+            return client
+
+    create_versioned_collection(client=client, name=name, require_absent=not recreated_after_drop)
     return client
 
 
@@ -180,6 +243,10 @@ def _record_payload(record: AgentMemoryVectorRecord) -> dict[str, Any]:
         "title": _clean_text(record.title, max_length=512),
         "content": _clean_text(record.content, max_length=8192),
         "metadata_json": _clean_text(record.metadata_json, max_length=4096),
+        "research_market": _clean_text(record.research_market, max_length=16),
+        "research_company_id": _clean_text(record.research_company_id, max_length=256),
+        "research_filing_id": _clean_text(record.research_filing_id, max_length=512),
+        "research_parse_run_id": _clean_text(record.research_parse_run_id, max_length=256),
         "updated_at_ts": int(record.updated_at_ts or time.time()),
     }
 
@@ -219,6 +286,8 @@ def acl_expr(
     deal_id: str | None = None,
     project_id: str | None = None,
     profile: str | None = None,
+    agent_group: str | None = None,
+    research_identity: dict[str, str] | None = None,
 ) -> str:
     visibility_parts = ["visibility == \"system_shared\""]
     if user_id is not None:
@@ -228,11 +297,28 @@ def acl_expr(
         project_parts.append(f"deal_id == {_escape_expr(deal_id)}")
     if project_id:
         project_parts.append(f"project_id == {_escape_expr(project_id)}")
-    if project_parts:
-        visibility_parts.append(f"(visibility == \"project_shared\" and ({' or '.join(project_parts)}))")
+    if project_parts and agent_group:
+        visibility_parts.append(
+            f"(visibility == \"project_shared\" and agent_group == {_escape_expr(agent_group)} "
+            f"and ({' or '.join(project_parts)}))"
+        )
     expr = f"tenant_id == {_escape_expr(tenant_id)} and ({' or '.join(visibility_parts)})"
     if profile:
         expr += f" and (profile == {_escape_expr(profile)} or visibility != \"user_private\")"
+    if research_identity:
+        identity_fields = {
+            "research_market": research_identity.get("market"),
+            "research_company_id": research_identity.get("company_id"),
+            "research_filing_id": research_identity.get("filing_id"),
+            "research_parse_run_id": research_identity.get("parse_run_id"),
+        }
+        if not all(identity_fields.values()):
+            raise ValueError("complete ResearchIdentity is required for Milvus filtering")
+        for field, value in identity_fields.items():
+            expr += f" and {field} == {_escape_expr(str(value))}"
+    else:
+        for field in RESEARCH_IDENTITY_FIELDS:
+            expr += f' and {field} == ""'
     return expr
 
 
@@ -271,6 +357,8 @@ __all__ = [
     "AgentMemoryVectorRecord",
     "acl_expr",
     "collection_name",
+    "collection_schema_preflight",
+    "create_versioned_collection",
     "ensure_collection",
     "flush_collection",
     "milvus_enabled",

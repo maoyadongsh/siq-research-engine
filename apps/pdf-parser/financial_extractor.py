@@ -71,6 +71,7 @@ _CORE_STATEMENT_TITLE_TERMS = tuple(
 )
 
 _KEY_METRIC_CANONICALS = {
+    "bank_net_interest_income",
     "operating_revenue",
     "operating_profit",
     "net_profit",
@@ -607,7 +608,8 @@ _CANONICAL_ALIASES = [
     ("minority_interests", ("少数股东权益", "非控制性权益")),
     ("total_equity", ("所有者权益合计", "股东权益合计", "所有者权益总额", "股东权益总额")),
     ("total_operating_revenue", ("营业总收入",)),
-    ("operating_revenue", ("营业收入", "收入")),
+    ("bank_net_interest_income", ("利息净收入",)),
+    ("operating_revenue", ("营业收入",)),
     ("operating_profit", ("营业利润", "经营利润")),
     ("non_operating_income", ("营业外收入",)),
     ("non_operating_expenses", ("营业外支出",)),
@@ -786,6 +788,8 @@ def _other_comprehensive_income_canonical(compact):
 
 
 def _allow_substring_alias(alias, canonical, compact):
+    if canonical == "bank_net_interest_income":
+        return compact == alias
     if canonical in {"operating_revenue", "net_profit"}:
         return compact.startswith(alias) or compact.endswith(alias)
     if canonical == "total_equity" and "归属于" in compact:
@@ -2865,6 +2869,7 @@ def build_financial_data(markdown, task_id=None, filename=None, llm_judge=None, 
         "industry_profile": industry_profile,
         "statements": [],
         "key_metrics": [],
+        "quality_flags": [],
         "classification_evidence": [],
         "llm_table_judgments": [],
         "warnings": [],
@@ -2993,7 +2998,8 @@ def build_financial_data(markdown, task_id=None, filename=None, llm_judge=None, 
         statement.pop("_item_lookup", None)
         statement["columns"].sort(key=lambda item: item["key"])
         data["statements"].append(statement)
-    data["key_metrics"] = _merge_key_metrics(data["key_metrics"])
+    data["key_metrics"], key_metric_quality_flags = _merge_key_metrics(data["key_metrics"])
+    data["quality_flags"].extend(key_metric_quality_flags)
     data["statements"].sort(key=lambda item: (item["statement_type"], item["scope"]))
     data["summary"] = {
         "statement_count": len(data["statements"]),
@@ -3142,8 +3148,30 @@ def _line_for_text(markdown, text):
     return str(markdown or "").count("\n", 0, index) + 1
 
 
+def _values_conflict(left, right, scale=1.0):
+    if left is None or right is None:
+        return False
+    return abs(float(left) - float(right)) > _tolerance([float(left), float(right)], scale=scale)
+
+
+def _key_metric_conflict_flag(canonical, key, existing, incoming, incoming_metric):
+    return {
+        "code": "key_metric_value_conflict",
+        "severity": "fail",
+        "canonical_name": canonical,
+        "period": key,
+        "existing_value": existing,
+        "incoming_value": incoming,
+        "existing_source": (incoming_metric.get("_existing_sources") or {}).get(key),
+        "incoming_source": (incoming_metric.get("sources") or {}).get(key),
+        "incoming_name": incoming_metric.get("name"),
+        "message": f"关键指标 {canonical} 在期间 {key} 出现多个不同数值，已保留首个值并标记为质量失败。",
+    }
+
+
 def _merge_key_metrics(metrics):
     merged = {}
+    quality_flags = []
     for metric in metrics:
         canonical = metric.get("canonical_name")
         if not canonical:
@@ -3165,7 +3193,10 @@ def _merge_key_metrics(metrics):
                 existing["values"][key] = value
                 existing["raw_values"][key] = (metric.get("raw_values") or {}).get(key)
                 existing["sources"][key] = (metric.get("sources") or {}).get(key)
-    return list(merged.values())
+            elif _values_conflict(existing["values"].get(key), value, scale=max(float(existing.get("scale") or 1.0), float(metric.get("scale") or 1.0))):
+                metric["_existing_sources"] = existing.get("sources") or {}
+                quality_flags.append(_key_metric_conflict_flag(canonical, key, existing["values"].get(key), value, metric))
+    return list(merged.values()), quality_flags
 
 
 def _item_map(statement):
@@ -3308,6 +3339,31 @@ def _warning_item(rule_id, rule_name, statement_type, scope, period, message, in
     return item
 
 
+def _quality_flag_checks(flags):
+    checks = []
+    for flag in flags or []:
+        if not isinstance(flag, dict):
+            continue
+        code = str(flag.get("code") or "quality_flag")
+        canonical = str(flag.get("canonical_name") or "unknown")
+        severity = str(flag.get("severity") or "warning").lower()
+        status = "fail" if severity == "fail" else "warning"
+        checks.append(
+            {
+                "rule_id": f"quality.{code}.{canonical}",
+                "rule_name": flag.get("message") or code,
+                "statement_type": "key_metrics",
+                "scope": "",
+                "period": flag.get("period") or "",
+                "status": status,
+                "reason": code,
+                "inputs": [canonical],
+                "quality_flag": flag,
+            }
+        )
+    return checks
+
+
 def _derived_item(rule_id, rule_name, statement_type, scope, period, value, inputs=None, status="pass", reason="derived_metric"):
     return {
         "rule_id": rule_id,
@@ -3415,6 +3471,7 @@ def build_financial_checks(data):
         checks.extend(_cross_metric_checks(data))
         checks.extend(_derived_financial_indicator_checks(data))
         checks.extend(_yoy_change_warning_checks(data))
+        checks.extend(_quality_flag_checks(data.get("quality_flags")))
 
     if not looks_like_financial_report:
         if report_kind_blocked:
@@ -3430,6 +3487,10 @@ def build_financial_checks(data):
             warnings.append("未提取到合并利润表")
         if not _statement_by(data, "cash_flow_statement"):
             warnings.append("未提取到合并现金流量表")
+    for flag in data.get("quality_flags") or []:
+        message = flag.get("message") if isinstance(flag, dict) else None
+        if message:
+            warnings.append(message)
 
     counts = {"pass": 0, "fail": 0, "warning": 0, "skipped": 0}
     for item in checks:
@@ -3453,6 +3514,7 @@ def build_financial_checks(data):
             "skipped": counts.get("skipped", 0),
         },
         "checks": checks,
+        "quality_flags": data.get("quality_flags") or [],
         "warnings": warnings + data.get("warnings", []),
         "generated_at": _now_iso(),
     }

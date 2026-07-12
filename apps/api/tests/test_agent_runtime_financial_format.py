@@ -146,6 +146,112 @@ def test_table_trace_falls_back_to_missing_values_without_links():
     )
 
 
+def _fake_per_capita(amount, *, amount_unit, count, count_unit="人", currency="CNY"):
+    return {
+        "status": "ok",
+        "result": {
+            "cny_10k_per": "1.23456",
+            "cny_10k_per_unit": "万元/人",
+            "native_per": "123.456",
+            "native_per_unit": "欧元/人",
+        },
+        "formula": [f"{amount}{amount_unit} / {count}{count_unit}", f"currency={currency}"],
+    }
+
+
+def _fake_table_source_links(task_id, pdf_page, table_index):
+    return f"links={task_id}:{pdf_page}:{table_index}"
+
+
+def test_generic_human_efficiency_markdown_formatter_is_owned_by_financial_format():
+    result = {
+        "mode": "generic_cny",
+        "task_id": "task-1",
+        "report_id": "2025-annual",
+        "values": {
+            "revenue_2025": 1_000_000,
+            "parent_profit_2025": 200_000,
+            "employees_2025": 100,
+            "compensation_increase_2025": 50_000,
+        },
+        "rows": {
+            "revenue": {"file": "metrics/revenue.json", "pdf_page": 10, "table_index": 2, "md_line": 30},
+            "parent_profit": {"file": "metrics/profit.json", "pdf_page": 11, "table_index": 3, "md_line": 31},
+        },
+        "employee_result": {"pdf_page": 20, "table_index": 4, "md_line": 40},
+        "compensation_table": {"pdf_page_number": 21, "table_index": 5, "line": 41},
+    }
+
+    markdown = fmt.render_human_efficiency_evidence_markdown(
+        result,
+        calculator_per_capita=_fake_per_capita,
+        table_source_links=_fake_table_source_links,
+    )
+
+    assert "## 财务指标溯源补充" in markdown
+    assert "| 人均营收 | 1,000,000 元 / 100 人 = 1.2346万元/人 |" in markdown
+    assert "派生计算（financial_calculator.py）：1000000元 / 100人；currency=CNY" in markdown
+    assert "[H1] source_type=wiki_metrics, file=metrics/revenue.json, metric=营业收入" in markdown
+    assert "links=task-1:10:2" in markdown
+    assert "[H4] source_type=wiki_report_table, file=reports/2025-annual/report.md, metric=应付职工薪酬" in markdown
+
+
+def test_human_efficiency_markdown_formatter_handles_eur_regional_rows_and_runtime_wrapper(monkeypatch):
+    result = {
+        "task_id": "task-basf",
+        "report_id": "2025-annual",
+        "values": {
+            "revenue_2025": 68_449,
+            "revenue_2024": 65_260,
+            "personnel_2025": 11_234,
+            "personnel_2024": 10_100,
+            "employees_2025": 111_822,
+            "employees_2024": 110_000,
+        },
+        "tables": {
+            "income": {"pdf_page_number": 10, "table_index": 1, "line": 100},
+            "personnel": {"pdf_page_number": 20, "table_index": 2, "line": 200},
+            "employees": {"pdf_page_number": 30, "table_index": 3, "line": 300},
+            "regional_sales": {"pdf_page_number": 40, "table_index": 4, "line": 400},
+            "average_employees": {"pdf_page_number": 31, "table_index": 5, "line": 301},
+        },
+        "regional_rows": [
+            {
+                "region": "Europe",
+                "sales_million_eur": 30_000,
+                "employees": 50_000,
+                "revenue_per_employee": _fake_per_capita(
+                    30_000,
+                    amount_unit="百万欧元",
+                    count=50_000,
+                    currency="EUR",
+                ),
+            }
+        ],
+    }
+
+    owner_markdown = fmt.render_human_efficiency_evidence_markdown(
+        result,
+        calculator_per_capita=_fake_per_capita,
+        table_source_links=_fake_table_source_links,
+    )
+    assert "| 人均营收 | €68,449 million / 111,822 = 123.46欧元/人 |" in owner_markdown
+    assert "| Europe 人均营收 | €30,000 million / 50,000 = 123.46欧元/人 |" in owner_markdown
+    assert "[H5] source_type=wiki_report_table, file=reports/2025-annual/report.md" in owner_markdown
+    assert "links=task-basf:40:4" in owner_markdown
+
+    pytest.importorskip("sqlmodel")
+    from services import agent_chat_runtime as runtime
+
+    monkeypatch.setattr(runtime, "_calculator_per_capita", _fake_per_capita)
+    owner_with_runtime_links = fmt.render_human_efficiency_evidence_markdown(
+        result,
+        calculator_per_capita=_fake_per_capita,
+        table_source_links=runtime._table_source_links,
+    )
+    assert runtime.render_human_efficiency_evidence_markdown(result) == owner_with_runtime_links
+
+
 def test_agent_chat_runtime_financial_format_wrappers_preserve_compatibility():
     pytest.importorskip("sqlmodel")
     from services import agent_chat_runtime as runtime

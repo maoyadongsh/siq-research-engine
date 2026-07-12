@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 import app
@@ -143,6 +145,184 @@ def test_recover_stale_submitting_tasks_uses_strict_cutoff(tmp_path):
     assert repository.get_task(db_path, "before-cutoff")["status"] == "queued"
 
 
+def test_capacity_admission_is_atomic_for_batch_and_releases_terminal_tasks(tmp_path):
+    db_path = str(tmp_path / "tasks.db")
+    repository.init_db(db_path)
+    existing = _base_task("existing", file_size=60, owner_id="user-1", tenant_id="tenant-1")
+    _save(db_path, existing)
+    batch = [
+        _base_task("batch-a", file_size=30, owner_id="user-1", tenant_id="tenant-1"),
+        _base_task("batch-b", file_size=20, owner_id="user-1", tenant_id="tenant-1"),
+    ]
+
+    blocked = repository.save_tasks_if_capacity(
+        db_path,
+        batch,
+        global_task_limit=10,
+        owner_task_limit=2,
+        global_bytes_limit=1_000,
+        owner_bytes_limit=100,
+    )
+
+    assert blocked["admitted"] is False
+    assert set(blocked["exceeded"]) == {"owner_tasks", "owner_bytes"}
+    assert repository.get_task(db_path, "batch-a") is None
+    assert repository.get_task(db_path, "batch-b") is None
+
+    existing["status"] = "completed"
+    existing["stage"] = "completed"
+    repository.save_task(db_path, existing)
+    admitted = repository.save_tasks_if_capacity(
+        db_path,
+        batch,
+        global_task_limit=10,
+        owner_task_limit=2,
+        global_bytes_limit=1_000,
+        owner_bytes_limit=100,
+    )
+
+    assert admitted["admitted"] is True
+    assert repository.get_task(db_path, "batch-a")["status"] == "queued"
+    assert repository.get_task(db_path, "batch-b")["status"] == "queued"
+
+
+def test_capacity_admission_serializes_competing_process_scopes(tmp_path):
+    db_path = str(tmp_path / "tasks.db")
+    repository.init_db(db_path)
+
+    def admit(task_id):
+        return repository.save_tasks_if_capacity(
+            db_path,
+            [_base_task(task_id, file_size=40, owner_id=task_id, tenant_id="tenant")],
+            global_task_limit=1,
+            owner_task_limit=1,
+            global_bytes_limit=100,
+            owner_bytes_limit=100,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(admit, ("user-a", "user-b")))
+
+    assert sum(result["admitted"] for result in results) == 1
+    assert sum(not result["admitted"] for result in results) == 1
+    conn = repository.connect(db_path)
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 1
+    finally:
+        conn.close()
+
+
+def test_capacity_admission_serializes_competing_byte_reservations(tmp_path):
+    db_path = str(tmp_path / "tasks.db")
+    repository.init_db(db_path)
+
+    def admit(task_id):
+        return repository.admit_tasks_if_capacity(
+            db_path,
+            [_base_task(task_id, file_size=60, owner_id=task_id, tenant_id="tenant")],
+            global_task_limit=10,
+            owner_task_limit=10,
+            global_bytes_limit=100,
+            owner_bytes_limit=100,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(admit, ("byte-a", "byte-b")))
+
+    assert sum(result["admitted"] for result in results) == 1
+    assert sum(result.get("reason") == "capacity_exceeded" for result in results) == 1
+    assert repository.capacity_snapshot(db_path)["active_bytes"] == 60
+
+
+def test_capacity_admission_rejects_existing_id_without_mutating_task(tmp_path):
+    db_path = str(tmp_path / "tasks.db")
+    repository.init_db(db_path)
+    existing = _base_task(
+        "shared-id",
+        file_size=17,
+        owner_id="owner-a",
+        tenant_id="tenant-a",
+        upload_path="/original/path.pdf",
+        status="processing",
+        stage="processing",
+    )
+    _save(db_path, existing)
+    before = repository.get_task(db_path, "shared-id")
+
+    result = repository.admit_tasks_if_capacity(
+        db_path,
+        [
+            _base_task(
+                "shared-id",
+                file_size=99,
+                owner_id="owner-b",
+                tenant_id="tenant-b",
+                upload_path="/attacker/path.pdf",
+            )
+        ],
+        global_task_limit=10,
+        owner_task_limit=10,
+        global_bytes_limit=1_000,
+        owner_bytes_limit=1_000,
+    )
+
+    assert result == {
+        "admitted": False,
+        "reason": "task_id_conflict",
+        "conflict_task_ids": ["shared-id"],
+        "requested_tasks": 1,
+        "requested_bytes": 99,
+    }
+    assert repository.get_task(db_path, "shared-id") == before
+
+
+def test_capacity_admission_rejects_duplicate_ids_in_batch_without_partial_insert(tmp_path):
+    db_path = str(tmp_path / "tasks.db")
+    repository.init_db(db_path)
+    batch = [
+        _base_task("duplicate", file_size=40, owner_id="owner", tenant_id="tenant"),
+        _base_task("duplicate", file_size=60, owner_id="owner", tenant_id="tenant"),
+    ]
+
+    result = repository.admit_tasks_if_capacity(
+        db_path,
+        batch,
+        global_task_limit=2,
+        owner_task_limit=2,
+        global_bytes_limit=100,
+        owner_bytes_limit=100,
+    )
+
+    assert result["reason"] == "task_id_conflict"
+    assert result["conflict_task_ids"] == ["duplicate"]
+    assert repository.get_task(db_path, "duplicate") is None
+
+
+def test_save_task_insert_and_update_paths_never_upsert(tmp_path):
+    db_path = str(tmp_path / "tasks.db")
+    repository.init_db(db_path)
+    original = _base_task("fixed", filename="original.pdf", owner_id="owner-a")
+    repository.save_task(db_path, original, allow_insert=True)
+
+    conflicting = _base_task("fixed", filename="replacement.pdf", owner_id="owner-b")
+    try:
+        repository.save_task(db_path, conflicting, allow_insert=True)
+    except sqlite3.IntegrityError:
+        pass
+    else:
+        raise AssertionError("duplicate insert must fail")
+
+    assert repository.get_task(db_path, "fixed")["filename"] == "original.pdf"
+    missing = _base_task("missing", filename="must-not-insert.pdf")
+    assert repository.save_task(db_path, missing) is False
+    assert repository.get_task(db_path, "missing") is None
+
+    original["status"] = "completed"
+    original["stage"] = "completed"
+    assert repository.save_task(db_path, original) is True
+    assert repository.get_task(db_path, "fixed")["status"] == "completed"
+
+
 def test_calc_page_progress_handles_missing_elapsed_and_clamps_processed_pages():
     assert lifecycle.calc_page_progress({"pdf_page_count": 5}, None, page_estimate_seconds=10) is None
     assert lifecycle.calc_page_progress({"pdf_page_count": 0}, 30, page_estimate_seconds=10) is None
@@ -175,6 +355,16 @@ def test_should_refresh_task_from_upstream_skips_cancelled_tasks():
     assert lifecycle.should_refresh_task_from_upstream({"cancelled": True}) is False
     assert lifecycle.should_refresh_task_from_upstream({"cancelled": False}) is True
     assert lifecycle.should_refresh_task_from_upstream({}) is True
+
+
+def test_upstream_cancel_confirmation_requires_explicit_terminal_state():
+    assert lifecycle.upstream_cancel_confirmed({"cancelled": True}) is True
+    assert lifecycle.upstream_cancel_confirmed({"status": "cancelled"}) is True
+    assert lifecycle.upstream_cancel_confirmed({"state": "deleted", "success": True}) is True
+    assert lifecycle.upstream_cancel_confirmed({"success": True}) is False
+    assert lifecycle.upstream_cancel_confirmed({"status": "completed", "success": True}) is False
+    assert lifecycle.upstream_cancel_confirmed({"_error": True, "status": "cancelled"}) is False
+    assert lifecycle.upstream_cancel_confirmed(None) is False
 
 
 def test_build_cancel_task_update_preserves_completed_at_and_log_variants():

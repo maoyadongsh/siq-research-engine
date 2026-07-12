@@ -69,6 +69,10 @@ def test_pdf_chat_attachment_submits_to_document_parser(monkeypatch, tmp_path):
             submitted["data"] = data
             submitted["files"] = files
             submitted["headers"] = headers
+            submitted_file = files["files"][1]
+            submitted["file"] = submitted_file
+            submitted["file_open_during_post"] = not submitted_file.closed
+            submitted["body"] = submitted_file.read()
             return SimpleNamespace(
                 is_success=True,
                 status_code=200,
@@ -110,6 +114,9 @@ def test_pdf_chat_attachment_submits_to_document_parser(monkeypatch, tmp_path):
     assert submitted["url"] == "http://document-parser.test/api/tasks"
     assert submitted["data"]["data_id"] == "chat_attachment:stored-report.pdf"
     assert submitted["files"]["files"][0] == "stored-report.pdf"
+    assert submitted["file_open_during_post"] is True
+    assert submitted["body"] == b"%PDF-1.4\nfake"
+    assert submitted["file"].closed is True
 
 
 def test_pdf_chat_attachment_submit_failure_does_not_record_usage_or_artifact(monkeypatch, tmp_path):

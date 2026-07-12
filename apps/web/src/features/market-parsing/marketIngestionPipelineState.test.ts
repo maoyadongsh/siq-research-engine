@@ -58,10 +58,14 @@ test('derivePdfGenericMarketIngestionPipelineState derives generic button disabl
   assert.equal(state.activeStepIndex, 2)
   assert.equal(state.runAll.disabled, true)
   assert.equal(state.runAll.busy, false)
+  assert.match(String(state.runAll.disabledReason), /Wiki语义增强入库正在执行/)
   assert.equal(wikiAction?.disabled, true)
+  assert.match(String(wikiAction?.disabledReason), /Wiki语义增强入库正在执行/)
   assert.equal(semanticAction?.disabled, true)
   assert.equal(semanticAction?.busy, true)
+  assert.match(String(semanticAction?.disabledReason), /Wiki语义增强入库正在执行/)
   assert.equal(postgresAction?.disabled, true)
+  assert.match(String(postgresAction?.disabledReason), /Wiki语义增强入库正在执行/)
 })
 
 test('derivePdfGenericMarketIngestionPipelineState blocks generic imports until artifacts exist', () => {
@@ -73,7 +77,30 @@ test('derivePdfGenericMarketIngestionPipelineState blocks generic imports until 
   assert.equal(state.artifactsReady, false)
   assert.equal(state.runAll.disabled, true)
   assert.equal(state.runAll.key, 'runAll')
+  assert.match(String(state.runAll.disabledReason), /核心 artifact/)
   assert.equal(state.actions.every((action) => action.disabled), true)
+  assert.equal(state.actions.every((action) => /核心 artifact/.test(String(action.disabledReason))), true)
+})
+
+test('derivePdfGenericMarketIngestionPipelineState explains semantic dependency on LLM-Wiki', () => {
+  const state = derivePdfGenericMarketIngestionPipelineState({
+    workflowStatus: {
+      artifactBundle: { status: 'ready', ready: true },
+      wiki: { status: 'pending' },
+      semantic: { status: 'pending' },
+    },
+    artifacts: readyArtifacts(),
+  })
+
+  const wikiAction = state.actions.find((action) => action.key === 'wiki')
+  const semanticAction = state.actions.find((action) => action.key === 'semantic')
+
+  assert.equal(state.runAll.disabled, false)
+  assert.equal(state.runAll.disabledReason, undefined)
+  assert.equal(wikiAction?.disabled, false)
+  assert.equal(wikiAction?.disabledReason, undefined)
+  assert.equal(semanticAction?.disabled, true)
+  assert.match(String(semanticAction?.disabledReason), /LLM-Wiki/)
 })
 
 test('deriveUsSecMarketIngestionPipelineState disables PostgreSQL and run-all without document_full_path', () => {

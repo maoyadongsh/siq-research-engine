@@ -1,13 +1,12 @@
 from types import SimpleNamespace
 
 import anyio
+from models import ChatMessage, ChatSessionMemory
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel import SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from models import ChatMessage, ChatSessionMemory
-from services import agent_chat_runtime
-from services import agent_runtime_memory
+from services import agent_chat_runtime, agent_runtime_memory
 
 
 async def _with_temp_chat_session_memory(tmp_path, callback):
@@ -25,6 +24,83 @@ def test_strip_local_memory_blocks_removes_fenced_context():
     text = "前文\n<local-memory>\n旧内容\n</local-memory>\n后文"
 
     assert agent_runtime_memory._strip_local_memory_blocks(text) == "前文\n\n后文"
+
+
+def test_save_message_captures_created_at_before_expire_on_commit(tmp_path, monkeypatch):
+    observed_created_at = []
+
+    async def run_case(async_session):
+        monkeypatch.setattr(
+            agent_chat_runtime.agent_memory_service,
+            "context_from_session_id",
+            lambda *_args, **_kwargs: object(),
+        )
+
+        async def fake_record_message(_session, _context, **kwargs):
+            observed_created_at.append(kwargs["created_at"])
+            return 1
+
+        async def fake_promote_explicit_memory(*_args, **_kwargs):
+            return None
+
+        monkeypatch.setattr(
+            agent_chat_runtime.agent_memory_service,
+            "record_message",
+            fake_record_message,
+        )
+        monkeypatch.setattr(
+            agent_chat_runtime.agent_memory_service,
+            "maybe_promote_explicit_memory",
+            fake_promote_explicit_memory,
+        )
+
+        await agent_chat_runtime.save_message(
+            async_session,
+            "user",
+            "expire-on-commit mirror",
+            "user-1-assistant-expire-on-commit",
+        )
+
+        messages = (await async_session.exec(select(ChatMessage))).all()
+        assert len(messages) == 1
+
+    anyio.run(_with_temp_chat_session_memory, tmp_path, run_case)
+
+    assert len(observed_created_at) == 1
+    assert observed_created_at[0] is not None
+
+
+def test_save_message_keeps_memory_mirror_failure_fail_soft(tmp_path, monkeypatch, capsys):
+    async def run_case(async_session):
+        monkeypatch.delenv("SIQ_AGENT_MEMORY_STRICT", raising=False)
+        monkeypatch.setattr(
+            agent_chat_runtime.agent_memory_service,
+            "context_from_session_id",
+            lambda *_args, **_kwargs: object(),
+        )
+
+        async def failing_record_message(*_args, **_kwargs):
+            raise RuntimeError("expected mirror failure")
+
+        monkeypatch.setattr(
+            agent_chat_runtime.agent_memory_service,
+            "record_message",
+            failing_record_message,
+        )
+
+        await agent_chat_runtime.save_message(
+            async_session,
+            "user",
+            "chat must persist",
+            "user-1-assistant-fail-soft",
+        )
+
+        messages = (await async_session.exec(select(ChatMessage))).all()
+        assert [message.content for message in messages] == ["chat must persist"]
+
+    anyio.run(_with_temp_chat_session_memory, tmp_path, run_case)
+
+    assert "expected mirror failure" in capsys.readouterr().out
 
 
 def test_compact_memory_content_cleans_media_and_links():
@@ -533,6 +609,198 @@ def test_ensure_local_memory_context_uses_runtime_refresh_and_load_patch_points(
         ("load", "siq_assistant", "siq-assistant-wrapper-memory"),
     ]
     assert context == "<local-memory>patched wrapper memory</local-memory>"
+
+
+def test_ensure_agent_memory_context_owner_builds_vector_memory_context():
+    async def run_case():
+        calls: list[tuple] = []
+
+        class FakeSession:
+            async def rollback(self):
+                calls.append(("rollback",))
+
+        def fake_context_from_session_id(session_id, *, profile):
+            calls.append(("context", profile, session_id))
+            return {"profile": profile, "session_id": session_id}
+
+        async def fake_build_memory_context(async_session, context, *, query):
+            calls.append(("build", async_session, context, query))
+            return "<agent-memory>vector recall</agent-memory>"
+
+        session = FakeSession()
+        context = await agent_runtime_memory.ensure_agent_memory_context(
+            session,
+            "siq_assistant",
+            "siq-assistant-agent-memory",
+            "请延续上次的公司口径",
+            min_query_chars=4,
+            retrieval_budget_ms=250,
+            context_from_session_id=fake_context_from_session_id,
+            build_memory_context=fake_build_memory_context,
+        )
+        return session, context, calls
+
+    session, context, calls = anyio.run(run_case)
+
+    assert context == "<agent-memory>vector recall</agent-memory>"
+    assert calls == [
+        ("context", "siq_assistant", "siq-assistant-agent-memory"),
+        (
+            "build",
+            session,
+            {"profile": "siq_assistant", "session_id": "siq-assistant-agent-memory"},
+            "请延续上次的公司口径",
+        ),
+    ]
+
+
+def test_ensure_agent_memory_context_threads_complete_research_identity():
+    async def run_case():
+        calls = []
+
+        def fake_context_from_session_id(session_id, *, profile, research_identity):
+            calls.append((session_id, profile, dict(research_identity)))
+            return {"research_identity": dict(research_identity)}
+
+        async def fake_build_memory_context(_session, context, *, query):
+            calls.append((context, query))
+            return "scoped memory"
+
+        result = await agent_runtime_memory.ensure_agent_memory_context(
+            object(),
+            "siq_assistant",
+            "user-7-assistant-session",
+            "腾讯收入",
+            research_context={
+                "research_identity": {
+                    "market": "HK",
+                    "company_id": "HK:00700",
+                    "filing_id": "HK:00700:2025-annual",
+                    "parse_run_id": "parse-hk-00700",
+                }
+            },
+            min_query_chars=1,
+            context_from_session_id=fake_context_from_session_id,
+            build_memory_context=fake_build_memory_context,
+        )
+        return result, calls
+
+    result, calls = anyio.run(run_case)
+
+    assert result == "scoped memory"
+    assert calls[0][2] == {
+        "market": "HK",
+        "company_id": "HK:00700",
+        "filing_id": "HK:00700:2025-annual",
+        "parse_run_id": "parse-hk-00700",
+    }
+    assert calls[1][0]["research_identity"]["parse_run_id"] == "parse-hk-00700"
+
+
+def test_ensure_agent_memory_context_owner_skips_blank_and_rolls_back_non_strict_errors():
+    async def run_case():
+        calls: list[str] = []
+
+        class FakeSession:
+            async def rollback(self):
+                calls.append("rollback")
+
+        def fake_context_from_session_id(*_args, **_kwargs):
+            calls.append("context")
+            return object()
+
+        async def fake_build_memory_context(*_args, **_kwargs):
+            calls.append("build")
+            raise RuntimeError("boom")
+
+        blank = await agent_runtime_memory.ensure_agent_memory_context(
+            FakeSession(),
+            "siq_assistant",
+            "siq-assistant-agent-memory-blank",
+            "   ",
+            min_query_chars=1,
+            context_from_session_id=fake_context_from_session_id,
+            build_memory_context=fake_build_memory_context,
+        )
+        failed = await agent_runtime_memory.ensure_agent_memory_context(
+            FakeSession(),
+            "siq_assistant",
+            "siq-assistant-agent-memory-error",
+            "查一下记忆",
+            min_query_chars=1,
+            retrieval_budget_ms=100,
+            context_from_session_id=fake_context_from_session_id,
+            build_memory_context=fake_build_memory_context,
+            log=lambda message: calls.append(f"log:{message}"),
+        )
+        return blank, failed, calls
+
+    blank, failed, calls = anyio.run(run_case)
+
+    assert blank is None
+    assert failed is None
+    assert calls[0:3] == ["context", "build", "rollback"]
+    assert calls[3].startswith("log:[agent-memory] failed to build memory context")
+
+
+def test_runtime_ensure_agent_memory_context_delegates_current_env_to_memory_owner(monkeypatch):
+    async def run_case():
+        calls: list[tuple] = []
+
+        async def fake_owner(
+            async_session,
+            profile,
+            session_id,
+            message,
+            *,
+            min_query_chars,
+            retrieval_budget_ms,
+            strict,
+        ):
+            calls.append(
+                (
+                    async_session,
+                    profile,
+                    session_id,
+                    message,
+                    min_query_chars,
+                    retrieval_budget_ms,
+                    strict,
+                )
+            )
+            return "<agent-memory>patched owner</agent-memory>"
+
+        monkeypatch.setenv("SIQ_AGENT_MEMORY_MIN_QUERY_CHARS", "9")
+        monkeypatch.setenv("SIQ_AGENT_MEMORY_RETRIEVAL_BUDGET_MS", "2222")
+        monkeypatch.setenv("SIQ_AGENT_MEMORY_STRICT", "1")
+        monkeypatch.setattr(
+            agent_chat_runtime.agent_runtime_memory,
+            "ensure_agent_memory_context",
+            fake_owner,
+        )
+        session = object()
+        context = await agent_chat_runtime.ensure_agent_memory_context(
+            session,
+            "siq_assistant",
+            "siq-assistant-runtime-agent-memory",
+            "message",
+        )
+        return session, context, calls
+
+    session, context, calls = anyio.run(run_case)
+
+    assert context == "<agent-memory>patched owner</agent-memory>"
+    assert calls == [
+        (
+            session,
+            "siq_assistant",
+            "siq-assistant-runtime-agent-memory",
+            "message",
+            9,
+            2222,
+            True,
+        )
+    ]
 
 
 def test_ensure_local_memory_context_clears_stale_record_when_recent_window_has_no_source(tmp_path):

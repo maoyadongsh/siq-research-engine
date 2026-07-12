@@ -6,7 +6,7 @@ import hashlib
 import json
 import os
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -14,7 +14,6 @@ from typing import Any
 import yaml
 
 from services.path_config import BACKEND_DATA_ROOT
-
 
 FINANCIAL_LLM_PROMPT_VERSION = "agent-runtime-financial-v1"
 RECENT_FINANCIAL_LLM_PROVENANCE_LIMIT = 200
@@ -285,6 +284,39 @@ def record_financial_llm_provenance(
     return payload
 
 
+def record_financial_llm_provenance_if_needed(
+    *,
+    message: str,
+    context: Any | None,
+    profile: str,
+    model_input: Any,
+    raw_output: str,
+    stored_output: str,
+    attachments: Any | None = None,
+    profile_dirs: Mapping[str, Path] | None = None,
+    is_runtime_status_reply: Callable[[str], bool],
+    needs_financial_evidence_contract: Callable[[str, Any | None], bool],
+    record_provenance: Callable[[Mapping[str, Any]], dict[str, Any] | None] = record_financial_llm_provenance,
+) -> dict[str, Any] | None:
+    """Record provenance for financial LLM output only when the run is evidence-relevant."""
+    if not raw_output or is_runtime_status_reply(raw_output):
+        return None
+    snapshot = financial_evidence_snapshot(model_input, context, attachments)
+    if not (snapshot["has_evidence_material"] or needs_financial_evidence_contract(message, context)):
+        return None
+    provider, model = model_identity_for_profile(profile, profile_dirs=profile_dirs)
+    record = build_financial_llm_provenance(
+        provider=provider,
+        model=model,
+        model_input=model_input,
+        output=raw_output,
+        stored_output=stored_output,
+        context=context,
+        attachments=attachments,
+    )
+    return record_provenance(record)
+
+
 __all__ = [
     "FINANCIAL_LLM_PROMPT_VERSION",
     "RECENT_FINANCIAL_LLM_PROVENANCE",
@@ -295,5 +327,6 @@ __all__ = [
     "financial_llm_fact_trust_level",
     "model_identity_for_profile",
     "record_financial_llm_provenance",
+    "record_financial_llm_provenance_if_needed",
     "stable_hash",
 ]

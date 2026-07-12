@@ -5,14 +5,22 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-
 MARKET_ALIASES = {"US_SEC": "US", "US-SEC": "US", "US SEC": "US"}
+IDENTITY_MARKETS = {"CN", "HK", "JP", "KR", "EU", "US"}
 DOCUMENT_FULL_FILENAME = "document_full.json"
 
 
 def normalize_market_code(value: str | None) -> str:
     code = str(value or "").strip().upper()
     return MARKET_ALIASES.get(code, code)
+
+
+def market_from_identifier(value: str | None) -> str | None:
+    text = str(value or "").strip()
+    if ":" not in text:
+        return None
+    market = normalize_market_code(text.split(":", 1)[0])
+    return market if market in IDENTITY_MARKETS else None
 
 
 def document_full_payload_value(payload: Mapping[str, Any]) -> str | None:

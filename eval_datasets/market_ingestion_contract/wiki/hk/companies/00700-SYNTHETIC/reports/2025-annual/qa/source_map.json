@@ -1,0 +1,14 @@
+{
+  "entries": [
+    {
+      "evidence_id": "e1",
+      "source_type": "pdf_statement_table",
+      "source_id": "table_1",
+      "page_number": 12,
+      "table_index": 1,
+      "row_index": 2,
+      "column_index": 1,
+      "target": "page=12;table=1;row=2;column=1"
+    }
+  ]
+}

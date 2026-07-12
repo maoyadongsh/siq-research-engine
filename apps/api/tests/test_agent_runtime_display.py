@@ -226,6 +226,38 @@ def test_display_message_with_document_url_encodes_absolute_url_and_path_filenam
     )
 
 
+def test_chat_history_payload_filters_after_chronological_reversal_and_limits():
+    newest = ChatMessage(session_id="display-owner-session", role="assistant", content="newest")
+    middle = ChatMessage(session_id="display-owner-session", role="assistant", content="middle")
+    hidden = ChatMessage(session_id="display-owner-session", role="assistant", content="hidden")
+    oldest = ChatMessage(session_id="display-owner-session", role="user", content="oldest")
+    visibility_calls: list[str] = []
+    payload_calls: list[str] = []
+
+    def has_visible_payload(message: ChatMessage) -> bool:
+        visibility_calls.append(message.content or "")
+        return message.content != "hidden"
+
+    def message_payload(message: ChatMessage) -> dict[str, str | None]:
+        payload_calls.append(message.content or "")
+        return {"role": message.role, "content": message.content}
+
+    # Mirrors the DB query order from chat_history_response: newest first.
+    result = agent_runtime_display.chat_history_payload(
+        [newest, middle, hidden, oldest],
+        limit=2,
+        has_visible_payload=has_visible_payload,
+        message_payload=message_payload,
+    )
+
+    assert visibility_calls == ["oldest", "hidden", "middle", "newest"]
+    assert payload_calls == ["middle", "newest"]
+    assert result == [
+        {"role": "assistant", "content": "middle"},
+        {"role": "assistant", "content": "newest"},
+    ]
+
+
 def test_chat_history_response_limits_after_visible_filtering_and_session_scope(tmp_path):
     async def run_case(async_session):
         session_id = "display-history-session"
@@ -251,7 +283,12 @@ def test_chat_history_response_limits_after_visible_filtering_and_session_scope(
                     ),
                 ),
                 ChatMessage(session_id=session_id, role="assistant", content="附件回答"),
-                ChatMessage(session_id=session_id, role="user", content="最后问题"),
+                ChatMessage(
+                    session_id=session_id,
+                    role="assistant",
+                    content="最终审计回答",
+                    audit_trace_id="aat_1234567890abcdef1234567890abcdef",
+                ),
             ]
         )
         await async_session.commit()
@@ -259,7 +296,7 @@ def test_chat_history_response_limits_after_visible_filtering_and_session_scope(
 
     messages = anyio.run(_with_temp_chat_history, tmp_path, run_case)
 
-    assert [item["role"] for item in messages] == ["user", "assistant", "user"]
+    assert [item["role"] for item in messages] == ["user", "assistant", "assistant"]
     assert messages[0]["content"] == ""
     assert messages[0]["attachments"] == [
         {
@@ -269,7 +306,11 @@ def test_chat_history_response_limits_after_visible_filtering_and_session_scope(
         }
     ]
     assert messages[1]["content"] == "附件回答"
-    assert messages[2]["content"] == "最后问题"
+    assert messages[1]["audit_trace_id"] is None
+    assert messages[1]["research_identity"] is None
+    assert messages[2]["content"] == "最终审计回答"
+    assert messages[2]["audit_trace_id"] == "aat_1234567890abcdef1234567890abcdef"
+    assert messages[2]["research_identity"] is None
     assert all(item["session_id"] == "display-history-session" for item in messages)
     assert all(item["content"] != "foreign" for item in messages)
     assert all(item["content"] != "旧问题" for item in messages)

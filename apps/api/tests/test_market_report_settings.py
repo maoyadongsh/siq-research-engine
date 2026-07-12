@@ -1,6 +1,8 @@
 import importlib.util
 from pathlib import Path
 
+from services import market_report_commands
+
 
 def _load_settings_module(tmp_name: str = "temp_market_report_settings"):
     source = Path(__file__).resolve().parents[1] / "services" / "market_report_settings.py"
@@ -32,6 +34,8 @@ def test_market_report_settings_defaults(monkeypatch):
     assert settings.MARKET_WIKI_ROOTS["HK"].parts[-3:] == ("data", "wiki", "hk")
     assert settings.MARKET_WIKI_ROOTS["KR"].parts[-3:] == ("data", "wiki", "kr")
     assert settings.MARKET_DATABASES["HK"] == "siq_hk"
+    assert settings.MARKET_VECTOR_COLLECTIONS["US"] == "siq_us_sec_filings"
+    assert settings.MARKET_VECTOR_COLLECTIONS["US_SEC"] == settings.MARKET_VECTOR_COLLECTIONS["US"]
     assert settings.MARKET_VECTOR_COLLECTIONS["HK"] == "siq_hk_reports"
     assert settings.MARKET_BUILD_SCRIPTS["EU"].name == "build_eu_pdf_evidence_package.py"
     assert settings.MARKET_DOCUMENT_FULL_ROOTS["US"].parts[-3:] == ("data", "parser-results", "us-sec")
@@ -49,6 +53,7 @@ def test_market_report_settings_env_overrides(monkeypatch, tmp_path):
     monkeypatch.setenv("SIQ_MARKET_REPORT_PROXY_TIMEOUT", "12.5")
     monkeypatch.setenv("SIQ_MARKET_REPORT_ASSIST_TIMEOUT", "6.75")
     monkeypatch.setenv("SIQ_US_SEC_CASE_SET_PATH", str(tmp_path / "case_set.json"))
+    monkeypatch.setenv("SIQ_US_VECTOR_COLLECTION", "siq_us_sec_filings_shadow")
 
     settings = _load_settings_module("temp_market_report_settings_overrides")
 
@@ -57,6 +62,8 @@ def test_market_report_settings_env_overrides(monkeypatch, tmp_path):
     assert settings.MARKET_REPORT_PROXY_TIMEOUT == 12.5
     assert settings.MARKET_REPORT_ASSIST_TIMEOUT == 6.75
     assert settings.US_SEC_CASE_SET_PATH == (tmp_path / "case_set.json").resolve()
+    assert settings.MARKET_VECTOR_COLLECTIONS["US"] == "siq_us_sec_filings_shadow"
+    assert settings.MARKET_VECTOR_COLLECTIONS["US_SEC"] == "siq_us_sec_filings_shadow"
 
 
 def test_market_report_settings_ignores_blank_primary_env_and_trims_legacy_url(monkeypatch):
@@ -100,3 +107,20 @@ def test_market_report_settings_market_specific_paths_resolve_env_overrides(monk
     assert settings.MARKET_IMPORT_SCRIPTS["EU"] == eu_import.resolve()
     assert settings.MARKET_DOCUMENT_FULL_ROOTS["KR"] == kr_document_root.resolve()
     assert settings.MARKET_DOCUMENT_FULL_IMPORT_SCRIPTS["HK"] == hk_document_import.resolve()
+
+
+def test_market_vector_ingest_args_use_contract_us_collection_by_default(monkeypatch, tmp_path):
+    monkeypatch.delenv("SIQ_US_VECTOR_COLLECTION", raising=False)
+    settings = _load_settings_module("temp_market_report_settings_vector_args")
+
+    args, dry_run = market_report_commands.market_vector_ingest_args(
+        executable="python",
+        script=tmp_path / "ingest_market_evidence_chunks.py",
+        package_dir=tmp_path / "pkg",
+        payload={"dry_run": False},
+        market="US",
+        market_vector_collections=settings.MARKET_VECTOR_COLLECTIONS,
+    )
+
+    assert dry_run is False
+    assert args[args.index("--collection") + 1] == "siq_us_sec_filings"

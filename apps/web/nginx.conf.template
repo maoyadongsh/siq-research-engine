@@ -1,0 +1,97 @@
+pid /tmp/nginx.pid;
+worker_processes auto;
+
+events {
+  worker_connections 1024;
+}
+
+http {
+  include /etc/nginx/mime.types;
+  default_type application/octet-stream;
+
+  access_log /dev/stdout;
+  error_log /dev/stderr warn;
+  sendfile on;
+  keepalive_timeout 65;
+  server_tokens off;
+
+  map $http_x_forwarded_proto $siq_forwarded_proto {
+    default $scheme;
+    "http" http;
+    "https" https;
+  }
+
+  client_body_temp_path /tmp/nginx-client-body;
+  proxy_temp_path /tmp/nginx-proxy;
+  fastcgi_temp_path /tmp/nginx-fastcgi;
+  uwsgi_temp_path /tmp/nginx-uwsgi;
+  scgi_temp_path /tmp/nginx-scgi;
+
+  server {
+    listen 15173;
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    location = /healthz {
+      add_header Content-Type text/plain;
+      return 200 "ok\n";
+    }
+
+    location = /api/health {
+      rewrite ^/api/health$ /health break;
+      proxy_pass ${SIQ_BACKEND_URL};
+      proxy_http_version 1.1;
+      proxy_set_header Host $http_host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $siq_forwarded_proto;
+      proxy_buffering off;
+    }
+
+    location ~ ^/api/(auth|eval|v1|chat|wiki|analysis|factchecker|tracking|legal|settings|system|market-report-health|market-reports|us-sec|jobs|downloads|workflow|workspace|documents|deals|primary-market|pdf|pdf_page|source)(/|$) {
+      proxy_pass ${SIQ_BACKEND_URL};
+      proxy_http_version 1.1;
+      proxy_set_header Host $http_host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $siq_forwarded_proto;
+      proxy_buffering off;
+    }
+
+    location = /api {
+      rewrite ^/api$ / break;
+      proxy_pass ${SIQ_REPORT_FINDER_URL};
+      proxy_http_version 1.1;
+      proxy_set_header Host $http_host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $siq_forwarded_proto;
+      proxy_buffering off;
+    }
+
+    location /api/ {
+      rewrite ^/api/?(.*)$ /$1 break;
+      proxy_pass ${SIQ_REPORT_FINDER_URL};
+      proxy_http_version 1.1;
+      proxy_set_header Host $http_host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $siq_forwarded_proto;
+      proxy_buffering off;
+    }
+
+    # The parser token is service-internal. Browser traffic must use /api/pdf.
+    location = /pdfapi {
+      return 404;
+    }
+
+    location ^~ /pdfapi/ {
+      return 404;
+    }
+
+    location / {
+      try_files $uri $uri/ /index.html;
+    }
+  }
+}

@@ -35,6 +35,10 @@ class Settings(BaseSettings):
         validation_alias="EU_USER_AGENT",
     )
     eu_max_requests_per_second: float = Field(default=1.0, validation_alias="EU_MAX_REQUESTS_PER_SECOND")
+    allow_manual_unverified_downloads: bool = Field(
+        default=False,
+        validation_alias="MARKET_REPORT_ALLOW_MANUAL_UNVERIFIED_DOWNLOADS",
+    )
     download_overwrite: bool = False
     download_index_file: str = ".download_index.json"
 

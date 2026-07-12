@@ -708,10 +708,76 @@ class PageMarkerInjectionTests(unittest.TestCase):
 
         rebuilt, restored = app._backfill_sparse_markdown_pages(markdown, content_list)
 
-        self.assertEqual(restored, [1, 2])
+        self.assertEqual(restored, [2])
+        self.assertEqual(rebuilt.count("# 正常页"), 1)
         self.assertIn("[PDF_PAGE: 2]", rebuilt)
         self.assertIn("# 第二页标题", rebuilt)
         self.assertIn("第二页正文内容", rebuilt)
+
+    def test_does_not_backfill_short_but_valid_page_body(self):
+        content_list = [
+            {"type": "text", "text": "第二页的完整原始内容", "page_idx": 1},
+        ]
+
+        for body in ("# 附注", "本页故意留白。"):
+            with self.subTest(body=body):
+                markdown = f"[PDF_PAGE: 2]\n{body}\n"
+
+                rebuilt, restored = app._backfill_sparse_markdown_pages(markdown, content_list)
+
+                self.assertEqual(restored, [])
+                self.assertEqual(rebuilt, markdown)
+                self.assertNotIn("第二页的完整原始内容", rebuilt)
+
+    def test_does_not_replace_glossary_intro_with_content_list_payload(self):
+        markdown = "[PDF_PAGE: 6]\n# 1. 释义\n\n本报告中，除文义另有所指外，下列词语具有如下含义。\n"
+        content_list = [
+            {"type": "text", "text": "1. 释义", "text_level": 1, "page_idx": 5},
+            {"type": "text", "text": "工商银行指中国工商银行股份有限公司", "page_idx": 5},
+            {"type": "table", "table_body": "<table><tr><td>术语</td></tr></table>", "page_idx": 5},
+        ]
+
+        rebuilt, restored = app._backfill_sparse_markdown_pages(markdown, content_list)
+
+        self.assertEqual(restored, [])
+        self.assertEqual(rebuilt, markdown)
+        self.assertNotIn("<table>", rebuilt)
+
+    def test_does_not_backfill_empty_interpolated_marker_when_payload_exists_elsewhere(self):
+        markdown = (
+            "[PDF_PAGE: 1]\n"
+            "# 财务报表主要项目注释\n\n"
+            "本页的完整且唯一正文内容已经存在于 Markdown 中。\n"
+            "[PDF_PAGE: 2]\n"
+        )
+        content_list = [
+            {"type": "text", "text": "财务报表主要项目注释", "text_level": 1, "page_idx": 1},
+            {
+                "type": "text",
+                "text": "本页的完整且唯一正文内容已经存在于 Markdown 中。",
+                "page_idx": 1,
+            },
+        ]
+
+        rebuilt, restored = app._backfill_sparse_markdown_pages(markdown, content_list)
+
+        self.assertEqual(restored, [])
+        self.assertEqual(rebuilt, markdown)
+        self.assertEqual(rebuilt.count("本页的完整且唯一正文内容"), 1)
+
+    def test_backfills_when_only_a_recurring_header_is_already_present(self):
+        recurring_header = "中国工商银行股份有限公司财务报表附注（续）"
+        missing_body = "本页包含一段确实未在 Markdown 中出现的唯一内容，应从解析产物中恢复。"
+        markdown = f"[PDF_PAGE: 1]\n{recurring_header}\n[PDF_PAGE: 2]\n"
+        content_list = [
+            {"type": "text", "text": recurring_header, "page_idx": 1},
+            {"type": "text", "text": missing_body, "page_idx": 1},
+        ]
+
+        rebuilt, restored = app._backfill_sparse_markdown_pages(markdown, content_list)
+
+        self.assertEqual(restored, [2])
+        self.assertIn(missing_body, rebuilt)
 
 
 class ValidationTests(unittest.TestCase):

@@ -48,11 +48,11 @@ function toUrlString(input: RequestInfo | URL): string {
 }
 
 export function shouldAttachAuth(url: string): boolean {
-  if (url.startsWith('/api/') || url === '/api' || url.startsWith('/pdfapi/')) return true
+  if (url.startsWith('/api/') || url === '/api') return true
   if (typeof window === 'undefined') return false
   try {
     const parsed = new URL(url, window.location.origin)
-    const isSiqApiPath = parsed.pathname.startsWith('/api/') || parsed.pathname === '/api' || parsed.pathname.startsWith('/pdfapi/')
+    const isSiqApiPath = parsed.pathname.startsWith('/api/') || parsed.pathname === '/api'
     if (!isSiqApiPath) return false
     if (parsed.origin === window.location.origin) return true
 

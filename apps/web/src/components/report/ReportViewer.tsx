@@ -9,6 +9,7 @@ import { useAuth } from '../../hooks/useAuth'
 import type { Company, ReportItem, ReportViewerProps } from '@/lib/reportTypes'
 import { companyHasReportForType, reportUrlFor } from '@/lib/reportTypes'
 import { buildReportSrcDoc } from './buildReportSrcDoc'
+import { mergeResearchIdentity } from '../../lib/agentChatIdentity'
 import ReportEmptyState from './ReportEmptyState'
 import ReportFrame from './ReportFrame'
 import ReportSelector from './ReportSelector'
@@ -151,6 +152,10 @@ export default function ReportViewer({ agentConfig, pageTitle, reportType, repor
           code: selectedCompany.code,
           name: cleanCompanyName,
           dir: selectedCompany.dir,
+          market: selectedCompany.market,
+          company_id: selectedCompany.company_id,
+          filing_id: selectedCompany.filing_id,
+          parse_run_id: selectedCompany.parse_run_id,
         }
       : undefined,
     report: selectedReport
@@ -160,6 +165,10 @@ export default function ReportViewer({ agentConfig, pageTitle, reportType, repor
           filename: selectedReport.filename,
           url: selectedReportUrl,
           mtime: selectedReport.mtime,
+          market: selectedReport.market,
+          company_id: selectedReport.company_id,
+          filing_id: selectedReport.filing_id,
+          parse_run_id: selectedReport.parse_run_id,
         }
       : {
           type: reportType,
@@ -168,6 +177,7 @@ export default function ReportViewer({ agentConfig, pageTitle, reportType, repor
     page: {
       title: pageTitle,
     },
+    research_identity: mergeResearchIdentity(selectedReport, selectedCompany),
   }), [cleanCompanyName, meta.label, pageTitle, reportType, selectedCompany, selectedReport, selectedReportUrl])
   const updatedAt = selectedReport?.mtime
     ? new Date(selectedReport.mtime).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })

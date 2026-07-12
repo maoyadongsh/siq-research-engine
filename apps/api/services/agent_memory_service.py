@@ -1,22 +1,21 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
-from datetime import datetime, timezone
 import hashlib
 import json
 import math
 import os
 import re
 import time
+from collections.abc import Mapping
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
 from sqlalchemy import text
 
-from services import agent_memory_milvus
-from services import rerank_provider
-
+from services import agent_memory_milvus, market_document_identity, rerank_provider
 
 PROFILE_ALIASES = {
     "assistant": "siq_assistant",
@@ -28,7 +27,12 @@ PROFILE_ALIASES = {
 
 PRIMARY_MARKET_PROFILE_PREFIX = "siq_ic_"
 DEFAULT_TENANT_ID = os.getenv("SIQ_DEFAULT_TENANT_ID", "default")
-SESSION_ID_RE = re.compile(r"^user-(?P<user_id>\d+)-(?P<profile>.+)-(?P<uuid>[0-9a-fA-F-]{32,36})$")
+SESSION_ID_RE = re.compile(
+    r"^user-(?P<user_id>\d+)-(?P<profile>.+?)-(?P<uuid>(?:"
+    r"[0-9a-fA-F]{8}|[0-9a-fA-F]{32}|"
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+    r"))$"
+)
 FULL_RECALL_MARKERS = (
     "全量检索",
     "全量记忆",
@@ -44,6 +48,7 @@ FULL_RECALL_MARKERS = (
     "all memories",
     "all history",
 )
+RESEARCH_IDENTITY_FIELDS = ("market", "company_id", "filing_id", "parse_run_id")
 
 
 @dataclass(frozen=True)
@@ -56,6 +61,51 @@ class MemoryRequestContext:
     deal_id: str | None = None
     project_id: str | None = None
     visibility: str | None = None
+    market: str | None = None
+    company_id: str | None = None
+    filing_id: str | None = None
+    parse_run_id: str | None = None
+
+
+def normalize_research_identity(value: Mapping[str, Any] | None) -> dict[str, str]:
+    raw = dict(value) if isinstance(value, Mapping) else {}
+    output: dict[str, str] = {}
+    for field in RESEARCH_IDENTITY_FIELDS:
+        text_value = str(raw.get(field) or "").strip()
+        if text_value:
+            output[field] = text_value
+    if output.get("market"):
+        output["market"] = market_document_identity.normalize_market_code(output["market"])
+    return output
+
+
+def context_research_identity(context: MemoryRequestContext) -> dict[str, str]:
+    return normalize_research_identity(
+        {
+            "market": context.market,
+            "company_id": context.company_id,
+            "filing_id": context.filing_id,
+            "parse_run_id": context.parse_run_id,
+        }
+    )
+
+
+def complete_context_research_identity(context: MemoryRequestContext) -> dict[str, str] | None:
+    identity = context_research_identity(context)
+    if not identity:
+        return None
+    return identity if all(identity.get(field) for field in RESEARCH_IDENTITY_FIELDS) else None
+
+
+def metadata_with_research_identity(
+    context: MemoryRequestContext,
+    metadata: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    output = dict(metadata) if isinstance(metadata, Mapping) else {}
+    identity = context_research_identity(context)
+    if identity:
+        output["research_identity"] = identity
+    return output
 
 
 def _bool_env(name: str, default: str = "auto") -> str:
@@ -102,6 +152,7 @@ def context_from_session_id(
     deal_id: str | None = None,
     project_id: str | None = None,
     visibility: str | None = None,
+    research_identity: Mapping[str, Any] | None = None,
 ) -> MemoryRequestContext | None:
     resolved_user_id = user_id
     resolved_profile = normalize_profile(profile)
@@ -117,6 +168,7 @@ def context_from_session_id(
 
     agent_group = infer_agent_group(resolved_profile)
     resolved_visibility = visibility or default_visibility_for_context(agent_group, deal_id, project_id)
+    identity = normalize_research_identity(research_identity)
     return MemoryRequestContext(
         tenant_id=tenant_id or DEFAULT_TENANT_ID,
         user_id=resolved_user_id,
@@ -126,6 +178,10 @@ def context_from_session_id(
         deal_id=deal_id,
         project_id=project_id,
         visibility=resolved_visibility,
+        market=identity.get("market"),
+        company_id=identity.get("company_id"),
+        filing_id=identity.get("filing_id"),
+        parse_run_id=identity.get("parse_run_id"),
     )
 
 
@@ -345,6 +401,7 @@ async def record_session(
         return
     if context.user_id is None and (context.visibility or "user_private") == "user_private":
         return
+    metadata = metadata_with_research_identity(context, metadata)
 
     statement = text(
         f"""
@@ -426,6 +483,7 @@ async def record_message(
     if context.user_id is None and (context.visibility or "user_private") == "user_private":
         return None
 
+    research_identity = complete_context_research_identity(context)
     await record_session(async_session, context, commit=False)
     statement = text(
         f"""
@@ -438,6 +496,7 @@ async def record_message(
             role,
             content,
             attachments_json,
+            research_identity_json,
             token_count,
             model_name,
             created_at
@@ -451,6 +510,7 @@ async def record_message(
             :role,
             :content,
             CAST(:attachments_json AS jsonb),
+            CAST(:research_identity_json AS jsonb),
             :token_count,
             :model_name,
             COALESCE(:created_at, now())
@@ -469,6 +529,11 @@ async def record_message(
             "role": role,
             "content": content,
             "attachments_json": _json_param(attachments),
+            "research_identity_json": (
+                json.dumps(research_identity, ensure_ascii=False)
+                if research_identity
+                else None
+            ),
             "token_count": token_count,
             "model_name": model_name,
             "created_at": created_at,
@@ -558,6 +623,7 @@ async def promote_memory_item(
     owner_user_id = context.user_id if visibility == "user_private" else None
     confidence_value = max(0.0, min(float(confidence), 1.0))
     importance_value = max(0.0, min(float(importance), 1.0))
+    metadata = metadata_with_research_identity(context, metadata)
     metadata_json = _json_param(metadata)
 
     dedupe_result = await async_session.execute(
@@ -720,6 +786,10 @@ async def promote_memory_item(
                         title=title or memory_type,
                         content=normalized_content,
                         metadata_json=metadata_json,
+                        research_market=context.market or "",
+                        research_company_id=context.company_id or "",
+                        research_filing_id=context.filing_id or "",
+                        research_parse_run_id=context.parse_run_id or "",
                         updated_at_ts=int(time.time()),
                     )
                 ]
@@ -798,12 +868,31 @@ def _memory_acl_sql() -> str:
         )
         OR (
           mi.visibility = 'project_shared'
+          AND mi.agent_group = :agent_group
           AND (
-            (:deal_id IS NOT NULL AND mi.deal_id = :deal_id)
-            OR (:project_id IS NOT NULL AND mi.project_id = :project_id)
+            (CAST(:deal_id AS TEXT) IS NOT NULL AND mi.deal_id = CAST(:deal_id AS TEXT))
+            OR (CAST(:project_id AS TEXT) IS NOT NULL AND mi.project_id = CAST(:project_id AS TEXT))
           )
         )
       )
+    """
+
+
+def _memory_identity_sql(identity: Mapping[str, str] | None) -> str:
+    if not identity:
+        return """
+      AND COALESCE(mi.metadata_json->'research_identity'->>'market', '') = ''
+      AND COALESCE(mi.metadata_json->'research_identity'->>'company_id', '') = ''
+      AND COALESCE(mi.metadata_json->'research_identity'->>'filing_id', '') = ''
+      AND COALESCE(mi.metadata_json->'research_identity'->>'parse_run_id', '') = ''
+    """
+    if not all(identity.get(field) for field in RESEARCH_IDENTITY_FIELDS):
+        raise ValueError("complete ResearchIdentity is required for PostgreSQL memory filtering")
+    return """
+      AND mi.metadata_json->'research_identity'->>'market' = :research_market
+      AND mi.metadata_json->'research_identity'->>'company_id' = :research_company_id
+      AND mi.metadata_json->'research_identity'->>'filing_id' = :research_filing_id
+      AND mi.metadata_json->'research_identity'->>'parse_run_id' = :research_parse_run_id
     """
 
 
@@ -822,6 +911,11 @@ async def search_memory_items(
     query_text = " ".join(str(query or "").split())
     if not query_text:
         return []
+    raw_identity = context_research_identity(context)
+    research_identity = complete_context_research_identity(context)
+    if raw_identity and research_identity is None:
+        return []
+    identity_sql = _memory_identity_sql(research_identity)
     full_recall = is_full_recall_query(query_text)
     default_limit = os.getenv(
         "SIQ_AGENT_MEMORY_FULL_RECALL_MAX_ITEMS" if full_recall else "SIQ_AGENT_MEMORY_MAX_ITEMS",
@@ -833,11 +927,14 @@ async def search_memory_items(
         "tenant_id": context.tenant_id,
         "user_id": context.user_id,
         "profile": context.profile,
+        "agent_group": context.agent_group,
         "deal_id": context.deal_id,
         "project_id": context.project_id,
         "limit": item_limit,
         "query_like": f"%{query_text[:300]}%",
     }
+    if research_identity:
+        params.update({f"research_{field}": value for field, value in research_identity.items()})
 
     embedding = None
     if milvus_enabled(async_session) or pgvector_enabled(async_session):
@@ -855,6 +952,8 @@ async def search_memory_items(
                 deal_id=context.deal_id,
                 project_id=context.project_id,
                 profile=context.profile,
+                agent_group=context.agent_group,
+                research_identity=research_identity,
             )
             milvus_hits = await asyncio.to_thread(
                 agent_memory_milvus.search_records,
@@ -915,6 +1014,7 @@ async def search_memory_items(
               AND (mi.valid_until IS NULL OR mi.valid_until > now())
               AND (mi.profile = :profile OR mi.visibility IN ('project_shared', 'system_shared'))
               {_memory_acl_sql()}
+              {identity_sql}
               AND 1 - (me.embedding <=> CAST(:embedding AS vector)) >= :min_score
             ORDER BY me.embedding <=> CAST(:embedding AS vector), mi.importance DESC, mi.updated_at DESC
             LIMIT :limit
@@ -954,6 +1054,7 @@ async def search_memory_items(
           AND (mi.valid_until IS NULL OR mi.valid_until > now())
           AND (mi.profile = :profile OR mi.visibility IN ('project_shared', 'system_shared'))
           {_memory_acl_sql()}
+          {identity_sql}
           AND (mi.normalized_content ILIKE :query_like OR mi.title ILIKE :query_like)
         ORDER BY score DESC, mi.importance DESC, mi.updated_at DESC
         LIMIT :limit

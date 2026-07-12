@@ -5,13 +5,12 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import anyio
-
 from routers import agent_user_router
 from routers.agent_user_router import SpecialistAgentConfig, create_specialist_agent_router
 from schemas import ChatRequest
-from services import factcheck_workflow as workflow
 from services.auth_service import User, UserRole
 
+from services import factcheck_workflow as workflow
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 FACTCHECK_SCRIPT_DIR = REPO_ROOT / "agents" / "hermes" / "profiles" / "siq_factchecker" / "scripts"
@@ -85,8 +84,15 @@ def test_run_factcheck_workflow_uses_explicit_report_and_output(monkeypatch, tmp
                     "company_id": "600104-上汽集团",
                     "report_file": requested_report.name,
                     "summary": {"critical": 0, "warning": 1, "suggestion": 0},
-                    "checks": {},
-                    "evidence_summary": [],
+                    "checks": {"traceability": {"status": "pass", "issues": []}},
+                    "evidence_summary": [
+                        {
+                            "source_type": "wiki_evidence",
+                            "source_path": "companies/600104/reports/2025/report.md",
+                            "pdf_page": 69,
+                            "metric_or_claim": "operating_revenue",
+                        }
+                    ],
                     "recommendations": ["补充证据链"],
                     "verified_at": "2026-07-11T00:00:00+08:00",
                 },
@@ -129,6 +135,10 @@ def test_run_factcheck_workflow_uses_explicit_report_and_output(monkeypatch, tmp
     assert "factcheck-" in cmd[cmd.index("--output") + 1]
     assert "已生成正式事实核查报告" in response.reply
     assert "HTML 核查报告" in response.reply
+    assert response.result["artifact"]["artifact_type"] == "factcheck"
+    assert response.result["artifact"]["validation_result"]["ok"] is True
+    assert response.result["artifact"]["metadata"]["claim_verdicts"][0]["claim_id"] == "traceability"
+    assert response.result["audit_trace_id"].startswith("aat_")
 
 
 def test_factcheck_engine_prefers_research_pack_report(tmp_path):
@@ -193,9 +203,46 @@ def test_factcheck_engine_accepts_project_relative_report_path(monkeypatch, tmp_
     assert selected.selection_reason == f"explicit:{report_md.name}"
 
 
+def test_factcheck_pg_config_reuses_project_app_url_for_pdf2md(monkeypatch):
+    for key in (
+        "SIQ_PDF2MD_DATABASE_URL",
+        "SIQ_CN_DATABASE_URL",
+        "SIQ_APP_DATABASE_URL",
+        "SIQ_PGHOST",
+        "SIQ_PGPORT",
+        "SIQ_PGDATABASE",
+        "SIQ_PGUSER",
+        "SIQ_PGPASSWORD",
+        "PGHOST",
+        "PGPORT",
+        "PGDATABASE",
+        "PGUSER",
+        "PGPASSWORD",
+        "POSTGRES_PASSWORD",
+        "DB_HOST",
+        "DB_PORT",
+        "DB_NAME",
+        "DB_USER",
+        "DB_PASSWORD",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("SIQ_APP_DATABASE_URL", "postgresql+psycopg://postgres:secret@postgres:5432/siq_app")
+
+    config = factcheck_cli._project_pdf2md_pg_config()
+
+    assert config == {
+        "host": "postgres",
+        "port": 5432,
+        "dbname": "siq",
+        "user": "postgres",
+        "password": "secret",
+    }
+
+
 def test_factchecker_chat_routes_generation_to_workflow(monkeypatch):
     calls = {"collect": 0, "workflow": 0}
-    saved: list[tuple[str, str]] = []
+    saved: list[tuple[str, str, str | None]] = []
+    trace_id = "aat_1234567890abcdef1234567890abcdef"
 
     async def noop_quota(*args, **kwargs):
         return (1, None)
@@ -207,7 +254,7 @@ def test_factchecker_chat_routes_generation_to_workflow(monkeypatch):
         return "user-7-factchecker-session"
 
     async def fake_save_message(async_session, role, content, session_id, attachments=None, audit_trace_id=None):
-        saved.append((role, content))
+        saved.append((role, content, audit_trace_id))
         return SimpleNamespace(id=len(saved), role=role, content=content, session_id=session_id)
 
     async def fake_collect_chat_reply(*args, **kwargs):
@@ -221,7 +268,11 @@ def test_factchecker_chat_routes_generation_to_workflow(monkeypatch):
         calls["workflow"] += 1
         assert workflow_request.company_query == "600104-上汽集团"
         assert workflow_request.report_path is not None
-        return "已生成正式事实核查报告\n\n- 打开报告: [HTML 核查报告](/api/wiki/companies/600104-%E4%B8%8A%E6%B1%BD%E9%9B%86%E5%9B%A2/factcheck/report.html)"
+        assert workflow_request.session_id == "user-7-factchecker-session"
+        return SimpleNamespace(
+            reply="已生成正式事实核查报告\n\n- 打开报告: [HTML 核查报告](/api/wiki/companies/600104/factcheck/report.html)",
+            result={"artifact": {"artifact_type": "factcheck"}, "audit_trace_id": trace_id},
+        )
 
     monkeypatch.setattr(agent_user_router, "enforce_quota_or_429_async", noop_quota)
     monkeypatch.setattr(agent_user_router, "record_usage_async", noop_usage)
@@ -259,7 +310,76 @@ def test_factchecker_chat_routes_generation_to_workflow(monkeypatch):
 
         assert calls == {"collect": 0, "workflow": 1}
         assert payload.reply.startswith("已生成正式事实核查报告")
-        assert saved[0] == ("user", "请为当前分析报告生成事实核查报告")
+        assert saved[0] == ("user", "请为当前分析报告生成事实核查报告", None)
         assert saved[1][0] == "assistant"
+        assert saved[1][2] == trace_id
+        assert payload.audit_trace_id == trace_id
+        assert payload.artifact == {"artifact_type": "factcheck"}
+
+    anyio.run(run_case)
+
+
+def test_factchecker_stream_done_returns_artifact_and_persisted_trace(monkeypatch):
+    trace_id = "aat_1234567890abcdef1234567890abcdef"
+    saved: list[tuple[str, str | None]] = []
+
+    async def noop_quota(*args, **kwargs):
+        return (1, None)
+
+    async def noop_usage(*args, **kwargs):
+        return None
+
+    async def fake_resolve_session(*args, **kwargs):
+        return "user-7-factchecker-session"
+
+    async def fake_save_message(async_session, role, content, session_id, attachments=None, audit_trace_id=None):
+        saved.append((role, audit_trace_id))
+        return SimpleNamespace(id=len(saved), role=role, content=content, session_id=session_id)
+
+    async def fake_workflow_reply(workflow_request):
+        return SimpleNamespace(
+            reply="已生成正式事实核查报告",
+            result={"artifact": {"artifact_type": "factcheck"}, "audit_trace_id": trace_id},
+        )
+
+    async def fake_record_workspace(*args, **kwargs):
+        return {"workspace_synced": True}
+
+    monkeypatch.setattr(agent_user_router, "enforce_quota_or_429_async", noop_quota)
+    monkeypatch.setattr(agent_user_router, "record_usage_async", noop_usage)
+    monkeypatch.setattr(agent_user_router, "resolve_or_create_session", fake_resolve_session)
+    monkeypatch.setattr(agent_user_router, "save_message", fake_save_message)
+    monkeypatch.setattr(agent_user_router, "_run_factcheck_workflow_reply", fake_workflow_reply)
+    monkeypatch.setattr(agent_user_router, "_record_agent_workspace_artifact_background", fake_record_workspace)
+    monkeypatch.setattr(
+        agent_user_router,
+        "get_session_manager",
+        lambda: SimpleNamespace(increment_message_count=lambda session_id: None),
+    )
+
+    router = create_specialist_agent_router(
+        SpecialistAgentConfig(prefix="/factcheck", tag="factchecker", profile="siq_factchecker")
+    )
+    endpoint = next(route.endpoint for route in router.routes if route.path.endswith("/chat/stream"))
+
+    async def run_case():
+        response = await endpoint(
+            ChatRequest(
+                message="请为当前分析报告生成事实核查报告",
+                context={
+                    "company": {"dir": "600104-上汽集团", "code": "600104", "name": "上汽集团"},
+                    "report": {"type": "analysis", "filename": "report.md"},
+                },
+            ),
+            request=SimpleNamespace(),
+            current_user=_user(),
+            async_session=SimpleNamespace(),
+        )
+        chunks = [chunk async for chunk in response.body_iterator]
+        done = next(chunk for chunk in chunks if chunk.get("event") == "done")
+        payload = json.loads(done["data"])
+        assert payload["audit_trace_id"] == trace_id
+        assert payload["artifact"] == {"artifact_type": "factcheck"}
+        assert saved[-1] == ("assistant", trace_id)
 
     anyio.run(run_case)

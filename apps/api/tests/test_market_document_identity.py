@@ -11,6 +11,13 @@ def test_normalize_market_code_accepts_us_sec_aliases():
     assert identity.normalize_market_code("hk") == "HK"
 
 
+def test_market_from_identifier_only_uses_explicit_supported_prefixes():
+    assert identity.market_from_identifier("HK:00700:2025-annual") == "HK"
+    assert identity.market_from_identifier("US_SEC:AAPL:10-K:2025") == "US"
+    assert identity.market_from_identifier("2025-annual") is None
+    assert identity.market_from_identifier("tenant:filing-1") is None
+
+
 def test_document_full_payload_value_prefers_explicit_document_path():
     assert identity.document_full_payload_value({"document_full_path": "doc.json", "task_id": "task-1"}) == "doc.json"
     assert identity.document_full_payload_value({"task_id": "task-1"}) == "task-1"

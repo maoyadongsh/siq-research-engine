@@ -1,3 +1,4 @@
+# ruff: noqa: I001
 from __future__ import annotations
 
 import asyncio
@@ -22,8 +23,9 @@ document_parser = importlib.util.module_from_spec(spec)
 assert spec and spec.loader
 spec.loader.exec_module(document_parser)
 
-from services.auth_service import User, UserRole
-from services.usage_service import DOCUMENT_PARSE_EVENT, UsageEvent, UserArtifact, current_day_key
+from services.auth_service import User, UserRole  # noqa: E402
+from services.upload_proxy_limits import UploadProxyConcurrencyLimiter  # noqa: E402
+from services.usage_service import DOCUMENT_PARSE_EVENT, UsageEvent, UserArtifact, current_day_key  # noqa: E402
 
 
 class DummyRequest:
@@ -449,6 +451,86 @@ def test_create_document_tasks_records_usage_and_artifacts(monkeypatch, tmp_path
     assert artifact.source == "document_url"
 
 
+def test_create_document_tasks_json_submit_uses_explicit_timeout(monkeypatch, tmp_path):
+    captured: dict[str, object] = {}
+
+    class FakeAsyncClient:
+        def __init__(self, timeout=None):
+            captured["timeout"] = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, json=None, headers=None):
+            return SimpleNamespace(
+                status_code=500,
+                headers={"content-type": "application/json"},
+                json=lambda: {"detail": "upstream failed"},
+            )
+
+    class JsonRequest:
+        headers = {"content-type": "application/json"}
+
+        async def json(self):
+            return {"source_type": "url", "url": "https://example.test/doc.html"}
+
+    monkeypatch.setattr(document_parser.httpx, "AsyncClient", FakeAsyncClient)
+
+    async def run_case(async_session: AsyncSession):
+        user = SimpleNamespace(id=1, role=UserRole.ANALYST)
+        return await document_parser.create_document_tasks(
+            request=JsonRequest(),
+            files=None,
+            current_user=user,
+            async_session=async_session,
+        )
+
+    response = asyncio.run(with_async_session(tmp_path, run_case))
+
+    assert response.status_code == 500
+    assert captured["timeout"] is document_parser.DOCUMENT_TASK_SUBMIT_TIMEOUT
+
+
+def test_create_document_tasks_rejects_when_upload_proxy_capacity_stays_busy(monkeypatch, tmp_path):
+    class JsonRequest:
+        headers = {"content-type": "application/json"}
+
+        async def json(self):
+            return {"source_type": "url", "url": "https://example.test/doc.html"}
+
+    class ForbiddenAsyncClient:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("busy admission must not create an upstream client")
+
+    limiter = UploadProxyConcurrencyLimiter(max_concurrency=1, queue_timeout_seconds=0.01)
+    monkeypatch.setattr(document_parser, "UPLOAD_PROXY_LIMITER", limiter)
+    monkeypatch.setattr(document_parser.httpx, "AsyncClient", ForbiddenAsyncClient)
+
+    async def run_case(async_session: AsyncSession):
+        user = SimpleNamespace(id=1, role=UserRole.ANALYST)
+        async with limiter.slot():
+            with pytest.raises(HTTPException) as exc:
+                await document_parser.create_document_tasks(
+                    request=JsonRequest(),
+                    files=None,
+                    current_user=user,
+                    async_session=async_session,
+                )
+        usage_result = await async_session.exec(select(UsageEvent).where(UsageEvent.user_id == int(user.id)))
+        artifact_result = await async_session.exec(select(UserArtifact).where(UserArtifact.user_id == int(user.id)))
+        return exc.value, usage_result.all(), artifact_result.all()
+
+    exc, usage_events, artifacts = asyncio.run(with_async_session(tmp_path, run_case))
+
+    assert exc.status_code == 503
+    assert exc.detail["error"] == "upload_proxy_busy"
+    assert usage_events == []
+    assert artifacts == []
+
+
 def test_create_document_tasks_records_explicit_market_on_artifact_and_response(monkeypatch, tmp_path):
     class FakeAsyncClient:
         def __init__(self, timeout=None):
@@ -589,6 +671,104 @@ def test_create_document_tasks_multipart_quota_precheck_runs_before_file_read(mo
     assert artifacts == []
 
 
+def test_create_document_tasks_rejects_file_over_proxy_limit_before_upstream(monkeypatch, tmp_path):
+    class MultipartRequest:
+        headers = {"content-type": "multipart/form-data; boundary=test"}
+
+    class LargeUpload:
+        filename = "large.pdf"
+        content_type = "application/pdf"
+
+        def __init__(self):
+            self._chunks = [b"a" * 4, b"b" * 4]
+
+        async def read(self, _size=-1):
+            return self._chunks.pop(0) if self._chunks else b""
+
+    class ForbiddenAsyncClient:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("oversized upload must not create an upstream client")
+
+    monkeypatch.setattr(document_parser, "DOCUMENT_UPLOAD_MAX_FILE_BYTES", 5)
+    monkeypatch.setattr(document_parser.httpx, "AsyncClient", ForbiddenAsyncClient)
+
+    async def run_case(async_session: AsyncSession):
+        user = SimpleNamespace(id=1, role=UserRole.ANALYST)
+        with pytest.raises(HTTPException) as exc:
+            await document_parser.create_document_tasks(
+                request=MultipartRequest(),
+                files=[LargeUpload()],
+                current_user=user,
+                async_session=async_session,
+            )
+        usage_result = await async_session.exec(select(UsageEvent).where(UsageEvent.user_id == int(user.id)))
+        artifact_result = await async_session.exec(select(UserArtifact).where(UserArtifact.user_id == int(user.id)))
+        return exc.value, usage_result.all(), artifact_result.all()
+
+    exc, usage_events, artifacts = asyncio.run(with_async_session(tmp_path, run_case))
+
+    assert exc.status_code == 413
+    assert exc.detail["error"] == "upload_too_large"
+    assert exc.detail["scope"] == "file"
+    assert usage_events == []
+    assert artifacts == []
+
+
+def test_create_document_tasks_multipart_uses_explicit_timeout_and_open_file(monkeypatch, tmp_path):
+    captured: dict[str, object] = {}
+
+    class MultipartRequest:
+        headers = {"content-type": "multipart/form-data; boundary=test"}
+
+    class FakeUpload:
+        filename = "contract.pdf"
+        content_type = "application/pdf"
+
+        def __init__(self):
+            self._done = False
+
+        async def read(self, _size=-1):
+            if self._done:
+                return b""
+            self._done = True
+            return b"%PDF-1.4\ncontract"
+
+    class FakeAsyncClient:
+        def __init__(self, timeout=None):
+            captured["timeout"] = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, data=None, files=None, headers=None):
+            captured["file_obj_closed_before_post"] = files[0][1][1].closed
+            return SimpleNamespace(
+                status_code=500,
+                headers={"content-type": "application/json"},
+                json=lambda: {"detail": "upstream failed"},
+            )
+
+    monkeypatch.setattr(document_parser.httpx, "AsyncClient", FakeAsyncClient)
+
+    async def run_case(async_session: AsyncSession):
+        user = SimpleNamespace(id=1, role=UserRole.ANALYST)
+        return await document_parser.create_document_tasks(
+            request=MultipartRequest(),
+            files=[FakeUpload()],
+            current_user=user,
+            async_session=async_session,
+        )
+
+    response = asyncio.run(with_async_session(tmp_path, run_case))
+
+    assert response.status_code == 500
+    assert captured["timeout"] is document_parser.DOCUMENT_TASK_SUBMIT_TIMEOUT
+    assert captured["file_obj_closed_before_post"] is False
+
+
 def test_create_document_tasks_upstream_error_does_not_record_usage_or_artifact(monkeypatch, tmp_path):
     class JsonRequest:
         headers = {"content-type": "application/json"}
@@ -646,7 +826,7 @@ def test_import_document_from_mineru_records_usage_and_artifact(monkeypatch, tmp
 
     class FakeAsyncClient:
         def __init__(self, timeout=None):
-            self.timeout = timeout
+            seen["timeout"] = timeout
 
         async def __aenter__(self):
             return self
@@ -687,6 +867,7 @@ def test_import_document_from_mineru_records_usage_and_artifact(monkeypatch, tmp
 
     assert str(seen["url"]).endswith("/api/import/mineru")
     assert seen["json"] == {"source_dir": "/home/maoyd/siq-research-engine/data/pdf-parser/results/case-a"}
+    assert seen["timeout"] is document_parser.DOCUMENT_TASK_SUBMIT_TIMEOUT
     assert result["task"]["task_id"] == "mineru-task-a"
     assert usage.count == 1
     assert usage.source == "document_mineru_import"

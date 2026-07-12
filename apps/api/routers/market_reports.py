@@ -1,52 +1,35 @@
 import asyncio
-import json
 import hashlib
+import json
 import logging
 import os
-import re
-import subprocess
-import uuid
 import sys
-import tempfile
-import time
-from urllib.parse import urlencode
+import uuid
 from datetime import datetime, timezone
-from typing import Any
 from pathlib import Path
+from typing import Any
 
 import httpx
+from database import get_async_session
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
-from sqlmodel.ext.asyncio.session import AsyncSession
-
-from database import get_async_session
-from routers.workspace import record_user_artifact_async
-from services.auth_dependencies import get_current_user
+from services.auth_dependencies import get_current_user, require_permission
 from services.auth_service import User
-from services.auth_dependencies import require_permission
-from services.hermes_client import collect_run_result, create_run, hermes_profile_config
 from services.command_runner import format_command, run_command
+from services.hermes_client import collect_run_result, create_run, hermes_profile_config
+from services.hermes_model_control import set_all_profile_model_modes
 from services.job_service import market_report_job_service
 from services.llm_settings import load_llm_settings
-from services.hermes_model_control import set_all_profile_model_modes
-from services import market_report_assist_service
-from services import market_report_commands
-from services import market_document_identity
-from services import market_report_proxy
-from services import market_report_queueing
-from services import market_report_status_service
-from services import market_document_full_postgres_status
-from services import observability
 from services.market_report_settings import (
     EU_ESEF_PACKAGE_BUILD_SCRIPT,
     MARKET_BUILD_SCRIPTS,
     MARKET_DATABASES,
     MARKET_DOCUMENT_FULL_IMPORT_SCRIPTS,
     MARKET_DOCUMENT_FULL_ROOTS,
+    MARKET_IMPORT_SCRIPTS,
     MARKET_INGESTION_EVAL_MARKDOWN_PATH,
     MARKET_INGESTION_EVAL_REPORT_PATH,
     MARKET_INGESTION_EVAL_SCRIPT,
-    MARKET_IMPORT_SCRIPTS,
     MARKET_REPORT_ASSIST_TIMEOUT,
     MARKET_REPORT_PROXY_TIMEOUT,
     MARKET_RULES_BASE,
@@ -61,8 +44,23 @@ from services.market_report_settings import (
     US_SEC_WIKI_ROOT,
 )
 from services.path_config import REPO_ROOT, REPORT_DOWNLOADS_ROOT
-from services import market_package_repository as market_packages
+from sqlmodel.ext.asyncio.session import AsyncSession
 
+from routers.workspace import record_user_artifact_async
+from services import (
+    market_document_full_postgres_status,
+    market_document_identity,
+    market_package_repository as market_packages,
+    market_report_assist_service,
+    market_report_commands,
+    market_report_eval_service,
+    market_report_package_service,
+    market_report_postgres_service,
+    market_report_proxy,
+    market_report_queueing,
+    market_report_status_service,
+    observability,
+)
 
 router = APIRouter(tags=["market-reports"])
 logger = logging.getLogger(__name__)
@@ -123,12 +121,15 @@ def _command_for_display(args: list[str]) -> str:
     return format_command(args)
 
 
-def _job_created_by(user: User | None) -> dict[str, Any] | None:
-    return market_report_queueing.job_created_by(user)
-
-
-def _queue_market_report_job(kind: str, target, *, created_by: User | None = None) -> dict[str, Any]:
-    return market_report_queueing.queue_market_report_job(
+def _run_or_queue_market_report_job(
+    *,
+    wait: bool,
+    kind: str,
+    target,
+    created_by: User | None = None,
+) -> dict[str, Any]:
+    return market_report_queueing.run_or_queue_market_report_job(
+        wait=wait,
         job_service=market_report_job_service,
         kind=kind,
         target=target,
@@ -219,27 +220,14 @@ def _market_document_full_path_keys(market: str, value: str | None) -> list[str]
 
 
 def _truthy_payload_flag(payload: dict[str, Any], *keys: str) -> bool:
-    for key in keys:
-        value = payload.get(key)
-        if isinstance(value, bool):
-            if value:
-                return True
-            continue
-        if str(value or "").strip().lower() in {"1", "true", "yes", "on"}:
-            return True
-    return False
+    return market_report_package_service.truthy_payload_flag(payload, *keys)
 
 
 def _enforce_legacy_market_package_import(payload: dict[str, Any]) -> None:
-    if _truthy_payload_flag(payload, "legacy_package_import", "legacyPackageImport"):
-        return
-    raise HTTPException(
-        status_code=422,
-        detail=(
-            "Package PostgreSQL import is legacy-only. "
-            "Use /market-reports/document-full/import, or pass legacy_package_import=true for an explicit compatibility import."
-        ),
-    )
+    try:
+        market_report_package_service.require_legacy_market_package_import(payload)
+    except market_report_commands.MarketPackagePlanError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
 
 def _market_document_full_db_status(
@@ -276,10 +264,6 @@ def _rel_or_abs(path: Path) -> str:
         return str(path)
 
 
-def _market_package_paths(package_dir: Path) -> dict[str, str]:
-    return market_packages.market_package_paths(package_dir)
-
-
 def _iter_market_packages(market: str) -> list[Path]:
     return market_packages.iter_market_packages(market, MARKET_WIKI_ROOTS)
 
@@ -297,21 +281,18 @@ def _quality_gates_for_package(package_dir: Path) -> dict[str, Any]:
 
 
 def _load_plan_for_package(package_dir: Path) -> dict[str, Any]:
-    payload = _read_json_file(package_dir / "metrics" / "load_plan.json", {})
-    return payload if isinstance(payload, dict) else {}
-
-
-def _load_plan_summary(load_plan: dict[str, Any]) -> dict[str, Any]:
-    return market_report_status_service.load_plan_summary(load_plan)
-
-
-def _merge_load_plan_decision_into_gates(gates: dict[str, Any], load_plan: dict[str, Any]) -> dict[str, Any]:
-    return market_report_status_service.merge_load_plan_decision_into_gates(gates, load_plan)
+    return market_report_package_service.load_plan_for_package(
+        package_dir,
+        read_json_file=_read_json_file,
+    )
 
 
 def _quality_gates_with_load_plan(package_dir: Path) -> dict[str, Any]:
-    gates = _quality_gates_for_package(package_dir)
-    return _merge_load_plan_decision_into_gates(gates, _load_plan_for_package(package_dir))
+    return market_report_package_service.quality_gates_with_load_plan(
+        package_dir,
+        quality_gates_for_package=_quality_gates_for_package,
+        load_plan_for_package=_load_plan_for_package,
+    )
 
 
 def _payload_force_enabled(payload: dict[str, Any]) -> bool:
@@ -357,23 +338,14 @@ def _log_force_audit(
     audit: dict[str, str | None],
     blocked: bool,
 ) -> None:
-    logger.info(
-        (
-            "market package force requested action=%s package=%s operator=%s ticket=%s "
-            "reason=%s expires_at=%s one_shot=%s blocked=%s force_allowed=%s "
-            "hard_gate_rule_ids=%s soft_gate_rule_ids=%s"
-        ),
-        action,
-        _redact_audit_text(_rel_or_abs(package_dir)),
-        _redact_audit_text(audit.get("operator")),
-        _redact_audit_text(audit.get("ticket")),
-        _redact_audit_text(audit.get("reason")),
-        _redact_audit_text(audit.get("expires_at")),
-        _redact_audit_text(audit.get("one_shot")),
-        blocked,
-        bool(gates.get("force_allowed")),
-        gates.get("hard_gate_rule_ids") or [],
-        gates.get("soft_gate_rule_ids") or [],
+    market_report_package_service._log_force_audit(
+        logger=logger,
+        action=action,
+        package_dir=package_dir,
+        gates=gates,
+        audit=audit,
+        blocked=blocked,
+        rel_or_abs=_rel_or_abs,
     )
 
 
@@ -383,27 +355,17 @@ def _enforce_market_package_quality_gate(
     payload: dict[str, Any],
     action: str,
 ) -> None:
-    gates = _quality_gates_with_load_plan(package_dir)
     try:
-        decision = market_report_commands.market_package_quality_gate_decision(
-            gates=gates,
+        market_report_package_service.enforce_market_package_quality_gate(
+            package_dir=package_dir,
             payload=payload,
             action=action,
+            quality_gates_with_load_plan=_quality_gates_with_load_plan,
+            rel_or_abs=_rel_or_abs,
+            logger=logger,
         )
     except market_report_commands.MarketPackagePlanError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
-    if decision.audit is not None:
-        _log_force_audit(
-            action=action,
-            package_dir=package_dir,
-            gates=gates,
-            audit=decision.audit,
-            blocked=decision.blocked,
-        )
-    if decision.error_status_code is not None:
-        raise HTTPException(status_code=decision.error_status_code, detail=decision.error_detail)
-    if not decision.blocked:
-        return
 
 
 def _markets_to_search(market: str | None) -> list[str]:
@@ -435,38 +397,23 @@ def _find_market_evidence(
 def _run_market_package_build(payload: dict[str, Any]) -> dict[str, Any]:
     market = _market_code(payload.get("market"))
     try:
-        plan = market_report_commands.build_market_package_build_plan(
+        return market_report_package_service.run_market_package_build(
             payload=payload,
-            market=market,
+            executable=sys.executable,
             repo_root=REPO_ROOT,
+            market=market,
             market_wiki_roots=MARKET_WIKI_ROOTS,
             market_build_scripts=MARKET_BUILD_SCRIPTS,
             eu_esef_package_build_script=EU_ESEF_PACKAGE_BUILD_SCRIPT,
             safe_download_path=_safe_download_path,
             adjacent_metadata_path=_adjacent_metadata_path,
+            run_command=run_command,
+            command_for_display=_command_for_display,
+            read_market_package_detail=_read_market_package_detail,
+            read_us_sec_package_detail=_read_package_detail,
         )
     except market_report_commands.MarketPackageBuildPlanError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
-    args = market_report_commands.market_package_build_args(
-        executable=sys.executable,
-        script=plan.script,
-        source_path=plan.source_path,
-        output_root=plan.output_root,
-        metadata_path=plan.metadata_path,
-        parser_result_path=plan.parser_result_path,
-        force=plan.force,
-    )
-    completed = run_command(args, cwd=REPO_ROOT, timeout=900)
-    output_lines = (completed.stdout or "").strip().splitlines()
-    detail = None
-    if completed.returncode == 0 and output_lines:
-        package_path = Path(output_lines[-1])
-        detail = _read_package_detail(package_path) if plan.market == "US" else _read_market_package_detail(package_path)
-    return market_report_commands.market_package_build_result_payload(
-        completed=completed,
-        package=detail,
-        command=_command_for_display(args),
-    )
 
 
 def _market_build_script(market: str, source_path: Path) -> Path:
@@ -496,182 +443,86 @@ def _market_build_accepts_parser_result(market: str, script: Path) -> bool:
 
 
 def _run_market_package_import(payload: dict[str, Any]) -> dict[str, Any]:
-    _enforce_legacy_market_package_import(payload)
     market = _market_code(payload.get("market"))
     try:
-        plan = market_report_commands.build_market_package_import_plan(
+        return market_report_package_service.run_market_package_import(
             payload=payload,
+            executable=sys.executable,
+            repo_root=REPO_ROOT,
             market=market,
+            market_databases=MARKET_DATABASES,
             market_import_scripts=MARKET_IMPORT_SCRIPTS,
             safe_market_package_path=_safe_market_package_path,
+            quality_gates_with_load_plan=_quality_gates_with_load_plan,
+            run_command=run_command,
+            command_for_display=_command_for_display,
+            rel_or_abs=_rel_or_abs,
+            logger=logger,
+            base_env=os.environ,
         )
     except market_report_commands.MarketPackagePlanError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
-    _enforce_market_package_quality_gate(
-        package_dir=plan.package_dir,
-        payload=payload,
-        action="import",
-    )
-    args = market_report_commands.market_package_import_args(
-        executable=sys.executable,
-        script=plan.script,
-        market=plan.market,
-        package_dir=plan.package_dir,
-        payload=payload,
-    )
-    run_kwargs: dict[str, Any] = {"cwd": REPO_ROOT, "timeout": 900}
-    import_env = market_report_commands.market_package_import_env(
-        plan.market,
-        MARKET_DATABASES,
-        base_env=os.environ,
-        database_url=payload.get("database_url"),
-    )
-    if import_env:
-        run_kwargs["env"] = import_env
-    completed = run_command(args, **run_kwargs)
-    return market_report_commands.market_package_import_result_payload(
-        completed=completed,
-        command=_command_for_display(args),
-    )
 
 
 def _run_market_document_full_import(payload: dict[str, Any]) -> dict[str, Any]:
     market = _market_code(payload.get("market"))
-    started = time.perf_counter()
-    metric_status = "failure"
     try:
-        plan = market_report_commands.build_market_document_full_import_plan(
+        return market_report_postgres_service.run_market_document_full_import(
             payload=payload,
+            executable=sys.executable,
+            repo_root=REPO_ROOT,
             market=market,
             market_document_full_import_scripts=MARKET_DOCUMENT_FULL_IMPORT_SCRIPTS,
-            safe_market_document_full_path=_safe_market_document_full_path,
-            repo_root=REPO_ROOT,
             market_document_full_roots=MARKET_DOCUMENT_FULL_ROOTS,
-        )
-    except market_report_commands.MarketPackagePlanError as exc:
-        observability.record_frontend_pipeline_job_failure(
-            market=market,
-            action="postgres",
-            reason=f"plan_error_{exc.status_code}",
-        )
-        observability.record_ingestion_duration(
-            market=market,
-            stage="postgres_import",
-            status=metric_status,
-            duration_seconds=time.perf_counter() - started,
-        )
-        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
-
-    try:
-        args = market_report_commands.market_document_full_import_args(
-            executable=sys.executable,
-            script=plan.script,
-            market=plan.market,
-            document_full_path=plan.document_full_path,
-            payload=payload,
-        )
-        import_env = market_report_commands.market_document_full_import_env(
-            market,
-            MARKET_DATABASES,
+            market_databases=MARKET_DATABASES,
+            safe_market_document_full_path=_safe_market_document_full_path,
+            run_command=run_command,
+            command_for_display=_command_for_display,
+            record_pipeline_failure=observability.record_frontend_pipeline_job_failure,
+            record_ingestion_duration=observability.record_ingestion_duration,
             base_env=os.environ,
-            database_url=str(payload.get("database_url") or "").strip() or None,
         )
-        run_kwargs: dict[str, Any] = {"cwd": REPO_ROOT, "timeout": 900}
-        if import_env:
-            run_kwargs["env"] = import_env
-        completed = run_command(args, **run_kwargs)
-        result = market_report_commands.market_document_full_import_result_payload(
-            completed=completed,
-            command=_command_for_display(args),
-        )
-        result["selector"] = dict(plan.selector)
-        result["identity"] = {
-            "market": plan.identity.market,
-            **plan.identity.selector_payload(),
-            "path_keys": list(plan.identity.path_keys),
-        }
-        metric_status = "success" if result.get("ok") else "failure"
-        if not result.get("ok"):
-            observability.record_frontend_pipeline_job_failure(
-                market=plan.market,
-                action="postgres",
-                reason=f"returncode_{result.get('returncode')}",
-            )
-        return result
-    except Exception:
-        observability.record_frontend_pipeline_job_failure(
-            market=market,
-            action="postgres",
-            reason="exception",
-        )
-        raise
-    finally:
-        observability.record_ingestion_duration(
-            market=market,
-            stage="postgres_import",
-            status=metric_status,
-            duration_seconds=time.perf_counter() - started,
-        )
+    except market_report_postgres_service.MarketReportPostgresError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
 
 def _run_market_vector_ingest(payload: dict[str, Any]) -> dict[str, Any]:
     market = _market_code(payload.get("market"))
     try:
-        plan = market_report_commands.build_market_vector_ingest_plan(
+        return market_report_package_service.run_market_vector_ingest(
             payload=payload,
+            executable=sys.executable,
+            repo_root=REPO_ROOT,
             market=market,
+            market_vector_collections=MARKET_VECTOR_COLLECTIONS,
             vector_ingest_script=MARKET_VECTOR_INGEST_SCRIPT,
             safe_market_package_path=_safe_market_package_path,
+            quality_gates_with_load_plan=_quality_gates_with_load_plan,
+            run_command=run_command,
+            command_for_display=_command_for_display,
+            rel_or_abs=_rel_or_abs,
+            logger=logger,
         )
     except market_report_commands.MarketPackagePlanError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
-    _enforce_market_package_quality_gate(
-        package_dir=plan.package_dir,
-        payload=payload,
-        action="vector_ingest",
-    )
-    args, _dry_run = market_report_commands.market_vector_ingest_args(
-        executable=sys.executable,
-        script=plan.script,
-        package_dir=plan.package_dir,
-        payload=payload,
-        market=plan.market,
-        market_vector_collections=MARKET_VECTOR_COLLECTIONS,
-    )
-    completed = run_command(args, cwd=REPO_ROOT, timeout=1800)
-    return market_report_commands.market_vector_ingest_result_payload(
-        completed=completed,
-        dry_run=plan.dry_run,
-        command=_command_for_display(args),
-    )
 
 
 def _run_market_ingestion_eval(payload: dict[str, Any]) -> dict[str, Any]:
     try:
-        plan = market_report_commands.build_market_ingestion_eval_plan(
+        return market_report_eval_service.run_market_ingestion_eval(
             payload=payload,
-            eval_script=MARKET_INGESTION_EVAL_SCRIPT,
             repo_root=REPO_ROOT,
+            eval_script=MARKET_INGESTION_EVAL_SCRIPT,
             default_output=MARKET_INGESTION_EVAL_REPORT_PATH,
             default_markdown=MARKET_INGESTION_EVAL_MARKDOWN_PATH,
+            executable=sys.executable,
+            run_command=run_command,
+            command_for_display=_command_for_display,
+            read_json_file=_read_json_file,
+            rel_or_abs=_rel_or_abs,
         )
-    except market_report_commands.MarketPackagePlanError as exc:
+    except market_report_eval_service.MarketReportEvalError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
-    args, _output, _markdown = market_report_commands.market_ingestion_eval_args(
-        executable=sys.executable,
-        script=plan.script,
-        payload={},
-        repo_root=REPO_ROOT,
-        default_output=plan.output_path,
-        default_markdown=plan.markdown_path,
-    )
-    completed = run_command(args, cwd=REPO_ROOT, timeout=900)
-    return market_report_commands.market_ingestion_eval_result_payload(
-        completed=completed,
-        report=_read_json_file(plan.output_path, {}),
-        markdown_path=_rel_or_abs(plan.markdown_path),
-        command=_command_for_display(args),
-    )
 
 
 def _safe_package_path(value: str | None) -> Path:
@@ -683,20 +534,22 @@ def _safe_package_path(value: str | None) -> Path:
 
 
 def _latest_case_item_for_ticker(ticker: str) -> dict[str, Any] | None:
-    case_set = _read_json_file(US_SEC_CASE_SET_PATH, {})
-    return market_report_status_service.latest_case_item_for_ticker(case_set, ticker)
+    return market_report_package_service.latest_us_sec_case_item_for_ticker(
+        ticker,
+        case_set_path=US_SEC_CASE_SET_PATH,
+        read_json_file=_read_json_file,
+    )
 
 
 def _package_from_selector(payload: dict[str, Any]) -> Path:
-    if payload.get("package_path"):
-        return _safe_package_path(str(payload.get("package_path")))
-    ticker = str(payload.get("ticker") or "").strip().upper()
-    if not ticker:
-        raise HTTPException(status_code=400, detail="ticker or package_path is required")
-    item = _latest_case_item_for_ticker(ticker)
-    if not item:
-        raise HTTPException(status_code=404, detail=f"No package for ticker {ticker}")
-    return _safe_package_path(str(item.get("package_path") or ""))
+    try:
+        return market_report_package_service.package_from_us_sec_selector(
+            payload,
+            latest_case_item_for_ticker=_latest_case_item_for_ticker,
+            safe_package_path=_safe_package_path,
+        )
+    except market_report_package_service.MarketReportPackageError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
 
 def _read_package_detail(package_dir: Path) -> dict[str, Any]:
@@ -709,16 +562,11 @@ def _read_package_detail(package_dir: Path) -> dict[str, Any]:
 
 
 def _us_sec_semantic_status_for_case_item(item: dict[str, Any]) -> dict[str, Any]:
-    try:
-        package_path = str(item.get("package_path") or "")
-        if not package_path:
-            return {}
-        return market_report_status_service.us_sec_semantic_status_for_package(
-            _safe_package_path(package_path),
-            read_json_file=_read_json_file,
-        )
-    except Exception:
-        return {}
+    return market_report_package_service.us_sec_semantic_status_for_case_item(
+        item,
+        safe_package_path=_safe_package_path,
+        read_json_file=_read_json_file,
+    )
 
 
 def _media_type_for_file(path: Path) -> str:
@@ -816,7 +664,12 @@ def _persist_us_sec_upload(
     else:
         folder = "财报"
         report_family = "quarterly"
-    year_text = str(fiscal_year or (period_end[:4] if period_end else "") or (filing_date[:4] if filing_date else "") or datetime.now(timezone.utc).year)
+    year_text = str(
+        fiscal_year
+        or (period_end[:4] if period_end else "")
+        or (filing_date[:4] if filing_date else "")
+        or datetime.now(timezone.utc).year
+    )
     target_dir = upload_dir / company_part / year_text / folder
     target_dir.mkdir(parents=True, exist_ok=True)
     target_name = f"{company_part}_US_{ticker_part}_{report_part}_{stamp_part}_{digest_part}{effective_suffix}"
@@ -898,80 +751,57 @@ async def us_sec_upload_files(
 
 def _safe_ingest_args(payload: dict[str, Any]) -> list[str]:
     try:
-        tickers, batch_tag = market_report_commands.normalize_us_sec_ingest_filters(payload)
+        return market_report_package_service.us_sec_ingest_args_for_payload(
+            payload,
+            executable=sys.executable,
+            ingest_script=US_SEC_INGEST_SCRIPT,
+            case_set_path=US_SEC_CASE_SET_PATH,
+            report_path=US_SEC_INGEST_REPORT_PATH,
+        )
     except market_report_commands.MarketPackagePlanError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
-    return market_report_commands.us_sec_ingest_args(
-        executable=sys.executable,
-        script=US_SEC_INGEST_SCRIPT,
-        case_set_path=US_SEC_CASE_SET_PATH,
-        report_path=US_SEC_INGEST_REPORT_PATH,
-        payload={**payload, "milvus": False},
-        tickers=tickers,
-        batch_tag=batch_tag,
-    )
 
 
 def _run_us_sec_case_set_ingest(payload: dict[str, Any]) -> dict[str, Any]:
-    if not US_SEC_INGEST_SCRIPT.is_file():
-        raise HTTPException(status_code=404, detail=f"Missing ingest script: {US_SEC_INGEST_SCRIPT}")
-    semantic_prestep = _run_us_sec_semantic_prestep(payload)
-    args = _safe_ingest_args(payload)
     try:
-        completed = run_command(args, cwd=REPO_ROOT, timeout=1800)
-    except subprocess.TimeoutExpired as exc:
-        raise HTTPException(status_code=504, detail=f"US SEC ingest timed out: {exc}") from exc
-    report = _read_json_file(US_SEC_INGEST_REPORT_PATH, {})
-    result = market_report_commands.us_sec_case_set_ingest_result_payload(
-        completed=completed,
-        report=report,
-        command=" ".join(args),
-    )
-    result["semantic_prestep"] = semantic_prestep
-    return result
+        return market_report_package_service.run_us_sec_case_set_ingest(
+            payload,
+            executable=sys.executable,
+            repo_root=REPO_ROOT,
+            ingest_script=US_SEC_INGEST_SCRIPT,
+            case_set_path=US_SEC_CASE_SET_PATH,
+            report_path=US_SEC_INGEST_REPORT_PATH,
+            semantic_prestep=_run_us_sec_semantic_prestep,
+            run_command=run_command,
+            command_for_display=_command_for_display,
+            read_json_file=_read_json_file,
+        )
+    except market_report_commands.MarketPackagePlanError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    except market_report_package_service.MarketReportPackageError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
 
 def _run_us_sec_rebuild_package(ticker: str, payload: dict[str, Any]) -> dict[str, Any]:
     try:
-        plan = market_report_commands.build_us_sec_rebuild_package_plan(
+        return market_report_package_service.run_us_sec_rebuild_package(
             ticker=ticker,
+            payload=payload,
+            executable=sys.executable,
+            repo_root=REPO_ROOT,
             latest_case_item=_latest_case_item_for_ticker,
             safe_package_path=_safe_package_path,
             read_json_file=_read_json_file,
             safe_under=_safe_under,
             package_build_script=US_SEC_PACKAGE_BUILD_SCRIPT,
             output_root=US_SEC_WIKI_ROOT,
+            run_command=run_command,
+            read_package_detail=_read_package_detail,
         )
     except market_report_commands.MarketPackagePlanError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
-    with tempfile.TemporaryDirectory(prefix="siq-sec-rebuild-") as tmp_dir:
-        tmp_source = Path(tmp_dir) / "filing.htm"
-        tmp_source.write_bytes(plan.source_path.read_bytes())
-        tmp_metadata = None
-        if plan.metadata_path is not None:
-            tmp_metadata = Path(tmp_dir) / "filing.metadata.json"
-            tmp_metadata.write_bytes(plan.metadata_path.read_bytes())
-        args = market_report_commands.us_sec_rebuild_package_args(
-            executable=sys.executable,
-            script=plan.script,
-            source_path=tmp_source,
-            output_root=plan.output_root,
-            metadata_path=tmp_metadata,
-            force=True,
-        )
-        try:
-            completed = run_command(args, cwd=REPO_ROOT, timeout=900)
-        except subprocess.TimeoutExpired as exc:
-            raise HTTPException(status_code=504, detail=f"US SEC package rebuild timed out: {exc}") from exc
-    if completed.returncode != 0:
-        raise HTTPException(status_code=500, detail=(completed.stderr or completed.stdout)[-2000:])
-    rebuilt_path = Path((completed.stdout or "").strip().splitlines()[-1])
-    detail = _read_package_detail(_safe_package_path(str(rebuilt_path)))
-    return market_report_commands.us_sec_rebuild_package_result_payload(
-        completed=completed,
-        ticker=plan.ticker,
-        package=detail,
-    )
+    except market_report_package_service.MarketReportPackageError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
 
 async def _proxy_request(
@@ -1075,79 +905,25 @@ def _llm_semantic_env() -> dict[str, str]:
 
 
 def _us_sec_company_dirs_from_payload(payload: dict[str, Any]) -> list[str]:
-    tickers = str(payload.get("tickers") or "").strip().upper()
-    values = [item for item in re.split(r"[,\\s]+", tickers) if item] if tickers else []
-    if not values and payload.get("ticker"):
-        values = [str(payload.get("ticker") or "").strip().upper()]
-    company_dirs: list[str] = []
-    for ticker in values:
-        item = _latest_case_item_for_ticker(ticker)
-        package_path = str((item or {}).get("package_path") or "")
-        if not package_path:
-            continue
-        try:
-            package_dir = _safe_package_path(package_path)
-        except HTTPException:
-            continue
-        if package_dir.parent.name == "reports":
-            company_dirs.append(package_dir.parent.parent.name)
-    return sorted(set(company_dirs))
+    return market_report_package_service.us_sec_company_dirs_from_payload(
+        payload,
+        latest_case_item=_latest_case_item_for_ticker,
+        safe_package_path=_safe_package_path,
+    )
 
 
 def _run_us_sec_semantic_prestep(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    semantic_requested = bool(payload.get("semantic") or payload.get("llm_semantic") or payload.get("wiki_semantic"))
-    if not semantic_requested or payload.get("dry_run", True):
-        return []
-    if not MARKET_RULE_SEMANTIC_SCRIPT.is_file() or not MARKET_LLM_SEMANTIC_SCRIPT.is_file():
-        return [{
-            "stage": "us_sec_semantic",
-            "status": "skipped",
-            "reason": "market semantic scripts missing",
-        }]
-    company_dirs = _us_sec_company_dirs_from_payload(payload)
-    if not company_dirs:
-        return [{
-            "stage": "us_sec_semantic",
-            "status": "skipped",
-            "reason": "no company dirs resolved from payload",
-        }]
-    results = []
-    for company_dir in company_dirs:
-        rule_args = [
-            sys.executable,
-            str(MARKET_RULE_SEMANTIC_SCRIPT),
-            "--market",
-            "US",
-            "--company",
-            company_dir,
-        ]
-        llm_args = [
-            sys.executable,
-            str(MARKET_LLM_SEMANTIC_SCRIPT),
-            "--market",
-            "US",
-            "--company",
-            company_dir,
-            "--allow-failures",
-        ]
-        rule_completed = run_command(rule_args, cwd=REPO_ROOT, timeout=900)
-        llm_completed = run_command(llm_args, cwd=REPO_ROOT, timeout=1800, env=_llm_semantic_env())
-        results.append({
-            "companyDir": company_dir,
-            "rule": {
-                "returncode": rule_completed.returncode,
-                "stdout": rule_completed.stdout[-4000:],
-                "stderr": rule_completed.stderr[-4000:],
-                "command": _command_for_display(rule_args),
-            },
-            "llm": {
-                "returncode": llm_completed.returncode,
-                "stdout": llm_completed.stdout[-4000:],
-                "stderr": llm_completed.stderr[-4000:],
-                "command": _command_for_display(llm_args),
-            },
-        })
-    return results
+    return market_report_package_service.run_us_sec_semantic_prestep(
+        payload,
+        executable=sys.executable,
+        repo_root=REPO_ROOT,
+        rule_semantic_script=MARKET_RULE_SEMANTIC_SCRIPT,
+        llm_semantic_script=MARKET_LLM_SEMANTIC_SCRIPT,
+        company_dirs_from_payload=_us_sec_company_dirs_from_payload,
+        llm_semantic_env=_llm_semantic_env,
+        run_command=run_command,
+        command_for_display=_command_for_display,
+    )
 
 
 def _extract_json_object(text: str) -> dict[str, Any] | None:
@@ -1365,32 +1141,36 @@ async def market_report_health() -> dict[str, Any]:
 
 @router.get("/market-reports/packages")
 async def list_market_packages(market: str | None = None, q: str = "", limit: int = 80) -> dict[str, Any]:
-    codes = _markets_to_search(market)
-    package_summaries: list[dict[str, Any]] = []
-    for code in codes:
-        for package_dir in _iter_market_packages(code):
-            package_summaries.append(_read_market_package_summary(package_dir))
-    return market_report_status_service.market_package_list_payload(
-        market_codes=codes,
-        package_summaries=package_summaries,
-        roots={code: _rel_or_abs(MARKET_WIKI_ROOTS[code]) for code in codes},
+    return market_report_package_service.market_package_list_payload(
+        market=market,
         query=q,
         limit=limit,
+        market_wiki_roots=MARKET_WIKI_ROOTS,
+        markets_to_search=_markets_to_search,
+        iter_market_packages=_iter_market_packages,
+        read_market_package_summary=_read_market_package_summary,
+        rel_or_abs=_rel_or_abs,
     )
 
 
 @router.get("/market-reports/package")
 async def market_package_detail_by_path(market: str, package_path: str) -> dict[str, Any]:
-    code = _market_code(market)
-    return _read_market_package_detail(_safe_market_package_path(code, package_path))
+    return market_report_package_service.market_package_detail_by_path_payload(
+        market=market,
+        package_path=package_path,
+        market_code=_market_code,
+        safe_market_package_path=_safe_market_package_path,
+        read_market_package_detail=_read_market_package_detail,
+    )
 
 
 @router.get("/market-reports/package/quality")
 async def market_package_quality_by_path(market: str, package_path: str) -> dict[str, Any]:
-    code = _market_code(market)
-    package_dir = _safe_market_package_path(code, package_path)
-    return market_report_status_service.market_package_quality_response(
-        package_dir,
+    return market_report_package_service.market_package_quality_payload_for_path(
+        market=market,
+        package_path=package_path,
+        market_code=_market_code,
+        safe_market_package_path=_safe_market_package_path,
         rel_or_abs=_rel_or_abs,
         read_json_file=_read_json_file,
         load_plan_for_package=_load_plan_for_package,
@@ -1401,13 +1181,17 @@ async def market_package_quality_by_path(market: str, package_path: str) -> dict
 
 @router.get("/market-reports/package-file")
 async def market_package_file(market: str, package_path: str, file: str, inline: bool = True) -> Response:
-    code = _market_code(market)
-    package_dir = _safe_market_package_path(code, package_path)
-    if not file or file.startswith("/") or ".." in Path(file).parts:
-        raise HTTPException(status_code=400, detail="Invalid file path")
-    target = _safe_under(package_dir, package_dir / file)
-    if not target.is_file():
-        raise HTTPException(status_code=404, detail="Package file not found")
+    try:
+        target = market_report_package_service.market_package_file_target(
+            market=market,
+            package_path=package_path,
+            file_path=file,
+            market_code=_market_code,
+            safe_market_package_path=_safe_market_package_path,
+            safe_under=_safe_under,
+        )
+    except market_report_package_service.MarketReportPackageError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     if inline:
         return FileResponse(target, media_type=_media_type_for_file(target), headers={"Content-Disposition": "inline"})
     return FileResponse(target, media_type=_media_type_for_file(target))
@@ -1425,11 +1209,10 @@ async def build_market_package(
         payload = {}
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="JSON object payload is required")
-    if wait:
-        return _run_market_package_build(payload)
-    return _queue_market_report_job(
-        "market-package-build",
-        lambda: _run_market_package_build(payload),
+    return _run_or_queue_market_report_job(
+        wait=wait,
+        kind="market-package-build",
+        target=lambda: _run_market_package_build(payload),
         created_by=_ops_user,
     )
 
@@ -1447,11 +1230,10 @@ async def parse_eu_market_report(
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="JSON object payload is required")
     payload = {**payload, "market": "EU"}
-    if wait:
-        return _run_market_package_build(payload)
-    return _queue_market_report_job(
-        "eu-market-report-parse",
-        lambda: _run_market_package_build(payload),
+    return _run_or_queue_market_report_job(
+        wait=wait,
+        kind="eu-market-report-parse",
+        target=lambda: _run_market_package_build(payload),
         created_by=_ops_user,
     )
 
@@ -1470,11 +1252,10 @@ async def import_market_package(
         raise HTTPException(status_code=400, detail="JSON object payload is required")
     payload = _payload_with_force_operator(payload, _ops_user)
     _enforce_legacy_market_package_import(payload)
-    if wait:
-        return _run_market_package_import(payload)
-    return _queue_market_report_job(
-        "market-package-import",
-        lambda: _run_market_package_import(payload),
+    return _run_or_queue_market_report_job(
+        wait=wait,
+        kind="market-package-import",
+        target=lambda: _run_market_package_import(payload),
         created_by=_ops_user,
     )
 
@@ -1492,11 +1273,10 @@ async def vector_ingest_market_package(
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="JSON object payload is required")
     payload = _payload_with_force_operator(payload, _ops_user)
-    if wait:
-        return _run_market_vector_ingest(payload)
-    return _queue_market_report_job(
-        "market-vector-ingest",
-        lambda: _run_market_vector_ingest(payload),
+    return _run_or_queue_market_report_job(
+        wait=wait,
+        kind="market-vector-ingest",
+        target=lambda: _run_market_vector_ingest(payload),
         created_by=_ops_user,
     )
 
@@ -1510,31 +1290,28 @@ async def market_document_full_import_status(
     document_full_path: str | None = None,
     task_id: str | None = None,
 ) -> dict[str, Any]:
-    if document_full_path and not market:
-        raise HTTPException(status_code=400, detail="market is required when document_full_path is provided")
-    codes = _markets_to_search(market)
-    if document_full_path and market:
-        for code in codes:
-            _market_document_full_path_keys(code, document_full_path)
-    return market_report_status_service.market_document_full_status_payload(
-        market_codes=codes,
-        document_full_roots=MARKET_DOCUMENT_FULL_ROOTS,
-        import_scripts=MARKET_DOCUMENT_FULL_IMPORT_SCRIPTS,
-        market_databases=MARKET_DATABASES,
-        schemas=MARKET_DOCUMENT_FULL_SCHEMAS,
-        rel_or_abs=_rel_or_abs,
-        db_status_for_market=lambda code: _market_document_full_db_status(
-            code,
+    try:
+        return market_report_postgres_service.market_document_full_import_status(
+            market=market,
             parse_run_id=parse_run_id,
             filing_id=filing_id,
             document_full_path=document_full_path,
             task_id=task_id,
-        ),
-        record_fact_counts=lambda code, db_status: observability.record_ingestion_fact_counts(
-            market=code,
-            counts=db_status,
-        ),
-    )
+            markets_to_search=_markets_to_search,
+            document_full_path_keys=_market_document_full_path_keys,
+            document_full_roots=MARKET_DOCUMENT_FULL_ROOTS,
+            import_scripts=MARKET_DOCUMENT_FULL_IMPORT_SCRIPTS,
+            market_databases=MARKET_DATABASES,
+            schemas=MARKET_DOCUMENT_FULL_SCHEMAS,
+            rel_or_abs=_rel_or_abs,
+            db_status_for_market=_market_document_full_db_status,
+            record_fact_counts=lambda code, db_status: observability.record_ingestion_fact_counts(
+                market=code,
+                counts=db_status,
+            ),
+        )
+    except market_report_postgres_service.MarketReportPostgresError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
 
 @router.post("/market-reports/document-full/import")
@@ -1549,11 +1326,10 @@ async def import_market_document_full(
         payload = {}
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="JSON object payload is required")
-    if wait:
-        return _run_market_document_full_import(payload)
-    return _queue_market_report_job(
-        "market-document-full-import",
-        lambda: _run_market_document_full_import(payload),
+    return _run_or_queue_market_report_job(
+        wait=wait,
+        kind="market-document-full-import",
+        target=lambda: _run_market_document_full_import(payload),
         created_by=_ops_user,
     )
 
@@ -1585,26 +1361,30 @@ async def run_market_ingestion_eval(
         payload = {}
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="JSON object payload is required")
-    if wait:
-        return _run_market_ingestion_eval(payload)
-    return _queue_market_report_job(
-        "market-ingestion-eval",
-        lambda: _run_market_ingestion_eval(payload),
+    return _run_or_queue_market_report_job(
+        wait=wait,
+        kind="market-ingestion-eval",
+        target=lambda: _run_market_ingestion_eval(payload),
         created_by=_ops_user,
     )
 
 
 @router.get("/market-reports/packages/{filing_id}")
 async def market_package_detail_by_filing_id(filing_id: str, market: str | None = None) -> dict[str, Any]:
-    _code, package_dir = _find_market_package_by_filing_id(filing_id, market)
-    return _read_market_package_detail(package_dir)
+    return market_report_package_service.market_package_detail_by_filing_id_payload(
+        filing_id=filing_id,
+        market=market,
+        find_market_package_by_filing_id=_find_market_package_by_filing_id,
+        read_market_package_detail=_read_market_package_detail,
+    )
 
 
 @router.get("/market-reports/packages/{filing_id}/quality")
 async def market_package_quality_by_filing_id(filing_id: str, market: str | None = None) -> dict[str, Any]:
-    _code, package_dir = _find_market_package_by_filing_id(filing_id, market)
-    return market_report_status_service.market_package_quality_response(
-        package_dir,
+    return market_report_package_service.market_package_quality_payload_for_filing_id(
+        filing_id=filing_id,
+        market=market,
+        find_market_package_by_filing_id=_find_market_package_by_filing_id,
         rel_or_abs=_rel_or_abs,
         read_json_file=_read_json_file,
         load_plan_for_package=_load_plan_for_package,
@@ -1618,30 +1398,23 @@ async def market_evidence_detail(
     market: str | None = None,
     package_path: str | None = None,
 ) -> dict[str, Any]:
-    package_dir = _safe_market_package_path(_market_code(market), package_path) if market and package_path else None
-    code, found_package, entry = _find_market_evidence(evidence_id, market=market, package_dir=package_dir)
-    file_path = entry.get("local_path")
-    file_url = None
-    if file_path:
-        file_url = f"/api/market-reports/package-file?{urlencode({'market': code, 'package_path': _rel_or_abs(found_package), 'file': str(file_path)})}"
-    return {
-        "ok": True,
-        "market": code,
-        "package_path": _rel_or_abs(found_package),
-        "evidence": entry,
-        "file_url": file_url,
-    }
+    return market_report_package_service.market_evidence_detail_payload(
+        evidence_id=evidence_id,
+        market=market,
+        package_path=package_path,
+        market_code=_market_code,
+        safe_market_package_path=_safe_market_package_path,
+        find_market_evidence=_find_market_evidence,
+        rel_or_abs=_rel_or_abs,
+    )
 
 
 @router.get("/us-sec/case-set")
 async def us_sec_case_set_status() -> dict[str, Any]:
-    case_set = _read_json_file(US_SEC_CASE_SET_PATH, {})
-    ingest_report = _read_json_file(US_SEC_INGEST_REPORT_PATH, {})
-    return market_report_status_service.us_sec_case_set_status_payload(
-        case_set=case_set,
-        ingest_report=ingest_report,
-        case_set_path=str(US_SEC_CASE_SET_PATH),
-        ingest_report_path=str(US_SEC_INGEST_REPORT_PATH),
+    return market_report_package_service.us_sec_case_set_status_payload(
+        case_set_path=US_SEC_CASE_SET_PATH,
+        ingest_report_path=US_SEC_INGEST_REPORT_PATH,
+        read_json_file=_read_json_file,
         semantic_status_for_item=_us_sec_semantic_status_for_case_item,
     )
 
@@ -1658,31 +1431,38 @@ async def us_sec_case_set_ingest(
         payload = {}
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="JSON object payload is required")
-    if wait:
-        return _run_us_sec_case_set_ingest(payload)
-    return _queue_market_report_job(
-        "us-sec-ingest",
-        lambda: _run_us_sec_case_set_ingest(payload),
+    return _run_or_queue_market_report_job(
+        wait=wait,
+        kind="us-sec-ingest",
+        target=lambda: _run_us_sec_case_set_ingest(payload),
         created_by=_ops_user,
     )
 
 
 @router.get("/us-sec/packages/{ticker}")
 async def us_sec_package_detail(ticker: str) -> dict[str, Any]:
-    item = _latest_case_item_for_ticker(ticker)
-    if not item:
-        raise HTTPException(status_code=404, detail=f"No package for ticker {ticker}")
-    return _read_package_detail(_safe_package_path(str(item.get("package_path") or "")))
+    try:
+        return market_report_package_service.us_sec_package_detail_by_ticker_payload(
+            ticker,
+            latest_case_item_for_ticker=_latest_case_item_for_ticker,
+            safe_package_path=_safe_package_path,
+            read_package_detail=_read_package_detail,
+        )
+    except market_report_package_service.MarketReportPackageError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
 
 @router.get("/us-sec/package-file")
 async def us_sec_package_file(package_path: str, file: str, inline: bool = True) -> Response:
     package_dir = _safe_package_path(package_path)
-    if not file or file.startswith("/") or ".." in Path(file).parts:
-        raise HTTPException(status_code=400, detail="Invalid file path")
-    target = _safe_under(package_dir, package_dir / file)
-    if not target.is_file():
-        raise HTTPException(status_code=404, detail="Package file not found")
+    try:
+        target = market_report_package_service.package_file_target(
+            package_dir=package_dir,
+            file_path=file,
+            safe_under=_safe_under,
+        )
+    except market_report_package_service.MarketReportPackageError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     if inline:
         return FileResponse(target, media_type=_media_type_for_file(target), headers={"Content-Disposition": "inline"})
     return FileResponse(target, media_type=_media_type_for_file(target))
@@ -1701,11 +1481,10 @@ async def us_sec_rebuild_package(
         payload = {}
     if not isinstance(payload, dict):
         payload = {}
-    if wait:
-        return _run_us_sec_rebuild_package(ticker, payload)
-    return _queue_market_report_job(
-        "us-sec-rebuild",
-        lambda: _run_us_sec_rebuild_package(ticker, payload),
+    return _run_or_queue_market_report_job(
+        wait=wait,
+        kind="us-sec-rebuild",
+        target=lambda: _run_us_sec_rebuild_package(ticker, payload),
         created_by=_ops_user,
     )
 
@@ -1715,10 +1494,10 @@ async def market_report_job_status(
     job_id: str,
     _ops_user=Depends(require_permission("system.config")),
 ) -> dict[str, Any]:
-    job = market_report_queueing.get_market_report_job(
-        job_service=market_report_job_service,
-        job_id=job_id,
-    )
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    return job
+    try:
+        return market_report_queueing.market_report_job_status(
+            job_service=market_report_job_service,
+            job_id=job_id,
+        )
+    except market_report_queueing.MarketReportJobError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc

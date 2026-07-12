@@ -1,17 +1,17 @@
 import anyio
 import pytest
-from sqlalchemy.ext.asyncio import create_async_engine
-from sqlmodel import SQLModel
-from sqlmodel.ext.asyncio.session import AsyncSession
-
 from services.usage_service import (
     AGENT_QUESTION_EVENT,
     DOCUMENT_PARSE_EVENT,
+    ensure_within_quota_async,
     get_usage_count_async,
     record_usage_async,
-    ensure_within_quota_async,
     usage_response_payload_async,
 )
+from sqlalchemy import event
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlmodel import SQLModel
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 
 async def _with_usage_db(tmp_path, callback):
@@ -26,6 +26,8 @@ async def _with_usage_db(tmp_path, callback):
 
 
 def test_async_usage_helpers_record_and_sum_counts(tmp_path):
+    statements = []
+
     async def run_case(session: AsyncSession):
         first = await record_usage_async(
             session,
@@ -51,7 +53,31 @@ def test_async_usage_helpers_record_and_sum_counts(tmp_path):
         assert await get_usage_count_async(session, 7, DOCUMENT_PARSE_EVENT, day_key="2099-01-01") == 0
         assert await get_usage_count_async(session, 8, DOCUMENT_PARSE_EVENT) == 0
 
-    anyio.run(_with_usage_db, tmp_path, run_case)
+    async def run_with_sql_capture():
+        engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'usage-sum.db'}")
+        event.listen(
+            engine.sync_engine,
+            "before_cursor_execute",
+            lambda _conn, _cursor, statement, _parameters, _context, _executemany: statements.append(statement),
+        )
+        try:
+            async with engine.begin() as connection:
+                await connection.run_sync(SQLModel.metadata.create_all)
+            async with AsyncSession(engine) as session:
+                await run_case(session)
+        finally:
+            await engine.dispose()
+
+    anyio.run(run_with_sql_capture)
+
+    aggregate_queries = [
+        statement.lower()
+        for statement in statements
+        if "from usage_events" in statement.lower() and "sum(" in statement.lower()
+    ]
+    assert len(aggregate_queries) == 3
+    assert all("sum(usage_events.count)" in statement for statement in aggregate_queries)
+    assert all("usage_events.id" not in statement for statement in aggregate_queries)
 
 
 def test_async_quota_helper_matches_sync_quota_contract(tmp_path):

@@ -3,6 +3,7 @@ import type {
   MarketDocumentFullPostgresStatus,
   UsSecCaseSetItem,
   UsSecCaseSetStatus,
+  UsSecPackageBuildRequest,
   UsSecPackageDetail,
 } from './api'
 import {
@@ -267,6 +268,25 @@ function pathIncludesAccession(packagePath: string | undefined, accession: strin
   return packagePath.toLowerCase().includes(accession.toLowerCase())
 }
 
+function packageFilePath(packagePath: unknown, file: unknown): string {
+  const base = normalized(packagePath).replace(/\/+$/, '')
+  const localFile = normalized(file).replace(/^\/+/, '')
+  if (!base || !localFile) return ''
+  if (localFile === base || localFile.startsWith(`${base}/`)) return localFile
+  return `${base}/${localFile}`
+}
+
+function detailMatchesTaskPackage(
+  task?: UsSecRecentTaskRow | null,
+  detail?: UsSecPackageDetail | null,
+): boolean {
+  const taskPackagePath = normalized(task?.packagePath || task?.item.package_path)
+  if (!taskPackagePath) return true
+  const detailManifest = plainRecord(detail?.manifest)
+  const detailPackagePath = normalized(detail?.package_path || detailManifest.package_path)
+  return Boolean(detailPackagePath && detailPackagePath === taskPackagePath)
+}
+
 function documentFullPathFromParserResultDir(value: unknown): string {
   const path = pathValue(value).replace(/\/+$/, '')
   if (!path) return ''
@@ -286,11 +306,12 @@ export function deriveUsSecDocumentFullImportPath(
   task?: UsSecRecentTaskRow | null,
   detail?: UsSecPackageDetail | null,
 ): string {
-  const manifest = plainRecord(detail?.manifest)
-  const detailPaths = plainRecord(detail?.full_document_paths || manifest.full_document_paths)
+  const scopedDetail = detailMatchesTaskPackage(task, detail) ? detail : null
+  const manifest = plainRecord(scopedDetail?.manifest)
+  const detailPaths = plainRecord(scopedDetail?.full_document_paths || manifest.full_document_paths)
   const itemPaths = plainRecord(task?.item.full_document_paths)
   const explicitPath = firstPathValue(
-    detail?.document_full_path,
+    scopedDetail?.document_full_path,
     manifest.document_full_path,
     detailPaths.document_full_path,
     detailPaths.document_full,
@@ -304,11 +325,11 @@ export function deriveUsSecDocumentFullImportPath(
   const fromExplicitPath = documentFullPathFromParserResultDir(explicitPath)
   if (fromExplicitPath) return fromExplicitPath
 
-  const parserResultDir = detail?.parser_result_dir || manifest.parser_result_dir || task?.item.parser_result_dir
+  const parserResultDir = scopedDetail?.parser_result_dir || manifest.parser_result_dir || task?.item.parser_result_dir
   const fromDir = documentFullPathFromParserResultDir(parserResultDir)
   if (fromDir) return fromDir
 
-  const parserResultTaskId = detail?.parser_result_task_id || manifest.parser_result_task_id || task?.item.parser_result_task_id
+  const parserResultTaskId = scopedDetail?.parser_result_task_id || manifest.parser_result_task_id || task?.item.parser_result_task_id
   return parserResultTaskId
     ? documentFullPathFromParserResultDir(`data/parser-results/us-sec/${parserResultTaskId}`)
     : ''
@@ -341,12 +362,50 @@ export function findUsSecCaseItem(
     && (!periodEnd || normalized(item.period_end) === periodEnd)
   )
   if (exact) return exact
+  const company = normalized(report.companyName || report.company).toLowerCase()
+  const accessionMatch = accession
+    ? items.find((item) =>
+      pathIncludesAccession(item.package_path, accession)
+      && (!periodEnd || normalized(item.period_end) === periodEnd)
+    ) || items.find((item) => pathIncludesAccession(item.package_path, accession))
+    : null
+  if (accessionMatch) return accessionMatch
+  if (ticker && periodEnd) {
+    const periodMatch = items.find((item) => upper(item.ticker) === ticker && normalized(item.period_end) === periodEnd)
+    if (periodMatch) return periodMatch
+  }
+  if (company && periodEnd) {
+    const companyPeriodMatch = items.find((item) =>
+      normalized(item.company_name).toLowerCase() === company
+      && normalized(item.period_end) === periodEnd
+    )
+    if (companyPeriodMatch) return companyPeriodMatch
+  }
+  if (accession || periodEnd) return null
   const tickerMatch = ticker ? items.find((item) => upper(item.ticker) === ticker) : null
   if (tickerMatch) return tickerMatch
-  const company = normalized(report.companyName || report.company).toLowerCase()
   return company
     ? items.find((item) => normalized(item.company_name).toLowerCase() === company) || null
     : null
+}
+
+export function deriveUsSecPackageRebuildRequest(
+  task?: UsSecRecentTaskRow | null,
+  detail?: UsSecPackageDetail | null,
+): UsSecPackageBuildRequest | null {
+  const scopedDetail = detailMatchesTaskPackage(task, detail) ? detail : null
+  const manifest = plainRecord(scopedDetail?.manifest)
+  const packagePath = normalized(task?.packagePath || task?.item.package_path || scopedDetail?.package_path || manifest.package_path)
+  if (!packagePath) return null
+  const localSource = normalized(
+    manifest.local_source_path
+      || manifest.source_path
+      || manifest.raw_html
+      || scopedDetail?.preview?.raw_html
+      || 'raw/filing.htm',
+  )
+  const sourcePath = packageFilePath(packagePath, localSource)
+  return sourcePath ? { source_path: sourcePath, force: true } : null
 }
 
 export function deriveUsSecParseStatus({

@@ -145,6 +145,15 @@ MAX_FILES_PER_UPLOAD = int(os.environ.get("MAX_FILES_PER_UPLOAD", "5"))
 MAX_BATCH_UPLOAD_SIZE = int(
     os.environ.get("MAX_BATCH_UPLOAD_SIZE", str(MAX_FILE_SIZE * MAX_FILES_PER_UPLOAD))
 )
+PARSER_QUEUE_GLOBAL_TASK_LIMIT = int(os.environ.get("SIQ_PDF_QUEUE_GLOBAL_TASK_LIMIT", "32"))
+PARSER_QUEUE_OWNER_TASK_LIMIT = int(os.environ.get("SIQ_PDF_QUEUE_OWNER_TASK_LIMIT", "8"))
+PARSER_QUEUE_GLOBAL_BYTES_LIMIT = int(
+    os.environ.get("SIQ_PDF_QUEUE_GLOBAL_BYTES_LIMIT", str(2 * 1024 * 1024 * 1024))
+)
+PARSER_QUEUE_OWNER_BYTES_LIMIT = int(
+    os.environ.get("SIQ_PDF_QUEUE_OWNER_BYTES_LIMIT", str(512 * 1024 * 1024))
+)
+PARSER_QUEUE_RETRY_AFTER_SECONDS = max(1, int(os.environ.get("SIQ_PDF_QUEUE_RETRY_AFTER_SECONDS", "30")))
 TASK_RETENTION_HOURS = int(os.environ.get("TASK_RETENTION_HOURS", "0"))
 CLEANUP_INTERVAL_SECONDS = int(os.environ.get("CLEANUP_INTERVAL_SECONDS", "600"))
 CLEANUP_ORPHAN_DATA = os.environ.get("CLEANUP_ORPHAN_DATA", "0") == "1"
@@ -500,15 +509,23 @@ def _validate_reference_market(source_path, payload, submit_config):
 
 
 def _copy_reference_to_upload(source_path, upload_path):
-    os.makedirs(os.path.dirname(upload_path), exist_ok=True)
-    try:
-        os.link(source_path, upload_path)
-    except OSError:
-        shutil.copy2(source_path, upload_path)
+    shutil.copy2(source_path, upload_path)
+
+
+def _new_upload_path():
+    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+    while True:
+        upload_path = os.path.join(UPLOAD_FOLDER, f"{uuid.uuid4().hex}.pdf")
+        try:
+            file_descriptor = os.open(upload_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        except FileExistsError:
+            continue
+        os.close(file_descriptor)
+        return upload_path
 
 
 def _persist_prepared_upload_tasks(prepared_uploads):
-    created_tasks = []
+    tasks = []
     for prepared in prepared_uploads:
         task = {
             "task_id": prepared["task_id"],
@@ -547,19 +564,74 @@ def _persist_prepared_upload_tasks(prepared_uploads):
             "info",
         )
         _append_log(task, "已加入本地解析队列，等待轮到当前任务。", "info")
-        _persist_task(task, allow_insert=True)
-        created_tasks.append(
+        tasks.append(task)
+    capacity = task_repository.admit_tasks_if_capacity(
+        DB_PATH,
+        tasks,
+        global_task_limit=PARSER_QUEUE_GLOBAL_TASK_LIMIT,
+        owner_task_limit=PARSER_QUEUE_OWNER_TASK_LIMIT,
+        global_bytes_limit=PARSER_QUEUE_GLOBAL_BYTES_LIMIT,
+        owner_bytes_limit=PARSER_QUEUE_OWNER_BYTES_LIMIT,
+        lock=_db_lock,
+    )
+    if not capacity.get("admitted"):
+        return [], capacity
+    created_tasks = [
+        {
+            "task_id": task["task_id"],
+            "filename": task["filename"],
+            "file_sha256": task["file_sha256"],
+            "pdf_page_count": task["pdf_page_count"],
+            "market": task["submit_config"].get("market"),
+            "market_scope": task["market_scope"],
+            "parse_config_hash": task["parse_config_hash"],
+        }
+        for task in tasks
+    ]
+    return created_tasks, capacity
+
+
+def _queue_admission_rejection_response(prepared_uploads, admission):
+    for prepared in prepared_uploads:
+        _safe_unlink(prepared.get("upload_path"))
+    if admission.get("reason") == "task_id_conflict":
+        response = jsonify(
             {
-                "task_id": prepared["task_id"],
-                "filename": prepared["filename"],
-                "file_sha256": prepared["file_sha256"],
-                "pdf_page_count": prepared["pdf_page_count"],
-                "market": prepared["submit_config"].get("market"),
-                "market_scope": prepared["market_scope"],
-                "parse_config_hash": prepared["parse_config_hash"],
+                "error": "parser_task_id_conflict",
+                "message": "任务 ID 已存在，请使用新的任务 ID。",
+                "task_ids": list(admission.get("conflict_task_ids") or []),
             }
         )
-    return created_tasks
+        response.status_code = 409
+        return response
+    payload = {
+        "error": "parser_queue_capacity_exceeded",
+        "message": "解析队列繁忙，请稍后重试。",
+        "scope": list(admission.get("exceeded") or []),
+        "capacity": {
+            key: admission.get(key)
+            for key in (
+                "global_active_tasks",
+                "global_active_bytes",
+                "owner_active_tasks",
+                "owner_active_bytes",
+                "requested_tasks",
+                "requested_bytes",
+                "global_task_limit",
+                "owner_task_limit",
+                "global_bytes_limit",
+                "owner_bytes_limit",
+            )
+        },
+    }
+    response = jsonify(payload)
+    response.status_code = 503
+    response.headers["Retry-After"] = str(PARSER_QUEUE_RETRY_AFTER_SECONDS)
+    return response
+
+
+def _queue_capacity_response(prepared_uploads, capacity):
+    return _queue_admission_rejection_response(prepared_uploads, capacity)
 
 
 def _submit_task_to_mineru(task):
@@ -3762,6 +3834,7 @@ def index():
 @app.route("/api/health", methods=["GET"])
 def health():
     readiness = _mineru_submit_readiness()
+    capacity = task_repository.capacity_snapshot(DB_PATH)
     return jsonify(
         {
             "flask": True,
@@ -3778,6 +3851,13 @@ def health():
             "vlm_detail": readiness["vlm_detail"],
             "submit_ready": readiness["submit_ready"],
             "warning": readiness["warning"],
+            "queue_capacity": {
+                **capacity,
+                "global_task_limit": PARSER_QUEUE_GLOBAL_TASK_LIMIT,
+                "owner_task_limit": PARSER_QUEUE_OWNER_TASK_LIMIT,
+                "global_bytes_limit": PARSER_QUEUE_GLOBAL_BYTES_LIMIT,
+                "owner_bytes_limit": PARSER_QUEUE_OWNER_BYTES_LIMIT,
+            },
         }
     )
 
@@ -3818,7 +3898,7 @@ def upload():
         local_task_id = requested_task_id or str(uuid.uuid4())
         skip_duplicate_lookup = bool(requested_task_id)
         requested_task_id = None
-        upload_path = os.path.join(UPLOAD_FOLDER, f"{local_task_id}.pdf")
+        upload_path = _new_upload_path()
         total_size = 0
         digest = hashlib.sha256()
 
@@ -3885,7 +3965,9 @@ def upload():
             }
         )
 
-    created_tasks = _persist_prepared_upload_tasks(prepared_uploads)
+    created_tasks, capacity = _persist_prepared_upload_tasks(prepared_uploads)
+    if not capacity.get("admitted"):
+        return _queue_admission_rejection_response(prepared_uploads, capacity)
     _wake_queue_worker()
     return jsonify(
         {
@@ -3919,20 +4001,37 @@ def upload_from_download_reference():
     if not display_filename.lower().endswith(".pdf"):
         return jsonify({"error": f"仅支持 PDF 文件: {display_filename}"}), 400
 
-    total_size = os.path.getsize(source_path)
+    source_size = os.path.getsize(source_path)
+    if source_size <= 0:
+        return jsonify({"error": f"空文件: {display_filename}"}), 400
+    if source_size > MAX_FILE_SIZE:
+        return jsonify({"error": f"文件超过 {MAX_FILE_SIZE // 1024 // 1024} MB 限制: {display_filename}"}), 400
+
+    local_task_id = requested_task_id or str(uuid.uuid4())
+    upload_path = _new_upload_path()
+    try:
+        _copy_reference_to_upload(source_path, upload_path)
+    except OSError as exc:
+        _safe_unlink(upload_path)
+        return jsonify({"error": f"引用 PDF 入队失败: {exc}"}), 500
+    total_size = os.path.getsize(upload_path)
     if total_size <= 0:
+        _safe_unlink(upload_path)
         return jsonify({"error": f"空文件: {display_filename}"}), 400
     if total_size > MAX_FILE_SIZE:
+        _safe_unlink(upload_path)
         return jsonify({"error": f"文件超过 {MAX_FILE_SIZE // 1024 // 1024} MB 限制: {display_filename}"}), 400
-    if not _looks_like_pdf(source_path):
+    if not _looks_like_pdf(upload_path):
+        _safe_unlink(upload_path)
         return jsonify({"error": f"文件内容不是有效 PDF: {display_filename}"}), 400
 
-    pdf_page_count = _get_pdf_page_count(source_path)
+    pdf_page_count = _get_pdf_page_count(upload_path)
     if pdf_page_count and submit_config.get("end_page_id") not in (None, ""):
         if int(submit_config["end_page_id"]) >= int(pdf_page_count):
+            _safe_unlink(upload_path)
             return jsonify({"error": f"结束页码超出 PDF 页数: {display_filename} 共 {pdf_page_count} 页"}), 400
 
-    file_sha256 = _sha256_file(source_path)
+    file_sha256 = _sha256_file(upload_path)
     if not requested_task_id:
         duplicate_task = _find_duplicate_file_hash_task(
             file_sha256,
@@ -3941,19 +4040,12 @@ def upload_from_download_reference():
         )
         if duplicate_task:
             duplicate_status = str(duplicate_task.get("status") or "").lower()
+            _safe_unlink(upload_path)
             if duplicate_status in {"queued", "uploaded", "submitting", "submitted", "pending", "processing"}:
                 message = f"该文档内容正在解析或排队中，请勿重复提交: {display_filename}"
             else:
                 message = f"该文档内容已存在解析任务，请查看已有结果: {display_filename}"
             return _duplicate_content_response(display_filename, duplicate_task, message=message)
-
-    local_task_id = requested_task_id or str(uuid.uuid4())
-    upload_path = os.path.join(UPLOAD_FOLDER, f"{local_task_id}.pdf")
-    try:
-        _copy_reference_to_upload(source_path, upload_path)
-    except OSError as exc:
-        _safe_unlink(upload_path)
-        return jsonify({"error": f"引用 PDF 入队失败: {exc}"}), 500
 
     prepared_uploads = [
         {
@@ -3971,7 +4063,9 @@ def upload_from_download_reference():
             "log_message": f"服务端引用入队: {display_filename} ({total_size // 1024 // 1024}MB)",
         }
     ]
-    created_tasks = _persist_prepared_upload_tasks(prepared_uploads)
+    created_tasks, capacity = _persist_prepared_upload_tasks(prepared_uploads)
+    if not capacity.get("admitted"):
+        return _queue_admission_rejection_response(prepared_uploads, capacity)
     _wake_queue_worker()
     return jsonify(
         {
@@ -3994,7 +4088,7 @@ def cancel_task(task_id):
     mineru_task_id = task.get("mineru_task_id")
     if mineru_task_id:
         cancel_resp = _json_request(f"{MINERU_API_BASE}/tasks/{mineru_task_id}", method="DELETE", timeout=10)
-        upstream_cancelled = not cancel_resp.get("_error")
+        upstream_cancelled = task_lifecycle_service.upstream_cancel_confirmed(cancel_resp)
 
     update = task_lifecycle_service.build_cancel_task_update(
         task,
@@ -4060,54 +4154,44 @@ def reparse_task(task_id):
         return jsonify({"error": "原始 PDF 不存在，无法重新解析"}), 400
 
     local_task_id = str(uuid.uuid4())
-    upload_path = os.path.join(UPLOAD_FOLDER, f"{local_task_id}.pdf")
-    shutil.copy2(source_upload_path, upload_path)
-    total_size = os.path.getsize(upload_path)
+    upload_path = _new_upload_path()
+    try:
+        shutil.copy2(source_upload_path, upload_path)
+        total_size = os.path.getsize(upload_path)
+    except OSError as exc:
+        _safe_unlink(upload_path)
+        return jsonify({"error": f"重新解析 PDF 复制失败: {exc}"}), 500
     display_filename = _safe_client_filename(source_task.get("filename") or f"{task_id}.pdf")
     submit_config = dict(source_task.get("submit_config") or {})
     owner_scope = _current_owner_scope(default_market=submit_config.get("market") or source_task.get("market_scope"))
     parse_config_hash = _parse_config_hash(submit_config)
     pdf_page_count = source_task.get("pdf_page_count") or _get_pdf_page_count(upload_path)
 
-    task = {
-        "task_id": local_task_id,
-        "mineru_task_id": None,
-        "filename": display_filename,
-        "file_sha256": source_task.get("file_sha256") or _sha256_file(upload_path),
-        "owner_id": owner_scope["owner_id"],
-        "tenant_id": owner_scope["tenant_id"],
-        "market_scope": owner_scope["market_scope"],
-        "parse_config_hash": parse_config_hash,
-        "file_size": total_size,
-        "pdf_page_count": pdf_page_count,
-        "status": "queued",
-        "stage": "queued",
-        "created_at": _now_iso(),
-        "uploaded_at": _now_iso(),
-        "submitted_at": None,
-        "started_at": None,
-        "completed_at": None,
-        "cancelled": False,
-        "error": None,
-        "markdown_path": None,
-        "upload_path": upload_path,
-        "last_progress_log_time": None,
-        "last_status_payload": None,
-        "last_polled_at": None,
-        "consecutive_status_failures": 0,
-        "queue_position": None,
-        "submit_config": submit_config,
-        "logs": [],
-    }
-    _append_log(task, f"从任务 {task_id[:8]} 复制原始 PDF，已创建重新解析任务。", "info")
-    _append_log(task, "已加入本地解析队列，等待轮到当前任务。", "info")
-    _persist_task(task, allow_insert=True)
+    prepared_uploads = [
+        {
+            "task_id": local_task_id,
+            "filename": display_filename,
+            "file_sha256": _sha256_file(upload_path),
+            "owner_id": owner_scope["owner_id"],
+            "tenant_id": owner_scope["tenant_id"],
+            "market_scope": owner_scope["market_scope"],
+            "parse_config_hash": parse_config_hash,
+            "file_size": total_size,
+            "pdf_page_count": pdf_page_count,
+            "upload_path": upload_path,
+            "submit_config": submit_config,
+            "log_message": f"从任务 {task_id[:8]} 复制原始 PDF，已创建重新解析任务。",
+        }
+    ]
+    created_tasks, admission = _persist_prepared_upload_tasks(prepared_uploads)
+    if not admission.get("admitted"):
+        return _queue_admission_rejection_response(prepared_uploads, admission)
     _wake_queue_worker()
 
     return jsonify(
         {
             "success": True,
-            "task_id": local_task_id,
+            "task_id": created_tasks[0]["task_id"],
             "filename": display_filename,
             "pdf_page_count": pdf_page_count,
             "market": submit_config.get("market"),
@@ -4475,7 +4559,7 @@ def delete_task(task_id):
     mineru_task_id = task.get("mineru_task_id")
     if not is_terminal_status(task.get("status")) and mineru_task_id:
         cancel_resp = _json_request(f"{MINERU_API_BASE}/tasks/{mineru_task_id}", method="DELETE", timeout=5)
-        upstream_cancelled = not cancel_resp.get("_error")
+        upstream_cancelled = task_lifecycle_service.upstream_cancel_confirmed(cancel_resp)
 
     _safe_unlink(task.get("upload_path"))
     _safe_remove(task.get("markdown_path"))

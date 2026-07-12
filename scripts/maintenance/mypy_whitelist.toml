@@ -1,0 +1,13 @@
+[settings]
+config_file = "mypy.ini"
+
+[[target]]
+name = "maintenance-quality-gates"
+paths = [
+  "scripts/maintenance/check_api_ci_test_coverage.py",
+  "scripts/maintenance/check_large_file_changes.py",
+  "scripts/maintenance/check_local_security_hygiene.py",
+  "scripts/maintenance/check_mypy_whitelist.py",
+  "scripts/maintenance/check_python_quality_touched.py",
+  "scripts/maintenance/run_performance_baseline.py",
+]

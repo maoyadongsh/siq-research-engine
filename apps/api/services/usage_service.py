@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from sqlmodel import SQLModel, Field, Session, select
+from sqlalchemy import Index, func
+from sqlmodel import Field, Session, SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
-
 
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
 
@@ -18,6 +17,14 @@ def utcnow_naive() -> datetime:
 
 class UsageEvent(SQLModel, table=True):
     __tablename__ = "usage_events"
+    __table_args__ = (
+        Index(
+            "idx_usage_events_user_type_date",
+            "user_id",
+            "event_type",
+            "event_date",
+        ),
+    )
 
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(index=True)
@@ -100,15 +107,12 @@ def _quota_limit_for_user(user_role: str, event_type: str) -> Optional[int]:
 
 def get_usage_count(session: Session, user_id: int, event_type: str, day_key: Optional[str] = None) -> int:
     target_day = day_key or current_day_key()
-    statement = select(UsageEvent).where(
+    statement = select(func.coalesce(func.sum(UsageEvent.count), 0)).where(
         UsageEvent.user_id == user_id,
         UsageEvent.event_type == event_type,
         UsageEvent.event_date == target_day,
     )
-    total = 0
-    for item in session.exec(statement).all():
-        total += int(item.count or 0)
-    return total
+    return int(session.exec(statement).one())
 
 
 async def get_usage_count_async(
@@ -118,16 +122,13 @@ async def get_usage_count_async(
     day_key: Optional[str] = None,
 ) -> int:
     target_day = day_key or current_day_key()
-    statement = select(UsageEvent).where(
+    statement = select(func.coalesce(func.sum(UsageEvent.count), 0)).where(
         UsageEvent.user_id == user_id,
         UsageEvent.event_type == event_type,
         UsageEvent.event_date == target_day,
     )
-    total = 0
     result = await session.exec(statement)
-    for item in result.all():
-        total += int(item.count or 0)
-    return total
+    return int(result.one())
 
 
 def record_usage(

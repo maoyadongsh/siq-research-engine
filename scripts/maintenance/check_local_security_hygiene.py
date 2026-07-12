@@ -10,7 +10,6 @@ import stat
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SENSITIVE_LOCAL_DIRS = ("data", "artifacts", "runtime", "runtimes", "var")
 SENSITIVE_LOCAL_FILE_SCAN_MAX_DEPTH = 4
@@ -19,6 +18,8 @@ POSTGRES_RELEASE_GATE_WORKFLOW = Path(".github/workflows/market-postgres-release
 PRODUCTION_STARTUP_GUARD_FILES = (Path("start_all.sh"), Path("apps/api/start.sh"))
 CI_WORKFLOW = Path(".github/workflows/ci.yml")
 COMPOSE_FILE = Path("infra/docker/docker-compose.yml")
+MILVUS_COMPOSE_FILE = Path("infra/vector-index/milvus/docker-compose.yml")
+API_START_SCRIPT = Path("apps/api/start.sh")
 SUPERVISOR_CONFIG = Path("infra/supervisor/supervisord.conf")
 GITIGNORE_FILE = Path(".gitignore")
 REQUIRED_RUNTIME_IGNORE_PATTERNS = (
@@ -64,6 +65,15 @@ BINDING_TOKEN_PATTERN = re.compile(r"['\"]?([^\s,'\"]+:\d+(?::\d+)?)['\"]?")
 SERVICE_BLOCK_PATTERN = re.compile(r"(?ms)^  (?P<service>[A-Za-z0-9_-]+):\n(?P<body>.*?)(?=^  [A-Za-z0-9_-]+:|\Z)")
 USER_INSTRUCTION_PATTERN = re.compile(r"(?im)^\s*USER\s+(.+?)\s*$")
 SUPERVISOR_SECTION_PATTERN = re.compile(r"(?ms)^\[(?P<section>[^\]]+)\]\n(?P<body>.*?)(?=^\[[^\]]+\]|\Z)")
+MINIO_DEFAULT_CREDENTIAL_PATTERN = re.compile(
+    r"\bMINIO_(?:ACCESS_KEY|SECRET_KEY|ROOT_USER|ROOT_PASSWORD)\b.*(?:minioadmin|\$\{[^}:]+:-[^}]*minioadmin)",
+    re.IGNORECASE,
+)
+MILVUS_PUBLIC_CONTAINER_PORTS = {"8000", "9000", "9001", "9091", "19530"}
+DATABASE_URL_LOG_STATUS_CALL = '$(database_url_log_status "$database_url_for_log")'
+DATABASE_URL_DIRECT_LOG_PATTERN = re.compile(
+    r"\b(?:echo|printf)\b.*(?:\$\{?(?:SIQ_APP_DATABASE_URL|DATABASE_URL)\b|\$database_url_for_log\b)"
+)
 
 
 @dataclass(frozen=True)
@@ -115,6 +125,20 @@ def _contains_wide_5432_binding(line: str) -> bool:
         if token.startswith("0.0.0.0:5432:5432") or token.startswith("[::]:5432:5432"):
             return True
     return False
+
+
+def _contains_wide_milvus_binding(line: str) -> bool:
+    text = _strip_comment(line).strip()
+    if not text.startswith("-"):
+        return False
+    value = text[1:].strip().strip("\"'")
+    if value.startswith(("127.0.0.1:", "localhost:", "[::1]:")):
+        return False
+    if value.startswith(("0.0.0.0:", "[::]:")):
+        return value.rsplit(":", 1)[-1] in MILVUS_PUBLIC_CONTAINER_PORTS
+    if ":" not in value:
+        return False
+    return value.rsplit(":", 1)[-1] in MILVUS_PUBLIC_CONTAINER_PORTS
 
 
 def check_sensitive_local_dirs(repo_root: Path) -> list[HygieneFinding]:
@@ -201,6 +225,34 @@ def check_postgres_release_gate_workflow(repo_root: Path) -> list[HygieneFinding
     return findings
 
 
+def check_milvus_compose_hygiene(repo_root: Path) -> list[HygieneFinding]:
+    path = repo_root / MILVUS_COMPOSE_FILE
+    if not path.exists():
+        return []
+
+    findings: list[HygieneFinding] = []
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        if MINIO_DEFAULT_CREDENTIAL_PATTERN.search(_strip_comment(line)):
+            findings.append(
+                HygieneFinding(
+                    code="milvus_minio_default_credentials",
+                    path=_repo_relative(path, repo_root),
+                    detail="Milvus MinIO uses default or fallback minioadmin credentials",
+                    line=line_number,
+                )
+            )
+        if _contains_wide_milvus_binding(line):
+            findings.append(
+                HygieneFinding(
+                    code="milvus_public_port_binding",
+                    path=_repo_relative(path, repo_root),
+                    detail="Milvus/MinIO/Attu port is published without an explicit loopback host binding",
+                    line=line_number,
+                )
+            )
+    return findings
+
+
 def check_production_startup_guards(repo_root: Path) -> list[HygieneFinding]:
     findings: list[HygieneFinding] = []
     for relative_path in PRODUCTION_STARTUP_GUARD_FILES:
@@ -217,6 +269,15 @@ def check_production_startup_guards(repo_root: Path) -> list[HygieneFinding]:
         ):
             if token not in text:
                 missing.append(token)
+        if relative_path == API_START_SCRIPT:
+            for token in (
+                "database_url_log_status()",
+                'printf \'%s\\n\' "configured"',
+                'printf \'%s\\n\' "not configured"',
+                DATABASE_URL_LOG_STATUS_CALL,
+            ):
+                if token not in text:
+                    missing.append(token)
         if missing:
             findings.append(
                 HygieneFinding(
@@ -235,6 +296,27 @@ def check_production_startup_guards(repo_root: Path) -> list[HygieneFinding]:
                     detail="Uvicorn startup is hardcoded to development host/reload flags",
                 )
             )
+        if relative_path == API_START_SCRIPT:
+            for line_number, line in enumerate(text.splitlines(), start=1):
+                stripped = _strip_comment(line)
+                unsafe_partial_redaction = (
+                    "redact_database_url_for_log" in stripped
+                    or "***@" in stripped
+                    or "password=***" in stripped.lower()
+                )
+                unsafe_direct_log = (
+                    DATABASE_URL_DIRECT_LOG_PATTERN.search(stripped) is not None
+                    and DATABASE_URL_LOG_STATUS_CALL not in stripped
+                )
+                if unsafe_partial_redaction or unsafe_direct_log:
+                    findings.append(
+                        HygieneFinding(
+                            code="production_startup_database_url_log_unsafe",
+                            path=_repo_relative(path, repo_root),
+                            detail="Database URL logs must expose configured/not configured status only",
+                            line=line_number,
+                        )
+                    )
     return findings
 
 
@@ -381,6 +463,7 @@ def check_local_security_hygiene(repo_root: Path, *, scope: str = "all") -> list
         findings.extend(check_sensitive_local_dirs(repo_root))
     if scope in {"all", "workflow"}:
         findings.extend(check_postgres_release_gate_workflow(repo_root))
+        findings.extend(check_milvus_compose_hygiene(repo_root))
         findings.extend(check_production_startup_guards(repo_root))
         findings.extend(check_container_security_config(repo_root))
         findings.extend(check_supervisor_log_rotation(repo_root))

@@ -35,6 +35,7 @@ def test_default_paths_keep_legacy_data_layout(tmp_path):
     assert module.DOCUMENT_PARSER_DATA_ROOT == tmp_path / "data" / "document-parser"
     assert module.DOCUMENT_PARSER_RESULTS_ROOT == tmp_path / "data" / "document-parser" / "results"
     assert module.REPORT_DOWNLOADS_ROOT == tmp_path / "data" / "market-report-finder" / "downloads"
+    assert module.WIKISET_ROOT == tmp_path / "scripts" / "wiki" / "wikiset"
 
 
 def test_runtime_and_artifacts_roots_are_opt_in(tmp_path):

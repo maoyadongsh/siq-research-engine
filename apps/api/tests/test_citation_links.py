@@ -1,14 +1,16 @@
-import sys
 import re
+import sys
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, "/home/maoyd/.hermes/profiles/shared/scripts")
 
-from services import citation_links
-from services.citation_links import append_missing_pdf_source_links
 from local_citations import _report_table_records, primary_report, resolve_citation_refs
+from services.citation_links import append_missing_pdf_source_links
 
+from services import citation_links
 
 SH_BANK_TASK_ID = "fb07089b-9570-4902-bf20-eb38578f2b76"
 KINGFA_TASK_ID = "23658e24-111e-4399-8c0b-e42c41eeb943"
@@ -410,6 +412,7 @@ def test_balance_sheet_document_link_citation_is_corrected_to_main_statement_tab
     assert "pdf_page=214" not in cleaned
 
 
+@pytest.mark.slow
 def test_sabic_report_markdown_citations_use_real_pages_and_tables():
     text = f"""SABIC 人效数据如下。
 
@@ -437,6 +440,7 @@ def test_sabic_report_markdown_citations_use_real_pages_and_tables():
     assert re.search(r"\bpdf_page=3(?:\b|[，,])", cleaned) is None
 
 
+@pytest.mark.slow
 def test_report_markdown_citation_treats_out_of_range_page_as_possible_line_anchor():
     text = f"""BASF 净利润溯源。
 
@@ -459,6 +463,7 @@ def test_report_markdown_citation_treats_out_of_range_page_as_possible_line_anch
     assert f"/api/pdf_page/{BASF_TASK_ID}/2437" not in cleaned
 
 
+@pytest.mark.slow
 def test_multi_company_citations_resolve_each_line_by_own_task_id():
     text = f"""## 修正后的引用来源
 

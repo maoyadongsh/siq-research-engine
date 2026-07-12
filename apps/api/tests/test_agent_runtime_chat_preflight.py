@@ -225,7 +225,7 @@ def test_collect_chat_reply_preflight_loads_context_before_saving_current_user(m
             assert attachments[0]["metadata"]["parse_dir"] == "/tmp/parse"
             return refreshed_attachments
 
-        async def fake_save_message(_async_session, role, content, current_session_id, attachments=None):
+        async def fake_save_message(_async_session, role, content, current_session_id, attachments=None, audit_trace_id=None):
             calls.append(f"save_{role}")
             assert current_session_id == session_id
             saved.append((role, content, attachments))
@@ -379,7 +379,7 @@ def test_collect_chat_reply_passes_old_history_before_saving_current_user(tmp_pa
                     assert current_session_id == session_id
                     return "<local-memory>older turns only</local-memory>"
 
-                async def wrapped_save_message(_async_session, role, content, current_session_id, attachments=None):
+                async def wrapped_save_message(_async_session, role, content, current_session_id, attachments=None, audit_trace_id=None):
                     calls.append(f"save_{role}")
                     assert current_session_id == session_id
                     saved.append((role, content, attachments))
@@ -389,6 +389,7 @@ def test_collect_chat_reply_passes_old_history_before_saving_current_user(tmp_pa
                         content,
                         current_session_id,
                         attachments=attachments,
+                        audit_trace_id=audit_trace_id,
                     )
 
                 async def fake_analyze_images_with_primary_model(message, attachments):
@@ -563,7 +564,7 @@ def test_stream_chat_reply_preflight_refreshes_pdf_metadata_before_saving_user(t
                     assert attachments[0]["metadata"]["parse_dir"] == "/tmp/parse"
                     return refreshed_attachments
 
-                async def wrapped_save_message(_async_session, role, _content, current_session_id, attachments=None):
+                async def wrapped_save_message(_async_session, role, _content, current_session_id, attachments=None, audit_trace_id=None):
                     calls.append(f"save_{role}")
                     assert current_session_id == session_id
                     saved.append((role, attachments))
@@ -597,7 +598,7 @@ def test_stream_chat_reply_preflight_refreshes_pdf_metadata_before_saving_user(t
                     assert message == "流式分析这份 PDF"
                     assert profile == "siq_assistant"
                     assert session_id == "preflight-stream-session"
-                    assert context is None
+                    assert context == {}
                     assert allow_initialize is False
                     assert attachments == refreshed_attachments
                     assert local_memory_context == "<local-memory>stream memory</local-memory>"
@@ -836,7 +837,7 @@ def test_stream_chat_reply_catalog_short_circuits_before_streaming_run_start(mon
         async def forbidden(*_args, **_kwargs):
             raise AssertionError("catalog path must not enter streaming run startup")
 
-        async def fake_save_message(_async_session, role, content, current_session_id, attachments=None):
+        async def fake_save_message(_async_session, role, content, current_session_id, attachments=None, audit_trace_id=None):
             calls.append(("save", role, content, current_session_id, attachments))
 
         async def fake_refresh_session_memory(_async_session, profile, current_session_id):
@@ -893,7 +894,7 @@ def test_collect_chat_reply_catalog_short_circuits_before_preflight(monkeypatch)
         async def forbidden(*_args, **_kwargs):
             raise AssertionError("catalog path must not enter preflight")
 
-        async def fake_save_message(_async_session, role, content, current_session_id, attachments=None):
+        async def fake_save_message(_async_session, role, content, current_session_id, attachments=None, audit_trace_id=None):
             calls.append(("save", role, content, current_session_id, attachments))
 
         async def fake_refresh_session_memory(_async_session, profile, current_session_id):

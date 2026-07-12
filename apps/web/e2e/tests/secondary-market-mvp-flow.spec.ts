@@ -280,6 +280,82 @@ async function mockGenericMarketPostgresApis(page: Page, market: GenericPdfMarke
   return { taskId, documentFullImportRequests }
 }
 
+async function mockDownloadedStructuredReportApis(page: Page, market: 'EU' | 'HK') {
+  const buildRequests: unknown[] = []
+  const relativePath = market === 'EU'
+    ? 'EU/DE/SAP/annual/2025/sap-2025-annual.xhtml'
+    : 'HK/00700/annual/2025/tencent-2025-annual.xhtml'
+
+  await page.addInitScript((user) => {
+    window.localStorage.setItem('access_token', 'playwright-token')
+    window.localStorage.setItem('user', JSON.stringify(user))
+    window.localStorage.setItem('theme', 'light')
+  }, e2eUser)
+
+  await page.route('**/*', async (route: Route) => {
+    const url = new URL(route.request().url())
+    const pathname = url.pathname
+
+    if (!pathname.startsWith('/api/')) {
+      await route.continue()
+      return
+    }
+    if (pathname === '/api/auth/me') {
+      await route.fulfill(json(e2eUser))
+      return
+    }
+    if (pathname === '/api/pdf/health') {
+      await route.fulfill(json({ mineru: true, vlm: true, submit_ready: true }))
+      return
+    }
+    if (pathname === '/api/pdf/tasks') {
+      await route.fulfill(json({ tasks: [] }))
+      return
+    }
+    if (pathname === '/api/downloads/reports') {
+      await route.fulfill(json({
+        reports: [{
+          id: `${market}-structured-report`,
+          market,
+          company: market === 'EU' ? 'SAP SE' : 'Tencent Holdings',
+          category: 'annual/2025',
+          filename: relativePath.split('/').at(-1),
+          relativePath,
+          size: 2048,
+          mtime: '2026-07-12T08:00:00.000Z',
+          url: `/api/downloads/report-file?path=${encodeURIComponent(relativePath)}`,
+          contentType: 'application/xhtml+xml',
+          isPdf: false,
+        }],
+      }))
+      return
+    }
+    if (pathname === '/api/market-reports/packages/build') {
+      buildRequests.push(route.request().postDataJSON())
+      await route.fulfill(json({ ok: true, queued: true, job_id: 'eu-esef-build-job' }))
+      return
+    }
+    if (pathname === '/api/jobs/eu-esef-build-job') {
+      await route.fulfill(json({
+        job_id: 'eu-esef-build-job',
+        status: 'succeeded',
+        result: {
+          ok: true,
+          stdout: 'EU ESEF package built',
+          package: {
+            package_path: 'data/wiki/eu/companies/SAP-SE/reports/2025-annual',
+            market: 'EU',
+          },
+        },
+      }))
+      return
+    }
+    await route.fulfill(json({ items: [], data: [], results: [], artifacts: [] }))
+  })
+
+  return { buildRequests, relativePath }
+}
+
 test.describe('二级市场 MVP 闭环', () => {
   test('港股 PDF 解析页不展示 Wiki 证据包质量门禁面板', async ({ page }) => {
     const { importRequests, vectorRequests } = await mockSecondaryMarketMvpApis(page)
@@ -304,7 +380,7 @@ test.describe('二级市场 MVP 闭环', () => {
 
       await page.goto(`${genericMarketRoutes[market]}?task=${encodeURIComponent(taskId)}`)
 
-      await expect(page.getByRole('heading', { name: /PDF 解析/ })).toBeVisible()
+      await expect(page.getByRole('heading', { level: 1, name: /解析/ })).toBeVisible()
       await expect(page.getByRole('heading', { name: '数据管线' })).toBeVisible()
       const postgresButton = page.getByRole('button', { name: 'PostgreSQL入库' })
       await expect(postgresButton).toBeEnabled()
@@ -316,4 +392,32 @@ test.describe('二级市场 MVP 闭环', () => {
       ])
     })
   }
+
+  test('EU downloaded iXBRL builds a package with a portable scoped payload', async ({ page }) => {
+    const { buildRequests, relativePath } = await mockDownloadedStructuredReportApis(page, 'EU')
+
+    await page.goto('/parse-eu')
+
+    const buildButton = page.getByRole('button', { name: '结构化解析' })
+    await expect(buildButton).toBeEnabled()
+    await buildButton.click()
+
+    await expect.poll(() => buildRequests).toEqual([{
+      market: 'EU',
+      download_relative_path: relativePath,
+      force: false,
+    }])
+    await expect(page.getByText(/结构化解析产物已生成：data\/wiki\/eu\/companies\/SAP-SE\/reports\/2025-annual/)).toBeVisible()
+  })
+
+  test('HK keeps a downloaded XHTML report outside the PDF parser and package builder', async ({ page }) => {
+    const { buildRequests } = await mockDownloadedStructuredReportApis(page, 'HK')
+
+    await page.goto('/parse-hk')
+
+    await expect(page.getByText('HK 仅支持 PDF 解析；此文件不会送入 PDF parser。')).toBeVisible()
+    await expect(page.getByRole('button', { name: '结构化解析' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '解析' })).toBeDisabled()
+    expect(buildRequests).toEqual([])
+  })
 })

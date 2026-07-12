@@ -48,6 +48,67 @@ def test_progress_payload_clamps_percent_and_defaults_completed():
     assert completed["percent"] == 100
 
 
+def test_streaming_runtime_progress_payload_helpers_keep_public_fields_stable():
+    def clock():
+        return datetime(2026, 6, 30, 12, 0, 0)
+
+    started = agent_runtime_progress.task_started_progress_payload(clock=clock)
+    output_loop = agent_runtime_progress.output_loop_stop_progress_payload("重复文本", clock=clock)
+    repeated_tool = agent_runtime_progress.repeated_tool_call_stop_progress_payload("Search file", 3, clock=clock)
+    tool_errors = agent_runtime_progress.consecutive_tool_error_stop_progress_payload("terminal", 2, clock=clock)
+    failed = agent_runtime_progress.terminal_run_event_progress_payload("failed", "boom", clock=clock)
+    cancelled = agent_runtime_progress.terminal_run_event_progress_payload("cancelled", "用户取消", clock=clock)
+    timeout = agent_runtime_progress.timeout_progress_payload("超时", clock=clock)
+    exception = agent_runtime_progress.runtime_exception_progress_payload(RuntimeError("bad"), clock=clock)
+    completed = agent_runtime_progress.completed_run_progress_payload("保存完成", clock=clock)
+    stopped = agent_runtime_progress.user_stopped_progress_payload("用户停止", clock=clock)
+    reasoning = agent_runtime_progress.reasoning_progress_payload("推理" * 120, clock=clock)
+    orphaned = agent_runtime_progress.orphaned_run_progress_payload("后台不存在", clock=clock)
+    heartbeat = agent_runtime_progress.heartbeat_progress_payload(clock=clock)
+
+    assert started == {
+        "status": "running",
+        "title": "任务已启动",
+        "source": "runtime",
+        "updated_at": "2026-06-30T12:00:00",
+        "detail": "正在连接智能体并准备执行",
+        "current": 0,
+        "total": 1,
+        "percent": 0,
+    }
+    assert output_loop["status"] == "error"
+    assert output_loop["title"] == "检测到重复输出"
+    assert output_loop["detail"] == "智能体反复输出“重复文本”，已自动停止本次运行"
+    assert repeated_tool["title"] == "检测到工具调用循环"
+    assert repeated_tool["detail"] == "Search file 连续重复调用 3 次，已自动停止"
+    assert repeated_tool["tool"] == "Search file"
+    assert tool_errors["title"] == "检测到工具错误循环"
+    assert tool_errors["detail"] == "terminal 连续失败 2 次，已自动停止"
+    assert failed["status"] == "error"
+    assert failed["title"] == "任务失败"
+    assert failed["detail"] == "boom"
+    assert cancelled["status"] == "stopped"
+    assert cancelled["title"] == "任务已取消"
+    assert timeout["title"] == "任务超时"
+    assert timeout["detail"] == "超时"
+    assert exception["title"] == "任务异常"
+    assert exception["detail"] == "bad"
+    assert completed["status"] == "completed"
+    assert completed["title"] == "任务完成"
+    assert completed["detail"] == "保存完成"
+    assert completed["current"] == 1
+    assert completed["total"] == 1
+    assert completed["percent"] == 100
+    assert stopped["status"] == "stopped"
+    assert stopped["title"] == "任务已停止"
+    assert reasoning["source"] == "reasoning"
+    assert reasoning["title"] == "正在推理"
+    assert len(reasoning["detail"]) == 180
+    assert orphaned["title"] == "后台任务已不存在"
+    assert heartbeat["title"] == "等待模型或工具返回"
+    assert heartbeat["source"] == "runtime"
+
+
 def test_extract_progress_from_text_uses_last_progress_line():
     text = "\n".join(
         [

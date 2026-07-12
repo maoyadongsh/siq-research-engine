@@ -1,8 +1,7 @@
 import sys
+from dataclasses import replace
 
-from services import agent_chat_runtime as runtime
-from services import agent_runtime_postgres_fallback as fallback
-
+from services import agent_chat_runtime as runtime, agent_runtime_postgres_fallback as fallback
 
 FINANCIAL_NOTE_TERMS = ("应付职工薪酬", "商誉")
 CORE_TERMS = ("营业收入", "净利润", "归母净利润")
@@ -219,6 +218,50 @@ def test_postgres_market_agent_view_result_passes_target_scope_from_context():
             "filing_id": "HK:00700:2025-annual",
         },
         {"name": "Tencent", "company_id": "HK:00700", "market": "HK"},
+        5,
+        "HK",
+    )
+
+
+def test_postgres_market_agent_view_result_passes_research_identity_scope():
+    seen = {}
+
+    class Module:
+        @staticmethod
+        def query_market_agent_view_result(query_text, parsed, company, *, limit=20, market=None):
+            seen["args"] = (query_text, parsed, company, limit, market)
+            return {"rows": [{"metric_name": "收入"}], "schema": "pdf2md_hk"}
+
+    context = {
+        "research_identity": {
+            "market": "HK",
+            "company_id": "HK:00700",
+            "filing_id": "HK:00700:2025-annual",
+            "parse_run_id": "parse-ri",
+        },
+        "company": {"name": "Tencent", "code": "00700"},
+    }
+
+    result = fallback.postgres_market_agent_view_result(
+        Module(),
+        "收入是多少？",
+        context,
+        {"query_type": "metric"},
+        "收入是多少？",
+        5,
+        context_company=lambda value: value.get("company", {}),
+    )
+
+    assert result is not None
+    assert seen["args"] == (
+        "收入是多少？",
+        {
+            "query_type": "metric",
+            "market": "HK",
+            "parse_run_id": "parse-ri",
+            "filing_id": "HK:00700:2025-annual",
+        },
+        {"name": "Tencent", "code": "00700"},
         5,
         "HK",
     )
@@ -481,6 +524,18 @@ def test_postgres_requested_metric_terms_matches_aliases_and_request_terms():
     assert terms == sorted(dict.fromkeys(terms), key=len, reverse=True)
 
 
+def test_postgres_requested_metric_terms_matches_spaced_english_alias():
+    terms = fallback.postgres_requested_metric_terms(
+        "US Apple total assets",
+        financial_note_metric_terms=(),
+        core_key_metric_terms=("total assets",),
+        core_key_metric_aliases={"总资产": ("total_assets", "total assets")},
+    )
+
+    assert "total assets" in terms
+    assert "total_assets" in terms
+
+
 def test_postgres_requested_metric_terms_empty_message_returns_empty_terms():
     assert (
         fallback.postgres_requested_metric_terms(
@@ -685,6 +740,89 @@ def test_postgres_fallback_result_short_circuits_market_agent_view_hit():
     assert [event["reason"] for event in events] == ["wiki_structured_miss"]
 
 
+def test_postgres_fallback_result_fail_closes_non_cn_market_after_market_view_miss():
+    context = {
+        "company": {"name": "Tencent", "company_id": "HK:00700", "market": "HK"},
+        "resolved_period": {"filing_id": "HK:00700:2025-annual", "parse_run_id": "parse-hk"},
+    }
+    module = _FallbackModule()
+    deps, events = _fallback_deps(module=module)
+
+    result = fallback.postgres_fallback_result("收入是多少？", context, limit=2, deps=deps)
+
+    assert result is None
+    assert events[-1] == {
+        "reason": "market_boundary_closed",
+        "stage": "legacy_fallback_skipped_for_non_cn_market",
+        "detail": "HK",
+        "source": "postgres_market_view",
+    }
+    assert [event["reason"] for event in events] == ["wiki_structured_miss", "market_boundary_closed"]
+    assert context["_audit_fallback_events"][-1]["reason"] == "market_boundary_closed"
+
+
+def test_postgres_fallback_result_fail_closes_research_identity_market_after_market_view_miss():
+    context = {
+        "research_identity": {
+            "market": "JP",
+            "company_id": "JP:7203",
+            "filing_id": "JP:7203:2025-annual",
+            "parse_run_id": "parse-jp",
+        },
+        "company": {"name": "Toyota"},
+    }
+    module = _FallbackModule()
+    deps, events = _fallback_deps(module=module)
+
+    result = fallback.postgres_fallback_result("收入是多少？", context, limit=2, deps=deps)
+
+    assert result is None
+    assert events[-1]["reason"] == "market_boundary_closed"
+    assert events[-1]["detail"] == "JP"
+
+
+def test_postgres_fallback_result_fail_closes_us_sec_alias_before_legacy_connection():
+    context = {
+        "company": {"name": "Apple", "company_id": "US_SEC:AAPL"},
+        "filing": {
+            "market": "US_SEC",
+            "filing_id": "US_SEC:AAPL:10-K:2025",
+            "parse_run_id": "parse-us",
+        },
+    }
+    module = _FallbackModule()
+    deps, events = _fallback_deps(module=module)
+
+    result = fallback.postgres_fallback_result("收入是多少？", context, limit=2, deps=deps)
+
+    assert result is None
+    assert events[-1]["reason"] == "market_boundary_closed"
+    assert events[-1]["detail"] == "US"
+
+
+def test_postgres_fallback_result_skips_all_database_queries_for_incomplete_non_cn_identity():
+    context = {"research_identity": {"market": "EU"}}
+    load_calls = []
+    deps, events = _fallback_deps(module=_FallbackModule())
+    deps = replace(
+        deps,
+        load_financial_query_api=lambda: load_calls.append("load") or _FallbackModule(),
+    )
+
+    result = fallback.postgres_fallback_result("收入是多少？", context, limit=2, deps=deps)
+
+    assert result is None
+    assert load_calls == []
+    assert [event["reason"] for event in events] == [
+        "wiki_structured_miss",
+        "research_identity_incomplete",
+        "market_boundary_closed",
+    ]
+    assert events[1]["stage"] == "market_agent_view_skipped_for_incomplete_identity"
+    assert events[1]["detail"] == "market=EU missing=company_id,filing_id,parse_run_id"
+    assert events[2]["stage"] == "legacy_fallback_skipped_for_non_cn_market"
+
+
 def test_postgres_fallback_result_returns_legacy_rows_and_records_hit():
     cursor = _FallbackCursor()
     context = {}
@@ -700,6 +838,22 @@ def test_postgres_fallback_result_returns_legacy_rows_and_records_hit():
     assert result["parsed"]["resolved_code"] == "600104"
     assert any(sql == "SET TRANSACTION READ ONLY" for sql in cursor.executed)
     assert [event["reason"] for event in events] == ["wiki_structured_miss", "postgres_hit"]
+
+
+def test_postgres_fallback_result_keeps_legacy_for_cn_and_unknown_market():
+    for context in ({"market": "CN"}, {}):
+        cursor = _FallbackCursor()
+        deps, events = _fallback_deps(
+            module=_FallbackModule(),
+            connection=_FallbackConnection(cursor),
+            requested_terms=["营业收入"],
+        )
+
+        result = fallback.postgres_fallback_result("营业收入是多少？", context, limit=2, deps=deps)
+
+        assert result is not None
+        assert result["fallback_reason"] == "postgres_hit"
+        assert [event["reason"] for event in events] == ["wiki_structured_miss", "postgres_hit"]
 
 
 def test_postgres_fallback_result_records_company_and_metric_misses():

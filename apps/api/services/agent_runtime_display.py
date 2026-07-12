@@ -10,6 +10,8 @@ from urllib.parse import quote
 
 from models import ChatMessage
 
+from services.agent_runtime_message_identity import decode_research_identity_snapshot
+
 
 def _markdown_link_label(value: str) -> str:
     return re.sub(r"\s+", " ", value or "").replace("[", "(").replace("]", ")").strip()
@@ -63,12 +65,33 @@ def chat_message_payload(
         "content": content,
         "created_at": message.created_at,
         "attachments": message_attachments(message),
+        "audit_trace_id": getattr(message, "audit_trace_id", None),
+        "research_identity": decode_research_identity_snapshot(
+            getattr(message, "research_identity_json", None)
+        ),
     }
+
+
+def chat_history_payload(
+    messages: Sequence[ChatMessage],
+    *,
+    limit: int,
+    has_visible_payload: Callable[[ChatMessage], bool],
+    message_payload: Callable[[ChatMessage], dict[str, Any]],
+) -> list[dict[str, Any]]:
+    history_limit = max(int(limit or 1), 1)
+    visible_messages = [
+        message
+        for message in reversed(messages)
+        if has_visible_payload(message)
+    ]
+    return [message_payload(message) for message in visible_messages[-history_limit:]]
 
 
 __all__ = [
     "_display_message_with_attachments",
     "_markdown_link_label",
     "_markdown_link_url",
+    "chat_history_payload",
     "chat_message_payload",
 ]

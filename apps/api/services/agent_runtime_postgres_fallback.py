@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from services import market_document_identity
+from services import agent_runtime_context, market_document_identity
 
 
 @dataclass(frozen=True)
@@ -28,6 +28,7 @@ class PostgresFallbackDependencies:
     postgres_row_matches_requested_terms: Callable[[dict[str, Any], list[str]], bool]
     postgres_enrich_rows_with_table_pages: Callable[[Any, list[dict[str, Any]]], None]
     normalize_json: Callable[[Any, Any], Any]
+    postgres_legacy_fallback_allowed: Callable[[Any | None], tuple[bool, str | None]] | None = None
     log_exception: Callable[[BaseException], None] | None = None
 
 
@@ -107,6 +108,69 @@ def _market_from_identifier(value: Any) -> str | None:
     return None
 
 
+def _company_mapping(
+    context: Any | None,
+    context_company: Callable[[Any | None], dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    if context_company is None:
+        return _field_mapping(_context_mapping(context), "company")
+    value = context_company(context)
+    return dict(value) if isinstance(value, Mapping) else {}
+
+
+def postgres_context_market(
+    context: Any | None,
+    *,
+    context_company: Callable[[Any | None], dict[str, Any]] | None = None,
+) -> str | None:
+    raw = _context_mapping(context)
+    identity = _field_mapping(raw, "research_identity")
+    company = _company_mapping(context, context_company)
+    report = _field_mapping(raw, "report")
+    filing = _field_mapping(raw, "filing")
+    resolved_period = _field_mapping(raw, "resolved_period")
+    postgres = _field_mapping(raw, "postgres")
+    filing_id = _first_text(
+        identity.get("filing_id"),
+        raw.get("filing_id"),
+        postgres.get("filing_id"),
+        resolved_period.get("filing_id"),
+        report.get("filing_id"),
+        filing.get("filing_id"),
+        company.get("filing_id"),
+    )
+    company_id = _first_text(
+        identity.get("company_id"),
+        raw.get("company_id"),
+        company.get("company_id"),
+        company.get("id"),
+        report.get("company_id"),
+        filing.get("company_id"),
+        postgres.get("company_id"),
+    )
+    market = _first_text(
+        identity.get("market"),
+        raw.get("market"),
+        postgres.get("market"),
+        company.get("market"),
+        report.get("market"),
+        filing.get("market"),
+        resolved_period.get("market"),
+        _market_from_identifier(filing_id),
+        _market_from_identifier(company_id),
+    )
+    if not market:
+        return None
+    return market_document_identity.normalize_market_code(market)
+
+
+def postgres_legacy_fallback_allowed(context: Any | None) -> tuple[bool, str | None]:
+    market = postgres_context_market(context)
+    if market in {"HK", "JP", "KR", "EU", "US"}:
+        return False, market
+    return True, market
+
+
 def _accepts_market_kwarg(func: Callable[..., Any]) -> bool:
     try:
         parameters = inspect.signature(func).parameters.values()
@@ -121,13 +185,15 @@ def postgres_agent_query_scope(
     context_company: Callable[[Any | None], dict[str, Any]],
 ) -> dict[str, str]:
     raw = _context_mapping(context)
-    company = context_company(context)
+    identity = _field_mapping(raw, "research_identity")
+    company = _company_mapping(context, context_company)
     report = _field_mapping(raw, "report")
     filing = _field_mapping(raw, "filing")
     resolved_period = _field_mapping(raw, "resolved_period")
     postgres = _field_mapping(raw, "postgres")
 
     parse_run_id = _first_text(
+        identity.get("parse_run_id"),
         raw.get("parse_run_id"),
         raw.get("postgres_parse_run_id"),
         postgres.get("parse_run_id"),
@@ -137,6 +203,7 @@ def postgres_agent_query_scope(
         company.get("parse_run_id"),
     )
     filing_id = _first_text(
+        identity.get("filing_id"),
         raw.get("filing_id"),
         postgres.get("filing_id"),
         resolved_period.get("filing_id"),
@@ -144,21 +211,11 @@ def postgres_agent_query_scope(
         filing.get("filing_id"),
         company.get("filing_id"),
     )
-    company_id = _first_text(company.get("company_id"), company.get("id"), raw.get("company_id"))
-    market = _first_text(
-        raw.get("market"),
-        postgres.get("market"),
-        company.get("market"),
-        report.get("market"),
-        filing.get("market"),
-        resolved_period.get("market"),
-        _market_from_identifier(filing_id),
-        _market_from_identifier(company_id),
-    )
+    market = postgres_context_market(context, context_company=context_company)
     if not market:
         return {}
     identity = market_document_identity.MarketDocumentFullIdentity(
-        market=market_document_identity.normalize_market_code(market),
+        market=market,
         parse_run_id=parse_run_id,
         filing_id=filing_id,
     )
@@ -212,10 +269,10 @@ def postgres_requested_metric_terms(
         return []
     terms: list[str] = []
     for term in (*financial_note_metric_terms, *core_key_metric_terms):
-        if str(term).lower() in text:
+        if re.sub(r"\s+", "", str(term)).lower() in text:
             terms.append(str(term))
     for aliases in core_key_metric_aliases.values():
-        if any(str(alias).lower() in text for alias in aliases):
+        if any(re.sub(r"\s+", "", str(alias)).lower() in text for alias in aliases):
             terms.extend(str(alias) for alias in aliases)
     return sorted(dict.fromkeys(term for term in terms if term), key=len, reverse=True)
 
@@ -405,6 +462,24 @@ def postgres_fallback_result(
         stage="postgres_fallback_started",
         source="wiki_first",
     )
+    market, missing_identity_fields = agent_runtime_context.incomplete_non_cn_research_identity(context)
+    if market and missing_identity_fields:
+        detail = f"market={market} missing={','.join(missing_identity_fields)}"
+        deps.record_postgres_fallback_event(
+            context,
+            reason="research_identity_incomplete",
+            stage="market_agent_view_skipped_for_incomplete_identity",
+            detail=detail,
+            source="research_identity_guard",
+        )
+        deps.record_postgres_fallback_event(
+            context,
+            reason="market_boundary_closed",
+            stage="legacy_fallback_skipped_for_non_cn_market",
+            detail=market,
+            source="postgres_market_view",
+        )
+        return None
     module = deps.load_financial_query_api()
     if module is None:
         deps.record_postgres_fallback_event(
@@ -420,6 +495,16 @@ def postgres_fallback_result(
         market_result = deps.postgres_market_agent_view_result(module, message, context, parsed, query_text, limit)
         if market_result:
             return market_result
+        legacy_allowed, market = (deps.postgres_legacy_fallback_allowed or postgres_legacy_fallback_allowed)(context)
+        if not legacy_allowed:
+            deps.record_postgres_fallback_event(
+                context,
+                reason="market_boundary_closed",
+                stage="legacy_fallback_skipped_for_non_cn_market",
+                detail=market,
+                source="postgres_market_view",
+            )
+            return None
         get_connection = deps.financial_query_connection_factory(module)
         if get_connection is None:
             deps.record_postgres_fallback_event(
@@ -626,6 +711,8 @@ __all__ = [
     "postgres_enrich_rows_with_table_pages",
     "postgres_fallback_result",
     "postgres_agent_query_scope",
+    "postgres_context_market",
+    "postgres_legacy_fallback_allowed",
     "postgres_market_agent_view_result",
     "postgres_prepare_parsed",
     "postgres_query_metric_rows",

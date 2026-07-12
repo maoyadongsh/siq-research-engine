@@ -2,10 +2,25 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import timedelta
-from typing import Any, Mapping
+from typing import Any
 
 import pdf_parser_task_repository as task_repository
+
+UPSTREAM_CANCELLED_STATES = {"cancelled", "canceled", "deleted"}
+
+
+def upstream_cancel_confirmed(payload: Mapping[str, Any] | None) -> bool:
+    """Return true only when the upstream explicitly confirms cancellation."""
+    if not isinstance(payload, Mapping) or payload.get("_error"):
+        return False
+    if payload.get("cancelled") is True or payload.get("canceled") is True:
+        return True
+    return any(
+        str(payload.get(field) or "").strip().lower() in UPSTREAM_CANCELLED_STATES
+        for field in ("status", "state", "result")
+    )
 
 
 def calc_page_progress(

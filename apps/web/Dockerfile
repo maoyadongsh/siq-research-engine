@@ -11,22 +11,20 @@ ENV VITE_SIQ_AUTH_COOKIE_MODE=${SIQ_AUTH_COOKIE_MODE}
 COPY . .
 RUN npm run build
 
-ENV SIQ_BACKEND_URL=http://api:18081 \
-    SIQ_REPORT_FINDER_URL=http://report-finder:8000 \
-    SIQ_PDFAPI_URL=http://pdf-parser:15000
+FROM nginxinc/nginx-unprivileged:1.27-alpine
 
-FROM node:22-bookworm-slim
+ENV SIQ_BACKEND_URL=http://api:18081 \
+    SIQ_REPORT_FINDER_URL=http://report-finder:8000
 
 ENV NODE_ENV=production
 
-WORKDIR /app
-
-RUN npm install -g serve@14 \
-    && npm cache clean --force
-COPY --from=build --chown=node:node /app/dist ./dist
+COPY --from=build /app/dist /usr/share/nginx/html
+COPY nginx.conf.template /etc/nginx/templates/siq.conf.template
+COPY docker-entrypoint.sh /usr/local/bin/siq-web-entrypoint.sh
 
 EXPOSE 15173
 
-USER node
+USER 101
 
-CMD ["serve", "-s", "dist", "-l", "15173"]
+ENTRYPOINT ["sh", "/usr/local/bin/siq-web-entrypoint.sh"]
+CMD ["nginx", "-c", "/tmp/nginx.conf", "-g", "daemon off;"]

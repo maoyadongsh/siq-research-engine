@@ -1,9 +1,12 @@
-from pydantic import BaseModel, Field
-from typing import Any, Optional
 from datetime import datetime
+from typing import Any, Optional
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class AgentStateResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     name: str
     level: int
     xp: int
@@ -11,9 +14,6 @@ class AgentStateResponse(BaseModel):
     hunger: int
     mood: int
     energy: int
-
-    class Config:
-        from_attributes = True
 
 
 class AgentActionResponse(BaseModel):
@@ -25,6 +25,10 @@ class ChatContextCompany(BaseModel):
     code: Optional[str] = None
     name: Optional[str] = None
     dir: Optional[str] = None
+    market: Optional[str] = None
+    company_id: Optional[str] = None
+    filing_id: Optional[str] = None
+    parse_run_id: Optional[str] = None
 
 
 class ChatContextReport(BaseModel):
@@ -33,16 +37,32 @@ class ChatContextReport(BaseModel):
     filename: Optional[str] = None
     url: Optional[str] = None
     mtime: Optional[str] = None
+    market: Optional[str] = None
+    company_id: Optional[str] = None
+    filing_id: Optional[str] = None
+    parse_run_id: Optional[str] = None
 
 
 class ChatContextPage(BaseModel):
     title: Optional[str] = None
 
 
+class ResearchIdentity(BaseModel):
+    market: Optional[str] = None
+    company_id: Optional[str] = None
+    filing_id: Optional[str] = None
+    parse_run_id: Optional[str] = None
+
+
 class ChatContext(BaseModel):
     company: Optional[ChatContextCompany] = None
     report: Optional[ChatContextReport] = None
     page: Optional[ChatContextPage] = None
+    research_identity: Optional[ResearchIdentity] = None
+    market: Optional[str] = None
+    company_id: Optional[str] = None
+    filing_id: Optional[str] = None
+    parse_run_id: Optional[str] = None
 
 
 class ChatAttachmentUpload(BaseModel):
@@ -82,6 +102,23 @@ class ChatResponse(BaseModel):
     reply: str
     new_achievements: list["AchievementResponse"]
     audit_trace_id: Optional[str] = None
+    artifact: Optional[dict[str, Any]] = None
+
+
+class ChatHistoryMessageResponse(BaseModel):
+    id: Optional[int] = None
+    session_id: str
+    role: str
+    content: str
+    created_at: Optional[datetime] = None
+    attachments: list[dict[str, Any]] = Field(default_factory=list)
+    audit_trace_id: Optional[str] = None
+    research_identity: Optional[ResearchIdentity] = None
+
+
+class ChatHistoryResponse(BaseModel):
+    messages: list[ChatHistoryMessageResponse]
+    session_id: str
 
 
 class AnswerAuditTraceResponse(BaseModel):
@@ -90,6 +127,8 @@ class AnswerAuditTraceResponse(BaseModel):
 
 
 class AchievementResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     name: str
     description: str
@@ -97,9 +136,6 @@ class AchievementResponse(BaseModel):
     unlocked_at: Optional[datetime] = None
     progress: int
     target: int
-
-    class Config:
-        from_attributes = True
 
 
 AgentActionResponse.model_rebuild()

@@ -105,6 +105,15 @@ def _write_research_pack_workdir(work_dir: Path) -> None:
             "missing_core_metrics": [],
         },
     )
+    _write_json(
+        work_dir / "metrics" / "key_metrics.json",
+        {
+            "operating_revenue": {
+                "2025": 120.0,
+                "source": {"pdf_page": 10, "table_index": 1},
+            }
+        },
+    )
     _write_json(work_dir / "evidence_package.json", {"company_id": "test-co"})
     _write_json(
         work_dir / "analysis_outline.json",
@@ -343,7 +352,7 @@ def test_siq_analysis_research_pack_runner_validates_and_merges_minimal_workdir(
     assert prompt_only["started_at"]
     assert prompt_only["completed_at"]
     assert prompt_only["elapsed_ms"] >= 0
-    assert prompt_only["metrics"]["prompt_agent_count"] == 6
+    assert prompt_only["metrics"]["prompt_agent_count"] == 7
     assert prompt_only["metrics"]["benchmark_hint_count"] == 2
     benchmark_context = prompt_only["benchmark_research_context"]
     assert benchmark_context["mode"] == "prompt_driven_query"
@@ -359,6 +368,7 @@ def test_siq_analysis_research_pack_runner_validates_and_merges_minimal_workdir(
         agent for agent in prompt_bundle["agents"] if agent["agent_id"] == "industry_peer_researcher"
     )
     assert industry_agent["benchmark_research_context"] == benchmark_context
+    assert any(agent["agent_id"] == "chart_visual_designer" for agent in prompt_bundle["agents"])
 
 
 def test_siq_analysis_research_pack_runner_rejects_missing_prompt_file(tmp_path):
@@ -398,12 +408,18 @@ def test_siq_analysis_research_pack_validator_requires_review_for_low_confidence
         "report_year": 2025,
         "generated_at": "2026-07-07T00:00:00+08:00",
         "input_files": [],
-        "coverage": {},
+        "coverage": {
+            "section_ids": ["profitability_and_cost"],
+            "time_periods": ["2025"],
+            "source_scope": ["external_context"],
+            "known_limits": ["external source still pending"],
+        },
         "key_findings": [
             {
                 "section_ids": ["profitability_and_cost"],
                 "claim": "低置信发现只能进入复核链路。",
                 "confidence": 0.52,
+                "fact_status": "assumption",
                 "rationale": "external source still pending",
             }
         ],

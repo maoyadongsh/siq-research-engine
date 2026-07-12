@@ -25,6 +25,7 @@ RUNTIME_PREFIXES = (
     "test-results/",
     "var/",
 )
+RUNTIME_SOURCE_ALLOWLIST_BASENAMES = {".gitkeep", "README.md"}
 LOCAL_REVIEW_PREFIXES = (
     ".superpowers/",
 )
@@ -32,6 +33,7 @@ BLOCKED_SUFFIXES = {
     ".7z",
     ".avi",
     ".db",
+    ".dump",
     ".gz",
     ".mkv",
     ".mov",
@@ -43,6 +45,8 @@ BLOCKED_SUFFIXES = {
     ".rar",
     ".sqlite",
     ".sqlite3",
+    ".backup",
+    ".bak",
     ".tar",
     ".tgz",
     ".webm",
@@ -66,9 +70,14 @@ def normalized_repo_path(path: str | Path) -> str:
     return text
 
 
-def should_skip_path(path: str) -> bool:
+def runtime_artifact_path(path: str) -> bool:
     normalized = normalized_repo_path(path)
-    return not normalized or any(normalized.startswith(prefix) for prefix in RUNTIME_PREFIXES)
+    return bool(normalized) and any(normalized.startswith(prefix) for prefix in RUNTIME_PREFIXES)
+
+
+def runtime_source_allowlisted(path: str) -> bool:
+    normalized = normalized_repo_path(path)
+    return runtime_artifact_path(normalized) and Path(normalized).name in RUNTIME_SOURCE_ALLOWLIST_BASENAMES
 
 
 def _git_lines(repo_root: Path, args: list[str]) -> list[str]:
@@ -107,17 +116,26 @@ def finding_for_path(
     image_max_bytes: int = DEFAULT_IMAGE_MAX_BYTES,
 ) -> LargeFileChangeFinding | None:
     normalized = normalized_repo_path(path)
-    if should_skip_path(normalized):
+    if not normalized:
         return None
+    full_path = (repo_root / normalized).resolve()
+    if not full_path.is_file():
+        return None
+    if runtime_artifact_path(normalized):
+        if runtime_source_allowlisted(normalized):
+            return None
+        return LargeFileChangeFinding(
+            code="tracked_runtime_artifact_changed",
+            path=normalized,
+            detail="tracked runtime artifacts must stay out of source commits",
+            size_bytes=full_path.stat().st_size,
+        )
     if any(normalized.startswith(prefix) for prefix in LOCAL_REVIEW_PREFIXES):
         return LargeFileChangeFinding(
             code="local_review_artifact_changed",
             path=normalized,
             detail="local review artifacts must stay out of source commits",
         )
-    full_path = (repo_root / normalized).resolve()
-    if not full_path.is_file():
-        return None
     suffix = full_path.suffix.lower()
     size = full_path.stat().st_size
     if suffix in BLOCKED_SUFFIXES:

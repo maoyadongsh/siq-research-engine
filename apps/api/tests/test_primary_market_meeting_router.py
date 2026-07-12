@@ -54,22 +54,32 @@ def _user() -> User:
     )
 
 
-def _primary_market_client(monkeypatch, tmp_path) -> TestClient:
+def _primary_market_user(
+    *,
+    user_id: int = 7,
+    username: str = "ic-admin",
+    role: UserRole = UserRole.SUPER_ADMIN,
+) -> User:
+    return User(
+        id=user_id,
+        username=username,
+        email=f"{username}@example.test",
+        hashed_password="x",
+        full_name=username,
+        role=role,
+        is_active=True,
+        approval_status="approved",
+    )
+
+
+def _primary_market_client(monkeypatch, tmp_path, user: User | None = None) -> TestClient:
     monkeypatch.setattr(deal_store, "WIKI_ROOT", tmp_path / "wiki")
     app = FastAPI()
     app.include_router(primary_market_meeting.router, prefix="/api")
+    current_user_payload = user or _primary_market_user()
 
     async def current_user() -> User:
-        return User(
-            id=7,
-            username="ic-admin",
-            email="ic-admin@example.test",
-            hashed_password="x",
-            full_name="IC Admin",
-            role=UserRole.SUPER_ADMIN,
-            is_active=True,
-            approval_status="approved",
-        )
+        return current_user_payload
 
     app.dependency_overrides[get_current_user] = current_user
     return TestClient(app)
@@ -108,6 +118,7 @@ def test_primary_market_meeting_chat_uses_project_scoped_ic_session(monkeypatch)
             "read_deal_detail",
             lambda deal_id: {"summary": {"deal_id": deal_id, "company_name": "Alpha", "current_phase": "R1"}},
         )
+        monkeypatch.setattr(primary_market_meeting.deal_store, "user_can_access_deal", lambda *args, **kwargs: True)
 
         async_session = SimpleNamespace(expunge=lambda _user: None)
         req = primary_market_meeting.PrimaryMarketMeetingChatRequest(
@@ -792,6 +803,46 @@ def test_primary_market_project_facade_lists_and_filters_projects(monkeypatch, t
     payload = response.json()
     assert [deal["deal_id"] for deal in payload["deals"]] == ["DEAL-ALPHA-001"]
     assert payload["deals"][0]["company_name"] == "Alpha Robotics"
+
+
+def test_primary_market_project_facade_requires_deal_access(monkeypatch, tmp_path):
+    owner = _primary_market_user(user_id=7, username="owner", role=UserRole.ANALYST)
+    other_analyst = _primary_market_user(user_id=8, username="other-analyst", role=UserRole.ANALYST)
+    owner_client = _primary_market_client(monkeypatch, tmp_path, owner)
+    other_client = _primary_market_client(monkeypatch, tmp_path, other_analyst)
+    deal_store.create_deal_package(
+        deal_id="DEAL-PM-BOLA",
+        company_name="Private Meeting Robotics",
+        industry="Robotics",
+        created_by={"id": 7, "username": "owner"},
+        overwrite=True,
+    )
+
+    owner_detail = owner_client.get("/api/primary-market/projects/DEAL-PM-BOLA")
+    assert owner_detail.status_code == 200
+    assert owner_detail.json()["project_meta"]["created_by"] == {"id": 7, "username": "owner"}
+
+    listed = other_client.get("/api/primary-market/projects")
+    detail = other_client.get("/api/primary-market/projects/DEAL-PM-BOLA")
+    status = other_client.get("/api/primary-market/projects/DEAL-PM-BOLA/status")
+    transcript_write = other_client.post(
+        "/api/primary-market/projects/DEAL-PM-BOLA/meeting-transcript/events",
+        json={"lane": "main", "event": {"event_type": "message", "body": "should be denied"}},
+    )
+
+    assert listed.status_code == 200
+    assert [item["deal_id"] for item in listed.json()["deals"]] == []
+    assert detail.status_code == 404
+    assert status.status_code == 404
+    assert transcript_write.status_code == 404
+    transcript_path = tmp_path / "wiki" / "deals" / "DEAL-PM-BOLA" / "discussion" / "meeting_transcript.json"
+    assert not transcript_path.exists()
+    access_decisions = tmp_path / "wiki" / "deals" / "DEAL-PM-BOLA" / "audit" / "access_decisions.ndjson"
+    assert access_decisions.is_file()
+    access_log = access_decisions.read_text(encoding="utf-8")
+    assert "primary_market.view" in access_log
+    assert "primary_market.write" in access_log
+    assert "deal_object_access_denied" in access_log
 
 
 def test_primary_market_project_facade_rejects_missing_project(monkeypatch, tmp_path):

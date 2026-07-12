@@ -205,7 +205,7 @@ WIKISET_ROOT = _env_path(
     "SIQ_WIKISET_ROOT",
     "WIKISET_ROOT",
     "SIQ_WIKISET_ROOT",
-    default=WIKI_ROOT / "wikiset",
+    default=REPO_ROOT / "scripts" / "wiki" / "wikiset",
 )
 
 REPORT_FINDER_ROOT = _env_path(

@@ -17,6 +17,7 @@ import {
   uploadPdfs,
 } from '../../features/pdf-parsing/api'
 import { formatDuration, isTerminal, translateStatus } from '../../lib/pdfFormatting'
+import { createTaskRequestScope } from './taskRequestScope'
 
 const PARSE_PAGE_IDLE_DELAY_MS = 1800
 
@@ -87,6 +88,12 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
   const logKeysRef = useRef<Set<string>>(new Set())
   const uploadRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const taskFilterRef = useRef<typeof taskFilter>(taskFilter)
+  const [qualityRequestScope] = useState(createTaskRequestScope)
+  const [resultRequestScope] = useState(createTaskRequestScope)
+  const [resumeRequestScope] = useState(createTaskRequestScope)
+  const [uploadRequestScope] = useState(createTaskRequestScope)
+  const [tasksRequestScope] = useState(createTaskRequestScope)
+  const [mutationRequestScope] = useState(createTaskRequestScope)
 
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -149,6 +156,12 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
   }, [])
 
   const resetAll = useCallback(() => {
+    qualityRequestScope.invalidate()
+    resultRequestScope.invalidate()
+    resumeRequestScope.invalidate()
+    uploadRequestScope.invalidate()
+    tasksRequestScope.invalidate()
+    mutationRequestScope.invalidate()
     selectedFilesSetterRef.current?.([])
     reportError(null)
     setUploadActive(false)
@@ -158,12 +171,13 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
     resetResult()
     setResultDeferred(false)
     setResultLoading(false)
+    setUploading(false)
     stopPolling()
     if (uploadRef.current) {
       clearInterval(uploadRef.current)
       uploadRef.current = null
     }
-  }, [reportError, resetResult, selectedFilesSetterRef, stopPolling])
+  }, [mutationRequestScope, qualityRequestScope, reportError, resetResult, resultRequestScope, resumeRequestScope, selectedFilesSetterRef, stopPolling, tasksRequestScope, uploadRequestScope])
 
   // Ref to latest callbacks that need to call each other (avoid circular stale closures).
   const callbacksRef = useRef<{
@@ -172,38 +186,43 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
     resumeTask?: (taskId: string, filename: string, status: string) => Promise<void>
   }>({})
 
-  const fetchQuality = useCallback(async () => {
-    const tid = taskIdRef.current
+  const fetchQuality = useCallback(async (requestedTaskId?: string | null) => {
+    const tid = requestedTaskId || taskIdRef.current
     if (!tid) return
+    const request = qualityRequestScope.begin(tid)
     try {
       const d = await fetchQualityApi(tid)
-      if (d.quality) setQuality(d.quality as QualityReport)
+      if (qualityRequestScope.isCurrent(request, taskIdRef.current) && d.quality) setQuality(d.quality as QualityReport)
     } catch {
       // ignore quality fetch errors
     }
-  }, [])
+  }, [qualityRequestScope])
 
   const fetchResult = useCallback(async () => {
     const tid = taskIdRef.current
     if (!tid) return
+    const request = resultRequestScope.begin(tid)
     setResultLoading(true)
     setResultDeferred(false)
     reportError(null)
     try {
       const d = await fetchResultApi(tid)
+      if (!resultRequestScope.isCurrent(request, taskIdRef.current)) return
       if (d.artifacts) setArtifacts(d.artifacts)
       if (d.markdown) {
         setMarkdown(d.markdown)
         setMdLines(d.markdown.split(/\r?\n/))
-        await fetchQuality()
+        await fetchQuality(tid)
+        if (!resultRequestScope.isCurrent(request, taskIdRef.current)) return
       }
     } catch (error) {
+      if (!resultRequestScope.isCurrent(request, taskIdRef.current)) return
       setResultDeferred(true)
       reportError(`解析结果拉取失败：${visibleErrorMessage(error, '请稍后重试')}`)
     } finally {
-      setResultLoading(false)
+      if (resultRequestScope.isCurrent(request, taskIdRef.current)) setResultLoading(false)
     }
-  }, [fetchQuality, reportError])
+  }, [fetchQuality, reportError, resultRequestScope])
 
   const updateStatus = useCallback(
     (data: Record<string, unknown>) => {
@@ -354,8 +373,10 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
   const loadTasks = useCallback(
     async (opts: { autoResume?: boolean } = {}) => {
       const autoResume = opts.autoResume !== false
+      const request = tasksRequestScope.begin(taskIdRef.current)
       try {
         const allTasks = (await loadTasksApi()) as unknown as TaskItem[]
+        if (!tasksRequestScope.isCurrent(request, taskIdRef.current)) return
         const filter = taskFilterRef.current
         const list = filter ? allTasks.filter(filter) : allTasks
         setTasks(list)
@@ -375,20 +396,29 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
         // ignore task list load errors
       }
     },
-    [],
+    [tasksRequestScope],
   )
 
   const resumeTask = useCallback(
     async (taskId: string, _filename: string, status: string) => {
       if (!taskId) return
       stopPolling()
+      resultRequestScope.invalidate()
+      qualityRequestScope.invalidate()
+      uploadRequestScope.invalidate()
       taskIdRef.current = taskId
+      const request = resumeRequestScope.begin(taskId)
       cancelledRef.current = false
       logCountRef.current = 0
       logKeysRef.current.clear()
       setLogs([])
       reportError(null)
       setUploadActive(false)
+      setUploading(false)
+      if (uploadRef.current) {
+        clearInterval(uploadRef.current)
+        uploadRef.current = null
+      }
       setParseActive(true)
       resetResult()
       const deferResult = isMobileParseViewport()
@@ -399,6 +429,7 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
       setParseBadge({ cls: status, text: translateStatus(status) })
       try {
         const latestData = await fetchStatus(taskId, 0).catch(() => null)
+        if (!resumeRequestScope.isCurrent(request, taskIdRef.current)) return
         if (latestData) {
           updateStatus(latestData)
           const latestStatus = String(latestData.status || latestData.stage || status)
@@ -421,7 +452,9 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
         }
 
         await pollStatus()
+        if (!resumeRequestScope.isCurrent(request, taskIdRef.current)) return
         const latest = await fetchStatus(taskId, 0).catch(() => null)
+        if (!resumeRequestScope.isCurrent(request, taskIdRef.current)) return
         const latestStatus = String(latest?.status || status)
         if (!isTerminal(latestStatus)) {
           startPolling()
@@ -432,17 +465,22 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
         }
         showToast('已恢复任务视图')
       } catch {
-        reportError('恢复任务状态失败')
+        if (resumeRequestScope.isCurrent(request, taskIdRef.current)) reportError('恢复任务状态失败')
       }
     },
-    [onWorkflowReload, pollStatus, reportError, resetResult, showToast, startPolling, stopPolling, updateStatus],
+    [onWorkflowReload, pollStatus, qualityRequestScope, reportError, resetResult, resultRequestScope, resumeRequestScope, showToast, startPolling, stopPolling, updateStatus, uploadRequestScope],
   )
 
   const startConvertWithFiles = useCallback(
     async (filesToUpload: File[]) => {
       if (!filesToUpload.length) return
+      const request = uploadRequestScope.begin()
       await checkHealth().catch(() => null)
+      if (!uploadRequestScope.isCurrent(request, taskIdRef.current)) return
       stopPolling()
+      resumeRequestScope.invalidate()
+      resultRequestScope.invalidate()
+      qualityRequestScope.invalidate()
       reportError(null)
       setUploading(true)
       cancelledRef.current = false
@@ -459,9 +497,9 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
       setResultLoading(false)
 
       let pct = 0
-      uploadRef.current = setInterval(() => {
-        if (cancelledRef.current) {
-          if (uploadRef.current) clearInterval(uploadRef.current)
+      const uploadTimer = setInterval(() => {
+        if (cancelledRef.current || !uploadRequestScope.isCurrent(request, taskIdRef.current)) {
+          clearInterval(uploadTimer)
           return
         }
         pct += Math.random() * 15
@@ -469,6 +507,7 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
         setUploadPct(pct)
         setUploadStatusText('正在上传并加入本地队列...')
       }, 300)
+      uploadRef.current = uploadTimer
 
       const form = new FormData()
       filesToUpload.forEach((f) => form.append('files', f))
@@ -482,7 +521,12 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
 
       try {
         const d = await uploadPdfs(form)
-        if (uploadRef.current) clearInterval(uploadRef.current)
+        clearInterval(uploadTimer)
+        if (uploadRef.current === uploadTimer) uploadRef.current = null
+        if (!uploadRequestScope.isCurrent(request, taskIdRef.current)) return
+        resumeRequestScope.invalidate()
+        resultRequestScope.invalidate()
+        qualityRequestScope.invalidate()
         taskIdRef.current = String(d.task_id)
         setUploadPct(100)
         setUploadStatusText('批量入队完成')
@@ -501,7 +545,9 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
         startPolling()
         void loadTasks()
       } catch (e) {
-        if (uploadRef.current) clearInterval(uploadRef.current)
+        clearInterval(uploadTimer)
+        if (uploadRef.current === uploadTimer) uploadRef.current = null
+        if (!uploadRequestScope.isCurrent(request, taskIdRef.current)) return
         setUploading(false)
         const err = e as Error & { response?: Record<string, unknown>; status?: number }
         if (err.status === 409) {
@@ -527,7 +573,7 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
         setUploadBadge({ cls: 'failed', text: '失败' })
       }
     },
-    [backend, endPage, formula, loadTasks, market, parseMethod, reportError, resetResult, selectedFilesSetterRef, showToast, startPolling, startPage, stopPolling, table],
+    [backend, endPage, formula, loadTasks, market, parseMethod, qualityRequestScope, reportError, resetResult, resultRequestScope, resumeRequestScope, selectedFilesSetterRef, showToast, startPolling, startPage, stopPolling, table, uploadRequestScope],
   )
 
   const startConvert = useCallback(
@@ -539,8 +585,13 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
 
   const startConvertWithDownloadedReport = useCallback(
     async (report: DownloadedPdf) => {
+      const request = uploadRequestScope.begin()
       await checkHealth().catch(() => null)
+      if (!uploadRequestScope.isCurrent(request, taskIdRef.current)) return
       stopPolling()
+      resumeRequestScope.invalidate()
+      resultRequestScope.invalidate()
+      qualityRequestScope.invalidate()
       reportError(null)
       setUploading(true)
       cancelledRef.current = false
@@ -567,6 +618,10 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
           formula,
           table,
         })
+        if (!uploadRequestScope.isCurrent(request, taskIdRef.current)) return
+        resumeRequestScope.invalidate()
+        resultRequestScope.invalidate()
+        qualityRequestScope.invalidate()
         taskIdRef.current = String(d.task_id)
         setUploadPct(100)
         setUploadStatusText('服务端引用入队完成')
@@ -585,6 +640,7 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
         startPolling()
         void loadTasks()
       } catch (e) {
+        if (!uploadRequestScope.isCurrent(request, taskIdRef.current)) return
         setUploading(false)
         const err = e as Error & { response?: Record<string, unknown>; status?: number }
         if (err.status === 409) {
@@ -610,7 +666,7 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
         setUploadBadge({ cls: 'failed', text: '失败' })
       }
     },
-    [backend, endPage, formula, loadTasks, market, parseMethod, reportError, resetResult, selectedFilesSetterRef, showToast, startPage, startPolling, stopPolling, table],
+    [backend, endPage, formula, loadTasks, market, parseMethod, qualityRequestScope, reportError, resetResult, resultRequestScope, resumeRequestScope, selectedFilesSetterRef, showToast, startPage, startPolling, stopPolling, table, uploadRequestScope],
   )
 
   const cancelTask = useCallback(async () => {
@@ -619,6 +675,7 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
     if (!confirm('确定停止查看当前任务吗？\n如果解析服务支持取消，也会尝试通知后端停止处理。')) return
     try {
       const d = await cancelTaskApi(tid)
+      if (taskIdRef.current !== tid) return
       if (d.success) {
         cancelledRef.current = true
         stopPolling()
@@ -637,52 +694,61 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
         return
       }
       if (!confirm('确定删除这条最近任务记录吗？')) return
+      const request = mutationRequestScope.begin(taskIdRef.current)
       try {
         await deleteTaskApi(taskId)
+        if (!mutationRequestScope.isCurrent(request, taskIdRef.current)) return
         if (taskIdRef.current === taskId) {
           taskIdRef.current = null
           resetAll()
         }
         await loadTasks()
+        if (!mutationRequestScope.isCurrent(request, taskIdRef.current)) return
         showToast('任务记录已删除')
       } catch (e) {
-        reportError((e as Error).message)
+        if (mutationRequestScope.isCurrent(request, taskIdRef.current)) reportError((e as Error).message)
       }
     },
-    [loadTasks, reportError, resetAll, showToast],
+    [loadTasks, mutationRequestScope, reportError, resetAll, showToast],
   )
 
   const refetchTask = useCallback(
     async (taskId: string) => {
       if (!taskId) return
+      const request = mutationRequestScope.begin(taskIdRef.current)
       try {
         await refetchTaskApi(taskId)
+        if (!mutationRequestScope.isCurrent(request, taskIdRef.current)) return
         if (taskIdRef.current === taskId) {
           void callbacksRef.current.fetchResult?.()
         }
         await loadTasks()
+        if (!mutationRequestScope.isCurrent(request, taskIdRef.current)) return
         showToast('结果已重新拉取')
       } catch (e) {
-        reportError((e as Error).message)
+        if (mutationRequestScope.isCurrent(request, taskIdRef.current)) reportError((e as Error).message)
       }
     },
-    [loadTasks, reportError, showToast],
+    [loadTasks, mutationRequestScope, reportError, showToast],
   )
 
   const reparseTask = useCallback(
     async (taskId: string) => {
       if (!taskId) return
       if (!confirm('确定基于原 PDF 创建一个重新解析任务吗？')) return
+      const request = mutationRequestScope.begin(taskIdRef.current)
       try {
         const d = await reparseTaskApi(taskId)
+        if (!mutationRequestScope.isCurrent(request, taskIdRef.current)) return
         await loadTasks()
+        if (!mutationRequestScope.isCurrent(request, taskIdRef.current)) return
         await callbacksRef.current.resumeTask?.(d.task_id, d.filename, 'queued')
         showToast('重新解析任务已入队')
       } catch (e) {
-        reportError((e as Error).message)
+        if (mutationRequestScope.isCurrent(request, taskIdRef.current)) reportError((e as Error).message)
       }
     },
-    [loadTasks, reportError, showToast],
+    [loadTasks, mutationRequestScope, reportError, showToast],
   )
 
   const viewTaskResult = useCallback(

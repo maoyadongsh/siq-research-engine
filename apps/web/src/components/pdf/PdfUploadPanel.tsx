@@ -4,6 +4,12 @@ import { EmptyState } from '@/components/page'
 import type { DownloadedPdf, HealthStatus } from '../../lib/pdfTypes'
 import { escHtml, formatDateTime, formatSize, isTerminal } from '../../lib/pdfFormatting'
 
+export interface DownloadedPackageBuildState {
+  status: 'building' | 'succeeded' | 'failed'
+  packagePath?: string
+  message?: string
+}
+
 function documentKind(report: DownloadedPdf): string {
   const suffix = report.filename.split('.').pop()?.toLowerCase() || ''
   const contentType = String(report.contentType || '').toLowerCase()
@@ -37,6 +43,8 @@ export interface PdfUploadPanelProps {
   selectDownloadedReport: (report: DownloadedPdf, onBusy: (path: string) => void) => Promise<void>
   parseDownloadedReport: (report: DownloadedPdf, onBusy: (path: string) => void) => Promise<void>
   buildDownloadedPackage?: (report: DownloadedPdf, onBusy: (path: string) => void) => Promise<void>
+  downloadedPackageBuildState?: (report: DownloadedPdf) => DownloadedPackageBuildState | undefined
+  downloadedPackageBuildDisabledReason?: (report: DownloadedPdf) => string
   backend: string
   setBackend: (v: string) => void
   parseMethod: string
@@ -79,6 +87,8 @@ export function PdfUploadPanel(props: PdfUploadPanelProps) {
     selectDownloadedReport,
     parseDownloadedReport,
     buildDownloadedPackage,
+    downloadedPackageBuildState,
+    downloadedPackageBuildDisabledReason,
     backend,
     setBackend,
     parseMethod,
@@ -153,10 +163,17 @@ export function PdfUploadPanel(props: PdfUploadPanelProps) {
           <>
             <div className="pdf-download-list">
               {visibleReports.map((report) => {
-                const busy = downloadedBusyPath === report.relativePath
                 const isPdf = report.isPdf !== false
                 const kind = documentKind(report)
-                const canBuildStructuredPackage = !isPdf && !!buildDownloadedPackage
+                const structuredBuildState = downloadedPackageBuildState?.(report)
+                const busy = downloadedBusyPath === report.relativePath || structuredBuildState?.status === 'building'
+                const structuredBuildReason = !isPdf && buildDownloadedPackage
+                  ? downloadedPackageBuildDisabledReason?.(report) || ''
+                  : ''
+                const isStructuredBuildEntry = !isPdf && !!buildDownloadedPackage
+                const pdfOnlyReason = !isPdf && !buildDownloadedPackage
+                  ? `${report.market || '当前市场'} 仅支持 PDF 解析；此文件不会送入 PDF parser。`
+                  : ''
                 return (
                 <div key={report.id} className="pdf-download-item">
                   <div className="pdf-download-main">
@@ -170,6 +187,20 @@ export function PdfUploadPanel(props: PdfUploadPanelProps) {
                         <span>{formatSize(report.size)}</span>
                         <span>{formatDateTime(report.mtime)}</span>
                       </div>
+                      {structuredBuildState ? (
+                        <div
+                          className={`mt-1 break-all text-xs leading-5 ${structuredBuildState.status === 'failed' ? 'text-error' : structuredBuildState.status === 'succeeded' ? 'text-success' : 'text-text-muted'}`}
+                          aria-live="polite"
+                        >
+                          {structuredBuildState.status === 'building'
+                            ? '正在生成结构化解析产物...'
+                            : structuredBuildState.status === 'succeeded'
+                              ? `结构化解析产物已生成：${structuredBuildState.packagePath || '已完成'}`
+                              : structuredBuildState.message || '结构化解析失败'}
+                        </div>
+                      ) : structuredBuildReason || pdfOnlyReason ? (
+                        <div className="mt-1 text-xs text-text-muted">{structuredBuildReason || pdfOnlyReason}</div>
+                      ) : null}
                     </div>
                   </div>
                   <div className="pdf-download-actions">
@@ -181,12 +212,12 @@ export function PdfUploadPanel(props: PdfUploadPanelProps) {
                     >
                       {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}选择
                     </button>
-                    {canBuildStructuredPackage ? (
+                    {isStructuredBuildEntry ? (
                       <button
                         className="pdf-small-action primary"
                         onClick={() => buildDownloadedPackage?.(report, setDownloadedBusyPath)}
-                        disabled={busy || uploading}
-                        title="生成结构化解析产物包"
+                        disabled={busy || uploading || Boolean(structuredBuildReason)}
+                        title={structuredBuildReason || '生成结构化解析产物'}
                       >
                         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}结构化解析
                       </button>

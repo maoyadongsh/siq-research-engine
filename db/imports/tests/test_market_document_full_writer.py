@@ -406,6 +406,19 @@ def test_market_agent_fact_views_are_scoped_to_latest_successful_parse_runs():
             assert "join sec_us.parse_runs pr on pr.parse_run_id = x.parse_run_id" not in ddl
 
 
+def test_runtime_market_ddl_uses_checked_in_ddl_not_generated_reset():
+    writer_module = _load_module("market_document_full_writer_runtime_ddl", "market_document_full_writer.py")
+    conn = FakeConn({}, database="siq_hk")
+
+    writer_module.run_market_ddl(conn, "HK")
+
+    executed_sql = conn.executed[-1][0]
+    expected_ddl = Path(writer_module.MARKET_CONFIG["HK"]["ddl"]).read_text(encoding="utf-8")
+    assert executed_sql == expected_ddl
+    assert "drop schema" not in executed_sql.lower()
+    assert "create schema if not exists pdf2md_hk" in executed_sql.lower()
+
+
 def test_writer_maps_stable_xbrl_fact_id_to_eu_raw_fact_primary_key():
     writer_module = _load_module("market_document_full_writer", "market_document_full_writer.py")
     base = _load_module("market_document_full_base", "market_document_full_rules/base.py")

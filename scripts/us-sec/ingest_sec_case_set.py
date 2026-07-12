@@ -20,7 +20,6 @@ POSTGRES_IMPORT_PATH = REPO_ROOT / "db" / "imports" / "import_sec_filing_to_post
 MILVUS_INGEST_PATH = REPO_ROOT / "scripts" / "vector-index" / "milvus-ingestion" / "ingest_sec_wiki_chunks.py"
 BUILD_PACKAGE_PATH = REPO_ROOT / "scripts" / "us-sec" / "build_sec_evidence_package.py"
 DEFAULT_DOWNLOADS_ROOT = REPO_ROOT / "data" / "market-report-finder" / "downloads" / "US"
-DEFAULT_COLLECTION = os.environ.get("SIQ_US_SEC_MILVUS_COLLECTION", "siq_us_sec_filings")
 DEFAULT_VECTOR_DIM = int(os.environ.get("SIQ_EMBED_VECTOR_DIM", "1024"))
 
 
@@ -32,6 +31,18 @@ def load_module(path: Path, name: str):
     sys.modules[name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def _default_collection() -> str:
+    contract = load_module(REPO_ROOT / "db" / "imports" / "market_ingestion_contract.py", "siq_market_ingestion_contract_for_us_sec_ingest")
+    target = contract.target_for_market("US")
+    collection = str(target.default_collection or "").strip()
+    if not collection:
+        raise RuntimeError("US market ingestion contract is missing default_collection")
+    return os.environ.get("SIQ_US_SEC_MILVUS_COLLECTION", collection).strip() or collection
+
+
+DEFAULT_COLLECTION = _default_collection()
 
 
 pg_import = load_module(POSTGRES_IMPORT_PATH, "siq_sec_pg_import")

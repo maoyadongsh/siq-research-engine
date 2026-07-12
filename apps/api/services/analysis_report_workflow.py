@@ -153,11 +153,18 @@ def _script_supports_research_packs(script: Path) -> bool:
     except OSError:
         return False
     script_dir = script.parent
+    required_quality_files = (
+        "html_renderer_v2.py",
+        "financial_chart_design.py",
+        "renderer_svg_charts.py",
+        "renderer_assets.py",
+        "run_research_subagents.py",
+        "validate_research_packs.py",
+        "merge_research_packs.py",
+    )
     return (
         "--use-research-packs" in source
-        and (script_dir / "run_research_subagents.py").is_file()
-        and (script_dir / "validate_research_packs.py").is_file()
-        and (script_dir / "merge_research_packs.py").is_file()
+        and all((script_dir / filename).is_file() for filename in required_quality_files)
     )
 
 
@@ -259,6 +266,7 @@ def format_analysis_report_workflow_reply(result: dict[str, Any]) -> str:
         f"- 年度: `{year}`",
         f"- 流水线阶段: `{stage}`",
         "- 固化能力: `run_analysis_report.py --use-research-packs --research-subagent-mode deterministic`",
+        "- 图表模板: `html_renderer_v2 + financial_chart_design` 收支拆解/利润桥组件",
         f"- 质量验收: `{_validation_status(result)}`",
     ]
     if html_url:

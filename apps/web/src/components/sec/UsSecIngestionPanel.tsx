@@ -21,6 +21,7 @@ import {
   fetchMarketDocumentFullStatus,
   fetchUsSecCaseSet,
   fetchUsSecPackage,
+  fetchUsSecPackageByPath,
   fetchUsSecPackageText,
   rebuildUsSecPackage,
   runMarketDocumentFullImport,
@@ -45,6 +46,7 @@ import {
   deriveUsSecArtifactManifest,
   deriveUsSecDocumentFullImportPath,
   deriveUsSecDownloadedRows,
+  deriveUsSecPackageRebuildRequest,
   deriveUsSecQualitySummary,
   deriveUsSecRecentTasks,
   deriveUsSecWorkflowSummary,
@@ -72,6 +74,8 @@ export function UsSecIngestionPanel() {
   const [status, setStatus] = useState<UsSecCaseSetStatus | null>(null)
   const [documentFullPostgres, setDocumentFullPostgres] = useState<Record<string, MarketDocumentFullPostgresStatus | undefined>>({})
   const [selectedTaskId, setSelectedTaskId] = useState('')
+  const selectedTaskIdRef = useRef('')
+  const packageLoadRequestRef = useRef(0)
   const [packageDetail, setPackageDetail] = useState<UsSecPackageDetail | null>(null)
   const [markdownFile, setMarkdownFile] = useState('')
   const [markdownText, setMarkdownText] = useState('')
@@ -122,7 +126,11 @@ export function UsSecIngestionPanel() {
     try {
       const next = await fetchUsSecCaseSet()
       setStatus(next)
-      setSelectedTaskId((current) => (current && next.items?.some((item) => String(item.package_path || '') === current) ? current : ''))
+      setSelectedTaskId((current) => {
+        const selected = current && next.items?.some((item) => String(item.package_path || '') === current) ? current : ''
+        selectedTaskIdRef.current = selected
+        return selected
+      })
       await loadDocumentFullPostgresStatuses(next)
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载失败')
@@ -131,37 +139,40 @@ export function UsSecIngestionPanel() {
     }
   }, [loadDocumentFullPostgresStatuses])
 
-  const applyPackageDetail = useCallback(async (detail: UsSecPackageDetail) => {
-    setPackageDetail(detail)
-    const firstSectionFile = detail.sections?.[0]?.file
-    const nextMd = detail.preview?.default_markdown || (firstSectionFile ? `sections/${String(firstSectionFile)}` : '')
-    setMarkdownFile(nextMd)
-    if (detail.package_path && nextMd) {
-      try {
-        setMarkdownText(await fetchUsSecPackageText(detail.package_path, nextMd))
-      } catch {
-        setMarkdownText('')
-      }
-    } else {
-      setMarkdownText('')
-    }
-  }, [])
-
-  const loadPackage = useCallback(async (ticker: string) => {
-    if (!ticker) return
+  const loadPackage = useCallback(async ({ ticker, packagePath }: { ticker?: string; packagePath?: string }) => {
+    if (!ticker && !packagePath) return
+    const requestId = ++packageLoadRequestRef.current
     setPackageLoading(true)
     setError('')
     try {
-      const detail = await fetchUsSecPackage(ticker)
-      await applyPackageDetail(detail)
+      const detail = packagePath
+        ? await fetchUsSecPackageByPath(packagePath)
+        : await fetchUsSecPackage(ticker || '')
+      const firstSectionFile = detail.sections?.[0]?.file
+      const nextMarkdownFile = detail.preview?.default_markdown || (firstSectionFile ? `sections/${String(firstSectionFile)}` : '')
+      let nextMarkdownText = ''
+      if (detail.package_path && nextMarkdownFile) {
+        try {
+          nextMarkdownText = await fetchUsSecPackageText(detail.package_path, nextMarkdownFile)
+        } catch {
+          nextMarkdownText = ''
+        }
+      }
+      if (packageLoadRequestRef.current !== requestId) return
+      if (packagePath && selectedTaskIdRef.current !== packagePath) return
+      setPackageDetail(detail)
+      setMarkdownFile(nextMarkdownFile)
+      setMarkdownText(nextMarkdownText)
     } catch (err) {
+      if (packageLoadRequestRef.current !== requestId) return
       setError(err instanceof Error ? err.message : '加载解析产物包失败')
       setPackageDetail(null)
+      setMarkdownFile('')
       setMarkdownText('')
     } finally {
-      setPackageLoading(false)
+      if (packageLoadRequestRef.current === requestId) setPackageLoading(false)
     }
-  }, [applyPackageDetail])
+  }, [])
 
   const loadDownloads = useCallback(async (text: string) => {
     setDownloadedLoading(true)
@@ -284,8 +295,11 @@ export function UsSecIngestionPanel() {
         if (result.ok === false) throw new Error(String(result.stderr || result.stdout || 'US 解析产物包构建失败'))
         setLastOutput(result.stdout || result.stderr || 'US 解析产物包已生成')
         setSelectedDownloadPath(report.relativePath)
+        selectedTaskIdRef.current = ''
+        packageLoadRequestRef.current += 1
         setSelectedTaskId('')
         setPackageDetail(null)
+        setMarkdownFile('')
         setMarkdownText('')
         await load()
         await loadDownloads(downloadQuery)
@@ -309,14 +323,16 @@ export function UsSecIngestionPanel() {
   const onViewTask = useCallback(async (task: UsSecRecentTaskRow) => {
     setBusy(`view:${task.id}`)
     setError('')
+    selectedTaskIdRef.current = task.id
+    packageLoadRequestRef.current += 1
     setPackageDetail(null)
     setMarkdownFile('')
     setMarkdownText('')
     try {
-      await loadPackage(task.ticker)
       setSelectedTaskId(task.id)
+      await loadPackage({ packagePath: task.packagePath, ticker: task.ticker })
     } finally {
-      setBusy('')
+      setBusy((current) => current === `view:${task.id}` ? '' : current)
     }
   }, [loadPackage])
 
@@ -325,19 +341,22 @@ export function UsSecIngestionPanel() {
     setError('')
     setLastOutput('')
     try {
-      const response = await rebuildUsSecPackage(task.ticker)
+      const rebuildRequest = deriveUsSecPackageRebuildRequest(task, packageDetail)
+      const response = rebuildRequest
+        ? await buildUsSecPackage(rebuildRequest)
+        : await rebuildUsSecPackage(task.ticker)
       const result = response.job_id
         ? await waitForMarketReportJob<{ ok?: boolean; package?: UsSecPackageDetail; stdout?: string; stderr?: string }>(response.job_id)
         : response
       setLastOutput(result.stdout || result.stderr || (response.job_id ? `后台任务 ${response.job_id} 已完成` : ''))
       await load()
-      if (selectedTaskId === task.id) await loadPackage(task.ticker)
+      if (selectedTaskIdRef.current === task.id) await loadPackage({ packagePath: task.packagePath, ticker: task.ticker })
     } catch (err) {
       setError(err instanceof Error ? err.message : '重建失败')
     } finally {
-      setBusy('')
+      setBusy((current) => current === `rebuild:${task.id}` ? '' : current)
     }
-  }, [load, loadPackage, selectedTaskId])
+  }, [load, loadPackage, packageDetail])
 
   const onImportTaskPostgres = useCallback(async (task: UsSecRecentTaskRow) => {
     setBusy(`postgres:${task.id}`)
@@ -373,6 +392,7 @@ export function UsSecIngestionPanel() {
         ddl: false,
         include_fail: includeFail,
         tickers: task.ticker,
+        package_path: task.packagePath,
         batch_tag: 'us-sec-case-set-50',
       })
       const result = response.job_id
@@ -399,6 +419,7 @@ export function UsSecIngestionPanel() {
         ddl: false,
         include_fail: includeFail,
         tickers: task.ticker,
+        package_path: task.packagePath,
         batch_tag: 'us-sec-case-set-50',
       })
       const result = response.job_id
@@ -425,6 +446,7 @@ export function UsSecIngestionPanel() {
         ddl: false,
         include_fail: includeFail,
         tickers: task.ticker,
+        package_path: task.packagePath,
         batch_tag: 'us-sec-case-set-50',
       })
       const wiki = wikiResponse.job_id
@@ -437,6 +459,7 @@ export function UsSecIngestionPanel() {
         ddl: false,
         include_fail: includeFail,
         tickers: task.ticker,
+        package_path: task.packagePath,
         batch_tag: 'us-sec-case-set-50',
       })
       const semantic = semanticResponse.job_id

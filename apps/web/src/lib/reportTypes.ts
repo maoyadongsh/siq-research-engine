@@ -6,6 +6,10 @@ export interface Company {
   code: string
   name: string
   dir: string
+  market?: string
+  company_id?: string
+  filing_id?: string
+  parse_run_id?: string
   hasReport: boolean
   reportCount: number
   hasFactcheck?: boolean
@@ -21,6 +25,10 @@ export interface ReportItem {
   url?: string
   size: number
   mtime: string
+  market?: string
+  company_id?: string
+  filing_id?: string
+  parse_run_id?: string
 }
 
 export interface ReportViewerAgentConfig {

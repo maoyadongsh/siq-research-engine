@@ -141,7 +141,6 @@ export SIQ_BACKEND_URL="${SIQ_BACKEND_URL:-http://127.0.0.1:$BACKEND_PORT}"
 export SIQ_REPORT_FINDER_URL="${SIQ_REPORT_FINDER_URL:-http://127.0.0.1:$REPORT_FINDER_PORT}"
 export SIQ_MARKET_REPORT_FINDER_URL="${SIQ_MARKET_REPORT_FINDER_URL:-http://127.0.0.1:$MARKET_REPORT_FINDER_PORT}"
 export SIQ_MARKET_REPORT_RULES_URL="${SIQ_MARKET_REPORT_RULES_URL:-http://127.0.0.1:$MARKET_REPORT_RULES_PORT}"
-export SIQ_PDFAPI_URL="${SIQ_PDFAPI_URL:-http://127.0.0.1:$PDF2MD_PORT}"
 export SIQ_PDF2MD_API_BASE="${SIQ_PDF2MD_API_BASE:-http://127.0.0.1:$PDF2MD_PORT}"
 export SIQ_DOCUMENT_PARSER_API_BASE="${SIQ_DOCUMENT_PARSER_API_BASE:-http://127.0.0.1:$DOCUMENT_PARSER_PORT}"
 export SIQ_REPORT_FINDER_BASE="${SIQ_REPORT_FINDER_BASE:-http://127.0.0.1:$REPORT_FINDER_PORT}"
@@ -514,5 +513,7 @@ ok "全部启动完成！浏览器打开: http://localhost:$FRONTEND_PORT"
 echo "按 Ctrl+C 停止所有服务"
 echo ""
 
-# 保持脚本运行
-wait
+# 任一服务退出都终止整栈，避免留下前端或后端缺失的半活环境。
+child_exit_code=0
+wait -n "${pids[@]}" || child_exit_code=$?
+die "服务子进程已退出 (exit $child_exit_code)，正在停止其余服务。请检查上方日志后重新启动。"

@@ -9,6 +9,7 @@ const {
   deriveUsSecArtifactManifest,
   deriveUsSecDownloadedRows,
   deriveUsSecParseStatus,
+  deriveUsSecPackageRebuildRequest,
   deriveUsSecQualitySummary,
   deriveUsSecRecentTasks,
   deriveUsSecWorkflowSummary,
@@ -164,6 +165,40 @@ test('findUsSecCaseItem prefers accession, ticker, and period', () => {
   assert.match(String(item?.package_path), /0001045810-25-000023/)
 })
 
+test('findUsSecCaseItem keeps same-ticker SEC filings separated by accession and period', () => {
+  const multiFilingStatus: UsSecCaseSetStatus = {
+    ...status,
+    items: [
+      {
+        ...(status.items?.[0] || {}),
+        period_end: '2024-01-31',
+        filing_date: '2024-03-15',
+        package_path: 'data/wiki/us/companies/NVDA-NVIDIA/reports/2024-10-K-0001045810-24-000029',
+        parser_result_dir: 'data/parser-results/us-sec/NVDA-10-K-0001045810-24-000029',
+      },
+      {
+        ...(status.items?.[0] || {}),
+        period_end: '2025-01-31',
+        filing_date: '2025-03-18',
+        package_path: 'data/wiki/us/companies/NVDA-NVIDIA/reports/2025-10-K-0001045810-25-000023',
+        parser_result_dir: 'data/parser-results/us-sec/NVDA-10-K-0001045810-25-000023',
+      },
+    ],
+  }
+
+  const selected = findUsSecCaseItem(report({
+    reportEnd: '2024-01-31',
+    accessionNumber: '0001045810-24-000029',
+  }), multiFilingStatus)
+  const unknownAccession = findUsSecCaseItem(report({
+    reportEnd: '',
+    accessionNumber: '0001045810-26-999999',
+  }), multiFilingStatus)
+
+  assert.match(String(selected?.package_path), /2024-10-K-0001045810-24-000029/)
+  assert.equal(unknownAccession, null)
+})
+
 test('deriveUsSecParseStatus maps package and import states', () => {
   const matched = status.items?.[0]
   const documentFullStatus: MarketDocumentFullPostgresStatus = { status: 'postgres_ready', facts: 8, chunks: 2, evidence: 1 }
@@ -239,6 +274,50 @@ test('deriveUsSecRecentTasks ignores package-local document_full path objects an
 
   assert.equal(rows[0].documentFullPath, 'data/parser-results/us-sec/NVDA-canonical/document_full.json')
   assert.equal(deriveUsSecDocumentFullImportPath(rows[0]), 'data/parser-results/us-sec/NVDA-canonical/document_full.json')
+})
+
+test('deriveUsSecPackageRebuildRequest ignores detail from another same-ticker filing', () => {
+  const [task] = deriveUsSecRecentTasks(status)
+  const request = deriveUsSecPackageRebuildRequest(task, {
+    ...packageDetail,
+    package_path: 'data/wiki/us/companies/NVDA-NVIDIA-Corporation/reports/2024-10-K-0001045810-24-000029',
+    manifest: {
+      ...packageDetail.manifest,
+      local_source_path: 'raw/filing.htm',
+    },
+  })
+
+  assert.deepEqual(request, {
+    source_path: 'data/wiki/us/companies/NVDA-NVIDIA-Corporation/reports/2025-10-K-0001045810-25-000023/raw/filing.htm',
+    force: true,
+  })
+})
+
+test('deriveUsSecPackageRebuildRequest uses source metadata only for the same package', () => {
+  const [task] = deriveUsSecRecentTasks(status)
+  const request = deriveUsSecPackageRebuildRequest(task, {
+    ...packageDetail,
+    manifest: {
+      ...packageDetail.manifest,
+      local_source_path: 'raw/primary-document.htm',
+    },
+  })
+
+  assert.deepEqual(request, {
+    source_path: `${task.packagePath}/raw/primary-document.htm`,
+    force: true,
+  })
+})
+
+test('deriveUsSecDocumentFullImportPath ignores explicit paths from another same-ticker filing', () => {
+  const [task] = deriveUsSecRecentTasks(status)
+  const path = deriveUsSecDocumentFullImportPath(task, {
+    ...packageDetail,
+    package_path: 'data/wiki/us/companies/NVDA-NVIDIA-Corporation/reports/2024-10-K-0001045810-24-000029',
+    document_full_path: 'data/parser-results/us-sec/NVDA-10-K-0001045810-24-000029/document_full.json',
+  })
+
+  assert.equal(path, task.documentFullPath)
 })
 
 test('deriveUsSecWorkflowSummary enables PostgreSQL actions for package-local document_full fallback paths', () => {

@@ -1,5 +1,8 @@
-from types import SimpleNamespace
+import sqlite3
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+
+import anyio
 
 from services import agent_memory_service as memory
 
@@ -28,6 +31,15 @@ def test_context_from_session_id_parses_user_and_normalizes_profile():
     assert context.visibility == "user_private"
 
 
+def test_context_from_session_id_accepts_canonical_short_session_suffix():
+    context = memory.context_from_session_id("user-42-assistant-a5c42649")
+
+    assert context is not None
+    assert context.user_id == 42
+    assert context.profile == "siq_assistant"
+    assert context.agent_group == "secondary_market"
+
+
 def test_context_from_session_id_marks_ic_profiles_project_shared():
     context = memory.context_from_session_id(
         "user-7-siq_ic_chairman-123e4567-e89b-12d3-a456-426614174000",
@@ -37,6 +49,30 @@ def test_context_from_session_id_marks_ic_profiles_project_shared():
     assert context is not None
     assert context.agent_group == "primary_market"
     assert context.visibility == "project_shared"
+
+
+def test_context_from_session_id_preserves_normalized_research_identity():
+    context = memory.context_from_session_id(
+        "user-42-assistant-123e4567-e89b-12d3-a456-426614174000",
+        research_identity={
+            "market": "US_SEC",
+            "company_id": "US:AAPL",
+            "filing_id": "US:AAPL:2025-10-K",
+            "parse_run_id": "parse-us-aapl",
+        },
+    )
+
+    assert context is not None
+    assert memory.context_research_identity(context) == {
+        "market": "US",
+        "company_id": "US:AAPL",
+        "filing_id": "US:AAPL:2025-10-K",
+        "parse_run_id": "parse-us-aapl",
+    }
+    assert memory.metadata_with_research_identity(context, {"source": "chat"}) == {
+        "source": "chat",
+        "research_identity": memory.context_research_identity(context),
+    }
 
 
 def test_memory_enabled_skips_sqlite_by_default(monkeypatch):
@@ -105,3 +141,149 @@ def test_memory_recency_weight_decays_old_memory_and_full_recall_bypasses(monkey
     assert 0.49 <= decayed <= 0.51
     assert bypassed == 1.0
     assert profile_file == 1.0
+
+
+def test_memory_search_builds_exact_identity_filters_for_milvus_and_pgvector(monkeypatch):
+    identity = {
+        "market": "HK",
+        "company_id": "HK:00700",
+        "filing_id": "HK:00700:2025-annual",
+        "parse_run_id": "parse-hk-00700",
+    }
+    context = memory.context_from_session_id(
+        "user-42-assistant-123e4567-e89b-12d3-a456-426614174000",
+        deal_id="deal-a",
+        research_identity=identity,
+    )
+    assert context is not None
+
+    class EmptyResult:
+        def mappings(self):
+            return self
+
+        def all(self):
+            return []
+
+    class FakeSession:
+        bind = SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
+
+        def __init__(self):
+            self.calls = []
+
+        async def execute(self, statement, params):
+            self.calls.append((str(statement), dict(params)))
+            return EmptyResult()
+
+    async def fake_embed(_query):
+        return [0.1, 0.2]
+
+    monkeypatch.setattr(memory, "memory_retrieval_enabled", lambda _session: True)
+    monkeypatch.setattr(memory, "_embed_text", fake_embed)
+    monkeypatch.setattr(memory, "milvus_enabled", lambda _session: True)
+    monkeypatch.setattr(memory, "pgvector_enabled", lambda _session: False)
+    milvus_exprs = []
+    monkeypatch.setattr(
+        memory.agent_memory_milvus,
+        "search_records",
+        lambda **kwargs: milvus_exprs.append(kwargs["expr"]) or [],
+    )
+    async def search(session):
+        return await memory.search_memory_items(session, context, query="腾讯收入")
+
+    milvus_session = FakeSession()
+    anyio.run(search, milvus_session)
+
+    assert len(milvus_exprs) == 1
+    assert 'agent_group == "secondary_market"' in milvus_exprs[0]
+    assert 'research_company_id == "HK:00700"' in milvus_exprs[0]
+    assert 'research_parse_run_id == "parse-hk-00700"' in milvus_exprs[0]
+
+    monkeypatch.setattr(memory, "milvus_enabled", lambda _session: False)
+    monkeypatch.setattr(memory, "pgvector_enabled", lambda _session: True)
+    pg_session = FakeSession()
+    anyio.run(search, pg_session)
+
+    assert len(pg_session.calls) == 2
+    for sql, params in pg_session.calls:
+        assert "mi.metadata_json->'research_identity'->>'company_id' = :research_company_id" in sql
+        assert "mi.metadata_json->'research_identity'->>'parse_run_id' = :research_parse_run_id" in sql
+        assert "mi.agent_group = :agent_group" in sql
+        assert params["agent_group"] == "secondary_market"
+        assert params["research_company_id"] == "HK:00700"
+        assert params["research_parse_run_id"] == "parse-hk-00700"
+
+
+def test_memory_search_fails_closed_for_partial_identity_before_backend_calls(monkeypatch):
+    context = memory.context_from_session_id(
+        "user-42-assistant-123e4567-e89b-12d3-a456-426614174000",
+        research_identity={"market": "HK", "company_id": "HK:00700"},
+    )
+    assert context is not None
+    calls = []
+    monkeypatch.setattr(memory, "memory_retrieval_enabled", lambda _session: True)
+    monkeypatch.setattr(memory, "_embed_text", lambda _query: calls.append("embed"))
+
+    async def search():
+        return await memory.search_memory_items(object(), context, query="腾讯收入")
+
+    result = anyio.run(search)
+
+    assert result == []
+    assert calls == []
+
+
+def test_unscoped_memory_sql_excludes_all_research_scoped_records():
+    sql = memory._memory_identity_sql(None)
+
+    for field in memory.RESEARCH_IDENTITY_FIELDS:
+        assert f"metadata_json->'research_identity'->>'{field}', '') = ''" in sql
+
+
+def test_memory_acl_project_shared_requires_same_agent_group_but_system_shared_crosses_groups():
+    connection = sqlite3.connect(":memory:")
+    connection.execute(
+        """
+        CREATE TABLE memory_items (
+            id TEXT PRIMARY KEY,
+            visibility TEXT NOT NULL,
+            owner_user_id INTEGER,
+            agent_group TEXT NOT NULL,
+            deal_id TEXT,
+            project_id TEXT
+        )
+        """
+    )
+    connection.executemany(
+        "INSERT INTO memory_items VALUES (?, ?, ?, ?, ?, ?)",
+        [
+            ("primary-project", "project_shared", 1, "primary_market", "deal-a", None),
+            ("secondary-project", "project_shared", 1, "secondary_market", "deal-a", None),
+            ("system-cross-group", "system_shared", None, "primary_market", None, None),
+            ("private-owner", "user_private", 7, "primary_market", None, None),
+            ("private-other-user", "user_private", 8, "secondary_market", None, None),
+        ],
+    )
+
+    query = "SELECT id FROM memory_items mi WHERE TRUE " + memory._memory_acl_sql() + " ORDER BY id"
+    base_params = {"user_id": 7, "deal_id": "deal-a", "project_id": None}
+    secondary_ids = [
+        row[0]
+        for row in connection.execute(query, {**base_params, "agent_group": "secondary_market"})
+    ]
+    primary_ids = [
+        row[0]
+        for row in connection.execute(query, {**base_params, "agent_group": "primary_market"})
+    ]
+
+    assert secondary_ids == ["private-owner", "secondary-project", "system-cross-group"]
+    assert primary_ids == ["primary-project", "private-owner", "system-cross-group"]
+    connection.close()
+
+
+def test_memory_acl_casts_nullable_scope_parameters_for_asyncpg():
+    sql = memory._memory_acl_sql()
+
+    assert "CAST(:deal_id AS TEXT) IS NOT NULL" in sql
+    assert "mi.deal_id = CAST(:deal_id AS TEXT)" in sql
+    assert "CAST(:project_id AS TEXT) IS NOT NULL" in sql
+    assert "mi.project_id = CAST(:project_id AS TEXT)" in sql

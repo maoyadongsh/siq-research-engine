@@ -1,11 +1,11 @@
-from sqlmodel import SQLModel, Session, create_engine
-from sqlmodel.ext.asyncio.session import AsyncSession
-from sqlalchemy.ext.asyncio import create_async_engine
-from sqlalchemy import inspect, text
 import os
 import re
 
 from services.path_config import BACKEND_DATA_ROOT
+from sqlalchemy import inspect, text
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 DB_DIR = BACKEND_DATA_ROOT
 DB_DIR.mkdir(parents=True, exist_ok=True)
@@ -36,6 +36,7 @@ def create_db_and_tables():
     SQLModel.metadata.create_all(engine)
     _ensure_auth_columns()
     _ensure_chat_message_columns()
+    _ensure_app_indexes()
     _ensure_agent_memory_schema()
 
 
@@ -72,6 +73,10 @@ def _ensure_chat_message_columns():
     additions = []
     if "attachments_json" not in columns:
         additions.append(("attachments_json", "TEXT"))
+    if "audit_trace_id" not in columns:
+        additions.append(("audit_trace_id", "VARCHAR(64)"))
+    if "research_identity_json" not in columns:
+        additions.append(("research_identity_json", "TEXT"))
 
     if not additions:
         return
@@ -79,6 +84,28 @@ def _ensure_chat_message_columns():
     with engine.begin() as connection:
         for name, definition in additions:
             connection.execute(text(f"ALTER TABLE chatmessage ADD COLUMN {name} {definition}"))
+
+
+def _ensure_app_indexes():
+    inspector = inspect(engine)
+    index_statements = []
+    if inspector.has_table("chatmessage"):
+        index_statements.append(
+            "CREATE INDEX IF NOT EXISTS idx_chatmessage_session_created_at "
+            "ON chatmessage (session_id, created_at)"
+        )
+    if inspector.has_table("usage_events"):
+        index_statements.append(
+            "CREATE INDEX IF NOT EXISTS idx_usage_events_user_type_date "
+            "ON usage_events (user_id, event_type, event_date)"
+        )
+
+    if not index_statements:
+        return
+
+    with engine.begin() as connection:
+        for statement in index_statements:
+            connection.execute(text(statement))
 
 
 def _agent_memory_schema_name() -> str:
@@ -155,11 +182,13 @@ def _ensure_agent_memory_schema():
             role TEXT NOT NULL,
             content TEXT NOT NULL,
             attachments_json JSONB,
+            research_identity_json JSONB,
             token_count INTEGER,
             model_name TEXT,
             created_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )
         """,
+        f"ALTER TABLE {schema}.messages ADD COLUMN IF NOT EXISTS research_identity_json JSONB",
         f"""
         CREATE TABLE IF NOT EXISTS {schema}.runs (
             id BIGSERIAL PRIMARY KEY,

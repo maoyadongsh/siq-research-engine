@@ -4,14 +4,76 @@ import sys
 from pathlib import Path
 
 import pytest
-from fastapi import HTTPException
-
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
+from sqlmodel import Session, SQLModel, create_engine
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_SPEC = importlib.util.spec_from_file_location("workflow_subprocess_contracts", BACKEND_ROOT / "routers" / "workflow.py")
 assert WORKFLOW_SPEC and WORKFLOW_SPEC.loader
 workflow = importlib.util.module_from_spec(WORKFLOW_SPEC)
 WORKFLOW_SPEC.loader.exec_module(workflow)
+
+from services.auth_dependencies import get_current_user  # noqa: E402
+from services.auth_service import User, UserRole  # noqa: E402
+from services.usage_service import UserArtifact  # noqa: E402
+
+
+def _workflow_test_user(user_id: int, username: str, role: UserRole = UserRole.ANALYST) -> User:
+    return User(
+        id=user_id,
+        username=username,
+        email=f"{username}@example.test",
+        hashed_password="x",
+        full_name=username,
+        role=role,
+        is_active=True,
+        approval_status="approved",
+    )
+
+
+def _workflow_auth_engine(tmp_path: Path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'workflow-auth.db'}")
+    SQLModel.metadata.create_all(engine)
+    return engine
+
+
+def _link_workflow_artifact(
+    engine,
+    *,
+    user_id: int,
+    task_id: str,
+    artifact_type: str = "parse",
+) -> None:
+    with Session(engine) as session:
+        session.add(
+            UserArtifact(
+                user_id=user_id,
+                artifact_type=artifact_type,
+                artifact_key=task_id,
+                global_artifact_id=task_id,
+                title=task_id,
+                path=f"/tasks/{task_id}",
+                source="workflow-test",
+            )
+        )
+        session.commit()
+
+
+def _workflow_client(engine, current_user: User) -> TestClient:
+    app = FastAPI()
+    app.include_router(workflow.router, prefix="/api")
+
+    async def override_current_user() -> User:
+        return current_user
+
+    def override_session():
+        with Session(engine) as session:
+            yield session
+
+    app.dependency_overrides[get_current_user] = override_current_user
+    app.dependency_overrides[workflow.get_session] = override_session
+    return TestClient(app)
 
 
 def test_generate_obsidian_for_company_runs_expected_command(monkeypatch, tmp_path):
@@ -192,7 +254,7 @@ def test_extract_semantic_for_task_runs_rule_llm_obsidian_and_naming_contract(mo
     monkeypatch.setattr(workflow, "LLM_SEMANTIC_TIMEOUT", 77)
     monkeypatch.setattr(workflow, "_find_company_for_task", lambda task_id: next(find_results))
     monkeypatch.setattr(workflow, "_repair_and_validate_wiki_naming", fake_naming_check)
-    monkeypatch.setattr(workflow, "_generate_obsidian_for_company", fake_obsidian)
+    monkeypatch.setattr(workflow, "_generate_obsidian_for_company_at_root", lambda company_dir, _root: fake_obsidian(company_dir))
     monkeypatch.setattr(workflow, "_semantic_status", lambda company_dir, task_id: {"companyDir": company_dir, "taskId": task_id, "status": "ready"})
     monkeypatch.setattr(workflow, "_run_command", fake_run_command)
     monkeypatch.setattr(
@@ -228,6 +290,7 @@ def test_extract_semantic_for_task_runs_rule_llm_obsidian_and_naming_contract(mo
         str(wiki_root),
         "--company",
         "000001-新名称",
+        "--skip-existing",
     ]
     assert calls[0]["timeout"] == 180
     assert calls[0]["env"] is None
@@ -238,6 +301,7 @@ def test_extract_semantic_for_task_runs_rule_llm_obsidian_and_naming_contract(mo
         str(wiki_root),
         "--company",
         "000001-新名称",
+        "--skip-existing",
     ]
     assert calls[1]["timeout"] == 77
     assert calls[1]["env"]["SIQ_LOCAL_LLM_BASE_URL"] == "http://llm.local/v1"
@@ -488,7 +552,7 @@ def test_extract_semantic_for_task_keeps_optional_missing_llm_detail(monkeypatch
     monkeypatch.setattr(workflow, "LLM_SEMANTIC_REQUIRED", False)
     monkeypatch.setattr(workflow, "_find_company_for_task", lambda task_id: "000001-测试公司")
     monkeypatch.setattr(workflow, "_repair_and_validate_wiki_naming", lambda: {"ok": True})
-    monkeypatch.setattr(workflow, "_generate_obsidian_for_company", lambda company_dir: obsidian_calls.append(company_dir) or {"returnCode": 0})
+    monkeypatch.setattr(workflow, "_generate_obsidian_for_company_at_root", lambda company_dir, _root: obsidian_calls.append(company_dir) or {"returnCode": 0})
     monkeypatch.setattr(workflow, "_semantic_status", lambda company_dir, task_id: {"status": "ready"})
     monkeypatch.setattr(workflow, "_run_command", fake_run_command)
 
@@ -522,7 +586,7 @@ def test_extract_semantic_for_task_keeps_optional_llm_failure_non_blocking(monke
     monkeypatch.setattr(workflow, "LLM_SEMANTIC_REQUIRED", False)
     monkeypatch.setattr(workflow, "_find_company_for_task", lambda task_id: "000001-测试公司")
     monkeypatch.setattr(workflow, "_repair_and_validate_wiki_naming", lambda: {"ok": True})
-    monkeypatch.setattr(workflow, "_generate_obsidian_for_company", lambda company_dir: obsidian_calls.append(company_dir) or {"returnCode": 0})
+    monkeypatch.setattr(workflow, "_generate_obsidian_for_company_at_root", lambda company_dir, _root: obsidian_calls.append(company_dir) or {"returnCode": 0})
     monkeypatch.setattr(workflow, "_semantic_status", lambda company_dir, task_id: {"status": "ready"})
     monkeypatch.setattr(workflow, "_run_command", fake_run_command)
     monkeypatch.setattr(workflow, "load_llm_settings", lambda include_secrets=True: {"providers": {}})
@@ -562,7 +626,7 @@ def test_extract_generic_semantic_success_runs_rule_llm_obsidian_without_naming(
     monkeypatch.setattr(workflow, "LLM_SEMANTIC_TIMEOUT", 66)
     monkeypatch.setattr(workflow, "_find_company_for_task", lambda task_id: company_dir)
     monkeypatch.setattr(workflow, "_repair_and_validate_wiki_naming", fail_naming)
-    monkeypatch.setattr(workflow, "_generate_obsidian_for_company", lambda seen_company_dir: obsidian_calls.append(seen_company_dir) or {"returnCode": 0})
+    monkeypatch.setattr(workflow, "_generate_obsidian_for_company_at_root", lambda seen_company_dir, _root: obsidian_calls.append(seen_company_dir) or {"returnCode": 0})
     monkeypatch.setattr(workflow, "_semantic_status", lambda seen_company_dir, task_id: {"companyDir": seen_company_dir, "taskId": task_id, "status": "ready"})
     monkeypatch.setattr(workflow, "_run_command", fake_run_command)
     monkeypatch.setattr(workflow, "load_llm_settings", lambda include_secrets=True: {"providers": {"local": {"model": "qwen-local"}}})
@@ -580,6 +644,7 @@ def test_extract_generic_semantic_success_runs_rule_llm_obsidian_without_naming(
         str(wiki_root),
         "--company",
         company_dir,
+        "--skip-existing",
     ]
     assert calls[0]["timeout"] == 180
     assert calls[0]["env"] is None
@@ -590,6 +655,7 @@ def test_extract_generic_semantic_success_runs_rule_llm_obsidian_without_naming(
         str(wiki_root),
         "--company",
         company_dir,
+        "--skip-existing",
     ]
     assert calls[1]["timeout"] == 66
     assert calls[1]["env"]["SIQ_LOCAL_LLM_MODEL"] == "qwen-local"
@@ -625,3 +691,110 @@ def test_generic_semantic_route_returns_background_job_without_running_llm_inlin
 
     assert result == {"jobId": "job-generic-semantic", "taskId": "task-generic-route", "status": "queued", "steps": []}
     assert calls == [{"task_id": "task-generic-route", "step": "semantic-generic", "metadata": None}]
+
+
+def test_workflow_pdf_task_routes_require_user_artifact_and_write_permission(monkeypatch, tmp_path):
+    engine = _workflow_auth_engine(tmp_path)
+    owner = _workflow_test_user(41, "workflow-owner", UserRole.ANALYST)
+    other = _workflow_test_user(42, "workflow-other", UserRole.ANALYST)
+    viewer = _workflow_test_user(43, "workflow-viewer", UserRole.VIEWER)
+    _link_workflow_artifact(engine, user_id=owner.id, task_id="task-owned", artifact_type="parse")
+    _link_workflow_artifact(engine, user_id=viewer.id, task_id="task-viewer", artifact_type="parse")
+
+    calls = []
+    monkeypatch.setattr(workflow, "_workflow_status_payload", lambda task_id: {"ok": True, "taskId": task_id})
+    monkeypatch.setattr(
+        workflow,
+        "_import_task_to_wiki",
+        lambda task_id: calls.append(task_id) or {"ok": True, "taskId": task_id},
+    )
+
+    owner_client = _workflow_client(engine, owner)
+    other_client = _workflow_client(engine, other)
+    viewer_client = _workflow_client(engine, viewer)
+
+    assert owner_client.get("/api/workflow/task/task-owned/status").status_code == 200
+    assert owner_client.post("/api/workflow/task/task-owned/wiki-import").status_code == 200
+    assert calls == ["task-owned"]
+
+    assert other_client.get("/api/workflow/task/task-owned/status").status_code == 403
+    assert other_client.post("/api/workflow/task/task-owned/wiki-import").status_code == 403
+    assert viewer_client.post("/api/workflow/task/task-viewer/wiki-import").status_code == 403
+    assert calls == ["task-owned"]
+
+
+def test_workflow_document_routes_require_document_artifact_and_db_ops_permission(monkeypatch, tmp_path):
+    engine = _workflow_auth_engine(tmp_path)
+    owner = _workflow_test_user(51, "document-owner", UserRole.ANALYST)
+    other = _workflow_test_user(52, "document-other", UserRole.ANALYST)
+    _link_workflow_artifact(engine, user_id=owner.id, task_id="doc-owned", artifact_type="document_parse")
+
+    calls = []
+    monkeypatch.setattr(
+        workflow,
+        "_document_workflow_status_payload",
+        lambda task_id, collection=None: {"ok": True, "taskId": task_id, "collection": collection},
+    )
+    monkeypatch.setattr(
+        workflow,
+        "_import_document_task_to_wiki",
+        lambda task_id, collection=None: calls.append((task_id, collection)) or {"ok": True, "taskId": task_id},
+    )
+
+    owner_client = _workflow_client(engine, owner)
+    other_client = _workflow_client(engine, other)
+
+    assert owner_client.get("/api/workflow/document/doc-owned/status").status_code == 200
+    assert owner_client.post("/api/workflow/document/doc-owned/wiki-import").status_code == 200
+    assert calls == [("doc-owned", "default")]
+
+    assert other_client.get("/api/workflow/document/doc-owned/status").status_code == 403
+    assert other_client.post("/api/workflow/document/doc-owned/wiki-import").status_code == 403
+    assert owner_client.post("/api/workflow/document/doc-owned/db-import").status_code == 403
+    assert calls == [("doc-owned", "default")]
+
+
+def test_workflow_run_remaining_and_job_status_do_not_cross_users(monkeypatch, tmp_path):
+    engine = _workflow_auth_engine(tmp_path)
+    owner = _workflow_test_user(61, "job-owner", UserRole.ANALYST)
+    other = _workflow_test_user(62, "job-other", UserRole.ANALYST)
+    admin = _workflow_test_user(63, "workflow-admin", UserRole.ADMIN)
+    _link_workflow_artifact(engine, user_id=owner.id, task_id="task-owned", artifact_type="parse")
+
+    monkeypatch.setattr(workflow, "WORKFLOW_JOB_STORE", tmp_path / "workflow-jobs.json")
+    monkeypatch.setattr(workflow, "_workflow_jobs", {})
+    monkeypatch.setattr(workflow.uuid, "uuid4", lambda: type("Uuid", (), {"hex": "job-auth"})())
+    monkeypatch.setattr(workflow, "_workflow_preflight", lambda task_id: {"ok": True})
+
+    started = {}
+
+    class FakeThread:
+        def __init__(self, *, target, args, daemon):
+            started["target"] = target
+            started["args"] = args
+            started["daemon"] = daemon
+
+        def start(self):
+            started["called"] = True
+
+    monkeypatch.setattr(workflow.threading, "Thread", FakeThread)
+
+    owner_client = _workflow_client(engine, owner)
+    other_client = _workflow_client(engine, other)
+    admin_client = _workflow_client(engine, admin)
+
+    assert owner_client.post("/api/workflow/task/task-owned/run-remaining").status_code == 403
+
+    created = admin_client.post("/api/workflow/task/task-owned/run-remaining")
+    assert created.status_code == 200
+    assert created.json()["jobId"] == "job-auth"
+    assert created.json()["metadata"]["created_by"]["id"] == admin.id
+    assert started["target"] == workflow._run_job_with_heartbeat
+    assert started["args"][0] == "job-auth"
+    assert callable(started["args"][1])
+    assert started["daemon"] is True
+    assert started["called"] is True
+
+    assert owner_client.get("/api/workflow/job/job-auth").status_code == 200
+    assert other_client.get("/api/workflow/job/job-auth").status_code == 403
+    assert admin_client.get("/api/workflow/job/job-auth").status_code == 200

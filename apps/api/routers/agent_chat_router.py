@@ -4,18 +4,14 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import AsyncGenerator, Callable
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlmodel import select
-from sqlmodel.ext.asyncio.session import AsyncSession
-from sse_starlette.sse import EventSourceResponse
-
 from database import get_async_session
+from fastapi import APIRouter, Depends, HTTPException, Request
 from models import ChatMessage
-from schemas import ChatRequest, ChatResponse
+from schemas import ChatHistoryMessageResponse, ChatRequest, ChatResponse
 from services.agent_chat_runtime import (
     HISTORY_LIMIT,
-    chat_message_has_visible_payload,
     chat_history_response,
+    chat_message_has_visible_payload,
     collect_chat_reply,
     get_active_run_snapshot,
     has_active_run,
@@ -24,7 +20,11 @@ from services.agent_chat_runtime import (
     stream_active_run_events,
     stream_chat_reply,
 )
+from services.agent_runtime_context import research_identity
 from services.hermes_model_control import maybe_handle_model_control
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
+from sse_starlette.sse import EventSourceResponse
 
 
 @dataclass(frozen=True)
@@ -91,14 +91,23 @@ def create_agent_chat_router(config: AgentChatRouterConfig) -> AgentChatRouterBu
     ):
         control_reply = maybe_handle_model_control(req.message, config.profile)
         if control_reply:
+            identity = research_identity(req.context)
+            identity_kwargs = {"research_identity": identity} if identity else {}
             await save_message(
                 async_session,
                 "user",
                 req.display_message or req.message,
                 state.session_id,
                 attachments=req.attachments,
+                **identity_kwargs,
             )
-            await save_message(async_session, "assistant", control_reply, state.session_id)
+            await save_message(
+                async_session,
+                "assistant",
+                control_reply,
+                state.session_id,
+                **identity_kwargs,
+            )
             return ChatResponse(reply=control_reply, new_achievements=[])
 
         reply = await collect_chat_reply(
@@ -121,14 +130,23 @@ def create_agent_chat_router(config: AgentChatRouterConfig) -> AgentChatRouterBu
         async def event_generator() -> AsyncGenerator[dict, None]:
             control_reply = maybe_handle_model_control(req.message, config.profile)
             if control_reply:
+                identity = research_identity(req.context)
+                identity_kwargs = {"research_identity": identity} if identity else {}
                 await save_message(
                     async_session,
                     "user",
                     req.display_message or req.message,
                     state.session_id,
                     attachments=req.attachments,
+                    **identity_kwargs,
                 )
-                await save_message(async_session, "assistant", control_reply, state.session_id)
+                await save_message(
+                    async_session,
+                    "assistant",
+                    control_reply,
+                    state.session_id,
+                    **identity_kwargs,
+                )
                 yield {
                     "event": "delta",
                     "data": json.dumps({"content": control_reply}, ensure_ascii=False),
@@ -256,7 +274,12 @@ def create_agent_chat_router(config: AgentChatRouterConfig) -> AgentChatRouterBu
     router.add_api_route("/chat/stop", stop_chat, methods=["POST"])
     router.add_api_route("/chat/active", active_chat, methods=["GET"])
     router.add_api_route("/chat/active/stream", active_chat_stream, methods=["GET"])
-    router.add_api_route("/chat/history", chat_history, methods=["GET"])
+    router.add_api_route(
+        "/chat/history",
+        chat_history,
+        methods=["GET"],
+        response_model=list[ChatHistoryMessageResponse],
+    )
     router.add_api_route("/chat/sessions", chat_sessions, methods=["GET"])
     router.add_api_route("/chat/session", create_session, methods=["POST"])
     router.add_api_route("/chat/session/{session_id}", switch_session, methods=["POST"])

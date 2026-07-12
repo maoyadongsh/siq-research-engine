@@ -1,0 +1,104 @@
+{
+  "schema_version": "siq_parser_financial_golden_manifest_v1",
+  "cases": [
+    {
+      "case_id": "icbc-2025-long-markdown",
+      "market": "CN",
+      "company_id": "CN:601398",
+      "report_id": "2025-annual",
+      "pdf_source_path": "CN/工商银行/2025/年报/工商银行_CN_601398_2025-12-31_年报_2026-03-27_cninfo_d71c6c0e.pdf",
+      "pdf_source_sha256": "e2edab73032f143aad881f612382bc613c8b96b424bb197b125d64a0ef23c78b",
+      "pdf_min_bytes": 9000000,
+      "pdf_page_count": 408,
+      "source_path": "工商银行：工商银行2025年度报告.md",
+      "source_sha256": "bcc84f012983310799e03752be77f55e1df9e322ec27beb03d5a324a83b6b658",
+      "min_bytes": 900000,
+      "min_lines": 8000,
+      "task_id": "golden-icbc-2025-long-md",
+      "filename": "工商银行：工商银行2025年度报告.md",
+      "expected_financial_checks_status": "pass",
+    "forbidden_quality_flag_codes": [
+      "key_metric_value_conflict"
+    ],
+    "structure": {
+      "html_table_count": 284,
+      "markdown_table_count": 141,
+      "heading_count": 973,
+      "image_count": 33,
+      "details_count": 30
+    },
+    "approved_fresh_baseline": {
+      "version": "icbc-2025-mineru-3.1.2-v3",
+      "markdown_sha256": "0bf82c655458dc9694e7e1887ec518ea49ff0beafc0c0e7fcd5e9f1ef489a432",
+      "source_bytes": 913194,
+      "source_lines": 8377,
+      "raw_page_count": 408,
+      "structure": {
+        "html_table_count": 284,
+        "markdown_table_count": 141,
+        "heading_count": 973,
+        "image_count": 33,
+        "details_count": 30
+      },
+      "expected_metrics": [
+        {
+          "canonical_name": "operating_revenue",
+          "period": "2025",
+          "value": 838270000000.0,
+          "source_line": 433,
+          "table_index": 3
+        },
+        {
+          "canonical_name": "bank_net_interest_income",
+          "period": "2025",
+          "value": 635126000000.0,
+          "source_line": 433,
+          "table_index": 3
+        },
+        {
+          "canonical_name": "net_profit",
+          "period": "2025",
+          "value": 370766000000.0,
+          "source_line": 433,
+          "table_index": 3
+        },
+        {
+          "canonical_name": "parent_net_profit",
+          "period": "2025",
+          "value": 368562000000.0,
+          "source_line": 433,
+          "table_index": 3
+        }
+      ],
+      "expected_financial_checks_status": "pass",
+      "required_quality_flags": []
+    },
+    "expected_metrics": [
+        {
+          "canonical_name": "operating_revenue",
+          "period": "2025",
+          "value": 838270000000.0,
+          "source_line": 432
+        },
+        {
+          "canonical_name": "bank_net_interest_income",
+          "period": "2025",
+          "value": 635126000000.0,
+          "source_line": 432
+        },
+        {
+          "canonical_name": "net_profit",
+          "period": "2025",
+          "value": 370766000000.0,
+          "source_line": 432
+        },
+        {
+          "canonical_name": "parent_net_profit",
+          "period": "2025",
+          "value": 368562000000.0,
+          "source_line": 432
+        }
+      ]
+    }
+  ]
+}

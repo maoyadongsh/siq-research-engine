@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import importlib.util
 import os
+import sys
 from pathlib import Path
+from types import ModuleType
 
 from services.path_config import REPO_ROOT
 
@@ -26,6 +29,26 @@ def _env_float(*names: str, default: float) -> float:
 
 def _env_path(*names: str, default: Path) -> Path:
     return Path(_env_str(*names, default=str(default))).expanduser().resolve()
+
+
+def _load_market_ingestion_contract() -> ModuleType:
+    source = REPO_ROOT / "db" / "imports" / "market_ingestion_contract.py"
+    spec = importlib.util.spec_from_file_location("siq_market_ingestion_contract_for_api_settings", source)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Cannot load market ingestion contract: {source}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _default_vector_collection(market: str) -> str:
+    contract = _load_market_ingestion_contract()
+    target = contract.target_for_market(market)
+    collection = str(target.default_collection or "").strip()
+    if not collection:
+        raise RuntimeError(f"Missing default vector collection in market ingestion contract for {market}")
+    return collection
 
 
 REPORT_FINDER_BASE = _env_str(
@@ -140,10 +163,10 @@ MARKET_DATABASES = {
 MARKET_DATABASES["US_SEC"] = MARKET_DATABASES["US"]
 
 MARKET_VECTOR_COLLECTIONS = {
-    "US": _env_str("SIQ_US_VECTOR_COLLECTION", default="siq_us_sec_reports"),
-    "HK": _env_str("SIQ_HK_VECTOR_COLLECTION", default="siq_hk_reports"),
-    "JP": _env_str("SIQ_JP_VECTOR_COLLECTION", default="siq_jp_reports"),
-    "KR": _env_str("SIQ_KR_VECTOR_COLLECTION", default="siq_kr_reports"),
-    "EU": _env_str("SIQ_EU_VECTOR_COLLECTION", default="siq_eu_reports"),
+    "US": _env_str("SIQ_US_VECTOR_COLLECTION", default=_default_vector_collection("US")),
+    "HK": _env_str("SIQ_HK_VECTOR_COLLECTION", default=_default_vector_collection("HK")),
+    "JP": _env_str("SIQ_JP_VECTOR_COLLECTION", default=_default_vector_collection("JP")),
+    "KR": _env_str("SIQ_KR_VECTOR_COLLECTION", default=_default_vector_collection("KR")),
+    "EU": _env_str("SIQ_EU_VECTOR_COLLECTION", default=_default_vector_collection("EU")),
 }
 MARKET_VECTOR_COLLECTIONS["US_SEC"] = MARKET_VECTOR_COLLECTIONS["US"]

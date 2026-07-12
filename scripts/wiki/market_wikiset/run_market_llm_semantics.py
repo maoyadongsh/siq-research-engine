@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
@@ -12,10 +13,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
 WIKI_ROOT = REPO_ROOT / "data" / "wiki"
-LLM_SCRIPT = REPO_ROOT / "data" / "wiki" / "wikiset" / "llm_semantic_enrichment.py"
+LLM_SCRIPT = REPO_ROOT / "scripts" / "wiki" / "wikiset" / "llm_semantic_enrichment.py"
 MARKET_ROOTS = {
     "CN": WIKI_ROOT,
     "HK": WIKI_ROOT / "hk",
@@ -40,6 +40,16 @@ def read_json(path: Path, default=None):
 def write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def sha256_file(path: Path) -> str | None:
+    if not path.is_file():
+        return None
+    digest = hashlib.sha256()
+    with path.open("rb") as infile:
+        for chunk in iter(lambda: infile.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def markets_from_arg(value: str) -> list[str]:
@@ -71,22 +81,24 @@ def validate_llm_output(company_dir: Path) -> dict[str, Any]:
     report_id = report_id_for(company_dir)
     out_dir = company_dir / "semantic" / "llm" / report_id
     log = read_json(out_dir / "extraction_log.json", {}) or {}
-    request = read_json(out_dir / "raw" / "request.json", {}) or {}
-    request_payload_text = ""
-    for message in request.get("messages") or []:
-        if (message or {}).get("role") == "user":
-            request_payload_text = str((message or {}).get("content") or "")
-            break
-    allowed_segments: set[str] = set()
-    allowed_evidence: set[str] = set()
-    marker = "输入 JSON："
-    if marker in request_payload_text:
-        try:
-            payload = json.loads(request_payload_text.split(marker, 1)[1].strip())
-            allowed_segments = set(payload.get("allowed_segment_ids") or [])
-            allowed_evidence = set(payload.get("allowed_evidence_ids") or [])
-        except Exception:
-            pass
+    semantic_dir = company_dir / "semantic"
+    segments_payload = read_json(semantic_dir / "segments.json", {}) or {}
+    evidence_payload = read_json(semantic_dir / "evidence_semantic.json", {}) or {}
+    segments = segments_payload.get("segments") if isinstance(segments_payload.get("segments"), list) else []
+    evidence = evidence_payload.get("evidence") or evidence_payload.get("items") or []
+    allowed_segments = {str(item.get("segment_id")) for item in segments if isinstance(item, dict) and item.get("segment_id")}
+    allowed_evidence = {str(item.get("evidence_id")) for item in evidence if isinstance(item, dict) and item.get("evidence_id")}
+    current_inputs = {
+        "company_json_sha256": sha256_file(company_dir / "company.json"),
+        "segments_sha256": sha256_file(semantic_dir / "segments.json"),
+        "evidence_semantic_sha256": sha256_file(semantic_dir / "evidence_semantic.json"),
+        "facts_sha256": sha256_file(semantic_dir / "facts.json"),
+        "claims_sha256": sha256_file(semantic_dir / "claims.json"),
+        "artifact_manifest_sha256": sha256_file(company_dir / "reports" / report_id / "artifact_manifest.json"),
+    }
+    log_inputs = log.get("inputs") if isinstance(log.get("inputs"), dict) else {}
+    has_inputs = bool(log_inputs)
+    stale = has_inputs and any(log_inputs.get(key) != value for key, value in current_inputs.items())
     payloads = [
         ("business_profile", read_json(out_dir / "business_profile.json", {}) or {}, "business_profile"),
         ("claims", read_json(out_dir / "claims.json", {}) or {}, "claims"),
@@ -111,9 +123,11 @@ def validate_llm_output(company_dir: Path) -> dict[str, Any]:
     return {
         "company_dir": company_dir.name,
         "report_id": report_id,
-        "status": "ready" if (out_dir / "enrichment.json").is_file() and not invalid_items else "needs_review",
+        "status": "ready" if (out_dir / "enrichment.json").is_file() and has_inputs and not invalid_items and not stale else "needs_review",
         "counts": counts,
         "formal_count": formal_count,
+        "has_inputs": has_inputs,
+        "stale": stale,
         "invalid_id_count": len(invalid_items),
         "invalid_items": invalid_items[:20],
         "output_dir": str(out_dir),
@@ -131,17 +145,17 @@ def run_company(
     dry_run: bool = False,
     max_segments: int | None = None,
     skip_existing: bool = False,
+    persist_raw: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
-    if skip_existing and not dry_run and existing_output(company_dir).is_file():
-        result = validate_llm_output(company_dir)
-        result["skipped_existing"] = True
-        return result, None
-
     cmd = [sys.executable, str(LLM_SCRIPT), "--wiki-root", str(root), "--company", company_dir.name]
     if dry_run:
         cmd.append("--dry-run")
     if max_segments:
         cmd.extend(["--max-segments", str(max_segments)])
+    if skip_existing:
+        cmd.append("--skip-existing")
+    if persist_raw:
+        cmd.append("--persist-raw")
     completed = subprocess.run(cmd, cwd=REPO_ROOT, text=True, capture_output=True, check=False)
     result = validate_llm_output(company_dir)
     if completed.returncode != 0:
@@ -164,6 +178,7 @@ def run_market(
     max_segments: int | None = None,
     workers: int = 1,
     skip_existing: bool = False,
+    persist_raw: bool = False,
 ) -> dict[str, Any]:
     companies = [path for path in company_dirs(root, company) if path.is_dir()]
     results: list[dict[str, Any]] = []
@@ -173,14 +188,14 @@ def run_market(
     if worker_count == 1 or len(companies) <= 1:
         for index, company_dir in enumerate(companies, start=1):
             print(f"[{market}] llm {index}/{len(companies)} {company_dir.name}", file=sys.stderr, flush=True)
-            result, failure = run_company(root, company_dir, dry_run, max_segments, skip_existing)
+            result, failure = run_company(root, company_dir, dry_run, max_segments, skip_existing, persist_raw)
             results.append(result)
             if failure:
                 failures.append(failure)
     else:
         with ThreadPoolExecutor(max_workers=worker_count) as executor:
             future_map = {
-                executor.submit(run_company, root, company_dir, dry_run, max_segments, skip_existing): company_dir
+                executor.submit(run_company, root, company_dir, dry_run, max_segments, skip_existing, persist_raw): company_dir
                 for company_dir in companies
             }
             completed_count = 0
@@ -224,6 +239,7 @@ def run_market(
         "dry_run": dry_run,
         "workers": worker_count,
         "skip_existing": skip_existing,
+        "persist_raw": persist_raw,
         "company_count": len(results),
         "ready_count": len(results) - len(needs_review),
         "needs_review_count": len(needs_review),
@@ -245,6 +261,7 @@ def main() -> int:
     parser.add_argument("--max-segments", type=int, default=0)
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--skip-existing", action="store_true")
+    parser.add_argument("--persist-raw", action="store_true")
     parser.add_argument("--allow-failures", action="store_true")
     args = parser.parse_args()
 
@@ -264,6 +281,7 @@ def main() -> int:
             args.max_segments or None,
             args.workers,
             args.skip_existing,
+            args.persist_raw,
         )
         summary = {
             "market": market,

@@ -1,40 +1,42 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import httpx
+from database import get_async_session
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
-from sqlmodel import select
-from sqlmodel.ext.asyncio.session import AsyncSession
-
-from database import get_async_session
 from services.auth_dependencies import require_permission
 from services.auth_service import User
-from services import deal_agents
-from services import deal_contracts
-from services import deal_audit
-from services import deal_decision
-from services import deal_documents
-from services import deal_discussion
-from services import deal_disputes
-from services import deal_evidence
-from services import deal_manifest
-from services import deal_phase_artifacts
-from services import deal_reports
-from services import deal_status
-from services import deal_store
-from services import agent_memory_service
-from services import ic_agent_runtime
-from services import ic_intake
-from services import ic_policy
-from services import ic_report_submission
-from services import ic_startup_retrieval
-from services import ic_workflow
 from services.job_service import FileBackedJobService
 from services.path_config import BACKEND_DATA_ROOT
 from services.usage_service import UserArtifact
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
+from services import (
+    agent_memory_service,
+    deal_agents,
+    deal_audit,
+    deal_contracts,
+    deal_decision,
+    deal_discussion,
+    deal_disputes,
+    deal_documents,
+    deal_evidence,
+    deal_manifest,
+    deal_phase_artifacts,
+    deal_reports,
+    deal_status,
+    deal_store,
+    ic_agent_runtime,
+    ic_intake,
+    ic_policy,
+    ic_report_submission,
+    ic_startup_retrieval,
+    ic_workflow,
+)
 
 router = APIRouter(prefix="/deals", tags=["deals"])
 deal_job_service = FileBackedJobService(store_path=BACKEND_DATA_ROOT / "deals" / "jobs.json")
@@ -280,6 +282,53 @@ def _is_admin_user(user: User) -> bool:
     return _role_value(user) in {"admin", "super_admin"}
 
 
+def _record_deal_access_decision(
+    deal_id: str,
+    *,
+    action: str,
+    decision: str,
+    current_user: User,
+    reason: str | None = None,
+) -> None:
+    try:
+        deal_store.append_access_decision(
+            deal_id,
+            action=action,
+            decision=decision,
+            actor=_user_payload(current_user),
+            reason=reason,
+        )
+    except Exception:
+        # Access checks must not become unavailable because the append-only audit
+        # sidecar cannot be written. The route still returns the auth decision.
+        return
+
+
+def require_deal_access(deal_id: str, action: str, current_user: User) -> None:
+    try:
+        allowed = deal_store.user_can_access_deal(deal_id, current_user, action=action)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+    if not allowed:
+        _record_deal_access_decision(
+            deal_id,
+            action=action,
+            decision="denied",
+            current_user=current_user,
+            reason="deal_object_access_denied",
+        )
+        raise _not_found(deal_id)
+    if action not in {"view", "read", "list"}:
+        _record_deal_access_decision(
+            deal_id,
+            action=action,
+            decision="allowed",
+            current_user=current_user,
+        )
+
+
 async def _user_has_document_task_access(
     async_session: AsyncSession,
     current_user: User,
@@ -450,8 +499,7 @@ def list_deals(
     status: str | None = Query(default=None),
     current_user: User = Depends(require_permission("report.view")),
 ) -> dict[str, Any]:
-    del current_user
-    deals = deal_store.list_deals()
+    deals = deal_store.filter_deals_for_user(deal_store.list_deals(), current_user)
     if q:
         needle = q.strip().lower()
         deals = [
@@ -566,7 +614,7 @@ def get_deal_status(
     deal_id: str,
     current_user: User = Depends(require_permission("report.view")),
 ) -> dict[str, Any]:
-    del current_user
+    require_deal_access(deal_id, "view", current_user)
     try:
         return deal_status.summarize_deal_status(deal_id)
     except ValueError as exc:
@@ -580,7 +628,7 @@ def get_deal(
     deal_id: str,
     current_user: User = Depends(require_permission("report.view")),
 ) -> dict[str, Any]:
-    del current_user
+    require_deal_access(deal_id, "view", current_user)
     try:
         return deal_store.read_deal_detail(deal_id)
     except ValueError as exc:
@@ -594,7 +642,7 @@ def list_deal_documents(
     deal_id: str,
     current_user: User = Depends(require_permission("report.view")),
 ) -> dict[str, Any]:
-    del current_user
+    require_deal_access(deal_id, "view", current_user)
     try:
         return {"documents": deal_documents.list_deal_documents(deal_id)}
     except ValueError as exc:
@@ -612,6 +660,7 @@ def upload_deal_document(
     current_user: User = Depends(require_permission("report.create")),
 ) -> dict[str, Any]:
     try:
+        require_deal_access(deal_id, "write", current_user)
         document = deal_documents.create_deal_document(
             deal_id=deal_id,
             filename=file.filename,
@@ -636,7 +685,7 @@ def get_deal_document(
     document_id: str,
     current_user: User = Depends(require_permission("report.view")),
 ) -> dict[str, Any]:
-    del current_user
+    require_deal_access(deal_id, "view", current_user)
     try:
         return {"document": deal_documents.get_deal_document(deal_id, document_id)}
     except ValueError as exc:
@@ -652,6 +701,7 @@ def delete_deal_document(
     current_user: User = Depends(require_permission("report.create")),
 ) -> dict[str, Any]:
     try:
+        require_deal_access(deal_id, "write", current_user)
         return deal_documents.delete_deal_document(
             deal_id,
             document_id,
@@ -672,6 +722,7 @@ async def bind_deal_document_parser_task(
     async_session: AsyncSession = Depends(get_async_session),
 ) -> dict[str, Any]:
     try:
+        require_deal_access(deal_id, "write", current_user)
         task_id = deal_documents.validate_parser_task_id(payload.task_id)
         if not await _user_has_document_task_access(async_session, current_user, task_id):
             raise HTTPException(status_code=403, detail="Document parser task does not belong to current user")
@@ -698,6 +749,7 @@ def build_deal_evidence(
     current_user: User = Depends(require_permission("report.create")),
 ) -> dict[str, Any]:
     try:
+        require_deal_access(deal_id, "write", current_user)
         return deal_store.redact_public_payload(deal_evidence.build_deal_evidence_package(
             deal_id,
             built_by=_user_payload(current_user),
@@ -718,7 +770,7 @@ def get_deal_evidence(
     limit: int = Query(default=50, ge=1, le=200),
     current_user: User = Depends(require_permission("report.view")),
 ) -> dict[str, Any]:
-    del current_user
+    require_deal_access(deal_id, "view", current_user)
     try:
         return deal_store.redact_public_payload(deal_evidence.read_deal_evidence_package(
             deal_id,
@@ -739,7 +791,7 @@ def get_deal_evidence_quality(
     deal_id: str,
     current_user: User = Depends(require_permission("report.view")),
 ) -> dict[str, Any]:
-    del current_user
+    require_deal_access(deal_id, "view", current_user)
     try:
         return deal_store.redact_public_payload(deal_evidence.read_deal_evidence_quality(deal_id))
     except ValueError as exc:
@@ -755,6 +807,7 @@ def build_deal_evidence_ingest_dry_run(
     current_user: User = Depends(require_permission("report.create")),
 ) -> dict[str, Any]:
     try:
+        require_deal_access(deal_id, "write", current_user)
         return {"ingest_dry_run": deal_store.redact_public_payload(
             deal_evidence.build_deal_evidence_ingest_dry_run(
                 deal_id,
@@ -773,7 +826,7 @@ def get_deal_evidence_ingest_dry_run(
     deal_id: str,
     current_user: User = Depends(require_permission("report.view")),
 ) -> dict[str, Any]:
-    del current_user
+    require_deal_access(deal_id, "view", current_user)
     try:
         return deal_store.redact_public_payload(deal_evidence.read_deal_evidence_ingest_dry_run(deal_id))
     except ValueError as exc:
@@ -787,7 +840,7 @@ def list_deal_reports(
     deal_id: str,
     current_user: User = Depends(require_permission("report.view")),
 ) -> dict[str, Any]:
-    del current_user
+    require_deal_access(deal_id, "view", current_user)
     try:
         return deal_store.redact_public_payload(deal_reports.list_deal_reports(deal_id))
     except ValueError as exc:
@@ -801,7 +854,7 @@ def list_deal_r1_agent_reports(
     deal_id: str,
     current_user: User = Depends(require_permission("report.view")),
 ) -> dict[str, Any]:
-    del current_user
+    require_deal_access(deal_id, "view", current_user)
     try:
         return deal_store.redact_public_payload(deal_reports.list_r1_agent_reports(deal_id))
     except ValueError as exc:
@@ -815,7 +868,7 @@ def list_deal_r2_agent_reports(
     deal_id: str,
     current_user: User = Depends(require_permission("report.view")),
 ) -> dict[str, Any]:
-    del current_user
+    require_deal_access(deal_id, "view", current_user)
     try:
         return deal_store.redact_public_payload(deal_reports.list_r2_agent_reports(deal_id))
     except ValueError as exc:
@@ -829,7 +882,7 @@ def get_deal_r3_review(
     deal_id: str,
     current_user: User = Depends(require_permission("report.view")),
 ) -> dict[str, Any]:
-    del current_user
+    require_deal_access(deal_id, "view", current_user)
     try:
         return deal_store.redact_public_payload(deal_reports.summarize_r3_review(deal_id))
     except ValueError as exc:
@@ -846,6 +899,7 @@ def post_deal_discussion_build(
 ) -> dict[str, Any]:
     request = payload or DealDiscussionBuildRequest()
     try:
+        require_deal_access(deal_id, "write", current_user)
         return deal_store.redact_public_payload(
             deal_discussion.build_deal_discussion(
                 deal_id,
@@ -869,7 +923,7 @@ def get_deal_report(
     report_path: str,
     current_user: User = Depends(require_permission("report.view")),
 ) -> dict[str, Any]:
-    del current_user
+    require_deal_access(deal_id, "view", current_user)
     try:
         return deal_store.redact_public_payload(deal_reports.read_deal_report(deal_id, report_path))
     except ValueError as exc:
@@ -883,7 +937,7 @@ def list_deal_agents(
     deal_id: str,
     current_user: User = Depends(require_permission("report.view")),
 ) -> dict[str, Any]:
-    del current_user
+    require_deal_access(deal_id, "view", current_user)
     try:
         return deal_agents.summarize_deal_agents(deal_id)
     except ValueError as exc:
@@ -897,7 +951,7 @@ def get_deal_disputes(
     deal_id: str,
     current_user: User = Depends(require_permission("report.view")),
 ) -> dict[str, Any]:
-    del current_user
+    require_deal_access(deal_id, "view", current_user)
     try:
         return deal_disputes.summarize_deal_disputes(deal_id)
     except ValueError as exc:
@@ -914,6 +968,7 @@ def post_workflow_identify_disputes(
 ) -> dict[str, Any]:
     request = payload or WorkflowIdentifyDisputesRequest()
     try:
+        require_deal_access(deal_id, "write", current_user)
         return deal_disputes.identify_deal_disputes(
             deal_id,
             dry_run=request.dry_run,
@@ -932,7 +987,7 @@ def get_workflow_dispute_chairman_task(
     only_unresolved: bool = Query(default=True),
     current_user: User = Depends(require_permission("report.view")),
 ) -> dict[str, Any]:
-    del current_user
+    require_deal_access(deal_id, "view", current_user)
     try:
         return deal_disputes.build_chairman_ruling_task(
             deal_id,
@@ -951,6 +1006,7 @@ def post_workflow_submit_chairman_rulings(
     current_user: User = Depends(require_permission("report.create")),
 ) -> dict[str, Any]:
     try:
+        require_deal_access(deal_id, "write", current_user)
         return deal_disputes.submit_chairman_rulings(
             deal_id,
             rulings=payload.rulings,
@@ -975,6 +1031,7 @@ def post_workflow_dispute_ruling(
     current_user: User = Depends(require_permission("report.create")),
 ) -> dict[str, Any]:
     try:
+        require_deal_access(deal_id, "write", current_user)
         return deal_disputes.rule_deal_dispute(
             deal_id,
             dispute_id,
@@ -1004,6 +1061,7 @@ def post_workflow_generate_dispute_rulings(
 ) -> dict[str, Any]:
     request = payload or WorkflowGenerateDisputeRulingsRequest()
     try:
+        require_deal_access(deal_id, "write", current_user)
         return deal_disputes.generate_deal_dispute_rulings(
             deal_id,
             dry_run=request.dry_run,
@@ -1021,7 +1079,7 @@ def get_deal_phase_artifacts(
     deal_id: str,
     current_user: User = Depends(require_permission("report.view")),
 ) -> dict[str, Any]:
-    del current_user
+    require_deal_access(deal_id, "view", current_user)
     try:
         return deal_phase_artifacts.summarize_deal_phase_artifacts(deal_id)
     except ValueError as exc:
@@ -1038,6 +1096,7 @@ def post_workflow_run_r0_intake(
 ) -> dict[str, Any]:
     request = payload or WorkflowRunR0IntakeRequest()
     try:
+        require_deal_access(deal_id, "write", current_user)
         return deal_store.redact_public_payload(
             ic_intake.run_r0_intake(
                 deal_id,
@@ -1061,7 +1120,7 @@ def get_workflow_r0_intake(
     deal_id: str,
     current_user: User = Depends(require_permission("report.view")),
 ) -> dict[str, Any]:
-    del current_user
+    require_deal_access(deal_id, "view", current_user)
     try:
         return deal_store.redact_public_payload(ic_intake.read_r0_intake(deal_id))
     except ValueError as exc:
@@ -1080,7 +1139,7 @@ def get_workflow_state(
     r4_overwrite: bool = Query(default=False),
     current_user: User = Depends(require_permission("report.view")),
 ) -> dict[str, Any]:
-    del current_user
+    require_deal_access(deal_id, "view", current_user)
     try:
         return ic_workflow.summarize_workflow_state(
             deal_id,
@@ -1104,6 +1163,7 @@ def write_workflow_state_snapshot(
 ) -> dict[str, Any]:
     request = payload or WorkflowStateSnapshotRequest()
     try:
+        require_deal_access(deal_id, "write", current_user)
         return ic_workflow.summarize_workflow_state(
             deal_id,
             allow_hermes=request.allow_hermes,
@@ -1125,7 +1185,7 @@ def get_workflow_state_snapshot(
     deal_id: str,
     current_user: User = Depends(require_permission("report.view")),
 ) -> dict[str, Any]:
-    del current_user
+    require_deal_access(deal_id, "view", current_user)
     try:
         return ic_workflow.read_workflow_state_snapshot(deal_id)
     except ValueError as exc:
@@ -1143,6 +1203,7 @@ def generate_agent_startup_retrieval(
 ) -> dict[str, Any]:
     request = payload or StartupRetrievalRequest()
     try:
+        require_deal_access(deal_id, "write", current_user)
         receipt = ic_startup_retrieval.generate_startup_retrieval_receipt(
             deal_id,
             profile_id,
@@ -1174,7 +1235,7 @@ def get_agent_startup_retrieval(
     profile_id: str,
     current_user: User = Depends(require_permission("report.view")),
 ) -> dict[str, Any]:
-    del current_user
+    require_deal_access(deal_id, "view", current_user)
     try:
         return deal_store.redact_public_payload(
             ic_startup_retrieval.read_startup_retrieval_receipt(deal_id, profile_id)
@@ -1192,7 +1253,7 @@ def get_agent_task_payload_dry_run(
     round_name: str = Query(default="R1"),
     current_user: User = Depends(require_permission("report.view")),
 ) -> dict[str, Any]:
-    del current_user
+    require_deal_access(deal_id, "view", current_user)
     try:
         return deal_store.redact_public_payload(
             ic_agent_runtime.build_ic_agent_task_dry_run(
@@ -1214,9 +1275,9 @@ def post_agent_task_dry_run(
     payload: AgentTaskDryRunRequest | None = None,
     current_user: User = Depends(require_permission("report.create")),
 ) -> dict[str, Any]:
-    del current_user
     request = payload or AgentTaskDryRunRequest()
     try:
+        require_deal_access(deal_id, "write", current_user)
         return deal_store.redact_public_payload(
             ic_agent_runtime.build_ic_agent_task_dry_run(
                 deal_id,
@@ -1238,6 +1299,7 @@ async def post_workflow_submit_r1_report(
     async_session: AsyncSession = Depends(get_async_session),
 ) -> dict[str, Any]:
     try:
+        require_deal_access(deal_id, "write", current_user)
         result = deal_store.redact_public_payload(
             ic_report_submission.submit_r1_expert_report(
                 deal_id,
@@ -1276,6 +1338,7 @@ async def post_workflow_run_r1_agent(
     async_session: AsyncSession = Depends(get_async_session),
 ) -> dict[str, Any]:
     try:
+        require_deal_access(deal_id, "write", current_user)
         if not payload.dry_run:
             result = deal_store.redact_public_payload(
                 await ic_agent_runtime.run_workflow_r1_agent(
@@ -1318,6 +1381,7 @@ async def post_workflow_run_r1_serial(
 ) -> dict[str, Any]:
     request = payload or WorkflowRunR1SerialRequest()
     try:
+        require_deal_access(deal_id, "write", current_user)
         if not request.dry_run:
             return deal_store.redact_public_payload(
                 await ic_agent_runtime.run_workflow_r1_serial(
@@ -1350,6 +1414,7 @@ def post_workflow_run_r2(
 ) -> dict[str, Any]:
     request = payload or WorkflowRunR2Request()
     try:
+        require_deal_access(deal_id, "write", current_user)
         if not request.dry_run:
             return deal_store.redact_public_payload(
                 ic_agent_runtime.run_workflow_r2(
@@ -1374,6 +1439,7 @@ def post_workflow_run_r3(
 ) -> dict[str, Any]:
     request = payload or WorkflowRunR3Request()
     try:
+        require_deal_access(deal_id, "write", current_user)
         if not request.dry_run:
             return deal_store.redact_public_payload(
                 ic_agent_runtime.run_workflow_r3(
@@ -1404,6 +1470,7 @@ def post_workflow_finalize_r4(
 ) -> dict[str, Any]:
     request = payload or WorkflowFinalizeR4Request()
     try:
+        require_deal_access(deal_id, "write", current_user)
         if not request.dry_run:
             return deal_store.redact_public_payload(
                 ic_agent_runtime.finalize_workflow_r4(
@@ -1432,6 +1499,7 @@ async def post_workflow_advance_next(
 ) -> dict[str, Any]:
     request = payload or WorkflowAdvanceNextRequest()
     try:
+        require_deal_access(deal_id, "write", current_user)
         if not request.dry_run:
             return deal_store.redact_public_payload(
                 await ic_agent_runtime.run_workflow_advance_next(
@@ -1468,7 +1536,7 @@ def get_deal_evidence_item(
     evidence_id: str,
     current_user: User = Depends(require_permission("report.view")),
 ) -> dict[str, Any]:
-    del current_user
+    require_deal_access(deal_id, "view", current_user)
     try:
         return deal_store.redact_public_payload(deal_evidence.get_deal_evidence_item(deal_id, evidence_id))
     except ValueError as exc:
@@ -1482,7 +1550,7 @@ def get_deal_workflow(
     deal_id: str,
     current_user: User = Depends(require_permission("report.view")),
 ) -> dict[str, Any]:
-    del current_user
+    require_deal_access(deal_id, "view", current_user)
     try:
         package_dir = deal_store.safe_deal_dir(deal_id)
     except ValueError as exc:
@@ -1501,7 +1569,7 @@ def get_deal_preflight(
     deal_id: str,
     current_user: User = Depends(require_permission("report.view")),
 ) -> dict[str, Any]:
-    del current_user
+    require_deal_access(deal_id, "view", current_user)
     try:
         return {"preflight": deal_store.redact_public_payload(deal_contracts.run_deal_preflight(deal_id))}
     except ValueError as exc:
@@ -1515,7 +1583,7 @@ def get_deal_decision(
     deal_id: str,
     current_user: User = Depends(require_permission("report.view")),
 ) -> dict[str, Any]:
-    del current_user
+    require_deal_access(deal_id, "view", current_user)
     try:
         package_dir = deal_store.safe_deal_dir(deal_id)
     except ValueError as exc:
@@ -1546,6 +1614,7 @@ def post_deal_decision_human_confirmation(
     current_user: User = Depends(require_permission("report.create")),
 ) -> dict[str, Any]:
     try:
+        require_deal_access(deal_id, "write", current_user)
         return deal_decision.update_human_confirmation(
             deal_id,
             status=payload.status,
@@ -1566,7 +1635,7 @@ def get_deal_audit(
     deal_id: str,
     current_user: User = Depends(require_permission("audit.view")),
 ) -> dict[str, Any]:
-    del current_user
+    require_deal_access(deal_id, "view", current_user)
     try:
         package_dir = deal_store.safe_deal_dir(deal_id)
     except ValueError as exc:
@@ -1593,7 +1662,7 @@ def get_deal_manifest(
     deal_id: str,
     current_user: User = Depends(require_permission("audit.view")),
 ) -> dict[str, Any]:
-    del current_user
+    require_deal_access(deal_id, "view", current_user)
     try:
         package_dir = deal_store.safe_deal_dir(deal_id)
     except ValueError as exc:

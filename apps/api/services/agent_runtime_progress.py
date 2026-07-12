@@ -61,6 +61,152 @@ def progress_payload(
     return payload
 
 
+def task_started_progress_payload(*, clock: Callable[[], datetime] | None = None) -> dict[str, Any]:
+    return progress_payload(
+        status="running",
+        title="任务已启动",
+        detail="正在连接智能体并准备执行",
+        current=0,
+        total=1,
+        clock=clock,
+    )
+
+
+def output_loop_stop_progress_payload(sample: Any, *, clock: Callable[[], datetime] | None = None) -> dict[str, Any]:
+    return progress_payload(
+        status="error",
+        title="检测到重复输出",
+        detail=f"智能体反复输出“{sample}”，已自动停止本次运行",
+        source="runtime",
+        clock=clock,
+    )
+
+
+def repeated_tool_call_stop_progress_payload(
+    tool_label: Any,
+    count: Any,
+    *,
+    clock: Callable[[], datetime] | None = None,
+) -> dict[str, Any]:
+    tool_text = str(tool_label or "工具")
+    return progress_payload(
+        status="error",
+        title="检测到工具调用循环",
+        detail=f"{tool_text} 连续重复调用 {count} 次，已自动停止",
+        source="runtime",
+        tool=tool_text,
+        clock=clock,
+    )
+
+
+def consecutive_tool_error_stop_progress_payload(
+    tool_label: Any,
+    count: Any,
+    *,
+    clock: Callable[[], datetime] | None = None,
+) -> dict[str, Any]:
+    tool_text = str(tool_label or "工具")
+    return progress_payload(
+        status="error",
+        title="检测到工具错误循环",
+        detail=f"{tool_text} 连续失败 {count} 次，已自动停止",
+        source="runtime",
+        tool=tool_text,
+        clock=clock,
+    )
+
+
+def terminal_run_event_progress_payload(
+    event_type: str,
+    detail: str,
+    *,
+    clock: Callable[[], datetime] | None = None,
+) -> dict[str, Any]:
+    failed = event_type == "failed"
+    return progress_payload(
+        status="error" if failed else "stopped",
+        title="任务失败" if failed else "任务已取消",
+        detail=detail,
+        source="runtime",
+        clock=clock,
+    )
+
+
+def timeout_progress_payload(message: str, *, clock: Callable[[], datetime] | None = None) -> dict[str, Any]:
+    return progress_payload(
+        status="error",
+        title="任务超时",
+        detail=message,
+        source="runtime",
+        clock=clock,
+    )
+
+
+def runtime_exception_progress_payload(error: Any, *, clock: Callable[[], datetime] | None = None) -> dict[str, Any]:
+    return progress_payload(
+        status="error",
+        title="任务异常",
+        detail=str(error),
+        source="runtime",
+        clock=clock,
+    )
+
+
+def completed_run_progress_payload(
+    detail: str = "结果已写入对话并同步历史记录",
+    *,
+    clock: Callable[[], datetime] | None = None,
+) -> dict[str, Any]:
+    return progress_payload(
+        status="completed",
+        title="任务完成",
+        detail=detail,
+        current=1,
+        total=1,
+        clock=clock,
+    )
+
+
+def user_stopped_progress_payload(message: str, *, clock: Callable[[], datetime] | None = None) -> dict[str, Any]:
+    return progress_payload(
+        status="stopped",
+        title="任务已停止",
+        detail=message,
+        source="runtime",
+        clock=clock,
+    )
+
+
+def reasoning_progress_payload(text: str | None, *, clock: Callable[[], datetime] | None = None) -> dict[str, Any]:
+    return progress_payload(
+        status="running",
+        title="正在推理",
+        detail=text[:180] if text else None,
+        source="reasoning",
+        clock=clock,
+    )
+
+
+def orphaned_run_progress_payload(message: str, *, clock: Callable[[], datetime] | None = None) -> dict[str, Any]:
+    return progress_payload(
+        status="stopped",
+        title="后台任务已不存在",
+        detail=message,
+        source="runtime",
+        clock=clock,
+    )
+
+
+def heartbeat_progress_payload(*, clock: Callable[[], datetime] | None = None) -> dict[str, Any]:
+    return progress_payload(
+        status="running",
+        title="等待模型或工具返回",
+        detail="后台 Hermes run 仍在运行；本地模型可能正在生成首轮输出，或工具正在执行。",
+        source="runtime",
+        clock=clock,
+    )
+
+
 def extract_progress_from_text(text: str, *, clock: Callable[[], datetime] | None = None) -> dict[str, Any] | None:
     for raw_line in reversed(text.splitlines()[-12:]):
         line = raw_line.strip()

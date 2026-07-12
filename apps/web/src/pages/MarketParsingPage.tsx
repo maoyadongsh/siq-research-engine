@@ -16,14 +16,17 @@ import { PdfQualityPanel } from '../components/pdf/PdfQualityPanel'
 import { PdfSourceWorkbench } from '../components/pdf/PdfSourceWorkbench'
 import { PdfTaskList } from '../components/pdf/PdfTaskList'
 import { PdfUploadPanel } from '../components/pdf/PdfUploadPanel'
+import type { DownloadedPackageBuildState } from '../components/pdf/PdfUploadPanel'
 import { PdfWorkflowPanel } from '../components/pdf/PdfWorkflowPanel'
 import { MarketParsingTabs } from '../components/pdf/MarketParsingTabs'
 import { useToast } from '../hooks/useToast'
 import {
   buildMarketParsingPageViewModel,
+  buildMarketParsingStateScopeKey,
   type MarketParsingCode,
 } from '../features/market-parsing/viewModel'
 import { validateMarketParsingUploadFiles } from '../features/market-parsing/uploadFiles'
+import { runMarketPackageBuildAction } from '../features/market-parsing/packageActions'
 import { taskMatchesMarket } from '../lib/pdfTaskMarkets'
 import type { DownloadedPdf, HealthStatus, TaskItem } from '../lib/pdfTypes'
 
@@ -134,6 +137,8 @@ export function MarketParsingPage({
   const [downloadedLoading, setDownloadedLoading] = useState(false)
   const [downloadedQuery, setDownloadedQuery] = useState('')
   const [downloadedBusyPath, setDownloadedBusyPath] = useState('')
+  const [downloadedPackageBuildStates, setDownloadedPackageBuildStates] = useState<Record<string, DownloadedPackageBuildState>>({})
+  const downloadedPackageBuildRequestRef = useRef(new Map<string, number>())
   const [logsExpanded, setLogsExpanded] = useState(false)
 
   const logRef = useRef<HTMLDivElement>(null)
@@ -166,6 +171,15 @@ export function MarketParsingPage({
   })
 
   const workflow = usePdfWorkflow(tasks.taskIdRef, showToast, (msg: string | null) => tasks.setError(msg), market)
+  const { loadWorkflowStatus } = workflow
+  const currentTaskId = tasks.taskIdRef.current || ''
+  const taskScopeKey = useMemo(
+    () => buildMarketParsingStateScopeKey({ market, taskId: currentTaskId }),
+    [currentTaskId, market],
+  )
+  const taskScopeKeyRef = useRef(taskScopeKey)
+  const [workflowStatusScopeKey, setWorkflowStatusScopeKey] = useState('')
+  const [sourceVisibleScopeKey, setSourceVisibleScopeKey] = useState('')
 
   const viewModel = useMemo(() => buildMarketParsingPageViewModel({
     market,
@@ -190,8 +204,8 @@ export function MarketParsingPage({
   const normalizedWorkflowDescription = useMemo(() => normalizeWorkflowDescription(workflowDescription, workflowMode), [workflowDescription, workflowMode])
 
   useEffect(() => {
-    workflowRef.current.loadWorkflowStatus = workflow.loadWorkflowStatus
-  }, [workflow.loadWorkflowStatus])
+    taskScopeKeyRef.current = taskScopeKey
+  }, [taskScopeKey])
 
   const { setFocusedLine, idleLoad, resumeTask, taskIdRef, logs } = tasks
 
@@ -207,12 +221,46 @@ export function MarketParsingPage({
   )
 
   const sourceTrace = usePdfSourceTrace({
-    taskIdRef: tasks.taskIdRef,
+    taskIdRef,
     corrStatusRef,
     corrTextRef,
     corrNoteRef,
     focusMarkdownLine,
     reportError: (msg: string | null) => tasks.setError(msg),
+  })
+
+  const loadScopedWorkflowStatus = async () => {
+    const scopeKey = taskScopeKey
+    const taskId = currentTaskId
+    if (!scopeKey || !taskId) {
+      setWorkflowStatusScopeKey('')
+      return
+    }
+    setWorkflowStatusScopeKey('')
+    await loadWorkflowStatus()
+    if (taskScopeKeyRef.current === scopeKey && taskIdRef.current === taskId) {
+      setWorkflowStatusScopeKey(scopeKey)
+    }
+  }
+
+  const workflowStateInScope = Boolean(taskScopeKey && workflowStatusScopeKey === taskScopeKey)
+  const sourceVisibleInScope = Boolean(taskScopeKey && sourceVisibleScopeKey === taskScopeKey && sourceTrace.sourceVisible)
+
+  const hideScopedSource = useCallback(() => {
+    setSourceVisibleScopeKey('')
+    sourceTrace.setSourceVisible(false)
+  }, [sourceTrace])
+
+  const showScopedTableSource = useCallback(async (tableIndex: number, line?: number) => {
+    const scopeKey = taskScopeKey
+    await sourceTrace.showTableSource(tableIndex, line)
+    if (scopeKey && taskScopeKeyRef.current === scopeKey) {
+      setSourceVisibleScopeKey(scopeKey)
+    }
+  }, [sourceTrace, taskScopeKey])
+
+  useEffect(() => {
+    workflowRef.current.loadWorkflowStatus = loadScopedWorkflowStatus
   })
 
   const editable = useEditableTable({
@@ -299,40 +347,107 @@ export function MarketParsingPage({
   )
 
   const startConvert = useCallback(async () => {
-    sourceTrace.setSourceVisible(false)
+    setWorkflowStatusScopeKey('')
+    hideScopedSource()
     await tasks.startConvert(selectedFiles)
-  }, [sourceTrace, tasks, selectedFiles])
+  }, [hideScopedSource, tasks, selectedFiles])
 
   const onSelectDownloaded = useCallback(
     async (report: DownloadedPdf, onBusy: (path: string) => void) => {
-      sourceTrace.setSourceVisible(false)
+      hideScopedSource()
       await tasks.selectDownloadedReport(report, onBusy)
     },
-    [sourceTrace, tasks],
+    [hideScopedSource, tasks],
   )
 
   const onParseDownloaded = useCallback(
     async (report: DownloadedPdf, onBusy: (path: string) => void) => {
-      sourceTrace.setSourceVisible(false)
+      setWorkflowStatusScopeKey('')
+      hideScopedSource()
       await tasks.parseDownloadedReport(report, onBusy)
     },
-    [sourceTrace, tasks],
+    [hideScopedSource, tasks],
   )
+
+  const downloadedPackageScopeKey = useCallback((report: DownloadedPdf) => (
+    buildMarketParsingStateScopeKey({ market, packagePath: `download:${report.relativePath}` })
+  ), [market])
+
+  const downloadedPackageBuildDisabledReason = useCallback((report: DownloadedPdf) => {
+    if (market !== 'EU') return `${market || '当前市场'} 仅支持 PDF 解析。`
+    if (!report.relativePath.startsWith('EU/')) return '该下载文件不属于 EU 市场。'
+    const suffix = report.filename.split('.').pop()?.toLowerCase() || ''
+    if (!['zip', 'xhtml', 'html', 'htm', 'xml', 'xbrl'].includes(suffix)) {
+      return 'EU 结构化解析仅支持 ESEF ZIP、iXBRL、XHTML、HTML 或 XML。'
+    }
+    return ''
+  }, [market])
+
+  const buildDownloadedPackage = useCallback(async (report: DownloadedPdf, onBusy: (path: string) => void) => {
+    const disabledReason = downloadedPackageBuildDisabledReason(report)
+    if (disabledReason || market !== 'EU') {
+      tasks.setError(disabledReason || '当前市场不支持结构化解析')
+      return
+    }
+    const scopeKey = downloadedPackageScopeKey(report)
+    const requestId = (downloadedPackageBuildRequestRef.current.get(scopeKey) || 0) + 1
+    downloadedPackageBuildRequestRef.current.set(scopeKey, requestId)
+    setDownloadedPackageBuildStates((current) => ({
+      ...current,
+      [scopeKey]: { status: 'building' },
+    }))
+    onBusy(report.relativePath)
+    tasks.setError(null)
+    try {
+      const result = await runMarketPackageBuildAction({
+        market: 'EU',
+        downloadRelativePath: report.relativePath,
+        force: false,
+      })
+      if (downloadedPackageBuildRequestRef.current.get(scopeKey) !== requestId) return
+      setDownloadedPackageBuildStates((current) => ({
+        ...current,
+        [scopeKey]: {
+          status: 'succeeded',
+          packagePath: result.builtPath,
+          message: result.output,
+        },
+      }))
+      showToast('EU 结构化解析产物已生成')
+    } catch (error) {
+      if (downloadedPackageBuildRequestRef.current.get(scopeKey) !== requestId) return
+      const message = (error as Error).message
+      setDownloadedPackageBuildStates((current) => ({
+        ...current,
+        [scopeKey]: { status: 'failed', message },
+      }))
+      tasks.setError(message)
+    } finally {
+      if (downloadedPackageBuildRequestRef.current.get(scopeKey) === requestId) onBusy('')
+    }
+  }, [downloadedPackageBuildDisabledReason, downloadedPackageScopeKey, market, showToast, tasks])
+
+  const downloadedPackageBuildState = useCallback((report: DownloadedPdf) => (
+    downloadedPackageBuildStates[downloadedPackageScopeKey(report)]
+  ), [downloadedPackageBuildStates, downloadedPackageScopeKey])
 
 
   const onTaskResume = useCallback(
     async (task: TaskItem) => {
-      sourceTrace.setSourceVisible(false)
+      setWorkflowStatusScopeKey('')
+      hideScopedSource()
       await tasks.resumeTask(task.task_id, String(task.filename || ''), String(task.status))
     },
-    [sourceTrace, tasks],
+    [hideScopedSource, tasks],
   )
 
   const onTaskViewResult = useCallback(
     async (task: TaskItem) => {
+      setWorkflowStatusScopeKey('')
+      hideScopedSource()
       await tasks.viewTaskResult(task)
     },
-    [tasks],
+    [hideScopedSource, tasks],
   )
 
   const handleReadingClick = useCallback(
@@ -340,9 +455,9 @@ export function MarketParsingPage({
       const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-ptidx]')
       if (!btn) return
       const idx = Number(btn.dataset.ptidx || 0)
-      if (idx) sourceTrace.showTableSource(idx)
+      if (idx) void showScopedTableSource(idx)
     },
-    [sourceTrace],
+    [showScopedTableSource],
   )
 
   return (
@@ -397,6 +512,9 @@ export function MarketParsingPage({
         loadDownloadedReports={loadDownloadedReports}
         selectDownloadedReport={onSelectDownloaded}
         parseDownloadedReport={onParseDownloaded}
+        buildDownloadedPackage={viewModel.canBuildDownloadedPackage ? buildDownloadedPackage : undefined}
+        downloadedPackageBuildState={downloadedPackageBuildState}
+        downloadedPackageBuildDisabledReason={downloadedPackageBuildDisabledReason}
         backend={backend}
         setBackend={setBackend}
         parseMethod={parseMethod}
@@ -521,16 +639,16 @@ export function MarketParsingPage({
       {viewModel.shouldShowWorkflow && (
         <div id="pdf-pipeline">
           <PdfWorkflowPanel
-          workflowStatus={workflow.workflowStatus}
+          workflowStatus={workflowStateInScope ? workflow.workflowStatus : null}
           workflowLoading={workflow.workflowLoading}
-          workflowBusy={workflow.workflowBusy}
-          workflowJob={workflow.workflowJob}
-          workflowError={workflow.workflowError}
+          workflowBusy={workflowStateInScope ? workflow.workflowBusy : ''}
+          workflowJob={workflowStateInScope ? workflow.workflowJob : null}
+          workflowError={workflowStateInScope ? workflow.workflowError : ''}
           artifacts={tasks.artifacts}
           mode={workflowMode}
           title={workflowTitle}
           description={normalizedWorkflowDescription}
-          loadWorkflowStatus={workflow.loadWorkflowStatus}
+          loadWorkflowStatus={loadScopedWorkflowStatus}
           runRemainingWorkflow={() => workflow.runRemainingWorkflow(workflowMode)}
           runWorkflowStep={workflow.runWorkflowStep}
         />
@@ -555,7 +673,7 @@ export function MarketParsingPage({
 
           <PdfArtifactList artifacts={tasks.artifacts || {}} />
 
-          {tasks.quality && <PdfQualityPanel quality={tasks.quality} market={market} onShowTableSource={sourceTrace.showTableSource} />}
+          {tasks.quality && <PdfQualityPanel quality={tasks.quality} market={market} onShowTableSource={showScopedTableSource} />}
         </div>
       </PageSection>
 
@@ -566,7 +684,7 @@ export function MarketParsingPage({
         className="border-0 bg-transparent shadow-none"
       >
         <PdfSourceWorkbench
-          sourceVisible={sourceTrace.sourceVisible}
+          sourceVisible={sourceVisibleInScope}
           srcTable={sourceTrace.srcTable}
           srcMeta={sourceTrace.srcMeta}
           readingMode={sourceTrace.readingMode}

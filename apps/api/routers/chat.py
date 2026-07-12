@@ -1,37 +1,33 @@
-import json
 import asyncio
-import uuid
 import base64
+import json
 import os
 import re
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any, AsyncGenerator
 from urllib.parse import quote
 
 import httpx
+from database import async_engine, get_async_session
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
-from sqlmodel import select, func
-from sqlmodel.ext.asyncio.session import AsyncSession
-from sse_starlette.sse import EventSourceResponse
-
-from database import async_engine, get_async_session
 from models import Achievement, AgentState, ChatMessage, InteractionLog
-from services.auth_service import User
 from schemas import (
+    AchievementResponse,
     AnswerAuditTraceResponse,
     ChatAttachment,
     ChatAttachmentUploadRequest,
     ChatAttachmentUploadResponse,
+    ChatHistoryResponse,
     ChatRequest,
     ChatResponse,
-    AchievementResponse,
 )
 from services.agent_chat_runtime import (
     HISTORY_LIMIT,
-    chat_message_has_visible_payload,
     chat_history_response,
+    chat_message_has_visible_payload,
     collect_chat_reply,
     get_active_run_snapshot,
     has_active_run,
@@ -41,13 +37,13 @@ from services.agent_chat_runtime import (
     stream_chat_reply,
 )
 from services.agent_runtime_answer_audit import get_answer_audit_trace, is_answer_audit_trace_id
-from services.hermes_model_control import maybe_handle_model_control
-from services.session_manager import get_session_manager, keeps_sessions_forever
+from services.agent_runtime_context import research_identity
 from services.auth_dependencies import get_current_user
+from services.auth_service import User
+from services.hermes_model_control import maybe_handle_model_control
 from services.path_config import BACKEND_DATA_ROOT
-from routers.agent import apply_decay, perform_action
-from routers.document_parser import DOCUMENT_PARSER_API_BASE, _document_headers
-from routers.workspace import _quota_error_payload
+from services.session_manager import get_session_manager, keeps_sessions_forever
+from services.upload_proxy_limits import UPLOAD_PROXY_LIMITER
 from services.usage_service import (
     AGENT_QUESTION_EVENT,
     DOCUMENT_PARSE_EVENT,
@@ -55,6 +51,13 @@ from services.usage_service import (
     ensure_within_quota_async,
     record_usage_async,
 )
+from sqlmodel import func, select
+from sqlmodel.ext.asyncio.session import AsyncSession
+from sse_starlette.sse import EventSourceResponse
+
+from routers.agent import apply_decay, perform_action
+from routers.document_parser import DOCUMENT_PARSER_API_BASE, _document_headers
+from routers.workspace import _quota_error_payload
 
 router = APIRouter(tags=["chat"])
 
@@ -917,14 +920,15 @@ async def _submit_pdf_attachment_to_mineru(
     }
     try:
         timeout = httpx.Timeout(CHAT_DOCUMENT_PARSE_SUBMIT_TIMEOUT, connect=5.0)
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            raw = path.read_bytes()
-            response = await client.post(
-                f"{DOCUMENT_PARSER_API_BASE}/api/tasks",
-                data=form,
-                files={"files": (stored_name, raw, "application/pdf")},
-                headers=_document_headers(),
-            )
+        async with UPLOAD_PROXY_LIMITER.slot():
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                with path.open("rb") as raw:
+                    response = await client.post(
+                        f"{DOCUMENT_PARSER_API_BASE}/api/tasks",
+                        data=form,
+                        files={"files": (stored_name, raw, "application/pdf")},
+                        headers=_document_headers(),
+                    )
         payload = response.json() if response.content else {}
         if response.is_success:
             tasks = payload.get("tasks") if isinstance(payload, dict) else []
@@ -1151,14 +1155,23 @@ async def chat(
 
     control_reply = maybe_handle_model_control(req.message, "siq_assistant")
     if control_reply:
+        identity = research_identity(req.context)
+        identity_kwargs = {"research_identity": identity} if identity else {}
         await save_message(
             async_session,
             "user",
             req.display_message or req.message,
             session_id,
             attachments=req.attachments,
+            **identity_kwargs,
         )
-        await save_message(async_session, "assistant", control_reply, session_id)
+        await save_message(
+            async_session,
+            "assistant",
+            control_reply,
+            session_id,
+            **identity_kwargs,
+        )
         get_session_manager().increment_message_count(session_id)
         return ChatResponse(reply=control_reply, new_achievements=[])
 
@@ -1223,14 +1236,23 @@ async def chat_stream(
     async def event_generator() -> AsyncGenerator[dict, None]:
         control_reply = maybe_handle_model_control(req.message, "siq_assistant")
         if control_reply:
+            identity = research_identity(req.context)
+            identity_kwargs = {"research_identity": identity} if identity else {}
             await save_message(
                 async_session,
                 "user",
                 req.display_message or req.message,
                 session_id,
                 attachments=req.attachments,
+                **identity_kwargs,
             )
-            await save_message(async_session, "assistant", control_reply, session_id)
+            await save_message(
+                async_session,
+                "assistant",
+                control_reply,
+                session_id,
+                **identity_kwargs,
+            )
             get_session_manager().increment_message_count(session_id)
             yield {
                 "event": "delta",
@@ -1304,7 +1326,7 @@ async def active_chat_stream(
     )
 
 
-@router.get("/chat/history")
+@router.get("/chat/history", response_model=ChatHistoryResponse)
 async def chat_history(
     session_id: str = None,
     limit: int = HISTORY_LIMIT,
@@ -1396,17 +1418,21 @@ async def reset_session(
     current_user: User = Depends(get_current_user),
     async_session: AsyncSession = Depends(get_async_session)
 ):
+    # Deleting messages commits the transaction and expires ORM instances on
+    # PostgreSQL. Capture scalar identity values before that commit boundary.
+    current_user_id = str(current_user.id)
+    current_user_role = current_user.role
     session_id = await resolve_or_create_session(async_session, current_user, "assistant", session_id)
     session_mgr = get_session_manager()
-    session_mgr.delete_session(session_id, str(current_user.id))
+    session_mgr.delete_session(session_id, current_user_id)
 
     await _delete_chat_messages(async_session, [session_id])
 
     # 创建新会话
     new_session_id, deleted_session_ids = session_mgr.create_session(
-        user_id=str(current_user.id),
+        user_id=current_user_id,
         profile="assistant",
-        user_role=current_user.role,
+        user_role=current_user_role,
         return_deleted=True,
     )
     await _delete_chat_messages(async_session, deleted_session_ids)

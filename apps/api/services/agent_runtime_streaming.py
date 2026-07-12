@@ -69,6 +69,25 @@ class ActiveRunState:
         self.profile = _runtime_profile(self.profile)
 
 
+@dataclass(frozen=True)
+class ToolStartedProjection:
+    tool_label: str
+    preview: str
+    display_tool_label: str
+    progress_payload: dict[str, Any]
+    state_event_payload: dict[str, Any]
+    repeated_call_limit_reached: bool
+
+
+@dataclass(frozen=True)
+class ToolCompletedProjection:
+    tool_label: str
+    display_tool_label: str
+    progress_payload: dict[str, Any]
+    state_event_payload: dict[str, Any]
+    consecutive_error_limit_reached: bool
+
+
 ACTIVE_RUNS: dict[tuple[HermesProfile, str], ActiveRunState] = {}
 PROGRESS_LINE_RE = agent_runtime_progress.PROGRESS_LINE_RE
 PROGRESS_BAR_RE = agent_runtime_progress.PROGRESS_BAR_RE
@@ -81,6 +100,17 @@ def _runtime_profile(profile: HermesProfile | str) -> HermesProfile:
 def _active_key(profile: HermesProfile | str, session_id: str) -> tuple[HermesProfile, str]:
     profile = _runtime_profile(profile)
     return (profile, session_id)
+
+
+def stream_idle_timeout(
+    profile: HermesProfile | str,
+    *,
+    assistant_timeout_seconds: int,
+    specialist_timeout_seconds: int,
+) -> int:
+    if _runtime_profile(profile) == "siq_assistant":
+        return assistant_timeout_seconds
+    return specialist_timeout_seconds
 
 
 def _progress_signature(payload: dict[str, Any]) -> str:
@@ -111,6 +141,93 @@ def _progress_payload(
 
 def _extract_progress_from_text(text: str) -> dict[str, Any] | None:
     return agent_runtime_progress.extract_progress_from_text(text, clock=datetime.utcnow)
+
+
+def project_tool_started(
+    state: ActiveRunState,
+    *,
+    tool: str | None,
+    preview: str | None,
+    display_tool_label: Callable[[str | None, str | None], str],
+    hash_text: Callable[[str], str],
+    repeated_tool_call_limit: int,
+) -> ToolStartedProjection:
+    tool_label = tool or "工具"
+    preview_text = preview or ""
+    visible_tool_label = display_tool_label(tool_label, preview_text)
+    tool_signature = hash_text(f"{tool_label}\n{preview_text}")
+    state.last_tool_started_signature = tool_signature
+    state.tool_events_since_delta += 1
+    if tool_signature == state.last_tool_signature:
+        state.consecutive_same_tool_calls += 1
+    else:
+        state.consecutive_same_tool_calls = 1
+        state.last_tool_signature = tool_signature
+        state.last_tool_label = tool_label
+        state.last_tool_preview = preview_text[:220] if preview_text else ""
+    return ToolStartedProjection(
+        tool_label=tool_label,
+        preview=preview_text,
+        display_tool_label=visible_tool_label,
+        progress_payload=_progress_payload(
+            status="running",
+            title=f"正在执行 {visible_tool_label}",
+            detail=preview_text[:180] if preview_text else "智能体正在调用工具",
+            source="tool",
+            tool=visible_tool_label,
+        ),
+        state_event_payload={"status": "started", "tool": tool, "preview": preview},
+        repeated_call_limit_reached=(
+            state.consecutive_same_tool_calls >= repeated_tool_call_limit
+            and state.tool_events_since_delta >= repeated_tool_call_limit
+        ),
+    )
+
+
+def project_tool_completed(
+    state: ActiveRunState,
+    *,
+    tool: str | None,
+    duration: Any,
+    error: Any,
+    display_tool_label: Callable[[str | None, str | None], str],
+    hash_text: Callable[[str], str],
+    consecutive_tool_error_limit: int,
+) -> ToolCompletedProjection:
+    state.tool_events_since_delta += 1
+    tool_label = tool or "工具"
+    visible_tool_label = display_tool_label(tool_label, state.last_tool_preview)
+    tool_signature = state.last_tool_started_signature or hash_text(tool_label)
+    if error:
+        if tool_signature == state.last_tool_error_signature:
+            state.consecutive_tool_errors += 1
+        else:
+            state.consecutive_tool_errors = 1
+            state.last_tool_error_signature = tool_signature
+        state.total_tool_errors += 1
+        state.last_tool_error_tool = tool_label
+    else:
+        state.consecutive_tool_errors = 0
+        state.last_tool_error_signature = None
+    return ToolCompletedProjection(
+        tool_label=tool_label,
+        display_tool_label=visible_tool_label,
+        progress_payload=_progress_payload(
+            status="error" if error else "running",
+            title=f"{visible_tool_label} 执行{'异常' if error else '完成'}",
+            detail=f"耗时 {duration:.1f}s" if isinstance(duration, (int, float)) else None,
+            source="tool",
+            tool=visible_tool_label,
+        ),
+        state_event_payload={
+            "status": "completed",
+            "tool": tool,
+            "duration": duration,
+            "error": error,
+        },
+        consecutive_error_limit_reached=bool(error)
+        and state.consecutive_tool_errors >= consecutive_tool_error_limit,
+    )
 
 
 async def _append_state_event(
@@ -193,13 +310,7 @@ async def _append_completed_active_run(
 ) -> None:
     await _append_progress_event(
         state,
-        _progress_payload(
-            status="completed",
-            title="任务完成",
-            detail=detail,
-            current=1,
-            total=1,
-        ),
+        agent_runtime_progress.completed_run_progress_payload(detail),
     )
     await _append_state_event(state, "done", done_payload)
 
@@ -207,12 +318,7 @@ async def _append_completed_active_run(
 async def _append_user_stopped_active_run(state: ActiveRunState, stopped_message: str) -> None:
     await _append_progress_event(
         state,
-        _progress_payload(
-            status="stopped",
-            title="任务已停止",
-            detail=stopped_message,
-            source="runtime",
-        ),
+        agent_runtime_progress.user_stopped_progress_payload(stopped_message),
     )
     await _append_state_event(
         state,
@@ -225,12 +331,7 @@ async def _append_reasoning_active_run(state: ActiveRunState, text: str | None) 
     await _append_state_event(state, "reasoning", {"text": text})
     await _append_progress_event(
         state,
-        _progress_payload(
-            status="running",
-            title="正在推理",
-            detail=text[:180] if text else None,
-            source="reasoning",
-        ),
+        agent_runtime_progress.reasoning_progress_payload(text),
     )
 
 
@@ -260,12 +361,7 @@ async def stop_active_run(
     state.user_stop_requested = True
     await _append_progress_event(
         state,
-        _progress_payload(
-            status="stopped",
-            title="任务已停止",
-            detail=stopped_message,
-            source="runtime",
-        ),
+        agent_runtime_progress.user_stopped_progress_payload(stopped_message),
     )
     await _append_state_event(state, "replace", {"content": stopped_message})
     try:
@@ -274,12 +370,7 @@ async def stop_active_run(
         if exc.response.status_code == 404:
             await _append_progress_event(
                 state,
-                _progress_payload(
-                    status="stopped",
-                    title="后台任务已不存在",
-                    detail=orphaned_run_message,
-                    source="runtime",
-                ),
+                agent_runtime_progress.orphaned_run_progress_payload(orphaned_run_message),
             )
             await _append_state_event(state, "replace", {"content": orphaned_run_message})
             await _append_state_event(
@@ -324,12 +415,7 @@ async def stream_active_run_events(
                         timeout=heartbeat_seconds if heartbeat_seconds is not None else STREAM_EVENT_HEARTBEAT_SECONDS,
                     )
                 except asyncio.TimeoutError:
-                    heartbeat = _progress_payload(
-                        status="running",
-                        title="等待模型或工具返回",
-                        detail="后台 Hermes run 仍在运行；本地模型可能正在生成首轮输出，或工具正在执行。",
-                        source="runtime",
-                    )
+                    heartbeat = agent_runtime_progress.heartbeat_progress_payload()
 
             pending = state.events[next_index:]
             is_terminal = state.status != "running"
@@ -377,6 +463,8 @@ __all__ = [
     "get_active_run_snapshot",
     "has_active_run",
     "hermes_timeout",
+    "project_tool_completed",
+    "project_tool_started",
     "stop_active_run",
     "stream_active_run_events",
     "stream_chat_reply",

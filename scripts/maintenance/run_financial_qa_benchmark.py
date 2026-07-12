@@ -161,6 +161,15 @@ def validate_case(case: dict[str, Any]) -> list[str]:
                 errors.append(f"case.expected_calculations[{index}].operation missing")
             if not any(calculation.get(key) not in (None, "") for key in ("result", "value", "output")):
                 errors.append(f"case.expected_calculations[{index}].result missing")
+    expected_violations = expected_guardrail.get("claim_violations")
+    if expected_violations is not None and not isinstance(expected_violations, list):
+        errors.append("case.expected_guardrail.claim_violations must be an array")
+    elif isinstance(expected_violations, list):
+        for index, violation in enumerate(expected_violations, start=1):
+            if not isinstance(violation, dict):
+                errors.append(f"case.expected_guardrail.claim_violations[{index}] must be an object")
+            elif not violation.get("reason"):
+                errors.append(f"case.expected_guardrail.claim_violations[{index}].reason missing")
     return errors
 
 
@@ -457,6 +466,36 @@ def evaluate_trace_case(case: dict[str, Any], trace: dict[str, Any] | None) -> d
         errors.append("guardrail blocked an answer that should answer")
     if not should_answer and guardrail.get("blocked") is not True:
         errors.append("guardrail should block this answer")
+    expected_guardrail_reason = expected_guardrail.get("reason")
+    if expected_guardrail_reason and guardrail.get("reason") != expected_guardrail_reason:
+        errors.append(
+            f"guardrail reason expected {expected_guardrail_reason!r}, got {guardrail.get('reason')!r}"
+        )
+    expected_claim_violations = expected_guardrail.get("claim_violations")
+    if isinstance(expected_claim_violations, list):
+        verifier = trace.get("claim_verifier_result") if isinstance(trace.get("claim_verifier_result"), dict) else {}
+        actual_claim_violations = verifier.get("violations") if isinstance(verifier.get("violations"), list) else []
+        for index, expected_violation in enumerate(expected_claim_violations, start=1):
+            matched = False
+            if isinstance(expected_violation, dict):
+                for actual_violation in actual_claim_violations:
+                    if not isinstance(actual_violation, dict):
+                        continue
+                    fields_match = True
+                    for field, expected_value in expected_violation.items():
+                        actual_value = actual_violation.get(field)
+                        if field in {"claimed_value", "evidence_value"}:
+                            if not decimal_equal(actual_value, expected_value):
+                                fields_match = False
+                                break
+                        elif actual_value != expected_value:
+                            fields_match = False
+                            break
+                    if fields_match:
+                        matched = True
+                        break
+            if not matched:
+                errors.append(f"missing claim_verifier violation[{index}]: {expected_violation!r}")
     wiki_facts = trace.get("wiki_facts") if isinstance(trace.get("wiki_facts"), list) else []
     if expected_trace_value(case, "must_have_wiki_facts") and not wiki_facts:
         errors.append("expected wiki_facts in answer_audit_trace")

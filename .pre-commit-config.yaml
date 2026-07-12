@@ -7,10 +7,22 @@ repos:
       - id: end-of-file-fixer
       - id: trailing-whitespace
         exclude: ^(data|artifacts|var|runtimes)/
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.8.6
+  - repo: local
     hooks:
-      - id: ruff
-        args: [--config, ruff.toml]
+      - id: ruff-fingerprint-gate
+        name: Ruff new-fingerprint gate
+        entry: python scripts/maintenance/check_python_quality_touched.py --base-ref HEAD --require-ruff
+        language: python
+        additional_dependencies:
+          - ruff==0.14.10
         files: \.py$
+        exclude: ^(data|artifacts|var|runtimes)/
+      - id: mypy-whitelist-gate
+        name: mypy whitelist gate
+        entry: python scripts/maintenance/check_mypy_whitelist.py --require-mypy
+        language: python
+        additional_dependencies:
+          - mypy==1.14.1
+        pass_filenames: false
+        files: ^(mypy\.ini|scripts/maintenance/mypy_whitelist\.toml|.*\.py)$
         exclude: ^(data|artifacts|var|runtimes)/

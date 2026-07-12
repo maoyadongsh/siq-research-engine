@@ -333,6 +333,103 @@ def test_trace_offline_allows_guardrail_refusal_case(tmp_path):
     assert report["summary"]["guardrail_block_count"] == 1
 
 
+def test_trace_offline_requires_exact_financial_claim_guardrail_reason_and_violation(tmp_path):
+    module = _load_module()
+    case_root = tmp_path / "bench"
+    case = _case(
+        expected_facts=[],
+        required_evidence=[],
+        expected_guardrail={
+            "should_answer": False,
+            "reason": "financial_claim_mismatch",
+            "claim_violations": [
+                {
+                    "reason": "value_mismatch",
+                    "metric": "operating_revenue",
+                    "claimed_value": 6351.26,
+                    "evidence_value": 8382.70,
+                }
+            ],
+        },
+        expected_trace={"must_have_wiki_facts": False, "fallback_reason": None},
+    )
+    trace = _trace(
+        wiki_facts=[],
+        guardrail_result={"blocked": True, "reason": "financial_claim_mismatch"},
+        claim_verifier_result={
+            "checked": True,
+            "allowed": False,
+            "violations": [
+                {
+                    "reason": "value_mismatch",
+                    "metric": "operating_revenue",
+                    "claimed_value": 6351.26,
+                    "evidence_value": 8382.70,
+                }
+            ],
+        },
+    )
+    _write_jsonl(case_root / "cases.jsonl", [case])
+    _write_jsonl(case_root / "traces.jsonl", [trace])
+
+    report = module.run_benchmark(case_root=case_root, trace_log=case_root / "traces.jsonl", mode="trace-offline")
+
+    assert report["passed"] is True
+
+    trace["claim_verifier_result"]["violations"][0]["evidence_value"] = 6351.26
+    _write_jsonl(case_root / "traces.jsonl", [trace])
+    report = module.run_benchmark(case_root=case_root, trace_log=case_root / "traces.jsonl", mode="trace-offline")
+
+    assert report["passed"] is False
+    assert "missing claim_verifier violation[1]" in report["results"][0]["errors"][0]
+
+
+def test_trace_offline_requires_exact_financial_evidence_identity_violation(tmp_path):
+    module = _load_module()
+    case_root = tmp_path / "bench"
+    expected_violation = {
+        "reason": "company_id_mismatch",
+        "market": "HK",
+        "company_id": "HK:WRONG",
+        "filing_id": "HK:01398:2025-annual",
+        "parse_run_id": "run-hk-2025",
+        "expected_market": "HK",
+        "expected_company_id": "HK:01398",
+        "expected_filing_id": "HK:01398:2025-annual",
+        "expected_parse_run_id": "run-hk-2025",
+    }
+    case = _case(
+        company_id="HK:01398",
+        filing_id="HK:01398:2025-annual",
+        expected_facts=[],
+        required_evidence=[],
+        expected_guardrail={
+            "should_answer": False,
+            "reason": "financial_evidence_identity_mismatch",
+            "claim_violations": [expected_violation],
+        },
+        expected_trace={"must_have_wiki_facts": False, "fallback_reason": None},
+    )
+    trace = _trace(
+        resolved_company={"market": "HK", "id": "HK:01398"},
+        resolved_period={"period": "2025-12-31", "filing_id": "HK:01398:2025-annual"},
+        wiki_facts=[],
+        guardrail_result={"blocked": True, "reason": "financial_evidence_identity_mismatch"},
+        claim_verifier_result={"checked": True, "allowed": False, "violations": [expected_violation.copy()]},
+    )
+    _write_jsonl(case_root / "cases.jsonl", [case])
+    _write_jsonl(case_root / "traces.jsonl", [trace])
+
+    report = module.run_benchmark(case_root=case_root, trace_log=case_root / "traces.jsonl", mode="trace-offline")
+
+    assert report["passed"] is True
+    trace["claim_verifier_result"]["violations"][0]["expected_company_id"] = "HK:WRONG"
+    _write_jsonl(case_root / "traces.jsonl", [trace])
+    report = module.run_benchmark(case_root=case_root, trace_log=case_root / "traces.jsonl", mode="trace-offline")
+    assert report["passed"] is False
+    assert "missing claim_verifier violation[1]" in report["results"][0]["errors"][0]
+
+
 def test_trace_offline_fails_when_refusal_case_is_not_blocked(tmp_path):
     module = _load_module()
     case_root = tmp_path / "bench"

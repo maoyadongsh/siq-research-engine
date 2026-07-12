@@ -20,6 +20,15 @@ source_env_if_exists() {
     set +a
 }
 
+database_url_log_status() {
+    local value="${1:-}"
+    if [[ -n "$value" ]]; then
+        printf '%s\n' "configured"
+    else
+        printf '%s\n' "not configured"
+    fi
+}
+
 DEFAULT_ENV_FILE="$PROJECT_ROOT/infra/env/local.env"
 LEGACY_ENV_FILE="$PROJECT_ROOT/env/backend.env"
 ENV_FILE="${SIQ_ENV_FILE:-$DEFAULT_ENV_FILE}"
@@ -91,7 +100,8 @@ echo "   监听地址: $UVICORN_HOST:$SIQ_BACKEND_PORT"
 echo "   允许注册: $SIQ_ALLOW_REGISTRATION"
 echo "   演示登录: $SIQ_DEMO_MODE"
 echo "   WIKI_ROOT: $WIKI_ROOT"
-echo "   SIQ_APP_DATABASE_URL: ${SIQ_APP_DATABASE_URL:-${DATABASE_URL:-sqlite fallback}}"
+database_url_for_log="${SIQ_APP_DATABASE_URL:-${DATABASE_URL:-}}"
+echo "   SIQ_APP_DATABASE_URL: $(database_url_log_status "$database_url_for_log")"
 echo ""
 
 uvicorn_args=(main:app --host "$UVICORN_HOST" --port "$SIQ_BACKEND_PORT")

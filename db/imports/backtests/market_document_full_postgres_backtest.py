@@ -432,6 +432,10 @@ def run_cases(
         for check in (result.get("required_evidence_checks") or [])
         if isinstance(check, dict)
     ]
+    db_scope_issue_count = sum(len(result.get("scope_issues") or []) for result in db_results)
+    production_sample_db_scope_issue_count = sum(
+        len(result.get("scope_issues") or []) for result in production_sample_db_results
+    )
     db_table_count_check_count = sum(
         len(result.get("table_counts") or {})
         for result in db_results
@@ -513,6 +517,7 @@ def run_cases(
             "postgres_roundtrip_case_count": db_case_count,
             "postgres_family_count_checked_count": db_case_count * len(DB_TABLE_FAMILIES) if verify_db else 0,
             "postgres_table_count_checked_count": db_table_count_check_count,
+            "postgres_scope_issue_count": db_scope_issue_count,
             "postgres_required_evidence_verified": postgres_required_evidence_verified,
             "postgres_required_evidence_passed_count": sum(1 for check in db_required_evidence_checks if check.get("passed")),
             "postgres_required_evidence_checked_count": len(db_required_evidence_checks),
@@ -531,6 +536,7 @@ def run_cases(
             "production_sample_db_verified": production_sample_db_verified,
             "production_sample_db_passed_count": production_sample_db_passed_count,
             "production_sample_db_case_count": len(production_sample_db_results),
+            "production_sample_db_scope_issue_count": production_sample_db_scope_issue_count,
             "production_sample_db_coexistence_verified": production_sample_db_coexistence_verified,
             "production_sample_db_coexistence_passed_count": sum(
                 1 for result in production_sample_db_coexistence_results if result.get("passed")

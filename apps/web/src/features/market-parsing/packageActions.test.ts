@@ -45,6 +45,26 @@ test('buildMarketPackageRequest trims optional build paths', () => {
   )
 })
 
+test('buildMarketPackageRequest prefers the portable download-relative path', () => {
+  assert.deepEqual(
+    buildMarketPackageRequest({
+      sourcePath: '/srv/private/source.xhtml',
+      downloadRelativePath: ' EU/DE/SAP/annual/2025/report.xhtml ',
+      force: false,
+    }),
+    {
+      download_relative_path: 'EU/DE/SAP/annual/2025/report.xhtml',
+      parser_result: undefined,
+      metadata_path: undefined,
+      force: false,
+    } satisfies MarketPackageBuildRequest,
+  )
+})
+
+test('buildMarketPackageRequest rejects an empty package source', () => {
+  assert.throws(() => buildMarketPackageRequest({ sourcePath: ' ', downloadRelativePath: ' ' }), /缺少待构建文件路径/)
+})
+
 test('runMarketPackageBuildAction waits for queued job and returns built package path', async () => {
   let buildBody: MarketPackageBuildRequest | undefined
   let waitedJob = ''
@@ -75,6 +95,22 @@ test('runMarketPackageBuildAction waits for queued job and returns built package
   assert.equal(buildBody?.source_path, '/tmp/source.html')
   assert.equal(result.output, 'built ok')
   assert.equal(result.builtPath, 'EU/example/package')
+})
+
+test('runMarketPackageBuildAction surfaces a failed queued build result', async () => {
+  const deps = makeDeps({
+    runBuild: async () => ({ ok: true, job_id: 'job-failed' }),
+    waitForJob: async () => ({ ok: false, stderr: 'ESEF taxonomy is invalid' }),
+  })
+
+  await assert.rejects(
+    runMarketPackageBuildAction({
+      market: 'EU',
+      downloadRelativePath: 'EU/DE/SAP/annual/2025/report.zip',
+      force: false,
+    }, deps),
+    /ESEF taxonomy is invalid/,
+  )
 })
 
 test('runMarketPackageImportAction keeps parse_run fallback output only for explicit legacy import', async () => {

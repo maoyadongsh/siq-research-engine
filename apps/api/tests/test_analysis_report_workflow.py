@@ -44,6 +44,38 @@ def test_latest_report_script_prefers_research_pack_capable_profile():
 
     assert script is not None
     assert script.as_posix().endswith("agents/hermes/profiles/siq_analysis/scripts/run_analysis_report.py")
+    script_dir = script.parent
+    for filename in [
+        "html_renderer_v2.py",
+        "financial_chart_design.py",
+        "renderer_svg_charts.py",
+        "renderer_assets.py",
+        "run_research_subagents.py",
+        "validate_research_packs.py",
+        "merge_research_packs.py",
+    ]:
+        assert (script_dir / filename).is_file()
+
+
+def test_research_pack_script_requires_income_bridge_renderer_files(tmp_path):
+    script_dir = tmp_path / "scripts"
+    script_dir.mkdir()
+    script = script_dir / "run_analysis_report.py"
+    script.write_text("--use-research-packs\n", encoding="utf-8")
+    for filename in [
+        "html_renderer_v2.py",
+        "renderer_svg_charts.py",
+        "renderer_assets.py",
+        "run_research_subagents.py",
+        "validate_research_packs.py",
+        "merge_research_packs.py",
+    ]:
+        (script_dir / filename).write_text("# placeholder\n", encoding="utf-8")
+
+    assert workflow._script_supports_research_packs(script) is False
+
+    (script_dir / "financial_chart_design.py").write_text("# placeholder\n", encoding="utf-8")
+    assert workflow._script_supports_research_packs(script) is True
 
 
 def test_report_generation_intent_excludes_meta_questions():

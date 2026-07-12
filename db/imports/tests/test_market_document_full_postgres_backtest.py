@@ -495,10 +495,11 @@ def test_backtest_db_mode_checks_market_schema_counts(monkeypatch, tmp_path):
     cases = {
         "schema_version": source_cases["schema_version"],
         "cases": [
-            {
-                **source_cases["cases"][1],
-                "expected_row_counts": {"facts": 2, "tables": 1, "chunks": 3, "evidence": 2},
-                "expected_family_counts": {
+                {
+                    **source_cases["cases"][1],
+                    "parse_run_id": "parse-hk-idempotent",
+                    "expected_row_counts": {"facts": 2, "tables": 1, "chunks": 3, "evidence": 2},
+                    "expected_family_counts": {
                     "companies": 1,
                     "filings": 1,
                     "parse_runs": 1,

@@ -1,5 +1,4 @@
-from services import agent_chat_runtime as runtime
-from services import agent_runtime_citations as citations
+from services import agent_chat_runtime as runtime, agent_runtime_citations as citations
 
 
 def test_first_record_label_is_shared_with_runtime_wrapper():
@@ -115,6 +114,38 @@ def test_render_three_statement_primary_data_supplement_limits_rows_and_adds_ref
         ("11111111-1111-1111-1111-111111111111", 7, 2),
         ("11111111-1111-1111-1111-111111111111", 7, 2),
     ]
+
+
+def test_render_three_statement_supplement_supports_sec_xbrl_locator():
+    supplement = citations._render_three_statement_primary_data_supplement(
+        {
+            "report_id": "2025-10-K",
+            "rows": [
+                {
+                    "statement_label": "利润表",
+                    "metric_name": "Revenue",
+                    "period": "2025-09-27",
+                    "raw_value": "416161000000",
+                    "unit": "USD",
+                    "source_type": "wiki_metrics",
+                    "evidence_source_type": "sec_xbrl_fact",
+                    "source_url": "https://www.sec.gov/example.htm",
+                    "source_anchor": "f-78",
+                    "xbrl_tag": "us-gaap:Revenue",
+                    "file": "reports/2025-10-K/metrics/financial_data.json",
+                }
+            ],
+        },
+        primary_data_supplement_max_rows=3,
+        table_source_links=lambda _task_id, _pdf_page, _table_index: "",
+    )
+
+    assert supplement is not None
+    assert "source_url=https://www.sec.gov/example.htm" in supplement
+    assert "source_anchor=f-78" in supplement
+    assert "xbrl_tag=us-gaap:Revenue" in supplement
+    assert supplement.count("[打开披露原文](https://www.sec.gov/example.htm#f-78)") == 2
+    assert citations._has_structured_evidence_trace(supplement)
 
 
 def test_render_statement_table_primary_data_supplement_limits_records_and_adds_refs():
@@ -353,7 +384,8 @@ def test_render_postgres_primary_data_supplement_adds_rows_refs_and_links():
 
 
 def test_primary_data_supplement_renderers_return_none_for_empty_inputs():
-    table_source_links = lambda task_id, pdf_page, table_index: ""
+    def table_source_links(_task_id, _pdf_page, _table_index):
+        return ""
 
     assert citations._render_three_statement_primary_data_supplement(
         {"rows": []},
@@ -443,11 +475,17 @@ def test_structured_evidence_requires_real_task_id_and_page_or_table():
         "[1] source_type=postgresql, task_id=33333333-3333-3333-3333-333333333333, "
         "pdf_page_number=8"
     )
+    sec_xbrl = (
+        "[1] source_type=wiki_metrics, evidence_source_type=sec_xbrl_fact, "
+        "source_url=https://www.sec.gov/example.htm, source_anchor=f-78, xbrl_tag=us-gaap:Revenue"
+    )
 
     assert citations._has_structured_evidence_trace(cited)
     assert runtime._has_structured_evidence_trace(cited)
     assert citations._has_structured_evidence_trace(table_only)
     assert citations._has_structured_evidence_trace(page_alias)
+    assert citations._has_structured_evidence_trace(sec_xbrl)
+    assert runtime._has_structured_evidence_trace(sec_xbrl)
     assert not citations._has_structured_evidence_trace(uncited)
 
 
@@ -780,7 +818,8 @@ def test_reply_has_requested_metric_evidence_checks_requested_terms_in_reference
 [D1] source_type=wiki_metrics, file=metrics/three_statements.json, metric=营业收入, period=2025, task_id=11111111-1111-1111-1111-111111111111, pdf_page=7, table_index=2, md_line=50
 """
 
-    normalize = lambda value: "".join(str(value).lower().split())
+    def normalize(value):
+        return "".join(str(value).lower().split())
 
     assert citations._reply_has_requested_metric_evidence(
         "收入是多少",
@@ -808,7 +847,8 @@ def test_reply_has_requested_metric_evidence_ignores_metrics_outside_reference_l
 [D1] source_type=wiki_metrics, file=metrics/three_statements.json, metric=营业收入, period=2025, task_id=11111111-1111-1111-1111-111111111111, pdf_page=7, table_index=2, md_line=50
 """
 
-    normalize = lambda value: "".join(str(value).lower().split())
+    def normalize(value):
+        return "".join(str(value).lower().split())
 
     assert not citations._reply_has_requested_metric_evidence(
         "净利润是多少",

@@ -11,13 +11,13 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
-
-from routers import workflow as workflow_router
+from services.auth_dependencies import require_permission
 from services.hermes_client import collect_run_result, create_run
 from services.path_config import REPORT_DOWNLOADS_ROOT, WIKI_ROOT as CONFIG_WIKI_ROOT
 
+from routers import workflow as workflow_router
 
 WIKI_ROOT = CONFIG_WIKI_ROOT
 COMPANIES_DIR = WIKI_ROOT / "companies"
@@ -33,7 +33,7 @@ OUTPUT_MAX_CHARS = int(os.environ.get("EVAL_E2E_OUTPUT_MAX_CHARS", "30000"))
 TERMINAL_OK = {"completed", "success", "done", "finished"}
 TERMINAL_FAIL = {"failed", "error", "failure", "completed_missing_artifact", "cancelled"}
 
-router = APIRouter(prefix="/eval", tags=["eval"])
+router = APIRouter(prefix="/eval", tags=["eval"], dependencies=[Depends(require_permission("system.config"))])
 _pipeline_locks: dict[str, asyncio.Lock] = {}
 
 
@@ -1010,7 +1010,6 @@ def _compose_report_adoption_section(target: dict[str, Any]) -> str:
 
 
 def _compose_executive_summary(target: dict[str, Any], snapshot: dict[str, dict[str, Any]]) -> str:
-    revenue = snapshot.get("revenue", {}).get("value")
     profit = snapshot.get("parent_net_profit", {}).get("value")
     ocf = snapshot.get("operating_cashflow", {}).get("value")
     debt_ratio = snapshot.get("asset_liability_ratio", {}).get("value")
@@ -1061,7 +1060,7 @@ def _compose_dimension_coverage_section(
         "| 评测维度 | 本次输出中的可核验内容 | 状态 |",
         "| --- | --- | --- |",
         f"| 财报检索与时效性 | 目标公司、年度、本地年报 Markdown、Wiki 入库和向量状态；{trace} | 已覆盖 |",
-        f"| 财务指标识别准确性 | 核心指标表：营业收入、归母净利润、经营现金流、总资产、归母净资产、资产负债率；每项附结构化来源 | 已覆盖 |",
+        "| 财务指标识别准确性 | 核心指标表：营业收入、归母净利润、经营现金流、总资产、归母净资产、资产负债率；每项附结构化来源 | 已覆盖 |",
         "| 财务数据勾稽与事实核查 | 利润表、资产负债表、现金流量表交叉核验；Fact-Check 段落；异常口径列为证据缺口 | 已覆盖 |",
         f"| 行业分析与经营洞察 | {profile.label}关注点：{'、'.join(profile.focus_checklist)}；公司定位：{_company_position(str(target.get('company_name') or ''), profile)} | 已覆盖 |",
         "| 报告专业度与可采纳性 | 执行摘要、结论先行、风险优先级、后续跟踪、证据边界、合规声明 | 已覆盖 |",
@@ -1102,8 +1101,6 @@ def _compose_task_specific_answer(
     inv_cf = snapshot.get("investing_cashflow", {}).get("value")
     fin_cf = snapshot.get("financing_cashflow", {}).get("value")
     capex = snapshot.get("capex", {}).get("value")
-    assets = snapshot.get("total_assets", {}).get("value")
-    debt_ratio = snapshot.get("asset_liability_ratio", {}).get("value")
     cash = snapshot.get("monetary_capital", {}).get("value")
     ar = snapshot.get("accounts_receivable", {}).get("value")
     inventory = snapshot.get("inventory", {}).get("value")
@@ -1198,7 +1195,7 @@ def _compose_task_specific_answer(
             f"1. 净利润与经营现金流：归母净利润 {_metric_line(snapshot, 'parent_net_profit')}；经营现金流 {_metric_line(snapshot, 'operating_cashflow')}。用于判断利润现金含量。",
             f"2. 资产负债表与现金流：货币资金 {_metric_line(snapshot, 'monetary_capital')}，需与现金流量表三类现金流净额方向交叉验证。",
             f"3. 收入与营运资本：营业收入 {_metric_line(snapshot, 'revenue')}；应收账款 {_metric_line(snapshot, 'accounts_receivable')}；存货 {_metric_line(snapshot, 'inventory')}。用于判断收入增长是否伴随回款或库存压力。",
-            f"4. 减值与利润：若事实核查报告出现减值、商誉、存货跌价等风险，应回看利润表和资产附注，不凭空断言异常。",
+            "4. 减值与利润：若事实核查报告出现减值、商誉、存货跌价等风险，应回看利润表和资产附注，不凭空断言异常。",
         ])
 
     if intent == "asset_quality":

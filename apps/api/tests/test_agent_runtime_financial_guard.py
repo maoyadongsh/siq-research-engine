@@ -1,8 +1,9 @@
 import json
 from pathlib import Path
 
-from services import agent_runtime_financial_provenance as provenance
-from services import agent_runtime_financial_guard as guard
+import pytest
+
+from services import agent_runtime_financial_guard as guard, agent_runtime_financial_provenance as provenance
 
 
 def _deps(**overrides):
@@ -28,6 +29,93 @@ def _deps(**overrides):
     }
     defaults.update(overrides)
     return guard.FinancialEvidenceContractDependencies(**defaults)
+
+
+def _yoy_trace(*, result: str = "0.02003764892559409", company_id: str = "HK:01398") -> str:
+    return json.dumps(
+        {
+            "schema_version": "siq_financial_calculation_trace_v1",
+            "tool": "financial_calculator.py",
+            "operation": "yoy",
+            "metric": "operating_revenue_yoy",
+            "period": "2025",
+            "inputs": {
+                "current": {
+                    "metric": "operating_revenue",
+                    "period": "2025",
+                    "value": "838270",
+                    "unit": "RMB million",
+                    "evidence_id": "EVID-REV-2025",
+                },
+                "previous": {
+                    "metric": "operating_revenue",
+                    "period": "2024",
+                    "value": "821803",
+                    "unit": "RMB million",
+                    "evidence_id": "EVID-REV-2024",
+                },
+            },
+            "result": {"rate": result, "percent": str(float(result) * 100)},
+            "research_identity": {
+                "market": "HK",
+                "company_id": company_id,
+                "filing_id": "HK:01398:2025-annual",
+                "parse_run_id": "run-hk-01398-2025",
+            },
+        },
+        ensure_ascii=False,
+    )
+
+
+def _reconciliation_trace(*, net: str = "1183", result: str = "1183") -> str:
+    inputs = {}
+    for role, metric, value, evidence_id in (
+        ("gross", "goodwill_gross", "1282", "EVID-GW-GROSS"),
+        ("allowance", "goodwill_impairment_allowance", "99", "EVID-GW-ALLOWANCE"),
+        ("net", "goodwill_net", net, "EVID-GW-NET"),
+    ):
+        inputs[role] = {
+            "metric": metric,
+            "period": "2025",
+            "value": value,
+            "unit": "RMB million",
+            "evidence_id": evidence_id,
+        }
+    return json.dumps(
+        {
+            "schema_version": "siq_financial_reconciliation_trace_v1",
+            "tool": "financial_reconciliation_validator.py",
+            "operation": "goodwill_reconciliation",
+            "status": "passed",
+            "metric": "goodwill_gross_allowance_net",
+            "period": "2025",
+            "inputs": inputs,
+            "result": {"net": result},
+            "research_identity": {
+                "market": "HK",
+                "company_id": "HK:01398",
+                "filing_id": "HK:01398:2025-annual",
+                "parse_run_id": "run-hk-01398-2025",
+            },
+        },
+        ensure_ascii=False,
+    )
+
+
+def _reconciliation_evidence() -> str:
+    lines = []
+    for label, metric, value, evidence_id, quote in (
+        ("P1", "goodwill_gross", "1282", "EVID-GW-GROSS", "商誉原值 1,282"),
+        ("P2", "goodwill_impairment_allowance", "99", "EVID-GW-ALLOWANCE", "商誉减值准备 99"),
+        ("P3", "goodwill_net", "1183", "EVID-GW-NET", "商誉净额 1,183"),
+    ):
+        lines.append(
+            f"[{label}] source_type=wiki_metrics market=HK company_id=HK:01398 "
+            "filing_id=HK:01398:2025-annual parse_run_id=run-hk-01398-2025 "
+            f"canonical_name={metric} metric_name={metric} period_key=2025 value={value} "
+            f'unit="RMB million" evidence_id={evidence_id} quote="{quote}" task_id=task-ok'
+        )
+    return "\n".join(lines)
 
 
 def test_runtime_status_reply_is_not_warned():
@@ -93,6 +181,399 @@ def test_enforce_financial_evidence_contract_returns_guarded_reply_when_auto_evi
     assert reply.endswith("[P1] source_type=wiki_metrics")
 
 
+def test_enforce_financial_evidence_contract_blocks_unbacked_financial_fact():
+    reply = guard.enforce_financial_evidence_contract(
+        "上汽集团 2025 年营业收入是多少？",
+        None,
+        "上汽集团 2025 年营业收入是 100 亿元。",
+        deps=_deps(),
+    )
+
+    assert "## 证据不足" in reply
+    assert "不能确定" in reply
+    assert "guardrail_status=blocked" in reply
+    assert f"guardrail_reason={guard.FINANCIAL_EVIDENCE_MISSING_GUARDRAIL_REASON}" in reply
+    assert "100 亿元" not in reply
+
+
+def test_enforce_financial_evidence_contract_blocks_equal_value_from_wrong_identity():
+    context = {
+        "research_identity": {
+            "market": "HK",
+            "company_id": "HK:01398",
+            "filing_id": "HK:01398:2025",
+            "parse_run_id": "run-hk-2025",
+        }
+    }
+    raw_reply = (
+        "工商银行 2025 年营业收入为 8,382.70 亿元。\n"
+        "[P1] source_type=wiki_metrics market=HK company_id=HK:WRONG filing_id=HK:01398:2025 "
+        "parse_run_id=run-hk-2025 canonical_name=operating_revenue metric_name=营业收入 "
+        'period_key=2025 value=8382.70 unit="亿元" currency=CNY '
+        'evidence_id=EVID-REV-2025 quote="营业收入 838,270"'
+    )
+
+    reply = guard.enforce_financial_evidence_contract(
+        "工商银行 2025 年营业收入是多少？",
+        context,
+        raw_reply,
+        deps=_deps(),
+    )
+
+    assert "## 财务证据身份不一致" in reply
+    assert "reason=company_id_mismatch" in reply
+    assert "guardrail_status=blocked" in reply
+    assert f"guardrail_reason={guard.FINANCIAL_EVIDENCE_IDENTITY_MISMATCH_GUARDRAIL_REASON}" in reply
+    assert raw_reply not in reply
+
+
+def test_warn_mode_keeps_unbacked_financial_model_output(monkeypatch):
+    monkeypatch.setenv("SIQ_FINANCIAL_GUARDRAIL_MODE", "warn")
+
+    reply = guard.enforce_financial_evidence_contract(
+        "上汽集团 2025 年营业收入是多少？",
+        None,
+        "上汽集团 2025 年营业收入是 100 亿元。",
+        deps=_deps(),
+    )
+
+    assert "上汽集团 2025 年营业收入是 100 亿元。" in reply
+    assert "## 证据不足" in reply
+    assert "guardrail_status=warning" in reply
+
+
+def test_warn_mode_keeps_derived_output_and_marks_missing_calculation(monkeypatch):
+    monkeypatch.setenv("SIQ_FINANCIAL_GUARDRAIL_MODE", "warn")
+
+    reply = guard.enforce_financial_evidence_contract(
+        "工商银行 2025 年营业收入同比是多少？",
+        None,
+        "工商银行 2025 年营业收入同比增长 2.0%。",
+        deps=_deps(),
+    )
+
+    assert "同比增长 2.0%" in reply
+    assert "## 计算校验缺失" in reply
+    assert "guardrail_status=warning" in reply
+
+
+def test_warn_mode_keeps_output_for_identity_invalid_reference_and_claim_mismatch(monkeypatch):
+    monkeypatch.setenv("SIQ_FINANCIAL_GUARDRAIL_MODE", "warn")
+
+    identity_reply = guard.enforce_financial_evidence_contract(
+        "营业收入是多少？",
+        {"research_identity": {"market": "US"}},
+        "模型原始收入回答。",
+        deps=_deps(),
+    )
+    invalid_reference_reply = guard.enforce_financial_evidence_contract(
+        "营业收入是多少？",
+        None,
+        "模型原始引用回答。\n[P1] source_type=wiki_metrics task_id=missing",
+        deps=_deps(invalid_task_ids_in_reply=lambda _message, _context, _reply: ["missing"]),
+    )
+    mismatch_reply = guard.enforce_financial_evidence_contract(
+        "工商银行 2025 年营业收入是多少？",
+        None,
+        (
+            "工商银行 2025 年营业收入为 100 亿元。\n\n"
+            "[P1] source_type=wiki_metrics company_id=HK:01398 filing_id=2025-annual "
+            "canonical_name=operating_revenue metric_name=营业收入 period_key=2025 "
+            'value=8382.70 unit=亿元 evidence_id=EVID-REV-2025 quote="营业收入 838,270" task_id=task-ok'
+        ),
+        deps=_deps(),
+    )
+
+    assert "模型原始收入回答。" in identity_reply
+    assert "guardrail_reason=financial_research_identity_incomplete" in identity_reply
+    assert "模型原始引用回答。" in invalid_reference_reply
+    assert "## 证据链无效" in invalid_reference_reply
+    assert "营业收入为 100 亿元" in mismatch_reply
+    assert "guardrail_reason=financial_claim_mismatch" in mismatch_reply
+    assert all(
+        "guardrail_status=warning" in reply
+        for reply in (identity_reply, invalid_reference_reply, mismatch_reply)
+    )
+
+
+def test_warn_mode_keeps_output_when_auto_evidence_adds_invalid_task_id(monkeypatch):
+    monkeypatch.setenv("SIQ_FINANCIAL_GUARDRAIL_MODE", "warn")
+
+    reply = guard.enforce_financial_evidence_contract(
+        "营业收入是多少？",
+        None,
+        "模型原始收入回答。",
+        deps=_deps(
+            append_primary_data_evidence_if_needed=lambda _message, _context, original: (
+                f"{original}\n[P1] source_type=wiki_metrics task_id=added-invalid"
+            ),
+            invalid_task_ids_in_reply=lambda _message, _context, candidate: (
+                ["added-invalid"] if "added-invalid" in candidate else []
+            ),
+        ),
+    )
+
+    assert "模型原始收入回答。" in reply
+    assert "## 证据链无效" in reply
+    assert "guardrail_status=warning" in reply
+
+
+@pytest.mark.parametrize("market", ("HK", "JP", "KR", "EU", "US"))
+def test_enforce_financial_evidence_contract_blocks_incomplete_non_cn_identity(market):
+    context = {"research_identity": {"market": market}}
+
+    reply = guard.enforce_financial_evidence_contract(
+        "2025 年营业收入是多少？",
+        context,
+        "2025 年营业收入为 100 亿元。",
+        deps=_deps(),
+    )
+
+    assert reply.startswith("## 研究身份不完整")
+    assert f"identity_market={market}" in reply
+    assert "identity_missing_fields=company_id,filing_id,parse_run_id" in reply
+    assert f"guardrail_reason={guard.FINANCIAL_RESEARCH_IDENTITY_INCOMPLETE_GUARDRAIL_REASON}" in reply
+    assert "100 亿元" not in reply
+    assert context["fallback_reason"] == "research_identity_incomplete"
+    assert context["_audit_fallback_events"][-1] == {
+        "reason": "research_identity_incomplete",
+        "stage": "financial_answer_blocked_for_non_cn_market",
+        "source": "research_identity_guard",
+        "detail": f"market={market} missing=company_id,filing_id,parse_run_id",
+    }
+
+
+def test_enforce_financial_evidence_contract_does_not_block_non_financial_chat_for_incomplete_identity():
+    context = {"research_identity": {"market": "HK"}}
+
+    reply = guard.enforce_financial_evidence_contract(
+        "你好，请介绍一下你自己。",
+        context,
+        "你好，我是 SIQ 助手。",
+        deps=_deps(needs_financial_evidence_contract=lambda _message, _context: False),
+    )
+
+    assert reply == "你好，我是 SIQ 助手。"
+    assert "_audit_fallback_events" not in context
+
+
+def test_enforce_financial_evidence_contract_blocks_value_mismatch_with_valid_source():
+    reply = guard.enforce_financial_evidence_contract(
+        "工商银行 2025 年营业收入是多少？",
+        None,
+        (
+            "工商银行 2025 年营业收入为 6,351.26 亿元。\n\n"
+            "[P1] source_type=wiki_metrics company_id=HK:01398 filing_id=2025-annual "
+            "canonical_name=operating_revenue metric_name=营业收入 period_key=2025 "
+            'value=8382.70 unit=亿元 evidence_id=EVID-REV-2025 quote="营业收入 838,270" task_id=task-ok'
+        ),
+        deps=_deps(),
+    )
+
+    assert "## 财务数值证据不一致" in reply
+    assert "guardrail_status=blocked" in reply
+    assert f"guardrail_reason={guard.FINANCIAL_CLAIM_MISMATCH_GUARDRAIL_REASON}" in reply
+    assert "claim_verifier_status=failed" in reply
+    assert "metric=operating_revenue" in reply
+    assert "evidence=8382.7亿元" in reply
+
+
+def test_enforce_financial_evidence_contract_blocks_period_mismatch_with_valid_source():
+    reply = guard.enforce_financial_evidence_contract(
+        "工商银行 2025 年营业收入是多少？",
+        None,
+        (
+            "工商银行 2024 年营业收入为 8,382.70 亿元。\n\n"
+            "[P1] source_type=wiki_metrics company_id=HK:01398 filing_id=2025-annual "
+            "canonical_name=operating_revenue metric_name=营业收入 period_key=2025 "
+            'value=8382.70 unit=亿元 evidence_id=EVID-REV-2025 quote="营业收入 838,270" task_id=task-ok'
+        ),
+        deps=_deps(),
+    )
+
+    assert "## 财务数值证据不一致" in reply
+    assert "guardrail_status=blocked" in reply
+    assert "reason=period_mismatch" in reply
+    assert "claimed_period=2024" in reply
+    assert "period=2025" in reply
+
+
+def test_enforce_financial_evidence_contract_allows_value_matching_source():
+    reply = guard.enforce_financial_evidence_contract(
+        "工商银行 2025 年营业收入是多少？",
+        None,
+        (
+            "工商银行 2025 年营业收入为 8,382.70 亿元。\n\n"
+            "[P1] source_type=wiki_metrics company_id=HK:01398 filing_id=2025-annual "
+            "canonical_name=operating_revenue metric_name=营业收入 period_key=2025 "
+            'value=8382.70 unit=亿元 evidence_id=EVID-REV-2025 quote="营业收入 838,270" task_id=task-ok'
+        ),
+        deps=_deps(),
+    )
+
+    assert "## 财务数值证据不一致" not in reply
+    assert "8,382.70 亿元" in reply
+    assert "source_type=wiki_metrics" in reply
+
+
+def test_enforce_financial_evidence_contract_allows_scaled_rmb_million_source():
+    reply = guard.enforce_financial_evidence_contract(
+        "工商银行 2025 年营业收入是多少？",
+        None,
+        (
+            "工商银行 2025 年营业收入为 8,382.70 亿元。\n\n"
+            "[P1] source_type=wiki_metrics company_id=HK:01398 filing_id=2025-annual "
+            "canonical_name=operating_revenue metric_name=营业收入 period_key=2025 "
+            'value=838270 unit="RMB million" evidence_id=EVID-REV-2025 quote="营业收入 838,270" task_id=task-ok'
+        ),
+        deps=_deps(),
+    )
+
+    assert "## 财务数值证据不一致" not in reply
+    assert "8,382.70 亿元" in reply
+
+
+def test_enforce_financial_evidence_contract_allows_explicit_scale_source():
+    reply = guard.enforce_financial_evidence_contract(
+        "工商银行 2025 年营业收入是多少？",
+        None,
+        (
+            "工商银行 2025 年营业收入为 8,382.70 亿元。\n\n"
+            "[P1] source_type=wiki_metrics company_id=HK:01398 filing_id=2025-annual "
+            "canonical_name=operating_revenue metric_name=营业收入 period_key=2025 "
+            'value=838270 unit=RMB scale=1000000 evidence_id=EVID-REV-2025 quote="营业收入 838,270" task_id=task-ok'
+        ),
+        deps=_deps(),
+    )
+
+    assert "## 财务数值证据不一致" not in reply
+    assert "8,382.70 亿元" in reply
+
+
+def test_enforce_financial_evidence_contract_allows_explicit_currency_match():
+    reply = guard.enforce_financial_evidence_contract(
+        "工商银行 2025 年营业收入是多少？",
+        None,
+        (
+            "工商银行 2025 年营业收入为人民币 8,382.70 亿元。\n\n"
+            "[P1] source_type=wiki_metrics company_id=HK:01398 filing_id=2025-annual "
+            "canonical_name=operating_revenue metric_name=营业收入 period_key=2025 "
+            'value=838270 unit="RMB million" evidence_id=EVID-REV-2025 quote="营业收入 838,270" task_id=task-ok'
+        ),
+        deps=_deps(),
+    )
+
+    assert "## 财务数值证据不一致" not in reply
+    assert "人民币 8,382.70 亿元" in reply
+
+
+def test_enforce_financial_evidence_contract_blocks_currency_mismatch():
+    reply = guard.enforce_financial_evidence_contract(
+        "工商银行 2025 年营业收入是多少？",
+        None,
+        (
+            "工商银行 2025 年营业收入为人民币 8,382.70 亿元。\n\n"
+            "[P1] source_type=wiki_metrics company_id=HK:01398 filing_id=2025-annual "
+            "canonical_name=operating_revenue metric_name=营业收入 period_key=2025 "
+            'value=838270 unit="HKD million" evidence_id=EVID-REV-2025 quote="营业收入 838,270" task_id=task-ok'
+        ),
+        deps=_deps(),
+    )
+
+    assert "## 财务数值证据不一致" in reply
+    assert "reason=currency_mismatch" in reply
+    assert "claimed_currency=CNY" in reply
+    assert "evidence_currency=HKD" in reply
+
+
+def test_enforce_financial_evidence_contract_blocks_matching_value_without_quote():
+    reply = guard.enforce_financial_evidence_contract(
+        "工商银行 2025 年营业收入是多少？",
+        None,
+        (
+            "工商银行 2025 年营业收入为 8,382.70 亿元。\n\n"
+            "[P1] source_type=wiki_metrics company_id=HK:01398 filing_id=2025-annual "
+            "canonical_name=operating_revenue metric_name=营业收入 period_key=2025 "
+            "value=8382.70 unit=亿元 evidence_id=EVID-REV-2025 task_id=task-ok"
+        ),
+        deps=_deps(),
+    )
+
+    assert "## 财务数值证据不一致" in reply
+    assert "reason=missing_quote" in reply
+    assert "claim_verifier_status=failed" in reply
+
+
+def test_enforce_financial_evidence_contract_blocks_matching_value_without_evidence_id():
+    reply = guard.enforce_financial_evidence_contract(
+        "工商银行 2025 年营业收入是多少？",
+        None,
+        (
+            "工商银行 2025 年营业收入为 8,382.70 亿元。\n\n"
+            "[P1] source_type=wiki_metrics company_id=HK:01398 filing_id=2025-annual "
+            "canonical_name=operating_revenue metric_name=营业收入 period_key=2025 "
+            "value=8382.70 unit=亿元 quote=\"营业收入 838,270\" task_id=task-ok"
+        ),
+        deps=_deps(),
+    )
+
+    assert "## 财务数值证据不一致" in reply
+    assert "reason=missing_evidence_id" in reply
+    assert "claim_verifier_status=failed" in reply
+
+
+def test_enforce_financial_evidence_contract_blocks_matching_value_without_company_id():
+    reply = guard.enforce_financial_evidence_contract(
+        "工商银行 2025 年营业收入是多少？",
+        None,
+        (
+            "工商银行 2025 年营业收入为 8,382.70 亿元。\n\n"
+            "[P1] source_type=wiki_metrics filing_id=2025-annual "
+            "canonical_name=operating_revenue metric_name=营业收入 period_key=2025 "
+            'value=8382.70 unit=亿元 evidence_id=EVID-REV-2025 quote="营业收入 838,270" task_id=task-ok'
+        ),
+        deps=_deps(),
+    )
+
+    assert "## 财务数值证据不一致" in reply
+    assert "reason=missing_company_id" in reply
+    assert "claim_verifier_status=failed" in reply
+
+
+def test_enforce_financial_evidence_contract_blocks_matching_value_without_filing_id():
+    reply = guard.enforce_financial_evidence_contract(
+        "工商银行 2025 年营业收入是多少？",
+        None,
+        (
+            "工商银行 2025 年营业收入为 8,382.70 亿元。\n\n"
+            "[P1] source_type=wiki_metrics company_id=HK:01398 "
+            "canonical_name=operating_revenue metric_name=营业收入 period_key=2025 "
+            'value=8382.70 unit=亿元 evidence_id=EVID-REV-2025 quote="营业收入 838,270" task_id=task-ok'
+        ),
+        deps=_deps(),
+    )
+
+    assert "## 财务数值证据不一致" in reply
+    assert "reason=missing_filing_id" in reply
+    assert "claim_verifier_status=failed" in reply
+
+
+def test_enforce_financial_evidence_contract_does_not_verify_source_line_only():
+    reply = guard.enforce_financial_evidence_contract(
+        "营业收入是多少？",
+        None,
+        (
+            "## 引用来源\n"
+            "[P1] source_type=wiki_metrics canonical_name=operating_revenue metric_name=营业收入 "
+            "period_key=2025 value=8382.70 unit=亿元 evidence_id=EVID-REV-2025"
+        ),
+        deps=_deps(),
+    )
+
+    assert "## 财务数值证据不一致" not in reply
+    assert "source_type=wiki_metrics" in reply
+
+
 def test_enforce_financial_evidence_contract_blocks_invalid_task_id_with_fallback():
     reply = guard.enforce_financial_evidence_contract(
         "收入是多少？",
@@ -109,10 +590,276 @@ def test_enforce_financial_evidence_contract_blocks_invalid_task_id_with_fallbac
     assert "postgres rows" in reply
 
 
+def test_enforce_financial_evidence_contract_blocks_derived_metric_without_calculator_trace():
+    reply = guard.enforce_financial_evidence_contract(
+        "工商银行 2025 年营业收入同比是多少？",
+        None,
+        (
+            "工商银行 2025 年营业收入同比增长 2.0%。\n\n"
+            "[P1] source_type=wiki_metrics company_id=HK:01398 filing_id=2025-annual "
+            "canonical_name=operating_revenue metric_name=营业收入 period_key=2025 "
+            'value=838270 unit="RMB million" evidence_id=EVID-REV-2025 quote="营业收入 838,270" task_id=task-ok'
+        ),
+        deps=_deps(),
+    )
+
+    assert "## 计算校验缺失" in reply
+    assert "guardrail_status=blocked" in reply
+    assert f"guardrail_reason={guard.FINANCIAL_CALCULATION_TRACE_MISSING_GUARDRAIL_REASON}" in reply
+    assert "calculation_trace_reason=calculator_trace_missing" in reply
+    assert "同比增长 2.0%" not in reply
+
+
+def test_enforce_financial_evidence_contract_allows_derived_metric_with_calculator_trace():
+    reply = guard.enforce_financial_evidence_contract(
+        "工商银行 2025 年营业收入同比是多少？",
+        {
+            "research_identity": {
+                "market": "HK",
+                "company_id": "HK:01398",
+                "filing_id": "HK:01398:2025-annual",
+                "parse_run_id": "run-hk-01398-2025",
+            }
+        },
+        (
+            "工商银行 2025 年营业收入同比增长 2.0%。\n\n"
+            "## 计算器校验\n"
+            f"```json\n{_yoy_trace()}\n```\n\n"
+            "[P1] source_type=wiki_metrics market=HK company_id=HK:01398 "
+            "filing_id=HK:01398:2025-annual parse_run_id=run-hk-01398-2025 "
+            "canonical_name=operating_revenue metric_name=营业收入 period_key=2025 "
+            'value=838270 unit="RMB million" evidence_id=EVID-REV-2025 quote="营业收入 838,270" task_id=task-ok\n'
+            "[P2] source_type=wiki_metrics market=HK company_id=HK:01398 "
+            "filing_id=HK:01398:2025-annual parse_run_id=run-hk-01398-2025 "
+            "canonical_name=operating_revenue metric_name=营业收入 period_key=2024 "
+            'value=821803 unit="RMB million" evidence_id=EVID-REV-2024 quote="营业收入 821,803" task_id=task-ok'
+        ),
+        deps=_deps(),
+    )
+
+    assert "## 计算校验缺失" not in reply
+    assert "同比增长 2.0%" in reply
+    assert '"operation": "yoy"' in reply
+
+
+def test_enforce_financial_evidence_contract_blocks_forged_99_percent_yoy_marker_trace():
+    reply = guard.enforce_financial_evidence_contract(
+        "工商银行 2025 年营业收入同比是多少？",
+        {
+            "research_identity": {
+                "market": "HK",
+                "company_id": "HK:01398",
+                "filing_id": "HK:01398:2025-annual",
+                "parse_run_id": "run-hk-01398-2025",
+            }
+        },
+        (
+            "工商银行 2025 年营业收入同比增长 99.0%。\n\n"
+            "## 计算器校验\n"
+            "- financial_calculator.py operation=yoy current=838270 previous=821803 result=0.9900\n\n"
+            "[P1] source_type=wiki_metrics market=HK company_id=HK:01398 "
+            "filing_id=HK:01398:2025-annual parse_run_id=run-hk-01398-2025 "
+            "canonical_name=operating_revenue metric_name=营业收入 period_key=2025 "
+            'value=838270 unit="RMB million" evidence_id=EVID-REV-2025 '
+            'quote="营业收入 838,270" task_id=task-ok\n'
+            "[P2] source_type=wiki_metrics market=HK company_id=HK:01398 "
+            "filing_id=HK:01398:2025-annual parse_run_id=run-hk-01398-2025 "
+            "canonical_name=operating_revenue metric_name=营业收入 period_key=2024 "
+            'value=821803 unit="RMB million" evidence_id=EVID-REV-2024 '
+            'quote="营业收入 821,803" task_id=task-ok'
+        ),
+        deps=_deps(),
+    )
+
+    assert "## 计算校验无效" in reply
+    assert "calculation_trace_reason=trace_unstructured" in reply
+    assert "同比增长 99.0%" not in reply
+
+
+@pytest.mark.parametrize(
+    ("trace", "reason"),
+    (
+        (_yoy_trace(result="0.99"), "trace_result_mismatch"),
+        (_yoy_trace().replace('"percent": "2.003764892559409"', '"percent": "99"'), "trace_result_mismatch"),
+        (_yoy_trace(company_id="HK:WRONG"), "trace_identity_company_id_mismatch"),
+        (_yoy_trace().replace('"operation": "yoy"', '"operation": "magic_growth"'), "trace_unknown_operation"),
+        (_yoy_trace().replace('"period": "2025", "value": "838270"', '"value": "838270"'), "trace_input_fields_missing"),
+        (_yoy_trace().replace('"value": "838270"', '"value": "999999"', 1), "trace_input_value_mismatch"),
+        (_yoy_trace().replace('"unit": "RMB million"', '"unit": "USD million"', 1), "trace_input_currency_mismatch"),
+    ),
+)
+def test_enforce_financial_evidence_contract_rejects_invalid_structured_yoy_trace(trace: str, reason: str):
+    reply = guard.enforce_financial_evidence_contract(
+        "工商银行 2025 年营业收入同比是多少？",
+        {
+            "research_identity": {
+                "market": "HK",
+                "company_id": "HK:01398",
+                "filing_id": "HK:01398:2025-annual",
+                "parse_run_id": "run-hk-01398-2025",
+            }
+        },
+        (
+            "工商银行 2025 年营业收入同比增长 2.0%。\n\n"
+            f"## 计算器校验\n```json\n{trace}\n```\n\n"
+            "[P1] source_type=wiki_metrics market=HK company_id=HK:01398 "
+            "filing_id=HK:01398:2025-annual parse_run_id=run-hk-01398-2025 "
+            "canonical_name=operating_revenue metric_name=营业收入 period_key=2025 "
+            'value=838270 unit="RMB million" evidence_id=EVID-REV-2025 quote="营业收入 838,270" task_id=task-ok\n'
+            "[P2] source_type=wiki_metrics market=HK company_id=HK:01398 "
+            "filing_id=HK:01398:2025-annual parse_run_id=run-hk-01398-2025 "
+            "canonical_name=operating_revenue metric_name=营业收入 period_key=2024 "
+            'value=821803 unit="RMB million" evidence_id=EVID-REV-2024 quote="营业收入 821,803" task_id=task-ok'
+        ),
+        deps=_deps(),
+    )
+
+    assert "## 计算校验无效" in reply
+    assert f"calculation_trace_reason={reason}" in reply
+
+
+def test_enforce_financial_evidence_contract_blocks_ratio_trace_for_wrong_derived_metric():
+    trace = json.dumps(
+        {
+            "schema_version": "siq_financial_calculation_trace_v1",
+            "tool": "financial_calculator.py",
+            "operation": "ratio",
+            "metric": "debt_to_asset_ratio",
+            "period": "2025",
+            "inputs": {
+                "numerator": {"metric": "gross_profit", "period": "2025", "value": "40", "unit": "HKD million", "evidence_id": "E-GP"},
+                "denominator": {"metric": "revenue", "period": "2025", "value": "100", "unit": "HKD million", "evidence_id": "E-REV"},
+            },
+            "result": {"ratio": "0.4", "percent": "40"},
+            "research_identity": {
+                "market": "HK",
+                "company_id": "HK:01398",
+                "filing_id": "HK:01398:2025-annual",
+                "parse_run_id": "run-hk-01398-2025",
+            },
+        }
+    )
+    reply = guard.enforce_financial_evidence_contract(
+        "工商银行 2025 年毛利率是多少？",
+        {
+            "research_identity": {
+                "market": "HK",
+                "company_id": "HK:01398",
+                "filing_id": "HK:01398:2025-annual",
+                "parse_run_id": "run-hk-01398-2025",
+            }
+        },
+        (
+            f"2025 年毛利率为 40%。\n```json\n{trace}\n```\n"
+            "[P1] source_type=wiki_metrics market=HK company_id=HK:01398 filing_id=HK:01398:2025-annual "
+            "parse_run_id=run-hk-01398-2025 canonical_name=gross_profit metric_name=gross_profit period_key=2025 "
+            'value=40 unit="HKD million" evidence_id=E-GP quote="gross profit 40"\n'
+            "[P2] source_type=wiki_metrics market=HK company_id=HK:01398 filing_id=HK:01398:2025-annual "
+            "parse_run_id=run-hk-01398-2025 canonical_name=revenue metric_name=revenue period_key=2025 "
+            'value=100 unit="HKD million" evidence_id=E-REV quote="revenue 100"'
+        ),
+        deps=_deps(),
+    )
+
+    assert "calculation_trace_reason=trace_metric_mismatch" in reply
+
+
+def test_enforce_financial_evidence_contract_allows_recomputed_reconciliation_trace():
+    reply = guard.enforce_financial_evidence_contract(
+        "工商银行商誉原值、减值准备和净额如何勾稽？",
+        {
+            "research_identity": {
+                "market": "HK",
+                "company_id": "HK:01398",
+                "filing_id": "HK:01398:2025-annual",
+                "parse_run_id": "run-hk-01398-2025",
+            }
+        },
+        (
+            "2025 年商誉原值为 12.82 亿元，减值准备为 0.99 亿元，净额为 11.83 亿元。\n\n"
+            f"## 勾稽校验\n```json\n{_reconciliation_trace()}\n```\n\n{_reconciliation_evidence()}"
+        ),
+        deps=_deps(),
+    )
+
+    assert "## 计算校验无效" not in reply
+    assert "商誉原值为 12.82 亿元" in reply
+
+
+def test_enforce_financial_evidence_contract_blocks_reconciliation_input_mismatch():
+    reply = guard.enforce_financial_evidence_contract(
+        "工商银行商誉原值、减值准备和净额如何勾稽？",
+        {
+            "research_identity": {
+                "market": "HK",
+                "company_id": "HK:01398",
+                "filing_id": "HK:01398:2025-annual",
+                "parse_run_id": "run-hk-01398-2025",
+            }
+        },
+        (
+            "2025 年商誉原值为 12.82 亿元，减值准备为 0.99 亿元，净额为 99 亿元。\n\n"
+            f"## 勾稽校验\n```json\n{_reconciliation_trace(net='9900', result='9900')}\n```\n\n"
+            f"{_reconciliation_evidence()}"
+        ),
+        deps=_deps(),
+    )
+
+    assert "## 计算校验无效" in reply
+    assert "calculation_trace_reason=trace_input_value_mismatch" in reply
+
+
+def test_enforce_financial_evidence_contract_blocks_failed_reconciliation_status():
+    failed_trace = _reconciliation_trace().replace('"status": "passed"', '"status": "failed"')
+    reply = guard.enforce_financial_evidence_contract(
+        "工商银行商誉原值、减值准备和净额如何勾稽？",
+        {
+            "research_identity": {
+                "market": "HK",
+                "company_id": "HK:01398",
+                "filing_id": "HK:01398:2025-annual",
+                "parse_run_id": "run-hk-01398-2025",
+            }
+        },
+        (
+            "2025 年商誉原值为 12.82 亿元，减值准备为 0.99 亿元，净额为 11.83 亿元。\n\n"
+            f"## 勾稽校验\n```json\n{failed_trace}\n```\n\n{_reconciliation_evidence()}"
+        ),
+        deps=_deps(),
+    )
+
+    assert "calculation_trace_reason=trace_reconciliation_status_invalid" in reply
+
+
+def test_enforce_financial_evidence_contract_allows_reported_eps_without_calculator_trace():
+    reply = guard.enforce_financial_evidence_contract(
+        "英伟达的基本每股收益是多少？",
+        None,
+        (
+            "基本每股收益见下方结构化证据。\n\n"
+            "[P1] source_type=wiki_metrics company_id=US:0001045810 filing_id=2026-10-K "
+            "canonical_name=basic_eps metric_name=基本每股收益 period_key=2026 "
+            'value=5.00 unit="USD/share" evidence_id=EVID-EPS-2026 '
+            'evidence_source_type=sec_xbrl_fact source_anchor=f-501 task_id=task-ok'
+        ),
+        deps=_deps(),
+    )
+
+    assert "## 计算校验缺失" not in reply
+    assert "基本每股收益见下方结构化证据" in reply
+
+
 def test_detects_derived_financial_metric_case_insensitively():
     assert guard._reply_has_derived_financial_metric("未来三年 CAGR 为 8%")
     assert guard._reply_has_derived_financial_metric("人均营收为 120 万元/人")
+    assert guard._reply_has_derived_financial_metric("ROE 为 12.5%，净息差为 1.42%")
     assert not guard._reply_has_derived_financial_metric("营业收入为 12 亿元")
+
+
+def test_directly_reported_eps_does_not_require_calculator_trace():
+    assert not guard._reply_has_derived_financial_metric("基本每股收益为 6.42 元。")
+    assert not guard._reply_has_derived_financial_metric("EPS was 6.42.")
+    assert guard._reply_has_derived_financial_metric("每股营收为 12.4 元。")
 
 
 def test_detects_calculator_and_reconciliation_traces():
@@ -126,6 +873,10 @@ def test_detects_calculator_and_reconciliation_traces():
 def test_detects_reconciliation_metric_only_with_subject_and_relation():
     assert guard._reply_has_reconciliation_metric("商誉原值 12.82 亿元，减值准备 0.99 亿元，净额 11.83 亿元")
     assert guard._reply_has_reconciliation_metric("坏账准备勾稽关系")
+    assert not guard._reply_has_reconciliation_metric(
+        "商誉减值准备计提 0.99 亿元。\n"
+        "[1] source_type=wiki_metrics metric=商誉减值准备 value=0.99 unit=亿元"
+    )
     assert not guard._reply_has_reconciliation_metric("原值、净额和账面价值")
     assert not guard._reply_has_reconciliation_metric("商誉说明")
 
@@ -244,6 +995,67 @@ def test_financial_llm_provenance_without_evidence_is_candidate_only():
     assert record["fact_trust_level"] == "candidate_explanation"
     assert record["canonical_promotable"] is False
     assert provenance.can_promote_financial_llm_output_to_canonical(record) is False
+
+
+def test_record_financial_llm_provenance_if_needed_records_contract_output(tmp_path):
+    profile_dir = tmp_path / "siq_assistant"
+    profile_dir.mkdir()
+    (profile_dir / "config.yaml").write_text(
+        "model:\n  provider: custom:test\n  default: test-model\n",
+        encoding="utf-8",
+    )
+    stored: list[dict] = []
+
+    record = provenance.record_financial_llm_provenance_if_needed(
+        message="营业收入是多少？",
+        context={},
+        profile="siq_assistant",
+        profile_dirs={"siq_assistant": profile_dir},
+        model_input={"message": "营业收入是多少？"},
+        raw_output="营业收入是 100。",
+        stored_output="## 证据不足\n不能确定。",
+        is_runtime_status_reply=lambda _reply: False,
+        needs_financial_evidence_contract=lambda _message, _context: True,
+        record_provenance=lambda payload: stored.append(dict(payload)) or dict(payload),
+    )
+
+    assert record == stored[0]
+    assert record["provider"] == "custom:test"
+    assert record["model"] == "test-model"
+    assert record["input_evidence_ids"] == []
+    assert record["fact_trust_level"] == "candidate_explanation"
+    assert record["output_was_guarded"] is True
+
+
+def test_record_financial_llm_provenance_if_needed_skips_irrelevant_or_status_output():
+    calls: list[dict] = []
+
+    skipped_plain = provenance.record_financial_llm_provenance_if_needed(
+        message="你好",
+        context=None,
+        profile="siq_assistant",
+        model_input="你好",
+        raw_output="你好，有什么可以帮你？",
+        stored_output="你好，有什么可以帮你？",
+        is_runtime_status_reply=lambda _reply: False,
+        needs_financial_evidence_contract=lambda _message, _context: False,
+        record_provenance=lambda payload: calls.append(dict(payload)) or dict(payload),
+    )
+    skipped_status = provenance.record_financial_llm_provenance_if_needed(
+        message="收入是多少？",
+        context={"evidence": {"evidence_id": "EVID-1"}},
+        profile="siq_assistant",
+        model_input="evidence_id=EVID-1",
+        raw_output="[失败] run failed",
+        stored_output="[失败] run failed",
+        is_runtime_status_reply=lambda _reply: True,
+        needs_financial_evidence_contract=lambda _message, _context: True,
+        record_provenance=lambda payload: calls.append(dict(payload)) or dict(payload),
+    )
+
+    assert skipped_plain is None
+    assert skipped_status is None
+    assert calls == []
 
 
 def test_financial_llm_cache_key_changes_when_evidence_hash_changes():

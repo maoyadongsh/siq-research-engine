@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
+# isort: skip_file
 from __future__ import annotations
 
 import argparse
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import sys
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -150,6 +151,15 @@ def embedding_endpoint(args: argparse.Namespace) -> str:
     return endpoint + "/v1/embeddings"
 
 
+def embedding_endpoint_configured(args: argparse.Namespace) -> bool:
+    return bool(
+        args.embed_url
+        or os.getenv("SIQ_AGENT_MEMORY_EMBEDDING_BASE_URL")
+        or os.getenv("SIQ_EMBEDDING_BASE_URL")
+        or os.getenv("EMBEDDING_BASE_URL")
+    )
+
+
 def embed_batch(texts: list[str], *, endpoint: str, model: str, timeout: float) -> list[list[float]]:
     headers: dict[str, str] = {"Content-Type": "application/json"}
     api_key = os.getenv("SIQ_AGENT_MEMORY_EMBEDDING_API_KEY") or os.getenv("SIQ_EMBEDDING_API_KEY") or os.getenv("EMBEDDING_API_KEY")
@@ -207,7 +217,7 @@ def to_vector_records(items: list[dict[str, Any]], vectors: list[list[float]]) -
     return records
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Ingest Hermes agent profile knowledge into the SIQ agent memory Milvus collection.")
     parser.add_argument("--profiles-root", default=str(PROJECT_ROOT / "agents" / "hermes" / "profiles"))
     parser.add_argument("--manifest", default=str(PROJECT_ROOT / "agents" / "hermes" / "profiles" / "manifest.json"))
@@ -220,11 +230,51 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--timeout", type=float, default=60.0)
     parser.add_argument("--flush", action="store_true", help="Call Milvus flush after all batches. Slower, but useful before immediate offline verification.")
     parser.add_argument("--dry-run", action="store_true")
-    return parser.parse_args()
+    parser.add_argument(
+        "--require-configured-embed-url",
+        action="store_true",
+        help="Fail before embedding if no explicit embedding endpoint env/CLI value is configured.",
+    )
+    parser.add_argument("--output", default="", help="Optional JSON summary output path.")
+    parser.add_argument("--markdown", default="", help="Optional Markdown summary output path.")
+    return parser.parse_args(argv)
 
 
-def main() -> int:
-    args = parse_args()
+def write_summary(args: argparse.Namespace, summary: dict[str, Any]) -> None:
+    if args.output:
+        output_path = Path(args.output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    if args.markdown:
+        markdown_path = Path(args.markdown)
+        markdown_path.parent.mkdir(parents=True, exist_ok=True)
+        markdown_path.write_text(render_markdown(summary), encoding="utf-8")
+    print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
+
+
+def render_markdown(summary: dict[str, Any]) -> str:
+    profile_filter = summary.get("profile_filter")
+    if isinstance(profile_filter, list):
+        profile_display = ", ".join(str(item) for item in profile_filter)
+    else:
+        profile_display = str(profile_filter)
+    lines = [
+        "# SIQ Agent Memory Milvus Seed",
+        "",
+        f"- Status: **{'PASS' if summary.get('passed') else 'FAIL'}**",
+        f"- Collection: `{summary.get('collection')}`",
+        f"- Profiles: `{profile_display}`",
+        f"- Chunks planned: `{summary.get('chunk_count')}`",
+        f"- Inserted: `{summary.get('inserted', 0)}`",
+        f"- Dry run: `{summary.get('dry_run')}`",
+    ]
+    if summary.get("error_type"):
+        lines.append(f"- Error type: `{summary.get('error_type')}`")
+    return "\n".join(lines) + "\n"
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
     os.environ["SIQ_AGENT_MEMORY_VECTOR_BACKEND"] = "milvus"
     os.environ["SIQ_AGENT_MEMORY_MILVUS_COLLECTION"] = args.collection
     os.environ["SIQ_AGENT_MEMORY_EMBEDDING_DIM"] = str(args.vector_dim)
@@ -234,40 +284,67 @@ def main() -> int:
     items = iter_profile_files(Path(args.profiles_root), manifest, profiles)
     summary = {
         "schema_version": "siq_agent_memory_ingest_summary_v1",
+        "passed": True,
         "collection": args.collection,
         "profiles_root": repo_relative(Path(args.profiles_root)),
         "manifest": repo_relative(Path(args.manifest)),
         "profile_filter": sorted(profiles) if profiles else "all",
         "chunk_count": len(items),
         "dry_run": bool(args.dry_run),
+        "embedding_endpoint_configured": embedding_endpoint_configured(args),
+        "requires_configured_embedding_endpoint": bool(args.require_configured_embed_url),
+        "embed_model": args.embed_model,
     }
+    if args.require_configured_embed_url and not summary["embedding_endpoint_configured"]:
+        write_summary(
+            args,
+            {
+                **summary,
+                "passed": False,
+                "inserted": 0,
+                "error_type": "embedding_endpoint_not_configured",
+            },
+        )
+        return 1
     if args.dry_run:
-        print(json.dumps(summary, ensure_ascii=False, indent=2))
+        write_summary(args, {**summary, "inserted": 0})
         return 0
     if not items:
-        print(json.dumps({**summary, "inserted": 0}, ensure_ascii=False, indent=2))
+        write_summary(args, {**summary, "inserted": 0})
         return 0
 
     endpoint = embedding_endpoint(args)
     batch_size = max(1, min(int(args.batch_size), 64))
     inserted = 0
-    for offset in range(0, len(items), batch_size):
-        batch = items[offset : offset + batch_size]
-        batch_no = offset // batch_size + 1
-        batch_total = (len(items) + batch_size - 1) // batch_size
-        print(f"embedding/upserting batch {batch_no}/{batch_total} ({len(batch)} chunks)", flush=True)
-        vectors = embed_batch(
-            [item["content"] for item in batch],
-            endpoint=endpoint,
-            model=args.embed_model,
-            timeout=args.timeout,
+    try:
+        for offset in range(0, len(items), batch_size):
+            batch = items[offset : offset + batch_size]
+            batch_no = offset // batch_size + 1
+            batch_total = (len(items) + batch_size - 1) // batch_size
+            print(f"embedding/upserting batch {batch_no}/{batch_total} ({len(batch)} chunks)", flush=True)
+            vectors = embed_batch(
+                [item["content"] for item in batch],
+                endpoint=endpoint,
+                model=args.embed_model,
+                timeout=args.timeout,
+            )
+            records = to_vector_records(batch, vectors)
+            inserted += agent_memory_milvus.upsert_records(records, flush=False)
+        if args.flush:
+            agent_memory_milvus.flush_collection()
+    except Exception as exc:
+        write_summary(
+            args,
+            {
+                **summary,
+                "passed": False,
+                "inserted": inserted,
+                "error_type": type(exc).__name__,
+            },
         )
-        records = to_vector_records(batch, vectors)
-        inserted += agent_memory_milvus.upsert_records(records, flush=False)
-    if args.flush:
-        agent_memory_milvus.flush_collection()
+        return 1
 
-    print(json.dumps({**summary, "inserted": inserted, "embed_url": endpoint, "embed_model": args.embed_model}, ensure_ascii=False, indent=2))
+    write_summary(args, {**summary, "inserted": inserted})
     return 0
 
 

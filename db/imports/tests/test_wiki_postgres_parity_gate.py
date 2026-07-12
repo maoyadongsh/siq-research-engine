@@ -82,7 +82,7 @@ class FakeAgentDb:
             part = part.strip(" ()")
             if part.endswith("= %s"):
                 columns.append(part.split(" = %s", 1)[0].strip())
-        for column, value in zip(columns, params):
+        for column, value in zip(columns, params, strict=False):
             rows = [row for row in rows if row.get(column) == value]
         return rows
 
@@ -228,7 +228,7 @@ def test_explicit_parity_classifies_period_alias_as_hard_failure(tmp_path):
     assert result["questions"][0]["first_postgres_candidate"]["period_key"] == "2025-12-31"
 
 
-def test_generated_parity_demotes_extra_diffs_to_warnings_after_minimum_passes(tmp_path):
+def test_generated_parity_keeps_value_mismatch_blocking_after_minimum_passes(tmp_path):
     module = _load_module()
     cases_path = _write_document(tmp_path, values={"FY2025": "100", "FY2024": "90", "FY2023": "80"})
 
@@ -243,9 +243,36 @@ def test_generated_parity_demotes_extra_diffs_to_warnings_after_minimum_passes(t
         ],
     )
 
-    assert result["passed"] is True
+    assert result["passed"] is False
     assert result["passed_checks"] == 2
     assert result["minimum_generated_passes"] == 2
+    assert result["errors"]
+    assert result["warnings"] == []
+    assert result["error_diff_code_counts"] == {"value_mismatch": 1}
+
+
+def test_generated_parity_demotes_period_alias_after_minimum_passes(tmp_path):
+    module = _load_module()
+    cases_path = _write_document(tmp_path, values={"FY2025": "100", "FY2024": "90", "FY2023": "80"})
+
+    result = _run(
+        module,
+        _case(assertions=[]),
+        cases_path,
+        [
+            _pg_row(period_key="FY2025", value="100", raw_value="100"),
+            _pg_row(period_key="FY2024", value="90", raw_value="90"),
+            _pg_row(
+                period_key="2023-12-31",
+                period_end="2023-12-31",
+                value="80",
+                raw_value="80",
+            ),
+        ],
+    )
+
+    assert result["passed"] is True
+    assert result["passed_checks"] == 2
     assert result["errors"] == []
     assert result["warnings"]
-    assert result["warning_diff_code_counts"] == {"value_mismatch": 1}
+    assert result["warning_diff_code_counts"] == {"period_alias_diff": 1}

@@ -1,0 +1,43 @@
+{
+  "schema_version": "market_evidence_package_v1",
+  "market": "HK",
+  "filing_id": "HK:00700:SYNTHETIC:2025",
+  "company_id": "HK:00700",
+  "ticker": "00700",
+  "company_name": "Synthetic Contract Company",
+  "source_id": "hkex",
+  "form": "annual_report",
+  "report_type": "annual",
+  "fiscal_year": 2025,
+  "fiscal_period": "FY",
+  "period_end": "2025-12-31",
+  "published_at": "2026-04-09T00:00:00Z",
+  "source_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0409/synthetic.pdf",
+  "local_source_path": "raw/report.pdf",
+  "accounting_standard": "IFRS",
+  "reporting_currency": "HKD",
+  "parser_version": "contract-fixture-v1",
+  "rules_version": "contract-fixture-v1",
+  "quality_status": "pass",
+  "source_manifest": {
+    "schema_version": "siq_source_manifest_v1",
+    "source_tier": "official_regulator",
+    "source_verification_status": "official_verified",
+    "initial_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0409/synthetic.pdf",
+    "final_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0409/synthetic.pdf",
+    "redirect_chain": [],
+    "content_sha256": "a66a6d73e84b232b51df573db77c7acc60cd2238d8541fa7de1ec751d176e339",
+    "retrieved_at": "2026-04-09T00:00:00Z"
+  },
+  "artifact_hashes": {
+    "README.md": "a38a991c3cf1f86bc8e2139284a3e7565f3778fdb47c3a29a8ec20297a913e78",
+    "metrics/financial_checks.json": "2e56cd3ddcdabf957aa857bc3dbab571af99321e3412a2167142db8f93f77938",
+    "metrics/financial_data.json": "502cfebd20a37a1074e5472ee2bb8abfde984f2521f5f678f138d7c65413598f",
+    "metrics/normalized_metrics.json": "fff5f924adedae27a7f297bd7212e996d1ec003203a4e0eb552d1a59b222845a",
+    "qa/quality_report.json": "fb34c34e9b0f56315b85d61546073065fecb4be4767c0c9f3f0fd698c813e120",
+    "qa/source_map.json": "39f8d972ce49d2f1ece48821094a2d7e168cacf8306aae6b56258d499660af53",
+    "raw/report.pdf": "a66a6d73e84b232b51df573db77c7acc60cd2238d8541fa7de1ec751d176e339",
+    "tables/table_index.json": "66e941ee1c4bcec7a3015bf830be41aa85027f6be8014ea6f3015bbf29136515",
+    "xbrl/facts_raw.json": "dd2283a550e9ff83260ecb2b5904f68f7bfde44f83fe15fede816ca608718d79"
+  }
+}

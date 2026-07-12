@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from pathlib import Path
 from typing import Any
+
+from services import market_document_identity
 
 MULTI_COMPANY_SCOPE_NOTICE = (
     "本轮问题命中多家公司；必须分别使用每家公司自己的 Wiki 工作集和 task_id 做证据回溯。"
     "不得只读取第一家公司，也不得把一家公司的 PDF/source/table 链接套用到另一家公司。"
 )
+NON_CN_RESEARCH_MARKETS = {"HK", "JP", "KR", "EU", "US"}
+COMPLETE_RESEARCH_IDENTITY_FIELDS = ("market", "company_id", "filing_id", "parse_run_id")
 
 
 def clean_context_value(value: Any) -> str:
@@ -53,8 +57,8 @@ def build_general_assistant_context_input(
 def context_dict(context: Any | None) -> dict[str, Any]:
     if hasattr(context, "model_dump"):
         raw = context.model_dump(exclude_none=True)
-    elif isinstance(context, dict):
-        raw = context
+    elif isinstance(context, Mapping):
+        raw = dict(context)
     else:
         raw = {}
     return raw if isinstance(raw, dict) else {}
@@ -63,6 +67,191 @@ def context_dict(context: Any | None) -> dict[str, Any]:
 def _dict_field(raw: dict[str, Any], key: str) -> dict[str, Any]:
     value = raw.get(key)
     return value if isinstance(value, dict) else {}
+
+
+def _first_text(*values: Any) -> str | None:
+    for value in values:
+        if value in (None, ""):
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return None
+
+
+def _market_from_identifier(value: Any) -> str | None:
+    text = str(value or "").strip()
+    if ":" not in text:
+        return None
+    prefix = text.split(":", 1)[0]
+    market = market_document_identity.normalize_market_code(prefix)
+    return market if market in {"CN", "HK", "JP", "KR", "EU", "US"} else None
+
+
+def research_identity(context: Any | None) -> dict[str, str]:
+    raw = context_dict(context)
+    if not raw:
+        return {}
+
+    identity = _dict_field(raw, "research_identity")
+    company = _dict_field(raw, "company")
+    report = _dict_field(raw, "report")
+    filing = _dict_field(raw, "filing")
+    resolved_period = _dict_field(raw, "resolved_period")
+    postgres = _dict_field(raw, "postgres")
+
+    company_id = _first_text(
+        identity.get("company_id"),
+        raw.get("company_id"),
+        company.get("company_id"),
+        company.get("id"),
+        report.get("company_id"),
+        filing.get("company_id"),
+        postgres.get("company_id"),
+    )
+    filing_id = _first_text(
+        identity.get("filing_id"),
+        raw.get("filing_id"),
+        company.get("filing_id"),
+        report.get("filing_id"),
+        filing.get("filing_id"),
+        resolved_period.get("filing_id"),
+        postgres.get("filing_id"),
+    )
+    parse_run_id = _first_text(
+        identity.get("parse_run_id"),
+        raw.get("parse_run_id"),
+        raw.get("postgres_parse_run_id"),
+        company.get("parse_run_id"),
+        report.get("parse_run_id"),
+        filing.get("parse_run_id"),
+        resolved_period.get("parse_run_id"),
+        postgres.get("parse_run_id"),
+    )
+    market = _first_text(
+        identity.get("market"),
+        raw.get("market"),
+        company.get("market"),
+        report.get("market"),
+        filing.get("market"),
+        resolved_period.get("market"),
+        postgres.get("market"),
+        _market_from_identifier(company_id),
+        _market_from_identifier(filing_id),
+    )
+
+    output: dict[str, str] = {}
+    if market:
+        output["market"] = market_document_identity.normalize_market_code(market)
+    if company_id:
+        output["company_id"] = company_id
+    if filing_id:
+        output["filing_id"] = filing_id
+    if parse_run_id:
+        output["parse_run_id"] = parse_run_id
+    return output
+
+
+def incomplete_non_cn_research_identity(context: Any | None) -> tuple[str | None, tuple[str, ...]]:
+    identity = research_identity(context)
+    market = identity.get("market")
+    if market not in NON_CN_RESEARCH_MARKETS:
+        return None, ()
+    missing = tuple(field for field in COMPLETE_RESEARCH_IDENTITY_FIELDS if not identity.get(field))
+    return market, missing
+
+
+def _authoritative_research_identity(context: Any | None) -> dict[str, str]:
+    explicit_identity = _dict_field(context_dict(context), "research_identity")
+    if not all(_first_text(explicit_identity.get(field)) for field in COMPLETE_RESEARCH_IDENTITY_FIELDS):
+        return {}
+    return research_identity({"research_identity": explicit_identity})
+
+
+def context_with_research_identity(context: Any | None) -> dict[str, Any]:
+    raw = context_dict(context)
+    if not raw:
+        return {}
+
+    identity = research_identity(raw)
+    if not identity:
+        return dict(raw)
+
+    output = dict(raw)
+    output["research_identity"] = {
+        **_dict_field(output, "research_identity"),
+        **identity,
+    }
+    for key, value in identity.items():
+        output.setdefault(key, value)
+
+    company = _dict_field(output, "company")
+    if company:
+        company = {**company}
+        for key in ("market", "company_id", "filing_id", "parse_run_id"):
+            if identity.get(key):
+                company.setdefault(key, identity[key])
+        output["company"] = company
+
+    report = _dict_field(output, "report")
+    if report:
+        report = {**report}
+        for key in ("market", "company_id", "filing_id", "parse_run_id"):
+            if identity.get(key):
+                report.setdefault(key, identity[key])
+        output["report"] = report
+
+    resolved_period = _dict_field(output, "resolved_period")
+    if resolved_period:
+        resolved_period = {**resolved_period}
+        for key in ("filing_id", "parse_run_id", "market"):
+            if identity.get(key):
+                resolved_period.setdefault(key, identity[key])
+        output["resolved_period"] = resolved_period
+
+    postgres = _dict_field(output, "postgres")
+    if postgres or identity.get("market"):
+        postgres = {**postgres}
+        for key in ("market", "company_id", "filing_id", "parse_run_id"):
+            if identity.get(key):
+                postgres.setdefault(key, identity[key])
+        output["postgres"] = postgres
+
+    return output
+
+
+def mutable_context_dict(context: Any | None) -> dict[str, Any]:
+    return context_with_research_identity(context)
+
+
+def research_identity_line(context: Any | None) -> str | None:
+    identity = research_identity(context)
+    if not identity:
+        return None
+    parts = []
+    for key, label in (
+        ("market", "market"),
+        ("company_id", "company_id"),
+        ("filing_id", "filing_id"),
+        ("parse_run_id", "parse_run_id"),
+    ):
+        if identity.get(key):
+            parts.append(f"{label}={clean_context_value(identity[key])}")
+    return " / ".join(parts) if parts else None
+
+
+def _append_identity_parts(parts: list[str], identity: Mapping[str, str], keys: Sequence[str]) -> None:
+    for key in keys:
+        if identity.get(key):
+            parts.append(f"{key} {clean_context_value(identity[key])}")
+
+
+def format_research_identity_context(context: Any | None) -> list[str]:
+    identity = research_identity(context)
+    if not identity:
+        return []
+    line = research_identity_line(identity)
+    return [f"- ResearchIdentity: {line}"] if line else []
 
 
 def context_company(context: Any | None) -> dict[str, Any]:
@@ -79,6 +268,7 @@ def context_company_hint(context: Any | None) -> str:
     values = [
         company.get("name"),
         company.get("code"),
+        company.get("company_id") or company.get("id"),
         company.get("dir"),
         report.get("title"),
         report.get("filename"),
@@ -143,7 +333,11 @@ def statement_query_applies(
     text = compact_intent_text(message)
     if is_general_assistant_request(text):
         return False
-    return bool(text and any(term in text for term in statement_terms))
+    normalized = text.casefold()
+    return bool(
+        text
+        and any(compact_intent_text(str(term)).casefold() in normalized for term in statement_terms)
+    )
 
 
 def note_detail_query_applies(
@@ -296,6 +490,20 @@ def statement_query_with_goodwill_applies(
     goodwill_main_statement_terms: Sequence[str],
     is_general_assistant_request: Callable[[str], bool],
 ) -> bool:
+    # Goodwill is a balance-sheet net amount even when the user asks for
+    # analysis, composition, or impairment details. The note is a second
+    # layer; it must never replace the primary balance-sheet fact.
+    text = compact_intent_text(message)
+    multilingual_statement_terms = (
+        "goodwill", "のれん", "영업권", "revenue", "sales", "profit", "netincome",
+        "balancesheet", "incomestatement", "cashflow", "totalassets", "liabilities",
+        "equity", "営業収益", "営業利益", "当期利益", "財政状態計算書", "キャッシュフロー",
+        "영업수익", "영업이익", "재무상태표", "현금흐름표", "매출액", "순이익",
+    )
+    if text and not is_general_assistant_request(text) and (
+        "商誉" in text or any(term in text for term in multilingual_statement_terms)
+    ):
+        return True
     return goodwill_main_statement_query_applies(
         message,
         goodwill_main_statement_terms=goodwill_main_statement_terms,
@@ -444,12 +652,15 @@ def build_format_chat_context(*, wiki_root: Path, context: Any | None, context_h
     company = _dict_field(raw, "company")
     report = _dict_field(raw, "report")
     page = _dict_field(raw, "page")
+    identity = research_identity(raw)
+    lines.extend(format_research_identity_context(raw))
 
     company_parts: list[str] = []
     if company.get("name"):
         company_parts.append(clean_context_value(company["name"]))
     if company.get("code"):
         company_parts.append(f"代码 {clean_context_value(company['code'])}")
+    _append_identity_parts(company_parts, identity, ("market", "company_id"))
     if company.get("dir"):
         company_parts.append(f"目录 {clean_context_value(company['dir'])}")
     if company_parts:
@@ -462,6 +673,7 @@ def build_format_chat_context(*, wiki_root: Path, context: Any | None, context_h
         report_parts.append(f"类型 {clean_context_value(report['type'])}")
     if report.get("filename"):
         report_parts.append(f"文件 {clean_context_value(report['filename'])}")
+    _append_identity_parts(report_parts, identity, ("filing_id", "parse_run_id"))
     if report.get("mtime"):
         report_parts.append(f"更新时间 {clean_context_value(report['mtime'])}")
     if report.get("url"):
@@ -476,6 +688,42 @@ def build_format_chat_context(*, wiki_root: Path, context: Any | None, context_h
         return None
 
     return "\n".join([context_header, *lines])
+
+
+def get_session_default_context(
+    profile: Any,
+    session_id: str,
+    context: Any | None = None,
+    *,
+    allow_initialize: bool = False,
+    session_default_contexts: MutableMapping[tuple[Any, str], str],
+    active_key: Callable[[Any, str], tuple[Any, str]],
+    format_chat_context: Callable[[Any | None], str | None],
+) -> str | None:
+    key = active_key(profile, session_id)
+    if key in session_default_contexts:
+        cached_context = session_default_contexts[key]
+        authoritative_identity = _authoritative_research_identity(context)
+        identity_line = research_identity_line(authoritative_identity)
+        expected_line = f"- ResearchIdentity: {identity_line}" if identity_line else None
+        if not expected_line or expected_line in cached_context.splitlines():
+            return cached_context
+
+        formatted_context = format_chat_context(context)
+        if formatted_context:
+            session_default_contexts[key] = formatted_context
+            return formatted_context
+
+        del session_default_contexts[key]
+        return None
+
+    if not allow_initialize:
+        return None
+
+    formatted_context = format_chat_context(context)
+    if formatted_context:
+        session_default_contexts[key] = formatted_context
+    return formatted_context
 
 
 def build_company_context_items(
@@ -535,6 +783,129 @@ def build_session_contextual_input_text(
             financial_calculation_runtime_contract,
             f"用户问题：{message}",
         ]
+    )
+
+
+def build_session_contextual_input(
+    message: str,
+    *,
+    profile: Any,
+    profile_label: str,
+    session_id: str,
+    context: Any | None = None,
+    allow_initialize: bool = False,
+    local_memory_context: str | None = None,
+    is_general_assistant_request: Callable[[str], bool],
+    session_default_context: Callable[..., str | None],
+    resolve_company_dirs: Callable[[str, Any | None], Sequence[Path]],
+    context_for_company_dir: Callable[[Path], Any | None],
+    message_for_company: Callable[[str, Path], str],
+    build_company_wiki_scope_context: Callable[[str, Any | None], str | None],
+    build_human_efficiency_evidence_context: Callable[[str, Any | None], str | None],
+    build_human_capital_context: Callable[[str, Any | None], str | None],
+    build_three_statement_core_context: Callable[[str, Any | None], str | None],
+    build_statement_metric_context: Callable[[str, Any | None], str | None],
+    build_note_detail_context: Callable[[str, Any | None], str | None],
+    build_wiki_fulltext_fallback_context: Callable[[str, Any | None], str | None],
+    build_postgres_fallback_context: Callable[[str, Any | None], str | None],
+    build_pdf2md_parse_only_context: Callable[[str, Any | None], str | None],
+    general_assistant_context: str,
+    chat_output_contract: str,
+    financial_calculation_runtime_contract: str,
+) -> str:
+    if is_general_assistant_request(message):
+        return build_general_assistant_context_input(
+            message,
+            profile=profile,
+            profile_label=profile_label,
+            general_assistant_context=general_assistant_context,
+        )
+
+    default_context = session_default_context(
+        profile,
+        session_id,
+        context,
+        allow_initialize=allow_initialize,
+    )
+    blocks: list[str] = []
+    if default_context:
+        blocks.append(default_context)
+    if local_memory_context:
+        blocks.append(local_memory_context)
+
+    resolved_company_dirs = resolve_company_dirs(message, context)
+    company_scope_blocks, company_context_items = build_company_context_items(
+        message,
+        context,
+        resolved_company_dirs,
+        context_for_company_dir=context_for_company_dir,
+        message_for_company=message_for_company,
+    )
+    blocks.extend(company_scope_blocks)
+
+    has_deterministic_evidence_context = False
+    human_capital_context = None
+    for scoped_message, scoped_context, _company_dir in company_context_items:
+        company_scope_context = build_company_wiki_scope_context(scoped_message, scoped_context)
+        if company_scope_context and company_scope_context not in blocks:
+            blocks.append(company_scope_context)
+
+        human_efficiency_context = build_human_efficiency_evidence_context(scoped_message, scoped_context)
+        if human_efficiency_context and human_efficiency_context not in blocks:
+            blocks.append(human_efficiency_context)
+            has_deterministic_evidence_context = True
+
+        current_human_capital_context = build_human_capital_context(scoped_message, scoped_context)
+        if current_human_capital_context and current_human_capital_context not in blocks:
+            blocks.append(current_human_capital_context)
+            has_deterministic_evidence_context = True
+            human_capital_context = current_human_capital_context
+
+    scoped_message, scoped_context = scoped_evidence_input(
+        message,
+        context,
+        company_context_items,
+    )
+    if human_capital_context:
+        has_deterministic_evidence_context = True
+    else:
+        three_statement_core_context = build_three_statement_core_context(scoped_message, scoped_context)
+        if three_statement_core_context:
+            blocks.append(three_statement_core_context)
+            has_deterministic_evidence_context = True
+
+        statement_context = build_statement_metric_context(scoped_message, scoped_context)
+        if statement_context and statement_context not in blocks:
+            blocks.append(statement_context)
+            has_deterministic_evidence_context = True
+
+        note_detail_context = build_note_detail_context(scoped_message, scoped_context)
+        if note_detail_context:
+            blocks.append(note_detail_context)
+            has_deterministic_evidence_context = True
+
+    if not has_deterministic_evidence_context:
+        wiki_fulltext_context = build_wiki_fulltext_fallback_context(scoped_message, scoped_context)
+        if wiki_fulltext_context:
+            blocks.append(wiki_fulltext_context)
+            has_deterministic_evidence_context = True
+
+    if not has_deterministic_evidence_context:
+        postgres_context = build_postgres_fallback_context(scoped_message, scoped_context)
+        if postgres_context:
+            blocks.append(postgres_context)
+            has_deterministic_evidence_context = True
+
+    if not has_deterministic_evidence_context:
+        parse_only_context = build_pdf2md_parse_only_context(scoped_message, scoped_context)
+        if parse_only_context:
+            blocks.append(parse_only_context)
+
+    return build_session_contextual_input_text(
+        message,
+        blocks,
+        chat_output_contract=chat_output_contract,
+        financial_calculation_runtime_contract=financial_calculation_runtime_contract,
     )
 
 

@@ -30,7 +30,7 @@ SIQ_AUTH_COOKIE_MODE=1
 - `routers.auth.get_current_user` 和 `services.auth_dependencies.get_current_user` 同时接受 bearer token 与 `siq_access_token` cookie。
 - `POST /api/auth/login` 与 `POST /api/auth/demo-login` 在 `SIQ_AUTH_COOKIE_MODE=1` 时设置 HttpOnly cookie。
 - `POST /api/auth/logout` 在 cookie mode 下清除 HttpOnly cookie。
-- Web `apiFetch` 与 `fetchWithAuth` 在 cookie mode 下对 `/api/*` 和 `/pdfapi/*` 请求设置 `credentials: include`。
+- Web `apiFetch` 与 `fetchWithAuth` 在 cookie mode 下只对受保护的 `/api/*` 请求设置 `credentials: include`；浏览器不再直连 parser。
 - Web `AuthProvider` 在 cookie mode 下不再持久化 JWT 到 `localStorage`，刷新时可通过 `/api/auth/me` 恢复用户。
 
 ## 配置

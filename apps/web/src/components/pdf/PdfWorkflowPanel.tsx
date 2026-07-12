@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { Brain, Check, Database, Loader2, Play, RefreshCw } from 'lucide-react'
+import { Brain, Check, Database, Loader2, Play, RefreshCw, RotateCcw, Terminal } from 'lucide-react'
 import type { ArtifactsMap, WorkflowJob, WorkflowStatus } from '../../lib/pdfTypes'
 import { WIKI_INPUT_ARTIFACTS } from '../../lib/pdfTypes'
 import { pipelineArtifactSummary, workflowReady } from '../../features/pdf-parsing/api'
@@ -47,6 +47,27 @@ function marketWorkflowStep(actionKey: PipelineActionKey): WorkflowStep {
   return actionKey
 }
 
+function compactOutput(value?: string): string {
+  return String(value || '').trim().split(/\r?\n/).filter(Boolean).slice(-3).join('\n')
+}
+
+function standardBusyReason(workflowBusy: string): string | undefined {
+  if (!workflowBusy) return undefined
+  if (workflowBusy === 'wiki-import') return 'LLM-Wiki 入库正在执行，请等待完成'
+  if (workflowBusy === 'wiki-import-generic') return '通用知识资产任务正在执行，请等待完成'
+  if (workflowBusy === 'semantic') return 'LLM-Wiki 语义增强正在执行，请等待完成'
+  if (workflowBusy === 'semantic-generic') return '通用语义层任务正在执行，请等待完成'
+  if (workflowBusy === 'db-import') return 'PostgreSQL 入库正在执行，请等待完成'
+  if (workflowBusy === 'remaining') return '一键生成与入库正在执行，请等待完成'
+  return '流水线任务正在执行，请等待完成'
+}
+
+function standardArtifactDisabledReason(artifactMissing: string[]): string {
+  return artifactMissing.length
+    ? `缺少核心解析产物：${artifactMissing.join('、')}`
+    : '核心解析产物未就绪，请先完成解析'
+}
+
 export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
   const {
     workflowStatus,
@@ -74,6 +95,8 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
   const artifactTotal = backendSummary?.total ?? localSummary.total
   const artifactMissing = backendSummary?.missing ?? localSummary.missing
   const bundleReady = backendSummary?.ready || localSummary.ready.length === localSummary.total
+  const standardPipelineBusyReason = standardBusyReason(workflowBusy)
+  const standardMissingArtifactReason = standardArtifactDisabledReason(artifactMissing)
 
   const llmSemanticCounts = workflowStatus?.semantic?.llm?.counts || {}
   const llmSemanticDesc = workflowStatus?.semantic?.llm?.status === 'ready'
@@ -87,6 +110,8 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
   const databaseDesc = workflowReady(workflowStatus as Record<string, unknown> | null, 'database')
     ? `已从解析产物入库：指标 ${workflowStatus?.database?.statementItems || 0} / 表格 ${workflowStatus?.database?.tables || 0}`
     : (workflowStatus?.database?.message || '等待从解析产物入库')
+  const standardWikiReady = ['ready', 'stale'].includes(workflowStatus?.wiki?.status || '')
+  const standardWikiDependencyReason = '请先完成 LLM-Wiki / 派生知识资产生成'
 
   const standardSteps = useMemo(
     () => [
@@ -160,19 +185,26 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
             label: 'LLM-Wiki语义增强入库',
             loadingLabel: '生成中...',
             primary: true,
-            disabled: !['ready', 'stale'].includes(workflowStatus?.wiki?.status || ''),
+            disabled: !standardWikiReady,
+            disabledReason: standardWikiReady ? undefined : standardWikiDependencyReason,
           },
           {
             key: 'semantic-generic',
             label: '通用主体语义层',
             loadingLabel: '生成中...',
             primary: false,
-            disabled: !['ready', 'stale'].includes(workflowStatus?.wiki?.status || ''),
+            disabled: !standardWikiReady,
+            disabledReason: standardWikiReady ? undefined : standardWikiDependencyReason,
           },
           { key: 'db-import', label: '导入 PostgreSQL', loadingLabel: '导入中...', primary: true },
         ]
   const runAllLabel = isMarketWorkflow ? '一键入库' : '一键生成与入库'
   const runAllDisabled = isMarketWorkflow ? genericPipelineState.runAll.disabled : (!!workflowBusy || !bundleReady)
+  const runAllDisabledReason = runAllDisabled
+    ? (isMarketWorkflow
+        ? genericPipelineState.runAll.disabledReason
+        : (standardPipelineBusyReason || (!bundleReady ? standardMissingArtifactReason : undefined)))
+    : undefined
   const runAllBusy = isMarketWorkflow ? genericPipelineState.runAll.busy : workflowBusy === 'remaining'
   const pipelineNote = isMarketWorkflow
     ? <>PostgreSQL 入库直接读取解析产物；LLM-Wiki 和 Wiki语义增强都引用同一套解析证据，不作为 PostgreSQL 主数据源。<code>artifact_manifest.json</code> 记录核心文件路径、hash 和版本，用于判断是否过期。</>
@@ -180,6 +212,27 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
   const artifactListDescription = isMarketWorkflow
     ? '这些文件共同支撑 PostgreSQL 入库、质量校验、LLM-Wiki、Wiki语义增强和证据溯源；派生资产只引用清单，不重复保存全量包。'
     : '这些文件共同支撑 PostgreSQL 入库、质量校验、研究资产生成和证据溯源；派生知识资产只引用清单，不重复保存全量包。'
+  const stepButtonStates = stepButtons.map((btn) => {
+    const buttonBusy = btn.busy ?? workflowBusy === btn.key
+    const buttonDisabled = isMarketWorkflow ? Boolean(btn.disabled) : (!!workflowBusy || !bundleReady || Boolean(btn.disabled))
+    const workflowStep = isMarketWorkflow ? marketWorkflowStep(btn.key) : btn.key as WorkflowStep
+    const disabledReason = buttonDisabled
+      ? (isMarketWorkflow
+          ? btn.disabledReason
+          : (standardPipelineBusyReason || (!bundleReady ? standardMissingArtifactReason : btn.disabledReason)))
+      : undefined
+    return { ...btn, buttonBusy, buttonDisabled, workflowStep, disabledReason }
+  })
+  const disabledReasonHints = Array.from(
+    new Set(
+      [
+        runAllDisabledReason ? `${runAllLabel}：${runAllDisabledReason}` : '',
+        ...stepButtonStates
+          .filter((btn) => btn.buttonDisabled && btn.disabledReason)
+          .map((btn) => `${btn.label}：${btn.disabledReason}`),
+      ].filter(Boolean),
+    ),
+  )
 
   return (
     <div className="apple-card rounded-[24px] p-4 sm:p-6">
@@ -208,7 +261,7 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
             className="pdf-small-action primary inline-flex items-center gap-1"
             onClick={() => void runRemainingWorkflow()}
             disabled={runAllDisabled}
-            title={isMarketWorkflow ? genericPipelineState.runAll.disabledReason : undefined}
+            title={runAllDisabledReason}
           >
             {runAllBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
             {runAllLabel}
@@ -234,6 +287,17 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
 
       {workflowError ? (
         <div className="mb-4 rounded-2xl border border-error/20 bg-error/5 p-3 text-sm text-error">{workflowError}</div>
+      ) : null}
+
+      {disabledReasonHints.length ? (
+        <div className="mb-4 rounded-2xl border border-warning/20 bg-warning/5 p-3 text-xs leading-5 text-warning">
+          <div className="font-semibold">当前不可执行原因</div>
+          <ul className="mt-1 list-disc pl-4">
+            {disabledReasonHints.map((reason) => (
+              <li key={reason}>{reason}</li>
+            ))}
+          </ul>
+        </div>
       ) : null}
 
       <div className="mb-5 flex items-start gap-1 overflow-x-auto pb-2">
@@ -283,7 +347,10 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
       {workflowJob?.steps?.length ? (
         <div className="mt-4 rounded-2xl border border-border bg-bg p-3 text-sm text-text-muted">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <span className="font-semibold text-text">流水线任务</span>
+            <span className="inline-flex items-center gap-2 font-semibold text-text">
+              <Terminal className="h-4 w-4 text-primary" />
+              流水线任务
+            </span>
             <span
               className={`secondary-status ${
                 workflowJob.status === 'succeeded'
@@ -296,18 +363,36 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
               {workflowJob.status}
             </span>
           </div>
+          <div className="mb-3 flex flex-wrap gap-2 text-xs text-text-muted">
+            {workflowJob.currentStep ? <span className="secondary-status secondary-status-info">当前 step：{workflowJob.currentStep}</span> : null}
+            {workflowJob.retryScope ? (
+              <span className="secondary-status secondary-status-info inline-flex items-center gap-1">
+                <RotateCcw className="h-3.5 w-3.5" />
+                retry scope：{workflowJob.retryScope}
+              </span>
+            ) : null}
+            {workflowJob.failedStep ? <span className="secondary-status secondary-status-warning">失败 step：{workflowJob.failedStep}</span> : null}
+          </div>
           <div className="pdf-preflight-list">
-            {workflowJob.steps.map((step, index) => (
-              <div key={`${step.step}-${index}`} className={`pdf-preflight-item ${step.status === 'failed' ? 'error' : step.status === 'skipped' ? 'warn' : ''}`}>
-                <span className="pdf-preflight-dot" />
-                <div>
-                  <div className="pdf-preflight-title">
-                    {step.step} · {step.status}
+            {workflowJob.steps.map((step, index) => {
+              const stdout = compactOutput(step.stdoutTail)
+              const stderr = compactOutput(step.stderrTail)
+              const timeoutSeconds = step.timeoutSeconds ?? step.commandResults?.find((item) => item.timeoutSeconds)?.timeoutSeconds
+              return (
+                <div key={`${step.step}-${index}`} className={`pdf-preflight-item ${step.status === 'failed' ? 'error' : step.status === 'skipped' ? 'warn' : ''}`}>
+                  <span className="pdf-preflight-dot" />
+                  <div className="min-w-0 flex-1">
+                    <div className="pdf-preflight-title">
+                      {step.step} · {step.status}
+                    </div>
+                    {timeoutSeconds ? <div className="pdf-preflight-message">timeout：{timeoutSeconds}s</div> : null}
+                    <div className="pdf-preflight-message">{step.message || step.error || ''}</div>
+                    {stdout ? <pre className="mt-2 max-h-24 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-card p-2 text-[11px] leading-5 text-text-muted">stdout: {stdout}</pre> : null}
+                    {stderr ? <pre className="mt-2 max-h-24 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-error/5 p-2 text-[11px] leading-5 text-error">stderr: {stderr}</pre> : null}
                   </div>
-                  <div className="pdf-preflight-message">{step.message || step.error || ''}</div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
           {workflowJob.error ? <div className="mt-3 text-sm text-error">{workflowJob.error}</div> : null}
         </div>
@@ -352,21 +437,18 @@ export function PdfWorkflowPanel(props: PdfWorkflowPanelProps) {
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
-        {stepButtons.map((btn) => {
-          const buttonBusy = btn.busy ?? workflowBusy === btn.key
-          const buttonDisabled = isMarketWorkflow ? Boolean(btn.disabled) : (!!workflowBusy || !bundleReady || btn.disabled)
-          const workflowStep = isMarketWorkflow ? marketWorkflowStep(btn.key) : btn.key as WorkflowStep
+        {stepButtonStates.map((btn) => {
           return (
             <button
               key={btn.key}
               type="button"
               className={btn.primary ? 'pdf-small-action primary inline-flex items-center gap-1' : 'pdf-small-action inline-flex items-center gap-1'}
-              onClick={() => void runWorkflowStep(workflowStep)}
-              disabled={buttonDisabled}
+              onClick={() => void runWorkflowStep(btn.workflowStep)}
+              disabled={btn.buttonDisabled}
               title={btn.disabledReason}
             >
-              {buttonBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-              {buttonBusy ? btn.loadingLabel : btn.label}
+              {btn.buttonBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+              {btn.buttonBusy ? btn.loadingLabel : btn.label}
             </button>
           )
         })}

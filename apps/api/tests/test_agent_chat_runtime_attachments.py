@@ -1,7 +1,7 @@
+import json
 import sys
 import threading
 import time
-import json
 from pathlib import Path
 
 import anyio
@@ -12,6 +12,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from models import ChatMessage
+
 from services import agent_chat_runtime as runtime
 
 
@@ -304,7 +305,7 @@ def test_collect_chat_reply_image_attachment_passes_old_history_before_saving_cu
                     assert current_session_id == session_id
                     return "<local-memory>older turns only</local-memory>"
 
-                async def wrapped_save_message(_async_session, role, content, current_session_id, attachments=None):
+                async def wrapped_save_message(_async_session, role, content, current_session_id, attachments=None, audit_trace_id=None):
                     calls.append(f"save_{role}")
                     assert current_session_id == session_id
                     saved.append((role, content, attachments))
@@ -314,6 +315,7 @@ def test_collect_chat_reply_image_attachment_passes_old_history_before_saving_cu
                         content,
                         current_session_id,
                         attachments=attachments,
+                        audit_trace_id=audit_trace_id,
                     )
 
                 async def fake_analyze_images_with_primary_model(message, attachments):

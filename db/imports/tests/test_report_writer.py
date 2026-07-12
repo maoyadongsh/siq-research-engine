@@ -47,6 +47,7 @@ def _summary():
             "postgres_roundtrip_case_count": 1,
             "postgres_family_count_checked_count": 13,
             "postgres_table_count_checked_count": 29,
+            "postgres_scope_issue_count": 0,
             "postgres_required_evidence_passed_count": 2,
             "postgres_required_evidence_checked_count": 2,
             "real_sample_minimum_met": True,
@@ -58,6 +59,7 @@ def _summary():
             "production_sample_db_verified": False,
             "production_sample_db_passed_count": 1,
             "production_sample_db_case_count": 2,
+            "production_sample_db_scope_issue_count": 0,
             "production_sample_db_coexistence_verified": True,
             "production_sample_db_coexistence_passed_count": 1,
             "production_sample_db_coexistence_market_count": 1,
@@ -187,3 +189,21 @@ def test_render_markdown_report_keeps_production_sample_and_agent_sections():
     assert "## Real Sample PostgreSQL Coexistence" in markdown
     assert "## Production Agent View Query" in markdown
     assert "| prod-hk-001 | HK | production_sample_agent_view | PASS | 9 |" in markdown
+
+
+def test_render_markdown_report_surfaces_postgres_scope_issues():
+    report_writer = _load_report_writer()
+    summary = _summary()
+    message = (
+        "DB scope selector missing for table financial_statement_items: selector 'parse_run_id' "
+        "and fallback case selectors ['parse_run_id'] are absent; refusing full-table count"
+    )
+    summary["summary"]["postgres_scope_issue_count"] = 1
+    summary["db_results"][0]["passed"] = False
+    summary["db_results"][0]["errors"] = [message]
+    summary["db_results"][0]["scope_issues"] = [{"table": "financial_statement_items", "message": message}]
+
+    markdown = report_writer.render_markdown_report(summary)
+
+    assert "- PostgreSQL scope issues: 1" in markdown
+    assert message in markdown

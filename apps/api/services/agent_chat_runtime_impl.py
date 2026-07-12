@@ -1,40 +1,67 @@
 import asyncio
-import base64
 import importlib
 import importlib.util
 import json
 import logging
 import os
 import re
-import subprocess
 import sys
-import zipfile
+from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
 from pathlib import Path
-from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping
 from types import SimpleNamespace
 from typing import Any
-from xml.etree import ElementTree
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
+from database import async_engine
 from fastapi import Request
-from sqlalchemy import text as sql_text
+from models import ChatMessage, ChatSessionMemory
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from database import async_engine
-from models import ChatMessage, ChatSessionMemory
-from services.citation_links import append_missing_pdf_source_links
-from services.hermes_client import HermesProfile, collect_run_result, create_run, stop_run, stream_run
-from services import agent_runtime_dedupe
+from services import (
+    agent_memory_service,
+    agent_runtime_answer_audit,
+    agent_runtime_attachments,
+    agent_runtime_catalog,
+    agent_runtime_citations,
+    agent_runtime_context,
+    agent_runtime_dedupe,
+    agent_runtime_diagnostics,
+    agent_runtime_display,
+    agent_runtime_fallback_contexts,
+    agent_runtime_financial_format,
+    agent_runtime_financial_guard,
+    agent_runtime_financial_provenance,
+    agent_runtime_financial_sources,
+    agent_runtime_history,
+    agent_runtime_market_facts,
+    agent_runtime_memory,
+    agent_runtime_message_identity,
+    agent_runtime_parse_only,
+    agent_runtime_postgres_fallback,
+    agent_runtime_preflight,
+    agent_runtime_progress,
+    agent_runtime_statement_context,
+    agent_runtime_task_ids,
+    agent_runtime_wiki_context,
+)
+from services.agent_runtime_fallback_contexts import (
+    _markdown_table_cell,
+    _postgres_row_md_line,
+    _postgres_row_metric_name,
+    _postgres_row_payload,
+    _postgres_row_pdf_page,
+    _postgres_row_table_index,
+    _postgres_row_unit,
+    _postgres_row_value,
+)
 from services.agent_runtime_loop_guard import (
     CONSECUTIVE_TOOL_ERROR_LIMIT,
-    HISTORY_LOOP_SANITIZED_MESSAGE,
     IDLE_TIMEOUT_MESSAGE,
-    LEGACY_HISTORY_LOOP_SANITIZED_PREFIX,
+    LEGACY_HISTORY_LOOP_SANITIZED_PREFIX as LEGACY_HISTORY_LOOP_SANITIZED_PREFIX,
     ORPHANED_RUN_MESSAGE,
     OUTPUT_LOOP_STOP_MESSAGE,
     REPEATED_TOOL_CALL_LIMIT,
@@ -51,30 +78,9 @@ from services.agent_runtime_loop_guard import (
     _is_loop_polluted_assistant_message,
     _sanitize_assistant_history_reply,
 )
-from services import agent_runtime_progress
-from services import agent_runtime_citations
-from services import agent_runtime_catalog
-from services import agent_runtime_parse_only
-from services import agent_runtime_display
-from services import agent_runtime_memory
-from services import agent_memory_service
-from services import agent_runtime_history
-from services import agent_runtime_preflight
-from services import agent_runtime_context
-from services import agent_runtime_financial_guard
-from services import agent_runtime_financial_format
-from services import agent_runtime_financial_provenance
-from services import agent_runtime_financial_sources
-from services import agent_runtime_answer_audit
-from services import agent_runtime_diagnostics
-from services import agent_runtime_fallback_contexts
-from services import agent_runtime_postgres_fallback
-from services import agent_runtime_statement_context
 from services.agent_runtime_streaming import (
     ACTIVE_RUNS,
     ActiveRunState,
-    PROGRESS_BAR_RE,
-    PROGRESS_LINE_RE,
     _active_key,
     _append_completed_active_run,
     _append_progress_event,
@@ -84,27 +90,21 @@ from services.agent_runtime_streaming import (
     _clear_active_run,
     _extract_progress_from_text,
     _progress_payload,
-    _progress_signature,
+    _progress_signature as _streaming_progress_signature,
     _runtime_profile,
     get_active_run_snapshot as _streaming_get_active_run_snapshot,
     has_active_run,
+    project_tool_completed,
+    project_tool_started,
     stop_active_run as _streaming_stop_active_run,
     stream_active_run_events as _streaming_stream_active_run_events,
-)
-from services.agent_runtime_fallback_contexts import (
-    _markdown_table_cell,
-    _postgres_row_md_line,
-    _postgres_row_metric_name,
-    _postgres_row_payload,
-    _postgres_row_pdf_page,
-    _postgres_row_source,
-    _postgres_row_table_index,
-    _postgres_row_unit,
-    _postgres_row_value,
+    stream_idle_timeout as _streaming_stream_idle_timeout,
 )
 from services.agent_runtime_tool_output import normalize_tool_output as _normalize_tool_output
+from services.hermes_client import HermesProfile, collect_run_result, create_run, stop_run, stream_run
 from services.path_config import (
     ASSISTANT_WIKI_ROOT as CONFIG_ASSISTANT_WIKI_ROOT,
+    BACKEND_DATA_ROOT,
     DB_PROGRAM_ROOT,
     FINANCIAL_CALCULATOR_SCRIPT,
     FINANCIAL_RECONCILIATION_VALIDATOR_SCRIPT,
@@ -112,12 +112,9 @@ from services.path_config import (
     HERMES_SHARED_SCRIPTS_ROOT,
     PDF_OUTPUT_ROOT_CANDIDATES,
     PDF_RESULT_ROOT_CANDIDATES,
-    PROJECT_ROOT,
-    BACKEND_DATA_ROOT,
-    WIKI_ROOT_CANDIDATES,
     WIKI_ROOT as CONFIG_WIKI_ROOT,
+    WIKI_ROOT_CANDIDATES,
 )
-
 
 AnswerAuditCallback = Callable[[dict[str, Any]], None]
 logger = logging.getLogger(__name__)
@@ -310,8 +307,8 @@ CHAT_OUTPUT_CONTRACT = (
 )
 FINANCIAL_CALCULATION_RUNTIME_CONTRACT = (
     "财务派生计算硬约束：\n"
-    f"- 人均、每股、同比、增长率、占比、CAGR、外币折人民币和金额单位归一，必须使用 `{FINANCIAL_CALCULATOR_PATH_TEXT}` 或后端同源函数；最终答案应保留 `financial_calculator.py`、`## 计算器校验` 或等价计算器痕迹。\n"
-    f"- 商誉、坏账准备、存货跌价准备、资产减值准备等涉及原值/准备/净额的口径，必须使用 `{FINANCIAL_RECONCILIATION_VALIDATOR_PATH_TEXT}` 或后端同源函数勾稽；商誉主表值是账面净额，不得把附注账面原值当成主表余额。\n"
+    f"- 人均、每股、同比、增长率、占比、CAGR、外币折人民币和金额单位归一，必须使用 `{FINANCIAL_CALCULATOR_PATH_TEXT}` 或后端同源函数；最终答案必须保留新版 `siq_financial_calculation_trace_v1` JSON envelope（含 tool/operation/metric/period/inputs/result/research_identity/evidence_id），旧的 `financial_calculator.py`、`## 计算器校验` 或 `operation=...` 文本只能作为展示，不能代替结构化 trace。\n"
+    f"- 商誉、坏账准备、存货跌价准备、资产减值准备等涉及原值/准备/净额的口径，必须使用 `{FINANCIAL_RECONCILIATION_VALIDATOR_PATH_TEXT}` 或后端同源函数勾稽，并输出 `siq_financial_reconciliation_trace_v1` JSON envelope（含 gross/allowance/net 三项输入与 evidence_id）；商誉主表值是账面净额，不得把附注账面原值当成主表余额。\n"
     "- 中国上市公司商誉口径必须区分账面原值、减值准备余额、账面价值、当期减值损失和准备变动；若附注写明“本年/本期计入当期损益”或减值准备由 `-`/0 增加为正数，不能表述为“本期未新增减值”。\n"
     "- 上期值为 0 或负数时，普通同比/增长率默认 `not_applicable`，应描述扭亏/亏损扩大/亏损收窄和绝对变动，不能硬写普通增长百分比。\n"
     "- `(1,016)`、`（1,016）` 这类括号金额按负数处理；`HKD`、`HK$` 是港元币种，不是 `K=千` 单位。\n"
@@ -356,10 +353,31 @@ STATEMENT_QUERY_TERMS = (
     "股东权益",
     "偿债",
     "总资产",
+    "资产总额",
     "总负债",
     "净资产",
     "利润表",
     "损益表",
+    "revenue",
+    "sales",
+    "cost of sales",
+    "operating income",
+    "operating profit",
+    "net income",
+    "net profit",
+    "earnings per share",
+    "cash flow",
+    "operating cash flow",
+    "investing cash flow",
+    "financing cash flow",
+    "balance sheet",
+    "statement of financial position",
+    "total assets",
+    "total liabilities",
+    "shareholders equity",
+    "stockholders equity",
+    "income statement",
+    "profit and loss",
 )
 NOTE_DETAIL_QUERY_TERMS = (
     "明细",
@@ -594,11 +612,24 @@ CORE_KEY_METRIC_TERMS = (
     "净资产",
     "资产负债率",
     "每股净资产",
+    "revenue",
+    "sales",
+    "gross profit",
+    "gross margin",
+    "operating income",
+    "operating profit",
+    "net income",
+    "net profit",
+    "operating cash flow",
+    "earnings per share",
+    "total assets",
+    "total liabilities",
+    "total equity",
 )
 CORE_KEY_METRIC_ALIASES: dict[str, tuple[str, ...]] = {
-    "营业收入": ("operating_revenue", "营业收入", "营收", "收入"),
+    "营业收入": ("operating_revenue", "营业收入", "营收", "收入", "revenue", "sales"),
     "利润总额": ("total_profit", "利润总额"),
-    "净利润": ("net_profit", "净利润"),
+    "净利润": ("net_profit", "净利润", "net income", "net profit"),
     "归母净利润": ("parent_net_profit", "归属于上市公司股东的净利润", "归属于本行股东的净利润", "归母净利润"),
     "扣非归母净利润": (
         "deducted_parent_net_profit",
@@ -608,8 +639,15 @@ CORE_KEY_METRIC_ALIASES: dict[str, tuple[str, ...]] = {
         "扣非净利润",
         "扣非归母",
     ),
-    "经营活动现金流量净额": ("operating_cash_flow_net", "经营活动产生的现金流量净额", "经营现金流", "经营活动现金流量净额"),
-    "基本每股收益": ("basic_eps", "基本每股收益", "每股收益", "eps"),
+    "经营活动现金流量净额": (
+        "operating_cash_flow_net",
+        "经营活动产生的现金流量净额",
+        "经营现金流",
+        "经营活动现金流量净额",
+        "经营活动现金流",
+        "operating cash flow",
+    ),
+    "基本每股收益": ("basic_eps", "基本每股收益", "每股收益", "eps", "earnings per share"),
     "稀释每股收益": ("diluted_eps", "稀释每股收益"),
     "扣非基本每股收益": ("deducted_basic_eps", "扣除非经常性损益后的基本每股收益", "扣非基本每股收益"),
     "加权平均净资产收益率": ("weighted_avg_roe", "加权平均净资产收益率", "净资产收益率", "roe"),
@@ -618,8 +656,9 @@ CORE_KEY_METRIC_ALIASES: dict[str, tuple[str, ...]] = {
         "扣除非经常性损益后的加权平均净资产收益率",
         "扣非加权平均净资产收益率",
     ),
-    "总资产": ("total_assets", "总资产"),
-    "总负债": ("total_liabilities", "总负债"),
+    "总资产": ("total_assets", "总资产", "资产总额", "资产合计", "资产总计", "total assets"),
+    "总负债": ("total_liabilities", "总负债", "total liabilities"),
+    "商誉": ("goodwill", "商誉"),
     "归属于母公司股东权益": ("equity_attributable_parent", "归属于上市公司股东的净资产", "归属于本行股东权益", "净资产"),
     "每股净资产": ("parent_nav_per_share", "每股净资产"),
 }
@@ -650,6 +689,7 @@ THREE_STATEMENT_CORE_KEYS: dict[str, tuple[str, ...]] = {
         "current_liabilities",
         "non_current_liabilities",
         "total_liabilities",
+        "goodwill",
         "equity_attributable_parent",
         "total_equity",
         "total_liabilities_and_equity",
@@ -685,6 +725,7 @@ THREE_STATEMENT_CORE_NAME_TERMS: dict[str, tuple[str, ...]] = {
         "流动负债合计",
         "非流动负债合计",
         "负债合计",
+        "商誉",
         "归属于母公司股东权益",
         "归属于本行股东权益",
         "所有者权益合计",
@@ -803,11 +844,18 @@ PDF2MD_OUTPUT_ROOTS = _env_path_list(
     PDF_OUTPUT_ROOT_CANDIDATES,
 )
 PDF2MD_PARSE_ONLY_CONTEXT_LIMIT = _env_int_any(("SIQ_PDF2MD_PARSE_ONLY_CONTEXT_LIMIT", "SIQ_PDF2MD_PARSE_ONLY_CONTEXT_LIMIT"), 3, minimum=1, maximum=8)
-TASK_ID_FIELD_RE = re.compile(r"\btask_id=([0-9a-fA-F-]{32,36})\b")
-API_TASK_ID_RE = re.compile(r"/api/(?:pdf_page|source)/([0-9a-fA-F-]{32,36})(?:[/?#]|$)")
+TASK_ID_FIELD_RE = agent_runtime_task_ids.TASK_ID_FIELD_RE
+API_TASK_ID_RE = agent_runtime_task_ids.API_TASK_ID_RE
 POSTGRES_FALLBACK_ROW_LIMIT = int(os.environ.get("SIQ_PG_FALLBACK_ROW_LIMIT") or os.environ.get("SIQ_PG_FALLBACK_ROW_LIMIT", "20"))
 COMPANY_ALIAS_OVERRIDES: dict[str, tuple[str, ...]] = {
     "BASF-BASF": ("巴斯夫", "巴斯夫集团", "BASF Group"),
+    # Common Chinese aliases are not always present in SEC company names.
+    # Keep them keyed by stable catalog company_id so market resolution can
+    # bind the query before evidence lookup.
+    "US:0001018724": ("亚马逊", "亚马逊公司", "Amazon", "Amazon.com"),
+    "US:0001045810": ("英伟达", "英伟达公司", "NVIDIA", "Nvidia"),
+    "KR:005930": ("三星电子", "三星", "Samsung Electronics", "삼성전자"),
+    "JP:7203": ("丰田", "丰田汽车", "Toyota", "Toyota Motor", "トヨタ", "トヨタ自動車"),
 }
 POSTGRES_FALLBACK_TERMS = (
     *STATEMENT_QUERY_TERMS,
@@ -881,6 +929,11 @@ REPORT_FULLTEXT_FALLBACK_TERMS = (
     "诉讼",
     "担保",
     "质押",
+    "商誉",
+    "商譽",
+    "goodwill",
+    "のれん",
+    "영업권",
 )
 REPORT_FULLTEXT_GENERIC_TERMS = {
     "年报",
@@ -960,49 +1013,16 @@ ANALYSIS_STATUS_TERMS = (
     "验收了吗",
     "进度",
 )
-WIKI_CATALOG_COUNT_TERMS = (
-    "多少家",
-    "几家",
-    "总数",
-    "数量",
-    "规模",
-    "count",
-)
-WIKI_CATALOG_LIST_TERMS = (
-    "清单",
-    "列表",
-    "名单",
-    "列出",
-    "展示",
-    "看看",
-    "有哪些",
-    "都有谁",
-    "list",
-)
-WIKI_CATALOG_SUBJECT_TERMS = (
-    "已入库",
-    "入库",
-    "wiki",
-    "Wiki",
-    "公司",
-    "财报",
-    "工作集",
-    "知识库",
-)
-
-@dataclass
-class RecentRunRecord:
-    message_hash: str
-    reply: str
-    created_at: datetime = field(default_factory=datetime.utcnow)
-
+WIKI_CATALOG_COUNT_TERMS = agent_runtime_catalog.WIKI_CATALOG_COUNT_TERMS
+WIKI_CATALOG_LIST_TERMS = agent_runtime_catalog.WIKI_CATALOG_LIST_TERMS
+WIKI_CATALOG_SUBJECT_TERMS = agent_runtime_catalog.WIKI_CATALOG_SUBJECT_TERMS
 
 ChatRequestEnvelope = agent_runtime_preflight.ChatRequestEnvelope
 ChatRunPreflightContext = agent_runtime_preflight.ChatRunPreflightContext
 
 
 SESSION_DEFAULT_CONTEXTS: dict[tuple[HermesProfile, str], str] = {}
-RECENT_COMPLETED_RUNS: dict[tuple[HermesProfile, str], RecentRunRecord] = {}
+RECENT_COMPLETED_RUNS = agent_runtime_dedupe.RECENT_COMPLETED_RUNS
 
 
 def _read_json_file(path: Path) -> Any | None:
@@ -1013,119 +1033,61 @@ def _read_json_file(path: Path) -> Any | None:
 
 
 def _is_task_id_like(value: Any) -> bool:
-    return bool(re.fullmatch(r"[0-9a-fA-F-]{32,36}", str(value or "").strip()))
+    return agent_runtime_task_ids.is_task_id_like(value)
 
 
 def _pdf2md_task_result_dir(task_id: str) -> Path | None:
-    if not _is_task_id_like(task_id):
-        return None
-    for root in PDF2MD_RESULTS_ROOTS:
-        candidate = root / task_id
-        if not candidate.is_dir():
-            continue
-        if any((candidate / name).exists() for name in ("result.md", "result_complete.md", "document_full.json", "content_list.json")):
-            return candidate
-    return None
+    return agent_runtime_task_ids.pdf2md_task_result_dir(task_id, roots=PDF2MD_RESULTS_ROOTS)
 
 
 def _pdf2md_task_output_dir(task_id: str) -> Path | None:
-    if not _is_task_id_like(task_id):
-        return None
-    for root in PDF2MD_OUTPUT_ROOTS:
-        candidate = root / task_id
-        if candidate.exists():
-            return candidate
-    return None
+    return agent_runtime_task_ids.pdf2md_task_output_dir(task_id, roots=PDF2MD_OUTPUT_ROOTS)
 
 
 def _file_contains_bytes(path: Path, needle: bytes) -> bool:
-    if not needle:
-        return False
-    try:
-        with path.open("rb") as handle:
-            overlap = max(len(needle) - 1, 0)
-            previous = b""
-            while True:
-                chunk = handle.read(1024 * 1024)
-                if not chunk:
-                    return False
-                haystack = previous + chunk
-                if needle in haystack:
-                    return True
-                previous = haystack[-overlap:] if overlap else b""
-    except Exception:
-        return False
+    return agent_runtime_task_ids.file_contains_bytes(path, needle)
 
 
 def _company_wiki_contains_task_id(company_dir: Path, task_id: str) -> bool:
-    if not company_dir.exists() or not _is_task_id_like(task_id):
-        return False
-    needle = task_id.encode("utf-8")
-    preferred_files: list[Path] = [
-        company_dir / "company.json",
-        *(company_dir / "reports").glob("*/artifact_manifest.json"),
-        *(company_dir / "reports").glob("*/report.json"),
-        *(company_dir / "reports").glob("*/document_full.json"),
-        *(company_dir / "metrics").glob("**/*.json"),
-        *(company_dir / "evidence").glob("*.json"),
-        *(company_dir / "semantic").glob("*.json"),
-    ]
-    seen: set[Path] = set()
-    for path in preferred_files:
-        if path in seen or not path.is_file():
-            continue
-        seen.add(path)
-        if _file_contains_bytes(path, needle):
-            return True
-    return False
+    return agent_runtime_task_ids.company_wiki_contains_task_id(company_dir, task_id)
 
 
 def _wiki_task_id_exists(task_id: str, message: str = "", context: Any | None = None) -> bool:
-    if not _is_task_id_like(task_id):
-        return False
-    company_dirs = _resolve_company_dirs(message, context, limit=6) if message or context else []
-    for company_dir in company_dirs:
-        if _company_wiki_contains_task_id(company_dir, task_id):
-            return True
-
-    companies_dir = WIKI_ROOT / "companies"
-    if not companies_dir.exists():
-        return False
-    needle = task_id.encode("utf-8")
-    try:
-        manifests = list(companies_dir.glob("*/company.json"))
-        manifests.extend(companies_dir.glob("*/reports/*/artifact_manifest.json"))
-        manifests.extend(companies_dir.glob("*/reports/*/report.json"))
-    except Exception:
-        return False
-    return any(path.is_file() and _file_contains_bytes(path, needle) for path in manifests[:3000])
+    return agent_runtime_task_ids.wiki_task_id_exists(
+        task_id,
+        message,
+        context,
+        wiki_root=WIKI_ROOT,
+        resolve_company_dirs=_resolve_company_dirs,
+    )
 
 
 def _task_id_exists(task_id: str, message: str = "", context: Any | None = None) -> bool:
-    task_id = str(task_id or "").strip()
-    if not _is_task_id_like(task_id):
-        return False
-    return bool(
-        _pdf2md_task_result_dir(task_id)
-        or _pdf2md_task_output_dir(task_id)
-        or _wiki_task_id_exists(task_id, message, context)
+    return agent_runtime_task_ids.task_id_exists(
+        task_id,
+        message,
+        context,
+        pdf2md_result_roots=PDF2MD_RESULTS_ROOTS,
+        pdf2md_output_roots=PDF2MD_OUTPUT_ROOTS,
+        wiki_root=WIKI_ROOT,
+        resolve_company_dirs=_resolve_company_dirs,
     )
 
 
 def _extract_task_ids_from_text(text: str | None) -> list[str]:
-    if not text:
-        return []
-    task_ids = [match.group(1) for match in TASK_ID_FIELD_RE.finditer(text)]
-    task_ids.extend(match.group(1) for match in API_TASK_ID_RE.finditer(text))
-    return sorted(dict.fromkeys(task_id.strip() for task_id in task_ids if _is_task_id_like(task_id)))
+    return agent_runtime_task_ids.extract_task_ids_from_text(text)
 
 
 def _invalid_task_ids_in_reply(message: str, context: Any | None, reply: str) -> list[str]:
-    return [
-        task_id
-        for task_id in _extract_task_ids_from_text(reply)
-        if not _task_id_exists(task_id, message, context)
-    ]
+    return agent_runtime_task_ids.invalid_task_ids_in_reply(
+        message,
+        context,
+        reply,
+        pdf2md_result_roots=PDF2MD_RESULTS_ROOTS,
+        pdf2md_output_roots=PDF2MD_OUTPUT_ROOTS,
+        wiki_root=WIKI_ROOT,
+        resolve_company_dirs=_resolve_company_dirs,
+    )
 
 
 def _infer_stock_code_from_text(text: str) -> str:
@@ -1165,7 +1127,14 @@ def _pdf2md_task_info_from_dir(result_dir: Path) -> dict[str, Any] | None:
     result_md = result_dir / "result.md"
     if result_md.is_file():
         info["result_md"] = result_md
-    for name in ("result_complete.md", "document_full.json", "content_list_enhanced.json", "content_list.json", "table_index.json", "financial_data.json"):
+    for name in (
+        "result_complete.md",
+        "document_full.json",
+        "content_list_enhanced.json",
+        "content_list.json",
+        "table_index.json",
+        "financial_data.json",
+    ):
         path = result_dir / name
         if path.exists():
             info[name.replace(".", "_")] = path
@@ -1265,6 +1234,8 @@ def _should_consider_pdf2md_parse_only_context(message: str, context: Any | None
 
 
 def build_pdf2md_parse_only_context(message: str, context: Any | None = None) -> str | None:
+    if _non_cn_financial_retrieval_blocked(message, context):
+        return None
     return agent_runtime_parse_only.build_pdf2md_parse_only_context(
         message,
         context,
@@ -1351,6 +1322,10 @@ def _hash_text(text: str) -> str:
     return agent_runtime_dedupe._hash_text(text)
 
 
+def _progress_signature(payload: dict[str, Any]) -> str:
+    return _streaming_progress_signature(payload)
+
+
 def normalize_plain_inline_latex(content: str | None) -> str:
     return agent_runtime_citations.normalize_plain_inline_latex(content)
 
@@ -1382,49 +1357,47 @@ def _dedupe_hash(message: str, context: Any | None) -> str:
     return agent_runtime_dedupe._dedupe_hash(message, context)
 
 
+def _sync_attachment_owner_config() -> None:
+    agent_runtime_attachments.CHAT_UPLOAD_ROOT = CHAT_UPLOAD_ROOT
+    agent_runtime_attachments.CHAT_PDF_PARSE_ROOT = CHAT_PDF_PARSE_ROOT
+    agent_runtime_attachments.CHAT_PDF_ATTACHMENT_WAIT_TIMEOUT_SECONDS = CHAT_PDF_ATTACHMENT_WAIT_TIMEOUT_SECONDS
+    agent_runtime_attachments.CHAT_PDF_ATTACHMENT_WAIT_POLL_SECONDS = CHAT_PDF_ATTACHMENT_WAIT_POLL_SECONDS
+    agent_runtime_attachments.ATTACHMENT_FOLLOWUP_RE = ATTACHMENT_FOLLOWUP_RE
+    agent_runtime_attachments.IMAGE_MODEL_BASE_URL = IMAGE_MODEL_BASE_URL
+    agent_runtime_attachments.IMAGE_MODEL_NAME = IMAGE_MODEL_NAME
+    agent_runtime_attachments.IMAGE_MODEL_ENABLED = IMAGE_MODEL_ENABLED
+    agent_runtime_attachments.IMAGE_MODEL_TIMEOUT_SECONDS = IMAGE_MODEL_TIMEOUT_SECONDS
+    agent_runtime_attachments.MAX_DOCUMENT_CONTEXT_CHARS = MAX_DOCUMENT_CONTEXT_CHARS
+    agent_runtime_attachments._CHAT_MESSAGE_ATTACHMENTS_COLUMN_READY = _CHAT_MESSAGE_ATTACHMENTS_COLUMN_READY
+    agent_runtime_attachments._IMAGE_MODEL_NAME_CACHE = _IMAGE_MODEL_NAME_CACHE
+
+
+def _pull_attachment_owner_state() -> None:
+    global _CHAT_MESSAGE_ATTACHMENTS_COLUMN_READY, _IMAGE_MODEL_NAME_CACHE
+    _CHAT_MESSAGE_ATTACHMENTS_COLUMN_READY = agent_runtime_attachments._CHAT_MESSAGE_ATTACHMENTS_COLUMN_READY
+    _IMAGE_MODEL_NAME_CACHE = agent_runtime_attachments._IMAGE_MODEL_NAME_CACHE
+
+
 def _attachment_dicts(attachments: Any | None) -> list[dict[str, Any]]:
-    return agent_runtime_context.attachment_dicts(attachments)
+    return agent_runtime_attachments._attachment_dicts(attachments)
 
 
 def _image_attachment_dicts(attachments: Any | None) -> list[dict[str, Any]]:
-    return agent_runtime_context.image_attachment_dicts(attachments)
+    return agent_runtime_attachments._image_attachment_dicts(attachments)
 
 
 def _document_attachment_dicts(attachments: Any | None) -> list[dict[str, Any]]:
-    return agent_runtime_context.document_attachment_dicts(attachments)
+    return agent_runtime_attachments._document_attachment_dicts(attachments)
 
 
 def _should_reuse_recent_attachments(message: str) -> bool:
-    return agent_runtime_context.should_reuse_recent_attachments(message, ATTACHMENT_FOLLOWUP_RE)
+    _sync_attachment_owner_config()
+    return agent_runtime_attachments._should_reuse_recent_attachments(message)
 
 
 def _attachment_reference_context(attachments: Any | None) -> str:
-    items: list[str] = []
-    for index, item in enumerate(_attachment_dicts(attachments), start=1):
-        path = _safe_uploaded_path(item)
-        if path is None:
-            continue
-        kind = str(item.get("kind") or "image")
-        label = "图片" if kind == "image" else "文档"
-        filename = str(item.get("filename") or path.name or f"attachment-{index}").strip()
-        content_type = str(item.get("content_type") or "application/octet-stream").strip()
-        lines = [
-            f"- {label}附件 {index}: {filename}",
-            f"  - 本地路径: {path}",
-            f"  - 类型: {content_type}",
-            f"  - 大小: {item.get('size', 0)} bytes",
-        ]
-        url = str(item.get("url") or "").strip()
-        if url:
-            lines.append(f"  - 前端链接: {url}")
-        items.append("\n".join(lines))
-    if not items:
-        return ""
-    return (
-        "历史附件上下文：以下附件已由 SIQ 后端保存。继续/重试时请使用本地路径读取；"
-        "`/api/chat/attachments/...` 是前端后端路由，不是 Hermes 8642 网关接口。\n"
-        + "\n".join(items)
-    )
+    _sync_attachment_owner_config()
+    return agent_runtime_attachments._attachment_reference_context(attachments)
 
 
 def _dedupe_hash_with_attachments(message: str, context: Any | None, attachments: Any | None) -> str:
@@ -1438,66 +1411,20 @@ def _dedupe_hash_with_attachments(message: str, context: Any | None, attachments
 
 
 def _image_attachment_data_url(item: dict[str, Any]) -> str | None:
-    path = Path(str(item.get("path") or ""))
-    try:
-        resolved = path.resolve()
-        root = CHAT_UPLOAD_ROOT.resolve()
-        if root not in resolved.parents:
-            return None
-        raw = resolved.read_bytes()
-    except Exception:
-        return None
-    if not raw:
-        return None
-    content_type = str(item.get("content_type") or "image/png").strip() or "image/png"
-    if not content_type.startswith("image/"):
-        content_type = "image/png"
-    return f"data:{content_type};base64,{base64.b64encode(raw).decode('ascii')}"
+    _sync_attachment_owner_config()
+    return agent_runtime_attachments._image_attachment_data_url(item)
 
 
 async def _resolve_image_model_name() -> str | None:
-    global _IMAGE_MODEL_NAME_CACHE
-    if IMAGE_MODEL_NAME:
-        return IMAGE_MODEL_NAME
-    if _IMAGE_MODEL_NAME_CACHE:
-        return _IMAGE_MODEL_NAME_CACHE
-    if not IMAGE_MODEL_ENABLED or not IMAGE_MODEL_BASE_URL:
-        return None
+    _sync_attachment_owner_config()
     try:
-        timeout = httpx.Timeout(10.0, connect=3.0)
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.get(f"{IMAGE_MODEL_BASE_URL}/models")
-        if not response.is_success:
-            return None
-        payload = response.json() if response.content else {}
-        data = payload.get("data")
-        if not isinstance(data, list):
-            return None
-        for item in data:
-            if isinstance(item, dict) and item.get("id"):
-                _IMAGE_MODEL_NAME_CACHE = str(item["id"])
-                return _IMAGE_MODEL_NAME_CACHE
-    except Exception:
-        return None
-    return None
+        return await agent_runtime_attachments._resolve_image_model_name()
+    finally:
+        _pull_attachment_owner_state()
 
 
 def _extract_openai_message_text(payload: dict[str, Any]) -> str:
-    choices = payload.get("choices") if isinstance(payload, dict) else None
-    if not isinstance(choices, list) or not choices:
-        return ""
-    first = choices[0] if isinstance(choices[0], dict) else {}
-    message = first.get("message") if isinstance(first.get("message"), dict) else {}
-    content = message.get("content") or first.get("text") or ""
-    if isinstance(content, list):
-        pieces: list[str] = []
-        for part in content:
-            if isinstance(part, dict):
-                value = part.get("text") or part.get("content")
-                if value:
-                    pieces.append(str(value))
-        return "\n".join(pieces).strip()
-    return str(content or "").strip()
+    return agent_runtime_attachments._extract_openai_message_text(payload)
 
 
 async def _analyze_single_image_with_primary_model(
@@ -1509,142 +1436,53 @@ async def _analyze_single_image_with_primary_model(
     index: int,
     total: int,
 ) -> str:
-    data_url = _image_attachment_data_url(item)
-    if not data_url:
-        raise RuntimeError("image file is unavailable")
-    filename = str(item.get("filename") or Path(str(item.get("path") or "")).name or f"image-{index}")
-    prompt = (
-        "用户在聊天对话框上传了一张图片。请用中文客观分析这张图片，优先提取可见文字、数字、表格、图表结构、"
-        "关键对象和可能影响财务/合规判断的信息；无法确定的内容明确说明不确定。"
-        f"\n\n图片: {filename} ({index}/{total})"
-        f"\n用户问题: {(message or '').strip() or '请分析图片内容'}"
-    )
-    payload = {
-        "model": model,
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": data_url}},
-                ],
-            }
-        ],
-        "temperature": 0.1,
-        "max_tokens": 1200,
-    }
-    response = await client.post(f"{IMAGE_MODEL_BASE_URL}/chat/completions", json=payload)
-    if not response.is_success:
-        raise RuntimeError(f"image model HTTP {response.status_code}: {response.text[:300]}")
-    text = _extract_openai_message_text(response.json() if response.content else {})
-    if not text:
-        raise RuntimeError("image model returned empty content")
-    return f"### 图片 {index}: {filename}\n{text}"
+    _sync_attachment_owner_config()
+    try:
+        return await agent_runtime_attachments._analyze_single_image_with_primary_model(
+            client,
+            model=model,
+            message=message,
+            item=item,
+            index=index,
+            total=total,
+        )
+    finally:
+        _pull_attachment_owner_state()
 
 
 async def analyze_images_with_primary_model(
     message: str,
     attachments: Any | None,
 ) -> tuple[str, bool]:
-    images = _image_attachment_dicts(attachments)
-    if not images or not IMAGE_MODEL_ENABLED:
-        return "", False
-    model = await _resolve_image_model_name()
-    if not model:
-        return "", False
-    blocks: list[str] = []
+    _sync_attachment_owner_config()
     try:
-        timeout = httpx.Timeout(IMAGE_MODEL_TIMEOUT_SECONDS, connect=10.0, read=IMAGE_MODEL_TIMEOUT_SECONDS)
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            for index, item in enumerate(images, start=1):
-                blocks.append(
-                    await _analyze_single_image_with_primary_model(
-                        client,
-                        model=model,
-                        message=message,
-                        item=item,
-                        index=index,
-                        total=len(images),
-                    )
-                )
-    except Exception as exc:
-        print(f"[chat-attachments] primary image model unavailable, falling back to Hermes: {exc}")
-        return "", False
-    return (
-        "图片已优先由本机多模态模型处理。下面是模型初步分析，回答时应结合用户问题使用；"
-        "如需复核细节，可继续读取图片本地路径。\n\n" + "\n\n".join(blocks),
-        True,
-    )
+        return await agent_runtime_attachments.analyze_images_with_primary_model(message, attachments)
+    finally:
+        _pull_attachment_owner_state()
 
 
 def _safe_chat_path(raw_path: str, *, must_be_file: bool = True) -> Path | None:
-    if not raw_path:
-        return None
-    try:
-        resolved = Path(raw_path).resolve()
-        root = CHAT_UPLOAD_ROOT.resolve()
-        if root not in resolved.parents:
-            return None
-        if must_be_file and not resolved.is_file():
-            return None
-        return resolved
-    except Exception:
-        return None
+    _sync_attachment_owner_config()
+    return agent_runtime_attachments._safe_chat_path(raw_path, must_be_file=must_be_file)
 
 
 def _safe_uploaded_path(item: dict[str, Any]) -> Path | None:
-    return _safe_chat_path(str(item.get("path") or ""))
+    _sync_attachment_owner_config()
+    return agent_runtime_attachments._safe_uploaded_path(item)
 
 
 def _attachment_metadata(item: dict[str, Any]) -> dict[str, Any]:
-    metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
-    merged = dict(metadata or {})
-    parse_dir = _safe_chat_path(str(merged.get("parse_dir") or ""), must_be_file=False)
-    if parse_dir is None:
-        return merged
-    metadata_path = parse_dir / "metadata.json"
-    if metadata_path.is_file():
-        try:
-            parsed = json.loads(metadata_path.read_text(encoding="utf-8"))
-            if isinstance(parsed, dict):
-                merged.update(parsed)
-        except Exception:
-            pass
-    merged["parse_dir"] = str(parse_dir)
-    merged["metadata_path"] = str(metadata_path)
-    return merged
+    _sync_attachment_owner_config()
+    return agent_runtime_attachments._attachment_metadata(item)
 
 
 def _pdf_attachment_parse_dirs(attachments: Any | None) -> list[Path]:
-    parse_dirs: list[Path] = []
-    seen: set[Path] = set()
-    for item in _document_attachment_dicts(attachments):
-        content_type = str(item.get("content_type") or "").lower()
-        path = Path(str(item.get("path") or ""))
-        if content_type != "application/pdf" and path.suffix.lower() != ".pdf":
-            continue
-        metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
-        parse_dir = _safe_chat_path(str(metadata.get("parse_dir") or ""), must_be_file=False)
-        if parse_dir and parse_dir not in seen:
-            seen.add(parse_dir)
-            parse_dirs.append(parse_dir)
-    return parse_dirs
+    _sync_attachment_owner_config()
+    return agent_runtime_attachments._pdf_attachment_parse_dirs(attachments)
 
 
 def _pdf_parse_is_terminal(metadata: dict[str, Any]) -> bool:
-    status = str(
-        metadata.get("document_parser_status")
-        or metadata.get("mineru_parse_status")
-        or metadata.get("mineru_submit_status")
-        or ""
-    ).lower()
-    if status in {"completed_with_warnings"}:
-        return True
-    if status in {"completed", "completed_without_markdown", "failed", "error", "failure", "cancelled", "timeout"}:
-        return True
-    if status in {"completed_result_fetch_failed", "status_failed", "poll_failed"}:
-        return True
-    return False
+    return agent_runtime_attachments._pdf_parse_is_terminal(metadata)
 
 
 async def wait_for_pdf_attachment_parses(
@@ -1653,260 +1491,90 @@ async def wait_for_pdf_attachment_parses(
     timeout_seconds: int = CHAT_PDF_ATTACHMENT_WAIT_TIMEOUT_SECONDS,
     poll_seconds: int = CHAT_PDF_ATTACHMENT_WAIT_POLL_SECONDS,
 ) -> list[dict[str, Any]]:
-    parse_dirs = _pdf_attachment_parse_dirs(attachments)
-    if not parse_dirs or timeout_seconds <= 0:
-        return []
-
-    deadline = asyncio.get_running_loop().time() + timeout_seconds
-    last_statuses: list[dict[str, Any]] = []
-    while True:
-        pending = False
-        statuses: list[dict[str, Any]] = []
-        for parse_dir in parse_dirs:
-            metadata_path = parse_dir / "metadata.json"
-            metadata: dict[str, Any] = {"parse_dir": str(parse_dir), "metadata_path": str(metadata_path)}
-            if metadata_path.is_file():
-                try:
-                    parsed = json.loads(metadata_path.read_text(encoding="utf-8"))
-                    if isinstance(parsed, dict):
-                        metadata.update(parsed)
-                except Exception as exc:
-                    metadata["mineru_parse_status"] = "metadata_read_failed"
-                    metadata["mineru_parse_error"] = str(exc)
-            else:
-                metadata["mineru_parse_status"] = "metadata_missing"
-            if not _pdf_parse_is_terminal(metadata):
-                pending = True
-            statuses.append(metadata)
-        last_statuses = statuses
-        if not pending or asyncio.get_running_loop().time() >= deadline:
-            return last_statuses
-        await asyncio.sleep(max(1, poll_seconds))
+    _sync_attachment_owner_config()
+    try:
+        return await agent_runtime_attachments.wait_for_pdf_attachment_parses(
+            attachments,
+            timeout_seconds=timeout_seconds,
+            poll_seconds=poll_seconds,
+        )
+    finally:
+        _pull_attachment_owner_state()
 
 
 def _attachments_with_fresh_metadata(attachments: Any | None) -> list[dict[str, Any]]:
-    refreshed: list[dict[str, Any]] = []
-    for item in _attachment_dicts(attachments):
-        updated = dict(item)
-        metadata = _attachment_metadata(updated)
-        if metadata:
-            updated["metadata"] = metadata
-        refreshed.append(updated)
-    return refreshed
+    _sync_attachment_owner_config()
+    return agent_runtime_attachments._attachments_with_fresh_metadata(attachments)
 
 
 async def _ensure_chatmessage_attachments_column(async_session: AsyncSession) -> None:
-    global _CHAT_MESSAGE_ATTACHMENTS_COLUMN_READY
-    if _CHAT_MESSAGE_ATTACHMENTS_COLUMN_READY:
-        return
+    _sync_attachment_owner_config()
     try:
-        bind = async_session.get_bind()
-        dialect = bind.dialect.name if bind is not None else ""
-        if dialect == "sqlite":
-            result = await async_session.exec(sql_text("PRAGMA table_info(chatmessage)"))
-            columns = {str(row[1]) for row in result.all()}
-            if "attachments_json" not in columns:
-                await async_session.exec(sql_text("ALTER TABLE chatmessage ADD COLUMN attachments_json TEXT"))
-                await async_session.commit()
-        else:
-            await async_session.exec(sql_text("ALTER TABLE chatmessage ADD COLUMN IF NOT EXISTS attachments_json TEXT"))
-            await async_session.commit()
-        _CHAT_MESSAGE_ATTACHMENTS_COLUMN_READY = True
-    except Exception:
-        await async_session.rollback()
-        raise
+        await agent_runtime_attachments._ensure_chatmessage_attachments_column(async_session)
+    finally:
+        _pull_attachment_owner_state()
 
 
 def _read_text_file(path: Path) -> str:
-    raw = path.read_bytes()
-    for encoding in ("utf-8", "utf-8-sig", "gb18030", "latin-1"):
-        try:
-            return raw.decode(encoding, errors="replace")
-        except Exception:
-            continue
-    return raw.decode("utf-8", errors="replace")
+    return agent_runtime_attachments._read_text_file(path)
 
 
 def _read_docx_text(path: Path) -> str:
-    try:
-        with zipfile.ZipFile(path) as archive:
-            xml = archive.read("word/document.xml")
-        root = ElementTree.fromstring(xml)
-        ns = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
-        paragraphs: list[str] = []
-        for paragraph in root.iter(f"{ns}p"):
-            pieces = [node.text or "" for node in paragraph.iter(f"{ns}t")]
-            text = "".join(pieces).strip()
-            if text:
-                paragraphs.append(text)
-        return "\n".join(paragraphs)
-    except Exception as exc:
-        return f"[DOCX 文本抽取失败: {exc}]"
+    return agent_runtime_attachments._read_docx_text(path)
 
 
 def _read_pdf_text_with_pdftotext(path: Path) -> str:
-    try:
-        result = subprocess.run(
-            ["pdftotext", "-layout", "-f", "1", "-l", "8", str(path), "-"],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=20,
-        )
-    except FileNotFoundError:
-        return "[PDF 快速文本抽取跳过: 系统未安装 pdftotext；请使用 MinerU 解析任务结果。]"
-    except Exception as exc:
-        return f"[PDF 快速文本抽取失败: {exc}]"
-    text = (result.stdout or "").strip()
-    if text:
-        return text
-    err = (result.stderr or "").strip()
-    return f"[PDF 快速文本抽取无可用文本{f': {err}' if err else ''}；请使用 MinerU 解析任务结果。]"
+    return agent_runtime_attachments._read_pdf_text_with_pdftotext(path)
 
 
 def _document_text_preview(item: dict[str, Any]) -> str:
-    path = _safe_uploaded_path(item)
-    if path is None:
-        return "[文档文件不可读取或路径不在允许目录内]"
-    content_type = str(item.get("content_type") or "").lower()
-    suffix = path.suffix.lower()
-    if content_type == "application/pdf" or suffix == ".pdf":
-        metadata = _attachment_metadata(item)
-        markdown_path = _safe_chat_path(str(metadata.get("markdown_path") or ""))
-        if markdown_path and markdown_path.is_file():
-            return _read_text_file(markdown_path)
-        return _read_pdf_text_with_pdftotext(path)
-    if suffix == ".docx" or content_type.endswith("wordprocessingml.document"):
-        return _read_docx_text(path)
-    if suffix == ".doc":
-        return "[旧版 .doc 已保存，但当前环境未配置稳定的 .doc 文本抽取器；如需精读，请先转换为 .docx/PDF/Markdown。]"
-    return _read_text_file(path)
+    _sync_attachment_owner_config()
+    return agent_runtime_attachments._document_text_preview(item)
 
 
 def _truncate_document_text(text: str, limit: int = MAX_DOCUMENT_CONTEXT_CHARS) -> str:
-    cleaned = re.sub(r"\n{4,}", "\n\n\n", text or "").strip()
-    if len(cleaned) <= limit:
-        return cleaned
-    return cleaned[:limit].rstrip() + f"\n\n[文档预览已截断，仅展示前 {limit} 字符。请用文件路径或 MinerU 任务结果继续精读。]"
+    _sync_attachment_owner_config()
+    return agent_runtime_attachments._truncate_document_text(text, limit)
 
 
 def _document_attachment_context(attachments: Any | None) -> str:
-    docs = _document_attachment_dicts(attachments)
-    if not docs:
-        return ""
-    blocks = [
-        "用户本轮上传了以下文档附件。请优先基于附件内容回答；需要全文、表格或版面证据时，使用给出的本地路径或 MinerU/PDF 解析任务信息继续读取。"
-    ]
-    for index, item in enumerate(docs, start=1):
-        filename = str(item.get("filename") or Path(str(item.get("path") or "")).name or f"document-{index}")
-        path = str(item.get("path") or "")
-        content_type = str(item.get("content_type") or "application/octet-stream")
-        metadata = _attachment_metadata(item)
-        lines = [
-            f"### 文档附件 {index}: {filename}",
-            f"- 本地路径: {path}",
-            f"- 类型: {content_type}",
-            f"- 大小: {item.get('size', 0)} bytes",
-        ]
-        task_id = metadata.get("mineru_task_id") if metadata else None
-        if task_id:
-            lines.extend(
-                [
-                    f"- 解析任务: {task_id}",
-                    f"- MinerU 直连解析任务: {task_id}",
-                    f"- 通用文档解析任务: {metadata.get('document_parser_task_id') or task_id}",
-                    f"- 状态接口: {metadata.get('document_parser_status_url') or metadata.get('mineru_status_url')}",
-                    f"- 结果接口: {metadata.get('document_parser_result_url') or metadata.get('mineru_result_url')}",
-                    f"- 工作台页面: {metadata.get('document_parser_page_url') or ''}",
-                    f"- 独立解析目录: {metadata.get('parse_dir')}",
-                    f"- 元数据文件: {metadata.get('metadata_path')}",
-                    f"- 当前解析状态: {metadata.get('document_parser_status') or metadata.get('mineru_parse_status') or metadata.get('mineru_submit_status')}",
-                    "- 该 PDF 走通用 document-parser，不进入财报解析前端队列。",
-                    "- 如用户询问 PDF 版面、表格或长文档细节，应优先读取独立解析目录中的 result.md，或使用通用文档解析 source map / blocks / tables 产物。",
-                ]
-            )
-            if metadata.get("document_parser_source_map_url"):
-                lines.append(f"- Source map: {metadata.get('document_parser_source_map_url')}")
-            if metadata.get("document_parser_blocks_url"):
-                lines.append(f"- Blocks: {metadata.get('document_parser_blocks_url')}")
-            if metadata.get("document_parser_tables_url"):
-                lines.append(f"- Tables: {metadata.get('document_parser_tables_url')}")
-            if metadata.get("document_parser_source_page_url_template"):
-                lines.append(f"- 页来源模板: {metadata.get('document_parser_source_page_url_template')}")
-            if metadata.get("document_parser_source_block_url_template"):
-                lines.append(f"- 块来源模板: {metadata.get('document_parser_source_block_url_template')}")
-            if metadata.get("document_parser_source_table_url_template"):
-                lines.append(f"- 表格来源模板: {metadata.get('document_parser_source_table_url_template')}")
-            lines.append("- 引用来源如需给出可点击链接，优先使用 `/api/documents/source/<task_id>/page/<page_number>`、`/api/documents/source/<task_id>/block/<block_id>` 或 `/api/documents/source/<task_id>/table/<table_id>`。")
-            if not metadata.get("document_parser_task_id"):
-                lines.append("- 该 PDF 没有进入财报解析前端队列，也不会写入任何公司 Wiki/入库解析产物目录。")
-            if metadata.get("markdown_path"):
-                lines.append(f"- Markdown: {metadata.get('markdown_path')}")
-            if metadata.get("content_list_path"):
-                lines.append(f"- content_list: {metadata.get('content_list_path')}")
-        elif metadata:
-            if metadata.get("parse_dir"):
-                lines.append(f"- 独立解析目录: {metadata.get('parse_dir')}")
-            if metadata.get("document_parser_submit_status"):
-                lines.append(f"- 文档解析提交状态: {metadata.get('document_parser_submit_status')}")
-            else:
-                lines.append(f"- MinerU 提交状态: {metadata.get('mineru_submit_status')}")
-            if metadata.get("document_parser_status"):
-                lines.append(f"- 文档解析状态: {metadata.get('document_parser_status')}")
-            if metadata.get("mineru_parse_status"):
-                lines.append(f"- MinerU 解析状态: {metadata.get('mineru_parse_status')}")
-            if (
-                metadata.get("queue_policy") == "direct_mineru_no_pdf2md_frontend_queue"
-                or metadata.get("queue_policy") == "document_parser_chat_attachment"
-                or metadata.get("submitted_to_project_queue") is False
-            ):
-                if metadata.get("queue_policy") == "direct_mineru_no_pdf2md_frontend_queue":
-                    lines.append("- 该 PDF 没有进入财报解析前端队列，也不会写入任何公司 Wiki/入库解析产物目录。")
-                else:
-                    lines.append("- 该 PDF 没有进入财报解析前端队列。")
-            if metadata.get("document_parser_submit_error"):
-                lines.append(f"- 文档解析提交错误: {metadata.get('document_parser_submit_error')}")
-            if metadata.get("document_parser_error"):
-                lines.append(f"- 文档解析错误: {metadata.get('document_parser_error')}")
-            if metadata.get("mineru_submit_error"):
-                lines.append(f"- MinerU 提交错误: {metadata.get('mineru_submit_error')}")
-            if metadata.get("mineru_parse_error"):
-                lines.append(f"- MinerU 解析错误: {metadata.get('mineru_parse_error')}")
-        preview = _truncate_document_text(_document_text_preview(item))
-        if preview:
-            lines.extend(["", "```text", preview, "```"])
-        blocks.append("\n".join(lines))
-    return "\n\n".join(blocks)
+    _sync_attachment_owner_config()
+    return agent_runtime_attachments._document_attachment_context(attachments)
 
 
 def _display_message_with_attachments(message: str, attachments: Any | None) -> str:
-    return agent_runtime_display._display_message_with_attachments(message, _attachment_dicts(attachments))
+    return agent_runtime_attachments._display_message_with_attachments(message, attachments)
 
 
 def _recent_duplicate_reply(profile: HermesProfile, session_id: str, message_hash: str) -> str | None:
-    record = RECENT_COMPLETED_RUNS.get(_active_key(profile, session_id))
-    if not record or record.message_hash != message_hash:
-        return None
-    age = datetime.utcnow() - record.created_at
-    if age > timedelta(seconds=ANALYSIS_IDEMPOTENCY_WINDOW_SECONDS):
-        return None
-    fallback = ANALYSIS_DUPLICATE_MESSAGE if profile == "siq_analysis" else RECENT_DUPLICATE_MESSAGE
-    return record.reply or fallback
+    return agent_runtime_dedupe.recent_duplicate_reply(
+        profile,
+        session_id,
+        message_hash,
+        active_key=_active_key,
+        idempotency_window_seconds=ANALYSIS_IDEMPOTENCY_WINDOW_SECONDS,
+        duplicate_message=RECENT_DUPLICATE_MESSAGE,
+        analysis_duplicate_message=ANALYSIS_DUPLICATE_MESSAGE,
+    )
 
 
 def _forget_recent_completed_run(profile: HermesProfile, session_id: str, message_hash: str | None = None) -> None:
-    record = RECENT_COMPLETED_RUNS.get(_active_key(profile, session_id))
-    if not record:
-        return
-    if message_hash and record.message_hash != message_hash:
-        return
-    RECENT_COMPLETED_RUNS.pop(_active_key(profile, session_id), None)
+    agent_runtime_dedupe.forget_recent_completed_run(
+        profile,
+        session_id,
+        message_hash,
+        active_key=_active_key,
+    )
 
 
 def _remember_completed_run(profile: HermesProfile, session_id: str, message_hash: str | None, reply: str) -> None:
-    if not message_hash:
-        return
-    RECENT_COMPLETED_RUNS[_active_key(profile, session_id)] = RecentRunRecord(message_hash=message_hash, reply=reply)
+    agent_runtime_dedupe.remember_completed_run(
+        profile,
+        session_id,
+        message_hash,
+        reply,
+        active_key=_active_key,
+    )
 
 
 def normalize_evidence_trace_for_display(content: str | None) -> str:
@@ -2013,38 +1681,20 @@ async def load_recent_session_attachments(
     *,
     limit: int = 8,
 ) -> list[dict[str, Any]]:
-    result = await async_session.exec(
-        select(ChatMessage)
-        .where(ChatMessage.session_id == session_id)
-        .order_by(ChatMessage.id.desc())
-        .limit(max(1, limit))
+    _sync_attachment_owner_config()
+    return await agent_runtime_attachments.load_recent_session_attachments(
+        async_session,
+        session_id,
+        limit=limit,
     )
-    for message in result.all():
-        attachments = _attachments_with_fresh_metadata(_message_attachments(message))
-        if attachments:
-            return attachments
-    return []
 
 
 def _message_attachments(message: ChatMessage) -> list[dict[str, Any]]:
-    attachments: list[dict[str, Any]] = []
-    if getattr(message, "attachments_json", None):
-        try:
-            parsed = json.loads(message.attachments_json or "[]")
-            if isinstance(parsed, list):
-                attachments = [
-                    item for item in parsed
-                    if isinstance(item, dict) and str(item.get("path") or "").strip()
-                ]
-        except Exception:
-            attachments = []
-    return attachments
+    return agent_runtime_attachments._message_attachments(message)
 
 
 def chat_message_has_visible_payload(message: ChatMessage) -> bool:
-    if str(message.content or "").strip():
-        return True
-    return bool(_message_attachments(message))
+    return agent_runtime_attachments.chat_message_has_visible_payload(message)
 
 
 async def save_message(
@@ -2053,6 +1703,7 @@ async def save_message(
     content: str,
     session_id: str,
     attachments: Any | None = None,
+    audit_trace_id: str | None = None,
     *,
     user_id: int | None = None,
     profile: str | None = None,
@@ -2060,18 +1711,31 @@ async def save_message(
     deal_id: str | None = None,
     project_id: str | None = None,
     visibility: str | None = None,
+    research_identity: Mapping[str, Any] | None = None,
 ) -> None:
+    normalized_research_identity = (
+        agent_runtime_message_identity.normalize_research_identity_snapshot(research_identity)
+    )
     if role == "assistant":
         content = normalize_evidence_trace_for_display(content)
     attachment_items = _attachments_with_fresh_metadata(attachments)
-    if attachment_items:
-        await _ensure_chatmessage_attachments_column(async_session)
+    normalized_audit_trace_id = (
+        audit_trace_id
+        if role == "assistant" and agent_runtime_answer_audit.is_answer_audit_trace_id(audit_trace_id)
+        else None
+    )
+    await _ensure_chatmessage_attachments_column(async_session)
     msg = ChatMessage(
         role=role,
         content=content,
         session_id=session_id,
         attachments_json=json.dumps(attachment_items, ensure_ascii=False) if attachment_items else None,
+        audit_trace_id=normalized_audit_trace_id,
+        research_identity_json=agent_runtime_message_identity.encode_research_identity_snapshot(
+            normalized_research_identity
+        ),
     )
+    message_created_at = msg.created_at
     async_session.add(msg)
     await async_session.commit()
     context = agent_memory_service.context_from_session_id(
@@ -2082,6 +1746,7 @@ async def save_message(
         deal_id=deal_id,
         project_id=project_id,
         visibility=visibility,
+        research_identity=normalized_research_identity or None,
     )
     if context is None:
         return
@@ -2092,7 +1757,7 @@ async def save_message(
             role=role,
             content=content,
             attachments=attachment_items,
-            created_at=msg.created_at,
+            created_at=message_created_at,
             commit=False,
         )
         await agent_memory_service.maybe_promote_explicit_memory(
@@ -2124,12 +1789,12 @@ async def chat_history_response(
         .order_by(ChatMessage.id.desc())
         .limit(fetch_limit * 3)
     )
-    visible_messages = [
-        message
-        for message in reversed(result.all())
-        if chat_message_has_visible_payload(message)
-    ]
-    return [_chat_message_payload(message) for message in visible_messages[-fetch_limit:]]
+    return agent_runtime_display.chat_history_payload(
+        result.all(),
+        limit=fetch_limit,
+        has_visible_payload=chat_message_has_visible_payload,
+        message_payload=_chat_message_payload,
+    )
 
 
 def _chat_message_payload(message: ChatMessage) -> dict[str, Any]:
@@ -2256,31 +1921,20 @@ async def ensure_agent_memory_context(
     profile: HermesProfile,
     session_id: str,
     message: str,
+    *,
+    research_context: Any | None = None,
 ) -> str | None:
-    if len(str(message or "").strip()) < int(os.getenv("SIQ_AGENT_MEMORY_MIN_QUERY_CHARS", "4")):
-        return None
-    context = agent_memory_service.context_from_session_id(session_id, profile=profile)
-    if context is None:
-        return None
-    budget_ms = max(100, int(os.getenv("SIQ_AGENT_MEMORY_RETRIEVAL_BUDGET_MS", "1200")))
-    try:
-        return await asyncio.wait_for(
-            agent_memory_service.build_memory_context(
-                async_session,
-                context,
-                query=message,
-            ),
-            timeout=budget_ms / 1000,
-        )
-    except asyncio.TimeoutError:
-        print(f"[agent-memory] memory retrieval skipped after {budget_ms}ms for session {session_id}")
-        return None
-    except Exception as exc:
-        await async_session.rollback()
-        if os.getenv("SIQ_AGENT_MEMORY_STRICT", "0").strip() == "1":
-            raise
-        print(f"[agent-memory] failed to build memory context for session {session_id}: {exc}")
-        return None
+    research_kwargs = {"research_context": research_context} if research_context is not None else {}
+    return await agent_runtime_memory.ensure_agent_memory_context(
+        async_session,
+        profile,
+        session_id,
+        message,
+        min_query_chars=_env_int("SIQ_AGENT_MEMORY_MIN_QUERY_CHARS", 4, minimum=0),
+        retrieval_budget_ms=_env_int("SIQ_AGENT_MEMORY_RETRIEVAL_BUDGET_MS", 1200, minimum=100),
+        strict=_env_bool("SIQ_AGENT_MEMORY_STRICT", False),
+        **research_kwargs,
+    )
 
 
 async def save_message_in_background(
@@ -2289,9 +1943,18 @@ async def save_message_in_background(
     session_id: str,
     *,
     profile: HermesProfile | None = None,
+    audit_trace_id: str | None = None,
+    research_identity: Mapping[str, Any] | None = None,
 ) -> None:
     async with AsyncSession(async_engine) as async_session:
-        await save_message(async_session, role, content, session_id)
+        await save_message(
+            async_session,
+            role,
+            content,
+            session_id,
+            audit_trace_id=audit_trace_id,
+            research_identity=research_identity,
+        )
         if role == "assistant" and profile:
             await refresh_session_memory(async_session, profile, session_id)
 
@@ -2437,7 +2100,7 @@ def _forced_context_company_dir(context: Any | None) -> Path | None:
 
 
 def _normalize_financial_text(value: Any) -> str:
-    return re.sub(r"[\s（）()_\-：:、,，;；/]+", "", str(value or "").lower())
+    return re.sub(r"[\s（）()_\-：:、,，;；/.。]+", "", str(value or "").lower())
 
 
 def _wiki_root_path() -> Path:
@@ -2452,7 +2115,13 @@ def _wiki_root_path() -> Path:
 def _candidate_wiki_roots() -> list[Path]:
     roots: list[Path] = []
     seen: set[Path] = set()
-    for root in (_wiki_root_path(), PROJECT_WIKI_ROOT, ASSISTANT_WIKI_ROOT, *WIKI_FALLBACK_ROOTS):
+    base_roots = (_wiki_root_path(), PROJECT_WIKI_ROOT, ASSISTANT_WIKI_ROOT, *WIKI_FALLBACK_ROOTS)
+    market_roots = (
+        market_root
+        for base_root in base_roots
+        for market_root in agent_runtime_catalog.market_wiki_roots(wiki_root=base_root).values()
+    )
+    for root in (*base_roots, *market_roots):
         candidate = Path(root).expanduser()
         if candidate in seen:
             continue
@@ -2491,105 +2160,49 @@ def _resolve_company_dir(message: str, context: Any | None = None) -> Path | Non
         return forced_company_dir
     module = _load_local_citation_module()
     finder = getattr(module, "find_company_dir_from_text", None) if module else None
-    if not callable(finder):
-        return None
-
     company_hint = _context_company_hint(context)
-    candidates = [message]
-    if company_hint:
-        candidates.extend([company_hint, f"{message}\n{company_hint}"])
-    for candidate in candidates:
-        try:
-            company_dir = finder(candidate, WIKI_ROOT)
-        except Exception:
-            continue
-        if company_dir and Path(company_dir).exists():
-            return Path(company_dir)
+    if callable(finder):
+        candidates = [message]
+        if company_hint:
+            candidates.extend([company_hint, f"{message}\n{company_hint}"])
+        for candidate in candidates:
+            try:
+                company_dir = finder(candidate, WIKI_ROOT)
+            except Exception:
+                continue
+            if company_dir and Path(company_dir).exists():
+                return Path(company_dir)
     return _resolve_company_dir_from_catalog(message, context)
 
 
 def _resolve_company_dir_from_catalog(message: str, context: Any | None = None) -> Path | None:
-    catalog = _read_json_file(WIKI_ROOT / "_meta" / "company_catalog.json")
-    companies = catalog.get("companies") if isinstance(catalog, dict) else None
-    if not isinstance(companies, list):
-        return None
-
-    haystack = _normalize_financial_text(f"{message}\n{_context_company_hint(context)}")
-    if not haystack:
-        return None
-
-    for company in companies:
-        if not isinstance(company, dict):
-            continue
-        aliases = [
-            company.get("company_id"),
-            company.get("stock_code"),
-            company.get("company_short_name"),
-            company.get("company_full_name"),
-            *((company.get("aliases") or []) if isinstance(company.get("aliases"), list) else []),
-            *COMPANY_ALIAS_OVERRIDES.get(str(company.get("company_id") or ""), ()),
-        ]
-        normalized_aliases = [
-            _normalize_financial_text(alias)
-            for alias in aliases
-            if alias not in (None, "")
-        ]
-        if not any(alias and alias in haystack for alias in normalized_aliases):
-            continue
-        rel_path = company.get("company_path") or company.get("path") or f"companies/{company.get('company_id') or ''}"
-        company_dir = _resolve_company_path_across_wiki_roots(rel_path)
-        if company_dir:
-            return company_dir
-    return None
+    matches = _resolve_company_dirs_from_catalog(message, context, limit=1)
+    return matches[0] if matches else None
 
 
 def _resolve_company_dirs_from_catalog(message: str, context: Any | None = None, *, limit: int = 4) -> list[Path]:
-    catalog = _read_json_file(WIKI_ROOT / "_meta" / "company_catalog.json")
-    companies = catalog.get("companies") if isinstance(catalog, dict) else None
-    if not isinstance(companies, list):
-        return []
-
-    haystack = _normalize_financial_text(f"{message}\n{_context_company_hint(context)}")
-    if not haystack:
-        return []
-
-    matches: list[tuple[int, str, Path]] = []
-    seen: set[Path] = set()
-    for company in companies:
-        if not isinstance(company, dict):
-            continue
-        aliases = [
-            company.get("company_id"),
-            company.get("stock_code"),
-            company.get("company_short_name"),
-            company.get("company_full_name"),
-            *((company.get("aliases") or []) if isinstance(company.get("aliases"), list) else []),
-            *COMPANY_ALIAS_OVERRIDES.get(str(company.get("company_id") or ""), ()),
-        ]
-        normalized_aliases = [
-            _normalize_financial_text(alias)
-            for alias in aliases
-            if alias not in (None, "")
-        ]
-        matched_aliases = [alias for alias in normalized_aliases if alias and alias in haystack]
-        if not matched_aliases:
-            continue
-        rel_path = company.get("company_path") or company.get("path") or f"companies/{company.get('company_id') or ''}"
-        company_dir = _resolve_company_path_across_wiki_roots(rel_path)
-        if not company_dir or company_dir in seen:
-            continue
-        seen.add(company_dir)
-        best_alias = max(matched_aliases, key=len)
-        matches.append((len(best_alias), best_alias, company_dir))
-    matches.sort(key=lambda item: (-item[0], item[1], str(item[2])))
-    return [company_dir for _score, _alias, company_dir in matches[:limit]]
+    identity = agent_runtime_context.research_identity(context)
+    market_hint = identity.get("market")
+    haystack = f"{message}\n{_context_company_hint(context)}"
+    return agent_runtime_catalog.resolve_catalog_company_dirs(
+        haystack,
+        wiki_root=_wiki_root_path(),
+        normalize_text=_normalize_financial_text,
+        alias_overrides=COMPANY_ALIAS_OVERRIDES,
+        market_hint=market_hint,
+        company_id_hint=identity.get("company_id"),
+        company_roots=_candidate_wiki_roots(),
+        limit=limit,
+        read_json_file=_read_json_file,
+    )
 
 
 def _resolve_company_dirs(message: str, context: Any | None = None, *, limit: int = 4) -> list[Path]:
     if _is_general_assistant_request(message):
         return []
     dirs = _resolve_company_dirs_from_catalog(message, context, limit=limit)
-    first = _resolve_company_dir(message, context)
+    forced = _forced_context_company_dir(context)
+    first = forced or (None if dirs else _resolve_company_dir(message, context))
     if first and first not in dirs:
         dirs.insert(0, first)
     output: list[Path] = []
@@ -2625,155 +2238,112 @@ def _context_for_company_dir(company_dir: Path) -> dict[str, Any]:
     }
 
 
+def _resolved_research_context(message: str, context: Any | None = None) -> dict[str, Any]:
+    raw = agent_runtime_context.mutable_context_dict(context)
+    output = context if isinstance(context, dict) else raw
+    existing = agent_runtime_context.research_identity(raw)
+    if all(existing.get(field) for field in agent_runtime_context.COMPLETE_RESEARCH_IDENTITY_FIELDS):
+        return output
+    company_dir = _resolve_company_dir(message, context)
+    if not company_dir:
+        return output
+    company = _read_json_file(company_dir / "company.json") or {}
+    market = str(company.get("market") or existing.get("market") or "CN").upper()
+    if market == "CN":
+        return output
+    report = _primary_report_for_company(company_dir, message, context)
+    identity = {
+        "market": market,
+        "company_id": str(company.get("company_id") or report.get("company_id") or ""),
+        "filing_id": str(report.get("filing_id") or ""),
+        "parse_run_id": str(report.get("parse_run_id") or ""),
+    }
+    output["research_identity"] = {**existing, **{key: value for key, value in identity.items() if value}}
+    output["company"] = {
+        **(output.get("company") if isinstance(output.get("company"), dict) else {}),
+        "market": market,
+        "company_id": identity["company_id"],
+        "name": company.get("company_short_name") or company.get("company_name") or company.get("company_full_name"),
+        "code": company.get("stock_code") or company.get("ticker"),
+        "dir": str(company_dir),
+    }
+    output["resolved_period"] = {
+        **(output.get("resolved_period") if isinstance(output.get("resolved_period"), dict) else {}),
+        "market": market,
+        "report_id": report.get("report_id"),
+        "filing_id": identity["filing_id"],
+        "parse_run_id": identity["parse_run_id"],
+    }
+    return agent_runtime_context.context_with_research_identity(output)
+
+
 def _message_for_company(message: str, company_dir: Path) -> str:
     return f"{_company_query_prefix(company_dir)} {message}"
 
 
 def _report_text_blob(report: dict[str, Any]) -> str:
-    metadata = report.get("source_filename_metadata") if isinstance(report.get("source_filename_metadata"), dict) else {}
-    values = [
-        report.get("report_id"),
-        report.get("report_kind"),
-        report.get("source_filename"),
-        metadata.get("report_type"),
-        metadata.get("report_end"),
-    ]
-    return " ".join(str(item or "") for item in values).lower()
+    return agent_runtime_wiki_context.report_text_blob(report)
 
 
 def _report_is_annual(report: dict[str, Any]) -> bool:
-    text = _report_text_blob(report)
-    return "annual" in text or "年报" in text or "年度报告" in text or "2025-annual" in text
+    return agent_runtime_wiki_context.report_is_annual(report)
 
 
 def _report_is_quarterly(report: dict[str, Any]) -> bool:
-    text = _report_text_blob(report)
-    return any(term in text for term in ("quarter", "quarterly", "季报", "季度", "半年报", "半年度"))
+    return agent_runtime_wiki_context.report_is_quarterly(report)
 
 
 def _select_report_from_company_json(company: dict[str, Any], message: str | None = None) -> dict[str, Any]:
-    reports = [item for item in (company.get("reports") or []) if isinstance(item, dict)]
-    if not reports:
-        return {}
-
-    text = re.sub(r"\s+", "", message or "").lower()
-    wants_quarterly = any(term.lower() in text for term in REPORT_QUARTERLY_TERMS)
-    wants_annual = any(term.lower() in text for term in REPORT_ANNUAL_TERMS)
-
-    if wants_quarterly:
-        quarterly = next((item for item in reports if _report_is_quarterly(item)), None)
-        if quarterly:
-            return quarterly
-    if wants_annual or not wants_quarterly:
-        annual = next((item for item in reports if item.get("report_id") == "2025-annual"), None)
-        if annual:
-            return annual
-        annual = next((item for item in reports if _report_is_annual(item)), None)
-        if annual:
-            return annual
-
-    requested_report_id = company.get("primary_report_id")
-    report = next((item for item in reports if item.get("report_id") == requested_report_id), None)
-    return report or reports[0]
-
-
-def _primary_report_for_company(company_dir: Path, message: str | None = None) -> dict[str, Any]:
-    module = _load_local_citation_module()
-    primary = getattr(module, "primary_report", None) if module else None
-    if callable(primary):
-        try:
-            report = primary(company_dir, query_text=message)
-            if isinstance(report, dict):
-                return report
-        except TypeError:
-            try:
-                report = primary(company_dir)
-                if isinstance(report, dict) and not message:
-                    return report
-            except Exception:
-                pass
-        except Exception:
-            pass
-    company = _read_json_file(company_dir / "company.json") or {}
-    report = _select_report_from_company_json(company, message) if isinstance(company, dict) else {}
-    report_id = (
-        report.get("report_id")
-        or (company.get("primary_report_id") if isinstance(company, dict) else None)
-        or "2025-annual"
+    return agent_runtime_wiki_context.select_report_from_company_json(
+        company,
+        message,
+        annual_terms=REPORT_ANNUAL_TERMS,
+        quarterly_terms=REPORT_QUARTERLY_TERMS,
     )
-    return {
-        "report_id": report_id,
-        "task_id": report.get("task_id") or company.get("task_id"),
-        "document_full": company_dir / (report.get("document_full") or f"reports/{report_id}/document_full.json"),
-    }
+
+
+def _primary_report_for_company(
+    company_dir: Path,
+    message: str | None = None,
+    context: Any | None = None,
+) -> dict[str, Any]:
+    report = agent_runtime_wiki_context.primary_report_for_company(
+        company_dir,
+        message,
+        local_citation_module=_load_local_citation_module(),
+        read_json_file=_read_json_file,
+        annual_terms=REPORT_ANNUAL_TERMS,
+        quarterly_terms=REPORT_QUARTERLY_TERMS,
+        research_identity=agent_runtime_context.research_identity(context),
+    )
+    if report.get("selection_status") == "identity_mismatch" and isinstance(context, dict):
+        event = {
+            "reason": "research_identity_report_mismatch",
+            "stage": "wiki_report_selector_failed",
+            "source": "wiki_identity_selector",
+            "detail": str(report.get("selection_reason") or "unknown"),
+        }
+        events = context.setdefault("_audit_fallback_events", [])
+        if event not in events:
+            events.append(event)
+    return report
 
 
 def _existing_company_file(company_dir: Path, rel_candidates: list[str | None]) -> Path | None:
-    for rel in rel_candidates:
-        if not rel:
-            continue
-        path = company_dir / rel
-        if path.exists():
-            return path
-    return None
+    return agent_runtime_wiki_context.existing_company_file(company_dir, rel_candidates)
 
 
-def _company_artifact_paths(company_dir: Path, report_id: str) -> dict[str, Path]:
-    company = _read_json_file(company_dir / "company.json") or {}
-    metrics = company.get("metrics") if isinstance(company, dict) else {}
-    by_report = (metrics.get("by_report") or {}).get(report_id) if isinstance(metrics, dict) else {}
-    latest = metrics.get("latest") if isinstance(metrics, dict) else {}
-    evidence = company.get("evidence") if isinstance(company, dict) else {}
-
-    candidates: dict[str, list[str | None]] = {
-        "three_statements": [
-            by_report.get("three_statements") if isinstance(by_report, dict) else None,
-            f"metrics/reports/{report_id}/three_statements.json",
-            latest.get("three_statements") if isinstance(latest, dict) else None,
-            "metrics/latest/three_statements.json",
-            metrics.get("three_statements") if isinstance(metrics, dict) else None,
-            "metrics/three_statements.json",
-            by_report.get("financial_data") if isinstance(by_report, dict) else None,
-            latest.get("financial_data") if isinstance(latest, dict) else None,
-            f"reports/{report_id}/metrics/financial_data.json",
-        ],
-        "key_metrics": [
-            by_report.get("key_metrics") if isinstance(by_report, dict) else None,
-            f"metrics/reports/{report_id}/key_metrics.json",
-            latest.get("key_metrics") if isinstance(latest, dict) else None,
-            "metrics/latest/key_metrics.json",
-            metrics.get("key_metrics") if isinstance(metrics, dict) else None,
-            "metrics/key_metrics.json",
-        ],
-        "validation": [
-            by_report.get("validation") if isinstance(by_report, dict) else None,
-            f"metrics/reports/{report_id}/validation.json",
-            latest.get("validation") if isinstance(latest, dict) else None,
-            "metrics/latest/validation.json",
-            metrics.get("validation") if isinstance(metrics, dict) else None,
-            "metrics/validation.json",
-        ],
-        "evidence_index": [
-            evidence.get("evidence_index") if isinstance(evidence, dict) else None,
-            "evidence/evidence_index.json",
-        ],
-        "pdf_refs": [
-            evidence.get("pdf_refs") if isinstance(evidence, dict) else None,
-            "evidence/pdf_refs.json",
-        ],
-        "report_md": [f"reports/{report_id}/report.md"],
-        "report_json": [f"reports/{report_id}/report.json"],
-        "document_full": [f"reports/{report_id}/document_full.json"],
-        "evidence_semantic": ["semantic/evidence_semantic.json"],
-        "retrieval_index": ["semantic/retrieval_index.json"],
-        "document_links": ["semantic/document_links.json"],
-        "note_links": ["semantic/note_links.json"],
-    }
-    return {
-        key: path
-        for key, rels in candidates.items()
-        if (path := _existing_company_file(company_dir, rels))
-    }
+def _company_artifact_paths(
+    company_dir: Path,
+    report_id: str,
+    strict_report: bool = False,
+) -> dict[str, Path]:
+    return agent_runtime_wiki_context.company_artifact_paths(
+        company_dir,
+        report_id,
+        read_json_file=_read_json_file,
+        strict_report=strict_report,
+    )
 
 
 def _report_relpath(path: Path, company_dir: Path) -> str:
@@ -2842,14 +2412,11 @@ def _snippet_window(lines: list[str], line_number: int, *, radius: int = 2) -> s
 
 
 def _table_meta_by_line(company_dir: Path, report_id: str) -> list[dict[str, Any]]:
-    report_json = _read_json_file(company_dir / "reports" / report_id / "report.json") or {}
-    tables = report_json.get("tables") if isinstance(report_json, dict) else []
-    if isinstance(tables, list) and tables:
-        return [table for table in tables if isinstance(table, dict)]
-    document_full = _read_json_file(company_dir / "reports" / report_id / "document_full.json") or {}
-    enhanced = document_full.get("content_list_enhanced") if isinstance(document_full, dict) else {}
-    tables = enhanced.get("tables") if isinstance(enhanced, dict) else []
-    return [table for table in tables if isinstance(table, dict)] if isinstance(tables, list) else []
+    return agent_runtime_wiki_context.table_meta_by_line(
+        company_dir,
+        report_id,
+        read_json_file=_read_json_file,
+    )
 
 
 def _nearest_table_meta(tables: list[dict[str, Any]], line_number: int | None, *, max_distance: int = 3) -> dict[str, Any] | None:
@@ -2861,287 +2428,86 @@ def _nearest_table_meta(tables: list[dict[str, Any]], line_number: int | None, *
 
 
 def _document_full_text_items(document_full: dict[str, Any], terms: list[str]) -> list[dict[str, Any]]:
-    items: list[dict[str, Any]] = []
-    content_list = document_full.get("content_list") if isinstance(document_full, dict) else []
-    if isinstance(content_list, list):
-        for index, item in enumerate(content_list):
-            if not isinstance(item, dict):
-                continue
-            text = str(item.get("text") or "").strip()
-            if not text:
-                continue
-            score = _line_match_score(text, terms)
-            if score <= 0:
-                continue
-            page_idx = _safe_int(item.get("page_idx"))
-            items.append(
-                {
-                    "score": score,
-                    "order": index,
-                    "text": text[:REPORT_FULLTEXT_SNIPPET_CHARS],
-                    "pdf_page": page_idx + 1 if page_idx is not None else None,
-                    "type": item.get("type"),
-                }
-            )
-
-    enhanced = document_full.get("content_list_enhanced") if isinstance(document_full, dict) else {}
-    tables = enhanced.get("tables") if isinstance(enhanced, dict) else []
-    if isinstance(tables, list):
-        for index, table in enumerate(tables):
-            if not isinstance(table, dict):
-                continue
-            text = " ".join(str(table.get(key) or "") for key in ("heading", "preview", "unit"))
-            score = _line_match_score(text, terms)
-            if score <= 0:
-                continue
-            items.append(
-                {
-                    "score": score + 8,
-                    "order": 100000 + index,
-                    "text": text[:REPORT_FULLTEXT_SNIPPET_CHARS],
-                    "pdf_page": table.get("pdf_page_number") or table.get("pdf_page"),
-                    "table_index": table.get("table_index"),
-                    "md_line": table.get("line") or table.get("md_line") or table.get("markdown_line"),
-                    "type": "table",
-                }
-            )
-    return items
+    return agent_runtime_wiki_context.document_full_text_items(
+        document_full,
+        terms,
+        snippet_chars=REPORT_FULLTEXT_SNIPPET_CHARS,
+    )
 
 
 def _should_consider_wiki_fulltext_fallback(message: str, context: Any | None = None) -> bool:
-    text = re.sub(r"\s+", "", message or "")
-    if not text or _is_general_assistant_request(text):
-        return False
-    if _resolve_company_dir(message, context) is None:
-        return False
-    if any(term.lower() in text.lower() for term in REPORT_FULLTEXT_FALLBACK_TERMS):
-        return True
-    company = _context_company(context)
-    return bool(company and any(term in text for term in ("多少", "数据", "情况", "如何", "怎么样", "说明", "披露")))
+    return agent_runtime_wiki_context.should_consider_wiki_fulltext_fallback(
+        message,
+        context,
+        fallback_terms=REPORT_FULLTEXT_FALLBACK_TERMS,
+        is_general_assistant_request=_is_general_assistant_request,
+        resolve_company_dir=_resolve_company_dir,
+        context_company=_context_company,
+    )
 
 
 def _wiki_fulltext_fallback_result(message: str, context: Any | None = None) -> dict[str, Any] | None:
-    if not _should_consider_wiki_fulltext_fallback(message, context):
+    if _non_cn_financial_retrieval_blocked(message, context):
         return None
-    company_dir = _resolve_company_dir(message, context)
-    if not company_dir:
-        return None
-    report = _primary_report_for_company(company_dir, message)
-    report_id = str(report.get("report_id") or "2025-annual")
-    report_md = company_dir / "reports" / report_id / "report.md"
-    document_full_path = company_dir / "reports" / report_id / "document_full.json"
-    if not report_md.is_file() and not document_full_path.is_file():
-        return None
-
-    terms = _fallback_search_terms(message, company_dir)
-    if not terms:
-        return None
-    specific_terms = _specific_fulltext_terms(terms)
-    if not specific_terms:
-        return None
-
-    company = _read_json_file(company_dir / "company.json") or {}
-    rows: list[dict[str, Any]] = []
-    tables = _table_meta_by_line(company_dir, report_id)
-    lines: list[str] = []
-    if report_md.is_file():
-        try:
-            lines = report_md.read_text(encoding="utf-8", errors="ignore").splitlines()
-        except Exception:
-            lines = []
-    if lines:
-        scored_lines = [
-            (_line_match_score(line, terms), index, line)
-            for index, line in enumerate(lines, start=1)
-        ]
-        scored_lines = [(score, index, line) for score, index, line in scored_lines if score > 0]
-        scored_lines.sort(key=lambda item: (-item[0], item[1]))
-        seen_lines: set[int] = set()
-        for score, line_number, _line in scored_lines[: REPORT_FULLTEXT_MAX_SNIPPETS * 2]:
-            if any(abs(line_number - seen) <= 1 for seen in seen_lines):
-                continue
-            if not _line_matches_any_term(_line, specific_terms):
-                continue
-            seen_lines.add(line_number)
-            table = _nearest_table_meta(tables, line_number)
-            pdf_page = (
-                (table.get("pdf_page_number") or table.get("pdf_page")) if table else None
-            ) or _nearest_report_pdf_page(lines, line_number)
-            table_index = table.get("table_index") if table else None
-            rows.append(
-                {
-                    "source_type": "wiki_report_fulltext",
-                    "file": f"reports/{report_id}/report.md",
-                    "score": score,
-                    "snippet": _snippet_window(lines, line_number, radius=2),
-                    "task_id": report.get("task_id"),
-                    "pdf_page": pdf_page,
-                    "table_index": table_index,
-                    "md_line": line_number,
-                }
-            )
-            if len(rows) >= REPORT_FULLTEXT_MAX_SNIPPETS:
-                break
-
-    if len(rows) < REPORT_FULLTEXT_MAX_SNIPPETS and document_full_path.is_file():
-        document_full = _read_json_file(document_full_path) or {}
-        if isinstance(document_full, dict):
-            existing_keys = {(row.get("pdf_page"), row.get("table_index"), row.get("md_line"), row.get("snippet")) for row in rows}
-            items = _document_full_text_items(document_full, terms)
-            items.sort(key=lambda item: (-int(item.get("score") or 0), int(item.get("order") or 0)))
-            for item in items:
-                if not _line_matches_any_term(str(item.get("text") or ""), specific_terms):
-                    continue
-                key = (item.get("pdf_page"), item.get("table_index"), item.get("md_line"), item.get("text"))
-                if key in existing_keys:
-                    continue
-                rows.append(
-                    {
-                        "source_type": "wiki_document_full",
-                        "file": f"reports/{report_id}/document_full.json",
-                        "score": item.get("score"),
-                        "snippet": str(item.get("text") or "")[:REPORT_FULLTEXT_SNIPPET_CHARS],
-                        "task_id": report.get("task_id"),
-                        "pdf_page": item.get("pdf_page"),
-                        "table_index": item.get("table_index"),
-                        "md_line": item.get("md_line"),
-                        "content_type": item.get("type"),
-                    }
-                )
-                existing_keys.add(key)
-                if len(rows) >= REPORT_FULLTEXT_MAX_SNIPPETS:
-                    break
-
-    if not rows:
-        return None
-
-    return {
-        "company_dir": company_dir,
-        "company_id": company_dir.name,
-        "company_name": company.get("company_short_name") or company.get("company_full_name") or company_dir.name,
-        "stock_code": company.get("stock_code") or company_dir.name.split("-", 1)[0],
-        "report_id": report_id,
-        "task_id": report.get("task_id"),
-        "report_md": report_md,
-        "document_full": document_full_path,
-        "terms": terms,
-        "rows": rows,
-    }
+    return agent_runtime_wiki_context.wiki_fulltext_fallback_result(
+        message,
+        context,
+        fallback_terms=REPORT_FULLTEXT_FALLBACK_TERMS,
+        generic_terms=REPORT_FULLTEXT_GENERIC_TERMS,
+        max_snippets=REPORT_FULLTEXT_MAX_SNIPPETS,
+        snippet_chars=REPORT_FULLTEXT_SNIPPET_CHARS,
+        is_general_assistant_request=_is_general_assistant_request,
+        resolve_company_dir=_resolve_company_dir,
+        context_company=_context_company,
+        read_json_file=_read_json_file,
+        primary_report_for_company=_primary_report_for_company,
+    )
 
 
 def _render_wiki_fulltext_fallback_context(result: dict[str, Any]) -> str:
-    rows = result.get("rows") or []
-    lines = [
-        "以下是后端在结构化 Wiki metrics/evidence/semantic 未命中或命中不足时，从完整年报 Markdown 和完整解析 JSON 确定性检索出的全文兜底证据。",
-        "输出要求：",
-        "- 优先基于这些原文片段回答；不得再说“未找到/无法回答”，除非下方片段确实无关。",
-        "- `reports/<report_id>/report.md` 是完整报告正文；`reports/<report_id>/document_full.json` 是完整解析容器。不要使用 `graph/report.md`，不要把 `report.json` 当 full json。",
-        "- 必须在 `## 引用来源` 保留 `source_type/file/task_id/pdf_page/table_index/md_line`；字段为空时写 `未返回`。",
-        f"- 公司: {result.get('company_name')} / 代码 {result.get('stock_code')} / company_id={result.get('company_id')}",
-        f"- 报告: report_id={result.get('report_id')} / task_id={result.get('task_id') or '未返回'}",
-        f"- 完整 Markdown: {result.get('report_md')}",
-        f"- 完整 full JSON: {result.get('document_full')}",
-        f"- 检索词: {', '.join(result.get('terms') or [])}",
-        "",
-        "## 全文兜底证据",
-    ]
-    for index, row in enumerate(rows, start=1):
-        lines.extend(
-            [
-                "",
-                f"### F{index}. {row.get('source_type')} / score={row.get('score')}",
-                f"- file={row.get('file')}",
-                f"- task_id={row.get('task_id') or '未返回'}, pdf_page={row.get('pdf_page') or '未返回'}, table_index={row.get('table_index') if row.get('table_index') not in (None, '') else '未返回'}, md_line={row.get('md_line') or '未返回'}",
-                "```text",
-                str(row.get("snippet") or "").strip(),
-                "```",
-            ]
-        )
-    lines.extend(["", "## 全文兜底引用"])
-    for index, row in enumerate(rows, start=1):
-        task_id = row.get("task_id")
-        pdf_page = row.get("pdf_page")
-        table_index = row.get("table_index")
-        links = []
-        pdf_url = _evidence_url(task_id, pdf_page, table_index, "pdf")
-        page_url = _evidence_url(task_id, pdf_page, table_index, "page")
-        table_url = _evidence_url(task_id, pdf_page, table_index, "table")
-        if pdf_url:
-            links.append(f"[打开PDF页]({pdf_url})")
-        if page_url:
-            links.append(f"[查看页来源]({page_url})")
-        if table_url:
-            links.append(f"[查看表格]({table_url})")
-        lines.append(
-            f"[F{index}] source_type={row.get('source_type')}, file={row.get('file')}, "
-            f"metric={','.join(result.get('terms') or []) or '全文检索'}, period={result.get('report_id')}, "
-            f"task_id={task_id or '未返回'}, pdf_page={pdf_page or '未返回'}, "
-            f"table_index={table_index if table_index not in (None, '') else '未返回'}, "
-            f"md_line={row.get('md_line') or '未返回'}"
-            + (("，" + "，".join(links)) if links else "")
-        )
-    return "\n".join(lines)
+    return agent_runtime_wiki_context.render_wiki_fulltext_fallback_context(
+        result,
+        evidence_url=_evidence_url,
+    )
 
 
 def build_wiki_fulltext_fallback_context(message: str, context: Any | None = None) -> str | None:
-    result = _wiki_fulltext_fallback_result(message, context)
-    if not result:
+    if _non_cn_financial_retrieval_blocked(message, context):
         return None
-    return _render_wiki_fulltext_fallback_context(result)
+    return agent_runtime_wiki_context.build_wiki_fulltext_fallback_context(
+        message,
+        context,
+        fallback_terms=REPORT_FULLTEXT_FALLBACK_TERMS,
+        generic_terms=REPORT_FULLTEXT_GENERIC_TERMS,
+        max_snippets=REPORT_FULLTEXT_MAX_SNIPPETS,
+        snippet_chars=REPORT_FULLTEXT_SNIPPET_CHARS,
+        is_general_assistant_request=_is_general_assistant_request,
+        resolve_company_dir=_resolve_company_dir,
+        context_company=_context_company,
+        read_json_file=_read_json_file,
+        primary_report_for_company=_primary_report_for_company,
+        evidence_url=_evidence_url,
+    )
 
 
 def build_company_wiki_scope_context(message: str, context: Any | None = None) -> str | None:
     """Pin a single-company question to the resolved local Wiki workset."""
-    company_dir = _resolve_company_dir(message, context)
-    if not company_dir:
+    if _non_cn_financial_retrieval_blocked(message, context):
         return None
-    company = _read_json_file(company_dir / "company.json") or {}
-    report = _primary_report_for_company(company_dir, message)
-    report_id = str(report.get("report_id") or "2025-annual")
-    paths = _company_artifact_paths(company_dir, report_id)
-
-    company_name = (
-        company.get("company_short_name")
-        or company.get("company_full_name")
-        or (company_dir.name.split("-", 1)[1] if "-" in company_dir.name else company_dir.name)
+    return agent_runtime_wiki_context.build_company_wiki_scope_context(
+        message,
+        context,
+        wiki_root=WIKI_ROOT,
+        resolve_company_dir=_resolve_company_dir,
+        read_json_file=_read_json_file,
+        primary_report_for_company=_primary_report_for_company,
+        company_artifact_paths=_company_artifact_paths,
+        clean_context_value=_clean_context_value,
     )
-    stock_code = company.get("stock_code") or company_dir.name.split("-", 1)[0]
-    lines = [
-        "以下是后端已确定的单家公司 Wiki 工作集。回答本题时必须以此为公司边界；除非用户在本轮明确指定其他公司，不得沿用会话历史中的其他公司、备份 wiki 或 profile 目录。",
-        f"- Wiki 根目录: {WIKI_ROOT}",
-        f"- 公司: {company_name} / 代码 {stock_code} / company_id={company_dir.name}",
-        f"- 公司目录: {company_dir}",
-        f"- 主报告: report_id={report_id}, task_id={report.get('task_id') or '未返回'}",
-        "- 数据优先级: 三大表 `three_statements.json` > 核心指标 `key_metrics.json` > legacy `evidence/evidence_index.json` / `evidence/pdf_refs.json` > semantic `evidence_semantic.json` / `retrieval_index.json` > `reports/<report_id>/report.json` 的 tables > 完整 `reports/<report_id>/report.md` > 完整 `reports/<report_id>/document_full.json` > PostgreSQL fallback。",
-        "- 深度回溯协议: 任何一层证据文件存在但为空、字段为 `未返回`、或没有可打开 `/api/pdf_page` / `/api/source` 链接时，不得下结论说“无法溯源”；必须继续检查下一层，尤其是 `report.json.tables`、`document_full.content_list_enhanced.tables` 和 semantic evidence。",
-        "- 溯源合格标准: 至少给出 `task_id` + `pdf_page` 或 `table_index`，并优先生成 `/api/pdf_page/{task_id}/{page}`、`/api/source/{task_id}/page/{page}`、`/api/source/{task_id}/table/{table_index}`。`pdf_page=未返回` 或 `table_index=未返回` 只能作为临时状态，不能作为最终证据充分结论。",
-        "- 工作流约束: 先基于三大表确认金额、期间和表格来源，再用附注/semantic 解释构成或原因；不得用附注表替代三大表主表口径。",
-        "- 兜底约束: 不得读取 `graph/report.md` 作为完整报告；不得把 `reports/<report_id>/report.json` 当作 full json。完整解析容器固定为 `document_full.json`。",
-    ]
-    if company.get("industry"):
-        lines.append(f"- 行业: {_clean_context_value(company['industry'])}")
-    for label, key in (
-        ("三大表", "three_statements"),
-        ("核心指标", "key_metrics"),
-        ("校验结果", "validation"),
-        ("证据索引", "evidence_index"),
-        ("PDF页码映射", "pdf_refs"),
-        ("语义证据", "evidence_semantic"),
-        ("年报Markdown", "report_md"),
-        ("完整full JSON", "document_full"),
-        ("年报JSON", "report_json"),
-        ("语义检索索引", "retrieval_index"),
-        ("附注跳转", "document_links"),
-        ("附注表索引", "note_links"),
-    ):
-        path = paths.get(key)
-        if path:
-            lines.append(f"- {label}: {path}")
-    return "\n".join(lines)
 
 
 def _iter_metric_records(obj: Any) -> list[dict[str, Any]]:
-    return agent_runtime_statement_context.iter_metric_records(obj)
+    return agent_runtime_market_facts.normalize_statement_records(obj)
 
 
 def _period_sort_key(value: Any) -> tuple[int, str]:
@@ -3196,6 +2562,33 @@ def _latest_records_by_statement(records: list[dict[str, Any]]) -> list[dict[str
     )
 
 
+def _append_source_access_token(url: str | None, task_id: Any) -> str | None:
+    """Make PDF/source evidence links independently openable for a short TTL.
+
+    The web client still resolves authenticated source links dynamically, but
+    citation links are also copied into reports and chat history.  A signed
+    task-bound token keeps those links usable without exposing a user JWT.
+    """
+    if not url or not task_id:
+        return url
+    try:
+        from routers.source import create_source_access_token
+
+        token = create_source_access_token(str(task_id))
+        parsed = urlsplit(url)
+        query = [
+            (key, value)
+            for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+            if key.lower() not in {"source_token", "access_token"}
+        ]
+        query.append(("source_token", token))
+        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment))
+    except Exception:
+        # A citation must remain renderable even when token configuration is
+        # unavailable; the authenticated frontend fallback can still resolve it.
+        return url
+
+
 def _evidence_url(task_id: Any, pdf_page: Any, table_index: Any, kind: str) -> str | None:
     if not task_id:
         return None
@@ -3211,11 +2604,11 @@ def _evidence_url(task_id: Any, pdf_page: Any, table_index: Any, kind: str) -> s
         return None
     if callable(public_api_url):
         try:
-            return public_api_url(path)
+            return _append_source_access_token(public_api_url(path), task_id)
         except Exception:
             pass
     origin = (os.environ.get("SIQ_PUBLIC_ORIGIN") or os.environ.get("SIQ_PUBLIC_ORIGIN", "https://arthurmao.synology.me:9391")).rstrip("/")
-    return f"{origin}{path}"
+    return _append_source_access_token(f"{origin}{path}", task_id)
 
 
 def _statement_record_to_row(record: dict[str, Any], report_id: str, metrics_file: Path, company_dir: Path) -> dict[str, Any]:
@@ -3238,6 +2631,8 @@ def _statement_record_to_row(record: dict[str, Any], report_id: str, metrics_fil
         "period": record.get("period") or source.get("period"),
         "raw_value": record.get("raw_value") or record.get("value") or record.get("normalized_value"),
         "unit": record.get("unit_hint") or record.get("raw_unit") or record.get("unit"),
+        "currency": record.get("currency") or source.get("currency"),
+        "scale": record.get("scale") or source.get("scale"),
         "normalized_value": record.get("normalized_value"),
         "report_id": report_id,
         "source_type": "wiki_metrics",
@@ -3246,6 +2641,11 @@ def _statement_record_to_row(record: dict[str, Any], report_id: str, metrics_fil
         "pdf_page": pdf_page,
         "table_index": table_index,
         "md_line": md_line,
+        "evidence_source_type": source.get("source_type"),
+        "source_url": source.get("source_url") or source.get("url"),
+        "source_anchor": source.get("source_anchor") or source.get("anchor") or source.get("xpath"),
+        "source_quote": source.get("quote_text") or source.get("html_snippet"),
+        "xbrl_tag": source.get("xbrl_tag"),
         "open_pdf_page_url": _evidence_url(task_id, pdf_page, table_index, "pdf"),
         "open_source_page_url": _evidence_url(task_id, pdf_page, table_index, "page"),
         "open_source_table_url": _evidence_url(task_id, pdf_page, table_index, "table"),
@@ -3260,10 +2660,11 @@ def _question_needs_three_statement_context(message: str, context: Any | None = 
         return False
     if _is_human_capital_query(message):
         return False
-    if _is_goodwill_main_statement_query(message):
-        return False
-    if _should_inject_note_detail_context(message):
-        return False
+    # Goodwill questions require the balance-sheet net amount first. When the
+    # wording also asks for detail/impairment, note evidence is appended later
+    # by the shared context builder instead of replacing this block.
+    if "商誉" in text:
+        return True
     if _is_statement_query(message):
         return True
     if any(term.lower() in text.lower() for term in CORE_KEY_METRIC_TERMS):
@@ -3297,9 +2698,15 @@ def _three_statement_core_result(message: str, context: Any | None = None) -> di
     company_dir = _resolve_company_dir(message, context)
     if not company_dir:
         return None
-    report = _primary_report_for_company(company_dir, message)
+    report = _primary_report_for_company(company_dir, message, context)
+    if report.get("selection_status") == "identity_mismatch":
+        return None
     report_id = str(report.get("report_id") or "2025-annual")
-    metrics_file = _company_artifact_paths(company_dir, report_id).get("three_statements")
+    metrics_file = _company_artifact_paths(
+        company_dir,
+        report_id,
+        report.get("selection_status") == "identity_exact",
+    ).get("three_statements")
     if not metrics_file:
         return None
     payload = _read_json_file(metrics_file)
@@ -3309,19 +2716,70 @@ def _three_statement_core_result(message: str, context: Any | None = None) -> di
     if not records:
         return None
     company = _read_json_file(company_dir / "company.json") or {}
+    artifact_paths = _company_artifact_paths(
+        company_dir,
+        report_id,
+        report.get("selection_status") == "identity_exact",
+    )
+    validation_file = artifact_paths.get("validation")
+    validation = agent_runtime_market_facts.validation_summary(
+        _read_json_file(validation_file) if validation_file else None
+    )
+    validation_blocked = str(validation.get("status") or "").casefold() == "fail"
+    rows = [
+        _statement_record_to_row(record, report_id, metrics_file, company_dir)
+        for record in records
+    ]
+    requested_terms = _postgres_requested_metric_terms(message)
+    if requested_terms:
+        requested_norms = [_normalize_financial_text(term) for term in requested_terms]
+        matched_rows = []
+        for row in rows:
+            row_text = _normalize_financial_text(
+                " ".join(
+                    str(row.get(key) or "")
+                    for key in ("metric_key", "metric_name", "source_quote")
+                )
+            )
+            if any(term and term in row_text for term in requested_norms):
+                matched_rows.append(row)
+        if matched_rows:
+            rows = matched_rows
+        else:
+            return None
+    else:
+        normalized_query = _normalize_financial_text(message)
+        statement_filters = (
+            (("资产负债表", "balancesheet", "財政状態計算書", "재무상태표"), "balance_sheet"),
+            (("利润表", "损益表", "incomestatement", "profitandloss"), "income_statement"),
+            (("现金流量表", "cashflowstatement", "キャッシュフロー", "현금흐름표"), "cash_flow_statement"),
+        )
+        for terms, statement_type in statement_filters:
+            if any(term in normalized_query for term in terms):
+                rows = [row for row in rows if row.get("statement_type") == statement_type]
+                break
+    if not rows:
+        return None
     return {
         "company_dir": company_dir,
-        "company_id": company_dir.name,
-        "company_name": company.get("company_short_name") or company.get("company_full_name") or company_dir.name,
-        "stock_code": company.get("stock_code") or company_dir.name.split("-", 1)[0],
+        "market": company.get("market") or "CN",
+        "company_id": company.get("company_id") or company_dir.name,
+        "company_name": company.get("company_short_name")
+        or company.get("company_name")
+        or company.get("company_full_name")
+        or company_dir.name,
+        "stock_code": company.get("stock_code") or company.get("ticker") or company_dir.name.split("-", 1)[0],
         "report_id": report_id,
+        "filing_id": report.get("filing_id"),
+        "parse_run_id": report.get("parse_run_id"),
         "task_id": report.get("task_id"),
         "metrics_file": metrics_file,
+        "validation_file": validation_file,
+        "validation": validation,
+        "validation_blocked": validation_blocked,
         "unit": payload.get("unit"),
-        "rows": [
-            _statement_record_to_row(record, report_id, metrics_file, company_dir)
-            for record in records
-        ],
+        "rows": [] if validation_blocked else rows,
+        "blocked_row_count": len(rows) if validation_blocked else 0,
     }
 
 
@@ -3334,6 +2792,16 @@ def _format_statement_value(row: dict[str, Any]) -> str:
 
 
 def _render_three_statement_context(result: dict[str, Any]) -> str:
+    if result.get("validation_blocked"):
+        return "\n".join(
+            [
+                "## 财务事实质量门禁阻断",
+                f"- 公司: {result.get('company_name')} / 市场 {result.get('market')} / company_id={result.get('company_id')}",
+                f"- report_id={result.get('report_id')} / validation_status=fail / file={result.get('validation_file') or '未返回'}",
+                f"- 已阻断 {result.get('blocked_row_count') or 0} 条三大表候选记录，不得将其作为确定性数字回答。",
+                "- 只允许说明 Wiki validation 未通过；如需继续，必须使用绑定同一 market/company_id/filing_id/parse_run_id 的 PostgreSQL Agent view fallback，并保留 fallback_reason。",
+            ]
+        )
     rows = result.get("rows") or []
     lines = [
         "以下是后端从本地 Wiki 三大表 `three_statements.json` 提取的核心数据底稿。模型可以润色、概括和解释数据本质，但不得改写任何 `raw_value`、期间、单位、公司、report_id、task_id、pdf_page、table_index、md_line 或来源路径。",
@@ -3341,7 +2809,11 @@ def _render_three_statement_context(result: dict[str, Any]) -> str:
         "- 回答先讲三大表透视出的经营本质，例如增长、盈利、现金流含金量、资产负债结构；再给关键数据表格。",
         "- 所有关键数字必须来自下方底稿；如果要换算成亿元/百分比，只能作为补充表述，并同时保留下方原始披露值。",
         "- `## 引用来源` 必须保留每张相关表的 `source_type/file/task_id/pdf_page/table_index/md_line` 和可打开链接。",
-        f"- 公司: {result.get('company_name')} / 代码 {result.get('stock_code')} / report_id={result.get('report_id')} / 默认单位={result.get('unit') or '未返回'}",
+        f"- 公司: {result.get('company_name')} / 市场 {result.get('market')} / 代码 {result.get('stock_code')} / "
+        f"company_id={result.get('company_id')} / report_id={result.get('report_id')} / 默认单位={result.get('unit') or '按科目披露'}",
+        f"- 质量门禁: validation_status={result.get('validation', {}).get('status') or 'not_available'} / "
+        f"summary={json.dumps(result.get('validation', {}).get('summary') or {}, ensure_ascii=False)} / "
+        f"file={result.get('validation_file') or '未返回'}",
         "",
         "## 三大表核心底稿",
     ]
@@ -3352,19 +2824,20 @@ def _render_three_statement_context(result: dict[str, Any]) -> str:
         lines.extend([
             "",
             f"### {THREE_STATEMENT_LABELS.get(statement_type, statement_type)}",
-            "| 科目 | 期间 | 原始披露值 | 单位 | pdf_page | table_index | md_line |",
-            "| --- | --- | ---: | --- | ---: | ---: | ---: |",
+            "| 科目 | 期间 | 原始披露值 | 单位/币种 | pdf_page | table_index | SEC/XBRL anchor | md_line |",
+            "| --- | --- | ---: | --- | ---: | ---: | --- | ---: |",
         ])
         for row in statement_rows:
             lines.append(
                 f"| {row.get('metric_name') or row.get('metric_key')} | {row.get('period') or '未返回'} | "
                 f"{row.get('raw_value') if row.get('raw_value') not in (None, '') else row.get('normalized_value')} | "
-                f"{row.get('unit') or '未返回'} | {row.get('pdf_page') or '未返回'} | "
+                f"{row.get('unit') or row.get('currency') or '未返回'} | {row.get('pdf_page') or '未返回'} | "
                 f"{row.get('table_index') if row.get('table_index') not in (None, '') else '未返回'} | "
+                f"{row.get('source_anchor') or '未返回'} | "
                 f"{row.get('md_line') or '未返回'} |"
             )
     lines.extend(["", "## 底稿引用"])
-    seen_sources: set[tuple[Any, Any, Any, Any, str]] = set()
+    seen_sources: set[tuple[Any, ...]] = set()
     source_index = 1
     for row in rows:
         key = (
@@ -3373,6 +2846,9 @@ def _render_three_statement_context(result: dict[str, Any]) -> str:
             row.get("table_index"),
             row.get("md_line"),
             row.get("file"),
+            row.get("source_url"),
+            row.get("source_anchor"),
+            row.get("xbrl_tag"),
         )
         if key in seen_sources:
             continue
@@ -3384,12 +2860,20 @@ def _render_three_statement_context(result: dict[str, Any]) -> str:
             links.append(f"[查看页来源]({row['open_source_page_url']})")
         if row.get("open_source_table_url"):
             links.append(f"[查看表格]({row['open_source_table_url']})")
+        if row.get("source_url"):
+            source_url = str(row["source_url"])
+            if row.get("source_anchor") and "#" not in source_url:
+                source_url = f"{source_url}#{row['source_anchor']}"
+            links.append(f"[打开披露原文]({source_url})")
         lines.append(
             f"[S{source_index}] source_type={_current_source_type('metrics')}, file={row.get('file')}, "
             f"metric={row.get('statement_label')}, period={row.get('report_id')}, "
             f"task_id={row.get('task_id') or '未返回'}, pdf_page={row.get('pdf_page') or '未返回'}, "
             f"table_index={row.get('table_index') if row.get('table_index') not in (None, '') else '未返回'}, "
-            f"md_line={row.get('md_line') or '未返回'}"
+            f"md_line={row.get('md_line') or '未返回'}, evidence_source_type={row.get('evidence_source_type') or '未返回'}, "
+            f"source_url={row.get('source_url') or '未返回'}, source_anchor={row.get('source_anchor') or '未返回'}, "
+            f"xbrl_tag={row.get('xbrl_tag') or '未返回'}, "
+            f"quote={json.dumps(str(row.get('source_quote') or ''), ensure_ascii=False)}"
             + (("，" + "，".join(links)) if links else "")
         )
         source_index += 1
@@ -3397,6 +2881,8 @@ def _render_three_statement_context(result: dict[str, Any]) -> str:
 
 
 def build_three_statement_core_context(message: str, context: Any | None = None) -> str | None:
+    if _non_cn_financial_retrieval_blocked(message, context):
+        return None
     result = _three_statement_core_result(message, context)
     if not result:
         return None
@@ -3426,12 +2912,30 @@ def _load_note_detail_tools() -> tuple[Callable[..., dict[str, Any]] | None, Cal
     return resolver, renderer
 
 
-def _load_statement_metric_tools() -> tuple[Callable[..., dict[str, Any]] | None, Callable[..., str] | None]:
+def _load_statement_metric_tools(
+    context: Any | None = None,
+) -> tuple[Callable[..., dict[str, Any]] | None, Callable[..., str] | None]:
     script_path = str(NOTE_DETAIL_SCRIPT_DIR)
     if script_path not in sys.path:
         sys.path.insert(0, script_path)
     try:
         module = _configure_wiki_module(importlib.import_module("statement_metric_lookup"))
+        _configure_wiki_module(getattr(module, "local_citations", None))
+        _configure_wiki_module(getattr(module, "note_detail_lookup", None))
+        forced_company_dir = _forced_context_company_dir(context)
+        if forced_company_dir is not None and forced_company_dir.parent.name == "companies":
+            # PDF-market Wiki roots are split into data/wiki/{market}; the
+            # legacy lookup script otherwise searches only data/wiki/companies.
+            module.WIKI_BASE = forced_company_dir.parent.parent
+            dependencies = (
+                getattr(module, "local_citations", None),
+                getattr(module, "note_detail_lookup", None),
+                sys.modules.get("local_citations"),
+                sys.modules.get("note_detail_lookup"),
+            )
+            for dependency in dependencies:
+                if dependency is not None:
+                    dependency.WIKI_BASE = forced_company_dir.parent.parent
         _configure_wiki_module(getattr(module, "local_citations", None))
         _configure_wiki_module(getattr(module, "note_detail_lookup", None))
     except Exception:
@@ -3565,6 +3069,168 @@ def _split_human_capital_rows(rows: list[list[str]]) -> dict[str, list[tuple[str
     return sections
 
 
+MARKET_HUMAN_CAPITAL_TABLE_TERMS: dict[str, tuple[str, ...]] = {
+    "HK": ("僱員", "雇員", "员工", "employee", "staff", "workforce", "headcount"),
+    "JP": ("従業員", "社員", "employee", "staff", "workforce", "headcount"),
+    "KR": ("직원", "직원수", "평균근속연수", "성별합계", "employee", "workforce"),
+    "EU": ("employee", "employees", "workforce", "personnel", "mitarbeiter", "effectif"),
+}
+
+
+def _market_human_table_quality(market: str, rows: list[list[str]]) -> int:
+    text = " ".join(" ".join(map(str, row)) for row in rows)
+    normalized = _normalize_financial_text(text)
+    numeric_values: list[float] = []
+    percentage_cells = 0
+    for row in rows:
+        for cell in row:
+            cell_text = str(cell or "").strip()
+            if not cell_text or "page" in cell_text.lower():
+                continue
+            if not re.fullmatch(r"\(?[-+]?\d[\d,.\s]*(?:%|％)?\)?", cell_text):
+                continue
+            value = _parse_number(cell_text)
+            if value is None or (1900 <= abs(value) <= 2100 and re.fullmatch(r"\d{4}", cell_text)):
+                continue
+            numeric_values.append(abs(value))
+            if "%" in cell_text or "％" in cell_text:
+                percentage_cells += 1
+    material_counts = sum(1 for value in numeric_values if value >= 100)
+    if market == "KR":
+        return 20 if "직원수" in normalized and "평균근속연수" in normalized and material_counts >= 3 else 0
+    if market == "JP":
+        has_employee_measure = any(term in normalized for term in ("従業員数", "平均勤続年数", "平均年間給与"))
+        return 20 if has_employee_measure and material_counts >= 2 else 0
+    latin = text.lower()
+    has_employee = bool(re.search(r"\b(?:employees?|workforce|headcount|personnel)\b", latin)) or any(
+        term in text for term in ("僱員", "雇員", "員工", "员工")
+    )
+    if any(term in latin for term in ("fatalit", "injur", "lost days", "health and safety")):
+        return 0
+    if "items of the annex" in latin and "pages" in latin:
+        return 0
+    has_headcount_measure = bool(
+        re.search(
+            r"(?:number of employees|total (?:group )?(?:number of )?employees|total workforce|headcount|"
+            r"breakdown of (?:total )?employees|employees by (?:gender|geography|age|contract))",
+            latin,
+        )
+    ) or any(term in text for term in ("僱員人數", "雇員人數", "員工人數", "员工人数", "總人數", "总人数"))
+    has_structure_measure = bool(
+        re.search(r"(?:share of women|gender distribution|workforce composition|diversity metrics)", latin)
+    )
+    if has_employee and has_headcount_measure and material_counts >= 2:
+        return 40
+    if has_employee and has_structure_measure and percentage_cells >= 2:
+        return 20
+    return 0
+
+
+def _market_human_capital_table_result(
+    message: str,
+    context: Any | None,
+    *,
+    extract: Callable[[Path, int], str],
+    parser: Callable[[str], dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Resolve PDF-market employee tables from parser artifacts, never model locators."""
+    for company_dir in _resolve_company_dirs(message, context, limit=4):
+        company = _read_json_file(company_dir / "company.json") or {}
+        market = str(company.get("market") or "").upper()
+        # US filings use SEC/XBRL/HTML anchors and have a separate evidence path.
+        if market not in MARKET_HUMAN_CAPITAL_TABLE_TERMS:
+            continue
+        report_id = str(company.get("primary_report_id") or "").strip()
+        reports = company.get("reports") if isinstance(company.get("reports"), list) else []
+        report = next(
+            (item for item in reports if isinstance(item, dict) and str(item.get("report_id") or "") == report_id),
+            {},
+        )
+        if not report_id and reports:
+            report = next((item for item in reports if isinstance(item, dict)), {})
+            report_id = str(report.get("report_id") or "").strip()
+        if not report_id:
+            continue
+        report_md = company_dir / "reports" / report_id / "report.md"
+        table_index_file = company_dir / "reports" / report_id / "tables" / "table_index.json"
+        payload = _read_json_file(table_index_file) or {}
+        tables = payload.get("tables") if isinstance(payload.get("tables"), list) else []
+        terms = MARKET_HUMAN_CAPITAL_TABLE_TERMS[market]
+        candidates: list[tuple[int, int, int, dict[str, Any], list[list[str]]]] = []
+        for table in tables:
+            if not isinstance(table, dict):
+                continue
+            text = _normalize_financial_text(
+                " ".join(str(table.get(key) or "") for key in ("heading", "near_text", "preview"))
+            )
+            hits = sum(1 for term in terms if _normalize_financial_text(term) in text)
+            if hits <= 0:
+                continue
+            line = _safe_int(table.get("line"))
+            if not line:
+                continue
+            try:
+                parsed = parser(extract(report_md, line) or "")
+            except Exception:
+                continue
+            rows = parsed.get("rows") if isinstance(parsed, dict) else None
+            if not isinstance(rows, list) or len(rows) < 2:
+                continue
+            normalized_rows = [row for row in rows if isinstance(row, list)]
+            row_text = _normalize_financial_text(" ".join(" ".join(map(str, row)) for row in normalized_rows))
+            row_hits = sum(1 for term in terms if _normalize_financial_text(term) in row_text)
+            quality = _market_human_table_quality(market, normalized_rows)
+            if row_hits <= 0 or quality <= 0:
+                continue
+            confidence = 2 if str(table.get("source_confidence") or "").lower() == "high" else 1
+            physical_source = 1 if table.get("content_table_source_id") is not None else 0
+            candidates.append((quality + hits + row_hits, confidence, physical_source, table, normalized_rows))
+        if not candidates:
+            continue
+        candidates.sort(
+            key=lambda item: (
+                -item[1],
+                -item[2],
+                -item[0],
+                int(item[3].get("table_index") or 10**9),
+            )
+        )
+        _score, _confidence, _physical, table, rows = candidates[0]
+        task_id = report.get("task_id")
+        pdf_page = table.get("pdf_page_number") or table.get("pdf_page")
+        table_index = table.get("table_index")
+        footnotes = [str(item).strip() for item in (table.get("source_footnote") or []) if str(item).strip()]
+        if not footnotes and report_md.is_file():
+            try:
+                report_lines = report_md.read_text(encoding="utf-8", errors="ignore").splitlines()
+                start = max(0, int(table.get("line") or 1))
+                for candidate_line in report_lines[start : start + 16]:
+                    note = candidate_line.strip()
+                    if note.startswith("※"):
+                        footnotes.append(note)
+                    elif footnotes and (note.startswith("#") or note.startswith("[PDF_PAGE:")):
+                        break
+            except Exception:
+                footnotes = []
+        return {
+            "market_table": True,
+            "market": market,
+            "company_id": company.get("company_id") or company_dir.name,
+            "company_name": company.get("company_name") or company.get("company_short_name") or company_dir.name,
+            "report_id": report_id,
+            "task_id": task_id,
+            "pdf_page": pdf_page,
+            "table_index": table_index,
+            "md_line": table.get("line"),
+            "raw_rows": rows,
+            "source_footnote": footnotes,
+            "open_pdf_page_url": _evidence_url(task_id, pdf_page, table_index, "pdf"),
+            "open_source_page_url": _evidence_url(task_id, pdf_page, table_index, "page"),
+            "open_source_table_url": _evidence_url(task_id, pdf_page, table_index, "table"),
+        }
+    return None
+
+
 def _human_capital_result(message: str, context: Any | None = None) -> dict[str, Any] | None:
     if not _is_human_capital_query(message):
         return None
@@ -3575,8 +3241,7 @@ def _human_capital_result(message: str, context: Any | None = None) -> dict[str,
     primary = getattr(module, "primary_report", None)
     extract = getattr(module, "extract_table_html", None)
     parser = getattr(module, "parse_html_table", None)
-    api_url = getattr(module, "public_api_url", None)
-    if not all(callable(item) for item in (finder, primary, extract, parser, api_url)):
+    if not all(callable(item) for item in (finder, primary, extract, parser)):
         return None
 
     company_hint = _context_company_hint(context)
@@ -3621,11 +3286,11 @@ def _human_capital_result(message: str, context: Any | None = None) -> dict[str,
             "table_index": table_index,
             "md_line": md_line,
             "sections": sections,
-            "open_pdf_page_url": api_url(f"/api/pdf_page/{task_id}/{pdf_page}?format=html") if task_id and pdf_page else None,
-            "open_source_page_url": api_url(f"/api/source/{task_id}/page/{pdf_page}?format=html") if task_id and pdf_page else None,
-            "open_source_table_url": api_url(f"/api/source/{task_id}/table/{table_index}?format=html") if task_id and table_index else None,
+            "open_pdf_page_url": _evidence_url(task_id, pdf_page, table_index, "pdf"),
+            "open_source_page_url": _evidence_url(task_id, pdf_page, table_index, "page"),
+            "open_source_table_url": _evidence_url(task_id, pdf_page, table_index, "table"),
         }
-    return None
+    return _market_human_capital_table_result(message, context, extract=extract, parser=parser)
 
 
 def _human_capital_section_table(
@@ -3656,7 +3321,94 @@ def _first_value(rows: list[tuple[str, str]], label: str) -> str:
     return ""
 
 
+def _render_market_human_capital_markdown(result: dict[str, Any]) -> str:
+    rows = [row for row in (result.get("raw_rows") or []) if isinstance(row, list)]
+    market = str(result.get("market") or "").upper()
+    company_name = str(result.get("company_name") or result.get("company_id") or "该公司")
+    lines = ["## 结论"]
+    if market == "KR" and len(rows) >= 4 and any("사업부문" in str(cell) for cell in rows[0]):
+        data_rows = [row for row in rows[3:] if len(row) >= 10]
+        total_row = next((row for row in data_rows if str(row[0]).replace(" ", "") == "합계"), None)
+        male_row = next((row for row in data_rows if str(row[0]) == "성별합계" and str(row[1]) == "남"), None)
+        female_row = next((row for row in data_rows if str(row[0]) == "성별합계" and str(row[1]) == "여"), None)
+        if total_row:
+            lines.append(
+                f"- {company_name} 本期披露的母公司员工总数为 **{total_row[6]} 人**，"
+                f"平均工龄 **{total_row[7]} 年**。"
+            )
+        if male_row and female_row:
+            lines.append(f"- 其中男性 **{male_row[6]} 人**，女性 **{female_row[6]} 人**。")
+        footnote_text = " ".join(str(item) for item in (result.get("source_footnote") or []))
+        if "본사(별도)" in footnote_text or "별도" in footnote_text:
+            lines.append(
+                "- 该表明确是总部/母公司单体口径，不是合并集团口径；当前底稿没有提供可核验的集团员工总数、学历或年龄分布，不能据此补写。"
+            )
+        else:
+            lines.append("- 员工口径以原表及其脚注为准；当前表未披露的学历或年龄分布不能补写。")
+        lines.extend(
+            [
+                "",
+                "## 依据/数据",
+                "| 业务部门 | 性别 | 正式员工 | 期间制员工 | 员工合计 | 平均工龄 | 年薪酬总额 | 人均薪酬 |",
+                "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+            ]
+        )
+        for row in data_rows:
+            lines.append(
+                "| {business} | {gender} | {regular} | {fixed} | {total} | {tenure} | {payroll} | {average_pay} |".format(
+                    business=_markdown_table_cell(row[0]),
+                    gender=_markdown_table_cell(row[1]),
+                    regular=_markdown_table_cell(row[2]),
+                    fixed=_markdown_table_cell(row[4]),
+                    total=_markdown_table_cell(row[6]),
+                    tenure=_markdown_table_cell(row[7]),
+                    payroll=_markdown_table_cell(row[8]),
+                    average_pay=_markdown_table_cell(row[9]),
+                )
+            )
+        footnotes = [str(item).strip() for item in (result.get("source_footnote") or []) if str(item).strip()]
+        if footnotes:
+            lines.extend(["", "### 原文口径", *[f"- {item}" for item in footnotes]])
+    else:
+        lines.append(f"- 已从 {market or '非 A 股'} PDF 解析产物定位到 {company_name} 的员工披露表；以下仅展示原表记录。")
+        width = max((len(row) for row in rows), default=0)
+        if width:
+            lines.extend(["", "## 依据/数据"])
+            header = [
+                _markdown_table_cell(rows[0][index] if index < len(rows[0]) else "") or ("项目" if index == 0 else f"列 {index + 1}")
+                for index in range(width)
+            ]
+            lines.append("| " + " | ".join(header) + " |")
+            lines.append("| " + " | ".join("---" for _ in range(width)) + " |")
+            for row in rows[1:20]:
+                cells = [_markdown_table_cell(row[index] if index < len(row) else "") for index in range(width)]
+                lines.append("| " + " | ".join(cells) + " |")
+
+    if "### 原文口径" not in lines:
+        footnotes = [str(item).strip() for item in (result.get("source_footnote") or []) if str(item).strip()]
+        if footnotes:
+            lines.extend(["", "### 原文口径", *[f"- {item}" for item in footnotes]])
+
+    links = []
+    if result.get("open_pdf_page_url"):
+        links.append(f"[打开PDF页]({result['open_pdf_page_url']})")
+    if result.get("open_source_page_url"):
+        links.append(f"[查看页来源]({result['open_source_page_url']})")
+    if result.get("open_source_table_url"):
+        links.append(f"[查看表格]({result['open_source_table_url']})")
+    lines.extend(["", "## 引用来源"])
+    lines.append(
+        f"[1] source_type=wiki_report_table, file=reports/{result.get('report_id')}/report.md, "
+        f"metric=employee_headcount, period={result.get('report_id')}, task_id={result.get('task_id')}, "
+        f"pdf_page={result.get('pdf_page')}, table_index={result.get('table_index')}, md_line={result.get('md_line')}"
+        + (("，" + "，".join(links)) if links else "")
+    )
+    return "\n".join(lines)
+
+
 def render_human_capital_markdown(result: dict[str, Any]) -> str:
+    if result.get("market_table"):
+        return _render_market_human_capital_markdown(result)
     sections = result.get("sections") or {}
     scale = sections.get("scale") or []
     profession = sections.get("profession") or []
@@ -3732,9 +3484,15 @@ def render_human_capital_markdown(result: dict[str, Any]) -> str:
 
 
 def _statement_metric_result(message: str, context: Any | None = None) -> tuple[dict[str, Any] | None, Callable[..., str] | None]:
-    resolver, renderer = _load_statement_metric_tools()
+    resolver, renderer = _load_statement_metric_tools(context)
     if not resolver or not renderer:
         return None, None
+    lookup_message = message
+    goodwill_terms = ("商誉", "商譽", "goodwill", "のれん", "영업권")
+    normalized_message = _normalize_financial_text(message)
+    is_goodwill_query = any(term in normalized_message for term in goodwill_terms)
+    if is_goodwill_query and not _is_goodwill_main_statement_query(message):
+        lookup_message = f"{message} 资产负债表 商誉账面价值"
     company_hint = _context_company_hint(context)
     company_text_candidates = [message]
     if company_hint:
@@ -3742,7 +3500,7 @@ def _statement_metric_result(message: str, context: Any | None = None) -> tuple[
         company_text_candidates.append(f"{message}\n{company_hint}")
     for company_text in company_text_candidates:
         try:
-            result = resolver(company_text, message)
+            result = resolver(company_text, lookup_message)
         except Exception:
             continue
         if result.get("tables"):
@@ -3752,6 +3510,8 @@ def _statement_metric_result(message: str, context: Any | None = None) -> tuple[
 
 def build_statement_metric_context(message: str, context: Any | None = None) -> str | None:
     """Inject deterministic main-statement rows for cash-flow/balance/profit questions."""
+    if _non_cn_financial_retrieval_blocked(message, context):
+        return None
     if not _is_statement_query(message):
         return None
     result, renderer = _statement_metric_result(message, context)
@@ -3773,6 +3533,8 @@ def build_statement_metric_context(message: str, context: Any | None = None) -> 
 
 def build_direct_statement_metric_reply(message: str, context: Any | None = None) -> str | None:
     """Return main-statement rows directly for deterministic statement data requests."""
+    if _non_cn_financial_retrieval_blocked(message, context):
+        return None
     if not _should_direct_answer_statement_query(message):
         return None
     result, renderer = _statement_metric_result(message, context)
@@ -3812,6 +3574,8 @@ def _note_detail_result(
 
 def build_note_detail_context(message: str, context: Any | None = None) -> str | None:
     """Inject deterministic Wiki note-table rows for detail/composition questions."""
+    if _non_cn_financial_retrieval_blocked(message, context):
+        return None
     if not _should_inject_note_detail_context(message):
         return None
 
@@ -3837,6 +3601,8 @@ def build_note_detail_context(message: str, context: Any | None = None) -> str |
 
 def build_direct_note_detail_reply(message: str, context: Any | None = None) -> str | None:
     """Return the Wiki table directly for deterministic note-detail requests."""
+    if _non_cn_financial_retrieval_blocked(message, context):
+        return None
     if not _should_direct_answer_note_detail(message):
         return None
 
@@ -3848,6 +3614,8 @@ def build_direct_note_detail_reply(message: str, context: Any | None = None) -> 
 
 def build_human_capital_context(message: str, context: Any | None = None) -> str | None:
     """Inject deterministic employee/talent-structure table rows."""
+    if _non_cn_financial_retrieval_blocked(message, context):
+        return None
     result = _human_capital_result(message, context)
     if not result:
         return None
@@ -3861,10 +3629,19 @@ def build_human_capital_context(message: str, context: Any | None = None) -> str
 
 def build_direct_human_capital_reply(message: str, context: Any | None = None) -> str | None:
     """Return employee/talent structure directly for deterministic HR table requests."""
+    if _non_cn_financial_retrieval_blocked(message, context):
+        return None
     result = _human_capital_result(message, context)
     if not result:
         return None
     return render_human_capital_markdown(result)
+
+
+def deterministic_pdf_market_reply(message: str, context: Any | None = None) -> str | None:
+    """Return parser-bound facts for intents where the table is fully deterministic."""
+    if not _is_human_capital_query(message):
+        return None
+    return build_direct_human_capital_reply(message, context)
 
 
 def _parse_number(value: Any) -> float | None:
@@ -3929,8 +3706,13 @@ def _find_average_employee_table(tables: list[dict[str, Any]], report_md: Path) 
     return candidates[0][2]
 
 
-def _latest_statement_rows_for_company(company_dir: Path, report_id: str) -> list[dict[str, Any]]:
-    metrics_file = _company_artifact_paths(company_dir, report_id).get("three_statements")
+def _latest_statement_rows_for_company(
+    company_dir: Path,
+    report_id: str,
+    *,
+    strict_report: bool = False,
+) -> list[dict[str, Any]]:
+    metrics_file = _company_artifact_paths(company_dir, report_id, strict_report).get("three_statements")
     if not metrics_file:
         return []
     payload = _read_json_file(metrics_file)
@@ -4012,7 +3794,9 @@ def _generic_human_efficiency_result(message: str, context: Any | None = None) -
     company_dir = _resolve_company_dir(message, context)
     if not company_dir:
         return None
-    report = _primary_report_for_company(company_dir, message)
+    report = _primary_report_for_company(company_dir, message, context)
+    if report.get("selection_status") == "identity_mismatch":
+        return None
     report_id = str(report.get("report_id") or "2025-annual")
     report_md = company_dir / "reports" / report_id / "report.md"
     report_json = _read_json_file(company_dir / "reports" / report_id / "report.json") or {}
@@ -4020,7 +3804,11 @@ def _generic_human_efficiency_result(message: str, context: Any | None = None) -
     if not isinstance(tables, list):
         tables = []
 
-    statement_rows = _latest_statement_rows_for_company(company_dir, report_id)
+    statement_rows = _latest_statement_rows_for_company(
+        company_dir,
+        report_id,
+        strict_report=report.get("selection_status") == "identity_exact",
+    )
     revenue_row = _find_statement_metric_row(statement_rows, CORE_KEY_METRIC_ALIASES["营业收入"])
     parent_profit_row = _find_statement_metric_row(statement_rows, CORE_KEY_METRIC_ALIASES["归母净利润"])
     net_profit_row = _find_statement_metric_row(statement_rows, CORE_KEY_METRIC_ALIASES["净利润"])
@@ -4135,7 +3923,9 @@ def _human_efficiency_result(message: str, context: Any | None = None) -> dict[s
     company_dir = _resolve_company_dir(message, context)
     if not company_dir:
         return None
-    report = _primary_report_for_company(company_dir, message)
+    report = _primary_report_for_company(company_dir, message, context)
+    if report.get("selection_status") == "identity_mismatch":
+        return None
     report_id = str(report.get("report_id") or "2025-annual")
     report_md = company_dir / "reports" / report_id / "report.md"
     report_json = _read_json_file(company_dir / "reports" / report_id / "report.json") or {}
@@ -4289,198 +4079,24 @@ def _statement_row_table(row: dict[str, Any] | None) -> dict[str, Any]:
 
 
 def _render_generic_human_efficiency_evidence_markdown(result: dict[str, Any]) -> str:
-    values = result.get("values") or {}
-    rows = result.get("rows") or {}
-    task_id = result.get("task_id")
-    report_id = str(result.get("report_id") or "2025-annual")
-    revenue = values.get("revenue_2025")
-    parent_profit = values.get("parent_profit_2025")
-    net_profit = values.get("net_profit_2025")
-    employees = values.get("employees_2025")
-    compensation = values.get("compensation_increase_2025")
-    profit_base = parent_profit if parent_profit is not None else net_profit
-    per_revenue = _calculator_per_capita(revenue, amount_unit="元", count=employees, currency="CNY")
-    per_profit = _calculator_per_capita(profit_base, amount_unit="元", count=employees, currency="CNY")
-    per_compensation = _calculator_per_capita(compensation, amount_unit="元", count=employees, currency="CNY")
-
-    employee_result = result.get("employee_result") or {}
-    employee_table = {
-        "pdf_page_number": employee_result.get("pdf_page"),
-        "table_index": employee_result.get("table_index"),
-        "line": employee_result.get("md_line"),
-    }
-    compensation_table = result.get("compensation_table") or {}
-
-    lines = [
-        "## 财务指标溯源补充",
-        "- 后端已按指标重新定位 PDF 页和表格；以下为本轮人效分析中财务指标/派生指标的可审计来源。",
-        "",
-        "| 指标 | 数值/公式 | 口径 | PDF页/表格 |",
-        "| --- | --- | --- | --- |",
-        (
-            f"| 营业收入 | 2025: {_fmt_number(revenue, 2)} 元 | 合并利润表 / 营业收入 | "
-            f"pdf_page={(rows.get('revenue') or {}).get('pdf_page') or '未返回'}, "
-            f"table_index={(rows.get('revenue') or {}).get('table_index') or '未返回'} |"
-        ),
-        (
-            f"| 年末员工数 | 2025: {_fmt_number(employees, 0)} 人 | 报告期末母公司和主要子公司的员工情况 / 在职员工的数量合计 | "
-            f"pdf_page={employee_table.get('pdf_page_number') or '未返回'}, "
-            f"table_index={employee_table.get('table_index') or '未返回'} |"
-        ),
-        (
-            f"| 人均营收 | {_fmt_number(revenue, 2)} 元 / {_fmt_number(employees, 0)} 人 = "
-            f"{_calculator_per_capita_display(per_revenue)} | "
-            f"派生计算（financial_calculator.py）：{_calculator_formula_text(per_revenue)} | 见营业收入 + 年末员工数来源 |"
-        ),
-    ]
-    if profit_base is not None:
-        profit_label = "归母净利润" if parent_profit is not None else "净利润"
-        profit_row = rows.get("parent_profit") if parent_profit is not None else rows.get("net_profit")
-        lines.extend(
-            [
-                (
-                    f"| {profit_label} | 2025: {_fmt_number(profit_base, 2)} 元 | 合并利润表 / {profit_label} | "
-                    f"pdf_page={(profit_row or {}).get('pdf_page') or '未返回'}, "
-                    f"table_index={(profit_row or {}).get('table_index') or '未返回'} |"
-                ),
-                (
-                    f"| 人均{profit_label} | {_fmt_number(profit_base, 2)} 元 / {_fmt_number(employees, 0)} 人 = "
-                    f"{_calculator_per_capita_display(per_profit)} | "
-                    f"派生计算（financial_calculator.py）：{_calculator_formula_text(per_profit)} | 见{profit_label} + 年末员工数来源 |"
-                ),
-            ]
-        )
-    if compensation is not None:
-        lines.extend(
-            [
-                (
-                    f"| 人力成本 | 2025 本期增加: {_fmt_number(compensation, 2)} 元 | 应付职工薪酬列示 / 合计 / 本期增加 | "
-                    f"pdf_page={compensation_table.get('pdf_page_number') or compensation_table.get('pdf_page') or '未返回'}, "
-                    f"table_index={compensation_table.get('table_index') or '未返回'} |"
-                ),
-                (
-                    f"| 人均人力成本 | {_fmt_number(compensation, 2)} 元 / {_fmt_number(employees, 0)} 人 = "
-                    f"{_calculator_per_capita_display(per_compensation)} | "
-                    f"派生计算（financial_calculator.py）：{_calculator_formula_text(per_compensation)} | 见人力成本 + 年末员工数来源 |"
-                ),
-            ]
-        )
-
-    lines.extend(["", "## 指标级引用来源"])
-    refs = [
-        ("营业收入", "wiki_metrics", (rows.get("revenue") or {}).get("file") or "metrics/three_statements.json", _statement_row_table(rows.get("revenue"))),
-        ("年末员工数", "wiki_report_table", f"reports/{report_id}/report.md", employee_table),
-    ]
-    if parent_profit is not None:
-        refs.append(("归母净利润", "wiki_metrics", (rows.get("parent_profit") or {}).get("file") or "metrics/three_statements.json", _statement_row_table(rows.get("parent_profit"))))
-    elif net_profit is not None:
-        refs.append(("净利润", "wiki_metrics", (rows.get("net_profit") or {}).get("file") or "metrics/three_statements.json", _statement_row_table(rows.get("net_profit"))))
-    if compensation_table:
-        refs.append(("应付职工薪酬", "wiki_report_table", f"reports/{report_id}/report.md", compensation_table))
-    for index, (metric, source_type, file, table) in enumerate(refs, start=1):
-        lines.append(
-            _table_trace(
-                index,
-                source_type=source_type,
-                file=file,
-                metric=metric,
-                report_id=report_id,
-                task_id=task_id,
-                table=table or {},
-            )
-        )
-    return "\n".join(lines)
+    return agent_runtime_financial_format._render_generic_human_efficiency_evidence_markdown(
+        result,
+        calculator_per_capita=_calculator_per_capita,
+        table_source_links=_table_source_links,
+    )
 
 
 def render_human_efficiency_evidence_markdown(result: dict[str, Any]) -> str:
-    if result.get("mode") == "generic_cny":
-        return _render_generic_human_efficiency_evidence_markdown(result)
-
-    values = result.get("values") or {}
-    tables = result.get("tables") or {}
-    task_id = result.get("task_id")
-    report_id = str(result.get("report_id") or "2025-annual")
-    revenue_2025 = values.get("revenue_2025")
-    personnel_2025 = values.get("personnel_2025")
-    employees_2025 = values.get("employees_2025")
-    per_revenue = _calculator_per_capita(
-        revenue_2025,
-        amount_unit="百万欧元",
-        count=employees_2025,
-        currency="EUR",
+    return agent_runtime_financial_format.render_human_efficiency_evidence_markdown(
+        result,
+        calculator_per_capita=_calculator_per_capita,
+        table_source_links=_table_source_links,
     )
-    per_personnel = _calculator_per_capita(
-        personnel_2025,
-        amount_unit="百万欧元",
-        count=employees_2025,
-        currency="EUR",
-    )
-
-    lines = [
-        "## 财务指标溯源补充",
-        "- 后端已按指标重新定位 PDF 页和表格；以下为本轮人效分析中财务指标/派生指标的可审计来源。",
-        "",
-        "| 指标 | 数值/公式 | 口径 | PDF页/表格 |",
-        "| --- | --- | --- | --- |",
-    ]
-    income_table = tables.get("income") or {}
-    personnel_table = tables.get("personnel") or {}
-    employees_table = tables.get("employees") or {}
-    regional_sales_table = tables.get("regional_sales") or {}
-    lines.append(
-        f"| 营业收入 | 2025: €{_fmt_number(revenue_2025, 0)} million；2024: €{_fmt_number(values.get('revenue_2024'), 0)} million | Statement of income / Sales revenue | pdf_page={income_table.get('pdf_page_number') or income_table.get('pdf_page') or '未返回'}, table_index={income_table.get('table_index') or '未返回'} |"
-    )
-    lines.append(
-        f"| 人力成本 | 2025: €{_fmt_number(personnel_2025, 0)} million；2024: €{_fmt_number(values.get('personnel_2024'), 0)} million | Personnel expenses | pdf_page={personnel_table.get('pdf_page_number') or personnel_table.get('pdf_page') or '未返回'}, table_index={personnel_table.get('table_index') or '未返回'} |"
-    )
-    lines.append(
-        f"| 年末员工数 | 2025: {_fmt_number(employees_2025, 0)}；2024: {_fmt_number(values.get('employees_2024'), 0)} | Number of employees as of December 31 | pdf_page={employees_table.get('pdf_page_number') or employees_table.get('pdf_page') or '未返回'}, table_index={employees_table.get('table_index') or '未返回'} |"
-    )
-    lines.append(
-        f"| 人均营收 | €{_fmt_number(revenue_2025, 0)} million / {_fmt_number(employees_2025, 0)} = "
-        f"{_calculator_per_capita_display(per_revenue, preferred='native_per')} | "
-        f"派生计算（financial_calculator.py）：{_calculator_formula_text(per_revenue)} | 见营业收入 + 年末员工数来源 |"
-    )
-    lines.append(
-        f"| 人均人力成本 | €{_fmt_number(personnel_2025, 0)} million / {_fmt_number(employees_2025, 0)} = "
-        f"{_calculator_per_capita_display(per_personnel, preferred='native_per')} | "
-        f"派生计算（financial_calculator.py）：{_calculator_formula_text(per_personnel)} | 见人力成本 + 年末员工数来源 |"
-    )
-    if result.get("regional_rows"):
-        for row in result["regional_rows"]:
-            lines.append(
-                f"| {row['region']} 人均营收 | €{_fmt_number(row['sales_million_eur'], 0)} million / {_fmt_number(row['employees'], 0)} = "
-                f"{_calculator_per_capita_display(row.get('revenue_per_employee'), preferred='native_per')} | "
-                f"派生计算（financial_calculator.py）：{_calculator_formula_text(row.get('revenue_per_employee'))} | "
-                f"sales: pdf_page={regional_sales_table.get('pdf_page_number') or regional_sales_table.get('pdf_page') or '未返回'}, table_index={regional_sales_table.get('table_index') or '未返回'}；employees: pdf_page={employees_table.get('pdf_page_number') or '未返回'}, table_index={employees_table.get('table_index') or '未返回'} |"
-            )
-
-    lines.extend(["", "## 指标级引用来源"])
-    refs = [
-        ("营业收入", "wiki_report_table", "reports/%s/report.md" % report_id, income_table),
-        ("人力成本", "wiki_report_table", "reports/%s/report.md" % report_id, personnel_table),
-        ("年末员工数", "wiki_report_table", "reports/%s/report.md" % report_id, employees_table),
-    ]
-    if tables.get("average_employees"):
-        refs.append(("平均员工数", "wiki_report_table", "reports/%s/report.md" % report_id, tables["average_employees"]))
-    if regional_sales_table:
-        refs.append(("区域销售/location of company", "wiki_report_table", "reports/%s/report.md" % report_id, regional_sales_table))
-    for index, (metric, source_type, file, table) in enumerate(refs, start=1):
-        lines.append(
-            _table_trace(
-                index,
-                source_type=source_type,
-                file=file,
-                metric=metric,
-                report_id=report_id,
-                task_id=task_id,
-                table=table or {},
-            )
-        )
-    return "\n".join(lines)
 
 
 def build_human_efficiency_evidence_context(message: str, context: Any | None = None) -> str | None:
+    if _non_cn_financial_retrieval_blocked(message, context):
+        return None
     result = _human_efficiency_result(message, context)
     if not result:
         return None
@@ -4654,6 +4270,8 @@ def _merge_primary_data_refs_into_citations(reply: str, supplement: str | None =
 
 
 def _render_three_statement_primary_data_supplement(result: dict[str, Any]) -> str | None:
+    if result.get("validation_blocked"):
+        return None
     markdown = agent_runtime_citations._render_three_statement_primary_data_supplement(
         result,
         primary_data_supplement_max_rows=PRIMARY_DATA_SUPPLEMENT_MAX_ROWS,
@@ -4907,9 +4525,10 @@ def _postgres_fallback_result(
     *,
     limit: int = POSTGRES_FALLBACK_ROW_LIMIT,
 ) -> dict[str, Any] | None:
+    resolved_context = _resolved_research_context(message, context)
     return agent_runtime_postgres_fallback.postgres_fallback_result(
         message,
-        context,
+        resolved_context,
         limit=limit,
         deps=_postgres_fallback_dependencies(),
     )
@@ -4959,6 +4578,13 @@ def _needs_financial_evidence_contract(message: str, context: Any | None = None)
     )
 
 
+def _non_cn_financial_retrieval_blocked(message: str, context: Any | None = None) -> bool:
+    if not _needs_financial_evidence_contract(message, context):
+        return False
+    market, missing_fields = agent_runtime_context.incomplete_non_cn_research_identity(context)
+    return bool(market and missing_fields)
+
+
 def _has_structured_evidence_trace(reply: str) -> bool:
     return agent_runtime_citations._has_structured_evidence_trace(reply)
 
@@ -4980,22 +4606,18 @@ def _record_financial_llm_provenance_if_needed(
     stored_output: str,
     attachments: Any | None = None,
 ) -> dict[str, Any] | None:
-    if not raw_output or _is_runtime_status_reply(raw_output):
-        return None
-    snapshot = agent_runtime_financial_provenance.financial_evidence_snapshot(model_input, context, attachments)
-    if not (snapshot["has_evidence_material"] or _needs_financial_evidence_contract(message, context)):
-        return None
-    provider, model = _financial_llm_model_identity(profile)
-    record = agent_runtime_financial_provenance.build_financial_llm_provenance(
-        provider=provider,
-        model=model,
-        model_input=model_input,
-        output=raw_output,
-        stored_output=stored_output,
+    return agent_runtime_financial_provenance.record_financial_llm_provenance_if_needed(
+        message=message,
         context=context,
+        profile=_runtime_profile(profile),
+        model_input=model_input,
+        raw_output=raw_output,
+        stored_output=stored_output,
         attachments=attachments,
+        profile_dirs=HERMES_PROFILE_DIRS,
+        is_runtime_status_reply=_is_runtime_status_reply,
+        needs_financial_evidence_contract=_needs_financial_evidence_contract,
     )
-    return agent_runtime_financial_provenance.record_financial_llm_provenance(record)
 
 
 def _is_runtime_status_reply(reply: str) -> bool:
@@ -5111,17 +4733,15 @@ def get_session_default_context(
     allow_initialize: bool = False,
 ) -> str | None:
     profile = _runtime_profile(profile)
-    key = _active_key(profile, session_id)
-    if key in SESSION_DEFAULT_CONTEXTS:
-        return SESSION_DEFAULT_CONTEXTS[key]
-
-    if not allow_initialize:
-        return None
-
-    formatted_context = format_chat_context(context)
-    if formatted_context:
-        SESSION_DEFAULT_CONTEXTS[key] = formatted_context
-    return formatted_context
+    return agent_runtime_context.get_session_default_context(
+        profile,
+        session_id,
+        context,
+        allow_initialize=allow_initialize,
+        session_default_contexts=SESSION_DEFAULT_CONTEXTS,
+        active_key=_active_key,
+        format_chat_context=format_chat_context,
+    )
 
 
 def build_session_contextual_input(
@@ -5134,89 +4754,29 @@ def build_session_contextual_input(
     local_memory_context: str | None = None,
 ) -> str:
     profile = _runtime_profile(profile)
-    if _is_general_assistant_request(message):
-        profile_label = PROFILE_LABELS.get(profile, profile)
-        return agent_runtime_context.build_general_assistant_context_input(
-            message,
-            profile=profile,
-            profile_label=profile_label,
-            general_assistant_context=GENERAL_ASSISTANT_CONTEXT,
-        )
-
-    default_context = get_session_default_context(
-        profile,
-        session_id,
-        context,
-        allow_initialize=allow_initialize,
-    )
-    blocks: list[str] = []
-    if default_context:
-        blocks.append(default_context)
-    if local_memory_context:
-        blocks.append(local_memory_context)
-    resolved_company_dirs = _resolve_company_dirs(message, context)
-    company_scope_blocks, company_context_items = agent_runtime_context.build_company_context_items(
+    return agent_runtime_context.build_session_contextual_input(
         message,
-        context,
-        resolved_company_dirs,
+        profile=profile,
+        profile_label=PROFILE_LABELS.get(profile, profile),
+        session_id=session_id,
+        context=context,
+        allow_initialize=allow_initialize,
+        local_memory_context=local_memory_context,
+        is_general_assistant_request=_is_general_assistant_request,
+        session_default_context=get_session_default_context,
+        resolve_company_dirs=_resolve_company_dirs,
         context_for_company_dir=_context_for_company_dir,
         message_for_company=_message_for_company,
-    )
-    blocks.extend(company_scope_blocks)
-
-    has_deterministic_evidence_context = False
-    human_capital_context = None
-    for scoped_message, scoped_context, _company_dir in company_context_items:
-        company_scope_context = build_company_wiki_scope_context(scoped_message, scoped_context)
-        if company_scope_context and company_scope_context not in blocks:
-            blocks.append(company_scope_context)
-        human_efficiency_context = build_human_efficiency_evidence_context(scoped_message, scoped_context)
-        if human_efficiency_context and human_efficiency_context not in blocks:
-            blocks.append(human_efficiency_context)
-            has_deterministic_evidence_context = True
-        current_human_capital_context = build_human_capital_context(scoped_message, scoped_context)
-        if current_human_capital_context and current_human_capital_context not in blocks:
-            blocks.append(current_human_capital_context)
-            has_deterministic_evidence_context = True
-            human_capital_context = current_human_capital_context
-    scoped_message, scoped_context = agent_runtime_context.scoped_evidence_input(
-        message,
-        context,
-        company_context_items,
-    )
-    if human_capital_context:
-        has_deterministic_evidence_context = True
-    else:
-        three_statement_core_context = build_three_statement_core_context(scoped_message, scoped_context)
-        if three_statement_core_context:
-            blocks.append(three_statement_core_context)
-            has_deterministic_evidence_context = True
-        statement_context = build_statement_metric_context(scoped_message, scoped_context)
-        if statement_context and statement_context not in blocks:
-            blocks.append(statement_context)
-            has_deterministic_evidence_context = True
-        note_detail_context = build_note_detail_context(scoped_message, scoped_context)
-        if note_detail_context:
-            blocks.append(note_detail_context)
-            has_deterministic_evidence_context = True
-    if not has_deterministic_evidence_context:
-        wiki_fulltext_context = build_wiki_fulltext_fallback_context(scoped_message, scoped_context)
-        if wiki_fulltext_context:
-            blocks.append(wiki_fulltext_context)
-            has_deterministic_evidence_context = True
-    if not has_deterministic_evidence_context:
-        postgres_context = build_postgres_fallback_context(scoped_message, scoped_context)
-        if postgres_context:
-            blocks.append(postgres_context)
-            has_deterministic_evidence_context = True
-    if not has_deterministic_evidence_context:
-        parse_only_context = build_pdf2md_parse_only_context(scoped_message, scoped_context)
-        if parse_only_context:
-            blocks.append(parse_only_context)
-            has_deterministic_evidence_context = True
-    return agent_runtime_context.build_session_contextual_input_text(
-        message,
-        blocks,
+        build_company_wiki_scope_context=build_company_wiki_scope_context,
+        build_human_efficiency_evidence_context=build_human_efficiency_evidence_context,
+        build_human_capital_context=build_human_capital_context,
+        build_three_statement_core_context=build_three_statement_core_context,
+        build_statement_metric_context=build_statement_metric_context,
+        build_note_detail_context=build_note_detail_context,
+        build_wiki_fulltext_fallback_context=build_wiki_fulltext_fallback_context,
+        build_postgres_fallback_context=build_postgres_fallback_context,
+        build_pdf2md_parse_only_context=build_pdf2md_parse_only_context,
+        general_assistant_context=GENERAL_ASSISTANT_CONTEXT,
         chat_output_contract=CHAT_OUTPUT_CONTRACT,
         financial_calculation_runtime_contract=FINANCIAL_CALCULATION_RUNTIME_CONTRACT,
     )
@@ -5273,9 +4833,11 @@ def hermes_timeout() -> httpx.Timeout:
 
 
 def stream_idle_timeout(profile: HermesProfile) -> int:
-    if profile == "siq_assistant":
-        return ASSISTANT_STREAM_IDLE_TIMEOUT_SECONDS
-    return SPECIALIST_STREAM_IDLE_TIMEOUT_SECONDS
+    return _streaming_stream_idle_timeout(
+        profile,
+        assistant_timeout_seconds=ASSISTANT_STREAM_IDLE_TIMEOUT_SECONDS,
+        specialist_timeout_seconds=SPECIALIST_STREAM_IDLE_TIMEOUT_SECONDS,
+    )
 
 
 async def _prepare_chat_request_envelope(
@@ -5310,28 +4872,19 @@ async def _load_chat_run_preflight_context(
     attachments: list[dict[str, Any]],
     history_limit: int,
     message: str = "",
+    context: Any | None = None,
 ) -> ChatRunPreflightContext:
-    preflight_context = await agent_runtime_preflight.load_chat_run_preflight_context(
+    return await agent_runtime_preflight.load_chat_run_preflight_context_with_agent_memory(
         async_session,
         session_id=session_id,
         profile=profile,
         attachments=attachments,
         history_limit=history_limit,
+        message=message,
+        request_context=context,
         load_history=load_history,
         ensure_local_memory_context=ensure_local_memory_context,
-    )
-    if not str(message or "").strip():
-        return preflight_context
-    agent_memory_context = await ensure_agent_memory_context(async_session, profile, session_id, message)
-    if not agent_memory_context:
-        return preflight_context
-    return ChatRunPreflightContext(
-        history=preflight_context.history,
-        local_memory_context=agent_runtime_preflight.merge_preflight_memory_context(
-            preflight_context.local_memory_context,
-            agent_memory_context,
-        ),
-        attachments=preflight_context.attachments,
+        ensure_agent_memory_context=ensure_agent_memory_context,
     )
 
 
@@ -5359,6 +4912,9 @@ async def _collect_chat_reply_impl(
     all_attachments = envelope.all_attachments
     message_hash = envelope.message_hash
     user_display_message = envelope.user_display_message
+    audit_context = agent_runtime_context.mutable_context_dict(context)
+    memory_identity = agent_runtime_context.research_identity(audit_context)
+    memory_save_kwargs = {"research_identity": memory_identity} if memory_identity else {}
     catalog_reply = build_wiki_catalog_reply(message)
     short_circuit = agent_runtime_preflight.plan_chat_preflight_short_circuit(
         catalog_reply=catalog_reply,
@@ -5372,8 +4928,21 @@ async def _collect_chat_reply_impl(
             return duplicate_reply
 
     if short_circuit.catalog_reply:
-        await save_message(async_session, "user", user_display_message, session_id, attachments=all_attachments)
-        await save_message(async_session, "assistant", short_circuit.catalog_reply, session_id)
+        await save_message(
+            async_session,
+            "user",
+            user_display_message,
+            session_id,
+            attachments=all_attachments,
+            **memory_save_kwargs,
+        )
+        await save_message(
+            async_session,
+            "assistant",
+            short_circuit.catalog_reply,
+            session_id,
+            **memory_save_kwargs,
+        )
         await refresh_session_memory(async_session, profile, session_id)
         _remember_completed_run(profile, session_id, message_hash, short_circuit.catalog_reply)
         return short_circuit.catalog_reply
@@ -5391,16 +4960,23 @@ async def _collect_chat_reply_impl(
         profile=profile,
         attachments=all_attachments,
         history_limit=history_limit,
+        context=context,
     )
     await wait_for_pdf_attachment_parses(preflight_context.attachments)
     all_attachments = _attachments_with_fresh_metadata(preflight_context.attachments)
-    await save_message(async_session, "user", user_display_message, session_id, attachments=all_attachments)
+    await save_message(
+        async_session,
+        "user",
+        user_display_message,
+        session_id,
+        attachments=all_attachments,
+        **memory_save_kwargs,
+    )
     image_analysis_context, image_model_succeeded = await analyze_images_with_primary_model(
         completed_guard_input or message,
         all_attachments,
     )
 
-    audit_context = dict(context) if isinstance(context, dict) else context
     run_input = build_hermes_run_input(
         completed_guard_input or message,
         profile=profile,
@@ -5435,6 +5011,7 @@ async def _collect_chat_reply_impl(
         ACTIVE_RUNS.pop(_active_key(profile, session_id), None)
 
     raw_reply = reply
+    reply = deterministic_pdf_market_reply(message, audit_context) or reply
     reply = normalize_evidence_trace_for_display(reply)
     if enforce_evidence_contract:
         reply = enforce_financial_evidence_contract(message, audit_context, reply)
@@ -5460,7 +5037,14 @@ async def _collect_chat_reply_impl(
         stored_output=reply,
         attachments=all_attachments,
     )
-    await save_message(async_session, "assistant", reply, session_id)
+    await save_message(
+        async_session,
+        "assistant",
+        reply,
+        session_id,
+        audit_trace_id=_answer_audit_trace_id(answer_audit_record),
+        **memory_save_kwargs,
+    )
     await refresh_session_memory(async_session, profile, session_id)
     _remember_completed_run(profile, session_id, message_hash, reply)
     return reply
@@ -5508,13 +5092,7 @@ async def _collect_stream_run(
     try:
         await _append_progress_event(
             state,
-            _progress_payload(
-                status="running",
-                title="任务已启动",
-                detail="正在连接智能体并准备执行",
-                current=0,
-                total=1,
-            ),
+            agent_runtime_progress.task_started_progress_payload(),
         )
         async with asyncio.timeout(STREAM_TIMEOUT_SECONDS):
             event_stream = stream_run(state.run_id, profile=state.profile, timeout=hermes_timeout()).__aiter__()
@@ -5555,15 +5133,7 @@ async def _collect_stream_run(
                         full_reply = f"{full_reply}{loop_delta}"
                         await _append_progress_event(
                             state,
-                            _progress_payload(
-                                status="error",
-                                title="检测到重复输出",
-                                detail=(
-                                    f"智能体反复输出“{text_loop['sample']}”，"
-                                    "已自动停止本次运行"
-                                ),
-                                source="runtime",
-                            ),
+                            agent_runtime_progress.output_loop_stop_progress_payload(text_loop["sample"]),
                         )
                         await _append_state_event(state, "delta", {"content": loop_delta})
                         await _append_state_event(
@@ -5577,38 +5147,17 @@ async def _collect_stream_run(
                         )
                         break
                 elif ev.type == "tool.started":
-                    tool_label = ev.tool or "工具"
-                    preview = ev.preview or ""
-                    display_tool_label = _display_tool_label(tool_label, preview)
-                    tool_signature = _hash_text(f"{tool_label}\n{preview}")
-                    state.last_tool_started_signature = tool_signature
-                    state.tool_events_since_delta += 1
-                    if tool_signature == state.last_tool_signature:
-                        state.consecutive_same_tool_calls += 1
-                    else:
-                        state.consecutive_same_tool_calls = 1
-                        state.last_tool_signature = tool_signature
-                        state.last_tool_label = tool_label
-                        state.last_tool_preview = preview[:220] if preview else ""
-                    await _append_progress_event(
+                    projection = project_tool_started(
                         state,
-	                        _progress_payload(
-	                            status="running",
-	                            title=f"正在执行 {display_tool_label}",
-	                            detail=preview[:180] if preview else "智能体正在调用工具",
-	                            source="tool",
-	                            tool=display_tool_label,
-	                        ),
-	                    )
-                    await _append_state_event(
-                        state,
-                        "tool",
-                        {"status": "started", "tool": ev.tool, "preview": ev.preview},
+                        tool=ev.tool,
+                        preview=ev.preview,
+                        display_tool_label=_display_tool_label,
+                        hash_text=_hash_text,
+                        repeated_tool_call_limit=REPEATED_TOOL_CALL_LIMIT,
                     )
-                    if (
-                        state.consecutive_same_tool_calls >= REPEATED_TOOL_CALL_LIMIT
-                        and state.tool_events_since_delta >= REPEATED_TOOL_CALL_LIMIT
-                    ):
+                    await _append_progress_event(state, projection.progress_payload)
+                    await _append_state_event(state, "tool", projection.state_event_payload)
+                    if projection.repeated_call_limit_reached:
                         failed = True
                         state.stop_requested = True
                         try:
@@ -5617,19 +5166,16 @@ async def _collect_stream_run(
                             pass
                         repeated_delta = (
                             f"\n\n{REPEATED_TOOL_CALL_STOP_MESSAGE}\n\n"
-                            f"重复工具：{tool_label}\n"
+                            f"重复工具：{projection.tool_label}\n"
                             f"重复次数：{state.consecutive_same_tool_calls}\n"
                             f"工具输入预览：{state.last_tool_preview or '未返回'}"
                         )
                         full_reply = f"{full_reply}{repeated_delta}" if full_reply else repeated_delta.strip()
                         await _append_progress_event(
                             state,
-                            _progress_payload(
-                                status="error",
-                                title="检测到工具调用循环",
-                                detail=f"{tool_label} 连续重复调用 {state.consecutive_same_tool_calls} 次，已自动停止",
-                                source="runtime",
-                                tool=tool_label,
+                            agent_runtime_progress.repeated_tool_call_stop_progress_payload(
+                                projection.tool_label,
+                                state.consecutive_same_tool_calls,
                             ),
                         )
                         await _append_state_event(state, "delta", {"content": repeated_delta})
@@ -5639,48 +5185,24 @@ async def _collect_stream_run(
                             {
                                 "message": REPEATED_TOOL_CALL_STOP_MESSAGE,
                                 "reason": "repeated_tool_calls_without_delta",
-                                "tool": tool_label,
+                                "tool": projection.tool_label,
                                 "count": state.consecutive_same_tool_calls,
                             },
                         )
                         break
                 elif ev.type == "tool.completed":
-                    state.tool_events_since_delta += 1
-                    tool_label = ev.tool or "工具"
-                    display_tool_label = _display_tool_label(tool_label, state.last_tool_preview)
-                    tool_signature = state.last_tool_started_signature or _hash_text(tool_label)
-                    if ev.error:
-                        if tool_signature == state.last_tool_error_signature:
-                            state.consecutive_tool_errors += 1
-                        else:
-                            state.consecutive_tool_errors = 1
-                            state.last_tool_error_signature = tool_signature
-                        state.total_tool_errors += 1
-                        state.last_tool_error_tool = tool_label
-                    else:
-                        state.consecutive_tool_errors = 0
-                        state.last_tool_error_signature = None
-                    await _append_progress_event(
+                    projection = project_tool_completed(
                         state,
-	                        _progress_payload(
-	                            status="error" if ev.error else "running",
-	                            title=f"{display_tool_label} 执行{'异常' if ev.error else '完成'}",
-	                            detail=f"耗时 {ev.duration:.1f}s" if isinstance(ev.duration, (int, float)) else None,
-	                            source="tool",
-	                            tool=display_tool_label,
-	                        ),
-	                    )
-                    await _append_state_event(
-                        state,
-                        "tool",
-                        {
-                            "status": "completed",
-                            "tool": ev.tool,
-                            "duration": ev.duration,
-                            "error": ev.error,
-                        },
+                        tool=ev.tool,
+                        duration=ev.duration,
+                        error=ev.error,
+                        display_tool_label=_display_tool_label,
+                        hash_text=_hash_text,
+                        consecutive_tool_error_limit=CONSECUTIVE_TOOL_ERROR_LIMIT,
                     )
-                    if ev.error and state.consecutive_tool_errors >= CONSECUTIVE_TOOL_ERROR_LIMIT:
+                    await _append_progress_event(state, projection.progress_payload)
+                    await _append_state_event(state, "tool", projection.state_event_payload)
+                    if projection.consecutive_error_limit_reached:
                         failed = True
                         state.stop_requested = True
                         try:
@@ -5689,18 +5211,15 @@ async def _collect_stream_run(
                             pass
                         failure_delta = (
                             f"\n\n{TOOL_FAILURE_STOP_MESSAGE}\n\n"
-                            f"连续失败工具：{tool_label}\n"
+                            f"连续失败工具：{projection.tool_label}\n"
                             f"连续失败次数：{state.consecutive_tool_errors}"
                         )
                         full_reply = f"{full_reply}{failure_delta}" if full_reply else failure_delta.strip()
                         await _append_progress_event(
                             state,
-                            _progress_payload(
-                                status="error",
-                                title="检测到工具错误循环",
-                                detail=f"{tool_label} 连续失败 {state.consecutive_tool_errors} 次，已自动停止",
-                                source="runtime",
-                                tool=tool_label,
+                            agent_runtime_progress.consecutive_tool_error_stop_progress_payload(
+                                projection.tool_label,
+                                state.consecutive_tool_errors,
                             ),
                         )
                         await _append_state_event(state, "delta", {"content": failure_delta})
@@ -5710,7 +5229,7 @@ async def _collect_stream_run(
                             {
                                 "message": TOOL_FAILURE_STOP_MESSAGE,
                                 "reason": "consecutive_tool_errors",
-                                "tool": tool_label,
+                                "tool": projection.tool_label,
                                 "count": state.consecutive_tool_errors,
                             },
                         )
@@ -5748,11 +5267,9 @@ async def _collect_stream_run(
                         await _append_state_event(state, "delta", {"content": failure_delta})
                     await _append_progress_event(
                         state,
-                        _progress_payload(
-                            status="error" if ev.type == "failed" else "stopped",
-                            title="任务失败" if ev.type == "failed" else "任务已取消",
-                            detail=detail or status_message,
-                            source="runtime",
+                        agent_runtime_progress.terminal_run_event_progress_payload(
+                            ev.type,
+                            detail or status_message,
                         ),
                     )
                     await _append_state_event(
@@ -5771,12 +5288,7 @@ async def _collect_stream_run(
         full_reply = f"{full_reply}{timeout_delta}" if full_reply else timeout_delta
         await _append_progress_event(
             state,
-            _progress_payload(
-                status="error",
-                title="任务超时",
-                detail=timeout_message,
-                source="runtime",
-            ),
+            agent_runtime_progress.timeout_progress_payload(timeout_message),
         )
         await _append_state_event(state, "delta", {"content": timeout_delta})
     except httpx.TimeoutException:
@@ -5788,12 +5300,7 @@ async def _collect_stream_run(
         full_reply = f"{full_reply}{timeout_delta}" if full_reply else timeout_delta
         await _append_progress_event(
             state,
-            _progress_payload(
-                status="error",
-                title="任务超时",
-                detail=TIMEOUT_MESSAGE,
-                source="runtime",
-            ),
+            agent_runtime_progress.timeout_progress_payload(TIMEOUT_MESSAGE),
         )
         await _append_state_event(state, "delta", {"content": timeout_delta})
     except Exception as exc:
@@ -5802,12 +5309,7 @@ async def _collect_stream_run(
         full_reply = f"{full_reply}{error_text}" if full_reply else error_text.strip()
         await _append_progress_event(
             state,
-            _progress_payload(
-                status="error",
-                title="任务异常",
-                detail=str(exc),
-                source="runtime",
-            ),
+            agent_runtime_progress.runtime_exception_progress_payload(exc),
         )
         await _append_state_event(state, "delta", {"content": error_text})
         await _append_state_event(state, "error", {"message": str(exc)})
@@ -5820,12 +5322,7 @@ async def _collect_stream_run(
                 full_reply = STOPPED_MESSAGE
                 await _append_progress_event(
                     state,
-                    _progress_payload(
-                        status="stopped",
-                        title="任务已停止",
-                        detail=STOPPED_MESSAGE,
-                        source="runtime",
-                    ),
+                    agent_runtime_progress.user_stopped_progress_payload(STOPPED_MESSAGE),
                 )
                 await _append_state_event(state, "delta", {"content": STOPPED_MESSAGE})
 
@@ -5834,7 +5331,8 @@ async def _collect_stream_run(
                 if failed or _is_loop_polluted_assistant_message(full_reply):
                     reply = _failed_run_reply_for_history(full_reply)
                 else:
-                    reply = normalize_evidence_trace_for_display(full_reply)
+                    reply = deterministic_pdf_market_reply(state.original_message or "", state.context) or full_reply
+                    reply = normalize_evidence_trace_for_display(reply)
                     if enforce_evidence_contract:
                         reply = enforce_financial_evidence_contract(
                             state.original_message or "",
@@ -5869,7 +5367,20 @@ async def _collect_stream_run(
                         stored_output=reply,
                         attachments=getattr(state, "provenance_attachments", None),
                     )
-                await save_message_in_background("assistant", reply, state.session_id, profile=state.profile)
+                stream_memory_identity = agent_runtime_context.research_identity(state.context)
+                stream_memory_kwargs = (
+                    {"research_identity": stream_memory_identity}
+                    if stream_memory_identity
+                    else {}
+                )
+                await save_message_in_background(
+                    "assistant",
+                    reply,
+                    state.session_id,
+                    profile=state.profile,
+                    audit_trace_id=audit_trace_id,
+                    **stream_memory_kwargs,
+                )
                 _remember_completed_run(state.profile, state.session_id, state.message_hash, reply)
 
             if not failed and not state.user_stop_requested:
@@ -5950,6 +5461,9 @@ async def _stream_chat_reply_impl(
     all_attachments = envelope.all_attachments
     message_hash = envelope.message_hash
     user_display_message = envelope.user_display_message
+    audit_context = agent_runtime_context.mutable_context_dict(context)
+    memory_identity = agent_runtime_context.research_identity(audit_context)
+    memory_save_kwargs = {"research_identity": memory_identity} if memory_identity else {}
 
     if has_active_run(profile, session_id):
         async for event in stream_active_run_events(
@@ -5981,8 +5495,21 @@ async def _stream_chat_reply_impl(
             return
 
     if short_circuit.catalog_reply:
-        await save_message(async_session, "user", user_display_message, session_id, attachments=all_attachments)
-        await save_message(async_session, "assistant", short_circuit.catalog_reply, session_id)
+        await save_message(
+            async_session,
+            "user",
+            user_display_message,
+            session_id,
+            attachments=all_attachments,
+            **memory_save_kwargs,
+        )
+        await save_message(
+            async_session,
+            "assistant",
+            short_circuit.catalog_reply,
+            session_id,
+            **memory_save_kwargs,
+        )
         await refresh_session_memory(async_session, profile, session_id)
         _remember_completed_run(profile, session_id, message_hash, short_circuit.catalog_reply)
         yield {"event": "delta", "data": json.dumps({"content": short_circuit.catalog_reply}, ensure_ascii=False)}
@@ -6010,6 +5537,7 @@ async def _stream_chat_reply_impl(
         profile=profile,
         attachments=all_attachments,
         history_limit=history_limit,
+        context=context,
     )
     all_attachments = preflight_context.attachments
     if _pdf_attachment_parse_dirs(all_attachments):
@@ -6027,13 +5555,19 @@ async def _stream_chat_reply_impl(
         }
         await wait_for_pdf_attachment_parses(all_attachments)
         all_attachments = _attachments_with_fresh_metadata(all_attachments)
-    await save_message(async_session, "user", user_display_message, session_id, attachments=all_attachments)
+    await save_message(
+        async_session,
+        "user",
+        user_display_message,
+        session_id,
+        attachments=all_attachments,
+        **memory_save_kwargs,
+    )
     image_analysis_context, image_model_succeeded = await analyze_images_with_primary_model(
         completed_guard_input or message,
         all_attachments,
     )
 
-    audit_context = dict(context) if isinstance(context, dict) else context
     run_input = build_hermes_run_input(
         completed_guard_input or message,
         profile=profile,

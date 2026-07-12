@@ -2,12 +2,19 @@ import json
 import socket
 from datetime import date
 
+import httpx
+import market_report_finder_service.services.downloader as downloader_module
 import pytest
-
 from market_report_finder_service.core.config import settings
 from market_report_finder_service.markets.us.service import UsReportFinder
-from market_report_finder_service.models.schemas import DirectReportDownloadRequest, FilingCandidate, Market, ReportFamily, ReportType
-from market_report_finder_service.services.downloader import ReportDownloader
+from market_report_finder_service.models.schemas import (
+    DirectReportDownloadRequest,
+    FilingCandidate,
+    Market,
+    ReportFamily,
+    ReportType,
+)
+from market_report_finder_service.services.downloader import ReportDownloader, _PinnedReportHTTPTransport
 
 
 def _candidate() -> FilingCandidate:
@@ -111,7 +118,7 @@ def test_eu_sec_source_uses_sec_user_agent(monkeypatch):
             return None
 
     class StubClient:
-        def __init__(self, *, timeout, headers, follow_redirects):
+        def __init__(self, *, timeout, headers, follow_redirects, transport=None):
             captured["timeout"] = timeout
             captured["headers"] = headers
             captured["follow_redirects"] = follow_redirects
@@ -158,7 +165,7 @@ def test_eu_bmw_download_uses_base_user_agent(monkeypatch):
             return None
 
     class StubClient:
-        def __init__(self, *, timeout, headers, follow_redirects):
+        def __init__(self, *, timeout, headers, follow_redirects, transport=None):
             captured["headers"] = headers
 
         def __enter__(self):
@@ -289,6 +296,67 @@ def test_user_supplied_non_official_url_is_manual_unverified():
     assert not UsReportFinder.owns_url("https://www.sec.gov.evil.example/report.htm")
 
 
+def test_downloader_rejects_manual_unverified_url_by_default_before_network(monkeypatch, tmp_path):
+    request = DirectReportDownloadRequest(
+        market=Market.us,
+        company_name="Apple Inc.",
+        ticker="AAPL",
+        document_url="https://sec.gov.evil.example/archive/aapl-2025.htm",
+        form="10-K",
+        report_end=date(2025, 9, 27),
+        published_at=date(2025, 10, 31),
+    )
+    candidate = UsReportFinder().direct_candidate(request)
+    network_calls: list[str] = []
+
+    def fake_getaddrinfo(host, port, type=0):
+        network_calls.append(f"dns:{host}:{port}:{type}")
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))]
+
+    class StubClient:
+        def __init__(self, *args, **kwargs):
+            network_calls.append("httpx")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(settings, "download_dir", tmp_path)
+    monkeypatch.setattr(settings, "allow_manual_unverified_downloads", False)
+    monkeypatch.setattr("market_report_finder_service.services.downloader.socket.getaddrinfo", fake_getaddrinfo)
+    monkeypatch.setattr("market_report_finder_service.services.downloader.httpx.Client", StubClient)
+
+    with pytest.raises(ValueError, match="Manual unverified report URL downloads are disabled"):
+        ReportDownloader().download(candidate)
+
+    assert network_calls == []
+
+
+def test_downloader_manual_unverified_opt_in_still_rejects_private_dns(monkeypatch):
+    request = DirectReportDownloadRequest(
+        market=Market.us,
+        company_name="Apple Inc.",
+        ticker="AAPL",
+        document_url="https://sec.gov.evil.example/archive/aapl-2025.htm",
+        form="10-K",
+        report_end=date(2025, 9, 27),
+        published_at=date(2025, 10, 31),
+    )
+    candidate = UsReportFinder().direct_candidate(request)
+
+    def fake_getaddrinfo(host, port, type=0):
+        assert host == "sec.gov.evil.example"
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", port))]
+
+    monkeypatch.setattr(settings, "allow_manual_unverified_downloads", True)
+    monkeypatch.setattr("market_report_finder_service.services.downloader.socket.getaddrinfo", fake_getaddrinfo)
+
+    with pytest.raises(ValueError, match="private|metadata"):
+        ReportDownloader()._validate_original_url(candidate)
+
+
 def test_downloader_streams_and_writes_metadata_index_atomically(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "download_dir", tmp_path)
     chunks = [b"<html>", b"ok</html>"]
@@ -311,7 +379,7 @@ def test_downloader_streams_and_writes_metadata_index_atomically(monkeypatch, tm
             return False
 
     class StubClient:
-        def __init__(self, *, timeout, headers, follow_redirects):
+        def __init__(self, *, timeout, headers, follow_redirects, transport=None):
             self.headers = headers
 
         def __enter__(self):
@@ -392,7 +460,7 @@ def test_downloader_records_official_redirect_chain(monkeypatch, tmp_path):
             return False
 
     class StubClient:
-        def __init__(self, *, timeout, headers, follow_redirects):
+        def __init__(self, *, timeout, headers, follow_redirects, transport=None):
             pass
 
         def __enter__(self):
@@ -460,7 +528,7 @@ def test_downloader_rejects_official_redirect_outside_allowlist(monkeypatch, tmp
             return False
 
     class StubClient:
-        def __init__(self, *, timeout, headers, follow_redirects):
+        def __init__(self, *, timeout, headers, follow_redirects, transport=None):
             pass
 
         def __enter__(self):
@@ -502,7 +570,7 @@ def test_downloader_size_limit_removes_temp_file(monkeypatch, tmp_path):
             return False
 
     class StubClient:
-        def __init__(self, *, timeout, headers, follow_redirects):
+        def __init__(self, *, timeout, headers, follow_redirects, transport=None):
             pass
 
         def __enter__(self):
@@ -567,7 +635,7 @@ def test_downloader_rejects_redirect_to_private_ip_literal(monkeypatch, tmp_path
             return False
 
     class StubClient:
-        def __init__(self, *, timeout, headers, follow_redirects):
+        def __init__(self, *, timeout, headers, follow_redirects, transport=None):
             self.urls = []
 
         def __enter__(self):
@@ -615,6 +683,97 @@ def test_downloader_allows_official_url_with_public_dns(monkeypatch):
     ReportDownloader()._validate_effective_url(_candidate(), _candidate().document_url)
 
 
+def test_pinned_transport_connects_to_validated_ip_not_hostname(monkeypatch):
+    captured: dict[str, object] = {}
+
+    def fake_getaddrinfo(host, port, type=0):
+        captured["dns_host"] = host
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))]
+
+    class FakeSock:
+        def settimeout(self, value):
+            captured["read_timeout"] = value
+
+    class FakeHTTPResponse:
+        status = 200
+
+        def __init__(self):
+            self._chunks = [b"<html>ok</html>", b""]
+
+        def getheaders(self):
+            return [("content-type", "text/html")]
+
+        def read(self, _size):
+            return self._chunks.pop(0)
+
+        def close(self):
+            captured["response_closed"] = True
+
+    class FakeHTTPConnection:
+        def __init__(self, host, port=None, timeout=None):
+            captured["connect_host"] = host
+            captured["connect_port"] = port
+            captured["connect_timeout"] = timeout
+            self.sock = FakeSock()
+
+        def request(self, method, target, body=None, headers=None):
+            captured["method"] = method
+            captured["target"] = target
+            captured["body"] = body
+            captured["headers"] = headers
+
+        def getresponse(self):
+            return FakeHTTPResponse()
+
+        def close(self):
+            captured["connection_closed"] = True
+
+    monkeypatch.setattr("market_report_finder_service.services.downloader.socket.getaddrinfo", fake_getaddrinfo)
+    monkeypatch.setattr(downloader_module, "_PinnedHTTPConnection", FakeHTTPConnection)
+
+    request = httpx.Request("GET", "http://www.sec.gov/Archives/report.htm?keep=1")
+    request.extensions["timeout"] = {"connect": 1.5, "read": 2.5}
+    response = _PinnedReportHTTPTransport().handle_request(request)
+
+    assert response.status_code == 200
+    assert b"".join(response.iter_bytes()) == b"<html>ok</html>"
+    assert captured["dns_host"] == "www.sec.gov"
+    assert captured["connect_host"] == "93.184.216.34"
+    assert captured["connect_port"] == 80
+    assert captured["connect_timeout"] == 1.5
+    assert captured["read_timeout"] == 2.5
+    assert captured["target"] == "/Archives/report.htm?keep=1"
+    assert captured["headers"]["Host"] == "www.sec.gov"
+    assert captured["response_closed"] is True
+    assert captured["connection_closed"] is True
+
+
+def test_pinned_transport_rejects_dns_rebind_before_connect(monkeypatch):
+    calls = 0
+    connected: list[str] = []
+
+    def fake_getaddrinfo(host, port, type=0):
+        nonlocal calls
+        calls += 1
+        address = "93.184.216.34" if calls == 1 else "127.0.0.1"
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (address, port))]
+
+    class ForbiddenHTTPConnection:
+        def __init__(self, host, port=None, timeout=None):
+            connected.append(host)
+            raise AssertionError("rebound private DNS must be rejected before connect")
+
+    monkeypatch.setattr("market_report_finder_service.services.downloader.socket.getaddrinfo", fake_getaddrinfo)
+    monkeypatch.setattr(downloader_module, "_PinnedHTTPConnection", ForbiddenHTTPConnection)
+
+    ReportDownloader()._validate_resolved_host("www.sec.gov", "http://www.sec.gov/Archives/report.htm")
+    with pytest.raises(ValueError, match="private|loopback|metadata"):
+        _PinnedReportHTTPTransport().handle_request(httpx.Request("GET", "http://www.sec.gov/Archives/report.htm"))
+
+    assert calls == 2
+    assert connected == []
+
+
 def test_downloader_metadata_and_index_redact_source_tokens(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "download_dir", tmp_path)
     token_url = "https://www.sec.gov/Archives/report.htm?source_token=secret-source&crtfc_key=secret-key&keep=1"
@@ -639,7 +798,7 @@ def test_downloader_metadata_and_index_redact_source_tokens(monkeypatch, tmp_pat
             return False
 
     class StubClient:
-        def __init__(self, *, timeout, headers, follow_redirects):
+        def __init__(self, *, timeout, headers, follow_redirects, transport=None):
             pass
 
         def __enter__(self):

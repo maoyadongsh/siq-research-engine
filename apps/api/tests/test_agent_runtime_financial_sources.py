@@ -125,6 +125,20 @@ def test_build_primary_data_evidence_supplement_combines_statement_and_note_cont
     assert result == "statement::detail\n\nnote::lease"
 
 
+def test_statement_evidence_chain_is_core_then_body_table_then_note():
+    result = sources.build_primary_data_evidence_supplement(
+        "statement with note",
+        {},
+        deps=_deps(
+            three_statement_core_result=lambda _message, _context: {"kind": "core"},
+            statement_metric_result=lambda _message, _context: ({"kind": "detail"}, None),
+            note_detail_result=lambda _message, _context, **_kwargs: ({"kind": "note"}, None),
+        ),
+    )
+
+    assert result == "three-statement::core\n\nstatement::detail\n\nnote::note"
+
+
 def test_build_primary_data_evidence_supplement_records_postgres_fallback_after_wiki_miss():
     context: dict[str, Any] = {}
 
@@ -160,6 +174,21 @@ def test_append_primary_data_evidence_skips_supplement_when_requested_metric_is_
 
     assert result == "MERGED::[D1] source_type=wiki_metrics, metric=收入"
     assert calls == []
+
+
+def test_statement_query_requires_main_statement_source_even_when_metric_is_cited():
+    reply = "[D1] source_type=wiki_document_links, file=semantic/document_links.json, metric=收入"
+
+    assert sources.reply_missing_required_wiki_source("statement note query", reply, deps=_deps()) is True
+
+    result = sources.append_primary_data_evidence_if_needed(
+        "statement note query",
+        {},
+        reply,
+        deps=_deps(three_statement_core_result=lambda _message, _context: {"kind": "core"}),
+    )
+
+    assert result == f"MERGED::{reply}\nSUPPLEMENT::three-statement::core"
 
 
 def test_append_primary_data_evidence_adds_supplement_when_required_wiki_source_is_missing():

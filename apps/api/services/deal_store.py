@@ -7,20 +7,85 @@ contracts so routers and importers do not hand-roll filesystem access.
 
 from __future__ import annotations
 
+import fcntl
 import json
+import os
 import re
 import shutil
+import stat
+import tempfile
+import threading
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterator
+from weakref import WeakValueDictionary
 
 from services.path_config import WIKI_ROOT
-
 
 DEAL_ID_RE = re.compile(r"^[A-Z0-9][A-Z0-9_-]{2,96}$")
 DEAL_MANIFEST_SCHEMA = "siq_deal_manifest_v1"
 DEAL_PROJECT_SCHEMA = "siq_deal_project_v1"
 DEAL_WORKFLOW_SCHEMA = "siq_deal_workflow_state_v1"
+
+
+class JsonRevisionConflictError(RuntimeError):
+    """Raised when an optimistic JSON update is based on stale state."""
+
+
+_path_locks: WeakValueDictionary[str, threading.RLock] = WeakValueDictionary()
+_path_locks_guard = threading.Lock()
+
+
+def _thread_lock_for(path: Path) -> threading.RLock:
+    key = str(path.resolve())
+    with _path_locks_guard:
+        return _path_locks.setdefault(key, threading.RLock())
+
+
+@contextmanager
+def _locked_path(path: Path) -> Iterator[None]:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.with_name(f".{path.name}.lock")
+    thread_lock = _thread_lock_for(path)
+    with thread_lock, lock_path.open("a+b") as lock_handle:
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    temp_path: Path | None = None
+    try:
+        target_mode = stat.S_IMODE(path.stat().st_mode)
+    except FileNotFoundError:
+        target_mode = 0o644
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temp_path = Path(handle.name)
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temp_path, target_mode)
+        os.replace(temp_path, path)
+        temp_path = None
+        directory_fd = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
 
 
 def utc_now_iso() -> str:
@@ -60,8 +125,41 @@ def read_json(path: Path, default: Any = None) -> Any:
 
 
 def write_json(path: Path, payload: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    serialized = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+    with _locked_path(path):
+        _atomic_write_text(path, serialized)
+
+
+def update_json(
+    path: Path,
+    updater: Callable[[Any], Any],
+    *,
+    default: Any = None,
+    expected_updated_at: str | None = None,
+) -> Any:
+    """Atomically read, update, and replace a JSON document.
+
+    ``expected_updated_at`` is opt-in so existing callers remain compatible.
+    Callers that read before doing expensive work can use it as an optimistic
+    precondition and receive an explicit conflict instead of overwriting a
+    newer document.
+    """
+    with _locked_path(path):
+        try:
+            current = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            current = default
+        if expected_updated_at is not None:
+            current_updated_at = current.get("updated_at") if isinstance(current, dict) else None
+            if current_updated_at != expected_updated_at:
+                raise JsonRevisionConflictError(
+                    f"stale JSON update for {path}: expected updated_at={expected_updated_at!r}, "
+                    f"found {current_updated_at!r}"
+                )
+        updated = updater(current)
+        serialized = json.dumps(updated, ensure_ascii=False, indent=2) + "\n"
+        _atomic_write_text(path, serialized)
+        return updated
 
 
 def relative_path(path: Path, root: Path) -> str:
@@ -255,6 +353,178 @@ def read_deal_summary(package_dir: Path) -> dict[str, Any]:
     }
 
 
+def _role_value(user: Any) -> str:
+    role = getattr(user, "role", "")
+    return str(role.value if hasattr(role, "value") else role)
+
+
+def is_deal_admin_user(user: Any) -> bool:
+    return _role_value(user) in {"admin", "super_admin"}
+
+
+def _user_identity_values(user: Any) -> set[str]:
+    values: set[str] = set()
+    for attr in ("id", "username", "email"):
+        raw = getattr(user, attr, None)
+        if raw not in (None, ""):
+            values.add(str(raw).strip().lower())
+    return {value for value in values if value}
+
+
+def _principal_matches_user(value: Any, user_values: set[str]) -> bool:
+    if not user_values:
+        return False
+    if isinstance(value, dict):
+        keys = (
+            "id",
+            "user_id",
+            "principal_id",
+            "username",
+            "email",
+            "name",
+        )
+        return any(str(value.get(key) or "").strip().lower() in user_values for key in keys)
+    if isinstance(value, (list, tuple, set)):
+        return any(_principal_matches_user(item, user_values) for item in value)
+    if value in (None, ""):
+        return False
+    return str(value).strip().lower() in user_values
+
+
+def _role_from_member_payload(value: Any, *, default: str = "member") -> str:
+    if isinstance(value, dict):
+        return str(value.get("role") or value.get("access") or default).strip().lower() or default
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"owner", "member", "editor", "viewer", "reviewer", "maintainer"}:
+            return lowered
+    return default
+
+
+def _iter_member_payloads(project_meta: dict[str, Any]) -> list[Any]:
+    payloads: list[Any] = []
+    for key in ("members", "team", "collaborators", "shared_with", "access", "access_bindings"):
+        value = project_meta.get(key)
+        if isinstance(value, dict):
+            payloads.extend({"principal": principal, "role": role} for principal, role in value.items())
+        elif isinstance(value, list):
+            payloads.extend(value)
+    return payloads
+
+
+def _deal_project_meta_for_access(deal_id: str, *, wiki_root: Path | str | None = None) -> dict[str, Any]:
+    package_dir = safe_deal_dir(deal_id, wiki_root=wiki_root)
+    if not (package_dir / "manifest.json").is_file():
+        raise FileNotFoundError(deal_id)
+    return read_json(package_dir / "project_meta.json", {}) or {}
+
+
+def deal_access_role(
+    deal_id: str,
+    user: Any,
+    *,
+    wiki_root: Path | str | None = None,
+) -> str | None:
+    if is_deal_admin_user(user):
+        return "admin"
+    project_meta = _deal_project_meta_for_access(deal_id, wiki_root=wiki_root)
+    user_values = _user_identity_values(user)
+    if _principal_matches_user(project_meta.get("created_by"), user_values):
+        return "owner"
+    if _principal_matches_user(project_meta.get("owner"), user_values):
+        return "owner"
+    if _principal_matches_user(project_meta.get("owner_id"), user_values):
+        return "owner"
+    if _principal_matches_user(project_meta.get("owner_user_id"), user_values):
+        return "owner"
+
+    for item in _iter_member_payloads(project_meta):
+        if isinstance(item, dict) and "principal" in item:
+            if _principal_matches_user(item.get("principal"), user_values):
+                return _role_from_member_payload(item.get("role"), default="member")
+            continue
+        if _principal_matches_user(item, user_values):
+            return _role_from_member_payload(item, default="member")
+    return None
+
+
+def _is_private_deal(project_meta: dict[str, Any]) -> bool:
+    level = str(project_meta.get("confidentiality_level") or "private").strip().lower()
+    return level not in {"public", "internal", "shared", "team"}
+
+
+def user_can_access_deal(
+    deal_id: str,
+    user: Any,
+    *,
+    action: str = "view",
+    wiki_root: Path | str | None = None,
+) -> bool:
+    project_meta = _deal_project_meta_for_access(deal_id, wiki_root=wiki_root)
+    normalized_action = str(action or "view").strip().lower()
+    if is_deal_admin_user(user):
+        return True
+    if normalized_action in {"view", "read", "list"} and not _is_private_deal(project_meta):
+        return True
+    role = deal_access_role(deal_id, user, wiki_root=wiki_root)
+    if normalized_action in {"view", "read", "list"}:
+        return role in {"admin", "owner", "member", "editor", "viewer", "reviewer", "maintainer"}
+    return role in {"admin", "owner", "member", "editor", "maintainer"}
+
+
+def filter_deals_for_user(
+    deals: list[dict[str, Any]],
+    user: Any,
+    *,
+    action: str = "list",
+    wiki_root: Path | str | None = None,
+) -> list[dict[str, Any]]:
+    visible: list[dict[str, Any]] = []
+    for item in deals:
+        deal_id = str(item.get("deal_id") or "").strip()
+        if not deal_id:
+            continue
+        try:
+            if user_can_access_deal(deal_id, user, action=action, wiki_root=wiki_root):
+                visible.append(item)
+        except (FileNotFoundError, ValueError):
+            continue
+    return visible
+
+
+def append_access_decision(
+    deal_id: str,
+    *,
+    action: str,
+    decision: str,
+    actor: dict[str, Any],
+    reason: str | None = None,
+    wiki_root: Path | str | None = None,
+) -> dict[str, Any]:
+    package_dir = safe_deal_dir(deal_id, wiki_root=wiki_root)
+    if not (package_dir / "manifest.json").is_file():
+        raise FileNotFoundError(deal_id)
+    event = {
+        "schema_version": "siq_deal_access_decision_v1",
+        "created_at": utc_now_iso(),
+        "deal_id": deal_id,
+        "action": action,
+        "decision": decision,
+        "actor": _redact_user_payload(actor),
+    }
+    if reason:
+        event["reason"] = reason
+    path = package_dir / "audit" / "access_decisions.ndjson"
+    encoded = (json.dumps(event, ensure_ascii=False, default=str) + "\n").encode("utf-8")
+    with _locked_path(path):
+        descriptor = os.open(path, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
+        with os.fdopen(descriptor, "ab") as handle:
+            handle.write(encoded)
+            handle.flush()
+            os.fsync(handle.fileno())
+    return event
+
+
 def _redact_user_payload(value: Any) -> Any:
     if not isinstance(value, dict):
         return value
@@ -332,9 +602,14 @@ def append_audit_event(
     payload.setdefault("created_at", utc_now_iso())
     for relative in ("phases/audit_log.json", "audit/audit_log.json"):
         path = package_dir / relative
-        audit = read_json(path, {"events": []}) or {"events": []}
-        events = audit.setdefault("events", [])
-        if isinstance(events, list):
+
+        def append_event(current: Any, *, event_path: Path = path) -> dict[str, Any]:
+            audit = current if isinstance(current, dict) else {"events": []}
+            events = audit.setdefault("events", [])
+            if not isinstance(events, list):
+                raise ValueError(f"deal audit events must be a list: {event_path}")
             events.append(payload)
-        write_json(path, audit)
+            return audit
+
+        update_json(path, append_event, default={"events": []})
     return payload

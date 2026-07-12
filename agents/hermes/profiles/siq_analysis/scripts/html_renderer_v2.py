@@ -1207,14 +1207,43 @@ def _coalesce(*values: float | None) -> float | None:
     return None
 
 
-def _parse_money_yi(raw: str) -> float | None:
+def _positive_outflow(value: float | None) -> float | None:
+    """Normalize ordinary expense rows to positive outflow values."""
+    if value is None:
+        return None
+    return abs(value) if abs(value) > 0.000001 else 0.0
+
+
+def _negative_outflow_encoding(values: list[float | None]) -> bool:
+    nonzero = [value for value in values if value is not None and abs(value) > 0.000001]
+    if len(nonzero) < 2:
+        return False
+    negative_count = sum(1 for value in nonzero if value < 0)
+    positive_count = sum(1 for value in nonzero if value > 0)
+    return negative_count >= 2 and negative_count > positive_count
+
+
+def _conditional_positive_outflow(value: float | None, reversed_encoding: bool) -> float | None:
+    if value is None:
+        return None
+    if reversed_encoding and value < 0:
+        return abs(value)
+    return value
+
+
+def _parse_money_yi(raw: str, unit_hint: str = "") -> float | None:
     cleaned = raw.replace(",", "").replace("，", "").strip()
     if not cleaned:
         return None
     try:
-        return float(cleaned) / 100_000_000
+        value = float(cleaned)
     except ValueError:
         return None
+    if "千元" in unit_hint:
+        return value / 100_000
+    if "万元" in unit_hint:
+        return value / 10_000
+    return value / 100_000_000
 
 
 def _parse_pct(raw: str) -> float | None:
@@ -1277,6 +1306,112 @@ def _revenue_segment_entry(
     }
 
 
+def _normalize_product_segment_name(name: str) -> str:
+    cleaned = re.sub(r"\s+", "", str(name or "")).strip()
+    return re.sub(r"^其中[:：]?", "", cleaned).strip()
+
+
+def _select_product_level_segments(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    selected: list[dict[str, Any]] = []
+    i = 0
+    while i < len(items):
+        item = dict(items[i])
+        next_item = items[i + 1] if i + 1 < len(items) else None
+        if isinstance(next_item, dict) and str(next_item.get("raw_name") or "").strip().startswith(("其中", "其中:")):
+            children: list[dict[str, Any]] = []
+            total_revenue = 0.0
+            total_share = 0.0
+            j = i + 1
+            while j < len(items):
+                child = dict(items[j])
+                children.append(child)
+                total_revenue += safe_float(child.get("revenue"))
+                total_share += safe_float(child.get("share"))
+                parent_revenue = safe_float(item.get("revenue"))
+                parent_share = safe_float(item.get("share"))
+                if parent_share and abs(total_share - parent_share) <= max(0.5, parent_share * 0.03):
+                    j += 1
+                    break
+                if parent_revenue and abs(total_revenue - parent_revenue) <= max(1.0, parent_revenue * 0.03):
+                    j += 1
+                    break
+                j += 1
+            if children and (
+                abs(total_share - safe_float(item.get("share"))) <= max(0.5, safe_float(item.get("share")) * 0.05)
+                or abs(total_revenue - safe_float(item.get("revenue"))) <= max(1.0, safe_float(item.get("revenue")) * 0.05)
+            ):
+                for child in children:
+                    child["name"] = _normalize_product_segment_name(str(child.get("raw_name") or child.get("name") or ""))
+                    selected.append(child)
+                i = j
+                continue
+        item["name"] = _normalize_product_segment_name(str(item.get("raw_name") or item.get("name") or ""))
+        selected.append(item)
+        i += 1
+    return selected
+
+
+def _product_segments_from_rows(rows: list[list[str]], unit_hint: str = "") -> list[dict[str, Any]]:
+    in_product = False
+    segments: list[dict[str, Any]] = []
+    for row in rows:
+        if row == ["分产品"]:
+            in_product = True
+            continue
+        if row and row[0] == "分地区":
+            break
+        if not in_product or len(row) < 6:
+            continue
+        value = _parse_money_yi(row[1], unit_hint)
+        yoy = _parse_pct(row[5])
+        if value is None or value <= 0:
+            continue
+        segments.append(
+            {
+                "raw_name": row[0],
+                "name": _normalize_product_segment_name(row[0]),
+                "revenue": value,
+                "revenue_yoy": yoy,
+                "share": _parse_pct(row[2]),
+            }
+        )
+    return _select_product_level_segments(segments)
+
+
+def _product_costs_from_rows(rows: list[list[str]], unit_hint: str = "") -> dict[str, dict[str, Any]]:
+    in_product = False
+    costs: list[dict[str, Any]] = []
+    for row in rows:
+        if row == ["分产品"]:
+            in_product = True
+            continue
+        if row and row[0] == "分地区":
+            break
+        if not in_product or len(row) < 7:
+            continue
+        revenue = _parse_money_yi(row[1], unit_hint)
+        cost = _parse_money_yi(row[2], unit_hint)
+        if revenue is None or revenue <= 0 or cost is None:
+            continue
+        costs.append(
+            {
+                "raw_name": row[0],
+                "name": _normalize_product_segment_name(row[0]),
+                "revenue": revenue,
+                "cost": cost,
+                "gross_margin": _parse_pct(row[3]),
+                "cost_yoy": _parse_pct(row[5]),
+                "share": None,
+            }
+        )
+    selected = _select_product_level_segments(costs)
+    return {
+        _normalize_product_segment_name(str(item.get("name") or item.get("raw_name") or "")): item
+        for item in selected
+        if item.get("name")
+    }
+
+
 def _extract_product_segments_from_report_markdown(work_dir: Path | None) -> list[dict[str, Any]]:
     if not work_dir:
         return []
@@ -1289,14 +1424,15 @@ def _extract_product_segments_from_report_markdown(work_dir: Path | None) -> lis
     except OSError:
         return []
 
-    anchor_match = re.search(r"营业收入构成|主营业务分行业、分产品|分产品", text)
+    anchor_match = re.search(r"营业收入构成|主营业务分行业、分产品", text)
     anchor = anchor_match.start() if anchor_match else -1
-    end_match = re.search(r"\n#{1,6}\s*（?2[）.)、]", text[anchor + 1 :]) if anchor >= 0 else None
+    end_match = re.search(r"\n#{1,6}\s*（?3[）.)、]", text[anchor + 1 :]) if anchor >= 0 else None
     end = anchor + 1 + end_match.start() if end_match else -1
-    window = text
+    window = text[anchor:end] if anchor >= 0 and end > anchor else text[anchor:] if anchor >= 0 else text
     tables = re.findall(r"<table>.*?</table>", window, flags=re.I | re.S)
     if not tables:
         return []
+    unit_hint = "千元" if re.search(r"单位[:：]?\s*千元", window) else "万元" if re.search(r"单位[:：]?\s*万元", window) else "元"
 
     segment_names = {"整车业务", "零部件业务", "劳务及其他"}
     extracted: dict[str, dict[str, Any]] = {}
@@ -1310,20 +1446,20 @@ def _extract_product_segments_from_report_markdown(work_dir: Path | None) -> lis
             if name in segment_names and has_money_series:
                 entry = _revenue_segment_entry(
                     row[0],
-                    _parse_money_yi(row[1]),
-                    _parse_money_yi(row[3]),
-                    _parse_money_yi(row[2]),
-                    _parse_money_yi(row[4]),
+                    _parse_money_yi(row[1], unit_hint),
+                    _parse_money_yi(row[3], unit_hint),
+                    _parse_money_yi(row[2], unit_hint),
+                    _parse_money_yi(row[4], unit_hint),
                 )
                 if entry and safe_float(entry.get("revenue")) > safe_float(extracted.get(row[0], {}).get("revenue")):
                     extracted[row[0]] = entry
             elif name == "其他业务" and has_money_series:
                 entry = _revenue_segment_entry(
                     "其他业务",
-                    _parse_money_yi(row[1]),
-                    _parse_money_yi(row[3]),
-                    _parse_money_yi(row[2]),
-                    _parse_money_yi(row[4]),
+                    _parse_money_yi(row[1], unit_hint),
+                    _parse_money_yi(row[3], unit_hint),
+                    _parse_money_yi(row[2], unit_hint),
+                    _parse_money_yi(row[4], unit_hint),
                 )
                 if entry and safe_float(entry.get("revenue")) > safe_float(extracted.get("其他业务", {}).get("revenue")):
                     extracted["其他业务"] = entry
@@ -1335,45 +1471,32 @@ def _extract_product_segments_from_report_markdown(work_dir: Path | None) -> lis
                 item["share"] = safe_float(item.get("revenue")) / total * 100
         return sorted(extracted.values(), key=lambda item: safe_float(item.get("revenue")), reverse=True)
 
-    rows = _extract_td_rows(tables[0])
-    in_product = False
+    product_table_index = None
     segments: list[dict[str, Any]] = []
-    for row in rows:
-        if row == ["分产品"]:
-            in_product = True
-            continue
-        if row and row[0] == "分地区":
+    for index, table in enumerate(tables):
+        rows = _extract_td_rows(table)
+        table_segments = _product_segments_from_rows(rows, unit_hint)
+        if len(table_segments) >= 2:
+            segments = table_segments
+            product_table_index = index
             break
-        if not in_product or len(row) < 6:
-            continue
-        value = _parse_money_yi(row[1])
-        yoy = _parse_pct(row[5])
-        if value is None or value <= 0:
-            continue
-        segments.append(
-            {
-                "name": row[0],
-                "revenue": value,
-                "revenue_yoy": yoy,
-                "share": _parse_pct(row[2]),
-            }
-        )
 
     if len(segments) < 2:
         return []
 
     # Add product-level costs from the 10%+ revenue/profit table when available.
-    if len(tables) > 1:
-        for row in _extract_td_rows(tables[1]):
-            if len(row) < 7:
-                continue
-            name = row[0]
-            for segment in segments:
-                if segment["name"] == name:
-                    segment["cost"] = _parse_money_yi(row[2])
-                    segment["gross_margin"] = _parse_pct(row[3])
-                    segment["cost_yoy"] = _parse_pct(row[5])
-                    break
+    search_start = (product_table_index + 1) if product_table_index is not None else 0
+    for table in tables[search_start:]:
+        cost_map = _product_costs_from_rows(_extract_td_rows(table), unit_hint)
+        if not cost_map:
+            continue
+        for segment in segments:
+            cost_item = cost_map.get(_normalize_product_segment_name(str(segment.get("name") or "")))
+            if cost_item:
+                segment["cost"] = cost_item.get("cost")
+                segment["gross_margin"] = cost_item.get("gross_margin")
+                segment["cost_yoy"] = cost_item.get("cost_yoy")
+        break
 
     return segments
 
@@ -1488,6 +1611,26 @@ def build_income_bridge_data(
     reported_net_profit = _coalesce(_raw_income_value(raw_rows, "净利润"), _bridge_metric(snapshot, "net_profit", year))
     parent_net_profit = _coalesce(_raw_income_value(raw_rows, "归属于母公司股东的净利润"), _bridge_metric(snapshot, "net_profit_parent", year))
 
+    reversed_outflow_encoding = _negative_outflow_encoding(
+        [
+            total_operating_cost,
+            operating_cost,
+            taxes_and_surcharges,
+            sales_expenses,
+            administrative_expenses,
+            research_expenses,
+        ]
+    )
+    total_operating_cost = _positive_outflow(total_operating_cost)
+    operating_cost = _positive_outflow(operating_cost)
+    taxes_and_surcharges = _positive_outflow(taxes_and_surcharges)
+    sales_expenses = _positive_outflow(sales_expenses)
+    administrative_expenses = _positive_outflow(administrative_expenses)
+    research_expenses = _positive_outflow(research_expenses)
+    financial_expenses = _conditional_positive_outflow(financial_expenses, reversed_outflow_encoding)
+    non_operating_expenses = _positive_outflow(non_operating_expenses)
+    income_tax_expense = _conditional_positive_outflow(income_tax_expense, reversed_outflow_encoding)
+
     if total_revenue is None:
         return None
 
@@ -1498,7 +1641,7 @@ def build_income_bridge_data(
         non_operating_net = (non_operating_income or 0.0) - (non_operating_expenses or 0.0)
 
     expense_items = []
-    use_total_cost = total_operating_cost is not None and raw_rows and operating_cost is None
+    use_total_cost = total_operating_cost is not None and operating_cost is None
     if use_total_cost:
         expense_items.append(("营业总成本", total_operating_cost, "cost", "total_operating_cost"))
     else:
@@ -1655,6 +1798,8 @@ def build_income_bridge_data(
 
     product_segments = _income_bridge_segments(snapshot, total_revenue, work_dir)
     gross_profit = total_revenue - operating_cost if operating_cost is not None else None
+    cost_node_value = operating_cost if operating_cost is not None else total_operating_cost
+    cost_node_name = "营业成本" if operating_cost is not None else "营业总成本"
     operating_profit = _bridge_metric(snapshot, "operating_profit", year)
     if raw_rows:
         operating_profit = _coalesce(_raw_income_value(raw_rows, "营业利润"), operating_profit)
@@ -1701,7 +1846,7 @@ def build_income_bridge_data(
 
     flow_nodes = {
         "revenue": {"name": revenue_name, "value": total_revenue},
-        "cost": {"name": "营业成本", "value": operating_cost},
+        "cost": {"name": cost_node_name, "value": cost_node_value},
         "gross_profit": {"name": "毛利", "value": gross_profit},
         "operating_adjustments": {"name": "期间费用/减值/其他", "value": operating_adjustments},
         "operating_profit": {"name": "营业利润" if safe_float(operating_profit) >= 0 else "营业亏损", "value": operating_profit},

@@ -1,6 +1,5 @@
 const DEFAULT_BACKEND_URL = 'http://127.0.0.1:18081'
 const DEFAULT_REPORT_FINDER_URL = 'http://127.0.0.1:18000'
-const DEFAULT_PDFAPI_URL = 'http://127.0.0.1:15000'
 
 const BACKEND_PREFIXES = [
   '/api/v1',
@@ -27,6 +26,13 @@ const BACKEND_PREFIXES = [
   '/api/source',
 ]
 
+const BACKEND_REWRITE_RULES = [
+  {
+    prefix: '/api/health',
+    rewrite: (url) => url.replace(/^\/api\/health/, '/health') || '/health',
+  },
+]
+
 function firstEnv(names) {
   for (const name of names) {
     const value = process.env[name]
@@ -39,13 +45,8 @@ function resolveUrl(value, envNames, fallback) {
   return (value || firstEnv(envNames) || fallback).replace(/\/+$/, '')
 }
 
-function pdfApiHeaders() {
-  const token = firstEnv(['PDF2MD_ACCESS_TOKEN', 'SIQ_PDF2MD_ACCESS_TOKEN'])
-  return token ? { 'X-PDF2MD-Token': token } : undefined
-}
-
 export function createProxyRules(options = {}) {
-const backendUrl = resolveUrl(
+  const backendUrl = resolveUrl(
     options.backendUrl,
     ['SIQ_BACKEND_URL', 'TRIAL_BACKEND_URL'],
     DEFAULT_BACKEND_URL,
@@ -55,12 +56,6 @@ const backendUrl = resolveUrl(
     ['SIQ_REPORT_FINDER_URL', 'TRIAL_REPORT_FINDER_URL'],
     DEFAULT_REPORT_FINDER_URL,
   )
-  const pdfApiUrl = resolveUrl(
-    options.pdfApiUrl,
-    ['SIQ_PDFAPI_URL', 'TRIAL_PDFAPI_URL'],
-    DEFAULT_PDFAPI_URL,
-  )
-
   const backendPrefixes = [
     ...(options.includeAuth === false ? [] : ['/api/auth']),
     ...(options.includeEval === false ? [] : ['/api/eval']),
@@ -68,14 +63,9 @@ const backendUrl = resolveUrl(
   ]
 
   return [
+    ...BACKEND_REWRITE_RULES.map((rule) => ({ ...rule, target: backendUrl })),
     ...backendPrefixes.map((prefix) => ({ prefix, target: backendUrl })),
     { prefix: '/api', target: reportFinderUrl, rewrite: (url) => url.replace(/^\/api/, '') || '/' },
-    {
-      prefix: '/pdfapi',
-      target: pdfApiUrl,
-      rewrite: (url) => url.replace(/^\/pdfapi/, '/api'),
-      headers: pdfApiHeaders(),
-    },
   ]
 }
 

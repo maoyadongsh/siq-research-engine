@@ -130,6 +130,56 @@ def test_validate_production_sample_manifest_checks_existing_files_and_dedupes_p
     ]
 
 
+def test_validate_production_sample_manifest_maps_data_paths_to_external_sample_root(tmp_path):
+    gate = _load_gate_module()
+    repo_root = tmp_path / "checkout"
+    sample_root = tmp_path / "read-only-market-samples"
+    external_sample = sample_root / "pdf-parser" / "results" / "hk-1" / "document_full.json"
+    external_sample.parent.mkdir(parents=True)
+    external_sample.write_text("{}", encoding="utf-8")
+    manifest_path = repo_root / "manifest.json"
+    manifest_path.parent.mkdir(parents=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": gate.PRODUCTION_SAMPLE_MANIFEST_SCHEMA_VERSION,
+                "sample_goal_per_market": 1,
+                "markets": {"HK": ["data/pdf-parser/results/hk-1/document_full.json"]},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = gate.validate_production_sample_manifest(
+        manifest_path,
+        repo_root=repo_root,
+        market_databases={"HK": "siq_hk"},
+        require_existing=True,
+        production_sample_root=sample_root,
+    )
+
+    assert result["passed"] is True
+    assert result["production_sample_root"] == str(sample_root.resolve())
+    assert result["samples"][0]["resolved_path"] == str(external_sample.resolve())
+    assert result["samples"][0]["exists"] is True
+
+
+def test_validate_production_sample_manifest_uses_external_sample_root_env(monkeypatch, tmp_path):
+    gate = _load_gate_module()
+    sample_root = tmp_path / "market-samples"
+    external_sample = sample_root / "parser-results" / "us-sec" / "filing" / "document_full.json"
+    external_sample.parent.mkdir(parents=True)
+    external_sample.write_text("{}", encoding="utf-8")
+    monkeypatch.setenv(gate.PRODUCTION_SAMPLE_ROOT_ENV, str(sample_root))
+
+    resolved = gate.resolve_manifest_path(
+        "data/parser-results/us-sec/filing/document_full.json",
+        repo_root=tmp_path / "checkout",
+    )
+
+    assert resolved == external_sample.resolve()
+
+
 def test_validate_production_sample_manifest_rejects_non_list_market_and_bad_sample_goal(tmp_path):
     gate = _load_gate_module()
     non_list_path = tmp_path / "non_list.json"

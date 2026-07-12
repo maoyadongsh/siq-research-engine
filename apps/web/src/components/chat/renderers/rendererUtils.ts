@@ -1,5 +1,10 @@
 import { isSafeChatAssetHref, normalizeChatAssetUrl } from '@/lib/chatAssets'
 
+// Stop bare URLs before citation punctuation.  The previous matcher included
+// the comma in `source_url=https://...htm, source_anchor=...`, producing a
+// broken href even though the underlying SEC URL was valid.
+export const INLINE_URL_RE = /https?:\/\/[^\s)\]}>，。；;,"']+/
+
 export interface MessageRendererProps {
   content: string
   streaming?: boolean

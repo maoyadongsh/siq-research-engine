@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import json
 import json as json_module
@@ -17,6 +18,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from routers import workspace
+from services.upload_proxy_limits import UploadProxyConcurrencyLimiter
 from services.usage_service import PARSE_EVENT, UsageEvent, UserArtifact, WorkspaceProject, current_day_key
 
 
@@ -556,6 +558,158 @@ def test_authenticated_pdf_upload_duplicate_content_records_reused_parse(monkeyp
     assert response.status_code == 409
 
 
+def test_authenticated_pdf_upload_rejects_file_over_proxy_limit_before_upstream(monkeypatch, tmp_path):
+    class LargeUpload:
+        filename = "large.pdf"
+        content_type = "application/pdf"
+
+        def __init__(self):
+            self._chunks = [b"a" * 4, b"b" * 4]
+
+        async def read(self, _size=-1):
+            return self._chunks.pop(0) if self._chunks else b""
+
+    class ForbiddenAsyncClient:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("oversized upload must not create an upstream client")
+
+    monkeypatch.setattr(workspace, "PDF_UPLOAD_MAX_FILE_BYTES", 5)
+    monkeypatch.setattr(workspace.httpx, "AsyncClient", ForbiddenAsyncClient)
+
+    async def run_case(async_session):
+        with pytest.raises(HTTPException) as exc:
+            await workspace.authenticated_pdf_upload(
+                files=[LargeUpload()],
+                current_user=SimpleNamespace(id=1, role="user"),
+                async_session=async_session,
+            )
+        usage_result = await async_session.exec(select(UsageEvent).where(UsageEvent.event_type == PARSE_EVENT))
+        return exc.value, usage_result.all()
+
+    exc, usage = anyio.run(_with_async_session, tmp_path, "workspace-upload-too-large.db", run_case)
+
+    assert exc.status_code == 413
+    assert exc.detail["error"] == "upload_too_large"
+    assert exc.detail["scope"] == "file"
+    assert usage == []
+
+
+def test_authenticated_pdf_upload_uses_explicit_proxy_timeout(monkeypatch, tmp_path):
+    captured: dict[str, object] = {}
+
+    class FakeUpload:
+        filename = "annual-new.pdf"
+        content_type = "application/pdf"
+
+        def __init__(self):
+            self._done = False
+
+        async def read(self, _size=-1):
+            if self._done:
+                return b""
+            self._done = True
+            return b"%PDF-1.4\nnew"
+
+    class FakeAsyncClient:
+        def __init__(self, timeout=None):
+            captured["timeout"] = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, data=None, files=None, headers=None):
+            captured["file_obj_closed_before_post"] = files[0][1][1].closed
+            return SimpleNamespace(
+                status_code=500,
+                headers={"content-type": "application/json"},
+                content=json.dumps({"error": "upstream_failed"}).encode("utf-8"),
+                json=lambda: {"error": "upstream_failed"},
+            )
+
+    async def fake_pdf_tasks_by_filename(**_kwargs):
+        return {}
+
+    monkeypatch.setattr(workspace, "_pdf_tasks_by_filename", fake_pdf_tasks_by_filename)
+    monkeypatch.setattr(workspace.httpx, "AsyncClient", FakeAsyncClient)
+
+    async def run_case(async_session):
+        return await workspace.authenticated_pdf_upload(
+            files=[FakeUpload()],
+            current_user=SimpleNamespace(id=1, role="user"),
+            async_session=async_session,
+        )
+
+    response = anyio.run(_with_async_session, tmp_path, "workspace-upload-timeout.db", run_case)
+
+    assert response.status_code == 500
+    assert captured["timeout"] is workspace.PDF_UPLOAD_TIMEOUT
+    assert captured["file_obj_closed_before_post"] is False
+
+
+def test_authenticated_pdf_upload_client_cancellation_closes_spool_and_releases_capacity(monkeypatch, tmp_path):
+    captured: dict[str, object] = {}
+    upstream_started = asyncio.Event()
+
+    class FakeUpload:
+        filename = "cancelled.pdf"
+        content_type = "application/pdf"
+
+        def __init__(self):
+            self._done = False
+
+        async def read(self, _size=-1):
+            if self._done:
+                return b""
+            self._done = True
+            return b"%PDF-1.4\ncancelled"
+
+    class SlowAsyncClient:
+        def __init__(self, timeout=None):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, data=None, files=None, headers=None):
+            captured["file"] = files[0][1][1]
+            upstream_started.set()
+            await asyncio.Event().wait()
+
+    async def fake_pdf_tasks_by_filename(**_kwargs):
+        return {}
+
+    limiter = UploadProxyConcurrencyLimiter(max_concurrency=1, queue_timeout_seconds=0.05)
+    monkeypatch.setattr(workspace, "UPLOAD_PROXY_LIMITER", limiter)
+    monkeypatch.setattr(workspace, "_pdf_tasks_by_filename", fake_pdf_tasks_by_filename)
+    monkeypatch.setattr(workspace.httpx, "AsyncClient", SlowAsyncClient)
+
+    async def run_case(async_session):
+        task = asyncio.create_task(
+            workspace.authenticated_pdf_upload(
+                files=[FakeUpload()],
+                current_user=SimpleNamespace(id=1, role="user"),
+                async_session=async_session,
+            )
+        )
+        await upstream_started.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert captured["file"].closed is True
+        async with limiter.slot():
+            pass
+        usage_result = await async_session.exec(select(UsageEvent).where(UsageEvent.event_type == PARSE_EVENT))
+        assert usage_result.all() == []
+
+    anyio.run(_with_async_session, tmp_path, "workspace-upload-cancel.db", run_case)
+
+
 def test_authenticated_pdf_task_from_download_posts_reference_and_records_parse(monkeypatch, tmp_path):
     posted: dict[str, object] = {}
     downloads_root = tmp_path / "downloads"
@@ -582,7 +736,7 @@ def test_authenticated_pdf_task_from_download_posts_reference_and_records_parse(
 
     class FakeAsyncClient:
         def __init__(self, timeout=None):
-            self.timeout = timeout
+            posted["timeout"] = timeout
 
         async def __aenter__(self):
             return self
@@ -650,6 +804,7 @@ def test_authenticated_pdf_task_from_download_posts_reference_and_records_parse(
 
     assert response == success_payload
     assert posted["url"] == "http://pdf2md.test/api/tasks/from-download"
+    assert posted["timeout"] is workspace.PDF_UPLOAD_TIMEOUT
     assert posted["json"]["source_path"] == str(report_path.resolve())
     assert posted["json"]["download_relative_path"] == relative_path
     assert posted["headers"]["X-SIQ-User-Id"] == "1"

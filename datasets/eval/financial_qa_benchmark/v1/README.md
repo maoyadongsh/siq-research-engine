@@ -12,8 +12,11 @@ answer traces are regenerated.
 
 Current P0 coverage:
 
-- `trace-offline`: 9 cases, covering CN/HK/US/JP/KR/EU, 9 key facts, 1
-  calculator run, and 1 evidence-missing refusal.
+- `trace-offline`: 12 cases, covering CN/HK/US/JP/KR/EU, 9 key facts, 1
+  calculator run, 1 evidence-missing refusal, 1 ICBC revenue
+  `financial_claim_mismatch` attack, and 1 equal-value cross-company
+  `financial_evidence_identity_mismatch` attack, plus 1 forged free-text
+  calculator-marker attack that must fail as `financial_calculation_trace_missing`.
 - `wiki-static`: 7 document_full fact cases across CN/HK/US/JP/KR/EU.
 - Evidence checks validate required fields and exact values for table/page,
   quote/html anchor, and other declared evidence fields.
@@ -45,4 +48,6 @@ python3 scripts/maintenance/run_financial_qa_benchmark.py \
 
 P0 requires exact value, period, unit/currency, source-policy, resolved
 identity, exact declared evidence, calculator trace compliance, and guardrail
-refusal compliance.
+refusal compliance. Guarded claim-attack cases can additionally require the
+exact guardrail reason and selected claim-verifier violation fields, including
+claimed and evidence values.

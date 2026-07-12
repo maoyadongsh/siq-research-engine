@@ -52,20 +52,30 @@ def _append_verified_evidence_dimensions(package_dir: Path, *, deal_id: str, doc
     )
 
 
-def _client(monkeypatch, tmp_path: Path) -> TestClient:
+def _test_user(
+    *,
+    user_id: int = 7,
+    username: str = "ic-admin",
+    role: UserRole = UserRole.SUPER_ADMIN,
+) -> User:
+    return User(
+        id=user_id,
+        username=username,
+        email=f"{username}@example.test",
+        hashed_password="x",
+        full_name=username,
+        role=role,
+    )
+
+
+def _client(monkeypatch, tmp_path: Path, user: User | None = None) -> TestClient:
     monkeypatch.setattr(deal_store, "WIKI_ROOT", tmp_path / "wiki")
     app = FastAPI()
     app.include_router(deals.router, prefix="/api")
+    current_user_payload = user or _test_user()
 
     async def current_user() -> User:
-        return User(
-            id=7,
-            username="ic-admin",
-            email="ic-admin@example.test",
-            hashed_password="x",
-            full_name="IC Admin",
-            role=UserRole.SUPER_ADMIN,
-        )
+        return current_user_payload
 
     app.dependency_overrides[get_current_user] = current_user
     return TestClient(app)
@@ -99,6 +109,48 @@ def test_deals_router_create_list_and_detail(monkeypatch, tmp_path):
         "id": 7,
         "username": "ic-admin",
     }
+
+
+def test_deals_router_private_deal_requires_object_access(monkeypatch, tmp_path):
+    owner = _test_user(user_id=7, username="owner", role=UserRole.ANALYST)
+    other_analyst = _test_user(user_id=8, username="other-analyst", role=UserRole.ANALYST)
+    owner_client = _client(monkeypatch, tmp_path, owner)
+    other_client = _client(monkeypatch, tmp_path, other_analyst)
+
+    created = owner_client.post(
+        "/api/deals",
+        json={
+            "deal_id": "DEAL-BOLA-PRIVATE",
+            "company_name": "Private Robotics",
+            "industry": "Robotics",
+        },
+    )
+    assert created.status_code == 200
+
+    owner_detail = owner_client.get("/api/deals/DEAL-BOLA-PRIVATE")
+    assert owner_detail.status_code == 200
+    assert owner_detail.json()["project_meta"]["created_by"] == {"id": 7, "username": "owner"}
+
+    listed = other_client.get("/api/deals")
+    assert listed.status_code == 200
+    assert [item["deal_id"] for item in listed.json()["deals"]] == []
+
+    detail = other_client.get("/api/deals/DEAL-BOLA-PRIVATE")
+    reports = other_client.get("/api/deals/DEAL-BOLA-PRIVATE/reports")
+    upload = other_client.post(
+        "/api/deals/DEAL-BOLA-PRIVATE/documents",
+        files={"file": ("leaked.pdf", b"not allowed", "application/pdf")},
+        data={"document_type": "memo"},
+    )
+
+    assert detail.status_code == 404
+    assert reports.status_code == 404
+    assert upload.status_code == 404
+    assert not any((tmp_path / "wiki" / "deals" / "DEAL-BOLA-PRIVATE" / "data_room" / "metadata").glob("*.json"))
+
+    access_decisions = tmp_path / "wiki" / "deals" / "DEAL-BOLA-PRIVATE" / "audit" / "access_decisions.ndjson"
+    assert access_decisions.is_file()
+    assert "deal_object_access_denied" in access_decisions.read_text(encoding="utf-8")
 
 
 def test_deals_router_reports_index_and_detail(monkeypatch, tmp_path):

@@ -1,13 +1,11 @@
 import importlib.util
 import json
-from pathlib import Path
 import types
+from pathlib import Path
 
 import anyio
 
-from services import agent_chat_runtime as runtime
-from services import agent_runtime_answer_audit as audit
-
+from services import agent_chat_runtime as runtime, agent_runtime_answer_audit as audit
 
 WIKI_TASK_ID = "11111111-1111-1111-1111-111111111111"
 POSTGRES_TASK_ID = "22222222-2222-2222-2222-222222222222"
@@ -22,6 +20,14 @@ class _StreamEvent:
         self.preview = None
         self.duration = None
         self.error = None
+
+
+class _PydanticLikeContext:
+    def __init__(self, payload: dict):
+        self.payload = payload
+
+    def model_dump(self, *, exclude_none: bool = False):
+        return self.payload
 
 
 def _load_financial_qa_benchmark_module():
@@ -83,8 +89,109 @@ def test_answer_audit_trace_extracts_wiki_source_and_guardrail_fields():
     assert record["query_plan"]["mode"] == "wiki_first"
     assert record["query_plan"]["observed_source_types"] == ["wiki_metrics"]
     assert record["calculator_runs"][1]["operation"] == "ratio"
+    assert record["guardrail_result"]["has_calculator_runs"] is False
     assert record["guardrail_result"]["output_was_guarded"] is True
     assert record["guardrail_result"]["has_wiki_facts"] is True
+
+
+def test_answer_audit_trace_marks_legacy_calculator_marker_as_unvalidated():
+    record = audit.build_answer_audit_trace(
+        message="营业收入同比是多少？",
+        context=None,
+        profile="siq_assistant",
+        session_id="legacy-marker",
+        raw_reply="## 计算器校验\n- financial_calculator.py operation=yoy result=0.99",
+        final_reply="## 计算校验无效\ncalculation_trace_reason=trace_unstructured",
+    )
+
+    assert record["calculation_trace_validation"] == {
+        "checked": True,
+        "allowed": False,
+        "reason": "trace_unstructured",
+        "structured_run_count": 0,
+    }
+    assert all(item["source"] != "reply_structured" for item in record["calculator_runs"])
+
+
+def test_answer_audit_trace_records_only_validated_structured_run_as_calculator_run():
+    identity = {
+        "market": "HK",
+        "company_id": "HK:00700",
+        "filing_id": "HK:00700:2025-annual",
+        "parse_run_id": "run-hk-00700",
+    }
+    trace = {
+        "schema_version": "siq_financial_calculation_trace_v1",
+        "tool": "financial_calculator.py",
+        "operation": "ratio",
+        "metric": "gross_margin",
+        "period": "2025",
+        "inputs": {
+            "numerator": {"metric": "gross_profit", "period": "2025", "value": "40", "unit": "HKD million", "evidence_id": "E-GP"},
+            "denominator": {"metric": "revenue", "period": "2025", "value": "100", "unit": "HKD million", "evidence_id": "E-REV"},
+        },
+        "result": {"ratio": "0.4", "percent": "40"},
+        "research_identity": identity,
+    }
+    reply = (
+        f"毛利率为 40%。\n```json\n{json.dumps(trace)}\n```\n"
+        "[D1] source_type=wiki_metrics market=HK company_id=HK:00700 filing_id=HK:00700:2025-annual "
+        "parse_run_id=run-hk-00700 canonical_name=gross_profit metric_name=gross_profit period_key=2025 "
+        'value=40 unit="HKD million" evidence_id=E-GP quote="gross profit 40"\n'
+        "[D2] source_type=wiki_metrics market=HK company_id=HK:00700 filing_id=HK:00700:2025-annual "
+        "parse_run_id=run-hk-00700 canonical_name=revenue metric_name=revenue period_key=2025 "
+        'value=100 unit="HKD million" evidence_id=E-REV quote="revenue 100"'
+    )
+
+    record = audit.build_answer_audit_trace(
+        message="毛利率是多少？",
+        context={"research_identity": identity},
+        profile="siq_assistant",
+        session_id="structured-run",
+        raw_reply=reply,
+        final_reply=reply,
+    )
+
+    structured = [item for item in record["calculator_runs"] if item["source"] == "reply_structured"]
+    assert structured[0]["validated"] is True
+    assert record["calculation_trace_validation"]["allowed"] is True
+    assert record["guardrail_result"]["has_calculator_runs"] is True
+
+
+def test_answer_audit_trace_extracts_research_identity_context():
+    context = {
+        "research_identity": {
+            "market": "HK",
+            "company_id": "HK:00700",
+            "filing_id": "HK:00700:2025-annual",
+            "parse_run_id": "parse-hk-00700",
+        },
+        "company": {"name": "Tencent", "code": "00700"},
+    }
+
+    record = audit.build_answer_audit_trace(
+        message="腾讯 2025 收入是多少？",
+        context=runtime.agent_runtime_context.mutable_context_dict(context),
+        profile="siq_assistant",
+        session_id="session-research-identity",
+        raw_reply="收入 100",
+        final_reply=(
+            "[D1] source_type=postgresql_agent_view, market=HK, company_id=HK:00700, "
+            "filing_id=HK:00700:2025-annual, parse_run_id=parse-hk-00700, "
+            "metric=收入, period=2025, value=100, unit=HKD million"
+        ),
+    )
+
+    assert record["resolved_company"] == {
+        "id": "HK:00700",
+        "name": "Tencent",
+        "code": "00700",
+        "market": "HK",
+    }
+    assert record["resolved_period"]["filing_id"] == "HK:00700:2025-annual"
+    assert record["resolved_period"]["parse_run_id"] == "parse-hk-00700"
+    assert record["postgres_facts"][0]["company_id"] == "HK:00700"
+    assert record["postgres_facts"][0]["parse_run_id"] == "parse-hk-00700"
 
 
 def test_answer_audit_trace_extracts_postgresql_source_and_fallback_reason():
@@ -131,6 +238,243 @@ def test_answer_audit_trace_extracts_postgresql_source_and_fallback_reason():
     assert record["guardrail_result"]["has_postgres_facts"] is True
 
 
+def test_answer_audit_trace_records_claim_verifier_result_from_raw_reply():
+    raw_reply = """工商银行 2025 年营业收入为 6,351.26 亿元。
+
+## 引用来源
+[P1] source_type=wiki_metrics, company_id=HK:01398, filing_id=2025-annual, canonical_name=operating_revenue, metric_name=营业收入, period_key=2025, value=8382.70, unit=亿元, evidence_id=EVID-REV-2025, quote="营业收入 838,270"
+"""
+
+    record = audit.build_answer_audit_trace(
+        message="工商银行 2025 年营业收入是多少？",
+        profile="siq_assistant",
+        session_id="session-claim-verifier",
+        raw_reply=raw_reply,
+        final_reply=(
+            "## 财务数值证据不一致\n"
+            "guardrail_status=blocked\n"
+            "guardrail_reason=financial_claim_mismatch\n"
+            "claim_verifier_status=failed"
+        ),
+    )
+
+    verifier = record["claim_verifier_result"]
+    assert verifier["checked"] is True
+    assert verifier["allowed"] is False
+    assert verifier["claim_count"] == 1
+    assert verifier["evidence_fact_count"] == 1
+    assert verifier["violation_count"] == 1
+    assert verifier["violations"][0]["metric"] == "operating_revenue"
+    assert verifier["violations"][0]["claimed_value"] == 6351.26
+    assert verifier["violations"][0]["evidence_value"] == 8382.7
+    assert verifier["violations"][0]["evidence_id"] == "EVID-REV-2025"
+    assert verifier["violations"][0]["evidence_quote"] == "营业收入 838,270"
+    assert verifier["violations"][0]["reason"] == "value_mismatch"
+    assert verifier["violations"][0]["claimed_period"] == "2025"
+
+
+def test_answer_audit_trace_records_financial_evidence_identity_mismatch():
+    raw_reply = """工商银行 2025 年营业收入为 8,382.70 亿元。
+
+## 引用来源
+[P1] source_type=wiki_metrics, market=HK, company_id=HK:WRONG, filing_id=HK:01398:2025, parse_run_id=run-hk-2025, canonical_name=operating_revenue, metric_name=营业收入, period_key=2025, value=8382.70, unit=亿元, evidence_id=EVID-REV-2025, quote="营业收入 838,270"
+"""
+    identity = {
+        "market": "HK",
+        "company_id": "HK:01398",
+        "filing_id": "HK:01398:2025",
+        "parse_run_id": "run-hk-2025",
+    }
+
+    record = audit.build_answer_audit_trace(
+        message="工商银行 2025 年营业收入是多少？",
+        context={"research_identity": identity},
+        raw_reply=raw_reply,
+        final_reply=(
+            "## 财务证据身份不一致\n"
+            "guardrail_status=blocked\n"
+            "guardrail_reason=financial_evidence_identity_mismatch\n"
+            "claim_verifier_status=failed"
+        ),
+    )
+
+    verifier = record["claim_verifier_result"]
+    assert verifier["allowed"] is False
+    assert verifier["violations"][0]["reason"] == "company_id_mismatch"
+    assert verifier["violations"][0]["company_id"] == "HK:WRONG"
+    assert verifier["violations"][0]["expected_company_id"] == "HK:01398"
+    assert record["guardrail_result"]["reason"] == "financial_evidence_identity_mismatch"
+
+
+def test_answer_audit_trace_records_claim_verifier_period_mismatch():
+    raw_reply = """工商银行 2024 年营业收入为 8,382.70 亿元。
+
+## 引用来源
+[P1] source_type=wiki_metrics, company_id=HK:01398, filing_id=2025-annual, canonical_name=operating_revenue, metric_name=营业收入, period_key=2025, value=8382.70, unit=亿元, evidence_id=EVID-REV-2025, quote="营业收入 838,270"
+"""
+
+    record = audit.build_answer_audit_trace(
+        message="工商银行 2025 年营业收入是多少？",
+        profile="siq_assistant",
+        session_id="session-claim-period-verifier",
+        raw_reply=raw_reply,
+        final_reply=(
+            "## 财务数值证据不一致\n"
+            "guardrail_status=blocked\n"
+            "guardrail_reason=financial_claim_mismatch\n"
+            "claim_verifier_status=failed"
+        ),
+    )
+
+    verifier = record["claim_verifier_result"]
+    assert verifier["checked"] is True
+    assert verifier["allowed"] is False
+    assert verifier["violation_count"] == 1
+    assert verifier["violations"][0]["reason"] == "period_mismatch"
+    assert verifier["violations"][0]["claimed_period"] == "2024"
+    assert verifier["violations"][0]["period"] == "2025"
+    assert verifier["violations"][0]["claimed_value"] == 8382.70
+    assert verifier["violations"][0]["evidence_value"] == 8382.70
+
+
+def test_answer_audit_trace_records_claim_verifier_missing_quote():
+    raw_reply = """工商银行 2025 年营业收入为 8,382.70 亿元。
+
+## 引用来源
+[P1] source_type=wiki_metrics, company_id=HK:01398, filing_id=2025-annual, canonical_name=operating_revenue, metric_name=营业收入, period_key=2025, value=8382.70, unit=亿元, evidence_id=EVID-REV-2025
+"""
+
+    record = audit.build_answer_audit_trace(
+        message="工商银行 2025 年营业收入是多少？",
+        profile="siq_assistant",
+        session_id="session-claim-missing-quote",
+        raw_reply=raw_reply,
+        final_reply=(
+            "## 财务数值证据不一致\n"
+            "guardrail_status=blocked\n"
+            "guardrail_reason=financial_claim_mismatch\n"
+            "claim_verifier_status=failed"
+        ),
+    )
+
+    verifier = record["claim_verifier_result"]
+    assert verifier["checked"] is True
+    assert verifier["allowed"] is False
+    assert verifier["violation_count"] == 1
+    assert verifier["violations"][0]["reason"] == "missing_quote"
+    assert verifier["violations"][0]["evidence_id"] == "EVID-REV-2025"
+
+
+def test_answer_audit_trace_records_claim_verifier_missing_company_id():
+    raw_reply = """工商银行 2025 年营业收入为 8,382.70 亿元。
+
+## 引用来源
+[P1] source_type=wiki_metrics, filing_id=2025-annual, canonical_name=operating_revenue, metric_name=营业收入, period_key=2025, value=8382.70, unit=亿元, evidence_id=EVID-REV-2025, quote="营业收入 838,270"
+"""
+
+    record = audit.build_answer_audit_trace(
+        message="工商银行 2025 年营业收入是多少？",
+        profile="siq_assistant",
+        session_id="session-claim-missing-company",
+        raw_reply=raw_reply,
+        final_reply=(
+            "## 财务数值证据不一致\n"
+            "guardrail_status=blocked\n"
+            "guardrail_reason=financial_claim_mismatch\n"
+            "claim_verifier_status=failed"
+        ),
+    )
+
+    verifier = record["claim_verifier_result"]
+    assert verifier["checked"] is True
+    assert verifier["allowed"] is False
+    assert verifier["violation_count"] == 1
+    assert verifier["violations"][0]["reason"] == "missing_company_id"
+    assert verifier["violations"][0]["filing_id"] == "2025-annual"
+
+
+def test_answer_audit_trace_records_claim_verifier_currency_mismatch():
+    raw_reply = """工商银行 2025 年营业收入为人民币 8,382.70 亿元。
+
+## 引用来源
+[P1] source_type=wiki_metrics, company_id=HK:01398, filing_id=2025-annual, canonical_name=operating_revenue, metric_name=营业收入, period_key=2025, value=838270, unit="HKD million", evidence_id=EVID-REV-2025, quote="营业收入 838,270"
+"""
+
+    record = audit.build_answer_audit_trace(
+        message="工商银行 2025 年营业收入是多少？",
+        profile="siq_assistant",
+        session_id="session-claim-currency-mismatch",
+        raw_reply=raw_reply,
+        final_reply=(
+            "## 财务数值证据不一致\n"
+            "guardrail_status=blocked\n"
+            "guardrail_reason=financial_claim_mismatch\n"
+            "claim_verifier_status=failed"
+        ),
+    )
+
+    verifier = record["claim_verifier_result"]
+    assert verifier["checked"] is True
+    assert verifier["allowed"] is False
+    assert verifier["violation_count"] == 1
+    assert verifier["violations"][0]["reason"] == "currency_mismatch"
+    assert verifier["violations"][0]["claimed_currency"] == "CNY"
+    assert verifier["violations"][0]["evidence_currency"] == "HKD"
+
+
+def test_answer_audit_trace_records_missing_calculation_trace_guardrail():
+    final_reply = (
+        "## 计算校验缺失\n"
+        "- 后端检测到本轮回答涉及派生财务指标，但未检测到对应的确定性计算器 trace。\n\n"
+        "guardrail_status=blocked\n"
+        "guardrail_reason=financial_calculation_trace_missing\n"
+        "calculation_trace_reason=calculator_trace_missing"
+    )
+
+    record = audit.build_answer_audit_trace(
+        message="工商银行 2025 年营业收入同比是多少？",
+        profile="siq_assistant",
+        session_id="session-missing-calculation-trace",
+        raw_reply="工商银行 2025 年营业收入同比增长 2.0%。",
+        final_reply=final_reply,
+    )
+
+    assert record["guardrail_result"]["blocked"] is True
+    assert record["guardrail_result"]["reason"] == "financial_calculation_trace_missing"
+    assert record["guardrail_result"]["calculation_warning_appended"] is False
+    assert record["calculator_runs"] == []
+
+
+def test_answer_audit_trace_extracts_legal_corpus_citations_without_source_type():
+    reply = """基于现有事实和检索结果，初步倾向认为该事项需要履行进一步核实程序。
+
+## 引用来源
+[1] source=中华人民共和国公司法, source_path=/legal/中华人民共和国公司法_20231229.md, chunk_index=44, quote="董事、监事、高级管理人员应当遵守法律、行政法规和公司章程", relevance=董事高管义务判断依据
+[2] source=上市公司信息披露管理办法, source_path=/legal/上市公司信息披露管理办法.md, chunk_index=12, quote="信息披露义务人应当真实、准确、完整、及时地披露信息", relevance=披露义务判断依据
+"""
+
+    record = audit.build_answer_audit_trace(
+        message="请评估该事项是否存在上市公司治理和信息披露风险。",
+        context={"query_plan": {"mode": "legal_review"}},
+        profile="siq_legal",
+        session_id="session-legal",
+        final_reply=reply,
+    )
+
+    assert record["query_plan"]["observed_source_types"] == ["legal_corpus"]
+    assert len(record["legal_facts"]) == 2
+    assert record["legal_facts"][0]["source_type"] == "legal_corpus"
+    assert record["legal_facts"][0]["source"] == "中华人民共和国公司法"
+    assert record["legal_facts"][0]["source_path"] == "/legal/中华人民共和国公司法_20231229.md"
+    assert record["legal_facts"][0]["chunk_index"] == "44"
+    assert record["legal_facts"][0]["quote"] == "董事、监事、高级管理人员应当遵守法律、行政法规和公司章程"
+    assert record["legal_facts"][0]["relevance"] == "董事高管义务判断依据"
+    assert record["citations"][1]["source"] == "上市公司信息披露管理办法"
+    assert record["wiki_facts"] == []
+    assert record["postgres_facts"] == []
+    assert record["guardrail_result"]["has_legal_facts"] is True
+
+
 def test_answer_audit_trace_preserves_grouped_numbers_and_pipe_quotes():
     reply = f"""收入引用行包含千分位和表格片段。
 
@@ -175,6 +519,57 @@ def test_answer_audit_trace_prefers_structured_fallback_events():
 
     assert record["fallback_reason"] == "postgres_unavailable"
     assert record["fallback_events"][1]["stage"] == "legacy_postgres_exception"
+
+
+def test_answer_audit_trace_prioritizes_incomplete_identity_block_reason():
+    context = {
+        "_audit_fallback_events": [
+            {"reason": "wiki_fulltext_miss", "stage": "postgres_fallback_started"},
+            {"reason": "market_boundary_closed", "stage": "legacy_fallback_skipped_for_non_cn_market"},
+            {
+                "reason": "research_identity_incomplete",
+                "stage": "financial_answer_blocked_for_non_cn_market",
+            },
+        ],
+    }
+
+    record = audit.build_answer_audit_trace(
+        message="收入是多少？",
+        context=context,
+        profile="siq_assistant",
+        session_id="session-incomplete-identity",
+        final_reply=(
+            "## 研究身份不完整\n"
+            "guardrail_status=blocked\n"
+            "guardrail_reason=financial_research_identity_incomplete"
+        ),
+    )
+
+    assert record["fallback_reason"] == "research_identity_incomplete"
+    assert record["guardrail_result"]["reason"] == "financial_research_identity_incomplete"
+
+
+def test_answer_audit_trace_prioritizes_exact_wiki_report_identity_mismatch():
+    context = {
+        "_audit_fallback_events": [
+            {
+                "reason": "research_identity_report_mismatch",
+                "stage": "wiki_report_selector_failed",
+                "detail": "parse_run_id_not_found",
+            },
+        ],
+    }
+
+    record = audit.build_answer_audit_trace(
+        message="收入是多少？",
+        context=context,
+        profile="siq_assistant",
+        session_id="session-wiki-identity-mismatch",
+        final_reply="## 证据不足\nguardrail_status=blocked\nguardrail_reason=financial_evidence_missing",
+    )
+
+    assert record["fallback_reason"] == "research_identity_report_mismatch"
+    assert record["fallback_events"][0]["detail"] == "parse_run_id_not_found"
 
 
 def test_answer_audit_trace_redacts_database_urls_tokens_and_passwords():
@@ -333,8 +728,14 @@ def test_collect_chat_reply_records_answer_audit_after_non_stream_guard(monkeypa
                 attachments=kwargs["attachments"],
             )
 
-        async def fake_save_message(_session, role, content, session_id, *, attachments=None):
-            saved.append((role, content, session_id, json.dumps(attachments, ensure_ascii=False) if attachments else None))
+        async def fake_save_message(_session, role, content, session_id, *, attachments=None, audit_trace_id=None):
+            saved.append((
+                role,
+                content,
+                session_id,
+                json.dumps(attachments, ensure_ascii=False) if attachments else None,
+                audit_trace_id,
+            ))
 
         async def fake_refresh(_session, profile, session_id):
             refreshed.append((profile, session_id))
@@ -413,8 +814,15 @@ def test_collect_chat_reply_records_answer_audit_after_non_stream_guard(monkeypa
         "收入是多少？\n\n[attachment: report.pdf]",
         "audit-non-stream-session",
         '[{"name": "report.pdf"}]',
+        None,
     )
-    assert saved[1] == ("assistant", reply, "audit-non-stream-session", None)
+    assert saved[1] == (
+        "assistant",
+        reply,
+        "audit-non-stream-session",
+        None,
+        "aat_1234567890abcdef1234567890abcdef",
+    )
     assert refreshed == [("siq_assistant", "audit-non-stream-session")]
     assert remembered == [("siq_assistant", "audit-non-stream-session", "hash-non-stream", reply)]
     assert provenance_calls[0]["raw_output"] == raw_reply
@@ -423,6 +831,123 @@ def test_collect_chat_reply_records_answer_audit_after_non_stream_guard(monkeypa
     assert audit_calls[0]["final_reply"] == raw_reply
     assert audit_calls[0]["enforce_evidence_contract"] is False
     assert captured_audit_records[0]["trace_id"] == "aat_1234567890abcdef1234567890abcdef"
+
+
+def test_collect_chat_reply_normalizes_context_before_fallback_audit_trace(monkeypatch, tmp_path):
+    async def run_case():
+        saved: list[tuple[str, str, str]] = []
+        captured_records: list[dict[str, object]] = []
+        raw_reply = "上汽集团 2025 年营业收入是 100 亿元。"
+        context = _PydanticLikeContext(
+            {
+                "question_id": "q-context-normalized",
+                "company": {"name": "上汽集团", "code": "600104"},
+                "resolved_period": {"fiscal_year": "2025", "filing_id": "CN:600104:2025"},
+            }
+        )
+
+        async def fake_prepare_envelope(*_args, **_kwargs):
+            return runtime.ChatRequestEnvelope(
+                all_attachments=[],
+                message_hash="hash-context-normalized",
+                user_display_message="上汽集团 2025 年营业收入是多少？",
+            )
+
+        async def fake_preflight(*_args, **kwargs):
+            return runtime.ChatRunPreflightContext(
+                history=[],
+                local_memory_context=None,
+                attachments=kwargs["attachments"],
+            )
+
+        async def fake_save_message(_session, role, content, session_id, **_kwargs):
+            saved.append((role, content, session_id))
+
+        async def fake_refresh(*_args, **_kwargs):
+            return None
+
+        async def fake_wait_for_pdf_attachment_parses(_attachments):
+            return None
+
+        async def fake_analyze_images(*_args, **_kwargs):
+            return None, True
+
+        async def fake_create_run(run_input, _history, *, profile, session_id):
+            assert isinstance(run_input["context"], dict)
+            assert run_input["context"]["company"]["name"] == "上汽集团"
+            assert profile == "siq_assistant"
+            assert session_id == runtime.hermes_runs_session_id("siq_assistant", "context-normalized-session")
+            return "run-context-normalized"
+
+        async def fake_collect_run_result(_run_id, *, profile, timeout):
+            assert profile == "siq_assistant"
+            assert timeout == runtime.hermes_timeout()
+            return raw_reply
+
+        def fake_postgres_fallback_context(_message, context):
+            assert isinstance(context, dict)
+            runtime.agent_runtime_postgres_fallback.record_postgres_fallback_event(
+                context,
+                reason="postgres_unavailable",
+                stage="forced_postgres_miss",
+            )
+            return None
+
+        monkeypatch.setenv("SIQ_ANSWER_AUDIT_TRACE_LOG_PATH", str(tmp_path / "answer_audit_trace.jsonl"))
+        audit.RECENT_ANSWER_AUDIT_TRACES.clear()
+        monkeypatch.setattr(runtime, "_prepare_chat_request_envelope", fake_prepare_envelope)
+        monkeypatch.setattr(runtime, "build_wiki_catalog_reply", lambda _message: None)
+        monkeypatch.setattr(runtime, "_load_chat_run_preflight_context", fake_preflight)
+        monkeypatch.setattr(runtime, "wait_for_pdf_attachment_parses", fake_wait_for_pdf_attachment_parses)
+        monkeypatch.setattr(runtime, "_attachments_with_fresh_metadata", lambda attachments: attachments)
+        monkeypatch.setattr(runtime, "save_message", fake_save_message)
+        monkeypatch.setattr(runtime, "refresh_session_memory", fake_refresh)
+        monkeypatch.setattr(runtime, "analyze_images_with_primary_model", fake_analyze_images)
+        monkeypatch.setattr(runtime, "normalize_evidence_trace_for_display", lambda reply: reply)
+        monkeypatch.setattr(runtime, "build_hermes_run_input", lambda message, **kwargs: {"message": message, **kwargs})
+        monkeypatch.setattr(runtime, "create_run", fake_create_run)
+        monkeypatch.setattr(runtime, "collect_run_result", fake_collect_run_result)
+        monkeypatch.setattr(runtime, "_remember_completed_run", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(runtime, "_record_financial_llm_provenance_if_needed", lambda **_kwargs: None)
+        monkeypatch.setattr(runtime, "_needs_financial_evidence_contract", lambda _message, _context: True)
+        monkeypatch.setattr(runtime, "build_primary_data_evidence_supplement", lambda _message, _context: None)
+        monkeypatch.setattr(runtime, "build_human_efficiency_evidence_context", lambda _message, _context: None)
+        monkeypatch.setattr(runtime, "build_three_statement_core_context", lambda _message, _context: None)
+        monkeypatch.setattr(runtime, "_is_statement_query", lambda _message: False)
+        monkeypatch.setattr(runtime, "_should_inject_note_detail_context", lambda _message: False)
+        monkeypatch.setattr(runtime, "build_wiki_fulltext_fallback_context", lambda _message, _context: None)
+        monkeypatch.setattr(runtime, "build_postgres_fallback_context", fake_postgres_fallback_context)
+        monkeypatch.setattr(runtime, "build_pdf2md_parse_only_context", lambda _message, _context: None)
+        monkeypatch.setattr(runtime, "append_primary_data_evidence_if_needed", lambda _message, _context, reply: reply)
+        monkeypatch.setattr(runtime, "append_calculation_trace_warning_if_needed", lambda _message, reply: reply)
+        monkeypatch.setattr(runtime, "_has_primary_data_evidence_trace", lambda _reply: False)
+        monkeypatch.setattr(runtime, "_has_structured_evidence_trace", lambda _reply: False)
+
+        reply = await runtime._collect_chat_reply_impl(
+            "上汽集团 2025 年营业收入是多少？",
+            object(),
+            session_id="context-normalized-session",
+            profile="siq_assistant",
+            context=context,
+            enforce_evidence_contract=True,
+            answer_audit_callback=captured_records.append,
+        )
+        return reply, saved, captured_records
+
+    reply, saved, captured_records = anyio.run(run_case)
+    record = captured_records[0]
+
+    assert "## 证据不足" in reply
+    assert saved[-1] == ("assistant", reply, "context-normalized-session")
+    assert record["question_id"] == "q-context-normalized"
+    assert record["resolved_company"] == {"name": "上汽集团", "code": "600104", "market": "CN"}
+    assert record["resolved_period"]["fiscal_year"] == "2025"
+    assert record["resolved_period"]["filing_id"] == "CN:600104:2025"
+    assert record["fallback_reason"] == "postgres_unavailable"
+    assert any(event["stage"] == "forced_postgres_miss" for event in record["fallback_events"])
+    assert record["guardrail_result"]["blocked"] is True
+    assert record["guardrail_result"]["allowed"] is False
+    assert record["guardrail_result"]["reason"] == "financial_evidence_missing"
 
 
 def test_live_runtime_answer_audit_trace_feeds_financial_qa_benchmark(monkeypatch, tmp_path):
@@ -573,8 +1098,8 @@ def test_collect_stream_run_records_answer_audit_without_changing_visible_reply(
             yield _StreamEvent("delta", "最终回答")
             yield _StreamEvent("done", "最终回答")
 
-        async def fake_save_message_in_background(role, content, session_id, *, profile):
-            saved.append((role, content, session_id, profile))
+        async def fake_save_message_in_background(role, content, session_id, *, profile, audit_trace_id=None):
+            saved.append((role, content, session_id, profile, audit_trace_id))
 
         async def fake_done_payload(reply):
             done_replies.append(reply)
@@ -617,5 +1142,11 @@ def test_collect_stream_run_records_answer_audit_without_changing_visible_reply(
     assert state.done_payload["content"] == "最终回答"
     assert state.done_payload["audit_trace_id"] == "aat_fedcba0987654321fedcba0987654321"
     assert done_replies == [state.content]
-    assert saved == [("assistant", state.content, "audit-stream-session", "siq_assistant")]
+    assert saved == [(
+        "assistant",
+        state.content,
+        "audit-stream-session",
+        "siq_assistant",
+        "aat_fedcba0987654321fedcba0987654321",
+    )]
     assert remembered == [("siq_assistant", "audit-stream-session", None, state.content)]

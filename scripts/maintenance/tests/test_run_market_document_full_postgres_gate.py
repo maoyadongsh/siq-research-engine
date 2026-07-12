@@ -1,5 +1,7 @@
 import importlib.util
 import json
+import os
+import subprocess
 from pathlib import Path
 
 
@@ -50,8 +52,17 @@ def _install_fakes(monkeypatch, module, summary):
         output_path.write_text(json.dumps(payload), encoding="utf-8")
         markdown_path.write_text("# Gate\n", encoding="utf-8")
 
+    def fake_validate_production_sample_manifest(path, *, require_existing):
+        return {
+            "path": str(path),
+            "passed": True,
+            "require_existing": require_existing,
+            "samples": [],
+        }
+
     monkeypatch.setattr(module, "run_cases", fake_run_cases)
     monkeypatch.setattr(module, "write_report", fake_write_report)
+    monkeypatch.setattr(module, "validate_production_sample_manifest", fake_validate_production_sample_manifest)
     return calls, writes
 
 
@@ -79,17 +90,18 @@ def test_contract_mode_runs_without_db_or_parity(monkeypatch, tmp_path):
     assert writes[0]["markdown_path"] == tmp_path / "market_document_full_postgres_contract_gate.md"
 
 
-def test_contract_mode_default_outputs_stay_under_artifacts():
+def test_default_outputs_stay_under_ignored_artifacts_for_all_modes():
     module = _load_gate_module()
-    args = module._build_parser().parse_args(["--mode", "contract"])
 
-    json_output, markdown_output = module._report_paths(args)
+    for mode in ("contract", "offline-postgres"):
+        args = module._build_parser().parse_args(["--mode", mode])
+        json_output, markdown_output = module._report_paths(args)
 
-    for path in (json_output, markdown_output):
-        relative = path.relative_to(module.REPO_ROOT)
-        assert relative.parts[:2] == ("artifacts", "eval-runs")
-        assert relative.parts[:2] != ("docs", "reports")
-        assert relative.parts[0] != "eval_datasets"
+        for path in (json_output, markdown_output):
+            relative = path.relative_to(module.REPO_ROOT)
+            assert relative.parts[:2] == ("artifacts", "eval-runs")
+            assert relative.parts[:2] != ("docs", "reports")
+            assert relative.parts[0] != "eval_datasets"
 
 
 def test_contract_mode_fails_if_backtest_produces_db_or_parity_results(monkeypatch, tmp_path):
@@ -105,6 +117,69 @@ def test_contract_mode_fails_if_backtest_produces_db_or_parity_results(monkeypat
     assert exit_code == 1
 
 
+def test_offline_postgres_mode_requires_external_production_sample_root(monkeypatch, tmp_path):
+    module = _load_gate_module()
+    calls, _writes = _install_fakes(monkeypatch, module, _summary(passed=True, acceptance_passed=True))
+    monkeypatch.delenv(module.PRODUCTION_SAMPLE_ROOT_ENV, raising=False)
+
+    try:
+        module.main(["--mode", "offline-postgres", "--output-dir", str(tmp_path)])
+    except SystemExit as exc:
+        message = str(exc)
+    else:  # pragma: no cover - protects the fail-fast contract
+        raise AssertionError("offline-postgres accepted a missing production sample root")
+
+    assert "--production-sample-root" in message
+    assert module.PRODUCTION_SAMPLE_ROOT_ENV in message
+    assert calls == []
+
+
+def test_offline_postgres_preflight_lists_all_missing_samples_before_db_gate(monkeypatch, tmp_path, capsys):
+    module = _load_gate_module()
+    calls, writes = _install_fakes(monkeypatch, module, _summary(passed=True, acceptance_passed=True))
+    sample_root = tmp_path / "external-market-samples"
+    missing_samples = [
+        {
+            "market": market,
+            "path": f"data/{market.lower()}/sample-{index}/document_full.json",
+            "resolved_path": str(sample_root / market.lower() / f"sample-{index}" / "document_full.json"),
+            "exists": False,
+            "existence_checked": True,
+        }
+        for market in ("HK", "JP", "KR", "EU", "US")
+        for index in range(1, 4)
+    ]
+    monkeypatch.setattr(
+        module,
+        "validate_production_sample_manifest",
+        lambda _path, *, require_existing: {
+            "passed": False,
+            "require_existing": require_existing,
+            "reason": "missing samples",
+            "samples": missing_samples,
+        },
+    )
+
+    exit_code = module.main(
+        [
+            "--mode",
+            "offline-postgres",
+            "--production-sample-root",
+            str(sample_root),
+            "--output-dir",
+            str(tmp_path / "output"),
+        ]
+    )
+
+    output = capsys.readouterr().out
+    assert exit_code == 1
+    assert "FAIL offline-postgres production sample preflight" in output
+    assert "Missing required production sample files: 15" in output
+    assert output.count(" -> ") == 15
+    assert calls == []
+    assert writes == []
+
+
 def test_offline_postgres_mode_uses_strict_acceptance_gate(monkeypatch, tmp_path):
     module = _load_gate_module()
     calls, writes = _install_fakes(monkeypatch, module, _summary(passed=True, acceptance_passed=True))
@@ -115,6 +190,8 @@ def test_offline_postgres_mode_uses_strict_acceptance_gate(monkeypatch, tmp_path
             "offline-postgres",
             "--database-url",
             "postgresql://postgres:secret@db/not_market",
+            "--production-sample-root",
+            str(tmp_path / "market-samples"),
             "--output-dir",
             str(tmp_path),
         ]
@@ -136,13 +213,42 @@ def test_offline_postgres_mode_uses_strict_acceptance_gate(monkeypatch, tmp_path
     ]
     assert writes[0]["output_path"] == tmp_path / "market_document_full_postgres_offline_postgres_gate.json"
     assert writes[0]["markdown_path"] == tmp_path / "market_document_full_postgres_offline_postgres_gate.md"
+    assert module.PRODUCTION_SAMPLE_ROOT_ENV not in module.os.environ
+
+
+def test_offline_postgres_mode_restores_existing_sample_root_env(monkeypatch, tmp_path):
+    module = _load_gate_module()
+    _install_fakes(monkeypatch, module, _summary(passed=True, acceptance_passed=True))
+    monkeypatch.setenv(module.PRODUCTION_SAMPLE_ROOT_ENV, "/existing/sample-root")
+
+    assert module.main(
+        [
+            "--mode",
+            "offline-postgres",
+            "--production-sample-root",
+            str(tmp_path / "temporary-samples"),
+            "--output-dir",
+            str(tmp_path / "output"),
+        ]
+    ) == 0
+
+    assert module.os.environ[module.PRODUCTION_SAMPLE_ROOT_ENV] == "/existing/sample-root"
 
 
 def test_offline_postgres_mode_requires_acceptance_passed(monkeypatch, tmp_path):
     module = _load_gate_module()
     _install_fakes(monkeypatch, module, _summary(passed=True, acceptance_passed=False))
 
-    exit_code = module.main(["--mode", "offline-postgres", "--output-dir", str(tmp_path)])
+    exit_code = module.main(
+        [
+            "--mode",
+            "offline-postgres",
+            "--production-sample-root",
+            str(tmp_path / "market-samples"),
+            "--output-dir",
+            str(tmp_path),
+        ]
+    )
 
     assert exit_code == 1
 
@@ -174,7 +280,16 @@ def test_failed_gate_prints_actionable_summary(monkeypatch, tmp_path, capsys):
         ),
     )
 
-    exit_code = module.main(["--mode", "offline-postgres", "--output-dir", str(tmp_path)])
+    exit_code = module.main(
+        [
+            "--mode",
+            "offline-postgres",
+            "--production-sample-root",
+            str(tmp_path / "market-samples"),
+            "--output-dir",
+            str(tmp_path),
+        ]
+    )
 
     output = capsys.readouterr().out
     assert exit_code == 1
@@ -183,19 +298,103 @@ def test_failed_gate_prints_actionable_summary(monkeypatch, tmp_path, capsys):
     assert "production_agent_results: HK hk-agent-revenue revenue: value_mismatch" in output
 
 
+def test_failed_gate_prints_scope_issues_even_without_duplicate_errors(monkeypatch, tmp_path, capsys):
+    module = _load_gate_module()
+    message = (
+        "DB scope selector missing for table financial_statement_items: selector 'parse_run_id' "
+        "and fallback case selectors ['parse_run_id'] are absent; refusing full-table count"
+    )
+    _install_fakes(
+        monkeypatch,
+        module,
+        _summary(
+            passed=True,
+            acceptance_passed=False,
+            db_results=[
+                {
+                    "market": "HK",
+                    "case_id": "hk-scope-drift",
+                    "status": "failed",
+                    "scope_issues": [{"table": "financial_statement_items", "message": message}],
+                }
+            ],
+        ),
+    )
+
+    exit_code = module.main(
+        [
+            "--mode",
+            "offline-postgres",
+            "--production-sample-root",
+            str(tmp_path / "market-samples"),
+            "--output-dir",
+            str(tmp_path),
+        ]
+    )
+
+    output = capsys.readouterr().out
+    assert exit_code == 1
+    assert message in output
+
+
 def test_release_gate_wrapper_runs_financial_qa_benchmarks():
     repo_root = Path(__file__).resolve().parents[3]
     wrapper = (repo_root / "scripts/ops/run_market_postgres_release_gate.sh").read_text(encoding="utf-8")
     workflow = (repo_root / ".github/workflows/market-postgres-release-gate.yml").read_text(encoding="utf-8")
+    ci_workflow = (repo_root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
 
     assert "run_market_document_full_postgres_gate.py" in wrapper
     assert wrapper.count("run_financial_qa_benchmark.py") == 2
+    assert "run_performance_baseline.py" in wrapper
+    assert "--mode nightly" in wrapper
+    assert "--require-nightly-inputs" in wrapper
+    assert "--require-agent-memory-vector-probes" in wrapper
+    assert "--skip-agent-memory-vector-probes" in wrapper
+    assert "--agent-memory-vector-collection" in wrapper
+    assert "--agent-memory-retrieval-cases" in wrapper
+    assert "--agent-memory-retrieval-top-k" in wrapper
+    assert "--agent-memory-embedding-model" in wrapper
+    assert "--agent-memory-embedding-base-url" not in wrapper
+    assert "DEFAULT_AGENT_MEMORY_RETRIEVAL_CASES" in wrapper
+    assert "eval_datasets/agent_memory_retrieval_contract/cases.json" in wrapper
+    assert "DEFAULT_AGENT_MEMORY_VECTOR_SEED_PROFILES" in wrapper
+    assert "siq_assistant,siq_ic_legal_scanner,siq_ic_chairman" in wrapper
+    assert "performance_baseline_nightly.json" in wrapper
+    assert "performance_baseline_contract.json" in wrapper
+    assert "ingest_agent_memory_to_milvus.py" in wrapper
+    assert "check_agent_memory_vector_health.py" in wrapper
+    assert "agent_memory_milvus_seed.json" in wrapper
+    assert "agent_memory_vector_preflight.json" in wrapper
+    assert "agent_memory_vector_post_seed_health.json" in wrapper
+    assert "SIQ_AGENT_MEMORY_VECTOR_SEED" in wrapper
+    assert "SIQ_AGENT_MEMORY_VECTOR_HEALTH_REQUIRE_COLLECTION" in wrapper
     assert "--mode trace-offline" in wrapper
     assert "--mode wiki-static" in wrapper
     assert "financial_qa_benchmark_trace_offline.json" in wrapper
     assert "financial_qa_benchmark_wiki_static.json" in wrapper
+    assert "run_parser_financial_pdf_release_gate.py" in wrapper
+    assert "SIQ_PARSER_FINANCIAL_PDF_GATE_MODE" in wrapper
+    assert "SIQ_PARSER_FINANCIAL_PDF_GATE_REQUIRED" in wrapper
+    assert "off|preflight|live-http" in wrapper
+    assert "parser_financial_pdf_release.json" in wrapper
     assert "Financial QA trace-offline" in workflow
     assert "Financial QA wiki-static" in workflow
+    assert "Performance Baseline" in workflow
+    assert "performance_baseline_nightly.json" in workflow
+    assert "p95_ms" in workflow
+    assert "domain_latency_p95_ms" in workflow
+    assert "domain_units" in workflow
+    assert "reason=" in workflow
+    assert "SIQ_AGENT_MEMORY_VECTOR_PROBES_REQUIRED" in workflow
+    assert "SIQ_AGENT_MEMORY_VECTOR_SEED" in workflow
+    assert "Agent memory vector seed passed" in workflow
+    assert "Agent memory vector preflight passed" in workflow
+    assert "Agent memory vector post-seed health passed" in workflow
+    assert "SIQ_AGENT_MEMORY_EMBEDDING_BASE_URL" in workflow
+    assert "SIQ_AGENT_MEMORY_MILVUS_COLLECTION" in workflow
+    assert "SIQ_AGENT_MEMORY_VECTOR_HEALTH_REQUIRE_COLLECTION" in workflow
+    assert "SIQ_MILVUS_PASSWORD" in workflow
+    assert "pymilvus>=2.4" in workflow
     assert "runs-on: self-hosted" in workflow
     assert "POSTGRES_HOST_AUTH_METHOD" not in workflow
     assert "POSTGRES_PASSWORD:" in workflow
@@ -204,3 +403,373 @@ def test_release_gate_wrapper_runs_financial_qa_benchmarks():
     assert "127.0.0.1:15432:5432" in workflow
     assert "- 5432:5432" not in workflow
     assert "SIQ_PGPORT: '15432'" in workflow
+    assert "SIQ_MARKET_POSTGRES_SAMPLE_ROOT" in workflow
+    assert "SIQ_FINANCIAL_GOLDEN_PDF_ROOT" in workflow
+    assert "SIQ_PARSER_FINANCIAL_PDF_GATE_MODE" in workflow
+    assert "SIQ_PARSER_FINANCIAL_PDF_GATE_REQUIRED" in workflow
+    assert "Validate optional parser financial PDF gate inputs" in workflow
+    assert "Parser Financial PDF Release" in workflow
+    assert "timeout-minutes: 240" in workflow
+    assert "Required parser financial PDF gate needs preflight or live-http mode." in workflow
+    assert "The optional gate will emit a BLOCKED report." in workflow
+    assert "run_parser_financial_pdf_release_gate.py --mode contract" in ci_workflow
+    assert "test_run_parser_financial_pdf_release_gate.py" in ci_workflow
+    assert "clean: false" not in workflow
+
+
+def test_release_gate_wrapper_blocks_required_pdf_gate_failure(tmp_path):
+    repo_root = Path(__file__).resolve().parents[3]
+    fake_python = tmp_path / "fake-python"
+    log_path = tmp_path / "python-args.log"
+    fake_python.write_text(
+        "#!/usr/bin/env bash\n"
+        'printf "%s\\n" "$*" >> "$SIQ_FAKE_PYTHON_LOG"\n'
+        'case "$*" in\n'
+        "  *run_parser_financial_pdf_release_gate.py*) exit 1 ;;\n"
+        "  *) exit 0 ;;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    fake_python.chmod(0o755)
+    env = os.environ.copy()
+    env.update(
+        {
+            "PYTHON": str(fake_python),
+            "SIQ_FAKE_PYTHON_LOG": str(log_path),
+            "SIQ_PARSER_FINANCIAL_PDF_GATE_MODE": "preflight",
+            "SIQ_PARSER_FINANCIAL_PDF_GATE_REQUIRED": "1",
+            "SIQ_FINANCIAL_GOLDEN_PDF_ROOT": str(tmp_path / "pdf-samples"),
+        }
+    )
+
+    completed = subprocess.run(
+        [
+            "bash",
+            "scripts/ops/run_market_postgres_release_gate.sh",
+            "--mode",
+            "contract",
+            "--output-dir",
+            str(tmp_path / "output"),
+        ],
+        cwd=repo_root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 1
+    calls = log_path.read_text(encoding="utf-8")
+    assert "run_parser_financial_pdf_release_gate.py --mode preflight" in calls
+    assert f"--pdf-root {tmp_path / 'pdf-samples'}" in calls
+    assert "--output " in calls and "parser_financial_pdf_release.json" in calls
+
+
+def test_release_gate_wrapper_keeps_optional_pdf_gate_as_advisory(tmp_path):
+    repo_root = Path(__file__).resolve().parents[3]
+    fake_python = tmp_path / "fake-python"
+    fake_python.write_text(
+        "#!/usr/bin/env bash\n"
+        'case "$*" in\n'
+        "  *run_parser_financial_pdf_release_gate.py*) exit 1 ;;\n"
+        "  *) exit 0 ;;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    fake_python.chmod(0o755)
+    env = os.environ.copy()
+    env.update(
+        {
+            "PYTHON": str(fake_python),
+            "SIQ_PARSER_FINANCIAL_PDF_GATE_MODE": "preflight",
+            "SIQ_PARSER_FINANCIAL_PDF_GATE_REQUIRED": "0",
+        }
+    )
+
+    completed = subprocess.run(
+        [
+            "bash",
+            "scripts/ops/run_market_postgres_release_gate.sh",
+            "--mode",
+            "contract",
+            "--output-dir",
+            str(tmp_path / "output"),
+        ],
+        cwd=repo_root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0
+    assert "returned BLOCKED but is not required" in completed.stderr
+
+
+def test_release_gate_wrapper_requires_explicit_pdf_gate_mode(tmp_path):
+    repo_root = Path(__file__).resolve().parents[3]
+    env = os.environ.copy()
+    env.update(
+        {
+            "SIQ_PARSER_FINANCIAL_PDF_GATE_MODE": "off",
+            "SIQ_PARSER_FINANCIAL_PDF_GATE_REQUIRED": "1",
+        }
+    )
+
+    completed = subprocess.run(
+        [
+            "bash",
+            "scripts/ops/run_market_postgres_release_gate.sh",
+            "--mode",
+            "contract",
+            "--output-dir",
+            str(tmp_path / "output"),
+        ],
+        cwd=repo_root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 2
+    assert "requires an explicit preflight or live-http mode" in completed.stderr
+    assert not (tmp_path / "output").exists()
+
+
+def test_release_gate_wrapper_passes_vector_probe_args_without_endpoint_on_cli(tmp_path):
+    repo_root = Path(__file__).resolve().parents[3]
+    fake_python = tmp_path / "fake-python"
+    log_path = tmp_path / "python-args.log"
+    fake_python.write_text(
+        "#!/usr/bin/env bash\n"
+        'printf "%s\\n" "$*" >> "$SIQ_FAKE_PYTHON_LOG"\n'
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    fake_python.chmod(0o755)
+    env = os.environ.copy()
+    env.update(
+        {
+            "PYTHON": str(fake_python),
+            "SIQ_FAKE_PYTHON_LOG": str(log_path),
+            "SIQ_AGENT_MEMORY_VECTOR_PROBES_REQUIRED": "1",
+            "SIQ_AGENT_MEMORY_EMBEDDING_BASE_URL": "http://embedding.internal/v1?api_key=secret",
+            "SIQ_AGENT_MEMORY_EMBEDDING_MODEL": "fake-embedding-model",
+            "SIQ_AGENT_MEMORY_EMBEDDING_TIMEOUT": "7",
+            "SIQ_AGENT_MEMORY_EMBEDDING_PROBE_TEXTS": "4",
+            "SIQ_AGENT_MEMORY_MILVUS_COLLECTION": "siq_agent_memory_perf",
+            "SIQ_AGENT_MEMORY_RETRIEVAL_CASES": "eval_datasets/agent_memory/cases.json",
+            "SIQ_AGENT_MEMORY_RETRIEVAL_TOP_K": "6",
+            "SIQ_AGENT_MEMORY_RETRIEVAL_MAX_CASES": "5",
+        }
+    )
+
+    subprocess.run(
+        [
+            "bash",
+            "scripts/ops/run_market_postgres_release_gate.sh",
+            "--mode",
+            "offline-postgres",
+            "--output-dir",
+            str(tmp_path / "out"),
+        ],
+        cwd=repo_root,
+        env=env,
+        check=True,
+    )
+
+    calls = log_path.read_text(encoding="utf-8").splitlines()
+    perf_call = next(line for line in calls if "run_performance_baseline.py" in line)
+    health_call = next(line for line in calls if "check_agent_memory_vector_health.py" in line)
+    assert "--require-milvus" in health_call
+    assert "--collection siq_agent_memory_perf" in health_call
+    assert "--require-agent-memory-vector-probes" in perf_call
+    assert "--agent-memory-embedding-model fake-embedding-model" in perf_call
+    assert "--agent-memory-embedding-timeout 7" in perf_call
+    assert "--agent-memory-embedding-probe-texts 4" in perf_call
+    assert "--agent-memory-vector-collection siq_agent_memory_perf" in perf_call
+    assert "--agent-memory-retrieval-cases eval_datasets/agent_memory/cases.json" in perf_call
+    assert "--agent-memory-retrieval-top-k 6" in perf_call
+    assert "--agent-memory-retrieval-max-cases 5" in perf_call
+    assert "--agent-memory-embedding-base-url" not in perf_call
+    assert "embedding.internal" not in perf_call
+    assert "secret" not in perf_call
+    assert "embedding.internal" not in health_call
+    assert "secret" not in health_call
+
+
+def test_release_gate_wrapper_seeds_vector_collection_without_endpoint_on_cli(tmp_path):
+    repo_root = Path(__file__).resolve().parents[3]
+    fake_python = tmp_path / "fake-python"
+    log_path = tmp_path / "python-args.log"
+    output_dir = tmp_path / "out"
+    fake_python.write_text(
+        "#!/usr/bin/env bash\n"
+        'printf "%s\\n" "$*" >> "$SIQ_FAKE_PYTHON_LOG"\n'
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    fake_python.chmod(0o755)
+    env = os.environ.copy()
+    env.update(
+        {
+            "PYTHON": str(fake_python),
+            "SIQ_FAKE_PYTHON_LOG": str(log_path),
+            "SIQ_AGENT_MEMORY_VECTOR_SEED": "1",
+            "SIQ_AGENT_MEMORY_EMBEDDING_BASE_URL": "http://embedding.internal/v1?api_key=secret",
+            "SIQ_AGENT_MEMORY_EMBEDDING_MODEL": "fake-embedding-model",
+            "SIQ_AGENT_MEMORY_EMBEDDING_DIM": "8",
+            "SIQ_AGENT_MEMORY_MILVUS_COLLECTION": "siq_agent_memory_perf",
+            "SIQ_AGENT_MEMORY_VECTOR_SEED_PROFILES": "siq_assistant,siq_ic_chairman",
+            "SIQ_AGENT_MEMORY_VECTOR_SEED_BATCH_SIZE": "2",
+            "SIQ_AGENT_MEMORY_VECTOR_SEED_TIMEOUT": "9",
+        }
+    )
+
+    subprocess.run(
+        [
+            "bash",
+            "scripts/ops/run_market_postgres_release_gate.sh",
+            "--mode",
+            "offline-postgres",
+            "--output-dir",
+            str(output_dir),
+        ],
+        cwd=repo_root,
+        env=env,
+        check=True,
+    )
+
+    calls = log_path.read_text(encoding="utf-8").splitlines()
+    seed_call = next(line for line in calls if "ingest_agent_memory_to_milvus.py" in line)
+    health_calls = [line for line in calls if "check_agent_memory_vector_health.py" in line]
+    assert len(health_calls) == 2
+    preflight_call, post_seed_call = health_calls
+    assert f"--output {output_dir}/agent_memory_vector_preflight.json" in preflight_call
+    assert f"--markdown {output_dir}/agent_memory_vector_preflight.md" in preflight_call
+    assert "--require-milvus" in preflight_call
+    assert "--require-collection" not in preflight_call
+    assert f"--output {output_dir}/agent_memory_vector_post_seed_health.json" in post_seed_call
+    assert f"--markdown {output_dir}/agent_memory_vector_post_seed_health.md" in post_seed_call
+    assert "--require-milvus" in post_seed_call
+    assert "--require-collection" in post_seed_call
+    assert f"--output {output_dir}/agent_memory_milvus_seed.json" in seed_call
+    assert f"--markdown {output_dir}/agent_memory_milvus_seed.md" in seed_call
+    assert "--require-configured-embed-url" in seed_call
+    assert "--collection siq_agent_memory_perf" in seed_call
+    assert "--embed-model fake-embedding-model" in seed_call
+    assert "--vector-dim 8" in seed_call
+    assert "--profiles siq_assistant,siq_ic_chairman" in seed_call
+    assert "--batch-size 2" in seed_call
+    assert "--timeout 9" in seed_call
+    assert "--flush" in seed_call
+    assert "--embed-url" not in seed_call
+    assert "embedding.internal" not in seed_call
+    assert "secret" not in seed_call
+    assert "embedding.internal" not in preflight_call + post_seed_call
+    assert "secret" not in preflight_call + post_seed_call
+
+
+def test_release_gate_wrapper_skips_post_seed_health_for_seed_dry_run(tmp_path):
+    repo_root = Path(__file__).resolve().parents[3]
+    fake_python = tmp_path / "fake-python"
+    log_path = tmp_path / "python-args.log"
+    fake_python.write_text(
+        "#!/usr/bin/env bash\n"
+        'printf "%s\\n" "$*" >> "$SIQ_FAKE_PYTHON_LOG"\n'
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    fake_python.chmod(0o755)
+    env = os.environ.copy()
+    env.update(
+        {
+            "PYTHON": str(fake_python),
+            "SIQ_FAKE_PYTHON_LOG": str(log_path),
+            "SIQ_AGENT_MEMORY_VECTOR_SEED": "1",
+            "SIQ_AGENT_MEMORY_VECTOR_SEED_DRY_RUN": "1",
+        }
+    )
+
+    subprocess.run(
+        [
+            "bash",
+            "scripts/ops/run_market_postgres_release_gate.sh",
+            "--mode",
+            "offline-postgres",
+            "--output-dir",
+            str(tmp_path / "out"),
+        ],
+        cwd=repo_root,
+        env=env,
+        check=True,
+    )
+
+    calls = log_path.read_text(encoding="utf-8").splitlines()
+    seed_call = next(line for line in calls if "ingest_agent_memory_to_milvus.py" in line)
+    health_calls = [line for line in calls if "check_agent_memory_vector_health.py" in line]
+    assert "--dry-run" in seed_call
+    assert len(health_calls) == 1
+    assert "agent_memory_vector_preflight.json" in health_calls[0]
+    assert "agent_memory_vector_post_seed_health.json" not in health_calls[0]
+
+
+def test_release_gate_wrapper_uses_agent_memory_contract_defaults(tmp_path):
+    repo_root = Path(__file__).resolve().parents[3]
+    fake_python = tmp_path / "fake-python"
+    log_path = tmp_path / "python-args.log"
+    fake_python.write_text(
+        "#!/usr/bin/env bash\n"
+        'printf "%s\\n" "$*" >> "$SIQ_FAKE_PYTHON_LOG"\n'
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    fake_python.chmod(0o755)
+    env = os.environ.copy()
+    env.update(
+        {
+            "PYTHON": str(fake_python),
+            "SIQ_FAKE_PYTHON_LOG": str(log_path),
+            "SIQ_AGENT_MEMORY_VECTOR_SEED": "1",
+        }
+    )
+    for name in (
+        "SIQ_AGENT_MEMORY_RETRIEVAL_CASES",
+        "SIQ_AGENT_MEMORY_VECTOR_SEED_PROFILES",
+        "SIQ_AGENT_MEMORY_EMBEDDING_BASE_URL",
+    ):
+        env.pop(name, None)
+
+    subprocess.run(
+        [
+            "bash",
+            "scripts/ops/run_market_postgres_release_gate.sh",
+            "--mode",
+            "offline-postgres",
+            "--output-dir",
+            str(tmp_path / "out"),
+        ],
+        cwd=repo_root,
+        env=env,
+        check=True,
+    )
+
+    calls = log_path.read_text(encoding="utf-8").splitlines()
+    seed_call = next(line for line in calls if "ingest_agent_memory_to_milvus.py" in line)
+    perf_call = next(line for line in calls if "run_performance_baseline.py" in line)
+    assert "--profiles siq_assistant,siq_ic_legal_scanner,siq_ic_chairman" in seed_call
+    assert "--agent-memory-retrieval-cases eval_datasets/agent_memory_retrieval_contract/cases.json" in perf_call
+
+
+def test_agent_memory_retrieval_contract_fixture_aligns_with_seed_profiles():
+    repo_root = Path(__file__).resolve().parents[3]
+    cases_path = repo_root / "eval_datasets/agent_memory_retrieval_contract/cases.json"
+    cases = json.loads(cases_path.read_text(encoding="utf-8"))
+
+    assert len(cases) == 3
+    profiles = {str(item["profile"]) for item in cases}
+    assert profiles == {"siq_assistant", "siq_ic_legal_scanner", "siq_ic_chairman"}
+    for item in cases:
+        assert item["profile"] in str(item["expected_path_contains"])
+        assert (repo_root / "agents/hermes/profiles" / str(item["profile"])).is_dir()

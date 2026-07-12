@@ -239,9 +239,56 @@ def db_count_for_case(
 ) -> int:
     scoped = scoped_where_for_table(conn, schema, table, case, where_sql, params)
     if scoped is None:
-        return db_count(conn, schema, table, "1=1", ())
+        return 0
     scoped_where_sql, scoped_params = scoped
     return db_count(conn, schema, table, scoped_where_sql, scoped_params)
+
+
+def db_scope_issues(
+    conn: Any,
+    schema: str,
+    case: dict[str, Any],
+    where_sql: str,
+    params: tuple[Any, ...],
+    expected_table_counts: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    legacy_counts = case.get("expected_row_counts") if isinstance(case.get("expected_row_counts"), dict) else {}
+    expected_family_counts = case.get("expected_family_counts") if isinstance(case.get("expected_family_counts"), dict) else {}
+    required_families = set(DB_DEFAULT_REQUIRED_FAMILIES)
+    required_families.update(str(family) for family in legacy_counts if str(family) in DB_TABLE_FAMILIES)
+    required_families.update(str(family) for family in expected_family_counts if str(family) in DB_TABLE_FAMILIES)
+    tables = {
+        table
+        for family in required_families
+        for table in DB_TABLE_FAMILIES.get(family, ())
+    }
+    if expected_table_counts:
+        tables.update(table_name_from_count_key(str(key), schema) for key in expected_table_counts)
+    selector_column = simple_selector_column(where_sql)
+    selector_label = selector_column or where_sql
+    case_selectors = case_selector_values(case, where_sql, params)
+    case_selector_columns = [column for column, _value in case_selectors]
+    issues: list[dict[str, Any]] = []
+    for table in sorted(tables):
+        columns = table_columns(conn, schema, table)
+        if not columns:
+            continue
+        if selector_column in columns:
+            continue
+        if any(column in columns for column, _value in case_selectors):
+            continue
+        issue = {
+            "table": table,
+            "selector": selector_label,
+            "case_selector_columns": case_selector_columns,
+            "message": (
+                f"DB scope selector missing for table {table}: selector {selector_label!r} "
+                f"and fallback case selectors {case_selector_columns!r} are absent; "
+                "refusing full-table count"
+            ),
+        }
+        issues.append(issue)
+    return issues
 
 
 def db_family_counts(
@@ -719,6 +766,7 @@ __all__ = [
     "db_evidence_join_rows",
     "db_fact_evidence_rows",
     "db_family_counts",
+    "db_scope_issues",
     "db_required_evidence_check",
     "db_table_counts",
     "fact_filter_candidates",

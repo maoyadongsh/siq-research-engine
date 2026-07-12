@@ -12,7 +12,7 @@ jobs:
   offline-postgres-gate:
     name: Offline PostgreSQL gate
     runs-on: self-hosted
-    timeout-minutes: 90
+    timeout-minutes: 240
     services:
       postgres:
         image: postgres:16-alpine
@@ -33,10 +33,135 @@ jobs:
       SIQ_PGPASSWORD: siq-market-postgres-gate
       PGPASSWORD: siq-market-postgres-gate
       SIQ_MARKET_POSTGRES_GATE_OUTPUT_DIR: artifacts/eval-runs/market-postgres-release-gate
+      SIQ_MARKET_POSTGRES_SAMPLE_ROOT: ${{ vars.SIQ_MARKET_POSTGRES_SAMPLE_ROOT }}
+      SIQ_FINANCIAL_GOLDEN_SAMPLE_ROOT: ${{ vars.SIQ_FINANCIAL_GOLDEN_SAMPLE_ROOT }}
+      SIQ_FINANCIAL_GOLDEN_PDF_ROOT: ${{ vars.SIQ_FINANCIAL_GOLDEN_PDF_ROOT }}
+      SIQ_PARSER_FINANCIAL_PDF_GATE_MODE: ${{ vars.SIQ_PARSER_FINANCIAL_PDF_GATE_MODE }}
+      SIQ_PARSER_FINANCIAL_PDF_GATE_REQUIRED: ${{ vars.SIQ_PARSER_FINANCIAL_PDF_GATE_REQUIRED }}
+      SIQ_PARSER_FINANCIAL_PDF_DEADLINE_SECONDS: ${{ vars.SIQ_PARSER_FINANCIAL_PDF_DEADLINE_SECONDS }}
+      SIQ_PARSER_FINANCIAL_PDF_POLL_INTERVAL: ${{ vars.SIQ_PARSER_FINANCIAL_PDF_POLL_INTERVAL }}
+      SIQ_PARSER_FINANCIAL_PDF_REQUEST_TIMEOUT: ${{ vars.SIQ_PARSER_FINANCIAL_PDF_REQUEST_TIMEOUT }}
+      SIQ_PDF_PARSER_URL: ${{ vars.SIQ_PDF_PARSER_URL }}
+      SIQ_AGENT_MEMORY_VECTOR_PROBES_REQUIRED: ${{ vars.SIQ_AGENT_MEMORY_VECTOR_PROBES_REQUIRED }}
+      SIQ_AGENT_MEMORY_VECTOR_PROBES_SKIP: ${{ vars.SIQ_AGENT_MEMORY_VECTOR_PROBES_SKIP }}
+      SIQ_AGENT_MEMORY_VECTOR_SEED: ${{ vars.SIQ_AGENT_MEMORY_VECTOR_SEED }}
+      SIQ_AGENT_MEMORY_VECTOR_SEED_PROFILES_ROOT: ${{ vars.SIQ_AGENT_MEMORY_VECTOR_SEED_PROFILES_ROOT }}
+      SIQ_AGENT_MEMORY_VECTOR_SEED_MANIFEST: ${{ vars.SIQ_AGENT_MEMORY_VECTOR_SEED_MANIFEST }}
+      SIQ_AGENT_MEMORY_VECTOR_SEED_PROFILES: ${{ vars.SIQ_AGENT_MEMORY_VECTOR_SEED_PROFILES }}
+      SIQ_AGENT_MEMORY_VECTOR_SEED_BATCH_SIZE: ${{ vars.SIQ_AGENT_MEMORY_VECTOR_SEED_BATCH_SIZE }}
+      SIQ_AGENT_MEMORY_VECTOR_SEED_TIMEOUT: ${{ vars.SIQ_AGENT_MEMORY_VECTOR_SEED_TIMEOUT }}
+      SIQ_AGENT_MEMORY_VECTOR_SEED_FLUSH: ${{ vars.SIQ_AGENT_MEMORY_VECTOR_SEED_FLUSH }}
+      SIQ_AGENT_MEMORY_VECTOR_SEED_DRY_RUN: ${{ vars.SIQ_AGENT_MEMORY_VECTOR_SEED_DRY_RUN }}
+      SIQ_AGENT_MEMORY_VECTOR_HEALTH_REQUIRE_COLLECTION: ${{ vars.SIQ_AGENT_MEMORY_VECTOR_HEALTH_REQUIRE_COLLECTION }}
+      SIQ_AGENT_MEMORY_EMBEDDING_BASE_URL: ${{ secrets.SIQ_AGENT_MEMORY_EMBEDDING_BASE_URL }}
+      SIQ_AGENT_MEMORY_EMBEDDING_MODEL: ${{ vars.SIQ_AGENT_MEMORY_EMBEDDING_MODEL }}
+      SIQ_AGENT_MEMORY_EMBEDDING_DIM: ${{ vars.SIQ_AGENT_MEMORY_EMBEDDING_DIM }}
+      SIQ_AGENT_MEMORY_EMBEDDING_TIMEOUT: ${{ vars.SIQ_AGENT_MEMORY_EMBEDDING_TIMEOUT }}
+      SIQ_AGENT_MEMORY_EMBEDDING_PROBE_TEXTS: ${{ vars.SIQ_AGENT_MEMORY_EMBEDDING_PROBE_TEXTS }}
+      SIQ_AGENT_MEMORY_MILVUS_COLLECTION: ${{ vars.SIQ_AGENT_MEMORY_MILVUS_COLLECTION }}
+      SIQ_AGENT_MEMORY_RETRIEVAL_CASES: ${{ vars.SIQ_AGENT_MEMORY_RETRIEVAL_CASES }}
+      SIQ_AGENT_MEMORY_RETRIEVAL_TOP_K: ${{ vars.SIQ_AGENT_MEMORY_RETRIEVAL_TOP_K }}
+      SIQ_AGENT_MEMORY_RETRIEVAL_MAX_CASES: ${{ vars.SIQ_AGENT_MEMORY_RETRIEVAL_MAX_CASES }}
+      SIQ_MILVUS_HOST: ${{ vars.SIQ_MILVUS_HOST }}
+      SIQ_MILVUS_PORT: ${{ vars.SIQ_MILVUS_PORT }}
+      SIQ_MILVUS_USER: ${{ vars.SIQ_MILVUS_USER }}
+      SIQ_MILVUS_PASSWORD: ${{ secrets.SIQ_MILVUS_PASSWORD }}
+      SIQ_MILVUS_TOKEN: ${{ secrets.SIQ_MILVUS_TOKEN }}
+      SIQ_MILVUS_DB_NAME: ${{ vars.SIQ_MILVUS_DB_NAME }}
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Require external production sample root
+        shell: bash
+        run: |
+          if [[ -z "${SIQ_MARKET_POSTGRES_SAMPLE_ROOT:-}" ]]; then
+            echo "Repository variable SIQ_MARKET_POSTGRES_SAMPLE_ROOT must point to the read-only market sample directory on this runner." >&2
+            exit 1
+          fi
+          if [[ ! -d "$SIQ_MARKET_POSTGRES_SAMPLE_ROOT" ]]; then
+            echo "Production sample root is not a readable directory: $SIQ_MARKET_POSTGRES_SAMPLE_ROOT" >&2
+            exit 1
+          fi
+          sample_root="$(cd "$SIQ_MARKET_POSTGRES_SAMPLE_ROOT" && pwd -P)"
+          workspace="$(cd "$GITHUB_WORKSPACE" && pwd -P)"
+          case "$sample_root/" in
+            "$workspace/"*)
+              echo "Production sample root must be outside the checkout: $sample_root" >&2
+              exit 1
+              ;;
+          esac
+          echo "SIQ_MARKET_POSTGRES_SAMPLE_ROOT=$sample_root" >> "$GITHUB_ENV"
+
+      - name: Require external parser financial golden sample root
+        shell: bash
+        run: |
+          if [[ -z "${SIQ_FINANCIAL_GOLDEN_SAMPLE_ROOT:-}" ]]; then
+            echo "Repository variable SIQ_FINANCIAL_GOLDEN_SAMPLE_ROOT must point to the read-only financial Markdown sample directory on this runner." >&2
+            exit 1
+          fi
+          if [[ ! -d "$SIQ_FINANCIAL_GOLDEN_SAMPLE_ROOT" ]]; then
+            echo "Financial golden sample root is not a readable directory: $SIQ_FINANCIAL_GOLDEN_SAMPLE_ROOT" >&2
+            exit 1
+          fi
+          sample_root="$(cd "$SIQ_FINANCIAL_GOLDEN_SAMPLE_ROOT" && pwd -P)"
+          workspace="$(cd "$GITHUB_WORKSPACE" && pwd -P)"
+          case "$sample_root/" in
+            "$workspace/"*)
+              echo "Financial golden sample root must be outside the checkout: $sample_root" >&2
+              exit 1
+              ;;
+          esac
+          echo "SIQ_FINANCIAL_GOLDEN_SAMPLE_ROOT=$sample_root" >> "$GITHUB_ENV"
+
+      - name: Validate optional parser financial PDF gate inputs
+        shell: bash
+        run: |
+          pdf_gate_mode="${SIQ_PARSER_FINANCIAL_PDF_GATE_MODE:-off}"
+          pdf_gate_required=0
+          case "${SIQ_PARSER_FINANCIAL_PDF_GATE_REQUIRED:-}" in
+            1|true|TRUE|True|yes|YES|Yes|on|ON|On) pdf_gate_required=1 ;;
+          esac
+          case "$pdf_gate_mode" in
+            off)
+              if [[ "$pdf_gate_required" == "1" ]]; then
+                echo "Required parser financial PDF gate needs preflight or live-http mode." >&2
+                exit 1
+              fi
+              exit 0
+              ;;
+            preflight|live-http) ;;
+            *)
+              echo "SIQ_PARSER_FINANCIAL_PDF_GATE_MODE must be off, preflight, or live-http: $pdf_gate_mode" >&2
+              exit 1
+              ;;
+          esac
+          if [[ -z "${SIQ_FINANCIAL_GOLDEN_PDF_ROOT:-}" || ! -d "$SIQ_FINANCIAL_GOLDEN_PDF_ROOT" ]]; then
+            message="SIQ_FINANCIAL_GOLDEN_PDF_ROOT must be a readable external PDF root when the PDF gate is enabled."
+            if [[ "$pdf_gate_required" == "1" ]]; then
+              echo "$message" >&2
+              exit 1
+            fi
+            echo "WARNING: $message The optional gate will emit a BLOCKED report." >&2
+            echo "SIQ_FINANCIAL_GOLDEN_PDF_ROOT=" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          pdf_root="$(cd "$SIQ_FINANCIAL_GOLDEN_PDF_ROOT" && pwd -P)"
+          workspace="$(cd "$GITHUB_WORKSPACE" && pwd -P)"
+          case "$pdf_root/" in
+            "$workspace/"*)
+              message="Financial golden PDF root must be outside the checkout: $pdf_root"
+              if [[ "$pdf_gate_required" == "1" ]]; then
+                echo "$message" >&2
+                exit 1
+              fi
+              echo "WARNING: $message. The optional gate will emit a BLOCKED report." >&2
+              echo "SIQ_FINANCIAL_GOLDEN_PDF_ROOT=" >> "$GITHUB_ENV"
+              exit 0
+              ;;
+          esac
+          echo "SIQ_FINANCIAL_GOLDEN_PDF_ROOT=$pdf_root" >> "$GITHUB_ENV"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -44,7 +169,26 @@ jobs:
           python-version: '3.13'
 
       - name: Install gate dependencies
-        run: python -m pip install --upgrade 'psycopg[binary]>=3.2'
+        shell: bash
+        run: |
+          python -m pip install --upgrade 'psycopg[binary]>=3.2'
+          install_vector_deps=0
+          case "${SIQ_AGENT_MEMORY_VECTOR_PROBES_REQUIRED:-}" in
+            1|true|TRUE|True|yes|YES|Yes|on|ON|On)
+              install_vector_deps=1
+              ;;
+          esac
+          case "${SIQ_AGENT_MEMORY_VECTOR_SEED:-}" in
+            1|true|TRUE|True|yes|YES|Yes|on|ON|On)
+              install_vector_deps=1
+              ;;
+          esac
+          if [[ -n "${SIQ_AGENT_MEMORY_EMBEDDING_BASE_URL:-}" ]]; then
+            install_vector_deps=1
+          fi
+          if [[ "$install_vector_deps" == "1" ]]; then
+            python -m pip install --upgrade 'httpx>=0.28' 'anyio>=4' 'SQLAlchemy>=2' 'pymilvus>=2.4'
+          fi
 
       - name: Create market databases
         run: |
@@ -56,6 +200,11 @@ jobs:
 
       - name: Run strict market PostgreSQL gate
         run: bash scripts/ops/run_market_postgres_release_gate.sh --mode offline-postgres
+
+      - name: Run production Compose API auth PostgreSQL smoke
+        run: |
+          python3 scripts/maintenance/run_production_compose_smoke.py \
+            --output "$SIQ_MARKET_POSTGRES_GATE_OUTPUT_DIR/production-compose-smoke.json"
 
       - name: Summarize release gate report
         if: always()
@@ -108,6 +257,105 @@ jobs:
                       f"evidence_coverage=`{summary.get('evidence_coverage_rate', 0):.3f}`",
                   ]
               )
+
+          parser_golden_path = output_dir / "parser_financial_golden.json"
+          lines.extend(["", "## Parser Financial Golden", ""])
+          if parser_golden_path.exists():
+              parser_golden = json.loads(parser_golden_path.read_text(encoding="utf-8"))
+              parser_summary = parser_golden.get("summary") or {}
+              lines.append(
+                  f"- Passed: `{parser_golden.get('passed')}` "
+                  f"cases=`{parser_summary.get('passed', 0)}/{parser_summary.get('case_count', 0)}` "
+                  f"missing=`{parser_summary.get('missing', 0)}`"
+              )
+          else:
+              lines.append(f"- Report missing: `{parser_golden_path}`")
+
+          parser_pdf_path = output_dir / "parser_financial_pdf_release.json"
+          lines.extend(["", "## Parser Financial PDF Release", ""])
+          if parser_pdf_path.exists():
+              parser_pdf = json.loads(parser_pdf_path.read_text(encoding="utf-8"))
+              parser_pdf_summary = parser_pdf.get("summary") or {}
+              lines.append(
+                  f"- Passed: `{parser_pdf.get('passed')}` mode=`{parser_pdf.get('mode')}` "
+                  f"cases=`{parser_pdf_summary.get('passed', 0)}/{parser_pdf_summary.get('case_count', 0)}`"
+              )
+              for error in (parser_pdf.get("preflight") or {}).get("errors", []):
+                  lines.append(f"- Preflight error: {error}")
+          else:
+              lines.append("- Not enabled or report missing.")
+
+          perf_path = output_dir / "performance_baseline_nightly.json"
+          lines.extend(["", "## Performance Baseline", ""])
+          health_path = output_dir / "agent_memory_vector_preflight.json"
+          if health_path.exists():
+              health = json.loads(health_path.read_text(encoding="utf-8"))
+              milvus = health.get("milvus") or {}
+              connectivity = milvus.get("connectivity") or {}
+              collection = milvus.get("collection") or {}
+              lines.extend(
+                  [
+                      f"- Agent memory vector preflight passed: `{health.get('passed')}`",
+                      f"  pymilvus=`{milvus.get('pymilvus_available')}` "
+                      f"connectivity=`{connectivity.get('passed')}` "
+                      f"collection=`{collection.get('name')}` "
+                      f"collection_exists=`{collection.get('exists')}` "
+                      f"required_fields_present=`{collection.get('required_fields_present')}` "
+                      f"error_type=`{connectivity.get('error_type', '')}`",
+                  ]
+              )
+          post_seed_health_path = output_dir / "agent_memory_vector_post_seed_health.json"
+          if post_seed_health_path.exists():
+              post_seed_health = json.loads(post_seed_health_path.read_text(encoding="utf-8"))
+              milvus = post_seed_health.get("milvus") or {}
+              connectivity = milvus.get("connectivity") or {}
+              collection = milvus.get("collection") or {}
+              lines.extend(
+                  [
+                      f"- Agent memory vector post-seed health passed: `{post_seed_health.get('passed')}`",
+                      f"  pymilvus=`{milvus.get('pymilvus_available')}` "
+                      f"connectivity=`{connectivity.get('passed')}` "
+                      f"collection=`{collection.get('name')}` "
+                      f"collection_exists=`{collection.get('exists')}` "
+                      f"required_fields_present=`{collection.get('required_fields_present')}` "
+                      f"error_type=`{connectivity.get('error_type', '')}`",
+                  ]
+              )
+          seed_path = output_dir / "agent_memory_milvus_seed.json"
+          if seed_path.exists():
+              seed = json.loads(seed_path.read_text(encoding="utf-8"))
+              lines.extend(
+                  [
+                      f"- Agent memory vector seed passed: `{seed.get('passed')}`",
+                      f"  collection=`{seed.get('collection')}` chunks=`{seed.get('chunk_count')}` "
+                      f"inserted=`{seed.get('inserted', 0)}` dry_run=`{seed.get('dry_run')}` "
+                      f"error_type=`{seed.get('error_type', '')}`",
+                  ]
+              )
+          if perf_path.exists():
+              perf = json.loads(perf_path.read_text(encoding="utf-8"))
+              lines.append(f"- Nightly performance baseline passed: `{perf.get('passed')}`")
+              for item in perf.get("benchmarks") or []:
+                  elapsed = item.get("elapsed_ms") or {}
+                  domain = item.get("domain") or {}
+                  domain_latency = domain.get("latency_ms") if isinstance(domain.get("latency_ms"), dict) else {}
+                  domain_units = domain.get(
+                      "cases",
+                      domain.get(
+                          "samples",
+                          domain.get("queries", domain.get("input_count", domain.get("vector_count", "-"))),
+                      ),
+                  )
+                  lines.append(
+                      f"- {item.get('name')}: passed=`{item.get('passed')}` "
+                      f"skipped=`{item.get('skipped')}` p95_ms=`{elapsed.get('p95')}` "
+                      f"domain_latency_p95_ms=`{domain_latency.get('p95', '-')}` "
+                      f"rss_delta_kb=`{item.get('rss_delta_kb')}` "
+                      f"domain_units=`{domain_units}` "
+                      f"reason=`{domain.get('reason', '')}`"
+                  )
+          else:
+              lines.append(f"- Nightly performance baseline missing: `{perf_path}`")
 
           if markdown_path.exists():
               lines.extend(["", "## Report Preview", ""])

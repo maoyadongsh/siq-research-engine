@@ -728,9 +728,62 @@ class FinancialExtractorTests(unittest.TestCase):
         metrics = {item["canonical_name"]: item for item in data["key_metrics"]}
 
         self.assertEqual(metrics["operating_revenue"]["values"]["2025"], 838270000000.0)
+        self.assertEqual(metrics["bank_net_interest_income"]["values"]["2025"], 635126000000.0)
         self.assertEqual(metrics["total_profit"]["values"]["2025"], 424435000000.0)
         self.assertEqual(metrics["total_assets"]["values"]["2025"], 53477773000000.0)
         self.assertIn("body.key_metrics", data["classification_evidence"][0]["evidence"])
+
+    def test_key_metric_conflict_is_machine_readable_quality_flag(self):
+        markdown = """
+# 测试公司2025年度报告
+
+## 主要会计数据
+单位：元
+<table>
+  <tr><td>项目</td><td>2025年</td><td>2024年</td></tr>
+  <tr><td>营业收入</td><td>100</td><td>90</td></tr>
+  <tr><td>营业利润</td><td>12</td><td>10</td></tr>
+  <tr><td>利润总额</td><td>12</td><td>10</td></tr>
+  <tr><td>净利润</td><td>10</td><td>8</td></tr>
+  <tr><td>归属于母公司股东的净利润</td><td>10</td><td>8</td></tr>
+  <tr><td>经营活动产生的现金流量净额</td><td>5</td><td>4</td></tr>
+  <tr><td>资产总额</td><td>300</td><td>280</td></tr>
+</table>
+
+## 主要财务指标
+单位：元
+<table>
+  <tr><td>项目</td><td>2025年</td><td>2024年</td></tr>
+  <tr><td>营业收入</td><td>102</td><td>90</td></tr>
+  <tr><td>营业利润</td><td>12</td><td>10</td></tr>
+  <tr><td>利润总额</td><td>12</td><td>10</td></tr>
+  <tr><td>净利润</td><td>10</td><td>8</td></tr>
+  <tr><td>归属于母公司股东的净利润</td><td>10</td><td>8</td></tr>
+  <tr><td>经营活动产生的现金流量净额</td><td>5</td><td>4</td></tr>
+  <tr><td>资产总额</td><td>300</td><td>280</td></tr>
+</table>
+"""
+        data = build_financial_data(markdown, task_id="task-conflict", filename="测试公司2025年度报告.pdf")
+        checks = build_financial_checks(data)
+        flags = data["quality_flags"]
+
+        self.assertEqual(data["key_metrics"][0]["values"]["2025"], 100.0)
+        self.assertEqual(flags[0]["code"], "key_metric_value_conflict")
+        self.assertEqual(flags[0]["canonical_name"], "operating_revenue")
+        self.assertEqual(flags[0]["period"], "2025")
+        self.assertEqual(flags[0]["existing_value"], 100.0)
+        self.assertEqual(flags[0]["incoming_value"], 102.0)
+        self.assertEqual(checks["quality_flags"][0]["code"], "key_metric_value_conflict")
+        self.assertEqual(checks["overall_status"], "fail")
+        self.assertGreaterEqual(checks["summary"]["fail"], 1)
+        self.assertTrue(
+            any(
+                item["rule_id"] == "quality.key_metric_value_conflict.operating_revenue"
+                and item["status"] == "fail"
+                for item in checks["checks"]
+            )
+        )
+        self.assertTrue(any("关键指标 operating_revenue" in warning for warning in checks["warnings"]))
 
     def test_bank_group_and_bank_scope_headers_are_split(self):
         markdown = """

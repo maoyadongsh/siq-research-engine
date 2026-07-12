@@ -1,0 +1,51 @@
+{
+  "schema_version": "siq_agent_memory_milvus_snapshot_v1",
+  "snapshot_kind": "synthetic_contract",
+  "collection": {
+    "name": "siq_agent_memory",
+    "declared_schema_version": "siq_agent_memory_milvus_v1",
+    "entity_count": 120,
+    "vector_dimension": 1024,
+    "metric_type": "COSINE",
+    "index_type": "HNSW",
+    "id_content_hash_manifest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "fields": [
+      "id",
+      "vector",
+      "tenant_id",
+      "visibility",
+      "owner_user_id",
+      "profile",
+      "agent_group",
+      "deal_id",
+      "project_id",
+      "memory_type",
+      "source_kind",
+      "source_id",
+      "source_path",
+      "content_hash",
+      "title",
+      "content",
+      "metadata_json",
+      "updated_at_ts"
+    ]
+  },
+  "identity": {
+    "research_scoped_count": 60,
+    "complete_count": 50,
+    "partial_count": 10,
+    "unscoped_count": 60,
+    "missing_by_field": {
+      "market": 0,
+      "company_id": 2,
+      "filing_id": 5,
+      "parse_run_id": 8
+    }
+  },
+  "aliases": [
+    {
+      "name": "siq_agent_memory_active",
+      "collection": "siq_agent_memory"
+    }
+  ]
+}

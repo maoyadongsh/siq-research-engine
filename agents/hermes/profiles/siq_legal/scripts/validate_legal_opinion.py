@@ -9,6 +9,7 @@ Checks:
 - HTML <section>/<h2> structure balanced if applicable.
 - No dark-theme color codes for HTML.
 - Disclaimer phrase present ("不替代执业律师").
+- Legal/professional tone: no casual assurances or absolute legal promises.
 
 Exit codes: 0 OK, 2 failures, 1 unexpected error.
 """
@@ -49,6 +50,46 @@ CITATION_LINE_RE = re.compile(
     r"\[\d+\][^\n]*?source\s*=[^\n]*?source_path\s*=[^\n]*?chunk_index\s*="
 )
 DISCLAIMER_TERMS = ["不替代执业律师", "执业律师判断", "不构成最终法律意见"]
+MECHANICAL_TEMPLATE_PHRASES = [
+    "同上结构",
+    "核心问题一",
+    "核心问题二",
+    "用一段自然段",
+    "填入 hybrid_search",
+    "与本意见的关联",
+]
+CASUAL_OR_ABSOLUTE_PATTERNS = [
+    r"完全没问题",
+    r"放心",
+    r"百分之百",
+    r"包过",
+    r"绝对(?:合法|合规|安全|不会)",
+    r"一定(?:合法|合规|不会|能通过|无需)",
+    r"肯定(?:合法|合规|不会|无需)",
+    r"无需任何(?:披露|审批|核实|复核)",
+    r"不会被(?:处罚|问询|监管关注)",
+]
+CONDITIONAL_TONE_TERMS = [
+    "基于现有事实",
+    "基于目前",
+    "初步",
+    "倾向",
+    "待核实",
+    "需补充",
+    "需进一步核实",
+    "检索局限",
+]
+ACTION_TONE_TERMS = [
+    "建议",
+    "措施",
+    "整改",
+    "补充",
+    "核实",
+    "提交",
+    "披露",
+    "跟踪",
+    "复核",
+]
 
 
 def read(path: Path) -> str:
@@ -66,6 +107,10 @@ def collect_failures(text: str, kind: str) -> tuple[list[str], list[str]]:
     placeholders = sorted(set(PLACEHOLDER_RE.findall(text)))
     if placeholders:
         failures.append("unresolved_placeholders:" + ",".join(placeholders[:10]))
+
+    mechanical = [phrase for phrase in MECHANICAL_TEMPLATE_PHRASES if phrase in text]
+    if mechanical:
+        failures.append("mechanical_template_residue:" + ",".join(mechanical[:10]))
 
     citation_lines = CITATION_LINE_RE.findall(text)
     if len(citation_lines) < 3:
@@ -98,6 +143,15 @@ def collect_failures(text: str, kind: str) -> tuple[list[str], list[str]]:
     for phrase in ["已构成违法", "已构成犯罪", "确属违规", "违法犯罪"]:
         if phrase in text and "监管处罚" not in text and "立案调查" not in text:
             failures.append(f"unsupported_definitive_language:{phrase}")
+
+    for pattern in CASUAL_OR_ABSOLUTE_PATTERNS:
+        if re.search(pattern, text):
+            failures.append(f"unprofessional_or_absolute_tone:{pattern}")
+
+    if not any(term in text for term in CONDITIONAL_TONE_TERMS):
+        warnings.append("weak_legal_tone:missing_conditional_language")
+    if not any(term in text for term in ACTION_TONE_TERMS):
+        warnings.append("weak_legal_tone:missing_actionable_recommendation")
 
     return failures, warnings
 

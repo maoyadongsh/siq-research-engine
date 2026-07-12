@@ -49,7 +49,7 @@ WIKISET_DIR = Path(
     os.environ.get("SIQ_WIKISET_ROOT")
     or os.environ.get("WIKISET_ROOT")
     or os.environ.get("SIQ_WIKISET_ROOT")
-    or DEFAULT_WIKI_ROOT / "wikiset"
+    or REPO_ROOT / "scripts" / "wiki" / "wikiset"
 ).expanduser()
 if str(WIKISET_DIR) not in sys.path:
     sys.path.insert(0, str(WIKISET_DIR))

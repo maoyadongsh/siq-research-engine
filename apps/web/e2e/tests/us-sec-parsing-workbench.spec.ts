@@ -1,5 +1,6 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
 import { e2eUser } from '../support/mockApi'
+import type { UsSecCaseSetStatus, UsSecPackageDetail } from '../../src/features/market-parsing/api'
 
 const structuredReport = {
   id: 'us-nvda-10k-html',
@@ -156,21 +157,24 @@ function json(body: unknown, status = 200) {
 
 interface MockUsSecWorkbenchOptions {
   documentFullPath?: string
+  caseSet?: UsSecCaseSetStatus
+  packageDetails?: Record<string, { detail: UsSecPackageDetail; delayMs?: number }>
 }
 
 async function mockUsSecWorkbenchApis(page: Page, options: MockUsSecWorkbenchOptions = {}) {
   const buildRequests: unknown[] = []
   const documentFullImportRequests: unknown[] = []
   const packageFileRequests: Array<{ file: string | null; authorization: string }> = []
+  const caseSetBase = options.caseSet || usCaseSet
   const caseSet = options.documentFullPath
     ? {
-        ...usCaseSet,
-        items: usCaseSet.items.map((item) => ({
+        ...caseSetBase,
+        items: caseSetBase.items.map((item) => ({
           ...item,
           document_full_path: options.documentFullPath,
         })),
       }
-    : usCaseSet
+    : caseSetBase
   const detail = options.documentFullPath
     ? {
         ...packageDetail,
@@ -219,6 +223,14 @@ async function mockUsSecWorkbenchApis(page: Page, options: MockUsSecWorkbenchOpt
 
     if (pathname === '/api/us-sec/packages/NVDA') {
       await route.fulfill(json(detail))
+      return
+    }
+
+    if (pathname === '/api/market-reports/package') {
+      const requestedPackagePath = url.searchParams.get('package_path') || ''
+      const configured = options.packageDetails?.[requestedPackagePath]
+      if (configured?.delayMs) await new Promise((resolve) => setTimeout(resolve, configured.delayMs))
+      await route.fulfill(json(configured?.detail || detail))
       return
     }
 
@@ -272,6 +284,14 @@ async function mockUsSecWorkbenchApis(page: Page, options: MockUsSecWorkbenchOpt
           contentType: 'text/markdown',
           body: '# MD&A\n\nManagement discussion for the mocked US SEC package.\n\n| Metric | 2025 | 2024 |\n| --- | ---: | ---: |\n| Revenue | 130497 | 60922 |',
         })
+        return
+      }
+      if (file === 'sections/filing-2024.md') {
+        await route.fulfill({ status: 200, contentType: 'text/markdown', body: '# Selected 2024 filing' })
+        return
+      }
+      if (file === 'sections/filing-2025.md') {
+        await route.fulfill({ status: 200, contentType: 'text/markdown', body: '# Selected 2025 filing' })
         return
       }
       if (file === 'tables/table_0001.json') {
@@ -465,5 +485,56 @@ test.describe('美股 SEC 解析工作台', () => {
         force: false,
       },
     ])
+  })
+
+  test('同 ticker 多 filing 快速切换时忽略较早 package 的迟到响应', async ({ page }) => {
+    const olderPackagePath = 'data/wiki/us/companies/NVDA-NVIDIA-Corporation/reports/2024-10-K-0001045810-24-000029'
+    const newerPackagePath = packageDetail.package_path
+    const baseItem = usCaseSet.items[0]
+    const olderDetail = {
+      ...packageDetail,
+      package_path: olderPackagePath,
+      manifest: { ...packageDetail.manifest, period_end: '2024-01-28' },
+      preview: { ...packageDetail.preview, default_markdown: 'sections/filing-2024.md' },
+    }
+    const newerDetail = {
+      ...packageDetail,
+      preview: { ...packageDetail.preview, default_markdown: 'sections/filing-2025.md' },
+    }
+    await mockUsSecWorkbenchApis(page, {
+      caseSet: {
+        ...usCaseSet,
+        items: [
+          {
+            ...baseItem,
+            fiscal_year: 2024,
+            period_end: '2024-01-28',
+            filing_date: '2024-03-15',
+            package_path: olderPackagePath,
+            parser_result_dir: 'data/parser-results/us-sec/NVDA-10-K-0001045810-24-000029',
+          },
+          {
+            ...baseItem,
+            package_path: newerPackagePath,
+            parser_result_dir: 'data/parser-results/us-sec/NVDA-10-K-0001045810-25-000023',
+          },
+        ],
+      },
+      packageDetails: {
+        [olderPackagePath]: { detail: olderDetail, delayMs: 250 },
+        [newerPackagePath]: { detail: newerDetail, delayMs: 10 },
+      },
+    })
+
+    await page.goto('/parse-us')
+    const olderTask = page.locator('.pdf-task-item').filter({ hasText: 'NVIDIA Corporation · NVDA · 10-K · 2024-01-28' })
+    const newerTask = page.locator('.pdf-task-item').filter({ hasText: 'NVIDIA Corporation · NVDA · 10-K · 2025-01-26' })
+    await olderTask.getByRole('button', { name: '查看结果' }).click()
+    await newerTask.getByRole('button', { name: '查看结果' }).click()
+
+    await expect(page.getByRole('heading', { name: 'Selected 2025 filing', exact: true })).toBeVisible()
+    await page.waitForTimeout(350)
+    await expect(page.getByRole('heading', { name: 'Selected 2025 filing', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Selected 2024 filing', exact: true })).toHaveCount(0)
   })
 })

@@ -15,7 +15,13 @@ from urllib.parse import quote, unquote
 
 from services.command_runner import run_command
 from services.path_config import PROJECT_ROOT, WIKI_ROOT
-
+from services.specialist_artifact_contract import (
+    SpecialistArtifactValidation,
+    citation_has_locator,
+    finalize_specialist_artifact,
+    normalize_citations,
+    write_specialist_artifact_manifest,
+)
 
 DEFAULT_YEAR = 2025
 DEFAULT_TIMEOUT_SECONDS = int(os.getenv("SIQ_FACTCHECK_WORKFLOW_TIMEOUT_SECONDS", "900"))
@@ -34,6 +40,7 @@ class FactcheckWorkflowRequest:
     year: int = DEFAULT_YEAR
     report_path: Path | None = None
     allow_overwrite: bool = False
+    session_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -246,6 +253,62 @@ def _wiki_factcheck_url(html_path: Path) -> str:
     )
 
 
+def _factcheck_citations(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
+    candidates: list[Any] = []
+    evidence_summary = payload.get("evidence_summary")
+    if isinstance(evidence_summary, list):
+        candidates.extend(evidence_summary)
+    metric_evidence = payload.get("metric_evidence_map")
+    if isinstance(metric_evidence, Mapping):
+        candidates.extend(metric_evidence.values())
+    checks = payload.get("checks")
+    if isinstance(checks, Mapping):
+        for check in checks.values():
+            if not isinstance(check, Mapping):
+                continue
+            for issue in check.get("issues") or []:
+                if isinstance(issue, Mapping):
+                    candidates.extend(issue.get("evidence_refs") or [])
+    return normalize_citations(candidates, default_source_type="factcheck_evidence")
+
+
+def _claim_verdicts(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
+    verdicts: list[dict[str, Any]] = []
+    checks = payload.get("checks")
+    if not isinstance(checks, Mapping):
+        return verdicts
+    for dimension, check in checks.items():
+        if not isinstance(check, Mapping):
+            continue
+        issues = check.get("issues") or []
+        if not issues:
+            verdicts.append(
+                {
+                    "claim_id": str(dimension),
+                    "claim": str(dimension),
+                    "verdict": str(check.get("status") or "unknown"),
+                    "reason": "",
+                    "evidence_refs": [],
+                }
+            )
+        for index, issue in enumerate(issues):
+            if not isinstance(issue, Mapping):
+                continue
+            verdicts.append(
+                {
+                    "claim_id": f"{dimension}:{index + 1}",
+                    "claim": str(issue.get("location") or issue.get("message") or dimension),
+                    "verdict": str(issue.get("severity") or check.get("status") or "unknown"),
+                    "reason": str(issue.get("message") or ""),
+                    "evidence_refs": normalize_citations(
+                        issue.get("evidence_refs") or [],
+                        default_source_type="factcheck_evidence",
+                    ),
+                }
+            )
+    return verdicts
+
+
 def format_factcheck_workflow_reply(result: dict[str, Any]) -> str:
     ok = bool(result.get("ok"))
     title = "已生成正式事实核查报告" if ok else "事实核查报告生成未完成"
@@ -328,20 +391,71 @@ def run_factcheck_workflow(
 
     factcheck = _read_json(output_path)
     html_path = output_path.with_suffix(".html")
-    ok = completed.returncode == 0 and bool(factcheck) and html_path.exists()
+    citations = _factcheck_citations(factcheck)
+    claim_verdicts = _claim_verdicts(factcheck)
+    source_report_path = str(request.report_path or "")
+    if not source_report_path and factcheck.get("report_file"):
+        company_path = company.get("company_path") or f"companies/{company.get('company_id') or company.get('stock_code')}"
+        source_report_path = str(WIKI_ROOT / company_path / "analysis" / str(factcheck["report_file"]))
+    checks = {
+        "command_succeeded": completed.returncode == 0,
+        "payload_present": bool(factcheck),
+        "html_present": html_path.exists(),
+        "verdict_present": bool(str(factcheck.get("verdict") or "").strip()),
+        "claim_verdicts_present": bool(claim_verdicts),
+        "source_report_present": bool(source_report_path),
+        "citations_present": bool(citations),
+        "citations_traceable": bool(citations) and all(citation_has_locator(item) for item in citations),
+    }
+    failures = [name for name, passed in checks.items() if not passed]
+    validation = SpecialistArtifactValidation(ok=not failures, checks=checks, failures=failures)
+    ok = validation.ok
+    artifact_output_path = output_path
+    artifact_html_path = html_path
+    if not ok:
+        draft_dir = output_path.parent / "_drafts"
+        draft_dir.mkdir(parents=True, exist_ok=True)
+        artifact_output_path = draft_dir / output_path.name
+        artifact_html_path = draft_dir / html_path.name
+        if output_path.exists():
+            output_path.replace(artifact_output_path)
+        if html_path.exists():
+            html_path.replace(artifact_html_path)
+    artifact = finalize_specialist_artifact(
+        artifact_type="factcheck",
+        company_id=company.get("company_id") or company.get("stock_code") or request.company_query,
+        source_report_path=source_report_path,
+        output_path=str(artifact_output_path),
+        html_url=_wiki_factcheck_url(artifact_html_path) if ok else "",
+        citations=citations,
+        validation_result=validation,
+        profile="siq_factchecker",
+        message=f"{request.company_query}:{request.year}",
+        session_id=request.session_id,
+        metadata={"verdict": factcheck.get("verdict"), "claim_verdicts": claim_verdicts},
+        specialist_facts={"factcheck_claim_verdicts": claim_verdicts},
+    )
+    artifact_manifest_path = artifact_output_path.with_suffix(".artifact.json")
+    write_specialist_artifact_manifest(artifact, artifact_manifest_path)
     result = {
         "ok": ok,
         "stage": "completed" if ok else "failed",
         "company_query": request.company_query,
         "year": request.year,
         "report_path": str(request.report_path) if request.report_path else "",
-        "json_path": str(output_path),
-        "html_path": str(html_path) if html_path.exists() else "",
+        "json_path": str(output_path) if ok else "",
+        "html_path": str(html_path) if ok else "",
+        "draft_json_path": str(artifact_output_path) if not ok else "",
+        "draft_html_path": str(artifact_html_path) if not ok else "",
         "factcheck": factcheck,
+        "artifact": artifact.model_dump(),
+        "artifact_manifest_path": str(artifact_manifest_path),
+        "audit_trace_id": artifact.audit_trace_id,
+        "validation_result": validation.model_dump(),
         "returncode": completed.returncode,
         "stdout": (completed.stdout or "").strip()[-4000:],
         "stderr": (completed.stderr or "").strip()[-4000:],
     }
     if not ok:
-        result["next_action"] = "查看 factcheck_cli stdout/stderr，并确认分析报告、metrics 和 evidence 可用。"
+        result["next_action"] = "查看 validation_result 与 factcheck_cli stdout/stderr，并补齐 claim verdict、metrics 和可回链 evidence。"
     return FactcheckWorkflowResponse(True, format_factcheck_workflow_reply(result), result)

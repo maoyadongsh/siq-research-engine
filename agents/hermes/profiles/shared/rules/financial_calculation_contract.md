@@ -94,6 +94,31 @@ python3 /home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts
 ## 输出要求
 
 - 正文出现派生计算时，必须能追溯到一次 `## 计算器校验` 或等价 JSON 输出。
+- 生产回答中的“等价 JSON”必须是可机器复核的版本化 envelope，不能只写工具名、标题或 `operation=...` 自由文本。计算器 envelope 的最小结构如下（字段值必须来自工具 JSON 和实际证据行）：
+
+```json
+{
+  "schema_version": "siq_financial_calculation_trace_v1",
+  "tool": "financial_calculator.py",
+  "operation": "yoy_growth",
+  "metric": "total_assets",
+  "period": "2025-12-31",
+  "research_identity": {
+    "market": "EU",
+    "company_id": "EU:NL:ASML:NL0010273215",
+    "filing_id": "EU:NL:ASML:2025-annual",
+    "parse_run_id": "parse-eu-asml-2025"
+  },
+  "inputs": {
+    "current": {"role": "current", "metric": "total_assets", "period": "2025-12-31", "value": "50566.6", "unit": "EUR million", "evidence_id": "EVID-CURRENT"},
+    "previous": {"role": "previous", "metric": "total_assets", "period": "2024-12-31", "value": "48589.6", "unit": "EUR million", "evidence_id": "EVID-PREVIOUS"}
+  },
+  "result": {"rate": "0.0406877191827058", "percent": "4.06877191827058"},
+  "status": "passed"
+}
+```
+
+  `ratio`、`cagr` 和 `per_capita` 使用相同 envelope，按运算类型提供 `numerator/denominator`、`start/end/periods` 或 `amount/count` 输入；勾稽必须使用 `siq_financial_reconciliation_trace_v1`、`tool=financial_reconciliation_validator.py`，并提供 `gross/allowance/net` 三个带 evidence_id 的输入和 `status=passed`。每个输入的 evidence_id 必须能在同一回答的结构化来源行中找到，四字段 ResearchIdentity 必须完整且一致。旧 Markdown 标记可作为人类可读展示，但不能单独满足后端 guard。
 - 引用来源仍按 SIQ Citation Contract 执行：分子、分母各自要有来源；计算器只负责算术和单位，不替代证据。
 - 若计算器输出 `fx_required`、`division_by_zero`、`not_applicable`、`error`，不得把结果写成确定数字；必须说明原因和缺口。
 - 若模型自己的草稿值与计算器 `checks` 不一致，以计算器为准，并把原值标注为计算错误或笔误。

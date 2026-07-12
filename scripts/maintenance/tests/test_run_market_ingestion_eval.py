@@ -512,3 +512,148 @@ def test_summarize_items_calculates_mvp_quality_metrics():
     assert metrics["answer_citation_rate"] == 0.5
     assert metrics["numeric_accuracy"] == 1.0
     assert metrics["hallucination_block_rate"] == 0.5
+
+
+def test_strict_failure_reasons_include_fail_missing_package_and_block_counts():
+    module = _load_eval_module()
+
+    reasons = module.strict_failure_reasons(
+        {
+            "cases": 7,
+            "fail": 2,
+            "missing_package": 1,
+            "eval_gate_status": {"pass": 3, "review": 1, "block": 4},
+        }
+    )
+
+    assert reasons == [
+        "summary.fail=2",
+        "summary.missing_package=1",
+        "summary.eval_gate_status.block=4",
+    ]
+
+
+def test_strict_failure_reasons_reject_empty_case_set():
+    module = _load_eval_module()
+
+    assert module.strict_failure_reasons(
+        {"cases": 0, "fail": 0, "missing_package": 0, "eval_gate_status": {"block": 0}}
+    ) == ["summary.cases=0"]
+
+
+def test_strict_main_uses_portable_wiki_root(tmp_path, capsys):
+    module = _load_eval_module()
+    case_root = tmp_path / "cases"
+    wiki_root = tmp_path / "wiki"
+    package_dir = wiki_root / "hk" / "companies" / "00700-TENCENT" / "reports" / "2025-annual"
+    _write_complete_eval_package(package_dir)
+    _write_json(
+        case_root / "contract_cases.json",
+        [
+            {
+                "market": "HK",
+                "ticker": "00700",
+                "fiscal_year": 2025,
+                "report_type": "annual",
+                "expected_metrics": ["operating_revenue"],
+                "expected_evidence": True,
+                "expected_gate_status": "pass",
+            }
+        ],
+    )
+    output = tmp_path / "report.json"
+
+    exit_code = module.main(
+        [
+            "--case-root",
+            str(case_root),
+            "--legacy-case-root",
+            str(case_root),
+            "--wiki-root",
+            str(wiki_root),
+            "--output",
+            str(output),
+            "--markdown",
+            str(tmp_path / "report.md"),
+            "--strict",
+        ]
+    )
+
+    assert exit_code == 0
+    assert "FAIL market ingestion eval strict gate" not in capsys.readouterr().err
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert report["wiki_root"] == str(wiki_root)
+    assert report["summary"]["pass"] == 1
+    assert report["items"][0]["package_path"] == str(package_dir)
+
+
+def test_strict_main_returns_nonzero_for_missing_package(tmp_path, capsys):
+    module = _load_eval_module()
+    case_root = tmp_path / "cases"
+    _write_json(
+        case_root / "hk_cases.json",
+        [
+            {
+                "market": "HK",
+                "ticker": "99999",
+                "fiscal_year": 2099,
+                "report_type": "annual",
+            }
+        ],
+    )
+    output = tmp_path / "report.json"
+    markdown = tmp_path / "report.md"
+
+    exit_code = module.main(
+        [
+            "--case-root",
+            str(case_root),
+            "--legacy-case-root",
+            str(case_root),
+            "--output",
+            str(output),
+            "--markdown",
+            str(markdown),
+            "--strict",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "summary.missing_package=1" in captured.err
+    assert "summary.eval_gate_status.block=1" in captured.err
+    assert json.loads(output.read_text(encoding="utf-8"))["summary"]["missing_package"] == 1
+    assert markdown.exists()
+
+
+def test_non_strict_main_keeps_report_generation_advisory(tmp_path, capsys):
+    module = _load_eval_module()
+    case_root = tmp_path / "cases"
+    _write_json(
+        case_root / "hk_cases.json",
+        [
+            {
+                "market": "HK",
+                "ticker": "99998",
+                "fiscal_year": 2099,
+                "report_type": "annual",
+            }
+        ],
+    )
+
+    exit_code = module.main(
+        [
+            "--case-root",
+            str(case_root),
+            "--legacy-case-root",
+            str(case_root),
+            "--output",
+            str(tmp_path / "report.json"),
+            "--markdown",
+            str(tmp_path / "report.md"),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "FAIL market ingestion eval strict gate" not in captured.err

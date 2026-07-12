@@ -69,3 +69,15 @@ def test_publication_gate_treats_missing_factcheck_as_review(tmp_path):
     assert result["factcheck"]["verdict"] == "missing"
     assert result["publish_ready"] is False
     assert "factcheck_verdict_missing" in result["warnings"]
+
+
+def test_visible_negative_ordinary_expense_mentions_flags_reader_facing_costs():
+    text = "营业收入为 4564.52亿元，营业成本为 -3359.90亿元，销售费用：-428.91亿元。"
+
+    assert validate_report_quality.visible_negative_ordinary_expense_mentions(text) == ["营业成本", "销售费用"]
+
+
+def test_visible_negative_ordinary_expense_mentions_ignores_waterfall_deltas():
+    text = "| 营业成本 | -3359.90 | cost |\n费用桥中 delta 为负数表示流出。"
+
+    assert validate_report_quality.visible_negative_ordinary_expense_mentions(text) == []

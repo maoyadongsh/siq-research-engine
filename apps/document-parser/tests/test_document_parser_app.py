@@ -7,11 +7,12 @@ import os
 import re
 import sys
 import time
+import types
 import zipfile
 from pathlib import Path
-import types
 from urllib.parse import parse_qs, urlsplit
 
+import pytest
 
 try:
     import flask  # noqa: F401
@@ -329,6 +330,47 @@ def load_app(tmp_path):
     return load_app_module(tmp_path).app.test_client()
 
 
+def test_url_validation_rejects_private_and_non_http_destinations(monkeypatch, tmp_path):
+    module = load_app_module(tmp_path)
+    monkeypatch.setattr(module, "_is_public_hostname", lambda hostname: hostname == "public.example")
+
+    module._validate_public_url("https://public.example/report.pdf")
+    with pytest.raises(ValueError, match="host is not allowed"):
+        module._validate_public_url("http://169.254.169.254/latest/meta-data")
+    with pytest.raises(ValueError, match="Only http/https"):
+        module._validate_public_url("file:///etc/passwd")
+
+
+def test_url_redirect_handler_revalidates_redirect_destination(monkeypatch, tmp_path):
+    module = load_app_module(tmp_path)
+    monkeypatch.setattr(module, "_is_public_hostname", lambda hostname: hostname == "public.example")
+    handler = module._PublicOnlyRedirectHandler()
+
+    with pytest.raises(ValueError, match="host is not allowed"):
+        handler.redirect_request(
+            None,
+            None,
+            302,
+            "Found",
+            {},
+            "http://169.254.169.254/latest/meta-data",
+        )
+
+
+def test_create_url_task_rejects_private_destination_at_http_boundary(monkeypatch, tmp_path):
+    module = load_app_module(tmp_path)
+    monkeypatch.setattr(module, "_is_public_hostname", lambda _hostname: False)
+    monkeypatch.setattr(module, "build_opener", lambda *_args: pytest.fail("blocked URL must not be opened"))
+
+    response = module.app.test_client().post(
+        "/api/tasks",
+        json={"source_type": "url", "url": "http://169.254.169.254/latest/meta-data"},
+    )
+
+    assert response.status_code == 400
+    assert response.json == {"error": "invalid_url", "message": "URL host is not allowed"}
+
+
 def wait_for_terminal(client, task_id, timeout=5.0):
     deadline = time.time() + timeout
     last_payload = {}
@@ -613,8 +655,8 @@ def test_pdf_provider_fails_instead_of_falling_back_when_bridge_fails(tmp_path, 
     base = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(base))
 
-    import pytest
     import providers.simple as simple_provider
+    import pytest
     from contracts import ParseConfig, SourceFile
 
     pdf_path = tmp_path / "bridge.pdf"
@@ -694,8 +736,8 @@ def test_pdf_provider_ignores_transient_poll_timeouts(tmp_path, monkeypatch):
     base = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(base))
 
-    import providers.simple as simple_provider
     import mineru_import as mineru_import_module
+    import providers.simple as simple_provider
     from contracts import ParseConfig, ParseOutput, SourceFile
 
     pdf_path = tmp_path / "bridge.pdf"

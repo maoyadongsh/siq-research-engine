@@ -1,17 +1,21 @@
 import json
 import os
-from urllib.parse import parse_qs, quote, urlencode, urlparse
 from typing import Any
+from urllib.parse import parse_qs, quote, urlencode, urlparse
 
 import httpx
+from database import get_async_session
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import Response
-from sqlmodel import Session, select
-from sqlmodel.ext.asyncio.session import AsyncSession
-
-from database import get_async_session
 from services.auth_dependencies import get_current_user, require_permission
 from services.auth_service import User
+from services.upload_proxy_limits import (
+    UPLOAD_PROXY_LIMITER,
+    buffer_upload_files,
+    close_buffered_uploads,
+    env_int,
+    upload_proxy_timeout,
+)
 from services.usage_service import (
     DOCUMENT_PARSE_EVENT,
     UserArtifact,
@@ -21,7 +25,8 @@ from services.usage_service import (
     record_usage_async,
     usage_response_payload_async,
 )
-
+from sqlmodel import Session, select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 router = APIRouter(prefix="/documents", tags=["document-parser"])
 
@@ -32,6 +37,15 @@ DOCUMENT_PARSER_API_BASE = (
 ).rstrip("/")
 DOCUMENT_PARSER_ACCESS_TOKEN = os.environ.get("SIQ_DOCUMENT_PARSER_ACCESS_TOKEN", "").strip()
 DOCUMENT_PARSER_PROXY_TIMEOUT = float(os.environ.get("SIQ_DOCUMENT_PARSER_PROXY_TIMEOUT", "120"))
+DOCUMENT_UPLOAD_MAX_FILE_BYTES = env_int("SIQ_DOCUMENT_UPLOAD_MAX_FILE_BYTES", 100 * 1024 * 1024)
+DOCUMENT_UPLOAD_MAX_BATCH_BYTES = env_int("SIQ_DOCUMENT_UPLOAD_MAX_BATCH_BYTES", 200 * 1024 * 1024)
+DOCUMENT_TASK_SUBMIT_TIMEOUT = upload_proxy_timeout(
+    connect_env="SIQ_DOCUMENT_TASK_CONNECT_TIMEOUT",
+    write_env="SIQ_DOCUMENT_TASK_WRITE_TIMEOUT",
+    read_env="SIQ_DOCUMENT_TASK_READ_TIMEOUT",
+    pool_env="SIQ_DOCUMENT_TASK_POOL_TIMEOUT",
+    read_default=180.0,
+)
 SUPPORTED_DOCUMENT_MARKETS = {"CN", "HK", "US", "EU", "KR", "JP", "DOC"}
 
 
@@ -434,31 +448,42 @@ async def create_document_tasks(
             "no_cache": no_cache,
             "data_id": data_id,
         }
-        multipart = []
-        for item in upload_files:
-            content = await item.read()
-            multipart.append(("files", (item.filename or "document", content, item.content_type or "application/octet-stream")))
-        try:
-            async with httpx.AsyncClient(timeout=None) as client:
-                response = await client.post(
-                    f"{DOCUMENT_PARSER_API_BASE}/api/tasks",
-                    data=form,
-                    files=multipart,
-                    headers=_document_headers(current_user=current_user, market_scope=requested_market),
-                )
-        except httpx.RequestError as exc:
-            raise HTTPException(status_code=502, detail=f"文档解析服务不可用: {exc}") from exc
+        async with UPLOAD_PROXY_LIMITER.slot():
+            buffered_uploads = await buffer_upload_files(
+                upload_files,
+                max_file_bytes=DOCUMENT_UPLOAD_MAX_FILE_BYTES,
+                max_batch_bytes=DOCUMENT_UPLOAD_MAX_BATCH_BYTES,
+                default_filename="document",
+                default_content_type="application/octet-stream",
+            )
+            try:
+                multipart = [
+                    ("files", (item.filename or "document", item.file, item.content_type or "application/octet-stream"))
+                    for item in buffered_uploads
+                ]
+                async with httpx.AsyncClient(timeout=DOCUMENT_TASK_SUBMIT_TIMEOUT) as client:
+                    response = await client.post(
+                        f"{DOCUMENT_PARSER_API_BASE}/api/tasks",
+                        data=form,
+                        files=multipart,
+                        headers=_document_headers(current_user=current_user, market_scope=requested_market),
+                    )
+            except httpx.RequestError as exc:
+                raise HTTPException(status_code=502, detail=f"文档解析服务不可用: {exc}") from exc
+            finally:
+                close_buffered_uploads(buffered_uploads)
     else:
         payload = await request.json()
         requested_market = _normalize_market(payload.get("market")) if isinstance(payload, dict) else ""
         await _enforce_quota_or_429_async(async_session, current_user, increment=1)
         try:
-            async with httpx.AsyncClient(timeout=None) as client:
-                response = await client.post(
-                    f"{DOCUMENT_PARSER_API_BASE}/api/tasks",
-                    json=payload,
-                    headers=_document_headers(current_user=current_user, market_scope=requested_market),
-                )
+            async with UPLOAD_PROXY_LIMITER.slot():
+                async with httpx.AsyncClient(timeout=DOCUMENT_TASK_SUBMIT_TIMEOUT) as client:
+                    response = await client.post(
+                        f"{DOCUMENT_PARSER_API_BASE}/api/tasks",
+                        json=payload,
+                        headers=_document_headers(current_user=current_user, market_scope=requested_market),
+                    )
         except httpx.RequestError as exc:
             raise HTTPException(status_code=502, detail=f"文档解析服务不可用: {exc}") from exc
 
@@ -518,15 +543,16 @@ async def import_document_from_mineru(
     payload = await request.json()
     await _enforce_quota_or_429_async(async_session, current_user, increment=1)
     try:
-        async with httpx.AsyncClient(timeout=None) as client:
-            response = await client.post(
-                f"{DOCUMENT_PARSER_API_BASE}/api/import/mineru",
-                json=payload,
-                headers=_document_headers(
-                    current_user=current_user,
-                    market_scope=_normalize_market(payload.get("market")) if isinstance(payload, dict) else "",
-                ),
-            )
+        async with UPLOAD_PROXY_LIMITER.slot():
+            async with httpx.AsyncClient(timeout=DOCUMENT_TASK_SUBMIT_TIMEOUT) as client:
+                response = await client.post(
+                    f"{DOCUMENT_PARSER_API_BASE}/api/import/mineru",
+                    json=payload,
+                    headers=_document_headers(
+                        current_user=current_user,
+                        market_scope=_normalize_market(payload.get("market")) if isinstance(payload, dict) else "",
+                    ),
+                )
     except httpx.RequestError as exc:
         raise HTTPException(status_code=502, detail=f"文档解析服务不可用: {exc}") from exc
 

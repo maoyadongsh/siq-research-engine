@@ -17,12 +17,12 @@ services:
       - SIQ_DEPLOYMENT_PROFILE=${SIQ_DEPLOYMENT_PROFILE:-local}
       - SIQ_BACKEND_URL=http://api:18081
       - SIQ_REPORT_FINDER_URL=http://report-finder:8000
-      - SIQ_PDFAPI_URL=http://pdf-parser:15000
       - SIQ_FRONTEND_PORT=15173
       - SIQ_AUTH_COOKIE_MODE=${SIQ_AUTH_COOKIE_MODE:-0}
       - VITE_SIQ_AUTH_COOKIE_MODE=${SIQ_AUTH_COOKIE_MODE:-0}
     depends_on:
       - api
+      - report-finder
     cap_drop:
       - ALL
     security_opt:
@@ -31,7 +31,7 @@ services:
     mem_limit: ${SIQ_WEB_MEM_LIMIT:-768m}
     cpus: ${SIQ_WEB_CPUS:-1.0}
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:15173/').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:15173/api/health"]
       interval: 30s
       timeout: 5s
       retries: 5
@@ -47,6 +47,8 @@ services:
     read_only: true
     tmpfs:
       - /tmp
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "${SIQ_COMPOSE_BIND_HOST:-127.0.0.1}:${SIQ_BACKEND_PORT:-18081}:18081"
     environment:
@@ -81,7 +83,7 @@ services:
       - SIQ_AGENT_MEMORY_SCHEMA=${SIQ_AGENT_MEMORY_SCHEMA:-agent_memory}
       - SIQ_AGENT_MEMORY_DEFAULT_VISIBILITY=${SIQ_AGENT_MEMORY_DEFAULT_VISIBILITY:-user_private}
       - SIQ_AGENT_MEMORY_PRIMARY_MARKET_VISIBILITY=${SIQ_AGENT_MEMORY_PRIMARY_MARKET_VISIBILITY:-project_shared}
-      - SIQ_AGENT_MEMORY_MILVUS_COLLECTION=${SIQ_AGENT_MEMORY_MILVUS_COLLECTION:-siq_agent_memory}
+      - SIQ_AGENT_MEMORY_MILVUS_COLLECTION=${SIQ_AGENT_MEMORY_MILVUS_COLLECTION:?SIQ_AGENT_MEMORY_MILVUS_COLLECTION is required}
       - SIQ_AGENT_MEMORY_EMBEDDING_DIM=${SIQ_AGENT_MEMORY_EMBEDDING_DIM:-1024}
       - SIQ_AGENT_MEMORY_EMBEDDING_BASE_URL=${SIQ_AGENT_MEMORY_EMBEDDING_BASE_URL:-http://host.docker.internal:8013}
       - SIQ_AGENT_MEMORY_EMBEDDING_MODEL=${SIQ_AGENT_MEMORY_EMBEDDING_MODEL:-Qwen3-VL-Embedding-2B}
@@ -96,7 +98,12 @@ services:
       - SIQ_AGENT_MEMORY_TIME_DECAY_ENABLED=${SIQ_AGENT_MEMORY_TIME_DECAY_ENABLED:-true}
       - SIQ_AGENT_MEMORY_TIME_DECAY_HALF_LIFE_DAYS=${SIQ_AGENT_MEMORY_TIME_DECAY_HALF_LIFE_DAYS:-30}
       - SIQ_AGENT_MEMORY_TIME_DECAY_FLOOR=${SIQ_AGENT_MEMORY_TIME_DECAY_FLOOR:-0.35}
+      - HERMES_API_KEY=${HERMES_API_KEY:-}
+      - SIQ_HERMES_ASSISTANT_RUNS_URL=${SIQ_HERMES_ASSISTANT_RUNS_URL:-}
+      - NO_PROXY=${NO_PROXY:-127.0.0.1,localhost,host.docker.internal,postgres,redis,pdf-parser,document-parser,report-finder}
+      - no_proxy=${no_proxy:-127.0.0.1,localhost,host.docker.internal,postgres,redis,pdf-parser,document-parser,report-finder}
       - SIQ_AUTH_SECRET_KEY=${SIQ_AUTH_SECRET_KEY:?SIQ_AUTH_SECRET_KEY is required}
+      - SIQ_CORS_ALLOW_ORIGINS=${SIQ_CORS_ALLOW_ORIGINS:?SIQ_CORS_ALLOW_ORIGINS is required}
       - SIQ_RERANK_BASE_URL=${SIQ_RERANK_BASE_URL:-http://host.docker.internal:8001}
       - SIQ_RERANK_MODEL=${SIQ_RERANK_MODEL:-Qwen3-VL-Reranker-2B}
       - SIQ_AUTH_COOKIE_MODE=${SIQ_AUTH_COOKIE_MODE:-0}
@@ -110,6 +117,8 @@ services:
       - PDF2MD_API_BASE=http://pdf-parser:15000
       - SIQ_DOCUMENT_PARSER_API_BASE=http://document-parser:15010
       - SIQ_DOCUMENT_PARSER_ACCESS_TOKEN=${SIQ_DOCUMENT_PARSER_ACCESS_TOKEN:?SIQ_DOCUMENT_PARSER_ACCESS_TOKEN is required}
+      - SIQ_UPLOAD_PROXY_MAX_CONCURRENCY=${SIQ_UPLOAD_PROXY_MAX_CONCURRENCY:-8}
+      - SIQ_UPLOAD_PROXY_QUEUE_TIMEOUT_SECONDS=${SIQ_UPLOAD_PROXY_QUEUE_TIMEOUT_SECONDS:-5}
       - SIQ_REPORT_FINDER_BASE=http://report-finder:8000
       - REPORT_FINDER_BASE=http://report-finder:8000
       - SIQ_MARKET_REPORT_RULES_BASE=http://market-report-rules:8000
@@ -128,10 +137,14 @@ services:
       - runtime_data:/state/var
       - ../../db:/app/db:ro
     depends_on:
-      - postgres
-      - redis
-      - pdf-parser
-      - document-parser
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      pdf-parser:
+        condition: service_healthy
+      document-parser:
+        condition: service_healthy
     cap_drop:
       - ALL
     security_opt:
@@ -251,8 +264,8 @@ services:
   # PDF解析服务
   pdf-parser:
     build:
-      context: ../../apps/pdf-parser
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: apps/pdf-parser/Dockerfile
     user: "10001:10001"
     read_only: true
     tmpfs:
@@ -269,6 +282,11 @@ services:
       - SIQ_RUNTIME_ROOT=/state/var
       - SIQ_ARTIFACTS_ROOT=/state/artifacts
       - SIQ_PDF2MD_DATA_DIR=/state/data/pdf-parser
+      - SIQ_PDF_QUEUE_GLOBAL_TASK_LIMIT=${SIQ_PDF_QUEUE_GLOBAL_TASK_LIMIT:-32}
+      - SIQ_PDF_QUEUE_OWNER_TASK_LIMIT=${SIQ_PDF_QUEUE_OWNER_TASK_LIMIT:-8}
+      - SIQ_PDF_QUEUE_GLOBAL_BYTES_LIMIT=${SIQ_PDF_QUEUE_GLOBAL_BYTES_LIMIT:-2147483648}
+      - SIQ_PDF_QUEUE_OWNER_BYTES_LIMIT=${SIQ_PDF_QUEUE_OWNER_BYTES_LIMIT:-536870912}
+      - SIQ_PDF_QUEUE_RETRY_AFTER_SECONDS=${SIQ_PDF_QUEUE_RETRY_AFTER_SECONDS:-30}
       - PORT=15000
     volumes:
       - pdf_parser_data:/state/data/pdf-parser
@@ -405,7 +423,3 @@ volumes:
   postgres_data:
   redis_data:
   grafana_data:
-
-networks:
-  default:
-    name: siq_network

@@ -1,19 +1,19 @@
 """Wiki file serving router."""
+import glob
 import json
 import os
-import glob
 import time
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 from urllib.parse import quote
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
-
 from services.auth_dependencies import get_current_user
 from services.auth_service import User
-from services.permissions import require_admin, require_user_permission
 from services.path_config import WIKI_ROOT as CONFIG_WIKI_ROOT
-from services.security_utils import safe_path_join, validate_company_dir, validate_file_extension
+from services.permissions import require_admin, require_user_permission
+from services.security_utils import safe_path_join, validate_company_dir
 
 WIKI_ROOT = str(CONFIG_WIKI_ROOT)
 WIKI_ROOT_PATH = CONFIG_WIKI_ROOT.resolve()
@@ -21,6 +21,20 @@ COMPANIES_DIR = os.path.join(WIKI_ROOT, "companies")
 ALLOWED_EXT = {".html", ".json", ".md", ".csv", ".txt", ".png", ".jpg", ".jpeg", ".svg"}
 LIST_CACHE_TTL_SECONDS = 5.0
 RECENT_CACHE_TTL_SECONDS = 5.0
+REPORT_ALIAS_FILENAMES = {"latest.html"}
+RESEARCH_IDENTITY_FIELDS = ("market", "company_id", "filing_id", "parse_run_id")
+IDENTITY_MARKETS = {"CN", "HK", "JP", "KR", "EU", "US"}
+EXCHANGE_MARKETS = {
+    "SSE": "CN",
+    "SZSE": "CN",
+    "BSE": "CN",
+    "HKEX": "HK",
+    "TSE": "JP",
+    "JPX": "JP",
+    "KRX": "KR",
+    "NYSE": "US",
+    "NASDAQ": "US",
+}
 _companies_list_cache: tuple[float, dict] | None = None
 _recent_results_cache: dict[int, tuple[float, dict]] = {}
 
@@ -78,7 +92,6 @@ def _read_company_meta(company_path: str) -> dict:
     meta_path = os.path.join(company_path, "company.json")
     if not os.path.isfile(meta_path):
         return {}
-
     try:
         with open(meta_path, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -87,9 +100,159 @@ def _read_company_meta(company_path: str) -> dict:
         return {}
 
 
+def _normalized_market(value: object) -> str:
+    market = str(value or "").strip().upper().replace("-", "_")
+    if market in {"US_SEC", "USSEC"}:
+        market = "US"
+    return market if market in IDENTITY_MARKETS else ""
+
+
+def _company_authoritative_identity(meta: dict) -> dict[str, str]:
+    explicit_market = _normalized_market(meta.get("market"))
+    exchange_market = EXCHANGE_MARKETS.get(str(meta.get("exchange") or "").strip().upper(), "")
+    market = explicit_market or exchange_market
+    if explicit_market and exchange_market and explicit_market != exchange_market:
+        market = ""
+    company_id = str(meta.get("company_id") or "").strip()
+    return {
+        key: value
+        for key, value in (("market", market), ("company_id", company_id))
+        if value
+    }
+
+
+def _safe_report_id(value: object) -> str:
+    report_id = str(value or "").strip()
+    path = Path(report_id)
+    if not report_id or path.is_absolute() or len(path.parts) != 1 or report_id in {".", ".."}:
+        return ""
+    return report_id
+
+
+def _read_json_path(path: Path) -> dict:
+    if not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _safe_company_metadata_path(company_path: Path, value: object) -> Path | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    relative = Path(raw)
+    if relative.is_absolute():
+        return None
+    candidate = (company_path / relative).resolve()
+    try:
+        candidate.relative_to(company_path.resolve())
+    except ValueError:
+        return None
+    return candidate
+
+
+def _report_manifest(company_path: Path, report: dict) -> dict:
+    configured = report.get("manifest") or report.get("artifact_manifest")
+    configured_path = _safe_company_metadata_path(company_path, configured)
+    if configured_path is not None:
+        return _read_json_path(configured_path)
+
+    report_id = _safe_report_id(report.get("report_id"))
+    if not report_id:
+        return {}
+    report_root = company_path / "reports" / report_id
+    for filename in ("manifest.json", "artifact_manifest.json"):
+        payload = _read_json_path(report_root / filename)
+        if payload:
+            return payload
+    return {}
+
+
+def _analysis_artifact_filenames(payload: dict) -> set[str]:
+    filenames: set[str] = set()
+    for key in ("analysis_html", "analysis_htmls"):
+        raw = payload.get(key)
+        values = raw if isinstance(raw, list) else [raw]
+        for value in values:
+            if not isinstance(value, str) or not value.strip():
+                continue
+            path = Path(value.strip())
+            if not path.is_absolute() and ".." not in path.parts:
+                filenames.add(path.name)
+    return filenames
+
+
+def _selected_source_report(
+    company_path: Path,
+    company: dict,
+    *,
+    filename: str,
+) -> tuple[dict, dict] | None:
+    reports = [item for item in (company.get("reports") or []) if isinstance(item, dict)]
+    candidates: list[tuple[dict, dict]] = []
+    for report in reports:
+        if not _safe_report_id(report.get("report_id")):
+            continue
+        manifest = _report_manifest(company_path, report)
+        mapped_filenames = _analysis_artifact_filenames(report) | _analysis_artifact_filenames(manifest)
+        if filename in mapped_filenames:
+            candidates.append((report, manifest))
+    if len(candidates) == 1:
+        return candidates[0]
+    if candidates:
+        return None
+
+    primary_report_id = _safe_report_id(company.get("primary_report_id"))
+    if not primary_report_id:
+        return None
+    primary = [report for report in reports if str(report.get("report_id") or "").strip() == primary_report_id]
+    if len(primary) != 1:
+        return None
+    return primary[0], _report_manifest(company_path, primary[0])
+
+
+def _complete_research_identity(company_path: str, filename: str) -> dict[str, str]:
+    path = Path(company_path)
+    company = _read_company_meta(company_path)
+    company_identity = _company_authoritative_identity(company)
+    if not all(company_identity.get(field) for field in ("market", "company_id")):
+        return {}
+    selected = _selected_source_report(path, company, filename=filename)
+    if not selected:
+        return {}
+    report, manifest = selected
+
+    sources = (company_identity, report, manifest)
+    identity: dict[str, str] = {}
+    for field in RESEARCH_IDENTITY_FIELDS:
+        values = {
+            _normalized_market(source.get(field)) if field == "market" else str(source.get(field) or "").strip()
+            for source in sources
+            if source.get(field) not in (None, "")
+        }
+        values.discard("")
+        if len(values) != 1:
+            return {}
+        identity[field] = values.pop()
+    return identity
+
+
+def _attach_research_identity(item: dict, company_path: str, filename: str) -> None:
+    identity = _complete_research_identity(company_path, filename)
+    if not identity:
+        return
+    item.update(identity)
+    item["research_identity"] = dict(identity)
+
+
 def _company_identity(entry: str, company_path: str) -> tuple[str, str]:
     code, name = _split_company_dir(entry)
-    meta = _read_company_meta(company_path)
+    # Some migrated/report-only directories do not have a readable
+    # company.json. They must not make the whole catalog endpoint fail.
+    meta = _read_company_meta(company_path) or {}
     meta_code = str(meta.get("stock_code") or "").strip()
     meta_name = str(meta.get("company_short_name") or meta.get("company_full_name") or "").strip()
     return meta_code or code, _clean_company_name(meta_name or name)
@@ -98,7 +261,14 @@ def _company_identity(entry: str, company_path: str) -> tuple[str, str]:
 def _html_files(result_dir: str) -> list[str]:
     if not os.path.isdir(result_dir):
         return []
-    return glob.glob(os.path.join(result_dir, "*.html"))
+    return [
+        path for path in glob.glob(os.path.join(result_dir, "*.html"))
+        if not _is_report_alias(os.path.basename(path))
+    ]
+
+
+def _is_report_alias(filename: str) -> bool:
+    return filename.lower() in REPORT_ALIAS_FILENAMES
 
 
 def _source_report_count(company_path: str) -> int:
@@ -190,6 +360,8 @@ def list_companies(current_user: User = Depends(get_current_user)):
         full = os.path.join(COMPANIES_DIR, entry)
         if not os.path.isdir(full):
             continue
+        company_meta = _read_company_meta(full)
+        company_identity = _company_authoritative_identity(company_meta)
         code, name = _company_identity(entry, full)
         analysis_dir = os.path.join(full, "analysis")
         factcheck_dir = os.path.join(full, "factcheck")
@@ -212,7 +384,7 @@ def list_companies(current_user: User = Depends(get_current_user)):
             os.path.join(full, "evidence"),
             os.path.join(full, "graph"),
         ])
-        result.append({
+        company_item = {
             "code": code,
             "name": name,
             "dir": entry,
@@ -227,7 +399,9 @@ def list_companies(current_user: User = Depends(get_current_user)):
             "sourceReportCount": _source_report_count(full),
             "latestResultAt": datetime.fromtimestamp(latest_result_mtime).isoformat() if latest_result_mtime else None,
             "latestWikiAt": datetime.fromtimestamp(latest_wiki_mtime).isoformat() if latest_wiki_mtime else None,
-        })
+        }
+        company_item.update(company_identity)
+        result.append(company_item)
     payload = {"companies": result}
     _companies_list_cache = (now, payload)
     return payload
@@ -274,6 +448,8 @@ def _iter_generated_results():
 
             for filename in os.listdir(result_dir):
                 if not filename.endswith(".html"):
+                    continue
+                if _is_report_alias(filename):
                     continue
 
                 if result_type == "analysis" and "factcheck" in filename.lower():
@@ -344,16 +520,18 @@ def list_reports(company_dir: str, current_user: User = Depends(get_current_user
         return {"reports": []}
     reports = []
     for f in os.listdir(analysis_dir):
-        if not f.endswith(".html"):
+        if not f.endswith(".html") or _is_report_alias(f):
             continue
         fp = os.path.join(analysis_dir, f)
         st = os.stat(fp)
-        reports.append({
+        item = {
             "filename": f,
             "url": _wiki_result_url(company_dir, "analysis", f),
             "size": st.st_size,
             "mtime": datetime.fromtimestamp(st.st_mtime).isoformat(),
-        })
+        }
+        _attach_research_identity(item, safe, f)
+        reports.append(item)
     reports.sort(key=lambda item: item["mtime"], reverse=True)
     return {"reports": reports}
 
@@ -368,16 +546,17 @@ def list_factchecks(company_dir: str, current_user: User = Depends(get_current_u
         return {"factchecks": []}
     factchecks = []
     for f in sorted(os.listdir(factcheck_dir)):
-        if not f.endswith(".html"):
+        if not f.endswith(".html") or _is_report_alias(f):
             continue
         fp = os.path.join(factcheck_dir, f)
         st = os.stat(fp)
-        factchecks.append({
+        item = {
             "filename": f,
             "url": _wiki_result_url(company_dir, "factcheck", f),
             "size": st.st_size,
             "mtime": datetime.fromtimestamp(st.st_mtime).isoformat(),
-        })
+        }
+        factchecks.append(item)
     return {"factchecks": factchecks}
 
 
@@ -390,17 +569,19 @@ def list_trackings(company_dir: str, current_user: User = Depends(get_current_us
     if not os.path.isdir(tracking_dir):
         return {"trackings": []}
     trackings = []
-    for f in sorted(os.listdir(tracking_dir), reverse=True):
-        if not f.endswith(".html"):
+    for f in os.listdir(tracking_dir):
+        if not f.endswith(".html") or _is_report_alias(f):
             continue
         fp = os.path.join(tracking_dir, f)
         st = os.stat(fp)
-        trackings.append({
+        item = {
             "filename": f,
             "url": _wiki_result_url(company_dir, "tracking", f),
             "size": st.st_size,
             "mtime": datetime.fromtimestamp(st.st_mtime).isoformat(),
-        })
+        }
+        trackings.append(item)
+    trackings.sort(key=lambda item: item["mtime"], reverse=True)
     return {"trackings": trackings}
 
 
@@ -414,16 +595,17 @@ def list_legals(company_dir: str, current_user: User = Depends(get_current_user)
         return {"legals": []}
     legals = []
     for f in sorted(os.listdir(legal_dir), reverse=True):
-        if not f.endswith(".html"):
+        if not f.endswith(".html") or _is_report_alias(f):
             continue
         fp = os.path.join(legal_dir, f)
         st = os.stat(fp)
-        legals.append({
+        item = {
             "filename": f,
             "url": _wiki_result_url(company_dir, "legal", f),
             "size": st.st_size,
             "mtime": datetime.fromtimestamp(st.st_mtime).isoformat(),
-        })
+        }
+        legals.append(item)
     return {"legals": legals}
 
 

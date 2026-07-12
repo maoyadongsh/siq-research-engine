@@ -3,10 +3,9 @@ import json
 
 import anyio
 import httpx
-
-from services import agent_chat_runtime as runtime
-from services import agent_runtime_sessions, agent_runtime_streaming
 from services.hermes_client import StreamEvent
+
+from services import agent_chat_runtime as runtime, agent_runtime_sessions, agent_runtime_streaming
 
 
 class _Request:
@@ -97,6 +96,8 @@ def test_streaming_owner_state_is_shared_by_public_facades():
     assert runtime._append_user_stopped_active_run is agent_runtime_streaming._append_user_stopped_active_run
     assert runtime._clear_active_run is agent_runtime_streaming._clear_active_run
     assert runtime._active_key is agent_runtime_streaming._active_key
+    assert runtime.project_tool_started is agent_runtime_streaming.project_tool_started
+    assert runtime.project_tool_completed is agent_runtime_streaming.project_tool_completed
 
     state = agent_runtime_streaming.ActiveRunState(
         profile="siq_assistant",
@@ -202,7 +203,7 @@ def test_collect_stream_run_success_uses_streaming_terminal_owner(monkeypatch):
             yield StreamEvent(type="delta", text="hello")
             yield StreamEvent(type="done", text="hello")
 
-        async def fake_save_message(role, content, session_id, *, profile=None):
+        async def fake_save_message(role, content, session_id, *, profile=None, audit_trace_id=None):
             saved_messages.append((role, content, session_id, profile))
 
         async def fake_done_payload(reply):
@@ -249,7 +250,7 @@ def test_collect_stream_run_reasoning_uses_streaming_event_owner(monkeypatch):
             yield StreamEvent(type="delta", text="answer")
             yield StreamEvent(type="done", text="answer")
 
-        async def fake_save_message(role, content, session_id, *, profile=None):
+        async def fake_save_message(role, content, session_id, *, profile=None, audit_trace_id=None):
             saved_messages.append((role, content, session_id, profile))
 
         monkeypatch.setattr(runtime, "stream_run", fake_stream_run)
@@ -295,7 +296,7 @@ def test_collect_stream_run_user_stop_uses_streaming_terminal_owner(monkeypatch)
             assert (run_id, profile) == ("run-collect-user-stop", "siq_assistant")
             yield StreamEvent(type="cancelled", text="")
 
-        async def fake_save_message(role, content, session_id, *, profile=None):
+        async def fake_save_message(role, content, session_id, *, profile=None, audit_trace_id=None):
             saved_messages.append((role, content, session_id, profile))
 
         monkeypatch.setattr(runtime, "stream_run", fake_stream_run)
@@ -333,7 +334,7 @@ def test_collect_stream_run_cancelled_without_user_stop_saves_failed_history(mon
             assert (run_id, profile) == ("run-collect-cancelled", "siq_assistant")
             yield StreamEvent(type="cancelled", text="cancel detail")
 
-        async def fake_save_message(role, content, session_id, *, profile=None):
+        async def fake_save_message(role, content, session_id, *, profile=None, audit_trace_id=None):
             saved_messages.append((role, content, session_id, profile))
 
         monkeypatch.setattr(runtime, "stream_run", fake_stream_run)
@@ -381,7 +382,7 @@ def test_collect_stream_run_idle_timeout_stops_run_and_clears_active(monkeypatch
             stop_calls.append((run_id, profile))
             return {"id": run_id, "status": "stopped"}
 
-        async def fake_save_message(role, content, session_id, *, profile=None):
+        async def fake_save_message(role, content, session_id, *, profile=None, audit_trace_id=None):
             saved_messages.append((role, content, session_id, profile))
 
         monkeypatch.setattr(runtime, "stream_run", fake_stream_run)
@@ -426,7 +427,7 @@ def test_collect_stream_run_http_timeout_stops_run_and_clears_active(monkeypatch
             stop_calls.append((run_id, profile))
             return {"id": run_id, "status": "stopped"}
 
-        async def fake_save_message(role, content, session_id, *, profile=None):
+        async def fake_save_message(role, content, session_id, *, profile=None, audit_trace_id=None):
             saved_messages.append((role, content, session_id, profile))
 
         monkeypatch.setattr(runtime, "stream_run", fake_stream_run)
@@ -470,7 +471,7 @@ def test_collect_stream_run_repeated_tool_call_stops_run(monkeypatch):
             stop_calls.append((run_id, profile))
             return {"id": run_id, "status": "stopped"}
 
-        async def fake_save_message(role, content, session_id, *, profile=None):
+        async def fake_save_message(role, content, session_id, *, profile=None, audit_trace_id=None):
             saved_messages.append((role, content, session_id, profile))
 
         monkeypatch.setattr(runtime, "stream_run", fake_stream_run)
@@ -513,7 +514,7 @@ def test_collect_stream_run_consecutive_tool_errors_stop_run(monkeypatch):
             stop_calls.append((run_id, profile))
             return {"id": run_id, "status": "stopped"}
 
-        async def fake_save_message(role, content, session_id, *, profile=None):
+        async def fake_save_message(role, content, session_id, *, profile=None, audit_trace_id=None):
             saved_messages.append((role, content, session_id, profile))
 
         monkeypatch.setattr(runtime, "stream_run", fake_stream_run)

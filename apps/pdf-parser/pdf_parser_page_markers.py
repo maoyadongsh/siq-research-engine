@@ -28,14 +28,27 @@ def _normalized_anchor_text(text):
 
 
 def _page_body_is_sparse(markdown):
-    body = str(markdown or "").strip()
-    if not body:
-        return True
-    if "<table" in body.lower() or "![](" in body or "<details>" in body.lower():
-        return False
-    normalized = _normalized_anchor_text(body)
-    nonempty_lines = [line for line in body.splitlines() if line.strip()]
-    return len(normalized) < 40 and len(nonempty_lines) <= 2
+    # Short pages are common in reports (section openers, glossary intros, and
+    # continuation labels). Replacing any existing text can duplicate the full
+    # content_list payload, so backfill only a genuinely empty marker span.
+    return not str(markdown or "").strip()
+
+
+def _page_payload_is_represented(markdown, rebuilt_body):
+    """Return whether enough page-specific payload already exists in Markdown."""
+    markdown_normalized = _normalized_anchor_text(markdown)
+    payload_normalized = _normalized_anchor_text(rebuilt_body)
+    chunk_size = 40
+    chunks = [
+        payload_normalized[offset : offset + chunk_size]
+        for offset in range(0, len(payload_normalized) - chunk_size + 1, chunk_size)
+    ]
+    if not chunks:
+        return payload_normalized in markdown_normalized
+    matched = sum(chunk in markdown_normalized for chunk in chunks)
+    # Require broad payload coverage. A low threshold can match recurring report
+    # headers and suppress recovery of a genuinely missing page.
+    return matched / len(chunks) >= 0.60
 
 
 def _markdown_from_page_payload(page_payload):
@@ -109,7 +122,7 @@ def _backfill_sparse_markdown_pages(markdown, content_list):
         if _page_body_is_sparse(body):
             payload = page_content_payload_from_content_list(content_list, page_number)
             rebuilt_body = _markdown_from_page_payload(payload)
-            if rebuilt_body:
+            if rebuilt_body and not _page_payload_is_represented(text, rebuilt_body):
                 rebuilt.append(marker_line + "\n" + rebuilt_body.strip() + "\n")
                 restored_pages.append(page_number)
                 continue

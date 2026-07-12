@@ -71,6 +71,7 @@ GOODWILL_MAIN_STATEMENT_TERMS = (
     "合并报表",
     "余额",
 )
+GOODWILL_LABEL_TERMS = ("商誉", "商譽", "goodwill", "のれん", "영업권")
 
 
 def read_json(path: Path, default: Any = None) -> Any:
@@ -82,25 +83,49 @@ def read_json(path: Path, default: Any = None) -> Any:
 
 def statement_type_from_query(query: str | None) -> str | None:
     text = re.sub(r"\s+", "", str(query or ""))
+    folded = text.casefold()
     if is_goodwill_main_statement_query(text):
         return "balance_sheet"
-    if any(term in text for term in ("现金流", "现金流量表", "经营活动现金", "投资活动现金", "筹资活动现金", "经营现金流")):
+    if any(
+        term in folded
+        for term in (
+            "现金流", "现金流量表", "经营活动现金", "投资活动现金", "筹资活动现金", "经营现金流",
+            "cashflow", "cashflowstatement", "キャッシュフロー", "현금흐름표", "영업활동현금흐름",
+        )
+    ):
         return "cash_flow_statement"
-    if any(term in text for term in ("资产负债表", "资产负债", "资产构成", "资产结构", "负债结构", "负债与权益", "负债权益", "偿债", "总资产", "总负债", "净资产")):
+    if any(
+        term in folded
+        for term in (
+            "资产负债表", "资产负债", "资产构成", "资产结构", "负债结构", "负债与权益", "负债权益",
+            "偿债", "总资产", "资产总额", "总负债", "净资产", "balancesheet", "statementoffinancialposition",
+            "totalassets", "totalliabilities", "財政状態計算書", "総資産", "재무상태표", "총자산",
+        )
+    ):
         return "balance_sheet"
-    if any(term in text for term in ("利润表", "损益表", "营业收入", "营收", "营业成本", "营业利润", "利润总额", "净利润", "归母净利润", "扣非归母", "扣非净利润")):
+    if any(
+        term in folded
+        for term in (
+            "利润表", "损益表", "营业收入", "营收", "营业成本", "营业利润", "利润总额", "净利润",
+            "归母净利润", "扣非归母", "扣非净利润", "incomestatement", "profitandloss", "revenue",
+            "sales", "operatingprofit", "netincome", "営業収益", "営業利益", "当期利益", "損益計算書",
+            "매출액", "영업수익", "영업이익", "순이익", "손익계산서",
+        )
+    ):
         return "income_statement"
     return None
 
 
 def is_goodwill_main_statement_query(query: str | None) -> bool:
     text = re.sub(r"\s+", "", str(query or ""))
-    return "商誉" in text and any(term in text for term in GOODWILL_MAIN_STATEMENT_TERMS)
+    return any(term in text.lower() for term in GOODWILL_LABEL_TERMS) and any(
+        term.lower() in text.lower() for term in GOODWILL_MAIN_STATEMENT_TERMS
+    )
 
 
 def requested_statement_label_terms(query: str | None) -> tuple[str, ...]:
     if is_goodwill_main_statement_query(query):
-        return ("商誉",)
+        return GOODWILL_LABEL_TERMS
     return ()
 
 
@@ -110,6 +135,8 @@ def metric_payload_path(company_dir: Path, report_id: str) -> Path | None:
         company_dir / "metrics" / "reports" / report_id / "three_statements.json",
         company_dir / "metrics" / "latest" / "three_statements.json",
         company_dir / "metrics" / "three_statements.json",
+        company_dir / "reports" / report_id / "metrics" / "financial_data.json",
+        company_dir / "metrics" / "reports" / report_id / "financial_data.json",
     ]
     return next((path for path in candidates if path.exists()), None)
 
@@ -181,8 +208,18 @@ def choose_statement_sources(records: list[dict[str, Any]]) -> list[dict[str, An
     first_seen: dict[tuple[Any, Any, Any, Any], int] = {}
     for position, record in enumerate(records):
         source = record.get("source") if isinstance(record.get("source"), dict) else {}
+        if not source and isinstance(record.get("evidence"), dict):
+            evidence = dict(record["evidence"])
+            raw_table = ((evidence.get("raw") or {}).get("table") or {}) if isinstance(evidence.get("raw"), dict) else {}
+            evidence.setdefault("md_line", raw_table.get("line"))
+            evidence.setdefault("table_index", raw_table.get("table_index"))
+            evidence.setdefault("pdf_page", evidence.get("rendered_page_number") or evidence.get("page_number"))
+            record["source"] = source = evidence
         key = source_key(source)
-        if not key[0] or not key[1] or not key[2] or not key[3]:
+        # Migrated PDF-market financial_data records may carry the parser task
+        # and page at the document level; line/table are sufficient to map the
+        # source through tables/table_index.json below.
+        if not key[2] or not key[3]:
             continue
         counter[key] += 1
         source_by_key[key] = source
@@ -255,13 +292,13 @@ def filter_requested_statement_records(records: list[dict[str, str]], metric_tex
     if not requested_terms:
         return records
     matches: list[dict[str, str]] = []
-    normalized_terms = [normalize_label(term) for term in requested_terms]
+    normalized_terms = [normalize_label(term).casefold() for term in requested_terms]
     for record in records:
         first_value = next(iter(record.values()), "")
-        label = normalize_label(first_value)
+        label = normalize_label(first_value).casefold()
         if any(term and term in label for term in normalized_terms):
             matches.append(record)
-    return matches or records
+    return matches
 
 
 def display_records(records: list[dict[str, str]], statement_type: str, max_rows: int) -> list[dict[str, str]]:
@@ -319,10 +356,24 @@ def resolve_statement_metrics(
         return {"status": "statement_source_not_found", "company_id": company_dir.name, "tables": []}
 
     report_md = company_dir / "reports" / resolved_report_id / "report.md"
-    task_id = report.get("task_id")
+    task_id = report.get("task_id") or payload.get("task_id")
+    table_index_rows: list[dict[str, Any]] = []
+    table_index_path = company_dir / "reports" / resolved_report_id / "tables" / "table_index.json"
+    table_index_payload = read_json(table_index_path, {}) or {}
+    if isinstance(table_index_payload, dict):
+        table_index_rows = [item for item in (table_index_payload.get("tables") or []) if isinstance(item, dict)]
     tables: list[dict[str, Any]] = []
     for source in sources:
+        source = dict(source)
         md_line = int(source.get("md_line") or 0)
+        if table_index_rows and md_line:
+            mapped = min(
+                table_index_rows,
+                key=lambda item: abs(int(item.get("line") or 0) - md_line),
+            )
+            if abs(int(mapped.get("line") or 0) - md_line) <= 3:
+                source["table_index"] = mapped.get("table_index")
+                source["pdf_page"] = mapped.get("pdf_page_number") or source.get("pdf_page")
         html = extract_table_html(report_md, md_line)
         parsed = parse_html_table(html or "")
         headers = parsed.get("headers") or []
@@ -331,7 +382,10 @@ def resolve_statement_metrics(
         filtered_records = filter_requested_statement_records(filtered_records, metric_text)
         if not filtered_records:
             continue
-        source_records = records_for_source(metric_records, source)
+        source_records = records_for_source(metric_records, source) or records_for_source(
+            metric_records,
+            next((item for item in metric_records if item.get("source", {}).get("md_line") == md_line), {}),
+        )
         table_index = source.get("table_index")
         pdf_page = source.get("pdf_page")
         task_id = source.get("task_id") or task_id

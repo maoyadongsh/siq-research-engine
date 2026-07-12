@@ -2059,8 +2059,6 @@ def resolve_analysis_refs(company_dir: Path, file_name: str | None = None) -> li
     refs: list[dict[str, Any]] = []
     seen: set[tuple[Any, ...]] = set()
     for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
-        if not line.lstrip().startswith("["):
-            continue
         task_match = re.search(r"(?:evidence_id/)?task_id=([0-9a-fA-F-]{32,36})", line)
         page_match = re.search(r"pdf_page(?:_number)?=([0-9]+)", line)
         table_match = re.search(r"table_index=([0-9]+)", line)

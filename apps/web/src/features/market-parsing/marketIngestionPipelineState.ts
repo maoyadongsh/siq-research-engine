@@ -53,6 +53,8 @@ export type PdfGenericIngestionActionKey = 'wiki' | 'semantic' | 'postgres'
 export type UsSecIngestionActionKey = 'wiki' | 'semantic' | 'postgres'
 
 const MISSING_DOCUMENT_FULL_REASON = '缺少 SEC parser result document_full.json 路径，请先刷新结果包'
+const GENERIC_MISSING_ARTIFACTS_REASON = '缺少完整解析产物，请先完成 PDF 解析并生成核心 artifact'
+const GENERIC_MISSING_WIKI_REASON = '请先完成 LLM-Wiki 入库'
 
 function normalized(value: unknown): string {
   return String(value || '').trim()
@@ -91,6 +93,15 @@ function activeStepIndex(steps: MarketIngestionPipelineStep[], busyIndex?: numbe
   if (busyIndex !== undefined) return busyIndex
   const firstPending = steps.findIndex((step) => !statusReady(step.status))
   return firstPending >= 0 ? firstPending : Math.max(steps.length - 1, 0)
+}
+
+function genericBusyReason(workflowBusy: string): string | undefined {
+  if (!workflowBusy) return undefined
+  if (workflowBusy === 'wiki' || workflowBusy === 'wiki-import-generic') return 'LLM-Wiki 入库正在执行，请等待完成'
+  if (workflowBusy === 'semantic' || workflowBusy === 'semantic-generic') return 'Wiki语义增强入库正在执行，请等待完成'
+  if (workflowBusy === 'postgres' || workflowBusy === 'db-import') return 'PostgreSQL 入库正在执行，请等待完成'
+  if (workflowBusy === 'runAll' || workflowBusy === 'remaining') return '一键入库正在执行，请等待完成'
+  return '流水线任务正在执行，请等待完成'
 }
 
 function recordValue(record: Record<string, unknown>, ...keys: string[]): unknown {
@@ -245,6 +256,7 @@ export function derivePdfGenericMarketIngestionPipelineState({
   }
   const busyStepIndex = busyMap[workflowBusy]
   const hasBusyAction = Boolean(workflowBusy)
+  const busyReason = genericBusyReason(workflowBusy)
   const actions: Array<MarketIngestionPipelineActionState<PdfGenericIngestionActionKey>> = [
     {
       key: 'wiki',
@@ -253,6 +265,7 @@ export function derivePdfGenericMarketIngestionPipelineState({
       primary: true,
       disabled: hasBusyAction || !artifactsReady,
       busy: workflowBusy === 'wiki' || workflowBusy === 'wiki-import-generic',
+      disabledReason: busyReason || (artifactsReady ? undefined : GENERIC_MISSING_ARTIFACTS_REASON),
     },
     {
       key: 'semantic',
@@ -261,6 +274,7 @@ export function derivePdfGenericMarketIngestionPipelineState({
       primary: true,
       disabled: hasBusyAction || !artifactsReady || !wikiReady,
       busy: workflowBusy === 'semantic' || workflowBusy === 'semantic-generic',
+      disabledReason: busyReason || (!artifactsReady ? GENERIC_MISSING_ARTIFACTS_REASON : (wikiReady ? undefined : GENERIC_MISSING_WIKI_REASON)),
     },
     {
       key: 'postgres',
@@ -269,6 +283,7 @@ export function derivePdfGenericMarketIngestionPipelineState({
       primary: false,
       disabled: hasBusyAction || !artifactsReady,
       busy: workflowBusy === 'postgres' || workflowBusy === 'db-import',
+      disabledReason: busyReason || (artifactsReady ? undefined : GENERIC_MISSING_ARTIFACTS_REASON),
     },
   ]
 
@@ -284,6 +299,7 @@ export function derivePdfGenericMarketIngestionPipelineState({
       primary: true,
       disabled: hasBusyAction || !artifactsReady,
       busy: workflowBusy === 'runAll' || workflowBusy === 'remaining',
+      disabledReason: busyReason || (artifactsReady ? undefined : GENERIC_MISSING_ARTIFACTS_REASON),
     },
     artifactsReady,
     artifactReadyCount,

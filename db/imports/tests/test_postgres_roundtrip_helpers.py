@@ -157,6 +157,45 @@ def test_counts_and_expectations_cover_family_and_table_rules():
     assert errors == []
 
 
+def test_missing_selector_column_refuses_full_table_count():
+    module = _load_module()
+    conn = FakeDb(
+        counts={"unscoped_fact_shadow": 99},
+        columns={"unscoped_fact_shadow": ["source_system", "value"]},
+    )
+    case = {"parse_run_id": "parse-1"}
+
+    observed = module.db_count_for_case(
+        conn,
+        "pdf2md_hk",
+        "unscoped_fact_shadow",
+        case,
+        "parse_run_id = %s",
+        ("parse-1",),
+    )
+    issues = module.db_scope_issues(
+        conn,
+        "pdf2md_hk",
+        case,
+        "parse_run_id = %s",
+        ("parse-1",),
+        {"unscoped_fact_shadow": {"min": 1}},
+    )
+
+    assert observed == 0
+    assert issues == [
+        {
+            "table": "unscoped_fact_shadow",
+            "selector": "parse_run_id",
+            "case_selector_columns": ["parse_run_id"],
+            "message": (
+                "DB scope selector missing for table unscoped_fact_shadow: selector 'parse_run_id' "
+                "and fallback case selectors ['parse_run_id'] are absent; refusing full-table count"
+            ),
+        }
+    ]
+
+
 def test_required_evidence_passes_via_join_and_content_hashes_are_stable():
     module = _load_module()
     conn = FakeDb(

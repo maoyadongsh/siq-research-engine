@@ -1,0 +1,10 @@
+node_modules
+dist
+build
+test-results
+playwright-report
+coverage
+.vite
+.eslintcache
+*.log
+npm-debug.log*

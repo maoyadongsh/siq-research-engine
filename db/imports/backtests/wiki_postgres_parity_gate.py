@@ -26,11 +26,18 @@ from document_fact_normalizer import (
     normalize_document_facts,
 )
 
-
 DatabaseUrlForMarket = Callable[[str, str | None], str]
 DbSelectorForCase = Callable[[dict[str, Any]], tuple[str, tuple[Any, ...]]]
 DocumentPathForCase = Callable[[dict[str, Any], Path], Path]
 ReadJson = Callable[[Path], Any]
+
+DEFAULT_GENERATED_WARNING_DIFF_CODES = frozenset(
+    {
+        "currency_label_diff",
+        "period_alias_diff",
+        "unit_display_diff",
+    }
+)
 
 
 def check_wiki_postgres_parity_case(
@@ -46,6 +53,7 @@ def check_wiki_postgres_parity_case(
     db_result: dict[str, Any] | None = None,
     generated_limit: int = 5,
     connect: Callable[[str], Any] | None = None,
+    generated_warning_diff_codes_by_market: dict[str, set[str] | frozenset[str]] | None = None,
 ) -> dict[str, Any]:
     market = str(case.get("market") or "").upper()
     mode = "wiki_postgres_query_parity"
@@ -258,7 +266,25 @@ def check_wiki_postgres_parity_case(
     warnings: list[str] = []
     passed = checked > 0 and not errors
     minimum_generated_passes = min(2, checked)
-    if not explicit_parity and checked > 0 and passed_checks >= minimum_generated_passes:
+    configured_warning_codes = (generated_warning_diff_codes_by_market or {}).get(market)
+    warning_eligible_codes = frozenset(
+        configured_warning_codes
+        if configured_warning_codes is not None
+        else DEFAULT_GENERATED_WARNING_DIFF_CODES
+    )
+    failed_question_codes = {
+        str(code)
+        for question in checked_questions
+        if not question.get("passed")
+        for code in (question.get("diff_codes") or [])
+    }
+    failures_are_warning_eligible = bool(failed_question_codes) and failed_question_codes <= warning_eligible_codes
+    if (
+        not explicit_parity
+        and checked > 0
+        and passed_checks >= minimum_generated_passes
+        and failures_are_warning_eligible
+    ):
         warnings = errors
         errors = []
         passed = True
@@ -271,6 +297,7 @@ def check_wiki_postgres_parity_case(
         "errors": errors,
         "warnings": warnings,
         "minimum_generated_passes": minimum_generated_passes if not explicit_parity else None,
+        "warning_eligible_diff_codes": sorted(warning_eligible_codes),
         "schema": schema,
         "view": f"{schema}.v_agent_financial_facts",
         "mode": mode,
@@ -282,4 +309,7 @@ def check_wiki_postgres_parity_case(
     return result
 
 
-__all__ = ["check_wiki_postgres_parity_case"]
+__all__ = [
+    "DEFAULT_GENERATED_WARNING_DIFF_CODES",
+    "check_wiki_postgres_parity_case",
+]

@@ -22,13 +22,13 @@ import subprocess
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlsplit
 
 import psycopg
-from psycopg.rows import dict_row
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
+from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
-
 
 logger = logging.getLogger(__name__)
 
@@ -53,26 +53,87 @@ def _load_pg_config_from_file(path: Path | None) -> dict[str, Any] | None:
     return config if isinstance(config, dict) else None
 
 
-def _connection_kwargs_from_env() -> dict[str, Any] | None:
-    if not any(os.environ.get(key) for key in ("PGHOST", "PGPORT", "PGDATABASE", "PGUSER", "PGPASSWORD")):
+def _pdf2md_database_name() -> str:
+    return (
+        os.environ.get("SIQ_PDF2MD_PGDATABASE")
+        or os.environ.get("SIQ_PGDATABASE")
+        or os.environ.get("PGDATABASE")
+        or "siq"
+    )
+
+
+def _connection_kwargs_from_url(url: str | None, *, database: str | None = None) -> dict[str, Any] | None:
+    if not url:
+        return None
+    parsed = urlsplit(url.replace("postgresql+psycopg://", "postgresql://"))
+    if parsed.scheme not in {"postgresql", "postgres"}:
         return None
     return {
-        "host": os.environ.get("PGHOST", "127.0.0.1"),
-        "port": int(os.environ.get("PGPORT", "15432")),
-        "dbname": os.environ.get("PGDATABASE", "siq"),
-        "user": os.environ.get("PGUSER", "postgres"),
-        "password": os.environ.get("PGPASSWORD", ""),
+        "host": parsed.hostname or "127.0.0.1",
+        "port": int(parsed.port or 15432),
+        "dbname": database or parsed.path.rsplit("/", 1)[-1] or "siq",
+        "user": unquote(parsed.username or "postgres"),
+        "password": unquote(parsed.password or ""),
+    }
+
+
+def _connection_kwargs_from_env() -> dict[str, Any] | None:
+    env_keys = (
+        "SIQ_PGHOST",
+        "SIQ_PGPORT",
+        "SIQ_PGDATABASE",
+        "SIQ_PGUSER",
+        "SIQ_PGPASSWORD",
+        "PGHOST",
+        "PGPORT",
+        "PGDATABASE",
+        "PGUSER",
+        "PGPASSWORD",
+        "POSTGRES_PASSWORD",
+        "DB_HOST",
+        "DB_PORT",
+        "DB_NAME",
+        "DB_USER",
+        "DB_PASSWORD",
+    )
+    if not any(os.environ.get(key) for key in env_keys):
+        return None
+    return {
+        "host": os.environ.get("SIQ_PGHOST") or os.environ.get("PGHOST") or os.environ.get("DB_HOST") or "127.0.0.1",
+        "port": int(os.environ.get("SIQ_PGPORT") or os.environ.get("PGPORT") or os.environ.get("DB_PORT") or "15432"),
+        "dbname": _pdf2md_database_name() or os.environ.get("DB_NAME", "siq"),
+        "user": os.environ.get("SIQ_PGUSER") or os.environ.get("PGUSER") or os.environ.get("DB_USER") or "postgres",
+        "password": (
+            os.environ.get("SIQ_PGPASSWORD")
+            or os.environ.get("PGPASSWORD")
+            or os.environ.get("POSTGRES_PASSWORD")
+            or os.environ.get("DB_PASSWORD")
+            or ""
+        ),
     }
 
 
 def get_connection():
-    database_url = os.environ.get("DATABASE_URL")
-    if database_url:
-        return psycopg.connect(database_url, row_factory=dict_row)
+    database = _pdf2md_database_name()
+    explicit_config = _connection_kwargs_from_url(
+        os.environ.get("SIQ_PDF2MD_DATABASE_URL") or os.environ.get("SIQ_CN_DATABASE_URL"),
+        database=database,
+    )
+    if explicit_config:
+        return psycopg.connect(**explicit_config, row_factory=dict_row)
 
     env_config = _connection_kwargs_from_env()
     if env_config:
         return psycopg.connect(**env_config, row_factory=dict_row)
+
+    app_config = _connection_kwargs_from_url(os.environ.get("SIQ_APP_DATABASE_URL"), database=database)
+    if app_config:
+        return psycopg.connect(**app_config, row_factory=dict_row)
+
+    if os.environ.get("SIQ_ALLOW_GENERIC_FINANCIAL_DATABASE_URL") == "1":
+        generic_config = _connection_kwargs_from_url(os.environ.get("DATABASE_URL"), database=database)
+        if generic_config:
+            return psycopg.connect(**generic_config, row_factory=dict_row)
 
     config_path = (
         Path(os.environ["SIQ_DB_CONFIG_PY"]).expanduser()
@@ -90,7 +151,7 @@ def get_connection():
     return psycopg.connect(
         host="127.0.0.1",
         port=15432,
-        dbname="siq",
+        dbname=database,
         user="postgres",
         password="",
         row_factory=dict_row,

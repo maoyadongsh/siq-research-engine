@@ -3,8 +3,8 @@
 
 from __future__ import annotations
 
-import hmac
 import hashlib
+import hmac
 import ipaddress
 import json
 import logging
@@ -15,35 +15,32 @@ import socket
 import subprocess
 import threading
 import uuid
+import zipfile
 from pathlib import Path
 from urllib.parse import urlparse
-from urllib.request import Request as UrlRequest
-from urllib.request import urlopen
-import zipfile
+from urllib.request import HTTPRedirectHandler, Request as UrlRequest, build_opener
 
-from flask import Flask, jsonify, request, send_file
-
-from artifacts import artifact_summary, build_artifacts, read_json, write_json
 from batch_download_payload import (
     MAX_BATCH_DOWNLOAD_TASKS,
     build_batch_download_manifest,
     requested_batch_download_task_ids,
 )
 from contracts import (
-    ARTIFACT_ALLOWLIST,
     APP_VERSION,
+    ARTIFACT_ALLOWLIST,
     CANCELLED,
     COMPLETED,
     COMPLETED_WITH_WARNINGS,
     DETECTING_TYPE,
     FAILED,
-    ParseConfig,
-    SourceFile,
     POSTPROCESSING,
     QUEUED,
     RUNNING,
     TERMINAL_STATUSES,
+    ParseConfig,
+    SourceFile,
 )
+from extraction import list_extraction_templates, run_extraction
 from file_utils import (
     document_kind_for_extension,
     guess_mime_type,
@@ -52,16 +49,12 @@ from file_utils import (
     sha256_file,
     validate_extension,
 )
-from mineru_import import copy_mineru_images_to_result, parse_mineru_output_dir, rewrite_image_paths_to_result
+from flask import Flask, jsonify, request, send_file
 from mineru_candidates_payload import build_mineru_import_candidates_payload
+from mineru_import import copy_mineru_images_to_result, parse_mineru_output_dir, rewrite_image_paths_to_result
 from page_metadata import load_mineru_page_metadata, merge_layout_page_metadata
 from path_config import resolve_app_paths
 from provider_router import parse_source
-from request_args import parse_int_arg, query_flag_enabled
-from source_image_payload import build_source_image_payload, find_figure_by_image_id
-from source_page_payload import build_source_page_payload
-from status_payload import build_task_status_payload
-from table_relations_payload import build_table_relations_response_payload
 from providers.simple import (
     _bridge_task_id,
     _json_request as pdf_parser_json_request,
@@ -71,10 +64,15 @@ from providers.simple import (
     _result_dir_looks_ready,
     cleanup_pdf_parser_bridge_output,
 )
-from extraction import list_extraction_templates, run_extraction
+from request_args import parse_int_arg, query_flag_enabled
+from source_image_payload import build_source_image_payload, find_figure_by_image_id
+from source_page_payload import build_source_page_payload
+from status_payload import build_task_status_payload
 from table_merge import TABLE_RELATION_RULESET_VERSION, build_logical_tables, build_table_relations
+from table_relations_payload import build_table_relations_response_payload
 from task_store import DEFAULT_MARKET_SCOPE, DEFAULT_OWNER_ID, DEFAULT_TENANT_ID, TaskStore, now_iso
 
+from artifacts import artifact_summary, build_artifacts, read_json, write_json
 
 BASE_DIR = Path(__file__).resolve().parent
 APP_PATHS = resolve_app_paths(BASE_DIR)
@@ -517,12 +515,23 @@ def _is_public_hostname(hostname: str) -> bool:
     return True
 
 
-def _download_url(task_id: str, url: str) -> SourceFile:
+def _validate_public_url(url: str) -> None:
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         raise ValueError("Only http/https URLs are supported")
     if not _is_public_hostname(parsed.hostname):
         raise ValueError("URL host is not allowed")
+
+
+class _PublicOnlyRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        _validate_public_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _download_url(task_id: str, url: str) -> SourceFile:
+    _validate_public_url(url)
+    parsed = urlparse(url)
     filename = safe_client_filename(Path(parsed.path).name or "web-document.html")
     if "." not in filename:
         filename += ".html"
@@ -532,7 +541,8 @@ def _download_url(task_id: str, url: str) -> SourceFile:
     path = task_upload_dir / filename
     req = UrlRequest(url, headers={"User-Agent": f"SIQDocumentParser/{APP_VERSION}"})
     size = 0
-    with urlopen(req, timeout=30) as response, path.open("wb") as outfile:  # nosec - URL is validated above.
+    opener = build_opener(_PublicOnlyRedirectHandler())
+    with opener.open(req, timeout=30) as response, path.open("wb") as outfile:  # nosec - every redirect is validated.
         while True:
             chunk = response.read(1024 * 1024)
             if not chunk:
@@ -1041,7 +1051,10 @@ def create_tasks():
         owner_scope = _request_owner_scope(default_market=market_scope)
         task_market_scope = owner_scope.get("market_scope") or market_scope or DEFAULT_MARKET_SCOPE
         task_id = str(uuid.uuid4())
-        source = _download_url(task_id, str(payload.get("url") or "").strip())
+        try:
+            source = _download_url(task_id, str(payload.get("url") or "").strip())
+        except ValueError as exc:
+            return jsonify({"error": "invalid_url", "message": str(exc)}), 400
         tasks.append(_enqueue_task(source, config, task_id=task_id, owner_scope=owner_scope, market_scope=task_market_scope))
         return jsonify({"tasks": tasks})
 

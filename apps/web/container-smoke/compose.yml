@@ -1,0 +1,77 @@
+services:
+  mock-api:
+    image: python:3.13-alpine
+    user: "65534:65534"
+    read_only: true
+    tmpfs:
+      - /tmp
+    command: ["python", "/smoke/mock_upstream.py"]
+    environment:
+      SIQ_SMOKE_UPSTREAM_NAME: mock-api
+      SIQ_SMOKE_UPSTREAM_PORT: "18081"
+    volumes:
+      - ./mock_upstream.py:/smoke/mock_upstream.py:ro
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:18081/health', timeout=2).close()
+      interval: 1s
+      timeout: 3s
+      retries: 20
+      start_period: 1s
+
+  mock-finder:
+    image: python:3.13-alpine
+    user: "65534:65534"
+    read_only: true
+    tmpfs:
+      - /tmp
+    command: ["python", "/smoke/mock_upstream.py"]
+    environment:
+      SIQ_SMOKE_UPSTREAM_NAME: mock-finder
+      SIQ_SMOKE_UPSTREAM_PORT: "18000"
+    volumes:
+      - ./mock_upstream.py:/smoke/mock_upstream.py:ro
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:18000/health', timeout=2).close()
+      interval: 1s
+      timeout: 3s
+      retries: 20
+      start_period: 1s
+
+  web:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SIQ_AUTH_COOKIE_MODE: "1"
+    user: "101:101"
+    read_only: true
+    tmpfs:
+      - /tmp
+    ports:
+      - "127.0.0.1:${SIQ_WEB_CONTAINER_SMOKE_PORT:?runner must provide a free host port}:15173"
+    environment:
+      SIQ_BACKEND_URL: http://mock-api:18081
+      SIQ_REPORT_FINDER_URL: http://mock-finder:18000
+    depends_on:
+      mock-api:
+        condition: service_healthy
+      mock-finder:
+        condition: service_healthy
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:15173/api/health"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+      start_period: 2s

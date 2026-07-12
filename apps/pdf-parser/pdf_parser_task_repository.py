@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+from collections import Counter
 from contextlib import nullcontext
 
 from task_store import CANCELLED, COMPLETED_MISSING_ARTIFACT, is_failed_status
@@ -13,6 +14,7 @@ DEFAULT_OWNER_ID = "system"
 DEFAULT_TENANT_ID = "unknown"
 DEFAULT_MARKET_SCOPE = "unknown"
 DEFAULT_PARSE_CONFIG_HASH = "unknown"
+ACTIVE_CAPACITY_STATUSES = ("queued", "submitting", "submitted", "pending", "processing")
 
 
 def _lock_context(lock):
@@ -131,78 +133,209 @@ def row_to_task(row, *, normalize_task=None):
     return normalize_task(task) if normalize_task else task
 
 
-def save_task(db_path, task, *, allow_insert=False, lock=None):
+def _task_payload(task):
     payload = dict(task)
     logs = payload.pop("logs", [])
     submit_config = payload.pop("submit_config", {})
     payload.setdefault("file_sha256", None)
-    payload.setdefault("owner_id", DEFAULT_OWNER_ID)
-    payload.setdefault("tenant_id", DEFAULT_TENANT_ID)
-    payload.setdefault("market_scope", DEFAULT_MARKET_SCOPE)
-    payload.setdefault("parse_config_hash", DEFAULT_PARSE_CONFIG_HASH)
+    payload["owner_id"] = payload.get("owner_id") or DEFAULT_OWNER_ID
+    payload["tenant_id"] = payload.get("tenant_id") or DEFAULT_TENANT_ID
+    payload["market_scope"] = payload.get("market_scope") or DEFAULT_MARKET_SCOPE
+    payload["parse_config_hash"] = payload.get("parse_config_hash") or DEFAULT_PARSE_CONFIG_HASH
     last_status_payload = payload.get("last_status_payload")
     payload["logs_json"] = json.dumps(logs, ensure_ascii=False)
     payload["submit_config_json"] = json.dumps(submit_config or {}, ensure_ascii=False)
     payload["last_status_payload"] = (
         json.dumps(last_status_payload, ensure_ascii=False) if last_status_payload is not None else None
     )
-    if not allow_insert and not task_exists(db_path, payload["task_id"]):
-        return
+    return payload
+
+
+def _insert_task_with_connection(conn, task):
+    payload = _task_payload(task)
+    conn.execute(
+        """
+        INSERT INTO tasks (
+            task_id, mineru_task_id, filename, file_sha256,
+            owner_id, tenant_id, market_scope, parse_config_hash,
+            file_size, pdf_page_count,
+            status, stage, created_at, uploaded_at, submitted_at, started_at,
+            completed_at, cancelled, error, markdown_path, upload_path,
+            last_progress_log_time, last_status_payload, last_polled_at,
+            consecutive_status_failures, submit_config_json, logs_json
+        ) VALUES (
+            :task_id, :mineru_task_id, :filename, :file_sha256,
+            :owner_id, :tenant_id, :market_scope, :parse_config_hash,
+            :file_size, :pdf_page_count,
+            :status, :stage, :created_at, :uploaded_at, :submitted_at, :started_at,
+            :completed_at, :cancelled, :error, :markdown_path, :upload_path,
+            :last_progress_log_time, :last_status_payload, :last_polled_at,
+            :consecutive_status_failures, :submit_config_json, :logs_json
+        )
+        """,
+        payload,
+    )
+
+
+def _update_task_with_connection(conn, task):
+    payload = _task_payload(task)
+    return conn.execute(
+        """
+        UPDATE tasks SET
+            mineru_task_id=:mineru_task_id,
+            filename=:filename,
+            file_sha256=:file_sha256,
+            owner_id=:owner_id,
+            tenant_id=:tenant_id,
+            market_scope=:market_scope,
+            parse_config_hash=:parse_config_hash,
+            file_size=:file_size,
+            pdf_page_count=:pdf_page_count,
+            status=:status,
+            stage=:stage,
+            created_at=:created_at,
+            uploaded_at=:uploaded_at,
+            submitted_at=:submitted_at,
+            started_at=:started_at,
+            completed_at=:completed_at,
+            cancelled=:cancelled,
+            error=:error,
+            markdown_path=:markdown_path,
+            upload_path=:upload_path,
+            last_progress_log_time=:last_progress_log_time,
+            last_status_payload=:last_status_payload,
+            last_polled_at=:last_polled_at,
+            consecutive_status_failures=:consecutive_status_failures,
+            submit_config_json=:submit_config_json,
+            logs_json=:logs_json
+        WHERE task_id=:task_id
+        """,
+        payload,
+    ).rowcount
+
+
+def save_task(db_path, task, *, allow_insert=False, lock=None):
+    """Persist internal task state without ever turning an insert into an update."""
     with _lock_context(lock):
         conn = connect(db_path)
         try:
-            conn.execute(
-                """
-                INSERT INTO tasks (
-                    task_id, mineru_task_id, filename, file_sha256,
-                    owner_id, tenant_id, market_scope, parse_config_hash,
-                    file_size, pdf_page_count,
-                    status, stage, created_at, uploaded_at, submitted_at, started_at,
-                    completed_at, cancelled, error, markdown_path, upload_path,
-                    last_progress_log_time, last_status_payload, last_polled_at,
-                    consecutive_status_failures, submit_config_json, logs_json
-                ) VALUES (
-                    :task_id, :mineru_task_id, :filename, :file_sha256,
-                    :owner_id, :tenant_id, :market_scope, :parse_config_hash,
-                    :file_size, :pdf_page_count,
-                    :status, :stage, :created_at, :uploaded_at, :submitted_at, :started_at,
-                    :completed_at, :cancelled, :error, :markdown_path, :upload_path,
-                    :last_progress_log_time, :last_status_payload, :last_polled_at,
-                    :consecutive_status_failures, :submit_config_json, :logs_json
-                )
-                ON CONFLICT(task_id) DO UPDATE SET
-                    mineru_task_id=excluded.mineru_task_id,
-                    filename=excluded.filename,
-                    file_sha256=excluded.file_sha256,
-                    owner_id=excluded.owner_id,
-                    tenant_id=excluded.tenant_id,
-                    market_scope=excluded.market_scope,
-                    parse_config_hash=excluded.parse_config_hash,
-                    file_size=excluded.file_size,
-                    pdf_page_count=excluded.pdf_page_count,
-                    status=excluded.status,
-                    stage=excluded.stage,
-                    created_at=excluded.created_at,
-                    uploaded_at=excluded.uploaded_at,
-                    submitted_at=excluded.submitted_at,
-                    started_at=excluded.started_at,
-                    completed_at=excluded.completed_at,
-                    cancelled=excluded.cancelled,
-                    error=excluded.error,
-                    markdown_path=excluded.markdown_path,
-                    upload_path=excluded.upload_path,
-                    last_progress_log_time=excluded.last_progress_log_time,
-                    last_status_payload=excluded.last_status_payload,
-                    last_polled_at=excluded.last_polled_at,
-                    consecutive_status_failures=excluded.consecutive_status_failures,
-                    submit_config_json=excluded.submit_config_json,
-                    logs_json=excluded.logs_json
-                """,
-                payload,
-            )
+            if allow_insert:
+                _insert_task_with_connection(conn, task)
+                changed = 1
+            else:
+                changed = _update_task_with_connection(conn, task)
             conn.commit()
+            return bool(changed)
         finally:
             conn.close()
+
+
+def admit_tasks_if_capacity(
+    db_path,
+    tasks,
+    *,
+    global_task_limit,
+    owner_task_limit,
+    global_bytes_limit,
+    owner_bytes_limit,
+    lock=None,
+):
+    """Atomically insert a new task batch without conflicts or oversubscription."""
+    batch = [dict(task) for task in tasks]
+    if not batch:
+        return {"admitted": True, "reason": "empty_batch"}
+    owner_id = batch[0].get("owner_id") or DEFAULT_OWNER_ID
+    tenant_id = batch[0].get("tenant_id") or DEFAULT_TENANT_ID
+    if any(
+        (task.get("owner_id") or DEFAULT_OWNER_ID) != owner_id
+        or (task.get("tenant_id") or DEFAULT_TENANT_ID) != tenant_id
+        for task in batch
+    ):
+        raise ValueError("capacity batch must use one owner/tenant scope")
+    requested_tasks = len(batch)
+    requested_bytes = sum(max(0, int(task.get("file_size") or 0)) for task in batch)
+    task_ids = [str(task.get("task_id") or "") for task in batch]
+    if any(not task_id for task_id in task_ids):
+        raise ValueError("capacity batch requires non-empty task_id")
+    task_id_counts = Counter(task_ids)
+    placeholders = ",".join("?" for _ in ACTIVE_CAPACITY_STATUSES)
+    with _lock_context(lock):
+        conn = connect(db_path)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            duplicate_batch_ids = sorted(task_id for task_id, count in task_id_counts.items() if count > 1)
+            conflict_rows = []
+            if task_ids:
+                id_placeholders = ",".join("?" for _ in task_ids)
+                conflict_rows = conn.execute(
+                    f"SELECT task_id FROM tasks WHERE task_id IN ({id_placeholders})",
+                    task_ids,
+                ).fetchall()
+            conflict_task_ids = sorted(
+                set(duplicate_batch_ids) | {str(row["task_id"]) for row in conflict_rows}
+            )
+            if conflict_task_ids:
+                conn.rollback()
+                return {
+                    "admitted": False,
+                    "reason": "task_id_conflict",
+                    "conflict_task_ids": conflict_task_ids,
+                    "requested_tasks": requested_tasks,
+                    "requested_bytes": requested_bytes,
+                }
+            global_row = conn.execute(
+                f"""
+                SELECT COUNT(*) AS task_count, COALESCE(SUM(file_size), 0) AS byte_count
+                FROM tasks
+                WHERE cancelled = 0 AND status IN ({placeholders})
+                """,
+                ACTIVE_CAPACITY_STATUSES,
+            ).fetchone()
+            owner_row = conn.execute(
+                f"""
+                SELECT COUNT(*) AS task_count, COALESCE(SUM(file_size), 0) AS byte_count
+                FROM tasks
+                WHERE cancelled = 0 AND status IN ({placeholders})
+                  AND owner_id = ? AND tenant_id = ?
+                """,
+                (*ACTIVE_CAPACITY_STATUSES, owner_id, tenant_id),
+            ).fetchone()
+            capacity = {
+                "global_active_tasks": int(global_row["task_count"]),
+                "global_active_bytes": int(global_row["byte_count"]),
+                "owner_active_tasks": int(owner_row["task_count"]),
+                "owner_active_bytes": int(owner_row["byte_count"]),
+                "requested_tasks": requested_tasks,
+                "requested_bytes": requested_bytes,
+                "global_task_limit": int(global_task_limit),
+                "owner_task_limit": int(owner_task_limit),
+                "global_bytes_limit": int(global_bytes_limit),
+                "owner_bytes_limit": int(owner_bytes_limit),
+            }
+            exceeded = [
+                name
+                for name, current, requested, limit in (
+                    ("global_tasks", capacity["global_active_tasks"], requested_tasks, global_task_limit),
+                    ("owner_tasks", capacity["owner_active_tasks"], requested_tasks, owner_task_limit),
+                    ("global_bytes", capacity["global_active_bytes"], requested_bytes, global_bytes_limit),
+                    ("owner_bytes", capacity["owner_active_bytes"], requested_bytes, owner_bytes_limit),
+                )
+                if int(limit) > 0 and int(current) + int(requested) > int(limit)
+            ]
+            if exceeded:
+                conn.rollback()
+                return {"admitted": False, "reason": "capacity_exceeded", "exceeded": exceeded, **capacity}
+            for task in batch:
+                _insert_task_with_connection(conn, task)
+            conn.commit()
+            return {"admitted": True, "reason": "capacity_available", **capacity}
+        finally:
+            conn.close()
+
+
+def save_tasks_if_capacity(db_path, tasks, **kwargs):
+    """Compatibility wrapper for callers migrating to insert-only admission."""
+    return admit_tasks_if_capacity(db_path, tasks, **kwargs)
 
 
 def get_task(db_path, task_id, *, normalize_task=None):
@@ -421,6 +554,30 @@ def has_active_upstream_task(db_path):
         return row is not None
     finally:
         conn.close()
+
+
+def capacity_snapshot(db_path):
+    placeholders = ",".join("?" for _ in ACTIVE_CAPACITY_STATUSES)
+    conn = connect(db_path)
+    try:
+        row = conn.execute(
+            f"""
+            SELECT COUNT(*) AS active_tasks, COALESCE(SUM(file_size), 0) AS active_bytes
+            FROM tasks
+            WHERE cancelled = 0 AND status IN ({placeholders})
+            """,
+            ACTIVE_CAPACITY_STATUSES,
+        ).fetchone()
+        queued = conn.execute(
+            "SELECT COUNT(*) FROM tasks WHERE cancelled = 0 AND status = 'queued'"
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    return {
+        "active_tasks": int(row["active_tasks"]),
+        "active_bytes": int(row["active_bytes"]),
+        "queued_tasks": int(queued),
+    }
 
 
 def next_queued_task(db_path, *, normalize_task=None):

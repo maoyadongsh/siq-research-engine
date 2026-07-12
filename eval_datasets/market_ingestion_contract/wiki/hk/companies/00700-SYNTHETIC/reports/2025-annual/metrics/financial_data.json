@@ -1,0 +1,33 @@
+{
+  "reporting_currency": "HKD",
+  "period_end": "2025-12-31",
+  "statements": [
+    {
+      "statement_type": "income_statement",
+      "items": [
+        {
+          "name": "Revenue",
+          "canonical_name": "operating_revenue",
+          "values": {
+            "2025-12-31": 100
+          },
+          "raw_values": {
+            "2025-12-31": "100"
+          },
+          "sources": {
+            "2025-12-31": {
+              "source_type": "pdf_statement_table",
+              "source_id": "table_1",
+              "page_number": 12,
+              "table_index": 1,
+              "row_index": 2,
+              "column_index": 1
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "key_metrics": [],
+  "operating_metrics": []
+}

@@ -20,6 +20,7 @@
 - HTML 中 `/api/pdf_page` 或 `/api/source` 链接未使用 `target="_blank" rel="noopener noreferrer"`。
 - HTML/Markdown/JSON 出现 `/None`、`/unknown`、`pNone`、`punknown` 等无效证据链接或证据 ID。
 - 财务指标表混入 `task_id`、`pdf_page`、`table_index` 等证据元数据。
+- 可见正文把普通成本费用展示为负数，例如“营业成本为 -xxx”：`ordinary_expense_visible_negative:*`。利润桥内部 delta 为负可以表示流出，但读者可见的成本费用口径必须是正数流出。
 - 核心指标在源文件有三年值却被报告写成 `未返回`。
 - JSON 章节内容过薄。
 - 任一非 `data_quality_traceability` 章节缺少可识别的具体核心诊断：`section_without_core_diagnosis:*`。
