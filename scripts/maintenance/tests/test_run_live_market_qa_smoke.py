@@ -84,9 +84,7 @@ def test_fulltext_fallback_does_not_hide_incomplete_package():
     }
     runtime = SimpleNamespace(
         _three_statement_core_result=lambda question, context=None: (
-            None
-            if question == CASE["metric_question"]
-            else result([row("balance_sheet"), row("income_statement")])
+            None if question == CASE["metric_question"] else result([row("balance_sheet"), row("income_statement")])
         ),
         _wiki_fulltext_fallback_result=lambda question, context=None: fallback,
     )
@@ -132,3 +130,22 @@ def test_non_cn_package_requires_complete_research_identity():
     assert observed["passed"] is False
     assert "incomplete_package_company_report_identity" in observed["errors"]
     assert "incomplete_package_research_identity" in observed["errors"]
+
+
+def test_metric_and_package_must_resolve_to_the_same_report():
+    metric = result([row("income_statement")])
+    package = result(PACKAGE_ROWS)
+    package["report_id"] = "2024-annual"
+    runtime = SimpleNamespace(
+        _three_statement_core_result=lambda question, context=None: (
+            metric if question == CASE["metric_question"] else package
+        ),
+        _wiki_fulltext_fallback_result=lambda question, context=None: None,
+    )
+
+    observed = MODULE.evaluate_case(runtime, "HK", CASE)
+
+    assert observed["metric_evidence_pass"] is True
+    assert observed["three_statement_package_pass"] is False
+    assert observed["passed"] is False
+    assert "metric_package_report_mismatch" in observed["errors"]

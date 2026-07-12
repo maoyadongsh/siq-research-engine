@@ -54,11 +54,7 @@ def parse_args() -> argparse.Namespace:
 def _has_locator(row: dict[str, Any]) -> bool:
     pdf_locator = bool(
         row.get("task_id")
-        and (
-            row.get("pdf_page")
-            or row.get("table_index") not in (None, "")
-            or row.get("md_line") not in (None, "")
-        )
+        and (row.get("pdf_page") or row.get("table_index") not in (None, "") or row.get("md_line") not in (None, ""))
     )
     external_locator = bool(row.get("source_url") and (row.get("source_anchor") or row.get("xbrl_tag")))
     return pdf_locator or external_locator
@@ -138,6 +134,31 @@ def _package_errors(result: dict[str, Any] | None, market: str) -> list[str]:
     return errors
 
 
+def _scope_errors(
+    metric_result: dict[str, Any] | None,
+    package_result: dict[str, Any] | None,
+    *,
+    compare_company_id: bool,
+) -> list[str]:
+    if not metric_result or not package_result:
+        return []
+    errors: list[str] = []
+    metric_report_id = str(metric_result.get("report_id") or "").strip()
+    package_report_id = str(package_result.get("report_id") or "").strip()
+    if metric_report_id and package_report_id and metric_report_id != package_report_id:
+        errors.append("metric_package_report_mismatch")
+    metric_company_dir = str(metric_result.get("company_dir") or "").strip()
+    package_company_dir = str(package_result.get("company_dir") or "").strip()
+    if metric_company_dir and package_company_dir and metric_company_dir != package_company_dir:
+        errors.append("metric_package_company_mismatch")
+    elif compare_company_id:
+        metric_company_id = str(metric_result.get("company_id") or "").strip()
+        package_company_id = str(package_result.get("company_id") or "").strip()
+        if metric_company_id and package_company_id and metric_company_id != package_company_id:
+            errors.append("metric_package_company_mismatch")
+    return errors
+
+
 def evaluate_case(runtime: Any, market: str, case: dict[str, str]) -> dict[str, Any]:
     metric_question = case["metric_question"]
     package_question = case["package_question"]
@@ -158,6 +179,13 @@ def evaluate_case(runtime: Any, market: str, case: dict[str, str]) -> dict[str, 
     package_context = _research_context(structured_metric)
     package = runtime._three_statement_core_result(package_question, package_context)
     package_errors = _package_errors(package, market)
+    package_errors.extend(
+        _scope_errors(
+            structured_metric if metric_source == "structured" else fulltext_metric,
+            package,
+            compare_company_id=metric_source == "structured",
+        )
+    )
     three_statement_package_pass = not package_errors
     errors = [
         *([] if metric_evidence_pass else structured_metric_errors + fulltext_metric_errors),
