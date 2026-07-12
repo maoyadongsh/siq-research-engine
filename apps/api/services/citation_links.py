@@ -1,9 +1,8 @@
+import importlib
+import os
 import re
 import sys
-import os
-import importlib
-from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from services.path_config import HERMES_SHARED_SCRIPTS_ROOT, WIKI_ROOT
 
@@ -52,7 +51,9 @@ PRINTED_PAGE_RE = re.compile(
 )
 TABLE_INDEX_RE = re.compile(r"\btable_index=([0-9]+(?:\s*[,，]\s*[0-9]+)*)\b")
 CITATION_LINE_RE = re.compile(r"^\s*(\[[0-9]+\]).*$")
-LOCAL_API_LINK_RE = re.compile(r"\]\((?:https?://(?:localhost|127\.0\.0\.1)(?::[0-9]+)?)?(/api/(?:pdf_page|source)/[^)\s]+)\)")
+MARKDOWN_API_LINK_RE = re.compile(
+    r"\]\((?P<url>(?:https?://[^)\s]+)?/api/(?:pdf_page|source)/[^)\s]+)\)"
+)
 TRACE_LINK_RE = re.compile(r"[，,、\s]*\[[^\]]*(?:PDF|页来源|来源|表格|可读表格)[^\]]*\]\((?:https?://[^)\s]+|/api/(?:pdf_page|source)/[^)\s]+)\)")
 BARE_TRACE_LINK_RE = re.compile(
     r"[，,、\s]*(?:打开PDF页|打开PDF定位页[0-9]*|查看页来源|查看定位页[0-9]*来源|查看表格|查看可读表格[0-9]*)"
@@ -66,24 +67,56 @@ def _public_origin() -> str:
     return (os.environ.get("SIQ_PUBLIC_ORIGIN") or os.environ.get("SIQ_PUBLIC_ORIGIN", "https://arthurmao.synology.me:9391")).rstrip("/")
 
 
+def _source_task_id(path: str) -> str | None:
+    match = re.match(r"^/api/(?:pdf_page|source)/([0-9a-fA-F-]{32,36})/", path)
+    return match.group(1) if match else None
+
+
+def _create_source_access_token(task_id: str) -> str | None:
+    try:
+        from routers.source import create_source_access_token
+
+        return create_source_access_token(task_id)
+    except Exception:  # pragma: no cover - citation rendering must remain available during degraded startup
+        return None
+
+
+def _append_source_access_token(url: str) -> str:
+    parsed = urlsplit(url)
+    task_id = _source_task_id(parsed.path)
+    if not task_id:
+        return url
+    token = _create_source_access_token(task_id)
+    if not token:
+        return url
+    query = [
+        (key, value)
+        for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+        if key.casefold() not in {"source_token", "access_token"}
+    ]
+    query.append(("source_token", token))
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment))
+
+
 def _public_api_url(path: str) -> str:
     if not path:
         return path
     if path.startswith(("http://", "https://")):
         parsed = urlsplit(path)
         if parsed.hostname in {"localhost", "127.0.0.1"} and parsed.path.startswith("/api/"):
-            suffix = parsed.path
-            if parsed.query:
-                suffix = f"{suffix}?{parsed.query}"
-            return f"{_public_origin()}{suffix}"
-        return path
+            suffix = urlunsplit(("", "", parsed.path, parsed.query, parsed.fragment))
+            return _append_source_access_token(f"{_public_origin()}{suffix}")
+        return _append_source_access_token(path)
     if path.startswith("/api/"):
-        return f"{_public_origin()}{path}"
+        return _append_source_access_token(f"{_public_origin()}{path}")
     return path
 
 
 def _normalize_api_links(text: str) -> str:
-    return LOCAL_API_LINK_RE.sub(lambda match: f"]({_public_api_url(match.group(1))})", text)
+    return MARKDOWN_API_LINK_RE.sub(
+        lambda match: f"]({_public_api_url(match.group('url'))})",
+        text,
+    )
 
 
 def _strip_trace_links(line: str) -> str:
@@ -220,18 +253,21 @@ def append_missing_pdf_source_links(text: str) -> str:
         for page_pos, page in enumerate(pages):
             printed = printed_labels[page_pos] if page_pos < len(printed_labels) else ""
             suffix = f" / 印刷页{printed}" if printed and printed != str(page) else ""
-            page_url = _public_api_url(f"/api/pdf_page/{task_id}/{page}?format=html")
-            source_url = _public_api_url(f"/api/source/{task_id}/page/{page}?format=html")
-            if page_url not in line:
+            page_path = f"/api/pdf_page/{task_id}/{page}"
+            source_path = f"/api/source/{task_id}/page/{page}"
+            page_url = _public_api_url(f"{page_path}?format=html")
+            source_url = _public_api_url(f"{source_path}?format=html")
+            if page_path not in line:
                 links.append(f"[打开PDF定位页{page}{suffix}]({page_url})")
-            if source_url not in line:
+            if source_path not in line:
                 links.append(f"[查看定位页{page}来源{suffix}]({source_url})")
 
         table_match = TABLE_INDEX_RE.search(line)
         if table_match:
             for table_index in _page_numbers(table_match.group(1)):
-                table_url = _public_api_url(f"/api/source/{task_id}/table/{table_index}?format=html")
-                if table_url not in line:
+                table_path = f"/api/source/{task_id}/table/{table_index}"
+                table_url = _public_api_url(f"{table_path}?format=html")
+                if table_path not in line:
                     links.append(f"[查看可读表格{table_index}]({table_url})")
 
         if links:

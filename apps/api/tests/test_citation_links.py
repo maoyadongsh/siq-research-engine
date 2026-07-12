@@ -5,9 +5,12 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-sys.path.insert(0, "/home/maoyd/.hermes/profiles/shared/scripts")
+sys.path.insert(
+    0,
+    str(Path(__file__).resolve().parents[3] / "agents" / "hermes" / "profiles" / "shared" / "scripts"),
+)
 
-from local_citations import _report_table_records, primary_report, resolve_citation_refs
+from local_citations import _company_task_index, _report_table_records, primary_report, resolve_citation_refs
 from services.citation_links import append_missing_pdf_source_links
 
 from services import citation_links
@@ -53,6 +56,37 @@ def test_postprocessor_skips_citations_without_task_id_or_pdf_page(monkeypatch):
 """
 
     assert append_missing_pdf_source_links(text) == text.rstrip("\n")
+
+
+def test_postprocessor_signs_pdf_page_source_page_and_table_links(monkeypatch):
+    _disable_local_enricher(monkeypatch)
+    monkeypatch.setenv("SIQ_PUBLIC_ORIGIN", "https://public.example")
+    monkeypatch.setattr(citation_links, "_create_source_access_token", lambda task_id: f"signed-{task_id}")
+    text = (
+        f"[1] source_type=wiki_metrics, task_id={PURE_HELPER_TASK_ID}, "
+        "pdf_page=7, table_index=3"
+    )
+
+    cleaned = append_missing_pdf_source_links(text)
+
+    assert cleaned.count(f"source_token=signed-{PURE_HELPER_TASK_ID}") == 3
+    assert f"/api/pdf_page/{PURE_HELPER_TASK_ID}/7?format=html&source_token=" in cleaned
+    assert f"/api/source/{PURE_HELPER_TASK_ID}/page/7?format=html&source_token=" in cleaned
+    assert f"/api/source/{PURE_HELPER_TASK_ID}/table/3?format=html&source_token=" in cleaned
+
+
+def test_postprocessor_replaces_unsigned_existing_source_link(monkeypatch):
+    _disable_local_enricher(monkeypatch)
+    monkeypatch.setattr(citation_links, "_create_source_access_token", lambda _task_id: "signed-token")
+    text = (
+        f"[1] source_type=wiki_metrics, task_id={PURE_HELPER_TASK_ID}, pdf_page=7，"
+        f"[打开PDF定位页7](https://public.example/api/pdf_page/{PURE_HELPER_TASK_ID}/7?format=html)"
+    )
+
+    cleaned = append_missing_pdf_source_links(text)
+
+    assert cleaned.count(f"/api/pdf_page/{PURE_HELPER_TASK_ID}/7") == 1
+    assert "format=html&source_token=signed-token" in cleaned
 
 
 def test_postprocessor_normalizes_local_api_links_preserving_query_and_fragment(monkeypatch):
@@ -413,6 +447,10 @@ def test_balance_sheet_document_link_citation_is_corrected_to_main_statement_tab
 
 
 @pytest.mark.slow
+@pytest.mark.skipif(
+    SABIC_TASK_ID not in _company_task_index(),
+    reason="requires the local SABIC Wiki fixture",
+)
 def test_sabic_report_markdown_citations_use_real_pages_and_tables():
     text = f"""SABIC 人效数据如下。
 
@@ -441,6 +479,10 @@ def test_sabic_report_markdown_citations_use_real_pages_and_tables():
 
 
 @pytest.mark.slow
+@pytest.mark.skipif(
+    BASF_TASK_ID not in _company_task_index(),
+    reason="requires the local BASF Wiki fixture",
+)
 def test_report_markdown_citation_treats_out_of_range_page_as_possible_line_anchor():
     text = f"""BASF 净利润溯源。
 

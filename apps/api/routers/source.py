@@ -1,6 +1,6 @@
-import html
 import hashlib
 import hmac
+import html
 import os
 import re
 import time
@@ -9,19 +9,21 @@ from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
+from database import get_async_session
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlmodel import Session, select
-from sqlmodel.ext.asyncio.session import AsyncSession
-
-from database import get_async_session
 from services.auth_dependencies import get_current_user
 from services.auth_service import AuthService, User
 from services.usage_service import UserArtifact
-
+from sqlmodel import Session, select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 PDF2MD_API_BASE = (os.environ.get("SIQ_PDF2MD_API_BASE") or os.environ.get("PDF2MD_API_BASE", "http://127.0.0.1:15000")).rstrip("/")
+PDF2MD_FALLBACK_API_BASE = (
+    os.environ.get("SIQ_PDF2MD_FALLBACK_API_BASE")
+    or os.environ.get("PDF2MD_FALLBACK_API_BASE", "http://127.0.0.1:5000")
+).rstrip("/")
 PDF2MD_ACCESS_TOKEN = (os.environ.get("SIQ_PDF2MD_ACCESS_TOKEN") or os.environ.get("PDF2MD_ACCESS_TOKEN", "")).strip()
 PDF2MD_PROXY_TIMEOUT = float(os.environ.get("SIQ_PDF2MD_PROXY_TIMEOUT") or os.environ.get("PDF2MD_PROXY_TIMEOUT", "60"))
 PUBLIC_ORIGIN = (os.environ.get("SIQ_PUBLIC_ORIGIN") or os.environ.get("SIQ_PUBLIC_ORIGIN", "https://arthurmao.synology.me:9391")).rstrip("/")
@@ -59,6 +61,10 @@ def _pdf2md_headers(extra: dict[str, str] | None = None) -> dict[str, str]:
     if PDF2MD_ACCESS_TOKEN:
         headers.setdefault("X-PDF2MD-Token", PDF2MD_ACCESS_TOKEN)
     return headers
+
+
+def _pdf2md_api_bases() -> tuple[str, ...]:
+    return tuple(dict.fromkeys(base for base in (PDF2MD_API_BASE, PDF2MD_FALLBACK_API_BASE) if base))
 
 
 def _owner_scope_headers(
@@ -355,7 +361,6 @@ async def _request_pdf2md(
     extra_headers: dict[str, str] | None = None,
 ) -> httpx.Response:
     request_method = method or request.method
-    url = f"{PDF2MD_API_BASE}{upstream_path}"
     upstream_params = [
         (key, value)
         for key, value in request.query_params.multi_items()
@@ -371,34 +376,40 @@ async def _request_pdf2md(
         if content_type:
             kwargs["headers"] = _pdf2md_headers({**(extra_headers or {}), "content-type": content_type})
 
-    try:
-        async with httpx.AsyncClient(timeout=PDF2MD_PROXY_TIMEOUT) as client:
-            return await client.request(request_method, url, **kwargs)
-    except httpx.RequestError as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=f"PDF parser source service unavailable: {_redact_source_auth_text(exc)}",
-        ) from exc
+    last_error: httpx.RequestError | None = None
+    async with httpx.AsyncClient(timeout=PDF2MD_PROXY_TIMEOUT) as client:
+        for base in _pdf2md_api_bases():
+            try:
+                return await client.request(request_method, f"{base}{upstream_path}", **kwargs)
+            except httpx.RequestError as exc:
+                last_error = exc
+                continue
+    detail = _redact_source_auth_text(last_error) if last_error else "no configured parser endpoint"
+    raise HTTPException(
+        status_code=502,
+        detail=f"PDF parser source service unavailable: {detail}",
+    ) from last_error
 
 
 async def _source_page_data(task_id: str, page_number: int) -> dict[str, Any] | None:
-    try:
-        async with httpx.AsyncClient(timeout=PDF2MD_PROXY_TIMEOUT) as client:
-            response = await client.get(
-                f"{PDF2MD_API_BASE}/api/source/{task_id}/page/{page_number}",
-                headers=_pdf2md_headers(),
-            )
-    except httpx.RequestError:
-        return None
-    if response.status_code >= 400:
-        return None
-    try:
-        data = response.json()
-    except ValueError:
-        return None
-    if not isinstance(data, dict):
-        return None
-    return data
+    async with httpx.AsyncClient(timeout=PDF2MD_PROXY_TIMEOUT) as client:
+        for base in _pdf2md_api_bases():
+            try:
+                response = await client.get(
+                    f"{base}/api/source/{task_id}/page/{page_number}",
+                    headers=_pdf2md_headers(),
+                )
+            except httpx.RequestError:
+                continue
+            if response.status_code >= 400:
+                continue
+            try:
+                data = response.json()
+            except ValueError:
+                continue
+            if isinstance(data, dict):
+                return data
+    return None
 
 
 async def _proxy_pdf2md(

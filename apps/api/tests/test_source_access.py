@@ -417,6 +417,45 @@ def test_request_pdf2md_does_not_forward_source_tokens(monkeypatch):
     assert "authorization" not in {key.lower() for key in calls["kwargs"]["headers"]}
 
 
+def test_request_pdf2md_falls_back_to_stable_local_parser(monkeypatch):
+    calls = []
+
+    class FakeAsyncClient:
+        def __init__(self, *, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return None
+
+        async def request(self, method, url, **kwargs):
+            calls.append(url)
+            if url.startswith("http://primary.invalid"):
+                raise httpx.ConnectError("primary unavailable")
+            return httpx.Response(200, json={"fallback": True})
+
+    async def run_case():
+        monkeypatch.setattr(source.httpx, "AsyncClient", FakeAsyncClient)
+        monkeypatch.setattr(source, "PDF2MD_API_BASE", "http://primary.invalid")
+        monkeypatch.setattr(source, "PDF2MD_FALLBACK_API_BASE", "http://stable-parser")
+        request = SimpleNamespace(
+            method="GET",
+            query_params=QueryParams({"format": "json"}),
+            headers={},
+        )
+        response = await source._request_pdf2md(request, "/api/pdf_page/task-a/1")
+        assert response.status_code == 200
+        assert response.json() == {"fallback": True}
+
+    anyio.run(run_case)
+    assert calls == [
+        "http://primary.invalid/api/pdf_page/task-a/1",
+        "http://stable-parser/api/pdf_page/task-a/1",
+    ]
+
+
 def test_source_table_route_uses_async_authorization_before_proxy(monkeypatch):
     calls = {}
 
@@ -562,9 +601,9 @@ def test_authorize_task_access_accepts_existing_signed_token(monkeypatch):
 
 def test_user_has_task_access_accepts_parse_artifact(tmp_path):
     pytest.importorskip("sqlmodel")
-    from sqlmodel import Session, SQLModel, create_engine
     from services.auth_service import User
     from services.usage_service import UserArtifact
+    from sqlmodel import Session, SQLModel, create_engine
 
     engine = create_engine(f"sqlite:///{tmp_path / 'source-access.db'}")
     SQLModel.metadata.create_all(engine)
