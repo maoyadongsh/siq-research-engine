@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import socket
@@ -241,6 +242,132 @@ class StreamEvent:
     duration: float | None = None
     error: bool = False
     status: str = ""
+    error_code: str | None = None
+    retryable: bool | None = None
+
+
+RunTerminalStatus = Literal["succeeded", "failed", "cancelled", "timed_out", "protocol_eof"]
+RUN_TERMINAL_SCHEMA_VERSION = "siq.hermes.run_terminal.v1"
+
+
+@dataclass(frozen=True)
+class RunTerminalResult:
+    """Versioned business terminal shared by streamed and collected Hermes runs."""
+
+    run_id: str
+    status: RunTerminalStatus
+    received_text: str = ""
+    error_code: str | None = None
+    retryable: bool = False
+    diagnostic: str | None = None
+    schema_version: str = RUN_TERMINAL_SCHEMA_VERSION
+
+    @property
+    def succeeded(self) -> bool:
+        return self.status == "succeeded"
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "run_id": self.run_id,
+            "status": self.status,
+            "error_code": self.error_code,
+            "retryable": self.retryable,
+            "received_text": self.received_text,
+            "diagnostic": self.diagnostic,
+        }
+
+
+class RunTerminalError(RuntimeError):
+    """Raised by the legacy text collector when Hermes did not succeed."""
+
+    def __init__(self, result: RunTerminalResult):
+        self.result = result
+        super().__init__(result.diagnostic or result.error_code or result.status)
+
+
+class RunTerminalAccumulator:
+    """Project Hermes events into exactly one immutable terminal result."""
+
+    def __init__(self, run_id: str):
+        self.run_id = run_id
+        self.received_text = ""
+        self.terminal: RunTerminalResult | None = None
+
+    def accept(self, event: StreamEvent) -> RunTerminalResult | None:
+        if self.terminal is not None:
+            return self.terminal
+        if event.type == "delta":
+            self.received_text += event.text
+            return None
+        if event.type not in {"done", "failed", "cancelled"}:
+            return None
+
+        if event.type == "done":
+            text = _merge_terminal_text(self.received_text, event.text)
+            self.terminal = RunTerminalResult(
+                run_id=self.run_id,
+                status="succeeded",
+                received_text=text,
+            )
+            return self.terminal
+
+        status: RunTerminalStatus = "failed" if event.type == "failed" else "cancelled"
+        error_code = event.error_code or f"hermes_run_{status}"
+        retryable = event.retryable if event.retryable is not None else status == "failed"
+        self.terminal = RunTerminalResult(
+            run_id=self.run_id,
+            status=status,
+            received_text=self.received_text,
+            error_code=error_code,
+            retryable=retryable,
+            diagnostic=event.text.strip() or None,
+        )
+        return self.terminal
+
+    def protocol_eof(self) -> RunTerminalResult:
+        if self.terminal is None:
+            self.terminal = RunTerminalResult(
+                run_id=self.run_id,
+                status="protocol_eof",
+                received_text=self.received_text,
+                error_code="hermes_protocol_eof",
+                retryable=True,
+                diagnostic="Hermes event stream ended without a terminal event",
+            )
+        return self.terminal
+
+    def timed_out(self, diagnostic: str | None = None) -> RunTerminalResult:
+        if self.terminal is None:
+            self.terminal = RunTerminalResult(
+                run_id=self.run_id,
+                status="timed_out",
+                received_text=self.received_text,
+                error_code="hermes_run_timed_out",
+                retryable=True,
+                diagnostic=diagnostic or "Hermes run timed out",
+            )
+        return self.terminal
+
+
+def _merge_terminal_text(received_text: str, terminal_text: str) -> str:
+    return terminal_text or received_text
+
+
+def terminal_result_from_exception(
+    run_id: str,
+    exc: BaseException,
+    *,
+    received_text: str = "",
+) -> RunTerminalResult:
+    return RunTerminalResult(
+        run_id=run_id,
+        status="timed_out",
+        received_text=received_text,
+        error_code="hermes_run_timed_out",
+        retryable=True,
+        diagnostic=str(exc) or exc.__class__.__name__,
+    )
 
 
 def normalize_profile(profile: str) -> HermesProfile:
@@ -360,12 +487,29 @@ async def stream_run(
 
                 elif event_type in ("run.completed", "run.failed", "run.cancelled"):
                     output = event.get("output", "")
+                    if not isinstance(output, str):
+                        output = json.dumps(output, ensure_ascii=False)
                     status = event_type.removeprefix("run.")
+                    error_payload = event.get("error")
+                    diagnostic = output
+                    error_code = None
+                    retryable = None
+                    if isinstance(error_payload, dict):
+                        error_code = str(error_payload.get("code") or "").strip() or None
+                        retryable_value = error_payload.get("retryable")
+                        retryable = retryable_value if isinstance(retryable_value, bool) else None
+                        diagnostic = str(
+                            error_payload.get("message") or error_payload.get("detail") or output or ""
+                        )
+                    elif error_payload and not output:
+                        diagnostic = str(error_payload)
                     yield StreamEvent(
                         type="done" if status == "completed" else status,
-                        text=output,
+                        text=diagnostic,
                         error=status != "completed",
                         status=status,
+                        error_code=error_code,
+                        retryable=retryable,
                     )
                     break
 
@@ -386,22 +530,32 @@ async def stop_run(
         return resp.json()
 
 
+async def collect_run_terminal_result(
+    run_id: str,
+    *,
+    profile: HermesProfile | str = "siq_assistant",
+    timeout: float | httpx.Timeout | None = None,
+) -> RunTerminalResult:
+    """Collect a Hermes stream into the canonical versioned terminal contract."""
+    accumulator = RunTerminalAccumulator(run_id)
+    try:
+        async for event in stream_run(run_id, profile=profile, timeout=timeout):
+            terminal = accumulator.accept(event)
+            if terminal is not None:
+                return terminal
+    except (asyncio.TimeoutError, httpx.TimeoutException) as exc:
+        return accumulator.timed_out(str(exc) or exc.__class__.__name__)
+    return accumulator.protocol_eof()
+
+
 async def collect_run_result(
     run_id: str,
     *,
     profile: HermesProfile | str = "siq_assistant",
     timeout: float | httpx.Timeout | None = None,
 ) -> str:
-    """Stream a run to completion and return the full text output."""
-    full_text = ""
-    async for ev in stream_run(run_id, profile=profile, timeout=timeout):
-        if ev.type == "delta":
-            full_text += ev.text
-        elif ev.type == "done":
-            if ev.text:
-                return ev.text
-        elif ev.type in {"failed", "cancelled"}:
-            status_label = "失败" if ev.type == "failed" else "已取消"
-            detail = ev.text.strip() if ev.text else f"Hermes run {ev.type}"
-            return f"[{status_label}] {detail}"
-    return full_text
+    """Compatibility text API that only returns successful Hermes output."""
+    result = await collect_run_terminal_result(run_id, profile=profile, timeout=timeout)
+    if not result.succeeded:
+        raise RunTerminalError(result)
+    return result.received_text

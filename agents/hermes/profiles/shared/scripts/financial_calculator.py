@@ -12,7 +12,7 @@ import argparse
 import json
 import re
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, getcontext
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation, getcontext
 from typing import Any
 
 getcontext().prec = 36
@@ -434,13 +434,45 @@ def ratio(args: argparse.Namespace) -> dict[str, Any]:
     warnings.extend(fx_warnings(numerator.currency, numerator_fx, args.fx_date, args.fx_source))
     warnings.extend(fx_warnings(denominator.currency, denominator_fx, args.fx_date, args.fx_source))
     if left is None or right is None:
-        return {"status": "fx_required", "operation": "ratio", "warnings": warnings}
+        return {
+            "status": "fx_required",
+            "operation": "ratio",
+            "input": {
+                "numerator": str(args.numerator),
+                "numerator_unit": args.numerator_unit,
+                "numerator_currency": args.numerator_currency or numerator.currency,
+                "denominator": str(args.denominator),
+                "denominator_unit": args.denominator_unit,
+                "denominator_currency": args.denominator_currency or denominator.currency,
+            },
+            "warnings": warnings,
+        }
     if right == 0:
-        return {"status": "division_by_zero", "operation": "ratio", "warnings": warnings}
+        return {
+            "status": "division_by_zero",
+            "operation": "ratio",
+            "input": {
+                "numerator": str(args.numerator),
+                "numerator_unit": args.numerator_unit,
+                "numerator_currency": args.numerator_currency or numerator.currency,
+                "denominator": str(args.denominator),
+                "denominator_unit": args.denominator_unit,
+                "denominator_currency": args.denominator_currency or denominator.currency,
+            },
+            "warnings": warnings,
+        }
     value = left / right
     return {
         "status": "ok",
         "operation": "ratio",
+        "input": {
+            "numerator": str(args.numerator),
+            "numerator_unit": args.numerator_unit,
+            "numerator_currency": args.numerator_currency or numerator.currency,
+            "denominator": str(args.denominator),
+            "denominator_unit": args.denominator_unit,
+            "denominator_currency": args.denominator_currency or denominator.currency,
+        },
         "result": {"ratio": plain(value), "percent": plain(value * Decimal("100")), "percent_unit": "%"},
         "display": f"{fixed(value * Decimal('100'), 2)}%",
         "formula": [f"{plain(left)} {unit} / {plain(right)} {unit} = {plain(value)} = {plain(value * Decimal('100'))}%"],
@@ -457,14 +489,47 @@ def yoy(args: argparse.Namespace) -> dict[str, Any]:
     warnings.extend(fx_warnings(current.currency, current_fx, args.fx_date, args.fx_source))
     warnings.extend(fx_warnings(previous.currency, previous_fx, args.fx_date, args.fx_source))
     if cur is None or prev is None:
-        return {"status": "fx_required", "operation": "yoy", "warnings": warnings}
+        return {
+            "status": "fx_required",
+            "operation": "yoy",
+            "input": {
+                "current": str(args.current),
+                "current_unit": args.current_unit,
+                "current_currency": args.current_currency or current.currency,
+                "previous": str(args.previous),
+                "previous_unit": args.previous_unit,
+                "previous_currency": args.previous_currency or previous.currency,
+            },
+            "warnings": warnings,
+        }
     if prev == 0:
-        return {"status": "not_applicable", "operation": "yoy", "reason": "previous value is zero", "warnings": warnings}
+        return {
+            "status": "not_applicable",
+            "operation": "yoy",
+            "reason": "previous value is zero",
+            "input": {
+                "current": str(args.current),
+                "current_unit": args.current_unit,
+                "current_currency": args.current_currency or current.currency,
+                "previous": str(args.previous),
+                "previous_unit": args.previous_unit,
+                "previous_currency": args.previous_currency or previous.currency,
+            },
+            "warnings": warnings,
+        }
     delta = cur - prev
     if prev < 0 and not args.allow_negative_base:
         return {
             "status": "not_applicable",
             "operation": "yoy",
+            "input": {
+                "current": str(args.current),
+                "current_unit": args.current_unit,
+                "current_currency": args.current_currency or current.currency,
+                "previous": str(args.previous),
+                "previous_unit": args.previous_unit,
+                "previous_currency": args.previous_currency or previous.currency,
+            },
             "reason": "previous value is negative; use absolute delta or describe turnround instead of a normal growth rate",
             "result": {
                 "delta": plain(delta),
@@ -477,6 +542,14 @@ def yoy(args: argparse.Namespace) -> dict[str, Any]:
     return {
         "status": "ok",
         "operation": "yoy",
+        "input": {
+            "current": str(args.current),
+            "current_unit": args.current_unit,
+            "current_currency": args.current_currency or current.currency,
+            "previous": str(args.previous),
+            "previous_unit": args.previous_unit,
+            "previous_currency": args.previous_currency or previous.currency,
+        },
         "result": {
             "delta": plain(delta),
             "delta_unit": unit,
@@ -495,17 +568,52 @@ def cagr(args: argparse.Namespace) -> dict[str, Any]:
     end = build_money(args.end, args.end_unit, args.end_currency or args.currency)
     periods = as_decimal(args.periods, "periods")
     if periods <= 0:
-        return {"status": "not_applicable", "operation": "cagr", "reason": "periods must be positive"}
+        return {
+            "status": "not_applicable",
+            "operation": "cagr",
+            "reason": "periods must be positive",
+            "input": {
+                "start": str(args.start),
+                "start_unit": args.start_unit,
+                "start_currency": args.start_currency or start.currency,
+                "end": str(args.end),
+                "end_unit": args.end_unit,
+                "end_currency": args.end_currency or end.currency,
+                "periods": str(args.periods),
+            },
+        }
     start_fx = fx_decimal(args.start_fx_to_cny or args.fx_to_cny)
     end_fx = fx_decimal(args.end_fx_to_cny or args.fx_to_cny)
     start_base, end_base, unit, warnings = comparable_bases(start, end, start_fx, end_fx)
     if start_base is None or end_base is None:
-        return {"status": "fx_required", "operation": "cagr", "warnings": warnings}
+        return {
+            "status": "fx_required",
+            "operation": "cagr",
+            "input": {
+                "start": str(args.start),
+                "start_unit": args.start_unit,
+                "start_currency": args.start_currency or start.currency,
+                "end": str(args.end),
+                "end_unit": args.end_unit,
+                "end_currency": args.end_currency or end.currency,
+                "periods": str(args.periods),
+            },
+            "warnings": warnings,
+        }
     if start_base <= 0 or end_base <= 0:
         return {
             "status": "not_applicable",
             "operation": "cagr",
             "reason": "CAGR requires positive start and end values",
+            "input": {
+                "start": str(args.start),
+                "start_unit": args.start_unit,
+                "start_currency": args.start_currency or start.currency,
+                "end": str(args.end),
+                "end_unit": args.end_unit,
+                "end_currency": args.end_currency or end.currency,
+                "periods": str(args.periods),
+            },
             "warnings": warnings,
         }
     # Decimal has no fractional power. Use float only after base-unit
@@ -514,6 +622,15 @@ def cagr(args: argparse.Namespace) -> dict[str, Any]:
     return {
         "status": "ok",
         "operation": "cagr",
+        "input": {
+            "start": str(args.start),
+            "start_unit": args.start_unit,
+            "start_currency": args.start_currency or start.currency,
+            "end": str(args.end),
+            "end_unit": args.end_unit,
+            "end_currency": args.end_currency or end.currency,
+            "periods": str(args.periods),
+        },
         "result": {"rate": plain(rate), "percent": plain(rate * Decimal("100")), "percent_unit": "%"},
         "display": f"{fixed(rate * Decimal('100'), 2)}%",
         "formula": [f"({plain(end_base)} {unit} / {plain(start_base)} {unit})^(1/{plain(periods)}) - 1 = {plain(rate)}"],

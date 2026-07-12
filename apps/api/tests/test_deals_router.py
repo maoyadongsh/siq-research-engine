@@ -1384,6 +1384,30 @@ def test_deals_router_build_and_read_evidence(monkeypatch, tmp_path):
     assert item.json()["evidence"]["document_id"] == document_id
 
 
+def test_deals_router_r1_agent_returns_conflict_for_active_claim(monkeypatch, tmp_path):
+    client = _client(monkeypatch, tmp_path)
+    deal_store.create_deal_package(deal_id="DEAL-CLAIM-CONFLICT", company_name="Claim Robotics")
+
+    async def fake_run(*_args, **_kwargs):
+        raise ic_agent_runtime.ICTaskAlreadyClaimedError(
+            {
+                "task_key": "DEAL-CLAIM-CONFLICT:R1:siq_ic_strategist",
+                "attempt": 1,
+                "lease_expires_at": "2026-07-12T09:02:00Z",
+            }
+        )
+
+    monkeypatch.setattr(ic_agent_runtime, "run_workflow_r1_agent", fake_run)
+
+    response = client.post(
+        "/api/deals/DEAL-CLAIM-CONFLICT/workflow/run-r1-agent",
+        json={"profile_id": "siq_ic_strategist", "round_name": "R1", "dry_run": False},
+    )
+
+    assert response.status_code == 409
+    assert "already running" in response.json()["detail"]
+
+
 def test_deals_router_r2_r3_r4_workflow_endpoints(monkeypatch, tmp_path):
     client = _client(monkeypatch, tmp_path)
     assert client.post(

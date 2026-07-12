@@ -30,4 +30,4 @@ EXPOSE 15010
 
 USER siq
 
-CMD ["python", "app.py"]
+CMD ["gunicorn", "--bind", "0.0.0.0:15010", "--workers", "1", "--threads", "8", "--timeout", "300", "--graceful-timeout", "30", "--keep-alive", "5", "--worker-tmp-dir", "/tmp", "--access-logfile", "-", "--error-logfile", "-", "wsgi:app"]

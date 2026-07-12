@@ -3,16 +3,22 @@
 用户认证与权限管理系统
 为SIQ添加企业级用户体系和权限控制
 """
-from datetime import datetime, timedelta
-from typing import Optional, List
-from enum import Enum
 import hashlib
 import hmac
 import os
 import secrets
+import stat
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from enum import Enum
+from pathlib import Path
+from typing import List, Optional
+
 import jwt
 from pydantic import BaseModel, EmailStr
-from sqlmodel import SQLModel, Field, Relationship
+from sqlmodel import Field, Relationship, SQLModel
+
+from services.path_config import ARTIFACTS_ROOT
 
 # ============ 用户角色定义 ============
 
@@ -122,9 +128,9 @@ class ReportReview(SQLModel, table=True):
     generated_at: datetime
     version: int = Field(default=1)
 
-    # 数字签名（确保报告未被篡改）
+    # 内容指纹和服务端 HMAC；保留字段名以兼容已有数据库/API。
     content_hash: str = Field(max_length=64)  # SHA256哈希
-    signature: Optional[str] = Field(max_length=500)  # 数字签名
+    signature: Optional[str] = Field(max_length=500)  # 服务端 HMAC 完整性签名
 
     # 关系
     reviewer: Optional[User] = Relationship(back_populates="report_reviews")
@@ -332,29 +338,158 @@ class AuditLogger:
         return log
 
 
-# ============ 报告签名服务 ============
+# ============ 报告审核 artifact 与完整性服务 ============
+
+
+class ReportArtifactError(ValueError):
+    """A report artifact failed the server-side path or content policy."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
+@dataclass(frozen=True)
+class ReportArtifact:
+    root: Path
+    path: Path
+    identity: str
+    content: str
+
+
+class ReportArtifactPolicy:
+    """Resolve caller input to a bounded, regular UTF-8 artifact."""
+
+    DEFAULT_MAX_BYTES = 10 * 1024 * 1024
+
+    @staticmethod
+    def root() -> Path:
+        configured = os.getenv("SIQ_REPORT_REVIEW_ROOT", "").strip()
+        return Path(configured).expanduser().resolve() if configured else ARTIFACTS_ROOT.resolve()
+
+    @classmethod
+    def max_bytes(cls) -> int:
+        try:
+            return max(1, int(os.getenv("SIQ_REPORT_REVIEW_MAX_BYTES", str(cls.DEFAULT_MAX_BYTES))))
+        except ValueError:
+            return cls.DEFAULT_MAX_BYTES
+
+    @staticmethod
+    def _reject_symlink_components(root: Path, relative_path: Path) -> None:
+        current = root
+        for part in relative_path.parts:
+            current = current / part
+            if current.is_symlink():
+                raise ReportArtifactError("invalid_path")
+
+    @classmethod
+    def resolve_and_read(cls, raw_path: str, *, max_bytes: int | None = None) -> ReportArtifact:
+        raw_value = str(raw_path or "").strip()
+        if not raw_value or "\x00" in raw_value or "\\" in raw_value:
+            raise ReportArtifactError("invalid_path")
+
+        requested = Path(raw_value).expanduser()
+        if ".." in requested.parts:
+            raise ReportArtifactError("invalid_path")
+
+        root = cls.root()
+        candidate = requested if requested.is_absolute() else root / requested
+        resolved = candidate.resolve(strict=False)
+        try:
+            relative_path = resolved.relative_to(root)
+        except ValueError as exc:
+            raise ReportArtifactError("invalid_path") from exc
+        if not relative_path.parts:
+            raise ReportArtifactError("invalid_path")
+
+        cls._reject_symlink_components(root, relative_path)
+        try:
+            file_stat = resolved.stat(follow_symlinks=False)
+        except FileNotFoundError as exc:
+            raise ReportArtifactError("not_found") from exc
+        except OSError as exc:
+            raise ReportArtifactError("invalid_path") from exc
+        if not stat.S_ISREG(file_stat.st_mode):
+            raise ReportArtifactError("invalid_path")
+
+        max_bytes = cls.max_bytes() if max_bytes is None else max(1, max_bytes)
+        if file_stat.st_size > max_bytes:
+            raise ReportArtifactError("too_large")
+
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        try:
+            descriptor = os.open(resolved, flags)
+        except OSError as exc:
+            raise ReportArtifactError("invalid_path") from exc
+        try:
+            with os.fdopen(descriptor, "rb") as report_file:
+                current_stat = os.fstat(report_file.fileno())
+                if not stat.S_ISREG(current_stat.st_mode):
+                    raise ReportArtifactError("invalid_path")
+                content_bytes = report_file.read(max_bytes + 1)
+        except ReportArtifactError:
+            raise
+        except OSError as exc:
+            raise ReportArtifactError("invalid_path") from exc
+        if len(content_bytes) > max_bytes:
+            raise ReportArtifactError("too_large")
+        try:
+            content = content_bytes.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ReportArtifactError("unsupported_encoding") from exc
+
+        return ReportArtifact(
+            root=root,
+            path=resolved,
+            identity=relative_path.as_posix(),
+            content=content,
+        )
 
 class ReportSignature:
-    """报告数字签名服务"""
+    """报告内容指纹与服务端 HMAC 完整性签名。"""
+
+    SIGNATURE_PREFIX = "hmac-sha256:v1"
 
     @staticmethod
     def calculate_hash(content: str) -> str:
-        """计算内容哈希"""
+        """计算可公开比较的内容指纹。"""
         return hashlib.sha256(content.encode()).hexdigest()
 
     @staticmethod
-    def sign_report(content: str, user_id: int) -> str:
-        """签名报告"""
-        content_hash = ReportSignature.calculate_hash(content)
-        signature_data = f"{content_hash}:{user_id}:{datetime.utcnow().isoformat()}"
-        signature = hashlib.sha256(signature_data.encode()).hexdigest()
-        return signature
+    def _signature_digest(content_hash: str, user_id: int) -> str:
+        message = f"siq-report-review:v1\n{user_id}\n{content_hash}".encode()
+        return hmac.new(AuthService.secret_key().encode(), message, hashlib.sha256).hexdigest()
 
     @staticmethod
-    def verify_signature(content: str, content_hash: str) -> bool:
-        """验证签名"""
+    def sign_report(content: str, user_id: int) -> str:
+        """使用仅服务端持有的认证密钥签名报告内容和审核人身份。"""
+        content_hash = ReportSignature.calculate_hash(content)
+        digest = ReportSignature._signature_digest(content_hash, user_id)
+        return f"{ReportSignature.SIGNATURE_PREFIX}:{user_id}:{digest}"
+
+    @staticmethod
+    def verify_signature(
+        content: str,
+        content_hash: str,
+        signature: str | None = None,
+        *,
+        user_id: int | None = None,
+    ) -> bool:
+        """验证内容指纹以及服务端 HMAC；旧的无签名调用安全地返回 False。"""
         current_hash = ReportSignature.calculate_hash(content)
-        return current_hash == content_hash
+        if not hmac.compare_digest(current_hash, str(content_hash or "")) or not signature:
+            return False
+        try:
+            prefix, version, signed_user_id, supplied_digest = signature.split(":", 3)
+            if f"{prefix}:{version}" != ReportSignature.SIGNATURE_PREFIX:
+                return False
+            parsed_user_id = int(signed_user_id)
+        except (TypeError, ValueError):
+            return False
+        if user_id is not None and parsed_user_id != user_id:
+            return False
+        expected_digest = ReportSignature._signature_digest(content_hash, parsed_user_id)
+        return hmac.compare_digest(supplied_digest, expected_digest)
 
 
 # ============ Pydantic模型（API接口） ============

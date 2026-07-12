@@ -222,6 +222,7 @@ def test_tracking_history_route_wraps_messages_and_session_id(monkeypatch):
                 "created_at": "2026-01-02T03:04:05",
                 "attachments": [],
                 "audit_trace_id": "aat_1234567890abcdef1234567890abcdef",
+                "research_identity": None,
             }
         ],
         "session_id": "resolved-tracking-session",

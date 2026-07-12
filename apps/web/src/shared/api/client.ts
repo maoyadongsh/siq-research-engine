@@ -80,6 +80,27 @@ export function accessToken() {
   return readStoredAccessToken()
 }
 
+export const SESSION_INVALIDATED_EVENT = 'siq:session-invalidated'
+let sessionInvalidationPending = false
+
+/** Notify the auth boundary once when an authenticated same-origin API session expires. */
+function notifySessionInvalidated(url: string, status: number) {
+  if (status !== 401 || !shouldAttachAuth(url) || typeof window === 'undefined') return
+  let pathname: string
+  try {
+    pathname = new URL(url, window.location.origin).pathname
+  } catch {
+    return
+  }
+  if (/\/api\/auth\/(?:login|logout)$/.test(pathname) || sessionInvalidationPending) return
+  sessionInvalidationPending = true
+  window.dispatchEvent(new CustomEvent(SESSION_INVALIDATED_EVENT, { detail: { url, status } }))
+}
+
+export function resetSessionInvalidationChannel() {
+  sessionInvalidationPending = false
+}
+
 function truthyFlag(value: unknown): boolean {
   return ['1', 'true', 'yes', 'on'].includes(String(value ?? '').trim().toLowerCase())
 }
@@ -232,7 +253,9 @@ export async function apiFetch(input: RequestInfo | URL, init: ApiRequestInit = 
   if (requestInit.credentials === undefined && authCookieModeEnabled() && shouldAttachAuth(url)) {
     requestInit.credentials = 'include'
   }
-  return globalThis.fetch(input, requestInit)
+  const response = await globalThis.fetch(input, requestInit)
+  notifySessionInvalidated(url, response.status)
+  return response
 }
 
 export async function apiStreamFetch(input: RequestInfo | URL, init: ApiRequestInit = {}) {

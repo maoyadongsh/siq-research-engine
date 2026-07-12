@@ -2,9 +2,12 @@
 
 SIQ_COMPOSE_BIND_HOST=127.0.0.1
 SIQ_DEPLOYMENT_PROFILE=local
+SIQ_METRICS_TOKEN=
 SIQ_DATA_ROOT=/state/data
 SIQ_RUNTIME_ROOT=/state/runtime
 SIQ_ARTIFACTS_ROOT=/state/artifacts
+SIQ_REPORT_REVIEW_ROOT=/state/artifacts
+SIQ_REPORT_REVIEW_MAX_BYTES=10485760
 SIQ_PDF2MD_DATA_DIR=/state/runtime/pdf-parser
 SIQ_PDF_QUEUE_GLOBAL_TASK_LIMIT=32
 SIQ_PDF_QUEUE_OWNER_TASK_LIMIT=8
@@ -17,8 +20,8 @@ SIQ_DOCUMENT_PARSE_DATA_DIR=/state/runtime/document-parser
 SIQ_DOCUMENT_PARSE_RESULTS_ROOT=/state/artifacts/document-parser/results
 SIQ_DOCUMENT_OUTPUT_ROOT=/state/artifacts/document-parser/output
 SIQ_REPORT_DOWNLOADS_ROOT=/state/artifacts/market-report-finder/downloads
-SIQ_MARKET_REPORT_FINDER_TOKEN=
-SIQ_MARKET_REPORT_RULES_TOKEN=
+SIQ_MARKET_REPORT_FINDER_TOKEN=replace-with-shared-internal-finder-token
+SIQ_MARKET_REPORT_RULES_TOKEN=replace-with-shared-internal-rules-token
 SIQ_WEB_MEM_LIMIT=768m
 SIQ_WEB_CPUS=1.0
 SIQ_API_MEM_LIMIT=3g
@@ -86,6 +89,11 @@ SIQ_MILVUS_HOST=host.docker.internal
 SIQ_MILVUS_PORT=19530
 HERMES_API_KEY=replace-with-hermes-gateway-token
 SIQ_HERMES_ASSISTANT_RUNS_URL=http://host.docker.internal:18642/v1/runs
+# Must be the exact host HERMES_HOME used by the gateway above. The API mounts
+# it read-only to verify financial tool receipts from the current session.
+SIQ_HERMES_HOST_HOME=../../data/hermes/home
+SIQ_IC_TASK_LEASE_SECONDS=120
+SIQ_IC_TASK_HEARTBEAT_SECONDS=30
 PDF2MD_ACCESS_TOKEN=replace-with-pdf-parser-token
 SIQ_DOCUMENT_PARSER_ACCESS_TOKEN=replace-with-document-parser-token
 GRAFANA_PASSWORD=replace-with-grafana-password

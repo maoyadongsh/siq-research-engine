@@ -155,13 +155,12 @@ def test_streaming_owner_appends_user_stopped_terminal_error():
     state = anyio.run(run_case)
 
     assert [event["event"] for event in state.events] == ["progress", "error"]
-    assert state.status == "failed"
+    assert state.status == "cancelled"
     assert state.error == runtime.STOPPED_MESSAGE
     assert _event_payload(state.events[0])["status"] == "stopped"
-    assert _event_payload(state.events[1]) == {
-        "message": runtime.STOPPED_MESSAGE,
-        "reason": "user_stop_requested",
-    }
+    assert _event_payload(state.events[1])["message"] == runtime.STOPPED_MESSAGE
+    assert _event_payload(state.events[1])["reason"] == "user_stop_requested"
+    assert _event_payload(state.events[1])["status"] == "cancelled"
 
 
 def test_streaming_owner_appends_reasoning_event_and_progress():
@@ -227,6 +226,7 @@ def test_collect_stream_run_success_uses_streaming_terminal_owner(monkeypatch):
         "new_achievements": ["ok"],
         "reply_length": 5,
         "content": "hello",
+        "terminal": state.terminal_result.to_payload(),
     }
     assert saved_messages == [("assistant", "hello", "collect-success-session", "siq_assistant")]
     assert state.status == "completed"
@@ -275,7 +275,11 @@ def test_collect_stream_run_reasoning_uses_streaming_event_owner(monkeypatch):
     assert _event_payload(state.events[2])["source"] == "reasoning"
     assert _event_payload(state.events[2])["detail"] == "thinking through evidence"
     assert _event_payload(state.events[3]) == {"content": "answer"}
-    assert _event_payload(state.events[-1]) == {"new_achievements": [], "content": "answer"}
+    assert _event_payload(state.events[-1]) == {
+        "new_achievements": [],
+        "content": "answer",
+        "terminal": state.terminal_result.to_payload(),
+    }
     assert saved_messages == [("assistant", "answer", "collect-reasoning-session", "siq_assistant")]
     assert state.status == "completed"
 
@@ -311,15 +315,14 @@ def test_collect_stream_run_user_stop_uses_streaming_terminal_owner(monkeypatch)
     assert still_active is False
     assert "done" not in [event["event"] for event in state.events]
     assert any(event["event"] == "replace" and _event_payload(event) == {"content": runtime.STOPPED_MESSAGE} for event in state.events)
-    assert _event_payload(state.events[-1]) == {
-        "message": runtime.STOPPED_MESSAGE,
-        "reason": "user_stop_requested",
-    }
-    assert saved_messages == [("assistant", runtime.STOPPED_MESSAGE, "collect-user-stop-session", "siq_assistant")]
-    assert state.status == "failed"
+    assert _event_payload(state.events[-1])["message"] == runtime.STOPPED_MESSAGE
+    assert _event_payload(state.events[-1])["reason"] == "user_stop_requested"
+    assert _event_payload(state.events[-1])["status"] == "cancelled"
+    assert saved_messages == []
+    assert state.status == "cancelled"
 
 
-def test_collect_stream_run_cancelled_without_user_stop_saves_failed_history(monkeypatch):
+def test_collect_stream_run_cancelled_without_user_stop_does_not_save_success_history(monkeypatch):
     async def run_case():
         state = runtime.ActiveRunState(
             profile="assistant",
@@ -349,16 +352,62 @@ def test_collect_stream_run_cancelled_without_user_stop_saves_failed_history(mon
     assert still_active is False
     assert "done" not in [event["event"] for event in state.events]
     assert runtime.RUN_CANCELLED_MESSAGE in _event_payload(state.events[1])["content"]
-    assert _event_payload(state.events[-1])["reason"] == "run_cancelled"
-    assert saved_messages == [
-        (
-            "assistant",
-            f"{runtime.RUN_CANCELLED_MESSAGE}\n\ncancel detail",
-            "collect-cancelled-session",
-            "siq_assistant",
+    assert _event_payload(state.events[-1])["reason"] == "hermes_run_cancelled"
+    assert saved_messages == []
+    assert state.status == "cancelled"
+
+
+def test_collect_stream_run_failed_partial_and_protocol_eof_never_persist_success_history(monkeypatch):
+    async def run_case(events):
+        state = runtime.ActiveRunState(
+            profile="assistant",
+            session_id=f"terminal-contract-{events[0].type}",
+            run_id=f"run-terminal-contract-{events[0].type}",
         )
-    ]
-    assert state.status == "failed"
+        key = runtime._active_key("siq_assistant", state.session_id)
+        runtime.ACTIVE_RUNS[key] = state
+        saved_messages = []
+
+        async def fake_stream_run(_run_id, *, profile, timeout):
+            assert profile == "siq_assistant"
+            for event in events:
+                yield event
+
+        async def fake_save_message(role, content, session_id, *, profile=None, audit_trace_id=None):
+            saved_messages.append((role, content, session_id, profile))
+
+        monkeypatch.setattr(runtime, "stream_run", fake_stream_run)
+        monkeypatch.setattr(runtime, "hermes_timeout", lambda: 1)
+        monkeypatch.setattr(runtime, "stream_idle_timeout", lambda _profile: 1)
+        monkeypatch.setattr(runtime, "save_message_in_background", fake_save_message)
+        await runtime._collect_stream_run(state, None)
+        return state, saved_messages, key in runtime.ACTIVE_RUNS
+
+    failed_state, failed_saved, failed_active = anyio.run(
+        run_case,
+        [
+            StreamEvent(type="delta", text="partial answer"),
+            StreamEvent(type="failed", text="gateway failed", status="failed", error=True),
+        ],
+    )
+    eof_state, eof_saved, eof_active = anyio.run(
+        run_case,
+        [StreamEvent(type="delta", text="partial before EOF")],
+    )
+
+    assert failed_active is False
+    assert failed_saved == []
+    assert failed_state.terminal_result is not None
+    assert failed_state.terminal_result.status == "failed"
+    assert "gateway failed" in _event_payload(failed_state.events[-1])["terminal"]["diagnostic"]
+    assert "done" not in [event["event"] for event in failed_state.events]
+
+    assert eof_active is False
+    assert eof_saved == []
+    assert eof_state.terminal_result is not None
+    assert eof_state.terminal_result.status == "protocol_eof"
+    assert _event_payload(eof_state.events[-1])["error_code"] == "hermes_protocol_eof"
+    assert "done" not in [event["event"] for event in eof_state.events]
 
 
 def test_collect_stream_run_idle_timeout_stops_run_and_clears_active(monkeypatch):
@@ -398,12 +447,12 @@ def test_collect_stream_run_idle_timeout_stops_run_and_clears_active(monkeypatch
 
     assert still_active is False
     assert stop_calls == [("run-collect-idle-timeout", "siq_assistant")]
-    assert [event["event"] for event in state.events] == ["progress", "progress", "delta", "progress", "done"]
+    assert [event["event"] for event in state.events] == ["progress", "progress", "delta", "error"]
     assert _event_payload(state.events[1])["status"] == "error"
     assert runtime.IDLE_TIMEOUT_MESSAGE in _event_payload(state.events[2])["content"]
-    assert _event_payload(state.events[-1])["content"] == runtime.IDLE_TIMEOUT_MESSAGE
-    assert saved_messages == [("assistant", runtime.IDLE_TIMEOUT_MESSAGE, "collect-idle-timeout-session", "siq_assistant")]
-    assert state.status == "completed"
+    assert _event_payload(state.events[-1])["status"] == "timed_out"
+    assert saved_messages == []
+    assert state.status == "timed_out"
 
 
 def test_collect_stream_run_http_timeout_stops_run_and_clears_active(monkeypatch):
@@ -442,12 +491,13 @@ def test_collect_stream_run_http_timeout_stops_run_and_clears_active(monkeypatch
 
     assert still_active is False
     assert stop_calls == [("run-collect-http-timeout", "siq_assistant")]
-    assert [event["event"] for event in state.events] == ["progress", "progress", "delta", "progress", "done"]
+    assert [event["event"] for event in state.events] == ["progress", "progress", "delta", "error"]
     assert _event_payload(state.events[1])["status"] == "error"
     assert runtime.TIMEOUT_MESSAGE in _event_payload(state.events[2])["content"]
-    assert _event_payload(state.events[-1])["content"] == runtime.TIMEOUT_MESSAGE
-    assert saved_messages == [("assistant", runtime.TIMEOUT_MESSAGE, "collect-http-timeout-session", "siq_assistant")]
-    assert state.status == "completed"
+    assert runtime.TIMEOUT_MESSAGE in _event_payload(state.events[2])["content"]
+    assert _event_payload(state.events[-1])["status"] == "timed_out"
+    assert saved_messages == []
+    assert state.status == "timed_out"
 
 
 def test_collect_stream_run_repeated_tool_call_stops_run(monkeypatch):
@@ -488,7 +538,7 @@ def test_collect_stream_run_repeated_tool_call_stops_run(monkeypatch):
     assert stop_calls == [("run-collect-repeated-tool", "siq_assistant")]
     assert "done" not in [event["event"] for event in state.events]
     assert _event_payload(state.events[-1])["reason"] == "repeated_tool_calls_without_delta"
-    assert saved_messages == [("assistant", runtime.OUTPUT_LOOP_STOP_MESSAGE, "collect-repeated-tool-session", "siq_assistant")]
+    assert saved_messages == []
     assert state.status == "failed"
 
 
@@ -531,8 +581,71 @@ def test_collect_stream_run_consecutive_tool_errors_stop_run(monkeypatch):
     assert stop_calls == [("run-collect-tool-errors", "siq_assistant")]
     assert "done" not in [event["event"] for event in state.events]
     assert _event_payload(state.events[-1])["reason"] == "consecutive_tool_errors"
-    assert saved_messages == [("assistant", runtime.OUTPUT_LOOP_STOP_MESSAGE, "collect-tool-errors-session", "siq_assistant")]
+    assert saved_messages == []
     assert state.status == "failed"
+
+
+def test_collect_chat_reply_non_stream_terminal_failure_does_not_persist_assistant(monkeypatch):
+    async def run_case():
+        saved: list[tuple[str, str, str]] = []
+
+        async def fake_prepare(*_args, **_kwargs):
+            return runtime.ChatRequestEnvelope(
+                all_attachments=[],
+                message_hash="non-stream-failure-hash",
+                user_display_message="请查询收入",
+            )
+
+        async def fake_preflight(*_args, **_kwargs):
+            return runtime.ChatRunPreflightContext(history=[], local_memory_context=None, attachments=[])
+
+        async def fake_save(_session, role, content, session_id, **_kwargs):
+            saved.append((role, content, session_id))
+
+        async def fake_wait(_attachments):
+            return None
+
+        async def fake_images(*_args, **_kwargs):
+            return None, True
+
+        async def fake_create(*_args, **_kwargs):
+            return "run-non-stream-failure"
+
+        async def fake_collect(*_args, **_kwargs):
+            raise runtime.RunTerminalError(
+                runtime.RunTerminalResult(
+                    run_id="run-non-stream-failure",
+                    status="failed",
+                    received_text="partial answer",
+                    error_code="hermes_run_failed",
+                    retryable=True,
+                    diagnostic="gateway failed",
+                )
+            )
+
+        monkeypatch.setattr(runtime, "_prepare_chat_request_envelope", fake_prepare)
+        monkeypatch.setattr(runtime, "build_wiki_catalog_reply", lambda _message: None)
+        monkeypatch.setattr(runtime, "_load_chat_run_preflight_context", fake_preflight)
+        monkeypatch.setattr(runtime, "wait_for_pdf_attachment_parses", fake_wait)
+        monkeypatch.setattr(runtime, "_attachments_with_fresh_metadata", lambda attachments: attachments)
+        monkeypatch.setattr(runtime, "save_message", fake_save)
+        monkeypatch.setattr(runtime, "analyze_images_with_primary_model", fake_images)
+        monkeypatch.setattr(runtime, "build_hermes_run_input", lambda message, **kwargs: {"message": message, **kwargs})
+        monkeypatch.setattr(runtime, "create_run", fake_create)
+        monkeypatch.setattr(runtime, "collect_run_result", fake_collect)
+
+        reply = await runtime._collect_chat_reply_impl(
+            "请查询收入",
+            object(),
+            session_id="non-stream-failure-session",
+            profile="siq_assistant",
+        )
+        return reply, saved
+
+    reply, saved = anyio.run(run_case)
+
+    assert reply == runtime.RUN_FAILED_MESSAGE
+    assert saved == [("user", "请查询收入", "non-stream-failure-session")]
 
 
 def test_stream_active_run_events_replays_from_offset_and_drains_terminal_done():

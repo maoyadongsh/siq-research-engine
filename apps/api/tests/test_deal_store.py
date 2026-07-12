@@ -3276,6 +3276,79 @@ def test_workflow_r1_agent_run_calls_hermes_and_persists_report(tmp_path, monkey
     assert audit["events"][-1]["agent_id"] == "siq_ic_strategist"
 
 
+def test_workflow_r1_agent_run_atomically_rejects_duplicate_worker(tmp_path, monkeypatch):
+    deal_store.create_deal_package(
+        deal_id="DEAL-YUSHU-2026-001",
+        company_name="宇树科技",
+        industry="机器人",
+        stage="Pre-IPO",
+        wiki_root=tmp_path,
+    )
+    package_dir = tmp_path / "deals" / "DEAL-YUSHU-2026-001"
+    _write_verified_evidence_gate_pass(package_dir)
+    _write_json(
+        package_dir / "phases" / "startup_receipts.json",
+        {
+            "schema_version": "siq_ic_startup_receipts_v1",
+            "deal_id": "DEAL-YUSHU-2026-001",
+            "agents": {"siq_ic_strategist": _receipt_payload("siq_ic_strategist")},
+        },
+    )
+    entered_hermes = asyncio.Event()
+    release_hermes = asyncio.Event()
+    hermes_calls = 0
+
+    async def fake_create_run(input, conversation_history, *, profile, session_id=None):
+        nonlocal hermes_calls
+        del input, conversation_history, profile, session_id
+        hermes_calls += 1
+        entered_hermes.set()
+        await release_hermes.wait()
+        return "run-atomic-claim-001"
+
+    async def fake_collect_run_result(run_id, *, profile, timeout=None):
+        del run_id, profile, timeout
+        return (
+            "## 检索结果摘要\n\n### 共享底稿证据\n\n### 私有知识库证据\n\n"
+            "### 信息缺口清单\n\n### 检索后观点\n\n继续推进。\n"
+            "```json\n"
+            '{"score": 80, "recommendation": "conditional_pass", '
+            '"verified": ["market evidence"], "assumed": [], '
+            '"open_questions": [], '
+            '"evidence_ids": ["EVID-DEAL-YUSHU-2026-001-000001"]}\n'
+            "```"
+        )
+
+    monkeypatch.setattr(ic_agent_runtime.hermes_client, "create_run", fake_create_run)
+    monkeypatch.setattr(ic_agent_runtime.hermes_client, "collect_run_result", fake_collect_run_result)
+
+    async def compete():
+        first = asyncio.create_task(
+            ic_agent_runtime.run_workflow_r1_agent(
+                "DEAL-YUSHU-2026-001",
+                "siq_ic_strategist",
+                wiki_root=tmp_path,
+            )
+        )
+        await entered_hermes.wait()
+        with pytest.raises(ic_agent_runtime.ICTaskAlreadyClaimedError):
+            await ic_agent_runtime.run_workflow_r1_agent(
+                "DEAL-YUSHU-2026-001",
+                "siq_ic_strategist",
+                wiki_root=tmp_path,
+            )
+        release_hermes.set()
+        return await first
+
+    result = asyncio.run(compete())
+
+    assert hermes_calls == 1
+    assert result["task_claim"]["status"] == "succeeded"
+    assert result["task_claim"]["attempt"] == 1
+    leases = json.loads((package_dir / "phases" / "ic_task_leases.json").read_text(encoding="utf-8"))
+    assert leases["claims"][0]["status"] == "succeeded"
+
+
 def test_workflow_r1_agent_run_rejects_invalid_hermes_contract_without_phase_side_effects(tmp_path, monkeypatch):
     deal_store.create_deal_package(
         deal_id="DEAL-YUSHU-2026-001",

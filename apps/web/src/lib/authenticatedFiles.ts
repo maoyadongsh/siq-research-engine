@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { fetchWithAuth } from './fetchWithAuth'
+import { buildReadingHtmlDocument } from './pdfSanitize'
 
 export function useAuthenticatedBlobUrl(url: string) {
   const [blobUrl, setBlobUrl] = useState('')
@@ -25,6 +26,46 @@ export function useAuthenticatedBlobUrl(url: string) {
       .then((blob) => {
         if (cancelled) return
         objectUrl = URL.createObjectURL(blob)
+        setBlobUrl(objectUrl)
+      })
+      .catch(() => {
+        if (!cancelled) setBlobUrl('')
+      })
+
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [url])
+
+  return blobUrl
+}
+
+export function useAuthenticatedReadingHtmlUrl(url: string) {
+  const [blobUrl, setBlobUrl] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    let objectUrl = ''
+
+    if (!url) {
+      queueMicrotask(() => {
+        if (!cancelled) setBlobUrl('')
+      })
+      return () => {
+        cancelled = true
+      }
+    }
+
+    fetchWithAuth(url)
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        return response.text()
+      })
+      .then((html) => {
+        if (cancelled) return
+        const documentHtml = buildReadingHtmlDocument(html)
+        objectUrl = URL.createObjectURL(new Blob([documentHtml], { type: 'text/html;charset=utf-8' }))
         setBlobUrl(objectUrl)
       })
       .catch(() => {

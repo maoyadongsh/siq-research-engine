@@ -1,5 +1,16 @@
 .git
 .github
+
+# Local configuration and credential material must never enter image layers.
+.env
+**/.env
+*.env
+**/*.env
+env/
+**/env/
+**/auth.json.backup*
+**/*token*.backup*
+
 .venv
 **/.venv
 __pycache__

@@ -1,13 +1,12 @@
 import json
 
 import anyio
+from models import ChatMessage
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel import SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
-from models import ChatMessage
 
-from services import agent_chat_runtime as runtime
-from services import agent_runtime_preflight
+from services import agent_chat_runtime as runtime, agent_runtime_preflight
 
 
 class _Request:
@@ -622,6 +621,15 @@ def test_stream_chat_reply_preflight_refreshes_pdf_metadata_before_saving_user(t
                     done_payload = await done_payload_factory("stream reply")
                     await runtime._append_completed_active_run(state, {**done_payload, "content": "stream reply"})
 
+                async def fake_claim_durable_active_run(*_args, **_kwargs):
+                    return True
+
+                async def fake_bind_durable_active_run(*_args, **_kwargs):
+                    return True
+
+                async def fake_release_durable_lease(*_args, **_kwargs):
+                    return True
+
                 monkeypatch.setattr(runtime, "load_history", wrapped_load_history)
                 monkeypatch.setattr(runtime, "ensure_local_memory_context", fake_ensure_local_memory_context)
                 monkeypatch.setattr(runtime, "_pdf_attachment_parse_dirs", fake_pdf_attachment_parse_dirs)
@@ -632,6 +640,9 @@ def test_stream_chat_reply_preflight_refreshes_pdf_metadata_before_saving_user(t
                 monkeypatch.setattr(runtime, "build_hermes_run_input", fake_build_hermes_run_input)
                 monkeypatch.setattr(runtime, "create_run", fake_create_run)
                 monkeypatch.setattr(runtime, "_collect_stream_run", fake_collect_stream_run)
+                monkeypatch.setattr(runtime, "_claim_durable_active_run", fake_claim_durable_active_run)
+                monkeypatch.setattr(runtime, "_bind_durable_active_run", fake_bind_durable_active_run)
+                monkeypatch.setattr(runtime, "_release_durable_lease", fake_release_durable_lease)
                 monkeypatch.setattr(runtime, "_recent_duplicate_reply", lambda *_args, **_kwargs: None)
                 monkeypatch.setattr(runtime, "build_wiki_catalog_reply", lambda _message: None)
 

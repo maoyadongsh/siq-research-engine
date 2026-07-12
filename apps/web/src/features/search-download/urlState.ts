@@ -37,6 +37,31 @@ export interface SearchDownloadInitialState {
   smartPrompt: string
 }
 
+export function buildSearchDownloadUrlStateUpdate(
+  state: SearchDownloadInitialState,
+): SearchDownloadSearchParamsUpdate {
+  return {
+    market: state.market,
+    q: state.query,
+    year: state.year,
+    downloaded: state.downloadedQuery,
+    ask: state.smartPrompt,
+    ...buildSearchDownloadMarketFilterPatch(state.market, state.marketFilter),
+  }
+}
+
+export function sameSearchDownloadUrlState(
+  left: SearchDownloadInitialState,
+  right: SearchDownloadInitialState,
+) {
+  return left.market === right.market
+    && left.query === right.query
+    && left.year === right.year
+    && left.marketFilter === right.marketFilter
+    && left.downloadedQuery === right.downloadedQuery
+    && left.smartPrompt === right.smartPrompt
+}
+
 const SEARCH_DOWNLOAD_MARKET_FILTER_KEYS: Partial<Record<SearchDownloadMarket, SearchDownloadSearchParamKey>> = {
   CN: 'exchange',
   US: 'form',

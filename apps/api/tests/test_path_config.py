@@ -81,6 +81,20 @@ def test_leaf_and_legacy_env_override_generic_roots(tmp_path):
     assert module.PDF2MD_DATA_ROOT == state_root / "runtime" / "pdf-parser"
 
 
+def test_hermes_host_home_preserves_gateway_command_paths(tmp_path):
+    host_home = tmp_path / "host-hermes" / "home"
+    module = _load_path_config(
+        tmp_path,
+        {
+            "SIQ_HERMES_HOME": str(tmp_path / "container-hermes" / "home"),
+            "SIQ_HERMES_HOST_HOME": str(host_home),
+        },
+    )
+
+    assert module.HERMES_HOST_HOME == host_home
+    assert module.HERMES_HOST_SHARED_SCRIPTS_ROOT == host_home / "profiles" / "shared" / "scripts"
+
+
 def test_path_resolver_does_not_create_or_migrate_data(tmp_path):
     legacy_file = tmp_path / "data" / "pdf-parser" / "results" / "legacy-task" / "result.md"
     legacy_file.parent.mkdir(parents=True)

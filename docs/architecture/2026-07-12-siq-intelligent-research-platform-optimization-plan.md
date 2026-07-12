@@ -4,9 +4,9 @@
 >
 > 文档编号：SIQ-OPT-EXEC-2026-07-12
 >
-> 版本：1.0
+> 版本：1.1
 >
-> 状态：执行就绪，启动前需确认目标模式授权范围
+> 状态：执行中；财务 guard 当前保持 `warn` 调试模式
 >
 > 适用范围：`apps/web`、`apps/api`、Hermes Agent runtime、市场报告服务、解析服务、数据库与发布门禁
 >
@@ -1429,6 +1429,14 @@ uv run python ../../scripts/maintenance/run_live_market_qa_smoke.py \
 - owner 拆分 + 外部 API contract 变更。
 
 若一个任务必须跨前后端，必须以同一行为契约为中心，例如上传 413、401 session invalidation 或 task status；不得趁机整理无关代码。
+
+### 23.6 财务 trace 展示与可信回执执行记录
+
+2026-07-12 已完成一次不降低 guard 强度的 trace 分层优化：聊天正文和历史继续展示简洁的 `## 计算器校验` / `## 勾稽校验`，完整 `siq_financial_calculation_trace_v1` / `siq_financial_reconciliation_trace_v1` JSON 保存到 answer audit，并通过 `audit_trace_id` 读取。runtime 只接受当前精确 Hermes session、当前 user turn 内与 `tool_call_id` 配对的白名单财务脚本回执；命令必须显式使用 `--format json`，且是单命令、完整单 JSON、成功退出。管道、命令拼接、重定向、多 JSON、截断 stdout、错误 call id 和非白名单同名脚本全部 fail-closed。
+
+工具回执只提供计算输入与结果；后端使用请求中的完整 `ResearchIdentity` 和回答中的最终结构化来源行绑定 metric、period、value、unit 与 evidence_id，并继续执行确定性重算。自动稳定 evidence ID 仅作为内部 trace 绑定键，claim verifier 仍要求财务事实来源显式携带 evidence_id，不能借内部 ID 绕过外部证据契约。混合回答的 operation 检测也从单一 early-return 改为累计 yoy/ratio/cagr/per_capita，并检查所需 operation 覆盖。
+
+当前运行配置继续为 `SIQ_FINANCIAL_GUARDRAIL_MODE=warn`：缺失或无效 trace 会保留原始回答并追加诊断，不阻断调试输出；生产 `block` 模式语义没有改变。定向 trace/guard/audit/calculator/claim verifier/chat route/runtime 回归全部通过；API 全量为 1570 passed，另有 6 个与本变更无关、来自并行工作区的既有失败，分别属于 streaming cancelled 状态断言、citation 本地页码数据、job envelope 新字段和 tracking history 投影，未在本变更中覆盖或回退。
 
 ## 24. 最终完成判定
 

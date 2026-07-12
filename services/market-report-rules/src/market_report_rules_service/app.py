@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hmac
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
@@ -11,23 +13,30 @@ from .contracts import financial_checks_contract, financial_data_contract
 from .extraction import extract_artifact
 from .industry_profiles import list_industry_profiles
 from .load_plan import build_load_plan
-from .markets.cn.routes import router as cn_market_router
 from .markets import list_market_modules
+from .markets.cn.routes import router as cn_market_router
 from .models import ExtractionResult, ParsedArtifact, ProcessRequest
 from .operating_metrics import list_operating_metric_rules
-from .pipeline import process_artifact, process_contract
+from .pipeline import process_contract
 from .registry import list_profiles
 from .rules import HK_LABEL_RULES, JP_CONCEPT_RULES, JP_LABEL_RULES, KR_CONCEPT_RULES, KR_LABEL_RULES, US_CONCEPT_RULES
 from .storage import list_storage_profiles
 from .validation import validate_extraction
 
-
 SERVICE_TOKEN_ENV = "SIQ_MARKET_REPORT_RULES_TOKEN"
 SERVICE_TOKEN_HEADER = "X-SIQ-Service-Token"
+DEPLOYMENT_PROFILE_ENV = "SIQ_DEPLOYMENT_PROFILE"
+PROTECTED_DEPLOYMENT_PROFILES = frozenset({"production", "prod", "docker"})
 
 
 def _configured_service_token() -> str:
     return os.environ.get(SERVICE_TOKEN_ENV, "").strip()
+
+
+def validate_internal_service_auth() -> None:
+    profile = os.environ.get(DEPLOYMENT_PROFILE_ENV, "local").strip().lower()
+    if profile in PROTECTED_DEPLOYMENT_PROFILES and not _configured_service_token():
+        raise RuntimeError(f"{SERVICE_TOKEN_ENV} must be set when {DEPLOYMENT_PROFILE_ENV}={profile}.")
 
 
 def require_service_token(request: Request) -> None:
@@ -39,10 +48,17 @@ def require_service_token(request: Request) -> None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="unauthorized")
 
 
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    validate_internal_service_auth()
+    yield
+
+
 app = FastAPI(
     title="Market Report Rules Service",
     version=__version__,
     description="Market-isolated extraction, validation, provenance, and load-plan rules service.",
+    lifespan=lifespan,
 )
 app.include_router(cn_market_router)
 

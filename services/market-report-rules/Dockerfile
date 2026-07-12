@@ -13,6 +13,7 @@ RUN mkdir -p /state/var /state/artifacts \
     && chown -R siq:siq /app /state
 
 ENV PATH="/app/.venv/bin:$PATH" \
+    SIQ_DEPLOYMENT_PROFILE=docker \
     SIQ_LOCAL_STATE_ROOT=/state \
     SIQ_DATA_ROOT=/state/data \
     SIQ_RUNTIME_ROOT=/state/var \

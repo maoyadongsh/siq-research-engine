@@ -9,13 +9,10 @@ from typing import Any, cast
 from uuid import uuid4
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
-from fastapi.responses import FileResponse
-from sse_starlette.sse import EventSourceResponse
-from pydantic import BaseModel, Field
-from sqlmodel.ext.asyncio.session import AsyncSession
-
 from database import get_async_session
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
 from schemas import (
     ChatAttachment,
     ChatAttachmentUploadRequest,
@@ -24,18 +21,6 @@ from schemas import (
     ChatContextPage,
     ChatResponse,
 )
-from services import deal_evidence
-from services import deal_decision
-from services import deal_phase_artifacts
-from services import deal_reports
-from services import deal_status
-from services import deal_store
-from services import ic_agent_runtime
-from services import ic_agent_output_quality
-from services import ic_policy
-from services import ic_profile_contract
-from services import ic_startup_retrieval
-from services import primary_market_meeting_readiness
 from services.agent_chat_runtime import (
     HISTORY_LIMIT,
     chat_history_response,
@@ -54,9 +39,25 @@ from services.hermes_model_control import maybe_handle_model_control
 from services.path_config import BACKEND_DATA_ROOT
 from services.session_manager import get_session_manager
 from services.usage_service import AGENT_QUESTION_EVENT, record_usage_async
+from sqlmodel.ext.asyncio.session import AsyncSession
+from sse_starlette.sse import EventSourceResponse
+
 from routers import chat as chat_router
 from routers.agent_user_router import enforce_quota_or_429_async
-
+from services import (
+    deal_decision,
+    deal_evidence,
+    deal_phase_artifacts,
+    deal_reports,
+    deal_status,
+    deal_store,
+    ic_agent_output_quality,
+    ic_agent_runtime,
+    ic_policy,
+    ic_profile_contract,
+    ic_startup_retrieval,
+    primary_market_meeting_readiness,
+)
 
 IC_MEETING_PROFILES: tuple[HermesProfile, ...] = (
     "siq_ic_master_coordinator",
@@ -442,6 +443,9 @@ def _build_transcript_event(
 def list_projects(
     q: str | None = None,
     status: str | None = None,
+    page: int | None = Query(default=None, ge=1),
+    page_size: int | None = Query(default=None, ge=1, le=100),
+    include_status: bool = False,
     current_user: User = Depends(require_permission("report.view")),
 ) -> dict:
     needle = (q or "").strip().lower()
@@ -456,7 +460,43 @@ def list_projects(
         ]
     if status:
         deals = [item for item in deals if str(item.get("status") or "") == status]
-    return {"deals": deal_store.redact_public_payload(deals)}
+    total = len(deals)
+    stats = {
+        "total": total,
+        "active": sum(1 for item in deals if str(item.get("status") or "") not in {"r4_completed", "archived", "closed"}),
+        "diligence": sum(1 for item in deals if str(item.get("status") or "") in {"r1_in_progress", "r0_ready"}),
+        "highRisk": sum(1 for item in deals if str(item.get("status") or "") in {"blocked", "fail"}),
+    }
+    selected = deals
+    pagination: dict[str, Any] = {}
+    if page is not None or page_size is not None:
+        current_page = page or 1
+        current_size = page_size or 25
+        start = (current_page - 1) * current_size
+        selected = deals[start:start + current_size]
+        pagination = {"page": current_page, "page_size": current_size, "total": total, "has_more": start + current_size < total}
+    payload: dict[str, Any] = {
+        "deals": deal_store.redact_public_payload(selected),
+        "stats": stats,
+        "status_summary": {"by_status": {
+            state: sum(1 for item in deals if str(item.get("status") or "unknown") == state)
+            for state in sorted({str(item.get("status") or "unknown") for item in deals})
+        }},
+    }
+    if pagination:
+        payload["pagination"] = pagination
+    if include_status:
+        summaries: dict[str, dict[str, Any]] = {}
+        for item in selected:
+            deal_id = str(item.get("deal_id") or "").strip()
+            if not deal_id:
+                continue
+            try:
+                summaries[deal_id] = deal_status.summarize_deal_status(deal_id)
+            except (FileNotFoundError, ValueError):
+                summaries[deal_id] = {"status": "missing", "ready_for_next_action": False, "counts": {"missing": 1}}
+        payload["status_summaries"] = summaries
+    return payload
 
 
 @router.get("/primary-market/projects/{deal_id}")
@@ -1548,6 +1588,8 @@ async def run_meeting_r1_agent(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise _not_found(normalized_deal_id) from exc
+    except ic_agent_runtime.ICTaskAlreadyClaimedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except (RuntimeError, httpx.HTTPError) as exc:
         raise HTTPException(status_code=502, detail=f"Meeting R1 agent run failed: {exc}") from exc
 
@@ -1608,6 +1650,8 @@ async def run_meeting_r1_serial(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise _not_found(normalized_deal_id) from exc
+    except ic_agent_runtime.ICTaskAlreadyClaimedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except (RuntimeError, httpx.HTTPError) as exc:
         raise HTTPException(status_code=502, detail=f"Meeting R1 serial run failed: {exc}") from exc
 
@@ -1680,6 +1724,8 @@ async def advance_meeting_workflow(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise _not_found(normalized_deal_id) from exc
+    except ic_agent_runtime.ICTaskAlreadyClaimedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except (RuntimeError, httpx.HTTPError) as exc:
         raise HTTPException(status_code=502, detail=f"Meeting workflow advance failed: {exc}") from exc
 

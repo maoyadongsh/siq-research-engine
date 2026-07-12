@@ -14,7 +14,7 @@ import httpx
 from fastapi import Request
 
 from services import agent_runtime_citations, agent_runtime_dedupe, agent_runtime_progress
-from services.hermes_client import HermesProfile, normalize_profile
+from services.hermes_client import HermesProfile, RunTerminalResult, normalize_profile
 
 
 def _env_int(name: str, default: int, *, minimum: int | None = None, maximum: int | None = None) -> int:
@@ -47,6 +47,7 @@ class ActiveRunState:
     updated_at: datetime = field(default_factory=datetime.utcnow)
     error: str | None = None
     done_payload: dict[str, Any] | None = None
+    terminal_result: RunTerminalResult | None = None
     stop_requested: bool = False
     user_stop_requested: bool = False
     message_hash: str | None = None
@@ -64,6 +65,8 @@ class ActiveRunState:
     tool_events_since_delta: int = 0
     condition: asyncio.Condition = field(default_factory=asyncio.Condition)
     task: asyncio.Task | None = None
+    owner_id: str | None = None
+    lease_heartbeat_task: asyncio.Task | None = None
 
     def __post_init__(self) -> None:
         self.profile = _runtime_profile(self.profile)
@@ -243,7 +246,7 @@ async def _append_state_event(
         state.status = "completed"
         state.done_payload = payload
     elif event_name == "error":
-        state.status = "failed"
+        state.status = str(payload.get("status") or "failed")
         state.error = str(payload.get("message") or payload.get("content") or "Unknown error")
 
     state.updated_at = datetime.utcnow()
@@ -290,6 +293,7 @@ def get_active_run_snapshot(
         "started_at": state.started_at.isoformat(),
         "updated_at": state.updated_at.isoformat(),
         "error": state.error,
+        "terminal": state.terminal_result.to_payload() if state.terminal_result else None,
     }
 
 
@@ -323,7 +327,14 @@ async def _append_user_stopped_active_run(state: ActiveRunState, stopped_message
     await _append_state_event(
         state,
         "error",
-        {"message": stopped_message, "reason": "user_stop_requested"},
+        {
+            "message": stopped_message,
+            "reason": "user_stop_requested",
+            "status": "cancelled",
+            "error_code": "hermes_run_cancelled",
+            "retryable": False,
+            "trace_id": state.run_id,
+        },
     )
 
 

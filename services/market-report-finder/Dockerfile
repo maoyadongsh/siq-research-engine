@@ -12,6 +12,7 @@ RUN mkdir -p /state/data/market-report-finder/downloads \
     && chown -R siq:siq /app /state
 
 ENV PATH="/app/.venv/bin:$PATH" \
+    SIQ_DEPLOYMENT_PROFILE=docker \
     MARKET_REPORT_DOWNLOAD_DIR=/state/data/market-report-finder/downloads \
     SIQ_LOCAL_STATE_ROOT=/state \
     SIQ_DATA_ROOT=/state/data \

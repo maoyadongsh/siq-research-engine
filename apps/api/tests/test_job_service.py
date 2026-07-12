@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import threading
 import time
 from enum import Enum
 from itertools import count
@@ -280,3 +281,91 @@ def test_file_backed_job_service_persist_failure_does_not_block_runtime_snapshot
 
     assert terminal["status"] == "succeeded"
     assert terminal["result"] == {"ok": True, "value": "runtime-only"}
+    assert terminal["durability_status"] == "degraded"
+    assert terminal["persistence_error"] == "job_store_write_failed"
+    assert observability.metrics_snapshot()["background_job_persistence_failure_counts"]
+
+
+@pytest.mark.parametrize("status", ["queued", "running"])
+def test_file_backed_job_service_restart_interrupts_unrecoverable_active_jobs(tmp_path, status):
+    store_path = tmp_path / "jobs.json"
+    store_path.write_text(
+        json.dumps(
+            {
+                "jobs": [
+                    {
+                        "job_id": f"job-{status}",
+                        "kind": "demo",
+                        "status": status,
+                        "created_at": "2026-07-12T09:00:00Z",
+                        "started_at": "2026-07-12T09:01:00Z" if status == "running" else None,
+                        "attempt": 2,
+                        "owner": "old-worker",
+                        "heartbeat_at": "2026-07-12T09:02:00Z",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    service = job_service.FileBackedJobService(store_path=store_path)
+
+    recovered = service.get(f"job-{status}")
+    assert recovered["status"] == "interrupted"
+    assert recovered["finished_at"]
+    assert recovered["attempt"] == 2
+    assert recovered["owner"] == "old-worker"
+    assert recovered["heartbeat_at"] == "2026-07-12T09:02:00Z"
+    assert recovered["interrupted_reason"] == "process_restart_unrecoverable_target"
+    assert recovered["durability_status"] == "durable"
+
+    persisted = json.loads(store_path.read_text(encoding="utf-8"))["jobs"][0]
+    assert persisted["status"] == "interrupted"
+    assert persisted["interrupted_reason"] == "process_restart_unrecoverable_target"
+
+
+def test_file_backed_job_service_restart_preserves_terminal_jobs(tmp_path):
+    store_path = tmp_path / "jobs.json"
+    store_path.write_text(
+        json.dumps(
+            {
+                "jobs": [
+                    {
+                        "job_id": "job-done",
+                        "kind": "demo",
+                        "status": "succeeded",
+                        "created_at": "2026-07-12T09:00:00Z",
+                        "finished_at": "2026-07-12T09:05:00Z",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    service = job_service.FileBackedJobService(store_path=store_path)
+
+    assert service.get("job-done")["status"] == "succeeded"
+
+
+def test_file_backed_job_service_same_process_reload_does_not_interrupt_owned_job(tmp_path):
+    store_path = tmp_path / "jobs.json"
+    target_started = threading.Event()
+    release_target = threading.Event()
+
+    def blocking_target():
+        target_started.set()
+        assert release_target.wait(timeout=2)
+        return {"ok": True}
+
+    service = job_service.FileBackedJobService(store_path=store_path)
+    started = service.start("demo", blocking_target)
+    assert target_started.wait(timeout=1)
+
+    try:
+        reloaded = job_service.FileBackedJobService(store_path=store_path)
+        assert reloaded.get(started["job_id"])["status"] == "running"
+    finally:
+        release_target.set()
+        assert wait_for_terminal(service, started["job_id"])["status"] == "succeeded"

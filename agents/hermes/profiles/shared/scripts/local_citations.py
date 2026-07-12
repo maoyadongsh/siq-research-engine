@@ -2341,6 +2341,10 @@ def enrich_citation_line(line: str, context_text: str, wiki_base: Path = WIKI_BA
             return _apply_trace_refs_to_line(line, borrowed_refs)
 
     company_dir = _company_task_index(wiki_base).get(task_id) if task_id else None
+    if task_id and not company_dir:
+        # An explicit task id is an identity boundary.  Never replace it with
+        # another company inferred from surrounding multi-company context.
+        return line
     if not company_dir:
         company_dir = find_company_dir_from_text(line, wiki_base)
     if not company_dir:

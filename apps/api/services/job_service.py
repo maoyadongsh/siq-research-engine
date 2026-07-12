@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
 import time
 import uuid
-from enum import Enum
+import weakref
 from datetime import datetime, timezone
+from enum import Enum
 from pathlib import Path
 from threading import RLock, Thread
 from typing import Any, Callable
@@ -15,6 +18,12 @@ try:
     from services import observability
 except Exception:  # pragma: no cover - job execution must not depend on metrics importability.
     observability = None  # type: ignore[assignment]
+
+
+logger = logging.getLogger(__name__)
+ACTIVE_JOB_STATUSES = {"queued", "running"}
+INTERRUPTED_REASON = "process_restart_unrecoverable_target"
+_LIVE_JOB_SERVICES: weakref.WeakSet[FileBackedJobService] = weakref.WeakSet()
 
 
 def _now_iso() -> str:
@@ -59,7 +68,10 @@ class FileBackedJobService:
         self._max_jobs = max_jobs
         self._job_lock = RLock()
         self._store_path = store_path or (BACKEND_DATA_ROOT / "market-reports" / "jobs.json")
+        self._owner = f"job-worker-{os.getpid()}-{uuid.uuid4().hex[:8]}"
         self._jobs: dict[str, dict[str, Any]] = self._load_jobs()
+        self._recover_interrupted_jobs()
+        _LIVE_JOB_SERVICES.add(self)
 
     def _load_jobs(self) -> dict[str, dict[str, Any]]:
         try:
@@ -77,7 +89,25 @@ class FileBackedJobService:
                     jobs[job_id] = job
         return dict((job["job_id"], job) for job in _sort_jobs(list(jobs.values())))
 
-    def _persist_locked(self) -> None:
+    def _record_persistence_failure(self, *, operation: str, error: Exception) -> None:
+        logger.error(
+            "background_job_store_persist_failed",
+            extra={
+                "event": "background_job_store_persist_failed",
+                "operation": operation,
+                "store_name": self._store_path.name,
+                "error_type": type(error).__name__,
+            },
+            exc_info=True,
+        )
+        if observability is None:
+            return
+        try:
+            observability.record_background_job_persistence_failure(operation=operation)
+        except Exception:
+            return
+
+    def _persist_locked(self, *, operation: str) -> bool:
         try:
             self._store_path.parent.mkdir(parents=True, exist_ok=True)
             jobs = _sort_jobs(list(self._jobs.values()))[-self._max_jobs :]
@@ -85,8 +115,52 @@ class FileBackedJobService:
             tmp_path = self._store_path.with_suffix(f"{self._store_path.suffix}.tmp")
             tmp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             tmp_path.replace(self._store_path)
-        except Exception:
-            return
+            return True
+        except Exception as exc:
+            self._record_persistence_failure(operation=operation, error=exc)
+            return False
+
+    def _mark_durability_locked(self, *, durable: bool) -> None:
+        for job in self._jobs.values():
+            job["durability_status"] = "durable" if durable else "degraded"
+            job["persistence_error"] = None if durable else "job_store_write_failed"
+
+    def _persist_with_status_locked(self, *, operation: str) -> bool:
+        self._mark_durability_locked(durable=True)
+        if self._persist_locked(operation=operation):
+            return True
+        self._mark_durability_locked(durable=False)
+        return False
+
+    def _recover_interrupted_jobs(self) -> None:
+        now = _now_iso()
+        recovered = False
+        for job in self._jobs.values():
+            job.setdefault("attempt", 1)
+            job.setdefault("owner", None)
+            job.setdefault("heartbeat_at", None)
+            job.setdefault("interrupted_reason", None)
+            job.setdefault("durability_status", "durable")
+            job.setdefault("persistence_error", None)
+            if str(job.get("status") or "") not in ACTIVE_JOB_STATUSES:
+                continue
+            owner = str(job.get("owner") or "")
+            live_owners = {service._owner for service in _LIVE_JOB_SERVICES}
+            if owner in live_owners:
+                # A second service object in the same process can still execute the target.
+                continue
+            job.update(
+                {
+                    "status": "interrupted",
+                    "finished_at": now,
+                    "updated_at": now,
+                    "interrupted_reason": INTERRUPTED_REASON,
+                    "error": "Background job interrupted by process restart; target cannot be recovered",
+                }
+            )
+            recovered = True
+        if recovered:
+            self._persist_with_status_locked(operation="restart_recovery")
 
     def _trim_locked(self) -> None:
         if len(self._jobs) <= self._max_jobs:
@@ -102,7 +176,7 @@ class FileBackedJobService:
         job.update({key: _json_safe(value) for key, value in updates.items()})
         job["updated_at"] = _now_iso()
         self._trim_locked()
-        self._persist_locked()
+        self._persist_with_status_locked(operation="job_update")
 
     def get(self, job_id: str) -> dict[str, Any] | None:
         with self._job_lock:
@@ -121,6 +195,12 @@ class FileBackedJobService:
             "started_at": None,
             "finished_at": None,
             "created_by": _json_safe(created_by) if created_by is not None else None,
+            "attempt": 1,
+            "owner": self._owner,
+            "heartbeat_at": None,
+            "interrupted_reason": None,
+            "durability_status": "durable",
+            "persistence_error": None,
             "result": None,
             "error": None,
             "target": target,
@@ -128,12 +208,17 @@ class FileBackedJobService:
         with self._job_lock:
             self._jobs[job_id] = job
             self._trim_locked()
-            self._persist_locked()
+            self._persist_with_status_locked(operation="job_create")
 
         def runner() -> None:
             started_monotonic = time.perf_counter()
             with self._job_lock:
-                self._update_job_locked(job_id, status="running", started_at=_now_iso())
+                self._update_job_locked(
+                    job_id,
+                    status="running",
+                    started_at=_now_iso(),
+                    heartbeat_at=_now_iso(),
+                )
             try:
                 result = target()
                 status = "succeeded"

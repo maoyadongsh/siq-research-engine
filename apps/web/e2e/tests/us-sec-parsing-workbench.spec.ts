@@ -268,12 +268,15 @@ async function mockUsSecWorkbenchApis(page: Page, options: MockUsSecWorkbenchOpt
         return
       }
       if (file === 'raw/filing.htm') {
+        const businessParagraphs = '<p>Business section raw HTML content for source trace.</p>'.repeat(32)
+        const mdaParagraphs = '<p>Management discussion raw HTML content for source trace.</p>'.repeat(32)
         await route.fulfill({
           status: 200,
           contentType: 'text/html',
-          body: '<!doctype html><html><body style="margin:0;font-family:Arial,sans-serif;line-height:1.6">' +
-            '<section id="business" style="min-height:900px;padding:24px"><h1>SEC raw HTML preview</h1><p>Business section raw HTML.</p></section>' +
-            '<section id="mda" style="min-height:900px;padding:24px"><h1>Management Discussion raw HTML</h1><p>MD&A section raw HTML.</p></section>' +
+          body: '<!doctype html><html><body onload="localStorage.setItem(\'sec-event-executed\', \'1\')">' +
+            '<script>localStorage.setItem(\'sec-script-executed\', \'1\')</script>' +
+            `<section id="business"><h1>SEC raw HTML preview</h1>${businessParagraphs}</section>` +
+            `<section id="mda"><h1>Management Discussion raw HTML</h1>${mdaParagraphs}</section>` +
             '</body></html>',
         })
         return
@@ -424,7 +427,11 @@ test.describe('美股 SEC 解析工作台', () => {
     await expect(page.getByRole('heading', { name: '解析质量报告', exact: true })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'HTML/iXBRL 可视化溯源', exact: true })).toBeVisible()
     await expect.poll(() => packageFileRequests.find((request) => request.file === 'raw/filing.htm')?.authorization).toBe('Bearer playwright-token')
+    const sourceFrameLocator = page.locator('iframe[title="SEC 原始 HTML"]')
+    await expect(sourceFrameLocator).toHaveAttribute('sandbox', 'allow-same-origin allow-popups')
     await expect(page.frameLocator('iframe[title="SEC 原始 HTML"]').getByText('SEC raw HTML preview')).toBeVisible()
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('sec-script-executed'))).toBeNull()
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('sec-event-executed'))).toBeNull()
     await expect(page.getByTestId('us-sec-source-active-section')).toContainText('business')
 
     const sectionSelect = page.getByLabel('选择 SEC Markdown 文件')

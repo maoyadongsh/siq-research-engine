@@ -124,7 +124,7 @@ def test_streaming_progress_append_helpers_keep_event_order_and_payloads():
     assert stopped_progress["status"] == "stopped"
     assert stopped_progress["title"] == "任务已停止"
     assert stopped_progress["detail"] == "用户停止"
-    assert stopped.status == "failed"
+    assert stopped.status == "cancelled"
 
     assert [event["event"] for event in reasoning.events] == ["reasoning", "progress"]
     reasoning_progress = _event_payload(reasoning.events[1])

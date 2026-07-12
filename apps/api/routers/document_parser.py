@@ -23,6 +23,7 @@ from services.usage_service import (
     ensure_within_quota_async,
     next_midnight_shanghai,
     record_usage_async,
+    release_pending_quota_async,
     usage_response_payload_async,
 )
 from sqlmodel import Session, select
@@ -469,6 +470,11 @@ async def create_document_tasks(
                         headers=_document_headers(current_user=current_user, market_scope=requested_market),
                     )
             except httpx.RequestError as exc:
+                await release_pending_quota_async(
+                    async_session,
+                    user_id=int(current_user.id),
+                    event_type=DOCUMENT_PARSE_EVENT,
+                )
                 raise HTTPException(status_code=502, detail=f"文档解析服务不可用: {exc}") from exc
             finally:
                 close_buffered_uploads(buffered_uploads)
@@ -485,12 +491,22 @@ async def create_document_tasks(
                         headers=_document_headers(current_user=current_user, market_scope=requested_market),
                     )
         except httpx.RequestError as exc:
+            await release_pending_quota_async(
+                async_session,
+                user_id=int(current_user.id),
+                event_type=DOCUMENT_PARSE_EVENT,
+            )
             raise HTTPException(status_code=502, detail=f"文档解析服务不可用: {exc}") from exc
 
     content_type = response.headers.get("content-type", "application/json")
     try:
         payload = response.json()
     except ValueError:
+        await release_pending_quota_async(
+            async_session,
+            user_id=int(current_user.id),
+            event_type=DOCUMENT_PARSE_EVENT,
+        )
         return Response(content=response.content, status_code=response.status_code, media_type=content_type)
 
     if 200 <= response.status_code < 300:
@@ -525,8 +541,19 @@ async def create_document_tasks(
                         source="document_upload" if is_multipart else "document_url",
                         market=task.get("market"),
                     )
+        else:
+            await release_pending_quota_async(
+                async_session,
+                user_id=int(current_user.id),
+                event_type=DOCUMENT_PARSE_EVENT,
+            )
         return payload
 
+    await release_pending_quota_async(
+        async_session,
+        user_id=int(current_user.id),
+        event_type=DOCUMENT_PARSE_EVENT,
+    )
     return Response(
         content=json.dumps(payload, ensure_ascii=False),
         status_code=response.status_code,
@@ -554,12 +581,22 @@ async def import_document_from_mineru(
                     ),
                 )
     except httpx.RequestError as exc:
+        await release_pending_quota_async(
+            async_session,
+            user_id=int(current_user.id),
+            event_type=DOCUMENT_PARSE_EVENT,
+        )
         raise HTTPException(status_code=502, detail=f"文档解析服务不可用: {exc}") from exc
 
     content_type = response.headers.get("content-type", "application/json")
     try:
         upstream_payload = response.json()
     except ValueError:
+        await release_pending_quota_async(
+            async_session,
+            user_id=int(current_user.id),
+            event_type=DOCUMENT_PARSE_EVENT,
+        )
         return Response(content=response.content, status_code=response.status_code, media_type=content_type)
 
     if 200 <= response.status_code < 300 and isinstance(upstream_payload, dict):
@@ -588,6 +625,13 @@ async def import_document_from_mineru(
                 filename=filename,
                 source="document_mineru_import",
             )
+    elif response.status_code >= 300:
+        await release_pending_quota_async(
+            async_session,
+            user_id=int(current_user.id),
+            event_type=DOCUMENT_PARSE_EVENT,
+        )
+    if 200 <= response.status_code < 300:
         return upstream_payload
 
     return Response(
@@ -723,6 +767,12 @@ async def retry_document_task(
             count=1,
             source="document_retry",
             metadata_json=json.dumps({"task_id": task_id}, ensure_ascii=False),
+        )
+    else:
+        await release_pending_quota_async(
+            async_session,
+            user_id=int(current_user.id),
+            event_type=DOCUMENT_PARSE_EVENT,
         )
     return response
 

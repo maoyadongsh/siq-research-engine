@@ -227,6 +227,10 @@ HERMES_HOME = _env_path(
     "SIQ_HERMES_HOME",
     default=DEFAULT_HERMES_HOME,
 )
+HERMES_HOST_HOME = _env_path(
+    "SIQ_HERMES_HOST_HOME",
+    default=HERMES_HOME,
+)
 HERMES_PROFILES_ROOT = _env_path(
     "SIQ_HERMES_PROFILES_ROOT",
     "HERMES_PROFILES_ROOT",
@@ -239,6 +243,7 @@ HERMES_SHARED_SCRIPTS_ROOT = _env_path(
     "SIQ_HERMES_SHARED_SCRIPTS_ROOT",
     default=PROJECT_ROOT / "agents" / "hermes" / "profiles" / "shared" / "scripts",
 )
+HERMES_HOST_SHARED_SCRIPTS_ROOT = HERMES_HOST_HOME / "profiles" / "shared" / "scripts"
 
 
 def _hermes_profile_root(profile: str, env_prefix: str) -> Path:

@@ -10,6 +10,8 @@ export {
   authCookieModeEnabled,
   csrfCookieName,
   csrfToken,
+  resetSessionInvalidationChannel,
+  SESSION_INVALIDATED_EVENT,
   readJsonResponse,
   shouldAttachAuth,
   type ApiErrorInit,

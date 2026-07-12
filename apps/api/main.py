@@ -1,12 +1,36 @@
-import os
+import hmac
 import logging
+import os
 import time
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Depends
+
+from database import create_db_and_tables
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
-from database import create_db_and_tables
-from routers import agent, chat, achievements, analysis, factchecker, legal, tracking_agent, wiki, settings, system, downloads, workflow, source, eval_e2e, auth, workspace, market_reports, document_parser, deals, primary_market_meeting
+from routers import (
+    achievements,
+    agent,
+    analysis,
+    auth,
+    chat,
+    deals,
+    document_parser,
+    downloads,
+    eval_e2e,
+    factchecker,
+    legal,
+    market_reports,
+    primary_market_meeting,
+    settings,
+    source,
+    system,
+    tracking_agent,
+    wiki,
+    workflow,
+    workspace,
+)
+from seed import seed_data
 from services.auth_dependencies import get_current_user
 from services.auth_service import AuthService
 from services.observability import (
@@ -22,7 +46,6 @@ from services.observability import (
 )
 from services.path_config import FRONTEND_ROOT
 from services.runtime_security import cors_origins_from_env, validate_runtime_security_config
-from seed import seed_data
 
 FRONT_DIR = str(FRONTEND_ROOT)
 logger = logging.getLogger("siq.api")
@@ -55,14 +78,23 @@ async def request_observability_middleware(request, call_next):
     start = time.perf_counter()
     status_code = 500
     recorded = False
+    route_template = None
     try:
         response = await call_next(request)
         status_code = response.status_code
+        route = request.scope.get("route")
+        route_template = getattr(route, "path", None)
         response.headers[REQUEST_ID_HEADER] = request_id
         return response
     except Exception:
         duration_ms = monotonic_ms(start)
-        record_http_request(request.method, request.url.path, status_code, duration_ms)
+        record_http_request(
+            request.method,
+            request.url.path,
+            status_code,
+            duration_ms,
+            route_template=route_template,
+        )
         recorded = True
         emit_json_log(
             logger,
@@ -76,7 +108,15 @@ async def request_observability_middleware(request, call_next):
     finally:
         duration_ms = monotonic_ms(start)
         if not recorded:
-            record_http_request(request.method, request.url.path, status_code, duration_ms)
+            route = request.scope.get("route")
+            route_template = route_template or getattr(route, "path", None)
+            record_http_request(
+                request.method,
+                request.url.path,
+                status_code,
+                duration_ms,
+                route_template=route_template,
+            )
         if status_code < 500:
             emit_json_log(
                 logger,
@@ -129,7 +169,30 @@ def health():
     }
 
 
-@app.get("/metrics", response_class=PlainTextResponse)
+def _metrics_token() -> str:
+    return str(os.getenv("SIQ_METRICS_TOKEN") or os.getenv("SIQ_INTERNAL_METRICS_TOKEN") or "").strip()
+
+
+def _require_metrics_access(request: Request) -> None:
+    expected = _metrics_token()
+    protected_profile = str(os.getenv("SIQ_DEPLOYMENT_PROFILE") or "development").strip().lower() in {
+        "docker",
+        "prod",
+        "production",
+    }
+    if not expected:
+        if protected_profile:
+            raise HTTPException(503, "Metrics authentication is not configured")
+        return
+    supplied = str(request.headers.get("X-SIQ-Service-Token") or "").strip()
+    authorization = str(request.headers.get("Authorization") or "")
+    if not supplied and authorization.lower().startswith("bearer "):
+        supplied = authorization[7:].strip()
+    if not supplied or not hmac.compare_digest(supplied, expected):
+        raise HTTPException(401, "Metrics authentication required", headers={"WWW-Authenticate": "Bearer"})
+
+
+@app.get("/metrics", response_class=PlainTextResponse, dependencies=[Depends(_require_metrics_access)])
 def metrics():
     return PlainTextResponse(render_prometheus_metrics(), media_type="text/plain; version=0.0.4; charset=utf-8")
 

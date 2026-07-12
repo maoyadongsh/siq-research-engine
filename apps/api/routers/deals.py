@@ -1369,6 +1369,8 @@ async def post_workflow_run_r1_agent(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise _not_found(deal_id) from exc
+    except ic_agent_runtime.ICTaskAlreadyClaimedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except (RuntimeError, httpx.HTTPError) as exc:
         raise HTTPException(status_code=502, detail=f"Hermes R1 agent run failed: {exc}") from exc
 
@@ -1402,6 +1404,8 @@ async def post_workflow_run_r1_serial(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise _not_found(deal_id) from exc
+    except ic_agent_runtime.ICTaskAlreadyClaimedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except (RuntimeError, httpx.HTTPError) as exc:
         raise HTTPException(status_code=502, detail=f"Hermes R1 serial run failed: {exc}") from exc
 
@@ -1526,6 +1530,8 @@ async def post_workflow_advance_next(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise _not_found(deal_id) from exc
+    except ic_agent_runtime.ICTaskAlreadyClaimedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except (RuntimeError, httpx.HTTPError) as exc:
         raise HTTPException(status_code=502, detail=f"Workflow advance-next failed: {exc}") from exc
 

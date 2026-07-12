@@ -43,6 +43,7 @@ import {
   runDocumentExtraction,
 } from '../../features/document-parser/api'
 import { downloadAuthenticatedFile } from '../../lib/authenticatedFiles'
+import { createRequestScope, type RequestScopeToken } from '../../shared/async/requestScope'
 
 const terminalStatuses = new Set(['completed', 'completed_with_warnings', 'failed', 'cancelled'])
 
@@ -53,7 +54,11 @@ export function isDocumentTerminal(status?: string) {
 export function useDocumentTasks(showToast: (message: string) => void) {
   const selectedTaskIdRef = useRef<string | null>(null)
   const pollRef = useRef<number | null>(null)
+  const pollOwnerRef = useRef<RequestScopeToken | null>(null)
   const logCountRef = useRef(0)
+  const [statusRequestScope] = useState(createRequestScope)
+  const [artifactRequestScope] = useState(createRequestScope)
+  const [pollOwnerScope] = useState(createRequestScope)
 
   const [tasks, setTasks] = useState<DocumentTaskItem[]>([])
   const [selectedTaskId, setSelectedTaskId] = useState('')
@@ -88,26 +93,37 @@ export function useDocumentTasks(showToast: (message: string) => void) {
     return items
   }, [])
 
-  const stopPolling = useCallback(() => {
+  const stopPolling = useCallback((owner?: RequestScopeToken | null) => {
+    if (owner && (
+      pollOwnerRef.current !== owner
+      || !pollOwnerScope.isCurrent(owner, owner.ownerId)
+    )) return false
     if (pollRef.current) {
       window.clearInterval(pollRef.current)
       pollRef.current = null
     }
-  }, [])
+    const activeOwner = pollOwnerRef.current
+    pollOwnerRef.current = null
+    if (activeOwner) pollOwnerScope.invalidate(activeOwner)
+    return true
+  }, [pollOwnerScope])
 
   const loadArtifacts = useCallback(async (taskId: string) => {
+    const token = artifactRequestScope.begin(taskId)
     setLoading(true)
     try {
-      const [resultData, qualityData, blocksData, layoutData, tablesData, tableRelationsData, figuresData, sourceMapData] = await Promise.all([
-        fetchDocumentResult(taskId),
-        fetchDocumentQuality(taskId).catch(() => null),
-        fetchDocumentBlocks(taskId).catch(() => null),
-        fetchDocumentLayoutBlocks(taskId).catch(() => null),
-        fetchDocumentTables(taskId).catch(() => null),
-        fetchDocumentTableRelations(taskId).catch(() => null),
-        fetchDocumentFigures(taskId).catch(() => null),
-        fetchDocumentSourceMap(taskId).catch(() => null),
+      const [resultData, qualityData, blocksData, layoutData, tablesData, tableRelationsData, figuresData, sourceMapData, workflowData] = await Promise.all([
+        fetchDocumentResult(taskId, token.signal),
+        fetchDocumentQuality(taskId, token.signal).catch(() => null),
+        fetchDocumentBlocks(taskId, token.signal).catch(() => null),
+        fetchDocumentLayoutBlocks(taskId, token.signal).catch(() => null),
+        fetchDocumentTables(taskId, token.signal).catch(() => null),
+        fetchDocumentTableRelations(taskId, token.signal).catch(() => null),
+        fetchDocumentFigures(taskId, token.signal).catch(() => null),
+        fetchDocumentSourceMap(taskId, token.signal).catch(() => null),
+        fetchDocumentWorkflowStatus(taskId, 'default', token.signal).catch(() => null),
       ])
+      if (!artifactRequestScope.isCurrent(token, selectedTaskIdRef.current)) return
       setResult(resultData)
       setQuality(qualityData)
       setBlocks(blocksData)
@@ -116,62 +132,81 @@ export function useDocumentTasks(showToast: (message: string) => void) {
       setTableRelations(tableRelationsData)
       setFigures(figuresData)
       setSourceMap(sourceMapData)
-      setWorkflowStatus(await fetchDocumentWorkflowStatus(taskId).catch(() => null))
+      setWorkflowStatus(workflowData)
+    } catch (exc) {
+      if (artifactRequestScope.isCurrent(token, selectedTaskIdRef.current) && !(exc instanceof DOMException && exc.name === 'AbortError')) {
+        setError(exc instanceof Error ? exc.message : '解析产物加载失败')
+      }
     } finally {
-      setLoading(false)
+      if (artifactRequestScope.isCurrent(token, selectedTaskIdRef.current)) setLoading(false)
     }
-  }, [])
+  }, [artifactRequestScope])
 
-  const pollStatus = useCallback(async (taskId: string) => {
+  const pollStatus = useCallback(async (taskId: string, pollOwner: RequestScopeToken) => {
+    if (!pollOwnerScope.isCurrent(pollOwner, taskId)) return
+    const token = statusRequestScope.begin(taskId)
     try {
-      const status = await fetchDocumentStatus(taskId, logCountRef.current)
+      const status = await fetchDocumentStatus(taskId, logCountRef.current, token.signal)
+      if (
+        !statusRequestScope.isCurrent(token, selectedTaskIdRef.current)
+        || !pollOwnerScope.isCurrent(pollOwner, taskId)
+      ) return
       if (Array.isArray(status.logs) && status.logs.length) {
         setLogs((prev) => [...prev, ...(status.logs as DocumentLogEntry[])])
       }
       if (typeof status.log_count === 'number') logCountRef.current = status.log_count
       setTasks((prev) => prev.map((item) => (item.task_id === taskId ? { ...item, ...status } : item)))
       if (isDocumentTerminal(status.status)) {
-        stopPolling()
+        if (!stopPolling(pollOwner)) return
         await refreshTasks()
+        if (!statusRequestScope.isCurrent(token, selectedTaskIdRef.current)) return
         if (status.status === 'completed' || status.status === 'completed_with_warnings') {
           await loadArtifacts(taskId)
         }
       }
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : '状态查询失败')
+      if (statusRequestScope.isCurrent(token, selectedTaskIdRef.current) && !(exc instanceof DOMException && exc.name === 'AbortError')) {
+        setError(exc instanceof Error ? exc.message : '状态查询失败')
+      }
     }
-  }, [loadArtifacts, refreshTasks, stopPolling])
+  }, [loadArtifacts, pollOwnerScope, refreshTasks, statusRequestScope, stopPolling])
 
   const selectTask = useCallback(async (taskId: string) => {
+    stopPolling()
+    statusRequestScope.invalidate()
+    artifactRequestScope.invalidate()
+    setLoading(false)
     selectedTaskIdRef.current = taskId
     setSelectedTaskId(taskId)
     setError(null)
     setLogs([])
     logCountRef.current = 0
-    stopPolling()
-    const status = await fetchDocumentStatus(taskId, 0).catch(() => null)
+    setResult(null)
+    setQuality(null)
+    setBlocks(null)
+    setLayout(null)
+    setTables(null)
+    setTableRelations(null)
+    setFigures(null)
+    setSourceMap(null)
+    setWorkflowStatus(null)
+    setWikiImportResult(null)
+    const token = statusRequestScope.begin(taskId)
+    const status = await fetchDocumentStatus(taskId, 0, token.signal).catch(() => null)
+    if (!statusRequestScope.isCurrent(token, selectedTaskIdRef.current)) return
     if (status?.logs?.length) setLogs(status.logs as DocumentLogEntry[])
     if (typeof status?.log_count === 'number') logCountRef.current = status.log_count
     if (status && isDocumentTerminal(status.status)) {
       if (status.status === 'completed' || status.status === 'completed_with_warnings') {
-        setWikiImportResult(null)
         await loadArtifacts(taskId)
       }
     } else {
-      setResult(null)
-      setQuality(null)
-      setBlocks(null)
-      setLayout(null)
-      setTables(null)
-      setTableRelations(null)
-      setFigures(null)
-      setSourceMap(null)
-      setWorkflowStatus(null)
-      setWikiImportResult(null)
-      pollRef.current = window.setInterval(() => void pollStatus(taskId), 1600)
-      void pollStatus(taskId)
+      const pollOwner = pollOwnerScope.begin(taskId)
+      pollOwnerRef.current = pollOwner
+      pollRef.current = window.setInterval(() => void pollStatus(taskId, pollOwner), 1600)
+      void pollStatus(taskId, pollOwner)
     }
-  }, [loadArtifacts, pollStatus, stopPolling])
+  }, [artifactRequestScope, loadArtifacts, pollOwnerScope, pollStatus, statusRequestScope, stopPolling])
 
   const submitFiles = useCallback(async (files: File[], config: DocumentParseConfig) => {
     if (!files.length) return
@@ -271,6 +306,9 @@ export function useDocumentTasks(showToast: (message: string) => void) {
   const deleteTask = useCallback(async (taskId: string) => {
     await deleteDocumentTask(taskId)
     if (selectedTaskIdRef.current === taskId) {
+      stopPolling()
+      statusRequestScope.invalidate()
+      artifactRequestScope.invalidate()
       selectedTaskIdRef.current = null
       setSelectedTaskId('')
       setResult(null)
@@ -282,9 +320,10 @@ export function useDocumentTasks(showToast: (message: string) => void) {
       setSourceMap(null)
       setWorkflowStatus(null)
       setWikiImportResult(null)
+      setLoading(false)
     }
     await refreshTasks()
-  }, [refreshTasks])
+  }, [artifactRequestScope, refreshTasks, statusRequestScope, stopPolling])
 
   const setBulkSelection = useCallback((taskId: string, selected: boolean) => {
     setSelectedBulkTaskIds((prev) => {
@@ -464,8 +503,16 @@ export function useDocumentTasks(showToast: (message: string) => void) {
       void loadExtractionTemplates()
       void loadMineruCandidates()
     })
-    return () => stopPolling()
+    return () => {
+      stopPolling()
+    }
   }, [loadExtractionTemplates, loadMineruCandidates, refreshTasks, stopPolling])
+
+  useEffect(() => () => {
+    statusRequestScope.invalidate()
+    artifactRequestScope.invalidate()
+    pollOwnerScope.invalidate()
+  }, [artifactRequestScope, pollOwnerScope, statusRequestScope])
 
   return {
     tasks,

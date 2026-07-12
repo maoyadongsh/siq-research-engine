@@ -37,6 +37,7 @@ export interface ResolveSearchCompanyInput {
   targetTicker?: string
   targetCompanyId?: string
   targetFilter?: string
+  signal?: AbortSignal
 }
 
 export interface FetchReportCandidatesInput {
@@ -48,6 +49,7 @@ export interface FetchReportCandidatesInput {
   targetFilter?: string
   companyName: string
   ticker: string
+  signal?: AbortSignal
 }
 
 export interface FetchReportCandidatesResult {
@@ -229,7 +231,7 @@ export async function resolveSearchCompany(input: ResolveSearchCompanyInput): Pr
   const resolved = await resolveCompany<Record<string, unknown>>({
     market: input.targetMarket,
     ...identifierPayloadForSearch(input),
-  })
+  }, input.signal)
   const { companyName, ticker } = resolveCompanyDisplayName(resolved, input.targetQuery)
   return { name: companyName, ticker }
 }
@@ -243,6 +245,7 @@ export async function fetchReportCandidates({
   targetFilter = '',
   companyName,
   ticker,
+  signal,
 }: FetchReportCandidatesInput): Promise<FetchReportCandidatesResult> {
   const annualForms = annualFormsForMarket(targetMarket, targetFilter)
   const financialForms = financialFormsForMarket(targetMarket, targetFilter)
@@ -264,7 +267,7 @@ export async function fetchReportCandidates({
       report_year: parseInt(targetYear, 10),
       forms: annualForms,
       limit: 10,
-    })
+    }, signal)
     annualReports = normalizeReportList(annualData)
   }
 
@@ -274,7 +277,7 @@ export async function fetchReportCandidates({
     report_year: parseInt(targetYear, 10),
     forms: financialForms,
     limit: 20,
-  })
+  }, signal)
   const financialReports = normalizeReportList(financialData)
 
   return {

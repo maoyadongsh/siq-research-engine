@@ -61,16 +61,16 @@ export async function loadDocumentTasks(): Promise<DocumentTaskItem[]> {
   return d.tasks || []
 }
 
-export async function fetchDocumentStatus(taskId: string, since = 0): Promise<DocumentTaskItem & { logs?: unknown[]; log_count?: number; artifacts_ready?: boolean }> {
-  return apiJson<DocumentTaskItem & { logs?: unknown[]; log_count?: number; artifacts_ready?: boolean }>(`${DOCUMENT_API}/status/${encodeURIComponent(taskId)}?since=${encodeURIComponent(String(since))}`)
+export async function fetchDocumentStatus(taskId: string, since = 0, signal?: AbortSignal): Promise<DocumentTaskItem & { logs?: unknown[]; log_count?: number; artifacts_ready?: boolean }> {
+  return apiJson<DocumentTaskItem & { logs?: unknown[]; log_count?: number; artifacts_ready?: boolean }>(`${DOCUMENT_API}/status/${encodeURIComponent(taskId)}?since=${encodeURIComponent(String(since))}`, { signal })
 }
 
-export async function fetchDocumentResult(taskId: string): Promise<DocumentResult> {
-  return apiJson<DocumentResult>(`${DOCUMENT_API}/result/${encodeURIComponent(taskId)}`)
+export async function fetchDocumentResult(taskId: string, signal?: AbortSignal): Promise<DocumentResult> {
+  return apiJson<DocumentResult>(`${DOCUMENT_API}/result/${encodeURIComponent(taskId)}`, { signal })
 }
 
-export async function fetchDocumentArtifactJson<T = unknown>(taskId: string, artifact: string): Promise<T> {
-  return apiJson<T>(`${DOCUMENT_API}/artifact/${encodeURIComponent(taskId)}/${artifact}`)
+export async function fetchDocumentArtifactJson<T = unknown>(taskId: string, artifact: string, signal?: AbortSignal): Promise<T> {
+  return apiJson<T>(`${DOCUMENT_API}/artifact/${encodeURIComponent(taskId)}/${artifact}`, { signal })
 }
 
 export function documentArtifactUrl(taskId: string, artifact: string): string {
@@ -104,32 +104,32 @@ export function documentBatchDownloadUrl(): string {
   return `${DOCUMENT_API}/download/batch`
 }
 
-export async function fetchDocumentQuality(taskId: string): Promise<DocumentQualityReport> {
-  return fetchDocumentArtifactJson<DocumentQualityReport>(taskId, 'quality_report.json')
+export async function fetchDocumentQuality(taskId: string, signal?: AbortSignal): Promise<DocumentQualityReport> {
+  return fetchDocumentArtifactJson<DocumentQualityReport>(taskId, 'quality_report.json', signal)
 }
 
-export async function fetchDocumentBlocks(taskId: string): Promise<DocumentBlocksPayload> {
-  return fetchDocumentArtifactJson<DocumentBlocksPayload>(taskId, 'blocks.json')
+export async function fetchDocumentBlocks(taskId: string, signal?: AbortSignal): Promise<DocumentBlocksPayload> {
+  return fetchDocumentArtifactJson<DocumentBlocksPayload>(taskId, 'blocks.json', signal)
 }
 
-export async function fetchDocumentLayoutBlocks(taskId: string): Promise<DocumentLayoutBlocksPayload> {
-  return fetchDocumentArtifactJson<DocumentLayoutBlocksPayload>(taskId, 'layout_blocks.json')
+export async function fetchDocumentLayoutBlocks(taskId: string, signal?: AbortSignal): Promise<DocumentLayoutBlocksPayload> {
+  return fetchDocumentArtifactJson<DocumentLayoutBlocksPayload>(taskId, 'layout_blocks.json', signal)
 }
 
-export async function fetchDocumentTables(taskId: string): Promise<DocumentTablesPayload> {
-  return fetchDocumentArtifactJson<DocumentTablesPayload>(taskId, 'tables.json')
+export async function fetchDocumentTables(taskId: string, signal?: AbortSignal): Promise<DocumentTablesPayload> {
+  return fetchDocumentArtifactJson<DocumentTablesPayload>(taskId, 'tables.json', signal)
 }
 
-export async function fetchDocumentFigures(taskId: string): Promise<DocumentFiguresPayload> {
-  return apiJson<DocumentFiguresPayload>(`${DOCUMENT_API}/figures/${encodeURIComponent(taskId)}`)
+export async function fetchDocumentFigures(taskId: string, signal?: AbortSignal): Promise<DocumentFiguresPayload> {
+  return apiJson<DocumentFiguresPayload>(`${DOCUMENT_API}/figures/${encodeURIComponent(taskId)}`, { signal })
 }
 
-export async function fetchDocumentSourceMap(taskId: string): Promise<DocumentSourceMapPayload> {
-  return fetchDocumentArtifactJson<DocumentSourceMapPayload>(taskId, 'source_map.json')
+export async function fetchDocumentSourceMap(taskId: string, signal?: AbortSignal): Promise<DocumentSourceMapPayload> {
+  return fetchDocumentArtifactJson<DocumentSourceMapPayload>(taskId, 'source_map.json', signal)
 }
 
-export async function fetchDocumentTableRelations(taskId: string): Promise<DocumentTableRelationsPayload> {
-  return apiJson<DocumentTableRelationsPayload>(`${DOCUMENT_API}/table-relations/${encodeURIComponent(taskId)}`)
+export async function fetchDocumentTableRelations(taskId: string, signal?: AbortSignal): Promise<DocumentTableRelationsPayload> {
+  return apiJson<DocumentTableRelationsPayload>(`${DOCUMENT_API}/table-relations/${encodeURIComponent(taskId)}`, { signal })
 }
 
 export async function fetchDocumentExtractionTemplates(): Promise<DocumentExtractionTemplatesPayload> {
@@ -166,9 +166,9 @@ export async function deleteDocumentTask(taskId: string): Promise<void> {
   await apiJson<Record<string, unknown>>(`${DOCUMENT_API}/tasks/${encodeURIComponent(taskId)}`, { method: 'DELETE' })
 }
 
-export async function fetchDocumentWorkflowStatus(taskId: string, collection = 'default'): Promise<DocumentWorkflowStatus> {
+export async function fetchDocumentWorkflowStatus(taskId: string, collection = 'default', signal?: AbortSignal): Promise<DocumentWorkflowStatus> {
   const params = new URLSearchParams({ collection })
-  return apiJson<DocumentWorkflowStatus>(`${DOCUMENT_WORKFLOW_API}/${encodeURIComponent(taskId)}/status?${params.toString()}`)
+  return apiJson<DocumentWorkflowStatus>(`${DOCUMENT_WORKFLOW_API}/${encodeURIComponent(taskId)}/status?${params.toString()}`, { signal })
 }
 
 export async function importDocumentToWiki(taskId: string, collection = 'default'): Promise<DocumentWikiImportResult> {

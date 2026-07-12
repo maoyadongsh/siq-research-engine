@@ -3,6 +3,7 @@
 
 SIQ_PROJECT_ROOT=/home/maoyd/siq-research-engine
 SIQ_DEPLOYMENT_PROFILE=local
+SIQ_METRICS_TOKEN=
 
 # Runtime roots. Compatibility default keeps existing repo data/runtime/artifacts.
 # New local setups should prefer an external state root, for example:
@@ -12,6 +13,8 @@ SIQ_DATA_ROOT=${SIQ_LOCAL_STATE_ROOT}/data
 SIQ_RUNTIME_ROOT=${SIQ_LOCAL_STATE_ROOT}/runtime
 SIQ_ARTIFACTS_ROOT=${SIQ_LOCAL_STATE_ROOT}/artifacts
 SIQ_DATASETS_ROOT=${SIQ_PROJECT_ROOT}/datasets
+SIQ_REPORT_REVIEW_ROOT=${SIQ_ARTIFACTS_ROOT}
+SIQ_REPORT_REVIEW_MAX_BYTES=10485760
 
 SIQ_AUTH_SECRET_KEY=replace-with-at-least-32-random-characters
 SIQ_CORS_ALLOW_ORIGINS=http://localhost:15173,http://127.0.0.1:15173
@@ -76,8 +79,8 @@ SIQ_DOCUMENT_OUTPUT_ROOT=${SIQ_ARTIFACTS_ROOT}/document-parser/output
 SIQ_REPORT_FINDER_ROOT=${SIQ_PROJECT_ROOT}/services/market-report-finder
 SIQ_MARKET_REPORT_FINDER_ROOT=${SIQ_PROJECT_ROOT}/services/market-report-finder
 SIQ_MARKET_REPORT_RULES_ROOT=${SIQ_PROJECT_ROOT}/services/market-report-rules
-SIQ_MARKET_REPORT_FINDER_TOKEN=
-SIQ_MARKET_REPORT_RULES_TOKEN=
+SIQ_MARKET_REPORT_FINDER_TOKEN=replace-with-shared-internal-finder-token
+SIQ_MARKET_REPORT_RULES_TOKEN=replace-with-shared-internal-rules-token
 SIQ_REPORT_DOWNLOADS_ROOT=${SIQ_ARTIFACTS_ROOT}/market-report-finder/downloads
 SIQ_MARKET_REPORT_DOWNLOADS_ROOT=${SIQ_ARTIFACTS_ROOT}/market-report-finder/downloads
 
@@ -90,6 +93,10 @@ SIQ_KR_PGDATABASE=siq_kr
 SIQ_EU_PGDATABASE=siq_eu
 SIQ_HERMES_HOME=${SIQ_RUNTIME_ROOT}/hermes/home
 SIQ_HERMES_PROFILES_ROOT=${SIQ_HERMES_HOME}/profiles
+# Docker Compose only: host HERMES_HOME mounted read-only into the API container.
+SIQ_HERMES_HOST_HOME=${SIQ_PROJECT_ROOT}/data/hermes/home
+SIQ_IC_TASK_LEASE_SECONDS=120
+SIQ_IC_TASK_HEARTBEAT_SECONDS=30
 SIQ_MINERU_VENV=${SIQ_PROJECT_ROOT}/runtimes/mineru-native
 
 SIQ_BACKEND_PORT=18081

@@ -786,6 +786,54 @@ def test_enforce_financial_evidence_contract_allows_recomputed_reconciliation_tr
     assert "商誉原值为 12.82 亿元" in reply
 
 
+def test_enforce_financial_evidence_contract_allows_compact_summary_with_trusted_tool_receipt():
+    identity = {
+        "market": "HK",
+        "company_id": "HK:01398",
+        "filing_id": "HK:01398:2025-annual",
+        "parse_run_id": "run-hk-01398-2025",
+    }
+    trusted_receipt = {
+        "status": "ok",
+        "operation": "yoy",
+        "input": {
+            "current": "120",
+            "current_unit": "HKD million",
+            "current_currency": "HKD",
+            "previous": "100",
+            "previous_unit": "HKD million",
+            "previous_currency": "HKD",
+        },
+        "result": {"rate": "0.2", "percent": "20"},
+        "receipt_source": "hermes_session_tool",
+        "receipt_tool_call_id": "call-yoy",
+    }
+    compact_reply = (
+        "营业收入同比增长 20%。\n\n"
+        "## 计算器校验\n- 同比：(120 - 100) / 100 = 20%，状态 ok。\n\n"
+        "[P1] source_type=wiki_metrics market=HK company_id=HK:01398 "
+        "filing_id=HK:01398:2025-annual parse_run_id=run-hk-01398-2025 "
+        "canonical_name=operating_revenue metric_name=operating_revenue period_key=2025 "
+        'value=120 unit="HKD million" evidence_id=E-REV-2025 quote="revenue 120" task_id=task-ok\n'
+        "[P2] source_type=wiki_metrics market=HK company_id=HK:01398 "
+        "filing_id=HK:01398:2025-annual parse_run_id=run-hk-01398-2025 "
+        "canonical_name=operating_revenue metric_name=operating_revenue period_key=2024 "
+        'value=100 unit="HKD million" evidence_id=E-REV-2024 quote="revenue 100" task_id=task-ok'
+    )
+
+    reply = guard.enforce_financial_evidence_contract(
+        "营业收入同比是多少？",
+        {"research_identity": identity},
+        compact_reply,
+        deps=_deps(),
+        trusted_calculation_runs=(trusted_receipt,),
+    )
+
+    assert "## 计算校验无效" not in reply
+    assert "siq_financial_calculation_trace_v1" not in reply
+    assert "## 计算器校验" in reply
+
+
 def test_enforce_financial_evidence_contract_blocks_reconciliation_input_mismatch():
     reply = guard.enforce_financial_evidence_contract(
         "工商银行商誉原值、减值准备和净额如何勾稽？",

@@ -10,32 +10,36 @@ function shouldRetryAssistRequest(error: unknown) {
   return status === 502 || status === 503 || status === 504 || /HTML 页面|非 JSON 内容|upstream/i.test(message)
 }
 
-export async function requestReportAssist<T = Record<string, unknown>>(payload: Record<string, unknown>): Promise<T> {
+export async function requestReportAssist<T = Record<string, unknown>>(payload: Record<string, unknown>, signal?: AbortSignal): Promise<T> {
   try {
     return await apiJson<T>('/api/v1/reports/assist', {
       method: 'POST',
       body: payload,
+      signal,
     })
   } catch (error) {
     if (!shouldRetryAssistRequest(error)) throw error
     return apiJson<T>('/api/v1/reports/assist', {
       method: 'POST',
       body: payload,
+      signal,
     })
   }
 }
 
-export async function resolveCompany<T = Record<string, unknown>>(payload: Record<string, unknown>): Promise<T> {
+export async function resolveCompany<T = Record<string, unknown>>(payload: Record<string, unknown>, signal?: AbortSignal): Promise<T> {
   return apiJson<T>('/api/v1/company/resolve', {
     method: 'POST',
     body: payload,
+    signal,
   })
 }
 
-export async function fetchRecentReports<T = Record<string, unknown>>(payload: Record<string, unknown>): Promise<T> {
+export async function fetchRecentReports<T = Record<string, unknown>>(payload: Record<string, unknown>, signal?: AbortSignal): Promise<T> {
   return apiJson<T>('/api/v1/reports/recent', {
     method: 'POST',
     body: payload,
+    signal,
   })
 }
 

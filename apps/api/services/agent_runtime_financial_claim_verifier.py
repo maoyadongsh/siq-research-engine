@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, localcontext
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 CANONICAL_METRIC_ALIASES = {
     "total_operating_revenue": ("营业总收入", "营业收入合计", "total operating revenue"),
@@ -590,6 +591,207 @@ def _expected_trace_metrics(reply: str) -> frozenset[str]:
     )
 
 
+def _trace_reference_metric(reference: Mapping[str, Any]) -> str:
+    return str(
+        reference.get("canonical_name")
+        or reference.get("metric_name")
+        or reference.get("metric")
+        or reference.get("name")
+        or ""
+    ).strip()
+
+
+def _trace_reference_period(reference: Mapping[str, Any]) -> str:
+    return str(reference.get("period_key") or reference.get("period") or "").strip()
+
+
+def _trace_reference_for_value(
+    value: Any,
+    unit: Any,
+    references: Sequence[Mapping[str, Any]],
+    used: set[str],
+) -> Mapping[str, Any] | None:
+    normalized = _normalized_amount(value, unit)
+    if normalized is None:
+        return None
+    target, category = normalized
+    candidates: list[Mapping[str, Any]] = []
+    for reference in references:
+        evidence_id = str(reference.get("evidence_id") or "")
+        if not evidence_id or evidence_id in used:
+            continue
+        reference_value = reference.get("value", reference.get("raw_value"))
+        reference_unit = reference.get("unit") or reference.get("currency") or reference.get("fact_currency")
+        observed = _normalized_amount(reference_value, reference_unit, scale=reference.get("scale"))
+        if observed is None or observed[1] != category:
+            continue
+        if abs(observed[0] - target) <= max(0.01, abs(target) * 0.000001):
+            candidates.append(reference)
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def _trace_identity_payload(expected_identity: Mapping[str, Any] | None) -> dict[str, str]:
+    expected = _expected_identity(expected_identity)
+    if not expected:
+        return {}
+    return {field: expected[field] for field in IDENTITY_FIELDS}
+
+
+def _ratio_trace_metric(inputs: Mapping[str, Any]) -> str:
+    numerator = str(inputs.get("numerator", {}).get("metric") or "").strip().lower()
+    denominator = str(inputs.get("denominator", {}).get("metric") or "").strip().lower()
+    if numerator in {"gross_profit", "gross_income", "毛利润", "毛利"} and denominator in {
+        "revenue",
+        "operating_revenue",
+        "total_operating_revenue",
+        "营业收入",
+        "营业总收入",
+    }:
+        return "gross_margin"
+    if numerator in {"net_profit", "net_income", "parent_net_profit", "净利润", "归母净利润"} and denominator in {
+        "revenue",
+        "operating_revenue",
+        "营业收入",
+    }:
+        return "net_margin"
+    if numerator in {"total_liabilities", "liabilities", "负债合计", "总负债"} and denominator in {
+        "total_assets",
+        "assets",
+        "资产总计",
+        "总资产",
+    }:
+        return "debt_to_asset_ratio"
+    return f"{numerator}_ratio"
+
+
+def materialize_runtime_calculation_runs(
+    receipts: Sequence[Mapping[str, Any]],
+    reply: str,
+    *,
+    expected_identity: Mapping[str, Any] | None = None,
+) -> tuple[Mapping[str, Any], ...]:
+    """Turn a trusted CLI receipt into the strict trace envelope used by the verifier.
+
+    The receipt contains only script output.  Metric, period and evidence IDs
+    are bound here to source lines already present in the guarded reply; no
+    model-authored identity or evidence fields are accepted.
+    """
+
+    references = _extract_source_references(reply)
+    identity = _trace_identity_payload(expected_identity)
+    materialized: list[Mapping[str, Any]] = []
+    for receipt in receipts:
+        schema = str(receipt.get("schema_version") or "")
+        if schema in TRACE_SCHEMAS:
+            materialized.append(receipt)
+            continue
+        operation = str(receipt.get("operation") or "").strip().lower()
+        if operation not in CALCULATOR_OPERATIONS and operation not in RECONCILIATION_OPERATIONS:
+            continue
+        status = str(receipt.get("status") or "").strip().lower()
+        if status not in {"ok", "pass", "passed"}:
+            continue
+        used: set[str] = set()
+        if operation in CALCULATOR_OPERATIONS:
+            raw_input = receipt.get("input")
+            if not isinstance(raw_input, Mapping):
+                continue
+            role_specs = {
+                "yoy": (("current", "current_unit"), ("previous", "previous_unit")),
+                "yoy_growth": (("current", "current_unit"), ("previous", "previous_unit")),
+                "ratio": (("numerator", "numerator_unit"), ("denominator", "denominator_unit")),
+                "cagr": (("start", "start_unit"), ("end", "end_unit")),
+                "per_capita": (("amount", "amount_unit"), ("count", "count_unit")),
+            }.get(operation, ())
+            inputs: dict[str, Any] = {}
+            periods: list[str] = []
+            for role, unit_key in role_specs:
+                value_key, unit_name_key = role, unit_key
+                reference = _trace_reference_for_value(
+                    raw_input.get(value_key),
+                    raw_input.get(unit_name_key),
+                    references,
+                    used,
+                )
+                if reference is None:
+                    continue
+                evidence_id = str(reference.get("evidence_id") or "")
+                used.add(evidence_id)
+                period = _trace_reference_period(reference)
+                periods.append(period)
+                inputs[role] = {
+                    "role": role,
+                    "metric": _trace_reference_metric(reference),
+                    "period": period,
+                    "value": str(raw_input.get(value_key)),
+                    "unit": str(raw_input.get(unit_name_key) or ""),
+                    "evidence_id": evidence_id,
+                }
+            if len(inputs) != len(role_specs):
+                continue
+            if operation == "ratio":
+                metric = _ratio_trace_metric(inputs)
+            else:
+                metric = inputs[next(iter(inputs))]["metric"]
+            trace = {
+                "schema_version": CALCULATION_TRACE_SCHEMA,
+                "tool": "financial_calculator.py",
+                "operation": operation,
+                "metric": metric,
+                "period": periods[0] if periods else "",
+                "inputs": inputs,
+                "result": receipt.get("result"),
+                "research_identity": identity,
+                "receipt": {key: receipt[key] for key in receipt if key.startswith("receipt_")},
+            }
+            materialized.append(trace)
+            continue
+
+        result = receipt.get("result")
+        if not isinstance(result, Mapping):
+            continue
+        reconciliation_roles = (
+            ("gross", "note_gross"),
+            ("allowance", "impairment_allowance"),
+            ("net", "statement_net"),
+        )
+        inputs: dict[str, Any] = {}
+        periods: list[str] = []
+        for role, result_key in reconciliation_roles:
+            reference = _trace_reference_for_value(result.get(result_key), "元", references, used)
+            if reference is None:
+                continue
+            evidence_id = str(reference.get("evidence_id") or "")
+            used.add(evidence_id)
+            period = _trace_reference_period(reference)
+            periods.append(period)
+            inputs[role] = {
+                "role": role,
+                "metric": _trace_reference_metric(reference),
+                "period": period,
+                "value": str(result.get(result_key)),
+                "unit": str(reference.get("unit") or "元"),
+                "evidence_id": evidence_id,
+            }
+        if len(inputs) != len(reconciliation_roles):
+            continue
+        materialized.append(
+            {
+                "schema_version": RECONCILIATION_TRACE_SCHEMA,
+                "tool": "financial_reconciliation_validator.py",
+                "operation": operation,
+                "metric": "goodwill",
+                "period": periods[0] if periods else str(receipt.get("report_id") or ""),
+                "inputs": inputs,
+                "result": {"net": str(result.get("statement_net"))},
+                "status": status,
+                "research_identity": identity,
+                "receipt": {key: receipt[key] for key in receipt if key.startswith("receipt_")},
+            }
+        )
+    return tuple(materialized)
+
+
 def validate_calculation_traces(
     reply: str,
     *,
@@ -597,8 +799,14 @@ def validate_calculation_traces(
     require_calculator: bool = False,
     require_reconciliation: bool = False,
     expected_operations: frozenset[str] = frozenset(),
+    trusted_runs: Sequence[Mapping[str, Any]] = (),
 ) -> CalculationTraceValidation:
-    runs = extract_structured_calculation_runs(reply)
+    materialized_trusted_runs = materialize_runtime_calculation_runs(
+        trusted_runs,
+        reply,
+        expected_identity=expected_identity,
+    )
+    runs = extract_structured_calculation_runs(reply) + tuple(materialized_trusted_runs)
     if not (require_calculator or require_reconciliation):
         return CalculationTraceValidation(checked=False, allowed=True, runs=runs)
     if not runs:
@@ -606,6 +814,7 @@ def validate_calculation_traces(
     expected = _expected_identity(expected_identity)
     calculator_seen = False
     reconciliation_seen = False
+    seen_operations: set[str] = set()
     calculator_results: list[Decimal] = []
     expected_metrics = _expected_trace_metrics(reply)
     for run in runs:
@@ -652,12 +861,19 @@ def validate_calculation_traces(
                 return CalculationTraceValidation(True, False, "trace_reconciliation_status_invalid", runs)
         calculator_seen = calculator_seen or not is_reconciliation
         reconciliation_seen = reconciliation_seen or is_reconciliation
+        seen_operations.add(operation)
         if not is_reconciliation:
             calculator_results.append(actual_result)
     if require_calculator and not calculator_seen:
         return CalculationTraceValidation(True, False, "calculator_trace_missing", runs)
     if require_reconciliation and not reconciliation_seen:
         return CalculationTraceValidation(True, False, "reconciliation_trace_missing", runs)
+    if expected_operations:
+        covered_operations = set(seen_operations)
+        if "yoy" in covered_operations or "yoy_growth" in covered_operations:
+            covered_operations.update({"yoy", "yoy_growth"})
+        if set(expected_operations) - covered_operations:
+            return CalculationTraceValidation(True, False, "trace_operation_missing", runs)
     for claim in _derived_percent_claims(reply):
         # A prose percentage is commonly rounded to one decimal place.  This
         # tolerance is only for binding the displayed claim to an already
@@ -866,7 +1082,19 @@ def _extract_source_references(reply: str) -> list[dict[str, Any]]:
         fields = _extract_source_fields(raw_line)
         if not fields.get("source_type"):
             continue
-        references.append({"line_number": line_number, "raw": raw_line.strip(), **fields})
+        reference = {"line_number": line_number, "raw": raw_line.strip(), **fields}
+        if not reference.get("evidence_id"):
+            stable_fields = "|".join(
+                str(reference.get(key) or "")
+                for key in (
+                    "source_type", "market", "company_id", "filing_id", "parse_run_id",
+                    "file", "metric", "metric_name", "canonical_name", "period", "period_key",
+                    "value", "raw_value", "unit", "task_id", "pdf_page", "table_index", "md_line",
+                )
+            )
+            reference["evidence_id"] = "auto:" + hashlib.sha256(stable_fields.encode("utf-8")).hexdigest()[:20]
+            reference["_generated_evidence_id"] = True
+        references.append(reference)
         if len(references) >= 100:
             break
     return references
@@ -895,6 +1123,7 @@ def _fact_from_reference(reference: Mapping[str, Any]) -> dict[str, Any]:
         "fact_currency",
         "task_id",
         "evidence_id",
+        "_generated_evidence_id",
         "quote",
         "quote_text",
         "source_url",
@@ -940,7 +1169,7 @@ def _reference_facts(reply: str) -> tuple[EvidenceFact, ...]:
                 company_id=str(fact.get("company_id") or ""),
                 filing_id=str(fact.get("filing_id") or fact.get("report_id") or ""),
                 parse_run_id=str(fact.get("parse_run_id") or ""),
-                evidence_id=str(fact.get("evidence_id") or ""),
+                evidence_id="" if fact.get("_generated_evidence_id") else str(fact.get("evidence_id") or ""),
                 quote=str(fact.get("quote") or fact.get("quote_text") or ""),
                 source_type=source_type,
             )

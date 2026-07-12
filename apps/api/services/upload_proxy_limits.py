@@ -16,6 +16,7 @@ DEFAULT_CHUNK_BYTES = 1024 * 1024
 DEFAULT_SPOOL_MAX_BYTES = 8 * 1024 * 1024
 DEFAULT_MAX_FILE_BYTES = 100 * 1024 * 1024
 DEFAULT_MAX_BATCH_BYTES = 200 * 1024 * 1024
+DEFAULT_MAX_FILES = 5
 DEFAULT_MAX_CONCURRENCY = 8
 DEFAULT_QUEUE_TIMEOUT_SECONDS = 5.0
 
@@ -122,6 +123,19 @@ def upload_too_large_error(
     )
 
 
+def too_many_upload_files_error(*, file_count: int, limit: int) -> HTTPException:
+    return HTTPException(
+        status_code=413,
+        detail={
+            "error": "too_many_upload_files",
+            "file_count": file_count,
+            "limit": limit,
+            "scope": "batch",
+            "message": "上传文件数量超过限制，请拆分批次。",
+        },
+    )
+
+
 def upload_proxy_busy_error(
     *,
     limit: int,
@@ -153,13 +167,18 @@ async def _read_upload_chunk(upload: Any, chunk_bytes: int) -> tuple[bytes, bool
 async def buffer_upload_files(
     files: list[Any],
     *,
+    max_files: int | None = None,
     max_file_bytes: int = DEFAULT_MAX_FILE_BYTES,
     max_batch_bytes: int = DEFAULT_MAX_BATCH_BYTES,
     chunk_bytes: int = DEFAULT_CHUNK_BYTES,
     spool_max_bytes: int = DEFAULT_SPOOL_MAX_BYTES,
     default_filename: str = "upload",
     default_content_type: str = "application/octet-stream",
+    reject_empty: bool = False,
 ) -> list[BufferedUpload]:
+    if max_files is not None and len(files) > max(0, int(max_files)):
+        raise too_many_upload_files_error(file_count=len(files), limit=max(0, int(max_files)))
+
     buffered: list[BufferedUpload] = []
     batch_size = 0
     current_handle: BinaryIO | None = None
@@ -197,6 +216,8 @@ async def buffer_upload_files(
                 handle.write(chunk)
                 if single_read:
                     break
+            if reject_empty and size == 0:
+                raise HTTPException(status_code=400, detail="Uploaded file is empty")
             handle.seek(0)
             buffered.append(
                 BufferedUpload(

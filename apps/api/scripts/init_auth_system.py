@@ -2,8 +2,8 @@
 """
 初始化认证系统数据库和创建初始管理员账户（使用SQLModel）
 """
-import sys
 import os
+import sys
 from pathlib import Path
 
 # 添加backend到路径
@@ -39,14 +39,18 @@ def _env_enabled(*names: str) -> bool:
 def init_database():
     """初始化数据库表"""
     try:
+        from services.security_redaction import redact_connection_url
         from sqlmodel import SQLModel, create_engine
-        from services.auth_service import User, AuditLog, ReportReview
+
+        from services import auth_service as _auth_service
+
+        _ = _auth_service
 
         print("📦 连接数据库...")
 
         database_url = _required_env_any("SIQ_APP_DATABASE_URL", "DATABASE_URL")
 
-        print(f"🔗 数据库URL: {database_url.replace(':@', ':***@')}")
+        print(f"🔗 数据库URL: {redact_connection_url(database_url)}")
 
         engine = create_engine(database_url, echo=False)
 

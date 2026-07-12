@@ -13,7 +13,6 @@ from collections import Counter, defaultdict
 from collections.abc import Mapping
 from typing import Any
 
-
 REQUEST_ID_HEADER = "X-Request-ID"
 REQUEST_ID_LOG_FIELD = "request_id"
 MAX_REQUEST_ID_LENGTH = 128
@@ -38,6 +37,7 @@ _INGESTION_FACT_COUNT: dict[tuple[str, str], float] = {}
 _WIKI_POSTGRES_PARITY_WARNING_TOTAL: Counter[tuple[str, str]] = Counter()
 _FRONTEND_PIPELINE_JOB_FAILURE_TOTAL: Counter[tuple[str, str, str]] = Counter()
 _BACKGROUND_JOB_FINAL_STATE_TOTAL: Counter[tuple[str, str]] = Counter()
+_BACKGROUND_JOB_PERSISTENCE_FAILURE_TOTAL: Counter[str] = Counter()
 _BACKGROUND_JOB_DURATION_SECONDS: dict[tuple[str, str], dict[str, float]] = defaultdict(
     lambda: {"count": 0.0, "sum": 0.0, "max": 0.0}
 )
@@ -94,7 +94,7 @@ def emit_json_log(logger: logging.Logger, event: str, **fields: Any) -> None:
 
 
 def _label_value(value: Any) -> str:
-    text = re.sub(r"[^A-Za-z0-9_.:/#=-]+", "_", str(value or "unknown").strip())[:160]
+    text = re.sub(r"[^A-Za-z0-9_.:/#={}-]+", "_", str(value or "unknown").strip())[:160]
     return text or "unknown"
 
 
@@ -102,9 +102,29 @@ def _prom_label(value: Any) -> str:
     return _label_value(value).replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
 
 
-def record_http_request(method: str, path: str, status_code: int, duration_ms: int | float) -> None:
+def normalize_http_metric_path(path: str, route_template: str | None = None) -> str:
+    """Return a bounded-cardinality route label.
+
+    FastAPI's resolved route template is preferred. Middleware can observe an
+    arbitrary unmatched path before routing, so that fallback is intentionally
+    represented by one fixed label rather than user-controlled path segments.
+    """
+    candidate = str(route_template or path or "/").strip() or "/"
+    if route_template:
+        return _label_value(candidate)
+    return "/__unmatched__"
+
+
+def record_http_request(
+    method: str,
+    path: str,
+    status_code: int,
+    duration_ms: int | float,
+    *,
+    route_template: str | None = None,
+) -> None:
     method_label = _label_value(method).upper()
-    path_label = _label_value(path)
+    path_label = normalize_http_metric_path(path, route_template)
     status_label = str(int(status_code or 500))
     duration = max(0.0, float(duration_ms or 0))
     with _METRICS_LOCK:
@@ -239,6 +259,11 @@ def record_background_job_final_state(
         bucket["max"] = max(bucket["max"], duration)
 
 
+def record_background_job_persistence_failure(*, operation: str | None) -> None:
+    with _METRICS_LOCK:
+        _BACKGROUND_JOB_PERSISTENCE_FAILURE_TOTAL[_label_value(operation)] += 1
+
+
 def metrics_snapshot() -> dict[str, Any]:
     with _METRICS_LOCK:
         request_count = sum(_HTTP_REQUEST_TOTAL.values())
@@ -270,6 +295,7 @@ def metrics_snapshot() -> dict[str, Any]:
             "background_job_duration_seconds": {
                 "|".join(key): dict(value) for key, value in _BACKGROUND_JOB_DURATION_SECONDS.items()
             },
+            "background_job_persistence_failure_counts": dict(_BACKGROUND_JOB_PERSISTENCE_FAILURE_TOTAL),
         }
 
 
@@ -393,6 +419,17 @@ def render_prometheus_metrics() -> str:
             lines.append(f"siq_background_job_duration_seconds_sum{{{labels}}} {payload['sum']:.6f}")
             lines.append(f"siq_background_job_duration_seconds_count{{{labels}}} {int(payload['count'])}")
             lines.append(f"siq_background_job_duration_seconds_max{{{labels}}} {payload['max']:.6f}")
+        lines.extend(
+            [
+                "# HELP siq_background_job_persistence_failure_total Background job store persistence failures.",
+                "# TYPE siq_background_job_persistence_failure_total counter",
+            ]
+        )
+        for operation, count in sorted(_BACKGROUND_JOB_PERSISTENCE_FAILURE_TOTAL.items()):
+            lines.append(
+                "siq_background_job_persistence_failure_total"
+                f'{{operation="{_prom_label(operation)}"}} {count}'
+            )
     return "\n".join(lines) + "\n"
 
 
@@ -408,6 +445,7 @@ def reset_observability_metrics_for_tests() -> None:
         _WIKI_POSTGRES_PARITY_WARNING_TOTAL.clear()
         _FRONTEND_PIPELINE_JOB_FAILURE_TOTAL.clear()
         _BACKGROUND_JOB_FINAL_STATE_TOTAL.clear()
+        _BACKGROUND_JOB_PERSISTENCE_FAILURE_TOTAL.clear()
         _BACKGROUND_JOB_DURATION_SECONDS.clear()
         global _ANSWER_CALCULATOR_RUN_TOTAL, _ANSWER_CITATION_TOTAL
         _ANSWER_CALCULATOR_RUN_TOTAL = 0

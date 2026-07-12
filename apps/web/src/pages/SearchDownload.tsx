@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo, useDeferredValue } from 'react'
+import { useState, useCallback, useEffect, useMemo, useDeferredValue, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   Search,
@@ -52,14 +52,15 @@ import {
   quickDownloadReportTypes,
   resolveSearchCompany,
   searchFilterForReportSearch,
-  searchParamsForReportSearch,
   selectedReportsForDownload,
   type SearchDownloadCompanyInfo,
 } from '../features/search-download/flows'
 import {
   applySearchDownloadSearchParamsPatch,
   buildSearchDownloadMarketFilterPatch,
+  buildSearchDownloadUrlStateUpdate,
   readSearchDownloadInitialState,
+  sameSearchDownloadUrlState,
   type SearchDownloadSearchParamsUpdate,
 } from '../features/search-download/urlState'
 import {
@@ -83,7 +84,6 @@ import {
   MARKET_CONFIGS,
   formatBytes,
   friendlyRemoteConfigError,
-  isMarketCode,
   isRemoteConfigError,
   reportTypeLabel,
   typeLabels,
@@ -96,6 +96,11 @@ import {
   type MarketReportHealth,
   type ReportItem,
 } from '../features/search-download/model'
+import { createRequestScope, type RequestScopeToken } from '../shared/async/requestScope'
+
+function isAbortError(error: unknown) {
+  return error instanceof Error && error.name === 'AbortError'
+}
 
 export default function SearchDownload() {
   const { toast } = useToast()
@@ -127,6 +132,9 @@ export default function SearchDownload() {
   const [marketHealthLoading, setMarketHealthLoading] = useState(false)
   const [marketConfigWarning, setMarketConfigWarning] = useState<string | null>(null)
   const [logsExpanded, setLogsExpanded] = useState(false)
+  const localUrlWriteRef = useRef<ReturnType<typeof readSearchDownloadInitialState> | null>(null)
+  const [searchRequestScope] = useState(createRequestScope)
+  const [assistRequestScope] = useState(createRequestScope)
 
   const deferredDownloadResults = useDeferredValue(downloadResults)
   const deferredLogs = useDeferredValue(logs)
@@ -175,9 +183,51 @@ export default function SearchDownload() {
   } = viewModel
 
   const syncSearchParams = useCallback((next: SearchDownloadSearchParamsUpdate, replace = true) => {
-    const { searchParams: nextSearchParams, replace: nextReplace } = applySearchDownloadSearchParamsPatch(searchParams, next, replace)
-    setSearchParams(nextSearchParams, { replace: nextReplace })
-  }, [searchParams, setSearchParams])
+    setSearchParams((current) => {
+      const result = applySearchDownloadSearchParamsPatch(current, next, replace)
+      localUrlWriteRef.current = readSearchDownloadInitialState(result.searchParams)
+      return result.searchParams
+    }, { replace })
+  }, [setSearchParams])
+
+  useEffect(() => {
+    let cancelled = false
+    const urlState = readSearchDownloadInitialState(searchParams)
+    const isLocalWrite = Boolean(
+      localUrlWriteRef.current
+      && sameSearchDownloadUrlState(localUrlWriteRef.current, urlState),
+    )
+    localUrlWriteRef.current = null
+
+    queueMicrotask(() => {
+      if (cancelled) return
+      setMarket(urlState.market)
+      setQuery(urlState.query)
+      setYear(urlState.year)
+      setMarketFilter(urlState.marketFilter)
+      setDownloadedQuery(urlState.downloadedQuery)
+      setSmartPrompt(urlState.smartPrompt)
+
+      if (!isLocalWrite) {
+        searchRequestScope.invalidate()
+        assistRequestScope.invalidate()
+        setLoading(false)
+        setAssistLoading(false)
+        setSelected(new Set())
+        setDownloadResults([])
+        setAnnualReports([])
+        setFinancialReports([])
+        setCompanyInfo(null)
+        setAssistResult(null)
+        setCandidateExplanations([])
+        setMarketConfigWarning(null)
+      }
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [assistRequestScope, searchParams, searchRequestScope])
 
   const setQueryAndUrl = useCallback((value: string) => {
     setQuery(value)
@@ -200,7 +250,7 @@ export default function SearchDownload() {
     setAssistResult(null)
     setCandidateExplanations([])
     setMarketConfigWarning(null)
-    syncSearchParams({ market: value, exchange: '', form: '', country: '' })
+    syncSearchParams({ market: value, exchange: '', form: '', country: '' }, false)
   }, [syncSearchParams])
 
   const setMarketFilterAndUrl = useCallback((value: string) => {
@@ -214,9 +264,11 @@ export default function SearchDownload() {
   }, [syncSearchParams])
 
   const setSmartPromptAndUrl = useCallback((value: string) => {
+    assistRequestScope.invalidate()
+    setAssistLoading(false)
     setSmartPrompt(value)
     syncSearchParams({ ask: value })
-  }, [syncSearchParams])
+  }, [assistRequestScope, syncSearchParams])
 
   const addLog = useCallback((msg: string, type = 'info') => {
     const time = new Date().toLocaleTimeString('zh-CN')
@@ -237,12 +289,16 @@ export default function SearchDownload() {
     }
   }, [addLog])
 
-  const ensureOfficialReportSearchReady = useCallback(async (targetMarket: MarketCode) => {
+  const ensureOfficialReportSearchReady = useCallback(async (
+    targetMarket: MarketCode,
+    isCurrent: () => boolean = () => true,
+  ) => {
     if (targetMarket !== 'JP' && targetMarket !== 'KR') {
-      setMarketConfigWarning(null)
+      if (isCurrent()) setMarketConfigWarning(null)
       return true
     }
     const health = marketHealth || await fetchMarketHealth()
+    if (!isCurrent()) return false
     const source = health?.report_finder?.markets?.[targetMarket]
     const readiness = evaluateOfficialSourceReadiness(targetMarket, source)
     setMarketConfigWarning(readiness.message)
@@ -257,30 +313,40 @@ export default function SearchDownload() {
     })
   }, [fetchMarketHealth])
 
-  const requestAssist = useCallback(async (payload: Record<string, unknown>) => {
-    return requestReportAssist<AssistResult>(payload)
+  const requestAssist = useCallback(async (payload: Record<string, unknown>, signal?: AbortSignal) => {
+    return requestReportAssist<AssistResult>(payload, signal)
   }, [])
 
   const handleSmartParse = async () => {
-    if (!smartPrompt.trim()) return
+    const prompt = smartPrompt.trim()
+    if (!prompt) return
+    searchRequestScope.invalidate()
+    const token = assistRequestScope.begin(prompt)
     setAssistLoading(true)
-    addLog(`智能解析: ${smartPrompt}`, 'info')
+    addLog(`智能解析: ${prompt}`, 'info')
     try {
       const result = await requestAssist({
-        prompt: smartPrompt,
+        prompt,
         market,
         report_year: parseInt(year, 10),
-      })
-      const intent = result.intent || {}
-      if (intent.market && isMarketCode(intent.market)) setMarketAndUrl(intent.market)
-      if (intent.report_year) setYearAndUrl(String(intent.report_year))
+      }, token.signal)
+      if (!assistRequestScope.isCurrent(token, prompt)) return
       const plan = buildAssistSearchPlan(result, {
         currentMarket: market,
         currentYear: year,
         currentMarketFilter: marketFilter,
-        smartPrompt,
+        smartPrompt: prompt,
       })
-      if (plan.nextQuery) setQueryAndUrl(plan.nextQuery)
+      const targetFilter = searchFilterForReportSearch({
+        targetMarket: plan.targetMarket,
+        source: 'smart',
+        marketFilter,
+        targetCountry: plan.targetCountry,
+      })
+      setMarket(plan.targetMarket)
+      setYear(plan.targetYear)
+      setMarketFilter(targetFilter)
+      if (plan.nextQuery) setQuery(plan.nextQuery)
       setAssistResult(result)
       addLog(plan.understoodLog, 'success')
       if (plan.targetQuery) {
@@ -294,11 +360,22 @@ export default function SearchDownload() {
           reportTypes: plan.reportTypes,
           source: 'smart',
         })
+      } else {
+        syncSearchParams(buildSearchDownloadUrlStateUpdate({
+          market: plan.targetMarket,
+          query: plan.nextQuery,
+          year: plan.targetYear,
+          marketFilter: targetFilter,
+          downloadedQuery,
+          smartPrompt: prompt,
+        }), false)
       }
     } catch (e) {
-      addLog(`智能解析失败: ${buildQueryFailureLogMessage((e as Error).message, market)}`, 'error')
+      if (assistRequestScope.isCurrent(token, prompt) && !isAbortError(e)) {
+        addLog(`智能解析失败: ${buildQueryFailureLogMessage((e as Error).message, market)}`, 'error')
+      }
     } finally {
-      setAssistLoading(false)
+      if (assistRequestScope.isCurrent(token, prompt)) setAssistLoading(false)
     }
   }
 
@@ -307,9 +384,11 @@ export default function SearchDownload() {
     companyName: string,
     ticker: string,
     options?: { targetMarket?: MarketCode; targetYear?: string; reportTypes?: string[] },
+    requestToken?: RequestScopeToken,
   ) => {
+    const isCurrent = () => !requestToken || searchRequestScope.isCurrent(requestToken)
     if (reports.length === 0) {
-      setCandidateExplanations([])
+      if (isCurrent()) setCandidateExplanations([])
       return
     }
     try {
@@ -330,7 +409,8 @@ export default function SearchDownload() {
           published_at: report.published_at,
           landing_url: report.landing_url,
         })),
-      })
+      }, requestToken?.signal)
+      if (!isCurrent()) return
       const explanations = result.candidate_explanations || []
       setCandidateExplanations(explanations)
       setAssistResult((current) => ({
@@ -344,10 +424,11 @@ export default function SearchDownload() {
         addLog(`智能推荐 ${recommended.length} 份官方候选，已自动勾选`, 'success')
       }
     } catch (e) {
+      if (!isCurrent() || isAbortError(e)) return
       setCandidateExplanations([])
       addLog(`候选解释失败，已保留原始列表: ${(e as Error).message}`, 'warn')
     }
-  }, [market, requestAssist, smartPrompt, year, addLog])
+  }, [market, requestAssist, searchRequestScope, smartPrompt, year, addLog])
 
   const loadDownloadedReports = useCallback(async (text: string) => {
     setDownloadedLoading(true)
@@ -392,6 +473,9 @@ export default function SearchDownload() {
     source?: 'manual' | 'smart'
   }) => {
     if (!targetQuery.trim() && !targetTicker && !targetCompanyId) return
+    if (source === 'manual') assistRequestScope.invalidate()
+    const requestOwner = `${targetMarket}:${targetQuery}:${targetYear}:${targetTicker || ''}:${targetCompanyId || ''}`
+    const token = searchRequestScope.begin(requestOwner)
     const targetConfig = MARKET_CONFIGS[targetMarket]
     const targetFilter = searchFilterForReportSearch({
       targetMarket,
@@ -399,16 +483,18 @@ export default function SearchDownload() {
       marketFilter,
       targetCountry,
     })
-    syncSearchParams(searchParamsForReportSearch({
-      targetMarket,
-      targetQuery,
-      targetYear,
-      targetFilter,
+    syncSearchParams(buildSearchDownloadUrlStateUpdate({
+      market: targetMarket,
+      query: targetQuery,
+      year: targetYear,
+      marketFilter: targetFilter,
+      downloadedQuery,
+      smartPrompt,
     }), false)
     setMarket(targetMarket)
     setQuery(targetQuery)
     setYear(targetYear)
-    if (source === 'smart') setMarketFilter('')
+    setMarketFilter(targetFilter)
     setLoading(true)
     setSelected(new Set())
     setDownloadResults([])
@@ -426,13 +512,19 @@ export default function SearchDownload() {
         targetTicker,
         targetCompanyId,
         targetFilter,
+        signal: token.signal,
       })
+      if (!searchRequestScope.isCurrent(token, requestOwner)) return
       const companyName = resolvedCompany.name
       const ticker = resolvedCompany.ticker
       setCompanyInfo(resolvedCompany)
       addLog(`已解析: ${companyName}${ticker ? ` (${ticker})` : ''}`, 'success')
 
-      if (!(await ensureOfficialReportSearchReady(targetMarket))) return
+      if (!(await ensureOfficialReportSearchReady(
+        targetMarket,
+        () => searchRequestScope.isCurrent(token, requestOwner),
+      ))) return
+      if (!searchRequestScope.isCurrent(token, requestOwner)) return
 
       const {
         annualReports: annual,
@@ -447,7 +539,9 @@ export default function SearchDownload() {
         targetFilter,
         companyName,
         ticker,
+        signal: token.signal,
       })
+      if (!searchRequestScope.isCurrent(token, requestOwner)) return
       setAnnualReports(annual)
       addLog(`找到 ${annual.length} 份${targetMarket === 'US' ? '年度披露' : targetMarket === 'JP' ? '有价证券报告书' : '年报'}`, 'success')
       setFinancialReports(financial)
@@ -457,8 +551,10 @@ export default function SearchDownload() {
         companyName,
         ticker,
         { targetMarket, targetYear, reportTypes },
+        token,
       )
     } catch (e) {
+      if (!searchRequestScope.isCurrent(token, requestOwner) || isAbortError(e)) return
       const rawMessage = (e as Error).message
       const message = isRemoteConfigError(rawMessage)
         ? friendlyRemoteConfigError(rawMessage)
@@ -466,7 +562,7 @@ export default function SearchDownload() {
       if (isRemoteConfigError(rawMessage)) setMarketConfigWarning(message)
       addLog(`查询失败: ${message}`, isRemoteConfigError(rawMessage) ? 'warn' : 'error')
     } finally {
-      setLoading(false)
+      if (searchRequestScope.isCurrent(token, requestOwner)) setLoading(false)
     }
   }
 

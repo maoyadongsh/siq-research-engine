@@ -20,7 +20,7 @@ import { EmptyState, PageHeader, PageSection, PageShell, StatusBadge, Surface } 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import type { DealListResponse, DealStatusResponse, DealSummary } from '@/lib/dealTypes'
-import { fetchPrimaryMarketProjects, fetchPrimaryMarketProjectStatus } from '@/features/primary-market/primaryMarketApi'
+import { fetchPrimaryMarketProjects } from '@/features/primary-market/primaryMarketApi'
 import {
   componentPath,
   deriveProjectMetrics,
@@ -129,25 +129,11 @@ export default function PrimaryMarketWorkbench() {
       setError('')
       setStatusErrors({})
       try {
-        const payload = await fetchPrimaryMarketProjects({ q: query }, controller.signal)
+        const payload = await fetchPrimaryMarketProjects({ q: query, page: 1, page_size: 50, include_status: true }, controller.signal)
         const deals = Array.isArray(payload.deals) ? payload.deals : []
         setData({ deals, stats: payload.stats })
-        const results = await Promise.allSettled(deals.map((deal) => fetchPrimaryMarketProjectStatus(deal.deal_id, controller.signal)))
         if (controller.signal.aborted) return
-        const nextStatuses: Record<string, DealStatusResponse | null> = {}
-        const nextErrors: Record<string, string> = {}
-        results.forEach((result, index) => {
-          const dealId = deals[index]?.deal_id
-          if (!dealId) return
-          if (result.status === 'fulfilled') {
-            nextStatuses[dealId] = result.value
-          } else {
-            nextStatuses[dealId] = null
-            nextErrors[dealId] = result.reason instanceof Error ? result.reason.message : '状态加载失败'
-          }
-        })
-        setStatuses(nextStatuses)
-        setStatusErrors(nextErrors)
+        setStatuses(payload.status_summaries || {})
       } catch (err) {
         if (!controller.signal.aborted) setError(err instanceof Error ? err.message : '一级市场项目加载失败')
       } finally {

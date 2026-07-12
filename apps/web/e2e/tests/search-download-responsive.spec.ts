@@ -51,6 +51,27 @@ async function mockSearchDownloadApis(page: Page) {
       await route.fulfill(json({ reports: [] }))
       return
     }
+    if (url.pathname === '/api/v1/reports/assist') {
+      await route.fulfill(json({
+        intent: {
+          market: 'US',
+          company_query: 'Apple Inc.',
+          ticker: 'AAPL',
+          company_id: '0000320193',
+          report_year: 2024,
+          report_types: ['annual', '10-K'],
+        },
+      }))
+      return
+    }
+    if (url.pathname === '/api/v1/company/resolve') {
+      await route.fulfill(json({ company_name: 'Apple Inc.', ticker: 'AAPL' }))
+      return
+    }
+    if (url.pathname === '/api/v1/reports/recent') {
+      await route.fulfill(json({ reports: [] }))
+      return
+    }
     await route.fulfill(json({ reports: [], items: [], data: [], results: [] }))
   })
 }
@@ -103,4 +124,37 @@ test.describe('搜索下载响应式验收', () => {
       })
     })
   }
+
+  test('搜索条件随浏览器前进后退回灌表单，智能解析原子保留完整 URL', async ({ page }) => {
+    await mockSearchDownloadApis(page)
+    await page.goto('/search?market=CN&q=BYD&year=2025&exchange=SSE&ask=%E6%89%BE%E6%AF%94%E4%BA%9A%E8%BF%AA%E5%B9%B4%E6%8A%A5')
+
+    const queryInput = page.locator('.query-field input')
+    const yearSelect = page.locator('.year-field select')
+    const smartInput = page.locator('.smart-search-input')
+    await expect(queryInput).toHaveValue('BYD')
+    await expect(yearSelect).toHaveValue('2025')
+
+    await page.getByRole('button', { name: /美国市场/ }).click()
+    await expect(page).toHaveURL(/market=US/)
+    await expect(queryInput).toHaveValue('BYD')
+
+    await page.goBack()
+    await expect(page).toHaveURL(/market=CN/)
+    await expect(queryInput).toHaveValue('BYD')
+    await expect(yearSelect).toHaveValue('2025')
+    await expect(page.locator('.filter-field select')).toHaveValue('SSE')
+
+    await smartInput.fill('找 Apple 2024 年 10-K')
+    await page.getByRole('button', { name: '智能检索' }).click()
+    await expect(page).toHaveURL(/market=US/)
+    await expect(page).toHaveURL(/q=Apple\+Inc\./)
+    await expect(page).toHaveURL(/year=2024/)
+    const params = new URL(page.url()).searchParams
+    expect(params.get('ask')).toBe('找 Apple 2024 年 10-K')
+    expect(params.get('exchange')).toBeNull()
+    expect(params.get('country')).toBeNull()
+    await expect(queryInput).toHaveValue('Apple Inc.')
+    await expect(yearSelect).toHaveValue('2024')
+  })
 })

@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     app_name: str = "Market Report Finder Service"
+    deployment_profile: str = Field(default="local", validation_alias="SIQ_DEPLOYMENT_PROFILE")
     internal_service_token: str | None = Field(
         default=None,
         validation_alias="SIQ_MARKET_REPORT_FINDER_TOKEN",

@@ -77,23 +77,59 @@ export SIQ_REPORT_DOWNLOADS_ROOT=/home/maoyd/siq-research-engine/data/market-rep
 
 ## PostgreSQL
 
+`scripts/ops/backup.sh` 默认按容器初始化契约分别导出以下业务数据库：
+
+```text
+siq_app
+siq_document_parser
+siq_us
+siq_hk
+siq_jp
+siq_kr
+siq_eu
+```
+
+设置管理连接后执行备份：
+
+```bash
+export DATABASE_URL='postgresql://backup_user:password@127.0.0.1:15432/postgres'
+export SIQ_BACKUP_DIR=/path/outside/repository/siq
+./scripts/ops/backup.sh
+```
+
+每次运行生成独立时间戳目录，其中 `postgres/<database>.sql.gz` 是逐库逻辑导出，
+`manifest.txt` 记录备份参数，`checksums.sha256` 覆盖本次全部备份文件。恢复前必须先校验：
+
+```bash
+cd /path/outside/repository/siq/<timestamp>
+sha256sum --check checksums.sha256
+```
+
 旧备份中如有 PostgreSQL 逻辑导出，应优先使用：
 
 ```text
 /path/to/postgres/exports
 ```
 
-恢复前先确认目标数据库和用户。典型流程：
+不要直接覆盖现有业务库。先使用自动创建并自动删除临时数据库的恢复冒烟：
 
 ```bash
-createdb siq
-psql "$DATABASE_URL" -f /path/to/export.sql
+export SIQ_RESTORE_SMOKE=1
+export SIQ_RESTORE_SMOKE_SOURCE=/path/to/backup/postgres/siq_us.sql.gz
+export SIQ_RESTORE_SMOKE_ADMIN_URL='postgresql://restore_user:password@127.0.0.1:15432/postgres'
+export SIQ_RESTORE_SMOKE_CHECKSUM_MANIFEST=/path/to/backup/checksums.sha256
+export SIQ_RESTORE_SMOKE_EXPECTED_RELATIONS='sec_us.filings,sec_us.financial_facts'
+export SIQ_RESTORE_SMOKE_AGENT_VIEW='sec_us.v_agent_financial_facts'
+./scripts/ops/restore_smoke.sh
 ```
 
-恢复完成后设置：
+脚本只在 `SIQ_RESTORE_SMOKE=1` 时运行，并创建名称以 `siq_restore_smoke_` 开头的临时数据库；
+完成 relation 和 Agent view 查询后通过 `trap` 自动删除。未提供开关或必要配置时不会创建、覆盖或删除任何数据库。
+
+冒烟通过后，再按变更审批和维护窗口恢复正式目标库。恢复完成后设置应用连接：
 
 ```bash
-export DATABASE_URL='postgresql://postgres:password@127.0.0.1:15432/siq'
+export SIQ_APP_DATABASE_URL='postgresql+psycopg://app_user:password@127.0.0.1:15432/siq_app'
 ```
 
 原始 PostgreSQL 容器数据只作为最后恢复手段，不应直接提交或移动到源码目录。
@@ -138,6 +174,8 @@ curl -s http://localhost:15000/api/health
 若恢复 PostgreSQL，再运行：
 
 ```bash
+sha256sum --check /path/to/backup/checksums.sha256
+./scripts/ops/restore_smoke.sh
 python3 db/imports/import_document_full_to_postgres.py --help
 python3 db/imports/test_financial_query_api_cases.py
 ```

@@ -447,6 +447,30 @@ def test_primary_market_meeting_r1_agent_facade_dry_run_and_execute(monkeypatch,
     assert stored["events"][0]["meta"]["artifact_path"] == "discussion/01_R1_finance_auditor_report.md"
 
 
+def test_primary_market_meeting_r1_agent_returns_conflict_for_active_claim(monkeypatch, tmp_path):
+    client = _primary_market_client(monkeypatch, tmp_path)
+    deal_store.create_deal_package(deal_id="DEAL-MEET-CLAIM", company_name="Claim Robotics")
+
+    async def fake_run(*_args, **_kwargs):
+        raise primary_market_meeting.ic_agent_runtime.ICTaskAlreadyClaimedError(
+            {
+                "task_key": "DEAL-MEET-CLAIM:R1:siq_ic_strategist",
+                "attempt": 1,
+                "lease_expires_at": "2026-07-12T09:02:00Z",
+            }
+        )
+
+    monkeypatch.setattr(primary_market_meeting.ic_agent_runtime, "run_workflow_r1_agent", fake_run)
+
+    response = client.post(
+        "/api/primary-market/meeting/DEAL-MEET-CLAIM/agents/siq_ic_strategist/run-r1",
+        json={"dry_run": False, "round_name": "R1", "allow_hermes": True},
+    )
+
+    assert response.status_code == 409
+    assert "already running" in response.json()["detail"]
+
+
 def test_primary_market_meeting_r1_agent_execution_requires_hermes_consent(monkeypatch, tmp_path):
     client = _primary_market_client(monkeypatch, tmp_path)
     deal_store.create_deal_package(deal_id="DEAL-MEET-R1AGENT-CONSENT", company_name="R1 Agent Consent")

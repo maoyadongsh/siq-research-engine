@@ -158,6 +158,56 @@ def test_answer_audit_trace_records_only_validated_structured_run_as_calculator_
     assert record["guardrail_result"]["has_calculator_runs"] is True
 
 
+def test_answer_audit_trace_keeps_full_trusted_json_behind_compact_summary():
+    identity = {
+        "market": "HK",
+        "company_id": "HK:00700",
+        "filing_id": "HK:00700:2025-annual",
+        "parse_run_id": "run-hk-00700",
+    }
+    receipt = {
+        "status": "ok",
+        "operation": "ratio",
+        "input": {
+            "numerator": "40",
+            "numerator_unit": "HKD million",
+            "numerator_currency": "HKD",
+            "denominator": "100",
+            "denominator_unit": "HKD million",
+            "denominator_currency": "HKD",
+        },
+        "result": {"ratio": "0.4", "percent": "40"},
+        "receipt_source": "hermes_session_tool",
+        "receipt_tool_call_id": "call-ratio",
+    }
+    reply = (
+        "毛利率为 40%。\n\n## 计算器校验\n- 毛利率：40%，状态 ok。\n"
+        "[D1] source_type=wiki_metrics market=HK company_id=HK:00700 filing_id=HK:00700:2025-annual "
+        "parse_run_id=run-hk-00700 canonical_name=gross_profit metric_name=gross_profit period_key=2025 "
+        'value=40 unit="HKD million" evidence_id=E-GP quote="gross profit 40"\n'
+        "[D2] source_type=wiki_metrics market=HK company_id=HK:00700 filing_id=HK:00700:2025-annual "
+        "parse_run_id=run-hk-00700 canonical_name=revenue metric_name=revenue period_key=2025 "
+        'value=100 unit="HKD million" evidence_id=E-REV quote="revenue 100"'
+    )
+
+    record = audit.build_answer_audit_trace(
+        message="毛利率是多少？",
+        context={"research_identity": identity},
+        profile="siq_assistant",
+        session_id="trusted-summary",
+        raw_reply=reply,
+        final_reply=reply,
+        trusted_calculation_runs=(receipt,),
+    )
+
+    trusted = [item for item in record["calculator_runs"] if item["source"] == "runtime_tool_receipt"]
+    assert trusted[0]["validated"] is True
+    assert trusted[0]["payload"]["schema_version"] == "siq_financial_calculation_trace_v1"
+    assert trusted[0]["payload"]["receipt"]["receipt_tool_call_id"] == "call-ratio"
+    assert record["calculation_trace_validation"]["allowed"] is True
+    assert "siq_financial_calculation_trace_v1" not in reply
+
+
 def test_answer_audit_trace_extracts_research_identity_context():
     context = {
         "research_identity": {

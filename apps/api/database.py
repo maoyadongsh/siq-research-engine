@@ -1,7 +1,11 @@
 import os
 import re
 
+# Import coordination tables before metadata.create_all so local SQLite and
+# production PostgreSQL receive the same lease schema at startup.
 from services.path_config import BACKEND_DATA_ROOT
+from services.runtime_coordination import ActiveRunLease  # noqa: F401
+from services.usage_service import QuotaLedger, QuotaReservation  # noqa: F401
 from sqlalchemy import inspect, text
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel import Session, SQLModel, create_engine

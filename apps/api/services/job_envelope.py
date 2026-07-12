@@ -67,9 +67,14 @@ def market_job_to_canonical(job: Mapping[str, Any]) -> dict[str, Any]:
         "created_by": _public_copy(job.get("created_by")),
         "result": _public_copy(job.get("result")),
         "error": job.get("error"),
+        "owner": job.get("owner"),
+        "heartbeat_at": job.get("heartbeat_at"),
+        "interrupted_reason": job.get("interrupted_reason"),
+        "durability_status": job.get("durability_status"),
+        "persistence_error": job.get("persistence_error"),
         "steps": [],
         "logs": [],
-        "attempts": 1,
+        "attempts": int(job.get("attempt") or 1),
         "source_schema": "market_file_backed_job_v1",
         "legacy_payload": _market_legacy_payload(job),
     }
@@ -120,6 +125,18 @@ def canonical_to_market_public(job: Mapping[str, Any]) -> dict[str, Any]:
         payload["updated_at"] = job.get("updated_at")
     if "subject" in legacy:
         payload["subject"] = _public_copy(job.get("subject"))
+    extra_fields = (
+        "owner",
+        "heartbeat_at",
+        "interrupted_reason",
+        "durability_status",
+        "persistence_error",
+    )
+    for field in extra_fields:
+        if field in legacy or job.get(field) is not None:
+            payload[field] = job.get(field)
+    if "attempt" in legacy or int(job.get("attempts") or 1) != 1:
+        payload["attempt"] = int(job.get("attempts") or 1)
     return payload
 
 

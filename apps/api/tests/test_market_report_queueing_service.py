@@ -173,6 +173,30 @@ def test_get_market_report_job_projects_legacy_market_eval_snapshot():
     }
 
 
+def test_get_market_report_job_preserves_durability_degraded_state():
+    class JobService:
+        def get(self, job_id):
+            return {
+                "job_id": job_id,
+                "kind": "market-ingestion-eval",
+                "status": "running",
+                "created_at": "2026-07-12T09:00:00Z",
+                "attempt": 2,
+                "owner": "job-worker-1",
+                "heartbeat_at": "2026-07-12T09:01:00Z",
+                "durability_status": "degraded",
+                "persistence_error": "job_store_write_failed",
+            }
+
+    result = service.get_market_report_job(job_service=JobService(), job_id="job-1")
+
+    assert result["attempt"] == 2
+    assert result["owner"] == "job-worker-1"
+    assert result["heartbeat_at"] == "2026-07-12T09:01:00Z"
+    assert result["durability_status"] == "degraded"
+    assert result["persistence_error"] == "job_store_write_failed"
+
+
 def test_run_or_queue_market_report_job_runs_inline_when_waiting():
     calls = []
 

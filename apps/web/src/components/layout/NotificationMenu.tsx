@@ -42,6 +42,7 @@ type ReportSection = 'analysis' | 'factcheck' | 'tracking' | 'legal'
 
 const READ_NOTICE_KEY = 'siq_read_notice_ids'
 const NOTICE_BASELINE_KEY = 'siq_notice_baseline_ready'
+const NOTICE_SCHEMA_VERSION = 'v1'
 const NOTICES_INITIAL_DELAY_MS = 5000
 const TERMINAL_DONE = new Set(['completed', 'success', 'done', 'finished'])
 const reportSectionRoutes: Record<ReportSection, string> = {
@@ -79,9 +80,9 @@ function formatTime(value: string) {
   return date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
-function readNoticeIds() {
+function readNoticeIds(key = READ_NOTICE_KEY) {
   try {
-    const saved = localStorage.getItem(READ_NOTICE_KEY)
+    const saved = localStorage.getItem(key)
     const parsed = saved ? JSON.parse(saved) : []
     return Array.isArray(parsed) ? parsed.filter((item) => typeof item === 'string') : []
   } catch {
@@ -155,16 +156,29 @@ export default function NotificationMenu() {
   const noticeBoxRef = useRef<HTMLDivElement>(null)
   const noticePanelRef = useRef<HTMLDivElement>(null)
   const [openNotices, setOpenNotices] = useState(false)
-  const [readIds, setReadIds] = useState<string[]>(readNoticeIds)
+  const [readIds, setReadIds] = useState<string[]>([])
   const [notices, setNotices] = useState<Notice[]>([])
   const [noticeLoading, setNoticeLoading] = useState(false)
   const noticesLoadedRef = useRef(false)
   const noticeRequestIdRef = useRef(0)
+  const noticeCursorRef = useRef('')
   const globalNotices = isAdminRole(user?.role)
+  const noticeReadKey = `${READ_NOTICE_KEY}:${NOTICE_SCHEMA_VERSION}:${user?.id ?? 'anonymous'}`
+  const noticeBaselineKey = `${NOTICE_BASELINE_KEY}:${NOTICE_SCHEMA_VERSION}:${user?.id ?? 'anonymous'}`
 
   useEffect(() => {
-    localStorage.setItem(READ_NOTICE_KEY, JSON.stringify(readIds))
-  }, [readIds])
+    const resetTimer = window.setTimeout(() => {
+      setReadIds(readNoticeIds(noticeReadKey))
+      setNotices([])
+      noticesLoadedRef.current = false
+      noticeCursorRef.current = ''
+    }, 0)
+    return () => window.clearTimeout(resetTimer)
+  }, [noticeReadKey])
+
+  useEffect(() => {
+    localStorage.setItem(noticeReadKey, JSON.stringify(readIds.slice(-500)))
+  }, [noticeReadKey, readIds])
 
   useEffect(() => {
     const onDown = (event: PointerEvent) => {
@@ -184,7 +198,8 @@ export default function NotificationMenu() {
 
       try {
         if (!globalNotices) {
-          const data = await apiJson<{ artifacts: WorkspaceArtifact[] }>('/api/workspace/artifacts')
+          const since = noticeCursorRef.current ? `?since=${encodeURIComponent(noticeCursorRef.current)}` : ''
+          const data = await apiJson<{ artifacts: WorkspaceArtifact[] }>(`/api/workspace/artifacts${since}`)
           const next = (data.artifacts || []).map((item) => ({
             id: `workspace:${item.type}:${item.id}`,
             kind: artifactKind(item),
@@ -197,7 +212,15 @@ export default function NotificationMenu() {
           next.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
           if (requestId !== noticeRequestIdRef.current) return
           noticesLoadedRef.current = true
-          setNotices(next)
+          if (next.length) {
+            const maxTime = next.reduce((max, item) => item.time > max ? item.time : max, noticeCursorRef.current)
+            noticeCursorRef.current = maxTime
+          }
+          setNotices((current) => {
+            const merged = new Map(current.map((item) => [item.id, item]))
+            next.forEach((item) => merged.set(item.id, item))
+            return [...merged.values()].sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime()).slice(0, 200)
+          })
           return
         }
 
@@ -257,31 +280,34 @@ export default function NotificationMenu() {
 
         if (requestId !== noticeRequestIdRef.current) return
 
-        if (localStorage.getItem(NOTICE_BASELINE_KEY) !== '1') {
+        if (localStorage.getItem(noticeBaselineKey) !== '1') {
           setReadIds((current) => Array.from(new Set([...current, ...next.map((notice) => notice.id)])))
-          localStorage.setItem(NOTICE_BASELINE_KEY, '1')
+          localStorage.setItem(noticeBaselineKey, '1')
         }
         noticesLoadedRef.current = true
         setNotices(next)
       } catch {
-        if (requestId === noticeRequestIdRef.current) setNotices([])
+        // Keep the last successful notifications visible when a background refresh fails.
       } finally {
         if (requestId === noticeRequestIdRef.current) setNoticeLoading(false)
       }
     },
-    [globalNotices],
+    [globalNotices, noticeBaselineKey],
   )
 
   useEffect(() => {
     const runQuietly = () => {
+      if (document.visibilityState !== 'visible') return
       loadTaskNotices({ showLoading: false }).catch(() => {})
     }
     const timer = window.setInterval(runQuietly, 30000)
     const cancelInitialLoad = scheduleTopbarIdleWork(runQuietly)
+    document.addEventListener('visibilitychange', runQuietly)
 
     return () => {
       window.clearInterval(timer)
       cancelInitialLoad()
+      document.removeEventListener('visibilitychange', runQuietly)
       noticeRequestIdRef.current += 1
     }
   }, [loadTaskNotices])

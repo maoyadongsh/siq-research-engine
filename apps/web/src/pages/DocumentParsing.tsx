@@ -31,6 +31,7 @@ export default function DocumentParsing() {
   const [config, setConfig] = useState<DocumentParseConfig>(defaultConfig)
   const [health, setHealth] = useState<Record<string, unknown> | null>(null)
   const [quota, setQuota] = useState<Record<string, unknown> | null>(null)
+  const [quotaState, setQuotaState] = useState<'loading' | 'ready' | 'unavailable'>('loading')
 
   const showToast = (message: string) => toast({ type: 'info', title: message })
   const tasks = useDocumentTasks(showToast)
@@ -45,13 +46,18 @@ export default function DocumentParsing() {
   useEffect(() => {
     let cancelled = false
     async function loadMeta() {
-      const [healthData, quotaData] = await Promise.all([
-        checkDocumentParserHealth(),
-        loadDocumentQuota(),
-      ])
-      if (cancelled) return
-      setHealth(healthData)
-      setQuota(quotaData)
+      try {
+        const [healthData, quotaData] = await Promise.all([
+          checkDocumentParserHealth(),
+          loadDocumentQuota(),
+        ])
+        if (cancelled) return
+        setHealth(healthData)
+        setQuota(quotaData)
+        setQuotaState('ready')
+      } catch {
+        if (!cancelled) setQuotaState('unavailable')
+      }
     }
     void loadMeta()
     const timer = window.setInterval(() => void loadMeta(), 15000)
@@ -80,7 +86,15 @@ export default function DocumentParsing() {
               {health?.status === 'ok' ? '服务正常' : '服务待检查'}
             </StatusBadge>
             <StatusBadge tone="info">
-              今日剩余 {typeof quota?.remaining === 'number' ? quota.remaining : '不限'}
+              今日剩余 {quotaState === 'loading'
+                ? '加载中'
+                : quotaState === 'unavailable'
+                  ? '暂不可用'
+                  : typeof quota?.remaining === 'number'
+                    ? quota.remaining
+                    : quota?.limit === null
+                      ? '不限'
+                      : '暂不可用'}
             </StatusBadge>
           </>
         }
@@ -93,7 +107,7 @@ export default function DocumentParsing() {
 
       {tasks.error ? <div className="doc-error">{tasks.error}</div> : null}
 
-      <main className="doc-workbench">
+      <div className="doc-workbench">
         <aside className="doc-side">
           <DocumentUploadPanel
             config={config}
@@ -155,7 +169,7 @@ export default function DocumentParsing() {
           onRefreshWorkflow={tasks.refreshWorkflowStatus}
           onReviewTableRelation={tasks.reviewTableRelation}
         />
-      </main>
+      </div>
     </PageShell>
   )
 }

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiJson, authCookieModeEnabled } from './apiClient';
+import { apiJson, authCookieModeEnabled, resetSessionInvalidationChannel, SESSION_INVALIDATED_EVENT } from './apiClient';
 import { resetAgentChatStores } from './useAgentChat';
 import { AuthContext, useAuth, type User } from '../hooks/useAuth';
 
@@ -39,6 +39,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(() => readStoredSession()?.user ?? null);
   const [token, setToken] = useState<string | null>(() => readStoredSession()?.token ?? null);
 
+  const clearSession = useCallback(() => {
+    resetAgentChatStores();
+    setToken(null);
+    setUser(null);
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('user');
+  }, []);
+
+  useEffect(() => {
+    const onSessionInvalidated = () => {
+      const path = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      if (!/^\/(?:login|logout)(?:\/|$)/.test(window.location.pathname)) {
+        sessionStorage.setItem('siq_auth_return_to', path || '/');
+      }
+      clearSession();
+    };
+    window.addEventListener(SESSION_INVALIDATED_EVENT, onSessionInvalidated);
+    return () => window.removeEventListener(SESSION_INVALIDATED_EVENT, onSessionInvalidated);
+  }, [clearSession]);
+
   useEffect(() => {
     const cookieMode = authCookieModeEnabled();
     const savedToken = localStorage.getItem('access_token');
@@ -63,6 +83,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const setSession = useCallback((accessToken: string, nextUser: User) => {
     const cookieMode = authCookieModeEnabled();
+    resetSessionInvalidationChannel();
     resetAgentChatStores();
     setToken(cookieMode ? null : accessToken);
     setUser(nextUser);
@@ -85,12 +106,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(() => {
     void apiJson('/api/auth/logout', { method: 'POST' }).catch(() => undefined);
-    resetAgentChatStores();
-    setToken(null);
-    setUser(null);
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('user');
-  }, []);
+    clearSession();
+    resetSessionInvalidationChannel();
+  }, [clearSession]);
 
   const hasPermission = useCallback((permission: string): boolean => {
     if (!user) return false;

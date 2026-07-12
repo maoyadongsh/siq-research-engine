@@ -16,6 +16,17 @@ const READING_ALLOWED_TAGS = [
   'i',
   'u',
   'small',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+  'a',
+  'blockquote',
+  'pre',
+  'code',
+  'hr',
   'sup',
   'sub',
   'table',
@@ -35,6 +46,12 @@ const READING_ALLOWED_TAGS = [
 ]
 const READING_ALLOWED_ATTR = [
   'class',
+  'id',
+  'name',
+  'href',
+  'title',
+  'target',
+  'rel',
   'type',
   'data-ptidx',
   'data-focus-key',
@@ -88,7 +105,28 @@ function normalizeAllowedAttr(tagName: string, name: string, value: string | nul
   }
   if (attr === 'type' && tagName !== 'button') return null
   if (attr === 'type' && rawValue && rawValue.toLowerCase() !== 'button') return 'button'
+  if (attr === 'href') {
+    if (tagName !== 'a' || !rawValue) return null
+    const compactValue = Array.from(rawValue)
+      .filter((character) => character.charCodeAt(0) > 0x20)
+      .join('')
+    const scheme = compactValue.match(/^([a-z][a-z0-9+.-]*):/i)?.[1]?.toLowerCase()
+    if (scheme && scheme !== 'http' && scheme !== 'https') return null
+    return rawValue
+  }
+  if (attr === 'target') return tagName === 'a' ? '_blank' : null
+  if (attr === 'rel') return tagName === 'a' ? 'noopener noreferrer' : null
   return rawValue
+}
+
+function hardenReadingAnchors(html: string): string {
+  return html.replace(/<a(?:\s[^>]*)?>/gi, (tag) => {
+    if (!/\shref="[^"]+"/i.test(tag) || /\shref="#/i.test(tag)) return tag
+    const withoutNavigationAttrs = tag
+      .replace(/\s(?:target|rel)="[^"]*"/gi, '')
+      .replace(/>$/, '')
+    return `${withoutNavigationAttrs} target="_blank" rel="noopener noreferrer">`
+  })
 }
 
 function sanitizeWithAllowlist(html: string, allowedTags: Set<string>, allowedAttrs: Set<string>): string {
@@ -178,7 +216,7 @@ export function sanitizeReadingHtml(html: string | null): string {
     FORBID_ATTR: ['style'],
   })
   if (typeof DOMParser === 'undefined' || typeof document === 'undefined') {
-    return sanitizeWithAllowlist(purified, READING_ALLOWED_TAG_SET, READING_ALLOWED_ATTR_SET)
+    return hardenReadingAnchors(sanitizeWithAllowlist(purified, READING_ALLOWED_TAG_SET, READING_ALLOWED_ATTR_SET))
   }
   const doc = new DOMParser().parseFromString(purified, 'text/html')
   doc.querySelectorAll(Array.from(SKIP_CONTENT_TAGS).join(',')).forEach((n) => n.remove())
@@ -193,7 +231,21 @@ export function sanitizeReadingHtml(html: string | null): string {
       else node.setAttribute(a.name.toLowerCase(), value)
     })
   })
-  return doc.body.innerHTML
+  return hardenReadingAnchors(doc.body.innerHTML)
+}
+
+export function buildReadingHtmlDocument(html: string | null): string {
+  const content = sanitizeReadingHtml(html)
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'; object-src 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>SEC filing reading view</title>
+</head>
+<body>${content}</body>
+</html>`
 }
 
 export function makeEditableHtml(html: string): string {

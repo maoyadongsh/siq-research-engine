@@ -54,9 +54,12 @@ services:
     environment:
       - SIQ_LOCAL_STATE_ROOT=/state
       - SIQ_DEPLOYMENT_PROFILE=${SIQ_DEPLOYMENT_PROFILE:-local}
+      - SIQ_METRICS_TOKEN=${SIQ_METRICS_TOKEN:-}
       - SIQ_DATA_ROOT=/state/data
       - SIQ_RUNTIME_ROOT=/state/var
       - SIQ_ARTIFACTS_ROOT=/state/artifacts
+      - SIQ_REPORT_REVIEW_ROOT=/state/artifacts
+      - SIQ_REPORT_REVIEW_MAX_BYTES=${SIQ_REPORT_REVIEW_MAX_BYTES:-10485760}
       - SIQ_DATASETS_ROOT=/app/datasets
       - SIQ_WIKI_ROOT=/state/data/wiki
       - WIKI_ROOT=/state/data/wiki
@@ -100,6 +103,11 @@ services:
       - SIQ_AGENT_MEMORY_TIME_DECAY_FLOOR=${SIQ_AGENT_MEMORY_TIME_DECAY_FLOOR:-0.35}
       - HERMES_API_KEY=${HERMES_API_KEY:-}
       - SIQ_HERMES_ASSISTANT_RUNS_URL=${SIQ_HERMES_ASSISTANT_RUNS_URL:-}
+      - SIQ_HERMES_HOME=/state/var/hermes/home
+      - SIQ_HERMES_PROFILES_ROOT=/state/var/hermes/home/profiles
+      - SIQ_HERMES_HOST_HOME=${SIQ_HERMES_HOST_HOME:?SIQ_HERMES_HOST_HOME is required}
+      - SIQ_IC_TASK_LEASE_SECONDS=${SIQ_IC_TASK_LEASE_SECONDS:-120}
+      - SIQ_IC_TASK_HEARTBEAT_SECONDS=${SIQ_IC_TASK_HEARTBEAT_SECONDS:-30}
       - NO_PROXY=${NO_PROXY:-127.0.0.1,localhost,host.docker.internal,postgres,redis,pdf-parser,document-parser,report-finder}
       - no_proxy=${no_proxy:-127.0.0.1,localhost,host.docker.internal,postgres,redis,pdf-parser,document-parser,report-finder}
       - SIQ_AUTH_SECRET_KEY=${SIQ_AUTH_SECRET_KEY:?SIQ_AUTH_SECRET_KEY is required}
@@ -122,8 +130,8 @@ services:
       - SIQ_REPORT_FINDER_BASE=http://report-finder:8000
       - REPORT_FINDER_BASE=http://report-finder:8000
       - SIQ_MARKET_REPORT_RULES_BASE=http://market-report-rules:8000
-      - SIQ_MARKET_REPORT_FINDER_TOKEN=${SIQ_MARKET_REPORT_FINDER_TOKEN:-}
-      - SIQ_MARKET_REPORT_RULES_TOKEN=${SIQ_MARKET_REPORT_RULES_TOKEN:-}
+      - SIQ_MARKET_REPORT_FINDER_TOKEN=${SIQ_MARKET_REPORT_FINDER_TOKEN:?SIQ_MARKET_REPORT_FINDER_TOKEN is required}
+      - SIQ_MARKET_REPORT_RULES_TOKEN=${SIQ_MARKET_REPORT_RULES_TOKEN:?SIQ_MARKET_REPORT_RULES_TOKEN is required}
       - SIQ_REPORT_FINDER_HEALTH_URL=http://report-finder:8000/health
       - SIQ_PDF2MD_HEALTH_URL=http://pdf-parser:15000/api/health
       - SIQ_DOCUMENT_PARSER_HEALTH_URL=http://document-parser:15010/api/health
@@ -135,6 +143,7 @@ services:
       - backend_data:/state/data/backend
       - artifacts_data:/state/artifacts
       - runtime_data:/state/var
+      - ${SIQ_HERMES_HOST_HOME:?SIQ_HERMES_HOST_HOME is required}:/state/var/hermes/home:ro
       - ../../db:/app/db:ro
     depends_on:
       postgres:
@@ -169,12 +178,13 @@ services:
     read_only: true
     tmpfs:
       - /tmp
-    ports:
-      - "${SIQ_COMPOSE_BIND_HOST:-127.0.0.1}:${SIQ_REPORT_FINDER_PORT:-18000}:8000"
+    expose:
+      - "8000"
     environment:
       - PYTHONDONTWRITEBYTECODE=1
+      - SIQ_DEPLOYMENT_PROFILE=${SIQ_DEPLOYMENT_PROFILE:-local}
       - MARKET_REPORT_DOWNLOAD_DIR=/state/data/market-report-finder/downloads
-      - SIQ_MARKET_REPORT_FINDER_TOKEN=${SIQ_MARKET_REPORT_FINDER_TOKEN:-}
+      - SIQ_MARKET_REPORT_FINDER_TOKEN=${SIQ_MARKET_REPORT_FINDER_TOKEN:?SIQ_MARKET_REPORT_FINDER_TOKEN is required}
       - SEC_USER_AGENT=${SEC_USER_AGENT:-SIQ Research contact@example.com}
     volumes:
       - downloads_data:/state/data/market-report-finder/downloads
@@ -207,8 +217,9 @@ services:
       - "${SIQ_COMPOSE_BIND_HOST:-127.0.0.1}:${SIQ_MARKET_REPORT_FINDER_PORT:-18010}:8000"
     environment:
       - PYTHONDONTWRITEBYTECODE=1
+      - SIQ_DEPLOYMENT_PROFILE=${SIQ_DEPLOYMENT_PROFILE:-local}
       - MARKET_REPORT_DOWNLOAD_DIR=/state/data/market-report-finder/downloads
-      - SIQ_MARKET_REPORT_FINDER_TOKEN=${SIQ_MARKET_REPORT_FINDER_TOKEN:-}
+      - SIQ_MARKET_REPORT_FINDER_TOKEN=${SIQ_MARKET_REPORT_FINDER_TOKEN:?SIQ_MARKET_REPORT_FINDER_TOKEN is required}
       - SEC_USER_AGENT=${SEC_USER_AGENT:-SIQ Research contact@example.com}
     volumes:
       - downloads_data:/state/data/market-report-finder/downloads
@@ -241,9 +252,10 @@ services:
       - "${SIQ_COMPOSE_BIND_HOST:-127.0.0.1}:${SIQ_MARKET_REPORT_RULES_PORT:-18020}:8000"
     environment:
       - PYTHONDONTWRITEBYTECODE=1
+      - SIQ_DEPLOYMENT_PROFILE=${SIQ_DEPLOYMENT_PROFILE:-local}
       - SIQ_CN_REPORT_FINDER_BASE=http://report-finder:8000
       - SIQ_REPORT_FINDER_BASE=http://report-finder:8000
-      - SIQ_MARKET_REPORT_RULES_TOKEN=${SIQ_MARKET_REPORT_RULES_TOKEN:-}
+      - SIQ_MARKET_REPORT_RULES_TOKEN=${SIQ_MARKET_REPORT_RULES_TOKEN:?SIQ_MARKET_REPORT_RULES_TOKEN is required}
     depends_on:
       - report-finder
     cap_drop:

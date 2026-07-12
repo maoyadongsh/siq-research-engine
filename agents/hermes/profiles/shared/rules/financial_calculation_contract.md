@@ -93,8 +93,8 @@ python3 /home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts
 
 ## 输出要求
 
-- 正文出现派生计算时，必须能追溯到一次 `## 计算器校验` 或等价 JSON 输出。
-- 生产回答中的“等价 JSON”必须是可机器复核的版本化 envelope，不能只写工具名、标题或 `operation=...` 自由文本。计算器 envelope 的最小结构如下（字段值必须来自工具 JSON 和实际证据行）：
+- 正文出现派生计算时，必须能追溯到一次 `## 计算器校验` 或等价 JSON 输出。调用财务脚本时使用单条、完整的 `--format json` 命令，不要使用 `| head`、`;`、`&&` 或把多个脚本串在一次 terminal 调用中；后端从当前 Hermes tool receipt 生成内部 trace。
+- 完整的版本化 envelope 由后端保存到 answer audit trace，正文只保留简洁的 `## 计算器校验` / `## 勾稽校验` 摘要，不要手写或重复整段 JSON。工具名、章节标题或 `operation=...` 自由文本本身不能代替内部 trace；计算器 envelope 的最小结构如下（字段值必须来自工具 JSON 和实际证据行）：
 
 ```json
 {

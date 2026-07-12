@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping, Sequence
 
 from services import agent_runtime_context
 from services.agent_runtime_financial_claim_verifier import (
@@ -207,15 +207,27 @@ def _reply_has_reconciliation_metric(reply: str) -> bool:
 
 def _required_calculator_operations(message: str, reply: str) -> frozenset[str]:
     text = f"{_financial_claim_text(message)}\n{_financial_claim_text(reply)}".lower()
+    operations: set[str] = set()
     if "cagr" in text or "复合增长率" in text:
-        return frozenset({"cagr"})
+        operations.add("cagr")
     if "同比" in text or "环比" in text or "增长率" in text or "增速" in text:
-        return frozenset({"yoy", "yoy_growth"})
+        operations.update({"yoy", "yoy_growth"})
     if "人均" in text or "/人" in text:
-        return frozenset({"per_capita"})
+        operations.add("per_capita")
     if any(term in text for term in ("占比", "毛利率", "净利率", "资产负债率", "收益率", "回报率", "净息差")):
-        return frozenset({"ratio"})
-    return frozenset()
+        operations.add("ratio")
+    return frozenset(operations)
+
+
+def requires_financial_calculation_trace(message: str, reply: str) -> bool:
+    """Return whether the answer needs a trusted calculator or reconciliation receipt."""
+
+    return (
+        _reply_has_derived_financial_metric(message)
+        or _reply_has_derived_financial_metric(reply)
+        or _reply_has_reconciliation_metric(message)
+        or _reply_has_reconciliation_metric(reply)
+    )
 
 
 def append_financial_tool_availability_correction_if_needed(
@@ -607,6 +619,7 @@ def enforce_financial_evidence_contract(
     reply: str,
     *,
     deps: FinancialEvidenceContractDependencies,
+    trusted_calculation_runs: Sequence[Mapping[str, Any]] = (),
 ) -> str:
     """Do not let financial fact answers enter history without structured evidence."""
     if deps.is_runtime_status_reply(reply):
@@ -648,6 +661,7 @@ def enforce_financial_evidence_contract(
         require_calculator=needs_calculator_trace,
         require_reconciliation=needs_reconciliation_trace,
         expected_operations=_required_calculator_operations(message, reply),
+        trusted_runs=trusted_calculation_runs,
     )
     if calculation_trace.checked and not calculation_trace.allowed:
         if calculation_trace.reason in {"calculator_trace_missing", "reconciliation_trace_missing", "trace_unstructured"} and not (

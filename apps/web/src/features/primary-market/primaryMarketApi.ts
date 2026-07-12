@@ -71,6 +71,9 @@ export function fetchPrimaryMarketProjects(query: DealQuery = {}, signal?: Abort
   const q = query.q?.trim()
   if (q) params.set('q', q)
   if (query.status) params.set('status', query.status)
+  if (query.page != null) params.set('page', String(query.page))
+  if (query.page_size != null) params.set('page_size', String(query.page_size))
+  if (query.include_status) params.set('include_status', 'true')
   const suffix = params.toString() ? `?${params.toString()}` : ''
   return apiJson<DealListResponse>(`/api/primary-market/projects${suffix}`, { signal })
 }

@@ -256,35 +256,52 @@ export default function MyWorkspace() {
   const [artifacts, setArtifacts] = useState<WorkspaceArtifact[]>([])
   const [loading, setLoading] = useState(true)
   const [recentLoading, setRecentLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
+  const [retryKey, setRetryKey] = useState(0)
 
   useEffect(() => {
     let ignore = false
+    let request: AbortController | null = null
+    let requestInFlight = false
+    let refreshQueued = false
 
     async function load(options: { showLoading?: boolean } = {}) {
+      if (requestInFlight) {
+        refreshQueued = true
+        return
+      }
+      requestInFlight = true
+      request?.abort()
+      request = new AbortController()
       if (options.showLoading !== false) setLoading(true)
       if (options.showLoading !== false) setRecentLoading(true)
-      const summaryResult = await apiJson<WorkspaceSummary>('/api/workspace/summary')
-
-      if (ignore) return
-
-      setSummary(summaryResult)
-      setProjects(summaryResult.projects || [])
-      setArtifacts(summaryResult.artifacts || summaryResult.recentArtifacts || [])
-
-      setLoading(false)
-      setRecentLoading(false)
+      setLoadError('')
+      try {
+        const summaryResult = await apiJson<WorkspaceSummary>('/api/workspace/summary', { signal: request.signal })
+        if (ignore || request.signal.aborted) return
+        setSummary(summaryResult)
+        setProjects(summaryResult.projects || [])
+        setArtifacts(summaryResult.artifacts || summaryResult.recentArtifacts || [])
+      } catch (err) {
+        if (!ignore && !request.signal.aborted) setLoadError(err instanceof Error ? err.message : '工作平台加载失败')
+      } finally {
+        if (!ignore && !request.signal.aborted) {
+          setLoading(false)
+          setRecentLoading(false)
+        }
+        requestInFlight = false
+        if (refreshQueued && !ignore) {
+          refreshQueued = false
+          window.setTimeout(() => void load({ showLoading: false }), 0)
+        }
+      }
     }
 
-    load().catch(() => {
-      if (!ignore) {
-        setLoading(false)
-        setRecentLoading(false)
-      }
-    })
+    void load()
 
     const refresh = () => {
       if (document.visibilityState === 'visible') {
-        load({ showLoading: false }).catch(() => {})
+        void load({ showLoading: false })
       }
     }
     const timer = window.setInterval(refresh, 30000)
@@ -293,11 +310,12 @@ export default function MyWorkspace() {
 
     return () => {
       ignore = true
+      request?.abort()
       window.clearInterval(timer)
       window.removeEventListener('focus', refresh)
       document.removeEventListener('visibilitychange', refresh)
     }
-  }, [])
+  }, [retryKey])
 
   const personalArtifacts = useMemo(() => {
     const source = artifacts.length ? artifacts : (summary?.recentArtifacts || [])
@@ -358,6 +376,18 @@ export default function MyWorkspace() {
 
   if (loading && !summary) {
     return <div className="flex min-h-[360px] items-center justify-center text-text-muted"><Loader2 className="mr-2 h-5 w-5 animate-spin" />正在加载工作平台...</div>
+  }
+
+  if (loadError && !summary) {
+    return (
+      <div className="flex min-h-[360px] flex-col items-center justify-center gap-3 text-center">
+        <AlertTriangle className="h-8 w-8 text-warning" />
+        <p className="text-sm text-text-muted">工作平台加载失败：{loadError}</p>
+        <button type="button" className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-text" onClick={() => setRetryKey((value) => value + 1)}>
+          重试
+        </button>
+      </div>
+    )
   }
 
   return (

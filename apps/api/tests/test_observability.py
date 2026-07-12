@@ -1,22 +1,23 @@
 import json
 import logging
 
-from fastapi.testclient import TestClient
-
 import main
+from fastapi.testclient import TestClient
 from services.observability import (
     REQUEST_ID_HEADER,
     current_request_id,
     emit_json_log,
     metrics_snapshot,
+    normalize_http_metric_path,
     normalize_request_id,
     record_answer_audit_observation,
     record_background_job_final_state,
+    record_background_job_persistence_failure,
     record_frontend_pipeline_job_failure,
-    redact_sensitive,
     record_ingestion_duration,
     record_ingestion_fact_counts,
     record_wiki_postgres_parity_summary,
+    redact_sensitive,
     render_prometheus_metrics,
     reset_observability_metrics_for_tests,
     reset_request_id,
@@ -47,6 +48,53 @@ def test_metrics_endpoint_exposes_prometheus_request_counters():
     assert response.headers["content-type"].startswith("text/plain")
     assert 'siq_api_request_total{method="GET",path="/health",status_code="200"} 1' in response.text
     assert "siq_api_request_duration_ms_sum" in response.text
+
+
+def test_http_metric_path_prefers_route_template_and_collapses_dynamic_fallback():
+    assert normalize_http_metric_path("/api/reports/20260712", "/api/reports/{report_id}") == "/api/reports/{report_id}"
+    assert normalize_http_metric_path("/api/reports/20260712") == "/__unmatched__"
+    assert normalize_http_metric_path("/api/reports/arbitrary-customer-controlled-value") == "/__unmatched__"
+
+
+def test_http_middleware_records_dynamic_routes_by_template(monkeypatch):
+    monkeypatch.delenv("SIQ_METRICS_TOKEN", raising=False)
+    monkeypatch.setenv("SIQ_DEPLOYMENT_PROFILE", "development")
+    reset_observability_metrics_for_tests()
+    client = TestClient(main.app)
+
+    client.get("/api/wiki/companies/customer-controlled-id/reports")
+    rendered = client.get("/metrics").text
+
+    assert 'path="/api/wiki/companies/{company_dir}/reports"' in rendered
+    assert "customer-controlled-id" not in rendered
+
+
+def test_metrics_endpoint_accepts_service_token_and_rejects_wrong_token(monkeypatch):
+    monkeypatch.setenv("SIQ_METRICS_TOKEN", "metrics-test-token")
+    monkeypatch.setenv("SIQ_DEPLOYMENT_PROFILE", "production")
+    client = TestClient(main.app)
+
+    assert client.get("/metrics").status_code == 401
+    assert client.get("/metrics", headers={"X-SIQ-Service-Token": "wrong"}).status_code == 401
+    response = client.get("/metrics", headers={"Authorization": "Bearer metrics-test-token"})
+
+    assert response.status_code == 200
+
+
+def test_metrics_endpoint_fails_closed_in_production_without_token(monkeypatch):
+    monkeypatch.delenv("SIQ_METRICS_TOKEN", raising=False)
+    monkeypatch.delenv("SIQ_INTERNAL_METRICS_TOKEN", raising=False)
+    monkeypatch.setenv("SIQ_DEPLOYMENT_PROFILE", "production")
+
+    assert TestClient(main.app).get("/metrics").status_code == 503
+
+
+def test_metrics_endpoint_fails_closed_in_docker_without_token(monkeypatch):
+    monkeypatch.delenv("SIQ_METRICS_TOKEN", raising=False)
+    monkeypatch.delenv("SIQ_INTERNAL_METRICS_TOKEN", raising=False)
+    monkeypatch.setenv("SIQ_DEPLOYMENT_PROFILE", "docker")
+
+    assert TestClient(main.app).get("/metrics").status_code == 503
 
 
 def test_answer_audit_observation_updates_source_and_guardrail_metrics():
@@ -137,6 +185,16 @@ def test_background_job_final_state_metrics_are_rendered():
     assert (
         'siq_background_job_duration_seconds_count{kind="market-document-full-import",status="failed"} 1'
         in rendered
+    )
+
+
+def test_background_job_persistence_failure_metric_is_rendered():
+    record_background_job_persistence_failure(operation="job_update")
+
+    assert metrics_snapshot()["background_job_persistence_failure_counts"] == {"job_update": 1}
+    assert (
+        'siq_background_job_persistence_failure_total{operation="job_update"} 1'
+        in render_prometheus_metrics()
     )
 
 

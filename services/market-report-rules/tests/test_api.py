@@ -1,12 +1,12 @@
 import pytest
 from fastapi.testclient import TestClient
-
-from market_report_rules_service.app import SERVICE_TOKEN_ENV, SERVICE_TOKEN_HEADER, app
+from market_report_rules_service.app import DEPLOYMENT_PROFILE_ENV, SERVICE_TOKEN_ENV, SERVICE_TOKEN_HEADER, app
 
 
 @pytest.fixture(autouse=True)
 def clear_rules_service_token(monkeypatch):
     monkeypatch.delenv(SERVICE_TOKEN_ENV, raising=False)
+    monkeypatch.setenv(DEPLOYMENT_PROFILE_ENV, "local")
 
 
 def test_healthz():
@@ -86,6 +86,34 @@ def test_high_risk_routes_require_service_token_when_configured(monkeypatch, pat
     assert missing.status_code == 401
     assert wrong.status_code == 401
     assert valid.status_code == 200
+
+
+@pytest.mark.parametrize("profile", ["production", "prod", "docker"])
+@pytest.mark.parametrize("token", [None, "   "])
+def test_protected_profile_rejects_missing_service_token_at_startup(monkeypatch, profile, token):
+    monkeypatch.setenv(DEPLOYMENT_PROFILE_ENV, profile)
+    if token is None:
+        monkeypatch.delenv(SERVICE_TOKEN_ENV, raising=False)
+    else:
+        monkeypatch.setenv(SERVICE_TOKEN_ENV, token)
+
+    with pytest.raises(RuntimeError, match=SERVICE_TOKEN_ENV):
+        with TestClient(app):
+            pass
+
+
+def test_protected_profile_starts_with_token_and_keeps_health_public(monkeypatch):
+    monkeypatch.setenv(DEPLOYMENT_PROFILE_ENV, "production")
+    monkeypatch.setenv(SERVICE_TOKEN_ENV, "internal-token")
+
+    with TestClient(app) as client:
+        health = client.get("/healthz")
+        missing = client.get("/profiles")
+        wrong = client.get("/profiles", headers={SERVICE_TOKEN_HEADER: "wrong-token"})
+        valid = client.get("/profiles", headers={SERVICE_TOKEN_HEADER: "internal-token"})
+
+    assert health.status_code == 200
+    assert (missing.status_code, wrong.status_code, valid.status_code) == (401, 401, 200)
 
 
 def test_markets_register_cn_legacy_pages():

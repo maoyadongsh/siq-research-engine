@@ -7,9 +7,44 @@ import {
   applySearchDownloadSearchParamsPatch,
   buildSearchDownloadMarketFilterPatch,
   buildSearchDownloadSearchParamsPatch,
+  buildSearchDownloadUrlStateUpdate,
   getSearchDownloadMarketFilterKey,
   readSearchDownloadInitialState,
+  sameSearchDownloadUrlState,
 } from './urlState.ts'
+
+test('URL-backed search state roundtrips atomically across market changes', () => {
+  const current = new URLSearchParams('keep=1&market=EU&q=ASML&year=2024&country=NL')
+  const nextState = {
+    market: 'US' as const,
+    query: 'Apple',
+    year: '2025',
+    marketFilter: '10-K',
+    downloadedQuery: 'apple',
+    smartPrompt: '找 Apple 2025 年 10-K',
+  }
+
+  const result = applySearchDownloadSearchParamsPatch(
+    current,
+    buildSearchDownloadUrlStateUpdate(nextState),
+    false,
+  )
+
+  assert.deepEqual(readSearchDownloadInitialState(result.searchParams), nextState)
+  assert.equal(result.searchParams.get('country'), null)
+  assert.equal(result.searchParams.get('form'), '10-K')
+  assert.equal(result.searchParams.get('keep'), '1')
+  assert.equal(result.replace, false)
+})
+
+test('URL state equality distinguishes a history transition from the local canonical state', () => {
+  const current = readSearchDownloadInitialState(new URLSearchParams('market=CN&q=BYD&year=2025'))
+  const same = { ...current }
+  const previous = { ...current, market: 'US' as const, query: 'AAPL' }
+
+  assert.equal(sameSearchDownloadUrlState(current, same), true)
+  assert.equal(sameSearchDownloadUrlState(current, previous), false)
+})
 
 test('buildSearchDownloadSearchParamsPatch trims values and deletes cleared params', () => {
   const current = new URLSearchParams('q=old&exchange=SSE&keep=1&ask=')

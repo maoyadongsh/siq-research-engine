@@ -48,6 +48,64 @@ def test_buffer_upload_files_reads_in_chunks_and_rolls_large_content_to_disk():
     asyncio.run(run_case())
 
 
+def test_buffer_upload_files_rejects_too_many_files_before_reading():
+    class UnreadUpload:
+        filename = "report.pdf"
+        content_type = "application/pdf"
+
+        async def read(self, _size: int) -> bytes:
+            raise AssertionError("file count must be validated before reading uploads")
+
+    async def run_case():
+        with pytest.raises(HTTPException) as exc:
+            await buffer_upload_files([UnreadUpload() for _ in range(6)], max_files=5)
+        assert exc.value.status_code == 413
+        assert exc.value.detail["error"] == "too_many_upload_files"
+        assert exc.value.detail["file_count"] == 6
+        assert exc.value.detail["limit"] == 5
+
+    asyncio.run(run_case())
+
+
+def test_buffer_upload_files_rejects_empty_file_and_closes_spools(monkeypatch):
+    opened_files = []
+    real_spooled_file = upload_proxy_limits.tempfile.SpooledTemporaryFile
+
+    def tracked_spooled_file(*args, **kwargs):
+        handle = real_spooled_file(*args, **kwargs)
+        opened_files.append(handle)
+        return handle
+
+    class Upload:
+        content_type = "application/pdf"
+
+        def __init__(self, filename: str, content: bytes) -> None:
+            self.filename = filename
+            self.content = content
+            self.consumed = False
+
+        async def read(self, _size: int) -> bytes:
+            if self.consumed:
+                return b""
+            self.consumed = True
+            return self.content
+
+    monkeypatch.setattr(upload_proxy_limits.tempfile, "SpooledTemporaryFile", tracked_spooled_file)
+
+    async def run_case():
+        with pytest.raises(HTTPException) as exc:
+            await buffer_upload_files(
+                [Upload("first.pdf", b"first"), Upload("empty.pdf", b"")],
+                reject_empty=True,
+            )
+        assert exc.value.status_code == 400
+        assert exc.value.detail == "Uploaded file is empty"
+
+    asyncio.run(run_case())
+    assert len(opened_files) == 2
+    assert all(handle.closed for handle in opened_files)
+
+
 def test_slow_upstream_holds_capacity_and_excess_request_fails_with_retry_contract():
     async def run_case():
         limiter = UploadProxyConcurrencyLimiter(max_concurrency=1, queue_timeout_seconds=0.01)

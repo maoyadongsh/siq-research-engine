@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import os
 import re
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +18,12 @@ from services import (
     hermes_client,
     ic_decision_report,
     ic_policy,
+)
+from services.ic_task_lease import (
+    ICTaskAlreadyClaimedError,
+    claim_ic_task,
+    finish_ic_task,
+    heartbeat_ic_task,
 )
 
 AGENT_TASK_SCHEMA = "siq_ic_agent_task_v1"
@@ -67,6 +76,9 @@ DOWNSTREAM_BLOCKING_PREFLIGHT_WARN_IDS = frozenset({
     "r1.report_evidence_refs",
 })
 DEFAULT_R3_SKIP_REASON = "R2 已覆盖核心分歧，P0 留痕跳过。"
+DEFAULT_IC_TASK_LEASE_SECONDS = 120
+DEFAULT_IC_TASK_HEARTBEAT_SECONDS = 30
+__all__ = ["ICTaskAlreadyClaimedError"]
 
 
 class R1ReportContractError(ValueError):
@@ -1779,7 +1791,7 @@ def build_workflow_r1_serial_run_dry_run(
     })
 
 
-async def run_workflow_r1_agent(
+async def _run_workflow_r1_agent_without_claim(
     deal_id: str,
     profile_id: str,
     *,
@@ -1913,6 +1925,134 @@ async def run_workflow_r1_agent(
         "workflow": workflow,
         "audit_event": audit_event,
     })
+
+
+def _positive_int_env(name: str, default: int) -> int:
+    try:
+        return max(1, int(str(os.getenv(name, default)).strip()))
+    except (TypeError, ValueError):
+        return default
+
+
+def _ic_task_claim_public(claim: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(claim, dict):
+        return {}
+    return {
+        key: claim.get(key)
+        for key in (
+            "task_key",
+            "status",
+            "attempt",
+            "claimed_at",
+            "heartbeat_at",
+            "lease_expires_at",
+            "finished_at",
+            "failure_reason",
+            "recovery_reason",
+        )
+    }
+
+
+async def run_workflow_r1_agent(
+    deal_id: str,
+    profile_id: str,
+    *,
+    round_name: str | None = "R1",
+    created_by: dict[str, Any] | None = None,
+    wiki_root: Path | str | None = None,
+    timeout: float | None = None,
+) -> dict[str, Any]:
+    """Atomically claim and run one R1 IC agent through Hermes."""
+
+    task = build_ic_agent_task_dry_run(
+        deal_id,
+        profile_id,
+        round_name=round_name,
+        wiki_root=wiki_root,
+    )
+    if not task.get("allowed"):
+        reasons = ", ".join(str(item) for item in task.get("blocking_reasons") or [])
+        raise ValueError(f"R1 agent run blocked: {reasons or 'unknown'}")
+
+    package_dir = _require_package_dir(task["deal_id"], wiki_root=wiki_root)
+    store_path = package_dir / "phases" / "ic_task_leases.json"
+    task_key = f"{task['deal_id']}:{task['round_name']}:{task['agent_id']}"
+    owner = f"ic-worker-{os.getpid()}-{uuid.uuid4().hex[:12]}"
+    lease_seconds = _positive_int_env("SIQ_IC_TASK_LEASE_SECONDS", DEFAULT_IC_TASK_LEASE_SECONDS)
+    heartbeat_seconds = min(
+        _positive_int_env("SIQ_IC_TASK_HEARTBEAT_SECONDS", DEFAULT_IC_TASK_HEARTBEAT_SECONDS),
+        max(1, lease_seconds // 3),
+    )
+    await asyncio.to_thread(
+        claim_ic_task,
+        store_path,
+        task_key=task_key,
+        owner=owner,
+        now=deal_store.utc_now_iso(),
+        lease_seconds=lease_seconds,
+    )
+    stop_heartbeat = asyncio.Event()
+    lease_lost = asyncio.Event()
+
+    async def heartbeat_loop() -> None:
+        while True:
+            try:
+                await asyncio.wait_for(stop_heartbeat.wait(), timeout=heartbeat_seconds)
+                return
+            except TimeoutError:
+                renewed = await asyncio.to_thread(
+                    heartbeat_ic_task,
+                    store_path,
+                    task_key=task_key,
+                    owner=owner,
+                    now=deal_store.utc_now_iso(),
+                    lease_seconds=lease_seconds,
+                )
+                if renewed is None:
+                    lease_lost.set()
+                    return
+            except Exception:
+                lease_lost.set()
+                return
+
+    heartbeat_task = asyncio.create_task(heartbeat_loop())
+    try:
+        result = await _run_workflow_r1_agent_without_claim(
+            deal_id,
+            profile_id,
+            round_name=round_name,
+            created_by=created_by,
+            wiki_root=wiki_root,
+            timeout=timeout,
+        )
+        if lease_lost.is_set():
+            raise RuntimeError("IC task lease ownership was lost before completion")
+    except BaseException as exc:
+        terminal_status = "cancelled" if isinstance(exc, asyncio.CancelledError) else "failed"
+        finish_ic_task(
+            store_path,
+            task_key=task_key,
+            owner=owner,
+            now=deal_store.utc_now_iso(),
+            status=terminal_status,
+            failure_reason=type(exc).__name__,
+        )
+        raise
+    else:
+        finished = finish_ic_task(
+            store_path,
+            task_key=task_key,
+            owner=owner,
+            now=deal_store.utc_now_iso(),
+            status="succeeded",
+        )
+        if finished is None:
+            raise RuntimeError("IC task completion rejected because lease ownership changed")
+        result["task_claim"] = _ic_task_claim_public(finished)
+        return result
+    finally:
+        stop_heartbeat.set()
+        await heartbeat_task
 
 
 async def run_workflow_r1_serial(

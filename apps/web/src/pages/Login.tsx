@@ -50,7 +50,12 @@ export function LoginPage() {
 
     try {
       await login(formData.username, formData.password)
-      navigate('/', { replace: true })
+      const returnTo = sessionStorage.getItem('siq_auth_return_to')
+      sessionStorage.removeItem('siq_auth_return_to')
+      const safeReturnTo = returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') && !/^\/(?:login|logout)(?:\/|$)/.test(returnTo)
+        ? returnTo
+        : '/'
+      navigate(safeReturnTo, { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : '登录失败，请重试')
     } finally {
@@ -110,7 +115,7 @@ export function LoginPage() {
           <div className="auth-form-kicker" aria-hidden="true">SIQ Research Engine</div>
           <p className="auth-form-welcome">欢迎来到SIQ</p>
 
-          <form className="auth-form auth-login-form" onSubmit={handleSubmit} autoComplete="off" data-form-type="other">
+          <form className="auth-form auth-login-form" onSubmit={handleSubmit} autoComplete="on">
             {error && (
               <div className="auth-alert" role="alert">
                 {error}
@@ -121,17 +126,14 @@ export function LoginPage() {
               <span>用户名</span>
               <input
                 id="username"
-                name="siq_manual_user"
+                name="username"
                 type="text"
                 required
-                autoComplete="new-password"
+                autoComplete="username"
                 autoCapitalize="none"
                 autoCorrect="off"
                 spellCheck={false}
                 readOnly={!manualEntryEnabled}
-                data-lpignore="true"
-                data-1p-ignore="true"
-                data-form-type="other"
                 onFocus={enableManualEntry}
                 onPointerDown={enableManualEntry}
                 value={formData.username}
@@ -144,14 +146,11 @@ export function LoginPage() {
               <span>密码</span>
               <input
                 id="password"
-                name="siq_manual_secret"
+                name="password"
                 type="password"
                 required
-                autoComplete="new-password"
+                autoComplete="current-password"
                 readOnly={!manualEntryEnabled}
-                data-lpignore="true"
-                data-1p-ignore="true"
-                data-form-type="other"
                 onFocus={enableManualEntry}
                 onPointerDown={enableManualEntry}
                 value={formData.password}

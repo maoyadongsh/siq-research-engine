@@ -3,11 +3,14 @@
 
 SIQ_PROJECT_ROOT=/opt/siq-research-engine
 SIQ_DEPLOYMENT_PROFILE=production
+SIQ_METRICS_TOKEN=replace-with-secret-manager-value
 SIQ_LOCAL_STATE_ROOT=/var/lib/siq-research-engine
 SIQ_DATA_ROOT=/var/lib/siq-research-engine/data
 SIQ_RUNTIME_ROOT=/var/lib/siq-research-engine/runtime
 SIQ_ARTIFACTS_ROOT=/var/lib/siq-research-engine/artifacts
 SIQ_DATASETS_ROOT=/opt/siq-research-engine/datasets
+SIQ_REPORT_REVIEW_ROOT=/var/lib/siq-research-engine/artifacts
+SIQ_REPORT_REVIEW_MAX_BYTES=10485760
 
 SIQ_AUTH_SECRET_KEY=replace-with-secret-manager-value
 SIQ_AUTH_COOKIE_MODE=1
@@ -87,6 +90,11 @@ SIQ_KR_PGDATABASE=siq_kr
 SIQ_EU_PGDATABASE=siq_eu
 SIQ_HERMES_HOME=/var/lib/siq-research-engine/runtime/hermes/home
 SIQ_HERMES_PROFILES_ROOT=/var/lib/siq-research-engine/runtime/hermes/home/profiles
+# Must be the exact host HERMES_HOME used by the Hermes gateway. Compose mounts
+# this directory read-only into the API container for trusted financial receipts.
+SIQ_HERMES_HOST_HOME=/var/lib/siq-research-engine/runtime/hermes/home
+SIQ_IC_TASK_LEASE_SECONDS=120
+SIQ_IC_TASK_HEARTBEAT_SECONDS=30
 SIQ_MINERU_VENV=/opt/siq-research-engine/runtimes/mineru-native
 
 SIQ_BACKEND_PORT=18081

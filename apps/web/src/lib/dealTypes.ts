@@ -31,6 +31,9 @@ export interface DealStats {
 export interface DealListResponse {
   deals: DealSummary[]
   stats?: DealStats
+  pagination?: { page: number; page_size: number; total: number; has_more: boolean }
+  status_summary?: { by_status?: Record<string, number> }
+  status_summaries?: Record<string, DealStatusResponse>
 }
 
 export interface DealDetailResponse {
@@ -1097,6 +1100,9 @@ export interface DeleteDealDocumentResponse {
 export interface DealQuery {
   q?: string
   status?: string
+  page?: number
+  page_size?: number
+  include_status?: boolean
 }
 
 export interface DealJobStatus {

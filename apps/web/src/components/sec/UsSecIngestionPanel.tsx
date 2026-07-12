@@ -14,8 +14,7 @@ import {
 import { Link } from 'react-router-dom'
 import { PageSection } from '@/components/page'
 import { copyText } from '../../lib/clipboard'
-import { openAuthenticatedSourceLink } from '../../lib/authenticatedSourceLinks'
-import { downloadAuthenticatedFile, useAuthenticatedBlobUrl } from '../../lib/authenticatedFiles'
+import { downloadAuthenticatedFile, useAuthenticatedReadingHtmlUrl } from '../../lib/authenticatedFiles'
 import {
   buildUsSecPackage,
   fetchMarketDocumentFullStatus,
@@ -37,6 +36,7 @@ import {
   type UsSecPackageDetail,
   type UsSecUploadResult,
 } from '../../features/market-parsing/api'
+import { validateUsSecUploadFiles } from '../../features/market-parsing/uploadFiles'
 import type { DownloadedPdf } from '../../lib/pdfTypes'
 import { loadDownloadedReports as loadDownloadedReportsApi } from '../../features/pdf-parsing/api'
 import { UsSecDownloadedReportsPanel } from './UsSecDownloadedReportsPanel'
@@ -212,7 +212,7 @@ export function UsSecIngestionPanel() {
   const packagePath = packageDetail?.package_path || ''
   const rawHtmlFile = packageDetail?.preview?.raw_html || 'raw/filing.htm'
   const rawHtmlUrl = packagePath ? usSecPackageFileUrl(packagePath, rawHtmlFile) : ''
-  const rawHtmlBlobUrl = useAuthenticatedBlobUrl(rawHtmlUrl)
+  const rawHtmlBlobUrl = useAuthenticatedReadingHtmlUrl(rawHtmlUrl)
   const sections = packageDetail?.sections || []
   const tables = packageDetail?.tables || []
   const metrics = packageDetail?.metrics || []
@@ -251,13 +251,21 @@ export function UsSecIngestionPanel() {
       setError('请先选择文件')
       return
     }
+    const validation = validateUsSecUploadFiles(files)
+    if (validation.error) {
+      setError(validation.error)
+      setUploadMessage('')
+      setUploadResults([])
+      if (fileInput.current) fileInput.current.value = ''
+      return
+    }
     setUploading(true)
     setError('')
     setUploadMessage('')
     setUploadResults([])
     try {
       const form = new FormData()
-      Array.from(files).forEach((file) => form.append('files', file))
+      validation.files.forEach((file) => form.append('files', file))
       if (uploadTicker.trim()) form.append('ticker', uploadTicker.trim().toUpperCase())
       if (uploadCompanyName.trim()) form.append('company_name', uploadCompanyName.trim())
       if (uploadReportType.trim()) form.append('report_type', uploadReportType.trim())
@@ -568,7 +576,7 @@ export function UsSecIngestionPanel() {
               {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileUp className="h-4 w-4" />}
               发送到 US 目录
             </button>
-            <span className="text-xs text-text-muted">{uploadMessage || '支持 PDF / HTML / XHTML / XML / XBRL / ZIP'}</span>
+            <span className="text-xs text-text-muted">{uploadMessage || '支持 PDF / HTML / XHTML / XML / XBRL / ZIP；最多 5 个，单个 100 MB，总计 200 MB'}</span>
           </div>
           {uploadResults.length ? (
             <div className="mt-3 rounded-2xl border border-border bg-card p-3 text-xs text-text-muted">
@@ -734,8 +742,8 @@ export function UsSecIngestionPanel() {
                   <button
                     type="button"
                     className="pdf-small-action primary inline-flex items-center gap-1"
-                    onClick={() => rawHtmlUrl && openAuthenticatedSourceLink(rawHtmlUrl).catch(() => null)}
-                    disabled={!rawHtmlUrl}
+                    onClick={() => rawHtmlBlobUrl && window.open(rawHtmlBlobUrl, '_blank', 'noopener,noreferrer')}
+                    disabled={!rawHtmlBlobUrl}
                   >
                     <FileText className="h-4 w-4" />
                     打开原始 HTML

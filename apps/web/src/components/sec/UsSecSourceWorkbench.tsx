@@ -15,6 +15,7 @@ import {
   type UsSecSyncOrigin,
   type UsSecTraceSection,
 } from '../../features/market-parsing/usSecSourceSync'
+import { US_SEC_SOURCE_IFRAME_SANDBOX } from './usSecFrameSandbox'
 
 export interface UsSecSourceWorkbenchProps {
   packagePath: string
@@ -584,6 +585,8 @@ export function UsSecSourceWorkbench({
             ref={iframeRef}
             title="SEC 原始 HTML"
             src={rawHtmlBlobUrl}
+            sandbox={US_SEC_SOURCE_IFRAME_SANDBOX}
+            referrerPolicy="no-referrer"
             onLoad={handleFrameLoad}
             className="h-[520px] w-full rounded-md border border-border bg-white"
             data-testid="us-sec-raw-html-frame"

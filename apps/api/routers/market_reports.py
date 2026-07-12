@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import sys
+import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -44,7 +45,19 @@ from services.market_report_settings import (
     US_SEC_WIKI_ROOT,
 )
 from services.path_config import REPO_ROOT, REPORT_DOWNLOADS_ROOT
+from services.upload_proxy_limits import (
+    DEFAULT_CHUNK_BYTES,
+    DEFAULT_MAX_BATCH_BYTES,
+    DEFAULT_MAX_FILE_BYTES,
+    DEFAULT_MAX_FILES,
+    UPLOAD_PROXY_LIMITER,
+    BufferedUpload,
+    buffer_upload_files,
+    close_buffered_uploads,
+    env_int,
+)
 from sqlmodel.ext.asyncio.session import AsyncSession
+from starlette.concurrency import run_in_threadpool
 
 from routers.workspace import record_user_artifact_async
 from services import (
@@ -65,6 +78,9 @@ from services import (
 router = APIRouter(tags=["market-reports"])
 logger = logging.getLogger(__name__)
 US_SEC_UPLOAD_SUFFIXES = {".pdf", ".html", ".htm", ".xhtml", ".xml", ".xbrl", ".zip"}
+US_SEC_UPLOAD_MAX_FILES = env_int("SIQ_US_SEC_UPLOAD_MAX_FILES", DEFAULT_MAX_FILES)
+US_SEC_UPLOAD_MAX_FILE_BYTES = env_int("SIQ_US_SEC_UPLOAD_MAX_FILE_BYTES", DEFAULT_MAX_FILE_BYTES)
+US_SEC_UPLOAD_MAX_BATCH_BYTES = env_int("SIQ_US_SEC_UPLOAD_MAX_BATCH_BYTES", DEFAULT_MAX_BATCH_BYTES)
 MARKET_WIKISET_ROOT = REPO_ROOT / "scripts" / "wiki" / "market_wikiset"
 MARKET_RULE_SEMANTIC_SCRIPT = MARKET_WIKISET_ROOT / "run_market_rule_semantics.py"
 MARKET_LLM_SEMANTIC_SCRIPT = MARKET_WIKISET_ROOT / "run_market_llm_semantics.py"
@@ -597,7 +613,7 @@ def _us_sec_upload_dir() -> Path:
     return target
 
 
-def _us_sec_upload_metadata(
+def _us_sec_upload_metadata_payload(
     file_path: Path,
     *,
     original_name: str,
@@ -611,9 +627,9 @@ def _us_sec_upload_metadata(
     fiscal_year: int | None,
     period_end: str | None,
     filing_date: str | None,
-) -> Path:
-    metadata_path = file_path.with_suffix(file_path.suffix + ".metadata.json")
-    payload = market_report_commands.us_sec_upload_metadata_payload(
+) -> dict[str, Any]:
+    del fiscal_year
+    return market_report_commands.us_sec_upload_metadata_payload(
         file_path=file_path,
         original_name=original_name,
         content_type=content_type,
@@ -627,12 +643,48 @@ def _us_sec_upload_metadata(
         filing_date=filing_date,
         fallback_published_at=datetime.now(timezone.utc).date().isoformat(),
     )
-    metadata_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    return metadata_path
 
 
-def _persist_us_sec_upload(
-    file: UploadFile,
+def _validate_us_sec_upload_files(files: list[UploadFile]) -> None:
+    for file in files:
+        raw_name = file.filename or "upload"
+        if Path(raw_name).suffix.lower() not in US_SEC_UPLOAD_SUFFIXES:
+            raise HTTPException(
+                status_code=400,
+                detail="Only PDF, HTML, XHTML, XML, XBRL and ZIP uploads are supported",
+            )
+
+
+def _copy_buffered_upload_to_path(item: BufferedUpload, destination: Path) -> None:
+    item.file.seek(0)
+    digest = hashlib.sha256()
+    size_bytes = 0
+    with destination.open("wb") as target:
+        while chunk := item.file.read(DEFAULT_CHUNK_BYTES):
+            target.write(chunk)
+            digest.update(chunk)
+            size_bytes += len(chunk)
+        target.flush()
+        os.fsync(target.fileno())
+    if size_bytes != item.size_bytes or digest.hexdigest() != item.sha256:
+        raise OSError(f"Buffered upload integrity check failed: {item.filename}")
+
+
+def _write_us_sec_metadata_temp(path: Path, payload: dict[str, Any]) -> None:
+    with path.open("w", encoding="utf-8") as target:
+        json.dump(payload, target, ensure_ascii=False, indent=2)
+        target.flush()
+        os.fsync(target.fileno())
+
+
+def _new_us_sec_temp_path(parent: Path) -> Path:
+    descriptor, raw_path = tempfile.mkstemp(prefix=".siq-upload-", dir=parent)
+    os.close(descriptor)
+    return Path(raw_path)
+
+
+def _persist_us_sec_upload_batch(
+    files: list[BufferedUpload],
     *,
     ticker: str | None,
     company_name: str | None,
@@ -640,24 +692,13 @@ def _persist_us_sec_upload(
     fiscal_year: int | None,
     period_end: str | None,
     filing_date: str | None,
-) -> dict[str, Any]:
+) -> list[dict[str, Any]]:
     upload_dir = _us_sec_upload_dir()
-    raw_name = file.filename or "upload"
-    suffix = Path(raw_name).suffix.lower()
-    if suffix not in US_SEC_UPLOAD_SUFFIXES:
-        raise HTTPException(status_code=400, detail="Only PDF, HTML, XHTML, XML, XBRL and ZIP uploads are supported")
-
-    content = file.file.read()
-    if not content:
-        raise HTTPException(status_code=400, detail="Uploaded file is empty")
-    digest = hashlib.sha256(content).hexdigest()
-    ticker_part = _safe_filename_part(ticker or "manual")
-    company_part = _safe_filename_part(company_name or Path(raw_name).stem)
+    now = datetime.now(timezone.utc)
+    stamp_part = now.strftime("%Y%m%dT%H%M%SZ")
     report_type_text = str(report_type or "file").strip()
     report_part = _safe_filename_part(report_type_text)
-    stamp_part = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    digest_part = digest[:10]
-    effective_suffix = _file_suffix_from_content_type(file.content_type) or suffix or ".bin"
+    ticker_part = _safe_filename_part(ticker or "manual")
     if report_type_text.lower() in {"10-k", "20-f", "annual", "annual-report"}:
         folder = "年报"
         report_family = "annual"
@@ -668,40 +709,91 @@ def _persist_us_sec_upload(
         fiscal_year
         or (period_end[:4] if period_end else "")
         or (filing_date[:4] if filing_date else "")
-        or datetime.now(timezone.utc).year
+        or now.year
     )
-    target_dir = upload_dir / company_part / year_text / folder
-    target_dir.mkdir(parents=True, exist_ok=True)
-    target_name = f"{company_part}_US_{ticker_part}_{report_part}_{stamp_part}_{digest_part}{effective_suffix}"
-    target_path = target_dir / target_name
-    if target_path.exists():
-        raise HTTPException(status_code=409, detail="A file with the same generated name already exists")
-    target_path.write_bytes(content)
-    metadata_path = _us_sec_upload_metadata(
-        target_path,
-        original_name=raw_name,
-        content_type=file.content_type or _media_type_for_file(target_path),
-        digest=digest,
-        size_bytes=len(content),
-        ticker=ticker,
-        company_name=company_name,
-        report_type=report_type_text,
-        report_family=report_family,
-        fiscal_year=int(year_text) if str(year_text).isdigit() else None,
-        period_end=period_end,
-        filing_date=filing_date,
-    )
-    return {
-        "file_name": target_path.name,
-        "saved_path": str(target_path.resolve()),
-        "size_bytes": len(content),
-        "content_type": file.content_type or _media_type_for_file(target_path),
-        "cache_hit": False,
-        "deduplicated": False,
-        "content_sha256": digest,
-        "metadata_path": str(metadata_path.resolve()),
-        "relative_path": str(target_path.relative_to(REPORT_DOWNLOADS_ROOT)),
-    }
+
+    plans: list[dict[str, Any]] = []
+    planned_paths: set[Path] = set()
+    for item in files:
+        raw_name = item.filename or "upload"
+        suffix = Path(raw_name).suffix.lower()
+        company_part = _safe_filename_part(company_name or Path(raw_name).stem)
+        effective_suffix = _file_suffix_from_content_type(item.content_type) or suffix or ".bin"
+        target_dir = upload_dir / company_part / year_text / folder
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target_name = (
+            f"{company_part}_US_{ticker_part}_{report_part}_{stamp_part}_{item.sha256[:10]}{effective_suffix}"
+        )
+        target_path = target_dir / target_name
+        metadata_path = target_path.with_suffix(target_path.suffix + ".metadata.json")
+        if target_path in planned_paths or target_path.exists() or metadata_path.exists():
+            raise HTTPException(status_code=409, detail="A file with the same generated name already exists")
+        planned_paths.add(target_path)
+        content_type = item.content_type or _media_type_for_file(target_path)
+        metadata = _us_sec_upload_metadata_payload(
+            target_path,
+            original_name=raw_name,
+            content_type=content_type,
+            digest=item.sha256,
+            size_bytes=item.size_bytes,
+            ticker=ticker,
+            company_name=company_name,
+            report_type=report_type_text,
+            report_family=report_family,
+            fiscal_year=int(year_text) if year_text.isdigit() else None,
+            period_end=period_end,
+            filing_date=filing_date,
+        )
+        plans.append(
+            {
+                "item": item,
+                "target_path": target_path,
+                "metadata_path": metadata_path,
+                "metadata": metadata,
+                "result": {
+                    "file_name": target_path.name,
+                    "saved_path": str(target_path.resolve()),
+                    "size_bytes": item.size_bytes,
+                    "content_type": content_type,
+                    "cache_hit": False,
+                    "deduplicated": False,
+                    "content_sha256": item.sha256,
+                    "metadata_path": str(metadata_path.resolve()),
+                    "relative_path": str(target_path.relative_to(REPORT_DOWNLOADS_ROOT)),
+                },
+            }
+        )
+
+    staged: list[tuple[Path, Path]] = []
+    published: list[tuple[Path, Path]] = []
+    try:
+        for plan in plans:
+            data_temp = _new_us_sec_temp_path(plan["target_path"].parent)
+            staged.append((data_temp, plan["target_path"]))
+            _copy_buffered_upload_to_path(plan["item"], data_temp)
+
+            metadata_temp = _new_us_sec_temp_path(plan["metadata_path"].parent)
+            staged.append((metadata_temp, plan["metadata_path"]))
+            _write_us_sec_metadata_temp(metadata_temp, plan["metadata"])
+
+        for temporary_path, final_path in staged:
+            try:
+                os.link(temporary_path, final_path)
+            except FileExistsError as exc:
+                raise HTTPException(status_code=409, detail="A file with the same generated name already exists") from exc
+            published.append((temporary_path, final_path))
+        return [plan["result"] for plan in plans]
+    except BaseException:
+        for temporary_path, final_path in reversed(published):
+            try:
+                if temporary_path.samefile(final_path):
+                    final_path.unlink()
+            except FileNotFoundError:
+                pass
+        raise
+    finally:
+        for temporary_path, _final_path in staged:
+            temporary_path.unlink(missing_ok=True)
 
 
 @router.post("/us-sec/uploads")
@@ -720,18 +812,35 @@ async def us_sec_upload_files(
     del request
     if not files:
         raise HTTPException(status_code=400, detail="请上传文件")
-    uploaded: list[dict[str, Any]] = []
-    for item in files:
-        result = _persist_us_sec_upload(
-            item,
-            ticker=ticker.strip().upper() or None,
-            company_name=company_name.strip() or None,
-            report_type=report_type.strip() or None,
-            fiscal_year=int(fiscal_year) if str(fiscal_year).strip().isdigit() else None,
-            period_end=period_end.strip() or None,
-            filing_date=filing_date.strip() or None,
+    _validate_us_sec_upload_files(files)
+    upload_fields = {
+        "ticker": ticker.strip().upper() or None,
+        "company_name": company_name.strip() or None,
+        "report_type": report_type.strip() or None,
+        "fiscal_year": int(fiscal_year) if str(fiscal_year).strip().isdigit() else None,
+        "period_end": period_end.strip() or None,
+        "filing_date": filing_date.strip() or None,
+    }
+    async with UPLOAD_PROXY_LIMITER.slot():
+        buffered = await buffer_upload_files(
+            files,
+            max_files=US_SEC_UPLOAD_MAX_FILES,
+            max_file_bytes=US_SEC_UPLOAD_MAX_FILE_BYTES,
+            max_batch_bytes=US_SEC_UPLOAD_MAX_BATCH_BYTES,
+            default_filename="upload",
+            default_content_type="",
+            reject_empty=True,
         )
-        uploaded.append(result)
+        try:
+            uploaded = await run_in_threadpool(
+                _persist_us_sec_upload_batch,
+                buffered,
+                **upload_fields,
+            )
+        finally:
+            close_buffered_uploads(buffered)
+
+    for item, result in zip(files, uploaded, strict=True):
         try:
             # best effort: keep uploads visible in personal workspace
             await record_user_artifact_async(

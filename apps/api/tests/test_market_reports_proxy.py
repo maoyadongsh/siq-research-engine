@@ -1,9 +1,10 @@
-import sys
 import asyncio
-import importlib.util
 import hashlib
+import importlib.util
 import io
 import json
+import sys
+import threading
 import types
 from pathlib import Path
 
@@ -43,6 +44,20 @@ class JsonRequest:
 
 class UploadRouteRequest:
     pass
+
+
+class _AsyncUpload:
+    content_type = "application/pdf"
+
+    def __init__(self, filename: str, content: bytes) -> None:
+        self.filename = filename
+        self._content = content
+        self._offset = 0
+
+    async def read(self, size: int) -> bytes:
+        chunk = self._content[self._offset : self._offset + size]
+        self._offset += len(chunk)
+        return chunk
 
 
 def _write_market_package(root: Path, *parts: str) -> Path:
@@ -1063,23 +1078,26 @@ def test_hermes_assist_uses_runs_api(monkeypatch):
 def test_us_sec_upload_records_workspace_artifact_async(monkeypatch):
     calls = []
 
-    def fake_persist_us_sec_upload(item, **kwargs):
-        calls.append({"filename": item.filename, "kwargs": kwargs})
-        return {
-            "file_name": item.filename,
-            "relative_path": f"us-sec/uploads/{item.filename}",
-        }
+    def fake_persist_us_sec_upload_batch(items, **kwargs):
+        calls.append({"filenames": [item.filename for item in items], "kwargs": kwargs})
+        return [
+            {
+                "file_name": item.filename,
+                "relative_path": f"us-sec/uploads/{item.filename}",
+            }
+            for item in items
+        ]
 
     async def fake_record_user_artifact_async(async_session, **kwargs):
         calls.append({"async_session": async_session, "artifact": kwargs})
 
-    monkeypatch.setattr(market_reports, "_persist_us_sec_upload", fake_persist_us_sec_upload)
+    monkeypatch.setattr(market_reports, "_persist_us_sec_upload_batch", fake_persist_us_sec_upload_batch)
     monkeypatch.setattr(market_reports, "record_user_artifact_async", fake_record_user_artifact_async)
 
     result = asyncio.run(
         market_reports.us_sec_upload_files(
             UploadRouteRequest(),
-            files=[type("Upload", (), {"filename": "aapl-10k.pdf"})()],
+            files=[_AsyncUpload("aapl-10k.pdf", b"10-k")],
             ticker="aapl",
             company_name="Apple Inc.",
             report_type="10-K",
@@ -1101,22 +1119,25 @@ def test_us_sec_upload_records_workspace_artifact_async(monkeypatch):
 
 
 def test_us_sec_upload_swallow_workspace_artifact_error(monkeypatch):
-    def fake_persist_us_sec_upload(item, **kwargs):
-        return {
-            "file_name": item.filename,
-            "relative_path": f"us-sec/uploads/{item.filename}",
-        }
+    def fake_persist_us_sec_upload_batch(items, **kwargs):
+        return [
+            {
+                "file_name": item.filename,
+                "relative_path": f"us-sec/uploads/{item.filename}",
+            }
+            for item in items
+        ]
 
     async def fake_record_user_artifact_async(*args, **kwargs):
         raise RuntimeError("workspace unavailable")
 
-    monkeypatch.setattr(market_reports, "_persist_us_sec_upload", fake_persist_us_sec_upload)
+    monkeypatch.setattr(market_reports, "_persist_us_sec_upload_batch", fake_persist_us_sec_upload_batch)
     monkeypatch.setattr(market_reports, "record_user_artifact_async", fake_record_user_artifact_async)
 
     result = asyncio.run(
         market_reports.us_sec_upload_files(
             UploadRouteRequest(),
-            files=[type("Upload", (), {"filename": "aapl-10k.pdf"})()],
+            files=[_AsyncUpload("aapl-10k.pdf", b"10-k")],
             ticker="",
             company_name="",
             report_type="",
@@ -1132,7 +1153,7 @@ def test_us_sec_upload_swallow_workspace_artifact_error(monkeypatch):
     assert result["files"][0]["relative_path"] == "us-sec/uploads/aapl-10k.pdf"
 
 
-def test_us_sec_upload_persist_writes_build_compatible_metadata(monkeypatch, tmp_path):
+def test_us_sec_upload_persist_batch_writes_build_compatible_metadata(monkeypatch, tmp_path):
     content = b"<html><body>10-K</body></html>"
     digest = hashlib.sha256(content).hexdigest()
 
@@ -1143,18 +1164,16 @@ def test_us_sec_upload_persist_writes_build_compatible_metadata(monkeypatch, tmp
 
     monkeypatch.setattr(market_reports, "REPORT_DOWNLOADS_ROOT", tmp_path / "downloads")
     monkeypatch.setattr(market_reports, "datetime", FixedDateTime)
-    upload = type(
-        "Upload",
-        (),
-        {
-            "filename": "apple-10k.htm",
-            "content_type": "text/html",
-            "file": io.BytesIO(content),
-        },
-    )()
+    upload = market_reports.BufferedUpload(
+        filename="apple-10k.htm",
+        content_type="text/html",
+        size_bytes=len(content),
+        sha256=digest,
+        file=io.BytesIO(content),
+    )
 
-    result = market_reports._persist_us_sec_upload(
-        upload,
+    results = market_reports._persist_us_sec_upload_batch(
+        [upload],
         ticker="AAPL",
         company_name="Apple Inc.",
         report_type="10-K",
@@ -1162,6 +1181,7 @@ def test_us_sec_upload_persist_writes_build_compatible_metadata(monkeypatch, tmp
         period_end="2025-09-27",
         filing_date="2025-10-31",
     )
+    result = results[0]
 
     saved_path = Path(result["saved_path"])
     metadata_path = Path(result["metadata_path"])
@@ -1187,14 +1207,190 @@ def test_us_sec_upload_persist_writes_build_compatible_metadata(monkeypatch, tmp
     assert metadata["downloaded_file"]["content_type"] == "text/html"
 
 
-def test_us_sec_upload_persist_rejects_unsupported_suffix_and_empty_file(monkeypatch, tmp_path):
+def test_us_sec_upload_rejects_unsupported_suffix_before_reading():
+    bad_suffix = _AsyncUpload("notes.exe", b"x")
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            market_reports.us_sec_upload_files(
+                UploadRouteRequest(),
+                files=[_AsyncUpload("valid.pdf", b"valid"), bad_suffix],
+                ticker="AAPL",
+                company_name="Apple Inc.",
+                report_type="10-K",
+                fiscal_year="2025",
+                period_end="2025-09-27",
+                filing_date="2025-10-31",
+                current_user=type("User", (), {"id": 7})(),
+                async_session=object(),
+            )
+        )
+
+    assert exc.value.status_code == 400
+    assert "Only PDF" in exc.value.detail
+    assert bad_suffix._offset == 0
+
+
+def test_us_sec_upload_rejects_six_files_before_reading():
+    files = [_AsyncUpload(f"report-{index}.pdf", b"x") for index in range(6)]
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            market_reports.us_sec_upload_files(
+                UploadRouteRequest(),
+                files=files,
+                ticker="",
+                company_name="",
+                report_type="",
+                fiscal_year="",
+                period_end="",
+                filing_date="",
+                current_user=type("User", (), {"id": 7})(),
+                async_session=object(),
+            )
+        )
+
+    assert exc.value.status_code == 413
+    assert exc.value.detail["error"] == "too_many_upload_files"
+    assert all(item._offset == 0 for item in files)
+
+
+def test_us_sec_upload_rejects_empty_file_without_publishing(monkeypatch, tmp_path):
     monkeypatch.setattr(market_reports, "REPORT_DOWNLOADS_ROOT", tmp_path / "downloads")
-    bad_suffix = type("Upload", (), {"filename": "notes.exe", "content_type": "application/octet-stream", "file": io.BytesIO(b"x")})()
-    empty_file = type("Upload", (), {"filename": "empty.pdf", "content_type": "application/pdf", "file": io.BytesIO(b"")})()
 
-    try:
-        market_reports._persist_us_sec_upload(
-            bad_suffix,
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            market_reports.us_sec_upload_files(
+                UploadRouteRequest(),
+                files=[_AsyncUpload("first.pdf", b"valid"), _AsyncUpload("empty.pdf", b"")],
+                ticker="AAPL",
+                company_name="Apple Inc.",
+                report_type="10-K",
+                fiscal_year="2025",
+                period_end="2025-09-27",
+                filing_date="2025-10-31",
+                current_user=type("User", (), {"id": 7})(),
+                async_session=object(),
+            )
+        )
+
+    assert exc.value.status_code == 400
+    assert exc.value.detail == "Uploaded file is empty"
+    assert not any(path.is_file() for path in tmp_path.rglob("*"))
+
+
+@pytest.mark.parametrize(
+    ("files", "max_file_bytes", "max_batch_bytes", "expected_scope"),
+    [
+        ([_AsyncUpload("large.pdf", b"12345")], 4, 20, "file"),
+        ([_AsyncUpload("first.pdf", b"1234"), _AsyncUpload("second.pdf", b"5678")], 10, 7, "batch"),
+    ],
+)
+def test_us_sec_upload_enforces_single_file_and_batch_size_limits(
+    monkeypatch,
+    tmp_path,
+    files,
+    max_file_bytes,
+    max_batch_bytes,
+    expected_scope,
+):
+    monkeypatch.setattr(market_reports, "REPORT_DOWNLOADS_ROOT", tmp_path / "downloads")
+    monkeypatch.setattr(market_reports, "US_SEC_UPLOAD_MAX_FILE_BYTES", max_file_bytes)
+    monkeypatch.setattr(market_reports, "US_SEC_UPLOAD_MAX_BATCH_BYTES", max_batch_bytes)
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            market_reports.us_sec_upload_files(
+                UploadRouteRequest(),
+                files=files,
+                ticker="",
+                company_name="",
+                report_type="",
+                fiscal_year="",
+                period_end="",
+                filing_date="",
+                current_user=type("User", (), {"id": 7})(),
+                async_session=object(),
+            )
+        )
+
+    assert exc.value.status_code == 413
+    assert exc.value.detail["error"] == "upload_too_large"
+    assert exc.value.detail["scope"] == expected_scope
+    assert not any(path.is_file() for path in tmp_path.rglob("*"))
+
+
+def test_us_sec_upload_persists_batch_in_threadpool_and_records_after_publish(monkeypatch):
+    route_thread = threading.get_ident()
+    persist_threads = []
+    calls = []
+
+    def fake_persist_batch(items, **kwargs):
+        persist_threads.append(threading.get_ident())
+        return [
+            {"file_name": item.filename, "relative_path": f"US/manual/{item.filename}"}
+            for item in items
+        ]
+
+    async def fake_record(*args, **kwargs):
+        calls.append(kwargs["artifact_key"])
+
+    monkeypatch.setattr(market_reports, "_persist_us_sec_upload_batch", fake_persist_batch)
+    monkeypatch.setattr(market_reports, "record_user_artifact_async", fake_record)
+
+    result = asyncio.run(
+        market_reports.us_sec_upload_files(
+            UploadRouteRequest(),
+            files=[_AsyncUpload("first.pdf", b"first"), _AsyncUpload("second.htm", b"second")],
+            ticker="",
+            company_name="",
+            report_type="",
+            fiscal_year="",
+            period_end="",
+            filing_date="",
+            current_user=type("User", (), {"id": 7})(),
+            async_session=object(),
+        )
+    )
+
+    assert result["count"] == 2
+    assert persist_threads and persist_threads[0] != route_thread
+    assert calls == ["US/manual/first.pdf", "US/manual/second.htm"]
+
+
+def test_us_sec_upload_batch_failure_on_second_file_publishes_nothing_and_cleans_temps(monkeypatch, tmp_path):
+    monkeypatch.setattr(market_reports, "REPORT_DOWNLOADS_ROOT", tmp_path / "downloads")
+    real_copy = market_reports._copy_buffered_upload_to_path
+    calls = 0
+
+    def fail_second_copy(item, destination):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("injected second-file write failure")
+        return real_copy(item, destination)
+
+    monkeypatch.setattr(market_reports, "_copy_buffered_upload_to_path", fail_second_copy)
+    uploads = [
+        market_reports.BufferedUpload(
+            filename="first.pdf",
+            content_type="application/pdf",
+            size_bytes=5,
+            sha256=hashlib.sha256(b"first").hexdigest(),
+            file=io.BytesIO(b"first"),
+        ),
+        market_reports.BufferedUpload(
+            filename="second.pdf",
+            content_type="application/pdf",
+            size_bytes=6,
+            sha256=hashlib.sha256(b"second").hexdigest(),
+            file=io.BytesIO(b"second"),
+        ),
+    ]
+
+    with pytest.raises(OSError, match="second-file"):
+        market_reports._persist_us_sec_upload_batch(
+            uploads,
             ticker="AAPL",
             company_name="Apple Inc.",
             report_type="10-K",
@@ -1202,15 +1398,37 @@ def test_us_sec_upload_persist_rejects_unsupported_suffix_and_empty_file(monkeyp
             period_end="2025-09-27",
             filing_date="2025-10-31",
         )
-    except HTTPException as exc:
-        assert exc.status_code == 400
-        assert "Only PDF" in exc.detail
-    else:
-        raise AssertionError("expected HTTPException")
 
-    try:
-        market_reports._persist_us_sec_upload(
-            empty_file,
+    assert not any(path.is_file() for path in tmp_path.rglob("*"))
+
+
+def test_us_sec_upload_batch_publish_failure_rolls_back_data_and_metadata(monkeypatch, tmp_path):
+    monkeypatch.setattr(market_reports, "REPORT_DOWNLOADS_ROOT", tmp_path / "downloads")
+    real_link = market_reports.os.link
+    link_calls = 0
+
+    def fail_during_second_file_publish(source, destination):
+        nonlocal link_calls
+        link_calls += 1
+        if link_calls == 3:
+            raise OSError("injected publish failure")
+        return real_link(source, destination)
+
+    monkeypatch.setattr(market_reports.os, "link", fail_during_second_file_publish)
+    uploads = [
+        market_reports.BufferedUpload(
+            filename=f"report-{index}.pdf",
+            content_type="application/pdf",
+            size_bytes=len(content),
+            sha256=hashlib.sha256(content).hexdigest(),
+            file=io.BytesIO(content),
+        )
+        for index, content in enumerate((b"first", b"second"), start=1)
+    ]
+
+    with pytest.raises(OSError, match="publish failure"):
+        market_reports._persist_us_sec_upload_batch(
+            uploads,
             ticker="AAPL",
             company_name="Apple Inc.",
             report_type="10-K",
@@ -1218,11 +1436,39 @@ def test_us_sec_upload_persist_rejects_unsupported_suffix_and_empty_file(monkeyp
             period_end="2025-09-27",
             filing_date="2025-10-31",
         )
-    except HTTPException as exc:
-        assert exc.status_code == 400
-        assert exc.detail == "Uploaded file is empty"
-    else:
-        raise AssertionError("expected HTTPException")
+
+    assert not any(path.is_file() for path in tmp_path.rglob("*"))
+
+
+def test_us_sec_upload_batch_success_leaves_no_temporary_files(monkeypatch, tmp_path):
+    monkeypatch.setattr(market_reports, "REPORT_DOWNLOADS_ROOT", tmp_path / "downloads")
+    content_by_name = {"first.pdf": b"first", "second.htm": b"second"}
+    uploads = [
+        market_reports.BufferedUpload(
+            filename=name,
+            content_type="" if name.endswith(".pdf") else "text/html",
+            size_bytes=len(content),
+            sha256=hashlib.sha256(content).hexdigest(),
+            file=io.BytesIO(content),
+        )
+        for name, content in content_by_name.items()
+    ]
+
+    results = market_reports._persist_us_sec_upload_batch(
+        uploads,
+        ticker="AAPL",
+        company_name="Apple Inc.",
+        report_type="10-K",
+        fiscal_year=2025,
+        period_end="2025-09-27",
+        filing_date="2025-10-31",
+    )
+
+    assert len(results) == 2
+    assert all(Path(item["saved_path"]).is_file() for item in results)
+    assert all(Path(item["metadata_path"]).is_file() for item in results)
+    assert results[0]["content_type"] == "application/octet-stream"
+    assert not list(tmp_path.rglob(".siq-upload-*"))
 
 
 def test_market_package_summary_reads_us_package(tmp_path):
@@ -1670,7 +1916,7 @@ def test_market_import_command_uses_us_package_flag(monkeypatch, tmp_path):
     assert seen["args"][-1] == "--ddl"
 
 
-def test_hk_market_package_import_uses_hk_database_env(monkeypatch, tmp_path):
+def test_hk_market_package_import_uses_configured_hk_database_env(monkeypatch, tmp_path):
     wiki_root = tmp_path / "wiki" / "hk"
     package_dir = _write_market_package(wiki_root, "companies", "00700-TENCENT", "reports", "2025-annual-12100024")
     captured = {}

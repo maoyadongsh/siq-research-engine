@@ -2,23 +2,33 @@
 认证与权限管理路由
 提供用户登录、注册、权限验证等API
 """
-from datetime import datetime, timedelta, timezone
-from html import unescape
 import json
 import os
 import re
-from pathlib import Path
+from datetime import datetime, timezone
+from html import unescape
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Response, status, Request
-from sqlmodel import Session, select
 
-from database import get_async_session, get_session
+from database import get_async_session as get_async_session, get_session
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from services.auth_dependencies import get_current_user, require_permission
 from services.auth_service import (
-    User, AuditLog, ReportReview,
-    AuthService, AuditLogger, ReportSignature,
-    LoginRequest, LoginResponse, UserCreate, UserUpdate, UserBatchUpdate, ReportReviewCreate,
+    AuditLog,
+    AuditLogger,
+    AuthService,
+    LoginRequest,
+    LoginResponse,
+    ReportArtifact,
+    ReportArtifactError,
+    ReportArtifactPolicy,
+    ReportReview,
+    ReportReviewCreate,
+    ReportSignature,
+    User,
+    UserBatchUpdate,
+    UserCreate,
     UserRole,
+    UserUpdate,
 )
 from services.usage_service import (
     AGENT_QUESTION_EVENT,
@@ -28,6 +38,7 @@ from services.usage_service import (
     WorkspaceProject,
     usage_response_payload,
 )
+from sqlmodel import Session, select
 
 router = APIRouter(tags=["authentication"])
 
@@ -102,19 +113,21 @@ def _nested_metadata_value(payload: dict, *paths: tuple[str, ...]) -> object:
     return None
 
 
-def _read_sibling_report_metadata(report_path: Path) -> dict:
-    metadata_path = report_path.with_suffix(".json")
-    if not metadata_path.is_file():
-        return {}
+def _read_sibling_report_metadata(artifact: ReportArtifact) -> dict:
+    metadata_path = artifact.path.with_suffix(".json")
     try:
-        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        metadata_artifact = ReportArtifactPolicy.resolve_and_read(
+            str(metadata_path),
+            max_bytes=1024 * 1024,
+        )
+        payload = json.loads(metadata_artifact.content)
+    except (ReportArtifactError, json.JSONDecodeError):
         return {}
     return payload if isinstance(payload, dict) else {}
 
 
-def _report_generation_metadata(report_path: Path, content: str) -> tuple[str, datetime]:
-    metadata = _read_sibling_report_metadata(report_path)
+def _report_generation_metadata(artifact: ReportArtifact) -> tuple[str, datetime]:
+    metadata = _read_sibling_report_metadata(artifact)
     generated_by = _clean_report_generated_by(
         _nested_metadata_value(
             metadata,
@@ -126,7 +139,7 @@ def _report_generation_metadata(report_path: Path, content: str) -> tuple[str, d
         )
     )
     if not generated_by:
-        generated_by = _report_generated_by_from_metadata(content)
+        generated_by = _report_generated_by_from_metadata(artifact.content)
 
     generated_at = _parse_report_generated_at(
         _nested_metadata_value(
@@ -753,19 +766,24 @@ def create_report_review(
     session: Session = Depends(get_session),
 ):
     """创建报告审核记录"""
-    # 读取报告内容计算哈希
-    report_path = Path(review_data.report_path)
-    if not report_path.exists():
-        raise HTTPException(status_code=404, detail="报告文件不存在")
+    try:
+        artifact = ReportArtifactPolicy.resolve_and_read(review_data.report_path)
+    except ReportArtifactError as exc:
+        error_responses = {
+            "not_found": (404, "报告文件不存在"),
+            "too_large": (413, "报告文件超过审核大小限制"),
+            "unsupported_encoding": (415, "报告文件必须使用 UTF-8 编码"),
+        }
+        status_code, detail = error_responses.get(exc.code, (400, "报告文件路径无效"))
+        raise HTTPException(status_code=status_code, detail=detail) from exc
 
-    content = report_path.read_text(encoding="utf-8")
-    content_hash = ReportSignature.calculate_hash(content)
-    signature = ReportSignature.sign_report(content, current_user.id)
-    generated_by, generated_at = _report_generation_metadata(report_path, content)
+    content_hash = ReportSignature.calculate_hash(artifact.content)
+    signature = ReportSignature.sign_report(artifact.content, current_user.id)
+    generated_by, generated_at = _report_generation_metadata(artifact)
 
     # 创建审核记录
     review = ReportReview(
-        report_path=review_data.report_path,
+        report_path=artifact.identity,
         company_id=review_data.company_id,
         report_year=review_data.report_year,
         report_type=review_data.report_type,
@@ -788,8 +806,8 @@ def create_report_review(
         user_id=current_user.id,
         action="REVIEW_REPORT",
         resource_type="report",
-        resource_id=review_data.report_path,
-        details={"status": review_data.status, "review_id": review.id},
+        resource_id=artifact.identity,
+        details={"status": review_data.status, "review_id": review.id, "artifact_id": artifact.identity},
         ip_address=request.client.host if request.client else None,
     )
 

@@ -30,6 +30,7 @@ from services.usage_service import (
     ensure_within_quota_async,
     next_midnight_shanghai,
     record_usage_async,
+    release_pending_quota_async,
     usage_response_payload,
 )
 from sqlmodel import Session, select
@@ -880,6 +881,7 @@ def workspace_summary(
 @router.get("/artifacts")
 def list_workspace_artifacts(
     artifact_type: str | None = None,
+    since: str | None = Query(default=None, max_length=64),
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
@@ -887,6 +889,8 @@ def list_workspace_artifacts(
     if artifact_type:
         statement = statement.where(UserArtifact.artifact_type == artifact_type)
     items = session.exec(statement).all()
+    if since:
+        items = [item for item in items if _utc_isoformat(item.created_at) >= since]
     items = sorted(items, key=lambda item: item.created_at, reverse=True)
     return {"artifacts": [_artifact_payload(item) for item in items]}
 
@@ -1029,6 +1033,11 @@ async def authenticated_pdf_upload(
                 filename = item.filename or "upload.pdf"
                 file_sha256 = item.sha256
                 if file_sha256 in seen_hashes:
+                    await release_pending_quota_async(
+                        async_session,
+                        user_id=int(current_user.id),
+                        event_type=PARSE_EVENT,
+                    )
                     return JSONResponse(
                         content={
                             "error": "duplicate_file_content",
@@ -1075,6 +1084,13 @@ async def authenticated_pdf_upload(
                     files=multipart,
                     headers=_pdf2md_headers(current_user=current_user, market_scope=requested_market),
                 )
+        except httpx.RequestError as exc:
+            await release_pending_quota_async(
+                async_session,
+                user_id=int(current_user.id),
+                event_type=PARSE_EVENT,
+            )
+            raise HTTPException(status_code=502, detail=f"PDF 解析服务不可用: {exc}") from exc
         finally:
             close_buffered_uploads(buffered_uploads)
 
@@ -1082,6 +1098,11 @@ async def authenticated_pdf_upload(
     try:
         payload = response.json()
     except ValueError:
+        await release_pending_quota_async(
+            async_session,
+            user_id=int(current_user.id),
+            event_type=PARSE_EVENT,
+        )
         return Response(content=response.content, status_code=response.status_code, media_type=content_type)
 
     if response.status_code == 409 and isinstance(payload, dict) and payload.get("error") in {"duplicate_filename", "duplicate_file_content"}:
@@ -1105,6 +1126,11 @@ async def authenticated_pdf_upload(
                 source="reused_parse",
                 global_artifact_id=task_id,
             )
+        await release_pending_quota_async(
+            async_session,
+            user_id=int(current_user.id),
+            event_type=PARSE_EVENT,
+        )
         return JSONResponse(content=payload, status_code=409)
 
     if 200 <= response.status_code < 300:
@@ -1137,6 +1163,12 @@ async def authenticated_pdf_upload(
                 count=len(new_tasks),
                 source="pdf_upload",
                 metadata_json=json.dumps({"tasks": new_tasks}, ensure_ascii=False),
+            )
+        else:
+            await release_pending_quota_async(
+                async_session,
+                user_id=user_id,
+                event_type=PARSE_EVENT,
             )
         for task in new_tasks:
             task_id = str(task.get("task_id") or "")
@@ -1241,18 +1273,31 @@ async def authenticated_pdf_task_from_download(
         "filename": filename,
         "download_relative_path": rel_text,
     }
-    async with UPLOAD_PROXY_LIMITER.slot():
-        async with httpx.AsyncClient(timeout=PDF_UPLOAD_TIMEOUT) as client:
-            response = await client.post(
-                f"{PDF2MD_API_BASE}/api/tasks/from-download",
-                json=upstream_body,
-                headers=_pdf2md_headers(current_user=current_user, market_scope=requested_market),
-            )
+    try:
+        async with UPLOAD_PROXY_LIMITER.slot():
+            async with httpx.AsyncClient(timeout=PDF_UPLOAD_TIMEOUT) as client:
+                response = await client.post(
+                    f"{PDF2MD_API_BASE}/api/tasks/from-download",
+                    json=upstream_body,
+                    headers=_pdf2md_headers(current_user=current_user, market_scope=requested_market),
+                )
+    except httpx.RequestError as exc:
+        await release_pending_quota_async(
+            async_session,
+            user_id=int(current_user.id),
+            event_type=PARSE_EVENT,
+        )
+        raise HTTPException(status_code=502, detail=f"PDF 解析服务不可用: {exc}") from exc
 
     content_type = response.headers.get("content-type", "application/json")
     try:
         upstream_payload = response.json()
     except ValueError:
+        await release_pending_quota_async(
+            async_session,
+            user_id=int(current_user.id),
+            event_type=PARSE_EVENT,
+        )
         return Response(content=response.content, status_code=response.status_code, media_type=content_type)
 
     if response.status_code == 409 and isinstance(upstream_payload, dict) and upstream_payload.get("error") in {"duplicate_filename", "duplicate_file_content"}:
@@ -1276,6 +1321,11 @@ async def authenticated_pdf_task_from_download(
                 source="reused_parse",
                 global_artifact_id=task_id,
             )
+        await release_pending_quota_async(
+            async_session,
+            user_id=int(current_user.id),
+            event_type=PARSE_EVENT,
+        )
         return JSONResponse(content=upstream_payload, status_code=409)
 
     if 200 <= response.status_code < 300:
@@ -1308,6 +1358,12 @@ async def authenticated_pdf_task_from_download(
                 count=len(new_tasks),
                 source="pdf_download_reference",
                 metadata_json=json.dumps({"tasks": new_tasks, "download_relative_path": rel_text}, ensure_ascii=False),
+            )
+        else:
+            await release_pending_quota_async(
+                async_session,
+                user_id=user_id,
+                event_type=PARSE_EVENT,
             )
         for task in new_tasks:
             task_id = str(task.get("task_id") or "")
