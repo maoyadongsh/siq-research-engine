@@ -476,6 +476,20 @@ def test_wiki_fulltext_fallback_result_supports_parser_report_layout(tmp_path):
     assert any(row["source_type"] == "wiki_report_fulltext" for row in result["rows"])
 
 
+def test_wiki_fulltext_fallback_matches_multiword_financial_term(tmp_path):
+    company_dir = tmp_path / "AAPL-Apple-Inc"
+    company_dir.mkdir()
+
+    assert wiki_context.should_consider_wiki_fulltext_fallback(
+        "US Apple Inc total liabilities",
+        None,
+        fallback_terms=("total liabilities",),
+        is_general_assistant_request=lambda _message: False,
+        resolve_company_dir=lambda _message, _context: company_dir,
+        context_company=lambda _context: {},
+    )
+
+
 def test_render_wiki_fulltext_fallback_context_uses_evidence_links():
     rendered = wiki_context.render_wiki_fulltext_fallback_context(
         {

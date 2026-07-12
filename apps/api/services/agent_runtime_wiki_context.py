@@ -620,12 +620,16 @@ def should_consider_wiki_fulltext_fallback(
     resolve_company_dir: Callable[[str, Any | None], Path | None],
     context_company: Callable[[Any | None], dict[str, Any]],
 ) -> bool:
-    text = re.sub(r"\s+", "", message or "")
+    text = re.sub(r"\s+", "", message or "").casefold()
     if not text or is_general_assistant_request(text):
         return False
     if resolve_company_dir(message, context) is None:
         return False
-    if any(term.lower() in text.lower() for term in fallback_terms):
+    if any(
+        normalized_term and normalized_term in text
+        for term in fallback_terms
+        if (normalized_term := re.sub(r"\s+", "", str(term or "")).casefold())
+    ):
         return True
     company = context_company(context)
     return bool(company and any(term in text for term in ("多少", "数据", "情况", "如何", "怎么样", "说明", "披露")))
