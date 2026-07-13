@@ -56,6 +56,10 @@ SIQ_MILVUS_HOST=milvus.example.internal
 SIQ_MILVUS_PORT=19530
 HERMES_API_KEY=replace-with-hermes-gateway-token
 SIQ_HERMES_ASSISTANT_RUNS_URL=https://hermes-assistant.example.internal/v1/runs
+SIQ_FUNASR_BASE_URL=http://funasr.example.internal:8899/asr
+SIQ_FUNASR_TIMEOUT_SECONDS=90
+SIQ_CHAT_VOICE_MAX_BYTES=10485760
+SIQ_CHAT_VOICE_MAX_SECONDS=60
 
 SIQ_WIKI_ROOT=/var/lib/siq-research-engine/data/wiki
 SIQ_ASSISTANT_WIKI_ROOT=/var/lib/siq-research-engine/data/wiki

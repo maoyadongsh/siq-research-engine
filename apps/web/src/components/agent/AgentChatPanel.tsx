@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 import { Tooltip } from '../ui'
 import { useToast } from '../../hooks/useToast'
-import { useAgentChat, type AgentChatContext } from '../../lib/useAgentChat'
+import { useAgentChat, type AgentAttachment, type AgentChatContext } from '../../lib/useAgentChat'
 import { useAutosizeTextarea } from '../../lib/useAutosizeTextarea'
 import AgentAvatar, { type AgentAvatarState } from './AgentAvatar'
 import { agentKindFromApiPrefix } from './agentAvatarTypes'
@@ -20,6 +20,7 @@ import ChatComposer from '../chat/ChatComposer'
 import ChatHeader from '../chat/ChatHeader'
 import ChatMessageList, { type ChatQuickQuestion } from '../chat/ChatMessageList'
 import ChatShell from '../chat/ChatShell'
+import type { VoiceRecorderFailure, VoiceRecording } from '../chat/useVoiceRecorder'
 import { copyText } from '../../lib/clipboard'
 import { quickQuestionLabel, quickQuestionPrompt, type AgentQuickQuestionInput } from '../../lib/quickQuestions'
 
@@ -114,6 +115,7 @@ export default function AgentChatPanel({
     setComposing,
     initialize,
     sendMessage,
+    transcribeVoice,
     uploadAttachments,
     removeAttachment,
     newChat,
@@ -270,9 +272,24 @@ export default function AgentChatPanel({
     toast({ type: 'success', title: '历史会话已删除' })
   }
 
-  const sendPanelMessage = async (text?: string, messageContext?: AgentChatContext, displayMessage?: string) => {
+  const sendPanelMessage = async (text?: string, messageContext?: AgentChatContext, displayMessage?: string, attachments?: AgentAttachment[]) => {
     await initialize()
-    return sendMessage(text, messageContext, displayMessage)
+    return sendMessage(text, messageContext, displayMessage, attachments)
+  }
+
+  const handleVoiceRecording = async (recording: VoiceRecording) => {
+    const result = await transcribeVoice(recording)
+    void sendPanelMessage(result.text, context, result.text, [result.attachment]).catch((error) => {
+      toast({
+        type: 'error',
+        title: '语音消息发送失败',
+        description: error instanceof Error ? error.message : '请重试。',
+      })
+    })
+  }
+
+  const handleVoiceError = (failure: VoiceRecorderFailure) => {
+    toast({ type: 'error', title: '语音输入失败', description: failure.message })
   }
 
   const quickQuestionItems: ChatQuickQuestion[] = quickQuestions.map((q) => {
@@ -444,6 +461,7 @@ export default function AgentChatPanel({
           onNewChat={() => { createNewChat().catch(() => {}) }}
           onAttachmentChange={(files) => { handleAttachmentChange(files).catch(() => {}) }}
           onRemoveAttachment={removeAttachment}
+          voice={{ onRecordingComplete: handleVoiceRecording, onError: handleVoiceError }}
           placeholder="输入问题…"
           compact
           textareaIconSize="h-4 w-4"

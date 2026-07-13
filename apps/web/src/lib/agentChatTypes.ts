@@ -5,7 +5,25 @@ export interface AgentAttachment {
   size: number
   path: string
   url?: string
-  kind: 'image' | 'document'
+  kind: 'image' | 'document' | 'audio'
+  metadata?: {
+    duration?: number
+    duration_ms?: number
+    transcript?: string
+    transcription_status?: string
+    language?: string
+    provider?: string
+    codec?: string
+    [key: string]: unknown
+  }
+}
+
+export interface VoiceTranscriptionResponse {
+  text: string
+  duration: number
+  language: string
+  provider: string
+  attachment: AgentAttachment
 }
 
 export interface AgentMessage {

@@ -12,6 +12,7 @@ import ChatComposer from '../components/chat/ChatComposer'
 import ChatHeader from '../components/chat/ChatHeader'
 import ChatMessageList, { type ChatQuickQuestion } from '../components/chat/ChatMessageList'
 import ChatShell from '../components/chat/ChatShell'
+import type { VoiceRecorderFailure, VoiceRecording } from '../components/chat/useVoiceRecorder'
 import { useToast } from '../hooks/useToast'
 import { useAgentChat, type AgentMessage } from '../lib/useAgentChat'
 import { useAutosizeTextarea } from '../lib/useAutosizeTextarea'
@@ -46,6 +47,7 @@ export default function ChatPage() {
     composing,
     setComposing,
     sendMessage,
+    transcribeVoice,
     uploadAttachments,
     removeAttachment,
     newChat,
@@ -71,6 +73,21 @@ export default function ChatPage() {
   const handleSendMessage = async (text?: string, displayText?: string) => {
     setHistoryNotice('')
     await sendMessage(text, undefined, displayText)
+  }
+
+  const handleVoiceRecording = async (recording: VoiceRecording) => {
+    const result = await transcribeVoice(recording)
+    void sendMessage(result.text, undefined, result.text, [result.attachment]).catch((error) => {
+      toast({
+        type: 'error',
+        title: '语音消息发送失败',
+        description: error instanceof Error ? error.message : '请重试。',
+      })
+    })
+  }
+
+  const handleVoiceError = (failure: VoiceRecorderFailure) => {
+    toast({ type: 'error', title: '语音输入失败', description: failure.message })
   }
 
   const handleAttachmentChange = async (files: FileList | null) => {
@@ -227,6 +244,7 @@ export default function ChatPage() {
             onNewChat={() => { handleNewChat().catch(() => {}) }}
             onAttachmentChange={(files) => { handleAttachmentChange(files).catch(() => {}) }}
             onRemoveAttachment={removeAttachment}
+            voice={{ onRecordingComplete: handleVoiceRecording, onError: handleVoiceError }}
             placeholder="输入你的问题，Enter 发送，Shift+Enter 换行"
             showNewChat={false}
           />

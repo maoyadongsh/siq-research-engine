@@ -90,6 +90,14 @@ class ChatAttachmentUploadResponse(BaseModel):
     attachments: list[ChatAttachment]
 
 
+class ChatVoiceTranscriptionResponse(BaseModel):
+    text: str
+    duration: float
+    language: str
+    provider: str
+    attachment: ChatAttachment
+
+
 class ChatRequest(BaseModel):
     message: str
     session_id: Optional[str] = None

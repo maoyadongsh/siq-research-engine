@@ -1,5 +1,5 @@
 import { useEffect, useState, type MouseEvent } from 'react'
-import { ExternalLink, FileText, X } from 'lucide-react'
+import { AudioLines, ExternalLink, FileText, X } from 'lucide-react'
 import { normalizeChatAssetUrl } from '../../lib/chatAssets'
 import { apiBlob } from '@/shared/api/client'
 import type { AgentAttachment } from '../../lib/useAgentChat'
@@ -23,6 +23,55 @@ interface ImagePreviewState {
 
 function isInlineAssetHref(href: string) {
   return href.startsWith('blob:') || href.startsWith('data:') || href.startsWith('#')
+}
+
+function AuthAudioAttachment({ item }: { item: AgentAttachment }) {
+  const href = attachmentHref(item)
+  const inlineHref = !href || isInlineAssetHref(href)
+  const [audioState, setAudioState] = useState<{ sourceHref: string; displayHref: string; failed: boolean } | null>(null)
+
+  useEffect(() => {
+    if (inlineHref) return
+    let cancelled = false
+    let objectUrl = ''
+    apiBlob(href)
+      .then((blob) => {
+        if (cancelled) return
+        objectUrl = URL.createObjectURL(blob)
+        setAudioState({ sourceHref: href, displayHref: objectUrl, failed: false })
+      })
+      .catch(() => {
+        if (!cancelled) setAudioState({ sourceHref: href, displayHref: '', failed: true })
+      })
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [href, inlineHref])
+
+  const currentState = audioState?.sourceHref === href ? audioState : null
+  const displayHref = inlineHref ? href : currentState?.displayHref || ''
+  if (!displayHref) {
+    return (
+      <div className="chat-attachment-audio chat-attachment-audio-loading" role="status">
+        <AudioLines className="h-4 w-4" aria-hidden="true" />
+        <span>{currentState?.failed ? '语音加载失败' : '语音加载中…'}</span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="chat-attachment-audio">
+      <AudioLines className="chat-attachment-audio-icon h-4 w-4" aria-hidden="true" />
+      <audio
+        controls
+        preload="metadata"
+        src={displayHref}
+        className="chat-attachment-audio-player"
+        aria-label={`播放语音 ${item.filename || ''}`.trim()}
+      />
+    </div>
+  )
 }
 
 function AuthImageAttachment({ item, onPreviewImage }: { item: AgentAttachment; onPreviewImage: (preview: ImagePreviewState) => void }) {
@@ -96,6 +145,9 @@ function AttachmentItem({ item, composer, onPreviewImage }: { item: AgentAttachm
   const href = attachmentHref(item)
   if (item.kind === 'image') {
     return <AuthImageAttachment item={item} onPreviewImage={onPreviewImage} />
+  }
+  if (item.kind === 'audio') {
+    return <AuthAudioAttachment item={item} />
   }
 
   const openDocument = async (event: MouseEvent<HTMLAnchorElement>) => {

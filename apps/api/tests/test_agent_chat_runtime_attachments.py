@@ -76,6 +76,48 @@ def test_image_attachment_uses_primary_analysis_without_hermes_image_parts(tmp_p
     assert "image_url" not in payload
 
 
+def test_primary_image_analysis_disables_model_thinking(tmp_path, monkeypatch):
+    monkeypatch.setattr(runtime, "CHAT_UPLOAD_ROOT", tmp_path)
+    image_path = tmp_path / "chart.png"
+    image_path.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+    captured = {}
+
+    class FakeResponse:
+        is_success = True
+        content = b"response"
+        text = ""
+
+        @staticmethod
+        def json():
+            return {"choices": [{"message": {"content": "图中 GPU 利用率为 96%。"}}]}
+
+    class FakeClient:
+        async def post(self, url, json):
+            captured["url"] = url
+            captured["payload"] = json
+            return FakeResponse()
+
+    async def run_analysis():
+        return await runtime._analyze_single_image_with_primary_model(
+            FakeClient(),
+            model="nemotron_3_nano_omni",
+            message="读取 GPU 利用率",
+            item={
+                "filename": image_path.name,
+                "content_type": "image/png",
+                "path": str(image_path),
+            },
+            index=1,
+            total=1,
+        )
+
+    result = anyio.run(run_analysis)
+
+    assert captured["url"].endswith("/chat/completions")
+    assert captured["payload"]["chat_template_kwargs"] == {"enable_thinking": False}
+    assert "GPU 利用率为 96%" in result
+
+
 def test_history_preserves_attachment_local_path_context(tmp_path, monkeypatch):
     monkeypatch.setattr(runtime, "CHAT_UPLOAD_ROOT", tmp_path)
     image_path = tmp_path / "image.jpg"

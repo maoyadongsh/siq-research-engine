@@ -1,6 +1,6 @@
 import { apiFetch, apiStreamFetch } from './apiClient'
 import { displayLabelForPrompt } from './quickQuestions'
-import type { AgentAttachment, AgentChatContext, AgentChatSnapshot, AgentMessage, AgentProgress, ChatSessionSummary, HistoryRecord, Listener } from './agentChatTypes'
+import type { AgentAttachment, AgentChatContext, AgentChatSnapshot, AgentMessage, AgentProgress, ChatSessionSummary, HistoryRecord, Listener, VoiceTranscriptionResponse } from './agentChatTypes'
 import { buildAttachmentUploadItems, MAX_ATTACHMENTS, stripRenderedAttachmentMarkdown, validateAndSelectAttachments } from './agentChatAttachments'
 import { createInitialAgentChatSnapshot, hasVisibleMessagePayload, hasVisibleSessionPayload, nowIso, SESSION_FETCH_TIMEOUT_MS } from './agentChatHistory'
 import { createStreamConsumer, type StreamApi } from './agentChatStream'
@@ -544,9 +544,14 @@ class AgentChatStore {
     return recovered
   }
 
-  sendMessage = async (text?: string, context?: AgentChatContext, displayMessage?: string) => {
+  sendMessage = async (
+    text?: string,
+    context?: AgentChatContext,
+    displayMessage?: string,
+    additionalAttachments: AgentAttachment[] = [],
+  ) => {
     const content = (text || this.state.input).trim()
-    const attachments = [...this.state.attachments]
+    const attachments = [...this.state.attachments, ...additionalAttachments]
     if ((!content && attachments.length === 0) || this.state.sending || this.state.uploadingAttachments) return
     const messageCountBeforeSend = this.state.messages.length
     const visibleContent = (displayMessage || content).trim() || (attachments.length ? '请分析这些附件' : content)
@@ -620,6 +625,35 @@ class AgentChatStore {
       this.abortController = null
       this.activeRunId = null
     }
+  }
+
+  transcribeVoice = async (recording: {
+    blob: Blob
+    mimeType: string
+    suggestedFilename: string
+  }): Promise<VoiceTranscriptionResponse> => {
+    const form = new FormData()
+    form.append('file', recording.blob, recording.suggestedFilename)
+    form.append('language', 'zh')
+    const response = await apiFetch('/api/chat/transcribe', {
+      method: 'POST',
+      body: form,
+    })
+    if (!response.ok) {
+      let detail = '语音转写失败'
+      try {
+        const payload = await response.json()
+        detail = payload?.detail || payload?.message || detail
+      } catch {
+        /* ignore */
+      }
+      throw new Error(detail)
+    }
+    const payload = await response.json() as VoiceTranscriptionResponse
+    if (!payload.text?.trim() || !payload.attachment?.id) {
+      throw new Error('没有识别到有效语音内容')
+    }
+    return payload
   }
 
   clearChat = async () => {

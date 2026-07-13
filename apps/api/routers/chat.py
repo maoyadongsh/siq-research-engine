@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import json
+import mimetypes
 import os
 import re
 import uuid
@@ -11,7 +12,7 @@ from urllib.parse import quote
 
 import httpx
 from database import async_engine, get_async_session
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from models import Achievement, AgentState, ChatMessage, InteractionLog
 from schemas import (
@@ -23,6 +24,7 @@ from schemas import (
     ChatHistoryResponse,
     ChatRequest,
     ChatResponse,
+    ChatVoiceTranscriptionResponse,
 )
 from services.agent_chat_runtime import (
     HISTORY_LIMIT,
@@ -40,6 +42,12 @@ from services.agent_runtime_answer_audit import get_answer_audit_trace, is_answe
 from services.agent_runtime_context import research_identity
 from services.auth_dependencies import get_current_user
 from services.auth_service import User
+from services.chat_voice_service import (
+    AUDIO_CONTENT_TYPES,
+    AUDIO_SUFFIX_TYPES,
+    ChatVoiceError,
+    transcribe_chat_voice,
+)
 from services.hermes_model_control import maybe_handle_model_control
 from services.path_config import BACKEND_DATA_ROOT
 from services.session_manager import get_session_manager, keeps_sessions_forever
@@ -789,6 +797,37 @@ def _decode_chat_image(filename: str, content_type: str, data_url: str) -> tuple
     return raw, content_type, normalized_name
 
 
+def _validate_chat_audio_attachments(attachments: list[ChatAttachment], *, user_id: int) -> list[ChatAttachment]:
+    user_root = (CHAT_UPLOAD_DIR / str(user_id)).resolve()
+    for item in attachments or []:
+        if str(item.kind or "").strip().lower() != "audio":
+            continue
+        try:
+            path = Path(item.path).resolve(strict=True)
+        except (OSError, RuntimeError):
+            raise HTTPException(status_code=400, detail="Voice attachment is unavailable") from None
+        if path.parent != user_root or not path.is_file():
+            raise HTTPException(status_code=403, detail="Voice attachment does not belong to the current user")
+        if not path.name.startswith(f"{item.id}_"):
+            raise HTTPException(status_code=400, detail="Voice attachment identity is invalid")
+        expected_url = f"/api/chat/attachments/{path.name}"
+        if str(item.url or "") != expected_url:
+            raise HTTPException(status_code=400, detail="Voice attachment URL is invalid")
+        content_type = str(item.content_type or "").split(";", 1)[0].strip().lower()
+        if content_type not in AUDIO_CONTENT_TYPES or path.suffix.lower() not in AUDIO_SUFFIX_TYPES:
+            raise HTTPException(status_code=400, detail="Voice attachment type is invalid")
+        if int(item.size) != path.stat().st_size:
+            raise HTTPException(status_code=400, detail="Voice attachment size is invalid")
+    return attachments
+
+
+def _chat_attachment_media_type(path: Path) -> str:
+    audio_type = AUDIO_SUFFIX_TYPES.get(path.suffix.lower())
+    if audio_type:
+        return audio_type
+    return mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+
+
 def _role_value(user: User) -> str:
     return str(user.role.value if hasattr(user.role, "value") else user.role)
 
@@ -1101,6 +1140,48 @@ async def upload_chat_attachments(
     return ChatAttachmentUploadResponse(attachments=attachments)
 
 
+@router.post("/chat/transcribe", response_model=ChatVoiceTranscriptionResponse)
+async def transcribe_chat_voice_message(
+    file: UploadFile = File(...),
+    language: str = Form("zh"),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        result = await transcribe_chat_voice(
+            file,
+            user_upload_dir=CHAT_UPLOAD_DIR / str(current_user.id),
+            language=language,
+        )
+    except ChatVoiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+    metadata = {
+        "duration": result.duration,
+        "duration_ms": round(result.duration * 1000),
+        "transcript": result.text,
+        "transcription_status": "completed",
+        "language": result.language,
+        "provider": result.provider,
+    }
+    attachment = ChatAttachment(
+        id=result.attachment_id,
+        filename=result.filename,
+        content_type=result.content_type,
+        size=result.size,
+        path=str(result.path),
+        url=f"/api/chat/attachments/{result.stored_name}",
+        kind="audio",
+        metadata=metadata,
+    )
+    return ChatVoiceTranscriptionResponse(
+        text=result.text,
+        duration=result.duration,
+        language=result.language,
+        provider=result.provider,
+        attachment=attachment,
+    )
+
+
 @router.get("/chat/attachments/{stored_name}")
 async def get_chat_attachment(
     stored_name: str,
@@ -1111,7 +1192,11 @@ async def get_chat_attachment(
     path = CHAT_UPLOAD_DIR / str(current_user.id) / stored_name
     if not path.exists() or not path.is_file():
         raise HTTPException(status_code=404, detail="Attachment not found")
-    return FileResponse(path)
+    return FileResponse(
+        path,
+        media_type=_chat_attachment_media_type(path),
+        headers={"Accept-Ranges": "bytes"},
+    )
 
 
 @router.get("/chat/audit-traces/{trace_id}", response_model=AnswerAuditTraceResponse)
@@ -1137,6 +1222,7 @@ async def chat(
     current_user_id = int(current_user.id)
     current_user_role = _role_value(current_user)
     _detach_current_user(async_session, current_user)
+    request_attachments = _validate_chat_audio_attachments(req.attachments, user_id=current_user_id)
 
     await enforce_quota_or_429_async(
         async_session,
@@ -1162,7 +1248,7 @@ async def chat(
             "user",
             req.display_message or req.message,
             session_id,
-            attachments=req.attachments,
+            attachments=request_attachments,
             **identity_kwargs,
         )
         await save_message(
@@ -1190,7 +1276,7 @@ async def chat(
         profile="siq_assistant",
         context=req.context,
         display_message=req.display_message,
-        attachments=req.attachments,
+        attachments=request_attachments,
         answer_audit_callback=capture_answer_audit,
     )
     get_session_manager().increment_message_count(session_id)
@@ -1214,6 +1300,7 @@ async def chat_stream(
     current_user_id = int(current_user.id)
     current_user_role = _role_value(current_user)
     _detach_current_user(async_session, current_user)
+    request_attachments = _validate_chat_audio_attachments(req.attachments, user_id=current_user_id)
 
     await enforce_quota_or_429_async(
         async_session,
@@ -1243,7 +1330,7 @@ async def chat_stream(
                 "user",
                 req.display_message or req.message,
                 session_id,
-                attachments=req.attachments,
+                attachments=request_attachments,
                 **identity_kwargs,
             )
             await save_message(
@@ -1272,7 +1359,7 @@ async def chat_stream(
             profile="siq_assistant",
             context=req.context,
             display_message=req.display_message,
-            attachments=req.attachments,
+            attachments=request_attachments,
             done_payload_factory=done_payload,
             emit_audit_trace_id=True,
         ):

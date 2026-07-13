@@ -35,6 +35,8 @@ def _display_message_with_attachments(
             filename = Path(str(item.get("path") or "")).name.strip()
         filename = filename or "attachment"
         kind = str(item.get("kind") or "image").strip().lower()
+        if kind == "audio":
+            continue
         label = "图片" if kind == "image" else "文档"
         safe_label = _markdown_link_label(f"{label}: {filename}")
         url = _markdown_link_url(item.get("url") or "")
@@ -44,6 +46,8 @@ def _display_message_with_attachments(
             labels.append(f"[{safe_label}]({url})")
         else:
             labels.append(f"[{safe_label}]")
+    if not labels:
+        return text or message
     prefix = text or ("请分析这些附件" if len(attachments) > 1 else "请分析这个附件")
     return f"{prefix}\n\n" + "\n".join(labels)
 

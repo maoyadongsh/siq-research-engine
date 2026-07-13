@@ -13,6 +13,7 @@ import ChatComposer from './ChatComposer'
 import ChatHeader from './ChatHeader'
 import ChatMessageList, { type ChatQuickQuestion } from './ChatMessageList'
 import ChatShell from './ChatShell'
+import type { VoiceRecorderFailure, VoiceRecording } from './useVoiceRecorder'
 import { useToast } from '../../hooks/useToast'
 import { useAgentChat, type AgentMessage } from '../../lib/useAgentChat'
 import { useAutosizeTextarea } from '../../lib/useAutosizeTextarea'
@@ -66,6 +67,7 @@ function OpenChatBot({ onClose }: { onClose: () => void }) {
     composing,
     setComposing,
     sendMessage,
+    transcribeVoice,
     uploadAttachments,
     removeAttachment,
     newChat,
@@ -104,6 +106,21 @@ function OpenChatBot({ onClose }: { onClose: () => void }) {
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = ''
     }
+  }
+
+  const handleVoiceRecording = async (recording: VoiceRecording) => {
+    const result = await transcribeVoice(recording)
+    void sendMessage(result.text, undefined, result.text, [result.attachment]).catch((error) => {
+      toast({
+        type: 'error',
+        title: '语音消息发送失败',
+        description: error instanceof Error ? error.message : '请重试。',
+      })
+    })
+  }
+
+  const handleVoiceError = (failure: VoiceRecorderFailure) => {
+    toast({ type: 'error', title: '语音输入失败', description: failure.message })
   }
 
   const copyMessage = async (content: string) => {
@@ -261,6 +278,7 @@ function OpenChatBot({ onClose }: { onClose: () => void }) {
           onNewChat={() => { handleNewChat().catch(() => {}) }}
           onAttachmentChange={(files) => { handleAttachmentChange(files).catch(() => {}) }}
           onRemoveAttachment={removeAttachment}
+          voice={{ onRecordingComplete: handleVoiceRecording, onError: handleVoiceError }}
           placeholder="输入你的问题…"
           compact
           textareaIconSize="h-4 w-4"

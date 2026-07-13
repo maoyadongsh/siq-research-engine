@@ -99,6 +99,33 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.chat-attachment-audio {
+  display: inline-flex;
+  min-width: min(17rem, 100%);
+  max-width: 100%;
+  min-height: 2.75rem;
+  align-items: center;
+  gap: .45rem;
+  border: 1px solid rgba(148, 163, 184, .3);
+  border-radius: .65rem;
+  background: rgba(248, 250, 252, .88);
+  padding: .35rem .5rem;
+  color: var(--color-text-muted);
+}
+.chat-attachment-audio-icon {
+  flex: 0 0 auto;
+  color: var(--color-primary);
+}
+.chat-attachment-audio-player {
+  display: block;
+  width: min(15rem, calc(100vw - 8rem));
+  max-width: 100%;
+  height: 2rem;
+}
+.chat-attachment-audio-loading {
+  font-size: .75rem;
+  font-weight: 650;
+}
 .chat-attachment-remove {
   position: absolute;
   top: -.35rem;
@@ -938,9 +965,9 @@ html.dark .chat-md-table td.is-total:first-child { background: rgba(59, 130, 246
 }
 .chat-page-composer .chat-composer-tool,
 .chat-page-composer .chat-composer-send {
-  width: 2.5rem;
-  height: 2.5rem;
-  min-width: 2.5rem;
+  width: 2.75rem;
+  height: 2.75rem;
+  min-width: 2.75rem;
   padding: 0;
 }
 .primary-market-meeting-chat {
@@ -1089,7 +1116,12 @@ html.dark .chat-md-table td.is-total:first-child { background: rgba(59, 130, 246
   flex: 0 0 auto;
   align-items: center;
   justify-content: flex-end;
-  gap: .32rem;
+  gap: .4rem;
+}
+.chat-composer-secondary-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: .08rem;
 }
 .chat-composer-textarea {
   min-height: 2.4rem;
@@ -1109,6 +1141,10 @@ html.dark .chat-md-table td.is-total:first-child { background: rgba(59, 130, 246
 }
 .chat-composer-textarea:focus-visible {
   outline: none;
+}
+.chat-composer-textarea:disabled {
+  cursor: not-allowed;
+  opacity: .62;
 }
 .chat-composer-textarea-compact {
   min-height: 2.15rem;
@@ -1159,6 +1195,101 @@ html.dark .chat-md-table td.is-total:first-child { background: rgba(59, 130, 246
 .chat-composer-tool:hover {
   background: rgba(0, 82, 255, .07);
   color: var(--color-primary);
+}
+.chat-composer-tool:disabled {
+  cursor: not-allowed;
+  opacity: .45;
+}
+.chat-voice-input {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+.chat-voice-button {
+  touch-action: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.chat-voice-button.is-recording {
+  background: rgba(220, 38, 38, .1);
+  color: var(--color-error);
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, .08);
+}
+.chat-voice-button.is-transcribing {
+  background: rgba(0, 82, 255, .08);
+  color: var(--color-primary);
+}
+.chat-voice-status {
+  position: absolute;
+  z-index: 30;
+  right: 0;
+  bottom: calc(100% + .65rem);
+  display: inline-flex;
+  width: max-content;
+  max-width: min(15rem, calc(100vw - 2rem));
+  min-height: 2.25rem;
+  align-items: center;
+  justify-content: center;
+  gap: .45rem;
+  border: 1px solid rgba(148, 163, 184, .34);
+  border-radius: .5rem;
+  background: rgba(255, 255, 255, .98);
+  padding: .48rem .7rem;
+  color: var(--color-text);
+  box-shadow: 0 10px 26px rgba(15, 23, 42, .12);
+  font-size: .75rem;
+  font-weight: 650;
+  line-height: 1.25;
+  white-space: normal;
+}
+.chat-voice-status::after {
+  position: absolute;
+  right: 1rem;
+  bottom: -.31rem;
+  width: .55rem;
+  height: .55rem;
+  border-right: 1px solid rgba(148, 163, 184, .34);
+  border-bottom: 1px solid rgba(148, 163, 184, .34);
+  background: inherit;
+  content: '';
+  transform: rotate(45deg);
+}
+.chat-voice-status.is-canceling,
+.chat-voice-status.is-error {
+  border-color: rgba(220, 38, 38, .3);
+  background: #fff7f7;
+  color: var(--color-error);
+}
+.chat-voice-status.is-error {
+  width: min(14rem, calc(100vw - 2rem));
+}
+.chat-voice-live-dot {
+  width: .5rem;
+  height: .5rem;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--color-error);
+  animation: chat-voice-pulse 1.2s ease-in-out infinite;
+}
+.chat-voice-spinner,
+.chat-voice-status-spinner {
+  animation: chat-voice-spin .85s linear infinite;
+}
+.chat-voice-status-spinner {
+  width: .85rem;
+  height: .85rem;
+  flex: 0 0 auto;
+}
+@keyframes chat-voice-pulse {
+  50% {
+    opacity: .35;
+    transform: scale(.82);
+  }
+}
+@keyframes chat-voice-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 .chat-composer-stop {
   min-width: 3.25rem;

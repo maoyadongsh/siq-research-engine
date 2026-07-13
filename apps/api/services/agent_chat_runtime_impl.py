@@ -388,7 +388,7 @@ IMAGE_MODEL_BASE_URL = (
     or os.getenv("SIQ_IMAGE_MODEL_URL")
     or os.getenv("SIQ_IMAGE_MODEL_BASE_URL")
     or os.getenv("SIQ_IMAGE_MODEL_URL")
-    or "http://127.0.0.1:8004/v1"
+    or "http://127.0.0.1:8007/v1"
 ).rstrip("/")
 IMAGE_MODEL_NAME = (os.getenv("SIQ_IMAGE_MODEL") or os.getenv("SIQ_IMAGE_MODEL", "")).strip()
 IMAGE_MODEL_ENABLED = _env_bool_any(("SIQ_IMAGE_MODEL_ENABLED", "SIQ_IMAGE_MODEL_ENABLED"), True)

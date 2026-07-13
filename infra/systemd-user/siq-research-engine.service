@@ -1,0 +1,32 @@
+[Unit]
+Description=SIQ Research Engine full stack on port 15173
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=/home/maoyd/siq-research-engine
+Environment=HOME=/home/maoyd
+Environment=PATH=/home/maoyd/.local/bin:/home/maoyd/.hermes/node/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PYTHONUNBUFFERED=1
+Environment=SIQ_FRONTEND_PORT=15173
+Environment=SIQ_START_HERMES_GATEWAYS=0
+Environment=SIQ_ENABLE_IC_HERMES=1
+Environment=SIQ_IMAGE_MODEL_BASE_URL=http://127.0.0.1:8007/v1
+Environment=SIQ_IMAGE_MODEL=nemotron_3_nano_omni
+Environment=SIQ_FUNASR_BASE_URL=http://127.0.0.1:8899/asr
+Environment=SIQ_CHAT_VOICE_MAX_SECONDS=60
+Environment=SIQ_CHAT_VOICE_MAX_BYTES=10485760
+Environment=SIQ_UVICORN_RELOAD=0
+Environment=SIQ_UPDATE_DEPS=0
+ExecStart=/usr/bin/bash /home/maoyd/siq-research-engine/start_all.sh
+Restart=always
+RestartSec=5
+KillMode=control-group
+TimeoutStopSec=120
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

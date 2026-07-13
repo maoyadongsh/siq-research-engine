@@ -81,7 +81,7 @@ ATTACHMENT_FOLLOWUP_RE = re.compile(
 IMAGE_MODEL_BASE_URL = (
     os.getenv("SIQ_IMAGE_MODEL_BASE_URL")
     or os.getenv("SIQ_IMAGE_MODEL_URL")
-    or "http://127.0.0.1:8004/v1"
+    or "http://127.0.0.1:8007/v1"
 ).rstrip("/")
 IMAGE_MODEL_NAME = (os.getenv("SIQ_IMAGE_MODEL") or "").strip()
 IMAGE_MODEL_ENABLED = _env_bool_any(("SIQ_IMAGE_MODEL_ENABLED",), True)
@@ -128,10 +128,12 @@ def _safe_uploaded_path(item: dict[str, Any]) -> Path | None:
 def _attachment_reference_context(attachments: Any | None) -> str:
     items: list[str] = []
     for index, item in enumerate(_attachment_dicts(attachments), start=1):
+        kind = str(item.get("kind") or "image").strip().lower()
+        if kind == "audio":
+            continue
         path = _safe_uploaded_path(item)
         if path is None:
             continue
-        kind = str(item.get("kind") or "image")
         label = "图片" if kind == "image" else "文档"
         filename = str(item.get("filename") or path.name or f"attachment-{index}").strip()
         content_type = str(item.get("content_type") or "application/octet-stream").strip()
@@ -249,6 +251,7 @@ async def _analyze_single_image_with_primary_model(
         ],
         "temperature": 0.1,
         "max_tokens": 1200,
+        "chat_template_kwargs": {"enable_thinking": False},
     }
     response = await client.post(f"{IMAGE_MODEL_BASE_URL}/chat/completions", json=payload)
     if not response.is_success:
@@ -628,7 +631,11 @@ async def load_recent_session_attachments(
         .limit(max(1, limit))
     )
     for message in result.all():
-        attachments = _attachments_with_fresh_metadata(_message_attachments(message))
+        attachments = [
+            item
+            for item in _attachments_with_fresh_metadata(_message_attachments(message))
+            if str(item.get("kind") or "image").strip().lower() in {"image", "document"}
+        ]
         if attachments:
             return attachments
     return []

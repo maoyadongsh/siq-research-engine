@@ -4,7 +4,7 @@ import { strict as assert } from 'node:assert'
 import { afterEach, test } from 'node:test'
 
 import { AgentChatStore } from './agentChatStore.ts'
-import type { AgentChatContext } from './agentChatTypes.ts'
+import type { AgentAttachment, AgentChatContext } from './agentChatTypes.ts'
 
 const originalFetch = globalThis.fetch
 
@@ -95,4 +95,54 @@ test('sendMessage does not fabricate research identity from display-only company
   const payloadContext = requestPayload?.context as Record<string, unknown>
   assert.equal(payloadContext.research_identity, undefined)
   assert.equal((payloadContext.company as Record<string, unknown>).company_id, undefined)
+})
+
+test('voice transcription is uploaded as multipart and sent with its replay attachment', async () => {
+  const attachment: AgentAttachment = {
+    id: 'voice-id',
+    filename: 'voice.webm',
+    content_type: 'audio/webm',
+    size: 10,
+    path: '/tmp/chat_uploads/1/voice-id_voice.webm',
+    url: '/api/chat/attachments/voice-id_voice.webm',
+    kind: 'audio',
+    metadata: { duration_ms: 2100, transcript: '分析这家公司' },
+  }
+  let chatPayload: Record<string, unknown> | undefined
+  let transcriptionForm: FormData | undefined
+  globalThis.fetch = (async (input, init) => {
+    const url = String(input)
+    if (url.endsWith('/chat/transcribe')) {
+      transcriptionForm = init?.body as FormData
+      return new Response(JSON.stringify({
+        text: '分析这家公司',
+        duration: 2.1,
+        language: 'zh',
+        provider: 'funasr',
+        attachment,
+      }), { status: 200, headers: { 'content-type': 'application/json' } })
+    }
+    if (url.endsWith('/chat/stream') && init?.method === 'POST') {
+      chatPayload = JSON.parse(String(init.body)) as Record<string, unknown>
+      return new Response('event: done\ndata: {"content":"完成"}\n\n', {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      })
+    }
+    return new Response(JSON.stringify({ sessions: [], messages: [] }), { status: 200 })
+  }) as typeof fetch
+
+  const store = new AgentChatStore('/api')
+  const result = await store.transcribeVoice({
+    blob: new Blob(['voice-data'], { type: 'audio/webm' }),
+    mimeType: 'audio/webm',
+    suggestedFilename: 'voice.webm',
+  })
+  await store.sendMessage(result.text, undefined, result.text, [result.attachment])
+
+  assert.ok(transcriptionForm instanceof FormData)
+  assert.equal(transcriptionForm.get('language'), 'zh')
+  assert.equal((transcriptionForm.get('file') as File).name, 'voice.webm')
+  assert.equal(chatPayload?.message, '分析这家公司')
+  assert.deepEqual(chatPayload?.attachments, [attachment])
 })

@@ -5,7 +5,7 @@ import Topbar from './Topbar'
 import ChatBot from '../chat/ChatBot'
 import { useScrollHintState } from '@/hooks/useScrollHintState'
 
-const AGENT_PAGE_PATHS = ['/analysis', '/verify', '/tracking', '/legal']
+const AGENT_PAGE_PATHS = ['/analysis', '/verify', '/tracking', '/legal', '/chat']
 const COMPACT_DESKTOP_QUERY = '(min-width: 1024px) and (max-width: 1439px), (min-width: 1024px) and (max-height: 820px)'
 
 function shouldUseCompactDesktop() {

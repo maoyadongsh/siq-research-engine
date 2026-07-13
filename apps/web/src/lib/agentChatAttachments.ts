@@ -68,6 +68,8 @@ export function stripRenderedAttachmentMarkdown(content: string, attachments?: A
       if (imageMatch) return !attachmentNames.has(imageMatch[1])
       const fileMatch = text.match(/^\[(?:文档|document):\s*([^\]]+)\]\((?:\/api\/chat\/attachments\/|https?:\/\/[^)]+\/api\/chat\/attachments\/)[^)]+\)$/i)
       if (fileMatch) return !attachmentNames.has(fileMatch[1])
+      const audioMatch = text.match(/^\[(?:语音|audio):\s*([^\]]+)\]\((?:\/api\/chat\/attachments\/|https?:\/\/[^)]+\/api\/chat\/attachments\/)[^)]+\)$/i)
+      if (audioMatch) return !attachmentNames.has(audioMatch[1])
       return true
     })
     .join('\n')

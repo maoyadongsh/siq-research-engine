@@ -16,7 +16,8 @@ export function useAgentChat(apiPrefix: string, options: UseAgentChatOptions = {
     if (autoInitialize) store.initialize()
   }, [autoInitialize, store])
 
-  const sendMessage = useCallback((text?: string, context?: import('./agentChatTypes').AgentChatContext, displayMessage?: string) => store.sendMessage(text, context, displayMessage), [store])
+  const sendMessage = useCallback((text?: string, context?: import('./agentChatTypes').AgentChatContext, displayMessage?: string, attachments?: import('./agentChatTypes').AgentAttachment[]) => store.sendMessage(text, context, displayMessage, attachments), [store])
+  const transcribeVoice = useCallback((recording: { blob: Blob; mimeType: string; suggestedFilename: string }) => store.transcribeVoice(recording), [store])
   const newChat = useCallback(() => store.newChat(), [store])
   const clearChat = useCallback(() => store.clearChat(), [store])
   const refreshHistory = useCallback(() => store.refreshHistory(), [store])
@@ -43,6 +44,7 @@ export function useAgentChat(apiPrefix: string, options: UseAgentChatOptions = {
     composing: snapshot.composing,
     setComposing,
     sendMessage,
+    transcribeVoice,
     newChat,
     refreshHistory,
     loadSessions,
