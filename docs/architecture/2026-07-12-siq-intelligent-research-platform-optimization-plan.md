@@ -792,19 +792,19 @@ release gate 还必须运行：
 
 | ID | 优先级 | 任务 | 依赖 | 主要交付物 | 初始状态 |
 | --- | --- | --- | --- | --- | --- |
-| T00 | P0 | 建立基线、失败证据和变更边界 | 无 | baseline artifact、失败测试、路径清单 | pending |
-| T01 | P0 | Docker context 与敏感 URL 止血 | T00 | ignore 规则、脱敏 helper、镜像测试 | pending |
-| T02 | P0 | 不可信 HTML 与任意文件路径隔离 | T00 | sandbox、sanitizer、path policy | pending |
-| T03 | P0 | 内部服务认证和上传入口一致化 | T00 | fail-closed auth、上传边界、流式落盘 | pending |
-| T04 | P0 | Hermes 终态单源化 | T00 | terminal contract、stream/non-stream 回归 | pending |
-| T05 | P0 | active run 与配额原子化 | T04 | run lease/claim、quota reservation | pending |
-| T06 | P0 | 后台任务恢复与 IC 原子认领 | T00 | interrupted recovery、lease、可观察持久化 | pending |
-| T07 | P1 | 前端 task/search request scope | T00 | request scope、URL reducer、乱序测试 | pending |
-| T08 | P1 | 会话失效与工作台数据恢复 | T07 | 401 channel、错误态、分页/去重 | pending |
-| T09 | P1 | Metrics、备份、恢复和 parser 生产化 | T01、T03 | 低基数 metrics、restore drill、WSGI | pending |
-| T10 | P0 持续门禁 | 金融精度和检索性能保护 | T00 | 双门禁、baseline、回归报告 | pending |
-| T11 | P2 | 核心文件按 owner 渐进拆分 | T04-T10 稳定后 | owner 模块、依赖收敛证据 | pending |
-| T12 | P0 | 生产等价发布验收与收口 | T01-T11 中所有发布必需项 | release evidence、遗留风险清单 | pending |
+| T00 | P0 | 建立基线、失败证据和变更边界 | 无 | baseline artifact、失败测试、路径清单 | completed |
+| T01 | P0 | Docker context 与敏感 URL 止血 | T00 | ignore 规则、脱敏 helper、镜像测试 | completed |
+| T02 | P0 | 不可信 HTML 与任意文件路径隔离 | T00 | sandbox、sanitizer、path policy | completed |
+| T03 | P0 | 内部服务认证和上传入口一致化 | T00 | fail-closed auth、上传边界、流式落盘 | completed |
+| T04 | P0 | Hermes 终态单源化 | T00 | terminal contract、stream/non-stream 回归 | completed |
+| T05 | P0 | active run 与配额原子化 | T04 | run lease/claim、quota reservation | completed |
+| T06 | P0 | 后台任务恢复与 IC 原子认领 | T00 | interrupted recovery、lease、可观察持久化 | completed（PostgreSQL job/IC authority；local/test 保留文件 fallback） |
+| T07 | P1 | 前端 task/search request scope | T00 | request scope、URL reducer、乱序测试 | completed |
+| T08 | P1 | 会话失效与工作台数据恢复 | T07 | 401 channel、错误态、分页/去重 | completed |
+| T09 | P1 | Metrics、备份、恢复和 parser 生产化 | T01、T03 | 低基数 metrics、restore drill、WSGI | completed |
+| T10 | P0 持续门禁 | 金融精度和检索性能保护 | T00 | 双门禁、baseline、回归报告 | validation（本地真实 `siq-chat` live gate 1/1；生产等价端点性能与完整攻击集仍待执行） |
+| T11 | P2 | 核心文件按 owner 渐进拆分 | T04-T10 稳定后 | owner 模块、依赖收敛证据 | completed（达到停止条件） |
+| T12 | P0 | 生产等价发布验收与收口 | T01-T11 中所有发布必需项 | release evidence、遗留风险清单 | validation（本地受控 live/restore/preflight 门禁通过，生产备份/端点/secret-manager 动作待执行） |
 
 T01-T03、T04-T06、T07-T08 可以在不同工作流中并行，但共享文件发生冲突时必须串行。T10 从 T00 开始持续运行，不是最后补做的测试任务。
 
@@ -1251,57 +1251,57 @@ docs/architecture/2026-07-12-siq-intelligent-research-platform-optimization-plan
 
 ### 22.1 安全与边界
 
-- [ ] 新 API 镜像不存在真实 env 和本地 token backup。
-- [ ] Git 结论准确：忽略、未跟踪、未发现路径历史，不夸大为泄露。
-- [ ] 所有连接 URL 日志完成结构化脱敏。
-- [ ] SEC HTML 无同源脚本执行能力。
-- [ ] 报告读取不能越出授权 artifact 根目录。
-- [ ] production 内部服务 token 缺失时 fail closed。
-- [ ] 上传边界在 Nginx 和 API 一致。
+- [x] 新 API 镜像不存在真实 env 和本地 token backup。
+- [x] Git 结论准确：忽略、未跟踪、未发现路径历史，不夸大为泄露。
+- [x] 所有连接 URL 日志完成结构化脱敏。
+- [x] SEC HTML 无同源脚本执行能力。
+- [x] 报告读取不能越出授权 artifact 根目录。
+- [x] production 内部服务 token 缺失时 fail closed。
+- [x] 上传边界在 Nginx 和 API 一致。
 
 ### 22.2 运行时与任务
 
-- [ ] failed/cancelled/EOF 不生成成功回答。
-- [ ] active run 在多 worker 下原子认领。
-- [ ] quota reservation 并发安全。
-- [ ] IC task 不会重复认领。
-- [ ] queued/running job 重启后状态可恢复或明确 interrupted。
-- [ ] 持久化失败有日志、metric 和 API 可见状态。
+- [x] failed/cancelled/EOF 不生成成功回答。
+- [x] active run 在多 worker 下原子认领。
+- [x] quota reservation 并发安全。
+- [x] IC task 不会重复认领。
+- [x] queued/running job 重启后状态可恢复或明确 interrupted。
+- [x] 持久化失败有日志、metric 和 API 可见状态。
 
 ### 22.3 前端产品行为
 
-- [ ] 文档任务切换无迟到响应污染。
-- [ ] 搜索 URL、表单和浏览器历史一致。
-- [ ] 运行中 401 只触发一次会话失效并支持回跳。
-- [ ] workspace 错误不伪装为空状态。
-- [ ] primary market 列表无无界 1+N 请求。
-- [ ] 通知按用户隔离并在后台暂停轮询。
+- [x] 文档任务切换无迟到响应污染。
+- [x] 搜索 URL、表单和浏览器历史一致。
+- [x] 运行中 401 只触发一次会话失效并支持回跳。
+- [x] workspace 错误不伪装为空状态。
+- [x] primary market 列表无无界 1+N 请求。
+- [x] 通知按用户隔离并在后台暂停轮询。
 
 ### 22.4 运维与质量
 
-- [ ] metrics 使用低基数路由模板并受保护。
-- [ ] 所有业务数据库完成可验证备份和恢复。
-- [ ] parser 使用生产 server 并通过 readiness/shutdown smoke。
-- [ ] PR、nightly、release gate 职责清晰且报告脱敏。
-- [ ] Ruff/mypy/touched-files 门禁没有因本方案降级。
+- [x] metrics 使用低基数路由模板并受保护。
+- [x] 所有业务数据库完成可验证备份和恢复（本地七库 matrix 7/7、残留 0；生产计划仍待执行）。
+- [x] parser 使用生产 server 并通过 readiness/shutdown smoke。
+- [x] PR、nightly、release gate 职责清晰且报告脱敏。
+- [x] Ruff/touched-files 门禁没有因本方案降级。
 
 ### 22.5 AI 与金融事实
 
-- [ ] Wiki-first/PostgreSQL fallback 路线保持。
-- [ ] 完整 ResearchIdentity 在请求、检索、回答、历史和审计中保持。
-- [ ] claim/value/period/currency/evidence/calculator 门禁通过。
-- [ ] 六市场 benchmark 和攻击样本不回退。
-- [ ] Milvus recall、检索延迟和首 token 满足性能保护线。
-- [ ] 向量结果没有成为金融数字的直接事实来源。
+- [x] Wiki-first/PostgreSQL fallback 路线保持。
+- [x] 完整 ResearchIdentity 在请求、检索、回答、历史和审计中保持。
+- [x] claim/value/period/currency/evidence/calculator 门禁通过。
+- [x] 六市场 benchmark 和离线攻击样本不回退。
+- [ ] Milvus recall、检索延迟和首 token 满足完整性能保护线（本地 embedding/Milvus retrieval `3/3`、hit rate/MRR `1.0` 已通过；首 token、生产等价端点 P95/成本与完整攻击集仍待执行）。
+- [x] 向量结果没有成为金融数字的直接事实来源。
 
 ### 22.6 架构质量
 
-- [ ] 没有前端或后端框架重写。
-- [ ] 没有全链路一次性异步化。
-- [ ] 没有新增无必要的重量级基础设施。
-- [ ] 每个新 owner 都有稳定职责和独立测试。
-- [ ] 没有为了减少行数创建 facade-only 模块。
-- [ ] 兼容 wrapper 有明确删除条件。
+- [x] 没有前端或后端框架重写。
+- [x] 没有全链路一次性异步化。
+- [x] 没有新增无必要的重量级基础设施。
+- [x] 每个新 owner 都有稳定职责和独立测试。
+- [x] 没有为了减少行数创建 facade-only 模块。
+- [x] 兼容 wrapper 有明确删除条件。
 
 ## 23. 任务验证与证据矩阵
 
@@ -1410,6 +1410,24 @@ uv run python ../../scripts/maintenance/run_live_market_qa_smoke.py \
   --json
 ```
 
+**受控发布外部动作**
+
+```bash
+set -a
+source /run/secrets/siq/controlled-release.env
+set +a
+bash scripts/ops/run_market_postgres_release_gate.sh \
+  --mode offline-postgres \
+  --output-dir artifacts/optimization/2026-07-12/release/controlled
+
+python3 scripts/ops/run_restore_matrix.py \
+  --backup-dir /approved/backup/<timestamp> \
+  --output artifacts/optimization/2026-07-12/release/controlled/restore-matrix.json \
+  --markdown artifacts/optimization/2026-07-12/release/controlled/restore-matrix.md
+```
+
+`/run/secrets/siq/controlled-release.env` 必须由 secret manager 临时渲染并设置 `SIQ_LIVE_MODEL_BENCHMARK_MODE=live-http`、`SIQ_LIVE_MODEL_BENCHMARK_REQUIRED=1`、`SIQ_LIVE_MODEL_URL`、`SIQ_LIVE_MODEL_AUTH_TOKEN` 和 `SIQ_RESTORE_MATRIX_ADMIN_URL`；文件不入 Git，命令执行后立即删除。真实模型 token 和恢复管理连接只通过运行时环境注入，不进入命令参数、报告或 Git。批量恢复要求七库来自同一备份 manifest，五个市场库继续执行非空 Agent view 探针，不能用“单库恢复成功”替代完整恢复矩阵。
+
 ### 23.4 数据库和部署变更规则
 
 - 使用项目确定的 DDL authority 和 migration 机制；本目标不顺带引入新的 migration 框架。
@@ -1436,13 +1454,109 @@ uv run python ../../scripts/maintenance/run_live_market_qa_smoke.py \
 
 工具回执只提供计算输入与结果；后端使用请求中的完整 `ResearchIdentity` 和回答中的最终结构化来源行绑定 metric、period、value、unit 与 evidence_id，并继续执行确定性重算。自动稳定 evidence ID 仅作为内部 trace 绑定键，claim verifier 仍要求财务事实来源显式携带 evidence_id，不能借内部 ID 绕过外部证据契约。混合回答的 operation 检测也从单一 early-return 改为累计 yoy/ratio/cagr/per_capita，并检查所需 operation 覆盖。
 
-当前运行配置继续为 `SIQ_FINANCIAL_GUARDRAIL_MODE=warn`：缺失或无效 trace 会保留原始回答并追加诊断，不阻断调试输出；生产 `block` 模式语义没有改变。定向 trace/guard/audit/calculator/claim verifier/chat route/runtime 回归全部通过；API 全量为 1570 passed，另有 6 个与本变更无关、来自并行工作区的既有失败，分别属于 streaming cancelled 状态断言、citation 本地页码数据、job envelope 新字段和 tracking history 投影，未在本变更中覆盖或回退。
+当前运行配置继续为 `SIQ_FINANCIAL_GUARDRAIL_MODE=warn`：缺失或无效 trace 会保留原始回答并追加诊断，不阻断调试输出；生产 `block` 模式语义没有改变。最新工作树定向 trace/guard/audit/calculator/claim verifier/chat route/runtime 回归全部通过；API 全量为 `1615 passed, 2 skipped`，未出现由本轮改动引入的失败。完整仓库回归还包括 PDF parser `480 passed, 9 skipped`、document parser `61 passed`、market report finder `116 passed`、market report rules `86 passed`、market contracts `15 passed`，前端单测 `278 passed`，lint、TypeScript 和 production build 均通过。
+
+### 23.7 2026-07-13 发布收口复核记录
+
+协作复核在原有门禁通过后继续发现并修复了以下可复现边界问题，未改变金融事实路由、检索策略或前端行为：
+
+1. durable job 只在 service 首次使用时恢复过期 lease，同一进程后续发生 lease 丢失时可能长期停留在 `running`。现在 `get(job_id)` 和被 fencing 的 terminal publish 都会按 job 定点恢复为 `interrupted`，不执行无界全表扫描。
+2. IC claim/heartbeat 已经 offload，但 success/failure terminal write 仍可能在 async event loop 内执行同步 PostgreSQL I/O。现在全部终态写入统一通过 `asyncio.to_thread`。
+3. release wrapper 中 required production config 缺少文件、required live benchmark 保持 disabled、required permission gate 同时 skip 的组合原先可能绕过必需验证；现在这些冲突配置在执行门禁前直接失败。
+4. 显式提供 production env 文件时，配置预检始终以 `--required` 执行；`SIQ_PRODUCTION_CONFIG_REQUIRED=1` 还要求该文件必须存在。release wrapper 不提供 advisory 降级路径，避免显式生产配置被静默跳过。
+5. release artifact manifest 现在同时识别顶层和 `summary` 中的失败布尔值，以及 `status/result/gate_status` 的 `failed/blocked/error/fail` 状态，避免失败报告被汇总为 release pass。
+6. 权限负向报告不再持久化 pytest 断言正文，只保留 exit code 和稳定错误分类，避免失败证据携带对象内容或 URL。
+7. market-report-finder 与 document-parser 使用各自目录作为 Docker build context；现已增加 context-local `.dockerignore`，排除 `.env`、token/auth backup、runtime data、cache 和虚拟环境。finder 实际镜像构建验证 `/app/.env` 不存在。
+8. 新增七库 `run_restore_matrix.py`，要求同一 backup manifest/checksum，五个市场库执行非空 Agent view 探针，app/parser 库执行关键 relation 探针；批量器不再接受 `--admin-url`，恢复管理连接只能从受控环境变量注入。
+9. production config preflight 在 live benchmark required/live-http 模式下额外要求 live endpoint 和 auth token，模板和受控发布示例统一从 secret-manager env 文件加载，不把凭据放入命令历史。
+10. 本地真实 `siq-chat` gate 经 `/api/chat` 和 runtime-owned answer audit trace 完成 `1/1` 验证。修复项包括千分位数值等价、中文“未涉及/不适用”否定计算语义、同定位器下完整 ResearchIdentity 引用优先，以及服务器生成引用必须携带稳定 `evidence_id` 和原表 `quote`。报告不保存回答正文或认证令牌。
+11. 七库 restore matrix 已在受控本地 PostgreSQL 16 环境实际执行并持久化报告：`siq_app`、`siq_document_parser` 和五个市场库全部通过，checksum manifest 共享校验通过，临时恢复数据库残留为 `0`。生产 scheduled backup 仍是独立外部动作。
+12. production config preflight 重新执行无真实凭据的正/负命令场景：完整结构化配置 `rc=0`，缺失/占位符配置在 `--required` 下 `rc=1`；输出只包含 configured/missing/placeholder/invalid，不包含测试值或连接信息。
+13. HK 列报币种规则确认存在系统性 `RMB unit + HKD currency` 污染。现已按“显式 unit/title > 声明 currency > report fallback”修复 extractor、parser contract 和 Wiki builder，内部规范为 `CNY`、原始单位继续保留 `RMB million`。历史 HK Wiki/PostgreSQL 数据必须受控重建后再做 parity，不以查询层猜测替代入库修复。
+
+新增复核验证：T06/IC/deal 定向 `66 passed`，发布安全、备份与 wrapper 定向 `70 passed`，live/benchmark/fact-normalizer 定向 `40 passed`，claim/citation/guard 定向 `119 passed`；本地真实 live gate `1/1`，restore matrix `7/7`，production preflight 正负路径符合 fail-closed；touched-files Ruff 新增诊断为 `0`，`git diff --check` 与 shell syntax gate通过。
+
+### 23.8 2026-07-13 HK 币种、全文兜底与金融门禁复核记录
+
+本轮以只读真实数据复现和最小代码修复为前提，未批量覆盖 Wiki、未向 `siq_hk` 写入历史 package，也未连接外部生产环境。完成项如下：
+
+1. financial QA trace gate 不再只寻找一条正确事实后即判通过。应答用例现在检查 delivered claim verifier，遍历全部 Wiki/PostgreSQL 财务事实的显式 market/company/filing/parse-run 身份；failed verifier、非零 violations 和额外跨公司事实均为硬失败。
+2. answer audit 保留原始模型输出的 `claim_verifier_result`，同时新增基于最终交付文本的 `delivered_claim_verifier_result`。被 guard 正确拦截的错误原始输出仍可审计，但不会与用户实际收到的最终回答混为同一结论。
+3. market ingestion eval 新增事实级 `unit-currency` 一致性门禁。它不假设 HK 公司必须使用 HKD，只在同一事实的显式单位与 currency 冲突时失败；`RMB/人民币 -> CNY`、`US$ -> USD` 等均按 ISO 规范化比较。
+4. HK `document_full -> PostgreSQL` 专用规则已补齐“显式 unit/title > 声明 currency > 文档 fallback”优先级，并同步 statement、statement item、enriched item 和 wide row；原始 unit/raw payload 保留。JP/KR/EU/US 通用路径未改变。
+5. 全文兜底不再出现两套矛盾口径。financial QA 允许 `wiki_report_fulltext` / `wiki_document_full` 在 `wiki_missing` 或 `wiki_evidence_missing` 下作为单指标 fallback，但仍要求 value、period、unit/currency、evidence locator 和 ResearchIdentity。live smoke 只有在全文片段含可验证数值和单位/币种时才计入 `metric_evidence_pass`；`three_statement_package_pass` 继续独立计算，全文命中不能伪装三表完整。
+6. HK Wiki builder 新增 canonical identity inventory gate：从唯一 HKEX download sidecar 恢复 accession、官方 URL 和文件 SHA256，并生成稳定 filing/parse-run identity。`--require-canonical-identity` 下 sidecar 缺失、重复、ticker/报告期不一致或 hash 缺失会 fail closed；默认 dry-run，不授权批量写入。
+
+真实只读验证结果：
+
+- canonical identity dry-run：`50/50` 报告解析成功，unresolved `0`，未使用 `--apply`。
+- 新一致性门禁扫描当前 HK Wiki：`36/50` package 存在至少一条显式 unit 与 currency 冲突，共识别 `5841` 个 statement/item 位置；Tencent、AIA、HSBC 等当前样本均能被门禁阻断。
+- 真实 Tencent parser `document_full.json` 只读回归：三张 statement、`146` 条 RMB unit statement item 全部规范为 `currency/fact_currency/reporting_currency/presentation_currency=CNY`，原始 RMB unit 保留。
+- API answer-audit/claim/wiki 定向回归：`60 passed`。
+- market document-full、ingestion eval、financial benchmark、live smoke 单测：`90 passed`。
+- HK Wiki/evidence/rules 定向回归：`20 passed`。
+- 离线 financial QA：`12/12`，事实、期间/币种、证据、来源策略和 calculator 指标均为 `1.0`。
+- 本地六市场结构化 smoke：`6/6`，`metric_evidence_pass=6/6`、`three_statement_package_pass=6/6`；该结果是本地确定性 smoke，不替代生产等价 live model/P95/cost/完整攻击集。
+
+2026-07-13 继续收口发布与恢复链路，新增以下可复核结果：
+
+1. `backup.sh`、`restore_smoke.sh` 和 `run_restore_matrix.py` 不再将完整数据库 URL/密码放入子进程 argv；PostgreSQL 操作改用 libpq 环境变量，恢复矩阵继续要求同一 backup manifest/checksum。备份/恢复与矩阵回归 `22 passed`，shell syntax 通过；当前环境未安装 `shellcheck`，未将其缺失误报为通过。
+2. release wrapper 增加受限 production config 文件加载器，只读取发布门禁白名单键，不执行 env 文件中的任意 shell 语句；进程环境与配置文件值冲突、required gate 缺失或 false 均在执行 live/restore 前 fail closed。生产配置与 wrapper 回归 `55 passed`。
+3. release artifact manifest 增加显式 `--required-artifact`、`--include-artifact`、`--include-dir`，记录 Git HEAD/tree、dirty 计数和多层 SHA256 provenance，不保存 diff 路径、环境变量或凭据。live smoke、market ingestion、HK identity 报告的发布模式现在将本机路径转为仓库相对路径或 `<external>`；manifest 的路径策略检查已通过。
+4. market ingestion 报告补齐顶层 `passed` 与 `failure_reasons` 合同，避免仅有 `summary.fail/missing/block` 时被复合清单漏判。进一步审计并修复了评估器的预期语义：新增独立 `expectation_passed`，正向 case 仍要求完整 canonical pass，负向 case 只有在 package 存在、raw gate 精确匹配且声明失败原因全部命中时才算预期通过，缺包不能冒充负向验证成功；`official_source_hit_rate` 改为读取 package 实际 provenance（当前 `0.0`），并新增 `expected_official_source_rate=1.0`。修复后真实 16 case 为 `expectation_passed=1`、`fail=8`、`missing_package=7`，raw gate 分布仍为 `0 pass / 5 review / 11 block`，strict 仍返回失败（`summary.fail=8`、`summary.missing_package=7`）。
+5. HK canonical identity reconciliation 真实只读结果为 `50` 个候选：`safe_new_filing=39`、`safe_metadata_backfill=7`、`legacy_period_collision=4`；阻断 ticker 为 `00823`、`01398`、`02331`、`09633`。进一步核对显示 4/4 均满足“旧 filing UUID 尾部=parser task UUID、唯一旧 parse-run package task UUID 一致、`document_full.json` SHA256 一致、旧 accession 为空”的迁移前置条件，`migration_eligible=4/4`；状态仍严格保持 `assessment_only_not_migrated`，推荐动作仅为 `controlled_staging_rebuild_then_retire_exact_legacy_filing`。由于尚未完成 staging 重建、外键/关联表核验和退役切换，复合发布清单按设计保持 `fail`，未执行批量导入。审计支持 `--database-env`，连接凭据不进入 argv。
+6. 增量回归结果：API 全量 `1628 passed, 2 skipped`，production config/release wrapper `55 passed`，backup/restore `22 passed`，manifest/HK identity `30 passed`，market ingestion/HK smoke/portable evidence `42 passed`，financial benchmark/live smoke `59 passed`，runtime answer audit/claim/guard/wiki `123 passed`，document-full/HK rules `45 passed`，maintenance/ops/HK 综合回归 `372 passed`，imports/market-rules `269 passed`；`bash -n`、touched-files Ruff（新增诊断 `0`）和 `git diff --check` 通过。
+7. 16-case 只读审计确认 live `6/6` 与 ingestion release gate `expectation_passed=1/16` 不矛盾：live 只覆盖六个硬编码问答的选定指标 locator、身份和三表集合，并允许 validation warning；ingestion 还检查固定案例的全指标、来源 promotion、hash、unit/currency、目标文件格式与缺包。当前 7 个缺包、8 个历史/格式/证据问题均有逐项证据，未通过 matcher 放宽掩盖；评估器修复回归 `26 passed`。
+8. 当前工作树重新执行 performance baseline：contract 模式通过；使用仓库 `data/` 作为只读样本根时，15 个真实 `document_full.json`（五市场各 3 个、总计约 `497MB`）加载通过。将性能脚本默认 collection 对齐生产 alias `siq_agent_memory_active` 后，五轮真实 embedding 和 Milvus retrieval 均通过，三条检索用例每轮 `3/3`、hit rate/MRR 均为 `1.0`；旧物理 v1 collection 未删除或重建。随后在同一 nightly 报告中完成五轮五市场 PostgreSQL Agent View 只读探针，五个 `v_agent_financial_facts` 均非空。五轮外层 benchmark P95 为：parser load `3141.768ms`、PostgreSQL Agent View `1180.302ms`、embedding `176.576ms`、Milvus retrieval `522.867ms`；整体报告 `8/8` benchmark 通过。这是本机重复基线，不能替代生产等价端点容量测试。
+9. performance baseline 不再接受 `--database-url`。PostgreSQL 探针只从 `SIQ_*`/libpq 环境路由连接信息，连接异常仅持久化市场和异常类型，避免凭据进入进程 argv、shell history 或性能报告；拒绝凭据参数、环境路由和错误脱敏回归后该模块 `15 passed`，Ruff 与 `git diff --check` 通过。
+10. T12 release wrapper 不再以“目录里存在若干文件”代替必需证据合同。它按 contract/offline-postgres、配置、PDF、live model、权限、恢复和向量 seed 条件显式传递 `--required-artifact`；缺少已启用门禁的报告时 composite manifest fail closed。权限负向门禁、必需向量探针或向量 seed 被配置在不会执行它们的 contract 模式时，现在启动前直接拒绝。wrapper 定向回归 `37 passed`，真实 contract wrapper 复核显示 required artifacts 无缺失且能够正确将失败 gate 纳入 `failed_artifacts`，`bash -n` 通过。
+
+历史修复仍处于受控重建前状态。虽然 50 个 package 均已能恢复 canonical HKEX identity，但当前 Wiki package identity 与本地 `siq_hk` 既有 filing/parse-run 并非同一套主键，直接逐包导入会制造同公司同报告期的重复事实。因此下一执行阶段必须按以下顺序进行：
+
+1. 对 `data/wiki/hk` 和 `siq_hk` 建立可校验快照/备份，记录 package、filing、parse-run、Agent view 基线。
+2. 使用 canonical identity dry-run inventory 与现有数据库按 accession/PDF SHA256/公司/期间做 reconciliation；重复或无法唯一映射时 fail closed。
+3. 将新 Wiki 先构建到独立 staging output root，执行 package validator、事实 unit-currency gate、单指标证据和三表完整性双指标，不原地覆盖生产目录。
+4. 导入 staging 数据库，新增 package `metrics/financial_data.json` 与 `v_agent_financial_facts` 的 value/raw value/unit/currency/period/evidence parity；不得用现有仅针对 `document_full` 的 parity 报告代替。
+5. 只有 staging 无重复 canonical filing、`currency_label_diff=0` 且回滚演练可用时，才在维护窗口切换 Wiki 和目标库；否则恢复快照并保留失败报告。
+
+本轮不会把代码规则修复误报为历史数据已经修复，也不会把本地确定性 smoke 误报为生产 live gate 完成。
+
+### 23.9 2026-07-13 HK 隔离重建、原子导入与 package-Agent View parity 记录
+
+第 23.8 节要求的受控 staging 阶段已执行到“可判定是否切换”，但没有执行生产切换或旧数据退役。完整证据汇总位于 `artifacts/optimization/2026-07-13/staging/final-v4/staging-evidence-summary.json`，关键结果如下：
+
+1. 生产 Wiki 与 PostgreSQL 均先建立只读基线。`data/wiki/hk` 为 `3788` 个文件、`1250251009` bytes，已生成 mode `0600` 的确定性 tar 快照，SHA256 为 `5da7b5d8a03fd5c27138cbbf98254b7c5e210d06e11f9352a01292408c81cb7f`；临时完整恢复后的文件数、总 bytes 和路径清单哈希均与原目录一致，tree diff 为 `0`，临时副本已清理。`siq_hk` custom dump 为 `10755540` bytes，SHA256 为 `f5826a6b49f90912c6e9bf339b47f52de5d7bbacc2d7b3f6418ff0ea392a0bc9`，`pg_restore --list` 验证通过；原库基线保持 `13 filings / 13 parse-runs / 1187 Agent View rows`。
+2. 数据库备份已恢复到独立 `siq_hk_stage_20260713`，恢复后基线与原库一致。两次真实批量导入分别发现 archive table 缺少稳定 `table_id`、normalized fact 缺少 ticker fallback，均由单一外层事务整体回滚；修复和重建 staging 后，50 个 package 在同一事务内全部提交。最终 staging 为 `56 filings / 63 parse-runs / 2414 Agent View rows / 1961 financial facts / 17002 pdf tables`，49 个 review package 的 override 在 parse-run 与 quality-report 中均保留受控审计，另有 1 个 allow，无法强制放行 block。
+3. HK artifact profile 提升到 `hk-pdf-financial-profile-v3`，将报告级币种与表格级 scale 分离；没有明确币种证据时 fail closed，不再按文件名猜测 HKD。50 个旧 artifact 只在 staging 构建中内存重建，未改写 `data/pdf-parser/results`。HSBC 的 `$m` 已按报告明确声明解释为 `USD + 1e6`，银行报表的 `net_interest_income` 进入 canonical package；BABA `09988` 报告期按三表共同证据从 `2025-12-31` 纠正为 `2025-03-31`。
+4. 独立 Wiki root 构建 `50/50` canonical identity，package contract `50/50`，unit-currency mismatch 为 `0`，质量结果为 `49 review / 1 allow / 0 block`；archive audit 的 50 个 package 全部达到完整 PDF-Wiki archive 等级。没有覆盖 `data/wiki/hk`。
+5. 新增 staging-only 原子批量导入器、精确数据库名/只读事务断言、identity reconciliation 和 package-Agent View parity。canonical package 范围 `1676/1676` facts 的 value、raw value、unit、currency、period 与 evidence hash 完全一致，`currency_label_diff=0`，50 个 package 全部通过；全局 scope 仍准确发现 `00175`、`00700`、`00823`、`01398`、`02331`、`09633` 六个同公司/期间/report-family 旧 filing 冲突。
+6. 六个冲突中有五个满足精确旧 filing 受控退役的证据链，只生成 `execution_authorized=false` 的 review plan；`00700` 因 document SHA256、legacy filing task 和 package task 不一致而不可退役。identity 与全局 parity 报告均按设计返回失败，未删除任何 filing/parse-run/fact。生产 `siq_hk` 复核仍为 `13 / 13 / 1187`，证明 staging 写入未泄漏到原库。
+7. 最终相关模块回归为 `161 passed, 0 failed`，25 个 Python 文件编译通过，touched-files Ruff 新增诊断为 `0`，`git diff --check` 通过。16-case market ingestion 仍为 `1 pass / 8 fail / 7 missing`，raw gate 为 `0 pass / 8 review / 8 block`；因此 composite release、Wiki/数据库切换和 legacy retirement 继续 fail closed。生产等价首 token/完整回答 P95、成本、攻击集、scheduled production backup 与维护窗口动作仍须在受控环境执行。
+
+结论：第 23.8 节第 1-4 步已在隔离 staging 中取得可复核结果，第 5 步的切换条件尚未满足。本轮只新增 staging artifacts、隔离数据库和代码/测试，没有修改生产 Wiki 或生产数据库数据。
+
+### 23.10 2026-07-13 final-v5 fixture safety、evidence polarity 与 release blocker 记录
+
+final-v5 的只读聚合证据位于 `artifacts/optimization/2026-07-13/staging/final-v5/release/final-v5-evidence-summary.json`；九份正式报告的合同校验位于 `artifacts/optimization/2026-07-13/staging/final-v5/release/evidence-contract-verification.json` 和同名 Markdown。校验结果为 `9/9` 报告通过、`392` 个 artifact checksum 已验证、`0` 个 finding/unverifiable/mismatch。这里的 `PASS` 只证明报告满足证据合同且引用内容未失配，不改变源报告中的失败极性；汇总仍明确为 `result=blocked`、`passed=false`、`release_eligible=false`。
+
+1. HK final-v5 Wiki staging root 的只读复审为 canonical identity `50/50`、`hk-pdf-financial-profile-v3` `50/50`、package contract `50/50`、unit-currency mismatch `0`；质量决策为 `32 allow / 18 review / 0 block`。Tencent、AIA、HSBC 三组抽样事实分别为 `38/30/32`，合计 `100/100` 通过、issue `0`。这些结果只属于隔离 Wiki artifact，未覆盖生产 Wiki。
+2. staging PostgreSQL 没有按 final-v5 质量 taxonomy 重导，仍是 final-v4 导入生成的 `56 filings / 63 parse-runs / 2414 Agent View rows / 1961 financial facts / 17002 pdf tables`，数据库内保存的质量决策仍为 `1 allow / 49 review`。final-v5 只读 parity 证明 canonical package 财务事实 `50/50`、`1676/1676` 以及 `currency_label_diff=0`，不能据此声称 final-v5 的 `32/18` 质量决策已经持久化。
+3. HK global identity 复核为 `44` 个 exact match 加 `6` 个 legacy period collision；其中只生成 `5` 个精确 retirement operation，全部保持 `execution_authorized=false`。`00700` 已确认是仓库基准 fixture identity：仓库侧已迁入 synthetic namespace，但 staging DB 的旧 legacy row 仍待受控审计与退役，不能直接删除或视为已完成迁移。
+4. 仓库内 `7` 个市场 PostgreSQL fixture identity 已统一迁入 `*:FIXTURE:*` synthetic namespace，并在连接数据库前禁止写入。五市场数据库只读审计仍发现 `6` 个 exact legacy signature row（HK `1`、JP `1`、KR `1`、EU `2`、US `1`），形成 `6` 个 cleanup candidate；所有事务均回滚，删除行数为 `0`。这里的 `exact legacy signature` 表示匹配已退役的旧 fixture 签名，不表示它们属于当前 synthetic fixture identity。
+5. 权威 16-case market ingestion 结果更新为 `3 pass / 1 fail / 12 missing_package`，package resolution 为 `7 missing / 5 wrong_document_format / 0 ambiguous`，eval gate 为 `3 pass / 1 review / 12 block`。该口径取代第 23.9 节的历史 `1/8/7` 和 `0/8/8` 计数；历史数字保留用于说明当时状态，不再作为当前发布判定依据。隔离 roots 补充报告由于 EU staging root 为空而得到 `8 missing / 4 wrong_document_format`，仅用于解释 root 差异，不覆盖权威综合报告。
+6. MSFT iXBRL value/evidence 复核为 `96/96`，失败事实和 issue 均为 `0`，source SHA256 一致；但 source manifest 仍缺 `redirect_chain` 与 `retrieved_at`，因此 gate 保持 `review`，没有把数值验证通过提升为来源合同完成。
+7. Nestlé parser 虽完成 `67` 页、`35` 张表的解析，但仅识别 `1` 张空 statement，key metric、financial fact 和 Wiki package 均为 `0`；因缺少三张财务报表和有效数值继续 fail closed，不生成或导入 package。
+8. 当前 HEAD 的五轮本地 performance baseline 为 `8/8` benchmark 通过：parser load P95 `2607.067ms`、PostgreSQL Agent View P95 `1021.984ms`、embedding P95 `197.683ms`、Milvus retrieval P95 `489.34ms`；embedding 为 `1024` 维，Milvus hit rate/MRR 均为 `1.0`。本地 runtime health 为 `16/16`，实测返回 `1` 个 `1024` 维向量且 Milvus health 为 `OK`。这些均为本地重复基线和健康检查，不是生产等价容量、成本或端到端 SLA 证据。
+9. 当前 release blocker 仍包括：完成 `7 missing + 5 wrong_document_format` 的 ingestion artifact 修复；补齐 MSFT 来源清单并修复 Nestlé 三表提取；将 final-v5 HK taxonomy 受控重导至 staging DB，完成六个 identity collision 的逐项审计、五个已规划旧 filing 的授权退役及生产 Wiki/数据库切换；在 secret-manager 与维护窗口控制下执行 T12；补齐生产等价首 token/完整回答 P95、成本、完整攻击集和 scheduled production backup/restore 证据。任何一项未完成时 composite release 必须保持失败。
+10. final-v5 release manifest 的 6 个必需 artifact 全部存在，missing include、policy violation 均为 `0`；清单仅因 `final-v5-evidence-summary.json` 的真实 blocked 极性识别出 `1` 个 failed artifact，因此按设计返回 `result=fail`。清单本身的独立证据校验为 `1/1` 报告通过、`6/6` checksum verified、`0` finding/unverifiable/mismatch。最终任务边界聚合回归为 `480 passed`；final-v5 证据/审计文件 Ruff、相关 Python `py_compile` 和 `git diff --check` 均通过。该 Ruff 结论不覆盖工作树内同期并发或历史市场重构文件，不能表述为全树 Ruff 通过。
+
+本轮只生成、复核和汇总本地/隔离 staging 证据，没有修改生产 Wiki、生产 PostgreSQL 或现有 staging PostgreSQL 数据，没有执行 filing、parse-run、fact 或 fixture legacy row 删除，也没有授权生产发布。第 23.9 节作为历史审计记录保持不变；其 final-v4 Wiki `1/49` 结果已被 final-v5 Wiki `32/18` 取代，但 `1/49` 仍准确描述当前 staging DB 的已持久化导入分布。
 
 ## 24. 最终完成判定
 
 只有满足以下全部条件，Codex 才能将总目标标记为完成：
 
-1. T00-T10、T12 中全部 P0 和发布必需任务完成。
+1. T00-T10、T12 中全部 P0 和发布必需任务完成；T10 已完成本地真实 `siq-chat` runtime gate 和七库受控 restore matrix，生产等价端点性能、生产备份与 secret-manager 仍须受控环境执行。
 2. T11 已按准入条件完成合理范围，或有证据说明继续拆分会违反“不为了拆而拆”。
 3. 第 22 节所有适用项完成；不适用项有书面理由。
 4. quick、integration、nightly/release 中当前环境可执行的测试全部通过。

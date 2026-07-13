@@ -1,6 +1,8 @@
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 
 def _load_importer():
     path = Path(__file__).resolve().parents[1] / "import_hk_evidence_package_to_postgres.py"
@@ -34,22 +36,63 @@ def test_hk_importer_parse_run_id_is_stable():
     assert first == second
 
 
-def test_hk_importer_database_url_defaults_to_siq_hk(monkeypatch):
+def test_hk_importer_connection_kwargs_default_to_siq_hk(monkeypatch):
     importer = _load_importer()
-    for name in ("DATABASE_URL", "SIQ_HK_PGDATABASE", "SIQ_PGDATABASE", "PGDATABASE"):
+    for name in (
+        "DATABASE_URL",
+        "SIQ_HK_PGDATABASE",
+        "SIQ_PGDATABASE",
+        "PGDATABASE",
+        "SIQ_PGPASSWORD",
+        "PGPASSWORD",
+    ):
         monkeypatch.delenv(name, raising=False)
 
-    assert importer.database_url(None).endswith("/siq_hk")
+    assert importer.connection_kwargs()["dbname"] == "siq_hk"
+    assert importer.connection_kwargs()["password"] == ""
 
 
-def test_hk_importer_database_url_prefers_hk_database_env(monkeypatch):
+def test_hk_importer_connection_kwargs_prefer_hk_database_env(monkeypatch):
     importer = _load_importer()
-    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:secret@example.invalid/unsafe")
     monkeypatch.setenv("SIQ_PGDATABASE", "siq")
     monkeypatch.setenv("PGDATABASE", "postgres")
     monkeypatch.setenv("SIQ_HK_PGDATABASE", "siq_hk_custom")
 
-    assert importer.database_url(None).endswith("/siq_hk_custom")
+    assert importer.connection_kwargs()["dbname"] == "siq_hk_custom"
+    assert "DATABASE_URL" not in importer.connection_kwargs()
+
+
+def test_hk_importer_cli_rejects_database_url_credentials():
+    importer = _load_importer()
+
+    with pytest.raises(SystemExit):
+        importer.build_parser().parse_args(["--database-url", "postgresql://user:secret@db/siq_hk"])
+
+
+def test_hk_importer_validates_exact_connected_database():
+    importer = _load_importer()
+
+    class Result:
+        @staticmethod
+        def fetchone():
+            return ("siq_hk_stage",)
+
+    class Connection:
+        @staticmethod
+        def execute(_sql):
+            return Result()
+
+    importer.validate_connection_database(Connection(), "siq_hk_stage")
+    with pytest.raises(SystemExit, match="does not match"):
+        importer.validate_connection_database(Connection(), "siq_hk")
+
+
+def test_hk_importer_write_requires_expected_database(tmp_path):
+    importer = _load_importer()
+
+    with pytest.raises(SystemExit, match="--expected-database is required"):
+        importer.main([str(tmp_path / "package")])
 
 
 def test_hk_ddl_exposes_agent_recall_columns_and_views():
@@ -139,6 +182,52 @@ def test_hk_importer_builds_company_filing_and_evidence_records(tmp_path):
     assert row["page_number"] == 25
     assert row["filing_id"] == "HK:00700:12100024"
     assert row["parse_run_id"] == "run1"
+
+
+def test_hk_importer_generates_stable_table_id_when_archive_index_omits_it(tmp_path):
+    importer = _load_importer()
+    table_dir = tmp_path / "tables"
+    table_dir.mkdir()
+    (table_dir / "table_index.json").write_text(
+        '{"tables":[{"table_index":7,"page_number":12}]}\n',
+        encoding="utf-8",
+    )
+    calls = []
+
+    class Connection:
+        @staticmethod
+        def execute(sql, params):
+            calls.append((sql, params))
+
+    importer._insert_tables(Connection(), "pdf2md_hk", tmp_path, "HK:00700:filing", "run1")
+
+    assert len(calls) == 1
+    assert calls[0][1][2] == importer.stable_id("run1", "pdf_table", 7)
+
+
+def test_hk_importer_uses_manifest_ticker_when_normalized_metric_omits_it(tmp_path):
+    importer = _load_importer()
+    metrics_dir = tmp_path / "metrics"
+    metrics_dir.mkdir()
+    (tmp_path / "manifest.json").write_text(
+        '{"market":"HK","ticker":"00005"}\n',
+        encoding="utf-8",
+    )
+    (metrics_dir / "normalized_metrics.json").write_text(
+        '{"metrics":[{"statement_type":"income_statement","canonical_name":"net_interest_income","value":34794}]}\n',
+        encoding="utf-8",
+    )
+    calls = []
+
+    class Connection:
+        @staticmethod
+        def execute(sql, params):
+            calls.append((sql, params))
+
+    importer._insert_financial_facts(Connection(), "pdf2md_hk", tmp_path, "HK:00005:filing", "run1")
+
+    assert len(calls) == 1
+    assert calls[0][1][3] == "00005"
 
 
 def test_hk_importer_builds_statement_item_rows_with_source_coordinates():

@@ -99,6 +99,7 @@ def financial_checks_contract(validation: ValidationResult) -> dict[str, Any]:
             for check in validation.checks
         ],
         "warnings": validation.warnings,
+        "advisories": validation.advisories,
         "generated_at": validation.generated_at.isoformat(),
     }
 

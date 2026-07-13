@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import html
 import hashlib
+import html
 import json
 import os
 import re
@@ -18,8 +18,8 @@ RULES_SRC = REPO_ROOT / "services" / "market-report-rules" / "src"
 if str(RULES_SRC) not in sys.path:
     sys.path.insert(0, str(RULES_SRC))
 
-from market_report_rules_service.contracts import financial_checks_contract, financial_data_contract
-from market_report_rules_service.evidence_package import (
+from market_report_rules_service.contracts import financial_checks_contract, financial_data_contract  # noqa: E402
+from market_report_rules_service.evidence_package import (  # noqa: E402
     SCHEMA_VERSION,
     build_quality_report,
     compute_artifact_hashes,
@@ -30,8 +30,9 @@ from market_report_rules_service.evidence_package import (
     validate_evidence_package,
     write_json,
 )
-from market_report_rules_service.load_plan import build_load_plan
-from market_report_rules_service.models import (
+from market_report_rules_service.load_plan import build_load_plan  # noqa: E402
+from market_report_rules_service.markets.hk.extractor import resolve_hk_currency  # noqa: E402
+from market_report_rules_service.models import (  # noqa: E402
     AccountingStandard,
     EvidenceRef,
     ExtractedFact,
@@ -42,11 +43,18 @@ from market_report_rules_service.models import (
     ParsedTable,
     StatementType,
 )
-from market_report_rules_service.normalization import compact_label, infer_currency, infer_scale, parse_date
-from market_report_rules_service.pipeline import build_package_aware_load_plan, process_artifact
-from market_report_rules_service.statement_detection import detect_statement_type_from_rows, detect_statement_type_from_title
-from market_report_rules_service.validation import validate_extraction
-
+from market_report_rules_service.normalization import (  # noqa: E402
+    compact_label,
+    infer_currency,
+    infer_scale,
+    parse_date,
+)
+from market_report_rules_service.pipeline import build_package_aware_load_plan, process_artifact  # noqa: E402
+from market_report_rules_service.statement_detection import (  # noqa: E402
+    detect_statement_type_from_rows,
+    detect_statement_type_from_title,
+)
+from market_report_rules_service.validation import validate_extraction  # noqa: E402
 
 PARSER_VERSION = os.environ.get("SIQ_HK_PARSER_VERSION", "hk_pdf_evidence_parser_v1")
 RULES_VERSION = os.environ.get("SIQ_HK_RULES_VERSION", "hkex_rules_v1")
@@ -643,22 +651,29 @@ def _is_markdown_statement_continuation_body(statement_type: StatementType, rows
 
 
 def _propagate_markdown_statement_units(tables: list[ParsedTable]) -> None:
-    last_unit_by_statement: dict[str, tuple[str | None, str | None]] = {}
+    unit_counts: dict[str, dict[str, int]] = {}
+    unit_currency: dict[tuple[str, str], str | None] = {}
+    for table in tables:
+        raw = table.raw if isinstance(table.raw, dict) else {}
+        statement_type = str(raw.get("statement_type") or "")
+        if not statement_type or not table.unit or _weak_unit(table.unit):
+            continue
+        unit_counts.setdefault(statement_type, {})[table.unit] = unit_counts.setdefault(statement_type, {}).get(table.unit, 0) + 1
+        unit_currency[(statement_type, table.unit)] = table.currency
+    preferred: dict[str, tuple[str, str | None]] = {}
+    for statement_type, counts in unit_counts.items():
+        unit = max(counts, key=lambda value: (counts[value], value))
+        preferred[statement_type] = (unit, unit_currency.get((statement_type, unit)))
+
     for table in tables:
         raw = table.raw if isinstance(table.raw, dict) else {}
         statement_type = str(raw.get("statement_type") or "")
         if not statement_type:
             continue
-        previous_unit, previous_currency = last_unit_by_statement.get(statement_type, (None, None))
-        if table.unit and not _weak_unit(table.unit):
-            last_unit_by_statement[statement_type] = (table.unit, table.currency)
-            continue
-        if previous_unit and (not table.unit or _weak_unit(table.unit)):
-            table.unit = previous_unit
-            table.currency = table.currency or previous_currency or infer_currency(previous_unit, table.title, default=None)
-            continue
-        if table.unit:
-            last_unit_by_statement[statement_type] = (table.unit, table.currency)
+        preferred_unit, preferred_currency = preferred.get(statement_type, (None, None))
+        if preferred_unit and (not table.unit or _weak_unit(table.unit)):
+            table.unit = preferred_unit
+            table.currency = table.currency or preferred_currency or infer_currency(preferred_unit, table.title, default=None)
 
 
 def _weak_unit(unit: str | None) -> bool:
@@ -985,6 +1000,8 @@ def _usable_statement_rows(rows: list[list[str]]) -> bool:
 def build_hk_artifact(pdf_path: Path, parser_result_dir: Path, metadata_path: Path | None = None) -> tuple[ParsedArtifact, dict[str, Any], dict[str, Any]]:
     document_full = _document_full_with_sidecars(parser_result_dir)
     metadata = infer_metadata(pdf_path, metadata_path)
+    document_text = _markdown_from_document_full(document_full, parser_result_dir)
+    reporting_currency = infer_hk_reporting_currency(metadata, document_text)
     tables = parsed_tables_from_document_full(document_full)
     tables.extend(_markdown_statement_tables(parser_result_dir, start_index=len(tables)))
     artifact = ParsedArtifact(
@@ -1001,7 +1018,7 @@ def build_hk_artifact(pdf_path: Path, parser_result_dir: Path, metadata_path: Pa
         period_end=parse_date(metadata["period_end"]),
         accounting_standard=AccountingStandard(metadata["accounting_standard"]),
         industry_profile=metadata.get("industry_profile") or "general",
-        currency=_default_currency(metadata),
+        currency=reporting_currency or _default_currency(metadata, document_text),
         unit=_default_unit(document_full),
         source_url=metadata["source_url"],
         source_files={"pdf": str(pdf_path), "parser_result": str(parser_result_dir)},
@@ -1096,7 +1113,25 @@ def _extraction_from_financial_data_contract(financial_data: dict[str, Any], art
         if not isinstance(row, dict):
             continue
         statement_type = _statement_type(row.get("statement_type"))
-        items = _facts_from_contract_items(row.get("items") or [], statement_type, artifact, warnings)
+        statement_unit = row.get("unit")
+        output_statement_unit = statement_unit or artifact.unit
+        statement_currency = resolve_hk_currency(
+            unit=statement_unit,
+            declared_currency=row.get("currency"),
+            title=row.get("title") or row.get("statement_name"),
+            fallback=artifact.currency,
+        )
+        items = _facts_from_contract_items(
+            row.get("items") or [],
+            statement_type,
+            artifact,
+            warnings,
+            default_unit=statement_unit,
+            default_currency=statement_currency,
+        )
+        item_currencies = {item.currency for item in items if item.currency}
+        if len(item_currencies) == 1:
+            statement_currency = next(iter(item_currencies))
         statements.append(
             FinancialStatement(
                 statement_id=str(row.get("statement_id") or statement_type.value),
@@ -1105,9 +1140,9 @@ def _extraction_from_financial_data_contract(financial_data: dict[str, Any], art
                 scope=str(row.get("scope") or "consolidated"),
                 scope_name=row.get("scope_name"),
                 title=row.get("title"),
-                unit=row.get("unit"),
+                unit=output_statement_unit,
                 scale=_decimal(row.get("scale"), Decimal("1")),
-                currency=row.get("currency") or artifact.currency,
+                currency=statement_currency,
                 table_indexes=[int(value) for value in row.get("table_indexes") or [] if _int_or_none(value) is not None],
                 columns=row.get("columns") if isinstance(row.get("columns"), list) else [],
                 items=items,
@@ -1145,6 +1180,9 @@ def _facts_from_contract_items(
     default_statement_type: StatementType,
     artifact: ParsedArtifact,
     warnings: list[str],
+    *,
+    default_unit: str | None = None,
+    default_currency: str | None = None,
 ) -> list[ExtractedFact]:
     facts: list[ExtractedFact] = []
     for item in items:
@@ -1152,7 +1190,14 @@ def _facts_from_contract_items(
             continue
         statement_type = _statement_type(item.get("statement_type"), default_statement_type)
         if "values" not in item and "value" in item:
-            fact = _fact_from_flat_contract_item(item, statement_type, artifact, warnings)
+            fact = _fact_from_flat_contract_item(
+                item,
+                statement_type,
+                artifact,
+                warnings,
+                default_unit=default_unit,
+                default_currency=default_currency,
+            )
             if fact is not None:
                 facts.append(fact)
             continue
@@ -1163,6 +1208,13 @@ def _facts_from_contract_items(
         canonical_name = str(item.get("canonical_name") or item.get("name") or "").strip()
         if not canonical_name:
             continue
+        explicit_fact_unit = item.get("unit") or default_unit
+        fact_unit = explicit_fact_unit or artifact.unit
+        fact_currency = resolve_hk_currency(
+            unit=explicit_fact_unit,
+            declared_currency=item.get("currency"),
+            fallback=default_currency or artifact.currency,
+        )
         for period_key, value in values.items():
             value_decimal = _decimal(value)
             if value_decimal is None:
@@ -1180,8 +1232,8 @@ def _facts_from_contract_items(
                     statement_type=statement_type,
                     value=value_decimal,
                     raw_value=str(raw_values.get(period_key) if raw_values.get(period_key) is not None else value),
-                    unit=item.get("unit") or artifact.unit,
-                    currency=item.get("currency") or artifact.currency,
+                    unit=fact_unit,
+                    currency=fact_currency,
                     period_key=str(period_key),
                     period_start=parse_date(period_meta.get("period_start")),
                     period_end=parse_date(period_meta.get("period_end") or _period_end_from_key(period_key)),
@@ -1210,6 +1262,9 @@ def _fact_from_flat_contract_item(
     statement_type: StatementType,
     artifact: ParsedArtifact,
     warnings: list[str],
+    *,
+    default_unit: str | None = None,
+    default_currency: str | None = None,
 ) -> ExtractedFact | None:
     canonical_name = str(item.get("canonical_name") or item.get("local_name") or item.get("label") or "").strip()
     if not canonical_name:
@@ -1223,6 +1278,13 @@ def _fact_from_flat_contract_item(
     period_key = str(item.get("period_key") or _period_key_from_dates(item.get("period_end"), item.get("fiscal_year")) or "")
     if not period_key:
         period_key = str(artifact.period_end or artifact.fiscal_year or "unknown")
+    explicit_fact_unit = item.get("unit") or default_unit
+    fact_unit = explicit_fact_unit or artifact.unit
+    fact_currency = resolve_hk_currency(
+        unit=explicit_fact_unit,
+        declared_currency=item.get("currency"),
+        fallback=default_currency or artifact.currency,
+    )
     return ExtractedFact(
         canonical_name=canonical_name,
         local_name=str(item.get("local_name") or item.get("label") or canonical_name),
@@ -1230,8 +1292,8 @@ def _fact_from_flat_contract_item(
         statement_type=statement_type,
         value=value_decimal,
         raw_value=str(item.get("raw_value") if item.get("raw_value") is not None else item.get("value")),
-        unit=item.get("unit") or artifact.unit,
-        currency=item.get("currency") or artifact.currency,
+        unit=fact_unit,
+        currency=fact_currency,
         period_key=period_key,
         period_start=parse_date(item.get("period_start")),
         period_end=parse_date(item.get("period_end") or _period_end_from_key(period_key)),
@@ -1825,11 +1887,57 @@ def _table_title(item: dict[str, Any], meta: dict[str, Any]) -> str | None:
     return _clean_cell(meta.get("heading") or meta.get("title") or "") or None
 
 
+_UNIT_CURRENCY_TOKEN = r"HK\$|US\$|USD|HKD|CNY|RMB|人民币|人民幣|港币|港幣|美元"
+_UNIT_SCALE_TOKEN = r"100\s*million|hundred\s*million|billion|million|thousand|mn|bn|m|['’]?\s*000|['’]?\s*(?:million|billion|thousand)|百萬元|百万元|百萬|百万|千元|千港元|千美元"
+
+
+def _unit_from_text(value: Any) -> str | None:
+    """Extract a table unit without treating narrative amounts as units."""
+    text = str(value or "").replace(r"\$", "$").strip()
+    if not text:
+        return None
+    combined = re.search(
+        rf"(?P<currency>{_UNIT_CURRENCY_TOKEN})\s*(?:in\s+)?(?P<scale>{_UNIT_SCALE_TOKEN})(?![\w])",
+        text,
+        flags=re.I,
+    )
+    if combined:
+        scale = _canonical_scale(combined.group("scale"))
+        return f"{combined.group('currency')} {scale}".strip()
+    # A bare `$m`/`$bn` header carries scale only; reporting currency comes
+    # from the report-level presentation declaration.
+    bare_scale = re.search(r"(?:^|[\s\d])\$\s*(?P<scale>m|mn|bn|'?000)(?![\w])", text, flags=re.I)
+    if bare_scale:
+        return _canonical_scale(bare_scale.group("scale"))
+    chinese = re.search(r"(?:人民币|人民幣|港币|港幣|美元)\s*(?P<scale>百萬元|百万元|百萬|百万|千元|千港元|千美元)", text)
+    if chinese:
+        return chinese.group(0)
+    # Standalone ISO/currency tokens are safe only when the cell is a unit
+    # header, rather than an amount such as `US$1.55bn`.
+    standalone = re.fullmatch(rf"(?:unit\s*[:：]\s*)?(?P<currency>{_UNIT_CURRENCY_TOKEN})", text, flags=re.I)
+    if standalone:
+        return standalone.group("currency").upper()
+    return None
+
+
+def _canonical_scale(value: str) -> str:
+    normalized = re.sub(r"^[\s'’]+", "", str(value or "").strip().lower())
+    if normalized in {"m", "mn"}:
+        return "million"
+    if normalized == "bn":
+        return "billion"
+    if normalized in {"000", "'000"}:
+        return "thousand"
+    return normalized
+
+
 def _infer_unit(title: str | None, rows: list[list[str]]) -> str | None:
-    haystack = " ".join([title or "", *[" ".join(row[:4]) for row in rows[:3]]])
-    match = re.search(r"(HK\$|RMB|US\$|USD|HKD|CNY)[^\n,;)]{0,30}(million|billion|thousand|mn|bn|百萬|百万|千)?", haystack, flags=re.I)
-    if match:
-        return match.group(0)
+    sources = [title or ""]
+    sources.extend(str(cell or "") for row in rows[:3] for cell in row[:4])
+    for source in sources:
+        unit = _unit_from_text(source)
+        if unit:
+            return unit
     return None
 
 
@@ -1842,19 +1950,67 @@ def _page_number(item: dict[str, Any]) -> int | None:
 
 
 def _default_unit(document_full: dict[str, Any]) -> str | None:
-    filename = str(document_full.get("task", {}).get("filename") if isinstance(document_full.get("task"), dict) else "")
-    if "HK" in filename:
-        return "HKD"
+    """Return only an evidenced document-wide unit; market is not a unit."""
+    del document_full
     return None
 
 
-def _default_currency(metadata: dict[str, Any]) -> str | None:
-    text = json.dumps(metadata.get("raw_metadata") or {}, ensure_ascii=False).lower()
-    if "rmb" in text or "renminbi" in text:
-        return "CNY"
-    if "usd" in text or "us$" in text:
-        return "USD"
-    return "HKD"
+_PRESENTATION_CURRENCY_PATTERNS: tuple[tuple[str, str], ...] = (
+    ("USD", r"(?:the\s+)?currency\s+we\s+report\s+in\s+is\s+(?:the\s+)?(?:u\.s\.|us|united\s+states)\s+dollars?"),
+    ("HKD", r"(?:the\s+)?currency\s+we\s+report\s+in\s+is\s+(?:the\s+)?hong\s+kong\s+dollars?"),
+    ("CNY", r"(?:the\s+)?currency\s+we\s+report\s+in\s+is\s+(?:the\s+)?(?:renminbi|rmb|chinese\s+yuan)"),
+    ("USD", r"(?:consolidated\s+|these\s+|the\s+)?financial\s+statements.{0,100}?(?:are|is|have\s+been)\s+presented\s+in\s+(?:the\s+)?(?:u\.s\.|us|united\s+states)\s+dollars?"),
+    ("HKD", r"(?:consolidated\s+|these\s+|the\s+)?financial\s+statements.{0,100}?(?:are|is|have\s+been)\s+presented\s+in\s+(?:the\s+)?hong\s+kong\s+dollars?"),
+    ("CNY", r"(?:consolidated\s+|these\s+|the\s+)?financial\s+statements.{0,100}?(?:are|is|have\s+been)\s+presented\s+in\s+(?:the\s+)?(?:renminbi|rmb|chinese\s+yuan)"),
+    ("USD", r"presentation\s+currency.{0,40}(?:u\.s\.|us|united\s+states)\s+dollars?"),
+    ("HKD", r"presentation\s+currency.{0,40}hong\s+kong\s+dollars?"),
+    ("CNY", r"presentation\s+currency.{0,40}(?:renminbi|rmb|chinese\s+yuan)"),
+)
+
+
+def _metadata_currency_candidates(metadata: dict[str, Any]) -> set[str]:
+    candidates: set[str] = set()
+    payloads = [metadata]
+    raw = metadata.get("raw_metadata") if isinstance(metadata, dict) else None
+    if isinstance(raw, dict):
+        payloads.extend([raw, raw.get("candidate"), raw.get("market_metadata")])
+    for payload in payloads:
+        if not isinstance(payload, dict):
+            continue
+        for key in ("currency", "reporting_currency", "presentation_currency", "accounting_currency"):
+            value = payload.get(key)
+            currency = infer_currency(str(value), default=None) if value else None
+            if currency:
+                candidates.add(currency)
+    return candidates
+
+
+def _document_currency_candidates(document_text: str | None) -> set[str]:
+    text = re.sub(r"\s+", " ", str(document_text or "").replace(r"\$", "$")).strip().lower()
+    candidates: set[str] = set()
+    for currency, pattern in _PRESENTATION_CURRENCY_PATTERNS:
+        if re.search(pattern, text, flags=re.I):
+            candidates.add(currency)
+    chinese_patterns = {
+        "USD": r"(?:綜合|合併|合并)?財務報表.{0,80}?以(?:美元|美金).{0,20}?呈列",
+        "HKD": r"(?:綜合|合併|合并)?財務報表.{0,80}?以(?:港元|港幣|港币).{0,20}?呈列",
+        "CNY": r"(?:綜合|合併|合并)?財務報表.{0,80}?以(?:人民幣|人民币).{0,20}?呈列",
+    }
+    for currency, pattern in chinese_patterns.items():
+        if re.search(pattern, text, flags=re.I):
+            candidates.add(currency)
+    return candidates
+
+
+def infer_hk_reporting_currency(metadata: dict[str, Any], document_text: str | None = None) -> str | None:
+    """Resolve HK report currency only from explicit, report-level evidence."""
+    candidates = _metadata_currency_candidates(metadata)
+    candidates.update(_document_currency_candidates(document_text))
+    return next(iter(candidates)) if len(candidates) == 1 else None
+
+
+def _default_currency(metadata: dict[str, Any], document_text: str | None = None) -> str | None:
+    return infer_hk_reporting_currency(metadata, document_text)
 
 
 def _parser_warnings(document_full: dict[str, Any], tables: list[ParsedTable]) -> list[str]:

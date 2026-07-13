@@ -152,6 +152,25 @@ def test_write_report_writes_json_and_markdown(tmp_path):
     assert markdown_path.read_text(encoding="utf-8") == report_writer.render_markdown_report(summary)
 
 
+def test_write_report_redacts_local_absolute_paths(tmp_path):
+    report_writer = _load_report_writer()
+    summary = _summary()
+    summary["cases_path"] = "/home/operator/project/eval/cases.json"
+    summary["summary"]["production_sample_manifest_path"] = "/tmp/release/manifest.json"
+    summary["results"][0]["errors"] = ["failed while reading /home/operator/private/object.json"]
+    output_path = tmp_path / "report.json"
+    markdown_path = tmp_path / "report.md"
+
+    report_writer.write_report(summary, output_path, markdown_path)
+
+    json_text = output_path.read_text(encoding="utf-8")
+    markdown = markdown_path.read_text(encoding="utf-8")
+    assert "/home/operator" not in json_text + markdown
+    assert "/tmp/release" not in json_text + markdown
+    assert json.loads(json_text)["cases_path"] == "[external]"
+    assert "[local-path]" in json_text
+
+
 def test_render_markdown_report_uses_dynamic_acceptance_copy():
     report_writer = _load_report_writer()
     pending_summary = _summary()

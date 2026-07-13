@@ -47,9 +47,9 @@ def validate_extraction(extraction: ExtractionResult) -> ValidationResult:
     summary = {status.value: 0 for status in CheckStatus}
     for check in checks:
         summary[check.status.value] = summary.get(check.status.value, 0) + 1
-    warnings = list(extraction.warnings)
     profile = get_industry_profile(extraction.industry_profile)
-    warnings.extend(profile.validation_notes)
+    warnings = list(extraction.warnings)
+    advisories = list(profile.validation_notes)
     overall = _overall_status_from_checks(checks, warnings)
     return ValidationResult(
         rule_version=extraction.rule_version,
@@ -61,6 +61,7 @@ def validate_extraction(extraction: ExtractionResult) -> ValidationResult:
         summary=summary,
         checks=checks,
         warnings=warnings,
+        advisories=advisories,
     )
 
 
@@ -511,6 +512,20 @@ def _bridge_check_for_period(
     optional: bool = False,
     missing_as_zero: tuple[str, ...] = (),
 ) -> ValidationCheck:
+    statement_period_facts = [fact for fact in period_facts if fact.statement_type == statement_type]
+    if not statement_period_facts:
+        return ValidationCheck(
+            rule_id=rule_id,
+            rule_name=rule_name,
+            statement_type=statement_type,
+            period=period,
+            status=CheckStatus.SKIPPED,
+            inputs=[left_name, *right_names],
+            left={"name": left_name, "value": None},
+            right={"formula": " + ".join(right_names), "missing": [*right_names, left_name]},
+            reason="statement_type_not_present_for_period",
+            evidence=[],
+        )
     selected_bucket = fallback_bucket
     source_selection: dict[str, Any] | None = None
     if source_aware_bridge:

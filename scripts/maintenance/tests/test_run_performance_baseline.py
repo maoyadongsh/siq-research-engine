@@ -1,8 +1,11 @@
 import importlib.util
 import json
 import os
+import re
 import sys
 from pathlib import Path
+
+import pytest
 
 
 def _load_module():
@@ -59,15 +62,19 @@ def _write_nightly_manifest(tmp_path: Path) -> tuple[Path, Path]:
     return manifest, sample_root
 
 
-def test_contract_performance_baseline_writes_machine_report(tmp_path, capsys):
+def test_contract_performance_baseline_writes_machine_report(tmp_path, capsys, monkeypatch):
     module = _load_module()
     output = tmp_path / "performance_baseline.json"
     markdown = tmp_path / "performance_baseline.md"
+    secret_url = "https://user:perf-secret@private-embedding.invalid/v1"
+    monkeypatch.setenv("SIQ_PGPASSWORD", "database-secret")
 
     exit_code = module.main(
         [
             "--repeat",
             "1",
+            "--agent-memory-embedding-base-url",
+            secret_url,
             "--output",
             str(output),
             "--markdown",
@@ -85,6 +92,36 @@ def test_contract_performance_baseline_writes_machine_report(tmp_path, capsys):
     assert payload["mode"] == "contract"
     assert payload["passed"] is True
     assert payload["environment"]["cpu_count"] == 8
+    required_evidence_fields = {
+        "generated_at",
+        "base_commit",
+        "worktree_dirty",
+        "task_id",
+        "environment_profile",
+        "command",
+        "result",
+        "duration_seconds",
+        "failures",
+        "artifact_checksums",
+    }
+    assert required_evidence_fields <= payload.keys()
+    assert payload["task_id"] == "T10"
+    assert payload["result"] == "pass"
+    assert payload["duration_seconds"] >= 0
+    assert payload["failures"] == []
+    assert payload["artifact_checksums"]
+    assert all(not key.startswith("/") for key in payload["artifact_checksums"])
+    assert all("#" not in key for key in payload["artifact_checksums"])
+    assert all(re.fullmatch(r"[0-9a-f]{64}", value) for value in payload["artifact_checksums"].values())
+    serialized = json.dumps(payload)
+    markdown_text = markdown.read_text(encoding="utf-8")
+    assert str(tmp_path) not in serialized
+    assert "perf-secret" not in serialized
+    assert "database-secret" not in serialized
+    assert "private-embedding.invalid" not in serialized
+    assert "<configured-url>" in payload["command"]
+    assert "## Failures" in markdown_text
+    assert "## Artifact Checksums" in markdown_text
     assert {item["name"] for item in payload["benchmarks"]} == {
         "market_document_full_contract",
         "market_evidence_chunk_builder",
@@ -109,6 +146,58 @@ def test_contract_performance_baseline_uses_portable_fixtures_by_default():
 
     assert all(str(path).startswith(str(module.REPO_ROOT / "eval_datasets")) for path in default_paths)
     assert not any("data/wiki" in str(path) for path in default_paths)
+
+
+def test_vector_performance_baseline_defaults_to_production_collection_alias():
+    module = _load_module()
+
+    args = module.build_parser().parse_args([])
+
+    assert args.agent_memory_vector_collection == "siq_agent_memory_active"
+
+
+def test_performance_baseline_rejects_database_url_argv_credentials():
+    module = _load_module()
+
+    with pytest.raises(SystemExit):
+        module.build_parser().parse_args(
+            ["--database-url", "postgresql://user:secret@db.internal/siq_hk"]
+        )
+
+
+def test_postgres_performance_probe_uses_env_routing_and_redacts_connection_errors(monkeypatch):
+    module = _load_module()
+    seen_explicit_urls = []
+
+    class FakeBacktest:
+        MARKET_SCHEMAS = {"HK": "hk"}
+
+        @staticmethod
+        def database_url_for_market(market, explicit_url):
+            assert market == "HK"
+            seen_explicit_urls.append(explicit_url)
+            return "postgresql://user:secret@db.internal/siq_hk"
+
+        @staticmethod
+        def safe_sql_ident(value):
+            return value
+
+    class FakePsycopg:
+        @staticmethod
+        def connect(_url):
+            raise RuntimeError("failed postgresql://user:secret@db.internal/siq_hk")
+
+    monkeypatch.setattr(module, "_load_module", lambda *_args, **_kwargs: FakeBacktest)
+    monkeypatch.setitem(sys.modules, "psycopg", FakePsycopg)
+
+    result = module._postgres_agent_view_query_benchmark()
+
+    assert seen_explicit_urls == [None]
+    assert result["passed"] is False
+    assert result["skipped"] is True
+    assert result["errors"] == ["HK: RuntimeError"]
+    assert "secret" not in json.dumps(result)
+    assert "db.internal" not in json.dumps(result)
 
 
 def test_nightly_performance_baseline_reports_real_sample_and_optional_postgres_skip(tmp_path, monkeypatch):
@@ -141,6 +230,8 @@ def test_nightly_performance_baseline_reports_real_sample_and_optional_postgres_
     assert exit_code == 0
     assert payload["mode"] == "nightly"
     assert by_name["production_sample_manifest_files"]["passed"] is True
+    assert by_name["production_sample_manifest_files"]["domain"]["sample_root"] == "[configured]"
+    assert str(sample_root) not in output.read_text(encoding="utf-8")
     assert by_name["production_sample_manifest_files"]["domain"]["existing_samples"] == 5
     assert by_name["parser_document_full_load"]["passed"] is True
     assert by_name["parser_document_full_load"]["domain"]["loaded_documents"] == 5
@@ -364,6 +455,23 @@ def test_required_agent_memory_vector_probes_fail_without_embedding_endpoint(tmp
     assert failed["agent_memory_embedding_throughput"]["skipped"] is False
     assert failed["agent_memory_milvus_retrieval_latency"]["required"] is True
     assert failed["agent_memory_milvus_retrieval_latency"]["skipped"] is False
+
+
+def test_benchmark_redacts_exception_details():
+    module = _load_module()
+
+    def explode():
+        raise RuntimeError("failed postgresql://user:secret@private-db.invalid/siq")
+
+    result = module._benchmark(
+        module.BenchmarkSpec(name="redaction_probe", fn=explode),
+        repeat=1,
+        max_benchmark_seconds=30,
+    )
+
+    assert result["errors"] == ["RuntimeError"]
+    assert "secret" not in json.dumps(result)
+    assert "private-db.invalid" not in json.dumps(result)
 
 
 def test_benchmark_fails_on_domain_failure():

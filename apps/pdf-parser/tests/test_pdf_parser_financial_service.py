@@ -312,6 +312,16 @@ def test_financial_artifacts_match_market_rejects_old_non_cn_market_payloads():
     assert financial.financial_artifacts_match_market("CN", stale_data, stale_checks)
 
 
+def test_hk_financial_artifacts_require_current_profile_version_after_currency_policy_change():
+    stale = {
+        "schema_version": financial.FINANCIAL_DATA_SCHEMA_VERSION,
+        "rule_version": financial.FINANCIAL_RULE_VERSION,
+        "market": "HK",
+        "profile_rule_version": "hk-pdf-financial-profile-v2",
+    }
+    assert not financial.financial_artifacts_are_current(stale, dict(stale))
+
+
 def test_detect_market_recognizes_us_pdf_fallback_names():
     assert financial.detect_market({"submit_config": {"market": "US"}}, "anything.pdf") == "US"
     assert financial.detect_market({}, "NVIDIA_US_NVDA_2025-10-K_sec.pdf") == "US"

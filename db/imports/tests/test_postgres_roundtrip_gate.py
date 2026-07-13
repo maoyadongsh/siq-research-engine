@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import sys
 import types
 from pathlib import Path
@@ -146,6 +147,47 @@ def _counts():
         "quality_reports": 1,
         "financial_all_metrics_wide": 1,
     }
+
+
+def test_import_case_document_full_prohibits_fixture_before_loading_importer(tmp_path):
+    module = _load_module()
+    document_path = tmp_path / "document_full.json"
+    document_path.write_text(
+        json.dumps(
+            {
+                "identity_scope": "synthetic_fixture",
+                "task": {"task_id": "fixture-hk-roundtrip-guard"},
+                "financial_data": {
+                    "market": "HK",
+                    "company_id": "HK:FIXTURE:ROUNDTRIP_GUARD",
+                    "ticker": "FIXTURE_ROUNDTRIP_GUARD",
+                    "report_id": "HK:FIXTURE:ROUNDTRIP_GUARD:2025-annual",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    case = {
+        "case_id": "hk-roundtrip-guard",
+        "identity_scope": "synthetic_fixture",
+        "market": "HK",
+        "company_id": "HK:FIXTURE:ROUNDTRIP_GUARD",
+        "document_full_path": "document_full.json",
+        "expected_identity": {
+            "filing_id": "HK:FIXTURE:ROUNDTRIP_GUARD:2025-annual",
+        },
+    }
+
+    try:
+        module.import_case_document_full(
+            case,
+            cases_path=tmp_path / "cases.json",
+            imports_dir=tmp_path / "missing-importer",
+        )
+    except module.FixtureDatabaseWriteProhibitedError as exc:
+        assert "contract-only" in str(exc)
+    else:
+        raise AssertionError("expected roundtrip wrapper to prohibit fixture database import")
 
 
 def _fact():

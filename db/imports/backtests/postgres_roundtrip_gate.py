@@ -2,11 +2,22 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from typing import Any, Callable
 
-from postgres_roundtrip_helpers import (
+IMPORTS_DIR = Path(__file__).resolve().parents[1]
+if str(IMPORTS_DIR) not in sys.path:
+    sys.path.insert(0, str(IMPORTS_DIR))
+
+from market_document_full_fixture_policy import (  # noqa: E402
+    FixtureDatabaseWriteProhibitedError,  # noqa: F401
+    assert_safe_fixture_identity,
+    is_eval_fixture,
+    prohibit_fixture_database_write,
+)
+from postgres_roundtrip_helpers import (  # noqa: E402
     DB_DEFAULT_REQUIRED_FAMILIES,
     check_expected_counts,
     db_content_hashes,
@@ -41,12 +52,20 @@ def import_case_document_full(
     database_url: str | None = None,
     run_ddl: bool = True,
 ) -> str:
+    document_path = document_path_for_case(case, cases_path)
+    document_full = json.loads(document_path.read_text(encoding="utf-8"))
+    assert_safe_fixture_identity(
+        document_full,
+        case=case if is_eval_fixture(document_full, document_path=document_path) else None,
+        document_path=document_path,
+    )
+    prohibit_fixture_database_write(document_full, document_path=document_path)
     if str(imports_dir) not in sys.path:
         sys.path.insert(0, str(imports_dir))
     from import_market_document_full_to_postgres import import_document_full
 
     return import_document_full(
-        document_path_for_case(case, cases_path),
+        document_path,
         market=str(case.get("market") or ""),
         database_url_value=database_url,
         run_ddl_flag=run_ddl,

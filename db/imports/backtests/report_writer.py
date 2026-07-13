@@ -3,17 +3,38 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
+REPO_ROOT = Path(__file__).resolve().parents[3]
+EMBEDDED_LOCAL_PATH_RE = re.compile(r"(?:/(?:home|Users|tmp)/[^\s`\"'|,;]+|[A-Za-z]:\\+Users\\+[^\s`\"'|,;]+)")
+
+
+def _redact_report_paths(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _redact_report_paths(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_redact_report_paths(item) for item in value]
+    if not isinstance(value, str):
+        return value
+    path = Path(value)
+    if path.is_absolute():
+        try:
+            return path.resolve().relative_to(REPO_ROOT.resolve()).as_posix()
+        except ValueError:
+            return "[external]"
+    return EMBEDDED_LOCAL_PATH_RE.sub("[local-path]", value)
+
 
 def write_report(summary: dict[str, Any], output_path: Path | None, markdown_path: Path | None) -> None:
+    safe_summary = _redact_report_paths(summary)
     if output_path is not None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        output_path.write_text(json.dumps(safe_summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     if markdown_path is not None:
         markdown_path.parent.mkdir(parents=True, exist_ok=True)
-        markdown_path.write_text(render_markdown_report(summary), encoding="utf-8")
+        markdown_path.write_text(render_markdown_report(safe_summary), encoding="utf-8")
 
 
 def render_markdown_report(summary: dict[str, Any]) -> str:
@@ -40,6 +61,9 @@ def render_markdown_report(summary: dict[str, Any]) -> str:
         f"- Currency checks: {summary_payload.get('currency_checked_assertion_count', 0)}",
         f"- Unit/currency explainability ratio: {summary_payload.get('unit_currency_explainability_ratio', 0):.3f}",
         f"- PostgreSQL existing-row check verified: {summary_payload.get('postgres_existing_row_check_verified')}",
+        f"- Fixture PostgreSQL policy: {summary_payload.get('fixture_postgres_policy')}",
+        f"- Fixture PostgreSQL access executed: {summary_payload.get('fixture_postgres_access_executed')}",
+        f"- Fixture PostgreSQL import executed: {summary_payload.get('fixture_postgres_import_executed')}",
         f"- PostgreSQL roundtrip verified: {summary_payload.get('postgres_roundtrip_verified')}",
         f"- PostgreSQL import executed: {summary_payload.get('postgres_import_executed')}",
         f"- PostgreSQL idempotency verified: {summary_payload.get('postgres_idempotency_verified')}",
@@ -55,6 +79,7 @@ def render_markdown_report(summary: dict[str, Any]) -> str:
         f"- Real sample existing counts: `{json.dumps(summary_payload.get('production_sample_existing_counts') or {}, ensure_ascii=False, sort_keys=True)}`",
         f"- Real sample DB executed: {summary_payload.get('production_sample_db_executed')}",
         f"- Real sample DB verified: {summary_payload.get('production_sample_db_verified')}",
+        f"- Real sample DB idempotency verified: {summary_payload.get('production_sample_idempotency_verified')}",
         f"- Real sample DB cases: {summary_payload.get('production_sample_db_passed_count', 0)}/{summary_payload.get('production_sample_db_case_count', 0)}",
         f"- Real sample DB scope issues: {summary_payload.get('production_sample_db_scope_issue_count', 0)}",
         f"- Real sample DB coexistence verified: {summary_payload.get('production_sample_db_coexistence_verified')}",

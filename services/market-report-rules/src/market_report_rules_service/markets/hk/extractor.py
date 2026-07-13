@@ -5,6 +5,8 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
+from siq_market_contracts.financial_value_polarity import canonical_value_polarity
+
 from ...models import (
     AccountingStandard,
     EvidenceRef,
@@ -27,11 +29,20 @@ from ..common import (
 from .rules import find_hk_rule
 
 
-_HK_DEDUCTION_CANONICAL_NAMES = {
-    "cost_of_sales",
-    "finance_costs",
-    "income_tax_expense",
-}
+def resolve_hk_currency(
+    *,
+    unit: str | None,
+    declared_currency: str | None,
+    title: str | None = None,
+    fallback: str | None = None,
+) -> str | None:
+    """Resolve HK reporting currency from the most specific source evidence."""
+    return (
+        infer_currency(unit, default=None)
+        or infer_currency(title, default=None)
+        or infer_currency(declared_currency, default=None)
+        or infer_currency(fallback, default=fallback)
+    )
 
 
 def extract_artifact(artifact: ParsedArtifact) -> ExtractionResult:
@@ -48,7 +59,20 @@ def extract_artifact(artifact: ParsedArtifact) -> ExtractionResult:
             continue
         period_columns = _period_columns_for_table(table, artifact, detected_statement_type)
         table_unit = table.unit or artifact.unit
-        table_currency = infer_currency(table.currency, table.unit, table.title, artifact.currency, default=artifact.currency)
+        table_currency = resolve_hk_currency(
+            unit=table_unit,
+            declared_currency=table.currency,
+            title=table.title,
+            fallback=artifact.currency,
+        )
+        unit_currency = infer_currency(table_unit, default=None)
+        declared_currency = infer_currency(table.currency, default=None)
+        currency_conflict = bool(unit_currency and declared_currency and unit_currency != declared_currency)
+        if currency_conflict:
+            warnings.append(
+                f"HK table {table.table_id} currency conflict resolved from explicit unit: "
+                f"{declared_currency} -> {unit_currency}."
+            )
         scale = infer_scale(table_unit)
         pending_section_rule: Any | None = None
         pending_section_label: str | None = None
@@ -143,6 +167,13 @@ def extract_artifact(artifact: ParsedArtifact) -> ExtractionResult:
                             "table_id": table.table_id,
                             "row": row,
                             "detected_statement_type": detected_statement_type.value if detected_statement_type else None,
+                            "currency_resolution": {
+                                "declared_currency": declared_currency,
+                                "unit_currency": unit_currency,
+                                "resolved_currency": table_currency,
+                                "policy": "explicit_unit_then_title_then_declared_then_report_default",
+                                "conflict": currency_conflict,
+                            },
                         },
                     )
                 )
@@ -375,14 +406,15 @@ def _is_non_group_statement_table(table: ParsedTable, statement_type: StatementT
 
 
 def _normalize_statement_value(canonical_name: str, value: Decimal) -> Decimal:
-    if canonical_name in {
+    magnitude_canonical = canonical_name in {
         "total_liabilities",
         "current_liabilities",
         "non_current_liabilities",
         "borrowings",
         "lease_liabilities",
         "contract_liabilities",
-    } | _HK_DEDUCTION_CANONICAL_NAMES and value < 0:
+    } or canonical_value_polarity("HK", canonical_name) == "deduction_magnitude"
+    if magnitude_canonical and value < 0:
         return abs(value)
     return value
 

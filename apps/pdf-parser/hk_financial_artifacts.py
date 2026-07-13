@@ -8,7 +8,7 @@ from typing import Any
 
 from financial_extractor import FINANCIAL_CHECKS_SCHEMA_VERSION, FINANCIAL_DATA_SCHEMA_VERSION, FINANCIAL_RULE_VERSION
 
-HK_FINANCIAL_PROFILE_VERSION = "hk-pdf-financial-profile-v2"
+HK_FINANCIAL_PROFILE_VERSION = "hk-pdf-financial-profile-v3"
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RULES_SRC = REPO_ROOT / "services" / "market-report-rules" / "src"
@@ -22,9 +22,9 @@ from hk_evidence_lib import (  # noqa: E402
     _default_unit,
     _document_full_with_sidecars,
     _markdown_statement_tables,
+    infer_hk_reporting_currency,
     infer_metadata,
     parsed_tables_from_document_full,
-    read_json,
 )
 from market_report_rules_service.models import AccountingStandard, Market, ParsedArtifact  # noqa: E402
 from market_report_rules_service.normalization import parse_date  # noqa: E402
@@ -92,7 +92,12 @@ def _build_artifact(
     metadata["fiscal_year"] = _year(metadata.get("period_end")) or metadata.get("fiscal_year")
     metadata["report_type"] = metadata.get("report_type") or "annual"
     metadata["form"] = metadata.get("form") or metadata["report_type"]
-    content_report_type = _hk_report_type_from_content(document_full, markdown=_read_markdown(result_dir))
+    document_text = _read_markdown(result_dir)
+    if not document_text:
+        markdown_payload = document_full.get("markdown") if isinstance(document_full.get("markdown"), dict) else {}
+        document_text = str(markdown_payload.get("content") or "")
+    reporting_currency = infer_hk_reporting_currency(metadata, document_text)
+    content_report_type = _hk_report_type_from_content(document_full, markdown=document_text)
     if content_report_type:
         metadata["report_type"] = content_report_type
         metadata["form"] = content_report_type
@@ -114,7 +119,7 @@ def _build_artifact(
         period_end=parse_date(metadata.get("period_end")),
         accounting_standard=AccountingStandard(metadata.get("accounting_standard") or "HKFRS"),
         industry_profile=metadata.get("industry_profile") or "general",
-        currency=_default_currency(metadata),
+        currency=reporting_currency or _default_currency(metadata, document_text),
         unit=_default_unit(document_full),
         source_url=task.get("source_url") or "",
         source_files={"parser_result": str(result_dir), "pdf": str(pdf_path)},
@@ -167,6 +172,10 @@ def _year(value: Any) -> int | None:
 
 def _industry_from_identity(ticker: Any, company_name: Any, fallback: Any) -> str:
     text = f"{ticker or ''} {company_name or ''}".lower()
+    if str(ticker or "").zfill(5) in {"00005", "00939", "01288", "01398", "02388", "03968", "03988"} or "bank" in text:
+        return "bank"
+    if any(term in text for term in ("insurance", "life", "aia", "保险", "保險")):
+        return "insurance"
     if any(term in text for term in ("reit", "link")):
         return "real_estate"
     return str(fallback or "general")

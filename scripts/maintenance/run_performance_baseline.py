@@ -19,6 +19,12 @@ from types import SimpleNamespace
 from typing import Any, Callable, Iterator, Mapping
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+MAINTENANCE_DIR = Path(__file__).resolve().parent
+if str(MAINTENANCE_DIR) not in sys.path:
+    sys.path.insert(0, str(MAINTENANCE_DIR))
+
+from evidence_metadata import attach_evidence_metadata  # noqa: E402
+
 DEFAULT_OUTPUT = REPO_ROOT / "artifacts" / "eval-runs" / "ci" / "performance_baseline.json"
 DEFAULT_MARKDOWN = REPO_ROOT / "artifacts" / "eval-runs" / "ci" / "performance_baseline.md"
 DEFAULT_MARKET_INGESTION_CASE_ROOT = REPO_ROOT / "eval_datasets" / "market_ingestion_contract" / "cases"
@@ -52,7 +58,9 @@ EMBEDDING_MODEL_ENVS = (
     "EMBEDDING_MODEL",
 )
 DEFAULT_AGENT_MEMORY_EMBEDDING_MODEL = "Qwen3-VL-Embedding-2B"
-DEFAULT_AGENT_MEMORY_COLLECTION = "siq_agent_memory"
+# Production/local compose uses this alias to switch between versioned physical
+# collections without allowing a schema-mismatched v1 collection to be queried.
+DEFAULT_AGENT_MEMORY_COLLECTION = "siq_agent_memory_active"
 
 BenchmarkCallable = Callable[[], dict[str, Any]]
 
@@ -142,7 +150,7 @@ def _benchmark(
             domain = spec.fn()
         except Exception as exc:  # pragma: no cover - exercised through integration-style failures
             domain = {}
-            errors.append(f"{type(exc).__name__}: {exc}")
+            errors.append(type(exc).__name__)
         elapsed = time.perf_counter() - started
         elapsed_ms.append(elapsed * 1000)
         if elapsed > max_benchmark_seconds:
@@ -282,7 +290,7 @@ def _production_sample_manifest_benchmark(
             sizes.append(Path(str(sample["resolved_path"])).stat().st_size)
     return {
         "passed": bool(result.get("passed")) and bool(sizes),
-        "sample_root": str(sample_root),
+        "sample_root": "[configured]",
         "sample_goal_per_market": result.get("sample_goal_per_market"),
         "market_counts": result.get("market_counts"),
         "existing_counts": result.get("existing_counts"),
@@ -345,7 +353,7 @@ def _parser_document_full_load_benchmark(
         path = Path(str(sample["resolved_path"]))
         payload = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(payload, dict):
-            return {"passed": False, "reason": f"document_full is not a JSON object: {path}"}
+            return {"passed": False, "reason": "document_full is not a JSON object"}
         loaded += 1
         total_bytes += path.stat().st_size
         market = str(sample.get("market") or "UNKNOWN")
@@ -359,17 +367,14 @@ def _parser_document_full_load_benchmark(
     }
 
 
-def _postgres_agent_view_query_benchmark(
-    *,
-    database_url: str | None,
-) -> dict[str, Any]:
+def _postgres_agent_view_query_benchmark() -> dict[str, Any]:
     try:
         import psycopg
     except Exception as exc:
         return {
             "passed": False,
             "skipped": True,
-            "reason": f"psycopg unavailable: {exc}",
+            "reason": f"psycopg unavailable: {type(exc).__name__}",
         }
     backtest = _load_module(
         "siq_market_document_full_postgres_backtest_for_perf_query",
@@ -379,7 +384,7 @@ def _postgres_agent_view_query_benchmark(
     markets: dict[str, dict[str, Any]] = {}
     errors: list[str] = []
     for market, schema in backtest.MARKET_SCHEMAS.items():
-        url = backtest.database_url_for_market(market, database_url)
+        url = backtest.database_url_for_market(market, None)
         query_started = time.perf_counter()
         try:
             with psycopg.connect(url) as conn:
@@ -398,7 +403,7 @@ def _postgres_agent_view_query_benchmark(
             if row_count <= 0:
                 errors.append(f"{market} v_agent_financial_facts returned no rows")
         except Exception as exc:
-            errors.append(f"{market}: {type(exc).__name__}: {exc}")
+            errors.append(f"{market}: {type(exc).__name__}")
     return {
         "passed": not errors and bool(markets),
         "skipped": bool(errors) and not markets,
@@ -691,7 +696,7 @@ def build_benchmark_specs(args: argparse.Namespace) -> list[BenchmarkSpec]:
             specs.append(
                 BenchmarkSpec(
                     name="postgres_agent_view_query_latency",
-                    fn=lambda: _postgres_agent_view_query_benchmark(database_url=args.database_url),
+                    fn=_postgres_agent_view_query_benchmark,
                     required=nightly_required,
                 )
             )
@@ -767,12 +772,22 @@ def write_json(path: Path, payload: Any) -> None:
 
 
 def render_markdown(report: dict[str, Any]) -> str:
+    worktree_summary = report.get("worktree_summary") or {}
     lines = [
         "# SIQ Performance Baseline",
         "",
         f"- Mode: `{report.get('mode')}`",
         f"- Status: **{'PASS' if report.get('passed') else 'FAIL'}**",
         f"- Generated: `{report.get('generated_at')}`",
+        f"- Base commit: `{report.get('base_commit', 'unknown')}`",
+        f"- Worktree dirty: `{report.get('worktree_dirty', True)}` "
+        f"(tracked={worktree_summary.get('tracked_changes', 'unknown')}, "
+        f"untracked={worktree_summary.get('untracked_changes', 'unknown')})",
+        f"- Task: `{report.get('task_id', 'unknown')}`",
+        f"- Environment: `{report.get('environment_profile', 'unknown')}`",
+        f"- Result: `{report.get('result', 'unknown')}`",
+        f"- Duration: `{report.get('duration_seconds', 0):.3f}s`",
+        f"- Command: `{report.get('command', 'unknown')}`",
         "",
         "| Benchmark | Iterations | P50 ms | P95 ms | P99 ms | Max ms | RSS Δ KB | Domain |",
         "| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
@@ -800,6 +815,23 @@ def render_markdown(report: dict[str, Any]) -> str:
             f"{elapsed.get('p50')} | {elapsed.get('p95')} | {elapsed.get('p99')} | {elapsed.get('max')} | "
             f"{item.get('rss_delta_kb')} | {domain_summary or '-'} |"
         )
+    lines.extend(["", "## Failures", ""])
+    failures = report.get("failures") or []
+    lines.extend(
+        [f"- `{json.dumps(failure, ensure_ascii=False, sort_keys=True)}`" for failure in failures]
+        or ["- None"]
+    )
+    lines.extend(
+        [
+            "",
+            "## Artifact Checksums",
+            "",
+            "| Artifact | SHA-256 |",
+            "| --- | --- |",
+        ]
+    )
+    for artifact, checksum in sorted((report.get("artifact_checksums") or {}).items()):
+        lines.append(f"| `{artifact}` | `{checksum}` |")
     return "\n".join(lines) + "\n"
 
 
@@ -814,7 +846,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--production-sample-manifest", type=Path, default=DEFAULT_PRODUCTION_SAMPLE_MANIFEST)
     parser.add_argument("--production-sample-root", type=Path, default=None)
     parser.add_argument("--max-nightly-sample-files", type=int, default=15)
-    parser.add_argument("--database-url", default=None)
     parser.add_argument("--require-nightly-inputs", action="store_true")
     parser.add_argument("--skip-postgres-nightly", action="store_true")
     parser.add_argument("--skip-agent-memory-vector-probes", action="store_true")
@@ -835,12 +866,105 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _performance_evidence_artifacts(args: argparse.Namespace) -> list[Path]:
+    artifacts = [
+        Path(__file__).resolve(),
+        repo_path(args.document_full_cases),
+        repo_path(args.production_sample_manifest),
+    ]
+    artifacts.extend(sorted(repo_path(args.market_ingestion_case_root).rglob("*.json")))
+    artifacts.extend(
+        sorted(repo_path(args.market_ingestion_wiki_root).rglob("manifest.json"))
+    )
+    market_manifest = repo_path(args.market_package) / "manifest.json"
+    if market_manifest.is_file():
+        artifacts.append(market_manifest)
+    if args.agent_memory_retrieval_cases:
+        artifacts.append(repo_path(args.agent_memory_retrieval_cases))
+    return sorted(
+        {path.resolve() for path in artifacts},
+        key=lambda path: path.as_posix(),
+    )
+
+
+def _performance_evidence_command(args: argparse.Namespace) -> str:
+    parts = [
+        "python",
+        "scripts/maintenance/run_performance_baseline.py",
+        "--mode",
+        args.mode,
+        "--repeat",
+        str(max(1, int(args.repeat))),
+        "--max-benchmark-seconds",
+        str(float(args.max_benchmark_seconds)),
+        "--max-nightly-sample-files",
+        str(max(1, int(args.max_nightly_sample_files))),
+        "--market-ingestion-case-root",
+        "<configured-path>",
+        "--market-ingestion-wiki-root",
+        "<configured-path>",
+        "--document-full-cases",
+        "<configured-path>",
+        "--production-sample-manifest",
+        "<configured-path>",
+        "--market-package",
+        "<configured-path>",
+        "--agent-memory-vector-collection",
+        "<configured-collection>",
+        "--agent-memory-retrieval-top-k",
+        str(max(1, int(args.agent_memory_retrieval_top_k))),
+        "--agent-memory-retrieval-max-cases",
+        str(max(1, int(args.agent_memory_retrieval_max_cases))),
+    ]
+    if args.production_sample_root is not None:
+        parts.extend(["--production-sample-root", "<configured-path>"])
+    if args.require_nightly_inputs:
+        parts.append("--require-nightly-inputs")
+    if args.skip_postgres_nightly:
+        parts.append("--skip-postgres-nightly")
+    if args.skip_agent_memory_vector_probes:
+        parts.append("--skip-agent-memory-vector-probes")
+    if args.require_agent_memory_vector_probes:
+        parts.append("--require-agent-memory-vector-probes")
+    if args.agent_memory_embedding_base_url is not None or args.require_agent_memory_vector_probes:
+        parts.extend(["--agent-memory-embedding-base-url", "<configured-url>"])
+    if args.agent_memory_embedding_model is not None or args.require_agent_memory_vector_probes:
+        parts.extend(["--agent-memory-embedding-model", "<configured-model>"])
+    if args.agent_memory_retrieval_cases is not None:
+        parts.extend(["--agent-memory-retrieval-cases", "<configured-path>"])
+    parts.extend(["--output", "<artifact.json>", "--markdown", "<artifact.md>"])
+    return " ".join(parts)
+
+
+def _performance_failures(report: dict[str, Any]) -> list[dict[str, str]]:
+    return [
+        {"code": "benchmark_failed", "benchmark": str(item.get("name") or "unknown")}
+        for item in report.get("benchmarks") or []
+        if not item.get("passed")
+    ]
+
+
 def main(argv: list[str] | None = None) -> int:
+    started_at = time.monotonic()
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.skip_agent_memory_vector_probes and args.require_agent_memory_vector_probes:
         parser.error("--require-agent-memory-vector-probes cannot be combined with --skip-agent-memory-vector-probes")
     report = run_performance_baseline(args)
+    environment_profile = f"local-performance-{args.mode}"
+    if args.require_agent_memory_vector_probes:
+        environment_profile += "-required-vector-live"
+    report = attach_evidence_metadata(
+        report,
+        repo_root=REPO_ROOT,
+        task_id="T10",
+        environment_profile=environment_profile,
+        command=_performance_evidence_command(args),
+        result="pass" if report["passed"] else "fail",
+        failures=_performance_failures(report),
+        started_at=started_at,
+        artifacts=_performance_evidence_artifacts(args),
+    )
     output = repo_path(args.output)
     markdown = repo_path(args.markdown)
     write_json(output, report)

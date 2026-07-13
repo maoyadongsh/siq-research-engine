@@ -312,6 +312,7 @@ def run_cases(
     require_production_sample_files: bool = True,
     production_sample_db: bool = False,
     production_agent_query: bool = False,
+    fixture_postgres: bool = True,
 ) -> dict[str, Any]:
     if idempotency and not import_before_db_check:
         raise ValueError("--idempotency requires --import-before-db-check")
@@ -323,6 +324,7 @@ def run_cases(
         raise ValueError("--production-sample-db requires --idempotency")
     if production_sample_db and not require_production_sample_files:
         raise ValueError("--production-sample-db requires real sample files")
+    fixture_db_enabled = bool(verify_db and fixture_postgres)
     payload = read_json(cases_path)
     cases = payload.get("cases") if isinstance(payload, dict) else None
     if not isinstance(cases, list):
@@ -345,7 +347,7 @@ def run_cases(
         database_url=database_url,
         import_before_check=import_before_db_check,
         idempotency=idempotency,
-    ) if verify_db else []
+    ) if fixture_db_enabled else []
     db_result_by_case = {result.get("case_id"): result for result in db_results if isinstance(result, dict)}
     fixture_production_agent_results = [
         check_production_agent_case(
@@ -354,7 +356,7 @@ def run_cases(
             db_result=db_result_by_case.get(case.get("case_id")),
         )
         for case in cases
-    ] if verify_db and production_agent_query else []
+    ] if fixture_db_enabled and production_agent_query else []
     wiki_postgres_parity_results = [
         check_wiki_postgres_parity_case(
             case,
@@ -363,7 +365,7 @@ def run_cases(
             db_result=db_result_by_case.get(case.get("case_id")),
         )
         for case in cases
-    ] if verify_db and import_before_db_check else []
+    ] if fixture_db_enabled and import_before_db_check else []
 
     production_sample_db_results = check_db_case_sequence(
         production_sample_cases,
@@ -445,10 +447,14 @@ def run_cases(
     all_passed = (
         all(result["passed"] for result in results)
         and agent_verified
-        and (db_verified if verify_db else True)
+        and (db_verified if fixture_db_enabled else True)
         and (production_sample_db_verified if production_sample_db else True)
         and (production_agent_query_verified if production_agent_query else True)
-        and (wiki_postgres_parity_verified if verify_db and import_before_db_check else True)
+        and (
+            wiki_postgres_parity_verified
+            if import_before_db_check and (fixture_db_enabled or production_sample_db)
+            else True
+        )
     )
     evidence_passed_count = sum(int(result.get("required_evidence_passed_count") or 0) for result in results)
     evidence_checked_count = sum(int(result.get("required_evidence_checked_count") or 0) for result in results)
@@ -461,13 +467,36 @@ def run_cases(
         db_required_evidence_checks and all(check.get("passed") for check in db_required_evidence_checks)
     )
     real_sample_minimum_met = bool(sample_manifest_result.get("passed"))
+    production_sample_idempotency_verified = bool(
+        production_sample_db_verified
+        and idempotency
+        and production_sample_db_results
+        and all(result.get("idempotency_checked") for result in production_sample_db_results)
+    )
+    fixture_postgres_write_prohibited = not fixture_postgres
+    effective_postgres_idempotency_verified = (
+        postgres_idempotency_verified
+        if fixture_db_enabled
+        else production_sample_idempotency_verified
+    )
+    effective_postgres_required_evidence_verified = (
+        postgres_required_evidence_verified
+        if fixture_db_enabled
+        else production_sample_db_verified
+    )
     acceptance_requirements = {
         "fixture_contract": all(result["passed"] for result in results),
         "fixture_agent_fact_lookup": agent_verified,
-        "postgres_import_idempotency": postgres_idempotency_verified,
-        "postgres_required_evidence": postgres_required_evidence_verified,
+        **(
+            {"fixture_postgres_write_prohibited": fixture_postgres_write_prohibited}
+            if not fixture_postgres
+            else {}
+        ),
+        "postgres_import_idempotency": effective_postgres_idempotency_verified,
+        "postgres_required_evidence": effective_postgres_required_evidence_verified,
         "real_sample_minimum": real_sample_minimum_met,
         "real_sample_postgres_roundtrip": production_sample_db_verified,
+        "real_sample_postgres_idempotency": production_sample_idempotency_verified,
         "real_sample_postgres_coexistence": production_sample_db_coexistence_verified,
         "real_sample_agent_view_query": production_sample_agent_view_verified,
         "wiki_postgres_query_parity": wiki_postgres_parity_verified,
@@ -478,15 +507,17 @@ def run_cases(
         "schema_version": "market_document_full_postgres_backtest_results_v1",
         "cases_path": str(cases_path),
         "mode": (
-            "document_full_fixture_contract+postgres_import_idempotency"
-            if verify_db and import_before_db_check and idempotency
+            "document_full_fixture_contract+real_sample_postgres_release_gate"
+            if verify_db and not fixture_db_enabled and production_sample_db
+            else "document_full_fixture_contract+postgres_import_idempotency"
+            if fixture_db_enabled and import_before_db_check and idempotency
             else "document_full_fixture_contract+postgres_import_roundtrip"
-            if verify_db and import_before_db_check
+            if fixture_db_enabled and import_before_db_check
             else "document_full_fixture_contract+postgres_existing_row_check"
-            if verify_db
+            if fixture_db_enabled
             else "document_full_fixture_contract"
         ),
-        "note": "This runner validates document_full row-shape, identity, value, unit/currency, evidence contracts, fixed fixture fact-lookups, and the real-sample manifest. With --db it checks PostgreSQL table-family/table counts and required-evidence facts; --import-before-db-check first imports document_full fixtures; --idempotency repeats the import and compares row/table counts plus content hashes; --production-agent-query validates fixed Agent questions and real-sample parse_run probes through v_agent_financial_facts; DB import mode also compares Wiki/document_full facts against PostgreSQL Agent-view facts for the same metrics.",
+        "note": "This runner validates document_full row-shape, identity, value, unit/currency, evidence contracts, fixed fixture fact-lookups, and the real-sample manifest. Committed eval fixtures are contract-only and the importer rejects their fixed-database writes before connect. fixture_postgres=False also prevents fixture PostgreSQL reads in release mode while retaining real-sample idempotency, Agent-view, coexistence, and Wiki/PostgreSQL parity gates.",
         "passed": all_passed,
         "acceptance_passed": acceptance_passed,
         "acceptance_requirements": acceptance_requirements,
@@ -509,13 +540,32 @@ def run_cases(
             ),
             "unit_currency_explainability_passed_count": unit_currency_passed_count,
             "unit_currency_explainability_checked_count": unit_currency_explainability_checked_count,
-            "postgres_existing_row_check_verified": bool(verify_db and not import_before_db_check and db_verified),
-            "postgres_roundtrip_verified": bool(verify_db and import_before_db_check and db_verified),
-            "postgres_import_executed": bool(verify_db and import_before_db_check),
+            "fixture_postgres_policy": (
+                "enabled"
+                if fixture_db_enabled
+                else "prohibited"
+                if not fixture_postgres
+                else "inactive"
+            ),
+            "fixture_postgres_access_executed": fixture_db_enabled,
+            "fixture_postgres_import_executed": bool(
+                fixture_db_enabled and import_before_db_check
+            ),
+            "postgres_existing_row_check_verified": bool(
+                fixture_db_enabled and not import_before_db_check and db_verified
+            ),
+            "postgres_roundtrip_verified": bool(
+                fixture_db_enabled and import_before_db_check and db_verified
+            ),
+            "postgres_import_executed": bool(
+                fixture_db_enabled and import_before_db_check
+            ),
             "postgres_idempotency_verified": postgres_idempotency_verified,
             "postgres_roundtrip_passed_count": db_passed_count,
             "postgres_roundtrip_case_count": db_case_count,
-            "postgres_family_count_checked_count": db_case_count * len(DB_TABLE_FAMILIES) if verify_db else 0,
+            "postgres_family_count_checked_count": (
+                db_case_count * len(DB_TABLE_FAMILIES) if fixture_db_enabled else 0
+            ),
             "postgres_table_count_checked_count": db_table_count_check_count,
             "postgres_scope_issue_count": db_scope_issue_count,
             "postgres_required_evidence_verified": postgres_required_evidence_verified,
@@ -534,6 +584,7 @@ def run_cases(
             "real_sample_minimum_met": real_sample_minimum_met,
             "production_sample_db_executed": bool(production_sample_db),
             "production_sample_db_verified": production_sample_db_verified,
+            "production_sample_idempotency_verified": production_sample_idempotency_verified,
             "production_sample_db_passed_count": production_sample_db_passed_count,
             "production_sample_db_case_count": len(production_sample_db_results),
             "production_sample_db_scope_issue_count": production_sample_db_scope_issue_count,
@@ -599,6 +650,7 @@ def run_cases(
         "production_sample_manifest": sample_manifest_result,
         "production_sample_db_results": production_sample_db_results,
         "production_sample_db_coexistence_results": production_sample_db_coexistence_results,
+        "fixture_production_agent_results": fixture_production_agent_results,
         "production_sample_agent_results": production_sample_agent_results,
         "production_agent_results": production_agent_results,
         "wiki_postgres_parity_results": wiki_postgres_parity_results,
@@ -621,7 +673,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--markdown", type=Path, default=DEFAULT_MARKDOWN_PATH, help="Write Markdown report.")
     parser.add_argument("--no-write", action="store_true", help="Do not write report files.")
     parser.add_argument("--db", action="store_true", help="Also verify PostgreSQL row counts for cases with market schemas.")
-    parser.add_argument("--import-before-db-check", action="store_true", help="With --db, run the document_full importer before checking row counts.")
+    parser.add_argument(
+        "--import-before-db-check",
+        action="store_true",
+        help=(
+            "With --db, enable production-sample imports before checks; committed eval "
+            "fixture imports remain prohibited."
+        ),
+    )
     parser.add_argument("--idempotency", action="store_true", help="With --db --import-before-db-check, import each case twice and compare row counts.")
     parser.add_argument("--database-url", default=None, help="Override PostgreSQL URL for --db checks.")
     parser.add_argument(
@@ -666,6 +725,7 @@ def main(argv: list[str] | None = None) -> int:
         production_sample_manifest_path=production_sample_manifest_path,
         production_sample_db=args.production_sample_db,
         production_agent_query=args.production_agent_query,
+        fixture_postgres=not args.import_before_db_check,
     )
     if not args.no_write:
         write_report(summary, args.output, args.markdown)

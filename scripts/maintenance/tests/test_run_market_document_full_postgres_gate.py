@@ -4,6 +4,8 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
 
 def _load_gate_module():
     source = Path(__file__).resolve().parents[1] / "run_market_document_full_postgres_gate.py"
@@ -15,6 +17,20 @@ def _load_gate_module():
 
 
 def _summary(*, passed=True, acceptance_passed=False, db_results=None, parity_results=None, production_agent_results=None):
+    safe_production_db_results = [
+        {
+            "case_id": "production_sample_hk_01",
+            "market": "HK",
+            "passed": True,
+            "imported_before_check": True,
+            "idempotency_checked": True,
+        }
+    ] if acceptance_passed else []
+    safe_production_agent_results = (
+        production_agent_results
+        if production_agent_results is not None
+        else ([{"case_id": "production_sample_hk_01", "market": "HK", "passed": True}] if acceptance_passed else [])
+    )
     return {
         "schema_version": "market_document_full_postgres_backtest_results_v1",
         "passed": passed,
@@ -23,17 +39,39 @@ def _summary(*, passed=True, acceptance_passed=False, db_results=None, parity_re
         "case_count": 1,
         "acceptance_requirements": {
             "fixture_contract": passed,
+            "fixture_postgres_write_prohibited": acceptance_passed,
             "postgres_import_idempotency": acceptance_passed,
+            "postgres_required_evidence": acceptance_passed,
+            "real_sample_minimum": acceptance_passed,
+            "real_sample_postgres_roundtrip": acceptance_passed,
+            "real_sample_postgres_idempotency": acceptance_passed,
+            "real_sample_postgres_coexistence": acceptance_passed,
+            "real_sample_agent_view_query": acceptance_passed,
+            "wiki_postgres_query_parity": acceptance_passed,
+            "production_agent_query": acceptance_passed,
         },
-        "summary": {"postgres_import_executed": bool(db_results)},
+        "summary": {
+            "postgres_import_executed": bool(db_results),
+            "fixture_postgres_policy": "prohibited",
+            "fixture_postgres_access_executed": False,
+            "fixture_postgres_import_executed": False,
+        },
         "results": [],
         "agent_results": [],
         "db_results": db_results or [],
-        "production_sample_db_results": [],
-        "production_sample_db_coexistence_results": [],
-        "production_agent_results": production_agent_results or [],
+        "production_sample_db_results": safe_production_db_results,
+        "production_sample_db_coexistence_results": (
+            [{"market": "HK", "passed": True}] if acceptance_passed else []
+        ),
+        "fixture_production_agent_results": [],
+        "production_sample_agent_results": safe_production_agent_results,
+        "production_agent_results": safe_production_agent_results,
         "wiki_postgres_parity_results": parity_results or [],
-        "production_sample_wiki_postgres_parity_results": [],
+        "production_sample_wiki_postgres_parity_results": (
+            [{"case_id": "production_sample_hk_01", "market": "HK", "passed": True}]
+            if acceptance_passed
+            else []
+        ),
     }
 
 
@@ -63,6 +101,15 @@ def _install_fakes(monkeypatch, module, summary):
     monkeypatch.setattr(module, "run_cases", fake_run_cases)
     monkeypatch.setattr(module, "write_report", fake_write_report)
     monkeypatch.setattr(module, "validate_production_sample_manifest", fake_validate_production_sample_manifest)
+    monkeypatch.setattr(
+        module,
+        "audit_fixture_contamination",
+        lambda **_kwargs: {
+            "passed": True,
+            "contaminated_run_count": 0,
+            "error_count": 0,
+        },
+    )
     return calls, writes
 
 
@@ -209,11 +256,120 @@ def test_offline_postgres_mode_uses_strict_acceptance_gate(monkeypatch, tmp_path
             "require_production_sample_files": True,
             "production_sample_db": True,
             "production_agent_query": True,
+            "fixture_postgres": False,
         }
     ]
     assert writes[0]["output_path"] == tmp_path / "market_document_full_postgres_offline_postgres_gate.json"
     assert writes[0]["markdown_path"] == tmp_path / "market_document_full_postgres_offline_postgres_gate.md"
     assert module.PRODUCTION_SAMPLE_ROOT_ENV not in module.os.environ
+
+
+def test_offline_postgres_gate_fails_closed_if_fixture_db_results_appear(monkeypatch, tmp_path):
+    module = _load_gate_module()
+    summary = _summary(passed=True, acceptance_passed=True)
+    summary["db_results"] = [{"case_id": "hk-fixture", "market": "HK", "passed": True}]
+    _install_fakes(monkeypatch, module, summary)
+
+    exit_code = module.main(
+        [
+            "--mode",
+            "offline-postgres",
+            "--production-sample-root",
+            str(tmp_path / "market-samples"),
+            "--output-dir",
+            str(tmp_path),
+        ]
+    )
+
+    assert exit_code == 1
+    assert summary["offline_fixture_safety"]["passed"] is False
+    assert summary["offline_fixture_safety"]["fixture_result_counts"]["db_results"] == 1
+
+
+def test_offline_postgres_gate_requires_real_sample_idempotency_evidence(monkeypatch, tmp_path):
+    module = _load_gate_module()
+    summary = _summary(passed=True, acceptance_passed=True)
+    summary["production_sample_db_results"][0]["idempotency_checked"] = False
+    _install_fakes(monkeypatch, module, summary)
+
+    exit_code = module.main(
+        [
+            "--mode",
+            "offline-postgres",
+            "--production-sample-root",
+            str(tmp_path / "market-samples"),
+            "--output-dir",
+            str(tmp_path),
+        ]
+    )
+
+    assert exit_code == 1
+    assert summary["offline_fixture_safety"]["production_sample_db_idempotency_proven"] is False
+
+
+@pytest.mark.parametrize(
+    "result_field",
+    [
+        "production_sample_db_results",
+        "production_sample_db_coexistence_results",
+        "production_sample_agent_results",
+        "production_sample_wiki_postgres_parity_results",
+    ],
+)
+def test_offline_postgres_gate_requires_every_real_sample_result_family(
+    monkeypatch, tmp_path, result_field
+):
+    module = _load_gate_module()
+    summary = _summary(passed=True, acceptance_passed=True)
+    summary[result_field] = []
+    _install_fakes(monkeypatch, module, summary)
+
+    exit_code = module.main(
+        [
+            "--mode",
+            "offline-postgres",
+            "--production-sample-root",
+            str(tmp_path / "market-samples"),
+            "--output-dir",
+            str(tmp_path),
+        ]
+    )
+
+    assert exit_code == 1
+    assert summary["offline_fixture_safety"]["real_sample_result_fields_present"] is False
+
+
+def test_offline_postgres_gate_blocks_existing_fixture_contamination(
+    monkeypatch, tmp_path, capsys
+):
+    module = _load_gate_module()
+    summary = _summary(passed=True, acceptance_passed=True)
+    _install_fakes(monkeypatch, module, summary)
+    monkeypatch.setattr(
+        module,
+        "audit_fixture_contamination",
+        lambda **_kwargs: {
+            "passed": False,
+            "contaminated_run_count": 6,
+            "error_count": 0,
+        },
+    )
+
+    exit_code = module.main(
+        [
+            "--mode",
+            "offline-postgres",
+            "--production-sample-root",
+            str(tmp_path / "market-samples"),
+            "--output-dir",
+            str(tmp_path),
+        ]
+    )
+
+    assert exit_code == 1
+    assert summary["fixture_contamination_audit"]["contaminated_run_count"] == 6
+    assert summary["offline_fixture_safety"]["contamination_audit_clean"] is False
+    assert "Offline fixture safety failed: contaminated_runs=6" in capsys.readouterr().out
 
 
 def test_offline_postgres_mode_restores_existing_sample_root_env(monkeypatch, tmp_path):
@@ -293,7 +449,7 @@ def test_failed_gate_prints_actionable_summary(monkeypatch, tmp_path, capsys):
 
     output = capsys.readouterr().out
     assert exit_code == 1
-    assert "Failed acceptance requirements: postgres_import_idempotency" in output
+    assert "postgres_import_idempotency" in output
     assert "db_results: US us-real-1 failed: missing evidence_citations" in output
     assert "production_agent_results: HK hk-agent-revenue revenue: value_mismatch" in output
 
@@ -337,6 +493,77 @@ def test_failed_gate_prints_scope_issues_even_without_duplicate_errors(monkeypat
     assert message in output
 
 
+def test_failed_gate_omits_intentional_skipped_market_results(monkeypatch, tmp_path, capsys):
+    module = _load_gate_module()
+    _install_fakes(
+        monkeypatch,
+        module,
+        _summary(
+            passed=True,
+            acceptance_passed=False,
+            db_results=[
+                {
+                    "market": "CN",
+                    "case_id": "cn-legacy-fixture",
+                    "passed": True,
+                    "skipped": True,
+                    "reason": "legacy_or_unsupported_market",
+                }
+            ],
+        ),
+    )
+
+    exit_code = module.main(
+        [
+            "--mode",
+            "offline-postgres",
+            "--production-sample-root",
+            str(tmp_path / "market-samples"),
+            "--output-dir",
+            str(tmp_path),
+        ]
+    )
+
+    output = capsys.readouterr().out
+    assert exit_code == 1
+    assert "legacy_or_unsupported_market" not in output
+
+
+def test_failed_gate_reports_skipped_result_without_explicit_pass(monkeypatch, tmp_path, capsys):
+    module = _load_gate_module()
+    _install_fakes(
+        monkeypatch,
+        module,
+        _summary(
+            passed=True,
+            acceptance_passed=False,
+            db_results=[
+                {
+                    "market": "US",
+                    "case_id": "production-sample-us",
+                    "skipped": True,
+                    "reason": "database unavailable",
+                }
+            ],
+        ),
+    )
+
+    exit_code = module.main(
+        [
+            "--mode",
+            "offline-postgres",
+            "--production-sample-root",
+            str(tmp_path / "market-samples"),
+            "--output-dir",
+            str(tmp_path),
+        ]
+    )
+
+    output = capsys.readouterr().out
+    assert exit_code == 1
+    assert "database unavailable" in output
+
+
 def test_release_gate_wrapper_runs_financial_qa_benchmarks():
     repo_root = Path(__file__).resolve().parents[3]
     wrapper = (repo_root / "scripts/ops/run_market_postgres_release_gate.sh").read_text(encoding="utf-8")
@@ -373,6 +600,24 @@ def test_release_gate_wrapper_runs_financial_qa_benchmarks():
     assert "financial_qa_benchmark_trace_offline.json" in wrapper
     assert "financial_qa_benchmark_wiki_static.json" in wrapper
     assert "run_parser_financial_pdf_release_gate.py" in wrapper
+    assert "SIQ_FINANCIAL_GOLDEN_SAMPLE_ROOT" in wrapper
+    assert "run_permission_negative_report.py" in wrapper
+    assert "SIQ_PERMISSION_NEGATIVE_GATE_REQUIRED" in wrapper
+    assert "run_restore_matrix.py" in wrapper
+    assert "SIQ_RESTORE_MATRIX_BACKUP_DIR" in wrapper
+    assert "SIQ_RESTORE_MATRIX_ADMIN_URL" in wrapper
+    assert "restore-matrix.json" in wrapper
+    assert "check_production_config.py" in wrapper
+    assert "SIQ_PRODUCTION_CONFIG_REQUIRED" in wrapper
+    assert "write_release_artifact_manifest.py" in wrapper
+    assert "MANIFEST_REQUIRED_ARGS" in wrapper
+    assert "--required-artifact" in wrapper
+    assert "market_document_full_postgres_contract_gate.json" in wrapper
+    assert "market_document_full_postgres_offline_postgres_gate.json" in wrapper
+    assert "financial_qa_benchmark_trace_offline.json" in wrapper
+    assert "financial_qa_benchmark_wiki_static.json" in wrapper
+    assert "parser_financial_golden.json" in wrapper
+    assert "permission-negative-report.json" in wrapper
     assert "SIQ_PARSER_FINANCIAL_PDF_GATE_MODE" in wrapper
     assert "SIQ_PARSER_FINANCIAL_PDF_GATE_REQUIRED" in wrapper
     assert "off|preflight|live-http" in wrapper
@@ -465,7 +710,7 @@ def test_release_gate_wrapper_blocks_required_pdf_gate_failure(tmp_path):
     assert "--output " in calls and "parser_financial_pdf_release.json" in calls
 
 
-def test_release_gate_wrapper_keeps_optional_pdf_gate_as_advisory(tmp_path):
+def test_release_gate_wrapper_blocks_any_executed_pdf_gate_failure(tmp_path):
     repo_root = Path(__file__).resolve().parents[3]
     fake_python = tmp_path / "fake-python"
     fake_python.write_text(
@@ -502,8 +747,120 @@ def test_release_gate_wrapper_keeps_optional_pdf_gate_as_advisory(tmp_path):
         text=True,
     )
 
-    assert completed.returncode == 0
-    assert "returned BLOCKED but is not required" in completed.stderr
+    assert completed.returncode == 1
+
+
+def test_release_gate_wrapper_requires_explicit_production_config_by_default(tmp_path):
+    repo_root = Path(__file__).resolve().parents[3]
+    fake_python = tmp_path / "fake-python"
+    log_path = tmp_path / "python-args.log"
+    config_path = tmp_path / "production.env"
+    config_path.write_text("SIQ_DEPLOYMENT_PROFILE=development\n", encoding="utf-8")
+    fake_python.write_text(
+        "#!/usr/bin/env bash\n"
+        'printf "%s\\n" "$*" >> "$SIQ_FAKE_PYTHON_LOG"\n'
+        'case "$*" in\n'
+        "  *check_production_config.py*) exit 1 ;;\n"
+        "  *) exit 0 ;;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    fake_python.chmod(0o755)
+    env = os.environ.copy()
+    env.update(
+        {
+            "PYTHON": str(fake_python),
+            "SIQ_FAKE_PYTHON_LOG": str(log_path),
+            "SIQ_PRODUCTION_CONFIG_FILE": str(config_path),
+        }
+    )
+
+    completed = subprocess.run(
+        ["bash", "scripts/ops/run_market_postgres_release_gate.sh", "--mode", "contract", "--output-dir", str(tmp_path / "output")],
+        cwd=repo_root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 1
+    config_call = next(line for line in log_path.read_text(encoding="utf-8").splitlines() if "check_production_config.py" in line)
+    assert "--required" in config_call
+
+
+def test_release_gate_wrapper_loads_required_gate_plan_from_config_file(tmp_path):
+    repo_root = Path(__file__).resolve().parents[3]
+    fake_python = tmp_path / "fake-python"
+    log_path = tmp_path / "python-args.log"
+    config_path = tmp_path / "production.env"
+    config_path.write_text(
+        "\n".join(
+            [
+                "SIQ_PRODUCTION_CONFIG_REQUIRED=1",
+                "SIQ_LIVE_MODEL_BENCHMARK_MODE=live-http",
+                "SIQ_LIVE_MODEL_BENCHMARK_REQUIRED=1",
+                "SIQ_LIVE_MODEL_URL=https://live.example.test/v1/runs",
+                "SIQ_LIVE_MODEL_AUTH_TOKEN=live-token-from-file",
+                "SIQ_PERMISSION_NEGATIVE_GATE_REQUIRED=1",
+                "SIQ_PERMISSION_NEGATIVE_GATE_SKIP=0",
+                "SIQ_RESTORE_MATRIX_REQUIRED=1",
+                f"SIQ_RESTORE_MATRIX_BACKUP_DIR={tmp_path / 'backup'}",
+                "SIQ_RESTORE_MATRIX_ADMIN_URL=postgresql://restore:secret@db.example.test/postgres",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    fake_python.write_text(
+        "#!/usr/bin/env bash\n"
+        'printf "%s\\n" "$*" >> "$SIQ_FAKE_PYTHON_LOG"\n'
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    fake_python.chmod(0o755)
+    env = os.environ.copy()
+    for key in (
+        "SIQ_PRODUCTION_CONFIG_REQUIRED",
+        "SIQ_LIVE_MODEL_BENCHMARK_MODE",
+        "SIQ_LIVE_MODEL_BENCHMARK_REQUIRED",
+        "SIQ_LIVE_MODEL_URL",
+        "SIQ_LIVE_MODEL_AUTH_TOKEN",
+        "SIQ_PERMISSION_NEGATIVE_GATE_REQUIRED",
+        "SIQ_PERMISSION_NEGATIVE_GATE_SKIP",
+        "SIQ_RESTORE_MATRIX_REQUIRED",
+        "SIQ_RESTORE_MATRIX_BACKUP_DIR",
+        "SIQ_RESTORE_MATRIX_ADMIN_URL",
+    ):
+        env.pop(key, None)
+    env.update(
+        {
+            "PYTHON": str(fake_python),
+            "SIQ_FAKE_PYTHON_LOG": str(log_path),
+            "SIQ_PRODUCTION_CONFIG_FILE": str(config_path),
+        }
+    )
+
+    completed = subprocess.run(
+        [
+            "bash",
+            "scripts/ops/run_market_postgres_release_gate.sh",
+            "--mode",
+            "offline-postgres",
+            "--output-dir",
+            str(tmp_path / "output"),
+        ],
+        cwd=repo_root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    calls = log_path.read_text(encoding="utf-8").splitlines()
+    assert any("run_live_financial_qa_benchmark.py --mode live-http" in call for call in calls)
+    assert any("run_restore_matrix.py --backup-dir" in call for call in calls)
+    assert all("live-token-from-file" not in call and "restore:secret" not in call for call in calls)
 
 
 def test_release_gate_wrapper_requires_explicit_pdf_gate_mode(tmp_path):
@@ -534,6 +891,229 @@ def test_release_gate_wrapper_requires_explicit_pdf_gate_mode(tmp_path):
 
     assert completed.returncode == 2
     assert "requires an explicit preflight or live-http mode" in completed.stderr
+    assert not (tmp_path / "output").exists()
+
+
+def test_release_gate_wrapper_requires_production_config_file_when_required(tmp_path):
+    repo_root = Path(__file__).resolve().parents[3]
+    env = os.environ.copy()
+    env.pop("SIQ_PRODUCTION_CONFIG_FILE", None)
+    env.update({"SIQ_PRODUCTION_CONFIG_REQUIRED": "1"})
+
+    completed = subprocess.run(
+        [
+            "bash",
+            "scripts/ops/run_market_postgres_release_gate.sh",
+            "--mode",
+            "contract",
+            "--output-dir",
+            str(tmp_path / "output"),
+        ],
+        cwd=repo_root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 2
+    assert "requires SIQ_PRODUCTION_CONFIG_FILE" in completed.stderr
+    assert not (tmp_path / "output").exists()
+
+
+def test_release_gate_wrapper_does_not_disable_required_live_model_gate(tmp_path):
+    repo_root = Path(__file__).resolve().parents[3]
+    env = os.environ.copy()
+    env.update(
+        {
+            "SIQ_LIVE_MODEL_BENCHMARK_MODE": "disabled",
+            "SIQ_LIVE_MODEL_BENCHMARK_REQUIRED": "1",
+        }
+    )
+
+    completed = subprocess.run(
+        [
+            "bash",
+            "scripts/ops/run_market_postgres_release_gate.sh",
+            "--mode",
+            "contract",
+            "--output-dir",
+            str(tmp_path / "output"),
+        ],
+        cwd=repo_root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 2
+    assert "SIQ_LIVE_MODEL_BENCHMARK_MODE=live-http" in completed.stderr
+    assert not (tmp_path / "output").exists()
+
+
+def test_release_gate_wrapper_does_not_skip_required_permission_gate(tmp_path):
+    repo_root = Path(__file__).resolve().parents[3]
+    env = os.environ.copy()
+    env.update(
+        {
+            "SIQ_PERMISSION_NEGATIVE_GATE_SKIP": "1",
+            "SIQ_PERMISSION_NEGATIVE_GATE_REQUIRED": "1",
+        }
+    )
+
+    completed = subprocess.run(
+        [
+            "bash",
+            "scripts/ops/run_market_postgres_release_gate.sh",
+            "--mode",
+            "contract",
+            "--output-dir",
+            str(tmp_path / "output"),
+        ],
+        cwd=repo_root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 2
+    assert "cannot bypass a required permission negative gate" in completed.stderr
+    assert not (tmp_path / "output").exists()
+
+
+def test_release_gate_wrapper_does_not_accept_required_permission_gate_in_contract_mode(tmp_path):
+    repo_root = Path(__file__).resolve().parents[3]
+    env = os.environ.copy()
+    env.update(
+        {
+            "SIQ_PERMISSION_NEGATIVE_GATE_SKIP": "0",
+            "SIQ_PERMISSION_NEGATIVE_GATE_REQUIRED": "1",
+        }
+    )
+
+    completed = subprocess.run(
+        [
+            "bash",
+            "scripts/ops/run_market_postgres_release_gate.sh",
+            "--mode",
+            "contract",
+            "--output-dir",
+            str(tmp_path / "output"),
+        ],
+        cwd=repo_root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 2
+    assert "requires --mode offline-postgres" in completed.stderr
+    assert not (tmp_path / "output").exists()
+
+
+@pytest.mark.parametrize(
+    "required_name",
+    ["SIQ_AGENT_MEMORY_VECTOR_PROBES_REQUIRED", "SIQ_AGENT_MEMORY_VECTOR_SEED"],
+)
+def test_release_gate_wrapper_does_not_accept_required_vector_work_in_contract_mode(
+    required_name, tmp_path
+):
+    repo_root = Path(__file__).resolve().parents[3]
+    env = os.environ.copy()
+    env.update({required_name: "1"})
+
+    completed = subprocess.run(
+        [
+            "bash",
+            "scripts/ops/run_market_postgres_release_gate.sh",
+            "--mode",
+            "contract",
+            "--output-dir",
+            str(tmp_path / "output"),
+        ],
+        cwd=repo_root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 2
+    assert "requires --mode offline-postgres" in completed.stderr
+    assert not (tmp_path / "output").exists()
+
+
+def test_release_gate_wrapper_requires_restore_matrix_inputs_when_required(tmp_path):
+    repo_root = Path(__file__).resolve().parents[3]
+    env = os.environ.copy()
+    env.update({"SIQ_RESTORE_MATRIX_REQUIRED": "1"})
+    env.pop("SIQ_RESTORE_MATRIX_BACKUP_DIR", None)
+    env.pop("SIQ_RESTORE_MATRIX_ADMIN_URL", None)
+
+    completed = subprocess.run(
+        ["bash", "scripts/ops/run_market_postgres_release_gate.sh", "--mode", "contract", "--output-dir", str(tmp_path / "output")],
+        cwd=repo_root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 2
+    assert "requires SIQ_RESTORE_MATRIX_BACKUP_DIR" in completed.stderr
+    assert not (tmp_path / "output").exists()
+
+
+def test_release_gate_wrapper_requires_restore_admin_url_for_backup_dir(tmp_path):
+    repo_root = Path(__file__).resolve().parents[3]
+    env = os.environ.copy()
+    env.update({"SIQ_RESTORE_MATRIX_BACKUP_DIR": str(tmp_path / "backup")})
+    env.pop("SIQ_RESTORE_MATRIX_ADMIN_URL", None)
+
+    completed = subprocess.run(
+        ["bash", "scripts/ops/run_market_postgres_release_gate.sh", "--mode", "contract", "--output-dir", str(tmp_path / "output")],
+        cwd=repo_root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 2
+    assert "requires SIQ_RESTORE_MATRIX_ADMIN_URL" in completed.stderr
+    assert not (tmp_path / "output").exists()
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "SIQ_PARSER_FINANCIAL_PDF_GATE_REQUIRED",
+        "SIQ_PRODUCTION_CONFIG_REQUIRED",
+        "SIQ_LIVE_MODEL_BENCHMARK_REQUIRED",
+        "SIQ_PERMISSION_NEGATIVE_GATE_SKIP",
+        "SIQ_PERMISSION_NEGATIVE_GATE_REQUIRED",
+        "SIQ_RESTORE_MATRIX_REQUIRED",
+    ],
+)
+def test_release_gate_wrapper_rejects_unknown_critical_boolean(name, tmp_path):
+    repo_root = Path(__file__).resolve().parents[3]
+    env = os.environ.copy()
+    env[name] = "tru"
+
+    completed = subprocess.run(
+        ["bash", "scripts/ops/run_market_postgres_release_gate.sh", "--mode", "contract", "--output-dir", str(tmp_path / "output")],
+        cwd=repo_root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 2
+    assert f"{name} must be an explicit boolean" in completed.stderr
     assert not (tmp_path / "output").exists()
 
 

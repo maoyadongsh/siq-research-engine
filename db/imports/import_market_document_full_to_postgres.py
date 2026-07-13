@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -11,12 +10,24 @@ IMPORTS_DIR = Path(__file__).resolve().parent
 if str(IMPORTS_DIR) not in sys.path:
     sys.path.insert(0, str(IMPORTS_DIR))
 
-from market_document_full_rules.base import MarketDocumentFullContext
-from market_document_full_rules.common import as_decimal, read_json, sha256_file
-from market_document_full_rules.registry import rule_for_market
-from market_ingestion_contract import normalize_market
-from market_document_full_writer import MARKET_CONFIG, MarketDocumentFullWriter, connect, database_url, run_market_ddl
-
+from market_document_full_fixture_policy import (  # noqa: E402
+    FixtureDatabaseWriteProhibitedError,  # noqa: F401
+    FixtureIdentityError,  # noqa: F401
+    assert_safe_fixture_identity,
+    assert_safe_fixture_rows,
+    prohibit_fixture_database_write,
+)
+from market_document_full_rules.base import MarketDocumentFullContext  # noqa: E402
+from market_document_full_rules.common import as_decimal, read_json, sha256_file  # noqa: E402
+from market_document_full_rules.registry import rule_for_market  # noqa: E402
+from market_document_full_writer import (  # noqa: E402
+    MARKET_CONFIG,
+    MarketDocumentFullWriter,
+    connect,
+    database_url,
+    run_market_ddl,
+)
+from market_ingestion_contract import normalize_market  # noqa: E402
 
 PDF_MARKETS = {"HK", "JP", "KR", "EU"}
 IMPORT_MARKETS = {*PDF_MARKETS, "US"}
@@ -93,6 +104,7 @@ def import_document_full(
                 f"{document_full_path} is a directory; pass a document_full.json file or use --results-root/--recursive"
             )
     document_full = read_json(document_full_path)
+    assert_safe_fixture_identity(document_full, document_path=document_full_path)
     market_code = selected_market(document_full, document_full_path, market)
     digest = sha256_file(document_full_path)
     context = MarketDocumentFullContext(
@@ -102,6 +114,13 @@ def import_document_full(
         source_root=document_full_path.parent,
     )
     rows = rule_for_market(market_code).build_rows(document_full, context)
+    assert_safe_fixture_rows(
+        document_full,
+        company=rows.company,
+        filing=rows.filing,
+        document_path=document_full_path,
+    )
+    prohibit_fixture_database_write(document_full, document_path=document_full_path)
     if not allow_empty:
         numeric_fact_count = sum(
             1

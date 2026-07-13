@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Any
 
-from agent_view_parity_helpers import COMMON_CORE_METRICS
-from document_fact_normalizer import (
+IMPORTS_DIR = Path(__file__).resolve().parents[1]
+if str(IMPORTS_DIR) not in sys.path:
+    sys.path.insert(0, str(IMPORTS_DIR))
+
+from agent_view_parity_helpers import COMMON_CORE_METRICS  # noqa: E402
+from document_fact_normalizer import (  # noqa: E402
     assertion_to_expected_fact,
     decimal_equal,
     document_identity,
@@ -16,6 +21,7 @@ from document_fact_normalizer import (
     normalize_document_facts,
     value_within_tolerance,
 )
+from market_document_full_fixture_policy import fixture_identity_errors  # noqa: E402
 
 
 def check_case(case: dict[str, Any], cases_path: Path, *, read_json: Any) -> dict[str, Any]:
@@ -26,6 +32,14 @@ def check_case(case: dict[str, Any], cases_path: Path, *, read_json: Any) -> dic
     unit_currency_passed = 0
     document_path = cases_path.parent / str(case["document_full_path"])
     document_full = read_json(document_path)
+    errors.extend(
+        fixture_identity_errors(
+            document_full,
+            case=case,
+            document_path=document_path,
+            require_fixture=True,
+        )
+    )
     identity = document_identity(document_full, fallback_market=case.get("market"))
     facts = normalize_document_facts(document_full)
 

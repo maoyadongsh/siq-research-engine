@@ -1,20 +1,26 @@
 {
   "schema_version": "sec_html_document_full_v1",
+  "identity_scope": "synthetic_fixture",
+  "task": {
+    "task_id": "fixture-us-ixbrl-v2",
+    "filename": "SYNTHETIC_US_IXBRL_2025-09-27_10-K.html"
+  },
   "source": {
-    "raw_path": "raw/filing.htm",
-    "source_url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/aapl-20250927.htm",
+    "raw_path": "fixtures/us/filing.htm",
+    "source_url": "https://example.invalid/eval-fixtures/us/ixbrl.htm",
     "parser": "sec_html_document_v1"
   },
   "filing": {
     "market": "US",
-    "filing_id": "US:0000320193:0000320193-25-000079",
-    "report_id": "2025-10-K-0000320193-25-000079",
-    "ticker": "AAPL",
-    "company_name": "Apple Inc.",
+    "company_id": "US:FIXTURE:IXBRL",
+    "filing_id": "US:FIXTURE:IXBRL:2025-10-K",
+    "report_id": "fixture-2025-10-K",
+    "ticker": "FIXTURE_IXBRL",
+    "company_name": "Synthetic US Inline XBRL Fixture",
     "form": "10-K",
     "fiscal_year": 2025,
     "period_end": "2025-09-27",
-    "accession_number": "0000320193-25-000079"
+    "accession_number": "FIXTURE-2025-000001"
   },
   "tables": [
     {
@@ -69,4 +75,3 @@
     }
   ]
 }
-

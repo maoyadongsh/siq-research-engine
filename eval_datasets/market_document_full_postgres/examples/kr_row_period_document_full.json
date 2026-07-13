@@ -1,8 +1,9 @@
 {
   "schema_version": 3,
+  "identity_scope": "synthetic_fixture",
   "task": {
-    "task_id": "fixture-kr-005930",
-    "filename": "Samsung-Electronics-Co-Ltd_KR_005930_2025-12-31_annual.pdf"
+    "task_id": "fixture-kr-row-period-v2",
+    "filename": "SYNTHETIC_KR_ROW_PERIOD_2025-12-31_annual.pdf"
   },
   "content_list_enhanced": {
     "tables": [
@@ -20,9 +21,10 @@
     "profile_id": "kr_dart_xbrl_tables_v1",
     "market": "KR",
     "accounting_standard": "KIFRS",
-    "company_id": "KR:005930",
-    "ticker": "005930",
-    "report_id": "KR:005930:2025-annual",
+    "company_id": "KR:FIXTURE:ROW_PERIOD",
+    "ticker": "FIXTURE_ROW_PERIOD",
+    "company_name": "Synthetic KR Row Period Fixture",
+    "report_id": "KR:FIXTURE:ROW_PERIOD:2025-annual",
     "report_type": "annual",
     "fiscal_year": 2025,
     "period_end": "2025-12-31",
@@ -63,4 +65,3 @@
     "key_metrics": []
   }
 }
-

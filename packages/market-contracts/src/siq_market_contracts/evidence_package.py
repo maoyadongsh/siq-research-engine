@@ -265,6 +265,7 @@ def build_quality_gates(
     artifact_hash = _artifact_hash_check(package_dir, manifest)
     parser_warnings = _list_field(quality, "parser_warnings")
     rule_warnings = _list_field(quality, "rule_warnings")
+    rule_advisories = _list_field(quality, "rule_advisories")
     critical_warnings = _list_field(quality, "critical_warnings")
     resolvability = evidence_resolvability_summary(
         financial_data=financial_data,
@@ -534,6 +535,7 @@ def build_quality_gates(
         "artifact_hash_missing": artifact_hash["missing"],
         "parser_warnings": parser_warnings,
         "rule_warnings": rule_warnings,
+        "rule_advisories": rule_advisories,
         "critical_warnings": critical_warnings,
     }
 
@@ -1132,6 +1134,7 @@ def build_quality_report(
         "critical_warnings": critical_warnings,
         "parser_warnings": parser_warnings or [],
         "rule_warnings": rule_warnings or financial_data.get("warnings") or financial_checks.get("warnings") or [],
+        "rule_advisories": _list_field(financial_checks, "advisories"),
         "source_map_entry_count": len(source_map.get("entries") or []),
         "resolvable_source_map_entry_count": resolvability["resolvable_source_map_entry_count"],
         "unresolvable_source_map_entry_count": resolvability["unresolvable_source_map_entry_count"],

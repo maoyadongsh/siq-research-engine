@@ -19,9 +19,16 @@ def _load_module():
 
 def _write_case_files(tmp_path):
     document_full = {
+        "identity_scope": "synthetic_fixture",
+        "task": {
+            "task_id": "fixture-hk-contract-test",
+            "filename": "SYNTHETIC_HK_CONTRACT_TEST.pdf",
+        },
         "financial_data": {
             "market": "HK",
-            "company_id": "HK:00005",
+            "company_id": "HK:FIXTURE:CONTRACT_TEST",
+            "ticker": "FIXTURE_CONTRACT_TEST",
+            "report_id": "HK:FIXTURE:CONTRACT_TEST:2025-annual",
             "report_year": 2025,
             "reporting_currency": "HKD",
             "statements": [
@@ -57,10 +64,14 @@ def _write_case_files(tmp_path):
     cases_path.write_text(json.dumps({"cases": []}), encoding="utf-8")
     case = {
         "case_id": "hk-revenue",
+        "identity_scope": "synthetic_fixture",
         "market": "HK",
-        "company_id": "HK:00005",
+        "company_id": "HK:FIXTURE:CONTRACT_TEST",
         "period_key": "FY2025",
         "document_full_path": "document_full.json",
+        "expected_identity": {
+            "filing_id": "HK:FIXTURE:CONTRACT_TEST:2025-annual",
+        },
         "assertions": [
             {
                 "statement_type": "income_statement",
@@ -107,6 +118,33 @@ def test_check_agent_case_falls_back_to_assertions(tmp_path):
         "errors": [],
         "mode": "fixture_fact_lookup",
     }
+
+
+def test_check_case_rejects_real_company_identity_in_eval_fixture(tmp_path):
+    module = _load_module()
+    cases_path, case = _write_case_files(tmp_path)
+    document_path = tmp_path / "document_full.json"
+    document_full = json.loads(document_path.read_text(encoding="utf-8"))
+    document_full["financial_data"].update(
+        {
+            "company_id": "HK:00700",
+            "ticker": "00700",
+            "report_id": "HK:00700:2025-annual",
+        }
+    )
+    document_path.write_text(json.dumps(document_full), encoding="utf-8")
+    case["company_id"] = "HK:00700"
+    case["expected_identity"]["filing_id"] = "HK:00700:2025-annual"
+
+    result = module.check_case(
+        case,
+        cases_path,
+        read_json=lambda path: json.loads(path.read_text(encoding="utf-8")),
+    )
+
+    assert result["passed"] is False
+    assert any("synthetic fixture namespace" in error for error in result["errors"])
+    assert any("ticker must start with 'FIXTURE_'" in error for error in result["errors"])
 
 
 def test_contract_assertion_stats_counts_explainability_fields():

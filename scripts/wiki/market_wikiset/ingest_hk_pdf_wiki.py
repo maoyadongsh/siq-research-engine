@@ -13,17 +13,33 @@ import hashlib
 import json
 import re
 import shutil
+import sys
+import time
 from collections import Counter, defaultdict
+from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-
-from package_facade import write_report_package_facade
-
+from urllib.parse import urlparse
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+RULES_SRC = REPO_ROOT / "services" / "market-report-rules" / "src"
+PDF_PARSER_APP = REPO_ROOT / "apps" / "pdf-parser"
+MAINTENANCE_DIR = REPO_ROOT / "scripts" / "maintenance"
+for import_path in (RULES_SRC, PDF_PARSER_APP, MAINTENANCE_DIR):
+    if str(import_path) not in sys.path:
+        sys.path.insert(0, str(import_path))
+
+from evidence_metadata import attach_evidence_metadata  # noqa: E402
+from hk_financial_artifacts import HK_FINANCIAL_PROFILE_VERSION, build_hk_financial_artifacts  # noqa: E402
+from market_report_rules_service.evidence_package import build_quality_gates, validate_evidence_package  # noqa: E402
+from market_report_rules_service.markets.hk.extractor import resolve_hk_currency  # noqa: E402
+from package_facade import write_report_package_facade  # noqa: E402
+
 DEFAULT_RESULTS_DIR = REPO_ROOT / "data" / "pdf-parser" / "results"
 DEFAULT_OUTPUT_ROOT = REPO_ROOT / "data" / "wiki" / "hk"
+DEFAULT_DOWNLOADS_ROOT = REPO_ROOT / "data" / "market-report-finder" / "downloads" / "HK"
+HKEX_OFFICIAL_HOST_SUFFIXES = ("hkexnews.hk", "hkex.com.hk")
 
 REPORT_KIND_SLUG = {
     "annual_report": "annual",
@@ -69,6 +85,7 @@ PRIMARY_CANONICALS = {
         "profit_before_tax",
         "income_tax_expense",
         "net_profit",
+        "net_interest_income",
         "parent_net_profit",
         "finance_costs",
         "total_profit",
@@ -98,6 +115,38 @@ def read_json(path: Path, default: Any = None) -> Any:
         return default
 
 
+def load_current_hk_financial_artifacts(
+    result_dir: Path,
+    *,
+    metadata: dict[str, Any],
+    document_full: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], str]:
+    financial_data = read_json(result_dir / "financial_data.json", {})
+    financial_checks = read_json(result_dir / "financial_checks.json", {})
+    profiles = {
+        str(financial_data.get("profile_rule_version") or ""),
+        str(financial_checks.get("profile_rule_version") or ""),
+    }
+    if profiles == {HK_FINANCIAL_PROFILE_VERSION}:
+        return normalize_hk_financial_data_currency(financial_data), financial_checks, "stored_current"
+
+    task = deepcopy(document_full.get("task")) if isinstance(document_full.get("task"), dict) else {}
+    task["task_id"] = str(task.get("task_id") or result_dir.name)
+    task["filename"] = str(task.get("filename") or metadata.get("filename") or "")
+    markdown_path = result_dir / "result.md"
+    if not markdown_path.is_file():
+        markdown_path = result_dir / "result_complete.md"
+    if not markdown_path.is_file():
+        raise RuntimeError(f"HK financial artifact rebuild has no Markdown source: {result_dir.name}")
+    rebuilt_data, rebuilt_checks = build_hk_financial_artifacts(
+        task,
+        markdown_path.read_text(encoding="utf-8", errors="ignore"),
+        result_dir_path=str(result_dir),
+        filename=task["filename"],
+    )
+    return normalize_hk_financial_data_currency(rebuilt_data), rebuilt_checks, "rebuilt_in_memory"
+
+
 def write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -121,6 +170,119 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: infile.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def resolve_hk_sidecar(
+    filename: str,
+    *,
+    metadata: dict[str, Any] | None = None,
+    downloads_root: Path = DEFAULT_DOWNLOADS_ROOT,
+) -> dict[str, Any]:
+    """Resolve one HKEX download sidecar without guessing a filing identity."""
+    metadata = metadata if isinstance(metadata, dict) else {}
+    candidates: list[Path] = []
+    upload_path = metadata.get("upload_path") or metadata.get("source_path")
+    if upload_path:
+        upload = Path(str(upload_path)).expanduser()
+        candidates.extend([upload.with_suffix(upload.suffix + ".metadata.json"), upload.parent / f"{upload.name}.metadata.json"])
+    name = Path(str(filename or "")).name
+    if downloads_root.exists() and name:
+        candidates.extend(downloads_root.rglob(f"{name}.metadata.json"))
+    unique = sorted({path.resolve() for path in candidates if path.is_file()})
+    if len(unique) != 1:
+        return {
+            "status": "missing" if not unique else "ambiguous",
+            "candidate_count": len(unique),
+            "paths": [rel(path) for path in unique[:10]],
+        }
+    payload = read_json(unique[0], {})
+    candidate = payload.get("candidate") if isinstance(payload, dict) and isinstance(payload.get("candidate"), dict) else {}
+    downloaded = payload.get("downloaded_file") if isinstance(payload, dict) and isinstance(payload.get("downloaded_file"), dict) else {}
+    expected_sha256 = str(downloaded.get("content_sha256") or "").strip().lower()
+    source_pdf_candidates = [Path(str(unique[0]).removesuffix(".metadata.json"))]
+    saved_path = str(downloaded.get("saved_path") or "").strip()
+    if saved_path:
+        saved = Path(saved_path).expanduser()
+        if not saved.is_absolute():
+            saved = REPO_ROOT / saved
+        source_pdf_candidates.append(saved)
+    source_pdf = next(
+        (
+            path.resolve()
+            for path in source_pdf_candidates
+            if path.is_file() and (not expected_sha256 or sha256_file(path).lower() == expected_sha256)
+        ),
+        None,
+    )
+    source_url = candidate.get("document_url") or candidate.get("source_url") or candidate.get("landing_url")
+    ticker = str(candidate.get("company_id") or candidate.get("ticker") or "").strip()
+    period_end = str(candidate.get("report_end") or candidate.get("period_end") or "").strip()
+    return {
+        "status": "resolved" if candidate.get("accession_number") and ticker and period_end else "invalid",
+        "path": rel(unique[0]),
+        "accession_number": str(candidate.get("accession_number") or "").strip(),
+        "ticker": ticker.zfill(5) if ticker.isdigit() else ticker,
+        "period_end": period_end,
+        "report_family": candidate.get("report_family") or candidate.get("report_type") or candidate.get("form"),
+        "source_url": source_url,
+        "source_domain": candidate.get("source_domain"),
+        "content_sha256": expected_sha256,
+        "source_pdf_path": rel(source_pdf) if source_pdf else "",
+        "source_pdf_hash_verified": bool(source_pdf and expected_sha256),
+        "candidate": candidate,
+    }
+
+
+def is_official_hkex_url(value: Any) -> bool:
+    parsed = urlparse(str(value or "").strip())
+    host = str(parsed.hostname or "").rstrip(".").lower()
+    return parsed.scheme.lower() in {"http", "https"} and any(
+        host == suffix or host.endswith(f".{suffix}") for suffix in HKEX_OFFICIAL_HOST_SUFFIXES
+    )
+
+
+def canonical_hk_identity(
+    sidecar: dict[str, Any],
+    *,
+    ticker: str,
+    period_end: Any,
+    report_family: Any = None,
+    statement_period_verified: bool = False,
+) -> dict[str, str] | None:
+    if sidecar.get("status") != "resolved":
+        return None
+    if sidecar.get("ticker") and str(sidecar.get("ticker")) != str(ticker).zfill(5):
+        return None
+    expected_period = str(period_end or "").strip()[:10]
+    sidecar_period = str(sidecar.get("period_end") or "").strip()[:10]
+    period_matches = bool(expected_period and sidecar_period == expected_period)
+    verified_same_fiscal_year_correction = bool(
+        statement_period_verified
+        and expected_period
+        and sidecar_period
+        and expected_period[:4] == sidecar_period[:4]
+    )
+    if not period_matches and not verified_same_fiscal_year_correction:
+        return None
+    if report_family and report_kind_slug(sidecar.get("report_family")) != report_kind_slug(report_family):
+        return None
+    accession = str(sidecar.get("accession_number") or "").strip()
+    content_sha256 = str(sidecar.get("content_sha256") or "").strip().lower()
+    source_url = str(sidecar.get("source_url") or "").strip()
+    if (
+        not accession
+        or not re.fullmatch(r"[0-9a-f]{64}", content_sha256)
+        or not sidecar.get("source_pdf_hash_verified")
+        or not is_official_hkex_url(source_url)
+    ):
+        return None
+    ticker_text = str(ticker).zfill(5)
+    return {
+        "filing_id": f"HK:{ticker_text}:{accession}",
+        "parse_run_id": f"HK:{ticker_text}:{accession}:{content_sha256[:16]}",
+        "source_url": source_url,
+        "source_sha256": content_sha256,
+    }
 
 
 def safe_slug(value: Any, fallback: str = "UNKNOWN") -> str:
@@ -160,7 +322,7 @@ def report_year_from_period(period_end: Any, fallback: Any = None) -> int | None
     return None
 
 
-def report_kind_slug(report_kind: Any, report_type: Any) -> str:
+def report_kind_slug(report_kind: Any, report_type: Any = None) -> str:
     key = str(report_kind or report_type or "annual_report").strip()
     return REPORT_KIND_SLUG.get(key, safe_slug(key.lower(), "report"))
 
@@ -286,6 +448,43 @@ def preferred_periods(row: dict[str, Any]) -> set[str]:
     return periods
 
 
+def statement_reporting_period(financial_data: dict[str, Any], *, max_period: str = "") -> dict[str, Any]:
+    periods_by_statement: dict[str, list[str]] = {}
+    for statement in financial_data.get("statements") or []:
+        if not isinstance(statement, dict) or (statement.get("scope") or "consolidated") != "consolidated":
+            continue
+        statement_type = str(statement.get("statement_type") or "")
+        if statement_type not in PRIMARY_CANONICALS:
+            continue
+        periods = {
+            item_period(item)
+            for item in statement.get("items") or []
+            if isinstance(item, dict)
+            and item.get("canonical_name") in PRIMARY_CANONICALS[statement_type]
+            and re.fullmatch(r"\d{4}-\d{2}-\d{2}", item_period(item))
+        }
+        if periods:
+            periods_by_statement[statement_type] = sorted(periods)
+    required = ("balance_sheet", "income_statement", "cash_flow_statement")
+    if any(statement not in periods_by_statement for statement in required):
+        return {"verified": False, "period_end": "", "periods_by_statement": periods_by_statement}
+    common_periods = set(periods_by_statement[required[0]])
+    for statement in required[1:]:
+        common_periods.intersection_update(periods_by_statement[statement])
+    eligible_periods = {
+        period
+        for period in common_periods
+        if not max_period or period <= str(max_period)[:10]
+    }
+    return {
+        "verified": bool(eligible_periods),
+        "period_end": max(eligible_periods) if eligible_periods else "",
+        "periods_by_statement": periods_by_statement,
+        "common_periods": sorted(common_periods),
+        "eligible_periods": sorted(eligible_periods),
+    }
+
+
 def source_priority(item: dict[str, Any]) -> int:
     evidence = item.get("evidence") if isinstance(item.get("evidence"), dict) else {}
     raw = evidence.get("raw") if isinstance(evidence.get("raw"), dict) else {}
@@ -346,6 +545,13 @@ def build_three_statements(row: dict[str, Any]) -> dict[str, Any]:
                 continue
             value = to_float(item.get("value"))
             evidence = evidence_from_item(item, result_dir, table_index_payload)
+            metric_unit = item.get("unit") or statement.get("unit") or financial_data.get("unit") or ""
+            metric_currency = resolve_hk_currency(
+                unit=metric_unit,
+                declared_currency=item.get("currency"),
+                title=statement.get("title") or statement.get("statement_name"),
+                fallback=statement.get("currency") or financial_data.get("currency"),
+            )
             metric = {
                 "metric_key": canonical,
                 "metric_name": item.get("local_name") or item.get("label") or canonical,
@@ -353,8 +559,8 @@ def build_three_statements(row: dict[str, Any]) -> dict[str, Any]:
                 "local_name": item.get("local_name") or item.get("label"),
                 "raw_value": item.get("raw_value") or item.get("value"),
                 "value": value,
-                "unit": item.get("unit") or statement.get("unit") or "",
-                "currency": item.get("currency") or statement.get("currency") or financial_data.get("currency"),
+                "unit": metric_unit,
+                "currency": metric_currency,
                 "scale": item.get("scale") or statement.get("scale") or "1",
                 "confidence": item.get("confidence"),
                 "statement_type": statement_type,
@@ -389,6 +595,145 @@ def build_three_statements(row: dict[str, Any]) -> dict[str, Any]:
         "metrics": metrics,
         "extraction_method": "hk_pdf_financial_data_statement_bridge_v1",
     }
+
+
+def build_package_financial_data(
+    row: dict[str, Any],
+    three_statements: dict[str, Any],
+    evidence_items: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Convert selected HK facts into the portable evidence-package contract."""
+    buckets: dict[tuple[str, str, str, str, str, str], dict[str, Any]] = {}
+    for metric_index, metric in enumerate(three_statements.get("metrics") or []):
+        if not isinstance(metric, dict):
+            continue
+        statement_type = str(metric.get("statement_type") or "").strip()
+        canonical_name = str(metric.get("canonical_name") or metric.get("metric_key") or "").strip()
+        period = str(metric.get("period") or "").strip()
+        if not statement_type or not canonical_name or not period:
+            continue
+        key = (
+            statement_type,
+            canonical_name,
+            str(metric.get("metric_name") or metric.get("local_name") or canonical_name),
+            str(metric.get("unit") or ""),
+            str(metric.get("currency") or ""),
+            str(metric.get("scale") or "1"),
+        )
+        item = buckets.setdefault(
+            key,
+            {
+                "name": key[2],
+                "canonical_name": canonical_name,
+                "statement_type": statement_type,
+                "values": {},
+                "raw_values": {},
+                "sources": {},
+                "periods": {},
+                "unit": key[3],
+                "currency": key[4],
+                "scale": key[5],
+            },
+        )
+        source = dict(metric.get("source") or {})
+        evidence_item = evidence_items[metric_index] if evidence_items and metric_index < len(evidence_items) else {}
+        source["evidence_id"] = evidence_item.get("evidence_id")
+        source["artifact_path"] = "parser/result_complete.md"
+        source["line"] = source.get("md_line")
+        source["page_number"] = source.get("pdf_page_number")
+        item["values"][period] = metric.get("value")
+        item["raw_values"][period] = metric.get("raw_value")
+        item["sources"][period] = source
+        item["periods"][period] = {
+            "period_end": period,
+            "fiscal_year": metric.get("fiscal_year") or report_year_from_period(period),
+        }
+
+    statements = []
+    for statement_type in ("balance_sheet", "income_statement", "cash_flow_statement"):
+        items = [item for key, item in buckets.items() if key[0] == statement_type]
+        items.sort(key=lambda item: str(item.get("canonical_name") or ""))
+        statements.append(
+            {
+                "statement_type": statement_type,
+                "scope": "consolidated",
+                "items": items,
+            }
+        )
+    source_financial_data = row.get("financial_data") if isinstance(row.get("financial_data"), dict) else {}
+    return {
+        "schema_version": "hk_package_financial_data_v1",
+        "market": "HK",
+        "company_id": f"HK:{row['ticker']}",
+        "ticker": row["ticker"],
+        "company_name": row["company_name"],
+        "filing_id": row.get("filing_id"),
+        "parse_run_id": row.get("parse_run_id"),
+        "report_id": row["report_id"],
+        "period_end": row["period_end"],
+        "currency": source_financial_data.get("currency"),
+        "accounting_standard": source_financial_data.get("accounting_standard") or "HKFRS",
+        "statements": statements,
+        "key_metrics": [],
+        "operating_metrics": [],
+        "warnings": list(row.get("warnings") or []),
+    }
+
+
+def package_unit_currency_mismatches(financial_data: dict[str, Any]) -> list[dict[str, str]]:
+    mismatches: list[dict[str, str]] = []
+    for statement_index, statement in enumerate(financial_data.get("statements") or []):
+        if not isinstance(statement, dict):
+            continue
+        for item_index, item in enumerate(statement.get("items") or []):
+            if not isinstance(item, dict):
+                continue
+            unit_currency = resolve_hk_currency(unit=item.get("unit"), declared_currency=None)
+            fact_currency = resolve_hk_currency(unit=None, declared_currency=item.get("currency"))
+            if unit_currency and fact_currency and unit_currency != fact_currency:
+                mismatches.append(
+                    {
+                        "location": f"statements[{statement_index}].items[{item_index}]",
+                        "unit_currency": unit_currency,
+                        "currency": fact_currency,
+                    }
+                )
+    return mismatches
+
+
+def normalize_hk_financial_data_currency(financial_data: dict[str, Any]) -> dict[str, Any]:
+    """Repair stale parser currency fields while preserving reported units."""
+    normalized = deepcopy(financial_data)
+    report_currency = normalized.get("currency")
+    for statement in normalized.get("statements") or []:
+        if not isinstance(statement, dict):
+            continue
+        statement_unit = statement.get("unit") or normalized.get("unit")
+        statement_currency = resolve_hk_currency(
+            unit=statement_unit,
+            declared_currency=statement.get("currency"),
+            title=statement.get("title") or statement.get("statement_name"),
+            fallback=report_currency,
+        )
+        item_currencies: set[str] = set()
+        for item in statement.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            item_unit = item.get("unit") or statement_unit
+            item_currency = resolve_hk_currency(
+                unit=item_unit,
+                declared_currency=item.get("currency"),
+                title=statement.get("title") or statement.get("statement_name"),
+                fallback=statement_currency or report_currency,
+            )
+            if item_currency:
+                item["currency"] = item_currency
+                item_currencies.add(item_currency)
+        if len(item_currencies) == 1:
+            statement_currency = next(iter(item_currencies))
+        if statement_currency:
+            statement["currency"] = statement_currency
+    return normalized
 
 
 def build_evidence_index(row: dict[str, Any], three_statement_payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -470,6 +815,8 @@ def build_retrieval_index(row: dict[str, Any], evidence_items: list[dict[str, An
                 "company_name": row["company_name"],
                 "ticker": row["ticker"],
                 "report_id": row["report_id"],
+                "filing_id": row.get("filing_id"),
+                "parse_run_id": row.get("parse_run_id"),
                 "topic": item.get("metric_key"),
                 "source_type": "wiki_metrics",
                 "file": item.get("file"),
@@ -514,14 +861,22 @@ def build_retrieval_index(row: dict[str, Any], evidence_items: list[dict[str, An
     }
 
 
-def inspect_hk_result(result_dir: Path) -> dict[str, Any] | None:
+def inspect_hk_result(
+    result_dir: Path,
+    *,
+    downloads_root: Path = DEFAULT_DOWNLOADS_ROOT,
+) -> dict[str, Any] | None:
     metadata = read_json(result_dir / "metadata.json", {})
-    financial_data = read_json(result_dir / "financial_data.json", {})
-    if str(metadata.get("market") or financial_data.get("market") or "").upper() != "HK":
-        return None
     document_full = read_json(result_dir / "document_full.json", {})
+    stored_financial_data = read_json(result_dir / "financial_data.json", {})
+    if str(metadata.get("market") or stored_financial_data.get("market") or "").upper() != "HK":
+        return None
+    financial_data, financial_checks, financial_artifact_source = load_current_hk_financial_artifacts(
+        result_dir,
+        metadata=metadata,
+        document_full=document_full,
+    )
     quality = read_json(result_dir / "quality_report.json", {})
-    financial_checks = read_json(result_dir / "financial_checks.json", {})
     table_index = read_json(result_dir / "table_index.json", [])
     artifact_manifest = read_json(result_dir / "artifact_manifest.json", {})
     hash_manifest = read_json(result_dir / "hash_manifest.json", {})
@@ -534,11 +889,23 @@ def inspect_hk_result(result_dir: Path) -> dict[str, Any] | None:
     parsed = parse_hk_filename(filename)
     ticker = str(metadata.get("ticker") or metadata.get("stock_code") or financial_data.get("ticker") or parsed.get("ticker") or "").zfill(5)
     company_name = clean_company_name(metadata.get("company_name") or financial_data.get("company_name") or parsed.get("company_name") or ticker)
-    period_end = str(metadata.get("period_end") or financial_data.get("period_end") or parsed.get("period_end") or "")
+    declared_period_end = str(
+        metadata.get("period_end") or financial_data.get("period_end") or parsed.get("period_end") or ""
+    )
+    reporting_period = statement_reporting_period(financial_data, max_period=declared_period_end)
+    period_end = str(reporting_period.get("period_end") or declared_period_end)
     report_year = metadata.get("report_year") or financial_data.get("report_year") or metadata.get("fiscal_year") or report_year_from_period(period_end, filename)
     report_kind = metadata.get("report_kind") or financial_data.get("report_kind") or "annual_report"
     report_id = f"{int(report_year)}-{report_kind_slug(report_kind, metadata.get('report_type'))}" if report_year else f"unknown-{result_dir.name[:8]}"
     company_wiki_id = f"{ticker}-{safe_slug(company_name)}"
+    sidecar = resolve_hk_sidecar(filename, metadata=metadata, downloads_root=downloads_root)
+    canonical_identity = canonical_hk_identity(
+        sidecar,
+        ticker=ticker,
+        period_end=period_end,
+        report_family=report_kind,
+        statement_period_verified=bool(reporting_period.get("verified")),
+    )
     warnings: list[str] = []
     if not ticker or ticker == "00000":
         warnings.append("missing_hk_ticker")
@@ -550,6 +917,14 @@ def inspect_hk_result(result_dir: Path) -> dict[str, Any] | None:
         warnings.append("missing_three_financial_statements")
     if financial_checks.get("overall_status") == "fail":
         warnings.append("financial_checks_fail")
+    if reporting_period.get("verified") and period_end != declared_period_end:
+        warnings.append("reporting_period_corrected_from_three_statement_evidence")
+    if sidecar.get("period_end") and str(sidecar.get("period_end"))[:10] != period_end:
+        warnings.append("hkex_sidecar_period_corrected_from_three_statement_evidence")
+    if sidecar.get("status") != "resolved":
+        warnings.append(f"hkex_sidecar_{sidecar.get('status') or 'missing'}")
+    elif canonical_identity is None:
+        warnings.append("hkex_sidecar_identity_mismatch")
     return {
         "task_id": result_dir.name,
         "result_dir": result_dir,
@@ -558,6 +933,7 @@ def inspect_hk_result(result_dir: Path) -> dict[str, Any] | None:
         "quality": quality,
         "financial_data": financial_data,
         "financial_checks": financial_checks,
+        "financial_artifact_source": financial_artifact_source,
         "table_index": table_index,
         "artifact_manifest": artifact_manifest,
         "hash_manifest": hash_manifest,
@@ -568,12 +944,17 @@ def inspect_hk_result(result_dir: Path) -> dict[str, Any] | None:
         "company_name": company_name,
         "company_wiki_id": company_wiki_id,
         "period_end": period_end,
+        "declared_period_end": declared_period_end,
+        "reporting_period_evidence": reporting_period,
         "published_at": parsed.get("published_at") or metadata.get("disclosure_date"),
         "source_id": parsed.get("source_id") or metadata.get("source") or "hkex",
         "report_year": int(report_year) if report_year else None,
         "report_kind": report_kind,
         "report_type": metadata.get("report_type") or parsed.get("report_type") or report_kind,
         "report_id": report_id,
+        "sidecar": sidecar,
+        "source_pdf_path": sidecar.get("source_pdf_path"),
+        "canonical_identity": canonical_identity,
         "warnings": warnings,
         "score": (
             (1000 if ticker else 0)
@@ -668,6 +1049,7 @@ def write_company(row_group: list[dict[str, Any]], output_root: Path) -> dict[st
         copied = copy_report_files(row, report_dir)
         three_statements = build_three_statements(row)
         evidence_items = build_evidence_index(row, three_statements)
+        package_financial_data = build_package_financial_data(row, three_statements, evidence_items)
         pdf_refs = build_pdf_refs(evidence_items)
         key_metrics = build_key_metrics(row["financial_data"])
         validation = {
@@ -678,6 +1060,7 @@ def write_company(row_group: list[dict[str, Any]], output_root: Path) -> dict[st
             "three_statement_source": "financial_data.json",
             "three_statement_metric_count": len(three_statements.get("metrics") or []),
             "financial_check_status": row["financial_checks"].get("overall_status"),
+            "financial_artifact_source": row.get("financial_artifact_source"),
             "warnings": row["warnings"],
             "generated_at": now_iso(),
         }
@@ -701,6 +1084,7 @@ def write_company(row_group: list[dict[str, Any]], output_root: Path) -> dict[st
             key_metrics=key_metrics,
             validation=validation,
             evidence_items=evidence_items,
+            package_financial_data=package_financial_data,
         )
         reports.append(
             {
@@ -846,6 +1230,8 @@ def build_report_json(row: dict[str, Any], report_dir: Path, three_statements: d
         "identity": {
             "market": "HK",
             "company_id": f"HK:{row['ticker']}",
+            "filing_id": row.get("filing_id"),
+            "parse_run_id": row.get("parse_run_id"),
             "company_wiki_id": row["company_wiki_id"],
             "ticker": row["ticker"],
             "company_name": row["company_name"],
@@ -862,6 +1248,9 @@ def build_report_json(row: dict[str, Any], report_dir: Path, three_statements: d
         },
         "source": {
             "task_id": row["task_id"],
+            "source_url": row.get("source_url"),
+            "source_sha256": row.get("source_sha256"),
+            "sidecar": row.get("sidecar"),
             "result_dir": rel(row["result_dir"]),
             "copied": copied,
             "source_files": source_files,
@@ -892,7 +1281,7 @@ def build_company_md(company: dict[str, Any]) -> str:
     lines = [
         f"# {company['company_name']} ({company['ticker']})",
         "",
-        f"- Market: HK",
+        "- Market: HK",
         f"- Exchange: {company.get('exchange') or 'HKEX'}",
         f"- Primary report: {company.get('primary_report_id')}",
         f"- Status: {company.get('status')}",
@@ -1004,34 +1393,261 @@ The HK Wiki keeps consolidated financial statements as the primary structured me
 """
 
 
-def build_plan(results_dir: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def build_plan(
+    results_dir: Path,
+    *,
+    downloads_root: Path = DEFAULT_DOWNLOADS_ROOT,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     rows = []
     for result_dir in sorted(results_dir.iterdir()):
         if not result_dir.is_dir():
             continue
-        row = inspect_hk_result(result_dir)
+        row = inspect_hk_result(result_dir, downloads_root=downloads_root)
         if row:
             rows.append(row)
     return select_active(rows)
 
 
+def _apply_safety_errors(args: argparse.Namespace, output_root: Path) -> list[str]:
+    if not bool(args.apply):
+        return []
+    errors: list[str] = []
+    if not bool(args.require_canonical_identity):
+        errors.append("apply_requires_canonical_identity")
+    production_root = DEFAULT_OUTPUT_ROOT.resolve()
+    if output_root == production_root or output_root.is_relative_to(production_root):
+        errors.append("apply_requires_independent_staging_output")
+    if output_root.exists() and (not output_root.is_dir() or any(output_root.iterdir())):
+        errors.append("staging_output_must_be_new_or_empty")
+    return errors
+
+
+def validate_staging_packages(output_root: Path) -> dict[str, Any]:
+    results = []
+    unit_currency_mismatches = []
+    quality_gate_blocks = []
+    quality_gate_decisions: Counter[str] = Counter()
+    for manifest_path in sorted(output_root.glob("companies/*/reports/*/manifest.json")):
+        package_dir = manifest_path.parent
+        validation = validate_evidence_package(package_dir)
+        quality_gates = build_quality_gates(package_dir)
+        canonical_decision = str(quality_gates.get("canonical_decision") or quality_gates.get("decision") or "")
+        quality_gate_decisions[canonical_decision] += 1
+        if canonical_decision == "block":
+            quality_gate_blocks.append(
+                {
+                    "package_path": rel(package_dir),
+                    "hard_gate_rule_ids": quality_gates.get("hard_gate_rule_ids") or [],
+                    "block_reasons": quality_gates.get("block_reasons") or [],
+                    "missing_required_statements": quality_gates.get("missing_required_statements") or [],
+                }
+            )
+        financial_data = read_json(package_dir / "metrics" / "financial_data.json", {})
+        mismatches = package_unit_currency_mismatches(financial_data)
+        if mismatches:
+            unit_currency_mismatches.append(
+                {
+                    "package_path": rel(package_dir),
+                    "count": len(mismatches),
+                    "examples": mismatches[:20],
+                }
+            )
+        results.append(
+            {
+                "package_path": rel(package_dir),
+                "ok": validation.ok,
+                "errors": validation.errors,
+                "warnings": validation.warnings,
+            }
+        )
+    failed = [result for result in results if not result["ok"]]
+    return {
+        "package_count": len(results),
+        "passed_count": len(results) - len(failed),
+        "failed_count": len(failed),
+        "unit_currency_mismatch_count": sum(item["count"] for item in unit_currency_mismatches),
+        "unit_currency_mismatch_packages": unit_currency_mismatches,
+        "quality_gate_decisions": dict(sorted(quality_gate_decisions.items())),
+        "quality_gate_block_count": len(quality_gate_blocks),
+        "quality_gate_blocks": quality_gate_blocks,
+        "failures": failed,
+        "passed": bool(results) and not failed and not unit_currency_mismatches and not quality_gate_blocks,
+    }
+
+
+def audit_existing_staging(output_root: Path) -> dict[str, Any]:
+    output_root = output_root.resolve()
+    production_root = DEFAULT_OUTPUT_ROOT.resolve()
+    if output_root == production_root or output_root.is_relative_to(production_root):
+        return {
+            "schema_version": "hk_wiki_rebuild_report_v1",
+            "market": "HK",
+            "apply": False,
+            "audit_existing": True,
+            "output_root": rel(output_root),
+            "blocked": True,
+            "blocking_reason": "audit_existing_requires_independent_staging_output",
+        }
+    if not output_root.is_dir():
+        return {
+            "schema_version": "hk_wiki_rebuild_report_v1",
+            "market": "HK",
+            "apply": False,
+            "audit_existing": True,
+            "output_root": rel(output_root),
+            "blocked": True,
+            "blocking_reason": "staging_output_missing",
+        }
+
+    manifest_paths = sorted(output_root.glob("companies/*/reports/*/manifest.json"))
+    identity_issues: list[dict[str, Any]] = []
+    profile_versions: Counter[str] = Counter()
+    company_ids: set[str] = set()
+    for manifest_path in manifest_paths:
+        manifest = read_json(manifest_path, {})
+        manifest = manifest if isinstance(manifest, dict) else {}
+        source_manifest = (
+            manifest.get("source_manifest")
+            if isinstance(manifest.get("source_manifest"), dict)
+            else {}
+        )
+        missing_fields = [
+            field
+            for field, value in (
+                ("company_id", manifest.get("company_id")),
+                ("filing_id", manifest.get("filing_id")),
+                ("parse_run_id", manifest.get("parse_run_id")),
+                ("accession_number", manifest.get("accession_number")),
+                ("source_url", manifest.get("source_url")),
+                ("source_manifest.content_sha256", source_manifest.get("content_sha256")),
+            )
+            if not value
+        ]
+        if missing_fields:
+            identity_issues.append(
+                {
+                    "package_path": rel(manifest_path.parent),
+                    "missing_fields": missing_fields,
+                }
+            )
+        company_id = str(manifest.get("company_id") or "").strip()
+        if company_id:
+            company_ids.add(company_id)
+        financial_checks = read_json(manifest_path.parent / "metrics" / "financial_checks.json", {})
+        profile_version = str(financial_checks.get("profile_rule_version") or "missing")
+        profile_versions[profile_version] += 1
+
+    package_contract = validate_staging_packages(output_root)
+    blocked = bool(identity_issues) or not package_contract["passed"]
+    return {
+        "schema_version": "hk_wiki_rebuild_report_v1",
+        "market": "HK",
+        "apply": False,
+        "audit_existing": True,
+        "output_root": rel(output_root),
+        "candidate_report_count": len(manifest_paths),
+        "company_count": len(company_ids),
+        "written_company_count": len(company_ids),
+        "written_report_count": len(manifest_paths),
+        "canonical_identity": {
+            "required": True,
+            "resolved_reports": len(manifest_paths) - len(identity_issues),
+            "unresolved_reports": len(identity_issues),
+            "issues": identity_issues,
+        },
+        "financial_artifacts": {
+            "required_profile_version": HK_FINANCIAL_PROFILE_VERSION,
+            "profile_versions": dict(sorted(profile_versions.items())),
+        },
+        "package_contract": package_contract,
+        "blocked": blocked,
+        "blocking_reason": "existing_staging_audit_failed" if blocked else None,
+        "read_only": True,
+    }
+
+
 def run(args: argparse.Namespace) -> dict[str, Any]:
     results_dir = args.results_dir.resolve()
     output_root = args.output_root.resolve()
-    active, selection = build_plan(results_dir)
+    downloads_root = args.downloads_root.resolve()
+    safety_errors = _apply_safety_errors(args, output_root)
+    if safety_errors:
+        return {
+            "schema_version": "hk_wiki_rebuild_report_v1",
+            "market": "HK",
+            "apply": bool(args.apply),
+            "output_root": rel(output_root),
+            "blocked": True,
+            "blocking_reason": "unsafe_hk_wiki_apply",
+            "safety_errors": safety_errors,
+        }
+    active, selection = build_plan(results_dir, downloads_root=downloads_root)
     if args.limit:
         active = active[: args.limit]
+    for row in active:
+        canonical_identity = row.get("canonical_identity")
+        if isinstance(canonical_identity, dict):
+            row.update(canonical_identity)
+            row.update(
+                {
+                    "accession_number": row["sidecar"].get("accession_number"),
+                    "source_tier": "official_regulator",
+                    "source_verification_status": "official_verified",
+                    "official_source_verified": True,
+                    "regulator_host_verified": True,
+                }
+            )
+            row["source_metadata"] = {
+                **row["source_metadata"],
+                "accession_number": row["sidecar"].get("accession_number"),
+                "source_url": canonical_identity.get("source_url"),
+                "source_sha256": canonical_identity.get("source_sha256"),
+            }
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in active:
         grouped[row["company_wiki_id"]].append(row)
     plan = {
+        "schema_version": "hk_wiki_rebuild_report_v1",
         "market": "HK",
         "apply": bool(args.apply),
         "source_results_dir": rel(results_dir),
+        "downloads_root": rel(downloads_root),
         "output_root": rel(output_root),
         "candidate_report_count": len(active),
         "company_count": len(grouped),
         "selection": selection,
+        "canonical_identity": {
+            "required": bool(args.require_canonical_identity),
+            "resolved_reports": sum(1 for row in active if row.get("canonical_identity")),
+            "unresolved_reports": sum(1 for row in active if not row.get("canonical_identity")),
+            "issues": [
+                {
+                    "task_id": row["task_id"],
+                    "ticker": row["ticker"],
+                    "report_id": row["report_id"],
+                    "sidecar_status": row["sidecar"].get("status"),
+                    "warnings": [warning for warning in row["warnings"] if warning.startswith("hkex_sidecar_")],
+                }
+                for row in active
+                if not row.get("canonical_identity")
+            ],
+            "period_corrections": [
+                {
+                    "task_id": row["task_id"],
+                    "ticker": row["ticker"],
+                    "declared_period_end": row.get("declared_period_end"),
+                    "period_end": row.get("period_end"),
+                    "sidecar_period_end": row["sidecar"].get("period_end"),
+                    "common_statement_periods": row["reporting_period_evidence"].get("common_periods") or [],
+                }
+                for row in active
+                if row.get("declared_period_end") != row.get("period_end")
+            ],
+        },
+        "financial_artifacts": {
+            "required_profile_version": HK_FINANCIAL_PROFILE_VERSION,
+            "sources": dict(sorted(Counter(row.get("financial_artifact_source") for row in active).items())),
+        },
         "companies": [
             {
                 "company_wiki_id": key,
@@ -1042,29 +1658,95 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             for key, rows in sorted(grouped.items())
         ],
     }
+    if args.require_canonical_identity and plan["canonical_identity"]["unresolved_reports"]:
+        plan["blocked"] = True
+        plan["blocking_reason"] = "canonical_hk_identity_incomplete"
+        if args.apply:
+            raise RuntimeError("canonical HK identity is incomplete; refusing --apply")
+        return plan
     if not args.apply:
         return plan
     company_results = [write_company(rows, output_root) for _, rows in sorted(grouped.items())]
     write_market_root(output_root, company_results, selection, results_dir)
     plan["written_company_count"] = len(company_results)
     plan["written_report_count"] = sum(len(item.get("reports") or []) for item in company_results)
+    plan["package_contract"] = validate_staging_packages(output_root)
+    if not plan["package_contract"]["passed"]:
+        plan["blocked"] = True
+        plan["blocking_reason"] = "staging_package_contract_failed"
     return plan
 
 
-def main() -> None:
+def main() -> int:
+    started_at = time.monotonic()
     parser = argparse.ArgumentParser(description="Ingest HK PDF parser results into an A-share-aligned company Wiki workspace.")
     parser.add_argument("--results-dir", type=Path, default=DEFAULT_RESULTS_DIR)
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
+    parser.add_argument("--downloads-root", type=Path, default=DEFAULT_DOWNLOADS_ROOT)
     parser.add_argument("--limit", type=int, default=0)
+    parser.add_argument(
+        "--require-canonical-identity",
+        action="store_true",
+        help="Fail closed unless every selected report resolves to one HKEX accession and source hash.",
+    )
     parser.add_argument("--apply", action="store_true", help="Write files. Omit for dry-run.")
+    parser.add_argument(
+        "--audit-existing",
+        action="store_true",
+        help="Read and validate an existing independent staging root without rebuilding or writing it.",
+    )
     parser.add_argument("--json-output", type=Path, default=None)
     args = parser.parse_args()
-    payload = run(args)
+    if args.audit_existing and args.apply:
+        parser.error("--audit-existing cannot be combined with --apply")
+    payload = audit_existing_staging(args.output_root) if args.audit_existing else run(args)
+    artifacts = [Path(__file__).resolve()]
+    if not args.audit_existing:
+        artifacts.extend(sorted(args.results_dir.resolve().glob("*/artifact_manifest.json")))
+    if args.apply or args.audit_existing:
+        artifacts.extend(sorted(args.output_root.resolve().rglob("manifest.json")))
+        artifacts.extend(sorted(args.output_root.resolve().rglob("metrics/financial_data.json")))
+        artifacts.extend(sorted(args.output_root.resolve().rglob("metrics/financial_checks.json")))
+        artifacts.extend(sorted(args.output_root.resolve().glob("_meta/*.json")))
+    failures = []
+    if payload.get("blocked"):
+        failures.append(
+            {
+                "code": str(payload.get("blocking_reason") or "hk_wiki_rebuild_blocked"),
+                "count": len(payload.get("safety_errors") or []) or 1,
+            }
+        )
+    payload = attach_evidence_metadata(
+        payload,
+        repo_root=REPO_ROOT,
+        task_id="T10",
+        environment_profile=(
+            "local-hk-existing-staging-read-only"
+            if args.audit_existing
+            else "local-hk-isolated-staging-build"
+            if args.apply
+            else "local-hk-wiki-dry-run"
+        ),
+        command=(
+            "python scripts/wiki/market_wikiset/ingest_hk_pdf_wiki.py "
+            "--results-dir <configured-path> --downloads-root <configured-path> "
+            "--output-root <configured-path> "
+            + ("--require-canonical-identity " if args.require_canonical_identity else "")
+            + ("--audit-existing " if args.audit_existing else "")
+            + ("--apply " if args.apply else "")
+            + "--json-output <artifact.json>"
+        ),
+        result="fail" if payload.get("blocked") else "pass",
+        failures=failures,
+        started_at=started_at,
+        artifacts=artifacts,
+    )
     text = json.dumps(payload, ensure_ascii=False, indent=2)
     print(text)
     if args.json_output:
         write_json(args.json_output, payload)
+    return 1 if payload.get("blocked") else 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

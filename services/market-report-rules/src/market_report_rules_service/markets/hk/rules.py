@@ -77,6 +77,18 @@ HK_LABEL_RULES: tuple[MetricRule, ...] = (
         ("income tax expense", "income tax expenses", "taxation", "tax expense", "income tax benefit", "所得税", "稅項", "税项"),
     ),
     MetricRule(
+        "net_interest_income",
+        StatementType.INCOME_STATEMENT,
+        (
+            "net interest income",
+            "banking net interest income",
+            "net interest income/(expense)",
+            "利息净收入",
+            "利息淨收入",
+        ),
+        1,
+    ),
+    MetricRule(
         "finance_costs",
         StatementType.INCOME_STATEMENT,
         ("finance costs", "interest expense", "borrowing costs", "融资成本", "融資成本", "利息开支", "利息開支"),

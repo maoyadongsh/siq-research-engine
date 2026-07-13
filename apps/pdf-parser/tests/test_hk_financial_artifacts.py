@@ -126,8 +126,47 @@ def test_hk_financial_artifact_builder_uses_markdown_formal_window_for_tencent()
 
     statement_types = {statement["statement_type"] for statement in data["statements"]}
     assert {"balance_sheet", "income_statement", "cash_flow_statement"}.issubset(statement_types)
+    rmb_statements = [statement for statement in data["statements"] if "rmb" in str(statement.get("unit") or "").lower()]
+    assert rmb_statements
+    assert {statement["currency"] for statement in rmb_statements} == {"CNY"}
+    assert {
+        item["currency"]
+        for statement in rmb_statements
+        for item in statement.get("items") or []
+        if "rmb" in str(item.get("unit") or statement.get("unit") or "").lower()
+    } == {"CNY"}
     assert checks["overall_status"] == "pass"
     assert checks["summary"]["fail"] == 0
+
+
+def test_hk_financial_artifact_builder_uses_explicit_usd_presentation_for_hsbc():
+    from hk_financial_artifacts import build_hk_financial_artifacts
+
+    result_dir = Path("data/pdf-parser/results/24039b93-d3e3-4a29-a39f-7bea0b5b7d3a")
+    if not result_dir.exists():
+        pytest.skip("HSBC HK parser sample is not available in this checkout")
+    document_full = json.loads((result_dir / "document_full.json").read_text(encoding="utf-8"))
+    task = document_full["task"]
+    markdown = (result_dir / "result_complete.md").read_text(encoding="utf-8")
+
+    data, _ = build_hk_financial_artifacts(
+        task,
+        markdown,
+        result_dir_path=str(result_dir),
+        filename=task["filename"],
+    )
+
+    statements = {statement["statement_type"]: statement for statement in data["statements"]}
+    assert {statement["currency"] for statement in statements.values()} == {"USD"}
+    assert {statement["unit"] for statement in statements.values()} == {"million"}
+    assert {statement["scale"] for statement in statements.values()} == {"1000000"}
+    income_items = statements["income_statement"]["items"]
+    assert any(
+        item.get("canonical_name") == "net_interest_income"
+        and item.get("period_key") == "2025-12-31"
+        and item.get("value") == "34794"
+        for item in income_items
+    )
 
 
 def test_hk_report_type_detects_non_annual_hkex_documents():

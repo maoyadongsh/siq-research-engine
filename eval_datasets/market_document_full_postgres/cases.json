@@ -3,13 +3,14 @@
   "cases": [
     {
       "case_id": "cn_period_map_balance_sheet",
+      "identity_scope": "synthetic_fixture",
       "market": "CN",
-      "company_id": "CN:600519",
+      "company_id": "CN:FIXTURE:PERIOD_MAP",
       "report_year": 2025,
       "period_key": "2025-12-31",
       "document_full_path": "examples/cn_period_map_document_full.json",
       "expected_identity": {
-        "filing_id": "CN:600519:2025-annual",
+        "filing_id": "CN:FIXTURE:PERIOD_MAP:2025-annual",
         "period_end": "2025-12-31"
       },
       "expected_content_hash": "a43fafe7e5fd29595f8350a7b1263b0e470d68ac08e26e9a41e73c6e8a1d2300",
@@ -33,13 +34,14 @@
     },
     {
       "case_id": "hk_row_period_currency_evidence",
+      "identity_scope": "synthetic_fixture",
       "market": "HK",
-      "company_id": "HK:00700",
+      "company_id": "HK:FIXTURE:ROW_PERIOD",
       "report_year": 2025,
       "period_key": "2025-12-31",
       "document_full_path": "examples/hk_row_period_document_full.json",
       "expected_identity": {
-        "filing_id": "HK:00700:2025-annual",
+        "filing_id": "HK:FIXTURE:ROW_PERIOD:2025-annual",
         "period_end": "2025-12-31"
       },
       "expected_row_counts": {"parse_runs": 1, "facts": 1, "tables": 1, "chunks": 1, "evidence": 1},
@@ -64,13 +66,14 @@
     },
     {
       "case_id": "jp_row_period_local_language",
+      "identity_scope": "synthetic_fixture",
       "market": "JP",
-      "company_id": "JP:7203",
+      "company_id": "JP:FIXTURE:ROW_PERIOD",
       "report_year": 2025,
       "period_key": "2025-03-31",
       "document_full_path": "examples/jp_row_period_document_full.json",
       "expected_identity": {
-        "filing_id": "JP:7203:2025-annual-securities-report",
+        "filing_id": "JP:FIXTURE:ROW_PERIOD:2025-annual-securities-report",
         "period_end": "2025-03-31"
       },
       "expected_row_counts": {"parse_runs": 1, "facts": 1, "tables": 1, "chunks": 1, "evidence": 1},
@@ -95,13 +98,14 @@
     },
     {
       "case_id": "kr_row_period_kifrs",
+      "identity_scope": "synthetic_fixture",
       "market": "KR",
-      "company_id": "KR:005930",
+      "company_id": "KR:FIXTURE:ROW_PERIOD",
       "report_year": 2025,
       "period_key": "2025-12-31",
       "document_full_path": "examples/kr_row_period_document_full.json",
       "expected_identity": {
-        "filing_id": "KR:005930:2025-annual",
+        "filing_id": "KR:FIXTURE:ROW_PERIOD:2025-annual",
         "period_end": "2025-12-31"
       },
       "expected_row_counts": {"parse_runs": 1, "facts": 1, "tables": 1, "chunks": 1, "evidence": 1},
@@ -126,13 +130,14 @@
     },
     {
       "case_id": "eu_period_map_country_currency",
+      "identity_scope": "synthetic_fixture",
       "market": "EU",
-      "company_id": "EU:NL:ASML:NL0010273215",
+      "company_id": "EU:FIXTURE:PERIOD_MAP",
       "report_year": 2025,
       "period_key": "2025-12-31",
       "document_full_path": "examples/eu_period_map_document_full.json",
       "expected_identity": {
-        "filing_id": "EU:NL:ASML:2025-annual",
+        "filing_id": "EU:FIXTURE:PERIOD_MAP:2025-annual",
         "period_end": "2025-12-31"
       },
       "expected_row_counts": {"parse_runs": 1, "facts": 1, "tables": 1, "chunks": 1, "evidence": 1},
@@ -157,13 +162,14 @@
     },
     {
       "case_id": "eu_multi_currency_original_fact_currency",
+      "identity_scope": "synthetic_fixture",
       "market": "EU",
-      "company_id": "EU:GB:VOD:GB00BH4HKS39",
+      "company_id": "EU:FIXTURE:MULTI_CURRENCY",
       "report_year": 2025,
       "period_key": "2025-03-31",
       "document_full_path": "examples/eu_multi_currency_document_full.json",
       "expected_identity": {
-        "filing_id": "EU:GB:VOD:2025-annual",
+        "filing_id": "EU:FIXTURE:MULTI_CURRENCY:2025-annual",
         "period_end": "2025-03-31"
       },
       "expected_row_counts": {"parse_runs": 1, "facts": 1, "tables": 1, "chunks": 1, "evidence": 1},
@@ -191,17 +197,18 @@
     },
     {
       "case_id": "us_sec_ixbrl_fact_anchor",
+      "identity_scope": "synthetic_fixture",
       "market": "US",
-      "company_id": "US:CIK0000320193",
+      "company_id": "US:FIXTURE:IXBRL",
       "report_year": 2025,
       "period_key": "2025-09-27",
       "document_full_path": "examples/us_sec_document_full.json",
       "expected_identity": {
-        "filing_id": "US:0000320193:0000320193-25-000079",
+        "filing_id": "US:FIXTURE:IXBRL:2025-10-K",
         "period_end": "2025-09-27"
       },
       "expected_row_counts": {"parse_runs": 1, "facts": 1, "tables": 1, "chunks": 1, "evidence": 1},
-      "expected_content_hash": "20a74283a05ce327b0d10547fa6b1c73824c2f2f2cfce596ac8b0d0fedf02983",
+      "expected_content_hash": "2d89de4a27b8c425827618a7aca38323990906ae85330bf0bfde1282beeb164b",
       "assertions": [
         {
           "statement_type": "xbrl_fact",

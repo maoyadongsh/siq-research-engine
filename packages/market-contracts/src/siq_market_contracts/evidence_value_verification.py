@@ -7,7 +7,11 @@ from typing import Any
 
 from .evidence_hashing import stable_id
 from .evidence_resolver import iter_financial_data_items
-
+from .financial_value_polarity import (
+    FINANCIAL_VALUE_POLARITY_CONTRACT_VERSION,
+    CanonicalValuePolarity,
+    canonical_value_polarity,
+)
 
 _EMPTY_VALUE_TEXT = {"", "-", "--", "---", "n/a", "na", "null", "none"}
 _NUMBER_RE = re.compile(r"\(?[-+]?\d[\d,']*(?:\.\d+)?%?\)?")
@@ -116,7 +120,14 @@ def _period_token(value: Any) -> str | None:
     return text
 
 
-def _value_matches_expected(expected: Any, observed: Any, *, scale: Any = None) -> bool | None:
+def _value_matches_expected(
+    expected: Any,
+    observed: Any,
+    *,
+    scale: Any = None,
+    sign: Any = None,
+    polarity: CanonicalValuePolarity = "signed",
+) -> bool | None:
     expected_number = _decimal_from_value(expected)
     if expected_number is None:
         return None
@@ -130,11 +141,16 @@ def _value_matches_expected(expected: Any, observed: Any, *, scale: Any = None) 
 
     factor = _scale_factor(scale)
     for number in observed_numbers:
+        if str(sign or "").strip() == "-":
+            number = -abs(number)
         candidates = [number]
         if factor not in {Decimal("0"), Decimal("1")}:
             candidates.extend([number * factor, number / factor])
         if any(_decimal_close(expected_number, candidate) for candidate in candidates):
             return True
+        if polarity == "deduction_magnitude" and expected_number >= 0:
+            if any(candidate < 0 and _decimal_close(expected_number, -candidate) for candidate in candidates):
+                return True
     return False
 
 
@@ -177,7 +193,16 @@ def _fact_value_fields(item: dict[str, Any], period_key: Any, evidence: dict[str
             base_value,
         ),
         "quote_text": quote_text,
-        "scale": _first_value(value_payload.get("scale"), item.get("scale"), evidence.get("scale"), _raw_field(evidence, "scale")),
+        "scale": _first_value(
+            value_payload.get("scale_multiplier"),
+            evidence.get("scale_multiplier"),
+            _raw_field(evidence, "scale_multiplier"),
+            value_payload.get("scale"),
+            item.get("scale"),
+            evidence.get("scale"),
+            _raw_field(evidence, "scale"),
+        ),
+        "sign": _first_value(value_payload.get("sign"), evidence.get("sign"), _raw_field(evidence, "sign")),
     }
 
 
@@ -248,7 +273,15 @@ def _xbrl_field_values(item: dict[str, Any], period_key: Any, evidence: dict[str
         "period": evidence_period,
         "fact_period": _first_value(period.get("period_end"), period_key),
         "decimals": _first_value(evidence.get("decimals"), _raw_field(evidence, "decimals")),
-        "scale": _first_value(evidence.get("scale"), _raw_field(evidence, "scale"), item.get("scale")),
+        "scale": _first_value(
+            evidence.get("xbrl_scale_exponent"),
+            _raw_field(evidence, "xbrl_scale_exponent"),
+            evidence.get("scale"),
+            _raw_field(evidence, "scale"),
+            evidence.get("scale_multiplier"),
+            _raw_field(evidence, "scale_multiplier"),
+            item.get("scale"),
+        ),
     }
 
 
@@ -258,7 +291,9 @@ def evidence_value_verification_summary(
     manifest: dict[str, Any] | None = None,
     package_dir: Path | None = None,
 ) -> dict[str, Any]:
-    del manifest, package_dir
+    del package_dir
+    manifest = manifest if isinstance(manifest, dict) else {}
+    market = (financial_data or {}).get("market") or manifest.get("market")
     fact_count = 0
     checked_fact_count = 0
     verified_fact_count = 0
@@ -285,6 +320,10 @@ def evidence_value_verification_summary(
             value_fields = _fact_value_fields(item, period_key, evidence)
             normalized_value = value_fields["normalized_value"]
             scale = value_fields["scale"]
+            polarity = canonical_value_polarity(
+                market,
+                item.get("canonical_name") or item.get("name"),
+            )
             fact_issue_count = len(issues)
             checked = False
 
@@ -293,8 +332,18 @@ def evidence_value_verification_summary(
                 pdf_checked_count += 1
                 raw_value = value_fields["raw_value"]
                 display_value = value_fields["display_value"]
-                raw_match = _value_matches_expected(normalized_value, raw_value, scale=scale)
-                display_match = _value_matches_expected(normalized_value, display_value, scale=scale)
+                raw_match = _value_matches_expected(
+                    normalized_value,
+                    raw_value,
+                    scale=scale,
+                    polarity=polarity,
+                )
+                display_match = _value_matches_expected(
+                    normalized_value,
+                    display_value,
+                    scale=scale,
+                    polarity=polarity,
+                )
                 if raw_match is not True:
                     issues.append(
                         _evidence_value_issue(
@@ -356,7 +405,13 @@ def evidence_value_verification_summary(
             if _has_value(quote_text):
                 checked = True
                 quote_checked_count += 1
-                quote_match = _value_matches_expected(normalized_value, quote_text, scale=scale)
+                quote_match = _value_matches_expected(
+                    normalized_value,
+                    quote_text,
+                    scale=scale,
+                    sign=value_fields["sign"] if _is_xbrl_evidence(evidence) else None,
+                    polarity=polarity,
+                )
                 if quote_match is not True:
                     issues.append(
                         _evidence_value_issue(
@@ -384,6 +439,7 @@ def evidence_value_verification_summary(
     failed_fact_count = checked_fact_count - verified_fact_count
     return {
         "schema_version": "siq_evidence_value_verification_v1",
+        "polarity_contract_version": FINANCIAL_VALUE_POLARITY_CONTRACT_VERSION,
         "fact_count": fact_count,
         "checked_fact_count": checked_fact_count,
         "verified_fact_count": verified_fact_count,

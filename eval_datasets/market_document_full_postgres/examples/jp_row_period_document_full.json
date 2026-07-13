@@ -1,8 +1,9 @@
 {
   "schema_version": 3,
+  "identity_scope": "synthetic_fixture",
   "task": {
-    "task_id": "fixture-jp-7203",
-    "filename": "Toyota-Motor-Corporation_JP_7203_2025-03-31_annual.pdf"
+    "task_id": "fixture-jp-row-period-v2",
+    "filename": "SYNTHETIC_JP_ROW_PERIOD_2025-03-31_annual.pdf"
   },
   "content_list_enhanced": {
     "tables": [
@@ -20,9 +21,10 @@
     "profile_id": "jp_edinet_xbrl_tables_v1",
     "market": "JP",
     "accounting_standard": "IFRS",
-    "company_id": "JP:7203",
-    "ticker": "7203",
-    "report_id": "JP:7203:2025-annual-securities-report",
+    "company_id": "JP:FIXTURE:ROW_PERIOD",
+    "ticker": "FIXTURE_ROW_PERIOD",
+    "company_name": "Synthetic JP Row Period Fixture",
+    "report_id": "JP:FIXTURE:ROW_PERIOD:2025-annual-securities-report",
     "report_type": "annual_securities_report",
     "fiscal_year": 2025,
     "period_end": "2025-03-31",
@@ -63,4 +65,3 @@
     "key_metrics": []
   }
 }
-

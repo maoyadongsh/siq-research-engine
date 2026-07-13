@@ -5,6 +5,7 @@ from pathlib import Path
 from siq_market_contracts import (
     SCHEMA_VERSION,
     build_quality_gates,
+    canonical_value_polarity,
     compute_artifact_hashes,
     is_resolvable_evidence_source,
     read_market_package_detail,
@@ -14,9 +15,11 @@ from siq_market_contracts import (
     validate_evidence_package,
     write_json,
 )
-from siq_market_contracts.evidence_package import evidence_value_verification_summary
 from siq_market_contracts.evidence_gates import GateSeverity as ExtractedGateSeverity
-from siq_market_contracts.evidence_package import GateSeverity as FacadeGateSeverity
+from siq_market_contracts.evidence_package import (
+    GateSeverity as FacadeGateSeverity,
+    evidence_value_verification_summary,
+)
 
 
 def _financial_data() -> dict:
@@ -53,6 +56,25 @@ def _financial_data() -> dict:
         "operating_metrics": [],
         "warnings": [],
     }
+
+
+def _financial_data_with_value(
+    *,
+    market: str,
+    canonical_name: str,
+    normalized_value: str,
+    raw_value: str,
+) -> dict:
+    payload = _financial_data()
+    payload["market"] = market
+    item = payload["statements"][0]["items"][0]
+    item["name"] = canonical_name.replace("_", " ").title()
+    item["canonical_name"] = canonical_name
+    item["statement_type"] = "income_statement"
+    item["values"]["2025-12-31"] = normalized_value
+    item["raw_values"]["2025-12-31"] = raw_value
+    item["sources"]["2025-12-31"]["quote_text"] = f"{item['name']} | {raw_value}"
+    return payload
 
 
 def test_evidence_package_preserves_gate_imports():
@@ -255,6 +277,147 @@ def test_validate_and_read_market_package(tmp_path):
     value_summary = evidence_value_verification_summary(financial_data=detail["financial_data"])
     assert value_summary["issue_count"] == 0
     assert value_summary["value_verification_ratio"] == 1
+
+
+def test_evidence_value_verification_accepts_declared_deduction_presentation_sign():
+    assert canonical_value_polarity("HK", "finance_costs") == "deduction_magnitude"
+    assert canonical_value_polarity("EU", "income_tax_expense") == "deduction_magnitude"
+
+    for market in ("HK", "EU"):
+        summary = evidence_value_verification_summary(
+            financial_data=_financial_data_with_value(
+                market=market,
+                canonical_name="income_tax_expense",
+                normalized_value="30",
+                raw_value="(30)",
+            )
+        )
+
+        assert summary["polarity_contract_version"] == "siq_financial_value_polarity_v1"
+        assert summary["issue_count"] == 0, (market, summary["issues"])
+        assert summary["value_verification_ratio"] == 1
+
+
+def test_evidence_value_verification_keeps_revenue_and_profit_sign_strict():
+    for canonical_name in ("operating_revenue", "net_profit"):
+        summary = evidence_value_verification_summary(
+            financial_data=_financial_data_with_value(
+                market="HK",
+                canonical_name=canonical_name,
+                normalized_value="30",
+                raw_value="(30)",
+            )
+        )
+
+        assert canonical_value_polarity("HK", canonical_name) == "signed"
+        assert summary["failed_fact_count"] == 1
+        assert summary["issue_count"] == 3
+
+
+def test_evidence_value_verification_does_not_apply_hk_eu_polarity_to_us_expenses():
+    summary = evidence_value_verification_summary(
+        financial_data=_financial_data_with_value(
+            market="US",
+            canonical_name="income_tax_expense",
+            normalized_value="30",
+            raw_value="(30)",
+        )
+    )
+
+    assert canonical_value_polarity("US", "income_tax_expense") == "signed"
+    assert summary["failed_fact_count"] == 1
+    assert summary["issue_count"] == 3
+
+
+def test_evidence_value_verification_polarity_normalization_is_one_way():
+    summary = evidence_value_verification_summary(
+        financial_data=_financial_data_with_value(
+            market="HK",
+            canonical_name="income_tax_expense",
+            normalized_value="-30",
+            raw_value="30",
+        )
+    )
+
+    assert summary["failed_fact_count"] == 1
+    assert summary["issue_count"] == 3
+
+
+def _us_ixbrl_financial_data(*, quote_text: str = "2,999", period_end: str | None = "2025-06-30") -> dict:
+    source_raw = {
+        "context_ref": "c-2025",
+        "unit_ref": "usd",
+        "decimals": "-6",
+        "xbrl_scale_exponent": "6",
+        "scale_multiplier": "1000000",
+        "sign": None,
+    }
+    if period_end is not None:
+        source_raw["period_end"] = period_end
+    return {
+        "market": "US",
+        "statements": [
+            {
+                "statement_type": "balance_sheet",
+                "items": [
+                    {
+                        "canonical_name": "borrowings",
+                        "values": {"2025-06-30": "2999000000"},
+                        "raw_values": {"2025-06-30": "2,999"},
+                        "scale": "1",
+                        "periods": {"2025-06-30": {"period_end": "2025-06-30"}},
+                        "sources": {
+                            "2025-06-30": {
+                                "source_type": "sec_xbrl_fact",
+                                "source_id": "us-gaap:LongTermDebtCurrent",
+                                "xbrl_tag": "us-gaap:LongTermDebtCurrent",
+                                "quote_text": quote_text,
+                                "raw": source_raw,
+                            }
+                        },
+                    }
+                ],
+            }
+        ],
+        "key_metrics": [],
+        "operating_metrics": [],
+    }
+
+
+def test_evidence_value_verification_applies_explicit_ixbrl_scale_multiplier():
+    summary = evidence_value_verification_summary(financial_data=_us_ixbrl_financial_data())
+
+    assert summary["checked_fact_count"] == 1
+    assert summary["verified_fact_count"] == 1
+    assert summary["issue_count"] == 0
+
+
+def test_evidence_value_verification_keeps_ixbrl_quote_and_period_strict():
+    wrong_quote = evidence_value_verification_summary(
+        financial_data=_us_ixbrl_financial_data(quote_text="2,998")
+    )
+    missing_period = evidence_value_verification_summary(
+        financial_data=_us_ixbrl_financial_data(period_end=None)
+    )
+
+    assert wrong_quote["failed_fact_count"] == 1
+    assert [issue["rule"] for issue in wrong_quote["issues"]] == ["quote.value.explainable"]
+    assert missing_period["failed_fact_count"] == 1
+    assert [issue["rule"] for issue in missing_period["issues"]] == ["xbrl.fields.present"]
+
+
+def test_evidence_value_verification_applies_ixbrl_sign_without_relaxing_us_polarity():
+    payload = _us_ixbrl_financial_data(quote_text="51,699")
+    item = payload["statements"][0]["items"][0]
+    item["canonical_name"] = "financing_cash_flow_net"
+    item["values"]["2025-06-30"] = "-51699000000"
+    item["raw_values"]["2025-06-30"] = "51,699"
+    item["sources"]["2025-06-30"]["raw"]["sign"] = "-"
+
+    summary = evidence_value_verification_summary(financial_data=payload)
+
+    assert summary["verified_fact_count"] == 1
+    assert summary["issue_count"] == 0
 
 
 def test_quality_gates_allow_official_regulator_source_manifest_for_canonical(tmp_path):
@@ -573,3 +736,44 @@ def test_quality_gates_can_observe_without_blocking_promotions(tmp_path):
     )
     assert observe_gate["severity"] == "observe"
     assert observe_gate["decision"] == "allow"
+
+
+def test_rule_advisories_are_visible_without_weakening_real_warning_gates(tmp_path):
+    package_dir = _write_package(tmp_path)
+    _mark_quality_pass(package_dir)
+    quality_path = package_dir / "qa" / "quality_report.json"
+    checks_path = package_dir / "metrics" / "financial_checks.json"
+    quality = json.loads(quality_path.read_text(encoding="utf-8"))
+    checks = json.loads(checks_path.read_text(encoding="utf-8"))
+    advisory = "Use standard three-statement bridge checks."
+    quality["rule_advisories"] = [advisory]
+    checks["advisories"] = [advisory]
+    write_json(quality_path, quality)
+    write_json(checks_path, checks)
+    manifest = json.loads((package_dir / "manifest.json").read_text(encoding="utf-8"))
+    manifest["artifact_hashes"] = compute_artifact_hashes(package_dir)
+    write_json(package_dir / "manifest.json", manifest)
+
+    advisory_gates = build_quality_gates(package_dir)
+
+    assert advisory_gates["rule_advisories"] == [advisory]
+    assert "package.parser_or_rule_warnings.present" not in {
+        gate["rule_id"] for gate in advisory_gates["gate_results"]
+    }
+
+    quality["rule_warnings"] = ["Suspicious HK financial table extraction requires review."]
+    write_json(quality_path, quality)
+    manifest["artifact_hashes"] = compute_artifact_hashes(package_dir)
+    write_json(package_dir / "manifest.json", manifest)
+
+    warning_gates = build_quality_gates(package_dir)
+    canonical_warning_gate = next(
+        gate
+        for gate in warning_gates["gate_results"]
+        if gate["rule_id"] == "package.parser_or_rule_warnings.present"
+        and gate["target"] == "canonical"
+    )
+
+    assert warning_gates["rule_advisories"] == [advisory]
+    assert canonical_warning_gate["severity"] == "soft"
+    assert canonical_warning_gate["decision"] == "review"

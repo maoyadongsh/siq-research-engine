@@ -232,6 +232,7 @@ class ValidationResult(BaseModel):
     summary: dict[str, int]
     checks: list[ValidationCheck]
     warnings: list[str] = Field(default_factory=list)
+    advisories: list[str] = Field(default_factory=list)
     generated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 

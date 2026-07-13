@@ -1,8 +1,9 @@
 {
   "schema_version": 3,
+  "identity_scope": "synthetic_fixture",
   "task": {
-    "task_id": "fixture-eu-asml",
-    "filename": "ASML-Holding-NV_EU_ASML_2025-12-31_annual.pdf"
+    "task_id": "fixture-eu-period-map-v2",
+    "filename": "SYNTHETIC_EU_PERIOD_MAP_2025-12-31_annual.pdf"
   },
   "content_list_enhanced": {
     "tables": [
@@ -19,13 +20,13 @@
     "rule_version": "fixture_v1",
     "market": "EU",
     "market_profile": "EU",
-    "country": "NL",
-    "exchange": "Euronext Amsterdam",
-    "isin": "NL0010273215",
+    "country": "ZZ",
+    "exchange": "SYNTHETIC",
     "accounting_standard": "IFRS",
-    "company_id": "EU:NL:ASML:NL0010273215",
-    "ticker": "ASML",
-    "report_id": "EU:NL:ASML:2025-annual",
+    "company_id": "EU:FIXTURE:PERIOD_MAP",
+    "ticker": "FIXTURE_PERIOD_MAP",
+    "company_name": "Synthetic EU Period Map Fixture",
+    "report_id": "EU:FIXTURE:PERIOD_MAP:2025-annual",
     "report_type": "annual",
     "fiscal_year": 2025,
     "period_end": "2025-12-31",
@@ -66,4 +67,3 @@
     "key_metrics": []
   }
 }
-

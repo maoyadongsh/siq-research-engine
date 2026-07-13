@@ -10,8 +10,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
+SUSPICIOUS_TABLE_WARNING_TOKEN = "可疑表样本"
+FINANCIAL_TABLE_TYPES = {
+    "balance_sheet",
+    "income_statement",
+    "cash_flow_statement",
+    "statement_of_changes_in_equity",
+    "financial_statement",
+    "fact",
+}
 
 
 def now_iso() -> str:
@@ -118,6 +126,52 @@ def _source_map_from_evidence(market: str, report_id: str, evidence_items: list[
     }
 
 
+def _financially_relevant_suspicious_tables(quality: dict[str, Any]) -> list[dict[str, Any]]:
+    suspicious = quality.get("suspicious_tables")
+    if not isinstance(suspicious, list):
+        return []
+    core_indexes = {
+        candidate.get("table_index")
+        for candidate in quality.get("core_financial_table_candidates") or []
+        if isinstance(candidate, dict) and candidate.get("status") == "found"
+    }
+    relevant: list[dict[str, Any]] = []
+    for table in suspicious:
+        if not isinstance(table, dict):
+            continue
+        table_type = str(table.get("table_type") or "").strip().lower()
+        if (
+            table.get("table_index") in core_indexes
+            or bool(table.get("matched_financial_names"))
+            or bool(table.get("classification_reasons"))
+            or table.get("year_binding_required") is True
+            or table_type in FINANCIAL_TABLE_TYPES
+        ):
+            relevant.append(table)
+    return relevant
+
+
+def _quality_messages(row: dict[str, Any], quality: dict[str, Any]) -> tuple[list[str], list[str]]:
+    warnings = [str(item) for item in row.get("warnings") or [] if str(item).strip()]
+    advisories: list[str] = []
+    suspicious = quality.get("suspicious_tables")
+    can_classify_suspicious = isinstance(suspicious, list) and bool(suspicious)
+    relevant_suspicious = _financially_relevant_suspicious_tables(quality)
+    for item in quality.get("warnings") or []:
+        message = str(item).strip()
+        if not message:
+            continue
+        if (
+            SUSPICIOUS_TABLE_WARNING_TOKEN in message
+            and can_classify_suspicious
+            and not relevant_suspicious
+        ):
+            advisories.append(message)
+        else:
+            warnings.append(message)
+    return sorted(set(warnings)), sorted(set(advisories))
+
+
 def _quality_report(
     market: str,
     row: dict[str, Any],
@@ -129,16 +183,19 @@ def _quality_report(
     financial_checks = row.get("financial_checks") if isinstance(row.get("financial_checks"), dict) else {}
     metrics = three_statements.get("metrics") if isinstance(three_statements, dict) else []
     metrics = metrics if isinstance(metrics, list) else []
+    evidence_coverage_ratio = round(min(len(evidence_items), len(metrics)) / len(metrics), 6) if metrics else None
     status = "pass" if str(report_json.get("status") or "") == "ready" else "warning"
-    warnings = sorted(set((row.get("warnings") or []) + (quality.get("warnings") or [])))
+    warnings, advisories = _quality_messages(row, quality)
     return {
         "schema_version": f"{market.lower()}_package_quality_report_v1",
         "market": market,
         "overall_status": status,
         "section_count": 1 if (Path(row["result_dir"]) / "result_complete.md").is_file() or (Path(row["result_dir"]) / "result.md").is_file() else 0,
         "table_count": quality.get("table_count") or len((_table_index_payload(market, row).get("tables") or [])),
+        "raw_fact_count": len(metrics),
         "normalized_metric_count": len(metrics),
         "evidence_count": len(evidence_items),
+        "evidence_coverage_ratio": evidence_coverage_ratio,
         "required_statement_status": _required_statement_status(metrics),
         "missing_required_statements": [
             statement for statement, value in _required_statement_status(metrics).items() if value != "present"
@@ -146,6 +203,7 @@ def _quality_report(
         "financial_check_status": financial_checks.get("overall_status"),
         "parser_warnings": [],
         "rule_warnings": warnings,
+        "rule_advisories": advisories,
         "critical_warnings": [],
         "summary": {
             "markdown_chars": quality.get("markdown_chars"),
@@ -177,18 +235,36 @@ def _manifest_payload(
     company_id = row.get("company_id") or (report_json.get("identity") or {}).get("company_id")
     if not company_id:
         company_id = f"{market}:{row.get('ticker') or row.get('stock_code') or row.get('company_wiki_id')}"
+    sidecar = row.get("sidecar") if isinstance(row.get("sidecar"), dict) else {}
+    source_metadata = row.get("source_metadata") if isinstance(row.get("source_metadata"), dict) else {}
+    source_tier = row.get("source_tier") or metadata.get("source_tier") or "local_uploaded"
+    source_verification_status = row.get("source_verification_status")
+    official_source_verified = bool(row.get("official_source_verified"))
+    regulator_host_verified = bool(row.get("regulator_host_verified"))
     source_url = (
-        metadata.get("source_url")
+        row.get("source_url")
+        or metadata.get("source_url")
         or metadata.get("document_url")
         or metadata.get("landing_url")
-        or ((row.get("source_metadata") or {}).get("document_url") if isinstance(row.get("source_metadata"), dict) else None)
+        or source_metadata.get("source_url")
+        or source_metadata.get("document_url")
+        or sidecar.get("source_url")
         or ""
     )
+    accession_number = row.get("accession_number") or sidecar.get("accession_number")
+    source_sha256 = row.get("source_sha256") or sidecar.get("content_sha256")
+    raw_source_sha256 = artifact_hashes.get("raw/report.pdf")
+    if source_sha256 and raw_source_sha256 and str(source_sha256).lower() != str(raw_source_sha256).lower():
+        raise RuntimeError("verified source PDF hash does not match packaged raw/report.pdf")
+    if official_source_verified and not raw_source_sha256:
+        raise RuntimeError("verified official source requires packaged raw/report.pdf")
+    local_source_path = "raw/report.pdf" if raw_source_sha256 else "parser/document_full.json"
     return {
         "schema_version": "market_evidence_package_v1",
         "market": market,
         "country": row.get("country"),
         "filing_id": row.get("filing_id") or f"{market}:{row.get('ticker')}:{row.get('report_id')}:{row.get('task_id')}",
+        "accession_number": accession_number,
         "company_id": company_id,
         "company_wiki_id": row.get("company_wiki_id"),
         "company_wiki_path": rel(report_dir.parents[1]),
@@ -198,7 +274,10 @@ def _manifest_payload(
         "stock_code": row.get("stock_code") or row.get("ticker"),
         "company_name": row.get("company_name"),
         "source_id": row.get("source_id") or metadata.get("source_id") or market.lower(),
-        "source_tier": row.get("source_tier") or metadata.get("source_tier") or "local_uploaded",
+        "source_tier": source_tier,
+        "source_verification_status": source_verification_status,
+        "official_source_verified": official_source_verified,
+        "regulator_host_verified": regulator_host_verified,
         "form": row.get("form") or row.get("report_kind") or row.get("report_type"),
         "report_type": row.get("report_type") or row.get("report_kind"),
         "fiscal_year": row.get("report_year"),
@@ -208,15 +287,18 @@ def _manifest_payload(
         "source_url": source_url,
         "source_manifest": {
             "schema_version": "siq_source_manifest_v1",
-            "source_tier": row.get("source_tier") or metadata.get("source_tier") or "local_uploaded",
+            "source_tier": source_tier,
+            "source_verification_status": source_verification_status,
+            "official_source_verified": official_source_verified,
+            "regulator_host_verified": regulator_host_verified,
             "initial_url": source_url,
             "final_url": source_url,
             "redirect_chain": [],
-            "content_sha256": artifact_hashes.get("raw/source_reference.json") or artifact_hashes.get("parser/document_full.json"),
+            "content_sha256": raw_source_sha256 or source_sha256 or artifact_hashes.get("parser/document_full.json"),
             "retrieved_at": row.get("published_at") or now_iso(),
             "source_note": "Generated from local standardized parser artifacts; original official URL may be absent in legacy parser metadata.",
         },
-        "local_source_path": rel(Path(row["result_dir"])),
+        "local_source_path": local_source_path,
         "document_format": row.get("document_format") or "pdf",
         "accounting_standard": financial_data.get("accounting_standard") or row.get("accounting_standard") or "",
         "parser_version": metadata.get("parser_version") or f"{market.lower()}_pdf_parser_result",
@@ -242,6 +324,7 @@ def write_report_package_facade(
     key_metrics: Any,
     validation: dict[str, Any],
     evidence_items: list[dict[str, Any]],
+    package_financial_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Mirror an A-share-style report workspace into the standard package contract."""
 
@@ -251,10 +334,28 @@ def write_report_package_facade(
         (report_dir / dirname).mkdir(parents=True, exist_ok=True)
 
     _copy_if_exists(report_dir / "report.md", report_dir / "sections" / "report_complete.md")
-    _copy_if_exists(report_dir / "document_full.json", report_dir / "parser" / "document_full.json")
-    for source_name in ("content_list_enhanced.json", "table_relations.json"):
+    source_pdf_path = Path(str(row.get("source_pdf_path") or "")).expanduser()
+    if not source_pdf_path.is_absolute():
+        source_pdf_path = REPO_ROOT / source_pdf_path
+    _copy_if_exists(source_pdf_path, report_dir / "raw" / "report.pdf")
+    for source_name in (
+        "result.md",
+        "result_complete.md",
+        "document_full.json",
+        "content_list.json",
+        "content_list_enhanced.json",
+        "table_index.json",
+        "table_relations.json",
+        "financial_data.json",
+        "financial_checks.json",
+        "quality_report.json",
+    ):
         _copy_if_exists(result_dir / source_name, report_dir / "parser" / source_name)
-    _copy_if_exists(metrics_dir / "financial_data.json", report_dir / "metrics" / "financial_data.json")
+    _copy_if_exists(result_dir / "table_relations.json", report_dir / "tables" / "table_relations.json")
+    if package_financial_data is not None:
+        write_json(report_dir / "metrics" / "financial_data.json", package_financial_data)
+    else:
+        _copy_if_exists(metrics_dir / "financial_data.json", report_dir / "metrics" / "financial_data.json")
     _copy_if_exists(metrics_dir / "financial_checks.json", report_dir / "metrics" / "financial_checks.json")
     _copy_if_exists(metrics_dir / "normalized_metrics.json", report_dir / "metrics" / "normalized_metrics.json")
     write_json(report_dir / "metrics" / "key_metrics.json", {"schema_version": f"{market.lower()}_key_metrics_v1", "data": key_metrics, "generated_at": now_iso()})
@@ -263,6 +364,14 @@ def write_report_package_facade(
     write_json(report_dir / "qa" / "source_map.json", _source_map_from_evidence(market, str(row.get("report_id") or ""), evidence_items))
     quality_report = _quality_report(market, row, report_json, three_statements, evidence_items)
     write_json(report_dir / "qa" / "quality_report.json", quality_report)
+    write_json(
+        report_dir / "qa" / "extraction_warnings.json",
+        {
+            "schema_version": f"{market.lower()}_extraction_warnings_v1",
+            "warnings": quality_report["rule_warnings"],
+            "advisories": quality_report["rule_advisories"],
+        },
+    )
     for name in ("facts_raw", "contexts", "units"):
         write_json(report_dir / "xbrl" / f"{name}.json", {"schema_version": f"{market.lower()}_xbrl_{name}_v1", name: []})
     write_json(

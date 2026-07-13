@@ -5,7 +5,6 @@ import argparse
 import hashlib
 import json
 import os
-import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -24,14 +23,28 @@ RULES_SRC = REPO_ROOT / "services" / "market-report-rules" / "src"
 if str(RULES_SRC) not in sys.path:
     sys.path.insert(0, str(RULES_SRC))
 
-from market_report_rules_service.evidence_package import compute_artifact_hashes, stable_id, stable_parse_run_id, validate_evidence_package
-from quality_gate_guard import enforce_quality_gates, quality_with_gate_audit, should_write_target
+from market_report_rules_service.evidence_package import (  # noqa: E402
+    compute_artifact_hashes,
+    stable_id,
+    stable_parse_run_id,
+    validate_evidence_package,
+)
+from quality_gate_guard import (  # noqa: E402
+    enforce_quality_gates,
+    quality_with_gate_audit,
+    should_write_target,
+)
 
 DDL_PATH = REPO_ROOT / "db" / "ddl" / "020_create_pdf2md_hk_schema.sql"
 
 
 def read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+
+
+def write_json(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str) + "\n", encoding="utf-8")
 
 
 def parse_date(value: Any) -> Any:
@@ -385,22 +398,83 @@ def build_retrieval_chunk_rows(
     return rows
 
 
-def database_url(explicit: str | None) -> str:
-    url = explicit or os.environ.get("DATABASE_URL")
-    if url:
-        return url.replace("postgresql+psycopg://", "postgresql://")
-    host = os.environ.get("SIQ_PGHOST") or os.environ.get("PGHOST") or "127.0.0.1"
-    port = os.environ.get("SIQ_PGPORT") or os.environ.get("PGPORT") or "15432"
-    db = os.environ.get("SIQ_HK_PGDATABASE") or os.environ.get("SIQ_PGDATABASE") or os.environ.get("PGDATABASE") or "siq_hk"
-    user = os.environ.get("SIQ_PGUSER") or os.environ.get("PGUSER") or "postgres"
-    password = os.environ.get("SIQ_PGPASSWORD") or os.environ.get("PGPASSWORD") or ""
-    auth = f"{user}:{password}" if password else user
-    return f"postgresql://{auth}@{host}:{port}/{db}"
+def connection_kwargs() -> dict[str, Any]:
+    """Build psycopg kwargs from controlled SIQ/libpq environment variables."""
+    return {
+        "host": os.environ.get("SIQ_PGHOST") or os.environ.get("PGHOST") or "127.0.0.1",
+        "port": os.environ.get("SIQ_PGPORT") or os.environ.get("PGPORT") or "15432",
+        "dbname": os.environ.get("SIQ_HK_PGDATABASE")
+        or os.environ.get("SIQ_PGDATABASE")
+        or os.environ.get("PGDATABASE")
+        or "siq_hk",
+        "user": os.environ.get("SIQ_PGUSER") or os.environ.get("PGUSER") or "postgres",
+        "password": os.environ.get("SIQ_PGPASSWORD") or os.environ.get("PGPASSWORD") or "",
+    }
+
+
+def validate_connection_database(conn: Any, expected_database: str) -> None:
+    current_database = str(conn.execute("select current_database()").fetchone()[0])
+    if current_database != expected_database:
+        raise SystemExit(
+            f"Connected database {current_database!r} does not match --expected-database {expected_database!r}"
+        )
 
 
 def validate_schema(schema: str) -> None:
     if schema != "pdf2md_hk":
         raise SystemExit("HK imports must target schema pdf2md_hk")
+
+
+def build_import_plan(
+    package_dir: Path,
+    *,
+    force_review: bool = False,
+    force_requested_by: str | None = None,
+    force_reason: str | None = None,
+    force_approved_by: str | None = None,
+    force_expires_at: str | None = None,
+) -> dict[str, Any]:
+    package_dir = package_dir.resolve()
+    validation = validate_evidence_package(package_dir)
+    if not validation.ok:
+        raise SystemExit("Invalid evidence package: " + "; ".join(validation.errors))
+    manifest = validation.manifest
+    if manifest.get("market") != "HK":
+        raise SystemExit("manifest market must be HK")
+    gate_enforcement = enforce_quality_gates(
+        package_dir,
+        target="canonical",
+        force_review=force_review,
+        requested_by=force_requested_by,
+        reason=force_reason,
+        approved_by=force_approved_by,
+        expires_at=force_expires_at,
+    )
+    financial_data = read_json(package_dir / "metrics" / "financial_data.json")
+    source_map = read_json(package_dir / "qa" / "source_map.json")
+    parse_run_id = manifest.get("parse_run_id") or stable_parse_run_id(manifest, validation.artifact_hashes)
+    statement_rows = build_statement_item_rows(manifest, financial_data, source_map, parse_run_id)
+    evidence_rows = [row for row in source_map.get("entries") or [] if isinstance(row, dict)]
+    return {
+        "schema_version": "hk_evidence_package_import_plan_v1",
+        "market": "HK",
+        "read_only": True,
+        "execution_authorized": False,
+        "package_path": (
+            package_dir.relative_to(REPO_ROOT).as_posix()
+            if package_dir.is_relative_to(REPO_ROOT)
+            else "<external>"
+        ),
+        "company_id": _company_id(manifest),
+        "filing_id": manifest.get("filing_id"),
+        "parse_run_id": parse_run_id,
+        "accession_number": manifest.get("accession_number"),
+        "quality_gate_decision": gate_enforcement.decision,
+        "package_hash": gate_enforcement.package_hash,
+        "artifact_count": len(validation.artifact_hashes),
+        "statement_row_count": len(statement_rows),
+        "evidence_row_count": len(evidence_rows),
+    }
 
 
 def run_ddl(conn: Any) -> None:
@@ -454,7 +528,7 @@ def import_package(
         _insert_financial_facts(conn, schema, package_dir, manifest["filing_id"], parse_run_id)
         _insert_statement_items(conn, schema, manifest, financial_data, source_map, parse_run_id)
         _insert_checks(conn, schema, package_dir, manifest["filing_id"], parse_run_id)
-        _insert_quality_report(conn, schema, package_dir, manifest["filing_id"], parse_run_id)
+        _insert_quality_report(conn, schema, package_dir, manifest["filing_id"], parse_run_id, quality)
         if should_write_target(gate_enforcement, "retrieval"):
             _insert_retrieval_chunks(conn, schema, manifest, financial_data, quality, source_map, parse_run_id, package_dir)
     return parse_run_id
@@ -643,7 +717,12 @@ def _insert_pdf_pages(conn: Any, schema: str, package_dir: Path, filing_id: str,
 
 def _insert_tables(conn: Any, schema: str, package_dir: Path, filing_id: str, parse_run_id: str) -> None:
     payload = read_json(package_dir / "tables" / "table_index.json")
-    for table in payload.get("tables") or []:
+    for table_index, table in enumerate(payload.get("tables") or [], start=1):
+        stable_table_id = table.get("table_id") or stable_id(
+            parse_run_id,
+            "pdf_table",
+            table.get("table_index") or table_index,
+        )
         conn.execute(
             f"""
             insert into {schema}.pdf_tables (
@@ -654,7 +733,7 @@ def _insert_tables(conn: Any, schema: str, package_dir: Path, filing_id: str, pa
             (
                 parse_run_id,
                 filing_id,
-                table.get("table_id"),
+                stable_table_id,
                 table.get("page_number"),
                 table.get("table_index"),
                 table.get("title"),
@@ -867,6 +946,8 @@ def _insert_statement_items(
 
 def _insert_financial_facts(conn: Any, schema: str, package_dir: Path, filing_id: str, parse_run_id: str) -> None:
     payload = read_json(package_dir / "metrics" / "normalized_metrics.json")
+    manifest = read_json(package_dir / "manifest.json")
+    manifest_ticker = _manifest_stock_code(manifest)
     for item in payload.get("metrics") or []:
         table = "operating_metric_facts" if item.get("statement_type") == "operating_metrics" else "financial_facts"
         if table == "operating_metric_facts":
@@ -882,7 +963,7 @@ def _insert_financial_facts(conn: Any, schema: str, package_dir: Path, filing_id
                     item.get("metric_id") or stable_id(parse_run_id, item.get("canonical_name"), item.get("period_key")),
                     filing_id,
                     parse_run_id,
-                    item.get("ticker"),
+                    item.get("ticker") or manifest_ticker,
                     item.get("canonical_name"),
                     parse_numeric(item.get("value")),
                     item.get("raw_value"),
@@ -907,7 +988,7 @@ def _insert_financial_facts(conn: Any, schema: str, package_dir: Path, filing_id
                 item.get("metric_id") or stable_id(parse_run_id, item.get("canonical_name"), item.get("period_key")),
                 filing_id,
                 parse_run_id,
-                item.get("ticker"),
+                item.get("ticker") or manifest_ticker,
                 item.get("statement_type"),
                 item.get("canonical_name"),
                 item.get("local_name"),
@@ -955,8 +1036,15 @@ def _insert_checks(conn: Any, schema: str, package_dir: Path, filing_id: str, pa
         )
 
 
-def _insert_quality_report(conn: Any, schema: str, package_dir: Path, filing_id: str, parse_run_id: str) -> None:
-    quality = read_json(package_dir / "qa" / "quality_report.json")
+def _insert_quality_report(
+    conn: Any,
+    schema: str,
+    package_dir: Path,
+    filing_id: str,
+    parse_run_id: str,
+    quality: dict[str, Any] | None = None,
+) -> None:
+    quality = quality if isinstance(quality, dict) else read_json(package_dir / "qa" / "quality_report.json")
     conn.execute(
         f"""
         insert into {schema}.quality_reports (
@@ -1055,45 +1143,80 @@ def _insert_retrieval_chunks(
         )
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Import a HK market evidence package into PostgreSQL siq/pdf2md_hk.")
     parser.add_argument("package", type=Path, nargs="?")
     parser.add_argument("--package", dest="package_opt", type=Path)
-    parser.add_argument("--database-url", default=None)
+    parser.add_argument(
+        "--expected-database",
+        help="Required for database writes and checked against current_database().",
+    )
     parser.add_argument("--schema", default=os.environ.get("SIQ_HK_SCHEMA", "pdf2md_hk"))
     parser.add_argument("--ddl", "--run-ddl", action="store_true", help="Run DDL before importing")
     parser.add_argument("--ddl-only", action="store_true")
+    parser.add_argument("--dry-run", action="store_true", help="Validate and emit an import plan without connecting to PostgreSQL")
+    parser.add_argument("--json-output", type=Path, help="Optional dry-run import-plan output")
     parser.add_argument("--force-review", "--force", dest="force_review", action="store_true", help="Allow a soft-gate review package to write canonical facts with audit")
     parser.add_argument("--force-requested-by", default=None, help="Operator requesting a soft-gate canonical override")
     parser.add_argument("--force-approved-by", default=None, help="Approver for the soft-gate canonical override")
     parser.add_argument("--force-reason", default=None, help="Reason for the soft-gate canonical override")
     parser.add_argument("--force-expires-at", default=None, help="Optional expiry timestamp for the override record")
-    args = parser.parse_args()
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
 
     package_dir = args.package_opt or args.package
     validate_schema(args.schema)
-    with psycopg.connect(database_url(args.database_url), autocommit=False) as conn:
+    if args.dry_run:
         if args.ddl or args.ddl_only:
-            run_ddl(conn)
-            conn.commit()
-        if args.ddl_only:
-            print("DDL applied")
-            return
+            raise SystemExit("--dry-run cannot be combined with --ddl or --ddl-only")
         if not package_dir:
             raise SystemExit("package path is required")
-        parse_run_id = import_package(
-            conn,
-            package_dir.resolve(),
-            args.schema,
+        plan = build_import_plan(
+            package_dir,
             force_review=args.force_review,
             force_requested_by=args.force_requested_by,
             force_reason=args.force_reason,
             force_approved_by=args.force_approved_by,
             force_expires_at=args.force_expires_at,
         )
-        conn.commit()
+        if args.json_output:
+            write_json(args.json_output, plan)
+        print(json.dumps(plan, ensure_ascii=False, indent=2))
+        return 0
+    if not args.expected_database:
+        raise SystemExit("--expected-database is required for database writes")
+    try:
+        with psycopg.connect(**connection_kwargs(), autocommit=False) as conn:
+            validate_connection_database(conn, args.expected_database)
+            if args.ddl or args.ddl_only:
+                run_ddl(conn)
+                conn.commit()
+            if args.ddl_only:
+                print("DDL applied")
+                return 0
+            if not package_dir:
+                raise SystemExit("package path is required")
+            parse_run_id = import_package(
+                conn,
+                package_dir.resolve(),
+                args.schema,
+                force_review=args.force_review,
+                force_requested_by=args.force_requested_by,
+                force_reason=args.force_reason,
+                force_approved_by=args.force_approved_by,
+                force_expires_at=args.force_expires_at,
+            )
+            conn.commit()
+    except SystemExit:
+        raise
+    except Exception as exc:
+        raise SystemExit(f"HK package import failed: {type(exc).__name__}") from None
     print(parse_run_id)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

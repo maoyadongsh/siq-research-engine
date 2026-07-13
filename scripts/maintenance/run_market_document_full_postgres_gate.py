@@ -17,9 +17,13 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BACKTEST_DIR = REPO_ROOT / "db" / "imports" / "backtests"
+MAINTENANCE_DIR = Path(__file__).resolve().parent
 if str(BACKTEST_DIR) not in sys.path:
     sys.path.insert(0, str(BACKTEST_DIR))
+if str(MAINTENANCE_DIR) not in sys.path:
+    sys.path.insert(0, str(MAINTENANCE_DIR))
 
+from audit_market_postgres_fixture_contamination import audit_fixture_contamination  # noqa: E402
 from market_document_full_postgres_backtest import (  # noqa: E402
     DEFAULT_CASES_PATH,
     DEFAULT_PRODUCTION_SAMPLE_MANIFEST_PATH,
@@ -93,6 +97,90 @@ def _contract_summary_is_clean(summary: dict[str, Any]) -> bool:
     )
 
 
+def _offline_fixture_safety(
+    summary: dict[str, Any], contamination_audit: dict[str, Any]
+) -> dict[str, Any]:
+    details = summary.get("summary") or {}
+    fixture_result_fields = {
+        "db_results": summary.get("db_results") or [],
+        "fixture_production_agent_results": summary.get("fixture_production_agent_results") or [],
+        "wiki_postgres_parity_results": summary.get("wiki_postgres_parity_results") or [],
+    }
+    fixture_results_empty = all(not results for results in fixture_result_fields.values())
+    policy_prohibited = details.get("fixture_postgres_policy") == "prohibited"
+    fixture_access_absent = details.get("fixture_postgres_access_executed") is False
+    fixture_import_absent = details.get("fixture_postgres_import_executed") is False
+
+    required_real_sample_fields = {
+        "production_sample_db_results": summary.get("production_sample_db_results") or [],
+        "production_sample_db_coexistence_results": (
+            summary.get("production_sample_db_coexistence_results") or []
+        ),
+        "production_sample_agent_results": summary.get("production_sample_agent_results") or [],
+        "production_sample_wiki_postgres_parity_results": (
+            summary.get("production_sample_wiki_postgres_parity_results") or []
+        ),
+    }
+    real_sample_results_present = all(required_real_sample_fields.values())
+    production_db_idempotent = bool(
+        required_real_sample_fields["production_sample_db_results"]
+    ) and all(
+        isinstance(result, dict)
+        and result.get("passed")
+        and not result.get("skipped")
+        and result.get("imported_before_check") is True
+        and result.get("idempotency_checked") is True
+        for result in required_real_sample_fields["production_sample_db_results"]
+    )
+    required_acceptance = (
+        "fixture_postgres_write_prohibited",
+        "postgres_import_idempotency",
+        "postgres_required_evidence",
+        "real_sample_minimum",
+        "real_sample_postgres_roundtrip",
+        "real_sample_postgres_idempotency",
+        "real_sample_postgres_coexistence",
+        "real_sample_agent_view_query",
+        "wiki_postgres_query_parity",
+        "production_agent_query",
+    )
+    acceptance = summary.get("acceptance_requirements") or {}
+    required_acceptance_passed = all(acceptance.get(name) is True for name in required_acceptance)
+    contamination_audit_clean = contamination_audit.get("passed") is True
+    passed = all(
+        (
+            fixture_results_empty,
+            policy_prohibited,
+            fixture_access_absent,
+            fixture_import_absent,
+            real_sample_results_present,
+            production_db_idempotent,
+            required_acceptance_passed,
+            contamination_audit_clean,
+        )
+    )
+    return {
+        "passed": passed,
+        "fixture_postgres_policy_prohibited": policy_prohibited,
+        "fixture_postgres_access_absent": fixture_access_absent,
+        "fixture_postgres_import_absent": fixture_import_absent,
+        "fixture_result_fields_empty": fixture_results_empty,
+        "fixture_result_counts": {
+            name: len(results) for name, results in fixture_result_fields.items()
+        },
+        "real_sample_result_fields_present": real_sample_results_present,
+        "real_sample_result_counts": {
+            name: len(results) for name, results in required_real_sample_fields.items()
+        },
+        "production_sample_db_idempotency_proven": production_db_idempotent,
+        "required_acceptance_passed": required_acceptance_passed,
+        "required_acceptance": list(required_acceptance),
+        "contamination_audit_clean": contamination_audit_clean,
+        "contaminated_run_count": contamination_audit.get("contaminated_run_count"),
+        "contamination_audit_error_count": contamination_audit.get("error_count"),
+    }
+
+
 def _result_identity(item: Any) -> str:
     if not isinstance(item, dict):
         return str(item)
@@ -136,6 +224,14 @@ def _failure_summary_lines(summary: dict[str, Any], *, limit: int = 12) -> list[
     ]
     if failed_requirements:
         lines.append("Failed acceptance requirements: " + ", ".join(failed_requirements))
+    fixture_safety = summary.get("offline_fixture_safety") or {}
+    if fixture_safety.get("passed") is False:
+        lines.append(
+            "Offline fixture safety failed: "
+            f"contaminated_runs={fixture_safety.get('contaminated_run_count')}, "
+            f"audit_errors={fixture_safety.get('contamination_audit_error_count')}, "
+            f"fixture_db_results={fixture_safety.get('fixture_result_counts')}"
+        )
 
     result_keys = (
         "results",
@@ -149,6 +245,12 @@ def _failure_summary_lines(summary: dict[str, Any], *, limit: int = 12) -> list[
     )
     for key in result_keys:
         for item in summary.get(key) or []:
+            # Unsupported/legacy markets (for example the CN fixture in the
+            # non-A-share PostgreSQL gate) are intentionally represented as
+            # skipped and passed. They are not release failures and should not
+            # pollute the actionable failure summary.
+            if isinstance(item, dict) and item.get("skipped") and item.get("passed") is True:
+                continue
             if len(lines) >= limit:
                 lines.append(f"... truncated after {limit} failure summary lines")
                 return lines
@@ -233,13 +335,20 @@ def main(argv: list[str] | None = None) -> int:
                 require_production_sample_files=True,
                 production_sample_db=True,
                 production_agent_query=True,
+                fixture_postgres=False,
             )
         finally:
             if previous_sample_root is None:
                 os.environ.pop(PRODUCTION_SAMPLE_ROOT_ENV, None)
             else:
                 os.environ[PRODUCTION_SAMPLE_ROOT_ENV] = previous_sample_root
-        gate_passed = bool(summary.get("acceptance_passed"))
+        contamination_audit = audit_fixture_contamination(
+            explicit_database_url=args.database_url
+        )
+        summary["fixture_contamination_audit"] = contamination_audit
+        fixture_safety = _offline_fixture_safety(summary, contamination_audit)
+        summary["offline_fixture_safety"] = fixture_safety
+        gate_passed = bool(summary.get("acceptance_passed")) and fixture_safety["passed"]
         summary["gate_mode"] = "offline-postgres"
         summary["gate_passed"] = gate_passed
 

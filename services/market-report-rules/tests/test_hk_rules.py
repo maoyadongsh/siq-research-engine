@@ -1,4 +1,4 @@
-from market_report_rules_service.contracts import financial_data_contract
+from market_report_rules_service.contracts import financial_checks_contract, financial_data_contract
 from market_report_rules_service.markets.hk.rules import find_hk_rule
 from market_report_rules_service.models import AccountingStandard, Market, ParsedArtifact, ParsedTable
 from market_report_rules_service.pipeline import process_artifact
@@ -12,6 +12,7 @@ def test_hk_rule_specificity_filters_broad_revenue_matches():
     assert find_hk_rule("Cash generated from operations").canonical_name == "operating_cash_flow_net"
     assert find_hk_rule("Net cash generated from financing activities").canonical_name == "financing_cash_flow_net"
     assert find_hk_rule("Cash and cash equivalents at the end of the year").canonical_name == "cash_equivalents_ending"
+    assert find_hk_rule("Net interest income").canonical_name == "net_interest_income"
     assert find_hk_rule("其他收入及收益 Other income and gains") is None
     assert find_hk_rule("年內溢利 For profit for the year") is None
     assert find_hk_rule("Total comprehensive income for the year") is None
@@ -102,6 +103,83 @@ def test_hk_pdf_tables_detect_statement_type_and_period_columns():
     assert total_assets["values"]["2025-12-31"] == "1000"
     assert total_assets["values"]["2024-12-31"] == "900"
     assert result.validation.summary["pass"] > 0
+
+
+def test_hk_explicit_rmb_unit_overrides_hkd_report_default():
+    artifact = ParsedArtifact(
+        artifact_id="hk-rmb-unit-hkd-default",
+        market=Market.HK,
+        company_id="HK:00700",
+        ticker="00700",
+        company_name="TENCENT",
+        report_type="annual",
+        fiscal_year=2025,
+        period_end="2025-12-31",
+        accounting_standard=AccountingStandard.HKFRS,
+        currency="HKD",
+        unit="HKD",
+        tables=[
+            ParsedTable(
+                table_id="is-rmb",
+                title="Consolidated Income Statement",
+                table_index=1,
+                currency="HKD",
+                unit="RMB million",
+                rows=[
+                    ["", "2025", "2024"],
+                    ["Revenue", "751,766", "660,257"],
+                    ["Profit for the year", "224,823", "194,073"],
+                ],
+            )
+        ],
+    )
+
+    result = process_artifact(artifact)
+    facts = [item for statement in result.extraction.statements for item in statement.items]
+    checks = financial_checks_contract(result.validation)
+
+    assert facts
+    assert {fact.currency for fact in facts} == {"CNY"}
+    assert {fact.scale for fact in facts} == {1000000}
+    assert any("currency conflict resolved from explicit unit" in warning for warning in result.extraction.warnings)
+    assert any("currency conflict resolved from explicit unit" in warning for warning in checks["warnings"])
+    assert checks["advisories"] == ["Use standard three-statement bridge checks."]
+    assert all(fact.raw["currency_resolution"]["conflict"] for fact in facts)
+
+
+def test_hk_explicit_hkd_unit_overrides_cny_report_default():
+    artifact = ParsedArtifact(
+        artifact_id="hk-hkd-unit-cny-default",
+        market=Market.HK,
+        company_id="HK:00388",
+        ticker="00388",
+        report_type="annual",
+        fiscal_year=2025,
+        period_end="2025-12-31",
+        accounting_standard=AccountingStandard.HKFRS,
+        currency="CNY",
+        tables=[
+            ParsedTable(
+                table_id="bs-hkd",
+                title="Consolidated Statement of Financial Position",
+                table_index=1,
+                currency="CNY",
+                unit="HK$ million",
+                rows=[
+                    ["", "2025", "2024"],
+                    ["Total assets", "580,775", "381,629"],
+                    ["Total liabilities", "522,046", "327,222"],
+                    ["Total equity", "58,729", "54,407"],
+                ],
+            )
+        ],
+    )
+
+    result = process_artifact(artifact)
+    facts = [item for statement in result.extraction.statements for item in statement.items]
+
+    assert facts
+    assert {fact.currency for fact in facts} == {"HKD"}
 
 
 def test_hk_cash_flow_note_references_do_not_become_label_columns():

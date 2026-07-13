@@ -264,7 +264,7 @@ def _generic_market_counts(**overrides):
 
 def _hk_revenue_fact(**overrides):
     row = {
-        "filing_id": "HK:00700:2025-annual",
+        "filing_id": "HK:FIXTURE:ROW_PERIOD:2025-annual",
         "parse_run_id": "parse-hk-idempotent",
         "statement_type": "income_statement",
         "canonical_name": "revenue",
@@ -284,14 +284,14 @@ def _hk_revenue_fact(**overrides):
 
 def _hk_agent_revenue_fact(**overrides):
     row = {
-        "company_id": "HK:00700",
-        "company_ticker": "00700",
-        "filing_id": "HK:00700:2025-annual",
+        "company_id": "HK:FIXTURE:ROW_PERIOD",
+        "company_ticker": "FIXTURE_ROW_PERIOD",
+        "filing_id": "HK:FIXTURE:ROW_PERIOD:2025-annual",
         "report_type": "annual",
         "fiscal_year": 2025,
         "filing_period_end": "2025-12-31",
         "parse_run_id": "parse-hk-idempotent",
-        "wiki_package_path": "data/wiki/hk/companies/00700-TENCENT/reports/2025-annual",
+        "wiki_package_path": "eval-fixtures/hk/row-period/2025-annual",
         "statement_type": "income_statement",
         "canonical_name": "revenue",
         "item_name": "Revenues",
@@ -309,7 +309,7 @@ def _hk_agent_revenue_fact(**overrides):
         "evidence_page_number": 42,
         "evidence_table_index": 4,
         "quote_text": "Revenues | 751,766 | 660,257",
-        "source_url": "https://example.test/hk/00700/annual",
+        "source_url": "https://example.invalid/eval-fixtures/hk/row-period",
     }
     row.update(overrides)
     return row
@@ -1021,6 +1021,120 @@ def test_backtest_production_agent_query_probes_real_samples(monkeypatch, tmp_pa
     assert all(result["mode"] == "production_sample_agent_view_probe" for result in summary["production_sample_agent_results"])
 
 
+def test_release_mode_never_sends_fixture_cases_to_postgres(monkeypatch):
+    runner = _load_runner()
+    production_cases = [
+        {
+            "case_id": f"production_sample_{market.lower()}_01",
+            "market": market,
+            "document_full_path": f"/external/{market.lower()}/document_full.json",
+        }
+        for market in ("HK", "JP", "KR", "EU", "US")
+    ]
+    db_sequences = []
+    parity_cases = []
+
+    monkeypatch.setattr(
+        runner,
+        "validate_production_sample_manifest",
+        lambda *_args, **_kwargs: {
+            "passed": True,
+            "path": "/external/production_sample_manifest.json",
+            "require_existing": True,
+            "sample_goal_per_market": 1,
+            "market_counts": {market: 1 for market in ("HK", "JP", "KR", "EU", "US")},
+            "existing_counts": {market: 1 for market in ("HK", "JP", "KR", "EU", "US")},
+            "missing": {},
+            "samples": [],
+        },
+    )
+    monkeypatch.setattr(
+        runner,
+        "production_sample_cases_from_manifest",
+        lambda _manifest: production_cases,
+    )
+
+    def fake_db_sequence(cases, **_kwargs):
+        db_sequences.append(list(cases))
+        return [
+            {
+                "case_id": case["case_id"],
+                "market": case["market"],
+                "passed": True,
+                "skipped": False,
+                "parse_run_id": f"parse-{case['case_id']}",
+                "counts": {family: 1 for family in runner.DB_DEFAULT_REQUIRED_FAMILIES},
+                "scope_issues": [],
+                "required_evidence_checks": [],
+                "imported_before_check": True,
+                "idempotency_checked": True,
+            }
+            for case in cases
+        ]
+
+    monkeypatch.setattr(runner, "check_db_case_sequence", fake_db_sequence)
+    monkeypatch.setattr(
+        runner,
+        "check_production_sample_db_coexistence",
+        lambda _results, **_kwargs: [
+            {"market": market, "passed": True} for market in ("HK", "JP", "KR", "EU", "US")
+        ],
+    )
+    monkeypatch.setattr(
+        runner,
+        "check_production_agent_case",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("fixture Agent query reached PostgreSQL")
+        ),
+    )
+    monkeypatch.setattr(
+        runner,
+        "check_production_sample_agent_view_case",
+        lambda case, **_kwargs: {
+            "case_id": case["case_id"],
+            "market": case["market"],
+            "passed": True,
+            "skipped": False,
+        },
+    )
+
+    def fake_parity(case, *_args, **_kwargs):
+        parity_cases.append(case["case_id"])
+        return {
+            "case_id": case["case_id"],
+            "market": case["market"],
+            "passed": True,
+            "skipped": False,
+        }
+
+    monkeypatch.setattr(runner, "check_wiki_postgres_parity_case", fake_parity)
+
+    summary = runner.run_cases(
+        verify_db=True,
+        import_before_db_check=True,
+        idempotency=True,
+        production_sample_db=True,
+        production_agent_query=True,
+        fixture_postgres=False,
+    )
+
+    assert len(db_sequences) == 1
+    assert [case["case_id"] for case in db_sequences[0]] == [
+        case["case_id"] for case in production_cases
+    ]
+    assert parity_cases == [case["case_id"] for case in production_cases]
+    assert summary["db_results"] == []
+    assert summary["fixture_production_agent_results"] == []
+    assert summary["wiki_postgres_parity_results"] == []
+    assert summary["summary"]["fixture_postgres_policy"] == "prohibited"
+    assert summary["summary"]["fixture_postgres_access_executed"] is False
+    assert summary["summary"]["fixture_postgres_import_executed"] is False
+    assert summary["summary"]["production_sample_idempotency_verified"] is True
+    assert summary["acceptance_requirements"]["real_sample_postgres_idempotency"] is True
+    assert summary["acceptance_requirements"]["fixture_postgres_write_prohibited"] is True
+    assert summary["acceptance_passed"] is True
+
+
 def test_backtest_rejects_idempotency_without_import_before_db_check():
     runner = _load_runner()
 
@@ -1030,6 +1144,39 @@ def test_backtest_rejects_idempotency_without_import_before_db_check():
         assert "--idempotency requires --import-before-db-check" in str(exc)
     else:
         raise AssertionError("expected idempotency dependency error")
+
+
+def test_backtest_cli_import_mode_disables_fixture_postgres(monkeypatch, capsys):
+    runner = _load_runner()
+    captured = {}
+
+    def fake_run_cases(*_args, **kwargs):
+        captured.update(kwargs)
+        return {
+            "passed": True,
+            "acceptance_passed": True,
+            "passed_count": 0,
+            "case_count": 0,
+            "results": [],
+        }
+
+    monkeypatch.setattr(runner, "run_cases", fake_run_cases)
+
+    exit_code = runner.main(
+        [
+            "--no-write",
+            "--db",
+            "--import-before-db-check",
+            "--idempotency",
+            "--production-sample-db",
+            "--json",
+        ]
+    )
+
+    assert exit_code == 0
+    assert captured["fixture_postgres"] is False
+    assert captured["production_sample_db"] is True
+    assert capsys.readouterr().out
 
 
 def test_backtest_rejects_production_agent_query_without_db():

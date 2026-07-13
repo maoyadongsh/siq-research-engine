@@ -1,5 +1,5 @@
-import importlib.util
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 
@@ -203,6 +203,101 @@ def test_find_package_accepts_kr_pdf_wiki_report_year(tmp_path, monkeypatch):
     assert found == package_dir
 
 
+def test_find_package_requires_requested_document_format(tmp_path, monkeypatch):
+    module = _load_eval_module()
+    root = tmp_path / "data" / "wiki" / "jp"
+    package_dir = root / "companies" / "7203-Toyota" / "reports" / "2025-annual"
+    _write_manifest(
+        package_dir,
+        {
+            "schema_version": "market_evidence_package_v1",
+            "market": "JP",
+            "ticker": "7203",
+            "fiscal_year": 2025,
+            "report_type": "annual",
+            "document_format": "pdf",
+        },
+    )
+    monkeypatch.setitem(module.WIKI_ROOTS, "JP", root)
+
+    case = {
+        "market": "JP",
+        "ticker": "7203",
+        "fiscal_year": 2025,
+        "report_type": "annual",
+        "document_format": "xbrl",
+    }
+
+    assert module.find_package(case) is None
+    result = module.evaluate_case(case)
+    assert result["package_resolution"] == "wrong_document_format"
+    assert result["package_candidates"] == []
+    assert result["package_format_mismatches"] == [
+        {
+            "package_path": str(package_dir),
+            "expected_document_format": "xbrl",
+            "observed_document_formats": ["pdf"],
+        }
+    ]
+
+
+def test_find_package_derives_pdf_format_from_raw_artifact(tmp_path, monkeypatch):
+    module = _load_eval_module()
+    root = tmp_path / "data" / "wiki" / "hk"
+    package_dir = root / "companies" / "00700-TENCENT" / "reports" / "2025-annual"
+    _write_manifest(
+        package_dir,
+        {
+            "schema_version": "market_evidence_package_v1",
+            "market": "HK",
+            "ticker": "00700",
+            "fiscal_year": 2025,
+            "report_type": "annual",
+            "artifact_hashes": {"raw/report.pdf": "a" * 64},
+        },
+    )
+    monkeypatch.setitem(module.WIKI_ROOTS, "HK", root)
+
+    found = module.find_package(
+        {
+            "market": "HK",
+            "ticker": "00700",
+            "fiscal_year": 2025,
+            "report_type": "annual",
+            "document_format": "pdf",
+        }
+    )
+
+    assert found == package_dir
+
+
+def test_find_package_fails_closed_when_multiple_packages_match(tmp_path, monkeypatch):
+    module = _load_eval_module()
+    root = tmp_path / "data" / "wiki" / "hk"
+    case = {"market": "HK", "ticker": "00700", "fiscal_year": 2025, "report_type": "annual"}
+    for suffix in ("canonical", "legacy"):
+        package_dir = root / "companies" / "00700-TENCENT" / "reports" / f"2025-annual-{suffix}"
+        _write_manifest(
+            package_dir,
+            {
+                "schema_version": "market_evidence_package_v1",
+                "market": "HK",
+                "ticker": "00700",
+                "fiscal_year": 2025,
+                "report_type": "annual",
+            },
+        )
+    monkeypatch.setitem(module.WIKI_ROOTS, "HK", root)
+
+    assert module.find_package(case) is None
+    assert len(module.find_package_candidates(case)) == 2
+
+    result = module.evaluate_case(case)
+    assert result["status"] == "missing_package"
+    assert result["package_resolution"] == "ambiguous"
+    assert len(result["package_candidates"]) == 2
+
+
 def test_evaluate_case_treats_null_metrics_as_empty_list(tmp_path, monkeypatch):
     module = _load_eval_module()
     root = tmp_path / "data" / "wiki" / "jp"
@@ -229,6 +324,52 @@ def test_evaluate_case_treats_null_metrics_as_empty_list(tmp_path, monkeypatch):
     assert result["status"] == "fail"
     assert result["counts"]["metrics"] == 0
     assert result["missing_metrics"] == ["operating_revenue"]
+
+
+def test_expected_metric_aliases_are_explicit_and_directional():
+    module = _load_eval_module()
+
+    assert module._missing_expected_metrics(
+        ["operating_cash_flow"],
+        {"operating_cash_flow_net"},
+    ) == []
+    assert module._missing_expected_metrics(
+        ["operating_cash_flow"],
+        {"free_cash_flow"},
+    ) == ["operating_cash_flow"]
+    assert module._missing_expected_metrics(
+        ["operating_cash_flow_net"],
+        {"operating_cash_flow"},
+    ) == ["operating_cash_flow_net"]
+
+
+def test_evaluate_case_accepts_tencent_operating_cash_flow_alias(tmp_path, monkeypatch):
+    module = _load_eval_module()
+    root = tmp_path / "data" / "wiki" / "hk"
+    package_dir = root / "companies" / "00700-TENCENT" / "reports" / "2025-annual-12100024"
+    _write_complete_eval_package(package_dir)
+    _write_json(
+        package_dir / "metrics" / "normalized_metrics.json",
+        {"metrics": [{"canonical_name": "operating_cash_flow_net"}]},
+    )
+    manifest = json.loads((package_dir / "manifest.json").read_text(encoding="utf-8"))
+    manifest["artifact_hashes"] = _artifact_hashes(package_dir)
+    _write_json(package_dir / "manifest.json", manifest)
+    monkeypatch.setitem(module.WIKI_ROOTS, "HK", root)
+
+    result = module.evaluate_case(
+        {
+            "market": "HK",
+            "ticker": "00700",
+            "fiscal_year": 2025,
+            "report_type": "annual",
+            "expected_metrics": ["operating_cash_flow"],
+            "expected_evidence": True,
+        }
+    )
+
+    assert result["status"] == "pass"
+    assert result["missing_metrics"] == []
 
 
 def test_evaluate_case_emits_mvp_quality_metrics(tmp_path, monkeypatch):
@@ -406,6 +547,71 @@ def test_eval_gate_blocks_currency_and_period_mismatch(tmp_path, monkeypatch):
     assert "period_end_mismatch_expected_2025-12-31" in result["gate_failures"]
 
 
+def test_eval_gate_blocks_explicit_unit_currency_conflict(tmp_path, monkeypatch):
+    module = _load_eval_module()
+    root = tmp_path / "data" / "wiki" / "hk"
+    package_dir = root / "companies" / "00700-TENCENT" / "reports" / "2025-annual-12100024"
+    _write_complete_eval_package(package_dir)
+    data_path = package_dir / "metrics" / "financial_data.json"
+    financial_data = json.loads(data_path.read_text(encoding="utf-8"))
+    statement = financial_data["statements"][0]
+    statement.update({"unit": "人民币百万元", "currency": "HKD"})
+    statement["items"][0].update({"unit": "RMB million", "currency": "HKD"})
+    _write_json(data_path, financial_data)
+    manifest = json.loads((package_dir / "manifest.json").read_text(encoding="utf-8"))
+    manifest["artifact_hashes"] = _artifact_hashes(package_dir)
+    _write_json(package_dir / "manifest.json", manifest)
+    monkeypatch.setitem(module.WIKI_ROOTS, "HK", root)
+
+    result = module.evaluate_case(
+        {
+            "market": "HK",
+            "ticker": "00700",
+            "fiscal_year": 2025,
+            "report_type": "annual",
+            "expected_metrics": ["operating_revenue"],
+        }
+    )
+
+    assert result["status"] == "fail"
+    assert result["eval_gate_status"] == "block"
+    assert "fact_currency_unit_mismatch" in result["gate_failures"]
+    assert result["currency_unit_consistency"]["mismatch_count"] == 2
+    assert {item["unit_currency"] for item in result["currency_unit_consistency"]["mismatches"]} == {"CNY"}
+
+
+def test_eval_gate_accepts_hk_company_reporting_in_cny(tmp_path, monkeypatch):
+    module = _load_eval_module()
+    root = tmp_path / "data" / "wiki" / "hk"
+    package_dir = root / "companies" / "00700-TENCENT" / "reports" / "2025-annual-12100024"
+    _write_complete_eval_package(package_dir)
+    data_path = package_dir / "metrics" / "financial_data.json"
+    financial_data = json.loads(data_path.read_text(encoding="utf-8"))
+    statement = financial_data["statements"][0]
+    statement.update({"unit": "人民币百万元", "currency": "CNY"})
+    statement["items"][0].update({"unit": "RMB million", "currency": "CNY"})
+    _write_json(data_path, financial_data)
+    manifest = json.loads((package_dir / "manifest.json").read_text(encoding="utf-8"))
+    manifest["reporting_currency"] = "CNY"
+    manifest["artifact_hashes"] = _artifact_hashes(package_dir)
+    _write_json(package_dir / "manifest.json", manifest)
+    monkeypatch.setitem(module.WIKI_ROOTS, "HK", root)
+
+    result = module.evaluate_case(
+        {
+            "market": "HK",
+            "ticker": "00700",
+            "fiscal_year": 2025,
+            "report_type": "annual",
+            "expected_currency": "CNY",
+            "expected_metrics": ["operating_revenue"],
+        }
+    )
+
+    assert result["status"] == "pass"
+    assert result["currency_unit_consistency"] == {"passed": True, "mismatch_count": 0, "mismatches": []}
+
+
 def test_eval_gate_blocks_artifact_hash_mismatch(tmp_path, monkeypatch):
     module = _load_eval_module()
     root = tmp_path / "data" / "wiki" / "hk"
@@ -463,12 +669,65 @@ def test_eval_gate_reviews_unverified_official_source(tmp_path, monkeypatch):
             "expected_metrics": ["operating_revenue"],
             "expected_official_source": True,
             "expected_gate_status": "review",
+            "negative_expectations": [
+                {
+                    "type": "unverified_official_source",
+                    "expected_failures": ["official_source_unverified"],
+                }
+            ],
         }
     )
 
     assert result["eval_gate_status"] == "review"
     assert result["gate_status_matches_expected"] is True
+    assert result["status"] == "pass"
+    assert result["expectation_passed"] is True
+    assert result["negative_expectations_matched"] is True
+    assert result["missing_expected_failures"] == []
     assert "official_source_unverified" in result["gate_failures"]
+
+
+def test_negative_eval_case_requires_declared_failure_to_pass(tmp_path, monkeypatch):
+    module = _load_eval_module()
+    root = tmp_path / "data" / "wiki" / "hk"
+    package_dir = root / "companies" / "00700-TENCENT" / "reports" / "2025-annual-12100024"
+    _write_complete_eval_package(package_dir)
+    manifest = json.loads((package_dir / "manifest.json").read_text(encoding="utf-8"))
+    manifest.update(
+        {
+            "source_id": "hkex",
+            "source_tier": "official",
+            "source_url": "https://www.hkexnews.hk/listedco/listconews/sehk/2026/0410/report.pdf",
+            "source_verification_status": "unverified",
+        }
+    )
+    _write_json(package_dir / "manifest.json", manifest)
+    monkeypatch.setitem(module.WIKI_ROOTS, "HK", root)
+
+    result = module.evaluate_case(
+        {
+            "market": "HK",
+            "ticker": "00700",
+            "fiscal_year": 2025,
+            "report_type": "annual",
+            "expected_metrics": ["operating_revenue"],
+            "expected_official_source": True,
+            "expected_gate_status": "review",
+            "negative_expectations": [
+                {
+                    "type": "period_mismatch",
+                    "expected_failures": ["period_end_mismatch_expected_2025-12-31"],
+                }
+            ],
+        }
+    )
+
+    assert result["eval_gate_status"] == "review"
+    assert result["gate_status_matches_expected"] is True
+    assert result["status"] == "fail"
+    assert result["expectation_passed"] is False
+    assert result["negative_expectations_matched"] is False
+    assert result["missing_expected_failures"] == ["period_end_mismatch_expected_2025-12-31"]
 
 
 def test_summarize_items_calculates_mvp_quality_metrics():
@@ -480,7 +739,8 @@ def test_summarize_items_calculates_mvp_quality_metrics():
                 "status": "pass",
                 "eval_gate_status": "pass",
                 "market": "HK",
-                "source_tier": "official",
+                "quality_gates": {"official_evidence_allowed": True},
+                "expected_official_source": True,
                 "evidence_coverage_ratio": 0.8,
                 "statement_coverage": 1.0,
                 "bridge_check_pass_rate": 1.0,
@@ -505,6 +765,7 @@ def test_summarize_items_calculates_mvp_quality_metrics():
     assert summary["cases"] == 2
     assert summary["eval_gate_status"] == {"pass": 1, "review": 0, "block": 1}
     assert metrics["official_source_hit_rate"] == 0.5
+    assert metrics["expected_official_source_rate"] == 0.5
     assert metrics["parser_success_rate"] == 0.5
     assert round(metrics["evidence_coverage_ratio"], 2) == 0.6
     assert metrics["statement_coverage"] == 0.75
@@ -514,7 +775,7 @@ def test_summarize_items_calculates_mvp_quality_metrics():
     assert metrics["hallucination_block_rate"] == 0.5
 
 
-def test_strict_failure_reasons_include_fail_missing_package_and_block_counts():
+def test_strict_failure_reasons_use_expectation_status_not_raw_block_count():
     module = _load_eval_module()
 
     reasons = module.strict_failure_reasons(
@@ -529,8 +790,65 @@ def test_strict_failure_reasons_include_fail_missing_package_and_block_counts():
     assert reasons == [
         "summary.fail=2",
         "summary.missing_package=1",
-        "summary.eval_gate_status.block=4",
     ]
+
+
+def test_strict_failure_reasons_allow_expected_negative_block_cases():
+    module = _load_eval_module()
+
+    assert module.strict_failure_reasons(
+        {
+            "cases": 1,
+            "pass": 1,
+            "fail": 0,
+            "missing_package": 0,
+            "eval_gate_status": {"pass": 0, "review": 0, "block": 1},
+        }
+    ) == []
+
+
+def test_summary_uses_expectation_passed_without_lowering_raw_gate_status():
+    module = _load_eval_module()
+
+    summary = module.summarize_items(
+        [
+            {
+                "status": "pass",
+                "expectation_passed": False,
+                "eval_gate_status": "block",
+                "market": "HK",
+            },
+            {
+                "status": "pass",
+                "expectation_passed": True,
+                "eval_gate_status": "review",
+                "market": "KR",
+            },
+        ]
+    )
+
+    assert summary["pass"] == 1
+    assert summary["fail"] == 1
+    assert summary["eval_gate_status"] == {"pass": 0, "review": 1, "block": 1}
+
+
+def test_summary_distinguishes_missing_wrong_format_and_ambiguous_packages():
+    module = _load_eval_module()
+
+    summary = module.summarize_items(
+        [
+            {"status": "missing_package", "package_resolution": "missing", "market": "EU"},
+            {"status": "missing_package", "package_resolution": "wrong_document_format", "market": "JP"},
+            {"status": "missing_package", "package_resolution": "ambiguous", "market": "HK"},
+        ]
+    )
+
+    assert summary["missing_package"] == 3
+    assert summary["package_resolution"] == {
+        "missing": 1,
+        "wrong_document_format": 1,
+        "ambiguous": 1,
+    }
 
 
 def test_strict_failure_reasons_reject_empty_case_set():
@@ -583,8 +901,84 @@ def test_strict_main_uses_portable_wiki_root(tmp_path, capsys):
     assert "FAIL market ingestion eval strict gate" not in capsys.readouterr().err
     report = json.loads(output.read_text(encoding="utf-8"))
     assert report["wiki_root"] == str(wiki_root)
+    assert report["passed"] is True
+    assert report["failure_reasons"] == []
+    assert report["base_commit"]
+    assert isinstance(report["worktree_dirty"], bool)
+    assert report["worktree_summary"]["available"] is True
+    assert report["task_id"] == "T10"
+    assert report["environment_profile"] == "local-evaluation"
+    assert report["result"] == "pass"
+    assert report["duration_seconds"] >= 0
+    assert report["failures"] == []
+    assert report["artifact_checksums"]
+    assert all(len(value) == 64 for value in report["artifact_checksums"].values())
+    assert str(tmp_path) not in report["command"]
     assert report["summary"]["pass"] == 1
     assert report["items"][0]["package_path"] == str(package_dir)
+
+
+def test_market_wiki_root_override_replaces_only_requested_market(tmp_path, capsys):
+    module = _load_eval_module()
+    case_root = tmp_path / "cases"
+    hk_root = tmp_path / "staging-hk"
+    package_dir = hk_root / "companies" / "00700-TENCENT" / "reports" / "2025-annual"
+    _write_complete_eval_package(package_dir)
+    _write_json(
+        case_root / "contract_cases.json",
+        [
+            {
+                "market": "HK",
+                "ticker": "00700",
+                "fiscal_year": 2025,
+                "report_type": "annual",
+                "expected_metrics": ["operating_revenue"],
+                "expected_evidence": True,
+                "expected_gate_status": "pass",
+            }
+        ],
+    )
+    output = tmp_path / "report.json"
+
+    exit_code = module.main(
+        [
+            "--case-root",
+            str(case_root),
+            "--legacy-case-root",
+            str(case_root),
+            "--market-wiki-root",
+            f"HK={hk_root}",
+            "--output",
+            str(output),
+            "--markdown",
+            str(tmp_path / "report.md"),
+            "--strict",
+        ]
+    )
+
+    assert exit_code == 0
+    assert "FAIL market ingestion eval strict gate" not in capsys.readouterr().err
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert report["wiki_roots"]["HK"] == str(hk_root)
+    assert report["wiki_roots"]["US"] == str(module.WIKI_ROOTS["US"])
+    assert report["items"][0]["package_path"] == str(package_dir)
+
+
+def test_portable_report_redacts_paths_outside_repo(tmp_path):
+    module = _load_eval_module()
+    payload = {
+        "inside": str(module.REPO_ROOT / "data" / "wiki" / "hk"),
+        "outside": str(tmp_path / "wiki"),
+        "source_url": "https://example.com/report.pdf",
+    }
+
+    observed = module._portable_report_value(payload)
+
+    assert observed == {
+        "inside": "data/wiki/hk",
+        "outside": "<external>",
+        "source_url": "https://example.com/report.pdf",
+    }
 
 
 def test_strict_main_returns_nonzero_for_missing_package(tmp_path, capsys):
@@ -621,8 +1015,10 @@ def test_strict_main_returns_nonzero_for_missing_package(tmp_path, capsys):
     captured = capsys.readouterr()
     assert exit_code == 1
     assert "summary.missing_package=1" in captured.err
-    assert "summary.eval_gate_status.block=1" in captured.err
-    assert json.loads(output.read_text(encoding="utf-8"))["summary"]["missing_package"] == 1
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert report["summary"]["missing_package"] == 1
+    assert report["items"][0]["expectation_passed"] is False
+    assert report["items"][0]["gate_status_matches_expected"] is None
     assert markdown.exists()
 
 
