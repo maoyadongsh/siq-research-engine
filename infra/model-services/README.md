@@ -19,6 +19,7 @@
 | --- | --- | --- |
 | MinerU | `mineru/` | PDF 解析上游 API 与联动启动脚本 |
 | Qwen 3.6 | `qwen3.6/` | OpenAI-compatible vLLM 文本模型服务 |
+| Nemotron 3 Nano Omni | `nemotron3/` | OpenAI-compatible vLLM 多模态推理与工具调用服务 |
 | Qwen VL retrieval | `qwen-vl-retrieval/` | embedding 与 reranker 服务 |
 | Gemma4 | `gemma4-26b/` | Gemma4 文本模型启动脚本 |
 | systemd user | `systemd-user/` | 用户级服务定义 |
@@ -50,6 +51,20 @@ systemctl --user daemon-reload
 systemctl --user start qwen36-vllm.service
 systemctl --user status qwen36-vllm.service --no-pager
 ```
+
+Hermes 标准 profile 使用 `hermes-gateway-siq@.service`，实例名与
+`scripts/hermes/run_gateway.sh` 的 canonical profile 对齐：
+
+```bash
+ln -sfn \
+  /home/maoyd/siq-research-engine/infra/systemd-user/hermes-gateway-siq@.service \
+  /home/maoyd/.config/systemd/user/hermes-gateway-siq@.service
+systemctl --user daemon-reload
+systemctl --user enable --now hermes-gateway-siq@assistant.service
+```
+
+不要让同一端口上的旧 `finsight_*` gateway 与 canonical `siq_*` gateway
+同时运行；迁移前先停止并禁用对应旧服务。
 
 ## 关键边界或治理规则
 

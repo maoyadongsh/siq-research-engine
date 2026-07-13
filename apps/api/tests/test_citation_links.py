@@ -186,6 +186,68 @@ def test_postprocessor_keeps_printed_page_labels_aligned_with_missing_slots(monk
     assert "查看定位页8来源 / 印刷页12" in cleaned
 
 
+def test_postprocessor_enriches_d_labeled_citation_with_printed_page_idempotently(monkeypatch):
+    monkeypatch.setenv("SIQ_PUBLIC_ORIGIN", "https://public.example")
+    monkeypatch.setattr(citation_links, "_create_source_access_token", lambda _task_id: "signed-token")
+    text = (
+        "[D1] source_type=wiki_metrics, file=metrics/three_statements.json, metric=资产负债表, "
+        f"period=2025-12-31, task_id={MIDEA_TASK_ID}, pdf_page=132, table_index=89, md_line=2497。"
+    )
+
+    cleaned = append_missing_pdf_source_links(text)
+
+    assert cleaned.startswith("[D1]")
+    assert "pdf_page=132" in cleaned
+    assert "printed_page=131" in cleaned
+    assert "table_index=89" in cleaned
+    assert "md_line=2497" in cleaned
+    assert "打开PDF定位页132 / 印刷页131" in cleaned
+    assert "查看定位页132来源 / 印刷页131" in cleaned
+    assert cleaned.count(f"/api/pdf_page/{MIDEA_TASK_ID}/132") == 1
+    assert cleaned.count(f"/api/source/{MIDEA_TASK_ID}/page/132") == 1
+    assert cleaned.count(f"/api/source/{MIDEA_TASK_ID}/table/89") == 1
+    assert append_missing_pdf_source_links(cleaned) == cleaned
+
+
+def test_complete_document_link_adds_only_matching_printed_page_idempotently(monkeypatch):
+    monkeypatch.setenv("SIQ_PUBLIC_ORIGIN", "https://public.example")
+    monkeypatch.setattr(citation_links, "_create_source_access_token", lambda _task_id: "signed-token")
+    text = (
+        "[2] source_type=wiki_document_links, file=semantic/document_links.json, metric=(21) 商誉, "
+        f"period=2025-annual, task_id={MIDEA_TASK_ID}, pdf_page=206, table_index=163, md_line=4325。"
+    )
+
+    cleaned = append_missing_pdf_source_links(text)
+
+    assert "pdf_page=206" in cleaned
+    assert "printed_page=205" in cleaned
+    assert "table_index=163" in cleaned
+    assert "md_line=4325" in cleaned
+    assert "打开PDF定位页206 / 印刷页205" in cleaned
+    assert "查看定位页206来源 / 印刷页205" in cleaned
+    assert cleaned.count(f"/api/pdf_page/{MIDEA_TASK_ID}/206") == 1
+    assert cleaned.count(f"/api/source/{MIDEA_TASK_ID}/page/206") == 1
+    assert cleaned.count(f"/api/source/{MIDEA_TASK_ID}/table/163") == 1
+    assert append_missing_pdf_source_links(cleaned) == cleaned
+
+    mismatched = text.replace("pdf_page=206", "pdf_page=999")
+    assert "printed_page=" not in append_missing_pdf_source_links(mismatched)
+
+
+def test_complete_document_link_preserves_existing_printed_page(monkeypatch):
+    monkeypatch.setattr(citation_links, "_create_source_access_token", lambda _task_id: "signed-token")
+    text = (
+        "[2] source_type=wiki_document_links, file=semantic/document_links.json, metric=(21) 商誉, "
+        f"period=2025-annual, task_id={MIDEA_TASK_ID}, pdf_page=206, printed_page=205, "
+        "table_index=163, md_line=4325。"
+    )
+
+    cleaned = append_missing_pdf_source_links(text)
+
+    assert cleaned.count("printed_page=205") == 1
+    assert "printed_page=未返回" not in cleaned
+
+
 def test_report_md_line_uses_markdown_page_anchor():
     result = resolve_citation_refs(
         "上海银行 601229",
@@ -383,6 +445,7 @@ def test_document_link_generic_detail_requires_target_table_base():
     assert result["status"] == "ok"
     assert [ref["table_index"] for ref in result["refs"]] == [163]
     assert result["refs"][0]["metric"] == "(21) 商誉"
+    assert result["refs"][0]["printed_page_number"] == "205"
 
 
 def test_goodwill_book_value_resolves_to_balance_sheet_main_statement():

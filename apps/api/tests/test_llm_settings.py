@@ -1,3 +1,4 @@
+import asyncio
 import json
 
 from services import llm_settings
@@ -53,3 +54,69 @@ def test_settings_source_path_prefers_new_config(tmp_path, monkeypatch):
     monkeypatch.setattr(llm_settings, "LEGACY_CONFIG_PATHS", (legacy_config,))
 
     assert llm_settings._settings_source_path() == new_config
+
+
+def test_nemotron_is_exposed_as_local_model_preset():
+    presets = llm_settings._public_local_model_presets()
+
+    assert set(presets) == {"qwen36", "gemma4", "nemotron"}
+    assert presets["nemotron"]["providerName"] == "本地 vLLM / Nemotron 3 Nano Omni"
+    assert presets["nemotron"]["baseUrl"] == "http://127.0.0.1:8007/v1"
+    assert presets["nemotron"]["model"] == "nemotron_3_nano_omni"
+    assert presets["nemotron"]["hasApiKey"] is False
+    assert "apiKey" not in presets["nemotron"]
+
+
+def test_nemotron_preset_enables_thinking_for_direct_calls():
+    provider = llm_settings._apply_local_model_preset_extras(
+        {"model": "nemotron_3_nano_omni", "chatTemplateKwargs": {}}
+    )
+
+    assert provider["chatTemplateKwargs"] == {"enable_thinking": True}
+
+
+def test_connection_test_disables_thinking_and_limits_output(monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {"choices": [{"message": {"content": "OK"}}]}
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs):
+            captured["timeout"] = kwargs["timeout"]
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return None
+
+        async def post(self, url, *, headers, json):
+            captured["url"] = url
+            captured["payload"] = json
+            return FakeResponse()
+
+    monkeypatch.setattr(llm_settings.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(
+        llm_settings,
+        "load_llm_settings",
+        lambda include_secrets=True: {
+            "providers": {
+                "local": {
+                    **llm_settings.LOCAL_NEMOTRON_PROVIDER,
+                    "chatTemplateKwargs": {"enable_thinking": True},
+                }
+            }
+        },
+    )
+
+    result = asyncio.run(
+        llm_settings.test_llm_provider(llm_settings.LLMTestRequest(provider="local"))
+    )
+
+    assert result["ok"] is True
+    assert captured["payload"]["max_tokens"] == 4
+    assert captured["payload"]["chat_template_kwargs"] == {"enable_thinking": False}

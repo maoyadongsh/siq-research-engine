@@ -50,7 +50,7 @@ PRINTED_PAGE_RE = re.compile(
     r"[^,，。.;；\n]+)*)"
 )
 TABLE_INDEX_RE = re.compile(r"\btable_index=([0-9]+(?:\s*[,，]\s*[0-9]+)*)\b")
-CITATION_LINE_RE = re.compile(r"^\s*(\[[0-9]+\]).*$")
+CITATION_LINE_RE = re.compile(r"^\s*(\[(?:D)?[0-9]+\]).*$", re.IGNORECASE)
 MARKDOWN_API_LINK_RE = re.compile(
     r"\]\((?P<url>(?:https?://[^)\s]+)?/api/(?:pdf_page|source)/[^)\s]+)\)"
 )
@@ -144,7 +144,7 @@ def _drop_standalone_open_link_blocks(text: str) -> str:
                     continue
                 if CITATION_HEADING_RE.match(trimmed) or re.match(r"^\s*#{1,4}\s+", trimmed):
                     break
-                if re.match(r"^\s*\[[0-9]+\]\s+", trimmed):
+                if CITATION_LINE_RE.match(trimmed):
                     index += 1
                     continue
                 break

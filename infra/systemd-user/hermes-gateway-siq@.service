@@ -1,0 +1,23 @@
+[Unit]
+Description=SIQ Hermes Gateway - %i
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=/home/maoyd/siq-research-engine
+Environment=HOME=/home/maoyd
+Environment=PATH=/home/maoyd/.local/bin:/home/maoyd/.hermes/node/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/maoyd/siq-research-engine/scripts/hermes/run_gateway.sh siq_%i
+Restart=always
+RestartSec=5
+KillMode=mixed
+KillSignal=SIGTERM
+ExecReload=/bin/kill -USR1 $MAINPID
+TimeoutStopSec=240
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

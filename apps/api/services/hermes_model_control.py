@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import os
 import re
+import stat
+import tempfile
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, Literal
@@ -10,18 +13,32 @@ import yaml
 from services.hermes_client import HermesProfile, normalize_profile
 from services.path_config import HERMES_PROFILE_ROOTS
 
-ModelMode = Literal["local", "qwen36", "gemma4", "cloud", "kimi", "minimax", "stepfun"]
+ModelMode = Literal["local", "qwen36", "gemma4", "nemotron", "cloud", "kimi", "minimax", "stepfun"]
+
+
+def _custom_provider_slug(provider_name: str) -> str:
+    """Match Hermes' canonical key for a named custom provider."""
+    return f"custom:{provider_name.strip().lower().replace(' ', '-')}"
+
 
 GEMMA4_MODEL = "Gemma-4-26B-A4B-it-NVFP4"
-GEMMA4_PROVIDER = "custom:gemma4-local"
+GEMMA4_PROVIDER_NAME = "Gemma4 Local"
+GEMMA4_PROVIDER = _custom_provider_slug(GEMMA4_PROVIDER_NAME)
 GEMMA4_BASE_URL = "http://127.0.0.1:8006/v1"
 GEMMA4_CONTEXT_LENGTH = 262144
 GEMMA4_TEMPERATURE = 0.2
 QWEN36_MODEL = "Qwen3.6-35B-A3B-FP8"
-QWEN36_PROVIDER = "custom:qwen3.6-local"
+QWEN36_PROVIDER_NAME = "Qwen3.6 Local"
+QWEN36_PROVIDER = _custom_provider_slug(QWEN36_PROVIDER_NAME)
 QWEN36_BASE_URL = "http://127.0.0.1:8004/v1"
 QWEN36_CONTEXT_LENGTH = 262144
 QWEN36_TEMPERATURE = 0.2
+NEMOTRON_MODEL = "nemotron_3_nano_omni"
+NEMOTRON_PROVIDER_NAME = "Nemotron 3 Nano Omni Local"
+NEMOTRON_PROVIDER = _custom_provider_slug(NEMOTRON_PROVIDER_NAME)
+NEMOTRON_BASE_URL = "http://127.0.0.1:8007/v1"
+NEMOTRON_CONTEXT_LENGTH = 262144
+NEMOTRON_TEMPERATURE = 0.2
 LOCAL_MODEL = QWEN36_MODEL
 LOCAL_PROVIDER = QWEN36_PROVIDER
 LOCAL_BASE_URL = QWEN36_BASE_URL
@@ -33,8 +50,8 @@ KIMI_BASE_URL = "https://api.kimi.com/coding"
 MINIMAX_MODEL = "MiniMax-M3"
 MINIMAX_PROVIDER = "minimax-cn"
 STEPFUN_MODEL = "step-3.7-flash"
-STEPFUN_PROVIDER = "custom:stepfun-step-3.7-flash"
 STEPFUN_PROVIDER_NAME = "StepFun Step-3.7 Flash"
+STEPFUN_PROVIDER = _custom_provider_slug(STEPFUN_PROVIDER_NAME)
 STEPFUN_BASE_URL = "https://api.stepfun.com/v1"
 STEPFUN_CONTEXT_LENGTH = 200000
 STEPFUN_TEMPERATURE = 0.2
@@ -44,7 +61,7 @@ MODEL_OPTIONS: dict[ModelMode, dict[str, Any]] = {
     "local": {
         "label": "本地 Qwen3.6",
         "kind": "local",
-        "provider_name": "Qwen3.6 Local",
+        "provider_name": QWEN36_PROVIDER_NAME,
         "provider": LOCAL_PROVIDER,
         "base_url": LOCAL_BASE_URL,
         "model": LOCAL_MODEL,
@@ -54,7 +71,7 @@ MODEL_OPTIONS: dict[ModelMode, dict[str, Any]] = {
     "qwen36": {
         "label": "本地 Qwen3.6",
         "kind": "local",
-        "provider_name": "Qwen3.6 Local",
+        "provider_name": QWEN36_PROVIDER_NAME,
         "provider": QWEN36_PROVIDER,
         "base_url": QWEN36_BASE_URL,
         "model": QWEN36_MODEL,
@@ -64,12 +81,22 @@ MODEL_OPTIONS: dict[ModelMode, dict[str, Any]] = {
     "gemma4": {
         "label": "本地 Gemma4",
         "kind": "local",
-        "provider_name": "Gemma4 Local",
+        "provider_name": GEMMA4_PROVIDER_NAME,
         "provider": GEMMA4_PROVIDER,
         "base_url": GEMMA4_BASE_URL,
         "model": GEMMA4_MODEL,
         "context_length": GEMMA4_CONTEXT_LENGTH,
         "temperature": GEMMA4_TEMPERATURE,
+    },
+    "nemotron": {
+        "label": "本地 Nemotron 3 Nano Omni",
+        "kind": "local",
+        "provider_name": NEMOTRON_PROVIDER_NAME,
+        "provider": NEMOTRON_PROVIDER,
+        "base_url": NEMOTRON_BASE_URL,
+        "model": NEMOTRON_MODEL,
+        "context_length": NEMOTRON_CONTEXT_LENGTH,
+        "temperature": NEMOTRON_TEMPERATURE,
     },
     "cloud": {
         "label": "云端 StepFun",
@@ -109,10 +136,10 @@ MODEL_OPTIONS: dict[ModelMode, dict[str, Any]] = {
         "key_env": STEPFUN_KEY_ENV,
     },
 }
-CANONICAL_MODEL_MODES: tuple[ModelMode, ...] = ("qwen36", "gemma4", "kimi", "minimax", "stepfun")
+CANONICAL_MODEL_MODES: tuple[ModelMode, ...] = ("qwen36", "gemma4", "nemotron", "kimi", "minimax", "stepfun")
 LOCAL_MODEL_OPTIONS: dict[ModelMode, dict[str, Any]] = {
     key: MODEL_OPTIONS[key]
-    for key in ("qwen36", "gemma4")
+    for key in ("qwen36", "gemma4", "nemotron")
 }
 CLOUD_MODEL_OPTIONS: dict[ModelMode, dict[str, Any]] = {
     key: MODEL_OPTIONS[key]
@@ -131,6 +158,13 @@ PROFILE_CONFIGS: dict[HermesProfile, Path] = {
     "siq_ic_finance_auditor": HERMES_PROFILE_ROOTS["siq_ic_finance_auditor"] / "config.yaml",
     "siq_ic_legal_scanner": HERMES_PROFILE_ROOTS["siq_ic_legal_scanner"] / "config.yaml",
     "siq_ic_risk_controller": HERMES_PROFILE_ROOTS["siq_ic_risk_controller"] / "config.yaml",
+}
+LEGACY_LIVE_PROFILE_ALIASES: dict[HermesProfile, str] = {
+    "siq_assistant": "finsight_assistant",
+    "siq_analysis": "finsight_analysis",
+    "siq_factchecker": "finsight_factchecker",
+    "siq_tracking": "finsight_tracking",
+    "siq_legal": "finsight_legal",
 }
 PROFILE_ORDER: tuple[HermesProfile, ...] = tuple(PROFILE_CONFIGS.keys())
 PROFILE_LABELS: dict[HermesProfile, str] = {
@@ -170,6 +204,15 @@ GEMMA4_PATTERNS = (
     "gemma4",
     "gemma 4",
     "gemma",
+)
+NEMOTRON_PATTERNS = (
+    "nemotron-3",
+    "nemotron 3",
+    "nemotron3",
+    "nemotron",
+    "nano omni",
+    "nvidia nemotron",
+    "英伟达 nemotron",
 )
 CLOUD_PATTERNS = (
     "切换到云端",
@@ -216,6 +259,10 @@ STEPFUN_PATTERNS = (
     "阶跃",
 )
 STATUS_PATTERNS = ("模型状态", "当前模型", "查看模型", "model status", "current model")
+MODEL_LIST_RE = re.compile(
+    r"(可用模型|模型列表|有哪些.*模型|模型.*有哪些|选择模型|available models|model list|list models)",
+    re.IGNORECASE,
+)
 SWITCH_VERB_RE = re.compile(
     r"(切换|切到|切回|改用|换成|换到|使用|启用|设为|设置为|用|switch|change|set|use)",
     re.IGNORECASE,
@@ -232,7 +279,7 @@ STATUS_RE = re.compile(
     re.IGNORECASE,
 )
 CONTROL_HINT = re.compile(
-    r"(切换|切到|切回|使用|改用|模型|model|gemma|qwen|kimi|minimax|stepfun|step|local|cloud|云端|本地|阶跃)",
+    r"(切换|切到|切回|使用|改用|模型|model|gemma|qwen|nemotron|nano omni|nvidia|kimi|minimax|stepfun|step|local|cloud|云端|本地|阶跃)",
     re.IGNORECASE,
 )
 
@@ -246,11 +293,36 @@ def _load_yaml(path: Path) -> dict[str, Any]:
     return data
 
 
+def _profile_config_paths(profile: HermesProfile) -> tuple[Path, ...]:
+    canonical_path = PROFILE_CONFIGS[profile]
+    paths = [canonical_path]
+    legacy_alias = LEGACY_LIVE_PROFILE_ALIASES.get(profile)
+    if legacy_alias and canonical_path.parent.name == profile:
+        mirror_path = canonical_path.parent.parent / legacy_alias / "config.yaml"
+        if mirror_path.is_file() and mirror_path != canonical_path:
+            paths.append(mirror_path)
+    return tuple(paths)
+
+
+def _status_config_path(profile: HermesProfile) -> Path:
+    # A legacy finsight_* gateway is the live consumer when its mirror exists.
+    return _profile_config_paths(profile)[-1]
+
+
 def _save_yaml(path: Path, data: dict[str, Any]) -> None:
-    path.write_text(
-        yaml.safe_dump(data, allow_unicode=True, sort_keys=False),
-        encoding="utf-8",
-    )
+    rendered = yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
+    mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else 0o600
+    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    temp_path = Path(temp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(rendered)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temp_path, mode)
+        os.replace(temp_path, path)
+    finally:
+        temp_path.unlink(missing_ok=True)
 
 
 def _ensure_custom_provider(config: dict[str, Any]) -> None:
@@ -258,7 +330,7 @@ def _ensure_custom_provider(config: dict[str, Any]) -> None:
     if not isinstance(providers, list):
         providers = []
 
-    for mode in ("qwen36", "gemma4", "stepfun"):
+    for mode in ("qwen36", "gemma4", "nemotron", "stepfun"):
         option = MODEL_OPTIONS[mode]
         provider_payload = {
             "name": option["provider_name"],
@@ -288,17 +360,19 @@ def _fallback_chain_for_mode(mode: ModelMode) -> list[dict[str, Any]]:
     mode = _canonical_mode(mode)
     fallback_modes: tuple[ModelMode, ...]
     if mode in {"local", "qwen36"}:
-        fallback_modes = ("stepfun", "minimax", "kimi", "gemma4")
+        fallback_modes = ("stepfun", "minimax", "kimi", "nemotron", "gemma4")
     elif mode == "gemma4":
-        fallback_modes = ("stepfun", "minimax", "kimi", "qwen36")
+        fallback_modes = ("stepfun", "minimax", "kimi", "nemotron", "qwen36")
+    elif mode == "nemotron":
+        fallback_modes = ("stepfun", "minimax", "kimi", "qwen36", "gemma4")
     elif mode == "kimi":
-        fallback_modes = ("stepfun", "minimax", "qwen36", "gemma4")
+        fallback_modes = ("stepfun", "minimax", "qwen36", "nemotron", "gemma4")
     elif mode == "minimax":
-        fallback_modes = ("stepfun", "kimi", "qwen36", "gemma4")
+        fallback_modes = ("stepfun", "kimi", "qwen36", "nemotron", "gemma4")
     elif mode == "stepfun":
-        fallback_modes = ("qwen36", "gemma4", "minimax", "kimi")
+        fallback_modes = ("qwen36", "nemotron", "gemma4", "minimax", "kimi")
     else:
-        fallback_modes = ("qwen36", "gemma4", "stepfun", "kimi", "minimax")
+        fallback_modes = ("qwen36", "nemotron", "gemma4", "stepfun", "kimi", "minimax")
 
     chain: list[dict[str, Any]] = []
     current = _canonical_mode(mode)
@@ -390,7 +464,7 @@ def _canonical_mode(mode: ModelMode) -> ModelMode:
 
 def current_model_mode(profile: HermesProfile | str) -> ModelMode:
     profile = normalize_profile(profile)
-    config = _load_yaml(PROFILE_CONFIGS[profile])
+    config = _load_yaml(_status_config_path(profile))
     model_config = config.get("model") if isinstance(config.get("model"), dict) else {}
     provider = str(model_config.get("provider") or "")
     model = str(model_config.get("default") or "")
@@ -408,6 +482,8 @@ def current_model_mode(profile: HermesProfile | str) -> ModelMode:
         return "qwen36"
     if provider == "custom" and ("gemma" in normalized_model or "gemma" in base_url.lower()):
         return "gemma4"
+    if provider == "custom" and ("nemotron" in normalized_model or "nemotron" in base_url.lower()):
+        return "nemotron"
     if "stepfun" in provider.lower() or "stepfun" in base_url.lower() or "step3" in normalized_model or "step37" in normalized_model:
         return "stepfun"
     if "minimax" in provider.lower() or "minimax" in normalized_model:
@@ -419,13 +495,14 @@ def current_model_mode(profile: HermesProfile | str) -> ModelMode:
 
 def set_profile_model_mode(profile: HermesProfile | str, mode: ModelMode) -> dict[str, Any]:
     profile = normalize_profile(profile)
-    path = PROFILE_CONFIGS[profile]
-    config = _load_yaml(path)
-    _ensure_custom_provider(config)
-    _set_model(config, mode)
-    _ensure_model_fallback(config, mode)
-    _ensure_tool_use_enforcement(config)
-    _save_yaml(path, config)
+    updates = [(path, _load_yaml(path)) for path in _profile_config_paths(profile)]
+    for _, config in updates:
+        _ensure_custom_provider(config)
+        _set_model(config, mode)
+        _ensure_model_fallback(config, mode)
+        _ensure_tool_use_enforcement(config)
+    for path, config in updates:
+        _save_yaml(path, config)
     return describe_profile_model(profile)
 
 
@@ -441,17 +518,18 @@ def set_all_profile_model_modes(mode: ModelMode) -> dict[str, Any]:
 
 def ensure_profile_fallback(profile: HermesProfile | str) -> None:
     profile = normalize_profile(profile)
-    path = PROFILE_CONFIGS[profile]
-    config = _load_yaml(path)
-    _ensure_custom_provider(config)
-    _ensure_model_fallback(config)
-    _ensure_tool_use_enforcement(config)
-    _save_yaml(path, config)
+    updates = [(path, _load_yaml(path)) for path in _profile_config_paths(profile)]
+    for _, config in updates:
+        _ensure_custom_provider(config)
+        _ensure_model_fallback(config)
+        _ensure_tool_use_enforcement(config)
+    for path, config in updates:
+        _save_yaml(path, config)
 
 
 def describe_profile_model(profile: HermesProfile | str) -> dict[str, Any]:
     profile = normalize_profile(profile)
-    config = _load_yaml(PROFILE_CONFIGS[profile])
+    config = _load_yaml(_status_config_path(profile))
     model_config = config.get("model") if isinstance(config.get("model"), dict) else {}
     configured_fallbacks = config.get("fallback_providers") or []
     mode = current_model_mode(profile)
@@ -492,6 +570,8 @@ def infer_model_mode(*, provider_name: str = "", provider: str = "", model: str 
         return "qwen36"
     if GEMMA4_MODEL.lower() in normalized or GEMMA4_PROVIDER in normalized or "gemma4" in normalized or "gemma 4" in normalized:
         return "gemma4"
+    if NEMOTRON_MODEL.lower() in normalized or NEMOTRON_PROVIDER in normalized or "nemotron" in normalized or "nano omni" in normalized:
+        return "nemotron"
     if MINIMAX_MODEL.lower() in normalized or MINIMAX_PROVIDER in normalized or "minimax" in normalized:
         return "minimax"
     if KIMI_MODEL.lower() in normalized or KIMI_PROVIDER in normalized or "kimi" in normalized or "moonshot" in normalized:
@@ -507,6 +587,9 @@ def maybe_handle_model_control(message: str, profile: HermesProfile | str) -> st
     normalized = text.lower()
     if not CONTROL_HINT.search(text):
         return None
+
+    if MODEL_LIST_RE.search(text) and not EXPLICIT_SWITCH_RE.search(text):
+        return _model_list_reply()
 
     if STATUS_RE.search(text) and not EXPLICIT_SWITCH_RE.search(text):
         status = describe_profile_model(profile)
@@ -529,6 +612,8 @@ def _requested_model_mode(normalized: str) -> ModelMode | None:
         return "stepfun"
     if any(pattern in normalized for pattern in GEMMA4_PATTERNS):
         return "gemma4"
+    if any(pattern in normalized for pattern in NEMOTRON_PATTERNS):
+        return "nemotron"
     if any(pattern in normalized for pattern in QWEN36_PATTERNS):
         return "qwen36"
     if any(pattern in normalized for pattern in MINIMAX_PATTERNS):
@@ -554,6 +639,11 @@ def _status_reply(status: dict[str, Any]) -> str:
         f"{status['label']} 当前使用{status['modeLabel']}：{status['model']} "
         f"({status['provider']}){base_url_label}{temp_label}。备用顺序：{fallback_label}。"
     )
+
+
+def _model_list_reply() -> str:
+    labels = "、".join(MODEL_OPTIONS[mode]["label"] for mode in CANONICAL_MODEL_MODES)
+    return f"可切换模型：{labels}。"
 
 
 def _switch_reply(status: dict[str, Any]) -> str:

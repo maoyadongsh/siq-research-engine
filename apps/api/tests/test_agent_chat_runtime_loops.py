@@ -1626,7 +1626,7 @@ def test_financial_answer_with_generic_citations_gets_primary_data_sources():
     assert "task_id=7dbc35a7-7626-4e81-810e-5dbb764434e0" in normalized
     assert "pdf_page=" in normalized
     assert "table_index=" in normalized
-    assert "查看表格" in normalized
+    assert "查看可读表格86" in normalized
 
 
 def test_broad_financial_analysis_gets_core_metric_sources():

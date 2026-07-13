@@ -243,6 +243,7 @@ QUESTION_NOISE_PATTERNS = (
 )
 
 _TABLE_REF_CACHE: dict[tuple[str, str], dict[int, dict[str, Any]]] = {}
+_PRINTED_PAGE_CACHE: dict[tuple[str, str], dict[int, str]] = {}
 _COMPANY_TASK_CACHE: dict[str, dict[str, Path]] = {}
 _COMPANY_ALIAS_CACHE: dict[str, list[Path]] = {}
 
@@ -579,6 +580,16 @@ def _printed_page_numbers_by_pdf_page(document_full: dict[str, Any] | None) -> d
     return pages
 
 
+def _printed_page_map(company_dir: Path, report_id: str | None = None) -> dict[int, str]:
+    report = primary_report(company_dir, report_id=report_id)
+    resolved_report_id = report["report_id"]
+    cache_key = (str(company_dir.resolve()), resolved_report_id)
+    if cache_key not in _PRINTED_PAGE_CACHE:
+        document_full = read_json(report["document_full"], {}) or {}
+        _PRINTED_PAGE_CACHE[cache_key] = _printed_page_numbers_by_pdf_page(document_full)
+    return _PRINTED_PAGE_CACHE[cache_key]
+
+
 def _put_ref(refs: dict[int, dict[str, Any]], table_index: Any, source: dict[str, Any]) -> None:
     table_no = _to_int(table_index)
     page = _to_int(source.get("pdf_page_number") or source.get("pdf_page"))
@@ -621,6 +632,7 @@ def table_ref_map(company_dir: Path, report_id: str | None = None) -> dict[int, 
     document_full = read_json(report["document_full"], {}) or {}
     _collect_table_refs(document_full, refs)
     printed_pages = _printed_page_numbers_by_pdf_page(document_full)
+    _PRINTED_PAGE_CACHE[cache_key] = printed_pages
     for ref in refs.values():
         page = _to_int(ref.get("pdf_page_number"))
         if page and not ref.get("printed_page_number"):
@@ -1615,6 +1627,7 @@ def resolve_document_link_refs(
     limit: int | None = 12,
 ) -> list[dict[str, Any]]:
     report = primary_report(company_dir)
+    printed_pages = _printed_page_map(company_dir, report["report_id"])
     document_links_path = _artifact_path(company_dir, report["report_id"], "semantic/document_links.json")
     payload = read_json(document_links_path, {}) or {}
     links = payload.get("links") if isinstance(payload.get("links"), list) else []
@@ -1697,6 +1710,7 @@ def resolve_document_link_refs(
             "period": period_text or payload.get("report_id"),
             "task_id": report.get("task_id"),
             "pdf_page": page,
+            "printed_page_number": chosen.get("printed_page_number") or printed_pages.get(page),
             "table_index": table_index,
             "_table_pdf_page": table_page,
             "md_line": md_line,
@@ -2106,6 +2120,12 @@ def _unique_values(refs: list[dict[str, Any]], key: str) -> list[str]:
 def _citation_field_value_pattern(name: str) -> str:
     if name in {"pdf_page", "pdf_page_number", "table_index"}:
         return r"(未返回|N/A|None|null|[0-9]+(?:\s*(?:[-,，])\s*[0-9]+)*)"
+    if name in {"printed_page", "printed_page_number"}:
+        return (
+            r"([^,，。.;；\n]+"
+            r"(?:\s*[,，]\s*(?!\s*(?:task_id|pdf_page(?:_number)?|printed_page(?:_number)?|table_index|md_line|source_type|file|metric|period|evidence_id|quote)=)"
+            r"[^,，。.;；\n]+)*)"
+        )
     if name == "md_line":
         return r"(未返回|N/A|None|null|[0-9]+(?:\s*(?:[-~～/,，])\s*[0-9]+)*)"
     return r"(未返回|N/A|None|null|[^,，\n]+)"
@@ -2140,12 +2160,54 @@ def _line_has_complete_table_trace(line: str) -> bool:
     )
 
 
+def _line_has_resolved_printed_page(line: str) -> bool:
+    match = re.search(r"\bprinted_page(?:_number)?=([^,，。.;；\n]+)", line)
+    if not match:
+        return False
+    return match.group(1).strip() not in {"", "未返回", "N/A", "None", "null"}
+
+
 def _numbers_from_citation_field(line: str, names: tuple[str, ...]) -> set[int]:
     for name in names:
         match = re.search(rf"\b{re.escape(name)}=([^,，\n]+(?:\s*[,，]\s*[0-9]+)*)", line)
         if match:
             return set(_numbers_from_text(match.group(1)))
     return set()
+
+
+def _enrich_complete_document_link_printed_page(line: str, wiki_base: Path = WIKI_BASE) -> str:
+    source_match = re.search(r"source_type=([^,，]+)", line)
+    file_match = re.search(r"file=([^,，]+)", line)
+    source_type = source_match.group(1).strip() if source_match else ""
+    file_name = file_match.group(1).strip() if file_match else ""
+    is_document_link = source_type in DOCUMENT_LINK_SOURCE_TYPES or "document_links.json" in file_name
+    if not is_document_link or not _line_has_complete_table_trace(line) or _line_has_resolved_printed_page(line):
+        return line
+
+    task_match = re.search(r"\b(?:evidence_id/)?task_id=([0-9a-fA-F-]{32,36})\b", line)
+    pages = _numbers_from_citation_field(line, ("pdf_page", "pdf_page_number"))
+    tables = _numbers_from_citation_field(line, ("table_index",))
+    md_lines = _numbers_from_citation_field(line, ("md_line",))
+    if not task_match or len(pages) != 1 or len(tables) != 1 or len(md_lines) != 1:
+        return line
+
+    task_id = task_match.group(1)
+    company_dir = _company_task_index(wiki_base).get(task_id)
+    if not company_dir:
+        return line
+    report = primary_report(company_dir, task_id=task_id)
+    table_ref = table_ref_map(company_dir, report["report_id"]).get(next(iter(tables)))
+    if not table_ref:
+        return line
+
+    pdf_page = next(iter(pages))
+    md_line = next(iter(md_lines))
+    if _to_int(table_ref.get("pdf_page_number")) != pdf_page or _to_int(table_ref.get("md_line")) != md_line:
+        return line
+    printed_page = str(table_ref.get("printed_page_number") or "").strip()
+    if not printed_page:
+        return line
+    return _replace_or_append_field(line, ("printed_page", "printed_page_number"), printed_page)
 
 
 def _filter_refs_by_line_trace(line: str, refs: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -2316,6 +2378,7 @@ def _should_resolve_citation_line(line: str) -> bool:
 
 def enrich_citation_line(line: str, context_text: str, wiki_base: Path = WIKI_BASE) -> str:
     """Fill task_id/pdf_page/table_index/md_line for local wiki citation lines."""
+    line = _enrich_complete_document_link_printed_page(line, wiki_base)
     if not _should_resolve_citation_line(line):
         return line
 

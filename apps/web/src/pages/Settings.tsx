@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, Cloud, Cpu, Loader2, RotateCcw, Save, SlidersHorizontal, Sparkles } from 'lucide-react'
+import { BrainCircuit, CheckCircle2, Cloud, Cpu, Loader2, RotateCcw, Save, SlidersHorizontal, Sparkles } from 'lucide-react'
 import { useApi } from '../lib/hooks'
 import { PageHeader, PageShell } from '@/components/page'
 import { fetchLlmSettings, fetchSystemStatus, saveLlmSettings, testLlmProvider, type LlmProviderPayload } from '@/features/settings/api'
@@ -13,6 +13,7 @@ import type { LLMSettingsForm, ProviderFormData, ProviderKey, SystemStatus, Test
 const DEFAULTS = { apiBase: '', wikiRoot: 'data/wiki', recentLimit: '8' }
 const LOCAL_GEMMA4_PRESET: ProviderFormData = { enabled: true, providerName: '本地 vLLM / Gemma4', baseUrl: 'http://127.0.0.1:8006/v1', apiKey: '', hasApiKey: false, clearApiKey: true, model: 'Gemma-4-26B-A4B-it-NVFP4', temperature: '0.2', maxTokens: '8192', timeoutSeconds: '600' }
 const LOCAL_QWEN_PRESET: ProviderFormData = { enabled: true, providerName: '本地 vLLM / Qwen3.6', baseUrl: 'http://127.0.0.1:8004/v1', apiKey: '', hasApiKey: false, clearApiKey: true, model: 'Qwen3.6-35B-A3B-FP8', temperature: '0.2', maxTokens: '8192', timeoutSeconds: '180' }
+const LOCAL_NEMOTRON_PRESET: ProviderFormData = { enabled: true, providerName: '本地 vLLM / Nemotron 3 Nano Omni', baseUrl: 'http://127.0.0.1:8007/v1', apiKey: '', hasApiKey: false, clearApiKey: true, model: 'nemotron_3_nano_omni', temperature: '0.2', maxTokens: '8192', timeoutSeconds: '600' }
 const CLOUD_STEPFUN_PRESET: ProviderFormData = { enabled: true, providerName: 'StepFun / Step-3.7 Flash', baseUrl: 'https://api.stepfun.com/v1', apiKey: '', hasApiKey: false, clearApiKey: false, model: 'step-3.7-flash', temperature: '0.2', maxTokens: '8192', timeoutSeconds: '180' }
 const CLOUD_MINIMAX_PRESET: ProviderFormData = { enabled: true, providerName: 'Hermes / Minimax', baseUrl: 'hermes://minimax-cn', apiKey: '', hasApiKey: false, clearApiKey: true, model: 'MiniMax-M3', temperature: '0.2', maxTokens: '8192', timeoutSeconds: '180' }
 const CLOUD_KIMI_PRESET: ProviderFormData = { enabled: true, providerName: 'Hermes / Kimi', baseUrl: 'hermes://kimi-coding', apiKey: '', hasApiKey: false, clearApiKey: true, model: 'kimi-for-coding', temperature: '0.2', maxTokens: '8192', timeoutSeconds: '180' }
@@ -72,6 +73,7 @@ export default function Settings() {
   const useCloudPreset = (preset: ProviderFormData, label: string) => { setLlmSettings((current) => ({ ...current, activeProvider: 'cloud', providers: { ...current.providers, cloud: { ...preset } } })); setSystemStatus((current) => current ? ({ ...current, model: { ...current.model, activeProvider: 'cloud', activeProviderName: preset.providerName, activeModel: preset.model, activeBaseUrl: preset.baseUrl } }) : current); setTestState((current) => ({ ...current, cloud: { status: 'idle', message: `已填入${label}，保存后会同步到 Hermes 智能体。` } })) }
   const useLocalQwenPreset = () => useLocalPreset(LOCAL_QWEN_PRESET, '本机 vLLM Qwen3.6')
   const useLocalGemmaPreset = () => useLocalPreset(LOCAL_GEMMA4_PRESET, '本机 vLLM Gemma4')
+  const useLocalNemotronPreset = () => useLocalPreset(LOCAL_NEMOTRON_PRESET, '本机 vLLM Nemotron 3 Nano Omni')
   const useCloudStepfunPreset = () => useCloudPreset(CLOUD_STEPFUN_PRESET, 'StepFun Step-3.7 Flash')
   const useCloudMinimaxPreset = () => useCloudPreset(CLOUD_MINIMAX_PRESET, 'Hermes Minimax')
   const useCloudKimiPreset = () => useCloudPreset(CLOUD_KIMI_PRESET, 'Hermes Kimi')
@@ -98,7 +100,7 @@ export default function Settings() {
   const selectProvider = (key: ProviderKey) => setLlmSettings((c) => ({ ...c, activeProvider: key }))
   const toggleShowKey = (key: ProviderKey) => setShowKeys((c) => ({ ...c, [key]: !c[key] }))
 
-  const providerMeta = { local: { title: '本地大模型', desc: '在本机 vLLM 的 Qwen3.6 与 Gemma4 之间切换。', icon: Cpu, iconClass: 'bg-success/10 text-success', panelClass: 'border-primary/20 bg-card' }, cloud: { title: '云端大模型', desc: '在 StepFun、Minimax 与 Kimi 之间切换；Hermes profiles 会保留本地模型备用链。', icon: Cloud, iconClass: 'bg-primary/10 text-primary', panelClass: 'border-primary/20 bg-card' } } as const
+  const providerMeta = { local: { title: '本地大模型', desc: '在本机 vLLM 的 Qwen3.6、Gemma4 与 Nemotron 之间切换。', icon: Cpu, iconClass: 'bg-success/10 text-success', panelClass: 'border-primary/20 bg-card' }, cloud: { title: '云端大模型', desc: '在 StepFun、Minimax 与 Kimi 之间切换；Hermes profiles 会保留本地模型备用链。', icon: Cloud, iconClass: 'bg-primary/10 text-primary', panelClass: 'border-primary/20 bg-card' } } as const
   const activeProvider = llmSettings.providers[llmSettings.activeProvider]; const activeMeta = providerMeta[llmSettings.activeProvider]; const activeTest = testState[llmSettings.activeProvider]
   const counts = useMemo(() => countEnabledServices(systemStatus?.services || []), [systemStatus])
 
@@ -116,11 +118,12 @@ export default function Settings() {
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
             <h2 className="text-base font-semibold text-text sm:text-lg">模型服务配置</h2>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-text-muted sm:text-base sm:leading-7">选择本地或云端作为当前调用源。保存后会同步到 SIQ Hermes profiles；云端模型可在 StepFun、Minimax 与 Kimi 之间切换。</p>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-text-muted sm:text-base sm:leading-7">选择本地或云端作为当前调用源。保存后会同步到 SIQ Hermes profiles；本地模型可在 Qwen3.6、Gemma4 与 Nemotron 之间切换。</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <button type="button" onClick={useLocalQwenPreset} className="inline-flex h-10 items-center gap-2 rounded-xl border border-border bg-card px-4 text-sm font-semibold text-text shadow-sm hover:bg-bg"><Cpu className="h-4 w-4 text-success" />使用本机 Qwen3.6</button>
             <button type="button" onClick={useLocalGemmaPreset} className="inline-flex h-10 items-center gap-2 rounded-xl border border-border bg-card px-4 text-sm font-semibold text-text shadow-sm hover:bg-bg"><Sparkles className="h-4 w-4 text-primary" />使用本机 Gemma4</button>
+            <button type="button" onClick={useLocalNemotronPreset} className="inline-flex h-10 items-center gap-2 rounded-xl border border-border bg-card px-4 text-sm font-semibold text-text shadow-sm hover:bg-bg"><BrainCircuit className="h-4 w-4 text-primary" />使用本机 Nemotron</button>
             <button type="button" onClick={useCloudStepfunPreset} className="inline-flex h-10 items-center gap-2 rounded-xl border border-border bg-card px-4 text-sm font-semibold text-text shadow-sm hover:bg-bg"><Cloud className="h-4 w-4 text-primary" />使用 StepFun</button>
             <button type="button" onClick={useCloudMinimaxPreset} className="inline-flex h-10 items-center gap-2 rounded-xl border border-border bg-card px-4 text-sm font-semibold text-text shadow-sm hover:bg-bg"><Cloud className="h-4 w-4 text-primary" />使用 Minimax</button>
             <button type="button" onClick={useCloudKimiPreset} className="inline-flex h-10 items-center gap-2 rounded-xl border border-border bg-card px-4 text-sm font-semibold text-text shadow-sm hover:bg-bg"><Cloud className="h-4 w-4 text-primary" />使用 Kimi</button>

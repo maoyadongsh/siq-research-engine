@@ -108,9 +108,36 @@ LOCAL_QWEN_PROVIDER = {
     "timeoutSeconds": 180,
     "chatTemplateKwargs": {"enable_thinking": False},
 }
+LOCAL_NEMOTRON_PROVIDER = {
+    "enabled": True,
+    "providerName": "本地 vLLM / Nemotron 3 Nano Omni",
+    "baseUrl": (
+        _env_first(
+            "SIQ_NEMOTRON3_LLM_BASE_URL",
+            "SIQ_NEMOTRON_LLM_BASE_URL",
+        )
+        or "http://127.0.0.1:8007/v1"
+    ),
+    "apiKey": _env_first(
+        "SIQ_NEMOTRON3_LLM_API_KEY",
+        "SIQ_NEMOTRON_LLM_API_KEY",
+    ),
+    "model": (
+        _env_first(
+            "SIQ_NEMOTRON3_LLM_MODEL",
+            "SIQ_NEMOTRON_LLM_MODEL",
+        )
+        or "nemotron_3_nano_omni"
+    ),
+    "temperature": 0.2,
+    "maxTokens": 8192,
+    "timeoutSeconds": 600,
+    "chatTemplateKwargs": {"enable_thinking": True},
+}
 LOCAL_MODEL_PRESETS = {
     "qwen36": deepcopy(LOCAL_QWEN_PROVIDER),
     "gemma4": deepcopy(LOCAL_GEMMA4_PROVIDER),
+    "nemotron": deepcopy(LOCAL_NEMOTRON_PROVIDER),
 }
 CLOUD_MODEL_PRESETS = {
     "stepfun": deepcopy(STEPFUN_PROVIDER),
@@ -424,9 +451,10 @@ async def test_llm_provider(request: LLMTestRequest) -> dict[str, Any]:
             {"role": "user", "content": request.message},
         ],
         "temperature": provider["temperature"],
-        "max_tokens": min(provider["maxTokens"], 64),
+        # Connectivity checks should measure request handling, not reasoning depth.
+        "max_tokens": 4,
         "stream": False,
-        "chat_template_kwargs": provider.get("chatTemplateKwargs") or {},
+        "chat_template_kwargs": {"enable_thinking": False},
     }
 
     started = datetime.now(timezone.utc)

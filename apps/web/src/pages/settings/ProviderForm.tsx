@@ -124,7 +124,7 @@ export function ProviderForm({
                 '供应商名称',
                 provider.providerName,
                 'providerName',
-                activeKey === 'cloud' ? '例如 StepFun / Step-3.7 Flash' : '例如 vLLM / Qwen3.6 或 vLLM / Gemma4',
+                activeKey === 'cloud' ? '例如 StepFun / Step-3.7 Flash' : '例如 vLLM / Qwen3.6、Gemma4 或 Nemotron',
                 <CheckCircle2 className="h-5 w-5 text-primary" />,
               )}
               {modelField(
@@ -133,7 +133,7 @@ export function ProviderForm({
                 'baseUrl',
                 activeKey === 'cloud'
                   ? 'https://api.stepfun.com/v1、hermes://minimax-cn 或 hermes://kimi-coding'
-                  : 'http://127.0.0.1:8004/v1 或 http://127.0.0.1:8006/v1',
+                  : 'http://127.0.0.1:8004/v1、http://127.0.0.1:8006/v1 或 http://127.0.0.1:8007/v1',
                 <Globe2 className="h-5 w-5 text-primary" />,
                 {
                   mono: true,
@@ -153,7 +153,7 @@ export function ProviderForm({
                 'model',
                 activeKey === 'cloud'
                   ? '例如 step-3.7-flash、MiniMax-M3 或 kimi-for-coding'
-                  : '例如 Qwen3.6-35B-A3B-FP8 或 Gemma-4-26B-A4B-it-NVFP4',
+                  : '例如 Qwen3.6-35B-A3B-FP8、Gemma-4-26B-A4B-it-NVFP4 或 nemotron_3_nano_omni',
                 <BrainCircuit className="h-5 w-5 text-primary" />,
               )}
             </div>
