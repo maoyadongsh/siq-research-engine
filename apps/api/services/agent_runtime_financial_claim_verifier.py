@@ -8,6 +8,17 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, localcontext
 from typing import Any, Mapping, Sequence
 
+FINANCIAL_MINUS_SIGNS = "-‐‑‒−﹣－"
+FINANCIAL_MINUS_SIGN_CLASS = re.escape(FINANCIAL_MINUS_SIGNS)
+_FINANCIAL_MINUS_TRANSLATION = str.maketrans({sign: "-" for sign in FINANCIAL_MINUS_SIGNS if sign != "-"})
+
+
+def normalize_financial_minus_signs(value: Any) -> str:
+    """Normalize common model/PDF minus glyphs without accepting dash punctuation."""
+
+    return ("" if value is None else str(value)).translate(_FINANCIAL_MINUS_TRANSLATION)
+
+
 CANONICAL_METRIC_ALIASES = {
     "total_operating_revenue": ("营业总收入", "营业收入合计", "total operating revenue"),
     "operating_revenue": ("营业收入", "营收", "operating revenue", "revenue"),
@@ -64,6 +75,21 @@ ABSOLUTE_CHANGE_CLAIM_TERMS = (
     "本期发生",
     "报告期发生",
 )
+ABSOLUTE_CHANGE_ALIAS_SUFFIX_RE = re.compile(r"(?:同比变动|绝对变动|变动额|变动)$")
+INCREASE_CHANGE_TERMS = ("增加", "增长", "上升", "提升", "净增", "计提")
+DECREASE_CHANGE_TERMS = ("减少", "下降", "降低", "下滑", "降幅", "转出")
+NEGATED_CHANGE_TERMS = (
+    "未新增计提",
+    "无新增计提",
+    "没有新增计提",
+    "未计提",
+    "未增加",
+    "未增长",
+    "未减少",
+    "未下降",
+)
+UNCHANGED_CHANGE_TERMS = ("持平", "不变", "无变化", *NEGATED_CHANGE_TERMS)
+EXPLICIT_RANGE_TERMS = ("区间", "范围", "介于", "介乎", "从")
 
 UNIT_MULTIPLIERS = {
     "元": ("currency", 1.0),
@@ -149,7 +175,7 @@ NUMBER_WITH_UNIT_RE = re.compile(
     r"(?<![A-Za-z0-9_])"
     rf"(?:(?P<currency>{CURRENCY_PREFIX_PATTERN})\s*)?"
     r"(?:[（(]\s*)?"
-    r"(?P<value>[+\-−]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)"
+    rf"(?P<value>[+{FINANCIAL_MINUS_SIGN_CLASS}]?(?:\d{{1,3}}(?:,\d{{3}})+|\d+)(?:\.\d+)?)"
     r"(?:\s*[)）])?"
     r"\s*(?P<unit>人民币元/股|港元/股|美元/股|英镑/股|元/股|百万日元|百万韩元|百万英镑|百万円|백만원|"
     r"亿日元|亿韩元|億元|億円|억원|人民币千元|千元|万元|百万元|人民币元|港元|港币|美元|欧元|英镑|瑞士法郎|日元|韩元|"
@@ -157,8 +183,11 @@ NUMBER_WITH_UNIT_RE = re.compile(
     re.IGNORECASE,
 )
 CLAUSE_SPLIT_RE = re.compile(r"[。；;！？!?]|(?<!\d)[,，](?!\d)")
+CLAUSE_CONTINUATION_RE = re.compile(r"^(?:为|约为|达(?:到)?|是|即(?:为)?)\s*")
 SOURCE_FIELD_START_RE = re.compile(r"(?:(?<=^)|(?<=[\s,，;；|]))([A-Za-z_][A-Za-z0-9_]*)=")
-DATE_RE = re.compile(r"\b(?P<year>20\d{2})[-/.年](?P<month>\d{1,2})[-/.月](?P<day>\d{1,2})日?")
+DATE_RE = re.compile(
+    rf"\b(?P<year>20\d{{2}})[{FINANCIAL_MINUS_SIGN_CLASS}/.年](?P<month>\d{{1,2}})[{FINANCIAL_MINUS_SIGN_CLASS}/.月](?P<day>\d{{1,2}})日?"
+)
 QUARTER_RE = re.compile(r"\b(?P<year>20\d{2})\s*(?:Q(?P<q1>[1-4])|年?第?(?P<q2>[一二三四1234])季度)", re.IGNORECASE)
 YEAR_RE = re.compile(r"\b(20\d{2})(?:\s*(?:年(?:度|末)?|FY))?\b", re.IGNORECASE)
 CHINESE_QUARTER_MAP = {"一": "1", "二": "2", "三": "3", "四": "4"}
@@ -216,6 +245,7 @@ class EvidenceFact:
     evidence_id: str = ""
     quote: str = ""
     source_type: str = ""
+    change_direction: str = ""
 
 
 @dataclass(frozen=True)
@@ -232,6 +262,7 @@ class NumericClaim:
     line_number: int
     line: str
     match_start: int = 0
+    change_direction: str = ""
 
 
 @dataclass(frozen=True)
@@ -290,7 +321,7 @@ class PercentClaimOccurrence:
 def _trace_decimal(value: Any) -> Decimal | None:
     if isinstance(value, bool) or value is None:
         return None
-    text = str(value).strip().replace(",", "")
+    text = normalize_financial_minus_signs(value).strip().replace(",", "")
     if not text:
         return None
     try:
@@ -703,7 +734,20 @@ def _trace_evidence_reason(
     return None
 
 
-DERIVED_PERCENT_CLAIM_RE = re.compile(r"(?P<value>[+\-−]?\d+(?:\.\d+)?)\s*(?P<unit>个百分点|百分点|[%％])")
+DERIVED_PERCENT_CLAIM_RE = re.compile(
+    rf"(?P<value>[+{FINANCIAL_MINUS_SIGN_CLASS}]?\d+(?:\.\d+)?)\s*(?P<unit>个百分点|百分点|[%％])"
+)
+PERCENT_RANGE_PREFIX_RE = re.compile(r"\d[\d,]*(?:\.\d+)?\s*[%％]\s*$")
+
+
+def _has_explicit_range_context(text: str, endpoint_start: int) -> bool:
+    prefix = text[:endpoint_start]
+    segment_start = max(
+        (prefix.rfind(marker) for marker in ("，", ",", "；", ";", "。", "！", "!", "？", "?")),
+        default=-1,
+    )
+    return any(term in prefix[segment_start + 1 :] for term in EXPLICIT_RANGE_TERMS)
+
 DERIVED_PERCENT_TERMS = (
     "同比",
     "yoy",
@@ -736,7 +780,7 @@ DERIVED_METRIC_REPLY_ALIASES = {
 
 
 def _percent_decimal(value: Any) -> Decimal | None:
-    return _trace_decimal(str(value or "").replace("−", "-"))
+    return _trace_decimal(value)
 
 
 def _percent_claim_details(
@@ -763,10 +807,20 @@ def _percent_claim_occurrences(
         if require_derived_term and not any(term in lowered for term in DERIVED_PERCENT_TERMS):
             continue
         for match in DERIVED_PERCENT_CLAIM_RE.finditer(line):
-            value = _percent_decimal(match.group("value"))
+            value_text = match.group("value")
+            value = _percent_decimal(value_text)
             if value is not None:
-                unsigned_value = not match.group("value").lstrip().startswith(("+", "-", "−"))
                 prefix = line[: match.start()]
+                normalized_value_text = normalize_financial_minus_signs(value_text).lstrip()
+                previous_endpoint = PERCENT_RANGE_PREFIX_RE.search(prefix)
+                range_separator = (
+                    normalized_value_text.startswith("-")
+                    and previous_endpoint is not None
+                    and _has_explicit_range_context(prefix, previous_endpoint.start())
+                )
+                if range_separator:
+                    value = abs(value)
+                unsigned_value = range_separator or not normalized_value_text.startswith(("+", "-"))
                 segment_start = max((prefix.rfind(marker) for marker in ("，", ",", "；", ";", "。")), default=-1)
                 direction_context = prefix[segment_start + 1 :].lower()
                 if unsigned_value and any(
@@ -1038,7 +1092,9 @@ def materialize_runtime_calculation_runs(
     return tuple(materialized)
 
 
-PLAIN_CALC_NUMBER_RE = re.compile(r"(?<![A-Za-z0-9_])(?P<value>\(?[+\-−]?\d[\d,]*(?:\.\d+)?\)?)")
+PLAIN_CALC_NUMBER_RE = re.compile(
+    rf"(?<![A-Za-z0-9_])(?P<value>\(?[+{FINANCIAL_MINUS_SIGN_CLASS}]?\d[\d,]*(?:\.\d+)?\)?)"
+)
 
 
 def _trusted_evidence_metric(reference: Mapping[str, Any]) -> str:
@@ -1106,16 +1162,17 @@ def _ratio_scope_compatible(references: Sequence[Mapping[str, Any]]) -> bool:
 
 def _trusted_evidence_value(reference: Mapping[str, Any]) -> Decimal | None:
     value = reference.get("value", reference.get("raw_value"))
-    number = _trace_decimal(str(value or "").replace("(", "-").replace(")", ""))
+    number = _trace_decimal(("" if value is None else str(value)).replace("(", "-").replace(")", ""))
     return number
 
 
 def _trusted_trace_input(reference: Mapping[str, Any], role: str) -> dict[str, Any]:
+    value = reference.get("value", reference.get("raw_value"))
     return {
         "role": role,
         "metric": _trusted_evidence_metric(reference),
         "period": _trusted_evidence_period(reference),
-        "value": str(reference.get("value", reference.get("raw_value")) or ""),
+        "value": "" if value is None else str(value),
         "unit": str(reference.get("unit") or reference.get("currency") or ""),
         "scale": reference.get("scale"),
         "evidence_id": str(reference.get("evidence_id") or ""),
@@ -1303,13 +1360,75 @@ def _derived_sum_ratio_formula_matches(
             numerator_expression = line[formula_start : division.start()]
             if len(re.findall(r"\+", numerator_expression)) != len(ordered_sources) - 1:
                 continue
-            if re.search(r"[-−*/×÷]", numerator_expression):
+            if re.search(rf"[{FINANCIAL_MINUS_SIGN_CLASS}*/×÷]", numerator_expression):
                 continue
             denominator_expression = line[division.end() : equals_start]
-            if re.search(r"[+\-−*/×÷]", denominator_expression):
+            if re.search(rf"[+{FINANCIAL_MINUS_SIGN_CLASS}*/×÷]", denominator_expression):
                 continue
             return True
     return False
+
+
+def _visible_reply_binds_reference(visible_reply: str, reference: Mapping[str, Any]) -> bool:
+    return any(
+        "source_type=" not in line
+        and "schema_version" not in line
+        and _line_mentions_reference(line, reference)
+        and _line_contains_trusted_value(line, reference)
+        for line in visible_reply.splitlines()
+    )
+
+
+def _ratio_semantic_pair_bound(
+    occurrence: PercentClaimOccurrence,
+    primary: Mapping[str, Any],
+    secondary: Mapping[str, Any],
+    all_references: Sequence[Mapping[str, Any]],
+    visible_reply: str,
+) -> bool:
+    """Bind natural-language component ratios only when both operands are explicit."""
+
+    prefix = occurrence.line[: occurrence.match_start]
+    ratio_marker = prefix.rfind("占")
+    if ratio_marker < 0:
+        return False
+    denominator_context = prefix[ratio_marker + 1 :]
+    if not _line_mentions_reference(denominator_context, secondary):
+        return False
+
+    subject_boundary = max(
+        (prefix.rfind(marker, 0, ratio_marker) for marker in ("，", ",", "；", ";", "。", "：", ":", "）", ")")),
+        default=-1,
+    )
+    subject_context = prefix[subject_boundary + 1 : ratio_marker]
+    source_ids = primary.get("derived_from_evidence_ids")
+    if isinstance(source_ids, Sequence) and not isinstance(source_ids, (str, bytes)):
+        if len(source_ids) < 2 or "合计" not in subject_context:
+            return False
+        references_by_id = {str(item.get("evidence_id") or ""): item for item in all_references}
+        source_references = [references_by_id.get(str(evidence_id or "")) for evidence_id in source_ids]
+        if not all(isinstance(item, Mapping) for item in source_references):
+            return False
+        clause_boundary = max(
+            (prefix.rfind(marker, 0, ratio_marker) for marker in ("；", ";", "。", "：", ":")),
+            default=-1,
+        )
+        source_context = prefix[clause_boundary + 1 : ratio_marker]
+        if not all(
+            _line_mentions_reference(source_context, reference)
+            for reference in source_references
+            if isinstance(reference, Mapping)
+        ):
+            return False
+        operand_references = (
+            *[reference for reference in source_references if isinstance(reference, Mapping)],
+            secondary,
+        )
+    else:
+        if not _line_mentions_reference(subject_context, primary):
+            return False
+        operand_references = (primary, secondary)
+    return all(_visible_reply_binds_reference(visible_reply, reference) for reference in operand_references)
 
 
 def _matching_percent_occurrences(
@@ -1339,14 +1458,7 @@ def _matching_percent_occurrences(
         primary_value_bound = direct_primary_value_bound or derived_sum_formula_bound
         secondary_value_bound = _line_contains_trusted_value(line, secondary)
         reply_operands_bound = all(
-            any(
-                "source_type=" not in visible_line
-                and "schema_version" not in visible_line
-                and _line_mentions_reference(visible_line, reference)
-                and _line_contains_trusted_value(visible_line, reference)
-                for visible_line in visible_reply.splitlines()
-            )
-            for reference in (primary, secondary)
+            _visible_reply_binds_reference(visible_reply, reference) for reference in (primary, secondary)
         )
         period_references = (
             (primary, secondary)
@@ -1397,8 +1509,18 @@ def _matching_percent_occurrences(
             semantic_ratio_bound = component_sum_semantic_bound and not (
                 expanded_derived_formula and not direct_primary_value_bound
             )
+            explicit_ratio_pair_bound = _ratio_semantic_pair_bound(
+                occurrence,
+                primary,
+                secondary,
+                all_references,
+                visible_reply,
+            )
             if not ratio_context or not (
-                output_bound or (primary_value_bound and secondary_value_bound) or semantic_ratio_bound
+                output_bound
+                or (primary_value_bound and secondary_value_bound)
+                or semantic_ratio_bound
+                or explicit_ratio_pair_bound
             ):
                 continue
         else:
@@ -1410,7 +1532,7 @@ def _matching_percent_occurrences(
 def _plain_line_values(line: str) -> tuple[Decimal, ...]:
     values: list[Decimal] = []
     for match in PLAIN_CALC_NUMBER_RE.finditer(line or ""):
-        text = match.group("value").replace("−", "-")
+        text = normalize_financial_minus_signs(match.group("value"))
         if text.startswith("(") and text.endswith(")"):
             text = f"-{text[1:-1]}"
         else:
@@ -1429,9 +1551,19 @@ def _display_amount_tolerance(value_text: str, unit: str, target: float) -> floa
     return quantum / 2.0 + floating_slack
 
 
+def _claim_fact_value_distance(
+    claim_value: Decimal | float,
+    fact_value: Decimal | float,
+    metric: str,
+) -> Decimal | float:
+    if metric.endswith("_absolute_change"):
+        return abs(abs(claim_value) - abs(fact_value))
+    return abs(claim_value - fact_value)
+
+
 def _normalized_number_span(match: re.Match[str], line: str) -> tuple[int, int]:
     start, end = match.span("value")
-    while start < end and line[start] in "(（+-−":
+    while start < end and line[start] in f"(（+{FINANCIAL_MINUS_SIGNS}":
         start += 1
     while end > start and line[end - 1] in ")）":
         end -= 1
@@ -1451,9 +1583,40 @@ def _is_inline_reference_or_period_number(line: str, span: tuple[int, int]) -> b
     return after in {"年", "月", "日"}
 
 
+def _amount_match_number(
+    line: str,
+    match: re.Match[str],
+    previous_match: re.Match[str] | None = None,
+) -> float | None:
+    value = _clean_number(match.group("value"))
+    if value is None or value >= 0 or previous_match is None or any(marker in line for marker in ("=", "＝")):
+        return value
+
+    value_text = normalize_financial_minus_signs(match.group("value")).lstrip()
+    if not value_text.startswith("-"):
+        return value
+    if not _has_explicit_range_context(line, previous_match.start("value")):
+        return value
+    connector = line[previous_match.end() : match.start("value")]
+    connector_text = connector.strip()
+    previous_unit = previous_match.group("unit")
+    current_unit = match.group("unit")
+    if connector_text and not (
+        connector_text == "元" and previous_unit == current_unit == "亿"
+    ):
+        return value
+    previous_multiplier = _unit_multiplier(previous_unit)
+    current_multiplier = _unit_multiplier(current_unit)
+    if previous_multiplier != current_multiplier:
+        return value
+    return abs(value)
+
+
 def _trusted_value_occurrences(
     line: str,
     reference: Mapping[str, Any],
+    *,
+    allow_opposite_sign: bool = False,
 ) -> tuple[tuple[int, int], ...]:
     """Locate a trusted value without treating a unit-bearing number as a raw cell value."""
 
@@ -1470,14 +1633,21 @@ def _trusted_value_occurrences(
 
     if observed is not None:
         target, category = observed
-        for match, value_span in zip(unit_matches, unit_value_spans, strict=True):
-            displayed = _normalized_amount(match.group("value"), match.group("unit"))
+        for match_index, (match, value_span) in enumerate(zip(unit_matches, unit_value_spans, strict=True)):
+            previous_match = unit_matches[match_index - 1] if match_index else None
+            displayed = _normalized_amount(
+                _amount_match_number(line, match, previous_match),
+                match.group("unit"),
+            )
             if displayed is None or displayed[1] != category:
                 continue
             displayed_currency = _currency_token(match.group("currency"))
             if displayed_currency and expected_currency and displayed_currency != expected_currency:
                 continue
-            if abs(abs(displayed[0]) - abs(target)) <= _display_amount_tolerance(
+            difference = (
+                abs(abs(displayed[0]) - abs(target)) if allow_opposite_sign else abs(displayed[0] - target)
+            )
+            if difference <= _display_amount_tolerance(
                 match.group("value"),
                 match.group("unit"),
                 target,
@@ -1489,13 +1659,16 @@ def _trusted_value_occurrences(
             value_span = _normalized_number_span(match, line)
             if any(_spans_overlap(value_span, unit_span) for unit_span in unit_value_spans):
                 continue
-            text = match.group("value").replace("−", "-")
+            text = normalize_financial_minus_signs(match.group("value"))
             if text.startswith("(") and text.endswith(")"):
                 text = f"-{text[1:-1]}"
             else:
                 text = text.strip("()（）")
             value = _trace_decimal(text)
-            if value is not None and abs(abs(value) - abs(raw_value)) <= TRACE_RESULT_ABSOLUTE_TOLERANCE:
+            if value is None:
+                continue
+            difference = abs(abs(value) - abs(raw_value)) if allow_opposite_sign else abs(value - raw_value)
+            if difference <= TRACE_RESULT_ABSOLUTE_TOLERANCE:
                 occurrences.append(value_span)
 
     return tuple(dict.fromkeys(occurrences))
@@ -1541,11 +1714,11 @@ def _reconciliation_equation_clause_matches(
                     between_operands = clause[gross_span[1] : allowance_span[0]]
                     after_allowance = clause[allowance_span[1] : equals.start()]
                     before_net = clause[equals.end() : net_span[0]]
-                    if len(re.findall(r"[−-]", between_operands)) != 1:
+                    if len(re.findall(rf"[{FINANCIAL_MINUS_SIGN_CLASS}]", between_operands)) != 1:
                         continue
                     if re.search(r"[+*/×÷]", between_operands + after_allowance + before_net):
                         continue
-                    if re.search(r"[-−=＝]", after_allowance + before_net):
+                    if re.search(rf"[{FINANCIAL_MINUS_SIGN_CLASS}=＝]", after_allowance + before_net):
                         continue
                     return True
     return False
@@ -1591,7 +1764,7 @@ def _reconciliation_fact_line_matches(
         for term in terms
     ):
         return False
-    return bool(_trusted_value_occurrences(line, reference))
+    return bool(_trusted_value_occurrences(line, reference, allow_opposite_sign=role == "allowance"))
 
 
 def _reconciliation_fact_block_line(
@@ -1685,7 +1858,7 @@ def materialize_evidence_bound_calculation_runs(
     if not expected_operations or "normalize_amount" in expected_operations:
         for claim, reference, fact in _evidence_bound_unit_normalization_claims(reply, evidence):
             tolerance = _display_amount_tolerance(claim.value_text, claim.unit, fact.normalized_value)
-            if abs(claim.normalized_value - fact.normalized_value) > tolerance:
+            if _claim_fact_value_distance(claim.normalized_value, fact.normalized_value, fact.metric) > tolerance:
                 continue
             inputs = {"amount": _trusted_trace_input(reference, "amount")}
             expected = _trace_expected_result("normalize_amount", inputs)
@@ -2030,14 +2203,15 @@ def validate_calculation_traces(
             tolerance = Decimal(str(_display_amount_tolerance(claim.value_text, claim.unit, fact.normalized_value)))
             claimed = Decimal(str(claim.normalized_value))
             if not any(
-                expected is not None and abs(claimed - expected) <= tolerance for expected in expected_values
+                expected is not None and _claim_fact_value_distance(claimed, expected, fact.metric) <= tolerance
+                for expected in expected_values
             ):
                 return CalculationTraceValidation(True, False, "trace_claim_result_mismatch", runs)
     return CalculationTraceValidation(True, True, runs=runs)
 
 
 def _clean_number(value: Any) -> float | None:
-    text = str(value or "").strip().replace(",", "")
+    text = normalize_financial_minus_signs(value).strip().replace(",", "")
     if not text:
         return None
     try:
@@ -2228,7 +2402,7 @@ def _metric_aliases(fact: Mapping[str, Any]) -> tuple[str, ...]:
     if metric.endswith("_absolute_change"):
         base_aliases: set[str] = set()
         for alias in aliases:
-            base = re.sub(r"(?:同比变动|绝对变动|变动额|变动)$", "", alias).strip()
+            base = ABSOLUTE_CHANGE_ALIAS_SUFFIX_RE.sub("", alias).strip()
             if base and base not in {"本期", "本年", "绝对"}:
                 base_aliases.add(base)
         for base in base_aliases:
@@ -2460,6 +2634,7 @@ def _fact_from_reference(reference: Mapping[str, Any]) -> dict[str, Any]:
         "period_key",
         "value",
         "raw_value",
+        "change_direction",
         "unit",
         "currency",
         "scale",
@@ -2519,14 +2694,28 @@ def _reference_facts(
                 evidence_id="" if fact.get("_generated_evidence_id") else str(fact.get("evidence_id") or ""),
                 quote=str(fact.get("quote") or fact.get("quote_text") or ""),
                 source_type=source_type,
+                change_direction=str(fact.get("change_direction") or ""),
             )
         )
     return tuple(facts)
 
 
 def _claim_clauses(line: str) -> tuple[str, ...]:
-    clauses = tuple(part.strip() for part in CLAUSE_SPLIT_RE.split(line) if part.strip())
-    return clauses or (line,)
+    parts = tuple(part.strip() for part in CLAUSE_SPLIT_RE.split(line) if part.strip())
+    if not parts:
+        return (line,)
+
+    clauses: list[str] = []
+    subject_context = ""
+    for part in parts:
+        if subject_context and CLAUSE_CONTINUATION_RE.match(part):
+            combined = f"{subject_context} {part}"
+            clauses.append(combined)
+            subject_context = combined
+        else:
+            clauses.append(part)
+            subject_context = part
+    return tuple(clauses)
 
 
 def _alias_match_score(
@@ -2554,8 +2743,14 @@ def _alias_match_score(
         for alias in fact.aliases
         if FOOTNOTE_ALIAS_SUFFIX_RE.search(alias)
     }
+    candidate_aliases = list(fact.aliases)
+    if fact.metric.endswith("_absolute_change") and any(term in clause for term in ABSOLUTE_CHANGE_CLAIM_TERMS):
+        for alias in fact.aliases:
+            base = ABSOLUTE_CHANGE_ALIAS_SUFFIX_RE.sub("", alias).strip()
+            if base and base not in {"本期", "本年", "绝对"}:
+                candidate_aliases.append(base)
     best: tuple[int, int, int] | None = None
-    for alias in fact.aliases:
+    for alias in candidate_aliases:
         compact_alias = _compact_semantic_text(alias)
         if not compact_alias:
             continue
@@ -2607,23 +2802,26 @@ def _fact_for_amount(
             continue
         score = _alias_match_score(clause, amount_start, fact, amount_end=amount_end)
         if score is not None:
-            candidates.append((score, abs(normalized_value - fact.normalized_value), index, fact))
+            candidates.append(
+                (score, _claim_fact_value_distance(normalized_value, fact.normalized_value, fact.metric), index, fact)
+            )
     if not candidates:
         return None
     best_semantic_score = min(candidate[0] for candidate in candidates)
-    best_metrics = {candidate[3].metric for candidate in candidates if candidate[0] == best_semantic_score}
-    if len(best_metrics) != 1:
-        return None
-    candidates = [candidate for candidate in candidates if candidate[3].metric in best_metrics]
+    semantic_candidates = [candidate for candidate in candidates if candidate[0] == best_semantic_score]
     if any(term in clause for term in ABSOLUTE_CHANGE_CLAIM_TERMS):
         change_candidates = [
             candidate
-            for candidate in candidates
+            for candidate in semantic_candidates
             if candidate[3].metric.endswith("_absolute_change")
             and candidate[1] <= _display_amount_tolerance(value_text, unit, candidate[3].normalized_value)
         ]
         if change_candidates:
             return min(change_candidates, key=lambda item: (item[0], item[1], item[2]))[3]
+    best_metrics = {candidate[3].metric for candidate in semantic_candidates}
+    if len(best_metrics) != 1:
+        return None
+    candidates = [candidate for candidate in candidates if candidate[3].metric in best_metrics]
     return min(candidates, key=lambda item: (item[0], item[1], item[2]))[3]
 
 
@@ -2695,6 +2893,42 @@ def _is_same_metric_unit_restatement(
     )
 
 
+def _last_term_position(text: str, terms: Sequence[str]) -> int:
+    return max((text.rfind(term) for term in terms), default=-1)
+
+
+def _claim_change_direction(clause: str, match: re.Match[str]) -> str:
+    value_text = normalize_financial_minus_signs(match.group("value")).lstrip()
+    value = _clean_number(value_text)
+    explicit_direction = ""
+    if value is not None and value != 0:
+        if value_text.startswith("-"):
+            explicit_direction = "decrease"
+        elif value_text.startswith("+"):
+            explicit_direction = "increase"
+
+    prefix = clause[: match.start()]
+    segment_start = max((prefix.rfind(marker) for marker in ("，", ",", "；", ";", "。")), default=-1)
+    context = prefix[segment_start + 1 :]
+    directional_context = context
+    for term in NEGATED_CHANGE_TERMS:
+        directional_context = directional_context.replace(term, " " * len(term))
+    positions = {
+        "increase": _last_term_position(directional_context, INCREASE_CHANGE_TERMS),
+        "decrease": _last_term_position(directional_context, DECREASE_CHANGE_TERMS),
+        "unchanged": _last_term_position(context, UNCHANGED_CHANGE_TERMS),
+    }
+    best_position = max(positions.values())
+    textual_direction = (
+        next((direction for direction, position in positions.items() if position == best_position), "")
+        if best_position >= 0
+        else ""
+    )
+    if explicit_direction and textual_direction and explicit_direction != textual_direction:
+        return "conflict"
+    return explicit_direction or textual_direction
+
+
 def _extract_claims(
     reply: str,
     facts: tuple[EvidenceFact, ...],
@@ -2711,7 +2945,8 @@ def _extract_claims(
             resolved_facts: list[EvidenceFact | None] = [None] * len(matches)
             for match_index, match in enumerate(matches):
                 clause_period_tokens = _nearest_preceding_period_tokens(clause, match.start())
-                value = _clean_number(match.group("value"))
+                previous_match = matches[match_index - 1] if match_index else None
+                value = _amount_match_number(clause, match, previous_match)
                 unit = match.group("unit")
                 normalized = _normalized_amount(value, unit)
                 if normalized is None:
@@ -2771,6 +3006,7 @@ def _extract_claims(
                         line_number=line_number,
                         line=line,
                         match_start=match.start(),
+                        change_direction=_claim_change_direction(clause, match),
                     )
                 )
     return tuple(claims)
@@ -2823,7 +3059,13 @@ def _evidence_bound_unit_normalization_claims(
                 or math.isclose(source_scale[0], claim_scale[0], rel_tol=0.0, abs_tol=1e-12)
             ):
                 continue
-            candidates.append((abs(claim.normalized_value - fact.normalized_value), fact, reference))
+            candidates.append(
+                (
+                    _claim_fact_value_distance(claim.normalized_value, fact.normalized_value, fact.metric),
+                    fact,
+                    reference,
+                )
+            )
         if not candidates:
             continue
         _distance, fact, reference = min(candidates, key=lambda item: item[0])
@@ -2844,8 +3086,20 @@ def has_evidence_bound_unit_normalization(
     return bool(_evidence_bound_unit_normalization_claims(reply, trusted_evidence))
 
 
+def _change_direction_matches(claim: NumericClaim, fact: EvidenceFact) -> bool:
+    if not fact.metric.endswith("_absolute_change"):
+        return True
+    if claim.change_direction == "conflict":
+        return False
+    if claim.change_direction:
+        return bool(fact.change_direction) and claim.change_direction == fact.change_direction
+    return True
+
+
 def _matches_evidence(claim: NumericClaim, fact: EvidenceFact) -> bool:
     if claim.metric != fact.metric or claim.value_category != fact.value_category:
+        return False
+    if not _change_direction_matches(claim, fact):
         return False
     if not fact.company_id or not fact.filing_id:
         return False
@@ -2858,7 +3112,7 @@ def _matches_evidence(claim: NumericClaim, fact: EvidenceFact) -> bool:
         if fact_tokens and not set(claim.period_tokens).intersection(fact_tokens):
             return False
     tolerance = _display_amount_tolerance(claim.value_text, claim.unit, fact.normalized_value)
-    return abs(claim.normalized_value - fact.normalized_value) <= tolerance
+    return _claim_fact_value_distance(claim.normalized_value, fact.normalized_value, fact.metric) <= tolerance
 
 
 def _violation_reason(claim: NumericClaim, fact: EvidenceFact) -> str:
@@ -2876,8 +3130,10 @@ def _violation_reason(claim: NumericClaim, fact: EvidenceFact) -> str:
         fact_tokens = _period_tokens(fact.period)
         if fact_tokens and not set(claim.period_tokens).intersection(fact_tokens):
             return "period_mismatch"
+    if not _change_direction_matches(claim, fact):
+        return "direction_mismatch"
     tolerance = _display_amount_tolerance(claim.value_text, claim.unit, fact.normalized_value)
-    if abs(claim.normalized_value - fact.normalized_value) > tolerance:
+    if _claim_fact_value_distance(claim.normalized_value, fact.normalized_value, fact.metric) > tolerance:
         return "value_mismatch"
     return "claim_mismatch"
 
@@ -2990,7 +3246,10 @@ def verify_financial_claims(
         ]
         if not candidates or any(_matches_evidence(claim, fact) for fact in candidates):
             continue
-        nearest = min(candidates, key=lambda fact: abs(claim.normalized_value - fact.normalized_value))
+        nearest = min(
+            candidates,
+            key=lambda fact: _claim_fact_value_distance(claim.normalized_value, fact.normalized_value, fact.metric),
+        )
         violations.append(
             ClaimViolation(
                 reason=_violation_reason(claim, nearest),

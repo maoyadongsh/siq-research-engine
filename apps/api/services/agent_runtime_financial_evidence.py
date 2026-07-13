@@ -8,6 +8,8 @@ from decimal import Decimal, InvalidOperation
 from itertools import combinations
 from typing import Any, Mapping, Sequence
 
+from services.agent_runtime_financial_claim_verifier import normalize_financial_minus_signs
+
 IDENTITY_FIELDS = ("market", "company_id", "filing_id", "parse_run_id")
 DATE_HEADER_RE = re.compile(r"(?P<year>20\d{2})\s*年\s*(?P<month>\d{1,2})\s*月\s*(?P<day>\d{1,2})\s*日")
 YEAR_RE = re.compile(r"\b(20\d{2})\b")
@@ -44,7 +46,7 @@ METRIC_ALIASES = (
 def _decimal(value: Any) -> Decimal | None:
     if value is None or isinstance(value, bool):
         return None
-    text = str(value).strip().replace(",", "").replace("−", "-")
+    text = normalize_financial_minus_signs(value).strip().replace(",", "")
     if not text or text in {"-", "—", "--", "不适用", "未返回"}:
         return None
     if text.startswith("(") and text.endswith(")"):
@@ -256,6 +258,7 @@ def _record(
     financial_scope: str,
     source_lineage: str,
     derived_from: Sequence[str] = (),
+    change_direction: str = "",
 ) -> dict[str, Any]:
     evidence_id = _stable_id(
         identity.get("company_id"),
@@ -291,6 +294,8 @@ def _record(
         "source_lineage": source_lineage,
         **identity,
     }
+    if change_direction:
+        payload["change_direction"] = change_direction
     if derived_from:
         payload["derived_from_evidence_ids"] = tuple(derived_from)
         payload["source_type"] = "trusted_backend_derived_fact"
@@ -585,7 +590,13 @@ def _change_evidence(items: Sequence[Mapping[str, Any]], identity: Mapping[str, 
                 continue
             metric = str(current.get("metric") or "")
             metric_name = str(current.get("metric_name") or metric)
-            direction_alias = "本期减少" if current_value < previous_value else "本期净增"
+            change_value = current_value - previous_value
+            if change_value < 0:
+                change_direction, direction_alias = "decrease", "本期减少"
+            elif change_value > 0:
+                change_direction, direction_alias = "increase", "本期净增"
+            else:
+                change_direction, direction_alias = "unchanged", "本期持平"
             source_aliases = tuple(str(alias or "") for alias in (current.get("aliases") or ()) if alias)
             change_aliases = tuple(f"{alias}变动" for alias in source_aliases)
             derived_ids = (
@@ -605,7 +616,7 @@ def _change_evidence(items: Sequence[Mapping[str, Any]], identity: Mapping[str, 
                         "绝对变动",
                     ),
                     period=current_period,
-                    value=abs(current_value - previous_value),
+                    value=abs(change_value),
                     unit=str(current.get("unit") or ""),
                     identity=identity,
                     report_id=current.get("report_id"),
@@ -618,6 +629,7 @@ def _change_evidence(items: Sequence[Mapping[str, Any]], identity: Mapping[str, 
                     financial_scope=str(current.get("financial_scope") or ""),
                     source_lineage=str(current.get("source_lineage") or ""),
                     derived_from=derived_ids,
+                    change_direction=change_direction,
                 )
             )
     return output

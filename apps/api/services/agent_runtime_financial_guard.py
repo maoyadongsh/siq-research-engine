@@ -10,6 +10,7 @@ from typing import Any, Callable, Mapping, Sequence
 
 from services import agent_runtime_context
 from services.agent_runtime_financial_claim_verifier import (
+    FINANCIAL_MINUS_SIGN_CLASS,
     ClaimVerificationResult,
     has_evidence_bound_unit_normalization,
     validate_calculation_traces,
@@ -38,8 +39,8 @@ YOY_FINANCIAL_TERMS = (
 YOY_CHANGE_TERMS = ("增长", "下降", "上升", "减少", "增加", "降低", "提升", "下滑")
 _YOY_CHANGE_PATTERN = "|".join(YOY_CHANGE_TERMS)
 _YOY_PERCENTAGE_CHANGE_RE = re.compile(
-    rf"(?:{_YOY_CHANGE_PATTERN})[^，。；;\n]{{0,12}}?[+\-−]?\d[\d,.]*\s*(?:%|％|个?\s*百分点)"
-    rf"|[+\-−]?\d[\d,.]*\s*(?:%|％|个?\s*百分点)[^，。；;\n]{{0,6}}?(?:的)?(?:{_YOY_CHANGE_PATTERN})",
+    rf"(?:{_YOY_CHANGE_PATTERN})[^，。；;\n]{{0,12}}?[+{FINANCIAL_MINUS_SIGN_CLASS}]?\d[\d,.]*\s*(?:%|％|个?\s*百分点)"
+    rf"|[+{FINANCIAL_MINUS_SIGN_CLASS}]?\d[\d,.]*\s*(?:%|％|个?\s*百分点)[^，。；;\n]{{0,6}}?(?:的)?(?:{_YOY_CHANGE_PATTERN})",
     re.IGNORECASE,
 )
 _YOY_COMPARISON_RE = re.compile(
@@ -49,11 +50,11 @@ _YOY_COMPARISON_RE = re.compile(
 )
 _RATIO_PERCENTAGE_RE = re.compile(
     r"(?:占(?!用|款)[^，。；;\n]{0,32}?|(?:占用率|占款比例)[^，。；;\n]{0,16}?)"
-    r"[+\-−]?\d[\d,.]*\s*(?:%|％|个?\s*百分点)",
+    rf"[+{FINANCIAL_MINUS_SIGN_CLASS}]?\d[\d,.]*\s*(?:%|％|个?\s*百分点)",
     re.IGNORECASE,
 )
 _AMOUNT_NORMALIZATION_RE = re.compile(
-    r"[+\-−]?\d[\d,，]*(?:\.\d+)?\s*"
+    rf"[+{FINANCIAL_MINUS_SIGN_CLASS}]?\d[\d,，]*(?:\.\d+)?\s*"
     r"(?P<unit>人民币千元|人民币元|千元|万元|百万元|亿元|元|million|billion|thousand)",
     re.IGNORECASE,
 )
@@ -190,6 +191,18 @@ NEGATED_DERIVED_TERM_MARKERS = (
     "仅作参考",
 )
 
+_NEGATED_DERIVED_MARKER_PATTERN = "|".join(
+    re.escape(marker) for marker in sorted(NEGATED_DERIVED_TERM_MARKERS, key=len, reverse=True)
+)
+_DERIVED_TERM_PATTERN = "|".join(
+    re.escape(term)
+    for term in sorted((*DERIVED_FINANCIAL_TERMS, *DERIVED_PER_SHARE_TERMS, "每股"), key=len, reverse=True)
+)
+_NEGATED_DERIVED_TERM_RE = re.compile(
+    rf"(?:{_NEGATED_DERIVED_MARKER_PATTERN})\s*(?:任何\s*)?(?:(?:{_DERIVED_TERM_PATTERN})(?:\s*(?:、|和|及|或|/)\s*)?)+",
+    re.IGNORECASE,
+)
+
 
 def financial_guardrail_mode() -> str:
     """Return ``block`` (safe default) or ``warn`` (retain output for tuning)."""
@@ -229,12 +242,9 @@ def _financial_claim_text(reply: str) -> str:
 def _calculation_claim_text(text: str) -> str:
     meaningful_lines = []
     for line in _financial_claim_text(text).splitlines():
-        lowered_line = line.lower()
-        if any(marker in line for marker in NEGATED_DERIVED_TERM_MARKERS) and any(
-            term.lower() in lowered_line for term in (*DERIVED_FINANCIAL_TERMS, *DERIVED_PER_SHARE_TERMS)
-        ):
-            continue
-        meaningful_lines.append(line)
+        cleaned_line = _NEGATED_DERIVED_TERM_RE.sub("", line)
+        if cleaned_line.strip():
+            meaningful_lines.append(cleaned_line)
     return "\n".join(meaningful_lines)
 
 

@@ -810,6 +810,82 @@ def test_saic_split_note_evidence_recompute_accepts_traceable_calculations(monke
     assert "guardrail_status=" not in guarded
 
 
+def test_saic_attachment_unicode_reconciliation_is_recognized_but_wrong_ratios_still_fail(monkeypatch):
+    monkeypatch.setenv("SIQ_FINANCIAL_GUARDRAIL_MODE", "warn")
+    reply = (
+        "## 结论\n"
+        "- 商誉净额 2025-12-31 为 1,183,122,320.47 元，较 2024 年的 "
+        "1,198,210,116.59 元下降 1.26%。\n"
+        "- 商誉账面原值 2025 年末 1,282,085,915.36 元，较 2024 年的 "
+        "1,302,999,061.44 元下降 1.62%。\n"
+        "- 商誉减值准备期末 98,963,594.89 元，较 2024 年的 "
+        "104,788,944.85 元下降 2.2%。\n"
+        "- 商誉高度集中：华域视觉（占 66.1%）与上汽通用汽车金融"
+        "（占 26.1%）合计占比 92.2%。\n\n"
+        "## 依据/数据\n"
+        "| 项目 | 2025 | 2024 |\n"
+        "| 商誉净额 | 1,183,122,320.47 元 | 1,198,210,116.59 元 |\n"
+        "| 商誉原值 | 1,282,085,915.36 元 | 1,302,999,061.44 元 |\n"
+        "| 商誉减值准备 | 98,963,594.89 元 | 104,788,944.85 元 |\n"
+        "| 华域视觉 | 781,115,081.73 元 | - |\n"
+        "| 上汽通用汽车金融 | 333,378,433.68 元 | - |\n\n"
+        "## 勾稽校验\n"
+        "- 1,282,085,915.36（原值）‑ 98,963,594.89（减值准备）"
+        "= 1,183,122,320.47（净额），校验通过。\n\n"
+        "## 引用来源\n"
+        "[D1] source_type=wiki_metrics, task_id=7dbc35a7-7626-4e81-810e-5dbb764434e0, "
+        "pdf_page=65, table_index=84, md_line=1840。\n"
+        "[D2] source_type=wiki_document_links, task_id=7dbc35a7-7626-4e81-810e-5dbb764434e0, "
+        "pdf_page=137, table_index=165, md_line=4186。\n"
+        "[D3] source_type=wiki_document_links, task_id=7dbc35a7-7626-4e81-810e-5dbb764434e0, "
+        "pdf_page=137, table_index=166, md_line=4196。"
+    )
+
+    guarded = runtime.enforce_financial_evidence_contract("分析一下上汽集团的商誉", None, reply)
+
+    assert guarded.count("## 计算校验无效") == 1
+    assert "guardrail_status=warning" in guarded
+    assert "calculation_trace_reason=reconciliation_trace_missing" not in guarded
+
+
+def test_saic_correct_natural_language_calculations_pass_with_one_consistent_denominator(monkeypatch):
+    monkeypatch.setenv("SIQ_FINANCIAL_GUARDRAIL_MODE", "warn")
+    reply = (
+        "## 结论\n"
+        "- 商誉净额 2025-12-31 为 1,183,122,320.47 元，较 2024-12-31 的 "
+        "1,198,210,116.59 元下降 1.26%。\n"
+        "- 商誉账面原值 2025-12-31 为 1,282,085,915.36 元，较 2024-12-31 的 "
+        "1,302,999,061.44 元下降 1.60%。\n"
+        "- 商誉减值准备 2025-12-31 为 98,963,594.89 元，较 2024-12-31 的 "
+        "104,788,944.85 元下降 5.56%。\n"
+        "- 商誉高度集中：华域视觉（占商誉原值 60.93%）与上汽通用汽车金融"
+        "（占商誉原值 26.00%）两者合计占商誉原值 86.93%。\n\n"
+        "## 依据/数据\n"
+        "| 项目 | 2025-12-31 | 2024-12-31 |\n"
+        "| 商誉净额 | 1,183,122,320.47 元 | 1,198,210,116.59 元 |\n"
+        "| 商誉原值 | 1,282,085,915.36 元 | 1,302,999,061.44 元 |\n"
+        "| 商誉减值准备 | 98,963,594.89 元 | 104,788,944.85 元 |\n"
+        "| 华域视觉 | 781,115,081.73 元 | - |\n"
+        "| 上汽通用汽车金融 | 333,378,433.68 元 | - |\n\n"
+        "## 勾稽校验\n"
+        "- 1,282,085,915.36（原值）‑ 98,963,594.89（减值准备）"
+        "= 1,183,122,320.47（净额），校验通过。\n\n"
+        "## 引用来源\n"
+        "[D1] source_type=wiki_metrics, task_id=7dbc35a7-7626-4e81-810e-5dbb764434e0, "
+        "pdf_page=65, table_index=84, md_line=1840。\n"
+        "[D2] source_type=wiki_document_links, task_id=7dbc35a7-7626-4e81-810e-5dbb764434e0, "
+        "pdf_page=137, table_index=165, md_line=4186。\n"
+        "[D3] source_type=wiki_document_links, task_id=7dbc35a7-7626-4e81-810e-5dbb764434e0, "
+        "pdf_page=137, table_index=166, md_line=4196。"
+    )
+
+    guarded = runtime.enforce_financial_evidence_contract("分析一下上汽集团的商誉", None, reply)
+
+    assert "## 计算校验无效" not in guarded
+    assert "## 计算校验缺失" not in guarded
+    assert "guardrail_status=" not in guarded
+
+
 def test_direct_note_detail_reply_prioritizes_specific_intent_tables():
     reply = runtime.build_direct_note_detail_reply("上汽集团应收账款账龄是什么？")
 

@@ -4,9 +4,100 @@ import json
 
 import pytest
 from services.agent_runtime_financial_claim_verifier import (
+    NUMBER_WITH_UNIT_RE,
+    _amount_match_number,
+    _percent_claim_details,
+    _period_tokens,
+    _trace_decimal,
+    _trusted_evidence_value,
+    _trusted_trace_input,
     validate_calculation_traces,
     verify_financial_claims,
 )
+
+
+@pytest.mark.parametrize("value", (0, 0.0))
+def test_trace_decimal_preserves_numeric_zero(value):
+    assert _trace_decimal(value) == 0
+
+
+@pytest.mark.parametrize("reference", ({"value": 0}, {"raw_value": 0}))
+def test_trusted_evidence_numeric_zero_survives_trace_materialization(reference):
+    evidence = {
+        **reference,
+        "canonical_name": "goodwill_impairment",
+        "unit": "元",
+        "evidence_id": "zero-evidence",
+    }
+
+    assert _trusted_evidence_value(evidence) == 0
+    assert _trusted_trace_input(evidence, "amount")["value"] == "0"
+
+
+@pytest.mark.parametrize("minus_sign", ("-", "‐", "‑", "‒", "−", "﹣", "－"))
+def test_amount_range_endpoint_is_not_treated_as_negative(minus_sign):
+    line = f"预计金额区间为 2亿元{minus_sign}5亿元"
+    matches = list(NUMBER_WITH_UNIT_RE.finditer(line))
+
+    values = [
+        _amount_match_number(line, match, matches[index - 1] if index else None)
+        for index, match in enumerate(matches)
+    ]
+
+    assert values == [2.0, 5.0]
+
+
+@pytest.mark.parametrize("minus_sign", ("-", "‐", "‑", "‒", "−", "﹣", "－"))
+def test_amount_range_with_negative_lower_bound_keeps_only_lower_sign(minus_sign):
+    line = f"预计金额区间为 {minus_sign}2亿元{minus_sign}5亿元"
+    matches = list(NUMBER_WITH_UNIT_RE.finditer(line))
+
+    values = [
+        _amount_match_number(line, match, matches[index - 1] if index else None)
+        for index, match in enumerate(matches)
+    ]
+
+    assert values == [-2.0, 5.0]
+
+
+@pytest.mark.parametrize("minus_sign", ("-", "‐", "‑", "‒", "−", "﹣", "－"))
+def test_amount_subtraction_formula_keeps_negative_operand(minus_sign):
+    line = f"2亿元{minus_sign}5亿元 = -3亿元"
+    matches = list(NUMBER_WITH_UNIT_RE.finditer(line))
+
+    values = [
+        _amount_match_number(line, match, matches[index - 1] if index else None)
+        for index, match in enumerate(matches)
+    ]
+
+    assert values == [2.0, -5.0, -3.0]
+
+
+
+@pytest.mark.parametrize("minus_sign", ("-", "‐", "‑", "‒", "−", "﹣", "－"))
+def test_adjacent_negative_amounts_are_not_treated_as_range_endpoints(minus_sign):
+    line = f"项目 A、项目 B 分别为 {minus_sign}2亿元 {minus_sign}5亿元"
+    matches = list(NUMBER_WITH_UNIT_RE.finditer(line))
+
+    values = [
+        _amount_match_number(line, match, matches[index - 1] if index else None)
+        for index, match in enumerate(matches)
+    ]
+
+    assert values == [-2.0, -5.0]
+
+
+@pytest.mark.parametrize("minus_sign", ("-", "‐", "‑", "‒", "−", "﹣", "－"))
+def test_adjacent_mixed_sign_amounts_are_not_treated_as_range_endpoints(minus_sign):
+    line = f"项目 A、项目 B 分别为 2亿元 {minus_sign}5亿元"
+    matches = list(NUMBER_WITH_UNIT_RE.finditer(line))
+
+    values = [
+        _amount_match_number(line, match, matches[index - 1] if index else None)
+        for index, match in enumerate(matches)
+    ]
+
+    assert values == [2.0, -5.0]
 
 
 def _reference(
@@ -612,6 +703,75 @@ def test_evidence_recompute_uses_percentage_business_tolerance_floor_and_boundar
     assert outside_boundary.reason == "trace_unstructured"
 
 
+@pytest.mark.parametrize("minus_sign", ("-", "−", "‐", "‑", "‒", "﹣", "－"))
+def test_evidence_recompute_preserves_explicit_negative_yoy_for_common_minus_glyphs(minus_sign: str):
+    identity = {
+        "market": "HK",
+        "company_id": "HK:00700",
+        "filing_id": "HK:00700:2025-annual",
+        "parse_run_id": "run-hk-00700",
+    }
+    evidence = (
+        _trusted_yoy_fact("revenue", "营业收入", "2024", "100", "rev-2024"),
+        _trusted_yoy_fact("revenue", "营业收入", "2025", "97", "rev-2025"),
+    )
+    source = "[D1] source_type=wiki_metrics task_id=task-yoy-binding pdf_page=8 table_index=4"
+
+    result = validate_calculation_traces(
+        f"营业收入 2025 年同比 {minus_sign}3.0%。\n{source}",
+        expected_identity=identity,
+        require_calculator=True,
+        expected_operations=frozenset({"yoy"}),
+        trusted_evidence=evidence,
+    )
+
+    assert result.allowed is True
+
+
+@pytest.mark.parametrize("minus_sign", ("-", "−", "‐", "‑", "‒", "﹣", "－"))
+def test_percent_range_separator_is_not_treated_as_negative_endpoint(minus_sign: str):
+    claims = _percent_claim_details(
+        f"预测期增长率区间 2%{minus_sign}5%。",
+        require_derived_term=True,
+    )
+
+    assert tuple((str(value), is_percentage_point) for value, is_percentage_point in claims) == (
+        ("0.02", False),
+        ("0.05", False),
+    )
+
+
+@pytest.mark.parametrize("minus_sign", ("-", "−", "‐", "‑", "‒", "﹣", "－"))
+def test_percent_range_with_negative_lower_bound_keeps_only_lower_sign(minus_sign: str):
+    claims = _percent_claim_details(
+        f"预测期增长率区间 {minus_sign}2%{minus_sign}5%。",
+        require_derived_term=True,
+    )
+
+    assert tuple((str(value), is_percentage_point) for value, is_percentage_point in claims) == (
+        ("-0.02", False),
+        ("0.05", False),
+    )
+
+
+@pytest.mark.parametrize("minus_sign", ("-", "−", "‐", "‑", "‒", "﹣", "－"))
+def test_adjacent_mixed_sign_percentages_are_not_treated_as_range_endpoints(minus_sign: str):
+    claims = _percent_claim_details(
+        f"项目 A、项目 B 增长率分别为 2% {minus_sign}5%。",
+        require_derived_term=True,
+    )
+
+    assert tuple((str(value), is_percentage_point) for value, is_percentage_point in claims) == (
+        ("0.02", False),
+        ("-0.05", False),
+    )
+
+
+@pytest.mark.parametrize("minus_sign", ("-", "−", "‐", "‑", "‒", "﹣", "－"))
+def test_period_tokens_accept_common_unicode_date_separators(minus_sign: str):
+    assert _period_tokens(f"2025{minus_sign}12{minus_sign}31") == ("2025-12-31", "2025")
+
+
 MIDEA_IDENTITY = {
     "market": "CN",
     "company_id": "000333-美的集团",
@@ -707,6 +867,25 @@ def test_evidence_recompute_accepts_strict_rounded_goodwill_reconciliation():
     assert result.allowed is True
 
 
+@pytest.mark.parametrize("minus_sign", ("-", "−", "‐", "‑", "‒", "﹣", "－"))
+def test_evidence_recompute_accepts_common_financial_minus_glyphs(minus_sign: str):
+    result = _validate_goodwill_reconciliation(
+        f"34,813,270（原值）{minus_sign} 556,411（减值准备）= 34,256,859（净额）"
+    )
+
+    assert result.allowed is True
+    assert result.reason == ""
+    assert len(result.runs) == 1
+    assert result.runs[0]["operation"] == "goodwill_reconciliation"
+
+
+@pytest.mark.parametrize("minus_sign", ("-", "−", "‐", "‑", "‒", "﹣", "－"))
+def test_evidence_recompute_still_rejects_extra_subtraction_for_all_minus_glyphs(minus_sign: str):
+    result = _validate_goodwill_reconciliation(f"34,813,270 {minus_sign} 1 {minus_sign} 556,411 = 34,256,859")
+
+    assert result.allowed is False
+
+
 def test_evidence_recompute_accepts_formula_clause_before_same_line_status_checks():
     result = _validate_goodwill_reconciliation(
         "- 结果：34,813,270 − 556,411 = 34,256,859 千元；与主表商誉账面价值 34,256,859 千元的差异 = 0；status=pass"
@@ -735,6 +914,7 @@ def test_evidence_recompute_accepts_trusted_numeric_expression_inside_equality_c
         "gross − allowance = 999 = 34,813,270 − 556,411 = 34,256,859 = 三表商誉净额",
         "gross − allowance = 34,813,270 − 556,411 = 34,256,859 = 999",
         "gross − allowance = 34,813,270 − 556,411 = 中间结果 = 34,256,859",
+        "-34,813,270 - 556,411 = 34,256,859",
     ),
 )
 def test_evidence_recompute_rejects_untrusted_or_malformed_equality_chain(line: str):
@@ -994,7 +1174,10 @@ def _trusted_impairment_flow_evidence() -> tuple[dict, ...]:
         "halo-allowance-change-2025",
         ("商誉减值准备变动", "商誉减值准备绝对变动", "本期净增"),
     )
-    return ({**allowance, "unit": "元"}, {**flow, "unit": "元"})
+    return (
+        {**allowance, "unit": "元"},
+        {**flow, "unit": "元", "change_direction": "increase"},
+    )
 
 
 @pytest.mark.parametrize(
@@ -1503,6 +1686,74 @@ def test_evidence_recompute_accepts_ratio_with_backend_derived_sum_expanded_on_f
     assert result.runs[0]["operation"] == "ratio"
 
 
+def test_evidence_recompute_accepts_explicit_natural_language_component_ratios():
+    source = "[D1] source_type=wiki_document_links task_id=task-midea pdf_page=206 table_index=163 md_line=4325"
+    reply = (
+        "商誉高度集中：华域视觉（占商誉原值 60.93%）与上汽通用汽车金融"
+        "（占商誉原值 26.00%）两者合计占商誉原值 86.93%。\n"
+        "| 华域视觉 | 781,115,081.73 元 |\n"
+        "| 上汽通用汽车金融 | 333,378,433.68 元 |\n"
+        "| 商誉原值 | 1,282,085,915.36 元 |\n"
+        f"{source}"
+    )
+
+    result = validate_calculation_traces(
+        reply,
+        expected_identity=MIDEA_IDENTITY,
+        require_calculator=True,
+        expected_operations=frozenset({"ratio"}),
+        trusted_evidence=_trusted_saic_top2_ratio_evidence(),
+    )
+
+    assert result.allowed is True
+    assert len(result.runs) == 3
+    assert {run["operation"] for run in result.runs} == {"ratio"}
+
+
+def test_evidence_recompute_rejects_natural_language_component_ratios_without_denominator():
+    source = "[D1] source_type=wiki_document_links task_id=task-midea pdf_page=206 table_index=163 md_line=4325"
+    reply = (
+        "商誉高度集中：华域视觉（占 60.93%）与上汽通用汽车金融"
+        "（占 26.00%）两者合计占比 86.93%。\n"
+        "| 华域视觉 | 781,115,081.73 元 |\n"
+        "| 上汽通用汽车金融 | 333,378,433.68 元 |\n"
+        "| 商誉原值 | 1,282,085,915.36 元 |\n"
+        f"{source}"
+    )
+
+    result = validate_calculation_traces(
+        reply,
+        expected_identity=MIDEA_IDENTITY,
+        require_calculator=True,
+        expected_operations=frozenset({"ratio"}),
+        trusted_evidence=_trusted_saic_top2_ratio_evidence(),
+    )
+
+    assert result.allowed is False
+    assert result.reason == "trace_unstructured"
+
+
+def test_evidence_recompute_rejects_natural_ratio_backed_by_opposite_sign_operand():
+    source = "[D1] source_type=wiki_document_links task_id=task-midea pdf_page=206 table_index=163 md_line=4325"
+    reply = (
+        "华域视觉占商誉原值 60.93%。\n"
+        "| 华域视觉 | -781,115,081.73 |\n"
+        "| 商誉原值 | 1,282,085,915.36 |\n"
+        f"{source}"
+    )
+
+    result = validate_calculation_traces(
+        reply,
+        expected_identity=MIDEA_IDENTITY,
+        require_calculator=True,
+        expected_operations=frozenset({"ratio"}),
+        trusted_evidence=_trusted_saic_top2_ratio_evidence(),
+    )
+
+    assert result.allowed is False
+    assert result.reason == "trace_unstructured"
+
+
 @pytest.mark.parametrize(
     "line",
     (
@@ -1639,14 +1890,17 @@ def test_claim_verifier_binds_quoted_metric_yoy_result_to_its_absolute_change():
             "midea-other-2025",
             ("其他(i)", "其他(i)商誉"),
         ),
-        _trusted_period_goodwill_fact(
-            "goodwill_component_other_absolute_change",
-            "其他(i)变动额",
-            "2025-12-31",
-            "2710278",
-            "midea-other-change-2025",
-            ("其他(i)变动", "其他(i)同比变动", "本期净增", "绝对变动"),
-        ),
+        {
+            **_trusted_period_goodwill_fact(
+                "goodwill_component_other_absolute_change",
+                "其他(i)变动额",
+                "2025-12-31",
+                "2710278",
+                "midea-other-change-2025",
+                ("其他(i)变动", "其他(i)同比变动", "本期净增", "绝对变动"),
+            ),
+            "change_direction": "increase",
+        },
     )
     source = "[D1] source_type=wiki_document_links task_id=task-midea pdf_page=206 table_index=163 md_line=4325"
     line = '- "其他(i)" 同比：(7,930,808 − 5,220,530) / |5,220,530| = +51.92%（+2,710,278 千元）'
@@ -1659,6 +1913,126 @@ def test_claim_verifier_binds_quoted_metric_yoy_result_to_its_absolute_change():
 
     assert result.allowed is True
     assert result.claims[0].metric == "goodwill_component_other_absolute_change"
+
+
+@pytest.mark.parametrize("minus_sign", ("-", "−", "‐", "‑", "‒", "﹣", "－"))
+def test_claim_verifier_binds_signed_decrease_to_positive_absolute_change_evidence(minus_sign: str):
+    evidence = {
+        **_trusted_period_goodwill_fact(
+            "goodwill_gross_absolute_change",
+            "商誉账面原值变动额",
+            "2025-12-31",
+            "20913146.08",
+            "saic-gross-change-2025",
+            ("商誉账面原值变动", "商誉原值变动", "本期减少", "绝对变动"),
+        ),
+        "unit": "元",
+        "change_direction": "decrease",
+    }
+    source = "[D1] source_type=wiki_document_links task_id=task-midea pdf_page=206 table_index=163 md_line=4325"
+
+    result = verify_financial_claims(
+        f"商誉账面原值较上年下降（{minus_sign}20,913,146.08 元）。\n{source}",
+        expected_identity=MIDEA_IDENTITY,
+        trusted_evidence=(evidence,),
+    )
+
+    assert result.allowed is True
+    assert result.claims[0].metric == "goodwill_gross_absolute_change"
+    assert result.claims[0].normalized_value < 0
+
+
+@pytest.mark.parametrize(
+    "claim",
+    (
+        "商誉账面原值较上年增加（+20,913,146.08 元）。",
+        "商誉账面原值较上年上升 20,913,146.08 元。",
+        "商誉账面原值较上年下降（+20,913,146.08 元）。",
+    ),
+)
+def test_claim_verifier_rejects_absolute_change_with_opposite_or_conflicting_direction(claim: str):
+    evidence = {
+        **_trusted_period_goodwill_fact(
+            "goodwill_gross_absolute_change",
+            "商誉账面原值变动额",
+            "2025-12-31",
+            "20913146.08",
+            "saic-gross-change-2025",
+            ("商誉账面原值变动", "商誉原值变动", "本期减少", "绝对变动"),
+        ),
+        "unit": "元",
+        "change_direction": "decrease",
+    }
+    source = "[D1] source_type=wiki_document_links task_id=task-midea pdf_page=206 table_index=163 md_line=4325"
+
+    result = verify_financial_claims(
+        f"{claim}\n{source}",
+        expected_identity=MIDEA_IDENTITY,
+        trusted_evidence=(evidence,),
+    )
+
+    assert result.allowed is False
+    assert result.claims[0].metric == "goodwill_gross_absolute_change"
+    assert result.violations[0].reason == "direction_mismatch"
+
+
+@pytest.mark.parametrize(
+    "claim",
+    (
+        "商誉减值准备变动额本期未计提 0 元。",
+        "商誉减值准备变动额持平且未新增计提 0 元。",
+        "商誉减值准备变动额无新增计提，为 0 元。",
+    ),
+)
+def test_claim_verifier_treats_negated_zero_provision_as_unchanged(claim: str):
+    evidence = {
+        **_trusted_period_goodwill_fact(
+            "goodwill_allowance_absolute_change",
+            "商誉减值准备变动额",
+            "2025-12-31",
+            "0",
+            "saic-allowance-change-2025",
+            ("商誉减值准备变动", "本期持平", "未计提", "绝对变动"),
+        ),
+        "unit": "元",
+        "change_direction": "unchanged",
+    }
+    source = "[D1] source_type=wiki_document_links task_id=task-midea pdf_page=206 table_index=163 md_line=4325"
+
+    result = verify_financial_claims(
+        f"{claim}\n{source}",
+        expected_identity=MIDEA_IDENTITY,
+        trusted_evidence=(evidence,),
+    )
+
+    assert result.allowed is True
+    assert result.claims[0].change_direction == "unchanged"
+
+
+def test_claim_verifier_rejects_wrong_amount_in_metric_continuation_clause():
+    evidence = {
+        **_trusted_period_goodwill_fact(
+            "goodwill_allowance_absolute_change",
+            "商誉减值准备变动额",
+            "2025-12-31",
+            "0",
+            "saic-allowance-change-2025",
+            ("商誉减值准备变动", "本期持平", "未计提", "绝对变动"),
+        ),
+        "unit": "元",
+        "change_direction": "unchanged",
+    }
+    source = "[D1] source_type=wiki_document_links task_id=task-midea pdf_page=206 table_index=163 md_line=4325"
+
+    result = verify_financial_claims(
+        f"商誉减值准备变动额无新增计提，为 999 元。\n{source}",
+        expected_identity=MIDEA_IDENTITY,
+        trusted_evidence=(evidence,),
+    )
+
+    assert result.allowed is False
+    assert result.claims[0].change_direction == "unchanged"
+    assert result.violations[0].reason == "value_mismatch"
 
 
 def test_evidence_recompute_accepts_locator_before_markdown_links():

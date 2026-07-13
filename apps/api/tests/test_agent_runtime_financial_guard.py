@@ -826,6 +826,21 @@ def test_negated_yoy_wording_does_not_trigger_operations():
     assert guard._required_calculator_operations("", note) == frozenset()
 
 
+@pytest.mark.parametrize(
+    "wording",
+    (
+        "营业收入同比增长 99%，未涉及 CAGR。",
+        "未涉及 CAGR，但营业收入同比增长 99%。",
+        "营业收入同比增长 99% 且未涉及 CAGR。",
+    ),
+)
+def test_unrelated_negated_metric_does_not_hide_real_yoy_claim(wording: str):
+    assert guard._reply_has_derived_financial_metric(wording)
+    assert guard._required_calculator_operations("", wording) == frozenset(
+        {"yoy", "yoy_growth"}
+    )
+
+
 def test_enforce_financial_evidence_contract_blocks_forged_99_percent_yoy_marker_trace():
     reply = guard.enforce_financial_evidence_contract(
         "工商银行 2025 年营业收入同比是多少？",

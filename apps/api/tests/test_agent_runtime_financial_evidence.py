@@ -1,4 +1,10 @@
-from services.agent_runtime_financial_evidence import build_trusted_calculation_evidence
+from services.agent_runtime_financial_evidence import _decimal, build_trusted_calculation_evidence
+
+
+def test_financial_evidence_decimal_preserves_numeric_zero():
+    assert _decimal(0) == 0
+    assert _decimal(0.0) == 0
+
 
 IDENTITY = {
     "market": "CN",
@@ -462,6 +468,7 @@ def test_generic_statement_change_keeps_same_table_lineage_without_explicit_scop
 
     change = next(item for item in evidence if item["metric"] == "operating_revenue_absolute_change")
     assert change["value"] == "20"
+    assert change["change_direction"] == "increase"
     assert change["financial_scope"] == ""
     assert change["source_lineage"]
 
