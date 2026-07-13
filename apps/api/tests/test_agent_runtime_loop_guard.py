@@ -59,3 +59,52 @@ def test_assistant_display_and_failed_history_replies_hide_polluted_output():
     assert guard._failed_run_reply_for_history(polluted) == guard.OUTPUT_LOOP_STOP_MESSAGE
     assert guard._assistant_reply_for_display("正常回答") == "正常回答"
     assert guard._failed_run_reply_for_history("") == guard.RUN_FAILED_MESSAGE
+
+
+def test_assistant_history_strips_backend_guardrail_diagnostic():
+    content = (
+        "结论可由原始数据支持。\n\n"
+        "## 计算校验无效\n"
+        "- 后端检测到 trace 无效。\n\n"
+        "guardrail_status=warning\n"
+        "guardrail_reason=financial_calculation_trace_missing"
+    )
+
+    sanitized = guard._sanitize_assistant_history_reply(content)
+
+    assert sanitized == "结论可由原始数据支持。"
+    assert "计算校验无效" not in sanitized
+    assert "guardrail_status" not in sanitized
+
+
+def test_assistant_display_collapses_duplicate_legacy_guardrail_diagnostic():
+    diagnostic = (
+        "## 计算校验无效\n"
+        "- 后端检测到 trace 无效。\n\n"
+        "guardrail_status=warning\n"
+        "guardrail_reason=financial_calculation_trace_missing"
+    )
+    persisted = f"结论可由原始数据支持。\n\n{diagnostic}\n\n{diagnostic}"
+
+    displayed = guard._assistant_reply_for_display(persisted)
+
+    assert displayed.count("## 计算校验无效") == 1
+    assert displayed.count("guardrail_status=warning") == 1
+
+
+def test_guardrail_sanitizer_ignores_markdown_headings_inside_code_fences():
+    content = (
+        "下面是文档示例：\n\n"
+        "```markdown\n"
+        "## 计算校验无效\n"
+        "guardrail_status=warning\n"
+        "```\n\n"
+        "## 计算校验提示\n"
+        "- 真实后端提示。"
+    )
+
+    sanitized = guard.strip_guardrail_diagnostics(content)
+
+    assert "```markdown\n## 计算校验无效" in sanitized
+    assert "## 计算校验提示" not in sanitized
+    assert "真实后端提示" not in sanitized

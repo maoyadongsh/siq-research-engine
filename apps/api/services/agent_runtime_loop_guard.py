@@ -5,6 +5,11 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from services.agent_runtime_guardrail_text import (
+    collapse_duplicate_guardrail_diagnostics,
+    strip_guardrail_diagnostics,
+)
+
 STOPPED_MESSAGE = "[已停止] 本次对话已停止，后台 Hermes run 已收到停止请求。"
 TIMEOUT_MESSAGE = "[已停止] 本次对话超过网页聊天时限，已自动停止。长时间任务建议改用后台工作流。"
 IDLE_TIMEOUT_MESSAGE = "[已停止] 智能体长时间没有返回新事件，系统已自动停止本次回答。请重新发送问题或缩小查询范围。"
@@ -203,7 +208,7 @@ def _detect_linear_page_scan_loop(text: str) -> dict[str, Any] | None:
     longest_run = 1
     current_run = 1
     increasing_pairs = 0
-    for previous, current in zip(pages, pages[1:]):
+    for previous, current in zip(pages, pages[1:], strict=False):
         if previous < current <= previous + 3:
             current_run += 1
             increasing_pairs += 1
@@ -364,9 +369,10 @@ def _is_loop_polluted_assistant_message(content: str) -> bool:
 
 
 def _sanitize_assistant_history_reply(content: str) -> str:
-    if not _is_loop_polluted_assistant_message(content):
-        return content
-    loop = _detect_output_loop(content) or {}
+    clean_content = strip_guardrail_diagnostics(content)
+    if not _is_loop_polluted_assistant_message(clean_content):
+        return clean_content
+    loop = _detect_output_loop(clean_content) or {}
     details = [HISTORY_LOOP_SANITIZED_MESSAGE]
     if loop.get("reason"):
         details.append(f"循环类型：{loop['reason']}")
@@ -381,7 +387,7 @@ def _assistant_reply_for_display(content: str | None) -> str:
         return ""
     if _is_loop_polluted_assistant_message(text):
         return OUTPUT_LOOP_STOP_MESSAGE
-    return text
+    return collapse_duplicate_guardrail_diagnostics(text)
 
 
 def _failed_run_reply_for_history(content: str | None) -> str:

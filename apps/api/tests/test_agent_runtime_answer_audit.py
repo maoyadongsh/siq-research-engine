@@ -89,6 +89,8 @@ def test_answer_audit_trace_extracts_wiki_source_and_guardrail_fields():
     assert record["query_plan"]["mode"] == "wiki_first"
     assert record["query_plan"]["observed_source_types"] == ["wiki_metrics"]
     assert record["calculator_runs"][1]["operation"] == "ratio"
+    assert record["guardrail_result"]["blocked"] is False
+    assert record["guardrail_result"]["allowed"] is True
     assert record["guardrail_result"]["has_calculator_runs"] is False
     assert record["guardrail_result"]["output_was_guarded"] is True
     assert record["guardrail_result"]["has_wiki_facts"] is True
@@ -156,6 +158,50 @@ def test_answer_audit_trace_records_only_validated_structured_run_as_calculator_
     assert structured[0]["validated"] is True
     assert record["calculation_trace_validation"]["allowed"] is True
     assert record["guardrail_result"]["has_calculator_runs"] is True
+
+
+def test_answer_audit_pure_reconciliation_does_not_require_calculator_trace():
+    identity = {
+        "market": "CN",
+        "company_id": "000333-美的集团",
+        "filing_id": "CN:000333-美的集团:2025-annual",
+        "parse_run_id": "task-midea",
+    }
+    trace = {
+        "schema_version": "siq_financial_reconciliation_trace_v1",
+        "tool": "financial_reconciliation_validator.py",
+        "operation": "goodwill_reconciliation",
+        "metric": "goodwill_gross_allowance_net",
+        "period": "2025-12-31",
+        "inputs": {
+            "gross": {"metric": "goodwill_gross", "period": "2025-12-31", "value": "34813270", "unit": "人民币千元", "evidence_id": "gross"},
+            "allowance": {"metric": "goodwill_impairment_allowance", "period": "2025-12-31", "value": "556411", "unit": "人民币千元", "evidence_id": "allowance"},
+            "net": {"metric": "goodwill_net", "period": "2025-12-31", "value": "34256859", "unit": "人民币千元", "evidence_id": "net"},
+        },
+        "result": {"net": "34256859"},
+        "status": "passed",
+        "research_identity": identity,
+    }
+    references = "\n".join(
+        (
+            f"[D1] source_type=wiki_metrics market=CN company_id={identity['company_id']} filing_id={identity['filing_id']} parse_run_id=task-midea canonical_name=goodwill_gross metric_name=goodwill_gross period_key=2025-12-31 value=34813270 unit=人民币千元 evidence_id=gross quote=原值",
+            f"[D2] source_type=wiki_metrics market=CN company_id={identity['company_id']} filing_id={identity['filing_id']} parse_run_id=task-midea canonical_name=goodwill_impairment_allowance metric_name=goodwill_impairment_allowance period_key=2025-12-31 value=556411 unit=人民币千元 evidence_id=allowance quote=减值准备",
+            f"[D3] source_type=wiki_metrics market=CN company_id={identity['company_id']} filing_id={identity['filing_id']} parse_run_id=task-midea canonical_name=goodwill_net metric_name=goodwill_net period_key=2025-12-31 value=34256859 unit=人民币千元 evidence_id=net quote=净值",
+        )
+    )
+    reply = f"## 勾稽校验\n```json\n{json.dumps(trace, ensure_ascii=False)}\n```\n{references}"
+
+    record = audit.build_answer_audit_trace(
+        message="商誉原值、减值准备和净值如何勾稽？",
+        context={"research_identity": identity},
+        profile="siq_assistant",
+        session_id="pure-reconciliation",
+        raw_reply=reply,
+        final_reply=reply,
+    )
+
+    assert record["calculation_trace_validation"]["allowed"] is True
+    assert record["calculation_trace_validation"]["reason"] is None
 
 
 def test_answer_audit_trace_keeps_full_trusted_json_behind_compact_summary():
@@ -321,6 +367,9 @@ def test_answer_audit_trace_records_claim_verifier_result_from_raw_reply():
     assert verifier["violations"][0]["evidence_quote"] == "营业收入 838,270"
     assert verifier["violations"][0]["reason"] == "value_mismatch"
     assert verifier["violations"][0]["claimed_period"] == "2025"
+    delivered_verifier = record["delivered_claim_verifier_result"]
+    assert delivered_verifier["allowed"] is True
+    assert delivered_verifier["violation_count"] == 0
 
 
 def test_answer_audit_trace_records_financial_evidence_identity_mismatch():
@@ -491,8 +540,30 @@ def test_answer_audit_trace_records_missing_calculation_trace_guardrail():
 
     assert record["guardrail_result"]["blocked"] is True
     assert record["guardrail_result"]["reason"] == "financial_calculation_trace_missing"
-    assert record["guardrail_result"]["calculation_warning_appended"] is False
+    assert record["guardrail_result"]["calculation_warning_appended"] is True
     assert record["calculator_runs"] == []
+
+
+def test_answer_audit_warning_marker_remains_allowed():
+    record = audit.build_answer_audit_trace(
+        message="工商银行 2025 年营业收入同比是多少？",
+        profile="siq_assistant",
+        session_id="session-calculation-warning",
+        raw_reply="工商银行 2025 年营业收入同比增长 2.0%。",
+        final_reply=(
+            "工商银行 2025 年营业收入同比增长 2.0%。\n\n"
+            "## 计算校验无效\n"
+            "guardrail_status=warning\n"
+            "guardrail_reason=financial_calculation_trace_missing"
+        ),
+    )
+
+    result = record["guardrail_result"]
+    assert result["status"] == "warning"
+    assert result["blocked"] is False
+    assert result["allowed"] is True
+    assert result["reason"] == "financial_calculation_trace_missing"
+    assert result["calculation_warning_appended"] is True
 
 
 def test_answer_audit_trace_extracts_legal_corpus_citations_without_source_type():

@@ -13,6 +13,7 @@ from services.agent_runtime_financial_claim_verifier import (
     validate_calculation_traces,
     verify_financial_claims,
 )
+from services.agent_runtime_guardrail_text import strip_guardrail_diagnostics
 from services.path_config import FINANCIAL_CALCULATOR_SCRIPT, FINANCIAL_RECONCILIATION_VALIDATOR_SCRIPT
 
 FINANCIAL_CALCULATOR_PATH = FINANCIAL_CALCULATOR_SCRIPT
@@ -131,6 +132,19 @@ FINANCIAL_EVIDENCE_IDENTITY_MISMATCH_GUARDRAIL_REASON = "financial_evidence_iden
 FINANCIAL_CALCULATION_TRACE_MISSING_GUARDRAIL_REASON = "financial_calculation_trace_missing"
 FINANCIAL_RESEARCH_IDENTITY_INCOMPLETE_GUARDRAIL_REASON = "financial_research_identity_incomplete"
 FINANCIAL_GUARDRAIL_MODE_ENV = "SIQ_FINANCIAL_GUARDRAIL_MODE"
+NEGATED_DERIVED_TERM_MARKERS = (
+    "未计算",
+    "不计算",
+    "不要计算",
+    "无需计算",
+    "未使用",
+    "未涉及",
+    "不涉及",
+    "不适用",
+    "不含",
+    "仅作上下文",
+    "仅作参考",
+)
 
 
 def financial_guardrail_mode() -> str:
@@ -147,7 +161,10 @@ def _observation_reply(original_reply: str, diagnostic: str) -> str:
     notice = notice.replace("guardrail_status=blocked", "guardrail_status=warning")
     if "guardrail_status=" not in notice:
         notice = f"{notice.rstrip()}\n\nguardrail_status=warning"
-    return f"{(original_reply or '').rstrip()}\n\n{notice.strip()}"
+    clean_reply = strip_guardrail_diagnostics(original_reply).rstrip()
+    if not clean_reply:
+        return notice.strip()
+    return f"{clean_reply}\n\n{notice.strip()}"
 
 
 def _is_runtime_status_reply(reply: str, *, runtime_status_prefixes: tuple[str, ...] | None = None) -> bool:
@@ -165,7 +182,15 @@ def _financial_claim_text(reply: str) -> str:
 
 
 def _reply_has_derived_financial_metric(reply: str) -> bool:
-    text = _financial_claim_text(reply)
+    meaningful_lines = []
+    for line in _financial_claim_text(reply).splitlines():
+        lowered_line = line.lower()
+        if any(marker in line for marker in NEGATED_DERIVED_TERM_MARKERS) and any(
+            term.lower() in lowered_line for term in DERIVED_FINANCIAL_TERMS
+        ):
+            continue
+        meaningful_lines.append(line)
+    text = "\n".join(meaningful_lines)
     lowered = text.lower()
     if any(term.lower() in lowered for term in DERIVED_PER_SHARE_TERMS):
         return True
@@ -620,10 +645,14 @@ def enforce_financial_evidence_contract(
     *,
     deps: FinancialEvidenceContractDependencies,
     trusted_calculation_runs: Sequence[Mapping[str, Any]] = (),
+    trusted_calculation_evidence: Sequence[Mapping[str, Any]] = (),
 ) -> str:
     """Do not let financial fact answers enter history without structured evidence."""
     if deps.is_runtime_status_reply(reply):
         return reply
+    # Backend diagnostics may be copied by the model from a prior assistant
+    # turn. They are not model evidence or calculation traces for this turn.
+    reply = strip_guardrail_diagnostics(reply)
     needs_financial_evidence = deps.needs_financial_evidence_contract(message, context)
     if needs_financial_evidence:
         market, missing_fields = agent_runtime_context.incomplete_non_cn_research_identity(context)
@@ -662,6 +691,7 @@ def enforce_financial_evidence_contract(
         require_reconciliation=needs_reconciliation_trace,
         expected_operations=_required_calculator_operations(message, reply),
         trusted_runs=trusted_calculation_runs,
+        trusted_evidence=trusted_calculation_evidence,
     )
     if calculation_trace.checked and not calculation_trace.allowed:
         if calculation_trace.reason in {"calculator_trace_missing", "reconciliation_trace_missing", "trace_unstructured"} and not (
@@ -674,7 +704,11 @@ def enforce_financial_evidence_contract(
         if financial_guardrail_mode() == "warn":
             return _observation_reply(reply, diagnostic)
         return diagnostic
-    reply = deps.append_calculation_trace_warning_if_needed(message, reply)
+    # A successful trusted receipt or backend evidence recomputation is the
+    # calculation validation. Do not append the legacy text-only warning just
+    # because the model omitted a tool heading from its visible summary.
+    if not calculation_trace.checked:
+        reply = deps.append_calculation_trace_warning_if_needed(message, reply)
     if deps.has_primary_data_evidence_trace(reply) or deps.has_structured_evidence_trace(reply):
         invalid_task_ids = deps.invalid_task_ids_in_reply(message, context, reply)
         if invalid_task_ids:
@@ -685,6 +719,13 @@ def enforce_financial_evidence_contract(
         claim_verification = verify_financial_claims(
             reply,
             expected_identity=agent_runtime_context.research_identity(context),
+            trusted_evidence=trusted_calculation_evidence,
+            validated_calculation_lines=frozenset(
+                int(run.get("display_line_number") or 0)
+                for run in calculation_trace.runs
+                if str(run.get("trace_origin") or "") == "backend_evidence_recompute"
+                and int(run.get("display_line_number") or 0) > 0
+            ),
         )
         if not claim_verification.allowed:
             diagnostic = build_financial_claim_mismatch_guardrail_reply(claim_verification)

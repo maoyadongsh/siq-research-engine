@@ -5,10 +5,9 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from typing import Any, Protocol
 
+from models import ChatMessage
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
-
-from models import ChatMessage
 
 
 class HistoryMessage(Protocol):
@@ -38,6 +37,8 @@ def normalize_history(
             if is_loop_polluted_assistant_message(content):
                 continue
             content = normalize_evidence_trace_for_display(sanitize_assistant_history_reply(content))
+            if not str(content or "").strip():
+                continue
         elif message.role == "user":
             attachment_context = attachment_reference_context(message_attachments(message))
             if attachment_context:

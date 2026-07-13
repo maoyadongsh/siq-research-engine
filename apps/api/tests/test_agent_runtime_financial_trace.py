@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 import anyio
@@ -78,6 +79,63 @@ def test_extracts_single_allowlisted_current_turn_receipt(tmp_path):
     assert receipts[0]["operation"] == "ratio"
     assert receipts[0]["receipt_tool_call_id"] == "call-1"
     assert receipts[0]["receipt_source"] == "hermes_session_tool"
+
+
+def test_extracts_only_newest_exact_session_across_profile_roots(tmp_path):
+    logical_profile = tmp_path / "siq_assistant"
+    live_profile = tmp_path / "finsight_assistant"
+    script = tmp_path / "financial_calculator.py"
+    script.write_text("", encoding="utf-8")
+    session_id = "siq:siq_assistant:test-session"
+    old_payload = _ratio_payload()
+    new_payload = _ratio_payload()
+    new_payload["result"] = {"ratio": "0.3", "percent": "30"}
+    _write_session(
+        logical_profile,
+        session_id,
+        command=f"python3 {script} --format json ratio --numerator 40 --denominator 100",
+        output=old_payload,
+        tool_call_id="old-call",
+    )
+    _write_session(
+        live_profile,
+        session_id,
+        command=f"python3 {script} --format json ratio --numerator 30 --denominator 100",
+        output=new_payload,
+        tool_call_id="new-call",
+    )
+    old_path = logical_profile / "sessions" / f"session_{session_id}.json"
+    new_path = live_profile / "sessions" / f"session_{session_id}.json"
+    os.utime(old_path, ns=(1_000_000_000, 1_000_000_000))
+    os.utime(new_path, ns=(2_000_000_000, 2_000_000_000))
+
+    receipts = extract_runtime_financial_receipts(
+        profile_dir=logical_profile,
+        profile_dirs=(live_profile,),
+        hermes_session_id=session_id,
+        allowed_script_paths={"financial_calculator.py": script},
+    )
+
+    assert len(receipts) == 1
+    assert receipts[0]["receipt_tool_call_id"] == "new-call"
+    assert receipts[0]["result"]["percent"] == "30"
+
+
+def test_runtime_includes_live_finsight_profile_as_receipt_candidate(tmp_path, monkeypatch):
+    logical_profile = tmp_path / "siq_assistant"
+    captured = {}
+
+    def fake_extract(**kwargs):
+        captured.update(kwargs)
+        return ()
+
+    monkeypatch.setitem(runtime.HERMES_PROFILE_ROOTS, "siq_assistant", logical_profile)
+    monkeypatch.setattr(runtime, "HERMES_PROFILES_ROOT", tmp_path)
+    monkeypatch.setattr(runtime.agent_runtime_financial_trace, "extract_runtime_financial_receipts", fake_extract)
+
+    assert runtime._trusted_financial_receipts("siq_assistant", "chat-session") == ()
+    assert captured["profile_dir"] == logical_profile
+    assert captured["profile_dirs"] == (tmp_path / "finsight_assistant",)
 
 
 def test_rejects_piped_or_chained_financial_command(tmp_path):

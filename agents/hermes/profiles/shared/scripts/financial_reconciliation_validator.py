@@ -8,10 +8,9 @@ import importlib.util
 import json
 import re
 import sys
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
-
 
 WIKI_ROOT = Path("/home/maoyd/siq-research-engine/data/wiki")
 SCRIPTS_DIR = Path("/home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts")
@@ -87,7 +86,7 @@ def report_year(report_id: str) -> int | None:
 def table_source(table: dict[str, Any]) -> dict[str, Any]:
     return {
         key: table.get(key)
-        for key in ("source_type", "file", "metric", "pdf_page", "table_index", "md_line", "task_id")
+        for key in ("source_type", "file", "metric", "unit", "pdf_page", "table_index", "md_line", "task_id")
     }
 
 
@@ -178,6 +177,47 @@ def find_table_row_amount(
     return None
 
 
+def record_period_amount(
+    record: dict[str, Any] | None,
+    report_id: str,
+    *,
+    current: bool,
+) -> dict[str, Any] | None:
+    if not isinstance(record, dict):
+        return None
+    amount = period_amount_from_record(record, report_id, current=current)
+    if amount is None:
+        return None
+    value, key = amount
+    return {"value": value, "period_key": key, "label": row_label(record), "record": record}
+
+
+def adjacent_blank_row_amount(
+    table: dict[str, Any],
+    report_id: str,
+    anchor_record: dict[str, Any],
+    *,
+    offset: int,
+    current: bool,
+) -> dict[str, Any] | None:
+    records = [record for record in table.get("records") or [] if isinstance(record, dict)]
+    try:
+        anchor_index = next(index for index, record in enumerate(records) if record is anchor_record)
+    except StopIteration:
+        try:
+            anchor_index = records.index(anchor_record)
+        except ValueError:
+            return None
+
+    target_index = anchor_index + offset
+    if target_index < 0 or target_index >= len(records):
+        return None
+    target = records[target_index]
+    if row_label(target):
+        return None
+    return record_period_amount(target, report_id, current=current)
+
+
 def find_compact_goodwill_amounts(tables: list[dict[str, Any]], report_id: str) -> dict[str, Any] | None:
     """Handle compact Chinese annual-report goodwill notes.
 
@@ -209,28 +249,30 @@ def find_compact_goodwill_amounts(tables: list[dict[str, Any]], report_id: str) 
             include_any=("账面价值", "账面净额", "账面净值"),
             current=True,
         )
+        if impairment is not None:
+            # Some reports omit labels on the subtotal rows. In a compact goodwill
+            # table, the blank numeric row immediately before the allowance is the
+            # gross amount and the one immediately after it is the carrying amount.
+            gross = gross or adjacent_blank_row_amount(
+                table,
+                report_id,
+                impairment["record"],
+                offset=-1,
+                current=True,
+            )
+            net = net or adjacent_blank_row_amount(
+                table,
+                report_id,
+                impairment["record"],
+                offset=1,
+                current=True,
+            )
         if gross is None or impairment is None:
             continue
 
-        prior_gross = find_table_row_amount(
-            table,
-            report_id,
-            include_any=("小计", "合计"),
-            exclude_any=("账面", "净额", "净值", "减值", "准备"),
-            current=False,
-        )
-        prior_impairment = find_table_row_amount(
-            table,
-            report_id,
-            include_any=("减值准备",),
-            current=False,
-        )
-        prior_net = find_table_row_amount(
-            table,
-            report_id,
-            include_any=("账面价值", "账面净额", "账面净值"),
-            current=False,
-        )
+        prior_gross = record_period_amount(gross["record"], report_id, current=False)
+        prior_impairment = record_period_amount(impairment["record"], report_id, current=False)
+        prior_net = record_period_amount(net["record"], report_id, current=False) if net is not None else None
         return {
             "mode": "compact_goodwill_table",
             "gross": gross,
@@ -277,6 +319,64 @@ def amount_with_chinese_unit(number_text: str, unit: str | None) -> Decimal:
     if "万" in unit_text:
         return amount * Decimal("10000")
     return amount
+
+
+def positive_scale(value: Any, default: Decimal = Decimal("1")) -> Decimal:
+    try:
+        scale = as_decimal(value, "base_scale")
+    except ReconciliationError:
+        return default
+    return scale if scale > 0 else default
+
+
+def unit_scale(unit: str | None) -> Decimal:
+    unit_text = str(unit or "")
+    if "亿" in unit_text:
+        return Decimal("100000000")
+    if "百万" in unit_text:
+        return Decimal("1000000")
+    if "万" in unit_text:
+        return Decimal("10000")
+    if "千" in unit_text:
+        return Decimal("1000")
+    return Decimal("1")
+
+
+def amount_context(statement: dict[str, Any], amounts: dict[str, Any]) -> dict[str, Any]:
+    statement_unit = str(statement.get("unit_hint") or "元")
+    statement_scale = positive_scale(statement.get("base_scale"), unit_scale(statement_unit))
+    note_source = amounts.get("gross_source") or {}
+    explicit_note_unit = str(note_source.get("unit") or "").strip()
+    note_unit = explicit_note_unit or statement_unit
+    note_scale = unit_scale(explicit_note_unit) if explicit_note_unit else statement_scale
+    return {
+        "note_amount_unit": note_unit,
+        "note_base_scale": note_scale,
+        "note_unit_inferred_from_statement": not bool(explicit_note_unit),
+        "statement_amount_unit": statement_unit,
+        "statement_base_scale": statement_scale,
+    }
+
+
+def source_with_amount_context(
+    source: dict[str, Any] | None,
+    *,
+    unit: str,
+    base_scale: Decimal,
+    inferred: bool,
+) -> dict[str, Any] | None:
+    if source is None:
+        return None
+    enriched = dict(source)
+    enriched["unit"] = str(enriched.get("unit") or unit)
+    enriched["base_scale"] = plain(base_scale)
+    if inferred:
+        enriched["unit_inferred_from_statement"] = True
+    return enriched
+
+
+def hundred_million(amount: Decimal, base_scale: Decimal) -> Decimal:
+    return amount * base_scale / Decimal("100000000")
 
 
 def goodwill_note_text_window(company_dir: Path, report_id: str, tables: list[dict[str, Any]]) -> list[tuple[int, str]]:
@@ -429,20 +529,29 @@ def goodwill_reconciliation(company_text: str, report_id: str | None = None, tol
             "found_tables": [table.get("metric") for table in tables],
         }
 
+    units = amount_context(statement, amounts)
+    note_scale = units["note_base_scale"]
+    statement_scale = units["statement_base_scale"]
     gross = amounts["gross"]["value"]
-    impairment = amounts["impairment"]["value"]
+    # Parenthesized allowances are parsed as negative accounting presentation,
+    # but this formula consumes the allowance balance as a positive deduction.
+    impairment = abs(amounts["impairment"]["value"])
 
     calculated_net = gross - impairment
-    difference = calculated_net - statement_net
+    difference = calculated_net * note_scale - statement_net * statement_scale
     note_net_difference: Decimal | None = None
     note_net = amounts.get("note_net")
     if note_net is not None:
-        note_net_difference = calculated_net - note_net["value"]
+        note_net_difference = (calculated_net - note_net["value"]) * note_scale
 
     prior_gross = amounts.get("prior_gross")
     prior_impairment = amounts.get("prior_impairment")
     gross_change = gross - prior_gross["value"] if prior_gross is not None else None
-    impairment_allowance_change = impairment - prior_impairment["value"] if prior_impairment is not None else None
+    impairment_allowance_change = (
+        impairment - abs(prior_impairment["value"])
+        if prior_impairment is not None
+        else None
+    )
     current_period_loss = extract_current_period_goodwill_impairment_loss(company_dir, resolved_report_id, tables)
     status = "pass" if abs(difference) <= tolerance else "fail"
     if note_net_difference is not None and abs(note_net_difference) > tolerance:
@@ -468,6 +577,10 @@ def goodwill_reconciliation(company_text: str, report_id: str | None = None, tol
         "report_id": resolved_report_id,
         "formula": "note_gross - impairment_allowance = statement_carrying_amount",
         "table_mode": amounts.get("mode"),
+        "units": {
+            key: plain(value) if isinstance(value, Decimal) else value
+            for key, value in units.items()
+        },
         "result": {
             "note_gross": plain(gross),
             "impairment_allowance": plain(impairment),
@@ -492,18 +605,35 @@ def goodwill_reconciliation(company_text: str, report_id: str | None = None, tol
                 "file": f"metrics/reports/{resolved_report_id}/three_statements.json",
                 "metric": statement.get("metric_name"),
                 "period": statement.get("period"),
+                "unit": units["statement_amount_unit"],
+                "base_scale": plain(statement_scale),
                 **(statement.get("source") or {}),
             },
-            "note_gross": amounts.get("gross_source"),
-            "impairment_allowance": amounts.get("impairment_source"),
-            "note_net": amounts.get("note_net_source"),
+            "note_gross": source_with_amount_context(
+                amounts.get("gross_source"),
+                unit=units["note_amount_unit"],
+                base_scale=note_scale,
+                inferred=units["note_unit_inferred_from_statement"],
+            ),
+            "impairment_allowance": source_with_amount_context(
+                amounts.get("impairment_source"),
+                unit=units["note_amount_unit"],
+                base_scale=note_scale,
+                inferred=units["note_unit_inferred_from_statement"],
+            ),
+            "note_net": source_with_amount_context(
+                amounts.get("note_net_source"),
+                unit=units["note_amount_unit"],
+                base_scale=note_scale,
+                inferred=units["note_unit_inferred_from_statement"],
+            ),
             "current_period_impairment_loss": current_period_loss.get("source") if current_period_loss else None,
         },
         "display": (
-            f"{fixed(gross / Decimal('100000000'), 2)}亿元 - "
-            f"{fixed(impairment / Decimal('100000000'), 2)}亿元 = "
-            f"{fixed(calculated_net / Decimal('100000000'), 2)}亿元；"
-            f"主表净额 {fixed(statement_net / Decimal('100000000'), 2)}亿元"
+            f"{fixed(hundred_million(gross, note_scale), 2)}亿元 - "
+            f"{fixed(hundred_million(impairment, note_scale), 2)}亿元 = "
+            f"{fixed(hundred_million(calculated_net, note_scale), 2)}亿元；"
+            f"主表净额 {fixed(hundred_million(statement_net, statement_scale), 2)}亿元"
         ),
     }
 
@@ -513,16 +643,20 @@ def render_markdown(payload: dict[str, Any]) -> str:
     if payload.get("operation") == "goodwill_reconciliation":
         result = payload.get("result") or {}
         movement = payload.get("movement_checks") or {}
+        amount_unit = (payload.get("units") or {}).get("note_amount_unit") or "元"
         lines.append(f"- 公式：{payload.get('formula')}")
         lines.append(f"- 结果：{payload.get('display')}")
         lines.append(f"- 差异：{result.get('difference')} 元，容忍阈值 {result.get('tolerance')} 元")
         if result.get("note_net") is not None:
-            lines.append(f"- 附注账面价值复核：{result.get('note_net')} 元；差异 {result.get('note_net_difference')} 元")
+            lines.append(
+                f"- 附注账面价值复核：{result.get('note_net')} {amount_unit}；"
+                f"差异 {result.get('note_net_difference')} 元"
+            )
         if movement and any(movement.get(key) is not None for key in ("gross_change", "impairment_allowance_change", "current_period_impairment_loss")):
             lines.append(
                 "- 减值变动："
-                f"原值变动 {movement.get('gross_change') or '未识别'} 元；"
-                f"减值准备变动 {movement.get('impairment_allowance_change') or '未识别'} 元；"
+                f"原值变动 {movement.get('gross_change') or '未识别'} {amount_unit}；"
+                f"减值准备变动 {movement.get('impairment_allowance_change') or '未识别'} {amount_unit}；"
                 f"当期商誉减值损失 {movement.get('current_period_impairment_loss') or '未识别'} 元。"
             )
             if movement.get("has_current_period_goodwill_impairment"):

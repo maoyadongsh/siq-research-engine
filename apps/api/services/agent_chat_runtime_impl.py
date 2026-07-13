@@ -33,6 +33,7 @@ from services import (
     agent_runtime_diagnostics,
     agent_runtime_display,
     agent_runtime_fallback_contexts,
+    agent_runtime_financial_evidence,
     agent_runtime_financial_format,
     agent_runtime_financial_guard,
     agent_runtime_financial_provenance,
@@ -121,6 +122,7 @@ from services.path_config import (
     FINANCIAL_RECONCILIATION_VALIDATOR_SCRIPT,
     HERMES_HOST_SHARED_SCRIPTS_ROOT,
     HERMES_PROFILE_ROOTS,
+    HERMES_PROFILES_ROOT,
     HERMES_SHARED_SCRIPTS_ROOT,
     PDF_OUTPUT_ROOT_CANDIDATES,
     PDF_RESULT_ROOT_CANDIDATES,
@@ -884,6 +886,13 @@ HERMES_PROFILE_DIRS: dict[HermesProfile, Path] = {
     "siq_factchecker": HERMES_PROFILE_ROOTS["siq_factchecker"],
     "siq_tracking": HERMES_PROFILE_ROOTS["siq_tracking"],
     "siq_legal": HERMES_PROFILE_ROOTS["siq_legal"],
+}
+HERMES_LIVE_PROFILE_ALIASES: dict[str, str] = {
+    "siq_assistant": "finsight_assistant",
+    "siq_analysis": "finsight_analysis",
+    "siq_factchecker": "finsight_factchecker",
+    "siq_tracking": "finsight_tracking",
+    "siq_legal": "finsight_legal",
 }
 DEFAULT_WIKI_ROOT = str(CONFIG_WIKI_ROOT)
 PROJECT_WIKI_ROOT = CONFIG_WIKI_ROOT
@@ -2379,7 +2388,9 @@ def _context_for_company_dir(company_dir: Path) -> dict[str, Any]:
 
 def _resolved_research_context(message: str, context: Any | None = None) -> dict[str, Any]:
     raw = agent_runtime_context.mutable_context_dict(context)
-    output = context if isinstance(context, dict) else raw
+    # Resolution may record fallback diagnostics. Keep those mutations local so
+    # a guard/audit lookup cannot rewrite caller-owned context or benchmark data.
+    output = dict(raw)
     existing = agent_runtime_context.research_identity(raw)
     if all(existing.get(field) for field in agent_runtime_context.COMPLETE_RESEARCH_IDENTITY_FIELDS):
         return output
@@ -2387,15 +2398,23 @@ def _resolved_research_context(message: str, context: Any | None = None) -> dict
     if not company_dir:
         return output
     company = _read_json_file(company_dir / "company.json") or {}
-    market = str(company.get("market") or existing.get("market") or "CN").upper()
+    market = str(existing.get("market") or company.get("market") or "CN").upper()
+    report = _primary_report_for_company(company_dir, message, output)
+    company_id = str(existing.get("company_id") or company.get("company_id") or report.get("company_id") or company_dir.name)
+    report_id = str(report.get("report_id") or company.get("primary_report_id") or "")
+    filing_id = str(existing.get("filing_id") or report.get("filing_id") or "")
+    parse_run_id = str(existing.get("parse_run_id") or report.get("parse_run_id") or "")
+    # Legacy A-share Wiki artifacts predate explicit filing/parse identity
+    # fields.  Their report id and parser task id are stable and authoritative,
+    # so complete the same identity contract without accepting model text.
     if market == "CN":
-        return output
-    report = _primary_report_for_company(company_dir, message, context)
+        filing_id = filing_id or (f"CN:{company_id}:{report_id}" if company_id and report_id else "")
+        parse_run_id = parse_run_id or str(report.get("task_id") or "")
     identity = {
         "market": market,
-        "company_id": str(company.get("company_id") or report.get("company_id") or ""),
-        "filing_id": str(report.get("filing_id") or ""),
-        "parse_run_id": str(report.get("parse_run_id") or ""),
+        "company_id": company_id,
+        "filing_id": filing_id,
+        "parse_run_id": parse_run_id,
     }
     output["research_identity"] = {**existing, **{key: value for key, value in identity.items() if value}}
     output["company"] = {
@@ -2409,11 +2428,126 @@ def _resolved_research_context(message: str, context: Any | None = None) -> dict
     output["resolved_period"] = {
         **(output.get("resolved_period") if isinstance(output.get("resolved_period"), dict) else {}),
         "market": market,
-        "report_id": report.get("report_id"),
+        "report_id": report_id,
         "filing_id": identity["filing_id"],
         "parse_run_id": identity["parse_run_id"],
     }
     return agent_runtime_context.context_with_research_identity(output)
+
+
+def _result_with_research_identity(
+    result: Mapping[str, Any],
+    context: Any | None,
+) -> dict[str, Any]:
+    """Attach only a matching server-resolved identity to retrieval output."""
+
+    identity = agent_runtime_context.research_identity(context)
+    if not all(identity.get(field) for field in agent_runtime_context.COMPLETE_RESEARCH_IDENTITY_FIELDS):
+        return dict(result)
+
+    raw_context = agent_runtime_context.context_dict(context)
+    expected_report_id = ""
+    for candidate in (
+        raw_context.get("report_id"),
+        (raw_context.get("resolved_period") or {}).get("report_id")
+        if isinstance(raw_context.get("resolved_period"), Mapping)
+        else None,
+        (raw_context.get("report") or {}).get("report_id")
+        if isinstance(raw_context.get("report"), Mapping)
+        else None,
+    ):
+        expected_report_id = str(candidate or "").strip()
+        if expected_report_id:
+            break
+
+    def explicit_values(item: Mapping[str, Any], *fields: str) -> tuple[str, ...]:
+        nested_identity = item.get("research_identity")
+        mappings = (item, nested_identity) if isinstance(nested_identity, Mapping) else (item,)
+        values: list[str] = []
+        for mapping in mappings:
+            for field in fields:
+                value = str(mapping.get(field) or "").strip()
+                if value and value not in values:
+                    values.append(value)
+        return tuple(values)
+
+    def report_matches_filing(report_id: str) -> bool:
+        filing_id = identity["filing_id"]
+        return filing_id == report_id or filing_id.endswith(f":{report_id}")
+
+    def scope_matches(item: Mapping[str, Any]) -> bool:
+        expected_values = (
+            (("market",), identity["market"], True),
+            (("company_id",), identity["company_id"], False),
+            (("filing_id",), identity["filing_id"], False),
+            (("parse_run_id", "task_id"), identity["parse_run_id"], False),
+        )
+        for fields, expected, normalize_market in expected_values:
+            for value in explicit_values(item, *fields):
+                actual = value.upper() if normalize_market else value
+                wanted = expected.upper() if normalize_market else expected
+                if actual != wanted:
+                    return False
+        for report_id in explicit_values(item, "report_id"):
+            if expected_report_id:
+                if report_id != expected_report_id:
+                    return False
+            elif not report_matches_filing(report_id):
+                return False
+        return True
+
+    def without_trust_binding() -> dict[str, Any]:
+        # Preserve the conflicting company/filing/report for diagnostics, but
+        # remove the parse-task binding required by trusted evidence builders.
+        output = dict(result)
+        output.pop("parse_run_id", None)
+        output.pop("task_id", None)
+        nested_identity = output.get("research_identity")
+        if isinstance(nested_identity, Mapping):
+            nested_output = dict(nested_identity)
+            nested_output.pop("parse_run_id", None)
+            output["research_identity"] = nested_output
+        return output
+
+    if not scope_matches(result):
+        return without_trust_binding()
+
+    child_scopes: list[Mapping[str, Any]] = []
+    rows = result.get("rows")
+    if isinstance(rows, list):
+        child_scopes.extend(item for item in rows if isinstance(item, Mapping))
+    tables = result.get("tables")
+    if isinstance(tables, list):
+        for table in tables:
+            if not isinstance(table, Mapping):
+                continue
+            child_scopes.append(table)
+            for row_key in ("records", "rows"):
+                table_rows = table.get(row_key)
+                if isinstance(table_rows, list):
+                    child_scopes.extend(item for item in table_rows if isinstance(item, Mapping))
+    if any(not scope_matches(item) for item in child_scopes):
+        return without_trust_binding()
+
+    def complete(item: Mapping[str, Any]) -> dict[str, Any]:
+        output = dict(item)
+        for field, value in identity.items():
+            if not str(output.get(field) or "").strip():
+                output[field] = value
+        return output
+
+    output = complete(result)
+    for key in ("tables", "rows"):
+        values = result.get(key)
+        if not isinstance(values, list):
+            continue
+        output[key] = [
+            complete(item)
+            if isinstance(item, Mapping)
+            else item
+            for item in values
+        ]
+    return output
 
 
 def _message_for_company(message: str, company_dir: Path) -> str:
@@ -2446,6 +2580,16 @@ def _primary_report_for_company(
     message: str | None = None,
     context: Any | None = None,
 ) -> dict[str, Any]:
+    research_identity = agent_runtime_context.research_identity(context)
+    company = _read_json_file(company_dir / "company.json") or {}
+    company_id = str(company.get("company_id") or company_dir.name)
+    expected_filing_prefix = f"CN:{company_id}:"
+    legacy_cn_identity = (
+        research_identity.get("market") == "CN"
+        and research_identity.get("company_id") == company_id
+        and str(research_identity.get("filing_id") or "").startswith(expected_filing_prefix)
+        and bool(research_identity.get("parse_run_id"))
+    )
     report = agent_runtime_wiki_context.primary_report_for_company(
         company_dir,
         message,
@@ -2453,8 +2597,28 @@ def _primary_report_for_company(
         read_json_file=_read_json_file,
         annual_terms=REPORT_ANNUAL_TERMS,
         quarterly_terms=REPORT_QUARTERLY_TERMS,
-        research_identity=agent_runtime_context.research_identity(context),
+        research_identity={} if legacy_cn_identity else research_identity,
     )
+    if legacy_cn_identity:
+        report_id = str(report.get("report_id") or "")
+        report_task_id = str(report.get("parse_run_id") or report.get("task_id") or "")
+        if (
+            report_id
+            and research_identity["filing_id"] == f"{expected_filing_prefix}{report_id}"
+            and report_task_id == research_identity["parse_run_id"]
+        ):
+            report = {
+                **report,
+                "filing_id": research_identity["filing_id"],
+                "parse_run_id": research_identity["parse_run_id"],
+                "selection_status": "identity_exact",
+                "selection_reason": "legacy_cn_identity_completed",
+            }
+        else:
+            report = {
+                "selection_status": "identity_mismatch",
+                "selection_reason": "legacy_cn_identity_mismatch",
+            }
     if report.get("selection_status") == "identity_mismatch" and isinstance(context, dict):
         event = {
             "reason": "research_identity_report_mismatch",
@@ -2762,16 +2926,49 @@ def _statement_record_to_row(record: dict[str, Any], report_id: str, metrics_fil
         or source.get("line")
     )
     file_name = str(metrics_file.relative_to(company_dir)) if metrics_file.is_relative_to(company_dir) else str(metrics_file)
+    source_quote = source.get("quote_text") or source.get("html_snippet")
+    source_id = source.get("evidence_id") or source.get("source_id")
+    raw_value = record.get("raw_value")
+    if raw_value in (None, ""):
+        raw_value = record.get("value")
+    if raw_value in (None, ""):
+        raw_value = record.get("normalized_value")
+    base_scale = record.get("base_scale")
+    if base_scale in (None, ""):
+        base_scale = source.get("base_scale")
+    scale = record.get("scale")
+    if scale in (None, ""):
+        scale = base_scale
+    if scale in (None, ""):
+        scale = source.get("scale")
+    evidence_id = source_id or "wiki:" + uuid.uuid5(
+        uuid.NAMESPACE_URL,
+        "|".join(
+            str(value or "")
+            for value in (
+                task_id,
+                report_id,
+                record.get("statement_type"),
+                record.get("metric_key") or record.get("canonical_name"),
+                record.get("period") or source.get("period"),
+                pdf_page,
+                table_index,
+                md_line,
+                raw_value,
+            )
+        ),
+    ).hex
     return {
         "statement_type": record.get("statement_type"),
         "statement_label": THREE_STATEMENT_LABELS.get(str(record.get("statement_type") or ""), str(record.get("statement_type") or "")),
         "metric_key": record.get("metric_key") or record.get("canonical_name"),
         "metric_name": record.get("metric_name") or record.get("name") or record.get("item_name") or record.get("metric_key"),
         "period": record.get("period") or source.get("period"),
-        "raw_value": record.get("raw_value") or record.get("value") or record.get("normalized_value"),
+        "raw_value": raw_value,
         "unit": record.get("unit_hint") or record.get("raw_unit") or record.get("unit"),
         "currency": record.get("currency") or source.get("currency"),
-        "scale": record.get("scale") or source.get("scale"),
+        "scale": scale,
+        "base_scale": base_scale,
         "normalized_value": record.get("normalized_value"),
         "report_id": report_id,
         "source_type": "wiki_metrics",
@@ -2783,7 +2980,9 @@ def _statement_record_to_row(record: dict[str, Any], report_id: str, metrics_fil
         "evidence_source_type": source.get("source_type"),
         "source_url": source.get("source_url") or source.get("url"),
         "source_anchor": source.get("source_anchor") or source.get("anchor") or source.get("xpath"),
-        "source_quote": source.get("quote_text") or source.get("html_snippet"),
+        "source_quote": source_quote,
+        "evidence_id": evidence_id,
+        "source_id": source_id,
         "xbrl_tag": source.get("xbrl_tag"),
         "open_pdf_page_url": _evidence_url(task_id, pdf_page, table_index, "pdf"),
         "open_source_page_url": _evidence_url(task_id, pdf_page, table_index, "page"),
@@ -2899,7 +3098,7 @@ def _three_statement_core_result(message: str, context: Any | None = None) -> di
                 break
     if not rows:
         return None
-    return {
+    return _result_with_research_identity({
         "company_dir": company_dir,
         "market": company.get("market") or "CN",
         "company_id": company.get("company_id") or company_dir.name,
@@ -2919,7 +3118,7 @@ def _three_statement_core_result(message: str, context: Any | None = None) -> di
         "unit": payload.get("unit"),
         "rows": [] if validation_blocked else rows,
         "blocked_row_count": len(rows) if validation_blocked else 0,
-    }
+    }, context)
 
 
 def _format_statement_value(row: dict[str, Any]) -> str:
@@ -3643,7 +3842,7 @@ def _statement_metric_result(message: str, context: Any | None = None) -> tuple[
         except Exception:
             continue
         if result.get("tables"):
-            return result, renderer
+            return _result_with_research_identity(result, context), renderer
     return None, renderer
 
 
@@ -3701,13 +3900,21 @@ def _note_detail_result(
         company_text_candidates.append(company_hint)
         company_text_candidates.append(f"{message}\n{company_hint}")
 
+    metric_queries = [message]
+    normalized_message = _normalize_financial_text(message)
+    if any(term in normalized_message for term in ("商誉", "商譽", "goodwill", "のれん", "영업권")):
+        # Compound questions with formulas/numbers can over-constrain the
+        # semantic note matcher. Retry the same resolved company with the
+        # canonical note subject instead of dropping the note evidence chain.
+        metric_queries.append("商誉")
     for company_text in company_text_candidates:
-        try:
-            result = resolver(company_text, message, limit=limit)
-        except Exception:
-            continue
-        if result.get("tables"):
-            return result, renderer
+        for metric_query in dict.fromkeys(metric_queries):
+            try:
+                result = resolver(company_text, metric_query, limit=limit)
+            except Exception:
+                continue
+            if result.get("tables"):
+                return _result_with_research_identity(result, context), renderer
     return None, renderer
 
 
@@ -4799,6 +5006,25 @@ def append_calculation_trace_warning_if_needed(message: str, reply: str) -> str:
     )
 
 
+def _trusted_financial_calculation_evidence(
+    message: str,
+    context: Any | None,
+) -> tuple[Mapping[str, Any], ...]:
+    resolved_context = _resolved_research_context(message, context)
+    identity = agent_runtime_context.research_identity(resolved_context)
+    if not all(identity.get(field) for field in agent_runtime_context.COMPLETE_RESEARCH_IDENTITY_FIELDS):
+        return ()
+    statement_result, _statement_renderer = _statement_metric_result(message, resolved_context)
+    note_result: Mapping[str, Any] | None = None
+    if _should_inject_note_detail_context(message):
+        note_result, _note_renderer = _note_detail_result(message, resolved_context, limit=8)
+    return agent_runtime_financial_evidence.build_trusted_calculation_evidence(
+        statement_result=statement_result,
+        note_result=note_result,
+        expected_identity=identity,
+    )
+
+
 def _financial_evidence_contract_dependencies() -> agent_runtime_financial_guard.FinancialEvidenceContractDependencies:
     return agent_runtime_financial_guard.FinancialEvidenceContractDependencies(
         build_primary_data_evidence_supplement=build_primary_data_evidence_supplement,
@@ -4848,19 +5074,34 @@ def enforce_financial_evidence_contract(
     context: Any | None,
     reply: str,
 ) -> str:
-    return agent_runtime_financial_guard.enforce_financial_evidence_contract(
+    resolved_context = _resolved_research_context(message, context)
+    baseline_events = list(resolved_context.get("_audit_fallback_events") or [])
+    guarded_reply = agent_runtime_financial_guard.enforce_financial_evidence_contract(
         message,
-        context,
+        resolved_context,
         reply,
         deps=_financial_evidence_contract_dependencies(),
         trusted_calculation_runs=agent_runtime_financial_trace.current_trusted_runs(),
+        trusted_calculation_evidence=_trusted_financial_calculation_evidence(message, resolved_context),
     )
+    if isinstance(context, dict):
+        resolved_events = list(resolved_context.get("_audit_fallback_events") or [])
+        new_events = resolved_events[len(baseline_events) :]
+        target_events = context.setdefault("_audit_fallback_events", [])
+        if isinstance(target_events, list):
+            for event in new_events:
+                if event not in target_events:
+                    target_events.append(event)
+    return guarded_reply
 
 
 def _trusted_financial_receipts(profile: HermesProfile, session_id: str) -> tuple[Mapping[str, Any], ...]:
-    profile_root = HERMES_PROFILE_ROOTS.get(_runtime_profile(profile))
+    runtime_profile = _runtime_profile(profile)
+    profile_root = HERMES_PROFILE_ROOTS.get(runtime_profile)
     if profile_root is None:
         return ()
+    live_alias = HERMES_LIVE_PROFILE_ALIASES.get(runtime_profile)
+    live_profile_roots = (HERMES_PROFILES_ROOT / live_alias,) if live_alias else ()
     allowed_paths = {
         "financial_calculator.py": (
             FINANCIAL_CALCULATOR_PATH,
@@ -4875,6 +5116,7 @@ def _trusted_financial_receipts(profile: HermesProfile, session_id: str) -> tupl
     }
     return agent_runtime_financial_trace.extract_runtime_financial_receipts(
         profile_dir=profile_root,
+        profile_dirs=live_profile_roots,
         hermes_session_id=hermes_runs_session_id(profile, session_id),
         allowed_script_paths=allowed_paths,
     )
@@ -5097,13 +5339,30 @@ def _terminal_error_payload(
 
 def _record_answer_audit_trace_compat(**kwargs: Any) -> dict[str, Any]:
     """Keep test/runtime adapters compatible while trusted receipts roll out."""
+    enriched = dict(kwargs)
+    message = str(enriched.get("message") or "")
+    final_reply = str(enriched.get("final_reply") or "")
+    if (
+        "trusted_calculation_evidence" not in enriched
+        and agent_runtime_financial_guard.requires_financial_calculation_trace(message, final_reply)
+    ):
+        enriched["trusted_calculation_evidence"] = _trusted_financial_calculation_evidence(
+            message,
+            enriched.get("context"),
+        )
     try:
-        return agent_runtime_answer_audit.record_answer_audit_trace_for_reply(**kwargs)
+        return agent_runtime_answer_audit.record_answer_audit_trace_for_reply(**enriched)
     except TypeError as exc:
-        if "trusted_calculation_runs" not in str(exc):
+        unsupported = {
+            key
+            for key in ("trusted_calculation_runs", "trusted_calculation_evidence")
+            if key in str(exc)
+        }
+        if not unsupported:
             raise
-        fallback = dict(kwargs)
-        fallback.pop("trusted_calculation_runs", None)
+        fallback = dict(enriched)
+        for key in ("trusted_calculation_runs", "trusted_calculation_evidence"):
+            fallback.pop(key, None)
         return agent_runtime_answer_audit.record_answer_audit_trace_for_reply(**fallback)
 
 

@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-
-CALCULATOR_PATH = Path("/home/maoyd/.hermes/profiles/shared/scripts/financial_calculator.py")
-RECONCILIATION_PATH = Path("/home/maoyd/.hermes/profiles/shared/scripts/financial_reconciliation_validator.py")
+REPO_ROOT = Path(__file__).resolve().parents[3]
+CALCULATOR_PATH = REPO_ROOT / "agents/hermes/profiles/shared/scripts/financial_calculator.py"
+RECONCILIATION_PATH = REPO_ROOT / "agents/hermes/profiles/shared/scripts/financial_reconciliation_validator.py"
 
 
 def load_calculator():
@@ -173,6 +173,45 @@ def test_goodwill_reconciliation_handles_compact_chinese_goodwill_table():
     assert payload["movement_checks"]["impairment_allowance_change"] == "18405276"
     assert payload["movement_checks"]["current_period_impairment_loss"] == "18405276"
     assert payload["movement_checks"]["has_current_period_goodwill_impairment"] is True
+
+
+def test_goodwill_reconciliation_handles_blank_midea_totals_and_thousand_yuan_unit():
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(RECONCILIATION_PATH),
+            "goodwill",
+            "--company",
+            "000333-美的集团",
+            "--report-id",
+            "2025-annual",
+            "--format",
+            "json",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "pass"
+    assert payload["table_mode"] == "compact_goodwill_table"
+    assert payload["result"]["note_gross"] == "34813270"
+    assert payload["result"]["impairment_allowance"] == "556411"
+    assert payload["result"]["calculated_net"] == "34256859"
+    assert payload["result"]["statement_net"] == "34256859"
+    assert payload["result"]["difference"] == "0"
+    assert payload["result"]["note_net"] == "34256859"
+    assert payload["result"]["note_net_difference"] == "0"
+    assert payload["units"] == {
+        "note_amount_unit": "人民币千元",
+        "note_base_scale": "1000",
+        "note_unit_inferred_from_statement": True,
+        "statement_amount_unit": "人民币千元",
+        "statement_base_scale": "1000",
+    }
+    assert payload["display"] == "348.13亿元 - 5.56亿元 = 342.57亿元；主表净额 342.57亿元"
 
 
 def test_reconciliation_format_argument_after_subcommand():

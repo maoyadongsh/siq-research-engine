@@ -111,12 +111,63 @@ def _primary_data_source_ref(
     table_index: Any,
     md_line: Any,
     table_source_links: Callable[[Any, Any, Any], str],
+    statement_type: Any = None,
+    canonical_name: Any = None,
+    metric_name: Any = None,
+    value: Any = None,
+    raw_value: Any = None,
+    unit: Any = None,
+    currency: Any = None,
+    scale: Any = None,
+    market: Any = None,
+    company_id: Any = None,
+    report_id: Any = None,
+    filing_id: Any = None,
+    parse_run_id: Any = None,
+    evidence_id: Any = None,
+    quote: Any = None,
 ) -> str:
-    return (
+    structured_fields = {
+        "statement_type": statement_type,
+        "canonical_name": canonical_name,
+        "metric_name": metric_name,
+        "value": value,
+        "raw_value": raw_value,
+        "unit": unit,
+        "currency": currency,
+        "scale": scale,
+        "market": market,
+        "company_id": company_id,
+        "report_id": report_id,
+        "filing_id": filing_id,
+        "parse_run_id": parse_run_id,
+        "evidence_id": evidence_id,
+        "quote": quote,
+    }
+    structured = ", ".join(
+        f"{key}={_reference_value(value)}"
+        for key, value in structured_fields.items()
+        if value not in (None, "")
+    )
+    prefix = (
         f"[D{index}] source_type={source_type}, file={file or '未返回'}, "
         f"metric={metric or '未返回'}, period={period or '未返回'}, "
-        f"{_source_locator_text(task_id=task_id, pdf_page=pdf_page, table_index=table_index, md_line=md_line, table_source_links=table_source_links)}"
     )
+    locator = _source_locator_text(
+        task_id=task_id,
+        pdf_page=pdf_page,
+        table_index=table_index,
+        md_line=md_line,
+        table_source_links=table_source_links,
+    )
+    return prefix + (f"{structured}, " if structured else "") + locator
+
+
+def _reference_value(value: Any) -> str:
+    text = str(value)
+    if any(marker in text for marker in (",", "，", ";", "；", "|", "\n")):
+        return '"' + text.replace('"', "'").replace("\n", " ") + '"'
+    return text
 
 
 def _append_unique_source_ref(
@@ -132,6 +183,7 @@ def _append_unique_source_ref(
     table_index: Any,
     md_line: Any,
     table_source_links: Callable[[Any, Any, Any], str],
+    **structured_fields: Any,
 ) -> None:
     key = (task_id, pdf_page, table_index, str(file or ""), str(metric or ""))
     if key in seen:
@@ -149,6 +201,7 @@ def _append_unique_source_ref(
             table_index=table_index,
             md_line=md_line,
             table_source_links=table_source_links,
+            **structured_fields,
         )
     )
 
@@ -205,8 +258,53 @@ def _reply_has_requested_metric_evidence(
     if not requested_terms:
         return True
     normalized_terms = [normalize_financial_text(term) for term in requested_terms]
-    reference_text = normalize_financial_text(" ".join(_extract_reference_lines(reply)))
-    return all(term and term in reference_text for term in normalized_terms)
+    references = _extract_reference_lines(reply)
+    reference_text = normalize_financial_text(" ".join(references))
+    has_metric = all(term and term in reference_text for term in normalized_terms)
+    has_numeric_fact = any(
+        (_source_field_value(line, "value") or _source_field_value(line, "raw_value"))
+        and _source_field_value(line, "unit")
+        for line in references
+    )
+    return has_metric and has_numeric_fact
+
+
+def _reference_completeness(line: str) -> int:
+    return sum(
+        bool(_source_field_value(line, field))
+        for field in (
+            "statement_type",
+            "canonical_name",
+            "metric_name",
+            "value",
+            "raw_value",
+            "unit",
+            "currency",
+            "market",
+            "company_id",
+            "report_id",
+            "filing_id",
+            "parse_run_id",
+            "evidence_id",
+            "quote",
+        )
+    )
+
+
+def _reference_locator_key(line: str) -> tuple[str, str, str] | None:
+    task_id = _source_field_value(line, "task_id")
+    pdf_page = _source_field_value(line, "pdf_page") or _source_field_value(line, "pdf_page_number")
+    table_index = _source_field_value(line, "table_index")
+    if task_id and (pdf_page or table_index):
+        return task_id, pdf_page, table_index
+    return None
+
+
+def _reference_has_research_identity(line: str) -> bool:
+    return all(
+        _source_field_value(line, field)
+        for field in ("company_id", "filing_id", "parse_run_id")
+    )
 
 
 def _strip_auto_evidence_sections(
@@ -241,17 +339,51 @@ def _strip_auto_evidence_sections(
 
 def _merge_refs_into_reference_section(markdown: str, refs: list[str]) -> str:
     body = (markdown or "").strip()
-    existing_keys = {_source_reference_key(line) for line in _extract_reference_lines(body)}
+    lines = body.splitlines() if body else []
+    existing: dict[tuple[Any, ...], tuple[int, int]] = {}
+    locator_entries: dict[tuple[str, str, str], list[tuple[tuple[Any, ...], int, int]]] = {}
+    for index, line in enumerate(lines):
+        if _is_reference_line(line):
+            key = _source_reference_key(line)
+            score = _reference_completeness(line)
+            existing[key] = (index, score)
+            locator = _reference_locator_key(line)
+            if locator is not None:
+                locator_entries.setdefault(locator, []).append((key, index, score))
     unique_refs: list[str] = []
-    seen = set(existing_keys)
     for ref in refs:
         if not _is_reference_line(ref):
             continue
         key = _source_reference_key(ref)
-        if key in seen:
+        score = _reference_completeness(ref)
+        current = existing.get(key)
+        if current is not None:
+            if score > current[1]:
+                lines[current[0]] = ref.strip()
+                existing[key] = (current[0], score)
             continue
-        seen.add(key)
+        locator = _reference_locator_key(ref)
+        if locator is not None and _reference_has_research_identity(ref):
+            replaceable = next(
+                (
+                    (old_key, old_index, old_score)
+                    for old_key, old_index, old_score in locator_entries.get(locator, [])
+                    if not _reference_has_research_identity(lines[old_index]) and score > old_score
+                ),
+                None,
+            )
+            if replaceable is not None:
+                old_key, old_index, _old_score = replaceable
+                lines[old_index] = ref.strip()
+                existing.pop(old_key, None)
+                existing[key] = (old_index, score)
+                locator_entries[locator] = [
+                    entry for entry in locator_entries[locator] if entry[1] != old_index
+                ] + [(key, old_index, score)]
+                continue
+        existing[key] = (-1, score)
         unique_refs.append(ref.strip())
+    body = "\n".join(lines).strip()
     if not unique_refs:
         return body
 
@@ -352,18 +484,38 @@ def _render_three_statement_primary_data_supplement(
                     f"[打开披露原文]({target})"
                 )
         else:
+            source_value = row.get("raw_value")
+            if source_value in (None, ""):
+                source_value = row.get("value")
+            if source_value in (None, ""):
+                source_value = row.get("normalized_value")
             _append_unique_source_ref(
                 refs,
                 seen_refs,
                 source_type=row.get("source_type") or "wiki_metrics",
                 file=row.get("file") or "metrics/three_statements.json",
                 metric=row.get("statement_label") or metric,
-                period=row.get("report_id") or result.get("report_id"),
+                period=row.get("period") or row.get("period_key") or row.get("report_id") or result.get("report_id"),
                 task_id=row.get("task_id"),
                 pdf_page=row.get("pdf_page"),
                 table_index=row.get("table_index"),
                 md_line=row.get("md_line"),
                 table_source_links=table_source_links,
+                statement_type=row.get("statement_type"),
+                canonical_name=row.get("canonical_name") or row.get("metric_key"),
+                metric_name=row.get("metric_name") or metric,
+                value=source_value,
+                raw_value=row.get("raw_value"),
+                unit=row.get("unit"),
+                currency=row.get("currency"),
+                scale=row.get("scale") or row.get("base_scale"),
+                market=row.get("market") or result.get("market"),
+                company_id=row.get("company_id") or result.get("company_id"),
+                report_id=row.get("report_id") or result.get("report_id"),
+                filing_id=row.get("filing_id") or result.get("filing_id"),
+                parse_run_id=row.get("parse_run_id") or result.get("parse_run_id"),
+                evidence_id=row.get("evidence_id"),
+                quote=row.get("source_quote") or row.get("quote_text"),
             )
     if refs:
         lines.extend(["", "## 主要数据引用来源", *refs])
@@ -440,6 +592,11 @@ def _render_statement_table_primary_data_supplement(
             table_index=table.get("table_index"),
             md_line=table.get("md_line"),
             table_source_links=table_source_links,
+            market=table.get("market") or result.get("market"),
+            company_id=table.get("company_id") or result.get("company_id"),
+            report_id=table.get("report_id") or result.get("report_id"),
+            filing_id=table.get("filing_id") or result.get("filing_id"),
+            parse_run_id=table.get("parse_run_id") or result.get("parse_run_id"),
         )
         if remaining <= 0:
             break
@@ -499,6 +656,13 @@ def _render_note_detail_primary_data_supplement(
             table_index=table.get("table_index"),
             md_line=table.get("md_line"),
             table_source_links=table_source_links,
+            market=table.get("market") or result.get("market"),
+            company_id=table.get("company_id") or result.get("company_id"),
+            report_id=table.get("report_id") or result.get("report_id"),
+            filing_id=table.get("filing_id") or result.get("filing_id"),
+            parse_run_id=table.get("parse_run_id") or result.get("parse_run_id"),
+            evidence_id=table.get("document_link_id"),
+            quote=table.get("raw_preview"),
         )
     if refs:
         lines.extend(["", "## 主要数据引用来源", *refs])

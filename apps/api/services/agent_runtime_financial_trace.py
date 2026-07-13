@@ -74,6 +74,30 @@ def _session_path(profile_dir: Path, hermes_session_id: str) -> Path | None:
     return candidate
 
 
+def _newest_session_path(
+    profile_dirs: Sequence[Path],
+    hermes_session_id: str,
+) -> Path | None:
+    """Return one exact session file, preferring the most recently written copy."""
+
+    candidates: list[tuple[int, int, Path]] = []
+    seen: set[Path] = set()
+    for index, profile_dir in enumerate(profile_dirs):
+        path = _session_path(Path(profile_dir), hermes_session_id)
+        if path is None or path in seen:
+            continue
+        seen.add(path)
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        if not path.is_file() or stat.st_size > 20 * 1024 * 1024:
+            continue
+        # Earlier directories win an otherwise indistinguishable timestamp tie.
+        candidates.append((stat.st_mtime_ns, -index, path))
+    return max(candidates, default=(0, 0, None), key=lambda item: (item[0], item[1]))[2]
+
+
 def _allowed_script_path(token: str, allowed_script_paths: Mapping[str, Path | Sequence[Path]]) -> str | None:
     try:
         candidate = Path(token).expanduser().resolve()
@@ -140,18 +164,18 @@ def _tool_payload(content: Any) -> tuple[str, int | None, Any] | None:
 
 def extract_runtime_financial_receipts(
     *,
-    profile_dir: Path,
+    profile_dir: Path | None = None,
+    profile_dirs: Sequence[Path] = (),
     hermes_session_id: str,
     allowed_script_paths: Mapping[str, Path | Sequence[Path]],
 ) -> tuple[Mapping[str, Any], ...]:
-    """Extract current-turn financial tool payloads from one exact session file."""
+    """Extract receipts from the newest exact session file across profile roots."""
 
-    path = _session_path(profile_dir, hermes_session_id)
-    if path is None or not path.is_file():
+    candidate_dirs = ((profile_dir,) if profile_dir is not None else ()) + tuple(profile_dirs)
+    path = _newest_session_path(candidate_dirs, hermes_session_id)
+    if path is None:
         return ()
     try:
-        if path.stat().st_size > 20 * 1024 * 1024:
-            return ()
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return ()

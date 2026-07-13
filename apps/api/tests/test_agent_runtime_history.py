@@ -1,12 +1,34 @@
 import json
 
 import anyio
+from models import ChatMessage
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel import SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from models import ChatMessage
 from services import agent_chat_runtime as runtime
+
+
+def test_normalize_history_drops_diagnostic_only_assistant_message():
+    diagnostic = (
+        "## 计算校验无效\n"
+        "guardrail_status=warning\n"
+        "guardrail_reason=financial_calculation_trace_missing"
+    )
+    messages = [
+        ChatMessage(session_id="diagnostic-history", role="user", content="旧问题"),
+        ChatMessage(session_id="diagnostic-history", role="assistant", content=diagnostic),
+        ChatMessage(session_id="diagnostic-history", role="user", content="新问题"),
+        ChatMessage(session_id="diagnostic-history", role="assistant", content="新回答"),
+    ]
+
+    history = runtime.normalize_history(messages, limit=10)
+
+    assert history == [
+        {"role": "user", "content": "新问题"},
+        {"role": "assistant", "content": "新回答"},
+    ]
+    assert all(item["content"] for item in history)
 
 
 def test_load_history_applies_normalize_history_contract_to_real_db_rows(tmp_path, monkeypatch):

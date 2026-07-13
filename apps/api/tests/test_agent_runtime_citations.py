@@ -18,6 +18,49 @@ def test_record_preview_and_statement_value_helpers_handle_empty_values():
     assert citations._format_statement_value({"raw_value": "1,234", "unit": ""}) == "1,234"
 
 
+def test_statement_row_and_citation_keep_raw_value_unit_and_base_scale(tmp_path):
+    company_dir = tmp_path / "000333-demo"
+    metrics_file = company_dir / "metrics" / "three_statements.json"
+    row = runtime._statement_record_to_row(
+        {
+            "statement_type": "balance_sheet",
+            "metric_key": "goodwill",
+            "metric_name": "商誉",
+            "period": "2025-12-31",
+            "raw_value": "34,256,859",
+            "normalized_value": 342.56859,
+            "unit_hint": "人民币千元",
+            "base_scale": 1000,
+            "source": {
+                "task_id": "11111111-1111-1111-1111-111111111111",
+                "pdf_page": 83,
+                "table_index": 67,
+            },
+        },
+        "2025-annual",
+        metrics_file,
+        company_dir,
+    )
+
+    supplement = citations._render_three_statement_primary_data_supplement(
+        {"report_id": "2025-annual", "rows": [row]},
+        primary_data_supplement_max_rows=1,
+        table_source_links=lambda *_: "",
+    )
+
+    assert row["raw_value"] == "34,256,859"
+    assert row["normalized_value"] == 342.56859
+    assert row["unit"] == "人民币千元"
+    assert row["scale"] == 1000
+    assert row["base_scale"] == 1000
+    assert supplement is not None
+    assert "| 资产负债表 / 商誉 | 2025-12-31 | 34,256,859 人民币千元 |" in supplement
+    assert 'value="34,256,859"' in supplement
+    assert "value=342.56859" not in supplement
+    assert "unit=人民币千元" in supplement
+    assert "scale=1000" in supplement
+
+
 def test_render_human_capital_primary_data_supplement_limits_rows_and_adds_refs():
     calls = []
 
@@ -73,10 +116,16 @@ def test_render_three_statement_primary_data_supplement_limits_rows_and_adds_ref
 
     supplement = citations._render_three_statement_primary_data_supplement(
         {
+            "market": "HK",
+            "company_id": "HK:00700",
             "report_id": "2025-annual",
+            "filing_id": "HK:00700:2025-annual:fixture",
+            "parse_run_id": "HK:fixture",
             "rows": [
                 {
                     "statement_label": "利润表",
+                    "statement_type": "income_statement",
+                    "metric_key": "operating_revenue",
                     "metric_name": "营业收入",
                     "period": "2025",
                     "raw_value": "1,000",
@@ -110,6 +159,17 @@ def test_render_three_statement_primary_data_supplement_limits_rows_and_adds_ref
     assert "[D1] source_type=wiki_metrics" in supplement
     assert "file=metrics/three_statements.json" in supplement
     assert "metric=利润表" in supplement
+    assert "statement_type=income_statement" in supplement
+    assert "canonical_name=operating_revenue" in supplement
+    assert "metric_name=营业收入" in supplement
+    assert "value=\"1,000\"" in supplement
+    assert "raw_value=\"1,000\"" in supplement
+    assert "unit=万元" in supplement
+    assert "market=HK" in supplement
+    assert "company_id=HK:00700" in supplement
+    assert "report_id=2025-annual" in supplement
+    assert "filing_id=HK:00700:2025-annual:fixture" in supplement
+    assert "parse_run_id=HK:fixture" in supplement
     assert calls == [
         ("11111111-1111-1111-1111-111111111111", 7, 2),
         ("11111111-1111-1111-1111-111111111111", 7, 2),
@@ -464,6 +524,81 @@ def test_merge_primary_data_refs_adds_supplement_refs_to_existing_citation_secti
     assert "metric=商誉" not in risk_section
 
 
+def test_merge_primary_data_refs_replaces_same_locator_with_richer_numeric_reference():
+    reply = """结论正文。
+
+## 引用来源
+[D1] source_type=wiki_metrics, metric=营业收入, period=2025, task_id=11111111-1111-1111-1111-111111111111, pdf_page=7, table_index=2, md_line=50
+"""
+    richer = (
+        "[D2] source_type=wiki_metrics, metric=营业收入, period=2025, value=100, raw_value=100, "
+        "unit=万元, company_id=HK:00700, filing_id=filing-1, parse_run_id=run-1, "
+        "task_id=11111111-1111-1111-1111-111111111111, pdf_page=7, table_index=2, md_line=50"
+    )
+
+    merged = citations._merge_refs_into_reference_section(reply, [richer])
+
+    assert merged.count("task_id=11111111-1111-1111-1111-111111111111") == 1
+    assert "value=100" in merged
+    assert "parse_run_id=run-1" in merged
+
+
+def test_merge_primary_data_refs_replaces_incomplete_identity_despite_md_line_difference():
+    reply = """结论正文。
+
+## 引用来源
+[D1] source_type=wiki_metrics, metric=总资产, period=2025, value=100, unit=KRW, task_id=11111111-1111-1111-1111-111111111111, pdf_page=83, table_index=67, md_line=未返回
+"""
+    authoritative = (
+        "[D2] source_type=wiki_metrics, metric=总资产, period=2025, value=100, unit=KRW, "
+        "market=KR, company_id=KR:005930, filing_id=filing-1, parse_run_id=run-1, "
+        "task_id=11111111-1111-1111-1111-111111111111, pdf_page=83, table_index=67, md_line=1800"
+    )
+
+    merged = citations._merge_refs_into_reference_section(reply, [authoritative])
+
+    assert merged.count("task_id=11111111-1111-1111-1111-111111111111") == 1
+    assert "company_id=KR:005930" in merged
+    assert "md_line=1800" in merged
+
+
+def test_primary_data_supplement_emits_stable_evidence_id_and_quote():
+    supplement = citations._render_three_statement_primary_data_supplement(
+        {
+            "market": "KR",
+            "company_id": "KR:005930",
+            "filing_id": "KR:005930:2025-annual",
+            "parse_run_id": "run-kr",
+            "report_id": "2025-annual",
+            "rows": [
+                {
+                    "statement_type": "balance_sheet",
+                    "statement_label": "资产负债表",
+                    "metric_key": "total_assets",
+                    "metric_name": "总资产",
+                    "period": "2025-12-31",
+                    "raw_value": "566,942,110",
+                    "unit": "KRW million",
+                    "currency": "KRW",
+                    "scale": "1000000",
+                    "task_id": "task-kr",
+                    "pdf_page": 83,
+                    "table_index": 67,
+                    "md_line": 1385,
+                    "evidence_id": "wiki:fact-1",
+                    "source_quote": "总资产 | 566,942,110",
+                }
+            ],
+        },
+        primary_data_supplement_max_rows=4,
+        table_source_links=lambda *_: "",
+    )
+
+    assert supplement is not None
+    assert "evidence_id=wiki:fact-1" in supplement
+    assert 'quote="总资产 | 566,942,110"' in supplement
+
+
 def test_structured_evidence_requires_real_task_id_and_page_or_table():
     cited = (
         "[1] source_type=postgresql, task_id=11111111-1111-1111-1111-111111111111, "
@@ -815,7 +950,7 @@ def test_merge_refs_into_tertiary_reference_section_stops_before_peer_or_parent_
 def test_reply_has_requested_metric_evidence_checks_requested_terms_in_reference_lines():
     reply = """正文提到了利润，但引用只给收入。
 
-[D1] source_type=wiki_metrics, file=metrics/three_statements.json, metric=营业收入, period=2025, task_id=11111111-1111-1111-1111-111111111111, pdf_page=7, table_index=2, md_line=50
+[D1] source_type=wiki_metrics, file=metrics/three_statements.json, metric=营业收入, period=2025, value=100, raw_value=100, unit=万元, task_id=11111111-1111-1111-1111-111111111111, pdf_page=7, table_index=2, md_line=50
 """
 
     def normalize(value):
@@ -838,6 +973,20 @@ def test_reply_has_requested_metric_evidence_checks_requested_terms_in_reference
         reply,
         postgres_requested_metric_terms=lambda message: [],
         normalize_financial_text=normalize,
+    )
+
+
+def test_reply_has_requested_metric_evidence_rejects_locator_without_numeric_fact():
+    reply = (
+        "[D1] source_type=wiki_metrics, metric=营业收入, period=2025, "
+        "task_id=11111111-1111-1111-1111-111111111111, pdf_page=7, table_index=2, md_line=50"
+    )
+
+    assert not citations._reply_has_requested_metric_evidence(
+        "收入是多少",
+        reply,
+        postgres_requested_metric_terms=lambda _message: ["营业收入"],
+        normalize_financial_text=lambda value: "".join(str(value).lower().split()),
     )
 
 

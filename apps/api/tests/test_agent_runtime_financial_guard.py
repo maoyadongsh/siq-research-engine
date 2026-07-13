@@ -257,6 +257,26 @@ def test_warn_mode_keeps_derived_output_and_marks_missing_calculation(monkeypatc
     assert "guardrail_status=warning" in reply
 
 
+def test_warn_mode_guard_application_is_idempotent(monkeypatch):
+    monkeypatch.setenv("SIQ_FINANCIAL_GUARDRAIL_MODE", "warn")
+
+    first = guard.enforce_financial_evidence_contract(
+        "工商银行 2025 年营业收入同比是多少？",
+        None,
+        "工商银行 2025 年营业收入同比增长 2.0%。",
+        deps=_deps(),
+    )
+    second = guard.enforce_financial_evidence_contract(
+        "工商银行 2025 年营业收入同比是多少？",
+        None,
+        first,
+        deps=_deps(),
+    )
+
+    assert second.count("## 计算校验缺失") == 1
+    assert second.count("guardrail_status=warning") == 1
+
+
 def test_warn_mode_keeps_output_for_identity_invalid_reference_and_claim_mismatch(monkeypatch):
     monkeypatch.setenv("SIQ_FINANCIAL_GUARDRAIL_MODE", "warn")
 
@@ -640,6 +660,64 @@ def test_enforce_financial_evidence_contract_allows_derived_metric_with_calculat
     assert "## 计算校验缺失" not in reply
     assert "同比增长 2.0%" in reply
     assert '"operation": "yoy"' in reply
+
+
+def test_explicit_no_calculation_note_does_not_trigger_calculator_guard():
+    reply = (
+        "2025 年营业收入为 751,766。\n\n"
+        "## 计算器校验\n"
+        "- 本次只回答单指标，未计算同比，也未使用 financial_calculator.py。\n"
+        "[D1] source_type=wiki_metrics company_id=HK:00700 filing_id=HK:00700:2025-annual "
+        "parse_run_id=run-hk canonical_name=operating_revenue metric_name=营业收入 period=2025 "
+        "value=751766 raw_value=751,766 unit=RMB million task_id=task-ok pdf_page=8 table_index=4"
+    )
+
+    guarded = guard.enforce_financial_evidence_contract(
+        "HK TENCENT 2025 年营业收入是多少？不要计算同比。",
+        {
+            "research_identity": {
+                "market": "HK",
+                "company_id": "HK:00700",
+                "filing_id": "HK:00700:2025-annual",
+                "parse_run_id": "run-hk",
+            }
+        },
+        reply,
+        deps=_deps(),
+    )
+
+    assert "计算校验无效" not in guarded
+    assert "financial_calculation_trace_missing" not in guarded
+
+
+def test_explicit_not_applicable_calculation_note_does_not_trigger_calculator_guard():
+    reply = (
+        "2025 年总资产为 566,942,110。\n\n"
+        "## 计算器校验\n"
+        "不适用：本题仅披露主表原始值，未涉及人均、每股、同比、增长率、占比或 CAGR。\n"
+        "[D1] source_type=wiki_metrics market=KR company_id=KR:005930 "
+        "filing_id=KR:005930:2025-annual parse_run_id=run-kr "
+        "canonical_name=total_assets metric_name=总资产 period=2025-12-31 "
+        "value=566942110 raw_value=566,942,110 unit=KRW million currency=KRW "
+        "task_id=task-ok pdf_page=83 table_index=67"
+    )
+
+    guarded = guard.enforce_financial_evidence_contract(
+        "Samsung Electronics 2025 total assets?",
+        {
+            "research_identity": {
+                "market": "KR",
+                "company_id": "KR:005930",
+                "filing_id": "KR:005930:2025-annual",
+                "parse_run_id": "run-kr",
+            }
+        },
+        reply,
+        deps=_deps(),
+    )
+
+    assert "计算校验无效" not in guarded
+    assert "financial_calculation_trace_missing" not in guarded
 
 
 def test_enforce_financial_evidence_contract_blocks_forged_99_percent_yoy_marker_trace():

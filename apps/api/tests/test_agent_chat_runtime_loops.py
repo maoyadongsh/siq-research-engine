@@ -580,7 +580,11 @@ def test_financial_evidence_guard_keeps_structured_evidence_reply():
 
     reply = runtime.enforce_financial_evidence_contract("查询一下上汽集团的商誉构成", None, cited)
 
-    assert cited in reply
+    assert reply.count("## 引用来源") == 1
+    assert "table_index=165" in reply
+    assert "company_id=600104-上汽集团" in reply
+    assert "filing_id=CN:600104-上汽集团:2025-annual" in reply
+    assert "parse_run_id=7dbc35a7-7626-4e81-810e-5dbb764434e0" in reply
     assert reply.count("## 引用来源") == 1
     assert "## 主要数据溯源补充" not in reply
     assert "## 主要数据引用来源" not in reply
@@ -634,8 +638,10 @@ def test_financial_evidence_guard_adds_goodwill_source_chain_to_structured_fullt
         "- 光环新网 2025 年商誉减值准备计提 863,685,624.45 元。\n\n"
         "## 引用来源\n"
         "[1] source_type=wiki_report_fulltext, file=reports/2025-annual/report.md, "
-        "metric=商誉减值, period=2025-annual, task_id=b6409cf4-f82a-4496-9d68-3592ebd19a49, "
-        "pdf_page=47, table_index=26, md_line=768。"
+        "metric=商誉, canonical_name=goodwill, value=863,685,624.45, unit=元, "
+        "company_id=300383-光环新网, report_id=2025-annual, period=2025-annual, "
+        "evidence_id=ev-halo-goodwill-impairment, quote=资产减值 | -863,685,624.45 | 报告期计提商誉减值损失, "
+        "task_id=b6409cf4-f82a-4496-9d68-3592ebd19a49, pdf_page=47, table_index=26, md_line=768。"
     )
 
     reply = runtime.enforce_financial_evidence_contract("分析光环新网2025年年度报告中的商誉情况", None, cited)
@@ -654,7 +660,7 @@ def test_financial_evidence_guard_dedupes_existing_complete_citations():
     cited = (
         "## 结论\n"
         "- 商誉账面原值和减值准备如下。\n\n"
-        "## 勾稽校验\n"
+        "## 口径复算\n"
         "- financial_reconciliation_validator.py operation=goodwill_reconciliation status=passed\n\n"
         "## 引用来源\n"
         "[1] source_type=wiki_document_links, file=semantic/document_links.json, metric=(1).商誉账面原值, "
@@ -670,6 +676,59 @@ def test_financial_evidence_guard_dedupes_existing_complete_citations():
     assert "## 主要数据引用来源" not in reply
     assert reply.count("table_index=165") == 1
     assert reply.count("table_index=166") == 1
+
+
+def test_midea_evidence_recompute_accepts_rounded_goodwill_equation_and_removes_old_warning(monkeypatch):
+    monkeypatch.setenv("SIQ_FINANCIAL_GUARDRAIL_MODE", "warn")
+    old_warning = (
+        "## 计算校验无效\n"
+        "- 上一轮后端诊断。\n\n"
+        "guardrail_status=warning\n"
+        "guardrail_reason=financial_calculation_trace_missing\n"
+        "calculation_trace_reason=trace_unstructured"
+    )
+    reply = (
+        "## 结论\n"
+        "- 美的集团 2025-12-31 商誉账面原值 348.13 亿元 - 减值准备 5.56 亿元 = 账面净值 342.57 亿元。\n\n"
+        "## 口径复算\n"
+        "- 348.13 亿元 - 5.56 亿元 = 342.57 亿元。\n\n"
+        "## 引用来源\n"
+        "[D1] source_type=wiki_metrics, task_id=f4dead73-e0de-42b4-b1b7-d8cf217214ee, "
+        "pdf_page=132, table_index=89, md_line=2497。\n"
+        "[D2] source_type=wiki_document_links, task_id=f4dead73-e0de-42b4-b1b7-d8cf217214ee, "
+        "pdf_page=206, table_index=163, md_line=4325。\n\n"
+        f"{old_warning}"
+    )
+
+    guarded = runtime.enforce_financial_evidence_contract("分析美的集团的商誉", None, reply)
+
+    assert "348.13 亿元 - 5.56 亿元 = 342.57 亿元" in guarded
+    assert "## 计算校验无效" not in guarded
+    assert "## 计算校验缺失" not in guarded
+    assert "## 计算校验提示" not in guarded
+    assert "guardrail_status=" not in guarded
+    assert "table_index=89" in guarded
+    assert "table_index=163" in guarded
+
+
+def test_midea_evidence_recompute_rejects_reversed_goodwill_equation(monkeypatch):
+    monkeypatch.setenv("SIQ_FINANCIAL_GUARDRAIL_MODE", "warn")
+    reply = (
+        "## 结论\n"
+        "- 美的集团 2025-12-31 商誉减值准备 5.56 亿元 - 账面原值 348.13 亿元 = 账面净值 342.57 亿元。\n\n"
+        "## 勾稽校验\n"
+        "- 5.56 亿元 - 348.13 亿元 = 342.57 亿元。\n\n"
+        "## 引用来源\n"
+        "[D1] source_type=wiki_metrics, task_id=f4dead73-e0de-42b4-b1b7-d8cf217214ee, "
+        "pdf_page=132, table_index=89, md_line=2497。\n"
+        "[D2] source_type=wiki_document_links, task_id=f4dead73-e0de-42b4-b1b7-d8cf217214ee, "
+        "pdf_page=206, table_index=163, md_line=4325。"
+    )
+
+    guarded = runtime.enforce_financial_evidence_contract("分析美的集团的商誉", None, reply)
+
+    assert guarded.count("## 计算校验无效") == 1
+    assert "calculation_trace_reason=trace_unstructured" in guarded
 
 
 def test_direct_note_detail_reply_prioritizes_specific_intent_tables():
@@ -1236,6 +1295,129 @@ def test_runtime_catalog_resolution_uses_authoritative_company_id_without_name(t
     assert runtime._resolve_company_dirs_from_catalog("2025 revenue", identity) == [company_dir.resolve()]
     identity["research_identity"]["company_id"] = "US:0000789019"
     assert runtime._resolve_company_dirs_from_catalog("Apple 2025 revenue", identity) == []
+
+
+def test_result_identity_rejects_cross_filing_without_overwriting_conflict():
+    context = {
+        "research_identity": {
+            "market": "CN",
+            "company_id": "000333-美的集团",
+            "filing_id": "CN:000333-美的集团:2025-annual",
+            "parse_run_id": "task-midea-2025",
+        },
+        "resolved_period": {"report_id": "2025-annual"},
+    }
+    result = {
+        "company_id": "000333-美的集团",
+        "filing_id": "CN:000333-美的集团:2024-annual",
+        "report_id": "2025-annual",
+        "task_id": "task-midea-2025",
+        "tables": [],
+    }
+
+    guarded = runtime._result_with_research_identity(result, context)
+
+    assert guarded["filing_id"] == "CN:000333-美的集团:2024-annual"
+    assert guarded["report_id"] == "2025-annual"
+    assert "task_id" not in guarded
+    assert "parse_run_id" not in guarded
+
+
+def test_result_identity_rejects_cross_report_without_overwriting_conflict():
+    context = {
+        "research_identity": {
+            "market": "CN",
+            "company_id": "000333-美的集团",
+            "filing_id": "CN:000333-美的集团:2025-annual",
+            "parse_run_id": "task-midea-2025",
+        },
+        "resolved_period": {"report_id": "2025-annual"},
+    }
+    result = {
+        "company_id": "000333-美的集团",
+        "filing_id": "CN:000333-美的集团:2025-annual",
+        "report_id": "2024-annual",
+        "task_id": "task-midea-2025",
+        "tables": [],
+    }
+
+    guarded = runtime._result_with_research_identity(result, context)
+
+    assert guarded["filing_id"] == "CN:000333-美的集团:2025-annual"
+    assert guarded["report_id"] == "2024-annual"
+    assert "task_id" not in guarded
+    assert "parse_run_id" not in guarded
+
+
+def test_result_identity_rejects_mixed_tables_without_stamping_expected_identity():
+    context = {
+        "research_identity": {
+            "market": "CN",
+            "company_id": "000333-美的集团",
+            "filing_id": "CN:000333-美的集团:2025-annual",
+            "parse_run_id": "task-midea-2025",
+        },
+        "resolved_period": {"report_id": "2025-annual"},
+    }
+    result = {
+        "company_id": "000333-美的集团",
+        "report_id": "2025-annual",
+        "task_id": "task-midea-2025",
+        "tables": [
+            {
+                "company_id": "000333-美的集团",
+                "report_id": "2025-annual",
+                "task_id": "task-midea-2025",
+            },
+            {
+                "company_id": "600104-上汽集团",
+                "report_id": "2025-annual",
+                "task_id": "task-saic-2025",
+            },
+        ],
+    }
+
+    guarded = runtime._result_with_research_identity(result, context)
+
+    assert "task_id" not in guarded
+    assert "parse_run_id" not in guarded
+    assert "filing_id" not in guarded
+    assert "filing_id" not in guarded["tables"][0]
+    assert guarded["tables"][1]["company_id"] == "600104-上汽集团"
+    assert guarded["tables"][1]["task_id"] == "task-saic-2025"
+
+
+def test_result_identity_checks_conflicting_task_aliases_in_each_row():
+    context = {
+        "research_identity": {
+            "market": "CN",
+            "company_id": "000333-美的集团",
+            "filing_id": "CN:000333-美的集团:2025-annual",
+            "parse_run_id": "task-midea-2025",
+        },
+        "resolved_period": {"report_id": "2025-annual"},
+    }
+    result = {
+        "company_id": "000333-美的集团",
+        "report_id": "2025-annual",
+        "task_id": "task-midea-2025",
+        "rows": [
+            {
+                "company_id": "000333-美的集团",
+                "report_id": "2025-annual",
+                "parse_run_id": "task-midea-2025",
+                "task_id": "task-other-filing",
+            }
+        ],
+    }
+
+    guarded = runtime._result_with_research_identity(result, context)
+
+    assert "task_id" not in guarded
+    assert "parse_run_id" not in guarded
+    assert "filing_id" not in guarded
+    assert guarded["rows"][0]["task_id"] == "task-other-filing"
+    assert guarded["rows"][0]["parse_run_id"] == "task-midea-2025"
 
 
 def test_hk_company_wiki_financial_data_is_core_metrics_candidate(tmp_path, monkeypatch):

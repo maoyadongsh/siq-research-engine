@@ -15,6 +15,7 @@ from services import agent_runtime_context, observability
 from services.agent_runtime_financial_claim_verifier import (
     claim_verification_payload,
     extract_structured_calculation_runs,
+    materialize_evidence_bound_calculation_runs,
     materialize_runtime_calculation_runs,
     validate_calculation_traces,
     verify_financial_claims,
@@ -600,6 +601,7 @@ def _extract_calculator_runs(
     reply: str,
     *,
     trusted_calculation_runs: Sequence[Mapping[str, Any]] = (),
+    trusted_calculation_evidence: Sequence[Mapping[str, Any]] = (),
 ) -> list[dict[str, Any]]:
     runs: list[dict[str, Any]] = []
     context_runs = _find_context_value(context, {"calculatorruns", "calculationruns", "calculatortrace"})
@@ -629,6 +631,25 @@ def _extract_calculator_runs(
         runs.append(
             {
                 "source": "runtime_tool_receipt",
+                "schema_version": str(payload.get("schema_version") or ""),
+                "tool": str(payload.get("tool") or ""),
+                "operation": str(payload.get("operation") or ""),
+                "metric": str(payload.get("metric") or ""),
+                "period": str(payload.get("period") or ""),
+                "validated": True,
+                "payload": redact_audit_value(payload, max_string_length=1200),
+            }
+        )
+
+    for payload in materialize_evidence_bound_calculation_runs(
+        reply,
+        trusted_calculation_evidence,
+        expected_identity=agent_runtime_context.research_identity(context),
+        require_reconciliation="勾稽校验" in reply or "financial_reconciliation_validator.py" in reply,
+    ):
+        runs.append(
+            {
+                "source": "backend_evidence_recompute",
                 "schema_version": str(payload.get("schema_version") or ""),
                 "tool": str(payload.get("tool") or ""),
                 "operation": str(payload.get("operation") or ""),
@@ -702,12 +723,15 @@ def _extract_guardrail_marker_result(reply: str) -> dict[str, Any]:
     reason_match = _GUARDRAIL_REASON_RE.search(text)
     status = str(status_match.group(1) if status_match else "").strip().lower()
     reason = str(reason_match.group(1) if reason_match else "").strip()
-    if status not in {"blocked", "denied", "rejected"} and not reason:
+    if status not in {"blocked", "denied", "rejected", "warning"} and not reason:
         return {}
     payload: dict[str, Any] = {}
     if status:
         payload["status"] = status
-    if status in {"blocked", "denied", "rejected"} or reason:
+    if status == "warning":
+        payload["blocked"] = False
+        payload["allowed"] = True
+    elif status in {"blocked", "denied", "rejected"} or reason:
         payload["blocked"] = True
         payload["allowed"] = False
     if reason:
@@ -725,6 +749,8 @@ def _build_guardrail_result(
     guardrail_result: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
     computed: dict[str, Any] = {
+        "blocked": False,
+        "allowed": True,
         "evidence_contract_enforced": enforce_evidence_contract,
         "output_was_guarded": raw_reply is not None and raw_reply != final_reply,
         "final_reply_hash": stable_hash(redact_audit_value(final_reply, max_string_length=20000)),
@@ -737,7 +763,10 @@ def _build_guardrail_result(
         ),
         "has_legal_facts": any(_is_legal_reference(item) for item in references),
         "has_calculator_runs": any(item.get("validated") is True for item in calculator_runs),
-        "calculation_warning_appended": "## 计算校验提示" in (final_reply or ""),
+        "calculation_warning_appended": any(
+            heading in (final_reply or "")
+            for heading in ("## 计算校验提示", "## 计算校验缺失", "## 计算校验无效")
+        ),
         "tool_availability_correction_appended": "## 工具状态纠正" in (final_reply or ""),
     }
     marker_result = _extract_guardrail_marker_result(final_reply or "")
@@ -748,6 +777,31 @@ def _build_guardrail_result(
     if guardrail_result:
         computed.update(dict(redact_audit_value(guardrail_result, max_string_length=1200)))
     return computed
+
+
+def _has_actionable_legacy_marker(
+    text: str,
+    *,
+    section_title: str,
+    tool_name: str,
+) -> bool:
+    """Ignore headings that explicitly say no calculation was performed."""
+    lines = (text or "").splitlines()
+    in_calculation_section = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("## "):
+            in_calculation_section = stripped == section_title
+            continue
+        lowered = stripped.lower()
+        negated = any(marker in stripped for marker in ("未计算", "不计算", "不要计算", "无需计算", "未使用", "不涉及"))
+        if negated:
+            continue
+        if tool_name in lowered:
+            return True
+        if in_calculation_section and ("operation=" in lowered or '"operation"' in lowered):
+            return True
+    return False
 
 
 def build_answer_audit_trace(
@@ -761,6 +815,7 @@ def build_answer_audit_trace(
     enforce_evidence_contract: bool = True,
     guardrail_result: Mapping[str, Any] | None = None,
     trusted_calculation_runs: Sequence[Mapping[str, Any]] = (),
+    trusted_calculation_evidence: Sequence[Mapping[str, Any]] = (),
     created_at: datetime | str | None = None,
 ) -> dict[str, Any]:
     sanitized_message = str(redact_audit_value(message or "", max_string_length=2000))
@@ -785,18 +840,21 @@ def build_answer_audit_trace(
         context,
         final_reply or "",
         trusted_calculation_runs=trusted_calculation_runs,
+        trusted_calculation_evidence=trusted_calculation_evidence,
     )
     calculation_trace_reply = raw_reply if raw_reply is not None else final_reply or ""
-    if trusted_calculation_runs and final_reply and final_reply not in calculation_trace_reply:
+    if (trusted_calculation_runs or trusted_calculation_evidence) and final_reply and final_reply not in calculation_trace_reply:
         calculation_trace_reply = f"{calculation_trace_reply}\n{final_reply}"
     structured_calculation_runs = extract_structured_calculation_runs(calculation_trace_reply)
-    has_legacy_calculation_marker = any(
-        marker in calculation_trace_reply
-        for marker in ("financial_calculator.py", "## 计算器校验")
+    has_legacy_calculation_marker = _has_actionable_legacy_marker(
+        calculation_trace_reply,
+        section_title="## 计算器校验",
+        tool_name="financial_calculator.py",
     )
-    has_legacy_reconciliation_marker = any(
-        marker in calculation_trace_reply
-        for marker in ("financial_reconciliation_validator.py", "## 勾稽校验")
+    has_legacy_reconciliation_marker = _has_actionable_legacy_marker(
+        calculation_trace_reply,
+        section_title="## 勾稽校验",
+        tool_name="financial_reconciliation_validator.py",
     )
     calculation_trace_validation = validate_calculation_traces(
         calculation_trace_reply,
@@ -815,17 +873,34 @@ def build_answer_audit_trace(
             for run in structured_calculation_runs
         ),
         trusted_runs=trusted_calculation_runs,
+        trusted_evidence=trusted_calculation_evidence,
     )
     if calculation_trace_validation.checked and not calculation_trace_validation.allowed:
         for run in calculator_runs:
-            if run.get("source") == "reply_structured":
+            if run.get("source") in {"reply_structured", "backend_evidence_recompute"}:
                 run["validated"] = False
                 run["validation_reason"] = calculation_trace_validation.reason
+    validated_calculation_lines = frozenset(
+        int(run.get("display_line_number") or 0)
+        for run in calculation_trace_validation.runs
+        if str(run.get("trace_origin") or "") == "backend_evidence_recompute"
+        and int(run.get("display_line_number") or 0) > 0
+    )
     claim_verifier_reply = raw_reply if raw_reply is not None else final_reply
     claim_verifier_result = claim_verification_payload(
         verify_financial_claims(
             claim_verifier_reply or "",
             expected_identity=agent_runtime_context.research_identity(context),
+            trusted_evidence=trusted_calculation_evidence,
+            validated_calculation_lines=validated_calculation_lines,
+        )
+    )
+    delivered_claim_verifier_result = claim_verification_payload(
+        verify_financial_claims(
+            final_reply or "",
+            expected_identity=agent_runtime_context.research_identity(context),
+            trusted_evidence=trusted_calculation_evidence,
+            validated_calculation_lines=validated_calculation_lines,
         )
     )
     created_at_text = created_at.isoformat() if isinstance(created_at, datetime) else str(created_at or _utc_now_iso())
@@ -854,6 +929,7 @@ def build_answer_audit_trace(
             "structured_run_count": len(calculation_trace_validation.runs),
         },
         "claim_verifier_result": claim_verifier_result,
+        "delivered_claim_verifier_result": delivered_claim_verifier_result,
         "citations": references,
     }
     fallback_events = _find_context_value(context, {"auditfallbackevents", "fallbackevents", "postgresfallbackevents"})
@@ -948,6 +1024,7 @@ def record_answer_audit_trace_for_reply(
     enforce_evidence_contract: bool = True,
     guardrail_result: Mapping[str, Any] | None = None,
     trusted_calculation_runs: Sequence[Mapping[str, Any]] = (),
+    trusted_calculation_evidence: Sequence[Mapping[str, Any]] = (),
     log_path: str | Path | None = None,
     raise_on_error: bool = False,
 ) -> dict[str, Any]:
@@ -962,6 +1039,7 @@ def record_answer_audit_trace_for_reply(
             enforce_evidence_contract=enforce_evidence_contract,
             guardrail_result=guardrail_result,
             trusted_calculation_runs=trusted_calculation_runs,
+            trusted_calculation_evidence=trusted_calculation_evidence,
         )
     except Exception as exc:
         if raise_on_error:
